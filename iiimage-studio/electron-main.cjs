@@ -16,6 +16,8 @@ const { createThumbnailCache } = require("./thumbnail-cache.cjs");
 const { createImageImporter, ImageImportError, DEFAULT_MAX_FILES: maxImportedImageFiles } = require("./image-import.cjs");
 const { refineSemanticLayers } = require("./semantic-matting.cjs");
 const { createAidebugBackend } = require("./desktop/aidebug-backend.cjs");
+const { createNewApiClient } = require("./desktop/new-api-client.cjs");
+const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
 const { createProjectSaveCoordinator, normalizeSessionRevision } = require("./desktop/project-save-coordinator.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
 const {
@@ -36,6 +38,10 @@ const {
   responsesToolsFromChatTools
 } = require("./desktop/agent-responses-adapter.cjs");
 const packageMetadata = require("./package.json");
+
+function getDesktopVersion() {
+  return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
+}
 
 const applicationName = "iiimage Studio";
 const applicationId = "cn.aieyra.iiimage-studio";
@@ -128,7 +134,6 @@ let modelCacheDiskLoaded = false;
 let newApiMeInflight = null;
 let newApiAuthEpoch = 0;
 let thumbnailProjectRootsCache = null;
-const activeNewApiCurlTransports = new Set();
 const maximumConcurrentImageEditRequests = 3;
 let activeImageEditRequests = 0;
 const queuedImageEditRequests = [];
@@ -429,6 +434,44 @@ function logBoot(stage) {
 const aidebugBackend = aidebugMode && aidebugMockAgent
   ? createAidebugBackend({ enabled: aidebugMode, log })
   : null;
+const newApiTransport = createNewApiTransport({
+  app,
+  applicationName,
+  windowsCurlPath,
+  getDesktopVersion,
+  getAuthEpoch: () => newApiAuthEpoch
+});
+const {
+  activeNewApiCurlTransportCount,
+  newApiTransportFetch,
+  stopActiveNewApiCurlTransports
+} = newApiTransport;
+const newApiClient = createNewApiClient({
+  defaultSettings,
+  ensureLocalServer,
+  isLocalServerUrl,
+  log,
+  migrateSettings,
+  newApiTransportFetch,
+  normalizeServerUrl,
+  readJson,
+  settingsPath,
+  writeJson
+});
+const {
+  extractSessionCookie,
+  isNewApiAuthError,
+  managedRelayEndpoint,
+  newApiErrorMessage,
+  newApiFetch,
+  newApiRelayJson,
+  newApiRelayStream,
+  newApiRequest,
+  newApiUserAuthHeaders,
+  parseJsonText,
+  persistNewApiSessionCookie,
+  requireNewApiSession
+} = newApiClient;
 const desktopUpdater = createDesktopUpdaterService({
   app,
   BrowserWindow,
@@ -2812,35 +2855,7 @@ function shutdownApplicationServices() {
   return applicationShutdownPromise;
 }
 
-function stopActiveNewApiCurlTransports(criteria = null) {
-  const filter = criteria && typeof criteria === "object"
-    ? criteria
-    : typeof criteria === "string" && criteria
-      ? { sessionCookie: criteria }
-      : {};
-  const hasFilter = Object.keys(filter).length > 0;
-  const targets = [...activeNewApiCurlTransports].filter((entry) =>
-    (!filter.sessionCookie || entry.sessionCookie === filter.sessionCookie) &&
-    (!filter.userId || entry.userId === String(filter.userId)) &&
-    (!Number.isFinite(filter.authEpoch) || entry.authEpoch === Number(filter.authEpoch))
-  );
-  if (!targets.length) return Promise.resolve(true);
-  const error = new Error(hasFilter ? "登录会话已切换，网络请求已取消。" : "应用正在退出，网络请求已取消。");
-  error.code = hasFilter ? "NEW_API_SESSION_CHANGED" : "APP_SHUTDOWN";
-  for (const entry of targets) {
-    try { entry.configServer?.close?.(); } catch {}
-    if (!entry.body?.destroyed) entry.body?.destroy?.(error);
-    if (!entry.child?.killed) entry.child?.kill?.();
-  }
-  return Promise.race([
-    Promise.allSettled(targets.map((entry) => entry.closed)),
-    delay(1_500)
-  ]).then(() => true);
-}
 
-function activeNewApiCurlTransportCount() {
-  return activeNewApiCurlTransports.size;
-}
 
 function imageEditRequestLimiterStatus() {
   return {
@@ -2887,953 +2902,35 @@ function cancelQueuedImageEditRequests() {
   for (const pending of queuedImageEditRequests.splice(0)) pending.reject(error);
 }
 
-function newApiUserAuthHeaders(settings) {
-  const headers = {};
-  if (settings.serverSessionCookie) headers.cookie = settings.serverSessionCookie;
-  if (settings.serverUserId) headers["New-Api-User"] = String(settings.serverUserId);
-  return headers;
-}
 
-function newApiUrl(settings, endpoint) {
-  const pathPart = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
-  return `${normalizeServerUrl(settings.serverUrl)}${pathPart}`;
-}
 
-function parseJsonText(text) {
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    const summary = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4_096);
-    return { error: summary || "服务器返回了无效 JSON。", parseFailed: true };
-  }
-}
 
-function newApiErrorMessage(data, status) {
-  return (
-    data?.error?.message ||
-    data?.message ||
-    data?.error ||
-    data?.msg ||
-    (status ? `New API ${status}` : "New API request failed")
-  );
-}
 
-function isNewApiAuthError(error) {
-  const status = Number(error?.status);
-  const message = String(error?.message || error || "");
-  return status === 401 || status === 403 || /invalid token|unauthorized|forbidden|登录已失效|401|403/i.test(message);
-}
 
-function extractSessionCookie(response) {
-  const values = [];
-  if (typeof response.headers.getSetCookie === "function") {
-    values.push(...response.headers.getSetCookie());
-  }
-  const single = response.headers.get("set-cookie");
-  if (single) values.push(single);
-  for (const value of values) {
-    const match = String(value || "").match(/(?:^|,\s*)(session=[^;,\s]+)/i);
-    if (match) return match[1];
-  }
-  return "";
-}
 
-function persistNewApiSessionCookie(settings, response) {
-  const sessionCookie = extractSessionCookie(response);
-  if (!sessionCookie) return sessionCookie;
 
-  // Node's fetch does not own a browser cookie jar. New API rotates its signed
-  // session whenever a protected flow stores state (download captcha/ticket,
-  // for example), so the rotated cookie must become the next request's cookie.
-  const requestSessionCookie = String(response?.requestSessionCookie || "").trim();
-  const currentSessionCookie = String(settings?.serverSessionCookie || "").trim();
-  if (!settings.serverUserId) {
-    settings.serverSessionCookie = sessionCookie;
-    return sessionCookie;
-  }
 
-  const stored = migrateSettings(readJson(settingsPath, defaultSettings));
-  if (stored.serverUserId && String(stored.serverUserId) !== String(settings.serverUserId)) {
-    const error = new Error("登录账户已切换，旧请求结果已丢弃。");
-    error.code = "NEW_API_SESSION_CHANGED";
-    throw error;
-  }
-  if (requestSessionCookie && currentSessionCookie && currentSessionCookie !== requestSessionCookie) {
-    // This settings object already observed a newer rotation while the request
-    // was in flight. A late response must not roll it back.
-    return currentSessionCookie;
-  }
-  const storedSessionCookie = String(stored.serverSessionCookie || "").trim();
-  if (requestSessionCookie && storedSessionCookie && storedSessionCookie !== requestSessionCookie) {
-    // Compare-and-swap against the cookie that was actually sent. Concurrent
-    // requests may finish out of order; retain the first accepted rotation.
-    settings.serverSessionCookie = storedSessionCookie;
-    return storedSessionCookie;
-  }
-  settings.serverSessionCookie = sessionCookie;
-  if (sessionCookie === storedSessionCookie) return sessionCookie;
-  writeJson(settingsPath, migrateSettings({
-    ...stored,
-    serverSessionCookie: sessionCookie,
-    serverUserId: settings.serverUserId
-  }));
-  return sessionCookie;
-}
 
-function newApiResponseHeaders(rawHeaders = {}) {
-  const normalized = new Map(
-    Object.entries(rawHeaders).map(([name, value]) => [String(name).toLowerCase(), value])
-  );
-  return {
-    get(name) {
-      const value = normalized.get(String(name || "").toLowerCase());
-      if (Array.isArray(value)) return value.join(", ");
-      return value === undefined ? null : String(value);
-    },
-    getSetCookie() {
-      const value = normalized.get("set-cookie");
-      if (Array.isArray(value)) return value.map(String);
-      return value === undefined ? [] : [String(value)];
-    }
-  };
-}
 
-function newApiRequestSessionCookie(headers = {}) {
-  for (const [name, value] of Object.entries(headers || {})) {
-    if (String(name).toLowerCase() !== "cookie") continue;
-    const match = String(value || "").match(/(?:^|;\s*)(session=[^;]+)/i);
-    if (match) return match[1];
-  }
-  return "";
-}
 
-function newApiRequestUserId(headers = {}) {
-  for (const [name, value] of Object.entries(headers || {})) {
-    if (String(name).toLowerCase() === "new-api-user") return String(value || "").trim();
-  }
-  return "";
-}
 
-async function newApiRequestPayload(url, options = {}) {
-  const body = options.body;
-  const headers = { ...(options.headers || {}) };
-  if (body === undefined || body === null) return { headers, body: null };
-  if (options.signal?.aborted) throw newApiAbortError(options.signal);
-  const requestedMaximum = Number(options.maxRequestBytes);
-  const maximum = Math.max(1 * 1024 * 1024, Math.min(256 * 1024 * 1024, Number.isFinite(requestedMaximum) ? Math.floor(requestedMaximum) : 64 * 1024 * 1024));
-  if (typeof FormData !== "undefined" && body instanceof FormData) {
-    let estimatedBytes = 0;
-    for (const [name, value] of body.entries()) {
-      if (options.signal?.aborted) throw newApiAbortError(options.signal);
-      estimatedBytes += Buffer.byteLength(String(name || ""), "utf8") + 512;
-      estimatedBytes += typeof value === "string" ? Buffer.byteLength(value, "utf8") : Number(value?.size || 0);
-      if (estimatedBytes > maximum) {
-        const error = new Error("New API 上传内容超过客户端安全上限，请减少图片数量或文件大小。");
-        error.code = "NEW_API_REQUEST_TOO_LARGE";
-        throw error;
-      }
-    }
-    const request = new Request(url, {
-      method: options.method || "POST",
-      headers,
-      body
-    });
-    const payload = Buffer.from(await request.arrayBuffer());
-    if (options.signal?.aborted) throw newApiAbortError(options.signal);
-    if (payload.length > maximum) {
-      const error = new Error("New API 上传内容超过客户端安全上限，请减少图片数量或文件大小。");
-      error.code = "NEW_API_REQUEST_TOO_LARGE";
-      throw error;
-    }
-    const encodedHeaders = Object.fromEntries(request.headers.entries());
-    encodedHeaders["content-length"] = String(payload.length);
-    return { headers: encodedHeaders, body: payload };
-  }
-  const payload = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
-  if (payload.length > maximum) {
-    const error = new Error("New API 请求内容超过客户端安全上限。");
-    error.code = "NEW_API_REQUEST_TOO_LARGE";
-    throw error;
-  }
-  if (!Object.keys(headers).some((name) => name.toLowerCase() === "content-length")) {
-    headers["content-length"] = String(payload.length);
-  }
-  return { headers, body: payload };
-}
 
-function readNewApiNodeResponse(response, maximum = 256 * 1024 * 1024) {
-  if (response?.__iiimageTransportError) return Promise.reject(response.__iiimageTransportError);
-  if (response?.destroyed && !response?.complete) {
-    const error = new Error("New API 响应连接已经关闭。");
-    error.code = "ERR_STREAM_PREMATURE_CLOSE";
-    return Promise.reject(error);
-  }
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let total = 0;
-    let ended = false;
-    response.on("data", (chunk) => {
-      total += chunk.length;
-      if (total > maximum) {
-        response.destroy(new Error("New API 响应超过客户端安全上限。"));
-        return;
-      }
-      chunks.push(chunk);
-    });
-    response.once("end", () => {
-      ended = true;
-      resolve(Buffer.concat(chunks).toString("utf8"));
-    });
-    response.once("error", reject);
-    response.once("aborted", () => {
-      const error = new Error("New API 响应被中断。");
-      error.code = "ERR_STREAM_PREMATURE_CLOSE";
-      reject(error);
-    });
-    response.once("close", () => {
-      if (!ended) {
-        const error = new Error("New API 响应连接提前关闭。");
-        error.code = "ERR_STREAM_PREMATURE_CLOSE";
-        reject(error);
-      }
-    });
-  });
-}
 
-function newApiAbortError(signal) {
-  if (signal?.reason instanceof Error) return signal.reason;
-  const error = new Error(signal?.reason ? String(signal.reason) : "New API 请求已取消。");
-  error.code = "ABORT_ERR";
-  return error;
-}
 
-function newApiCurlConfigValue(value) {
-  return String(value ?? "")
-    .replace(/[\r\n]+/g, " ")
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
-}
 
-function newApiCurlHeaderBlock(buffer) {
-  const crlf = buffer.indexOf(Buffer.from("\r\n\r\n"));
-  const lf = buffer.indexOf(Buffer.from("\n\n"));
-  if (crlf >= 0 && (lf < 0 || crlf < lf)) return { index: crlf, length: 4 };
-  if (lf >= 0) return { index: lf, length: 2 };
-  return null;
-}
 
-function newApiTransportMetadata(error, { status = 0, headers = null, method = "GET", phase = "transport" } = {}) {
-  const target = error instanceof Error ? error : new Error(String(error || "New API 网络请求失败。"));
-  target.status = Number(target.status || status || 0) || 0;
-  target.phase = target.phase || phase;
-  target.serverRequestId = target.serverRequestId || String(
-    headers?.get?.("x-request-id") || headers?.get?.("x-upstream-request-id") || headers?.get?.("request-id") || ""
-  );
-  target.ambiguous = target.ambiguous === true || (["awaiting_headers", "body"].includes(phase) && !["GET", "HEAD"].includes(String(method || "GET").toUpperCase()));
-  return target;
-}
 
-function newApiCurlFailure(code, signal, stderr, stdinError, phase = "connect") {
-  const curlCode = Number(code);
-  const message = String(stderr || "").trim().slice(0, 4_096) || stdinError?.message || `Windows curl 请求失败（code=${code}, signal=${signal || "none"}）。`;
-  const error = new Error(message);
-  error.curlCode = Number.isFinite(curlCode) ? curlCode : null;
-  error.phase = phase;
-  if (curlCode === 5) error.code = "EAI_AGAIN";
-  else if (curlCode === 6) error.code = "ENOTFOUND";
-  else if (curlCode === 7) error.code = "ECONNREFUSED";
-  else if ([18, 52, 56].includes(curlCode)) error.code = "ERR_STREAM_PREMATURE_CLOSE";
-  else if ([23, 26, 55].includes(curlCode)) error.code = "EPIPE";
-  else if (curlCode === 28) error.code = "ETIMEDOUT";
-  else if ([35, 51, 58, 60].includes(curlCode)) error.code = "ERR_TLS_CERTIFICATE";
-  else error.code = "CURL_REQUEST_FAILED";
-  return error;
-}
 
-async function newApiCurlTransportFetch(target, payload, options = {}) {
-  if (!windowsCurlPath || !existsSync(windowsCurlPath)) throw new Error("Windows curl 网络组件不可用。");
-  if (options.signal?.aborted) throw newApiAbortError(options.signal);
 
-  const method = String(options.method || "GET").toUpperCase();
-  const requestedResponseBytes = Number(options.maxResponseBytes);
-  const maxResponseBytes = Math.max(1 * 1024 * 1024, Math.min(256 * 1024 * 1024, Number.isFinite(requestedResponseBytes) ? Math.floor(requestedResponseBytes) : 64 * 1024 * 1024));
-  const args = [
-    "--silent",
-    "--show-error",
-    "--include",
-    "--no-buffer",
-    "--http1.1",
-    "--globoff",
-    "--noproxy",
-    "*",
-    "--request",
-    method
-  ];
-  const requestedConnectTimeout = Number(options.connectTimeoutMs);
-  const connectTimeoutMs = Math.max(1_000, Math.min(60_000, Number.isFinite(requestedConnectTimeout) ? Math.floor(requestedConnectTimeout) : 30_000));
-  const requestedHeadersTimeout = Number(options.headersTimeoutMs);
-  const headersTimeoutMs = Number.isFinite(requestedHeadersTimeout) && requestedHeadersTimeout > 0
-    ? Math.max(1_000, Math.min(10 * 60_000, Math.floor(requestedHeadersTimeout)))
-    : 0;
-  args.push("--connect-timeout", String(Math.max(1, Math.ceil(connectTimeoutMs / 1000))));
-  const idleTimeoutMs = Math.max(0, Math.min(10 * 60_000, Math.floor(Number(options.idleTimeoutMs || 0) || 0)));
-  if (idleTimeoutMs > 0) {
-    args.push("--speed-limit", "1", "--speed-time", String(Math.max(1, Math.ceil(idleTimeoutMs / 1000))));
-  }
-  if (payload.body) args.push("--data-binary", "@-");
 
-  const configLines = [
-    `url = "${newApiCurlConfigValue(target.toString())}"`,
-    `user-agent = "${newApiCurlConfigValue(`${applicationName}/${desktopUpdater.currentDesktopVersion()}`)}"`
-  ];
-  for (const [name, rawValue] of Object.entries(payload.headers || {})) {
-    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-    for (const value of values) {
-      const cleanName = String(name || "").replace(/[^!#$%&'*+.^_`|~0-9A-Za-z-]/g, "");
-      if (!cleanName) continue;
-      configLines.push(`header = "${newApiCurlConfigValue(`${cleanName}: ${value}`)}"`);
-    }
-  }
-  const configText = `${configLines.join("\n")}\n`;
-  const configPipe = `\\\\.\\pipe\\iiimage-curl-${process.pid}-${randomBytes(12).toString("hex")}`;
-  let configDelivered = false;
-  const configServer = createNetServer((socket) => {
-    socket.on("error", () => {});
-    if (configDelivered) {
-      socket.destroy();
-      return;
-    }
-    configDelivered = true;
-    socket.end(configText, () => {
-      try {
-        configServer.close();
-      } catch {
-        // The pipe may already be closing after the single consumer exits.
-      }
-    });
-  });
-  await new Promise((resolve, reject) => {
-    configServer.once("error", reject);
-    configServer.listen(configPipe, () => {
-      configServer.removeListener("error", reject);
-      resolve();
-    });
-  });
-  configServer.on("error", () => {});
-  if (options.signal?.aborted) {
-    try {
-      configServer.close();
-    } catch {
-      // The pipe may have been closed by a racing cancellation.
-    }
-    throw newApiAbortError(options.signal);
-  }
-  args.push("--config", configPipe);
 
-  const child = spawn(windowsCurlPath, args, {
-    windowsHide: true,
-    stdio: ["pipe", "pipe", "pipe"]
-  });
-  const body = new PassThrough({ highWaterMark: 256 * 1024 });
-  const transportEntry = {
-    child,
-    configServer,
-    body,
-    sessionCookie: newApiRequestSessionCookie(payload.headers),
-    userId: newApiRequestUserId(payload.headers),
-    authEpoch: newApiAuthEpoch,
-    closed: new Promise((resolve) => child.once("close", resolve))
-  };
-  activeNewApiCurlTransports.add(transportEntry);
-  let childClosed = false;
-  let responseResolved = false;
-  let responseSettled = false;
-  let headerBuffer = Buffer.alloc(0);
-  let stderr = "";
-  let stdinError = null;
-  let responseStatus = 0;
-  let responseHeaders = null;
-  let forcedError = null;
-  let headersTimer = null;
 
-  const cleanupConfigPipe = () => {
-    try {
-      configServer.close();
-    } catch {
-      // The one-shot named pipe may already be closed after curl consumes it.
-    }
-  };
-  const abort = () => {
-    const error = newApiAbortError(options.signal);
-    if (!childClosed) child.kill();
-    if (!body.destroyed) body.destroy(error);
-  };
-  options.signal?.addEventListener?.("abort", abort, { once: true });
-  body.once("error", () => {});
-  body.once("close", () => {
-    if (!childClosed && responseResolved) child.kill();
-  });
-  child.stderr?.on("data", (chunk) => {
-    if (stderr.length < 8 * 1024) stderr += String(chunk);
-  });
 
-  return new Promise((resolve, reject) => {
-    const rejectOnce = (error) => {
-      if (responseSettled) return;
-      responseSettled = true;
-      options.signal?.removeEventListener?.("abort", abort);
-      cleanupConfigPipe();
-      reject(error);
-    };
-    const writeBody = (chunk) => {
-      if (!chunk?.length || body.destroyed) return;
-      if (!body.write(chunk)) {
-        child.stdout?.pause();
-        body.once("drain", () => child.stdout?.resume());
-      }
-    };
-    const resolveHeaders = (status, rawHeaders, remainder) => {
-      if (headersTimer) clearTimeout(headersTimer);
-      responseResolved = true;
-      responseSettled = true;
-      responseStatus = status;
-      responseHeaders = newApiResponseHeaders(rawHeaders);
-      resolve({
-        ok: status >= 200 && status < 300,
-        status,
-        headers: responseHeaders,
-        requestSessionCookie: newApiRequestSessionCookie(payload.headers),
-        body,
-        text: async () => {
-          try {
-            return await readNewApiNodeResponse(body, maxResponseBytes);
-          } catch (error) {
-            throw newApiTransportMetadata(error, { status, headers: responseHeaders, method, phase: "body" });
-          }
-        }
-      });
-      writeBody(remainder);
-    };
-    child.stdout?.on("data", (chunk) => {
-      if (responseResolved) {
-        writeBody(chunk);
-        return;
-      }
-      headerBuffer = Buffer.concat([headerBuffer, chunk]);
-      if (headerBuffer.length > 128 * 1024) {
-        const error = new Error("New API 响应头超过客户端安全上限。");
-        error.code = "ERR_HTTP_HEADERS_OVERFLOW";
-        child.kill();
-        rejectOnce(error);
-        return;
-      }
-      while (true) {
-        const marker = newApiCurlHeaderBlock(headerBuffer);
-        if (!marker) return;
-        const headerText = headerBuffer.subarray(0, marker.index).toString("latin1");
-        const remainder = headerBuffer.subarray(marker.index + marker.length);
-        const lines = headerText.split(/\r?\n/);
-        const statusMatch = String(lines.shift() || "").match(/^HTTP\/\S+\s+(\d{3})/i);
-        if (!statusMatch) {
-          const error = new Error("Windows curl 返回了无效的 HTTP 响应头。");
-          error.code = "ERR_HTTP_INVALID_HEADER_VALUE";
-          child.kill();
-          rejectOnce(error);
-          return;
-        }
-        const status = Number(statusMatch[1]);
-        if (status >= 100 && status < 200) {
-          headerBuffer = remainder;
-          continue;
-        }
-        const rawHeaders = {};
-        for (const line of lines) {
-          const separator = line.indexOf(":");
-          if (separator <= 0) continue;
-          const name = line.slice(0, separator).trim().toLowerCase();
-          const value = line.slice(separator + 1).trim();
-          if (rawHeaders[name] === undefined) rawHeaders[name] = value;
-          else if (Array.isArray(rawHeaders[name])) rawHeaders[name].push(value);
-          else rawHeaders[name] = [rawHeaders[name], value];
-        }
-        resolveHeaders(status, rawHeaders, remainder);
-        headerBuffer = Buffer.alloc(0);
-        return;
-      }
-    });
-    child.once("error", (error) => {
-      if (responseResolved) body.destroy(error);
-      else rejectOnce(error);
-    });
-    child.stdin?.on("error", (error) => {
-      // A server may reject a large upload (for example with 413) before curl
-      // finishes reading stdin. Preserve any HTTP response instead of turning
-      // the expected early close into a transport failure.
-      stdinError = error;
-    });
-    child.stdin?.end(payload.body || undefined);
-    child.once("close", (code, signal) => {
-      activeNewApiCurlTransports.delete(transportEntry);
-      childClosed = true;
-      if (headersTimer) clearTimeout(headersTimer);
-      options.signal?.removeEventListener?.("abort", abort);
-      cleanupConfigPipe();
-      if (!responseResolved) {
-        if (forcedError) {
-          rejectOnce(forcedError);
-          return;
-        }
-        const error = newApiCurlFailure(code, signal, stderr, stdinError, "connect");
-        const possiblySent = Boolean(payload.body && child.stdin?.writableFinished && ![5, 6, 7].includes(Number(code)));
-        if (possiblySent && !["GET", "HEAD"].includes(method)) {
-          error.phase = "awaiting_headers";
-          error.ambiguous = true;
-        }
-        rejectOnce(error);
-        return;
-      }
-      if (code === 0) body.end();
-      else {
-        const error = newApiTransportMetadata(
-          newApiCurlFailure(code, signal, stderr, stdinError, "body"),
-          { status: responseStatus, headers: responseHeaders, method, phase: "body" }
-        );
-        body.destroy(error);
-      }
-    });
-    if (headersTimeoutMs > 0) {
-      headersTimer = setTimeout(() => {
-        if (responseResolved || childClosed) return;
-        forcedError = new Error("New API 等待响应头超时。");
-        forcedError.code = "ETIMEDOUT";
-        forcedError.phase = payload.body && !["GET", "HEAD"].includes(method) ? "awaiting_headers" : "connect";
-        forcedError.ambiguous = forcedError.phase === "awaiting_headers";
-        child.kill();
-      }, headersTimeoutMs);
-    }
-  });
-}
 
-async function newApiTransportFetch(url, options = {}) {
-  const target = new URL(String(url));
-  if (target.protocol !== "https:" && target.protocol !== "http:") {
-    throw new Error("New API 只允许 HTTP 或 HTTPS 地址。");
-  }
-  const method = String(options.method || "GET").toUpperCase();
-  const payload = await newApiRequestPayload(target.toString(), { ...options, method });
-  const requestedResponseBytes = Number(options.maxResponseBytes);
-  const maxResponseBytes = Math.max(1 * 1024 * 1024, Math.min(256 * 1024 * 1024, Number.isFinite(requestedResponseBytes) ? Math.floor(requestedResponseBytes) : 64 * 1024 * 1024));
-  if (!Object.keys(payload.headers).some((name) => name.toLowerCase() === "accept-encoding")) {
-    payload.headers["accept-encoding"] = "identity";
-  }
-  if ((app.isPackaged || options.forceCurl === true) && process.platform === "win32" && existsSync(windowsCurlPath)) {
-    return newApiCurlTransportFetch(target, payload, options);
-  }
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    let incomingResponse = null;
-    const transport = target.protocol === "https:" ? https : http;
-    const request = transport.request(target, {
-      method,
-      headers: payload.headers
-    });
-    const requestedHeadersTimeout = Number(options.headersTimeoutMs);
-    const headersTimeoutMs = Number.isFinite(requestedHeadersTimeout)
-      ? Math.max(1_000, Math.min(10 * 60_000, Math.floor(requestedHeadersTimeout)))
-      : 0;
-    let headersTimer = null;
-    const requestedConnectTimeout = Number(options.connectTimeoutMs);
-    const connectTimeoutMs = Number.isFinite(requestedConnectTimeout) && requestedConnectTimeout > 0
-      ? Math.max(1_000, Math.min(60_000, Math.floor(requestedConnectTimeout)))
-      : 0;
-    let connectTimer = null;
-    const clearHeadersTimer = () => {
-      if (headersTimer) clearTimeout(headersTimer);
-      headersTimer = null;
-    };
-    const clearConnectTimer = () => {
-      if (connectTimer) clearTimeout(connectTimer);
-      connectTimer = null;
-    };
-    const idleTimeoutMs = Math.max(0, Math.min(10 * 60_000, Math.floor(Number(options.idleTimeoutMs || 0) || 0)));
-    const detachAbort = () => options.signal?.removeEventListener?.("abort", abort);
-    const abort = () => {
-      const error = newApiAbortError(options.signal);
-      if (incomingResponse && !incomingResponse.destroyed) {
-        incomingResponse.__iiimageTransportError = error;
-        incomingResponse.destroy(error);
-      }
-      if (!request.destroyed) request.destroy(error);
-    };
-    if (options.signal?.aborted) abort();
-    else options.signal?.addEventListener?.("abort", abort, { once: true });
-    if (idleTimeoutMs > 0) {
-      request.setTimeout(idleTimeoutMs, () => {
-        const error = new Error("New API 连接长时间没有数据，已中断。");
-        error.code = "ETIMEDOUT";
-        if (incomingResponse && !incomingResponse.destroyed) {
-          incomingResponse.__iiimageTransportError = error;
-          incomingResponse.destroy(error);
-        }
-        if (!request.destroyed) request.destroy(error);
-      });
-    }
-    if (headersTimeoutMs > 0) {
-      headersTimer = setTimeout(() => {
-        const error = new Error("New API 等待响应头超时。");
-        error.code = "ETIMEDOUT";
-        if (!request.destroyed) request.destroy(error);
-      }, headersTimeoutMs);
-    }
-    if (connectTimeoutMs > 0) {
-      connectTimer = setTimeout(() => {
-        const error = new Error("New API 建立连接超时。");
-        error.code = "ETIMEDOUT";
-        if (!request.destroyed) request.destroy(error);
-      }, connectTimeoutMs);
-      request.once("socket", (socket) => {
-        if (!socket.connecting) {
-          clearConnectTimer();
-          return;
-        }
-        socket.once(target.protocol === "https:" ? "secureConnect" : "connect", clearConnectTimer);
-      });
-    }
-    request.once("response", (incoming) => {
-      clearHeadersTimer();
-      clearConnectTimer();
-      settled = true;
-      incomingResponse = incoming;
-      const releaseResponse = () => {
-        detachAbort();
-        incomingResponse = null;
-      };
-      incoming.once("end", releaseResponse);
-      incoming.once("close", releaseResponse);
-      incoming.once("aborted", releaseResponse);
-      // Keep an error listener attached immediately after headers arrive. A
-      // caller may not start consuming the body until the next microtask.
-      incoming.once("error", releaseResponse);
-      const status = Number(incoming.statusCode || 0);
-      resolve({
-        ok: status >= 200 && status < 300,
-        status,
-        headers: newApiResponseHeaders(incoming.headers),
-        requestSessionCookie: newApiRequestSessionCookie(payload.headers),
-        body: incoming,
-        text: async () => {
-          try {
-            return await readNewApiNodeResponse(incoming, maxResponseBytes);
-          } catch (error) {
-            throw newApiTransportMetadata(error, {
-              status,
-              headers: newApiResponseHeaders(incoming.headers),
-              method,
-              phase: "body"
-            });
-          }
-        }
-      });
-    });
-    request.once("error", (error) => {
-      clearHeadersTimer();
-      clearConnectTimer();
-      if (!settled) {
-        detachAbort();
-        const phase = request.writableFinished || Number(request.socket?.bytesWritten || 0) > 0 ? "awaiting_headers" : "connect";
-        reject(newApiTransportMetadata(error, { method, phase }));
-      } else if (incomingResponse && !incomingResponse.destroyed) {
-        incomingResponse.__iiimageTransportError = error;
-        incomingResponse.destroy(error);
-      }
-    });
-    request.once("close", () => {
-      clearHeadersTimer();
-      clearConnectTimer();
-      if (!settled) {
-        detachAbort();
-        reject(new Error("New API 请求连接提前关闭。"));
-      }
-    });
-    if (payload.body) request.end(payload.body);
-    else request.end();
-  });
-}
 
-function newApiTransportError(error, timedOut = false) {
-  if (timedOut) {
-    const timeoutError = new Error("New API 请求超时，请检查网络后重试。");
-    timeoutError.code = "NEW_API_TIMEOUT";
-    timeoutError.cause = error;
-    timeoutError.phase = error?.phase || "transport";
-    timeoutError.ambiguous = error?.ambiguous === true;
-    timeoutError.serverRequestId = error?.serverRequestId || "";
-    return timeoutError;
-  }
-  return error instanceof Error ? error : new Error(String(error || "New API 网络请求失败。"));
-}
 
-function newApiTransportRetryable(error) {
-  const code = String(error?.code || error?.cause?.code || "").toUpperCase();
-  const message = String(error?.message || error || "");
-  return code === "NEW_API_TIMEOUT" ||
-    /^(?:EAI_AGAIN|EPIPE|ECONNABORTED|ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|ETIMEDOUT|ERR_SOCKET_CLOSED|ERR_STREAM_PREMATURE_CLOSE|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT)$/.test(code) ||
-    /fetch failed|network|socket|connection|timeout|timed out|temporarily unavailable/i.test(message);
-}
 
-function newApiRetryStatus(status) {
-  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
-}
 
-function newApiRetryDelay(response, attempt) {
-  const retryAfter = String(response?.headers?.get?.("retry-after") || "").trim();
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    const absolute = Date.parse(retryAfter);
-    const requested = Number.isFinite(seconds)
-      ? seconds * 1000
-      : Number.isFinite(absolute)
-        ? absolute - Date.now()
-        : 0;
-    if (requested > 0) return Math.max(250, Math.min(30_000, Math.round(requested)));
-  }
-  const base = Math.min(5_000, 400 * 2 ** Math.max(0, attempt));
-  return base + Math.floor(Math.random() * Math.max(50, Math.round(base * 0.2)));
-}
-
-async function waitForNewApiRetry(milliseconds, signal) {
-  if (signal?.aborted) throw newApiAbortError(signal);
-  try {
-    await delay(milliseconds, undefined, signal ? { signal } : undefined);
-  } catch (error) {
-    if (signal?.aborted) throw newApiAbortError(signal);
-    throw error;
-  }
-}
-
-async function newApiFetch(settings, endpoint, options = {}) {
-  if (isLocalServerUrl(settings.serverUrl)) {
-    await ensureLocalServer();
-  }
-  const body = options.body;
-  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
-  const method = String(options.method || "GET").toUpperCase();
-  const safeToRetry = method === "GET" || method === "HEAD";
-  const retries = Math.max(0, Math.min(4, Math.floor(Number(options.retries ?? (safeToRetry ? 2 : 0)) || 0)));
-  const timeoutMs = Math.max(0, Math.min(10 * 60_000, Math.floor(Number(options.timeoutMs || 0) || 0)));
-  const headers = {
-    ...(isForm ? {} : { "content-type": "application/json" }),
-    ...(options.headers || {})
-  };
-  const url = newApiUrl(settings, endpoint);
-  let lastError = null;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const attemptStartedAt = Date.now();
-    const controller = new AbortController();
-    let timedOut = false;
-    let timeoutTimer = null;
-    const abortFromCaller = () => controller.abort(options.signal?.reason);
-    if (options.signal?.aborted) abortFromCaller();
-    else options.signal?.addEventListener?.("abort", abortFromCaller, { once: true });
-    if (timeoutMs > 0) {
-      timeoutTimer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
-    }
-    try {
-      const response = await newApiTransportFetch(url, {
-        method,
-        headers,
-        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-        signal: controller.signal,
-        headersTimeoutMs: options.headersTimeoutMs ?? (timeoutMs > 0 ? timeoutMs : undefined),
-        connectTimeoutMs: options.connectTimeoutMs,
-        maxRequestBytes: options.maxRequestBytes,
-        maxResponseBytes: options.maxResponseBytes
-      });
-      const text = await response.text();
-      const data = parseJsonText(text);
-      const durationMs = Date.now() - attemptStartedAt;
-      if (durationMs >= 2_000) {
-        log(`new-api transport slow endpoint=${String(endpoint || "").split("?")[0]} status=${response.status} attempt=${attempt + 1}/${retries + 1} durationMs=${durationMs}`);
-      }
-      if (safeToRetry && attempt < retries && newApiRetryStatus(response.status)) {
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-        timeoutTimer = null;
-        await waitForNewApiRetry(newApiRetryDelay(response, attempt), options.signal);
-        continue;
-      }
-      return { response, text, data };
-    } catch (error) {
-      const durationMs = Date.now() - attemptStartedAt;
-      if (durationMs >= 2_000) {
-        log(`new-api transport slow failure endpoint=${String(endpoint || "").split("?")[0]} attempt=${attempt + 1}/${retries + 1} durationMs=${durationMs} code=${String(error?.code || error?.cause?.code || "")}`);
-      }
-      if (options.signal?.aborted) throw error;
-      const transportError = newApiTransportError(error, timedOut);
-      lastError = transportError;
-      if (!safeToRetry || attempt >= retries || !newApiTransportRetryable(transportError)) throw transportError;
-      if (timeoutTimer) clearTimeout(timeoutTimer);
-      timeoutTimer = null;
-      await waitForNewApiRetry(newApiRetryDelay(null, attempt), options.signal);
-    } finally {
-      if (timeoutTimer) clearTimeout(timeoutTimer);
-      options.signal?.removeEventListener?.("abort", abortFromCaller);
-    }
-  }
-  throw lastError || new Error("New API 网络请求失败。");
-}
-
-async function newApiRequest(settings, endpoint, options = {}) {
-  const method = String(options.method || "GET").toUpperCase();
-  const { response, data } = await newApiFetch(settings, endpoint, {
-    ...options,
-    timeoutMs: options.timeoutMs ?? 20_000,
-    retries: options.retries ?? (method === "GET" || method === "HEAD" ? 2 : 0)
-  });
-  persistNewApiSessionCookie(settings, response);
-  if (!response.ok || data.parseFailed === true || data.error || data.success === false || data.ok === false) {
-    const error = new Error(newApiErrorMessage(data, response.status));
-    error.status = response.status;
-    error.data = data;
-    throw error;
-  }
-  return data;
-}
-
-function requireNewApiSession(settings) {
-  if (!settings.serverSessionCookie || !settings.serverUserId) {
-    throw new Error("登录会话已失效，请重新登录。");
-  }
-}
-
-function managedRelayEndpoint(providerEndpoint) {
-  const clean = String(providerEndpoint || "").startsWith("/") ? String(providerEndpoint || "") : `/${providerEndpoint || ""}`;
-  if (clean.startsWith("/iiimage/")) return clean;
-  if (clean.startsWith("/api/crm/ai/")) {
-    return managedRelayEndpoint(clean.slice("/api/crm/ai".length));
-  }
-  if (clean === "/v1" || clean.startsWith("/v1/")) return `/iiimage${clean}`;
-  return `/iiimage/v1${clean}`;
-}
-
-async function newApiRelayJson(settings, endpoint, body, options = {}) {
-  requireNewApiSession(settings);
-  const { response, data } = await newApiFetch(settings, managedRelayEndpoint(endpoint), {
-    method: "POST",
-    headers: { ...newApiUserAuthHeaders(settings), ...(options.headers || {}) },
-    body,
-    signal: options.signal,
-    headersTimeoutMs: options.headersTimeoutMs,
-    connectTimeoutMs: options.connectTimeoutMs,
-    maxRequestBytes: options.maxRequestBytes,
-    maxResponseBytes: options.maxResponseBytes
-  });
-  persistNewApiSessionCookie(settings, response);
-  if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
-    const error = new Error(newApiErrorMessage(data, response.status));
-    error.status = response.status;
-    error.data = data;
-    throw error;
-  }
-  return data;
-}
-
-async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
-  requireNewApiSession(settings);
-  if (isLocalServerUrl(settings.serverUrl)) {
-    await ensureLocalServer();
-  }
-  const response = await newApiTransportFetch(newApiUrl(settings, managedRelayEndpoint(endpoint)), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...newApiUserAuthHeaders(settings)
-    },
-    body: JSON.stringify({ ...body, stream: true }),
-    signal: options.signal,
-    headersTimeoutMs: options.headersTimeoutMs,
-    connectTimeoutMs: options.connectTimeoutMs
-  });
-  persistNewApiSessionCookie(settings, response);
-  if (!response.ok) {
-    const text = await response.text();
-    const data = parseJsonText(text);
-    const error = new Error(newApiErrorMessage(data, response.status));
-    error.status = response.status;
-    error.data = data;
-    throw error;
-  }
-  if (!response.body) throw new Error("New API 流式响应为空。");
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let totalBytes = 0;
-  let eventCount = 0;
-  const maximumEventBytes = 2 * 1024 * 1024;
-  const maximumStreamBytes = 24 * 1024 * 1024;
-  const maximumEvents = 20_000;
-  const nextSeparator = () => {
-    const crlf = buffer.indexOf("\r\n\r\n");
-    const lf = buffer.indexOf("\n\n");
-    if (crlf >= 0 && (lf < 0 || crlf < lf)) return { index: crlf, length: 4 };
-    if (lf >= 0) return { index: lf, length: 2 };
-    return null;
-  };
-  const failStream = (message, code) => {
-    const error = new Error(message);
-    error.code = code;
-    response.body.destroy(error);
-    throw error;
-  };
-  const consumeEvent = (rawEvent) => {
-    if (Buffer.byteLength(rawEvent, "utf8") > maximumEventBytes) {
-      failStream("New API 单个流式事件超过客户端安全上限。", "NEW_API_SSE_EVENT_TOO_LARGE");
-    }
-    const dataLines = rawEvent
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).replace(/^ /, ""));
-    if (!dataLines.length) return false;
-    const dataText = dataLines.join("\n");
-    if (!dataText.trim()) return false;
-    eventCount += 1;
-    if (eventCount > maximumEvents) {
-      failStream("New API 流式事件数量超过客户端安全上限。", "NEW_API_SSE_TOO_MANY_EVENTS");
-    }
-    if (dataText.trim() === "[DONE]") {
-      onEvent?.({ done: true });
-      return true;
-    }
-    const event = parseJsonText(dataText);
-    if (event.parseFailed === true) {
-      failStream("New API 返回了无效的流式 JSON。", "NEW_API_INVALID_SSE");
-    }
-    onEvent?.(event);
-    return event?.done === true || event?.type === "response.completed" || event?.type === "response.failed" || event?.type === "response.incomplete";
-  };
-  for await (const chunk of response.body) {
-    totalBytes += Number(chunk?.byteLength || chunk?.length || 0);
-    if (totalBytes > maximumStreamBytes) {
-      failStream("New API 流式响应超过客户端安全上限。", "NEW_API_SSE_TOO_LARGE");
-    }
-    buffer += decoder.decode(chunk, { stream: true });
-    if (!nextSeparator() && Buffer.byteLength(buffer, "utf8") > maximumEventBytes) {
-      failStream("New API 流式事件未正常结束，已超过客户端安全上限。", "NEW_API_SSE_EVENT_TOO_LARGE");
-    }
-    let separator = nextSeparator();
-    while (separator) {
-      const rawEvent = buffer.slice(0, separator.index);
-      buffer = buffer.slice(separator.index + separator.length);
-      if (consumeEvent(rawEvent)) return;
-      separator = nextSeparator();
-    }
-  }
-  buffer += decoder.decode();
-  const rest = buffer.trim();
-  if (rest) consumeEvent(rest);
-}
 
 function normalizeNewApiUser(userData = {}) {
   const username = String(userData.username || userData.email || userData.id || userData.crmUserId || "").trim();
