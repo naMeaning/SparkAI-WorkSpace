@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <ApplicationIcon>../../../assets/windows/iiimage-studio.ico</ApplicationIcon>
+    <AssemblyName>iiimage Studio Uninstaller</AssemblyName>
+    <RootNamespace>Iiimage.WindowsInstaller</RootNamespace>
+    <Title>iiimage Studio Uninstaller</Title>
+    <Company>Aieyra</Company>
+    <Product>iiimage Studio</Product>
+    <Description>iiimage Studio 品牌卸载程序</Description>
+    <Copyright>Copyright © 2026 Aieyra</Copyright>
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+    <Version Condition="'$(ProductVersion)' != ''">$(ProductVersion)</Version>
+    <FileVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion).0</FileVersion>
+    <InformationalVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../BrandShell.cs" Link="BrandShell.cs" />
+    <Resource Include="../../../public/iiimage-studio.png" Link="iiimage-studio.png" />
+  </ItemGroup>
+</Project>

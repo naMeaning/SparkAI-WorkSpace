@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "product": "iiimage-studio",
+  "channel": "stable",
+  "version": "1.0.4",
+  "published_at": "2026-07-20T10:13:15.224Z",
+  "minimum_version": "1.0.0",
+  "compatibility": "windows-x64-electron-42-runtime-3",
+  "notes": [
+    "统一 Agent 执行门禁，覆盖 AskUser、画布需求、手动生图、AI 抠图与重绘，避免重复任务和跨项目错误提交。",
+    "在线更新支持进度与待安装状态恢复、失败回滚、坏包隔离和完整安装恢复，并将健康确认后移到应用完成本地初始化之后。",
+    "完善模型键盘导航、会话历史、消息阅读、图片查看器和节点编辑器交互，统一窄窗口下的按钮、滚动与弹窗布局。",
+    "新增外置运行时兼容门禁并清理安装包中的无效 V8 缓存；本版本通过完整安装统一历史在线升级用户的 worker 与更新助手。"
+  ],
+  "restart": {
+    "filename": "iiimage-Studio-Restart-Update-1.0.4-x64.asar",
+    "sha256": "abdcf71a2a96aed30d32ae17237bcd452badeef01e2fb02576f75ef551f24ed8",
+    "size": 48814888
+  },
+  "installer": {
+    "filename": "iiimage-Studio-Setup-1.0.4-x64.exe",
+    "sha256": "b33ebe4501623dace5e65ff2be19b3644c5a71c92f34dc403eefc9517300c304",
+    "size": 108985344
+  },
+  "signature": "67Fpe0zbGvv1+mXEebWHdJZCnfezdxkNeBxJmZqMCa+V1H+O1YizAyqzBRZASAxQP1lDIO/YJxLhGnkOsVzHCQ=="
+}

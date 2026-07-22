@@ -1,0 +1,148 @@
+name: iiimage
+
+services:
+  iiimage-mysql:
+    image: mysql:8.4@sha256:d36d39a64cd12a5c1cc9e6aa2bfb5f8d4c81a2f6586e0a04a9ae13939db02209
+    container_name: iiimage-mysql
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: "${IIIMAGE_CRM_MYSQL_ROOT_PASSWORD:?required}"
+      MYSQL_DATABASE: ai_native_crm
+      MYSQL_USER: crm_user
+      MYSQL_PASSWORD: "${IIIMAGE_CRM_MYSQL_PASSWORD:?required}"
+      TZ: Asia/Shanghai
+    volumes:
+      - "${IIIMAGE_DATA_ROOT:-/opt/iiimage/data}/mysql:/var/lib/mysql"
+    networks:
+      - iiimage
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  iiimage-crm-api:
+    build:
+      context: ../..
+      dockerfile: deploy/production/Dockerfile.crm-api
+    image: aieyra/iiimage-crm-api:local
+    container_name: iiimage-crm-api
+    restart: unless-stopped
+    init: true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      iiimage-mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      CRM_API_PORT: "17861"
+      CRM_API_HOST: 0.0.0.0
+      CRM_DATABASE_URL: "mysql://crm_user:${IIIMAGE_CRM_MYSQL_PASSWORD}@iiimage-mysql:3306/ai_native_crm"
+      CRM_DATABASE_NAME: ai_native_crm
+      NEW_API_BASE_URL: http://iiimage-new-api:3000
+      NEW_API_ADMIN_USER_ID: "1"
+      NEW_API_ADMIN_ACCESS_TOKEN: "${IIIMAGE_NEW_API_ADMIN_ACCESS_TOKEN:?required}"
+      CRM_QUOTA_PER_RMB: "500000"
+      CRM_EMBED_TRUST_SECRET: "${IIIMAGE_CRM_EMBED_TRUST_SECRET:?required}"
+      CRM_ALLOWED_ORIGINS: https://image.aieyra.cn
+      CRM_USAGE_SYNC_MAINTENANCE_INTERVAL_MINUTES: "15"
+      CRM_EFFECTIVE_CUSTOMER_MAINTENANCE_INTERVAL_MINUTES: "60"
+      CRM_ENTERPRISE_MONTHLY_SETTLEMENT_INTERVAL_MINUTES: "1440"
+      CRM_ATTACHMENT_STORAGE_DIR: /data/attachments
+      CRM_ATTACHMENT_MAX_BYTES: "5242880"
+      TZ: Asia/Shanghai
+    volumes:
+      - "${IIIMAGE_DATA_ROOT:-/opt/iiimage/data}/crm-api:/data"
+      - "${IIIMAGE_LOG_ROOT:-/opt/iiimage/logs}/crm-api:/app/logs"
+    networks:
+      - iiimage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:17861/health | grep -q '\"ok\"[[:space:]]*:[[:space:]]*true'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  iiimage-new-api:
+    build:
+      context: ../..
+      dockerfile: deploy/production/Dockerfile.new-api
+    image: aieyra/iiimage-new-api:local
+    container_name: iiimage-new-api
+    restart: unless-stopped
+    init: true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    command: --log-dir /app/logs
+    depends_on:
+      iiimage-crm-api:
+        condition: service_healthy
+    environment:
+      PORT: "3000"
+      SQLITE_PATH: /data/one-api.db?_busy_timeout=30000
+      SESSION_SECRET: "${IIIMAGE_SESSION_SECRET:?required}"
+      SESSION_COOKIE_SECURE: "true"
+      TRUSTED_PROXIES: "${IIIMAGE_TRUSTED_PROXIES:-172.19.0.0/16}"
+      GENERATE_DEFAULT_TOKEN: "false"
+      GIN_MODE: release
+      TZ: Asia/Shanghai
+      ERROR_LOG_ENABLED: "true"
+      BATCH_UPDATE_ENABLED: "true"
+      RELAY_TIMEOUT: "900"
+      STREAMING_TIMEOUT: "900"
+      RELAY_IDLE_CONN_TIMEOUT: "300"
+      RELAY_MAX_IDLE_CONNS: "4096"
+      RELAY_MAX_IDLE_CONNS_PER_HOST: "1024"
+      MANAGED_IMAGE_IDEMPOTENCY_TTL_MINUTES: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_TTL_MINUTES:-60}"
+      MANAGED_IMAGE_IDEMPOTENCY_PROCESSING_MINUTES: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_PROCESSING_MINUTES:-15}"
+      MANAGED_IMAGE_IDEMPOTENCY_MAX_RESPONSE_MB: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_MAX_RESPONSE_MB:-64}"
+      MANAGED_IMAGE_IDEMPOTENCY_MAX_TOTAL_MB: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_MAX_TOTAL_MB:-8192}"
+      MANAGED_IMAGE_IDEMPOTENCY_MAX_RECORDS: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_MAX_RECORDS:-10000}"
+      MANAGED_IMAGE_IDEMPOTENCY_MAX_USER_RECORDS: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_MAX_USER_RECORDS:-1000}"
+      MANAGED_IMAGE_IDEMPOTENCY_MAX_USER_TOTAL_MB: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_MAX_USER_TOTAL_MB:-1024}"
+      MANAGED_IMAGE_IDEMPOTENCY_CLEANUP_BATCH: "${IIIMAGE_MANAGED_IMAGE_IDEMPOTENCY_CLEANUP_BATCH:-500}"
+      MANAGED_IMAGE_IDEMPOTENCY_STORAGE_DIR: /data/managed-image-idempotency
+      NODE_NAME: iiimage-prod-1
+      CRM_API_BASE_URL: http://iiimage-crm-api:17861
+      CRM_EMBED_TRUST_SECRET: "${IIIMAGE_CRM_EMBED_TRUST_SECRET:?required}"
+      DESKTOP_RELEASE_MANIFEST_PATH: "/releases/desktop-release.json"
+      DESKTOP_DOWNLOAD_IP_HOURLY_LIMIT: "${IIIMAGE_DESKTOP_DOWNLOAD_IP_HOURLY_LIMIT:-8}"
+      DESKTOP_DOWNLOAD_IP_DAILY_LIMIT: "${IIIMAGE_DESKTOP_DOWNLOAD_IP_DAILY_LIMIT:-30}"
+      DESKTOP_DOWNLOAD_USER_HOURLY_LIMIT: "${IIIMAGE_DESKTOP_DOWNLOAD_USER_HOURLY_LIMIT:-5}"
+      DESKTOP_DOWNLOAD_USER_DAILY_LIMIT: "${IIIMAGE_DESKTOP_DOWNLOAD_USER_DAILY_LIMIT:-20}"
+      DESKTOP_CAPTCHA_IP_10M_LIMIT: "${IIIMAGE_DESKTOP_CAPTCHA_IP_10M_LIMIT:-20}"
+      DESKTOP_CAPTCHA_USER_10M_LIMIT: "${IIIMAGE_DESKTOP_CAPTCHA_USER_10M_LIMIT:-15}"
+      DESKTOP_UPDATE_IP_HOURLY_LIMIT: "${IIIMAGE_DESKTOP_UPDATE_IP_HOURLY_LIMIT:-12}"
+      DESKTOP_UPDATE_IP_DAILY_LIMIT: "${IIIMAGE_DESKTOP_UPDATE_IP_DAILY_LIMIT:-50}"
+      DESKTOP_UPDATE_USER_HOURLY_LIMIT: "${IIIMAGE_DESKTOP_UPDATE_USER_HOURLY_LIMIT:-8}"
+      DESKTOP_UPDATE_USER_DAILY_LIMIT: "${IIIMAGE_DESKTOP_UPDATE_USER_DAILY_LIMIT:-30}"
+    volumes:
+      - "${IIIMAGE_DATA_ROOT:-/opt/iiimage/data}/new-api:/data"
+      - "${IIIMAGE_LOG_ROOT:-/opt/iiimage/logs}/new-api:/app/logs"
+      - ./runtime/releases:/releases:ro
+    expose:
+      - "3000"
+    networks:
+      - iiimage
+      - forgejo
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -q '\"success\"[[:space:]]*:[[:space:]]*true'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+networks:
+  iiimage:
+    name: iiimage
+  forgejo:
+    external: true

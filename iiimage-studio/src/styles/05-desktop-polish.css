@@ -1,0 +1,54 @@
+/* --------------------------------------------------------------------------
+   05 Desktop Polish And Dense IDE Rhythm
+-------------------------------------------------------------------------- */
+
+/* Professional desktop polish: dense IDE rhythm, calmer layers, tighter controls. */
+.ide-topbar {
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 58%, transparent);
+}
+
+.canvas-panel,
+.image-viewer,
+.auth-card,
+.fatal-screen > div {
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  background: var(--panel-bg);
+}
+.auth-shell {
+  background:
+    linear-gradient(120deg, rgba(19, 163, 151, 0.045), transparent 34%),
+    linear-gradient(300deg, rgba(79, 125, 217, 0.04), transparent 38%),
+    var(--bg);
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  gap: 11px;
+  padding: 18px;
+}
+
+.auth-brand-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.auth-card h1,
+.fatal-screen h1 {
+  font-size: 19px;
+  font-weight: 780;
+}
+
+.auth-card p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.basic-mini-actions button {
+  min-height: var(--control-h);
+}
+
+.overflow-tooltip {
+  box-shadow: 0 10px 28px rgba(18, 30, 29, 0.14);
+}
+

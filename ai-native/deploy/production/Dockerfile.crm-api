@@ -1,0 +1,25 @@
+FROM node:22-bookworm-slim@sha256:53ada149d435c38b14476cb57e4a7da73c15595aba79bd6971b547ceb6d018bf
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable \
+    && corepack prepare pnpm@10.12.1 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY services/crm-api/package.json services/crm-api/package.json
+COPY packages/crm-contracts/package.json packages/crm-contracts/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN pnpm install --filter @ai-native/crm-api... --frozen-lockfile
+
+COPY services/crm-api services/crm-api
+COPY packages/crm-contracts packages/crm-contracts
+COPY packages/shared packages/shared
+
+EXPOSE 17861
+CMD ["pnpm", "--filter", "@ai-native/crm-api", "start"]

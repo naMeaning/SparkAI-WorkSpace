@@ -1,0 +1,59 @@
+# Dependencies
+**/node_modules/
+
+# Runtime user data and local projects
+apps/image-studio/config/
+apps/image-studio/output/
+apps/image-studio/.diagnostics/
+.diagnostics/
+.dev-logs/
+services/ai-gateway/config/
+services/ai-gateway/.diagnostics/
+services/crm-api/data/
+services/ai-gateway/new-api/logs/
+services/ai-gateway/new-api/data/
+services/ai-gateway/new-api/upload/
+
+# Generated builds
+apps/image-studio/dist/
+apps/crm-admin/dist/
+services/ai-gateway/new-api/bin/
+services/ai-gateway/new-api/vendor/
+services/ai-gateway/new-api/web/default/dist/
+services/ai-gateway/new-api/web/classic/dist/
+services/ai-gateway/new-api/web/dist/
+services/ai-gateway/new-api/web/.bun/
+services/ai-gateway/new-api/web/default/.bun/
+services/ai-gateway/new-api/web/classic/.bun/
+
+# Caches
+**/.cache/
+**/.gocache/
+**/.gomodcache/
+**/.gocache-temp/
+**/.gopath/
+**/.turbo/
+**/.vite/
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+deploy/production/runtime/
+*.local
+*.db
+*.sqlite
+*.db-journal
+*.log
+*.tmp
+
+# Nested upstream git metadata
+**/.git/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.history/

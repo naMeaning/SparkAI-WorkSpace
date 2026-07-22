@@ -1,0 +1,17 @@
+[Unit]
+Description=IIIMAGE ai-native main branch auto sync and deploy
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/iiimage/src
+Environment=POLL_SECONDS=15
+ExecStart=/opt/iiimage/src/deploy/production/watch-main.sh
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

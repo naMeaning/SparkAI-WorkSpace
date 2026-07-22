@@ -1,0 +1,152 @@
+/* --------------------------------------------------------------------------
+   08 Motion Accessibility Policy
+
+   This final cascade gate intentionally follows every feature region. It is
+   the single reduced-motion authority for legacy and migrated surfaces, so a
+   later feature rule cannot accidentally restart a permanent animation.
+-------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .workflow-canvas::before,
+  .workflow-canvas::after,
+  .canvas-selection-indicator,
+  .ui-surface-backdrop,
+  .ui-surface[data-ui-surface],
+  .agent-welcome,
+  .overflow-tooltip,
+  .composer-model-popover {
+    animation: none !important;
+  }
+
+  .canvas-particle-field {
+    display: none !important;
+    opacity: 0 !important;
+  }
+
+  .edge,
+  .edge.active,
+  .edge.provenance,
+  .edge.provenance.active {
+    animation: none !important;
+    transition: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+
+  .flow-node,
+  .flow-node.active-build,
+  .flow-node.dragging,
+  .flow-node.resizing,
+  .flow-node:not(.dragging):not(.resizing),
+  .node-port.provenance-port,
+  .node-layer-member-tab,
+  .node-layer-handle,
+  .node-image-tile,
+  .node-image-preview {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .flow-node.active-build {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent), var(--small-shadow);
+  }
+
+  .spin,
+  .node-image-preview.generating > div svg,
+  .agent-message.running::before,
+  .agent-message.running .agent-message-node,
+  .agent-message.error.running .agent-message-node {
+    animation: none !important;
+  }
+
+  .spin {
+    transform: none !important;
+    opacity: 0.82;
+  }
+
+  .agent-message.running .agent-message-node {
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+
+  .agent-tool-trace,
+  .agent-tool-trace *,
+  .agent-thinking-block,
+  .agent-tool-prompt-block summary svg {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .ui-surface-backdrop,
+  .project-agent-panel.reference-drop-active::after {
+    backdrop-filter: none !important;
+  }
+
+  .workflow-canvas::before,
+  .workflow-canvas::after,
+  .flow-node,
+  .floating-dialog-moving {
+    will-change: auto !important;
+  }
+}
+
+/* AIDebug intentionally probes the responsive 540px workbench in an isolated
+   BrowserWindow. Production keeps the canonical 884px renderer minimum; only
+   the diagnostic build may cross that boundary. Keep this override last so
+   the canonical desktop surface rules cannot accidentally win the cascade. */
+html[data-aidebug="true"],
+html[data-aidebug="true"] body,
+html[data-aidebug="true"] #root,
+html[data-aidebug="true"] .ide-shell {
+  min-width: 0;
+}
+
+.compact-project-action-icon {
+  display: none;
+}
+
+@media (max-width: 740px) {
+  html[data-aidebug="true"] .ide-main.canvas-only,
+  html[data-aidebug="true"] .ide-main.canvas-only.agent-mode,
+  html[data-aidebug="true"] .ide-main.canvas-only.inspector-collapsed,
+  html[data-aidebug="true"] .ide-main.canvas-only.agent-collapsed,
+  html[data-aidebug="true"] .ide-main.canvas-only.inspector-collapsed.agent-collapsed {
+    height: calc(100dvh - 38px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(350px, 1fr) minmax(310px, 1fr);
+    grid-auto-rows: unset;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  html[data-aidebug="true"] .ide-main.canvas-only .canvas-panel {
+    min-width: 0;
+    min-height: 350px;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  html[data-aidebug="true"] .compact-project-action-icon {
+    display: block;
+  }
+
+  html[data-aidebug="true"] .compact-project-action-label {
+    display: none;
+  }
+}

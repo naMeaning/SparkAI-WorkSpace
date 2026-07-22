@@ -1,0 +1,63 @@
+git.aieyra.cn {
+	encode zstd gzip
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	reverse_proxy forgejo:3000
+}
+
+image.aieyra.cn {
+	encode zstd gzip
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	@desktop_api path /api/desktop-download/* /api/desktop-update/* /api/desktop-client/*
+	request_body @desktop_api {
+		max_size 32KB
+	}
+
+	reverse_proxy iiimage-new-api:3000 {
+		flush_interval -1
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 15m
+			keepalive 5m
+			keepalive_idle_conns 4096
+			keepalive_idle_conns_per_host 1024
+		}
+	}
+}
+
+cpa.aieyra.cn {
+	encode zstd gzip
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+
+	@root path /
+	redir @root /management.html 302
+
+	@v1_root path /v1 /v1/
+	respond @v1_root `{"message":"OpenAI-compatible API","base_url":"https://cpa.aieyra.cn/v1","models":"GET /v1/models"}` 200
+
+	reverse_proxy cpa-cliproxyapi:8317 {
+		flush_interval -1
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 30m
+			keepalive 5m
+			keepalive_idle_conns 4096
+			keepalive_idle_conns_per_host 2048
+		}
+	}
+}

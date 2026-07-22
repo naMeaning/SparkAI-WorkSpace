@@ -1,0 +1,138 @@
+/* --------------------------------------------------------------------------
+   06 Responsive Layout Rules
+-------------------------------------------------------------------------- */
+
+@media (max-width: 1320px) {
+  body {
+    min-width: 0;
+  }
+
+  .ide-main {
+    grid-template-columns: minmax(180px, 22vw) 3px minmax(300px, 1fr) 3px minmax(280px, 30vw);
+  }
+
+  .ide-main.inspector-collapsed {
+    grid-template-columns: 36px 3px minmax(300px, 1fr) 3px minmax(280px, 30vw);
+  }
+
+  .ide-main.agent-collapsed {
+    grid-template-columns: minmax(180px, 22vw) 3px minmax(300px, 1fr) 3px 36px;
+  }
+
+  .ide-main.inspector-collapsed.agent-collapsed {
+    grid-template-columns: 36px 3px minmax(300px, 1fr) 3px 36px;
+  }
+}
+
+@media (max-width: 900px) {
+  body {
+    min-width: 0;
+    overflow: auto;
+  }
+
+  .ide-shell {
+    min-height: 100vh;
+    height: auto;
+  }
+
+  .ide-topbar {
+    grid-template-columns: 1fr;
+    min-height: 38px;
+    height: auto;
+    padding-block: 6px;
+  }
+
+  .file-menu {
+    flex-wrap: wrap;
+  }
+
+  .ide-actions {
+    flex-wrap: wrap;
+  }
+
+  .ide-main {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .ide-main.agent-mode,
+  .ide-main.inspector-collapsed,
+  .ide-main.agent-collapsed,
+  .ide-main.inspector-collapsed.agent-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-resize-handle {
+    display: none;
+  }
+
+  .canvas-panel {
+    min-height: min(560px, 70vh);
+  }
+
+  .two-fields,
+  .theme-options {
+    grid-template-columns: 1fr;
+  }
+
+  .image-control-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+}
+
+:root[data-theme="dark"] button.icon-button,
+:root.theme-dark button.icon-button,
+:root[data-theme="dark"] .file-menu > button,
+:root.theme-dark .file-menu > button,
+:root[data-theme="dark"] .canvas-tools > button,
+:root.theme-dark .canvas-tools > button,
+:root[data-theme="dark"] .secondary-wide:not(.ui-action-button),
+:root.theme-dark .secondary-wide:not(.ui-action-button),
+:root[data-theme="dark"] .theme-options > button {
+  color: #eef5f1 !important;
+  border-color: rgba(236, 246, 241, 0.16) !important;
+  background: #202b28 !important;
+  background-color: #202b28 !important;
+  box-shadow: inset 0 0 0 999px #202b28 !important;
+}
+
+:root[data-theme="dark"] button.icon-button:hover,
+:root.theme-dark button.icon-button:hover,
+:root[data-theme="dark"] .file-menu > button:hover,
+:root.theme-dark .file-menu > button:hover,
+:root[data-theme="dark"] .canvas-tools > button:hover,
+:root.theme-dark .canvas-tools > button:hover,
+:root[data-theme="dark"] .secondary-wide:not(.ui-action-button):hover,
+:root.theme-dark .secondary-wide:not(.ui-action-button):hover,
+:root[data-theme="dark"] .theme-options > button:hover {
+  border-color: var(--accent) !important;
+  background: #26342f !important;
+  background-color: #26342f !important;
+  box-shadow: inset 0 0 0 999px #26342f !important;
+}
+
+:root[data-theme="dark"] .agent-welcome,
+:root.theme-dark .agent-welcome {
+  border-color: rgba(236, 246, 241, 0.14);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(39, 208, 192, 0.18), transparent 60%),
+    rgba(30, 41, 38, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="dark"] .agent-welcome strong,
+:root.theme-dark .agent-welcome strong {
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .agent-welcome p,
+:root.theme-dark .agent-welcome p {
+  color: #c7d7d2;
+}
+:root[data-theme="dark"] .overflow-tooltip,
+:root.theme-dark .overflow-tooltip {
+  background: color-mix(in srgb, var(--surface-solid) 96%, #070b0a);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+}
+

@@ -1,0 +1,28 @@
+/*
+IIimage Styles Map
+
+File Contract
+- styles.css is the ordered stylesheet entrypoint.
+- Region files live in src/styles and must stay imported in this exact order because the cascade is part of the UI contract.
+- Add or move rules only inside the owning region file; do not append emergency overrides to this entrypoint.
+
+Region Index
+01 Base Tokens And Shared Controls
+02 Canvas Workspace And Node System
+03 Legacy Agent / Account / Composer Inactive Reference
+04 Dialogs, Image Editors, Viewers, And Prompt Entries
+05 Desktop Polish And Dense IDE Rhythm
+06 Responsive Layout Rules
+07 VSCode Workbench Flattening Pass
+08 Motion Accessibility Policy
+*/
+
+@import "./styles/01-base-controls.css";
+@import "./styles/02-canvas-workspace.css";
+@import "./styles/03-legacy-agent-reference.css";
+@import "./styles/04-dialogs-viewers.css";
+@import "./styles/05-desktop-polish.css";
+@import "./styles/06-responsive.css";
+@import "./styles/07-workbench-flattening.css";
+@import "./styles/08-motion-accessibility.css";
+

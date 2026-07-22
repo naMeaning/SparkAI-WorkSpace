@@ -1,0 +1,141 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { User } from '@/features/users/types'
+
+// ============================================================================
+// API Payloads
+// ============================================================================
+
+export interface LoginPayload {
+  username: string
+  password: string
+  turnstile?: string
+}
+
+export interface TwoFAPayload {
+  code: string
+}
+
+export interface RegisterPayload {
+  username: string
+  password: string
+  email?: string
+  aff_code?: string
+  verification_code?: string
+  turnstile?: string
+}
+
+export interface PasswordResetPayload {
+  email: string
+  turnstile?: string
+}
+
+export interface EmailVerificationPayload {
+  email: string
+  turnstile?: string
+}
+
+// ============================================================================
+// API Responses
+// ============================================================================
+
+export interface LoginResponse {
+  success: boolean
+  message: string
+  data?: {
+    require_2fa?: boolean
+    id?: number
+  }
+}
+
+export interface Login2FAResponse {
+  success: boolean
+  message: string
+  data?: User
+}
+
+export interface ApiResponse {
+  success: boolean
+  message: string
+  data?: unknown
+}
+
+// ============================================================================
+// System Status
+// ============================================================================
+
+export interface SystemStatus {
+  success?: boolean
+  message?: string
+  data?: {
+    version?: string
+    system_name?: string
+    logo?: string
+    passkey_login?: boolean
+    turnstile_check?: boolean
+    turnstile_site_key?: string
+    email_verification?: boolean
+    self_use_mode_enabled?: boolean
+    display_in_currency?: boolean
+    display_token_stat_enabled?: boolean
+    quota_per_unit?: number
+    quota_display_type?: string
+    usd_exchange_rate?: number
+    custom_currency_symbol?: string
+    custom_currency_exchange_rate?: number
+    demo_site_enabled?: boolean
+    user_agreement_enabled?: boolean
+    privacy_policy_enabled?: boolean
+    register_enabled?: boolean
+    password_login_enabled?: boolean
+    password_register_enabled?: boolean
+    [key: string]: unknown
+  }
+  // Allow direct access to common properties
+  version?: string
+  system_name?: string
+  logo?: string
+  passkey_login?: boolean
+  turnstile_check?: boolean
+  turnstile_site_key?: string
+  email_verification?: boolean
+  self_use_mode_enabled?: boolean
+  display_in_currency?: boolean
+  display_token_stat_enabled?: boolean
+  quota_per_unit?: number
+  quota_display_type?: string
+  usd_exchange_rate?: number
+  custom_currency_symbol?: string
+  custom_currency_exchange_rate?: number
+  demo_site_enabled?: boolean
+  user_agreement_enabled?: boolean
+  privacy_policy_enabled?: boolean
+  register_enabled?: boolean
+  password_login_enabled?: boolean
+  password_register_enabled?: boolean
+  [key: string]: unknown
+}
+
+// ============================================================================
+// Form Props
+// ============================================================================
+
+export interface AuthFormProps extends React.HTMLAttributes<HTMLFormElement> {
+  redirectTo?: string
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@ai-native/ai-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "dev": "node server.cjs",
+    "smoke": "node server.cjs --smoke",
+    "build:new-api": "node server.cjs --build-only",
+    "diagnostics": "node diagnostics/server-check.mjs"
+  }
+}

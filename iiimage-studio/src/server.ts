@@ -1,0 +1,642 @@
+import {
+  promptForIndependentImage
+} from "./core";
+import {
+  STORAGE_SETTINGS,
+  defaultSettings,
+  mergeSettings,
+  readJson,
+  writeJson
+} from "./settings-persistence";
+import type {
+  AppSettings,
+  ImageAsset,
+  ReferenceImage,
+  ServerBridge,
+  ServerLogEntry,
+  ServerPublicSettings,
+  ServerUser,
+  ServerWallet
+} from "./core";
+
+type BrowserAuthState = {
+  serverUrl: string;
+  serverUserId: string;
+};
+
+type JsonRecord = Record<string, unknown>;
+
+const STORAGE_SERVER_AUTH = "iiimage.serverAuth.v1";
+const LOCAL_NEW_API_PROXY = "/__iiimage_new_api";
+const NEW_API_QUOTA_PER_UNIT = 500000;
+
+function readSettings() {
+  return mergeSettings(readJson<Partial<AppSettings> & JsonRecord>(STORAGE_SETTINGS, defaultSettings));
+}
+
+function saveSettingsPatch(patch: Partial<AppSettings>) {
+  const next = mergeSettings({ ...readSettings(), ...patch });
+  writeJson(STORAGE_SETTINGS, next);
+  return next;
+}
+
+function readAuthState(settings = readSettings()): BrowserAuthState {
+  const raw = readJson<Partial<BrowserAuthState> & JsonRecord>(STORAGE_SERVER_AUTH, { serverUrl: "", serverUserId: "" });
+  return {
+    serverUrl: String(raw.serverUrl || settings.serverUrl || defaultSettings.serverUrl),
+    serverUserId: String(raw.serverUserId || "")
+  };
+}
+
+function saveAuthState(settings: AppSettings, serverUserId: string) {
+  writeJson(STORAGE_SERVER_AUTH, {
+    serverUrl: normalizeServerUrl(settings.serverUrl),
+    serverUserId
+  });
+}
+
+function clearAuthState() {
+  writeJson(STORAGE_SERVER_AUTH, { serverUrl: "", serverUserId: "" });
+}
+
+function normalizeServerUrl(value?: string) {
+  return String(value || defaultSettings.serverUrl).trim().replace(/\/$/, "") || defaultSettings.serverUrl;
+}
+
+function isLocalServerUrl(value?: string) {
+  try {
+    const url = new URL(normalizeServerUrl(value));
+    return ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function usesLocalProxy(settings: AppSettings) {
+  return isLocalServerUrl(settings.serverUrl);
+}
+
+function newApiUrl(settings: AppSettings, endpoint: string) {
+  const pathPart = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${usesLocalProxy(settings) ? LOCAL_NEW_API_PROXY : normalizeServerUrl(settings.serverUrl)}${pathPart}`;
+}
+
+function userAuthHeaders(settings: AppSettings): Record<string, string> {
+  const authState = readAuthState(settings);
+  return authState.serverUserId ? { "New-Api-User": authState.serverUserId } : {};
+}
+
+function parseJsonText(text: string) {
+  try {
+    return text ? (JSON.parse(text) as JsonRecord) : {};
+  } catch {
+    return { error: text || "" };
+  }
+}
+
+function errorText(data: JsonRecord, status?: number) {
+  const error = data.error;
+  if (error && typeof error === "object" && "message" in error) return String((error as JsonRecord).message || "");
+  return (
+    String(data.message || "") ||
+    String(data.error || "") ||
+    String(data.msg || "") ||
+    (status ? `New API ${status}` : "New API request failed")
+  );
+}
+
+async function newApiFetch(settings: AppSettings, endpoint: string, options: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
+  const body = options.body;
+  const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+  const response = await fetch(newApiUrl(settings, endpoint), {
+    method: options.method || "GET",
+    headers: {
+      ...(isForm ? {} : { "content-type": "application/json" }),
+      ...(options.headers || {})
+    },
+    credentials: usesLocalProxy(settings) ? "same-origin" : "include",
+    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body)
+  });
+  const text = await response.text();
+  return { response, data: parseJsonText(text) };
+}
+
+async function newApiRequest(settings: AppSettings, endpoint: string, options: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
+  const { response, data } = await newApiFetch(settings, endpoint, options);
+  if (!response.ok || data.success === false || data.ok === false) {
+    const error = new Error(errorText(data, response.status)) as Error & { status?: number; data?: JsonRecord };
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function isAuthError(error: unknown) {
+  const status = Number((error as { status?: number } | null)?.status);
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return status === 401 || status === 403 || /invalid token|unauthorized|forbidden|登录已失效|401|403/i.test(message);
+}
+
+function normalizeUser(userData: JsonRecord = {}): ServerUser {
+  const username = String(userData.username || userData.email || userData.id || userData.crmUserId || "").trim();
+  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "IIimage User").trim();
+  const agent = userData.agent && typeof userData.agent === "object" ? (userData.agent as JsonRecord) : {};
+  const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
+  const rmbBalance = Number(userData.rmbBalance);
+  const balanceCents = Number.isFinite(rmbBalance)
+    ? Math.max(0, Math.round(rmbBalance * 100))
+    : Number.isFinite(quota)
+      ? Math.max(0, Math.round((quota / NEW_API_QUOTA_PER_UNIT) * 100))
+      : 0;
+  return {
+    id: String(userData.id || userData.providerUserId || userData.crmUserId || ""),
+    email: String(userData.email || username || ""),
+    username,
+    account: username,
+    name: displayName,
+    crmUserId: String(userData.crmUserId || ""),
+    inviteCode: String(userData.inviteCode || agent.inviteCode || ""),
+    agentLevel: String(userData.agentLevel || agent.level || ""),
+    balanceCents,
+    trialImagesRemaining: 0,
+    trialUsed: true,
+    createdAt: typeof userData.createdAt === "string" ? userData.createdAt : userData.created_time ? new Date(Number(userData.created_time) * 1000).toISOString() : undefined
+  };
+}
+
+function walletFromUser(userData: JsonRecord = {}): ServerWallet {
+  const user = normalizeUser(userData);
+  return {
+    balanceCents: user.balanceCents,
+    balanceYuan: user.balanceCents / 100,
+    imageCostCents: 0,
+    imageCostYuan: 0
+  };
+}
+
+function tokenItemsFromPayload(payload: JsonRecord) {
+  const source = (payload.data ?? payload) as unknown;
+  if (Array.isArray(source)) return source as JsonRecord[];
+  if (source && typeof source === "object") {
+    const record = source as JsonRecord;
+    if (Array.isArray(record.items)) return record.items as JsonRecord[];
+    if (Array.isArray(record.Items)) return record.Items as JsonRecord[];
+    if (Array.isArray(record.data)) return record.data as JsonRecord[];
+  }
+  return [];
+}
+
+const MODEL_ID_KEYS = ["id", "name", "model", "modelName", "model_name", "modelId", "model_id", "Model", "value"];
+const MODEL_LIST_KEYS = ["data", "items", "Items", "models", "Models", "modelList", "model_list", "availableModels", "available_models", "result", "results", "rows", "list"];
+const MODEL_META_KEYS = new Set(["success", "ok", "message", "msg", "error", "code", "total", "count", "page", "limit", "object", "created", "owned_by", "permission", "permissions", "capabilities", "type", "label", "description", "desc", "price", "quota"]);
+
+function uniqueModelIds(modelIds: unknown[] = []) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const modelId of modelIds) {
+    const clean = String(modelId || "").trim();
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(clean);
+  }
+  return output;
+}
+
+function looksLikeModelId(value: string) {
+  const clean = value.trim();
+  return /^[a-z0-9][a-z0-9._:/+-]{1,}$/i.test(clean) && (
+    /[0-9.\/:+-]/.test(clean) ||
+    /^(gpt|chatgpt|claude|gemini|imagen|image|flux|dall|midjourney|mj|stable|sd|sora|veo|kling|runway|qwen|glm|deepseek|llama|mistral|recraft|ideogram|seedream|doubao|hunyuan|minimax|ernie|baichuan|moonshot|pixverse|hailuo|wanx|wanxiang|hidream)/i.test(clean)
+  );
+}
+
+function isModelMapEntry(key: string, value: unknown, depth: number) {
+  const clean = key.trim();
+  if (depth <= 0 || MODEL_META_KEYS.has(clean) || /\s/.test(clean) || clean.length < 2) return false;
+  if (!(value === true || typeof value === "number" || typeof value === "string" || (value && typeof value === "object"))) return false;
+  return looksLikeModelId(clean);
+}
+
+function collectModelIdsFromValue(value: unknown, output: string[], depth = 0) {
+  if (depth > 8 || value == null) return;
+  if (typeof value === "string") {
+    output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectModelIdsFromValue(item, output, depth + 1);
+    return;
+  }
+  if (typeof value !== "object") return;
+
+  const record = value as JsonRecord;
+  const hasDirectModelId = MODEL_ID_KEYS.some((key) => {
+    const modelId = record[key];
+    return typeof modelId === "string";
+  });
+  for (const key of MODEL_ID_KEYS) {
+    const modelId = record[key];
+    if (typeof modelId === "string") {
+      output.push(modelId);
+      break;
+    }
+  }
+
+  for (const key of MODEL_LIST_KEYS) {
+    if (key in record) collectModelIdsFromValue(record[key], output, depth + 1);
+  }
+
+  for (const [key, nested] of Object.entries(record)) {
+    if (hasDirectModelId || MODEL_LIST_KEYS.includes(key) || MODEL_ID_KEYS.includes(key)) continue;
+    if (Array.isArray(nested)) {
+      collectModelIdsFromValue(nested, output, depth + 1);
+      continue;
+    }
+    if (isModelMapEntry(key, nested, depth)) {
+      output.push(key);
+    }
+  }
+}
+
+function modelIdsFromResponse(payload: JsonRecord) {
+  const modelIds: string[] = [];
+  collectModelIdsFromValue(payload, modelIds);
+  return uniqueModelIds(modelIds);
+}
+
+function splitModelSettings(settings: AppSettings, modelIds: string[] = []): ServerPublicSettings {
+  const unique = uniqueModelIds(modelIds);
+  const imageModels = unique;
+  const agentModels = unique;
+  return {
+    imageCostCents: 0,
+    imageCostYuan: 0,
+    trialImages: 0,
+    models: unique,
+    imageModel: settings.imageModel || imageModels[0] || "",
+    imageModels,
+    agentModels,
+    channelName: "New API",
+    serviceReady: true,
+    keyManaged: true
+  };
+}
+
+function preferredAgentModelFromList(models: string[] = []) {
+  return models.find((model) => /^gpt-5\.5\b/i.test(model)) ?? models[0] ?? "";
+}
+
+function preferredImageModelFromList(models: string[] = []) {
+  return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
+}
+
+async function modelSettings(settings: AppSettings): Promise<ServerPublicSettings> {
+  const collected: string[] = [];
+  try {
+    const userModels = await newApiRequest(settings, "/api/user/models", {
+      headers: userAuthHeaders(settings)
+    });
+    collected.push(...modelIdsFromResponse(userModels));
+  } catch (error) {
+    console.warn("new-api user models failed", error);
+  }
+  try {
+    if (readAuthState(settings).serverUserId) {
+      const { response, data } = await newApiFetch(settings, "/iiimage/v1/models", {
+        headers: userAuthHeaders(settings)
+      });
+      if (response.ok) {
+        collected.push(...modelIdsFromResponse(data));
+      }
+    }
+  } catch (error) {
+    console.warn("crm relay models failed", error);
+  }
+  return splitModelSettings(settings, collected);
+}
+
+async function completeLogin(payload: { username?: string; email?: string; password?: string }) {
+  let settings = readSettings();
+  const login = await newApiFetch(settings, "/api/user/login", {
+    method: "POST",
+    body: {
+      username: String(payload.username ?? payload.email ?? "").trim(),
+      password: String(payload.password ?? "")
+    }
+  });
+  if (!login.response.ok || login.data.success === false || login.data.ok === false) {
+    throw new Error(errorText(login.data, login.response.status));
+  }
+  const loginUser = login.data.data && typeof login.data.data === "object" ? (login.data.data as JsonRecord) : {};
+  const serverUserId = String(loginUser.id || "").trim();
+  if (!serverUserId) throw new Error("New API 登录成功但没有返回 user id。");
+  saveAuthState(settings, serverUserId);
+
+  let userData = loginUser;
+  try {
+    const self = await newApiRequest(settings, "/api/user/self", {
+      headers: userAuthHeaders(settings)
+    });
+    userData = { ...loginUser, ...((self.data && typeof self.data === "object" ? self.data : {}) as JsonRecord) };
+  } catch (error) {
+    console.warn("new-api self after login failed", error);
+  }
+
+  let crmSession: JsonRecord | null = null;
+  try {
+    const response = await newApiRequest(settings, "/api/crm/session/self", {
+      headers: userAuthHeaders(settings)
+    });
+    crmSession = (response.data && typeof response.data === "object" ? response.data : response) as JsonRecord;
+    const currentUser = crmSession.currentUser && typeof crmSession.currentUser === "object" ? (crmSession.currentUser as JsonRecord) : {};
+    userData = { ...userData, ...currentUser };
+  } catch (error) {
+    console.warn("crm session after login failed", error);
+  }
+  settings = saveSettingsPatch({ serverToken: "" });
+  const publicSettings = await modelSettings(settings);
+  settings = saveSettingsPatch({
+    imageModel: settings.imageModel || publicSettings.imageModel || preferredImageModelFromList(publicSettings.imageModels ?? []),
+    imageModelPool: settings.imageModelPool?.length
+      ? settings.imageModelPool
+      : [settings.imageModel || publicSettings.imageModel || preferredImageModelFromList(publicSettings.imageModels ?? [])],
+    agentModel: settings.agentModel || preferredAgentModelFromList(publicSettings.agentModels ?? []),
+    agentModelPool: settings.agentModelPool?.length ? settings.agentModelPool : [settings.agentModel || preferredAgentModelFromList(publicSettings.agentModels ?? [])]
+  });
+  return {
+    ok: true,
+    sessionId: serverUserId,
+    user: normalizeUser(userData),
+    wallet: walletFromUser(userData),
+    settings: {
+      ...publicSettings,
+      imageModel: settings.imageModel
+    },
+    imageCostCents: publicSettings.imageCostCents
+  };
+}
+
+function mapLogType(type: unknown) {
+  const value = Number(type);
+  if (value === 0) return "unknown";
+  if (value === 1) return "topup";
+  if (value === 2) return "consume";
+  if (value === 3) return "manage";
+  if (value === 4) return "system";
+  if (value === 5) return "error";
+  if (value === 6) return "refund";
+  if (value === 7) return "login";
+  return "log";
+}
+
+function mapLogEntry(logEntry: JsonRecord): ServerLogEntry {
+  let detail: JsonRecord = {};
+  try {
+    detail = logEntry.other ? (JSON.parse(String(logEntry.other)) as JsonRecord) : {};
+  } catch {
+    detail = {};
+  }
+  return {
+    id: String(logEntry.id ?? `${logEntry.created_at ?? Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+    type: mapLogType(logEntry.type),
+    createdAt: logEntry.created_at ? new Date(Number(logEntry.created_at) * 1000).toISOString() : new Date().toISOString(),
+    detail: {
+      ...detail,
+      message: logEntry.content || detail.message,
+      model: logEntry.model_name || detail.model,
+      quota: logEntry.quota,
+      promptTokens: logEntry.prompt_tokens,
+      completionTokens: logEntry.completion_tokens
+    }
+  };
+}
+
+function isGptImageModel(model: string) {
+  return /^gpt-image-/i.test(model) || /^chatgpt-image-latest$/i.test(model);
+}
+
+function extractImages(data: JsonRecord) {
+  const images: { type: "base64" | "url"; value: string; revisedPrompt?: string }[] = [];
+  const source = Array.isArray(data.images) ? data.images : Array.isArray(data.data) ? data.data : [];
+  for (const item of source as JsonRecord[]) {
+    if (item?.b64_json) images.push({ type: "base64", value: String(item.b64_json), revisedPrompt: String(item.revised_prompt || item.revisedPrompt || "") });
+    if (item?.image_base64) images.push({ type: "base64", value: String(item.image_base64), revisedPrompt: String(item.revised_prompt || item.revisedPrompt || "") });
+    if (item?.base64) images.push({ type: "base64", value: String(item.base64), revisedPrompt: String(item.revised_prompt || item.revisedPrompt || "") });
+    if (item?.url) images.push({ type: "url", value: String(item.url), revisedPrompt: String(item.revised_prompt || item.revisedPrompt || "") });
+    const imageUrl = item?.image_url;
+    if (imageUrl && typeof imageUrl === "object" && "url" in imageUrl) {
+      images.push({ type: "url", value: String((imageUrl as JsonRecord).url), revisedPrompt: String(item.revised_prompt || item.revisedPrompt || "") });
+    }
+    if (item?.type === "base64" && item.value) images.push({ type: "base64", value: String(item.value), revisedPrompt: String(item.revisedPrompt || "") });
+    if (item?.type === "url" && item.value) images.push({ type: "url", value: String(item.value), revisedPrompt: String(item.revisedPrompt || "") });
+  }
+  const output = Array.isArray(data.output) ? data.output : [];
+  for (const item of output as JsonRecord[]) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content as JsonRecord[]) {
+      const b64 = part?.image_base64 ?? part?.b64_json;
+      const url = part?.image_url ?? part?.url;
+      if (b64) images.push({ type: "base64", value: String(b64), revisedPrompt: String(part?.revised_prompt || "") });
+      if (url) images.push({ type: "url", value: String(url), revisedPrompt: String(part?.revised_prompt || "") });
+    }
+  }
+  return images;
+}
+
+function outputMime(format: unknown) {
+  const normalized = String(format || "png").trim().toLowerCase();
+  if (normalized === "jpeg" || normalized === "jpg") return "image/jpeg";
+  if (normalized === "webp") return "image/webp";
+  return "image/png";
+}
+
+function imagesToAssets(images: ReturnType<typeof extractImages>, runId: string, outputFormat: unknown): ImageAsset[] {
+  const mime = outputMime(outputFormat);
+  return images.map((image, index) => {
+    const url = image.type === "url" ? image.value : image.value.startsWith("data:") ? image.value : `data:${mime};base64,${image.value}`;
+    return {
+      index: index + 1,
+      type: "url",
+      url,
+      assetUrl: url,
+      revisedPrompt: image.revisedPrompt || "",
+      runId
+    };
+  });
+}
+
+function hasReferencePayload(payload: { referenceImages?: ReferenceImage[]; editImage?: ReferenceImage; maskDataUrl?: string }) {
+  return Boolean(payload.editImage || payload.maskDataUrl || (Array.isArray(payload.referenceImages) && payload.referenceImages.length));
+}
+
+async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[0]) {
+  const settings = readSettings();
+  if (!readAuthState(settings).serverUserId) throw new Error("登录会话已失效，请重新登录。");
+  if (hasReferencePayload(payload)) {
+    throw new Error("网页版暂不支持本地参考图/蒙版上传，请用桌面版执行编辑类生图。");
+  }
+  const runId = String(payload.runId || `run-${Date.now()}`);
+  const model = String(payload.model || settings.imageModel || "gpt-image-2").trim();
+  const count = Math.max(1, Math.min(Number(payload.count || 1), 16));
+  const size = String(payload.size || settings.imageSize || "1024x1024").trim();
+  const quality = String(payload.quality || settings.imageQuality || "auto").trim();
+  const outputFormat = payload.outputFormat || "png";
+
+  const requestSingle = async (index: number) => {
+    const body: JsonRecord = {
+      model,
+      prompt: promptForIndependentImage(payload.prompt, count, index),
+      size,
+      quality,
+      n: 1
+    };
+    if (!isGptImageModel(model)) body.response_format = "b64_json";
+    if (payload.outputFormat) body.output_format = payload.outputFormat;
+    if (payload.outputCompression !== undefined) body.output_compression = payload.outputCompression;
+    if (payload.background) body.background = payload.background;
+    if (payload.moderation) body.moderation = payload.moderation;
+    if (payload.inputFidelity) body.input_fidelity = payload.inputFidelity;
+    return newApiRequest(settings, "/iiimage/v1/images/generations", {
+      method: "POST",
+      headers: userAuthHeaders(settings),
+      body
+    });
+  };
+
+  const settled = await Promise.allSettled(Array.from({ length: count }, (_item, index) => requestSingle(index)));
+  const responses = settled.filter((item): item is PromiseFulfilledResult<JsonRecord> => item.status === "fulfilled").map((item) => item.value);
+  const failed = settled
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.status === "rejected");
+  if (!responses.length && failed.length) {
+    const first = failed[0].item;
+    throw new Error(first.status === "rejected" ? first.reason?.message || String(first.reason) : "New API 生图失败。");
+  }
+  const assets = imagesToAssets(responses.flatMap((response) => extractImages(response)), runId, outputFormat);
+  return {
+    ok: true,
+    model,
+    size,
+    quality,
+    count,
+    assets,
+    runId,
+    returned: assets.length,
+    failed: failed.length,
+    errors: failed.map(({ item, index }) => `第 ${index + 1}/${count} 张：${item.status === "rejected" ? item.reason?.message || String(item.reason) : "生图失败。"}`),
+    outputFormat,
+    mode: "generate",
+    message: failed.length ? `New API 已返回 ${assets.length} 个生图结果，${failed.length} 张失败。` : `New API 已返回 ${assets.length} 个生图结果。`
+  };
+}
+
+function createBrowserServerBridge(): ServerBridge {
+  return {
+    async register(payload) {
+      const settings = readSettings();
+      try {
+        const username = String(payload.username ?? payload.email ?? "").trim();
+        const password = String(payload.password ?? "");
+        if (!username || !password) throw new Error("请输入用户名和密码。");
+        await newApiRequest(settings, "/api/user/register", {
+          method: "POST",
+          body: {
+            username,
+            password,
+            email: payload.email,
+            display_name: payload.name || username
+          }
+        });
+        return await completeLogin({ username, password });
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    async login(payload) {
+      try {
+        return await completeLogin(payload);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    async logout() {
+      clearAuthState();
+      saveSettingsPatch({ serverToken: "" });
+      return { ok: true };
+    },
+    async me() {
+      const settings = readSettings();
+      try {
+        if (!readAuthState(settings).serverUserId) throw new Error("登录会话已失效，请重新登录。");
+        let data: JsonRecord = { id: readAuthState(settings).serverUserId };
+        try {
+          const self = await newApiRequest(settings, "/api/user/self", {
+            headers: userAuthHeaders(settings)
+          });
+          data = self.data && typeof self.data === "object" ? (self.data as JsonRecord) : data;
+        } catch (error) {
+          if (isAuthError(error)) throw error;
+          console.warn("new-api self in me failed", error);
+        }
+        try {
+          const self = await newApiRequest(settings, "/api/crm/session/self", {
+            headers: userAuthHeaders(settings)
+          });
+          const session = self.data && typeof self.data === "object" ? (self.data as JsonRecord) : {};
+          const currentUser = session.currentUser && typeof session.currentUser === "object" ? (session.currentUser as JsonRecord) : session;
+          data = { ...data, ...currentUser };
+        } catch (error) {
+          console.warn("crm session in me failed", error);
+        }
+        return {
+          ok: true,
+          user: normalizeUser(data),
+          wallet: walletFromUser(data),
+          settings: await modelSettings(settings)
+        };
+      } catch (error) {
+        clearAuthState();
+        saveSettingsPatch({ serverToken: "" });
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    async logs() {
+      const settings = readSettings();
+      try {
+        if (!readAuthState(settings).serverUserId) return { ok: true, logs: [] };
+        const response = await newApiRequest(settings, "/api/log/self?p=1&page_size=20", {
+          headers: userAuthHeaders(settings)
+        });
+        return { ok: true, logs: tokenItemsFromPayload(response).map(mapLogEntry) };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error), logs: [] };
+      }
+    },
+    async models() {
+      const settings = readSettings();
+      try {
+        return { ok: true, settings: await modelSettings(settings) };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error), settings: splitModelSettings(settings, []) };
+      }
+    },
+    async recharge() {
+      return { ok: false, error: "New API 充值需要走服务端支付/兑换流程，本地测试充值接口已移除。" };
+    },
+    async generateImage(payload) {
+      try {
+        return await generateImage(payload);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  };
+}
+
+export function installBrowserServerBridge() {
+  if (window.iiimageServer) return;
+  window.iiimageServer = createBrowserServerBridge();
+}

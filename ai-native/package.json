@@ -1,0 +1,30 @@
+{
+  "name": "ai-native",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=10.12.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "verify:workspace": "node scripts/verify-workspace.mjs",
+    "dev": "pnpm run dev:main",
+    "dev:main": "node scripts/dev-main.mjs",
+    "start": "pnpm run dev:main",
+    "build": "pnpm run build:main",
+    "build:main": "pnpm run build:gateway",
+    "check": "node scripts/check.mjs",
+    "dev:gateway": "pnpm --filter @ai-native/ai-gateway dev",
+    "build:gateway": "pnpm --filter @ai-native/ai-gateway build:new-api",
+    "diagnostics:gateway": "pnpm --filter @ai-native/ai-gateway diagnostics",
+    "diagnostics:crm-ui": "node scripts/diagnostics/crm-ui-audit.mjs",
+    "smoke:gateway": "pnpm --filter @ai-native/ai-gateway smoke",
+    "crm:check": "pnpm --filter @ai-native/crm-api check"
+  }
+}

@@ -1,0 +1,29 @@
+# Workspace-local SDKs, downloads, and failed install attempts
+/.tools/
+
+# Original source archives retained locally
+/archive/
+
+# Codex agent scratch metadata
+/.agents/
+
+# Root-level transient files
+/node_modules/
+/.diagnostics/
+/.dev-logs/
+*.log
+*.tmp
+*.local
+*.tsbuildinfo
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# OS and editor state
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/
