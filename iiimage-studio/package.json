@@ -74,6 +74,7 @@
     "test:psd-export": "node scripts/psd-export-selftest.cjs",
     "test:thumbnail-cache": "node scripts/thumbnail-cache-selftest.cjs",
     "test:image-import": "node scripts/image-import-selftest.cjs",
+    "test:ipc-registration": "node scripts/ipc-registration-selftest.cjs",
     "test:lifecycle": "node scripts/electron-lifecycle-selftest.cjs",
     "test:update": "electron scripts/desktop-update-selftest.cjs",
     "test:update-rollback": "electron scripts/desktop-update-rollback-selftest.cjs",

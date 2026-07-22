@@ -47,6 +47,8 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
+  ├─ desktop/ipc/register-desktop-ipc.cjs：69 个 handler 的唯一注册顺序
+  │    └─ config / agent / window / debug / project / asset / server registrar
   ├─ 项目、session、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
   ├─ desktop/model-catalog.cjs
@@ -114,7 +116,7 @@ src/main.tsx
   → src/window-controls.tsx
   → window.iiimageConfig.windowControl({ action })
   → preload IPC "iiimage:window:control"
-  → electron-main.cjs
+  → desktop/ipc/window-ipc.cjs
   → 当前 BrowserWindow minimize / maximize / restore / close
 ```
 
@@ -128,6 +130,7 @@ src/main.tsx sendPrompt()
   → src/agent.ts requestAgent()
   → window.iiimageAgent.chat
   → preload IPC "iiimage:agent:chat"
+  → desktop/ipc/agent-ipc.cjs
   → electron-main.cjs 创建/复用 Agent runtime
   → agent-runtime.cjs chat()
   → 模型与工具循环
@@ -163,7 +166,8 @@ image_gen
 Renderer 自动保存 / 显式保存
   → window.iiimageConfig.saveSession(session + revision)
   → preload IPC "iiimage:config:save-session"
-  → electron-main.cjs
+  → desktop/ipc/config-ipc.cjs
+  → electron-main.cjs 注入项目服务
   → desktop/project-store.cjs 解析 active project、session/manifest 路径和 manifest v2
   → desktop/project-session-normalizer.cjs 清洗 session、迁移容器并修复资产身份
   → desktop/project-asset-repository.cjs hydrate/save 项目资产索引
@@ -212,8 +216,9 @@ Renderer UpdaterBridge
 
 | 路径 | Owns | Must not own | 关键检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
-| `electron-main.cjs` | Electron 生命周期、IPC、项目服务编排、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、重复实现 project store/session normalization/asset repository 或 New API transport/client | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
+| `electron-main.cjs` | Electron 生命周期、桌面服务依赖装配、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、内联 IPC handler、重复实现 project store/session normalization/asset repository 或 New API transport/client | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:ipc-registration`, `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
 | `preload.cjs` | 四组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `iiimageConfig`, `iiimageServer`, `iiimageUpdater`, `iiimageAgent` | `test:ui-foundation`, `test:lifecycle`, `aidebug:gui` |
+| `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、compact/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
 | `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、legacy manifest migration、thumbnail roots | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
@@ -318,7 +323,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 1. `src/core.ts` 类型。
 2. `preload.cjs` 暴露方法。
-3. `electron-main.cjs` IPC handler。
+3. 对应 `desktop/ipc/*-ipc.cjs` handler 与 `register-desktop-ipc.cjs` 注册顺序。
 4. Renderer 调用方与错误处理。
 5. 对应 selftest/AIDebug。
 
@@ -468,6 +473,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 选择/画布/资产 | `test:selection`, `test:canvas-commands`, `test:asset-identity` |
 | 工具时间线 | `corepack pnpm run test:timeline` |
 | PSD/缩略图/导入 | `test:psd-export`, `test:thumbnail-cache`, `test:image-import` |
+| IPC 注册顺序/preload 对称性 | `corepack pnpm run test:ipc-registration` |
 | Electron 生命周期 | `corepack pnpm run test:lifecycle` |
 | 更新 | `test:update`, `test:update-rollback`, `test:update-helper` |
 | 正式 bundle | `corepack pnpm run test:bundle` |
@@ -478,7 +484,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 69 个 IPC handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
@@ -496,3 +502,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-22 | 1.0.4 | 抽出 `runtime/memory-store.cjs`，集中持有 SQLite/JSON memory、Prompt/FastMemory、context/experience、tool/date memory 与 conversation summary/protocol；Runtime 只保留模型 compact 和 Agent loop 编排。 |
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/new-api-transport.cjs` 与 `desktop/new-api-client.cjs`；raw transport 通过独立 `getDesktopVersion` 注入解除对 Updater 的反向依赖，Electron facade 与 selftest 导出保持不变。 |
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/project-package-service.cjs`，集中持有项目包校验、限制、导入导出与恢复；抽出 `scripts/aidebug/suites/layer-editing.mjs`，集中持有 layer-stack、cutout、region-redraw 场景，入口调用顺序和公开测试命令不变。 |
+| 2026-07-22 | 1.0.4 | 抽出 `desktop/ipc/*-ipc.cjs` 与根 registrar；固定并直接验证 69 个 handler 的顺序、唯一性、66 个 preload invoke 和 3 个内部 Agent channel。 |

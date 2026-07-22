@@ -47,7 +47,8 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Entry["electron-main.cjs"] --> Window["BrowserWindow / IPC / native dialog"]
+  Entry["electron-main.cjs"] --> Window["BrowserWindow / native dialog"]
+  Entry --> Ipc["desktop/ipc/*\n69-channel registrar"]
   Entry --> DesktopModules["desktop/*\n保存协调 / 模型目录 / Responses 适配"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nImage 2 frame / view_image payload"]
@@ -66,7 +67,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是约 2.27 万行编排入口，但认证、图片查看、参考图选择、窗口控制已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `use-stable-event.ts` |
-| `electron-main.cjs` | 仍是主进程 facade，模型/Responses/项目持久化/New API 纯逻辑已移出 | `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-store.cjs`, `desktop/project-session-normalizer.cjs`, `desktop/project-asset-repository.cjs`, `desktop/project-package-service.cjs`, `desktop/project-save-coordinator.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade，模型/Responses/项目持久化/New API 纯逻辑和 69 个 IPC handler 已移出 | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-store.cjs`, `desktop/project-session-normalizer.cjs`, `desktop/project-asset-repository.cjs`, `desktop/project-package-service.cjs`, `desktop/project-save-coordinator.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs` |
 | `agent-runtime.cjs` | 仍负责 Prompt、memory、tool loop 和 action 编排，图片帧与观察副本已移出 | `runtime/image-frame.cjs`, `runtime/view-image-payload.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、会话和图片算法；设置、资产身份、粘贴块已有独立所有者 | `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
