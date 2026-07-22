@@ -82,9 +82,9 @@ React Renderer
   ├─ src/settings-persistence.ts：默认设置、迁移与浏览器回退存储
   ├─ src/asset-identity.ts / src/paste-blocks.ts：纯数据域
   ├─ src/agent.ts：Agent 请求和时间线适配
-  ├─ src/ui.tsx：基础 UI primitives
+  ├─ src/ui.tsx：基础 UI 兼容 façade；真实实现位于 src/ui/*
   ├─ auth / image viewer / reference picker / window controls 表面模块
-  ├─ src/styles.css → src/styles/01…08：保持顺序的样式区域
+  ├─ src/styles.css → src/styles/01…08：保持顺序的样式区域；07 再按 07a→07i 有序展开
   ├─ 画布、容器、需求、TaskScope、选择与分层模块
   └─ applyRuntimeActions：把 runtime action 落到画布
 ```
@@ -235,10 +235,11 @@ Renderer UpdaterBridge
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
 | `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
-| `src/ui.tsx` | Dialog/Drawer/Button primitives、focus/close policy、浮窗拖动 | 产品业务状态 | `ErrorBoundary`, `Dialog`, `Drawer`, `ButtonBase` | `test:ui-foundation`, `aidebug:gui` |
+| `src/ui.tsx` | 对现有调用方保持稳定的基础 UI 兼容重导出 façade | primitives 内部实现、产品业务状态 | `DialogShell`, `DrawerShell`, `ButtonBase`, `useFloatingDialogInteractions` | `test:ui-foundation`, `typecheck`, `build` |
+| `src/ui/*` | Dialog/Drawer focus 与 close policy、共享 controls、菜单 surface、overflow tooltip、浮窗拖动 | 产品业务状态、功能页数据获取 | `dialog-shell.tsx`, `primitives.tsx`, `menu-surface.tsx`, `overflow-tooltip.tsx`, `floating-dialog-interactions.ts` | `test:ui-foundation`, `aidebug:gui` |
 | `src/window-controls.tsx` | 原生窗口最小化、最大化/还原、关闭按钮 | BrowserWindow 实现、项目状态 | `WindowControls`, `windowControl` | `build`, `aidebug:gui`, `test:lifecycle` |
 | `src/use-stable-event.ts` | 持久 handler identity、调用最新闭包 | 业务状态或事件策略 | `useStableEvent` | `typecheck`, `build` |
-| `src/styles.css`, `src/styles/01…08` | 有序样式入口与 base/canvas/legacy/dialog/desktop/responsive/workbench/motion 区域 | 数据修复、运行时状态补丁、跨文件随意改 import 顺序 | `@import`, `.ide-shell`, `.canvas`, `.agent-panel`, `.window-controls` | `test:ui-foundation`, `aidebug:gui`, `test:bundle` |
+| `src/styles.css`, `src/styles/01…08` | 有序样式入口与 base/canvas/legacy/dialog/desktop/responsive/workbench/motion 区域；`07-workbench-flattening.css` 仅按 07a→07i 聚合 workbench slices | 数据修复、运行时状态补丁、跨文件随意改 import 顺序 | `@import`, `07a-foundation-consolidation.css`, `07i-auth-gate.css`, `.ide-shell`, `.canvas`, `.agent-panel` | `test:ui-foundation`, `aidebug:gui`, `test:bundle` |
 | `src/markdown.tsx` | Agent Markdown 呈现 | 模型协议或工具执行 | Markdown renderer exports | `build`, `aidebug:gui` |
 
 ### 5.3 画布、需求与图片组织
@@ -248,10 +249,12 @@ Renderer UpdaterBridge
 | `src/selection-state.ts` | `none/single/multiple` 选择 reducer | `reduceSelectionState` | `test:selection` |
 | `src/canvas-commands.ts` | 多选可用命令、批量删除/移动等纯命令能力 | canvas command exports | `test:canvas-commands` |
 | `src/task-scope.ts` | Renderer 侧 TaskScope clone/merge/continuation policy | `AgentTaskScope`, continuation | `test:task-scope`, `test:execution-gate` |
-| `src/task-result-layout.ts` | 根据冻结 TaskScope 为新成果选择容器和布局 | result policy, snapshot hash | `test:image-container`, `test:task-scope` |
+| `src/task-result-layout.ts` | 根据冻结 TaskScope 规划并构建新成果的容器/布局 mutation | `planTaskResultLayout`, `buildTaskResultLayoutMutation`, snapshot hash | `test:image-container`, `test:task-scope` |
 | `src/requirement-graph.ts` | 需求节点输入角色与图关系合法性 | requirement source/result edges | `test:requirement-graph`, `aidebug:requirements` |
 | `src/requirement-signature.ts` | 需求重复执行签名 | source signature | `test:requirement-signature`, `test:execution-gate` |
-| `src/image-container.ts` | 容器 spec、成员 binding、旧布局迁移 | `ImageContainerSpec`, bindings | `test:image-container` |
+| `src/image-container.ts` | 兼容旧调用方的容器域重导出 façade | `image-container-spec.ts`, `image-container-graph.ts`, `task-result-layout.ts` | `test:image-container`, `typecheck` |
+| `src/image-container-spec.ts` | 持久化容器 spec 清洗、成员 binding 与旧字段兼容 | `sanitizeImageContainerSpec`, `imageContainerSpecForNode`, `applyImageContainerCompatibility` | `test:image-container` |
+| `src/image-container-graph.ts` | 容器拓扑清洗、spec 同步与 canvas layout projection | `sanitizeImageContainerGraph`, `synchronizeImageContainerSpecs`, `deriveImageLayoutGroupsFromContainerSpecs` | `test:image-container`, `test:image-layout` |
 | `src/image-layout.ts` | 2–10 图比例感知布局、排序、拆组与归一化 | layout rows/groups | `test:image-layout`, `aidebug:image-recovery` |
 | `src/layer-composition-runtime.ts` | Renderer 分层合成输入准备与校验 | layer composition | `test:layer-alpha`, `test:layer-mask-replay` |
 
@@ -362,7 +365,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | --- | --- | --- | --- |
 | 顶栏、窗口按钮 | `src/main.tsx`, `src/window-controls.tsx`, `src/styles/01-base-controls.css` 与后续覆盖区域 | `ConfigBridge`, preload, window IPC | `build`, `aidebug:gui`, `test:lifecycle` |
 | 画布交互/选择 | `src/main.tsx`, `selection-state.ts`, `canvas-commands.ts` | Agent 当前上下文、容器拖放 | `test:selection`, `test:canvas-commands`, `aidebug:selection` |
-| 图片容器/布局 | `image-container.ts`, `image-layout.ts`, `task-result-layout.ts` | session migration、TaskScope provenance | `test:image-container`, `test:image-layout`, `aidebug:gui` |
+| 图片容器/布局 | `image-container-spec.ts`, `image-container-graph.ts`, `task-result-layout.ts`, `image-layout.ts`；`image-container.ts` 仅作兼容 façade | session migration、TaskScope provenance、layout projection | `test:image-container`, `test:image-layout`, `aidebug:gui` |
 | 需求节点 | `requirement-graph.ts`, `requirement-signature.ts`, dialogs, `main.tsx` | TaskScope、重复执行 gate、关系边 | requirement、task-scope、execution-gate、AIDebug suites |
 | Agent Prompt/tool/schema | `agent-runtime.cjs` | `src/core.ts` 类型、`src/agent.ts`、action handler、产品意图 | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `view_image` | `runtime/view-image-payload.cjs`, `agent-runtime.cjs` | 允许根、payload 预算、Sharp、持久化排除 | `test:view-image`, `test:agent-protocol` |
@@ -458,7 +461,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 ## 11. 当前高风险热点
 
 - `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 已有独立 owner，后续继续沿现有边界拆，不要重新内联。
-- `src/styles.css` 已变为 28 行有序入口；最大样式热点是 `src/styles/07-workbench-flattening.css`。任何拆分必须保持 01→08 import 顺序和最终 reduced-motion gate。
+- `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
 - Worker 根目录位置受 ASAR 解析约束。
