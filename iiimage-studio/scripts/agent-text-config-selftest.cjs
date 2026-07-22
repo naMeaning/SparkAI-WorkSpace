@@ -15,6 +15,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createAgentRuntime, defaultPromptText, normalizeImageToolFrame, toolSchemas } = require("../agent-runtime.cjs");
 const { agentToolSchemas: ownedAgentToolSchemas, toolSchemas: ownedToolSchemas } = require("../runtime/tool-schemas.cjs");
+const { createMemoryStore: ownedCreateMemoryStore } = require("../runtime/memory-store.cjs");
 const {
   messageFromResponse: ownedMessageFromResponse,
   responseFromStreamChunks: ownedResponseFromStreamChunks,
@@ -1171,6 +1172,7 @@ async function runSelftest(directory) {
     assert.equal(/Current Selected Nodes:\nundefined\b/i.test(runtimeContextText), false, "An empty canvas selection must not become a literal undefined node ID");
 
     const runtimeSource = readFileSync(path.resolve(__dirname, "..", "agent-runtime.cjs"), "utf8");
+    const memoryStoreSource = readFileSync(path.resolve(__dirname, "..", "runtime", "memory-store.cjs"), "utf8");
     assert(runtimeSource.includes('require("./runtime/tool-schemas.cjs")'), "Agent runtime must consume the dedicated tool schema owner");
     assert.equal(/function\s+(?:normalizeToolSchemas|imageModelToolProperty|toolSchemas|agentToolSchemas)\s*\(/.test(runtimeSource), false, "Agent runtime facade must not duplicate tool schema implementations");
     assert(runtimeSource.includes('require("./runtime/responses-parser.cjs")'), "Agent runtime must consume the dedicated Responses parser owner");
@@ -1178,6 +1180,20 @@ async function runSelftest(directory) {
       /function\s+(?:responsesTextPart|responseToolCallFromItem|messageFromResponsesOutput|messageFromResponse|reasoningDeltaFromChunk|contentDeltaFromChunk|mergeToolCallDelta|upsertResponsesToolCall|mergeResponsesToolCallEvent|responseFromStreamChunks)\s*\(/.test(runtimeSource),
       false,
       "Agent runtime facade must not duplicate Responses parsing or stream aggregation implementations",
+    );
+    assert.equal(typeof ownedCreateMemoryStore, "function", "Memory persistence must expose a dedicated store factory");
+    assert(runtimeSource.includes('require("./runtime/memory-store.cjs")'), "Agent runtime must consume the dedicated memory store owner");
+    assert(memoryStoreSource.includes("function createMemoryStore"), "The memory owner must retain the store factory implementation");
+    assert.match(memoryStoreSource, /CREATE TABLE IF NOT EXISTS runtime_meta/);
+    assert.equal(
+      /CREATE TABLE IF NOT EXISTS|new DatabaseSync|iiimage-memory\.db|datememorycontext\.json|promptcontext\.json|fastmemory\.json|memorycontext\.json/.test(runtimeSource),
+      false,
+      "Agent runtime facade must not own SQLite or JSON memory persistence",
+    );
+    assert.equal(
+      /function\s+(?:ensureMemory|readPromptTextStore|writePromptTextStore|readExternalStore|writeExternalStore|recordContextEntry|getMainPrompt|saveMainPrompt|resetMainPrompt|getFastMemory|saveFastMemory|resetFastMemory|clearConversationState|contextManage|experienceManage|memoryAdd|memoryCheck|memoryRead|compactStateForPayload|protocolStateForPayload|appendConversationProtocolTurn)\s*\(/.test(runtimeSource),
+      false,
+      "Agent runtime facade must not duplicate memory CRUD or conversation persistence implementations",
     );
     assert.equal(/intentSystemMessage|Current Image Intent|model-force|model-arg-correct/.test(runtimeSource), false, "Runtime source must not retain hidden intent injection or argument-force phases");
     assert.equal(/requestOptions\.tools\s*\?\?\s*toolSchemas/.test(runtimeSource), false, "callModel must not fall back to the complete internal tool schema");
