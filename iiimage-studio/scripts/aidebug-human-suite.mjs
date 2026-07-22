@@ -1,7 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { deflateSync, inflateSync } from "node:zlib";
+import { deflateSync } from "node:zlib";
 import sharp from "sharp";
+
+import { BasicCdpClient as CdpClient, evaluateRuntime as evaluate, pollForDebugTarget } from "./aidebug/harness/cdp.mjs";
+import { decodePng } from "./aidebug/harness/png.mjs";
+import { capturePngScreenshot } from "./aidebug/harness/screenshot.mjs";
 
 function cliValue(name) {
   const prefix = `${name}=`;
@@ -221,82 +225,14 @@ if (existsSync(sourceViewFixturePath)) {
 }
 const viewFixtureAssetUrl = `iiimage-asset://local/${relative(repoRoot, viewFixturePath).split(/[\\/]+/).map(encodeURIComponent).join("/")}`;
 
-class CdpClient {
-  constructor(url) {
-    this.url = url;
-    this.nextId = 1;
-    this.pending = new Map();
-  }
-
-  async open() {
-    this.socket = new WebSocket(this.url);
-    await new Promise((resolve, reject) => {
-      this.socket.addEventListener("open", resolve, { once: true });
-      this.socket.addEventListener("error", reject, { once: true });
-    });
-    this.socket.addEventListener("message", (event) => {
-      const message = JSON.parse(String(event.data));
-      if (!message.id) return;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      pending.done();
-      if (message.error) pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
-      else pending.resolve(message.result || {});
-    });
-  }
-
-  send(method, params = {}, timeoutMs = 30000) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      this.pending.set(id, {
-        resolve,
-        reject,
-        done: () => clearTimeout(timer)
-      });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  close() {
-    this.socket?.close();
-  }
-}
-
-async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  return response.json();
-}
-
 async function waitForTarget() {
-  const endpoint = `http://127.0.0.1:${debugPort}/json/list`;
-  for (let i = 0; i < 120; i += 1) {
-    try {
-      const targets = await fetchJson(endpoint);
-      const target = targets.find((item) => item.type === "page" && String(item.url || "").includes("127.0.0.1:5173"));
-      if (target?.webSocketDebuggerUrl) return target;
-    } catch {
-      // Keep waiting for Electron.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error(`No IIimage page target found on ${debugPort}.`);
-}
-
-async function evaluate(client, expression, timeoutMs = 30000) {
-  const result = await client.send("Runtime.evaluate", {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-    userGesture: true
-  }, timeoutMs);
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "Runtime.evaluate failed");
-  return result.result?.value;
+  return pollForDebugTarget({
+    port: debugPort,
+    attempts: 120,
+    intervalMs: 250,
+    findTarget: (targets) => targets.find((item) => item.type === "page" && String(item.url || "").includes("127.0.0.1:5173")),
+    notFoundMessage: `No IIimage page target found on ${debugPort}.`
+  });
 }
 
 async function readViewportMetrics(client) {
@@ -367,78 +303,6 @@ async function setWindowSize(client, targetId, width, height) {
   const viewportOk = Math.abs(Number(metrics?.innerWidth || 0) - requested.width) <= 2
     && Math.abs(Number(metrics?.innerHeight || 0) - requested.height) <= 2;
   return { requested, metrics, viewportOk, attempts };
-}
-
-function paethPredictor(left, up, upLeft) {
-  const p = left + up - upLeft;
-  const pa = Math.abs(p - left);
-  const pb = Math.abs(p - up);
-  const pc = Math.abs(p - upLeft);
-  if (pa <= pb && pa <= pc) return left;
-  return pb <= pc ? up : upLeft;
-}
-
-function decodePng(buffer) {
-  const signature = "89504e470d0a1a0a";
-  if (!Buffer.isBuffer(buffer) || buffer.subarray(0, 8).toString("hex") !== signature) throw new Error("Invalid PNG signature");
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  const idat = [];
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
-    const data = buffer.subarray(offset + 8, offset + 8 + length);
-    if (type === "IHDR") {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-    } else if (type === "IDAT") {
-      idat.push(data);
-    } else if (type === "IEND") {
-      break;
-    }
-    offset += 12 + length;
-  }
-  if (bitDepth !== 8 || ![2, 6].includes(colorType)) throw new Error(`Unsupported PNG format bitDepth=${bitDepth} colorType=${colorType}`);
-  const channels = colorType === 6 ? 4 : 3;
-  const rowBytes = width * channels;
-  const inflated = inflateSync(Buffer.concat(idat));
-  const raw = Buffer.alloc(width * height * 4);
-  let inputOffset = 0;
-  let previous = Buffer.alloc(rowBytes);
-  for (let y = 0; y < height; y += 1) {
-    const filter = inflated[inputOffset];
-    inputOffset += 1;
-    const row = Buffer.alloc(rowBytes);
-    for (let x = 0; x < rowBytes; x += 1) {
-      const value = inflated[inputOffset + x];
-      const left = x >= channels ? row[x - channels] : 0;
-      const up = previous[x] || 0;
-      const upLeft = x >= channels ? previous[x - channels] || 0 : 0;
-      let unfiltered = value;
-      if (filter === 1) unfiltered = value + left;
-      else if (filter === 2) unfiltered = value + up;
-      else if (filter === 3) unfiltered = value + Math.floor((left + up) / 2);
-      else if (filter === 4) unfiltered = value + paethPredictor(left, up, upLeft);
-      else if (filter !== 0) throw new Error(`Unsupported PNG filter ${filter}`);
-      row[x] = unfiltered & 0xff;
-    }
-    inputOffset += rowBytes;
-    for (let x = 0; x < width; x += 1) {
-      const source = x * channels;
-      const target = (y * width + x) * 4;
-      raw[target] = row[source];
-      raw[target + 1] = row[source + 1];
-      raw[target + 2] = row[source + 2];
-      raw[target + 3] = colorType === 6 ? row[source + 3] : 255;
-    }
-    previous = row;
-  }
-  return { width, height, data: raw };
 }
 
 const crcTable = (() => {
@@ -558,8 +422,8 @@ async function screenshot(client, label) {
     await client.send("Page.bringToFront", {}, 5000).catch(() => null);
     await delay(120);
     try {
-      const result = await client.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false }, 20000);
-      if (writeAttempt("cdp-from-surface", Buffer.from(result.data || "", "base64"))) {
+      const buffer = await capturePngScreenshot(client, { fromSurface: true, captureBeyondViewport: false }, 20000, { missingData: "empty" });
+      if (writeAttempt("cdp-from-surface", buffer)) {
         writeFileSync(join(runDir, `${label}.capture.json`), JSON.stringify({ label, selected: "cdp-from-surface", attempts }, null, 2));
         return filePath;
       }
@@ -567,8 +431,8 @@ async function screenshot(client, label) {
       attempts.push({ source: "cdp-from-surface", error: error instanceof Error ? error.message : String(error) });
     }
     try {
-      const result = await client.send("Page.captureScreenshot", { format: "png", fromSurface: false, captureBeyondViewport: false }, 15000);
-      if (writeAttempt("cdp-view", Buffer.from(result.data || "", "base64"))) {
+      const buffer = await capturePngScreenshot(client, { fromSurface: false, captureBeyondViewport: false }, 15000, { missingData: "empty" });
+      if (writeAttempt("cdp-view", buffer)) {
         writeFileSync(join(runDir, `${label}.capture.json`), JSON.stringify({ label, selected: "cdp-view", attempts }, null, 2));
         return filePath;
       }

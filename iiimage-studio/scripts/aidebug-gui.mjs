@@ -1,17 +1,32 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { inflateSync } from "node:zlib";
 import { PNG } from "pngjs";
 import sharp from "sharp";
 
 import { runCanvasLayoutMutationRegression } from "./aidebug-image-layout-regression.mjs";
 import { captureAskUserContinuationSuite } from "./aidebug-ask-user-continuation-suite.mjs";
 import { captureRequirementNodeSuite } from "./aidebug-requirement-node-suite.mjs";
+import { captureSelectionCommandSuite } from "./aidebug/suites/selection-command.mjs";
+import { captureUiSurfaceSuite } from "./aidebug/suites/ui-surface.mjs";
+import {
+  createRuntimeEvaluator,
+  DiagnosticCdpClient,
+  pollForDebugTarget,
+  waitForRuntimeExpression
+} from "./aidebug/harness/cdp.mjs";
+import { decodePng } from "./aidebug/harness/png.mjs";
+import {
+  forceKillProcessTree,
+  isPortAvailable as portIsAvailable,
+  pipeProcessLogs,
+  waitForChildExit,
+  waitForHttpServer
+} from "./aidebug/harness/process.mjs";
+import { capturePngScreenshot } from "./aidebug/harness/screenshot.mjs";
 
 const isWindows = process.platform === "win32";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -329,17 +344,6 @@ function prepareImageImportFixture() {
 let viteProcess;
 let electronProcess;
 
-async function portIsAvailable(port) {
-  return new Promise((resolvePort) => {
-    const server = createServer();
-    server.unref();
-    server.once("error", () => resolvePort(false));
-    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
-      server.close(() => resolvePort(true));
-    });
-  });
-}
-
 async function resolveDebugPort() {
   if (explicitDebugPort) return debugPort;
   for (let offset = 0; offset < 256; offset += 1) {
@@ -571,21 +575,12 @@ function prepareLiveImageConfig() {
   }
 }
 
-async function isServerReady(url) {
-  try {
-    const response = await fetch(url, { method: "HEAD" });
-    return response.ok || response.status === 404;
-  } catch {
-    return false;
-  }
-}
-
 async function waitForServer(url) {
-  for (let i = 0; i < 100; i += 1) {
-    if (await isServerReady(url)) return;
-    await delay(250);
-  }
-  throw new Error(`Vite dev server did not respond: ${url}`);
+  return waitForHttpServer(url, {
+    attempts: 100,
+    intervalMs: 250,
+    errorMessage: `Vite dev server did not respond: ${url}`
+  });
 }
 
 function spawnVite() {
@@ -629,34 +624,6 @@ function spawnElectron() {
   });
 }
 
-async function waitForChildExit(child, timeoutMs = 2500) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return true;
-  return await Promise.race([
-    new Promise((resolve) => child.once("exit", () => resolve(true))),
-    delay(timeoutMs).then(() => false)
-  ]);
-}
-
-async function forceKillProcessTree(pid) {
-  if (!pid) return;
-  if (isWindows) {
-    await new Promise((resolve) => {
-      const killer = spawn("taskkill.exe", ["/pid", String(pid), "/t", "/f"], {
-        stdio: "ignore",
-        shell: false
-      });
-      killer.on("exit", resolve);
-      killer.on("error", resolve);
-    });
-    return;
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // Process is already gone.
-  }
-}
-
 function scrubEphemeralLiveConfig() {
   if (!liveConfig) return;
   const relativeConfigDir = relative(resolve(runDir), resolve(aidebugConfigDir));
@@ -681,7 +648,7 @@ async function stopChildProcess(child) {
     // Electron and pnpm both spawn grandchildren on Windows. Killing only the
     // wrapper can leave Chromium holding the remote-debugging port and poison
     // the next independent suite, so terminate the owned tree first.
-    await forceKillProcessTree(child.pid);
+    await forceKillProcessTree(child.pid, { isWindows });
     await waitForChildExit(child, 1600);
     return;
   }
@@ -692,187 +659,32 @@ async function stopChildProcess(child) {
     // Fall through to process-tree cleanup below.
   }
   if (await waitForChildExit(child)) return;
-  await forceKillProcessTree(child.pid);
+  await forceKillProcessTree(child.pid, { isWindows });
   await waitForChildExit(child, 1200);
 }
 
-function pipeProcessLogs(child, label) {
-  child.stdout?.on("data", (chunk) => process.stdout.write(`[${label}] ${chunk}`));
-  child.stderr?.on("data", (chunk) => process.stderr.write(`[${label}] ${chunk}`));
-}
-
-async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  return response.json();
-}
-
 async function waitForDebugTarget() {
-  const endpoint = `http://127.0.0.1:${debugPort}/json/list`;
-  for (let i = 0; i < 120; i += 1) {
-    try {
-      const targets = await fetchJson(endpoint);
-      const target = targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("IIimage")));
-      if (target?.webSocketDebuggerUrl) return target;
-    } catch {
-      // Debug endpoint is not ready yet.
-    }
-    await delay(250);
-  }
-  throw new Error(`No Electron renderer debug target found on port ${debugPort}.`);
+  return pollForDebugTarget({
+    port: debugPort,
+    attempts: 120,
+    intervalMs: 250,
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("IIimage"))),
+    notFoundMessage: `No Electron renderer debug target found on port ${debugPort}.`
+  });
 }
 
-class CdpClient {
+class CdpClient extends DiagnosticCdpClient {
   constructor(url, label = "primary") {
-    this.url = url;
-    this.label = label;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.openedAt = "";
-    this.closedAt = "";
-    this.lastMessageAt = "";
-    this.socketError = "";
-  }
-
-  async open(timeoutMs = 5000) {
-    this.socket = new WebSocket(this.url);
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`CDP WebSocket open timed out after ${timeoutMs}ms`)), timeoutMs);
-      const finish = (callback) => (event) => {
-        clearTimeout(timer);
-        callback(event);
-      };
-      this.socket.addEventListener("open", finish(resolve), { once: true });
-      this.socket.addEventListener("error", finish(reject), { once: true });
+    super(url, {
+      label,
+      getPhase: () => activeProbePhase,
+      summarizeParams: cdpParamSummary,
+      recordOperation: (operation) => appendDiagnosticLine(cdpOperationsPath, operation)
     });
-    this.openedAt = new Date().toISOString();
-    this.socket.addEventListener("message", (event) => {
-      this.lastMessageAt = new Date().toISOString();
-      const message = JSON.parse(String(event.data));
-      if (!message.id) return;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      pending.done();
-      const elapsedMs = Date.now() - pending.startedAtMs;
-      if (message.error) {
-        const error = new Error(message.error.message || JSON.stringify(message.error));
-        appendDiagnosticLine(cdpOperationsPath, { ...pending.operation, event: "error", at: new Date().toISOString(), elapsedMs, error: error.message });
-        pending.reject(error);
-      } else {
-        appendDiagnosticLine(cdpOperationsPath, { ...pending.operation, event: "complete", at: new Date().toISOString(), elapsedMs });
-        pending.resolve(message.result ?? {});
-      }
-    });
-    this.socket.addEventListener("error", (event) => {
-      this.socketError = event?.message || "CDP WebSocket error";
-      appendDiagnosticLine(cdpOperationsPath, { event: "socket-error", at: new Date().toISOString(), client: this.label, error: this.socketError });
-    });
-    this.socket.addEventListener("close", () => {
-      this.closedAt = new Date().toISOString();
-      const error = new Error("CDP WebSocket closed before pending commands completed");
-      for (const [id, pending] of this.pending) {
-        this.pending.delete(id);
-        pending.done();
-        appendDiagnosticLine(cdpOperationsPath, { ...pending.operation, event: "socket-closed", at: this.closedAt, elapsedMs: Date.now() - pending.startedAtMs });
-        pending.reject(error);
-      }
-    });
-    appendDiagnosticLine(cdpOperationsPath, { event: "socket-open", at: this.openedAt, client: this.label, url: this.url });
-  }
-
-  send(method, params = {}, timeoutMs = 30000) {
-    const id = this.nextId;
-    this.nextId += 1;
-    const payload = JSON.stringify({ id, method, params });
-    const startedAtMs = Date.now();
-    const operation = {
-      id,
-      client: this.label,
-      method,
-      timeoutMs,
-      phase: activeProbePhase,
-      startedAt: new Date(startedAtMs).toISOString(),
-      params: cdpParamSummary(method, params)
-    };
-    appendDiagnosticLine(cdpOperationsPath, { ...operation, event: "start", at: operation.startedAt });
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        const elapsedMs = Date.now() - startedAtMs;
-        const error = new Error(`${method} timed out after ${timeoutMs}ms`);
-        error.cdpOperation = operation;
-        appendDiagnosticLine(cdpOperationsPath, { ...operation, event: "timeout", at: new Date().toISOString(), elapsedMs });
-        reject(error);
-      }, timeoutMs);
-      this.pending.set(id, {
-        resolve,
-        reject,
-        operation,
-        startedAtMs,
-        done: () => clearTimeout(timer)
-      });
-      try {
-        this.socket.send(payload);
-      } catch (error) {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        appendDiagnosticLine(cdpOperationsPath, { ...operation, event: "send-error", at: new Date().toISOString(), elapsedMs: Date.now() - startedAtMs, error: error instanceof Error ? error.message : String(error) });
-        reject(error);
-      }
-    });
-  }
-
-  statusSnapshot() {
-    return {
-      label: this.label,
-      readyState: this.socket?.readyState ?? null,
-      openedAt: this.openedAt,
-      closedAt: this.closedAt,
-      lastMessageAt: this.lastMessageAt,
-      socketError: this.socketError,
-      pending: [...this.pending.values()].map((item) => ({
-        id: item.operation.id,
-        method: item.operation.method,
-        startedAt: item.operation.startedAt,
-        elapsedMs: Date.now() - item.startedAtMs,
-        timeoutMs: item.operation.timeoutMs,
-        phase: item.operation.phase,
-        params: item.operation.params
-      }))
-    };
-  }
-
-  close() {
-    this.socket?.close();
   }
 }
 
-let cdpEvaluationHoldSequence = 0;
-
-async function evaluate(client, expression, timeoutMs = 30000) {
-  let evaluatedExpression = expression;
-  if (/^\s*\(async\s*\(/.test(String(expression || ""))) {
-    const holdKey = `probe-${++cdpEvaluationHoldSequence}`;
-    evaluatedExpression = `(() => {
-      const key = ${JSON.stringify(holdKey)};
-      const store = window.__iiimageCdpPromiseHolds ??= {};
-      const held = Promise.resolve(${expression});
-      store[key] = held;
-      const release = () => setTimeout(() => { if (store[key] === held) delete store[key]; }, 0);
-      held.then(release, release);
-      return held;
-    })()`;
-  }
-  const result = await client.send("Runtime.evaluate", {
-    expression: evaluatedExpression,
-    awaitPromise: true,
-    returnByValue: true,
-    userGesture: true
-  }, timeoutMs);
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "Runtime.evaluate failed");
-  return result.result?.value;
-}
+const evaluate = createRuntimeEvaluator({ holdAsyncIifePromises: true });
 
 async function captureProcessLine(pid) {
   if (!pid || !isWindows) return "";
@@ -960,10 +772,10 @@ async function captureFailureDiagnostics(error, client = activeCdpClient, target
       }
       try {
         await secondary.send("Page.enable", {}, 3000);
-        const screenshot = await secondary.send("Page.captureScreenshot", { format: "png", fromSurface: true, captureBeyondViewport: false }, 6000);
-        if (screenshot?.data) {
+        const screenshotBuffer = await capturePngScreenshot(secondary, { fromSurface: true, captureBeyondViewport: false }, 6000, { missingData: "null" });
+        if (screenshotBuffer) {
           const screenshotPath = join(runDir, "failure-last-frame.png");
-          writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
+          writeFileSync(screenshotPath, screenshotBuffer);
           failure.secondary.screenshotCaptured = true;
           failure.secondary.screenshotPath = screenshotPath;
         }
@@ -991,12 +803,7 @@ async function captureFailureDiagnostics(error, client = activeCdpClient, target
 }
 
 async function waitForExpression(client, expression, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (await evaluate(client, expression)) return;
-    await delay(250);
-  }
-  throw new Error(`Timed out waiting for expression: ${expression}`);
+  await waitForRuntimeExpression(client, expression, { evaluate, timeoutMs, intervalMs: 250 });
 }
 
 async function waitForCanvasImagePreviews(client, expectedMinimum = 1, timeoutMs = 60000) {
@@ -1388,78 +1195,6 @@ function overflowReport(snapshot) {
         scrollWidth: item.scrollWidth
       }))
   };
-}
-
-function paethPredictor(left, up, upLeft) {
-  const p = left + up - upLeft;
-  const pa = Math.abs(p - left);
-  const pb = Math.abs(p - up);
-  const pc = Math.abs(p - upLeft);
-  if (pa <= pb && pa <= pc) return left;
-  return pb <= pc ? up : upLeft;
-}
-
-function decodePng(buffer) {
-  const signature = "89504e470d0a1a0a";
-  if (!Buffer.isBuffer(buffer) || buffer.subarray(0, 8).toString("hex") !== signature) throw new Error("Invalid PNG signature");
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let bitDepth = 0;
-  let colorType = 0;
-  const idat = [];
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
-    const data = buffer.subarray(offset + 8, offset + 8 + length);
-    if (type === "IHDR") {
-      width = data.readUInt32BE(0);
-      height = data.readUInt32BE(4);
-      bitDepth = data[8];
-      colorType = data[9];
-    } else if (type === "IDAT") {
-      idat.push(data);
-    } else if (type === "IEND") {
-      break;
-    }
-    offset += 12 + length;
-  }
-  if (bitDepth !== 8 || ![2, 6].includes(colorType)) throw new Error(`Unsupported PNG format bitDepth=${bitDepth} colorType=${colorType}`);
-  const channels = colorType === 6 ? 4 : 3;
-  const rowBytes = width * channels;
-  const inflated = inflateSync(Buffer.concat(idat));
-  const raw = Buffer.alloc(width * height * 4);
-  let inputOffset = 0;
-  let previous = Buffer.alloc(rowBytes);
-  for (let y = 0; y < height; y += 1) {
-    const filter = inflated[inputOffset];
-    inputOffset += 1;
-    const row = Buffer.alloc(rowBytes);
-    for (let x = 0; x < rowBytes; x += 1) {
-      const value = inflated[inputOffset + x];
-      const left = x >= channels ? row[x - channels] : 0;
-      const up = previous[x] || 0;
-      const upLeft = x >= channels ? previous[x - channels] || 0 : 0;
-      let unfiltered = value;
-      if (filter === 1) unfiltered = value + left;
-      else if (filter === 2) unfiltered = value + up;
-      else if (filter === 3) unfiltered = value + Math.floor((left + up) / 2);
-      else if (filter === 4) unfiltered = value + paethPredictor(left, up, upLeft);
-      else if (filter !== 0) throw new Error(`Unsupported PNG filter ${filter}`);
-      row[x] = unfiltered & 0xff;
-    }
-    inputOffset += rowBytes;
-    for (let x = 0; x < width; x += 1) {
-      const source = x * channels;
-      const target = (y * width + x) * 4;
-      raw[target] = row[source];
-      raw[target + 1] = row[source + 1];
-      raw[target + 2] = row[source + 2];
-      raw[target + 3] = colorType === 6 ? row[source + 3] : 255;
-    }
-    previous = row;
-  }
-  return { width, height, data: raw };
 }
 
 function pngFileAlphaReport(filePath) {
@@ -7292,8 +7027,7 @@ async function captureState(client, targetId, label, setupExpression, size, expe
   let cdpScreenshotIssue = null;
   let screenshotWritten = false;
   try {
-    const screenshot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }, 12000);
-    firstScreenshotBuffer = Buffer.from(screenshot.data, "base64");
+    firstScreenshotBuffer = await capturePngScreenshot(client, { captureBeyondViewport: false }, 12000);
     writeFileSync(firstFramePath, firstScreenshotBuffer);
   } catch (error) {
     firstCdpScreenshotIssue = error instanceof Error ? error.message : String(error);
@@ -7302,8 +7036,7 @@ async function captureState(client, targetId, label, setupExpression, size, expe
   const postFrameState = await readGuiState(client);
   const postFrameSnapshot = await evaluate(client, "window.__iiimageDebugLayoutSnapshot ? window.__iiimageDebugLayoutSnapshot() : null");
   try {
-    const screenshot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }, 12000);
-    screenshotBuffer = Buffer.from(screenshot.data, "base64");
+    screenshotBuffer = await capturePngScreenshot(client, { captureBeyondViewport: false }, 12000);
     screenshotSource = firstScreenshotBuffer ? "cdp-dual-frame" : "cdp-second-frame-only";
     writeFileSync(screenshotPath, screenshotBuffer);
     screenshotWritten = true;
@@ -12464,123 +12197,6 @@ function appendSupervisorDesktopLog(label, ok, detail = {}) {
   }
 }
 
-async function captureSelectionCommandSuiteProbe(client, targetId) {
-  await setWindowSize(client, targetId, 1280, 820);
-  const suite = await evaluate(client, `new Promise((resolve) => {
-    const delay = (ms) => new Promise((done) => setTimeout(done, ms));
-    const state = () => window.__iiimageDebugAgentState?.() || {};
-    const key = (value, options = {}) => window.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true, ...options }));
-    const openMenu = async (id) => {
-      const node = document.querySelector('.flow-node[data-node-id="' + id + '"]');
-      const rect = node?.getBoundingClientRect();
-      node?.dispatchEvent(new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        button: 2,
-        clientX: rect ? rect.left + Math.min(80, rect.width / 2) : 420,
-        clientY: rect ? rect.top + Math.min(60, rect.height / 2) : 280
-      }));
-      await delay(180);
-      const menu = document.querySelector(".selection-context-menu");
-      const buttons = [...(menu?.querySelectorAll("button") || [])];
-      return {
-        visible: Boolean(menu),
-        texts: buttons.map((button) => String(button.textContent || "").replace(/\s+/g, " ").trim()),
-        groupDisabled: Boolean(buttons.find((button) => String(button.textContent || "").includes("合并"))?.disabled),
-        deleteDisabled: Boolean(buttons.find((button) => String(button.textContent || "").includes("删除"))?.disabled)
-      };
-    };
-    (async () => {
-      const api = window.__iiimageAIDebug;
-      if (!api?.seedSelectionCanvas || !api?.selectNodes) {
-        resolve({ ok: false, error: "selection debug bridge unavailable" });
-        return;
-      }
-      await api.seedSelectionCanvas();
-      key("a", { ctrlKey: true });
-      await delay(220);
-      const selectAllState = state();
-      const selectAllOk = selectAllState.selectionMode === "multiple" && selectAllState.selectedNodeIds.length === 6;
-      const allMenu = await openMenu("A");
-      const allMenuOk = allMenu.visible && allMenu.texts.some((text) => text.includes("基于 3 个图片成果提要求")) && allMenu.texts.some((text) => text.includes("合并 3 个")) && allMenu.texts.some((text) => text.includes("删除 5 个"));
-
-      await api.selectNodes({ ids: ["A", "L1", "L2"], primaryId: "A" });
-      const mixedMenu = await openMenu("A");
-      const mixedMenuOk = mixedMenu.visible && mixedMenu.groupDisabled && !mixedMenu.deleteDisabled && mixedMenu.texts.some((text) => text.includes("删除 3 个"));
-      key("Delete");
-      await delay(260);
-      const deletedState = state();
-      const deleteOk = deletedState.nodeCount === 3 && !deletedState.nodes.some((node) => ["A", "L1", "L2"].includes(node.id));
-      key("z", { ctrlKey: true });
-      await delay(260);
-      const undoState = state();
-      const undoOk = undoState.nodeCount === 6 && ["A", "L1", "L2"].every((id) => undoState.nodes.some((node) => node.id === id));
-
-      await api.selectNodes({ ids: ["A", "B", "L1"], primaryId: "A" });
-      key("g", { ctrlKey: true });
-      await delay(280);
-      const groupedState = state();
-      const grouped = groupedState.layoutGroups?.[0];
-      const groupOk = groupedState.layoutGroups?.length === 1 && grouped?.memberNodeIds?.length === 2 && grouped.memberNodeIds.includes("A") && grouped.memberNodeIds.includes("B") && groupedState.nodes.some((node) => node.id === "L1");
-      key("g", { ctrlKey: true, shiftKey: true });
-      await delay(280);
-      const dissolvedState = state();
-      const dissolveOk = dissolvedState.layoutGroups?.length === 0 && dissolvedState.nodeCount === 6;
-
-      await api.selectNodes({ ids: ["A", "B"], primaryId: "A" });
-      const beforeNudge = state().nodes.filter((node) => ["A", "B"].includes(node.id)).map((node) => ({ id: node.id, x: node.x, y: node.y }));
-      key("ArrowRight", { shiftKey: true });
-      await delay(180);
-      const afterNudge = state().nodes.filter((node) => ["A", "B"].includes(node.id));
-      const nudgeOk = beforeNudge.every((before) => afterNudge.some((node) => node.id === before.id && node.x === before.x + 10 && node.y === before.y));
-
-      await api.seedSelectionCanvas();
-      await api.selectNodes({ ids: ["A", "B"], primaryId: "A" });
-      const requirementMenu = await openMenu("A");
-      const requirementAction = [...(document.querySelectorAll(".selection-context-menu button") || [])]
-        .find((button) => String(button.textContent || "").replace(/\s+/g, " ").trim().includes("基于 2 个图片成果提要求"));
-      requirementAction?.click();
-      const editorDeadline = Date.now() + 3000;
-      while (Date.now() < editorDeadline && !document.querySelector(".requirement-editor-dialog")) await delay(50);
-      const editor = document.querySelector(".requirement-editor-dialog");
-      const textarea = editor?.querySelector("textarea");
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(textarea, "将所选图片作为一个容器，统一生成克制的蓝金电商版本。");
-      textarea?.dispatchEvent(new Event("input", { bubbles: true }));
-      const create = [...(editor?.querySelectorAll("footer button") || [])].find((button) => String(button.textContent || "").trim() === "仅创建");
-      create?.click();
-      const createDeadline = Date.now() + 3000;
-      while (Date.now() < createDeadline && (!state().nodes.some((node) => node.type === "requirement") || document.querySelector(".requirement-editor-dialog"))) await delay(50);
-      const requirementState = state();
-      const requirementNode = requirementState.nodes.find((node) => node.type === "requirement");
-      const requirementGroup = requirementState.layoutGroups?.find((group) => group.hostNodeId === "A");
-      const selectionRequirementOk = requirementMenu.visible && Boolean(requirementAction && create && requirementNode?.parentId === "A" && requirementGroup?.memberNodeIds?.includes("A") && requirementGroup?.memberNodeIds?.includes("B"));
-      await delay(180);
-      key("z", { ctrlKey: true });
-      await delay(260);
-      const requirementUndoState = state();
-      const requirementUndoOk = !requirementUndoState.nodes.some((node) => node.type === "requirement") && requirementUndoState.layoutGroups?.some((group) => group.hostNodeId === "A" && group.memberNodeIds?.includes("B"));
-
-      await api.seedSelectionCanvas();
-      await api.selectNodes({ ids: ["A", "L1", "L2"], primaryId: "A" });
-      const finalMenu = await openMenu("A");
-      const checks = { selectAllOk, allMenuOk, mixedMenuOk, deleteOk, undoOk, groupOk, dissolveOk, nudgeOk, selectionRequirementOk, requirementUndoOk, finalMenuVisible: finalMenu.visible };
-      resolve({ ok: Object.values(checks).every(Boolean), checks, allMenu, mixedMenu, requirementMenu, finalMenu, finalState: state() });
-    })().catch((error) => resolve({ ok: false, error: error instanceof Error ? error.message : String(error), state: state() }));
-  })`, 30000);
-  const capture = await captureState(client, targetId, "selection-command-suite-1280", null, null, {
-    settingsOpen: false,
-    historyOpen: false,
-    modalOpen: false,
-    accountOpen: false,
-    titlebarOverlay: true,
-    imageNodeViewportOk: true,
-    selectionSurfacesConsistentOk: true
-  });
-  capture.suite = suite;
-  if (!suite?.ok) capture.stateIssues.push(`selection command suite failed: ${suite?.error || JSON.stringify(suite?.checks || {})}`);
-  return [capture];
-}
-
 function contextMenuSuiteSetupExpression(menuKind) {
   return `new Promise((resolve) => {
     const delay = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -12907,171 +12523,6 @@ async function captureContextMenuSuiteProbe(client, targetId) {
     }
     captures.push(capture);
   }
-  return captures;
-}
-
-async function captureUiSurfaceSuiteProbe(client, targetId) {
-  const captures = [];
-  const manualExpected = {
-    settingsOpen: false,
-    accountOpen: false,
-    modalOpen: true,
-    imageTaskOpen: true,
-    manualImageTaskControlsOk: true,
-    manualImageTaskLayoutOk: true,
-    dialogLayoutKind: "manual-image-task",
-    dialogLayoutMiddleFillOk: true,
-    dialogLayoutNestedScrollOk: true,
-    modalWithinViewport: true
-  };
-  captures.push(await captureState(client, targetId, "ui-manual-image-task-1280", openSurfaceExpression("image-task"), { width: 1280, height: 820 }, manualExpected));
-  captures.push(await captureState(client, targetId, "ui-manual-image-task-min-884", openSurfaceExpression("image-task"), { width: workbenchMinWidth, height: 720 }, { ...manualExpected, imageNodeViewportOk: true }));
-
-  const referenceExpression = openSurfaceExpression("image-task", `
-    document.querySelector(".manual-image-reference-button")?.click();
-    const deadline = Date.now() + 2400;
-    while (Date.now() < deadline && !document.querySelector('[data-ui-surface="reference-picker"]')) await delay(40);
-  `);
-  const referenceExpected = {
-    settingsOpen: false,
-    accountOpen: false,
-    modalOpen: true,
-    imageTaskOpen: true,
-    referencePickerOpen: true,
-    dialogLayoutKind: "reference-picker",
-    dialogLayoutMiddleFillOk: true,
-    dialogLayoutNestedScrollOk: true,
-    modalWithinViewport: true
-  };
-  captures.push(await captureState(client, targetId, "ui-reference-picker-1280", referenceExpression, { width: 1280, height: 820 }, referenceExpected));
-  captures.push(await captureState(client, targetId, "ui-reference-picker-min-884", referenceExpression, { width: workbenchMinWidth, height: 720 }, { ...referenceExpected, imageNodeViewportOk: true }));
-
-  const manualSubmitExpression = `new Promise((resolve) => {
-    const delay = (ms) => new Promise((done) => setTimeout(done, ms));
-    const setNativeValue = (node, value) => {
-      if (!node) return false;
-      const prototype = node instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLSelectElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-      setter?.call(node, value);
-      node.dispatchEvent(new Event(node instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
-      return true;
-    };
-    (async () => {
-      window.__iiimageDebugOpenSurface?.("main");
-      await delay(120);
-      const beforeState = window.__iiimageDebugAgentState?.() || {};
-      const beforeIds = new Set((beforeState.nodes || []).map((node) => node.id));
-      const beforeMessageIds = new Set((beforeState.messages || []).map((message) => message.id));
-      window.__iiimageDebugOpenSurface?.("image-task");
-      const openDeadline = Date.now() + 2400;
-      while (Date.now() < openDeadline && !document.querySelector(".manual-image-task-dialog")) await delay(40);
-      const dialog = document.querySelector(".manual-image-task-dialog");
-      const prompt = dialog?.querySelector("textarea");
-      const selects = Array.from(dialog?.querySelectorAll("select") || []);
-      const ratio = selects[0];
-      const resolution = selects[1];
-      const quality = selects[2];
-      const count = selects[3];
-      const promptText = "AIDebug 手动生图闭环：生成两张简洁的东方配色商品视觉测试图。";
-      const promptSet = setNativeValue(prompt, promptText);
-      const ratioSet = setNativeValue(ratio, "3:4");
-      const qualitySet = setNativeValue(quality, "high");
-      const countSet = setNativeValue(count, "2");
-      await delay(120);
-      const submit = Array.from(dialog?.querySelectorAll("button") || []).find((button) => String(button.textContent || "").replace(/\s+/g, "").includes("生成图片"));
-      submit?.click();
-      submit?.click();
-      const resultDeadline = Date.now() + 12000;
-      let afterState = window.__iiimageDebugAgentState?.() || {};
-      let newNodes = [];
-      let producedAssets = 0;
-      let collectionNodes = [];
-      while (Date.now() < resultDeadline) {
-        afterState = window.__iiimageDebugAgentState?.() || {};
-        newNodes = (afterState.nodes || []).filter((node) => !beforeIds.has(node.id) && node.type === "image");
-        producedAssets = newNodes.reduce((total, node) => total + Math.max(0, Number(node.assetCount || 0)), 0);
-        collectionNodes = newNodes.filter((node) => node.imageCollection?.kind === "batch" && node.imageCollection?.generationMode === "parallel");
-        if (!document.querySelector(".manual-image-task-dialog") && producedAssets >= 2 && collectionNodes.some((node) => node.imageCollection.items.length >= 2)) break;
-        await delay(80);
-      }
-      const timelineMessages = (Array.isArray(afterState.messages) ? afterState.messages : [])
-        .filter((message) => !beforeMessageIds.has(message.id));
-      const timelineUsers = timelineMessages.filter((message) => message.role === "user" && String(message.content || "").includes(promptText));
-      const startCards = timelineMessages.filter((message) => message.toolTrace?.name === "image_gen" && message.toolTrace?.stage === "start" &&
-        message.toolTrace?.prompts?.some((item) => String(item.prompt || "").includes(promptText)));
-      const operationId = String(startCards[0]?.toolTrace?.operationId || "");
-      const operationCards = timelineMessages.filter((message) => message.toolTrace?.name === "image_gen" &&
-        String(message.toolTrace?.operationId || "") === operationId);
-      const resultCards = operationCards.filter((message) => message.toolTrace?.stage === "result");
-      const timelineIdentityOk = Boolean(operationId) && startCards.length === 1 && resultCards.length === 1 && operationCards.length === 2;
-      const timelineParams = String(startCards[0]?.toolTrace?.params || "");
-      const timelineParamsOk = /3:4/.test(timelineParams) && /720P|1K|2K|4K/.test(timelineParams) && /精细/.test(timelineParams) && /2 张/.test(timelineParams);
-      window.__iiimageManualTaskProbe = {
-        ok: Boolean(dialog && promptSet && ratioSet && qualitySet && countSet && submit && !document.querySelector(".manual-image-task-dialog") && newNodes.length === 1 && producedAssets >= 2 && collectionNodes.length === 1 && collectionNodes[0]?.imageCollection.items.length >= 2 && timelineUsers.length === 1 && timelineIdentityOk && timelineParamsOk),
-        promptSet,
-        ratioSet,
-        qualitySet,
-        countSet,
-        submitFound: Boolean(submit),
-        dialogClosed: !document.querySelector(".manual-image-task-dialog"),
-        newNodeIds: newNodes.map((node) => node.id),
-        newNodeCount: newNodes.length,
-        producedAssets,
-        collectionCount: collectionNodes.length,
-        collectionItemCounts: collectionNodes.map((node) => node.imageCollection.items.length),
-        timelineUserVisible: timelineUsers.length === 1,
-        timelineUserCount: timelineUsers.length,
-        timelineIdentityOk,
-        timelineParams,
-        timelineParamsOk,
-        timelineToolCardCount: operationCards.length,
-        resolution: String(resolution?.value || "")
-      };
-      resolve(true);
-    })();
-  })`;
-  captures.push(await captureState(client, targetId, "ui-manual-image-task-submit-1280", manualSubmitExpression, { width: 1280, height: 820 }, {
-    settingsOpen: false,
-    accountOpen: false,
-    modalOpen: false,
-    imageTaskOpen: false,
-    manualImageTaskSubmitOk: true,
-    imageNodeViewportOk: true
-  }, 20000));
-
-  const promptExpression = openSurfaceExpression("settings", `
-    document.querySelector(".settings-prompt-action")?.click();
-    const deadline = Date.now() + 2400;
-    while (Date.now() < deadline && !document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 提示词"]')) await delay(40);
-  `);
-  const promptExpected = {
-    settingsOpen: true,
-    accountOpen: false,
-    agentTextEditorOpen: true,
-    agentTextEditorKind: "编辑 Agent 提示词",
-    dialogLayoutKind: "agent-prompt",
-    dialogLayoutMiddleFillOk: true,
-    dialogLayoutNestedScrollOk: true
-  };
-  captures.push(await captureState(client, targetId, "ui-agent-prompt-editor-1280", promptExpression, { width: 1280, height: 820 }, promptExpected));
-  captures.push(await captureState(client, targetId, "ui-agent-prompt-editor-min-884", promptExpression, { width: workbenchMinWidth, height: 720 }, { ...promptExpected, imageNodeViewportOk: true }));
-
-  const memoryExpression = openSurfaceExpression("main", `
-    document.querySelector('.project-agent-header-actions button[aria-label="编辑 Agent 记忆"]')?.click();
-    const deadline = Date.now() + 2400;
-    while (Date.now() < deadline && !document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 记忆"]')) await delay(40);
-  `);
-  const memoryExpected = {
-    settingsOpen: false,
-    accountOpen: false,
-    agentTextEditorOpen: true,
-    agentTextEditorKind: "编辑 Agent 记忆",
-    dialogLayoutKind: "fast-memory",
-    dialogLayoutMiddleFillOk: true,
-    dialogLayoutNestedScrollOk: true
-  };
-  captures.push(await captureState(client, targetId, "ui-fast-memory-editor-1280", memoryExpression, { width: 1280, height: 820 }, memoryExpected));
-  captures.push(await captureState(client, targetId, "ui-fast-memory-editor-min-884", memoryExpression, { width: workbenchMinWidth, height: 720 }, { ...memoryExpected, imageNodeViewportOk: true }));
   return captures;
 }
 
@@ -15382,7 +14833,13 @@ async function main() {
       return;
     }
     if (selectionCommandSuiteOnly) {
-      results.push(...await captureSelectionCommandSuiteProbe(client, target.id));
+      results.push(...await captureSelectionCommandSuite({
+        client,
+        targetId: target.id,
+        setWindowSize,
+        evaluate,
+        captureState
+      }));
       appendNonVisualSelfChecks(results);
       const failures = results.filter((item) => item.overflow.documentOverflowX || item.overflow.bodyOverflowX || item.overflow.elementOverflowX.length || item.stateIssues.length || item.captureIssues.length || item.suite?.ok === false);
       const contactSheetPath = writeContactSheet(results);
@@ -15430,7 +14887,13 @@ async function main() {
       return;
     }
     if (uiSurfaceSuiteOnly) {
-      results.push(...await captureUiSurfaceSuiteProbe(client, target.id));
+      results.push(...await captureUiSurfaceSuite({
+        client,
+        targetId: target.id,
+        captureState,
+        openSurfaceExpression,
+        workbenchMinWidth
+      }));
       appendNonVisualSelfChecks(results);
       const failures = results.filter((item) => item.overflow.documentOverflowX || item.overflow.bodyOverflowX || item.overflow.elementOverflowX.length || item.stateIssues.length || item.captureIssues.length || item.suite?.ok === false);
       const contactSheetPath = writeContactSheet(results);

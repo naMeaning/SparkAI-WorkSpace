@@ -1,10 +1,24 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+
+import {
+  BasicCdpClient as CdpClient,
+  evaluateRuntime as evaluate,
+  pollForDebugTarget,
+  waitForRuntimeExpression
+} from "./aidebug/harness/cdp.mjs";
+import {
+  allocateDebugPort,
+  forceKillProcessTree,
+  isHttpServerReady as isServerReady,
+  pipeProcessLogs,
+  waitForHttpServer
+} from "./aidebug/harness/process.mjs";
+import { capturePngScreenshotToFile } from "./aidebug/harness/screenshot.mjs";
 
 const isWindows = process.platform === "win32";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -43,52 +57,12 @@ function hashJson(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-async function isServerReady(url) {
-  try {
-    const response = await fetch(url, { method: "HEAD" });
-    return response.ok || response.status === 404;
-  } catch {
-    return false;
-  }
-}
-
 async function waitForServer(url) {
-  for (let index = 0; index < 120; index += 1) {
-    if (await isServerReady(url)) return;
-    await delay(250);
-  }
-  throw new Error(`Vite dev server did not respond: ${url}`);
-}
-
-async function allocateDebugPort(requestedPort = 0) {
-  if (requestedPort && (!Number.isInteger(requestedPort) || requestedPort < 1024 || requestedPort > 65535)) {
-    throw new Error(`Invalid Electron remote debugging port: ${requestedPort}`);
-  }
-  return new Promise((resolvePort, rejectPort) => {
-    const server = createServer();
-    server.unref();
-    server.once("error", (error) => {
-      rejectPort(new Error(
-        requestedPort
-          ? `Electron remote debugging port ${requestedPort} is unavailable: ${error.message}`
-          : `Unable to allocate an Electron remote debugging port: ${error.message}`
-      ));
-    });
-    server.listen({ host: "127.0.0.1", port: requestedPort || 0, exclusive: true }, () => {
-      const address = server.address();
-      const allocated = typeof address === "object" && address ? Number(address.port) : 0;
-      server.close((error) => {
-        if (error) rejectPort(error);
-        else if (!allocated) rejectPort(new Error("Electron remote debugging port allocation returned no port."));
-        else resolvePort(allocated);
-      });
-    });
+  return waitForHttpServer(url, {
+    attempts: 120,
+    intervalMs: 250,
+    errorMessage: `Vite dev server did not respond: ${url}`
   });
-}
-
-function pipeProcessLogs(child, label) {
-  child.stdout?.on("data", (chunk) => process.stdout.write(`[${label}] ${chunk}`));
-  child.stderr?.on("data", (chunk) => process.stderr.write(`[${label}] ${chunk}`));
 }
 
 function startVite() {
@@ -126,91 +100,23 @@ function startElectron() {
   });
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  return response.json();
-}
-
 async function waitForDebugTarget() {
-  const endpoint = `http://127.0.0.1:${debugPort}/json/list`;
-  for (let index = 0; index < 140; index += 1) {
-    if (electronProcess && (electronProcess.exitCode !== null || electronProcess.signalCode !== null)) {
-      throw new Error(`Electron exited before its remote debugging endpoint became ready (code=${electronProcess.exitCode}, signal=${electronProcess.signalCode || "none"}).`);
-    }
-    try {
-      const targets = await fetchJson(endpoint);
-      const target = targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("IIimage")));
-      if (target?.webSocketDebuggerUrl) return target;
-    } catch {
-      // Electron debug endpoint is still starting.
-    }
-    await delay(250);
-  }
-  throw new Error(`No Electron renderer target found on port ${debugPort}.`);
-}
-
-class CdpClient {
-  constructor(url) {
-    this.url = url;
-    this.nextId = 1;
-    this.pending = new Map();
-  }
-
-  async open() {
-    this.socket = new WebSocket(this.url);
-    await new Promise((resolveOpen, rejectOpen) => {
-      this.socket.addEventListener("open", resolveOpen, { once: true });
-      this.socket.addEventListener("error", rejectOpen, { once: true });
-    });
-    this.socket.addEventListener("message", (event) => {
-      const message = JSON.parse(String(event.data));
-      if (!message.id) return;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
-      else pending.resolve(message.result || {});
-    });
-  }
-
-  send(method, params = {}, timeoutMs = 30000) {
-    const id = this.nextId;
-    this.nextId += 1;
-    return new Promise((resolveSend, rejectSend) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        rejectSend(new Error(`${method} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve: resolveSend, reject: rejectSend, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  close() {
-    this.socket?.close();
-  }
-}
-
-async function evaluate(client, expression, timeoutMs = 30000) {
-  const response = await client.send("Runtime.evaluate", {
-    expression,
-    awaitPromise: true,
-    returnByValue: true,
-    userGesture: true
-  }, timeoutMs);
-  if (response.exceptionDetails) throw new Error(response.exceptionDetails.text || "Runtime.evaluate failed");
-  return response.result?.value;
+  return pollForDebugTarget({
+    port: debugPort,
+    attempts: 140,
+    intervalMs: 250,
+    beforeAttempt: () => {
+      if (electronProcess && (electronProcess.exitCode !== null || electronProcess.signalCode !== null)) {
+        throw new Error(`Electron exited before its remote debugging endpoint became ready (code=${electronProcess.exitCode}, signal=${electronProcess.signalCode || "none"}).`);
+      }
+    },
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("IIimage"))),
+    notFoundMessage: `No Electron renderer target found on port ${debugPort}.`
+  });
 }
 
 async function waitForExpression(client, expression, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (await evaluate(client, expression)) return true;
-    await delay(120);
-  }
-  throw new Error(`Timed out waiting for expression: ${expression}`);
+  return waitForRuntimeExpression(client, expression, { evaluate, timeoutMs, intervalMs: 120 });
 }
 
 async function setWindowSize(client, targetId, width, height) {
@@ -243,9 +149,8 @@ async function setWindowSize(client, targetId, width, height) {
 }
 
 async function captureScreenshot(client, label) {
-  const result = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }, 15000);
   const path = join(runDir, `${label}.png`);
-  writeFileSync(path, Buffer.from(result.data, "base64"));
+  await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 15000);
   screenshots.push(path);
   return path;
 }
@@ -596,11 +501,7 @@ async function stopProcess(child) {
   await delay(350);
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (isWindows && child.pid) {
-    await new Promise((resolveKill) => {
-      const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore", shell: false });
-      killer.on("exit", resolveKill);
-      killer.on("error", resolveKill);
-    });
+    await forceKillProcessTree(child.pid, { isWindows });
   }
 }
 
