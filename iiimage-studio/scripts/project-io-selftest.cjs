@@ -13,6 +13,13 @@ const {
 const os = require("node:os");
 const path = require("node:path");
 const { PROJECT_ASSET_REPOSITORY_OWNER } = require("../desktop/project-asset-repository.cjs");
+const {
+  PROJECT_PACKAGE_SERVICE_OWNER,
+  projectPackageMaximumAssetBytes,
+  projectPackageMaximumAssets,
+  projectPackageMaximumDecodedBytes,
+  projectPackageMaximumFileBytes,
+} = require("../desktop/project-package-service.cjs");
 
 process.env.IIIMAGE_PROJECT_IO_SELFTEST = "1";
 const testRoot = mkdtempSync(path.join(os.tmpdir(), "iiimage-project-io-selftest-"));
@@ -73,6 +80,14 @@ async function run() {
   assert.equal(projectIo.buildProjectAssetIndex, projectIo.projectAssetRepository.buildProjectAssetIndex, "Main must re-export the repository-owned asset index implementation without a duplicate wrapper");
   assert.equal(projectIo.sessionForProjectSave, projectIo.projectAssetRepository.sessionForProjectSave, "Main must re-export the repository-owned save normalizer without a duplicate implementation");
   assert.equal(projectIo.sessionWithProjectAssets, projectIo.projectAssetRepository.sessionWithProjectAssets, "Main must re-export the repository-owned hydration implementation without a duplicate implementation");
+  assert.equal(projectIo.projectPackageServiceOwner, PROJECT_PACKAGE_SERVICE_OWNER, "Project package persistence must have one explicit desktop owner");
+  assert.equal(projectIo.packageProject, projectIo.projectPackageService.packageProject, "Main must re-export the service-owned package implementation without a duplicate wrapper");
+  assert.equal(projectIo.sessionFromPackage, projectIo.projectPackageService.sessionFromPackage, "Main must re-export the service-owned package restore implementation without a duplicate wrapper");
+  assert.equal(projectIo.validateProjectPackageData, projectIo.projectPackageService.validateProjectPackageData, "Main must re-export the service-owned package validator without a duplicate wrapper");
+  assert.equal(projectIo.projectPackageMaximumAssetBytes, projectPackageMaximumAssetBytes, "Main must re-export the service-owned per-asset package limit");
+  assert.equal(projectIo.projectPackageMaximumAssets, projectPackageMaximumAssets, "Main must re-export the service-owned package asset-count limit");
+  assert.equal(projectIo.projectPackageMaximumDecodedBytes, projectPackageMaximumDecodedBytes, "Main must re-export the service-owned decoded package limit");
+  assert.equal(projectIo.projectPackageMaximumFileBytes, projectPackageMaximumFileBytes, "Main must re-export the service-owned package file limit");
   const externalParent = path.join(testRoot, "external-parent");
   mkdirSync(externalParent, { recursive: true });
   mkdirSync(path.join(externalParent, "画布 3"), { recursive: true });
@@ -1101,6 +1116,8 @@ async function run() {
     emptySelectionPreserved: true,
     projectAssetRepositoryOwner: PROJECT_ASSET_REPOSITORY_OWNER,
     projectAssetRepositoryFacadeUnique: true,
+    projectPackageServiceOwner: PROJECT_PACKAGE_SERVICE_OWNER,
+    projectPackageServiceFacadeUnique: true,
   };
 }
 
