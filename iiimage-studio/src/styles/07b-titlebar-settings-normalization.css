@@ -1,0 +1,592 @@
+/* Native titlebar overlay and border-light controls. */
+
+.ide-topbar {
+  -webkit-app-region: drag;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-right: 146px;
+}
+.file-menu,
+.ide-actions,
+.project-menu-popover,
+.dialog-layer,
+.canvas-context-menu,
+button,
+input,
+select,
+textarea {
+  -webkit-app-region: no-drag;
+}
+
+textarea {
+  resize: none;
+  scrollbar-gutter: stable;
+}
+
+.file-menu {
+  gap: 2px;
+}
+
+.ide-actions {
+  gap: 2px;
+}
+
+.ide-topbar .file-menu button,
+.ide-actions .icon-button,
+.account-avatar-button,
+.canvas-tools button,
+.theme-options button,
+.composer-tool-button,
+.primary-wide:not(.ui-action-button),
+.secondary-wide:not(.ui-action-button),
+.image-mini-button {
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-theme="dark"] .ide-topbar .file-menu button,
+:root.theme-dark .ide-topbar .file-menu button,
+:root[data-theme="dark"] .ide-actions .icon-button,
+:root.theme-dark .ide-actions .icon-button,
+:root[data-theme="dark"] .account-avatar-button,
+:root.theme-dark .account-avatar-button,
+:root[data-theme="dark"] .canvas-tools button,
+:root.theme-dark .canvas-tools button,
+:root[data-theme="dark"] .theme-options button,
+:root.theme-dark .theme-options button,
+:root[data-theme="dark"] .composer-tool-button,
+:root.theme-dark .composer-tool-button,
+:root[data-theme="dark"] .primary-wide:not(.ui-action-button),
+:root.theme-dark .primary-wide:not(.ui-action-button),
+:root[data-theme="dark"] .secondary-wide:not(.ui-action-button),
+:root.theme-dark .secondary-wide:not(.ui-action-button) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.ide-topbar .file-menu button:hover,
+.ide-topbar .file-menu button:focus-visible,
+.ide-actions .icon-button:hover,
+.ide-actions .icon-button:focus-visible,
+.account-avatar-button:hover,
+.account-avatar-button:focus-visible,
+.account-avatar-button.active,
+.canvas-tools button:hover,
+.canvas-tools button:focus-visible,
+.theme-options button:hover,
+.theme-options button:focus-visible,
+.theme-options button.active,
+.composer-tool-button:hover,
+.composer-tool-button:focus-visible,
+.primary-wide:not(.ui-action-button):hover:not(:disabled),
+.primary-wide:not(.ui-action-button):focus-visible,
+.secondary-wide:not(.ui-action-button):hover:not(:disabled),
+.secondary-wide:not(.ui-action-button):focus-visible,
+.image-mini-button:hover,
+.image-mini-button:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--hover-bg);
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-theme="dark"] .ide-topbar .file-menu button:hover,
+:root.theme-dark .ide-topbar .file-menu button:hover,
+:root[data-theme="dark"] .ide-topbar .file-menu button:focus-visible,
+:root.theme-dark .ide-topbar .file-menu button:focus-visible,
+:root[data-theme="dark"] .ide-actions .icon-button:hover,
+:root.theme-dark .ide-actions .icon-button:hover,
+:root[data-theme="dark"] .ide-actions .icon-button:focus-visible,
+:root.theme-dark .ide-actions .icon-button:focus-visible,
+:root[data-theme="dark"] .account-avatar-button:hover,
+:root.theme-dark .account-avatar-button:hover,
+:root[data-theme="dark"] .account-avatar-button:focus-visible,
+:root.theme-dark .account-avatar-button:focus-visible,
+:root[data-theme="dark"] .canvas-tools button:hover,
+:root.theme-dark .canvas-tools button:hover,
+:root[data-theme="dark"] .canvas-tools button:focus-visible,
+:root.theme-dark .canvas-tools button:focus-visible,
+:root[data-theme="dark"] .theme-options button:hover,
+:root.theme-dark .theme-options button:hover,
+:root[data-theme="dark"] .theme-options button:focus-visible,
+:root.theme-dark .theme-options button:focus-visible,
+:root[data-theme="dark"] .theme-options button.active,
+:root.theme-dark .theme-options button.active,
+:root[data-theme="dark"] .composer-tool-button:hover,
+:root.theme-dark .composer-tool-button:hover,
+:root[data-theme="dark"] .composer-tool-button:focus-visible,
+:root.theme-dark .composer-tool-button:focus-visible,
+:root[data-theme="dark"] .primary-wide:not(.ui-action-button):hover:not(:disabled),
+:root.theme-dark .primary-wide:not(.ui-action-button):hover:not(:disabled),
+:root[data-theme="dark"] .primary-wide:not(.ui-action-button):focus-visible,
+:root.theme-dark .primary-wide:not(.ui-action-button):focus-visible,
+:root[data-theme="dark"] .secondary-wide:not(.ui-action-button):hover:not(:disabled),
+:root.theme-dark .secondary-wide:not(.ui-action-button):hover:not(:disabled),
+:root[data-theme="dark"] .secondary-wide:not(.ui-action-button):focus-visible,
+:root.theme-dark .secondary-wide:not(.ui-action-button):focus-visible {
+  border-color: var(--line-strong) !important;
+  background: var(--hover-bg) !important;
+  box-shadow: none !important;
+}
+
+.account-avatar-button {
+  color: var(--ink);
+  background: transparent;
+}
+
+.account-avatar-button.active {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.canvas-tools {
+  gap: 2px;
+}
+
+.canvas-tools button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.canvas-tools .zoom-button {
+  min-width: 66px;
+}
+.agent-header .icon-button{
+  width: 30px;
+  height: 30px;
+}
+
+.workspace-resize-handle {
+  width: 1px;
+  overflow: visible;
+}
+
+.workspace-resize-handle::before {
+  inset: 0 -5px;
+  background: transparent;
+}
+
+.workspace-resize-handle:hover::before,
+.workspace-resizing .workspace-resize-handle::before {
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.composer-toolbar {
+  padding: 5px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.composer-tool-button {
+  width: 32px;
+  flex-basis: 32px;
+}
+
+@media (max-width: 980px) {
+  .ide-topbar {
+    padding-right: 118px;
+  }
+}
+
+/* 2026-06 titlebar, timeline, composer, and drawer normalization. */
+
+.ide-topbar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  padding-left: 8px;
+  padding-right: 146px;
+}
+
+.titlebar-brand {
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.titlebar-brand-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  color: var(--accent-strong);
+  background: var(--surface);
+}
+
+.titlebar-brand strong {
+  font-size: 12px;
+  font-weight: 720;
+  letter-spacing: 0;
+}
+
+.project-actions {
+  max-width: min(700px, calc(100vw - 430px));
+}
+
+.ide-actions {
+  justify-self: end;
+}
+
+.account-avatar-button,
+:root[data-theme="dark"] .account-avatar-button,
+:root.theme-dark .account-avatar-button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-strong) !important;
+  border-radius: 50%;
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%),
+    var(--accent) !important;
+}
+
+.account-avatar-button:hover,
+.account-avatar-button:focus-visible,
+.account-avatar-button.active,
+:root[data-theme="dark"] .account-avatar-button:hover,
+:root.theme-dark .account-avatar-button:hover,
+:root[data-theme="dark"] .account-avatar-button:focus-visible,
+:root.theme-dark .account-avatar-button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--line-strong)) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 42%),
+    var(--accent) !important;
+}
+
+.agent-message {
+  overflow: visible;
+  padding: 6px 0 10px 18px;
+  border-left: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.agent-message::before {
+  display: none;
+}
+
+.agent-thinking-block {
+  padding: 8px 9px;
+  border: 0;
+  border-left: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 42%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.agent-message-node {
+  position: absolute;
+  left: -5px;
+  top: 13px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--surface-solid);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.agent-message.assistant.done .agent-message-node {
+  background: color-mix(in srgb, var(--accent) 74%, var(--blue));
+}
+
+.agent-message.user .agent-message-node {
+  background: var(--blue);
+}
+
+.agent-message.system .agent-message-node {
+  background: var(--amber);
+}
+
+.agent-message.error .agent-message-node {
+  background: var(--rose);
+}
+
+.agent-message.running .agent-message-node {
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 0 0 5px color-mix(in srgb, var(--accent) 16%, transparent);
+  animation: agent-tool-dot 1.45s ease-out infinite;
+}
+
+.agent-message.error.running .agent-message-node {
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 0 0 5px color-mix(in srgb, var(--rose) 14%, transparent);
+}
+
+.composer-toolbar {
+  min-height: 36px;
+  gap: 4px;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.composer-tool-button{
+  height: 32px;
+}
+
+@media (max-width: 980px) {
+  .ide-topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    padding-right: 118px;
+  }
+
+  .titlebar-brand strong {
+    max-width: 118px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .project-actions {
+    max-width: min(520px, calc(100vw - 360px));
+  }
+}
+
+/* 2026-06 settings polish, docked picker, and active AIDebug targets. */
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.theme-options button {
+  min-width: 0;
+  min-height: 34px;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-color: transparent;
+  color: var(--ink-soft);
+  background: transparent;
+}
+
+.theme-options button.active {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.setting-icon-action {
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-color: transparent;
+  color: var(--accent-strong);
+  background: transparent;
+}
+
+.model-provider-params label {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.model-provider-params label > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.model-provider-params select {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.model-provider-params {
+  gap: 0;
+}
+
+.model-provider-params .setting-toggle {
+  min-height: 42px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.model-provider-params .setting-toggle small {
+  grid-column: 2;
+  color: var(--muted);
+}
+
+.composer-toolbar {
+  min-height: 38px;
+  gap: 4px;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.composer-tool-button{
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  padding: 0;
+  border-color: transparent;
+  color: var(--ink-soft);
+  background: transparent;
+  box-shadow: none;
+}
+
+.composer-tool-button:hover,
+.composer-tool-button:focus-visible{
+  border-color: var(--line-strong);
+  color: var(--accent-strong);
+  background: var(--hover-bg);
+  box-shadow: none;
+}
+
+@keyframes supplement-send-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@media (max-width: 980px) {
+}
+
+/* 2026-06 fixed desktop composition and unified account/settings drawers. */
+body {
+  overflow: hidden;
+}
+
+.ide-shell {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: 38px minmax(0, 1fr);
+}
+
+.ide-topbar {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 146px 0 8px;
+}
+
+.titlebar-brand {
+  justify-self: start;
+}
+
+.project-actions {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+.file-menu,
+.ide-actions {
+  flex-wrap: nowrap;
+}
+
+.ide-main,
+.ide-main.agent-mode {
+  min-height: 0;
+  grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+  overflow: hidden;
+}
+
+.ide-main.inspector-collapsed {
+  grid-template-columns: 34px 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+}
+
+.ide-main.agent-collapsed {
+  grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px 34px;
+}
+
+.ide-main.inspector-collapsed.agent-collapsed {
+  grid-template-columns: 34px 1px minmax(360px, 1fr) 1px 34px;
+}
+
+.workspace-resize-handle {
+  display: block;
+}
+
+.canvas-panel{
+  min-height: 0;
+}
+
+@media (max-width: 1320px) {
+  body {
+    overflow: hidden;
+  }
+
+  .ide-shell {
+    height: 100vh;
+  }
+
+  .ide-main,
+  .ide-main.agent-mode {
+    grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+  }
+
+  .ide-main.inspector-collapsed {
+    grid-template-columns: 34px 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+  }
+
+  .ide-main.agent-collapsed {
+    grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px 34px;
+  }
+
+  .ide-main.inspector-collapsed.agent-collapsed {
+    grid-template-columns: 34px 1px minmax(360px, 1fr) 1px 34px;
+  }
+}
+
+@media (max-width: 980px) {
+  .ide-topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    height: 38px;
+    padding: 0 118px 0 8px;
+  }
+
+  .ide-main,
+  .ide-main.agent-mode,
+  .ide-main.inspector-collapsed,
+  .ide-main.agent-collapsed,
+  .ide-main.inspector-collapsed.agent-collapsed {
+    min-height: 0;
+  }
+
+  .workspace-resize-handle {
+    display: block;
+  }
+
+}
+
+@media (max-width: 620px) {
+  .theme-options {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

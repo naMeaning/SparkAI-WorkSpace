@@ -160,15 +160,17 @@ import type { ManualImageTaskDialogState } from "./manual-image-task-dialog";
 import {
   applyImageContainerCompatibility,
   containerBoundarySummary,
-  deriveImageLayoutGroupsFromContainerSpecs,
-  flattenImageContainerBindings,
   imageContainerKindForNode,
   imageContainerSpecForNode,
-  mergeLegacyImageLayoutGroups,
   nodeUsesImageContainer,
-  sanitizeImageContainerSpec,
+  sanitizeImageContainerSpec
+} from "./image-container-spec";
+import {
+  deriveImageLayoutGroupsFromContainerSpecs,
+  flattenImageContainerBindings,
+  mergeLegacyImageLayoutGroups,
   synchronizeImageContainerSpecs
-} from "./image-container";
+} from "./image-container-graph";
 import type { TaskResultLayoutMutation } from "./task-result-layout";
 import {
   ActionButton,

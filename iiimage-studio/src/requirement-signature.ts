@@ -1,6 +1,6 @@
 import { imageAssetIdentityFingerprint } from "./core.ts";
 import type { WorkflowNode } from "./core.ts";
-import { imageContainerSpecForNode } from "./image-container.ts";
+import { imageContainerSpecForNode } from "./image-container-spec.ts";
 import { requirementInputBindings } from "./requirement-graph.ts";
 
 /**

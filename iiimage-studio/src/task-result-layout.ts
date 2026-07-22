@@ -1,22 +1,162 @@
 import {
   cloneImageCollection,
   cloneImageContainerSpec,
-  stableImageOccurrenceId,
 } from "./core.ts";
 import type {
   AgentTaskScope,
   ImageCollection,
   WorkflowNode,
 } from "./core.ts";
+import { stableImageOccurrenceId } from "./asset-identity.ts";
 import {
   applyImageContainerCompatibility,
-  deriveImageLayoutGroupsFromContainerSpecs,
   imageContainerSpecForNode,
-  planTaskResultLayout,
+} from "./image-container-spec.ts";
+import {
+  deriveImageLayoutGroupsFromContainerSpecs,
   synchronizeImageContainerSpecs,
-} from "./image-container.ts";
-import type { TaskResultLayoutPlan } from "./image-container.ts";
+} from "./image-container-graph.ts";
 import type { ImageLayoutGroup } from "./image-layout.ts";
+
+export type TaskResultLayoutPartition = {
+  key: string;
+  sourceContainerId?: string;
+  sourceDisplayCode?: string;
+  nodeIds: string[];
+};
+
+export type TaskResultLayoutPlan = {
+  ok: boolean;
+  needed: boolean;
+  reason: "not-grouped" | "no-results" | "scope-truncated" | "missing-provenance" | "missing-source-results" | "ready-partial" | "ready";
+  orderedNodeIds: string[];
+  partitions: TaskResultLayoutPartition[];
+  missingResultNodeIds: string[];
+  missingSourceKeys: string[];
+};
+
+const cleanText = (value: unknown, maximum: number): string | undefined => {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text ? text.slice(0, maximum) : undefined;
+};
+
+const uniqueNodeIds = (values: readonly unknown[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const id = typeof value === "string" ? value.trim().slice(0, 160) : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+};
+
+const taskAssetBindingKey = (asset: AgentTaskScope["sourceAssets"][number]): string => (
+  cleanText(asset.bindingId, 520) ||
+  cleanText(asset.occurrenceId, 80) ||
+  cleanText(asset.assetId, 160) ||
+  `${cleanText(asset.nodeId, 160) || "source"}:${Number.isInteger(asset.assetIndex) ? asset.assetIndex : 0}`
+);
+
+/**
+ * Plans deterministic presentation for the image nodes produced by one frozen
+ * TaskScope. The plan is intentionally pure: the renderer owns the visual
+ * container mutation, while this function proves that every expected SOURCE
+ * or source-container has at least one matching persisted result.
+ */
+export function planTaskResultLayout(
+  nodes: readonly WorkflowNode[],
+  newNodeIds: readonly string[],
+  taskScope: AgentTaskScope,
+): TaskResultLayoutPlan {
+  if (taskScope.resultPolicy !== "grouped-by-source" && taskScope.resultPolicy !== "grouped-by-container") {
+    return { ok: true, needed: false, reason: "not-grouped", orderedNodeIds: [], partitions: [], missingResultNodeIds: [], missingSourceKeys: [] };
+  }
+  if (taskScope.truncated) {
+    return { ok: false, needed: true, reason: "scope-truncated", orderedNodeIds: [], partitions: [], missingResultNodeIds: [], missingSourceKeys: [] };
+  }
+
+  const requestedIds = new Set(uniqueNodeIds(newNodeIds));
+  const resultNodes = nodes.filter((node) => (
+    requestedIds.has(node.id) &&
+    node.type === "image" &&
+    !node.layerGroup &&
+    node.imageState !== "generating" &&
+    node.imageState !== "error" &&
+    (node.assets?.length ?? 0) > 0
+  ));
+  if (!resultNodes.length) {
+    return { ok: false, needed: true, reason: "no-results", orderedNodeIds: [], partitions: [], missingResultNodeIds: [], missingSourceKeys: [] };
+  }
+
+  const sourceByBinding = new Map(taskScope.sourceAssets.map((asset) => [taskAssetBindingKey(asset), asset] as const));
+  const expectedSourceKeys = [...new Set(taskScope.sourceAssets.map(taskAssetBindingKey).filter(Boolean))];
+  const expectedPartitionKeys = [...new Set(taskScope.sourceAssets.map((asset) => (
+    taskScope.resultPolicy === "grouped-by-container"
+      ? asset.containerId || asset.nodeId || taskAssetBindingKey(asset)
+      : taskAssetBindingKey(asset)
+  )).filter(Boolean))];
+  const expectedOrder = new Map(expectedPartitionKeys.map((key, index) => [key, index]));
+  const missingResultNodeIds: string[] = [];
+  const partitionMap = new Map<string, TaskResultLayoutPartition>();
+  const coveredSourceKeys = new Set<string>();
+
+  for (const node of resultNodes) {
+    const provenance = node.taskProvenance;
+    const bindingId = cleanText(provenance?.sourceBindingId, 520) || "";
+    const source = bindingId ? sourceByBinding.get(bindingId) : undefined;
+    const snapshotMatches = provenance?.version === 1 && provenance.taskScopeSnapshotHash === taskScope.snapshotHash;
+    if (!snapshotMatches || !source) {
+      missingResultNodeIds.push(node.id);
+      continue;
+    }
+    coveredSourceKeys.add(bindingId);
+    const key = taskScope.resultPolicy === "grouped-by-container"
+      ? provenance.sourceContainerId || source.containerId || source.nodeId || bindingId
+      : bindingId;
+    if (!expectedOrder.has(key)) {
+      missingResultNodeIds.push(node.id);
+      continue;
+    }
+    const partition = partitionMap.get(key) || {
+      key,
+      sourceContainerId: provenance.sourceContainerId || source.containerId,
+      sourceDisplayCode: provenance.sourceDisplayCode || source.displayCode,
+      nodeIds: [],
+    };
+    partition.nodeIds.push(node.id);
+    partitionMap.set(key, partition);
+  }
+
+  const partitions = [...partitionMap.values()].sort((left, right) => (
+    Number(expectedOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER) - Number(expectedOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER)
+  ));
+  // A grouped-by-container presentation may intentionally collapse several
+  // SOURCE results into one visual partition. It must still prove that every
+  // frozen SOURCE binding produced a result; merely seeing one result in the
+  // same source container is not sufficient.
+  const missingSourceKeys = expectedSourceKeys.filter((key) => !coveredSourceKeys.has(key));
+  const orderedNodeIds = partitions.flatMap((partition) => partition.nodeIds);
+  if (missingResultNodeIds.length) {
+    return { ok: false, needed: true, reason: "missing-provenance", orderedNodeIds, partitions, missingResultNodeIds, missingSourceKeys };
+  }
+  if (missingSourceKeys.length) {
+    if (taskScope.confirmationPolicy === "preview-3" || taskScope.confirmationPolicy === "staged") {
+      return { ok: true, needed: true, reason: "ready-partial", orderedNodeIds, partitions, missingResultNodeIds, missingSourceKeys };
+    }
+    return { ok: false, needed: true, reason: "missing-source-results", orderedNodeIds, partitions, missingResultNodeIds, missingSourceKeys };
+  }
+  return {
+    ok: true,
+    needed: orderedNodeIds.length > 1 || partitions.length > 1,
+    reason: "ready",
+    orderedNodeIds,
+    partitions,
+    missingResultNodeIds,
+    missingSourceKeys,
+  };
+}
 
 export type TaskResultLayoutMutation = {
   plan: TaskResultLayoutPlan;

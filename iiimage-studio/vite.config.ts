@@ -30,10 +30,13 @@ export default defineConfig(({ command, mode }) => ({
           if ([
             "/src/core.ts",
             "/src/ui.tsx",
+            "/src/image-container-spec.ts",
+            "/src/image-container-graph.ts",
             "/src/image-container.ts",
             "/src/paste-blocks.ts",
             "/src/settings-persistence.ts"
           ].some((suffix) => normalizedId.endsWith(suffix))) return "studio-shared";
+          if (normalizedId.includes("/src/ui/")) return "studio-shared";
           if (/\/lucide-react\/dist\/esm\/icons\/(?:check|image|rotate-ccw|send|shield|trash-2|workflow)\.js$/.test(normalizedId)) {
             return "studio-shared";
           }

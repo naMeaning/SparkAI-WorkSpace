@@ -1,0 +1,503 @@
+/* --------------------------------------------------------------------------
+   07 VSCode Workbench Flattening Pass
+-------------------------------------------------------------------------- */
+
+body,
+.ide-shell {
+  background: var(--bg);
+}
+.ide-shell {
+  grid-template-rows: 38px minmax(0, 1fr);
+}
+
+.ide-topbar {
+  height: 38px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.ide-main,
+.ide-main.inspector-collapsed,
+.ide-main.agent-collapsed,
+.ide-main.inspector-collapsed.agent-collapsed {
+  gap: 0;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.ide-main {
+  grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+}
+
+.ide-main.inspector-collapsed {
+  grid-template-columns: 34px 1px minmax(360px, 1fr) 1px var(--agent-w, 420px);
+}
+
+.ide-main.agent-collapsed {
+  grid-template-columns: var(--inspector-w, 200px) 1px minmax(360px, 1fr) 1px 34px;
+}
+
+.ide-main.inspector-collapsed.agent-collapsed {
+  grid-template-columns: 34px 1px minmax(360px, 1fr) 1px 34px;
+}
+
+.workspace-resize-handle {
+  width: 1px;
+  background: var(--line);
+}
+
+.workspace-resize-handle::before {
+  inset: 0 -3px;
+  border-radius: 0;
+}
+
+.workspace-resize-handle:hover::before,
+.workspace-resizing .workspace-resize-handle::before {
+  background: var(--accent);
+}
+
+.canvas-panel,
+.image-viewer,
+.auth-card,
+.fatal-screen > div {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface-solid);
+}
+
+.canvas-panel{
+  border: 0;
+  box-shadow: none;
+}
+
+.canvas-toolbar,
+.agent-header {
+  min-height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.canvas-toolbar,
+.agent-header {
+  height: 36px;
+}
+
+.canvas-footer {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.basic-panel-body{
+  padding: 8px;
+}
+
+.icon-button,
+.file-menu button,
+.canvas-tools button,
+.primary-wide:not(.ui-action-button),
+.secondary-wide:not(.ui-action-button),
+.theme-options button,
+.composer-tool-button,
+.image-mini-button,
+.image-mini-select-trigger {
+  border-radius: 0;
+  box-shadow: none;
+  transform: none;
+  background: var(--control-bg);
+}
+
+.icon-button:hover,
+.file-menu button:hover,
+.canvas-tools button:hover,
+.primary-wide:not(.ui-action-button):hover:not(:disabled),
+.secondary-wide:not(.ui-action-button):hover:not(:disabled),
+.theme-options button:hover,
+.composer-tool-button:hover {
+  transform: none;
+  background: var(--hover-bg);
+  box-shadow: none;
+}
+
+.account-avatar-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.account-avatar-button:hover,
+.account-avatar-button.active {
+  transform: none;
+  box-shadow: none;
+}
+
+.flow-node {
+  gap: 6px;
+  padding: 8px 8px 30px;
+  border-radius: 2px;
+  background: var(--surface-solid);
+  box-shadow: none;
+  transition: border-color 0.14s ease, opacity 0.14s ease;
+}
+
+.flow-node:hover,
+.flow-node.selected {
+  transform: none;
+  box-shadow: none;
+}
+
+.flow-node.selected {
+  outline: 1px solid var(--accent);
+}
+
+.node-id,
+.canvas-node-row-id,
+.node-dock-id,
+.experience-target span {
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.flow-node.image .node-id,
+.canvas-node-row-id.image,
+.node-dock-id.image-node-id {
+  background: var(--blue);
+}
+
+.flow-node.export .node-id {
+  background: var(--green);
+}
+
+.flow-node.branch .node-id {
+  background: var(--rose);
+}
+
+.node-state,
+.node-image-preview,
+.node-image-tile,
+.node-image-pending-tile,
+.node-error,
+.node-layer-stack,
+.canvas-node-row,
+.auth-switch,
+.reference-picker,
+.reference-list figure,
+.agent-message-paste-block,
+.agent-thinking-block,
+.agent-tool-trace,
+.markdown-code-block,
+.markdown-body pre,
+.markdown-body code,
+.markdown-body blockquote {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.node-image-preview,
+.canvas-node-row,
+.reference-picker,
+.reference-list figure,
+.setting-block,
+.delete-node-summary,
+.experience-target {
+  background: transparent;
+}
+
+.agent-message {
+  max-width: 100%;
+  padding: 7px 0 9px 14px;
+  overflow: hidden;
+}
+
+.agent-message,
+.agent-message .markdown-body,
+.agent-message .markdown-body *,
+.agent-tool-trace,
+.agent-tool-trace *,
+.agent-thinking-block,
+.markdown-code-block,
+.markdown-code-block pre {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-body pre,
+.markdown-code-block pre {
+  overflow-x: auto;
+}
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.theme-options button {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 0;
+}
+
+.setting-section-head {
+  min-height: 30px;
+}
+
+.setting-section-head h3 {
+  margin: 0;
+}
+
+.setting-note,
+.setting-error {
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.setting-block input,
+.setting-block select {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.model-provider-params {
+  gap: 8px;
+}
+
+.setting-model-list {
+  gap: 1px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+@media (max-width: 1320px) {
+  .ide-main {
+    grid-template-columns: minmax(170px, min(var(--inspector-w, 216px), 25vw)) 1px minmax(280px, 1fr) 1px minmax(272px, min(var(--agent-w, 456px), 34vw));
+  }
+
+  .ide-main.inspector-collapsed {
+    grid-template-columns: 34px 1px minmax(280px, 1fr) 1px minmax(272px, min(var(--agent-w, 456px), 34vw));
+  }
+
+  .ide-main.agent-collapsed {
+    grid-template-columns: minmax(170px, min(var(--inspector-w, 216px), 25vw)) 1px minmax(280px, 1fr) 1px 34px;
+  }
+
+  .ide-main.inspector-collapsed.agent-collapsed {
+    grid-template-columns: 34px 1px minmax(280px, 1fr) 1px 34px;
+  }
+}
+
+@media (max-width: 980px) {
+  .ide-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    overflow: visible;
+  }
+
+  .project-actions {
+    max-width: 100%;
+  }
+
+  .project-quick-actions button {
+    min-width: max-content;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+
+  .ide-main,
+  .ide-main.inspector-collapsed,
+  .ide-main.agent-collapsed,
+  .ide-main.inspector-collapsed.agent-collapsed {
+    grid-template-columns: 1fr;
+    background: var(--line);
+  }
+
+  .workspace-resize-handle {
+    display: none;
+  }
+}
+
+/* Workbench consolidation: keep the active surfaces flat and log-like. */
+
+.flow-node {
+  gap: 5px;
+  padding: 7px 7px 26px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-solid);
+}
+
+.flow-node:hover {
+  border-color: var(--accent);
+}
+
+.flow-node.working,
+.flow-node.review,
+.flow-node.done {
+  border-color: var(--line-strong);
+}
+
+.flow-node.working {
+  border-left: 1px solid var(--line-strong);
+}
+
+.flow-node.review {
+  border-left: 2px solid var(--blue);
+}
+
+.flow-node.done {
+  border-left: 2px solid var(--green);
+}
+
+.flow-node.selected {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--surface-solid) 92%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 24px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.flow-node.selected.review {
+  border-left-color: var(--blue);
+}
+
+.flow-node.selected.done {
+  border-left-color: var(--green);
+}
+
+.node-head {
+  min-height: 30px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.node-id,
+.canvas-node-row-id,
+.node-dock-id {
+  width: 28px;
+  height: 28px;
+  border-radius: 0;
+}
+
+.node-state {
+  min-height: 22px;
+  padding: 0 5px;
+  border: 0;
+  background: transparent;
+}
+
+.node-resize-handle {
+  right: 5px;
+  bottom: 5px;
+  width: 13px;
+  height: 13px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  opacity: 0.52;
+}
+
+.node-image-preview,
+.node-image-tile,
+.node-image-pending-tile {
+  border: 1px solid var(--line);
+  background: var(--canvas);
+}
+
+.node-image-tile:hover {
+  transform: none;
+}
+
+.node-error,
+.agent-thinking-block,
+.agent-tool-trace,
+.agent-message-paste-block,
+.markdown-code-block,
+.markdown-body pre,
+.markdown-body code,
+.markdown-body blockquote {
+  background: transparent;
+}
+
+.agent-message {
+  padding: 6px 0;
+  border-left: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 54%, transparent);
+}
+
+.agent-message::before {
+  display: none;
+}
+
+.agent-message .markdown-body {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.52;
+}
+
+.agent-message.assistant.error .markdown-body,
+.agent-message.error .markdown-body {
+  color: var(--rose);
+}
+
+.agent-tool-trace {
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 2px 7px;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, var(--line));
+}
+
+.agent-tool-trace-kind {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.agent-tool-trace-name,
+.agent-tool-trace-operation,
+.agent-tool-trace-brief {
+  font-size: 11px;
+  line-height: 1.42;
+}
+
+.agent-thinking-block {
+  padding: 5px 0 5px 8px;
+  border: 0;
+  border-left: 2px solid var(--line-strong);
+}
+
+@media (max-width: 980px) {
+
+  .agent-message {
+    padding: 4px 0;
+  }
+
+}

@@ -1,0 +1,50 @@
+html,
+body,
+#root {
+  min-width: var(--ii-workbench-min-width);
+}
+.ide-shell {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 100vw;
+  min-width: var(--ii-workbench-min-width);
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: 38px minmax(0, 1fr);
+}
+
+.ide-main.canvas-only,
+.ide-main.canvas-only.agent-mode,
+.ide-main.canvas-only.inspector-collapsed {
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 30vw, 420px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: unset;
+  overflow: hidden;
+}
+
+.ide-main.canvas-only.agent-collapsed,
+.ide-main.canvas-only.inspector-collapsed.agent-collapsed {
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  grid-template-rows: minmax(0, 1fr);
+  grid-auto-rows: unset;
+  overflow: hidden;
+}
+
+.ide-main.canvas-only .canvas-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.ide-main.canvas-only .workflow-canvas {
+  min-height: 0;
+  height: 100%;
+}

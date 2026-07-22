@@ -1,0 +1,32 @@
+/* AuthGate is a standalone surface. Keep its form isolated from the dense
+   workbench button/input flattening rules so logout never reveals an
+   unstructured row of native controls. */
+.auth-card .auth-gate-form {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: row;
+  align-items: stretch;
+  justify-items: stretch;
+  gap: 12px;
+}
+.auth-card .auth-gate-form > *,
+.auth-card .auth-gate-form .auth-switch,
+.auth-card .auth-gate-form .basic-auth-submit {
+  width: 100%;
+  min-width: 0;
+  grid-column: 1 / -1;
+}
+
+.auth-card .auth-gate-form > .ui-field {
+  margin: 0;
+}
+
+.auth-card .auth-gate-form .auth-switch {
+  align-self: stretch;
+}
+
+.auth-card .auth-gate-form .basic-auth-submit {
+  min-height: 40px;
+}

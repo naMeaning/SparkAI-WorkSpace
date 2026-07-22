@@ -6,6 +6,13 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const cssPath = path.join(root, "src", "styles.css");
 const uiPath = path.join(root, "src", "ui.tsx");
+const uiModulePaths = [
+  "dialog-shell.tsx",
+  "primitives.tsx",
+  "menu-surface.tsx",
+  "overflow-tooltip.tsx",
+  "floating-dialog-interactions.ts",
+].map((file) => path.join(root, "src", "ui", file));
 const mainPath = path.join(root, "src", "main.tsx");
 const accountDrawerPath = path.join(root, "src", "account-drawer.tsx");
 const modelConfigDialogPath = path.join(root, "src", "model-config-dialog.tsx");
@@ -28,7 +35,8 @@ function readCssGraph(entryPath, seen = new Set()) {
 }
 
 const cssSource = readCssGraph(cssPath);
-const uiSource = fs.readFileSync(uiPath, "utf8");
+const uiFacadeSource = fs.readFileSync(uiPath, "utf8");
+const uiSource = [uiFacadeSource, ...uiModulePaths.map((file) => fs.readFileSync(file, "utf8"))].join("\n");
 const mainSource = fs.readFileSync(mainPath, "utf8");
 const businessUiSource = [
   accountDrawerPath,
@@ -161,6 +169,16 @@ for (const [selector, property, token] of layerContracts) {
 
 check("DialogShell exposes a typed layer level", /export type DialogLayerLevel = "dialog" \| "nested";/.test(uiSource));
 check("DialogShell writes its layer level to the DOM", /data-ui-layer-level=\{layerLevel\}/.test(uiSource));
+
+const publicUiSymbols = [
+  "DialogShell", "DrawerShell", "SurfaceBody", "SurfaceFooter", "SurfaceHeader", "SurfaceSection",
+  "ActionButton", "ButtonBase", "CodeField", "ErrorBoundary", "Field", "IconActionButton", "InlineNotice",
+  "SearchField", "SegmentButton", "SegmentedControl", "StatusLine", "MenuItem", "MenuSeparator", "MenuSummary",
+  "MenuSurface", "OverflowTooltipLayer", "useFloatingDialogInteractions",
+];
+for (const symbol of publicUiSymbols) {
+  check(`${symbol} stays on the ui.tsx compatibility facade`, new RegExp(`\\b${symbol}\\b`).test(uiFacadeSource));
+}
 
 for (const primitive of ["SurfaceSection", "Field", "CodeField", "InlineNotice", "StatusLine", "MenuSurface", "MenuItem", "MenuSeparator", "MenuSummary", "SegmentedControl", "SegmentButton", "SearchField"]) {
   check(`${primitive} primitive is exported`, new RegExp(`export function ${primitive}\\b`).test(uiSource));
