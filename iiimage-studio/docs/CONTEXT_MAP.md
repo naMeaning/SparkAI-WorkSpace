@@ -34,7 +34,7 @@
 
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
-- `agent-runtime.cjs` 负责 Prompt、公开工具、上下文压缩、FastMemory、模型协议与工具执行，但不直接修改 React state。
+- `agent-runtime.cjs` 负责 Prompt、上下文压缩、FastMemory、模型协议循环与工具执行；tool schema 和 Responses/Chat 响应解析由 `runtime/` 纯模块持有，但均不直接修改 React state。
 - CRM、New API、账户/角色/quota/计费、下载站和生产部署位于独立 `ai-native` 仓库。
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
@@ -57,6 +57,8 @@ Electron Main: electron-main.cjs
           │
           ├─ Prompt / tool schemas / protocol loop
           ├─ SQLite + JSON memory stores
+          ├─ runtime/tool-schemas.cjs：公开与内部 Agent tool schema
+          ├─ runtime/responses-parser.cjs：Responses/Chat 响应归一化与流式 chunk 聚合
           ├─ runtime/image-frame.cjs：Image 2 画幅与请求尺寸
           ├─ runtime/view-image-payload.cjs：view_image 授权与观察副本预算
           ├─ image_gen / view_image / shell_command / ask_user
@@ -207,10 +209,12 @@ Renderer UpdaterBridge
 | --- | --- | --- | --- | --- |
 | `electron-main.cjs` | Electron 生命周期、IPC、项目 IO、远端会话、模型缓存、更新、runtime 工厂 | React UI、画布 reducer | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
 | `preload.cjs` | 四组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `iiimageConfig`, `iiimageServer`, `iiimageUpdater`, `iiimageAgent` | `test:ui-foundation`, `test:lifecycle`, `aidebug:gui` |
-| `agent-runtime.cjs` | Prompt、tool schema、memory、协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、重复实现已抽出的图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
+| `agent-runtime.cjs` | Prompt、memory、模型/工具协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
 | `desktop/project-save-coordinator.cjs` | 按项目串行保存、revision 规范化、旧写入拒绝 | session 清洗、路径选择、磁盘格式 | `createProjectSaveCoordinator`, `normalizeSessionRevision`, `enqueue` | `test:project-save-coordinator`, `test:project-io` |
 | `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image 默认模型选择、缓存键与缓存归一化 | 网络请求、磁盘缓存时机、IPC | `uniqueModelIds`, `modelIdsFromResponse`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
 | `desktop/agent-responses-adapter.cjs` | Chat Completions 请求到 Responses API input/tool/tool-choice 的纯转换 | HTTP、流读取、凭据或重试 | `responsesRequestFromChatRequest`, `responsesInputFromChatMessages`, `responsesToolsFromChatTools` | `test:agent-responses-adapter`, `test:agent-protocol` |
+| `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
+| `runtime/responses-parser.cjs` | Chat/Responses 非流式响应归一化、文本/推理 delta 读取、tool-call 与 Responses output 流式聚合 | HTTP/SSE 读取、原生工具进度编排、Agent loop 或工具执行 | `messageFromResponse`, `responseFromStreamChunks`, `mergeResponsesToolCallEvent` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/image-frame.cjs` | Image 2 比例、分辨率、质量与 delivery/request size 归一化 | 模型请求发送、项目资产落盘 | `normalizeImage2Size`, `normalizeImageToolFrame`, `validateImageFrameFields` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/view-image-payload.cjs` | `view_image` 允许根、安全读取、格式/尺寸识别、批量 payload 预算与 WebP 观察副本 | 会话持久化、画布预览、原图覆盖 | `prepareViewImageModelPayload`, `viewImagePathAllowed`, `viewImagePayloadBudgetForBatch` | `test:view-image`, `test:agent-protocol` |
 | `update-release.cjs` | 更新清单 canonical text | 下载、安装、UI | `canonicalDesktopRelease` | `test:update`, `release:verify`, `package:update-e2e` |
@@ -448,7 +452,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；`agent-runtime.cjs` 的 tool schema 与 Responses/Chat parser 已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 已变为 28 行有序入口；最大样式热点是 `src/styles/07-workbench-flattening.css`。任何拆分必须保持 01→08 import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
@@ -462,3 +466,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | --- | --- | --- |
 | 2026-07-22 | 1.0.4 | 建立首版上下文地图；登记 `src/window-controls.tsx` 与 `desktop/project-save-coordinator.cjs`；补全进程拓扑、调用链、跨边界契约、镜像规则、持久化和测试映射。 |
 | 2026-07-22 | 1.0.4 | 模块化 `main.tsx` 表面、Electron 模型/Responses/保存域、runtime 图片帧与 `view_image`、core 设置/资产/粘贴域；把 1 万行样式按原级联顺序拆成 8 区；新增对应 selftest、打包白名单和共享 chunk 门禁。 |
+| 2026-07-22 | 1.0.4 | 抽出 `runtime/tool-schemas.cjs` 与 `runtime/responses-parser.cjs`，让 Agent runtime facade 只消费稳定 schema 和响应解析 owner；增加直接协议 characterization 与禁止重复实现断言。 |

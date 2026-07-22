@@ -14,6 +14,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createAgentRuntime, defaultPromptText, normalizeImageToolFrame, toolSchemas } = require("../agent-runtime.cjs");
+const { agentToolSchemas: ownedAgentToolSchemas, toolSchemas: ownedToolSchemas } = require("../runtime/tool-schemas.cjs");
+const {
+  messageFromResponse: ownedMessageFromResponse,
+  responseFromStreamChunks: ownedResponseFromStreamChunks,
+  responseToolCallFromItem: ownedResponseToolCallFromItem,
+} = require("../runtime/responses-parser.cjs");
 
 const forbiddenPublicMetadata = /\bfmem(?:-[a-z0-9_-]+)?\b|\bentry[_ ]?id\b|\bentryId\b|\bselector\b|\bkeywords\b/i;
 
@@ -146,7 +152,233 @@ function streamedResponsesOutput(output) {
   };
 }
 
+function assertResponsesParserContract() {
+  const chatMessage = { role: "assistant", content: "Chat completion response", tool_calls: [] };
+  assert.equal(
+    ownedMessageFromResponse({ choices: [{ message: chatMessage }] }),
+    chatMessage,
+    "Chat Completions messages must pass through unchanged",
+  );
+
+  const responsesOutput = [
+    {
+      id: "responses-message-1",
+      type: "message",
+      content: [
+        { type: "output_text", text: "Responses text " },
+        { type: "refusal", refusal: "and refusal" },
+      ],
+    },
+    {
+      id: "responses-call-item-1",
+      call_id: "responses-call-1",
+      type: "function_call",
+      name: "image_gen",
+      arguments: { prompt: "product poster" },
+    },
+  ];
+  assert.deepEqual(
+    ownedMessageFromResponse({ output_text: "unused fallback", output: responsesOutput }),
+    {
+      role: "assistant",
+      content: "Responses text and refusal",
+      tool_calls: [
+        {
+          id: "responses-call-1",
+          type: "function",
+          function: { name: "image_gen", arguments: '{"prompt":"product poster"}' },
+        },
+      ],
+      responses_output: responsesOutput,
+    },
+    "Responses output messages and function calls must normalize to the Chat message contract",
+  );
+  assert.deepEqual(
+    ownedMessageFromResponse({ output_text: "Responses output_text fallback", output: [] }),
+    {
+      role: "assistant",
+      content: "Responses output_text fallback",
+      tool_calls: [],
+      responses_output: [],
+    },
+  );
+
+  const circularArguments = {};
+  circularArguments.self = circularArguments;
+  assert.equal(
+    ownedResponseToolCallFromItem({ type: "function_call", name: "image_gen", arguments: circularArguments })
+      .function.arguments,
+    '{"error":"json stringify failed"}',
+    "Non-serializable Responses arguments must preserve the runtime safe-JSON fallback",
+  );
+
+  const chatStream = ownedResponseFromStreamChunks([
+    {
+      model: "chat-stream-model",
+      choices: [
+        {
+          delta: {
+            content: "Hel",
+            reasoning_content: "think ",
+            tool_calls: [
+              {
+                index: 0,
+                id: "chat-stream-call-1",
+                type: "function",
+                function: { name: "image_gen", arguments: '{"prompt":"' },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      choices: [
+        {
+          delta: {
+            content: "lo",
+            reasoning: "step",
+            tool_calls: [{ index: 0, function: { arguments: 'poster"}' } }],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(chatStream, {
+    model: "chat-stream-model",
+    choices: [
+      {
+        finish_reason: "tool_calls",
+        message: {
+          role: "assistant",
+          content: "Hello",
+          reasoning_content: "think step",
+          tool_calls: [
+            {
+              id: "chat-stream-call-1",
+              type: "function",
+              function: { name: "image_gen", arguments: '{"prompt":"poster"}' },
+            },
+          ],
+          responses_output: [],
+        },
+      },
+    ],
+  });
+
+  const addedCallItem = {
+    id: "responses-stream-item-1",
+    call_id: "responses-stream-call-1",
+    type: "function_call",
+    name: "image_gen",
+    arguments: "",
+  };
+  const doneCallItem = { ...addedCallItem, arguments: '{"prompt":"stream poster"}' };
+  const doneMessageItem = {
+    id: "responses-stream-message-1",
+    type: "message",
+    content: [{ type: "output_text", text: "Hello world" }],
+  };
+  const responsesStream = ownedResponseFromStreamChunks([
+    { type: "response.output_text.delta", model: "responses-stream-model", delta: "Hello " },
+    { type: "response.content_part.delta", part: { type: "output_text", text: "world" } },
+    { type: "response.reasoning_text.delta", reasoning: "plan " },
+    { type: "response.output_item.added", output_index: 0, item: addedCallItem },
+    {
+      type: "response.function_call_arguments.delta",
+      output_index: 0,
+      item_id: "responses-stream-call-1",
+      delta: '{"prompt":"stream ',
+    },
+    {
+      type: "response.function_call_arguments.done",
+      output_index: 0,
+      item_id: "responses-stream-call-1",
+      arguments: '{"prompt":"stream poster"}',
+    },
+    { type: "response.output_item.done", output_index: 0, item: doneCallItem },
+    { type: "response.output_item.done", output_index: 1, item: doneMessageItem },
+  ]);
+  assert.deepEqual(responsesStream, {
+    model: "responses-stream-model",
+    choices: [
+      {
+        finish_reason: undefined,
+        message: {
+          role: "assistant",
+          content: "Hello world",
+          reasoning_content: "plan ",
+          tool_calls: [
+            {
+              id: "responses-stream-call-1",
+              type: "function",
+              function: { name: "image_gen", arguments: '{"prompt":"stream poster"}' },
+            },
+          ],
+          responses_output: [doneCallItem, doneMessageItem],
+        },
+      },
+    ],
+  });
+
+  const completedOutput = [
+    {
+      id: "web-search-1",
+      type: "web_search_call",
+      status: "completed",
+      action: { type: "search", query: "2026 design trend" },
+    },
+    {
+      id: "responses-final-message-1",
+      type: "message",
+      content: [{ type: "output_text", text: "Final response" }],
+    },
+    {
+      id: "responses-final-call-item-1",
+      call_id: "responses-final-call-1",
+      type: "function_call",
+      name: "image_gen",
+      arguments: '{"prompt":"final poster"}',
+    },
+  ];
+  const completedStream = ownedResponseFromStreamChunks([
+    { type: "response.output_text.delta", model: "responses-fallback-model", delta: "Partial response" },
+    { type: "response.reasoning_text.delta", reasoning_content: "final reasoning" },
+    {
+      type: "response.completed",
+      response: {
+        model: "responses-final-model",
+        status: "completed",
+        output: completedOutput,
+      },
+    },
+  ]);
+  assert.deepEqual(completedStream, {
+    model: "responses-final-model",
+    choices: [
+      {
+        finish_reason: "completed",
+        message: {
+          role: "assistant",
+          content: "Final response",
+          reasoning_content: "final reasoning",
+          tool_calls: [
+            {
+              id: "responses-final-call-1",
+              type: "function",
+              function: { name: "image_gen", arguments: '{"prompt":"final poster"}' },
+            },
+          ],
+          responses_output: completedOutput,
+        },
+      },
+    ],
+  });
+}
+
 async function runSelftest(directory) {
+  assertResponsesParserContract();
   const configDir = path.join(directory, "config");
   const memoryDir = path.join(configDir, "memory");
   const promptPath = path.join(memoryDir, "promptcontext.json");
@@ -640,6 +872,8 @@ async function runSelftest(directory) {
     );
     const schemasBeforePromptSave = runtime.getToolSchemas(schemaSettings);
     const schemasBeforePromptSaveJson = JSON.stringify(schemasBeforePromptSave);
+    assert.equal(toolSchemas, ownedToolSchemas, "agent-runtime facade must re-export the owned internal tool schema factory");
+    assert.deepEqual(schemasBeforePromptSave, ownedAgentToolSchemas(schemaSettings), "Runtime public schemas must come from the dedicated schema owner");
     assert(schemasBeforePromptSave.length > 0, "Expected public Agent tool schemas");
     assert.equal(
       /\b(?:selector|entryId|entry_id|memoryRef|sourceEntryIds|selectedEntryIds)\b|\b(?:fmem|ent|pmt|mctx)-[a-z0-9_-]+\b/i.test(schemasBeforePromptSaveJson),
@@ -937,6 +1171,14 @@ async function runSelftest(directory) {
     assert.equal(/Current Selected Nodes:\nundefined\b/i.test(runtimeContextText), false, "An empty canvas selection must not become a literal undefined node ID");
 
     const runtimeSource = readFileSync(path.resolve(__dirname, "..", "agent-runtime.cjs"), "utf8");
+    assert(runtimeSource.includes('require("./runtime/tool-schemas.cjs")'), "Agent runtime must consume the dedicated tool schema owner");
+    assert.equal(/function\s+(?:normalizeToolSchemas|imageModelToolProperty|toolSchemas|agentToolSchemas)\s*\(/.test(runtimeSource), false, "Agent runtime facade must not duplicate tool schema implementations");
+    assert(runtimeSource.includes('require("./runtime/responses-parser.cjs")'), "Agent runtime must consume the dedicated Responses parser owner");
+    assert.equal(
+      /function\s+(?:responsesTextPart|responseToolCallFromItem|messageFromResponsesOutput|messageFromResponse|reasoningDeltaFromChunk|contentDeltaFromChunk|mergeToolCallDelta|upsertResponsesToolCall|mergeResponsesToolCallEvent|responseFromStreamChunks)\s*\(/.test(runtimeSource),
+      false,
+      "Agent runtime facade must not duplicate Responses parsing or stream aggregation implementations",
+    );
     assert.equal(/intentSystemMessage|Current Image Intent|model-force|model-arg-correct/.test(runtimeSource), false, "Runtime source must not retain hidden intent injection or argument-force phases");
     assert.equal(/requestOptions\.tools\s*\?\?\s*toolSchemas/.test(runtimeSource), false, "callModel must not fall back to the complete internal tool schema");
     assert(runtimeSource.includes("必须显式提供 tools 数组"), "callModel should enforce explicit tool exposure at every caller");
