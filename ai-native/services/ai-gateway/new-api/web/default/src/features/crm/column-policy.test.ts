@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
-const source = readFileSync(
-  fileURLToPath(new URL('./index.tsx', import.meta.url)),
-  'utf8'
-)
+import { crmFeatureSource as source } from './source-test-helper'
 
 test('agent-facing CRM sections do not reuse admin columns that expose internal IDs', () => {
   for (const [section, adminColumns] of [

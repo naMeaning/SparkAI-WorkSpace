@@ -17,14 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
-const source = readFileSync(
-  fileURLToPath(new URL('./index.tsx', import.meta.url)),
-  'utf8'
-)
+import { crmFeatureSource as source } from './source-test-helper'
 
 function assertContainsAll(label: string, needles: string[]) {
   for (const needle of needles) {
