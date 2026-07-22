@@ -291,6 +291,16 @@ Renderer UpdaterBridge
 
 Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约束，不能只为目录美观移动。
 
+### 5.6 AIDebug harness 与 suite
+
+| 路径 | Owns | Must not own | 主要验证 |
+| --- | --- | --- | --- |
+| `scripts/aidebug-gui.mjs` | CLI 参数、suite 选择、运行目录、Vite/Electron/CDP 总编排和最终报告 | 已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `aidebug:gui` 与各 `--*-suite` 专项 |
+| `scripts/aidebug/harness/*` | CDP 连接、受控进程退出、PNG 读取/比较、双帧和原生截图证据 | 产品场景、画布业务断言、suite CLI 决策 | `aidebug:gui`, `node --check` |
+| `scripts/aidebug/suites/selection-command.mjs` | selection/command 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:selection` |
+| `scripts/aidebug/suites/ui-surface.mjs` | UI surface 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:gui` |
+| `scripts/aidebug/suites/image-generation.mjs` | 单图、图片恢复和图片集合三个图像 probe | CLI/process/CDP 生命周期、其他 suite | `aidebug:image`, `aidebug:image-recovery`, `aidebug:image-collection` |
+
 ## 6. 跨边界契约
 
 ### 6.1 Preload 与 IPC
