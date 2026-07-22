@@ -164,6 +164,9 @@ Renderer 自动保存 / 显式保存
   → window.iiimageConfig.saveSession(session + revision)
   → preload IPC "iiimage:config:save-session"
   → electron-main.cjs
+  → desktop/project-store.cjs 解析 active project、session/manifest 路径和 manifest v2
+  → desktop/project-session-normalizer.cjs 清洗 session、迁移容器并修复资产身份
+  → desktop/project-asset-repository.cjs hydrate/save 项目资产索引
   → projectSessionSaveCoordinator.enqueue(projectId, requestedRevision, apply)
        ├─ 每个项目独立串行队列
        ├─ 首次从磁盘读取 initialRevision
@@ -172,7 +175,7 @@ Renderer 自动保存 / 显式保存
   → 原子 JSON 写入 + project manifest 更新
 ```
 
-`desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`apply` 返回 `applied:false` 时不得推进 revision。
+`desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`project-store.cjs` 拥有项目列表、路径和 manifest；session 清洗与资产索引分别只有一个 owner。`apply` 返回 `applied:false` 时不得推进 revision。
 
 ### 4.6 图片导入与输出
 
@@ -209,9 +212,12 @@ Renderer UpdaterBridge
 
 | 路径 | Owns | Must not own | 关键检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
-| `electron-main.cjs` | Electron 生命周期、IPC、项目 IO、远端账户/图片编排、模型缓存、更新、runtime 工厂 | React UI、画布 reducer、重复实现 New API raw transport/client | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
+| `electron-main.cjs` | Electron 生命周期、IPC、项目服务编排、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、重复实现 project store/session normalization/asset repository 或 New API transport/client | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
 | `preload.cjs` | 四组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `iiimageConfig`, `iiimageServer`, `iiimageUpdater`, `iiimageAgent` | `test:ui-foundation`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、compact/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
+| `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、legacy manifest migration、thumbnail roots | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
+| `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
+| `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-save-coordinator.cjs` | 按项目串行保存、revision 规范化、旧写入拒绝 | session 清洗、路径选择、磁盘格式 | `createProjectSaveCoordinator`, `normalizeSessionRevision`, `enqueue` | `test:project-save-coordinator`, `test:project-io` |
 | `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image 默认模型选择、缓存键与缓存归一化 | 网络请求、磁盘缓存时机、IPC | `uniqueModelIds`, `modelIdsFromResponse`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
 | `desktop/agent-responses-adapter.cjs` | Chat Completions 请求到 Responses API input/tool/tool-choice 的纯转换 | HTTP、流读取、凭据或重试 | `responsesRequestFromChatRequest`, `responsesInputFromChatMessages`, `responsesToolsFromChatTools` | `test:agent-responses-adapter`, `test:agent-protocol` |

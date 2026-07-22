@@ -12,6 +12,7 @@ const {
 } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { PROJECT_ASSET_REPOSITORY_OWNER } = require("../desktop/project-asset-repository.cjs");
 
 process.env.IIIMAGE_PROJECT_IO_SELFTEST = "1";
 const testRoot = mkdtempSync(path.join(os.tmpdir(), "iiimage-project-io-selftest-"));
@@ -68,6 +69,10 @@ function imageNode(id, assets, extra = {}) {
 }
 
 async function run() {
+  assert.equal(projectIo.projectAssetRepositoryOwner, PROJECT_ASSET_REPOSITORY_OWNER, "Project asset persistence must have one explicit desktop owner");
+  assert.equal(projectIo.buildProjectAssetIndex, projectIo.projectAssetRepository.buildProjectAssetIndex, "Main must re-export the repository-owned asset index implementation without a duplicate wrapper");
+  assert.equal(projectIo.sessionForProjectSave, projectIo.projectAssetRepository.sessionForProjectSave, "Main must re-export the repository-owned save normalizer without a duplicate implementation");
+  assert.equal(projectIo.sessionWithProjectAssets, projectIo.projectAssetRepository.sessionWithProjectAssets, "Main must re-export the repository-owned hydration implementation without a duplicate implementation");
   const externalParent = path.join(testRoot, "external-parent");
   mkdirSync(externalParent, { recursive: true });
   mkdirSync(path.join(externalParent, "画布 3"), { recursive: true });
@@ -1094,6 +1099,8 @@ async function run() {
     occurrencePortablePackagePreserved: true,
     unsafeSourceRelativePathsRejected: true,
     emptySelectionPreserved: true,
+    projectAssetRepositoryOwner: PROJECT_ASSET_REPOSITORY_OWNER,
+    projectAssetRepositoryFacadeUnique: true,
   };
 }
 
