@@ -539,7 +539,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := withoutManagedRelayTokens(DB.Select("id", commonKeyCol).
+	err := withoutManagedRelayTokens(DB.Select("id", "key").
 		Where("user_id = ? AND id IN (?)", userId, ids)).
 		Find(&tokens).Error
 	return tokens, err
