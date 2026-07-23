@@ -141,7 +141,7 @@ func TestManagedImageIdempotencySingleFlightsBillableHandlerAndPersistsReplay(t 
 	require.Equal(t, int32(1), settlementCalls.Load(), "successful billing settlement must execute once")
 	require.NotNil(t, upstreamKey.Load())
 	assert.NotEqual(t, "image-job-001", upstreamKey.Load().(string))
-	assert.Contains(t, upstreamKey.Load().(string), "naimage-")
+	assert.Contains(t, upstreamKey.Load().(string), managedImageLegacyWireKeyPrefix)
 	for index, recorder := range recorders {
 		require.Equal(t, http.StatusOK, recorder.Code, "request %d: %s", index, recorder.Body.String())
 		require.Equal(t, recorders[0].Body.String(), recorder.Body.String())
@@ -228,6 +228,41 @@ func TestManagedImageIdempotencyReplaysAcrossNativeAndPublicRoutes(t *testing.T)
 	var recordCount int64
 	require.NoError(t, model.DB.Model(&model.ManagedImageIdempotencyRecord{}).Count(&recordCount).Error)
 	assert.Equal(t, int64(1), recordCount)
+}
+
+func TestManagedImageIdempotencyReplaysAcrossClientBrandPrefix(t *testing.T) {
+	setupManagedImageIdempotencyTestDB(t)
+	config := managedImageIdempotencyTestConfig(t, time.Unix(1_800_000_040, 0))
+	var handlerCalls atomic.Int32
+	var upstreamKey atomic.Value
+	router := managedImageIdempotencyTestRouter(config, func(c *gin.Context) {
+		handlerCalls.Add(1)
+		upstreamKey.Store(c.GetHeader("Idempotency-Key"))
+		c.JSON(http.StatusOK, gin.H{"data": []gin.H{{"b64_json": "brand-prefix-image"}}})
+	})
+	body := []byte(`{"model":"image-2","prompt":"same job across product rename"}`)
+	legacyClientKey := managedImageLegacyWireKeyPrefix + "same-job"
+	canonicalClientKey := managedImageCanonicalClientKeyPrefix + "same-job"
+
+	legacy := performManagedImageRequest(router, "/v1/images/generations", "application/json", body, legacyClientKey)
+	canonical := performManagedImageRequest(router, "/naimage/v1/images/generations", "application/json", body, canonicalClientKey)
+
+	require.Equal(t, http.StatusOK, legacy.Code, legacy.Body.String())
+	require.Equal(t, legacy.Body.String(), canonical.Body.String())
+	assert.Equal(t, "created", legacy.Header().Get("Idempotency-Status"))
+	assert.Equal(t, "replayed", canonical.Header().Get("Idempotency-Status"))
+	require.Equal(t, int32(1), handlerCalls.Load(), "a product rename must not execute or bill the same image job twice")
+	require.NotNil(t, upstreamKey.Load())
+	assert.Equal(
+		t,
+		managedImageUpstreamIdempotencyPrefix+managedImageScopeHash(27, legacyClientKey),
+		upstreamKey.Load().(string),
+	)
+	assert.Equal(
+		t,
+		managedImageScopeHashForClientKey(27, legacyClientKey),
+		managedImageScopeHashForClientKey(27, canonicalClientKey),
+	)
 }
 
 func TestManagedImageIdempotencyDurableClaimBlocksASecondProcess(t *testing.T) {

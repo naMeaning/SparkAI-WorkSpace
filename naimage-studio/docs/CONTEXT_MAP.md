@@ -450,6 +450,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 - 浏览器回退键统一为 `naimage.settings.v1`、`naimage.ideSession.v1`、`naimage.imageGenerationStats.v1`、`naimage.serverAuth.v1`；只有当前键不存在时才只读迁移更名前值，正常保存只写当前品牌键。
 - 打包应用名与 userData 根均为 `naimage`。首次迁移更名前 userData 时，仅复制应用自有目录中的缺失文件；不覆盖现有文件、不移动来源、不跟随符号链接，并以 `.naimage-user-data-migration-v1.json` 标记完成。
 - updater 只接受 `naimage-studio` manifest 与 `/downloads/naimage-studio/windows`；服务端不再注册更名前网络路由。验证码挑战绑定产品身份和安装包指纹，授权阶段不得切换产品或跨发布复用。
+- Studio 新请求使用 `naimage-` 幂等键；服务端只在内部把它映射到冻结的更名前计费安全命名空间，并保持上游派生键稳定，避免升级重试绕过既有记录造成重复生图或扣费。该兼容不注册旧路由，也不暴露旧产品身份。
 - 本地 Gateway 的开发 fallback Session Secret 已切换到当前品牌，已有本地登录 Cookie 需要重新登录一次；生产必须继续提供稳定的 `SESSION_SECRET`，不会使用该 fallback。
 - 仓内冻结的 1.0.4 manifest 只用于历史验签，不能与当前后端一起部署；首次 1.0.5 发布必须把后端与新签名的 `naimage-studio` manifest 作为一个原子变更交付。
 

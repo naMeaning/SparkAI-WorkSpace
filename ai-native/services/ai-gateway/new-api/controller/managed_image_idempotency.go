@@ -27,19 +27,23 @@ import (
 )
 
 const (
-	managedImageIdempotencyUnavailable    = "unavailable"
-	managedImageIdempotencyMismatch       = "mismatch"
-	managedImageIdempotencyTTLDefault     = time.Hour
-	managedImageProcessingLeaseDefault    = 15 * time.Minute
-	managedImageTransientLeaseDefault     = 30 * time.Second
-	managedImageResponseLimitDefault      = 64 << 20
-	managedImageTotalLimitDefault         = int64(8 << 30)
-	managedImageUserTotalLimitDefault     = int64(1 << 30)
-	managedImageRecordLimitDefault        = 10_000
-	managedImageUserRecordLimitDefault    = 1_000
-	managedImageCleanupBatchDefault       = 500
-	managedImageCleanupIntervalDefault    = time.Minute
-	managedImageUpstreamIdempotencyPrefix = "naimage-"
+	managedImageIdempotencyUnavailable   = "unavailable"
+	managedImageIdempotencyMismatch      = "mismatch"
+	managedImageIdempotencyTTLDefault    = time.Hour
+	managedImageProcessingLeaseDefault   = 15 * time.Minute
+	managedImageTransientLeaseDefault    = 30 * time.Second
+	managedImageResponseLimitDefault     = 64 << 20
+	managedImageTotalLimitDefault        = int64(8 << 30)
+	managedImageUserTotalLimitDefault    = int64(1 << 30)
+	managedImageRecordLimitDefault       = 10_000
+	managedImageUserRecordLimitDefault   = 1_000
+	managedImageCleanupBatchDefault      = 500
+	managedImageCleanupIntervalDefault   = time.Minute
+	managedImageCanonicalClientKeyPrefix = "naimage-"
+	managedImageLegacyWireKeyPrefix      = "iiimage-"
+	// This prefix is an invisible billing-safety ABI, not a public product name.
+	// Keep it stable so an upgrade retry cannot bypass an upstream idempotency key.
+	managedImageUpstreamIdempotencyPrefix = managedImageLegacyWireKeyPrefix
 )
 
 type managedImageIdempotencyResult struct {
@@ -667,6 +671,14 @@ func managedImageScopeHash(userId int, idempotencyKey string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func managedImageScopeHashForClientKey(userId int, idempotencyKey string) string {
+	stableKey := idempotencyKey
+	if strings.HasPrefix(stableKey, managedImageCanonicalClientKeyPrefix) {
+		stableKey = managedImageLegacyWireKeyPrefix + strings.TrimPrefix(stableKey, managedImageCanonicalClientKeyPrefix)
+	}
+	return managedImageScopeHash(userId, stableKey)
+}
+
 func writeManagedImageHashField(target hash.Hash, value string) {
 	_, _ = io.WriteString(target, fmt.Sprintf("%d:", len(value)))
 	_, _ = io.WriteString(target, value)
@@ -921,7 +933,7 @@ func managedImageIdempotency(config managedImageIdempotencyConfig) gin.HandlerFu
 			return
 		}
 
-		scopeHash := managedImageScopeHash(userId, idempotencyKey)
+		scopeHash := managedImageScopeHashForClientKey(userId, idempotencyKey)
 		call, leader, mismatch := config.flights.begin(scopeHash, requestHash)
 		if mismatch {
 			managedImageIdempotencyError(c, http.StatusConflict, "idempotency_payload_mismatch", "同一个 Idempotency-Key 已用于不同的生图请求，请为新请求生成新的键。")
