@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <ApplicationIcon>../../../assets/windows/naimage.ico</ApplicationIcon>
+    <AssemblyName>naimage Setup</AssemblyName>
+    <RootNamespace>Naimage.WindowsInstaller</RootNamespace>
+    <Title>naimage Setup</Title>
+    <Company>Aieyra</Company>
+    <Product>naimage</Product>
+    <Description>naimage 品牌安装程序</Description>
+    <Copyright>Copyright © 2026 Aieyra</Copyright>
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+    <Version Condition="'$(ProductVersion)' != ''">$(ProductVersion)</Version>
+    <FileVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion).0</FileVersion>
+    <InformationalVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../BrandShell.cs" Link="BrandShell.cs" />
+    <Compile Include="../ModernFolderPicker.cs" Link="ModernFolderPicker.cs" />
+    <Compile Include="../InstallerReleaseNotes.cs" Link="InstallerReleaseNotes.cs" />
+    <Resource Include="../../../public/naimage.png" Link="naimage.png" />
+    <EmbeddedResource Include="../../../scripts/release/release-notes.json" LogicalName="naimage.release-notes.json" />
+    <EmbeddedResource Include="$(CoreInstallerPath)" LogicalName="naimage.core-installer.exe" Condition="'$(CoreInstallerPath)' != ''" />
+    <EmbeddedResource Include="$(CoreInstallerHashPath)" LogicalName="naimage.core-installer.sha256" Condition="'$(CoreInstallerHashPath)' != ''" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+</Project>

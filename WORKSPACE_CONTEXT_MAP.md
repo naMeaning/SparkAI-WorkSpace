@@ -1,6 +1,6 @@
-# IIIMAGE 工作区上下文地图
+# naimage 工作区上下文地图
 
-> 最近同步：2026-07-22  
+> 最近同步：2026-07-23
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -8,12 +8,12 @@
 
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
 | --- | --- | --- | --- | --- |
-| `iiimage-studio/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
-| `ai-native/` | IIIMAGE STUDIO 的统一后端与运营 monorepo；账号、session、角色、quota、模型路由/计费、CRM 分销、唯一 Web GUI、生产部署 | 本地多进程或 Linux/Docker 生产环境 | Node 24、pnpm workspace、Go 1.25/Gin/GORM、React 19/TypeScript/Rsbuild/TanStack/Tailwind 4、Bun workspace、原生 Node HTTP + mysql2、MySQL/SQLite/Postgres/Redis、Docker Compose/Caddy/systemd | 账号身份、角色、quota、模型目录、计费与用量日志、CRM 账本/分销/风控、发布清单 |
+| `naimage-studio/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
+| `ai-native/` | naimage 的统一后端与运营 monorepo；账号、session、角色、quota、模型路由/计费、唯一 Web GUI、生产部署；现有 CRM 为待删除的旧模块，本轮不修改 | 本地多进程或 Linux/Docker 生产环境 | Node 24、pnpm workspace、Go 1.25/Gin/GORM、React 19/TypeScript/Rsbuild/TanStack/Tailwind 4、Bun workspace、原生 Node HTTP + mysql2、MySQL/SQLite/Postgres/Redis、Docker Compose/Caddy/systemd | 账号身份、角色、quota、模型目录、计费与用量日志、发布清单；CRM 数据仅在旧模块内 |
 
 一句话判断：
 
-- 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `iiimage-studio/`。
+- 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `naimage-studio/`。
 - 改登录、模型服务、余额/计费、CRM、Web 管理界面、后端 API 或生产部署：进入 `ai-native/`。
 - 改远端 API、模型 DTO、更新 manifest 或认证规则：通常需要两边同步。
 
@@ -21,7 +21,7 @@
 
 ```mermaid
 flowchart LR
-  User["用户"] --> Desktop["iiimage-studio\nElectron 桌面端"]
+  User["用户"] --> Desktop["naimage-studio\nElectron 桌面端"]
   User --> Web["ai-native\n唯一 Web GUI"]
 
   Desktop -->|"session cookie + New-Api-User"| NewAPI["New API\nGo / Gin / GORM"]
@@ -41,7 +41,7 @@ flowchart LR
   Deploy --> MySQL
 ```
 
-## 3. `iiimage-studio` 上下文
+## 3. `naimage-studio` 上下文
 
 ### 3.1 进程边界
 
@@ -73,7 +73,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
 | `scripts/aidebug-gui.mjs` | 仍是 GUI 诊断总编排；通用 harness 与多个场景域已移出 | `scripts/aidebug/harness/*`, `scripts/aidebug/suites/image-generation.mjs`, `scripts/aidebug/suites/layer-editing.mjs`, `scripts/aidebug/suites/selection-command.mjs`, `scripts/aidebug/suites/ui-surface.mjs` |
 
-详细符号、调用链和测试映射以 `iiimage-studio/docs/CONTEXT_MAP.md` 为准。
+详细符号、调用链和测试映射以 `naimage-studio/docs/CONTEXT_MAP.md` 为准。
 
 ### 3.3 常见修改入口
 
@@ -95,7 +95,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 ### 3.4 最低验证
 
 ```powershell
-cd E:\019创业项目\nimage\iiimage-studio
+cd E:\019创业项目\nimage\naimage-studio
 corepack pnpm run typecheck
 corepack pnpm run build
 corepack pnpm run test:bundle
@@ -151,7 +151,7 @@ CRM 不保存浏览器密码、session、模型 Key 或 New API 余额事实；�
 | CRM 或管理 Web UI | `web/default/src` | Query/Router 契约、New API proxy、响应错误协议 |
 | 统一启动/构建 | 根 `scripts/`、`services/ai-gateway/server.cjs` | 三进程端口、构建产物探测、Windows/Linux 差异 |
 | 生产部署 | `deploy/production/` | Compose、Caddy、备份、回滚、manifest、systemd watcher |
-| 桌面下载/更新 API | New API + `deploy/production/releases` | `iiimage-studio` 版本、compatibility、公钥、签名与制品 |
+| 桌面下载/更新 API | New API + `deploy/production/releases` | `naimage-studio` 版本、minimum version、compatibility、公钥、canonical/legacy 双签名清单与同一套制品 |
 
 ### 4.4 验证
 
@@ -171,12 +171,14 @@ corepack pnpm run crm:check
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、错误清洗、禁用用户行为 |
 | 模型目录 | `desktop/model-catalog.cjs`, 设置/Agent UI | New API models/user models | 完整列表、默认模型、缓存、模型能力 |
-| Chat/Responses relay | Responses adapter、agent runtime | `/iiimage/v1/chat/completions`, `/responses` | tool schema、流事件、reasoning、错误协议 |
-| 图片生成/编辑 | runtime/core/main-process request | `/iiimage/v1/images/*` | ratio/size/quality、参考图、幂等、计费、结果落盘 |
+| Chat/Responses relay | Responses adapter、agent runtime | `/naimage/v1/chat/completions`, `/responses` | tool schema、流事件、reasoning、错误协议 |
+| 图片生成/编辑 | runtime/core/main-process request | `/naimage/v1/images/*` | ratio/size/quality、参考图、幂等、计费、结果落盘 |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
-| 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | version、compatibility、size、SHA-256、Ed25519 signature |
+| 桌面更新 | updater、`update-release.cjs`、公钥 | 双 release manifest、下载/更新 API、生产制品 | `naimage-studio`/`iiimage-studio` 方言、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
+
+品牌迁移的 canonical 对外身份是 `naimage`、`/naimage/v1/*` 与 `/downloads/naimage-studio/windows`。旧 Relay/下载路由、旧 manifest product、旧数据格式和 `/iiimage-logo.svg` 只用于存量客户端或数据的兼容读取。生产部署本次刻意复用 `/opt/iiimage`、`iiimage-*` 容器/网络/upstream 与原 systemd unit，避免品牌提交隐式切换数据卷；物理部署身份如需改名，必须另开维护窗口并准备备份和回滚。
 
 ## 6. 本地工具链状态
 
@@ -188,16 +190,16 @@ corepack pnpm run crm:check
 
 已验证版本：Node `24.15.0`、Corepack pnpm `10.12.1`、Bun `1.3.14`/`1.2.23`、Go `1.25.1`、.NET SDK `9.0.316`。
 
-New API Web 当前是明确的局部阻塞：Windows `LongPathsEnabled=0` 且物理路径较深，两版 Bun 的 isolated 安装均未完成；`web/node_modules` 和 `web/default/node_modules` 不存在，`bun.lock` 未改变。最安全方案是短物理路径或 WSL/Linux，而不是 junction/subst。
+当前本地依赖和工具链已可完成 Studio typecheck/build、New API Web Bun typecheck/build、Go 定向测试与工作区验证。若后续在更深的 Windows 路径重新安装 Bun 依赖，仍需留意系统长路径策略。
 
 ## 7. Agent 检索与维护规则
 
 优先检索稳定符号，不依赖行号：
 
 - 桌面：`applyRuntimeActions`, `ConfigBridge`, `createProjectSaveCoordinator`, `responsesRequestFromChatRequest`, `prepareViewImageModelPayload`。
-- 后端：`crm_proxy`, `CRM_EMBED_TRUST_SECRET`, `/iiimage/v1`, `/api/desktop-update`, `crm_account_events`。
+- 后端：`crm_proxy`, `CRM_EMBED_TRUST_SECRET`, `/naimage/v1`, `/api/desktop-update`, `crm_account_events`。
 
-以下变化必须同步本文；若只影响桌面，还必须同步 `iiimage-studio/docs/CONTEXT_MAP.md`：
+以下变化必须同步本文；若只影响桌面，还必须同步 `naimage-studio/docs/CONTEXT_MAP.md`：
 
 - 新增、删除、移动模块或改变模块所有权。
 - 改变公共符号、IPC、API、tool schema、runtime action 或共享 DTO。

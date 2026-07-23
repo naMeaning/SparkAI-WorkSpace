@@ -106,7 +106,7 @@ try {
     Write-Host "[WARN] Windows LongPathsEnabled could not be read."
 }
 
-$studioRoot = Join-Path $workspaceRoot "iiimage-studio"
+$studioRoot = Join-Path $workspaceRoot "naimage-studio"
 $aiNativeRoot = Join-Path $workspaceRoot "ai-native"
 $webRoot = Join-Path $aiNativeRoot "services\ai-gateway\new-api\web"
 $webRootModules = Join-Path $webRoot "node_modules"
@@ -114,7 +114,7 @@ $webDefaultModules = Join-Path $webRoot "default\node_modules"
 $webDependenciesReady = (Test-Path -LiteralPath $webRootModules -PathType Container) -and (Test-Path -LiteralPath $webDefaultModules -PathType Container)
 
 if (-not $ToolsOnly) {
-    if (-not (Invoke-ProjectCheck -Label "iiimage-studio pnpm/typecheck" -WorkingDirectory $studioRoot -Arguments @("run", "typecheck"))) {
+    if (-not (Invoke-ProjectCheck -Label "naimage-studio pnpm/typecheck" -WorkingDirectory $studioRoot -Arguments @("run", "typecheck"))) {
         $hardFailure = $true
     }
     if (-not (Invoke-ProjectCheck -Label "ai-native verify:workspace" -WorkingDirectory $aiNativeRoot -Arguments @("run", "verify:workspace"))) {
@@ -131,13 +131,12 @@ if ($webDependenciesReady) {
     Write-Host "[WARN] node_modules directories are present, but this diagnostic does not claim that the Web build passed."
 } else {
     Write-Host "[BLOCKED] New API Web dependencies are NOT installed."
-    Write-Host "          Both Bun 1.3.14 and the Bun 1.2.23 compatibility attempt failed to complete"
-    Write-Host "          isolated-linker installation at the current deep Windows path."
-    Write-Host "          Known symptoms: postinstall ENOTCONN or a no-output hang. bun.lock was not changed."
+    Write-Host "          Activate the workspace toolchain, then run 'bun install --frozen-lockfile'"
+    Write-Host "          from ai-native/services/ai-gateway/new-api/web."
     if ($longPathsEnabled -eq 0) {
-        Write-Host "          Windows LongPathsEnabled=0 contributes to the deep-path constraint."
+        Write-Host "          Windows LongPathsEnabled=0 may contribute to deep-path installation failures."
     }
-    Write-Host "          Use a short physical checkout path or WSL/Linux before retrying Web install/build."
+    Write-Host "          If installation fails on paths, use a short physical checkout path or WSL/Linux."
 }
 
 if ($hardFailure) {

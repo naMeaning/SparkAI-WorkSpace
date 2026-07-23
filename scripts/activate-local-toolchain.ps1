@@ -15,7 +15,18 @@ $bunHome = if ($BunVersion -eq "1.2.23") {
 } else {
     Join-Path $toolRoot "bun"
 }
-$goRoot = Join-Path $toolRoot "go"
+$goCandidates = @(
+    (Join-Path $toolRoot "go-1.25.1-complete\go"),
+    (Join-Path $toolRoot "go")
+)
+$goRoot = $goCandidates |
+    Where-Object {
+        (Test-Path -LiteralPath (Join-Path $_ "bin\go.exe")) -and
+        (Test-Path -LiteralPath (Join-Path $_ "src\runtime")) -and
+        (Test-Path -LiteralPath (Join-Path $_ "pkg\tool\windows_amd64\compile.exe"))
+    } |
+    Select-Object -First 1
+if (-not $goRoot) { $goRoot = $goCandidates[0] }
 $goBin = Join-Path $goRoot "bin"
 $dotnetRoot = Join-Path $toolRoot "dotnet"
 
@@ -75,11 +86,11 @@ foreach ($entry in @($pathPrefix + $existingPathEntries)) {
 $env:PATH = [string]::Join([IO.Path]::PathSeparator, $newPathEntries)
 
 # Workspace markers and pinned tool selection.
-$env:IIIMAGE_WORKSPACE_ROOT = $workspaceRoot
-$env:IIIMAGE_NODE_EXE = $nodeCommand.Source
-$env:IIIMAGE_COREPACK_EXE = $corepackCommand.Source
-$env:IIIMAGE_BUN_VERSION = $BunVersion
-$env:IIIMAGE_BUN_EXE = Join-Path $bunHome "bun.exe"
+$env:NAIMAGE_WORKSPACE_ROOT = $workspaceRoot
+$env:NAIMAGE_NODE_EXE = $nodeCommand.Source
+$env:NAIMAGE_COREPACK_EXE = $corepackCommand.Source
+$env:NAIMAGE_BUN_VERSION = $BunVersion
+$env:NAIMAGE_BUN_EXE = Join-Path $bunHome "bun.exe"
 
 # Keep portable tool state and caches inside this workspace where practical.
 $env:BUN_INSTALL_CACHE_DIR = Join-Path $toolRoot "bun-cache-$BunVersion"
