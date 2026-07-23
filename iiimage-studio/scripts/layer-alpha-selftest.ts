@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { PNG } from "pngjs";
-import { extractPreviewLayerPixelsFromGeneratedInput, normalizeLayerAlphaPixelBuffers } from "../src/core.ts";
+import { extractPreviewLayerPixelsFromGeneratedInput } from "../src/core.ts";
+import { normalizeLayerAlphaPixelBuffers } from "../src/layer-alpha-normalization.ts";
 
 function alphaAt(buffer: Uint8ClampedArray, pixel: number) {
   return buffer[pixel * 4 + 3];

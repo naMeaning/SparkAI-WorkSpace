@@ -10,11 +10,11 @@ import {
   findLuminanceMaskAlignmentOffset,
   findTextMaskAlignmentTransform,
   fillNarrowSemanticMaskGaps,
-  normalizeLayerAlphaPixelBuffers,
   repairLayerCoveragePixelBuffers,
   refineTextMaskValuesFromPreview,
   solidifySemanticMaskValues
 } from "../src/core.ts";
+import { normalizeLayerAlphaPixelBuffers } from "../src/layer-alpha-normalization.ts";
 
 const require = createRequire(import.meta.url);
 const { refineSemanticLayers } = require("../semantic-matting.cjs");

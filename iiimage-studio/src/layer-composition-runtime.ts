@@ -4,11 +4,11 @@ import {
   extractPreviewLayerFromMaskToDataUrl,
   imageAssetCanvasSrc,
   loadImageForCanvas,
-  normalizeTransparentLayerAlphaExclusivity,
   removeConnectedBorderBackgroundToDataUrl,
   repairLayerCoverageFromPreview,
   type ImageLayerComposition,
 } from "./core";
+import { normalizeTransparentLayerAlphaExclusivity } from "./layer-alpha-normalization";
 
 declare const __IIIMAGE_AIDEBUG__: boolean;
 
