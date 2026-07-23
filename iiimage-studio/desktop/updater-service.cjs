@@ -1169,80 +1169,8 @@ function createDesktopUpdaterService(options = {}) {
     return desktopUpdateRollbackRecovery(publicPendingDesktopUpdate());
   }
 
-  function registerIpc(ipcMain) {
-    ipcMain.handle("iiimage:update:status", () => desktopUpdaterStatus());
-
-    ipcMain.handle("iiimage:update:renderer-ready", () => {
-      return { ok: true, acknowledged: markRestartUpdateHealthy() };
-    });
-
-    ipcMain.handle("iiimage:update:check", async () => {
-      try {
-        return await checkDesktopUpdate();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop update check failed ${message}`);
-        publishDesktopUpdateProgress({ stage: "error", message });
-        return desktopUpdaterFailure(error);
-      }
-    });
-
-    ipcMain.handle("iiimage:update:installer-captcha", async () => {
-      try {
-        return await createDesktopInstallerCaptcha();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop update captcha failed ${message}`);
-        return desktopUpdaterFailure(error);
-      }
-    });
-
-    ipcMain.handle("iiimage:update:download-restart", async () => {
-      try {
-        return await downloadDesktopRestartUpdate();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop restart update download failed ${message}`);
-        publishDesktopUpdateProgress({ stage: "error", message });
-        return desktopUpdaterFailure(error);
-      }
-    });
-
-    ipcMain.handle("iiimage:update:download-installer", async (_event, payload) => {
-      try {
-        return await downloadDesktopInstallerUpdate(payload);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop installer update download failed ${message}`);
-        publishDesktopUpdateProgress({ stage: "error", message });
-        return desktopUpdaterFailure(error);
-      }
-    });
-
-    ipcMain.handle("iiimage:update:apply-restart", async () => {
-      try {
-        return await applyDesktopRestartUpdate();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop restart update apply failed ${message}`);
-        publishDesktopUpdateProgress({ stage: "error", message });
-        return desktopUpdaterFailure(error);
-      }
-    });
-
-    ipcMain.handle("iiimage:update:launch-installer", async () => {
-      try {
-        return await launchDesktopInstallerUpdate();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`desktop installer launch failed ${message}`);
-        publishDesktopUpdateProgress({ stage: "error", message });
-        return desktopUpdaterFailure(error);
-      }
-    });
-  }
-
   return {
+    applyDesktopRestartUpdate,
     checkDesktopUpdate,
     compareDesktopVersions,
     createDesktopInstallerCaptcha,
@@ -1256,9 +1184,9 @@ function createDesktopUpdaterService(options = {}) {
     markRestartUpdateHealthy,
     normalizeDesktopUpdateArtifact,
     pendingDesktopUpdate,
+    publishDesktopUpdateProgress,
     publicPendingDesktopUpdate,
     recoverRollback,
-    registerIpc,
     verifyDesktopReleasePayload
   };
 }

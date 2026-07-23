@@ -109,10 +109,16 @@ function main() {
     }
   };
   const desktopUpdater = {
-    registerIpc(receivedIpcMain) {
-      assert.equal(receivedIpcMain, ipcMain, "Updater must receive the shared ipcMain instance.");
-      for (const channel of expectedUpdaterChannels) receivedIpcMain.handle(channel, () => undefined);
-    }
+    applyDesktopRestartUpdate: async () => undefined,
+    checkDesktopUpdate: async () => undefined,
+    createDesktopInstallerCaptcha: async () => undefined,
+    desktopUpdaterFailure: () => undefined,
+    desktopUpdaterStatus: () => undefined,
+    downloadDesktopInstallerUpdate: async () => undefined,
+    downloadDesktopRestartUpdate: async () => undefined,
+    launchDesktopInstallerUpdate: async () => undefined,
+    markRestartUpdateHealthy: () => true,
+    publishDesktopUpdateProgress: () => undefined
   };
 
   registerDesktopIpc({ ipcMain, desktopUpdater });

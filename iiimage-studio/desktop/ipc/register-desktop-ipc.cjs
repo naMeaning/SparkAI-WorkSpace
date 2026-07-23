@@ -6,13 +6,12 @@ const { registerSettingsIpc, registerSessionIpc } = require("./config-ipc.cjs");
 const { registerDebugIpc } = require("./debug-ipc.cjs");
 const { registerProjectIpc } = require("./project-ipc.cjs");
 const { registerServerIpc } = require("./server-ipc.cjs");
+const { registerUpdateIpc } = require("./update-ipc.cjs");
 const { registerWindowIpc } = require("./window-ipc.cjs");
 
 function registerDesktopIpc(dependencies = {}) {
-  const { ipcMain, desktopUpdater } = dependencies;
-
   registerSettingsIpc(dependencies);
-  desktopUpdater.registerIpc(ipcMain);
+  registerUpdateIpc(dependencies);
   registerSessionIpc(dependencies);
   registerAgentIpc(dependencies);
   registerWindowIpc(dependencies);
