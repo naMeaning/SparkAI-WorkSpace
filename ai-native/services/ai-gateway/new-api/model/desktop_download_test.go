@@ -33,7 +33,7 @@ func TestReserveDesktopDownloadPersistsAndLimitsByUserAndIP(t *testing.T) {
 
 	for index := 0; index < 2; index++ {
 		err := ReserveDesktopDownload(9, "203.0.113.10", now.Add(time.Duration(index)*time.Minute), limits, map[string]interface{}{
-			"filename": "iiimage-Studio-Setup.exe",
+			"filename": "naimage-Setup.exe",
 		})
 		require.NoError(t, err)
 	}

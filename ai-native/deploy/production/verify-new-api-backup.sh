@@ -67,7 +67,7 @@ restore_backup() {
   local archive="$2"
   local image="$3"
   local expected_source_commit="${4:-}"
-  local container="${IIIMAGE_NEW_API_CONTAINER:-iiimage-new-api}"
+  local container="${NAIMAGE_NEW_API_CONTAINER:-${IIIMAGE_NEW_API_CONTAINER:-iiimage-new-api}}"
   local backup_dir="${runtime_dir}/backups"
   local backup_root
   local archive_path

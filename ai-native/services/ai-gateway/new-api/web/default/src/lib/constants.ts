@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'iiimage Studio'
-export const DEFAULT_LOGO = '/iiimage-logo.svg'
+export const DEFAULT_SYSTEM_NAME = 'naimage'
+export const DEFAULT_LOGO = '/naimage-logo.svg'
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

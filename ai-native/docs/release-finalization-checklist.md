@@ -1,4 +1,4 @@
-# iiimage Studio final merge, deployment, and E2E checklist
+# naimage final merge, deployment, and E2E checklist
 
 This is the release-owner runbook for the unified `ai-native` backend, CRM,
 desktop download, and managed Agent gateway. It deliberately separates client
@@ -26,18 +26,20 @@ branch, or replace the server checkout's local Forge `origin`.
 
 ## 2. Freeze the desktop release first
 
-Do not edit the tracked server manifest until all of these are true:
+Do not edit the tracked server manifest pair until all of these are true:
 
 - The Studio source tree is frozen at the intended version.
 - The complete client release gate passes without relaxed thresholds.
 - The packaged application, modern installer/uninstaller, upgrade, uninstall,
   and restart-update E2E tests use that same frozen source.
-- `iiimage-Studio-Setup-<version>-x64.exe` and
-  `iiimage-Studio-Restart-Update-<version>-x64.asar` were produced in the same
+- `naimage-Setup-<version>-x64.exe` and
+  `naimage-Restart-Update-<version>-x64.asar` were produced in the same
   release run.
-- `desktop-release.json` was signed by the release private key and verified
-  against the public key embedded in the client.
-- The installer, restart ASAR, manifest, sidecar, and `SHA256SUMS.txt` agree.
+- `desktop-release.json` and `desktop-release-legacy.json` were independently
+  signed by the release private key and verified against the public key embedded
+  in the client; they differ only in `product` and `signature`.
+- The installer, restart ASAR, both manifests, sidecar, and `SHA256SUMS.txt`
+  agree.
 
 The release private key must never enter this repository, a command line, a
 ticket, a log, or the production server.
@@ -75,29 +77,30 @@ committed.
 Upload only the final, versioned installer and restart ASAR to
 `/opt/iiimage/src/deploy/production/runtime/releases/`. Upload each file under a
 temporary `.uploading` name, verify its size and SHA-256, and then rename it to
-the final basename. Existing versioned artifacts and the live runtime manifest
+the final basename. Existing versioned artifacts and the live runtime manifests
 must remain untouched during upload.
 
-Copy the candidate `desktop-release.json` to a temporary server path and verify
-it against the staged artifacts and tracked public key:
+Copy both candidate manifests to temporary server paths and verify the pair
+against the staged artifacts and tracked public key:
 
 ```bash
 cd /opt/iiimage/src
 deploy/production/verify-installer.sh \
   /tmp/desktop-release.candidate.json \
   /opt/iiimage/src/deploy/production/runtime/releases \
-  /opt/iiimage/src/deploy/production/releases/update-public-key.pem
+  /opt/iiimage/src/deploy/production/releases/update-public-key.pem \
+  /tmp/desktop-release-legacy.candidate.json
 ```
 
-This must report valid artifact hashes and `desktop release signature verified`.
-Delete the temporary candidate afterward. Do not manually overwrite
-`runtime/releases/desktop-release.json`; deployment promotes the tracked
-manifest atomically after the application and Caddy steps succeed.
+This must report valid artifact hashes, two valid signatures, and
+`desktop release manifest pair verified`. Delete both temporary candidates
+afterward. Do not manually overwrite either runtime manifest; deployment
+promotes and rolls back the tracked pair as one release operation.
 
 ## 5. Merge through Forge
 
-Update `deploy/production/releases/desktop-release.json` only with the verified
-candidate. Commit the reviewed backend, CRM, deployment, public verification
+Update both tracked desktop release manifests only with the verified pair.
+Commit the reviewed backend, CRM, deployment, public verification
 key, and manifest changes on the release branch. Push the branch and merge it
 into Forge `main` using a normal reviewed fast-forward or pull request. Never
 use a forced update.
@@ -192,12 +195,14 @@ Test from the last public version and from the new version:
 Using the packaged client and its authenticated New API session, perform real
 requests through these managed routes:
 
-- `GET /iiimage/v1/models`
-- `POST /iiimage/v1/responses`
-- `POST /iiimage/v1/images/generations`
-- `POST /iiimage/v1/images/edits`
+- `GET /naimage/v1/models`
+- `POST /naimage/v1/responses`
+- `POST /naimage/v1/images/generations`
+- `POST /naimage/v1/images/edits`
 
-Confirm the upstream receives `/v1/*`, never `/iiimage/v1/*`. For image calls,
+Confirm the upstream receives `/v1/*`, never the public `/naimage/v1/*` prefix.
+Also verify one legacy `/iiimage/v1/*` request reaches the same handler without
+a redirect. For image calls,
 send a unique printable `Idempotency-Key`, then repeat the exact request with
 the same key and confirm the stored result is replayed without a second charge
 or generation. Reusing the key with a different payload must return conflict.

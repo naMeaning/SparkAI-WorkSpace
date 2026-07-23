@@ -74,7 +74,14 @@ type desktopDownloadIdentity struct {
 type desktopDownloadChallenge struct {
 	AnswerHash [32]byte
 	Identity   desktopDownloadIdentity
+	Product    string
+	Manifest   desktopInstallerManifest
 	ExpiresAt  time.Time
+}
+
+type desktopDownloadChallengeBinding struct {
+	Product  string
+	Manifest desktopInstallerManifest
 }
 
 type desktopDownloadTicket struct {
@@ -134,6 +141,7 @@ type desktopInstallerCache struct {
 }
 
 type desktopDownloadRequest struct {
+	Product     string `json:"product"`
 	ChallengeID string `json:"challenge_id"`
 	Code        string `json:"code"`
 }
@@ -262,7 +270,7 @@ func (manager *desktopDownloadManager) allowChallenge(identity desktopDownloadId
 	return nil
 }
 
-func (manager *desktopDownloadManager) issueChallenge(identity desktopDownloadIdentity) (string, string, error) {
+func (manager *desktopDownloadManager) issueChallenge(identity desktopDownloadIdentity, bindings ...desktopDownloadChallengeBinding) (string, string, error) {
 	challengeID, err := randomToken(24)
 	if err != nil {
 		return "", "", err
@@ -278,9 +286,15 @@ func (manager *desktopDownloadManager) issueChallenge(identity desktopDownloadId
 	if len(manager.challenges) >= 10_000 {
 		return "", "", errors.New("too many active desktop download challenges")
 	}
+	binding := desktopDownloadChallengeBinding{Product: desktopReleaseLegacyProduct}
+	if len(bindings) > 0 {
+		binding = bindings[0]
+	}
 	manager.challenges[challengeID] = desktopDownloadChallenge{
 		AnswerHash: challengeAnswerHash(challengeID, answer),
 		Identity:   identity,
+		Product:    binding.Product,
+		Manifest:   binding.Manifest,
 		ExpiresAt:  now.Add(desktopDownloadChallengeTTL),
 	}
 	return challengeID, answer, nil
@@ -292,7 +306,14 @@ func (manager *desktopDownloadManager) revokeChallenge(challengeID string) {
 	delete(manager.challenges, challengeID)
 }
 
-func (manager *desktopDownloadManager) verifyChallenge(challengeID string, answer string, identity desktopDownloadIdentity) error {
+func desktopInstallerManifestFingerprintMatches(left desktopInstallerManifest, right desktopInstallerManifest) bool {
+	return left.Filename == right.Filename &&
+		left.Version == right.Version &&
+		left.SHA256 == right.SHA256 &&
+		left.Size == right.Size
+}
+
+func (manager *desktopDownloadManager) verifyChallenge(challengeID string, answer string, identity desktopDownloadIdentity, bindings ...desktopDownloadChallengeBinding) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	now := manager.now()
@@ -306,6 +327,13 @@ func (manager *desktopDownloadManager) verifyChallenge(challengeID string, answe
 	}
 	if !identitiesMatch(challenge.Identity, identity) {
 		return errDesktopChallengeInvalid
+	}
+	if len(bindings) > 0 {
+		binding := bindings[0]
+		if !strings.EqualFold(strings.TrimSpace(challenge.Product), strings.TrimSpace(binding.Product)) ||
+			!desktopInstallerManifestFingerprintMatches(challenge.Manifest, binding.Manifest) {
+			return errDesktopChallengeInvalid
+		}
 	}
 	actual := challengeAnswerHash(challengeID, answer)
 	if subtle.ConstantTimeCompare(challenge.AnswerHash[:], actual[:]) != 1 {
@@ -500,15 +528,19 @@ func loadLegacyDesktopInstallerManifest() (desktopInstallerManifest, error) {
 	return manifest, nil
 }
 
-func loadDesktopInstallerManifest() (desktopInstallerManifest, error) {
-	if strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_MANIFEST_PATH")) != "" {
-		release, err := loadDesktopReleaseManifest()
+func loadDesktopInstallerManifestForProduct(product string) (desktopInstallerManifest, error) {
+	if desktopReleaseManifestPathForProduct(product) != "" {
+		release, err := loadDesktopReleaseManifestForProduct(product)
 		if err != nil {
 			return desktopInstallerManifest{}, errDesktopInstallerNotReady
 		}
 		return release.Installer, nil
 	}
 	return loadLegacyDesktopInstallerManifest()
+}
+
+func loadDesktopInstallerManifest() (desktopInstallerManifest, error) {
+	return loadDesktopInstallerManifestForProduct(desktopReleaseProduct)
 }
 
 func drawCaptchaLine(img *image.RGBA, x0 int, y0 int, x1 int, y1 int, value color.RGBA) {
@@ -634,6 +666,11 @@ func CreateDesktopDownloadCaptcha(c *gin.Context) {
 	if !requireCurrentDesktopUser(c) {
 		return
 	}
+	product := desktopClientProduct(c, "")
+	if !desktopClientProductSupported(product) {
+		desktopDownloadFailure(c, http.StatusBadRequest, "desktop_product_invalid", "客户端产品标识无效，请更新客户端后重试。")
+		return
+	}
 	userID := c.GetInt("id")
 	identity := desktopIdentity(c, userID)
 	if identity.IP == "" {
@@ -644,12 +681,14 @@ func CreateDesktopDownloadCaptcha(c *gin.Context) {
 		desktopDownloadFailure(c, http.StatusTooManyRequests, "download_captcha_rate_limited", "验证码请求过于频繁，请稍后再试。")
 		return
 	}
-	manifest, err := loadDesktopInstallerManifest()
+	product = desktopReleaseProductForClient(product)
+	manifest, err := loadDesktopInstallerManifestForProduct(product)
 	if err != nil {
 		desktopDownloadFailure(c, http.StatusServiceUnavailable, "desktop_installer_not_ready", "客户端安装包暂不可用，请稍后再试。")
 		return
 	}
-	challengeID, answer, err := defaultDesktopDownloadManager.issueChallenge(identity)
+	binding := desktopDownloadChallengeBinding{Product: product, Manifest: manifest}
+	challengeID, answer, err := defaultDesktopDownloadManager.issueChallenge(identity, binding)
 	if err != nil {
 		desktopDownloadFailure(c, http.StatusServiceUnavailable, "download_captcha_unavailable", "暂时无法生成验证码，请稍后再试。")
 		return
@@ -686,23 +725,30 @@ func AuthorizeDesktopDownload(c *gin.Context) {
 	}
 	request.ChallengeID = strings.TrimSpace(request.ChallengeID)
 	request.Code = strings.TrimSpace(request.Code)
+	request.Product = desktopClientProduct(c, request.Product)
+	if !desktopClientProductSupported(request.Product) {
+		desktopDownloadFailure(c, http.StatusBadRequest, "desktop_product_invalid", "客户端产品标识无效，请更新客户端后重试。")
+		return
+	}
 	if request.ChallengeID == "" || len(request.Code) != 6 {
 		desktopDownloadFailure(c, http.StatusBadRequest, "download_captcha_invalid", "请输入 6 位验证码。")
 		return
 	}
 	identity := desktopIdentity(c, c.GetInt("id"))
-	verifyErr := defaultDesktopDownloadManager.verifyChallenge(request.ChallengeID, request.Code, identity)
+	request.Product = desktopReleaseProductForClient(request.Product)
+	manifest, err := loadDesktopInstallerManifestForProduct(request.Product)
+	if err != nil {
+		desktopDownloadFailure(c, http.StatusServiceUnavailable, "desktop_installer_not_ready", "客户端安装包暂不可用，请稍后再试。")
+		return
+	}
+	binding := desktopDownloadChallengeBinding{Product: request.Product, Manifest: manifest}
+	verifyErr := defaultDesktopDownloadManager.verifyChallenge(request.ChallengeID, request.Code, identity, binding)
 	if verifyErr != nil {
 		message := "验证码错误，请刷新后重试。"
 		if errors.Is(verifyErr, errDesktopChallengeExpired) {
 			message = "验证码已过期，请刷新后重试。"
 		}
 		desktopDownloadFailure(c, http.StatusBadRequest, "download_captcha_invalid", message)
-		return
-	}
-	manifest, err := loadDesktopInstallerManifest()
-	if err != nil {
-		desktopDownloadFailure(c, http.StatusServiceUnavailable, "desktop_installer_not_ready", "客户端安装包暂不可用，请稍后再试。")
 		return
 	}
 	reserveErr := model.ReserveDesktopDownload(identity.UserID, identity.IP, time.Now(), desktopDownloadLimits(), map[string]interface{}{
@@ -729,7 +775,7 @@ func AuthorizeDesktopDownload(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"download_url": "/downloads/iiimage-studio/windows?ticket=" + url.QueryEscape(ticketID),
+			"download_url": desktopDownloadPathForProduct(request.Product) + "?ticket=" + url.QueryEscape(ticketID),
 			"expires_in":   int(desktopDownloadTicketTTL / time.Second),
 			"installer":    manifest,
 		},

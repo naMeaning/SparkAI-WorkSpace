@@ -7,9 +7,9 @@ RUNTIME_DIR="${1:?runtime directory is required}"
 IMAGE="${2:-aieyra/iiimage-new-api:local}"
 SOURCE_COMMIT="${3:-unknown}"
 RESULT_FILE="${4:-}"
-CONTAINER="${IIIMAGE_NEW_API_CONTAINER:-iiimage-new-api}"
+CONTAINER="${NAIMAGE_NEW_API_CONTAINER:-${IIIMAGE_NEW_API_CONTAINER:-iiimage-new-api}}"
 BACKUP_DIR="${RUNTIME_DIR}/backups"
-RETENTION="${IIIMAGE_NEW_API_BACKUP_RETENTION:-7}"
+RETENTION="${NAIMAGE_NEW_API_BACKUP_RETENTION:-${IIIMAGE_NEW_API_BACKUP_RETENTION:-7}}"
 
 fail() {
   printf '[FAIL] %s\n' "$1" >&2
@@ -19,7 +19,7 @@ fail() {
 for command_name in basename cut date docker find grep mkdir mktemp mv realpath rm sha256sum sort stat tar; do
   command -v "$command_name" >/dev/null 2>&1 || fail "missing command: ${command_name}"
 done
-[[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || fail "IIIMAGE_NEW_API_BACKUP_RETENTION must be a positive integer"
+[[ "$RETENTION" =~ ^[1-9][0-9]*$ ]] || fail "NAIMAGE_NEW_API_BACKUP_RETENTION (or legacy IIIMAGE_NEW_API_BACKUP_RETENTION) must be a positive integer"
 [[ "$SOURCE_COMMIT" == "unknown" || "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "source commit must be a lowercase 40-character Git SHA or unknown"
 if [[ -n "$RESULT_FILE" ]]; then
   result_path="$(realpath -m "$RESULT_FILE")"

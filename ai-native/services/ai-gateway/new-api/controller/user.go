@@ -560,7 +560,7 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 func generateDefaultSidebarConfig(userRole int) string {
 	defaultConfig := map[string]interface{}{}
 
-	// 聊天与游乐场已从 IIIMAGE STUDIO 裁剪，保留键位但默认关闭。
+	// 聊天与游乐场已从 naimage 裁剪，保留键位但默认关闭。
 	defaultConfig["chat"] = map[string]interface{}{
 		"enabled":    false,
 		"playground": false,

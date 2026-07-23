@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}/runtime"
 ENV_FILE="${RUNTIME_DIR}/.env"
+COMPOSE_ENV_COMPAT_FILE="${SCRIPT_DIR}/compose-env-compat.env"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 LOG_DIR="${RUNTIME_DIR}/logs/deploy"
 STATE_FILE="${RUNTIME_DIR}/deployed-main.sha"
@@ -19,9 +20,11 @@ BACKUP_NEW_API_SCRIPT="${SCRIPT_DIR}/backup-new-api-state.sh"
 VERIFY_NEW_API_BACKUP_SCRIPT="${SCRIPT_DIR}/verify-new-api-backup.sh"
 RELEASE_MANIFEST_SOURCE="${SCRIPT_DIR}/releases/desktop-release.json"
 RELEASE_MANIFEST_TARGET="${RUNTIME_DIR}/releases/desktop-release.json"
+RELEASE_LEGACY_MANIFEST_SOURCE="${SCRIPT_DIR}/releases/desktop-release-legacy.json"
+RELEASE_LEGACY_MANIFEST_TARGET="${RUNTIME_DIR}/releases/desktop-release-legacy.json"
 BRANCH="main"
-EXPECTED_ORIGIN="${IIIMAGE_PRODUCTION_ORIGIN:-/opt/forgejo/data/git/repositories/aieyra/ai-native.git}"
-PLAN_ONLY="${IIIMAGE_DEPLOY_PLAN_ONLY:-0}"
+EXPECTED_ORIGIN="${NAIMAGE_PRODUCTION_ORIGIN:-${IIIMAGE_PRODUCTION_ORIGIN:-/opt/forgejo/data/git/repositories/aieyra/ai-native.git}}"
+PLAN_ONLY="${NAIMAGE_DEPLOY_PLAN_ONLY:-${IIIMAGE_DEPLOY_PLAN_ONLY:-0}}"
 SELF_TEST=0
 case "${1:-}" in
   --plan) PLAN_ONLY=1 ;;
@@ -30,7 +33,7 @@ case "${1:-}" in
   *) printf 'usage: %s [--plan|--self-test]\n' "$0" >&2; exit 1 ;;
 esac
 
-iiimage_is_operations_only_path() {
+naimage_is_operations_only_path() {
   case "$1" in
     .gitignore | AGENTS.md | README.md | docs/* | scripts/diagnostics/* | \
       deploy/production/.env.example | \
@@ -50,7 +53,7 @@ iiimage_is_operations_only_path() {
   esac
 }
 
-iiimage_is_crm_code_path() {
+naimage_is_crm_code_path() {
   case "$1" in
     services/crm-api/* | \
       packages/crm-contracts/* | \
@@ -66,7 +69,7 @@ iiimage_is_crm_code_path() {
   esac
 }
 
-iiimage_is_new_api_code_path() {
+naimage_is_new_api_code_path() {
   case "$1" in
     services/ai-gateway/* | deploy/production/Dockerfile.new-api | deploy/production/docker-compose.yml)
       return 0
@@ -77,7 +80,7 @@ iiimage_is_new_api_code_path() {
   esac
 }
 
-iiimage_rollback_mode() {
+naimage_rollback_mode() {
   local source_was_advanced="${1:-0}"
   local crm_was_changed="${2:-0}"
   local crm_migration_was_started="${3:-0}"
@@ -95,44 +98,44 @@ iiimage_rollback_mode() {
   fi
 }
 
-iiimage_requires_manual_crm_release() {
+naimage_requires_manual_crm_release() {
   [[ "${1:-0}" == "1" ]]
 }
 
-iiimage_requires_new_api_sentinel() {
+naimage_requires_new_api_sentinel() {
   [[ "${1:-0}" == "1" ]]
 }
 
-iiimage_may_clear_recovery_sentinel() {
+naimage_may_clear_recovery_sentinel() {
   [[ "${1:-0}" == "1" || "${2:-0}" == "1" ]]
 }
 
 run_policy_self_test() {
   local failures=0
-  iiimage_is_operations_only_path "deploy/production/deploy-main.sh" || failures=$((failures + 1))
-  iiimage_is_operations_only_path "scripts/diagnostics/new-api-sqlite-compat-rehearsal.ps1" || failures=$((failures + 1))
-  iiimage_is_operations_only_path "scripts/release/unknown-runtime-change.ps1" && failures=$((failures + 1))
-  iiimage_is_operations_only_path "services/ai-gateway/new-api/main.go" && failures=$((failures + 1))
-  iiimage_is_crm_code_path "services/crm-api/src/server.ts" || failures=$((failures + 1))
-  iiimage_is_crm_code_path "services/ai-gateway/new-api/main.go" && failures=$((failures + 1))
-  iiimage_is_new_api_code_path "services/ai-gateway/new-api/main.go" || failures=$((failures + 1))
-  iiimage_is_crm_code_path "deploy/production/docker-compose.yml" || failures=$((failures + 1))
-  iiimage_is_new_api_code_path "deploy/production/docker-compose.yml" || failures=$((failures + 1))
-  [[ "$(iiimage_rollback_mode 0 0 0 0 0)" == "none" ]] || failures=$((failures + 1))
-  [[ "$(iiimage_rollback_mode 1 0 0 0 0)" == "runtime-only" ]] || failures=$((failures + 1))
-  [[ "$(iiimage_rollback_mode 0 0 0 0 1)" == "runtime-only" ]] || failures=$((failures + 1))
-  [[ "$(iiimage_rollback_mode 0 0 0 1 1)" == "full" ]] || failures=$((failures + 1))
-  [[ "$(iiimage_rollback_mode 0 1 1 1 1)" == "blocked" ]] || failures=$((failures + 1))
+  naimage_is_operations_only_path "deploy/production/deploy-main.sh" || failures=$((failures + 1))
+  naimage_is_operations_only_path "scripts/diagnostics/new-api-sqlite-compat-rehearsal.ps1" || failures=$((failures + 1))
+  naimage_is_operations_only_path "scripts/release/unknown-runtime-change.ps1" && failures=$((failures + 1))
+  naimage_is_operations_only_path "services/ai-gateway/new-api/main.go" && failures=$((failures + 1))
+  naimage_is_crm_code_path "services/crm-api/src/server.ts" || failures=$((failures + 1))
+  naimage_is_crm_code_path "services/ai-gateway/new-api/main.go" && failures=$((failures + 1))
+  naimage_is_new_api_code_path "services/ai-gateway/new-api/main.go" || failures=$((failures + 1))
+  naimage_is_crm_code_path "deploy/production/docker-compose.yml" || failures=$((failures + 1))
+  naimage_is_new_api_code_path "deploy/production/docker-compose.yml" || failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 0 0 0 0 0)" == "none" ]] || failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 1 0 0 0 0)" == "runtime-only" ]] || failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 0 0 0 0 1)" == "runtime-only" ]] || failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 0 0 0 1 1)" == "full" ]] || failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 0 1 1 1 1)" == "blocked" ]] || failures=$((failures + 1))
   # FORCE_BUILD/same-HEAD and stop-attempted paths have no source advance but
   # still require runtime rollback once image mutation begins.
-  [[ "$(iiimage_rollback_mode 0 0 0 0 1)" == "runtime-only" ]] || failures=$((failures + 1))
-  iiimage_requires_manual_crm_release 1 || failures=$((failures + 1))
-  iiimage_requires_manual_crm_release 0 && failures=$((failures + 1))
-  iiimage_requires_new_api_sentinel 1 || failures=$((failures + 1))
-  iiimage_requires_new_api_sentinel 0 && failures=$((failures + 1))
-  iiimage_may_clear_recovery_sentinel 1 0 || failures=$((failures + 1))
-  iiimage_may_clear_recovery_sentinel 0 1 || failures=$((failures + 1))
-  iiimage_may_clear_recovery_sentinel 0 0 && failures=$((failures + 1))
+  [[ "$(naimage_rollback_mode 0 0 0 0 1)" == "runtime-only" ]] || failures=$((failures + 1))
+  naimage_requires_manual_crm_release 1 || failures=$((failures + 1))
+  naimage_requires_manual_crm_release 0 && failures=$((failures + 1))
+  naimage_requires_new_api_sentinel 1 || failures=$((failures + 1))
+  naimage_requires_new_api_sentinel 0 && failures=$((failures + 1))
+  naimage_may_clear_recovery_sentinel 1 0 || failures=$((failures + 1))
+  naimage_may_clear_recovery_sentinel 0 1 || failures=$((failures + 1))
+  naimage_may_clear_recovery_sentinel 0 0 && failures=$((failures + 1))
   [[ "$failures" == "0" ]] || { printf '[FAIL] deployment policy self-test failures=%s\n' "$failures" >&2; return 1; }
   printf '[PASS] deployment rollback policy self-test\n'
 }
@@ -144,7 +147,11 @@ fi
 
 release_manifest_backup=""
 release_manifest_candidate=""
+release_legacy_manifest_source=""
+release_legacy_manifest_backup=""
+release_legacy_manifest_candidate=""
 release_manifest_changed=0
+release_legacy_manifest_changed=0
 release_manifest_committed=0
 caddy_backup=""
 caddy_changed=0
@@ -173,7 +180,7 @@ rollback_new_api_image_id=""
 failed_new_api_image_id=""
 deployment_sentinel_owned=0
 crm_backup=""
-compose=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+compose=(docker compose --env-file "$ENV_FILE" --env-file "$COMPOSE_ENV_COMPAT_FILE" -f "$COMPOSE_FILE")
 
 cleanup_release_manifest() {
   local cleanup_ok=1
@@ -189,16 +196,37 @@ cleanup_release_manifest() {
       rm -f "$RELEASE_MANIFEST_TARGET" || cleanup_ok=0
     fi
   fi
+  if [[ "$release_legacy_manifest_changed" == "1" && "$release_manifest_committed" != "1" ]]; then
+    if [[ -n "$release_legacy_manifest_backup" && -f "$release_legacy_manifest_backup" ]]; then
+      if mv -f "$release_legacy_manifest_backup" "$RELEASE_LEGACY_MANIFEST_TARGET"; then
+        release_legacy_manifest_backup=""
+      else
+        printf '[CRITICAL] failed to restore the previous legacy desktop release manifest; preserved %s\n' "$release_legacy_manifest_backup" >&2
+        cleanup_ok=0
+      fi
+    else
+      rm -f "$RELEASE_LEGACY_MANIFEST_TARGET" || cleanup_ok=0
+    fi
+  fi
   if [[ -n "$release_manifest_candidate" ]]; then
     rm -f "$release_manifest_candidate" || cleanup_ok=0
     [[ -e "$release_manifest_candidate" ]] || release_manifest_candidate=""
+  fi
+  if [[ -n "$release_legacy_manifest_candidate" ]]; then
+    rm -f "$release_legacy_manifest_candidate" || cleanup_ok=0
+    [[ -e "$release_legacy_manifest_candidate" ]] || release_legacy_manifest_candidate=""
   fi
   if [[ "$release_manifest_committed" == "1" && -n "$release_manifest_backup" ]]; then
     rm -f "$release_manifest_backup" || cleanup_ok=0
     [[ -e "$release_manifest_backup" ]] || release_manifest_backup=""
   fi
+  if [[ "$release_manifest_committed" == "1" && -n "$release_legacy_manifest_backup" ]]; then
+    rm -f "$release_legacy_manifest_backup" || cleanup_ok=0
+    [[ -e "$release_legacy_manifest_backup" ]] || release_legacy_manifest_backup=""
+  fi
   if [[ "$cleanup_ok" == "1" ]]; then
     release_manifest_changed=0
+    release_legacy_manifest_changed=0
   fi
   [[ "$cleanup_ok" == "1" ]]
 }
@@ -278,7 +306,7 @@ rollback_deployment() {
   local restore_ok=1
   local application_ok=1
   local control_ok=1
-  mode="$(iiimage_rollback_mode "$source_advanced" "$crm_code_changed" "$crm_migration_started" "$new_api_backup_ready" "$image_build_started")"
+  mode="$(naimage_rollback_mode "$source_advanced" "$crm_code_changed" "$crm_migration_started" "$new_api_backup_ready" "$image_build_started")"
   echo "[$(date -Is)] rollback mode=${mode} previous=${previous_head:-none} failed=${new_head:-none}"
 
   if [[ "$mode" == "blocked" ]]; then
@@ -309,7 +337,7 @@ rollback_deployment() {
 
   if [[ "$mode" == "none" ]]; then
     if [[ "$control_ok" == "1" ]]; then
-      if iiimage_may_clear_recovery_sentinel 0 1 && ! clear_recovery_sentinel; then
+      if naimage_may_clear_recovery_sentinel 0 1 && ! clear_recovery_sentinel; then
         echo "[CRITICAL] runtime rollback succeeded but the recovery sentinel could not be cleared" >&2
         return 1
       fi
@@ -370,7 +398,7 @@ rollback_deployment() {
 
   if [[ "$restore_ok" == "1" && "$application_ok" == "1" && "$control_ok" == "1" ]]; then
     echo "[$(date -Is)] runtime rollback complete; checkout remains at the target commit and the previous deployment marker will trigger a retry"
-    if iiimage_may_clear_recovery_sentinel 0 1 && ! clear_recovery_sentinel; then
+    if naimage_may_clear_recovery_sentinel 0 1 && ! clear_recovery_sentinel; then
       echo "[CRITICAL] verified rollback completed but the recovery sentinel could not be cleared" >&2
       return 1
     fi
@@ -430,6 +458,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "missing ${ENV_FILE}; copy .env.example and provide production secrets" >&2
   exit 1
 fi
+if [[ ! -f "$COMPOSE_ENV_COMPAT_FILE" ]]; then
+  echo "missing ${COMPOSE_ENV_COMPAT_FILE}; refusing deployment without deterministic environment compatibility" >&2
+  exit 1
+fi
 
 cd "$REPO_DIR"
 if ! git diff --quiet || ! git diff --cached --quiet || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
@@ -466,16 +498,16 @@ if [[ "${FORCE_BUILD:-0}" != "1" && -n "$previous_deployed_head" ]] && \
   while IFS= read -r changed_path; do
     path_classified=0
     [[ -z "$changed_path" ]] && continue
-    if iiimage_is_operations_only_path "$changed_path"; then
+    if naimage_is_operations_only_path "$changed_path"; then
       continue
     fi
     echo "application-affecting change: ${changed_path}"
     requires_application_deploy=1
-    if iiimage_is_crm_code_path "$changed_path"; then
+    if naimage_is_crm_code_path "$changed_path"; then
       crm_code_changed=1
       path_classified=1
     fi
-    if iiimage_is_new_api_code_path "$changed_path"; then
+    if naimage_is_new_api_code_path "$changed_path"; then
       new_api_code_changed=1
       path_classified=1
     fi
@@ -492,14 +524,14 @@ fi
 
 printf 'deploy plan current=%s target=%s application=%s crm_code_changed=%s new_api_code_changed=%s rollback=%s\n' \
   "$previous_head" "$target_head" "$requires_application_deploy" "$crm_code_changed" "$new_api_code_changed" \
-  "$(iiimage_rollback_mode 1 "$crm_code_changed" 0 0)"
+  "$(naimage_rollback_mode 1 "$crm_code_changed" 0 0)"
 if [[ "$PLAN_ONLY" == "1" ]]; then
   echo "[$(date -Is)] plan-only complete; source and services were not changed"
   deployment_complete=1
   exit 0
 fi
 
-if iiimage_requires_manual_crm_release "$crm_code_changed"; then
+if naimage_requires_manual_crm_release "$crm_code_changed"; then
   if ! write_recovery_sentinel "automatic-crm-release-blocked" "$target_head"; then
     echo "failed to record the mandatory CRM manual-review sentinel" >&2
     exit 1
@@ -520,7 +552,29 @@ if [[ ! -f "$RELEASE_MANIFEST_SOURCE" ]]; then
   echo "missing tracked desktop release manifest: ${RELEASE_MANIFEST_SOURCE}" >&2
   exit 1
 fi
-"${SCRIPT_DIR}/verify-installer.sh" "$RELEASE_MANIFEST_SOURCE" "${RUNTIME_DIR}/releases"
+release_legacy_manifest_source="$RELEASE_LEGACY_MANIFEST_SOURCE"
+if [[ ! -f "$release_legacy_manifest_source" ]]; then
+  # The signed 1.0.4 manifest predates the dual-manifest layout. Mirror its
+  # exact bytes under the legacy runtime filename until the first naimage pair.
+  release_legacy_manifest_source="$RELEASE_MANIFEST_SOURCE"
+fi
+"${SCRIPT_DIR}/verify-installer.sh" \
+  "$RELEASE_MANIFEST_SOURCE" \
+  "${RUNTIME_DIR}/releases" \
+  "${SCRIPT_DIR}/releases/update-public-key.pem" \
+  "$release_legacy_manifest_source"
+
+# The first backend that understands the renamed product must never start with
+# its configured legacy manifest path missing. Seed only that absent path now;
+# normal pair promotion still happens transactionally after application work.
+if [[ ! -f "$RELEASE_LEGACY_MANIFEST_TARGET" ]]; then
+  release_legacy_manifest_candidate="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.seed.XXXXXX")"
+  cp "$release_legacy_manifest_source" "$release_legacy_manifest_candidate"
+  chmod 0644 "$release_legacy_manifest_candidate"
+  mv -f "$release_legacy_manifest_candidate" "$RELEASE_LEGACY_MANIFEST_TARGET"
+  release_legacy_manifest_candidate=""
+  release_legacy_manifest_changed=1
+fi
 
 docker run --rm \
   -v "${CADDY_SOURCE}:/etc/caddy/Caddyfile:ro" \
@@ -538,7 +592,7 @@ if [[ "$requires_application_deploy" == "1" ]]; then
     exit 1
   fi
 
-  if iiimage_requires_new_api_sentinel "$new_api_code_changed"; then
+  if naimage_requires_new_api_sentinel "$new_api_code_changed"; then
     if ! write_recovery_sentinel "new-api-deployment-in-progress" "$new_head"; then
       echo "cannot begin New API deployment: failed to create ${RECOVERY_SENTINEL}" >&2
       exit 1
@@ -646,6 +700,33 @@ if ! cmp -s "$RELEASE_MANIFEST_SOURCE" "$RELEASE_MANIFEST_TARGET"; then
     cp -a "$RELEASE_MANIFEST_TARGET" "$release_manifest_backup"
   fi
   release_manifest_changed=1
+fi
+if ! cmp -s "$release_legacy_manifest_source" "$RELEASE_LEGACY_MANIFEST_TARGET"; then
+  release_legacy_manifest_candidate="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.candidate.XXXXXX")"
+  cp "$release_legacy_manifest_source" "$release_legacy_manifest_candidate"
+  chmod 0644 "$release_legacy_manifest_candidate"
+  if [[ -f "$RELEASE_LEGACY_MANIFEST_TARGET" ]]; then
+    release_legacy_manifest_backup="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.backup.XXXXXX")"
+    cp -a "$RELEASE_LEGACY_MANIFEST_TARGET" "$release_legacy_manifest_backup"
+  fi
+  release_legacy_manifest_changed=1
+fi
+
+# Stage and verify both candidates before either live filename changes. The
+# legacy manifest is promoted first so a new canonical identity is never live
+# without the compatibility manifest required by pre-rename clients.
+canonical_manifest_for_verification="${release_manifest_candidate:-$RELEASE_MANIFEST_TARGET}"
+legacy_manifest_for_verification="${release_legacy_manifest_candidate:-$RELEASE_LEGACY_MANIFEST_TARGET}"
+"${SCRIPT_DIR}/verify-installer.sh" \
+  "$canonical_manifest_for_verification" \
+  "${RUNTIME_DIR}/releases" \
+  "${SCRIPT_DIR}/releases/update-public-key.pem" \
+  "$legacy_manifest_for_verification"
+if [[ -n "$release_legacy_manifest_candidate" ]]; then
+  mv -f "$release_legacy_manifest_candidate" "$RELEASE_LEGACY_MANIFEST_TARGET"
+  release_legacy_manifest_candidate=""
+fi
+if [[ -n "$release_manifest_candidate" ]]; then
   mv -f "$release_manifest_candidate" "$RELEASE_MANIFEST_TARGET"
   release_manifest_candidate=""
 fi
@@ -654,11 +735,11 @@ fi
 
 state_marker_changed=1
 printf '%s\n' "$new_head" > "$STATE_FILE"
-if ! IIIMAGE_REQUIRE_WATCHER=0 IIIMAGE_REQUIRE_HOST_SECURITY=0 "$VERIFY_SCRIPT"; then
+if ! NAIMAGE_REQUIRE_WATCHER=0 NAIMAGE_REQUIRE_HOST_SECURITY=0 "$VERIFY_SCRIPT"; then
   echo "post-deploy acceptance failed; starting verified rollback" >&2
   exit 1
 fi
-if iiimage_may_clear_recovery_sentinel 1 0 && ! clear_recovery_sentinel; then
+if naimage_may_clear_recovery_sentinel 1 0 && ! clear_recovery_sentinel; then
   echo "deployment acceptance passed but the recovery sentinel could not be cleared" >&2
   exit 1
 fi

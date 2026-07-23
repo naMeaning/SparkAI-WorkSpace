@@ -13,9 +13,9 @@ import (
 
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
-var SystemName = "iiimage Studio"
+var SystemName = "naimage"
 var Footer = ""
-var Logo = "/iiimage-logo.svg"
+var Logo = "/naimage-logo.svg"
 var TopUpLink = ""
 
 // FrontendPath rewrites historical /console/* return paths to the canonical

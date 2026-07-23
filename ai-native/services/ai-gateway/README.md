@@ -48,10 +48,11 @@ pnpm run diagnostics:gateway
 | 变量 | 说明 |
 | --- | --- |
 | `PORT` | 服务端口。 |
-| `IIIMAGE_SERVER_PORT` | IIIMAGE STUDIO 使用的服务端口变量，优先级高于 `PORT`。 |
+| `NAIMAGE_SERVER_PORT` | naimage 使用的服务端口变量，优先级高于 `PORT`。 |
 | `AI_GATEWAY_DATA_DIR` | New API 数据目录。 |
-| `IIIMAGE_SERVER_DATA_DIR` | 兼容旧启动器的数据目录变量；优先使用 `AI_GATEWAY_DATA_DIR`。 |
-| `IIIMAGE_PARENT_PID` | 父进程 PID，可用于外部进程管理器关联服务生命周期。 |
+| `NAIMAGE_SERVER_DATA_DIR` | naimage 启动器的数据目录变量；优先使用 `AI_GATEWAY_DATA_DIR`。 |
+| `NAIMAGE_PARENT_PID` | 父进程 PID，可用于外部进程管理器关联服务生命周期。 |
+| `IIIMAGE_SERVER_PORT` / `IIIMAGE_SERVER_DATA_DIR` / `IIIMAGE_PARENT_PID` | 旧启动器兼容别名；新配置不应继续使用。 |
 
 ## 诊断
 

@@ -1,6 +1,6 @@
 # CRM Production Runbook
 
-本文档只覆盖当前统一产品形态：`IIIMAGE STUDIO` 有一个公开后端入口、一个嵌入的
+本文档只覆盖当前统一产品形态：`naimage` 有一个公开后端入口、一个嵌入的
 `new-api` 运行时、一个内部 CRM API 和一个嵌入 `new-api` 前端 GUI。
 
 架构源头见：

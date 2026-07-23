@@ -55,8 +55,8 @@ test("buildDevMainConfig rejects unknown CRM storage modes", () => {
 
 test("buildDevMainConfig supports custom frontend dev server port", () => {
   const config = buildDevMainConfig({
-    IIIMAGE_SERVER_PORT: "19060",
-    IIIMAGE_WEB_PORT: "19062"
+    NAIMAGE_SERVER_PORT: "19060",
+    NAIMAGE_WEB_PORT: "19062"
   });
 
   assert.equal(config.newApiBaseUrl, "http://127.0.0.1:19060");
@@ -64,6 +64,21 @@ test("buildDevMainConfig supports custom frontend dev server port", () => {
   assert.equal(config.frontendDevUrl, "http://127.0.0.1:19062");
   assert.equal(config.frontendEnv.VITE_REACT_APP_SERVER_URL, "http://127.0.0.1:19060");
   assert.equal(config.frontendEnv.RSBUILD_DEV_SERVER_PORT, "19062");
+});
+
+test("buildDevMainConfig accepts legacy IIIMAGE local environment aliases", () => {
+  const config = buildDevMainConfig({
+    IIIMAGE_SERVER_PORT: "19160",
+    IIIMAGE_WEB_PORT: "19162",
+    IIIMAGE_SERVER_DATA_DIR: "legacy-data",
+    IIIMAGE_WEB_URL: "http://127.0.0.1:19163"
+  });
+
+  assert.equal(config.gatewayPort, "19160");
+  assert.equal(config.frontendPort, "19162");
+  assert.equal(config.gatewayDataDir, "legacy-data");
+  assert.equal(config.frontendDevUrl, "http://127.0.0.1:19163");
+  assert.equal(config.gatewayEnv.NAIMAGE_SERVER_PORT, "19160");
 });
 
 test("New API web dev server defaults to the local gateway and CRM hot-reload port", () => {

@@ -80,7 +80,7 @@ export function PublicHeader(props: PublicHeaderProps) {
   const isAuthenticated = !!user
   const showNavigation = props.showNavigation ?? true
   const showThemeSwitch = props.showThemeSwitch ?? true
-  const displaySiteName = customSiteName || 'iiimage Studio'
+  const displaySiteName = customSiteName || 'naimage'
   let links: TopNavLink[] = []
   if (showNavigation) {
     links = dynamicLinks.length > 0 ? dynamicLinks : navLinks

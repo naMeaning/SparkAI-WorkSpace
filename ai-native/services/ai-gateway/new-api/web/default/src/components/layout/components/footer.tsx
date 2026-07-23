@@ -122,7 +122,7 @@ function ProjectAttribution(props: { currentYear: number; inline?: boolean }) {
   const content = (
     <span className='text-muted-foreground/45'>
       &copy; {props.currentYear}{' '}
-      <span className='text-foreground/70 font-medium'>iiimage Studio</span>.{' '}
+      <span className='text-foreground/70 font-medium'>naimage</span>.{' '}
       {t('footer.defaultCopyright')}
     </span>
   )
@@ -145,8 +145,8 @@ export function Footer(props: FooterProps) {
     demoSiteEnabled,
   } = useSystemConfig()
 
-  const displayLogo = systemLogo || props.logo || '/iiimage-logo.svg'
-  const displayName = systemName || props.name || 'iiimage Studio'
+  const displayLogo = systemLogo || props.logo || '/naimage-logo.svg'
+  const displayName = systemName || props.name || 'naimage'
   const isDemoSiteMode = Boolean(demoSiteEnabled)
   const currentYear = new Date().getFullYear()
 

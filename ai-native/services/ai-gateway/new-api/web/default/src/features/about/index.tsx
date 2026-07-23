@@ -47,7 +47,7 @@ function EmptyAboutState() {
           <Construction className='text-muted-foreground h-24 w-24' />
         </div>
         <div className='space-y-2'>
-          <h2 className='text-2xl font-bold'>IIIMAGE STUDIO</h2>
+          <h2 className='text-2xl font-bold'>naimage</h2>
           <p className='text-muted-foreground'>
             {t(
               'Image creation, model access, account assets, and distribution workflows in one product.'

@@ -21,7 +21,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const desktopReleaseSchemaVersion = 1
+const (
+	desktopReleaseSchemaVersion = 1
+	desktopReleaseProduct       = "naimage-studio"
+	desktopReleaseLegacyProduct = "iiimage-studio"
+	desktopDownloadPath         = "/downloads/naimage-studio/windows"
+	desktopDownloadLegacyPath   = "/downloads/iiimage-studio/windows"
+	desktopClientProductHeader  = "X-Naimage-Desktop-Product"
+)
 
 type desktopReleaseArtifactFile struct {
 	Filename string `json:"filename"`
@@ -65,10 +72,47 @@ type desktopReleaseCacheState struct {
 }
 
 type desktopUpdateRequest struct {
+	Product        string `json:"product"`
 	CurrentVersion string `json:"current_version"`
 	Platform       string `json:"platform"`
 	Architecture   string `json:"architecture"`
 	Compatibility  string `json:"compatibility"`
+}
+
+func desktopClientProduct(c *gin.Context, supplied string) string {
+	product := strings.TrimSpace(c.GetHeader(desktopClientProductHeader))
+	supplied = strings.TrimSpace(supplied)
+	if product != "" && supplied != "" && !strings.EqualFold(product, supplied) {
+		return "invalid-conflicting-desktop-product"
+	}
+	if product != "" {
+		return product
+	}
+	return supplied
+}
+
+func desktopClientProductSupported(product string) bool {
+	product = strings.TrimSpace(product)
+	return product == "" ||
+		strings.EqualFold(product, desktopReleaseProduct) ||
+		strings.EqualFold(product, desktopReleaseLegacyProduct)
+}
+
+func desktopReleaseProductForClient(product string) string {
+	if strings.EqualFold(strings.TrimSpace(product), desktopReleaseProduct) {
+		return desktopReleaseProduct
+	}
+	return desktopReleaseLegacyProduct
+}
+
+func desktopDownloadPathForProduct(product string) string {
+	if strings.EqualFold(strings.TrimSpace(product), desktopReleaseProduct) {
+		return desktopDownloadPath
+	}
+	// Clients released before the rename reject any URL outside the legacy
+	// prefix. A missing declaration therefore stays on the direct alias;
+	// unknown declarations are rejected before this helper is called.
+	return desktopDownloadLegacyPath
 }
 
 type desktopResolvedUpdate struct {
@@ -80,7 +124,17 @@ type desktopResolvedUpdate struct {
 	Artifact        desktopInstallerManifest
 }
 
-var desktopReleaseCache desktopReleaseCacheState
+var (
+	desktopReleaseCache       desktopReleaseCacheState
+	desktopReleaseLegacyCache desktopReleaseCacheState
+)
+
+func desktopReleaseCacheForProduct(product string) *desktopReleaseCacheState {
+	if desktopReleaseProductForClient(product) == desktopReleaseLegacyProduct {
+		return &desktopReleaseLegacyCache
+	}
+	return &desktopReleaseCache
+}
 
 func desktopSemver(value string) ([3]int, bool) {
 	var parsed [3]int
@@ -165,8 +219,17 @@ func desktopArtifactFromFile(directory string, version string, kind string, sour
 	}, nil
 }
 
-func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
-	configuredPath := strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_MANIFEST_PATH"))
+func desktopReleaseManifestPathForProduct(product string) string {
+	if desktopReleaseProductForClient(product) == desktopReleaseLegacyProduct {
+		if legacyPath := strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_LEGACY_MANIFEST_PATH")); legacyPath != "" {
+			return legacyPath
+		}
+	}
+	return strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_MANIFEST_PATH"))
+}
+
+func loadDesktopReleaseManifestForProduct(product string) (desktopReleaseManifest, error) {
+	configuredPath := desktopReleaseManifestPathForProduct(product)
 	if configuredPath == "" {
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
@@ -186,7 +249,10 @@ func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
 	if err := common.Unmarshal(contents, &source); err != nil {
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
-	if source.SchemaVersion != desktopReleaseSchemaVersion || strings.TrimSpace(source.Product) != "iiimage-studio" {
+	expectedProduct := desktopReleaseProductForClient(product)
+	manifestProduct := strings.TrimSpace(source.Product)
+	if source.SchemaVersion != desktopReleaseSchemaVersion ||
+		manifestProduct != expectedProduct {
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
 	if _, valid := desktopSemver(source.Version); !valid {
@@ -216,25 +282,26 @@ func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
 		artifactStats = append(artifactStats, artifact.Filename, strconv.FormatInt(info.Size(), 10), strconv.FormatInt(info.ModTime().UnixNano(), 10))
 	}
 	cacheKey := strings.Join(artifactStats, "|")
-	desktopReleaseCache.mu.Lock()
-	defer desktopReleaseCache.mu.Unlock()
-	if desktopReleaseCache.cacheKey == cacheKey {
-		return desktopReleaseCache.release, desktopReleaseCache.err
+	cache := desktopReleaseCacheForProduct(expectedProduct)
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.cacheKey == cacheKey {
+		return cache.release, cache.err
 	}
 	installer, err := desktopArtifactFromFile(directory, source.Version, "installer", source.Installer)
 	if err != nil {
-		desktopReleaseCache.cacheKey = cacheKey
-		desktopReleaseCache.release = desktopReleaseManifest{}
-		desktopReleaseCache.err = errDesktopInstallerNotReady
+		cache.cacheKey = cacheKey
+		cache.release = desktopReleaseManifest{}
+		cache.err = errDesktopInstallerNotReady
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
 	var restart *desktopInstallerManifest
 	if source.Restart != nil && strings.TrimSpace(source.Restart.Filename) != "" {
 		artifact, artifactErr := desktopArtifactFromFile(directory, source.Version, "restart", *source.Restart)
 		if artifactErr != nil {
-			desktopReleaseCache.cacheKey = cacheKey
-			desktopReleaseCache.release = desktopReleaseManifest{}
-			desktopReleaseCache.err = errDesktopInstallerNotReady
+			cache.cacheKey = cacheKey
+			cache.release = desktopReleaseManifest{}
+			cache.err = errDesktopInstallerNotReady
 			return desktopReleaseManifest{}, errDesktopInstallerNotReady
 		}
 		restart = &artifact
@@ -247,8 +314,11 @@ func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
 		}
 	}
 	release := desktopReleaseManifest{
-		SchemaVersion:  source.SchemaVersion,
-		Product:        strings.TrimSpace(source.Product),
+		SchemaVersion: source.SchemaVersion,
+		// Preserve the signed product identity exactly. New manifests use
+		// naimage-studio, while historical iiimage-studio manifests must keep
+		// their original value so desktop signature verification still works.
+		Product:        manifestProduct,
 		Channel:        strings.TrimSpace(source.Channel),
 		Version:        strings.TrimSpace(source.Version),
 		PublishedAt:    strings.TrimSpace(source.PublishedAt),
@@ -259,13 +329,20 @@ func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
 		Restart:        restart,
 		Installer:      installer,
 	}
-	desktopReleaseCache.cacheKey = cacheKey
-	desktopReleaseCache.release = release
-	desktopReleaseCache.err = nil
+	cache.cacheKey = cacheKey
+	cache.release = release
+	cache.err = nil
 	return release, nil
 }
 
+func loadDesktopReleaseManifest() (desktopReleaseManifest, error) {
+	return loadDesktopReleaseManifestForProduct(desktopReleaseProduct)
+}
+
 func resolveDesktopUpdate(request desktopUpdateRequest) (desktopResolvedUpdate, error) {
+	if !desktopClientProductSupported(request.Product) {
+		return desktopResolvedUpdate{}, errors.New("unsupported desktop product")
+	}
 	current := strings.TrimSpace(request.CurrentVersion)
 	currentSemver, currentOK := desktopSemver(current)
 	if !currentOK {
@@ -279,7 +356,7 @@ func resolveDesktopUpdate(request desktopUpdateRequest) (desktopResolvedUpdate, 
 	if architecture != "x64" {
 		return desktopResolvedUpdate{}, errors.New("unsupported desktop architecture")
 	}
-	release, err := loadDesktopReleaseManifest()
+	release, err := loadDesktopReleaseManifestForProduct(request.Product)
 	if err != nil {
 		return desktopResolvedUpdate{}, errDesktopInstallerNotReady
 	}
@@ -342,6 +419,7 @@ func desktopReleaseResponse(resolved desktopResolvedUpdate) gin.H {
 
 func desktopUpdateRequestFromContext(c *gin.Context) desktopUpdateRequest {
 	return desktopUpdateRequest{
+		Product:        desktopClientProduct(c, c.Query("product")),
 		CurrentVersion: strings.TrimSpace(c.Query("current_version")),
 		Platform:       strings.TrimSpace(c.Query("platform")),
 		Architecture:   strings.TrimSpace(c.Query("architecture")),
@@ -384,6 +462,7 @@ func AuthorizeDesktopRestartUpdate(c *gin.Context) {
 		desktopDownloadFailure(c, http.StatusBadRequest, "desktop_update_request_invalid", "更新请求无效，请重新检查更新。")
 		return
 	}
+	request.Product = desktopClientProduct(c, request.Product)
 	resolved, err := resolveDesktopUpdate(request)
 	if err != nil || !resolved.UpdateAvailable || resolved.UpdateType != "restart" {
 		desktopDownloadFailure(c, http.StatusConflict, "desktop_restart_update_unavailable", "当前版本不能使用重启更新，请重新检查更新。")
@@ -417,7 +496,7 @@ func AuthorizeDesktopRestartUpdate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"download_url": "/downloads/iiimage-studio/windows?ticket=" + url.QueryEscape(ticketID),
+			"download_url": desktopDownloadPathForProduct(request.Product) + "?ticket=" + url.QueryEscape(ticketID),
 			"expires_in":   int(desktopDownloadTicketTTL / time.Second),
 			"release":      desktopReleaseResponse(resolved),
 		},

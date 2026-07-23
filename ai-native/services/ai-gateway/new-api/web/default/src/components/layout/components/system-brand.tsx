@@ -53,7 +53,7 @@ export function SystemBrand(props: SystemBrandProps) {
   const { status } = useStatus()
 
   const variant = props.variant ?? 'sidebar'
-  const name = status?.system_name || props.defaultName || 'iiimage Studio'
+  const name = status?.system_name || props.defaultName || 'naimage'
   const version =
     status?.version || props.defaultVersion || t('Unknown version')
 

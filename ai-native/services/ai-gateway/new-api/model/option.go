@@ -20,6 +20,27 @@ type Option struct {
 	Value string `json:"value"`
 }
 
+var legacyNaimageBrandDefaults = map[string]struct {
+	legacy  string
+	current string
+}{
+	"SystemName": {legacy: "iiimage Studio", current: "naimage"},
+	"Logo":       {legacy: "/iiimage-logo.svg", current: "/naimage-logo.svg"},
+}
+
+func migrateLegacyNaimageBrandDefaults() error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		for key, migration := range legacyNaimageBrandDefaults {
+			if err := tx.Model(&Option{}).
+				Where(&Option{Key: key, Value: migration.legacy}).
+				UpdateColumn("Value", migration.current).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
@@ -183,6 +204,9 @@ func InitOptionMap() {
 	}
 
 	common.OptionMapRWMutex.Unlock()
+	if err := migrateLegacyNaimageBrandDefaults(); err != nil {
+		common.SysError("failed to migrate legacy naimage brand defaults: " + err.Error())
+	}
 	loadOptionsFromDatabase()
 }
 

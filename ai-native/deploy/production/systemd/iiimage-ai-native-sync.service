@@ -1,5 +1,5 @@
 [Unit]
-Description=IIIMAGE ai-native main branch auto sync and deploy
+Description=naimage ai-native main branch auto sync and deploy
 After=docker.service network-online.target
 Wants=network-online.target
 Requires=docker.service

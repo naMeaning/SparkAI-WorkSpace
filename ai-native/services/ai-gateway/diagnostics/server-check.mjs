@@ -123,7 +123,7 @@ function requiredLayout() {
     join(newApiRoot, "web", "package.json"),
     join(newApiRoot, "web", "node_modules"),
     join(frontendRoot, "dist", "index.html"),
-    join(newApiRoot, "bin", process.platform === "win32" ? "iiimage-new-api.exe" : "iiimage-new-api")
+    join(newApiRoot, "bin", process.platform === "win32" ? "naimage-new-api.exe" : "naimage-new-api")
   ];
 }
 
@@ -231,19 +231,19 @@ async function runNewApiAuthContract(base) {
     throw new Error(`token list failed ${list.response.status}: ${list.text.slice(0, 400)}`);
   }
   let tokens = tokenItems(list.data);
-  let token = tokens.find((item) => item?.group === "default" && /iiimage/i.test(String(item?.name || "")));
+  let token = tokens.find((item) => item?.group === "default" && /naimage/i.test(String(item?.name || "")));
   if (!token) {
     const add = await requestJson(base, "/api/token/", {
       method: "POST",
       headers: authHeaders,
-      body: { name: "IIimage Default", expired_time: -1, remain_quota: 500000, unlimited_quota: true, group: "default" }
+      body: { name: "naimage Default", expired_time: -1, remain_quota: 500000, unlimited_quota: true, group: "default" }
     });
     if (!add.response.ok || add.data.success !== true) {
       throw new Error(`token add failed ${add.response.status}: ${add.text.slice(0, 400)}`);
     }
     list = await requestJson(base, "/api/token/?p=1&size=100", { headers: authHeaders });
     tokens = tokenItems(list.data);
-    token = tokens.find((item) => item?.group === "default" && /iiimage/i.test(String(item?.name || "")));
+    token = tokens.find((item) => item?.group === "default" && /naimage/i.test(String(item?.name || "")));
   }
   if (!token?.id) throw new Error(`default token missing after ensure; tokens=${JSON.stringify(tokens).slice(0, 400)}`);
 
@@ -290,7 +290,7 @@ async function startNewApiContractCheck() {
     cwd: serverRoot,
     env: {
       ...process.env,
-      IIIMAGE_SERVER_PORT: String(port),
+      NAIMAGE_SERVER_PORT: String(port),
       AI_GATEWAY_DATA_DIR: dataDir,
       GIN_MODE: "release"
     },

@@ -1,6 +1,6 @@
 # Repository Index
 
-The repository is structured around one product: `IIIMAGE STUDIO`.
+The repository is structured around one product: `naimage`.
 
 ## Top Level
 
@@ -21,7 +21,7 @@ docs/
 - `scripts/dev-main.mjs`: starts the local New API gateway and internal CRM API together.
 - `scripts/diagnostics/crm-ui-audit.mjs`: captures repeatable desktop/mobile UI evidence without storing credentials.
 - `services/ai-gateway/server.cjs`: builds and starts the embedded New API runtime.
-- `services/ai-gateway/new-api/`: Go backend and IIIMAGE STUDIO frontend.
+- `services/ai-gateway/new-api/`: Go backend and naimage frontend.
 - `services/ai-gateway/new-api/web/default/`: only frontend GUI.
 - `services/crm-api/src/scripts/dev-memory.ts`: internal CRM API for local unified development.
 

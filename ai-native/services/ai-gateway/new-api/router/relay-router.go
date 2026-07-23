@@ -84,7 +84,7 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
 
-	// NAIMAGE Studio uses the authenticated New API session while the managed
+	// naimage uses the authenticated New API session while the managed
 	// relay token stays on the server. These routes deliberately reuse the
 	// native relay middleware and handlers. The legacy IIIMAGE prefix remains a
 	// direct alias so existing desktop versions keep working without redirects.

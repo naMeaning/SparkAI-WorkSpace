@@ -1,10 +1,10 @@
 # New API Centered CRM And Monorepo Governance
 
-本文档是当前 `IIIMAGE STUDIO` 产品形态、CRM 职责和仓库治理的源头说明。
+本文档是当前 `naimage` 产品形态、CRM 职责和仓库治理的源头说明。
 
 ## 产品边界
 
-`IIIMAGE STUDIO` 只有一个对外产品入口：
+`naimage` 只有一个对外产品入口：
 
 ```text
 Browser / Client
@@ -16,7 +16,7 @@ CRM 是统一产品里的内部分销业务服务。统一前端可以同时调�
 CRM 分销接口：
 
 ```text
-IIIMAGE STUDIO frontend
+naimage frontend
   -> New API native APIs for account, assets, usage, model and admin capabilities
   -> /api/crm/* for CRM distribution capabilities
 ```
@@ -345,7 +345,7 @@ CRM API：
 | `CRM_API_PORT` | CRM API 服务端口，默认 `17861`。 |
 | `CRM_API_HOST` | CRM API 监听地址，默认 `127.0.0.1`。 |
 | `CRM_DEV_STORAGE` | 统一本地栈 CRM 存储模式，默认 `memory`，可设为 `mysql`。 |
-| `IIIMAGE_WEB_PORT` | 本地前端 dev server 端口，默认 `17862`。 |
+| `NAIMAGE_WEB_PORT` | 本地前端 dev server 端口，默认 `17862`。 |
 | `CRM_DATABASE_URL` | MySQL 连接字符串。 |
 | `CRM_DATABASE_NAME` | CRM 数据库名，默认 `ai_native_crm`。 |
 | `NEW_API_BASE_URL` | New API 服务地址。 |

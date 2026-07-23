@@ -25,7 +25,7 @@ import {
 } from './section-registry.tsx'
 
 const defaultSiteSettings: SiteSettings = {
-  SystemName: 'iiimage Studio',
+  SystemName: 'naimage',
   Logo: '',
   Footer: '',
   About: '',

@@ -6,6 +6,14 @@ RUNTIME_DIR="${SCRIPT_DIR}/runtime"
 manifest="${1:-${RUNTIME_DIR}/releases/desktop-release.json}"
 release_dir="${2:-${RUNTIME_DIR}/releases}"
 public_key="${3:-${SCRIPT_DIR}/releases/update-public-key.pem}"
+legacy_manifest="${4:-}"
+
+if [[ "${NAIMAGE_SKIP_DESKTOP_MANIFEST_PAIR:-0}" != "1" && -z "$legacy_manifest" ]]; then
+  sibling_legacy_manifest="$(dirname -- "$manifest")/desktop-release-legacy.json"
+  if [[ -f "$sibling_legacy_manifest" ]]; then
+    legacy_manifest="$sibling_legacy_manifest"
+  fi
+fi
 
 for command_name in openssl python3; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -27,7 +35,7 @@ if [[ ! -f "$public_key" ]]; then
   exit 1
 fi
 
-verification_dir="$(mktemp -d "${TMPDIR:-/tmp}/iiimage-release-verify.XXXXXX")"
+verification_dir="$(mktemp -d "${TMPDIR:-/tmp}/naimage-release-verify.XXXXXX")"
 trap 'rm -rf "$verification_dir"' EXIT
 canonical_payload="${verification_dir}/canonical-release.json"
 signature_file="${verification_dir}/signature.bin"
@@ -65,7 +73,9 @@ allowed_fields = {
 unknown_fields = sorted(set(manifest) - allowed_fields)
 if unknown_fields:
     raise SystemExit(f"desktop release manifest has unknown fields: {', '.join(unknown_fields)}")
-if manifest.get("schema_version") != 1 or manifest.get("product") != "iiimage-studio":
+product = str(manifest.get("product") or "").strip()
+supported_products = {"naimage-studio", "iiimage-studio"}
+if manifest.get("schema_version") != 1 or product not in supported_products:
     raise SystemExit("invalid desktop release manifest identity")
 if manifest.get("channel") != "stable":
     raise SystemExit("desktop release manifest must use the stable channel")
@@ -135,12 +145,20 @@ for kind in ("installer", "restart"):
     expected_size = size_value
     if not filename or os.path.basename(filename) != filename:
         raise SystemExit(f"invalid {kind} filename")
-    expected_filename = (
-        f"iiimage-Studio-Setup-{version}-x64.exe"
-        if kind == "installer"
-        else f"iiimage-Studio-Restart-Update-{version}-x64.asar"
-    )
-    if filename != expected_filename:
+    if kind == "installer":
+        canonical_filename = f"naimage-Setup-{version}-x64.exe"
+        historical_filename = f"iiimage-Studio-Setup-{version}-x64.exe"
+    else:
+        canonical_filename = f"naimage-Restart-Update-{version}-x64.asar"
+        historical_filename = f"iiimage-Studio-Restart-Update-{version}-x64.asar"
+    if product == "naimage-studio":
+        expected_filenames = {canonical_filename}
+    else:
+        # Historical releases retain iiimage artifact names. Rename-bridge
+        # manifests retain the legacy signed product while sharing the exact
+        # same naimage installer and Restart ASAR as the canonical manifest.
+        expected_filenames = {historical_filename, canonical_filename}
+    if filename not in expected_filenames:
         raise SystemExit(f"unexpected {kind} filename: {filename}")
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise SystemExit(f"invalid {kind} SHA-256")
@@ -168,7 +186,7 @@ for kind in ("installer", "restart"):
 
 canonical_manifest = {
     "schema_version": 1,
-    "product": "iiimage-studio",
+    "product": product,
     "channel": "stable",
     "version": version,
     "published_at": published_at.strip(),
@@ -196,3 +214,54 @@ if ! openssl pkeyutl \
 fi
 
 echo "desktop release signature verified"
+
+if [[ "${NAIMAGE_SKIP_DESKTOP_MANIFEST_PAIR:-0}" != "1" ]]; then
+  if [[ -n "$legacy_manifest" ]]; then
+    if [[ ! -f "$legacy_manifest" ]]; then
+      echo "missing legacy desktop release manifest: $legacy_manifest" >&2
+      exit 1
+    fi
+    NAIMAGE_SKIP_DESKTOP_MANIFEST_PAIR=1 "$0" "$legacy_manifest" "$release_dir" "$public_key"
+    python3 - "$manifest" "$legacy_manifest" <<'PY'
+import json
+import sys
+
+canonical_path, legacy_path = sys.argv[1:]
+with open(canonical_path, "r", encoding="utf-8") as handle:
+    canonical = json.load(handle)
+with open(legacy_path, "r", encoding="utf-8") as handle:
+    legacy = json.load(handle)
+
+if canonical.get("product") == "iiimage-studio":
+    # During the 1.0.4 transition the historical signed manifest may be
+    # mirrored under both filenames without changing a single signed byte.
+    if canonical != legacy:
+        raise SystemExit("historical desktop release mirror differs from its source")
+else:
+    if canonical.get("product") != "naimage-studio":
+        raise SystemExit("canonical desktop release manifest has an invalid product")
+    if legacy.get("product") != "iiimage-studio":
+        raise SystemExit("legacy desktop release manifest has an invalid product")
+    if set(canonical) != set(legacy):
+        raise SystemExit("desktop release manifest pair has different fields")
+    for item in (canonical, legacy):
+        item.pop("product", None)
+        item.pop("signature", None)
+    if canonical != legacy:
+        raise SystemExit("desktop release manifests differ outside product/signature")
+
+print("desktop release manifest pair verified")
+PY
+  else
+    python3 - "$manifest" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    manifest = json.load(handle)
+if manifest.get("product") == "naimage-studio":
+    raise SystemExit("canonical naimage release requires desktop-release-legacy.json")
+print("historical standalone desktop release manifest verified")
+PY
+  fi
+fi

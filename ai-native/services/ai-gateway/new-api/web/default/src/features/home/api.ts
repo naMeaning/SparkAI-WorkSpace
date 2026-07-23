@@ -29,6 +29,9 @@ import type {
 // Home Page APIs
 // ============================================================================
 
+const DESKTOP_PRODUCT = 'naimage-studio'
+const DESKTOP_PRODUCT_HEADER = 'X-Naimage-Desktop-Product'
+
 /**
  * Get custom home page content
  * Returns Markdown/HTML content or iframe URL
@@ -42,6 +45,7 @@ export async function createDesktopDownloadCaptcha(): Promise<
   DesktopDownloadResponse<DesktopDownloadCaptcha>
 > {
   const res = await api.post('/api/desktop-download/captcha', undefined, {
+    headers: { [DESKTOP_PRODUCT_HEADER]: DESKTOP_PRODUCT },
     skipBusinessError: true,
     skipErrorHandler: true,
   })
@@ -54,8 +58,16 @@ export async function authorizeDesktopDownload(input: {
 }): Promise<DesktopDownloadResponse<DesktopDownloadAuthorization>> {
   const res = await api.post(
     '/api/desktop-download/authorize',
-    { challenge_id: input.challengeId, code: input.code },
-    { skipBusinessError: true, skipErrorHandler: true }
+    {
+      product: DESKTOP_PRODUCT,
+      challenge_id: input.challengeId,
+      code: input.code,
+    },
+    {
+      headers: { [DESKTOP_PRODUCT_HEADER]: DESKTOP_PRODUCT },
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
   )
   return res.data
 }

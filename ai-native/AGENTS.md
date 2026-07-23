@@ -1,6 +1,6 @@
 # Repository Guide
 
-This repository is now organized around one delivered product: `IIIMAGE STUDIO`.
+This repository is now organized around one delivered product: `naimage`.
 
 ## Product Boundary
 

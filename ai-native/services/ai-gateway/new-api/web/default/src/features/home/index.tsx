@@ -41,7 +41,7 @@ export function Home() {
   }, [isAuthenticated, navigate, search.download])
 
   return (
-    <PublicLayout showMainContainer={false} siteName='iiimage Studio'>
+    <PublicLayout showMainContainer={false} siteName='naimage'>
       <main className='flex min-h-svh items-center justify-center px-6 pt-20 pb-12'>
         <section className='mx-auto flex w-full max-w-5xl flex-col items-center text-center'>
           <SiteLogoMark
@@ -49,7 +49,7 @@ export function Home() {
             textClassName='text-2xl'
           />
           <h1 className='text-foreground w-full max-w-full text-4xl leading-none font-semibold tracking-normal break-words sm:text-6xl md:text-7xl lg:text-8xl'>
-            iiimage Studio
+            naimage
           </h1>
           <p className='text-muted-foreground mt-6 max-w-2xl text-base leading-7 sm:text-lg'>
             专注图像创作与模型接入的 AI 工作台。

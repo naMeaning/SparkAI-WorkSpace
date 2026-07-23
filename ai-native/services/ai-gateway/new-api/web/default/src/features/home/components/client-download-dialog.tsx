@@ -165,7 +165,7 @@ export function ClientDownloadDialog({
           <div className='bg-primary/10 text-primary mb-1 flex size-10 items-center justify-center rounded-xl'>
             <Download className='size-5' />
           </div>
-          <DialogTitle>下载 iiimage Studio</DialogTitle>
+          <DialogTitle>下载 naimage</DialogTitle>
           <DialogDescription>
             输入图片中的 6 位验证码，验证成功后开始下载 Windows 安装包。
           </DialogDescription>

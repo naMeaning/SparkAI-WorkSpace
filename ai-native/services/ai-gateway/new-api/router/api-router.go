@@ -8,11 +8,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	desktopDownloadCanonicalPath = "/downloads/naimage-studio/windows"
+	desktopDownloadLegacyPath    = "/downloads/iiimage-studio/windows"
+)
+
+func registerDesktopDownloadRoutes(router *gin.Engine) {
+	for _, path := range []string{desktopDownloadCanonicalPath, desktopDownloadLegacyPath} {
+		router.GET(path, middleware.RouteTag("desktop-download"), controller.DownloadDesktopInstaller)
+	}
+}
+
 func SetApiRouter(router *gin.Engine) {
 	// The installer stream intentionally lives outside the gzip-compressed API
 	// group. The controller still requires a signed login session plus a
 	// short-lived, IP-bound ticket issued by the authenticated API below.
-	router.GET("/downloads/iiimage-studio/windows", middleware.RouteTag("desktop-download"), controller.DownloadDesktopInstaller)
+	// The legacy route is a direct alias rather than a redirect because signed,
+	// short-lived download URLs from already-installed clients must keep working.
+	registerDesktopDownloadRoutes(router)
 
 	apiRouter := router.Group("/api")
 	apiRouter.Use(middleware.RouteTag("api"))

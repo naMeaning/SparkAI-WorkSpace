@@ -1,6 +1,6 @@
 # AI Native
 
-AI Native 现在收敛为一个产品入口：`IIIMAGE STUDIO`。
+AI Native 现在收敛为一个产品入口：`naimage`。
 
 - 后端整体入口：`services/ai-gateway`
 - 内嵌模型网关：`services/ai-gateway/new-api`
@@ -14,7 +14,7 @@ AI Native 现在收敛为一个产品入口：`IIIMAGE STUDIO`。
 ```text
 services/
   ai-gateway/         统一后端入口；构建并启动内嵌 New API
-    new-api/          Go 后端和 IIIMAGE STUDIO 前端源码
+    new-api/          Go 后端和 naimage 前端源码
   crm-api/            内部 CRM 分销服务，由 gateway/new-api 代理调用
 
 packages/
@@ -25,7 +25,7 @@ scripts/              跨平台 workspace 编排脚本
 docs/                 设计说明、实施计划和协作文档
 ```
 
-CRM 分销页面合并在 `IIIMAGE STUDIO` 内，通过 `/crm/*` 由 New API 登录态进入。
+CRM 分销页面合并在 `naimage` 内，通过 `/crm/*` 由 New API 登录态进入。
 
 ## 包说明
 
@@ -70,7 +70,7 @@ CRM_DEV_STORAGE=mysql pnpm run dev
 
 | 服务 | 地址 |
 | --- | --- |
-| IIIMAGE STUDIO 前端开发入口 | `http://127.0.0.1:17862` |
+| naimage 前端开发入口 | `http://127.0.0.1:17862` |
 | New API gateway / 嵌入式产物入口 | `http://127.0.0.1:17860` |
 | 内部 CRM API | `http://127.0.0.1:17861` |
 
@@ -84,7 +84,7 @@ CRM_DEV_STORAGE=mysql pnpm run dev
 | `pnpm run dev:main` | 同时启动 New API gateway、内部 CRM API 和前端热更新服务。 |
 | `pnpm run start` | 启动统一主栈，不隐式安装依赖。 |
 | `pnpm run build` | 构建统一产品，等同于 `build:main`。 |
-| `pnpm run build:main` | 构建 gateway/New API 后端和 IIIMAGE STUDIO 前端产物。 |
+| `pnpm run build:main` | 构建 gateway/New API 后端和 naimage 前端产物。 |
 | `pnpm run check` | 执行 workspace 校验、CRM 契约检查、CRM API 检查和 gateway smoke。 |
 | `pnpm run verify:workspace` | 校验统一仓库结构、包名和关键脚本边界。 |
 | `pnpm run dev:gateway` | 只启动 gateway/New API，用于定位网关问题。 |

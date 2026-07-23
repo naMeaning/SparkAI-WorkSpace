@@ -5,11 +5,25 @@ This directory is the source of truth for `image.aieyra.cn` deployment and host 
 ## Runtime layout
 
 1. Copy `.env.example` to `runtime/.env` and fill the existing production secrets.
-2. Put every installer/restart artifact named by the tracked
-   `releases/desktop-release.json` in `runtime/releases/`.
+2. Put every installer/restart artifact named by the tracked release manifest
+   set in `runtime/releases/`. Starting with 1.0.5, that set is the
+   `releases/desktop-release.json` and
+   `releases/desktop-release-legacy.json` pair.
 3. Run `./verify-installer.sh` before building.
 4. Run `./deploy-main.sh` to build, health-check, reload Caddy, and run the application-level production acceptance gate.
 5. Run `./verify-production.sh` after deployment for the complete read-only acceptance check.
+
+The delivered product and public routes use the `naimage` identity, and
+`NAIMAGE_*` is the canonical configuration prefix. This brand release
+deliberately keeps the existing deployment ABI: `/opt/iiimage`, the `iiimage`
+Compose project/network, `iiimage-*` services, containers and local image tags,
+and `iiimage-ai-native-sync.service`. Operations scripts prefer `NAIMAGE_*`
+values and fall back to the corresponding legacy `IIIMAGE_*` values, so the
+release neither rotates existing secrets nor disconnects existing persistent
+data. They load `runtime/.env` first and the tracked, secret-free
+`compose-env-compat.env` second; Compose still rejects a missing required secret
+after alias resolution. Renaming physical deployment identities requires a
+separate, backed-up maintenance window and is not part of this release.
 
 Every full application deployment creates a transactional CRM SQL backup and runs `./verify-crm-backup.sh` before migrations. The verifier only accepts backup files inside `runtime/backups`, restores into a uniquely named temporary database, requires every core table and the migration history, runs `CHECK TABLE`, and removes the temporary database before the deployment can continue. It can also be run manually without an argument to verify the newest CRM backup.
 
@@ -20,12 +34,15 @@ are part of the pending diff.
 
 The New API container has no published host port. Caddy reaches it through the external `forgejo` Docker network, and `TRUSTED_PROXIES` explicitly trusts only that network. The installer directory is mounted read-only.
 
-`verify-installer.sh` validates the manifest schema, release identity, versioned
-artifact names, sizes, SHA-256 digests, and its Ed25519 signature against the
-same tracked public key embedded by iiimage Studio. `deploy-main.sh` verifies
-the tracked candidate before touching runtime state and promotes it atomically
-only after application and Caddy work succeeds. A failed final acceptance check
-now restores the prior runtime manifest and Caddyfile. For a New API-only
+`verify-installer.sh` validates both manifest schemas, release identities,
+versioned artifact names, sizes, SHA-256 digests, Ed25519 signatures, and the
+rule that the pair differs only in `product` and `signature`, against the same
+tracked public key embedded by naimage. `deploy-main.sh` verifies the tracked
+pair before touching runtime state. If the legacy runtime filename does not yet
+exist, it seeds only that verified compatibility manifest before starting the
+new backend; normal pair promotion happens after application and Caddy work,
+and rollback restores/removes both identities together. A failed final
+acceptance check restores the prior runtime manifests and Caddyfile. For a New API-only
 release it also restores the pre-switch SQLite database and
 `managed-image-idempotency` directory, retags the preserved previous container
 image, and waits for the previous New API service to become healthy. The
@@ -33,6 +50,15 @@ production checkout intentionally remains at the target commit so every retry
 runs the hardened deployment code; the deployed-state marker remains at the
 previous successful application commit and causes the watcher to retry without
 leaving the failed application live.
+
+The tracked `releases/desktop-release.json` initially remains the already-signed
+legacy 1.0.4 manifest. Its `iiimage-studio` identity and historical artifact
+filenames stay byte-for-byte intact so its signature remains valid; deployment
+mirrors those exact bytes to the legacy runtime filename during transition.
+Every newly signed release publishes `desktop-release.json` with product
+`naimage-studio` and `desktop-release-legacy.json` with product
+`iiimage-studio`. Both name the same `naimage-Setup-*` and
+`naimage-Restart-Update-*` artifacts and differ only in product/signature.
 
 Before preserving or building any New API image, the deployer atomically writes
 `runtime/manual-recovery-required.env` with

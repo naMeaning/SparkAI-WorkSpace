@@ -11,18 +11,19 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}/runtime"
 ENV_FILE="${RUNTIME_DIR}/.env"
+COMPOSE_ENV_COMPAT_FILE="${SCRIPT_DIR}/compose-env-compat.env"
 STATE_FILE="${RUNTIME_DIR}/deployed-main.sha"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 CADDY_SOURCE="${SCRIPT_DIR}/Caddyfile"
 CADDY_TARGET="/opt/forgejo/caddy/Caddyfile"
-BRANCH="${IIIMAGE_PRODUCTION_BRANCH:-main}"
-BASE_URL="${IIIMAGE_PRODUCTION_URL:-https://image.aieyra.cn}"
-PRODUCTION_HOST="${IIIMAGE_PRODUCTION_HOST:-image.aieyra.cn}"
-TLS_MIN_SECONDS="${IIIMAGE_TLS_MIN_SECONDS:-1209600}"
-MAX_DISK_PERCENT="${IIIMAGE_MAX_DISK_PERCENT:-85}"
-REQUIRE_WATCHER="${IIIMAGE_REQUIRE_WATCHER:-1}"
-REQUIRE_HOST_SECURITY="${IIIMAGE_REQUIRE_HOST_SECURITY:-1}"
-EXPECTED_ORIGIN="${IIIMAGE_PRODUCTION_ORIGIN:-/opt/forgejo/data/git/repositories/aieyra/ai-native.git}"
+BRANCH="${NAIMAGE_PRODUCTION_BRANCH:-${IIIMAGE_PRODUCTION_BRANCH:-main}}"
+BASE_URL="${NAIMAGE_PRODUCTION_URL:-${IIIMAGE_PRODUCTION_URL:-https://image.aieyra.cn}}"
+PRODUCTION_HOST="${NAIMAGE_PRODUCTION_HOST:-${IIIMAGE_PRODUCTION_HOST:-image.aieyra.cn}}"
+TLS_MIN_SECONDS="${NAIMAGE_TLS_MIN_SECONDS:-${IIIMAGE_TLS_MIN_SECONDS:-1209600}}"
+MAX_DISK_PERCENT="${NAIMAGE_MAX_DISK_PERCENT:-${IIIMAGE_MAX_DISK_PERCENT:-85}}"
+REQUIRE_WATCHER="${NAIMAGE_REQUIRE_WATCHER:-${IIIMAGE_REQUIRE_WATCHER:-1}}"
+REQUIRE_HOST_SECURITY="${NAIMAGE_REQUIRE_HOST_SECURITY:-${IIIMAGE_REQUIRE_HOST_SECURITY:-1}}"
+EXPECTED_ORIGIN="${NAIMAGE_PRODUCTION_ORIGIN:-${IIIMAGE_PRODUCTION_ORIGIN:-/opt/forgejo/data/git/repositories/aieyra/ai-native.git}}"
 
 pass() {
   printf '[PASS] %s\n' "$1"
@@ -96,8 +97,8 @@ for command_name in awk cmp curl cut df docker find git grep head openssl sha256
   require_command "$command_name"
 done
 
-[[ "$REQUIRE_WATCHER" =~ ^[01]$ ]] || fail "IIIMAGE_REQUIRE_WATCHER must be 0 or 1"
-[[ "$REQUIRE_HOST_SECURITY" =~ ^[01]$ ]] || fail "IIIMAGE_REQUIRE_HOST_SECURITY must be 0 or 1"
+[[ "$REQUIRE_WATCHER" =~ ^[01]$ ]] || fail "NAIMAGE_REQUIRE_WATCHER (or legacy IIIMAGE_REQUIRE_WATCHER) must be 0 or 1"
+[[ "$REQUIRE_HOST_SECURITY" =~ ^[01]$ ]] || fail "NAIMAGE_REQUIRE_HOST_SECURITY (or legacy IIIMAGE_REQUIRE_HOST_SECURITY) must be 0 or 1"
 if [[ "$REQUIRE_WATCHER" == "1" || "$REQUIRE_HOST_SECURITY" == "1" ]]; then
   require_command systemctl
 fi
@@ -107,6 +108,7 @@ if [[ "$REQUIRE_HOST_SECURITY" == "1" ]]; then
 fi
 
 [[ -f "$ENV_FILE" ]] || fail "missing runtime environment: ${ENV_FILE}"
+[[ -f "$COMPOSE_ENV_COMPAT_FILE" ]] || fail "missing Compose environment compatibility map: ${COMPOSE_ENV_COMPAT_FILE}"
 [[ "$(stat -c '%a' "$ENV_FILE")" == "600" ]] || fail "runtime environment must have mode 600"
 [[ "$(stat -c '%U' "$ENV_FILE")" == "root" ]] || fail "runtime environment must be owned by root"
 if grep -q 'replace-with-' "$ENV_FILE"; then
@@ -129,10 +131,17 @@ deployed_head="$(tr -d '\r\n' <"$STATE_FILE")"
 pass "source, origin and deployed commit agree at ${local_head:0:12}"
 
 cmp -s "${SCRIPT_DIR}/releases/desktop-release.json" "${RUNTIME_DIR}/releases/desktop-release.json" || fail "tracked and runtime desktop release manifests differ"
+tracked_legacy_manifest="${SCRIPT_DIR}/releases/desktop-release-legacy.json"
+if [[ ! -f "$tracked_legacy_manifest" ]]; then
+  # The historical 1.0.4 manifest is mirrored byte-for-byte during the
+  # transition; every newly generated naimage release tracks a dedicated pair.
+  tracked_legacy_manifest="${SCRIPT_DIR}/releases/desktop-release.json"
+fi
+cmp -s "$tracked_legacy_manifest" "${RUNTIME_DIR}/releases/desktop-release-legacy.json" || fail "tracked and runtime legacy desktop release manifests differ"
 "${SCRIPT_DIR}/verify-installer.sh" >/dev/null
-pass "desktop release manifest signature and artifact SHA-256 values"
+pass "dual desktop release manifest signatures and artifact SHA-256 values"
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" config --quiet
+docker compose --env-file "$ENV_FILE" --env-file "$COMPOSE_ENV_COMPAT_FILE" -f "$COMPOSE_FILE" config --quiet
 pass "Docker Compose configuration"
 
 [[ -f "$CADDY_TARGET" ]] || fail "missing live Caddyfile: ${CADDY_TARGET}"
@@ -215,7 +224,8 @@ expect_http_status "public status endpoint" 200 "$BASE_URL/api/status"
 expect_http_status "anonymous captcha denial" 401 -X POST "$BASE_URL/api/desktop-download/captcha"
 expect_http_status "anonymous desktop update denial" 401 "$BASE_URL/api/desktop-update/check?current_version=1.0.0&platform=win32&architecture=x64&compatibility=probe"
 expect_http_status "anonymous desktop telemetry denial" 401 -X POST "$BASE_URL/api/desktop-client/events"
-expect_http_status "anonymous installer denial" 401 "$BASE_URL/downloads/iiimage-studio/windows"
+expect_http_status "anonymous installer denial" 401 "$BASE_URL/downloads/naimage-studio/windows"
+expect_http_status "legacy anonymous installer denial" 401 "$BASE_URL/downloads/iiimage-studio/windows"
 
 oversized_status="$(head -c 40000 /dev/zero | tr '\0' x | curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "$BASE_URL/api/desktop-download/captcha")"
 [[ "$oversized_status" == "413" ]] || fail "oversized download API body: expected HTTP 413, got ${oversized_status}"

@@ -18,7 +18,7 @@ The current direction is:
 
 - `new-api` is the account, session, role, quota, model routing, and billing
   execution source of truth.
-- CRM is an internal distribution module in `IIIMAGE STUDIO`, not a separate
+- CRM is an internal distribution module in `naimage`, not a separate
   browser product.
 - The unified frontend can call New API native APIs and CRM distribution APIs.
 - The root monorepo stays organized around `services/*` and `packages/*`.

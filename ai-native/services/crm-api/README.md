@@ -1,6 +1,6 @@
 # CRM API
 
-`@ai-native/crm-api` 是 `IIIMAGE STUDIO` 的内部分销业务服务。它不提供独立
+`@ai-native/crm-api` 是 `naimage` 的内部分销业务服务。它不提供独立
 浏览器产品，不拥有账号登录体系。CRM 请求经过嵌入 `new-api` 的同源 CRM proxy：
 
 ```text
@@ -231,7 +231,7 @@ http://127.0.0.1:17861
 | `CRM_DATABASE_URL` | 必填 | MySQL 连接字符串，例如 `mysql://root:pass@127.0.0.1:3306/ai_native_crm`；服务启动需要持久化数据库。 |
 | `CRM_DATABASE_NAME` | `ai_native_crm` | 迁移脚本创建的数据库名。 |
 | `NEW_API_BASE_URL` | `http://127.0.0.1:17860` | `new-api` 服务地址。 |
-| `IIIMAGE_WEB_PORT` | `17862` | 根目录 `pnpm run dev` 启动的前端热更新服务端口。 |
+| `NAIMAGE_WEB_PORT` | `17862` | 根目录 `pnpm run dev` 启动的前端热更新服务端口。 |
 | `NEW_API_ADMIN_USER_ID` | 无 | 服务间调用 `new-api` 管理接口的管理员用户 ID。 |
 | `NEW_API_ADMIN_ACCESS_TOKEN` | 无 | 服务间调用 `new-api` 管理接口的管理员系统 access token；来自管理员个人资料的“系统访问令牌”，不是 `sk-` 模型 API Key。内存模式未同时配置管理员 ID 和该令牌时仅模拟额度与用量调用。 |
 | `CRM_QUOTA_PER_RMB` | `500000` | RMB 到 `new-api` quota 的换算倍率。 |
