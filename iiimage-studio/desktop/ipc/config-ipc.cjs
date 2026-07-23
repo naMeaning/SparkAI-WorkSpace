@@ -7,7 +7,9 @@ function registerSettingsIpc({
   settingsPath,
   defaultSettings,
   log,
+  onNewApiAccountBaseUrlChanged,
   publicSettings,
+  validateNewApiServiceSettings,
   writeJson
 }) {
   ipcMain.handle("iiimage:config:load-settings", () => {
@@ -20,15 +22,21 @@ function registerSettingsIpc({
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     const incomingSessionCookie = typeof settings?.serverSessionCookie === "string" ? settings.serverSessionCookie.trim() : "";
     const incomingServerUserId = typeof settings?.serverUserId === "string" ? settings.serverUserId.trim() : "";
-    const next = migrateSettings({
+    let next = migrateSettings({
       ...current,
       ...(settings || {}),
       serverSessionCookie: incomingSessionCookie || current.serverSessionCookie,
       serverUserId: incomingServerUserId || current.serverUserId
     });
+    validateNewApiServiceSettings?.(next);
+    const accountChanged = String(current.accountBaseUrl || "").toLowerCase() !== String(next.accountBaseUrl || "").toLowerCase();
+    if (accountChanged) {
+      next = migrateSettings({ ...next, serverToken: "", serverSessionCookie: "", serverUserId: "" });
+      onNewApiAccountBaseUrlChanged?.(current, next);
+    }
     writeJson(settingsPath, next);
     log("config save settings");
-    return { ok: true, path: settingsPath };
+    return { ok: true, path: settingsPath, accountChanged };
   });
 }
 

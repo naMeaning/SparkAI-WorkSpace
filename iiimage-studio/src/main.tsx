@@ -93,6 +93,7 @@ import { installBrowserServerBridge } from "./server";
 import {
   REASONING_EFFORT_OPTIONS,
   STORAGE_IMAGE_STATS,
+  STORAGE_SERVER_AUTH,
   STORAGE_SESSION,
   STORAGE_SETTINGS,
   defaultSettings,
@@ -2229,10 +2230,15 @@ async function loadSettingsFromStore(): Promise<AppSettings> {
 
 async function saveSettingsToStore(settings: AppSettings) {
   if (window.iiimageConfig) {
-    await window.iiimageConfig.saveSettings(settings);
-    return;
+    const result = await window.iiimageConfig.saveSettings(settings);
+    if (!result.ok) throw new Error(result.error || "设置保存失败。");
+    return result;
   }
+  const current = mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings));
+  const accountChanged = current.accountBaseUrl.toLowerCase() !== settings.accountBaseUrl.toLowerCase();
+  if (accountChanged) writeJson(STORAGE_SERVER_AUTH, { accountBaseUrl: "", serverUserId: "" });
   writeJson(STORAGE_SETTINGS, settings);
+  return { ok: true, accountChanged };
 }
 
 async function loadSessionFromStore(): Promise<StudioWorkflowSession> {
@@ -3650,8 +3656,17 @@ function App() {
 
   async function commitAppSettings(nextSettings: AppSettings) {
     const normalized = mergeSettings(nextSettings);
+    const accountChanged = settings.accountBaseUrl.toLowerCase() !== normalized.accountBaseUrl.toLowerCase();
     await saveSettingsToStore(normalized);
     setSettings(normalized);
+    if (accountChanged) {
+      serverRefreshEpochRef.current += 1;
+      authCheckedTokenRef.current = "";
+      setServerUser(null);
+      setServerWallet(null);
+      setServerLogs([]);
+      setServerMessage("账户服务地址已更新，请重新登录。");
+    }
   }
 
   useEffect(() => {

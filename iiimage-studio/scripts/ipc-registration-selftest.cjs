@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
+const { registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
+const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 
 const expectedUpdaterChannels = [
   "iiimage:update:status",
@@ -95,7 +97,79 @@ function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
-function main() {
+async function assertSettingsAccountBoundary() {
+  const handlers = new Map();
+  const defaults = {
+    accountBaseUrl: "https://sparkapi.org",
+    relayBaseUrl: "",
+    updateBaseUrl: "https://image.aieyra.cn",
+    serverToken: "",
+    serverSessionCookie: "",
+    serverUserId: ""
+  };
+  let stored = { ...defaults, serverSessionCookie: "session=old", serverUserId: "7" };
+  let boundaryCalls = 0;
+  registerSettingsIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    migrateSettings: (value) => ({ ...defaults, ...(value || {}) }),
+    readJson: () => stored,
+    settingsPath: "fixture-settings.json",
+    defaultSettings: defaults,
+    log: () => {},
+    publicSettings: (settings) => settings,
+    validateNewApiServiceSettings: () => true,
+    onNewApiAccountBaseUrlChanged: () => { boundaryCalls += 1; },
+    writeJson: (_path, value) => { stored = value; }
+  });
+  const save = handlers.get("iiimage:config:save-settings");
+  const relayOnly = await save(null, { relayBaseUrl: "https://relay.example" });
+  assert.equal(relayOnly.accountChanged, false);
+  assert.equal(stored.serverSessionCookie, "session=old");
+  assert.equal(stored.serverUserId, "7");
+  const accountChange = await save(null, { accountBaseUrl: "https://account.example" });
+  assert.equal(accountChange.accountChanged, true);
+  assert.equal(stored.serverSessionCookie, "");
+  assert.equal(stored.serverUserId, "");
+  assert.equal(boundaryCalls, 1);
+}
+
+async function assertBestEffortRemoteLogout() {
+  const handlers = new Map();
+  let clearCalls = 0;
+  let failRemote = false;
+  const remoteCalls = [];
+  registerServerIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    aidebugMode: false,
+    aidebugLiveImage: false,
+    aidebugStatefulAuth: false,
+    defaultSettings: {},
+    settingsPath: "fixture-settings.json",
+    migrateSettings: (value) => value,
+    readJson: () => ({ serverSessionCookie: "session=fixture", serverUserId: "7" }),
+    newApiUserAuthHeaders: () => ({ cookie: "session=fixture", "New-Api-User": "7" }),
+    newApiRequest: async (_settings, endpoint, options) => {
+      remoteCalls.push({ endpoint, options });
+      if (failRemote) throw new Error("offline");
+      return { success: true };
+    },
+    clearNewApiAuth: () => { clearCalls += 1; },
+    log: () => {}
+  });
+  const logout = handlers.get("iiimage:server:logout");
+  const succeeded = await logout();
+  assert.equal(succeeded.remoteLogout, true);
+  assert.equal(remoteCalls[0].endpoint, "/api/user/logout");
+  assert.equal(remoteCalls[0].options.method, "POST");
+  assert.equal(clearCalls, 1);
+  failRemote = true;
+  const failedRemote = await logout();
+  assert.equal(failedRemote.ok, true);
+  assert.equal(failedRemote.remoteLogout, false);
+  assert.equal(clearCalls, 2, "Local auth must clear even when remote logout fails");
+}
+
+async function main() {
   const registrations = [];
   const duplicateChannels = [];
   const seenChannels = new Set();
@@ -146,6 +220,8 @@ function main() {
     sorted(invokeChannels),
     "Registered public IPC channels must match preload invokes."
   );
+  await assertSettingsAccountBoundary();
+  await assertBestEffortRemoteLogout();
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
@@ -156,4 +232,7 @@ function main() {
   }, null, 2)}\n`);
 }
 
-main();
+main().catch((error) => {
+  process.stderr.write(`${error?.stack || error}\n`);
+  process.exitCode = 1;
+});

@@ -116,7 +116,9 @@ function seedSession(configDir, round) {
   };
   writeJson(join(configDir, "app-settings.json"), {
     theme: "dark",
-    serverUrl: "https://image.aieyra.cn",
+    accountBaseUrl: "https://sparkapi.org",
+    relayBaseUrl: "",
+    updateBaseUrl: "https://image.aieyra.cn",
     agentModel: "gpt-5.6-sol",
     agentModelPool: ["gpt-5.6-sol"],
     imageModel: "gpt-image-2",

@@ -18,6 +18,9 @@ export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }
   { value: "ultra", label: "Ultra" }
 ];
 
+export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
+export const DEFAULT_UPDATE_BASE_URL = "https://image.aieyra.cn";
+
 export const defaultSettings: AppSettings = {
   agentProvider: "CODEX",
   agentBaseUrl: "",
@@ -35,7 +38,9 @@ export const defaultSettings: AppSettings = {
   imageCount: 1,
   imageSize: "1024x1024",
   imageQuality: "auto",
-  serverUrl: "https://image.aieyra.cn",
+  accountBaseUrl: DEFAULT_ACCOUNT_BASE_URL,
+  relayBaseUrl: "",
+  updateBaseUrl: DEFAULT_UPDATE_BASE_URL,
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
@@ -55,17 +60,19 @@ function uniqueStoredModels(models: unknown[] = []) {
     .filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
 }
 
-function normalizeStoredServerUrl(value: unknown) {
-  return String(value || "").trim().replace(/\/$/, "");
+export function normalizeServiceBaseUrl(value: unknown, fallback = "") {
+  const normalized = String(value || "").trim().replace(/\/+$/, "");
+  return normalized || String(fallback || "").trim().replace(/\/+$/, "");
 }
 
 function isLegacyLocalServerUrl(value: unknown) {
-  return LEGACY_LOCAL_SERVER_URLS.has(normalizeStoredServerUrl(value).toLowerCase());
+  return LEGACY_LOCAL_SERVER_URLS.has(normalizeServiceBaseUrl(value).toLowerCase());
 }
 
 export function mergeSettings(value?: Partial<AppSettings> & Record<string, unknown>): AppSettings {
   const source = value ?? {};
   const next = { ...defaultSettings };
+  const legacyServerUrl = normalizeServiceBaseUrl(source.serverUrl);
 
   for (const key of Object.keys(defaultSettings) as (keyof AppSettings)[]) {
     if (source[key] !== undefined) {
@@ -78,6 +85,12 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!source.agentModel && typeof source.model === "string") next.agentModel = source.model;
   if (!source.imageBaseUrl && typeof source.baseUrl === "string") next.imageBaseUrl = source.baseUrl;
   if (!source.imageApiKey && typeof source.apiKey === "string") next.imageApiKey = source.apiKey;
+  if (!normalizeServiceBaseUrl(source.accountBaseUrl) && legacyServerUrl && !isLegacyLocalServerUrl(legacyServerUrl)) {
+    next.accountBaseUrl = legacyServerUrl;
+  }
+  next.accountBaseUrl = normalizeServiceBaseUrl(next.accountBaseUrl, defaultSettings.accountBaseUrl);
+  next.relayBaseUrl = normalizeServiceBaseUrl(next.relayBaseUrl);
+  next.updateBaseUrl = normalizeServiceBaseUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
   next.agentModelPool = uniqueStoredModels(Array.isArray(source.agentModelPool) ? source.agentModelPool : next.agentModelPool);
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueStoredModels([next.agentModel, ...next.agentModelPool]);
@@ -89,8 +102,9 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   const timeoutSeconds = Number(next.timeoutSeconds);
   next.timeoutSeconds = Number.isFinite(timeoutSeconds) ? Math.max(15, Math.min(600, Math.round(timeoutSeconds))) : defaultSettings.timeoutSeconds;
   next.fastMode = Boolean(next.fastMode);
-  if (isLegacyLocalServerUrl(next.serverUrl)) {
-    next.serverUrl = defaultSettings.serverUrl;
+  if (isLegacyLocalServerUrl(legacyServerUrl)) {
+    next.accountBaseUrl = defaultSettings.accountBaseUrl;
+    next.relayBaseUrl = defaultSettings.relayBaseUrl;
     next.serverToken = "";
     next.serverSessionCookie = "";
     next.serverUserId = "";
@@ -102,6 +116,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
 export const STORAGE_SETTINGS = "iiimage.settings.v1";
 export const STORAGE_SESSION = "iiimage.ideSession.v1";
 export const STORAGE_IMAGE_STATS = "iiimage.imageGenerationStats.v1";
+export const STORAGE_SERVER_AUTH = "iiimage.serverAuth.v1";
 
 export function readJson<T>(key: string, fallback: T): T {
   try {

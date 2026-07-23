@@ -194,7 +194,9 @@ const defaultSettings = {
   imageCount: 1,
   imageSize: "1024x1024",
   imageQuality: "auto",
-  serverUrl: "https://image.aieyra.cn",
+  accountBaseUrl: "https://sparkapi.org",
+  relayBaseUrl: "",
+  updateBaseUrl: "https://image.aieyra.cn",
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
@@ -364,6 +366,7 @@ function ensureRuntimeFiles() {
 function migrateSettings(value) {
   const source = value && typeof value === "object" ? value : {};
   const next = { ...defaultSettings };
+  const legacyServerUrl = normalizeStoredServerUrl(source.serverUrl);
 
   for (const key of Object.keys(defaultSettings)) {
     if (source[key] !== undefined) next[key] = source[key];
@@ -374,6 +377,12 @@ function migrateSettings(value) {
   if (!source.agentModel && source.model) next.agentModel = source.model;
   if (!source.imageBaseUrl && source.baseUrl) next.imageBaseUrl = source.baseUrl;
   if (!source.imageApiKey && source.apiKey) next.imageApiKey = source.apiKey;
+  if (!normalizeStoredServerUrl(source.accountBaseUrl) && legacyServerUrl && !isLegacyLocalServerUrl(legacyServerUrl)) {
+    next.accountBaseUrl = legacyServerUrl;
+  }
+  next.accountBaseUrl = normalizeServerUrl(next.accountBaseUrl, defaultSettings.accountBaseUrl);
+  next.relayBaseUrl = normalizeServerUrl(next.relayBaseUrl, "");
+  next.updateBaseUrl = normalizeServerUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
@@ -384,8 +393,9 @@ function migrateSettings(value) {
     ? Math.max(15, Math.min(600, Math.round(timeoutSeconds)))
     : defaultSettings.timeoutSeconds;
   next.fastMode = Boolean(next.fastMode);
-  if (isLegacyLocalServerUrl(next.serverUrl)) {
-    next.serverUrl = defaultSettings.serverUrl;
+  if (isLegacyLocalServerUrl(legacyServerUrl)) {
+    next.accountBaseUrl = defaultSettings.accountBaseUrl;
+    next.relayBaseUrl = defaultSettings.relayBaseUrl;
     next.serverToken = "";
     next.serverSessionCookie = "";
     next.serverUserId = "";
@@ -394,6 +404,7 @@ function migrateSettings(value) {
   delete next.baseUrl;
   delete next.apiKey;
   delete next.model;
+  delete next.serverUrl;
   return next;
 }
 
@@ -458,7 +469,9 @@ const {
   newApiUserAuthHeaders,
   parseJsonText,
   persistNewApiSessionCookie,
-  requireNewApiSession
+  requireNewApiSession,
+  resolveNewApiBaseUrl,
+  validateNewApiServiceSettings
 } = newApiClient;
 const desktopUpdater = createDesktopUpdaterService({
   app,
@@ -478,7 +491,7 @@ const desktopUpdater = createDesktopUpdaterService({
   requireNewApiSession,
   newApiRequest,
   newApiUserAuthHeaders,
-  normalizeServerUrl,
+  resolveNewApiBaseUrl,
   newApiTransportFetch,
   parseJsonText,
   newApiErrorMessage,
@@ -1607,8 +1620,9 @@ async function listAgentModels(provider, incomingSettings = {}) {
   };
 }
 
-function normalizeServerUrl(value) {
-  return String(value || defaultSettings.serverUrl).trim().replace(/\/$/, "") || defaultSettings.serverUrl;
+function normalizeServerUrl(value, fallback = defaultSettings.accountBaseUrl) {
+  const normalized = String(value || "").trim().replace(/\/+$/, "");
+  return normalized || String(fallback || "").trim().replace(/\/+$/, "");
 }
 
 function isLocalServerUrl(value) {
@@ -1620,7 +1634,7 @@ function isLocalServerUrl(value) {
   }
 }
 
-async function isLocalServerHealthy(serverUrl = defaultSettings.serverUrl) {
+async function isLocalServerHealthy(serverUrl = defaultSettings.accountBaseUrl) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 1200);
   try {
@@ -1643,7 +1657,7 @@ async function isLocalServerHealthy(serverUrl = defaultSettings.serverUrl) {
   }
 }
 
-async function waitForLocalServer(serverUrl = defaultSettings.serverUrl) {
+async function waitForLocalServer(serverUrl = defaultSettings.accountBaseUrl) {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     if (await isLocalServerHealthy(serverUrl)) return true;
@@ -1693,18 +1707,21 @@ function startLocalServerIfNeeded() {
   });
 }
 
-async function ensureLocalServer() {
+async function ensureLocalServer(requestedBaseUrl = "") {
   if (localServerEnsurePromise) return localServerEnsurePromise;
   const task = (async () => {
     const startedAt = Date.now();
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
-    if (!isLocalServerUrl(settings.serverUrl)) return;
-    if (await isLocalServerHealthy(settings.serverUrl)) {
+    const accountBaseUrl = resolveNewApiBaseUrl(settings, "account");
+    const relayBaseUrl = resolveNewApiBaseUrl(settings, "relay");
+    const serverUrl = normalizeServerUrl(requestedBaseUrl, "") || [accountBaseUrl, relayBaseUrl].find(isLocalServerUrl) || "";
+    if (!isLocalServerUrl(serverUrl)) return;
+    if (await isLocalServerHealthy(serverUrl)) {
       log(`local server healthy in ${Date.now() - startedAt}ms`);
       return;
     }
     startLocalServerIfNeeded();
-    if (!(await waitForLocalServer(settings.serverUrl))) {
+    if (!(await waitForLocalServer(serverUrl))) {
       log(`local server health timeout after ${Date.now() - startedAt}ms`);
       return;
     }
@@ -1720,13 +1737,14 @@ async function ensureLocalServer() {
 function startLocalServerMonitor() {
   if (localServerMonitor) return;
   const settings = migrateSettings(readJson(settingsPath, defaultSettings));
-  if (!isLocalServerUrl(settings.serverUrl)) {
+  const monitoredBaseUrl = [resolveNewApiBaseUrl(settings, "account"), resolveNewApiBaseUrl(settings, "relay")].find(isLocalServerUrl) || "";
+  if (!monitoredBaseUrl) {
     logBoot("local server monitor skipped for managed service");
     return;
   }
-  void ensureLocalServer();
+  void ensureLocalServer(monitoredBaseUrl);
   localServerMonitor = setInterval(() => {
-    void ensureLocalServer();
+    void ensureLocalServer(monitoredBaseUrl);
   }, 8000);
 }
 
@@ -1926,7 +1944,11 @@ function tokenItemsFromNewApiPayload(payload) {
 }
 
 function modelCacheKey(settings) {
-  return createModelCacheKey(normalizeServerUrl(settings.serverUrl), settings.serverUserId);
+  return createModelCacheKey(
+    resolveNewApiBaseUrl(settings, "account"),
+    resolveNewApiBaseUrl(settings, "relay"),
+    settings.serverUserId
+  );
 }
 
 function loadModelCacheFromDisk(settings) {
@@ -1982,6 +2004,7 @@ async function fetchNewApiModelSettings(settings) {
   try {
     if (settings.serverSessionCookie && settings.serverUserId) {
       const { response, data } = await newApiFetch(settings, managedRelayEndpoint("/v1/models"), {
+        service: "relay",
         headers: newApiUserAuthHeaders(settings),
         timeoutMs: 20_000,
         retries: 0
@@ -2545,6 +2568,7 @@ async function callNewApiImage(settings, payload = {}) {
         return form;
       };
       let request = await newApiFetch(settings, managedRelayEndpoint("/v1/images/edits"), {
+        service: "relay",
         method: "POST",
         headers: requestHeaders,
         body: buildForm(false),
@@ -2558,6 +2582,7 @@ async function callNewApiImage(settings, payload = {}) {
       if (request.response.status === 413) {
         compressedSourceRetryCount += 1;
         request = await newApiFetch(settings, managedRelayEndpoint("/v1/images/edits"), {
+          service: "relay",
           method: "POST",
           headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}-aggressive` },
           body: buildForm(true),
@@ -2719,6 +2744,12 @@ async function completeNewApiLogin(settings, payload = {}) {
     serverSessionCookie: sessionCookie,
     serverUserId
   });
+  const storedAfterLogin = migrateSettings(readJson(settingsPath, defaultSettings));
+  if (resolveNewApiBaseUrl(storedAfterLogin, "account").toLowerCase() !== resolveNewApiBaseUrl(settings, "account").toLowerCase()) {
+    const error = new Error("账户服务地址已切换，旧登录结果已丢弃。");
+    error.code = "NEW_API_SESSION_CHANGED";
+    throw error;
+  }
   if (authEpoch !== newApiAuthEpoch) {
     const error = new Error("登录请求已被更新的账户操作替代。");
     error.code = "NEW_API_SESSION_CHANGED";
@@ -2995,6 +3026,12 @@ function registerIpc() {
     defaultSettings,
     log,
     publicSettings,
+    validateNewApiServiceSettings,
+    onNewApiAccountBaseUrlChanged(current) {
+      const previousEpoch = newApiAuthEpoch;
+      newApiAuthEpoch += 1;
+      if (current?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch, userId: String(current.serverUserId) });
+    },
     writeJson,
     readProjectList,
     getActiveProject,
@@ -3197,6 +3234,8 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     managedRelayEndpoint,
     migrateSettings,
     newApiFetch,
+    resolveNewApiBaseUrl,
+    newApiRelayJson,
     newApiRelayStream,
     newApiTransportFetch,
     newApiUserLogsEndpoint,

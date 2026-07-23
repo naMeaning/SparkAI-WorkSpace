@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 
 import {
   AGENT_PROVIDER_OPTIONS,
+  DEFAULT_ACCOUNT_BASE_URL,
+  DEFAULT_UPDATE_BASE_URL,
   REASONING_EFFORT_OPTIONS,
   STORAGE_SETTINGS,
   defaultSettings,
@@ -31,6 +33,15 @@ assert.deepEqual(migrated.agentModelPool, ["agent-primary", "agent-secondary"]);
 assert.deepEqual(migrated.imageModelPool, ["image-primary", "image-secondary"]);
 assert.equal(migrated.timeoutSeconds, 15);
 assert.equal(migrated.fastMode, true);
+assert.equal(migrated.accountBaseUrl, DEFAULT_ACCOUNT_BASE_URL);
+assert.equal(migrated.relayBaseUrl, "");
+assert.equal(migrated.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
+
+const migratedLegacyServer = mergeSettings({ serverUrl: "https://legacy-new-api.example/" });
+assert.equal(migratedLegacyServer.accountBaseUrl, "https://legacy-new-api.example");
+assert.equal(migratedLegacyServer.relayBaseUrl, "");
+assert.equal(migratedLegacyServer.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
+assert.equal((migratedLegacyServer as unknown as Record<string, unknown>).serverUrl, undefined);
 
 const repaired = mergeSettings({
   agentProvider: "unsupported" as never,
@@ -44,7 +55,9 @@ const repaired = mergeSettings({
 assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
 assert.equal(repaired.timeoutSeconds, 600);
-assert.equal(repaired.serverUrl, defaultSettings.serverUrl);
+assert.equal(repaired.accountBaseUrl, defaultSettings.accountBaseUrl);
+assert.equal(repaired.relayBaseUrl, "");
+assert.equal(repaired.updateBaseUrl, defaultSettings.updateBaseUrl);
 assert.equal(repaired.serverToken, "");
 assert.equal(repaired.serverSessionCookie, "");
 assert.equal(repaired.serverUserId, "");
@@ -95,4 +108,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 28 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 34 })}\n`);

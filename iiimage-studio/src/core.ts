@@ -92,7 +92,9 @@ export type ApiSettings = {
   imageCount: number;
   imageSize: string;
   imageQuality: "low" | "medium" | "high" | "auto";
-  serverUrl: string;
+  accountBaseUrl: string;
+  relayBaseUrl: string;
+  updateBaseUrl: string;
   serverToken: string;
   serverSessionCookie: string;
   serverUserId: string;
@@ -1082,7 +1084,7 @@ export type SemanticLayerMattingResult = {
 
 export type ConfigBridge = {
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
-  saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string }>;
+  saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
   loadSession(): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
   saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: { revision?: number }): Promise<{
     ok: boolean;
@@ -1276,7 +1278,7 @@ export type AgentBridge = {
 export type ServerBridge = {
   register(payload: { username: string; email?: string; password: string; name?: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   login(payload: { username: string; email?: string; password: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
-  logout(): Promise<{ ok: boolean }>;
+  logout(): Promise<{ ok: boolean; remoteLogout?: boolean }>;
   me(): Promise<{ ok: boolean; stale?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
   logs(): Promise<{ ok: boolean; logs?: ServerLogEntry[]; error?: string }>;
   models?(payload?: { forceRefresh?: boolean }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;

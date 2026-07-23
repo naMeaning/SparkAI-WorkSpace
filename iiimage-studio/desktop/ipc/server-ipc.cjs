@@ -99,12 +99,27 @@ function registerServerIpc({
     }
   });
 
-  ipcMain.handle("iiimage:server:logout", () => {
+  ipcMain.handle("iiimage:server:logout", async () => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     if (aidebugMode && !aidebugLiveImage && aidebugStatefulAuth) aidebugAuthenticated = false;
-    clearNewApiAuth(settings);
+    let remoteLogout = false;
+    try {
+      if (!(aidebugMode && !aidebugLiveImage) && settings.serverSessionCookie && settings.serverUserId) {
+        await newApiRequest(settings, "/api/user/logout", {
+          method: "POST",
+          headers: newApiUserAuthHeaders(settings),
+          timeoutMs: 5_000,
+          retries: 0
+        });
+        remoteLogout = true;
+      }
+    } catch (error) {
+      log(`new-api remote logout failed ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      clearNewApiAuth(settings);
+    }
     log("new-api logout");
-    return { ok: true };
+    return { ok: true, remoteLogout };
   });
 
   ipcMain.handle("iiimage:server:me", () => {

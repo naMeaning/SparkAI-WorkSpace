@@ -108,8 +108,11 @@ function preferredImageModelFromList(models = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(String(model || ""))) || models[0] || "";
 }
 
-function createModelCacheKey(serverUrl, serverUserId) {
-  return `${String(serverUrl || "").trim().toLowerCase()}::${String(serverUserId || "anonymous").trim() || "anonymous"}`;
+function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId) {
+  return [accountBaseUrl, relayBaseUrl]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .concat(String(serverUserId || "anonymous").trim() || "anonymous")
+    .join("::");
 }
 
 function cachedModelSettings(settings = {}, value) {

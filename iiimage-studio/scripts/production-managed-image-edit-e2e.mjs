@@ -88,13 +88,14 @@ async function fetchWithTimeout(url, options) {
 
 async function main() {
   const settings = JSON.parse(await readFile(settingsPath, "utf8"));
-  const serverUrl = requiredString(settings.serverUrl, "serverUrl").replace(/\/+$/, "");
+  const accountBaseUrl = requiredString(settings.accountBaseUrl || settings.serverUrl, "accountBaseUrl").replace(/\/+$/, "");
+  const relayBaseUrl = String(settings.relayBaseUrl || accountBaseUrl).trim().replace(/\/+$/, "");
   const sessionCookie = requiredString(settings.serverSessionCookie, "serverSessionCookie");
   const userId = requiredString(String(settings.serverUserId || ""), "serverUserId");
   const model = requiredString(settings.imageModel || "gpt-image-2", "imageModel");
   const source = await readFile(sourcePath);
   const sourceName = path.basename(sourcePath);
-  const endpoint = `${serverUrl}/iiimage/v1/images/edits`;
+  const endpoint = `${relayBaseUrl}/naimage/v1/images/edits`;
   const idempotencyKey = `iiimage-production-edit-${Date.now()}-${randomUUID()}`;
   const requestHeaders = {
     Cookie: sessionCookie,

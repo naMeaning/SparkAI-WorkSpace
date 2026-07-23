@@ -20,9 +20,11 @@ const {
   imageEditRequestLimiterStatus,
   migrateSettings,
   newApiFetch,
+  newApiRelayJson,
   newApiRelayStream,
   newApiTransportFetch,
   newApiUserLogsEndpoint,
+  resolveNewApiBaseUrl,
   tokenItemsFromNewApiPayload,
   withImageEditRequestSlot
 } = require("../electron-main.cjs");
@@ -197,14 +199,20 @@ async function run() {
       response.end(JSON.stringify({ success: true, payload: "x".repeat(2 * 1024 * 1024) }));
       return;
     }
-    if (request.url === "/iiimage/v1/events") {
+    if (request.url === "/naimage/v1/events") {
       response.setHeader("content-type", "text/event-stream; charset=utf-8");
       response.end('data: {\ndata:   "type": "response.completed",\ndata:   "done": true\ndata: }\n\n');
       return;
     }
-    if (request.url === "/iiimage/v1/events-large") {
+    if (request.url === "/naimage/v1/events-large") {
       response.setHeader("content-type", "text/event-stream; charset=utf-8");
       response.end(`data: ${"x".repeat(2 * 1024 * 1024 + 128)}`);
+      return;
+    }
+    if (request.url === "/naimage/v1/relay-cookie") {
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.setHeader("set-cookie", "session=relay-must-not-rotate-account; Path=/; HttpOnly");
+      response.end(JSON.stringify({ success: true }));
       return;
     }
     if (request.url === "/form") {
@@ -273,13 +281,21 @@ async function run() {
     await listen(server, "127.0.0.2");
     const address = server.address();
     assert(address && typeof address === "object");
-    const settings = { serverUrl: `http://127.0.0.2:${address.port}` };
+    const settings = {
+      accountBaseUrl: `http://127.0.0.2:${address.port}`,
+      relayBaseUrl: "",
+      updateBaseUrl: "https://updates.example"
+    };
+    const baseUrl = settings.accountBaseUrl;
+    assert.equal(resolveNewApiBaseUrl(settings, "account"), baseUrl);
+    assert.equal(resolveNewApiBaseUrl(settings, "relay"), baseUrl);
+    assert.equal(resolveNewApiBaseUrl(settings, "update"), "https://updates.example");
 
     const healthy = await newApiFetch(settings, "/ok", { timeoutMs: 1_000, retries: 0 });
     assert.equal(healthy.response.status, 200);
     assert.equal(healthy.data.transport, "node-http");
 
-    const curlHealthy = await newApiTransportFetch(`${settings.serverUrl}/ok`, {
+    const curlHealthy = await newApiTransportFetch(`${baseUrl}/ok`, {
       method: "GET",
       forceCurl: true
     });
@@ -309,7 +325,7 @@ async function run() {
     const curlForm = new FormData();
     curlForm.append("prompt", "transport form payload");
     curlForm.append("image", new Blob([Buffer.from("fixture-image")], { type: "image/png" }), "fixture.png");
-    const curlUploaded = await newApiTransportFetch(`${settings.serverUrl}/form`, {
+    const curlUploaded = await newApiTransportFetch(`${baseUrl}/form`, {
       method: "POST",
       body: curlForm,
       forceCurl: true
@@ -323,7 +339,7 @@ async function run() {
     const oversizedForm = new FormData();
     oversizedForm.append("image", new Blob([Buffer.alloc(2 * 1024 * 1024)], { type: "image/png" }), "oversized.png");
     await assert.rejects(
-      () => newApiTransportFetch(`${settings.serverUrl}/form`, {
+      () => newApiTransportFetch(`${baseUrl}/form`, {
         method: "POST",
         body: oversizedForm,
         maxRequestBytes: 1 * 1024 * 1024,
@@ -332,7 +348,7 @@ async function run() {
       (error) => error?.code === "NEW_API_REQUEST_TOO_LARGE"
     );
 
-    const oversizedResponse = await newApiTransportFetch(`${settings.serverUrl}/large`, {
+    const oversizedResponse = await newApiTransportFetch(`${baseUrl}/large`, {
       method: "GET",
       maxResponseBytes: 1 * 1024 * 1024,
       forceCurl: true
@@ -348,6 +364,19 @@ async function run() {
     await assert.rejects(
       () => newApiRelayStream(streamSettings, "/events-large", { input: "fixture" }, () => {}),
       (error) => error?.code === "NEW_API_SSE_EVENT_TOO_LARGE"
+    );
+
+    const crossOriginRelaySettings = {
+      ...streamSettings,
+      accountBaseUrl: "https://account.example",
+      relayBaseUrl: baseUrl,
+      serverSessionCookie: "session=account-cookie"
+    };
+    await newApiRelayJson(crossOriginRelaySettings, "/relay-cookie", { probe: true });
+    assert.equal(crossOriginRelaySettings.serverSessionCookie, "session=account-cookie", "Cross-origin relay Set-Cookie must not rotate the account session");
+    await assert.rejects(
+      () => newApiFetch({ ...settings, accountBaseUrl: "https://account.example", relayBaseUrl: "http://relay.example" }, "/ok", { service: "relay", retries: 0 }),
+      /HTTPS 或 localhost\/loopback/
     );
 
     const recovered = await newApiFetch(settings, "/retry", { timeoutMs: 1_000, retries: 2 });
@@ -374,7 +403,7 @@ async function run() {
     for (let attempt = 0; attempt < 20 && !slowBodyClosed; attempt += 1) await delay(10);
     assert.equal(slowBodyClosed, true, "A timeout after response headers must close the response body socket");
 
-    const rejectedUpload = await newApiTransportFetch(`${settings.serverUrl}/reject-upload`, {
+    const rejectedUpload = await newApiTransportFetch(`${baseUrl}/reject-upload`, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },
       body: Buffer.alloc(8 * 1024 * 1024, 7),
@@ -384,7 +413,7 @@ async function run() {
     assert.match(await rejectedUpload.text(), /too large/);
 
     const unconsumedController = new AbortController();
-    const unconsumedStream = await newApiTransportFetch(`${settings.serverUrl}/stream`, {
+    const unconsumedStream = await newApiTransportFetch(`${baseUrl}/stream`, {
       method: "GET",
       signal: unconsumedController.signal
     });
@@ -392,7 +421,7 @@ async function run() {
     await assert.rejects(() => unconsumedStream.text(), /unconsumed transport stream cancelled|closed|aborted|cancel/i);
 
     const streamController = new AbortController();
-    const stream = await newApiTransportFetch(`${settings.serverUrl}/stream`, {
+    const stream = await newApiTransportFetch(`${baseUrl}/stream`, {
       method: "GET",
       signal: streamController.signal
     });
@@ -403,7 +432,7 @@ async function run() {
     await assert.rejects(() => streamIterator.next(), /transport stream cancelled|aborted|cancel/i);
 
     const curlStreamController = new AbortController();
-    const curlStream = await newApiTransportFetch(`${settings.serverUrl}/stream`, {
+    const curlStream = await newApiTransportFetch(`${baseUrl}/stream`, {
       method: "GET",
       signal: curlStreamController.signal,
       forceCurl: true
@@ -430,6 +459,8 @@ async function run() {
       earlyUploadRejectionPreserved: true,
       requestAndResponseLimits: true,
       sseBoundaries: true,
+      splitServiceBaseUrls: true,
+      crossOriginRelayCookieIsolation: true,
       timeoutBounded: true,
       aidebugImageFixtures: 4,
     };

@@ -2,9 +2,13 @@ import {
   promptForIndependentImage
 } from "./core";
 import {
+  DEFAULT_ACCOUNT_BASE_URL,
+  DEFAULT_UPDATE_BASE_URL,
+  STORAGE_SERVER_AUTH,
   STORAGE_SETTINGS,
   defaultSettings,
   mergeSettings,
+  normalizeServiceBaseUrl,
   readJson,
   writeJson
 } from "./settings-persistence";
@@ -20,13 +24,14 @@ import type {
 } from "./core";
 
 type BrowserAuthState = {
-  serverUrl: string;
+  accountBaseUrl: string;
   serverUserId: string;
 };
 
+type NewApiService = "account" | "relay" | "update";
+
 type JsonRecord = Record<string, unknown>;
 
-const STORAGE_SERVER_AUTH = "iiimage.serverAuth.v1";
 const LOCAL_NEW_API_PROXY = "/__iiimage_new_api";
 const NEW_API_QUOTA_PER_UNIT = 500000;
 
@@ -35,50 +40,78 @@ function readSettings() {
 }
 
 function saveSettingsPatch(patch: Partial<AppSettings>) {
-  const next = mergeSettings({ ...readSettings(), ...patch });
+  const current = readSettings();
+  const next = mergeSettings({ ...current, ...patch });
+  validateServiceBaseUrls(next);
+  if (current.accountBaseUrl.toLowerCase() !== next.accountBaseUrl.toLowerCase()) clearAuthState();
   writeJson(STORAGE_SETTINGS, next);
   return next;
 }
 
 function readAuthState(settings = readSettings()): BrowserAuthState {
-  const raw = readJson<Partial<BrowserAuthState> & JsonRecord>(STORAGE_SERVER_AUTH, { serverUrl: "", serverUserId: "" });
+  const raw = readJson<Partial<BrowserAuthState> & JsonRecord>(STORAGE_SERVER_AUTH, { accountBaseUrl: "", serverUserId: "" });
+  const accountBaseUrl = normalizeServiceBaseUrl(settings.accountBaseUrl, DEFAULT_ACCOUNT_BASE_URL);
+  const storedBaseUrl = normalizeServiceBaseUrl(raw.accountBaseUrl || raw.serverUrl);
   return {
-    serverUrl: String(raw.serverUrl || settings.serverUrl || defaultSettings.serverUrl),
-    serverUserId: String(raw.serverUserId || "")
+    accountBaseUrl,
+    serverUserId: !storedBaseUrl || storedBaseUrl.toLowerCase() === accountBaseUrl.toLowerCase() ? String(raw.serverUserId || "") : ""
   };
 }
 
 function saveAuthState(settings: AppSettings, serverUserId: string) {
   writeJson(STORAGE_SERVER_AUTH, {
-    serverUrl: normalizeServerUrl(settings.serverUrl),
+    accountBaseUrl: serviceBaseUrl(settings, "account"),
     serverUserId
   });
 }
 
 function clearAuthState() {
-  writeJson(STORAGE_SERVER_AUTH, { serverUrl: "", serverUserId: "" });
+  writeJson(STORAGE_SERVER_AUTH, { accountBaseUrl: "", serverUserId: "" });
 }
 
-function normalizeServerUrl(value?: string) {
-  return String(value || defaultSettings.serverUrl).trim().replace(/\/$/, "") || defaultSettings.serverUrl;
+function parsedServiceUrl(value: string, label: string) {
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { throw new Error(`${label}不是有效的 URL。`); }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(`${label}只允许 HTTP 或 HTTPS 地址。`);
+  return parsed;
+}
+
+function resolvedRelayBaseUrl(settings: AppSettings) {
+  return normalizeServiceBaseUrl(settings.relayBaseUrl, settings.accountBaseUrl);
+}
+
+function validateServiceBaseUrls(settings: AppSettings) {
+  const account = parsedServiceUrl(settings.accountBaseUrl, "账户服务地址");
+  parsedServiceUrl(settings.updateBaseUrl, "更新服务地址");
+  if (!settings.relayBaseUrl) return;
+  const relay = parsedServiceUrl(settings.relayBaseUrl, "Relay 服务地址");
+  const loopback = relay.hostname === "localhost" || relay.hostname === "::1" || /^127(?:\.\d{1,3}){3}$/.test(relay.hostname);
+  if (relay.origin !== account.origin && relay.protocol !== "https:" && !loopback) throw new Error("异源 Relay 服务必须使用 HTTPS 或 localhost/loopback 地址。");
+}
+
+function serviceBaseUrl(settings: AppSettings, service: NewApiService) {
+  validateServiceBaseUrls(settings);
+  if (service === "relay") return resolvedRelayBaseUrl(settings);
+  if (service === "update") return normalizeServiceBaseUrl(settings.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
+  return normalizeServiceBaseUrl(settings.accountBaseUrl, DEFAULT_ACCOUNT_BASE_URL);
 }
 
 function isLocalServerUrl(value?: string) {
   try {
-    const url = new URL(normalizeServerUrl(value));
+    const url = new URL(String(value || ""));
     return ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
   } catch {
     return false;
   }
 }
 
-function usesLocalProxy(settings: AppSettings) {
-  return isLocalServerUrl(settings.serverUrl);
+function usesLocalProxy(settings: AppSettings, service: NewApiService) {
+  return isLocalServerUrl(serviceBaseUrl(settings, service));
 }
 
-function newApiUrl(settings: AppSettings, endpoint: string) {
+function newApiUrl(settings: AppSettings, endpoint: string, service: NewApiService) {
   const pathPart = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  return `${usesLocalProxy(settings) ? LOCAL_NEW_API_PROXY : normalizeServerUrl(settings.serverUrl)}${pathPart}`;
+  return `${usesLocalProxy(settings, service) ? LOCAL_NEW_API_PROXY : serviceBaseUrl(settings, service)}${pathPart}`;
 }
 
 function userAuthHeaders(settings: AppSettings): Record<string, string> {
@@ -105,23 +138,26 @@ function errorText(data: JsonRecord, status?: number) {
   );
 }
 
-async function newApiFetch(settings: AppSettings, endpoint: string, options: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
+async function newApiFetch(settings: AppSettings, endpoint: string, options: { service?: NewApiService; method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
   const body = options.body;
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
-  const response = await fetch(newApiUrl(settings, endpoint), {
+  const service = options.service || "account";
+  const baseUrl = serviceBaseUrl(settings, service);
+  const relayIsCrossOrigin = service === "relay" && new URL(baseUrl).origin !== new URL(serviceBaseUrl(settings, "account")).origin;
+  const response = await fetch(newApiUrl(settings, endpoint, service), {
     method: options.method || "GET",
     headers: {
       ...(isForm ? {} : { "content-type": "application/json" }),
       ...(options.headers || {})
     },
-    credentials: usesLocalProxy(settings) ? "same-origin" : "include",
+    credentials: usesLocalProxy(settings, service) || relayIsCrossOrigin ? "same-origin" : "include",
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body)
   });
   const text = await response.text();
   return { response, data: parseJsonText(text) };
 }
 
-async function newApiRequest(settings: AppSettings, endpoint: string, options: { method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
+async function newApiRequest(settings: AppSettings, endpoint: string, options: { service?: NewApiService; method?: string; headers?: Record<string, string>; body?: unknown } = {}) {
   const { response, data } = await newApiFetch(settings, endpoint, options);
   if (!response.ok || data.success === false || data.ok === false) {
     const error = new Error(errorText(data, response.status)) as Error & { status?: number; data?: JsonRecord };
@@ -298,7 +334,8 @@ async function modelSettings(settings: AppSettings): Promise<ServerPublicSetting
   }
   try {
     if (readAuthState(settings).serverUserId) {
-      const { response, data } = await newApiFetch(settings, "/iiimage/v1/models", {
+      const { response, data } = await newApiFetch(settings, "/naimage/v1/models", {
+        service: "relay",
         headers: userAuthHeaders(settings)
       });
       if (response.ok) {
@@ -326,7 +363,12 @@ async function completeLogin(payload: { username?: string; email?: string; passw
   const loginUser = login.data.data && typeof login.data.data === "object" ? (login.data.data as JsonRecord) : {};
   const serverUserId = String(loginUser.id || "").trim();
   if (!serverUserId) throw new Error("New API 登录成功但没有返回 user id。");
-  saveAuthState(settings, serverUserId);
+  const latestSettings = readSettings();
+  if (serviceBaseUrl(latestSettings, "account").toLowerCase() !== serviceBaseUrl(settings, "account").toLowerCase()) {
+    throw new Error("账户服务地址已切换，旧登录结果已丢弃。");
+  }
+  saveAuthState(latestSettings, serverUserId);
+  settings = latestSettings;
 
   let userData = loginUser;
   try {
@@ -481,7 +523,8 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
     if (payload.background) body.background = payload.background;
     if (payload.moderation) body.moderation = payload.moderation;
     if (payload.inputFidelity) body.input_fidelity = payload.inputFidelity;
-    return newApiRequest(settings, "/iiimage/v1/images/generations", {
+    return newApiRequest(settings, "/naimage/v1/images/generations", {
+      service: "relay",
       method: "POST",
       headers: userAuthHeaders(settings),
       body
@@ -545,9 +588,20 @@ function createBrowserServerBridge(): ServerBridge {
       }
     },
     async logout() {
-      clearAuthState();
-      saveSettingsPatch({ serverToken: "" });
-      return { ok: true };
+      const settings = readSettings();
+      let remoteLogout = false;
+      try {
+        if (readAuthState(settings).serverUserId) {
+          await newApiRequest(settings, "/api/user/logout", { method: "POST", headers: userAuthHeaders(settings) });
+          remoteLogout = true;
+        }
+      } catch (error) {
+        console.warn("new-api remote logout failed", error);
+      } finally {
+        clearAuthState();
+        saveSettingsPatch({ serverToken: "" });
+      }
+      return { ok: true, remoteLogout };
     },
     async me() {
       const settings = readSettings();

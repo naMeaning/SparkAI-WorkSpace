@@ -22,10 +22,65 @@ function createNewApiClient(options = {}) {
     if (settings.serverUserId) headers["New-Api-User"] = String(settings.serverUserId);
     return headers;
   }
+
+  function parsedServiceBaseUrl(value, label) {
+    let parsed;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error(`${label}不是有效的 URL。`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`${label}只允许 HTTP 或 HTTPS 地址。`);
+    }
+    return parsed;
+  }
+
+  function isLoopbackServiceHost(hostname) {
+    const value = String(hostname || "").toLowerCase();
+    return value === "localhost" || value === "::1" || /^127(?:\.\d{1,3}){3}$/.test(value);
+  }
+
+  function resolveNewApiBaseUrl(settings, service = "account") {
+    const accountBaseUrl = normalizeServerUrl(
+      settings?.accountBaseUrl || settings?.serverUrl,
+      defaultSettings.accountBaseUrl
+    );
+    const account = parsedServiceBaseUrl(accountBaseUrl, "账户服务地址");
+    if (service === "account") return accountBaseUrl;
+    if (service === "update") {
+      const updateBaseUrl = normalizeServerUrl(settings?.updateBaseUrl, defaultSettings.updateBaseUrl);
+      parsedServiceBaseUrl(updateBaseUrl, "更新服务地址");
+      return updateBaseUrl;
+    }
+    if (service !== "relay") throw new Error(`未知的 New API 服务类型：${service}`);
+    const explicitRelayBaseUrl = normalizeServerUrl(settings?.relayBaseUrl, "");
+    if (!explicitRelayBaseUrl) return accountBaseUrl;
+    const relay = parsedServiceBaseUrl(explicitRelayBaseUrl, "Relay 服务地址");
+    if (relay.origin !== account.origin && relay.protocol !== "https:" && !isLoopbackServiceHost(relay.hostname)) {
+      throw new Error("异源 Relay 服务必须使用 HTTPS 或 localhost/loopback 地址。");
+    }
+    return explicitRelayBaseUrl;
+  }
+
+  function sameNewApiOrigin(left, right) {
+    try {
+      return parsedServiceBaseUrl(left, "服务地址").origin === parsedServiceBaseUrl(right, "服务地址").origin;
+    } catch {
+      return false;
+    }
+  }
+
+  function validateNewApiServiceSettings(settings) {
+    resolveNewApiBaseUrl(settings, "account");
+    resolveNewApiBaseUrl(settings, "relay");
+    resolveNewApiBaseUrl(settings, "update");
+    return true;
+  }
   
-  function newApiUrl(settings, endpoint) {
+  function newApiUrl(settings, endpoint, service = "account") {
     const pathPart = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
-    return `${normalizeServerUrl(settings.serverUrl)}${pathPart}`;
+    return `${resolveNewApiBaseUrl(settings, service)}${pathPart}`;
   }
   
   function parseJsonText(text) {
@@ -70,6 +125,9 @@ function createNewApiClient(options = {}) {
   function persistNewApiSessionCookie(settings, response) {
     const sessionCookie = extractSessionCookie(response);
     if (!sessionCookie) return sessionCookie;
+    const accountBaseUrl = resolveNewApiBaseUrl(settings, "account");
+    const requestBaseUrl = normalizeServerUrl(response?.requestBaseUrl, accountBaseUrl);
+    if (!sameNewApiOrigin(accountBaseUrl, requestBaseUrl)) return "";
   
     // Node's fetch does not own a browser cookie jar. New API rotates its signed
     // session whenever a protected flow stores state (download captcha/ticket,
@@ -82,6 +140,11 @@ function createNewApiClient(options = {}) {
     }
   
     const stored = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (resolveNewApiBaseUrl(stored, "account").toLowerCase() !== accountBaseUrl.toLowerCase()) {
+      const error = new Error("账户服务地址已切换，旧请求结果已丢弃。");
+      error.code = "NEW_API_SESSION_CHANGED";
+      throw error;
+    }
     if (stored.serverUserId && String(stored.serverUserId) !== String(settings.serverUserId)) {
       const error = new Error("登录账户已切换，旧请求结果已丢弃。");
       error.code = "NEW_API_SESSION_CHANGED";
@@ -161,8 +224,10 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiFetch(settings, endpoint, options = {}) {
-    if (isLocalServerUrl(settings.serverUrl)) {
-      await ensureLocalServer();
+    const service = options.service || "account";
+    const baseUrl = resolveNewApiBaseUrl(settings, service);
+    if (isLocalServerUrl(baseUrl)) {
+      await ensureLocalServer(baseUrl);
     }
     const body = options.body;
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
@@ -174,7 +239,7 @@ function createNewApiClient(options = {}) {
       ...(isForm ? {} : { "content-type": "application/json" }),
       ...(options.headers || {})
     };
-    const url = newApiUrl(settings, endpoint);
+    const url = newApiUrl(settings, endpoint, service);
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const attemptStartedAt = Date.now();
@@ -201,6 +266,8 @@ function createNewApiClient(options = {}) {
           maxRequestBytes: options.maxRequestBytes,
           maxResponseBytes: options.maxResponseBytes
         });
+        response.requestBaseUrl = baseUrl;
+        response.requestService = service;
         const text = await response.text();
         const data = parseJsonText(text);
         const durationMs = Date.now() - attemptStartedAt;
@@ -259,14 +326,16 @@ function createNewApiClient(options = {}) {
   
   function managedRelayEndpoint(providerEndpoint) {
     const clean = String(providerEndpoint || "").startsWith("/") ? String(providerEndpoint || "") : `/${providerEndpoint || ""}`;
-    if (clean.startsWith("/iiimage/")) return clean;
-    if (clean === "/v1" || clean.startsWith("/v1/")) return `/iiimage${clean}`;
-    return `/iiimage/v1${clean}`;
+    if (clean === "/naimage" || clean.startsWith("/naimage/")) return clean;
+    if (clean === "/iiimage" || clean.startsWith("/iiimage/")) return `/naimage${clean.slice("/iiimage".length)}`;
+    if (clean === "/v1" || clean.startsWith("/v1/")) return `/naimage${clean}`;
+    return `/naimage/v1${clean}`;
   }
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
     requireNewApiSession(settings);
     const { response, data } = await newApiFetch(settings, managedRelayEndpoint(endpoint), {
+      service: "relay",
       method: "POST",
       headers: { ...newApiUserAuthHeaders(settings), ...(options.headers || {}) },
       body,
@@ -288,10 +357,11 @@ function createNewApiClient(options = {}) {
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
     requireNewApiSession(settings);
-    if (isLocalServerUrl(settings.serverUrl)) {
-      await ensureLocalServer();
+    const relayBaseUrl = resolveNewApiBaseUrl(settings, "relay");
+    if (isLocalServerUrl(relayBaseUrl)) {
+      await ensureLocalServer(relayBaseUrl);
     }
-    const response = await newApiTransportFetch(newApiUrl(settings, managedRelayEndpoint(endpoint)), {
+    const response = await newApiTransportFetch(newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -302,6 +372,8 @@ function createNewApiClient(options = {}) {
       headersTimeoutMs: options.headersTimeoutMs,
       connectTimeoutMs: options.connectTimeoutMs
     });
+    response.requestBaseUrl = relayBaseUrl;
+    response.requestService = "relay";
     persistNewApiSessionCookie(settings, response);
     if (!response.ok) {
       const text = await response.text();
@@ -387,13 +459,17 @@ function createNewApiClient(options = {}) {
     managedRelayEndpoint,
     newApiErrorMessage,
     newApiFetch,
+    newApiUrl,
     newApiRelayJson,
     newApiRelayStream,
     newApiRequest,
     newApiUserAuthHeaders,
     parseJsonText,
     persistNewApiSessionCookie,
-    requireNewApiSession
+    requireNewApiSession,
+    resolveNewApiBaseUrl,
+    sameNewApiOrigin,
+    validateNewApiServiceSettings
   };
 }
 

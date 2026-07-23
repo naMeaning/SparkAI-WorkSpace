@@ -35,7 +35,7 @@ function createDesktopUpdaterService(options = {}) {
     requireNewApiSession,
     newApiRequest,
     newApiUserAuthHeaders,
-    normalizeServerUrl,
+    resolveNewApiBaseUrl,
     newApiTransportFetch,
     parseJsonText,
     newApiErrorMessage,
@@ -649,6 +649,7 @@ function createDesktopUpdaterService(options = {}) {
     const request = desktopUpdatePlatformPayload();
     const query = new URLSearchParams(request).toString();
     const response = await newApiRequest(settings, `/api/desktop-update/check?${query}`, {
+      service: "update",
       headers: newApiUserAuthHeaders(settings)
     });
     let verified = verifyDesktopReleasePayload(response?.data || response);
@@ -696,7 +697,7 @@ function createDesktopUpdaterService(options = {}) {
   }
 
   function ensureAuthorizedDownloadUrl(settings, value) {
-    const base = new URL(normalizeServerUrl(settings.serverUrl));
+    const base = new URL(resolveNewApiBaseUrl(settings, "update"));
     const target = new URL(String(value || ""), base);
     if (target.origin !== base.origin || !target.pathname.startsWith("/downloads/iiimage-studio/")) {
       throw new Error("服务器返回了不可信的更新下载地址。");
@@ -903,6 +904,7 @@ function createDesktopUpdaterService(options = {}) {
       const resolved = update?.updateType ? update : latestDesktopUpdate;
       if (!resolved || resolved.updateType !== "restart" || !resolved.restart) throw new Error("当前没有可用的重启更新。");
       const response = await newApiRequest(settings, "/api/desktop-update/authorize", {
+        service: "update",
         method: "POST",
         headers: newApiUserAuthHeaders(settings),
         body: desktopUpdatePlatformPayload()
@@ -924,6 +926,7 @@ function createDesktopUpdaterService(options = {}) {
       if (!latestDesktopUpdate?.updateAvailable) await checkDesktopUpdate();
       if (!latestDesktopUpdate || latestDesktopUpdate.updateType !== "installer") throw new Error("当前版本不需要下载安装包。");
       const response = await newApiRequest(settings, "/api/desktop-download/captcha", {
+        service: "update",
         method: "POST",
         headers: newApiUserAuthHeaders(settings)
       });
@@ -966,6 +969,7 @@ function createDesktopUpdaterService(options = {}) {
         throw new Error("当前版本不需要下载安装包。");
       }
       const response = await newApiRequest(settings, "/api/desktop-download/authorize", {
+        service: "update",
         method: "POST",
         headers: newApiUserAuthHeaders(settings),
         body: {

@@ -54,7 +54,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/model-catalog.cjs
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：Node HTTP / Windows curl 传输与取消
-  ├─ desktop/new-api-client.cjs：重试、会话 cookie、JSON 与 SSE relay
+  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON 与 SSE relay
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
   ├─ 远端 New API 账户、模型缓存与图片服务编排
@@ -148,13 +148,14 @@ src/main.tsx sendPrompt()
 ```text
 Agent chat
   → serverChatCompletion()
-  → /iiimage/v1/chat/completions 或 /iiimage/v1/responses
+  → relayBaseUrl（留空时继承 accountBaseUrl）
+  → /naimage/v1/chat/completions 或 /naimage/v1/responses
 
 image_gen
   → callImageGeneration()
   → electron-main.cjs serverGenerateImage()
   → callNewApiImageWithSession()
-  → /iiimage/v1/images/generations 或 /iiimage/v1/images/edits
+  → /naimage/v1/images/generations 或 /naimage/v1/images/edits
   → 项目 output 资产
   → workflow action
   → Renderer 归组与溯源
@@ -366,13 +367,15 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-桌面默认访问 `https://image.aieyra.cn`。正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。主要契约：
+桌面把远端服务拆为三个设置：`accountBaseUrl` 默认 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址；`updateBaseUrl` 默认保留独立的 `https://image.aieyra.cn`，避免账户站未安装桌面更新扩展时把 404 混入更新链路。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay 或更新地址变化不复用错误的模型缓存。
+
+正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
 
 - `/api/user/login`, `/api/user/self`, `/api/user/models`
 - `/api/log/self`
-- `/iiimage/v1/models`
-- `/iiimage/v1/chat/completions`, `/iiimage/v1/responses`
-- `/iiimage/v1/images/generations`, `/iiimage/v1/images/edits`
+- `/naimage/v1/models`
+- `/naimage/v1/chat/completions`, `/naimage/v1/responses`
+- `/naimage/v1/images/generations`, `/naimage/v1/images/edits`
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
 修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
@@ -404,7 +407,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | Agent Prompt/tool/schema | `agent-runtime.cjs` | `src/core.ts` 类型、`src/agent.ts`、action handler、产品意图 | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `view_image` | `runtime/view-image-payload.cjs`, `agent-runtime.cjs` | 允许根、payload 预算、Sharp、持久化排除 | `test:view-image`, `test:agent-protocol` |
 | 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs` | 服务响应 DTO、60 秒缓存、设置/Agent 共用模型 | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
-| 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、旧字段迁移 | `test:settings-persistence`, `typecheck`, `aidebug:gui` |
+| 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、旧 `serverUrl` 只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
 | 项目保存/session | `main.tsx`, `electron-main.cjs`, save coordinator | manifest、revision、迁移、原子写入 | `test:project-save-coordinator`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
@@ -522,3 +525,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-23 | 1.0.4 | 抽出 `runtime/image-batch-normalization.cjs`，集中持有 `image_gen` 单项兼容、占位项过滤、有效批次数和逐项画幅归一化；Agent runtime 仅注入文本清洗并消费稳定 normalizer，禁止新 owner 反向依赖 facade。 |
 | 2026-07-23 | 1.0.4 | 抽出 `desktop/aidebug-image-fixture.cjs`，集中持有 AIDebug mock 图片的图层提示、尺寸归一化与确定性 PNG；Main 仅消费两个编排契约，`test:new-api-transport` 固定四类 base64 SHA-256、尺寸与 hint 输出。 |
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/options.mjs`，集中持有 AIDebug CLI alias、env/CLI 特殊优先级、数值/路径/references 归一化与 `rawArgs` 快照；GUI 入口保持原 suite 顺序和启动编排，三个 supervisor 不再动态读取 argv。 |
+| 2026-07-23 | 1.0.4 | New API 设置拆为 `accountBaseUrl`、可继承的 `relayBaseUrl` 和独立 `updateBaseUrl`；新装账户默认 Spark，Updater 保留独立官方地址；旧 `serverUrl` 只读迁移，模型缓存按 account+relay+user 隔离，异源 Relay Cookie 不回写账户 session，canonical Session Relay 路由切换为 `/naimage/v1/*`。 |

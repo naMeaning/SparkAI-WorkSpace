@@ -71,8 +71,18 @@ assert.equal(preferredAgentModelFromList(["claude-4"]), "claude-4");
 assert.equal(preferredImageModelFromList(["flux-1", "gpt-image-2", "gpt-image-1"]), "gpt-image-2");
 assert.equal(preferredImageModelFromList(["flux-1"]), "flux-1");
 
-assert.equal(createModelCacheKey(" HTTPS://API.EXAMPLE.COM ", " user-7 "), "https://api.example.com::user-7");
-assert.equal(createModelCacheKey("http://127.0.0.1:3000", ""), "http://127.0.0.1:3000::anonymous");
+assert.equal(
+  createModelCacheKey(" HTTPS://ACCOUNT.EXAMPLE.COM ", " https://relay.example.com ", " user-7 "),
+  "https://account.example.com::https://relay.example.com::user-7"
+);
+assert.equal(
+  createModelCacheKey("http://127.0.0.1:3000", "http://127.0.0.1:3000", ""),
+  "http://127.0.0.1:3000::http://127.0.0.1:3000::anonymous"
+);
+assert.notEqual(
+  createModelCacheKey("https://account.example", "https://relay-a.example", "7"),
+  createModelCacheKey("https://account.example", "https://relay-b.example", "7")
+);
 
 const cached = cachedModelSettings(
   { imageModel: "settings-image" },
