@@ -1,7 +1,7 @@
 # IIIMAGE STUDIO 上下文地图
 
 > 地图版本：2  
-> 最近同步：2026-07-22  
+> 最近同步：2026-07-23
 > 对应桌面版本：1.0.4  
 > 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
 
@@ -303,6 +303,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 | --- | --- | --- | --- |
 | `scripts/aidebug-gui.mjs` | CLI 参数、suite 选择、运行目录、Vite/Electron/CDP 总编排和最终报告 | 已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `aidebug:gui` 与各 `--*-suite` 专项 |
 | `scripts/aidebug/harness/*` | CDP 连接、受控进程退出、PNG 读取/比较、双帧和原生截图证据 | 产品场景、画布业务断言、suite CLI 决策 | `aidebug:gui`, `node --check` |
+| `scripts/aidebug/harness/state-snapshot.mjs` | Renderer DOM、几何、可访问性、画布和 Agent 状态的统一快照表达式；显式接收 evaluator 与 workbench 最小宽度 | suite 路由、进程生命周期、报告写入或产品状态修改 | `aidebug:gui`, `node --check` |
 | `scripts/aidebug/suites/selection-command.mjs` | selection/command 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:selection` |
 | `scripts/aidebug/suites/ui-surface.mjs` | UI surface 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:gui` |
 | `scripts/aidebug/suites/image-generation.mjs` | 单图、图片恢复和图片集合三个图像 probe | CLI/process/CDP 生命周期、其他 suite | `aidebug:image`, `aidebug:image-recovery`, `aidebug:image-collection` |
@@ -503,3 +504,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/new-api-transport.cjs` 与 `desktop/new-api-client.cjs`；raw transport 通过独立 `getDesktopVersion` 注入解除对 Updater 的反向依赖，Electron facade 与 selftest 导出保持不变。 |
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/project-package-service.cjs`，集中持有项目包校验、限制、导入导出与恢复；抽出 `scripts/aidebug/suites/layer-editing.mjs`，集中持有 layer-stack、cutout、region-redraw 场景，入口调用顺序和公开测试命令不变。 |
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/ipc/*-ipc.cjs` 与根 registrar；固定并直接验证 69 个 handler 的顺序、唯一性、66 个 preload invoke 和 3 个内部 Agent channel。 |
+| 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/harness/state-snapshot.mjs`，由统一 reader 持有 Renderer GUI 状态快照；主 AIDebug 脚本仅保留 evaluator 与 workbench 宽度装配，快照字段和表达式保持逐行等价。 |
