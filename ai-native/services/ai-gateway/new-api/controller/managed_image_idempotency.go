@@ -39,6 +39,9 @@ const (
 	managedImageUserRecordLimitDefault = 1_000
 	managedImageCleanupBatchDefault    = 500
 	managedImageCleanupIntervalDefault = time.Minute
+	// Keep the established upstream wire prefix across the public route rename.
+	// Changing it can cause compatible upstreams to execute a retried request twice.
+	managedImageUpstreamIdempotencyPrefix = "iiimage-"
 )
 
 type managedImageIdempotencyResult struct {
@@ -634,11 +637,20 @@ func managedImageSuccessfulResponseComplete(
 	return false
 }
 
+func managedSessionRelayNativePath(path string) string {
+	for _, publicPrefix := range []string{"/naimage", "/iiimage"} {
+		if strings.HasPrefix(path, publicPrefix+"/v1/") {
+			return strings.TrimPrefix(path, publicPrefix)
+		}
+	}
+	return path
+}
+
 func isManagedImageRelayRequest(c *gin.Context) bool {
 	if c.Request.Method != http.MethodPost || !c.GetBool("managed_session_relay") {
 		return false
 	}
-	path := strings.TrimPrefix(c.Request.URL.Path, "/iiimage")
+	path := managedSessionRelayNativePath(c.Request.URL.Path)
 	return path == "/v1/images/generations" || path == "/v1/images/edits"
 }
 
@@ -719,7 +731,7 @@ func managedImageRequestHash(c *gin.Context) (string, error) {
 
 	target := sha256.New()
 	writeManagedImageHashField(target, c.Request.Method)
-	writeManagedImageHashField(target, strings.TrimPrefix(c.Request.URL.Path, "/iiimage"))
+	writeManagedImageHashField(target, managedSessionRelayNativePath(c.Request.URL.Path))
 
 	contentType := strings.TrimSpace(c.GetHeader("Content-Type"))
 	mediaType, params, mediaErr := mime.ParseMediaType(contentType)
@@ -981,8 +993,9 @@ func managedImageIdempotency(config managedImageIdempotencyConfig) gin.HandlerFu
 		claimed = true
 
 		// Do not expose the raw client key to a shared upstream account. A stable
-		// user-scoped derivative still lets compatible upstreams deduplicate.
-		c.Request.Header.Set("Idempotency-Key", "iiimage-"+scopeHash)
+		// user-scoped derivative still lets compatible upstreams deduplicate. Its
+		// wire prefix intentionally remains stable across the public route rename.
+		c.Request.Header.Set("Idempotency-Key", managedImageUpstreamIdempotencyPrefix+scopeHash)
 		c.Header("Idempotency-Status", "created")
 		capture, captureCreateErr := newManagedImageCaptureWriter(c.Writer, config.storageDir, config.maxResponseBytes)
 		if captureCreateErr != nil {

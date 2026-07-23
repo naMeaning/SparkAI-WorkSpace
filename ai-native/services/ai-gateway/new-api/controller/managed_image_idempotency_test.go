@@ -72,8 +72,10 @@ func managedImageIdempotencyTestRouterForUser(
 		c.Next()
 	})
 	router.Use(managedImageIdempotency(config))
-	router.POST("/v1/images/generations", handler)
-	router.POST("/v1/images/edits", handler)
+	for _, publicPrefix := range []string{"", "/naimage", "/iiimage"} {
+		router.POST(publicPrefix+"/v1/images/generations", handler)
+		router.POST(publicPrefix+"/v1/images/edits", handler)
+	}
 	return router
 }
 
@@ -181,6 +183,51 @@ func TestManagedImageIdempotencySingleFlightsBillableHandlerAndPersistsReplay(t 
 	storedBody, err := readManagedImageResponseFile(config, records[0])
 	require.NoError(t, err)
 	assert.Equal(t, recorders[0].Body.Bytes(), storedBody)
+}
+
+func TestManagedImageIdempotencyReplaysAcrossPublicRouteRename(t *testing.T) {
+	setupManagedImageIdempotencyTestDB(t)
+	config := managedImageIdempotencyTestConfig(t, time.Unix(1_800_000_025, 0))
+	var handlerCalls atomic.Int32
+	var upstreamKey atomic.Value
+	router := managedImageIdempotencyTestRouter(config, func(c *gin.Context) {
+		handlerCalls.Add(1)
+		upstreamKey.Store(c.GetHeader("Idempotency-Key"))
+		c.JSON(http.StatusOK, gin.H{"data": []gin.H{{"b64_json": "renamed-route-image"}}})
+	})
+	body := []byte(`{"model":"image-2","prompt":"same job across route rename"}`)
+	const idempotencyKey = "route-rename-job"
+
+	legacy := performManagedImageRequest(
+		router,
+		"/iiimage/v1/images/generations",
+		"application/json",
+		body,
+		idempotencyKey,
+	)
+	canonical := performManagedImageRequest(
+		router,
+		"/naimage/v1/images/generations",
+		"application/json",
+		body,
+		idempotencyKey,
+	)
+
+	require.Equal(t, http.StatusOK, legacy.Code, legacy.Body.String())
+	require.Equal(t, legacy.Body.String(), canonical.Body.String())
+	assert.Equal(t, "created", legacy.Header().Get("Idempotency-Status"))
+	assert.Equal(t, "replayed", canonical.Header().Get("Idempotency-Status"))
+	require.Equal(t, int32(1), handlerCalls.Load(), "a route rename must not execute or bill the same image job twice")
+	require.NotNil(t, upstreamKey.Load())
+	assert.Equal(
+		t,
+		managedImageUpstreamIdempotencyPrefix+managedImageScopeHash(27, idempotencyKey),
+		upstreamKey.Load().(string),
+	)
+
+	var recordCount int64
+	require.NoError(t, model.DB.Model(&model.ManagedImageIdempotencyRecord{}).Count(&recordCount).Error)
+	assert.Equal(t, int64(1), recordCount)
 }
 
 func TestManagedImageIdempotencyDurableClaimBlocksASecondProcess(t *testing.T) {
@@ -683,6 +730,16 @@ func TestManagedImageRequestHashIgnoresMultipartBoundaryButPreservesContent(t *t
 	changedHash := managedImageRequestHashForTest(t, "/v1/images/edits", changedContentType, changedBody)
 	assert.Equal(t, firstHash, secondHash)
 	assert.NotEqual(t, firstHash, changedHash)
+}
+
+func TestManagedImageRequestHashTreatsPublicMultipartAliasesAsOneNativeRoute(t *testing.T) {
+	canonicalBody, canonicalContentType := managedImageMultipartBody(t, "canonical-boundary", []byte("same-image"))
+	legacyBody, legacyContentType := managedImageMultipartBody(t, "legacy-boundary", []byte("same-image"))
+
+	canonicalHash := managedImageRequestHashForTest(t, "/naimage/v1/images/edits", canonicalContentType, canonicalBody)
+	legacyHash := managedImageRequestHashForTest(t, "/iiimage/v1/images/edits", legacyContentType, legacyBody)
+
+	assert.Equal(t, canonicalHash, legacyHash)
 }
 
 func TestManagedImageRequestHashDoesNotCanonicalizeTrailingJSONValues(t *testing.T) {

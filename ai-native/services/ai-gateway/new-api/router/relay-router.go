@@ -12,13 +12,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	managedRelayCanonicalBasePath = "/naimage/v1"
+	managedRelayLegacyBasePath    = "/iiimage/v1"
+)
+
 func managedRelayNativePath() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		originalPath := c.Request.URL.Path
 		originalRawPath := c.Request.URL.RawPath
-		if strings.HasPrefix(originalPath, "/iiimage/v1/") {
-			c.Request.URL.Path = strings.TrimPrefix(originalPath, "/iiimage")
-			c.Request.URL.RawPath = ""
+		for _, publicPrefix := range []string{"/naimage", "/iiimage"} {
+			if strings.HasPrefix(originalPath, publicPrefix+"/v1/") {
+				c.Request.URL.Path = strings.TrimPrefix(originalPath, publicPrefix)
+				c.Request.URL.RawPath = ""
+				break
+			}
 		}
 		c.Next()
 		c.Request.URL.Path = originalPath
@@ -26,34 +34,27 @@ func managedRelayNativePath() gin.HandlerFunc {
 	}
 }
 
-func SetRelayRouter(router *gin.Engine) {
-	router.Use(middleware.CORS())
-	router.Use(middleware.DecompressRequestMiddleware())
-	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
-	router.Use(middleware.StatsMiddleware())
-
-	// IIIMAGE Studio uses the authenticated New API session while the managed
-	// relay token stays on the server. These routes deliberately reuse the
-	// native relay middleware and handlers instead of proxying through CRM.
-	managedModelsRouter := router.Group("/iiimage/v1/models")
+func registerManagedSessionRelayRoutes(router *gin.Engine, basePath string) {
+	managedModelsRouter := router.Group(basePath + "/models")
 	managedModelsRouter.Use(middleware.RouteTag("relay"))
 	managedModelsRouter.Use(middleware.UserAuth())
 	managedModelsRouter.Use(controller.ManagedRelayTokenAuth())
+	managedModelsRouter.Use(managedRelayNativePath())
 	{
 		managedModelsRouter.GET("", func(c *gin.Context) {
 			controller.ListModels(c, constant.ChannelTypeOpenAI)
 		})
 	}
 
-	managedRelayRouter := router.Group("/iiimage/v1")
+	managedRelayRouter := router.Group(basePath)
 	managedRelayRouter.Use(middleware.RouteTag("relay"))
 	managedRelayRouter.Use(middleware.SystemPerformanceCheck())
 	managedRelayRouter.Use(middleware.UserAuth())
 	managedRelayRouter.Use(controller.ManagedRelayTokenAuth())
 	// Route matching has already completed when group middleware runs. Rewrite
 	// only for native relay/distributor semantics, then restore the public path
-	// for access logs. Without this, OpenAI-compatible channels receive the
-	// invalid upstream path /iiimage/v1/* and return 404.
+	// for access logs. This also gives image idempotency and stream/multipart
+	// handling one canonical /v1/* path regardless of the public route alias.
 	managedRelayRouter.Use(managedRelayNativePath())
 	managedRelayRouter.Use(controller.ManagedImageIdempotency())
 	managedRelayRouter.Use(middleware.ModelRequestRateLimit())
@@ -75,6 +76,20 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 	}
+}
+
+func SetRelayRouter(router *gin.Engine) {
+	router.Use(middleware.CORS())
+	router.Use(middleware.DecompressRequestMiddleware())
+	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+	router.Use(middleware.StatsMiddleware())
+
+	// NAIMAGE Studio uses the authenticated New API session while the managed
+	// relay token stays on the server. These routes deliberately reuse the
+	// native relay middleware and handlers. The legacy IIIMAGE prefix remains a
+	// direct alias so existing desktop versions keep working without redirects.
+	registerManagedSessionRelayRoutes(router, managedRelayCanonicalBasePath)
+	registerManagedSessionRelayRoutes(router, managedRelayLegacyBasePath)
 
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")
