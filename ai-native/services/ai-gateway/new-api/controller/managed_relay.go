@@ -14,8 +14,8 @@ import (
 )
 
 // ManagedRelayTokenAuth converts an authenticated dashboard session into the
-// user's hidden crm-relay token context. The token remains server-side: desktop
-// clients send only their normal session cookie and New-Api-User header.
+// user's hidden naimage-relay token context. The token remains server-side:
+// desktop clients send only their normal session cookie and New-Api-User header.
 func ManagedRelayTokenAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetInt("id")

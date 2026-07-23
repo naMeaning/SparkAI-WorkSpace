@@ -1046,11 +1046,22 @@ type ManageRequest struct {
 	Mode   string `json:"mode"`
 }
 
-const crmRelayTokenName = model.CrmRelayTokenName
-
 func ensureRelayTokenForUser(user model.User) (*model.Token, bool, error) {
-	existing, err := model.GetEnabledUserTokenByName(user.Id, crmRelayTokenName)
+	existing, err := model.GetUserManagedRelayToken(user.Id)
 	if err == nil {
+		needsRepair := existing.Name != model.ManagedRelayTokenName ||
+			existing.Status != common.TokenStatusEnabled ||
+			existing.ExpiredTime != -1 ||
+			!existing.UnlimitedQuota
+		if needsRepair {
+			existing.Name = model.ManagedRelayTokenName
+			existing.Status = common.TokenStatusEnabled
+			existing.ExpiredTime = -1
+			existing.UnlimitedQuota = true
+			if err := existing.Update(); err != nil {
+				return nil, false, err
+			}
+		}
 		return existing, false, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1062,7 +1073,7 @@ func ensureRelayTokenForUser(user model.User) (*model.Token, bool, error) {
 	}
 	token := &model.Token{
 		UserId:             user.Id,
-		Name:               crmRelayTokenName,
+		Name:               model.ManagedRelayTokenName,
 		Key:                key,
 		CreatedTime:        common.GetTimestamp(),
 		AccessedTime:       common.GetTimestamp(),
@@ -1194,31 +1205,8 @@ func ManageUser(c *gin.Context) {
 			"message": "",
 		})
 		return
-	case "ensure_relay_token":
-		if !c.GetBool("use_access_token") {
-			common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
-			return
-		}
-		token, created, err := ensureRelayTokenForUser(user)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		if created {
-			recordManageAuditFor(c, user.Id, "user.relay_token_ensure", map[string]interface{}{
-				"token_id": token.Id,
-				"name":     token.Name,
-			})
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "",
-			"data": gin.H{
-				"key":      token.GetFullKey(),
-				"token_id": token.Id,
-				"name":     token.Name,
-			},
-		})
+	default:
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 

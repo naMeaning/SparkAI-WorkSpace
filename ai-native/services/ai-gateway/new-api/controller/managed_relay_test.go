@@ -24,7 +24,7 @@ func TestManagedRelayTokenAuthCreatesAndUsesHiddenRelayToken(t *testing.T) {
 	})
 	router.POST("/managed-relay", ManagedRelayTokenAuth(), func(c *gin.Context) {
 		assert.Equal(t, user.Id, c.GetInt("id"))
-		assert.Equal(t, model.CrmRelayTokenName, c.GetString("token_name"))
+		assert.Equal(t, model.ManagedRelayTokenName, c.GetString("token_name"))
 		assert.True(t, c.GetBool("managed_session_relay"))
 		assert.NotEmpty(t, c.GetString("token_key"))
 		assert.Empty(t, c.GetHeader("Authorization"))
@@ -39,7 +39,7 @@ func TestManagedRelayTokenAuthCreatesAndUsesHiddenRelayToken(t *testing.T) {
 	var tokens []model.Token
 	require.NoError(t, model.DB.Find(&tokens, "user_id = ?", user.Id).Error)
 	require.Len(t, tokens, 1)
-	assert.Equal(t, model.CrmRelayTokenName, tokens[0].Name)
+	assert.Equal(t, model.ManagedRelayTokenName, tokens[0].Name)
 	assert.NotEmpty(t, tokens[0].Key)
 	assert.NotContains(t, recorder.Body.String(), tokens[0].Key)
 }

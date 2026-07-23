@@ -9,13 +9,9 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
-
-type relayTokenManageResponse struct {
-	Key     string `json:"key"`
-	TokenID int    `json:"token_id"`
-	Name    string `json:"name"`
-}
 
 func setupUserManageRelayTokenTestDB(t *testing.T) *model.User {
 	t.Helper()
@@ -55,11 +51,11 @@ func setupUserManageRelayTokenTestDB(t *testing.T) *model.User {
 	return &user
 }
 
-func callEnsureRelayToken(t *testing.T, targetUserId int) relayTokenManageResponse {
-	t.Helper()
-
+func TestManageUserRejectsRemovedEnsureRelayTokenActionWithoutLeakingKey(t *testing.T) {
+	user := setupUserManageRelayTokenTestDB(t)
+	token := seedToken(t, model.DB, user.Id, model.ManagedRelayTokenName, "managed-relay-secret-key")
 	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/user/manage", map[string]any{
-		"id":     targetUserId,
+		"id":     user.Id,
 		"action": "ensure_relay_token",
 	}, 1)
 	ctx.Set("role", common.RoleRootUser)
@@ -68,79 +64,98 @@ func callEnsureRelayToken(t *testing.T, targetUserId int) relayTokenManageRespon
 	ManageUser(ctx)
 
 	response := decodeAPIResponse(t, recorder)
-	if !response.Success {
-		t.Fatalf("expected ensure_relay_token to succeed, got message: %s", response.Message)
-	}
-
-	var tokenResponse relayTokenManageResponse
-	if err := common.Unmarshal(response.Data, &tokenResponse); err != nil {
-		t.Fatalf("failed to decode relay token response: %v", err)
-	}
-	if tokenResponse.Key == "" {
-		t.Fatalf("expected relay token response to include full token key")
-	}
-	return tokenResponse
+	assert.False(t, response.Success)
+	assert.NotEmpty(t, recorder.Body.String())
+	assert.NotContains(t, recorder.Body.String(), token.Key)
+	assert.NotContains(t, recorder.Body.String(), `"key"`)
 }
 
-func TestManageUserEnsureRelayTokenRequiresServiceAccessToken(t *testing.T) {
-	user := setupUserManageRelayTokenTestDB(t)
-	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/user/manage", map[string]any{
-		"id":     user.Id,
-		"action": "ensure_relay_token",
-	}, 1)
-	ctx.Set("role", common.RoleRootUser)
-
-	ManageUser(ctx)
-
-	response := decodeAPIResponse(t, recorder)
-	if response.Success {
-		t.Fatalf("expected ensure_relay_token to reject session-based admin calls")
-	}
-	if recorder.Body.String() == "" {
-		t.Fatalf("expected error response body")
-	}
-}
-
-func TestManageUserEnsureRelayTokenCreatesAndReusesServerSideToken(t *testing.T) {
+func TestEnsureRelayTokenForUserCreatesCanonicalTokenAndReusesIt(t *testing.T) {
 	user := setupUserManageRelayTokenTestDB(t)
 
-	first := callEnsureRelayToken(t, user.Id)
+	first, created, err := ensureRelayTokenForUser(*user)
+	require.NoError(t, err)
+	require.True(t, created)
+	assert.Equal(t, user.Id, first.UserId)
+	assert.Equal(t, model.ManagedRelayTokenName, first.Name)
+	assert.NotEmpty(t, first.Key)
+	assert.Equal(t, common.TokenStatusEnabled, first.Status)
+	assert.EqualValues(t, -1, first.ExpiredTime)
+	assert.True(t, first.UnlimitedQuota)
 
-	var token model.Token
-	if err := model.DB.First(&token, "id = ?", first.TokenID).Error; err != nil {
-		t.Fatalf("failed to load created relay token: %v", err)
-	}
-	if token.UserId != user.Id {
-		t.Fatalf("expected token user_id %d, got %d", user.Id, token.UserId)
-	}
-	if token.Name != "crm-relay" {
-		t.Fatalf("expected token name crm-relay, got %q", token.Name)
-	}
-	if token.GetFullKey() != first.Key {
-		t.Fatalf("expected full key %q, got %q", token.GetFullKey(), first.Key)
-	}
-	if token.Status != common.TokenStatusEnabled {
-		t.Fatalf("expected enabled token status, got %d", token.Status)
-	}
-	if token.ExpiredTime != -1 {
-		t.Fatalf("expected non-expiring token, got expired_time=%d", token.ExpiredTime)
-	}
-	if !token.UnlimitedQuota {
-		t.Fatalf("expected relay token to use unlimited token quota")
-	}
-
-	second := callEnsureRelayToken(t, user.Id)
-	if second.Key != first.Key || second.TokenID != first.TokenID {
-		t.Fatalf("expected second ensure to reuse token %#v, got %#v", first, second)
-	}
+	second, created, err := ensureRelayTokenForUser(*user)
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, first.Id, second.Id)
+	assert.Equal(t, first.Key, second.Key)
 
 	var tokenCount int64
-	if err := model.DB.Model(&model.Token{}).Where("user_id = ? AND name = ?", user.Id, "crm-relay").Count(&tokenCount).Error; err != nil {
-		t.Fatalf("failed to count relay tokens: %v", err)
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&tokenCount).Error)
+	assert.EqualValues(t, 1, tokenCount)
+}
+
+func TestEnsureRelayTokenForUserRepairsCanonicalAndMigratesLegacyTokensInPlace(t *testing.T) {
+	for _, previousName := range []string{model.ManagedRelayTokenName, "studio-relay", "crm-relay"} {
+		t.Run(previousName, func(t *testing.T) {
+			user := setupUserManageRelayTokenTestDB(t)
+			existing := seedToken(t, model.DB, user.Id, previousName, previousName+"-secret-key")
+			require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", existing.Id).Updates(map[string]any{
+				"status":          common.TokenStatusDisabled,
+				"expired_time":    1,
+				"unlimited_quota": false,
+			}).Error)
+
+			token, created, err := ensureRelayTokenForUser(*user)
+			require.NoError(t, err)
+			assert.False(t, created)
+			assert.Equal(t, existing.Id, token.Id)
+			assert.Equal(t, existing.Key, token.Key)
+			assert.Equal(t, model.ManagedRelayTokenName, token.Name)
+			assert.Equal(t, common.TokenStatusEnabled, token.Status)
+			assert.EqualValues(t, -1, token.ExpiredTime)
+			assert.True(t, token.UnlimitedQuota)
+
+			var stored model.Token
+			require.NoError(t, model.DB.First(&stored, "id = ?", existing.Id).Error)
+			assert.Equal(t, existing.Key, stored.Key)
+			assert.Equal(t, model.ManagedRelayTokenName, stored.Name)
+			assert.Equal(t, common.TokenStatusEnabled, stored.Status)
+			assert.EqualValues(t, -1, stored.ExpiredTime)
+			assert.True(t, stored.UnlimitedQuota)
+
+			var tokenCount int64
+			require.NoError(t, model.DB.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&tokenCount).Error)
+			assert.EqualValues(t, 1, tokenCount)
+		})
 	}
-	if tokenCount != 1 {
-		t.Fatalf("expected one crm-relay token, got %d", tokenCount)
-	}
+}
+
+func TestEnsureRelayTokenForUserPrefersCanonicalTokenOverLegacyToken(t *testing.T) {
+	user := setupUserManageRelayTokenTestDB(t)
+	legacy := seedToken(t, model.DB, user.Id, "studio-relay", "legacy-secret-key")
+	canonical := seedToken(t, model.DB, user.Id, model.ManagedRelayTokenName, "canonical-secret-key")
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", canonical.Id).Updates(map[string]any{
+		"status":          common.TokenStatusDisabled,
+		"expired_time":    1,
+		"unlimited_quota": false,
+	}).Error)
+
+	token, created, err := ensureRelayTokenForUser(*user)
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, canonical.Id, token.Id)
+	assert.Equal(t, canonical.Key, token.Key)
+	assert.Equal(t, common.TokenStatusEnabled, token.Status)
+	assert.EqualValues(t, -1, token.ExpiredTime)
+	assert.True(t, token.UnlimitedQuota)
+
+	var storedLegacy model.Token
+	require.NoError(t, model.DB.First(&storedLegacy, "id = ?", legacy.Id).Error)
+	assert.Equal(t, "studio-relay", storedLegacy.Name)
+
+	var tokenCount int64
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("user_id = ?", user.Id).Count(&tokenCount).Error)
+	assert.EqualValues(t, 2, tokenCount)
 }
 
 func TestRegisterCreatesHiddenRelayTokenWithoutLeakingKey(t *testing.T) {
@@ -191,8 +206,8 @@ func TestRegisterCreatesHiddenRelayTokenWithoutLeakingKey(t *testing.T) {
 		t.Fatalf("expected one hidden relay token, got %d", len(tokens))
 	}
 	token := tokens[0]
-	if token.Name != crmRelayTokenName {
-		t.Fatalf("expected token name %q, got %q", crmRelayTokenName, token.Name)
+	if token.Name != model.ManagedRelayTokenName {
+		t.Fatalf("expected token name %q, got %q", model.ManagedRelayTokenName, token.Name)
 	}
 	if token.Status != common.TokenStatusEnabled {
 		t.Fatalf("expected enabled token status, got %d", token.Status)

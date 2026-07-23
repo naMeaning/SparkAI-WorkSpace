@@ -16,6 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -41,6 +43,12 @@ type tokenResponseItem struct {
 
 type tokenKeyResponse struct {
 	Key string `json:"key"`
+}
+
+var managedRelayTokenNamesForTest = []string{
+	model.ManagedRelayTokenName,
+	"studio-relay",
+	"crm-relay",
 }
 
 type sqliteColumnInfo struct {
@@ -393,7 +401,10 @@ func TestTokenMigrationFromChar48ToVarchar128Postgres(t *testing.T) {
 func TestGetAllTokensMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "list-token", "abcd1234efgh5678")
-	hiddenToken := seedToken(t, db, 1, crmRelayTokenName, "hidden1234token5678")
+	hiddenTokens := make([]*model.Token, 0, len(managedRelayTokenNamesForTest))
+	for i, name := range managedRelayTokenNamesForTest {
+		hiddenTokens = append(hiddenTokens, seedToken(t, db, 1, name, fmt.Sprintf("hidden-key-%d-12345678", i)))
+	}
 	seedToken(t, db, 2, "other-user-token", "zzzz1234yyyy5678")
 
 	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/?p=1&size=10", nil, 1)
@@ -420,8 +431,10 @@ func TestGetAllTokensMasksKeyInResponse(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("list response leaked raw token key: %s", recorder.Body.String())
 	}
-	if strings.Contains(recorder.Body.String(), hiddenToken.Key) || strings.Contains(recorder.Body.String(), hiddenToken.Name) {
-		t.Fatalf("list response leaked hidden relay token: %s", recorder.Body.String())
+	for _, hiddenToken := range hiddenTokens {
+		if strings.Contains(recorder.Body.String(), hiddenToken.Key) || strings.Contains(recorder.Body.String(), hiddenToken.Name) {
+			t.Fatalf("list response leaked hidden relay token: %s", recorder.Body.String())
+		}
 	}
 }
 
@@ -453,26 +466,24 @@ func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 }
 
 func TestSearchTokensHidesSystemRelayToken(t *testing.T) {
-	db := setupTokenControllerTestDB(t)
-	hiddenToken := seedToken(t, db, 1, crmRelayTokenName, "relay1234hidden5678")
+	for i, name := range managedRelayTokenNamesForTest {
+		t.Run(name, func(t *testing.T) {
+			db := setupTokenControllerTestDB(t)
+			hiddenToken := seedToken(t, db, 1, name, fmt.Sprintf("relay-hidden-key-%d", i))
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/search?keyword=crm-relay&p=1&size=10", nil, 1)
-	SearchTokens(ctx)
+			ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/search?keyword="+name+"&p=1&size=10", nil, 1)
+			SearchTokens(ctx)
 
-	response := decodeAPIResponse(t, recorder)
-	if !response.Success {
-		t.Fatalf("expected success response, got message: %s", response.Message)
-	}
+			response := decodeAPIResponse(t, recorder)
+			require.True(t, response.Success, response.Message)
 
-	var page tokenPageResponse
-	if err := common.Unmarshal(response.Data, &page); err != nil {
-		t.Fatalf("failed to decode search response: %v", err)
-	}
-	if page.Total != 0 || len(page.Items) != 0 {
-		t.Fatalf("expected hidden relay token search to be empty, got total=%d items=%d", page.Total, len(page.Items))
-	}
-	if strings.Contains(recorder.Body.String(), hiddenToken.Key) || strings.Contains(recorder.Body.String(), hiddenToken.Name) {
-		t.Fatalf("search response leaked hidden relay token: %s", recorder.Body.String())
+			var page tokenPageResponse
+			require.NoError(t, common.Unmarshal(response.Data, &page))
+			assert.Zero(t, page.Total)
+			assert.Empty(t, page.Items)
+			assert.NotContains(t, recorder.Body.String(), hiddenToken.Key)
+			assert.NotContains(t, recorder.Body.String(), hiddenToken.Name)
+		})
 	}
 }
 
@@ -571,42 +582,133 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	}
 }
 
-func TestGetTokenKeyRejectsHiddenSystemRelayToken(t *testing.T) {
-	db := setupTokenControllerTestDB(t)
-	token := seedToken(t, db, 1, crmRelayTokenName, "hidden-key-12345678")
-
-	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(token.Id)+"/key", nil, 1)
-	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
-	GetTokenKey(ctx)
-
-	response := decodeAPIResponse(t, recorder)
-	if response.Success {
-		t.Fatalf("expected hidden relay token key fetch to fail")
+func TestManagedRelayTokensCannotBeReadUpdatedDeletedOrExportedInBatch(t *testing.T) {
+	type batchKeyData struct {
+		Keys map[int]string `json:"keys"`
 	}
-	if strings.Contains(recorder.Body.String(), token.Key) {
-		t.Fatalf("hidden token key response leaked raw token key: %s", recorder.Body.String())
+
+	for i, name := range managedRelayTokenNamesForTest {
+		t.Run(name, func(t *testing.T) {
+			db := setupTokenControllerTestDB(t)
+			hidden := seedToken(t, db, 1, name, fmt.Sprintf("hidden-secret-%d-12345678", i))
+			visible := seedToken(t, db, 1, "visible-token", fmt.Sprintf("visible-secret-%d-12345678", i))
+
+			getContext, getRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/"+strconv.Itoa(hidden.Id), nil, 1)
+			getContext.Params = gin.Params{{Key: "id", Value: strconv.Itoa(hidden.Id)}}
+			GetToken(getContext)
+			assert.False(t, decodeAPIResponse(t, getRecorder).Success)
+			assert.NotContains(t, getRecorder.Body.String(), hidden.Key)
+
+			keyContext, keyRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/"+strconv.Itoa(hidden.Id)+"/key", nil, 1)
+			keyContext.Params = gin.Params{{Key: "id", Value: strconv.Itoa(hidden.Id)}}
+			GetTokenKey(keyContext)
+			assert.False(t, decodeAPIResponse(t, keyRecorder).Success)
+			assert.NotContains(t, keyRecorder.Body.String(), hidden.Key)
+
+			updateBody := map[string]any{
+				"id":                   hidden.Id,
+				"name":                 "renamed-visible-token",
+				"expired_time":         -1,
+				"remain_quota":         100,
+				"unlimited_quota":      true,
+				"model_limits_enabled": false,
+				"model_limits":         "",
+				"group":                "default",
+				"cross_group_retry":    false,
+			}
+			updateContext, updateRecorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", updateBody, 1)
+			UpdateToken(updateContext)
+			assert.False(t, decodeAPIResponse(t, updateRecorder).Success)
+			assert.NotContains(t, updateRecorder.Body.String(), hidden.Key)
+
+			var storedHidden model.Token
+			require.NoError(t, db.First(&storedHidden, "id = ?", hidden.Id).Error)
+			assert.Equal(t, name, storedHidden.Name)
+
+			deleteContext, deleteRecorder := newAuthenticatedContext(t, http.MethodDelete, "/api/token/"+strconv.Itoa(hidden.Id), nil, 1)
+			deleteContext.Params = gin.Params{{Key: "id", Value: strconv.Itoa(hidden.Id)}}
+			DeleteToken(deleteContext)
+			assert.False(t, decodeAPIResponse(t, deleteRecorder).Success)
+			require.NoError(t, db.First(&storedHidden, "id = ?", hidden.Id).Error)
+
+			keysContext, keysRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/batch/keys", TokenBatch{
+				Ids: []int{hidden.Id, visible.Id},
+			}, 1)
+			GetTokenKeysBatch(keysContext)
+			keysResponse := decodeAPIResponse(t, keysRecorder)
+			require.True(t, keysResponse.Success, keysResponse.Message)
+			var keys batchKeyData
+			require.NoError(t, common.Unmarshal(keysResponse.Data, &keys))
+			assert.Equal(t, map[int]string{visible.Id: visible.Key}, keys.Keys)
+			assert.NotContains(t, keysRecorder.Body.String(), hidden.Key)
+
+			batchDeleteContext, batchDeleteRecorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/batch", TokenBatch{
+				Ids: []int{hidden.Id, visible.Id},
+			}, 1)
+			DeleteTokenBatch(batchDeleteContext)
+			batchDeleteResponse := decodeAPIResponse(t, batchDeleteRecorder)
+			require.True(t, batchDeleteResponse.Success, batchDeleteResponse.Message)
+			var deletedCount int
+			require.NoError(t, common.Unmarshal(batchDeleteResponse.Data, &deletedCount))
+			assert.Equal(t, 1, deletedCount)
+			require.NoError(t, db.First(&storedHidden, "id = ?", hidden.Id).Error)
+			assert.ErrorIs(t, db.First(&model.Token{}, "id = ?", visible.Id).Error, gorm.ErrRecordNotFound)
+		})
 	}
 }
 
-func TestAddTokenRejectsHiddenSystemRelayTokenName(t *testing.T) {
-	setupTokenControllerTestDB(t)
+func TestAddTokenRejectsManagedRelayTokenNames(t *testing.T) {
+	for _, name := range managedRelayTokenNamesForTest {
+		t.Run(name, func(t *testing.T) {
+			setupTokenControllerTestDB(t)
 
-	body := map[string]any{
-		"name":                 crmRelayTokenName,
-		"expired_time":         -1,
-		"remain_quota":         100,
-		"unlimited_quota":      true,
-		"model_limits_enabled": false,
-		"model_limits":         "",
-		"group":                "default",
-		"cross_group_retry":    false,
+			body := map[string]any{
+				"name":                 " " + name + " ",
+				"expired_time":         -1,
+				"remain_quota":         100,
+				"unlimited_quota":      true,
+				"model_limits_enabled": false,
+				"model_limits":         "",
+				"group":                "default",
+				"cross_group_retry":    false,
+			}
+
+			ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
+			AddToken(ctx)
+
+			assert.False(t, decodeAPIResponse(t, recorder).Success)
+			var tokenCount int64
+			require.NoError(t, model.DB.Model(&model.Token{}).Count(&tokenCount).Error)
+			assert.Zero(t, tokenCount)
+		})
 	}
+}
 
-	ctx, recorder := newAuthenticatedContext(t, http.MethodPost, "/api/token/", body, 1)
-	AddToken(ctx)
+func TestUpdateTokenRejectsManagedRelayTokenNames(t *testing.T) {
+	for i, name := range managedRelayTokenNamesForTest {
+		t.Run(name, func(t *testing.T) {
+			db := setupTokenControllerTestDB(t)
+			token := seedToken(t, db, 1, "visible-token", fmt.Sprintf("visible-update-key-%d", i))
 
-	response := decodeAPIResponse(t, recorder)
-	if response.Success {
-		t.Fatalf("expected user-created crm-relay token name to be rejected")
+			body := map[string]any{
+				"id":                   token.Id,
+				"name":                 " " + name + " ",
+				"expired_time":         -1,
+				"remain_quota":         100,
+				"unlimited_quota":      true,
+				"model_limits_enabled": false,
+				"model_limits":         "",
+				"group":                "default",
+				"cross_group_retry":    false,
+			}
+
+			ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/", body, 1)
+			UpdateToken(ctx)
+
+			assert.False(t, decodeAPIResponse(t, recorder).Success)
+			var stored model.Token
+			require.NoError(t, db.First(&stored, "id = ?", token.Id).Error)
+			assert.Equal(t, "visible-token", stored.Name)
+		})
 	}
 }

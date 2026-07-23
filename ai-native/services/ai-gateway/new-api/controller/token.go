@@ -27,7 +27,7 @@ func isHiddenSystemToken(token *model.Token) bool {
 	if token == nil {
 		return false
 	}
-	return strings.TrimSpace(token.Name) == crmRelayTokenName
+	return model.IsManagedRelayTokenName(token.Name)
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*model.Token {
@@ -193,7 +193,7 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
-	if strings.TrimSpace(token.Name) == crmRelayTokenName {
+	if model.IsManagedRelayTokenName(token.Name) {
 		common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
 		return
 	}
@@ -282,7 +282,7 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
-	if strings.TrimSpace(token.Name) == crmRelayTokenName {
+	if model.IsManagedRelayTokenName(token.Name) {
 		common.ApiErrorI18n(c, i18n.MsgTokenGetInfoFailed)
 		return
 	}
