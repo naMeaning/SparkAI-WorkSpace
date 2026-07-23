@@ -57,6 +57,7 @@
     "test:paste-blocks": "node scripts/paste-block-selftest.ts",
     "test:agent-text-ui": "node scripts/agent-text-ui-aidebug.mjs",
     "test:aidebug-agent-fixtures": "node scripts/aidebug-agent-fixture-bridge-selftest.ts",
+    "test:aidebug-options": "node scripts/aidebug-options-selftest.mjs",
     "test:image-layout": "node scripts/image-layout-selftest.ts",
     "test:image-container": "node scripts/image-container-selftest.ts",
     "test:requirement-signature": "node scripts/requirement-signature-selftest.ts",

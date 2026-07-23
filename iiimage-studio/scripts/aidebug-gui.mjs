@@ -9,6 +9,7 @@ import sharp from "sharp";
 
 import { captureAskUserContinuationSuite } from "./aidebug-ask-user-continuation-suite.mjs";
 import { captureRequirementNodeSuite } from "./aidebug-requirement-node-suite.mjs";
+import { parseAidebugOptions } from "./aidebug/options.mjs";
 import { createImageGenerationSuiteProbes } from "./aidebug/suites/image-generation.mjs";
 import { createLayerEditingSuiteProbes } from "./aidebug/suites/layer-editing.mjs";
 import { capturePerformanceSuiteProbe } from "./aidebug/suites/performance.mjs";
@@ -38,118 +39,78 @@ const repoRoot = packageRoot;
 const diagnosticsRoot = join(repoRoot, ".diagnostics", "electron");
 const runDir = join(diagnosticsRoot, `aidebug-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const workbenchMinWidth = 884;
-const devPortArg = process.argv.find((item) => item.startsWith("--dev-port="));
-const explicitDevPort = devPortArg?.split("=")[1] || process.env.IIIMAGE_AIDEBUG_DEV_PORT || "";
-const defaultDevPort = 5173 + (process.pid % 1000);
-let devPort = Number(explicitDevPort || defaultDevPort);
-let devUrl = `http://127.0.0.1:${devPort}`;
-const portArg = process.argv.find((item) => item.startsWith("--port="));
-const defaultDebugPort = 9300 + (process.pid % 2000);
-const explicitDebugPort = portArg?.split("=")[1] || process.env.IIIMAGE_REMOTE_DEBUGGING_PORT || "";
-let debugPort = Number(explicitDebugPort || defaultDebugPort);
-const keepOpen = process.argv.includes("--keep-open");
-const liveImage = process.argv.includes("--live-image") || process.env.IIIMAGE_AIDEBUG_LIVE_IMAGE === "1";
-const realAgentSuiteOnly = process.argv.includes("--real-agent-suite") || process.argv.includes("--agent-real-suite");
-const realAgentToolsOnly = process.argv.includes("--real-agent-tools-only") || process.argv.includes("--agent-tools-only");
-const agentUiPromptSuiteOnly = process.argv.includes("--agent-ui-prompt-suite") || process.argv.includes("--real-ui-prompt-suite");
-const realAgent = realAgentSuiteOnly || realAgentToolsOnly || agentUiPromptSuiteOnly || process.argv.includes("--real-agent") || process.env.IIIMAGE_AIDEBUG_REAL_AGENT === "1";
 // Real Agent diagnostics use the product's authenticated local settings. A
 // second flag created an isolated unsigned config and misleading 401 failures.
-const liveConfig = liveImage || realAgent || process.argv.includes("--live-config") || process.env.IIIMAGE_AIDEBUG_LIVE_CONFIG === "1";
-const mockAgent =
-  process.argv.includes("--mock-agent") ||
-  process.env.IIIMAGE_AIDEBUG_MOCK_AGENT === "1" ||
-  (!realAgent && !liveImage);
-const agentOnly = process.argv.includes("--agent-only");
-const legacyFullSuite = process.argv.includes("--legacy-full-suite");
-const imageOnly = process.argv.includes("--image-only") || process.argv.includes("--image-suite");
-const imageRecoveryOnly = process.argv.includes("--image-recovery-suite") || process.argv.includes("--image-failure-suite");
-const imageCollectionOnly = process.argv.includes("--image-collection-suite") || process.argv.includes("--canvas-image-suite");
-const layerStackOnly = process.argv.includes("--layer-stack-suite") || process.argv.includes("--layers-suite");
-const cutoutOnly = process.argv.includes("--cutout-suite") || process.argv.includes("--magic-cutout-suite");
-const regionRedrawOnly = process.argv.includes("--region-redraw-suite") || process.argv.includes("--redraw-suite");
-const mixedStressOnly = process.argv.includes("--mixed-stress") || process.argv.includes("--mixed-suite");
-const posterBatchOnly = process.argv.includes("--poster-batch") || process.argv.includes("--poster-suite");
-const contextPersistenceOnly = process.argv.includes("--context-persistence") || process.argv.includes("--persistence-suite");
-const imageCollectionPersistenceOnly = process.argv.includes("--image-collection-persistence") || process.argv.includes("--canvas-image-persistence");
-const authGateSuiteOnly = process.argv.includes("--auth-gate-suite") || process.argv.includes("--auth-suite");
-const uiSurfaceSuiteOnly = process.argv.includes("--ui-surface-suite") || process.argv.includes("--surface-suite");
-const performanceSuiteOnly = process.argv.includes("--performance-suite") || process.argv.includes("--perf-suite");
-const imageImportSuiteOnly = process.argv.includes("--image-import-suite") || process.argv.includes("--import-suite");
-const canvasClaritySuiteOnly = process.argv.includes("--canvas-clarity-suite") || process.argv.includes("--clarity-suite");
-const selectionCommandSuiteOnly = process.argv.includes("--selection-command-suite") || process.argv.includes("--selection-suite");
-const contextMenuSuiteOnly = process.argv.includes("--context-menu-suite") || process.argv.includes("--menu-suite");
-const requirementNodeSuiteOnly = process.argv.includes("--requirement-node-suite") || process.argv.includes("--requirement-suite");
-const askUserContinuationSuiteOnly = process.argv.includes("--ask-user-continuation-suite") || process.argv.includes("--ask-user-suite");
-const failureDiagnosticsSelfTestOnly = process.argv.includes("--failure-diagnostics-selftest");
-const imageRunsArg = process.argv.find((item) => item.startsWith("--image-runs="));
-const imageRuns = Math.max(1, Math.min(Number(imageRunsArg?.split("=")[1] || 2), 5));
-const posterCountArg = process.argv.find((item) => item.startsWith("--poster-count="));
-const posterCount = Math.max(1, Math.min(Number(posterCountArg?.split("=")[1] || 15), 30));
-const posterAgentCountArg = process.argv.find((item) => item.startsWith("--poster-agent-count="));
-const posterAgentCount = Math.max(0, Math.min(Number(posterAgentCountArg?.split("=")[1] || Math.min(10, posterCount)), 30));
-const posterDirectCountArg = process.argv.find((item) => item.startsWith("--poster-direct-count="));
-const posterDirectCount = Math.max(0, Math.min(Number(posterDirectCountArg?.split("=")[1] || Math.max(0, posterCount - posterAgentCount)), 30));
-const posterResolutionArg = process.argv.find((item) => item.startsWith("--poster-resolution="));
-const posterResolution = String(posterResolutionArg?.split("=").slice(1).join("=") || "1080P");
-const posterQualityArg = process.argv.find((item) => item.startsWith("--poster-quality="));
-const posterQuality = String(posterQualityArg?.split("=").slice(1).join("=") || "auto");
-const stressRoundsArg = process.argv.find((item) => item.startsWith("--stress-rounds="));
-const stressRounds = Math.max(1, Math.min(Number(stressRoundsArg?.split("=")[1] || 2), 5));
-const persistenceStageArg = process.argv.find((item) => item.startsWith("--persistence-stage="));
-const persistenceStage = String(persistenceStageArg?.split("=").slice(1).join("=") || "");
-const persistenceSentinelArg = process.argv.find((item) => item.startsWith("--persistence-sentinel="));
-const persistenceSentinel = String(persistenceSentinelArg?.split("=").slice(1).join("=") || `AIDEBUG_CONTEXT_PERSIST_${Date.now()}`);
-const persistenceStateFileArg = process.argv.find((item) => item.startsWith("--persistence-state-file="));
-const persistenceStateFile = persistenceStateFileArg?.split("=").slice(1).join("=") || join(runDir, "context-persistence-state.json");
-const aidebugConfigDirArg = process.argv.find((item) => item.startsWith("--aidebug-config-dir="));
-const aidebugConfigDir = resolve(aidebugConfigDirArg?.split("=").slice(1).join("=") || process.env.IIIMAGE_AIDEBUG_CONFIG_DIR || join(runDir, "config"));
-const nativeCaptureMode = process.argv.includes("--native-capture");
-const captureScope = nativeCaptureMode ? "window" : "page";
-const cyclesArg = process.argv.find((item) => item.startsWith("--cycles="));
-const cycles = Math.max(1, Math.min(Number(cyclesArg?.split("=")[1] || 1), 50));
-const cycleIndexArg = process.argv.find((item) => item.startsWith("--cycle-index="));
-const cycleIndex = Math.max(1, Number(cycleIndexArg?.split("=")[1] || 1));
-const cycleTotalArg = process.argv.find((item) => item.startsWith("--cycle-total="));
-const cycleTotal = Math.max(cycleIndex, Math.min(Number(cycleTotalArg?.split("=")[1] || cycles), 50));
-const cycleDelayArg = process.argv.find((item) => item.startsWith("--cycle-delay-ms="));
-const cycleDelayMs = Math.max(0, Math.min(Number(cycleDelayArg?.split("=")[1] || 1200), 60000));
-const desktopLogArg = process.argv.find((item) => item.startsWith("--desktop-log="));
-const desktopLogPath = desktopLogArg?.split("=").slice(1).join("=") ||
-  join(repoRoot, ".diagnostics", "aidebug-history.md");
-const agentUiPromptArg = process.argv.find((item) => item.startsWith("--agent-ui-prompt="));
-const agentUiPrompt = String(
-  process.env.IIIMAGE_AIDEBUG_AGENT_UI_PROMPT ||
-  agentUiPromptArg?.split("=").slice(1).join("=") ||
-  "帮我生成一张二次元写实风格竖屏小红书东方审美黑长直，极具设计感、艺术感、微海报；\n  二次元风格但也需要写实，不要太写实，公主切近景。"
-);
-const agentUiFollowupArg = process.argv.find((item) => item.startsWith("--agent-ui-followup="));
-const agentUiFollowupPrompt = String(
-  process.env.IIIMAGE_AIDEBUG_AGENT_UI_FOLLOWUP ||
-  agentUiFollowupArg?.split("=").slice(1).join("=") ||
-  "这张效果很好，优点是满足要求，具备设计感，很棒。没什么缺点，我需要你继续生成3张"
-);
-const agentUiReferencesArg = process.argv.find((item) => item.startsWith("--agent-ui-references="));
-const agentUiReferencePaths = (() => {
-  const raw = String(
-    process.env.IIIMAGE_AIDEBUG_AGENT_UI_REFERENCES ||
-    agentUiReferencesArg?.split("=").slice(1).join("=") ||
-    ""
-  ).trim();
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.map((item) => resolve(String(item || ""))).filter(Boolean).slice(0, 9);
-  } catch {
-    // A pipe-delimited fallback stays convenient for simple CLI invocations.
-  }
-  return raw.split("|").map((item) => resolve(item.trim())).filter(Boolean).slice(0, 9);
-})();
-const agentUiSingleOnly = process.argv.includes("--agent-ui-single") || process.env.IIIMAGE_AIDEBUG_AGENT_UI_SINGLE === "1";
-const agentUiExpectedCountArg = process.argv.find((item) => item.startsWith("--agent-ui-expected-count="));
-const agentUiExpectedCount = Math.max(1, Math.min(Number(agentUiExpectedCountArg?.split("=")[1] || 1), 10));
-const agentUiExpectedReviewCountArg = process.argv.find((item) => item.startsWith("--agent-ui-expected-review-count="));
-const agentUiExpectedReviewCount = Math.max(1, Math.min(Number(agentUiExpectedReviewCountArg?.split("=")[1] || 1), 10));
+const aidebugOptions = parseAidebugOptions(process.argv, process.env, {
+  pid: process.pid,
+  runDir,
+  repoRoot,
+  cwd: process.cwd(),
+  now: Date.now
+});
+const {
+  rawArgs,
+  explicitDevPort,
+  defaultDevPort,
+  explicitDebugPort,
+  defaultDebugPort,
+  keepOpen,
+  liveImage,
+  realAgentSuiteOnly,
+  realAgentToolsOnly,
+  agentUiPromptSuiteOnly,
+  realAgent,
+  liveConfig,
+  mockAgent,
+  agentOnly,
+  legacyFullSuite,
+  imageOnly,
+  imageRecoveryOnly,
+  imageCollectionOnly,
+  layerStackOnly,
+  cutoutOnly,
+  regionRedrawOnly,
+  mixedStressOnly,
+  posterBatchOnly,
+  contextPersistenceOnly,
+  imageCollectionPersistenceOnly,
+  authGateSuiteOnly,
+  uiSurfaceSuiteOnly,
+  performanceSuiteOnly,
+  imageImportSuiteOnly,
+  canvasClaritySuiteOnly,
+  selectionCommandSuiteOnly,
+  contextMenuSuiteOnly,
+  requirementNodeSuiteOnly,
+  askUserContinuationSuiteOnly,
+  failureDiagnosticsSelfTestOnly,
+  imageRuns,
+  posterCount,
+  posterAgentCount,
+  posterDirectCount,
+  posterResolution,
+  posterQuality,
+  stressRounds,
+  persistenceStage,
+  persistenceSentinel,
+  persistenceStateFile,
+  aidebugConfigDir,
+  nativeCaptureMode,
+  captureScope,
+  cycles,
+  cycleIndex,
+  cycleTotal,
+  cycleDelayMs,
+  desktopLogPath,
+  agentUiPrompt,
+  agentUiFollowupPrompt,
+  agentUiReferencePaths,
+  agentUiSingleOnly,
+  agentUiExpectedCount,
+  agentUiExpectedReviewCount
+} = aidebugOptions;
+let { devPort, debugPort } = aidebugOptions;
+let devUrl = `http://127.0.0.1:${devPort}`;
 const electronBinName = isWindows ? "electron.cmd" : "electron";
 const electronCli =
   [
@@ -370,8 +331,7 @@ async function resolveDevPort() {
 
 async function runCycleSupervisor() {
   const scriptPath = fileURLToPath(import.meta.url);
-  const passThroughArgs = process.argv
-    .slice(2)
+  const passThroughArgs = rawArgs
     .filter((item) => !item.startsWith("--cycles=") && !item.startsWith("--cycle-index=") && !item.startsWith("--cycle-total="));
   const cycleResults = [];
   for (let index = 1; index <= cycles; index += 1) {
@@ -412,8 +372,7 @@ async function runContextPersistenceSupervisor() {
   const sharedConfigDir = join(runDir, "shared-config");
   const stateFile = join(runDir, "context-persistence-state.json");
   const sentinel = `AIDEBUG_CONTEXT_PERSIST_${Date.now()}`;
-  const passThroughArgs = process.argv
-    .slice(2)
+  const passThroughArgs = rawArgs
     .filter((item) =>
       !item.startsWith("--cycles=") &&
       !item.startsWith("--cycle-index=") &&
@@ -475,8 +434,7 @@ async function runImageCollectionPersistenceSupervisor() {
   const scriptPath = fileURLToPath(import.meta.url);
   const sharedConfigDir = join(runDir, "shared-config");
   const stateFile = join(runDir, "image-collection-persistence-state.json");
-  const passThroughArgs = process.argv
-    .slice(2)
+  const passThroughArgs = rawArgs
     .filter((item) =>
       !item.startsWith("--cycles=") &&
       !item.startsWith("--cycle-index=") &&

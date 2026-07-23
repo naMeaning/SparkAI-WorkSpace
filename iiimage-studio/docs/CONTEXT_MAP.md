@@ -309,7 +309,8 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 | 路径 | Owns | Must not own | 主要验证 |
 | --- | --- | --- | --- |
-| `scripts/aidebug-gui.mjs` | CLI 参数、suite 选择、运行目录、Vite/Electron/CDP 总编排和最终报告 | 已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `aidebug:gui` 与各 `--*-suite` 专项 |
+| `scripts/aidebug-gui.mjs` | 已解析参数的消费、suite 选择顺序、运行目录、Vite/Electron/CDP 总编排和最终报告 | CLI/env 解析、已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `test:aidebug-options`, `aidebug:gui` 与各 `--*-suite` 专项 |
+| `scripts/aidebug/options.mjs` | AIDebug CLI alias、env/CLI 优先级、数值边界、路径/references 归一化和 supervisor `rawArgs` 快照 | suite 选择/dispatch、进程状态读取、运行目录创建或 GUI 启动副作用 | `test:aidebug-options`, `node --check` |
 | `scripts/aidebug/harness/*` | CDP 连接、受控进程退出、PNG 读取/比较、双帧和原生截图证据 | 产品场景、画布业务断言、suite CLI 决策 | `aidebug:gui`, `node --check` |
 | `scripts/aidebug/harness/state-snapshot.mjs` | Renderer DOM、几何、可访问性、画布和 Agent 状态的统一快照表达式；显式接收 evaluator 与 workbench 最小宽度 | suite 路由、进程生命周期、报告写入或产品状态修改 | `aidebug:gui`, `node --check` |
 | `scripts/aidebug/suites/selection-command.mjs` | selection/command 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:selection` |
@@ -476,6 +477,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 设置迁移与 localStorage 回退 | `corepack pnpm run test:settings-persistence` |
 | 粘贴块 | `corepack pnpm run test:paste-blocks` |
 | Agent 文本 UI | `corepack pnpm run test:agent-text-ui` |
+| AIDebug CLI/options 纯解析 | `corepack pnpm run test:aidebug-options` |
 | 布局/容器 | `corepack pnpm run test:image-layout`, `corepack pnpm run test:image-container` |
 | 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate` |
 | UI primitives | `corepack pnpm run test:ui-foundation` |
@@ -519,3 +521,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-23 | 1.0.4 | 从 `src/core.ts` 抽出 `src/layer-alpha-normalization.ts`，集中持有 RGBA alpha 像素归属与透明图层互斥归一化；分层合成 runtime 与 alpha/mask selftest 直接引用新 owner，`core.ts` 不保留 façade 重导出。 |
 | 2026-07-23 | 1.0.4 | 抽出 `runtime/image-batch-normalization.cjs`，集中持有 `image_gen` 单项兼容、占位项过滤、有效批次数和逐项画幅归一化；Agent runtime 仅注入文本清洗并消费稳定 normalizer，禁止新 owner 反向依赖 facade。 |
 | 2026-07-23 | 1.0.4 | 抽出 `desktop/aidebug-image-fixture.cjs`，集中持有 AIDebug mock 图片的图层提示、尺寸归一化与确定性 PNG；Main 仅消费两个编排契约，`test:new-api-transport` 固定四类 base64 SHA-256、尺寸与 hint 输出。 |
+| 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/options.mjs`，集中持有 AIDebug CLI alias、env/CLI 特殊优先级、数值/路径/references 归一化与 `rawArgs` 快照；GUI 入口保持原 suite 顺序和启动编排，三个 supervisor 不再动态读取 argv。 |
