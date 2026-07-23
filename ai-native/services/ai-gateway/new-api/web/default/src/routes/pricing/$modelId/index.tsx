@@ -20,7 +20,6 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { ModelDetails } from '@/features/pricing/components/model-details'
-import { isCrmOnlyUser } from '@/lib/crm-access'
 import { getFreshModuleAccess } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -41,10 +40,6 @@ export const Route = createFileRoute('/pricing/$modelId/')({
   validateSearch: modelDetailsSearchSchema,
   beforeLoad: async ({ location }) => {
     const { auth } = useAuthStore.getState()
-    if (isCrmOnlyUser(auth.user?.role)) {
-      throw redirect({ to: '/crm' })
-    }
-
     const access = await getFreshModuleAccess('pricing')
     if (!access.enabled) {
       throw redirect({ to: '/' })

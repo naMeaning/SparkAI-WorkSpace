@@ -16,12 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { User, Wallet, LogOut, Settings } from 'lucide-react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { shouldExposeNewApiAccountNavigation } from '@/components/layout/lib/crm-shell-visibility'
 import { SignOutDialog } from '@/components/sign-out-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -43,17 +42,10 @@ const avatarFallbackClassName = 'font-semibold text-white'
 export function ProfileDropdown() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
   const [open, setOpen] = useDialogState()
   const user = useAuthStore((state) => state.auth.user)
   const { displayName, roleLabel } = useUserDisplay(user)
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
-  const showNewApiProfileLinks = shouldExposeNewApiAccountNavigation(pathname)
-  const showNewApiSettingsLink = isSuperAdmin && showNewApiProfileLinks
-  const showNewApiAccountLinks =
-    showNewApiProfileLinks || showNewApiSettingsLink
   const avatarName = user?.username || displayName
   const avatarFallback = getUserAvatarFallback(avatarName)
   const avatarFallbackStyle = useMemo(
@@ -111,34 +103,30 @@ export function ProfileDropdown() {
             </div>
           </div>
 
-          {showNewApiAccountLinks && (
-            <>
-              <DropdownMenuSeparator />
+          <DropdownMenuSeparator />
 
-              <DropdownMenuItem onClick={() => navigate({ to: '/profile' })}>
-                <User className='size-4' />
-                {t('Profile')}
-              </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate({ to: '/profile' })}>
+            <User className='size-4' />
+            {t('Profile')}
+          </DropdownMenuItem>
 
-              <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
-                <Wallet className='size-4' />
-                {t('Wallet')}
-              </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
+            <Wallet className='size-4' />
+            {t('Wallet')}
+          </DropdownMenuItem>
 
-              {showNewApiSettingsLink && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    navigate({
-                      to: '/system-settings/site/$section',
-                      params: { section: 'system-info' },
-                    })
-                  }
-                >
-                  <Settings className='size-4' />
-                  {t('System Settings')}
-                </DropdownMenuItem>
-              )}
-            </>
+          {isSuperAdmin && (
+            <DropdownMenuItem
+              onClick={() =>
+                navigate({
+                  to: '/system-settings/site/$section',
+                  params: { section: 'system-info' },
+                })
+              }
+            >
+              <Settings className='size-4' />
+              {t('System Settings')}
+            </DropdownMenuItem>
           )}
 
           <DropdownMenuSeparator />

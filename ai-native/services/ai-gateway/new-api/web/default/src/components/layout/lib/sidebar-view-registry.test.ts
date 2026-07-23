@@ -10,12 +10,12 @@ const t = ((value: string) => value) as Parameters<
   NonNullable<ReturnType<typeof resolveSidebarView>>['getNavGroups']
 >[0]
 
-test('keeps CRM paths in the primary sidebar instead of a drill-in view', () => {
-  const view = resolveSidebarView('/crm/users')
+test('keeps ordinary paths in the primary sidebar instead of a drill-in view', () => {
+  const view = resolveSidebarView('/dashboard')
 
   assert.equal(view, null)
-  assert.equal(getNavGroupsForPath('/crm/agent-overview', t, { role: 1 }), null)
-  assert.equal(getNavGroupsForPath('/crm/users', t, { role: 100 }), null)
+  assert.equal(getNavGroupsForPath('/dashboard', t, { role: 1 }), null)
+  assert.equal(getNavGroupsForPath('/profile', t, { role: 100 }), null)
 })
 
 test('keeps system settings as the only drill-in workspace', () => {

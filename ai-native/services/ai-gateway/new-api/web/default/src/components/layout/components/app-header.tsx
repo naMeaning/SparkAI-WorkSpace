@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { Home, LayoutDashboard, Menu, Store } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -30,11 +30,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
-import { isNewApiSuperAdmin } from '@/lib/crm-access'
-import { useAuthStore } from '@/stores/auth-store'
 
 import { defaultTopNavLinks } from '../config/top-nav.config'
-import { shouldExposeNewApiShellNavigation } from '../lib/crm-shell-visibility'
 import { type TopNavLink } from '../types'
 import { Header } from './header'
 import { SystemBrand } from './system-brand'
@@ -109,20 +106,10 @@ export function AppHeader({
 }: AppHeaderProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const pathname = useRouterState({
-    select: (state) => state.location.pathname,
-  })
-  const userRole = useAuthStore((state) => state.auth.user?.role)
-  const isSuperAdmin = isNewApiSuperAdmin(userRole)
-  const exposeNewApiShellNavigation = shouldExposeNewApiShellNavigation(
-    pathname,
-    isSuperAdmin,
-    showTopNav
-  )
 
   // Prioritize dynamically generated links from backend
   const dynamicLinks = useTopNavLinks()
-  const links = exposeNewApiShellNavigation
+  const links = showTopNav
     ? dynamicLinks.length > 0
       ? dynamicLinks
       : navLinks
@@ -131,10 +118,7 @@ export function AppHeader({
   return (
     <>
       <Header>
-        <SystemBrand
-          variant='inline'
-          to={exposeNewApiShellNavigation ? '/' : null}
-        />
+        <SystemBrand variant='inline' to={showTopNav ? '/' : null} />
 
         {leftContent ? (
           <div className='ms-2 flex items-center'>{leftContent}</div>
@@ -142,14 +126,14 @@ export function AppHeader({
 
         {rightContent ?? (
           <div className='ms-auto flex items-center gap-1 sm:gap-2'>
-            {exposeNewApiShellNavigation && (
+            {showTopNav && (
               <div className='me-1 hidden lg:block'>
                 <TopNav links={links} />
               </div>
             )}
-            {showThemeSwitch && isSuperAdmin && <ThemeSwitch />}
+            {showThemeSwitch && <ThemeSwitch />}
             {showProfileDropdown && <ProfileDropdown />}
-            {exposeNewApiShellNavigation && (
+            {showTopNav && (
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger
                   render={

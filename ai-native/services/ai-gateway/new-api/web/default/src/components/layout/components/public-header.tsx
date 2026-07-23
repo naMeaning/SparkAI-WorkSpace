@@ -25,7 +25,6 @@ import { ProfileDropdown } from '@/components/profile-dropdown'
 import { ThemeSwitch } from '@/components/theme-switch'
 import { Button } from '@/components/ui/button'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
-import { getConsolePathForRole, isNewApiSuperAdmin } from '@/lib/crm-access'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -79,15 +78,13 @@ export function PublicHeader(props: PublicHeaderProps) {
 
   const user = auth.user
   const isAuthenticated = !!user
-  const isSuperAdmin = isNewApiSuperAdmin(user?.role)
-  const showNavigation = props.showNavigation ?? isSuperAdmin
-  const showThemeSwitch = props.showThemeSwitch ?? isSuperAdmin
+  const showNavigation = props.showNavigation ?? true
+  const showThemeSwitch = props.showThemeSwitch ?? true
   const displaySiteName = customSiteName || 'iiimage Studio'
   let links: TopNavLink[] = []
   if (showNavigation) {
     links = dynamicLinks.length > 0 ? dynamicLinks : navLinks
   }
-  const consolePath = getConsolePathForRole(user?.role)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20)
@@ -377,7 +374,7 @@ export function PublicHeader(props: PublicHeaderProps) {
             >
               {showAuthButtons && (
                 <Link
-                  to={isAuthenticated ? consolePath : '/sign-in'}
+                  to={isAuthenticated ? '/dashboard' : '/sign-in'}
                   onClick={() => setMobileOpen(false)}
                   className='bg-foreground text-background inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80'
                 >

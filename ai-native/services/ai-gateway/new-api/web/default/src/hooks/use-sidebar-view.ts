@@ -20,7 +20,6 @@ import { useLocation } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CRM_VIEW } from '@/components/layout/config/crm.config'
 import { resolveSidebarView } from '@/components/layout/lib/sidebar-view-registry'
 import type { NavGroup, ResolvedSidebarView } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
@@ -53,16 +52,29 @@ export function useSidebarView(): ResolvedSidebarView {
   const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
-    const isSuperAdmin = userRole !== undefined && userRole >= ROLE.SUPER_ADMIN
-    const crmGroups = CRM_VIEW.getNavGroups(t, { role: userRole })
-
-    if (!isSuperAdmin) {
-      return crmGroups
+    const isAdmin = userRole !== undefined && userRole >= ROLE.ADMIN
+    if (!isAdmin) {
+      return configFilteredRoot.filter((group) => group.id !== 'admin')
     }
 
-    const baseGroups = configFilteredRoot.filter((group) => group.id !== 'crm')
-    return [...baseGroups, ...crmGroups]
-  }, [configFilteredRoot, t, userRole])
+    const isSuperAdmin = userRole >= ROLE.SUPER_ADMIN
+    if (isSuperAdmin) {
+      return configFilteredRoot
+    }
+
+    return configFilteredRoot.map((group) => {
+      if (group.id !== 'admin') {
+        return group
+      }
+
+      return {
+        ...group,
+        items: group.items.filter(
+          (item) => !('url' in item && item.url === '/system-settings/site')
+        ),
+      }
+    })
+  }, [configFilteredRoot, userRole])
 
   const view = resolveSidebarView(pathname)
 

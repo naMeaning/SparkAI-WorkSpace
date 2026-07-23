@@ -30,9 +30,6 @@ import type { NavGroup, SidebarView, SidebarViewContext } from '../types'
  *
  * Match priority is array order; the first matching `pathPattern` wins.
  */
-// CRM keeps the primary application sidebar while switching sections. It is
-// intentionally not a drill-in view: entering platform management must not
-// hide the rest of the console behind a needless back-navigation layer.
 const SIDEBAR_VIEWS: readonly SidebarView[] = [SYSTEM_SETTINGS_VIEW]
 
 /**

@@ -21,7 +21,6 @@ import i18n from 'i18next'
 
 import type { User } from '@/features/users/types'
 import { getSelf } from '@/lib/api'
-import { getConsolePathForRole, isCrmOnlyUser } from '@/lib/crm-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { saveUserId } from '../lib/storage'
@@ -60,8 +59,6 @@ export function useAuthRedirect() {
     userData?: { id?: number } | null,
     redirectTo?: string
   ) => {
-    let signedInUser: User | null = null
-
     // Save user ID if available
     if (userData?.id) {
       saveUserId(userData.id)
@@ -72,7 +69,6 @@ export function useAuthRedirect() {
       const self = await getSelf()
       if (self?.success && self.data) {
         const user = self.data as User
-        signedInUser = user
         auth.setUser(user)
 
         // Update user ID if not already set
@@ -92,12 +88,7 @@ export function useAuthRedirect() {
     }
 
     // Navigate to target page
-    const targetPath = isCrmOnlyUser(signedInUser?.role)
-      ? redirectTo?.startsWith('/crm')
-        ? redirectTo
-        : '/crm'
-      : redirectTo || getConsolePathForRole(signedInUser?.role)
-    navigate({ to: targetPath, replace: true })
+    navigate({ to: redirectTo || '/dashboard', replace: true })
   }
 
   /**

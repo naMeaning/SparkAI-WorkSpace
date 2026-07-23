@@ -19,9 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { Dashboard } from '@/features/dashboard'
 import {
-  DASHBOARD_SECTION_IDS,
+  canAccessDashboardSection,
   DASHBOARD_DEFAULT_SECTION,
+  DASHBOARD_SECTION_IDS,
 } from '@/features/dashboard/section-registry'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/dashboard/$section')({
   beforeLoad: ({ params }) => {
@@ -31,6 +33,11 @@ export const Route = createFileRoute('/_authenticated/dashboard/$section')({
         to: '/dashboard/$section',
         params: { section: DASHBOARD_DEFAULT_SECTION },
       })
+    }
+
+    const { auth } = useAuthStore.getState()
+    if (!canAccessDashboardSection(params.section, auth.user?.role)) {
+      throw redirect({ to: '/403' })
     }
   },
   component: Dashboard,

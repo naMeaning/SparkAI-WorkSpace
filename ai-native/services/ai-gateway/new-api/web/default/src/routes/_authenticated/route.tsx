@@ -20,7 +20,6 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { AuthenticatedLayout } from '@/components/layout'
 import { getSelf } from '@/lib/api'
-import { isCrmOnlyUser } from '@/lib/crm-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 // 内存中的验证标记，避免同一会话中重复验证
@@ -29,10 +28,8 @@ let sessionVerified = false
 export const Route = createFileRoute('/_authenticated')({
   beforeLoad: async ({ location }) => {
     const { auth } = useAuthStore.getState()
-    let currentUser = auth.user
-
     // 如果本地没有用户信息，直接跳转登录页
-    if (!currentUser) {
+    if (!auth.user) {
       throw redirect({
         to: '/sign-in',
         search: { redirect: location.href },
@@ -45,7 +42,6 @@ export const Route = createFileRoute('/_authenticated')({
       if (res?.success && res.data) {
         // 验证成功，更新用户信息（可能有变化）
         auth.setUser(res.data)
-        currentUser = res.data
         sessionVerified = true
       } else {
         // 验证失败或 API 调用失败，清除本地缓存并跳转登录页
@@ -55,13 +51,6 @@ export const Route = createFileRoute('/_authenticated')({
           search: { redirect: location.href },
         })
       }
-    }
-
-    if (
-      isCrmOnlyUser(currentUser?.role) &&
-      !location.pathname.startsWith('/crm')
-    ) {
-      throw redirect({ to: '/crm' })
     }
   },
   component: AuthenticatedLayout,

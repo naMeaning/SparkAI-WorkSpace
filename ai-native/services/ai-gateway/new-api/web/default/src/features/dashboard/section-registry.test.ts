@@ -16,25 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
 
-import {
-  CRM_DEFAULT_ADMIN_SECTION,
-  CRM_DEFAULT_AGENT_SECTION,
-} from '@/components/layout/config/crm.config'
-import { isNewApiSuperAdmin } from '@/lib/crm-access'
-import { useAuthStore } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 
-export const Route = createFileRoute('/_authenticated/crm/')({
-  beforeLoad: () => {
-    const role = useAuthStore.getState().auth.user?.role
-    throw redirect({
-      to: '/crm/$section',
-      params: {
-        section: isNewApiSuperAdmin(role)
-          ? CRM_DEFAULT_ADMIN_SECTION
-          : CRM_DEFAULT_AGENT_SECTION,
-      },
-    })
-  },
+import { canAccessDashboardSection } from './section-registry'
+
+test('keeps user analytics restricted to administrators', () => {
+  assert.equal(canAccessDashboardSection('users', ROLE.USER), false)
+  assert.equal(canAccessDashboardSection('users', ROLE.ADMIN), true)
+  assert.equal(canAccessDashboardSection('users', ROLE.SUPER_ADMIN), true)
+})
+
+test('keeps ordinary dashboard sections available to users', () => {
+  assert.equal(canAccessDashboardSection('overview', ROLE.USER), true)
+  assert.equal(canAccessDashboardSection('models', ROLE.USER), true)
+  assert.equal(canAccessDashboardSection('flow', ROLE.USER), true)
 })

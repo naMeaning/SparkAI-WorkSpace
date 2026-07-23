@@ -85,9 +85,7 @@ function frontendSourcePaths() {
     path.join(defaultWebRoot, "tsconfig.json"),
     path.join(defaultWebRoot, "tsconfig.app.json"),
     path.join(defaultWebRoot, "tsconfig.node.json"),
-    path.join(newApiRoot, "web", "bun.lock"),
-    path.join(repoRoot, "packages", "crm-contracts", "src"),
-    path.join(repoRoot, "packages", "crm-contracts", "package.json")
+    path.join(newApiRoot, "web", "bun.lock")
   ];
 }
 

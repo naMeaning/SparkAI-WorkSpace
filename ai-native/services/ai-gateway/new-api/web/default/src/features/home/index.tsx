@@ -23,7 +23,6 @@ import { useEffect, useState } from 'react'
 import { PublicLayout } from '@/components/layout'
 import { SiteLogoMark } from '@/components/layout/components/site-logo-mark'
 import { Button } from '@/components/ui/button'
-import { getConsolePathForRole } from '@/lib/crm-access'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ClientDownloadDialog } from './components/client-download-dialog'
@@ -31,7 +30,6 @@ import { ClientDownloadDialog } from './components/client-download-dialog'
 export function Home() {
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
-  const consolePath = getConsolePathForRole(auth.user?.role)
   const navigate = useNavigate()
   const search = useSearch({ from: '/' })
   const [downloadOpen, setDownloadOpen] = useState(false)
@@ -79,7 +77,7 @@ export function Home() {
             <Button
               variant='outline'
               className='h-11 rounded-lg px-6 text-sm font-medium'
-              render={<Link to={isAuthenticated ? consolePath : '/sign-in'} />}
+              render={<Link to={isAuthenticated ? '/dashboard' : '/sign-in'} />}
             >
               进入控制台
             </Button>
