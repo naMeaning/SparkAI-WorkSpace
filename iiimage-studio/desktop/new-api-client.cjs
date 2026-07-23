@@ -260,9 +260,6 @@ function createNewApiClient(options = {}) {
   function managedRelayEndpoint(providerEndpoint) {
     const clean = String(providerEndpoint || "").startsWith("/") ? String(providerEndpoint || "") : `/${providerEndpoint || ""}`;
     if (clean.startsWith("/iiimage/")) return clean;
-    if (clean.startsWith("/api/crm/ai/")) {
-      return managedRelayEndpoint(clean.slice("/api/crm/ai".length));
-    }
     if (clean === "/v1" || clean.startsWith("/v1/")) return `/iiimage${clean}`;
     return `/iiimage/v1${clean}`;
   }
@@ -403,4 +400,3 @@ function createNewApiClient(options = {}) {
 module.exports = {
   createNewApiClient
 };
-

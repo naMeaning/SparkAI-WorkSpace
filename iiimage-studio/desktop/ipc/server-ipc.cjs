@@ -137,17 +137,6 @@ function registerServerIpc({
           if (isNewApiAuthError(error)) throw error;
           log(`new-api self in me failed ${error instanceof Error ? error.message : String(error)}`);
         }
-        try {
-          const session = await newApiRequest(settings, "/api/crm/session/self", {
-            headers: newApiUserAuthHeaders(settings)
-          });
-          const crmSession = session?.data || session || {};
-          if (crmSession?.currentUser) {
-            userData = { ...userData, ...crmSession.currentUser };
-          }
-        } catch (error) {
-          log(`crm session in me failed ${error instanceof Error ? error.message : String(error)}`);
-        }
         let modelSettings;
         try {
           modelSettings = await newApiModelSettings(settings);

@@ -1887,25 +1887,18 @@ function cancelQueuedImageEditRequests() {
 
 
 function normalizeNewApiUser(userData = {}) {
-  const username = String(userData.username || userData.email || userData.id || userData.crmUserId || "").trim();
+  const username = String(userData.username || userData.email || userData.id || "").trim();
   const displayName = String(userData.displayName || userData.display_name || userData.name || username || "IIimage User").trim();
-  const agent = userData.agent && typeof userData.agent === "object" ? userData.agent : {};
   const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
-  const rmbBalance = Number(userData.rmbBalance);
-  const balanceCents = Number.isFinite(rmbBalance)
-    ? Math.max(0, Math.round(rmbBalance * 100))
-    : Number.isFinite(quota)
-      ? Math.max(0, Math.round((quota / newApiQuotaPerUnit) * 100))
-      : 0;
+  const balanceCents = Number.isFinite(quota)
+    ? Math.max(0, Math.round((quota / newApiQuotaPerUnit) * 100))
+    : 0;
   return {
-    id: String(userData.id || userData.providerUserId || userData.crmUserId || ""),
+    id: String(userData.id || ""),
     email: String(userData.email || username || ""),
     username,
     account: username,
     name: displayName,
-    crmUserId: String(userData.crmUserId || ""),
-    inviteCode: String(userData.inviteCode || agent.inviteCode || ""),
-    agentLevel: String(userData.agentLevel || agent.level || ""),
     balanceCents,
     trialImagesRemaining: 0,
     trialUsed: true,
@@ -2745,19 +2738,6 @@ async function completeNewApiLogin(settings, payload = {}) {
     log(`new-api self after login failed ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  let crmSession = null;
-  try {
-    const response = await newApiRequest(nextSettings, "/api/crm/session/self", {
-      headers: newApiUserAuthHeaders(nextSettings)
-    });
-    crmSession = response?.data || response || null;
-    if (crmSession?.currentUser) {
-      userData = { ...userData, ...crmSession.currentUser };
-    }
-  } catch (error) {
-    log(`crm session after login failed ${error instanceof Error ? error.message : String(error)}`);
-  }
-
   nextSettings = migrateSettings({
     ...nextSettings,
     serverToken: ""
@@ -2789,7 +2769,6 @@ async function completeNewApiLogin(settings, payload = {}) {
     sessionId: serverUserId,
     user: normalizeNewApiUser(userData),
     wallet: walletFromNewApiUser(userData),
-    crm: crmSession,
     settings: {
       ...modelSettings,
       imageModel: nextSettings.imageModel

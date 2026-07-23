@@ -97,7 +97,6 @@ assert.equal(agentModelUsesResponsesApi("gpt-5.6-sol"), true);
 assert.equal(agentModelUsesResponsesApi("gpt-4.1"), false);
 assert.equal(managedRelayEndpoint("/v1/responses"), "/iiimage/v1/responses");
 assert.equal(managedRelayEndpoint("/v1/images/generations"), "/iiimage/v1/images/generations");
-assert.equal(managedRelayEndpoint("/api/crm/ai/v1/responses"), "/iiimage/v1/responses");
 assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 0, "single"), {
   operation: "generate",
   sourceCount: 0,

@@ -139,25 +139,18 @@ function isAuthError(error: unknown) {
 }
 
 function normalizeUser(userData: JsonRecord = {}): ServerUser {
-  const username = String(userData.username || userData.email || userData.id || userData.crmUserId || "").trim();
+  const username = String(userData.username || userData.email || userData.id || "").trim();
   const displayName = String(userData.displayName || userData.display_name || userData.name || username || "IIimage User").trim();
-  const agent = userData.agent && typeof userData.agent === "object" ? (userData.agent as JsonRecord) : {};
   const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
-  const rmbBalance = Number(userData.rmbBalance);
-  const balanceCents = Number.isFinite(rmbBalance)
-    ? Math.max(0, Math.round(rmbBalance * 100))
-    : Number.isFinite(quota)
-      ? Math.max(0, Math.round((quota / NEW_API_QUOTA_PER_UNIT) * 100))
-      : 0;
+  const balanceCents = Number.isFinite(quota)
+    ? Math.max(0, Math.round((quota / NEW_API_QUOTA_PER_UNIT) * 100))
+    : 0;
   return {
-    id: String(userData.id || userData.providerUserId || userData.crmUserId || ""),
+    id: String(userData.id || ""),
     email: String(userData.email || username || ""),
     username,
     account: username,
     name: displayName,
-    crmUserId: String(userData.crmUserId || ""),
-    inviteCode: String(userData.inviteCode || agent.inviteCode || ""),
-    agentLevel: String(userData.agentLevel || agent.level || ""),
     balanceCents,
     trialImagesRemaining: 0,
     trialUsed: true,
@@ -313,7 +306,7 @@ async function modelSettings(settings: AppSettings): Promise<ServerPublicSetting
       }
     }
   } catch (error) {
-    console.warn("crm relay models failed", error);
+    console.warn("managed relay models failed", error);
   }
   return splitModelSettings(settings, collected);
 }
@@ -345,17 +338,6 @@ async function completeLogin(payload: { username?: string; email?: string; passw
     console.warn("new-api self after login failed", error);
   }
 
-  let crmSession: JsonRecord | null = null;
-  try {
-    const response = await newApiRequest(settings, "/api/crm/session/self", {
-      headers: userAuthHeaders(settings)
-    });
-    crmSession = (response.data && typeof response.data === "object" ? response.data : response) as JsonRecord;
-    const currentUser = crmSession.currentUser && typeof crmSession.currentUser === "object" ? (crmSession.currentUser as JsonRecord) : {};
-    userData = { ...userData, ...currentUser };
-  } catch (error) {
-    console.warn("crm session after login failed", error);
-  }
   settings = saveSettingsPatch({ serverToken: "" });
   const publicSettings = await modelSettings(settings);
   settings = saveSettingsPatch({
@@ -580,16 +562,6 @@ function createBrowserServerBridge(): ServerBridge {
         } catch (error) {
           if (isAuthError(error)) throw error;
           console.warn("new-api self in me failed", error);
-        }
-        try {
-          const self = await newApiRequest(settings, "/api/crm/session/self", {
-            headers: userAuthHeaders(settings)
-          });
-          const session = self.data && typeof self.data === "object" ? (self.data as JsonRecord) : {};
-          const currentUser = session.currentUser && typeof session.currentUser === "object" ? (session.currentUser as JsonRecord) : session;
-          data = { ...data, ...currentUser };
-        } catch (error) {
-          console.warn("crm session in me failed", error);
         }
         return {
           ok: true,

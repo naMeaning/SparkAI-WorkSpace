@@ -966,9 +966,6 @@ export type ServerUser = {
   account?: string;
   name: string;
   balanceCents: number;
-  crmUserId?: string;
-  inviteCode?: string;
-  agentLevel?: string;
   trialImagesRemaining?: number;
   trialUsed?: boolean;
   createdAt?: string;

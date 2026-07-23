@@ -35,7 +35,7 @@
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
 - `agent-runtime.cjs` 负责 Prompt/画布上下文组装、压缩编排、模型协议循环与工具执行；SQLite/JSON memory、Prompt/FastMemory 持久化、tool schema 和 Responses/Chat 响应解析由 `runtime/` 专属模块持有，但均不直接修改 React state。
-- CRM、New API、账户/角色/quota/计费、下载站和生产部署位于独立 `ai-native` 仓库。
+- New API、账户/角色/quota/计费、渠道、模型、下载站和生产部署位于独立 `ai-native` 仓库。
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
@@ -370,7 +370,6 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 - `/api/user/login`, `/api/user/self`, `/api/user/models`
 - `/api/log/self`
-- `/api/crm/session/self`
 - `/iiimage/v1/models`
 - `/iiimage/v1/chat/completions`, `/iiimage/v1/responses`
 - `/iiimage/v1/images/generations`, `/iiimage/v1/images/edits`
