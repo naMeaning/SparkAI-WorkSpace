@@ -3,12 +3,16 @@
 process.env.IIIMAGE_AGENT_PROTOCOL_SELFTEST = "1";
 
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const { mkdtempSync, rmSync, writeFileSync } = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const { app } = require("electron");
+const { PNG } = require("pngjs");
+const aidebugImageFixture = require("../desktop/aidebug-image-fixture.cjs");
+const { aidebugImageBase64, aidebugLayerFixtureHint } = aidebugImageFixture;
 const {
   activeNewApiCurlTransportCount,
   boundedImageRead,
@@ -22,6 +26,85 @@ const {
   tokenItemsFromNewApiPayload,
   withImageEditRequestSlot
 } = require("../electron-main.cjs");
+
+function assertAidebugImageFixtureCompatibility() {
+  assert.deepEqual(
+    Object.keys(aidebugImageFixture).sort(),
+    ["aidebugImageBase64", "aidebugLayerFixtureHint"],
+    "The AIDebug image fixture owner must expose only the two Main orchestration contracts"
+  );
+  const fixtures = [
+    {
+      name: "generic",
+      index: 0,
+      payload: { size: "512x512", runId: "fixture-generic", prompt: "AIDebug generic image" },
+      hint: { role: "", id: "", isLayerPrompt: false, source: "none" },
+      base64Length: 15_528,
+      base64Sha256: "c9074f9160d002836aa2202ee9c171f08c21efe7c9bb02558aa64a0b7d39112d",
+      dimensions: { width: 512, height: 512 }
+    },
+    {
+      name: "transparent-subject",
+      index: 1,
+      payload: {
+        size: "1024x768",
+        runId: "layers-1784500000000-ab12c",
+        prompt: "explicit subject fixture",
+        layerRole: "subject",
+        layerId: "hero-subject",
+        transparentPreferred: true,
+        background: "transparent"
+      },
+      hint: { role: "subject", id: "hero-subject", isLayerPrompt: false, source: "explicit" },
+      base64Length: 2_128,
+      base64Sha256: "9110bb2aef55e75d9f6c66059d85ab91b4c56d088f4a8ddaacfe91e425f2eec6",
+      dimensions: { width: 512, height: 384 }
+    },
+    {
+      name: "foreground-mask",
+      index: 2,
+      payload: {
+        size: "768x1024",
+        runId: "layers-1784500000000-ab12c",
+        prompt: "mask fixture",
+        layerRole: "foreground",
+        layerId: "foreground-base",
+        layerOutputMode: "mask",
+        background: "opaque"
+      },
+      hint: { role: "foreground", id: "foreground-base", isLayerPrompt: false, source: "explicit" },
+      base64Length: 3_088,
+      base64Sha256: "7dbb6d9237a207045292371ddb96860b34dd6bfe86d245d2bc3caf604871d721",
+      dimensions: { width: 384, height: 512 }
+    },
+    {
+      name: "prompt-compat-recovery",
+      index: 0,
+      payload: {
+        size: "1024x1024",
+        runId: "layers-9999999999999-random",
+        prompt: "AIDebug 分层恢复测试。本次只输出图层「人物主体」，客户端会自动移除色键背景。"
+      },
+      hint: { role: "subject", id: "人物主体", isLayerPrompt: true, source: "prompt-compat" },
+      base64Length: 3_296,
+      base64Sha256: "2e0e3a8242554f13e38cc989680bd80cf6f50ad46da8caf557f0d71e143b48db",
+      dimensions: { width: 512, height: 512 }
+    }
+  ];
+
+  for (const fixture of fixtures) {
+    assert.deepEqual(aidebugLayerFixtureHint(fixture.payload), fixture.hint, `${fixture.name} layer hint changed`);
+    const base64 = aidebugImageBase64(fixture.index, fixture.payload);
+    assert.equal(base64.length, fixture.base64Length, `${fixture.name} base64 length changed`);
+    assert.equal(
+      createHash("sha256").update(base64, "utf8").digest("hex"),
+      fixture.base64Sha256,
+      `${fixture.name} fixture bytes changed`
+    );
+    const png = PNG.sync.read(Buffer.from(base64, "base64"));
+    assert.deepEqual({ width: png.width, height: png.height }, fixture.dimensions, `${fixture.name} dimensions changed`);
+  }
+}
 
 async function listen(server, host) {
   await new Promise((resolve, reject) => {
@@ -38,6 +121,7 @@ async function close(server) {
 }
 
 async function run() {
+  assertAidebugImageFixtureCompatibility();
   await app.whenReady();
   const boundedReadRoot = mkdtempSync(path.join(os.tmpdir(), "iiimage-bounded-read-"));
   try {
@@ -347,6 +431,7 @@ async function run() {
       requestAndResponseLimits: true,
       sseBoundaries: true,
       timeoutBounded: true,
+      aidebugImageFixtures: 4,
     };
   } finally {
     await close(server);
