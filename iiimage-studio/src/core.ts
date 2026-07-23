@@ -1423,14 +1423,6 @@ declare global {
     __iiimageDebugMoveNode?: (payload: { id?: string; x?: number; y?: number }) => boolean;
     __iiimageDebugSetViewport?: (payload: { scale?: number; x?: number; y?: number; nodeId?: string }) => boolean;
     __iiimageDebugConnectNodes?: (payload: { sourceId?: string; targetId?: string }) => boolean;
-    __iiimageDebugApplyAgentActions?: (actions: AgentRuntimeAction[]) => boolean;
-    __iiimageDebugSeedAgentMessages?: (payload: {
-      messages?: Partial<AgentMessage>[];
-      append?: boolean;
-      clear?: boolean;
-      maxMessages?: number;
-      streamDelta?: { id: string; delta: string; status?: AgentMessage["status"] };
-    }) => boolean;
     __iiimageDebugSendAgentPrompt?: (prompt: string, options?: { skipAsk?: boolean }) => Promise<boolean>;
     __iiimageDebugAgentState?: () => {
       agentStatus: AgentStatus;

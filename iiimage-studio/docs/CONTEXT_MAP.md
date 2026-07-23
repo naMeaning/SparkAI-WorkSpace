@@ -247,6 +247,7 @@ Renderer UpdaterBridge
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
 | `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
+| `src/aidebug/agent-fixture-bridge.ts` | Renderer Agent action/message fixture 窗口钩子、32ms 流消息合并及安装清理生命周期 | 真实 runtime action 实现、React/项目状态、正式 bundle chunk | `installAgentFixtureBridge`, `__iiimageDebugApplyAgentActions`, `__iiimageDebugSeedAgentMessages` | `test:aidebug-agent-fixtures`, `typecheck`, `test:agent-text-ui`, `aidebug:gui`, `test:bundle` |
 | `src/ui.tsx` | 对现有调用方保持稳定的基础 UI 兼容重导出 façade | primitives 内部实现、产品业务状态 | `DialogShell`, `DrawerShell`, `ButtonBase`, `useFloatingDialogInteractions` | `test:ui-foundation`, `typecheck`, `build` |
 | `src/ui/*` | Dialog/Drawer focus 与 close policy、共享 controls、菜单 surface、overflow tooltip、浮窗拖动 | 产品业务状态、功能页数据获取 | `dialog-shell.tsx`, `primitives.tsx`, `menu-surface.tsx`, `overflow-tooltip.tsx`, `floating-dialog-interactions.ts` | `test:ui-foundation`, `aidebug:gui` |
 | `src/window-controls.tsx` | 原生窗口最小化、最大化/还原、关闭按钮 | BrowserWindow 实现、项目状态 | `WindowControls`, `windowControl` | `build`, `aidebug:gui`, `test:lifecycle` |
@@ -507,3 +508,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-22 | 1.0.4 | 抽出 `desktop/ipc/*-ipc.cjs` 与根 registrar；固定并直接验证 69 个 handler 的顺序、唯一性、66 个 preload invoke 和 3 个内部 Agent channel。 |
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/harness/state-snapshot.mjs`，由统一 reader 持有 Renderer GUI 状态快照；主 AIDebug 脚本仅保留 evaluator 与 workbench 宽度装配，快照字段和表达式保持逐行等价。 |
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/suites/performance.mjs`，集中持有性能 fixture、视觉检查点与 Renderer heap/GC helper；主 AIDebug 脚本显式注入运行目录、evaluator 和 capture owner，性能报告契约保持不变。 |
+| 2026-07-23 | 1.0.4 | 抽出 `src/aidebug/agent-fixture-bridge.ts`，集中持有 Agent action/message fixture 窗口钩子与 32ms 流消息合并；`main.tsx` 仅注入 runtime action、消息 ref/state 与时间标签，正式 bundle 禁止包含两个诊断 hook。 |

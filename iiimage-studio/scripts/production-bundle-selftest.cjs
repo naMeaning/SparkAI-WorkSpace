@@ -52,6 +52,8 @@ const forbiddenMarkers = [
   "runLayerStackSuite",
   "runMixedStressSuite",
   "runCanvasImageCollectionSuite",
+  "__iiimageDebugApplyAgentActions",
+  "__iiimageDebugSeedAgentMessages",
   "__iiimageAIDebug"
 ];
 const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker));

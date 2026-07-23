@@ -88,6 +88,7 @@ import {
   timelineTextForProgress,
   toolTraceForProgress
 } from "./agent";
+import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
 import { installBrowserServerBridge } from "./server";
 import {
   REASONING_EFFORT_OPTIONS,
@@ -3029,8 +3030,6 @@ function App() {
   );
   const lastSubmitRef = useRef<{ text: string; time: number } | null>(null);
   const lastTimelineMessageRef = useRef("");
-  const debugMessageStreamFlushTimerRef = useRef<number | null>(null);
-  const debugMessageStreamAccumulatorRef = useRef<Map<string, { content: string; status?: AgentMessage["status"] }>>(new Map());
   const authCheckedTokenRef = useRef("");
   const serverRefreshEpochRef = useRef(0);
   const activeConversationIdRef = useRef(activeConversationId);
@@ -9429,130 +9428,19 @@ function App() {
 
   useEffect(() => {
     if (!__IIIMAGE_AIDEBUG__) return;
-    const cancelDebugMessageStreamFlush = () => {
-      if (debugMessageStreamFlushTimerRef.current === null) return;
-      window.clearTimeout(debugMessageStreamFlushTimerRef.current);
-      debugMessageStreamFlushTimerRef.current = null;
-    };
-    const flushDebugMessageStream = () => {
-      debugMessageStreamFlushTimerRef.current = null;
-      setMessages([...messagesRef.current]);
-    };
-    window.__iiimageDebugApplyAgentActions = (actions: AgentRuntimeAction[]) => {
-      if (!Array.isArray(actions)) return false;
-      runtimeActionHandlerRef.current(actions);
-      return true;
-    };
-    window.__iiimageDebugSeedAgentMessages = (payload) => {
-      if (payload?.clear === true) {
-        cancelDebugMessageStreamFlush();
-        debugMessageStreamAccumulatorRef.current.clear();
-        messagesRef.current = [];
-        setMessages([]);
-        return true;
-      }
-      const streamDelta = payload?.streamDelta;
-      if (streamDelta && typeof streamDelta.id === "string" && streamDelta.id && typeof streamDelta.delta === "string") {
-        const currentMessage = messagesRef.current.find((message) => message.id === streamDelta.id);
-        if (!currentMessage) return false;
-        const accumulated = debugMessageStreamAccumulatorRef.current.get(streamDelta.id) ?? {
-          content: currentMessage.content || "",
-          status: currentMessage.status
-        };
-        const nextAccumulated = {
-          content: `${accumulated.content}${streamDelta.delta}`,
-          status: streamDelta.status === "running" || streamDelta.status === "error" || streamDelta.status === "done"
-            ? streamDelta.status
-            : accumulated.status
-        };
-        debugMessageStreamAccumulatorRef.current.set(streamDelta.id, nextAccumulated);
-        const next = messagesRef.current.map((message) => {
-          if (message.id !== streamDelta.id) return message;
-          return {
-            ...message,
-            content: nextAccumulated.content,
-            status: nextAccumulated.status
-          };
-        });
+    return installAgentFixtureBridge({
+      applyActions: (actions) => {
+        runtimeActionHandlerRef.current(actions);
+      },
+      readMessages: () => messagesRef.current,
+      stageMessages: (next) => {
         messagesRef.current = next;
-        if (streamDelta.status === "done" || streamDelta.status === "error") {
-          cancelDebugMessageStreamFlush();
-          setMessages([...next]);
-          debugMessageStreamAccumulatorRef.current.delete(streamDelta.id);
-        } else if (debugMessageStreamFlushTimerRef.current === null) {
-          // A 30fps diagnostic stream is close to perceived live output while
-          // avoiding hundreds of React commits that would measure the probe
-          // itself instead of the Agent feed.
-          debugMessageStreamFlushTimerRef.current = window.setTimeout(flushDebugMessageStream, 32);
-        }
-        return true;
-      }
-      const sourceMessages = Array.isArray(payload?.messages) ? payload.messages : [];
-      if (sourceMessages.length === 0) return false;
-      cancelDebugMessageStreamFlush();
-      debugMessageStreamAccumulatorRef.current.clear();
-      const requestedLimit = Number.isFinite(Number(payload?.maxMessages))
-        ? clamp(Math.round(Number(payload?.maxMessages)), 1, 1000)
-        : 12;
-      const seededMessages: AgentMessage[] = sourceMessages.slice(0, requestedLimit).map((message, index) => {
-        const role: MessageRole = message.role === "assistant" || message.role === "system" || message.role === "user" ? message.role : "assistant";
-        const pasteBlocks = Array.isArray(message.pasteBlocks)
-          ? message.pasteBlocks
-              .filter((block) => block && typeof block.text === "string")
-              .map((block, blockIndex) => ({
-                id: typeof block.id === "string" && block.id ? block.id : `debug-paste-${index}-${blockIndex}`,
-                text: String(block.text),
-                createdAt: typeof block.createdAt === "string" ? block.createdAt : nowLabel()
-              }))
-              .slice(0, 4)
-          : undefined;
-        const trace = message.toolTrace;
-        return {
-          id: typeof message.id === "string" && message.id ? message.id : `debug-message-${index}-${Date.now()}`,
-          role,
-          content: typeof message.content === "string" ? message.content : "",
-          createdAt: typeof message.createdAt === "string" ? message.createdAt : nowLabel(),
-          status: message.status === "running" || message.status === "error" ? message.status : "done",
-          meta: typeof message.meta === "string" ? message.meta : "aidebug fixture",
-          hidden: message.hidden === true,
-          collapsed: message.collapsed === true,
-          pasteBlocks,
-           toolTrace: trace
-             ? {
-                stage: trace.stage === "result" ? "result" : "start",
-                label: String(trace.label || "工具"),
-                name: String(trace.name || "debug_tool"),
-                operation: String(trace.operation || "测试操作"),
-                params: String(trace.params || ""),
-                brief: String(trace.brief || ""),
-                prompts: Array.isArray(trace.prompts)
-                  ? trace.prompts
-                      .filter((item) => item && typeof item.prompt === "string")
-                      .map((item) => ({ title: typeof item.title === "string" ? item.title : "", prompt: String(item.prompt) }))
-                      .slice(0, 10)
-                  : undefined,
-                completionText: typeof trace.completionText === "string" ? trace.completionText : undefined
-              }
-            : undefined
-        };
-      });
-      const retainedLimit = Math.max(120, requestedLimit);
-      const next = payload?.append === true ? [...messagesRef.current, ...seededMessages].slice(-retainedLimit) : seededMessages;
-      for (const message of next) {
-        if (message.status === "running") {
-          debugMessageStreamAccumulatorRef.current.set(message.id, { content: message.content || "", status: message.status });
-        }
-      }
-      messagesRef.current = next;
-      setMessages(next);
-      return true;
-    };
-    return () => {
-      cancelDebugMessageStreamFlush();
-      debugMessageStreamAccumulatorRef.current.clear();
-      delete window.__iiimageDebugApplyAgentActions;
-      delete window.__iiimageDebugSeedAgentMessages;
-    };
+      },
+      publishMessages: (next) => {
+        setMessages(next);
+      },
+      nowLabel,
+    });
   }, []);
 
   function cancelTransientCanvasInteractions() {
