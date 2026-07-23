@@ -16,6 +16,7 @@ const { pathToFileURL } = require("node:url");
 const { createAgentRuntime, defaultPromptText, normalizeImageToolFrame, toolSchemas } = require("../agent-runtime.cjs");
 const { agentToolSchemas: ownedAgentToolSchemas, toolSchemas: ownedToolSchemas } = require("../runtime/tool-schemas.cjs");
 const { createMemoryStore: ownedCreateMemoryStore } = require("../runtime/memory-store.cjs");
+const { createImageBatchNormalization: ownedCreateImageBatchNormalization } = require("../runtime/image-batch-normalization.cjs");
 const {
   messageFromResponse: ownedMessageFromResponse,
   responseFromStreamChunks: ownedResponseFromStreamChunks,
@@ -151,6 +152,84 @@ function streamedResponsesOutput(output) {
       },
     ],
   };
+}
+
+function assertImageBatchNormalizationContract() {
+  let cleanOneLineCalls = 0;
+  let stripPastedBlockMarkerCalls = 0;
+  const cleanOneLine = (text, maxChars = 140) => {
+    cleanOneLineCalls += 1;
+    const clean = String(text ?? "").replace(/\s+/g, " ").trim();
+    return clean.length > maxChars ? `${clean.slice(0, maxChars)}...` : clean;
+  };
+  const stripPastedBlockMarkers = (prompt) => {
+    stripPastedBlockMarkerCalls += 1;
+    return String(prompt || "")
+      .replace(/^\s*\[Pasted Block \d+:\s*\d+\s+lines?,\s*\d+\s+chars?\]\s*$/gim, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  };
+  const {
+    normalizeImageBatchItems,
+    normalizeSingleImageItemCompatibility,
+  } = ownedCreateImageBatchNormalization({ cleanOneLine, stripPastedBlockMarkers });
+
+  assert.equal(typeof normalizeImageBatchItems, "function");
+  assert.equal(typeof normalizeSingleImageItemCompatibility, "function");
+
+  const promotedSingle = normalizeSingleImageItemCompatibility({
+    prompt: "PRODUCT_POSTER",
+    count: 2,
+    items: [
+      { prompt: "PRODUCT_POSTER", ratio: "4:5", resolution: "2K", quality: "high" },
+      { title: "temp", prompt: "temp" },
+    ],
+  });
+  assert.equal(promotedSingle.prompt, "PRODUCT_POSTER");
+  assert.equal(promotedSingle.count, 1);
+  assert.equal(promotedSingle.items, undefined);
+  assert.equal(promotedSingle.ratio, "4:5");
+  assert.equal(promotedSingle.resolution, "2K");
+  assert.equal(promotedSingle.quality, "high");
+
+  const repeatedSingle = normalizeSingleImageItemCompatibility({
+    count: 3,
+    items: [{ prompt: "REPEATED_PRODUCT_POSTER", ratio: "1:1" }],
+  });
+  assert.equal(repeatedSingle.prompt, "REPEATED_PRODUCT_POSTER");
+  assert.equal(repeatedSingle.count, 3);
+  assert.equal(repeatedSingle.items, undefined);
+
+  assert.throws(
+    () => normalizeSingleImageItemCompatibility({
+      prompt: "FIRST_SCENE",
+      items: [{ prompt: "SECOND_SCENE" }],
+    }),
+    /无法无损确定/,
+    "Conflicting single-item prompts must remain rejected",
+  );
+
+  const batch = normalizeImageBatchItems({
+    model: "gpt-image-2",
+    items: [
+      { title: "  Front   view  ", prompt: "FRONT_VIEW", ratio: "1:1", resolution: "2K", quality: "high" },
+      { title: "todo", prompt: "todo" },
+      { prompt: "SIDE_VIEW", ratio: "4:5" },
+    ],
+  }, {
+    imageModel: "gpt-image-2",
+    imageResolution: "1080P",
+    imageQuality: "medium",
+  });
+  assert.deepEqual(
+    batch.map(({ title, prompt, ratio, resolution, quality }) => ({ title, prompt, ratio, resolution, quality })),
+    [
+      { title: "Front view", prompt: "FRONT_VIEW", ratio: "1:1", resolution: "2K", quality: "high" },
+      { title: "方案 2", prompt: "SIDE_VIEW", ratio: "4:5", resolution: "1080P", quality: "medium" },
+    ],
+  );
+  assert(cleanOneLineCalls >= 2, "Image batch titles must use the injected one-line cleaner");
+  assert(stripPastedBlockMarkerCalls >= 6, "Image prompts must use the injected pasted-block sanitizer");
 }
 
 function assertResponsesParserContract() {
@@ -379,6 +458,7 @@ function assertResponsesParserContract() {
 }
 
 async function runSelftest(directory) {
+  assertImageBatchNormalizationContract();
   assertResponsesParserContract();
   const configDir = path.join(directory, "config");
   const memoryDir = path.join(configDir, "memory");
@@ -1173,6 +1253,7 @@ async function runSelftest(directory) {
 
     const runtimeSource = readFileSync(path.resolve(__dirname, "..", "agent-runtime.cjs"), "utf8");
     const memoryStoreSource = readFileSync(path.resolve(__dirname, "..", "runtime", "memory-store.cjs"), "utf8");
+    const imageBatchNormalizationSource = readFileSync(path.resolve(__dirname, "..", "runtime", "image-batch-normalization.cjs"), "utf8");
     assert(runtimeSource.includes('require("./runtime/tool-schemas.cjs")'), "Agent runtime must consume the dedicated tool schema owner");
     assert.equal(/function\s+(?:normalizeToolSchemas|imageModelToolProperty|toolSchemas|agentToolSchemas)\s*\(/.test(runtimeSource), false, "Agent runtime facade must not duplicate tool schema implementations");
     assert(runtimeSource.includes('require("./runtime/responses-parser.cjs")'), "Agent runtime must consume the dedicated Responses parser owner");
@@ -1194,6 +1275,18 @@ async function runSelftest(directory) {
       /function\s+(?:ensureMemory|readPromptTextStore|writePromptTextStore|readExternalStore|writeExternalStore|recordContextEntry|getMainPrompt|saveMainPrompt|resetMainPrompt|getFastMemory|saveFastMemory|resetFastMemory|clearConversationState|contextManage|experienceManage|memoryAdd|memoryCheck|memoryRead|compactStateForPayload|protocolStateForPayload|appendConversationProtocolTurn)\s*\(/.test(runtimeSource),
       false,
       "Agent runtime facade must not duplicate memory CRUD or conversation persistence implementations",
+    );
+    assert(runtimeSource.includes('require("./runtime/image-batch-normalization.cjs")'), "Agent runtime must consume the dedicated image batch normalization owner");
+    assert.match(imageBatchNormalizationSource, /function\s+createImageBatchNormalization\s*\(/);
+    assert.equal(
+      /const\s+imageBatchPlaceholderPattern\b|function\s+(?:isImageBatchPlaceholder|comparableSingleItemField|normalizedVisualPrompt|resolveCompatibleSinglePrompt|normalizeSingleImageItemCompatibility|normalizeImageBatchItems)\s*\(/.test(runtimeSource),
+      false,
+      "Agent runtime facade must not duplicate image batch compatibility normalization implementations",
+    );
+    assert.equal(
+      /require\(["'][^"']*agent-runtime\.cjs["']\)/.test(imageBatchNormalizationSource),
+      false,
+      "Image batch normalization must not import back from the Agent runtime facade",
     );
     assert.equal(/intentSystemMessage|Current Image Intent|model-force|model-arg-correct/.test(runtimeSource), false, "Runtime source must not retain hidden intent injection or argument-force phases");
     assert.equal(/requestOptions\.tools\s*\?\?\s*toolSchemas/.test(runtimeSource), false, "callModel must not fall back to the complete internal tool schema");

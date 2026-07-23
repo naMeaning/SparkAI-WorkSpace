@@ -64,6 +64,7 @@ Electron Main: electron-main.cjs
           ├─ runtime/tool-schemas.cjs：公开与内部 Agent tool schema
           ├─ runtime/responses-parser.cjs：Responses/Chat 响应归一化与流式 chunk 聚合
           ├─ runtime/image-frame.cjs：Image 2 画幅与请求尺寸
+          ├─ runtime/image-batch-normalization.cjs：单项兼容、占位过滤与批次画幅归一化
           ├─ runtime/view-image-payload.cjs：view_image 授权与观察副本预算
           ├─ image_gen / view_image / shell_command / ask_user
           └─ 返回 AgentRuntimeAction[]，不直接写 React state
@@ -233,6 +234,7 @@ Renderer UpdaterBridge
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/responses-parser.cjs` | Chat/Responses 非流式响应归一化、文本/推理 delta 读取、tool-call 与 Responses output 流式聚合 | HTTP/SSE 读取、原生工具进度编排、Agent loop 或工具执行 | `messageFromResponse`, `responseFromStreamChunks`, `mergeResponsesToolCallEvent` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/image-frame.cjs` | Image 2 比例、分辨率、质量与 delivery/request size 归一化 | 模型请求发送、项目资产落盘 | `normalizeImage2Size`, `normalizeImageToolFrame`, `validateImageFrameFields` | `test:agent-text`, `test:agent-protocol` |
+| `runtime/image-batch-normalization.cjs` | `image_gen` 单项 `items` 兼容提升、占位项过滤、真实批次数与逐项画幅归一化 | 模型调用、图片服务请求、工具进度或画布 action | `createImageBatchNormalization`, `normalizeSingleImageItemCompatibility`, `normalizeImageBatchItems` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/view-image-payload.cjs` | `view_image` 允许根、安全读取、格式/尺寸识别、批量 payload 预算与 WebP 观察副本 | 会话持久化、画布预览、原图覆盖 | `prepareViewImageModelPayload`, `viewImagePathAllowed`, `viewImagePayloadBudgetForBatch` | `test:view-image`, `test:agent-protocol` |
 | `update-release.cjs` | 更新清单 canonical text | 下载、安装、UI | `canonicalDesktopRelease` | `test:update`, `release:verify`, `package:update-e2e` |
 | `src/server.ts` | Vite/AIDebug 浏览器服务回退 | 正式 Electron 文件系统或完整 Agent bridge | `installBrowserServerBridge`, `LOCAL_NEW_API_PROXY` | `build`, `aidebug:gui`, `test:new-api-transport` |
@@ -511,3 +513,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/suites/performance.mjs`，集中持有性能 fixture、视觉检查点与 Renderer heap/GC helper；主 AIDebug 脚本显式注入运行目录、evaluator 和 capture owner，性能报告契约保持不变。 |
 | 2026-07-23 | 1.0.4 | 抽出 `src/aidebug/agent-fixture-bridge.ts`，集中持有 Agent action/message fixture 窗口钩子与 32ms 流消息合并；`main.tsx` 仅注入 runtime action、消息 ref/state 与时间标签，正式 bundle 禁止包含两个诊断 hook。 |
 | 2026-07-23 | 1.0.4 | 从 `src/core.ts` 抽出 `src/layer-alpha-normalization.ts`，集中持有 RGBA alpha 像素归属与透明图层互斥归一化；分层合成 runtime 与 alpha/mask selftest 直接引用新 owner，`core.ts` 不保留 façade 重导出。 |
+| 2026-07-23 | 1.0.4 | 抽出 `runtime/image-batch-normalization.cjs`，集中持有 `image_gen` 单项兼容、占位项过滤、有效批次数和逐项画幅归一化；Agent runtime 仅注入文本清洗并消费稳定 normalizer，禁止新 owner 反向依赖 facade。 |
