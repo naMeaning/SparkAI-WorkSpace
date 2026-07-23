@@ -27,21 +27,19 @@ import (
 )
 
 const (
-	managedImageIdempotencyUnavailable = "unavailable"
-	managedImageIdempotencyMismatch    = "mismatch"
-	managedImageIdempotencyTTLDefault  = time.Hour
-	managedImageProcessingLeaseDefault = 15 * time.Minute
-	managedImageTransientLeaseDefault  = 30 * time.Second
-	managedImageResponseLimitDefault   = 64 << 20
-	managedImageTotalLimitDefault      = int64(8 << 30)
-	managedImageUserTotalLimitDefault  = int64(1 << 30)
-	managedImageRecordLimitDefault     = 10_000
-	managedImageUserRecordLimitDefault = 1_000
-	managedImageCleanupBatchDefault    = 500
-	managedImageCleanupIntervalDefault = time.Minute
-	// Keep the established upstream wire prefix across the public route rename.
-	// Changing it can cause compatible upstreams to execute a retried request twice.
-	managedImageUpstreamIdempotencyPrefix = "iiimage-"
+	managedImageIdempotencyUnavailable    = "unavailable"
+	managedImageIdempotencyMismatch       = "mismatch"
+	managedImageIdempotencyTTLDefault     = time.Hour
+	managedImageProcessingLeaseDefault    = 15 * time.Minute
+	managedImageTransientLeaseDefault     = 30 * time.Second
+	managedImageResponseLimitDefault      = 64 << 20
+	managedImageTotalLimitDefault         = int64(8 << 30)
+	managedImageUserTotalLimitDefault     = int64(1 << 30)
+	managedImageRecordLimitDefault        = 10_000
+	managedImageUserRecordLimitDefault    = 1_000
+	managedImageCleanupBatchDefault       = 500
+	managedImageCleanupIntervalDefault    = time.Minute
+	managedImageUpstreamIdempotencyPrefix = "naimage-"
 )
 
 type managedImageIdempotencyResult struct {
@@ -638,10 +636,8 @@ func managedImageSuccessfulResponseComplete(
 }
 
 func managedSessionRelayNativePath(path string) string {
-	for _, publicPrefix := range []string{"/naimage", "/iiimage"} {
-		if strings.HasPrefix(path, publicPrefix+"/v1/") {
-			return strings.TrimPrefix(path, publicPrefix)
-		}
+	if strings.HasPrefix(path, "/naimage/v1/") {
+		return strings.TrimPrefix(path, "/naimage")
 	}
 	return path
 }

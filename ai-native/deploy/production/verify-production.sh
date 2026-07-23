@@ -131,15 +131,8 @@ deployed_head="$(tr -d '\r\n' <"$STATE_FILE")"
 pass "source, origin and deployed commit agree at ${local_head:0:12}"
 
 cmp -s "${SCRIPT_DIR}/releases/desktop-release.json" "${RUNTIME_DIR}/releases/desktop-release.json" || fail "tracked and runtime desktop release manifests differ"
-tracked_legacy_manifest="${SCRIPT_DIR}/releases/desktop-release-legacy.json"
-if [[ ! -f "$tracked_legacy_manifest" ]]; then
-  # The historical 1.0.4 manifest is mirrored byte-for-byte during the
-  # transition; every newly generated naimage release tracks a dedicated pair.
-  tracked_legacy_manifest="${SCRIPT_DIR}/releases/desktop-release.json"
-fi
-cmp -s "$tracked_legacy_manifest" "${RUNTIME_DIR}/releases/desktop-release-legacy.json" || fail "tracked and runtime legacy desktop release manifests differ"
-"${SCRIPT_DIR}/verify-installer.sh" >/dev/null
-pass "dual desktop release manifest signatures and artifact SHA-256 values"
+NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" >/dev/null
+pass "desktop release manifest signature and artifact SHA-256 values"
 
 docker compose --env-file "$ENV_FILE" --env-file "$COMPOSE_ENV_COMPAT_FILE" -f "$COMPOSE_FILE" config --quiet
 pass "Docker Compose configuration"
@@ -225,7 +218,6 @@ expect_http_status "anonymous captcha denial" 401 -X POST "$BASE_URL/api/desktop
 expect_http_status "anonymous desktop update denial" 401 "$BASE_URL/api/desktop-update/check?current_version=1.0.0&platform=win32&architecture=x64&compatibility=probe"
 expect_http_status "anonymous desktop telemetry denial" 401 -X POST "$BASE_URL/api/desktop-client/events"
 expect_http_status "anonymous installer denial" 401 "$BASE_URL/downloads/naimage-studio/windows"
-expect_http_status "legacy anonymous installer denial" 401 "$BASE_URL/downloads/iiimage-studio/windows"
 
 oversized_status="$(head -c 40000 /dev/zero | tr '\0' x | curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary @- "$BASE_URL/api/desktop-download/captcha")"
 [[ "$oversized_status" == "413" ]] || fail "oversized download API body: expected HTTP 413, got ${oversized_status}"

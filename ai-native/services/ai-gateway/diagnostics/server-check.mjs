@@ -335,8 +335,10 @@ async function main() {
   record(
     "old-server-removed",
     !existsSync(join(serverRoot, "legacy-iiimage-server.cjs")) &&
+      !existsSync(join(serverRoot, "legacy-naimage-server.cjs")) &&
       !existsSync(join(serverRoot, "public")) &&
-      !packageJson.includes("legacy-iiimage-server"),
+      !packageJson.includes("legacy-iiimage-server") &&
+      !packageJson.includes("legacy-naimage-server"),
     "legacy server entry, old public UI and legacy npm script must be removed."
   );
   record(

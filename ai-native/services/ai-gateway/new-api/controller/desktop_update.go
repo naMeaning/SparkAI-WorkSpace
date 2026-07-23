@@ -24,9 +24,7 @@ import (
 const (
 	desktopReleaseSchemaVersion = 1
 	desktopReleaseProduct       = "naimage-studio"
-	desktopReleaseLegacyProduct = "iiimage-studio"
 	desktopDownloadPath         = "/downloads/naimage-studio/windows"
-	desktopDownloadLegacyPath   = "/downloads/iiimage-studio/windows"
 	desktopClientProductHeader  = "X-Naimage-Desktop-Product"
 )
 
@@ -93,26 +91,15 @@ func desktopClientProduct(c *gin.Context, supplied string) string {
 
 func desktopClientProductSupported(product string) bool {
 	product = strings.TrimSpace(product)
-	return product == "" ||
-		strings.EqualFold(product, desktopReleaseProduct) ||
-		strings.EqualFold(product, desktopReleaseLegacyProduct)
+	return product == "" || strings.EqualFold(product, desktopReleaseProduct)
 }
 
-func desktopReleaseProductForClient(product string) string {
-	if strings.EqualFold(strings.TrimSpace(product), desktopReleaseProduct) {
-		return desktopReleaseProduct
-	}
-	return desktopReleaseLegacyProduct
+func desktopReleaseProductForClient(_ string) string {
+	return desktopReleaseProduct
 }
 
-func desktopDownloadPathForProduct(product string) string {
-	if strings.EqualFold(strings.TrimSpace(product), desktopReleaseProduct) {
-		return desktopDownloadPath
-	}
-	// Clients released before the rename reject any URL outside the legacy
-	// prefix. A missing declaration therefore stays on the direct alias;
-	// unknown declarations are rejected before this helper is called.
-	return desktopDownloadLegacyPath
+func desktopDownloadPathForProduct(_ string) string {
+	return desktopDownloadPath
 }
 
 type desktopResolvedUpdate struct {
@@ -124,15 +111,9 @@ type desktopResolvedUpdate struct {
 	Artifact        desktopInstallerManifest
 }
 
-var (
-	desktopReleaseCache       desktopReleaseCacheState
-	desktopReleaseLegacyCache desktopReleaseCacheState
-)
+var desktopReleaseCache desktopReleaseCacheState
 
-func desktopReleaseCacheForProduct(product string) *desktopReleaseCacheState {
-	if desktopReleaseProductForClient(product) == desktopReleaseLegacyProduct {
-		return &desktopReleaseLegacyCache
-	}
+func desktopReleaseCacheForProduct(_ string) *desktopReleaseCacheState {
 	return &desktopReleaseCache
 }
 
@@ -219,12 +200,7 @@ func desktopArtifactFromFile(directory string, version string, kind string, sour
 	}, nil
 }
 
-func desktopReleaseManifestPathForProduct(product string) string {
-	if desktopReleaseProductForClient(product) == desktopReleaseLegacyProduct {
-		if legacyPath := strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_LEGACY_MANIFEST_PATH")); legacyPath != "" {
-			return legacyPath
-		}
-	}
+func desktopReleaseManifestPathForProduct(_ string) string {
 	return strings.TrimSpace(os.Getenv("DESKTOP_RELEASE_MANIFEST_PATH"))
 }
 
@@ -314,10 +290,7 @@ func loadDesktopReleaseManifestForProduct(product string) (desktopReleaseManifes
 		}
 	}
 	release := desktopReleaseManifest{
-		SchemaVersion: source.SchemaVersion,
-		// Preserve the signed product identity exactly. New manifests use
-		// naimage-studio, while historical iiimage-studio manifests must keep
-		// their original value so desktop signature verification still works.
+		SchemaVersion:  source.SchemaVersion,
 		Product:        manifestProduct,
 		Channel:        strings.TrimSpace(source.Channel),
 		Version:        strings.TrimSpace(source.Version),

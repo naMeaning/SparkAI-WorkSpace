@@ -3,7 +3,6 @@
 const { setTimeout: delay } = require("node:timers/promises");
 
 const MANAGED_RELAY_PREFIX = "/naimage";
-const LEGACY_MANAGED_RELAY_PREFIX = "/iiimage";
 
 function createNewApiClient(options = {}) {
   const {
@@ -330,9 +329,6 @@ function createNewApiClient(options = {}) {
   function managedRelayEndpoint(providerEndpoint) {
     const clean = String(providerEndpoint || "").startsWith("/") ? String(providerEndpoint || "") : `/${providerEndpoint || ""}`;
     if (clean === MANAGED_RELAY_PREFIX || clean.startsWith(`${MANAGED_RELAY_PREFIX}/`)) return clean;
-    if (clean === LEGACY_MANAGED_RELAY_PREFIX || clean.startsWith(`${LEGACY_MANAGED_RELAY_PREFIX}/`)) {
-      return `${MANAGED_RELAY_PREFIX}${clean.slice(LEGACY_MANAGED_RELAY_PREFIX.length)}`;
-    }
     if (clean === "/v1" || clean.startsWith("/v1/")) return `${MANAGED_RELAY_PREFIX}${clean}`;
     return `${MANAGED_RELAY_PREFIX}/v1${clean}`;
   }

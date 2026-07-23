@@ -20,8 +20,6 @@ BACKUP_NEW_API_SCRIPT="${SCRIPT_DIR}/backup-new-api-state.sh"
 VERIFY_NEW_API_BACKUP_SCRIPT="${SCRIPT_DIR}/verify-new-api-backup.sh"
 RELEASE_MANIFEST_SOURCE="${SCRIPT_DIR}/releases/desktop-release.json"
 RELEASE_MANIFEST_TARGET="${RUNTIME_DIR}/releases/desktop-release.json"
-RELEASE_LEGACY_MANIFEST_SOURCE="${SCRIPT_DIR}/releases/desktop-release-legacy.json"
-RELEASE_LEGACY_MANIFEST_TARGET="${RUNTIME_DIR}/releases/desktop-release-legacy.json"
 BRANCH="main"
 EXPECTED_ORIGIN="${NAIMAGE_PRODUCTION_ORIGIN:-${IIIMAGE_PRODUCTION_ORIGIN:-/opt/forgejo/data/git/repositories/aieyra/ai-native.git}}"
 PLAN_ONLY="${NAIMAGE_DEPLOY_PLAN_ONLY:-${IIIMAGE_DEPLOY_PLAN_ONLY:-0}}"
@@ -147,11 +145,7 @@ fi
 
 release_manifest_backup=""
 release_manifest_candidate=""
-release_legacy_manifest_source=""
-release_legacy_manifest_backup=""
-release_legacy_manifest_candidate=""
 release_manifest_changed=0
-release_legacy_manifest_changed=0
 release_manifest_committed=0
 caddy_backup=""
 caddy_changed=0
@@ -196,37 +190,16 @@ cleanup_release_manifest() {
       rm -f "$RELEASE_MANIFEST_TARGET" || cleanup_ok=0
     fi
   fi
-  if [[ "$release_legacy_manifest_changed" == "1" && "$release_manifest_committed" != "1" ]]; then
-    if [[ -n "$release_legacy_manifest_backup" && -f "$release_legacy_manifest_backup" ]]; then
-      if mv -f "$release_legacy_manifest_backup" "$RELEASE_LEGACY_MANIFEST_TARGET"; then
-        release_legacy_manifest_backup=""
-      else
-        printf '[CRITICAL] failed to restore the previous legacy desktop release manifest; preserved %s\n' "$release_legacy_manifest_backup" >&2
-        cleanup_ok=0
-      fi
-    else
-      rm -f "$RELEASE_LEGACY_MANIFEST_TARGET" || cleanup_ok=0
-    fi
-  fi
   if [[ -n "$release_manifest_candidate" ]]; then
     rm -f "$release_manifest_candidate" || cleanup_ok=0
     [[ -e "$release_manifest_candidate" ]] || release_manifest_candidate=""
-  fi
-  if [[ -n "$release_legacy_manifest_candidate" ]]; then
-    rm -f "$release_legacy_manifest_candidate" || cleanup_ok=0
-    [[ -e "$release_legacy_manifest_candidate" ]] || release_legacy_manifest_candidate=""
   fi
   if [[ "$release_manifest_committed" == "1" && -n "$release_manifest_backup" ]]; then
     rm -f "$release_manifest_backup" || cleanup_ok=0
     [[ -e "$release_manifest_backup" ]] || release_manifest_backup=""
   fi
-  if [[ "$release_manifest_committed" == "1" && -n "$release_legacy_manifest_backup" ]]; then
-    rm -f "$release_legacy_manifest_backup" || cleanup_ok=0
-    [[ -e "$release_legacy_manifest_backup" ]] || release_legacy_manifest_backup=""
-  fi
   if [[ "$cleanup_ok" == "1" ]]; then
     release_manifest_changed=0
-    release_legacy_manifest_changed=0
   fi
   [[ "$cleanup_ok" == "1" ]]
 }
@@ -552,29 +525,10 @@ if [[ ! -f "$RELEASE_MANIFEST_SOURCE" ]]; then
   echo "missing tracked desktop release manifest: ${RELEASE_MANIFEST_SOURCE}" >&2
   exit 1
 fi
-release_legacy_manifest_source="$RELEASE_LEGACY_MANIFEST_SOURCE"
-if [[ ! -f "$release_legacy_manifest_source" ]]; then
-  # The signed 1.0.4 manifest predates the dual-manifest layout. Mirror its
-  # exact bytes under the legacy runtime filename until the first naimage pair.
-  release_legacy_manifest_source="$RELEASE_MANIFEST_SOURCE"
-fi
-"${SCRIPT_DIR}/verify-installer.sh" \
+NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" \
   "$RELEASE_MANIFEST_SOURCE" \
   "${RUNTIME_DIR}/releases" \
-  "${SCRIPT_DIR}/releases/update-public-key.pem" \
-  "$release_legacy_manifest_source"
-
-# The first backend that understands the renamed product must never start with
-# its configured legacy manifest path missing. Seed only that absent path now;
-# normal pair promotion still happens transactionally after application work.
-if [[ ! -f "$RELEASE_LEGACY_MANIFEST_TARGET" ]]; then
-  release_legacy_manifest_candidate="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.seed.XXXXXX")"
-  cp "$release_legacy_manifest_source" "$release_legacy_manifest_candidate"
-  chmod 0644 "$release_legacy_manifest_candidate"
-  mv -f "$release_legacy_manifest_candidate" "$RELEASE_LEGACY_MANIFEST_TARGET"
-  release_legacy_manifest_candidate=""
-  release_legacy_manifest_changed=1
-fi
+  "${SCRIPT_DIR}/releases/update-public-key.pem"
 
 docker run --rm \
   -v "${CADDY_SOURCE}:/etc/caddy/Caddyfile:ro" \
@@ -701,37 +655,18 @@ if ! cmp -s "$RELEASE_MANIFEST_SOURCE" "$RELEASE_MANIFEST_TARGET"; then
   fi
   release_manifest_changed=1
 fi
-if ! cmp -s "$release_legacy_manifest_source" "$RELEASE_LEGACY_MANIFEST_TARGET"; then
-  release_legacy_manifest_candidate="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.candidate.XXXXXX")"
-  cp "$release_legacy_manifest_source" "$release_legacy_manifest_candidate"
-  chmod 0644 "$release_legacy_manifest_candidate"
-  if [[ -f "$RELEASE_LEGACY_MANIFEST_TARGET" ]]; then
-    release_legacy_manifest_backup="$(mktemp "${RUNTIME_DIR}/releases/.desktop-release-legacy.backup.XXXXXX")"
-    cp -a "$RELEASE_LEGACY_MANIFEST_TARGET" "$release_legacy_manifest_backup"
-  fi
-  release_legacy_manifest_changed=1
-fi
-
-# Stage and verify both candidates before either live filename changes. The
-# legacy manifest is promoted first so a new canonical identity is never live
-# without the compatibility manifest required by pre-rename clients.
-canonical_manifest_for_verification="${release_manifest_candidate:-$RELEASE_MANIFEST_TARGET}"
-legacy_manifest_for_verification="${release_legacy_manifest_candidate:-$RELEASE_LEGACY_MANIFEST_TARGET}"
-"${SCRIPT_DIR}/verify-installer.sh" \
-  "$canonical_manifest_for_verification" \
+# Verify the staged canonical manifest before atomically promoting it.
+manifest_for_verification="${release_manifest_candidate:-$RELEASE_MANIFEST_TARGET}"
+NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" \
+  "$manifest_for_verification" \
   "${RUNTIME_DIR}/releases" \
-  "${SCRIPT_DIR}/releases/update-public-key.pem" \
-  "$legacy_manifest_for_verification"
-if [[ -n "$release_legacy_manifest_candidate" ]]; then
-  mv -f "$release_legacy_manifest_candidate" "$RELEASE_LEGACY_MANIFEST_TARGET"
-  release_legacy_manifest_candidate=""
-fi
+  "${SCRIPT_DIR}/releases/update-public-key.pem"
 if [[ -n "$release_manifest_candidate" ]]; then
   mv -f "$release_manifest_candidate" "$RELEASE_MANIFEST_TARGET"
   release_manifest_candidate=""
 fi
 
-"${SCRIPT_DIR}/verify-installer.sh"
+NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh"
 
 state_marker_changed=1
 printf '%s\n' "$new_head" > "$STATE_FILE"

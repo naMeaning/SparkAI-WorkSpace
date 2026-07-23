@@ -52,7 +52,6 @@ pnpm run diagnostics:gateway
 | `AI_GATEWAY_DATA_DIR` | New API 数据目录。 |
 | `NAIMAGE_SERVER_DATA_DIR` | naimage 启动器的数据目录变量；优先使用 `AI_GATEWAY_DATA_DIR`。 |
 | `NAIMAGE_PARENT_PID` | 父进程 PID，可用于外部进程管理器关联服务生命周期。 |
-| `IIIMAGE_SERVER_PORT` / `IIIMAGE_SERVER_DATA_DIR` / `IIIMAGE_PARENT_PID` | 旧启动器兼容别名；新配置不应继续使用。 |
 
 ## 诊断
 

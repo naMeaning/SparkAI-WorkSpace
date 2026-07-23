@@ -21,12 +21,17 @@ developer clone
   -> image.aieyra.cn
 ```
 
+The `/opt/iiimage` path and `iiimage-ai-native-sync.service` name above are the
+existing production host ABI, not the public product identity. This source-only
+rename does not move live data or replace that unit; migrate both only in a
+separate maintenance window with a verified backup and rollback plan.
+
 The watcher observes `main` only. Never force-push `main`, deploy from another
 branch, or replace the server checkout's local Forge `origin`.
 
 ## 2. Freeze the desktop release first
 
-Do not edit the tracked server manifest pair until all of these are true:
+Do not edit the tracked server manifest until all of these are true:
 
 - The Studio source tree is frozen at the intended version.
 - The complete client release gate passes without relaxed thresholds.
@@ -35,11 +40,16 @@ Do not edit the tracked server manifest pair until all of these are true:
 - `naimage-Setup-<version>-x64.exe` and
   `naimage-Restart-Update-<version>-x64.asar` were produced in the same
   release run.
-- `desktop-release.json` and `desktop-release-legacy.json` were independently
-  signed by the release private key and verified against the public key embedded
-  in the client; they differ only in `product` and `signature`.
-- The installer, restart ASAR, both manifests, sidecar, and `SHA256SUMS.txt`
+- `desktop-release.json` uses product `naimage-studio`, was signed by the release
+  private key, and verifies against the public key embedded in the client.
+- The installer, restart ASAR, manifest, sidecar, and `SHA256SUMS.txt`
   agree.
+
+The frozen 1.0.4 manifest remains in Git only as signed historical evidence.
+Normal deployment rejects its retired product identity; use
+`NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=1` only for an explicit read-only
+audit. Do not deploy the renamed backend until the new `naimage-studio`
+manifest is part of the same reviewed release change.
 
 The release private key must never enter this repository, a command line, a
 ticket, a log, or the production server.
@@ -80,26 +90,25 @@ temporary `.uploading` name, verify its size and SHA-256, and then rename it to
 the final basename. Existing versioned artifacts and the live runtime manifests
 must remain untouched during upload.
 
-Copy both candidate manifests to temporary server paths and verify the pair
-against the staged artifacts and tracked public key:
+Copy the candidate manifest to a temporary server path and verify it against
+the staged artifacts and tracked public key:
 
 ```bash
 cd /opt/iiimage/src
 deploy/production/verify-installer.sh \
   /tmp/desktop-release.candidate.json \
   /opt/iiimage/src/deploy/production/runtime/releases \
-  /opt/iiimage/src/deploy/production/releases/update-public-key.pem \
-  /tmp/desktop-release-legacy.candidate.json
+  /opt/iiimage/src/deploy/production/releases/update-public-key.pem
 ```
 
-This must report valid artifact hashes, two valid signatures, and
-`desktop release manifest pair verified`. Delete both temporary candidates
-afterward. Do not manually overwrite either runtime manifest; deployment
-promotes and rolls back the tracked pair as one release operation.
+This must report valid artifact hashes, a valid signature, and
+`desktop release manifest verified`. Delete the temporary candidate afterward.
+Do not manually overwrite the runtime manifest; deployment promotes and rolls
+back the tracked manifest as one release operation.
 
 ## 5. Merge through Forge
 
-Update both tracked desktop release manifests only with the verified pair.
+Update the tracked desktop release manifest only with the verified candidate.
 Commit the reviewed backend, CRM, deployment, public verification
 key, and manifest changes on the release branch. Push the branch and merge it
 into Forge `main` using a normal reviewed fast-forward or pull request. Never
@@ -201,8 +210,8 @@ requests through these managed routes:
 - `POST /naimage/v1/images/edits`
 
 Confirm the upstream receives `/v1/*`, never the public `/naimage/v1/*` prefix.
-Also verify one legacy `/iiimage/v1/*` request reaches the same handler without
-a redirect. For image calls,
+Also verify the canonical `/naimage/v1/*` request reaches the expected handler
+without a redirect. For image calls,
 send a unique printable `Idempotency-Key`, then repeat the exact request with
 the same key and confirm the stored result is replayed without a second charge
 or generation. Reusing the key with a different payload must return conflict.

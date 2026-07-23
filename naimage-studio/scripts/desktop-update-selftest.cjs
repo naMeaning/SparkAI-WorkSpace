@@ -10,8 +10,6 @@ const { canonicalDesktopRelease } = require("../update-release.cjs");
 const packageMetadata = require("../package.json");
 const packageVersion = packageMetadata.version;
 const futureReleaseVersion = "99.0.0";
-const LEGACY_DESKTOP_UPDATE_PRODUCT = "iiimage-studio";
-
 const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), "naimage-update-selftest-"));
 const publicKeyPath = path.join(temporaryRoot, "public.pem");
 const pair = generateKeyPairSync("ed25519", {
@@ -69,13 +67,11 @@ try {
   };
 
   const verified = main.verifyDesktopReleasePayload(response);
-  const legacyRelease = { ...release, product: LEGACY_DESKTOP_UPDATE_PRODUCT };
-  const legacyVerified = main.verifyDesktopReleasePayload({
-    ...response,
-    product: LEGACY_DESKTOP_UPDATE_PRODUCT,
-    signature: sign(null, Buffer.from(canonicalDesktopRelease(legacyRelease), "utf8"), pair.privateKey).toString("base64")
-  });
-  assert.equal(legacyVerified.latestVersion, futureReleaseVersion, "Pre-rename signed update manifests must remain readable");
+  assert.throws(
+    () => main.verifyDesktopReleasePayload({ ...response, product: "iiimage-studio" }),
+    /不兼容的更新清单/,
+    "The desktop updater must reject the retired product identity"
+  );
   const splitDefaults = main.migrateSettings({ accountBaseUrl: "https://sparkapi.org" });
   assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "account"), "https://sparkapi.org");
   assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "relay"), "https://sparkapi.org");

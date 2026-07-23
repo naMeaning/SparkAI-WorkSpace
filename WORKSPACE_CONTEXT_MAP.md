@@ -151,7 +151,7 @@ CRM 不保存浏览器密码、session、模型 Key 或 New API 余额事实；�
 | CRM 或管理 Web UI | `web/default/src` | Query/Router 契约、New API proxy、响应错误协议 |
 | 统一启动/构建 | 根 `scripts/`、`services/ai-gateway/server.cjs` | 三进程端口、构建产物探测、Windows/Linux 差异 |
 | 生产部署 | `deploy/production/` | Compose、Caddy、备份、回滚、manifest、systemd watcher |
-| 桌面下载/更新 API | New API + `deploy/production/releases` | `naimage-studio` 版本、minimum version、compatibility、公钥、canonical/legacy 双签名清单与同一套制品 |
+| 桌面下载/更新 API | New API + `deploy/production/releases` | `naimage-studio` 版本、minimum version、compatibility、公钥、canonical 签名清单与制品；历史签名 sidecar 不进入当前服务路径 |
 
 ### 4.4 验证
 
@@ -174,11 +174,13 @@ corepack pnpm run crm:check
 | Chat/Responses relay | Responses adapter、agent runtime | `/naimage/v1/chat/completions`, `/responses` | tool schema、流事件、reasoning、错误协议 |
 | 图片生成/编辑 | runtime/core/main-process request | `/naimage/v1/images/*` | ratio/size/quality、参考图、幂等、计费、结果落盘 |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
-| 桌面更新 | updater、`update-release.cjs`、公钥 | 双 release manifest、下载/更新 API、生产制品 | `naimage-studio`/`iiimage-studio` 方言、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
+| 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-品牌迁移的 canonical 对外身份是 `naimage`、`/naimage/v1/*` 与 `/downloads/naimage-studio/windows`。旧 Relay/下载路由、旧 manifest product、旧数据格式和 `/iiimage-logo.svg` 只用于存量客户端或数据的兼容读取。生产部署本次刻意复用 `/opt/iiimage`、`iiimage-*` 容器/网络/upstream 与原 systemd unit，避免品牌提交隐式切换数据卷；物理部署身份如需改名，必须另开维护窗口并准备备份和回滚。
+产品的 canonical 对外身份是 `naimage`、`/naimage/v1/*` 与 `/downloads/naimage-studio/windows`。新的 Relay、下载路由、manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
+
+冻结的 1.0.4 manifest 仅供历史验签；当前后端只接受 `naimage-studio`，因此首次 1.0.5 上线必须与新签名 manifest 原子部署。部署校验默认拒绝历史 product，只有显式只读审计才可开启历史验签开关。
 
 ## 6. 本地工具链状态
 

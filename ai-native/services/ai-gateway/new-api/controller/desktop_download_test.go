@@ -29,6 +29,13 @@ func writeDesktopReleaseFixture(t *testing.T, version string, minimumVersion str
 	return writeDesktopReleaseFixtureForProduct(t, version, minimumVersion, compatibility, desktopReleaseProduct)
 }
 
+func TestDesktopClientProductSupportsOnlyNaimage(t *testing.T) {
+	assert.True(t, desktopClientProductSupported(""))
+	assert.True(t, desktopClientProductSupported("naimage-studio"))
+	assert.True(t, desktopClientProductSupported("NAIMAGE-STUDIO"))
+	assert.False(t, desktopClientProductSupported("iiimage-studio"))
+}
+
 func writeDesktopReleaseFixtureForProduct(t *testing.T, version string, minimumVersion string, compatibility string, product string) string {
 	t.Helper()
 	directory := t.TempDir()
@@ -63,11 +70,7 @@ func writeDesktopReleaseFixtureForProduct(t *testing.T, version string, minimumV
 	}
 	contents, err := common.Marshal(manifest)
 	require.NoError(t, err)
-	manifestName := "desktop-release.json"
-	if product == desktopReleaseLegacyProduct {
-		manifestName = "desktop-release-legacy.json"
-	}
-	path := filepath.Join(directory, manifestName)
+	path := filepath.Join(directory, "desktop-release.json")
 	require.NoError(t, os.WriteFile(path, contents, 0o600))
 	cache := desktopReleaseCacheForProduct(product)
 	cache.mu.Lock()
@@ -75,11 +78,7 @@ func writeDesktopReleaseFixtureForProduct(t *testing.T, version string, minimumV
 	cache.release = desktopReleaseManifest{}
 	cache.err = nil
 	cache.mu.Unlock()
-	if product == desktopReleaseLegacyProduct {
-		t.Setenv("DESKTOP_RELEASE_LEGACY_MANIFEST_PATH", path)
-	} else {
-		t.Setenv("DESKTOP_RELEASE_MANIFEST_PATH", path)
-	}
+	t.Setenv("DESKTOP_RELEASE_MANIFEST_PATH", path)
 	return path
 }
 
@@ -127,7 +126,7 @@ func TestDesktopDownloadChallengeBindsProductAndRelease(t *testing.T) {
 	challengeID, answer, err := manager.issueChallenge(identity, binding)
 	require.NoError(t, err)
 	require.ErrorIs(t, manager.verifyChallenge(challengeID, answer, identity, desktopDownloadChallengeBinding{
-		Product:  desktopReleaseLegacyProduct,
+		Product:  "other-product",
 		Manifest: manifest,
 	}), errDesktopChallengeInvalid)
 
@@ -247,10 +246,9 @@ func TestDesktopDownloadChallengesAuthorizeOutOfOrderWithoutCookieState(t *testi
 	require.Equal(t, int64(2), auditCount)
 }
 
-func TestAuthorizeDesktopDownloadRejectsProductSwitchAfterCaptcha(t *testing.T) {
+func TestAuthorizeDesktopDownloadRejectsUnknownProduct(t *testing.T) {
 	user := setupUserManageRelayTokenTestDB(t)
 	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
-	writeDesktopReleaseFixtureForProduct(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1", desktopReleaseLegacyProduct)
 
 	manager := newDesktopDownloadManager()
 	previousManager := defaultDesktopDownloadManager
@@ -271,7 +269,7 @@ func TestAuthorizeDesktopDownloadRejectsProductSwitchAfterCaptcha(t *testing.T) 
 	})
 	require.NoError(t, err)
 	payload, err := common.Marshal(desktopDownloadRequest{
-		Product:     desktopReleaseLegacyProduct,
+		Product:     "other-product",
 		ChallengeID: challengeID,
 		Code:        answer,
 	})
@@ -291,12 +289,12 @@ func TestAuthorizeDesktopDownloadRejectsProductSwitchAfterCaptcha(t *testing.T) 
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
-	require.Contains(t, recorder.Body.String(), "download_captcha_invalid")
+	require.Contains(t, recorder.Body.String(), "desktop_product_invalid")
 }
 
-func TestAuthorizeDesktopDownloadWithoutProductUsesLegacyRoute(t *testing.T) {
+func TestAuthorizeDesktopDownloadWithoutProductUsesNaimageRoute(t *testing.T) {
 	user := setupUserManageRelayTokenTestDB(t)
-	writeDesktopReleaseFixtureForProduct(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1", desktopReleaseLegacyProduct)
+	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
 	manager := newDesktopDownloadManager()
 	previousManager := defaultDesktopDownloadManager
 	defaultDesktopDownloadManager = manager
@@ -306,12 +304,12 @@ func TestAuthorizeDesktopDownloadWithoutProductUsesLegacyRoute(t *testing.T) {
 	identity := desktopDownloadIdentity{
 		UserID:    user.Id,
 		IP:        "203.0.113.23",
-		UserAgent: "legacy-desktop-download-test",
+		UserAgent: "naimage-desktop-download-test",
 	}
-	manifest, err := loadDesktopInstallerManifestForProduct(desktopReleaseLegacyProduct)
+	manifest, err := loadDesktopInstallerManifestForProduct(desktopReleaseProduct)
 	require.NoError(t, err)
 	challengeID, answer, err := manager.issueChallenge(identity, desktopDownloadChallengeBinding{
-		Product:  desktopReleaseLegacyProduct,
+		Product:  desktopReleaseProduct,
 		Manifest: manifest,
 	})
 	require.NoError(t, err)
@@ -332,7 +330,7 @@ func TestAuthorizeDesktopDownloadWithoutProductUsesLegacyRoute(t *testing.T) {
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	require.Contains(t, recorder.Body.String(), `"download_url":"/downloads/iiimage-studio/windows?ticket=`)
+	require.Contains(t, recorder.Body.String(), `"download_url":"/downloads/naimage-studio/windows?ticket=`)
 }
 
 func TestDesktopDownloadTicketUsesAuthenticatedIdentityWithoutTicketCookieState(t *testing.T) {
@@ -679,107 +677,54 @@ func TestResolveDesktopUpdateChoosesRestartOnlyForCompatibleSameMajor(t *testing
 	require.True(t, majorUpgrade.RequiresCaptcha)
 }
 
-func TestLoadDesktopReleaseManifestPreservesLegacySignedIdentity(t *testing.T) {
-	legacyPath := writeDesktopReleaseFixtureForProduct(
+func TestLoadDesktopReleaseManifestRejectsDifferentProduct(t *testing.T) {
+	writeDesktopReleaseFixtureForProduct(
 		t,
 		"1.0.4",
 		"1.0.0",
 		"win-x64-electron42-runtime1",
-		desktopReleaseLegacyProduct,
+		"other-product",
 	)
 
-	release, err := loadDesktopReleaseManifestForProduct(desktopReleaseLegacyProduct)
-	require.NoError(t, err)
-	require.Equal(t, desktopReleaseLegacyProduct, release.Product)
-	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("test-signature")), release.Signature)
-	require.Equal(t, "naimage-Setup-1.0.4-x64.exe", release.Installer.Filename)
-	require.NotNil(t, release.Restart)
-	require.Equal(t, "naimage-Restart-Update-1.0.4-x64.asar", release.Restart.Filename)
+	_, err := loadDesktopReleaseManifest()
+	require.ErrorIs(t, err, errDesktopInstallerNotReady)
+}
 
-	t.Setenv("DESKTOP_RELEASE_MANIFEST_PATH", legacyPath)
+func TestDesktopClientDefaultsToNaimageProduct(t *testing.T) {
+	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
+
+	resolved, err := resolveDesktopUpdate(desktopUpdateRequest{
+		CurrentVersion: "1.0.4",
+		Platform:       "win32",
+		Architecture:   "x64",
+		Compatibility:  "win-x64-electron42-runtime1",
+	})
+	require.NoError(t, err)
+	require.True(t, resolved.UpdateAvailable)
+	require.Equal(t, desktopReleaseProduct, resolved.Release.Product)
+	require.Equal(t, "installer", resolved.UpdateType)
+	require.True(t, resolved.RequiresCaptcha)
+	require.Equal(t, "naimage-Setup-1.0.5-x64.exe", resolved.Artifact.Filename)
+	require.Equal(t, desktopDownloadPath, desktopDownloadPathForProduct(""))
+}
+
+func TestDesktopReleaseCacheReusesNaimageManifest(t *testing.T) {
+	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
+
+	first, err := loadDesktopReleaseManifest()
+	require.NoError(t, err)
+	require.Equal(t, desktopReleaseProduct, first.Product)
 	desktopReleaseCache.mu.Lock()
-	desktopReleaseCache.cacheKey = ""
+	cacheKey := desktopReleaseCache.cacheKey
 	desktopReleaseCache.mu.Unlock()
-	_, err = loadDesktopReleaseManifest()
-	require.ErrorIs(t, err, errDesktopInstallerNotReady, "a legacy signed identity must not be served as the canonical product")
-}
+	require.NotEmpty(t, cacheKey)
 
-func TestLegacyDesktopClientGetsLegacyManifestAndFullInstallerBridge(t *testing.T) {
-	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
-	writeDesktopReleaseFixtureForProduct(
-		t,
-		"1.0.5",
-		"1.0.5",
-		"win-x64-electron42-runtime1",
-		desktopReleaseLegacyProduct,
-	)
-
-	legacy, err := resolveDesktopUpdate(desktopUpdateRequest{
-		CurrentVersion: "1.0.4",
-		Platform:       "win32",
-		Architecture:   "x64",
-		Compatibility:  "win-x64-electron42-runtime1",
-	})
+	second, err := loadDesktopReleaseManifest()
 	require.NoError(t, err)
-	require.True(t, legacy.UpdateAvailable)
-	require.Equal(t, desktopReleaseLegacyProduct, legacy.Release.Product)
-	require.Equal(t, "installer", legacy.UpdateType)
-	require.True(t, legacy.RequiresCaptcha)
-	require.Equal(t, "naimage-Setup-1.0.5-x64.exe", legacy.Artifact.Filename)
-	require.Equal(t, desktopDownloadLegacyPath, desktopDownloadPathForProduct(""))
-
-	canonical, err := resolveDesktopUpdate(desktopUpdateRequest{
-		Product:        desktopReleaseProduct,
-		CurrentVersion: "1.0.4",
-		Platform:       "win32",
-		Architecture:   "x64",
-		Compatibility:  "win-x64-electron42-runtime1",
-	})
-	require.NoError(t, err)
-	require.Equal(t, desktopReleaseProduct, canonical.Release.Product)
-	require.Equal(t, desktopDownloadPath, desktopDownloadPathForProduct(desktopReleaseProduct))
-	require.True(t, desktopInstallerManifestFingerprintMatches(legacy.Artifact, canonical.Artifact))
-}
-
-func TestDesktopReleaseCachesCanonicalAndLegacyManifestsIndependently(t *testing.T) {
-	writeDesktopReleaseFixture(t, "1.0.5", "1.0.5", "win-x64-electron42-runtime1")
-	writeDesktopReleaseFixtureForProduct(
-		t,
-		"1.0.5",
-		"1.0.5",
-		"win-x64-electron42-runtime1",
-		desktopReleaseLegacyProduct,
-	)
-
-	canonical, err := loadDesktopReleaseManifestForProduct(desktopReleaseProduct)
-	require.NoError(t, err)
-	legacy, err := loadDesktopReleaseManifestForProduct(desktopReleaseLegacyProduct)
-	require.NoError(t, err)
-	require.Equal(t, desktopReleaseProduct, canonical.Product)
-	require.Equal(t, desktopReleaseLegacyProduct, legacy.Product)
-
-	canonicalCache := desktopReleaseCacheForProduct(desktopReleaseProduct)
-	legacyCache := desktopReleaseCacheForProduct(desktopReleaseLegacyProduct)
-	require.NotSame(t, canonicalCache, legacyCache)
-	canonicalCache.mu.Lock()
-	canonicalKey := canonicalCache.cacheKey
-	canonicalCache.mu.Unlock()
-	legacyCache.mu.Lock()
-	legacyKey := legacyCache.cacheKey
-	legacyCache.mu.Unlock()
-	require.NotEmpty(t, canonicalKey)
-	require.NotEmpty(t, legacyKey)
-	require.NotEqual(t, canonicalKey, legacyKey)
-
-	canonicalAgain, err := loadDesktopReleaseManifestForProduct(desktopReleaseProduct)
-	require.NoError(t, err)
-	require.Equal(t, desktopReleaseProduct, canonicalAgain.Product)
-	canonicalCache.mu.Lock()
-	require.Equal(t, canonicalKey, canonicalCache.cacheKey)
-	canonicalCache.mu.Unlock()
-	legacyCache.mu.Lock()
-	require.Equal(t, legacyKey, legacyCache.cacheKey)
-	legacyCache.mu.Unlock()
+	require.Equal(t, desktopReleaseProduct, second.Product)
+	desktopReleaseCache.mu.Lock()
+	require.Equal(t, cacheKey, desktopReleaseCache.cacheKey)
+	desktopReleaseCache.mu.Unlock()
 }
 
 func TestResolveDesktopUpdateReturnsNoneForCurrentOrNewerVersion(t *testing.T) {

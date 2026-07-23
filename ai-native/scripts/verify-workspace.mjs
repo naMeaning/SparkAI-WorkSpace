@@ -24,8 +24,10 @@ const requiredFiles = [
 const forbiddenPaths = [
   "apps",
   "services/ai-gateway/启动iiimageServer.exe",
+  "services/ai-gateway/启动naimageServer.exe",
   "services/ai-gateway/AIDEBUG",
   "services/ai-gateway/AIDEBUG/诊断iiimageServer.cmd",
+  "services/ai-gateway/AIDEBUG/诊断naimageServer.cmd",
   "scripts/setup.ps1",
   "scripts/start.ps1",
   "scripts/setup.mjs",

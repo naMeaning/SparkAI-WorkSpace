@@ -49,7 +49,6 @@ const defaultBaselineExe = version === "1.0.5" || existsSync(defaultLegacyBaseli
 const defaultSettingsPath = join(projectRoot, "config", "app-settings.json");
 const { canonicalDesktopRelease } = require(join(projectRoot, "update-release.cjs"));
 const canonicalDesktopReleaseProduct = "naimage-studio";
-const legacyDesktopReleaseProduct = "iiimage-studio";
 let activeReleaseChild = null;
 
 function resolvePnpmInvocation() {
@@ -229,7 +228,6 @@ function releaseArtifactPaths(root = releaseDir, targetVersion = version) {
     installerPath: join(root, installerName),
     restartPath: join(root, restartName),
     manifestPath: join(root, "desktop-release.json"),
-    legacyManifestPath: join(root, "desktop-release-legacy.json"),
     sidecarPath: join(root, `${installerName}.json`),
     checksumPath: join(root, "SHA256SUMS.txt"),
     unpackedAsarPath: join(root, "win-unpacked", "resources", "app.asar")
@@ -249,13 +247,14 @@ export function invalidateReleaseCompleteness(root = releaseDir, targetVersion =
   }, null, 2)}\n`, "utf8");
   for (const filePath of [
     artifacts.manifestPath,
-    artifacts.legacyManifestPath,
     artifacts.sidecarPath,
     artifacts.checksumPath,
     artifacts.restartPath
   ]) {
     rmSync(filePath, { force: true });
   }
+  // Never let output from the retired rename bridge survive a new build.
+  rmSync(join(root, "desktop-release-legacy.json"), { force: true });
   return { markerPath, artifacts };
 }
 
@@ -528,8 +527,7 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
   for (const [label, filePath] of [
     ["品牌安装包", artifacts.installerPath],
     ["重启更新 ASAR", artifacts.restartPath],
-    ["Canonical 签名发布清单", artifacts.manifestPath],
-    ["Legacy 签名发布清单", artifacts.legacyManifestPath],
+    ["签名发布清单", artifacts.manifestPath],
     ["安装包旁置元数据", artifacts.sidecarPath],
     ["SHA256 校验清单", artifacts.checksumPath],
     ["解包应用 ASAR", artifacts.unpackedAsarPath]
@@ -538,7 +536,6 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
   }
 
   const manifest = JSON.parse(readFileSync(artifacts.manifestPath, "utf8"));
-  const legacyManifest = JSON.parse(readFileSync(artifacts.legacyManifestPath, "utf8"));
   const sidecar = JSON.parse(readFileSync(artifacts.sidecarPath, "utf8"));
   const expectedCompatibility = options.compatibility || compatibility;
   const expectedMinimumVersion = options.minimumVersion || minimumVersion;
@@ -552,36 +549,14 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
   ) {
     throw new Error("desktop-release.json 的产品或版本不匹配。");
   }
-  if (
-    legacyManifest.schema_version !== 1 ||
-    legacyManifest.product !== legacyDesktopReleaseProduct ||
-    legacyManifest.channel !== "stable" ||
-    legacyManifest.version !== targetVersion ||
-    legacyManifest.compatibility !== expectedCompatibility ||
-    legacyManifest.minimum_version !== expectedMinimumVersion
-  ) {
-    throw new Error("desktop-release-legacy.json 的产品或版本不匹配。");
-  }
-  const sharedManifest = (value) => {
-    const { product: _product, signature: _signature, ...shared } = value;
-    return shared;
-  };
-  if (JSON.stringify(sharedManifest(manifest)) !== JSON.stringify(sharedManifest(legacyManifest))) {
-    throw new Error("Canonical 与 legacy 发布清单除 product/signature 外必须完全一致。");
-  }
   const publicKey = options.publicKey || readFileSync(publicKeyPath);
-  for (const [name, candidate] of [
-    ["desktop-release.json", manifest],
-    ["desktop-release-legacy.json", legacyManifest]
-  ]) {
-    const signature = Buffer.from(String(candidate.signature || ""), "base64");
-    if (!signature.length || !verify(
-      null,
-      Buffer.from(canonicalDesktopRelease(candidate), "utf8"),
-      publicKey,
-      signature
-    )) throw new Error(`${name} 最终签名验签失败。`);
-  }
+  const signature = Buffer.from(String(manifest.signature || ""), "base64");
+  if (!signature.length || !verify(
+    null,
+    Buffer.from(canonicalDesktopRelease(manifest), "utf8"),
+    publicKey,
+    signature
+  )) throw new Error("desktop-release.json 最终签名验签失败。");
 
   const installerHash = sha256(artifacts.installerPath);
   const restartHash = sha256(artifacts.restartPath);
@@ -613,7 +588,6 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
     [artifacts.installerName, installerHash],
     [artifacts.restartName, restartHash],
     [basename(artifacts.manifestPath), sha256(artifacts.manifestPath)],
-    [basename(artifacts.legacyManifestPath), sha256(artifacts.legacyManifestPath)],
     [basename(artifacts.sidecarPath), sha256(artifacts.sidecarPath)]
   ]);
   const actualChecksums = checksumEntries(artifacts.checksumPath);
@@ -643,7 +617,6 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
     installer: { filename: artifacts.installerName, size: installerSize, sha256: installerHash },
     restart: { filename: artifacts.restartName, size: restartSize, sha256: restartHash },
     manifestSha256: sha256(artifacts.manifestPath),
-    legacyManifestSha256: sha256(artifacts.legacyManifestPath),
     sidecarSha256: sha256(artifacts.sidecarPath),
     checksumEntries: actualChecksums.size,
     signatureVerified: true,
@@ -847,17 +820,7 @@ function createArtifactFixture(root, targetVersion, pair) {
     Buffer.from(canonicalDesktopRelease(manifest), "utf8"),
     pair.privateKey
   ).toString("base64");
-  const legacyManifest = {
-    ...manifest,
-    product: legacyDesktopReleaseProduct
-  };
-  legacyManifest.signature = sign(
-    null,
-    Buffer.from(canonicalDesktopRelease(legacyManifest), "utf8"),
-    pair.privateKey
-  ).toString("base64");
   writeFileSync(artifacts.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  writeFileSync(artifacts.legacyManifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, "utf8");
   writeFileSync(artifacts.sidecarPath, `${JSON.stringify({
     filename: artifacts.installerName,
     version: targetVersion,
@@ -870,7 +833,6 @@ function createArtifactFixture(root, targetVersion, pair) {
     artifacts.installerName,
     artifacts.restartName,
     basename(artifacts.manifestPath),
-    basename(artifacts.legacyManifestPath),
     basename(artifacts.sidecarPath)
   ]);
   return artifacts;
@@ -924,7 +886,7 @@ function runSelftest() {
     existsSync(join(fixtureRelease, ".naimage-release-incomplete.json")) &&
     existsSync(artifacts.installerPath) &&
     !existsSync(artifacts.manifestPath) &&
-    !existsSync(artifacts.legacyManifestPath) &&
+    !existsSync(join(fixtureRelease, "desktop-release-legacy.json")) &&
     !existsSync(artifacts.sidecarPath) &&
     !existsSync(artifacts.restartPath) &&
     !existsSync(artifacts.checksumPath);
@@ -948,31 +910,30 @@ function runSelftest() {
   rmSync(fixtureRelease, { recursive: true, force: true });
   mkdirSync(fixtureRelease, { recursive: true });
   artifacts = createArtifactFixture(fixtureRelease, targetVersion, pair);
-  const divergentLegacyManifest = JSON.parse(readFileSync(artifacts.legacyManifestPath, "utf8"));
-  divergentLegacyManifest.notes = [...divergentLegacyManifest.notes, "legacy-only-note"];
-  divergentLegacyManifest.signature = sign(
+  const wrongProductManifest = JSON.parse(readFileSync(artifacts.manifestPath, "utf8"));
+  wrongProductManifest.product = "other-studio";
+  wrongProductManifest.signature = sign(
     null,
-    Buffer.from(canonicalDesktopRelease(divergentLegacyManifest), "utf8"),
+    Buffer.from(canonicalDesktopRelease(wrongProductManifest), "utf8"),
     pair.privateKey
   ).toString("base64");
-  writeFileSync(artifacts.legacyManifestPath, `${JSON.stringify(divergentLegacyManifest, null, 2)}\n`, "utf8");
+  writeFileSync(artifacts.manifestPath, `${JSON.stringify(wrongProductManifest, null, 2)}\n`, "utf8");
   writeChecksumFixture(fixtureRelease, [
     artifacts.installerName,
     artifacts.restartName,
     basename(artifacts.manifestPath),
-    basename(artifacts.legacyManifestPath),
     basename(artifacts.sidecarPath)
   ]);
-  let pairDivergenceRejected = false;
+  let wrongProductRejected = false;
   try {
     verifyReleaseArtifactsAt(fixtureRelease, targetVersion, {
       publicKey: pair.publicKey,
       skipExecutableMetadata: true
     });
   } catch {
-    pairDivergenceRejected = true;
+    wrongProductRejected = true;
   }
-  if (!pairDivergenceRejected) throw new Error("Dual-manifest parity selftest failed.");
+  if (!wrongProductRejected) throw new Error("Non-naimage release product selftest failed.");
   const expectedOrder = [
     "release:verify",
     "package:win",
@@ -994,7 +955,7 @@ function runSelftest() {
     verified,
     invalidationOk,
     tamperRejected,
-    pairDivergenceRejected,
+    wrongProductRejected,
     legacyUpgradeContract,
     canonicalRestartContract,
     wrongFirstUpgradeBaselineRejected,

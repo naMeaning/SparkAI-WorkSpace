@@ -286,7 +286,7 @@ func (manager *desktopDownloadManager) issueChallenge(identity desktopDownloadId
 	if len(manager.challenges) >= 10_000 {
 		return "", "", errors.New("too many active desktop download challenges")
 	}
-	binding := desktopDownloadChallengeBinding{Product: desktopReleaseLegacyProduct}
+	binding := desktopDownloadChallengeBinding{Product: desktopReleaseProduct}
 	if len(bindings) > 0 {
 		binding = bindings[0]
 	}

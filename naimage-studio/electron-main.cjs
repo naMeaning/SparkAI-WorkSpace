@@ -66,9 +66,8 @@ const legacyApplicationNames = ["iiimage Studio", "IIimage Studio", "iiimage-stu
 const legacyUserDataMigrationMarker = ".naimage-user-data-migration-v1.json";
 const localAssetSchemes = ["naimage-asset", "iiimage-asset"];
 
-function desktopEnvironment(canonicalName, legacyName = "") {
-  if (Object.prototype.hasOwnProperty.call(process.env, canonicalName)) return process.env[canonicalName];
-  return legacyName ? process.env[legacyName] : undefined;
+function desktopEnvironment(name) {
+  return process.env[name];
 }
 
 function copyLegacyUserDataEntry(sourcePath, targetPath, counters) {
@@ -157,8 +156,8 @@ const windowsCurlPath = process.platform === "win32"
   : "";
 app.setName(applicationName);
 
-const devUrl = desktopEnvironment("NAIMAGE_DEV_URL", "IIIMAGE_DEV_URL") || "";
-const rendererIndexOverride = desktopEnvironment("NAIMAGE_RENDERER_INDEX", "IIIMAGE_RENDERER_INDEX");
+const devUrl = desktopEnvironment("NAIMAGE_DEV_URL") || "";
+const rendererIndexOverride = desktopEnvironment("NAIMAGE_RENDERER_INDEX");
 const rendererIndex = rendererIndexOverride
   ? path.resolve(rendererIndexOverride)
   : path.join(__dirname, "dist", "index.html");
@@ -166,24 +165,24 @@ const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "..");
 const desktopRoot = path.join(process.env.USERPROFILE || projectRoot, "Desktop");
 const localServerEntryCandidates = [
-  desktopEnvironment("NAIMAGE_LOCAL_SERVER_ENTRY", "IIIMAGE_LOCAL_SERVER_ENTRY")
-    ? path.resolve(desktopEnvironment("NAIMAGE_LOCAL_SERVER_ENTRY", "IIIMAGE_LOCAL_SERVER_ENTRY"))
+  desktopEnvironment("NAIMAGE_LOCAL_SERVER_ENTRY")
+    ? path.resolve(desktopEnvironment("NAIMAGE_LOCAL_SERVER_ENTRY"))
     : "",
   path.join(projectRoot, "services", "ai-gateway", "server.cjs"),
   path.join(workspaceRoot, "ai-native", "services", "ai-gateway", "server.cjs")
 ].filter(Boolean);
 const localServerEntry = localServerEntryCandidates.find((candidate) => existsSync(candidate)) || localServerEntryCandidates[0];
 const localServerRoot = path.dirname(localServerEntry);
-const aidebugMode = desktopEnvironment("NAIMAGE_AIDEBUG", "IIIMAGE_AIDEBUG") === "1";
-const aidebugLiveImage = desktopEnvironment("NAIMAGE_AIDEBUG_LIVE_IMAGE", "IIIMAGE_AIDEBUG_LIVE_IMAGE") === "1";
-const aidebugStatefulAuth = desktopEnvironment("NAIMAGE_AIDEBUG_AUTH_SESSION", "IIIMAGE_AIDEBUG_AUTH_SESSION") === "1";
+const aidebugMode = desktopEnvironment("NAIMAGE_AIDEBUG") === "1";
+const aidebugLiveImage = desktopEnvironment("NAIMAGE_AIDEBUG_LIVE_IMAGE") === "1";
+const aidebugStatefulAuth = desktopEnvironment("NAIMAGE_AIDEBUG_AUTH_SESSION") === "1";
 const aidebugMockAgent =
-  desktopEnvironment("NAIMAGE_AIDEBUG_MOCK_AGENT", "IIIMAGE_AIDEBUG_MOCK_AGENT") === "1" ||
-  /^(mock|stub|fixture)$/i.test(String(desktopEnvironment("NAIMAGE_AIDEBUG_AGENT_MODE", "IIIMAGE_AIDEBUG_AGENT_MODE") || ""));
+  desktopEnvironment("NAIMAGE_AIDEBUG_MOCK_AGENT") === "1" ||
+  /^(mock|stub|fixture)$/i.test(String(desktopEnvironment("NAIMAGE_AIDEBUG_AGENT_MODE") || ""));
 const aidebugImageFaultsEnabled =
   aidebugMode &&
   !aidebugLiveImage &&
-  desktopEnvironment("NAIMAGE_AIDEBUG_IMAGE_FAULTS", "IIIMAGE_AIDEBUG_IMAGE_FAULTS") === "1";
+  desktopEnvironment("NAIMAGE_AIDEBUG_IMAGE_FAULTS") === "1";
 const agentModelForceEnabled = false;
 const agentToolChoiceForceEnabled = false;
 const agentToolArgCorrectionEnabled = false;
@@ -194,20 +193,20 @@ const packagedDataRoot = app.isPackaged ? app.getPath("userData") : projectRoot;
 const legacyPackagedDataRoots = app.isPackaged
   ? legacyApplicationNames.map((name) => path.join(app.getPath("appData"), name))
   : [];
-const configDirOverride = desktopEnvironment("NAIMAGE_CONFIG_DIR", "IIIMAGE_CONFIG_DIR");
+const configDirOverride = desktopEnvironment("NAIMAGE_CONFIG_DIR");
 const configDir = configDirOverride
   ? path.resolve(configDirOverride)
   : app.isPackaged
     ? path.join(packagedDataRoot, "data")
     : path.join(projectRoot, "config");
 const agentWorkspaceRoot = app.isPackaged ? path.join(packagedDataRoot, "workspace") : projectRoot;
-const debugDirOverride = desktopEnvironment("NAIMAGE_DEBUG_DIR", "IIIMAGE_DEBUG_DIR");
+const debugDirOverride = desktopEnvironment("NAIMAGE_DEBUG_DIR");
 const debugDir = debugDirOverride
   ? path.resolve(debugDirOverride)
   : app.isPackaged
     ? path.join(app.getPath("logs"), "runtime")
     : path.join(projectRoot, ".diagnostics", "electron");
-const electronLogOverride = desktopEnvironment("NAIMAGE_ELECTRON_LOG", "IIIMAGE_ELECTRON_LOG");
+const electronLogOverride = desktopEnvironment("NAIMAGE_ELECTRON_LOG");
 const electronLog = electronLogOverride
   ? path.resolve(electronLogOverride)
   : path.join(debugDir, "latest.log");
@@ -223,9 +222,9 @@ const projectManifestFileName = "project.json";
 const exportSessionFileName = "start.naimage";
 const legacyExportSessionFileNames = ["start.iiimage"];
 const maxExportImageBytes = 128 * 1024 * 1024;
-const projectIoSelftestMode = desktopEnvironment("NAIMAGE_PROJECT_IO_SELFTEST", "IIIMAGE_PROJECT_IO_SELFTEST") === "1";
-const agentProtocolSelftestMode = desktopEnvironment("NAIMAGE_AGENT_PROTOCOL_SELFTEST", "IIIMAGE_AGENT_PROTOCOL_SELFTEST") === "1";
-const lifecycleSelftestMode = desktopEnvironment("NAIMAGE_LIFECYCLE_SELFTEST", "IIIMAGE_LIFECYCLE_SELFTEST") === "1";
+const projectIoSelftestMode = desktopEnvironment("NAIMAGE_PROJECT_IO_SELFTEST") === "1";
+const agentProtocolSelftestMode = desktopEnvironment("NAIMAGE_AGENT_PROTOCOL_SELFTEST") === "1";
+const lifecycleSelftestMode = desktopEnvironment("NAIMAGE_LIFECYCLE_SELFTEST") === "1";
 let localServerProcess = null;
 let localServerMonitor = null;
 let localServerEnsurePromise = null;
@@ -242,9 +241,7 @@ const modelCacheMemory = new Map();
 const modelCacheInflight = new Map();
 let modelCacheDiskLoaded = false;
 let newApiAuthEpoch = 0;
-// Preserve the pre-rename wire key so an interrupted request retried after an
-// upgrade cannot create and charge for the same image twice.
-const legacyManagedImageIdempotencyPrefix = "iiimage-";
+const managedImageIdempotencyPrefix = "naimage-";
 const maximumConcurrentImageEditRequests = 3;
 let activeImageEditRequests = 0;
 const queuedImageEditRequests = [];
@@ -1786,10 +1783,7 @@ function createLocalServerSpawnOptions() {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
       NAIMAGE_SERVER_PORT: "17860",
-      NAIMAGE_PARENT_PID: String(process.pid),
-      // Compatibility for an older local gateway launched by a newer shell.
-      IIIMAGE_SERVER_PORT: "17860",
-      IIIMAGE_PARENT_PID: String(process.pid)
+      NAIMAGE_PARENT_PID: String(process.pid)
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true
@@ -2485,7 +2479,7 @@ async function callNewApiImage(settings, payload = {}) {
   const aidebugMockImage = aidebugMode && !aidebugLiveImage;
   if (aidebugMockImage) {
     const fixtureHint = aidebugLayerFixtureHint(payload);
-    if (desktopEnvironment("NAIMAGE_AIDEBUG_ASSERT_EXPLICIT_LAYER_HINT", "IIIMAGE_AIDEBUG_ASSERT_EXPLICIT_LAYER_HINT") === "1" && fixtureHint.isLayerPrompt) {
+    if (desktopEnvironment("NAIMAGE_AIDEBUG_ASSERT_EXPLICIT_LAYER_HINT") === "1" && fixtureHint.isLayerPrompt) {
       const isMaskLayer = String(payload.layerOutputMode || "").trim().toLowerCase() === "mask";
       const expectedTransparent = fixtureHint.role !== "background" && !isMaskLayer;
       const expectedBackground = expectedTransparent ? "transparent" : "opaque";
@@ -2502,7 +2496,7 @@ async function callNewApiImage(settings, payload = {}) {
       }
       if (
         isMaskLayer &&
-        desktopEnvironment("NAIMAGE_AIDEBUG_ASSERT_CLEAN_BACKGROUND_REFERENCE", "IIIMAGE_AIDEBUG_ASSERT_CLEAN_BACKGROUND_REFERENCE") === "1" &&
+        desktopEnvironment("NAIMAGE_AIDEBUG_ASSERT_CLEAN_BACKGROUND_REFERENCE") === "1" &&
         !referenceImages.some((image) => String(image.role || "").trim().toLowerCase() === "clean-background")
       ) {
         throw new Error("AIDebug semantic layer mask expected the generated clean-background reference.");
@@ -2523,7 +2517,7 @@ async function callNewApiImage(settings, payload = {}) {
     if (error?.ambiguous === true) {
       return { category: "ambiguous", retryable: true, maxRetries: 1, status, message };
     }
-    if (code === "naimage_image_timeout" || code === "iiimage_image_timeout" || error?.name === "AbortError" || /timeout|timed out|etimedout|超时|超过\s*300\s*秒/.test(normalized)) {
+    if (code === "naimage_image_timeout" || error?.name === "AbortError" || /timeout|timed out|etimedout|超时|超过\s*300\s*秒/.test(normalized)) {
       return { category: "timeout", retryable: true, maxRetries: 1, status, message };
     }
     if (status === 401 || status === 403 || /invalid token|unauthorized|forbidden|登录已失效|会话已失效/.test(normalized)) {
@@ -2638,7 +2632,7 @@ async function callNewApiImage(settings, payload = {}) {
       const prompt = promptForIndependentImage(payload.prompt, count, index);
       const requestHeaders = {
         ...newApiUserAuthHeaders(settings),
-        "Idempotency-Key": `${legacyManagedImageIdempotencyPrefix}${idempotencyKeys[index]}`
+        "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`
       };
       if (aidebugMockImage) {
         await delay(45);
@@ -2728,7 +2722,7 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.moderation) body.moderation = imageControls.moderation;
       return newApiRelayJson(settings, "/v1/images/generations", body, {
         signal,
-        headers: { "Idempotency-Key": `${legacyManagedImageIdempotencyPrefix}${idempotencyKeys[index]}` },
+        headers: { "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}` },
         headersTimeoutMs: imageTimeoutMs,
         connectTimeoutMs: 30_000,
         maxResponseBytes: 64 * 1024 * 1024
@@ -3270,7 +3264,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      backgroundThrottling: desktopEnvironment("NAIMAGE_PERFORMANCE_GATE", "IIIMAGE_PERFORMANCE_GATE") !== "1"
+      backgroundThrottling: desktopEnvironment("NAIMAGE_PERFORMANCE_GATE") !== "1"
     }
   });
   window.setMinimumSize(minWindowWidth, minWindowHeight);

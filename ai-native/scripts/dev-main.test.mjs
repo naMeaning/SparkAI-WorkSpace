@@ -66,17 +66,17 @@ test("buildDevMainConfig supports custom frontend dev server port", () => {
   assert.equal(config.frontendEnv.RSBUILD_DEV_SERVER_PORT, "19062");
 });
 
-test("buildDevMainConfig accepts legacy IIIMAGE local environment aliases", () => {
+test("buildDevMainConfig supports canonical NAIMAGE local environment configuration", () => {
   const config = buildDevMainConfig({
-    IIIMAGE_SERVER_PORT: "19160",
-    IIIMAGE_WEB_PORT: "19162",
-    IIIMAGE_SERVER_DATA_DIR: "legacy-data",
-    IIIMAGE_WEB_URL: "http://127.0.0.1:19163"
+    NAIMAGE_SERVER_PORT: "19160",
+    NAIMAGE_WEB_PORT: "19162",
+    NAIMAGE_SERVER_DATA_DIR: "naimage-data",
+    NAIMAGE_WEB_URL: "http://127.0.0.1:19163"
   });
 
   assert.equal(config.gatewayPort, "19160");
   assert.equal(config.frontendPort, "19162");
-  assert.equal(config.gatewayDataDir, "legacy-data");
+  assert.equal(config.gatewayDataDir, "naimage-data");
   assert.equal(config.frontendDevUrl, "http://127.0.0.1:19163");
   assert.equal(config.gatewayEnv.NAIMAGE_SERVER_PORT, "19160");
 });

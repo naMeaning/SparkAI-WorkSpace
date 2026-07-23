@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,9 +19,6 @@ func TestManagedRelayNativePathRewritesOnlyInsideHandler(t *testing.T) {
 		{publicPath: "/naimage/v1/responses", nativePath: "/v1/responses"},
 		{publicPath: "/naimage/v1/images/generations", nativePath: "/v1/images/generations"},
 		{publicPath: "/naimage/v1/images/edits", nativePath: "/v1/images/edits"},
-		{publicPath: "/iiimage/v1/responses", nativePath: "/v1/responses"},
-		{publicPath: "/iiimage/v1/images/generations", nativePath: "/v1/images/generations"},
-		{publicPath: "/iiimage/v1/images/edits", nativePath: "/v1/images/edits"},
 	} {
 		testCase := testCase
 		t.Run(testCase.publicPath, func(t *testing.T) {
@@ -43,7 +41,7 @@ func TestManagedRelayNativePathRewritesOnlyInsideHandler(t *testing.T) {
 	}
 }
 
-func TestManagedSessionRelayRegistersCanonicalAndLegacyPublicRoutes(t *testing.T) {
+func TestManagedSessionRelayRegistersNaimagePublicRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	SetRelayRouter(engine)
@@ -53,18 +51,28 @@ func TestManagedSessionRelayRegistersCanonicalAndLegacyPublicRoutes(t *testing.T
 		routes[route.Method+" "+route.Path] = struct{}{}
 	}
 
-	for _, basePath := range []string{managedRelayCanonicalBasePath, managedRelayLegacyBasePath} {
-		for _, route := range []string{
-			http.MethodGet + " " + basePath + "/models",
-			http.MethodPost + " " + basePath + "/chat/completions",
-			http.MethodPost + " " + basePath + "/responses",
-			http.MethodPost + " " + basePath + "/responses/compact",
-			http.MethodPost + " " + basePath + "/images/generations",
-			http.MethodPost + " " + basePath + "/images/edits",
-		} {
-			_, exists := routes[route]
-			require.True(t, exists, "missing managed session relay route %s", route)
-		}
+	for _, route := range []string{
+		http.MethodGet + " " + managedRelayBasePath + "/models",
+		http.MethodPost + " " + managedRelayBasePath + "/chat/completions",
+		http.MethodPost + " " + managedRelayBasePath + "/responses",
+		http.MethodPost + " " + managedRelayBasePath + "/responses/compact",
+		http.MethodPost + " " + managedRelayBasePath + "/images/generations",
+		http.MethodPost + " " + managedRelayBasePath + "/images/edits",
+	} {
+		_, exists := routes[route]
+		require.True(t, exists, "missing managed session relay route %s", route)
+	}
+	for _, legacyPath := range []string{
+		"/iiimage/v1/models",
+		"/iiimage/v1/chat/completions",
+		"/iiimage/v1/responses",
+		"/iiimage/v1/responses/compact",
+		"/iiimage/v1/images/generations",
+		"/iiimage/v1/images/edits",
+	} {
+		_, exists := routes[http.MethodGet+" "+legacyPath]
+		_, postExists := routes[http.MethodPost+" "+legacyPath]
+		assert.False(t, exists || postExists, "legacy managed relay route must stay unregistered: %s", legacyPath)
 	}
 }
 

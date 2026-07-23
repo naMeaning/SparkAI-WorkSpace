@@ -213,9 +213,9 @@ Renderer UpdaterBridge
   → 健康标记与失败回滚
 ```
 
-版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。新客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链为同一套制品分别签发 `desktop-release.json`（`naimage-studio`）与 `desktop-release-legacy.json`（`iiimage-studio`），两者除 `product`、`signature` 外必须完全一致。
+版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链只签发和校验 `naimage-studio` 产品身份的 manifest 与制品。
 
-品牌迁移首版为 `1.0.5`，`naimageUpdateMinimumVersion` 也固定为 `1.0.5`。因此旧 `1.0.4` 客户端即使 compatibility 相同也必须走完整 installer，不能只替换 ASAR；这样 EXE、快捷方式、卸载项和安装身份才能一并迁移。
+品牌迁移首版为 `1.0.5`，`naimageUpdateMinimumVersion` 也固定为 `1.0.5`。当前 `naimage` 1.0.4 客户端即使 compatibility 相同也必须走完整 installer，不能只替换 ASAR；更名前客户端不再拥有网络别名，需手工安装当前版本。
 
 ## 5. 模块登记
 
@@ -227,9 +227,9 @@ Renderer UpdaterBridge
 | `preload.cjs` | 四组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent` | `test:ui-foundation`, `test:lifecycle`, `aidebug:gui` |
 | `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、compact/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
-| `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、旧 `.iiimage/project.json` 与 `start.iiimage` 只读迁移、thumbnail roots | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
+| `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、当前元数据路径，以及更名前元数据的只读迁移 | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
-| `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化；旧 `iiimage-asset:` 与 `.iiimage/assets` 只读兼容 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
+| `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化；新写入使用 `naimage-asset:` 与 `.naimage/assets`，读取兼容更名前资产 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-package-service.cjs` | `.naimage` 项目包校验、大小/数量限制、可移植资产收集、导出写入、旧包导入恢复与路径重写 | 项目列表、active project、IPC/dialog 或普通 session 保存队列 | `createProjectPackageService`, `packageProject`, `validateProjectPackageData`, `sessionFromPackage`, `importProjectPackage` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-save-coordinator.cjs` | 按项目串行保存、revision 规范化、旧写入拒绝 | session 清洗、路径选择、磁盘格式 | `createProjectSaveCoordinator`, `normalizeSessionRevision`, `enqueue` | `test:project-save-coordinator`, `test:project-io` |
 | `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image 默认模型选择、缓存键与缓存归一化 | 网络请求、磁盘缓存时机、IPC | `uniqueModelIds`, `modelIdsFromResponse`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
@@ -380,7 +380,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 - `/naimage/v1/images/generations`, `/naimage/v1/images/edits`
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
-`/iiimage/v1/*` 与 `/downloads/iiimage-studio/windows` 只作为旧客户端的直接兼容入口；新请求和新写入不得继续使用它们。修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
+`/naimage/v1/*` 与 `/downloads/naimage-studio/windows` 是唯一 canonical 客户端入口。修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
 
 ## 7. 镜像实现与同步规则
 
@@ -394,7 +394,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | Session revision | Renderer 自动保存、`desktop/project-save-coordinator.cjs`、项目 manifest/session | revision 单调且旧写不覆盖新写；运行 `test:project-save-coordinator`, `test:project-io` |
 | 服务返回清洗 | `electron-main.cjs` 正式路径、`src/server.ts` 浏览器回退 | 登录、用户、模型、日志和图片 DTO 不能静默分叉；正式行为以 Electron 路径为准 |
 | Agent 文本清洗 | `agent-runtime.cjs` tool envelope、`src/core.ts` 持久化消息清洗、`src/agent.ts` 时间线 | 不泄露 entry id/FastMemory metadata，不重复最终文本；运行 `test:agent-text`, `test:timeline` |
-| 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `ai-native` 双 release manifest | canonical/legacy 两份清单的 version、minimum version、compatibility、hash、size 与制品必须一致；product 分别固定，signature 独立生成并验签 |
+| 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `ai-native` release manifest | canonical 清单的 product、version、minimum version、compatibility、hash、size 与制品必须一致，并独立验签 |
 
 短期内不要为了去重而跨 CommonJS/TypeScript 强行共享运行时代码；优先使用共同 fixture 和契约测试保证一致。
 
@@ -409,7 +409,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | Agent Prompt/tool/schema | `agent-runtime.cjs` | `src/core.ts` 类型、`src/agent.ts`、action handler、产品意图 | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `view_image` | `runtime/view-image-payload.cjs`, `agent-runtime.cjs` | 允许根、payload 预算、Sharp、持久化排除 | `test:view-image`, `test:agent-protocol` |
 | 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs` | 服务响应 DTO、60 秒缓存、设置/Agent 共用模型 | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
-| 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、旧 `serverUrl` 与 `iiimage.*` LocalStorage 键只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
+| 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
 | 项目保存/session | `main.tsx`, `electron-main.cjs`, save coordinator | manifest、revision、迁移、原子写入 | `test:project-save-coordinator`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
@@ -427,7 +427,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | Agent workspace | 仓库根目录 | Electron `userData/workspace/` |
 | Electron diagnostics | `.diagnostics/electron/` | Electron logs 下的 `runtime/` |
 
-可用 `NAIMAGE_CONFIG_DIR`、`NAIMAGE_DEBUG_DIR` 等诊断变量覆盖隔离测试目录；旧 `IIIMAGE_*` 变量仅作为显式兼容回退，不得把真实用户数据写入随机源码目录。
+可用 `NAIMAGE_CONFIG_DIR`、`NAIMAGE_DEBUG_DIR` 等诊断变量覆盖隔离测试目录；不得把真实用户数据写入随机源码目录。
 
 ### 9.2 应用与项目文件
 
@@ -446,10 +446,12 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 9.2.1 更名兼容边界
 
-- 新写入只使用 `.naimage/project.json`、`start.naimage`、`naimage-project`、`naimage-project-package` 和 `naimage-asset:`；导入仍接受旧 `.iiimage/project.json`、`start.iiimage`、`iiimage-project(-package)` 与 `iiimage-asset:`，读取后不改写或删除旧文件。
-- 浏览器回退的新键为 `naimage.settings.v1`、`naimage.ideSession.v1`、`naimage.imageGenerationStats.v1`、`naimage.serverAuth.v1`。只有对应新键不存在时才只读回退到旧 `iiimage.*` 键；后续正常保存只写新键，且不得覆盖已经存在的新键。
-- 打包应用名与 userData 根改为 `naimage`。首次检测到旧 `iiimage Studio` userData 时，只把应用自有的 `data/`、`workspace/`、`Local Storage/` 中缺失文件复制到新根，以保留项目会话、Agent memory、浏览器回退设置和生图统计；现有新文件、旧源文件和符号链接均不覆盖/移动，并以 `.naimage-user-data-migration-v1.json` 标记完成。
-- 新 updater 只请求 canonical manifest 与 `/downloads/naimage-studio/windows`；旧客户端缺失产品声明时，服务端固定返回 legacy 签名 manifest 与旧下载前缀。验证码挑战绑定产品方言和安装包指纹，授权阶段不得切换方言或跨发布复用。
+- 新写入与导出只使用 `.naimage/project.json`、`start.naimage`、`naimage-project`、`naimage-project-package` 和 `naimage-asset:`；导入器仍只读接受更名前格式，绝不向旧路径写入。
+- 浏览器回退键统一为 `naimage.settings.v1`、`naimage.ideSession.v1`、`naimage.imageGenerationStats.v1`、`naimage.serverAuth.v1`；只有当前键不存在时才只读迁移更名前值，正常保存只写当前品牌键。
+- 打包应用名与 userData 根均为 `naimage`。首次迁移更名前 userData 时，仅复制应用自有目录中的缺失文件；不覆盖现有文件、不移动来源、不跟随符号链接，并以 `.naimage-user-data-migration-v1.json` 标记完成。
+- updater 只接受 `naimage-studio` manifest 与 `/downloads/naimage-studio/windows`；服务端不再注册更名前网络路由。验证码挑战绑定产品身份和安装包指纹，授权阶段不得切换产品或跨发布复用。
+- 本地 Gateway 的开发 fallback Session Secret 已切换到当前品牌，已有本地登录 Cookie 需要重新登录一次；生产必须继续提供稳定的 `SESSION_SECRET`，不会使用该 fallback。
+- 仓内冻结的 1.0.4 manifest 只用于历史验签，不能与当前后端一起部署；首次 1.0.5 发布必须把后端与新签名的 `naimage-studio` manifest 作为一个原子变更交付。
 
 ### 9.3 Agent memory
 
@@ -459,7 +461,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 - `fastmemory.json`：按 `projectId + conversationId` 隔离的 FastMemory。
 - `memorycontext.json`：内部 memory context。
 - `datememorycontext.json`：日期维护上下文。
-- `naimage-memory.db`：runtime meta、context、toolmemory、date memory 等 SQLite 数据；旧 `iiimage-memory.db` 只在新库不存在时作为迁移来源，迁移失败时只读回退，不覆盖或删除旧库。
+- `naimage-memory.db`：runtime meta、context、toolmemory、date memory 等 SQLite 数据；当前库不存在时可从更名前数据库只读迁移，失败时不覆盖或删除来源。
 
 Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不能重新合并为旧 Prompt entries。
 
@@ -535,4 +537,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-23 | 1.0.4 | 抽出 `desktop/aidebug-image-fixture.cjs`，集中持有 AIDebug mock 图片的图层提示、尺寸归一化与确定性 PNG；Main 仅消费两个编排契约，`test:new-api-transport` 固定四类 base64 SHA-256、尺寸与 hint 输出。 |
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/options.mjs`，集中持有 AIDebug CLI alias、env/CLI 特殊优先级、数值/路径/references 归一化与 `rawArgs` 快照；GUI 入口保持原 suite 顺序和启动编排，三个 supervisor 不再动态读取 argv。 |
 | 2026-07-23 | 1.0.4 | New API 设置拆为 `accountBaseUrl`、可继承的 `relayBaseUrl` 和独立 `updateBaseUrl`；新装账户默认 Spark，Updater 保留独立官方地址；旧 `serverUrl` 只读迁移，模型缓存按 account+relay+user 隔离，异源 Relay Cookie 不回写账户 session，canonical Session Relay 路由切换为 `/naimage/v1/*`。 |
-| 2026-07-23 | 1.0.5 | 产品身份从 iiimage 全面迁移为 naimage：目录、App ID、EXE、安装器、IPC、项目格式、资源协议、存储键、memory 与 canonical 路由均使用新名称；旧名称仅保留只读数据迁移和网络升级兼容。首版通过双签名 manifest 与 `minimum_version=1.0.5` 强制 1.0.4 完整安装升级。 |
+| 2026-07-23 | 1.0.5 | 产品身份统一为 naimage：目录、App ID、EXE、安装器、IPC、新项目格式、资源协议、存储键、memory 与 canonical 路由均使用当前名称；更名前本地数据仅保留只读迁移。首版通过签名 manifest 与 `minimum_version=1.0.5` 强制当前 1.0.4 客户端完整安装升级。 |

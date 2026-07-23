@@ -47,7 +47,7 @@ if find -P "${data_source}/managed-image-idempotency" \( -type l -o \( ! -type d
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)-$$"
-snapshot_dir="${data_source}/.iiimage-backup-${stamp}-$$"
+snapshot_dir="${data_source}/.naimage-backup-${stamp}-$$"
 archive="${BACKUP_DIR}/new-api-state-${stamp}.tar.gz"
 archive_tmp="${archive}.tmp"
 checksum="${archive}.sha256"
@@ -55,7 +55,7 @@ result_tmp=""
 archive_verified=0
 cleanup() {
   case "$snapshot_dir" in
-    "$data_source"/.iiimage-backup-*) rm -rf -- "$snapshot_dir" ;;
+    "$data_source"/.naimage-backup-*) rm -rf -- "$snapshot_dir" ;;
     *) printf '[WARN] refusing to clean unexpected snapshot path: %s\n' "$snapshot_dir" >&2 ;;
   esac
   rm -f -- "$archive_tmp" "${archive_tmp}.sha256" "${checksum}.tmp"

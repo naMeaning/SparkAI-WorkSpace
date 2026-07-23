@@ -12,21 +12,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	managedRelayCanonicalBasePath = "/naimage/v1"
-	managedRelayLegacyBasePath    = "/iiimage/v1"
-)
+const managedRelayBasePath = "/naimage/v1"
 
 func managedRelayNativePath() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		originalPath := c.Request.URL.Path
 		originalRawPath := c.Request.URL.RawPath
-		for _, publicPrefix := range []string{"/naimage", "/iiimage"} {
-			if strings.HasPrefix(originalPath, publicPrefix+"/v1/") {
-				c.Request.URL.Path = strings.TrimPrefix(originalPath, publicPrefix)
-				c.Request.URL.RawPath = ""
-				break
-			}
+		if strings.HasPrefix(originalPath, "/naimage/v1/") {
+			c.Request.URL.Path = strings.TrimPrefix(originalPath, "/naimage")
+			c.Request.URL.RawPath = ""
 		}
 		c.Next()
 		c.Request.URL.Path = originalPath
@@ -84,12 +78,10 @@ func SetRelayRouter(router *gin.Engine) {
 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
 	router.Use(middleware.StatsMiddleware())
 
-	// naimage uses the authenticated New API session while the managed
-	// relay token stays on the server. These routes deliberately reuse the
-	// native relay middleware and handlers. The legacy IIIMAGE prefix remains a
-	// direct alias so existing desktop versions keep working without redirects.
-	registerManagedSessionRelayRoutes(router, managedRelayCanonicalBasePath)
-	registerManagedSessionRelayRoutes(router, managedRelayLegacyBasePath)
+	// naimage uses the authenticated New API session while the managed relay
+	// token stays on the server. These routes deliberately reuse the native
+	// relay middleware and handlers under one canonical public namespace.
+	registerManagedSessionRelayRoutes(router, managedRelayBasePath)
 
 	// https://platform.openai.com/docs/api-reference/introduction
 	modelsRouter := router.Group("/v1/models")

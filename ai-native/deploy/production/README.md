@@ -5,10 +5,8 @@ This directory is the source of truth for `image.aieyra.cn` deployment and host 
 ## Runtime layout
 
 1. Copy `.env.example` to `runtime/.env` and fill the existing production secrets.
-2. Put every installer/restart artifact named by the tracked release manifest
-   set in `runtime/releases/`. Starting with 1.0.5, that set is the
-   `releases/desktop-release.json` and
-   `releases/desktop-release-legacy.json` pair.
+2. Put every installer/restart artifact named by the tracked
+   `releases/desktop-release.json` manifest in `runtime/releases/`.
 3. Run `./verify-installer.sh` before building.
 4. Run `./deploy-main.sh` to build, health-check, reload Caddy, and run the application-level production acceptance gate.
 5. Run `./verify-production.sh` after deployment for the complete read-only acceptance check.
@@ -34,15 +32,13 @@ are part of the pending diff.
 
 The New API container has no published host port. Caddy reaches it through the external `forgejo` Docker network, and `TRUSTED_PROXIES` explicitly trusts only that network. The installer directory is mounted read-only.
 
-`verify-installer.sh` validates both manifest schemas, release identities,
-versioned artifact names, sizes, SHA-256 digests, Ed25519 signatures, and the
-rule that the pair differs only in `product` and `signature`, against the same
-tracked public key embedded by naimage. `deploy-main.sh` verifies the tracked
-pair before touching runtime state. If the legacy runtime filename does not yet
-exist, it seeds only that verified compatibility manifest before starting the
-new backend; normal pair promotion happens after application and Caddy work,
-and rollback restores/removes both identities together. A failed final
-acceptance check restores the prior runtime manifests and Caddyfile. For a New API-only
+`verify-installer.sh` validates the manifest schema, release identity,
+versioned artifact names, sizes, SHA-256 digests, and Ed25519 signature against
+the tracked public key embedded by naimage. `deploy-main.sh` verifies the
+tracked `desktop-release.json` before touching runtime state, stages and verifies
+the same single manifest before promotion, and restores the prior runtime
+manifest on rollback. A failed final acceptance check also restores the prior
+Caddyfile. For a New API-only
 release it also restores the pre-switch SQLite database and
 `managed-image-idempotency` directory, retags the preserved previous container
 image, and waits for the previous New API service to become healthy. The
@@ -52,13 +48,16 @@ previous successful application commit and causes the watcher to retry without
 leaving the failed application live.
 
 The tracked `releases/desktop-release.json` initially remains the already-signed
-legacy 1.0.4 manifest. Its `iiimage-studio` identity and historical artifact
-filenames stay byte-for-byte intact so its signature remains valid; deployment
-mirrors those exact bytes to the legacy runtime filename during transition.
-Every newly signed release publishes `desktop-release.json` with product
-`naimage-studio` and `desktop-release-legacy.json` with product
-`iiimage-studio`. Both name the same `naimage-Setup-*` and
-`naimage-Restart-Update-*` artifacts and differ only in product/signature.
+historical 1.0.4 manifest. Its `iiimage-studio` identity and historical artifact
+filenames stay byte-for-byte intact so its signature remains valid. It can be
+audited only with `NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=1`; deployment and
+production acceptance explicitly force that switch off. Therefore the
+renamed backend and a newly signed `naimage-studio` manifest must be reviewed and
+deployed atomically. Every newly signed release publishes only
+`desktop-release.json`, with `naimage-Setup-*` /
+`naimage-Restart-Update-*` artifacts. The retired
+`desktop-release-legacy.json` rename bridge is no longer generated, deployed,
+or required by acceptance checks.
 
 Before preserving or building any New API image, the deployer atomically writes
 `runtime/manual-recovery-required.env` with

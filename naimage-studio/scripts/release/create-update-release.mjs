@@ -1,5 +1,5 @@
 import { createHash, sign, verify } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,13 +23,15 @@ const privateKeyPath = process.env.NAIMAGE_RELEASE_PRIVATE_KEY
   ? resolve(process.env.NAIMAGE_RELEASE_PRIVATE_KEY)
   : join(projectRoot, "config", "release-signing-private.pem");
 const publicKeyPath = join(projectRoot, "build", "update-public-key.pem");
-const legacyDesktopReleaseProduct = "iiimage-studio";
 
 for (const [label, file] of [["安装包", installerPath], ["应用资源", unpackedAsar], ["更新签名私钥", privateKeyPath], ["客户端更新公钥", publicKeyPath]]) {
   if (!existsSync(file)) throw new Error(`${label}不存在：${file}`);
 }
 if (!/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version)) throw new Error(`无效版本号：${version}`);
 if (!compatibility) throw new Error("package.json 缺少 naimageUpdateCompatibility。");
+if (desktopReleaseProduct !== "naimage-studio") {
+  throw new Error(`发布产品必须为 naimage-studio，当前为 ${desktopReleaseProduct || "unknown"}。`);
+}
 
 const privateKey = readFileSync(privateKeyPath);
 const publicKey = readFileSync(publicKeyPath);
@@ -61,8 +63,8 @@ const manifest = {
   restart: artifact(restartPath, restartName),
   installer: artifact(installerPath, installerName)
 };
-function signedManifest(product) {
-  const candidate = { ...manifest, product };
+function signedManifest(candidateManifest) {
+  const candidate = { ...candidateManifest };
   const canonicalRelease = Buffer.from(canonicalDesktopRelease(candidate), "utf8");
   const signature = sign(null, canonicalRelease, privateKey);
   if (!verify(null, canonicalRelease, publicKey, signature)) {
@@ -72,22 +74,14 @@ function signedManifest(product) {
   return candidate;
 }
 
-function sharedManifestPayload(value) {
-  const { product: _product, signature: _signature, ...shared } = value;
-  return shared;
-}
-
-const canonicalManifest = signedManifest(desktopReleaseProduct);
-const legacyManifest = signedManifest(legacyDesktopReleaseProduct);
-if (JSON.stringify(sharedManifestPayload(canonicalManifest)) !== JSON.stringify(sharedManifestPayload(legacyManifest))) {
-  throw new Error("Canonical 与 legacy 发布清单的共享制品信息不一致。");
-}
+const canonicalManifest = signedManifest(manifest);
 
 const manifestPath = join(releaseDir, "desktop-release.json");
-const legacyManifestPath = join(releaseDir, "desktop-release-legacy.json");
 const installerMetadataPath = join(releaseDir, `${installerName}.json`);
+// A release is represented by one canonical manifest. Remove output left by
+// the retired rename bridge so it cannot be uploaded with a new release.
+rmSync(join(releaseDir, "desktop-release-legacy.json"), { force: true });
 writeFileSync(manifestPath, `${JSON.stringify(canonicalManifest, null, 2)}\n`, "utf8");
-writeFileSync(legacyManifestPath, `${JSON.stringify(legacyManifest, null, 2)}\n`, "utf8");
 writeFileSync(installerMetadataPath, `${JSON.stringify({
   filename: installerName,
   version,
@@ -98,20 +92,18 @@ writeFileSync(installerMetadataPath, `${JSON.stringify({
 }, null, 2)}\n`, "utf8");
 
 const checksumPath = join(releaseDir, "SHA256SUMS.txt");
-const checksumFiles = [installerPath, restartPath, manifestPath, legacyManifestPath, installerMetadataPath];
+const checksumFiles = [installerPath, restartPath, manifestPath, installerMetadataPath];
 writeFileSync(checksumPath, checksumFiles
   .map((file) => `${createHash("sha256").update(readFileSync(file)).digest("hex")}  ${file.slice(releaseDir.length + 1)}`)
   .join("\n") + "\n", "utf8");
 
 console.log(JSON.stringify({
   manifestPath,
-  legacyManifestPath,
   restartPath,
   installerPath,
   installerMetadataPath,
   checksumPath,
   version,
   compatibility,
-  signaturesVerified: true,
-  sharedArtifactsVerified: true
+  signatureVerified: true
 }, null, 2));

@@ -95,8 +95,8 @@ restore_backup() {
   [[ "$data_source" != "/" ]] || fail "refusing to restore into filesystem root"
   [[ -s "${data_source}/one-api.db" ]] || fail "live New API SQLite database is missing or empty"
 
-  restore_dir="$(mktemp -d "${data_source}/.iiimage-restore.XXXXXX")"
-  previous_dir="$(mktemp -d "${data_source}/.iiimage-pre-restore.XXXXXX")"
+  restore_dir="$(mktemp -d "${data_source}/.naimage-restore.XXXXXX")"
+  previous_dir="$(mktemp -d "${data_source}/.naimage-pre-restore.XXXXXX")"
   cleanup_restore() {
     local status=$?
     local cleanup_status=0
@@ -138,14 +138,14 @@ restore_backup() {
       fi
     fi
     case "$restore_dir" in
-      "${data_source}"/.iiimage-restore.*) rm -rf -- "$restore_dir" || cleanup_status=1 ;;
+      "${data_source}"/.naimage-restore.*) rm -rf -- "$restore_dir" || cleanup_status=1 ;;
       *) printf '[WARN] refusing to clean unexpected restore directory: %s\n' "$restore_dir" >&2; cleanup_status=1 ;;
     esac
     if [[ "$preserve_previous" == "1" ]]; then
       printf '[CRITICAL] retained pre-restore state for manual recovery: %s\n' "$previous_dir" >&2
     else
       case "$previous_dir" in
-        "${data_source}"/.iiimage-pre-restore.*) rm -rf -- "$previous_dir" || cleanup_status=1 ;;
+        "${data_source}"/.naimage-pre-restore.*) rm -rf -- "$previous_dir" || cleanup_status=1 ;;
         *) printf '[WARN] refusing to clean unexpected previous-state directory: %s\n' "$previous_dir" >&2; cleanup_status=1 ;;
       esac
     fi

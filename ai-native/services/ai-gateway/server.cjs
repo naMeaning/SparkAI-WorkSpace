@@ -5,9 +5,9 @@ const path = require("node:path");
 const serverRoot = __dirname;
 const repoRoot = path.resolve(serverRoot, "..", "..");
 const newApiRoot = path.join(serverRoot, "new-api");
-const dataDir = process.env.AI_GATEWAY_DATA_DIR || process.env.NAIMAGE_SERVER_DATA_DIR || process.env.IIIMAGE_SERVER_DATA_DIR || path.join(serverRoot, "config", "new-api");
-const port = String(process.env.NAIMAGE_SERVER_PORT || process.env.IIIMAGE_SERVER_PORT || process.env.PORT || "17860");
-const parentPid = Number(process.env.NAIMAGE_PARENT_PID || process.env.IIIMAGE_PARENT_PID || 0);
+const dataDir = process.env.AI_GATEWAY_DATA_DIR || process.env.NAIMAGE_SERVER_DATA_DIR || path.join(serverRoot, "config", "new-api");
+const port = String(process.env.NAIMAGE_SERVER_PORT || process.env.PORT || "17860");
+const parentPid = Number(process.env.NAIMAGE_PARENT_PID || 0);
 const isSmoke = process.argv.includes("--smoke");
 const isBuildOnly = process.argv.includes("--build-only");
 const externalFrontendDevServer = process.env.AI_GATEWAY_FRONTEND_DEV_SERVER === "true";
@@ -149,9 +149,9 @@ function newApiEnv() {
     ...process.env,
     PORT: port,
     SQLITE_PATH: sqlitePath,
-    // Keep the pre-rename local fallback so existing signed development
-    // sessions survive the product rename. Production supplies its own secret.
-    SESSION_SECRET: process.env.SESSION_SECRET || "iiimage-new-api-local-session-secret",
+    // Local development uses the canonical product-scoped fallback.
+    // Production must supply its own stable secret.
+    SESSION_SECRET: process.env.SESSION_SECRET || "naimage-new-api-local-session-secret",
     GENERATE_DEFAULT_TOKEN: process.env.GENERATE_DEFAULT_TOKEN || "true",
     GIN_MODE: process.env.GIN_MODE || "release"
   };

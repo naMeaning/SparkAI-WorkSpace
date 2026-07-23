@@ -20,9 +20,6 @@ const DESKTOP_UPDATE_PRODUCT = "naimage-studio";
 const DESKTOP_UPDATE_PRODUCT_HEADER = "X-Naimage-Desktop-Product";
 const DESKTOP_UPDATE_DOWNLOAD_PREFIX = "/downloads/naimage-studio/";
 const UPDATE_HEALTH_TOKEN_ARGUMENT_PREFIX = "--naimage-update-token=";
-const LEGACY_DESKTOP_UPDATE_PRODUCT = "iiimage-studio";
-const LEGACY_DESKTOP_UPDATE_DOWNLOAD_PREFIX = "/downloads/iiimage-studio/";
-const LEGACY_UPDATE_HEALTH_TOKEN_ARGUMENT_PREFIX = "--iiimage-update-token=";
 
 function createDesktopUpdaterService(options = {}) {
   const {
@@ -60,8 +57,7 @@ function createDesktopUpdaterService(options = {}) {
     : path.join(projectRoot, "build", "update-public-key.pem");
   const updateHelperPath = path.join(process.resourcesPath, "update-helper.ps1");
   const updateLauncherPath = path.join(process.resourcesPath, "update-launcher.ps1");
-  const updateHealthArgument = process.argv.find((item) => item.startsWith(UPDATE_HEALTH_TOKEN_ARGUMENT_PREFIX))
-    || process.argv.find((item) => item.startsWith(LEGACY_UPDATE_HEALTH_TOKEN_ARGUMENT_PREFIX));
+  const updateHealthArgument = process.argv.find((item) => item.startsWith(UPDATE_HEALTH_TOKEN_ARGUMENT_PREFIX));
   const updateHealthToken = String(updateHealthArgument || "").split("=").slice(1).join("=").trim();
   const updateRollbackDetected = process.argv.includes("--update-rollback") || process.env.NAIMAGE_UPDATE_ROLLBACK_SELFTEST === "1";
 
@@ -181,7 +177,7 @@ function createDesktopUpdaterService(options = {}) {
     };
     if (
       release.schema_version !== 1
-      || ![DESKTOP_UPDATE_PRODUCT, LEGACY_DESKTOP_UPDATE_PRODUCT].includes(release.product)
+      || release.product !== DESKTOP_UPDATE_PRODUCT
       || !parseDesktopVersion(version)
     ) {
       throw new Error("服务器返回了不兼容的更新清单。");
@@ -721,8 +717,7 @@ function createDesktopUpdaterService(options = {}) {
   function ensureAuthorizedDownloadUrl(settings, value) {
     const base = new URL(resolveNewApiBaseUrl(settings, "update"));
     const target = new URL(String(value || ""), base);
-    const trustedDownloadPath = target.pathname.startsWith(DESKTOP_UPDATE_DOWNLOAD_PREFIX)
-      || target.pathname.startsWith(LEGACY_DESKTOP_UPDATE_DOWNLOAD_PREFIX);
+    const trustedDownloadPath = target.pathname.startsWith(DESKTOP_UPDATE_DOWNLOAD_PREFIX);
     if (target.origin !== base.origin || !trustedDownloadPath) {
       throw new Error("服务器返回了不可信的更新下载地址。");
     }

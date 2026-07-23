@@ -38,7 +38,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\naimage-Setup-<version>-x64.exe'
 
 工作空间位于同一用户数据根目录下的 `workspace`。程序不会直接修改拖入的原图，而会复制到项目管理目录后再操作。
 
-首次启动新品牌版本时，程序会检查旧 `%APPDATA%\iiimage Studio` 用户目录。它只把旧 `data/`、`workspace/` 和应用 `Local Storage/` 中目标位置尚不存在的普通文件复制到 `%APPDATA%\naimage`，不覆盖新数据、不移动或删除旧数据，也不跟随符号链接。`Local Storage/` 用于保留旧版的浏览器回退设置与生图统计；迁移完成后会在新目录写入一次性标记。
+首次启动 `naimage` 时，程序会检查更名前的 `%APPDATA%\iiimage Studio` 用户目录。它只把旧 `data/`、`workspace/` 和应用 `Local Storage/` 中目标位置尚不存在的普通文件复制到 `%APPDATA%\naimage`，不覆盖新数据、不移动或删除旧数据，也不跟随符号链接。`Local Storage/` 用于保留浏览器回退设置与生图统计；迁移完成后会在新目录写入一次性标记。
 
 ## 卸载
 
@@ -57,8 +57,10 @@ pnpm run package:installer-smoke
 
 上述命令只用于本地构建和分项验证。正式发布必须使用唯一事务入口：
 
+当前 `1.0.5` 是首次改名发布，升级 E2E 必须使用冻结的更名前 `1.0.4` 程序作为基线；从 `1.0.6` 起应改用上一版 `naimage.exe`。
+
 ```powershell
-$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-build\win-unpacked\naimage.exe').Path
+$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-build\win-unpacked\iiimage Studio.exe').Path
 pnpm run release:plan
 pnpm run test:release-orchestrator
 pnpm run release:final

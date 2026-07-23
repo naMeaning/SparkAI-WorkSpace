@@ -13,8 +13,6 @@ const {
 } = require("../electron-main.cjs");
 const { normalizedTaskScope, taskScopeSnapshotHash, taskScopeForPrompt, validateImageOperationSourcePolicy } = require("../agent-runtime.cjs");
 
-const LEGACY_MANAGED_RELAY_ENDPOINT = "/iiimage/v1/models";
-
 process.on("uncaughtException", (error) => {
   process.stderr.write(`${error?.stack || error}\n`);
   app.exit(1);
@@ -100,7 +98,6 @@ assert.equal(agentModelUsesResponsesApi("gpt-4.1"), false);
 assert.equal(managedRelayEndpoint("/v1/responses"), "/naimage/v1/responses");
 assert.equal(managedRelayEndpoint("/v1/images/generations"), "/naimage/v1/images/generations");
 assert.equal(managedRelayEndpoint("/naimage/v1/models"), "/naimage/v1/models");
-assert.equal(managedRelayEndpoint(LEGACY_MANAGED_RELAY_ENDPOINT), "/naimage/v1/models");
 assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 0, "single"), {
   operation: "generate",
   sourceCount: 0,

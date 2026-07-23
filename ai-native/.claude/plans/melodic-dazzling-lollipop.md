@@ -1,5 +1,7 @@
 # AI Native — 全面 UI + 功能审查与重构计划
 
+> 历史方案：本文记录更名前的目录、产品名和工具别名，仅用于追溯当时问题，不代表当前 `naimage` 源码或实现约束。
+
 ## Context
 
 当前项目 AI Native（IIimage）是 Electron + React 生图客户端 + Agent 运行时。Codex（GPT）最近两次大改引入了多项功能性退化：

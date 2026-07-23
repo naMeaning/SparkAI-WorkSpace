@@ -12,13 +12,12 @@ const children = new Set();
 let closing = false;
 
 export function buildDevMainConfig(env = process.env) {
-  const gatewayPort = env.NAIMAGE_SERVER_PORT || env.IIIMAGE_SERVER_PORT || "17860";
-  const frontendPort = env.NAIMAGE_WEB_PORT || env.IIIMAGE_WEB_PORT || "17862";
+  const gatewayPort = env.NAIMAGE_SERVER_PORT || "17860";
+  const frontendPort = env.NAIMAGE_WEB_PORT || "17862";
   const crmApiPort = env.CRM_API_PORT || "17861";
   const gatewayDataDir =
     env.AI_GATEWAY_DATA_DIR ||
     env.NAIMAGE_SERVER_DATA_DIR ||
-    env.IIIMAGE_SERVER_DATA_DIR ||
     join(repoRoot, "services", "ai-gateway", "config", "new-api");
   const sqlitePath =
     env.SQLITE_PATH ||
@@ -28,7 +27,7 @@ export function buildDevMainConfig(env = process.env) {
   const newApiBaseUrl =
     env.NEW_API_BASE_URL || `http://127.0.0.1:${gatewayPort}`;
   const frontendDevUrl =
-    env.NAIMAGE_WEB_URL || env.IIIMAGE_WEB_URL || `http://127.0.0.1:${frontendPort}`;
+    env.NAIMAGE_WEB_URL || `http://127.0.0.1:${frontendPort}`;
   const crmTrustSecret =
     env.CRM_EMBED_TRUST_SECRET ||
     "ai-native-crm-local-embed-secret";
