@@ -1,7 +1,7 @@
 # naimage 上下文地图
 
-> 地图版本：2  
-> 最近同步：2026-07-23
+> 地图版本：3
+> 最近同步：2026-07-24
 > 对应桌面版本：1.0.5
 > 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
 
@@ -47,7 +47,7 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：69 个 handler 的唯一注册顺序
+  ├─ desktop/ipc/register-desktop-ipc.cjs：72 个 handler 的唯一注册顺序
   │    └─ config / agent / window / debug / project / asset / server registrar
   ├─ 项目、session、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
@@ -55,6 +55,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：Node HTTP / Windows curl 传输与取消
   ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON 与 SSE relay
+  ├─ desktop/license-service.cjs：设备激活、24 小时校验缓存与 72 小时离线宽限
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
   ├─ 远端 New API 账户、模型缓存与图片服务编排
@@ -164,6 +165,13 @@ image_gen
 
 `generate/edit/replace/variants/layers/cutout/redraw` 是桌面 Agent 的业务语义；远端边界是 OpenAI-compatible relay、用户会话、模型、计费和图片结果。
 
+桌面有两种互斥但可运行时切换的接入模式：
+
+- `account`：用户名/密码登录 SparkAPI/New API；服务端拥有用户额度、模型分组、渠道选择和计费，桌面请求 `/naimage/v1/*` Session Relay。
+- `custom`：用户提供 Base URL、API Key、Agent 模型和生图模型；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。
+
+两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
+
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
 ### 4.5 项目 session 保存
@@ -239,6 +247,7 @@ Renderer UpdaterBridge
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | Node HTTP 与 Windows curl 请求、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
 | `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream` | `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `contextManage`, `appendConversationProtocolTurn` | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/responses-parser.cjs` | Chat/Responses 非流式响应归一化、文本/推理 delta 读取、tool-call 与 Responses output 流式聚合 | HTTP/SSE 读取、原生工具进度编排、Agent loop 或工具执行 | `messageFromResponse`, `responseFromStreamChunks`, `mergeResponsesToolCallEvent` | `test:agent-text`, `test:agent-protocol` |
@@ -297,7 +306,7 @@ Renderer UpdaterBridge
 | `src/requirement-editor-dialog.tsx` | 需求节点编辑与执行入口 | `aidebug:requirements` |
 | `src/manual-image-task-dialog.tsx` | 空白画布直接生图表单 | `aidebug:gui`, image generation suites |
 | `src/common-dialogs.tsx` | 通用项目、确认和导出弹窗 | `test:ui-foundation`, `aidebug:gui` |
-| `src/auth-gate.tsx` | 启动检查、登录/注册表面与认证标题栏 | `test:ui-foundation`, `aidebug:gui`, `test:lifecycle` |
+| `src/auth-gate.tsx` | 启动检查、账号/自定义接入切换、激活输入、登录/注册表面与认证标题栏 | `test:custom-api-transport`, `test:license`, `aidebug:gui`, `test:lifecycle` |
 | `src/image-viewer.tsx` | 图片缩放、适配、平移、切图与导出入口 | `test:ui-foundation`, `aidebug:gui` |
 | `src/reference-picker-dialog.tsx` | SOURCE/REFERENCE 图片选择、分页和上限展示 | `aidebug:ask-user`, `aidebug:gui`, `test:execution-gate` |
 
@@ -334,7 +343,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 | Bridge | Renderer 入口 | 主进程职责 |
 | --- | --- | --- |
 | `window.naimageConfig` | 设置、项目、session、导入/导出、窗口控制 | 本地文件、项目目录、BrowserWindow、原子保存 |
-| `window.naimageServer` | 登录、用户、余额、日志、模型、生图 | New API session、用户 header、远端 relay、结果落盘 |
+| `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、生图 | New API session、用户/授权 header、远端 relay、授权状态与结果落盘 |
 | `window.naimageUpdater` | 检查、下载、应用更新、进度订阅 | 签名、hash、ticket、helper、回滚 |
 | `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory | Agent runtime 生命周期、memory、模型与工具循环 |
 
@@ -373,7 +382,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-桌面把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留，以支持后续自建 New API。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
+账号模式把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
 
 正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
 
@@ -382,7 +391,11 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 - `/naimage/v1/models`
 - `/naimage/v1/chat/completions`, `/naimage/v1/responses`（JSON 顶层透传 `group`）
 - `/naimage/v1/images/generations`, `/naimage/v1/images/edits`（JSON/FormData 透传 `group`）
+- `/api/naimage/license`, `/api/naimage/license/{activate,verify}`
+- `/api/naimage/license/account/{activate,verify}`（需要 New API 用户 session）
 - `/api/desktop-update/*`, `/api/desktop-download/*`
+
+账号 Relay 在 `NAIMAGE_LICENSE_REQUIRED=true` 时必须同时收到 `X-Naimage-Device-Id` 和 `X-Naimage-License`，服务端在进入上游前强制校验。激活码明文只在管理员创建时返回一次，数据库只保存激活码和授权令牌的 SHA-256；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
 
 `/naimage/v1/*` 与 `/downloads/naimage-studio/windows` 是唯一 canonical 客户端入口。修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
 
@@ -438,7 +451,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 | 路径/文件 | 内容 | 所有者 |
 | --- | --- | --- |
-| `app-settings.json` | App 设置及本地远端会话 | Electron Main；不得暴露凭据到 UI |
+| `app-settings.json` | App 设置、账号 session、自定义 API Key、随机安装 ID 与授权令牌 | Electron Main；不得写入日志、模型缓存或项目文件 |
 | `session.json` | 全局/兼容 session | Electron Main |
 | `model-cache.json` | 60 秒模型缓存的磁盘回退 | Electron Main；不得含 token/cookie/key |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
@@ -490,6 +503,8 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
 | New API transport / AIDebug image fixture | `corepack pnpm run test:new-api-transport` |
+| 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |
+| 设备激活、缓存与离线宽限 | `corepack pnpm run test:license` |
 | `view_image` | `corepack pnpm run test:view-image` |
 | 项目 IO | `corepack pnpm run test:project-io` |
 | 保存 revision/队列 | `corepack pnpm run test:project-save-coordinator` |
@@ -517,11 +532,11 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 69 个 IPC handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 72 个 IPC handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
-- New API 登录后的模型分组由 `/api/user/self/groups` 提供；`modelGroup` 同时进入模型查询、Relay 请求、图片编辑上传和模型缓存键。设置抽屉按外观、模型、Agent、更新四个分页显示，默认打开模型页。
+- New API 登录后的模型分组由 `/api/user/self/groups` 提供；仅账号模式的 `modelGroup` 进入模型查询、Relay 请求、图片编辑上传和模型缓存键，自定义模式必须移除该字段。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
 - Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
@@ -550,3 +565,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-24 | 1.0.5 | 从 `agent-runtime.cjs` 抽出 `runtime/controlled-shell-command.cjs`，集中持有只读命令 allowlist、cwd/路径边界、文件读取限制、输出裁剪和无 shell 子进程执行；新增独立安全 selftest，Runtime facade 只保留调用与工具摘要编排。 |
 | 2026-07-24 | 1.0.5 | 参考 New API 调色盘分类新增明暗模式与 10 套 naimage 独立配色；`themePalette` 由 Renderer/Electron 双侧迁移，预设仅覆盖 `--theme-*` 桥接变量；主题选择器与现有对话框合并进 `studio-dialogs` 异步 chunk，并由设置持久化、UI foundation、Bundle 与快速 AIDebug 验证。 |
 | 2026-07-24 | 1.0.5 | SparkAI 品牌默认值统一为 `org.sparkai.naimage`、`SparkAI` 与 `https://sparkapi.org`；安装器文案改为跨境电商套图；New API 用户分组可在设置中选择并透传到模型/图片请求；设置抽屉改为四分页，登录恢复先走缓存身份再后台校验。 |
+| 2026-07-24 | 1.0.5 | 新增账号 Session Relay 与自定义 OpenAI-compatible API 双接入模式；新增随机安装设备授权、激活码哈希存储、24 小时校验缓存、72 小时离线宽限和账号 Relay 服务端门禁；设置抽屉新增“接入”页，IPC 扩展为 72 个 handler/69 个公开 invoke。 |

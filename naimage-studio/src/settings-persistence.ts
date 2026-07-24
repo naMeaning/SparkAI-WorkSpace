@@ -36,6 +36,7 @@ export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
 export const DEFAULT_UPDATE_BASE_URL = "https://sparkapi.org";
 
 export const defaultSettings: AppSettings = {
+  accessMode: "account",
   agentProvider: "CODEX",
   agentBaseUrl: "",
   agentApiKey: "",
@@ -58,6 +59,11 @@ export const defaultSettings: AppSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
+  licenseDeviceId: "",
+  licenseToken: "",
+  licensePlan: "",
+  licenseExpiresAt: 0,
+  licenseLastVerifiedAt: 0,
   modelGroup: "",
   theme: "light",
   themePalette: "anthropic"
@@ -124,6 +130,12 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.accessMode = next.accessMode === "custom" ? "custom" : "account";
+  next.licenseDeviceId = String(next.licenseDeviceId || "").trim().slice(0, 128);
+  next.licenseToken = String(next.licenseToken || "").trim().slice(0, 256);
+  next.licensePlan = String(next.licensePlan || "").trim().slice(0, 40);
+  next.licenseExpiresAt = Math.max(0, Math.floor(Number(next.licenseExpiresAt) || 0));
+  next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = defaultSettings.theme;
   if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";

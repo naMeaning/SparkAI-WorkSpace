@@ -29,6 +29,19 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+var errManagedSessionRelayGroupAccessDenied = errors.New("managed session relay group access denied")
+
+func resolveManagedSessionRelayGroup(c *gin.Context, usingGroup, requestedGroup string) (string, error) {
+	if !c.GetBool("managed_session_relay") || requestedGroup == "" || requestedGroup == usingGroup {
+		return usingGroup, nil
+	}
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	if !service.GroupInUserUsableGroups(userGroup, requestedGroup) {
+		return usingGroup, errManagedSessionRelayGroupAccessDenied
+	}
+	return requestedGroup, nil
+}
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
@@ -83,6 +96,15 @@ func Distribute() func(c *gin.Context) {
 				}
 				var selectGroup string
 				usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+				requestedGroup, groupErr := resolveManagedSessionRelayGroup(c, usingGroup, modelRequest.Group)
+				if groupErr != nil {
+					abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
+					return
+				}
+				if requestedGroup != usingGroup {
+					usingGroup = requestedGroup
+					common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+				}
 				// check path is /pg/chat/completions
 				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
 					playgroundRequest := &dto.PlayGroundRequest{}
@@ -349,6 +371,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
+		modelRequest.Group = req.Group
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
 		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
@@ -371,8 +394,11 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		contentType := c.ContentType()
 		if slices.Contains([]string{gin.MIMEPOSTForm, gin.MIMEMultipartPOSTForm}, contentType) {
 			req, err := getModelFromRequest(c)
-			if err == nil && req.Model != "" {
-				modelRequest.Model = req.Model
+			if err == nil {
+				if req.Model != "" {
+					modelRequest.Model = req.Model
+				}
+				modelRequest.Group = req.Group
 			}
 		}
 	}

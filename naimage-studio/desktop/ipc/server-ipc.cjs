@@ -15,12 +15,14 @@ function registerServerIpc({
   callNewApiImageWithSession,
   clearNewApiAuth,
   completeNewApiLogin,
+  customApiCredentials,
   defaultSettings,
   emitAgentProgress,
   extractServerImages,
   getNewApiAuthEpoch,
   isNewApiAuthError,
   log,
+  licenseService,
   mapNewApiLogEntry,
   migrateSettings,
   modelSettingsWithCacheMeta,
@@ -36,8 +38,60 @@ function registerServerIpc({
   tokenItemsFromNewApiPayload,
   walletFromNewApiUser,
   writeDataUrlTemp,
+  writeJson,
   writeServerImageOutputs
 }) {
+  ipcMain.handle("naimage:server:license-status", async (_event, payload = {}) => {
+    return await licenseService.verify({ force: payload?.force === true });
+  });
+
+  ipcMain.handle("naimage:server:activate-license", async (_event, payload = {}) => {
+    return await licenseService.activate(payload?.code);
+  });
+
+  ipcMain.handle("naimage:server:configure-custom", async (_event, payload = {}) => {
+    const current = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      const next = migrateSettings({
+        ...current,
+        accessMode: "custom",
+        agentBaseUrl: String(payload?.baseUrl || "").trim(),
+        agentApiKey: String(payload?.apiKey || "").trim(),
+        imageBaseUrl: String(payload?.baseUrl || "").trim(),
+        imageApiKey: String(payload?.apiKey || "").trim(),
+        modelGroup: "",
+        serverToken: "",
+        agentModel: String(payload?.agentModel || current.agentModel || "").trim(),
+        agentModelPool: String(payload?.agentModel || current.agentModel || "").trim() ? [String(payload?.agentModel || current.agentModel).trim()] : current.agentModelPool,
+        imageModel: String(payload?.imageModel || current.imageModel || "").trim(),
+        imageModelPool: String(payload?.imageModel || current.imageModel || "").trim() ? [String(payload?.imageModel || current.imageModel).trim()] : current.imageModelPool
+      });
+      customApiCredentials(next, "agent");
+      writeJson(settingsPath, next);
+      let modelSettings;
+      let warning = "";
+      try {
+        modelSettings = await newApiModelSettings(next, { forceRefresh: true });
+      } catch (error) {
+        warning = error instanceof Error ? error.message : String(error);
+        if (!next.agentModel && !next.imageModel) throw error;
+        modelSettings = modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool]), "settings", Date.now());
+      }
+      const license = await licenseService.verify();
+      return {
+        ok: true,
+        user: { id: "custom-api", username: "自定义接口", account: "自定义接口", name: "自定义 API" },
+        settings: modelSettings,
+        license,
+        warning
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`custom API configuration failed ${message}`);
+      return { ok: false, error: message };
+    }
+  });
+
   ipcMain.handle("naimage:server:register", async (_event, payload) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     try {
@@ -124,6 +178,24 @@ function registerServerIpc({
 
   ipcMain.handle("naimage:server:me", (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (settings.accessMode === "custom") {
+      if (!settings.agentBaseUrl || !settings.agentApiKey) return { ok: false, error: "请先配置自定义 Base URL 和 API Key。" };
+      const user = { id: "custom-api", username: "自定义接口", account: "自定义接口", name: "自定义 API" };
+      if (payload?.preferCached === true) {
+        return {
+          ok: true,
+          cached: true,
+          user,
+          settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
+        };
+      }
+      return newApiModelSettings(settings).then((modelSettings) => ({ ok: true, user, settings: modelSettings })).catch((error) => ({
+        ok: true,
+        user,
+        settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now()),
+        warning: error instanceof Error ? error.message : String(error)
+      }));
+    }
     if (payload?.preferCached === true && settings.serverSessionCookie && settings.serverUserId && !(aidebugMode && !aidebugLiveImage)) {
       const cachedUser = normalizeNewApiUser({
         id: settings.serverUserId,
@@ -201,6 +273,7 @@ function registerServerIpc({
   ipcMain.handle("naimage:server:logs", async () => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     log("new-api logs");
+    if (settings.accessMode === "custom") return { ok: true, logs: [] };
     if (aidebugMode && !aidebugLiveImage) return { ok: true, logs: aidebugLogs() };
     try {
       if (!settings.serverSessionCookie || !settings.serverUserId) return { ok: true, logs: [] };

@@ -26,7 +26,14 @@ function registerSettingsIpc({
       ...current,
       ...(settings || {}),
       serverSessionCookie: incomingSessionCookie || current.serverSessionCookie,
-      serverUserId: incomingServerUserId || current.serverUserId
+      serverUserId: incomingServerUserId || current.serverUserId,
+      // License identity and tokens are Main-owned secrets. They are omitted
+      // from load-settings and Renderer saves must never clear or replace them.
+      licenseDeviceId: current.licenseDeviceId,
+      licenseToken: current.licenseToken,
+      licensePlan: current.licensePlan,
+      licenseExpiresAt: current.licenseExpiresAt,
+      licenseLastVerifiedAt: current.licenseLastVerifiedAt
     });
     validateNewApiServiceSettings?.(next);
     const accountChanged = String(current.accountBaseUrl || "").toLowerCase() !== String(next.accountBaseUrl || "").toLowerCase();

@@ -291,6 +291,7 @@ import type {
   ModelProvider,
   ServerLogEntry,
   AuthDraft,
+  LicenseStatus,
   ImageViewerState,
   ImageGenerationStats,
   ImageQuotaDialogState,
@@ -2974,7 +2975,20 @@ function App() {
   const [serverLogs, setServerLogs] = useState<ServerLogEntry[]>([]);
   const [desktopUpdateNotice, setDesktopUpdateNotice] = useState<DesktopUpdateInfo | null>(null);
   const [serverMessage, setServerMessage] = useState("");
-  const [authDraft, setAuthDraft] = useState<AuthDraft>({ email: "", password: "", name: "", mode: "login" });
+  const [authDraft, setAuthDraft] = useState<AuthDraft>({
+    email: "",
+    password: "",
+    name: "",
+    mode: "login",
+    accessMode: "account",
+    baseUrl: "",
+    apiKey: "",
+    agentModel: "",
+    imageModel: "",
+    activationCode: ""
+  });
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
+  const [licenseReady, setLicenseReady] = useState(false);
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState<ProjectNameDraft | null>(null);
   const [configReady, setConfigReady] = useState(false);
@@ -3611,6 +3625,14 @@ function App() {
         if (cancelled) return;
         markPerformancePhase("config-load-resolved");
         setSettings(storedSettings);
+        setAuthDraft((current) => ({
+          ...current,
+          accessMode: storedSettings.accessMode,
+          baseUrl: storedSettings.agentBaseUrl || storedSettings.imageBaseUrl,
+          apiKey: storedSettings.agentApiKey || storedSettings.imageApiKey,
+          agentModel: storedSettings.agentModel,
+          imageModel: storedSettings.imageModel
+        }));
         let loadedProjectId = "default";
         let loadedProjects: ProjectRecord[] | undefined;
         if (window.naimageConfig?.listProjects) {
@@ -3666,8 +3688,17 @@ function App() {
   async function commitAppSettings(nextSettings: AppSettings) {
     const normalized = mergeSettings(nextSettings);
     const accountChanged = settings.accountBaseUrl.toLowerCase() !== normalized.accountBaseUrl.toLowerCase();
+    const accessModeChanged = settings.accessMode !== normalized.accessMode;
     await saveSettingsToStore(normalized);
     setSettings(normalized);
+    setAuthDraft((current) => ({
+      ...current,
+      accessMode: normalized.accessMode,
+      baseUrl: normalized.agentBaseUrl || normalized.imageBaseUrl,
+      apiKey: normalized.agentApiKey || normalized.imageApiKey,
+      agentModel: normalized.agentModel,
+      imageModel: normalized.imageModel
+    }));
     if (accountChanged) {
       serverRefreshEpochRef.current += 1;
       authCheckedTokenRef.current = "";
@@ -3675,6 +3706,16 @@ function App() {
       setServerWallet(null);
       setServerLogs([]);
       setServerMessage("账户服务地址已更新，请重新登录。");
+    } else if (accessModeChanged) {
+      serverRefreshEpochRef.current += 1;
+      authCheckedTokenRef.current = "";
+      setServerUser(null);
+      setServerWallet(null);
+      setServerLogs([]);
+      setServerMessage(normalized.accessMode === "custom" ? "已切换到自定义接口。" : "已切换到 SparkAPI 账号模式。");
+      window.setTimeout(() => {
+        void refreshServerState({ preferCached: true, loadLogs: false }).finally(() => void refreshLicenseState(false));
+      }, 0);
     }
   }
 
@@ -4118,6 +4159,26 @@ function App() {
     }
   }
 
+  async function refreshLicenseState(force = false) {
+    if (!window.naimageServer?.licenseStatus) {
+      const fallback = { ok: true, active: true, required: false, supported: false } satisfies LicenseStatus;
+      setLicenseStatus(fallback);
+      setLicenseReady(true);
+      return fallback;
+    }
+    try {
+      const status = await window.naimageServer.licenseStatus({ force });
+      setLicenseStatus(status);
+      return status;
+    } catch (error) {
+      const status = { ok: false, active: false, required: true, error: error instanceof Error ? error.message : String(error) } satisfies LicenseStatus;
+      setLicenseStatus(status);
+      return status;
+    } finally {
+      setLicenseReady(true);
+    }
+  }
+
   useEffect(() => {
     if (!configReady) return;
     let cancelled = false;
@@ -4151,6 +4212,11 @@ function App() {
     return () => {
       cancelled = true;
     };
+  }, [configReady]);
+
+  useEffect(() => {
+    if (!configReady) return;
+    void refreshLicenseState(false);
   }, [configReady]);
 
   useEffect(() => {
@@ -18647,6 +18713,11 @@ function App() {
     const authRequestEpoch = ++serverRefreshEpochRef.current;
     try {
       if (!window.naimageServer) throw new Error("本地账户服务正在启动或连接失败，请稍后重试。");
+      const accountSettings = mergeSettings({ ...settings, accessMode: "account" });
+      if (settings.accessMode !== "account") {
+        await saveSettingsToStore(accountSettings);
+        setSettings(accountSettings);
+      }
       const username = authDraft.email.trim();
       const result =
         authDraft.mode === "register"
@@ -18668,6 +18739,7 @@ function App() {
         return normalizeModelPoolSelections(
           {
             ...current,
+            accessMode: "account",
             serverToken: "",
             modelGroup: result.settings?.modelGroup ?? current.modelGroup,
             imageModel: current.imageModel || result.settings?.imageModel || preferredImageModel,
@@ -18684,11 +18756,66 @@ function App() {
       setServerMessage(authDraft.mode === "register" ? "注册成功，账户已开通。" : "登录成功。");
       setAuthDraft((current) => ({ ...current, password: "" }));
       setAuthReady(true);
+      await refreshLicenseState(true);
       window.setTimeout(() => void refreshServerState(), 120);
     } catch (error) {
       if (serverRefreshEpochRef.current !== authRequestEpoch) return;
       setServerMessage(error instanceof Error ? error.message : String(error));
       setAuthReady(true);
+    }
+  }
+
+  async function submitCustomAccess() {
+    if (!authDraft.baseUrl.trim() || !authDraft.apiKey.trim()) {
+      setServerMessage("请输入 Base URL 和 API Key。");
+      return;
+    }
+    try {
+      if (!window.naimageServer?.configureCustom) throw new Error("当前桌面后端不支持自定义接口模式。");
+      const result = await window.naimageServer.configureCustom({
+        baseUrl: authDraft.baseUrl.trim(),
+        apiKey: authDraft.apiKey.trim(),
+        agentModel: authDraft.agentModel.trim(),
+        imageModel: authDraft.imageModel.trim()
+      });
+      if (!result.ok || !result.user) throw new Error(result.error || "自定义接口连接失败。");
+      const stored = await loadSettingsFromStore();
+      setSettings(stored);
+      setServerUser(result.user);
+      setServerWallet(null);
+      setServerLogs([]);
+      let status = result.license || await refreshLicenseState(true);
+      if (authDraft.activationCode.trim() && window.naimageServer.activateLicense) {
+        status = await window.naimageServer.activateLicense({ code: authDraft.activationCode.trim() });
+      }
+      setLicenseStatus(status);
+      setLicenseReady(true);
+      if (!status.active) throw new Error(status.error || "请输入有效激活码后继续。");
+      setServerMessage("自定义接口已连接。");
+      setAuthDraft((current) => ({ ...current, apiKey: "", activationCode: "" }));
+      setAuthReady(true);
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
+      setAuthReady(true);
+    }
+  }
+
+  async function activateCurrentLicense() {
+    const code = authDraft.activationCode.trim();
+    if (!code) {
+      setServerMessage("请输入激活码。");
+      return;
+    }
+    try {
+      if (!window.naimageServer?.activateLicense) throw new Error("授权服务暂不可用。");
+      const status = await window.naimageServer.activateLicense({ code });
+      setLicenseStatus(status);
+      setLicenseReady(true);
+      if (!status.active) throw new Error(status.error || "激活失败。");
+      setAuthDraft((current) => ({ ...current, activationCode: "" }));
+      setServerMessage("naimage 已激活。");
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -19429,18 +19556,22 @@ function App() {
   const projectAgentSwitchConversation = useStableEvent((conversationId: string) => switchProjectConversation(conversationId));
   const projectAgentToggleCollapsed = useStableEvent(() => setAgentCollapsed((current) => !current));
 
-  if (!configReady || !authReady) {
-    return <BootScreen message={configReady ? "正在校验登录会话..." : "正在加载本地配置..."} />;
+  if (!configReady || !authReady || !licenseReady) {
+    return <BootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在校验软件授权..."} />;
   }
 
-  if (!serverUser) {
+  if (!serverUser || !licenseStatus?.active) {
     return (
       <>
         <OverflowTooltipLayer />
         <AuthGate
           authDraft={authDraft}
           setAuthDraft={setAuthDraft}
-          submitAuth={submitAuth}
+          submitAccount={submitAuth}
+          submitCustom={submitCustomAccess}
+          activateLicense={activateCurrentLicense}
+          accountAuthenticated={Boolean(serverUser && serverUser.id !== "custom-api")}
+          license={licenseStatus}
           message={serverMessage}
         />
       </>
@@ -22123,7 +22254,7 @@ function SettingsDrawer({
   const [baselineSettings, setBaselineSettings] = useState(() => mergeSettings(settings));
   const [draftSettings, setDraftSettings] = useState(() => mergeSettings(settings));
   const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
-  const [activeSection, setActiveSection] = useState<"appearance" | "models" | "agent" | "updates">("models");
+  const [activeSection, setActiveSection] = useState<"access" | "appearance" | "models" | "agent" | "updates">("access");
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsMessageError, setSettingsMessageError] = useState(false);
@@ -22171,6 +22302,15 @@ function SettingsDrawer({
 
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setDraftSettings((current) => ({ ...current, [key]: value }));
+    setSettingsMessage("");
+    setResetArmed(false);
+    setDiscardArmed(false);
+  }
+
+  function updateCustomApiCredentials(kind: "baseUrl" | "apiKey", value: string) {
+    setDraftSettings((current) => kind === "baseUrl"
+      ? { ...current, agentBaseUrl: value, imageBaseUrl: value }
+      : { ...current, agentApiKey: value, imageApiKey: value });
     setSettingsMessage("");
     setResetArmed(false);
     setDiscardArmed(false);
@@ -22479,13 +22619,14 @@ function SettingsDrawer({
           <>
             <SurfaceHeader
               title="设置"
-              description="外观、模型、Agent 与软件更新"
+              description="服务接入、外观、模型、Agent 与软件更新"
               onClose={() => requestClose(CLOSE_BUTTON_REASON)}
               closeLabel="关闭设置"
               closeDisabled={modelState.loading || saving}
             />
             <nav className="settings-section-tabs" aria-label="设置分类">
               {([
+                ["access", "接入"],
                 ["appearance", "外观"],
                 ["models", "模型"],
                 ["agent", "Agent"],
@@ -22503,6 +22644,39 @@ function SettingsDrawer({
               ))}
             </nav>
             <SurfaceBody className="settings-surface-body">
+              {activeSection === "access" ? (
+              <SurfaceSection className="settings-surface-section settings-access-section" aria-labelledby="settings-access-heading">
+                <div className="settings-section-header">
+                  <h3 id="settings-access-heading">服务接入</h3>
+                  <span className="settings-update-status available">{draftSettings.accessMode === "account" ? "账号模式" : "自定义接口"}</span>
+                </div>
+                <Field label="使用方式">
+                  <select value={draftSettings.accessMode} onChange={(event) => update("accessMode", event.target.value as AppSettings["accessMode"])}>
+                    <option value="account">SparkAPI 账号登录</option>
+                    <option value="custom">自定义 Base URL / API Key</option>
+                  </select>
+                </Field>
+                {draftSettings.accessMode === "account" ? (
+                  <>
+                    <Field label="账户服务地址">
+                      <input value={draftSettings.accountBaseUrl} onChange={(event) => update("accountBaseUrl", event.target.value)} type="url" placeholder="https://sparkapi.org" />
+                    </Field>
+                    <InlineNotice tone="neutral">模型请求使用登录账户的额度、分组和服务端渠道，API Key 不会下发到客户端。</InlineNotice>
+                  </>
+                ) : (
+                  <>
+                    <Field label="Base URL">
+                      <input value={draftSettings.agentBaseUrl} onChange={(event) => updateCustomApiCredentials("baseUrl", event.target.value)} type="url" placeholder="https://example.com/v1" />
+                    </Field>
+                    <Field label="API Key">
+                      <input value={draftSettings.agentApiKey} onChange={(event) => updateCustomApiCredentials("apiKey", event.target.value)} type="password" placeholder="sk-..." autoComplete="off" />
+                    </Field>
+                    <InlineNotice tone="neutral">同一组凭证用于 Agent 与生图；模型名称仍在“模型”页选择。</InlineNotice>
+                  </>
+                )}
+              </SurfaceSection>
+              ) : null}
+
               {activeSection === "appearance" ? (
               <SurfaceSection className="settings-surface-section settings-appearance-section" aria-labelledby="settings-appearance-heading">
                 <h3 id="settings-appearance-heading" className="settings-appearance-title">外观主题</h3>
@@ -22533,7 +22707,7 @@ function SettingsDrawer({
                   </ActionButton>
                 </div>
                 {modelState.error ? <InlineNotice className="setting-error" tone="danger">{modelState.error}</InlineNotice> : null}
-                <Field label="模型分组">
+                {draftSettings.accessMode === "account" ? <Field label="模型分组">
                   <select
                     value={draftSettings.modelGroup}
                     onChange={(event) => {
@@ -22549,8 +22723,8 @@ function SettingsDrawer({
                       </option>
                     ))}
                   </select>
-                </Field>
-                {!modelState.loading && modelState.groups.length === 0 ? (
+                </Field> : <InlineNotice tone="neutral">自定义接口模式直接使用 API Key 对应权限，不发送 SparkAPI 模型分组。</InlineNotice>}
+                {draftSettings.accessMode === "account" && !modelState.loading && modelState.groups.length === 0 ? (
                   <InlineNotice tone="neutral">登录服务端未提供可选分组，当前使用账户默认分组。</InlineNotice>
                 ) : null}
                 <div className="settings-model-list">

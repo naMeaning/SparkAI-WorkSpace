@@ -79,6 +79,7 @@ export type ThemePaletteChoice =
   | "ocean-breeze"
   | "lavender-dream";
 export type AgentProviderChoice = "CODEX" | "CUSTOM";
+export type AccessMode = "account" | "custom";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type MessageRole = "user" | "assistant" | "system";
 export type AgentStatus = "idle" | "thinking" | "editing" | "error";
@@ -87,6 +88,7 @@ export type ImageModelFamily = "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" |
 export type ImageLayerBlendMode = "normal" | "multiply" | "screen" | "overlay" | "source-over";
 
 export type ApiSettings = {
+  accessMode: AccessMode;
   agentProvider: AgentProviderChoice;
   agentBaseUrl: string;
   agentApiKey: string;
@@ -109,6 +111,11 @@ export type ApiSettings = {
   serverToken: string;
   serverSessionCookie: string;
   serverUserId: string;
+  licenseDeviceId: string;
+  licenseToken: string;
+  licensePlan: string;
+  licenseExpiresAt: number;
+  licenseLastVerifiedAt: number;
 };
 
 export type AppSettings = ApiSettings & {
@@ -1032,6 +1039,24 @@ export type AuthDraft = {
   password: string;
   name: string;
   mode: "login" | "register";
+  accessMode: AccessMode;
+  baseUrl: string;
+  apiKey: string;
+  agentModel: string;
+  imageModel: string;
+  activationCode: string;
+};
+
+export type LicenseStatus = {
+  ok: boolean;
+  active: boolean;
+  required: boolean;
+  supported?: boolean;
+  grace?: boolean;
+  plan?: string;
+  expiresAt?: number;
+  verifiedAt?: number;
+  error?: string;
 };
 
 export type ImageViewerState = {
@@ -1355,6 +1380,9 @@ export type ServerBridge = {
     message?: string;
     error?: string;
   }>;
+  licenseStatus(payload?: { force?: boolean }): Promise<LicenseStatus>;
+  activateLicense(payload: { code: string }): Promise<LicenseStatus>;
+  configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;
 };
 
 export type DesktopUpdateArtifact = {

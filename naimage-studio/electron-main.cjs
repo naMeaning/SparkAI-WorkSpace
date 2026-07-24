@@ -18,6 +18,7 @@ const { createAidebugBackend } = require("./desktop/aidebug-backend.cjs");
 const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aidebug-image-fixture.cjs");
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
+const { createLicenseService } = require("./desktop/license-service.cjs");
 const { createProjectAssetRepository } = require("./desktop/project-asset-repository.cjs");
 const {
   createProjectPackageService,
@@ -278,6 +279,7 @@ protocol.registerSchemesAsPrivileged(localAssetSchemes.map((scheme) => ({
   })));
 
 const defaultSettings = {
+  accessMode: "account",
   agentProvider: "CODEX",
   agentBaseUrl: "",
   agentApiKey: "",
@@ -300,6 +302,11 @@ const defaultSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
+  licenseDeviceId: "",
+  licenseToken: "",
+  licensePlan: "",
+  licenseExpiresAt: 0,
+  licenseLastVerifiedAt: 0,
   modelGroup: "",
   theme: "light",
   themePalette: "anthropic"
@@ -514,6 +521,13 @@ function migrateSettings(value) {
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.accessMode = String(next.accessMode || "account") === "custom" ? "custom" : "account";
+  next.licenseDeviceId = String(next.licenseDeviceId || "").trim().slice(0, 128);
+  if (!next.licenseDeviceId) next.licenseDeviceId = `device-${randomBytes(24).toString("hex")}`;
+  next.licenseToken = String(next.licenseToken || "").trim().slice(0, 256);
+  next.licensePlan = String(next.licensePlan || "").trim().slice(0, 40);
+  next.licenseExpiresAt = Math.max(0, Math.floor(Number(next.licenseExpiresAt) || 0));
+  next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : defaultSettings.theme;
   next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
@@ -542,6 +556,8 @@ function publicSettings(settings) {
   const next = { ...migrateSettings(settings) };
   delete next.serverSessionCookie;
   delete next.serverUserId;
+  delete next.licenseDeviceId;
+  delete next.licenseToken;
   return next;
 }
 
@@ -588,8 +604,12 @@ const newApiClient = createNewApiClient({
   writeJson
 });
 const {
+  customApiCredentials,
+  customApiHeaders,
+  customApiUrl,
   extractSessionCookie,
   isNewApiAuthError,
+  isCustomApiMode,
   managedRelayEndpoint,
   newApiErrorMessage,
   newApiFetch,
@@ -603,6 +623,16 @@ const {
   resolveNewApiBaseUrl,
   validateNewApiServiceSettings
 } = newApiClient;
+const licenseService = createLicenseService({
+  defaultSettings,
+  log,
+  migrateSettings,
+  newApiRequest,
+  newApiUserAuthHeaders,
+  readJson,
+  settingsPath,
+  writeJson
+});
 const desktopUpdater = createDesktopUpdaterService({
   app,
   BrowserWindow,
@@ -1620,6 +1650,7 @@ async function serverChatCompletion(payload = {}) {
     return result;
   }
   const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+  await licenseService.requireActive();
   const requestBody = {
     ...payload,
     messages: Array.isArray(payload.messages) ? payload.messages : [],
@@ -2086,9 +2117,9 @@ function tokenItemsFromNewApiPayload(payload) {
 
 function modelCacheKey(settings) {
   return createModelCacheKey(
-    resolveNewApiBaseUrl(settings, "account"),
-    resolveNewApiBaseUrl(settings, "relay"),
-    settings.serverUserId,
+    isCustomApiMode(settings) ? settings.agentBaseUrl : resolveNewApiBaseUrl(settings, "account"),
+    isCustomApiMode(settings) ? settings.imageBaseUrl : resolveNewApiBaseUrl(settings, "relay"),
+    isCustomApiMode(settings) ? "custom-api" : settings.serverUserId,
     settings.modelGroup
   );
 }
@@ -2129,6 +2160,29 @@ function modelSettingsWithCacheMeta(settings, cacheSource, cachedAt) {
 }
 
 async function fetchNewApiModelSettings(settings) {
+  if (isCustomApiMode(settings)) {
+    const collected = [];
+    const seenBases = new Set();
+    for (const provider of ["agent", "image"]) {
+      const credentials = customApiCredentials(settings, provider);
+      const key = credentials.baseUrl.toLowerCase();
+      if (seenBases.has(key)) continue;
+      seenBases.add(key);
+      const request = await newApiFetch(settings, "/v1/models", {
+        method: "GET",
+        absoluteUrl: customApiUrl(settings, "/v1/models", provider),
+        requestBaseUrl: credentials.baseUrl,
+        headers: customApiHeaders(settings, provider),
+        timeoutMs: 20_000,
+        retries: 1
+      });
+      if (!request.response.ok || request.data?.error || request.data?.parseFailed) {
+        throw new Error(newApiErrorMessage(request.data, request.response.status));
+      }
+      collected.push(...modelIdsFromResponse(request.data));
+    }
+    return splitModelSettings(settings, collected, []);
+  }
   const collected = [];
   let modelGroups = [];
   let groupsLoaded = false;
@@ -2468,7 +2522,10 @@ function prepareImageUploadPart(image, aggressive = false) {
 }
 
 async function callNewApiImage(settings, payload = {}) {
-  requireNewApiSession(settings);
+  if (!aidebugMode) await licenseService.requireActive();
+  const customMode = isCustomApiMode(settings);
+  if (!customMode) requireNewApiSession(settings);
+  const customImageCredentials = customMode ? customApiCredentials(settings, "image") : null;
   const model = String(payload.model || settings.imageModel || "gpt-image-2").trim();
   const requestedCount = Math.floor(Number(payload.count || 1));
   const count = Math.max(1, Math.min(Number.isFinite(requestedCount) ? requestedCount : 1, 10));
@@ -2555,7 +2612,7 @@ async function callNewApiImage(settings, payload = {}) {
   const imageTimeoutMs = 5 * 60 * 1000;
   const requestAttempts = Array.from({ length: count }, () => ({ attempts: 0, retries: 0, timeoutRetries: 0, transientRetries: 0, lastCategory: "" }));
   const idempotencyKeys = Array.from({ length: count }, (_item, index) => createHash("sha256")
-    .update(`${settings.serverUserId}|${String(payload.runId || "")}|${index}|${model}|${promptForIndependentImage(payload.prompt, count, index)}`)
+    .update(`${settings.serverUserId || settings.licenseDeviceId}|${String(payload.runId || "")}|${index}|${model}|${promptForIndependentImage(payload.prompt, count, index)}`)
     .digest("hex"));
 
   function imageRequestErrorInfo(error) {
@@ -2680,7 +2737,7 @@ async function callNewApiImage(settings, payload = {}) {
     const executeAttempt = () => withImageRequestTimeout(async (signal) => {
       const prompt = promptForIndependentImage(payload.prompt, count, index);
       const requestHeaders = {
-        ...newApiUserAuthHeaders(settings),
+        ...(customMode ? customApiHeaders(settings, "image") : newApiUserAuthHeaders(settings)),
         "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`
       };
       if (aidebugMockImage) {
@@ -2708,7 +2765,7 @@ async function callNewApiImage(settings, payload = {}) {
         form.set("size", size);
         form.set("quality", quality);
         form.set("n", "1");
-        if (settings.modelGroup) form.set("group", settings.modelGroup);
+        if (!customMode && settings.modelGroup) form.set("group", settings.modelGroup);
         if (!isGptImageModel(model)) form.set("response_format", "b64_json");
         if (imageControls.outputFormat) form.set("output_format", String(imageControls.outputFormat));
         if (imageControls.outputCompression !== undefined) form.set("output_compression", String(imageControls.outputCompression));
@@ -2727,8 +2784,10 @@ async function callNewApiImage(settings, payload = {}) {
         }
         return form;
       };
-      let request = await newApiFetch(settings, managedRelayEndpoint("/v1/images/edits"), {
+      let request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
         service: "relay",
+        absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
+        requestBaseUrl: customImageCredentials?.baseUrl,
         method: "POST",
         headers: requestHeaders,
         body: buildForm(false),
@@ -2738,11 +2797,13 @@ async function callNewApiImage(settings, payload = {}) {
         maxRequestBytes: 96 * 1024 * 1024,
         maxResponseBytes: 64 * 1024 * 1024
       });
-      persistNewApiSessionCookie(settings, request.response);
+      if (!customMode) persistNewApiSessionCookie(settings, request.response);
       if (request.response.status === 413) {
         compressedSourceRetryCount += 1;
-        request = await newApiFetch(settings, managedRelayEndpoint("/v1/images/edits"), {
+        request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
           service: "relay",
+          absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
+          requestBaseUrl: customImageCredentials?.baseUrl,
           method: "POST",
           headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}-aggressive` },
           body: buildForm(true),
@@ -2752,7 +2813,7 @@ async function callNewApiImage(settings, payload = {}) {
           maxRequestBytes: 96 * 1024 * 1024,
           maxResponseBytes: 64 * 1024 * 1024
         });
-        persistNewApiSessionCookie(settings, request.response);
+        if (!customMode) persistNewApiSessionCookie(settings, request.response);
       }
       const { response, data } = request;
       if (!response.ok || data.error || data.success === false || data.ok === false) {
@@ -2771,6 +2832,7 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.background) body.background = imageControls.background;
       if (imageControls.moderation) body.moderation = imageControls.moderation;
       return newApiRelayJson(settings, "/v1/images/generations", body, {
+        provider: "image",
         signal,
         headers: { "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}` },
         headersTimeoutMs: imageTimeoutMs,
@@ -3207,7 +3269,9 @@ function registerIpc() {
     sessionHasContent,
     writeProjectList,
     currentAgentSettings,
+    customApiCredentials,
     getAgentRuntime,
+    licenseService,
     listAgentModels,
     emitAgentProgress,
     aidebugMode,

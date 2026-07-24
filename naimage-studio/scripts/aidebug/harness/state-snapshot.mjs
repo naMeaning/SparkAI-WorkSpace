@@ -2473,6 +2473,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       accountHeaderRect.bottom - accountHeaderTitleRect.bottom >= 12
     );
     const settingsActiveSectionTitle = {
+      接入: "服务接入",
       外观: "外观主题",
       模型: "模型配置",
       Agent: "Agent",
@@ -2480,7 +2481,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     }[settingsActiveTabText] || "";
     const settingsLabelsOk = !settingsOpen || (
       settingsHeaderTitleText === "设置" &&
-      settingsHeaderSubtitleText === "外观、模型、Agent 与软件更新" &&
+      settingsHeaderSubtitleText === "服务接入、外观、模型、Agent 与软件更新" &&
       settingsSectionEyebrowText === "" &&
       settingsSectionTitleText === settingsActiveSectionTitle
     );

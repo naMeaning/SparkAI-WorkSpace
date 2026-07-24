@@ -38,6 +38,9 @@ func ManagedRelayTokenAuth() gin.HandlerFunc {
 			})
 			return
 		}
+		if !RequireNaimageLicense(c, userID) {
+			return
+		}
 
 		token, _, err := ensureRelayTokenForUser(*user)
 		if err != nil {

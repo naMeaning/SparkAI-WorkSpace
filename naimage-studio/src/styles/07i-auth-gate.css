@@ -30,3 +30,26 @@
 .auth-card .auth-gate-form .basic-auth-submit {
   min-height: 40px;
 }
+
+.auth-access-card {
+  width: min(520px, calc(100vw - 36px));
+}
+
+.access-mode-switch .ui-segment-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.auth-model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 620px) {
+  .auth-model-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

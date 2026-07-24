@@ -22,7 +22,40 @@ function createNewApiClient(options = {}) {
     const headers = {};
     if (settings.serverSessionCookie) headers.cookie = settings.serverSessionCookie;
     if (settings.serverUserId) headers["New-Api-User"] = String(settings.serverUserId);
+    if (settings.licenseDeviceId) headers["X-Naimage-Device-Id"] = String(settings.licenseDeviceId);
+    if (settings.licenseToken) headers["X-Naimage-License"] = String(settings.licenseToken);
     return headers;
+  }
+
+  function isCustomApiMode(settings) {
+    return String(settings?.accessMode || "account").toLowerCase() === "custom";
+  }
+
+  function customApiCredentials(settings, provider = "agent") {
+    const imageProvider = provider === "image";
+    const baseUrl = normalizeServerUrl(
+      imageProvider ? settings?.imageBaseUrl || settings?.agentBaseUrl : settings?.agentBaseUrl || settings?.imageBaseUrl,
+      ""
+    );
+    const apiKey = String(imageProvider ? settings?.imageApiKey || settings?.agentApiKey : settings?.agentApiKey || settings?.imageApiKey).trim();
+    if (!baseUrl) throw new Error(`${imageProvider ? "生图" : "Agent"} Base URL 尚未配置。`);
+    parsedServiceBaseUrl(baseUrl, `${imageProvider ? "生图" : "Agent"} Base URL`);
+    if (!apiKey) throw new Error(`${imageProvider ? "生图" : "Agent"} API Key 尚未配置。`);
+    return { baseUrl, apiKey };
+  }
+
+  function customApiUrl(settings, endpoint, provider = "agent") {
+    const { baseUrl } = customApiCredentials(settings, provider);
+    const cleanEndpoint = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
+    if (/\/v1$/i.test(baseUrl) && /^\/v1(?:\/|$)/i.test(cleanEndpoint)) {
+      return `${baseUrl}${cleanEndpoint.slice(3) || ""}`;
+    }
+    return `${baseUrl}${cleanEndpoint}`;
+  }
+
+  function customApiHeaders(settings, provider = "agent") {
+    const { apiKey } = customApiCredentials(settings, provider);
+    return { authorization: `Bearer ${apiKey}` };
   }
 
   function parsedServiceBaseUrl(value, label) {
@@ -227,7 +260,7 @@ function createNewApiClient(options = {}) {
   
   async function newApiFetch(settings, endpoint, options = {}) {
     const service = options.service || "account";
-    const baseUrl = resolveNewApiBaseUrl(settings, service);
+    const baseUrl = options.requestBaseUrl || resolveNewApiBaseUrl(settings, service);
     if (isLocalServerUrl(baseUrl)) {
       await ensureLocalServer(baseUrl);
     }
@@ -241,7 +274,7 @@ function createNewApiClient(options = {}) {
       ...(isForm ? {} : { "content-type": "application/json" }),
       ...(options.headers || {})
     };
-    const url = newApiUrl(settings, endpoint, service);
+    const url = options.absoluteUrl || newApiUrl(settings, endpoint, service);
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const attemptStartedAt = Date.now();
@@ -334,6 +367,26 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
+    if (isCustomApiMode(settings)) {
+      const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
+      const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
+      if (relayBody && typeof relayBody === "object") delete relayBody.group;
+      const credentials = customApiCredentials(settings, provider);
+      const { response, data } = await newApiFetch(settings, endpoint, {
+        ...options,
+        method: "POST",
+        absoluteUrl: customApiUrl(settings, endpoint, provider),
+        requestBaseUrl: credentials.baseUrl,
+        headers: { ...customApiHeaders(settings, provider), ...(options.headers || {}) }
+      });
+      if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    }
     requireNewApiSession(settings);
     const relayBody = body && typeof body === "object" && !Array.isArray(body) && settings.modelGroup && !("group" in body)
       ? { ...body, group: settings.modelGroup }
@@ -360,19 +413,23 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
-    requireNewApiSession(settings);
-    const relayBody = body && typeof body === "object" && !Array.isArray(body) && settings.modelGroup && !("group" in body)
+    const customMode = isCustomApiMode(settings);
+    if (!customMode) requireNewApiSession(settings);
+    const relayBody = body && typeof body === "object" && !Array.isArray(body) && !customMode && settings.modelGroup && !("group" in body)
       ? { ...body, group: settings.modelGroup, stream: true }
       : { ...body, stream: true };
-    const relayBaseUrl = resolveNewApiBaseUrl(settings, "relay");
+    if (customMode) delete relayBody.group;
+    const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
+    const relayBaseUrl = customMode ? customApiCredentials(settings, provider).baseUrl : resolveNewApiBaseUrl(settings, "relay");
     if (isLocalServerUrl(relayBaseUrl)) {
       await ensureLocalServer(relayBaseUrl);
     }
-    const response = await newApiTransportFetch(newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
+    const response = await newApiTransportFetch(
+      customMode ? customApiUrl(settings, endpoint, provider) : newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...newApiUserAuthHeaders(settings)
+        ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings))
       },
       body: JSON.stringify(relayBody),
       signal: options.signal,
@@ -381,7 +438,7 @@ function createNewApiClient(options = {}) {
     });
     response.requestBaseUrl = relayBaseUrl;
     response.requestService = "relay";
-    persistNewApiSessionCookie(settings, response);
+    if (!customMode) persistNewApiSessionCookie(settings, response);
     if (!response.ok) {
       const text = await response.text();
       const data = parseJsonText(text);
@@ -390,12 +447,30 @@ function createNewApiClient(options = {}) {
       error.data = data;
       throw error;
     }
+    const contentType = String(response.headers?.get?.("content-type") || response.headers?.["content-type"] || "").toLowerCase();
+    if (contentType.includes("application/json")) {
+      const data = parseJsonText(await response.text());
+      if (data.parseFailed === true || data.error || data.success === false || data.ok === false) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      if (!data || (typeof data === "object" && !Object.keys(data).length)) {
+        const error = new Error("API 返回成功，但响应内容为空。");
+        error.code = "NEW_API_EMPTY_STREAM_OUTPUT";
+        throw error;
+      }
+      onEvent?.(data);
+      return;
+    }
     if (!response.body) throw new Error("New API 流式响应为空。");
   
     const decoder = new TextDecoder();
     let buffer = "";
     let totalBytes = 0;
     let eventCount = 0;
+    let meaningfulEventCount = 0;
     const maximumEventBytes = 2 * 1024 * 1024;
     const maximumStreamBytes = 24 * 1024 * 1024;
     const maximumEvents = 20_000;
@@ -435,6 +510,7 @@ function createNewApiClient(options = {}) {
       if (event.parseFailed === true) {
         failStream("New API 返回了无效的流式 JSON。", "NEW_API_INVALID_SSE");
       }
+      meaningfulEventCount += 1;
       onEvent?.(event);
       return event?.done === true || event?.type === "response.completed" || event?.type === "response.failed" || event?.type === "response.incomplete";
     };
@@ -451,19 +527,35 @@ function createNewApiClient(options = {}) {
       while (separator) {
         const rawEvent = buffer.slice(0, separator.index);
         buffer = buffer.slice(separator.index + separator.length);
-        if (consumeEvent(rawEvent)) return;
+        if (consumeEvent(rawEvent)) {
+          if (meaningfulEventCount === 0) {
+            const error = new Error("API 返回成功，但没有可识别的流式内容。");
+            error.code = "NEW_API_EMPTY_STREAM_OUTPUT";
+            throw error;
+          }
+          return;
+        }
         separator = nextSeparator();
       }
     }
     buffer += decoder.decode();
     const rest = buffer.trim();
     if (rest) consumeEvent(rest);
+    if (meaningfulEventCount === 0) {
+      const error = new Error("API 返回成功，但没有可识别的流式内容。");
+      error.code = "NEW_API_EMPTY_STREAM_OUTPUT";
+      throw error;
+    }
   }
 
   return {
     extractSessionCookie,
     isNewApiAuthError,
     managedRelayEndpoint,
+    isCustomApiMode,
+    customApiCredentials,
+    customApiHeaders,
+    customApiUrl,
     newApiErrorMessage,
     newApiFetch,
     newApiUrl,

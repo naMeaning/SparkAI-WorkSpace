@@ -73,6 +73,9 @@ const expectedChannels = [
   "naimage:asset:export-folder",
   "naimage:asset:export-psd",
   "naimage:asset:export-layer-psd",
+  "naimage:server:license-status",
+  "naimage:server:activate-license",
+  "naimage:server:configure-custom",
   "naimage:server:register",
   "naimage:server:login",
   "naimage:server:logout",
@@ -105,7 +108,12 @@ async function assertSettingsAccountBoundary() {
     updateBaseUrl: "https://sparkapi.org",
     serverToken: "",
     serverSessionCookie: "",
-    serverUserId: ""
+    serverUserId: "",
+    licenseDeviceId: "device-main-owned",
+    licenseToken: "license-main-owned",
+    licensePlan: "standard",
+    licenseExpiresAt: 123456,
+    licenseLastVerifiedAt: 123000
   };
   let stored = { ...defaults, serverSessionCookie: "session=old", serverUserId: "7" };
   let boundaryCalls = 0;
@@ -122,10 +130,22 @@ async function assertSettingsAccountBoundary() {
     writeJson: (_path, value) => { stored = value; }
   });
   const save = handlers.get("naimage:config:save-settings");
-  const relayOnly = await save(null, { relayBaseUrl: "https://relay.example" });
+  const relayOnly = await save(null, {
+    relayBaseUrl: "https://relay.example",
+    licenseDeviceId: "device-renderer-tampered",
+    licenseToken: "license-renderer-tampered",
+    licensePlan: "tampered",
+    licenseExpiresAt: 1,
+    licenseLastVerifiedAt: 1
+  });
   assert.equal(relayOnly.accountChanged, false);
   assert.equal(stored.serverSessionCookie, "session=old");
   assert.equal(stored.serverUserId, "7");
+  assert.equal(stored.licenseDeviceId, "device-main-owned");
+  assert.equal(stored.licenseToken, "license-main-owned");
+  assert.equal(stored.licensePlan, "standard");
+  assert.equal(stored.licenseExpiresAt, 123456);
+  assert.equal(stored.licenseLastVerifiedAt, 123000);
   const accountChange = await save(null, { accountBaseUrl: "https://account.example" });
   assert.equal(accountChange.accountChanged, true);
   assert.equal(stored.serverSessionCookie, "");
@@ -197,8 +217,8 @@ async function main() {
 
   registerDesktopIpc({ ipcMain, desktopUpdater });
 
-  assert.equal(expectedChannels.length, 69, "The registration contract must contain exactly 69 channels.");
-  assert.equal(new Set(expectedChannels).size, 69, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 72, "The registration contract must contain exactly 72 channels.");
+  assert.equal(new Set(expectedChannels).size, 72, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
 
@@ -209,12 +229,12 @@ async function main() {
   const progressChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*on\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 66, "preload must expose exactly 66 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 66, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 69, "preload must expose exactly 69 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 69, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 66, "Exactly three registered channels must remain internal.");
+  assert.equal(publicRegistrations.length, 69, "Exactly three registered channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),

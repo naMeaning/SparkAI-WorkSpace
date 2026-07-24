@@ -51,7 +51,10 @@ contextBridge.exposeInMainWorld("naimageServer", {
   logs: () => ipcRenderer.invoke("naimage:server:logs"),
   models: (payload) => ipcRenderer.invoke("naimage:server:models", payload),
   recharge: (payload) => ipcRenderer.invoke("naimage:server:recharge", payload),
-  generateImage: (payload) => ipcRenderer.invoke("naimage:server:generate-image", payload)
+  generateImage: (payload) => ipcRenderer.invoke("naimage:server:generate-image", payload),
+  licenseStatus: (payload) => ipcRenderer.invoke("naimage:server:license-status", payload),
+  activateLicense: (payload) => ipcRenderer.invoke("naimage:server:activate-license", payload),
+  configureCustom: (payload) => ipcRenderer.invoke("naimage:server:configure-custom", payload)
 });
 
 contextBridge.exposeInMainWorld("naimageUpdater", {

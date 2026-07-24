@@ -47,6 +47,21 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ResetPassword)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
+		naimageLicenseRoute := apiRouter.Group("/naimage/license")
+		{
+			naimageLicenseRoute.GET("", controller.GetNaimageLicenseConfig)
+			naimageLicenseRoute.POST("/activate", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ActivateNaimageDevice)
+			naimageLicenseRoute.POST("/verify", middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.VerifyNaimageDevice)
+			naimageLicenseRoute.POST("/account/activate", middleware.UserAuth(), middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.ActivateNaimageAccount)
+			naimageLicenseRoute.POST("/account/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), anonymousRequestBodyLimit, controller.VerifyNaimageAccount)
+			naimageLicenseAdminRoute := naimageLicenseRoute.Group("/admin")
+			naimageLicenseAdminRoute.Use(middleware.AdminAuth())
+			{
+				naimageLicenseAdminRoute.GET("/codes", controller.ListNaimageActivationCodes)
+				naimageLicenseAdminRoute.POST("/codes", controller.CreateNaimageActivationCodes)
+				naimageLicenseAdminRoute.POST("/codes/:id/disable", controller.DisableNaimageActivationCode)
+			}
+		}
 
 		// Universal secure verification routes
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), controller.UniversalVerify)

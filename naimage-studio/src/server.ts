@@ -729,6 +729,23 @@ function createBrowserServerBridge(): ServerBridge {
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
+    },
+    async licenseStatus() {
+      const settings = readSettings();
+      try {
+        const response = await newApiRequest(settings, "/api/naimage/license");
+        const required = (response as { data?: { required?: boolean } })?.data?.required === true;
+        return { ok: true, active: !required || Boolean(settings.licenseToken), required, supported: true };
+      } catch (error) {
+        if (Number((error as { status?: number })?.status) === 404) return { ok: true, active: true, required: false, supported: false };
+        return { ok: false, active: false, required: true, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    async activateLicense() {
+      return { ok: false, active: false, required: true, error: "激活码核销仅支持 naimage 桌面版。" };
+    },
+    async configureCustom() {
+      return { ok: false, error: "自定义 API Key 模式仅支持 naimage 桌面版。" };
     }
   };
 }
