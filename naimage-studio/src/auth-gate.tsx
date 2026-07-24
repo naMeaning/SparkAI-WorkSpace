@@ -15,13 +15,7 @@ function AuthTitlebar({ status }: { status: string }) {
   return (
     <header className="ide-topbar auth-topbar">
       <div className="titlebar-brand">
-        <span className="titlebar-brand-icon" aria-hidden="true">
-          <span className="naimage-logo-mark">
-            <i />
-            <i />
-            <i />
-          </span>
-        </span>
+        <img className="titlebar-brand-icon" src="./naimage.png" alt="" draggable={false} />
         <strong>naimage</strong>
       </div>
       <span className="auth-titlebar-status">{status}</span>

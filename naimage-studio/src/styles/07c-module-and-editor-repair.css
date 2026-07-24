@@ -1,4 +1,4 @@
-/* Native titlebar drag repair and branded window icon. */
+/* Native titlebar drag repair. */
 .ide-topbar {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   padding: 0 0 0 8px;
@@ -21,18 +21,6 @@
 .ide-topbar .file-command-popover,
 .ide-topbar .window-controls {
   -webkit-app-region: no-drag;
-}
-
-.titlebar-brand-icon {
-  border: 0;
-  background:
-    url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABA0lEQVR4nO3bsQ3CMBCF4cxARcEAiDkoqLIKLfMxAgMwBgUNKEiRkpNjB5Fw57s/0muiFH6fHBcnuWnEs7ucX54j+4YpnoXoXmzaU6iMEEID9FtCe0EaAB8EAAAAAAAAAABAfUEAAAAAAADUBHB/PkwFAC2A7WGvGgAAAAAA0wDH23WUUACy/BoIAAAAgF2AFMKS5asAWDsAAGAAYOqwm5NfirsA+BZhOANwAzAXQQ5BXAGUEFJTIHcAKYTcGMwlwBAhV77/ziVAl1J59wBTCHKnuAaQCKlfxT1A6axQB7ASAP4NUHsAAAAAAAAAAAAAAAAAAABiA4S/OAkAl6dj3SKXfd9DLus2WiDC0gAAAABJRU5ErkJggg==")
-    center / cover no-repeat;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
-}
-
-.titlebar-brand-icon svg {
-  opacity: 0;
 }
 
 @media (max-width: 980px) {

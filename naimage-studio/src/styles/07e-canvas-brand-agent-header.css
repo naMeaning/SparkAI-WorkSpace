@@ -1,71 +1,14 @@
 /* 2026-07 infinite canvas first pass: brand, canvas-first layout, Agent core node, settings/account cleanup. */
 .titlebar-brand-icon {
-  position: relative;
   width: 24px;
   height: 24px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-  border-radius: 6px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent 54%),
-    color-mix(in srgb, var(--surface-raised) 86%, var(--surface-solid));
-  box-shadow: none;
-}
-.titlebar-brand-icon svg {
-  display: none;
-}
-
-.naimage-logo-mark {
-  position: relative;
-  width: 16px;
-  height: 17px;
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  align-items: end;
-  justify-content: center;
-  gap: 2px;
-}
-
-.naimage-logo-mark::after {
-  content: "";
-  position: absolute;
-  right: -2px;
-  bottom: 1px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid color-mix(in srgb, var(--accent-strong) 72%, var(--line));
-  border-radius: 50%;
-  background: var(--surface-solid);
-}
-
-.naimage-logo-mark i {
-  position: relative;
-  width: 4px;
-  height: 11px;
   display: block;
-  border-radius: 3px;
-  background: var(--accent-strong);
-}
-
-.naimage-logo-mark i::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: 0;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent-strong) 82%, var(--ink));
-}
-
-.naimage-logo-mark i:nth-child(2) {
-  height: 14px;
-  background: color-mix(in srgb, var(--blue) 72%, var(--accent-strong));
-}
-
-.naimage-logo-mark i:nth-child(3) {
-  height: 9px;
-  background: color-mix(in srgb, var(--green) 62%, var(--accent-strong));
+  flex: 0 0 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  object-fit: contain;
 }
 
 .titlebar-brand strong {

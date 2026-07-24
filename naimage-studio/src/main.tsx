@@ -19468,13 +19468,7 @@ function App() {
       <OverflowTooltipLayer />
       <header className="ide-topbar">
         <div className="titlebar-brand">
-          <span className="titlebar-brand-icon" aria-hidden="true">
-            <span className="naimage-logo-mark">
-              <i />
-              <i />
-              <i />
-            </span>
-          </span>
+          <img className="titlebar-brand-icon" src="./naimage.png" alt="" draggable={false} />
           <strong>naimage</strong>
         </div>
         <nav className="file-menu project-actions" aria-label="项目菜单">
