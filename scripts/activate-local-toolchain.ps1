@@ -29,11 +29,14 @@ $goRoot = $goCandidates |
 if (-not $goRoot) { $goRoot = $goCandidates[0] }
 $goBin = Join-Path $goRoot "bin"
 $dotnetRoot = Join-Path $toolRoot "dotnet"
+$ghRoot = Join-Path $toolRoot "gh-2.96.0"
+$ghBin = Join-Path $ghRoot "bin"
 
 $requiredExecutables = @(
     (Join-Path $bunHome "bun.exe"),
     (Join-Path $goBin "go.exe"),
-    (Join-Path $dotnetRoot "dotnet.exe")
+    (Join-Path $dotnetRoot "dotnet.exe"),
+    (Join-Path $ghBin "gh.exe")
 )
 
 foreach ($executable in $requiredExecutables) {
@@ -50,9 +53,10 @@ $managedPathEntries = @(
     (Join-Path $toolRoot "bun"),
     (Join-Path $toolRoot "bun-1.2.23"),
     $goBin,
-    $dotnetRoot
+    $dotnetRoot,
+    $ghBin
 )
-$pathPrefix = @($bunHome, $goBin, $dotnetRoot)
+$pathPrefix = @($bunHome, $goBin, $dotnetRoot, $ghBin)
 $existingPathEntries = @($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ })
 $newPathEntries = New-Object System.Collections.Generic.List[string]
 $seenPathEntries = @{}
@@ -91,6 +95,7 @@ $env:NAIMAGE_NODE_EXE = $nodeCommand.Source
 $env:NAIMAGE_COREPACK_EXE = $corepackCommand.Source
 $env:NAIMAGE_BUN_VERSION = $BunVersion
 $env:NAIMAGE_BUN_EXE = Join-Path $bunHome "bun.exe"
+$env:NAIMAGE_GH_EXE = Join-Path $ghBin "gh.exe"
 
 # Keep portable tool state and caches inside this workspace where practical.
 $env:BUN_INSTALL_CACHE_DIR = Join-Path $toolRoot "bun-cache-$BunVersion"
@@ -117,5 +122,6 @@ if (-not $Quiet) {
     Write-Host "Bun       : $BunVersion ($bunHome)"
     Write-Host "Go        : $goRoot"
     Write-Host ".NET      : $dotnetRoot"
+    Write-Host "GitHub CLI: 2.96.0 ($ghRoot)"
     Write-Host "pnpm      : use 'corepack pnpm' (project pin: 10.12.1)"
 }

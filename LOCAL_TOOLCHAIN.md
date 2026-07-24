@@ -1,6 +1,6 @@
 # 本地开发工具链
 
-工作区自带 Bun、Go 和 .NET SDK。下面的脚本只修改当前 PowerShell 进程的 `PATH` 和本地开发环境变量：不修改系统 `PATH`，不启动服务，也不访问线上服务、生产数据或用户项目数据。
+工作区自带 Bun、Go、.NET SDK 和 GitHub CLI。下面的脚本只修改当前 PowerShell 进程的 `PATH` 和本地开发环境变量：不修改系统 `PATH`，不启动服务，也不访问线上服务、生产数据或用户项目数据。
 
 两个项目的职责、技术栈和跨仓修改导航见 [WORKSPACE_CONTEXT_MAP.md](./WORKSPACE_CONTEXT_MAP.md)。
 
@@ -27,8 +27,9 @@
 | Bun | `1.3.14`（默认）/ `1.2.23`（兼容尝试） | `.tools` 便携二进制 |
 | Go | `1.25.1` | `.tools/go-1.25.1-complete/go`（激活脚本会校验标准库与编译器完整性后选择） |
 | .NET SDK | `9.0.316` | `.tools/dotnet` |
+| GitHub CLI | `2.96.0` | `.tools/gh-2.96.0` 便携版；登录凭据由 Windows 凭据存储保管 |
 
-pnpm 命令统一写成 `corepack pnpm ...`，不要依赖机器上另一个全局 pnpm。激活后，Bun、Go、.NET 的缓存/工作目录也指向工作区 `.tools`，不会写入系统级工具目录。
+pnpm 命令统一写成 `corepack pnpm ...`，不要依赖机器上另一个全局 pnpm。激活后，Bun、Go、.NET 的缓存/工作目录也指向工作区 `.tools`，不会写入系统级工具目录。GitHub CLI 可直接使用 `gh`；当前已登录 `naMeaning`，网络访问继续通过命令级 `HTTP_PROXY`/`HTTPS_PROXY` 使用 Clash `127.0.0.1:7897`，不修改 Git 全局代理配置。
 
 ## 诊断
 
