@@ -141,7 +141,7 @@ export function DialogShell({
       if (!dialog) return;
       if (event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
-        event.stopPropagation();
+        event.stopImmediatePropagation();
         requestClose("escape");
         return;
       }
