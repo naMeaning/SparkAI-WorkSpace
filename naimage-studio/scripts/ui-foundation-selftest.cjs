@@ -283,6 +283,11 @@ check(
   "model cache bypass happens on the sixth consecutive manual refresh",
   /manualModelRefreshCountRef\.current\s*>=\s*6/.test(businessUiSource)
 );
+check(
+  "settings save availability is independent from model catalog loading",
+  /disabled=\{!dirty\}/.test(mainSource) &&
+    !/disabled=\{!dirty\s*\|\|\s*modelState\.loading\}/.test(mainSource)
+);
 
 const removedFeatureSelectors = [
   "post-preview",

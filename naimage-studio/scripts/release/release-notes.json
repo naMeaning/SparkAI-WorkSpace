@@ -33,5 +33,11 @@
     "更新发布统一使用 product 为 naimage-studio 的 desktop-release.json，并共享同一安装器和 Restart ASAR。",
     "更名前的 1.0.4 客户端需手工获取 naimage 1.0.5 完整安装器，安装时迁移可执行文件、快捷方式与卸载身份。",
     "拆分 New API 账户、模型 Relay 与更新服务地址；旧 AIEYRA 更新地址强制迁移到 SparkAPI，自建 New API 更新地址仍可保留。"
+  ],
+  "1.0.6": [
+    "图片生成与编辑最多支持 10 路并发，并支持三阶段流式中间预览。",
+    "恢复 Node 原生 HTTP 默认传输，新增仅作用于 naimage 的可选 HTTP(S) 代理，改善 TLS 超时和连接稳定性。",
+    "修复图片接口无效 JSON、空流与错误重试判断，优化 Agent 原图比例和生图进度展示。",
+    "Base URL、API Key 与接入模式修改后可立即保存，不再等待旧渠道的模型列表加载完成。"
   ]
 }

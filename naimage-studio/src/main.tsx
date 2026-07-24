@@ -22873,7 +22873,7 @@ function SettingsDrawer({
               }
             >
               <ActionButton onClick={discardOrClose} disabled={saving}>{discardArmed && dirty ? "确认放弃" : "关闭"}</ActionButton>
-              <ActionButton variant="primary" onClick={() => void commitSettings()} busy={saving} disabled={!dirty || modelState.loading} icon={<Check size={15} />}>
+              <ActionButton variant="primary" onClick={() => void commitSettings()} busy={saving} disabled={!dirty} icon={<Check size={15} />}>
                 保存设置
               </ActionButton>
             </SurfaceFooter>
