@@ -19,9 +19,11 @@ const isWindows = process.platform === "win32";
 const pnpm = "pnpm";
 const pnpmCli = [
   process.env.NAIMAGE_PNPM_CLI,
+  process.env.npm_execpath,
   process.env.APPDATA ? join(process.env.APPDATA, "npm", "node_modules", "pnpm", "bin", "pnpm.cjs") : "",
   process.env.PNPM_HOME ? join(process.env.PNPM_HOME, "pnpm.cjs") : ""
-].filter(Boolean).find((candidate) => existsSync(candidate)) || "";
+].filter((candidate) => String(candidate || "").endsWith("pnpm.cjs"))
+  .find((candidate) => existsSync(candidate)) || "";
 const startedAt = new Date();
 const runDir = join(projectRoot, ".diagnostics", "release", `verify-${startedAt.toISOString().replace(/[:.]/g, "-")}`);
 const lockDir = join(projectRoot, ".release-tools");
