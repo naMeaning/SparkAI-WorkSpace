@@ -45,11 +45,10 @@ Do not edit the tracked server manifest until all of these are true:
 - The installer, restart ASAR, manifest, sidecar, and `SHA256SUMS.txt`
   agree.
 
-The frozen 1.0.4 manifest remains in Git only as signed historical evidence.
-Normal deployment rejects its retired product identity; use
-`NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=1` only for an explicit read-only
-audit. Do not deploy the renamed backend until the new `naimage-studio`
-manifest is part of the same reviewed release change.
+The tracked manifest must use only the `naimage-studio` product identity and
+canonical `naimage-*` artifact names. The verifier has no retired-product
+override. Deploy the backend only when the signed manifest and matching
+artifacts are part of the same reviewed release change.
 
 The release private key must never enter this repository, a command line, a
 ticket, a log, or the production server.

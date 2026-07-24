@@ -58,6 +58,11 @@ assert.equal(migratedLegacyServer.relayBaseUrl, "");
 assert.equal(migratedLegacyServer.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
 assert.equal((migratedLegacyServer as unknown as Record<string, unknown>).serverUrl, undefined);
 
+const migratedRetiredUpdateHost = mergeSettings({ updateBaseUrl: "HTTPS://IMAGE.AIEYRA.CN/" });
+assert.equal(migratedRetiredUpdateHost.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
+const retainedCustomUpdateHost = mergeSettings({ updateBaseUrl: "https://updates.example/" });
+assert.equal(retainedCustomUpdateHost.updateBaseUrl, "https://updates.example");
+
 const repaired = mergeSettings({
   agentProvider: "unsupported" as never,
   reasoningEffort: "extreme" as never,

@@ -32,6 +32,6 @@
     "产品名称、应用身份、安装器、项目格式、资源协议与服务路由统一升级为 naimage。",
     "更新发布统一使用 product 为 naimage-studio 的 desktop-release.json，并共享同一安装器和 Restart ASAR。",
     "更名前的 1.0.4 客户端需手工获取 naimage 1.0.5 完整安装器，安装时迁移可执行文件、快捷方式与卸载身份。",
-    "拆分 New API 账户、模型 Relay 与更新服务地址，保留旧设置和旧项目读取兼容。"
+    "拆分 New API 账户、模型 Relay 与更新服务地址；旧 AIEYRA 更新地址强制迁移到 SparkAPI，自建 New API 更新地址仍可保留。"
   ]
 }

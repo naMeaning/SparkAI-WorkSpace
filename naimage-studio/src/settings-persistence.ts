@@ -69,6 +69,10 @@ const LEGACY_LOCAL_SERVER_URLS = new Set([
   "http://[::1]:17860"
 ]);
 
+const RETIRED_UPDATE_SERVICE_URLS = new Set([
+  "https://image.aieyra.cn"
+]);
+
 function uniqueStoredModels(models: unknown[] = []) {
   return models
     .map((model) => String(model || "").trim())
@@ -83,6 +87,10 @@ export function normalizeServiceBaseUrl(value: unknown, fallback = "") {
 
 function isLegacyLocalServerUrl(value: unknown) {
   return LEGACY_LOCAL_SERVER_URLS.has(normalizeServiceBaseUrl(value).toLowerCase());
+}
+
+function isRetiredUpdateServiceUrl(value: unknown) {
+  return RETIRED_UPDATE_SERVICE_URLS.has(normalizeServiceBaseUrl(value).toLowerCase());
 }
 
 export function mergeSettings(value?: Partial<AppSettings> & Record<string, unknown>): AppSettings {
@@ -106,7 +114,9 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   }
   next.accountBaseUrl = normalizeServiceBaseUrl(next.accountBaseUrl, defaultSettings.accountBaseUrl);
   next.relayBaseUrl = normalizeServiceBaseUrl(next.relayBaseUrl);
-  next.updateBaseUrl = normalizeServiceBaseUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
+  next.updateBaseUrl = isRetiredUpdateServiceUrl(next.updateBaseUrl)
+    ? defaultSettings.updateBaseUrl
+    : normalizeServiceBaseUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
   next.agentModelPool = uniqueStoredModels(Array.isArray(source.agentModelPool) ? source.agentModelPool : next.agentModelPool);
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueStoredModels([next.agentModel, ...next.agentModelPool]);

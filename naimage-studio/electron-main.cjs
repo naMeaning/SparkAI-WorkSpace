@@ -361,12 +361,22 @@ const legacyLocalServerUrls = new Set([
   "http://[::1]:17860"
 ]);
 
+// The retired AIEYRA update host must never remain active after settings
+// migration. Custom update hosts are still allowed for self-hosted gateways.
+const retiredUpdateServiceUrls = new Set([
+  "https://image.aieyra.cn"
+]);
+
 function normalizeStoredServerUrl(value) {
   return String(value || "").trim().replace(/\/$/, "");
 }
 
 function isLegacyLocalServerUrl(value) {
   return legacyLocalServerUrls.has(normalizeStoredServerUrl(value).toLowerCase());
+}
+
+function isRetiredUpdateServiceUrl(value) {
+  return retiredUpdateServiceUrls.has(normalizeStoredServerUrl(value).toLowerCase());
 }
 
 function aidebugSettings() {
@@ -497,7 +507,9 @@ function migrateSettings(value) {
   }
   next.accountBaseUrl = normalizeServerUrl(next.accountBaseUrl, defaultSettings.accountBaseUrl);
   next.relayBaseUrl = normalizeServerUrl(next.relayBaseUrl, "");
-  next.updateBaseUrl = normalizeServerUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
+  next.updateBaseUrl = isRetiredUpdateServiceUrl(next.updateBaseUrl)
+    ? defaultSettings.updateBaseUrl
+    : normalizeServerUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);

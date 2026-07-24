@@ -80,9 +80,7 @@ if not isinstance(minimum_version, str) or not semver_pattern.fullmatch(minimum_
     raise SystemExit("invalid desktop minimum version")
 version = version.strip()
 minimum_version = minimum_version.strip()
-is_frozen_historical_release = product == "iiimage-studio" and version == "1.0.4"
-allow_frozen_historical_release = os.environ.get("NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE") == "1"
-if product != "naimage-studio" and not (is_frozen_historical_release and allow_frozen_historical_release):
+if product != "naimage-studio":
     raise SystemExit("desktop release manifest product must be naimage-studio")
 
 published_at = manifest.get("published_at")
@@ -142,18 +140,9 @@ for kind in ("installer", "restart"):
         raise SystemExit(f"invalid {kind} filename")
     if kind == "installer":
         canonical_filename = f"naimage-Setup-{version}-x64.exe"
-        historical_filename = f"iiimage-Studio-Setup-{version}-x64.exe"
     else:
         canonical_filename = f"naimage-Restart-Update-{version}-x64.asar"
-        historical_filename = f"iiimage-Studio-Restart-Update-{version}-x64.asar"
-    if product == "naimage-studio":
-        expected_filenames = {canonical_filename}
-    else:
-        # The tracked, already-signed 1.0.4 release is frozen and cannot be
-        # renamed without invalidating its signature. No newer release may use
-        # this product identity or artifact naming scheme.
-        expected_filenames = {historical_filename}
-    if filename not in expected_filenames:
+    if filename != canonical_filename:
         raise SystemExit(f"unexpected {kind} filename: {filename}")
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise SystemExit(f"invalid {kind} SHA-256")

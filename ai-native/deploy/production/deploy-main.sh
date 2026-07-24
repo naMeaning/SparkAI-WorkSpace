@@ -525,7 +525,7 @@ if [[ ! -f "$RELEASE_MANIFEST_SOURCE" ]]; then
   echo "missing tracked desktop release manifest: ${RELEASE_MANIFEST_SOURCE}" >&2
   exit 1
 fi
-NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" \
+"${SCRIPT_DIR}/verify-installer.sh" \
   "$RELEASE_MANIFEST_SOURCE" \
   "${RUNTIME_DIR}/releases" \
   "${SCRIPT_DIR}/releases/update-public-key.pem"
@@ -657,7 +657,7 @@ if ! cmp -s "$RELEASE_MANIFEST_SOURCE" "$RELEASE_MANIFEST_TARGET"; then
 fi
 # Verify the staged canonical manifest before atomically promoting it.
 manifest_for_verification="${release_manifest_candidate:-$RELEASE_MANIFEST_TARGET}"
-NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" \
+"${SCRIPT_DIR}/verify-installer.sh" \
   "$manifest_for_verification" \
   "${RUNTIME_DIR}/releases" \
   "${SCRIPT_DIR}/releases/update-public-key.pem"
@@ -666,7 +666,7 @@ if [[ -n "$release_manifest_candidate" ]]; then
   release_manifest_candidate=""
 fi
 
-NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh"
+"${SCRIPT_DIR}/verify-installer.sh"
 
 state_marker_changed=1
 printf '%s\n' "$new_head" > "$STATE_FILE"

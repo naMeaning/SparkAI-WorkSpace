@@ -47,13 +47,10 @@ runs the hardened deployment code; the deployed-state marker remains at the
 previous successful application commit and causes the watcher to retry without
 leaving the failed application live.
 
-The tracked `releases/desktop-release.json` initially remains the already-signed
-historical 1.0.4 manifest. Its `iiimage-studio` identity and historical artifact
-filenames stay byte-for-byte intact so its signature remains valid. It can be
-audited only with `NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=1`; deployment and
-production acceptance explicitly force that switch off. Therefore the
-renamed backend and a newly signed `naimage-studio` manifest must be reviewed and
-deployed atomically. Every newly signed release publishes only
+The tracked `releases/desktop-release.json` is the signed canonical
+`naimage-studio` manifest and is deployed atomically with the matching artifacts.
+The verifier rejects retired product identities and artifact names without an
+override. Every newly signed release publishes only
 `desktop-release.json`, with `naimage-Setup-*` /
 `naimage-Restart-Update-*` artifacts. The retired
 `desktop-release-legacy.json` rename bridge is no longer generated, deployed,

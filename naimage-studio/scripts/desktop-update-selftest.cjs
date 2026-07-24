@@ -78,6 +78,21 @@ try {
   assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "update"), "https://sparkapi.org");
   assert.equal(main.migrateSettings({ serverUrl: "https://legacy-account.example" }).accountBaseUrl, "https://legacy-account.example");
   assert.equal(main.migrateSettings({ serverUrl: "https://legacy-account.example" }).updateBaseUrl, "https://sparkapi.org");
+  assert.equal(
+    main.migrateSettings({ updateBaseUrl: "https://image.aieyra.cn/" }).updateBaseUrl,
+    "https://sparkapi.org",
+    "The retired AIEYRA update host must be force-migrated"
+  );
+  assert.equal(
+    main.migrateSettings({ updateBaseUrl: "HTTPS://IMAGE.AIEYRA.CN/" }).updateBaseUrl,
+    "https://sparkapi.org",
+    "Retired update host matching must be case-insensitive"
+  );
+  assert.equal(
+    main.migrateSettings({ updateBaseUrl: "https://updates.example" }).updateBaseUrl,
+    "https://updates.example",
+    "Custom update hosts remain supported"
+  );
   assert.equal(verified.updateType, "restart");
   assert.equal(verified.restart.sha256, "a".repeat(64));
   assert.equal(main.currentDesktopVersion(), packageVersion);

@@ -373,7 +373,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-桌面把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
+桌面把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留，以支持后续自建 New API。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
 
 正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
 

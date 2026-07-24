@@ -1,26 +1,26 @@
 {
   "schema_version": 1,
-  "product": "iiimage-studio",
+  "product": "naimage-studio",
   "channel": "stable",
-  "version": "1.0.4",
-  "published_at": "2026-07-20T10:13:15.224Z",
-  "minimum_version": "1.0.0",
+  "version": "1.0.5",
+  "published_at": "2026-07-24T07:45:49.572Z",
+  "minimum_version": "1.0.5",
   "compatibility": "windows-x64-electron-42-runtime-3",
   "notes": [
-    "统一 Agent 执行门禁，覆盖 AskUser、画布需求、手动生图、AI 抠图与重绘，避免重复任务和跨项目错误提交。",
-    "在线更新支持进度与待安装状态恢复、失败回滚、坏包隔离和完整安装恢复，并将健康确认后移到应用完成本地初始化之后。",
-    "完善模型键盘导航、会话历史、消息阅读、图片查看器和节点编辑器交互，统一窄窗口下的按钮、滚动与弹窗布局。",
-    "新增外置运行时兼容门禁并清理安装包中的无效 V8 缓存；本版本通过完整安装统一历史在线升级用户的 worker 与更新助手。"
+    "产品名称、应用身份、安装器、项目格式、资源协议与服务路由统一升级为 naimage。",
+    "更新发布统一使用 product 为 naimage-studio 的 desktop-release.json，并共享同一安装器和 Restart ASAR。",
+    "更名前的 1.0.4 客户端需手工获取 naimage 1.0.5 完整安装器，安装时迁移可执行文件、快捷方式与卸载身份。",
+    "拆分 New API 账户、模型 Relay 与更新服务地址；旧 AIEYRA 更新地址强制迁移到 SparkAPI，自建 New API 更新地址仍可保留。"
   ],
   "restart": {
-    "filename": "iiimage-Studio-Restart-Update-1.0.4-x64.asar",
-    "sha256": "abdcf71a2a96aed30d32ae17237bcd452badeef01e2fb02576f75ef551f24ed8",
-    "size": 48814888
+    "filename": "naimage-Restart-Update-1.0.5-x64.asar",
+    "sha256": "9b2ecf56a10c70bf176d44ddfa8580f4f71fb48f75c7ec2ee74a77014d20e0a5",
+    "size": 49379089
   },
   "installer": {
-    "filename": "iiimage-Studio-Setup-1.0.4-x64.exe",
-    "sha256": "b33ebe4501623dace5e65ff2be19b3644c5a71c92f34dc403eefc9517300c304",
-    "size": 108985344
+    "filename": "naimage-Setup-1.0.5-x64.exe",
+    "sha256": "c7b98634b5f0b2dd3a9f2cb51748ad451dd878f24a9a9fb33e29a5cd9a1553a1",
+    "size": 175502848
   },
-  "signature": "67Fpe0zbGvv1+mXEebWHdJZCnfezdxkNeBxJmZqMCa+V1H+O1YizAyqzBRZASAxQP1lDIO/YJxLhGnkOsVzHCQ=="
+  "signature": "YmVSS/sB217f8nu23xxOFrAOZPEaoVU8QQ8g69b17XjnFrEnhX2YgW8pG0Q3xGiPBXJgTTFQYq+j0QfxGEAKDA=="
 }

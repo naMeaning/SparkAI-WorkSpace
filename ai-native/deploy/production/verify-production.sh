@@ -131,7 +131,7 @@ deployed_head="$(tr -d '\r\n' <"$STATE_FILE")"
 pass "source, origin and deployed commit agree at ${local_head:0:12}"
 
 cmp -s "${SCRIPT_DIR}/releases/desktop-release.json" "${RUNTIME_DIR}/releases/desktop-release.json" || fail "tracked and runtime desktop release manifests differ"
-NAIMAGE_ALLOW_FROZEN_HISTORICAL_RELEASE=0 "${SCRIPT_DIR}/verify-installer.sh" >/dev/null
+"${SCRIPT_DIR}/verify-installer.sh" >/dev/null
 pass "desktop release manifest signature and artifact SHA-256 values"
 
 docker compose --env-file "$ENV_FILE" --env-file "$COMPOSE_ENV_COMPAT_FILE" -f "$COMPOSE_FILE" config --quiet
