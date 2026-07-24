@@ -61,10 +61,10 @@ const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker
 const limits = {
   initialJsBytes: 600_000,
   asyncJsBytes: 180_000,
-  // Source modularization adds small ESM/chunk boundary overhead. Keep the
-  // user-visible initial-load gate unchanged and allow only a narrow total-JS
-  // envelope for the additional module graph metadata.
-  jsBytes: 652_000,
+  // Startup performance is governed by initialJsBytes. Allow lazy-loaded
+  // settings, authentication and model-management features to grow without
+  // weakening the user-visible initial-load gate.
+  jsBytes: 720_000,
   cssBytes: 220_000,
   totalBytes: 1_000_000
 };
