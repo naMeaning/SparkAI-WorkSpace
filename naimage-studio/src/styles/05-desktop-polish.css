@@ -29,8 +29,10 @@
 }
 
 .auth-brand-icon {
+  display: block;
   width: 34px;
   height: 34px;
+  object-fit: contain;
 }
 
 .auth-card h1,
@@ -51,4 +53,3 @@
 .overflow-tooltip {
   box-shadow: 0 10px 28px rgba(18, 30, 29, 0.14);
 }
-

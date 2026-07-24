@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { Loader2, Shield, Workflow } from "lucide-react";
+import { Loader2, Shield } from "lucide-react";
 
 import { blockImagePaste, type AuthDraft } from "./core";
 import {
@@ -31,9 +31,7 @@ export function BootScreen({ message }: { message: string }) {
       <AuthTitlebar status="启动检查" />
       <div className="auth-stage">
         <section className="auth-card boot-card" aria-label="启动检查">
-          <div className="brand-icon auth-brand-icon">
-            <Workflow size={20} />
-          </div>
+          <img className="auth-brand-icon" src="./naimage.png" alt="" draggable={false} />
           <span className="eyebrow">naimage</span>
           <h1>正在启动</h1>
           <p>{message}</p>
@@ -82,9 +80,7 @@ export function AuthGate({
       <div className="auth-stage">
         <section className="auth-card" aria-label="登录注册">
           <div className="auth-card-top">
-            <div className="brand-icon auth-brand-icon">
-              <Workflow size={20} />
-            </div>
+            <img className="auth-brand-icon" src="./naimage.png" alt="" draggable={false} />
             <span>naimage</span>
           </div>
           <span className="eyebrow">naimage</span>
