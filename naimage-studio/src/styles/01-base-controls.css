@@ -4,22 +4,41 @@
 
 :root {
   color-scheme: light;
-  --bg: #f3f3f3;
-  --canvas: #f8f8f8;
-  --surface: #f3f3f3;
-  --surface-solid: #ffffff;
-  --surface-raised: #ffffff;
-  --ink: #1f1f1f;
-  --ink-soft: #4f4f4f;
-  --muted: #757575;
-  --line: #d6d6d6;
-  --line-strong: #c6c6c6;
-  --accent: #007acc;
-  --accent-strong: #005a9e;
-  --blue: #007acc;
-  --rose: #c74e39;
-  --amber: #b7791f;
-  --green: #16825d;
+  --theme-bg: #f4f4fb;
+  --theme-canvas: #f8f8ff;
+  --theme-surface: #f1f1f8;
+  --theme-surface-solid: #ffffff;
+  --theme-surface-raised: #ffffff;
+  --theme-ink: #202033;
+  --theme-ink-soft: #505066;
+  --theme-muted: #77778d;
+  --theme-line: #d8d7e6;
+  --theme-line-strong: #c5c3d9;
+  --theme-accent: #675df5;
+  --theme-accent-strong: #5146d8;
+  --theme-blue: #278bd2;
+  --theme-rose: #cc4f71;
+  --theme-amber: #ad741c;
+  --theme-green: #0e9488;
+  --theme-control-bg: #ffffff;
+  --theme-hover-bg: #ecebff;
+  --theme-active-bg: #dedcff;
+  --bg: var(--theme-bg);
+  --canvas: var(--theme-canvas);
+  --surface: var(--theme-surface);
+  --surface-solid: var(--theme-surface-solid);
+  --surface-raised: var(--theme-surface-raised);
+  --ink: var(--theme-ink);
+  --ink-soft: var(--theme-ink-soft);
+  --muted: var(--theme-muted);
+  --line: var(--theme-line);
+  --line-strong: var(--theme-line-strong);
+  --accent: var(--theme-accent);
+  --accent-strong: var(--theme-accent-strong);
+  --blue: var(--theme-blue);
+  --rose: var(--theme-rose);
+  --amber: var(--theme-amber);
+  --green: var(--theme-green);
   /* Compatibility aliases stay semantic so the later active theme palette can
      continue to provide the final colors without leaving older feature rules
      with unresolved custom properties. */
@@ -36,9 +55,9 @@
   --panel-pad: 10px;
   --panel-bg: var(--surface-solid);
   --panel-bg-flat: var(--surface-solid);
-  --control-bg: #ffffff;
-  --hover-bg: #e8f2fb;
-  --active-bg: #d7ebfb;
+  --control-bg: var(--theme-control-bg);
+  --hover-bg: var(--theme-hover-bg);
+  --active-bg: var(--theme-active-bg);
   --font-xs: 11px;
   --font-sm: 12px;
   --font-ui: 13px;
@@ -83,25 +102,44 @@
 :root[data-theme="dark"],
 :root.theme-dark {
   color-scheme: dark;
-  --bg: #1e1e1e;
-  --canvas: #1f1f1f;
-  --surface: #252526;
-  --surface-solid: #252526;
-  --surface-raised: #2d2d30;
-  --ink: #cccccc;
-  --ink-soft: #b7b7b7;
-  --muted: #8e8e8e;
-  --line: #3c3c3c;
-  --line-strong: #4b4b4b;
-  --accent: #007acc;
-  --accent-strong: #4aa6e8;
-  --blue: #3794ff;
-  --rose: #f14c4c;
-  --amber: #d7ba7d;
-  --green: #4ec9b0;
-  --control-bg: #2d2d30;
-  --hover-bg: #2a2d2e;
-  --active-bg: #37373d;
+  --theme-bg: #1c1b28;
+  --theme-canvas: #1f1e2d;
+  --theme-surface: #252436;
+  --theme-surface-solid: #252436;
+  --theme-surface-raised: #2e2c42;
+  --theme-ink: #d8d7e7;
+  --theme-ink-soft: #bdbbd0;
+  --theme-muted: #9391aa;
+  --theme-line: #403e55;
+  --theme-line-strong: #514e69;
+  --theme-accent: #8179ff;
+  --theme-accent-strong: #a29cff;
+  --theme-blue: #4aa7e8;
+  --theme-rose: #f06a8b;
+  --theme-amber: #d7b266;
+  --theme-green: #4ec9b0;
+  --theme-control-bg: #2e2c42;
+  --theme-hover-bg: #312f46;
+  --theme-active-bg: #3b3856;
+  --bg: var(--theme-bg);
+  --canvas: var(--theme-canvas);
+  --surface: var(--theme-surface);
+  --surface-solid: var(--theme-surface-solid);
+  --surface-raised: var(--theme-surface-raised);
+  --ink: var(--theme-ink);
+  --ink-soft: var(--theme-ink-soft);
+  --muted: var(--theme-muted);
+  --line: var(--theme-line);
+  --line-strong: var(--theme-line-strong);
+  --accent: var(--theme-accent);
+  --accent-strong: var(--theme-accent-strong);
+  --blue: var(--theme-blue);
+  --rose: var(--theme-rose);
+  --amber: var(--theme-amber);
+  --green: var(--theme-green);
+  --control-bg: var(--theme-control-bg);
+  --hover-bg: var(--theme-hover-bg);
+  --active-bg: var(--theme-active-bg);
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   --small-shadow: 0 8px 26px rgba(0, 0, 0, 0.26);
 }
@@ -2077,4 +2115,3 @@ button {
 .zoom-button {
   min-width: 70px;
 }
-

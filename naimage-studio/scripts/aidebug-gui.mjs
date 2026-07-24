@@ -9672,6 +9672,7 @@ async function main() {
         titlebarOverlay: true,
         workbenchMinWidthOk: true,
         settingsChannelHidden: true,
+        settingsAppearanceControlsOk: true,
         settingsDrawerWithinViewport: true,
         settingsDrawerFlushRightOk: true,
         settingsLabelsOk: true,
@@ -9751,7 +9752,7 @@ async function main() {
       results.push(await captureState(client, target.id, "main-min-884", openSurfaceExpression("main"), { width: workbenchMinWidth, height: 720 }, { ...mainExpected, canvasVisible: true, imageNodeViewportOk: true }));
       results.push(await captureState(client, target.id, "project-agent-1280", openSurfaceExpression("agent-timeline"), { width: 1280, height: 820 }, projectAgentExpected));
       results.push(await captureState(client, target.id, "project-agent-min-884", openSurfaceExpression("agent-timeline"), { width: workbenchMinWidth, height: 720 }, { ...projectAgentExpected, imageNodeViewportOk: true }));
-      const settingsExpected = { settingsOpen: true, historyOpen: false, modalOpen: false, accountOpen: false, titlebarOverlay: true, workbenchMinWidthOk: true, oldAgentPanelUnmounted: true, settingsChannelHidden: true, settingsThemeCopyRemovedOk: true, settingsBoxless: true, settingsRowsAiry: true, settingsHeaderCompactOk: true, settingsHeaderBreathingOk: true, settingsDrawerBreathingOk: true, settingsDrawerFlushRightOk: true, settingsDrawerWidthOk: true, settingsDrawerUiOk: true, settingsLabelsOk: true, settingsSaveControlsOk: true, settingsUpdateCenterOk: true, modelFetchButtonTextOk: true, modelFetchButtonRightOk: true, modelFetchButtonAlignedOk: true, settingsPromptActionFlowOk: true, canvasToolbarAbsent: true, canvasStatusDockedBottom: true, canvasZoomDockedBottom: true, canvasViewportFillOk: true };
+      const settingsExpected = { settingsOpen: true, historyOpen: false, modalOpen: false, accountOpen: false, titlebarOverlay: true, workbenchMinWidthOk: true, oldAgentPanelUnmounted: true, settingsChannelHidden: true, settingsAppearanceControlsOk: true, settingsThemeCopyRemovedOk: true, settingsBoxless: true, settingsRowsAiry: true, settingsHeaderCompactOk: true, settingsHeaderBreathingOk: true, settingsDrawerBreathingOk: true, settingsDrawerFlushRightOk: true, settingsDrawerWidthOk: true, settingsDrawerUiOk: true, settingsLabelsOk: true, settingsSaveControlsOk: true, settingsUpdateCenterOk: true, modelFetchButtonTextOk: true, modelFetchButtonRightOk: true, modelFetchButtonAlignedOk: true, settingsPromptActionFlowOk: true, canvasToolbarAbsent: true, canvasStatusDockedBottom: true, canvasZoomDockedBottom: true, canvasViewportFillOk: true };
       const modelPickerExpression = openSurfaceExpression("model-config", `
         {
           await window.naimageServer?.models?.();

@@ -27,6 +27,10 @@ export default defineConfig(({ command, mode }) => ({
       output: {
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, "/");
+          // The barrel must remain a natural async boundary. Assigning it to a
+          // manual chunk also captures dependencies and pushes dialogs back
+          // into the initial renderer graph.
+          if (normalizedId.endsWith("/src/studio-dialogs.ts")) return undefined;
           if ([
             "/src/core.ts",
             "/src/ui.tsx",

@@ -11,7 +11,8 @@ Project Books
 - core.ts: Shared types, external bridge contracts, image API rules, prompt/style tools, canvas helpers, and session normalization.
 - ui.tsx: Reusable UI infrastructure: error boundary, overflow tooltip layer, and floating-dialog interactions.
 - agent.ts: Agent progress/message utilities and the browser-to-Agent bridge request.
-- auth-gate.tsx, image-viewer.tsx, reference-picker-dialog.tsx, window-controls.tsx: extracted renderer surfaces.
+- auth-gate.tsx, image-viewer.tsx, reference-picker-dialog.tsx, theme-palette-picker.tsx, window-controls.tsx: extracted renderer surfaces.
+- studio-dialogs.ts: natural async barrel for settings/account/editor surfaces and Markdown.
 - settings-persistence.ts, asset-identity.ts, paste-blocks.ts: extracted state and pure-data domains.
 - styles.css: ordered entrypoint for the semantic region files under styles/.
 
@@ -245,6 +246,7 @@ import {
 } from "./task-scope";
 import type {
   ThemeChoice,
+  ThemePaletteChoice,
   MessageRole,
   AgentStatus,
   NodeStatus,
@@ -655,17 +657,23 @@ function DebugCommitProbe({ area, record }: { area: DebugRenderCommitArea; recor
   return null;
 }
 
-const RichMarkdownMessage = React.lazy(() => import("./markdown"));
-const AccountDrawer = React.lazy(() => import("./account-drawer"));
-const ProjectNameDialog = React.lazy(() => import("./common-dialogs").then((module) => ({ default: module.ProjectNameDialog })));
-const QuotaDialog = React.lazy(() => import("./common-dialogs").then((module) => ({ default: module.QuotaDialog })));
-const DeleteNodeDialog = React.lazy(() => import("./common-dialogs").then((module) => ({ default: module.DeleteNodeDialog })));
-const ConfirmDialog = React.lazy(() => import("./common-dialogs").then((module) => ({ default: module.ConfirmDialog })));
-const ManualImageTaskDialog = React.lazy(() => import("./manual-image-task-dialog"));
-const AgentTextEditorDialog = React.lazy(() => import("./agent-text-editor-dialog"));
-const RequirementEditorDialog = React.lazy(() => import("./requirement-editor-dialog"));
-const LazyModelConfigDialog = React.lazy(() => import("./model-config-dialog"));
-const LazyAskUserDialog = React.lazy(() => import("./ask-user-dialog"));
+const loadStudioDialogs = () => import("./studio-dialogs");
+type StudioDialogModule = typeof import("./studio-dialogs");
+function lazyStudioDialog<K extends keyof StudioDialogModule>(name: K) {
+  return React.lazy(() => loadStudioDialogs().then((module) => ({ default: module[name] })));
+}
+const RichMarkdownMessage = lazyStudioDialog("RichMarkdownMessage");
+const AccountDrawer = lazyStudioDialog("AccountDrawer");
+const ProjectNameDialog = lazyStudioDialog("ProjectNameDialog");
+const QuotaDialog = lazyStudioDialog("QuotaDialog");
+const DeleteNodeDialog = lazyStudioDialog("DeleteNodeDialog");
+const ConfirmDialog = lazyStudioDialog("ConfirmDialog");
+const ManualImageTaskDialog = lazyStudioDialog("ManualImageTaskDialog");
+const AgentTextEditorDialog = lazyStudioDialog("AgentTextEditorDialog");
+const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
+const LazyModelConfigDialog = lazyStudioDialog("ModelConfigDialog");
+const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
+const LazyThemePalettePicker = lazyStudioDialog("ThemePalettePicker");
 
 function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCount: number, canvasScale: number) {
   // A stacked layer group needs every transparent source in the same frame for
@@ -2284,7 +2292,7 @@ function preferredImageModelFromList(models: string[] = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
 }
 
-function applyTheme(choice: ThemeChoice) {
+function applyTheme(choice: ThemeChoice, palette: ThemePaletteChoice = "default") {
   const resolved =
     choice === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -2293,6 +2301,7 @@ function applyTheme(choice: ThemeChoice) {
       : choice;
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.themeChoice = choice;
+  document.documentElement.dataset.themePreset = palette;
   document.documentElement.classList.toggle("theme-dark", resolved === "dark");
   document.documentElement.classList.toggle("theme-light", resolved === "light");
 }
@@ -3632,8 +3641,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    applyTheme(settings.theme);
-  }, [settings.theme]);
+    applyTheme(settings.theme, settings.themePalette);
+  }, [settings.theme, settings.themePalette]);
 
   useEffect(() => {
     if (!authReady || !serverUser || !window.naimageUpdater) return;
@@ -22127,6 +22136,8 @@ function SettingsDrawer({
   const manualModelRefreshCountRef = useRef(0);
   const captchaRequestEpochRef = useRef(0);
   const captchaRequestInFlightRef = useRef(false);
+  const savedThemeRef = useRef(settings);
+  savedThemeRef.current = settings;
   const [modelState, setModelState] = useState<{
     loading: boolean;
     imageModels: string[];
@@ -22141,6 +22152,15 @@ function SettingsDrawer({
     cacheSource: undefined
   }));
   const dirty = JSON.stringify(draftSettings) !== JSON.stringify(baselineSettings);
+
+  useEffect(() => {
+    applyTheme(draftSettings.theme, draftSettings.themePalette);
+  }, [draftSettings.theme, draftSettings.themePalette]);
+
+  useEffect(() => () => {
+    const saved = savedThemeRef.current;
+    applyTheme(saved.theme, saved.themePalette);
+  }, []);
 
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setDraftSettings((current) => ({ ...current, [key]: value }));
@@ -22440,12 +22460,24 @@ function SettingsDrawer({
           <>
             <SurfaceHeader
               title="设置"
-              description="模型、Agent 与软件更新"
+              description="外观、模型、Agent 与软件更新"
               onClose={() => requestClose(CLOSE_BUTTON_REASON)}
               closeLabel="关闭设置"
               closeDisabled={modelState.loading || saving}
             />
             <SurfaceBody className="settings-surface-body">
+              <SurfaceSection className="settings-surface-section settings-appearance-section" aria-labelledby="settings-appearance-heading">
+                <h3 id="settings-appearance-heading" className="settings-appearance-title">外观主题</h3>
+                <React.Suspense fallback={null}>
+                  <LazyThemePalettePicker
+                    theme={draftSettings.theme}
+                    palette={draftSettings.themePalette}
+                    onThemeChange={(choice) => update("theme", choice)}
+                    onPaletteChange={(choice) => update("themePalette", choice)}
+                  />
+                </React.Suspense>
+              </SurfaceSection>
+
               <SurfaceSection className="settings-surface-section settings-model-section" aria-labelledby="settings-model-heading">
                 <div className="settings-section-header">
                   <h3 id="settings-model-heading">模型配置</h3>

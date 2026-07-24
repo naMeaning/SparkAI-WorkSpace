@@ -1,0 +1,189 @@
+/* --------------------------------------------------------------------------
+   04 Settings Appearance And Theme Palette Picker
+-------------------------------------------------------------------------- */
+
+.settings-appearance-section {
+  gap: 12px;
+}
+
+.settings-appearance-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.theme-palette-picker {
+  min-width: 0;
+  display: grid;
+  gap: 13px;
+}
+
+.theme-mode-setting,
+.theme-palette-setting {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.theme-setting-label {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.theme-mode-options.ui-segmented-control {
+  width: 100%;
+  background: color-mix(in srgb, var(--surface) 84%, var(--canvas));
+}
+
+.theme-mode-option.ui-segment-action {
+  min-width: 0;
+  min-height: 30px;
+  padding-inline: 5px;
+  font-size: 11px;
+}
+
+.theme-palette-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.theme-palette-option {
+  position: relative;
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-choice-radius);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-raised) 90%, var(--canvas));
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+}
+
+.theme-palette-option:hover,
+.theme-palette-option:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  outline: 0;
+  background: var(--hover-bg);
+}
+
+.theme-palette-option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.theme-palette-option[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.theme-palette-swatch {
+  width: 38px;
+  height: 30px;
+  display: block;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #fff 44%, transparent);
+  border-radius: 6px;
+  background: linear-gradient(135deg, #675df5 0 48%, #278bd2 48% 74%, #0e9488 74%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 10%, transparent);
+  order: 1;
+}
+
+.theme-palette-option::before {
+  order: 2;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-palette-option[data-palette="default"]::before { content: "默认"; }
+.theme-palette-option[data-palette="anthropic"]::before { content: "陶土暖色"; }
+.theme-palette-option[data-palette="simple-large"]::before { content: "简约黑白"; }
+.theme-palette-option[data-palette="underground"]::before { content: "地下苔绿"; }
+.theme-palette-option[data-palette="rose-garden"]::before { content: "玫瑰花园"; }
+.theme-palette-option[data-palette="lake-view"]::before { content: "湖畔青绿"; }
+.theme-palette-option[data-palette="sunset-glow"]::before { content: "落日暖光"; }
+.theme-palette-option[data-palette="forest-whisper"]::before { content: "森林低语"; }
+.theme-palette-option[data-palette="ocean-breeze"]::before { content: "海洋微风"; }
+.theme-palette-option[data-palette="lavender-dream"]::before { content: "薰衣草梦"; }
+
+.theme-palette-swatch[data-palette="anthropic"] {
+  background: linear-gradient(135deg, #f4eee5 0 46%, #cd674a 46% 75%, #9b6956 75%);
+}
+
+.theme-palette-swatch[data-palette="simple-large"] {
+  background: linear-gradient(135deg, #f7f7f4 0 48%, #252525 48% 76%, #858581 76%);
+}
+
+.theme-palette-swatch[data-palette="underground"] {
+  background: linear-gradient(135deg, #edf1ed 0 46%, #4d7e5d 46% 74%, #8c4f79 74%);
+}
+
+.theme-palette-swatch[data-palette="rose-garden"] {
+  background: linear-gradient(135deg, #f8eef1 0 46%, #c93661 46% 74%, #d9788b 74%);
+}
+
+.theme-palette-swatch[data-palette="lake-view"] {
+  background: linear-gradient(135deg, #edf5f3 0 46%, #159879 46% 74%, #358ca4 74%);
+}
+
+.theme-palette-swatch[data-palette="sunset-glow"] {
+  background: linear-gradient(135deg, #f8f0e8 0 46%, #d0523e 46% 74%, #e58b3f 74%);
+}
+
+.theme-palette-swatch[data-palette="forest-whisper"] {
+  background: linear-gradient(135deg, #edf3f1 0 46%, #327b6d 46% 74%, #536f88 74%);
+}
+
+.theme-palette-swatch[data-palette="ocean-breeze"] {
+  background: linear-gradient(135deg, #eef1f8 0 46%, #4366d2 46% 74%, #6d57cf 74%);
+}
+
+.theme-palette-swatch[data-palette="lavender-dream"] {
+  background: linear-gradient(135deg, #f3eff8 0 46%, #8454c5 46% 74%, #58a0b4 74%);
+}
+
+.theme-palette-picker-skeleton {
+  min-height: 300px;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-choice-radius);
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 7%, transparent), transparent),
+    var(--surface);
+  background-size: 220% 100%;
+  animation: theme-palette-loading 1.2s linear infinite;
+}
+
+@keyframes theme-palette-loading {
+  to {
+    background-position-x: -220%;
+  }
+}
+
+@media (max-width: 620px) {
+  .theme-palette-grid {
+    grid-template-columns: 1fr;
+  }
+}

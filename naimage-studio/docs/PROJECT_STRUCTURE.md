@@ -7,9 +7,10 @@
 | 路径 | 职责 | 说明 |
 | --- | --- | --- |
 | `src/` | React 工作台、画布、Agent 对话与共享前端逻辑 | `main.tsx` 只做跨域编排；独立表面和纯数据域放入专用模块。公共符号移动时同步上下文地图和调用方。 |
-| `src/auth-gate.tsx`, `src/image-viewer.tsx`, `src/reference-picker-dialog.tsx`, `src/window-controls.tsx` | 已抽出的 Renderer 表面 | 由 `main.tsx` 传入状态和回调，不反向持有 App 全局状态。 |
-| `src/settings-persistence.ts`, `src/asset-identity.ts`, `src/paste-blocks.ts` | 设置/存储、资产身份与粘贴块纯逻辑 | 设置符号直接从 `settings-persistence.ts` 导入；资产和粘贴仍由 `core.ts` 兼容重导出。 |
-| `src/styles.css`, `src/styles/` | 样式入口与 8 个有序语义区域 | import 顺序 01→08 是级联合同；`08-motion-accessibility.css` 必须最后。 |
+| `src/auth-gate.tsx`, `src/image-viewer.tsx`, `src/reference-picker-dialog.tsx`, `src/theme-palette-picker.tsx`, `src/window-controls.tsx` | 已抽出的 Renderer 表面 | 由 `main.tsx` 传入状态和回调；主题选择器随设置页懒加载，不反向持有 App 全局状态。 |
+| `src/studio-dialogs.ts` | Renderer 异步表面 barrel | 聚合设置、账户、编辑对话框、主题选择器与 Markdown 的命名导出；保持自然 async chunk，不承载业务状态。 |
+| `src/settings-persistence.ts`, `src/asset-identity.ts`, `src/paste-blocks.ts` | 设置/存储、资产身份与粘贴块纯逻辑 | 设置默认值、明暗/调色盘迁移直接由 `settings-persistence.ts` 拥有；资产和粘贴仍由 `core.ts` 兼容重导出。 |
+| `src/styles.css`, `src/styles/` | 样式入口与 8 个有序语义区域 | import 顺序 01→08 是级联合同；01 内含语义 token 与命名调色盘，04 内含设置外观表面；`08-motion-accessibility.css` 必须最后。 |
 | `src/window-controls.tsx` | Renderer 窗口控制按钮 | 只调用 `ConfigBridge.windowControl`；BrowserWindow 原语仍由主进程处理。 |
 | `desktop/` | 可独立测试的 Electron 主进程域模块 | 当前包含保存协调器、模型目录与 Responses 请求转换；网络/IPC 时序仍留在 `electron-main.cjs`。 |
 | `runtime/` | 可独立测试的 Agent runtime 图片域模块 | 当前包含 Image 2 画幅规则与 `view_image` 安全 payload；由 `agent-runtime.cjs` 作为 facade/编排入口。 |
@@ -74,6 +75,7 @@ node scripts/maintenance/clean-workspace.mjs --scope=diagnostics,logs --keep-ele
 - 任意代码改动：`corepack pnpm run build`
 - TypeScript/TSX 结构改动：`corepack pnpm run typecheck`
 - 设置/浏览器回退存储：`corepack pnpm run test:settings-persistence`
+- 主题 token、设置组件基础约束：`corepack pnpm run test:ui-foundation`
 - 模型目录/缓存：`corepack pnpm run test:model-catalog`
 - Responses 适配：`corepack pnpm run test:agent-responses-adapter`
 - 粘贴块：`corepack pnpm run test:paste-blocks`

@@ -1,7 +1,8 @@
 import type {
   AgentProviderChoice,
   AppSettings,
-  ReasoningEffort
+  ReasoningEffort,
+  ThemePaletteChoice
 } from "./core.ts";
 
 export const AGENT_PROVIDER_OPTIONS: { value: AgentProviderChoice; label: string; detail: string }[] = [
@@ -16,6 +17,19 @@ export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }
   { value: "xhigh", label: "XHigh" },
   { value: "max", label: "Max" },
   { value: "ultra", label: "Ultra" }
+];
+
+export const THEME_PALETTE_VALUES: ThemePaletteChoice[] = [
+  "default",
+  "anthropic",
+  "simple-large",
+  "underground",
+  "rose-garden",
+  "lake-view",
+  "sunset-glow",
+  "forest-whisper",
+  "ocean-breeze",
+  "lavender-dream"
 ];
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
@@ -44,7 +58,8 @@ export const defaultSettings: AppSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
-  theme: "system"
+  theme: "system",
+  themePalette: "default"
 };
 
 const LEGACY_LOCAL_SERVER_URLS = new Set([
@@ -97,6 +112,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
+  if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = "system";
+  if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = "default";
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort))) next.reasoningEffort = "low";
   const timeoutSeconds = Number(next.timeoutSeconds);

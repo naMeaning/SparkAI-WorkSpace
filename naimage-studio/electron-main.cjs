@@ -299,8 +299,22 @@ const defaultSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
-  theme: "system"
+  theme: "system",
+  themePalette: "default"
 };
+
+const themePaletteValues = new Set([
+  "default",
+  "anthropic",
+  "simple-large",
+  "underground",
+  "rose-garden",
+  "lake-view",
+  "sunset-glow",
+  "forest-whisper",
+  "ocean-breeze",
+  "lavender-dream"
+]);
 
 const aidebugPublicSettings = {
   imageCostCents: 30,
@@ -485,6 +499,8 @@ function migrateSettings(value) {
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
+  next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : "system";
+  next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : "default";
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.reasoningEffort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort)) ? String(next.reasoningEffort) : "low";
   const timeoutSeconds = Number(next.timeoutSeconds);

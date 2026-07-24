@@ -9,6 +9,7 @@ import {
   STORAGE_SERVER_AUTH,
   STORAGE_SESSION,
   STORAGE_SETTINGS,
+  THEME_PALETTE_VALUES,
   defaultSettings,
   mergeSettings,
   readJson,
@@ -16,6 +17,9 @@ import {
 } from "../src/settings-persistence.ts";
 assert.deepEqual(AGENT_PROVIDER_OPTIONS.map((option) => option.value), ["CODEX", "CUSTOM"]);
 assert.deepEqual(REASONING_EFFORT_OPTIONS.map((option) => option.value), ["low", "medium", "high", "xhigh", "max", "ultra"]);
+assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream"]);
+assert.equal(defaultSettings.theme, "system");
+assert.equal(defaultSettings.themePalette, "default");
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
 assert.equal(STORAGE_IMAGE_STATS, "naimage.imageGenerationStats.v1");
@@ -29,7 +33,9 @@ const migrated = mergeSettings({
   imageModel: "image-primary",
   imageModelPool: ["IMAGE-PRIMARY", "image-secondary", ""],
   timeoutSeconds: 12.6,
-  fastMode: "yes" as never
+  fastMode: "yes" as never,
+  theme: "dark",
+  themePalette: "lake-view"
 });
 assert.equal(migrated.agentBaseUrl, "https://legacy.example/v1");
 assert.equal(migrated.imageBaseUrl, "https://legacy.example/v1");
@@ -40,6 +46,8 @@ assert.deepEqual(migrated.agentModelPool, ["agent-primary", "agent-secondary"]);
 assert.deepEqual(migrated.imageModelPool, ["image-primary", "image-secondary"]);
 assert.equal(migrated.timeoutSeconds, 15);
 assert.equal(migrated.fastMode, true);
+assert.equal(migrated.theme, "dark");
+assert.equal(migrated.themePalette, "lake-view");
 assert.equal(migrated.accountBaseUrl, DEFAULT_ACCOUNT_BASE_URL);
 assert.equal(migrated.relayBaseUrl, "");
 assert.equal(migrated.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
@@ -53,6 +61,8 @@ assert.equal((migratedLegacyServer as unknown as Record<string, unknown>).server
 const repaired = mergeSettings({
   agentProvider: "unsupported" as never,
   reasoningEffort: "extreme" as never,
+  theme: "sepia" as never,
+  themePalette: "not-a-palette" as never,
   timeoutSeconds: 900,
   serverUrl: "HTTP://LOCALHOST:17860/",
   serverToken: "token",
@@ -61,6 +71,8 @@ const repaired = mergeSettings({
 });
 assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
+assert.equal(repaired.theme, "system");
+assert.equal(repaired.themePalette, "default");
 assert.equal(repaired.timeoutSeconds, 600);
 assert.equal(repaired.accountBaseUrl, defaultSettings.accountBaseUrl);
 assert.equal(repaired.relayBaseUrl, "");
@@ -101,7 +113,7 @@ try {
   assert.deepEqual(readJson("malformed", { safe: true }), { safe: true });
 
   memory.set("iiimage.settings.v1", JSON.stringify({ theme: "light", timeoutSeconds: 90 }));
-  assert.deepEqual(readJson(STORAGE_SETTINGS, { theme: "system" }), { theme: "light", timeoutSeconds: 90 });
+  assert.deepEqual(readJson(STORAGE_SETTINGS, { theme: "system", themePalette: "default" }), { theme: "light", themePalette: "default", timeoutSeconds: 90 });
   assert.equal(memory.has(STORAGE_SETTINGS), false, "Compatibility reads must not rewrite legacy storage eagerly");
   memory.set("iiimage.ideSession.v1", JSON.stringify({ selectedNodeId: "legacy" }));
   memory.set(STORAGE_SESSION, JSON.stringify({ selectedNodeId: "canonical" }));
@@ -126,4 +138,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 42 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 48 })}\n`);

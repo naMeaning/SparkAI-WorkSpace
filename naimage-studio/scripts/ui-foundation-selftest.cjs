@@ -20,6 +20,7 @@ const agentTextEditorDialogPath = path.join(root, "src", "agent-text-editor-dial
 const authGatePath = path.join(root, "src", "auth-gate.tsx");
 const imageViewerPath = path.join(root, "src", "image-viewer.tsx");
 const referencePickerDialogPath = path.join(root, "src", "reference-picker-dialog.tsx");
+const themePalettePickerPath = path.join(root, "src", "theme-palette-picker.tsx");
 
 function readCssGraph(entryPath, seen = new Set()) {
   const resolved = path.resolve(entryPath);
@@ -45,6 +46,7 @@ const businessUiSource = [
   authGatePath,
   imageViewerPath,
   referencePickerDialogPath,
+  themePalettePickerPath,
 ].map((file) => fs.readFileSync(file, "utf8")).concat(mainSource).join("\n");
 const activeCss = cssSource.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\r\n]/g, " "));
 const failures = [];

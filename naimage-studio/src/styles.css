@@ -18,11 +18,12 @@ Region Index
 */
 
 @import "./styles/01-base-controls.css";
+@import "./styles/01-theme-palettes.css";
 @import "./styles/02-canvas-workspace.css";
 @import "./styles/03-legacy-agent-reference.css";
 @import "./styles/04-dialogs-viewers.css";
+@import "./styles/04-settings-appearance.css";
 @import "./styles/05-desktop-polish.css";
 @import "./styles/06-responsive.css";
 @import "./styles/07-workbench-flattening.css";
 @import "./styles/08-motion-accessibility.css";
-

@@ -67,6 +67,17 @@ export {
 // -----------------------------------------------------------------------------
 
 export type ThemeChoice = "system" | "light" | "dark";
+export type ThemePaletteChoice =
+  | "default"
+  | "anthropic"
+  | "simple-large"
+  | "underground"
+  | "rose-garden"
+  | "lake-view"
+  | "sunset-glow"
+  | "forest-whisper"
+  | "ocean-breeze"
+  | "lavender-dream";
 export type AgentProviderChoice = "CODEX" | "CUSTOM";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type MessageRole = "user" | "assistant" | "system";
@@ -102,6 +113,7 @@ export type ApiSettings = {
 
 export type AppSettings = ApiSettings & {
   theme: ThemeChoice;
+  themePalette: ThemePaletteChoice;
 };
 
 export type AgentMessage = {

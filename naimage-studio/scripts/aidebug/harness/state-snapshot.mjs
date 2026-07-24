@@ -260,6 +260,10 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsUpdateCardRect = rect(".settings-drawer:not(.account-drawer) .settings-update-card");
     const settingsUpdateActionText = text(".settings-drawer:not(.account-drawer) .settings-update-card .ui-action-primary");
     const settingsUpdateSecurityText = text(".settings-drawer:not(.account-drawer) .settings-update-security");
+    const settingsThemeModeButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-mode-options .theme-mode-option"));
+    const settingsThemePaletteButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-palette-option"));
+    const settingsThemeModeActiveCount = settingsThemeModeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
+    const settingsThemePaletteActiveCount = settingsThemePaletteButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
     const accountProfileCardRect = rect(".account-drawer .account-profile");
     const accountProfileAvatarRect = rect(".account-drawer .account-surface-avatar");
     const accountProfileStatusText = text(".account-drawer .account-status");
@@ -2469,9 +2473,15 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     );
     const settingsLabelsOk = !settingsOpen || (
       settingsHeaderTitleText === "设置" &&
-      settingsHeaderSubtitleText === "模型、Agent 与软件更新" &&
+      settingsHeaderSubtitleText === "外观、模型、Agent 与软件更新" &&
       settingsSectionEyebrowText === "" &&
       settingsSectionTitleText === "模型配置"
+    );
+    const settingsAppearanceControlsOk = !settingsOpen || (
+      settingsThemeModeButtons.length === 3 &&
+      settingsThemePaletteButtons.length === 10 &&
+      settingsThemeModeActiveCount === 1 &&
+      settingsThemePaletteActiveCount === 1
     );
     const settingsSaveControlsOk = !settingsOpen || (
       settingsSaveButtonText === "保存设置" &&
@@ -3056,6 +3066,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       accountHeaderBreathingOk,
       accountDrawerUiOk,
       settingsLabelsOk,
+      settingsAppearanceControlsOk,
       settingsSaveControlsOk,
       settingsUpdateCenterOk,
       settingsLabelTexts: {
