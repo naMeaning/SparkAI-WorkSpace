@@ -296,7 +296,48 @@ function modelIdsFromResponse(payload: JsonRecord) {
   return uniqueModelIds(modelIds);
 }
 
-function splitModelSettings(settings: AppSettings, modelIds: string[] = []): ServerPublicSettings {
+function modelGroupsFromResponse(payload: unknown): NonNullable<ServerPublicSettings["modelGroups"]> {
+  const container = payload && typeof payload === "object" && "data" in payload
+    ? (payload as JsonRecord).data
+    : payload;
+  const entries: Array<[string, unknown]> = Array.isArray(container)
+    ? container.map((item) => {
+        if (typeof item === "string") return [item, {}];
+        const info = item && typeof item === "object" ? item as JsonRecord : {};
+        return [String(info.id || info.name || info.value || ""), info];
+      })
+    : container && typeof container === "object"
+      ? Object.entries(container as JsonRecord)
+      : [];
+  const seen = new Set<string>();
+  return entries
+    .map(([rawId, rawInfo]) => {
+      const id = String(rawId || "").trim();
+      const info = rawInfo && typeof rawInfo === "object" ? rawInfo as JsonRecord : {};
+      return {
+        id,
+        label: String(info.label || info.name || id).trim() || id,
+        description: String(info.desc || info.description || "").trim(),
+        ratio: typeof info.ratio === "string" || typeof info.ratio === "number" ? info.ratio : undefined
+      };
+    })
+    .filter((group) => {
+      const key = group.id.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => {
+      const priority = (value: string) => value === "default" ? 0 : value === "auto" ? 1 : 2;
+      return priority(left.id) - priority(right.id) || left.label.localeCompare(right.label, "zh-CN");
+    });
+}
+
+function splitModelSettings(
+  settings: AppSettings,
+  modelIds: string[] = [],
+  modelGroups: NonNullable<ServerPublicSettings["modelGroups"]> = []
+): ServerPublicSettings {
   const unique = uniqueModelIds(modelIds);
   const imageModels = unique;
   const agentModels = unique;
@@ -308,7 +349,9 @@ function splitModelSettings(settings: AppSettings, modelIds: string[] = []): Ser
     imageModel: settings.imageModel || imageModels[0] || "",
     imageModels,
     agentModels,
-    channelName: "New API",
+    modelGroup: String(settings.modelGroup || "").trim(),
+    modelGroups,
+    channelName: /(?:^|\.)sparkapi\.org$/i.test(new URL(settings.accountBaseUrl).hostname) ? "SparkAPI" : "New API",
     serviceReady: true,
     keyManaged: true
   };
@@ -322,10 +365,27 @@ function preferredImageModelFromList(models: string[] = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
 }
 
-async function modelSettings(settings: AppSettings): Promise<ServerPublicSettings> {
+async function modelSettings(settings: AppSettings, requestedGroup = settings.modelGroup): Promise<ServerPublicSettings> {
   const collected: string[] = [];
+  let modelGroups: NonNullable<ServerPublicSettings["modelGroups"]> = [];
+  let groupsLoaded = false;
   try {
-    const userModels = await newApiRequest(settings, "/api/user/models", {
+    const groups = await newApiRequest(settings, "/api/user/self/groups", {
+      headers: userAuthHeaders(settings)
+    });
+    groupsLoaded = true;
+    modelGroups = modelGroupsFromResponse(groups);
+  } catch (error) {
+    console.warn("new-api user groups failed", error);
+  }
+  const normalizedRequestedGroup = String(requestedGroup || "").trim().slice(0, 120);
+  const selectedGroup = groupsLoaded && normalizedRequestedGroup && !modelGroups.some((group) => group.id === normalizedRequestedGroup)
+    ? ""
+    : normalizedRequestedGroup;
+  const groupQuery = selectedGroup ? `?group=${encodeURIComponent(selectedGroup)}` : "";
+  const groupedSettings = { ...settings, modelGroup: selectedGroup };
+  try {
+    const userModels = await newApiRequest(settings, `/api/user/models${groupQuery}`, {
       headers: userAuthHeaders(settings)
     });
     collected.push(...modelIdsFromResponse(userModels));
@@ -334,7 +394,7 @@ async function modelSettings(settings: AppSettings): Promise<ServerPublicSetting
   }
   try {
     if (readAuthState(settings).serverUserId) {
-      const { response, data } = await newApiFetch(settings, "/naimage/v1/models", {
+      const { response, data } = await newApiFetch(settings, `/naimage/v1/models${groupQuery}`, {
         service: "relay",
         headers: userAuthHeaders(settings)
       });
@@ -345,7 +405,7 @@ async function modelSettings(settings: AppSettings): Promise<ServerPublicSetting
   } catch (error) {
     console.warn("managed relay models failed", error);
   }
-  return splitModelSettings(settings, collected);
+  return splitModelSettings(groupedSettings, collected, modelGroups);
 }
 
 async function completeLogin(payload: { username?: string; email?: string; password?: string }) {
@@ -517,6 +577,7 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
       quality,
       n: 1
     };
+    if (settings.modelGroup) body.group = settings.modelGroup;
     if (!isGptImageModel(model)) body.response_format = "b64_json";
     if (payload.outputFormat) body.output_format = payload.outputFormat;
     if (payload.outputCompression !== undefined) body.output_compression = payload.outputCompression;
@@ -603,9 +664,19 @@ function createBrowserServerBridge(): ServerBridge {
       }
       return { ok: true, remoteLogout };
     },
-    async me() {
+    async me(payload = {}) {
       const settings = readSettings();
       try {
+        const authState = readAuthState(settings);
+        if (payload.preferCached === true && authState.serverUserId) {
+          return {
+            ok: true,
+            cached: true,
+            user: normalizeUser({ id: authState.serverUserId, username: "SparkAI 用户", display_name: "SparkAI 用户" }),
+            wallet: walletFromUser({ id: authState.serverUserId }),
+            settings: splitModelSettings(settings, [])
+          };
+        }
         if (!readAuthState(settings).serverUserId) throw new Error("登录会话已失效，请重新登录。");
         let data: JsonRecord = { id: readAuthState(settings).serverUserId };
         try {
@@ -641,10 +712,10 @@ function createBrowserServerBridge(): ServerBridge {
         return { ok: false, error: error instanceof Error ? error.message : String(error), logs: [] };
       }
     },
-    async models() {
+    async models(payload = {}) {
       const settings = readSettings();
       try {
-        return { ok: true, settings: await modelSettings(settings) };
+        return { ok: true, settings: await modelSettings(settings, payload.group) };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error), settings: splitModelSettings(settings, []) };
       }

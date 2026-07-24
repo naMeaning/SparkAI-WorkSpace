@@ -9664,6 +9664,8 @@ async function main() {
         await delay(250);
         window.__naimageDebugOpenSurface?.("settings");
         await delay(500);
+        document.querySelector(".settings-section-tab")?.click();
+        await delay(250);
       `), { width: workbenchMinWidth, height: 720 }, {
         settingsOpen: true,
         historyOpen: false,

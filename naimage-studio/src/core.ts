@@ -112,6 +112,7 @@ export type ApiSettings = {
 };
 
 export type AppSettings = ApiSettings & {
+  modelGroup: string;
   theme: ThemeChoice;
   themePalette: ThemePaletteChoice;
 };
@@ -1002,6 +1003,13 @@ export type ServerPublicSettings = {
   imageModel?: string;
   imageModels?: string[];
   agentModels?: string[];
+  modelGroup?: string;
+  modelGroups?: Array<{
+    id: string;
+    label: string;
+    description?: string;
+    ratio?: string | number;
+  }>;
   channelName?: string;
   serviceReady?: boolean;
   keyManaged?: boolean;
@@ -1291,9 +1299,9 @@ export type ServerBridge = {
   register(payload: { username: string; email?: string; password: string; name?: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   login(payload: { username: string; email?: string; password: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   logout(): Promise<{ ok: boolean; remoteLogout?: boolean }>;
-  me(): Promise<{ ok: boolean; stale?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
+  me(payload?: { preferCached?: boolean }): Promise<{ ok: boolean; stale?: boolean; cached?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
   logs(): Promise<{ ok: boolean; logs?: ServerLogEntry[]; error?: string }>;
-  models?(payload?: { forceRefresh?: boolean }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
+  models?(payload?: { forceRefresh?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
     runId?: string;

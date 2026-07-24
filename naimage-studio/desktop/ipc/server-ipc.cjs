@@ -122,8 +122,22 @@ function registerServerIpc({
     return { ok: true, remoteLogout };
   });
 
-  ipcMain.handle("naimage:server:me", () => {
+  ipcMain.handle("naimage:server:me", (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (payload?.preferCached === true && settings.serverSessionCookie && settings.serverUserId && !(aidebugMode && !aidebugLiveImage)) {
+      const cachedUser = normalizeNewApiUser({
+        id: settings.serverUserId,
+        username: "SparkAI 用户",
+        display_name: "SparkAI 用户"
+      });
+      return {
+        ok: true,
+        cached: true,
+        user: cachedUser,
+        wallet: walletFromNewApiUser(cachedUser),
+        settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
+      };
+    }
     const authEpoch = getNewApiAuthEpoch();
     const inflightKey = `${authEpoch}|${settings.serverUserId}|${settings.serverSessionCookie}`;
     if (newApiMeInflight?.key === inflightKey) return newApiMeInflight.promise;
@@ -203,6 +217,7 @@ function registerServerIpc({
 
   ipcMain.handle("naimage:server:models", async (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (typeof payload?.group === "string") settings.modelGroup = payload.group.trim().slice(0, 120);
     log("new-api models");
     try {
       const modelSettings = await newApiModelSettings(settings, { forceRefresh: payload?.forceRefresh === true });

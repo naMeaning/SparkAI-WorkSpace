@@ -335,11 +335,14 @@ function createNewApiClient(options = {}) {
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
     requireNewApiSession(settings);
+    const relayBody = body && typeof body === "object" && !Array.isArray(body) && settings.modelGroup && !("group" in body)
+      ? { ...body, group: settings.modelGroup }
+      : body;
     const { response, data } = await newApiFetch(settings, managedRelayEndpoint(endpoint), {
       service: "relay",
       method: "POST",
       headers: { ...newApiUserAuthHeaders(settings), ...(options.headers || {}) },
-      body,
+      body: relayBody,
       signal: options.signal,
       headersTimeoutMs: options.headersTimeoutMs,
       connectTimeoutMs: options.connectTimeoutMs,
@@ -358,6 +361,9 @@ function createNewApiClient(options = {}) {
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
     requireNewApiSession(settings);
+    const relayBody = body && typeof body === "object" && !Array.isArray(body) && settings.modelGroup && !("group" in body)
+      ? { ...body, group: settings.modelGroup, stream: true }
+      : { ...body, stream: true };
     const relayBaseUrl = resolveNewApiBaseUrl(settings, "relay");
     if (isLocalServerUrl(relayBaseUrl)) {
       await ensureLocalServer(relayBaseUrl);
@@ -368,7 +374,7 @@ function createNewApiClient(options = {}) {
         "content-type": "application/json",
         ...newApiUserAuthHeaders(settings)
       },
-      body: JSON.stringify({ ...body, stream: true }),
+      body: JSON.stringify(relayBody),
       signal: options.signal,
       headersTimeoutMs: options.headersTimeoutMs,
       connectTimeoutMs: options.connectTimeoutMs

@@ -1,7 +1,7 @@
 LangString NAIMAGE_WELCOME_TITLE 2052 "欢迎使用 naimage"
 LangString NAIMAGE_WELCOME_TITLE 1033 "Welcome to naimage"
-LangString NAIMAGE_WELCOME_TEXT 2052 "单 Agent 驱动的 AI 图像工作台。$\r$\n$\r$\n用自然语言完成生图、参考图编辑、多版式探索、分层 PNG 与 PSD 交付；成果会自动进入无限画布，并保留清晰的来源关系。$\r$\n$\r$\n安装程序将为当前用户安全部署 naimage，保留已有项目与设置。"
-LangString NAIMAGE_WELCOME_TEXT 1033 "A single-Agent AI image workspace.$\r$\n$\r$\nCreate, edit, explore variants, deliver layered PNG and PSD assets, and keep every result organized on an infinite visual canvas.$\r$\n$\r$\nSetup installs naimage safely for the current user and preserves existing projects and settings."
+LangString NAIMAGE_WELCOME_TEXT 2052 "面向跨境电商的 AI 套图工作台。$\r$\n$\r$\n一键翻译多国语言套图，专属个性配置，生成专属于你的跨境电商套图；支持参考图编辑、分层 PNG 与 PSD 交付。$\r$\n$\r$\n安装程序将为当前用户安全部署 naimage，保留已有项目与设置。"
+LangString NAIMAGE_WELCOME_TEXT 1033 "An AI image workspace built for cross-border commerce.$\r$\n$\r$\nTranslate product sets into multiple languages, apply your own brand configuration, and deliver layered PNG or PSD assets.$\r$\n$\r$\nSetup installs naimage safely for the current user and preserves existing projects and settings."
 LangString NAIMAGE_DIRECTORY_TEXT 2052 "选择 naimage 的安装位置。用户项目、会话与图片库独立保存，升级不会覆盖创作成果。"
 LangString NAIMAGE_DIRECTORY_TEXT 1033 "Choose where to install naimage. Projects, conversations, and image libraries are stored separately and remain intact across upgrades."
 LangString NAIMAGE_FINISH_TITLE 2052 "naimage 已准备就绪"
@@ -10,7 +10,7 @@ LangString NAIMAGE_FINISH_TEXT 2052 "安装已完成。启动后登录账户，�
 LangString NAIMAGE_FINISH_TEXT 1033 "Installation is complete. Sign in to let the Agent handle image tasks and organize results on the canvas."
 
 !macro customHeader
-  BrandingText "naimage · Aieyra"
+  BrandingText "naimage · SparkAI"
   !define MUI_WELCOMEPAGE_TITLE_3LINES
   !define MUI_FINISHPAGE_TITLE_3LINES
   !define MUI_ABORTWARNING

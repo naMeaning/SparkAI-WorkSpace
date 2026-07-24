@@ -21,16 +21,17 @@ namespace Naimage.WindowsInstaller;
 
 internal static class BrandPalette
 {
-    internal static readonly Color Ink = Color.FromRgb(5, 13, 19);
-    internal static readonly Color Panel = Color.FromRgb(8, 22, 29);
-    internal static readonly Color Card = Color.FromRgb(11, 30, 38);
-    internal static readonly Color CardHover = Color.FromRgb(14, 40, 48);
-    internal static readonly Color Line = Color.FromRgb(34, 67, 76);
-    internal static readonly Color Muted = Color.FromRgb(142, 174, 177);
-    internal static readonly Color Text = Color.FromRgb(239, 251, 248);
-    internal static readonly Color Mint = Color.FromRgb(78, 228, 198);
-    internal static readonly Color Blue = Color.FromRgb(89, 169, 255);
-    internal static readonly Color Danger = Color.FromRgb(255, 113, 120);
+    internal static readonly Color Ink = Color.FromRgb(58, 42, 22);
+    internal static readonly Color Panel = Color.FromRgb(255, 249, 232);
+    internal static readonly Color Card = Color.FromRgb(255, 242, 201);
+    internal static readonly Color CardHover = Color.FromRgb(255, 233, 168);
+    internal static readonly Color Line = Color.FromRgb(229, 197, 107);
+    internal static readonly Color Muted = Color.FromRgb(125, 105, 65);
+    internal static readonly Color Text = Color.FromRgb(58, 42, 22);
+    internal static readonly Color Mint = Color.FromRgb(244, 189, 36);
+    internal static readonly Color Blue = Color.FromRgb(217, 119, 50);
+    internal static readonly Color Danger = Color.FromRgb(201, 79, 68);
+    internal static readonly Color Success = Color.FromRgb(104, 132, 70);
 
     internal static SolidColorBrush Brush(Color color) => new(color);
 }
@@ -236,8 +237,8 @@ internal class BrandWindow : Window
             Height = BrandWindowSizing.DesignHeight,
             CornerRadius = new CornerRadius(22),
             BorderThickness = new Thickness(1),
-            BorderBrush = BrandPalette.Brush(Color.FromRgb(43, 82, 91)),
-            Background = BrandPalette.Brush(BrandPalette.Ink),
+            BorderBrush = BrandPalette.Brush(BrandPalette.Line),
+            Background = BrandPalette.Brush(BrandPalette.Panel),
             Effect = new DropShadowEffect
             {
                 BlurRadius = 36,
@@ -277,7 +278,7 @@ internal class BrandWindow : Window
             Text = windowTitle,
             Margin = new Thickness(28, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = BrandPalette.Brush(Color.FromRgb(124, 157, 163)),
+            Foreground = BrandPalette.Brush(BrandPalette.Muted),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold
         };
@@ -344,7 +345,7 @@ internal class BrandWindow : Window
         SecondaryButton.Margin = new Thickness(0, 0, 10, 0);
         FooterNote = new TextBlock
         {
-            Foreground = BrandPalette.Brush(Color.FromRgb(105, 138, 144)),
+            Foreground = BrandPalette.Brush(BrandPalette.Muted),
             FontSize = 10.5,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(14, 0, 16, 0),
@@ -452,13 +453,13 @@ internal class BrandWindow : Window
         {
             BrandButtonTone.Primary => new BrandButtonColors(
                 BrandPalette.Mint,
-                Color.FromRgb(102, 243, 215),
+                Color.FromRgb(255, 213, 83),
                 BrandPalette.Ink,
                 BrandPalette.Mint),
             BrandButtonTone.Danger => new BrandButtonColors(
                 BrandPalette.Danger,
-                Color.FromRgb(255, 139, 145),
-                BrandPalette.Ink,
+                Color.FromRgb(220, 105, 93),
+                Colors.White,
                 BrandPalette.Danger),
             _ => new BrandButtonColors(
                 BrandPalette.Card,
@@ -547,7 +548,7 @@ internal class BrandWindow : Window
             Height = 8,
             Minimum = 0,
             Maximum = 100,
-            Background = BrandPalette.Brush(Color.FromRgb(20, 48, 56)),
+            Background = BrandPalette.Brush(Color.FromRgb(241, 223, 167)),
             Foreground = BrandPalette.Brush(BrandPalette.Mint),
             BorderThickness = new Thickness(0)
         };
@@ -612,8 +613,8 @@ internal class BrandWindow : Window
         var hero = new Grid
         {
             Background = new LinearGradientBrush(
-                Color.FromRgb(5, 24, 31),
-                Color.FromRgb(8, 55, 57),
+                Color.FromRgb(255, 250, 225),
+                Color.FromRgb(246, 207, 91),
                 new Point(0, 0),
                 new Point(1, 1))
         };
@@ -661,7 +662,7 @@ internal class BrandWindow : Window
             Margin = new Thickness(28, 0, 30, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
-        message.Children.Add(Text("一句话，\n交付一组图。", 30, BrandPalette.Text, FontWeights.SemiBold));
+        message.Children.Add(Text("一键翻译，\n多国语言套图。", 28, BrandPalette.Text, FontWeights.SemiBold));
         var line = new Border
         {
             Width = 72,
@@ -672,13 +673,13 @@ internal class BrandWindow : Window
             Margin = new Thickness(0, 20, 0, 20)
         };
         message.Children.Add(line);
-        message.Children.Add(Text("单 Agent 驱动 · 无限画布\n参考图编辑 · 分层 PNG / PSD", 12.5, Color.FromRgb(174, 211, 207)));
+        message.Children.Add(Text("专属个性配置 · 跨境电商套图\n批量生图 · 参考图编辑 · 分层交付", 12.5, BrandPalette.Muted));
         Grid.SetRow(message, 1);
         hero.Children.Add(message);
 
         var foot = new StackPanel { Margin = new Thickness(28, 0, 28, 28) };
-        foot.Children.Add(Text("AIEYRA AI WORKSPACE", 9, Color.FromRgb(112, 169, 164), FontWeights.Bold));
-        foot.Children.Add(Text("Windows 10 / 11 · x64", 10.5, Color.FromRgb(130, 166, 169)));
+        foot.Children.Add(Text("SparkAI Workspace", 9, BrandPalette.Blue, FontWeights.Bold));
+        foot.Children.Add(Text("Windows 10 / 11 · x64", 10.5, BrandPalette.Muted));
         Grid.SetRow(foot, 2);
         hero.Children.Add(foot);
         return hero;

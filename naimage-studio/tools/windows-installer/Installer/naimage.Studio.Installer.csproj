@@ -16,10 +16,10 @@
     <AssemblyName>naimage Setup</AssemblyName>
     <RootNamespace>Naimage.WindowsInstaller</RootNamespace>
     <Title>naimage Setup</Title>
-    <Company>Aieyra</Company>
+    <Company>SparkAI</Company>
     <Product>naimage</Product>
     <Description>naimage 品牌安装程序</Description>
-    <Copyright>Copyright © 2026 Aieyra</Copyright>
+    <Copyright>Copyright © 2026 SparkAI</Copyright>
     <NeutralLanguage>zh-CN</NeutralLanguage>
     <Version Condition="'$(ProductVersion)' != ''">$(ProductVersion)</Version>
     <FileVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion).0</FileVersion>

@@ -9,12 +9,12 @@
   cursor: grab;
   overscroll-behavior: none;
   user-select: none;
-  background-color: #02070a;
+  background-color: var(--canvas);
   background:
-    radial-gradient(ellipse 105% 86% at 18% 22%, rgba(20, 96, 92, 0.18), transparent 64%),
-    radial-gradient(ellipse 92% 78% at 86% 40%, rgba(30, 76, 132, 0.2), transparent 66%),
-    radial-gradient(ellipse 110% 88% at 46% 96%, rgba(14, 83, 76, 0.16), transparent 70%),
-    linear-gradient(135deg, #020508 0%, #061115 46%, #03070b 100%);
+    radial-gradient(ellipse 105% 86% at 18% 22%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 64%),
+    radial-gradient(ellipse 92% 78% at 86% 40%, color-mix(in srgb, var(--blue) 11%, transparent), transparent 66%),
+    radial-gradient(ellipse 110% 88% at 46% 96%, color-mix(in srgb, var(--amber) 9%, transparent), transparent 70%),
+    linear-gradient(135deg, color-mix(in srgb, var(--canvas) 94%, var(--surface-solid)) 0%, var(--canvas) 46%, color-mix(in srgb, var(--canvas) 93%, var(--accent)) 100%);
   isolation: isolate;
 }
 
@@ -28,12 +28,12 @@
 
 .workflow-canvas::before {
   inset: -24%;
-  opacity: 0.52;
+  opacity: 0.44;
   background:
-    radial-gradient(ellipse 42% 34% at 18% 34%, rgba(53, 205, 184, 0.15), transparent 68%),
-    radial-gradient(ellipse 44% 36% at 70% 24%, rgba(66, 105, 214, 0.13), transparent 70%),
-    radial-gradient(ellipse 48% 40% at 58% 78%, rgba(30, 160, 140, 0.11), transparent 72%),
-    linear-gradient(128deg, transparent 12%, rgba(24, 78, 88, 0.1) 42%, transparent 74%);
+    radial-gradient(ellipse 42% 34% at 18% 34%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 68%),
+    radial-gradient(ellipse 44% 36% at 70% 24%, color-mix(in srgb, var(--blue) 15%, transparent), transparent 70%),
+    radial-gradient(ellipse 48% 40% at 58% 78%, color-mix(in srgb, var(--amber) 13%, transparent), transparent 72%),
+    linear-gradient(128deg, transparent 12%, color-mix(in srgb, var(--accent) 8%, transparent) 42%, transparent 74%);
   filter: blur(22px) saturate(1.03);
   transform: translate3d(-1.5%, -0.8%, 0) rotate(-4deg) scale(1.06);
   transform-origin: 50% 50%;
@@ -43,11 +43,11 @@
 
 .workflow-canvas::after {
   inset: -10%;
-  opacity: 0.34;
+  opacity: 0.28;
   background:
-    radial-gradient(ellipse 62% 44% at 24% 72%, rgba(2, 31, 35, 0.62), transparent 72%),
-    radial-gradient(ellipse 68% 52% at 78% 18%, rgba(4, 22, 42, 0.58), transparent 74%),
-    linear-gradient(112deg, rgba(0, 0, 0, 0.28), transparent 38%, rgba(1, 12, 17, 0.32));
+    radial-gradient(ellipse 62% 44% at 24% 72%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 72%),
+    radial-gradient(ellipse 68% 52% at 78% 18%, color-mix(in srgb, var(--blue) 11%, transparent), transparent 74%),
+    linear-gradient(112deg, color-mix(in srgb, var(--ink) 4%, transparent), transparent 38%, color-mix(in srgb, var(--accent) 6%, transparent));
   filter: blur(10px);
   transform: translate3d(0.8%, 0.4%, 0) scale(1.02);
   animation: canvas-ambient-flow 84s ease-in-out infinite alternate;
@@ -67,9 +67,15 @@
   z-index: 1;
   width: 100%;
   height: 100%;
-  opacity: 0.86;
-  mix-blend-mode: screen;
+  opacity: 0.46;
+  mix-blend-mode: multiply;
   pointer-events: none;
+}
+
+:root[data-theme="dark"] .canvas-particle-field,
+:root.theme-dark .canvas-particle-field {
+  opacity: 0.82;
+  mix-blend-mode: screen;
 }
 
 .workflow-canvas.external-file-drop-active {
@@ -2108,4 +2114,3 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
-

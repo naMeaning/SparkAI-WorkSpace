@@ -47,7 +47,7 @@ contextBridge.exposeInMainWorld("naimageServer", {
   register: (payload) => ipcRenderer.invoke("naimage:server:register", payload),
   login: (payload) => ipcRenderer.invoke("naimage:server:login", payload),
   logout: () => ipcRenderer.invoke("naimage:server:logout"),
-  me: () => ipcRenderer.invoke("naimage:server:me"),
+  me: (payload) => ipcRenderer.invoke("naimage:server:me", payload),
   logs: () => ipcRenderer.invoke("naimage:server:logs"),
   models: (payload) => ipcRenderer.invoke("naimage:server:models", payload),
   recharge: (payload) => ipcRenderer.invoke("naimage:server:recharge", payload),

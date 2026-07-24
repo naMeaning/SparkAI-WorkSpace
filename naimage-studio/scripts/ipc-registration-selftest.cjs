@@ -102,7 +102,7 @@ async function assertSettingsAccountBoundary() {
   const defaults = {
     accountBaseUrl: "https://sparkapi.org",
     relayBaseUrl: "",
-    updateBaseUrl: "https://image.aieyra.cn",
+    updateBaseUrl: "https://sparkapi.org",
     serverToken: "",
     serverSessionCookie: "",
     serverUserId: ""

@@ -18,8 +18,8 @@ import {
 assert.deepEqual(AGENT_PROVIDER_OPTIONS.map((option) => option.value), ["CODEX", "CUSTOM"]);
 assert.deepEqual(REASONING_EFFORT_OPTIONS.map((option) => option.value), ["low", "medium", "high", "xhigh", "max", "ultra"]);
 assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream"]);
-assert.equal(defaultSettings.theme, "system");
-assert.equal(defaultSettings.themePalette, "default");
+assert.equal(defaultSettings.theme, "light");
+assert.equal(defaultSettings.themePalette, "anthropic");
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
 assert.equal(STORAGE_IMAGE_STATS, "naimage.imageGenerationStats.v1");
@@ -71,8 +71,8 @@ const repaired = mergeSettings({
 });
 assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
-assert.equal(repaired.theme, "system");
-assert.equal(repaired.themePalette, "default");
+assert.equal(repaired.theme, "light");
+assert.equal(repaired.themePalette, "anthropic");
 assert.equal(repaired.timeoutSeconds, 600);
 assert.equal(repaired.accountBaseUrl, defaultSettings.accountBaseUrl);
 assert.equal(repaired.relayBaseUrl, "");

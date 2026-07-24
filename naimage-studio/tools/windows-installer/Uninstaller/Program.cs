@@ -58,7 +58,7 @@ internal static class UninstallerDataPolicyProbe
             var metadataClean = !string.IsNullOrWhiteSpace(productVersion) &&
                                 !productVersion.Contains("+") &&
                                 string.Equals(versionInfo.ProductName, "naimage", StringComparison.Ordinal) &&
-                                string.Equals(versionInfo.CompanyName, "Aieyra", StringComparison.Ordinal);
+                                string.Equals(versionInfo.CompanyName, "SparkAI", StringComparison.Ordinal);
             window.Close();
             var path = Path.GetFullPath(destination);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -595,7 +595,7 @@ internal sealed class UninstallerWindow : BrandWindow
         path.TextTrimming = TextTrimming.CharacterEllipsis;
         path.ToolTip = _options.InstallDirectory;
         summary.Children.Add(path);
-        var alwaysRemove = Text("程序文件与快捷方式：始终移除", 10.5, Color.FromRgb(169, 204, 201));
+        var alwaysRemove = Text("程序文件与快捷方式：始终移除", 10.5, BrandPalette.Muted);
         alwaysRemove.Margin = new Thickness(0, 10, 0, 0);
         summary.Children.Add(alwaysRemove);
         summary.Children.Add(Text("内部项目库、会话与设置：默认保留", 10.5, BrandPalette.Muted));
@@ -645,7 +645,7 @@ internal sealed class UninstallerWindow : BrandWindow
         preserved.Children.Add(preservedDetails);
         var preservedCard = Card(preserved, new Thickness(16));
         preservedCard.Margin = new Thickness(0, 12, 0, 0);
-        preservedCard.BorderBrush = BrandPalette.Brush(Color.FromRgb(31, 101, 91));
+        preservedCard.BorderBrush = BrandPalette.Brush(BrandPalette.Success);
         stack.Children.Add(preservedCard);
 
         SetPage("CONFIRM CLEANUP", "确认清理本地创作数据", "此选择无法撤销。若只是暂时卸载，请返回并保留数据。", stack);

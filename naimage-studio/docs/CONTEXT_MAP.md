@@ -214,7 +214,7 @@ Renderer UpdaterBridge
   → 健康标记与失败回滚
 ```
 
-版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链只签发和校验 `naimage-studio` 产品身份的 manifest 与制品。
+版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链只签发和校验 `naimage-studio` 产品身份的 manifest 与制品。更新服务默认由 `https://sparkapi.org` 提供，GitHub 私有仓库的 PAT/Actions 私钥只能留在服务端或发布工作流，不能进入安装包。
 
 品牌迁移首版为 `1.0.5`，`naimageUpdateMinimumVersion` 也固定为 `1.0.5`。当前 `naimage` 1.0.4 客户端即使 compatibility 相同也必须走完整 installer，不能只替换 ASAR；更名前客户端不再拥有网络别名，需手工安装当前版本。
 
@@ -373,15 +373,15 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-桌面把远端服务拆为三个设置：`accountBaseUrl` 默认 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址；`updateBaseUrl` 默认保留独立的 `https://image.aieyra.cn`，避免账户站未安装桌面更新扩展时把 404 混入更新链路。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay 或更新地址变化不复用错误的模型缓存。
+桌面把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
 
 正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
 
-- `/api/user/login`, `/api/user/self`, `/api/user/models`
+- `/api/user/login`, `/api/user/self`, `/api/user/self/groups`, `/api/user/models?group=...`
 - `/api/log/self`
 - `/naimage/v1/models`
-- `/naimage/v1/chat/completions`, `/naimage/v1/responses`
-- `/naimage/v1/images/generations`, `/naimage/v1/images/edits`
+- `/naimage/v1/chat/completions`, `/naimage/v1/responses`（JSON 顶层透传 `group`）
+- `/naimage/v1/images/generations`, `/naimage/v1/images/edits`（JSON/FormData 透传 `group`）
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
 `/naimage/v1/*` 与 `/downloads/naimage-studio/windows` 是唯一 canonical 客户端入口。修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
@@ -521,6 +521,8 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
+- New API 登录后的模型分组由 `/api/user/self/groups` 提供；`modelGroup` 同时进入模型查询、Relay 请求、图片编辑上传和模型缓存键。设置抽屉按外观、模型、Agent、更新四个分页显示，默认打开模型页。
+- Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
 - 远端 API 和更新发布跨越 `naimage-studio` 与 `ai-native` 两仓，单仓修改不能证明交付完成。
@@ -543,7 +545,8 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-23 | 1.0.4 | 抽出 `runtime/image-batch-normalization.cjs`，集中持有 `image_gen` 单项兼容、占位项过滤、有效批次数和逐项画幅归一化；Agent runtime 仅注入文本清洗并消费稳定 normalizer，禁止新 owner 反向依赖 facade。 |
 | 2026-07-23 | 1.0.4 | 抽出 `desktop/aidebug-image-fixture.cjs`，集中持有 AIDebug mock 图片的图层提示、尺寸归一化与确定性 PNG；Main 仅消费两个编排契约，`test:new-api-transport` 固定四类 base64 SHA-256、尺寸与 hint 输出。 |
 | 2026-07-23 | 1.0.4 | 抽出 `scripts/aidebug/options.mjs`，集中持有 AIDebug CLI alias、env/CLI 特殊优先级、数值/路径/references 归一化与 `rawArgs` 快照；GUI 入口保持原 suite 顺序和启动编排，三个 supervisor 不再动态读取 argv。 |
-| 2026-07-23 | 1.0.4 | New API 设置拆为 `accountBaseUrl`、可继承的 `relayBaseUrl` 和独立 `updateBaseUrl`；新装账户默认 Spark，Updater 保留独立官方地址；旧 `serverUrl` 只读迁移，模型缓存按 account+relay+user 隔离，异源 Relay Cookie 不回写账户 session，canonical Session Relay 路由切换为 `/naimage/v1/*`。 |
+| 2026-07-23 | 1.0.4 | New API 设置拆为 `accountBaseUrl`、可继承的 `relayBaseUrl` 和 `updateBaseUrl`；新装默认 SparkAPI；旧 `serverUrl` 只读迁移，模型缓存按 account+relay+user+group 隔离，异源 Relay Cookie 不回写账户 session，canonical Session Relay 路由切换为 `/naimage/v1/*`。 |
 | 2026-07-23 | 1.0.5 | 产品身份统一为 naimage：目录、App ID、EXE、安装器、IPC、新项目格式、资源协议、存储键、memory 与 canonical 路由均使用当前名称；更名前本地数据仅保留只读迁移。首版通过签名 manifest 与 `minimum_version=1.0.5` 强制当前 1.0.4 客户端完整安装升级。 |
 | 2026-07-24 | 1.0.5 | 从 `agent-runtime.cjs` 抽出 `runtime/controlled-shell-command.cjs`，集中持有只读命令 allowlist、cwd/路径边界、文件读取限制、输出裁剪和无 shell 子进程执行；新增独立安全 selftest，Runtime facade 只保留调用与工具摘要编排。 |
 | 2026-07-24 | 1.0.5 | 参考 New API 调色盘分类新增明暗模式与 10 套 naimage 独立配色；`themePalette` 由 Renderer/Electron 双侧迁移，预设仅覆盖 `--theme-*` 桥接变量；主题选择器与现有对话框合并进 `studio-dialogs` 异步 chunk，并由设置持久化、UI foundation、Bundle 与快速 AIDebug 验证。 |
+| 2026-07-24 | 1.0.5 | SparkAI 品牌默认值统一为 `org.sparkai.naimage`、`SparkAI` 与 `https://sparkapi.org`；安装器文案改为跨境电商套图；New API 用户分组可在设置中选择并透传到模型/图片请求；设置抽屉改为四分页，登录恢复先走缓存身份再后台校验。 |

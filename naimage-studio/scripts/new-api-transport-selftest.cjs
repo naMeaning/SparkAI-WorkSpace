@@ -274,8 +274,8 @@ async function run() {
   try {
     assert.equal(migrateSettings({ reasoningEffort: "ultra" }).reasoningEffort, "ultra");
     assert.equal(migrateSettings({ theme: "dark", themePalette: "ocean-breeze" }).themePalette, "ocean-breeze");
-    assert.equal(migrateSettings({ theme: "sepia", themePalette: "unknown" }).theme, "system");
-    assert.equal(migrateSettings({ theme: "sepia", themePalette: "unknown" }).themePalette, "default");
+    assert.equal(migrateSettings({ theme: "sepia", themePalette: "unknown" }).theme, "light");
+    assert.equal(migrateSettings({ theme: "sepia", themePalette: "unknown" }).themePalette, "anthropic");
     assert.equal(migrateSettings({ timeoutSeconds: "invalid" }).timeoutSeconds, 180);
     assert.equal(migrateSettings({ timeoutSeconds: 0 }).timeoutSeconds, 15);
     assert.equal(migrateSettings({ timeoutSeconds: Number.MAX_SAFE_INTEGER }).timeoutSeconds, 600);

@@ -118,7 +118,7 @@ function seedSession(configDir, round) {
     theme: "dark",
     accountBaseUrl: "https://sparkapi.org",
     relayBaseUrl: "",
-    updateBaseUrl: "https://image.aieyra.cn",
+    updateBaseUrl: "https://sparkapi.org",
     agentModel: "gpt-5.6-sol",
     agentModelPool: ["gpt-5.6-sol"],
     imageModel: "gpt-image-2",

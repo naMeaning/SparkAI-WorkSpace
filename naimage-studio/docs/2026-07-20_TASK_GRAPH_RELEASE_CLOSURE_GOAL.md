@@ -470,7 +470,7 @@ Agent 收到可行动的工具返回后自行决定继续调用、调整提示�
 
 ### Gate B：Forge 推送
 
-- Studio 推送到可信仓库 `https://git.aieyra.cn/aieyra/iiimage-studio.git`。
+- Studio 推送到可信仓库 `https://github.com/naMeaning/naimage.git`。
 - CRM/后端以 `E:\项目\ai-native` 当前整合结果为准，推送到自身可信 Forge origin；不得把 Gitee token 或服务器 SSH 私钥写入仓库。
 - 推送后再次读取远端 commit，证明本地冻结提交与 Forge 目标一致。
 

@@ -77,7 +77,7 @@ function imageNode(id, assets, extra = {}) {
 
 async function run() {
   assert.equal(projectIo.applicationName, "naimage");
-  assert.equal(projectIo.applicationId, "cn.aieyra.naimage");
+  assert.equal(projectIo.applicationId, "org.sparkai.naimage");
   const legacyUserDataRoot = path.join(testRoot, "legacy-user-data");
   const canonicalUserDataRoot = path.join(testRoot, "canonical-user-data");
   mkdirSync(path.join(legacyUserDataRoot, "data"), { recursive: true });

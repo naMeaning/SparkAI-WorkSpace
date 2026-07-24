@@ -40,6 +40,7 @@ const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs")
 const {
   cachedModelSettings,
   createModelCacheKey,
+  modelGroupsFromResponse,
   modelIdsFromResponse,
   preferredAgentModelFromList,
   preferredImageModelFromList,
@@ -61,7 +62,7 @@ function getDesktopVersion() {
 }
 
 const applicationName = "naimage";
-const applicationId = "cn.aieyra.naimage";
+const applicationId = "org.sparkai.naimage";
 const legacyApplicationNames = ["iiimage Studio", "IIimage Studio", "iiimage-studio"];
 const legacyUserDataMigrationMarker = ".naimage-user-data-migration-v1.json";
 const localAssetSchemes = ["naimage-asset", "iiimage-asset"];
@@ -295,12 +296,13 @@ const defaultSettings = {
   imageQuality: "auto",
   accountBaseUrl: "https://sparkapi.org",
   relayBaseUrl: "",
-  updateBaseUrl: "https://image.aieyra.cn",
+  updateBaseUrl: "https://sparkapi.org",
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
-  theme: "system",
-  themePalette: "default"
+  modelGroup: "",
+  theme: "light",
+  themePalette: "anthropic"
 };
 
 const themePaletteValues = new Set([
@@ -499,8 +501,9 @@ function migrateSettings(value) {
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
-  next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : "system";
-  next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : "default";
+  next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : defaultSettings.theme;
+  next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.reasoningEffort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort)) ? String(next.reasoningEffort) : "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
@@ -2073,7 +2076,8 @@ function modelCacheKey(settings) {
   return createModelCacheKey(
     resolveNewApiBaseUrl(settings, "account"),
     resolveNewApiBaseUrl(settings, "relay"),
-    settings.serverUserId
+    settings.serverUserId,
+    settings.modelGroup
   );
 }
 
@@ -2114,10 +2118,27 @@ function modelSettingsWithCacheMeta(settings, cacheSource, cachedAt) {
 
 async function fetchNewApiModelSettings(settings) {
   const collected = [];
+  let modelGroups = [];
+  let groupsLoaded = false;
   let successfulRequests = 0;
   let lastError = null;
   try {
-    const userModels = await newApiRequest(settings, "/api/user/models", {
+    const groupsResponse = await newApiRequest(settings, "/api/user/self/groups", {
+      headers: newApiUserAuthHeaders(settings),
+      retries: 0
+    });
+    groupsLoaded = true;
+    modelGroups = modelGroupsFromResponse(groupsResponse);
+  } catch (error) {
+    log(`new-api user groups failed ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const requestedGroup = String(settings.modelGroup || "").trim();
+  const selectedGroup = groupsLoaded && requestedGroup && !modelGroups.some((group) => group.id === requestedGroup)
+    ? ""
+    : requestedGroup;
+  const groupQuery = selectedGroup ? `?group=${encodeURIComponent(selectedGroup)}` : "";
+  try {
+    const userModels = await newApiRequest(settings, `/api/user/models${groupQuery}`, {
       headers: newApiUserAuthHeaders(settings),
       retries: 0
     });
@@ -2129,7 +2150,7 @@ async function fetchNewApiModelSettings(settings) {
   }
   try {
     if (settings.serverSessionCookie && settings.serverUserId) {
-      const { response, data } = await newApiFetch(settings, managedRelayEndpoint("/v1/models"), {
+      const { response, data } = await newApiFetch(settings, managedRelayEndpoint(`/v1/models${groupQuery}`), {
         service: "relay",
         headers: newApiUserAuthHeaders(settings),
         timeoutMs: 20_000,
@@ -2148,7 +2169,7 @@ async function fetchNewApiModelSettings(settings) {
         log(`managed relay models failed ${error instanceof Error ? error.message : String(error)}`);
   }
   if (successfulRequests === 0) throw lastError || new Error("模型服务暂时不可用。");
-  return splitModelSettings(settings, collected);
+  return splitModelSettings({ ...settings, modelGroup: selectedGroup }, collected, modelGroups);
 }
 
 async function newApiModelSettings(settings, options = {}) {
@@ -2675,6 +2696,7 @@ async function callNewApiImage(settings, payload = {}) {
         form.set("size", size);
         form.set("quality", quality);
         form.set("n", "1");
+        if (settings.modelGroup) form.set("group", settings.modelGroup);
         if (!isGptImageModel(model)) form.set("response_format", "b64_json");
         if (imageControls.outputFormat) form.set("output_format", String(imageControls.outputFormat));
         if (imageControls.outputCompression !== undefined) form.set("output_compression", String(imageControls.outputCompression));

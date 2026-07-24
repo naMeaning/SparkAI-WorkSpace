@@ -253,7 +253,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsHeaderTitleText = text(".settings-drawer:not(.account-drawer) > .ui-surface-header h2");
     const settingsHeaderSubtitleText = text(".settings-drawer:not(.account-drawer) > .ui-surface-header .ui-surface-description");
     const settingsSectionEyebrowText = text(".settings-drawer:not(.account-drawer) .settings-section-header .ui-surface-eyebrow");
-    const settingsSectionTitleText = text(".settings-drawer:not(.account-drawer) .settings-section-header h3");
+    const settingsSectionTitleText = text(".settings-drawer:not(.account-drawer) .settings-section-header h3, .settings-drawer:not(.account-drawer) .settings-appearance-title");
+    const settingsActiveTabText = text(".settings-drawer:not(.account-drawer) .settings-section-tab[aria-pressed='true']");
     const settingsSaveButtonText = text(".settings-drawer:not(.account-drawer) .settings-surface-footer .ui-action-primary");
     const settingsRestoreButtonText = text(".settings-drawer:not(.account-drawer) .settings-surface-footer .ui-surface-footer-leading .ui-action-button");
     const settingsUpdateHeadingText = text(".settings-drawer:not(.account-drawer) .settings-update-section h3");
@@ -2471,13 +2472,19 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       accountHeaderTitleRect.top - accountDrawerRect.top >= 12 &&
       accountHeaderRect.bottom - accountHeaderTitleRect.bottom >= 12
     );
+    const settingsActiveSectionTitle = {
+      外观: "外观主题",
+      模型: "模型配置",
+      Agent: "Agent",
+      更新: "软件更新"
+    }[settingsActiveTabText] || "";
     const settingsLabelsOk = !settingsOpen || (
       settingsHeaderTitleText === "设置" &&
       settingsHeaderSubtitleText === "外观、模型、Agent 与软件更新" &&
       settingsSectionEyebrowText === "" &&
-      settingsSectionTitleText === "模型配置"
+      settingsSectionTitleText === settingsActiveSectionTitle
     );
-    const settingsAppearanceControlsOk = !settingsOpen || (
+    const settingsAppearanceControlsOk = !settingsOpen || settingsActiveTabText !== "外观" || (
       settingsThemeModeButtons.length === 3 &&
       settingsThemePaletteButtons.length === 10 &&
       settingsThemeModeActiveCount === 1 &&
@@ -2487,7 +2494,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsSaveButtonText === "保存设置" &&
       (settingsRestoreButtonText === "恢复默认" || settingsRestoreButtonText === "确认恢复默认")
     );
-    const settingsUpdateCenterOk = !settingsOpen || Boolean(
+    const settingsUpdateCenterOk = !settingsOpen || settingsActiveTabText !== "更新" || Boolean(
       settingsUpdateHeadingText === "软件更新" &&
       settingsUpdateCardRect &&
       settingsDrawerRect &&
@@ -2499,15 +2506,15 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsUpdateSecurityText.includes("保留当前版本") &&
       !/(?:SHA-?256|发布签名|网络限流)/i.test(settingsUpdateSecurityText)
     );
-    const modelFetchButtonTextOk = !settingsOpen || modelFetchButtonText === "获取模型";
-    const modelFetchButtonRightOk = !settingsOpen || Boolean(
+    const modelFetchButtonTextOk = !settingsOpen || settingsActiveTabText !== "模型" || modelFetchButtonText === "获取模型";
+    const modelFetchButtonRightOk = !settingsOpen || settingsActiveTabText !== "模型" || Boolean(
       modelFetchButtonRect &&
       settingsSectionHeadRect &&
       settingsSectionTitleBlockRect &&
       modelFetchButtonRect.left >= settingsSectionTitleBlockRect.right + 6 &&
       Math.abs(modelFetchButtonRect.right - settingsSectionHeadRect.right) <= 2
     );
-    const modelFetchButtonAlignedOk = !settingsOpen || Boolean(
+    const modelFetchButtonAlignedOk = !settingsOpen || settingsActiveTabText !== "模型" || Boolean(
       modelFetchButtonRect &&
       settingsSectionHeadRect &&
       modelFetchButtonRect.top >= settingsSectionHeadRect.top - 1 &&

@@ -23,9 +23,9 @@ process.env.NAIMAGE_CONFIG_DIR = temporaryRoot;
 
 const settingsPath = path.join(temporaryRoot, "app-settings.json");
 writeFileSync(settingsPath, `${JSON.stringify({
-  accountBaseUrl: "https://image.aieyra.cn",
+  accountBaseUrl: "https://sparkapi.org",
   relayBaseUrl: "",
-  updateBaseUrl: "https://image.aieyra.cn",
+  updateBaseUrl: "https://sparkapi.org",
   serverSessionCookie: "session=old",
   serverUserId: "7"
 }, null, 2)}\n`, "utf8");
@@ -75,9 +75,9 @@ try {
   const splitDefaults = main.migrateSettings({ accountBaseUrl: "https://sparkapi.org" });
   assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "account"), "https://sparkapi.org");
   assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "relay"), "https://sparkapi.org");
-  assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "update"), "https://image.aieyra.cn", "Updater must not probe the account-only Spark host by default");
+  assert.equal(main.resolveNewApiBaseUrl(splitDefaults, "update"), "https://sparkapi.org");
   assert.equal(main.migrateSettings({ serverUrl: "https://legacy-account.example" }).accountBaseUrl, "https://legacy-account.example");
-  assert.equal(main.migrateSettings({ serverUrl: "https://legacy-account.example" }).updateBaseUrl, "https://image.aieyra.cn");
+  assert.equal(main.migrateSettings({ serverUrl: "https://legacy-account.example" }).updateBaseUrl, "https://sparkapi.org");
   assert.equal(verified.updateType, "restart");
   assert.equal(verified.restart.sha256, "a".repeat(64));
   assert.equal(main.currentDesktopVersion(), packageVersion);
@@ -132,9 +132,9 @@ try {
   assert.equal(replayedCurrent.updateAvailable, false, "A signed replay must never downgrade or reinstall the current version");
   assert.equal(replayedCurrent.updateType, "none");
   const sessionSettings = {
-    accountBaseUrl: "https://image.aieyra.cn",
+    accountBaseUrl: "https://sparkapi.org",
     relayBaseUrl: "",
-    updateBaseUrl: "https://image.aieyra.cn",
+    updateBaseUrl: "https://sparkapi.org",
     serverSessionCookie: "session=old",
     serverUserId: "7"
   };
@@ -147,9 +147,9 @@ try {
   assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).serverSessionCookie, "session=rotated-value");
 
   const staleSettings = {
-    accountBaseUrl: "https://image.aieyra.cn",
+    accountBaseUrl: "https://sparkapi.org",
     relayBaseUrl: "",
-    updateBaseUrl: "https://image.aieyra.cn",
+    updateBaseUrl: "https://sparkapi.org",
     serverSessionCookie: "session=old",
     serverUserId: "7"
   };
@@ -162,9 +162,9 @@ try {
   assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).serverSessionCookie, "session=rotated-value");
 
   const retainedAfterStaleClear = main.clearNewApiAuth({
-    accountBaseUrl: "https://image.aieyra.cn",
+    accountBaseUrl: "https://sparkapi.org",
     relayBaseUrl: "",
-    updateBaseUrl: "https://image.aieyra.cn",
+    updateBaseUrl: "https://sparkapi.org",
     serverSessionCookie: "session=old",
     serverUserId: "7"
   });

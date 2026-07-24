@@ -79,10 +79,38 @@ function modelIdsFromResponse(payload) {
   return uniqueModelIds(modelIds);
 }
 
-function splitModelSettings(settings = {}, modelIds = []) {
+function modelGroupsFromResponse(payload) {
+  const source = payload?.data ?? payload;
+  const entries = Array.isArray(source)
+    ? source.map((item) => typeof item === "string" ? [item, {}] : [item?.id || item?.name || item?.value, item])
+    : source && typeof source === "object"
+      ? Object.entries(source)
+      : [];
+  const seen = new Set();
+  const groups = [];
+  for (const [rawId, rawInfo] of entries) {
+    const id = String(rawId || "").trim();
+    if (!id || seen.has(id.toLowerCase())) continue;
+    seen.add(id.toLowerCase());
+    const info = rawInfo && typeof rawInfo === "object" ? rawInfo : {};
+    groups.push({
+      id,
+      label: String(info.label || info.name || id).trim() || id,
+      description: String(info.desc || info.description || "").trim(),
+      ratio: info.ratio
+    });
+  }
+  return groups.sort((left, right) => {
+    const priority = (value) => value === "default" ? 0 : value === "auto" ? 1 : 2;
+    return priority(left.id) - priority(right.id) || left.label.localeCompare(right.label, "zh-CN");
+  });
+}
+
+function splitModelSettings(settings = {}, modelIds = [], modelGroups = []) {
   const unique = uniqueModelIds(modelIds);
   const imageModels = unique;
   const agentModels = unique;
+  const normalizedGroups = modelGroupsFromResponse(modelGroups);
   return {
     imageCostCents: 0,
     imageCostYuan: 0,
@@ -91,7 +119,9 @@ function splitModelSettings(settings = {}, modelIds = []) {
     imageModel: settings.imageModel || imageModels[0] || "",
     imageModels,
     agentModels,
-    channelName: "New API",
+    modelGroup: String(settings.modelGroup || "").trim(),
+    modelGroups: normalizedGroups,
+    channelName: /(?:^|\.)sparkapi\.org$/i.test(String(settings.accountBaseUrl || "").replace(/^https?:\/\//i, "").split("/")[0]) ? "SparkAPI" : "New API",
     serviceReady: true,
     keyManaged: true
   };
@@ -108,10 +138,10 @@ function preferredImageModelFromList(models = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(String(model || ""))) || models[0] || "";
 }
 
-function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId) {
+function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId, modelGroup = "") {
   return [accountBaseUrl, relayBaseUrl]
     .map((value) => String(value || "").trim().toLowerCase())
-    .concat(String(serverUserId || "anonymous").trim() || "anonymous")
+    .concat(String(serverUserId || "anonymous").trim() || "anonymous", String(modelGroup || "account-default").trim().toLowerCase() || "account-default")
     .join("::");
 }
 
@@ -122,13 +152,15 @@ function cachedModelSettings(settings = {}, value) {
     ...(Array.isArray(source.imageModels) ? source.imageModels : []),
     ...(Array.isArray(source.agentModels) ? source.agentModels : [])
   ]);
-  const normalized = splitModelSettings(settings, models);
+  const normalized = splitModelSettings(settings, models, source.modelGroups);
   return {
     ...normalized,
     imageCostCents: Number.isFinite(Number(source.imageCostCents)) ? Number(source.imageCostCents) : normalized.imageCostCents,
     imageCostYuan: Number.isFinite(Number(source.imageCostYuan)) ? Number(source.imageCostYuan) : normalized.imageCostYuan,
     trialImages: Number.isFinite(Number(source.trialImages)) ? Number(source.trialImages) : normalized.trialImages,
     imageModel: String(source.imageModel || normalized.imageModel || ""),
+    modelGroup: String(source.modelGroup ?? normalized.modelGroup ?? ""),
+    modelGroups: normalized.modelGroups,
     channelName: String(source.channelName || normalized.channelName || "New API"),
     serviceReady: source.serviceReady !== false,
     keyManaged: source.keyManaged !== false
@@ -138,6 +170,7 @@ function cachedModelSettings(settings = {}, value) {
 module.exports = {
   cachedModelSettings,
   createModelCacheKey,
+  modelGroupsFromResponse,
   modelIdsFromResponse,
   preferredAgentModelFromList,
   preferredImageModelFromList,

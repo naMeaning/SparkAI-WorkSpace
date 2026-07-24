@@ -2269,9 +2269,9 @@ async function saveSessionToStore(session: StudioWorkflowSession & { projectId?:
   return { ok: true, appliedRevision: session.sessionRevision, skippedStale: false };
 }
 
-async function fetchServerModelSettings(forceRefresh = false): Promise<ServerPublicSettings> {
+async function fetchServerModelSettings(forceRefresh = false, group = ""): Promise<ServerPublicSettings> {
   if (!window.naimageServer?.models) throw new Error("账户服务暂未提供模型列表。");
-  const result = await window.naimageServer.models({ forceRefresh });
+  const result = await window.naimageServer.models({ forceRefresh, group });
   if (!result.ok) throw new Error(result.error ?? "模型列表拉取失败。");
   return result.settings ?? {};
 }
@@ -4081,12 +4081,12 @@ function App() {
 // MAIN 10C Server, Auth, Wallet, And Model Synchronization
 // -----------------------------------------------------------------------------
 
-  async function refreshServerState() {
+  async function refreshServerState(options: { preferCached?: boolean; loadLogs?: boolean } = {}) {
     if (!window.naimageServer?.me) return false;
     const refreshEpoch = ++serverRefreshEpochRef.current;
     const isCurrentRefresh = () => serverRefreshEpochRef.current === refreshEpoch;
     try {
-      const me = await window.naimageServer.me();
+      const me = await window.naimageServer.me({ preferCached: options.preferCached === true });
       if (!isCurrentRefresh() || me.stale === true) return false;
       if (!me.ok || !me.user) {
         if (agentExecutionBusyNow()) stopAgentRun();
@@ -4100,9 +4100,11 @@ function App() {
       const user = me.user;
       setServerUser(user);
       setServerWallet(me.wallet ?? walletFromServerSettings(user, me.settings));
-      const logs = await window.naimageServer.logs?.();
-      if (!isCurrentRefresh()) return false;
-      if (logs?.ok) setServerLogs(logs.logs ?? []);
+      if (options.loadLogs !== false) {
+        void window.naimageServer.logs?.().then((logs) => {
+          if (isCurrentRefresh() && logs?.ok) setServerLogs(logs.logs ?? []);
+        }).catch(() => undefined);
+      }
       return true;
     } catch (error) {
       if (!isCurrentRefresh()) return false;
@@ -4129,7 +4131,7 @@ function App() {
 
       setAuthReady(false);
       bootLog("auth restore start");
-      const ok = await refreshServerState();
+      const ok = await refreshServerState({ preferCached: true, loadLogs: false });
       if (cancelled) return;
       if (!ok) {
         authCheckedTokenRef.current = "";
@@ -4138,6 +4140,11 @@ function App() {
       }
       setAuthReady(true);
       bootLog(`auth restore done ok=${ok}`);
+      if (ok) {
+        window.setTimeout(() => {
+          if (!cancelled) void refreshServerState({ preferCached: false, loadLogs: true });
+        }, 250);
+      }
     }
 
     void restoreAuth();
@@ -4785,6 +4792,9 @@ function App() {
     const context = particleCanvas.getContext("2d", { alpha: true });
     if (!context) return;
     const ctx: CanvasRenderingContext2D = context;
+    const computedTheme = window.getComputedStyle(document.documentElement);
+    const particlePrimary = computedTheme.getPropertyValue("--theme-accent").trim() || "#cd674a";
+    const particleSecondary = computedTheme.getPropertyValue("--theme-blue").trim() || "#9b6956";
 
     type ParticlePoint = {
       x: number;
@@ -4926,14 +4936,13 @@ function App() {
           if (alpha <= 0.004) continue;
 
           ctx.beginPath();
-          ctx.fillStyle =
-            point.tone > 0.58
-              ? `rgba(126, 164, 255, ${alpha})`
-              : `rgba(118, 238, 218, ${alpha})`;
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = point.tone > 0.58 ? particleSecondary : particlePrimary;
           ctx.arc(px, py, point.radius * (1 + avoidFalloff * 0.82), 0, Math.PI * 2);
           ctx.fill();
         }
 
+        ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = "source-over";
       }
 
@@ -18660,6 +18669,7 @@ function App() {
           {
             ...current,
             serverToken: "",
+            modelGroup: result.settings?.modelGroup ?? current.modelGroup,
             imageModel: current.imageModel || result.settings?.imageModel || preferredImageModel,
             imageModelPool: current.imageModelPool?.length ? current.imageModelPool : [current.imageModel || result.settings?.imageModel || preferredImageModel],
             agentModel: current.agentModel || preferredAgentModel,
@@ -22113,6 +22123,7 @@ function SettingsDrawer({
   const [baselineSettings, setBaselineSettings] = useState(() => mergeSettings(settings));
   const [draftSettings, setDraftSettings] = useState(() => mergeSettings(settings));
   const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
+  const [activeSection, setActiveSection] = useState<"appearance" | "models" | "agent" | "updates">("models");
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsMessageError, setSettingsMessageError] = useState(false);
@@ -22126,7 +22137,7 @@ function SettingsDrawer({
   const [installerCaptcha, setInstallerCaptcha] = useState<DesktopInstallerCaptcha | null>(null);
   const [captchaCode, setCaptchaCode] = useState("");
   const modelLoadRef = useRef<Promise<void> | null>(null);
-  const pendingForcedModelRefreshRef = useRef(false);
+  const pendingModelRefreshRef = useRef<{ force: boolean; group: string } | null>(null);
   const manualModelRefreshCountRef = useRef(0);
   const captchaRequestEpochRef = useRef(0);
   const captchaRequestInFlightRef = useRef(false);
@@ -22136,12 +22147,14 @@ function SettingsDrawer({
     loading: boolean;
     imageModels: string[];
     agentModels: string[];
+    groups: NonNullable<ServerPublicSettings["modelGroups"]>;
     error: string;
     cacheSource?: ServerPublicSettings["cacheSource"];
   }>(() => ({
     loading: false,
     imageModels: imageModelsWithPreferredFallback([], draftSettings.imageModel, selectedImageModelsFromSettings(draftSettings)),
     agentModels: modelsWithPreferred([], draftSettings.agentModel, selectedAgentModelsFromSettings(draftSettings)),
+    groups: [],
     error: "",
     cacheSource: undefined
   }));
@@ -22163,31 +22176,43 @@ function SettingsDrawer({
     setDiscardArmed(false);
   }
 
-  async function refreshModels(forceRefresh = false): Promise<void> {
+  async function refreshModels(forceRefresh = false, group = draftSettings.modelGroup): Promise<void> {
     if (modelLoadRef.current) {
-      if (!forceRefresh) return modelLoadRef.current;
-      pendingForcedModelRefreshRef.current = true;
+      const pending = pendingModelRefreshRef.current;
+      pendingModelRefreshRef.current = {
+        force: Boolean(forceRefresh || pending?.force),
+        group: String(group || "")
+      };
       const activeRequest = modelLoadRef.current;
       return activeRequest.then(async () => {
-        if (!pendingForcedModelRefreshRef.current) return;
-        pendingForcedModelRefreshRef.current = false;
-        await refreshModels(true);
+        const queued = pendingModelRefreshRef.current;
+        if (!queued) return;
+        pendingModelRefreshRef.current = null;
+        await refreshModels(queued.force, queued.group);
       });
     }
     setModelState((current) => ({ ...current, loading: true, error: "" }));
     const request = (async () => {
       try {
-        const serverSettings = await fetchServerModelSettings(forceRefresh);
+        const serverSettings = await fetchServerModelSettings(forceRefresh, group);
         const serverModels = fullServerModelList(serverSettings);
         const imageModels = imageModelsWithPreferredFallback(serverModels, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
         const agentModels = modelsWithPreferred(serverModels, draftSettings.agentModel, draftSettings.agentModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);
-        setModelState({ loading: false, imageModels, agentModels, error: "", cacheSource: serverSettings.cacheSource });
+        setModelState({
+          loading: false,
+          imageModels,
+          agentModels,
+          groups: serverSettings.modelGroups ?? [],
+          error: "",
+          cacheSource: serverSettings.cacheSource
+        });
         setDraftSettings((current) =>
           normalizeModelPoolSelections(
             {
               ...current,
+              modelGroup: serverSettings.modelGroup ?? current.modelGroup,
               imageModel: current.imageModel || serverSettings.imageModel || preferredImageModel,
               imageModelPool: current.imageModelPool?.length ? current.imageModelPool : [current.imageModel || serverSettings.imageModel || preferredImageModel],
               agentModel: current.agentModel || preferredAgentModel,
@@ -22459,7 +22484,26 @@ function SettingsDrawer({
               closeLabel="关闭设置"
               closeDisabled={modelState.loading || saving}
             />
+            <nav className="settings-section-tabs" aria-label="设置分类">
+              {([
+                ["appearance", "外观"],
+                ["models", "模型"],
+                ["agent", "Agent"],
+                ["updates", "更新"]
+              ] as const).map(([section, label]) => (
+                <ButtonBase
+                  key={section}
+                  type="button"
+                  className={`ui-segment-action settings-section-tab ${activeSection === section ? "active" : ""}`}
+                  aria-pressed={activeSection === section}
+                  onClick={() => setActiveSection(section)}
+                >
+                  {label}
+                </ButtonBase>
+              ))}
+            </nav>
             <SurfaceBody className="settings-surface-body">
+              {activeSection === "appearance" ? (
               <SurfaceSection className="settings-surface-section settings-appearance-section" aria-labelledby="settings-appearance-heading">
                 <h3 id="settings-appearance-heading" className="settings-appearance-title">外观主题</h3>
                 <React.Suspense fallback={null}>
@@ -22471,7 +22515,9 @@ function SettingsDrawer({
                   />
                 </React.Suspense>
               </SurfaceSection>
+              ) : null}
 
+              {activeSection === "models" ? (
               <SurfaceSection className="settings-surface-section settings-model-section" aria-labelledby="settings-model-heading">
                 <div className="settings-section-header">
                   <h3 id="settings-model-heading">模型配置</h3>
@@ -22487,6 +22533,26 @@ function SettingsDrawer({
                   </ActionButton>
                 </div>
                 {modelState.error ? <InlineNotice className="setting-error" tone="danger">{modelState.error}</InlineNotice> : null}
+                <Field label="模型分组">
+                  <select
+                    value={draftSettings.modelGroup}
+                    onChange={(event) => {
+                      const group = event.target.value;
+                      update("modelGroup", group);
+                      void refreshModels(true, group);
+                    }}
+                  >
+                    <option value="">账户默认分组</option>
+                    {modelState.groups.map((group) => (
+                      <option key={group.id} value={group.id}>
+                        {group.label}{group.description ? ` · ${group.description}` : ""}{group.ratio !== undefined ? ` · ${group.ratio}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {!modelState.loading && modelState.groups.length === 0 ? (
+                  <InlineNotice tone="neutral">登录服务端未提供可选分组，当前使用账户默认分组。</InlineNotice>
+                ) : null}
                 <div className="settings-model-list">
                   <article className="settings-model-card">
                     <div className="settings-model-meta">
@@ -22519,7 +22585,9 @@ function SettingsDrawer({
                   </Field>
                 </div>
               </SurfaceSection>
+              ) : null}
 
+              {activeSection === "agent" ? (
               <SurfaceSection className="settings-surface-section settings-prompt-section" aria-label="Agent 提示词">
                 <div className="settings-section-header">
                   <h3>Agent</h3>
@@ -22528,7 +22596,9 @@ function SettingsDrawer({
                   </ActionButton>
                 </div>
               </SurfaceSection>
+              ) : null}
 
+              {activeSection === "updates" ? (
               <SurfaceSection className="settings-surface-section settings-update-section" aria-labelledby="settings-update-heading">
                 <div className="settings-section-header">
                   <h3 id="settings-update-heading">软件更新</h3>
@@ -22591,6 +22661,7 @@ function SettingsDrawer({
                   <InlineNotice className="settings-update-security" tone="neutral" icon={<Shield size={14} />}>更新包会自动验证，失败时保留当前版本</InlineNotice>
                 </div>
               </SurfaceSection>
+              ) : null}
             </SurfaceBody>
             <SurfaceFooter
               className="settings-surface-footer"

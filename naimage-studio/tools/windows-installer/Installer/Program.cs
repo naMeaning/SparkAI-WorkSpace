@@ -114,7 +114,7 @@ internal static class InstallerAccessibilityProbe
             var metadataClean = !string.IsNullOrWhiteSpace(productVersion) &&
                                 !productVersion.Contains("+") &&
                                 string.Equals(versionInfo.ProductName, "naimage", StringComparison.Ordinal) &&
-                                string.Equals(versionInfo.CompanyName, "Aieyra", StringComparison.Ordinal);
+                                string.Equals(versionInfo.CompanyName, "SparkAI", StringComparison.Ordinal);
             window.Close();
             var ok = toggle.Focusable && toggle.IsTabStop && provider is not null && before && !after &&
                       string.Equals(automationName, "自动化测试选项", StringComparison.Ordinal) &&
@@ -985,10 +985,10 @@ internal sealed class InstallerWindow : BrandWindow
             features.ColumnDefinitions.Add(new ColumnDefinition());
             features.RowDefinitions.Add(new RowDefinition());
             features.RowDefinitions.Add(new RowDefinition());
-            AddFeature(features, 0, 0, "01", "单 Agent 图像工作台", "自然语言驱动生图、编辑与批量探索");
-            AddFeature(features, 0, 1, "02", "无限成果画布", "自动整理图片、容器与清晰来源关系");
-            AddFeature(features, 1, 0, "03", "专业交付", "分层 PNG、透明素材与 PSD 导出");
-            AddFeature(features, 1, 1, "04", "安全更新", "小版本无损更新，大版本保留用户数据");
+            AddFeature(features, 0, 0, "01", "多国语言套图", "一键翻译并生成多语言商品图版本");
+            AddFeature(features, 0, 1, "02", "专属个性配置", "沉淀品牌视觉，生成专属于你的套图");
+            AddFeature(features, 1, 0, "03", "跨境平台适配", "多规格批量交付，覆盖主流电商平台");
+            AddFeature(features, 1, 1, "04", "安全更新", "程序更新保留项目、账户会话与设置");
             stack.Children.Add(features);
         }
         var releaseNotes = CreateReleaseNotesCard(_existing is null ? 96 : 188);
@@ -996,7 +996,7 @@ internal sealed class InstallerWindow : BrandWindow
         stack.Children.Add(releaseNotes);
         SetPage("WELCOME", _existing is null ? "欢迎使用 naimage" : "更新或修复 naimage",
             _existing is null
-                ? "现代 AI 图像工作台将在当前用户下安全部署，不会触碰你已有的项目文件。"
+                ? "面向跨境电商的 AI 套图工作台将在当前用户下安全部署，不会触碰你已有的项目文件。"
                 : "安装器已识别现有版本。继续后将更新程序组件，画布、会话、设置和 FastMemory 保持不变。",
             stack);
         BackButton.Visibility = Visibility.Collapsed;
@@ -1058,9 +1058,9 @@ internal sealed class InstallerWindow : BrandWindow
         _launchToggle.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(_launchToggle);
 
-        var safety = Text("项目与成果保存在独立用户数据目录。覆盖安装和默认卸载都不会删除这些内容。", 11.5, Color.FromRgb(160, 198, 194));
+        var safety = Text("项目与成果保存在独立用户数据目录。覆盖安装和默认卸载都不会删除这些内容。", 11.5, BrandPalette.Muted);
         var safetyCard = Card(safety, new Thickness(14, 12, 14, 12));
-        safetyCard.BorderBrush = BrandPalette.Brush(Color.FromRgb(31, 101, 91));
+        safetyCard.BorderBrush = BrandPalette.Brush(BrandPalette.Success);
         safetyCard.Margin = new Thickness(0, 15, 0, 0);
         stack.Children.Add(safetyCard);
 
@@ -1113,7 +1113,7 @@ internal sealed class InstallerWindow : BrandWindow
         stack.Children.Add(_progressDetail);
         _progressBar.Margin = new Thickness(0, 24, 0, 0);
         stack.Children.Add(_progressBar);
-        var note = Text("安装内核在后台静默运行，不会出现旧式 Windows 向导。", 10.5, Color.FromRgb(102, 141, 146));
+        var note = Text("安装内核在后台静默运行，不会出现旧式 Windows 向导。", 10.5, BrandPalette.Muted);
         note.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(note);
         SetPage("INSTALLING", _existing is null ? "正在安装 naimage" : "正在安全更新 naimage",
@@ -1358,7 +1358,7 @@ internal sealed class InstallerWindow : BrandWindow
         {
             foreach (var note in notes)
             {
-                var row = Text("•  " + note, 10.5, Color.FromRgb(169, 204, 201));
+                var row = Text("•  " + note, 10.5, BrandPalette.Muted);
                 row.Margin = new Thickness(0, 0, 0, 7);
                 noteStack.Children.Add(row);
             }

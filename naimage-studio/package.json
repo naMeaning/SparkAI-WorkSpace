@@ -3,7 +3,7 @@
   "version": "1.0.5",
   "productName": "naimage",
   "description": "A single-Agent AI image studio with an infinite visual canvas.",
-  "author": "Aieyra",
+  "author": "SparkAI",
   "license": "UNLICENSED",
   "naimageUpdateCompatibility": "windows-x64-electron-42-runtime-3",
   "naimageUpdateMinimumVersion": "1.0.5",
@@ -124,10 +124,10 @@
     "vite": "^8.0.16"
   },
   "build": {
-    "appId": "cn.aieyra.naimage",
+    "appId": "org.sparkai.naimage",
     "productName": "naimage",
     "executableName": "naimage",
-    "copyright": "Copyright © 2026 Aieyra",
+    "copyright": "Copyright © 2026 SparkAI",
     "asar": true,
     "compression": "maximum",
     "electronDist": "node_modules/electron/dist",

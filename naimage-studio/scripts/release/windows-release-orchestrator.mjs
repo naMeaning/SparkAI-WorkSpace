@@ -612,7 +612,7 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
     if (
       metadata.productVersion !== targetVersion ||
       metadata.productName !== "naimage" ||
-      metadata.companyName !== "Aieyra" ||
+      metadata.companyName !== "SparkAI" ||
       String(metadata.productVersion).includes("+")
     ) throw new Error("品牌安装包 Windows 元数据不符合发布规范。");
     if (!new Set(["Valid", "NotSigned"]).has(String(metadata.signature || ""))) {

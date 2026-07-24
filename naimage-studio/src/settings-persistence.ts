@@ -33,7 +33,7 @@ export const THEME_PALETTE_VALUES: ThemePaletteChoice[] = [
 ];
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
-export const DEFAULT_UPDATE_BASE_URL = "https://image.aieyra.cn";
+export const DEFAULT_UPDATE_BASE_URL = "https://sparkapi.org";
 
 export const defaultSettings: AppSettings = {
   agentProvider: "CODEX",
@@ -58,8 +58,9 @@ export const defaultSettings: AppSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
-  theme: "system",
-  themePalette: "default"
+  modelGroup: "",
+  theme: "light",
+  themePalette: "anthropic"
 };
 
 const LEGACY_LOCAL_SERVER_URLS = new Set([
@@ -112,8 +113,9 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
-  if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = "system";
-  if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = "default";
+  next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = defaultSettings.theme;
+  if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort))) next.reasoningEffort = "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
