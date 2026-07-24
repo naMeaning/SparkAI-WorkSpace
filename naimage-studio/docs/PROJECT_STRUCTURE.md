@@ -20,7 +20,7 @@
 | `scripts/` | 自测、AIDebug、性能门禁和发布自动化 | `scripts/release/` 只放发布链路；`scripts/maintenance/` 只放仓库维护。 |
 | `tools/dev-launcher/` | 开发快捷启动器源码 | `naimage Dev.exe` 由这里构建。 |
 | `tools/windows-installer/` | 品牌安装器与卸载器源码 | WPF 自绘交互层；NSIS 作为用户不可见的静默安装/删除内核。 |
-| `assets/` | 人工维护的源素材 | Windows 图标权威源文件为 `assets/windows/naimage.ico`。 |
+| `assets/` | 人工维护的源素材 | 软件图标母版为 `assets/windows/naimage-icon-master.png`；Windows 多尺寸产物为 `assets/windows/naimage.ico`，安装器构建副本位于 `build/naimage.ico`。 |
 | `build/` | Electron Builder 输入 | 安装器资源、更新公钥和辅助脚本；不是普通运行输出。 |
 | `public/` | Renderer 静态源资源 | 当前 Vite 配置不会无条件复制整个目录；变更时检查 bundle 是否真实引用。 |
 | `docs/` | 当前架构、产品、测试、发布和历史决策记录 | `docs/README.md` 是索引，`CONTEXT_MAP.md` 是当前实现地图，日期文件是历史阶段记录。 |
