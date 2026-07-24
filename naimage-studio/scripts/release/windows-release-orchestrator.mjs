@@ -119,33 +119,42 @@ function compareVersions(left, right) {
   return 0;
 }
 
+function canonicalWindowsVersion(value) {
+  const parsed = parseVersion(value);
+  if (!parsed) return String(value || "").trim();
+  return parsed[3] === 0
+    ? parsed.slice(0, 3).join(".")
+    : parsed.join(".");
+}
+
 export function resolveDesktopUpgradeContract({
   targetVersion,
   targetMinimumVersion,
   baselineVersion,
   baselineProductName
 }) {
+  const canonicalBaselineVersion = canonicalWindowsVersion(baselineVersion);
   const supportedProducts = new Set(["iiimage Studio", "naimage"]);
   if (!supportedProducts.has(String(baselineProductName || ""))) {
     throw new Error(`更新 E2E 基线产品无效：${baselineProductName || "unknown"}。`);
   }
-  if (!parseVersion(targetVersion) || !parseVersion(targetMinimumVersion) || !parseVersion(baselineVersion)) {
+  if (!parseVersion(targetVersion) || !parseVersion(targetMinimumVersion) || !parseVersion(canonicalBaselineVersion)) {
     throw new Error("更新 E2E 版本契约包含无效版本号。");
   }
-  if (compareVersions(baselineVersion, targetVersion) !== -1) {
-    throw new Error(`更新 E2E 基线版本必须低于 ${targetVersion}，当前为 ${baselineVersion}。`);
+  if (compareVersions(canonicalBaselineVersion, targetVersion) !== -1) {
+    throw new Error(`更新 E2E 基线版本必须低于 ${targetVersion}，当前为 ${canonicalBaselineVersion}。`);
   }
   if (targetVersion === "1.0.5") {
     if (targetMinimumVersion !== "1.0.5") {
       throw new Error("naimage 1.0.5 必须将 minimum_version 固定为 1.0.5。");
     }
-    if (baselineVersion !== "1.0.4" || baselineProductName !== "iiimage Studio") {
+    if (canonicalBaselineVersion !== "1.0.4" || baselineProductName !== "iiimage Studio") {
       throw new Error("naimage 1.0.5 必须使用冻结的 iiimage Studio 1.0.4 作为升级基线。");
     }
   }
-  const minimumComparison = compareVersions(baselineVersion, targetMinimumVersion);
+  const minimumComparison = compareVersions(canonicalBaselineVersion, targetMinimumVersion);
   return {
-    baselineVersion,
+    baselineVersion: canonicalBaselineVersion,
     baselineProductName,
     targetVersion,
     minimumVersion: targetMinimumVersion,
@@ -847,7 +856,7 @@ function runSelftest() {
   const legacyUpgradeContract = resolveDesktopUpgradeContract({
     targetVersion: "1.0.5",
     targetMinimumVersion: "1.0.5",
-    baselineVersion: "1.0.4",
+    baselineVersion: "1.0.4.0",
     baselineProductName: "iiimage Studio"
   });
   if (legacyUpgradeContract.updateType !== "installer" || !legacyUpgradeContract.requiresFullInstaller) {
