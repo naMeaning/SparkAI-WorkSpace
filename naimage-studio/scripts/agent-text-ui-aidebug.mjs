@@ -555,14 +555,16 @@ async function main() {
       };
       const actionRects = [refresh, prompt, ...configButtons].map(rectOf);
       const cardRects = cards.map(rectOf);
+      const contentTop = bodyRect.top - body.scrollTop;
+      const contentBottom = contentTop + body.scrollHeight;
       return {
-        body: { ...rectOf(body), scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowX: body.scrollWidth > body.clientWidth + 1 },
+        body: { ...rectOf(body), scrollTop: body.scrollTop, scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowX: body.scrollWidth > body.clientWidth + 1 },
         refreshClass: refresh.className,
         promptClass: prompt.className,
         configClasses: configButtons.map((button) => button.className),
         actionRects,
         cardRects,
-        actionsInside: actionRects.every((rect) => rect.left >= drawerRect.left - 1 && rect.right <= drawerRect.right + 1 && rect.top >= bodyRect.top - 1 && rect.bottom <= bodyRect.bottom + 1),
+        actionsInside: actionRects.every((rect) => rect.left >= drawerRect.left - 1 && rect.right <= drawerRect.right + 1 && rect.top >= contentTop - 1 && rect.bottom <= contentBottom + 1),
         cardsAligned: cardRects[0].left === cardRects[1].left && cardRects[0].right === cardRects[1].right && cardRects.every((rect) => rect.height >= 72)
       };
     })()`);
