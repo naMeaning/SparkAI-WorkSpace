@@ -20,6 +20,7 @@ const {
   imageEditRequestLimiterStatus,
   migrateSettings,
   newApiFetch,
+  newApiRelayImage,
   newApiRelayJson,
   newApiRelayStream,
   newApiTransportFetch,
@@ -158,13 +159,73 @@ async function run() {
     await delay(20);
     activeEditTasks -= 1;
   })));
-  assert.equal(maximumEditTasks, 3);
-  assert.deepEqual(imageEditRequestLimiterStatus(), { active: 0, queued: 0, maximum: 3 });
+  assert.equal(maximumEditTasks, 10);
+  assert.deepEqual(imageEditRequestLimiterStatus(), { active: 0, queued: 0, maximum: 10 });
   let retryRequests = 0;
   let partialRequests = 0;
   let streamClosedCount = 0;
   let slowBodyClosed = false;
+  let imageGenerationRequest = null;
+  let imageEditRequestBody = "";
   const server = http.createServer((request, response) => {
+    if (request.url === "/json-body") {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.once("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        let parsed = null;
+        try { parsed = JSON.parse(text); } catch {}
+        response.setHeader("content-type", "application/json; charset=utf-8");
+        response.end(JSON.stringify({ success: Boolean(parsed), parsed }));
+      });
+      return;
+    }
+    if (request.url === "/naimage/v1/images/generations") {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.once("end", () => {
+        try { imageGenerationRequest = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { imageGenerationRequest = null; }
+        response.setHeader("content-type", "text/event-stream; charset=utf-8");
+        response.end([
+          'event: image_generation.partial_image\ndata: {"type":"image_generation.partial_image","partial_image_index":0,"b64_json":"cGFydGlhbC0x"}\n\n',
+          'event: image_generation.partial_image\ndata: {"type":"image_generation.partial_image","partial_image_index":1,"b64_json":"cGFydGlhbC0y"}\n\n',
+          'event: image_generation.partial_image\ndata: {"type":"image_generation.partial_image","partial_image_index":2,"b64_json":"cGFydGlhbC0z"}\n\n',
+          'event: image_generation.completed\ndata: {"type":"image_generation.completed","b64_json":"ZmluYWwtaW1hZ2U=","revised_prompt":"stream fixture"}\n\n',
+          'data: [DONE]\n\n'
+        ].join(""));
+      });
+      return;
+    }
+    if (request.url === "/naimage/v1/images/edits") {
+      const chunks = [];
+      request.on("data", (chunk) => chunks.push(chunk));
+      request.once("end", () => {
+        imageEditRequestBody = Buffer.concat(chunks).toString("latin1");
+        response.setHeader("content-type", "text/event-stream; charset=utf-8");
+        response.end([
+          'data: {"type":"image_edit.partial_image","partial_image_index":0,"b64_json":"ZWRpdC1wYXJ0aWFs"}\n\n',
+          'data: {"type":"image_edit.completed","b64_json":"ZWRpdC1maW5hbA=="}\n\n',
+          'data: [DONE]\n\n'
+        ].join(""));
+      });
+      return;
+    }
+    if (request.url === "/naimage/v1/images/json-fallback") {
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ created: 1, data: [{ b64_json: "anNvbi1maW5hbA==" }] }));
+      return;
+    }
+    if (request.url === "/naimage/v1/images/stream-unsupported") {
+      response.statusCode = 400;
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({ error: { message: "unknown field partial_images; stream is not supported" } }));
+      return;
+    }
+    if (request.url === "/naimage/v1/images/empty-stream") {
+      response.setHeader("content-type", "text/event-stream; charset=utf-8");
+      response.end("data: [DONE]\n\n");
+      return;
+    }
     if (request.url === "/stream") {
       response.setHeader("content-type", "text/event-stream; charset=utf-8");
       response.write("data: {\"ready\":true}\n\n");
@@ -270,6 +331,12 @@ async function run() {
     response.statusCode = 404;
     response.end(JSON.stringify({ success: false }));
   });
+  let proxyRequestUrl = "";
+  const proxyServer = http.createServer((request, response) => {
+    proxyRequestUrl = String(request.url || "");
+    response.setHeader("content-type", "application/json; charset=utf-8");
+    response.end(JSON.stringify({ success: true, via: "explicit-proxy" }));
+  });
 
   try {
     assert.equal(migrateSettings({ reasoningEffort: "ultra" }).reasoningEffort, "ultra");
@@ -282,6 +349,7 @@ async function run() {
     // 127.0.0.2 stays on the loopback interface but is intentionally not the
     // app's reserved 127.0.0.1 local-server address.
     await listen(server, "127.0.0.2");
+    await listen(proxyServer, "127.0.0.3");
     const address = server.address();
     assert(address && typeof address === "object");
     const settings = {
@@ -304,6 +372,33 @@ async function run() {
     });
     assert.equal(curlHealthy.status, 200);
     assert.equal(JSON.parse(await curlHealthy.text()).transport, "node-http");
+
+    const nativeJson = await newApiFetch(settings, "/json-body", {
+      method: "POST",
+      body: { model: "gpt-image-2", prompt: "valid json" },
+      timeoutMs: 1_000,
+      retries: 0
+    });
+    assert.equal(nativeJson.data.success, true);
+    assert.equal(nativeJson.data.parsed.prompt, "valid json");
+    const curlJson = await newApiTransportFetch(`${baseUrl}/json-body`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-image-2", prompt: "valid curl json" }),
+      forceCurl: true
+    });
+    const curlJsonData = JSON.parse(await curlJson.text());
+    assert.equal(curlJsonData.success, true);
+    assert.equal(curlJsonData.parsed.prompt, "valid curl json");
+
+    const proxyAddress = proxyServer.address();
+    assert(proxyAddress && typeof proxyAddress === "object");
+    const proxyResponse = await newApiTransportFetch("http://unresolvable.naimage.invalid/proxy-probe", {
+      method: "GET",
+      proxyUrl: `http://127.0.0.3:${proxyAddress.port}`
+    });
+    assert.equal(JSON.parse(await proxyResponse.text()).via, "explicit-proxy");
+    assert.match(proxyRequestUrl, /^http:\/\/unresolvable\.naimage\.invalid\/proxy-probe$/i);
 
     const cookie = await newApiFetch(settings, "/cookie", { timeoutMs: 1_000, retries: 0 });
     assert.deepEqual(cookie.response.headers.getSetCookie(), [
@@ -364,6 +459,47 @@ async function run() {
     assert.equal(relayEvents.length, 1);
     assert.equal(relayEvents[0].type, "response.completed");
     assert.equal(relayEvents[0].done, true);
+
+    const partialImages = [];
+    const streamedImage = await newApiRelayImage(
+      { ...streamSettings, modelGroup: "vip" },
+      "/v1/images/generations",
+      { model: "gpt-image-2", prompt: "stream fixture", n: 1 },
+      (partial) => partialImages.push(partial)
+    );
+    assert.equal(imageGenerationRequest?.stream, true);
+    assert.equal(imageGenerationRequest?.partial_images, 3);
+    assert.equal(imageGenerationRequest?.group, "vip");
+    assert.deepEqual(partialImages.map((item) => item.index), [1, 2, 3]);
+    assert.equal(streamedImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
+    assert.equal(streamedImage.partial_images, 3);
+
+    const editPartials = [];
+    const editForm = new FormData();
+    editForm.set("model", "gpt-image-2");
+    editForm.set("prompt", "edit stream fixture");
+    editForm.append("image[]", new Blob([Buffer.from("fixture")], { type: "image/png" }), "fixture.png");
+    const streamedEdit = await newApiRelayImage(
+      streamSettings,
+      "/v1/images/edits",
+      editForm,
+      (partial) => editPartials.push(partial)
+    );
+    assert.match(imageEditRequestBody, /name="stream"\r\n\r\ntrue/i);
+    assert.match(imageEditRequestBody, /name="partial_images"\r\n\r\n3/i);
+    assert.equal(editPartials.length, 1);
+    assert.equal(streamedEdit.data[0].b64_json, "ZWRpdC1maW5hbA==");
+
+    const jsonImage = await newApiRelayImage(streamSettings, "/v1/images/json-fallback", { model: "gpt-image-2", prompt: "json" }, () => {});
+    assert.equal(jsonImage.data[0].b64_json, "anNvbi1maW5hbA==");
+    await assert.rejects(
+      () => newApiRelayImage(streamSettings, "/v1/images/stream-unsupported", { model: "gpt-image-2", prompt: "unsupported" }, () => {}),
+      (error) => error?.code === "NEW_API_IMAGE_STREAM_UNSUPPORTED"
+    );
+    await assert.rejects(
+      () => newApiRelayImage(streamSettings, "/v1/images/empty-stream", { model: "gpt-image-2", prompt: "empty" }, () => {}),
+      (error) => error?.code === "NEW_API_EMPTY_IMAGE_OUTPUT"
+    );
     await assert.rejects(
       () => newApiRelayStream(streamSettings, "/events-large", { input: "fixture" }, () => {}),
       (error) => error?.code === "NEW_API_SSE_EVENT_TOO_LARGE"
@@ -462,12 +598,17 @@ async function run() {
       earlyUploadRejectionPreserved: true,
       requestAndResponseLimits: true,
       sseBoundaries: true,
+      imageSsePartials: partialImages.length,
+      imageEditSse: true,
+      imageJsonFallback: true,
+      explicitProxy: true,
       splitServiceBaseUrls: true,
       crossOriginRelayCookieIsolation: true,
       timeoutBounded: true,
       aidebugImageFixtures: 4,
     };
   } finally {
+    if (proxyServer.listening) await close(proxyServer);
     await close(server);
   }
 }

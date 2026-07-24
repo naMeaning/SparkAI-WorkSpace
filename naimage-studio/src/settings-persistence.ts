@@ -56,6 +56,7 @@ export const defaultSettings: AppSettings = {
   accountBaseUrl: DEFAULT_ACCOUNT_BASE_URL,
   relayBaseUrl: "",
   updateBaseUrl: DEFAULT_UPDATE_BASE_URL,
+  networkProxyUrl: "",
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
@@ -123,6 +124,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.updateBaseUrl = isRetiredUpdateServiceUrl(next.updateBaseUrl)
     ? defaultSettings.updateBaseUrl
     : normalizeServiceBaseUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
+  next.networkProxyUrl = normalizeServiceBaseUrl(next.networkProxyUrl).slice(0, 2_048);
   next.agentModelPool = uniqueStoredModels(Array.isArray(source.agentModelPool) ? source.agentModelPool : next.agentModelPool);
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueStoredModels([next.agentModel, ...next.agentModelPool]);

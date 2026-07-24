@@ -498,7 +498,50 @@ Legacy shell base {
 }
 
 .agent-message-attachment-grid img {
-  object-fit: cover;
+  height: 96px;
+  aspect-ratio: auto;
+  object-fit: contain;
+  padding: 3px;
+}
+
+.agent-message-attachment-grid.is-single {
+  width: min(220px, calc(100vw - 52px));
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.agent-message-attachment-grid.is-single img {
+  height: auto;
+  max-height: 220px;
+  aspect-ratio: auto;
+}
+
+.agent-tool-partial-image {
+  position: relative;
+  margin: 9px 0 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.agent-tool-partial-image img {
+  width: 100%;
+  max-height: 240px;
+  display: block;
+  object-fit: contain;
+}
+
+.agent-tool-partial-image figcaption {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
+  font-size: 10px;
+  line-height: 1.4;
+  box-shadow: 0 2px 9px color-mix(in srgb, #000 18%, transparent);
 }
 
 .agent-message-attachment-grid > small {

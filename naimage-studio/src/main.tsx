@@ -4055,7 +4055,13 @@ function App() {
             toolTrace: nextTrace
           };
           const settled = isResult
-            ? current.map((message) => message.id === startId && message.status === "running" ? { ...message, status: "done" as const } : message)
+            ? current.map((message) => message.id === startId && message.status === "running"
+                ? {
+                    ...message,
+                    status: (isError ? "error" : "done") as AgentMessage["status"],
+                    toolTrace: message.toolTrace ? { ...message.toolTrace, partialImage: undefined } : message.toolTrace
+                  }
+                : message)
             : current;
           if (index < 0) return [...settled, timelineMessage].slice(-120);
           return settled.map((message, messageIndex) => messageIndex === index ? timelineMessage : message).slice(-120);
@@ -22097,8 +22103,8 @@ function AgentMessageAttachmentGroup({ label, items, count }: { label: "原图" 
   return (
     <details className="agent-message-attachment-group">
       <summary>{count} 张{label}</summary>
-      <div className="agent-message-attachment-grid">
-        {items.map((item, index) => <img key={`${item.assetId}-${index}`} src={item.assetUrl || imageAssetSrc({ type: "file", path: item.path })} alt={item.displayCode} />)}
+      <div className={`agent-message-attachment-grid ${items.length === 1 ? "is-single" : ""}`}>
+        {items.map((item, index) => <img key={`${item.assetId}-${index}`} src={item.assetUrl || imageAssetSrc({ type: "file", path: item.path })} alt={item.displayCode} title={item.name} loading="lazy" />)}
         {count > items.length ? <small>{items.length}/{count}</small> : null}
       </div>
     </details>
@@ -22185,6 +22191,12 @@ function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: 
             </details>
           ))}
         </div>
+      ) : null}
+      {!isResult && trace.partialImage ? (
+        <figure className="agent-tool-partial-image" aria-label={`生图中间预览 ${trace.partialImage.index}/${trace.partialImage.total}`}>
+          <img src={trace.partialImage.dataUrl} alt="生图中间预览" />
+          <figcaption>中间预览 {trace.partialImage.index}/{trace.partialImage.total}</figcaption>
+        </figure>
       ) : null}
       {isResult && trace.completionText ? <span className={`agent-tool-trace-completion ${status === "error" ? "is-error" : ""}`}><Check size={13} />{trace.completionText}</span> : null}
     </div>
@@ -22674,6 +22686,16 @@ function SettingsDrawer({
                     <InlineNotice tone="neutral">同一组凭证用于 Agent 与生图；模型名称仍在“模型”页选择。</InlineNotice>
                   </>
                 )}
+                <Field label="网络代理（可选）">
+                  <input
+                    value={draftSettings.networkProxyUrl}
+                    onChange={(event) => update("networkProxyUrl", event.target.value)}
+                    type="url"
+                    placeholder="http://127.0.0.1:7897"
+                    autoComplete="off"
+                  />
+                </Field>
+                <InlineNotice tone="neutral">留空时使用 Node 直连；填写后仅 naimage 的服务请求使用该代理，不修改 Git 或系统全局代理。</InlineNotice>
               </SurfaceSection>
               ) : null}
 

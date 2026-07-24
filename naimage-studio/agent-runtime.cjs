@@ -111,7 +111,7 @@ const defaultMainAgentPromptLines = [
   "插画发布任务要服从平台比例、安全区、主体辨识度与系列一致性。角色定制和游戏原画要锁定面部身份、轮廓、体型、服装结构、配色、材质与标志性道具；三视图、表情、姿势和连续场景必须是同一角色，除非用户明确要求变体，不得在每张图中重新设计角色。",
   "image_gen 成功返回真实图片后，在最终回复前进行视觉质检：单图必须调用 view_image 查看新成果；多图若提示词相同，至少检查代表图、首尾图和任何明显异常图，若提示词不同则逐张检查。正常构图、文字和一致性质检使用 detail=high；detail=original 只用于单张图片确实需要原始像素或原生分辨率核对时，多张图片不得在同一轮全部请求 original。需要把成图与来源或身份参考对比时，在同一个 assistant 回合并行调用所需的 view_image，让下一轮同时获得完整对照；不要在连续回合里来回交替查看同一批路径。当前质检中某条路径已成功查看后，除非生成了新成果、切换 detail 有明确必要或首次观察失败，否则不得重复打开。核对后必须立即二选一：确认交付，或最多主动修正并重新生成一次再复核；如果修正后仍明显不满足用户约束，保留可用文件但必须明确报告部分失败、具体未达项和所需补充参考，禁止把不合格结果描述为已经成功。不要无休止抽卡、循环验图，也不要仅用文字宣称图片合格。用户明确要求不复核或只要快速草稿时可跳过。",
   "image_gen 成功回执会直接列出可供 view_image 使用的 project-local output_paths。必须优先使用这些路径检查新成果，不要再调用 workflow 或 shell_command 搜索、猜测或解析输出位置；只有回执明确缺少路径时才根据错误信息决定下一步。",
-  "image_gen 返回 ok=false 时不要假装完成。transient、timeout、rate_limit 或 upstream_5xx 可降低张数或分辨率后重试；quota、auth、invalid_input、missing_reference 或 policy 应直接说明。最多连续重试两次同类错误。",
+  "image_gen 返回 ok=false 时不要假装完成。transient、timeout、rate_limit 或 upstream_5xx 可降低张数或分辨率后重试；quota、auth、invalid_input、missing_reference 或 policy 应直接说明。连接、TLS、invalid JSON request body 或流式协议错误属于传输问题，不能靠降低分辨率解决，也不得移除来源关联、断开画布关系或改写用户任务。只有服务端明确指出某个图片参数不支持时才能修正该参数。最多连续重试两次同类错误。",
   "工具输出可能被截断，运行时会保留完整回执供后续读取。最终回复只保留用户需要看的结论、图片结果和下一步；不要伪造未展示的日志细节，也不要要求用户粘贴运行时已有的工具回执。",
   "没有来源图时 operation=generate；有上传参考图时可 generate 或 edit；换物、改字等精确替换用 replace；基于当前图片出多款用 variants；分层 PNG 用 layers；主体抠图用 cutout；带蒙版局部修改用 redraw。用户说 N 张、N 版、N 种款式时必须准确生成 N 张，最多 10 张。",
   `${primaryImageToolName} 会自动把成果同步到画布。单图使用标准节点；count>1 时必须明确 generationMode：用户在同一轮要求 N 张、N 版、N 个方案或 N 个候选时使用 parallel，并进入批量图片组；只有明确要求一次一张、按故事/时间顺序逐张延续或连续系列时才使用 sequential，并进入连续系列。不同提示词 items 通常使用 parallel；每张图都保留自己的提示词并可拖出为标准节点。基于画布来源继续时设置 parentId，但 parentId 只表示来源关系，不决定 generationMode。`,
@@ -2629,6 +2629,20 @@ function createAgentRuntime(options) {
             mode: editRequested ? mode : "generate",
             projectId: args.projectId,
             runId,
+            onPartialImage: (partial) => progress?.({
+              phase: "image-preview",
+              tool: primaryImageToolName,
+              operationId: String(args.operationId || args.toolRunId || args.runId || runId),
+              toolRunId: String(args.operationId || args.toolRunId || args.runId || runId),
+              childTaskId: runId,
+              summary: `已收到第 ${Math.max(1, Number(partial?.index || 1))}/${Math.max(1, Number(partial?.total || 3))} 张中间预览。`,
+              partialImage: {
+                dataUrl: String(partial?.dataUrl || ""),
+                index: Math.max(1, Number(partial?.index || 1)),
+                total: Math.max(1, Number(partial?.total || 3)),
+                requestIndex: Number(partial?.requestIndex ?? index)
+              }
+            }),
             onRetry: (retry) => progress?.({
               phase: "image-retry",
               tool: primaryImageToolName,

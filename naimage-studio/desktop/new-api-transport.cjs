@@ -182,6 +182,25 @@ function createNewApiTransport(options = {}) {
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"');
   }
+
+  function normalizedNewApiProxyUrl(value) {
+    const source = String(value || "").trim();
+    if (!source) return "";
+    let parsed;
+    try {
+      parsed = new URL(source);
+    } catch {
+      const error = new Error("网络代理地址不是有效的 URL。");
+      error.code = "NEW_API_INVALID_PROXY";
+      throw error;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      const error = new Error("网络代理只支持 HTTP 或 HTTPS 地址。");
+      error.code = "NEW_API_INVALID_PROXY";
+      throw error;
+    }
+    return parsed.toString();
+  }
   
   function newApiCurlHeaderBlock(buffer) {
     const crlf = buffer.indexOf(Buffer.from("\r\n\r\n"));
@@ -226,6 +245,7 @@ function createNewApiTransport(options = {}) {
     const method = String(options.method || "GET").toUpperCase();
     const requestedResponseBytes = Number(options.maxResponseBytes);
     const maxResponseBytes = Math.max(1 * 1024 * 1024, Math.min(256 * 1024 * 1024, Number.isFinite(requestedResponseBytes) ? Math.floor(requestedResponseBytes) : 64 * 1024 * 1024));
+    const proxyUrl = normalizedNewApiProxyUrl(options.proxyUrl);
     const args = [
       "--silent",
       "--show-error",
@@ -233,13 +253,19 @@ function createNewApiTransport(options = {}) {
       "--no-buffer",
       "--http1.1",
       "--globoff",
-      "--noproxy",
-      "*",
       "--request",
       method
     ];
+    if (proxyUrl) {
+      // Explicit app-level proxy configuration must win over NO_PROXY inherited
+      // from the shell. Suppress CONNECT headers so the response parser only
+      // sees the upstream HTTP response for HTTPS targets.
+      args.push("--proxy", proxyUrl, "--noproxy", "", "--suppress-connect-headers");
+    } else {
+      args.push("--noproxy", "*");
+    }
     const requestedConnectTimeout = Number(options.connectTimeoutMs);
-    const connectTimeoutMs = Math.max(1_000, Math.min(60_000, Number.isFinite(requestedConnectTimeout) ? Math.floor(requestedConnectTimeout) : 30_000));
+    const connectTimeoutMs = Math.max(1_000, Math.min(120_000, Number.isFinite(requestedConnectTimeout) ? Math.floor(requestedConnectTimeout) : 45_000));
     const requestedHeadersTimeout = Number(options.headersTimeoutMs);
     const headersTimeoutMs = Number.isFinite(requestedHeadersTimeout) && requestedHeadersTimeout > 0
       ? Math.max(1_000, Math.min(10 * 60_000, Math.floor(requestedHeadersTimeout)))
@@ -453,7 +479,10 @@ function createNewApiTransport(options = {}) {
             return;
           }
           const error = newApiCurlFailure(code, signal, stderr, stdinError, "connect");
-          const possiblySent = Boolean(payload.body && child.stdin?.writableFinished && ![5, 6, 7].includes(Number(code)));
+          const curlCode = Number(code);
+          const connectionFailure = [5, 6, 7, 35, 51, 58, 60].includes(curlCode) ||
+            (curlCode === 28 && /connect|ssl|tls|handshake|name resolution/i.test(String(stderr || "")));
+          const possiblySent = Boolean(payload.body && child.stdin?.writableFinished && !connectionFailure);
           if (possiblySent && !["GET", "HEAD"].includes(method)) {
             error.phase = "awaiting_headers";
             error.ambiguous = true;
@@ -495,8 +524,13 @@ function createNewApiTransport(options = {}) {
     if (!Object.keys(payload.headers).some((name) => name.toLowerCase() === "accept-encoding")) {
       payload.headers["accept-encoding"] = "identity";
     }
-    if ((app.isPackaged || options.forceCurl === true) && process.platform === "win32" && existsSync(windowsCurlPath)) {
-      return newApiCurlTransportFetch(target, payload, options);
+    const proxyUrl = normalizedNewApiProxyUrl(options.proxyUrl);
+    // Node's native HTTP stack is the stable default used by the original
+    // direct-API image path. Curl is retained for an explicitly configured
+    // HTTP(S) proxy and for transport self-tests, without changing global or
+    // process-wide proxy settings.
+    if ((options.forceCurl === true || Boolean(proxyUrl)) && process.platform === "win32" && existsSync(windowsCurlPath)) {
+      return newApiCurlTransportFetch(target, payload, { ...options, proxyUrl });
     }
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -513,7 +547,7 @@ function createNewApiTransport(options = {}) {
       let headersTimer = null;
       const requestedConnectTimeout = Number(options.connectTimeoutMs);
       const connectTimeoutMs = Number.isFinite(requestedConnectTimeout) && requestedConnectTimeout > 0
-        ? Math.max(1_000, Math.min(60_000, Math.floor(requestedConnectTimeout)))
+        ? Math.max(1_000, Math.min(120_000, Math.floor(requestedConnectTimeout)))
         : 0;
       let connectTimer = null;
       const clearHeadersTimer = () => {
@@ -639,4 +673,3 @@ function createNewApiTransport(options = {}) {
 module.exports = {
   createNewApiTransport
 };
-

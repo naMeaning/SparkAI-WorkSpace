@@ -244,7 +244,7 @@ const modelCacheInflight = new Map();
 let modelCacheDiskLoaded = false;
 let newApiAuthEpoch = 0;
 const managedImageIdempotencyPrefix = "naimage-";
-const maximumConcurrentImageEditRequests = 3;
+const maximumConcurrentImageEditRequests = 10;
 let activeImageEditRequests = 0;
 const queuedImageEditRequests = [];
 
@@ -299,6 +299,7 @@ const defaultSettings = {
   accountBaseUrl: "https://sparkapi.org",
   relayBaseUrl: "",
   updateBaseUrl: "https://sparkapi.org",
+  networkProxyUrl: "",
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
@@ -517,6 +518,7 @@ function migrateSettings(value) {
   next.updateBaseUrl = isRetiredUpdateServiceUrl(next.updateBaseUrl)
     ? defaultSettings.updateBaseUrl
     : normalizeServerUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
+  next.networkProxyUrl = normalizeStoredServerUrl(next.networkProxyUrl).slice(0, 2_048);
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
@@ -613,6 +615,7 @@ const {
   managedRelayEndpoint,
   newApiErrorMessage,
   newApiFetch,
+  newApiRelayImage,
   newApiRelayJson,
   newApiRelayStream,
   newApiRequest,
@@ -2623,6 +2626,12 @@ async function callNewApiImage(settings, payload = {}) {
     if (error?.ambiguous === true) {
       return { category: "ambiguous", retryable: true, maxRetries: 1, status, message };
     }
+    if (
+      (code === "etimedout" && String(error?.phase || error?.cause?.phase || "").toLowerCase() === "connect") ||
+      /ssl\/tls connection timeout|connect(?:ion)? timeout|tls handshake|建立连接超时/.test(normalized)
+    ) {
+      return { category: "network", retryable: true, maxRetries: 2, status, message };
+    }
     if (code === "naimage_image_timeout" || error?.name === "AbortError" || /timeout|timed out|etimedout|超时|超过\s*300\s*秒/.test(normalized)) {
       return { category: "timeout", retryable: true, maxRetries: 1, status, message };
     }
@@ -2740,6 +2749,18 @@ async function callNewApiImage(settings, payload = {}) {
         ...(customMode ? customApiHeaders(settings, "image") : newApiUserAuthHeaders(settings)),
         "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`
       };
+      const onPartialImage = (partial) => {
+        try {
+          payload.onPartialImage?.({
+            ...partial,
+            requestIndex: index,
+            requestNumber: index + 1,
+            requestCount: count
+          });
+        } catch {
+          // Preview telemetry must never break the billable image request.
+        }
+      };
       if (aidebugMockImage) {
         await delay(45);
         const directive = aidebugImageFaultDirective(prompt);
@@ -2784,45 +2805,64 @@ async function callNewApiImage(settings, payload = {}) {
         }
         return form;
       };
-      let request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
-        service: "relay",
-        absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
-        requestBaseUrl: customImageCredentials?.baseUrl,
-        method: "POST",
-        headers: requestHeaders,
-        body: buildForm(false),
-        signal,
-        headersTimeoutMs: imageTimeoutMs,
-        connectTimeoutMs: 30_000,
-        maxRequestBytes: 96 * 1024 * 1024,
-        maxResponseBytes: 64 * 1024 * 1024
-      });
-      if (!customMode) persistNewApiSessionCookie(settings, request.response);
-      if (request.response.status === 413) {
-        compressedSourceRetryCount += 1;
-        request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
-          service: "relay",
-          absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
-          requestBaseUrl: customImageCredentials?.baseUrl,
-          method: "POST",
-          headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}-aggressive` },
-          body: buildForm(true),
-          signal,
-          headersTimeoutMs: imageTimeoutMs,
-          connectTimeoutMs: 30_000,
-          maxRequestBytes: 96 * 1024 * 1024,
-          maxResponseBytes: 64 * 1024 * 1024
-        });
-        if (!customMode) persistNewApiSessionCookie(settings, request.response);
+      let aggressive = false;
+      let streamEnabled = true;
+      for (;;) {
+        const idempotencySuffix = `${aggressive ? "-aggressive" : ""}${streamEnabled ? "" : "-nonstream"}`;
+        try {
+          if (streamEnabled) {
+            return await newApiRelayImage(settings, "/v1/images/edits", buildForm(aggressive), onPartialImage, {
+              provider: "image",
+              signal,
+              headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}${idempotencySuffix}` },
+              headersTimeoutMs: imageTimeoutMs,
+              connectTimeoutMs: 60_000,
+              maxRequestBytes: 96 * 1024 * 1024,
+              maxResponseBytes: 96 * 1024 * 1024,
+              partialImages: 3
+            });
+          }
+          const request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
+            service: "relay",
+            absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
+            requestBaseUrl: customImageCredentials?.baseUrl,
+            method: "POST",
+            headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}${idempotencySuffix}` },
+            body: buildForm(aggressive),
+            signal,
+            headersTimeoutMs: imageTimeoutMs,
+            connectTimeoutMs: 60_000,
+            maxRequestBytes: 96 * 1024 * 1024,
+            maxResponseBytes: 96 * 1024 * 1024
+          });
+          if (!customMode) persistNewApiSessionCookie(settings, request.response);
+          if (!request.response.ok || request.data.error || request.data.success === false || request.data.ok === false) {
+            const error = new Error(newApiErrorMessage(request.data, request.response.status));
+            error.status = request.response.status;
+            error.data = request.data;
+            throw error;
+          }
+          return request.data;
+        } catch (error) {
+          if (streamEnabled && error?.code === "NEW_API_IMAGE_STREAM_UNSUPPORTED") {
+            streamEnabled = false;
+            continue;
+          }
+          if (!aggressive && Number(error?.status) === 413) {
+            compressedSourceRetryCount += 1;
+            aggressive = true;
+            continue;
+          }
+          const wrapped = new Error(`image_gen edit ${Number(error?.status || 0) || "request"} 第 ${index + 1}/${count} 张: ${error?.message || String(error)}`);
+          wrapped.status = Number(error?.status || 0) || undefined;
+          wrapped.data = error?.data;
+          wrapped.code = error?.code;
+          wrapped.phase = error?.phase;
+          wrapped.ambiguous = error?.ambiguous === true;
+          wrapped.cause = error;
+          throw wrapped;
+        }
       }
-      const { response, data } = request;
-      if (!response.ok || data.error || data.success === false || data.ok === false) {
-        const error = new Error(`image_gen edit ${response.status} 第 ${index + 1}/${count} 张: ${newApiErrorMessage(data, response.status)}`);
-        error.status = response.status;
-        error.data = data;
-        throw error;
-      }
-      return data;
       }
 
       const body = { model, prompt, size, quality, n: 1 };
@@ -2831,14 +2871,28 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
       if (imageControls.background) body.background = imageControls.background;
       if (imageControls.moderation) body.moderation = imageControls.moderation;
-      return newApiRelayJson(settings, "/v1/images/generations", body, {
-        provider: "image",
-        signal,
-        headers: { "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}` },
-        headersTimeoutMs: imageTimeoutMs,
-        connectTimeoutMs: 30_000,
-        maxResponseBytes: 64 * 1024 * 1024
-      });
+      const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
+      try {
+        return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
+          provider: "image",
+          signal,
+          headers: { "Idempotency-Key": idempotencyKey },
+          headersTimeoutMs: imageTimeoutMs,
+          connectTimeoutMs: 60_000,
+          maxResponseBytes: 96 * 1024 * 1024,
+          partialImages: 3
+        });
+      } catch (error) {
+        if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
+        return newApiRelayJson(settings, "/v1/images/generations", body, {
+          provider: "image",
+          signal,
+          headers: { "Idempotency-Key": `${idempotencyKey}-nonstream` },
+          headersTimeoutMs: imageTimeoutMs,
+          connectTimeoutMs: 60_000,
+          maxResponseBytes: 96 * 1024 * 1024
+        });
+      }
     }, index);
     return editRequested ? withImageEditRequestSlot(executeAttempt) : executeAttempt();
   }
@@ -2897,7 +2951,7 @@ async function callNewApiImage(settings, payload = {}) {
       }
     }
   };
-  const requestConcurrency = editRequested ? Math.min(3, count) : count;
+  const requestConcurrency = Math.min(10, count);
   await Promise.all(Array.from({ length: requestConcurrency }, () => worker()));
   const responses = settled.filter((item) => item.status === "fulfilled").map((item) => item.value);
   const failed = settled
@@ -3467,6 +3521,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     newApiFetch,
     resolveNewApiBaseUrl,
     newApiRelayJson,
+    newApiRelayImage,
     newApiRelayStream,
     newApiTransportFetch,
     newApiUserLogsEndpoint,

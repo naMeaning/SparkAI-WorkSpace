@@ -140,6 +140,17 @@ function promptsFromProgress(payload: AgentProgress) {
   return prompt ? [{ title: "生图提示词", prompt }] : undefined;
 }
 
+function partialImageFromProgress(payload: AgentProgress) {
+  const candidate = payload.partialImage;
+  const dataUrl = String(candidate?.dataUrl || "");
+  if (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl)) return undefined;
+  return {
+    dataUrl,
+    index: Math.max(1, Math.floor(Number(candidate?.index || 1))),
+    total: Math.max(1, Math.floor(Number(candidate?.total || 3)))
+  };
+}
+
 function completionTextForProgress(payload: AgentProgress) {
   const phase = String(payload.phase || "");
   if (phase === "tool-error" || phase === "image-error") {
@@ -181,6 +192,7 @@ export function toolTraceForProgress(payload: AgentProgress): AgentToolTrace | n
     params: paramsFromProgress(payload),
     brief,
     prompts: promptsFromProgress(payload),
+    partialImage: partialImageFromProgress(payload),
     completionText: completionTextForProgress(payload)
   };
 }

@@ -108,6 +108,7 @@ export type ApiSettings = {
   accountBaseUrl: string;
   relayBaseUrl: string;
   updateBaseUrl: string;
+  networkProxyUrl: string;
   serverToken: string;
   serverSessionCookie: string;
   serverUserId: string;
@@ -147,6 +148,7 @@ export type AgentToolTrace = {
   params: string;
   brief: string;
   prompts?: { title?: string; prompt: string }[];
+  partialImage?: { dataUrl: string; index: number; total: number };
   completionText?: string;
 };
 
@@ -1224,6 +1226,7 @@ export type AgentProgress = {
   internalOnly?: boolean;
   nativeTool?: boolean;
   nativeEventType?: string;
+  partialImage?: { dataUrl?: string; index?: number; total?: number; requestIndex?: number };
   workflowAction?: AgentRuntimeAction;
 };
 
@@ -2332,9 +2335,21 @@ export function validMessages(value: unknown): AgentMessage[] {
       } : undefined;
       const toolTrace = message.toolTrace
         ? {
-            ...message.toolTrace,
-            brief: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.brief),
+            stage: message.toolTrace.stage === "result" ? "result" as const : message.toolTrace.stage === "start" ? "start" as const : undefined,
+            operationId: typeof message.toolTrace.operationId === "string" ? message.toolTrace.operationId.slice(0, 180) : undefined,
+            label: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.label).slice(0, 80),
+            name: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.name).slice(0, 80),
+            operation: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.operation).slice(0, 120),
             params: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.params),
+            brief: sanitizeStoredAgentMessageContent("assistant", message.toolTrace.brief),
+            prompts: Array.isArray(message.toolTrace.prompts)
+              ? message.toolTrace.prompts.slice(0, 10).map((item) => ({
+                  title: item.title ? String(item.title).slice(0, 120) : undefined,
+                  prompt: String(item.prompt || "").slice(0, 24_000)
+                })).filter((item) => item.prompt)
+              : undefined,
+            // Streaming image previews are intentionally transient. Never copy
+            // their multi-megabyte data URLs into project conversation history.
             completionText: message.toolTrace.completionText === undefined
               ? undefined
               : sanitizeStoredAgentMessageContent("assistant", message.toolTrace.completionText)

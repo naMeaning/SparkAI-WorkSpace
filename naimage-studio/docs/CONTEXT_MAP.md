@@ -53,8 +53,8 @@ Electron Main: electron-main.cjs
   ├─ desktop/project-save-coordinator.cjs
   ├─ desktop/model-catalog.cjs
   ├─ desktop/agent-responses-adapter.cjs
-  ├─ desktop/new-api-transport.cjs：Node HTTP / Windows curl 传输与取消
-  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON 与 SSE relay
+  ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
+  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON/通用 SSE 与 Images SSE relay
   ├─ desktop/license-service.cjs：设备激活、24 小时校验缓存与 72 小时离线宽限
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
@@ -172,6 +172,8 @@ image_gen
 
 两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
+Images API 默认发送 `stream=true` 与 `partial_images=3`。`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，普通 JSON 成功响应仍可直接回退；只有服务端明确表示不支持 `stream/partial_images` 时，Main 才以新的幂等键安全补发一次非流式请求。中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。
+
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
 ### 4.5 项目 session 保存
@@ -245,8 +247,8 @@ Renderer UpdaterBridge
 | `desktop/agent-responses-adapter.cjs` | Chat Completions 请求到 Responses API input/tool/tool-choice 的纯转换 | HTTP、流读取、凭据或重试 | `responsesRequestFromChatRequest`, `responsesInputFromChatMessages`, `responsesToolsFromChatTools` | `test:agent-responses-adapter`, `test:agent-protocol` |
 | `desktop/aidebug-image-fixture.cjs` | AIDebug mock 图片尺寸归一化、显式/旧 prompt 图层提示与确定性 PNG base64 | 真实图片服务、项目资产、用户图片、GUI suite 编排或 Main 生命周期 | `aidebugImageBase64`, `aidebugLayerFixtureHint` | `test:new-api-transport`, `aidebug:image-recovery`, `aidebug:gui` |
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
-| `desktop/new-api-transport.cjs` | Node HTTP 与 Windows curl 请求、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
-| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream` | `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
+| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE partial/completed/JSON fallback | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage` | `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `contextManage`, `appendConversationProtocolTurn` | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
@@ -382,7 +384,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-账号模式把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
+账号模式把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 naimage 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
 
 正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
 
@@ -451,7 +453,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 | 路径/文件 | 内容 | 所有者 |
 | --- | --- | --- |
-| `app-settings.json` | App 设置、账号 session、自定义 API Key、随机安装 ID 与授权令牌 | Electron Main；不得写入日志、模型缓存或项目文件 |
+| `app-settings.json` | App 设置、账号 session、自定义 API Key、可选应用级代理 URL、随机安装 ID 与授权令牌 | Electron Main；不得写入日志、模型缓存或项目文件 |
 | `session.json` | 全局/兼容 session | Electron Main |
 | `model-cache.json` | 60 秒模型缓存的磁盘回退 | Electron Main；不得含 token/cookie/key |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
@@ -489,6 +491,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 - `desktop/project-save-coordinator.cjs` 的 project queue 与 revision Map。
 - 当前 BrowserWindow、模型 inflight 请求和模型 memory cache。
 - Agent 当前执行、取消控制器、流式文本和工具轮次。
+- Images SSE 的最新中间预览；只显示当前 partial，不进入 `validMessages` 或项目 session。
 - Renderer 当前 selection、drawer/dialog、拖拽和未保存 UI 状态。
 
 进程重启后必须从磁盘/服务端恢复权威状态，不得依赖这些 Map 或 React state。
@@ -502,7 +505,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Agent Prompt/FastMemory/tool contract | `corepack pnpm run test:agent-text` |
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
-| New API transport / AIDebug image fixture | `corepack pnpm run test:new-api-transport` |
+| New API transport / AIDebug image fixture / Images SSE / 显式代理 | `corepack pnpm run test:new-api-transport` |
 | 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |
 | 设备激活、缓存与离线宽限 | `corepack pnpm run test:license` |
 | `view_image` | `corepack pnpm run test:view-image` |
@@ -566,3 +569,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-24 | 1.0.5 | 参考 New API 调色盘分类新增明暗模式与 10 套 naimage 独立配色；`themePalette` 由 Renderer/Electron 双侧迁移，预设仅覆盖 `--theme-*` 桥接变量；主题选择器与现有对话框合并进 `studio-dialogs` 异步 chunk，并由设置持久化、UI foundation、Bundle 与快速 AIDebug 验证。 |
 | 2026-07-24 | 1.0.5 | SparkAI 品牌默认值统一为 `org.sparkai.naimage`、`SparkAI` 与 `https://sparkapi.org`；安装器文案改为跨境电商套图；New API 用户分组可在设置中选择并透传到模型/图片请求；设置抽屉改为四分页，登录恢复先走缓存身份再后台校验。 |
 | 2026-07-24 | 1.0.5 | 新增账号 Session Relay 与自定义 OpenAI-compatible API 双接入模式；新增随机安装设备授权、激活码哈希存储、24 小时校验缓存、72 小时离线宽限和账号 Relay 服务端门禁；设置抽屉新增“接入”页，IPC 扩展为 72 个 handler/69 个公开 invoke。 |
+| 2026-07-24 | 1.0.5 | 图片链路恢复 Node 原生 HTTP 为默认，新增不影响全局配置的可选 HTTP(S) 代理；generation/edit 默认使用 `stream=true + partial_images=3`，工具卡显示临时中间预览并在最终结果后清理；明确不支持流式时回退一次非流式请求，统一图片并发上限为 10，transport selftest 覆盖 JSON body、显式代理、generation/edit SSE、JSON fallback、空流和 unsupported fallback。 |

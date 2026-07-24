@@ -110,6 +110,8 @@ function createNewApiClient(options = {}) {
     resolveNewApiBaseUrl(settings, "account");
     resolveNewApiBaseUrl(settings, "relay");
     resolveNewApiBaseUrl(settings, "update");
+    const proxyUrl = String(settings?.networkProxyUrl || "").trim();
+    if (proxyUrl) parsedServiceBaseUrl(proxyUrl, "网络代理地址");
     return true;
   }
   
@@ -128,13 +130,18 @@ function createNewApiClient(options = {}) {
   }
   
   function newApiErrorMessage(data, status) {
-    return (
+    const raw = (
       data?.error?.message ||
       data?.message ||
       data?.error ||
       data?.msg ||
       (status ? `New API ${status}` : "New API request failed")
     );
+    const segments = String(raw || "")
+      .split(/[,，]\s*/)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    return segments.filter((segment, index) => index === 0 || segment.toLowerCase() !== segments[index - 1].toLowerCase()).join("，");
   }
   
   function isNewApiAuthError(error) {
@@ -298,6 +305,7 @@ function createNewApiClient(options = {}) {
           signal: controller.signal,
           headersTimeoutMs: options.headersTimeoutMs ?? (timeoutMs > 0 ? timeoutMs : undefined),
           connectTimeoutMs: options.connectTimeoutMs,
+          proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
           maxRequestBytes: options.maxRequestBytes,
           maxResponseBytes: options.maxResponseBytes
         });
@@ -399,6 +407,7 @@ function createNewApiClient(options = {}) {
       signal: options.signal,
       headersTimeoutMs: options.headersTimeoutMs,
       connectTimeoutMs: options.connectTimeoutMs,
+      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
       maxRequestBytes: options.maxRequestBytes,
       maxResponseBytes: options.maxResponseBytes
     });
@@ -434,7 +443,8 @@ function createNewApiClient(options = {}) {
       body: JSON.stringify(relayBody),
       signal: options.signal,
       headersTimeoutMs: options.headersTimeoutMs,
-      connectTimeoutMs: options.connectTimeoutMs
+      connectTimeoutMs: options.connectTimeoutMs,
+      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl
     });
     response.requestBaseUrl = relayBaseUrl;
     response.requestService = "relay";
@@ -548,6 +558,214 @@ function createNewApiClient(options = {}) {
     }
   }
 
+  function imageItemsFromPayload(payload) {
+    const items = [];
+    const append = (candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+      const b64Json = typeof candidate.b64_json === "string" ? candidate.b64_json.trim() : "";
+      const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
+      if (!b64Json && !url) return;
+      items.push({
+        ...(b64Json ? { b64_json: b64Json } : {}),
+        ...(url ? { url } : {}),
+        ...(typeof candidate.revised_prompt === "string" ? { revised_prompt: candidate.revised_prompt } : {}),
+        ...(typeof candidate.size === "string" ? { size: candidate.size } : {}),
+        ...(typeof candidate.quality === "string" ? { quality: candidate.quality } : {}),
+        ...(typeof candidate.output_format === "string" ? { output_format: candidate.output_format } : {})
+      });
+    };
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return items;
+    append(payload);
+    for (const candidate of Array.isArray(payload.data) ? payload.data : []) append(candidate);
+    const result = payload.result && typeof payload.result === "object" ? payload.result : null;
+    append(result);
+    for (const candidate of Array.isArray(result?.data) ? result.data : []) append(candidate);
+    return items;
+  }
+
+  function imageStreamUnsupportedError(status, data) {
+    if (![400, 404, 422].includes(Number(status))) return false;
+    const message = String(newApiErrorMessage(data, status) || "").toLowerCase();
+    return /(stream|partial_images)/.test(message) && /(unsupported|not supported|unknown|unrecognized|unexpected|invalid|不支持|未知|无效)/.test(message);
+  }
+
+  async function newApiRelayImage(settings, endpoint, body, onPartialImage, options = {}) {
+    const customMode = isCustomApiMode(settings);
+    if (!customMode) requireNewApiSession(settings);
+    const provider = "image";
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+    let requestBody;
+    if (isForm) {
+      requestBody = body;
+      requestBody.set("stream", "true");
+      requestBody.set("partial_images", String(Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)))));
+      if (!customMode && settings.modelGroup && !requestBody.has("group")) requestBody.set("group", settings.modelGroup);
+      if (customMode) requestBody.delete("group");
+    } else {
+      requestBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+      requestBody.stream = true;
+      requestBody.partial_images = Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)));
+      if (!customMode && settings.modelGroup && !("group" in requestBody)) requestBody.group = settings.modelGroup;
+      if (customMode) delete requestBody.group;
+    }
+    const relayBaseUrl = customMode ? customApiCredentials(settings, provider).baseUrl : resolveNewApiBaseUrl(settings, "relay");
+    if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
+    const response = await newApiTransportFetch(
+      customMode ? customApiUrl(settings, endpoint, provider) : newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
+        method: "POST",
+        headers: {
+          ...(isForm ? {} : { "content-type": "application/json" }),
+          ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings)),
+          ...(options.headers || {})
+        },
+        body: isForm ? requestBody : JSON.stringify(requestBody),
+        signal: options.signal,
+        headersTimeoutMs: options.headersTimeoutMs,
+        connectTimeoutMs: options.connectTimeoutMs,
+        idleTimeoutMs: options.idleTimeoutMs,
+        proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+        maxRequestBytes: options.maxRequestBytes,
+        maxResponseBytes: options.maxResponseBytes
+      }
+    );
+    response.requestBaseUrl = relayBaseUrl;
+    response.requestService = "relay";
+    if (!customMode) persistNewApiSessionCookie(settings, response);
+    if (!response.ok) {
+      const text = await response.text();
+      const data = parseJsonText(text);
+      const error = new Error(newApiErrorMessage(data, response.status));
+      error.status = response.status;
+      error.data = data;
+      if (imageStreamUnsupportedError(response.status, data)) error.code = "NEW_API_IMAGE_STREAM_UNSUPPORTED";
+      throw error;
+    }
+
+    const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+    if (!contentType.includes("text/event-stream")) {
+      const data = parseJsonText(await response.text());
+      if (data.parseFailed === true || data.error || data.success === false || data.ok === false) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      if (!imageItemsFromPayload(data).length) {
+        const error = new Error("图片接口返回成功，但没有可识别的最终图片。");
+        error.code = "NEW_API_EMPTY_IMAGE_OUTPUT";
+        throw error;
+      }
+      return data;
+    }
+    if (!response.body) throw new Error("图片接口流式响应为空。");
+
+    const decoder = new TextDecoder();
+    const completed = [];
+    let buffer = "";
+    let totalBytes = 0;
+    let eventCount = 0;
+    let partialCount = 0;
+    let created = 0;
+    let usage;
+    let terminal = false;
+    const maximumEventBytes = 96 * 1024 * 1024;
+    const maximumStreamBytes = 256 * 1024 * 1024;
+    const nextSeparator = () => {
+      const match = buffer.match(/\r?\n\r?\n/);
+      return match && typeof match.index === "number" ? { index: match.index, length: match[0].length } : null;
+    };
+    const failStream = (message, code) => {
+      const error = new Error(message);
+      error.code = code;
+      response.body.destroy(error);
+      throw error;
+    };
+    const consumeEvent = (rawEvent) => {
+      if (Buffer.byteLength(rawEvent, "utf8") > maximumEventBytes) {
+        failStream("图片接口单个流式事件超过客户端安全上限。", "NEW_API_IMAGE_SSE_EVENT_TOO_LARGE");
+      }
+      const dataText = rawEvent
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).replace(/^ /, ""))
+        .join("\n")
+        .trim();
+      if (!dataText) return;
+      if (dataText === "[DONE]") {
+        terminal = true;
+        return;
+      }
+      eventCount += 1;
+      if (eventCount > 64) failStream("图片接口流式事件数量异常。", "NEW_API_IMAGE_SSE_TOO_MANY_EVENTS");
+      const event = parseJsonText(dataText);
+      if (event.parseFailed === true) failStream("图片接口返回了无效的流式 JSON。", "NEW_API_INVALID_IMAGE_SSE");
+      const type = String(event?.type || "");
+      if (type === "error" || type === "upstream_error" || event?.error) {
+        const error = new Error(newApiErrorMessage(event, response.status));
+        error.status = response.status;
+        error.data = event;
+        throw error;
+      }
+      if (Number.isFinite(Number(event?.created_at || event?.created))) created = Number(event.created_at || event.created);
+      if (event?.usage && typeof event.usage === "object") usage = event.usage;
+      if (type === "image_generation.partial_image" || type === "image_edit.partial_image" || type === "response.image_generation_call.partial_image") {
+        const b64Json = String(event?.b64_json || event?.partial_image_b64 || "").trim();
+        if (!b64Json) return;
+        partialCount += 1;
+        const rawIndex = Number(event?.partial_image_index);
+        onPartialImage?.({
+          b64Json,
+          dataUrl: `data:image/png;base64,${b64Json}`,
+          partialImageIndex: Number.isFinite(rawIndex) ? rawIndex : partialCount - 1,
+          index: Number.isFinite(rawIndex) ? rawIndex + 1 : partialCount,
+          total: Number(requestBody?.partial_images || (isForm ? requestBody.get("partial_images") : 3)) || 3,
+          eventType: type
+        });
+        return;
+      }
+      const object = String(event?.object || "");
+      if (type === "image_generation.completed" || type === "image_edit.completed" || object === "image.generation.result" || object === "image.edit.result") {
+        completed.push(...imageItemsFromPayload(event));
+      }
+    };
+
+    for await (const chunk of response.body) {
+      totalBytes += Number(chunk?.byteLength || chunk?.length || 0);
+      if (totalBytes > maximumStreamBytes) failStream("图片接口流式响应超过客户端安全上限。", "NEW_API_IMAGE_SSE_TOO_LARGE");
+      buffer += decoder.decode(chunk, { stream: true });
+      if (!nextSeparator() && Buffer.byteLength(buffer, "utf8") > maximumEventBytes) {
+        failStream("图片接口流式事件未正常结束。", "NEW_API_IMAGE_SSE_EVENT_TOO_LARGE");
+      }
+      let separator = nextSeparator();
+      while (separator) {
+        const rawEvent = buffer.slice(0, separator.index);
+        buffer = buffer.slice(separator.index + separator.length);
+        consumeEvent(rawEvent);
+        if (terminal) break;
+        separator = nextSeparator();
+      }
+      if (terminal) break;
+    }
+    if (!terminal) {
+      buffer += decoder.decode();
+      if (buffer.trim()) consumeEvent(buffer.trim());
+    }
+    if (!completed.length) {
+      const error = new Error(partialCount
+        ? "图片流已返回中间预览，但没有返回最终图片。"
+        : "图片流没有返回可识别的最终图片。");
+      error.code = "NEW_API_EMPTY_IMAGE_OUTPUT";
+      throw error;
+    }
+    return {
+      created: created || Math.floor(Date.now() / 1000),
+      data: completed,
+      ...(usage ? { usage } : {}),
+      stream: true,
+      partial_images: partialCount
+    };
+  }
+
   return {
     extractSessionCookie,
     isNewApiAuthError,
@@ -560,6 +778,7 @@ function createNewApiClient(options = {}) {
     newApiFetch,
     newApiUrl,
     newApiRelayJson,
+    newApiRelayImage,
     newApiRelayStream,
     newApiRequest,
     newApiUserAuthHeaders,
