@@ -29,6 +29,7 @@ export function parseAidebugOptions(argv, env, context) {
     env.NAIMAGE_AIDEBUG_MOCK_AGENT === "1" ||
     (!realAgent && !liveImage);
   const agentOnly = has("--agent-only");
+  const quickSmokeOnly = has("--quick-smoke") || has("--smoke");
   const legacyFullSuite = has("--legacy-full-suite");
   const imageOnly = has("--image-only") || has("--image-suite");
   const imageRecoveryOnly = has("--image-recovery-suite") || has("--image-failure-suite");
@@ -135,6 +136,7 @@ export function parseAidebugOptions(argv, env, context) {
     liveConfig,
     mockAgent,
     agentOnly,
+    quickSmokeOnly,
     legacyFullSuite,
     imageOnly,
     imageRecoveryOnly,

@@ -42,8 +42,9 @@
 - 每次改动至少运行 `corepack pnpm run build`。
 - 生产构建还必须运行 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
 - `test:bundle` 的初始 JS 上限保持 600 KB；总 JS 仅为模块边界保留 652 KB 的窄幅预算，不得把它当作新增功能体积余量。
-- UI、Electron、项目或 Agent 改动必须运行 `corepack pnpm run aidebug:gui`，检查报告和截图。
-- 运行时或 `view_image` 改动还必须运行 `corepack pnpm run test:view-image`；真实 Agent 验证优先使用当前 `--agent-only`、功能专项和 `--real-agent-suite`，不以旧版全量套件作为交付门槛。
+- 日常开发按影响范围选择最小验证，不得把完整 AIDebug 当作每次改动的默认步骤。纯逻辑、配置、文档、Electron 后端或 Agent 协议改动优先运行对应 selftest；只有影响真实可视交互时才运行 GUI。
+- 一般 Renderer/UI 改动在完成一批功能后运行一次 `corepack pnpm run aidebug:gui` 快速冒烟；设置、登录、画布、需求节点、导入等明确领域再追加一个对应专项。只有需要覆盖完整 UI surface 时运行 `corepack pnpm run aidebug:gui:surface`，不得同时无差别重复多个 GUI 套件。
+- 运行时或 `view_image` 改动还必须运行 `corepack pnpm run test:view-image`；真实 Agent 验证优先使用当前 `--agent-only`、功能专项和 `--real-agent-suite`，不以旧版全量套件作为交付门槛。正式发布仍由 `release:final` 执行完整门禁。
 - AIDebug 断言必须检查可见性、裁切、尺寸和真实状态，不能只检查 DOM 是否存在或文字值是否正确。
 - 真实服务端测试不得输出凭证；只汇报状态、数量和无敏感信息的错误摘要。
 

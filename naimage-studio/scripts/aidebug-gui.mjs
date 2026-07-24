@@ -64,6 +64,7 @@ const {
   liveConfig,
   mockAgent,
   agentOnly,
+  quickSmokeOnly,
   legacyFullSuite,
   imageOnly,
   imageRecoveryOnly,
@@ -9615,6 +9616,71 @@ async function main() {
       finishSuiteRun({
         results,
         reportMetadata: { mode: "agent-only" }
+      });
+      return;
+    }
+    if (quickSmokeOnly) {
+      const quickMainExpected = {
+        settingsOpen: false,
+        historyOpen: false,
+        modalOpen: false,
+        accountOpen: false,
+        titlebarOverlay: true,
+        titlebarBrandVisible: true,
+        oldAgentPanelUnmounted: true,
+        agentPanelVisible: true,
+        projectAgentFixedOk: true,
+        canvasVisible: true,
+        canvasToolbarAbsent: true,
+        canvasStatusDockedBottom: true,
+        canvasZoomDockedBottom: true,
+        canvasViewportFillOk: true,
+        agentDebugReady: true,
+        agentBridgeReady: true,
+        canvasReadabilityOk: true,
+        compactMainGridOk: true
+      };
+      results.push(await captureState(client, target.id, "quick-main-1280", openSurfaceExpression("main"), { width: 1280, height: 820 }, quickMainExpected));
+      results.push(await captureState(client, target.id, "quick-main-min-884", openSurfaceExpression("main"), { width: workbenchMinWidth, height: 720 }, {
+        ...quickMainExpected,
+        workbenchMinWidthOk: true,
+        imageNodeViewportOk: true
+      }));
+      results.push(await captureState(client, target.id, "quick-agent-1280", openSurfaceExpression("agent-timeline"), { width: 1280, height: 820 }, {
+        settingsOpen: false,
+        historyOpen: false,
+        modalOpen: false,
+        accountOpen: false,
+        titlebarOverlay: true,
+        agentPanelVisible: true,
+        projectAgentFixedOk: true,
+        timelineNodesVisible: true,
+        composerTextareaTall: true,
+        composerControlsVisibleOk: true,
+        composerViewportVisibleOk: true,
+        canvasViewportFillOk: true
+      }));
+      results.push(await captureState(client, target.id, "quick-settings-min-884", openSurfaceExpression("settings", `
+        await delay(250);
+        window.__naimageDebugOpenSurface?.("settings");
+        await delay(500);
+      `), { width: workbenchMinWidth, height: 720 }, {
+        settingsOpen: true,
+        historyOpen: false,
+        modalOpen: false,
+        accountOpen: false,
+        titlebarOverlay: true,
+        workbenchMinWidthOk: true,
+        settingsChannelHidden: true,
+        settingsDrawerWithinViewport: true,
+        settingsDrawerFlushRightOk: true,
+        settingsLabelsOk: true,
+        imageNodeViewportOk: true
+      }));
+      appendNonVisualSelfChecks(results);
+      finishSuiteRun({
+        results,
+        reportMetadata: { mode: "quick-smoke" }
       });
       return;
     }

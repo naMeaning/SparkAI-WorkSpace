@@ -77,7 +77,9 @@ node scripts/maintenance/clean-workspace.mjs --scope=diagnostics,logs --keep-ele
 - 模型目录/缓存：`corepack pnpm run test:model-catalog`
 - Responses 适配：`corepack pnpm run test:agent-responses-adapter`
 - 粘贴块：`corepack pnpm run test:paste-blocks`
-- UI、Electron、项目或 Agent：`corepack pnpm run aidebug:gui`
+- 一般 Renderer/UI 冒烟：一批功能完成后运行一次 `corepack pnpm run aidebug:gui`（4 个关键画面）
+- 完整 UI surface 基线：仅在跨页面、全局布局或发布收口时运行 `corepack pnpm run aidebug:gui:surface`
+- Electron、项目或 Agent 非可视改动：优先运行对应 selftest；只有影响窗口、preload 或真实交互时才追加 GUI 专项
 - 项目 session/save revision：`corepack pnpm run test:project-save-coordinator` 与 `corepack pnpm run test:project-io`
 - 正式发布构建：`corepack pnpm run test:bundle`
 - 品牌安装/卸载截图：`corepack pnpm run package:installer-ui-smoke`

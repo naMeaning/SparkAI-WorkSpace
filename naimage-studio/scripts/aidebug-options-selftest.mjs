@@ -42,6 +42,7 @@ assert.deepEqual(Object.keys(defaults).sort(), [
   "liveConfig",
   "mockAgent",
   "agentOnly",
+  "quickSmokeOnly",
   "legacyFullSuite",
   "imageOnly",
   "imageRecoveryOnly",
@@ -194,14 +195,16 @@ const directFlags = parse([
   "--live-config",
   "--mock-agent",
   "--agent-only",
+  "--quick-smoke",
   "--legacy-full-suite",
   "--failure-diagnostics-selftest",
   "--native-capture",
   "--agent-ui-single"
 ]);
-for (const field of ["keepOpen", "liveImage", "realAgent", "liveConfig", "mockAgent", "agentOnly", "legacyFullSuite", "failureDiagnosticsSelfTestOnly", "nativeCaptureMode", "agentUiSingleOnly"]) {
+for (const field of ["keepOpen", "liveImage", "realAgent", "liveConfig", "mockAgent", "agentOnly", "quickSmokeOnly", "legacyFullSuite", "failureDiagnosticsSelfTestOnly", "nativeCaptureMode", "agentUiSingleOnly"]) {
   assert.equal(directFlags[field], true, field);
 }
+assert.equal(parse(["--smoke"]).quickSmokeOnly, true, "--smoke -> quickSmokeOnly");
 assert.equal(directFlags.captureScope, "window");
 assert.equal(parse(["--live-image"]).mockAgent, false);
 assert.equal(parse(["--real-agent"]).mockAgent, false);

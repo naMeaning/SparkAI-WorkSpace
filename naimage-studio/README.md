@@ -21,7 +21,8 @@ naimage 是独立维护的 Electron + React 傻瓜式 AI 生图工作台。右�
 | `pnpm run package:win` | 构建正式 Windows x64 NSIS 安装包。 |
 | `pnpm run package:smoke` | 验证解压后的正式程序、Preload 桥接、项目 IO、图片、PSD 与语义抠图。 |
 | `pnpm run package:installer-smoke` | 隔离安装、启动验证、检查快捷方式并卸载，确认无安装文件残留。 |
-| `pnpm run aidebug:gui` | 启动隔离配置的 GUI 基线测试并生成截图、状态和报告。 |
+| `pnpm run aidebug:gui` | 日常快速 GUI 冒烟，仅覆盖主画布宽/窄、Agent 面板和设置抽屉 4 个关键画面。 |
+| `pnpm run aidebug:gui:surface` | 运行较完整的 UI surface 基线；仅在跨页面、全局布局或发布收口时使用。 |
 | `pnpm run aidebug:evidence -- --report=<report.json>` | 独立复核截图哈希、窗口/DPR/缩放、遮挡、素材差异和五层证据，防止断言全绿但视觉不可交付。 |
 | `pnpm run aidebug:gui -- --image-collection-persistence` | 跨两个 Electron 进程验证单图、连续系列、10 图并行、不同提示词图片组、拖出与继续生成。 |
 | `pnpm run aidebug:gui -- --region-redraw-suite` | 验证区域重绘蒙版、Image 2 结果、来源关系和 884px 布局。 |

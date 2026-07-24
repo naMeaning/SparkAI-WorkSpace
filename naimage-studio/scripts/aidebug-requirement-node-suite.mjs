@@ -405,10 +405,13 @@ export async function captureRequirementNodeSuite(context) {
     Promise.resolve().then(async () => {
       const layers = await window.__naimageAIDebug.runLayerStackSuite({ agentDriven: false });
       const sourceId = String(layers?.subjectId || layers?.layerNodeIds?.[0] || "");
-      if (!layers?.ok || !sourceId) {
+      const groupId = String(layers?.groupId || "");
+      const layerNodeIds = Array.isArray(layers?.layerNodeIds) ? layers.layerNodeIds.map((id) => String(id || "")).filter(Boolean) : [];
+      const fixtureReady = Boolean(sourceId && groupId && layerNodeIds.length === 6 && new Set(layerNodeIds).size === 6 && layerNodeIds.includes(sourceId));
+      if (!fixtureReady) {
         window.__naimageRequirementLayerProbe = {
           status: "complete",
-          result: { ok: false, sourceId, layers: { ok: Boolean(layers?.ok), groupId: layers?.groupId || "", layerNodeIds: layers?.layerNodeIds || [] } }
+          result: { ok: false, sourceId, layers: { ok: Boolean(layers?.ok), fixtureReady, groupId, layerNodeIds } }
         };
         return;
       }
@@ -427,7 +430,7 @@ export async function captureRequirementNodeSuite(context) {
               ok: true,
               sourceId,
               requirement,
-              layers: { ok: true, groupId: layers.groupId || "", layerNodeIds: layers.layerNodeIds || [] }
+              layers: { ok: Boolean(layers?.ok), fixtureReady, groupId, layerNodeIds }
             }
           };
           return;
@@ -436,7 +439,7 @@ export async function captureRequirementNodeSuite(context) {
       }
       window.__naimageRequirementLayerProbe = {
         status: "complete",
-        result: { ok: false, sourceId, layers: { ok: true, groupId: layers.groupId || "", layerNodeIds: layers.layerNodeIds || [] } }
+        result: { ok: false, sourceId, layers: { ok: Boolean(layers?.ok), fixtureReady, groupId, layerNodeIds } }
       };
     }).catch((error) => {
       window.__naimageRequirementLayerProbe = {

@@ -506,10 +506,11 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Electron 生命周期 | `corepack pnpm run test:lifecycle` |
 | 更新 | `test:update`, `test:update-rollback`, `test:update-helper` |
 | 正式 bundle | `corepack pnpm run test:bundle` |
-| 真实 GUI 总入口 | `corepack pnpm run aidebug:gui` |
+| 日常 GUI 快速冒烟（主画布宽/窄、Agent、设置） | `corepack pnpm run aidebug:gui` |
+| 完整 UI surface 基线 | `corepack pnpm run aidebug:gui:surface` |
 | 正式发布 | `corepack pnpm run release:final` |
 
-测试存在不代表所有改动都要执行全量套件。按修改影响矩阵选择专项，但 UI、Electron、项目或 Agent 改动必须包含真实 `aidebug:gui` 验证；正式制品必须通过 `test:bundle` 和发布编排器要求。
+测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI；正式制品仍必须通过 `test:bundle` 和发布编排器的完整要求。
 
 ## 11. 当前高风险热点
 
