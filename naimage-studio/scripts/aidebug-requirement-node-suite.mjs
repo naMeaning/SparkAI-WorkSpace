@@ -105,7 +105,7 @@ export async function captureRequirementNodeSuite(context) {
   phase("capture-editor-1280");
   results.push(await captureState(client, targetId, "requirement-editor-1280", "undefined", { width: 1280, height: 820 }, editorExpected));
   phase("capture-editor-620");
-  results.push(await captureState(client, targetId, "requirement-editor-620", "undefined", { width: 620, height: 720 }, { ...editorExpected, imageNodeViewportOk: true }));
+  results.push(await captureState(client, targetId, "requirement-editor-620", "window.__naimageAIDebug?.fitCanvas?.()", { width: 620, height: 720 }, { ...editorExpected, imageNodeViewportOk: true }));
 
   phase("create-requirement", { firstId });
   const createResult = await evaluate(client, `(async () => {
@@ -390,8 +390,17 @@ export async function captureRequirementNodeSuite(context) {
   })()`) : { ok: false, containerId, import: containerImport, error: "container import failed" };
 
   await dismissConfirmDialog();
-  phase("create-layer-requirement");
-  await evaluate(client, `(() => {
+  const runFullLayerRequirement = process.env.NAIMAGE_RELEASE_VERIFY === "1" ||
+    process.env.NAIMAGE_AIDEBUG_FULL === "1" || process.argv.includes("--full-suite");
+  let layerRequirement = {
+    ok: true,
+    skipped: true,
+    mode: "fast",
+    reason: "full layer requirement coverage is reserved for release verification"
+  };
+  if (runFullLayerRequirement) {
+    phase("create-layer-requirement");
+    await evaluate(client, `(() => {
     window.__naimageRequirementLayerProbe = { status: "running", result: null };
     Promise.resolve().then(async () => {
       const layers = await window.__naimageAIDebug.runLayerStackSuite({ agentDriven: false });
@@ -436,10 +445,13 @@ export async function captureRequirementNodeSuite(context) {
       };
     });
     return true;
-  })()`);
-  await waitForExpression(client, "window.__naimageRequirementLayerProbe?.status !== 'running'", 120000);
-  phase("capture-layer-requirement");
-  const layerRequirement = await evaluate(client, "window.__naimageRequirementLayerProbe?.result || { ok: false, error: 'layer requirement probe missing' }");
+    })()`);
+    await waitForExpression(client, "window.__naimageRequirementLayerProbe?.status !== 'running'", 120000);
+    phase("capture-layer-requirement");
+    layerRequirement = await evaluate(client, "window.__naimageRequirementLayerProbe?.result || { ok: false, error: 'layer requirement probe missing' }");
+  } else {
+    phase("skip-layer-requirement", { mode: "fast" });
+  }
 
   phase("blank-requirement-role-scope");
   const round2Scope = await evaluate(client, `(async () => {

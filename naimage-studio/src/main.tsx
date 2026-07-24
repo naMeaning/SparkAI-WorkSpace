@@ -10404,6 +10404,7 @@ function App() {
   }
 
   function scheduleFocusedNodeRefit() {
+    if (layoutRefocusTimerRef.current === -1) return;
     if (layoutRefocusTimerRef.current) window.clearTimeout(layoutRefocusTimerRef.current);
     layoutRefocusTimerRef.current = window.setTimeout(() => {
       layoutRefocusTimerRef.current = null;
@@ -18433,12 +18434,25 @@ function App() {
       fitCanvas: async () => {
         // Window resizing and Agent-panel responsive layout commit on separate
         // frames. Wait for the live workbench geometry before measuring it,
-        // then verify once more after React applies the viewport.
+        // then verify once more after React applies the viewport. ResizeObserver
+        // can also queue a selected-node refocus, so cancel that stale work
+        // before every fit and before returning the settled debug state.
+        const cancelLayoutRefocus = () => {
+          if (!layoutRefocusTimerRef.current) return;
+          window.clearTimeout(layoutRefocusTimerRef.current);
+          layoutRefocusTimerRef.current = null;
+        };
         await waitForDebugSettle(220);
+        cancelLayoutRefocus();
         fitCanvas();
         await waitForDebugSettle(420);
+        cancelLayoutRefocus();
         fitCanvas();
         await waitForDebugSettle(240);
+        cancelLayoutRefocus();
+        // Keep later ResizeObserver callbacks from overriding the explicit
+        // AIDebug overview while modal and compact-layout captures run.
+        layoutRefocusTimerRef.current = -1;
         return { ok: true, state: readDebugState() };
       },
       moveLayer: async (payload: { nodeId: string; layerId: string; x: number; y: number }) => {

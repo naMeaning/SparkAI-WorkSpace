@@ -39,6 +39,7 @@
     "aidebug:menus": "node scripts/aidebug-gui.mjs --context-menu-suite --mock-agent",
     "aidebug:selection": "node scripts/aidebug-gui.mjs --selection-command-suite --mock-agent",
     "aidebug:requirements": "node scripts/aidebug-gui.mjs --requirement-node-suite --mock-agent",
+    "aidebug:requirements:full": "node scripts/aidebug-gui.mjs --requirement-node-suite --mock-agent --full-suite",
     "aidebug:ask-user": "node scripts/aidebug-gui.mjs --ask-user-continuation-suite --mock-agent",
     "aidebug:human": "node scripts/aidebug-human-suite.mjs",
     "aidebug:human:list": "node scripts/aidebug-human-suite.mjs --list-suites",
