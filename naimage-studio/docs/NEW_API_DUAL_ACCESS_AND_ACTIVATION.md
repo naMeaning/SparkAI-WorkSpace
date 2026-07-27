@@ -1,6 +1,6 @@
 # New API 双接入与激活授权部署说明
 
-本文对应 naimage 1.0.5 的两种服务接入方式和设备激活授权。它面向 New API 运维与桌面开发，不包含任何生产密钥。
+本文对应 naimage 1.0.6 的两种服务接入方式和设备激活授权。它面向 New API 运维与桌面开发，不包含任何生产密钥。
 
 ## 1. 两种接入模式
 
@@ -32,7 +32,9 @@
 
 Base URL 可以写成 `https://example.com` 或 `https://example.com/v1`，客户端会避免重复追加 `/v1`。自定义请求不携带 SparkAPI 的用户 session 或 `group`。若 `/v1/models` 不可用，只要用户手工填写了模型名，仍可保存配置。
 
-自定义 Images 请求默认采用最通用的非流式 OpenAI-compatible JSON：`POST /v1/images/generations`，请求体至少包含 `model`、`prompt`、`size`、`quality`、`n`，成功结果读取 `data[].b64_json` 或 URL。不要默认给未知中转站加入 `stream=true/partial_images=3`；部分 New API 渠道会返回 HTTP 200 的空 SSE，既没有中间图也没有最终图。三阶段中间预览只在账号 Session Relay 与服务端明确支持该扩展时启用。
+自定义模式的纯文生图优先采用 Responses Image Generation：`POST /v1/responses`，Base URL 与 API Key 取图片渠道配置，顶层 `model` 取 Agent 模型；完整提示词放在 `input`，工具为 `image_generation`，并请求 `partial_images=3`。客户端依次展示三张中间预览，最终图片从 `response.output_item.done` 或 `response.completed` 的 `image_generation_call.result` 提取。`partial_images` 是预览阶段数量，最终成品数量仍为 1；上游可能额外发送索引 3 的最终态 partial，客户端不会把它显示成 `4/3`。
+
+只有上游以 400/404/422 明确表示 Responses 端点、所选 Agent 模型或 `image_generation` 工具不受支持时，客户端才安全回退 `POST /v1/images/generations` 的非流式 `{ model, prompt, size, quality, n }` JSON。HTTP 200 空 SSE、已收到 partial 后断流、`response.failed` 或 `response.incomplete` 都不会触发第二次生图，避免重复扣费。带参考图、蒙版或编辑语义的自定义请求仍使用 `/v1/images/edits` multipart 非流式协议。
 
 API Key 保存在 Electron 的 `app-settings.json`，不会进入项目、模型缓存、Git 或日志。桌面软件无法在服务端强制控制用户自有 Key 的调用，因此自定义模式的激活门禁属于客户端授权边界；账号模式的 Session Relay 同时有服务端强制门禁。
 
@@ -183,6 +185,8 @@ X-Naimage-License: <license token>
 | 账号登录成功但无渠道 | 用户分组或渠道模型映射不可用 | 检查 `/api/user/self/groups`、模型权限和渠道分组 |
 | 自定义模型列表失败 | 上游没有 `/v1/models` 或 Key 权限不足 | 手工填写模型名，再单独验证 Chat/Responses 和 Images 接口 |
 | Responses HTTP 200 但 Agent 无文本 | 上游返回非标准结构或空流 | 客户端已兼容 JSON 和标准 SSE；保留原始响应，在 New API 转换器补对应上游适配 |
+| 自定义生图只有空 SSE | 上游 `/v1/images/generations` 声称流式但不产出事件 | 使用当前客户端的 `/v1/responses` + `image_generation` 路径；确认 Agent 模型支持该工具 |
+| 有 1/3–3/3 预览但没有成品 | 上游缺少 `output_item.done`/`response.completed` 最终 result | 保留 request id 与原始 SSE 排查上游；客户端不会自动补发，避免重复计费 |
 | 授权服务短时故障 | 客户端显示离线宽限 | 72 小时内恢复服务；超过宽限后必须在线校验 |
 
 ## 8. 本地验证

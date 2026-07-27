@@ -439,13 +439,17 @@ function createNewApiClient(options = {}) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings))
+        ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings)),
+        ...(options.headers || {})
       },
       body: JSON.stringify(relayBody),
       signal: options.signal,
       headersTimeoutMs: options.headersTimeoutMs,
       connectTimeoutMs: options.connectTimeoutMs,
-      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl
+      idleTimeoutMs: options.idleTimeoutMs,
+      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+      maxRequestBytes: options.maxRequestBytes,
+      maxResponseBytes: options.maxResponseBytes
     });
     response.requestBaseUrl = relayBaseUrl;
     response.requestService = "relay";
@@ -482,9 +486,18 @@ function createNewApiClient(options = {}) {
     let totalBytes = 0;
     let eventCount = 0;
     let meaningfulEventCount = 0;
-    const maximumEventBytes = 2 * 1024 * 1024;
-    const maximumStreamBytes = 24 * 1024 * 1024;
-    const maximumEvents = 20_000;
+    const maximumEventBytes = Math.max(64 * 1024, Math.min(
+      96 * 1024 * 1024,
+      Math.floor(Number(options.maximumEventBytes || 2 * 1024 * 1024) || 2 * 1024 * 1024)
+    ));
+    const maximumStreamBytes = Math.max(maximumEventBytes, Math.min(
+      256 * 1024 * 1024,
+      Math.floor(Number(options.maximumStreamBytes || 24 * 1024 * 1024) || 24 * 1024 * 1024)
+    ));
+    const maximumEvents = Math.max(1, Math.min(
+      100_000,
+      Math.floor(Number(options.maximumEvents || 20_000) || 20_000)
+    ));
     const nextSeparator = () => {
       const crlf = buffer.indexOf("\r\n\r\n");
       const lf = buffer.indexOf("\n\n");
@@ -582,6 +595,180 @@ function createNewApiClient(options = {}) {
     append(result);
     for (const candidate of Array.isArray(result?.data) ? result.data : []) append(candidate);
     return items;
+  }
+
+  function responsesImageItemsFromValue(value, revisedPrompt = "") {
+    const items = [];
+    const append = (candidate, fallbackPrompt = revisedPrompt) => {
+      if (typeof candidate === "string") {
+        const clean = candidate.trim();
+        if (!clean) return;
+        const dataUrl = clean.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/is);
+        if (dataUrl) {
+          items.push({ b64_json: dataUrl[1], ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+        } else if (/^https?:\/\//i.test(clean)) {
+          items.push({ url: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+        } else {
+          items.push({ b64_json: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+        }
+        return;
+      }
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+      const prompt = String(candidate.revised_prompt || candidate.revisedPrompt || fallbackPrompt || "").trim();
+      const b64Json = String(
+        candidate.b64_json || candidate.image_base64 || candidate.base64 || candidate.partial_image_b64 || ""
+      ).trim();
+      const imageUrl = typeof candidate.image_url === "string"
+        ? candidate.image_url
+        : candidate.image_url && typeof candidate.image_url === "object"
+          ? candidate.image_url.url
+          : "";
+      const url = String(candidate.url || imageUrl || "").trim();
+      if (b64Json) append(b64Json, prompt);
+      if (url) append(url, prompt);
+      if (candidate.result !== undefined) append(candidate.result, prompt);
+    };
+    append(value, revisedPrompt);
+    return items;
+  }
+
+  function responsesImageItemsFromPayload(payload) {
+    const items = [];
+    const appendOutputItem = (item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return;
+      if (item.type && item.type !== "image_generation_call") return;
+      items.push(...responsesImageItemsFromValue(item.result, String(item.revised_prompt || item.revisedPrompt || "")));
+    };
+    const appendPayload = (candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+      appendOutputItem(candidate.item);
+      for (const item of Array.isArray(candidate.output) ? candidate.output : []) appendOutputItem(item);
+      for (const item of Array.isArray(candidate.data) ? candidate.data : []) {
+        items.push(...responsesImageItemsFromValue(item));
+      }
+    };
+    appendPayload(payload);
+    appendPayload(payload?.response);
+    return items;
+  }
+
+  function responsesImageUnsupportedError(status, data) {
+    if (![400, 404, 422].includes(Number(status))) return false;
+    const message = String(newApiErrorMessage(data, status) || "").toLowerCase();
+    if (Number(status) === 404 && /(404|not found|no route|endpoint|不存在|未找到)/.test(message)) return true;
+    const feature = /(responses?|image[_ -]?generation|partial_images|tool(?:s|_choice)?|model)/.test(message);
+    const unsupported = /(unsupported|not supported|unknown|unrecognized|unexpected|not found|does not exist|invalid (?:model|tool|parameter)|不支持|未知|未找到|不存在)/.test(message);
+    return feature && unsupported;
+  }
+
+  async function newApiRelayResponsesImage(settings, body, onPartialImage, options = {}) {
+    const partialImages = Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)));
+    const requestBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+    requestBody.tools = Array.isArray(requestBody.tools)
+      ? requestBody.tools.map((tool) => tool?.type === "image_generation" ? { ...tool, partial_images: partialImages } : tool)
+      : [];
+    requestBody.tool_choice = requestBody.tool_choice || "required";
+
+    const completed = [];
+    const completedKeys = new Set();
+    const previewIndexes = new Set();
+    let sequentialPartialIndex = 0;
+    let observedStreamEvent = false;
+    let created = 0;
+    let usage;
+    const appendCompleted = (items) => {
+      for (const item of items) {
+        const key = item.b64_json ? `b64:${item.b64_json}` : `url:${item.url}`;
+        if (completedKeys.has(key)) continue;
+        completedKeys.add(key);
+        completed.push(item);
+      }
+    };
+
+    try {
+      await newApiRelayStream(settings, "/v1/responses", requestBody, (event) => {
+        observedStreamEvent = true;
+        const type = String(event?.type || "");
+        const responsePayload = event?.response && typeof event.response === "object" ? event.response : null;
+        if (Number.isFinite(Number(event?.created_at || event?.created || responsePayload?.created_at))) {
+          created = Number(event.created_at || event.created || responsePayload.created_at);
+        }
+        if (event?.usage && typeof event.usage === "object") usage = event.usage;
+        if (responsePayload?.usage && typeof responsePayload.usage === "object") usage = responsePayload.usage;
+
+        if (type === "response.failed" || type === "response.incomplete") {
+          const failure = responsePayload?.error || event?.error || event;
+          const error = new Error(newApiErrorMessage({ error: failure, message: event?.message }, 0) || "Responses 生图请求未完成。");
+          error.code = type === "response.failed" ? "NEW_API_RESPONSES_IMAGE_FAILED" : "NEW_API_RESPONSES_IMAGE_INCOMPLETE";
+          error.data = event;
+          error.ambiguous = true;
+          throw error;
+        }
+
+        if (type === "response.image_generation_call.partial_image") {
+          const b64Json = String(event?.partial_image_b64 || event?.b64_json || "").trim();
+          if (!b64Json) return;
+          const rawIndex = Number(event?.partial_image_index);
+          const partialIndex = Number.isFinite(rawIndex) ? Math.max(0, Math.floor(rawIndex)) : sequentialPartialIndex;
+          sequentialPartialIndex = Math.max(sequentialPartialIndex + 1, partialIndex + 1);
+          // Responses emits one additional final-quality partial after the
+          // requested previews. It is not a fourth preview and must not render
+          // as 4/3; the authoritative final image comes from output_item.done
+          // or response.completed below.
+          if (partialIndex >= partialImages || previewIndexes.has(partialIndex)) return;
+          previewIndexes.add(partialIndex);
+          onPartialImage?.({
+            b64Json,
+            dataUrl: `data:image/png;base64,${b64Json}`,
+            partialImageIndex: partialIndex,
+            index: partialIndex + 1,
+            total: partialImages,
+            eventType: type
+          });
+          return;
+        }
+
+        if (type === "response.output_item.done") {
+          appendCompleted(responsesImageItemsFromPayload({ item: event?.item }));
+          return;
+        }
+        if (type === "response.completed" || !type) {
+          appendCompleted(responsesImageItemsFromPayload(event));
+        }
+      }, {
+        ...options,
+        provider: "image",
+        maximumEventBytes: options.maximumEventBytes || 96 * 1024 * 1024,
+        maximumStreamBytes: options.maximumStreamBytes || 256 * 1024 * 1024,
+        maximumEvents: options.maximumEvents || 20_000,
+        maxResponseBytes: options.maxResponseBytes || 256 * 1024 * 1024
+      });
+    } catch (error) {
+      if (responsesImageUnsupportedError(error?.status, error?.data)) {
+        error.code = "NEW_API_RESPONSES_IMAGE_UNSUPPORTED";
+      } else if (error && typeof error === "object" && (observedStreamEvent || error.ambiguous === true)) {
+        error.ambiguous = true;
+        error.unsafeToRetry = true;
+      }
+      throw error;
+    }
+
+    if (!completed.length) {
+      const error = new Error(previewIndexes.size
+        ? "Responses 图片流已返回中间预览，但没有返回最终图片。"
+        : "Responses 图片流没有返回可识别的最终图片。");
+      error.code = "NEW_API_EMPTY_IMAGE_OUTPUT";
+      error.ambiguous = observedStreamEvent;
+      error.unsafeToRetry = observedStreamEvent;
+      throw error;
+    }
+    return {
+      created: created || Math.floor(Date.now() / 1000),
+      data: completed,
+      ...(usage ? { usage } : {}),
+      stream: true,
+      partial_images: partialImages
+    };
   }
 
   function imageStreamUnsupportedError(status, data) {
@@ -780,6 +967,7 @@ function createNewApiClient(options = {}) {
     newApiUrl,
     newApiRelayJson,
     newApiRelayImage,
+    newApiRelayResponsesImage,
     newApiRelayStream,
     newApiRequest,
     newApiUserAuthHeaders,

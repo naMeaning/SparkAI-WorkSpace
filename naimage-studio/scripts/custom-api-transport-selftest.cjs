@@ -106,14 +106,105 @@ async function main() {
   assert.equal(streamEvents.length, 1);
   assert.equal(streamEvents[0].response.output_text, "stream fixture");
 
+  transport = async () => response({
+    contentType: "text/event-stream; charset=utf-8",
+    data: [
+      'data: {"type":"response.image_generation_call.partial_image","partial_image_index":0,"partial_image_b64":"cHJldmlldy0x"}\n\n',
+      'data: {"type":"response.image_generation_call.partial_image","partial_image_index":1,"partial_image_b64":"cHJldmlldy0y"}\n\n',
+      'data: {"type":"response.image_generation_call.partial_image","partial_image_index":2,"partial_image_b64":"cHJldmlldy0z"}\n\n',
+      'data: {"type":"response.image_generation_call.partial_image","partial_image_index":3,"partial_image_b64":"ZmluYWwtbGlrZS1wYXJ0aWFs"}\n\n',
+      'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"}}\n\n',
+      'data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"}],"usage":{"total_tokens":9}}}\n\n'
+    ].join("")
+  });
+  const responsePartials = [];
+  const responsesImage = await client.newApiRelayResponsesImage(settings, {
+    model: "gpt-5.6-sol",
+    input: "真实 Responses 生图提示词",
+    tools: [{ type: "image_generation", action: "generate", size: "1024x1024", output_format: "png" }],
+    tool_choice: "required",
+    group: "must-not-leak"
+  }, (partial) => responsePartials.push(partial), {
+    headers: { "Idempotency-Key": "responses-image-fixture" },
+    partialImages: 3
+  });
+  assert.equal(captured.url, "https://images.example/v1/responses");
+  assert.equal(captured.options.headers.authorization, "Bearer image-key");
+  assert.equal(captured.options.headers["Idempotency-Key"], "responses-image-fixture");
+  const forwardedResponsesBody = JSON.parse(captured.options.body);
+  assert.equal(forwardedResponsesBody.group, undefined);
+  assert.equal(forwardedResponsesBody.input, "真实 Responses 生图提示词");
+  assert.equal(forwardedResponsesBody.stream, true);
+  assert.equal(forwardedResponsesBody.tools[0].partial_images, 3);
+  assert.deepEqual(responsePartials.map((item) => item.index), [1, 2, 3]);
+  assert(responsePartials.every((item) => item.total === 3));
+  assert.equal(responsesImage.data.length, 1, "output_item.done and response.completed finals must be deduplicated");
+  assert.equal(responsesImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
+  assert.equal(responsesImage.data[0].revised_prompt, "fixture revised");
+  assert.equal(responsesImage.created, 123);
+  assert.equal(responsesImage.partial_images, 3);
+
+  transport = async () => response({
+    contentType: "text/event-stream; charset=utf-8",
+    data: 'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":{"image_base64":"Y29tcGxldGVkLW9ubHk="}}]}}\n\n'
+  });
+  const completedOnlyImage = await client.newApiRelayResponsesImage(settings, {
+    model: "gpt-5.6-sol",
+    input: "completed only",
+    tools: [{ type: "image_generation", action: "generate" }]
+  }, () => {});
+  assert.equal(completedOnlyImage.data[0].b64_json, "Y29tcGxldGVkLW9ubHk=");
+
+  transport = async () => response({
+    contentType: "application/json; charset=utf-8",
+    status: 400,
+    data: { error: { message: "image_generation tool is not supported by the Responses API" } }
+  });
+  await assert.rejects(
+    () => client.newApiRelayResponsesImage(settings, {
+      model: "gpt-5.6-sol",
+      input: "unsupported",
+      tools: [{ type: "image_generation", action: "generate" }]
+    }, () => {}),
+    (error) => error?.code === "NEW_API_RESPONSES_IMAGE_UNSUPPORTED"
+  );
+
+  transport = async () => response({ contentType: "text/event-stream; charset=utf-8", data: "data: [DONE]\n\n" });
+  await assert.rejects(
+    () => client.newApiRelayResponsesImage(settings, {
+      model: "gpt-5.6-sol",
+      input: "empty stream",
+      tools: [{ type: "image_generation", action: "generate" }]
+    }, () => {}),
+    (error) => error?.code === "NEW_API_EMPTY_STREAM_OUTPUT" && error?.unsafeToRetry === true
+  );
+
+  transport = async () => response({
+    contentType: "text/event-stream; charset=utf-8",
+    data: 'data: {"type":"response.incomplete","response":{"error":{"message":"upstream image generation stopped"}}}\n\n'
+  });
+  await assert.rejects(
+    () => client.newApiRelayResponsesImage(settings, {
+      model: "gpt-5.6-sol",
+      input: "incomplete stream",
+      tools: [{ type: "image_generation", action: "generate" }]
+    }, () => {}),
+    (error) => error?.code === "NEW_API_RESPONSES_IMAGE_INCOMPLETE" && error?.unsafeToRetry === true
+  );
+
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 7,
+    cases: 13,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
     customGroupRemoved: true,
-    customJsonBodyForwarded: true
+    customJsonBodyForwarded: true,
+    responsesImageStreaming: true,
+    responsesImageThreePreviews: true,
+    responsesImageFinalDeduplication: true,
+    responsesImageUnsupportedClassified: true,
+    ambiguousResponsesImageNotRetryable: true
   })}\n`);
 }
 

@@ -158,7 +158,8 @@ image_gen
   → callImageGeneration()
   → electron-main.cjs serverGenerateImage()
   → callNewApiImageWithSession()
-  → /naimage/v1/images/generations 或 /naimage/v1/images/edits
+  ├─ account：/naimage/v1/images/generations 或 /naimage/v1/images/edits
+  └─ custom：纯文生图 /v1/responses + image_generation；编辑 /v1/images/edits
   → 项目 output 资产
   → workflow action
   → Renderer 归组与溯源
@@ -173,7 +174,9 @@ image_gen
 
 两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
-账号 Session Relay 的 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。自定义 API 模式默认使用原版 AIEYRA 相同的非流式 OpenAI-compatible JSON 请求，避免部分 New API/上游虽返回 HTTP 200 `text/event-stream` 却不给任何 SSE 事件；generation 请求必须完整转发 `{ model, prompt, size, quality, n }`，不能只构造后遗漏 `body`。中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
+账号 Session Relay 的 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。自定义模式的纯文生图优先请求图片渠道的 `POST /v1/responses`：顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 image_generation 工具不受支持时，才回退 `/v1/images/generations` 非流式 JSON；HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。自定义编辑/参考图仍走 `/v1/images/edits` multipart 非流式链路。
+
+中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
 
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
@@ -249,7 +252,7 @@ Renderer UpdaterBridge
 | `desktop/aidebug-image-fixture.cjs` | AIDebug mock 图片尺寸归一化、显式/旧 prompt 图层提示与确定性 PNG base64 | 真实图片服务、项目资产、用户图片、GUI suite 编排或 Main 生命周期 | `aidebugImageBase64`, `aidebugLayerFixtureHint` | `test:new-api-transport`, `aidebug:image-recovery`, `aidebug:gui` |
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
-| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE partial/completed/JSON fallback | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage` | `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:custom-api-transport`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `contextManage`, `appendConversationProtocolTurn` | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
@@ -493,7 +496,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 - `desktop/project-save-coordinator.cjs` 的 project queue 与 revision Map。
 - 当前 BrowserWindow、模型 inflight 请求和模型 memory cache。
 - Agent 当前执行、取消控制器、流式文本和工具轮次。
-- Images SSE 的最新中间预览；只显示当前 partial，不进入 `validMessages` 或项目 session。
+- Images/Responses 生图流的最新中间预览；只显示当前 partial，不进入 `validMessages` 或项目 session。
 - Renderer 当前 selection、drawer/dialog、拖拽和未保存 UI 状态。
 
 进程重启后必须从磁盘/服务端恢复权威状态，不得依赖这些 Map 或 React state。
