@@ -32,7 +32,16 @@
 - 完整性与签名：manifest sidecar、制品 sidecar 和 `SHA256SUMS`
 - Authenticode：未配置商业代码签名证书时为 `NotSigned`；应用内部更新仍使用 Ed25519 与 SHA-256 验证。
 
-正式资产的实际大小、哈希和签名以同一次 `release:final` 生成的清单、sidecar、`SHA256SUMS` 及 GitHub Release 资产为准，不在源码冻结前预写易漂移数值。
+## 正式发布结果
+
+- 私有 GitHub Release：[naimage 1.0.6](https://github.com/naMeaning/naimage/releases/tag/v1.0.6)
+- 发布 tag/源码提交：`v1.0.6` → `9f1d290e67ad1ea5572fb25555ce5a5593b58d88`
+- Windows 安装包：`175,511,552` 字节；SHA-256 `6e6e7064008b97a10315845897e77811aa6a4cb06e440944a381863fd44c3077`
+- Restart ASAR：`49,423,860` 字节；SHA-256 `cdd2590030f6f29a0c291f901d3ff3bff30e950eecda9dc738fa4fe9f3f850fd`
+- `desktop-release.json`：SHA-256 `71ce116cd4320735a0ef90c894effc8469ad46213574dfdbab8680b327119248`
+- 安装包 sidecar：SHA-256 `09d7747dc2542f82cc632da4e6f89bd4c57d3f2f9606fc223e91782351451b3c`
+- Manifest Ed25519 签名验证通过；EXE Authenticode 为 `NotSigned`。
+- GitHub 复核：Release 为正式版、仓库保持 `PRIVATE`、5 项资产均为 `uploaded`，GitHub 返回的四项制品 digest 与本地正式清单一致。
 
 ## 验证契约
 
@@ -43,6 +52,15 @@
 - `release:sha-verify`：Setup、Restart ASAR、manifest、sidecar 和校验清单相互一致。
 
 只有同一次 `corepack pnpm run release:final` 完整成功并清除 `release/.naimage-release-incomplete.json` 后，才允许创建 GitHub `v1.0.6` Release。详细顺序见 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)。
+
+本次正式验证使用安全失败点续跑：前 29 项门禁来自源码稳定的失败报告，修复只涉及 Requirement 测试/续跑器及其文档，并由显式 allowlist 校验；从 `requirement GUI` 开始的 10 项门禁及全部打包、安装、更新、签名和哈希步骤重新真实执行。权威证据：
+
+- 正式编排：`.diagnostics/release/final-release-2026-07-27T03-28-55-841Z/orchestrator-report.json`
+- 39 项门禁与续跑来源：`.diagnostics/release/verify-2026-07-27T03-29-00-769Z/report.json`
+- 品牌安装器 UI：`.diagnostics/release/branded-installer-ui-2026-07-27T03-34-08-491Z/report.json`
+- 打包程序 smoke：`.diagnostics/release/packaged-smoke-2026-07-27T03-34-58-453Z/report.json`
+- 隔离安装/重装/卸载：`.diagnostics/release/installer-smoke-2026-07-27T03-35-01-861Z/report.json`
+- 1.0.5 → 1.0.6 Restart 更新：`.diagnostics/release/restart-update-e2e-2026-07-27T03-36-31-293Z/report.json`
 
 ## 已知边界
 

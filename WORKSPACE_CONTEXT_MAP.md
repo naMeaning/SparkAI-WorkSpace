@@ -215,3 +215,12 @@ corepack pnpm run crm:check
 - 新增、删除、重命名测试/构建/发布入口。
 - 改变两个仓库之间的镜像规则或权威数据归属。
 - 准备正式版本且变更跨仓 API、登录、授权、模型、更新或部署契约。版本说明、桌面上下文地图与本工作区地图必须在 `release:final` 之前进入同一冻结提交，避免发布后补文档导致源码指纹变化和整批重跑。
+
+## 8. 当前发布基线
+
+- 当前桌面正式版：`v1.0.6`，源码提交 `9f1d290e67ad1ea5572fb25555ce5a5593b58d88`。
+- 私有发布页：[naMeaning/naimage v1.0.6](https://github.com/naMeaning/naimage/releases/tag/v1.0.6)。仓库可见性保持 `PRIVATE`。
+- Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
+- Setup SHA-256：`6e6e7064008b97a10315845897e77811aa6a4cb06e440944a381863fd44c3077`；Restart ASAR SHA-256：`cdd2590030f6f29a0c291f901d3ff3bff30e950eecda9dc738fa4fe9f3f850fd`。
+- 1.0.5 → 1.0.6 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希已通过正式编排。
+- 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
