@@ -120,17 +120,39 @@ async function waitForExpression(client, expression, timeoutMs = 15000) {
 }
 
 async function setWindowSize(client, targetId, width, height) {
+  let browserWindowId = null;
+  const applyWindowSize = async () => {
+    if (browserWindowId !== null) {
+      await client.send("Browser.setWindowBounds", {
+        windowId: browserWindowId,
+        bounds: { width, height, windowState: "normal" }
+      });
+      return;
+    }
+    await evaluate(client, `window.resizeTo(${width}, ${height}); undefined`);
+  };
   try {
     const { windowId } = await client.send("Browser.getWindowForTarget", { targetId });
-    await client.send("Browser.setWindowBounds", { windowId, bounds: { width, height, windowState: "normal" } });
+    browserWindowId = windowId;
+    await applyWindowSize();
   } catch {
-    await evaluate(client, `window.resizeTo(${width}, ${height}); undefined`);
+    browserWindowId = null;
+    await applyWindowSize();
   }
   const startedAt = Date.now();
+  let viewport = null;
+  let lastRetryAt = startedAt;
   while (Date.now() - startedAt < 5_000) {
-    const viewport = await evaluate(client, `({ width: window.innerWidth, height: window.innerHeight })`);
+    viewport = await evaluate(client, `({ width: window.innerWidth, height: window.innerHeight })`);
     if (Math.abs(Number(viewport?.width || 0) - width) <= 4 && Math.abs(Number(viewport?.height || 0) - height) <= 4) break;
+    if (Date.now() - lastRetryAt >= 500) {
+      await applyWindowSize();
+      lastRetryAt = Date.now();
+    }
     await delay(100);
+  }
+  if (Math.abs(Number(viewport?.width || 0) - width) > 4 || Math.abs(Number(viewport?.height || 0) - height) > 4) {
+    throw new Error(`Window viewport did not reach ${width}x${height}; last viewport was ${Number(viewport?.width || 0)}x${Number(viewport?.height || 0)}.`);
   }
   await evaluate(client, `new Promise((resolve) => {
     let settled = false;
@@ -150,7 +172,14 @@ async function setWindowSize(client, targetId, width, height) {
 
 async function captureScreenshot(client, label) {
   const path = join(runDir, `${label}.png`);
-  await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 15000);
+  try {
+    await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 15000);
+  } catch (error) {
+    if (!String(error?.message || error).includes("Page.captureScreenshot timed out")) throw error;
+    await evaluate(client, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    await delay(250);
+    await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 30000);
+  }
   screenshots.push(path);
   return path;
 }
@@ -795,7 +824,11 @@ async function main() {
     check("dirty Escape requires explicit second close", dirtyEscapeState?.dirty === "true", dirtyEscapeState || {});
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.agent-text-editor-dialog')`);
-    await delay(120);
+    await waitForExpression(client, `(() => {
+      const active = document.activeElement;
+      const label = active?.getAttribute?.('aria-label') || active?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+      return ['编辑提示词', '接入', '设置'].includes(label);
+    })()`, 5_000);
     const dirtyPromptCloseFocus = await focusedControl(client);
     check("dirty second Escape closes and restores nested drawer focus", ["编辑提示词", "接入", "设置"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
 
@@ -1385,7 +1418,10 @@ async function main() {
       maxMessages: 1
     })`);
     await waitForExpression(client, `document.querySelector('.project-agent-feed')?.textContent?.includes('这是本人刚发起的新任务')`);
-    await delay(80);
+    await waitForExpression(client, `(() => {
+      const feed = document.querySelector('.project-agent-feed');
+      return Boolean(feed) && Math.max(0, feed.scrollHeight - feed.clientHeight - feed.scrollTop) <= 72;
+    })()`, 5_000);
     const followAfterUser = await evaluate(client, `(() => {
       const feed = document.querySelector('.project-agent-feed');
       return feed ? { bottomGap: Math.max(0, feed.scrollHeight - feed.clientHeight - feed.scrollTop) } : null;
