@@ -5,17 +5,36 @@ export async function captureSelectionCommandSuite({ client, targetId, setWindow
     const state = () => window.__naimageDebugAgentState?.() || {};
     const key = (value, options = {}) => window.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true, ...options }));
     const openMenu = async (id) => {
-      const node = document.querySelector('.flow-node[data-node-id="' + id + '"]');
-      const rect = node?.getBoundingClientRect();
-      node?.dispatchEvent(new MouseEvent("contextmenu", {
-        bubbles: true,
-        cancelable: true,
-        button: 2,
-        clientX: rect ? rect.left + Math.min(80, rect.width / 2) : 420,
-        clientY: rect ? rect.top + Math.min(60, rect.height / 2) : 280
-      }));
-      await delay(180);
-      const menu = document.querySelector(".selection-context-menu");
+      const closeOpenMenu = async () => {
+        if (!document.querySelector(".canvas-context-menu")) return;
+        key("Escape");
+        const closeDeadline = Date.now() + 2000;
+        while (Date.now() < closeDeadline && document.querySelector(".canvas-context-menu")) await delay(50);
+      };
+      await closeOpenMenu();
+      let menu = null;
+      for (let attempt = 0; attempt < 3 && !menu; attempt += 1) {
+        const node = document.querySelector('.flow-node[data-node-id="' + id + '"]');
+        const rect = node?.getBoundingClientRect();
+        node?.dispatchEvent(new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          buttons: 2,
+          view: window,
+          clientX: rect ? rect.left + Math.min(80, rect.width / 2) : 420,
+          clientY: rect ? rect.top + Math.min(60, rect.height / 2) : 280
+        }));
+        const menuDeadline = Date.now() + 1000;
+        while (Date.now() < menuDeadline && !menu) {
+          await delay(50);
+          menu = document.querySelector(".selection-context-menu");
+        }
+        if (!menu) {
+          await closeOpenMenu();
+          await delay(100);
+        }
+      }
       const buttons = [...(menu?.querySelectorAll("button") || [])];
       return {
         visible: Boolean(menu),
