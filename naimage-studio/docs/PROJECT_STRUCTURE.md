@@ -46,6 +46,8 @@
 
 新增/移动模块、公共符号、IPC/API/schema、持久化格式或测试入口变化时，必须在同一批改动更新 `docs/CONTEXT_MAP.md`。目录级职责留在本文；符号、依赖、调用链、镜像规则和测试矩阵写入上下文地图，避免两处复制后漂移。
 
+正式版本在源码冻结前按 [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) 更新对应 `RELEASE_<version>.md`、文档索引、上下文地图和 Release notes；跨仓契约变化同步根目录 `WORKSPACE_CONTEXT_MAP.md`。发布后再修改这些文件会改变源码指纹，因此不能把补文档留到安装包生成之后。
+
 ## 安全清理
 
 先预览：

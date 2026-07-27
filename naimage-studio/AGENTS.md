@@ -55,3 +55,4 @@
 - `docs/CONTEXT_MAP.md` 是当前进程拓扑、模块所有权、跨边界契约、持久化位置和测试映射的权威导航。
 - 新增、删除或移动模块，新增、删除或重命名公共符号，改变 preload/IPC/API/Agent tool schema/runtime action schema，改变项目 session、manifest、资产身份、memory 或更新清单等持久化格式，或者新增、删除、重命名测试入口时，必须在同一批改动中更新 `docs/CONTEXT_MAP.md`。
 - 修改 Renderer、Electron Main、Agent runtime 或远端服务之间的镜像规则时，必须在上下文地图中写明两侧位置、同步不变量和对应验证，不能只更新单边说明。
+- 每次正式发布必须在冻结源码、运行 `release:final` 之前更新对应 `docs/RELEASE_<version>.md`、`docs/README.md`、`docs/CONTEXT_MAP.md` 和 `scripts/release/release-notes.json`；若版本改变跨仓 API、登录、授权、模型、更新或部署契约，还必须同步工作区根目录 `WORKSPACE_CONTEXT_MAP.md`。不得在正式制品生成后再补这些文档，否则会改变源码指纹并使本次制品失效。

@@ -403,7 +403,54 @@ export async function captureRequirementNodeSuite(context) {
     await evaluate(client, `(() => {
     window.__naimageRequirementLayerProbe = { status: "running", result: null };
     Promise.resolve().then(async () => {
-      const layers = await window.__naimageAIDebug.runLayerStackSuite({ agentDriven: false });
+      await window.__naimageAIDebug.runTool({
+        name: "workflow",
+        input: { operation: "clear_canvas", brief: "准备图层需求专项画布。" }
+      });
+      let toolSettled = false;
+      let toolResult = null;
+      let toolError = "";
+      void window.__naimageAIDebug.runTool({
+        name: "image_gen",
+        input: {
+          operation: "layers",
+          prompt: "AIDebug 图层需求夹具：生成六个独立 PNG 图层。",
+          ratio: "1:1",
+          resolution: "720P",
+          quality: "auto",
+          layerPlan: [
+            { id: "background", title: "后景", role: "background", prompt: "深色摄影棚后景", transparent: false },
+            { id: "foreground", title: "前景", role: "foreground", prompt: "前景台面", transparent: true },
+            { id: "subject", title: "人物", role: "subject", prompt: "成年人物主体", transparent: true },
+            { id: "props", title: "人物道具", role: "decoration", prompt: "商品道具", transparent: true },
+            { id: "title", title: "标题", role: "text", prompt: "主标题", text: "图层需求", transparent: true },
+            { id: "body-text", title: "文字", role: "text", prompt: "辅助文字", text: "测试内容", transparent: true }
+          ],
+          brief: "创建图层需求测试夹具。"
+        }
+      }).then((result) => {
+        toolResult = result;
+        toolSettled = true;
+      }).catch((error) => {
+        toolError = error instanceof Error ? error.message : String(error);
+        toolSettled = true;
+      });
+      const layerDeadline = performance.now() + 120000;
+      let layerNodes = [];
+      while (performance.now() < layerDeadline) {
+        layerNodes = (window.__naimageDebugAgentState?.().nodes || [])
+          .filter((node) => node.layerGroup && node.imageState === "done" && Number(node.assetCount || 0) === 1);
+        if (layerNodes.length === 6 || (toolSettled && (toolError || toolResult?.ok === false))) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const layers = {
+        ok: layerNodes.length === 6 && !toolError && toolResult?.ok !== false,
+        recoveredFromCommittedState: layerNodes.length === 6 && !toolSettled,
+        error: toolError || String(toolResult?.error || ""),
+        subjectId: String(layerNodes.find((node) => node.layerGroup?.role === "subject")?.id || ""),
+        groupId: String(layerNodes[0]?.layerGroup?.id || ""),
+        layerNodeIds: layerNodes.map((node) => String(node.id || "")).filter(Boolean)
+      };
       const sourceId = String(layers?.subjectId || layers?.layerNodeIds?.[0] || "");
       const groupId = String(layers?.groupId || "");
       const layerNodeIds = Array.isArray(layers?.layerNodeIds) ? layers.layerNodeIds.map((id) => String(id || "")).filter(Boolean) : [];

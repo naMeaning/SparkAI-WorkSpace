@@ -1,7 +1,7 @@
 # naimage 上下文地图
 
-> 地图版本：3
-> 最近同步：2026-07-24
+> 地图版本：4
+> 最近同步：2026-07-27
 > 对应桌面版本：1.0.6
 > 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
 
@@ -25,6 +25,7 @@
 - 改变项目 session、manifest、资产身份、FastMemory、SQLite 或更新清单格式。
 - 新增、删除、重命名测试命令或发布入口。
 - 改变本节列出的镜像实现、不变量或跨仓契约。
+- 准备新的正式版本；发布冻结提交必须同时包含对应版本发布说明、文档索引、本文最近同步记录和 `scripts/release/release-notes.json`。跨仓契约发生变化时还必须同步工作区根目录 `WORKSPACE_CONTEXT_MAP.md`。
 
 检索时优先使用文件路径、导出符号、IPC 名和 action type；行号会随代码移动而变化，不作为长期主键。
 
@@ -337,6 +338,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 | `scripts/aidebug/suites/image-generation.mjs` | 单图、图片恢复和图片集合三个图像 probe | CLI/process/CDP 生命周期、其他 suite | `aidebug:image`, `aidebug:image-recovery`, `aidebug:image-collection` |
 | `scripts/aidebug/suites/layer-editing.mjs` | layer stack、抠图、区域重绘 probe 与专属 DOM proof | CLI/process/CDP 生命周期、其他 suite 或通用 PNG/CDP helper | `aidebug:gui` 的 `--layer-stack-suite`、`--cutout-suite`、`--region-redraw-suite` |
 | `scripts/aidebug/suites/performance.mjs` | 200/1000 节点、长/流式时间线、10 张 4K 图片、交互、内存、Long Task、持久化与视觉检查点基线 probe | CLI/process/CDP 生命周期、最终报告路由、其他 suite | `node --check scripts/aidebug/suites/performance.mjs`、模块 import smoke、`aidebug:performance` |
+| `scripts/aidebug-requirement-node-suite.mjs` | 需求节点创建、连接、重复执行与六层成果的专项 probe；默认使用轻量六层 fixture，完整 Layer Stack 仅由显式 `--full-suite` 运行 | 重复执行完整 Layer Stack、通用 CDP/进程生命周期、其他 suite | `aidebug:requirements`；需要完整图层回归时使用 `aidebug:requirements:full` |
 
 ## 6. 跨边界契约
 
@@ -517,7 +519,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Agent 文本 UI | `corepack pnpm run test:agent-text-ui` |
 | AIDebug CLI/options 纯解析 | `corepack pnpm run test:aidebug-options` |
 | 布局/容器 | `corepack pnpm run test:image-layout`, `corepack pnpm run test:image-container` |
-| 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate` |
+| 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate`；GUI 专项为 `aidebug:requirements`，完整 Layer Stack 仅按需运行 `aidebug:requirements:full` |
 | UI primitives | `corepack pnpm run test:ui-foundation` |
 | alpha/mask/matting | `test:chroma-key`, `test:layer-alpha`, `test:layer-mask-replay`, `test:semantic-matting` |
 | 选择/画布/资产 | `test:selection`, `test:canvas-commands`, `test:asset-identity` |
@@ -571,3 +573,5 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-24 | 1.0.5 | 新增账号 Session Relay 与自定义 OpenAI-compatible API 双接入模式；新增随机安装设备授权、激活码哈希存储、24 小时校验缓存、72 小时离线宽限和账号 Relay 服务端门禁；设置抽屉新增“接入”页，IPC 扩展为 72 个 handler/69 个公开 invoke。 |
 | 2026-07-24 | 1.0.5 | 图片链路恢复 Node 原生 HTTP 为默认，新增不影响全局配置的可选 HTTP(S) 代理；generation/edit 默认使用 `stream=true + partial_images=3`，工具卡显示临时中间预览并在最终结果后清理；明确不支持流式时回退一次非流式请求，统一图片并发上限为 10，transport selftest 覆盖 JSON body、显式代理、generation/edit SSE、JSON fallback、空流和 unsupported fallback。 |
 | 2026-07-24 | 1.0.6 | 设置保存与模型目录加载状态解耦；Base URL、API Key 或接入模式发生修改后可立即保存，不再因旧渠道模型请求缓慢或失败而禁用保存按钮。 |
+| 2026-07-27 | 1.0.6 | 修复图片恢复、选择菜单、AskUser 重载和新用户任务续跑的异步竞争；Requirement GUI 改用独立六层轻量 fixture，不再重复运行完整 Layer Stack，正式发布仍保留需求节点真实可视闭环。 |
+| 2026-07-27 | 1.0.6 | 固化版本文档前置规则：发布冻结提交必须同步版本说明、文档索引、上下文地图与 Release notes；跨仓契约变化同时更新工作区地图，避免制品生成后修改源码指纹。 |
