@@ -522,11 +522,14 @@ const {
 function prepareLiveImageConfig() {
   if (!liveConfig) return;
   mkdirSync(aidebugConfigDir, { recursive: true });
-  const sourceSettingsPath = join(packageRoot, "config", "app-settings.json");
+  const requestedSourceSettingsPath = String(process.env.NAIMAGE_AIDEBUG_SOURCE_SETTINGS_PATH || "").trim();
+  const sourceSettingsPath = requestedSourceSettingsPath
+    ? resolve(requestedSourceSettingsPath)
+    : join(packageRoot, "config", "app-settings.json");
   const targetSettingsPath = join(aidebugConfigDir, "app-settings.json");
   if (!existsSync(sourceSettingsPath)) {
     recordObservation("issue", "live-image-config-missing", {
-      source: "config/app-settings.json",
+      source: requestedSourceSettingsPath ? sourceSettingsPath : "config/app-settings.json",
       target: targetSettingsPath
     });
     return;
@@ -543,7 +546,7 @@ function prepareLiveImageConfig() {
   if (shouldCopy) {
     copyFileSync(sourceSettingsPath, targetSettingsPath);
     recordObservation("info", "live-image-config-copied", {
-      source: "config/app-settings.json",
+      source: requestedSourceSettingsPath ? sourceSettingsPath : "config/app-settings.json",
       target: targetSettingsPath
     });
   } else {

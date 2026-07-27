@@ -32,6 +32,8 @@
 
 Base URL 可以写成 `https://example.com` 或 `https://example.com/v1`，客户端会避免重复追加 `/v1`。自定义请求不携带 SparkAPI 的用户 session 或 `group`。若 `/v1/models` 不可用，只要用户手工填写了模型名，仍可保存配置。
 
+自定义 Images 请求默认采用最通用的非流式 OpenAI-compatible JSON：`POST /v1/images/generations`，请求体至少包含 `model`、`prompt`、`size`、`quality`、`n`，成功结果读取 `data[].b64_json` 或 URL。不要默认给未知中转站加入 `stream=true/partial_images=3`；部分 New API 渠道会返回 HTTP 200 的空 SSE，既没有中间图也没有最终图。三阶段中间预览只在账号 Session Relay 与服务端明确支持该扩展时启用。
+
 API Key 保存在 Electron 的 `app-settings.json`，不会进入项目、模型缓存、Git 或日志。桌面软件无法在服务端强制控制用户自有 Key 的调用，因此自定义模式的激活门禁属于客户端授权边界；账号模式的 Session Relay 同时有服务端强制门禁。
 
 ## 2. 激活授权模型

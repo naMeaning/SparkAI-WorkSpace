@@ -2806,7 +2806,12 @@ async function callNewApiImage(settings, payload = {}) {
         return form;
       };
       let aggressive = false;
-      let streamEnabled = true;
+      // A custom OpenAI-compatible image endpoint is not guaranteed to
+      // implement Images SSE. Several New API deployments acknowledge
+      // stream=true with HTTP 200 but return an empty event stream. Keep the
+      // original AIEYRA-compatible JSON transport for custom credentials;
+      // managed Session Relay remains stream-first and can provide previews.
+      let streamEnabled = !customMode;
       for (;;) {
         const idempotencySuffix = `${aggressive ? "-aggressive" : ""}${streamEnabled ? "" : "-nonstream"}`;
         try {
@@ -2871,28 +2876,42 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
       if (imageControls.background) body.background = imageControls.background;
       if (imageControls.moderation) body.moderation = imageControls.moderation;
+      log(`image request metadata ${JSON.stringify({
+        endpoint: "/v1/images/generations",
+        accessMode: customMode ? "custom" : "account",
+        transport: customMode ? "json" : "sse",
+        model,
+        size,
+        quality,
+        count: 1,
+        promptChars: Array.from(prompt).length,
+        promptUtf8Bytes: Buffer.byteLength(prompt, "utf8"),
+        bodyKeys: Object.keys(body).sort()
+      })}`);
       const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
-      try {
-        return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
-          provider: "image",
-          signal,
-          headers: { "Idempotency-Key": idempotencyKey },
-          headersTimeoutMs: imageTimeoutMs,
-          connectTimeoutMs: 60_000,
-          maxResponseBytes: 96 * 1024 * 1024,
-          partialImages: 3
-        });
-      } catch (error) {
-        if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
-        return newApiRelayJson(settings, "/v1/images/generations", body, {
-          provider: "image",
-          signal,
-          headers: { "Idempotency-Key": `${idempotencyKey}-nonstream` },
-          headersTimeoutMs: imageTimeoutMs,
-          connectTimeoutMs: 60_000,
-          maxResponseBytes: 96 * 1024 * 1024
-        });
+      if (!customMode) {
+        try {
+          return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
+            provider: "image",
+            signal,
+            headers: { "Idempotency-Key": idempotencyKey },
+            headersTimeoutMs: imageTimeoutMs,
+            connectTimeoutMs: 60_000,
+            maxResponseBytes: 96 * 1024 * 1024,
+            partialImages: 3
+          });
+        } catch (error) {
+          if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
+        }
       }
+      return newApiRelayJson(settings, "/v1/images/generations", body, {
+        provider: "image",
+        signal,
+        headers: { "Idempotency-Key": `${idempotencyKey}-nonstream` },
+        headersTimeoutMs: imageTimeoutMs,
+        connectTimeoutMs: 60_000,
+        maxResponseBytes: 96 * 1024 * 1024
+      });
     }, index);
     return editRequested ? withImageEditRequestSlot(executeAttempt) : executeAttempt();
   }

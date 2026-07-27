@@ -174,13 +174,15 @@ corepack pnpm run crm:check
 | 设备激活 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 随机安装 ID、hash-only 存储、24 小时校验缓存、72 小时离线宽限、账号 Relay 402 门禁 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, 设置/Agent UI | New API models/user groups | 完整列表、默认模型、60 秒缓存、账号模式 group 透传、自定义模式禁止 group |
 | Chat/Responses relay | Responses adapter、agent runtime | `/naimage/v1/chat/completions`, `/responses` | tool schema、流事件、reasoning、错误协议 |
-| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-transport.cjs` | `/naimage/v1/images/*` 或自定义 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段 SSE 中间预览、非流式回退、幂等、计费、结果落盘 |
+| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs` | `/naimage/v1/images/*` 或自定义 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发；账号 Relay 支持三阶段 SSE 与非流式回退，自定义 API 默认非流式 JSON；检查完整 body、幂等、计费与结果落盘 |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
 | 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
 桌面 1.0.6 支持两种互斥出口：账号模式把 session、用户 ID、可选模型分组和设备授权发送到 `/naimage/v1/*`，由 New API 扣额并选择托管渠道；自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送该用户的 API Key，不携带 SparkAPI cookie、用户 ID 或分组。SparkAPI/New API 扩展同时拥有 `/api/naimage/license*` 激活接口和账号 Relay 强制门禁；原生上游 New API 若未合入这些扩展，只能提供其已有的标准接口能力。
+
+Images 传输按出口区分：账号 Session Relay 可以使用工作区 New API 扩展的 `stream=true + partial_images=3` 并接收中间预览；自定义 API 为兼容原生 New API 与不同图片上游，默认发送非流式 `{ model, prompt, size, quality, n }` JSON 并读取最终 `data[].b64_json`/URL。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
 
 产品的 canonical 对外身份是 `naimage`、`/naimage/v1/*` 与 `/downloads/naimage-studio/windows`。新的 Relay、下载路由、manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
 

@@ -173,7 +173,7 @@ image_gen
 
 两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
-Images API 默认发送 `stream=true` 与 `partial_images=3`。`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，普通 JSON 成功响应仍可直接回退；只有服务端明确表示不支持 `stream/partial_images` 时，Main 才以新的幂等键安全补发一次非流式请求。中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。
+账号 Session Relay 的 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。自定义 API 模式默认使用原版 AIEYRA 相同的非流式 OpenAI-compatible JSON 请求，避免部分 New API/上游虽返回 HTTP 200 `text/event-stream` 却不给任何 SSE 事件；generation 请求必须完整转发 `{ model, prompt, size, quality, n }`，不能只构造后遗漏 `body`。中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
 
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
@@ -577,3 +577,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-27 | 1.0.6 | 固化版本文档前置规则：发布冻结提交必须同步版本说明、文档索引、上下文地图与 Release notes；跨仓契约变化同时更新工作区地图，避免制品生成后修改源码指纹。 |
 | 2026-07-27 | 1.0.6 | `release:verify` 新增带证据的失败点续跑：必须引用同项目旧报告、确认旧源码稳定与祖先关系、复用点前门禁全绿，并显式 allowlist 本次变化路径；新报告记录复用来源和变更范围，失败点及后续步骤仍真实执行。 |
 | 2026-07-27 | 1.0.6 | 私有 GitHub 正式版 `v1.0.6` 已发布，tag 指向 `9f1d290`；Setup、Restart ASAR、签名 manifest、sidecar 与 SHA 清单共 5 项资产上传并复核，1.0.5 → 1.0.6 Restart 更新和隔离安装全链路通过。 |
+| 2026-07-27 | 1.0.6 | 对照 archive 中原版 AIEYRA 后恢复自定义 Images 为非流式 JSON，修复 custom `newApiRelayJson` 构造请求体后未传给 transport 导致的 `invalid JSON request body`；账号 Session Relay 继续保留三阶段 SSE 预览。新增请求体转发回归断言、脱敏生图 metadata 和可指定只读源设置的隔离 AIDebug，当前真实 `gpt-5.6-sol + gpt-image-2` 单图闭环通过。 |

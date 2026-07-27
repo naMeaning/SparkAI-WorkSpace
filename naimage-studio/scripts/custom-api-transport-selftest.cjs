@@ -53,6 +53,29 @@ async function main() {
 
   transport = async () => response({
     contentType: "application/json; charset=utf-8",
+    data: { data: [{ b64_json: "aW1hZ2UtZml4dHVyZQ==" }] }
+  });
+  const imageBody = {
+    model: "gpt-image-2",
+    prompt: "真实提示词必须随 JSON 请求发送",
+    size: "1024x1024",
+    quality: "high",
+    n: 1,
+    group: "must-not-leak"
+  };
+  await client.newApiRelayJson(settings, "/v1/images/generations", imageBody, { provider: "image" });
+  assert.equal(captured.url, "https://images.example/v1/images/generations");
+  assert.equal(captured.options.headers.authorization, "Bearer image-key");
+  const forwardedImageBody = JSON.parse(captured.options.body);
+  assert.equal(Object.hasOwn(forwardedImageBody, "group"), false);
+  assert.equal(forwardedImageBody.model, imageBody.model);
+  assert.equal(forwardedImageBody.prompt, imageBody.prompt);
+  assert.equal(forwardedImageBody.size, "1024x1024");
+  assert.equal(forwardedImageBody.quality, "high");
+  assert.equal(forwardedImageBody.n, 1);
+
+  transport = async () => response({
+    contentType: "application/json; charset=utf-8",
     data: { type: "response.completed", response: { output_text: "fixture response" } }
   });
   const jsonEvents = [];
@@ -85,11 +108,12 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 6,
+    cases: 7,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
-    customGroupRemoved: true
+    customGroupRemoved: true,
+    customJsonBodyForwarded: true
   })}\n`);
 }
 

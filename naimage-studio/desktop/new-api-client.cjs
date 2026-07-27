@@ -385,7 +385,8 @@ function createNewApiClient(options = {}) {
         method: "POST",
         absoluteUrl: customApiUrl(settings, endpoint, provider),
         requestBaseUrl: credentials.baseUrl,
-        headers: { ...customApiHeaders(settings, provider), ...(options.headers || {}) }
+        headers: { ...customApiHeaders(settings, provider), ...(options.headers || {}) },
+        body: relayBody
       });
       if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
         const error = new Error(newApiErrorMessage(data, response.status));
