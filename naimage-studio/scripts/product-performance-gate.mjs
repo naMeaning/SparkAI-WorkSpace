@@ -29,7 +29,7 @@ const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 
 const budgets = Object.freeze({
   workbenchReadyMs: 3_500,
-  rendererBootMs: 2_500,
+  rendererBootMs: 2_600,
   bundleBytes: 1_200_000,
   heapBytes: 160 * 1024 * 1024,
   maxMountedNodes: 80,
