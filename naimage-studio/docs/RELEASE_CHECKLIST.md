@@ -44,8 +44,17 @@ corepack pnpm run release:final
 4. 重新读取 Release 资产列表，核对名称、大小和数量。
 5. 对私有仓库明确记录：客户端更新不能内置 GitHub Token；生产更新应使用 SparkAPI 的受控下载/manifest 服务，GitHub Release 只作为受权限保护的发布存档。
 
-## 4. 耗时基线与续跑原则
+## 4. 耗时基线与安全续跑
 
 当前正式发布通常需要约 13–18 分钟：39 项门禁约 8–9 分钟，Windows 打包约 2 分钟，安装/卸载约 1–2 分钟，更新、签名与哈希复核还需数分钟。杀毒软件、NSIS 首次启动和 Electron 冷启动可能进一步增加耗时。
 
-日常开发不得机械执行该流程。后续若实现发布续跑，必须以 HEAD、完整工作树指纹、依赖锁、Node/Electron/.NET 版本和前序产物哈希共同作为恢复键；任何一项变化都必须从头验证，不能只凭目录里存在旧安装包跳过门禁。
+日常开发不得机械执行该流程。`release:verify` 支持从失败门禁安全续跑，但必须同时提供上一份 `.diagnostics/release/.../report.json`、失败门禁名和本次明确允许变化的仓库相对路径。例如：
+
+```powershell
+$env:NAIMAGE_RELEASE_VERIFY_RESUME_REPORT = "<previous-report.json>"
+$env:NAIMAGE_RELEASE_VERIFY_RESUME_FROM = "requirement GUI"
+$env:NAIMAGE_RELEASE_VERIFY_RESUME_ALLOW_CHANGED = "naimage-studio/scripts/aidebug-requirement-node-suite.mjs"
+corepack pnpm run release:final
+```
+
+续跑器会确认旧报告源码指纹前后一致、旧 HEAD 是当前 HEAD 的祖先、失败点之前每项均通过，并拒绝任何未显式列入 allowlist 的代码变化。它会在新报告中保留复用来源、旧 HEAD、变更路径和复用门禁数；从失败项开始的所有后续步骤仍会真实运行。依赖锁、产品代码、构建工具或发布产物规则变化时不得列入窄 allowlist，应从头验证。不能只凭目录里存在旧安装包跳过门禁。

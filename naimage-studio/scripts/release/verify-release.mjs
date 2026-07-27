@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -71,6 +71,23 @@ const gates = [
   ["update helper", pnpm, ["run", "test:update-helper"]]
 ];
 
+function valueArg(name, fallback = "") {
+  const item = process.argv.find((argument) => argument.startsWith(`${name}=`));
+  return item ? item.slice(name.length + 1) : fallback;
+}
+
+const resumeReportInput = String(
+  valueArg("--resume-report", process.env.NAIMAGE_RELEASE_VERIFY_RESUME_REPORT || "")
+).trim();
+const resumeFromLabel = String(
+  valueArg("--resume-from", process.env.NAIMAGE_RELEASE_VERIFY_RESUME_FROM || "")
+).trim();
+const resumeAllowedChangedPaths = String(
+  valueArg("--resume-allow-changed", process.env.NAIMAGE_RELEASE_VERIFY_RESUME_ALLOW_CHANGED || "")
+).split(/[;,]/)
+  .map((value) => value.trim().replaceAll("\\", "/"))
+  .filter(Boolean);
+
 function run(command, args) {
   return new Promise((resolveRun) => {
     let child;
@@ -106,6 +123,82 @@ function gitOutput(args, encoding = null) {
   });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed.`);
   return result.stdout;
+}
+
+function isInside(candidate, root) {
+  const relation = relative(resolve(root), resolve(candidate));
+  return relation === "" || (!relation.startsWith("..") && !relation.includes(":"));
+}
+
+function gitLines(args) {
+  return String(gitOutput(args, "utf8") || "")
+    .split(/\r?\n/)
+    .map((value) => value.trim().replaceAll("\\", "/"))
+    .filter(Boolean);
+}
+
+function changedPathsSince(baseHead) {
+  const committed = gitLines(["diff", "--name-only", "--diff-filter=ACMR", `${baseHead}..HEAD`]);
+  const tracked = gitLines(["diff", "--name-only", "--diff-filter=ACMR", "HEAD"]);
+  const untracked = String(gitOutput(["ls-files", "--others", "--exclude-standard", "-z"], "utf8") || "")
+    .split("\0")
+    .map((value) => value.trim().replaceAll("\\", "/"))
+    .filter(Boolean);
+  return [...new Set([...committed, ...tracked, ...untracked])].sort();
+}
+
+function resolveResumeCheckpoint() {
+  if (!resumeReportInput && !resumeFromLabel) return null;
+  if (!resumeReportInput || !resumeFromLabel) {
+    throw new Error("发布续跑必须同时提供 --resume-report 与 --resume-from。");
+  }
+  const reportPath = resolve(resumeReportInput);
+  const releaseEvidenceRoot = join(projectRoot, ".diagnostics", "release");
+  if (!isInside(reportPath, releaseEvidenceRoot) || !existsSync(reportPath)) {
+    throw new Error("发布续跑报告必须是当前项目 .diagnostics/release 内已有的 report.json。");
+  }
+  const previous = JSON.parse(readFileSync(reportPath, "utf8"));
+  const previousResults = Array.isArray(previous?.results) ? previous.results : [];
+  const startIndex = gates.findIndex(([label]) => label === resumeFromLabel);
+  if (startIndex < 0) throw new Error(`发布续跑门禁不存在：${resumeFromLabel}`);
+  if (previous?.sourceStable !== true || !previous?.sourceBefore?.head || previous?.sourceBefore?.head !== previous?.sourceAfter?.head || previous?.sourceBefore?.digest !== previous?.sourceAfter?.digest) {
+    throw new Error("发布续跑报告的源码指纹不稳定，不能作为检查点。");
+  }
+  if (Number(previous?.expectedGateCount || 0) !== gates.length || previousResults.length <= startIndex) {
+    throw new Error("发布续跑报告与当前门禁数量或失败位置不一致。");
+  }
+  for (let index = 0; index < startIndex; index += 1) {
+    if (previousResults[index]?.label !== gates[index][0] || previousResults[index]?.exitCode !== 0) {
+      throw new Error(`发布续跑前置门禁证据无效：${gates[index][0]}`);
+    }
+  }
+  if (previousResults[startIndex]?.label !== resumeFromLabel || previousResults[startIndex]?.exitCode === 0) {
+    throw new Error(`发布续跑报告没有在 ${resumeFromLabel} 失败。`);
+  }
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", previous.sourceBefore.head, "HEAD"], {
+    cwd: projectRoot,
+    windowsHide: true,
+    encoding: "utf8"
+  });
+  if (ancestor.status !== 0) throw new Error("发布续跑报告的源码提交不是当前 HEAD 的祖先。");
+  const changedPaths = changedPathsSince(previous.sourceBefore.head);
+  const unexpectedChangedPaths = changedPaths.filter((item) => !resumeAllowedChangedPaths.includes(item));
+  if (unexpectedChangedPaths.length > 0) {
+    throw new Error(`发布续跑发现未授权的源码变化：${unexpectedChangedPaths.join(", ")}`);
+  }
+  return {
+    reportPath,
+    fromLabel: resumeFromLabel,
+    startIndex,
+    previousHead: previous.sourceBefore.head,
+    changedPaths,
+    allowedChangedPaths: resumeAllowedChangedPaths,
+    reusedResults: previousResults.slice(0, startIndex).map((row) => ({
+      ...row,
+      reused: true,
+      reusedFromReport: reportPath
+    }))
+  };
 }
 
 function sourceFingerprint() {
@@ -156,8 +249,15 @@ const sourceBefore = sourceFingerprint();
 const results = [];
 let sourceAfter = null;
 let runnerFailure = "";
+let resumeCheckpoint = null;
 try {
-  for (const [label, command, args] of gates) {
+  resumeCheckpoint = resolveResumeCheckpoint();
+  if (resumeCheckpoint) {
+    results.push(...resumeCheckpoint.reusedResults);
+    process.stdout.write(`\n[release:verify] RESUME ${resumeCheckpoint.fromLabel}，复用 ${resumeCheckpoint.reusedResults.length} 项已通过门禁：${resumeCheckpoint.reportPath}\n`);
+  }
+  for (let index = resumeCheckpoint?.startIndex || 0; index < gates.length; index += 1) {
+    const [label, command, args] = gates[index];
     const gateStartedAt = Date.now();
     process.stdout.write(`\n[release:verify] ${label}\n`);
     const result = await run(command, args);
@@ -183,6 +283,14 @@ const report = {
   sourceStable,
   sourceBefore,
   sourceAfter,
+  resumeCheckpoint: resumeCheckpoint ? {
+    reportPath: resumeCheckpoint.reportPath,
+    fromLabel: resumeCheckpoint.fromLabel,
+    previousHead: resumeCheckpoint.previousHead,
+    changedPaths: resumeCheckpoint.changedPaths,
+    allowedChangedPaths: resumeCheckpoint.allowedChangedPaths,
+    reusedGateCount: resumeCheckpoint.reusedResults.length
+  } : null,
   runnerFailure,
   results
 };

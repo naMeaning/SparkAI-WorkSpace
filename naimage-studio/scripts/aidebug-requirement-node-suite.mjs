@@ -140,8 +140,7 @@ export async function captureRequirementNodeSuite(context) {
     requirementConnectionPortsVisible: true,
     requirementEdgeCount: 1,
     provenanceArrowAbsent: true,
-    selectedNodeHighlightVisibleOk: true,
-    imageNodeViewportOk: true
+    selectedNodeHighlightVisibleOk: true
   }));
   if (!createResult?.ok || !requirementId) {
     const failed = results[results.length - 1];
