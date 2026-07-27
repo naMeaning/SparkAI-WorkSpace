@@ -107,7 +107,6 @@ async function captureAgentImageRecoverySuiteProbe(client, targetId) {
       detail: issue.detail
     });
   }
-  await evaluate(client, `window.__naimageAIDebug?.fitCanvas?.()`);
   const finalRecoveryState = [...(Array.isArray(suite?.steps) ? suite.steps : [])]
     .reverse()
     .find((step) => step?.detail?.state)?.detail?.state;
@@ -117,6 +116,7 @@ async function captureAgentImageRecoverySuiteProbe(client, targetId) {
       .reduce((sum, node) => sum + Math.max(0, Number(node?.assetCount ?? node?.assets?.length ?? 0)), 0)
   );
   await waitForCanvasImagePreviews(client, expectedPreviewCount, 60000);
+  await evaluate(client, `window.__naimageAIDebug?.fitCanvas?.()`);
   const capture = await captureState(
     client,
     targetId,
