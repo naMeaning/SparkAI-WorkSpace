@@ -21618,8 +21618,11 @@ function ProjectAgentFeedView({
     if (!followBottomRef.current && !userStartedTask) return;
     followBottomRef.current = true;
     const settleBottom = () => {
-      endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+      const feed = feedRef.current;
+      if (!feed) return;
+      feed.scrollTop = feed.scrollHeight;
     };
+    settleBottom();
     const frame = window.requestAnimationFrame(settleBottom);
     return () => {
       window.cancelAnimationFrame(frame);
