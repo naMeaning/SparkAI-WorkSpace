@@ -275,7 +275,7 @@ export async function captureAskUserContinuationSuite(context) {
   })()`);
   checks.reloadPersistence = Boolean(persistenceStarted?.ok && restoredAfterReload?.ok);
   phase("capture-restored-picker", { ok: checks.reloadPersistence });
-  results.push(await captureState(client, targetId, "ask-user-source-restored-after-reload", "undefined", { width: 884, height: 720 }, {
+  results.push(await captureState(client, targetId, "ask-user-source-restored-after-reload", "window.__naimageAIDebug?.fitCanvas?.()", { width: 884, height: 720 }, {
     modalOpen: true,
     referencePickerOpen: true,
     modalWithinViewport: true,
