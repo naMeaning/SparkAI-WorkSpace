@@ -875,17 +875,23 @@ async function main() {
     check("model picker stays contained at 884x720", modelSurface?.rect?.withinViewport === true && modelSurface?.header?.withinSurface === true && modelSurface?.title?.withinHeader === true && modelSurface?.title?.text === "配置对话模型" && modelSurface?.close?.withinHeader === true && modelSurface?.close?.withinViewport === true && modelSurface?.footer?.withinSurface === true && modelSurface?.rect?.overflowX === false, modelSurface || {});
     const modelTabTrap = await focusTrapProbe(client, '.model-picker-dialog');
     check("model picker traps forward Tab at its boundary", modelTabTrap?.ok === true, modelTabTrap || {});
-    const modelKeyboardProbe = await evaluate(client, `(async () => {
+    const modelSearchKeyboardProbe = await evaluate(client, `(() => {
       const dialog = document.querySelector('.model-picker-dialog');
       const search = dialog?.querySelector('.model-picker-search input');
       const options = Array.from(dialog?.querySelectorAll('.model-picker-option[role="option"]') || []);
       if (!dialog || !search || options.length < 2) return { ok: false, reason: 'controls-missing', optionCount: options.length };
       search.focus();
       search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { ok: true, optionCount: options.length };
+    })()`);
+    if (!modelSearchKeyboardProbe?.ok) throw new Error(`Model picker keyboard controls unavailable: ${JSON.stringify(modelSearchKeyboardProbe)}`);
+    await delay(120);
+    const modelKeyboardProbe = await evaluate(client, `(() => {
+      const dialog = document.querySelector('.model-picker-dialog');
+      const options = Array.from(dialog?.querySelectorAll('.model-picker-option[role="option"]') || []);
+      if (!dialog || options.length < 2) return { ok: false, reason: 'controls-missing', optionCount: options.length };
       const afterSearch = document.activeElement;
       afterSearch?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       const afterEnd = document.activeElement;
       const tabStops = options.filter((option) => option.tabIndex === 0);
       return {
