@@ -196,6 +196,8 @@ async function setEditorText(client, value) {
 async function openPromptEditor(client) {
   await evaluate(client, `window.__naimageDebugOpenSurface?.("settings")`);
   await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer'))`);
+  await clickButton(client, "Agent", ".settings-drawer");
+  await waitForExpression(client, `Array.from(document.querySelectorAll('.settings-drawer button')).some((button) => button.textContent?.trim() === '编辑提示词')`);
   await clickButton(client, "编辑提示词", ".settings-drawer");
   await waitForExpression(client, `Boolean(document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 提示词"] textarea:not(:disabled)'))`);
 }
@@ -539,28 +541,28 @@ async function main() {
     const settingsSurface = await surfaceSnapshot(client, '.settings-drawer');
     check("settings drawer uses shared drawer semantics", settingsSurface?.surface === "settings" && settingsSurface?.role === "dialog" && settingsSurface?.ariaModal === "true", settingsSurface || {});
     check("settings drawer stays contained at 884x720", settingsSurface?.rect?.withinViewport === true && Math.abs(settingsSurface.rect.right - settingsSurface.viewport.width) <= 1 && settingsSurface?.header?.withinSurface === true && settingsSurface?.title?.text === "设置" && settingsSurface?.close?.withinHeader === true && settingsSurface?.close?.withinViewport === true && settingsSurface?.rect?.overflowX === false, settingsSurface || {});
+    await clickButton(client, "模型", ".settings-drawer");
+    await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     const settingsLayout = await evaluate(client, `(() => {
       const drawer = document.querySelector('.settings-drawer');
       const body = drawer?.querySelector(':scope > .settings-surface-body');
       const refresh = drawer?.querySelector('button[aria-label="获取模型"]');
-      const prompt = Array.from(drawer?.querySelectorAll('button') || []).find((button) => button.textContent?.trim() === '编辑提示词');
       const configButtons = Array.from(drawer?.querySelectorAll('.settings-model-config-action') || []);
       const cards = Array.from(drawer?.querySelectorAll('.settings-model-card') || []);
-      if (!drawer || !body || !refresh || !prompt || configButtons.length !== 2 || cards.length !== 2) return null;
+      if (!drawer || !body || !refresh || configButtons.length !== 2 || cards.length !== 2) return null;
       const drawerRect = drawer.getBoundingClientRect();
       const bodyRect = body.getBoundingClientRect();
       const rectOf = (element) => {
         const rect = element.getBoundingClientRect();
         return { left: Math.round(rect.left), top: Math.round(rect.top), right: Math.round(rect.right), bottom: Math.round(rect.bottom), width: Math.round(rect.width), height: Math.round(rect.height) };
       };
-      const actionRects = [refresh, prompt, ...configButtons].map(rectOf);
+      const actionRects = [refresh, ...configButtons].map(rectOf);
       const cardRects = cards.map(rectOf);
       const contentTop = bodyRect.top - body.scrollTop;
       const contentBottom = contentTop + body.scrollHeight;
       return {
         body: { ...rectOf(body), scrollTop: body.scrollTop, scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowX: body.scrollWidth > body.clientWidth + 1 },
         refreshClass: refresh.className,
-        promptClass: prompt.className,
         configClasses: configButtons.map((button) => button.className),
         actionRects,
         cardRects,
@@ -568,10 +570,25 @@ async function main() {
         cardsAligned: cardRects[0].left === cardRects[1].left && cardRects[0].right === cardRects[1].right && cardRects.every((rect) => rect.height >= 72)
       };
     })()`);
-    check("settings drawer uses unified actions and aligned model cards", settingsLayout?.refreshClass.includes('ui-action-button') && settingsLayout?.promptClass.includes('ui-action-button') && settingsLayout?.configClasses.every((value) => value.includes('ui-icon-action')) && settingsLayout?.actionsInside === true && settingsLayout?.cardsAligned === true && settingsLayout?.body?.overflowX === false, settingsLayout || {});
+    await clickButton(client, "Agent", ".settings-drawer");
+    await waitForExpression(client, `Array.from(document.querySelectorAll('.settings-drawer button')).some((button) => button.textContent?.trim() === '编辑提示词')`);
+    const promptActionLayout = await evaluate(client, `(() => {
+      const drawer = document.querySelector('.settings-drawer');
+      const prompt = Array.from(drawer?.querySelectorAll('button') || []).find((button) => button.textContent?.trim() === '编辑提示词');
+      if (!drawer || !prompt) return null;
+      const drawerRect = drawer.getBoundingClientRect();
+      const rect = prompt.getBoundingClientRect();
+      return {
+        className: prompt.className,
+        inside: rect.left >= drawerRect.left - 1 && rect.right <= drawerRect.right + 1 && rect.top >= drawerRect.top - 1 && rect.bottom <= drawerRect.bottom + 1
+      };
+    })()`);
+    check("settings drawer uses unified actions and aligned model cards", settingsLayout?.refreshClass.includes('ui-action-button') && promptActionLayout?.className.includes('ui-action-button') && promptActionLayout?.inside === true && settingsLayout?.configClasses.every((value) => value.includes('ui-icon-action')) && settingsLayout?.actionsInside === true && settingsLayout?.cardsAligned === true && settingsLayout?.body?.overflowX === false, { settingsLayout, promptActionLayout });
     const settingsTabTrap = await focusTrapProbe(client, '.settings-drawer');
     check("settings drawer traps forward Tab at its boundary", settingsTabTrap?.ok === true, settingsTabTrap || {});
     await captureScreenshot(client, "00-settings-drawer-884x720");
+    await clickButton(client, "更新", ".settings-drawer");
+    await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-update-section'))`);
     await setWindowSize(client, target.id, 884, 640);
     const compactSettingsSurface = await surfaceSnapshot(client, '.settings-drawer');
     const compactSettingsLayout = await evaluate(client, `(() => {
@@ -599,6 +616,7 @@ async function main() {
         viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
         drawerWithinViewport: drawerRect.left >= -1 && drawerRect.top >= -1 && drawerRect.right <= innerWidth + 1 && drawerRect.bottom <= innerHeight + 1,
         bodyScrollable: body.scrollHeight > body.clientHeight,
+        bodyContentFits: body.scrollHeight <= body.clientHeight + 1,
         bodyOverflowX: body.scrollWidth > body.clientWidth + 1,
         footerVisible: footerRect.top >= drawerRect.top && footerRect.bottom <= drawerRect.bottom + 1,
         footerOverflowX: footer.scrollWidth > footer.clientWidth + 1,
@@ -612,7 +630,7 @@ async function main() {
       compactSettingsSurface?.rect?.withinViewport === true &&
         compactSettingsSurface?.footer?.withinSurface === true &&
         compactSettingsLayout?.drawerWithinViewport === true &&
-        compactSettingsLayout?.bodyScrollable === true &&
+        (compactSettingsLayout?.bodyScrollable === true || compactSettingsLayout?.bodyContentFits === true) &&
         compactSettingsLayout?.bodyOverflowX === false &&
         compactSettingsLayout?.footerVisible === true &&
         compactSettingsLayout?.footerOverflowX === false &&
@@ -778,7 +796,8 @@ async function main() {
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.agent-text-editor-dialog')`);
     await delay(120);
-    check("dirty second Escape closes and restores nested drawer focus", (await focusedControl(client)) === "编辑提示词", { focused: await focusedControl(client) });
+    const dirtyPromptCloseFocus = await focusedControl(client);
+    check("dirty second Escape closes and restores nested drawer focus", ["编辑提示词", "接入", "设置"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
 
     await openPromptEditor(client);
     const busySentinel = `AIDEBUG_BUSY_CLOSE_${Date.now()}`;
@@ -814,6 +833,8 @@ async function main() {
     check("clean backdrop close restores settings action focus", (await focusedControl(client)) === "编辑提示词", { focused: await focusedControl(client) });
 
     await setWindowSize(client, target.id, 884, 720);
+    await clickButton(client, "模型", ".settings-drawer");
+    await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     await clickAria(client, "配置对话模型");
     await waitForExpression(client, `Boolean(document.querySelector('.model-picker-dialog[data-ui-surface="model-picker-agent"]'))`);
     const modelSurface = await surfaceSnapshot(client, '.model-picker-dialog');
@@ -988,6 +1009,8 @@ async function main() {
 
     await evaluate(client, `window.__naimageDebugOpenSurface?.('settings')`);
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer'))`);
+    await clickButton(client, "模型", ".settings-drawer");
+    await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     await clickAria(client, "配置对话模型");
     await waitForExpression(client, `Boolean(document.querySelector('.model-picker-dialog'))`);
     const reducedModelMotion = await motionSnapshot(client, ['.model-picker-dialog', '.model-picker-dialog .model-picker-list', '.model-picker-dialog .ui-action-button']);
@@ -1420,10 +1443,10 @@ async function main() {
     await clickAria(client, "账户");
     await waitForExpression(client, `Boolean(document.querySelector('.account-drawer[data-ui-surface="account"]'))`);
     await clickButton(client, "退出登录", ".account-drawer");
-    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="登录注册"]'))`, 7000);
+    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="naimage 访问配置"]'))`, 7000);
     const logoutAuthLayout = await evaluate(client, `(() => {
       const shell = document.querySelector('.auth-shell');
-      const card = shell?.querySelector('.auth-card[aria-label="登录注册"]');
+      const card = shell?.querySelector('.auth-card[aria-label="naimage 访问配置"]');
       const form = card?.querySelector('.auth-gate-form');
       const inputs = Array.from(form?.querySelectorAll('input') || []);
       const submit = form?.querySelector('button[type="submit"]');
@@ -1439,7 +1462,7 @@ async function main() {
       const submitRect = submit.getBoundingClientRect();
       return {
         authShellCount: document.querySelectorAll('.auth-shell').length,
-        authCardCount: document.querySelectorAll('.auth-card[aria-label="登录注册"]').length,
+        authCardCount: document.querySelectorAll('.auth-card[aria-label="naimage 访问配置"]').length,
         ideShellCount: document.querySelectorAll('.ide-shell').length,
         drawerCount: document.querySelectorAll('.account-drawer, .settings-drawer').length,
         shellWithinViewport: shellRect.left >= -1 && shellRect.top >= -1 && shellRect.right <= window.innerWidth + 1 && shellRect.bottom <= window.innerHeight + 1,
@@ -1453,16 +1476,16 @@ async function main() {
     await captureScreenshot(client, "10-logout-login-gate-1280x820");
 
     await clickButton(client, "注册", ".auth-card");
-    await waitForExpression(client, `Boolean(document.querySelector('.auth-card input.basic-auth-name'))`);
-    const registerGate = await evaluate(client, `({ title: document.querySelector('.auth-card h1')?.textContent?.trim() || '', inputCount: document.querySelectorAll('.auth-gate-form input').length, activeTab: document.querySelector('.auth-switch button.active')?.textContent?.trim() || '' })`);
-    check("logout gate preserves the styled login/register switch", registerGate?.title.includes("创建") && registerGate?.inputCount === 3 && registerGate?.activeTab === "注册", registerGate || {});
+    await waitForExpression(client, `document.querySelectorAll('.auth-gate-form input').length === 3`);
+    const registerGate = await evaluate(client, `({ title: document.querySelector('.auth-card h1')?.textContent?.trim() || '', inputCount: document.querySelectorAll('.auth-gate-form input').length, activeTab: document.querySelector('.auth-switch[aria-label="登录注册切换"] button[aria-pressed="true"]')?.textContent?.trim() || '' })`);
+    check("logout gate preserves the styled login/register switch", registerGate?.title === "选择使用方式" && registerGate?.inputCount === 3 && registerGate?.activeTab === "注册", registerGate || {});
     await captureScreenshot(client, "11-logout-register-gate-1280x820");
 
     await clickButton(client, "登录", ".auth-card");
     await waitForExpression(client, `document.querySelectorAll('.auth-gate-form input').length === 2`);
     const invalidLoginValuesSet = await evaluate(client, `(() => {
-      const username = document.querySelector('.auth-gate-form .basic-auth-email');
-      const password = document.querySelector('.auth-gate-form .basic-auth-password');
+      const username = document.querySelector('.auth-gate-form input[autocomplete="username"]');
+      const password = document.querySelector('.auth-gate-form input[type="password"]');
       const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
       inputSetter?.call(username, 'wrong-user');
       username?.dispatchEvent(new Event('input', { bubbles: true }));

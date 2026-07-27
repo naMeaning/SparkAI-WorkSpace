@@ -19555,7 +19555,10 @@ function App() {
   const closeAgentPromptEditor = useStableEvent(() => {
     setPromptEditorOpen(false);
     window.requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>(".settings-prompt-action")?.focus({ preventScroll: true });
+      const focusTarget = document.querySelector<HTMLButtonElement>(".settings-prompt-action")
+        ?? document.querySelector<HTMLButtonElement>(".settings-drawer .settings-section-tab[aria-pressed='true']")
+        ?? document.querySelector<HTMLButtonElement>(".app-settings-button");
+      focusTarget?.focus({ preventScroll: true });
     });
   });
   const projectAgentEditFastMemory = useStableEvent(() => setFastMemoryEditorOpen(true));
