@@ -4,7 +4,6 @@ import {
   COMMERCE_LANGUAGES,
   DEFAULT_COMMERCE_LANGUAGE_CODES,
   MAX_COMMERCE_TARGET_LANGUAGES,
-  commerceTranslationPrompt,
   normalizeCommerceLanguageCodes
 } from "./plugins/commerce-translation";
 import { ActionButton, DialogShell, InlineNotice, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
@@ -14,7 +13,7 @@ export default function CommerceTranslationDialog({ sourceCount, sourceLabel, ex
   sourceLabel: string;
   executionBusy?: boolean;
   close: () => void;
-  submit: (payload: { languageCodes: string[]; languageLabels: string[]; prompt: string }) => void;
+  submit: (payload: { languageCodes: string[] }) => void;
 }) {
   const [languageCodes, setLanguageCodes] = useState(() => normalizeCommerceLanguageCodes(DEFAULT_COMMERCE_LANGUAGE_CODES));
 
@@ -60,11 +59,7 @@ export default function CommerceTranslationDialog({ sourceCount, sourceLabel, ex
               variant="primary"
               disabled={executionBusy || languageCodes.length === 0}
               icon={<Send size={16} />}
-              onClick={() => submit({
-                languageCodes,
-                languageLabels: languageCodes.map((code) => COMMERCE_LANGUAGES.find((language) => language.code === code)?.label || code),
-                prompt: commerceTranslationPrompt(languageCodes, sourceCount)
-              })}
+              onClick={() => submit({ languageCodes })}
             >
               {executionBusy ? "Agent 正在工作" : `生成 ${languageCodes.length} 种语言`}
             </ActionButton>

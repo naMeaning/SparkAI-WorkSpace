@@ -13,15 +13,18 @@ import {
   THEME_PALETTE_VALUES,
   defaultSettings,
   mergeSettings,
+  normalizeCustomThemePreset,
   readJson,
   writeJson
 } from "../src/settings-persistence.ts";
 assert.deepEqual(AGENT_PROVIDER_OPTIONS.map((option) => option.value), ["CODEX", "CUSTOM"]);
 assert.deepEqual(REASONING_EFFORT_OPTIONS.map((option) => option.value), ["low", "medium", "high", "xhigh", "max", "ultra"]);
 assert.deepEqual(CONTEXT_STRATEGY_OPTIONS.map((option) => option.value), ["auto", "codex", "claude", "naimage-balanced", "custom"]);
-assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream"]);
+assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream", "custom"]);
 assert.equal(defaultSettings.theme, "light");
 assert.equal(defaultSettings.themePalette, "anthropic");
+assert.equal(defaultSettings.customTheme, null);
+assert.equal(normalizeCustomThemePreset(null), null);
 assert.equal(defaultSettings.agentPanelPlacement, "right");
 assert.equal(defaultSettings.agentPanelWidth, 390);
 assert.equal(defaultSettings.contextStrategy, "auto");
@@ -128,6 +131,7 @@ assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
 assert.equal(repaired.theme, "light");
 assert.equal(repaired.themePalette, "anthropic");
+assert.equal(repaired.customTheme, null);
 assert.equal(repaired.timeoutSeconds, 600);
 assert.equal(repaired.accountBaseUrl, defaultSettings.accountBaseUrl);
 assert.equal(repaired.relayBaseUrl, "");
@@ -193,4 +197,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 62 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 66 })}\n`);

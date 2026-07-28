@@ -44,6 +44,8 @@ const { createAgentWindowService } = require("./desktop/agent-window-service.cjs
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
 const { parseProjectGraphFile } = require("./desktop/project-graph-adapter.cjs");
+const { createThemePresetService, normalizeCustomThemePreset } = require("./desktop/theme-preset-service.cjs");
+const { composePluginTask, projectGraphTask } = require("./desktop/plugin-task-prompts.cjs");
 const {
   cachedModelSettings,
   createModelCacheKey,
@@ -328,6 +330,7 @@ const defaultSettings = {
   modelGroup: "",
   theme: "light",
   themePalette: "anthropic",
+  customTheme: null,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
@@ -347,7 +350,8 @@ const themePaletteValues = new Set([
   "sunset-glow",
   "forest-whisper",
   "ocean-breeze",
-  "lavender-dream"
+  "lavender-dream",
+  "custom"
 ]);
 
 const aidebugPublicSettings = {
@@ -559,6 +563,8 @@ function migrateSettings(value) {
   next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : defaultSettings.theme;
   next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
+  next.customTheme = normalizeCustomThemePreset(source.customTheme);
+  if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
   next.agentPanelPlacement = ["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))
     ? String(next.agentPanelPlacement)
     : defaultSettings.agentPanelPlacement;
@@ -659,6 +665,7 @@ const agentWindowService = createAgentWindowService({
   icon: createWindowIcon(),
   log
 });
+const themePresetService = createThemePresetService({ dialog, readFileSync, statSync, writeFileSync });
 
 const aidebugBackend = aidebugMode && aidebugMockAgent
   ? createAidebugBackend({ enabled: aidebugMode, log })
@@ -3492,6 +3499,8 @@ function registerIpc() {
     agentIntegrationService,
     agentWindowService,
     desktopUpdater,
+    themePresetService,
+    composePluginTask,
     migrateSettings,
     readJson,
     settingsPath,
@@ -3546,6 +3555,7 @@ function registerIpc() {
     validateProjectPackageData,
     importProjectPackage,
     parseProjectGraphFile,
+    projectGraphTask,
     projectForFolderOpen,
     projectRoot,
     configDir,

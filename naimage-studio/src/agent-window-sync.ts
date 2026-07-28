@@ -46,6 +46,7 @@ export type AgentWindowSnapshot = {
   referenceImageCount: number;
   theme: AppSettings["theme"];
   themePalette: AppSettings["themePalette"];
+  customTheme: AppSettings["customTheme"];
   updatedAt: number;
 };
 
@@ -72,6 +73,7 @@ export type AgentWindowSnapshotInput = {
   agentProgress: AgentProgress[];
   theme: AppSettings["theme"];
   themePalette: AppSettings["themePalette"];
+  customTheme: AppSettings["customTheme"];
 };
 
 function boundedText(value: unknown, maximumChars: number) {
@@ -183,6 +185,7 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
     referenceImageCount: boundedCount(input.referenceImageCount),
     theme: input.theme,
     themePalette: input.themePalette,
+    customTheme: input.customTheme,
     updatedAt: Date.now()
   };
 }

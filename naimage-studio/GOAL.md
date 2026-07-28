@@ -23,14 +23,14 @@
 - 当前实现：`runtime/context-strategy.cjs` 按模型族解析窗口和预算；GPT 5.5/5.6 使用 272K 总窗口、95% 有效窗口、244.8K 自动 checkpoint、20K 用户意图保留预算和 Responses 协议历史；Claude 使用普通消息历史与 200K/1M 窗口；未知模型使用 128K 平衡策略。
 - checkpoint 契约：生成 handoff summary，替换旧 Responses 协议基础，清除旧 encrypted reasoning，随后重新注入当前画布、TaskScope 和 FastMemory。Codex 单条协议消息不再固定截断为 12K 字符。
 - 权威文件：`runtime/context-strategy.cjs`、`agent-runtime.cjs`、`runtime/memory-store.cjs`、`desktop/agent-responses-adapter.cjs`、`src/settings-persistence.ts`。
-- 证明：`test:context-strategy` 29 cases、`test:context-checkpoint` 16 cases、`test:settings-persistence` 62 cases、`test:agent-protocol`、`typecheck`。
+- 证明：`test:context-strategy` 35 cases、`test:context-checkpoint` 16 cases、`test:settings-persistence` 66 cases、`test:agent-protocol`、`typecheck`；快速 `aidebug:gui` 已真实切换到自定义策略并确认五种策略与四项预算输入可见、无裁切。
 
 ### 2. 电商多语言工具栏
 
 - 状态：`已验证`
 - 已实现：首个内置声明式插件 `sparkai.commerce-toolkit` 提供画布顶部“套图翻译”命令；用户安装并授权后可启用、停用或卸载，可勾选最多 10 种目标语言。任务把当前画布选择冻结为唯一 SOURCE，要求每种语言分别调用一次 `image_gen` 并进入独立结果组，保留商品/品牌/型号/尺寸/数字/版式，禁止虚构卖点、认证和优惠，阿拉伯语使用 RTL；存在 SOURCE 时禁止用 `generate` 重画商品。
-- 权威文件：`plugins/builtin-manifests.json`、`src/plugins/commerce-translation.ts`、`src/commerce-translation-dialog.tsx`、`src/main.tsx`。
-- 证明：`test:plugin-system` 48 cases、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。插件 Runtime 已进入独立异步 chunk；本批没有运行全量 AIDebug。
+- 权威文件：`plugins/builtin-manifests.json`、`src/plugins/commerce-translation.ts`、`src/commerce-translation-dialog.tsx`、`desktop/plugin-task-prompts.cjs`、`desktop/ipc/plugin-ipc.cjs`、`src/main.tsx`。
+- 证明：`test:plugin-system` 48 cases、`test:settings-persistence` 66 cases、`test:ipc-registration`、`typecheck`、正式 `build` 与 `test:bundle`。插件 Runtime 已进入独立异步 chunk；长 Prompt 由 Electron 受信任服务生成，不占 Renderer Bundle。
 
 ### 3. 接入状态懒加载与手动刷新
 
@@ -57,17 +57,17 @@
 
 ### 6. 外观导入与自定义配置
 
-- 状态：`未开始`
-- 目标：支持导入、导出和编辑自定义主题，校验颜色字段并安全回退。
-- 权威文件：外观设置模块、`src/settings-persistence.ts`、主题 CSS 变量层。
-- 证明：主题 schema/persistence selftest；导入专项 GUI 冒烟。
+- 状态：`已验证`
+- 已实现：设置页新增第 11 套“自定义”配色，可分别编辑浅色/深色的应用背景、画布、表面、文字、边框、主色、危险色和成功色共 10 个语义颜色；主题名称、恢复陶土模板和画布实时预览已贯通，独立 Agent 窗口同步使用同一主题。
+- 导入导出：原生 Electron 文件对话框读写严格的 `naimage-theme v1` JSON；文件最大 64 KiB，只接受完整的浅/深色字段和 `#RGB`/`#RRGGBB`，不接受 CSS、URL 或脚本内容，非法文件不覆盖当前主题。
+- 权威文件：`desktop/theme-preset-service.cjs`、`desktop/ipc/config-ipc.cjs`、`src/theme-palette-picker.tsx`、`src/settings-persistence.ts`、`src/styles/01-theme-palettes.css`、`src/styles/04-settings-appearance.css`。
+- 证明：`test:theme-preset` 24 cases（每模式 10 色）、`test:settings-persistence` 66 cases、`test:agent-window`、`test:ipc-registration`、`test:ui-foundation`、`typecheck`、正式 `build + test:bundle`；快速 `aidebug:gui` 已验证明暗编辑切换、画布颜色即时变化、抽屉内部滚动和操作按钮无裁切。
 
 ### 7. 用户自选上下文策略
 
-- 状态：`部分实现`
-- 已实现：设置页可选择自动、Codex、Claude Code、naimage 平衡和自定义；自定义模式可设置总窗口、有效窗口比例、自动压缩点和保留用户消息 Token，Electron/Renderer 持久化与边界修复已覆盖。
-- 剩余：若产品仍需要让普通用户分别控制画布、FastMemory、普通消息和协议历史细分预算，需要再设计高级设置；当前由策略协调器自动分配，避免普通设置过重。
-- 证明：`test:context-strategy`、`test:settings-persistence`、`test:context-checkpoint`；设置页专项 GUI 尚未运行。
+- 状态：`已验证`
+- 已实现：设置页可选择自动、Codex、Claude Code、naimage 平衡和自定义；自定义模式可设置总窗口、有效窗口比例、自动压缩点和保留用户消息 Token，Electron/Renderer 持久化与边界修复已覆盖。画布、FastMemory、普通消息和协议历史的细分预算继续由同一策略协调器按所选总预算自动分配，避免产生互相矛盾的公开参数。
+- 证明：`test:context-strategy` 35 cases、`test:settings-persistence` 66 cases、`test:context-checkpoint` 16 cases；快速 `aidebug:gui` 已切换到“自定义”并验证五种选项和四项预算输入真实显示、无裁切。
 
 ### 8. 图片容器流式中间预览
 
@@ -97,8 +97,8 @@
 - 已实现：受信任的声明式内置 manifest、设置持久化与 Electron/Renderer 双侧清洗、安装/启用/停用/卸载、权限复核、命令注册表和画布工具栏 contribution point。插件禁止注入任意 Renderer JavaScript，也不能直接修改项目 session；完整运行时仅在存在启用插件时动态加载。
 - Project Graph：第二个内置插件 `sparkai.project-graph` 可只读选择 `.prg` 或图结构 JSON。Electron 适配器从 ZIP 中只读取 `stage.msgpack` 并解析 MessagePack 对象引用，不执行扩展脚本、附件或任意插件代码，不暴露绝对路径；文件、舞台、节点、关系、文本和遍历复杂度均有上限。Renderer 显式清空画布选择与附件继承，把 GRAPH 作为唯一知识 SOURCE，要求 Agent 按规模生成 1 张总览或 2–6 张独立学习图片，并禁止虚构图中不存在的事实或直接写项目 session。
 - 外部参考：<https://github.com/graphif/project-graph>
-- 权威文件：`desktop/project-graph-adapter.cjs`、`desktop/ipc/project-ipc.cjs`、`plugins/builtin-manifests.json`、`src/plugin-system.ts`、`src/plugins/project-graph-visualization.ts`、`src/main.tsx`。
-- 证明：`test:project-graph` 23 cases、`test:plugin-system` 48 cases、`test:ipc-registration` 85 invoke handlers、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。本批未运行全量 AIDebug，也未修改任何 `.prg`、项目 session 或用户数据。
+- 权威文件：`desktop/project-graph-adapter.cjs`、`desktop/plugin-task-prompts.cjs`、`desktop/ipc/project-ipc.cjs`、`desktop/ipc/plugin-ipc.cjs`、`plugins/builtin-manifests.json`、`src/plugin-system.ts`、`src/main.tsx`。
+- 证明：`test:project-graph` 23 cases、`test:plugin-system` 48 cases、`test:ipc-registration` 88 invoke handlers/85 preload invokes/3 internal Agent invokes、`test:settings-persistence` 66 cases、`typecheck`、正式 `build` 与 `test:bundle`。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。长 Prompt 已移出 Renderer，本批未修改任何 `.prg`、项目 session 或用户数据。
 
 ### 12. 账户密钥额度人民币显示
 
@@ -120,6 +120,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成 `naimage-theme v1` 自定义主题导入、导出、编辑和浅/深色实时预览；长插件 Prompt 移到 Electron 受信任服务，IPC 更新为 88/85/3；快速 GUI、专项测试、正式构建和 Bundle 已验证，总 JS 719,928 B。
 - 2026-07-28：交付 `sparkai.project-graph` 视觉学习插件；新增受限 `.prg`/JSON 适配、MessagePack 解码、只读 IPC 和独立异步 Prompt 模块，真实 Project Graph 样例与生产 Bundle 已验证。
 - 2026-07-28：建立受信任的声明式插件系统并交付首个跨境电商多语言套图插件；支持安装、授权、启停、卸载、画布工具栏贡献和最多 10 种语言选择，插件 Runtime 进入异步 chunk；Project Graph 适配随后在独立批次完成。
 - 2026-07-28：完成账户密钥额度人民币显示；动态读取 New API 公开额度单位和美元汇率，保留 R/原始 quota 审计信息，快照懒加载不额外联网且不持久化派生文案。

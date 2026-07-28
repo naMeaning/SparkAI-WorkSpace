@@ -71,7 +71,7 @@
 .settings-agent-integrations small {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 10px;
   font-style: normal;
   text-overflow: ellipsis;
@@ -125,7 +125,7 @@
 
 .settings-account-token-quota small {
   overflow: hidden;
-  color: var(--ink-faint);
+  color: var(--muted);
   font-size: 9px;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -185,7 +185,7 @@
 }
 
 .settings-integration-row > em {
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 10px;
   font-style: normal;
 }
@@ -232,7 +232,7 @@
 
 .settings-plugin-card-header small,
 .settings-plugin-section .settings-section-header small {
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 10px;
 }
 
@@ -253,7 +253,7 @@
   padding: 5px 7px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
   border-radius: var(--ui-choice-radius);
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   background: color-mix(in srgb, var(--accent) 4%, var(--surface));
   font-size: 9px;
   line-height: 1.35;
@@ -422,6 +422,7 @@
 .theme-palette-option[data-palette="forest-whisper"]::before { content: "森林低语"; }
 .theme-palette-option[data-palette="ocean-breeze"]::before { content: "海洋微风"; }
 .theme-palette-option[data-palette="lavender-dream"]::before { content: "薰衣草梦"; }
+.theme-palette-option[data-palette="custom"]::before { content: "自定义"; }
 
 .theme-palette-swatch[data-palette="anthropic"] {
   background: linear-gradient(135deg, #f4eee5 0 46%, #cd674a 46% 75%, #9b6956 75%);
@@ -459,6 +460,55 @@
   background: linear-gradient(135deg, #f3eff8 0 46%, #8454c5 46% 74%, #58a0b4 74%);
 }
 
+.theme-custom-editor {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.theme-custom-mode.ui-segmented-control {
+  width: 100%;
+}
+
+.theme-custom-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-custom-color-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.theme-custom-color-control input[type="color"] {
+  width: 38px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.theme-custom-color-control code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.theme-custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
 .theme-palette-picker-skeleton {
   min-height: 300px;
   border: 1px solid var(--line);
@@ -487,6 +537,10 @@
   }
 
   .theme-palette-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-custom-color-grid {
     grid-template-columns: 1fr;
   }
 

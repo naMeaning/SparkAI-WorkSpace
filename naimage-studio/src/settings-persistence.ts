@@ -2,6 +2,8 @@ import type {
   AgentProviderChoice,
   AppSettings,
   ContextStrategyId,
+  CustomThemeMode,
+  CustomThemePreset,
   ReasoningEffort,
   ThemePaletteChoice
 } from "./core.ts";
@@ -39,8 +41,35 @@ export const THEME_PALETTE_VALUES: ThemePaletteChoice[] = [
   "sunset-glow",
   "forest-whisper",
   "ocean-breeze",
-  "lavender-dream"
+  "lavender-dream",
+  "custom"
 ];
+
+function normalizeCustomThemeMode(value: unknown): CustomThemeMode | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const mode = {} as CustomThemeMode;
+  const entries = Object.entries(source);
+  if (entries.length !== 10) return null;
+  for (const [key, rawColor] of entries) {
+    if (!/^--theme-(?:bg|canvas|surface|surface-raised|ink|muted|line|accent|rose|green)$/.test(key)) return null;
+    let color = String(rawColor || "").trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(color)) color = `#${[...color.slice(1)].map((digit) => digit + digit).join("")}`;
+    if (!/^#[0-9a-f]{6}$/.test(color)) return null;
+    mode[key as keyof CustomThemeMode] = color;
+  }
+  return mode;
+}
+
+export function normalizeCustomThemePreset(value: unknown): CustomThemePreset | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const light = normalizeCustomThemeMode(source.light);
+  const dark = normalizeCustomThemeMode(source.dark);
+  if (Number(source.schemaVersion) !== 1 || source.type !== "naimage-theme" || !light || !dark) return null;
+  const name = String(source.name || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 48) || "自定义主题";
+  return { schemaVersion: 1, type: "naimage-theme", name, light, dark };
+}
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
 export const DEFAULT_UPDATE_BASE_URL = "https://sparkapi.org";
@@ -86,6 +115,7 @@ export const defaultSettings: AppSettings = {
   modelGroup: "",
   theme: "light",
   themePalette: "anthropic",
+  customTheme: null,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
@@ -168,6 +198,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = defaultSettings.theme;
   if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
+  next.customTheme = normalizeCustomThemePreset(source.customTheme);
+  if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
   if (!["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))) next.agentPanelPlacement = defaultSettings.agentPanelPlacement;
   next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
   next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));

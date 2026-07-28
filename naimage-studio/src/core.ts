@@ -78,7 +78,27 @@ export type ThemePaletteChoice =
   | "sunset-glow"
   | "forest-whisper"
   | "ocean-breeze"
-  | "lavender-dream";
+  | "lavender-dream"
+  | "custom";
+export type CustomThemeColorKey =
+  | "--theme-bg"
+  | "--theme-canvas"
+  | "--theme-surface"
+  | "--theme-surface-raised"
+  | "--theme-ink"
+  | "--theme-muted"
+  | "--theme-line"
+  | "--theme-accent"
+  | "--theme-rose"
+  | "--theme-green";
+export type CustomThemeMode = Record<CustomThemeColorKey, string>;
+export type CustomThemePreset = {
+  schemaVersion: 1;
+  type: "naimage-theme";
+  name: string;
+  light: CustomThemeMode;
+  dark: CustomThemeMode;
+};
 export type AgentProviderChoice = "CODEX" | "CUSTOM";
 export type AccessMode = "account" | "custom";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
@@ -133,6 +153,7 @@ export type AppSettings = ApiSettings & {
   modelGroup: string;
   theme: ThemeChoice;
   themePalette: ThemePaletteChoice;
+  customTheme: CustomThemePreset | null;
   agentPanelPlacement: "right" | "left" | "top" | "bottom" | "floating";
   agentPanelWidth: number;
   agentPanelHeight: number;
@@ -1278,7 +1299,10 @@ export type ConfigBridge = {
   openCurrentProjectFolder?(payload?: { id?: string }): Promise<{ ok: boolean; path?: string; projectId?: string; error?: string }>;
   exportProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
   importProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
-  importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; errorCode?: string; error?: string }>;
+  importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; task?: { prompt: string; visibleContent: string }; errorCode?: string; error?: string }>;
+  importThemePreset?(): Promise<{ ok: boolean; canceled?: boolean; theme?: CustomThemePreset; sourceName?: string; errorCode?: string; error?: string }>;
+  exportThemePreset?(theme: CustomThemePreset): Promise<{ ok: boolean; canceled?: boolean; fileName?: string; errorCode?: string; error?: string }>;
+  composePluginTask?(payload: { command: string; languageCodes: string[]; sourceCount: number }): Promise<{ ok: boolean; task?: { prompt: string; visibleContent: string; languageCodes: string[] }; error?: string }>;
   deleteProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   deleteProjectFolder?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   pickReferenceImage?(): Promise<{ ok: boolean; canceled?: boolean; image?: ReferenceImage; error?: string }>;

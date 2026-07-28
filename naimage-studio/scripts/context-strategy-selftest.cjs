@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   CONTEXT_STRATEGY_IDS,
   contextModelFamily,
@@ -60,4 +62,13 @@ assert.equal(repaired.effectiveWindowPercent, 99);
 assert.equal(repaired.autoCompactPercent, 50);
 assert.equal(repaired.retainedUserTokens, 50_000);
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 29 })}\n`);
+const mainSource = fs.readFileSync(path.join(__dirname, "..", "src", "main.tsx"), "utf8");
+const persistenceSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-persistence.ts"), "utf8");
+assert.match(mainSource, /value=\{draftSettings\.contextStrategy\}[\s\S]*CONTEXT_STRATEGY_OPTIONS\.map/);
+assert.match(mainSource, /draftSettings\.contextStrategy === "custom"/);
+for (const field of ["contextWindowTokens", "contextEffectiveWindowPercent", "contextAutoCompactPercent", "contextRetainedUserTokens"]) {
+  assert.match(mainSource, new RegExp(`update\\("${field}"`), `Settings UI must edit ${field}`);
+}
+assert.match(persistenceSource, /\["auto", "codex", "claude", "naimage-balanced", "custom"\]/);
+
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 35 })}\n`);

@@ -94,10 +94,25 @@ function render() {
   renderFrame = 0;
   const state = currentState;
   if (!state) return;
-  document.documentElement.dataset.theme = state.theme === "system"
+  const resolvedTheme = state.theme === "system"
     ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : state.theme || "light";
+  document.documentElement.dataset.theme = resolvedTheme;
   document.documentElement.dataset.palette = state.themePalette || "terracotta";
+  const customColors = state.themePalette === "custom" ? state.customTheme?.[resolvedTheme] : null;
+  const customThemeMap = {
+    "--bg": "--theme-bg",
+    "--surface": "--theme-surface-raised",
+    "--surface-soft": "--theme-surface",
+    "--line": "--theme-line",
+    "--line-strong": "--theme-line",
+    "--ink": "--theme-ink",
+    "--ink-soft": "--theme-muted",
+    "--accent": "--theme-accent"
+  };
+  for (const [target, source] of Object.entries(customThemeMap)) {
+    document.documentElement.style[customColors?.[source] ? "setProperty" : "removeProperty"](target, customColors?.[source]);
+  }
   document.getElementById("project-name").textContent = state.projectName || "项目";
   document.getElementById("status-text").textContent = state.ready ? state.statusText : "主窗口尚未就绪";
   document.getElementById("model-name").textContent = state.modelName || "";

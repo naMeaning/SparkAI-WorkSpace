@@ -338,7 +338,7 @@
 }
 
 .commerce-language-header span {
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 10px;
 }
 
@@ -391,7 +391,7 @@
 }
 
 .commerce-language-option small {
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 9px;
 }
 

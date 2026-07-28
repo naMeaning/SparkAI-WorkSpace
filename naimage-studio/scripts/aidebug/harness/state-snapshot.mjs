@@ -265,6 +265,17 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsThemePaletteButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-palette-option"));
     const settingsThemeModeActiveCount = settingsThemeModeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
     const settingsThemePaletteActiveCount = settingsThemePaletteButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
+    const settingsSurfaceBody = element(".settings-drawer:not(.account-drawer) .settings-surface-body");
+    const settingsSurfaceBodyRect = settingsSurfaceBody?.getBoundingClientRect();
+    const settingsCustomThemeEditor = element(".settings-drawer:not(.account-drawer) .theme-custom-editor");
+    const settingsCustomThemeColorInputs = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-custom-color-control input[type='color']"));
+    const settingsCustomThemeModeButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-custom-mode .ui-segment-action"));
+    const settingsCustomThemeActionButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-custom-actions button"));
+    const settingsCustomThemeActionTexts = settingsCustomThemeActionButtons.map((node) => String(node.textContent || "").replace(/\\s+/g, " ").trim());
+    const settingsCustomThemeActionsRect = rect(".settings-drawer:not(.account-drawer) .theme-custom-actions");
+    const settingsContextStrategySelect = element(".settings-drawer:not(.account-drawer) .settings-context-policy select");
+    const settingsContextStrategyValues = Array.from(settingsContextStrategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
+    const settingsContextCustomInputs = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .settings-context-custom-fields input[type='number']"));
     const accountProfileCardRect = rect(".account-drawer .account-profile");
     const accountProfileAvatarRect = rect(".account-drawer .account-surface-avatar");
     const accountProfileStatusText = text(".account-drawer .account-status");
@@ -2487,9 +2498,37 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     );
     const settingsAppearanceControlsOk = !settingsOpen || settingsActiveTabText !== "外观" || (
       settingsThemeModeButtons.length === 3 &&
-      settingsThemePaletteButtons.length === 10 &&
+      settingsThemePaletteButtons.length === 11 &&
       settingsThemeModeActiveCount === 1 &&
       settingsThemePaletteActiveCount === 1
+    );
+    const settingsCustomThemeEditorOk = Boolean(
+      settingsCustomThemeEditor &&
+      settingsThemePaletteButtons.find((node) => node.getAttribute("data-palette") === "custom")?.getAttribute("aria-pressed") === "true" &&
+      settingsCustomThemeColorInputs.length === 10 &&
+      settingsCustomThemeModeButtons.length === 2 &&
+      settingsCustomThemeModeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length === 1 &&
+      ["导入 JSON", "导出 JSON", "恢复陶土模板"].every((label) => settingsCustomThemeActionTexts.includes(label))
+    );
+    const settingsThemeEditorScrollOk = Boolean(
+      settingsSurfaceBody &&
+      settingsSurfaceBodyRect &&
+      settingsCustomThemeActionsRect &&
+      settingsSurfaceBody.scrollHeight > settingsSurfaceBody.clientHeight &&
+      settingsSurfaceBody.scrollTop > 0 &&
+      settingsCustomThemeActionsRect.left >= settingsSurfaceBodyRect.left + 6 &&
+      settingsCustomThemeActionsRect.right <= settingsSurfaceBodyRect.right - 6 &&
+      settingsCustomThemeActionsRect.top >= settingsSurfaceBodyRect.top &&
+      settingsCustomThemeActionsRect.bottom <= settingsSurfaceBodyRect.bottom
+    );
+    const settingsContextCustomControlsOk = Boolean(
+      settingsContextStrategySelect?.value === "custom" &&
+      ["auto", "codex", "claude", "naimage-balanced", "custom"].every((value) => settingsContextStrategyValues.includes(value)) &&
+      settingsContextCustomInputs.length === 4 &&
+      settingsContextCustomInputs.every((node) => {
+        const box = node.getBoundingClientRect();
+        return box.width > 0 && box.height > 0;
+      })
     );
     const settingsSaveControlsOk = !settingsOpen || (
       settingsSaveButtonText === "保存设置" &&
@@ -3075,6 +3114,13 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       accountDrawerUiOk,
       settingsLabelsOk,
       settingsAppearanceControlsOk,
+      settingsCustomThemeEditorOk,
+      settingsThemeEditorScrollOk,
+      customThemeInteractionOk: window.__naimageCustomThemeProbe?.ok === true,
+      customThemeInteractionProbe: window.__naimageCustomThemeProbe || null,
+      settingsContextCustomControlsOk,
+      contextSettingsInteractionOk: window.__naimageContextSettingsProbe?.ok === true,
+      contextSettingsInteractionProbe: window.__naimageContextSettingsProbe || null,
       settingsSaveControlsOk,
       settingsUpdateCenterOk,
       settingsLabelTexts: {

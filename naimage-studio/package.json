@@ -94,6 +94,7 @@
     "test:account-token-quota": "node scripts/account-token-quota-selftest.cjs",
     "test:plugin-system": "node scripts/plugin-system-selftest.ts",
     "test:project-graph": "node scripts/project-graph-adapter-selftest.cjs",
+    "test:theme-preset": "node scripts/theme-preset-selftest.ts",
     "test:automation-service": "node scripts/automation-service-selftest.cjs",
     "test:agent-integration": "node scripts/agent-integration-selftest.cjs",
     "test:lifecycle": "node scripts/electron-lifecycle-selftest.cjs",

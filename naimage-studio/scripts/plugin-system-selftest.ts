@@ -17,19 +17,21 @@ import {
   uninstallBuiltinPlugin
 } from "../src/plugin-system.ts";
 import {
+  COMMERCE_LANGUAGES,
   MAX_COMMERCE_TARGET_LANGUAGES,
-  commerceTranslationPrompt,
   normalizeCommerceLanguageCodes
 } from "../src/plugins/commerce-translation.ts";
-import {
-  projectGraphPromptPayload,
-  projectGraphVisualizationPrompt
-} from "../src/plugins/project-graph-visualization.ts";
 import type { ProjectGraphDocument } from "../src/core.ts";
 
 const require = createRequire(import.meta.url);
 const cjsPluginState = require("../desktop/plugin-state.cjs") as {
   normalizePluginStates: (value: unknown) => unknown;
+};
+const pluginPrompts = require("../desktop/plugin-task-prompts.cjs") as {
+  commerceLanguages: string[][];
+  commerceTranslationPrompt: (languageCodes: unknown, sourceCount: number) => string;
+  projectGraphPromptPayload: (graph: ProjectGraphDocument) => { nodes: unknown[]; edges: unknown[]; promptTruncated: boolean };
+  projectGraphVisualizationPrompt: (graph: ProjectGraphDocument) => string;
 };
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -94,13 +96,14 @@ await assert.rejects(() => registry.execute("unknown.command", installed), /未�
 const normalizedLanguages = normalizeCommerceLanguageCodes(["en-US", "de-DE", "en-US", "invalid", ...Array(20).fill("fr-FR")]);
 assert.deepEqual(normalizedLanguages, ["en-US", "de-DE", "fr-FR"]);
 assert.ok(normalizeCommerceLanguageCodes(Array.from({ length: 20 }, (_, index) => ["en-US", "de-DE", "fr-FR", "es-ES", "ja-JP", "ko-KR", "it-IT", "pt-BR", "ar-SA", "ru-RU", "th-TH", "vi-VN", "id-ID", "en-GB"][index % 14])).length <= MAX_COMMERCE_TARGET_LANGUAGES);
-const prompt = commerceTranslationPrompt(["en-US", "ar-SA"], 3);
+const prompt = pluginPrompts.commerceTranslationPrompt(["en-US", "ar-SA"], 3);
 assert.match(prompt, /当前选中的图片成果是本轮唯一 SOURCE/);
 assert.match(prompt, /每种语言单独调用一次 image_gen/);
 assert.match(prompt, /不同语言不得混在同一个结果组/);
 assert.match(prompt, /阿拉伯语使用正确的从右到左排版/);
 assert.match(prompt, /禁止用 generate 重画商品/);
-assert.throws(() => commerceTranslationPrompt([], 1), /至少选择一种/);
+assert.throws(() => pluginPrompts.commerceTranslationPrompt([], 1), /至少选择一种/);
+assert.deepEqual(pluginPrompts.commerceLanguages.map((language) => language[0]), COMMERCE_LANGUAGES.map((language) => language.code));
 
 const graph: ProjectGraphDocument = {
   schemaVersion: 1,
@@ -117,11 +120,11 @@ const graph: ProjectGraphDocument = {
   warnings: [],
   stats: { nodeCount: 3, edgeCount: 1, sectionCount: 1 }
 };
-const graphPayload = projectGraphPromptPayload(graph);
+const graphPayload = pluginPrompts.projectGraphPromptPayload(graph);
 assert.equal(graphPayload.nodes.length, 3);
 assert.equal(graphPayload.edges.length, 1);
 assert.equal(graphPayload.promptTruncated, false);
-const graphPrompt = projectGraphVisualizationPrompt(graph);
+const graphPrompt = pluginPrompts.projectGraphVisualizationPrompt(graph);
 assert.match(graphPrompt, /GRAPH 是本轮唯一的知识结构 SOURCE/);
 assert.match(graphPrompt, /拆成 2–6 张独立学习图/);
 assert.match(graphPrompt, /每张图单独调用一次 image_gen/);
@@ -132,9 +135,9 @@ const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const pluginPanelSource = fs.readFileSync(path.join(root, "src", "plugin-settings-panel.tsx"), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 assert.match(mainSource, /data-plugin-command=\{item\.command\}/, "Enabled plugin commands must render through the canvas toolbar contribution point");
-assert.match(mainSource, /visibleContent: `为当前选中的商品图生成多语言套图/, "Plugin execution must keep the user-facing Agent message concise");
+assert.match(mainSource, /composePluginTask\?\.\(\{[\s\S]*sparkai\.commerce-toolkit\.translate-listing-set/, "Commerce execution must request its trusted task prompt through preload");
 assert.match(mainSource, /window\.naimageConfig\?\.importProjectGraph/, "Project Graph must enter through the read-only preload bridge");
-assert.match(mainSource, /sourceNodeIds: \[\],[\s\S]*useComposerAttachments: false,[\s\S]*visibleContent: `把思维导图/, "Project Graph execution must not inherit canvas or composer image sources");
+assert.match(mainSource, /sendPrompt\(result\.task\.prompt,[\s\S]*sourceNodeIds: \[\],[\s\S]*useComposerAttachments: false,[\s\S]*visibleContent: result\.task\.visibleContent/, "Project Graph execution must not inherit canvas or composer image sources");
 assert.match(pluginPanelSource, /安装并授权/);
 assert.match(pluginPanelSource, /setBuiltinPluginEnabled/);
 assert.match(pluginPanelSource, /uninstallBuiltinPlugin/);

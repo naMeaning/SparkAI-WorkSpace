@@ -9663,12 +9663,57 @@ async function main() {
         composerViewportVisibleOk: true,
         canvasViewportFillOk: true
       }));
-      results.push(await captureState(client, target.id, "quick-settings-min-884", openSurfaceExpression("settings", `
+      results.push(await captureState(client, target.id, "quick-settings-appearance-min-884", openSurfaceExpression("settings", `
         await delay(250);
-        window.__naimageDebugOpenSurface?.("settings");
-        await delay(500);
-        document.querySelector(".settings-section-tab")?.click();
-        await delay(250);
+        const appearanceTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "外观");
+        appearanceTab?.click();
+        const paletteDeadline = Date.now() + 2400;
+        while (Date.now() < paletteDeadline && !document.querySelector('.theme-palette-option[data-palette="custom"]')) await delay(40);
+        document.querySelector('.theme-palette-option[data-palette="custom"]')?.click();
+        const editorDeadline = Date.now() + 2400;
+        while (Date.now() < editorDeadline && !document.querySelector(".theme-custom-editor")) await delay(40);
+        const customModeButtons = Array.from(document.querySelectorAll(".theme-custom-mode .ui-segment-action"));
+        const darkButton = customModeButtons.find((node) => String(node.textContent || "").includes("深色"));
+        const lightButton = customModeButtons.find((node) => String(node.textContent || "").includes("浅色"));
+        darkButton?.click();
+        await delay(100);
+        const darkSwitched = darkButton?.getAttribute("aria-pressed") === "true";
+        lightButton?.click();
+        await delay(100);
+        const canvasInput = document.querySelector('input[aria-label="画布背景颜色"]');
+        const colorSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        colorSetter?.call(canvasInput, "#e2c18f");
+        canvasInput?.dispatchEvent(new Event("input", { bubbles: true }));
+        canvasInput?.dispatchEvent(new Event("change", { bubbles: true }));
+        await delay(180);
+        const rootCanvasColor = getComputedStyle(document.documentElement).getPropertyValue("--theme-canvas").trim().toLowerCase();
+        const renderedCanvasStyle = getComputedStyle(document.querySelector(".workflow-canvas") || document.body);
+        const renderedCanvasColor = renderedCanvasStyle.backgroundColor;
+        const renderedCanvasImage = renderedCanvasStyle.backgroundImage;
+        const activeThemePreset = document.documentElement.dataset.themePreset || "";
+        const settingsBody = document.querySelector(".settings-surface-body");
+        if (settingsBody) settingsBody.scrollTop = settingsBody.scrollHeight;
+        await delay(120);
+        window.__naimageCustomThemeProbe = {
+          ok: Boolean(
+            appearanceTab &&
+            darkSwitched &&
+            lightButton?.getAttribute("aria-pressed") === "true" &&
+            canvasInput?.value === "#e2c18f" &&
+            rootCanvasColor === "#e2c18f" &&
+            activeThemePreset === "custom"
+          ),
+          darkSwitched,
+          lightRestored: lightButton?.getAttribute("aria-pressed") === "true",
+          inputValue: canvasInput?.value || "",
+          rootCanvasColor,
+          renderedCanvasColor,
+          renderedCanvasImage,
+          activeThemePreset,
+          scrollTop: settingsBody?.scrollTop || 0,
+          scrollHeight: settingsBody?.scrollHeight || 0,
+          clientHeight: settingsBody?.clientHeight || 0
+        };
       `), { width: workbenchMinWidth, height: 720 }, {
         settingsOpen: true,
         historyOpen: false,
@@ -9678,6 +9723,49 @@ async function main() {
         workbenchMinWidthOk: true,
         settingsChannelHidden: true,
         settingsAppearanceControlsOk: true,
+        settingsCustomThemeEditorOk: true,
+        settingsThemeEditorScrollOk: true,
+        customThemeInteractionOk: true,
+        settingsDrawerWithinViewport: true,
+        settingsDrawerFlushRightOk: true,
+        settingsLabelsOk: true,
+        imageNodeViewportOk: true
+      }));
+      results.push(await captureState(client, target.id, "quick-settings-agent-context-min-884", openSurfaceExpression("settings", `
+        await delay(250);
+        const agentTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "Agent");
+        agentTab?.click();
+        const contextDeadline = Date.now() + 2400;
+        while (Date.now() < contextDeadline && !document.querySelector(".settings-context-policy select")) await delay(40);
+        const strategySelect = document.querySelector(".settings-context-policy select");
+        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+        selectSetter?.call(strategySelect, "custom");
+        strategySelect?.dispatchEvent(new Event("change", { bubbles: true }));
+        await delay(180);
+        const inputs = Array.from(document.querySelectorAll(".settings-context-custom-fields input[type='number']"));
+        const optionValues = Array.from(strategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
+        window.__naimageContextSettingsProbe = {
+          ok: Boolean(
+            agentTab &&
+            strategySelect?.value === "custom" &&
+            ["auto", "codex", "claude", "naimage-balanced", "custom"].every((value) => optionValues.includes(value)) &&
+            inputs.length === 4
+          ),
+          strategy: strategySelect?.value || "",
+          optionValues,
+          inputCount: inputs.length,
+          inputValues: inputs.map((node) => node.value)
+        };
+      `), { width: workbenchMinWidth, height: 720 }, {
+        settingsOpen: true,
+        historyOpen: false,
+        modalOpen: false,
+        accountOpen: false,
+        titlebarOverlay: true,
+        workbenchMinWidthOk: true,
+        settingsChannelHidden: true,
+        settingsContextCustomControlsOk: true,
+        contextSettingsInteractionOk: true,
         settingsDrawerWithinViewport: true,
         settingsDrawerFlushRightOk: true,
         settingsLabelsOk: true,

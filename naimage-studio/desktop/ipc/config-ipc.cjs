@@ -9,6 +9,7 @@ function registerSettingsIpc({
   log,
   onNewApiAccountBaseUrlChanged,
   publicSettings,
+  themePresetService,
   validateNewApiServiceSettings,
   writeJson
 }) {
@@ -58,6 +59,9 @@ function registerSettingsIpc({
     log("config save settings");
     return { ok: true, path: settingsPath, accountChanged };
   });
+
+  ipcMain.handle("naimage:theme:import", () => themePresetService.importPreset());
+  ipcMain.handle("naimage:theme:export", (_event, theme) => themePresetService.exportPreset(theme));
 }
 
 function registerSessionIpc({

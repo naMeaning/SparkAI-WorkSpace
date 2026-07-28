@@ -1,6 +1,6 @@
 # naimage 工作区上下文地图
 
-> 最近同步：2026-07-27
+> 最近同步：2026-07-28
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -49,8 +49,8 @@ flowchart LR
 ```mermaid
 flowchart TD
   Entry["electron-main.cjs"] --> Window["主 BrowserWindow / 独立 Agent BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n85 invokes / 4 sends"]
-  Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配"]
+  Entry --> Ipc["desktop/ipc/*\n88 invokes / 4 receives / 2 sends"]
+  Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配 / 插件 Prompt / 主题导入导出"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
   Entry --> Workers["图片导入 / 缩略图 / 抠图 / PSD workers"]
@@ -69,7 +69,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权和 85 个 invoke + 4 个 send handler 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 88 个 invoke（85 preload + 3 internal）/4 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
 | `agent-runtime.cjs` | 保留 Prompt、tool loop、compact 与 action 编排；schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、会话和图片算法；设置、资产身份、粘贴块已有独立所有者 | `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
@@ -86,12 +86,13 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改图片查看器 | `src/image-viewer.tsx` | 资产 URL/缩略图规则、浮窗基础设施、`aidebug:gui` |
 | 修改参考图选择 | `src/reference-picker-dialog.tsx` | SOURCE/REFERENCE 上限、TaskScope、ask_user 继续执行 |
 | 修改设置或旧配置迁移 | `src/settings-persistence.ts` | `AppSettings` 类型、Electron 设置 bridge、`test:settings-persistence` |
+| 修改自定义主题或导入导出 | `src/theme-palette-picker.tsx`, `desktop/theme-preset-service.cjs` | `AppSettings.customTheme` 双侧清洗、ConfigBridge/IPC、独立 Agent 主题快照、`test:theme-preset`、快速 `aidebug:gui` |
 | 修改资产 ID/路径清洗 | `src/asset-identity.ts` | Electron session 清洗、导入 worker、项目迁移 |
 | 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain | 当前选择、TaskScope、容器/关系、AIDebug 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
 | 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | `account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
 | 修改外部 Agent 控制 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单 |
-| 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；插件禁止脚本注入、扩展执行和直接写 session |
+| 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；长 Prompt 归 Electron，插件禁止脚本注入、扩展执行和直接写 session |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
 | 修改 `view_image` | `runtime/view-image-payload.cjs` + runtime facade | 允许根、payload 预算、Sharp、持久化排除 |
 | 修改 Image 2 比例/尺寸 | `runtime/image-frame.cjs`、`src/core.ts`、主进程请求参数 | 三侧规则必须一致 |
@@ -108,6 +109,7 @@ corepack pnpm run test:automation-service
 corepack pnpm run test:agent-integration
 corepack pnpm run test:ipc-registration
 corepack pnpm run test:project-graph
+corepack pnpm run test:theme-preset
 corepack pnpm run build
 corepack pnpm run test:bundle
 ```

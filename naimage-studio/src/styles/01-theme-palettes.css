@@ -328,3 +328,15 @@
   --theme-hover-bg: #382d48;
   --theme-active-bg: #47385a;
 }
+
+:root[data-theme-preset="custom"] {
+  --theme-surface-solid: var(--theme-surface-raised);
+  --theme-ink-soft: var(--theme-muted);
+  --theme-line-strong: color-mix(in srgb, var(--theme-line) 68%, var(--theme-ink));
+  --theme-accent-strong: color-mix(in srgb, var(--theme-accent) 72%, var(--theme-ink));
+  --theme-blue: var(--theme-accent);
+  --theme-amber: color-mix(in srgb, var(--theme-accent) 62%, #c68424);
+  --theme-control-bg: var(--theme-surface-raised);
+  --theme-hover-bg: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-raised));
+  --theme-active-bg: color-mix(in srgb, var(--theme-accent) 16%, var(--theme-surface-raised));
+}

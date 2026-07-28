@@ -2326,7 +2326,8 @@ function preferredImageModelFromList(models: string[] = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
 }
 
-function applyTheme(choice: ThemeChoice, palette: ThemePaletteChoice = "default") {
+let appliedCustomThemeKeys: string[] = [];
+function applyTheme(choice: ThemeChoice, palette: ThemePaletteChoice = "default", customTheme: AppSettings["customTheme"] = null) {
   const resolved =
     choice === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -2336,6 +2337,14 @@ function applyTheme(choice: ThemeChoice, palette: ThemePaletteChoice = "default"
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.themeChoice = choice;
   document.documentElement.dataset.themePreset = palette;
+  for (const key of appliedCustomThemeKeys) document.documentElement.style.removeProperty(key);
+  appliedCustomThemeKeys = [];
+  if (palette === "custom" && customTheme) {
+    for (const [key, value] of Object.entries(customTheme[resolved])) {
+      document.documentElement.style.setProperty(key, value);
+      appliedCustomThemeKeys.push(key);
+    }
+  }
   document.documentElement.classList.toggle("theme-dark", resolved === "dark");
   document.documentElement.classList.toggle("theme-light", resolved === "light");
 }
@@ -3723,8 +3732,8 @@ function App() {
   }, []);
 
   useEffect(() => {
-    applyTheme(settings.theme, settings.themePalette);
-  }, [settings.theme, settings.themePalette]);
+    applyTheme(settings.theme, settings.themePalette, settings.customTheme);
+  }, [settings.theme, settings.themePalette, settings.customTheme]);
 
   useEffect(() => {
     if (!authReady || !serverUser || !window.naimageUpdater) return;
@@ -19841,17 +19850,14 @@ function App() {
     try {
       const result = await importProjectGraph();
       if (result?.canceled) return;
-      if (!result?.ok || !result.graph) throw new Error(result?.error || "Project Graph 导入失败。");
-      const graph = result.graph;
-      const module = await import("./plugins/project-graph-visualization");
-      const graphTitle = graph.title || graph.sourceName || "Project Graph";
+      if (!result?.ok || !result.graph || !result.task) throw new Error(result?.error || "Project Graph 导入失败。");
       setAgentCollapsed(false);
-      await sendPrompt(module.projectGraphVisualizationPrompt(graph), {
+      await sendPrompt(result.task.prompt, {
         sourceNodeIds: [],
         sourceImages: [],
         referenceImages: [],
         useComposerAttachments: false,
-        visibleContent: `把思维导图「${graphTitle}」转成视觉学习图片（${graph.stats.nodeCount} 个概念，${graph.stats.edgeCount} 条关系）`
+        visibleContent: result.task.visibleContent
       });
     } catch (error) {
       setServerMessage(`Project Graph 视觉学习失败：${error instanceof Error ? error.message : String(error)}`);
@@ -19951,7 +19957,8 @@ function App() {
       referenceImageCount: agentReferenceImages.length,
       agentProgress,
       theme: settings.theme,
-      themePalette: settings.themePalette
+      themePalette: settings.themePalette,
+      customTheme: settings.customTheme
     }));
   });
   const projectAgentOpenWindow = useStableEvent(async () => {
@@ -20053,6 +20060,7 @@ function App() {
     selectedNodes.length,
     serverUser,
     settings.agentModel,
+    settings.customTheme,
     settings.theme,
     settings.themePalette
   ]);
@@ -21420,9 +21428,14 @@ function App() {
             submit={(payload) => {
               setCommerceTranslationDialog(null);
               setAgentCollapsed(false);
-              void sendPrompt(payload.prompt, {
-                visibleContent: `为当前选中的商品图生成多语言套图：${payload.languageLabels.join("、")}`
-              });
+              void window.naimageConfig?.composePluginTask?.({
+                command: "sparkai.commerce-toolkit.translate-listing-set",
+                languageCodes: payload.languageCodes,
+                sourceCount: commerceTranslationDialog.sourceCount
+              }).then((result) => {
+                if (!result?.ok || !result.task) throw new Error(result?.error || "插件任务生成失败。");
+                return sendPrompt(result.task.prompt, { visibleContent: result.task.visibleContent });
+              }).catch((error) => setServerMessage(error instanceof Error ? error.message : String(error)));
             }}
           />
         </React.Suspense>
@@ -23148,12 +23161,12 @@ function SettingsDrawer({
   const dirty = JSON.stringify(draftSettings) !== JSON.stringify(baselineSettings);
 
   useEffect(() => {
-    applyTheme(draftSettings.theme, draftSettings.themePalette);
-  }, [draftSettings.theme, draftSettings.themePalette]);
+    applyTheme(draftSettings.theme, draftSettings.themePalette, draftSettings.customTheme);
+  }, [draftSettings.theme, draftSettings.themePalette, draftSettings.customTheme]);
 
   useEffect(() => () => {
     const saved = savedThemeRef.current;
-    applyTheme(saved.theme, saved.themePalette);
+    applyTheme(saved.theme, saved.themePalette, saved.customTheme);
   }, []);
 
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
@@ -23811,8 +23824,10 @@ function SettingsDrawer({
                   <LazyThemePalettePicker
                     theme={draftSettings.theme}
                     palette={draftSettings.themePalette}
+                    customTheme={draftSettings.customTheme}
                     onThemeChange={(choice) => update("theme", choice)}
                     onPaletteChange={(choice) => update("themePalette", choice)}
+                    onCustomThemeChange={(preset) => update("customTheme", preset)}
                   />
                 </React.Suspense>
               </SurfaceSection>

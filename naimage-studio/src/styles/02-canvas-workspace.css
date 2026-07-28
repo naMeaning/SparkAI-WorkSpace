@@ -25,7 +25,7 @@
 .canvas-plugin-toolbar > span {
   flex: 0 0 auto;
   gap: 6px;
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: 10px;
   font-weight: 700;
 }

@@ -32,6 +32,7 @@ function registerProjectIpc(options = {}) {
     validateProjectPackageData,
     importProjectPackage,
     parseProjectGraphFile,
+    projectGraphTask,
     projectForFolderOpen,
     projectRoot,
     configDir,
@@ -195,7 +196,7 @@ function registerProjectIpc(options = {}) {
     try {
       const graph = parseProjectGraphFile(sourceFile);
       log(`project graph import ${path.basename(sourceFile)} nodes=${graph.stats.nodeCount} edges=${graph.stats.edgeCount}`);
-      return { ok: true, graph };
+      return { ok: true, graph, task: projectGraphTask(graph) };
     } catch (error) {
       const errorCode = String(error?.code || "PROJECT_GRAPH_IMPORT_FAILED");
       const message = error instanceof Error ? error.message : String(error);

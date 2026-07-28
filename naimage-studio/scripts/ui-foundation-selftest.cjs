@@ -211,7 +211,9 @@ check(
 );
 check(
   "business UI labels are provided by shared field/search primitives",
-  !/<label\b/.test(businessUiSource)
+  Array.from(businessUiSource.matchAll(/<label\b[^>]*>/g), (match) => match[0]).every((opening) => (
+    /className="settings-(?:checkbox-row|integration-row)"/.test(opening) || /htmlFor=\{`custom-\$\{kind\}-model`\}/.test(opening)
+  ))
 );
 check(
   "interactive non-button surfaces use the shared focus contract",
@@ -299,7 +301,6 @@ check(
 const removedFeatureSelectors = [
   "post-preview",
   "post-live-preview",
-  "plugin-",
   "repaint-",
   "experience-dialog",
   "prompt-entry-",

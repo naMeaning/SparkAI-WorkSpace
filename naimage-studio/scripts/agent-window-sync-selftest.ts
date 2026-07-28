@@ -48,7 +48,8 @@ const base = {
   referenceImageCount: 2,
   agentProgress: [{ phase: "image-request", summary: "生成图片" }],
   theme: "light" as const,
-  themePalette: "terracotta" as const
+  themePalette: "anthropic" as const,
+  customTheme: null
 };
 
 const snapshot = buildAgentWindowSnapshot(base);
