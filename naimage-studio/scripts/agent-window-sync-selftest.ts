@@ -37,8 +37,7 @@ const base = {
         operation: "generate",
         params: "1:1",
         brief: "生成商品主图",
-        prompts: [{ title: "商品图", prompt: "高品质商品主图" }],
-        partialImage: { dataUrl: "data:image/png;base64,AAAA", index: 1, total: 3 }
+        prompts: [{ title: "商品图", prompt: "高品质商品主图" }]
       }
     }
   ],
@@ -57,7 +56,7 @@ assert.equal(snapshot.version, 1);
 assert.equal(snapshot.statusText, "Agent 正在输出 12s");
 assert.equal(snapshot.messages.length, 2);
 assert.equal(snapshot.messages[0].sourceCount, 1);
-assert.equal(snapshot.messages[1].toolTrace?.partialImage?.total, 3);
+assert.equal(snapshot.messages[1].toolTrace?.prompts.length, 1);
 assert.equal(snapshot.conversations[0].active, true);
 assert.equal(snapshot.selectedArtifactCount, 3);
 assert.equal(agentWindowStatusText({ ...base, busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "error" }] }), "Agent 遇到问题");
@@ -71,7 +70,6 @@ assert.equal(normalizeAgentWindowCommand({ type: "switch-conversation", conversa
 assert.equal(normalizeAgentWindowCommand({ type: "unknown" }), null);
 assert.equal(normalizeAgentWindowCommand(null), null);
 
-const largePartial = `data:image/png;base64,${"A".repeat(2_400_000)}`;
 const boundedSnapshot = buildAgentWindowSnapshot({
   ...base,
   prompt: "长".repeat(200_000),
@@ -90,12 +88,10 @@ const boundedSnapshot = buildAgentWindowSnapshot({
       prompts: [
         { title: "提示词 1", prompt: "图".repeat(12_000) },
         { title: "提示词 2", prompt: "图".repeat(12_000) }
-      ],
-      partialImage: { dataUrl: largePartial, index: 1, total: 3 }
+      ]
     }
   }))
 });
-assert.equal(boundedSnapshot.messages.filter((message) => message.toolTrace?.partialImage).length, 3);
 assert(Buffer.byteLength(JSON.stringify(boundedSnapshot), "utf8") < 16 * 1024 * 1024, "Worst-case Renderer snapshot must fit the Main service boundary");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 18 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 16 })}\n`);

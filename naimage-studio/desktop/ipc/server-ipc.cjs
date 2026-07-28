@@ -394,6 +394,8 @@ function registerServerIpc({
   ipcMain.handle("naimage:server:generate-image", async (event, payload) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     const runId = String((payload ?? {}).runId || `run-${Date.now()}`);
+    const operationId = String((payload ?? {}).operationId || runId);
+    const requestIndex = Math.max(1, Math.min(10, Math.floor(Number((payload ?? {}).requestIndex || 1) || 1)));
     const projectId = (payload ?? {}).projectId;
     const ownedMaskImage = (payload ?? {}).maskDataUrl
       ? writeDataUrlTemp((payload ?? {}).maskDataUrl, `mask-${runId.replace(/[^a-z0-9_-]/gi, "-")}`, projectId)
@@ -417,6 +419,21 @@ function registerServerIpc({
         mode: (payload ?? {}).mode,
         runId,
         projectId,
+        onPartialImage: (partial) => emitAgentProgress(event.sender, runId, {
+          phase: "image-preview",
+          tool: "image_gen",
+          operationId,
+          toolRunId: operationId,
+          childTaskId: runId,
+          summary: `已收到第 ${Math.max(1, Number(partial?.index || 1))}/${Math.max(1, Number(partial?.total || 3))} 张中间预览。`,
+          partialImage: {
+            dataUrl: String(partial?.dataUrl || ""),
+            index: Math.max(1, Number(partial?.index || 1)),
+            total: Math.max(1, Number(partial?.total || 3)),
+            requestIndex
+          },
+          projectId
+        }),
         onRetry: (retry) => emitAgentProgress(event.sender, runId, {
           phase: "image-retry",
           tool: "image_gen",

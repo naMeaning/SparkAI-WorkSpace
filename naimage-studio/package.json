@@ -72,6 +72,7 @@
     "test:aidebug-options": "node scripts/aidebug-options-selftest.mjs",
     "test:image-layout": "node scripts/image-layout-selftest.ts",
     "test:image-container": "node scripts/image-container-selftest.ts",
+    "test:image-stream-preview": "node scripts/streaming-image-preview-selftest.ts",
     "test:requirement-signature": "node scripts/requirement-signature-selftest.ts",
     "test:requirement-graph": "node scripts/requirement-graph-selftest.ts",
     "test:task-scope": "node scripts/task-scope-selftest.ts",

@@ -166,8 +166,24 @@ async function run() {
   let streamClosedCount = 0;
   let slowBodyClosed = false;
   let imageGenerationRequest = null;
+  let imageGenerationAuthorization = "";
   let imageEditRequestBody = "";
   const server = http.createServer((request, response) => {
+    if (request.url === "/naimage/api/token/1") {
+      response.setHeader("content-type", "application/json; charset=utf-8");
+      response.end(JSON.stringify({
+        data: {
+          id: 1,
+          name: "transport",
+          key: "sk-transport-fixture",
+          status: 1,
+          unlimited_quota: true,
+          expired_time: -1,
+          group: "vip"
+        }
+      }));
+      return;
+    }
     if (request.url === "/json-body") {
       const chunks = [];
       request.on("data", (chunk) => chunks.push(chunk));
@@ -181,6 +197,7 @@ async function run() {
       return;
     }
     if (request.url === "/naimage/v1/images/generations") {
+      imageGenerationAuthorization = String(request.headers.authorization || "");
       const chunks = [];
       request.on("data", (chunk) => chunks.push(chunk));
       request.once("end", () => {
@@ -453,7 +470,13 @@ async function run() {
     });
     await assert.rejects(() => oversizedResponse.text(), /安全上限/);
 
-    const streamSettings = { ...settings, serverSessionCookie: "session=transport", serverUserId: "7" };
+    const streamSettings = {
+      ...settings,
+      accountBaseUrl: `${baseUrl}/naimage`,
+      serverSessionCookie: "session=transport",
+      serverUserId: "7",
+      selectedAccountTokenId: "1"
+    };
     const relayEvents = [];
     await newApiRelayStream(streamSettings, "/events", { input: "fixture" }, (event) => relayEvents.push(event));
     assert.equal(relayEvents.length, 1);
@@ -469,7 +492,8 @@ async function run() {
     );
     assert.equal(imageGenerationRequest?.stream, true);
     assert.equal(imageGenerationRequest?.partial_images, 3);
-    assert.equal(imageGenerationRequest?.group, "vip");
+    assert.equal(imageGenerationRequest?.group, undefined);
+    assert.equal(imageGenerationAuthorization, "Bearer sk-transport-fixture");
     assert.deepEqual(partialImages.map((item) => item.index), [1, 2, 3]);
     assert.equal(streamedImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
     assert.equal(streamedImage.partial_images, 3);
@@ -505,14 +529,12 @@ async function run() {
       (error) => error?.code === "NEW_API_SSE_EVENT_TOO_LARGE"
     );
 
-    const crossOriginRelaySettings = {
+    const directModelSettings = {
       ...streamSettings,
-      accountBaseUrl: "https://account.example",
-      relayBaseUrl: baseUrl,
       serverSessionCookie: "session=account-cookie"
     };
-    await newApiRelayJson(crossOriginRelaySettings, "/relay-cookie", { probe: true });
-    assert.equal(crossOriginRelaySettings.serverSessionCookie, "session=account-cookie", "Cross-origin relay Set-Cookie must not rotate the account session");
+    await newApiRelayJson(directModelSettings, "/v1/relay-cookie", { probe: true });
+    assert.equal(directModelSettings.serverSessionCookie, "session=account-cookie", "Direct model Set-Cookie must not rotate the account session");
     await assert.rejects(
       () => newApiFetch({ ...settings, accountBaseUrl: "https://account.example", relayBaseUrl: "http://relay.example" }, "/ok", { service: "relay", retries: 0 }),
       /HTTPS 或 localhost\/loopback/
@@ -603,7 +625,7 @@ async function run() {
       imageJsonFallback: true,
       explicitProxy: true,
       splitServiceBaseUrls: true,
-      crossOriginRelayCookieIsolation: true,
+      directModelCookieIsolation: true,
       timeoutBounded: true,
       aidebugImageFixtures: 4,
     };

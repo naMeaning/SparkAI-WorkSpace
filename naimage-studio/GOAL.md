@@ -71,11 +71,11 @@
 
 ### 8. 图片容器流式中间预览
 
-- 状态：`部分实现`
-- 当前基础：运行时和 Renderer 已有流式图片预览状态与事件。
-- 缺口：审计预览是否对单图节点、批量容器、连续系列和分层容器均落在目标容器槽位，结束/失败时是否清理。
-- 权威文件：图片 transport、IPC、`src/main.tsx`、图片容器组件。
-- 证明：流事件归属 selftest；容器专项 GUI 冒烟。
+- 状态：`已验证`
+- 已实现：账号 Images SSE 与自定义 Responses image generation 的 partial 统一进入 `image-preview`；手动画布请求和 Agent 请求都携带父 operation 与一基并发槽位，分层任务还为每个图层保留独立槽位。Renderer 按 operation、生成节点和布局 host 把最新 partial 放入目标单图/批量容器/连续系列/分层占位组的 pending tile，完成、失败或停止时按槽位清理，不再创建独立画布预览节点。
+- 对话边界：中间图不再复制到 Agent 时间线消息，也不在主对话框或独立 Agent 窗口显示；它只存在于运行时 Renderer state，不写项目 session、会话历史或图片库。
+- 权威文件：`desktop/new-api-client.cjs`、`desktop/ipc/server-ipc.cjs`、`agent-runtime.cjs`、`src/streaming-image-preview.ts`、`src/main.tsx`。
+- 证明：`test:image-stream-preview` 17 cases、`test:image-container` 12 cases、`test:new-api-transport`、`test:agent-window`、`test:agent-protocol`、`typecheck`、正式 `build` 与 `test:bundle`。
 
 ### 9. 提示词复制按钮布局
 
@@ -116,6 +116,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成图片容器流式中间预览；手工与 Agent 并发生图按 operation/槽位归入目标容器，移除独立预览节点及对话窗口内 partial，最终态按槽位清理。
 - 2026-07-28：完成设置接入状态懒加载；账户密钥与模型/分组优先读取本地脱敏快照，显式按钮单击才访问 New API，并移除六次点击强刷逻辑。
 - 2026-07-28：完成真正的独立 Electron Agent 窗口；主 Renderer 权威状态与独立表面双向同步，浮窗可发送/停止任务、管理会话和图片上下文并收回任一停靠方向，定向双窗口测试完成真实 mock Agent 往返。
 - 2026-07-28：完成 Agent 四向停靠与应用内浮动，独立窗口仍待实现；完成自定义模型文案、提示词复制区布局和 resize 零 React 高频提交优化，并新增 16 项纯布局测试与 17 项 Electron 定向 UI 验证。

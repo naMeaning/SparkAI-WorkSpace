@@ -42,12 +42,6 @@ function toolCard(trace) {
   if (trace.params) title.append(element("span", "", `· ${trace.params}`));
   card.append(title);
   if (trace.brief) card.append(element("p", "tool-brief", trace.brief));
-  if (trace.partialImage?.dataUrl) {
-    const image = element("img", "tool-preview");
-    image.alt = `中间预览 ${trace.partialImage.index || 1}/${trace.partialImage.total || 1}`;
-    image.src = trace.partialImage.dataUrl;
-    card.append(image);
-  }
   if (Array.isArray(trace.prompts) && trace.prompts.length) {
     const details = element("details", "prompt-details");
     details.append(element("summary", "", `查看生图提示词 · ${trace.prompts.length}`));

@@ -2871,7 +2871,7 @@ async function callNewApiImage(settings, payload = {}) {
         try {
           payload.onPartialImage?.({
             ...partial,
-            requestIndex: index,
+            requestIndex: index + 1,
             requestNumber: index + 1,
             requestCount: count
           });

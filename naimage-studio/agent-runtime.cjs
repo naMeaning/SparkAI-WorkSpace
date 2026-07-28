@@ -2640,7 +2640,7 @@ function createAgentRuntime(options) {
                 dataUrl: String(partial?.dataUrl || ""),
                 index: Math.max(1, Number(partial?.index || 1)),
                 total: Math.max(1, Number(partial?.total || 3)),
-                requestIndex: Number(partial?.requestIndex ?? index)
+                requestIndex: Math.max(1, Math.min(10, Math.floor(Number(args.partialRequestIndex) || index + 1)))
               }
             }),
             onRetry: (retry) => progress?.({
@@ -3080,6 +3080,7 @@ function createAgentRuntime(options) {
           referenceImages: userReferences,
           operationId: context.operationId || context.toolRunId,
           toolRunId: context.operationId || context.toolRunId,
+          partialRequestIndex: 1,
           runId: `${groupId}-preview`
         }, settings, context.progress);
     const previewAsset = preview.outputs?.[0] || null;
@@ -3151,6 +3152,7 @@ function createAgentRuntime(options) {
         layerOutputMode: isBackground || isDirectSemanticLayer ? "direct" : "mask",
         operationId: context.operationId || context.toolRunId,
         toolRunId: context.operationId || context.toolRunId,
+        partialRequestIndex: index + 1,
         runId: `${groupId}-${index + 1}-${layer.id}`
       }, settings, context.progress);
       const asset = generation.outputs?.[0] || null;

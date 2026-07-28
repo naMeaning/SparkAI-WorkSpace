@@ -9,7 +9,6 @@ import type {
 const maximumPromptChars = 200_000;
 const maximumMessageChars = 16_000;
 const maximumToolPromptChars = 12_000;
-const maximumPartialImageChars = Math.floor(2.5 * 1024 * 1024);
 
 export type AgentWindowMessage = {
   id: string;
@@ -27,7 +26,6 @@ export type AgentWindowMessage = {
     params: string;
     brief: string;
     prompts: { title: string; prompt: string }[];
-    partialImage?: { dataUrl: string; index: number; total: number };
     completionText?: string;
   };
 };
@@ -86,17 +84,7 @@ function boundedCount(value: unknown, maximum = 999) {
   return Math.max(0, Math.min(maximum, Math.floor(Number(value) || 0)));
 }
 
-function normalizedPartialImage(value?: { dataUrl?: unknown; index?: unknown; total?: unknown }) {
-  const dataUrl = String(value?.dataUrl || "");
-  if (!/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl) || dataUrl.length > maximumPartialImageChars) return undefined;
-  return {
-    dataUrl,
-    index: Math.max(1, Math.floor(Number(value?.index) || 1)),
-    total: Math.max(1, Math.floor(Number(value?.total) || 1))
-  };
-}
-
-function agentWindowMessage(message: AgentMessage, includePartialImage: boolean): AgentWindowMessage {
+function agentWindowMessage(message: AgentMessage): AgentWindowMessage {
   const trace = message.toolTrace;
   const sourceCount = message.attachments?.sourceAssets?.length ?? message.attachments?.sourceCount ?? 0;
   const referenceCount = message.attachments?.referenceAssets?.length ?? message.attachments?.referenceCount ?? 0;
@@ -119,7 +107,6 @@ function agentWindowMessage(message: AgentMessage, includePartialImage: boolean)
         title: boundedText(item.title || `提示词 ${index + 1}`, 256),
         prompt: boundedText(item.prompt, maximumToolPromptChars)
       })),
-      partialImage: includePartialImage ? normalizedPartialImage(trace.partialImage) : undefined,
       completionText: trace.completionText ? boundedText(trace.completionText, 8_000) : undefined
     } : undefined
   };
@@ -163,17 +150,10 @@ export function agentWindowStatusText({
 }
 
 export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): AgentWindowSnapshot {
-  let remainingPartialImages = 3;
   const messages = input.messages
     .filter((message) => !message.hidden)
     .slice(-40)
-    .reverse()
-    .map((message) => {
-      const includePartialImage = remainingPartialImages > 0 && Boolean(message.toolTrace?.partialImage);
-      if (includePartialImage) remainingPartialImages -= 1;
-      return agentWindowMessage(message, includePartialImage);
-    })
-    .reverse();
+    .map(agentWindowMessage);
   const conversations = [
     {
       id: input.activeConversationId,

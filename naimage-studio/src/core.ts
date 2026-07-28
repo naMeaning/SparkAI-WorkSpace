@@ -195,7 +195,6 @@ export type AgentToolTrace = {
   params: string;
   brief: string;
   prompts?: { title?: string; prompt: string }[];
-  partialImage?: { dataUrl: string; index: number; total: number };
   completionText?: string;
 };
 
@@ -1427,6 +1426,8 @@ export type ServerBridge = {
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
     runId?: string;
+    operationId?: string;
+    requestIndex?: number;
     projectId?: string;
     prompt: string;
     model?: string;

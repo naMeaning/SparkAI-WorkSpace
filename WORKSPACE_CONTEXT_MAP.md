@@ -184,7 +184,7 @@ corepack pnpm run crm:check
 | 账户密钥 | `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
-| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览、最终 result、计费与结果落盘；模型请求体不注入 group |
+| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
 | 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
@@ -192,7 +192,7 @@ corepack pnpm run crm:check
 
 桌面 1.0.6 支持两种互斥出口：账号模式用 session cookie + `New-Api-User` 管理账户、余额、密钥和设备授权，再以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起模型请求；默认组合是 `https://sparkapi.org/v1`。自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送用户 API Key。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。原生 New API 可提供登录、密钥和标准模型接口，`/api/naimage/license*`、桌面更新与旧 `/naimage/v1/*` Relay 仍属于可选后端扩展。
 
-生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
+生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。partial 按父 operation 和一基并发槽位进入目标图片节点/容器的 pending tile，终态清理，不进入 Agent 对话、项目 session 或图片库。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
 
 产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。旧 `/naimage/v1/*` 仅作为后端扩展/历史 Relay 合同保留，不是当前 Studio 模型调用路径。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
 

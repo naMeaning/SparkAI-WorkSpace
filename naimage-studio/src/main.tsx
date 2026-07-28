@@ -243,6 +243,11 @@ import {
   type CanvasSelectionCapabilities
 } from "./canvas-commands";
 import { resolveToolTimelineOperationId } from "./tool-timeline";
+import {
+  groupStreamingImagePreviewsByNode,
+  upsertStreamingImagePreviewState,
+  type StreamingImagePreview
+} from "./streaming-image-preview";
 import { WindowControls } from "./window-controls";
 import { AuthGate, BootScreen } from "./auth-gate";
 import { ImageViewer } from "./image-viewer";
@@ -352,20 +357,6 @@ type CanvasHistorySnapshot = {
   nodes: WorkflowNode[];
   layoutGroups: ImageLayoutGroup[];
   selection: NodeSelectionState;
-};
-
-type StreamingImagePreview = {
-  key: string;
-  operationId: string;
-  runId: string;
-  requestIndex: number;
-  dataUrl: string;
-  index: number;
-  total: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 };
 
 if (__NAIMAGE_AIDEBUG__) {
@@ -3582,55 +3573,7 @@ function App() {
   }
 
   function upsertStreamingImagePreview(payload: AgentProgress, operationId: string) {
-    const partial = payload.partialImage;
-    const dataUrl = String(partial?.dataUrl || "");
-    if (!operationId || !/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl)) return;
-    const requestIndex = Math.max(1, Math.floor(Number(partial?.requestIndex || 1)));
-    const key = `${operationId}:${requestIndex}`;
-    setStreamingImagePreviews((current) => {
-      const existing = current[key];
-      if (existing) {
-        return {
-          ...current,
-          [key]: {
-            ...existing,
-            dataUrl,
-            index: Math.max(1, Math.floor(Number(partial?.index || existing.index))),
-            total: Math.max(1, Math.floor(Number(partial?.total || existing.total)))
-          }
-        };
-      }
-      const width = 360;
-      const height = 420;
-      const selected = nodesRef.current.find((node) => node.id === selectedNodeIdRef.current);
-      const canvasRect = canvasRef.current?.getBoundingClientRect();
-      const center = clientToWorld(
-        (canvasRect?.left ?? 0) + (canvasRect?.width ?? 900) * 0.5,
-        (canvasRect?.top ?? 0) + (canvasRect?.height ?? 700) * 0.46
-      );
-      const selectedBounds = selected ? workflowNodeBounds(selected) : null;
-      const slot = Object.keys(current).length % 10;
-      const preferred = selectedBounds
-        ? { x: selectedBounds.x + selectedBounds.width + 56 + (slot % 3) * 28, y: selectedBounds.y + Math.floor(slot / 3) * 34 }
-        : { x: center.x - width / 2 + (slot % 3) * 30, y: center.y - height / 2 + Math.floor(slot / 3) * 36 };
-      const position = clampNodeWorldPosition(preferred, width, height);
-      return {
-        ...current,
-        [key]: {
-          key,
-          operationId,
-          runId: String(payload.runId || ""),
-          requestIndex,
-          dataUrl,
-          index: Math.max(1, Math.floor(Number(partial?.index || 1))),
-          total: Math.max(1, Math.floor(Number(partial?.total || 3))),
-          x: position.x,
-          y: position.y,
-          width,
-          height
-        }
-      };
-    });
+    setStreamingImagePreviews((current) => upsertStreamingImagePreviewState(current, payload, operationId));
   }
 
   function clearStreamingImagePreview(operationId: string, runId = "", requestIndex?: number) {
@@ -4208,8 +4151,7 @@ function App() {
             ? current.map((message) => message.id === startId && message.status === "running"
                 ? {
                     ...message,
-                    status: (isError ? "error" : "done") as AgentMessage["status"],
-                    toolTrace: message.toolTrace ? { ...message.toolTrace, partialImage: undefined } : message.toolTrace
+                    status: (isError ? "error" : "done") as AgentMessage["status"]
                   }
                 : message)
             : current;
@@ -5259,6 +5201,16 @@ function App() {
 // -----------------------------------------------------------------------------
 
   const layoutProjection = useMemo(() => projectCanvasImageLayouts(nodes, layoutGroups), [layoutGroups, nodes]);
+  const streamingPreviewsByNodeId = useMemo(() => {
+    const grouped = groupStreamingImagePreviewsByNode(streamingImagePreviews, nodes, agentToolNodeIdsRef.current);
+    const projected: Record<string, StreamingImagePreview[]> = {};
+    for (const [nodeId, previews] of Object.entries(grouped)) {
+      const hostNodeId = layoutProjection.groupByMember.get(nodeId)?.hostNodeId ?? nodeId;
+      projected[hostNodeId] = [...(projected[hostNodeId] || []), ...previews]
+        .sort((left, right) => left.requestIndex - right.requestIndex || left.index - right.index);
+    }
+    return projected;
+  }, [layoutProjection.groupByMember, nodes, streamingImagePreviews]);
 
   const canvasNodes = layoutProjection.canvasNodes;
   const canvasNodeById = layoutProjection.canvasNodeById;
@@ -19346,6 +19298,7 @@ function App() {
     ));
     setSelectedNodeId(id);
     setActiveNodeId(id);
+    agentToolNodeIdsRef.current[generationRunId] = id;
     markImageRunStarted(id, startedAt);
     setAgentStatus("editing");
     setActiveRunStartedAt(startedAt);
@@ -19427,6 +19380,8 @@ function App() {
           const attemptRunId = `${generationRunId}-${index + 1}`;
           const result = await imageServer.generateImage({
             runId: attemptRunId,
+            operationId: generationRunId,
+            requestIndex: index + 1,
             projectId: requestProjectId,
             prompt: promptForIndependentImage(taskSnapshot.prompt, total, index),
             model: taskSnapshot.model || settings.imageModel,
@@ -19561,6 +19516,8 @@ function App() {
               createdAt: new Date().toISOString()
             }
           ].slice(-48));
+        } finally {
+          clearStreamingImagePreview(generationRunId, "", index + 1);
         }
       }
 
@@ -20404,6 +20361,8 @@ function App() {
                 const renderHeight = clampedRenderSize.height;
                 const previewBaseHeight = renderHeight ?? nodeMinimum.height ?? NODE_RESIZE_MIN_H;
                 const pendingTileCount = pendingImageTileCount(node, nodeIsGenerating);
+                const nodeStreamingPreviews = streamingPreviewsByNodeId[node.id] ?? [];
+                const remainingPendingTileCount = Math.max(0, pendingTileCount - nodeStreamingPreviews.length);
                 const failedTileCount = nodeIsGenerating ? 0 : Math.max(0, Number(node.imageProgress?.failed ?? node.imageProgress?.failedSlots?.length ?? 0) || 0);
                 const imageProgressText = nodeIsGenerating ? "" : nodeImageProgressText(node);
                 const visibleNodeError = nodeIsGenerating ? "" : nodeErrorMessage(node);
@@ -20566,7 +20525,7 @@ function App() {
                     </span>
                     {node.type === "image" ? (
                       <div
-                        className={`node-image-preview ${node.imageContainer || node.imageCollection ? "image-result-container-preview" : ""} ${node.imageContainer ? "image-container-preview" : ""} ${node.imageCollection ? `image-collection-preview ${node.imageCollection.kind}` : ""} ${visibleAssets.length > 0 || pendingTileCount > 1 || failedTileCount > 0 ? "ready" : node.imageState ?? "empty"} image-${imageOrientationForNode(node)} layout-${gridPresentation.variant} ${opaqueContainerAssets ? "opaque-assets" : ""} ${node.imageState === "error" ? "has-error" : ""}`}
+                        className={`node-image-preview ${node.imageContainer || node.imageCollection ? "image-result-container-preview" : ""} ${node.imageContainer ? "image-container-preview" : ""} ${node.imageCollection ? `image-collection-preview ${node.imageCollection.kind}` : ""} ${visibleAssets.length > 0 || nodeStreamingPreviews.length > 0 || pendingTileCount > 1 || failedTileCount > 0 ? "ready" : node.imageState ?? "empty"} image-${imageOrientationForNode(node)} layout-${gridPresentation.variant} ${opaqueContainerAssets ? "opaque-assets" : ""} ${node.imageState === "error" ? "has-error" : ""}`}
                         data-image-count={displaySlotCount}
                         data-container-core={node.imageContainer || node.imageCollection ? "image-result-container" : undefined}
                         data-container-presentation={node.imageCollection?.kind === "series" ? "series" : node.imageContainer || node.imageCollection ? "grid" : undefined}
@@ -20642,7 +20601,7 @@ function App() {
                                 ))}
                             </div>
                           </div>
-                        ) : visibleAssets.length > 0 || pendingTileCount > 1 || failedTileCount > 0 ? (
+                        ) : visibleAssets.length > 0 || nodeStreamingPreviews.length > 0 || pendingTileCount > 1 || failedTileCount > 0 ? (
                           <>
                             {presentedAssets.map(({ asset, assetIndex: index }) => {
                               const collectionItem = imageCollectionItemForAsset(node, index);
@@ -20733,7 +20692,21 @@ function App() {
                                 <small>更多图片</small>
                               </span>
                             ) : null}
-                            {Array.from({ length: pendingTileCount }, (_item, index) => (
+                            {nodeStreamingPreviews.map((preview) => (
+                              <span
+                                key={preview.key}
+                                className="node-image-pending-tile stream-preview-tile"
+                                data-stream-preview="true"
+                                data-operation-id={preview.operationId}
+                                data-request-index={preview.requestIndex}
+                                role="status"
+                                aria-label={`并发任务 ${preview.requestIndex} 中间预览 ${preview.index}/${preview.total}`}
+                              >
+                                <img src={preview.dataUrl} alt="生图中间预览" draggable={false} decoding="async" />
+                                <small>预览 {preview.index}/{preview.total}</small>
+                              </span>
+                            ))}
+                            {Array.from({ length: remainingPendingTileCount }, (_item, index) => (
                               <span key={`pending-${node.id}-${index}`} className="node-image-pending-tile" aria-label="图片占位">
                                 <ImageIcon size={18} />
                               </span>
@@ -20820,41 +20793,6 @@ function App() {
                   </div>
                 );
               })}
-              {Object.values(streamingImagePreviews).map((preview) => (
-                <div
-                  key={preview.key}
-                  className="flow-node image image-stream-preview working"
-                  data-stream-preview="true"
-                  data-operation-id={preview.operationId}
-                  data-request-index={preview.requestIndex}
-                  role="status"
-                  aria-label={`生图中间预览 ${preview.index}/${preview.total}`}
-                  style={{
-                    left: preview.x,
-                    top: preview.y,
-                    width: preview.width,
-                    height: preview.height,
-                    minWidth: preview.width,
-                    minHeight: preview.height,
-                    zIndex: 900_000
-                  }}
-                >
-                  <header>
-                    <span className="node-kind"><ImageIcon size={16} aria-hidden="true" /><em>PREVIEW</em></span>
-                    <span className="node-title-block"><strong>生成中的画布预览</strong></span>
-                    <span className="node-state"><Loader2 size={12} className="spin" /> 生成中</span>
-                  </header>
-                  <div className="node-image-preview ready image-square stream-preview-image">
-                    <span className="node-image-tile">
-                      <img src={preview.dataUrl} alt="生图中间预览" draggable={false} decoding="async" />
-                    </span>
-                  </div>
-                  <footer>
-                    <span>中间预览 {preview.index}/{preview.total}</span>
-                    <span>{preview.requestIndex > 1 ? `并发任务 ${preview.requestIndex}` : "等待最终图片"}</span>
-                  </footer>
-                </div>
-              ))}
             </div>
 
             {canvasSelectionBox ? (
