@@ -77,6 +77,8 @@ import {
   PanelRightOpen,
   PanelTop,
   PanelsTopLeft,
+  Pause,
+  Play,
   Plus,
   RotateCcw,
   Search,
@@ -124,12 +126,17 @@ import {
 } from "./settings-persistence";
 import type { ActivePluginToolbarItem } from "./plugin-system";
 import {
+  canvasClipboardSummary,
+  copyCanvasNodes,
+  pasteCanvasNodes,
+  type CanvasClipboardPayload
+} from "./canvas-clipboard";
+import {
   MAX_AGENT_REFERENCE_IMAGES,
   MAX_AGENT_SOURCE_IMAGES,
   MAX_REFERENCE_IMAGES,
   agentTaskScopeSnapshotHash,
   agentExecutionScopeMatches,
-  blockImagePaste,
   clipboardHasImage,
   cloneImageAssets,
   cloneImageCollection,
@@ -324,6 +331,7 @@ import type {
   ImageGenerationStats,
   ImageQuotaDialogState,
   AgentProgress,
+  AgentRunControlSnapshot,
   AgentRuntimeAction,
   AgentToolTrace,
   ServerBridge,
@@ -590,6 +598,7 @@ const initialNodes: WorkflowNode[] = [];
 
 type ConnectionDraft = {
   sourceId: string;
+  sourceIds: string[];
   worldX: number;
   worldY: number;
 };
@@ -1015,6 +1024,8 @@ function nowLabel() {
 function uid(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+const RENDERER_PERSISTENCE_ORIGIN_ID = uid("renderer");
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -1477,7 +1488,7 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
   };
 }
 
-function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDisplayCodes: Set<string>): WorkflowNode | null {
+function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDisplayCodes: Set<string>, fallbackOriginId = ""): WorkflowNode | null {
   if (!raw || typeof raw !== "object") return null;
   const source = raw as Partial<WorkflowNode> & Record<string, unknown>;
   const promptParts = splitPromptError(source.prompt);
@@ -1549,8 +1560,16 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     typeof source.imageError === "string" && source.imageError.trim() ? source.imageError.trim() : promptParts.error;
   const imageError = interruptedImageRun ? "上次生成已中断。" : rawImageError;
 
+  const createdAt = typeof source.createdAt === "string" && source.createdAt.trim() ? source.createdAt : nowLabel();
+  const persistenceOriginId = typeof source.persistenceOriginId === "string" && source.persistenceOriginId.trim()
+    ? source.persistenceOriginId.trim().slice(0, 200)
+    : fallbackOriginId
+      ? `${fallbackOriginId}:${id}`
+      : `legacy:${id}:${createdAt}:${type}`;
+
   return applyImageContainerCompatibility({
     id,
+    persistenceOriginId,
     displayCode,
     assetSequence: Math.max(
       Math.floor(Number(source.assetSequence || 0) || 0),
@@ -1572,7 +1591,7 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     agentOwnerId,
     branch: typeof source.branch === "string" && source.branch.trim() ? source.branch : "project-agent",
     outputs,
-    createdAt: typeof source.createdAt === "string" && source.createdAt.trim() ? source.createdAt : nowLabel(),
+    createdAt,
     agentConversationId: type === "agent" && typeof source.agentConversationId === "string" && source.agentConversationId.trim() ? source.agentConversationId.trim() : undefined,
     agentInitState:
       type === "agent" && (source.agentInitState === "checking" || source.agentInitState === "awaiting-brief" || source.agentInitState === "ready" || source.agentInitState === "error")
@@ -1790,12 +1809,12 @@ function nextNodeZOrder(nodes: WorkflowNode[]) {
   return Math.max(9, ...nodes.map((node, index) => nodeZOrder(node, index))) + 1;
 }
 
-function validNodes(value: unknown): WorkflowNode[] {
+function validNodes(value: unknown, fallbackOriginId = ""): WorkflowNode[] {
   if (!Array.isArray(value) || value.length === 0) return initialNodes;
   const usedIds = new Set<string>();
   const usedDisplayCodes = new Set<string>();
   const migratedNodes = value
-    .map((node, index) => sanitizeNode(node, index, usedIds, usedDisplayCodes))
+    .map((node, index) => sanitizeNode(node, index, usedIds, usedDisplayCodes, fallbackOriginId))
     .filter((node): node is WorkflowNode => Boolean(node));
   const expandedIds = new Set(migratedNodes.map((node) => node.id));
   const migrated = migratedNodes.flatMap((node) => {
@@ -2224,7 +2243,7 @@ function normalizeWorkflowSession(session?: WorkflowSession | Partial<StudioWork
 }
 
 function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): StudioWorkflowSession {
-  const migratedNodes = validNodes(session.nodes);
+  const migratedNodes = validNodes(session.nodes, RENDERER_PERSISTENCE_ORIGIN_ID);
   const messages = validMessages(session.messages);
   const conversations = validConversations(session.conversations);
   reconcileWorkflowSessionAssetIds(migratedNodes, messages, conversations);
@@ -2283,9 +2302,9 @@ async function saveSettingsToStore(settings: AppSettings) {
   return { ok: true, accountChanged };
 }
 
-async function loadSessionFromStore(): Promise<StudioWorkflowSession> {
+async function loadSessionFromStore(projectId = ""): Promise<StudioWorkflowSession> {
   if (window.naimageConfig) {
-    const result = await window.naimageConfig.loadSession();
+    const result = await window.naimageConfig.loadSession(projectId ? { projectId } : undefined);
     if (result.ok) {
       return normalizeWorkflowSession(result.session);
     }
@@ -2951,6 +2970,10 @@ function App() {
     markPerformancePhase("app-first-render");
   }
   useFloatingDialogInteractions();
+  const launchContextRef = useRef({
+    projectId: new URLSearchParams(window.location.search).get("projectId")?.trim() || "",
+    newConversation: new URLSearchParams(window.location.search).get("newConversation") === "1"
+  });
 
 // -----------------------------------------------------------------------------
 // MAIN 10A App State Graph
@@ -2998,6 +3021,8 @@ function App() {
   const [commerceTranslationDialog, setCommerceTranslationDialog] = useState<{ sourceCount: number; sourceLabel: string } | null>(null);
   const [pluginToolbarItems, setPluginToolbarItems] = useState<ActivePluginToolbarItem[]>([]);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
+  const [agentPaused, setAgentPaused] = useState(false);
+  const [lockedNodeIds, setLockedNodeIds] = useState<string[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [agentSourceImages, setAgentSourceImages] = useState<ReferenceImage[]>([]);
   const [agentReferenceImages, setAgentReferenceImages] = useState<ReferenceImage[]>([]);
@@ -3098,6 +3123,7 @@ function App() {
   const pendingRuntimeFocusNodeIdRef = useRef("");
   const layoutRefocusTimerRef = useRef<number | null>(null);
   const activeProjectIdRef = useRef(activeProjectId);
+  const lockedNodeIdsRef = useRef<Set<string>>(new Set());
   const projectSessionApplyRef = useRef(0);
   const skipInitialSessionAutosaveRef = useRef(true);
   const projectSessionRevisionRef = useRef<Record<string, number>>({});
@@ -3188,6 +3214,8 @@ function App() {
     status: "pending" | "done" | "error";
     result?: { ok: boolean; nodeId?: string; error?: string };
   } | null>(null);
+  const canvasClipboardRef = useRef<CanvasClipboardPayload | null>(null);
+  const lastCanvasPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const canvasStageRef = useRef<HTMLDivElement | null>(null);
@@ -3689,7 +3717,7 @@ function App() {
         bootLog("config/session load start");
         const [storedSettings, storedSession] = await Promise.all([
           loadSettingsFromStore(),
-          loadSessionFromStore()
+          loadSessionFromStore(launchContextRef.current.projectId)
         ]);
         if (cancelled) return;
         markPerformancePhase("config-load-resolved");
@@ -3707,14 +3735,33 @@ function App() {
         if (window.naimageConfig?.listProjects) {
           const list = await window.naimageConfig.listProjects();
           if (list.ok) {
-            loadedProjectId = list.activeProjectId ?? "default";
+            loadedProjectId = launchContextRef.current.projectId || list.activeProjectId || "default";
             loadedProjects = list.projects ?? [];
           }
         }
+        const launchSession = launchContextRef.current.newConversation
+          ? (() => {
+              const previousConversation = createPersistedConversationSnapshot(
+                storedSession.messages,
+                storedSession.activeConversationId,
+                storedSession.conversations
+              );
+              const conversations = conversationHasContent(storedSession.messages)
+                ? upsertConversation(storedSession.conversations, previousConversation)
+                : storedSession.conversations;
+              return {
+                ...storedSession,
+                conversations,
+                activeConversationId: uid("conv"),
+                messages: [],
+                pendingAgentExecution: null
+              };
+            })()
+          : storedSession;
         applyProjectSession({
           activeProjectId: loadedProjectId,
           projects: loadedProjects,
-          session: storedSession
+          session: launchSession
         });
         bootLog("config/session load done");
       } finally {
@@ -3932,6 +3979,35 @@ function App() {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
+
+  useEffect(() => {
+    lockedNodeIdsRef.current = new Set(lockedNodeIds);
+  }, [lockedNodeIds]);
+
+  useEffect(() => {
+    const bridge = window.naimageAgent;
+    if (!bridge?.runStatus) return;
+    let disposed = false;
+    const applySnapshot = (snapshot?: AgentRunControlSnapshot) => {
+      if (disposed || !snapshot?.ok) return;
+      const projectId = activeProjectIdRef.current || "default";
+      const conversationId = activeConversationIdRef.current || "default";
+      const projectRuns = (snapshot.runs ?? []).filter((run) => run.projectId === projectId);
+      const nextLocked = [...new Set(projectRuns.flatMap((run) => run.nodeIds))];
+      lockedNodeIdsRef.current = new Set(nextLocked);
+      setLockedNodeIds(nextLocked);
+      setAgentPaused(Boolean(
+        projectRuns.some((run) => run.conversationId === conversationId && run.paused) ||
+        (snapshot.pausedScopes ?? []).some((scope) => scope.projectId === projectId && scope.conversationId === conversationId)
+      ));
+    };
+    void bridge.runStatus().then(applySnapshot).catch(() => undefined);
+    const unsubscribe = bridge.onRunState?.(applySnapshot);
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [activeProjectId, activeConversationId]);
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
@@ -4244,7 +4320,7 @@ function App() {
       const me = await window.naimageServer.me({ preferCached: options.preferCached === true });
       if (!isCurrentRefresh() || me.stale === true) return false;
       if (!me.ok || !me.user) {
-        if (agentExecutionBusyNow()) stopAgentRun();
+        if (agentExecutionBusyNow()) await stopAgentRun();
         await cancelPendingAgentExecutionForAuthBoundary();
         setServerUser(null);
         setServerWallet(null);
@@ -4263,7 +4339,7 @@ function App() {
       return true;
     } catch (error) {
       if (!isCurrentRefresh()) return false;
-      if (agentExecutionBusyNow()) stopAgentRun();
+      if (agentExecutionBusyNow()) await stopAgentRun();
       await cancelPendingAgentExecutionForAuthBoundary();
       setServerUser(null);
       setServerWallet(null);
@@ -4434,6 +4510,7 @@ function App() {
           next?: CanvasViewport;
         }
       | null = null;
+    let spacePressed = false;
     let selection:
       | {
           startX: number;
@@ -4539,6 +4616,7 @@ function App() {
       const top = Math.min(finished.startY, finished.currentY);
       const bottom = Math.max(finished.startY, finished.currentY);
       if (right - left < 4 && bottom - top < 4) {
+        applyNodeSelection({ type: "clear" }, "canvas-blank-click");
         return;
       }
       const ids = Array.from(canvas.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
@@ -4548,7 +4626,7 @@ function App() {
         })
         .map((node) => String(node.dataset.nodeId || ""))
         .filter(Boolean);
-      applyNodeSelection({ type: "replace-group", ids, preserveOnEmpty: true }, "middle-marquee", true);
+      applyNodeSelection({ type: "replace-group", ids, preserveOnEmpty: true }, "marquee", true);
     };
 
     const cancelSelection = () => {
@@ -4599,10 +4677,20 @@ function App() {
       target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator");
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.button === 1) startSelection(event);
+      if (event.button === 1 && canStartCanvasPan(event.target)) startPan(event);
       if (event.button === 0 && canStartCanvasPan(event.target)) {
-        startPan(event);
+        if (spacePressed || event.altKey) startPan(event);
+        else startSelection(event);
       }
+    };
+
+    const handleSpaceDown = (event: KeyboardEvent) => {
+      if (event.code === "Space" && !(event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']"))) {
+        spacePressed = true;
+      }
+    };
+    const handleSpaceUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") spacePressed = false;
     };
 
     const handleAuxClick = (event: MouseEvent) => {
@@ -4944,6 +5032,8 @@ function App() {
     canvas.addEventListener("wheel", handleWheel, { passive: false });
     canvas.addEventListener("pointerdown", handlePointerDown);
     canvas.addEventListener("auxclick", handleAuxClick);
+    window.addEventListener("keydown", handleSpaceDown);
+    window.addEventListener("keyup", handleSpaceUp);
     return () => {
       if (wheelCommitTimer) window.clearTimeout(wheelCommitTimer);
       stopPan();
@@ -4957,6 +5047,8 @@ function App() {
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("pointerdown", handlePointerDown);
       canvas.removeEventListener("auxclick", handleAuxClick);
+      window.removeEventListener("keydown", handleSpaceDown);
+      window.removeEventListener("keyup", handleSpaceUp);
       cleanupCanvasDebug();
     };
   }, [serverUser?.id, authReady, canvasMountTick, selectedNodeId, nodes, settings]);
@@ -5273,6 +5365,14 @@ function App() {
     () => new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id)),
     [layoutProjection.groupByMember, selectedNodeIds]
   );
+  const lockedNodeIdSet = useMemo(() => {
+    const result = new Set<string>();
+    for (const id of lockedNodeIds) {
+      result.add(id);
+      result.add(layoutProjection.groupByMember.get(id)?.hostNodeId ?? id);
+    }
+    return result;
+  }, [layoutProjection.groupByMember, lockedNodeIds]);
   const canvasImageStatus = useMemo(() => {
     const imageCount = canvasNodes.filter((node) => node.type === "image").length;
     const requirementCount = canvasNodes.filter((node) => node.type === "requirement").length;
@@ -5628,6 +5728,31 @@ function App() {
 // MAIN 10F Canvas Interaction And Node Graph Editing
 // -----------------------------------------------------------------------------
 
+  function lockedMutationNodeIds(nodeIds: Iterable<string>) {
+    const requested = new Set([...nodeIds].map((id) => String(id || "").trim()).filter(Boolean));
+    if (!requested.size || !lockedNodeIdsRef.current.size) return [];
+    for (const group of layoutGroupsRef.current) {
+      if (requested.has(group.hostNodeId) || group.memberNodeIds.some((id) => requested.has(id))) {
+        group.memberNodeIds.forEach((id) => requested.add(id));
+        requested.add(group.hostNodeId);
+      }
+    }
+    for (const node of nodesRef.current) {
+      if (!node.layerGroup || !requested.has(node.id)) continue;
+      nodesRef.current
+        .filter((candidate) => candidate.layerGroup?.id === node.layerGroup?.id)
+        .forEach((candidate) => requested.add(candidate.id));
+    }
+    return [...requested].filter((id) => lockedNodeIdsRef.current.has(id));
+  }
+
+  function blockLockedNodeMutation(nodeIds: Iterable<string>, action = "修改") {
+    const locked = lockedMutationNodeIds(nodeIds);
+    if (!locked.length) return false;
+    setServerMessage(`节点 ${locked.join("、")} 正由运行中的会话处理，结束任务后才能${action}。`);
+    return true;
+  }
+
   function clientToWorld(clientX: number, clientY: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
     const viewportNow = viewportRef.current;
@@ -5637,8 +5762,62 @@ function App() {
     };
   }
 
+  function connectNodeGroup(sourceIds: string[], targetId: string) {
+    const uniqueSourceIds = [...new Set(sourceIds.map((id) => String(id || "").trim()).filter(Boolean))]
+      .filter((id) => id !== targetId);
+    if (blockLockedNodeMutation([...uniqueSourceIds, targetId], "调整连线")) return false;
+    if (uniqueSourceIds.length <= 1) return connectNodes(uniqueSourceIds[0] || "", targetId);
+    const targetNode = nodesRef.current.find((node) => node.id === targetId);
+    if (!targetNode || targetNode.type !== "requirement" || !targetNode.requirement) {
+      setServerMessage("多选成果只能批量连接到需求节点；普通成果仍保持单一来源关系。");
+      return false;
+    }
+    const sourceNodes = uniqueSourceIds
+      .map((id) => nodesRef.current.find((node) => node.id === id))
+      .filter((node): node is WorkflowNode => Boolean(node && node.type === "image"));
+    if (!sourceNodes.length) {
+      setServerMessage("所选内容中没有可连接的图片成果或容器。");
+      return false;
+    }
+    const existingBindings = requirementInputBindings(targetNode, nodesRef.current);
+    const existingById = new Map(existingBindings.map((binding) => [binding.nodeId, binding.role]));
+    const additions = sourceNodes.filter((node) => existingById.get(node.id) !== requirementInputRoleForNode(node));
+    if (!additions.length) return false;
+    if (additions.some((node) => collectDescendantIds(nodesRef.current, targetId).has(node.id))) {
+      addEvent("阻止会形成循环的批量连线");
+      return false;
+    }
+    pushCanvasHistory(`批量连接 ${additions.length} 个需求来源`);
+    let requirement = targetNode.requirement;
+    for (const node of additions) {
+      requirement = upsertRequirementInputBinding(requirement, {
+        nodeId: node.id,
+        role: requirementInputRoleForNode(node)
+      });
+    }
+    const nextTarget = { ...targetNode, requirement, parentId: targetNode.parentId };
+    const bindings = requirementInputBindings(nextTarget, nodesRef.current);
+    const nextNodes = nodesRef.current.map((node): WorkflowNode => node.id === targetId
+      ? {
+          ...node,
+          parentId: primaryRequirementInputNodeId(bindings) || undefined,
+          relationType: "referenced",
+          requirement
+        }
+      : node);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    replaceSelectedNodeId(targetId);
+    setActiveNodeId(targetId);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    addEvent(`批量连线 ${additions.map((node) => node.id).join(", ")} -> ${targetId}`);
+    notifyAgentOfManualAction("批量连接需求来源", `用户把 ${additions.length} 个图片成果一次连接到需求 ${targetId}。`);
+    return true;
+  }
+
   function connectNodes(sourceId: string, targetId: string, relationType: WorkflowNode["relationType"] = "derived-from") {
     if (!sourceId || !targetId || sourceId === targetId) return false;
+    if (blockLockedNodeMutation([sourceId, targetId], "调整连线")) return false;
     const sourceNode = nodesRef.current.find((node) => node.id === sourceId);
     const targetNode = nodesRef.current.find((node) => node.id === targetId);
     if (!sourceNode || !targetNode) return false;
@@ -6829,6 +7008,9 @@ function App() {
   }
 
   async function moveContainerAsset(sourceContainerId: string, assetKey: string, clientX: number, clientY: number, targetContainerId = "") {
+    if (blockLockedNodeMutation([sourceContainerId, targetContainerId].filter(Boolean), "移动图片")) {
+      return { ok: false, error: "运行中的节点不能移动图片。" };
+    }
     const beforeNodes = nodesRef.current.map(cloneWorkflowNode);
     const beforeGroups = layoutGroupsRef.current.map((group) => ({ ...group, memberNodeIds: [...group.memberNodeIds] }));
     const sourceBefore = beforeNodes.find((node) => node.id === sourceContainerId && canGroupImageAsset(node));
@@ -6930,6 +7112,7 @@ function App() {
   }
 
   function openRegionRedraw(node: WorkflowNode, assetIndex = 0, redrawPrompt = "", allowDuringAgent = false) {
+    if (blockLockedNodeMutation([node.id], "重绘")) return false;
     if (!allowDuringAgent && agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
       return false;
@@ -6959,6 +7142,7 @@ function App() {
   }
 
   function disconnectNodeInput(nodeId: string) {
+    if (blockLockedNodeMutation([nodeId], "断开连线")) return;
     const node = nodesRef.current.find((item) => item.id === nodeId);
     setSelectedNodeId(nodeId);
     if (!node) return;
@@ -6985,6 +7169,7 @@ function App() {
   }
 
   function disconnectNodeOutputs(nodeId: string) {
+    if (blockLockedNodeMutation([nodeId], "断开连线")) return;
     const childCount = nodesRef.current.reduce((count, item) => {
       if (item.type === "requirement" && requirementInputBindings(item, nodesRef.current).some((binding) => binding.nodeId === nodeId)) return count + 1;
       return count + (item.parentId === nodeId ? 1 : 0);
@@ -7019,16 +7204,20 @@ function App() {
 
   function beginConnection(event: React.PointerEvent<HTMLSpanElement>, source: WorkflowNode) {
     if (event.button !== 0) return;
+    if (blockLockedNodeMutation([source.id], "调整连线")) return;
     event.preventDefault();
     event.stopPropagation();
-    setSelectedNodeId(source.id);
+    const selectedSourceIds = selectedNodeIdsRef.current.includes(source.id) && selectedNodeIdsRef.current.length > 1
+      ? selectedNodeIdsRef.current.filter((id) => nodesRef.current.some((node) => node.id === id && node.type === "image"))
+      : [source.id];
+    if (!selectedNodeIdsRef.current.includes(source.id)) setSelectedNodeId(source.id);
     const startX = event.clientX;
     const startY = event.clientY;
     let moved = false;
     const sourceBounds = workflowNodeBounds(source);
     const sourceX = sourceBounds.x + sourceBounds.width;
     const sourceY = sourceBounds.y + NODE_CONNECT_Y;
-    setConnectionDraft({ sourceId: source.id, worldX: sourceX + 90, worldY: sourceY });
+    setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: sourceX + 90, worldY: sourceY });
     const target = event.currentTarget;
     try {
       target.setPointerCapture(event.pointerId);
@@ -7039,7 +7228,7 @@ function App() {
       moveEvent.preventDefault();
       if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 4) moved = true;
       const point = clientToWorld(moveEvent.clientX, moveEvent.clientY);
-      setConnectionDraft({ sourceId: source.id, worldX: point.x, worldY: point.y });
+      setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: point.x, worldY: point.y });
     };
     const end = (endEvent: PointerEvent) => {
       window.removeEventListener("pointermove", move);
@@ -7054,7 +7243,7 @@ function App() {
       const element = document.elementFromPoint(endEvent.clientX, endEvent.clientY) as HTMLElement | null;
       const targetId = element?.closest<HTMLElement>(".flow-node")?.dataset.nodeId || closestNodeIdAt(nodesRef.current, point.x, point.y, source.id);
       setConnectionDraft(null);
-      if (moved && targetId) connectNodes(source.id, targetId);
+      if (moved && targetId) connectNodeGroup(selectedSourceIds, targetId);
       if (!moved) disconnectNodeOutputs(source.id);
     };
     window.addEventListener("pointermove", move, { passive: false });
@@ -7062,7 +7251,111 @@ function App() {
     window.addEventListener("pointercancel", end);
   }
 
+  function copyCanvasSelection(cut = false) {
+    const payload = copyCanvasNodes(nodesRef.current, currentNodeSelection().ids);
+    if (!payload) return false;
+    canvasClipboardRef.current = payload;
+    void navigator.clipboard?.writeText?.(canvasClipboardSummary(payload)).catch(() => undefined);
+    if (cut) {
+      const capabilities = currentCanvasSelectionCapabilities();
+      if (capabilities.deleteNodeIds.length) {
+        commitNodeRemoval(capabilities.deleteNodeIds, {
+          historyLabel: `剪切 ${capabilities.deleteNodeIds.length} 个画布成果`,
+          eventText: `剪切 ${capabilities.deleteNodeIds.length} 个画布成果`,
+          agentText: `用户剪切了 ${capabilities.deleteNodeIds.length} 个未在运行的画布成果。`
+        });
+      }
+      if (capabilities.deleteExcluded.length) setServerMessage("正在生成的节点不会被剪切，已保留在画布中。");
+    } else {
+      setServerMessage(`已复制 ${payload.nodes.length} 个画布成果；在画布按 Ctrl+V 可粘贴副本。`);
+    }
+    return true;
+  }
+
+  function canvasPasteWorldPoint() {
+    const pointer = lastCanvasPointerRef.current;
+    if (pointer) return clientToWorld(pointer.clientX, pointer.clientY);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return clientToWorld(
+      (rect?.left ?? 0) + (rect?.width ?? window.innerWidth) / 2,
+      (rect?.top ?? 0) + (rect?.height ?? window.innerHeight) / 2
+    );
+  }
+
+  function pasteCopiedCanvasSelection() {
+    const payload = canvasClipboardRef.current;
+    if (!payload) return false;
+    pushCanvasHistory(`粘贴 ${payload.nodes.length} 个画布成果`);
+    const result = pasteCanvasNodes(payload, nodesRef.current, (working) => allocateNodeCode(working), canvasPasteWorldPoint());
+    if (!result.pastedNodeIds.length) return false;
+    nodesRef.current = result.nodes;
+    setNodes(result.nodes);
+    selectNodeGroup(result.pastedNodeIds, result.pastedNodeIds[0]);
+    setActiveNodeId(result.pastedNodeIds[0]);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    addEvent(`粘贴 ${result.pastedNodeIds.length} 个画布成果`);
+    notifyAgentOfManualAction("粘贴画布成果", `用户粘贴了 ${result.pastedNodeIds.length} 个画布成果副本。`);
+    return true;
+  }
+
+  function clipboardFileDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("读取剪贴板图片失败。"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleCanvasPaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    const imageFiles = [
+      ...Array.from(event.clipboardData.items, (item) => item.kind === "file" && item.type.startsWith("image/") ? item.getAsFile() : null),
+      ...Array.from(event.clipboardData.files)
+    ].filter((file): file is File => Boolean(file?.type.startsWith("image/")));
+    if (!imageFiles.length) {
+      if (canvasClipboardRef.current) {
+        event.preventDefault();
+        pasteCopiedCanvasSelection();
+      }
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (!window.naimageConfig?.saveOutputImage) {
+      setServerMessage("当前环境不能把剪贴板图片保存到项目素材库。");
+      return;
+    }
+    try {
+      const assets: ImageAsset[] = [];
+      const pasteRunId = uid("clipboard");
+      for (const [index, file] of imageFiles.slice(0, 40).entries()) {
+        const dataUrl = await clipboardFileDataUrl(file);
+        const result = await window.naimageConfig.saveOutputImage({
+          dataUrl,
+          stem: `clipboard-${index + 1}`,
+          runId: `${pasteRunId}-${index + 1}`,
+          projectId: activeProjectIdRef.current
+        });
+        if (result.ok && result.asset) assets.push({ ...result.asset, originalName: file.name || `剪贴板图片 ${index + 1}` });
+      }
+      if (!assets.length) throw new Error("剪贴板中没有可保存的图片。");
+      const point = canvasPasteWorldPoint();
+      pushCanvasHistory(`粘贴 ${assets.length} 张剪贴板图片`);
+      const containerId = createImageContainerAt(point.x, point.y, assets, undefined, {
+        title: assets.length > 1 ? `剪贴板图片 ${assets.length} 张` : "剪贴板图片",
+        prompt: "从系统剪贴板粘贴到当前项目的图片素材。",
+        layoutOrigin: "manual"
+      });
+      replaceSelectedNodeId(containerId);
+      addEvent(`粘贴剪贴板图片 ${assets.length} 张`);
+      setServerMessage(`已将 ${assets.length} 张剪贴板图片保存到项目并创建容器。`);
+    } catch (error) {
+      setServerMessage(`粘贴图片失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   function openAICutout(node: WorkflowNode, assetIndex = 0, allowDuringAgent = false) {
+    if (blockLockedNodeMutation([node.id], "抠图")) return false;
     if (!allowDuringAgent && agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
       return false;
@@ -7566,7 +7859,11 @@ function App() {
   ) {
     const sourceNodes = nodesRef.current;
     const availableIds = new Set(sourceNodes.map((node) => node.id));
-    const removeIds = new Set([...requestedIds].filter((id) => availableIds.has(id)));
+    const requested = [...requestedIds].filter((id) => availableIds.has(id));
+    const protectedRequestedIds = new Set(requested.filter((id) => lockedMutationNodeIds([id]).length > 0));
+    const lockedIds = lockedMutationNodeIds(requested);
+    const removeIds = new Set(requested.filter((id) => !protectedRequestedIds.has(id)));
+    if (lockedIds.length) setServerMessage(`正在运行的节点 ${lockedIds.join("、")} 及其容器已保留，不能删除或剪切。`);
     if (!removeIds.size) return 0;
     if (options.recordHistory !== false) pushCanvasHistory(options.historyLabel);
     const detached: WorkflowNode[] = sourceNodes.map((item): WorkflowNode => {
@@ -7639,6 +7936,7 @@ function App() {
   }
 
   function mergeSelectedIntoImageContainer(capabilities = currentCanvasSelectionCapabilities()) {
+    if (blockLockedNodeMutation(capabilities.groupableNodeIds, "归组")) return false;
     if (!capabilities.canGroupIntoContainer || !capabilities.preferredContainerHostId) return false;
     const sourceNodes = nodesRef.current;
     const containerBoundaryIds = capabilities.groupableNodeIds.filter((nodeId) => {
@@ -7743,6 +8041,7 @@ function App() {
       .map((id) => layoutGroupsRef.current.find((group) => group.id === id))
       .filter((group): group is ImageLayoutGroup => Boolean(group));
     if (!selectedGroups.length) return false;
+    if (blockLockedNodeMutation(selectedGroups.flatMap((group) => group.memberNodeIds), "解散容器")) return false;
     pushCanvasHistory(`解散 ${selectedGroups.length} 个图片容器`);
     const hostIds = selectedGroups.map((group) => group.hostNodeId);
     for (const group of selectedGroups) dissolveImageLayoutGroup(group.hostNodeId);
@@ -7756,6 +8055,7 @@ function App() {
     const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
     const targetIds = new Set(selection.ids.map((id) => projection.groupByMember.get(id)?.hostNodeId ?? id));
     if (!targetIds.size) return false;
+    if (blockLockedNodeMutation(targetIds, "移动")) return false;
     const now = Date.now();
     if (now - keyboardNudgeHistoryAtRef.current > 360) pushCanvasHistory("移动选中成果");
     keyboardNudgeHistoryAtRef.current = now;
@@ -9836,6 +10136,7 @@ function App() {
   function beginNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
     if (event.button !== 0) return;
     if (event.ctrlKey || event.metaKey) return;
+    if (blockLockedNodeMutation([node.id], "移动")) return;
     const target = event.target as HTMLElement;
     const imageTile = target.closest<HTMLElement>(".node-image-tile");
     const imageTileMovesNode = Boolean(
@@ -10125,6 +10426,7 @@ function App() {
 
   function beginNodeResize(event: React.PointerEvent<HTMLSpanElement>, node: WorkflowNode) {
     if (event.button !== 0) return;
+    if (blockLockedNodeMutation([node.id], "调整大小")) return;
     event.preventDefault();
     event.stopPropagation();
     setSelectedNodeId(node.id);
@@ -10193,6 +10495,7 @@ function App() {
   }
 
   function continueImageNodeRun(node: WorkflowNode) {
+    if (blockLockedNodeMutation([node.id], "继续生图")) return;
     if (node.type !== "image" || imageRunStartsRef.current[node.id]) return;
     const draft = selectedImageDraft(node);
     const completed = node.assets?.length ?? 0;
@@ -10743,6 +11046,9 @@ function App() {
     pendingLayerNarrationRunIdsRef.current.clear();
     clearLocalToolTimelineScope();
     agentToolNodeIdsRef.current = {};
+    lockedNodeIdsRef.current.clear();
+    setLockedNodeIds([]);
+    setAgentPaused(false);
     suspendProjectSessionAutosave();
     activeProjectIdRef.current = nextProjectId;
     projectSessionRevisionRef.current[nextProjectId] = nextSession.sessionRevision;
@@ -10762,6 +11068,7 @@ function App() {
     setConversations(nextSession.conversations);
     setActiveConversationId(nextSession.activeConversationId);
     setAgentStatus("idle");
+    setAgentPaused(false);
     setActiveRunStartedAt(null);
     setRunElapsedSeconds(0);
     setAgentProgress([]);
@@ -11169,6 +11476,16 @@ function App() {
       const nodeId = confirmDialog.id;
       setConfirmDialog(null);
       executeRequirementNode(nodeId, true);
+      return;
+    }
+    if (confirmDialog.action === "pause-agent") {
+      setConfirmDialog(null);
+      void pauseAgentRun();
+      return;
+    }
+    if (confirmDialog.action === "stop-agent") {
+      setConfirmDialog(null);
+      void stopAgentRun();
     }
   }
 
@@ -11177,8 +11494,13 @@ function App() {
       setProjectMenuOpen(false);
       return;
     }
-    if (executionScopeBoundaryBlocked()) {
+    if (agentExecutionBusyNow()) {
       setProjectMenuOpen(false);
+      const result = await window.naimageConfig?.newWindow?.({ projectId: id });
+      setServerMessage(result?.ok === false
+        ? "无法打开并行项目窗口。"
+        : "当前项目继续运行，目标项目已在独立窗口打开。"
+      );
       return;
     }
     setFileActionBusy(true);
@@ -11224,7 +11546,18 @@ function App() {
   }
 
   function requestNewConversation() {
-    if (executionScopeBoundaryBlocked(true)) return;
+    if (agentExecutionBusyNow()) {
+      void window.naimageConfig?.newWindow?.({
+        projectId: activeProjectIdRef.current || "default",
+        newConversation: true
+      }).then((result) => {
+        setServerMessage(result?.ok === false
+          ? "无法打开并行会话窗口。"
+          : "当前会话继续运行，新会话已在独立窗口打开。"
+        );
+      });
+      return;
+    }
     openConfirmDialog({
       id: "project-agent-new-conversation",
       eyebrow: "NEW CHAT",
@@ -11426,6 +11759,16 @@ function App() {
         setCanvasMenu(null);
         return;
       }
+      if (command && key === "c" && selectedNodeIdsRef.current.length) {
+        event.preventDefault();
+        copyCanvasSelection(false);
+        return;
+      }
+      if (command && key === "x" && selectedNodeIdsRef.current.length) {
+        event.preventDefault();
+        copyCanvasSelection(true);
+        return;
+      }
       if (command && key === "g") {
         event.preventDefault();
         if (event.shiftKey) dissolveSelectedImageContainers();
@@ -11499,6 +11842,7 @@ function App() {
   ]);
 
   function openNodeEditor(node: WorkflowNode, requestedAssetIndex = 0) {
+    if (blockLockedNodeMutation([node.id], "编辑")) return;
     setSelectedNodeId(node.id);
     setCanvasMenu(null);
     const assetIndex = clamp(Number(requestedAssetIndex || 0), 0, Math.max(0, (node.assets?.length ?? 1) - 1));
@@ -11649,6 +11993,7 @@ function App() {
 
   function openRequirementEditor(node: WorkflowNode) {
     if (node.type !== "requirement" || !node.requirement) return;
+    if (blockLockedNodeMutation([node.id], "编辑")) return;
     setCanvasMenu(null);
     setRequirementEditorDraft({
       mode: "edit",
@@ -11730,6 +12075,7 @@ function App() {
       setNodes(nextNodes);
       addEvent(`创建可复用需求 ${id}`);
     } else {
+      if (draft.nodeId && blockLockedNodeMutation([draft.nodeId], "编辑")) return null;
       const existing = draft.nodeId ? nodesRef.current.find((node) => node.id === draft.nodeId && node.type === "requirement" && node.requirement) : null;
       if (!existing?.requirement) {
         setRequirementEditorDraft({ ...draft, error: "需求节点已不存在。" });
@@ -11768,6 +12114,7 @@ function App() {
   }
 
   function executeRequirementNode(nodeId: string, confirmedUnchanged = false) {
+    if (blockLockedNodeMutation([nodeId], "执行需求")) return false;
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，需求不会被重复提交。");
       return false;
@@ -11776,6 +12123,7 @@ function App() {
     const requirementNode = nodesRef.current.find((node) => node.id === nodeId && node.type === "requirement" && node.requirement);
     if (!requirementNode?.requirement) return false;
     const inputBindings = requirementInputBindings(requirementNode, nodesRef.current);
+    if (blockLockedNodeMutation(inputBindings.map((binding) => binding.nodeId), "作为新任务来源")) return false;
     const inputEntries = inputBindings.map((binding) => ({
       binding,
       node: projection.canvasNodeById.get(binding.nodeId) ?? nodesRef.current.find((node) => node.id === binding.nodeId),
@@ -18940,7 +19288,7 @@ function App() {
         return await waitForAgent();
       }
       case "agent.stop":
-        stopAgentRun();
+        await stopAgentRun();
         return appState();
       case "agent.new-conversation":
         confirmCreateConversation();
@@ -18969,10 +19317,71 @@ function App() {
     };
   }, [executeAutomationCommand]);
 
-  function stopAgentRun() {
-    if (!agentExecutionBusyNow()) return;
+  async function pauseAgentRun() {
+    if (!agentExecutionBusyNow() || agentPaused) return;
+    const result = await window.naimageAgent?.pause?.({
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default"
+    });
+    if (result?.ok === false) {
+      setServerMessage(result.error || "暂停任务失败。");
+      return;
+    }
+    setAgentPaused(true);
+    setServerMessage("任务已暂停；当前已发出的请求会收尾，但不会派发下一批。点击恢复后继续。");
+  }
+
+  async function resumeAgentRun() {
+    const result = await window.naimageAgent?.resume?.({
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default"
+    });
+    if (result?.ok === false) {
+      setServerMessage(result.error || "恢复任务失败。");
+      return;
+    }
+    setAgentPaused(false);
+    setServerMessage("任务已恢复，继续派发后续批次。");
+  }
+
+  function requestPauseAgentRun() {
+    if (!agentExecutionBusyNow() || agentPaused) return;
+    openConfirmDialog({
+      id: activeRunRef.current || "active-agent-run",
+      eyebrow: "PAUSE",
+      title: "暂停当前任务？",
+      message: "当前已经发出的请求会完成，但后续批次将停止派发。",
+      detail: "暂停会保留画布进度和会话上下文，稍后可以从当前批次继续恢复。",
+      confirmLabel: "确认暂停",
+      action: "pause-agent"
+    });
+  }
+
+  function requestStopAgentRun() {
+    if (!agentExecutionBusyNow() && !agentPaused) return;
+    openConfirmDialog({
+      id: activeRunRef.current || "active-agent-run",
+      eyebrow: "STOP",
+      title: "结束当前任务？",
+      message: "将立即取消当前会话正在进行的思考、生图请求和尚未开始的批次。",
+      detail: "已经成功写入画布的图片会保留；被取消的批次不会自动恢复。",
+      confirmLabel: "确认结束",
+      tone: "danger",
+      action: "stop-agent"
+    });
+  }
+
+  async function stopAgentRun() {
+    if (!agentExecutionBusyNow() && !agentPaused) return;
     const runId = activeRunRef.current ?? undefined;
     const pendingRequestId = pendingAgentExecutionRef.current?.requestId;
+    const stopRequest = window.naimageAgent?.stop?.({
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default",
+      reason: "用户确认结束了当前任务。"
+    });
+    // The abort command is dispatched first, then local run identity is cleared
+    // immediately so a cancelled IPC response cannot be committed as success.
     activeRunRef.current = null;
     commitExecutionReservation(null);
     if (pendingRequestId) closePendingAgentExecution(pendingRequestId);
@@ -18980,6 +19389,7 @@ function App() {
     setStreamingImagePreviews({});
     Object.keys(imageRunStartsRef.current).forEach(markImageRunFinished);
     setAgentStatus("idle");
+    setAgentPaused(false);
     setActiveRunStartedAt(null);
     flushPendingAgentStreamMessages();
     setMessages((current) => finishRunStreamingMessages(current, runId).slice(-120));
@@ -18987,8 +19397,10 @@ function App() {
       "interrupt",
       pendingRequestId && !runId
         ? "已取消等待补充的任务；你可以直接发送新的要求。"
-        : "已中断当前前端追踪。正在进行的底层请求若已发出，结果会被忽略；你可以直接补充新的要求。"
+        : "已结束当前任务：模型思考、生图请求和未派发批次均已取消；已完成成果会保留。"
     );
+    const result = await stopRequest?.catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    if (result?.ok === false) setServerMessage(`任务已在界面结束，但底层取消失败：${result.error || "未知错误"}`);
   }
 
 // -----------------------------------------------------------------------------
@@ -19109,7 +19521,7 @@ function App() {
   async function logoutServer() {
     serverRefreshEpochRef.current += 1;
     let logoutWarning = "";
-    if (agentExecutionBusyNow()) stopAgentRun();
+    if (agentExecutionBusyNow()) await stopAgentRun();
     else failAllLayerExecutionPlaceholders("登录状态已结束，分层任务已停止。");
     await cancelPendingAgentExecutionForAuthBoundary();
     try {
@@ -19302,7 +19714,7 @@ function App() {
       imageProgress: imageProgressState(
         total,
         startCompleted,
-        remainingCount > 1 ? `并行生成 ${remainingCount} 张` : `准备生成 ${remainingCount} 张`
+        remainingCount > 1 ? `按每批 ${settings.imageBatchSize} 路顺序生成 ${remainingCount} 张` : `准备生成 ${remainingCount} 张`
       ),
       generationRunId,
       ...clampedInitialNodeSize
@@ -19352,7 +19764,7 @@ function App() {
       operationId: generationRunId,
       toolRunId: generationRunId,
       operation: "generate",
-      brief: total > 1 ? `按画布设置并行生成 ${total} 张图片。` : "按画布设置生成一张图片。",
+      brief: total > 1 ? `按每批 ${settings.imageBatchSize} 路顺序生成 ${total} 张图片。` : "按画布设置生成一张图片。",
       params: `${taskSnapshot.ratio} · ${taskSnapshot.resolution} · ${qualityLabel(taskSnapshot.quality)} · ${total} 张 · ${manualReferences.length} 张参考图`,
       input: {
         operation: "generate",
@@ -19399,6 +19811,8 @@ function App() {
             operationId: generationRunId,
             requestIndex: index + 1,
             projectId: requestProjectId,
+            conversationId: requestConversationId,
+            nodeIds: [id],
             prompt: promptForIndependentImage(taskSnapshot.prompt, total, index),
             model: taskSnapshot.model || settings.imageModel,
             size,
@@ -19537,7 +19951,13 @@ function App() {
         }
       }
 
-      await Promise.all(Array.from({ length: remainingCount }, (_item, offset) => generateSlot(startCompleted + offset)));
+      const slotIndexes = Array.from({ length: remainingCount }, (_item, offset) => startCompleted + offset);
+      const batchSize = clamp(Math.round(Number(settings.imageBatchSize) || 3), 1, 10);
+      for (let start = 0; start < slotIndexes.length; start += batchSize) {
+        if (imageRunStartsRef.current[id] === undefined) break;
+        const batch = slotIndexes.slice(start, start + batchSize);
+        await Promise.all(batch.map((index) => generateSlot(index)));
+      }
       if (!executionScopeIsCurrent(executionScope)) return;
       const assets = assetSlots.filter((asset): asset is ImageAsset => Boolean(asset));
       const completedAll = assets.length >= total && errors.length === 0;
@@ -19920,7 +20340,9 @@ function App() {
       setServerMessage(error instanceof Error ? error.message : String(error));
     }
   });
-  const projectAgentStop = useStableEvent(() => stopAgentRun());
+  const projectAgentPause = useStableEvent(() => requestPauseAgentRun());
+  const projectAgentResume = useStableEvent(() => void resumeAgentRun());
+  const projectAgentStop = useStableEvent(() => requestStopAgentRun());
   const projectAgentClearSelection = useStableEvent(() => selectCanvas());
   const projectAgentEditSources = useStableEvent(() => openReferencePicker(
     { kind: "agent-source" },
@@ -19958,6 +20380,7 @@ function App() {
       modelName: settings.agentModel,
       agentStatus,
       busy: agentExecutionBusyNow(),
+      paused: agentPaused,
       runElapsedSeconds,
       prompt,
       messages,
@@ -20005,12 +20428,21 @@ function App() {
       await projectAgentSendPrompt(command.prompt);
       return;
     }
-    if (command.type === "stop") {
-      projectAgentStop();
+    if (command.type === "pause-confirmed") {
+      await pauseAgentRun();
+      return;
+    }
+    if (command.type === "resume") {
+      await resumeAgentRun();
+      return;
+    }
+    if (command.type === "stop-confirmed") {
+      await stopAgentRun();
       return;
     }
     if (command.type === "new-conversation-confirmed") {
-      confirmCreateConversation();
+      if (agentExecutionBusyNow()) requestNewConversation();
+      else confirmCreateConversation();
       return;
     }
     if (command.type === "clear-conversation-confirmed") {
@@ -20056,6 +20488,7 @@ function App() {
     agentReferenceImages,
     agentSourceImages,
     agentStatus,
+    agentPaused,
     authReady,
     configReady,
     conversations,
@@ -20124,7 +20557,7 @@ function App() {
 // MAIN 11 Main Workspace Render Tree
 // -----------------------------------------------------------------------------
 
-    <div className="ide-shell" onPasteCapture={blockImagePaste}>
+    <div className="ide-shell">
       {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="app" record={recordDebugRenderCommit} /> : null}
       <OverflowTooltipLayer />
       <header className="ide-topbar">
@@ -20180,7 +20613,7 @@ function App() {
               setSettingsOpen(false);
               setAccountOpen(false);
               setProjectMenuOpen((current) => !current);
-            }} disabled={fileActionBusy || agentExecutionBusy}>
+            }} disabled={fileActionBusy}>
               <FolderOpen size={14} />
               <span className="project-active-name">{activeProjectName}</span>
             </ButtonBase>
@@ -20193,7 +20626,7 @@ function App() {
                         key={project.id}
                         className={project.id === activeProjectId ? "active" : ""}
                         onClick={() => void switchProject(project.id)}
-                        disabled={fileActionBusy || agentExecutionBusy}
+                        disabled={fileActionBusy}
                         title={`${project.external ? "外部画布" : "本地画布"} ${project.path}`}
                       >
                         <span>{project.name}</span>
@@ -20285,7 +20718,13 @@ function App() {
           <div
             ref={bindCanvasRef}
             className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
+            tabIndex={0}
+            aria-label="成果画布。可框选、复制、剪切、粘贴图片或拖入本地图片。"
             onContextMenu={openCanvasMenu}
+            onPaste={(event) => void handleCanvasPaste(event)}
+            onPointerMove={(event) => {
+              lastCanvasPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
+            }}
             onDragOver={handleCanvasDragOver}
             onDragLeave={(event) => {
               if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
@@ -20294,6 +20733,7 @@ function App() {
             }}
             onDrop={handleCanvasDrop}
             onClick={(event) => {
+              event.currentTarget.focus({ preventScroll: true });
               setCanvasMenu(null);
               if (!(event.target as HTMLElement).closest(".flow-node")) return;
             }}
@@ -20406,11 +20846,13 @@ function App() {
                   && !nodeIsGenerating;
                 if (renderAsOverview) {
                   const bounds = workflowNodeBounds(node);
+                  const nodeLocked = lockedNodeIdSet.has(node.id);
                   return (
                     <div
                       key={node.id}
                       data-node-id={node.id}
                       data-node-overview="true"
+                      data-node-locked={nodeLocked ? "true" : undefined}
                       data-ui-interactive="true"
                       data-image-container={node.imageContainer ? "true" : undefined}
                       data-image-container-kind={imageContainerKindForNode(node) || undefined}
@@ -20420,7 +20862,7 @@ function App() {
                       tabIndex={0}
                       aria-label={node.title?.trim() || node.id}
                       title={`${node.title?.trim() || node.id} · 单击查看完整节点`}
-                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${draggingNodeId === node.id ? "dragging" : ""}`}
+                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
                       style={{
                         left: bounds.x,
                         top: bounds.y,
@@ -20459,6 +20901,7 @@ function App() {
                   );
                 }
                 const promptPreview = "";
+                const nodeLocked = lockedNodeIdSet.has(node.id);
                 const visibleAssets = node.assets ?? [];
                 const canvasPreviewAssets = node.imageContainer && visibleAssets.length > 12 ? visibleAssets.slice(0, 12) : visibleAssets;
                 const containerOverflowCount = Math.max(0, visibleAssets.length - canvasPreviewAssets.length);
@@ -20545,7 +20988,8 @@ function App() {
                     data-layer-order={layerGroup?.order || undefined}
                     data-layer-detached={layerGroup ? String(Boolean(layerGroup.detached)) : undefined}
                     data-image-run-state={nodeIsGenerating ? "placeholder" : "settled"}
-                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
+                    data-node-locked={nodeLocked ? "true" : undefined}
+                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
                       activeNodeId === node.id && !nodeIsGenerating ? "active-build" : ""
                     } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeId === node.id ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
                     style={{
@@ -20661,7 +21105,7 @@ function App() {
                       <span className="node-title-block">
                         <strong title={nodeTitle}>{nodeTitle}</strong>
                       </span>
-                      <span className="node-state">{nodeStateLabel(node)}</span>
+                      <span className="node-state">{nodeLocked ? "会话锁定" : nodeStateLabel(node)}</span>
                     </span>
                     {node.type === "image" ? (
                       <div
@@ -20880,7 +21324,7 @@ function App() {
                         <ActionButton
                           className="requirement-node-run"
                           variant="primary"
-                          disabled={agentExecutionBusy}
+                          disabled={agentExecutionBusy || nodeLocked}
                           onPointerDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.preventDefault();
@@ -20900,7 +21344,7 @@ function App() {
                       </div>
                     ) : null}
                     <footer>
-                      <span>{node.type === "requirement" ? `需求版本 v${node.requirement?.revision ?? 1}` : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "并行批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? imageTaskSizeForNode(node).replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
+                      <span>{node.type === "requirement" ? `需求版本 v${node.requirement?.revision ?? 1}` : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? imageTaskSizeForNode(node).replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
                     <span
@@ -21354,6 +21798,7 @@ function App() {
           prompt={prompt}
           agentStatus={agentStatus}
           executionBusy={agentExecutionBusy}
+          paused={agentPaused}
           conversationBoundaryBusy={agentActiveExecutionBusy}
           agentProgress={agentProgress}
           runElapsedSeconds={runElapsedSeconds}
@@ -21362,6 +21807,8 @@ function App() {
           endRef={agentEndRef}
           setPrompt={setPrompt}
           sendPrompt={projectAgentSendPrompt}
+          pauseAgentRun={projectAgentPause}
+          resumeAgentRun={projectAgentResume}
           stopAgentRun={projectAgentStop}
           clearSelection={projectAgentClearSelection}
           editSourceImages={projectAgentEditSources}
@@ -22276,9 +22723,12 @@ function ProjectAgentComposerView({
   referenceImages,
   prompt,
   executionBusy,
+  paused,
   inputRef,
   setPrompt,
   sendPrompt,
+  pauseAgentRun,
+  resumeAgentRun,
   stopAgentRun,
   clearSelection,
   editSourceImages,
@@ -22290,9 +22740,12 @@ function ProjectAgentComposerView({
   referenceImages: ReferenceImage[];
   prompt: string;
   executionBusy: boolean;
+  paused: boolean;
   inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   setPrompt: (value: string) => void;
   sendPrompt: (prompt?: string) => void | Promise<void>;
+  pauseAgentRun: () => void;
+  resumeAgentRun: () => void;
   stopAgentRun: () => void;
   clearSelection: () => void;
   editSourceImages: () => void;
@@ -22351,19 +22804,45 @@ function ProjectAgentComposerView({
           rows={4}
         />
         <footer>
-          <span>Ctrl + Enter 发送</span>
-          <ActionButton
-            className="project-agent-send"
-            variant={busy ? "danger" : "primary"}
-            type={busy ? "button" : "submit"}
-            onClick={busy ? stopAgentRun : undefined}
-            disabled={!busy && !prompt.trim()}
-            aria-label={busy ? "停止处理" : "发送"}
-            title={busy ? "停止处理" : "发送"}
-            icon={busy ? <X size={16} /> : <Send size={16} />}
-          >
-            {busy ? "停止" : "发送"}
-          </ActionButton>
+          <span>{paused ? "已暂停，恢复后继续下一批" : "Ctrl + Enter 发送"}</span>
+          {busy ? (
+            <div className="project-agent-run-controls">
+              <ActionButton
+                className="project-agent-pause"
+                variant="secondary"
+                type="button"
+                onClick={paused ? resumeAgentRun : pauseAgentRun}
+                aria-label={paused ? "恢复处理" : "暂停处理"}
+                title={paused ? "恢复后继续派发下一批" : "确认后暂停后续批次"}
+                icon={paused ? <Play size={15} /> : <Pause size={15} />}
+              >
+                {paused ? "恢复" : "暂停"}
+              </ActionButton>
+              <ActionButton
+                className="project-agent-stop"
+                variant="danger"
+                type="button"
+                onClick={stopAgentRun}
+                aria-label="结束处理"
+                title="确认后取消思考、生图和未开始批次"
+                icon={<X size={16} />}
+              >
+                结束
+              </ActionButton>
+            </div>
+          ) : (
+            <ActionButton
+              className="project-agent-send"
+              variant="primary"
+              type="submit"
+              disabled={!prompt.trim()}
+              aria-label="发送"
+              title="发送"
+              icon={<Send size={16} />}
+            >
+              发送
+            </ActionButton>
+          )}
         </footer>
       </form>
     </>
@@ -22381,6 +22860,7 @@ function ProjectAgentPanelView({
   prompt,
   agentStatus,
   executionBusy,
+  paused,
   conversationBoundaryBusy,
   agentProgress,
   runElapsedSeconds,
@@ -22389,6 +22869,8 @@ function ProjectAgentPanelView({
   endRef,
   setPrompt,
   sendPrompt,
+  pauseAgentRun,
+  resumeAgentRun,
   stopAgentRun,
   clearSelection,
  editSourceImages,
@@ -22415,6 +22897,7 @@ function ProjectAgentPanelView({
   prompt: string;
   agentStatus: AgentStatus;
   executionBusy: boolean;
+  paused: boolean;
   conversationBoundaryBusy: boolean;
   agentProgress: AgentProgress[];
   runElapsedSeconds: number;
@@ -22423,6 +22906,8 @@ function ProjectAgentPanelView({
   endRef: React.MutableRefObject<HTMLDivElement | null>;
   setPrompt: (value: string) => void;
   sendPrompt: (prompt?: string) => void | Promise<void>;
+  pauseAgentRun: () => void;
+  resumeAgentRun: () => void;
   stopAgentRun: () => void;
   clearSelection: () => void;
  editSourceImages: () => void;
@@ -22474,7 +22959,7 @@ function ProjectAgentPanelView({
     "image-retry",
     "memory-start"
   ].includes(progressPhase);
-  const activityActive = agentActivityBusy || progressActive;
+  const activityActive = !paused && (agentActivityBusy || progressActive);
   const currentTitle = useMemo(() => {
     const userMessage = visibleMessages.find((message) => message.role === "user" && message.content.trim());
     return userMessage?.content.replace(/\s+/g, " ").trim().slice(0, 28) || "当前会话";
@@ -22489,7 +22974,9 @@ function ProjectAgentPanelView({
       .filter((conversation, index, items) => items.findIndex((item) => item.id === conversation.id) === index)
       .slice(0, 24);
   }, [activeConversationId, conversations, currentTitle]);
-  const statusBase = agentStatus === "error" || /error|失败/i.test(progressPhase)
+  const statusBase = paused
+    ? "Agent 已暂停"
+    : agentStatus === "error" || /error|失败/i.test(progressPhase)
     ? "Agent 遇到问题"
     : latestRunningMessage?.meta === "assistant-stream"
       ? "Agent 正在输出"
@@ -22721,7 +23208,7 @@ function ProjectAgentPanelView({
           />
           <IconActionButton label="编辑 Agent 记忆" title="编辑当前会话的 Agent 记忆" onClick={editFastMemory} icon={<Brain size={16} />} />
           <IconActionButton label="清理聊天" title="清理当前聊天和绘画经验" onClick={requestClearConversation} disabled={conversationBusy} icon={<Trash2 size={16} />} />
-          <IconActionButton label="新建会话" onClick={requestNewConversation} disabled={conversationBusy} icon={<Plus size={16} />} />
+          <IconActionButton label={executionBusy ? "在新窗口新建并行会话" : "新建会话"} onClick={requestNewConversation} icon={<Plus size={16} />} />
         </div>
         {placementOpen ? (
           <div className="agent-placement-menu" role="menu" aria-label="对话框位置">
@@ -22800,9 +23287,12 @@ function ProjectAgentPanelView({
         referenceImages={referenceImages}
         prompt={prompt}
         executionBusy={executionBusy}
+        paused={paused}
         inputRef={inputRef}
         setPrompt={setPrompt}
         sendPrompt={sendPrompt}
+        pauseAgentRun={pauseAgentRun}
+        resumeAgentRun={resumeAgentRun}
         stopAgentRun={stopAgentRun}
         clearSelection={clearSelection}
         editSourceImages={editSourceImages}
@@ -22869,9 +23359,12 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.referenceImages === right.referenceImages &&
   left.prompt === right.prompt &&
   left.executionBusy === right.executionBusy &&
+  left.paused === right.paused &&
   left.inputRef === right.inputRef &&
   left.setPrompt === right.setPrompt &&
   left.sendPrompt === right.sendPrompt &&
+  left.pauseAgentRun === right.pauseAgentRun &&
+  left.resumeAgentRun === right.resumeAgentRun &&
   left.stopAgentRun === right.stopAgentRun &&
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
@@ -22890,6 +23383,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.prompt === right.prompt &&
   left.agentStatus === right.agentStatus &&
   left.executionBusy === right.executionBusy &&
+  left.paused === right.paused &&
   left.conversationBoundaryBusy === right.conversationBoundaryBusy &&
   left.agentProgress === right.agentProgress &&
   left.runElapsedSeconds === right.runElapsedSeconds &&
@@ -22898,6 +23392,8 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.endRef === right.endRef &&
   left.setPrompt === right.setPrompt &&
   left.sendPrompt === right.sendPrompt &&
+  left.pauseAgentRun === right.pauseAgentRun &&
+  left.resumeAgentRun === right.resumeAgentRun &&
   left.stopAgentRun === right.stopAgentRun &&
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
@@ -23913,6 +24409,28 @@ function SettingsDrawer({
                   <ActionButton variant="secondary" className="settings-prompt-action" onClick={openPromptEditor} icon={<Brain size={15} />}>
                     编辑提示词
                   </ActionButton>
+                </div>
+                <div className="settings-context-policy">
+                  <div className="settings-section-header">
+                    <div>
+                      <strong>批量生图调度</strong>
+                      <small>同一批并行处理，不同批按顺序执行；暂停后不再派发下一批。</small>
+                    </div>
+                    <span className="settings-update-status available">每批 {draftSettings.imageBatchSize} 路</span>
+                  </div>
+                  <Field label="每批生图数量">
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={draftSettings.imageBatchSize}
+                      onChange={(event) => update("imageBatchSize", Math.max(1, Math.min(10, Math.round(Number(event.target.value) || 1))))}
+                    />
+                  </Field>
+                  <InlineNotice tone="neutral">
+                    建议先使用 2–3 路。提高批次会更快占用接口并发与额度，但任务总量仍会拆成多个有序批次。
+                  </InlineNotice>
                 </div>
                 <div className="settings-context-policy">
                   <div className="settings-section-header">

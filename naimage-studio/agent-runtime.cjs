@@ -33,6 +33,7 @@ const {
   validateImageFrameFields
 } = require("./runtime/image-frame.cjs");
 const { createImageBatchNormalization } = require("./runtime/image-batch-normalization.cjs");
+const { runImageBatchScheduler } = require("./runtime/image-batch-scheduler.cjs");
 const {
   imageInfo,
   mimeTypeForPath,
@@ -96,7 +97,7 @@ const defaultMainAgentPromptLines = [
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
   "naimage 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
   `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 只管理已有成果；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
-  `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片且最多 10 项。Current Task Scope 存在 SOURCE 时禁止使用 generate，因为 generate 不会读取原图；必须按意图使用 edit、replace、variants、layers、cutout 或 redraw，并在多 SOURCE 时逐项填写 sourceBindingId。缺少需要处理的 SOURCE 时使用 ask_user(kind=source_images)，缺少仅作参考的 REFERENCE 时使用 ask_user(kind=reference_images)，不要猜路径，也不要把 REFERENCE 当成 SOURCE。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
+  `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。Current Task Scope 存在 SOURCE 时禁止使用 generate，因为 generate 不会读取原图；必须按意图使用 edit、replace、variants、layers、cutout 或 redraw，并在多 SOURCE 时逐项填写 sourceBindingId。缺少需要处理的 SOURCE 时使用 ask_user(kind=source_images)，缺少仅作参考的 REFERENCE 时使用 ask_user(kind=reference_images)，不要猜路径，也不要把 REFERENCE 当成 SOURCE。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
   "先理解目标，再直接执行；不要只输出计划。图片任务成功则简短汇报，失败则读取错误类别并最多修正参数重试两次。复杂任务可先用 view_image、web_search 或 shell_command 获取必要事实，再调用 image_gen。缺少来源图片时打开参考图收集，不得假装已经出图。",
   "默认交付商业级高质量图片：主体与视觉层级明确，构图有清晰意图，景别严格符合用户要求，留白和视觉动线可控，材质、光线、边缘与细节可信。特效必须克制且服务主体；除非用户明确要求，不堆砌粒子、光斑、几何碎片、廉价辉光、无意义装饰或伪文字，也不把多个独立方案画成拼贴。先服从用户给定的风格与审美，再用这些底线避免俗气、混乱和模板感。",
   "审美决策按用户当前明确要求、参考图角色与用途、当前选中成果、当前会话 FastMemory、通用质量底线的顺序执行。不得擅自把所有任务套成电影感、蓝金、高级黑、东方风、海报感或其他固定模板；用户要求宽泛时只补充有助于构图、材质、光线和可用性的细节，不虚构品牌、口号、角色设定、商品卖点或装饰元素。",
@@ -111,7 +112,7 @@ const defaultMainAgentPromptLines = [
   "image_gen 成功回执会直接列出可供 view_image 使用的 project-local output_paths。必须优先使用这些路径检查新成果，不要再调用 workflow 或 shell_command 搜索、猜测或解析输出位置；只有回执明确缺少路径时才根据错误信息决定下一步。",
   "image_gen 返回 ok=false 时不要假装完成。transient、timeout、rate_limit 或 upstream_5xx 可降低张数或分辨率后重试；quota、auth、invalid_input、missing_reference 或 policy 应直接说明。连接、TLS、invalid JSON request body 或流式协议错误属于传输问题，不能靠降低分辨率解决，也不得移除来源关联、断开画布关系或改写用户任务。只有服务端明确指出某个图片参数不支持时才能修正该参数。最多连续重试两次同类错误。",
   "工具输出可能被截断，运行时会保留完整回执供后续读取。最终回复只保留用户需要看的结论、图片结果和下一步；不要伪造未展示的日志细节，也不要要求用户粘贴运行时已有的工具回执。",
-  "没有来源图时 operation=generate；有上传参考图时可 generate 或 edit；换物、改字等精确替换用 replace；基于当前图片出多款用 variants；分层 PNG 用 layers；主体抠图用 cutout；带蒙版局部修改用 redraw。用户说 N 张、N 版、N 种款式时必须准确生成 N 张，最多 10 张。",
+  "没有来源图时 operation=generate；有上传参考图时可 generate 或 edit；换物、改字等精确替换用 replace；基于当前图片出多款用 variants；分层 PNG 用 layers；主体抠图用 cutout；带蒙版局部修改用 redraw。用户说 N 张、N 版、N 种款式时必须准确生成 N 张；大批量交给运行时顺序分批。",
   `${primaryImageToolName} 会自动把成果同步到画布。单图使用标准节点；count>1 时必须明确 generationMode：用户在同一轮要求 N 张、N 版、N 个方案或 N 个候选时使用 parallel，并进入批量图片组；只有明确要求一次一张、按故事/时间顺序逐张延续或连续系列时才使用 sequential，并进入连续系列。不同提示词 items 通常使用 parallel；每张图都保留自己的提示词并可拖出为标准节点。基于画布来源继续时设置 parentId，但 parentId 只表示来源关系，不决定 generationMode。`,
   "用户要求‘带分层’、列出多个‘某某一层’或要求分层 PNG 时，只调用一次 image_gen(operation=layers)，禁止用普通 generate/edit 只描述视觉层次。layerPlan 是必填项，必须逐项保留用户列出的每一层并按从底到顶排序；用户指定 N 层就必须准确提供 N 层。role=subject 只用于画面的主要人物、动物或其他有生命主体；香水瓶、商品、服装单品、手持物、家具、器皿及其他独立物件即使被称为‘人物道具’也必须使用 role=decoration，不能标成 subject。背景不透明，主体、前景、装饰、文字等层必须争取真实透明像素；role=text 的每一层还必须在 text 字段给出要实际绘制的完整正文，不能只写‘标题字形’或‘辅助文字’。所有层使用相同完整画布尺寸，并归入一个带唯一编号的分层组；运行时生成合成预览、逐层素材，并由客户端完成透明提取、重组校验和画布提交。工具返回本地校验待完成时，只说明正在校验，不能提前声称已完成、已重组或已展示到画布。缺层、透明度、正文、尺寸或重组一致性不通过时必须明确失败，不能只靠提示词宣称成功。Current Workbench Snapshot 若显示 layerRecovery，只使用 resumeLayerGroupId 指向该组，并把 retryLayerIds 限定为 failed 列表；工具会复用 successful 图层，禁止重新生成已成功层。",
   `调用 ${primaryImageToolName} 时，如果用户给了比例，必须设置 ratio；优先使用 ratio + resolution 表达最终交付画幅，不要猜图像服务的底层请求尺寸。3:4 竖图优先使用 ratio=3:4。`,
@@ -1716,8 +1717,8 @@ function clampNumber(value, min, max, fallback) {
 function normalizeImageCount(value, fallback = 1, label = "image_gen count") {
   if (value === undefined || value === null || value === "") return fallback;
   const count = Number(value);
-  if (!Number.isInteger(count) || count < 1 || count > 10) {
-    throw new Error(`${label} 必须是 1-10 的整数。`);
+  if (!Number.isInteger(count) || count < 1 || count > 200) {
+    throw new Error(`${label} 必须是 1-200 的整数。`);
   }
   return count;
 }
@@ -2272,8 +2273,8 @@ function createAgentRuntime(options) {
     if (args.items !== undefined && !Array.isArray(args.items)) {
       throw new Error(`${toolName} items 必须是数组。`);
     }
-    if (Array.isArray(args.items) && args.items.length > 10) {
-      throw new Error(`${toolName} items 最多 10 项。`);
+    if (Array.isArray(args.items) && args.items.length > 200) {
+      throw new Error(`${toolName} items 超过 200 项内存安全边界，请拆成多个任务。`);
     }
     if (Array.isArray(args.items)) {
       args.items.forEach((item, index) => {
@@ -2505,7 +2506,7 @@ function createAgentRuntime(options) {
   async function callImageGeneration(args, settings, progress) {
     const mode = args.mode || "generate";
     const prompt = stripPastedBlockMarkers(args.prompt ?? "");
-    const count = Math.max(1, Math.min(Number(args.count ?? 1), 10));
+    const count = Math.max(1, Math.min(Number(args.count ?? 1), 200));
     const layerHint = normalizeLayerHint(args);
     const preferredModel = imageModelForTaskPreference({ ...args, mode, prompt }, settings, layerHint);
     const frame = normalizeImageToolFrame({ ...args, model: preferredModel || args.model, prompt }, settings);
@@ -2521,16 +2522,24 @@ function createAgentRuntime(options) {
     const executionMode = args.generationMode === "sequential" ? "sequential" : "parallel";
 
     if (Array.isArray(args.batchItems) && args.batchItems.length > 1) {
-      const batchItems = args.batchItems.slice(0, 10);
-      const settled = await Promise.allSettled(batchItems.map((item, index) => callImageGeneration({
-        ...args,
-        ...item,
-        items: undefined,
-        batchItems: undefined,
-        collectionKind: undefined,
-        count: 1,
-        runId: `${args.runId || `agent-${Date.now()}`}-item-${index + 1}`
-      }, settings, progress)));
+      // Keep a defensive memory guard, but do not impose the old ten-item
+      // product ceiling. Requests are dispatched in ordered user-sized batches.
+      const batchItems = args.batchItems.slice(0, 200);
+      const settled = await runImageBatchScheduler({
+        items: batchItems,
+        batchSize: settings?.imageBatchSize || args.batchSize || 3,
+        signal: args.signal,
+        waitUntilRunnable: args.waitUntilRunnable,
+        runItem: (item, index) => callImageGeneration({
+          ...args,
+          ...item,
+          items: undefined,
+          batchItems: undefined,
+          collectionKind: undefined,
+          count: 1,
+          runId: `${args.runId || `agent-${Date.now()}`}-item-${index + 1}`
+        }, settings, progress)
+      });
       const outputs = [];
       const items = settled.map((entry, index) => {
         const batchItem = batchItems[index];
@@ -2593,7 +2602,7 @@ function createAgentRuntime(options) {
         costCents: settled.reduce((total, entry) => total + (entry.status === "fulfilled" ? Number(entry.value?.costCents || 0) : 0), 0),
         summary: items.some((item) => item.status === "error")
           ? `批量任务返回 ${outputs.length}/${batchItems.length} 张图片。`
-          : `批量任务已并行返回 ${outputs.length} 张不同提示词图片。`
+          : `批量任务已按批次返回 ${outputs.length} 张不同提示词图片。`
       };
     }
 
@@ -2628,7 +2637,9 @@ function createAgentRuntime(options) {
             layerOutputMode: String(args.layerOutputMode || "").trim() || undefined,
             mode: editRequested ? mode : "generate",
             projectId: args.projectId,
+            conversationId: args.conversationId,
             runId,
+            signal: args.signal,
             onPartialImage: (partial) => progress?.({
               phase: "image-preview",
               tool: primaryImageToolName,
@@ -2660,19 +2671,13 @@ function createAgentRuntime(options) {
           })
         };
       });
-      const settled = executionMode === "sequential"
-        ? await (async () => {
-            const results = [];
-            for (const request of requests) {
-              try {
-                results.push({ status: "fulfilled", value: await request.run() });
-              } catch (reason) {
-                results.push({ status: "rejected", reason });
-              }
-            }
-            return results;
-          })()
-        : await Promise.allSettled(requests.map((request) => request.run()));
+      const settled = await runImageBatchScheduler({
+        items: requests,
+        batchSize: executionMode === "sequential" ? 1 : settings?.imageBatchSize || args.batchSize || 3,
+        signal: args.signal,
+        waitUntilRunnable: args.waitUntilRunnable,
+        runItem: (request) => request.run()
+      });
       const serverResults = settled.map((item, index) =>
         item.status === "fulfilled"
           ? item.value
@@ -2745,7 +2750,7 @@ function createAgentRuntime(options) {
             ? "服务端 dry-run 已记录生图任务。"
             : failedResults.length
               ? `用户服务已返回 ${assets.length} 个结果，${failedResults.length} 张失败。`
-              : `用户服务已并行返回 ${assets.length} 个结果。`
+              : `用户服务已按批次返回 ${assets.length} 个结果。`
         };
       }
       throw new Error(serverResult?.error || "用户服务生图失败。");
@@ -3641,7 +3646,10 @@ function createAgentRuntime(options) {
         generation = await callImageGeneration({
           ...toolArgs,
           operationId: context.operationId || currentToolRunId,
-          toolRunId: currentToolRunId
+          toolRunId: currentToolRunId,
+          signal: context.signal,
+          waitUntilRunnable: context.waitUntilRunnable,
+          batchSize: context.settings?.imageBatchSize
         }, context.settings ?? {}, context.progress);
       } catch (error) {
         const message = cleanOneLine(error instanceof Error ? error.message : String(error), 260);
@@ -3743,7 +3751,7 @@ function createAgentRuntime(options) {
         ].join("\n");
       }
       const collectionItems = Array.isArray(generation.items)
-        ? generation.items.slice(0, 10)
+        ? generation.items.slice(0, 200)
         : completedOutputs.map((asset, index) => ({
             id: `item-${index + 1}`,
             assetIndex: index + 1,
@@ -4675,6 +4683,7 @@ function createAgentRuntime(options) {
       if (requestBody.stream) {
         const streamed = await runtimeOptions.serverChatCompletion({
           ...requestBody,
+          signal: requestOptions.signal,
           onStreamEvent: (chunk) => {
             emitNativeWebSearchProgress(chunk, progress, nativeWebSearchState);
             const reasoningDelta = reasoningDeltaFromChunk(chunk);
@@ -4695,7 +4704,7 @@ function createAgentRuntime(options) {
         if (sawThinking) progress({ phase: "model-thinking-done" });
         return responseFromStreamChunks(streamed.chunks ?? []);
       }
-      const response = await runtimeOptions.serverChatCompletion(requestBody);
+      const response = await runtimeOptions.serverChatCompletion({ ...requestBody, signal: requestOptions.signal });
       emitNativeWebSearchProgress({ response }, progress, nativeWebSearchState);
       return response;
     }
@@ -5109,6 +5118,8 @@ function createAgentRuntime(options) {
           selectedNodeIds: payload.selectedNodeIds ?? [],
           taskScope: payload.taskScope,
           referenceImages: payload.referenceImages ?? [],
+          signal: payload.signal,
+          waitUntilRunnable: payload.waitUntilRunnable,
           viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes
         });
         stopPolling();
@@ -5198,6 +5209,8 @@ function createAgentRuntime(options) {
     }
 
     while (true) {
+      await payload.waitUntilRunnable?.(payload.signal);
+      if (payload.signal?.aborted) throw payload.signal.reason || new Error("任务已结束。");
       modelRound += 1;
       if (modelRound > maxModelRounds) {
         throw new Error(`Agent 工具循环超过 ${maxModelRounds} 轮，已停止以避免重复调用。`);
@@ -5214,7 +5227,8 @@ function createAgentRuntime(options) {
           {
             progress: (event) => progress({ ...event, modelRound }),
             tools: exposedTools,
-            toolChoice: "auto"
+            toolChoice: "auto",
+            signal: payload.signal
           }
         );
       } catch (error) {

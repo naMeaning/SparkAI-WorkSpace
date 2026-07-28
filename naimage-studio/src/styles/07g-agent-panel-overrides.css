@@ -339,6 +339,16 @@
   justify-self: end;
 }
 
+.project-agent-run-controls {
+  display: flex;
+  justify-self: end;
+  gap: 6px;
+}
+
+.project-agent-composer footer .project-agent-run-controls button {
+  min-width: 72px;
+}
+
 .project-agent-feed {
   min-height: 0;
   display: flex;

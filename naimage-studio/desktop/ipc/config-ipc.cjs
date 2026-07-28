@@ -1,5 +1,7 @@
 "use strict";
 
+const { mergeProjectSessions } = require("../project-session-merge.cjs");
+
 function registerSettingsIpc({
   ipcMain,
   migrateSettings,
@@ -84,9 +86,10 @@ function registerSessionIpc({
   sessionHasContent,
   writeProjectList
 }) {
-  ipcMain.handle("naimage:config:load-session", () => {
+  ipcMain.handle("naimage:config:load-session", (_event, payload = {}) => {
     const list = readProjectList();
-    const activeProject = getActiveProject(list);
+    const requestedProjectId = typeof payload?.projectId === "string" ? payload.projectId.trim() : "";
+    const activeProject = requestedProjectId ? getProjectById(requestedProjectId, list) : getActiveProject(list);
     const activeSessionPath = activeProject?.sessionPath || sessionPath;
     if (activeProject) ensureProjectFiles(activeProject, readJson(activeSessionPath, readJson(sessionPath, defaultSession)));
     const session = activeProject ? projectSessionFromDisk(activeProject) : hydrateSessionAssets(readJson(activeSessionPath, readJson(sessionPath, defaultSession)));
@@ -95,7 +98,7 @@ function registerSessionIpc({
       writeProjectManifest(activeProject, session);
     }
     log("config load session");
-    return { ok: true, path: activeSessionPath, project: activeProject, projects: list.projects, activeProjectId: list.activeProjectId, session };
+    return { ok: true, path: activeSessionPath, project: activeProject, projects: list.projects, activeProjectId: activeProject?.id || list.activeProjectId, session };
   });
 
   ipcMain.handle("naimage:config:save-session", async (_event, session) => {
@@ -107,8 +110,9 @@ function registerSessionIpc({
     }
     const activeSessionPath = targetProject?.sessionPath || sessionPath;
     const requestedRevision = session?.revision ?? session?.sessionRevision;
-    const saveResult = await projectSessionSaveCoordinator.enqueue(targetProject?.id || "__global__", requestedRevision, async (appliedRevision) => {
-      const nextInput = { ...defaultSession, ...session, sessionRevision: appliedRevision };
+    const projectKey = targetProject?.id || "__global__";
+    const applySession = async (appliedRevision, inputSession, mergedStale = false) => {
+      const nextInput = { ...defaultSession, ...inputSession, sessionRevision: appliedRevision };
       delete nextInput.revision;
       delete nextInput.projectId;
       const next = targetProject ? sessionForProjectSave(nextInput, targetProject) : sanitizeSession(nextInput);
@@ -125,9 +129,21 @@ function registerSessionIpc({
         const latestList = readProjectList();
         writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
       }
-      log(`config save session project=${targetProject?.id || "global"} revision=${appliedRevision}`);
-      return { ok: true, path: activeSessionPath, applied: true };
-    });
+      log(`config save session project=${targetProject?.id || "global"} revision=${appliedRevision}${mergedStale ? " merged-stale" : ""}`);
+      return { ok: true, path: activeSessionPath, applied: true, mergedStale };
+    };
+    let saveResult = await projectSessionSaveCoordinator.enqueue(projectKey, requestedRevision, (appliedRevision) =>
+      applySession(appliedRevision, session, false)
+    );
+    if (saveResult?.skippedStale) {
+      const staleRequestedRevision = saveResult.requestedRevision;
+      saveResult = await projectSessionSaveCoordinator.enqueue(projectKey, null, async (appliedRevision) => {
+        const latestRaw = readJson(activeSessionPath, defaultSession);
+        const merged = mergeProjectSessions(latestRaw, session, { nextRevision: appliedRevision });
+        const applied = await applySession(appliedRevision, merged.session, true);
+        return { ...applied, remappedNodeIds: merged.remappedNodeIds, mergedConversationCount: merged.mergedConversationCount, staleRequestedRevision };
+      });
+    }
     return { ...saveResult, path: saveResult.path || activeSessionPath };
   });
 }

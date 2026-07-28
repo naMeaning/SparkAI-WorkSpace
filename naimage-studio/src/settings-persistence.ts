@@ -95,6 +95,7 @@ export const defaultSettings: AppSettings = {
   imageModel: "",
   imageModelPool: [],
   imageCount: 1,
+  imageBatchSize: 3,
   imageSize: "1024x1024",
   imageQuality: "auto",
   accountBaseUrl: DEFAULT_ACCOUNT_BASE_URL,
@@ -224,6 +225,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort))) next.reasoningEffort = "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
   next.timeoutSeconds = Number.isFinite(timeoutSeconds) ? Math.max(15, Math.min(600, Math.round(timeoutSeconds))) : defaultSettings.timeoutSeconds;
+  const imageBatchSize = Number(next.imageBatchSize);
+  next.imageBatchSize = Number.isFinite(imageBatchSize) ? Math.max(1, Math.min(10, Math.round(imageBatchSize))) : defaultSettings.imageBatchSize;
   next.fastMode = Boolean(next.fastMode);
   if (isLegacyLocalServerUrl(legacyServerUrl)) {
     next.accountBaseUrl = defaultSettings.accountBaseUrl;

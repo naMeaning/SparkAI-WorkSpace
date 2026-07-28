@@ -558,7 +558,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | TaskScope snapshot hash | `src/core.ts`、`agent-runtime.cjs` | 哈希材料、字段顺序和 v2 前缀必须一致；运行 `test:task-scope`、`test:agent-protocol` |
 | Image 2 比例/分辨率/尺寸 | `src/core.ts`、`runtime/image-frame.cjs`、主进程生图参数 | UI 展示、runtime normalization 和真实请求必须一致；运行 `test:agent-text`、`test:agent-protocol`、真实图片专项 |
 | Asset identity | Renderer `src/asset-identity.ts`（由 `core.ts` 兼容重导出）、`electron-main.cjs` 项目/session 清洗、导入 worker | assetId/occurrenceId/content hash 不得因重启或迁移漂移；运行 `test:asset-identity`, `test:project-io`, `test:image-import` |
-| Session revision | Renderer 自动保存、`desktop/project-save-coordinator.cjs`、项目 manifest/session | revision 单调且旧写不覆盖新写；运行 `test:project-save-coordinator`, `test:project-io` |
+| Session revision 与多窗口合并 | Renderer 自动保存、`desktop/project-save-coordinator.cjs`、`desktop/project-session-merge.cjs`、项目 manifest/session | revision 单调；旧窗口保存必须读取最新磁盘快照并合并会话、节点与资产，不能覆盖新写；节点冲突按 `persistenceOriginId` 重映射；运行 `test:project-save-coordinator`, `test:project-session-merge`, `test:project-io` |
 | 服务返回清洗 | `electron-main.cjs` 正式路径、`src/server.ts` 浏览器回退 | 登录、用户、模型、日志和图片 DTO 不能静默分叉；正式行为以 Electron 路径为准 |
 | Agent 文本清洗 | `agent-runtime.cjs` tool envelope、`src/core.ts` 持久化消息清洗、`src/agent.ts` 时间线 | 不泄露 entry id/FastMemory metadata，不重复最终文本；运行 `test:agent-text`, `test:timeline` |
 | 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `ai-native` release manifest | canonical 清单的 product、version、minimum version、compatibility、hash、size 与制品必须一致，并独立验签 |
@@ -581,7 +581,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `desktop/theme-preset-service.cjs`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette/customTheme`、Electron `defaultSettings/migrateSettings` 镜像、ConfigBridge/IPC、独立 Agent 快照、Vite `studio-dialogs` 懒加载 chunk | `test:theme-preset`, `test:settings-persistence`, `test:agent-window`, `test:ui-foundation`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
 | 插件/电商/Project Graph | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态清洗镜像、设置持久化、权限、动态 chunk、preload/IPC、主 Renderer handler；长 Prompt 归 Main；禁止脚本注入、扩展执行和直接 session 写入 | `test:plugin-system`, `test:project-graph`, `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
-| 项目保存/session | `main.tsx`, `electron-main.cjs`, save coordinator | manifest、revision、迁移、原子写入 | `test:project-save-coordinator`, `test:project-io` |
+| 项目保存/session | `main.tsx`, `desktop/ipc/config-ipc.cjs`, save coordinator, session merge | manifest、revision、并行窗口合并、节点 ID 重映射、迁移、原子写入 | `test:project-save-coordinator`, `test:project-session-merge`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
 | 抠图/alpha/分层 | `layer-alpha-normalization.ts`, `core.ts`, matting/background/layer modules | 尺寸、透明度、mask replay、PSD | alpha、mask、matting、chroma-key、PSD tests |
 | 更新/安装器 | main/update/release scripts/build/tools | ai-native manifest、签名密钥、回滚 | update tests、installer smoke、update E2E |
@@ -639,7 +639,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 ### 9.4 仅内存状态
 
-- `desktop/project-save-coordinator.cjs` 的 project queue 与 revision Map。
+- `desktop/project-save-coordinator.cjs` 的 project queue 与 revision Map；`desktop/project-session-merge.cjs` 是无状态 stale-save 合并器，不持有运行时 Map。
 - `desktop/account-token-service.cjs` 的账户完整 Key cache；Renderer 只接收脱敏密钥元数据，进程重启后通过登录 session 再次按需获取。
 - 当前 BrowserWindow、模型 inflight 请求和模型 memory cache。
 - Agent 当前执行、取消控制器、流式文本和工具轮次。
@@ -666,7 +666,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 设备激活、缓存与离线宽限 | `corepack pnpm run test:license` |
 | `view_image` | `corepack pnpm run test:view-image` |
 | 项目 IO | `corepack pnpm run test:project-io` |
-| 保存 revision/队列 | `corepack pnpm run test:project-save-coordinator` |
+| 保存 revision/队列/多窗口合并 | `corepack pnpm run test:project-save-coordinator`, `corepack pnpm run test:project-session-merge` |
 | 模型目录/缓存纯逻辑 | `corepack pnpm run test:model-catalog` |
 | 设置迁移与 localStorage 回退 | `corepack pnpm run test:settings-persistence` |
 | 粘贴块 | `corepack pnpm run test:paste-blocks` |
@@ -692,7 +692,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI；正式制品仍必须通过 `test:bundle` 和发布编排器的完整要求。
 
-当前 Renderer 门禁将核心与插件分别计量：初始 JS 上限 650,000 B，核心异步 JS 上限 180,000 B，核心总 JS 上限 720,000 B，插件 JS 独立上限 120,000 B，CSS 220,000 B，完整 dist 1,000,000 B。`plugin-system-*`、`plugin-settings-panel-*` 和插件专属对话框必须保持异步；任一插件 chunk 进入 `index.html` 初始依赖图都会直接失败。插件 JS 不占核心总量或核心异步额度，但仍受插件上限、完整 dist 上限和 AIDebug 泄漏检查约束。
+当前 Renderer 门禁将核心与插件分别计量：初始 JS 上限 670,000 B，核心异步 JS 上限 180,000 B，核心总 JS 上限 740,000 B，插件 JS 独立上限 120,000 B，CSS 220,000 B，完整 dist 1,000,000 B。首屏与核心门禁因画布剪贴板、运行控制和多窗口入口小幅放宽，完整 dist、核心异步、插件和 CSS 上限不变；`plugin-system-*`、`plugin-settings-panel-*` 和插件专属对话框仍必须保持异步，任一插件 chunk 进入 `index.html` 初始依赖图都会直接失败。插件 JS 不占核心总量或核心异步额度，但仍受插件上限、完整 dist 上限和 AIDebug 泄漏检查约束。
 
 独立 Agent 窗口批次后的正式证据为：initial JS 639,365 B、async JS 60,073 B、total JS 699,438 B、CSS 187,824 B、dist 943,051 B。首屏只剩约 10.6 KB；`src/agent-window-sync.ts` 已保持为打开独立窗时才加载的动态 chunk，后续 Renderer 功能仍必须同步审计 chunk 归属并运行 `build + test:bundle`。
 
@@ -702,9 +702,12 @@ Project Graph 插件批次后的正式证据为：initial JS 646,764 B、async J
 
 插件独立计量批次后的正式证据为：initial JS 648,314 B，all JS 720,218 B，core JS 710,952 B，plugin JS 9,266 B，core async JS 62,638 B，CSS 193,912 B，dist 969,919 B。插件运行时、设置表面与跨境翻译对话框均为自然异步 chunk，账号与自定义纯文生图共用 Responses-first 传输策略。
 
+画布批处理与运行控制批次后的正式证据为：initial JS 664,163 B，all JS 736,174 B，core JS 726,908 B，plugin JS 9,266 B，core async JS 62,745 B，CSS 194,443 B，dist 986,406 B。插件仍保持异步，完整 dist 距 1,000,000 B 上限剩余 13,594 B；后续同步 Renderer 增量仍需优先复用或异步拆分。
+
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 88 个 invoke handler（85 个 preload invoke + 3 个内部 Agent invoke）、4 个进度接收和 2 个 send channel 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 92 个 invoke handler（89 个 preload invoke + 3 个内部 Agent invoke）、5 个进度接收和 2 个 send channel 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema、Responses/Chat parser 与图片批次调度也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- 同项目并行采用多个 Renderer 窗口隔离运行状态；Main 以 `projectId + conversationId` 管理暂停、恢复、结束和节点锁。项目 session 仍是整份 JSON，但 stale revision 现在由 `desktop/project-session-merge.cjs` 合并：不同来源的同 ID 新节点会重映射，已完成资产和其他会话会保留。当前未实现显式删除 tombstone；两个窗口同时删除/编辑同一已存在节点时，保守策略优先避免数据丢失，后续如需多人协作语义应升级为 patch/event persistence。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
@@ -718,6 +721,7 @@ Project Graph 插件批次后的正式证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 新增画布 Ctrl+C/X/V、剪贴板图片与外部拖入成容器、左键框选和多源批量连需求；图片任务按设置中的每批 1–10 张顺序派发。新增 Main 级 pause/resume/stop、真实 Abort、项目+会话节点锁和二次确认；运行中切换项目或新建会话会打开隔离 Renderer。旧 revision 保存改为读取最新 session 后合并，并以 `persistenceOriginId` 解决并行窗口节点 ID 冲突。专项、项目 IO、typecheck、正式 build 和 Bundle 已通过，未运行全量 AIDebug。 |
 | 2026-07-28 | 1.0.6 | 插件运行时、插件设置和插件专属对话框改为独立自然异步 chunk；Bundle 门禁分别统计 core/plugin JS，插件不得进入首屏图。账号登录模式同步采用所选账户 Key 的 `/v1/responses + image_generation` 优先链路，与自定义 Base URL/API Key 模式一致，不支持时才回退 Images API。 |
 | 2026-07-28 | 1.0.6 | 新增 `naimage-theme v1` 自定义主题编辑和原生导入/导出：浅/深色各 10 个严格十六进制语义色、64 KiB 文件上限、画布实时预览与独立 Agent 同步。电商/Project Graph 长 Prompt 移到 Electron 受信任服务，IPC 更新为 88 invoke/85 preload/3 internal；快速 GUI、专项测试与 719,928 B 总 JS Bundle 已通过。 |
 | 2026-07-28 | 1.0.6 | 新增 `sparkai.project-graph`：Electron 只读解析 `.prg`/JSON 为有界图 DTO，Renderer 以 GRAPH 作为唯一知识 SOURCE 提交视觉学习任务；禁止附件/扩展执行、绝对路径暴露和 session 直写。新增 `test:project-graph`，IPC 增至 85 个 invoke，两个真实 Project Graph 样例与生产 Bundle 已通过。 |

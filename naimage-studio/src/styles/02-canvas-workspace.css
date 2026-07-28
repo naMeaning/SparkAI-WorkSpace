@@ -741,6 +741,23 @@
   border-color: color-mix(in srgb, var(--green) 52%, var(--line));
 }
 
+.flow-node.node-locked {
+  cursor: not-allowed;
+  border-color: color-mix(in srgb, var(--warning, #b7791f) 56%, var(--line));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning, #b7791f) 16%, transparent);
+}
+
+.flow-node.node-locked .node-state {
+  color: var(--warning, #9a6700);
+  font-weight: 700;
+}
+
+.flow-node.node-locked .node-port,
+.flow-node.node-locked .node-resize-handle {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .node-id {
   position: relative;
   width: 32px;

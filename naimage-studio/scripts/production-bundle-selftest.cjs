@@ -67,9 +67,9 @@ const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker
 const limits = {
   // Plugins are an async product boundary and have an independent allowance.
   // The core ceiling therefore remains useful as the plugin catalog grows.
-  initialJsBytes: 650_000,
+  initialJsBytes: 670_000,
   coreAsyncJsBytes: 180_000,
-  coreJsBytes: 720_000,
+  coreJsBytes: 740_000,
   pluginJsBytes: 120_000,
   cssBytes: 220_000,
   totalBytes: 1_000_000

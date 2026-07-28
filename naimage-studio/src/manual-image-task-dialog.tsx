@@ -144,7 +144,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
             <div className="manual-image-task-summary">
               <span>{computedSizeFor(draft.ratio, draft.resolution)}</span>
               <span>{qualityLabel(draft.quality)}</span>
-              <span>{draft.count > 1 ? `并行 ${draft.count} 张` : "单张"}</span>
+              <span>{draft.count > 1 ? `${draft.count} 张 · 按 Agent 设置分批` : "单张"}</span>
             </div>
           </SurfaceBody>
           <SurfaceFooter>

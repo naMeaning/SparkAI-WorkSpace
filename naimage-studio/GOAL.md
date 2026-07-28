@@ -97,7 +97,7 @@
 - 已实现：受信任的声明式内置 manifest、设置持久化与 Electron/Renderer 双侧清洗、安装/启用/停用/卸载、权限复核、命令注册表和画布工具栏 contribution point。插件禁止注入任意 Renderer JavaScript，也不能直接修改项目 session；完整运行时仅在存在启用插件时动态加载。
 - Project Graph：第二个内置插件 `sparkai.project-graph` 可只读选择 `.prg` 或图结构 JSON。Electron 适配器从 ZIP 中只读取 `stage.msgpack` 并解析 MessagePack 对象引用，不执行扩展脚本、附件或任意插件代码，不暴露绝对路径；文件、舞台、节点、关系、文本和遍历复杂度均有上限。Renderer 显式清空画布选择与附件继承，把 GRAPH 作为唯一知识 SOURCE，要求 Agent 按规模生成 1 张总览或 2–6 张独立学习图片，并禁止虚构图中不存在的事实或直接写项目 session。
 - 科研绘图：第三个内置插件 `sparkai.scientific-figure` 参考 `Yuan1z0825/nature-skills` 的科研绘图工作流，内置可拆包的受信任 Agent 契约；定量绘图先选 Python 或 R，之后单后端完成绘制、预览、导出和 QA，禁止虚构数据。插件目录预留 `naimage-plugin-v1` 在线目录格式，不携带上游图库、示例或 Python/R 依赖。
-- Bundle 边界：插件运行时、设置表面和插件专属对话框保持自然异步 chunk；`test:bundle` 单独约束 120,000 B 插件 JS，核心仍按 720,000 B 计量，插件进入首屏图即失败。
+- Bundle 边界：插件运行时、设置表面和插件专属对话框保持自然异步 chunk；`test:bundle` 单独约束 120,000 B 插件 JS，核心当前按 740,000 B、首屏按 670,000 B 计量，插件进入首屏图即失败，完整 dist 仍限制为 1,000,000 B。
 - 外部参考：<https://github.com/graphif/project-graph>
 - 权威文件：`desktop/project-graph-adapter.cjs`、`desktop/plugin-task-prompts.cjs`、`desktop/ipc/project-ipc.cjs`、`desktop/ipc/plugin-ipc.cjs`、`plugins/builtin-manifests.json`、`src/plugin-system.ts`、`src/main.tsx`。
 - 证明：`test:project-graph` 23 cases、`test:plugin-system` 65 cases、`test:ipc-registration` 88 invoke handlers/85 preload invokes/3 internal Agent invokes、`test:settings-persistence` 66 cases、正式 `build` 与 `test:bundle`。当前 Bundle 为 initial 648,314 B、core JS 710,952 B、plugin JS 9,266 B。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。长 Prompt 已移出 Renderer，本批未修改任何 `.prg`、项目 session 或用户数据。
@@ -111,6 +111,17 @@
 - 权威文件：`desktop/account-token-quota.cjs`、`desktop/account-token-service.cjs`、`src/core.ts`、`src/main.tsx`、`src/styles/04-settings-appearance.css`。
 - 证明：`test:account-token-quota` 10 cases、`test:account-token`、`test:settings-lazy-load` 12 cases、`test:ipc-registration`、`typecheck`、正式 `build` 与 `test:bundle`。
 
+### 13. 画布批处理、Agent 运行控制与多窗口持久化
+
+- 状态：`已验证`
+- 画布：支持 Ctrl+C/Ctrl+X/Ctrl+V；剪贴板图片和外部拖入图片均进入项目资产链路并生成容器。左键空白拖动用于框选，中键或 Space/Alt+左键平移；多选图片可从统一连接头批量连接到需求节点。
+- 批次：新增 `imageBatchSize`，默认 3、范围 1–10。Agent 多图工具和手工生图均按批次顺序派发，批内并行；Runtime 总任务参数可承载更大批量，产品不声明未经人工验证的固定总上限。
+- 运行控制：Main 以 `projectId + conversationId` 持有 AbortController、暂停状态和运行节点锁；暂停停止派发后续批次，恢复继续，结束真实中断模型与图片请求。暂停、结束均需二次确认，已完成图片保留。
+- 并行：运行中切换项目或新建会话会打开独立 Renderer，避免旧项目异步结果写入新项目。同项目 stale revision 保存自动合并最新磁盘 session；节点 `persistenceOriginId` 区分并行创建，冲突 ID 与引用自动重映射，其他会话和更完整图片资产保留。
+- 边界：当前保守合并不实现删除 tombstone；两个窗口同时编辑/删除同一个既有节点时优先防数据丢失。需要真正多人协作时再升级为 Main 分配 ID 的 patch/event persistence。
+- 权威文件：`src/canvas-clipboard.ts`、`runtime/image-batch-scheduler.cjs`、`desktop/agent-run-control.cjs`、`desktop/project-session-merge.cjs`、`desktop/ipc/{agent,server,config,window}-ipc.cjs`、`src/main.tsx`、`agent-window-*`。
+- 证明：`typecheck`、`test:canvas-clipboard`、`test:selection`、`test:canvas-commands`、`test:paste-blocks`、`test:image-batch-scheduler`、`test:agent-run-control`、`test:agent-window`、`test:agent-text`、`test:agent-protocol`、`test:agent-responses-adapter`、`test:ipc-registration`（92/89/3）、`test:settings-persistence`、`test:project-save-coordinator`、`test:project-session-merge`、`test:project-io`、正式 `build + test:bundle`。未运行全量 AIDebug。Bundle：initial 664,163 B、core JS 726,908 B、plugin JS 9,266 B、core async 62,745 B、CSS 194,443 B、dist 986,406 B。
+
 ## 已固化基线
 
 ### 2026-07-28 · 账户密钥与 Agent 自动化
@@ -122,6 +133,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成画布复制/剪切/粘贴、剪贴板与拖入图片成容器、框选与多源需求连接；新增可配置图片批次、Agent 暂停/恢复/真实结束、项目+会话节点锁和隔离 Renderer 并行。旧 revision 保存改为合并最新 session 并重映射并行节点冲突；专项、项目 IO、正式构建和 Bundle 已通过。
 - 2026-07-28：完成 `naimage-theme v1` 自定义主题导入、导出、编辑和浅/深色实时预览；长插件 Prompt 移到 Electron 受信任服务，IPC 更新为 88/85/3；快速 GUI、专项测试、正式构建和 Bundle 已验证，总 JS 719,928 B。
 - 2026-07-28：交付 `sparkai.project-graph` 视觉学习插件；新增受限 `.prg`/JSON 适配、MessagePack 解码、只读 IPC 和独立异步 Prompt 模块，真实 Project Graph 样例与生产 Bundle 已验证。
 - 2026-07-28：建立受信任的声明式插件系统并交付首个跨境电商多语言套图插件；支持安装、授权、启停、卸载、画布工具栏贡献和最多 10 种语言选择，插件 Runtime 进入异步 chunk；Project Graph 适配随后在独立批次完成。

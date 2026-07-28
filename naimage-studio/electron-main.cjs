@@ -41,6 +41,7 @@ const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs")
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
+const { createAgentRunControl, createAbortError } = require("./desktop/agent-run-control.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
 const { parseProjectGraphFile } = require("./desktop/project-graph-adapter.cjs");
@@ -65,6 +66,14 @@ const {
   responsesToolsFromChatTools
 } = require("./desktop/agent-responses-adapter.cjs");
 const packageMetadata = require("./package.json");
+
+const agentRunControl = createAgentRunControl({
+  onChange(payload) {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send("naimage:agent:run-state", payload);
+    }
+  }
+});
 
 function getDesktopVersion() {
   return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
@@ -310,6 +319,7 @@ const defaultSettings = {
   imageModel: "",
   imageModelPool: [],
   imageCount: 1,
+  imageBatchSize: 3,
   imageSize: "1024x1024",
   imageQuality: "auto",
   accountBaseUrl: "https://sparkapi.org",
@@ -601,6 +611,10 @@ function migrateSettings(value) {
   next.timeoutSeconds = Number.isFinite(timeoutSeconds)
     ? Math.max(15, Math.min(600, Math.round(timeoutSeconds)))
     : defaultSettings.timeoutSeconds;
+  const imageBatchSize = Number(next.imageBatchSize);
+  next.imageBatchSize = Number.isFinite(imageBatchSize)
+    ? Math.max(1, Math.min(10, Math.round(imageBatchSize)))
+    : defaultSettings.imageBatchSize;
   next.fastMode = Boolean(next.fastMode);
   if (isLegacyLocalServerUrl(legacyServerUrl)) {
     next.accountBaseUrl = defaultSettings.accountBaseUrl;
@@ -1760,6 +1774,7 @@ async function serverChatCompletion(payload = {}) {
   }
   const settings = migrateSettings(readJson(settingsPath, defaultSettings));
   await licenseService.requireActive();
+  const callerSignal = payload.signal;
   const requestBody = {
     ...payload,
     messages: Array.isArray(payload.messages) ? payload.messages : [],
@@ -1772,6 +1787,8 @@ async function serverChatCompletion(payload = {}) {
   delete requestBody.reasoningEffort;
   delete requestBody.serviceTier;
   delete requestBody.fastMode;
+  delete requestBody.signal;
+  delete requestBody.onStreamEvent;
   const hasNativeResponsesTool = Array.isArray(requestBody.tools) && requestBody.tools.some((tool) => String(tool?.type || "") === "web_search");
   const useResponsesApi = hasNativeResponsesTool || agentModelUsesResponsesApi(requestBody.model);
   const endpoint = useResponsesApi ? "/v1/responses" : "/v1/chat/completions";
@@ -1783,6 +1800,9 @@ async function serverChatCompletion(payload = {}) {
     ? Math.min(Math.max(configuredTimeoutMs, reasoningModelFloorMs), 300_000)
     : Math.max(configuredTimeoutMs, reasoningModelFloorMs);
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(callerSignal?.reason || createAbortError("用户结束了当前任务。"));
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener?.("abort", abortFromCaller, { once: true });
   let timeoutError = null;
   let timeoutTimer = null;
   const timeoutPromise = new Promise((_resolve, reject) => {
@@ -1812,10 +1832,12 @@ async function serverChatCompletion(payload = {}) {
     log(`agent new-api ${useResponsesApi ? "responses" : "chat"} model=${data.model || payload.model || settings.agentModel || "server-selected"}`);
     return data;
   } catch (error) {
+    if (callerSignal?.aborted) throw createAbortError(callerSignal.reason);
     if (error === timeoutError || controller.signal.aborted) throw timeoutError;
     throw error;
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
+    callerSignal?.removeEventListener?.("abort", abortFromCaller);
     controller.abort();
   }
 }
@@ -2651,6 +2673,7 @@ function prepareImageUploadPart(image, aggressive = false) {
 }
 
 async function callNewApiImage(settings, payload = {}) {
+  if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
   if (!aidebugMode) await licenseService.requireActive();
   const customMode = isCustomApiMode(settings);
   if (!customMode) requireNewApiSession(settings);
@@ -2749,6 +2772,9 @@ async function callNewApiImage(settings, payload = {}) {
     const code = String(error?.code || error?.cause?.code || "").toLowerCase();
     const message = String(error?.message || error || "");
     const normalized = `${code} ${message}`.toLowerCase();
+    if (code === "naimage_run_cancelled" || (payload.signal?.aborted && error?.name === "AbortError")) {
+      return { category: "cancelled", retryable: false, maxRetries: 0, status, message };
+    }
     if (error?.unsafeToRetry === true) {
       return { category: "ambiguous", retryable: false, maxRetries: 0, status, message };
     }
@@ -2851,11 +2877,16 @@ async function callNewApiImage(settings, payload = {}) {
   async function withImageRequestTimeout(task, index) {
     const controller = new AbortController();
     let timer = null;
+    let timedOut = false;
+    const abortFromCaller = () => controller.abort(payload.signal?.reason || createAbortError("用户结束了当前任务。"));
+    if (payload.signal?.aborted) abortFromCaller();
+    else payload.signal?.addEventListener?.("abort", abortFromCaller, { once: true });
     const timeoutError = new Error(`Image 2 第 ${index + 1}/${count} 张请求超过 300 秒，已中断。`);
     timeoutError.code = "NAIMAGE_IMAGE_TIMEOUT";
     timeoutError.errorCategory = "timeout";
     const timeoutPromise = new Promise((_resolve, reject) => {
       timer = setTimeout(() => {
+        timedOut = true;
         controller.abort();
         reject(timeoutError);
       }, imageTimeoutMs);
@@ -2863,10 +2894,12 @@ async function callNewApiImage(settings, payload = {}) {
     try {
       return await Promise.race([task(controller.signal), timeoutPromise]);
     } catch (error) {
-      if (error === timeoutError || controller.signal.aborted) throw timeoutError;
+      if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
+      if (error === timeoutError || timedOut) throw timeoutError;
       throw error;
     } finally {
       if (timer) clearTimeout(timer);
+      payload.signal?.removeEventListener?.("abort", abortFromCaller);
       controller.abort();
     }
   }
@@ -3084,6 +3117,7 @@ async function callNewApiImage(settings, payload = {}) {
   async function requestSingleImage(index) {
     const stats = requestAttempts[index];
     for (;;) {
+      if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
       stats.attempts += 1;
       try {
         return await requestSingleImageAttempt(index);
@@ -3117,7 +3151,10 @@ async function callNewApiImage(settings, payload = {}) {
         } catch {
           // Retry telemetry must never break the image request itself.
         }
-        await delay(delayMs);
+        await delay(delayMs, undefined, payload.signal ? { signal: payload.signal } : undefined).catch((error) => {
+          if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
+          throw error;
+        });
       }
     }
   }
@@ -3126,6 +3163,7 @@ async function callNewApiImage(settings, payload = {}) {
   let nextImageIndex = 0;
   const worker = async () => {
     while (nextImageIndex < count) {
+      if (payload.signal?.aborted) break;
       const index = nextImageIndex;
       nextImageIndex += 1;
       try {
@@ -3530,6 +3568,7 @@ function registerIpc() {
     licenseService,
     listAgentModels,
     emitAgentProgress,
+    agentRunControl,
     aidebugMode,
     createWindow,
     BrowserWindow,
@@ -3618,7 +3657,7 @@ function registerIpc() {
   });
 }
 
-function createWindow() {
+function createWindow(launch = {}) {
   logBoot("create window start");
   const windowIcon = createWindowIcon();
   const window = new BrowserWindow({
@@ -3678,10 +3717,16 @@ function createWindow() {
     log(`console level=${details.level} ${details.sourceId}:${details.lineNumber} ${details.message}`);
   });
 
+  const query = {
+    ...(launch?.projectId ? { projectId: String(launch.projectId) } : {}),
+    ...(launch?.newConversation ? { newConversation: "1" } : {})
+  };
   if (devUrl) {
-    window.loadURL(devUrl);
+    const target = new URL(devUrl);
+    Object.entries(query).forEach(([key, value]) => target.searchParams.set(key, value));
+    window.loadURL(target.toString());
   } else {
-    window.loadFile(rendererIndex);
+    window.loadFile(rendererIndex, { query });
   }
 }
 

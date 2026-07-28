@@ -5,6 +5,7 @@ const feed = document.getElementById("agent-feed");
 const promptInput = document.getElementById("agent-prompt");
 const composer = document.getElementById("agent-composer");
 const sendButton = document.getElementById("send-button");
+const pauseButton = document.getElementById("pause-button");
 const conversationSelect = document.getElementById("conversation-select");
 const dockSelect = document.getElementById("dock-select");
 const statusSurface = document.querySelector(".agent-status");
@@ -120,6 +121,7 @@ function render() {
   document.getElementById("reference-count").textContent = String(state.referenceImageCount || 0);
   document.getElementById("selected-count").textContent = String(state.selectedArtifactCount || 0);
   statusSurface.classList.toggle("busy", Boolean(state.busy));
+  statusSurface.classList.toggle("paused", Boolean(state.paused));
   statusSurface.classList.toggle("error", /问题|失败|error/i.test(state.statusText || ""));
 
   const activeElement = document.activeElement;
@@ -131,6 +133,8 @@ function render() {
   sendButton.disabled = !state.ready || (!state.busy && !promptInput.value.trim());
   sendButton.textContent = state.busy ? "停止" : "发送";
   sendButton.classList.toggle("stop", Boolean(state.busy));
+  pauseButton.hidden = !state.busy;
+  pauseButton.textContent = state.paused ? "恢复" : "暂停";
 
   const previousConversation = conversationSelect.value;
   conversationSelect.replaceChildren();
@@ -145,7 +149,7 @@ function render() {
     conversationSelect.value = state.activeConversationId || previousConversation;
   }
   conversationSelect.disabled = state.busy || !state.ready;
-  document.getElementById("new-conversation").disabled = state.busy || !state.ready;
+  document.getElementById("new-conversation").disabled = !state.ready;
   document.getElementById("clear-conversation").disabled = state.busy || !state.ready;
   renderFeed(Array.isArray(state.messages) ? state.messages : []);
 }
@@ -160,7 +164,9 @@ composer.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!currentState?.ready) return;
   if (currentState.busy) {
-    command({ type: "stop" });
+    if (confirm("结束当前任务？这会取消正在进行的思考、生图请求和尚未开始的批次。")) {
+      command({ type: "stop-confirmed" });
+    }
     return;
   }
   const prompt = promptInput.value.trim();
@@ -171,6 +177,17 @@ composer.addEventListener("submit", (event) => {
   }
   promptInput.dataset.lastPublished = promptInput.value;
   command({ type: "send", prompt });
+});
+
+pauseButton.addEventListener("click", () => {
+  if (!currentState?.busy) return;
+  if (currentState.paused) {
+    command({ type: "resume" });
+    return;
+  }
+  if (confirm("暂停当前任务？已经发出的请求会完成，但不会派发下一批。")) {
+    command({ type: "pause-confirmed" });
+  }
 });
 
 promptInput.addEventListener("keydown", (event) => {

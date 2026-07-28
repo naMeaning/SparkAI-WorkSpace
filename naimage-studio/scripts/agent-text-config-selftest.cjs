@@ -1252,7 +1252,11 @@ async function runSelftest(directory) {
     assert.equal(capturedRequest.messages[0].role, "developer");
     assert.equal(capturedRequest.messages[0].content, customPromptText, "Main model must receive the exact editable Prompt text");
     assert.equal(capturedRequest.messages[0].content.includes("prompt-main"), false, "Main model Prompt must not contain generated prompt IDs");
-    assert.deepEqual(capturedRequest.tools, schemasBeforePromptSave, "Model tools must remain independently schema-driven");
+    assert.deepEqual(
+      capturedRequest.tools,
+      ownedAgentToolSchemas(schemaSettings, { includeNativeWebSearch: false }),
+      "The active model must receive the schema-owned tool set after capability filtering",
+    );
     const runtimeContextText = String(capturedRequest.messages[1]?.content || "");
     assert(runtimeContextText.includes("A_VISIBLE_MEMORY"), "Main model should receive scoped FastMemory text");
     assert.equal(runtimeContextText.includes(scopeBText), false, "Main model must not receive another conversation's FastMemory");
@@ -1631,7 +1635,7 @@ async function runSelftest(directory) {
       ...nativeLoopScope,
       conversationId: "conversation-web-search-loop",
       prompt: "SELFTEST_WEB_SEARCH_TO_IMAGE_FINAL 检索电商趋势后生成主视觉。",
-      settings: schemaSettings,
+      settings: { ...schemaSettings, agentModel: "gpt-5.6-terra" },
       messages: [],
       nodes: autonomyNodes,
       referenceImages: [],
@@ -1745,7 +1749,7 @@ async function runSelftest(directory) {
     );
     assert(largeCanvasRequest, "Expected a captured 500-node model request");
     const largeCanvasContext = String(largeCanvasRequest.messages?.[1]?.content || "");
-    assert.match(largeCanvasContext, /snapshotBudgetChars=9000.*total=500/s);
+    assert.match(largeCanvasContext, /snapshotBudgetChars=16000.*total=500/s);
     assert(largeCanvasContext.includes("large-node-499"), "The 499th selected node must always be included");
     assert(largeCanvasContext.includes("LARGE_CANVAS_NODE_499"), "The selected node summary must preserve its prompt context");
     assert(largeCanvasContext.includes("large-node-10"), "Multi-selection outside the recent window must always be included");
@@ -1753,7 +1757,7 @@ async function runSelftest(directory) {
     assert(largeCanvasContext.includes("role=style"));
     assert(largeCanvasContext.includes("purpose=只参考蓝金电商视觉风格。"));
     const workbenchSection = largeCanvasContext.split("Current Workbench Snapshot:\n")[1]?.split("\n\nCurrent Task Scope:")[0] || "";
-    assert(workbenchSection.length <= 9000, `Bounded workbench snapshot exceeded its explicit budget: ${workbenchSection.length}`);
+    assert(workbenchSection.length <= 16000, `Bounded workbench snapshot exceeded its explicit budget: ${workbenchSection.length}`);
 
     const pagedNodeIds = [];
     for (let offset = 0; offset < largeCanvasNodes.length; offset += 10) {
@@ -2230,8 +2234,8 @@ async function runSelftest(directory) {
     assert.equal(cutoutNode?.imageParams?.outputFormat, "png");
 
     await assert.rejects(
-      runtime.runTool("image_gen", { operation: "generate", prompt: "VALID_PROMPT", count: 11 }, runToolContext),
-      /1-10/,
+      runtime.runTool("image_gen", { operation: "generate", prompt: "VALID_PROMPT", count: 201 }, runToolContext),
+      /1-200/,
       "Out-of-range count must fail explicitly",
     );
     await assert.rejects(
@@ -2513,7 +2517,7 @@ async function runSelftest(directory) {
     assert.equal(runtime.getFastMemory(scopeA).text, fastMemoryBeforeInternalProbe, "Rejected internal tool calls must not mutate FastMemory");
 
     const fillerParagraphs = Array.from({ length: 28 }, (_, index) =>
-      `通用经验段落 ${index + 1}：${"保持主体轮廓稳定、控制背景噪声、统一光线方向与材质层次。".repeat(20)}`
+      `通用经验段落 ${index + 1}：${"保持主体轮廓稳定、控制背景噪声、统一光线方向与材质层次。".repeat(28)}`
     );
     const longFastMemoryText = [
       "LONG_MEMORY_HEAD_SENTINEL：这是人工编辑记忆的开头规则，必须保持可见。",
@@ -2522,7 +2526,7 @@ async function runSelftest(directory) {
       ...fillerParagraphs.slice(14),
       "LONG_MEMORY_TAIL_SENTINEL：这是最近补充的尾部规则，也必须保持可见。",
     ].join("\n\n");
-    assert(longFastMemoryText.length > 12000 && longFastMemoryText.length < 64000, "Long FastMemory fixture must exceed the model injection budget but remain editable");
+    assert(longFastMemoryText.length > 20000 && longFastMemoryText.length < 64000, "Long FastMemory fixture must exceed the model injection budget but remain editable");
     const longMemorySave = assertOk(
       runtime.saveFastMemory({ ...scopeA, text: longFastMemoryText }),
       "save long editable FastMemory",
@@ -2545,7 +2549,7 @@ async function runSelftest(directory) {
     assert(longMemoryMatch, "Runtime context should expose a separately bounded FastMemory section");
     const injectedLongMemory = longMemoryMatch[1];
     assert(injectedLongMemory.length > 700, "Long editable FastMemory must inject substantially more than the legacy 700-character cap");
-    assert(injectedLongMemory.length <= 12000, "FastMemory injection must respect the total context budget");
+    assert(injectedLongMemory.length <= 20000, "FastMemory injection must respect the total context budget");
     assert(injectedLongMemory.includes("LONG_MEMORY_HEAD_SENTINEL"), "Long FastMemory selection should preserve the current entry head");
     assert(injectedLongMemory.includes("LONG_MEMORY_RELEVANT_SENTINEL"), "Long FastMemory selection should include the query-relevant segment");
     assert(injectedLongMemory.includes("LONG_MEMORY_TAIL_SENTINEL"), "Long FastMemory selection should preserve recent tail edits");
@@ -2667,7 +2671,7 @@ async function runSelftest(directory) {
         "entryId: ent-20260712-000020",
         "memoryRef: fmem-20260712-000021",
       ].join("\n"),
-      messageCount: 3,
+      messageCount: 0,
       updatedAt: "2026-07-12T00:00:00.000Z",
     }));
     await runtime.chat({
@@ -2788,7 +2792,7 @@ async function runSelftest(directory) {
     await runtime.chat({
       ...cancelledScope,
       prompt: "这是取消后的新任务。",
-      settings: schemaSettings,
+      settings: { ...schemaSettings, agentModel: "gpt-5.6-terra" },
       messages: [],
       nodes: [],
       referenceImages: [],

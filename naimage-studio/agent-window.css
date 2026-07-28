@@ -404,6 +404,20 @@ button:disabled {
   background: var(--danger);
 }
 
+.pause-button {
+  min-width: 64px;
+  padding: 0 12px;
+  border-color: var(--line-strong);
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-weight: 700;
+}
+
+.agent-status.paused #status-dot {
+  background: #b7791f;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #b7791f 16%, transparent);
+}
+
 @media (max-width: 420px) {
   .agent-header {
     align-items: flex-start;

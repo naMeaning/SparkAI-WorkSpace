@@ -66,7 +66,7 @@ function createImageBatchNormalization(options = {}) {
       return { ...args, items: undefined };
     }
     if (usableItems.length > 1) {
-      if (usableItems.length > 10) throw new Error("image_gen items 最多包含 10 个有效项。");
+      if (usableItems.length > 200) throw new Error("image_gen items 超过单次任务的 200 项内存安全边界，请拆成多个会话任务。");
       return { ...args, count: usableItems.length, items: usableItems };
     }
 
@@ -77,7 +77,7 @@ function createImageBatchNormalization(options = {}) {
     if (!topPrompt && !itemPrompt) throw new Error("image_gen 缺少可用的单图 prompt。");
     const prompt = resolveCompatibleSinglePrompt(topPrompt, itemPrompt);
     const requestedCount = Number(args.count);
-    const preserveRepeatedCount = sourceItems.length === 1 && Number.isSafeInteger(requestedCount) && requestedCount >= 2 && requestedCount <= 10;
+    const preserveRepeatedCount = sourceItems.length === 1 && Number.isSafeInteger(requestedCount) && requestedCount >= 2 && requestedCount <= 200;
 
     const normalized = {
       ...args,

@@ -12,6 +12,7 @@ const base = {
   modelName: "gpt-5.6-sol",
   agentStatus: "thinking" as const,
   busy: true,
+  paused: false,
   runElapsedSeconds: 12,
   prompt: "生成六张商品详情图",
   messages: [
@@ -63,7 +64,9 @@ assert.equal(snapshot.selectedArtifactCount, 3);
 assert.equal(agentWindowStatusText({ ...base, busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "error" }] }), "Agent 遇到问题");
 
 assert.deepEqual(normalizeAgentWindowCommand({ type: "send", prompt: "测试" }), { type: "send", prompt: "测试" });
-assert.deepEqual(normalizeAgentWindowCommand({ type: "stop" }), { type: "stop" });
+assert.deepEqual(normalizeAgentWindowCommand({ type: "pause-confirmed" }), { type: "pause-confirmed" });
+assert.deepEqual(normalizeAgentWindowCommand({ type: "resume" }), { type: "resume" });
+assert.deepEqual(normalizeAgentWindowCommand({ type: "stop-confirmed" }), { type: "stop-confirmed" });
 assert.deepEqual(normalizeAgentWindowCommand({ type: "switch-conversation", conversationId: "conv-2" }), { type: "switch-conversation", conversationId: "conv-2" });
 assert.deepEqual(normalizeAgentWindowCommand({ type: "dock", placement: "top" }), { type: "dock", placement: "top" });
 assert.equal(normalizeAgentWindowCommand({ type: "dock", placement: "external" }), null);

@@ -3,12 +3,12 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("naimageConfig", {
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
-  loadSession: () => ipcRenderer.invoke("naimage:config:load-session"),
+  loadSession: (payload) => ipcRenderer.invoke("naimage:config:load-session", payload),
   saveSession: (session, options = {}) => ipcRenderer.invoke(
     "naimage:config:save-session",
     Number.isSafeInteger(options?.revision) ? { ...(session || {}), revision: options.revision } : session
   ),
-  newWindow: () => ipcRenderer.invoke("naimage:window:new"),
+  newWindow: (payload) => ipcRenderer.invoke("naimage:window:new", payload),
   windowControl: (payload) => ipcRenderer.invoke("naimage:window:control", payload),
   listProjects: () => ipcRenderer.invoke("naimage:project:list"),
   createProject: (payload) => ipcRenderer.invoke("naimage:project:create", payload),
@@ -127,7 +127,17 @@ contextBridge.exposeInMainWorld("naimageAgent", {
   resetFastMemory: (payload) => ipcRenderer.invoke("naimage:agent:fast-memory:reset", payload),
   clearConversation: (payload) => ipcRenderer.invoke("naimage:agent:clear-conversation", payload),
   cancelPendingExecution: (payload) => ipcRenderer.invoke("naimage:agent:cancel-pending-execution", payload),
+  pause: (payload) => ipcRenderer.invoke("naimage:agent:pause", payload),
+  resume: (payload) => ipcRenderer.invoke("naimage:agent:resume", payload),
+  stop: (payload) => ipcRenderer.invoke("naimage:agent:stop", payload),
+  runStatus: (payload) => ipcRenderer.invoke("naimage:agent:run-status", payload),
   smoke: () => ipcRenderer.invoke("naimage:agent:smoke"),
+  onRunState: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:agent:run-state", listener);
+    return () => ipcRenderer.removeListener("naimage:agent:run-state", listener);
+  },
   onProgress: (handler) => {
     if (typeof handler !== "function") return () => {};
     const listener = (_event, payload) => handler(payload);

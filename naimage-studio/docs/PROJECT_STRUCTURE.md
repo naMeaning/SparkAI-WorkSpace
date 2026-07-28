@@ -9,11 +9,11 @@
 | `src/` | React 工作台、画布、Agent 对话与共享前端逻辑 | `main.tsx` 只做跨域编排；独立表面和纯数据域放入专用模块。公共符号移动时同步上下文地图和调用方。 |
 | `src/auth-gate.tsx`, `src/image-viewer.tsx`, `src/reference-picker-dialog.tsx`, `src/theme-palette-picker.tsx`, `src/window-controls.tsx` | 已抽出的 Renderer 表面 | 由 `main.tsx` 传入状态和回调；主题选择器随设置页懒加载，不反向持有 App 全局状态。 |
 | `src/studio-dialogs.ts` | Renderer 异步表面 barrel | 聚合设置、账户、编辑对话框、主题选择器与 Markdown 的命名导出；保持自然 async chunk，不承载业务状态。 |
-| `src/settings-persistence.ts`, `src/asset-identity.ts`, `src/paste-blocks.ts` | 设置/存储、资产身份与粘贴块纯逻辑 | 设置默认值、明暗/调色盘迁移直接由 `settings-persistence.ts` 拥有；资产和粘贴仍由 `core.ts` 兼容重导出。 |
+| `src/settings-persistence.ts`, `src/asset-identity.ts`, `src/paste-blocks.ts`, `src/canvas-clipboard.ts` | 设置/存储、资产身份、消息粘贴块与画布剪贴板纯逻辑 | 画布节点复制负责节点/容器/需求关系 ID 重映射并清理运行态；图片文件粘贴和项目入库仍由 Renderer/Electron bridge 编排。 |
 | `src/styles.css`, `src/styles/` | 样式入口与 8 个有序语义区域 | import 顺序 01→08 是级联合同；01 内含语义 token 与命名调色盘，04 内含设置外观表面；`08-motion-accessibility.css` 必须最后。 |
 | `src/window-controls.tsx` | Renderer 窗口控制按钮 | 只调用 `ConfigBridge.windowControl`；BrowserWindow 原语仍由主进程处理。 |
-| `desktop/` | 可独立测试的 Electron 主进程域模块 | 当前包含保存协调器、模型目录与 Responses 请求转换；网络/IPC 时序仍留在 `electron-main.cjs`。 |
-| `runtime/` | 可独立测试的 Agent runtime 图片域模块 | 当前包含 Image 2 画幅规则与 `view_image` 安全 payload；由 `agent-runtime.cjs` 作为 facade/编排入口。 |
+| `desktop/` | 可独立测试的 Electron 主进程域模块 | 包含保存协调器、stale session 合并、Agent 运行控制、模型目录与 Responses 请求转换；网络/IPC 时序仍留在 `electron-main.cjs`。 |
+| `runtime/` | 可独立测试的 Agent runtime 图片域模块 | 包含 Image 2 画幅规则、图片批次调度与 `view_image` 安全 payload；由 `agent-runtime.cjs` 作为 facade/编排入口。 |
 | `electron-main.cjs` | Electron 主进程入口 | 负责窗口、IPC、项目存储、登录会话、远端请求、Worker 与更新调度，是打包清单中的固定入口。 |
 | `preload.cjs` | Renderer 安全桥 | 只暴露经过约束的 config/server/updater/agent 能力。 |
 | `agent-runtime.cjs` | 单 Agent runtime | 负责 Prompt、工具 Schema、上下文压缩、FastMemory、模型协议与工具执行；返回 action，不直接修改 React。 |
@@ -84,7 +84,9 @@ node scripts/maintenance/clean-workspace.mjs --scope=diagnostics,logs --keep-ele
 - 一般 Renderer/UI 冒烟：一批功能完成后运行一次 `corepack pnpm run aidebug:gui`（4 个关键画面）
 - 完整 UI surface 基线：仅在跨页面、全局布局或发布收口时运行 `corepack pnpm run aidebug:gui:surface`
 - Electron、项目或 Agent 非可视改动：优先运行对应 selftest；只有影响窗口、preload 或真实交互时才追加 GUI 专项
-- 项目 session/save revision：`corepack pnpm run test:project-save-coordinator` 与 `corepack pnpm run test:project-io`
+- 项目 session/save revision 与多窗口合并：`corepack pnpm run test:project-save-coordinator`、`corepack pnpm run test:project-session-merge` 与 `corepack pnpm run test:project-io`
+- 画布剪贴板/选择/快捷命令：`corepack pnpm run test:canvas-clipboard`、`corepack pnpm run test:selection`、`corepack pnpm run test:canvas-commands`
+- 图片批次与 Agent 暂停/结束：`corepack pnpm run test:image-batch-scheduler`、`corepack pnpm run test:agent-run-control`
 - 正式发布构建：`corepack pnpm run test:bundle`
 - 品牌安装/卸载截图：`corepack pnpm run package:installer-ui-smoke`
 - 隔离安装、覆盖、快捷方式和卸载：`corepack pnpm run package:installer-smoke`

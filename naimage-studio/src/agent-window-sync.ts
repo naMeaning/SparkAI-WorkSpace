@@ -37,6 +37,7 @@ export type AgentWindowSnapshot = {
   modelName: string;
   statusText: string;
   busy: boolean;
+  paused: boolean;
   prompt: string;
   messages: AgentWindowMessage[];
   conversations: { id: string; title: string; updatedAt: string; active: boolean }[];
@@ -51,7 +52,7 @@ export type AgentWindowSnapshot = {
 };
 
 export type AgentWindowCommand =
-  | { type: "request-state" | "closed" | "stop" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-memory" }
+  | { type: "request-state" | "closed" | "pause-confirmed" | "resume" | "stop-confirmed" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-memory" }
   | { type: "set-prompt" | "send"; prompt: string }
   | { type: "switch-conversation"; conversationId: string }
   | { type: "dock"; placement: "right" | "left" | "top" | "bottom" | "floating" };
@@ -62,6 +63,7 @@ export type AgentWindowSnapshotInput = {
   modelName: string;
   agentStatus: AgentStatus;
   busy: boolean;
+  paused: boolean;
   runElapsedSeconds: number;
   prompt: string;
   messages: AgentMessage[];
@@ -119,8 +121,9 @@ export function agentWindowStatusText({
   agentProgress,
   agentStatus,
   busy,
+  paused,
   runElapsedSeconds
-}: Pick<AgentWindowSnapshotInput, "messages" | "agentProgress" | "agentStatus" | "busy" | "runElapsedSeconds">) {
+}: Pick<AgentWindowSnapshotInput, "messages" | "agentProgress" | "agentStatus" | "busy" | "paused" | "runElapsedSeconds">) {
   const visibleMessages = messages.filter((message) => !message.hidden);
   const latestProgress = agentProgress[agentProgress.length - 1];
   const latestRunningMessage = [...visibleMessages].reverse().find((message) => message.status === "running");
@@ -137,7 +140,9 @@ export function agentWindowStatusText({
     "image-retry",
     "memory-start"
   ].includes(progressPhase);
-  const base = agentStatus === "error" || /error|失败/i.test(progressPhase)
+  const base = paused
+    ? "Agent 已暂停"
+    : agentStatus === "error" || /error|失败/i.test(progressPhase)
     ? "Agent 遇到问题"
     : latestRunningMessage?.meta === "assistant-stream"
       ? "Agent 正在输出"
@@ -148,7 +153,7 @@ export function agentWindowStatusText({
           : agentProgress.length > 0
             ? "Agent 思考完成"
             : "等待指令";
-  return (busy || progressActive) && runElapsedSeconds > 0 ? `${base} ${Math.floor(runElapsedSeconds)}s` : base;
+  return !paused && (busy || progressActive) && runElapsedSeconds > 0 ? `${base} ${Math.floor(runElapsedSeconds)}s` : base;
 }
 
 export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): AgentWindowSnapshot {
@@ -171,6 +176,7 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
     modelName: boundedText(input.modelName, 256),
     statusText: agentWindowStatusText(input),
     busy: Boolean(input.busy),
+    paused: Boolean(input.paused),
     prompt: boundedText(input.prompt, maximumPromptChars),
     messages,
     conversations: conversations.map((item) => ({
@@ -197,7 +203,9 @@ export function normalizeAgentWindowCommand(value: unknown): AgentWindowCommand 
   if ([
     "request-state",
     "closed",
-    "stop",
+    "pause-confirmed",
+    "resume",
+    "stop-confirmed",
     "new-conversation-confirmed",
     "clear-conversation-confirmed",
     "edit-sources",

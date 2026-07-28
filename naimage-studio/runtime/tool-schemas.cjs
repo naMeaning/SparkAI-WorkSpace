@@ -84,12 +84,12 @@ function toolSchemas(settings = {}) {
             resolution: { type: "string", enum: ["720P", "1080P", "2K", "4K"], description: "分辨率档位；不确定时用 1080P。" },
             size: { type: "string", description: "可选最终交付尺寸。优先设置 ratio/resolution；运行时会使用图像服务稳定支持的基础画幅生成，再无拉伸地裁切到交付尺寸。" },
             quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
-            count: { type: "integer", minimum: 1, maximum: 10, description: "独立输出图片张数，只能来自用户明确要求。用户说继续生成3张/补3张/三版时设置为3；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
+            count: { type: "integer", minimum: 1, maximum: 200, description: "独立输出图片总张数，只能来自用户明确要求。运行时按设置中的每批数量顺序派发，不会一次发出全部请求；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
             generationMode: { type: "string", enum: ["parallel", "sequential"], description: "count>1 时的执行与画布组织方式。parallel=同一轮要求 N 张、N 版、N 个候选或 N 个方案，并收纳为批量图片组；即使用户说‘基于这张继续给 N 版’，也应使用 parallel 并另设 parentId。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。" },
             items: {
               type: "array",
               minItems: 2,
-              maxItems: 10,
+              maxItems: 200,
               description: "本轮要生成至少两张不同方向的成品时必填。用户逐一列出 A/B/C 款式、氛围、角度、版式、商品文案或其他差异时，必须为每个成品提供一个 items 项，不能把多个方案合写进顶层 prompt。count=1 时必须省略 items，只填写顶层 prompt；每一项对应一张独立图片并收纳到同一个图片组。完全相同提示词的多张随机变体才只使用顶层 prompt + count。严禁添加 temp、placeholder、todo、sample、测试项或其他占位项凑数。",
               items: {
                 type: "object",
@@ -456,7 +456,7 @@ function agentToolSchemas(settings = {}, options = {}) {
     ...imageTool,
     function: {
       ...imageTool.function,
-      description: "图片执行工具：单图、连续系列、最多 10 张并行图片组、不同提示词批量、参考图精确编辑、换物改字、多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果自动进入成果画布。",
+      description: "图片执行工具：单图、连续系列、顺序分批图片组、不同提示词批量、参考图精确编辑、换物改字、多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果自动进入成果画布。",
       parameters: {
         ...sourceParameters,
         additionalProperties: false,

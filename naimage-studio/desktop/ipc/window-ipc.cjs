@@ -1,8 +1,11 @@
 "use strict";
 
 function registerWindowIpc({ ipcMain, createWindow, log = () => {}, BrowserWindow, agentWindowService }) {
-  ipcMain.handle("naimage:window:new", () => {
-    createWindow();
+  ipcMain.handle("naimage:window:new", (_event, payload = {}) => {
+    createWindow({
+      projectId: String(payload?.projectId || "").trim() || undefined,
+      newConversation: payload?.newConversation === true
+    });
     log("window new");
     return { ok: true };
   });

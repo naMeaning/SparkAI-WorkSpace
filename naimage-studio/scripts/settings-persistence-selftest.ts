@@ -27,6 +27,7 @@ assert.equal(defaultSettings.customTheme, null);
 assert.equal(normalizeCustomThemePreset(null), null);
 assert.equal(defaultSettings.agentPanelPlacement, "right");
 assert.equal(defaultSettings.agentPanelWidth, 390);
+assert.equal(defaultSettings.imageBatchSize, 3);
 assert.equal(defaultSettings.contextStrategy, "auto");
 assert.equal(defaultSettings.contextWindowTokens, 272_000);
 assert.equal(defaultSettings.contextAutoCompactPercent, 90);
@@ -63,6 +64,8 @@ assert.equal(migrated.themePalette, "lake-view");
 assert.equal(migrated.accountBaseUrl, DEFAULT_ACCOUNT_BASE_URL);
 assert.equal(migrated.relayBaseUrl, "");
 assert.equal(migrated.updateBaseUrl, DEFAULT_UPDATE_BASE_URL);
+assert.equal(mergeSettings({ imageBatchSize: 0 }).imageBatchSize, 1);
+assert.equal(mergeSettings({ imageBatchSize: 99 }).imageBatchSize, 10);
 
 const migratedLegacyServer = mergeSettings({ serverUrl: "https://legacy-new-api.example/" });
 assert.equal(migratedLegacyServer.accountBaseUrl, "https://legacy-new-api.example");

@@ -130,6 +130,8 @@ export type ApiSettings = {
   imageModel: string;
   imageModelPool: string[];
   imageCount: number;
+  /** Number of image requests dispatched together before the next ordered batch. */
+  imageBatchSize: number;
   imageSize: string;
   imageQuality: "low" | "medium" | "high" | "auto";
   accountBaseUrl: string;
@@ -286,6 +288,8 @@ export type AgentAskUserOption = {
 
 export type WorkflowNode = {
   id: string;
+  /** Stable writer identity used to merge same-project saves from multiple Renderer windows. */
+  persistenceOriginId?: string;
   displayCode?: string;
   assetSequence?: number;
   title: string;
@@ -912,7 +916,7 @@ export type ConfirmDialogDraft = {
   detail?: string;
   confirmLabel: string;
   tone?: "default" | "danger";
-  action: "remove-project" | "delete-project-folder" | "new-conversation" | "clear-conversation" | "rerun-requirement";
+  action: "remove-project" | "delete-project-folder" | "new-conversation" | "clear-conversation" | "rerun-requirement" | "pause-agent" | "stop-agent";
 };
 
 export type WorkflowSession = {
@@ -1276,7 +1280,7 @@ export type ProjectGraphDocument = {
 export type ConfigBridge = {
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
-  loadSession(): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
+  loadSession(payload?: { projectId?: string }): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
   saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: { revision?: number }): Promise<{
     ok: boolean;
     path?: string;
@@ -1288,7 +1292,7 @@ export type ConfigBridge = {
     reason?: string;
     error?: string;
   }>;
-  newWindow?(): Promise<{ ok: boolean }>;
+  newWindow?(payload?: { projectId?: string; newConversation?: boolean }): Promise<{ ok: boolean }>;
   windowControl?(payload: { action: "minimize" | "toggle-maximize" | "close" | "state" }): Promise<{ ok: boolean; action?: string; maximized?: boolean; minimized?: boolean; error?: string }>;
   listProjects?(): Promise<{ ok: boolean; projects?: ProjectRecord[]; activeProjectId?: string; error?: string }>;
   createProject?(payload: { name?: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
@@ -1468,7 +1472,28 @@ export type AgentBridge = {
   resetFastMemory(payload: { projectId: string; conversationId: string; expectedUpdatedAt?: string }): Promise<{ ok: boolean; conflict?: boolean; text?: string; isEmpty?: boolean; maxChars?: number; updatedAt?: string; cleared?: number; error?: string }>;
   clearConversation(payload: { projectId: string; conversationId: string }): Promise<{ ok?: boolean; clearedFastMemory?: number; clearedSummary?: boolean; summary?: string; error?: string }>;
   cancelPendingExecution(payload: { projectId: string; conversationId: string; requestId: string }): Promise<{ ok?: boolean; summary?: string; error?: string }>;
+  pause(payload: { projectId: string; conversationId: string; runId?: string }): Promise<AgentRunControlSnapshot>;
+  resume(payload: { projectId: string; conversationId: string; runId?: string }): Promise<AgentRunControlSnapshot>;
+  stop(payload: { projectId: string; conversationId: string; runId?: string; reason?: string }): Promise<AgentRunControlSnapshot & { stopped?: number }>;
+  runStatus(payload?: { projectId?: string }): Promise<AgentRunControlSnapshot>;
+  onRunState?(handler: (payload: AgentRunControlSnapshot) => void): () => void;
   smoke(): Promise<unknown>;
+};
+
+export type AgentRunControlSnapshot = {
+  ok: boolean;
+  runs?: Array<{
+    runId: string;
+    projectId: string;
+    conversationId: string;
+    nodeIds: string[];
+    paused: boolean;
+    startedAt: number;
+  }>;
+  lockedNodeIds?: string[];
+  pausedScopes?: Array<{ projectId: string; conversationId: string }>;
+  stopped?: number;
+  error?: string;
 };
 
 export type ServerBridge = {
@@ -1500,6 +1525,8 @@ export type ServerBridge = {
     operationId?: string;
     requestIndex?: number;
     projectId?: string;
+    conversationId?: string;
+    nodeIds?: string[];
     prompt: string;
     model?: string;
     size: string;

@@ -191,7 +191,7 @@ corepack pnpm run crm:check
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
-| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
+| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、按用户设置每批 1–10 张顺序派发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
 | 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
@@ -243,3 +243,5 @@ corepack pnpm run crm:check
 - Setup SHA-256：`6e6e7064008b97a10315845897e77811aa6a4cb06e440944a381863fd44c3077`；Restart ASAR SHA-256：`cdd2590030f6f29a0c291f901d3ff3bff30e950eecda9dc738fa4fe9f3f850fd`。
 - 1.0.5 → 1.0.6 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希已通过正式编排。
 - 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
+
+当前 1.0.6 发布后的开发分支已新增画布剪贴板/拖入、框选与批量连接、可配置图片批次、Agent 暂停/恢复/真实结束、节点锁及多 Renderer 项目/会话并行。项目 session 的 revision 防覆盖保持不变；旧窗口保存由 `desktop/project-session-merge.cjs` 合并最新磁盘快照，使用节点 `persistenceOriginId` 重映射并行创建的同名节点，并保留已完成资产与其他会话。该变化只涉及桌面本地持久化，不改变 New API、模型请求、线上数据或生产部署合同。

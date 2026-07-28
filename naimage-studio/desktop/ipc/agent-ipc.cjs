@@ -7,8 +7,30 @@ function registerAgentIpc({
   log,
   listAgentModels,
   emitAgentProgress,
+  agentRunControl,
   aidebugMode
 }) {
+  const runScope = (payload = {}, runId = "") => ({
+    runId,
+    projectId: String(payload?.projectId || "default"),
+    conversationId: String(payload?.conversationId || "default"),
+    nodeIds: [...new Set([
+      ...(Array.isArray(payload?.selectedNodeIds) ? payload.selectedNodeIds : []),
+      ...(Array.isArray(payload?.taskScope?.sourceNodeIds) ? payload.taskScope.sourceNodeIds : []),
+      ...(Array.isArray(payload?.taskScope?.sourceContainerIds) ? payload.taskScope.sourceContainerIds : []),
+      payload?.selectedNodeId,
+      payload?.taskScope?.requirement?.nodeId
+    ].map((value) => String(value || "").trim()).filter(Boolean))]
+  });
+
+  const beginRun = (payload, runId) => agentRunControl?.begin(runScope(payload, runId)) || {
+    signal: undefined,
+    projectId: String(payload?.projectId || "default"),
+    conversationId: String(payload?.conversationId || "default")
+  };
+
+  const finishRun = (runId) => agentRunControl?.finish({ runId });
+
   ipcMain.handle("naimage:agent:tools", () => {
     try {
       const settings = currentAgentSettings();
@@ -55,7 +77,9 @@ function registerAgentIpc({
         actions: []
       };
     }
+    let controlledRun;
     try {
+      controlledRun = beginRun(payload, runId);
       const settings = currentAgentSettings();
       const result = await getAgentRuntime().runTool(name, payload?.input ?? {}, {
         settings,
@@ -70,6 +94,8 @@ function registerAgentIpc({
         runId,
         operationId: runId,
         toolRunId: runId,
+        signal: controlledRun.signal,
+        waitUntilRunnable: (signal) => agentRunControl?.waitUntilRunnable(controlledRun, signal),
         progress: (progressPayload) => emitAgentProgress(event.sender, runId, progressPayload, payload)
       });
       return result;
@@ -78,6 +104,8 @@ function registerAgentIpc({
       log(`agent run tool failed ${name} ${message}`);
       emitAgentProgress(event.sender, runId, { phase: "tool-error", tool: name, summary: message }, payload);
       return { envelope: { ok: false, tool: name, summary: message, error: message }, actions: [] };
+    } finally {
+      if (controlledRun) finishRun(runId);
     }
   });
 
@@ -100,11 +128,15 @@ function registerAgentIpc({
 
   ipcMain.handle("naimage:agent:chat", async (event, payload = {}) => {
     const runId = String(payload?.runId || `agent-chat-${Date.now()}`);
+    let controlledRun;
     try {
+      controlledRun = beginRun(payload, runId);
       const result = await getAgentRuntime().chat({
         ...(payload || {}),
         settings: currentAgentSettings(),
         runId,
+        signal: controlledRun.signal,
+        waitUntilRunnable: (signal) => agentRunControl?.waitUntilRunnable(controlledRun, signal),
         progress: (progressPayload) => emitAgentProgress(event.sender, runId, progressPayload, payload)
       });
       return result;
@@ -113,6 +145,40 @@ function registerAgentIpc({
       log(`agent chat failed ${message}`);
       emitAgentProgress(event.sender, runId, { phase: "runtime-error", summary: message }, payload);
       return { ok: false, error: message, content: "" };
+    } finally {
+      if (controlledRun) finishRun(runId);
+    }
+  });
+
+  ipcMain.handle("naimage:agent:pause", (_event, payload = {}) => {
+    try {
+      return agentRunControl?.pause(payload) || { ok: false, error: "运行控制器不可用。" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:agent:resume", (_event, payload = {}) => {
+    try {
+      return agentRunControl?.resume(payload) || { ok: false, error: "运行控制器不可用。" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:agent:stop", (_event, payload = {}) => {
+    try {
+      return agentRunControl?.stop(payload) || { ok: false, error: "运行控制器不可用。" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:agent:run-status", (_event, payload = {}) => {
+    try {
+      return agentRunControl?.snapshot(payload?.projectId) || { ok: false, error: "运行控制器不可用。" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 

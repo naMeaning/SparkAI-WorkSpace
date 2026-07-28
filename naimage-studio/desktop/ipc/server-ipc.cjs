@@ -13,6 +13,7 @@ function registerServerIpc({
   aidebugUser,
   aidebugWallet,
   accountTokenService,
+  agentRunControl,
   callNewApiImageWithSession,
   clearNewApiAuth,
   completeNewApiLogin,
@@ -404,12 +405,23 @@ function registerServerIpc({
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     const runId = String((payload ?? {}).runId || `run-${Date.now()}`);
     const operationId = String((payload ?? {}).operationId || runId);
-    const requestIndex = Math.max(1, Math.min(10, Math.floor(Number((payload ?? {}).requestIndex || 1) || 1)));
+    const requestIndex = Math.max(1, Math.min(10_000, Math.floor(Number((payload ?? {}).requestIndex || 1) || 1)));
     const projectId = (payload ?? {}).projectId;
+    const conversationId = String((payload ?? {}).conversationId || "default");
+    let controlledRun;
     const ownedMaskImage = (payload ?? {}).maskDataUrl
       ? writeDataUrlTemp((payload ?? {}).maskDataUrl, `mask-${runId.replace(/[^a-z0-9_-]/gi, "-")}`, projectId)
       : null;
     try {
+      controlledRun = agentRunControl?.begin({
+        runId,
+        projectId,
+        conversationId,
+        nodeIds: Array.isArray((payload ?? {}).nodeIds) ? (payload ?? {}).nodeIds : []
+      });
+      if (controlledRun) {
+        await agentRunControl?.waitUntilRunnable(controlledRun, controlledRun.signal);
+      }
       const maskImage = ownedMaskImage || (payload ?? {}).maskImage;
       const data = await callNewApiImageWithSession(settings, {
         prompt: (payload ?? {}).prompt,
@@ -428,6 +440,7 @@ function registerServerIpc({
         mode: (payload ?? {}).mode,
         runId,
         projectId,
+        signal: controlledRun?.signal,
         onPartialImage: (partial) => emitAgentProgress(event.sender, runId, {
           phase: "image-preview",
           tool: "image_gen",
@@ -480,6 +493,7 @@ function registerServerIpc({
         assets: []
       };
     } finally {
+      if (controlledRun) agentRunControl?.finish({ runId });
       removeOwnedDataUrlTemp(ownedMaskImage, projectId);
     }
   });
