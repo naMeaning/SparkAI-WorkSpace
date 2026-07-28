@@ -1,6 +1,6 @@
 "use strict";
 
-function registerWindowIpc({ ipcMain, createWindow, log, BrowserWindow }) {
+function registerWindowIpc({ ipcMain, createWindow, log = () => {}, BrowserWindow, agentWindowService }) {
   ipcMain.handle("naimage:window:new", () => {
     createWindow();
     log("window new");
@@ -31,6 +31,33 @@ function registerWindowIpc({ ipcMain, createWindow, log, BrowserWindow }) {
       return { ok: true, action, maximized: win.isMaximized(), minimized: win.isMinimized() };
     }
     return { ok: false, error: `未知窗口操作：${action}` };
+  });
+
+  ipcMain.handle("naimage:agent-window:open", (event) => {
+    if (!agentWindowService) return { ok: false, error: "Agent 独立窗口服务不可用。" };
+    return agentWindowService.open(event.sender);
+  });
+
+  ipcMain.handle("naimage:agent-window:close", (event) => {
+    if (!agentWindowService) return { ok: false, error: "Agent 独立窗口服务不可用。" };
+    return agentWindowService.close(event.sender);
+  });
+
+  ipcMain.handle("naimage:agent-window:status", (event) => {
+    if (!agentWindowService) return { ok: false, open: false, error: "Agent 独立窗口服务不可用。" };
+    return agentWindowService.status(event.sender);
+  });
+
+  ipcMain.on("naimage:agent-window:publish-state", (event, payload) => {
+    agentWindowService?.publishState(event.sender, payload);
+  });
+
+  ipcMain.on("naimage:agent-window:command", (event, payload) => {
+    agentWindowService?.forwardCommand(event.sender, payload);
+  });
+
+  ipcMain.on("naimage:agent-window:ready", (event) => {
+    agentWindowService?.surfaceReady(event.sender);
   });
 }
 

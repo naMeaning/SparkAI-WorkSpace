@@ -695,6 +695,8 @@ function DebugCommitProbe({ area, record }: { area: DebugRenderCommitArea; recor
 }
 
 const loadStudioDialogs = () => import("./studio-dialogs");
+let agentWindowSyncPromise: Promise<typeof import("./agent-window-sync")> | null = null;
+const loadAgentWindowSync = () => agentWindowSyncPromise ??= import("./agent-window-sync");
 type StudioDialogModule = typeof import("./studio-dialogs");
 function lazyStudioDialog<K extends keyof StudioDialogModule>(name: K) {
   return React.lazy(() => loadStudioDialogs().then((module) => ({ default: module[name] })));
@@ -2974,6 +2976,7 @@ function App() {
   const [fastMemoryEditorOpen, setFastMemoryEditorOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const agentWindowOpenRef = useRef(false);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null);
   const [manualImageTaskDialog, setManualImageTaskDialog] = useState<ManualImageTaskDialogState | null>(null);
   const [deleteNodeDraft, setDeleteNodeDraft] = useState<DeleteNodeDraft | null>(null);
@@ -19874,6 +19877,131 @@ function App() {
   const projectAgentEditFastMemory = useStableEvent(() => setFastMemoryEditorOpen(true));
   const projectAgentSwitchConversation = useStableEvent((conversationId: string) => switchProjectConversation(conversationId));
   const projectAgentToggleCollapsed = useStableEvent(() => setAgentCollapsed((current) => !current));
+  const publishAgentWindowState = useStableEvent(async () => {
+    if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
+    const { buildAgentWindowSnapshot } = await loadAgentWindowSync();
+    if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
+    window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
+      ready: configReady && authReady && licenseReady && Boolean(serverUser && licenseStatus?.active),
+      projectName: activeProjectName,
+      modelName: settings.agentModel,
+      agentStatus,
+      busy: agentExecutionBusyNow(),
+      runElapsedSeconds,
+      prompt,
+      messages,
+      conversations,
+      activeConversationId,
+      selectedArtifactCount: selectedNodes.length,
+      sourceImageCount: agentSourceImages.length,
+      referenceImageCount: agentReferenceImages.length,
+      agentProgress,
+      theme: settings.theme,
+      themePalette: settings.themePalette
+    }));
+  });
+  const projectAgentOpenWindow = useStableEvent(async () => {
+    await loadAgentWindowSync();
+    const result = await window.naimageAgentWindow?.open?.();
+    if (!result?.ok) {
+      pushSystemMessage("agent-window", result?.error || "Agent 独立窗口服务不可用。");
+      return;
+    }
+    agentWindowOpenRef.current = true;
+    setAgentCollapsed(true);
+    window.requestAnimationFrame(() => void publishAgentWindowState());
+  });
+  const handleAgentWindowCommand = useStableEvent(async (payload: unknown) => {
+    const { normalizeAgentWindowCommand } = await loadAgentWindowSync();
+    const command = normalizeAgentWindowCommand(payload);
+    if (!command) return;
+    if (command.type === "request-state") {
+      publishAgentWindowState();
+      return;
+    }
+    if (command.type === "closed") {
+      agentWindowOpenRef.current = false;
+      setAgentCollapsed(false);
+      return;
+    }
+    if (command.type === "set-prompt") {
+      setPrompt(command.prompt);
+      return;
+    }
+    if (command.type === "send") {
+      setPrompt(command.prompt);
+      await projectAgentSendPrompt(command.prompt);
+      return;
+    }
+    if (command.type === "stop") {
+      projectAgentStop();
+      return;
+    }
+    if (command.type === "new-conversation-confirmed") {
+      confirmCreateConversation();
+      return;
+    }
+    if (command.type === "clear-conversation-confirmed") {
+      await confirmClearConversation();
+      return;
+    }
+    if (command.type === "switch-conversation") {
+      projectAgentSwitchConversation(command.conversationId);
+      return;
+    }
+    if (command.type === "edit-sources") {
+      projectAgentEditSources();
+      return;
+    }
+    if (command.type === "edit-references") {
+      projectAgentEditReferences();
+      return;
+    }
+    if (command.type === "edit-memory") {
+      projectAgentEditFastMemory();
+      return;
+    }
+    if (command.type === "dock") {
+      const workspace = document.querySelector<HTMLElement>(".ide-main");
+      const bounds = workspace?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+      persistAgentPanelLayout(agentPanelLayoutForPlacement(agentPanelLayoutRef.current, command.placement, bounds));
+      setAgentCollapsed(false);
+      agentWindowOpenRef.current = false;
+      await window.naimageAgentWindow?.close?.();
+    }
+  });
+
+  useEffect(() => window.naimageAgentWindow?.onCommand?.(handleAgentWindowCommand), [handleAgentWindowCommand]);
+
+  useEffect(() => {
+    if (!agentWindowOpenRef.current) return;
+    const frame = window.requestAnimationFrame(() => void publishAgentWindowState());
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    activeConversationId,
+    activeProjectName,
+    agentProgress,
+    agentReferenceImages,
+    agentSourceImages,
+    agentStatus,
+    authReady,
+    configReady,
+    conversations,
+    executionReservation,
+    imageRunStarts,
+    licenseReady,
+    licenseStatus?.active,
+    messages,
+    pendingAgentExecution,
+    prompt,
+    publishAgentWindowState,
+    runElapsedSeconds,
+    selectedNodes.length,
+    serverUser,
+    settings.agentModel,
+    settings.theme,
+    settings.themePalette
+  ]);
 
   if (!configReady || !authReady || !licenseReady) {
     return <BootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在校验软件授权..."} />;
@@ -21165,6 +21293,7 @@ function App() {
           requestClearConversation={projectAgentRequestClearConversation}
           editFastMemory={projectAgentEditFastMemory}
           switchConversation={projectAgentSwitchConversation}
+          openAgentWindow={projectAgentOpenWindow}
           collapsed={agentCollapsed}
           toggleCollapsed={projectAgentToggleCollapsed}
           panelLayout={agentPanelLayout}
@@ -22168,6 +22297,7 @@ function ProjectAgentPanelView({
  requestClearConversation,
   editFastMemory,
   switchConversation,
+  openAgentWindow,
   collapsed,
   toggleCollapsed,
   panelLayout,
@@ -22201,6 +22331,7 @@ function ProjectAgentPanelView({
   requestClearConversation: () => void;
   editFastMemory: () => void;
   switchConversation: (conversationId: string) => void;
+  openAgentWindow: () => void | Promise<void>;
   collapsed: boolean;
   toggleCollapsed: () => void;
   panelLayout: AgentPanelLayout;
@@ -22513,6 +22644,13 @@ function ProjectAgentPanelView({
               <PanelsTopLeft size={15} />
               <span>应用内浮动</span>
             </ButtonBase>
+            <ButtonBase type="button" role="menuitem" onClick={() => {
+              setPlacementOpen(false);
+              void openAgentWindow();
+            }}>
+              <PanelRightOpen size={15} />
+              <span>独立浮动窗口</span>
+            </ButtonBase>
           </div>
         ) : null}
         {historyOpen ? (
@@ -22668,6 +22806,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.requestClearConversation === right.requestClearConversation &&
   left.editFastMemory === right.editFastMemory &&
   left.switchConversation === right.switchConversation &&
+  left.openAgentWindow === right.openAgentWindow &&
   left.collapsed === right.collapsed &&
   left.toggleCollapsed === right.toggleCollapsed &&
   left.panelLayout === right.panelLayout &&

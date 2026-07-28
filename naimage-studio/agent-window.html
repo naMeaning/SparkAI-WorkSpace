@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: naimage-asset:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" />
+    <title>naimage Agent</title>
+    <link rel="stylesheet" href="./agent-window.css" />
+  </head>
+  <body>
+    <div class="agent-shell">
+      <header class="agent-header">
+        <div class="agent-title">
+          <strong>Agent</strong>
+          <span id="project-name">正在连接主窗口…</span>
+        </div>
+        <div class="agent-header-actions">
+          <select id="conversation-select" aria-label="会话历史" title="切换会话"></select>
+          <button id="new-conversation" type="button" title="新建会话">新建</button>
+          <button id="clear-conversation" type="button" title="清理当前聊天">清理</button>
+        </div>
+      </header>
+
+      <section class="agent-status" aria-live="polite">
+        <span id="status-dot"></span>
+        <strong id="status-text">等待主窗口状态</strong>
+        <small id="model-name"></small>
+      </section>
+
+      <section id="agent-feed" class="agent-feed" aria-label="Agent 对话"></section>
+
+      <section class="agent-context" aria-label="当前图片上下文">
+        <button id="edit-sources" type="button">原图 <span id="source-count">0</span></button>
+        <button id="edit-references" type="button">参考图 <span id="reference-count">0</span></button>
+        <button id="edit-memory" type="button">记忆</button>
+        <span class="selected-count">画布已选 <b id="selected-count">0</b></span>
+      </section>
+
+      <form id="agent-composer" class="agent-composer">
+        <textarea id="agent-prompt" rows="5" placeholder="告诉 Agent 你想完成什么…" aria-label="Agent 指令"></textarea>
+        <footer>
+          <div class="dock-controls">
+            <label for="dock-select">收回</label>
+            <select id="dock-select" aria-label="将 Agent 收回主窗口">
+              <option value="">选择位置</option>
+              <option value="right">右侧</option>
+              <option value="left">左侧</option>
+              <option value="top">上方</option>
+              <option value="bottom">下方</option>
+              <option value="floating">应用内浮动</option>
+            </select>
+          </div>
+          <span class="shortcut">Ctrl + Enter</span>
+          <button id="send-button" class="send-button" type="submit">发送</button>
+        </footer>
+      </form>
+    </div>
+    <script src="./agent-window-renderer.js"></script>
+  </body>
+</html>

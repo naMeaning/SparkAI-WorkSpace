@@ -164,6 +164,14 @@ export type AutomationBridge = {
   respond(payload: { requestId: string; ok: boolean; result?: unknown; error?: string }): void;
 };
 
+export type AgentWindowBridge = {
+  open(): Promise<{ ok: boolean; open?: boolean; reused?: boolean; windowId?: number; error?: string }>;
+  close(): Promise<{ ok: boolean; open?: boolean; error?: string }>;
+  status(): Promise<{ ok: boolean; open?: boolean; owner?: boolean; windowId?: number; error?: string }>;
+  publishState(payload: unknown): void;
+  onCommand(handler: (payload: unknown) => void | Promise<void>): () => void;
+};
+
 export type AgentMessage = {
   id: string;
   role: MessageRole;
@@ -1553,6 +1561,7 @@ declare global {
     naimageUpdater?: UpdaterBridge;
     naimageAgentIntegrations?: AgentIntegrationBridge;
     naimageAutomation?: AutomationBridge;
+    naimageAgentWindow?: AgentWindowBridge;
     __naimageCanvasDebugReady?: boolean;
     __naimageDebugResizeNode?: (payload: { id?: string; width?: number; height?: number }) => boolean;
     __naimageDebugMoveNode?: (payload: { id?: string; x?: number; y?: number }) => boolean;

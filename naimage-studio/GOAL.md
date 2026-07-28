@@ -42,11 +42,11 @@
 
 ### 4. Agent 自由浮动窗口与四向停靠
 
-- 状态：`部分实现`
-- 已实现：右、左、上、下四向停靠与应用内浮动；横向/纵向停靠使用对应宽度/高度 resize handle，折叠 rail 也随方向切换。布局设置已完成迁移和持久化。
-- 缺口：实现可移出应用主窗口的独立 Electron 浮动窗口及主/浮窗状态同步；“应用内浮动”不冒充独立窗口。
-- 权威文件：`src/main.tsx`、`src/agent-panel-layout.ts`、Agent UI 样式、Electron 窗口服务与 IPC。
-- 证明：窗口生命周期 selftest；四向停靠和浮动窗口专项 GUI 冒烟。
+- 状态：`已验证`
+- 已实现：右、左、上、下四向停靠、应用内浮动，以及可移出主窗口的独立 Electron Agent 窗口。横向/纵向停靠使用对应宽度/高度 resize handle，折叠 rail 随方向切换，布局设置已迁移并持久化。
+- 独立窗契约：主 Renderer 始终是 Agent、画布和项目状态的唯一权威；独立窗只消费脱敏、有界快照并把提示词、停止、新建/清理/切换会话、原图/参考图、记忆和收回停靠命令转回主窗口，禁止创建第二个 Agent Runtime 或重复写项目。主窗口关闭时独立窗同步关闭。
+- 权威文件：`src/main.tsx`、`src/agent-panel-layout.ts`、`src/agent-window-sync.ts`、`desktop/agent-window-service.cjs`、`agent-window-*` 表面、窗口 IPC。
+- 证明：`test:agent-panel-layout` 16 cases、`test:agent-panel-ui` 17 cases、`test:agent-window` 54 cases、`test:agent-window-ui` 15 cases、`test:ipc-registration`、`test:lifecycle`、`typecheck`、正式 `build` 与 `test:bundle`。
 
 ### 5. “手工添加模型”改为“自定义模型”
 
@@ -116,6 +116,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成真正的独立 Electron Agent 窗口；主 Renderer 权威状态与独立表面双向同步，浮窗可发送/停止任务、管理会话和图片上下文并收回任一停靠方向，定向双窗口测试完成真实 mock Agent 往返。
 - 2026-07-28：完成 Agent 四向停靠与应用内浮动，独立窗口仍待实现；完成自定义模型文案、提示词复制区布局和 resize 零 React 高频提交优化，并新增 16 项纯布局测试与 17 项 Electron 定向 UI 验证。
 - 2026-07-28：完成模型感知上下文策略和 Codex 式 checkpoint；修复 Codex 长消息仍被 12K 字符截断的问题，新增 16 项 Runtime checkpoint 专项验证。
 - 2026-07-28：创建长程目标文档；开始目标 1/7 的上下文策略系统。

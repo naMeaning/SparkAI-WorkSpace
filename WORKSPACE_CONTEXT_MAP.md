@@ -48,13 +48,13 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Entry["electron-main.cjs"] --> Window["BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n81 invokes / 1 send"]
-  Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / 授权 / 保存协调 / 模型目录 / Responses 适配"]
+  Entry["electron-main.cjs"] --> Window["主 BrowserWindow / 独立 Agent BrowserWindow / native dialog"]
+  Entry --> Ipc["desktop/ipc/*\n84 invokes / 4 sends"]
+  Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
   Entry --> Workers["图片导入 / 缩略图 / 抠图 / PSD workers"]
-  Window --> Preload["preload.cjs\n六组受限 bridge"]
+  Window --> Preload["preload.cjs + agent-window-preload.cjs\n主 Renderer 七组 bridge + 独立窗单用途 bridge"]
   Preload --> Renderer["src/main.tsx → React App"]
   Renderer --> SurfaceModules["auth / image viewer / reference picker / window controls"]
   Renderer --> DomainModules["settings / asset identity / paste blocks / canvas domains"]
@@ -68,7 +68,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、设备授权和 81 个 invoke + 1 个 send handler 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/license-service.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权和 84 个 invoke + 4 个 send handler 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
 | `agent-runtime.cjs` | 保留 Prompt、tool loop、compact 与 action 编排；schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、会话和图片算法；设置、资产身份、粘贴块已有独立所有者 | `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |

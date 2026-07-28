@@ -60,6 +60,19 @@ contextBridge.exposeInMainWorld("naimageAutomation", {
   }
 });
 
+contextBridge.exposeInMainWorld("naimageAgentWindow", {
+  open: () => ipcRenderer.invoke("naimage:agent-window:open"),
+  close: () => ipcRenderer.invoke("naimage:agent-window:close"),
+  status: () => ipcRenderer.invoke("naimage:agent-window:status"),
+  publishState: (payload) => ipcRenderer.send("naimage:agent-window:publish-state", payload),
+  onCommand: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:agent-window:command", listener);
+    return () => ipcRenderer.removeListener("naimage:agent-window:command", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("naimageServer", {
   register: (payload) => ipcRenderer.invoke("naimage:server:register", payload),
   login: (payload) => ipcRenderer.invoke("naimage:server:login", payload),

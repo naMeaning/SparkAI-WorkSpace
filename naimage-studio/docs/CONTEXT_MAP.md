@@ -50,7 +50,7 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：81 个 invoke handler + 1 个 send handler 的唯一注册顺序
+  ├─ desktop/ipc/register-desktop-ipc.cjs：84 个 invoke handler + 4 个 send handler 的唯一注册顺序
   │    └─ config / automation / updater / session / agent / window / debug / project / asset / server registrar
   ├─ 项目、session、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
@@ -61,6 +61,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、所选密钥元数据与 Main-only 完整 Key 内存缓存
   ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token 与 Renderer 命令转发
   ├─ desktop/agent-integration-service.cjs：Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除
+  ├─ desktop/agent-window-service.cjs：独立 Agent BrowserWindow 生命周期、主 Renderer 权威状态与命令中继
   ├─ desktop/license-service.cjs：设备激活、24 小时校验缓存与 72 小时离线宽限
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
@@ -87,7 +88,8 @@ preload.cjs
   ├─ window.naimageUpdater
   ├─ window.naimageAgent
   ├─ window.naimageAutomation
-  └─ window.naimageAgentIntegrations
+  ├─ window.naimageAgentIntegrations
+  └─ window.naimageAgentWindow
           │
           ▼
 React Renderer
@@ -95,6 +97,7 @@ React Renderer
   ├─ src/core.ts：共享类型、bridge contract、图片与 session 规则
   ├─ src/settings-persistence.ts：默认设置、迁移与浏览器回退存储
   ├─ src/agent-panel-layout.ts：Agent 停靠/浮动布局、边界限制与 CSS 拖动预览
+  ├─ src/agent-window-sync.ts：按需加载的独立窗快照与命令校验
   ├─ src/asset-identity.ts / src/paste-blocks.ts：纯数据域
   ├─ src/agent.ts：Agent 请求和时间线适配
   ├─ src/ui.tsx：基础 UI 兼容 façade；真实实现位于 src/ui/*
@@ -233,7 +236,22 @@ GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用
   → pointer release 才提交 React state 与设置持久化
 ```
 
-`src/agent-panel-layout.ts` 是布局计算、停靠转换、边界限制和 CSS preview 的唯一 owner；`main.tsx` 只编排 pointer capture 与提交。上/下停靠调整高度，左/右停靠调整宽度。`floating` 明确指主 Renderer 内浮动，不等同于可拖出主窗口的独立 Electron `BrowserWindow`；独立窗口仍需建立 Main 窗口服务、preload/IPC 与会话状态同步。专项入口为 `test:agent-panel-layout` 和 `test:agent-panel-ui`。
+`src/agent-panel-layout.ts` 是布局计算、停靠转换、边界限制和 CSS preview 的唯一 owner；`main.tsx` 只编排 pointer capture 与提交。上/下停靠调整高度，左/右停靠调整宽度。`floating` 明确指主 Renderer 内浮动；可拖出主窗口的独立 Electron `BrowserWindow` 由下述窗口服务和 IPC 链路单独拥有。面板专项入口为 `test:agent-panel-layout` 和 `test:agent-panel-ui`。
+
+独立窗口链路已经建立：
+
+```text
+主 Renderer（唯一 Agent/画布/项目状态 owner）
+  → 按需加载 src/agent-window-sync.ts
+  → 有界、脱敏 AgentWindowSnapshot
+  → preload.cjs / window.naimageAgentWindow
+  → desktop/agent-window-service.cjs
+  → agent-window-preload.cjs
+  → agent-window.html + agent-window-renderer.js
+  → 用户命令经相反方向回到主 Renderer 执行
+```
+
+独立窗没有 Node integration，不持有 API Key、Cookie、项目写权限或第二个 Agent Runtime。它支持发送/停止、会话切换、新建/清理、原图/参考图入口、FastMemory 入口和收回五种主窗口位置；涉及图片选择或记忆编辑时服务先聚焦主窗口。独立窗关闭后主面板自动展开，主 Renderer 销毁时独立窗同步关闭。快照 JSON 最大 16 MiB、命令最大 512 KiB，消息/提示词/中间预览还有 Renderer 侧逐字段上限。专项入口为 `test:agent-window` 与 `test:agent-window-ui`。
 
 ### 4.7 项目 session 保存
 
@@ -294,7 +312,7 @@ Renderer UpdaterBridge
 | 路径 | Owns | Must not own | 关键检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
 | `electron-main.cjs` | Electron 生命周期、桌面服务依赖装配、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、内联 IPC handler、重复实现 project store/session normalization/asset repository、New API transport/client 或 AIDebug PNG fixture | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:ipc-registration`, `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
-| `preload.cjs` | 六组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations` | `test:ipc-registration`, `test:automation-service`, `test:lifecycle`, `aidebug:gui` |
+| `preload.cjs`, `agent-window-preload.cjs` | 主 Renderer 七组受限 context bridge，以及独立 Agent 表面的 state/command 单用途桥 | 业务状态、磁盘实现、凭据展示、第二个 Agent Runtime | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations`, `naimageAgentWindow`, `naimageAgentWindowSurface` | `test:ipc-registration`, `test:agent-window`, `test:lifecycle`, `aidebug:gui` |
 | `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Automation → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerAutomationIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、模型感知 checkpoint/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的策略/schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `buildPromptMessages`, `compactConversationIfNeeded` | `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol`, `test:view-image` |
 | `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、当前元数据路径，以及更名前元数据的只读迁移 | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
@@ -311,6 +329,7 @@ Renderer UpdaterBridge
 | `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、公开脱敏 DTO、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key 文件或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `select` | `test:account-token`, `test:ipc-registration`, `typecheck` |
 | `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联与超时 | 业务命令实现、AIDebug hook、远端监听或长期 Token | `createAutomationService`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:ipc-registration`, `test:bundle` |
 | `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI 安装更新和受控移除 | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件 | `createAgentIntegrationService`, `naimage.ps1`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, Skill `quick_validate.py`, `test:bundle` |
+| `desktop/agent-window-service.cjs`, `agent-window-*` | 独立 Agent BrowserWindow 生命周期、主 Renderer owner 绑定、有界状态/命令中继与隔离表面 | Agent Runtime、模型请求、项目写入、凭据、画布 reducer | `createAgentWindowService`, `publishState`, `forwardCommand`, `naimageAgentWindowSurface` | `test:agent-window`, `test:agent-window-ui`, `test:ipc-registration`, `test:lifecycle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/context-strategy.cjs` | 模型族识别、上下文窗口、有效窗口、自动 checkpoint、保留用户意图及 Prompt/协议/画布/记忆预算 | 模型调用、消息持久化、设置 UI 或画布读取 | `contextStrategyForSettings`, `contextModelFamily`, `autoCompactTokenLimit`, `protocolMessageMaxChars` | `test:context-strategy`, `test:context-checkpoint` |
 | `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化、协议基础替换和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `appendConversationProtocolTurn`, `replaceConversationProtocolItems` | `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol` |
@@ -332,6 +351,7 @@ Renderer UpdaterBridge
 | `src/layer-alpha-normalization.ts` | 图层 RGBA alpha 像素归属归一化、透明图层互斥重建与归一化报告 | 分层合成编排、mask 生成、`core.ts` façade 重导出 | `normalizeLayerAlphaPixelBuffers`, `normalizeTransparentLayerAlphaExclusivity` | `test:layer-alpha`, `test:layer-mask-replay`, `typecheck`, `build`, `test:bundle` |
 | `src/settings-persistence.ts` | 默认设置、明暗/调色盘与旧字段迁移、模型池清洗、Storage Keys、`readJson`/`writeJson` | Electron 磁盘设置、远端账户状态 | `defaultSettings`, `THEME_PALETTE_VALUES`, `mergeSettings`, `STORAGE_*` | `test:settings-persistence`, `typecheck`, `build` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
+| `src/agent-window-sync.ts` | 独立窗脱敏有界快照、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、Agent 执行、项目持久化 | `buildAgentWindowSnapshot`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
 | `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
@@ -590,7 +610,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 布局/容器 | `corepack pnpm run test:image-layout`, `corepack pnpm run test:image-container` |
 | 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate`；GUI 专项为 `aidebug:requirements`，完整 Layer Stack 仅按需运行 `aidebug:requirements:full` |
 | UI primitives | `corepack pnpm run test:ui-foundation` |
-| Agent 面板布局/拖动/提示词复制区 | `corepack pnpm run test:agent-panel-layout`, `corepack pnpm run test:agent-panel-ui` |
+| Agent 面板布局/拖动/提示词复制区/独立窗口 | `corepack pnpm run test:agent-panel-layout`, `corepack pnpm run test:agent-panel-ui`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:agent-window-ui` |
 | alpha/mask/matting | `test:chroma-key`, `test:layer-alpha`, `test:layer-mask-replay`, `test:semantic-matting` |
 | 选择/画布/资产 | `test:selection`, `test:canvas-commands`, `test:asset-identity` |
 | 工具时间线 | `corepack pnpm run test:timeline` |
@@ -607,9 +627,11 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 当前 Renderer bundle 上限为初始 JS 650,000 B、异步 JS 180,000 B、总 JS 720,000 B、CSS 220,000 B、完整 dist 1,000,000 B。首屏上限的本次放宽只覆盖账号密钥管理与本机 Agent 自动化桥；后续稳定化应优先把完整 `SettingsDrawer` 移入现有 `studio-dialogs` 异步边界。
 
+独立 Agent 窗口批次后的正式证据为：initial JS 639,365 B、async JS 60,073 B、total JS 699,438 B、CSS 187,824 B、dist 943,051 B。首屏只剩约 10.6 KB；`src/agent-window-sync.ts` 已保持为打开独立窗时才加载的动态 chunk，后续 Renderer 功能仍必须同步审计 chunk 归属并运行 `build + test:bundle`。
+
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 81 个 invoke handler 与 1 个 send handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 84 个 invoke handler 与 4 个 send handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
@@ -623,6 +645,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 新增真正可移出主应用的独立 Electron Agent 窗口；`desktop/agent-window-service.cjs` 管理生命周期和 owner 中继，`src/agent-window-sync.ts` 在打开时按需加载并生成脱敏有界快照，独立表面将发送/停止/会话/图片上下文/记忆/收回命令转回唯一主 Renderer。双窗口 mock Agent 往返、关闭与上方收回均已验证。 |
 | 2026-07-28 | 1.0.6 | 产品定义固化为 Codex/Claude Code 式通用 Runtime 与 naimage 图片创作 Agent 的组合；新增 `src/agent-panel-layout.ts`，完成四向停靠、应用内浮动、rAF + CSS preview 拖动和松手单次持久化；提示词复制操作与滚动轨道分离，新增纯布局与 Electron 定向 UI 测试。 |
 | 2026-07-22 | 1.0.4 | 建立首版上下文地图；登记 `src/window-controls.tsx` 与 `desktop/project-save-coordinator.cjs`；补全进程拓扑、调用链、跨边界契约、镜像规则、持久化和测试映射。 |
 | 2026-07-22 | 1.0.4 | 模块化 `main.tsx` 表面、Electron 模型/Responses/保存域、runtime 图片帧与 `view_image`、core 设置/资产/粘贴域；把 1 万行样式按原级联顺序拆成 8 区；新增对应 selftest、打包白名单和共享 chunk 门禁。 |

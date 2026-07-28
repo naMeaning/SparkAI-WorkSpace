@@ -30,7 +30,7 @@ naimage 是面向普通用户和创作者的傻瓜式桌面 AI 生图工作台�
 - 客户端只展示账户、余额、使用日志和可选模型，不展示上游 URL、Key 或 relay token。
 - 模型列表必须真实从服务端完整拉取，用户可自由选择对话模型和生图模型；不得在高层偷偷限制为固定模型。获取结果由主进程缓存至少 60 秒，设置页打开时先展示已有选择并自动读缓存，缓存有效期内不得重复请求服务器；缓存策略属于内部实现，不得在用户界面展示。用户连续第 6 次手动获取模型时必须绕过缓存真实刷新，随后重新计数。
 - 无限画布保持流动、深邃、低成本的氛围背景，不使用明显网格，也不能用高开销粒子拖慢交互。
-- 右侧项目 Agent 始终存在并可折叠为窄侧栏，支持 Markdown、真实工具时间线、停止执行、清理聊天、会话历史、新建会话、当前成果上下文和当前会话 FastMemory 编辑器。设置页提供主 Agent 纯文本 Prompt 编辑/恢复默认入口；Prompt、公开工具 Schema、conversation compact summary 与 FastMemory 必须独立存储和注入，Prompt 不再使用 entries 结构。清理聊天必须经确认，只清当前会话消息、summary 和该 `projectId + conversationId` 下的 FastMemory，不删除画布和其他会话。
+- 项目 Agent 始终存在，可折叠、停靠在上/下/左/右、应用内浮动，或打开为可移出主应用的独立 Electron 窗口。主 Renderer 是 Agent、画布、会话和项目状态唯一权威；独立窗只呈现脱敏有界快照并回传用户命令，不能创建第二个 Agent Runtime、重复模型请求或独立写项目。全部表面支持停止执行、清理聊天、会话历史、新建会话、当前成果上下文和当前会话 FastMemory 编辑；主面板继续支持 Markdown 和真实工具时间线。设置页提供主 Agent 纯文本 Prompt 编辑/恢复默认入口；Prompt、公开工具 Schema、conversation compact summary 与 FastMemory 必须独立存储和注入，Prompt 不再使用 entries 结构。清理聊天必须经确认，只清当前会话消息、summary 和该 `projectId + conversationId` 下的 FastMemory，不删除画布和其他会话。
 - 新建会话必须获得全新 conversation ID、空消息和空 FastMemory 上下文，但继续共享当前项目画布；新建项目必须获得空画布、全新会话和独立 FastMemory，不能继承旧项目或旧会话上下文。
 - Agent 输入区不提供“生成图片、分层 PNG、替换元素、多款设计”等系统强制快捷任务；一切任务由用户自然语言交给 Agent 自主理解并选择工具。参考图通过同一输入区添加或拖入聊天区域，拖入后只更新参考图容器计数，不额外铺设缩略图区域。
 - 工具时间线显示模型提供的简短正文和无标题 Brief；流式正文结束事件不得再次追加同文案。Brief 位于工具卡边框之外，同一 tool call 的 start/poll/request 更新同一条“正在使用工具”卡片，done/error 必须另起一条独立的“工具完成/失败”结果卡片，过程与结果不能挤在一起。Experience 只显示“记录经验成功”等用户文案，禁止显示 `fmem-*` 或内部 entry id。Image Gen 的执行卡把单个或多个完整 Prompt 分别放入默认折叠块。

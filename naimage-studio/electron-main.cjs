@@ -40,6 +40,7 @@ const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs")
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
+const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const {
   cachedModelSettings,
@@ -166,6 +167,8 @@ const rendererIndexOverride = desktopEnvironment("NAIMAGE_RENDERER_INDEX");
 const rendererIndex = rendererIndexOverride
   ? path.resolve(rendererIndexOverride)
   : path.join(__dirname, "dist", "index.html");
+const agentWindowHtml = path.join(__dirname, "agent-window.html");
+const agentWindowPreload = path.join(__dirname, "agent-window-preload.cjs");
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, "..");
 const desktopRoot = path.join(process.env.USERPROFILE || projectRoot, "Desktop");
@@ -641,6 +644,14 @@ const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
   endpointPath: automationService.endpointPath,
   executablePath: process.execPath,
+  log
+});
+const agentWindowService = createAgentWindowService({
+  BrowserWindow,
+  htmlPath: agentWindowHtml,
+  preloadPath: agentWindowPreload,
+  applicationName,
+  icon: createWindowIcon(),
   log
 });
 
@@ -2061,6 +2072,7 @@ function shutdownApplicationServices() {
     stopActiveNewApiCurlTransports(),
     recycleProjectImageImporter(false),
     imageThumbnailCache.close(),
+    Promise.resolve(agentWindowService.close()),
     Promise.resolve().then(() => agentRuntime?.dispose?.())
   ]).then((results) => {
     for (const [index, result] of results.entries()) {
@@ -3455,6 +3467,7 @@ function registerIpc() {
     ipcMain,
     automationService,
     agentIntegrationService,
+    agentWindowService,
     desktopUpdater,
     migrateSettings,
     readJson,

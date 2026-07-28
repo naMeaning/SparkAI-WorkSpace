@@ -47,6 +47,9 @@ const expectedChannels = [
   "naimage:agent:cancel-pending-execution",
   "naimage:window:new",
   "naimage:window:control",
+  "naimage:agent-window:open",
+  "naimage:agent-window:close",
+  "naimage:agent-window:status",
   "naimage:debug:window-bounds",
   "naimage:debug:capture-gui",
   "naimage:project:list",
@@ -102,10 +105,20 @@ const internalChannels = new Set([
 ]);
 const expectedProgressChannels = [
   "naimage:automation:request",
+  "naimage:agent-window:command",
   "naimage:update:progress",
   "naimage:agent:progress"
 ];
-const expectedSendChannels = ["naimage:automation:response"];
+const expectedPreloadSendChannels = [
+  "naimage:automation:response",
+  "naimage:agent-window:publish-state"
+];
+const expectedRegisteredSendChannels = [
+  "naimage:automation:response",
+  "naimage:agent-window:publish-state",
+  "naimage:agent-window:command",
+  "naimage:agent-window:ready"
+];
 
 function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right));
@@ -250,11 +263,11 @@ async function main() {
     agentIntegrationService: {}
   });
 
-  assert.equal(expectedChannels.length, 81, "The registration contract must contain exactly 81 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 81, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 84, "The registration contract must contain exactly 84 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 84, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
-  assert.deepEqual(eventRegistrations, expectedSendChannels, "IPC send channel registration changed.");
+  assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
 
   const preloadPath = path.resolve(__dirname, "..", "preload.cjs");
   const preloadSource = readFileSync(preloadPath, "utf8");
@@ -265,18 +278,23 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 78, "preload must expose exactly 78 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 78, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 81, "preload must expose exactly 81 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 81, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
-  assert.deepEqual(sendChannels, expectedSendChannels, "preload send channels changed.");
+  assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 78, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 81, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
     "Registered public IPC channels must match preload invokes."
   );
+  const agentWindowPreloadSource = readFileSync(path.resolve(__dirname, "..", "agent-window-preload.cjs"), "utf8");
+  const agentWindowListeners = [...agentWindowPreloadSource.matchAll(/ipcRenderer\s*\.\s*on\s*\(\s*["']([^"']+)["']/g)].map((match) => match[1]);
+  const agentWindowSends = [...agentWindowPreloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)].map((match) => match[1]);
+  assert.deepEqual(agentWindowListeners, ["naimage:agent-window:state"], "Agent window preload listeners changed.");
+  assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
   await assertBestEffortRemoteLogout();
 
