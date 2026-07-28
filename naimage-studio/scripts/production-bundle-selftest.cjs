@@ -59,10 +59,10 @@ const forbiddenMarkers = [
 const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker));
 
 const limits = {
-  // The account/custom-access gate added roughly 5.5 KB to startup. Keep a
-  // narrow 620 KB ceiling while the full JS and total-dist limits continue to
-  // prevent feature growth from hiding in async chunks.
-  initialJsBytes: 620_000,
+  // Account token management and the local Agent automation bridge add about
+  // 23 KB to the previous startup bundle. Keep the initial ceiling explicit
+  // while the unchanged full-JS and total-dist limits prevent hidden growth.
+  initialJsBytes: 650_000,
   asyncJsBytes: 180_000,
   // Startup performance is governed by initialJsBytes. Allow lazy-loaded
   // settings, authentication and model-management features to grow without

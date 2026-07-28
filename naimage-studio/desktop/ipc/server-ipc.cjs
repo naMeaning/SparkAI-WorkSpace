@@ -12,6 +12,7 @@ function registerServerIpc({
   aidebugStatefulAuth,
   aidebugUser,
   aidebugWallet,
+  accountTokenService,
   callNewApiImageWithSession,
   clearNewApiAuth,
   completeNewApiLogin,
@@ -298,6 +299,79 @@ function registerServerIpc({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, error: message, settings: splitModelSettings(settings, []) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:tokens", async () => {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      if (settings.accessMode === "custom") throw new Error("自定义接口模式不使用 SparkAPI 账户密钥。");
+      if (aidebugMode && !aidebugLiveImage) {
+        return {
+          ok: true,
+          selectedTokenId: "1",
+          baseUrl: "https://sparkapi.org/v1",
+          tokens: [{
+            id: "1",
+            name: "AIDebug 密钥",
+            status: 1,
+            remainQuota: 5_000_000,
+            usedQuota: 500_000,
+            unlimitedQuota: false,
+            expiredTime: -1,
+            createdTime: 0,
+            accessedTime: 0,
+            group: "default",
+            modelLimitsEnabled: false,
+            modelLimits: "",
+            allowIps: "",
+            crossGroupRetry: true
+          }]
+        };
+      }
+      return await accountTokenService.list(settings);
+    } catch (error) {
+      return { ok: false, tokens: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:select-token", async (_event, payload = {}) => {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      if (aidebugMode && !aidebugLiveImage) return { ok: true, selectedTokenId: String(payload.id || "1"), baseUrl: "https://sparkapi.org/v1" };
+      return await accountTokenService.select(settings, payload.id);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:create-token", async (_event, payload = {}) => {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      if (aidebugMode && !aidebugLiveImage) throw new Error("AIDebug 不会修改远端密钥。");
+      return await accountTokenService.create(settings, payload);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:update-token", async (_event, payload = {}) => {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      if (aidebugMode && !aidebugLiveImage) throw new Error("AIDebug 不会修改远端密钥。");
+      return await accountTokenService.update(settings, payload);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:delete-token", async (_event, payload = {}) => {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      if (aidebugMode && !aidebugLiveImage) throw new Error("AIDebug 不会修改远端密钥。");
+      return await accountTokenService.remove(settings, payload.id);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 

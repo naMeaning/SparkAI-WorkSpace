@@ -38,6 +38,9 @@ const {
 const { createProjectStore } = require("./desktop/project-store.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
+const { createAutomationService } = require("./desktop/automation-service.cjs");
+const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
+const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const {
   cachedModelSettings,
   createModelCacheKey,
@@ -303,6 +306,9 @@ const defaultSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
+  selectedAccountTokenId: "",
+  selectedAccountTokenName: "",
+  selectedAccountTokenGroup: "",
   licenseDeviceId: "",
   licenseToken: "",
   licensePlan: "",
@@ -310,7 +316,13 @@ const defaultSettings = {
   licenseLastVerifiedAt: 0,
   modelGroup: "",
   theme: "light",
-  themePalette: "anthropic"
+  themePalette: "anthropic",
+  agentPanelPlacement: "right",
+  agentPanelWidth: 390,
+  agentPanelHeight: 680,
+  agentPanelX: 56,
+  agentPanelY: 56,
+  agentSkillAutoInstallTargets: []
 };
 
 const themePaletteValues = new Set([
@@ -523,6 +535,9 @@ function migrateSettings(value) {
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
+  next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
+  next.selectedAccountTokenGroup = String(next.selectedAccountTokenGroup || "").trim().slice(0, 120);
   next.accessMode = String(next.accessMode || "account") === "custom" ? "custom" : "account";
   next.licenseDeviceId = String(next.licenseDeviceId || "").trim().slice(0, 128);
   if (!next.licenseDeviceId) next.licenseDeviceId = `device-${randomBytes(24).toString("hex")}`;
@@ -532,6 +547,16 @@ function migrateSettings(value) {
   next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : defaultSettings.theme;
   next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
+  next.agentPanelPlacement = ["right", "left", "floating"].includes(String(next.agentPanelPlacement))
+    ? String(next.agentPanelPlacement)
+    : defaultSettings.agentPanelPlacement;
+  next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
+  next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));
+  next.agentPanelX = Math.max(0, Math.min(10_000, Math.round(Number(next.agentPanelX) || 0)));
+  next.agentPanelY = Math.max(0, Math.min(10_000, Math.round(Number(next.agentPanelY) || 0)));
+  next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
+    ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))]
+    : [];
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.reasoningEffort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort)) ? String(next.reasoningEffort) : "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
@@ -545,6 +570,9 @@ function migrateSettings(value) {
     next.serverToken = "";
     next.serverSessionCookie = "";
     next.serverUserId = "";
+    next.selectedAccountTokenId = "";
+    next.selectedAccountTokenName = "";
+    next.selectedAccountTokenGroup = "";
   }
 
   delete next.baseUrl;
@@ -578,6 +606,20 @@ function logBoot(stage) {
   log(`boot +${Date.now() - bootStartedAt}ms ${stage}`);
 }
 
+const automationService = createAutomationService({
+  BrowserWindow,
+  configDir,
+  version: getDesktopVersion(),
+  executablePath: process.execPath,
+  log
+});
+const agentIntegrationService = createAgentIntegrationService({
+  appRoot: projectRoot,
+  endpointPath: automationService.endpointPath,
+  executablePath: process.execPath,
+  log
+});
+
 const aidebugBackend = aidebugMode && aidebugMockAgent
   ? createAidebugBackend({ enabled: aidebugMode, log })
   : null;
@@ -593,6 +635,7 @@ const {
   newApiTransportFetch,
   stopActiveNewApiCurlTransports
 } = newApiTransport;
+let accountTokenService = null;
 const newApiClient = createNewApiClient({
   defaultSettings,
   ensureLocalServer,
@@ -602,6 +645,7 @@ const newApiClient = createNewApiClient({
   newApiTransportFetch,
   normalizeServerUrl,
   readJson,
+  resolveAccountApiCredentials: (settings) => accountTokenService.credentials(settings),
   settingsPath,
   writeJson
 });
@@ -609,6 +653,7 @@ const {
   customApiCredentials,
   customApiHeaders,
   customApiUrl,
+  directApiUrl,
   extractSessionCookie,
   isNewApiAuthError,
   isCustomApiMode,
@@ -627,6 +672,18 @@ const {
   resolveNewApiBaseUrl,
   validateNewApiServiceSettings
 } = newApiClient;
+accountTokenService = createAccountTokenService({
+  defaultSettings,
+  log,
+  migrateSettings,
+  newApiRequest,
+  newApiUserAuthHeaders,
+  readJson,
+  requireNewApiSession,
+  resolveNewApiBaseUrl,
+  settingsPath,
+  writeJson
+});
 const licenseService = createLicenseService({
   defaultSettings,
   log,
@@ -1976,6 +2033,7 @@ function shutdownApplicationServices() {
   const localServerStop = stopLocalServer();
   const cleanup = Promise.allSettled([
     localServerStop,
+    automationService.stop(),
     stopActiveNewApiCurlTransports(),
     recycleProjectImageImporter(false),
     imageThumbnailCache.close(),
@@ -2122,9 +2180,9 @@ function tokenItemsFromNewApiPayload(payload) {
 function modelCacheKey(settings) {
   return createModelCacheKey(
     isCustomApiMode(settings) ? settings.agentBaseUrl : resolveNewApiBaseUrl(settings, "account"),
-    isCustomApiMode(settings) ? settings.imageBaseUrl : resolveNewApiBaseUrl(settings, "relay"),
+    isCustomApiMode(settings) ? settings.imageBaseUrl : directApiUrl(resolveNewApiBaseUrl(settings, "account"), "/v1"),
     isCustomApiMode(settings) ? "custom-api" : settings.serverUserId,
-    settings.modelGroup
+    isCustomApiMode(settings) ? settings.modelGroup : settings.selectedAccountTokenId
   );
 }
 
@@ -2202,7 +2260,7 @@ async function fetchNewApiModelSettings(settings) {
   } catch (error) {
     log(`new-api user groups failed ${error instanceof Error ? error.message : String(error)}`);
   }
-  const requestedGroup = String(settings.modelGroup || "").trim();
+  const requestedGroup = String(settings.selectedAccountTokenGroup || settings.modelGroup || "").trim();
   const selectedGroup = groupsLoaded && requestedGroup && !modelGroups.some((group) => group.id === requestedGroup)
     ? ""
     : requestedGroup;
@@ -2220,13 +2278,14 @@ async function fetchNewApiModelSettings(settings) {
   }
   try {
     if (settings.serverSessionCookie && settings.serverUserId) {
-      const { response, data } = await newApiFetch(settings, managedRelayEndpoint(`/v1/models${groupQuery}`), {
-        service: "relay",
-        headers: newApiUserAuthHeaders(settings),
+      const credentials = await accountTokenService.credentials(settings);
+      const { response, data } = await newApiFetch(settings, "/v1/models", {
+        absoluteUrl: directApiUrl(credentials.baseUrl, "/v1/models"),
+        requestBaseUrl: credentials.baseUrl,
+        headers: { authorization: `Bearer ${credentials.apiKey}` },
         timeoutMs: 20_000,
         retries: 0
       });
-      persistNewApiSessionCookie(settings, response);
       if (response.ok && data.parseFailed !== true && !data.error) {
         successfulRequests += 1;
         collected.push(...modelIdsFromResponse(data));
@@ -3081,7 +3140,10 @@ async function completeNewApiLogin(settings, payload = {}) {
   let nextSettings = migrateSettings({
     ...settings,
     serverSessionCookie: sessionCookie,
-    serverUserId
+    serverUserId,
+    selectedAccountTokenId: "",
+    selectedAccountTokenName: "",
+    selectedAccountTokenGroup: ""
   });
   const storedAfterLogin = migrateSettings(readJson(settingsPath, defaultSettings));
   if (resolveNewApiBaseUrl(storedAfterLogin, "account").toLowerCase() !== resolveNewApiBaseUrl(settings, "account").toLowerCase()) {
@@ -3112,6 +3174,11 @@ async function completeNewApiLogin(settings, payload = {}) {
     ...nextSettings,
     serverToken: ""
   });
+  try {
+    await accountTokenService.ensureSelection(nextSettings);
+  } catch (error) {
+    log(`new-api token selection after login failed ${error instanceof Error ? error.message : String(error)}`);
+  }
   let modelSettings;
   try {
     modelSettings = await newApiModelSettings(nextSettings);
@@ -3164,8 +3231,12 @@ function clearNewApiAuth(settings) {
     ...stored,
     serverToken: "",
     serverSessionCookie: "",
-    serverUserId: ""
+    serverUserId: "",
+    selectedAccountTokenId: "",
+    selectedAccountTokenName: "",
+    selectedAccountTokenGroup: ""
   });
+  accountTokenService?.clearKeyCache();
   writeJson(settingsPath, next);
   return next;
 }
@@ -3358,6 +3429,8 @@ const projectSessionSaveCoordinator = createProjectSaveCoordinator({
 function registerIpc() {
   registerDesktopIpc({
     ipcMain,
+    automationService,
+    agentIntegrationService,
     desktopUpdater,
     migrateSettings,
     readJson,
@@ -3369,6 +3442,7 @@ function registerIpc() {
     onNewApiAccountBaseUrlChanged(current) {
       const previousEpoch = newApiAuthEpoch;
       newApiAuthEpoch += 1;
+      accountTokenService.clearKeyCache();
       if (current?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch, userId: String(current.serverUserId) });
     },
     writeJson,
@@ -3454,6 +3528,7 @@ function registerIpc() {
     aidebugStatefulAuth,
     aidebugUser,
     aidebugWallet,
+    accountTokenService,
     callNewApiImageWithSession,
     clearNewApiAuth,
     completeNewApiLogin,
@@ -3620,7 +3695,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     window.focus();
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     logBoot("app ready");
     app.setAppUserModelId(applicationId);
     if (app.isPackaged) {
@@ -3635,6 +3710,12 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
       }
     }
     ensureRuntimeFiles();
+    await automationService.start();
+    const autoInstallTargets = migrateSettings(readJson(settingsPath, defaultSettings)).agentSkillAutoInstallTargets;
+    if (autoInstallTargets.length) {
+      const integrationResult = agentIntegrationService.install(autoInstallTargets);
+      if (!integrationResult.ok) log(`agent skill auto-install warnings=${integrationResult.errors.join(" | ")}`);
+    }
     desktopUpdater.recoverRollback();
     if (lifecycleSelftestMode) {
       startLocalServerIfNeeded();

@@ -14,6 +14,7 @@ function createNewApiClient(options = {}) {
     newApiTransportFetch,
     normalizeServerUrl,
     readJson,
+    resolveAccountApiCredentials,
     settingsPath,
     writeJson
   } = options;
@@ -46,11 +47,26 @@ function createNewApiClient(options = {}) {
 
   function customApiUrl(settings, endpoint, provider = "agent") {
     const { baseUrl } = customApiCredentials(settings, provider);
+    return directApiUrl(baseUrl, endpoint);
+  }
+
+  function directApiUrl(baseUrl, endpoint) {
     const cleanEndpoint = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
     if (/\/v1$/i.test(baseUrl) && /^\/v1(?:\/|$)/i.test(cleanEndpoint)) {
       return `${baseUrl}${cleanEndpoint.slice(3) || ""}`;
     }
     return `${baseUrl}${cleanEndpoint}`;
+  }
+
+  async function accountApiCredentials(settings) {
+    requireNewApiSession(settings);
+    if (typeof resolveAccountApiCredentials !== "function") throw new Error("账户密钥服务尚未就绪。");
+    const credentials = await resolveAccountApiCredentials(settings);
+    const baseUrl = normalizeServerUrl(credentials?.baseUrl, "");
+    const apiKey = String(credentials?.apiKey || "").trim();
+    if (!baseUrl || !apiKey) throw new Error("所选账户密钥不可用，请在设置中重新选择。");
+    parsedServiceBaseUrl(baseUrl, "账户模型 Base URL");
+    return { ...credentials, baseUrl, apiKey };
   }
 
   function customApiHeaders(settings, provider = "agent") {
@@ -375,44 +391,19 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
-    if (isCustomApiMode(settings)) {
-      const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
-      const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
-      if (relayBody && typeof relayBody === "object") delete relayBody.group;
-      const credentials = customApiCredentials(settings, provider);
-      const { response, data } = await newApiFetch(settings, endpoint, {
-        ...options,
-        method: "POST",
-        absoluteUrl: customApiUrl(settings, endpoint, provider),
-        requestBaseUrl: credentials.baseUrl,
-        headers: { ...customApiHeaders(settings, provider), ...(options.headers || {}) },
-        body: relayBody
-      });
-      if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
-        const error = new Error(newApiErrorMessage(data, response.status));
-        error.status = response.status;
-        error.data = data;
-        throw error;
-      }
-      return data;
-    }
-    requireNewApiSession(settings);
-    const relayBody = body && typeof body === "object" && !Array.isArray(body) && settings.modelGroup && !("group" in body)
-      ? { ...body, group: settings.modelGroup }
-      : body;
-    const { response, data } = await newApiFetch(settings, managedRelayEndpoint(endpoint), {
-      service: "relay",
+    const customMode = isCustomApiMode(settings);
+    const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
+    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
+    if (relayBody && typeof relayBody === "object") delete relayBody.group;
+    const { response, data } = await newApiFetch(settings, endpoint, {
+      ...options,
       method: "POST",
-      headers: { ...newApiUserAuthHeaders(settings), ...(options.headers || {}) },
+      absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
+      requestBaseUrl: credentials.baseUrl,
+      headers: { authorization: `Bearer ${credentials.apiKey}`, ...(options.headers || {}) },
       body: relayBody,
-      signal: options.signal,
-      headersTimeoutMs: options.headersTimeoutMs,
-      connectTimeoutMs: options.connectTimeoutMs,
-      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
-      maxRequestBytes: options.maxRequestBytes,
-      maxResponseBytes: options.maxResponseBytes
     });
-    persistNewApiSessionCookie(settings, response);
     if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
       const error = new Error(newApiErrorMessage(data, response.status));
       error.status = response.status;
@@ -424,22 +415,20 @@ function createNewApiClient(options = {}) {
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
     const customMode = isCustomApiMode(settings);
-    if (!customMode) requireNewApiSession(settings);
-    const relayBody = body && typeof body === "object" && !Array.isArray(body) && !customMode && settings.modelGroup && !("group" in body)
-      ? { ...body, group: settings.modelGroup, stream: true }
-      : { ...body, stream: true };
-    if (customMode) delete relayBody.group;
+    const relayBody = { ...body, stream: true };
+    delete relayBody.group;
     const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
-    const relayBaseUrl = customMode ? customApiCredentials(settings, provider).baseUrl : resolveNewApiBaseUrl(settings, "relay");
+    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) {
       await ensureLocalServer(relayBaseUrl);
     }
     const response = await newApiTransportFetch(
-      customMode ? customApiUrl(settings, endpoint, provider) : newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
+      directApiUrl(credentials.baseUrl, endpoint), {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings)),
+        authorization: `Bearer ${credentials.apiKey}`,
         ...(options.headers || {})
       },
       body: JSON.stringify(relayBody),
@@ -453,7 +442,6 @@ function createNewApiClient(options = {}) {
     });
     response.requestBaseUrl = relayBaseUrl;
     response.requestService = "relay";
-    if (!customMode) persistNewApiSessionCookie(settings, response);
     if (!response.ok) {
       const text = await response.text();
       const data = parseJsonText(text);
@@ -779,7 +767,6 @@ function createNewApiClient(options = {}) {
 
   async function newApiRelayImage(settings, endpoint, body, onPartialImage, options = {}) {
     const customMode = isCustomApiMode(settings);
-    if (!customMode) requireNewApiSession(settings);
     const provider = "image";
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     let requestBody;
@@ -787,23 +774,22 @@ function createNewApiClient(options = {}) {
       requestBody = body;
       requestBody.set("stream", "true");
       requestBody.set("partial_images", String(Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)))));
-      if (!customMode && settings.modelGroup && !requestBody.has("group")) requestBody.set("group", settings.modelGroup);
-      if (customMode) requestBody.delete("group");
+      requestBody.delete("group");
     } else {
       requestBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
       requestBody.stream = true;
       requestBody.partial_images = Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)));
-      if (!customMode && settings.modelGroup && !("group" in requestBody)) requestBody.group = settings.modelGroup;
-      if (customMode) delete requestBody.group;
+      delete requestBody.group;
     }
-    const relayBaseUrl = customMode ? customApiCredentials(settings, provider).baseUrl : resolveNewApiBaseUrl(settings, "relay");
+    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
     const response = await newApiTransportFetch(
-      customMode ? customApiUrl(settings, endpoint, provider) : newApiUrl(settings, managedRelayEndpoint(endpoint), "relay"), {
+      directApiUrl(credentials.baseUrl, endpoint), {
         method: "POST",
         headers: {
           ...(isForm ? {} : { "content-type": "application/json" }),
-          ...(customMode ? customApiHeaders(settings, provider) : newApiUserAuthHeaders(settings)),
+          authorization: `Bearer ${credentials.apiKey}`,
           ...(options.headers || {})
         },
         body: isForm ? requestBody : JSON.stringify(requestBody),
@@ -818,7 +804,6 @@ function createNewApiClient(options = {}) {
     );
     response.requestBaseUrl = relayBaseUrl;
     response.requestService = "relay";
-    if (!customMode) persistNewApiSessionCookie(settings, response);
     if (!response.ok) {
       const text = await response.text();
       const data = parseJsonText(text);
@@ -962,6 +947,7 @@ function createNewApiClient(options = {}) {
     customApiCredentials,
     customApiHeaders,
     customApiUrl,
+    directApiUrl,
     newApiErrorMessage,
     newApiFetch,
     newApiUrl,

@@ -230,11 +230,27 @@
   transform: rotate(180deg);
 }
 
+.agent-tool-prompt-content {
+  position: relative;
+  min-width: 0;
+}
+
+.agent-tool-prompt-content .agent-tool-prompt-copy {
+  position: absolute;
+  z-index: 2;
+  top: 9px;
+  right: 5px;
+  width: 25px;
+  height: 25px;
+  border-color: color-mix(in srgb, var(--line) 76%, transparent);
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+}
+
 .agent-tool-prompt-block pre {
   max-height: 220px;
   margin: 5px 0 2px;
   overflow: auto;
-  padding: 8px;
+  padding: 8px 36px 8px 8px;
   border-radius: 6px;
   color: var(--ink-soft);
   background: color-mix(in srgb, var(--canvas) 70%, transparent);

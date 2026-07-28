@@ -48,14 +48,17 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：72 个 handler 的唯一注册顺序
-  │    └─ config / agent / window / debug / project / asset / server registrar
+  ├─ desktop/ipc/register-desktop-ipc.cjs：81 个 invoke handler + 1 个 send handler 的唯一注册顺序
+  │    └─ config / automation / updater / session / agent / window / debug / project / asset / server registrar
   ├─ 项目、session、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
   ├─ desktop/model-catalog.cjs
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
   ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON/通用 SSE 与 Images SSE relay
+  ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、所选密钥元数据与 Main-only 完整 Key 内存缓存
+  ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token 与 Renderer 命令转发
+  ├─ desktop/agent-integration-service.cjs：Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除
   ├─ desktop/license-service.cjs：设备激活、24 小时校验缓存与 72 小时离线宽限
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
@@ -80,7 +83,9 @@ preload.cjs
   ├─ window.naimageConfig
   ├─ window.naimageServer
   ├─ window.naimageUpdater
-  └─ window.naimageAgent
+  ├─ window.naimageAgent
+  ├─ window.naimageAutomation
+  └─ window.naimageAgentIntegrations
           │
           ▼
 React Renderer
@@ -151,14 +156,15 @@ src/main.tsx sendPrompt()
 ```text
 Agent chat
   → serverChatCompletion()
-  → relayBaseUrl（留空时继承 accountBaseUrl）
-  → /naimage/v1/chat/completions 或 /naimage/v1/responses
+  → account：所选 New API Key + accountBaseUrl/v1
+  → custom：用户 Base URL + 用户 API Key
+  → /v1/chat/completions 或 /v1/responses
 
 image_gen
   → callImageGeneration()
   → electron-main.cjs serverGenerateImage()
   → callNewApiImageWithSession()
-  ├─ account：/naimage/v1/images/generations 或 /naimage/v1/images/edits
+  ├─ account：所选 New API Key 直连 /v1/images/generations 或 /v1/images/edits
   └─ custom：纯文生图 /v1/responses + image_generation；编辑 /v1/images/edits
   → 项目 output 资产
   → workflow action
@@ -169,18 +175,32 @@ image_gen
 
 桌面有两种互斥但可运行时切换的接入模式：
 
-- `account`：用户名/密码登录 SparkAPI/New API；服务端拥有用户额度、模型分组、渠道选择和计费，桌面请求 `/naimage/v1/*` Session Relay。
+- `account`：用户名/密码登录 SparkAPI/New API；Cookie + `New-Api-User` 只用于 `/api/user/*`、`/api/token/*`、设备授权和更新。登录后桌面列出、创建、编辑、分组、启停和删除用户密钥，并用用户选择的完整 Key 直连 `accountBaseUrl/v1`。完整 Key 优先兼容原生 New API 在 token 列表/详情中的返回值，脱敏部署则通过 `POST /api/token/:id/key` 按需取回；两者都只缓存在 Electron Main 内存，不进入 Renderer、设置文件、模型缓存或日志。
 - `custom`：用户提供 Base URL、API Key、Agent 模型和生图模型；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。
 
 两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
-账号 Session Relay 的 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。自定义模式的纯文生图优先请求图片渠道的 `POST /v1/responses`：顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 image_generation 工具不受支持时，才回退 `/v1/images/generations` 非流式 JSON；HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。自定义编辑/参考图仍走 `/v1/images/edits` multipart 非流式链路。
+账号模式的标准 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。密钥分组由 New API token 自身决定，桌面不得再向模型/生图 JSON 或 multipart 注入 `group`。自定义模式的纯文生图优先请求图片渠道的 `POST /v1/responses`：顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 image_generation 工具不受支持时，才回退 `/v1/images/generations` 非流式 JSON；HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。自定义编辑/参考图仍走 `/v1/images/edits` multipart 非流式链路。
 
 中间图只进入 `image-preview` 进度与运行中的工具卡，最终图返回后移除，不写入项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
 
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
-### 4.5 项目 session 保存
+### 4.5 本机 Agent 自动化
+
+```text
+Codex / Claude Code / OpenCode / OpenClaw
+  → integrations/naimage-control/scripts/naimage.ps1
+  → <configRoot>/automation/endpoint.json（端口 + 每次启动随机 Token）
+  → http://127.0.0.1:<random>/v1/execute
+  → desktop/automation-service.cjs
+  → preload naimageAutomation request/response
+  → src/main.tsx 生产状态与生产动作
+```
+
+`integrations/naimage-control` 是随安装包分发的正式 Skill；设置页可检测并复制到各 Agent 的 `skills/naimage-control`。安装目录的 `.naimage-connection.json` 只保存 endpoint 文件位置与 EXE 路径，不保存 Bearer Token；CLI 每次从应用私有 endpoint 文件读取当前 Token。服务只监听 loopback，Renderer 不使用任何 AIDebug hook。公开命令覆盖项目、画布状态/选择/容器/导入和 Agent 会话；清空全部或删除所选还必须传 `confirmed=true`。
+
+### 4.6 项目 session 保存
 
 ```text
 Renderer 自动保存 / 显式保存
@@ -201,7 +221,7 @@ Renderer 自动保存 / 显式保存
 
 `desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`project-store.cjs` 拥有项目列表、路径和 manifest；session 清洗与资产索引分别只有一个 owner。`apply` 返回 `applied:false` 时不得推进 revision。
 
-### 4.6 图片导入与输出
+### 4.7 图片导入与输出
 
 ```text
 拖入文件/目录
@@ -216,7 +236,7 @@ Renderer 自动保存 / 显式保存
 
 外部原图只读；所有后续处理必须使用复制进项目库的资产。缩略图、观察副本和导出临时文件不得覆盖项目原图。
 
-### 4.7 在线更新
+### 4.8 在线更新
 
 ```text
 Renderer UpdaterBridge
@@ -239,8 +259,8 @@ Renderer UpdaterBridge
 | 路径 | Owns | Must not own | 关键检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
 | `electron-main.cjs` | Electron 生命周期、桌面服务依赖装配、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、内联 IPC handler、重复实现 project store/session normalization/asset repository、New API transport/client 或 AIDebug PNG fixture | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:ipc-registration`, `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
-| `preload.cjs` | 四组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent` | `test:ui-foundation`, `test:lifecycle`, `aidebug:gui` |
-| `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
+| `preload.cjs` | 六组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations` | `test:ipc-registration`, `test:automation-service`, `test:lifecycle`, `aidebug:gui` |
+| `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Automation → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerAutomationIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、compact/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
 | `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、当前元数据路径，以及更名前元数据的只读迁移 | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
@@ -253,6 +273,9 @@ Renderer UpdaterBridge
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
 | `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:custom-api-transport`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、公开脱敏 DTO、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key 文件或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `select` | `test:account-token`, `test:ipc-registration`, `typecheck` |
+| `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联与超时 | 业务命令实现、AIDebug hook、远端监听或长期 Token | `createAutomationService`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:ipc-registration`, `test:bundle` |
+| `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI 安装更新和受控移除 | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件 | `createAgentIntegrationService`, `naimage.ps1`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, Skill `quick_validate.py`, `test:bundle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `contextManage`, `appendConversationProtocolTurn` | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
@@ -350,9 +373,11 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 | Bridge | Renderer 入口 | 主进程职责 |
 | --- | --- | --- |
 | `window.naimageConfig` | 设置、项目、session、导入/导出、窗口控制 | 本地文件、项目目录、BrowserWindow、原子保存 |
-| `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、生图 | New API session、用户/授权 header、远端 relay、授权状态与结果落盘 |
+| `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、账户密钥 CRUD/选择、生图 | New API session、公开脱敏 token DTO、Main-only 完整 Key、授权状态与结果落盘 |
 | `window.naimageUpdater` | 检查、下载、应用更新、进度订阅 | 签名、hash、ticket、helper、回滚 |
 | `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory | Agent runtime 生命周期、memory、模型与工具循环 |
+| `window.naimageAutomation` | Renderer ready、生产命令接收与结果回传 | loopback HTTP 请求关联、随机 Token 与超时 |
+| `window.naimageAgentIntegrations` | Agent 目录检测、安装/更新/移除 Skill | 目标路径验证、复制和 `.naimage-connection.json` 生成 |
 
 任何 bridge 变更必须同步：
 
@@ -389,22 +414,22 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 ### 6.5 远端服务
 
-账号模式把远端服务拆为三个设置：`accountBaseUrl`、`relayBaseUrl` 与 `updateBaseUrl` 默认均为 `https://sparkapi.org`；`relayBaseUrl` 留空时继承账户地址，更新接口由 SparkAPI 统一提供。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 naimage 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie 与 user id，Relay、分组或更新地址变化不复用错误的模型缓存。
+账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 naimage 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
 
-正式认证使用 session cookie 与 `New-Api-User`；relay token 保持服务端隐藏。显式异源 Relay 只允许 HTTPS 或 localhost/loopback；桌面可以把当前认证头转发给它，但异源响应的 `Set-Cookie` 不得旋转账户会话。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证。主要契约：
+账户管理认证使用 session cookie 与 `New-Api-User`；标准模型接口认证使用所选 token 的 `Authorization: Bearer <key>`。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证、所选 token 元数据和完整 Key 内存缓存。主要契约：
 
 - `/api/user/login`, `/api/user/self`, `/api/user/self/groups`, `/api/user/models?group=...`
+- `/api/token/?p=1&size=100`, `POST /api/token/:id/key`, `POST/PUT /api/token/`, `DELETE /api/token/:id/`
 - `/api/log/self`
-- `/naimage/v1/models`
-- `/naimage/v1/chat/completions`, `/naimage/v1/responses`（JSON 顶层透传 `group`）
-- `/naimage/v1/images/generations`, `/naimage/v1/images/edits`（JSON/FormData 透传 `group`）
+- `/v1/models`, `/v1/chat/completions`, `/v1/responses`
+- `/v1/images/generations`, `/v1/images/edits`（密钥自身决定分组，客户端不传 `group`）
 - `/api/naimage/license`, `/api/naimage/license/{activate,verify}`
 - `/api/naimage/license/account/{activate,verify}`（需要 New API 用户 session）
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
-账号 Relay 在 `NAIMAGE_LICENSE_REQUIRED=true` 时必须同时收到 `X-Naimage-Device-Id` 和 `X-Naimage-License`，服务端在进入上游前强制校验。激活码明文只在管理员创建时返回一次，数据库只保存激活码和授权令牌的 SHA-256；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
+设备激活仍由 `/api/naimage/license*` 单独校验；激活码明文只在管理员创建时返回一次，数据库只保存激活码和授权令牌的 SHA-256；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
 
-`/naimage/v1/*` 与 `/downloads/naimage-studio/windows` 是唯一 canonical 客户端入口。修改上述路径、方法、认证 header、流事件、DTO、上传限制、幂等键或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
+账号账户管理的 canonical 入口是 `/api/user/*` 与 `/api/token/*`，账号模型调用的 canonical 入口是账户站 `/v1/*`，更新下载入口是 `/downloads/naimage-studio/windows`；`/naimage/v1/*` 只保留为后端扩展/旧 Session Relay 合同，不再是当前 Studio 账号模型请求路径。修改这些路径、方法、认证 header、DTO、上传限制或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
 
 ## 7. 镜像实现与同步规则
 
@@ -458,7 +483,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 | 路径/文件 | 内容 | 所有者 |
 | --- | --- | --- |
-| `app-settings.json` | App 设置、账号 session、自定义 API Key、可选应用级代理 URL、随机安装 ID 与授权令牌 | Electron Main；不得写入日志、模型缓存或项目文件 |
+| `app-settings.json` | App 设置、账号 session、所选账户密钥的 ID/名称/分组元数据、自定义 API Key、可选应用级代理 URL、随机安装 ID 与授权令牌 | Electron Main；账户完整 Key 不得写入该文件、日志、模型缓存或项目文件 |
 | `session.json` | 全局/兼容 session | Electron Main |
 | `model-cache.json` | 60 秒模型缓存的磁盘回退 | Electron Main；不得含 token/cookie/key |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
@@ -494,6 +519,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 ### 9.4 仅内存状态
 
 - `desktop/project-save-coordinator.cjs` 的 project queue 与 revision Map。
+- `desktop/account-token-service.cjs` 的账户完整 Key cache；Renderer 只接收脱敏密钥元数据，进程重启后通过登录 session 再次按需获取。
 - 当前 BrowserWindow、模型 inflight 请求和模型 memory cache。
 - Agent 当前执行、取消控制器、流式文本和工具轮次。
 - Images/Responses 生图流的最新中间预览；只显示当前 partial，不进入 `validMessages` 或项目 session。
@@ -511,6 +537,9 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
 | New API transport / AIDebug image fixture / Images SSE / 显式代理 | `corepack pnpm run test:new-api-transport` |
+| New API 账户密钥列表/选择/CRUD、原生 Key 响应兼容与账号 `/v1` 直连 | `corepack pnpm run test:account-token` |
+| 本机 loopback 自动化鉴权与正式 CLI | `corepack pnpm run test:automation-service` |
+| Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除 | `corepack pnpm run test:agent-integration` + Skill `quick_validate.py` |
 | 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |
 | 设备激活、缓存与离线宽限 | `corepack pnpm run test:license` |
 | `view_image` | `corepack pnpm run test:view-image` |
@@ -538,13 +567,15 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI；正式制品仍必须通过 `test:bundle` 和发布编排器的完整要求。
 
+当前 Renderer bundle 上限为初始 JS 650,000 B、异步 JS 180,000 B、总 JS 720,000 B、CSS 220,000 B、完整 dist 1,000,000 B。首屏上限的本次放宽只覆盖账号密钥管理与本机 Agent 自动化桥；后续稳定化应优先把完整 `SettingsDrawer` 移入现有 `studio-dialogs` 异步边界。
+
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 72 个 IPC handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 81 个 invoke handler 与 1 个 send handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
-- New API 登录后的模型分组由 `/api/user/self/groups` 提供；仅账号模式的 `modelGroup` 进入模型查询、Relay 请求、图片编辑上传和模型缓存键，自定义模式必须移除该字段。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
+- New API 登录 session 只负责账户、余额、密钥 CRUD、授权和更新管理；账号模式的 Agent、生图与 `/v1/models` 使用所选账户密钥，分组由 token 自身决定，模型 JSON/FormData 不得注入 `group`。`/api/user/self/groups` 只用于密钥编辑候选与模型目录查询。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
 - Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
@@ -581,3 +612,4 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 2026-07-27 | 1.0.6 | `release:verify` 新增带证据的失败点续跑：必须引用同项目旧报告、确认旧源码稳定与祖先关系、复用点前门禁全绿，并显式 allowlist 本次变化路径；新报告记录复用来源和变更范围，失败点及后续步骤仍真实执行。 |
 | 2026-07-27 | 1.0.6 | 私有 GitHub 正式版 `v1.0.6` 已发布，tag 指向 `9f1d290`；Setup、Restart ASAR、签名 manifest、sidecar 与 SHA 清单共 5 项资产上传并复核，1.0.5 → 1.0.6 Restart 更新和隔离安装全链路通过。 |
 | 2026-07-27 | 1.0.6 | 对照 archive 中原版 AIEYRA 后恢复自定义 Images 为非流式 JSON，修复 custom `newApiRelayJson` 构造请求体后未传给 transport 导致的 `invalid JSON request body`；账号 Session Relay 继续保留三阶段 SSE 预览。新增请求体转发回归断言、脱敏生图 metadata 和可指定只读源设置的隔离 AIDebug，当前真实 `gpt-5.6-sol + gpt-image-2` 单图闭环通过。 |
+| 2026-07-27 | 1.0.6 | 账号模式改为登录 session 管理账户与 `/api/token/*`，所选密钥直连账户 `/v1/*`；新增密钥列表、选择、创建、分组/额度/状态编辑与删除，完整 Key 仅在 Main 内存并兼容原生 New API 直接返回 Key。新增 loopback 自动化桥、正式 naimage CLI 及 Codex/Claude Code/OpenCode/OpenClaw Skill 检测安装；设置页同步加入账户密钥与 Agent 集成管理。 |

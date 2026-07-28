@@ -24,7 +24,8 @@ flowchart LR
   User["用户"] --> Desktop["naimage-studio\nElectron 桌面端"]
   User --> Web["ai-native\n唯一 Web GUI"]
 
-  Desktop -->|"session cookie + New-Api-User"| NewAPI["New API\nGo / Gin / GORM"]
+  Desktop -->|"session cookie + New-Api-User\n账户/密钥管理"| NewAPI["New API\nGo / Gin / GORM"]
+  Desktop -->|"selected token + Bearer\n/v1 模型调用"| NewAPI
   Web -->|"同源 /api 与模型接口"| NewAPI
 
   NewAPI -->|"/api/crm/* 代理\nHMAC signed identity"| CRM["CRM API\nNode + TypeScript + mysql2"]
@@ -48,12 +49,12 @@ flowchart LR
 ```mermaid
 flowchart TD
   Entry["electron-main.cjs"] --> Window["BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n72 handlers / 69 public invokes"]
-  Entry --> DesktopModules["desktop/*\nNew API transport / 授权 / 保存协调 / 模型目录 / Responses 适配"]
+  Entry --> Ipc["desktop/ipc/*\n81 invokes / 1 send"]
+  Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / 授权 / 保存协调 / 模型目录 / Responses 适配"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
   Entry --> Workers["图片导入 / 缩略图 / 抠图 / PSD workers"]
-  Window --> Preload["preload.cjs\n四组受限 bridge"]
+  Window --> Preload["preload.cjs\n六组受限 bridge"]
   Preload --> Renderer["src/main.tsx → React App"]
   Renderer --> SurfaceModules["auth / image viewer / reference picker / window controls"]
   Renderer --> DomainModules["settings / asset identity / paste blocks / canvas domains"]
@@ -67,7 +68,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、设备授权和 72 个 IPC handler 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/license-service.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、设备授权和 81 个 invoke + 1 个 send handler 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/license-service.cjs` |
 | `agent-runtime.cjs` | 保留 Prompt、tool loop、compact 与 action 编排；schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、会话和图片算法；设置、资产身份、粘贴块已有独立所有者 | `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
@@ -87,7 +88,8 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改资产 ID/路径清洗 | `src/asset-identity.ts` | Electron session 清洗、导入 worker、项目迁移 |
 | 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain | 当前选择、TaskScope、容器/关系、AIDebug 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | 服务端模型 DTO、设置页和 Agent 模型查询 |
-| 修改账号/自定义接入或设备授权 | `desktop/new-api-client.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | preload/server IPC、New API `/api/naimage/license*` 与 `/naimage/v1/*`、凭据隔离测试 |
+| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
+| 修改外部 Agent 控制 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单 |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
 | 修改 `view_image` | `runtime/view-image-payload.cjs` + runtime facade | 允许根、payload 预算、Sharp、持久化排除 |
 | 修改 Image 2 比例/尺寸 | `runtime/image-frame.cjs`、`src/core.ts`、主进程请求参数 | 三侧规则必须一致 |
@@ -98,18 +100,24 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 ```powershell
 cd E:\019创业项目\nimage\naimage-studio
 corepack pnpm run typecheck
+corepack pnpm run test:account-token
+corepack pnpm run test:automation-service
+corepack pnpm run test:agent-integration
+corepack pnpm run test:ipc-registration
 corepack pnpm run build
 corepack pnpm run test:bundle
-corepack pnpm run aidebug:gui
 ```
 
-再按领域追加 `test:model-catalog`、`test:settings-persistence`、`test:view-image`、`test:agent-protocol`、`test:project-io` 等。仓库的 `AGENTS.md` 和 `docs/CONTEXT_MAP.md` 是具体约束来源。
+再按领域追加 `test:model-catalog`、`test:settings-persistence`、`test:view-image`、`test:agent-protocol`、`test:project-io` 等。只有真实可视交互变化才追加一次 `aidebug:gui` 快速冒烟，不把完整 AIDebug 作为日常默认步骤。仓库的 `AGENTS.md` 和 `docs/CONTEXT_MAP.md` 是具体约束来源。
+
+当前 Renderer 门禁保持总 JS 720,000 B 与完整 dist 1,000,000 B 不变，初始 JS 上限为 650,000 B；账号密钥管理与本机 Agent 自动化桥稳定后，应优先把完整设置抽屉迁入既有异步 chunk，而不是继续放宽首屏预算。
 
 ### 3.5 数据安全边界
 
 - 外部拖入图片先复制到当前项目管理目录；不得覆盖用户原图。
 - `config/`、Electron `userData/data/`、项目 session、素材、output 和 FastMemory 是用户/运行数据，普通代码整理不得清理。
-- Renderer 不展示上游 Key、relay token 或 session cookie。
+- Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存，磁盘只持久化所选 token 的 ID/名称/分组元数据。
+- 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
 ## 4. `ai-native` 上下文
@@ -172,19 +180,20 @@ corepack pnpm run crm:check
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为 |
 | 设备激活 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 随机安装 ID、hash-only 存储、24 小时校验缓存、72 小时离线宽限、账号 Relay 402 门禁 |
-| 模型目录/分组 | `desktop/model-catalog.cjs`, 设置/Agent UI | New API models/user groups | 完整列表、默认模型、60 秒缓存、账号模式 group 透传、自定义模式禁止 group |
-| Chat/Responses relay | Responses adapter、agent runtime | `/naimage/v1/chat/completions`, `/responses` | tool schema、流事件、reasoning、错误协议 |
-| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs` | `/naimage/v1/images/*`，或自定义 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发；账号 Relay 使用 Images SSE，自定义纯文生图使用 Responses 三阶段预览，编辑保留 multipart；检查完整 Prompt、最终 result、幂等、计费与结果落盘 |
+| 账户密钥 | `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
+| 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒缓存；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
+| Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
+| 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览、最终 result、计费与结果落盘；模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
 | 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-桌面 1.0.6 支持两种互斥出口：账号模式把 session、用户 ID、可选模型分组和设备授权发送到 `/naimage/v1/*`，由 New API 扣额并选择托管渠道；自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送该用户的 API Key，不携带 SparkAPI cookie、用户 ID 或分组。SparkAPI/New API 扩展同时拥有 `/api/naimage/license*` 激活接口和账号 Relay 强制门禁；原生上游 New API 若未合入这些扩展，只能提供其已有的标准接口能力。
+桌面 1.0.6 支持两种互斥出口：账号模式用 session cookie + `New-Api-User` 管理账户、余额、密钥和设备授权，再以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起模型请求；默认组合是 `https://sparkapi.org/v1`。自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送用户 API Key。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。原生 New API 可提供登录、密钥和标准模型接口，`/api/naimage/license*`、桌面更新与旧 `/naimage/v1/*` Relay 仍属于可选后端扩展。
 
-生图传输按出口与操作区分：账号 Session Relay 使用工作区 New API 扩展的 Images `stream=true + partial_images=3`；自定义纯文生图请求图片渠道的 `/v1/responses`，以 Agent 模型驱动 `image_generation` 工具，完整 Prompt 位于 `input`，三张预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`。只有明确的不支持错误才回退非流式 `/v1/images/generations`；空流、断流或已有 partial 的歧义结果不补发。自定义编辑/参考图仍走非流式 `/v1/images/edits` multipart。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
+生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
 
-产品的 canonical 对外身份是 `naimage`、`/naimage/v1/*` 与 `/downloads/naimage-studio/windows`。新的 Relay、下载路由、manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
+产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。旧 `/naimage/v1/*` 仅作为后端扩展/历史 Relay 合同保留，不是当前 Studio 模型调用路径。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
 
 生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，服务端内部归一化到冻结命名空间并保持上游派生键稳定，确保跨品牌升级重试仍命中同一记录；这不恢复任何旧公共路由。
 

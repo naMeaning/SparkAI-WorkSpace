@@ -1,5 +1,5 @@
 import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
-import { Check, Search } from "lucide-react";
+import { Check, Plus, Search } from "lucide-react";
 
 import {
   imageModelCapability,
@@ -51,9 +51,12 @@ export default function ModelConfigDialog({
   const currentModel = kind === "agent" ? settings.agentModel : settings.imageModel;
   const [draftModels, setDraftModels] = useState<string[]>(() => uniqueModels(selectedModels));
   const [query, setQuery] = useState("");
+  const [customModel, setCustomModel] = useState("");
   const draftSet = new Set(draftModels.map((model) => model.toLowerCase()));
+  const serverModelSet = new Set(models.map((model) => model.toLowerCase()));
+  const availableModels = uniqueModels([...models, ...draftModels]);
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredModels = models.filter((model) => model.toLowerCase().includes(normalizedQuery));
+  const filteredModels = availableModels.filter((model) => model.toLowerCase().includes(normalizedQuery));
   const tabStopModel = filteredModels.find((model) => model.toLowerCase() === String(currentModel || "").toLowerCase()) ||
     filteredModels.find((model) => draftSet.has(model.toLowerCase())) ||
     filteredModels[0] || "";
@@ -66,6 +69,14 @@ export default function ModelConfigDialog({
     setDraftModels((current) => current.some((item) => item.toLowerCase() === clean.toLowerCase())
       ? current.filter((item) => item.toLowerCase() !== clean.toLowerCase())
       : uniqueModels([...current, clean]));
+  }
+
+  function addCustomModel() {
+    const clean = String(customModel || "").trim();
+    if (!clean) return;
+    setDraftModels((current) => uniqueModels([...current, clean]));
+    setCustomModel("");
+    setQuery("");
   }
 
   function handleOptionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -89,12 +100,13 @@ export default function ModelConfigDialog({
     const nextPool = uniqueModels(draftModels);
     if (!nextPool.length) return;
     setSettings((current) => {
+      const normalizedAvailableModels = uniqueModels([...models, ...nextPool]);
       if (kind === "agent") {
         const agentModel = nextPool.some((model) => model.toLowerCase() === current.agentModel.toLowerCase()) ? current.agentModel : nextPool[0];
-        return normalizeAgentModelPoolSelection({ ...current, agentModel, agentModelPool: nextPool }, models);
+        return normalizeAgentModelPoolSelection({ ...current, agentModel, agentModelPool: nextPool }, normalizedAvailableModels);
       }
       const imageModel = nextPool.some((model) => model.toLowerCase() === current.imageModel.toLowerCase()) ? current.imageModel : nextPool[0];
-      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool }, models);
+      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool }, normalizedAvailableModels);
     });
     close();
   }
@@ -142,8 +154,27 @@ export default function ModelConfigDialog({
               />
               <div className="model-picker-count" aria-live="polite">
                 <strong>{draftModels.length}</strong>
-                <span>个已选 · 共 {models.length} 个</span>
+                <span>个已选 · 共 {availableModels.length} 个</span>
               </div>
+            </div>
+            <div className="model-picker-custom">
+              <label htmlFor={`custom-${kind}-model`}>手工添加模型</label>
+              <div>
+                <input
+                  id={`custom-${kind}-model`}
+                  value={customModel}
+                  onChange={(event) => setCustomModel(event.target.value.slice(0, 180))}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    addCustomModel();
+                  }}
+                  placeholder={kind === "agent" ? "例如 gpt-5.6-custom" : "例如 gpt-image-custom"}
+                  autoComplete="off"
+                />
+                <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
+              </div>
+              <small>适用于中转站尚未返回、但实际可请求的模型名称；添加后会自动选中并随设置保存。</small>
             </div>
             <div className="model-picker-list" role="listbox" aria-multiselectable="true">
               {filteredModels.length ? filteredModels.map((model) => {
@@ -165,13 +196,13 @@ export default function ModelConfigDialog({
                     <span className="model-picker-checkbox" aria-hidden="true">{selected ? <Check size={14} /> : null}</span>
                     <span className="model-picker-option-copy">
                       <strong>{model}</strong>
-                      <small>{kind === "image" ? imageModelCapability(model).label : "对话模型"}</small>
+                      <small>{serverModelSet.has(model.toLowerCase()) ? (kind === "image" ? imageModelCapability(model).label : "对话模型") : "自定义模型"}</small>
                     </span>
                     {primary ? <em>当前</em> : selected ? <em>已选</em> : null}
                   </ButtonBase>
                 );
               }) : (
-                <div className="model-picker-empty">{models.length ? "没有匹配的模型。" : "暂无可用模型，请返回设置页获取模型。"}</div>
+                <div className="model-picker-empty">{availableModels.length ? "没有匹配的模型。" : "暂无可用模型，可在上方手工添加模型名称。"}</div>
               )}
             </div>
           </SurfaceBody>

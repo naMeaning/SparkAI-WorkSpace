@@ -5,7 +5,7 @@
 .settings-section-tabs {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
@@ -44,6 +44,133 @@
 
 .settings-appearance-section {
   gap: 12px;
+}
+
+.settings-account-token-section,
+.settings-agent-integrations {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-choice-radius);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--canvas));
+}
+
+.settings-account-token-header > div:first-child,
+.settings-agent-integrations .settings-section-header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-account-token-header small,
+.settings-agent-integrations small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-inline-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.settings-account-token-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: var(--ui-choice-radius);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.settings-account-token-summary span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-account-token-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-account-token-editor {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-account-token-editor .settings-inline-actions {
+  grid-column: 1 / -1;
+}
+
+.settings-checkbox-row {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.settings-checkbox-row input,
+.settings-integration-row > input {
+  accent-color: var(--accent);
+}
+
+.settings-integration-list {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.settings-integration-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-choice-radius);
+  background: var(--surface);
+}
+
+.settings-integration-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settings-integration-row > em {
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.settings-integration-row > em.installed {
+  color: var(--accent-strong);
 }
 
 .settings-appearance-title {
@@ -223,6 +350,15 @@
 }
 
 @media (max-width: 620px) {
+  .settings-account-token-editor,
+  .settings-account-token-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-account-token-summary .ui-icon-action {
+    justify-self: end;
+  }
+
   .theme-palette-grid {
     grid-template-columns: 1fr;
   }

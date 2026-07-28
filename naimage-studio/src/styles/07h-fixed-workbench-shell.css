@@ -17,9 +17,10 @@ body,
 .ide-main.canvas-only,
 .ide-main.canvas-only.agent-mode,
 .ide-main.canvas-only.inspector-collapsed {
+  position: relative;
   min-height: 0;
   height: 100%;
-  grid-template-columns: minmax(0, 1fr) clamp(360px, 30vw, 420px);
+  grid-template-columns: minmax(0, 1fr) var(--agent-panel-width, 390px);
   grid-template-rows: minmax(0, 1fr);
   grid-auto-rows: unset;
   overflow: hidden;
@@ -33,6 +34,55 @@ body,
   grid-template-rows: minmax(0, 1fr);
   grid-auto-rows: unset;
   overflow: hidden;
+}
+
+.ide-main.canvas-only.agent-placement-left:not(.agent-collapsed) {
+  grid-template-columns: var(--agent-panel-width, 390px) minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.agent-placement-left.agent-collapsed {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.agent-placement-left .canvas-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.agent-placement-left .project-agent-panel {
+  grid-column: 1;
+  grid-row: 1;
+  border-right: 1px solid var(--line);
+  border-left: 0;
+}
+
+.ide-main.canvas-only.agent-placement-floating,
+.ide-main.canvas-only.agent-placement-floating.agent-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.agent-placement-floating .canvas-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.agent-placement-floating .project-agent-panel {
+  position: absolute;
+  z-index: 80;
+  left: var(--agent-panel-x, 56px);
+  top: var(--agent-panel-y, 56px);
+  width: var(--agent-panel-width, 390px);
+  height: var(--agent-panel-height, 680px);
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 18px 54px color-mix(in srgb, #000 24%, transparent);
+}
+
+.ide-main.canvas-only.agent-placement-floating .project-agent-panel.is-collapsed {
+  width: 48px;
+  height: min(240px, calc(100% - 16px));
 }
 
 .ide-main.canvas-only .canvas-panel {

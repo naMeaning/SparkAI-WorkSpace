@@ -60,6 +60,9 @@ export const defaultSettings: AppSettings = {
   serverToken: "",
   serverSessionCookie: "",
   serverUserId: "",
+  selectedAccountTokenId: "",
+  selectedAccountTokenName: "",
+  selectedAccountTokenGroup: "",
   licenseDeviceId: "",
   licenseToken: "",
   licensePlan: "",
@@ -67,7 +70,13 @@ export const defaultSettings: AppSettings = {
   licenseLastVerifiedAt: 0,
   modelGroup: "",
   theme: "light",
-  themePalette: "anthropic"
+  themePalette: "anthropic",
+  agentPanelPlacement: "right",
+  agentPanelWidth: 390,
+  agentPanelHeight: 680,
+  agentPanelX: 56,
+  agentPanelY: 56,
+  agentSkillAutoInstallTargets: []
 };
 
 const LEGACY_LOCAL_SERVER_URLS = new Set([
@@ -132,6 +141,9 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
+  next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
+  next.selectedAccountTokenGroup = String(next.selectedAccountTokenGroup || "").trim().slice(0, 120);
   next.accessMode = next.accessMode === "custom" ? "custom" : "account";
   next.licenseDeviceId = String(next.licenseDeviceId || "").trim().slice(0, 128);
   next.licenseToken = String(next.licenseToken || "").trim().slice(0, 256);
@@ -140,6 +152,14 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   if (!["system", "light", "dark"].includes(String(next.theme))) next.theme = defaultSettings.theme;
   if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
+  if (!["right", "left", "floating"].includes(String(next.agentPanelPlacement))) next.agentPanelPlacement = defaultSettings.agentPanelPlacement;
+  next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
+  next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));
+  next.agentPanelX = Math.max(0, Math.min(10_000, Math.round(Number(next.agentPanelX) || 0)));
+  next.agentPanelY = Math.max(0, Math.min(10_000, Math.round(Number(next.agentPanelY) || 0)));
+  next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
+    ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))] as AppSettings["agentSkillAutoInstallTargets"]
+    : [];
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort))) next.reasoningEffort = "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
@@ -151,6 +171,9 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
     next.serverToken = "";
     next.serverSessionCookie = "";
     next.serverUserId = "";
+    next.selectedAccountTokenId = "";
+    next.selectedAccountTokenName = "";
+    next.selectedAccountTokenGroup = "";
   }
 
   return next as AppSettings;

@@ -1,0 +1,4 @@
+interface:
+  display_name: "naimage Control"
+  short_description: "Control naimage projects, canvas, and Agent from Codex"
+  default_prompt: "Use $naimage-control to inspect the current naimage canvas and complete the requested image task."

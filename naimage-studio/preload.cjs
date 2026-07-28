@@ -43,6 +43,23 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   captureGuiScreenshot: (payload) => ipcRenderer.invoke("naimage:debug:capture-gui", payload)
 });
 
+contextBridge.exposeInMainWorld("naimageAgentIntegrations", {
+  detect: () => ipcRenderer.invoke("naimage:integration:detect"),
+  install: (payload) => ipcRenderer.invoke("naimage:integration:install", payload),
+  remove: (payload) => ipcRenderer.invoke("naimage:integration:remove", payload)
+});
+
+contextBridge.exposeInMainWorld("naimageAutomation", {
+  ready: () => ipcRenderer.invoke("naimage:automation:renderer-ready"),
+  respond: (payload) => ipcRenderer.send("naimage:automation:response", payload),
+  onRequest: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:automation:request", listener);
+    return () => ipcRenderer.removeListener("naimage:automation:request", listener);
+  }
+});
+
 contextBridge.exposeInMainWorld("naimageServer", {
   register: (payload) => ipcRenderer.invoke("naimage:server:register", payload),
   login: (payload) => ipcRenderer.invoke("naimage:server:login", payload),
@@ -50,6 +67,11 @@ contextBridge.exposeInMainWorld("naimageServer", {
   me: (payload) => ipcRenderer.invoke("naimage:server:me", payload),
   logs: () => ipcRenderer.invoke("naimage:server:logs"),
   models: (payload) => ipcRenderer.invoke("naimage:server:models", payload),
+  tokens: () => ipcRenderer.invoke("naimage:server:tokens"),
+  selectToken: (payload) => ipcRenderer.invoke("naimage:server:select-token", payload),
+  createToken: (payload) => ipcRenderer.invoke("naimage:server:create-token", payload),
+  updateToken: (payload) => ipcRenderer.invoke("naimage:server:update-token", payload),
+  deleteToken: (payload) => ipcRenderer.invoke("naimage:server:delete-token", payload),
   recharge: (payload) => ipcRenderer.invoke("naimage:server:recharge", payload),
   generateImage: (payload) => ipcRenderer.invoke("naimage:server:generate-image", payload),
   licenseStatus: (payload) => ipcRenderer.invoke("naimage:server:license-status", payload),

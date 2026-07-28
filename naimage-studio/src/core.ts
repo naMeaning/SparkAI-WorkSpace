@@ -112,6 +112,9 @@ export type ApiSettings = {
   serverToken: string;
   serverSessionCookie: string;
   serverUserId: string;
+  selectedAccountTokenId: string;
+  selectedAccountTokenName: string;
+  selectedAccountTokenGroup: string;
   licenseDeviceId: string;
   licenseToken: string;
   licensePlan: string;
@@ -123,6 +126,36 @@ export type AppSettings = ApiSettings & {
   modelGroup: string;
   theme: ThemeChoice;
   themePalette: ThemePaletteChoice;
+  agentPanelPlacement: "right" | "left" | "floating";
+  agentPanelWidth: number;
+  agentPanelHeight: number;
+  agentPanelX: number;
+  agentPanelY: number;
+  agentSkillAutoInstallTargets: AgentIntegrationTargetId[];
+};
+
+export type AgentIntegrationTargetId = "codex" | "claude-code" | "opencode" | "openclaw";
+
+export type AgentIntegrationTarget = {
+  id: AgentIntegrationTargetId;
+  label: string;
+  configPath: string;
+  skillsPath: string;
+  detected: boolean;
+  installed: boolean;
+  installError?: string;
+};
+
+export type AgentIntegrationBridge = {
+  detect(): Promise<{ ok: boolean; targets?: AgentIntegrationTarget[]; endpointPath?: string; error?: string }>;
+  install(payload: { targets: AgentIntegrationTargetId[] }): Promise<{ ok: boolean; targets?: AgentIntegrationTarget[]; installed?: AgentIntegrationTargetId[]; errors?: string[]; error?: string }>;
+  remove(payload: { targets: AgentIntegrationTargetId[] }): Promise<{ ok: boolean; targets?: AgentIntegrationTarget[]; removed?: AgentIntegrationTargetId[]; errors?: string[]; error?: string }>;
+};
+
+export type AutomationBridge = {
+  ready(): Promise<{ ok: boolean; error?: string }>;
+  onRequest(handler: (payload: { requestId: string; command: string; args?: Record<string, unknown> }) => void | Promise<unknown>): () => void;
+  respond(payload: { requestId: string; ok: boolean; result?: unknown; error?: string }): void;
 };
 
 export type AgentMessage = {
@@ -1036,6 +1069,34 @@ export type ServerLogEntry = {
   detail?: Record<string, unknown>;
 };
 
+export type AccountApiToken = {
+  id: string;
+  name: string;
+  status: number;
+  remainQuota: number;
+  usedQuota: number;
+  unlimitedQuota: boolean;
+  expiredTime: number;
+  createdTime: number;
+  accessedTime: number;
+  group: string;
+  modelLimitsEnabled: boolean;
+  modelLimits: string;
+  allowIps: string;
+  crossGroupRetry: boolean;
+};
+
+export type AccountApiTokenListResult = {
+  ok: boolean;
+  tokens?: AccountApiToken[];
+  selectedTokenId?: string;
+  baseUrl?: string;
+  createdTokenId?: string;
+  updatedTokenId?: string;
+  deletedTokenId?: string;
+  error?: string;
+};
+
 export type AuthDraft = {
   email: string;
   password: string;
@@ -1330,6 +1391,22 @@ export type ServerBridge = {
   me(payload?: { preferCached?: boolean }): Promise<{ ok: boolean; stale?: boolean; cached?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
   logs(): Promise<{ ok: boolean; logs?: ServerLogEntry[]; error?: string }>;
   models?(payload?: { forceRefresh?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
+  tokens?(): Promise<AccountApiTokenListResult>;
+  selectToken?(payload: { id: string }): Promise<AccountApiTokenListResult & { token?: AccountApiToken }>;
+  createToken?(payload: {
+    name: string;
+    group?: string;
+    unlimitedQuota?: boolean;
+    remainQuota?: number;
+    expiredTime?: number;
+    modelLimitsEnabled?: boolean;
+    modelLimits?: string;
+    allowIps?: string;
+    crossGroupRetry?: boolean;
+    select?: boolean;
+  }): Promise<AccountApiTokenListResult>;
+  updateToken?(payload: Partial<AccountApiToken> & { id: string }): Promise<AccountApiTokenListResult>;
+  deleteToken?(payload: { id: string }): Promise<AccountApiTokenListResult>;
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
     runId?: string;
@@ -1468,6 +1545,8 @@ declare global {
     naimageAgent?: AgentBridge;
     naimageServer?: ServerBridge;
     naimageUpdater?: UpdaterBridge;
+    naimageAgentIntegrations?: AgentIntegrationBridge;
+    naimageAutomation?: AutomationBridge;
     __naimageCanvasDebugReady?: boolean;
     __naimageDebugResizeNode?: (payload: { id?: string; width?: number; height?: number }) => boolean;
     __naimageDebugMoveNode?: (payload: { id?: string; x?: number; y?: number }) => boolean;

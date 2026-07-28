@@ -21,6 +21,10 @@ const expectedUpdaterChannels = [
 const expectedChannels = [
   "naimage:config:load-settings",
   "naimage:config:save-settings",
+  "naimage:automation:renderer-ready",
+  "naimage:integration:detect",
+  "naimage:integration:install",
+  "naimage:integration:remove",
   ...expectedUpdaterChannels,
   "naimage:config:load-session",
   "naimage:config:save-session",
@@ -82,6 +86,11 @@ const expectedChannels = [
   "naimage:server:me",
   "naimage:server:logs",
   "naimage:server:models",
+  "naimage:server:tokens",
+  "naimage:server:select-token",
+  "naimage:server:create-token",
+  "naimage:server:update-token",
+  "naimage:server:delete-token",
   "naimage:server:recharge",
   "naimage:server:generate-image"
 ];
@@ -92,9 +101,11 @@ const internalChannels = new Set([
   "naimage:agent:memory-read"
 ]);
 const expectedProgressChannels = [
+  "naimage:automation:request",
   "naimage:update:progress",
   "naimage:agent:progress"
 ];
+const expectedSendChannels = ["naimage:automation:response"];
 
 function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right));
@@ -109,13 +120,23 @@ async function assertSettingsAccountBoundary() {
     serverToken: "",
     serverSessionCookie: "",
     serverUserId: "",
+    selectedAccountTokenId: "",
+    selectedAccountTokenName: "",
+    selectedAccountTokenGroup: "",
     licenseDeviceId: "device-main-owned",
     licenseToken: "license-main-owned",
     licensePlan: "standard",
     licenseExpiresAt: 123456,
     licenseLastVerifiedAt: 123000
   };
-  let stored = { ...defaults, serverSessionCookie: "session=old", serverUserId: "7" };
+  let stored = {
+    ...defaults,
+    serverSessionCookie: "session=old",
+    serverUserId: "7",
+    selectedAccountTokenId: "11",
+    selectedAccountTokenName: "fixture",
+    selectedAccountTokenGroup: "image"
+  };
   let boundaryCalls = 0;
   registerSettingsIpc({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
@@ -141,6 +162,7 @@ async function assertSettingsAccountBoundary() {
   assert.equal(relayOnly.accountChanged, false);
   assert.equal(stored.serverSessionCookie, "session=old");
   assert.equal(stored.serverUserId, "7");
+  assert.equal(stored.selectedAccountTokenId, "11");
   assert.equal(stored.licenseDeviceId, "device-main-owned");
   assert.equal(stored.licenseToken, "license-main-owned");
   assert.equal(stored.licensePlan, "standard");
@@ -150,6 +172,7 @@ async function assertSettingsAccountBoundary() {
   assert.equal(accountChange.accountChanged, true);
   assert.equal(stored.serverSessionCookie, "");
   assert.equal(stored.serverUserId, "");
+  assert.equal(stored.selectedAccountTokenId, "");
   assert.equal(boundaryCalls, 1);
 }
 
@@ -191,6 +214,7 @@ async function assertBestEffortRemoteLogout() {
 
 async function main() {
   const registrations = [];
+  const eventRegistrations = [];
   const duplicateChannels = [];
   const seenChannels = new Set();
   const ipcMain = {
@@ -200,6 +224,10 @@ async function main() {
       if (seenChannels.has(channel)) duplicateChannels.push(channel);
       seenChannels.add(channel);
       registrations.push(channel);
+    },
+    on(channel, handler) {
+      assert.equal(typeof handler, "function", `IPC event handler must be a function: ${channel}`);
+      eventRegistrations.push(channel);
     }
   };
   const desktopUpdater = {
@@ -215,12 +243,18 @@ async function main() {
     publishDesktopUpdateProgress: () => undefined
   };
 
-  registerDesktopIpc({ ipcMain, desktopUpdater });
+  registerDesktopIpc({
+    ipcMain,
+    desktopUpdater,
+    automationService: {},
+    agentIntegrationService: {}
+  });
 
-  assert.equal(expectedChannels.length, 72, "The registration contract must contain exactly 72 channels.");
-  assert.equal(new Set(expectedChannels).size, 72, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 81, "The registration contract must contain exactly 81 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 81, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
+  assert.deepEqual(eventRegistrations, expectedSendChannels, "IPC send channel registration changed.");
 
   const preloadPath = path.resolve(__dirname, "..", "preload.cjs");
   const preloadSource = readFileSync(preloadPath, "utf8");
@@ -228,13 +262,16 @@ async function main() {
     .map((match) => match[1]);
   const progressChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*on\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
+  const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
+    .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 69, "preload must expose exactly 69 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 69, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 78, "preload must expose exactly 78 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 78, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
+  assert.deepEqual(sendChannels, expectedSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 69, "Exactly three registered channels must remain internal.");
+  assert.equal(publicRegistrations.length, 78, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -248,7 +285,8 @@ async function main() {
     registeredChannels: registrations.length,
     preloadInvokeChannels: invokeChannels.length,
     internalChannels: [...internalChannels],
-    progressChannels
+    progressChannels,
+    sendChannels
   }, null, 2)}\n`);
 }
 

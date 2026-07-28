@@ -55,6 +55,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  Copy,
   Download,
   Eye,
   EyeOff,
@@ -66,8 +67,14 @@ import {
   Loader2,
   Maximize2,
   Minus,
+  Move,
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRight,
   PanelRightClose,
   PanelRightOpen,
+  PanelsTopLeft,
   Plus,
   RotateCcw,
   Search,
@@ -290,6 +297,8 @@ import type {
   ServerPublicSettings,
   ModelProvider,
   ServerLogEntry,
+  AccountApiToken,
+  AgentIntegrationTarget,
   AuthDraft,
   LicenseStatus,
   ImageViewerState,
@@ -330,6 +339,25 @@ type CanvasHistorySnapshot = {
   nodes: WorkflowNode[];
   layoutGroups: ImageLayoutGroup[];
   selection: NodeSelectionState;
+};
+
+type AgentPanelLayout = Pick<
+  AppSettings,
+  "agentPanelPlacement" | "agentPanelWidth" | "agentPanelHeight" | "agentPanelX" | "agentPanelY"
+>;
+
+type StreamingImagePreview = {
+  key: string;
+  operationId: string;
+  runId: string;
+  requestIndex: number;
+  dataUrl: string;
+  index: number;
+  total: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 if (__NAIMAGE_AIDEBUG__) {
@@ -985,6 +1013,16 @@ function uid(prefix: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function agentPanelLayoutFromSettings(settings: AppSettings): AgentPanelLayout {
+  return {
+    agentPanelPlacement: settings.agentPanelPlacement,
+    agentPanelWidth: clamp(Math.round(Number(settings.agentPanelWidth) || 390), 320, 720),
+    agentPanelHeight: clamp(Math.round(Number(settings.agentPanelHeight) || 680), 420, 1_400),
+    agentPanelX: Math.max(0, Math.round(Number(settings.agentPanelX) || 0)),
+    agentPanelY: Math.max(0, Math.round(Number(settings.agentPanelY) || 0))
+  };
 }
 
 function moveBy<T>(items: T[], predicate: (item: T) => boolean, patch: (item: T) => T) {
@@ -2917,6 +2955,7 @@ function App() {
   const [settings, setSettings] = useState<AppSettings>(() =>
     window.naimageConfig ? defaultSettings : mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings))
   );
+  const [agentPanelLayout, setAgentPanelLayout] = useState<AgentPanelLayout>(() => agentPanelLayoutFromSettings(settings));
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState(() => uid("conv"));
@@ -2960,6 +2999,7 @@ function App() {
   agentSourceImagesRef.current = agentSourceImages;
   agentReferenceImagesRef.current = agentReferenceImages;
   const [agentProgress, setAgentProgress] = useState<AgentProgress[]>([]);
+  const [streamingImagePreviews, setStreamingImagePreviews] = useState<Record<string, StreamingImagePreview>>({});
   const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | null>(null);
   const [runElapsedSeconds, setRunElapsedSeconds] = useState(0);
   const imageGenerationStatsRef = useRef<ImageGenerationStats>(readImageGenerationStats());
@@ -3005,6 +3045,8 @@ function App() {
     text: string;
   } | null>(null);
   const viewportRef = useRef(viewport);
+  const settingsRef = useRef(settings);
+  const agentPanelLayoutRef = useRef(agentPanelLayout);
   const nodesRef = useRef(nodes);
   const nodeSequenceRef = useRef(inferredNodeSequence(nodes));
   const reactNodesRef = useRef(nodes);
@@ -3139,6 +3181,7 @@ function App() {
     result?: { ok: boolean; nodeId?: string; error?: string };
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const canvasStageRef = useRef<HTMLDivElement | null>(null);
   const canvasParticleRef = useRef<HTMLCanvasElement | null>(null);
   const lastCanvasElementRef = useRef<HTMLDivElement | null>(null);
@@ -3272,6 +3315,7 @@ function App() {
     renderedLocalToolOperationsRef.current.clear();
     imageToolCommitEvidenceRef.current.clear();
     pendingLayerNarrationRunIdsRef.current.clear();
+    setStreamingImagePreviews({});
     lastTimelineMessageRef.current = "";
   }
 
@@ -3536,6 +3580,71 @@ function App() {
     })();
   }
 
+  function upsertStreamingImagePreview(payload: AgentProgress, operationId: string) {
+    const partial = payload.partialImage;
+    const dataUrl = String(partial?.dataUrl || "");
+    if (!operationId || !/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl)) return;
+    const requestIndex = Math.max(1, Math.floor(Number(partial?.requestIndex || 1)));
+    const key = `${operationId}:${requestIndex}`;
+    setStreamingImagePreviews((current) => {
+      const existing = current[key];
+      if (existing) {
+        return {
+          ...current,
+          [key]: {
+            ...existing,
+            dataUrl,
+            index: Math.max(1, Math.floor(Number(partial?.index || existing.index))),
+            total: Math.max(1, Math.floor(Number(partial?.total || existing.total)))
+          }
+        };
+      }
+      const width = 360;
+      const height = 420;
+      const selected = nodesRef.current.find((node) => node.id === selectedNodeIdRef.current);
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const center = clientToWorld(
+        (canvasRect?.left ?? 0) + (canvasRect?.width ?? 900) * 0.5,
+        (canvasRect?.top ?? 0) + (canvasRect?.height ?? 700) * 0.46
+      );
+      const selectedBounds = selected ? workflowNodeBounds(selected) : null;
+      const slot = Object.keys(current).length % 10;
+      const preferred = selectedBounds
+        ? { x: selectedBounds.x + selectedBounds.width + 56 + (slot % 3) * 28, y: selectedBounds.y + Math.floor(slot / 3) * 34 }
+        : { x: center.x - width / 2 + (slot % 3) * 30, y: center.y - height / 2 + Math.floor(slot / 3) * 36 };
+      const position = clampNodeWorldPosition(preferred, width, height);
+      return {
+        ...current,
+        [key]: {
+          key,
+          operationId,
+          runId: String(payload.runId || ""),
+          requestIndex,
+          dataUrl,
+          index: Math.max(1, Math.floor(Number(partial?.index || 1))),
+          total: Math.max(1, Math.floor(Number(partial?.total || 3))),
+          x: position.x,
+          y: position.y,
+          width,
+          height
+        }
+      };
+    });
+  }
+
+  function clearStreamingImagePreview(operationId: string, runId = "", requestIndex?: number) {
+    setStreamingImagePreviews((current) => {
+      const entries = Object.entries(current).filter(([, preview]) => {
+        if (operationId && preview.operationId === operationId) {
+          return requestIndex ? preview.requestIndex !== requestIndex : false;
+        }
+        if (!operationId && runId && preview.runId === runId) return false;
+        return true;
+      });
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
+  }
+
   const bindCanvasRef = useCallback((element: HTMLDivElement | null) => {
     if (lastCanvasElementRef.current === element) return;
     lastCanvasElementRef.current = element;
@@ -3719,6 +3828,24 @@ function App() {
     }
   }
 
+  const updateAgentPanelLayout = useStableEvent((next: AgentPanelLayout) => {
+    const normalized = agentPanelLayoutFromSettings({ ...settingsRef.current, ...next });
+    agentPanelLayoutRef.current = normalized;
+    setAgentPanelLayout(normalized);
+  });
+
+  const persistAgentPanelLayout = useStableEvent((next: AgentPanelLayout) => {
+    const normalized = agentPanelLayoutFromSettings({ ...settingsRef.current, ...next });
+    agentPanelLayoutRef.current = normalized;
+    setAgentPanelLayout(normalized);
+    const nextSettings = mergeSettings({ ...settingsRef.current, ...normalized });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    void saveSettingsToStore(nextSettings).catch((error) => {
+      setServerMessage(`对话框布局保存失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
+
   useEffect(() => {
     if (!layoutGroups.length && !layoutGroupsRef.current.length) return;
     const normalized = normalizeImageLayoutState({ nodes, groups: layoutGroupsRef.current });
@@ -3803,6 +3930,25 @@ function App() {
   useEffect(() => {
     viewportRef.current = viewport;
   }, [viewport]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    const next = agentPanelLayoutFromSettings(settings);
+    const current = agentPanelLayoutRef.current;
+    if (
+      next.agentPanelPlacement !== current.agentPanelPlacement ||
+      next.agentPanelWidth !== current.agentPanelWidth ||
+      next.agentPanelHeight !== current.agentPanelHeight ||
+      next.agentPanelX !== current.agentPanelX ||
+      next.agentPanelY !== current.agentPanelY
+    ) {
+      agentPanelLayoutRef.current = next;
+      setAgentPanelLayout(next);
+    }
+  }, [settings.agentPanelPlacement, settings.agentPanelWidth, settings.agentPanelHeight, settings.agentPanelX, settings.agentPanelY]);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -3910,7 +4056,16 @@ function App() {
           }
         : payload;
       const timelineOperation = progressInputOperation(timelinePayload) || String(timelinePayload.operation || "");
-      const isImageTool = String(timelinePayload.tool || "") === "image_gen";
+      const isImageTool = String(timelinePayload.tool || "") === "image_gen" || String(timelinePayload.phase || "").startsWith("image-");
+      if (timelinePayload.phase === "image-preview" && isImageTool && operationId) {
+        upsertStreamingImagePreview(timelinePayload, operationId);
+      }
+      if (
+        isImageTool &&
+        ["image-response", "image-error", "tool-done", "tool-error", "tool-skip"].includes(String(timelinePayload.phase || ""))
+      ) {
+        clearStreamingImagePreview(operationId, String(timelinePayload.runId || ""));
+      }
       const layerImageResponse = payload.phase === "image-response" && isImageTool && timelineOperation === "layers";
       if (layerImageResponse) {
         const narrationRunId = String(payload.runId || activeRunRef.current || "").trim();
@@ -18689,6 +18844,168 @@ function App() {
     };
   }, [activeConversationId, activeProjectId, agentProgress, agentStatus, messages, nodeEditorDraft, nodes, regionRedrawDraft, requirementEditorDraft, sendPrompt, settings]);
 
+  const executeAutomationCommand = useStableEvent(async (command: string, args: Record<string, unknown> = {}) => {
+    const canvasState = () => ({
+      activeProjectId: activeProjectIdRef.current,
+      activeConversationId: activeConversationIdRef.current,
+      agentStatus: agentStatusRef.current,
+      viewport: { ...viewportRef.current },
+      selection: {
+        primaryId: selectedNodeIdRef.current,
+        ids: [...selectedNodeIdsRef.current]
+      },
+      nodes: nodesRef.current.map((node) => ({
+        id: node.id,
+        type: node.type,
+        title: node.title,
+        status: node.status,
+        imageState: node.imageState,
+        assetCount: node.assets?.length || 0,
+        parentId: node.parentId || "",
+        relationType: node.relationType,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height
+      }))
+    });
+    const appState = () => ({
+      ...canvasState(),
+      projects: projects.map((project) => ({ id: project.id, name: project.name, updatedAt: project.updatedAt })),
+      recentMessages: messagesRef.current.filter((message) => !message.hidden).slice(-20).map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        status: message.status,
+        createdAt: message.createdAt
+      }))
+    });
+    const waitForAgent = async () => {
+      const deadline = Date.now() + 15 * 60_000;
+      let observedBusy = agentStatusRef.current === "thinking" || agentStatusRef.current === "editing";
+      if (!observedBusy) return appState();
+      while (Date.now() < deadline) {
+        const status = agentStatusRef.current;
+        if (status === "thinking" || status === "editing") observedBusy = true;
+        if (observedBusy && (status === "idle" || status === "error")) return appState();
+        await new Promise((resolve) => window.setTimeout(resolve, 120));
+      }
+      throw new Error("等待 naimage Agent 完成超时。");
+    };
+
+    switch (command) {
+      case "app.state":
+        return appState();
+      case "canvas.state":
+        return canvasState();
+      case "project.list":
+        return { activeProjectId: activeProjectIdRef.current, projects: projects.map(({ id, name, updatedAt }) => ({ id, name, updatedAt })) };
+      case "project.switch": {
+        const id = String(args.id || "");
+        if (!projects.some((project) => project.id === id)) throw new Error("目标项目不存在。");
+        await switchProject(id);
+        return appState();
+      }
+      case "project.create":
+        await createProject(String(args.name || "").trim());
+        return appState();
+      case "project.rename":
+        await renameProject(String(args.name || "").trim());
+        return appState();
+      case "canvas.select": {
+        const available = new Set(nodesRef.current.map((node) => node.id));
+        const ids = [...new Set((Array.isArray(args.ids) ? args.ids : []).map((id) => String(id)).filter((id) => available.has(id)))];
+        const primaryId = ids.includes(String(args.primaryId || "")) ? String(args.primaryId) : ids[0] || "";
+        commitNodeSelection({ primaryId, ids }, "automation");
+        return canvasState();
+      }
+      case "canvas.fit":
+        fitCanvas();
+        return canvasState();
+      case "canvas.clear": {
+        const mode = args.mode === "failed" ? "failed" : "all";
+        if (mode === "all" && args.confirmed !== true) throw new Error("清空全部画布需要 confirmed=true。");
+        if (mode === "failed") {
+          const failedIds = nodesRef.current.filter((node) => node.imageState === "error" || node.status === "review").map((node) => node.id);
+          commitNodeRemoval(failedIds, {
+            historyLabel: "清理失败成果",
+            eventText: `清理 ${failedIds.length} 个失败成果`,
+            agentText: `外部 Agent 清理了 ${failedIds.length} 个失败成果。`
+          });
+        } else {
+          await runtimeActionHandlerRef.current([{ type: "workflow.canvas.clear", mode: "all" }]);
+        }
+        return canvasState();
+      }
+      case "canvas.delete-selected":
+        if (args.confirmed !== true) throw new Error("删除所选节点需要 confirmed=true。");
+        if (!deleteSelectedCanvasNodes()) throw new Error("当前选择中没有可删除节点。");
+        return canvasState();
+      case "canvas.create-container": {
+        const role = args.role === "source" || args.role === "reference" ? args.role : undefined;
+        const x = Number.isFinite(Number(args.x)) ? Number(args.x) : 180;
+        const y = Number.isFinite(Number(args.y)) ? Number(args.y) : 160;
+        const id = role ? createTaskImageContainerAt(x, y, role) : createImageContainerAt(x, y);
+        return { id, state: canvasState() };
+      }
+      case "canvas.import": {
+        const paths = (Array.isArray(args.paths) ? args.paths : []).map((item) => String(item)).filter(Boolean);
+        if (!paths.length) throw new Error("请提供至少一个导入路径。");
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) throw new Error("画布尚未就绪。");
+        const worldX = Number.isFinite(Number(args.x)) ? Number(args.x) : 240;
+        const worldY = Number.isFinite(Number(args.y)) ? Number(args.y) : 180;
+        const viewport = viewportRef.current;
+        await importPathsToCanvas(
+          paths,
+          rect.left + viewport.x + worldX * viewport.scale,
+          rect.top + viewport.y + worldY * viewport.scale,
+          String(args.targetContainerId || "")
+        );
+        return canvasState();
+      }
+      case "agent.chat": {
+        const promptText = String(args.prompt || "").trim();
+        if (!promptText) throw new Error("Agent 任务不能为空。");
+        const sourceNodeIds = (Array.isArray(args.sourceNodeIds) ? args.sourceNodeIds : [])
+          .map((id) => String(id))
+          .filter((id) => nodesRef.current.some((node) => node.id === id));
+        await sendPrompt(promptText, {
+          ...(sourceNodeIds.length ? { sourceNodeIds, focusedNodeId: sourceNodeIds[0] } : {}),
+          useComposerAttachments: false
+        });
+        return await waitForAgent();
+      }
+      case "agent.stop":
+        stopAgentRun();
+        return appState();
+      case "agent.new-conversation":
+        confirmCreateConversation();
+        return appState();
+      default:
+        throw new Error(`不支持的 naimage 自动化命令：${command}`);
+    }
+  });
+
+  useEffect(() => {
+    const bridge = window.naimageAutomation;
+    if (!bridge) return;
+    let disposed = false;
+    const unsubscribe = bridge.onRequest(async (payload) => {
+      try {
+        const result = await executeAutomationCommand(payload.command, payload.args || {});
+        if (!disposed) bridge.respond({ requestId: payload.requestId, ok: true, result });
+      } catch (error) {
+        if (!disposed) bridge.respond({ requestId: payload.requestId, ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+    void bridge.ready().catch(() => undefined);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [executeAutomationCommand]);
+
   function stopAgentRun() {
     if (!agentExecutionBusyNow()) return;
     const runId = activeRunRef.current ?? undefined;
@@ -18697,6 +19014,7 @@ function App() {
     commitExecutionReservation(null);
     if (pendingRequestId) closePendingAgentExecution(pendingRequestId);
     failAllLayerExecutionPlaceholders("任务已中断，可在原需求上重新执行。");
+    setStreamingImagePreviews({});
     Object.keys(imageRunStartsRef.current).forEach(markImageRunFinished);
     setAgentStatus("idle");
     setActiveRunStartedAt(null);
@@ -19735,7 +20053,16 @@ function App() {
         <WindowControls />
       </header>
 
-      <main className={`ide-main canvas-only agent-mode${agentCollapsed ? " agent-collapsed" : ""}`}>
+      <main
+        ref={workspaceRef}
+        className={`ide-main canvas-only agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
+        style={{
+          "--agent-panel-width": `${agentPanelLayout.agentPanelWidth}px`,
+          "--agent-panel-height": `${agentPanelLayout.agentPanelHeight}px`,
+          "--agent-panel-x": `${agentPanelLayout.agentPanelX}px`,
+          "--agent-panel-y": `${agentPanelLayout.agentPanelY}px`
+        } as React.CSSProperties & Record<string, string>}
+      >
         <section className="canvas-panel">
           {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="canvas" record={recordDebugRenderCommit} /> : null}
           <div
@@ -20373,6 +20700,41 @@ function App() {
                   </div>
                 );
               })}
+              {Object.values(streamingImagePreviews).map((preview) => (
+                <div
+                  key={preview.key}
+                  className="flow-node image image-stream-preview working"
+                  data-stream-preview="true"
+                  data-operation-id={preview.operationId}
+                  data-request-index={preview.requestIndex}
+                  role="status"
+                  aria-label={`生图中间预览 ${preview.index}/${preview.total}`}
+                  style={{
+                    left: preview.x,
+                    top: preview.y,
+                    width: preview.width,
+                    height: preview.height,
+                    minWidth: preview.width,
+                    minHeight: preview.height,
+                    zIndex: 900_000
+                  }}
+                >
+                  <header>
+                    <span className="node-kind"><ImageIcon size={16} aria-hidden="true" /><em>PREVIEW</em></span>
+                    <span className="node-title-block"><strong>生成中的画布预览</strong></span>
+                    <span className="node-state"><Loader2 size={12} className="spin" /> 生成中</span>
+                  </header>
+                  <div className="node-image-preview ready image-square stream-preview-image">
+                    <span className="node-image-tile">
+                      <img src={preview.dataUrl} alt="生图中间预览" draggable={false} decoding="async" />
+                    </span>
+                  </div>
+                  <footer>
+                    <span>中间预览 {preview.index}/{preview.total}</span>
+                    <span>{preview.requestIndex > 1 ? `并发任务 ${preview.requestIndex}` : "等待最终图片"}</span>
+                  </footer>
+                </div>
+              ))}
             </div>
 
             {canvasSelectionBox ? (
@@ -20813,6 +21175,9 @@ function App() {
           switchConversation={projectAgentSwitchConversation}
           collapsed={agentCollapsed}
           toggleCollapsed={projectAgentToggleCollapsed}
+          panelLayout={agentPanelLayout}
+          updatePanelLayout={updateAgentPanelLayout}
+          commitPanelLayout={persistAgentPanelLayout}
           debugCommit={recordDebugRenderCommit}
         />
 
@@ -21587,6 +21952,7 @@ const PROJECT_AGENT_MESSAGE_PAGE_SIZE = 80;
 const PROJECT_AGENT_FOLLOW_DISTANCE = 72;
 const PROJECT_AGENT_HISTORY_ID = "project-agent-history";
 const PROJECT_AGENT_HISTORY_TOGGLE_ID = "project-agent-history-toggle";
+const PROJECT_AGENT_PLACEMENT_TOGGLE_ID = "project-agent-placement-toggle";
 
 function ProjectAgentFeedView({
   messages,
@@ -21813,6 +22179,9 @@ function ProjectAgentPanelView({
   switchConversation,
   collapsed,
   toggleCollapsed,
+  panelLayout,
+  updatePanelLayout,
+  commitPanelLayout,
   debugCommit
 }: {
   projectName: string;
@@ -21844,11 +22213,25 @@ function ProjectAgentPanelView({
   switchConversation: (conversationId: string) => void;
   collapsed: boolean;
   toggleCollapsed: () => void;
+  panelLayout: AgentPanelLayout;
+  updatePanelLayout: (layout: AgentPanelLayout) => void;
+  commitPanelLayout: (layout: AgentPanelLayout) => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [placementOpen, setPlacementOpen] = useState(false);
   const [referenceDropActive, setReferenceDropActive] = useState(false);
   const historyRef = useRef<HTMLDivElement | null>(null);
+  const panelDragRef = useRef<{
+    pointerId: number;
+    mode: "move" | "resize-dock" | "resize-width" | "resize-height" | "resize-corner";
+    startClientX: number;
+    startClientY: number;
+    start: AgentPanelLayout;
+    bounds: DOMRect;
+  } | null>(null);
+  const panelLayoutRef = useRef(panelLayout);
+  panelLayoutRef.current = panelLayout;
   const conversationBusy = conversationBoundaryBusy;
   const agentActivityBusy = conversationBoundaryBusy;
   const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages]);
@@ -21895,8 +22278,77 @@ function ProjectAgentPanelView({
             : "等待指令";
   const statusText = activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
 
+  function clampPanelLayout(layout: AgentPanelLayout, bounds: DOMRect): AgentPanelLayout {
+    const width = clamp(Math.round(layout.agentPanelWidth), 320, Math.min(720, Math.max(320, bounds.width - 24)));
+    const height = clamp(Math.round(layout.agentPanelHeight), 420, Math.min(1_400, Math.max(420, bounds.height - 24)));
+    const x = clamp(Math.round(layout.agentPanelX), 8, Math.max(8, Math.round(bounds.width - width - 8)));
+    const y = clamp(Math.round(layout.agentPanelY), 8, Math.max(8, Math.round(bounds.height - height - 8)));
+    return { ...layout, agentPanelWidth: width, agentPanelHeight: height, agentPanelX: x, agentPanelY: y };
+  }
+
+  function beginPanelPointer(
+    event: React.PointerEvent<HTMLElement>,
+    mode: "move" | "resize-dock" | "resize-width" | "resize-height" | "resize-corner"
+  ) {
+    if (mode === "move" && panelLayout.agentPanelPlacement !== "floating") return;
+    if (mode === "move" && (event.target as HTMLElement).closest("button, input, select, textarea, .project-agent-history, .agent-placement-menu")) return;
+    const workspace = event.currentTarget.closest<HTMLElement>(".ide-main");
+    if (!workspace) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panelDragRef.current = {
+      pointerId: event.pointerId,
+      mode,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      start: { ...panelLayoutRef.current },
+      bounds: workspace.getBoundingClientRect()
+    };
+  }
+
+  function movePanelPointer(event: React.PointerEvent<HTMLElement>) {
+    const drag = panelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const dx = event.clientX - drag.startClientX;
+    const dy = event.clientY - drag.startClientY;
+    let next = { ...drag.start };
+    if (drag.mode === "move") {
+      next.agentPanelX += dx;
+      next.agentPanelY += dy;
+    } else if (drag.mode === "resize-dock") {
+      next.agentPanelWidth += drag.start.agentPanelPlacement === "right" ? -dx : dx;
+    } else {
+      if (drag.mode === "resize-width" || drag.mode === "resize-corner") next.agentPanelWidth += dx;
+      if (drag.mode === "resize-height" || drag.mode === "resize-corner") next.agentPanelHeight += dy;
+    }
+    next = clampPanelLayout(next, drag.bounds);
+    updatePanelLayout(next);
+  }
+
+  function endPanelPointer(event: React.PointerEvent<HTMLElement>) {
+    const drag = panelDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    panelDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    commitPanelLayout(clampPanelLayout(panelLayoutRef.current, drag.bounds));
+  }
+
+  function setPanelPlacement(placement: AgentPanelLayout["agentPanelPlacement"]) {
+    const workspace = document.querySelector<HTMLElement>(".ide-main");
+    const bounds = workspace?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+    const next = clampPanelLayout({ ...panelLayoutRef.current, agentPanelPlacement: placement }, bounds);
+    setPlacementOpen(false);
+    commitPanelLayout(next);
+  }
+
   useEffect(() => {
-    if (collapsed) setHistoryOpen(false);
+    if (collapsed) {
+      setHistoryOpen(false);
+      setPlacementOpen(false);
+    }
   }, [collapsed]);
 
   useEffect(() => {
@@ -21927,11 +22379,31 @@ function ProjectAgentPanelView({
     };
   }, [historyOpen]);
 
+  useEffect(() => {
+    if (!placementOpen) return;
+    const closePlacement = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(".agent-placement-menu") || target?.closest(`#${PROJECT_AGENT_PLACEMENT_TOGGLE_ID}`)) return;
+      setPlacementOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPlacementOpen(false);
+      window.requestAnimationFrame(() => document.getElementById(PROJECT_AGENT_PLACEMENT_TOGGLE_ID)?.focus());
+    };
+    document.addEventListener("pointerdown", closePlacement, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closePlacement, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [placementOpen]);
+
   if (collapsed) {
     return (
-      <aside className="project-agent-panel is-collapsed" aria-label="已折叠的项目 Agent 对话栏">
+      <aside className={`project-agent-panel is-collapsed placement-${panelLayout.agentPanelPlacement}`} aria-label="已折叠的项目 Agent 对话栏">
         <ButtonBase className="project-agent-collapsed-rail agent-collapse-button" type="button" onClick={toggleCollapsed} aria-label="展开项目 Agent" title="展开项目 Agent">
-          <PanelRightOpen size={17} />
+          {panelLayout.agentPanelPlacement === "left" ? <PanelLeftOpen size={17} /> : <PanelRightOpen size={17} />}
           <span className={activityActive ? "busy" : ""}>{activityActive ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}</span>
           <strong>Agent</strong>
           {selectedArtifacts.length > 0 ? <i aria-label="已选择成果" /> : null}
@@ -21942,7 +22414,7 @@ function ProjectAgentPanelView({
 
  return (
     <aside
-      className={`project-agent-panel ${referenceDropActive ? "reference-drop-active" : ""}`}
+      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${referenceDropActive ? "reference-drop-active" : ""}`}
       aria-label="项目 Agent 对话栏"
       onDragEnter={(event) => {
         if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
@@ -21967,13 +22439,32 @@ function ProjectAgentPanelView({
         void dropReferenceFiles(files);
       }}
     >
-      <header className="project-agent-header">
+      <header
+        className={`project-agent-header ${panelLayout.agentPanelPlacement === "floating" ? "is-drag-handle" : ""}`}
+        onPointerDown={(event) => beginPanelPointer(event, "move")}
+        onPointerMove={movePanelPointer}
+        onPointerUp={endPanelPointer}
+        onPointerCancel={endPanelPointer}
+      >
         <div>
           <h2>Agent</h2>
           <p title={projectName}>{projectName}</p>
         </div>
         <div className="project-agent-header-actions">
-          <IconActionButton className="agent-collapse-button" label="折叠项目 Agent" onClick={toggleCollapsed} icon={<PanelRightClose size={16} />} />
+          <IconActionButton
+            id={PROJECT_AGENT_PLACEMENT_TOGGLE_ID}
+            className={placementOpen ? "active" : ""}
+            label="调整对话框位置"
+            aria-expanded={placementOpen}
+            onClick={() => setPlacementOpen((current) => !current)}
+            icon={<Move size={16} />}
+          />
+          <IconActionButton
+            className="agent-collapse-button"
+            label="折叠项目 Agent"
+            onClick={toggleCollapsed}
+            icon={panelLayout.agentPanelPlacement === "left" ? <PanelLeftClose size={16} /> : <PanelRightClose size={16} />}
+          />
           <IconActionButton
             id={PROJECT_AGENT_HISTORY_TOGGLE_ID}
             className={historyOpen ? "active" : ""}
@@ -21987,6 +22478,22 @@ function ProjectAgentPanelView({
           <IconActionButton label="清理聊天" title="清理当前聊天和绘画经验" onClick={requestClearConversation} disabled={conversationBusy} icon={<Trash2 size={16} />} />
           <IconActionButton label="新建会话" onClick={requestNewConversation} disabled={conversationBusy} icon={<Plus size={16} />} />
         </div>
+        {placementOpen ? (
+          <div className="agent-placement-menu" role="menu" aria-label="对话框位置">
+            <ButtonBase className={panelLayout.agentPanelPlacement === "right" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("right")}>
+              <PanelRight size={15} />
+              <span>停靠右侧</span>
+            </ButtonBase>
+            <ButtonBase className={panelLayout.agentPanelPlacement === "left" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("left")}>
+              <PanelLeft size={15} />
+              <span>停靠左侧</span>
+            </ButtonBase>
+            <ButtonBase className={panelLayout.agentPanelPlacement === "floating" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("floating")}>
+              <PanelsTopLeft size={15} />
+              <span>浮动面板</span>
+            </ButtonBase>
+          </div>
+        ) : null}
         {historyOpen ? (
           <div ref={historyRef} id={PROJECT_AGENT_HISTORY_ID} className="project-agent-history" aria-label="Agent 会话历史">
             <strong>会话历史</strong>
@@ -22042,6 +22549,47 @@ function ProjectAgentPanelView({
         editReferenceImages={editReferenceImages}
         debugCommit={debugCommit}
       />
+      {panelLayout.agentPanelPlacement === "floating" ? (
+        <>
+          <span
+            className="agent-panel-resize-handle resize-width"
+            aria-label="调整对话框宽度"
+            role="separator"
+            onPointerDown={(event) => beginPanelPointer(event, "resize-width")}
+            onPointerMove={movePanelPointer}
+            onPointerUp={endPanelPointer}
+            onPointerCancel={endPanelPointer}
+          />
+          <span
+            className="agent-panel-resize-handle resize-height"
+            aria-label="调整对话框高度"
+            role="separator"
+            onPointerDown={(event) => beginPanelPointer(event, "resize-height")}
+            onPointerMove={movePanelPointer}
+            onPointerUp={endPanelPointer}
+            onPointerCancel={endPanelPointer}
+          />
+          <span
+            className="agent-panel-resize-handle resize-corner"
+            aria-label="调整对话框大小"
+            role="separator"
+            onPointerDown={(event) => beginPanelPointer(event, "resize-corner")}
+            onPointerMove={movePanelPointer}
+            onPointerUp={endPanelPointer}
+            onPointerCancel={endPanelPointer}
+          />
+        </>
+      ) : (
+        <span
+          className={`agent-panel-resize-handle resize-dock resize-${panelLayout.agentPanelPlacement}`}
+          aria-label="调整对话框宽度"
+          role="separator"
+          onPointerDown={(event) => beginPanelPointer(event, "resize-dock")}
+          onPointerMove={movePanelPointer}
+          onPointerUp={endPanelPointer}
+          onPointerCancel={endPanelPointer}
+        />
+      )}
     </aside>
   );
 }
@@ -22101,6 +22649,9 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.switchConversation === right.switchConversation &&
   left.collapsed === right.collapsed &&
   left.toggleCollapsed === right.toggleCollapsed &&
+  left.panelLayout === right.panelLayout &&
+  left.updatePanelLayout === right.updatePanelLayout &&
+  left.commitPanelLayout === right.commitPanelLayout &&
   left.debugCommit === right.debugCommit
 );
 
@@ -22156,6 +22707,7 @@ function AgentMessageContent({ message }: { message: AgentMessage }) {
 
 function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: AgentMessage["status"] }) {
   const [seconds, setSeconds] = useState(0);
+  const [copiedPromptIndex, setCopiedPromptIndex] = useState(-1);
   const isImageGen = trace.name === "image_gen";
   const isResult = trace.stage === "result" || (trace.stage !== "start" && Boolean(trace.completionText));
   const toolName = agentToolTraceDisplayName(trace);
@@ -22165,6 +22717,27 @@ function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: 
     const timer = window.setInterval(() => setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))), 1000);
     return () => window.clearInterval(timer);
   }, [isImageGen, isResult, status]);
+
+  async function copyPrompt(prompt: string, index: number) {
+    const value = String(prompt || "");
+    if (!value) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(value);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setCopiedPromptIndex(index);
+    window.setTimeout(() => setCopiedPromptIndex((current) => current === index ? -1 : current), 1_600);
+  }
 
   return (
     <div
@@ -22193,16 +22766,19 @@ function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: 
                 <small>{item.prompt.replace(/\s+/g, " ").slice(0, 48)}{item.prompt.length > 48 ? "…" : ""}</small>
                 <ChevronDown size={13} />
               </summary>
-              <pre>{item.prompt}</pre>
+              <div className="agent-tool-prompt-content">
+                <IconActionButton
+                  className="agent-tool-prompt-copy"
+                  label={copiedPromptIndex === index ? "提示词已复制" : "复制生图提示词"}
+                  title={copiedPromptIndex === index ? "已复制" : "复制提示词"}
+                  onClick={() => void copyPrompt(item.prompt, index)}
+                  icon={copiedPromptIndex === index ? <Check size={13} /> : <Copy size={13} />}
+                />
+                <pre>{item.prompt}</pre>
+              </div>
             </details>
           ))}
         </div>
-      ) : null}
-      {!isResult && trace.partialImage ? (
-        <figure className="agent-tool-partial-image" aria-label={`生图中间预览 ${trace.partialImage.index}/${trace.partialImage.total}`}>
-          <img src={trace.partialImage.dataUrl} alt="生图中间预览" />
-          <figcaption>中间预览 {trace.partialImage.index}/{trace.partialImage.total}</figcaption>
-        </figure>
       ) : null}
       {isResult && trace.completionText ? <span className={`agent-tool-trace-completion ${status === "error" ? "is-error" : ""}`}><Check size={13} />{trace.completionText}</span> : null}
     </div>
@@ -22285,6 +22861,23 @@ function SettingsDrawer({
   const [updateError, setUpdateError] = useState(false);
   const [installerCaptcha, setInstallerCaptcha] = useState<DesktopInstallerCaptcha | null>(null);
   const [captchaCode, setCaptchaCode] = useState("");
+  const [accountTokens, setAccountTokens] = useState<AccountApiToken[]>([]);
+  const [accountTokenBaseUrl, setAccountTokenBaseUrl] = useState("");
+  const [accountTokenBusy, setAccountTokenBusy] = useState(false);
+  const [accountTokenError, setAccountTokenError] = useState("");
+  const [accountTokenEditor, setAccountTokenEditor] = useState<{
+    mode: "create" | "edit";
+    id: string;
+    name: string;
+    group: string;
+    status: number;
+    unlimitedQuota: boolean;
+    remainQuota: string;
+  } | null>(null);
+  const [accountTokenDeleteArmed, setAccountTokenDeleteArmed] = useState("");
+  const [integrationTargets, setIntegrationTargets] = useState<AgentIntegrationTarget[]>([]);
+  const [integrationBusy, setIntegrationBusy] = useState(false);
+  const [integrationError, setIntegrationError] = useState("");
   const modelLoadRef = useRef<Promise<void> | null>(null);
   const pendingModelRefreshRef = useRef<{ force: boolean; group: string } | null>(null);
   const manualModelRefreshCountRef = useRef(0);
@@ -22393,6 +22986,168 @@ function SettingsDrawer({
   useEffect(() => {
     void refreshModels();
   }, []);
+
+  async function refreshAccountTokens() {
+    if (draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
+    setAccountTokenBusy(true);
+    setAccountTokenError("");
+    try {
+      const result = await window.naimageServer.tokens();
+      if (!result.ok) throw new Error(result.error || "无法获取账户密钥。");
+      const tokens = result.tokens ?? [];
+      setAccountTokens(tokens);
+      setAccountTokenBaseUrl(result.baseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`);
+      const selected = tokens.find((token) => token.id === result.selectedTokenId);
+      if (selected) syncSelectedAccountToken(selected);
+    } catch (error) {
+      setAccountTokens([]);
+      setAccountTokenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAccountTokenBusy(false);
+    }
+  }
+
+  function syncSelectedAccountToken(token?: AccountApiToken | null) {
+    const patch = {
+      selectedAccountTokenId: token?.id || "",
+      selectedAccountTokenName: token?.name || "",
+      selectedAccountTokenGroup: token?.group || "",
+      modelGroup: token?.group || ""
+    };
+    setDraftSettings((current) => ({ ...current, ...patch }));
+    setBaselineSettings((current) => ({ ...current, ...patch }));
+  }
+
+  async function selectAccountToken(id: string) {
+    if (!window.naimageServer?.selectToken) return;
+    setAccountTokenBusy(true);
+    setAccountTokenError("");
+    try {
+      const result = await window.naimageServer.selectToken({ id });
+      if (!result.ok) throw new Error(result.error || "选择密钥失败。");
+      const token = result.token || accountTokens.find((item) => item.id === result.selectedTokenId);
+      syncSelectedAccountToken(token);
+      setAccountTokenBaseUrl(result.baseUrl || accountTokenBaseUrl);
+      await refreshModels(true, token?.group || "");
+    } catch (error) {
+      setAccountTokenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAccountTokenBusy(false);
+    }
+  }
+
+  function openAccountTokenEditor(token?: AccountApiToken) {
+    setAccountTokenDeleteArmed("");
+    setAccountTokenEditor(token ? {
+      mode: "edit",
+      id: token.id,
+      name: token.name,
+      group: token.group || "default",
+      status: token.status,
+      unlimitedQuota: token.unlimitedQuota,
+      remainQuota: String(token.remainQuota)
+    } : {
+      mode: "create",
+      id: "",
+      name: "naimage",
+      group: draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup || "default",
+      status: 1,
+      unlimitedQuota: true,
+      remainQuota: "0"
+    });
+  }
+
+  async function saveAccountTokenEditor() {
+    if (!accountTokenEditor || !accountTokenEditor.name.trim()) return;
+    const bridge = window.naimageServer;
+    if (!bridge) return;
+    setAccountTokenBusy(true);
+    setAccountTokenError("");
+    try {
+      const payload = {
+        name: accountTokenEditor.name.trim(),
+        group: accountTokenEditor.group.trim() || "default",
+        status: accountTokenEditor.status,
+        unlimitedQuota: accountTokenEditor.unlimitedQuota,
+        remainQuota: Math.max(0, Math.floor(Number(accountTokenEditor.remainQuota) || 0)),
+        crossGroupRetry: true
+      };
+      const result = accountTokenEditor.mode === "create"
+        ? await bridge.createToken?.({ ...payload, select: true })
+        : await bridge.updateToken?.({ id: accountTokenEditor.id, ...payload });
+      if (!result?.ok) throw new Error(result?.error || "保存密钥失败。");
+      setAccountTokenEditor(null);
+      await refreshAccountTokens();
+      await refreshModels(true, payload.group);
+    } catch (error) {
+      setAccountTokenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAccountTokenBusy(false);
+    }
+  }
+
+  async function deleteAccountToken(id: string) {
+    if (accountTokenDeleteArmed !== id) {
+      setAccountTokenDeleteArmed(id);
+      return;
+    }
+    if (!window.naimageServer?.deleteToken) return;
+    setAccountTokenBusy(true);
+    setAccountTokenError("");
+    try {
+      const result = await window.naimageServer.deleteToken({ id });
+      if (!result.ok) throw new Error(result.error || "删除密钥失败。");
+      setAccountTokenEditor(null);
+      setAccountTokenDeleteArmed("");
+      syncSelectedAccountToken(null);
+      await refreshAccountTokens();
+    } catch (error) {
+      setAccountTokenError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAccountTokenBusy(false);
+    }
+  }
+
+  async function detectAgentIntegrations() {
+    if (!window.naimageAgentIntegrations) return;
+    setIntegrationBusy(true);
+    setIntegrationError("");
+    try {
+      const result = await window.naimageAgentIntegrations.detect();
+      if (!result.ok) throw new Error(result.error || "无法检测 Agent 配置目录。");
+      setIntegrationTargets(result.targets ?? []);
+    } catch (error) {
+      setIntegrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIntegrationBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeSection === "access" && draftSettings.accessMode === "account") void refreshAccountTokens();
+    if (activeSection === "agent") void detectAgentIntegrations();
+  }, [activeSection, draftSettings.accessMode]);
+
+  async function mutateAgentIntegrations(action: "install" | "remove") {
+    const bridge = window.naimageAgentIntegrations;
+    if (!bridge) return;
+    const targets = draftSettings.agentSkillAutoInstallTargets;
+    if (!targets.length) {
+      setIntegrationError("请先勾选至少一个 Agent。");
+      return;
+    }
+    setIntegrationBusy(true);
+    setIntegrationError("");
+    try {
+      const result = action === "install" ? await bridge.install({ targets }) : await bridge.remove({ targets });
+      if (!result.ok && result.errors?.length) throw new Error(result.errors.join("；"));
+      setIntegrationTargets(result.targets ?? []);
+    } catch (error) {
+      setIntegrationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIntegrationBusy(false);
+    }
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -22679,7 +23434,80 @@ function SettingsDrawer({
                     <Field label="账户服务地址">
                       <input value={draftSettings.accountBaseUrl} onChange={(event) => update("accountBaseUrl", event.target.value)} type="url" placeholder="https://sparkapi.org" />
                     </Field>
-                    <InlineNotice tone="neutral">模型请求使用登录账户的额度、分组和服务端渠道，API Key 不会下发到客户端。</InlineNotice>
+                    <div className="settings-account-token-section">
+                      <div className="settings-section-header settings-account-token-header">
+                        <div>
+                          <strong>账户密钥</strong>
+                          <small>{accountTokenBaseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`}</small>
+                        </div>
+                        <div className="settings-inline-actions">
+                          <IconActionButton label="刷新密钥" icon={<RotateCcw size={14} />} onClick={() => void refreshAccountTokens()} disabled={accountTokenBusy} />
+                          <ActionButton variant="secondary" icon={<Plus size={14} />} onClick={() => openAccountTokenEditor()}>新建密钥</ActionButton>
+                        </div>
+                      </div>
+                      {accountTokenError ? <InlineNotice tone="danger">{accountTokenError}</InlineNotice> : null}
+                      {accountTokens.length ? (
+                        <Field label="当前使用密钥">
+                          <select
+                            value={draftSettings.selectedAccountTokenId}
+                            disabled={accountTokenBusy}
+                            onChange={(event) => void selectAccountToken(event.target.value)}
+                          >
+                            <option value="">请选择密钥</option>
+                            {accountTokens.map((token) => (
+                              <option key={token.id} value={token.id} disabled={token.status !== 1}>
+                                {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      ) : !accountTokenBusy && !accountTokenError ? <InlineNotice tone="neutral">当前账户还没有密钥，请新建一枚后使用。</InlineNotice> : null}
+                      {accountTokens.find((token) => token.id === draftSettings.selectedAccountTokenId) ? (() => {
+                        const token = accountTokens.find((item) => item.id === draftSettings.selectedAccountTokenId)!;
+                        return (
+                          <div className="settings-account-token-summary">
+                            <span>分组 <strong>{token.group || "default"}</strong></span>
+                            <span>状态 <strong>{token.status === 1 ? "启用" : "停用"}</strong></span>
+                            <span>额度 <strong>{token.unlimitedQuota ? "不限" : token.remainQuota.toLocaleString()}</strong></span>
+                            <IconActionButton label="编辑当前密钥" icon={<Settings size={14} />} onClick={() => openAccountTokenEditor(token)} />
+                          </div>
+                        );
+                      })() : null}
+                      {accountTokenEditor ? (
+                        <div className="settings-account-token-editor">
+                          <Field label="密钥名称">
+                            <input value={accountTokenEditor.name} maxLength={50} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, name: event.target.value } : current)} />
+                          </Field>
+                          <Field label="密钥分组">
+                            <input value={accountTokenEditor.group} list="naimage-token-groups" onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, group: event.target.value } : current)} placeholder="default" />
+                          </Field>
+                          <datalist id="naimage-token-groups">
+                            {modelState.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
+                          </datalist>
+                          <label className="settings-checkbox-row">
+                            <input type="checkbox" checked={accountTokenEditor.status === 1} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, status: event.target.checked ? 1 : 2 } : current)} />
+                            <span>启用密钥</span>
+                          </label>
+                          <label className="settings-checkbox-row">
+                            <input type="checkbox" checked={accountTokenEditor.unlimitedQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, unlimitedQuota: event.target.checked } : current)} />
+                            <span>不限额度</span>
+                          </label>
+                          {!accountTokenEditor.unlimitedQuota ? <Field label="剩余额度（New API 单位）">
+                            <input type="number" min="0" step="1" value={accountTokenEditor.remainQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, remainQuota: event.target.value } : current)} />
+                          </Field> : null}
+                          <div className="settings-inline-actions">
+                            <ActionButton variant="primary" onClick={() => void saveAccountTokenEditor()} busy={accountTokenBusy}>保存密钥</ActionButton>
+                            <ActionButton onClick={() => setAccountTokenEditor(null)}>取消</ActionButton>
+                            {accountTokenEditor.mode === "edit" ? (
+                              <ActionButton variant={accountTokenDeleteArmed === accountTokenEditor.id ? "danger" : "secondary"} onClick={() => void deleteAccountToken(accountTokenEditor.id)}>
+                                {accountTokenDeleteArmed === accountTokenEditor.id ? "确认删除" : "删除"}
+                              </ActionButton>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <InlineNotice tone="neutral">Cookie 只用于账户与密钥管理；Agent 和生图使用所选密钥直连上方 `/v1` 地址。完整 Key 仅保留在 Electron 主进程内存中。</InlineNotice>
                   </>
                 ) : (
                   <>
@@ -22735,26 +23563,9 @@ function SettingsDrawer({
                   </ActionButton>
                 </div>
                 {modelState.error ? <InlineNotice className="setting-error" tone="danger">{modelState.error}</InlineNotice> : null}
-                {draftSettings.accessMode === "account" ? <Field label="模型分组">
-                  <select
-                    value={draftSettings.modelGroup}
-                    onChange={(event) => {
-                      const group = event.target.value;
-                      update("modelGroup", group);
-                      void refreshModels(true, group);
-                    }}
-                  >
-                    <option value="">账户默认分组</option>
-                    {modelState.groups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.label}{group.description ? ` · ${group.description}` : ""}{group.ratio !== undefined ? ` · ${group.ratio}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </Field> : <InlineNotice tone="neutral">自定义接口模式直接使用 API Key 对应权限，不发送 SparkAPI 模型分组。</InlineNotice>}
-                {draftSettings.accessMode === "account" && !modelState.loading && modelState.groups.length === 0 ? (
-                  <InlineNotice tone="neutral">登录服务端未提供可选分组，当前使用账户默认分组。</InlineNotice>
-                ) : null}
+                {draftSettings.accessMode === "account"
+                  ? <InlineNotice tone="neutral">当前分组由所选账户密钥决定：{draftSettings.selectedAccountTokenGroup || "尚未选择密钥"}。如需切换分组，请在“接入”页编辑或选择对应密钥。</InlineNotice>
+                  : <InlineNotice tone="neutral">自定义接口模式直接使用 API Key 对应权限，不发送 SparkAPI 模型分组。</InlineNotice>}
                 <div className="settings-model-list">
                   <article className="settings-model-card">
                     <div className="settings-model-meta">
@@ -22796,6 +23607,42 @@ function SettingsDrawer({
                   <ActionButton variant="secondary" className="settings-prompt-action" onClick={openPromptEditor} icon={<Brain size={15} />}>
                     编辑提示词
                   </ActionButton>
+                </div>
+                <div className="settings-agent-integrations">
+                  <div className="settings-section-header">
+                    <div>
+                      <strong>外部 Agent 控制</strong>
+                      <small>安装 naimage CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
+                    </div>
+                    <IconActionButton label="重新检测" icon={<RotateCcw size={14} />} onClick={() => void detectAgentIntegrations()} disabled={integrationBusy} />
+                  </div>
+                  {integrationError ? <InlineNotice tone="danger">{integrationError}</InlineNotice> : null}
+                  <div className="settings-integration-list">
+                    {integrationTargets.map((target) => {
+                      const checked = draftSettings.agentSkillAutoInstallTargets.includes(target.id);
+                      return (
+                        <label key={target.id} className="settings-integration-row">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => update("agentSkillAutoInstallTargets", event.target.checked
+                              ? [...draftSettings.agentSkillAutoInstallTargets, target.id]
+                              : draftSettings.agentSkillAutoInstallTargets.filter((id) => id !== target.id))}
+                          />
+                          <span>
+                            <strong>{target.label}</strong>
+                            <small title={target.skillsPath}>{target.detected ? target.skillsPath : `未检测到，安装时将创建 ${target.skillsPath}`}</small>
+                          </span>
+                          <em className={target.installed ? "installed" : ""}>{target.installed ? "已安装" : "未安装"}</em>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="settings-inline-actions">
+                    <ActionButton variant="primary" onClick={() => void mutateAgentIntegrations("install")} busy={integrationBusy}>安装 / 更新 Skill</ActionButton>
+                    <ActionButton variant="secondary" onClick={() => void mutateAgentIntegrations("remove")} disabled={integrationBusy}>移除所选 Skill</ActionButton>
+                  </div>
+                  <InlineNotice tone="neutral">勾选项保存后会在 naimage 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
                 </div>
               </SurfaceSection>
               ) : null}

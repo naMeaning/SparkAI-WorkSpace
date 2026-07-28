@@ -33,12 +33,25 @@ function registerSettingsIpc({
       licenseToken: current.licenseToken,
       licensePlan: current.licensePlan,
       licenseExpiresAt: current.licenseExpiresAt,
-      licenseLastVerifiedAt: current.licenseLastVerifiedAt
+      licenseLastVerifiedAt: current.licenseLastVerifiedAt,
+      // The selected token is updated through the account-token IPC after
+      // ownership validation. A stale Renderer settings draft must not replace it.
+      selectedAccountTokenId: current.selectedAccountTokenId,
+      selectedAccountTokenName: current.selectedAccountTokenName,
+      selectedAccountTokenGroup: current.selectedAccountTokenGroup
     });
     validateNewApiServiceSettings?.(next);
     const accountChanged = String(current.accountBaseUrl || "").toLowerCase() !== String(next.accountBaseUrl || "").toLowerCase();
     if (accountChanged) {
-      next = migrateSettings({ ...next, serverToken: "", serverSessionCookie: "", serverUserId: "" });
+      next = migrateSettings({
+        ...next,
+        serverToken: "",
+        serverSessionCookie: "",
+        serverUserId: "",
+        selectedAccountTokenId: "",
+        selectedAccountTokenName: "",
+        selectedAccountTokenGroup: ""
+      });
       onNewApiAccountBaseUrlChanged?.(current, next);
     }
     writeJson(settingsPath, next);

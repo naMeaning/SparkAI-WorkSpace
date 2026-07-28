@@ -20,6 +20,9 @@ assert.deepEqual(REASONING_EFFORT_OPTIONS.map((option) => option.value), ["low",
 assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream"]);
 assert.equal(defaultSettings.theme, "light");
 assert.equal(defaultSettings.themePalette, "anthropic");
+assert.equal(defaultSettings.agentPanelPlacement, "right");
+assert.equal(defaultSettings.agentPanelWidth, 390);
+assert.deepEqual(defaultSettings.agentSkillAutoInstallTargets, []);
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
 assert.equal(STORAGE_IMAGE_STATS, "naimage.imageGenerationStats.v1");
@@ -74,6 +77,20 @@ const repaired = mergeSettings({
   serverSessionCookie: "cookie",
   serverUserId: "user"
 });
+
+const repairedAgentPanel = mergeSettings({
+  agentPanelPlacement: "invalid" as never,
+  agentPanelWidth: 4,
+  agentPanelHeight: 99_999,
+  agentPanelX: -80,
+  agentPanelY: 99_999
+});
+assert.equal(repairedAgentPanel.agentPanelPlacement, "right");
+assert.equal(repairedAgentPanel.agentPanelWidth, 320);
+assert.equal(repairedAgentPanel.agentPanelHeight, 1_400);
+assert.equal(repairedAgentPanel.agentPanelX, 0);
+assert.equal(repairedAgentPanel.agentPanelY, 10_000);
+assert.deepEqual(mergeSettings({ agentSkillAutoInstallTargets: ["codex", "unknown", "codex", "openclaw"] as never }).agentSkillAutoInstallTargets, ["codex", "openclaw"]);
 assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
 assert.equal(repaired.theme, "light");
