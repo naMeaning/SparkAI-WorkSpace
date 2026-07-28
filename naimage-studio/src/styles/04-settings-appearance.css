@@ -47,6 +47,7 @@
 }
 
 .settings-account-token-section,
+.settings-context-policy,
 .settings-agent-integrations {
   min-width: 0;
   display: grid;
@@ -58,6 +59,7 @@
 }
 
 .settings-account-token-header > div:first-child,
+.settings-context-policy .settings-section-header > div:first-child,
 .settings-agent-integrations .settings-section-header > div:first-child {
   min-width: 0;
   display: grid;
@@ -65,6 +67,7 @@
 }
 
 .settings-account-token-header small,
+.settings-context-policy small,
 .settings-agent-integrations small {
   min-width: 0;
   overflow: hidden;
@@ -73,6 +76,15 @@
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-context-policy .ui-field {
+  min-width: 0;
+}
+
+.settings-context-custom-fields {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
 .settings-inline-actions {

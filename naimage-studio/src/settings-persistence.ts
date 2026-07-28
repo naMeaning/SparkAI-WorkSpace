@@ -1,6 +1,7 @@
 import type {
   AgentProviderChoice,
   AppSettings,
+  ContextStrategyId,
   ReasoningEffort,
   ThemePaletteChoice
 } from "./core.ts";
@@ -17,6 +18,14 @@ export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }
   { value: "xhigh", label: "XHigh" },
   { value: "max", label: "Max" },
   { value: "ultra", label: "Ultra" }
+];
+
+export const CONTEXT_STRATEGY_OPTIONS: { value: ContextStrategyId; label: string; detail: string }[] = [
+  { value: "auto", label: "自动匹配", detail: "GPT/Codex、Claude 和其他模型自动使用各自的上下文策略。" },
+  { value: "codex", label: "Codex", detail: "使用长上下文、Responses 历史和 checkpoint compaction。" },
+  { value: "claude", label: "Claude Code", detail: "使用 Claude 消息历史和模型窗口感知的摘要压缩。" },
+  { value: "naimage-balanced", label: "naimage 平衡", detail: "为未知兼容模型使用保守的 128K 上下文策略。" },
+  { value: "custom", label: "自定义", detail: "手动设置上下文窗口、有效比例、压缩点和保留用户消息预算。" }
 ];
 
 export const THEME_PALETTE_VALUES: ThemePaletteChoice[] = [
@@ -43,6 +52,11 @@ export const defaultSettings: AppSettings = {
   agentModel: "",
   agentModelPool: [],
   compactModel: "",
+  contextStrategy: "auto",
+  contextWindowTokens: 272_000,
+  contextEffectiveWindowPercent: 95,
+  contextAutoCompactPercent: 90,
+  contextRetainedUserTokens: 20_000,
   reasoningEffort: "low",
   fastMode: false,
   timeoutSeconds: 180,
@@ -161,6 +175,17 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))] as AppSettings["agentSkillAutoInstallTargets"]
     : [];
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
+  if (!["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))) next.contextStrategy = "auto";
+  const contextWindowTokens = Number(next.contextWindowTokens);
+  next.contextWindowTokens = Number.isFinite(contextWindowTokens) ? Math.max(8_000, Math.min(2_000_000, Math.round(contextWindowTokens))) : defaultSettings.contextWindowTokens;
+  const contextEffectiveWindowPercent = Number(next.contextEffectiveWindowPercent);
+  next.contextEffectiveWindowPercent = Number.isFinite(contextEffectiveWindowPercent) ? Math.max(50, Math.min(99, Math.round(contextEffectiveWindowPercent))) : defaultSettings.contextEffectiveWindowPercent;
+  const contextAutoCompactPercent = Number(next.contextAutoCompactPercent);
+  next.contextAutoCompactPercent = Number.isFinite(contextAutoCompactPercent)
+    ? Math.max(50, Math.min(Math.min(98, next.contextEffectiveWindowPercent), Math.round(contextAutoCompactPercent)))
+    : defaultSettings.contextAutoCompactPercent;
+  const contextRetainedUserTokens = Number(next.contextRetainedUserTokens);
+  next.contextRetainedUserTokens = Number.isFinite(contextRetainedUserTokens) ? Math.max(0, Math.min(50_000, Math.round(contextRetainedUserTokens))) : defaultSettings.contextRetainedUserTokens;
   if (!["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort))) next.reasoningEffort = "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
   next.timeoutSeconds = Number.isFinite(timeoutSeconds) ? Math.max(15, Math.min(600, Math.round(timeoutSeconds))) : defaultSettings.timeoutSeconds;

@@ -1,7 +1,7 @@
 # naimage 上下文地图
 
-> 地图版本：4
-> 最近同步：2026-07-27
+> 地图版本：5
+> 最近同步：2026-07-28
 > 对应桌面版本：1.0.6
 > 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
 
@@ -200,7 +200,26 @@ Codex / Claude Code / OpenCode / OpenClaw
 
 `integrations/naimage-control` 是随安装包分发的正式 Skill；设置页可检测并复制到各 Agent 的 `skills/naimage-control`。安装目录的 `.naimage-connection.json` 只保存 endpoint 文件位置与 EXE 路径，不保存 Bearer Token；CLI 每次从应用私有 endpoint 文件读取当前 Token。服务只监听 loopback，Renderer 不使用任何 AIDebug hook。公开命令覆盖项目、画布状态/选择/容器/导入和 Agent 会话；清空全部或删除所选还必须传 `confirmed=true`。
 
-### 4.6 项目 session 保存
+### 4.6 Agent 上下文与 checkpoint
+
+`naimage Agent = Codex 式通用 Agent Runtime + naimage 图片领域 Agent`。通用部分拥有长上下文、模型协议历史、工具循环和 checkpoint；图片领域部分拥有画布快照、TaskScope SOURCE/REFERENCE、图片容器、Image Gen 与 FastMemory 绘画经验。
+
+```text
+settings + agentModel
+  → runtime/context-strategy.cjs
+  ├─ GPT 5.5/5.6：272K 总窗口 / 95% 有效 / 244.8K checkpoint / Responses 历史
+  ├─ Claude：200K 或明确长上下文模型 1M / 普通 messages 历史
+  └─ 未知兼容模型：128K naimage-balanced
+  → agent-runtime.cjs 估算 Prompt + tools + history + world state
+  → 达到策略阈值时生成 handoff summary
+  → runtime/memory-store.cjs 替换旧 protocol foundation
+  → 清除旧 encrypted reasoning，保留有界用户意图
+  → 新窗口重新注入当前 Workbench、TaskScope 和 FastMemory
+```
+
+GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用户消息预算由策略提供，不能重新退回固定 12K 字符；否则长需求文档会在达到模型窗口前被静默截断。Claude 请求不得包含 `responses_items`，也不得因暴露 Responses 原生 `web_search` 被强制路由到 `/v1/responses`。策略专项入口是 `test:context-strategy` 与 `test:context-checkpoint`。
+
+### 4.7 项目 session 保存
 
 ```text
 Renderer 自动保存 / 显式保存
@@ -221,7 +240,7 @@ Renderer 自动保存 / 显式保存
 
 `desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`project-store.cjs` 拥有项目列表、路径和 manifest；session 清洗与资产索引分别只有一个 owner。`apply` 返回 `applied:false` 时不得推进 revision。
 
-### 4.7 图片导入与输出
+### 4.8 图片导入与输出
 
 ```text
 拖入文件/目录
@@ -236,7 +255,7 @@ Renderer 自动保存 / 显式保存
 
 外部原图只读；所有后续处理必须使用复制进项目库的资产。缩略图、观察副本和导出临时文件不得覆盖项目原图。
 
-### 4.8 在线更新
+### 4.9 在线更新
 
 ```text
 Renderer UpdaterBridge
@@ -261,7 +280,7 @@ Renderer UpdaterBridge
 | `electron-main.cjs` | Electron 生命周期、桌面服务依赖装配、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、内联 IPC handler、重复实现 project store/session normalization/asset repository、New API transport/client 或 AIDebug PNG fixture | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:ipc-registration`, `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
 | `preload.cjs` | 六组受限 context bridge | 业务状态、磁盘实现、凭据展示 | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations` | `test:ipc-registration`, `test:automation-service`, `test:lifecycle`, `aidebug:gui` |
 | `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → Automation → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerAutomationIpc`, `registerSettingsIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
-| `agent-runtime.cjs` | Prompt/画布上下文组装、compact/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的 schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `toolSchemas`, `buildPromptMessages` | `test:agent-text`, `test:agent-protocol`, `test:view-image`, `aidebug:gui` |
+| `agent-runtime.cjs` | Prompt/画布上下文组装、模型感知 checkpoint/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的策略/schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `buildPromptMessages`, `compactConversationIfNeeded` | `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol`, `test:view-image` |
 | `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、当前元数据路径，以及更名前元数据的只读迁移 | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
 | `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化；新写入使用 `naimage-asset:` 与 `.naimage/assets`，读取兼容更名前资产 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
@@ -277,7 +296,8 @@ Renderer UpdaterBridge
 | `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联与超时 | 业务命令实现、AIDebug hook、远端监听或长期 Token | `createAutomationService`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:ipc-registration`, `test:bundle` |
 | `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI 安装更新和受控移除 | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件 | `createAgentIntegrationService`, `naimage.ps1`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, Skill `quick_validate.py`, `test:bundle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
-| `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `contextManage`, `appendConversationProtocolTurn` | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
+| `runtime/context-strategy.cjs` | 模型族识别、上下文窗口、有效窗口、自动 checkpoint、保留用户意图及 Prompt/协议/画布/记忆预算 | 模型调用、消息持久化、设置 UI 或画布读取 | `contextStrategyForSettings`, `contextModelFamily`, `autoCompactTokenLimit`, `protocolMessageMaxChars` | `test:context-strategy`, `test:context-checkpoint` |
+| `runtime/memory-store.cjs` | SQLite 初始化与 CRUD、Prompt/FastMemory/memorycontext/datememory JSON、context/experience、toolmemory、conversation summary/protocol 持久化、协议基础替换和按会话清理 | 模型调用、compact 决策、画布状态、工具执行或 Renderer | `createMemoryStore`, `getFastMemory`, `appendConversationProtocolTurn`, `replaceConversationProtocolItems` | `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/responses-parser.cjs` | Chat/Responses 非流式响应归一化、文本/推理 delta 读取、tool-call 与 Responses output 流式聚合 | HTTP/SSE 读取、原生工具进度编排、Agent loop 或工具执行 | `messageFromResponse`, `responseFromStreamChunks`, `mergeResponsesToolCallEvent` | `test:agent-text`, `test:agent-protocol` |
 | `runtime/controlled-shell-command.cjs` | `shell_command` 的只读 allowlist、cwd/路径越界防护、输出裁剪和无 shell 子进程执行 | Agent loop、模型 Prompt、Renderer、IPC 或任意写入命令 | `controlledCommandPlan`, `executeControlledCommand`, `isExploreCommand` | `test:controlled-shell-command`, `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |

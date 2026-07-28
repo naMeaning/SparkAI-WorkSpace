@@ -50,6 +50,8 @@
     "test:agent-text": "node scripts/agent-text-config-selftest.cjs",
     "test:agent-protocol": "electron scripts/agent-protocol-selftest.cjs",
     "test:agent-responses-adapter": "node scripts/agent-responses-adapter-selftest.cjs",
+    "test:context-strategy": "node scripts/context-strategy-selftest.cjs",
+    "test:context-checkpoint": "node scripts/context-checkpoint-selftest.cjs",
     "test:controlled-shell-command": "node scripts/controlled-shell-command-selftest.cjs",
     "test:new-api-transport": "electron scripts/new-api-transport-selftest.cjs",
     "test:custom-api-transport": "node scripts/custom-api-transport-selftest.cjs",

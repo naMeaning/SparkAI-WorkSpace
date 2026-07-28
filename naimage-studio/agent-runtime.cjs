@@ -57,6 +57,7 @@ const {
   responseFromStreamChunks
 } = require("./runtime/responses-parser.cjs");
 const { createMemoryStore } = require("./runtime/memory-store.cjs");
+const { contextStrategyForSettings } = require("./runtime/context-strategy.cjs");
 const { executeControlledCommand, isExploreCommand } = require("./runtime/controlled-shell-command.cjs");
 
 let sharpImage = null;
@@ -69,9 +70,6 @@ try {
 
 const visibleToolChars = 6000;
 const dateMemoryCompactChars = 200000;
-const mainContextCompactTokens = 32000;
-const mainContextCompactMessageCount = 24;
-const mainContextRecentMessages = 10;
 const tokenCharRatio = 4;
 const mainAgentPromptMaxChars = 100000;
 const scopedFastMemoryMaxChars = 64000;
@@ -414,7 +412,8 @@ function fastMemorySegmentRelevance(text, terms = []) {
   return score;
 }
 
-function selectFastMemoryPromptContext(entries = [], scope = {}) {
+function selectFastMemoryPromptContext(entries = [], scope = {}, limits = {}) {
+  const promptMaxChars = Math.max(2_000, Number(limits.maxChars || fastMemoryPromptMaxChars));
   const orderedEntries = [...entries].sort((left, right) => Number(left.order_index || 0) - Number(right.order_index || 0));
   const terms = fastMemoryQueryTerms(scope);
   const segments = [];
@@ -438,7 +437,7 @@ function selectFastMemoryPromptContext(entries = [], scope = {}) {
     .filter(Boolean)
     .join("\n\n")
     .trim();
-  if (completeText.length <= fastMemoryPromptMaxChars) {
+  if (completeText.length <= promptMaxChars) {
     return {
       text: completeText,
       totalChars: completeText.length,
@@ -454,7 +453,7 @@ function selectFastMemoryPromptContext(entries = [], scope = {}) {
   const add = (segment) => {
     if (!segment || selected.has(segment.globalIndex)) return false;
     const separatorChars = selected.size ? 2 : 0;
-    if (selectedChars + separatorChars + segment.text.length > fastMemoryPromptMaxChars) return false;
+    if (selectedChars + separatorChars + segment.text.length > promptMaxChars) return false;
     selected.set(segment.globalIndex, segment);
     selectedChars += separatorChars + segment.text.length;
     return true;
@@ -1909,6 +1908,7 @@ function createAgentRuntime(options) {
     memoryRead,
     recentContextForPrompt,
     recordContextEntry,
+    replaceConversationProtocolItems,
     requiredFastMemoryScope,
     resetFastMemory,
     resetMainPrompt,
@@ -4244,6 +4244,7 @@ function createAgentRuntime(options) {
         return false;
       })
       .map((message) => ({
+        contextMessageId: cleanOneLine(message.id || "", 180),
         role: message.role,
         content: message.role === "assistant"
           ? sanitizeModelVisibleToolText(messageContentForModel(message))
@@ -4252,14 +4253,109 @@ function createAgentRuntime(options) {
       .filter((message) => message.content);
   }
 
-  function conversationPayloadTokenEstimate(payload = {}) {
-    const conversationText = visibleConversationMessages(payload).map((message) => `${message.role}: ${message.content}`).join("\n");
-    const nodeText = workbenchSnapshotForPrompt(payload).text;
+  function protocolLimitsForStrategy(strategy) {
+    return {
+      maxTurns: strategy.protocolHistoryMaxTurns || protocolHistoryMaxTurns,
+      promptChars: strategy.protocolHistoryPromptChars || protocolHistoryPromptChars,
+      messageChars: strategy.protocolMessageMaxChars,
+      storeChars: strategy.protocolHistoryStoreChars || protocolHistoryStoreChars
+    };
+  }
+
+  function modelConversationMessage(message = {}) {
+    return { role: message.role, content: message.content };
+  }
+
+  function responsesMessageItemFromConversation(message = {}) {
+    const content = String(message.content || "").trim();
+    if (!content || !["user", "assistant"].includes(message.role)) return null;
+    return {
+      type: "message",
+      role: message.role,
+      content: [{ type: message.role === "assistant" ? "output_text" : "input_text", text: content }]
+    };
+  }
+
+  function messagesAfterCheckpoint(messages = [], state = {}) {
+    const coveredIds = new Set(Array.isArray(state.coveredMessageIds) ? state.coveredMessageIds.map(String) : []);
+    if (coveredIds.size) {
+      return messages.filter((message) => !message.contextMessageId || !coveredIds.has(message.contextMessageId));
+    }
+    const legacyCoveredCount = Math.max(0, Number(state.messageCount || 0));
+    return legacyCoveredCount ? messages.slice(Math.min(legacyCoveredCount, messages.length)) : messages;
+  }
+
+  function retainedUserMessagesForState(state = {}) {
+    return (Array.isArray(state.retainedUserMessages) ? state.retainedUserMessages : [])
+      .map((content) => String(content || "").trim())
+      .filter(Boolean);
+  }
+
+  function ensureResponsesProtocolFoundation(payload = {}, state = {}, strategy = contextStrategyForSettings(payload.settings ?? {})) {
+    if (!strategy.useResponsesProtocol) return [];
+    const limits = protocolLimitsForStrategy(strategy);
+    const existing = conversationProtocolItemsForPrompt(payload, limits);
+    if (existing.length) return existing;
+    const visibleMessages = visibleConversationMessages(payload);
+    const currentWindowMessages = state.summary ? messagesAfterCheckpoint(visibleMessages, state) : visibleMessages;
+    const retained = state.summary
+      ? retainedUserMessagesForState(state).map((content) => ({ role: "user", content }))
+      : [];
+    const foundationMessages = [
+      ...retained,
+      ...currentWindowMessages
+        .slice(-strategy.plainHistoryMaxMessages)
+        .map(modelConversationMessage)
+        .filter((message) => !retained.some((item) => item.content === message.content))
+    ];
+    const foundation = foundationMessages.map(responsesMessageItemFromConversation).filter(Boolean);
+    if (foundation.length) replaceConversationProtocolItems(payload, foundation, limits);
+    return foundation;
+  }
+
+  function selectRetainedUserMessages(existing = [], messages = [], maxTokens = 0) {
+    const candidates = [
+      ...existing.map((content) => String(content || "").trim()).filter(Boolean),
+      ...messages.filter((message) => message.role === "user").map((message) => String(message.content || "").trim()).filter(Boolean)
+    ];
+    const selected = [];
+    let remaining = Math.max(0, Math.floor(Number(maxTokens) || 0));
+    for (const content of [...candidates].reverse()) {
+      if (remaining <= 0) break;
+      const tokens = estimateTokens(content);
+      if (tokens <= remaining) {
+        selected.unshift(content);
+        remaining -= tokens;
+        continue;
+      }
+      const maximumChars = Math.max(0, remaining * tokenCharRatio);
+      if (maximumChars) selected.unshift(content.slice(0, maximumChars));
+      break;
+    }
+    return selected;
+  }
+
+  function conversationPayloadTokenEstimate(payload = {}, strategy = contextStrategyForSettings(payload.settings ?? {}), state = compactStateForPayload(payload)) {
+    const messages = visibleConversationMessages(payload);
+    const currentWindowMessages = state.summary ? messagesAfterCheckpoint(messages, state) : messages;
+    const protocolItems = strategy.useResponsesProtocol
+      ? conversationProtocolItemsForPrompt(payload, protocolLimitsForStrategy(strategy))
+      : [];
+    const retainedText = retainedUserMessagesForState(state).map((content) => `user: ${content}`).join("\n");
+    const conversationText = protocolItems.length
+      ? safeJson(protocolItems)
+      : [retainedText, currentWindowMessages.map((message) => `${message.role}: ${message.content}`).join("\n")].filter(Boolean).join("\n");
+    const nodeText = workbenchSnapshotForPrompt(payload, {
+      maxChars: strategy.workbenchMaxChars,
+      recentLimit: strategy.workbenchRecentArtifacts
+    }).text;
     const referenceText = normalizeReferenceImages(payload.referenceImages, 9)
       .map((image) => `${image.name} ${image.path} ${image.mimeType}${image.role ? ` role=${image.role}` : ""}${image.purpose ? ` purpose=${image.purpose}` : ""}`)
       .join("\n");
-    const taskScopeText = taskScopeForPrompt(payload).text;
-    return estimateTokens(`${externalPromptFor("main")}\n${fastMemoryForPrompt(payload)}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${referenceText}\n${payload.prompt || ""}`);
+    const taskScopeText = taskScopeForPrompt(payload, strategy.taskScopeMaxChars).text;
+    const fastMemoryText = fastMemoryForPrompt(payload, { maxChars: strategy.fastMemoryPromptMaxChars });
+    const toolSchemaText = safeJson(agentToolSchemas(payload.settings ?? {}, { includeNativeWebSearch: strategy.useNativeWebSearch }));
+    return estimateTokens(`${externalPromptFor("main")}\n${fastMemoryText}\n${state.summary || ""}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${referenceText}\n${toolSchemaText}\n${payload.prompt || ""}`);
   }
 
   function compactAidebugMarkers(existingSummary = "", messages = [], prompt = "") {
@@ -4294,42 +4390,40 @@ function createAgentRuntime(options) {
     return summarizeText(source, 9000);
   }
 
-  async function compactConversationIfNeeded(settings, payload, progress) {
+  async function compactConversationIfNeeded(settings, payload, progress, strategy = contextStrategyForSettings(settings)) {
     const state = compactStateForPayload(payload);
     const messages = visibleConversationMessages(payload);
-    const estimated = conversationPayloadTokenEstimate(payload);
-    const limit = Math.max(8000, Number(settings.contextCompactTokens || runtimeOptions.mainContextCompactTokens || mainContextCompactTokens));
-    const shouldCompact = messages.length > mainContextCompactMessageCount || estimated >= limit;
+    const currentWindowMessages = state.summary ? messagesAfterCheckpoint(messages, state) : messages;
+    const estimated = conversationPayloadTokenEstimate(payload, strategy, state);
+    const testOrLegacyLimit = Number(settings.contextCompactTokens || runtimeOptions.mainContextCompactTokens || 0);
+    const limit = testOrLegacyLimit > 0
+      ? Math.max(8_000, Math.min(strategy.effectiveWindowTokens, testOrLegacyLimit))
+      : strategy.autoCompactTokenLimit;
+    const messageLimitReached = strategy.messageCountCompactLimit > 0 && currentWindowMessages.length > strategy.messageCountCompactLimit;
+    const shouldCompact = messageLimitReached || estimated >= limit;
     if (!shouldCompact) return state;
-
-    const messageCount = messages.length;
-    const coveredCount = Math.max(0, Number(state.messageCount || 0));
-    const compactUntil = Math.max(0, messageCount - mainContextRecentMessages);
-    if (compactUntil <= coveredCount && state.summary) {
-      const repairedSummary = summarizeText(preserveCompactAidebugMarkers(state.summary, state.summary, messages, payload.prompt), 12000);
-      if (repairedSummary && repairedSummary !== state.summary) {
-        const repairedState = {
-          ...state,
-          summary: repairedSummary,
-          updatedAt: new Date().toISOString()
-        };
-        writeRuntimeMetaJson(conversationSummaryKey(payload), repairedState);
-        return repairedState;
-      }
-      return state;
-    }
-
-    const sourceMessages = messages.slice(coveredCount, compactUntil);
+    const sourceMessages = currentWindowMessages;
     if (!sourceMessages.length) return state;
 
     progress?.({
       phase: "context-compact-start",
       tool: "compact",
-      summary: "上下文接近阈值，正在压缩旧会话。"
+      summary: `上下文达到 ${estimated.toLocaleString()} / ${limit.toLocaleString()} Token，正在创建 ${strategy.compactionMode} checkpoint。`,
+      detail: {
+        contextStrategy: strategy.resolvedId,
+        contextWindowTokens: strategy.contextWindowTokens,
+        effectiveWindowTokens: strategy.effectiveWindowTokens,
+        autoCompactTokenLimit: limit,
+        estimatedTokens: estimated,
+        contextWindowNumber: Math.max(0, Number(state.contextWindowNumber || 0))
+      }
     });
 
     let summary = "";
     const compactModel = compactModelForSettings(settings);
+    const protocolItems = strategy.useResponsesProtocol
+      ? conversationProtocolItemsForPrompt(payload, protocolLimitsForStrategy(strategy))
+      : [];
     try {
       if (compactModel) {
         const response = await callModel(
@@ -4337,14 +4431,21 @@ function createAgentRuntime(options) {
           [
             {
               role: "system",
-              content:
-                "You are the compact model for naimage Agent. Compress old conversation into a cache-friendly summary for the same agent. Preserve user goals, constraints, decisions, image parameters, node/tool result references, errors, unresolved next steps, and exact AIDEBUG_* marker tokens. Do not invent facts. Return only JSON with keys summary and keywords."
+              content: [
+                "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.",
+                "Include current progress and key decisions, important constraints and user preferences, clear remaining steps, and critical data or references needed to continue.",
+                "This is a naimage image-production Agent. Preserve SOURCE/REFERENCE roles, TaskScope snapshot identity, canvas/result relationships, image parameters, tool outcomes, errors, unresolved work, and exact AIDEBUG_* markers.",
+                "Do not invent facts. Be concise and structured. Return only JSON with keys summary and keywords."
+              ].join("\n")
             },
             {
               role: "user",
               content: safeJson({
+                contextStrategy: strategy.resolvedId,
                 existingSummary: state.summary || "",
+                retainedUserMessages: retainedUserMessagesForState(state),
                 messages: sourceMessages,
+                ...(protocolItems.length ? { responsesProtocolItems: protocolItems } : {}),
                 currentUserRequest: String(payload.prompt || "")
               })
             }
@@ -4371,31 +4472,68 @@ function createAgentRuntime(options) {
 
     if (!summary) summary = fallbackConversationSummary(state.summary || "", sourceMessages, payload.prompt);
     summary = preserveCompactAidebugMarkers(summary, state.summary || "", sourceMessages, payload.prompt);
+    const retainedUserMessages = selectRetainedUserMessages(
+      retainedUserMessagesForState(state),
+      sourceMessages,
+      strategy.retainedUserTokens
+    );
+    const coveredMessageIds = [...new Set([
+      ...(Array.isArray(state.coveredMessageIds) ? state.coveredMessageIds.map(String) : []),
+      ...messages.map((message) => message.contextMessageId).filter(Boolean)
+    ])].slice(-512);
+    const boundedSummary = summarizeText(summary, strategy.summaryMaxChars);
+    const contextWindowNumber = Math.max(0, Number(state.contextWindowNumber || 0)) + 1;
     const nextState = {
-      version: 1,
-      summary: summarizeText(summary, 12000),
-      messageCount: compactUntil,
+      version: 2,
+      summary: boundedSummary,
+      messageCount: messages.length,
+      coveredMessageIds,
+      retainedUserMessages,
+      contextStrategy: strategy.resolvedId,
+      contextWindowNumber,
+      contextWindowId: `ctx-${contextWindowNumber}-${textSha256(`${boundedSummary}:${Date.now()}`).slice(0, 12)}`,
+      previousContextWindowId: String(state.contextWindowId || ""),
+      estimatedTokensBefore: estimated,
+      autoCompactTokenLimit: limit,
       updatedAt: new Date().toISOString(),
       compactModel: compactModel || "local-fallback"
     };
     writeRuntimeMetaJson(conversationSummaryKey(payload), nextState);
+    const compactedProtocolFoundation = strategy.useResponsesProtocol
+      ? retainedUserMessages.map((content) => ({
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: content }]
+        }))
+      : [];
+    replaceConversationProtocolItems(payload, compactedProtocolFoundation, protocolLimitsForStrategy(strategy));
     progress?.({
       phase: "context-compact-done",
       tool: "compact",
-      summary: `旧会话已压缩，保留最近 ${Math.min(mainContextRecentMessages, messageCount)} 条消息。`
+      summary: `上下文 checkpoint 已完成：窗口 ${contextWindowNumber}，保留约 ${retainedUserMessages.reduce((total, content) => total + estimateTokens(content), 0).toLocaleString()} Token 用户意图，并重新注入当前 naimage 画布状态。`,
+      detail: {
+        contextStrategy: strategy.resolvedId,
+        contextWindowNumber,
+        contextWindowId: nextState.contextWindowId,
+        retainedUserMessages: retainedUserMessages.length,
+        summaryChars: boundedSummary.length
+      }
     });
     return nextState;
   }
 
-  function buildPromptMessages(payload, compactState = null) {
+  function buildPromptMessages(payload, compactState = null, strategy = contextStrategyForSettings(payload.settings ?? {})) {
     const modelContract = imageModelContractForSettings(payload.settings ?? {});
     const selectedNodeId = String(payload.selectedNodeId || "").trim();
     const selectedNodeIds = selectedCanvasArtifactIds(payload);
-    const workbenchSnapshot = workbenchSnapshotForPrompt(payload);
+    const workbenchSnapshot = workbenchSnapshotForPrompt(payload, {
+      maxChars: strategy.workbenchMaxChars,
+      recentLimit: strategy.workbenchRecentArtifacts
+    });
     const nodeSnapshot = workbenchSnapshot.text;
-    const taskScopeSnapshot = taskScopeForPrompt(payload);
+    const taskScopeSnapshot = taskScopeForPrompt(payload, strategy.taskScopeMaxChars);
     const runtimeToolContract = [
-      "运行时向主 Agent 暴露 naimage 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command 和 Responses 原生 web_search；每项能力只以 API tools schema 为准。",
+      `运行时向主 Agent 暴露 naimage 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
       "由你根据用户目标自主决定是否调用工具以及调用顺序，系统不会替你强制 tool_choice 或改写参数。需要生成或修改图片时必须通过 image_gen tool_call 表达；普通问答直接回复，不要声称执行了不存在的工具。",
       "同一用户图片任务优先合并为一次 image_gen：相同提示词多张使用 count，不同提示词多张使用 items，并显式选择 generationMode=parallel 或 sequential；分层任务使用 operation=layers。用户在同一轮要求 N 张、N 版或 N 个候选时使用 parallel，即使表达为‘基于这张继续给 N 版’；parentId 表示来源，不决定执行模式。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。不要用多次单图调用模拟批量，但工具回执明确失败时应根据错误修正参数后再自主决定。",
       "",
@@ -4407,10 +4545,26 @@ function createAgentRuntime(options) {
       "- variants：基于当前图片生成多种独立款式，count 是款式数量，禁止拼图。",
       "- layers：生成一张合成预览、2-8 个同尺寸独立 PNG 图层和重组校验图。"
     ].join("\n");
-    const summaryText = String((compactState ?? compactStateForPayload(payload))?.summary || "").trim();
-    const protocolItems = conversationProtocolItemsForPrompt(payload);
-    const priorMessages = protocolItems.length ? [] : visibleConversationMessages(payload).slice(-(summaryText ? mainContextRecentMessages : 14));
-    const fastMemoryText = fastMemoryForPrompt(payload);
+    const state = compactState ?? compactStateForPayload(payload);
+    const summaryText = String(state?.summary || "").trim();
+    const visibleMessages = visibleConversationMessages(payload);
+    const currentWindowMessages = summaryText ? messagesAfterCheckpoint(visibleMessages, state) : visibleMessages;
+    const protocolItems = strategy.useResponsesProtocol
+      ? conversationProtocolItemsForPrompt(payload, protocolLimitsForStrategy(strategy))
+      : [];
+    const retainedUserMessages = summaryText
+      ? retainedUserMessagesForState(state).map((content) => ({ role: "user", content }))
+      : [];
+    const plainWindowMessages = currentWindowMessages
+      .slice(-strategy.plainHistoryMaxMessages)
+      .map(modelConversationMessage);
+    const priorMessages = protocolItems.length
+      ? []
+      : [
+          ...retainedUserMessages,
+          ...plainWindowMessages.filter((message) => !retainedUserMessages.some((retained) => retained.content === message.content))
+        ];
+    const fastMemoryText = fastMemoryForPrompt(payload, { maxChars: strategy.fastMemoryPromptMaxChars });
 
     return [
       {
@@ -4458,7 +4612,7 @@ function createAgentRuntime(options) {
           taskScopeSnapshot.text
         ].join("\n")
       },
-      ...(protocolItems.length ? [{ role: "responses_items", items: protocolItems }] : []),
+      ...(strategy.useResponsesProtocol && protocolItems.length ? [{ role: "responses_items", items: protocolItems }] : []),
       ...priorMessages,
       { role: "user", content: payload.prompt }
     ];
@@ -4740,15 +4894,17 @@ function createAgentRuntime(options) {
     ensureMemory();
     const settings = payload.settings ?? {};
     const progress = typeof payload.progress === "function" ? payload.progress : () => {};
+    const strategy = contextStrategyForSettings(settings);
 
     const actions = [];
     const toolResults = [];
     const turnProtocolItems = [
       { type: "message", role: "user", content: [{ type: "input_text", text: String(payload.prompt || "") }] }
     ];
-    const compactState = await compactConversationIfNeeded(settings, payload, progress);
-    const messages = buildPromptMessages(payload, compactState);
-    const exposedTools = agentToolSchemas(settings);
+    const compactState = await compactConversationIfNeeded(settings, payload, progress, strategy);
+    ensureResponsesProtocolFoundation(payload, compactState, strategy);
+    const messages = buildPromptMessages(payload, compactState, strategy);
+    const exposedTools = agentToolSchemas(settings, { includeNativeWebSearch: strategy.useNativeWebSearch });
     const exposedToolNames = new Set(exposedTools.map(toolSchemaName).filter(Boolean));
 
     let first = null;
@@ -5184,7 +5340,7 @@ function createAgentRuntime(options) {
       String(assistantMessage?.content ?? first?.output_text ?? "").trim() ||
       fallbackToolSummary;
     if (!content) throw new Error("API 返回成功，但没有文本内容。");
-    appendConversationProtocolTurn(payload, turnProtocolItems);
+    appendConversationProtocolTurn(payload, turnProtocolItems, protocolLimitsForStrategy(strategy));
     return { ok: true, content, actions, toolResults: publicToolResults };
   }
 

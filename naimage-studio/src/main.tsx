@@ -99,6 +99,7 @@ import {
 import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
 import { installBrowserServerBridge } from "./server";
 import {
+  CONTEXT_STRATEGY_OPTIONS,
   REASONING_EFFORT_OPTIONS,
   STORAGE_IMAGE_STATS,
   STORAGE_SERVER_AUTH,
@@ -23607,6 +23608,57 @@ function SettingsDrawer({
                   <ActionButton variant="secondary" className="settings-prompt-action" onClick={openPromptEditor} icon={<Brain size={15} />}>
                     编辑提示词
                   </ActionButton>
+                </div>
+                <div className="settings-context-policy">
+                  <div className="settings-section-header">
+                    <div>
+                      <strong>上下文控制</strong>
+                      <small>naimage 图片上下文叠加在模型原生 Agent 上下文之上；自动模式会按模型族选择策略。</small>
+                    </div>
+                    <span className="settings-update-status available">
+                      {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.label || "自动匹配"}
+                    </span>
+                  </div>
+                  <Field label="上下文策略">
+                    <select value={draftSettings.contextStrategy} onChange={(event) => update("contextStrategy", event.target.value as AppSettings["contextStrategy"])}>
+                      {CONTEXT_STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </Field>
+                  <InlineNotice tone="neutral">
+                    {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.detail}
+                    {draftSettings.contextStrategy === "auto" && /^gpt|codex|chatgpt/i.test(draftSettings.agentModel || "")
+                      ? " 当前模型将使用 Codex 级 272K 窗口，并在约 244.8K Token 时自动 checkpoint。"
+                      : draftSettings.contextStrategy === "auto" && /claude|anthropic/i.test(draftSettings.agentModel || "")
+                        ? " 当前模型将使用 Claude 策略，并按具体模型选择 200K 或长上下文窗口。"
+                        : ""}
+                  </InlineNotice>
+                  <Field label="压缩模型（可选）">
+                    <input
+                      value={draftSettings.compactModel}
+                      onChange={(event) => update("compactModel", event.target.value)}
+                      list="naimage-context-models"
+                      placeholder="留空时跟随当前 Agent 模型"
+                    />
+                  </Field>
+                  <datalist id="naimage-context-models">
+                    {visibleAgentModels.map((model) => <option key={model} value={model} />)}
+                  </datalist>
+                  {draftSettings.contextStrategy === "custom" ? (
+                    <div className="settings-runtime-fields settings-context-custom-fields">
+                      <Field label="上下文窗口 Token">
+                        <input type="number" min="8000" max="2000000" step="1000" value={draftSettings.contextWindowTokens} onChange={(event) => update("contextWindowTokens", Number(event.target.value))} />
+                      </Field>
+                      <Field label="有效窗口比例 %">
+                        <input type="number" min="50" max="99" step="1" value={draftSettings.contextEffectiveWindowPercent} onChange={(event) => update("contextEffectiveWindowPercent", Number(event.target.value))} />
+                      </Field>
+                      <Field label="自动压缩点 %">
+                        <input type="number" min="50" max="98" step="1" value={draftSettings.contextAutoCompactPercent} onChange={(event) => update("contextAutoCompactPercent", Number(event.target.value))} />
+                      </Field>
+                      <Field label="保留用户消息 Token">
+                        <input type="number" min="0" max="50000" step="1000" value={draftSettings.contextRetainedUserTokens} onChange={(event) => update("contextRetainedUserTokens", Number(event.target.value))} />
+                      </Field>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="settings-agent-integrations">
                   <div className="settings-section-header">

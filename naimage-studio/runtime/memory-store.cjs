@@ -1266,13 +1266,13 @@ function createMemoryStore(options = {}) {
       : String(store.mainPrompt || defaultMainAgentPrompt);
   }
 
-  function fastMemoryForPrompt(scope = {}) {
+  function fastMemoryForPrompt(scope = {}, limits = {}) {
     const exactScope = requiredFastMemoryScope(scope);
     if (!exactScope.ok) return "暂无绘画经验。";
     const store = readExternalStore("fastmemory");
     const entries = exactScopedFastMemoryEntries(store, exactScope);
     if (!entries.length) return "暂无绘画经验。";
-    return selectFastMemoryPromptContext(entries, scope).text || "暂无绘画经验。";
+    return selectFastMemoryPromptContext(entries, scope, limits).text || "暂无绘画经验。";
   }
 
   function memoryContextForPrompt() {
@@ -1320,14 +1320,15 @@ function createMemoryStore(options = {}) {
     return persisted.length ? persisted : "Tool completed without persistent text output.";
   }
 
-  function protocolItemForPersistence(item = {}) {
+  function protocolItemForPersistence(item = {}, limits = {}) {
     const type = String(item?.type || "");
     if (type === "message") {
+      const messageMaxChars = Math.max(12_000, Math.min(1_200_000, Number(limits.messageChars || 12_000)));
       const content = (Array.isArray(item.content) ? item.content : [])
         .map((part) => {
           const partType = String(part?.type || "");
           if (!["input_text", "output_text"].includes(partType)) return null;
-          return { type: partType, text: summarizeText(String(part.text || ""), 12000) };
+          return { type: partType, text: summarizeText(String(part.text || ""), messageMaxChars) };
         })
         .filter(Boolean);
       return content.length ? { type, role: String(item.role || "assistant"), content } : null;
@@ -1381,26 +1382,43 @@ function createMemoryStore(options = {}) {
     };
   }
 
-  function conversationProtocolItemsForPrompt(payload = {}) {
+  function conversationProtocolItemsForPrompt(payload = {}, limits = {}) {
     const turns = protocolStateForPayload(payload).turns;
+    const maxTurns = Math.max(1, Number(limits.maxTurns || protocolHistoryMaxTurns));
+    const maxPromptChars = Math.max(4_000, Number(limits.promptChars || protocolHistoryPromptChars));
     const selected = [];
     let chars = 0;
     for (const turn of [...turns].reverse()) {
       const turnChars = safeJson(turn.items).length;
-      if (selected.length && chars + turnChars > protocolHistoryPromptChars) break;
+      if (selected.length && chars + turnChars > maxPromptChars) break;
       selected.unshift(turn);
       chars += turnChars;
-      if (selected.length >= protocolHistoryMaxTurns) break;
+      if (selected.length >= maxTurns) break;
     }
     return selected.flatMap((turn) => turn.items);
   }
 
-  function appendConversationProtocolTurn(payload = {}, items = []) {
-    const persistedItems = (Array.isArray(items) ? items : []).map(protocolItemForPersistence).filter(Boolean);
+  function persistedProtocolItems(items = [], limits = {}) {
+    const persistedItems = (Array.isArray(items) ? items : []).map((item) => protocolItemForPersistence(item, limits)).filter(Boolean);
+    return persistedItems;
+  }
+
+  function appendConversationProtocolTurn(payload = {}, items = [], limits = {}) {
+    const persistedItems = persistedProtocolItems(items, limits);
     if (!persistedItems.length) return;
+    const maxTurns = Math.max(1, Number(limits.maxTurns || protocolHistoryMaxTurns));
+    const maxStoreChars = Math.max(8_000, Number(limits.storeChars || protocolHistoryStoreChars));
     const state = protocolStateForPayload(payload);
-    const turns = [...state.turns, { createdAt: new Date().toISOString(), items: persistedItems }].slice(-protocolHistoryMaxTurns);
-    while (turns.length > 1 && safeJson(turns).length > protocolHistoryStoreChars) turns.shift();
+    const turns = [...state.turns, { createdAt: new Date().toISOString(), items: persistedItems }].slice(-maxTurns);
+    while (turns.length > 1 && safeJson(turns).length > maxStoreChars) turns.shift();
+    writeRuntimeMetaJson(conversationProtocolKey(payload), { version: 1, turns, updatedAt: new Date().toISOString() });
+  }
+
+  function replaceConversationProtocolItems(payload = {}, items = [], limits = {}) {
+    const persistedItems = persistedProtocolItems(items, limits);
+    const maxStoreChars = Math.max(8_000, Number(limits.storeChars || protocolHistoryStoreChars));
+    while (persistedItems.length > 1 && safeJson(persistedItems).length > maxStoreChars) persistedItems.shift();
+    const turns = persistedItems.length ? [{ createdAt: new Date().toISOString(), items: persistedItems }] : [];
     writeRuntimeMetaJson(conversationProtocolKey(payload), { version: 1, turns, updatedAt: new Date().toISOString() });
   }
 
@@ -1474,6 +1492,7 @@ function createMemoryStore(options = {}) {
     memoryRead,
     recentContextForPrompt,
     recordContextEntry,
+    replaceConversationProtocolItems,
     requiredFastMemoryScope,
     resetFastMemory,
     resetMainPrompt,

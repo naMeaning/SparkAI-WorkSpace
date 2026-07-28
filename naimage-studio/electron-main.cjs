@@ -289,6 +289,11 @@ const defaultSettings = {
   agentModel: "",
   agentModelPool: [],
   compactModel: "",
+  contextStrategy: "auto",
+  contextWindowTokens: 272_000,
+  contextEffectiveWindowPercent: 95,
+  contextAutoCompactPercent: 90,
+  contextRetainedUserTokens: 20_000,
   reasoningEffort: "low",
   fastMode: false,
   timeoutSeconds: 180,
@@ -558,6 +563,25 @@ function migrateSettings(value) {
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))]
     : [];
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
+  next.contextStrategy = ["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))
+    ? String(next.contextStrategy)
+    : defaultSettings.contextStrategy;
+  const contextWindowTokens = Number(next.contextWindowTokens);
+  next.contextWindowTokens = Number.isFinite(contextWindowTokens)
+    ? Math.max(8_000, Math.min(2_000_000, Math.round(contextWindowTokens)))
+    : defaultSettings.contextWindowTokens;
+  const contextEffectiveWindowPercent = Number(next.contextEffectiveWindowPercent);
+  next.contextEffectiveWindowPercent = Number.isFinite(contextEffectiveWindowPercent)
+    ? Math.max(50, Math.min(99, Math.round(contextEffectiveWindowPercent)))
+    : defaultSettings.contextEffectiveWindowPercent;
+  const contextAutoCompactPercent = Number(next.contextAutoCompactPercent);
+  next.contextAutoCompactPercent = Number.isFinite(contextAutoCompactPercent)
+    ? Math.max(50, Math.min(Math.min(98, next.contextEffectiveWindowPercent), Math.round(contextAutoCompactPercent)))
+    : defaultSettings.contextAutoCompactPercent;
+  const contextRetainedUserTokens = Number(next.contextRetainedUserTokens);
+  next.contextRetainedUserTokens = Number.isFinite(contextRetainedUserTokens)
+    ? Math.max(0, Math.min(50_000, Math.round(contextRetainedUserTokens)))
+    : defaultSettings.contextRetainedUserTokens;
   next.reasoningEffort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(next.reasoningEffort)) ? String(next.reasoningEffort) : "low";
   const timeoutSeconds = Number(next.timeoutSeconds);
   next.timeoutSeconds = Number.isFinite(timeoutSeconds)

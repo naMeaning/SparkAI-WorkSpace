@@ -81,6 +81,7 @@ export type ThemePaletteChoice =
 export type AgentProviderChoice = "CODEX" | "CUSTOM";
 export type AccessMode = "account" | "custom";
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+export type ContextStrategyId = "auto" | "codex" | "claude" | "naimage-balanced" | "custom";
 export type MessageRole = "user" | "assistant" | "system";
 export type AgentStatus = "idle" | "thinking" | "editing" | "error";
 export type NodeStatus = "queued" | "working" | "review" | "done";
@@ -95,6 +96,11 @@ export type ApiSettings = {
   agentModel: string;
   agentModelPool: string[];
   compactModel: string;
+  contextStrategy: ContextStrategyId;
+  contextWindowTokens: number;
+  contextEffectiveWindowPercent: number;
+  contextAutoCompactPercent: number;
+  contextRetainedUserTokens: number;
   reasoningEffort: ReasoningEffort;
   fastMode: boolean;
   timeoutSeconds: number;

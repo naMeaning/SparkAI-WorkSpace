@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   AGENT_PROVIDER_OPTIONS,
+  CONTEXT_STRATEGY_OPTIONS,
   DEFAULT_ACCOUNT_BASE_URL,
   DEFAULT_UPDATE_BASE_URL,
   REASONING_EFFORT_OPTIONS,
@@ -17,11 +18,15 @@ import {
 } from "../src/settings-persistence.ts";
 assert.deepEqual(AGENT_PROVIDER_OPTIONS.map((option) => option.value), ["CODEX", "CUSTOM"]);
 assert.deepEqual(REASONING_EFFORT_OPTIONS.map((option) => option.value), ["low", "medium", "high", "xhigh", "max", "ultra"]);
+assert.deepEqual(CONTEXT_STRATEGY_OPTIONS.map((option) => option.value), ["auto", "codex", "claude", "naimage-balanced", "custom"]);
 assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream"]);
 assert.equal(defaultSettings.theme, "light");
 assert.equal(defaultSettings.themePalette, "anthropic");
 assert.equal(defaultSettings.agentPanelPlacement, "right");
 assert.equal(defaultSettings.agentPanelWidth, 390);
+assert.equal(defaultSettings.contextStrategy, "auto");
+assert.equal(defaultSettings.contextWindowTokens, 272_000);
+assert.equal(defaultSettings.contextAutoCompactPercent, 90);
 assert.deepEqual(defaultSettings.agentSkillAutoInstallTargets, []);
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
@@ -91,6 +96,18 @@ assert.equal(repairedAgentPanel.agentPanelHeight, 1_400);
 assert.equal(repairedAgentPanel.agentPanelX, 0);
 assert.equal(repairedAgentPanel.agentPanelY, 10_000);
 assert.deepEqual(mergeSettings({ agentSkillAutoInstallTargets: ["codex", "unknown", "codex", "openclaw"] as never }).agentSkillAutoInstallTargets, ["codex", "openclaw"]);
+const repairedContext = mergeSettings({
+  contextStrategy: "unsupported" as never,
+  contextWindowTokens: 1,
+  contextEffectiveWindowPercent: 200,
+  contextAutoCompactPercent: 2,
+  contextRetainedUserTokens: 999_999
+});
+assert.equal(repairedContext.contextStrategy, "auto");
+assert.equal(repairedContext.contextWindowTokens, 8_000);
+assert.equal(repairedContext.contextEffectiveWindowPercent, 99);
+assert.equal(repairedContext.contextAutoCompactPercent, 50);
+assert.equal(repairedContext.contextRetainedUserTokens, 50_000);
 assert.equal(repaired.agentProvider, "CODEX");
 assert.equal(repaired.reasoningEffort, "low");
 assert.equal(repaired.theme, "light");
@@ -160,4 +177,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 48 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 57 })}\n`);

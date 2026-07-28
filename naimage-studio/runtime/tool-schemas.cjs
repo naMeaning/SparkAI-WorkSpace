@@ -385,7 +385,7 @@ function toolSchemas(settings = {}) {
   ]);
 }
 
-function agentToolSchemas(settings = {}) {
+function agentToolSchemas(settings = {}, options = {}) {
   const schemas = toolSchemas(settings);
   const imageTool = schemas.find((tool) => String(tool.function?.name || "") === primaryImageToolName);
   if (!imageTool) return [];
@@ -504,10 +504,11 @@ function agentToolSchemas(settings = {}) {
       }
     : null;
   const publicNames = ["shell_command", "view_image", "ask_user"];
+  const includeNativeWebSearch = options.includeNativeWebSearch !== false;
   const publicTools = [
     publicImageTool,
     ...schemas.filter((tool) => publicNames.includes(String(tool.function?.name || ""))),
-    nativeWebSearchToolSchema(),
+    ...(includeNativeWebSearch ? [nativeWebSearchToolSchema()] : []),
     ...(publicExperienceTool ? [publicExperienceTool] : []),
     ...(publicWorkflowTool ? [publicWorkflowTool] : [])
   ];
