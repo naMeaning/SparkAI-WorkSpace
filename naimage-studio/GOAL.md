@@ -34,11 +34,11 @@
 
 ### 3. 接入状态懒加载与手动刷新
 
-- 状态：`部分实现`
-- 当前基础：模型列表有 Electron 内存缓存；账户登录、密钥与分组链路已存在。
-- 缺口：需要脱敏的本地快照、设置页优先读缓存、明确的“刷新密钥/分组/模型”按钮，并避免打开设置即联网。
+- 状态：`已验证`
+- 已实现：Electron Main 按 `accountBaseUrl + serverUserId` 保存最多 8 份账户密钥脱敏快照；模型目录继续使用独立磁盘缓存。设置抽屉挂载时只读取本地密钥/模型快照，切换到“接入”页不再触发网络请求；用户点击“刷新密钥与分组”或“刷新模型”后才访问 New API，单击即强制刷新，不再保留隐藏的六次点击逻辑。
+- 安全：账户快照不保存完整或掩码 Key、Cookie、`allowIps`、`modelLimits`；完整 Key 仍只在 Main 内存。无模型快照时只使用设置中已保存的模型池，不联网。
 - 权威文件：`desktop/new-api-client.cjs`、`desktop/account-token-service.cjs`、`desktop/ipc/server-ipc.cjs`、`src/main.tsx`。
-- 证明：离线缓存与显式刷新 selftest；设置页专项 UI 冒烟。
+- 证明：`test:account-token`、`test:settings-lazy-load` 12 cases、`test:ipc-registration`、`test:settings-persistence` 59 cases、`typecheck`、正式 `build` 与 `test:bundle`。本批没有运行全量 AIDebug。
 
 ### 4. Agent 自由浮动窗口与四向停靠
 
@@ -116,6 +116,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成设置接入状态懒加载；账户密钥与模型/分组优先读取本地脱敏快照，显式按钮单击才访问 New API，并移除六次点击强刷逻辑。
 - 2026-07-28：完成真正的独立 Electron Agent 窗口；主 Renderer 权威状态与独立表面双向同步，浮窗可发送/停止任务、管理会话和图片上下文并收回任一停靠方向，定向双窗口测试完成真实 mock Agent 往返。
 - 2026-07-28：完成 Agent 四向停靠与应用内浮动，独立窗口仍待实现；完成自定义模型文案、提示词复制区布局和 resize 零 React 高频提交优化，并新增 16 项纯布局测试与 17 项 Electron 定向 UI 验证。
 - 2026-07-28：完成模型感知上下文策略和 Codex 式 checkpoint；修复 Codex 长消息仍被 12K 字符截断的问题，新增 16 项 Runtime checkpoint 专项验证。

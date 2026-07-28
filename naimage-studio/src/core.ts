@@ -1069,7 +1069,7 @@ export type ServerPublicSettings = {
   channelName?: string;
   serviceReady?: boolean;
   keyManaged?: boolean;
-  cacheSource?: "network" | "memory" | "disk" | "stale";
+  cacheSource?: "network" | "memory" | "disk" | "stale" | "settings";
   cacheAgeMs?: number;
   cacheTtlMs?: number;
 };
@@ -1105,6 +1105,9 @@ export type AccountApiTokenListResult = {
   tokens?: AccountApiToken[];
   selectedTokenId?: string;
   baseUrl?: string;
+  cached?: boolean;
+  cacheAvailable?: boolean;
+  cacheUpdatedAt?: number;
   createdTokenId?: string;
   updatedTokenId?: string;
   deletedTokenId?: string;
@@ -1404,8 +1407,8 @@ export type ServerBridge = {
   logout(): Promise<{ ok: boolean; remoteLogout?: boolean }>;
   me(payload?: { preferCached?: boolean }): Promise<{ ok: boolean; stale?: boolean; cached?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
   logs(): Promise<{ ok: boolean; logs?: ServerLogEntry[]; error?: string }>;
-  models?(payload?: { forceRefresh?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
-  tokens?(): Promise<AccountApiTokenListResult>;
+  models?(payload?: { forceRefresh?: boolean; cacheOnly?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
+  tokens?(payload?: { preferCached?: boolean }): Promise<AccountApiTokenListResult>;
   selectToken?(payload: { id: string }): Promise<AccountApiTokenListResult & { token?: AccountApiToken }>;
   createToken?(payload: {
     name: string;

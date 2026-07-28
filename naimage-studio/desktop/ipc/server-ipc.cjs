@@ -294,7 +294,10 @@ function registerServerIpc({
     if (typeof payload?.group === "string") settings.modelGroup = payload.group.trim().slice(0, 120);
     log("new-api models");
     try {
-      const modelSettings = await newApiModelSettings(settings, { forceRefresh: payload?.forceRefresh === true });
+      const modelSettings = await newApiModelSettings(settings, {
+        forceRefresh: payload?.forceRefresh === true,
+        cacheOnly: payload?.cacheOnly === true
+      });
       return { ok: true, settings: modelSettings };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -302,13 +305,16 @@ function registerServerIpc({
     }
   });
 
-  ipcMain.handle("naimage:server:tokens", async () => {
+  ipcMain.handle("naimage:server:tokens", async (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     try {
       if (settings.accessMode === "custom") throw new Error("自定义接口模式不使用 SparkAPI 账户密钥。");
       if (aidebugMode && !aidebugLiveImage) {
         return {
           ok: true,
+          cached: payload?.preferCached === true,
+          cacheAvailable: true,
+          cacheUpdatedAt: Date.now(),
           selectedTokenId: "1",
           baseUrl: "https://sparkapi.org/v1",
           tokens: [{
@@ -329,7 +335,7 @@ function registerServerIpc({
           }]
         };
       }
-      return await accountTokenService.list(settings);
+      return await accountTokenService.list(settings, { preferCached: payload?.preferCached === true });
     } catch (error) {
       return { ok: false, tokens: [], error: error instanceof Error ? error.message : String(error) };
     }

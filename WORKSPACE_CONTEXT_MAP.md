@@ -87,8 +87,8 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改设置或旧配置迁移 | `src/settings-persistence.ts` | `AppSettings` 类型、Electron 设置 bridge、`test:settings-persistence` |
 | 修改资产 ID/路径清洗 | `src/asset-identity.ts` | Electron session 清洗、导入 worker、项目迁移 |
 | 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain | 当前选择、TaskScope、容器/关系、AIDebug 专项 |
-| 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | 服务端模型 DTO、设置页和 Agent 模型查询 |
-| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
+| 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
+| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | `account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
 | 修改外部 Agent 控制 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单 |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
 | 修改 `view_image` | `runtime/view-image-payload.cjs` + runtime facade | 允许根、payload 预算、Sharp、持久化排除 |
@@ -101,6 +101,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 cd E:\019创业项目\nimage\naimage-studio
 corepack pnpm run typecheck
 corepack pnpm run test:account-token
+corepack pnpm run test:settings-lazy-load
 corepack pnpm run test:automation-service
 corepack pnpm run test:agent-integration
 corepack pnpm run test:ipc-registration
@@ -116,7 +117,7 @@ corepack pnpm run test:bundle
 
 - 外部拖入图片先复制到当前项目管理目录；不得覆盖用户原图。
 - `config/`、Electron `userData/data/`、项目 session、素材、output 和 FastMemory 是用户/运行数据，普通代码整理不得清理。
-- Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存，磁盘只持久化所选 token 的 ID/名称/分组元数据。
+- Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存。磁盘可按账户保存脱敏的密钥列表/选择/额度/状态/分组快照，但不得包含完整或掩码 Key、Cookie、IP 白名单、模型限制。
 - 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
@@ -180,8 +181,8 @@ corepack pnpm run crm:check
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为 |
 | 设备激活 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 随机安装 ID、hash-only 存储、24 小时校验缓存、72 小时离线宽限、账号 Relay 402 门禁 |
-| 账户密钥 | `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
-| 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒缓存；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
+| 账户密钥 | `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
+| 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
 | 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览、最终 result、计费与结果落盘；模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |

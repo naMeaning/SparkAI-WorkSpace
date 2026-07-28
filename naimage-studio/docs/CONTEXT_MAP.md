@@ -1,6 +1,6 @@
 # naimage 上下文地图
 
-> 地图版本：5
+> 地图版本：6
 > 最近同步：2026-07-28
 > 对应桌面版本：1.0.6
 > 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
@@ -52,13 +52,13 @@ Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
   ├─ desktop/ipc/register-desktop-ipc.cjs：84 个 invoke handler + 4 个 send handler 的唯一注册顺序
   │    └─ config / automation / updater / session / agent / window / debug / project / asset / server registrar
-  ├─ 项目、session、模型缓存、更新状态
+  ├─ 项目、session、账户密钥脱敏快照、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
   ├─ desktop/model-catalog.cjs
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
   ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON/通用 SSE 与 Images SSE relay
-  ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、所选密钥元数据与 Main-only 完整 Key 内存缓存
+  ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、按账户隔离的脱敏磁盘快照与 Main-only 完整 Key 内存缓存
   ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token 与 Renderer 命令转发
   ├─ desktop/agent-integration-service.cjs：Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除
   ├─ desktop/agent-window-service.cjs：独立 Agent BrowserWindow 生命周期、主 Renderer 权威状态与命令中继
@@ -181,10 +181,12 @@ image_gen
 
 桌面有两种互斥但可运行时切换的接入模式：
 
-- `account`：用户名/密码登录 SparkAPI/New API；Cookie + `New-Api-User` 只用于 `/api/user/*`、`/api/token/*`、设备授权和更新。登录后桌面列出、创建、编辑、分组、启停和删除用户密钥，并用用户选择的完整 Key 直连 `accountBaseUrl/v1`。完整 Key 优先兼容原生 New API 在 token 列表/详情中的返回值，脱敏部署则通过 `POST /api/token/:id/key` 按需取回；两者都只缓存在 Electron Main 内存，不进入 Renderer、设置文件、模型缓存或日志。
+- `account`：用户名/密码登录 SparkAPI/New API；Cookie + `New-Api-User` 只用于 `/api/user/*`、`/api/token/*`、设备授权和更新。登录后桌面列出、创建、编辑、分组、启停和删除用户密钥，并用用户选择的完整 Key 直连 `accountBaseUrl/v1`。完整 Key 优先兼容原生 New API 在 token 列表/详情中的返回值，脱敏部署则通过 `POST /api/token/:id/key` 按需取回；两者都只缓存在 Electron Main 内存，不进入 Renderer、设置文件、模型缓存或日志。`account-token-cache.json` 只按账户地址 + user ID 保存最多 8 份公开元数据快照，不保存任何 Key、Cookie、IP 白名单或模型限制。
 - `custom`：用户提供 Base URL、API Key、Agent 模型和生图模型；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。
 
 两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
+
+设置页数据加载是显式的离线优先边界：挂载时 `tokens({ preferCached: true })` 与 `models({ cacheOnly: true })` 只读 Main 本地快照；没有模型快照时回退到设置内模型池。切换设置分区不会联网；只有“刷新密钥与分组”“刷新模型”、密钥 CRUD 或切换密钥等明确用户动作可以请求 New API。模型磁盘快照即使超过 60 秒，在 `cacheOnly` 模式下也可用于离线显示，并标记来源/更新时间；正常运行时的 60 秒缓存规则仍保持。
 
 账号模式的标准 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。密钥分组由 New API token 自身决定，桌面不得再向模型/生图 JSON 或 multipart 注入 `group`。自定义模式的纯文生图优先请求图片渠道的 `POST /v1/responses`：顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 image_generation 工具不受支持时，才回退 `/v1/images/generations` 非流式 JSON；HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。自定义编辑/参考图仍走 `/v1/images/edits` multipart 非流式链路。
 
@@ -326,7 +328,7 @@ Renderer UpdaterBridge
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
 | `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:custom-api-transport`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
-| `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、公开脱敏 DTO、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key 文件或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `select` | `test:account-token`, `test:ipc-registration`, `typecheck` |
+| `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、按账户隔离的公开元数据磁盘快照、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key/Cookie/IP 白名单/模型限制或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `list`, `select` | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck` |
 | `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联与超时 | 业务命令实现、AIDebug hook、远端监听或长期 Token | `createAutomationService`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:ipc-registration`, `test:bundle` |
 | `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI 安装更新和受控移除 | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件 | `createAgentIntegrationService`, `naimage.ps1`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, Skill `quick_validate.py`, `test:bundle` |
 | `desktop/agent-window-service.cjs`, `agent-window-*` | 独立 Agent BrowserWindow 生命周期、主 Renderer owner 绑定、有界状态/命令中继与隔离表面 | Agent Runtime、模型请求、项目写入、凭据、画布 reducer | `createAgentWindowService`, `publishState`, `forwardCommand`, `naimageAgentWindowSurface` | `test:agent-window`, `test:agent-window-ui`, `test:ipc-registration`, `test:lifecycle` |
@@ -514,7 +516,8 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | 需求节点 | `requirement-graph.ts`, `requirement-signature.ts`, dialogs, `main.tsx` | TaskScope、重复执行 gate、关系边 | requirement、task-scope、execution-gate、AIDebug suites |
 | Agent Prompt/tool/schema | `agent-runtime.cjs` | `src/core.ts` 类型、`src/agent.ts`、action handler、产品意图 | `test:agent-text`, `test:agent-protocol`, `aidebug:gui` |
 | `view_image` | `runtime/view-image-payload.cjs`, `agent-runtime.cjs` | 允许根、payload 预算、Sharp、持久化排除 | `test:view-image`, `test:agent-protocol` |
-| 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs` | 服务响应 DTO、60 秒缓存、设置/Agent 共用模型 | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
+| 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs` | 服务响应 DTO、60 秒运行缓存、`cacheOnly` 离线磁盘快照、设置/Agent 共用模型 | `test:model-catalog`, `test:settings-lazy-load`, `test:ipc-registration`, `test:new-api-transport` |
+| 账户密钥快照/显式刷新 | `desktop/account-token-service.cjs`, server IPC, `src/main.tsx` | 按账户隔离、脱敏字段、preload bridge、设置页不得自动联网 | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
 | 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette`、Electron `defaultSettings/migrateSettings` 镜像、Vite `studio-dialogs` 懒加载 chunk | `test:settings-persistence`, `test:ui-foundation`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
@@ -542,7 +545,8 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | --- | --- | --- |
 | `app-settings.json` | App 设置、账号 session、所选账户密钥的 ID/名称/分组元数据、自定义 API Key、可选应用级代理 URL、随机安装 ID 与授权令牌 | Electron Main；账户完整 Key 不得写入该文件、日志、模型缓存或项目文件 |
 | `session.json` | 全局/兼容 session | Electron Main |
-| `model-cache.json` | 60 秒模型缓存的磁盘回退 | Electron Main；不得含 token/cookie/key |
+| `model-cache.json` | 60 秒模型运行缓存的磁盘回退；设置页 `cacheOnly` 可读取过期快照 | Electron Main；不得含 token/cookie/key |
+| `account-token-cache.json` | 最多 8 个账户的密钥公开元数据、选择状态与更新时间快照 | Electron Main；按账户地址 + user ID 隔离，不得含完整/掩码 Key、Cookie、IP 白名单或模型限制 |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
 | `projects/<id>/session.json` 或用户选择项目的 session | 画布、会话、容器、需求与资产引用 | Renderer 产生、Main 清洗并原子写入 |
 | `<project>/.naimage/project.json` | `naimage-project` manifest v2、revision 和统计 | Electron Main |
@@ -595,6 +599,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
 | New API transport / AIDebug image fixture / Images SSE / 显式代理 | `corepack pnpm run test:new-api-transport` |
 | New API 账户密钥列表/选择/CRUD、原生 Key 响应兼容与账号 `/v1` 直连 | `corepack pnpm run test:account-token` |
+| 设置页账户/模型离线快照与显式刷新 | `corepack pnpm run test:settings-lazy-load` |
 | 本机 loopback 自动化鉴权与正式 CLI | `corepack pnpm run test:automation-service` |
 | Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除 | `corepack pnpm run test:agent-integration` + Skill `quick_validate.py` |
 | 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |

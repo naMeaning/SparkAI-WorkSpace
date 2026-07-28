@@ -2308,9 +2308,9 @@ async function saveSessionToStore(session: StudioWorkflowSession & { projectId?:
   return { ok: true, appliedRevision: session.sessionRevision, skippedStale: false };
 }
 
-async function fetchServerModelSettings(forceRefresh = false, group = ""): Promise<ServerPublicSettings> {
+async function fetchServerModelSettings(forceRefresh = false, group = "", cacheOnly = false): Promise<ServerPublicSettings> {
   if (!window.naimageServer?.models) throw new Error("账户服务暂未提供模型列表。");
-  const result = await window.naimageServer.models({ forceRefresh, group });
+  const result = await window.naimageServer.models({ forceRefresh, cacheOnly, group });
   if (!result.ok) throw new Error(result.error ?? "模型列表拉取失败。");
   return result.settings ?? {};
 }
@@ -23026,6 +23026,12 @@ function SettingsDrawer({
   const [accountTokenBaseUrl, setAccountTokenBaseUrl] = useState("");
   const [accountTokenBusy, setAccountTokenBusy] = useState(false);
   const [accountTokenError, setAccountTokenError] = useState("");
+  const [accountTokenSnapshot, setAccountTokenSnapshot] = useState({
+    loaded: false,
+    cached: false,
+    available: false,
+    updatedAt: 0
+  });
   const [accountTokenEditor, setAccountTokenEditor] = useState<{
     mode: "create" | "edit";
     id: string;
@@ -23040,8 +23046,7 @@ function SettingsDrawer({
   const [integrationBusy, setIntegrationBusy] = useState(false);
   const [integrationError, setIntegrationError] = useState("");
   const modelLoadRef = useRef<Promise<void> | null>(null);
-  const pendingModelRefreshRef = useRef<{ force: boolean; group: string } | null>(null);
-  const manualModelRefreshCountRef = useRef(0);
+  const pendingModelRefreshRef = useRef<{ force: boolean; group: string; cacheOnly: boolean } | null>(null);
   const captchaRequestEpochRef = useRef(0);
   const captchaRequestInFlightRef = useRef(false);
   const savedThemeRef = useRef(settings);
@@ -23053,13 +23058,15 @@ function SettingsDrawer({
     groups: NonNullable<ServerPublicSettings["modelGroups"]>;
     error: string;
     cacheSource?: ServerPublicSettings["cacheSource"];
+    cacheAgeMs?: number;
   }>(() => ({
     loading: false,
     imageModels: imageModelsWithPreferredFallback([], draftSettings.imageModel, selectedImageModelsFromSettings(draftSettings)),
     agentModels: modelsWithPreferred([], draftSettings.agentModel, selectedAgentModelsFromSettings(draftSettings)),
     groups: [],
     error: "",
-    cacheSource: undefined
+    cacheSource: undefined,
+    cacheAgeMs: undefined
   }));
   const dirty = JSON.stringify(draftSettings) !== JSON.stringify(baselineSettings);
 
@@ -23088,25 +23095,26 @@ function SettingsDrawer({
     setDiscardArmed(false);
   }
 
-  async function refreshModels(forceRefresh = false, group = draftSettings.modelGroup): Promise<void> {
+  async function refreshModels(forceRefresh = false, group = draftSettings.modelGroup, cacheOnly = false): Promise<void> {
     if (modelLoadRef.current) {
       const pending = pendingModelRefreshRef.current;
       pendingModelRefreshRef.current = {
         force: Boolean(forceRefresh || pending?.force),
-        group: String(group || "")
+        group: String(group || ""),
+        cacheOnly: Boolean(cacheOnly && (pending?.cacheOnly ?? true))
       };
       const activeRequest = modelLoadRef.current;
       return activeRequest.then(async () => {
         const queued = pendingModelRefreshRef.current;
         if (!queued) return;
         pendingModelRefreshRef.current = null;
-        await refreshModels(queued.force, queued.group);
+        await refreshModels(queued.force, queued.group, queued.cacheOnly);
       });
     }
     setModelState((current) => ({ ...current, loading: true, error: "" }));
     const request = (async () => {
       try {
-        const serverSettings = await fetchServerModelSettings(forceRefresh, group);
+        const serverSettings = await fetchServerModelSettings(forceRefresh, group, cacheOnly);
         const serverModels = fullServerModelList(serverSettings);
         const imageModels = imageModelsWithPreferredFallback(serverModels, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
         const agentModels = modelsWithPreferred(serverModels, draftSettings.agentModel, draftSettings.agentModelPool);
@@ -23118,7 +23126,8 @@ function SettingsDrawer({
           agentModels,
           groups: serverSettings.modelGroups ?? [],
           error: "",
-          cacheSource: serverSettings.cacheSource
+          cacheSource: serverSettings.cacheSource,
+          cacheAgeMs: serverSettings.cacheAgeMs
         });
         setDraftSettings((current) =>
           normalizeModelPoolSelections(
@@ -23144,29 +23153,45 @@ function SettingsDrawer({
     return request;
   }
 
-  useEffect(() => {
-    void refreshModels();
-  }, []);
-
-  async function refreshAccountTokens() {
+  async function refreshAccountTokens(options: { preferCached?: boolean } = {}): Promise<AccountApiToken | undefined> {
     if (draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
     setAccountTokenBusy(true);
     setAccountTokenError("");
     try {
-      const result = await window.naimageServer.tokens();
+      const result = await window.naimageServer.tokens({ preferCached: options.preferCached === true });
       if (!result.ok) throw new Error(result.error || "无法获取账户密钥。");
       const tokens = result.tokens ?? [];
       setAccountTokens(tokens);
       setAccountTokenBaseUrl(result.baseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`);
+      setAccountTokenSnapshot({
+        loaded: true,
+        cached: result.cached === true,
+        available: result.cacheAvailable === true,
+        updatedAt: Math.max(0, Number(result.cacheUpdatedAt) || 0)
+      });
       const selected = tokens.find((token) => token.id === result.selectedTokenId);
       if (selected) syncSelectedAccountToken(selected);
+      return selected;
     } catch (error) {
       setAccountTokens([]);
+      setAccountTokenSnapshot((current) => ({ ...current, loaded: true }));
       setAccountTokenError(error instanceof Error ? error.message : String(error));
     } finally {
       setAccountTokenBusy(false);
     }
   }
+
+  async function refreshAccountAccess() {
+    const selected = await refreshAccountTokens();
+    await refreshModels(true, selected?.group || draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup);
+  }
+
+  useEffect(() => {
+    void refreshModels(false, draftSettings.modelGroup, true);
+    if (draftSettings.accessMode === "account" && draftSettings.serverUserId) {
+      void refreshAccountTokens({ preferCached: true });
+    }
+  }, []);
 
   function syncSelectedAccountToken(token?: AccountApiToken | null) {
     const patch = {
@@ -23285,7 +23310,6 @@ function SettingsDrawer({
   }
 
   useEffect(() => {
-    if (activeSection === "access" && draftSettings.accessMode === "account") void refreshAccountTokens();
     if (activeSection === "agent") void detectAgentIntegrations();
   }, [activeSection, draftSettings.accessMode]);
 
@@ -23343,10 +23367,7 @@ function SettingsDrawer({
   }, []);
 
   function handleManualModelRefresh() {
-    manualModelRefreshCountRef.current += 1;
-    const forceRefresh = manualModelRefreshCountRef.current >= 6;
-    if (forceRefresh) manualModelRefreshCountRef.current = 0;
-    void refreshModels(forceRefresh);
+    void refreshModels(true);
   }
 
   async function commitSettings() {
@@ -23602,11 +23623,18 @@ function SettingsDrawer({
                           <small>{accountTokenBaseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`}</small>
                         </div>
                         <div className="settings-inline-actions">
-                          <IconActionButton label="刷新密钥" icon={<RotateCcw size={14} />} onClick={() => void refreshAccountTokens()} disabled={accountTokenBusy} />
+                          <IconActionButton label="刷新密钥与分组" icon={<RotateCcw size={14} />} onClick={() => void refreshAccountAccess()} disabled={accountTokenBusy || modelState.loading} />
                           <ActionButton variant="secondary" icon={<Plus size={14} />} onClick={() => openAccountTokenEditor()}>新建密钥</ActionButton>
                         </div>
                       </div>
                       {accountTokenError ? <InlineNotice tone="danger">{accountTokenError}</InlineNotice> : null}
+                      {!accountTokenBusy && !accountTokenError && accountTokenSnapshot.loaded ? (
+                        <InlineNotice tone="neutral">
+                          {accountTokenSnapshot.available && accountTokenSnapshot.updatedAt > 0
+                            ? `${accountTokenSnapshot.cached ? "本地快照" : "账户数据"}更新于 ${new Date(accountTokenSnapshot.updatedAt).toLocaleString("zh-CN", { hour12: false })}。`
+                            : "尚无本地密钥快照，请点击“刷新密钥与分组”。"}
+                        </InlineNotice>
+                      ) : null}
                       {accountTokens.length ? (
                         <Field label="当前使用密钥">
                           <select
@@ -23622,7 +23650,7 @@ function SettingsDrawer({
                             ))}
                           </select>
                         </Field>
-                      ) : !accountTokenBusy && !accountTokenError ? <InlineNotice tone="neutral">当前账户还没有密钥，请新建一枚后使用。</InlineNotice> : null}
+                      ) : !accountTokenBusy && !accountTokenError && accountTokenSnapshot.available ? <InlineNotice tone="neutral">当前账户还没有密钥，请新建一枚后使用。</InlineNotice> : null}
                       {accountTokens.find((token) => token.id === draftSettings.selectedAccountTokenId) ? (() => {
                         const token = accountTokens.find((item) => item.id === draftSettings.selectedAccountTokenId)!;
                         return (
@@ -23720,10 +23748,19 @@ function SettingsDrawer({
                     icon={<RotateCcw size={15} />}
                     aria-label="获取模型"
                   >
-                    获取模型
+                    刷新模型
                   </ActionButton>
                 </div>
                 {modelState.error ? <InlineNotice className="setting-error" tone="danger">{modelState.error}</InlineNotice> : null}
+                {!modelState.error && modelState.cacheSource ? (
+                  <InlineNotice tone="neutral">
+                    {modelState.cacheSource === "network"
+                      ? "模型与分组已从服务端刷新，并保存为本地快照。"
+                      : modelState.cacheSource === "settings"
+                        ? "当前使用已保存的模型配置；点击“刷新模型”后才会访问服务端。"
+                        : `当前使用本地模型快照${modelState.cacheAgeMs !== undefined ? `（约 ${Math.max(0, Math.round(modelState.cacheAgeMs / 60_000))} 分钟前更新）` : ""}；点击“刷新模型”可获取最新数据。`}
+                  </InlineNotice>
+                ) : null}
                 {draftSettings.accessMode === "account"
                   ? <InlineNotice tone="neutral">当前分组由所选账户密钥决定：{draftSettings.selectedAccountTokenGroup || "尚未选择密钥"}。如需切换分组，请在“接入”页编辑或选择对应密钥。</InlineNotice>
                   : <InlineNotice tone="neutral">自定义接口模式直接使用 API Key 对应权限，不发送 SparkAPI 模型分组。</InlineNotice>}

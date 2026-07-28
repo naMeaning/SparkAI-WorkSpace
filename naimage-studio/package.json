@@ -65,6 +65,7 @@
     "test:project-save-coordinator": "node scripts/project-save-coordinator-selftest.cjs",
     "test:model-catalog": "node scripts/model-catalog-selftest.cjs",
     "test:settings-persistence": "node scripts/settings-persistence-selftest.ts",
+    "test:settings-lazy-load": "node scripts/settings-lazy-load-selftest.cjs",
     "test:paste-blocks": "node scripts/paste-block-selftest.ts",
     "test:agent-text-ui": "node scripts/agent-text-ui-aidebug.mjs",
     "test:aidebug-agent-fixtures": "node scripts/aidebug-agent-fixture-bridge-selftest.ts",

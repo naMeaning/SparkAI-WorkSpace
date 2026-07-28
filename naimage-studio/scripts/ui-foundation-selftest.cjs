@@ -280,8 +280,15 @@ check(
     !/\.agent-text-editor-layer\s*\{[\s\S]*?--ui-surface-z/.test(activeCss)
 );
 check(
-  "model cache bypass happens on the sixth consecutive manual refresh",
-  /manualModelRefreshCountRef\.current\s*>=\s*6/.test(businessUiSource)
+  "manual model refresh immediately requests fresh server state",
+  !/manualModelRefreshCountRef/.test(businessUiSource) &&
+    /function handleManualModelRefresh\(\)\s*\{\s*void refreshModels\(true\);\s*\}/.test(businessUiSource)
+);
+check(
+  "settings hydrate token and model state from local snapshots without remote access",
+  /refreshModels\(false,\s*draftSettings\.modelGroup,\s*true\)/.test(businessUiSource) &&
+    /refreshAccountTokens\(\{\s*preferCached:\s*true\s*\}\)/.test(businessUiSource) &&
+    !/activeSection === "access"[\s\S]{0,120}refreshAccountTokens\(\)/.test(businessUiSource)
 );
 check(
   "settings save availability is independent from model catalog loading",

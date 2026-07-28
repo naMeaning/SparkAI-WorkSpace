@@ -2,6 +2,8 @@
 
 const NEW_API_TOKEN_PAGE_SIZE = 100;
 const TOKEN_STATUS_ENABLED = 1;
+const TOKEN_SNAPSHOT_VERSION = 1;
+const TOKEN_SNAPSHOT_MAX_ENTRIES = 8;
 
 function tokenItemsFromPayload(payload) {
   const source = payload?.data ?? payload;
@@ -48,6 +50,42 @@ function publicToken(value = {}) {
   };
 }
 
+function cachedPublicToken(value = {}) {
+  return {
+    id: String(Math.floor(Number(value.id) || 0)),
+    name: String(value.name || "未命名密钥").trim().slice(0, 50),
+    status: Math.floor(Number(value.status) || 0),
+    remainQuota: Math.max(0, Math.floor(Number(value.remainQuota) || 0)),
+    usedQuota: Math.max(0, Math.floor(Number(value.usedQuota) || 0)),
+    unlimitedQuota: value.unlimitedQuota === true,
+    expiredTime: Math.floor(Number(value.expiredTime) || -1),
+    createdTime: Math.max(0, Math.floor(Number(value.createdTime) || 0)),
+    accessedTime: Math.max(0, Math.floor(Number(value.accessedTime) || 0)),
+    group: String(value.group || "default").trim().slice(0, 120) || "default",
+    modelLimitsEnabled: false,
+    modelLimits: "",
+    allowIps: "",
+    crossGroupRetry: value.crossGroupRetry !== false
+  };
+}
+
+function tokenSnapshotRecord(value = {}) {
+  const token = cachedPublicToken(value);
+  return {
+    id: token.id,
+    name: token.name,
+    status: token.status,
+    remainQuota: token.remainQuota,
+    usedQuota: token.usedQuota,
+    unlimitedQuota: token.unlimitedQuota,
+    expiredTime: token.expiredTime,
+    createdTime: token.createdTime,
+    accessedTime: token.accessedTime,
+    group: token.group,
+    crossGroupRetry: token.crossGroupRetry
+  };
+}
+
 function createAccountTokenService({
   defaultSettings,
   log = () => {},
@@ -57,10 +95,97 @@ function createAccountTokenService({
   readJson,
   requireNewApiSession,
   resolveNewApiBaseUrl,
+  tokenCachePath,
   settingsPath,
   writeJson
 }) {
   const keyCache = new Map();
+
+  function snapshotKey(settings) {
+    return [
+      resolveNewApiBaseUrl(settings, "account").toLowerCase(),
+      String(settings.serverUserId || "")
+    ].join("|");
+  }
+
+  function readSnapshots() {
+    if (!tokenCachePath) return { version: TOKEN_SNAPSHOT_VERSION, entries: {} };
+    const stored = readJson(tokenCachePath, { version: TOKEN_SNAPSHOT_VERSION, entries: {} });
+    return stored?.version === TOKEN_SNAPSHOT_VERSION && stored.entries && typeof stored.entries === "object"
+      ? stored
+      : { version: TOKEN_SNAPSHOT_VERSION, entries: {} };
+  }
+
+  function writeSnapshots(entries) {
+    if (!tokenCachePath) return;
+    const boundedEntries = Object.fromEntries(
+      Object.entries(entries)
+        .sort((left, right) => Number(right[1]?.updatedAt || 0) - Number(left[1]?.updatedAt || 0))
+        .slice(0, TOKEN_SNAPSHOT_MAX_ENTRIES)
+    );
+    writeJson(tokenCachePath, { version: TOKEN_SNAPSHOT_VERSION, entries: boundedEntries });
+  }
+
+  function persistTokenSnapshot(settings, tokens, selectedTokenId, updatedAt = Date.now()) {
+    if (!tokenCachePath) return;
+    const snapshots = readSnapshots();
+    snapshots.entries[snapshotKey(settings)] = {
+      updatedAt: Math.max(0, Math.floor(Number(updatedAt) || Date.now())),
+      selectedTokenId: String(selectedTokenId || ""),
+      baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
+      tokens: (Array.isArray(tokens) ? tokens : [])
+        .map(tokenSnapshotRecord)
+        .filter((token) => Number(token.id) > 0)
+        .slice(0, NEW_API_TOKEN_PAGE_SIZE)
+    };
+    writeSnapshots(snapshots.entries);
+  }
+
+  function updateCachedSelection(settings, token = null) {
+    if (!tokenCachePath) return;
+    const snapshots = readSnapshots();
+    const key = snapshotKey(settings);
+    const current = snapshots.entries[key];
+    if (!current) return;
+    const tokens = Array.isArray(current.tokens) ? current.tokens.map(tokenSnapshotRecord) : [];
+    const nextToken = token ? tokenSnapshotRecord(token) : null;
+    const nextTokens = nextToken && Number(nextToken.id) > 0
+      ? [...tokens.filter((item) => item.id !== nextToken.id), nextToken]
+      : tokens;
+    snapshots.entries[key] = {
+      ...current,
+      selectedTokenId: nextToken?.id || "",
+      tokens: nextTokens
+    };
+    writeSnapshots(snapshots.entries);
+  }
+
+  function cachedList(settings) {
+    requireNewApiSession(settings);
+    const snapshots = readSnapshots();
+    const snapshot = snapshots.entries[snapshotKey(settings)];
+    const baseUrl = normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account"));
+    if (!snapshot) {
+      return {
+        ok: true,
+        cached: true,
+        cacheAvailable: false,
+        cacheUpdatedAt: 0,
+        tokens: [],
+        selectedTokenId: String(settings.selectedAccountTokenId || ""),
+        baseUrl
+      };
+    }
+    return {
+      ok: true,
+      cached: true,
+      cacheAvailable: true,
+      cacheUpdatedAt: Math.max(0, Math.floor(Number(snapshot.updatedAt) || 0)),
+      tokens: (Array.isArray(snapshot.tokens) ? snapshot.tokens : []).map(cachedPublicToken).filter((token) => Number(token.id) > 0),
+      selectedTokenId: String(snapshot.selectedTokenId || settings.selectedAccountTokenId || ""),
+      baseUrl: String(snapshot.baseUrl || baseUrl)
+    };
+  }
 
   function cacheKey(settings, tokenId) {
     return [
@@ -92,10 +217,12 @@ function createAccountTokenService({
     settings.selectedAccountTokenId = next.selectedAccountTokenId;
     settings.selectedAccountTokenName = next.selectedAccountTokenName;
     settings.selectedAccountTokenGroup = next.selectedAccountTokenGroup;
+    updateCachedSelection(settings, token);
     return next;
   }
 
-  async function list(settings) {
+  async function list(settings, options = {}) {
+    if (options?.preferCached === true) return cachedList(settings);
     requireNewApiSession(settings);
     const response = await newApiRequest(settings, `/api/token/?p=1&size=${NEW_API_TOKEN_PAGE_SIZE}`, {
       headers: newApiUserAuthHeaders(settings),
@@ -115,12 +242,17 @@ function createAccountTokenService({
       persistSelection(settings, null);
       selectedTokenId = "";
     }
-    return {
+    const result = {
       ok: true,
       tokens,
       selectedTokenId,
-      baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account"))
+      baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
+      cached: false,
+      cacheAvailable: true,
+      cacheUpdatedAt: Date.now()
     };
+    persistTokenSnapshot(settings, tokens, selectedTokenId, result.cacheUpdatedAt);
+    return result;
   }
 
   async function tokenById(settings, tokenId) {
@@ -290,6 +422,9 @@ function createAccountTokenService({
 module.exports = {
   NEW_API_TOKEN_PAGE_SIZE,
   TOKEN_STATUS_ENABLED,
+  TOKEN_SNAPSHOT_MAX_ENTRIES,
+  TOKEN_SNAPSHOT_VERSION,
+  cachedPublicToken,
   createAccountTokenService,
   normalizeAccountApiBaseUrl,
   publicToken,

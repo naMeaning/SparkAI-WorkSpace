@@ -36,6 +36,7 @@ async function main() {
     allow_ips: "",
     cross_group_retry: true
   }];
+  let tokenSnapshot = null;
   const requests = [];
   const migrateSettings = (value) => ({ ...defaults, ...(value || {}) });
   const newApiRequest = async (_settings, endpoint, options = {}) => {
@@ -64,24 +65,50 @@ async function main() {
     }
     throw new Error(`Unexpected request ${options.method || "GET"} ${endpoint}`);
   };
-  const service = createAccountTokenService({
-    defaultSettings: defaults,
-    migrateSettings,
-    newApiRequest,
-    newApiUserAuthHeaders: () => ({ cookie: stored.serverSessionCookie, "New-Api-User": stored.serverUserId }),
-    readJson: () => stored,
-    requireNewApiSession(settings) {
-      if (!settings.serverSessionCookie || !settings.serverUserId) throw new Error("not logged in");
-    },
-    resolveNewApiBaseUrl: (settings) => settings.accountBaseUrl,
-    settingsPath: "fixture.json",
-    writeJson: (_path, value) => { stored = value; }
-  });
+  const createService = () => createAccountTokenService({
+      defaultSettings: defaults,
+      migrateSettings,
+      newApiRequest,
+      newApiUserAuthHeaders: () => ({ cookie: stored.serverSessionCookie, "New-Api-User": stored.serverUserId }),
+      readJson: (target, fallback) => target === "token-cache.json" ? (tokenSnapshot ?? fallback) : stored,
+      requireNewApiSession(settings) {
+        if (!settings.serverSessionCookie || !settings.serverUserId) throw new Error("not logged in");
+      },
+      resolveNewApiBaseUrl: (settings) => settings.accountBaseUrl,
+      settingsPath: "fixture.json",
+      tokenCachePath: "token-cache.json",
+      writeJson: (target, value) => {
+        if (target === "token-cache.json") tokenSnapshot = value;
+        else stored = value;
+      }
+    });
+  const service = createService();
 
   const listed = await service.list(stored);
   assert.equal(listed.tokens.length, 1);
   assert.equal(listed.tokens[0].group, "image");
   assert.equal("key" in listed.tokens[0], false, "Public token metadata must not contain a key field");
+  assert.equal(listed.cached, false);
+  assert.equal(listed.cacheAvailable, true);
+  assert.ok(listed.cacheUpdatedAt > 0);
+  const serializedSnapshot = JSON.stringify(tokenSnapshot);
+  assert.equal(serializedSnapshot.includes("sk-***masked***"), false, "Token snapshots must not contain even masked key fields");
+  assert.equal(serializedSnapshot.includes("session=fixture"), false, "Token snapshots must not contain login cookies");
+  assert.equal(/allow_?ips/i.test(serializedSnapshot), false, "Token snapshots must not contain IP restrictions");
+  assert.equal(/model_?limits/i.test(serializedSnapshot), false, "Token snapshots must not contain model restrictions");
+
+  const requestsBeforeCachedRead = requests.length;
+  const cached = await createService().list(stored, { preferCached: true });
+  assert.equal(cached.cached, true);
+  assert.equal(cached.cacheAvailable, true);
+  assert.equal(cached.tokens.length, 1);
+  assert.equal(cached.tokens[0].group, "image");
+  assert.equal(requests.length, requestsBeforeCachedRead, "Cached token reads must not access New API");
+
+  const otherAccount = { ...stored, serverUserId: "8" };
+  const isolated = await createService().list(otherAccount, { preferCached: true });
+  assert.equal(isolated.cacheAvailable, false, "Token snapshots must be isolated by New API user ID");
+  assert.equal(isolated.tokens.length, 0);
   await service.select(stored, "11");
   assert.equal(stored.selectedAccountTokenId, "11");
   assert.equal(stored.selectedAccountTokenGroup, "image");

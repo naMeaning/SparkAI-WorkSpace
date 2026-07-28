@@ -225,6 +225,39 @@ async function assertBestEffortRemoteLogout() {
   assert.equal(clearCalls, 2, "Local auth must clear even when remote logout fails");
 }
 
+async function assertSettingsSnapshotPayloads() {
+  const handlers = new Map();
+  const modelCalls = [];
+  const tokenCalls = [];
+  registerServerIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    aidebugMode: false,
+    aidebugLiveImage: false,
+    defaultSettings: {},
+    settingsPath: "fixture-settings.json",
+    migrateSettings: (value) => value,
+    readJson: () => ({ accessMode: "account", serverSessionCookie: "session=fixture", serverUserId: "7" }),
+    accountTokenService: {
+      list: async (_settings, options) => {
+        tokenCalls.push(options);
+        return { ok: true, tokens: [] };
+      }
+    },
+    newApiModelSettings: async (_settings, options) => {
+      modelCalls.push(options);
+      return { models: [] };
+    },
+    splitModelSettings: () => ({ models: [] }),
+    log: () => {}
+  });
+  const models = await handlers.get("naimage:server:models")(null, { cacheOnly: true, forceRefresh: false, group: "image" });
+  const tokens = await handlers.get("naimage:server:tokens")(null, { preferCached: true });
+  assert.equal(models.ok, true);
+  assert.equal(tokens.ok, true);
+  assert.deepEqual(modelCalls, [{ forceRefresh: false, cacheOnly: true }]);
+  assert.deepEqual(tokenCalls, [{ preferCached: true }]);
+}
+
 async function main() {
   const registrations = [];
   const eventRegistrations = [];
@@ -297,6 +330,7 @@ async function main() {
   assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
   await assertBestEffortRemoteLogout();
+  await assertSettingsSnapshotPayloads();
 
   process.stdout.write(`${JSON.stringify({
     ok: true,

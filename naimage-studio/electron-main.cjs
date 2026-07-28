@@ -221,6 +221,7 @@ const electronLog = electronLogOverride
 const settingsPath = path.join(configDir, "app-settings.json");
 const sessionPath = path.join(configDir, "session.json");
 const modelCachePath = path.join(configDir, "model-cache.json");
+const accountTokenCachePath = path.join(configDir, "account-token-cache.json");
 const projectListPath = path.join(configDir, "project-list.json");
 const projectsDir = path.join(configDir, "projects");
 const referencesDir = path.join(configDir, "references");
@@ -716,6 +717,7 @@ accountTokenService = createAccountTokenService({
   readJson,
   requireNewApiSession,
   resolveNewApiBaseUrl,
+  tokenCachePath: accountTokenCachePath,
   settingsPath,
   writeJson
 });
@@ -2339,11 +2341,28 @@ async function fetchNewApiModelSettings(settings) {
 
 async function newApiModelSettings(settings, options = {}) {
   const forceRefresh = options?.forceRefresh === true;
+  const cacheOnly = options?.cacheOnly === true;
   const cacheWasAlreadyLoaded = modelCacheDiskLoaded;
   loadModelCacheFromDisk(settings);
   const key = modelCacheKey(settings);
   const now = Date.now();
   const memoryEntry = modelCacheMemory.get(key);
+  if (cacheOnly) {
+    if (memoryEntry) {
+      return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt);
+    }
+    const fallbackModels = [
+      ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
+      ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
+      settings.agentModel,
+      settings.imageModel
+    ];
+    return modelSettingsWithCacheMeta(
+      cachedModelSettings(settings, { models: fallbackModels }),
+      "settings",
+      now
+    );
+  }
   if (!forceRefresh && memoryEntry && now - memoryEntry.cachedAt < modelCacheTtlMs) {
     return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt);
   }
