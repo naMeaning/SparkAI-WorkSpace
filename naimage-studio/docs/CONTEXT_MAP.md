@@ -476,9 +476,9 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 
 账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 naimage 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
 
-账户管理认证使用 session cookie 与 `New-Api-User`；标准模型接口认证使用所选 token 的 `Authorization: Bearer <key>`。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证、所选 token 元数据和完整 Key 内存缓存。主要契约：
+账户管理认证使用 session cookie 与 `New-Api-User`；标准模型接口认证使用所选 token 的 `Authorization: Bearer <key>`。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证、所选 token 元数据和完整 Key 内存缓存。账户密钥额度保留原始 quota，`desktop/account-token-quota.cjs` 使用公开状态中的 `quota_per_unit` 得到 R（`1 R = 1 USD`），再使用 `usd_exchange_rate` 得到人民币分值；`price` 是充值价格倍率，禁止参与余额换算。显式刷新时并行读取状态与密钥，缓存读取不联网。主要契约：
 
-- `/api/user/login`, `/api/user/self`, `/api/user/self/groups`, `/api/user/models?group=...`
+- `/api/status`（公开额度单位与美元汇率）、`/api/user/login`, `/api/user/self`, `/api/user/self/groups`, `/api/user/models?group=...`
 - `/api/token/?p=1&size=100`, `POST /api/token/:id/key`, `POST/PUT /api/token/`, `DELETE /api/token/:id/`
 - `/api/log/self`
 - `/v1/models`, `/v1/chat/completions`, `/v1/responses`
@@ -651,6 +651,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 账户密钥额度新增独立换算 owner：原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 得到人民币；设置页主显 `￥` 并保留 R/原始值审计，充值 `price` 不作为汇率。状态参数随手动刷新获取并进入无敏感信息的 v2 快照，打开设置仍保持零网络懒加载。 |
 | 2026-07-28 | 1.0.6 | 新增真正可移出主应用的独立 Electron Agent 窗口；`desktop/agent-window-service.cjs` 管理生命周期和 owner 中继，`src/agent-window-sync.ts` 在打开时按需加载并生成脱敏有界快照，独立表面将发送/停止/会话/图片上下文/记忆/收回命令转回唯一主 Renderer。双窗口 mock Agent 往返、关闭与上方收回均已验证。 |
 | 2026-07-28 | 1.0.6 | 产品定义固化为 Codex/Claude Code 式通用 Runtime 与 naimage 图片创作 Agent 的组合；新增 `src/agent-panel-layout.ts`，完成四向停靠、应用内浮动、rAF + CSS preview 拖动和松手单次持久化；提示词复制操作与滚动轨道分离，新增纯布局与 Electron 定向 UI 测试。 |
 | 2026-07-22 | 1.0.4 | 建立首版上下文地图；登记 `src/window-controls.tsx` 与 `desktop/project-save-coordinator.cjs`；补全进程拓扑、调用链、跨边界契约、镜像规则、持久化和测试映射。 |

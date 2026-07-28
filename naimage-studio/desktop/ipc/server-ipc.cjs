@@ -317,6 +317,7 @@ function registerServerIpc({
           cacheUpdatedAt: Date.now(),
           selectedTokenId: "1",
           baseUrl: "https://sparkapi.org/v1",
+          quotaPolicy: { quotaPerR: 500_000, usdToCnyRate: 7.3 },
           tokens: [{
             id: "1",
             name: "AIDebug 密钥",
@@ -331,7 +332,15 @@ function registerServerIpc({
             modelLimitsEnabled: false,
             modelLimits: "",
             allowIps: "",
-            crossGroupRetry: true
+            crossGroupRetry: true,
+            quotaPerR: 500_000,
+            usdToCnyRate: 7.3,
+            remainR: 10,
+            remainUsd: 10,
+            remainCnyCents: 7_300,
+            remainRDisplay: "10",
+            remainCnyDisplay: "￥73.00",
+            quotaAuditLabel: "10 R · 原始额度 5,000,000 · 1 R = 1 USD · $1 = ￥7.30"
           }]
         };
       }

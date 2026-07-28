@@ -1097,6 +1097,19 @@ export type AccountApiToken = {
   modelLimits: string;
   allowIps: string;
   crossGroupRetry: boolean;
+  quotaPerR: number;
+  usdToCnyRate: number;
+  remainR: number;
+  remainUsd: number;
+  remainCnyCents: number;
+  remainRDisplay: string;
+  remainCnyDisplay: string;
+  quotaAuditLabel: string;
+};
+
+export type AccountQuotaPolicy = {
+  quotaPerR: number;
+  usdToCnyRate: number;
 };
 
 export type AccountApiTokenListResult = {
@@ -1104,6 +1117,7 @@ export type AccountApiTokenListResult = {
   tokens?: AccountApiToken[];
   selectedTokenId?: string;
   baseUrl?: string;
+  quotaPolicy?: AccountQuotaPolicy;
   cached?: boolean;
   cacheAvailable?: boolean;
   cacheUpdatedAt?: number;

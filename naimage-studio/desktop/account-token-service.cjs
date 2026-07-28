@@ -1,8 +1,14 @@
 "use strict";
 
+const {
+  accountTokenQuotaFields,
+  normalizeAccountQuotaPolicy
+} = require("./account-token-quota.cjs");
+
 const NEW_API_TOKEN_PAGE_SIZE = 100;
 const TOKEN_STATUS_ENABLED = 1;
-const TOKEN_SNAPSHOT_VERSION = 1;
+const TOKEN_SNAPSHOT_VERSION = 2;
+const LEGACY_TOKEN_SNAPSHOT_VERSION = 1;
 const TOKEN_SNAPSHOT_MAX_ENTRIES = 8;
 
 function tokenItemsFromPayload(payload) {
@@ -31,8 +37,8 @@ function fullKeyFromToken(value = {}) {
   return key;
 }
 
-function publicToken(value = {}) {
-  return {
+function publicToken(value = {}, quotaPolicy = {}) {
+  const token = {
     id: String(Math.floor(Number(value.id) || 0)),
     name: String(value.name || "未命名密钥").trim().slice(0, 50),
     status: Math.floor(Number(value.status) || 0),
@@ -48,10 +54,11 @@ function publicToken(value = {}) {
     allowIps: String(value.allow_ips || "").trim().slice(0, 4_096),
     crossGroupRetry: value.cross_group_retry === true || value.cross_group_retry === 1
   };
+  return { ...token, ...accountTokenQuotaFields(token.remainQuota, token.unlimitedQuota, quotaPolicy) };
 }
 
-function cachedPublicToken(value = {}) {
-  return {
+function cachedPublicToken(value = {}, quotaPolicy = {}) {
+  const token = {
     id: String(Math.floor(Number(value.id) || 0)),
     name: String(value.name || "未命名密钥").trim().slice(0, 50),
     status: Math.floor(Number(value.status) || 0),
@@ -67,6 +74,7 @@ function cachedPublicToken(value = {}) {
     allowIps: "",
     crossGroupRetry: value.crossGroupRetry !== false
   };
+  return { ...token, ...accountTokenQuotaFields(token.remainQuota, token.unlimitedQuota, quotaPolicy) };
 }
 
 function tokenSnapshotRecord(value = {}) {
@@ -111,8 +119,8 @@ function createAccountTokenService({
   function readSnapshots() {
     if (!tokenCachePath) return { version: TOKEN_SNAPSHOT_VERSION, entries: {} };
     const stored = readJson(tokenCachePath, { version: TOKEN_SNAPSHOT_VERSION, entries: {} });
-    return stored?.version === TOKEN_SNAPSHOT_VERSION && stored.entries && typeof stored.entries === "object"
-      ? stored
+    return (stored?.version === TOKEN_SNAPSHOT_VERSION || stored?.version === LEGACY_TOKEN_SNAPSHOT_VERSION) && stored.entries && typeof stored.entries === "object"
+      ? { version: TOKEN_SNAPSHOT_VERSION, entries: stored.entries }
       : { version: TOKEN_SNAPSHOT_VERSION, entries: {} };
   }
 
@@ -126,13 +134,28 @@ function createAccountTokenService({
     writeJson(tokenCachePath, { version: TOKEN_SNAPSHOT_VERSION, entries: boundedEntries });
   }
 
-  function persistTokenSnapshot(settings, tokens, selectedTokenId, updatedAt = Date.now()) {
+  function quotaPolicyFromSnapshot(settings) {
+    const snapshot = readSnapshots().entries[snapshotKey(settings)];
+    return normalizeAccountQuotaPolicy(snapshot?.quotaPolicy);
+  }
+
+  async function loadQuotaPolicy(settings) {
+    try {
+      return normalizeAccountQuotaPolicy(await newApiRequest(settings, "/api/status", { retries: 0 }));
+    } catch (error) {
+      log(`new-api quota policy failed ${error instanceof Error ? error.message : String(error)}`);
+      return quotaPolicyFromSnapshot(settings);
+    }
+  }
+
+  function persistTokenSnapshot(settings, tokens, selectedTokenId, quotaPolicy, updatedAt = Date.now()) {
     if (!tokenCachePath) return;
     const snapshots = readSnapshots();
     snapshots.entries[snapshotKey(settings)] = {
       updatedAt: Math.max(0, Math.floor(Number(updatedAt) || Date.now())),
       selectedTokenId: String(selectedTokenId || ""),
       baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
+      quotaPolicy: normalizeAccountQuotaPolicy(quotaPolicy),
       tokens: (Array.isArray(tokens) ? tokens : [])
         .map(tokenSnapshotRecord)
         .filter((token) => Number(token.id) > 0)
@@ -165,6 +188,7 @@ function createAccountTokenService({
     const snapshots = readSnapshots();
     const snapshot = snapshots.entries[snapshotKey(settings)];
     const baseUrl = normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account"));
+    const quotaPolicy = normalizeAccountQuotaPolicy(snapshot?.quotaPolicy);
     if (!snapshot) {
       return {
         ok: true,
@@ -173,7 +197,8 @@ function createAccountTokenService({
         cacheUpdatedAt: 0,
         tokens: [],
         selectedTokenId: String(settings.selectedAccountTokenId || ""),
-        baseUrl
+        baseUrl,
+        quotaPolicy
       };
     }
     return {
@@ -181,9 +206,10 @@ function createAccountTokenService({
       cached: true,
       cacheAvailable: true,
       cacheUpdatedAt: Math.max(0, Math.floor(Number(snapshot.updatedAt) || 0)),
-      tokens: (Array.isArray(snapshot.tokens) ? snapshot.tokens : []).map(cachedPublicToken).filter((token) => Number(token.id) > 0),
+      tokens: (Array.isArray(snapshot.tokens) ? snapshot.tokens : []).map((token) => cachedPublicToken(token, quotaPolicy)).filter((token) => Number(token.id) > 0),
       selectedTokenId: String(snapshot.selectedTokenId || settings.selectedAccountTokenId || ""),
-      baseUrl: String(snapshot.baseUrl || baseUrl)
+      baseUrl: String(snapshot.baseUrl || baseUrl),
+      quotaPolicy
     };
   }
 
@@ -224,13 +250,16 @@ function createAccountTokenService({
   async function list(settings, options = {}) {
     if (options?.preferCached === true) return cachedList(settings);
     requireNewApiSession(settings);
-    const response = await newApiRequest(settings, `/api/token/?p=1&size=${NEW_API_TOKEN_PAGE_SIZE}`, {
-      headers: newApiUserAuthHeaders(settings),
-      retries: 0
-    });
+    const [response, quotaPolicy] = await Promise.all([
+      newApiRequest(settings, `/api/token/?p=1&size=${NEW_API_TOKEN_PAGE_SIZE}`, {
+        headers: newApiUserAuthHeaders(settings),
+        retries: 0
+      }),
+      loadQuotaPolicy(settings)
+    ]);
     const tokens = tokenItemsFromPayload(response)
       .map((value) => {
-        const token = publicToken(value);
+        const token = publicToken(value, quotaPolicy);
         const apiKey = fullKeyFromToken(value);
         if (apiKey && Number(token.id) > 0) keyCache.set(cacheKey(settings, token.id), apiKey);
         return token;
@@ -247,11 +276,12 @@ function createAccountTokenService({
       tokens,
       selectedTokenId,
       baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
+      quotaPolicy,
       cached: false,
       cacheAvailable: true,
       cacheUpdatedAt: Date.now()
     };
-    persistTokenSnapshot(settings, tokens, selectedTokenId, result.cacheUpdatedAt);
+    persistTokenSnapshot(settings, tokens, selectedTokenId, quotaPolicy, result.cacheUpdatedAt);
     return result;
   }
 
@@ -263,7 +293,7 @@ function createAccountTokenService({
       retries: 0
     });
     const rawToken = response?.data ?? response;
-    const token = publicToken(rawToken);
+    const token = publicToken(rawToken, quotaPolicyFromSnapshot(settings));
     if (Number(token.id) !== id) throw new Error("账户服务没有返回所选密钥。");
     const apiKey = fullKeyFromToken(rawToken);
     if (apiKey) keyCache.set(cacheKey(settings, id), apiKey);
@@ -386,7 +416,9 @@ function createAccountTokenService({
       retries: 0
     });
     clearKeyCache();
-    const token = publicToken(response?.data ?? await tokenById(settings, id));
+    const token = response?.data
+      ? publicToken(response.data, quotaPolicyFromSnapshot(settings))
+      : await tokenById(settings, id);
     if (String(settings.selectedAccountTokenId || "") === String(id)) {
       if (desiredStatus === TOKEN_STATUS_ENABLED) persistSelection(settings, token);
       else persistSelection(settings, null);

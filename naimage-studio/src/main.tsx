@@ -23595,7 +23595,11 @@ function SettingsDrawer({
                           <div className="settings-account-token-summary">
                             <span>分组 <strong>{token.group || "default"}</strong></span>
                             <span>状态 <strong>{token.status === 1 ? "启用" : "停用"}</strong></span>
-                            <span>额度 <strong>{token.unlimitedQuota ? "不限" : token.remainQuota.toLocaleString()}</strong></span>
+                            <span className="settings-account-token-quota">
+                              额度
+                              <strong title={token.quotaAuditLabel}>{token.unlimitedQuota ? "不限" : token.remainCnyDisplay}</strong>
+                              {!token.unlimitedQuota ? <small>{token.remainRDisplay} R · 原始 {token.remainQuota.toLocaleString("zh-CN")}</small> : null}
+                            </span>
                             <IconActionButton label="编辑当前密钥" icon={<Settings size={14} />} onClick={() => openAccountTokenEditor(token)} />
                           </div>
                         );
@@ -23619,7 +23623,7 @@ function SettingsDrawer({
                             <input type="checkbox" checked={accountTokenEditor.unlimitedQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, unlimitedQuota: event.target.checked } : current)} />
                             <span>不限额度</span>
                           </label>
-                          {!accountTokenEditor.unlimitedQuota ? <Field label="剩余额度（New API 单位）">
+                          {!accountTokenEditor.unlimitedQuota ? <Field label="原始额度（New API quota）">
                             <input type="number" min="0" step="1" value={accountTokenEditor.remainQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, remainQuota: event.target.value } : current)} />
                           </Field> : null}
                           <div className="settings-inline-actions">

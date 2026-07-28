@@ -100,10 +100,12 @@
 
 ### 12. 账户密钥额度人民币显示
 
-- 状态：`未开始`
-- 目标：按 `1 R = 1 USD` 解释账户额度，再使用明确汇率换算为人民币并显示 `￥`；同时保留原始单位以便审计，禁止把倍率误当汇率。
-- 权威文件：`desktop/account-token-service.cjs`、账户密钥 UI、货币格式工具。
-- 证明：额度单位和舍入 selftest；账户设置专项测试。
+- 状态：`已验证`
+- 已实现：账户密钥保留 New API 原始 `remain_quota`，按 `/api/status.quota_per_unit` 换算 R，并固定解释为 `1 R = 1 USD`，再使用 `/api/status.usd_exchange_rate` 换算人民币。设置页以 `￥` 为主显示，同时展示 R 和原始 quota；完整换算口径保留在审计提示中。`price` 充值价格倍率不参与余额汇率计算。
+- 懒加载：用户显式刷新密钥时并行读取公开状态与密钥列表；打开设置只读取按账户隔离的本地快照，不联网。快照保存原始公开额度和换算参数，不保存派生显示字符串、Key、Cookie、IP 或模型限制；旧 v1 快照可读，下一次刷新升级为 v2。
+- 编辑边界：创建/编辑密钥仍向 New API 写原始 quota，界面明确标注“原始额度”，不会把人民币或 R 数值误写回 `remain_quota`。
+- 权威文件：`desktop/account-token-quota.cjs`、`desktop/account-token-service.cjs`、`src/core.ts`、`src/main.tsx`、`src/styles/04-settings-appearance.css`。
+- 证明：`test:account-token-quota` 10 cases、`test:account-token`、`test:settings-lazy-load` 12 cases、`test:ipc-registration`、`typecheck`、正式 `build` 与 `test:bundle`。
 
 ## 已固化基线
 
@@ -116,6 +118,7 @@
 
 ## 变更日志
 
+- 2026-07-28：完成账户密钥额度人民币显示；动态读取 New API 公开额度单位和美元汇率，保留 R/原始 quota 审计信息，快照懒加载不额外联网且不持久化派生文案。
 - 2026-07-28：完成图片容器流式中间预览；手工与 Agent 并发生图按 operation/槽位归入目标容器，移除独立预览节点及对话窗口内 partial，最终态按槽位清理。
 - 2026-07-28：完成设置接入状态懒加载；账户密钥与模型/分组优先读取本地脱敏快照，显式按钮单击才访问 New API，并移除六次点击强刷逻辑。
 - 2026-07-28：完成真正的独立 Electron Agent 窗口；主 Renderer 权威状态与独立表面双向同步，浮窗可发送/停止任务、管理会话和图片上下文并收回任一停靠方向，定向双窗口测试完成真实 mock Agent 往返。

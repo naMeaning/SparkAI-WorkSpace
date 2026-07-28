@@ -37,10 +37,15 @@ async function main() {
     cross_group_retry: true
   }];
   let tokenSnapshot = null;
+  let statusAvailable = true;
   const requests = [];
   const migrateSettings = (value) => ({ ...defaults, ...(value || {}) });
   const newApiRequest = async (_settings, endpoint, options = {}) => {
     requests.push({ endpoint, method: options.method || "GET", body: options.body });
+    if (endpoint === "/api/status") {
+      if (!statusAvailable) throw new Error("status unavailable");
+      return { data: { quota_per_unit: 500_000, usd_exchange_rate: 7.3, price: 4.8 } };
+    }
     if (/^\/api\/token\/\?/.test(endpoint)) return { data: { items: tokens, total: tokens.length } };
     const tokenId = endpoint.match(/^\/api\/token\/(\d+)$/)?.[1];
     if (tokenId) return { data: tokens.find((token) => token.id === Number(tokenId)) };
@@ -87,6 +92,12 @@ async function main() {
   const listed = await service.list(stored);
   assert.equal(listed.tokens.length, 1);
   assert.equal(listed.tokens[0].group, "image");
+  assert.equal(listed.tokens[0].remainR, 10);
+  assert.equal(listed.tokens[0].remainUsd, 10);
+  assert.equal(listed.tokens[0].remainCnyCents, 7_300);
+  assert.equal(listed.tokens[0].remainCnyDisplay, "￥73.00");
+  assert.match(listed.tokens[0].quotaAuditLabel, /10 R .*原始额度 5,000,000 .*1 R = 1 USD.*￥7\.3/);
+  assert.deepEqual(listed.quotaPolicy, { quotaPerR: 500_000, usdToCnyRate: 7.3 });
   assert.equal("key" in listed.tokens[0], false, "Public token metadata must not contain a key field");
   assert.equal(listed.cached, false);
   assert.equal(listed.cacheAvailable, true);
@@ -96,6 +107,8 @@ async function main() {
   assert.equal(serializedSnapshot.includes("session=fixture"), false, "Token snapshots must not contain login cookies");
   assert.equal(/allow_?ips/i.test(serializedSnapshot), false, "Token snapshots must not contain IP restrictions");
   assert.equal(/model_?limits/i.test(serializedSnapshot), false, "Token snapshots must not contain model restrictions");
+  assert.equal(serializedSnapshot.includes("remainCnyDisplay"), false, "Token snapshots must retain raw quota instead of derived display strings");
+  assert.equal(serializedSnapshot.includes("quotaAuditLabel"), false, "Token snapshots must not duplicate derived audit labels");
 
   const requestsBeforeCachedRead = requests.length;
   const cached = await createService().list(stored, { preferCached: true });
@@ -103,7 +116,23 @@ async function main() {
   assert.equal(cached.cacheAvailable, true);
   assert.equal(cached.tokens.length, 1);
   assert.equal(cached.tokens[0].group, "image");
+  assert.equal(cached.tokens[0].remainCnyDisplay, "￥73.00");
+  assert.deepEqual(cached.quotaPolicy, listed.quotaPolicy);
   assert.equal(requests.length, requestsBeforeCachedRead, "Cached token reads must not access New API");
+
+  const currentSnapshot = tokenSnapshot;
+  tokenSnapshot = JSON.parse(JSON.stringify(currentSnapshot));
+  tokenSnapshot.version = 1;
+  delete tokenSnapshot.entries[Object.keys(tokenSnapshot.entries)[0]].quotaPolicy;
+  const legacyCached = await createService().list(stored, { preferCached: true });
+  assert.equal(legacyCached.cacheAvailable, true, "Legacy v1 token snapshots must remain readable");
+  assert.equal(legacyCached.tokens[0].remainCnyDisplay, "￥73.00");
+  tokenSnapshot = currentSnapshot;
+
+  statusAvailable = false;
+  const statusFallback = await service.list(stored);
+  assert.equal(statusFallback.tokens[0].remainCnyDisplay, "￥73.00", "A failed public status refresh must reuse the cached conversion policy");
+  statusAvailable = true;
 
   const otherAccount = { ...stored, serverUserId: "8" };
   const isolated = await createService().list(otherAccount, { preferCached: true });

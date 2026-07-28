@@ -123,6 +123,15 @@
   white-space: nowrap;
 }
 
+.settings-account-token-quota small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .settings-account-token-editor {
   min-width: 0;
   display: grid;

@@ -117,7 +117,7 @@ corepack pnpm run test:bundle
 
 - 外部拖入图片先复制到当前项目管理目录；不得覆盖用户原图。
 - `config/`、Electron `userData/data/`、项目 session、素材、output 和 FastMemory 是用户/运行数据，普通代码整理不得清理。
-- Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存。磁盘可按账户保存脱敏的密钥列表/选择/额度/状态/分组快照，但不得包含完整或掩码 Key、Cookie、IP 白名单、模型限制。
+- Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存。磁盘可按账户保存脱敏的密钥列表/选择/原始额度/状态/分组，以及公开的 `quota_per_unit`、`usd_exchange_rate` 快照，但不得包含完整或掩码 Key、Cookie、IP 白名单、模型限制或派生显示文案。
 - 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
@@ -181,7 +181,7 @@ corepack pnpm run crm:check
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为 |
 | 设备激活 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 随机安装 ID、hash-only 存储、24 小时校验缓存、72 小时离线宽限、账号 Relay 402 门禁 |
-| 账户密钥 | `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
+| 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
 | 图片生成/编辑 | runtime/core/main-process request、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、最多 10 路并发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
