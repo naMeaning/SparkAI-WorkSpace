@@ -60,6 +60,7 @@ const expectedChannels = [
   "naimage:project:open",
   "naimage:project:export",
   "naimage:project:import",
+  "naimage:project-graph:import",
   "naimage:project:open-current-folder",
   "naimage:project:delete",
   "naimage:project:delete-folder",
@@ -296,8 +297,8 @@ async function main() {
     agentIntegrationService: {}
   });
 
-  assert.equal(expectedChannels.length, 84, "The registration contract must contain exactly 84 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 84, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 85, "The registration contract must contain exactly 85 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 85, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -311,13 +312,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 81, "preload must expose exactly 81 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 81, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 82, "preload must expose exactly 82 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 82, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 81, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 82, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),

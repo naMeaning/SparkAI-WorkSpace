@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   openCurrentProjectFolder: (payload) => ipcRenderer.invoke("naimage:project:open-current-folder", payload),
   exportProject: () => ipcRenderer.invoke("naimage:project:export"),
   importProject: () => ipcRenderer.invoke("naimage:project:import"),
+  importProjectGraph: () => ipcRenderer.invoke("naimage:project-graph:import"),
   deleteProject: (payload) => ipcRenderer.invoke("naimage:project:delete", payload),
   deleteProjectFolder: (payload) => ipcRenderer.invoke("naimage:project:delete-folder", payload),
   pickReferenceImage: () => ipcRenderer.invoke("naimage:asset:pick-reference-image"),

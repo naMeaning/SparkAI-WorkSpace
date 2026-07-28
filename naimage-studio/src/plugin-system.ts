@@ -178,3 +178,4 @@ export const pluginPermissionLabels: Record<PluginPermission, string> = {
 };
 
 export const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
+export const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";

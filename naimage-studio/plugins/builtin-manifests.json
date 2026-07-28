@@ -36,5 +36,42 @@
         }
       ]
     }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "sparkai.project-graph",
+    "name": "Project Graph 视觉学习",
+    "version": "1.0.0",
+    "publisher": "SparkAI",
+    "description": "只读导入 Project Graph 思维导图，把概念与关系转化为更具体、更容易学习记忆的图片成果。",
+    "permissions": [
+      "project.read-graph",
+      "agent.submit-task",
+      "canvas.write-results"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "id": "sparkai.project-graph.visualize-learning-map",
+          "title": "思维导图转学习图片",
+          "description": "选择 .prg 或图结构 JSON，由 Agent 分析概念关系并生成视觉学习图片。",
+          "requiredPermissions": [
+            "project.read-graph",
+            "agent.submit-task",
+            "canvas.write-results"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "id": "project-graph-visualize-learning-map",
+          "command": "sparkai.project-graph.visualize-learning-map",
+          "label": "思维导图转图片",
+          "description": "导入 Project Graph 并生成视觉学习图片",
+          "group": "learning",
+          "order": 20
+        }
+      ]
+    }
   }
 ]

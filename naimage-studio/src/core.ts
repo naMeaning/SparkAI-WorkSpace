@@ -1222,6 +1222,36 @@ export type SemanticLayerMattingResult = {
   error?: string;
 };
 
+export type ProjectGraphConceptNode = {
+  id: string;
+  label: string;
+  kind: string;
+  sourceClass: string;
+  parentIds: string[];
+  position?: { x: number; y: number };
+};
+
+export type ProjectGraphConceptEdge = {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  label: string;
+  directed: boolean;
+  kind: string;
+};
+
+export type ProjectGraphDocument = {
+  schemaVersion: 1;
+  sourceFormat: string;
+  sourceName: string;
+  title: string;
+  nodes: ProjectGraphConceptNode[];
+  edges: ProjectGraphConceptEdge[];
+  rootIds: string[];
+  warnings: string[];
+  stats: { nodeCount: number; edgeCount: number; sectionCount: number };
+};
+
 export type ConfigBridge = {
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
@@ -1248,6 +1278,7 @@ export type ConfigBridge = {
   openCurrentProjectFolder?(payload?: { id?: string }): Promise<{ ok: boolean; path?: string; projectId?: string; error?: string }>;
   exportProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
   importProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
+  importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; errorCode?: string; error?: string }>;
   deleteProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   deleteProjectFolder?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   pickReferenceImage?(): Promise<{ ok: boolean; canceled?: boolean; image?: ReferenceImage; error?: string }>;

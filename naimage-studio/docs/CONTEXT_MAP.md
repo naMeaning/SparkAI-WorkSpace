@@ -50,7 +50,7 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：84 个 invoke handler + 4 个 send handler 的唯一注册顺序
+  ├─ desktop/ipc/register-desktop-ipc.cjs：85 个 invoke handler + 4 个 send handler 的唯一注册顺序
   │    └─ config / automation / updater / session / agent / window / debug / project / asset / server registrar
   ├─ 项目、session、账户密钥脱敏快照、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
@@ -257,7 +257,7 @@ GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用
 
 独立窗没有 Node integration，不持有 API Key、Cookie、项目写权限或第二个 Agent Runtime。它支持发送/停止、会话切换、新建/清理、原图/参考图入口、FastMemory 入口和收回五种主窗口位置；涉及图片选择或记忆编辑时服务先聚焦主窗口。独立窗关闭后主面板自动展开，主 Renderer 销毁时独立窗同步关闭。快照 JSON 最大 16 MiB、命令最大 512 KiB，消息/提示词/中间预览还有 Renderer 侧逐字段上限。专项入口为 `test:agent-window` 与 `test:agent-window-ui`。
 
-### 4.6.2 声明式插件与电商套图翻译
+### 4.6.2 声明式插件、电商套图翻译与 Project Graph
 
 ```text
 plugins/builtin-manifests.json
@@ -266,11 +266,14 @@ plugins/builtin-manifests.json
   → 启用插件时动态 import src/plugin-system.ts
   → PluginCommandRegistry 在执行前复核安装状态、启用状态和权限
   → 画布顶部 toolbar contribution
-  → src/plugins/commerce-translation.ts 生成受控 Agent 任务
-  → sendPrompt() → image_gen → 按语言形成独立结果组
+  ├─ src/plugins/commerce-translation.ts → sendPrompt() → 按语言形成独立结果组
+  └─ preload "naimage:project-graph:import"
+       → desktop/project-graph-adapter.cjs 只读 .prg/JSON
+       → src/plugins/project-graph-visualization.ts
+       → sendPrompt() → 按概念分支形成独立学习图片
 ```
 
-插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 当前申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results` 三项权限。翻译任务以当前选择作为唯一 SOURCE，最多选择 10 种语言，禁止虚构商品信息并要求有 SOURCE 时使用编辑语义而非重画。`src/plugin-system.ts` 是异步 chunk，首屏只静态持有轻量 `src/plugin-state.ts`。专项入口为 `test:plugin-system`。
+插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results`，翻译任务以当前选择作为唯一 SOURCE，最多选择 10 种语言。`sparkai.project-graph` 申请 `project.read-graph`、`agent.submit-task`、`canvas.write-results`；它显式清空画布/附件继承，只把导入 GRAPH 作为知识 SOURCE。`.prg` 是 ZIP，适配器只读取最大 16 MiB 的 `stage.msgpack`，最多输出 1000 节点和 3000 关系，不读取附件、不执行扩展、不暴露绝对路径、不修改 `.prg` 或 session。`src/plugin-system.ts` 与 Project Graph Prompt 都是异步 chunk，首屏只静态持有轻量 `src/plugin-state.ts`。专项入口为 `test:plugin-system` 与 `test:project-graph`。
 
 ### 4.7 项目 session 保存
 
@@ -338,6 +341,7 @@ Renderer UpdaterBridge
 | `desktop/project-session-normalizer.cjs` | session/node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container` |
 | `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化；新写入使用 `naimage-asset:` 与 `.naimage/assets`，读取兼容更名前资产 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-package-service.cjs` | `.naimage` 项目包校验、大小/数量限制、可移植资产收集、导出写入、旧包导入恢复与路径重写 | 项目列表、active project、IPC/dialog 或普通 session 保存队列 | `createProjectPackageService`, `packageProject`, `validateProjectPackageData`, `sessionFromPackage`, `importProjectPackage` | `test:project-io`, `test:project-save-coordinator` |
+| `desktop/project-graph-adapter.cjs` | 只读 `.prg` ZIP/`stage.msgpack` 与有界图结构 JSON 解析、Project Graph 对象引用还原、安全 DTO | 扩展执行、附件读取、Renderer、Agent 调用、项目/session 写入或绝对路径暴露 | `parseProjectGraphFile`, `parseProjectGraphBuffer`, `adaptSerializedStage` | `test:project-graph`, `test:ipc-registration` |
 | `desktop/project-save-coordinator.cjs` | 按项目串行保存、revision 规范化、旧写入拒绝 | session 清洗、路径选择、磁盘格式 | `createProjectSaveCoordinator`, `normalizeSessionRevision`, `enqueue` | `test:project-save-coordinator`, `test:project-io` |
 | `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image 默认模型选择、缓存键与缓存归一化 | 网络请求、磁盘缓存时机、IPC | `uniqueModelIds`, `modelIdsFromResponse`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
 | `desktop/agent-responses-adapter.cjs` | Chat Completions 请求到 Responses API input/tool/tool-choice 的纯转换 | HTTP、流读取、凭据或重试 | `responsesRequestFromChatRequest`, `responsesInputFromChatMessages`, `responsesToolsFromChatTools` | `test:agent-responses-adapter`, `test:agent-protocol` |
@@ -372,6 +376,7 @@ Renderer UpdaterBridge
 | `src/plugin-state.ts`, `desktop/plugin-state.cjs` | Renderer/Electron 插件安装状态、授权集合和启用状态清洗镜像 | manifest 解析、命令执行、UI 或项目修改 | `normalizePluginStates`, `normalizePluginPermissions` | `test:plugin-system`, `test:settings-persistence` |
 | `src/plugin-system.ts`, `plugins/builtin-manifests.json` | 受信任 manifest、生命周期操作、权限复核、命令注册表与工具栏 contribution；按启用状态动态加载 | 任意脚本执行、直接 session 写入、Agent Runtime 或文件 IO | `PluginCommandRegistry`, `activePluginToolbarItems`, `installBuiltinPlugin` | `test:plugin-system`, `typecheck`, `build`, `test:bundle` |
 | `src/plugins/commerce-translation.ts`, `src/commerce-translation-dialog.tsx` | 跨境电商多语言目录、最多 10 种选择和受控 Agent 翻译任务契约 | 图片网络请求、结果落盘、插件权限或画布 reducer | `commerceTranslationPrompt`, `normalizeCommerceLanguageCodes` | `test:plugin-system`, `typecheck`, `build` |
+| `src/plugins/project-graph-visualization.ts` | 有界 GRAPH Prompt DTO 与视觉学习任务契约；只在执行命令时加载 | `.prg` 解码、文件 IO、项目/session 写入、图片请求或结果落盘 | `projectGraphPromptPayload`, `projectGraphVisualizationPrompt` | `test:project-graph`, `test:plugin-system`, `typecheck`, `build`, `test:bundle` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/agent-window-sync.ts` | 独立窗脱敏有界快照、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、Agent 执行、项目持久化 | `buildAgentWindowSnapshot`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、operation/request slot 键与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
@@ -452,7 +457,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 | Bridge | Renderer 入口 | 主进程职责 |
 | --- | --- | --- |
-| `window.naimageConfig` | 设置、项目、session、导入/导出、窗口控制 | 本地文件、项目目录、BrowserWindow、原子保存 |
+| `window.naimageConfig` | 设置、项目、session、导入/导出、Project Graph 只读导入、窗口控制 | 本地文件、项目目录、BrowserWindow、原子保存、受限 `.prg` 解析 |
 | `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、账户密钥 CRUD/选择、生图 | New API session、公开脱敏 token DTO、Main-only 完整 Key、授权状态与结果落盘 |
 | `window.naimageUpdater` | 检查、下载、应用更新、进度订阅 | 签名、hash、ticket、helper、回滚 |
 | `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory | Agent runtime 生命周期、memory、模型与工具循环 |
@@ -541,7 +546,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | 账户密钥快照/显式刷新 | `desktop/account-token-service.cjs`, server IPC, `src/main.tsx` | 按账户隔离、脱敏字段、preload bridge、设置页不得自动联网 | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
 | 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette`、Electron `defaultSettings/migrateSettings` 镜像、Vite `studio-dialogs` 懒加载 chunk | `test:settings-persistence`, `test:ui-foundation`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
-| 插件/电商工具栏 | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*` | Electron/Renderer 状态清洗镜像、设置持久化、权限、动态 chunk、主 Renderer 命令 handler；禁止直接 session 写入 | `test:plugin-system`, `test:settings-persistence`, `typecheck`, `build`, `test:bundle` |
+| 插件/电商/Project Graph | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态清洗镜像、设置持久化、权限、动态 chunk、preload/IPC、主 Renderer handler；禁止脚本注入、扩展执行和直接 session 写入 | `test:plugin-system`, `test:project-graph`, `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
 | 项目保存/session | `main.tsx`, `electron-main.cjs`, save coordinator | manifest、revision、迁移、原子写入 | `test:project-save-coordinator`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
@@ -643,6 +648,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 工具时间线 | `corepack pnpm run test:timeline` |
 | PSD/缩略图/导入 | `test:psd-export`, `test:thumbnail-cache`, `test:image-import` |
 | IPC 注册顺序/preload 对称性 | `corepack pnpm run test:ipc-registration` |
+| Project Graph `.prg`/JSON 适配与安全边界 | `corepack pnpm run test:project-graph` |
 | Electron 生命周期 | `corepack pnpm run test:lifecycle` |
 | 更新 | `test:update`, `test:update-rollback`, `test:update-helper` |
 | 正式 bundle | `corepack pnpm run test:bundle` |
@@ -656,9 +662,11 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 独立 Agent 窗口批次后的正式证据为：initial JS 639,365 B、async JS 60,073 B、total JS 699,438 B、CSS 187,824 B、dist 943,051 B。首屏只剩约 10.6 KB；`src/agent-window-sync.ts` 已保持为打开独立窗时才加载的动态 chunk，后续 Renderer 功能仍必须同步审计 chunk 归属并运行 `build + test:bundle`。
 
+Project Graph 插件批次后的正式证据为：initial JS 646,764 B、async JS 73,200 B、total JS 719,964 B、CSS 192,511 B、dist 968,264 B。Project Graph Prompt 保持为执行命令时才加载的独立 chunk；总 JS 只剩 36 B，后续 Renderer 功能必须先移除、替换或移出既有代码，不能直接增加同步或异步 JS。
+
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 84 个 invoke handler 与 4 个 send handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 85 个 invoke handler 与 4 个 send handler 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema 与 Responses/Chat parser 也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - `src/styles.css` 是 28 行有序入口；`src/styles/07-workbench-flattening.css` 也只是保持 07a→07i 顺序的二级入口，workbench 规则分别归属对应 slice。任何样式调整都必须同时保持 01→08、07a→07i import 顺序和最终 reduced-motion gate。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
@@ -672,6 +680,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 新增 `sparkai.project-graph`：Electron 只读解析 `.prg`/JSON 为有界图 DTO，Renderer 以 GRAPH 作为唯一知识 SOURCE 提交视觉学习任务；禁止附件/扩展执行、绝对路径暴露和 session 直写。新增 `test:project-graph`，IPC 增至 85 个 invoke，两个真实 Project Graph 样例与生产 Bundle 已通过。 |
 | 2026-07-28 | 1.0.6 | 新增受信任声明式插件系统：内置 manifest、双侧状态清洗、安装/授权/启停/卸载、命令权限复核和画布工具栏贡献；首个 `sparkai.commerce-toolkit` 支持最多 10 种语言的套图翻译任务。完整插件 Runtime 按启用状态进入异步 chunk，插件不能注入脚本或直接写项目 session。 |
 | 2026-07-28 | 1.0.6 | 账户密钥额度新增独立换算 owner：原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 得到人民币；设置页主显 `￥` 并保留 R/原始值审计，充值 `price` 不作为汇率。状态参数随手动刷新获取并进入无敏感信息的 v2 快照，打开设置仍保持零网络懒加载。 |
 | 2026-07-28 | 1.0.6 | 新增真正可移出主应用的独立 Electron Agent 窗口；`desktop/agent-window-service.cjs` 管理生命周期和 owner 中继，`src/agent-window-sync.ts` 在打开时按需加载并生成脱敏有界快照，独立表面将发送/停止/会话/图片上下文/记忆/收回命令转回唯一主 Renderer。双窗口 mock Agent 往返、关闭与上方收回均已验证。 |

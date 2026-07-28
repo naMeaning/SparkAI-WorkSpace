@@ -31,6 +31,7 @@ function registerProjectIpc(options = {}) {
     projectPackageFailure,
     validateProjectPackageData,
     importProjectPackage,
+    parseProjectGraphFile,
     projectForFolderOpen,
     projectRoot,
     configDir,
@@ -181,6 +182,26 @@ function registerProjectIpc(options = {}) {
     const next = writeProjectList({ activeProjectId: record.id, projects: [record, ...withoutSamePath] });
     log(`project import ${sourceFile} -> ${targetPath}`);
     return { ok: true, path: targetPath, project: record, projects: next.projects, activeProjectId: record.id, session };
+  });
+
+  ipcMain.handle("naimage:project-graph:import", async () => {
+    const open = await dialog.showOpenDialog({
+      title: "导入 Project Graph 思维导图",
+      properties: ["openFile"],
+      filters: [{ name: "Project Graph", extensions: ["prg", "json"] }]
+    });
+    if (open.canceled || open.filePaths.length === 0) return { ok: true, canceled: true };
+    const sourceFile = open.filePaths[0];
+    try {
+      const graph = parseProjectGraphFile(sourceFile);
+      log(`project graph import ${path.basename(sourceFile)} nodes=${graph.stats.nodeCount} edges=${graph.stats.edgeCount}`);
+      return { ok: true, graph };
+    } catch (error) {
+      const errorCode = String(error?.code || "PROJECT_GRAPH_IMPORT_FAILED");
+      const message = error instanceof Error ? error.message : String(error);
+      log(`project graph import failed code=${errorCode}`);
+      return { ok: false, errorCode, error: message };
+    }
   });
 
   ipcMain.handle("naimage:project:open-current-folder", async (_event, payload) => {

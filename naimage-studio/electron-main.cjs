@@ -43,6 +43,7 @@ const { createAgentIntegrationService } = require("./desktop/agent-integration-s
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
+const { parseProjectGraphFile } = require("./desktop/project-graph-adapter.cjs");
 const {
   cachedModelSettings,
   createModelCacheKey,
@@ -3544,6 +3545,7 @@ function registerIpc() {
     projectPackageFailure,
     validateProjectPackageData,
     importProjectPackage,
+    parseProjectGraphFile,
     projectForFolderOpen,
     projectRoot,
     configDir,

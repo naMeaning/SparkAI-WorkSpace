@@ -23,14 +23,14 @@
 - 当前实现：`runtime/context-strategy.cjs` 按模型族解析窗口和预算；GPT 5.5/5.6 使用 272K 总窗口、95% 有效窗口、244.8K 自动 checkpoint、20K 用户意图保留预算和 Responses 协议历史；Claude 使用普通消息历史与 200K/1M 窗口；未知模型使用 128K 平衡策略。
 - checkpoint 契约：生成 handoff summary，替换旧 Responses 协议基础，清除旧 encrypted reasoning，随后重新注入当前画布、TaskScope 和 FastMemory。Codex 单条协议消息不再固定截断为 12K 字符。
 - 权威文件：`runtime/context-strategy.cjs`、`agent-runtime.cjs`、`runtime/memory-store.cjs`、`desktop/agent-responses-adapter.cjs`、`src/settings-persistence.ts`。
-- 证明：`test:context-strategy` 29 cases、`test:context-checkpoint` 16 cases、`test:settings-persistence` 57 cases、`test:agent-protocol`、`typecheck`。
+- 证明：`test:context-strategy` 29 cases、`test:context-checkpoint` 16 cases、`test:settings-persistence` 62 cases、`test:agent-protocol`、`typecheck`。
 
 ### 2. 电商多语言工具栏
 
 - 状态：`已验证`
 - 已实现：首个内置声明式插件 `sparkai.commerce-toolkit` 提供画布顶部“套图翻译”命令；用户安装并授权后可启用、停用或卸载，可勾选最多 10 种目标语言。任务把当前画布选择冻结为唯一 SOURCE，要求每种语言分别调用一次 `image_gen` 并进入独立结果组，保留商品/品牌/型号/尺寸/数字/版式，禁止虚构卖点、认证和优惠，阿拉伯语使用 RTL；存在 SOURCE 时禁止用 `generate` 重画商品。
 - 权威文件：`plugins/builtin-manifests.json`、`src/plugins/commerce-translation.ts`、`src/commerce-translation-dialog.tsx`、`src/main.tsx`。
-- 证明：`test:plugin-system` 30 cases、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。插件 Runtime 已进入独立异步 chunk；本批没有运行全量 AIDebug。
+- 证明：`test:plugin-system` 48 cases、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。插件 Runtime 已进入独立异步 chunk；本批没有运行全量 AIDebug。
 
 ### 3. 接入状态懒加载与手动刷新
 
@@ -92,12 +92,13 @@
 
 ### 11. 插件系统与 project-graph 适配
 
-- 状态：`部分实现`
+- 状态：`已验证`
 - 目标：插件 manifest、注册表、权限、安装/启用/停用/卸载、Renderer contribution point 和命令注册；电商工具栏作为首个插件。
 - 已实现：受信任的声明式内置 manifest、设置持久化与 Electron/Renderer 双侧清洗、安装/启用/停用/卸载、权限复核、命令注册表和画布工具栏 contribution point。插件禁止注入任意 Renderer JavaScript，也不能直接修改项目 session；完整运行时仅在存在启用插件时动态加载。
-- project-graph：建立受控适配层，读取思维导图并生成图片需求/成果关系；插件不能直接修改项目 session 文件。
+- Project Graph：第二个内置插件 `sparkai.project-graph` 可只读选择 `.prg` 或图结构 JSON。Electron 适配器从 ZIP 中只读取 `stage.msgpack` 并解析 MessagePack 对象引用，不执行扩展脚本、附件或任意插件代码，不暴露绝对路径；文件、舞台、节点、关系、文本和遍历复杂度均有上限。Renderer 显式清空画布选择与附件继承，把 GRAPH 作为唯一知识 SOURCE，要求 Agent 按规模生成 1 张总览或 2–6 张独立学习图片，并禁止虚构图中不存在的事实或直接写项目 session。
 - 外部参考：<https://github.com/graphif/project-graph>
-- 当前证明：`test:plugin-system` 30 cases、`test:settings-persistence` 62 cases、`typecheck`、`build`、`test:bundle`；project-graph 导入契约仍待实现和验证。
+- 权威文件：`desktop/project-graph-adapter.cjs`、`desktop/ipc/project-ipc.cjs`、`plugins/builtin-manifests.json`、`src/plugin-system.ts`、`src/plugins/project-graph-visualization.ts`、`src/main.tsx`。
+- 证明：`test:project-graph` 23 cases、`test:plugin-system` 48 cases、`test:ipc-registration` 85 invoke handlers、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。本批未运行全量 AIDebug，也未修改任何 `.prg`、项目 session 或用户数据。
 
 ### 12. 账户密钥额度人民币显示
 
@@ -119,7 +120,8 @@
 
 ## 变更日志
 
-- 2026-07-28：建立受信任的声明式插件系统并交付首个跨境电商多语言套图插件；支持安装、授权、启停、卸载、画布工具栏贡献和最多 10 种语言选择，插件 Runtime 进入异步 chunk，project-graph 受控导入适配仍待继续。
+- 2026-07-28：交付 `sparkai.project-graph` 视觉学习插件；新增受限 `.prg`/JSON 适配、MessagePack 解码、只读 IPC 和独立异步 Prompt 模块，真实 Project Graph 样例与生产 Bundle 已验证。
+- 2026-07-28：建立受信任的声明式插件系统并交付首个跨境电商多语言套图插件；支持安装、授权、启停、卸载、画布工具栏贡献和最多 10 种语言选择，插件 Runtime 进入异步 chunk；Project Graph 适配随后在独立批次完成。
 - 2026-07-28：完成账户密钥额度人民币显示；动态读取 New API 公开额度单位和美元汇率，保留 R/原始 quota 审计信息，快照懒加载不额外联网且不持久化派生文案。
 - 2026-07-28：完成图片容器流式中间预览；手工与 Agent 并发生图按 operation/槽位归入目标容器，移除独立预览节点及对话窗口内 partial，最终态按槽位清理。
 - 2026-07-28：完成设置接入状态懒加载；账户密钥与模型/分组优先读取本地脱敏快照，显式按钮单击才访问 New API，并移除六次点击强刷逻辑。

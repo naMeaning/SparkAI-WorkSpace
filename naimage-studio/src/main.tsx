@@ -19828,9 +19828,38 @@ function App() {
       sourceLabel: canvasSelectionSummary?.title || `${sourceCount} 个图片成果`
     });
   });
+  const openProjectGraphVisualization = useStableEvent(async () => {
+    if (agentExecutionBusyNow()) {
+      setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
+      return;
+    }
+    const importProjectGraph = window.naimageConfig?.importProjectGraph;
+    if (!importProjectGraph) {
+      setServerMessage("当前桌面运行时不支持导入 Project Graph，请重启应用后再试。");
+      return;
+    }
+    try {
+      const result = await importProjectGraph();
+      if (result?.canceled) return;
+      if (!result?.ok || !result.graph) throw new Error(result?.error || "Project Graph 导入失败。");
+      const graph = result.graph;
+      const module = await import("./plugins/project-graph-visualization");
+      const graphTitle = graph.title || graph.sourceName || "Project Graph";
+      setAgentCollapsed(false);
+      await sendPrompt(module.projectGraphVisualizationPrompt(graph), {
+        sourceNodeIds: [],
+        sourceImages: [],
+        referenceImages: [],
+        useComposerAttachments: false,
+        visibleContent: `把思维导图「${graphTitle}」转成视觉学习图片（${graph.stats.nodeCount} 个概念，${graph.stats.edgeCount} 条关系）`
+      });
+    } catch (error) {
+      setServerMessage(`Project Graph 视觉学习失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
   useEffect(() => {
     let cancelled = false;
-    let unregister: (() => void) | undefined;
+    const unregisterCommands: Array<() => void> = [];
 
     pluginCommandRegistryRef.current = null;
     setPluginToolbarItems([]);
@@ -19840,11 +19869,16 @@ function App() {
       .then((module) => {
         if (cancelled) return;
         const registry = new module.PluginCommandRegistry();
-        unregister = registry.register(
+        unregisterCommands.push(registry.register(
           "sparkai.commerce-toolkit",
           module.COMMERCE_TRANSLATION_COMMAND,
           openCommerceTranslation
-        );
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.project-graph",
+          module.PROJECT_GRAPH_VISUALIZATION_COMMAND,
+          openProjectGraphVisualization
+        ));
         pluginCommandRegistryRef.current = registry;
         setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates));
       })
@@ -19856,10 +19890,10 @@ function App() {
 
     return () => {
       cancelled = true;
-      unregister?.();
+      unregisterCommands.splice(0).reverse().forEach((unregister) => unregister());
       pluginCommandRegistryRef.current = null;
     };
-  }, [settings.pluginStates, openCommerceTranslation]);
+  }, [settings.pluginStates, openCommerceTranslation, openProjectGraphVisualization]);
   const executePluginCommand = useStableEvent(async (commandId: string) => {
     try {
       const runtime = pluginCommandRegistryRef.current;

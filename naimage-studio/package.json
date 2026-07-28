@@ -93,6 +93,7 @@
     "test:account-token": "node scripts/account-token-selftest.cjs",
     "test:account-token-quota": "node scripts/account-token-quota-selftest.cjs",
     "test:plugin-system": "node scripts/plugin-system-selftest.ts",
+    "test:project-graph": "node scripts/project-graph-adapter-selftest.cjs",
     "test:automation-service": "node scripts/automation-service-selftest.cjs",
     "test:agent-integration": "node scripts/agent-integration-selftest.cjs",
     "test:lifecycle": "node scripts/electron-lifecycle-selftest.cjs",
@@ -120,6 +121,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
+    "@msgpack/msgpack": "^3.1.3",
     "@techstark/opencv-js": "5.0.0-release.1",
     "ag-psd": "31.0.2",
     "lucide-react": "^0.468.0",
