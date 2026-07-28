@@ -1,0 +1,40 @@
+[
+  {
+    "schemaVersion": 1,
+    "id": "sparkai.commerce-toolkit",
+    "name": "跨境电商多语言工具",
+    "version": "1.0.0",
+    "publisher": "SparkAI",
+    "description": "把当前选中的商品图按多个目标语言生成独立本地化套图。",
+    "permissions": [
+      "canvas.read-selection",
+      "agent.submit-task",
+      "canvas.write-results"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "id": "sparkai.commerce-toolkit.translate-listing-set",
+          "title": "一键翻译多国语言套图",
+          "description": "保持商品、品牌和版式不变，按目标语言分别生成本地化图片成果。",
+          "requiredPermissions": [
+            "canvas.read-selection",
+            "agent.submit-task",
+            "canvas.write-results"
+          ]
+        }
+      ],
+      "toolbar": [
+        {
+          "id": "commerce-translate-listing-set",
+          "command": "sparkai.commerce-toolkit.translate-listing-set",
+          "label": "套图翻译",
+          "description": "一键生成多国语言商品套图",
+          "group": "commerce",
+          "order": 10,
+          "when": "canvas.has-image-selection"
+        }
+      ]
+    }
+  }
+]

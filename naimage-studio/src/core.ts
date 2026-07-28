@@ -40,6 +40,7 @@ import {
   stableImageOccurrenceId
 } from "./asset-identity.ts";
 import { collapseDuplicateToolTimelineMessages } from "./tool-timeline.ts";
+import type { PluginInstallationState } from "./plugin-state.ts";
 
 export {
   imageAssetIdentityFingerprint,
@@ -138,6 +139,7 @@ export type AppSettings = ApiSettings & {
   agentPanelX: number;
   agentPanelY: number;
   agentSkillAutoInstallTargets: AgentIntegrationTargetId[];
+  pluginStates: PluginInstallationState[];
 };
 
 export type AgentIntegrationTargetId = "codex" | "claude-code" | "opencode" | "openclaw";

@@ -28,6 +28,7 @@ assert.equal(defaultSettings.contextStrategy, "auto");
 assert.equal(defaultSettings.contextWindowTokens, 272_000);
 assert.equal(defaultSettings.contextAutoCompactPercent, 90);
 assert.deepEqual(defaultSettings.agentSkillAutoInstallTargets, []);
+assert.deepEqual(defaultSettings.pluginStates, []);
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
 assert.equal(STORAGE_IMAGE_STATS, "naimage.imageGenerationStats.v1");
@@ -98,6 +99,19 @@ assert.equal(repairedAgentPanel.agentPanelY, 10_000);
 assert.equal(mergeSettings({ agentPanelPlacement: "top" }).agentPanelPlacement, "top");
 assert.equal(mergeSettings({ agentPanelPlacement: "bottom" }).agentPanelPlacement, "bottom");
 assert.deepEqual(mergeSettings({ agentSkillAutoInstallTargets: ["codex", "unknown", "codex", "openclaw"] as never }).agentSkillAutoInstallTargets, ["codex", "openclaw"]);
+const migratedPlugins = mergeSettings({ pluginStates: [{
+  id: "sparkai.commerce-toolkit",
+  version: "0.0.1",
+  enabled: true,
+  grantedPermissions: ["canvas.read-selection", "agent.submit-task", "canvas.write-results", "unknown"]
+}, { id: "unknown.plugin", enabled: true, grantedPermissions: [] }] as never });
+assert.deepEqual(migratedPlugins.pluginStates, [{
+  id: "sparkai.commerce-toolkit",
+  version: "1.0.0",
+  enabled: true,
+  grantedPermissions: ["canvas.read-selection", "agent.submit-task", "canvas.write-results"]
+}]);
+assert.equal(mergeSettings({ pluginStates: [{ id: "sparkai.commerce-toolkit", enabled: true, grantedPermissions: ["canvas.read-selection"] }] as never }).pluginStates[0].enabled, false);
 const repairedContext = mergeSettings({
   contextStrategy: "unsupported" as never,
   contextWindowTokens: 1,
@@ -179,4 +193,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 59 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 62 })}\n`);

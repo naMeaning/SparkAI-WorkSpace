@@ -57,7 +57,8 @@ flowchart TD
   Window --> Preload["preload.cjs + agent-window-preload.cjs\n主 Renderer 七组 bridge + 独立窗单用途 bridge"]
   Preload --> Renderer["src/main.tsx → React App"]
   Renderer --> SurfaceModules["auth / image viewer / reference picker / window controls"]
-  Renderer --> DomainModules["settings / asset identity / paste blocks / canvas domains"]
+  Renderer --> DomainModules["settings / plugin system / asset identity / paste blocks / canvas domains"]
+  Renderer --> PluginModules["声明式插件\n电商套图翻译 / 后续 project-graph 适配"]
   Renderer --> Styles["styles.css → styles/01…08"]
 ```
 
@@ -90,6 +91,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
 | 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | `account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
 | 修改外部 Agent 控制 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单 |
+| 修改插件或电商工具栏 | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、`test:plugin-system`；插件禁止脚本注入和直接写 session |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
 | 修改 `view_image` | `runtime/view-image-payload.cjs` + runtime facade | 允许根、payload 预算、Sharp、持久化排除 |
 | 修改 Image 2 比例/尺寸 | `runtime/image-frame.cjs`、`src/core.ts`、主进程请求参数 | 三侧规则必须一致 |
@@ -111,7 +113,7 @@ corepack pnpm run test:bundle
 
 再按领域追加 `test:model-catalog`、`test:settings-persistence`、`test:view-image`、`test:agent-protocol`、`test:project-io` 等。只有真实可视交互变化才追加一次 `aidebug:gui` 快速冒烟，不把完整 AIDebug 作为日常默认步骤。仓库的 `AGENTS.md` 和 `docs/CONTEXT_MAP.md` 是具体约束来源。
 
-当前 Renderer 门禁保持总 JS 720,000 B 与完整 dist 1,000,000 B 不变，初始 JS 上限为 650,000 B；账号密钥管理与本机 Agent 自动化桥稳定后，应优先把完整设置抽屉迁入既有异步 chunk，而不是继续放宽首屏预算。
+当前 Renderer 门禁保持总 JS 720,000 B 与完整 dist 1,000,000 B 不变，初始 JS 上限为 650,000 B；插件完整 Runtime 和设置表面已进入异步 chunk。新增 Renderer 能力应继续优先寻找自然异步边界，而不是继续放宽首屏预算。
 
 ### 3.5 数据安全边界
 

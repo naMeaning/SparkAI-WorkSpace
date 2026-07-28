@@ -2093,6 +2093,10 @@ button {
   overflow: hidden;
 }
 
+.canvas-panel.has-plugin-toolbar {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .canvas-toolbar {
   display: flex;
   align-items: center;

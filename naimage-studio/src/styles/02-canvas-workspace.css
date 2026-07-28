@@ -2,6 +2,66 @@
    02 Canvas Workspace And Node System
 -------------------------------------------------------------------------- */
 
+.canvas-plugin-toolbar {
+  min-width: 0;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 3%);
+}
+
+.canvas-plugin-toolbar > span,
+.canvas-plugin-toolbar-actions,
+.canvas-plugin-toolbar-actions button {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.canvas-plugin-toolbar > span {
+  flex: 0 0 auto;
+  gap: 6px;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.canvas-plugin-toolbar-actions {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.canvas-plugin-toolbar-actions button {
+  flex: 0 0 auto;
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: var(--ui-choice-radius);
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.canvas-plugin-toolbar-actions button:hover:not(:disabled),
+.canvas-plugin-toolbar-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  outline: 0;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-raised));
+}
+
+.canvas-plugin-toolbar-actions button:disabled {
+  opacity: 0.5;
+}
+
 .workflow-canvas {
   min-height: 0;
   position: relative;

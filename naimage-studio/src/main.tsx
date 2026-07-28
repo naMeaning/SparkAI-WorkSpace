@@ -122,6 +122,7 @@ import {
   readJson,
   writeJson
 } from "./settings-persistence";
+import type { ActivePluginToolbarItem } from "./plugin-system";
 import {
   MAX_AGENT_REFERENCE_IMAGES,
   MAX_AGENT_SOURCE_IMAGES,
@@ -415,6 +416,7 @@ type AgentPromptDispatchOptions = {
   referenceImages?: ReferenceImage[];
   continuationRequestId?: string;
   originalPrompt?: string;
+  visibleContent?: string;
 };
 
 type AssetContextMenuState = {
@@ -704,6 +706,8 @@ const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
 const LazyModelConfigDialog = lazyStudioDialog("ModelConfigDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
 const LazyThemePalettePicker = lazyStudioDialog("ThemePalettePicker");
+const LazyPluginSettingsPanel = lazyStudioDialog("PluginSettingsPanel");
+const LazyCommerceTranslationDialog = lazyStudioDialog("CommerceTranslationDialog");
 
 function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCount: number, canvasScale: number) {
   // A stacked layer group needs every transparent source in the same frame for
@@ -2982,6 +2986,8 @@ function App() {
   const [askUserDraft, setAskUserDraft] = useState<AskUserDraft | null>(null);
   const [pendingAgentExecution, setPendingAgentExecution] = useState<PendingAgentExecution | null>(null);
   const [quotaDialog, setQuotaDialog] = useState<ImageQuotaDialogState | null>(null);
+  const [commerceTranslationDialog, setCommerceTranslationDialog] = useState<{ sourceCount: number; sourceLabel: string } | null>(null);
+  const [pluginToolbarItems, setPluginToolbarItems] = useState<ActivePluginToolbarItem[]>([]);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [agentSourceImages, setAgentSourceImages] = useState<ReferenceImage[]>([]);
@@ -3038,6 +3044,7 @@ function App() {
   } | null>(null);
   const viewportRef = useRef(viewport);
   const settingsRef = useRef(settings);
+  const pluginCommandRegistryRef = useRef<{ execute(commandId: string, states: unknown, payload?: unknown): Promise<void> } | null>(null);
   const agentPanelLayoutRef = useRef(agentPanelLayout);
   const nodesRef = useRef(nodes);
   const nodeSequenceRef = useRef(inferredNodeSequence(nodes));
@@ -11842,7 +11849,7 @@ function App() {
       taskRole: "reference" as const
     }));
     const content = baseContent;
-    const visibleContent = baseContent;
+    const visibleContent = String(dispatch.visibleContent ?? baseContent).trim() || baseContent;
     if (!content) return;
     const cancelledRequest = cancelledAgentRequestRef.current;
     const cancellationApplies = Boolean(
@@ -19806,6 +19813,62 @@ function App() {
   }
 
   const projectAgentSendPrompt = useStableEvent((nextPrompt?: string) => sendPrompt(nextPrompt));
+  const openCommerceTranslation = useStableEvent(() => {
+    if (agentExecutionBusyNow()) {
+      setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
+      return;
+    }
+    const sourceCount = selectedCanvasCapabilities.groupableNodeIds.length;
+    if (!sourceCount) {
+      setServerMessage("请先在画布选择至少一个包含图片的成果或容器，再使用套图翻译。");
+      return;
+    }
+    setCommerceTranslationDialog({
+      sourceCount,
+      sourceLabel: canvasSelectionSummary?.title || `${sourceCount} 个图片成果`
+    });
+  });
+  useEffect(() => {
+    let cancelled = false;
+    let unregister: (() => void) | undefined;
+
+    pluginCommandRegistryRef.current = null;
+    setPluginToolbarItems([]);
+    if (!settings.pluginStates.some((state) => state.enabled)) return undefined;
+
+    void import("./plugin-system")
+      .then((module) => {
+        if (cancelled) return;
+        const registry = new module.PluginCommandRegistry();
+        unregister = registry.register(
+          "sparkai.commerce-toolkit",
+          module.COMMERCE_TRANSLATION_COMMAND,
+          openCommerceTranslation
+        );
+        pluginCommandRegistryRef.current = registry;
+        setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setServerMessage(`插件加载失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      unregister?.();
+      pluginCommandRegistryRef.current = null;
+    };
+  }, [settings.pluginStates, openCommerceTranslation]);
+  const executePluginCommand = useStableEvent(async (commandId: string) => {
+    try {
+      const runtime = pluginCommandRegistryRef.current;
+      if (!runtime) throw new Error("插件正在加载，请稍后重试。");
+      await runtime.execute(commandId, settingsRef.current.pluginStates);
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
+    }
+  });
   const projectAgentStop = useStableEvent(() => stopAgentRun());
   const projectAgentClearSelection = useStableEvent(() => selectCanvas());
   const projectAgentEditSources = useStableEvent(() => openReferencePicker(
@@ -20140,8 +20203,32 @@ function App() {
           "--agent-panel-y": `${agentPanelLayout.agentPanelY}px`
         } as React.CSSProperties & Record<string, string>}
       >
-        <section className="canvas-panel">
+        <section className={`canvas-panel${pluginToolbarItems.length ? " has-plugin-toolbar" : ""}`}>
           {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="canvas" record={recordDebugRenderCommit} /> : null}
+          {pluginToolbarItems.length ? (
+            <nav className="canvas-plugin-toolbar" aria-label="已启用插件工具栏">
+              <span><WandSparkles size={14} aria-hidden="true" />插件工具</span>
+              <div className="canvas-plugin-toolbar-actions">
+                {pluginToolbarItems.map((item) => {
+                  const needsSelection = item.when === "canvas.has-image-selection";
+                  const disabled = agentExecutionBusy || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
+                  return (
+                    <ButtonBase
+                      key={`${item.pluginId}:${item.id}`}
+                      type="button"
+                      data-plugin-command={item.command}
+                      disabled={disabled}
+                      title={needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0 ? "请先选择图片成果或容器" : item.description}
+                      onClick={() => void executePluginCommand(item.command)}
+                    >
+                      <WandSparkles size={14} aria-hidden="true" />
+                      {item.label}
+                    </ButtonBase>
+                  );
+                })}
+              </div>
+            </nav>
+          ) : null}
           <div
             ref={bindCanvasRef}
             className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
@@ -21285,6 +21372,24 @@ function App() {
               { title: "生图参考图", detail: "参考图只从当前项目图片库读取。", max: MAX_REFERENCE_IMAGES }
             )}
             submit={() => submitManualImageTask(manualImageTaskDialog)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceTranslationDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceTranslationDialog
+            sourceCount={commerceTranslationDialog.sourceCount}
+            sourceLabel={commerceTranslationDialog.sourceLabel}
+            executionBusy={agentExecutionBusy}
+            close={() => setCommerceTranslationDialog(null)}
+            submit={(payload) => {
+              setCommerceTranslationDialog(null);
+              setAgentCollapsed(false);
+              void sendPrompt(payload.prompt, {
+                visibleContent: `为当前选中的商品图生成多语言套图：${payload.languageLabels.join("、")}`
+              });
+            }}
           />
         </React.Suspense>
       ) : null}
@@ -22947,7 +23052,7 @@ function SettingsDrawer({
   const [baselineSettings, setBaselineSettings] = useState(() => mergeSettings(settings));
   const [draftSettings, setDraftSettings] = useState(() => mergeSettings(settings));
   const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
-  const [activeSection, setActiveSection] = useState<"access" | "appearance" | "models" | "agent" | "updates">("access");
+  const [activeSection, setActiveSection] = useState<"access" | "appearance" | "models" | "agent" | "plugins" | "updates">("access");
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsMessageError, setSettingsMessageError] = useState(false);
@@ -23523,6 +23628,7 @@ function SettingsDrawer({
                 ["appearance", "外观"],
                 ["models", "模型"],
                 ["agent", "Agent"],
+                ["plugins", "插件"],
                 ["updates", "更新"]
               ] as const).map(([section, label]) => (
                 <ButtonBase
@@ -23900,6 +24006,24 @@ function SettingsDrawer({
                   )}
                   <InlineNotice className="settings-update-security" tone="neutral" icon={<Shield size={14} />}>更新包会自动验证，失败时保留当前版本</InlineNotice>
                 </div>
+              </SurfaceSection>
+              ) : null}
+
+              {activeSection === "plugins" ? (
+              <SurfaceSection className="settings-surface-section settings-plugin-section" aria-labelledby="settings-plugin-heading">
+                <div className="settings-section-header">
+                  <div>
+                    <h3 id="settings-plugin-heading">插件</h3>
+                    <small>安装后保存设置，启用的工具会出现在画布顶部。</small>
+                  </div>
+                  <span className="settings-update-status available">声明式安全插件</span>
+                </div>
+                <React.Suspense fallback={null}>
+                  <LazyPluginSettingsPanel
+                    states={draftSettings.pluginStates}
+                    onChange={(pluginStates) => update("pluginStates", pluginStates)}
+                  />
+                </React.Suspense>
               </SurfaceSection>
               ) : null}
             </SurfaceBody>

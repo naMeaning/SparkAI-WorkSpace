@@ -42,6 +42,7 @@ const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
+const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
 const {
   cachedModelSettings,
   createModelCacheKey,
@@ -331,7 +332,8 @@ const defaultSettings = {
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
-  agentSkillAutoInstallTargets: []
+  agentSkillAutoInstallTargets: [],
+  pluginStates: []
 };
 
 const themePaletteValues = new Set([
@@ -566,6 +568,7 @@ function migrateSettings(value) {
   next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))]
     : [];
+  next.pluginStates = normalizePluginStates(source.pluginStates);
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.contextStrategy = ["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))
     ? String(next.contextStrategy)

@@ -96,6 +96,8 @@ React Renderer
   index.html → src/main.tsx → App
   ├─ src/core.ts：共享类型、bridge contract、图片与 session 规则
   ├─ src/settings-persistence.ts：默认设置、迁移与浏览器回退存储
+  ├─ src/plugin-state.ts / src/plugin-system.ts：声明式插件状态、manifest、权限、命令与工具栏贡献
+  ├─ src/plugins/*：内置插件领域任务契约；不直接修改项目 session
   ├─ src/agent-panel-layout.ts：Agent 停靠/浮动布局、边界限制与 CSS 拖动预览
   ├─ src/agent-window-sync.ts：按需加载的独立窗快照与命令校验
   ├─ src/asset-identity.ts / src/paste-blocks.ts：纯数据域
@@ -255,6 +257,21 @@ GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用
 
 独立窗没有 Node integration，不持有 API Key、Cookie、项目写权限或第二个 Agent Runtime。它支持发送/停止、会话切换、新建/清理、原图/参考图入口、FastMemory 入口和收回五种主窗口位置；涉及图片选择或记忆编辑时服务先聚焦主窗口。独立窗关闭后主面板自动展开，主 Renderer 销毁时独立窗同步关闭。快照 JSON 最大 16 MiB、命令最大 512 KiB，消息/提示词/中间预览还有 Renderer 侧逐字段上限。专项入口为 `test:agent-window` 与 `test:agent-window-ui`。
 
+### 4.6.2 声明式插件与电商套图翻译
+
+```text
+plugins/builtin-manifests.json
+  → desktop/plugin-state.cjs + src/plugin-state.ts 双侧清洗安装状态
+  → 设置页安装 / 授权 / 启用 / 停用 / 卸载
+  → 启用插件时动态 import src/plugin-system.ts
+  → PluginCommandRegistry 在执行前复核安装状态、启用状态和权限
+  → 画布顶部 toolbar contribution
+  → src/plugins/commerce-translation.ts 生成受控 Agent 任务
+  → sendPrompt() → image_gen → 按语言形成独立结果组
+```
+
+插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 当前申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results` 三项权限。翻译任务以当前选择作为唯一 SOURCE，最多选择 10 种语言，禁止虚构商品信息并要求有 SOURCE 时使用编辑语义而非重画。`src/plugin-system.ts` 是异步 chunk，首屏只静态持有轻量 `src/plugin-state.ts`。专项入口为 `test:plugin-system`。
+
 ### 4.7 项目 session 保存
 
 ```text
@@ -352,6 +369,9 @@ Renderer UpdaterBridge
 | `src/core.ts` | 共享类型与 bridge contract、会话清洗、图片/mask 与画布纯逻辑；保留资产/paste 兼容重导出 | React 渲染、长运行 Agent 状态、设置持久化与 alpha 归一化的新实现 | `ThemeChoice`, `ThemePaletteChoice`, `WorkflowNode`, `AgentTaskScope`, `ConfigBridge`, `ServerBridge`, `AgentBridge` | `typecheck`, `test:agent-text`, `test:layer-alpha` |
 | `src/layer-alpha-normalization.ts` | 图层 RGBA alpha 像素归属归一化、透明图层互斥重建与归一化报告 | 分层合成编排、mask 生成、`core.ts` façade 重导出 | `normalizeLayerAlphaPixelBuffers`, `normalizeTransparentLayerAlphaExclusivity` | `test:layer-alpha`, `test:layer-mask-replay`, `typecheck`, `build`, `test:bundle` |
 | `src/settings-persistence.ts` | 默认设置、明暗/调色盘与旧字段迁移、模型池清洗、Storage Keys、`readJson`/`writeJson` | Electron 磁盘设置、远端账户状态 | `defaultSettings`, `THEME_PALETTE_VALUES`, `mergeSettings`, `STORAGE_*` | `test:settings-persistence`, `typecheck`, `build` |
+| `src/plugin-state.ts`, `desktop/plugin-state.cjs` | Renderer/Electron 插件安装状态、授权集合和启用状态清洗镜像 | manifest 解析、命令执行、UI 或项目修改 | `normalizePluginStates`, `normalizePluginPermissions` | `test:plugin-system`, `test:settings-persistence` |
+| `src/plugin-system.ts`, `plugins/builtin-manifests.json` | 受信任 manifest、生命周期操作、权限复核、命令注册表与工具栏 contribution；按启用状态动态加载 | 任意脚本执行、直接 session 写入、Agent Runtime 或文件 IO | `PluginCommandRegistry`, `activePluginToolbarItems`, `installBuiltinPlugin` | `test:plugin-system`, `typecheck`, `build`, `test:bundle` |
+| `src/plugins/commerce-translation.ts`, `src/commerce-translation-dialog.tsx` | 跨境电商多语言目录、最多 10 种选择和受控 Agent 翻译任务契约 | 图片网络请求、结果落盘、插件权限或画布 reducer | `commerceTranslationPrompt`, `normalizeCommerceLanguageCodes` | `test:plugin-system`, `typecheck`, `build` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/agent-window-sync.ts` | 独立窗脱敏有界快照、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、Agent 执行、项目持久化 | `buildAgentWindowSnapshot`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、operation/request slot 键与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
@@ -521,6 +541,7 @@ TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REF
 | 账户密钥快照/显式刷新 | `desktop/account-token-service.cjs`, server IPC, `src/main.tsx` | 按账户隔离、脱敏字段、preload bridge、设置页不得自动联网 | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
 | 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette`、Electron `defaultSettings/migrateSettings` 镜像、Vite `studio-dialogs` 懒加载 chunk | `test:settings-persistence`, `test:ui-foundation`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
+| 插件/电商工具栏 | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*` | Electron/Renderer 状态清洗镜像、设置持久化、权限、动态 chunk、主 Renderer 命令 handler；禁止直接 session 写入 | `test:plugin-system`, `test:settings-persistence`, `typecheck`, `build`, `test:bundle` |
 | 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
 | 项目保存/session | `main.tsx`, `electron-main.cjs`, save coordinator | manifest、revision、迁移、原子写入 | `test:project-save-coordinator`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
@@ -651,6 +672,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 新增受信任声明式插件系统：内置 manifest、双侧状态清洗、安装/授权/启停/卸载、命令权限复核和画布工具栏贡献；首个 `sparkai.commerce-toolkit` 支持最多 10 种语言的套图翻译任务。完整插件 Runtime 按启用状态进入异步 chunk，插件不能注入脚本或直接写项目 session。 |
 | 2026-07-28 | 1.0.6 | 账户密钥额度新增独立换算 owner：原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 得到人民币；设置页主显 `￥` 并保留 R/原始值审计，充值 `price` 不作为汇率。状态参数随手动刷新获取并进入无敏感信息的 v2 快照，打开设置仍保持零网络懒加载。 |
 | 2026-07-28 | 1.0.6 | 新增真正可移出主应用的独立 Electron Agent 窗口；`desktop/agent-window-service.cjs` 管理生命周期和 owner 中继，`src/agent-window-sync.ts` 在打开时按需加载并生成脱敏有界快照，独立表面将发送/停止/会话/图片上下文/记忆/收回命令转回唯一主 Renderer。双窗口 mock Agent 往返、关闭与上方收回均已验证。 |
 | 2026-07-28 | 1.0.6 | 产品定义固化为 Codex/Claude Code 式通用 Runtime 与 naimage 图片创作 Agent 的组合；新增 `src/agent-panel-layout.ts`，完成四向停靠、应用内浮动、rAF + CSS preview 拖动和松手单次持久化；提示词复制操作与滚动轨道分离，新增纯布局与 Electron 定向 UI 测试。 |

@@ -5,6 +5,7 @@ import type {
   ReasoningEffort,
   ThemePaletteChoice
 } from "./core.ts";
+import { normalizePluginStates } from "./plugin-state.ts";
 
 export const AGENT_PROVIDER_OPTIONS: { value: AgentProviderChoice; label: string; detail: string }[] = [
   { value: "CODEX", label: "CODEX", detail: "支持推理强度与 Fast 模式。" },
@@ -90,7 +91,8 @@ export const defaultSettings: AppSettings = {
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
-  agentSkillAutoInstallTargets: []
+  agentSkillAutoInstallTargets: [],
+  pluginStates: []
 };
 
 const LEGACY_LOCAL_SERVER_URLS = new Set([
@@ -174,6 +176,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))] as AppSettings["agentSkillAutoInstallTargets"]
     : [];
+  next.pluginStates = normalizePluginStates(source.pluginStates);
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))) next.contextStrategy = "auto";
   const contextWindowTokens = Number(next.contextWindowTokens);

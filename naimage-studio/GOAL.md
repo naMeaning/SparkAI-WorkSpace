@@ -27,10 +27,10 @@
 
 ### 2. 电商多语言工具栏
 
-- 状态：`未开始`
-- 目标：作为可安装插件提供一键套图翻译，可勾选多个目标语言，按语言归组结果。
-- 权威文件：待插件系统建立后登记。
-- 证明：插件命令专项测试、翻译任务契约测试、目标语言多选 UI 冒烟。
+- 状态：`已验证`
+- 已实现：首个内置声明式插件 `sparkai.commerce-toolkit` 提供画布顶部“套图翻译”命令；用户安装并授权后可启用、停用或卸载，可勾选最多 10 种目标语言。任务把当前画布选择冻结为唯一 SOURCE，要求每种语言分别调用一次 `image_gen` 并进入独立结果组，保留商品/品牌/型号/尺寸/数字/版式，禁止虚构卖点、认证和优惠，阿拉伯语使用 RTL；存在 SOURCE 时禁止用 `generate` 重画商品。
+- 权威文件：`plugins/builtin-manifests.json`、`src/plugins/commerce-translation.ts`、`src/commerce-translation-dialog.tsx`、`src/main.tsx`。
+- 证明：`test:plugin-system` 30 cases、`test:settings-persistence` 62 cases、`typecheck`、正式 `build` 与 `test:bundle`。插件 Runtime 已进入独立异步 chunk；本批没有运行全量 AIDebug。
 
 ### 3. 接入状态懒加载与手动刷新
 
@@ -92,11 +92,12 @@
 
 ### 11. 插件系统与 project-graph 适配
 
-- 状态：`未开始`
+- 状态：`部分实现`
 - 目标：插件 manifest、注册表、权限、安装/启用/停用/卸载、Renderer contribution point 和命令注册；电商工具栏作为首个插件。
+- 已实现：受信任的声明式内置 manifest、设置持久化与 Electron/Renderer 双侧清洗、安装/启用/停用/卸载、权限复核、命令注册表和画布工具栏 contribution point。插件禁止注入任意 Renderer JavaScript，也不能直接修改项目 session；完整运行时仅在存在启用插件时动态加载。
 - project-graph：建立受控适配层，读取思维导图并生成图片需求/成果关系；插件不能直接修改项目 session 文件。
 - 外部参考：<https://github.com/graphif/project-graph>
-- 证明：manifest/权限/生命周期 selftest；电商插件与 project-graph 导入契约专项测试。
+- 当前证明：`test:plugin-system` 30 cases、`test:settings-persistence` 62 cases、`typecheck`、`build`、`test:bundle`；project-graph 导入契约仍待实现和验证。
 
 ### 12. 账户密钥额度人民币显示
 
@@ -118,6 +119,7 @@
 
 ## 变更日志
 
+- 2026-07-28：建立受信任的声明式插件系统并交付首个跨境电商多语言套图插件；支持安装、授权、启停、卸载、画布工具栏贡献和最多 10 种语言选择，插件 Runtime 进入异步 chunk，project-graph 受控导入适配仍待继续。
 - 2026-07-28：完成账户密钥额度人民币显示；动态读取 New API 公开额度单位和美元汇率，保留 R/原始 quota 审计信息，快照懒加载不额外联网且不持久化派生文案。
 - 2026-07-28：完成图片容器流式中间预览；手工与 Agent 并发生图按 operation/槽位归入目标容器，移除独立预览节点及对话窗口内 partial，最终态按槽位清理。
 - 2026-07-28：完成设置接入状态懒加载；账户密钥与模型/分组优先读取本地脱敏快照，显式按钮单击才访问 New API，并移除六次点击强刷逻辑。
