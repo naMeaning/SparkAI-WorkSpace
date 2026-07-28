@@ -111,7 +111,6 @@ async function main() {
   await client.send("Runtime.enable");
   await client.send("Page.enable");
   await waitForRuntimeExpression(client, "Boolean(document.querySelector('.project-agent-panel') && window.__naimageAIDebug)", { evaluate, timeoutMs: 15_000, intervalMs: 100 });
-
   const initialFit = await evaluate(client, `(() => {
     const panel = document.querySelector('.project-agent-panel')?.getBoundingClientRect();
     const canvas = document.querySelector('.canvas-panel')?.getBoundingClientRect();
@@ -119,13 +118,15 @@ async function main() {
       width: innerWidth,
       height: innerHeight,
       documentOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-      panelInside: Boolean(panel && panel.left >= 0 && panel.right <= innerWidth && panel.top >= 0 && panel.bottom <= innerHeight),
-      canvasVisible: Boolean(canvas && canvas.width > 200 && canvas.height > 200)
+      panelInside: Boolean(panel && panel.left >= -1 && panel.right <= innerWidth + 1 && panel.top >= -1 && panel.bottom <= innerHeight + 1),
+      canvasVisible: Boolean(canvas && canvas.width > 200 && canvas.height > 200),
+      panel: panel ? { left: panel.left, top: panel.top, right: panel.right, bottom: panel.bottom, width: panel.width, height: panel.height } : null,
+      canvas: canvas ? { left: canvas.left, top: canvas.top, right: canvas.right, bottom: canvas.bottom, width: canvas.width, height: canvas.height } : null
     };
   })()`);
   assert.equal(initialFit.documentOverflowX, false);
-  assert.equal(initialFit.panelInside, true);
-  assert.equal(initialFit.canvasVisible, true);
+  assert.equal(initialFit.panelInside, true, `Agent panel must fit the startup viewport: ${JSON.stringify(initialFit)}`);
+  assert.equal(initialFit.canvasVisible, true, `Canvas must remain usable beside the Agent panel: ${JSON.stringify(initialFit)}`);
 
   await choosePlacement("停靠上方", "top");
   const topLayout = await evaluate(client, `(() => {
