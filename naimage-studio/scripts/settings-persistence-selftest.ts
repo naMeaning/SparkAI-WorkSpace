@@ -95,6 +95,8 @@ assert.equal(repairedAgentPanel.agentPanelWidth, 320);
 assert.equal(repairedAgentPanel.agentPanelHeight, 1_400);
 assert.equal(repairedAgentPanel.agentPanelX, 0);
 assert.equal(repairedAgentPanel.agentPanelY, 10_000);
+assert.equal(mergeSettings({ agentPanelPlacement: "top" }).agentPanelPlacement, "top");
+assert.equal(mergeSettings({ agentPanelPlacement: "bottom" }).agentPanelPlacement, "bottom");
 assert.deepEqual(mergeSettings({ agentSkillAutoInstallTargets: ["codex", "unknown", "codex", "openclaw"] as never }).agentSkillAutoInstallTargets, ["codex", "openclaw"]);
 const repairedContext = mergeSettings({
   contextStrategy: "unsupported" as never,
@@ -177,4 +179,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 57 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 59 })}\n`);

@@ -54,6 +54,17 @@
   background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
 }
 
+.project-agent-panel.placement-top .project-agent-collapsed-rail,
+.project-agent-panel.placement-bottom .project-agent-collapsed-rail {
+  flex-direction: row;
+  padding: 0 14px;
+}
+
+.project-agent-panel.placement-top .project-agent-collapsed-rail strong,
+.project-agent-panel.placement-bottom .project-agent-collapsed-rail strong {
+  writing-mode: horizontal-tb;
+}
+
 .project-agent-collapsed-rail {
   width: 100%;
   min-width: 0;
@@ -165,7 +176,7 @@
   z-index: 14;
   top: 54px;
   right: 12px;
-  width: 168px;
+  width: 176px;
   display: grid;
   gap: 3px;
   padding: 6px;
@@ -217,6 +228,30 @@
 
 .agent-panel-resize-handle.resize-left {
   right: -4px;
+}
+
+.agent-panel-resize-handle.resize-top,
+.agent-panel-resize-handle.resize-bottom {
+  right: 0;
+  left: 0;
+  width: auto;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.agent-panel-resize-handle.resize-top {
+  top: auto;
+  bottom: -4px;
+}
+
+.agent-panel-resize-handle.resize-bottom {
+  top: -4px;
+  bottom: auto;
+}
+
+.ide-main.agent-panel-interacting,
+.ide-main.agent-panel-interacting * {
+  user-select: none !important;
 }
 
 .agent-panel-resize-handle.resize-width {

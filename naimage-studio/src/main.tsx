@@ -68,12 +68,14 @@ import {
   Maximize2,
   Minus,
   Move,
+  PanelBottom,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRight,
   PanelRightClose,
   PanelRightOpen,
+  PanelTop,
   PanelsTopLeft,
   Plus,
   RotateCcw,
@@ -97,6 +99,16 @@ import {
   toolTraceForProgress
 } from "./agent";
 import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
+import {
+  agentPanelLayoutForPlacement,
+  agentPanelLayoutFromPointer,
+  agentPanelLayoutFromSettings,
+  applyAgentPanelLayoutPreview,
+  clampAgentPanelLayout,
+  clearAgentPanelLayoutPreview,
+  type AgentPanelLayout,
+  type AgentPanelPointerMode
+} from "./agent-panel-layout";
 import { installBrowserServerBridge } from "./server";
 import {
   CONTEXT_STRATEGY_OPTIONS,
@@ -341,11 +353,6 @@ type CanvasHistorySnapshot = {
   layoutGroups: ImageLayoutGroup[];
   selection: NodeSelectionState;
 };
-
-type AgentPanelLayout = Pick<
-  AppSettings,
-  "agentPanelPlacement" | "agentPanelWidth" | "agentPanelHeight" | "agentPanelX" | "agentPanelY"
->;
 
 type StreamingImagePreview = {
   key: string;
@@ -1014,16 +1021,6 @@ function uid(prefix: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
-}
-
-function agentPanelLayoutFromSettings(settings: AppSettings): AgentPanelLayout {
-  return {
-    agentPanelPlacement: settings.agentPanelPlacement,
-    agentPanelWidth: clamp(Math.round(Number(settings.agentPanelWidth) || 390), 320, 720),
-    agentPanelHeight: clamp(Math.round(Number(settings.agentPanelHeight) || 680), 420, 1_400),
-    agentPanelX: Math.max(0, Math.round(Number(settings.agentPanelX) || 0)),
-    agentPanelY: Math.max(0, Math.round(Number(settings.agentPanelY) || 0))
-  };
 }
 
 function moveBy<T>(items: T[], predicate: (item: T) => boolean, patch: (item: T) => T) {
@@ -3828,12 +3825,6 @@ function App() {
       }, 0);
     }
   }
-
-  const updateAgentPanelLayout = useStableEvent((next: AgentPanelLayout) => {
-    const normalized = agentPanelLayoutFromSettings({ ...settingsRef.current, ...next });
-    agentPanelLayoutRef.current = normalized;
-    setAgentPanelLayout(normalized);
-  });
 
   const persistAgentPanelLayout = useStableEvent((next: AgentPanelLayout) => {
     const normalized = agentPanelLayoutFromSettings({ ...settingsRef.current, ...next });
@@ -21177,7 +21168,6 @@ function App() {
           collapsed={agentCollapsed}
           toggleCollapsed={projectAgentToggleCollapsed}
           panelLayout={agentPanelLayout}
-          updatePanelLayout={updateAgentPanelLayout}
           commitPanelLayout={persistAgentPanelLayout}
           debugCommit={recordDebugRenderCommit}
         />
@@ -22181,7 +22171,6 @@ function ProjectAgentPanelView({
   collapsed,
   toggleCollapsed,
   panelLayout,
-  updatePanelLayout,
   commitPanelLayout,
   debugCommit
 }: {
@@ -22215,7 +22204,6 @@ function ProjectAgentPanelView({
   collapsed: boolean;
   toggleCollapsed: () => void;
   panelLayout: AgentPanelLayout;
-  updatePanelLayout: (layout: AgentPanelLayout) => void;
   commitPanelLayout: (layout: AgentPanelLayout) => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
@@ -22225,14 +22213,17 @@ function ProjectAgentPanelView({
   const historyRef = useRef<HTMLDivElement | null>(null);
   const panelDragRef = useRef<{
     pointerId: number;
-    mode: "move" | "resize-dock" | "resize-width" | "resize-height" | "resize-corner";
+    mode: AgentPanelPointerMode;
     startClientX: number;
     startClientY: number;
     start: AgentPanelLayout;
+    preview: AgentPanelLayout;
     bounds: DOMRect;
+    workspace: HTMLElement;
+    frame: number;
   } | null>(null);
   const panelLayoutRef = useRef(panelLayout);
-  panelLayoutRef.current = panelLayout;
+  if (!panelDragRef.current) panelLayoutRef.current = panelLayout;
   const conversationBusy = conversationBoundaryBusy;
   const agentActivityBusy = conversationBoundaryBusy;
   const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages]);
@@ -22279,17 +22270,9 @@ function ProjectAgentPanelView({
             : "等待指令";
   const statusText = activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
 
-  function clampPanelLayout(layout: AgentPanelLayout, bounds: DOMRect): AgentPanelLayout {
-    const width = clamp(Math.round(layout.agentPanelWidth), 320, Math.min(720, Math.max(320, bounds.width - 24)));
-    const height = clamp(Math.round(layout.agentPanelHeight), 420, Math.min(1_400, Math.max(420, bounds.height - 24)));
-    const x = clamp(Math.round(layout.agentPanelX), 8, Math.max(8, Math.round(bounds.width - width - 8)));
-    const y = clamp(Math.round(layout.agentPanelY), 8, Math.max(8, Math.round(bounds.height - height - 8)));
-    return { ...layout, agentPanelWidth: width, agentPanelHeight: height, agentPanelX: x, agentPanelY: y };
-  }
-
   function beginPanelPointer(
     event: React.PointerEvent<HTMLElement>,
-    mode: "move" | "resize-dock" | "resize-width" | "resize-height" | "resize-corner"
+    mode: AgentPanelPointerMode
   ) {
     if (mode === "move" && panelLayout.agentPanelPlacement !== "floating") return;
     if (mode === "move" && (event.target as HTMLElement).closest("button, input, select, textarea, .project-agent-history, .agent-placement-menu")) return;
@@ -22298,13 +22281,18 @@ function ProjectAgentPanelView({
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
+    const start = { ...panelLayoutRef.current };
+    workspace.classList.add("agent-panel-interacting");
     panelDragRef.current = {
       pointerId: event.pointerId,
       mode,
       startClientX: event.clientX,
       startClientY: event.clientY,
-      start: { ...panelLayoutRef.current },
-      bounds: workspace.getBoundingClientRect()
+      start,
+      preview: start,
+      bounds: workspace.getBoundingClientRect(),
+      workspace,
+      frame: 0
     };
   }
 
@@ -22314,36 +22302,48 @@ function ProjectAgentPanelView({
     event.preventDefault();
     const dx = event.clientX - drag.startClientX;
     const dy = event.clientY - drag.startClientY;
-    let next = { ...drag.start };
-    if (drag.mode === "move") {
-      next.agentPanelX += dx;
-      next.agentPanelY += dy;
-    } else if (drag.mode === "resize-dock") {
-      next.agentPanelWidth += drag.start.agentPanelPlacement === "right" ? -dx : dx;
-    } else {
-      if (drag.mode === "resize-width" || drag.mode === "resize-corner") next.agentPanelWidth += dx;
-      if (drag.mode === "resize-height" || drag.mode === "resize-corner") next.agentPanelHeight += dy;
-    }
-    next = clampPanelLayout(next, drag.bounds);
-    updatePanelLayout(next);
+    const next = agentPanelLayoutFromPointer(drag.start, drag.mode, dx, dy, drag.bounds);
+    drag.preview = next;
+    panelLayoutRef.current = next;
+    if (drag.frame) return;
+    drag.frame = window.requestAnimationFrame(() => {
+      drag.frame = 0;
+      if (panelDragRef.current !== drag) return;
+      applyAgentPanelLayoutPreview(drag.workspace, drag.preview);
+    });
   }
 
   function endPanelPointer(event: React.PointerEvent<HTMLElement>) {
     const drag = panelDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
+    if (drag.frame) window.cancelAnimationFrame(drag.frame);
+    const finalLayout = clampAgentPanelLayout(drag.preview, drag.bounds);
+    applyAgentPanelLayoutPreview(drag.workspace, finalLayout);
+    panelLayoutRef.current = finalLayout;
     panelDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    commitPanelLayout(clampPanelLayout(panelLayoutRef.current, drag.bounds));
+    commitPanelLayout(finalLayout);
+    window.requestAnimationFrame(() => clearAgentPanelLayoutPreview(drag.workspace));
   }
 
   function setPanelPlacement(placement: AgentPanelLayout["agentPanelPlacement"]) {
     const workspace = document.querySelector<HTMLElement>(".ide-main");
     const bounds = workspace?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
-    const next = clampPanelLayout({ ...panelLayoutRef.current, agentPanelPlacement: placement }, bounds);
+    const next = agentPanelLayoutForPlacement(panelLayoutRef.current, placement, bounds);
     setPlacementOpen(false);
     commitPanelLayout(next);
   }
+
+  useEffect(() => {
+    return () => {
+      const drag = panelDragRef.current;
+      if (!drag) return;
+      if (drag.frame) window.cancelAnimationFrame(drag.frame);
+      clearAgentPanelLayoutPreview(drag.workspace);
+      panelDragRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (collapsed) {
@@ -22404,7 +22404,13 @@ function ProjectAgentPanelView({
     return (
       <aside className={`project-agent-panel is-collapsed placement-${panelLayout.agentPanelPlacement}`} aria-label="已折叠的项目 Agent 对话栏">
         <ButtonBase className="project-agent-collapsed-rail agent-collapse-button" type="button" onClick={toggleCollapsed} aria-label="展开项目 Agent" title="展开项目 Agent">
-          {panelLayout.agentPanelPlacement === "left" ? <PanelLeftOpen size={17} /> : <PanelRightOpen size={17} />}
+          {panelLayout.agentPanelPlacement === "left"
+            ? <PanelLeftOpen size={17} />
+            : panelLayout.agentPanelPlacement === "top"
+              ? <PanelTop size={17} />
+              : panelLayout.agentPanelPlacement === "bottom"
+                ? <PanelBottom size={17} />
+                : <PanelRightOpen size={17} />}
           <span className={activityActive ? "busy" : ""}>{activityActive ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}</span>
           <strong>Agent</strong>
           {selectedArtifacts.length > 0 ? <i aria-label="已选择成果" /> : null}
@@ -22464,7 +22470,13 @@ function ProjectAgentPanelView({
             className="agent-collapse-button"
             label="折叠项目 Agent"
             onClick={toggleCollapsed}
-            icon={panelLayout.agentPanelPlacement === "left" ? <PanelLeftClose size={16} /> : <PanelRightClose size={16} />}
+            icon={panelLayout.agentPanelPlacement === "left"
+              ? <PanelLeftClose size={16} />
+              : panelLayout.agentPanelPlacement === "top"
+                ? <PanelTop size={16} />
+                : panelLayout.agentPanelPlacement === "bottom"
+                  ? <PanelBottom size={16} />
+                  : <PanelRightClose size={16} />}
           />
           <IconActionButton
             id={PROJECT_AGENT_HISTORY_TOGGLE_ID}
@@ -22489,9 +22501,17 @@ function ProjectAgentPanelView({
               <PanelLeft size={15} />
               <span>停靠左侧</span>
             </ButtonBase>
+            <ButtonBase className={panelLayout.agentPanelPlacement === "top" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("top")}>
+              <PanelTop size={15} />
+              <span>停靠上方</span>
+            </ButtonBase>
+            <ButtonBase className={panelLayout.agentPanelPlacement === "bottom" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("bottom")}>
+              <PanelBottom size={15} />
+              <span>停靠下方</span>
+            </ButtonBase>
             <ButtonBase className={panelLayout.agentPanelPlacement === "floating" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("floating")}>
               <PanelsTopLeft size={15} />
-              <span>浮动面板</span>
+              <span>应用内浮动</span>
             </ButtonBase>
           </div>
         ) : null}
@@ -22583,7 +22603,7 @@ function ProjectAgentPanelView({
       ) : (
         <span
           className={`agent-panel-resize-handle resize-dock resize-${panelLayout.agentPanelPlacement}`}
-          aria-label="调整对话框宽度"
+          aria-label={panelLayout.agentPanelPlacement === "top" || panelLayout.agentPanelPlacement === "bottom" ? "调整对话框高度" : "调整对话框宽度"}
           role="separator"
           onPointerDown={(event) => beginPanelPointer(event, "resize-dock")}
           onPointerMove={movePanelPointer}
@@ -22651,7 +22671,6 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.collapsed === right.collapsed &&
   left.toggleCollapsed === right.toggleCollapsed &&
   left.panelLayout === right.panelLayout &&
-  left.updatePanelLayout === right.updatePanelLayout &&
   left.commitPanelLayout === right.commitPanelLayout &&
   left.debugCommit === right.debugCommit
 );
@@ -22768,13 +22787,15 @@ function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: 
                 <ChevronDown size={13} />
               </summary>
               <div className="agent-tool-prompt-content">
-                <IconActionButton
-                  className="agent-tool-prompt-copy"
-                  label={copiedPromptIndex === index ? "提示词已复制" : "复制生图提示词"}
-                  title={copiedPromptIndex === index ? "已复制" : "复制提示词"}
-                  onClick={() => void copyPrompt(item.prompt, index)}
-                  icon={copiedPromptIndex === index ? <Check size={13} /> : <Copy size={13} />}
-                />
+                <div className="agent-tool-prompt-actions">
+                  <IconActionButton
+                    className="agent-tool-prompt-copy"
+                    label={copiedPromptIndex === index ? "提示词已复制" : "复制生图提示词"}
+                    title={copiedPromptIndex === index ? "已复制" : "复制提示词"}
+                    onClick={() => void copyPrompt(item.prompt, index)}
+                    icon={copiedPromptIndex === index ? <Check size={13} /> : <Copy size={13} />}
+                  />
+                </div>
                 <pre>{item.prompt}</pre>
               </div>
             </details>

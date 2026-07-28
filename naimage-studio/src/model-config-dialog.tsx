@@ -158,7 +158,7 @@ export default function ModelConfigDialog({
               </div>
             </div>
             <div className="model-picker-custom">
-              <label htmlFor={`custom-${kind}-model`}>手工添加模型</label>
+              <label htmlFor={`custom-${kind}-model`}>自定义模型</label>
               <div>
                 <input
                   id={`custom-${kind}-model`}
@@ -202,7 +202,7 @@ export default function ModelConfigDialog({
                   </ButtonBase>
                 );
               }) : (
-                <div className="model-picker-empty">{availableModels.length ? "没有匹配的模型。" : "暂无可用模型，可在上方手工添加模型名称。"}</div>
+                <div className="model-picker-empty">{availableModels.length ? "没有匹配的模型。" : "暂无可用模型，可在上方填写自定义模型名称。"}</div>
               )}
             </div>
           </SurfaceBody>

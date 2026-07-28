@@ -552,7 +552,7 @@ function migrateSettings(value) {
   next.licenseLastVerifiedAt = Math.max(0, Math.floor(Number(next.licenseLastVerifiedAt) || 0));
   next.theme = ["system", "light", "dark"].includes(String(next.theme)) ? String(next.theme) : defaultSettings.theme;
   next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
-  next.agentPanelPlacement = ["right", "left", "floating"].includes(String(next.agentPanelPlacement))
+  next.agentPanelPlacement = ["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))
     ? String(next.agentPanelPlacement)
     : defaultSettings.agentPanelPlacement;
   next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));

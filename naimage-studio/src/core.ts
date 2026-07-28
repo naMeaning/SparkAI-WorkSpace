@@ -132,7 +132,7 @@ export type AppSettings = ApiSettings & {
   modelGroup: string;
   theme: ThemeChoice;
   themePalette: ThemePaletteChoice;
-  agentPanelPlacement: "right" | "left" | "floating";
+  agentPanelPlacement: "right" | "left" | "top" | "bottom" | "floating";
   agentPanelWidth: number;
   agentPanelHeight: number;
   agentPanelX: number;

@@ -18,7 +18,7 @@
 
 - 状态：`已验证`
 - 目标：提供 `自动`、`Codex`、`Claude Code`、`naimage 平衡`、`自定义`策略。自动模式按模型族选择；用户可覆盖。
-- 产品定义：naimage Agent = Codex 式通用 Agent Runtime + naimage 图片领域 Agent。复用 Codex 的长上下文、原生工具循环、协议历史与压缩语义，同时保留画布、TaskScope、图片容器、Image Gen 和绘画经验。
+- 产品定义：naimage Agent = Codex/Claude Code 式通用 Agent Runtime + naimage 图片创作 Agent。这里不是把 Codex 源码或产品直接嵌入应用，而是复用其长上下文、原生工具循环、协议历史、checkpoint、Skills/CLI 与多步骤执行语义，同时由 naimage 领域工具拥有画布、TaskScope、图片容器、Image Gen、素材和绘画经验。
 - 用户补充：GPT/Codex 策略不应继续沿用 32K 的过早压缩阈值；应按模型上下文窗口（Codex 类模型约 256K 量级，最终以模型目录或用户配置为准）分配可用预算，并为输出与安全余量预留空间。
 - 当前实现：`runtime/context-strategy.cjs` 按模型族解析窗口和预算；GPT 5.5/5.6 使用 272K 总窗口、95% 有效窗口、244.8K 自动 checkpoint、20K 用户意图保留预算和 Responses 协议历史；Claude 使用普通消息历史与 200K/1M 窗口；未知模型使用 128K 平衡策略。
 - checkpoint 契约：生成 handoff summary，替换旧 Responses 协议基础，清除旧 encrypted reasoning，随后重新注入当前画布、TaskScope 和 FastMemory。Codex 单条协议消息不再固定截断为 12K 字符。
@@ -43,16 +43,17 @@
 ### 4. Agent 自由浮动窗口与四向停靠
 
 - 状态：`部分实现`
-- 当前基础：Agent 面板已有尺寸和停靠相关交互。
-- 缺口：审计上/下/左/右完整性；实现可移出应用主窗口的独立 Electron 浮动窗口及状态同步。
-- 权威文件：`src/main.tsx`、Agent UI 模块、Electron 窗口服务与 IPC。
+- 已实现：右、左、上、下四向停靠与应用内浮动；横向/纵向停靠使用对应宽度/高度 resize handle，折叠 rail 也随方向切换。布局设置已完成迁移和持久化。
+- 缺口：实现可移出应用主窗口的独立 Electron 浮动窗口及主/浮窗状态同步；“应用内浮动”不冒充独立窗口。
+- 权威文件：`src/main.tsx`、`src/agent-panel-layout.ts`、Agent UI 样式、Electron 窗口服务与 IPC。
 - 证明：窗口生命周期 selftest；四向停靠和浮动窗口专项 GUI 冒烟。
 
 ### 5. “手工添加模型”改为“自定义模型”
 
-- 状态：`未开始`
+- 状态：`已验证`
+- 已实现：模型配置入口和空状态统一使用“自定义模型”，源码 UI 中不再残留“手工添加模型”。
 - 权威文件：`src/model-config-dialog.tsx` 及设置相关文案。
-- 证明：文本搜索无旧文案；设置专项测试。
+- 证明：源码文本搜索无旧文案；`typecheck`、正式 `build`。
 
 ### 6. 外观导入与自定义配置
 
@@ -78,16 +79,16 @@
 
 ### 9. 提示词复制按钮布局
 
-- 状态：`未开始`
-- 目标：复制按钮与滚动条轨道分离，键盘焦点和窄宽度下均可用。
+- 状态：`已验证`
+- 已实现：复制操作移到独立工具行，不再绝对定位覆盖 `<pre>`；提示词滚动区使用稳定 scrollbar gutter，复制成功状态仍可见。
 - 参考：用户提供的图 1。
-- 证明：对应工具卡专项 GUI 截图和可点击性检查。
+- 证明：`test:agent-panel-ui` 验证按钮位于滚动区上方、二者不相交、滚动区可滚动、gutter 为 stable，并实际点击进入“已复制”；截图位于对应 `.diagnostics/electron/agent-panel-ui-*` 目录。
 
 ### 10. Agent 侧边栏拖动性能
 
-- 状态：`未开始`
-- 目标：pointermove 不触发高频全树 React 更新；使用 `requestAnimationFrame` 与 CSS 变量/局部提交，松手后持久化。
-- 证明：拖动期间 render commit 与帧耗时专项指标；GUI 冒烟。
+- 状态：`已验证`
+- 已实现：pointermove 只更新拖动模型，并由 `requestAnimationFrame` 合并为 CSS preview variables；松手后只提交一次 React 状态和设置持久化。纯布局计算已从 `main.tsx` 抽到 `src/agent-panel-layout.ts`。
+- 证明：`test:agent-panel-layout` 16 cases；`test:agent-panel-ui` 连续 12 次 pointer move 期间 App、Canvas、Agent feed、Composer React commit 均为 0，preview 生效并在 pointer release 后提交宽度；正式 `build` 与 `test:bundle` 已通过。
 
 ### 11. 插件系统与 project-graph 适配
 
@@ -115,5 +116,6 @@
 
 ## 变更日志
 
+- 2026-07-28：完成 Agent 四向停靠与应用内浮动，独立窗口仍待实现；完成自定义模型文案、提示词复制区布局和 resize 零 React 高频提交优化，并新增 16 项纯布局测试与 17 项 Electron 定向 UI 验证。
 - 2026-07-28：完成模型感知上下文策略和 Codex 式 checkpoint；修复 Codex 长消息仍被 12K 字符截断的问题，新增 16 项 Runtime checkpoint 专项验证。
 - 2026-07-28：创建长程目标文档；开始目标 1/7 的上下文策略系统。

@@ -40,6 +40,8 @@
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
+产品层把 Agent 定义为“Codex/Claude Code 式通用 Agent Runtime + naimage 图片创作 Agent”。前者拥有目标分解、工具循环、模型协议、上下文 checkpoint、Skills/CLI 和任务恢复；后者拥有画布语义、TaskScope、图片容器、Image Gen、素材归属和绘画经验。它是能力与协议的组合，不是把 Codex 产品或源码直接嵌入应用。
+
 ## 3. 进程拓扑
 
 ```text
@@ -92,6 +94,7 @@ React Renderer
   index.html → src/main.tsx → App
   ├─ src/core.ts：共享类型、bridge contract、图片与 session 规则
   ├─ src/settings-persistence.ts：默认设置、迁移与浏览器回退存储
+  ├─ src/agent-panel-layout.ts：Agent 停靠/浮动布局、边界限制与 CSS 拖动预览
   ├─ src/asset-identity.ts / src/paste-blocks.ts：纯数据域
   ├─ src/agent.ts：Agent 请求和时间线适配
   ├─ src/ui.tsx：基础 UI 兼容 façade；真实实现位于 src/ui/*
@@ -219,6 +222,19 @@ settings + agentModel
 
 GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用户消息预算由策略提供，不能重新退回固定 12K 字符；否则长需求文档会在达到模型窗口前被静默截断。Claude 请求不得包含 `responses_items`，也不得因暴露 Responses 原生 `web_search` 被强制路由到 `/v1/responses`。策略专项入口是 `test:context-strategy` 与 `test:context-checkpoint`。
 
+### 4.6.1 Agent 面板布局与拖动
+
+```text
+设置中的 agentPanelPlacement/Width/Height/X/Y
+  → src/agent-panel-layout.ts 读取并约束布局
+  → right / left / top / bottom / floating（应用内）
+  → pointermove 只更新 drag ref
+  → requestAnimationFrame 写入 --agent-panel-preview-* CSS variables
+  → pointer release 才提交 React state 与设置持久化
+```
+
+`src/agent-panel-layout.ts` 是布局计算、停靠转换、边界限制和 CSS preview 的唯一 owner；`main.tsx` 只编排 pointer capture 与提交。上/下停靠调整高度，左/右停靠调整宽度。`floating` 明确指主 Renderer 内浮动，不等同于可拖出主窗口的独立 Electron `BrowserWindow`；独立窗口仍需建立 Main 窗口服务、preload/IPC 与会话状态同步。专项入口为 `test:agent-panel-layout` 和 `test:agent-panel-ui`。
+
 ### 4.7 项目 session 保存
 
 ```text
@@ -315,6 +331,7 @@ Renderer UpdaterBridge
 | `src/core.ts` | 共享类型与 bridge contract、会话清洗、图片/mask 与画布纯逻辑；保留资产/paste 兼容重导出 | React 渲染、长运行 Agent 状态、设置持久化与 alpha 归一化的新实现 | `ThemeChoice`, `ThemePaletteChoice`, `WorkflowNode`, `AgentTaskScope`, `ConfigBridge`, `ServerBridge`, `AgentBridge` | `typecheck`, `test:agent-text`, `test:layer-alpha` |
 | `src/layer-alpha-normalization.ts` | 图层 RGBA alpha 像素归属归一化、透明图层互斥重建与归一化报告 | 分层合成编排、mask 生成、`core.ts` façade 重导出 | `normalizeLayerAlphaPixelBuffers`, `normalizeTransparentLayerAlphaExclusivity` | `test:layer-alpha`, `test:layer-mask-replay`, `typecheck`, `build`, `test:bundle` |
 | `src/settings-persistence.ts` | 默认设置、明暗/调色盘与旧字段迁移、模型池清洗、Storage Keys、`readJson`/`writeJson` | Electron 磁盘设置、远端账户状态 | `defaultSettings`, `THEME_PALETTE_VALUES`, `mergeSettings`, `STORAGE_*` | `test:settings-persistence`, `typecheck`, `build` |
+| `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
 | `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
@@ -573,6 +590,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 布局/容器 | `corepack pnpm run test:image-layout`, `corepack pnpm run test:image-container` |
 | 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate`；GUI 专项为 `aidebug:requirements`，完整 Layer Stack 仅按需运行 `aidebug:requirements:full` |
 | UI primitives | `corepack pnpm run test:ui-foundation` |
+| Agent 面板布局/拖动/提示词复制区 | `corepack pnpm run test:agent-panel-layout`, `corepack pnpm run test:agent-panel-ui` |
 | alpha/mask/matting | `test:chroma-key`, `test:layer-alpha`, `test:layer-mask-replay`, `test:semantic-matting` |
 | 选择/画布/资产 | `test:selection`, `test:canvas-commands`, `test:asset-identity` |
 | 工具时间线 | `corepack pnpm run test:timeline` |
@@ -605,6 +623,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 产品定义固化为 Codex/Claude Code 式通用 Runtime 与 naimage 图片创作 Agent 的组合；新增 `src/agent-panel-layout.ts`，完成四向停靠、应用内浮动、rAF + CSS preview 拖动和松手单次持久化；提示词复制操作与滚动轨道分离，新增纯布局与 Electron 定向 UI 测试。 |
 | 2026-07-22 | 1.0.4 | 建立首版上下文地图；登记 `src/window-controls.tsx` 与 `desktop/project-save-coordinator.cjs`；补全进程拓扑、调用链、跨边界契约、镜像规则、持久化和测试映射。 |
 | 2026-07-22 | 1.0.4 | 模块化 `main.tsx` 表面、Electron 模型/Responses/保存域、runtime 图片帧与 `view_image`、core 设置/资产/粘贴域；把 1 万行样式按原级联顺序拆成 8 区；新增对应 selftest、打包白名单和共享 chunk 门禁。 |
 | 2026-07-22 | 1.0.4 | 抽出 `runtime/tool-schemas.cjs` 与 `runtime/responses-parser.cjs`，让 Agent runtime facade 只消费稳定 schema 和响应解析 owner；增加直接协议 characterization 与禁止重复实现断言。 |
