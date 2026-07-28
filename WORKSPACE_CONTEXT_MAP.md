@@ -58,7 +58,7 @@ flowchart TD
   Preload --> Renderer["src/main.tsx → React App"]
   Renderer --> SurfaceModules["auth / image viewer / reference picker / window controls"]
   Renderer --> DomainModules["settings / plugin system / asset identity / paste blocks / canvas domains"]
-  Renderer --> PluginModules["声明式插件\n电商套图翻译 / Project Graph 视觉学习"]
+  Renderer --> PluginModules["声明式插件\n电商套图翻译 / Project Graph / 科研绘图"]
   Renderer --> Styles["styles.css → styles/01…08"]
 ```
 
@@ -116,7 +116,7 @@ corepack pnpm run test:bundle
 
 再按领域追加 `test:model-catalog`、`test:settings-persistence`、`test:view-image`、`test:agent-protocol`、`test:project-io` 等。只有真实可视交互变化才追加一次 `aidebug:gui` 快速冒烟，不把完整 AIDebug 作为日常默认步骤。仓库的 `AGENTS.md` 和 `docs/CONTEXT_MAP.md` 是具体约束来源。
 
-当前 Renderer 门禁保持总 JS 720,000 B 与完整 dist 1,000,000 B 不变，初始 JS 上限为 650,000 B；插件完整 Runtime 和设置表面已进入异步 chunk。新增 Renderer 能力应继续优先寻找自然异步边界，而不是继续放宽首屏预算。
+当前 Renderer 门禁分别约束核心与插件：初始 JS 650,000 B、核心异步 JS 180,000 B、核心总 JS 720,000 B、插件 JS 120,000 B、完整 dist 1,000,000 B。插件运行时、设置表面和插件专属对话框是自然异步 chunk，禁止进入首屏依赖图；插件 JS 不占核心 JS 额度，但仍受插件和 dist 上限约束。当前证据为 initial 648,314 B、core 710,952 B、plugin 9,266 B、all JS 720,218 B、dist 969,919 B。
 
 Project Graph 插件批次证据：initial JS 646,764 B、total JS 719,964 B、完整 dist 968,264 B。总 JS 只剩 36 B；后续 Renderer 功能必须先减少或移出已有代码，再增加新的 Renderer 模块。
 
@@ -199,7 +199,7 @@ corepack pnpm run crm:check
 
 桌面 1.0.6 支持两种互斥出口：账号模式用 session cookie + `New-Api-User` 管理账户、余额、密钥和设备授权，再以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起模型请求；默认组合是 `https://sparkapi.org/v1`。自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送用户 API Key。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。原生 New API 可提供登录、密钥和标准模型接口，`/api/naimage/license*`、桌面更新与旧 `/naimage/v1/*` Relay 仍属于可选后端扩展。
 
-生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。partial 按父 operation 和一基并发槽位进入目标图片节点/容器的 pending tile，终态清理，不进入 Agent 对话、项目 session 或图片库。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
+生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`，两种模式使用同一 Responses-first 策略：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，顶层模型取 `agentModel`，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。账号模式以所选完整 Key 进行 Bearer 鉴权，不把账户 Cookie、用户 ID 或客户端 `group` 发送给模型端点。partial 按父 operation 和一基并发槽位进入目标图片节点/容器的 pending tile，终态清理，不进入 Agent 对话、项目 session 或图片库。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
 
 产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。旧 `/naimage/v1/*` 仅作为后端扩展/历史 Relay 合同保留，不是当前 Studio 模型调用路径。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
 

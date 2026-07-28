@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "sparkai.scientific-figure",
+  "version": "1.0.0",
+  "delivery": "builtin",
+  "runtime": {
+    "kind": "trusted-agent-task",
+    "entry": "resources/agent-workflow.json"
+  },
+  "compatibility": {
+    "minimumNaimageVersion": "1.0.6",
+    "platforms": ["win32-x64"],
+    "requiresBundledPython": false,
+    "requiresBundledR": false
+  },
+  "onlineCatalog": {
+    "detachable": true,
+    "packageFormat": "naimage-plugin-v1"
+  },
+  "source": {
+    "project": "nature-skills",
+    "url": "https://github.com/Yuan1z0825/nature-skills",
+    "revision": "fac88c419fa0ad642014609e3084f52629cfee52",
+    "license": "Apache-2.0"
+  },
+  "licenseFiles": ["THIRD_PARTY_NOTICES.md", "LICENSE-APACHE-2.0.txt"]
+}

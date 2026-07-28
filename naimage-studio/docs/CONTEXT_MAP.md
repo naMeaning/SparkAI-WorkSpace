@@ -174,8 +174,9 @@ image_gen
   → callImageGeneration()
   → electron-main.cjs serverGenerateImage()
   → callNewApiImageWithSession()
-  ├─ account：所选 New API Key 直连 /v1/images/generations 或 /v1/images/edits
-  └─ custom：纯文生图 /v1/responses + image_generation；编辑 /v1/images/edits
+  ├─ account：所选 New API Key 直连；纯文生图优先 /v1/responses + image_generation
+  └─ custom：用户图片 Key 直连；纯文生图同样优先 /v1/responses + image_generation
+       （两者编辑/参考图均使用 /v1/images/edits）
   → 项目 output 资产
   → workflow action
   → Renderer 归组与溯源
@@ -192,7 +193,7 @@ image_gen
 
 设置页数据加载是显式的离线优先边界：挂载时 `tokens({ preferCached: true })` 与 `models({ cacheOnly: true })` 只读 Main 本地快照；没有模型快照时回退到设置内模型池。切换设置分区不会联网；只有“刷新密钥与分组”“刷新模型”、密钥 CRUD 或切换密钥等明确用户动作可以请求 New API。模型磁盘快照即使超过 60 秒，在 `cacheOnly` 模式下也可用于离线显示，并标记来源/更新时间；正常运行时的 60 秒缓存规则仍保持。
 
-账号模式的标准 Images API 默认发送 `stream=true` 与 `partial_images=3`；`desktop/new-api-client.cjs` 解析 generation/edit partial 与 completed 事件，并在服务端明确表示不支持 `stream/partial_images` 时用新的幂等键安全回退一次非流式 JSON。密钥分组由 New API token 自身决定，桌面不得再向模型/生图 JSON 或 multipart 注入 `group`。自定义模式的纯文生图优先请求图片渠道的 `POST /v1/responses`：顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 image_generation 工具不受支持时，才回退 `/v1/images/generations` 非流式 JSON；HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。自定义编辑/参考图仍走 `/v1/images/edits` multipart 非流式链路。
+账号和自定义模式的纯文生图现在使用同一传输优先级：请求图片凭据对应的 `POST /v1/responses`，顶层模型使用 `agentModel`，完整 Prompt 放入 `input`，`tools[0]` 为 `image_generation`，其中携带 `action=generate`、画幅、格式、审核、质量和 `partial_images=3`；图片模型由该工具对应的上游渠道选择。账号模式的凭据来自当前所选账户 Key 与规范化的 `accountBaseUrl/v1`，Cookie 与 `New-Api-User` 不作为模型鉴权；自定义模式使用用户图片 Key。密钥分组由 New API token 自身决定，桌面不得向模型/生图 JSON 或 multipart 注入 `group`。客户端只把索引 0–2 映射成 `1/3`、`2/3`、`3/3` 中间预览，忽略上游额外的最终态 partial，并从 `response.output_item.done.item.result` 或 `response.completed.response.output[]` 收口、去重最终图片。只有 400/404/422 明确表示 Responses、模型或 `image_generation` 工具不受支持时才回退 Images API：账号模式先尝试 `/v1/images/generations` SSE，再按明确的不支持错误回退 JSON；自定义模式直接回退非流式 JSON。HTTP 200 空流、已有 partial 后断流或不完整响应不得补发，避免重复计费。账号编辑/参考图使用 `/v1/images/edits` SSE，自定义编辑/参考图使用同端点的 multipart 非流式链路。
 
 中间图只进入 `image-preview` 进度和 Renderer 的临时 `streamingImagePreviews`。`src/streaming-image-preview.ts` 按父 operation、生成节点与一基 request slot 建立归属；分层任务为每个图层传递独立 slot；`src/main.tsx` 再通过 layout projection 把 partial 放进目标单图、批量容器、连续系列或分层占位组的 pending tile。最终图、失败或停止后按槽位清理。中间图不进入 Agent 时间线卡、主/独立 Agent 对话窗口、项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
 
@@ -259,7 +260,7 @@ GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用
 
 独立窗没有 Node integration，不持有 API Key、Cookie、项目写权限或第二个 Agent Runtime。它支持发送/停止、会话切换、新建/清理、原图/参考图入口、FastMemory 入口和收回五种主窗口位置；涉及图片选择或记忆编辑时服务先聚焦主窗口。独立窗关闭后主面板自动展开，主 Renderer 销毁时独立窗同步关闭。快照 JSON 最大 16 MiB、命令最大 512 KiB，消息/提示词/中间预览还有 Renderer 侧逐字段上限。专项入口为 `test:agent-window` 与 `test:agent-window-ui`。
 
-### 4.6.2 声明式插件、电商套图翻译与 Project Graph
+### 4.6.2 声明式插件、电商套图翻译、Project Graph 与科研绘图
 
 ```text
 plugins/builtin-manifests.json
@@ -273,14 +274,17 @@ plugins/builtin-manifests.json
   │    → desktop/ipc/plugin-ipc.cjs
   │    → desktop/plugin-task-prompts.cjs
   │    → Renderer sendPrompt() → 按语言形成独立结果组
-  └─ preload "naimage:project-graph:import"
+  ├─ preload "naimage:project-graph:import"
        → desktop/project-graph-adapter.cjs 只读 .prg/JSON
        → desktop/plugin-task-prompts.cjs 生成有界 GRAPH Prompt
        → 返回 graph + task DTO
        → Renderer sendPrompt() → 按概念分支形成独立学习图片
+  └─ sparkai.scientific-figure.start-workflow
+       → desktop/plugin-task-prompts.cjs 生成 Python/R 单后端科研绘图契约
+       → Renderer sendPrompt() → Agent 收集结论、证据、Panel、导出与 QA 要求
 ```
 
-插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results`，翻译任务以当前选择作为唯一 SOURCE，最多选择 10 种语言。`sparkai.project-graph` 申请 `project.read-graph`、`agent.submit-task`、`canvas.write-results`；它显式清空画布/附件继承，只把导入 GRAPH 作为知识 SOURCE。`.prg` 是 ZIP，适配器只读取最大 16 MiB 的 `stage.msgpack`，最多输出 1000 节点和 3000 关系，不读取附件、不执行扩展、不暴露绝对路径、不修改 `.prg` 或 session。插件命令的长 Prompt 统一由 `desktop/plugin-task-prompts.cjs` 在受信任 Electron 侧生成；Renderer 只保留语言目录、对话框和有界 task DTO 消费，`src/plugin-system.ts` 仍按启用状态动态加载。专项入口为 `test:plugin-system`、`test:project-graph` 与 `test:ipc-registration`。
+插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results`，翻译任务以当前选择作为唯一 SOURCE，最多选择 10 种语言。`sparkai.project-graph` 申请 `project.read-graph`、`agent.submit-task`、`canvas.write-results`；它显式清空画布/附件继承，只把导入 GRAPH 作为知识 SOURCE。`.prg` 是 ZIP，适配器只读取最大 16 MiB 的 `stage.msgpack`，最多输出 1000 节点和 3000 关系，不读取附件、不执行扩展、不暴露绝对路径、不修改 `.prg` 或 session。`sparkai.scientific-figure` 以 `plugins/builtin/sparkai.scientific-figure/` 作为可拆包目录，只内置 Agent 工作流契约和 Apache-2.0 notice，不打包上游图库、示例或 Python/R 依赖；定量绘图必须先选择 Python 或 R，之后同一任务不得混用后端，也不得虚构实验值或统计。插件命令的长 Prompt 统一由 `desktop/plugin-task-prompts.cjs` 在受信任 Electron 侧生成；Renderer 只保留语言目录、对话框和有界 task DTO 消费，`src/plugin-system.ts` 仍按启用状态动态加载。专项入口为 `test:plugin-system`、`test:project-graph` 与 `test:ipc-registration`。
 
 ### 4.6.3 自定义主题导入、导出与实时应用
 
@@ -688,13 +692,15 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI；正式制品仍必须通过 `test:bundle` 和发布编排器的完整要求。
 
-当前 Renderer bundle 上限为初始 JS 650,000 B、异步 JS 180,000 B、总 JS 720,000 B、CSS 220,000 B、完整 dist 1,000,000 B。首屏上限的本次放宽只覆盖账号密钥管理与本机 Agent 自动化桥；后续稳定化应优先把完整 `SettingsDrawer` 移入现有 `studio-dialogs` 异步边界。
+当前 Renderer 门禁将核心与插件分别计量：初始 JS 上限 650,000 B，核心异步 JS 上限 180,000 B，核心总 JS 上限 720,000 B，插件 JS 独立上限 120,000 B，CSS 220,000 B，完整 dist 1,000,000 B。`plugin-system-*`、`plugin-settings-panel-*` 和插件专属对话框必须保持异步；任一插件 chunk 进入 `index.html` 初始依赖图都会直接失败。插件 JS 不占核心总量或核心异步额度，但仍受插件上限、完整 dist 上限和 AIDebug 泄漏检查约束。
 
 独立 Agent 窗口批次后的正式证据为：initial JS 639,365 B、async JS 60,073 B、total JS 699,438 B、CSS 187,824 B、dist 943,051 B。首屏只剩约 10.6 KB；`src/agent-window-sync.ts` 已保持为打开独立窗时才加载的动态 chunk，后续 Renderer 功能仍必须同步审计 chunk 归属并运行 `build + test:bundle`。
 
 Project Graph 插件批次后的正式证据为：initial JS 646,764 B、async JS 73,200 B、total JS 719,964 B、CSS 192,511 B、dist 968,264 B。Project Graph Prompt 保持为执行命令时才加载的独立 chunk；总 JS 只剩 36 B，后续 Renderer 功能必须先移除、替换或移出既有代码，不能直接增加同步或异步 JS。
 
 自定义主题与 Prompt 所有权调整批次后的正式证据为：initial JS 648,017 B、async JS 71,911 B、total JS 719,928 B、CSS 193,912 B、dist 969,629 B。电商和 Project Graph 长 Prompt 已移入 Electron `desktop/plugin-task-prompts.cjs`，Renderer 总 JS 仍只剩 72 B；后续任何 Renderer 增量必须先减重或替换既有代码，并同步运行 `build + test:bundle`。
+
+插件独立计量批次后的正式证据为：initial JS 648,314 B，all JS 720,218 B，core JS 710,952 B，plugin JS 9,266 B，core async JS 62,638 B，CSS 193,912 B，dist 969,919 B。插件运行时、设置表面与跨境翻译对话框均为自然异步 chunk，账号与自定义纯文生图共用 Responses-first 传输策略。
 
 ## 11. 当前高风险热点
 
@@ -712,6 +718,7 @@ Project Graph 插件批次后的正式证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-07-28 | 1.0.6 | 插件运行时、插件设置和插件专属对话框改为独立自然异步 chunk；Bundle 门禁分别统计 core/plugin JS，插件不得进入首屏图。账号登录模式同步采用所选账户 Key 的 `/v1/responses + image_generation` 优先链路，与自定义 Base URL/API Key 模式一致，不支持时才回退 Images API。 |
 | 2026-07-28 | 1.0.6 | 新增 `naimage-theme v1` 自定义主题编辑和原生导入/导出：浅/深色各 10 个严格十六进制语义色、64 KiB 文件上限、画布实时预览与独立 Agent 同步。电商/Project Graph 长 Prompt 移到 Electron 受信任服务，IPC 更新为 88 invoke/85 preload/3 internal；快速 GUI、专项测试与 719,928 B 总 JS Bundle 已通过。 |
 | 2026-07-28 | 1.0.6 | 新增 `sparkai.project-graph`：Electron 只读解析 `.prg`/JSON 为有界图 DTO，Renderer 以 GRAPH 作为唯一知识 SOURCE 提交视觉学习任务；禁止附件/扩展执行、绝对路径暴露和 session 直写。新增 `test:project-graph`，IPC 增至 85 个 invoke，两个真实 Project Graph 样例与生产 Bundle 已通过。 |
 | 2026-07-28 | 1.0.6 | 新增受信任声明式插件系统：内置 manifest、双侧状态清洗、安装/授权/启停/卸载、命令权限复核和画布工具栏贡献；首个 `sparkai.commerce-toolkit` 支持最多 10 种语言的套图翻译任务。完整插件 Runtime 按启用状态进入异步 chunk，插件不能注入脚本或直接写项目 session。 |

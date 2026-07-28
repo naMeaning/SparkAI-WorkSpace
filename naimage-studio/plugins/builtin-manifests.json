@@ -14,23 +14,14 @@
     "contributes": {
       "commands": [
         {
-          "id": "sparkai.commerce-toolkit.translate-listing-set",
-          "title": "一键翻译多国语言套图",
-          "description": "保持商品、品牌和版式不变，按目标语言分别生成本地化图片成果。",
-          "requiredPermissions": [
-            "canvas.read-selection",
-            "agent.submit-task",
-            "canvas.write-results"
-          ]
+          "id": "sparkai.commerce-toolkit.translate-listing-set"
         }
       ],
       "toolbar": [
         {
-          "id": "commerce-translate-listing-set",
           "command": "sparkai.commerce-toolkit.translate-listing-set",
           "label": "套图翻译",
           "description": "一键生成多国语言商品套图",
-          "group": "commerce",
           "order": 10,
           "when": "canvas.has-image-selection"
         }
@@ -52,24 +43,43 @@
     "contributes": {
       "commands": [
         {
-          "id": "sparkai.project-graph.visualize-learning-map",
-          "title": "思维导图转学习图片",
-          "description": "选择 .prg 或图结构 JSON，由 Agent 分析概念关系并生成视觉学习图片。",
-          "requiredPermissions": [
-            "project.read-graph",
-            "agent.submit-task",
-            "canvas.write-results"
-          ]
+          "id": "sparkai.project-graph.visualize-learning-map"
         }
       ],
       "toolbar": [
         {
-          "id": "project-graph-visualize-learning-map",
           "command": "sparkai.project-graph.visualize-learning-map",
           "label": "思维导图转图片",
           "description": "导入 Project Graph 并生成视觉学习图片",
-          "group": "learning",
           "order": 20
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "sparkai.scientific-figure",
+    "name": "科研绘图",
+    "version": "1.0.0",
+    "publisher": "SparkAI",
+    "description": "Python/R 投稿级科研绘图。",
+    "permissions": [
+      "canvas.read-selection",
+      "agent.submit-task",
+      "canvas.write-results"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "id": "sparkai.scientific-figure.start-workflow"
+        }
+      ],
+      "toolbar": [
+        {
+          "command": "sparkai.scientific-figure.start-workflow",
+          "label": "科研绘图",
+          "description": "创建科研图",
+          "order": 30
         }
       ]
     }

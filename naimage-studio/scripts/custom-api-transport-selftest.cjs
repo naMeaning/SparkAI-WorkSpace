@@ -35,6 +35,12 @@ async function main() {
       return String(value || fallback || "").trim().replace(/\/+$/, "");
     },
     readJson: () => ({}),
+    resolveAccountApiCredentials: async () => ({
+      baseUrl: "https://sparkapi.org/v1",
+      apiKey: "account-key",
+      tokenId: "7",
+      group: "vision"
+    }),
     settingsPath: "memory://settings.json",
     writeJson: () => {}
   });
@@ -144,6 +150,24 @@ async function main() {
   assert.equal(responsesImage.created, 123);
   assert.equal(responsesImage.partial_images, 3);
 
+  const accountResponsesImage = await client.newApiRelayResponsesImage({
+    accessMode: "account",
+    accountBaseUrl: "https://sparkapi.org",
+    serverSessionCookie: "session=fixture",
+    serverUserId: "42",
+    selectedAccountTokenId: "7",
+    selectedAccountTokenGroup: "vision"
+  }, {
+    model: "gpt-5.6-sol",
+    input: "account responses image",
+    tools: [{ type: "image_generation", action: "generate" }],
+    group: "vision"
+  }, () => {});
+  assert.equal(captured.url, "https://sparkapi.org/v1/responses");
+  assert.equal(captured.options.headers.authorization, "Bearer account-key");
+  assert.equal(JSON.parse(captured.options.body).group, undefined);
+  assert.equal(accountResponsesImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
+
   transport = async () => response({
     contentType: "text/event-stream; charset=utf-8",
     data: 'data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","result":{"image_base64":"Y29tcGxldGVkLW9ubHk="}}]}}\n\n'
@@ -194,13 +218,14 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 13,
+    cases: 14,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
     customGroupRemoved: true,
     customJsonBodyForwarded: true,
     responsesImageStreaming: true,
+    accountResponsesImageStreaming: true,
     responsesImageThreePreviews: true,
     responsesImageFinalDeduplication: true,
     responsesImageUnsupportedClassified: true,

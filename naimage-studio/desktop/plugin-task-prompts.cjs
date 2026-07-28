@@ -2,6 +2,8 @@
 
 const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
 const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
+const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";
+const scientificFigureWorkflow = require("../plugins/builtin/sparkai.scientific-figure/resources/agent-workflow.json");
 const MAX_COMMERCE_TARGET_LANGUAGES = 10;
 const MAX_PROJECT_GRAPH_PROMPT_NODES = 600;
 const MAX_PROJECT_GRAPH_PROMPT_EDGES = 1_200;
@@ -100,18 +102,27 @@ function projectGraphTask(graph) {
 }
 
 function composePluginTask(payload) {
-  if (payload?.command !== COMMERCE_TRANSLATION_COMMAND) throw new Error("不支持的插件任务。");
-  const languageCodes = normalizeCommerceLanguageCodes(payload.languageCodes);
-  return {
-    prompt: commerceTranslationPrompt(languageCodes, payload.sourceCount),
-    languageCodes,
-    visibleContent: `为当前选中的商品图生成多语言套图：${languageCodes.map((code) => commerceLanguageByCode.get(code)[1]).join("、")}`
-  };
+  if (payload?.command === COMMERCE_TRANSLATION_COMMAND) {
+    const languageCodes = normalizeCommerceLanguageCodes(payload.languageCodes);
+    return {
+      prompt: commerceTranslationPrompt(languageCodes, payload.sourceCount),
+      languageCodes,
+      visibleContent: `为当前选中的商品图生成多语言套图：${languageCodes.map((code) => commerceLanguageByCode.get(code)[1]).join("、")}`
+    };
+  }
+  if (payload?.command === SCIENTIFIC_FIGURE_COMMAND) {
+    return {
+      prompt: scientificFigureWorkflow.prompt,
+      visibleContent: "创建投稿级科研图"
+    };
+  }
+  throw new Error("不支持的插件任务。");
 }
 
 module.exports = {
   COMMERCE_TRANSLATION_COMMAND,
   PROJECT_GRAPH_VISUALIZATION_COMMAND,
+  SCIENTIFIC_FIGURE_COMMAND,
   commerceLanguages,
   commerceTranslationPrompt,
   composePluginTask,

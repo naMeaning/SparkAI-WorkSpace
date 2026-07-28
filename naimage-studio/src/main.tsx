@@ -706,8 +706,8 @@ const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
 const LazyModelConfigDialog = lazyStudioDialog("ModelConfigDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
 const LazyThemePalettePicker = lazyStudioDialog("ThemePalettePicker");
-const LazyPluginSettingsPanel = lazyStudioDialog("PluginSettingsPanel");
-const LazyCommerceTranslationDialog = lazyStudioDialog("CommerceTranslationDialog");
+const LazyPluginSettingsPanel = React.lazy(() => import("./plugin-settings-panel"));
+const LazyCommerceTranslationDialog = React.lazy(() => import("./commerce-translation-dialog"));
 
 function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCount: number, canvasScale: number) {
   // A stacked layer group needs every transparent source in the same frame for
@@ -19863,6 +19863,12 @@ function App() {
       setServerMessage(`Project Graph 视觉学习失败：${error instanceof Error ? error.message : String(error)}`);
     }
   });
+  const openScientificFigure = useStableEvent(async () => {
+    const result = await window.naimageConfig?.composePluginTask?.({ command: "sparkai.scientific-figure.start-workflow" });
+    if (!result?.task) throw new Error(result?.error || "科研绘图任务生成失败。");
+    setAgentCollapsed(false);
+    await sendPrompt(result.task.prompt, { visibleContent: result.task.visibleContent });
+  });
   useEffect(() => {
     let cancelled = false;
     const unregisterCommands: Array<() => void> = [];
@@ -19885,6 +19891,11 @@ function App() {
           module.PROJECT_GRAPH_VISUALIZATION_COMMAND,
           openProjectGraphVisualization
         ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_COMMAND,
+          openScientificFigure
+        ));
         pluginCommandRegistryRef.current = registry;
         setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates));
       })
@@ -19899,7 +19910,7 @@ function App() {
       unregisterCommands.splice(0).reverse().forEach((unregister) => unregister());
       pluginCommandRegistryRef.current = null;
     };
-  }, [settings.pluginStates, openCommerceTranslation, openProjectGraphVisualization]);
+  }, [settings.pluginStates, openCommerceTranslation, openProjectGraphVisualization, openScientificFigure]);
   const executePluginCommand = useStableEvent(async (commandId: string) => {
     try {
       const runtime = pluginCommandRegistryRef.current;
@@ -20256,7 +20267,7 @@ function App() {
                   const disabled = agentExecutionBusy || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
                   return (
                     <ButtonBase
-                      key={`${item.pluginId}:${item.id}`}
+                      key={item.command}
                       type="button"
                       data-plugin-command={item.command}
                       disabled={disabled}

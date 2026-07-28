@@ -38,6 +38,8 @@ export default defineConfig(({ command, mode }) => ({
             "/src/image-container-graph.ts",
             "/src/image-container.ts",
             "/src/paste-blocks.ts",
+            "/src/plugin-state.ts",
+            "/plugins/builtin-manifests.json",
             "/src/settings-persistence.ts"
           ].some((suffix) => normalizedId.endsWith(suffix))) return "studio-shared";
           if (normalizedId.includes("/src/ui/")) return "studio-shared";

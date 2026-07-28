@@ -13,17 +13,13 @@ export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1 as const;
 
 export type PluginCommandContribution = {
   id: string;
-  title: string;
-  description: string;
   requiredPermissions: PluginPermission[];
 };
 
 export type PluginToolbarContribution = {
-  id: string;
   command: string;
   label: string;
   description: string;
-  group: string;
   order: number;
   when?: "canvas.has-image-selection";
 };
@@ -42,10 +38,7 @@ export type PluginManifest = {
   };
 };
 
-export type ActivePluginToolbarItem = PluginToolbarContribution & {
-  pluginId: string;
-  pluginName: string;
-};
+export type ActivePluginToolbarItem = PluginToolbarContribution;
 
 function normalizeBuiltinManifest(value: unknown): PluginManifest {
   if (!value || typeof value !== "object") throw new Error("插件 manifest 必须是对象。");
@@ -53,6 +46,7 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
   const id = String(source.id || "").trim();
   if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(id)) throw new Error(`插件 ID 无效：${id || "<empty>"}`);
   if (Number(source.schemaVersion) !== PLUGIN_MANIFEST_SCHEMA_VERSION) throw new Error(`插件 ${id} 的 manifest 版本不受支持。`);
+  const permissions = normalizePluginPermissions(source.permissions);
   const contributes = source.contributes && typeof source.contributes === "object"
     ? source.contributes as Record<string, unknown>
     : {};
@@ -62,9 +56,7 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
     if (!commandId.startsWith(`${id}.`)) throw new Error(`插件命令 ${commandId || "<empty>"} 必须以 ${id}. 开头。`);
     return {
       id: commandId,
-      title: String(command.title || commandId).trim().slice(0, 80),
-      description: String(command.description || "").trim().slice(0, 240),
-      requiredPermissions: normalizePluginPermissions(command.requiredPermissions)
+      requiredPermissions: command.requiredPermissions === undefined ? permissions : normalizePluginPermissions(command.requiredPermissions)
     };
   });
   if (new Set(commands.map((command) => command.id)).size !== commands.length) throw new Error(`插件 ${id} 存在重复命令。`);
@@ -74,11 +66,9 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
     const command = String(contribution.command || "").trim();
     if (!commandIds.has(command)) throw new Error(`插件 ${id} 的工具栏引用了未声明命令 ${command || "<empty>"}。`);
     return {
-      id: String(contribution.id || command).trim().slice(0, 100),
       command,
       label: String(contribution.label || command).trim().slice(0, 40),
       description: String(contribution.description || "").trim().slice(0, 160),
-      group: String(contribution.group || "default").trim().slice(0, 40),
       order: Math.max(-10_000, Math.min(10_000, Math.round(Number(contribution.order) || 0))),
       when: contribution.when === "canvas.has-image-selection" ? "canvas.has-image-selection" as const : undefined
     };
@@ -90,7 +80,7 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
     version: String(source.version || "0.0.0").trim().slice(0, 32),
     publisher: String(source.publisher || "Unknown").trim().slice(0, 80),
     description: String(source.description || "").trim().slice(0, 320),
-    permissions: normalizePluginPermissions(source.permissions),
+    permissions,
     contributes: { commands, toolbar }
   };
 }
@@ -136,9 +126,9 @@ export function activePluginToolbarItems(states: unknown): ActivePluginToolbarIt
       const state = stateById.get(manifest.id);
       const permissionComplete = Boolean(state && manifest.permissions.every((permission) => state.grantedPermissions.includes(permission)));
       if (!state?.enabled || !permissionComplete) return [];
-      return manifest.contributes.toolbar.map((item) => ({ ...item, pluginId: manifest.id, pluginName: manifest.name }));
+      return manifest.contributes.toolbar;
     })
-    .sort((left, right) => left.order - right.order || left.pluginId.localeCompare(right.pluginId) || left.id.localeCompare(right.id));
+    .sort((left, right) => left.order - right.order || left.command.localeCompare(right.command));
 }
 
 export type PluginCommandHandler = (payload?: unknown) => void | Promise<void>;
@@ -179,3 +169,4 @@ export const pluginPermissionLabels: Record<PluginPermission, string> = {
 
 export const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
 export const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
+export const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";

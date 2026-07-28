@@ -8,6 +8,7 @@ import {
   COMMERCE_TRANSLATION_COMMAND,
   PLUGIN_MANIFEST_SCHEMA_VERSION,
   PROJECT_GRAPH_VISUALIZATION_COMMAND,
+  SCIENTIFIC_FIGURE_COMMAND,
   PluginCommandRegistry,
   activePluginToolbarItems,
   builtinPluginManifests,
@@ -32,12 +33,14 @@ const pluginPrompts = require("../desktop/plugin-task-prompts.cjs") as {
   commerceTranslationPrompt: (languageCodes: unknown, sourceCount: number) => string;
   projectGraphPromptPayload: (graph: ProjectGraphDocument) => { nodes: unknown[]; edges: unknown[]; promptTruncated: boolean };
   projectGraphVisualizationPrompt: (graph: ProjectGraphDocument) => string;
+  composePluginTask: (payload: { command: string; sourceCount?: number }) => { prompt: string; visibleContent: string };
 };
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-assert.equal(builtinPluginManifests.length, 2);
+assert.equal(builtinPluginManifests.length, 3);
 const commerce = builtinPluginManifests.find((manifest) => manifest.id === "sparkai.commerce-toolkit")!;
 const projectGraph = builtinPluginManifests.find((manifest) => manifest.id === "sparkai.project-graph")!;
+const scientificFigure = builtinPluginManifests.find((manifest) => manifest.id === "sparkai.scientific-figure")!;
 assert.equal(commerce.schemaVersion, PLUGIN_MANIFEST_SCHEMA_VERSION);
 assert.equal(commerce.id, "sparkai.commerce-toolkit");
 assert.deepEqual(commerce.permissions, ["canvas.read-selection", "agent.submit-task", "canvas.write-results"]);
@@ -45,6 +48,8 @@ assert.equal(commerce.contributes.commands[0].id, COMMERCE_TRANSLATION_COMMAND);
 assert.equal(projectGraph.schemaVersion, PLUGIN_MANIFEST_SCHEMA_VERSION);
 assert.deepEqual(projectGraph.permissions, ["project.read-graph", "agent.submit-task", "canvas.write-results"]);
 assert.equal(projectGraph.contributes.commands[0].id, PROJECT_GRAPH_VISUALIZATION_COMMAND);
+assert.deepEqual(scientificFigure.permissions, ["canvas.read-selection", "agent.submit-task", "canvas.write-results"]);
+assert.equal(scientificFigure.contributes.commands[0].id, SCIENTIFIC_FIGURE_COMMAND);
 assert.deepEqual(normalizePluginStates(undefined), []);
 
 const installed = installBuiltinPlugin([], commerce.id);
@@ -60,15 +65,24 @@ assert.deepEqual(
   activePluginToolbarItems(installedWithProjectGraph).map((item) => item.command),
   [COMMERCE_TRANSLATION_COMMAND, PROJECT_GRAPH_VISUALIZATION_COMMAND]
 );
+const installedWithScientificFigure = installBuiltinPlugin(installedWithProjectGraph, scientificFigure.id);
+assert.equal(installedWithScientificFigure.length, 3);
+assert.deepEqual(
+  activePluginToolbarItems(installedWithScientificFigure).map((item) => item.command),
+  [COMMERCE_TRANSLATION_COMMAND, PROJECT_GRAPH_VISUALIZATION_COMMAND, SCIENTIFIC_FIGURE_COMMAND]
+);
 
 let executionCount = 0;
 const registry = new PluginCommandRegistry();
 const unregister = registry.register(commerce.id, COMMERCE_TRANSLATION_COMMAND, () => { executionCount += 1; });
 const unregisterProjectGraph = registry.register(projectGraph.id, PROJECT_GRAPH_VISUALIZATION_COMMAND, () => { executionCount += 10; });
+const unregisterScientificFigure = registry.register(scientificFigure.id, SCIENTIFIC_FIGURE_COMMAND, () => { executionCount += 100; });
 await registry.execute(COMMERCE_TRANSLATION_COMMAND, installed);
 assert.equal(executionCount, 1);
 await registry.execute(PROJECT_GRAPH_VISUALIZATION_COMMAND, installedWithProjectGraph);
 assert.equal(executionCount, 11);
+await registry.execute(SCIENTIFIC_FIGURE_COMMAND, installedWithScientificFigure);
+assert.equal(executionCount, 111);
 assert.throws(() => registry.register(commerce.id, COMMERCE_TRANSLATION_COMMAND, () => undefined), /已注册/);
 
 const disabled = setBuiltinPluginEnabled(installed, commerce.id, false);
@@ -90,6 +104,7 @@ assert.deepEqual(repaired[0].grantedPermissions, commerce.permissions);
 assert.deepEqual(uninstallBuiltinPlugin(repaired, commerce.id), []);
 unregister();
 unregisterProjectGraph();
+unregisterScientificFigure();
 await assert.rejects(() => registry.execute(COMMERCE_TRANSLATION_COMMAND, installed), /尚未连接/);
 await assert.rejects(() => registry.execute("unknown.command", installed), /未知插件命令/);
 
@@ -131,6 +146,21 @@ assert.match(graphPrompt, /每张图单独调用一次 image_gen/);
 assert.match(graphPrompt, /不要修改原 \.prg 文件或项目 session/);
 assert.match(graphPrompt, /不得虚构 GRAPH 未提供的内容/);
 
+const scientificTask = pluginPrompts.composePluginTask({ command: SCIENTIFIC_FIGURE_COMMAND });
+assert.match(scientificTask.prompt, /Python 还是 R/);
+assert.match(scientificTask.prompt, /全程只使用该后端/);
+assert.match(scientificTask.prompt, /不得虚构实验值/);
+assert.match(scientificTask.prompt, /SVG\/PDF\/TIFF/);
+assert.match(scientificTask.prompt, /当前画布选择/);
+assert.equal(scientificTask.visibleContent, "创建投稿级科研图");
+const scientificPackage = JSON.parse(fs.readFileSync(path.join(root, "plugins", "builtin", "sparkai.scientific-figure", "plugin-package.json"), "utf8"));
+assert.equal(scientificPackage.delivery, "builtin");
+assert.equal(scientificPackage.onlineCatalog.detachable, true);
+assert.equal(scientificPackage.runtime.entry, "resources/agent-workflow.json");
+for (const licenseFile of scientificPackage.licenseFiles) {
+  assert.ok(fs.existsSync(path.join(root, "plugins", "builtin", "sparkai.scientific-figure", licenseFile)));
+}
+
 const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const pluginPanelSource = fs.readFileSync(path.join(root, "src", "plugin-settings-panel.tsx"), "utf8");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -138,9 +168,11 @@ assert.match(mainSource, /data-plugin-command=\{item\.command\}/, "Enabled plugi
 assert.match(mainSource, /composePluginTask\?\.\(\{[\s\S]*sparkai\.commerce-toolkit\.translate-listing-set/, "Commerce execution must request its trusted task prompt through preload");
 assert.match(mainSource, /window\.naimageConfig\?\.importProjectGraph/, "Project Graph must enter through the read-only preload bridge");
 assert.match(mainSource, /sendPrompt\(result\.task\.prompt,[\s\S]*sourceNodeIds: \[\],[\s\S]*useComposerAttachments: false,[\s\S]*visibleContent: result\.task\.visibleContent/, "Project Graph execution must not inherit canvas or composer image sources");
+assert.match(mainSource, /sparkai\.scientific-figure\.start-workflow/);
+assert.match(mainSource, /composePluginTask\?\.\(\{[\s\S]*sparkai\.scientific-figure\.start-workflow/);
 assert.match(pluginPanelSource, /安装并授权/);
 assert.match(pluginPanelSource, /setBuiltinPluginEnabled/);
 assert.match(pluginPanelSource, /uninstallBuiltinPlugin/);
 assert.ok(packageJson.build.files.includes("plugins/**/*"), "Packaged apps must include the canonical plugin manifests");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 48 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 65 })}\n`);

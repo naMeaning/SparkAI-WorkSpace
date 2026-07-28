@@ -3005,15 +3005,13 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
       if (imageControls.background) body.background = imageControls.background;
       if (imageControls.moderation) body.moderation = imageControls.moderation;
-      const responsesImageModel = customMode
-        ? String(settings.agentModel || "gpt-5.6-sol").trim() || "gpt-5.6-sol"
-        : "";
+      const responsesImageModel = String(settings.agentModel || "gpt-5.6-sol").trim() || "gpt-5.6-sol";
       log(`image request metadata ${JSON.stringify({
-        endpoint: customMode ? "/v1/responses" : "/v1/images/generations",
+        endpoint: "/v1/responses",
         accessMode: customMode ? "custom" : "account",
-        transport: customMode ? "responses-sse" : "images-sse",
-        model: customMode ? responsesImageModel : model,
-        ...(customMode ? { configuredImageModel: model } : {}),
+        transport: "responses-sse",
+        model: responsesImageModel,
+        configuredImageModel: model,
         size,
         quality,
         count: 1,
@@ -3022,41 +3020,39 @@ async function callNewApiImage(settings, payload = {}) {
         bodyKeys: Object.keys(body).sort()
       })}`);
       const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
-      if (customMode) {
-        const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
-        const imageTool = {
-          type: "image_generation",
-          action: "generate",
-          size,
-          output_format: outputFormat,
-          moderation: String(imageControls.moderation || "auto"),
-          quality,
-          partial_images: 3
-        };
-        if (outputFormat !== "png" && imageControls.outputCompression !== undefined) {
-          imageTool.output_compression = imageControls.outputCompression;
-        }
-        const responsesBody = {
-          model: responsesImageModel,
-          input: prompt,
-          tools: [imageTool],
-          tool_choice: "required"
-        };
-        try {
-          return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
-            provider: "image",
-            signal,
-            headers: { "Idempotency-Key": idempotencyKey },
-            headersTimeoutMs: imageTimeoutMs,
-            connectTimeoutMs: 60_000,
-            idleTimeoutMs: imageTimeoutMs,
-            maxResponseBytes: 256 * 1024 * 1024,
-            partialImages: 3
-          });
-        } catch (error) {
-          if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
-          log(`Responses image generation unsupported; falling back to Images JSON (${error?.message || "unknown"})`);
-        }
+      const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
+      const imageTool = {
+        type: "image_generation",
+        action: "generate",
+        size,
+        output_format: outputFormat,
+        moderation: String(imageControls.moderation || "auto"),
+        quality,
+        partial_images: 3
+      };
+      if (outputFormat !== "png" && imageControls.outputCompression !== undefined) {
+        imageTool.output_compression = imageControls.outputCompression;
+      }
+      const responsesBody = {
+        model: responsesImageModel,
+        input: prompt,
+        tools: [imageTool],
+        tool_choice: "required"
+      };
+      try {
+        return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
+          provider: "image",
+          signal,
+          headers: { "Idempotency-Key": idempotencyKey },
+          headersTimeoutMs: imageTimeoutMs,
+          connectTimeoutMs: 60_000,
+          idleTimeoutMs: imageTimeoutMs,
+          maxResponseBytes: 256 * 1024 * 1024,
+          partialImages: 3
+        });
+      } catch (error) {
+        if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
+        log(`Responses image generation unsupported for ${customMode ? "custom" : "account"} access; falling back to Images API (${error?.message || "unknown"})`);
       }
       if (!customMode) {
         try {

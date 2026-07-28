@@ -20,7 +20,7 @@ const jsFiles = filesRecursively(assets).filter((path) => path.endsWith(".js"));
 const cssFiles = filesRecursively(assets).filter((path) => path.endsWith(".css"));
 if (!jsFiles.length || !cssFiles.length) throw new Error("production JS/CSS bundle missing");
 
-const jsBytes = jsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
+const allJsBytes = jsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
 const cssBytes = cssFiles.reduce((sum, path) => sum + statSync(path).size, 0);
 const totalBytes = filesRecursively(dist).reduce((sum, path) => sum + statSync(path).size, 0);
 const jsText = jsFiles.map((path) => readFileSync(path, "utf8")).join("\n");
@@ -46,8 +46,14 @@ while (queue.length) {
 }
 const initialJsFiles = jsFiles.filter((path) => initialNames.has(basename(path)));
 const asyncJsFiles = jsFiles.filter((path) => !initialNames.has(basename(path)));
+const pluginJsFiles = jsFiles.filter((path) => /^(?:plugin-[^.]+|commerce-[a-z0-9-]+-dialog-[^.]+)\.js$/i.test(basename(path)));
+const pluginInitialJsFiles = pluginJsFiles.filter((path) => initialNames.has(basename(path)));
+const coreAsyncJsFiles = asyncJsFiles.filter((path) => !pluginJsFiles.includes(path));
+const pluginJsBytes = pluginJsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
+const coreJsBytes = allJsBytes - pluginJsBytes;
 const initialJsBytes = initialJsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
 const asyncJsBytes = asyncJsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
+const coreAsyncJsBytes = coreAsyncJsFiles.reduce((sum, path) => sum + statSync(path).size, 0);
 const forbiddenMarkers = [
   "runLayerStackSuite",
   "runMixedStressSuite",
@@ -59,32 +65,36 @@ const forbiddenMarkers = [
 const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker));
 
 const limits = {
-  // Account token management and the local Agent automation bridge add about
-  // 23 KB to the previous startup bundle. Keep the initial ceiling explicit
-  // while the unchanged full-JS and total-dist limits prevent hidden growth.
+  // Plugins are an async product boundary and have an independent allowance.
+  // The core ceiling therefore remains useful as the plugin catalog grows.
   initialJsBytes: 650_000,
-  asyncJsBytes: 180_000,
-  // Startup performance is governed by initialJsBytes. Allow lazy-loaded
-  // settings, authentication and model-management features to grow without
-  // weakening the user-visible initial-load gate.
-  jsBytes: 720_000,
+  coreAsyncJsBytes: 180_000,
+  coreJsBytes: 720_000,
+  pluginJsBytes: 120_000,
   cssBytes: 220_000,
   totalBytes: 1_000_000
 };
 const failures = [];
 if (leakedMarkers.length) failures.push(`AIDebug markers leaked: ${leakedMarkers.join(", ")}`);
 if (!initialJsFiles.length) failures.push("production entry JS could not be identified from dist/index.html");
+if (!pluginJsFiles.length) failures.push("plugin JS chunks missing; expected plugin-* or commerce-*-dialog chunks");
+if (pluginInitialJsFiles.length) failures.push(`plugin JS must remain async: ${pluginInitialJsFiles.map((path) => basename(path)).join(", ")}`);
 if (initialJsBytes > limits.initialJsBytes) failures.push(`initial JS ${initialJsBytes} > ${limits.initialJsBytes}`);
-if (asyncJsBytes > limits.asyncJsBytes) failures.push(`async JS ${asyncJsBytes} > ${limits.asyncJsBytes}`);
-if (jsBytes > limits.jsBytes) failures.push(`JS ${jsBytes} > ${limits.jsBytes}`);
+if (coreAsyncJsBytes > limits.coreAsyncJsBytes) failures.push(`core async JS ${coreAsyncJsBytes} > ${limits.coreAsyncJsBytes}`);
+if (coreJsBytes > limits.coreJsBytes) failures.push(`core JS ${coreJsBytes} > ${limits.coreJsBytes}`);
+if (pluginJsBytes > limits.pluginJsBytes) failures.push(`plugin JS ${pluginJsBytes} > ${limits.pluginJsBytes}`);
 if (cssBytes > limits.cssBytes) failures.push(`CSS ${cssBytes} > ${limits.cssBytes}`);
 if (totalBytes > limits.totalBytes) failures.push(`dist ${totalBytes} > ${limits.totalBytes}`);
 
 const report = {
   ok: failures.length === 0,
-  jsBytes,
+  allJsBytes,
+  coreJsBytes,
+  pluginJsBytes,
+  pluginJsFiles: pluginJsFiles.map((path) => basename(path)),
   initialJsBytes,
   asyncJsBytes,
+  coreAsyncJsBytes,
   initialJsFiles: initialJsFiles.map((path) => basename(path)),
   asyncJsFiles: asyncJsFiles.map((path) => basename(path)),
   cssBytes,

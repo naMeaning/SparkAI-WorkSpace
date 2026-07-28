@@ -90,15 +90,17 @@
 - 已实现：pointermove 只更新拖动模型，并由 `requestAnimationFrame` 合并为 CSS preview variables；松手后只提交一次 React 状态和设置持久化。纯布局计算已从 `main.tsx` 抽到 `src/agent-panel-layout.ts`。
 - 证明：`test:agent-panel-layout` 16 cases；`test:agent-panel-ui` 连续 12 次 pointer move 期间 App、Canvas、Agent feed、Composer React commit 均为 0，preview 生效并在 pointer release 后提交宽度；正式 `build` 与 `test:bundle` 已通过。
 
-### 11. 插件系统与 project-graph 适配
+### 11. 插件系统、project-graph 与科研绘图适配
 
 - 状态：`已验证`
 - 目标：插件 manifest、注册表、权限、安装/启用/停用/卸载、Renderer contribution point 和命令注册；电商工具栏作为首个插件。
 - 已实现：受信任的声明式内置 manifest、设置持久化与 Electron/Renderer 双侧清洗、安装/启用/停用/卸载、权限复核、命令注册表和画布工具栏 contribution point。插件禁止注入任意 Renderer JavaScript，也不能直接修改项目 session；完整运行时仅在存在启用插件时动态加载。
 - Project Graph：第二个内置插件 `sparkai.project-graph` 可只读选择 `.prg` 或图结构 JSON。Electron 适配器从 ZIP 中只读取 `stage.msgpack` 并解析 MessagePack 对象引用，不执行扩展脚本、附件或任意插件代码，不暴露绝对路径；文件、舞台、节点、关系、文本和遍历复杂度均有上限。Renderer 显式清空画布选择与附件继承，把 GRAPH 作为唯一知识 SOURCE，要求 Agent 按规模生成 1 张总览或 2–6 张独立学习图片，并禁止虚构图中不存在的事实或直接写项目 session。
+- 科研绘图：第三个内置插件 `sparkai.scientific-figure` 参考 `Yuan1z0825/nature-skills` 的科研绘图工作流，内置可拆包的受信任 Agent 契约；定量绘图先选 Python 或 R，之后单后端完成绘制、预览、导出和 QA，禁止虚构数据。插件目录预留 `naimage-plugin-v1` 在线目录格式，不携带上游图库、示例或 Python/R 依赖。
+- Bundle 边界：插件运行时、设置表面和插件专属对话框保持自然异步 chunk；`test:bundle` 单独约束 120,000 B 插件 JS，核心仍按 720,000 B 计量，插件进入首屏图即失败。
 - 外部参考：<https://github.com/graphif/project-graph>
 - 权威文件：`desktop/project-graph-adapter.cjs`、`desktop/plugin-task-prompts.cjs`、`desktop/ipc/project-ipc.cjs`、`desktop/ipc/plugin-ipc.cjs`、`plugins/builtin-manifests.json`、`src/plugin-system.ts`、`src/main.tsx`。
-- 证明：`test:project-graph` 23 cases、`test:plugin-system` 48 cases、`test:ipc-registration` 88 invoke handlers/85 preload invokes/3 internal Agent invokes、`test:settings-persistence` 66 cases、`typecheck`、正式 `build` 与 `test:bundle`。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。长 Prompt 已移出 Renderer，本批未修改任何 `.prg`、项目 session 或用户数据。
+- 证明：`test:project-graph` 23 cases、`test:plugin-system` 65 cases、`test:ipc-registration` 88 invoke handlers/85 preload invokes/3 internal Agent invokes、`test:settings-persistence` 66 cases、正式 `build` 与 `test:bundle`。当前 Bundle 为 initial 648,314 B、core JS 710,952 B、plugin JS 9,266 B。真实仓库样例 `ProjectGraph开发进程图.prg` 解析为 119 节点/117 关系/21 Section，`服务器.prg` 解析为 9 节点/5 关系/5 Section；均无警告。长 Prompt 已移出 Renderer，本批未修改任何 `.prg`、项目 session 或用户数据。
 
 ### 12. 账户密钥额度人民币显示
 

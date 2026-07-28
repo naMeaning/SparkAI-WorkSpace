@@ -1302,7 +1302,7 @@ export type ConfigBridge = {
   importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; task?: { prompt: string; visibleContent: string }; errorCode?: string; error?: string }>;
   importThemePreset?(): Promise<{ ok: boolean; canceled?: boolean; theme?: CustomThemePreset; sourceName?: string; errorCode?: string; error?: string }>;
   exportThemePreset?(theme: CustomThemePreset): Promise<{ ok: boolean; canceled?: boolean; fileName?: string; errorCode?: string; error?: string }>;
-  composePluginTask?(payload: { command: string; languageCodes: string[]; sourceCount: number }): Promise<{ ok: boolean; task?: { prompt: string; visibleContent: string; languageCodes: string[] }; error?: string }>;
+  composePluginTask?(payload: { command: string; languageCodes?: string[]; sourceCount?: number }): Promise<{ ok: boolean; task?: { prompt: string; visibleContent: string; languageCodes?: string[] }; error?: string }>;
   deleteProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   deleteProjectFolder?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   pickReferenceImage?(): Promise<{ ok: boolean; canceled?: boolean; image?: ReferenceImage; error?: string }>;

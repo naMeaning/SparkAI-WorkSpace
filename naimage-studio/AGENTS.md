@@ -41,7 +41,7 @@
 
 - 每次改动至少运行 `corepack pnpm run build`。
 - 生产构建还必须运行 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
-- `test:bundle` 的初始 JS 上限为 650,000 B；总 JS 上限保持 720,000 B。当前放宽用于账号密钥管理与本机 Agent 自动化桥，后续大块 Renderer 功能仍应优先进入自然异步边界，不得继续用总量余量换取首屏膨胀。
+- `test:bundle` 的初始 JS 上限为 650,000 B、核心异步 JS 为 180,000 B、核心总 JS 为 720,000 B；插件 JS 独立上限为 120,000 B，完整 dist 保持 1,000,000 B。插件运行时、设置表面与插件专属对话框必须留在自然异步 chunk，进入首屏依赖图即失败；插件 JS 不占核心额度，但仍受插件与 dist 上限约束。后续大块 Renderer 功能仍应优先进入自然异步边界，不得用核心余量换取首屏膨胀。
 - 日常开发按影响范围选择最小验证，不得把完整 AIDebug 当作每次改动的默认步骤。纯逻辑、配置、文档、Electron 后端或 Agent 协议改动优先运行对应 selftest；只有影响真实可视交互时才运行 GUI。
 - 一般 Renderer/UI 改动在完成一批功能后运行一次 `corepack pnpm run aidebug:gui` 快速冒烟；设置、登录、画布、需求节点、导入等明确领域再追加一个对应专项。只有需要覆盖完整 UI surface 时运行 `corepack pnpm run aidebug:gui:surface`，不得同时无差别重复多个 GUI 套件。
 - 运行时或 `view_image` 改动还必须运行 `corepack pnpm run test:view-image`；真实 Agent 验证优先使用当前 `--agent-only`、功能专项和 `--real-agent-suite`，不以旧版全量套件作为交付门槛。正式发布仍由 `release:final` 执行完整门禁。
