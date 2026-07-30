@@ -21,6 +21,7 @@ function filesRecursively(directory) {
 
 if (!existsSync(join(dist, "index.html"))) throw new Error("dist/index.html missing; run pnpm run build first");
 if (!existsSync(join(dist, "naimage.png"))) throw new Error("production icon missing");
+if (!existsSync(join(dist, "glass-theme-bootstrap.js"))) throw new Error("production glass theme bootstrap missing");
 
 const jsFiles = filesRecursively(assets).filter((path) => path.endsWith(".js"));
 const cssFiles = filesRecursively(assets).filter((path) => path.endsWith(".css"));
@@ -100,6 +101,7 @@ const report = {
   cssBytes,
   totalBytes,
   iconBytes: statSync(join(dist, "naimage.png")).size,
+  glassThemeBootstrapBytes: statSync(join(dist, "glass-theme-bootstrap.js")).size,
   limits,
   gatePolicy: {
     hardBudgets: HARD_BUDGET_KEYS,

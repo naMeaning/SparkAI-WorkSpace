@@ -11,6 +11,11 @@ const studioIconPlugin: Plugin = {
       fileName: "naimage.png",
       source: readFileSync(new URL("./public/naimage.png", import.meta.url))
     });
+    this.emitFile({
+      type: "asset",
+      fileName: "glass-theme-bootstrap.js",
+      source: readFileSync(new URL("./public/glass-theme-bootstrap.js", import.meta.url))
+    });
   }
 };
 
