@@ -120,14 +120,14 @@ export function AuthGate({
                 </SegmentedControl>
                 {authDraft.mode === "register" ? (
                   <Field label="昵称">
-                    <input value={authDraft.name} onChange={(event) => updateAuth("name", event.target.value)} autoComplete="name" />
+                    <input className="basic-auth-name" value={authDraft.name} onChange={(event) => updateAuth("name", event.target.value)} autoComplete="name" />
                   </Field>
                 ) : null}
                 <Field label="用户名">
-                  <input value={authDraft.email} onChange={(event) => updateAuth("email", event.target.value)} autoComplete="username" maxLength={20} required />
+                  <input className="basic-auth-email" value={authDraft.email} onChange={(event) => updateAuth("email", event.target.value)} autoComplete="username" maxLength={20} required />
                 </Field>
                 <Field label="密码">
-                  <input value={authDraft.password} onChange={(event) => updateAuth("password", event.target.value)} type="password" autoComplete={authDraft.mode === "login" ? "current-password" : "new-password"} minLength={8} maxLength={20} required />
+                  <input className="basic-auth-password" value={authDraft.password} onChange={(event) => updateAuth("password", event.target.value)} type="password" autoComplete={authDraft.mode === "login" ? "current-password" : "new-password"} minLength={8} maxLength={20} required />
                 </Field>
               </>
             ) : null}

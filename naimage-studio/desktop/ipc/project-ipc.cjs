@@ -2,6 +2,11 @@
 
 const { existsSync, mkdirSync, rmSync } = require("node:fs");
 const path = require("node:path");
+const {
+  MAX_SKILL_MARKDOWN_BYTES,
+  parseSkillResult,
+  readSkillMarkdownFile
+} = require("../skill-import.cjs");
 
 const LEGACY_PROJECT_PACKAGE_EXTENSION = "iiimage";
 
@@ -205,6 +210,30 @@ function registerProjectIpc(options = {}) {
     }
   });
 
+  ipcMain.handle("naimage:project-skill:import", async () => {
+    const open = await dialog.showOpenDialog({
+      title: "导入 SKILL.md",
+      buttonLabel: "导入 Skill",
+      properties: ["openFile"],
+      filters: [{ name: "Agent Skill Markdown", extensions: ["md"] }]
+    });
+    if (open.canceled || open.filePaths.length === 0) return { ok: true, canceled: true };
+    const sourceFile = open.filePaths[0];
+    const result = readSkillMarkdownFile(sourceFile);
+    if (result.ok) log(`skill markdown selected name=${result.sourceName} bytes=${result.byteLength}`);
+    else log(`skill markdown read failed name=${path.basename(sourceFile).slice(0, 180) || "SKILL.md"} code=${result.errorCode}`);
+    if (!result.ok) return result;
+    const parsed = parseSkillResult(result.markdown, result.sourceName);
+    if (!parsed.ok) log(`skill markdown parse failed name=${result.sourceName} code=${parsed.errorCode}`);
+    return parsed;
+  });
+
+  ipcMain.handle("naimage:project-skill:parse", (_event, payload = {}) => {
+    const parsed = parseSkillResult(payload?.markdown, payload?.sourceName);
+    log(`skill markdown parse ${parsed.ok ? "ok" : `failed code=${parsed.errorCode}`}`);
+    return parsed;
+  });
+
   ipcMain.handle("naimage:project:open-current-folder", async (_event, payload) => {
     const list = readProjectList();
     const requestedProjectId = String(payload?.id || "").trim();
@@ -268,4 +297,4 @@ function registerProjectIpc(options = {}) {
   });
 }
 
-module.exports = { registerProjectIpc };
+module.exports = { MAX_SKILL_MARKDOWN_BYTES, readSkillMarkdownFile, registerProjectIpc };

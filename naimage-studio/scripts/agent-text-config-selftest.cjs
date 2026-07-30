@@ -988,7 +988,22 @@ async function runSelftest(directory) {
     assert.equal(schemasBeforePromptSave.some((tool) => ["context_manage", "memory"].includes(tool.function?.name)), false, "Main model must not receive internal memory tools");
     const publicImageSchema = schemasBeforePromptSave.find((tool) => tool.function?.name === "image_gen");
     const publicImageProperties = publicImageSchema?.function?.parameters?.properties || {};
+    const internalImageSchema = toolSchemas(schemaSettings).find((tool) => tool.function?.name === "image_gen");
+    assert.deepEqual(
+      internalImageSchema?.function?.parameters?.properties?.scopeExecution?.enum,
+      ["all-goal-sources"],
+      "Internal image_gen must accept only the runtime-expanded Goal scope mode",
+    );
     assert(publicImageProperties.sourceAssetId, "Public image_gen must bind SOURCE by TaskScope assetId");
+    assert.deepEqual(
+      publicImageProperties.scopeExecution?.enum,
+      ["all-goal-sources"],
+      "Public image_gen must expose the single Goal scope execution mode",
+    );
+    assert.match(publicImageProperties.scopeExecution?.description || "", /frozen=true.*完整.*Goal TaskScope/);
+    assert.match(publicImageProperties.scopeExecution?.description || "", /运行时.*SOURCE bindingId.*逐绑定展开/);
+    assert.match(publicImageProperties.scopeExecution?.description || "", /模型.*Goal.*只调用一次 image_gen/);
+    assert.match(publicImageProperties.scopeExecution?.description || "", /普通或不完整 TaskScope.*省略/);
     assert.equal(Object.prototype.hasOwnProperty.call(publicImageProperties, "sourcePath"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(publicImageProperties, "maskImage"), false, "Public model must not bypass the painted-region editor with a local mask path");
     assert.equal(Object.prototype.hasOwnProperty.call(publicImageProperties, "maskDataUrl"), false, "Public model must not inject a mask payload");

@@ -8,7 +8,9 @@ import { PNG } from "pngjs";
 import sharp from "sharp";
 
 import { captureAskUserContinuationSuite } from "./aidebug-ask-user-continuation-suite.mjs";
+import { captureGoalModeSuite } from "./aidebug-goal-mode-suite.mjs";
 import { captureRequirementNodeSuite } from "./aidebug-requirement-node-suite.mjs";
+import { captureSkillNodeSuite } from "./aidebug-skill-node-suite.mjs";
 import { parseAidebugOptions } from "./aidebug/options.mjs";
 import { createImageGenerationSuiteProbes } from "./aidebug/suites/image-generation.mjs";
 import { createLayerEditingSuiteProbes } from "./aidebug/suites/layer-editing.mjs";
@@ -84,6 +86,8 @@ const {
   selectionCommandSuiteOnly,
   contextMenuSuiteOnly,
   requirementNodeSuiteOnly,
+  skillNodeSuiteOnly,
+  goalModeSuiteOnly,
   askUserContinuationSuiteOnly,
   failureDiagnosticsSelfTestOnly,
   imageRuns,
@@ -6871,6 +6875,10 @@ async function captureAuthGateSuiteProbe(client, targetId) {
     };
 
     const settingsOpened = await openSurface('settings', '.settings-drawer');
+    const agentSettingsTab = Array.from(document.querySelectorAll('.settings-drawer .settings-section-tab'))
+      .find((button) => String(button.textContent || '').trim() === 'Agent');
+    agentSettingsTab?.click();
+    await waitFor(() => Boolean(document.querySelector('.settings-drawer .settings-prompt-action')));
     const promptButton = Array.from(document.querySelectorAll('.settings-drawer button'))
       .find((button) => String(button.textContent || '').includes('编辑提示词'));
     promptButton?.click();
@@ -6885,7 +6893,8 @@ async function captureAuthGateSuiteProbe(client, targetId) {
     memoryButton?.click();
     const memoryDialogOpened = await waitFor(() => Boolean(document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 记忆"]')));
 
-    const accountOpened = await openSurface('account', '.account-drawer');
+    document.querySelector('.account-avatar-button')?.click();
+    const accountOpened = await waitFor(() => Boolean(document.querySelector('.account-drawer')));
     const memoryDialogCoexisted = Boolean(document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 记忆"]'));
     const pendingStarted = await window.__naimageAIDebug?.chat?.('AIDEBUG_ASK_CONFIRM AUTH_LOGOUT_PENDING 请先确认后再继续。', { timeoutMs: 30000 });
     const pendingOpened = await waitFor(() => Boolean(window.__naimageDebugAgentState?.().pendingAgentExecution && document.querySelector('.ask-user-dialog')), 6000);
@@ -7815,6 +7824,43 @@ async function main() {
       finishSuiteRun({
         results,
         reportMetadata: { mode: "requirement-node-suite" }
+      });
+      return;
+    }
+    if (skillNodeSuiteOnly) {
+      results.push(...await captureSkillNodeSuite({
+        client,
+        targetId: target.id,
+        waitForExpression,
+        evaluate,
+        captureState,
+        runDir,
+        aidebugConfigDir,
+        debugPort,
+        recordObservation,
+        setProbePhase
+      }));
+      finishSuiteRun({
+        results,
+        reportMetadata: { mode: "skill-node-suite" }
+      });
+      return;
+    }
+    if (goalModeSuiteOnly) {
+      results.push(...await captureGoalModeSuite({
+        client,
+        targetId: target.id,
+        waitForExpression,
+        evaluate,
+        captureState,
+        runDir,
+        fixturePaths: dragFixturePaths,
+        recordObservation,
+        setProbePhase
+      }));
+      finishSuiteRun({
+        results,
+        reportMetadata: { mode: "goal-mode-suite" }
       });
       return;
     }

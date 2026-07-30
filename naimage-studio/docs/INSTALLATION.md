@@ -60,7 +60,7 @@ pnpm run package:installer-smoke
 当前 `1.0.5` 是首次改名发布，升级 E2E 必须使用冻结的更名前 `1.0.4` 程序作为基线；从 `1.0.6` 起应改用上一版 `naimage.exe`。
 
 ```powershell
-$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-build\win-unpacked\iiimage Studio.exe').Path
+$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-1.0.6\win-unpacked\naimage.exe').Path
 pnpm run release:plan
 pnpm run test:release-orchestrator
 pnpm run release:final

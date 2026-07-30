@@ -2,6 +2,8 @@
    04 Dialogs, Image Editors, Viewers, And Prompt Entries
 -------------------------------------------------------------------------- */
 
+@import "./04a-commerce-set-dialog.css";
+
 .image-control-row {
   min-width: 0;
   display: grid;
@@ -312,93 +314,6 @@
 .quota-dialog {
   --ui-surface-width: 500px;
   height: auto;
-}
-
-.commerce-translation-dialog {
-  --ui-surface-width: 680px;
-  height: auto;
-  max-height: min(720px, calc(100dvh - 36px));
-}
-
-.ui-surface .ui-surface-body.commerce-translation-body {
-  display: grid;
-  gap: 11px;
-}
-
-.commerce-language-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.commerce-language-header strong {
-  color: var(--ink);
-  font-size: 12px;
-}
-
-.commerce-language-header span {
-  color: var(--ink-soft);
-  font-size: 10px;
-}
-
-.commerce-language-grid {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
-}
-
-.commerce-language-option {
-  min-width: 0;
-  min-height: 46px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 9px;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--ui-choice-radius);
-  background: var(--surface);
-  cursor: pointer;
-}
-
-.commerce-language-option.selected {
-  border-color: color-mix(in srgb, var(--accent) 54%, var(--line));
-  background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
-}
-
-.commerce-language-option input {
-  accent-color: var(--accent);
-}
-
-.commerce-language-option > span {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.commerce-language-option strong,
-.commerce-language-option small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.commerce-language-option strong {
-  color: var(--ink);
-  font-size: 11px;
-}
-
-.commerce-language-option small {
-  color: var(--ink-soft);
-  font-size: 9px;
-}
-
-@media (max-width: 620px) {
-  .commerce-language-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .quota-summary {

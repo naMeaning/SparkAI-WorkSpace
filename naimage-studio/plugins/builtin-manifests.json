@@ -2,10 +2,10 @@
   {
     "schemaVersion": 1,
     "id": "sparkai.commerce-toolkit",
-    "name": "跨境电商多语言工具",
+    "name": "跨境电商套图工具",
     "version": "1.0.0",
     "publisher": "SparkAI",
-    "description": "把当前选中的商品图按多个目标语言生成独立本地化套图。",
+    "description": "为一张或多张商品母图批量生成逐图 Prompt 套图，并制作多国语言本地化版本。",
     "permissions": [
       "canvas.read-selection",
       "agent.submit-task",
@@ -14,15 +14,29 @@
     "contributes": {
       "commands": [
         {
+          "id": "sparkai.commerce-toolkit.generate-listing-set"
+        },
+        {
           "id": "sparkai.commerce-toolkit.translate-listing-set"
         }
       ],
       "toolbar": [
         {
-          "command": "sparkai.commerce-toolkit.translate-listing-set",
-          "label": "套图翻译",
-          "description": "一键生成多国语言商品套图",
+          "command": "sparkai.commerce-toolkit.generate-listing-set",
+          "label": "一键生成套图",
+          "description": "为选中的一张或多张母图批量生成逐图 Prompt 套图",
           "order": 10,
+          "icon": "images",
+          "shortcut": "Mod+Shift+1",
+          "when": "canvas.has-image-selection"
+        },
+        {
+          "command": "sparkai.commerce-toolkit.translate-listing-set",
+          "label": "一键多国语言",
+          "description": "为选中的一张或多张商品图批量生成多国语言套图",
+          "order": 11,
+          "icon": "languages",
+          "shortcut": "Mod+Shift+2",
           "when": "canvas.has-image-selection"
         }
       ]
@@ -51,7 +65,9 @@
           "command": "sparkai.project-graph.visualize-learning-map",
           "label": "思维导图转图片",
           "description": "导入 Project Graph 并生成视觉学习图片",
-          "order": 20
+          "order": 20,
+          "icon": "workflow",
+          "shortcut": "Mod+Shift+3"
         }
       ]
     }
@@ -79,7 +95,9 @@
           "command": "sparkai.scientific-figure.start-workflow",
           "label": "科研绘图",
           "description": "创建科研图",
-          "order": 30
+          "order": 30,
+          "icon": "microscope",
+          "shortcut": "Mod+Shift+4"
         }
       ]
     }

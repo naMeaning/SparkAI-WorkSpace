@@ -5,6 +5,8 @@ param(
 
   [string]$ArgsJson = "{}",
 
+  [string]$SkillPath = "",
+
   [ValidateRange(5, 1800)]
   [int]$TimeoutSeconds = 600
 )
@@ -51,6 +53,34 @@ function Wait-Endpoint([string]$endpointPath) {
   throw "naimage automation endpoint did not become ready within 30 seconds."
 }
 
+function Resolve-NaimageErrorPayload([System.Management.Automation.ErrorRecord]$record) {
+  $message = [string]$record.Exception.Message
+  $body = [string]$record.ErrorDetails.Message
+  if (-not $body) {
+    try {
+      $response = $record.Exception.Response
+      if ($null -ne $response) {
+        $stream = $response.GetResponseStream()
+        if ($null -ne $stream) {
+          $reader = [System.IO.StreamReader]::new($stream, [System.Text.Encoding]::UTF8)
+          try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        }
+      }
+    } catch {
+      # Keep the original transport message when the response body is unavailable.
+    }
+  }
+  if ($body) {
+    try {
+      $payload = $body | ConvertFrom-Json
+      if ($payload.error) { return $payload }
+    } catch {
+      # The endpoint may have returned a non-JSON proxy or transport error.
+    }
+  }
+  return [pscustomobject]@{ ok = $false; error = $message }
+}
+
 try {
   $connection = Read-Connection
   Start-NaimageIfNeeded $connection
@@ -66,6 +96,19 @@ try {
     } catch {
       throw "ArgsJson is not valid JSON: $($_.Exception.Message)"
     }
+    if ($SkillPath) {
+      if ($Command -ne "canvas.import-skill") {
+        throw "SkillPath is only valid with canvas.import-skill."
+      }
+      $resolvedSkillPath = (Resolve-Path -LiteralPath $SkillPath -ErrorAction Stop).Path
+      $skillBytes = [System.IO.File]::ReadAllBytes($resolvedSkillPath)
+      if ($skillBytes.Length -eq 0) { throw "SKILL.md is empty." }
+      if ($skillBytes.Length -gt 262144) { throw "SKILL.md exceeds the 262144 byte import limit." }
+      $utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+      $skillMarkdown = $utf8.GetString($skillBytes)
+      $argsObject | Add-Member -NotePropertyName markdown -NotePropertyValue $skillMarkdown -Force
+      $argsObject | Add-Member -NotePropertyName sourceName -NotePropertyValue ([System.IO.Path]::GetFileName($resolvedSkillPath)) -Force
+    }
     $body = @{
       command = $Command
       args = $argsObject
@@ -76,6 +119,6 @@ try {
 
   $result | ConvertTo-Json -Depth 30 -Compress
 } catch {
-  @{ ok = $false; error = $_.Exception.Message } | ConvertTo-Json -Compress
+  Resolve-NaimageErrorPayload $_ | ConvertTo-Json -Depth 30 -Compress
   exit 1
 }

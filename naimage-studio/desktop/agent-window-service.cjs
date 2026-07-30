@@ -26,6 +26,7 @@ function createAgentWindowService({
   preloadPath,
   applicationName = "naimage",
   icon,
+  getBackgroundColor = () => "#f6eadf",
   log = () => {}
 }) {
   let agentWindow = null;
@@ -117,6 +118,13 @@ function createAgentWindowService({
     }
 
     latestState = null;
+    let backgroundColor = "#f6eadf";
+    try {
+      const resolvedBackgroundColor = String(getBackgroundColor() || "").trim();
+      if (resolvedBackgroundColor) backgroundColor = resolvedBackgroundColor;
+    } catch (error) {
+      log(`agent window background resolution failed ${error instanceof Error ? error.message : String(error)}`);
+    }
     agentWindow = new BrowserWindow({
       width: 480,
       height: 760,
@@ -124,7 +132,7 @@ function createAgentWindowService({
       minHeight: 480,
       show: false,
       title: `${applicationName} Agent`,
-      backgroundColor: "#f6eadf",
+      backgroundColor,
       autoHideMenuBar: true,
       ...(icon ? { icon } : {}),
       webPreferences: {

@@ -9,6 +9,14 @@ const {
   renameSync
 } = require("node:fs");
 const path = require("node:path");
+const {
+  IMAGE_EXPORT_FORMATS,
+  convertImageForExport,
+  imageExportFilters,
+  imageExportFormatFromExtension,
+  matchingImageExportExtension,
+  normalizeImageExportFormat
+} = require("../image-export-service.cjs");
 
 function registerAssetIpc(options = {}) {
   const {
@@ -37,7 +45,6 @@ function registerAssetIpc(options = {}) {
     aidebugMode,
     aidebugExportFilePath,
     desktopRoot,
-    ensureMatchingExportExtension,
     comparablePath,
     releaseTransientExportSources,
     maxFolderExportAssets,
@@ -55,6 +62,40 @@ function registerAssetIpc(options = {}) {
     retainTransientExportSource,
     exportLayeredPsd
   } = options;
+  const exportTargetTurns = new Map();
+
+  function exportTargetLockKey(filePath) {
+    const resolved = path.resolve(filePath);
+    try {
+      return comparablePath(path.join(realpathSync(path.dirname(resolved)), path.basename(resolved)));
+    } catch {
+      return comparablePath(resolved);
+    }
+  }
+
+  async function withExportTargetLock(filePath, operation) {
+    const key = exportTargetLockKey(filePath);
+    const previous = exportTargetTurns.get(key) || Promise.resolve();
+    let releaseTurn;
+    const gate = new Promise((resolveGate) => { releaseTurn = resolveGate; });
+    const current = previous.catch(() => undefined).then(() => gate);
+    exportTargetTurns.set(key, current);
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      releaseTurn();
+      if (exportTargetTurns.get(key) === current) exportTargetTurns.delete(key);
+    }
+  }
+
+  function releaseExportSourcesSafely(sources, context) {
+    try {
+      releaseTransientExportSources(sources, context);
+    } catch (error) {
+      log(`asset transient source cleanup failed ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   ipcMain.handle("naimage:asset:pick-local-images", async (_event, payload = {}) => {
     try {
@@ -263,51 +304,72 @@ function registerAssetIpc(options = {}) {
       const source = await materializeManagedImageAsset(payload?.asset, context);
       transientSources.push(source);
       const defaultName = exportFileName(source, payload?.suggestedName);
+      const sourceFormat = imageExportFormatFromExtension(source.extension) || "png";
+      const requestedFormat = normalizeImageExportFormat(payload?.format, sourceFormat);
+      const requestedDefinition = IMAGE_EXPORT_FORMATS[requestedFormat];
       const owner = BrowserWindow.fromWebContents(event.sender);
       let selectedPath = "";
       if (aidebugMode && payload?.aidebugName) {
-        selectedPath = aidebugExportFilePath(payload.aidebugName, source.extension, "aidebug-image");
+        selectedPath = aidebugExportFilePath(payload.aidebugName, requestedDefinition.extension, "aidebug-image");
       } else {
+        const defaultStem = path.parse(defaultName).name;
         const options = {
           title: "图片另存为",
-          defaultPath: path.join(app.getPath("desktop") || desktopRoot, defaultName),
+          defaultPath: path.join(
+            app.getPath("desktop") || desktopRoot,
+            payload?.format ? `${defaultStem}${requestedDefinition.extension}` : defaultStem
+          ),
           buttonLabel: "保存",
-          filters: [
-            { name: source.mimeType === "image/png" ? "PNG 图片" : source.mimeType === "image/webp" ? "WEBP 图片" : "JPEG 图片", extensions: [source.extension.slice(1)] }
-          ]
+          filters: imageExportFilters(requestedFormat)
         };
         const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
         if (result.canceled || !result.filePath) return { ok: true, canceled: true };
         selectedPath = path.resolve(result.filePath);
       }
-      const destinationPath = ensureMatchingExportExtension(selectedPath, source.extension);
-      if (comparablePath(destinationPath) !== comparablePath(selectedPath) && existsSync(destinationPath)) {
-        const confirmOptions = {
-          type: "warning",
-          title: "确认覆盖图片",
-          message: `“${path.basename(destinationPath)}”已经存在，是否覆盖？`,
-          buttons: ["覆盖", "取消"],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true
+      const selectedFormat = imageExportFormatFromExtension(selectedPath) || requestedFormat;
+      const destinationPath = matchingImageExportExtension(selectedPath, selectedFormat);
+      return await withExportTargetLock(destinationPath, async () => {
+        const existsAtCommit = existsSync(destinationPath);
+        if (existsAtCommit && aidebugMode && payload?.aidebugName) {
+          const conflict = new Error("AIDebug export target already exists; choose a fresh evidence name.");
+          conflict.code = "NAIMAGE_EXPORT_TARGET_EXISTS";
+          throw conflict;
+        }
+        if (existsAtCommit) {
+          const confirmOptions = {
+            type: "warning",
+            title: "最终确认覆盖图片",
+            message: `“${path.basename(destinationPath)}”已经存在。是否确认覆盖当前文件？`,
+            buttons: ["覆盖", "取消"],
+            defaultId: 1,
+            cancelId: 1,
+            noLink: true
+          };
+          const confirmation = owner
+            ? await dialog.showMessageBox(owner, confirmOptions)
+            : await dialog.showMessageBox(confirmOptions);
+          if (confirmation.response !== 0) return { ok: true, canceled: true };
+        }
+        const exported = await convertImageForExport(source.path, destinationPath, selectedFormat, { overwrite: existsAtCommit });
+        if (exported.cleanupWarning) log(`asset save as cleanup warning ${exported.cleanupWarning}`);
+        log(`asset save as project=${context.project.id} format=${exported.format} bytes=${exported.bytes} converted=${exported.converted}`);
+        return {
+          ok: true,
+          path: exported.path,
+          format: exported.format,
+          mimeType: exported.mimeType,
+          width: exported.width,
+          height: exported.height,
+          converted: exported.converted,
+          ...(exported.cleanupWarning ? { cleanupWarning: exported.cleanupWarning } : {})
         };
-        const confirmation = owner
-          ? await dialog.showMessageBox(owner, confirmOptions)
-          : await dialog.showMessageBox(confirmOptions);
-        if (confirmation.response !== 0) return { ok: true, canceled: true };
-      }
-      if (comparablePath(destinationPath) !== comparablePath(source.path)) {
-        mkdirSync(path.dirname(destinationPath), { recursive: true });
-        copyFileSync(source.path, destinationPath);
-      }
-      log(`asset save as project=${context.project.id} format=${source.extension} bytes=${source.size}`);
-      return { ok: true, path: destinationPath };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`asset save as failed ${message}`);
-      return { ok: false, error: message };
+      return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_FAILED", error: message };
     } finally {
-      releaseTransientExportSources(transientSources, context);
+      releaseExportSourcesSafely(transientSources, context);
     }
   });
 
@@ -427,7 +489,7 @@ function registerAssetIpc(options = {}) {
       log(`asset export folder failed ${message}`);
       return { ok: false, error: message };
     } finally {
-      releaseTransientExportSources(transientSources, context);
+      releaseExportSourcesSafely(transientSources, context);
     }
   });
 
@@ -500,7 +562,7 @@ function registerAssetIpc(options = {}) {
       log(`asset single psd export failed ${message}`);
       return { ok: false, error: message };
     } finally {
-      releaseTransientExportSources(transientSources, context);
+      releaseExportSourcesSafely(transientSources, context);
     }
   });
 
@@ -596,7 +658,7 @@ function registerAssetIpc(options = {}) {
       log(`asset psd export failed ${message}`);
       return { ok: false, error: message };
     } finally {
-      releaseTransientExportSources(transientSources, context);
+      releaseExportSourcesSafely(transientSources, context);
     }
   });
 }

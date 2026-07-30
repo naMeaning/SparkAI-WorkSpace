@@ -18,7 +18,8 @@ import {
   pipeProcessLogs,
   waitForHttpServer
 } from "./aidebug/harness/process.mjs";
-import { capturePngScreenshotToFile } from "./aidebug/harness/screenshot.mjs";
+import { createAidebugReporting } from "./aidebug/harness/reporting.mjs";
+import { captureStableCdpScene, createObservationLog } from "./aidebug/harness/standalone-gui-evidence.mjs";
 
 const isWindows = process.platform === "win32";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,10 @@ let viteProcess;
 let electronProcess;
 const checks = [];
 const screenshots = [];
+const evidenceResults = [];
+const fallbackPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+const { observations, recordObservation } = createObservationLog();
+let reporting;
 
 function note(label, detail = "") {
   process.stdout.write(`[agent-text-ui] ${label}${detail ? `: ${detail}` : ""}\n`);
@@ -170,18 +175,77 @@ async function setWindowSize(client, targetId, width, height) {
   await delay(120);
 }
 
+function expectedSceneSurface(label) {
+  if (label.includes("settings-drawer")) return ".settings-drawer";
+  if (label.includes("account-drawer")) return ".account-drawer";
+  if (label.includes("prompt-editor") || label.includes("fast-memory") || label.includes("reduced-prompt")) return ".agent-text-editor-dialog";
+  if (label.includes("model-picker")) return ".model-picker-dialog";
+  if (label.includes("confirm")) return ".confirm-dialog";
+  if (label.includes("requirement-editor")) return ".requirement-editor-dialog";
+  if (label.includes("requirement-node") || label.includes("requirement-executed")) return ".flow-node.requirement-node";
+  if (label.includes("agent-markdown")) return ".project-agent-feed";
+  if (label.includes("logout-")) return ".auth-shell";
+  return ".ide-shell";
+}
+
+async function readEvidenceSnapshot(client, label) {
+  const expectedSelector = expectedSceneSurface(label);
+  return evaluate(client, `(() => {
+    const expectedSelector = ${JSON.stringify(expectedSelector)};
+    const expectedSurface = document.querySelector(expectedSelector);
+    const visible = (element) => Boolean(element && element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+    const documentOverflowX = document.documentElement.scrollWidth > window.innerWidth + 1;
+    const bodyOverflowX = document.body.scrollWidth > window.innerWidth + 1;
+    const surfaceTypes = Array.from(document.querySelectorAll('[data-ui-surface]'))
+      .filter(visible)
+      .map((element) => element.getAttribute('data-ui-surface') || '')
+      .filter(Boolean)
+      .sort();
+    const surfaceOk = visible(expectedSurface);
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
+      surfaceOk,
+      overflow: { documentOverflowX, bodyOverflowX, elementOverflowX: [] },
+      state: {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        expectedSelector,
+        expectedSurfaceVisible: surfaceOk,
+        surfaceTypes,
+        dialogCount: document.querySelectorAll('[role="dialog"]').length,
+        drawerCount: document.querySelectorAll('.settings-drawer, .account-drawer').length,
+        authShellCount: document.querySelectorAll('.auth-shell').length,
+        ideShellCount: document.querySelectorAll('.ide-shell').length,
+        requirementNodeCount: document.querySelectorAll('.flow-node.requirement-node').length,
+        agentMessageCount: document.querySelectorAll('.project-agent-feed .agent-message').length
+      },
+      stateIssues: [
+        ...(surfaceOk ? [] : [{ key: 'expected-surface-visible', expected: expectedSelector, actual: false }]),
+        ...(documentOverflowX || bodyOverflowX ? [{ key: 'viewport-overflow-x', expected: false, actual: { documentOverflowX, bodyOverflowX } }] : [])
+      ]
+    };
+  })()`);
+}
+
 async function captureScreenshot(client, label) {
-  const path = join(runDir, `${label}.png`);
+  const capture = () => captureStableCdpScene({
+    client,
+    runDir,
+    label,
+    readSnapshot: () => readEvidenceSnapshot(client, label),
+    timeoutMs: 30_000
+  });
+  let result;
   try {
-    await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 15000);
+    result = await capture();
   } catch (error) {
     if (!String(error?.message || error).includes("Page.captureScreenshot timed out")) throw error;
     await evaluate(client, `new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     await delay(250);
-    await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 30000);
+    result = await capture();
   }
-  screenshots.push(path);
-  return path;
+  evidenceResults.push(result);
+  screenshots.push(result.screenshotPath);
+  return result.screenshotPath;
 }
 
 async function clickButton(client, text, scope = "document") {
@@ -538,6 +602,18 @@ async function stopProcess(child) {
 
 async function main() {
   mkdirSync(configDir, { recursive: true });
+  recordObservation("info", "suite-checkpoint", { label: "bootstrap:prepare-run", runDir, mode: "agent-text-ui-aidebug" });
+  reporting = createAidebugReporting({
+    runDir,
+    desktopLogPath: join(runDir, "aidebug.log"),
+    observations,
+    mockAgent: true,
+    cycleIndex: 1,
+    cycleTotal: 1,
+    fallbackPng,
+    recordObservation,
+    log: (value) => process.stdout.write(`${value}\n`)
+  });
   if (!(await isServerReady(devUrl))) {
     viteProcess = startVite();
     pipeProcessLogs(viteProcess, "vite");
@@ -1557,22 +1633,64 @@ async function main() {
     client.close();
   }
 
-  const failures = checks.filter((item) => !item.ok);
-  const report = {
-    ok: failures.length === 0 && !fatalError,
-    mode: "agent-text-ui-aidebug",
-    runDir,
-    configDir,
-    debugPort,
-    screenshots,
-    checks,
-    failures,
-    fatalError
-  };
-  const reportPath = join(runDir, "report.json");
-  writeFileSync(reportPath, JSON.stringify(report, null, 2));
-  console.log(JSON.stringify({ ok: report.ok, runDir, reportPath, screenshots, failures, fatalError }, null, 2));
-  if (!report.ok) process.exitCode = 1;
+  const failedChecks = checks.filter((item) => !item.ok);
+  if (failedChecks.length || fatalError) {
+    recordObservation("issue", "agent-text-ui-checks-failed", {
+      failedChecks: failedChecks.map((item) => item.label),
+      fatalError
+    });
+    if (evidenceResults.length) {
+      evidenceResults[evidenceResults.length - 1].stateIssues.push({
+        key: "agent-text-ui-checks",
+        expected: "all checks pass",
+        actual: failedChecks.map((item) => item.label),
+        fatalError
+      });
+      evidenceResults[evidenceResults.length - 1].visualReliability.ok = false;
+      evidenceResults[evidenceResults.length - 1].visualReliability.status = "failed";
+      if (!evidenceResults[evidenceResults.length - 1].visualReliability.failureReasons.includes("state-assertion-failed")) {
+        evidenceResults[evidenceResults.length - 1].visualReliability.failureReasons.push("state-assertion-failed");
+      }
+    } else {
+      const failureScreenshotPath = join(runDir, "agent-text-ui-failure.png");
+      writeFileSync(failureScreenshotPath, fallbackPng);
+      evidenceResults.push({
+        label: "agent-text-ui-failure",
+        screenshotPath: failureScreenshotPath,
+        screenshotSource: "fallback",
+        nativeCapture: { ok: false, source: "fixture" },
+        state: {},
+        stateIssues: [{ key: "agent-text-ui-checks", expected: "all checks pass", actual: failedChecks.map((item) => item.label), fatalError }],
+        overflow: { documentOverflowX: false, bodyOverflowX: false, elementOverflowX: [] },
+        captureIssues: [{ key: "gui-scene-missing", expected: true, actual: false }],
+        visualReliability: { ok: false, status: "failed", failureReasons: ["state-assertion-failed", "screenshot-evidence-invalid"] }
+      });
+    }
+  }
+  const report = reporting.finishSuiteRun({
+    results: evidenceResults,
+    reportMetadata: {
+      mode: "agent-text-ui-aidebug",
+      suite: "agent-text-ui",
+      agentMode: "mock-agent",
+      networkUsed: false
+    },
+    reportAfterObservations: {
+      configDir,
+      debugPort,
+      screenshots,
+      checks,
+      checkFailures: failedChecks,
+      fatalError
+    },
+    consoleAfterSummary: {
+      screenshots: screenshots.length,
+      checks: checks.length,
+      checkFailures: failedChecks.length,
+      fatalError
+    }
+  });
+  if (!report.ok || failedChecks.length || fatalError) process.exitCode = 1;
 }
 
 try {

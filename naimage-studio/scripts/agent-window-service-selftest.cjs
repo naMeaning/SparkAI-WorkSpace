@@ -70,7 +70,8 @@ const service = createAgentWindowService({
   htmlPath: "C:\\app\\agent-window.html",
   preloadPath: "C:\\app\\agent-window-preload.cjs",
   applicationName: "naimage",
-  icon: { fixture: true }
+  icon: { fixture: true },
+  getBackgroundColor: () => "#102638"
 });
 
 const opened = service.open(ownerWebContents);
@@ -81,6 +82,7 @@ assert.equal(surfaceWindow.loadedFile, "C:\\app\\agent-window.html");
 assert.equal(surfaceWindow.options.webPreferences.nodeIntegration, false);
 assert.equal(surfaceWindow.options.webPreferences.contextIsolation, true);
 assert.equal(surfaceWindow.options.webPreferences.sandbox, true);
+assert.equal(surfaceWindow.options.backgroundColor, "#102638");
 assert.equal(surfaceWindow.options.parent, undefined, "The Agent window must be free to move outside the main window");
 assert.deepEqual(surfaceWindow.webContents.windowOpenHandler(), { action: "deny" });
 
@@ -135,7 +137,16 @@ for (const file of packagedSurfaceFiles) {
   assert.equal(packageMetadata.build.files.includes(file), true, `Agent window surface is not packaged: ${file}`);
 }
 const surfaceHtml = readFileSync(path.join(repoRoot, "agent-window.html"), "utf8");
+const surfaceRenderer = readFileSync(path.join(repoRoot, "agent-window-renderer.js"), "utf8");
 assert.match(surfaceHtml, /agent-window\.css/);
 assert.match(surfaceHtml, /agent-window-renderer\.js/);
+assert.match(surfaceHtml, /id="stop-button"/);
+assert.match(surfaceHtml, /id="steer-mode"/);
+assert.match(surfaceHtml, /value="merge-source"/);
+assert.match(surfaceRenderer, /state\.busy \? "修改" : "发送"/);
+assert.match(surfaceRenderer, /taskScopeMode: currentState\.busy \? steerMode\.value : "auto"/);
+assert.match(surfaceRenderer, /if \(!state\.busy\) steerMode\.value = "auto"/);
+assert.match(surfaceRenderer, /if \(currentState\.busy\) steerMode\.value = "auto"/);
+assert.match(surfaceRenderer, /command\(\{ type: "stop-confirmed" \}\)/);
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 36 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 44 })}\n`);

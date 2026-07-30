@@ -1,16 +1,24 @@
 :root {
   color-scheme: light;
-  --bg: #f6eadf;
-  --surface: #fffaf4;
-  --surface-soft: #f2dfd1;
-  --line: #ddc7b7;
-  --line-strong: #c8aa96;
-  --ink: #32251e;
-  --muted: #806c60;
-  --accent: #c86f52;
-  --accent-strong: #9e4931;
-  --accent-ink: #fffaf5;
-  --danger: #a84137;
+  --bg: #e8f2f6;
+  --surface: #f7fcfe;
+  --surface-soft: rgba(255, 255, 255, 0.44);
+  --line: rgba(43, 48, 45, 0.09);
+  --line-strong: rgba(43, 48, 45, 0.16);
+  --ink: #203039;
+  --muted: #5d7480;
+  --accent: #389bc9;
+  --accent-strong: #317da1;
+  --accent-ink: #06293a;
+  --danger: #c4473d;
+  --glass-rgb: 191, 227, 244;
+  --glass-alpha: 0.44;
+  --glass-blur: 28px;
+  --glass-saturation: 128%;
+  --glass-highlight: 0.7;
+  --glass-shadow: 0.18;
+  --glass-radius: 14px;
+  --glass-noise-opacity: 0.025;
   font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif;
 }
 
@@ -99,7 +107,7 @@ button:disabled {
 .agent-shell {
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
 }
 
 .agent-header {
@@ -181,6 +189,114 @@ button:disabled {
 .agent-status small {
   max-width: 140px;
   color: var(--muted);
+}
+
+.agent-goal-controls {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agent-goal-controls[hidden],
+.task-mode-row[hidden],
+.goal-summary[hidden] {
+  display: none;
+}
+
+.task-mode-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.task-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, 64px);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+}
+
+.task-mode-switch button {
+  min-height: 27px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task-mode-switch button.active {
+  border-color: var(--line);
+  color: var(--accent-strong);
+  background: var(--surface);
+}
+
+#goal-availability {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-summary {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.goal-summary-heading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+
+.goal-summary-heading strong {
+  color: var(--accent-strong);
+}
+
+.goal-summary-heading span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-summary-heading code {
+  max-width: 132px;
+  overflow: hidden;
+  color: var(--muted);
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+#goal-warning {
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .agent-feed {
@@ -366,6 +482,43 @@ button:disabled {
   line-height: 1.5;
 }
 
+.steer-mode-field {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.steer-mode-field[hidden] {
+  display: none;
+}
+
+.steer-mode-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.goal-steer-lock {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.goal-steer-lock[hidden] {
+  display: none;
+}
+
+.goal-steer-lock strong {
+  color: var(--accent-strong);
+}
+
 .agent-composer footer {
   display: flex;
   align-items: center;
@@ -399,9 +552,9 @@ button:disabled {
   font-weight: 700;
 }
 
-.send-button.stop {
-  border-color: var(--danger);
-  background: var(--danger);
+.send-button.steer {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .pause-button {
@@ -413,9 +566,99 @@ button:disabled {
   font-weight: 700;
 }
 
+.stop-button {
+  min-width: 64px;
+  padding: 0 12px;
+  border-color: var(--danger);
+  color: #fff;
+  background: var(--danger);
+}
+
 .agent-status.paused #status-dot {
   background: #b7791f;
   box-shadow: 0 0 0 4px color-mix(in srgb, #b7791f 16%, transparent);
+}
+
+:root.glass-theme-active body {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(var(--accent-rgb), 0.13), transparent 38%),
+    radial-gradient(circle at 88% 92%, var(--canvas-tint), transparent 44%),
+    var(--bg);
+}
+
+:root.glass-theme-active .agent-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+:root.glass-theme-active .agent-shell::before {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--glass-noise-opacity);
+  background-image:
+    repeating-linear-gradient(37deg, rgba(255, 255, 255, 0.5) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(127deg, rgba(0, 0, 0, 0.24) 0 1px, transparent 1px 5px);
+}
+
+:root.glass-theme-active .agent-header,
+:root.glass-theme-active .agent-goal-controls,
+:root.glass-theme-active .agent-context,
+:root.glass-theme-active .agent-composer {
+  background: rgba(var(--glass-rgb), var(--glass-alpha));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight));
+}
+
+:root.glass-theme-active .agent-status {
+  background: color-mix(in srgb, rgba(var(--glass-rgb), var(--glass-alpha)) 82%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+
+:root.glass-theme-active button,
+:root.glass-theme-active select,
+:root.glass-theme-active .agent-composer textarea,
+:root.glass-theme-active .prompt-text,
+:root.glass-theme-active .task-mode-switch {
+  border-radius: min(10px, var(--glass-radius));
+  background: var(--solid-control);
+}
+
+:root.glass-theme-active button:hover,
+:root.glass-theme-active select:hover,
+:root.glass-theme-active .task-mode-switch button.active {
+  background: var(--solid-control-hover);
+}
+
+:root.glass-theme-active .message {
+  border-radius: var(--glass-radius);
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
+    0 9px 24px rgba(0, 0, 0, calc(var(--glass-shadow) * 0.42));
+}
+
+:root.glass-theme-active .message.user {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+:root.glass-theme-active .tool-card {
+  border-radius: min(12px, var(--glass-radius));
+  background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+}
+
+:root.glass-reduce-motion *,
+:root.glass-reduce-motion *::before,
+:root.glass-reduce-motion *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
 }
 
 @media (max-width: 420px) {
@@ -436,5 +679,18 @@ button:disabled {
   .shortcut,
   .dock-controls label {
     display: none;
+  }
+
+  .goal-summary-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .goal-summary-heading code {
+    display: none;
+  }
+
+  .goal-steer-lock {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }

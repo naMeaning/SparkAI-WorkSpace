@@ -62,10 +62,13 @@ import {
   FolderOpen,
   FolderPlus,
   ImageIcon,
+  Images,
   Import,
   Layers3,
+  Languages,
   Loader2,
   Maximize2,
+  Microscope,
   Minus,
   Move,
   PanelBottom,
@@ -78,6 +81,8 @@ import {
   PanelTop,
   PanelsTopLeft,
   Pause,
+  Pin,
+  PinOff,
   Play,
   Plus,
   RotateCcw,
@@ -85,6 +90,7 @@ import {
   Send,
   Settings,
   Shield,
+  SlidersHorizontal,
   Trash2,
   WandSparkles,
   Workflow,
@@ -101,6 +107,13 @@ import {
   toolTraceForProgress
 } from "./agent";
 import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
+import { automationCommandError, automationErrorPayload } from "./automation-command-errors";
+import {
+  assertCanvasRelationGraphAcyclic,
+  connectCanvasRelations,
+  disconnectCanvasRelations,
+  type CanvasRelationEdge,
+} from "./canvas-relation-graph";
 import {
   agentPanelLayoutForPlacement,
   agentPanelLayoutFromPointer,
@@ -122,9 +135,18 @@ import {
   defaultSettings,
   mergeSettings,
   readJson,
+  settingsWithGlassBootstrap,
   writeJson
 } from "./settings-persistence";
+import {
+  fullServerModelList,
+  preferredAgentModelFromList,
+  preferredImageModelFromList,
+} from "./settings-runtime";
+import { GlassThemeProvider } from "./glass-theme-provider";
+import type { WorkspaceViewMode } from "./workspace-chrome";
 import type { ActivePluginToolbarItem } from "./plugin-system";
+import { parseCommerceSetPromptPlan } from "./plugins/commerce-set";
 import {
   canvasClipboardSummary,
   copyCanvasNodes,
@@ -172,6 +194,7 @@ import {
   removeConnectedBorderBackgroundToDataUrl,
   reconcileImageAssetIdentityClaims,
   sanitizeAgentVisibleText,
+  sanitizeCanvasSkill,
   safeImageLocatorText,
   safeImageSourceRelativePath,
   sizeFromDraft,
@@ -257,10 +280,9 @@ import {
   type StreamingImagePreview
 } from "./streaming-image-preview";
 import { WindowControls } from "./window-controls";
-import { AuthGate, BootScreen } from "./auth-gate";
-import { ImageViewer } from "./image-viewer";
 import { useStableEvent } from "./use-stable-event";
 import { stableRequirementInputSignature } from "./requirement-signature";
+import { stableIdentityHash } from "./asset-identity";
 import {
   primaryRequirementInputNodeId,
   removeRequirementInputBindings,
@@ -271,7 +293,6 @@ import {
   sanitizeRequirementInputBindings,
   upsertRequirementInputBinding,
 } from "./requirement-graph";
-import { ReferencePickerDialog } from "./reference-picker-dialog";
 import {
   cloneAgentTaskScope,
   resolveAgentTaskScopeContinuation,
@@ -287,6 +308,8 @@ import type {
   AgentMessage,
   AgentConversation,
   AgentTaskScope,
+  AgentSteerTaskScopeMode,
+  AgentSteerTaskScopeUpdate,
   AgentTaskScopeType,
   AgentTaskResultPolicy,
   AgentTaskConfirmationPolicy,
@@ -297,11 +320,16 @@ import type {
   AssetTaskRole,
   CanvasRequirement,
   CanvasRequirementInputBinding,
+  ImportedCanvasSkill,
   ImageAssetIdentityClaim,
   TaskAssetReference,
   WorkflowNode,
+  NodeMutationBarrier,
+  NodeMutationEvent,
+  NodeMutationWriterCheckpoint,
   ImageNodeProgress,
   ImageAsset,
+  ImageExportFormat,
   ImageCollection,
   ImageContainerKind,
   ImageContainerMemberBinding,
@@ -354,10 +382,13 @@ type StudioWorkflowSession = Required<Omit<WorkflowSession, "pendingAgentExecuti
   pendingAgentExecution: PendingAgentExecution | null;
 };
 
-type StudioWorkflowSessionInput = Omit<StudioWorkflowSession, "sessionRevision" | "nodeSequence" | "canvasRevision" | "pendingAgentExecution"> & {
+type StudioWorkflowSessionInput = Omit<StudioWorkflowSession, "sessionRevision" | "nodeSequence" | "canvasRevision" | "nodeMutationJournal" | "nodeMutationWriterCheckpoints" | "nodeMutationBarriers" | "pendingAgentExecution"> & {
   sessionRevision?: number;
   nodeSequence?: number;
   canvasRevision?: number;
+  nodeMutationJournal?: NodeMutationEvent[];
+  nodeMutationWriterCheckpoints?: NodeMutationWriterCheckpoint[];
+  nodeMutationBarriers?: NodeMutationBarrier[];
   pendingAgentExecution?: PendingAgentExecution | null;
 };
 
@@ -425,6 +456,17 @@ type AgentPromptDispatchOptions = {
   continuationRequestId?: string;
   originalPrompt?: string;
   visibleContent?: string;
+};
+
+type AgentSteerOptions = {
+  taskScopeMode?: AgentSteerTaskScopeMode;
+  sourceMode?: AgentSteerTaskScopeUpdate["sourceMode"];
+  referenceMode?: AgentSteerTaskScopeUpdate["referenceMode"];
+  sourceNodeIds?: string[];
+  referenceNodeIds?: string[];
+  sourceImages?: ReferenceImage[];
+  referenceImages?: ReferenceImage[];
+  useComposerAttachments?: boolean;
 };
 
 type AssetContextMenuState = {
@@ -699,11 +741,18 @@ function DebugCommitProbe({ area, record }: { area: DebugRenderCommitArea; recor
 const loadStudioDialogs = () => import("./studio-dialogs");
 let agentWindowSyncPromise: Promise<typeof import("./agent-window-sync")> | null = null;
 const loadAgentWindowSync = () => agentWindowSyncPromise ??= import("./agent-window-sync");
+let agentStopRequestPromise: Promise<typeof import("./agent-stop-request")> | null = null;
+const loadAgentStopRequest = () => agentStopRequestPromise ??= import("./agent-stop-request");
+let automationCommandRuntimePromise: Promise<typeof import("./automation-command-runtime")> | null = null;
+const loadAutomationCommandRuntime = () => automationCommandRuntimePromise ??= import("./automation-command-runtime");
 type StudioDialogModule = typeof import("./studio-dialogs");
+type AgentComposerTaskMode = import("./project-agent-composer").AgentComposerTaskMode;
+type GoalConfirmationDraft = import("./project-agent-composer").GoalConfirmationDraft;
+type GoalModePreview = import("./goal-mode").GoalModePreview;
+type GoalConfirmationLedger = import("./goal-mode").GoalConfirmationLedger;
 function lazyStudioDialog<K extends keyof StudioDialogModule>(name: K) {
   return React.lazy(() => loadStudioDialogs().then((module) => ({ default: module[name] })));
 }
-const RichMarkdownMessage = lazyStudioDialog("RichMarkdownMessage");
 const AccountDrawer = lazyStudioDialog("AccountDrawer");
 const ProjectNameDialog = lazyStudioDialog("ProjectNameDialog");
 const QuotaDialog = lazyStudioDialog("QuotaDialog");
@@ -712,11 +761,46 @@ const ConfirmDialog = lazyStudioDialog("ConfirmDialog");
 const ManualImageTaskDialog = lazyStudioDialog("ManualImageTaskDialog");
 const AgentTextEditorDialog = lazyStudioDialog("AgentTextEditorDialog");
 const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
-const LazyModelConfigDialog = lazyStudioDialog("ModelConfigDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
-const LazyThemePalettePicker = lazyStudioDialog("ThemePalettePicker");
-const LazyPluginSettingsPanel = React.lazy(() => import("./plugin-settings-panel"));
-const LazyCommerceTranslationDialog = React.lazy(() => import("./commerce-translation-dialog"));
+const LazySettingsDrawer = React.lazy(() => import("./settings-drawer"));
+const LazyCommerceSetDialog = React.lazy(() => import("./commerce-set-dialog"));
+let workspaceChromePromise: Promise<typeof import("./workspace-chrome")> | null = null;
+const loadWorkspaceChrome = () => workspaceChromePromise ??= import("./workspace-chrome");
+const LazyWorkspaceAssetRail = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceAssetRail })));
+const LazyWorkspaceDirectionSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDirectionSwitcher })));
+const LazyWorkspaceFocusStage = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceFocusStage })));
+const LazyWorkspaceReviewGrid = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceReviewGrid })));
+const LazyWorkspaceSearch = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceSearch })));
+const LazyWorkspaceTaskContext = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceTaskContext })));
+let authGatePromise: Promise<typeof import("./auth-gate")> | null = null;
+const loadAuthGate = () => authGatePromise ??= import("./auth-gate");
+const LazyAuthGate = React.lazy(() => loadAuthGate().then((module) => ({ default: module.AuthGate })));
+const LazyBootScreen = React.lazy(() => loadAuthGate().then((module) => ({ default: module.BootScreen })));
+const LazyImageViewer = React.lazy(() => import("./image-viewer").then((module) => ({ default: module.ImageViewer })));
+const LazyReferencePickerDialog = React.lazy(() => import("./reference-picker-dialog").then((module) => ({ default: module.ReferencePickerDialog })));
+const LazyAgentMessageContent = React.lazy(() => import("./agent-message-content"));
+let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
+const loadProjectAgentComposer = () => projectAgentComposerPromise ??= import("./project-agent-composer");
+const LazyProjectAgentComposerContent = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.default })));
+const LazyGoalConfirmationDialog = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.GoalConfirmationDialog })));
+let goalModePromise: Promise<typeof import("./goal-mode")> | null = null;
+const loadGoalMode = () => goalModePromise ??= import("./goal-mode");
+
+function canvasToolShortcutLabel(shortcut?: string) {
+  return shortcut ? shortcut.replace("Mod", "Ctrl/⌘").replace(/\+/g, " ") : "";
+}
+
+function canvasToolAriaShortcut(shortcut?: string) {
+  const digit = /^Mod\+Shift\+([1-9])$/.exec(String(shortcut || ""))?.[1];
+  return digit ? `Control+Shift+${digit} Meta+Shift+${digit}` : undefined;
+}
+
+function canvasToolIcon(icon: ActivePluginToolbarItem["icon"]) {
+  if (icon === "images") return <Images size={14} aria-hidden="true" />;
+  if (icon === "languages") return <Languages size={14} aria-hidden="true" />;
+  if (icon === "microscope") return <Microscope size={14} aria-hidden="true" />;
+  return <Workflow size={14} aria-hidden="true" />;
+}
 
 function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCount: number, canvasScale: number) {
   // A stacked layer group needs every transparent source in the same frame for
@@ -1461,7 +1545,8 @@ function sanitizeCanvasRequirement(value: unknown, fallbackText = ""): CanvasReq
     lastSourceSignature: typeof source.lastSourceSignature === "string" && source.lastSourceSignature.trim() ? source.lastSourceSignature.trim().slice(0, 160) : undefined,
     lastRunAt: typeof source.lastRunAt === "string" && source.lastRunAt.trim() ? source.lastRunAt.trim().slice(0, 80) : undefined,
     lastRunCount: Number.isFinite(Number(source.lastRunCount)) ? Math.max(0, Math.floor(Number(source.lastRunCount))) : undefined,
-    lastError: typeof source.lastError === "string" && source.lastError.trim() ? source.lastError.trim().slice(0, 500) : undefined
+    lastError: typeof source.lastError === "string" && source.lastError.trim() ? source.lastError.trim().slice(0, 500) : undefined,
+    skill: sanitizeCanvasSkill(source.skill)
   };
 }
 
@@ -1473,6 +1558,8 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
   if (source.version !== 1 || !/^scope-[a-f0-9]{32}$/.test(snapshotHash) || !resultPolicies.has(source.resultPolicy as AgentTaskResultPolicy)) return undefined;
   const clean = (input: unknown, maximum: number) => typeof input === "string" && input.trim() ? input.trim().slice(0, maximum) : undefined;
   const revision = Number(source.requirementRevision);
+  const commerceSlotIndex = Number(source.commerceSlotIndex);
+  const commercePlanHash = clean(source.commercePlanHash, 48)?.toLowerCase();
   return {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
@@ -1484,7 +1571,13 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
     sourceContainerId: clean(source.sourceContainerId, 160),
     sourceDisplayCode: clean(source.sourceDisplayCode, 40),
     requirementNodeId: clean(source.requirementNodeId, 160),
-    requirementRevision: Number.isInteger(revision) && revision >= 1 ? Math.floor(revision) : undefined
+    requirementRevision: Number.isInteger(revision) && revision >= 1 ? Math.floor(revision) : undefined,
+    commercePlanHash: commercePlanHash && /^commerce-[a-f0-9]{32}$/.test(commercePlanHash) ? commercePlanHash : undefined,
+    commerceSlotId: clean(source.commerceSlotId, 80),
+    commerceSlotIndex: Number.isInteger(commerceSlotIndex) && commerceSlotIndex >= 0 && commerceSlotIndex < 200
+      ? Math.floor(commerceSlotIndex)
+      : undefined,
+    commerceLocaleCode: clean(source.commerceLocaleCode, 32)
   };
 }
 
@@ -2035,10 +2128,10 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   const requestId = clean(source.requestId, 180);
   const projectId = clean(source.projectId, 180);
   const conversationId = clean(source.conversationId, 180);
-  const originalPrompt = clean(source.originalPrompt, 24_000);
+  const originalPrompt = clean(source.originalPrompt, 200_000);
   const question = clean(source.question, 4_000);
   const kinds = new Set<PendingAgentExecution["kind"]>(["clarify", "confirm", "source_images", "reference_images"]);
-  const origins = new Set<AgentTaskScope["origin"]>(["chat", "canvas", "node", "container", "layer", "requirement"]);
+  const origins = new Set<AgentTaskScope["origin"]>(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
   const scopeTypes = new Set<AgentTaskScopeType>(["none", "single", "multi-source", "container", "container-group", "layer", "layer-group", "mixed"]);
   const resultPolicies = new Set<AgentTaskResultPolicy>(["single", "grouped-by-source", "grouped-by-container", "layer-variants"]);
   const confirmationPolicies = new Set<AgentTaskConfirmationPolicy>(["auto", "preview-3", "staged", "direct"]);
@@ -2109,6 +2202,44 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   const requirementInputNodeIds = cleanIds(source.requirementInputNodeIds, 240).map((id) => id.slice(0, 160));
   const requirementInputSignature = clean(source.requirementInputSignature, 240) || undefined;
   const requirementSourceSignature = clean(source.requirementSourceSignature, 240) || clean(rawScope.requirement?.sourceSignature, 240) || undefined;
+  const rawGoal = rawScope.goal && typeof rawScope.goal === "object" ? rawScope.goal : null;
+  const goalContainerIds = cleanIds(rawGoal?.containerIds, 200).map((id) => id.slice(0, 160));
+  const goalBindingIds = cleanIds(rawGoal?.bindingIds, 200);
+  const goalConcurrency = Math.floor(Number(rawGoal?.configuredConcurrency) || 0);
+  const goalProbeCount = Math.floor(Number(rawGoal?.probeContainerCount) || 0);
+  const goalOperationsPerAsset = Number(rawGoal?.operationsPerAsset);
+  const goalRequestCount = Number(rawGoal?.requestCount);
+  const rawCommercePlanHash = rawGoal?.commercePlanHash;
+  const commercePlanHash = typeof rawCommercePlanHash === "string" && /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
+    ? rawCommercePlanHash
+    : undefined;
+  const hasCommerceMarker = originalPrompt.includes("[NAIMAGE_COMMERCE_SET_V1]");
+  const commercePlan = hasCommerceMarker ? parseCommerceSetPromptPlan(originalPrompt) : null;
+  const goal = rawGoal?.version === 1 && rawGoal.target === "all-image-containers" && rawGoal.frozen === true &&
+    goalContainerIds.length > 0 && goalBindingIds.length > 0 && goalConcurrency >= 1 && goalConcurrency <= 10 &&
+    goalProbeCount >= 1 && goalProbeCount <= 2 && goalProbeCount <= goalConcurrency && goalProbeCount <= goalBindingIds.length &&
+    typeof rawGoal.operationsPerAsset === "number" && Number.isSafeInteger(goalOperationsPerAsset) && goalOperationsPerAsset >= 1 && goalOperationsPerAsset <= 200 &&
+    typeof rawGoal.requestCount === "number" && Number.isSafeInteger(goalRequestCount) && goalRequestCount === goalBindingIds.length * goalOperationsPerAsset && goalRequestCount <= 200 &&
+    (hasCommerceMarker
+      ? commercePlan && commercePlanHash && commercePlan.planHash === commercePlanHash && commercePlan.sourceCount === goalBindingIds.length &&
+        commercePlan.outputsPerSource === goalOperationsPerAsset && commercePlan.totalRequests === goalRequestCount
+      : rawCommercePlanHash === undefined)
+    ? {
+        version: 1 as const,
+        target: "all-image-containers" as const,
+        frozen: true as const,
+        containerIds: goalContainerIds,
+        bindingIds: goalBindingIds,
+        containerCount: goalContainerIds.length,
+        bindingCount: goalBindingIds.length,
+        configuredConcurrency: goalConcurrency,
+        probeContainerCount: goalProbeCount,
+        operationsPerAsset: goalOperationsPerAsset,
+        requestCount: goalRequestCount,
+        ...(commercePlanHash ? { commercePlanHash } : {})
+      }
+    : undefined;
+  if (taskOrigin === "goal" && !goal) return null;
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
     version: 2,
     origin: taskOrigin,
@@ -2130,11 +2261,16 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
     requirement: requirementNodeId && requirementRevision
       ? { nodeId: requirementNodeId, revision: requirementRevision, sourceSignature: requirementSourceSignature }
       : undefined,
+    goal,
     sourceAssetCount: Math.max(sourceAssets.length, Math.floor(Number(rawScope.sourceAssetCount ?? sourceAssets.length) || sourceAssets.length)),
     referenceAssetCount: Math.max(referenceAssets.length, Math.floor(Number(rawScope.referenceAssetCount ?? referenceAssets.length) || referenceAssets.length)),
     truncated: rawScope.truncated === true
   };
   const taskScope: AgentTaskScope = { ...scopeWithoutHash, snapshotHash: agentTaskScopeSnapshotHash(scopeWithoutHash) };
+  if (
+    taskOrigin === "goal" &&
+    clean(rawScope.snapshotHash, 96).toLowerCase() !== taskScope.snapshotHash
+  ) return null;
   return {
     version: 2,
     requestId,
@@ -2225,7 +2361,7 @@ function normalizeWorkflowSession(session?: WorkflowSession | Partial<StudioWork
   );
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 5,
     sessionRevision: Math.max(0, Math.floor(Number((session as Partial<StudioWorkflowSession> | undefined)?.sessionRevision ?? 0) || 0)),
     canvasRevision: Math.max(0, Math.floor(Number((session as Partial<StudioWorkflowSession> | undefined)?.canvasRevision ?? 0) || 0)),
     nodeSequence: Math.max(
@@ -2237,6 +2373,15 @@ function normalizeWorkflowSession(session?: WorkflowSession | Partial<StudioWork
     conversations,
     activeConversationId,
     nodes: fittedNodes,
+    nodeMutationJournal: Array.isArray((session as Partial<StudioWorkflowSession> | undefined)?.nodeMutationJournal)
+      ? [...((session as Partial<StudioWorkflowSession>).nodeMutationJournal ?? [])]
+      : [],
+    nodeMutationWriterCheckpoints: Array.isArray((session as Partial<StudioWorkflowSession> | undefined)?.nodeMutationWriterCheckpoints)
+      ? [...((session as Partial<StudioWorkflowSession>).nodeMutationWriterCheckpoints ?? [])]
+      : [],
+    nodeMutationBarriers: Array.isArray((session as Partial<StudioWorkflowSession> | undefined)?.nodeMutationBarriers)
+      ? [...((session as Partial<StudioWorkflowSession>).nodeMutationBarriers ?? [])]
+      : [],
     selectedNodeId,
     pendingAgentExecution
   };
@@ -2263,7 +2408,7 @@ function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): Stud
     : conversations;
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 5,
     sessionRevision: Math.max(0, Math.floor(Number(session.sessionRevision ?? 0) || 0)),
     canvasRevision: Math.max(0, Math.floor(Number(session.canvasRevision ?? 0) || 0)),
     nodeSequence: Math.max(inferredNodeSequence(nodes), Math.floor(Number(session.nodeSequence ?? 0) || 0)),
@@ -2272,6 +2417,9 @@ function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): Stud
     conversations: nextConversations,
     activeConversationId,
     nodes,
+    nodeMutationJournal: [...(session.nodeMutationJournal ?? [])],
+    nodeMutationWriterCheckpoints: [...(session.nodeMutationWriterCheckpoints ?? [])],
+    nodeMutationBarriers: [...(session.nodeMutationBarriers ?? [])],
     selectedNodeId,
     pendingAgentExecution: sanitizePendingAgentExecution(session.pendingAgentExecution)
   };
@@ -2314,58 +2462,30 @@ async function loadSessionFromStore(projectId = ""): Promise<StudioWorkflowSessi
   return normalizeWorkflowSession(fallback);
 }
 
-async function saveSessionToStore(session: StudioWorkflowSession & { projectId?: string }) {
+async function saveSessionToStore(
+  session: StudioWorkflowSession & { projectId?: string },
+  options?: {
+    revision?: number;
+    nodeMutation?: {
+      writerId: string;
+      writerSequence?: number;
+      observedRevision: number;
+      baselineNodes: WorkflowNode[];
+    };
+  }
+) {
   if (window.naimageConfig) {
-    return window.naimageConfig.saveSession(session);
+    return window.naimageConfig.saveSession(session, options);
   }
   writeJson(STORAGE_SESSION, session);
-  return { ok: true, appliedRevision: session.sessionRevision, skippedStale: false };
-}
-
-async function fetchServerModelSettings(forceRefresh = false, group = "", cacheOnly = false): Promise<ServerPublicSettings> {
-  if (!window.naimageServer?.models) throw new Error("账户服务暂未提供模型列表。");
-  const result = await window.naimageServer.models({ forceRefresh, cacheOnly, group });
-  if (!result.ok) throw new Error(result.error ?? "模型列表拉取失败。");
-  return result.settings ?? {};
-}
-
-function fullServerModelList(serverSettings: ServerPublicSettings) {
-  return uniqueImageModels([
-    ...(serverSettings.models ?? []),
-    ...(serverSettings.imageModels ?? []),
-    ...(serverSettings.agentModels ?? [])
-  ]);
-}
-
-function preferredAgentModelFromList(models: string[] = []) {
-  return models.find((model) => /^gpt-5\.6\b/i.test(model)) ?? models.find((model) => /^gpt-5\.5\b/i.test(model)) ?? models[0] ?? "";
-}
-
-function preferredImageModelFromList(models: string[] = []) {
-  return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
-}
-
-let appliedCustomThemeKeys: string[] = [];
-function applyTheme(choice: ThemeChoice, palette: ThemePaletteChoice = "default", customTheme: AppSettings["customTheme"] = null) {
-  const resolved =
-    choice === "system"
-      ? window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light"
-      : choice;
-  document.documentElement.dataset.theme = resolved;
-  document.documentElement.dataset.themeChoice = choice;
-  document.documentElement.dataset.themePreset = palette;
-  for (const key of appliedCustomThemeKeys) document.documentElement.style.removeProperty(key);
-  appliedCustomThemeKeys = [];
-  if (palette === "custom" && customTheme) {
-    for (const [key, value] of Object.entries(customTheme[resolved])) {
-      document.documentElement.style.setProperty(key, value);
-      appliedCustomThemeKeys.push(key);
-    }
-  }
-  document.documentElement.classList.toggle("theme-dark", resolved === "dark");
-  document.documentElement.classList.toggle("theme-light", resolved === "light");
+  return {
+    ok: true,
+    appliedRevision: session.sessionRevision,
+    skippedStale: false,
+    nodeMutationJournal: session.nodeMutationJournal ?? [],
+    nodeMutationWriterCheckpoints: session.nodeMutationWriterCheckpoints ?? [],
+    nodeMutationBarriers: session.nodeMutationBarriers ?? []
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -2732,6 +2852,38 @@ function agentTaskScopeForRequest(
   return { ...scopeWithoutHash, snapshotHash: agentTaskScopeSnapshotHash(scopeWithoutHash) };
 }
 
+function goalCanvasTargets(canvasNodes: WorkflowNode[]) {
+  const eligibleNodes: WorkflowNode[] = [];
+  const skipped: string[] = [];
+  let assetCount = 0;
+  for (const node of canvasNodes) {
+    if (node.type !== "image" || !nodeUsesImageContainer(node) || node.layerGroup || node.layerComposition) continue;
+    const label = node.title?.trim() || node.displayCode || node.id;
+    if (node.imageState === "generating" || node.status === "working") {
+      skipped.push(`${label}：仍在生成`);
+      continue;
+    }
+    if (!(node.assets?.length ?? 0)) {
+      skipped.push(`${label}：空容器`);
+      continue;
+    }
+    const sourceAssets = taskAssetReferencesForNode(node, "source", true);
+    if (!sourceAssets.length) {
+      skipped.push(`${label}：仅包含参考图`);
+      continue;
+    }
+    eligibleNodes.push(node);
+    assetCount += sourceAssets.length;
+  }
+  return {
+    eligibleNodes,
+    containerIds: eligibleNodes.map((node) => node.id),
+    containerCount: eligibleNodes.length,
+    assetCount,
+    skipped
+  };
+}
+
 function firstPromptLine(prompt: string) {
   return String(prompt || "").split(/\n\s*\n|model:|size:|quality:|count:|returned:|cost:/i)[0]?.trim() || "";
 }
@@ -2979,8 +3131,9 @@ function App() {
 // MAIN 10A App State Graph
 // -----------------------------------------------------------------------------
 
-  const [settings, setSettings] = useState<AppSettings>(() =>
-    window.naimageConfig ? defaultSettings : mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings))
+  const [settings, setSettings] = useState<AppSettings>(() => window.naimageConfig
+    ? settingsWithGlassBootstrap(defaultSettings)
+    : mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings))
   );
   const [agentPanelLayout, setAgentPanelLayout] = useState<AgentPanelLayout>(() => agentPanelLayoutFromSettings(settings));
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
@@ -2999,6 +3152,15 @@ function App() {
   const zoom = viewport.scale;
   const [prompt, setPrompt] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<"access" | "appearance">("access");
+  const [workspaceViewMode, setWorkspaceViewMode] = useState<WorkspaceViewMode>(() => {
+    try {
+      const stored = localStorage.getItem("naimage.workspaceViewMode.v1");
+      return stored === "focus" || stored === "review" ? stored : "workbench";
+    } catch {
+      return "workbench";
+    }
+  });
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
   const [fastMemoryEditorOpen, setFastMemoryEditorOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -3018,10 +3180,34 @@ function App() {
   const [askUserDraft, setAskUserDraft] = useState<AskUserDraft | null>(null);
   const [pendingAgentExecution, setPendingAgentExecution] = useState<PendingAgentExecution | null>(null);
   const [quotaDialog, setQuotaDialog] = useState<ImageQuotaDialogState | null>(null);
-  const [commerceTranslationDialog, setCommerceTranslationDialog] = useState<{ sourceCount: number; sourceLabel: string } | null>(null);
+  const [goalConfirmation, setGoalConfirmation] = useState<GoalModePreview | null>(null);
+  const goalConfirmationLedgerRef = useRef<GoalConfirmationLedger | null>(null);
+  const agentWindowGoalPreviewRef = useRef<GoalModePreview | null>(null);
+  const [goalConfirmationBusy, setGoalConfirmationBusy] = useState(false);
+  const [goalConfirmationNotice, setGoalConfirmationNotice] = useState("");
+  const [commerceSetDialog, setCommerceSetDialog] = useState<{
+    mode: "generate" | "translate";
+    sourceNodeIds: string[];
+    sourceKeys: string[];
+    sourceCount: number;
+    sourceLabel: string;
+    error?: string;
+  } | null>(null);
+  const pendingCommerceReusableNodeRef = useRef<null | {
+    planHash: string;
+    title: string;
+    text: string;
+    sourceNodeIds: string[];
+    kind: "requirement" | "skill";
+  }>(null);
   const [pluginToolbarItems, setPluginToolbarItems] = useState<ActivePluginToolbarItem[]>([]);
+  const pluginToolbarItemsRef = useRef<ActivePluginToolbarItem[]>([]);
+  const executePluginCommandRef = useRef<(commandId: string) => void>(() => undefined);
+  const [pluginToolbarPeekOpen, setPluginToolbarPeekOpen] = useState(false);
+  pluginToolbarItemsRef.current = pluginToolbarItems;
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
   const [agentPaused, setAgentPaused] = useState(false);
+  const [agentStopPending, setAgentStopPending] = useState(false);
   const [lockedNodeIds, setLockedNodeIds] = useState<string[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [agentSourceImages, setAgentSourceImages] = useState<ReferenceImage[]>([]);
@@ -3086,6 +3272,7 @@ function App() {
   const layoutGroupsRef = useRef(layoutGroups);
   const nodeEditorDraftRef = useRef(nodeEditorDraft);
   const activeRunRef = useRef<string | null>(null);
+  const agentStopPendingRef = useRef<symbol | null>(null);
   const executionReservationRef = useRef<string | null>(null);
   const pendingAgentExecutionRef = useRef<PendingAgentExecution | null>(pendingAgentExecution);
   const cancelledAgentRequestRef = useRef<{ projectId: string; conversationId: string; requestId: string } | null>(null);
@@ -3127,7 +3314,16 @@ function App() {
   const projectSessionApplyRef = useRef(0);
   const skipInitialSessionAutosaveRef = useRef(true);
   const projectSessionRevisionRef = useRef<Record<string, number>>({});
+  const projectNodeMutationJournalRef = useRef<Record<string, NodeMutationEvent[]>>({});
+  const projectNodeMutationWriterCheckpointsRef = useRef<Record<string, NodeMutationWriterCheckpoint[]>>({});
+  const projectNodeMutationBarriersRef = useRef<Record<string, NodeMutationBarrier[]>>({});
+  const projectNodeMutationBaselineRef = useRef<Record<string, WorkflowNode[]>>({});
+  const projectSessionPersistQueueRef = useRef<Record<string, Promise<unknown>>>({});
   const canvasRevisionRef = useRef(0);
+  const automationCanvasCommitMarkerRef = useRef<{
+    nodes: WorkflowNode[];
+    layoutGroups: ImageLayoutGroup[];
+  } | null>(null);
   const persistenceDebugMetricsRef = useRef<PersistenceDebugMetrics>(emptyPersistenceDebugMetrics());
   const debugRenderCommitsRef = useRef<Record<DebugRenderCommitArea, number>>({ app: 0, canvas: 0, agentFeed: 0, composer: 0 });
   const runtimeActionHandlerRef = useRef<(actions: AgentRuntimeAction[], fallbackAgentOwnerId?: string) => Promise<RuntimeActionApplicationResult>>(
@@ -3221,6 +3417,18 @@ function App() {
   const canvasStageRef = useRef<HTMLDivElement | null>(null);
   const canvasParticleRef = useRef<HTMLCanvasElement | null>(null);
   const lastCanvasElementRef = useRef<HTMLDivElement | null>(null);
+
+  function clearGoalConfirmationAuthorizations() {
+    goalConfirmationLedgerRef.current?.clear();
+    agentWindowGoalPreviewRef.current = null;
+  }
+
+  function revokeGoalConfirmation(preview: GoalModePreview | null | undefined) {
+    if (preview?.confirmationHash) goalConfirmationLedgerRef.current?.invalidate(preview.confirmationHash);
+    if (agentWindowGoalPreviewRef.current?.confirmationHash === preview?.confirmationHash) {
+      agentWindowGoalPreviewRef.current = null;
+    }
+  }
 
   function currentNodeSelection(): NodeSelectionState {
     return {
@@ -3676,16 +3884,46 @@ function App() {
 // MAIN 10B Boot, Persistence, And Bridge Effects
 // -----------------------------------------------------------------------------
 
-  async function persistProjectSession(projectId: string, snapshot: StudioWorkflowSession) {
+  function resetProjectNodeMutationTracking(projectId: string, session: StudioWorkflowSession) {
+    const key = projectId || "default";
+    projectNodeMutationJournalRef.current[key] = [...(session.nodeMutationJournal ?? [])];
+    projectNodeMutationWriterCheckpointsRef.current[key] = [...(session.nodeMutationWriterCheckpoints ?? [])];
+    projectNodeMutationBarriersRef.current[key] = [...(session.nodeMutationBarriers ?? [])];
+    projectNodeMutationBaselineRef.current[key] = session.nodes.map(cloneWorkflowNode);
+  }
+
+  async function persistProjectSessionNow(projectId: string, snapshot: StudioWorkflowSession) {
     const flushStartedAt = performance.now();
     try {
       const currentRevision = Math.max(0, Math.floor(Number(projectSessionRevisionRef.current[projectId] ?? snapshot.sessionRevision ?? 0) || 0));
       const requestedRevision = currentRevision + 1;
+      const journaledSnapshot = {
+        ...snapshot,
+        schemaVersion: 5,
+        nodeMutationJournal: projectNodeMutationJournalRef.current[projectId] ?? snapshot.nodeMutationJournal ?? [],
+        nodeMutationWriterCheckpoints: projectNodeMutationWriterCheckpointsRef.current[projectId] ?? snapshot.nodeMutationWriterCheckpoints ?? [],
+        nodeMutationBarriers: projectNodeMutationBarriersRef.current[projectId] ?? snapshot.nodeMutationBarriers ?? []
+      };
       projectSessionRevisionRef.current[projectId] = requestedRevision;
-      const result = await saveSessionToStore({ ...snapshot, projectId, sessionRevision: requestedRevision });
+      const result = await saveSessionToStore({
+        ...journaledSnapshot,
+        projectId,
+        sessionRevision: requestedRevision
+      }, {
+        revision: requestedRevision,
+        nodeMutation: {
+          writerId: RENDERER_PERSISTENCE_ORIGIN_ID,
+          observedRevision: currentRevision,
+          baselineNodes: projectNodeMutationBaselineRef.current[projectId] ?? []
+        }
+      });
       if (!result?.ok) throw new Error(result?.error || "保存项目会话失败。");
       const appliedRevision = Math.max(requestedRevision, Math.floor(Number(result.appliedRevision ?? requestedRevision) || requestedRevision));
       projectSessionRevisionRef.current[projectId] = Math.max(projectSessionRevisionRef.current[projectId] ?? 0, appliedRevision);
+      projectNodeMutationJournalRef.current[projectId] = result.nodeMutationJournal ?? journaledSnapshot.nodeMutationJournal;
+      projectNodeMutationWriterCheckpointsRef.current[projectId] = result.nodeMutationWriterCheckpoints ?? journaledSnapshot.nodeMutationWriterCheckpoints;
+      projectNodeMutationBarriersRef.current[projectId] = result.nodeMutationBarriers ?? journaledSnapshot.nodeMutationBarriers;
+      projectNodeMutationBaselineRef.current[projectId] = snapshot.nodes.map(cloneWorkflowNode);
       if (NAIMAGE_RUNTIME_METRICS) {
         const durationMs = Math.max(0, performance.now() - flushStartedAt);
         const metrics = persistenceDebugMetricsRef.current;
@@ -3706,6 +3944,21 @@ function App() {
         metrics.maxFlushMs = Math.max(metrics.maxFlushMs, durationMs);
       }
       throw error;
+    }
+  }
+
+  async function persistProjectSession(projectId: string, snapshot: StudioWorkflowSession) {
+    const previous = projectSessionPersistQueueRef.current[projectId] ?? Promise.resolve();
+    const task = previous
+      .catch(() => undefined)
+      .then(() => persistProjectSessionNow(projectId, snapshot));
+    projectSessionPersistQueueRef.current[projectId] = task;
+    try {
+      return await task;
+    } finally {
+      if (projectSessionPersistQueueRef.current[projectId] === task) {
+        delete projectSessionPersistQueueRef.current[projectId];
+      }
     }
   }
 
@@ -3779,8 +4032,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    applyTheme(settings.theme, settings.themePalette, settings.customTheme);
-  }, [settings.theme, settings.themePalette, settings.customTheme]);
+    try {
+      localStorage.setItem("naimage.workspaceViewMode.v1", workspaceViewMode);
+    } catch {
+      // View mode persistence is a convenience; project and canvas state do not depend on it.
+    }
+  }, [workspaceViewMode]);
 
   useEffect(() => {
     if (!authReady || !serverUser || !window.naimageUpdater) return;
@@ -3873,7 +4130,7 @@ function App() {
     }
     const timer = window.setTimeout(() => {
       flushStarted = true;
-      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 3, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
+      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
       persistProjectSession(projectId, snapshot).catch((error) =>
         console.error("save session failed", error)
       );
@@ -3957,6 +4214,12 @@ function App() {
 
   useEffect(() => {
     if (!configReady) return;
+    const automationMarker = automationCanvasCommitMarkerRef.current;
+    if (automationMarker?.nodes === nodes && automationMarker.layoutGroups === layoutGroups) {
+      automationCanvasCommitMarkerRef.current = null;
+      return;
+    }
+    automationCanvasCommitMarkerRef.current = null;
     canvasRevisionRef.current = Math.max(1, canvasRevisionRef.current + 1);
   }, [configReady, layoutGroups, nodes]);
 
@@ -3979,6 +4242,13 @@ function App() {
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
   }, [activeConversationId]);
+
+  useEffect(() => {
+    clearGoalConfirmationAuthorizations();
+    setGoalConfirmation(null);
+    setGoalConfirmationNotice("");
+    return () => clearGoalConfirmationAuthorizations();
+  }, [activeProjectId, activeConversationId]);
 
   useEffect(() => {
     lockedNodeIdsRef.current = new Set(lockedNodeIds);
@@ -4674,7 +4944,7 @@ function App() {
     }
 
     const canStartCanvasPan = (target: EventTarget | null) =>
-      target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator");
+      target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator, .canvas-plugin-toolbar");
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button === 1 && canStartCanvasPan(event.target)) startPan(event);
@@ -4788,6 +5058,8 @@ function App() {
       setProjectNameDraft(null);
       setDeleteNodeDraft(null);
       setConfirmDialog(null);
+      clearGoalConfirmationAuthorizations();
+      setGoalConfirmation(null);
       setImageViewer(null);
       setManualImageTaskDialog(null);
       setNodeEditorDraft(null);
@@ -5351,6 +5623,7 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
+  const goalCanvasSummary = useMemo(() => goalCanvasTargets(canvasNodes), [canvasNodes]);
   const selectedCanvasCapabilities = useMemo(
     () => analyzeCanvasSelection(nodes, layoutGroups, selectedNodeIds, selectedNodeId),
     [layoutGroups, nodes, selectedNodeId, selectedNodeIds]
@@ -5753,6 +6026,53 @@ function App() {
     return true;
   }
 
+  function assertAutomationCanvasMutationPreconditions(input: {
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }, nodeIds: Iterable<string>, action: string) {
+    const activeProject = activeProjectIdRef.current || "default";
+    if (input.expectedProjectId !== activeProject) {
+      throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，命令未执行。", {
+        expectedProjectId: input.expectedProjectId,
+        activeProjectId: activeProject,
+      });
+    }
+    if (input.expectedCanvasRevision !== undefined && input.expectedCanvasRevision !== canvasRevisionRef.current) {
+      throw automationCommandError("CANVAS_REVISION_CONFLICT", "画布已发生变化，请读取最新 canvas.state 后重试。", {
+        expectedCanvasRevision: input.expectedCanvasRevision,
+        currentCanvasRevision: canvasRevisionRef.current,
+      });
+    }
+    const requestedNodeIds = [...new Set([...nodeIds].map((id) => String(id || "").trim()).filter(Boolean))];
+    const availableNodeIds = new Set(nodesRef.current.map((node) => node.id));
+    const missingNodeIds = requestedNodeIds.filter((id) => !availableNodeIds.has(id));
+    if (missingNodeIds.length) {
+      throw automationCommandError("NODE_NOT_FOUND", `${action}引用了不存在的节点，命令未执行。`, { nodeIds: missingNodeIds });
+    }
+    const locked = lockedMutationNodeIds(requestedNodeIds);
+    if (locked.length) {
+      throw automationCommandError("NODE_LOCKED", `${action}涉及正在运行的节点，命令未执行。`, { nodeIds: locked });
+    }
+  }
+
+  function commitAutomationCanvasMutation(
+    nextNodes: WorkflowNode[],
+    nextLayoutGroups: ImageLayoutGroup[],
+    historyLabel: string,
+  ) {
+    if (nextNodes === nodesRef.current && nextLayoutGroups === layoutGroupsRef.current) {
+      return canvasRevisionRef.current;
+    }
+    pushCanvasHistory(historyLabel);
+    canvasRevisionRef.current = Math.max(1, canvasRevisionRef.current + 1);
+    automationCanvasCommitMarkerRef.current = { nodes: nextNodes, layoutGroups: nextLayoutGroups };
+    nodesRef.current = nextNodes;
+    layoutGroupsRef.current = nextLayoutGroups;
+    setNodes(nextNodes);
+    setLayoutGroups(nextLayoutGroups);
+    return canvasRevisionRef.current;
+  }
+
   function clientToWorld(clientX: number, clientY: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
     const viewportNow = viewportRef.current;
@@ -5779,39 +6099,28 @@ function App() {
       setServerMessage("所选内容中没有可连接的图片成果或容器。");
       return false;
     }
-    const existingBindings = requirementInputBindings(targetNode, nodesRef.current);
-    const existingById = new Map(existingBindings.map((binding) => [binding.nodeId, binding.role]));
-    const additions = sourceNodes.filter((node) => existingById.get(node.id) !== requirementInputRoleForNode(node));
-    if (!additions.length) return false;
-    if (additions.some((node) => collectDescendantIds(nodesRef.current, targetId).has(node.id))) {
-      addEvent("阻止会形成循环的批量连线");
+    let mutation;
+    try {
+      mutation = connectCanvasRelations(nodesRef.current, sourceNodes.map((node) => ({
+        sourceId: node.id,
+        targetId,
+        inputRole: requirementInputRoleForNode(node),
+      })));
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      setServerMessage(payload.error);
+      addEvent(payload.code === "GRAPH_CYCLE" ? "阻止会形成循环的批量连线" : `批量连线失败：${payload.error}`);
       return false;
     }
-    pushCanvasHistory(`批量连接 ${additions.length} 个需求来源`);
-    let requirement = targetNode.requirement;
-    for (const node of additions) {
-      requirement = upsertRequirementInputBinding(requirement, {
-        nodeId: node.id,
-        role: requirementInputRoleForNode(node)
-      });
-    }
-    const nextTarget = { ...targetNode, requirement, parentId: targetNode.parentId };
-    const bindings = requirementInputBindings(nextTarget, nodesRef.current);
-    const nextNodes = nodesRef.current.map((node): WorkflowNode => node.id === targetId
-      ? {
-          ...node,
-          parentId: primaryRequirementInputNodeId(bindings) || undefined,
-          relationType: "referenced",
-          requirement
-        }
-      : node);
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
+    if (!mutation.changed) return false;
+    pushCanvasHistory(`批量连接 ${sourceNodes.length} 个需求来源`);
+    nodesRef.current = mutation.nodes;
+    setNodes(mutation.nodes);
     replaceSelectedNodeId(targetId);
     setActiveNodeId(targetId);
     window.setTimeout(() => setActiveNodeId(null), 700);
-    addEvent(`批量连线 ${additions.map((node) => node.id).join(", ")} -> ${targetId}`);
-    notifyAgentOfManualAction("批量连接需求来源", `用户把 ${additions.length} 个图片成果一次连接到需求 ${targetId}。`);
+    addEvent(`批量连线 ${sourceNodes.map((node) => node.id).join(", ")} -> ${targetId}`);
+    notifyAgentOfManualAction("批量连接需求来源", `用户把 ${sourceNodes.length} 个图片成果一次连接到需求 ${targetId}。`);
     return true;
   }
 
@@ -5829,40 +6138,24 @@ function App() {
       setServerMessage("需求节点不能串联需求节点，请把需求连接到图片成果。");
       return false;
     }
-    const effectiveRelation = targetNode.type === "requirement"
-      ? "referenced"
-      : sourceNode.type === "requirement"
-        ? "derived-from"
-        : relationType || "derived-from";
     const requirementRole = targetNode.type === "requirement" ? requirementInputRoleForNode(sourceNode) : undefined;
-    if (targetNode.type === "requirement") {
-      const existing = requirementInputBindings(targetNode, nodesRef.current).find((binding) => binding.nodeId === sourceId);
-      if (existing?.role === requirementRole) return false;
-    } else if (targetNode.parentId === sourceId && (targetNode.relationType || "derived-from") === effectiveRelation) {
+    let mutation;
+    try {
+      mutation = connectCanvasRelations(nodesRef.current, [{
+        sourceId,
+        targetId,
+        ...(targetNode.type === "requirement" ? { inputRole: requirementRole } : { relationType }),
+      }], { replaceExisting: true });
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      setServerMessage(payload.error);
+      addEvent(payload.code === "GRAPH_CYCLE" ? "阻止会形成循环的连线" : `连线失败：${payload.error}`);
       return false;
     }
-    const descendants = collectDescendantIds(nodesRef.current, targetId);
-    if (descendants.has(sourceId)) {
-      addEvent("阻止会形成循环的连线");
-      return false;
-    }
+    if (!mutation.changed) return false;
     pushCanvasHistory(targetNode.type === "requirement" ? "连接需求来源" : "调整成果关系");
-    const nextNodes: WorkflowNode[] = nodesRef.current.map((node): WorkflowNode => {
-      if (node.id !== targetId) return node;
-      if (node.type === "requirement" && node.requirement && requirementRole) {
-        const requirement = upsertRequirementInputBinding(node.requirement, { nodeId: sourceId, role: requirementRole });
-        const bindings = requirementInputBindings({ ...node, requirement, parentId: node.parentId }, nodesRef.current);
-        return {
-          ...node,
-          parentId: primaryRequirementInputNodeId(bindings) || undefined,
-          relationType: effectiveRelation,
-          requirement,
-        };
-      }
-      return { ...node, parentId: sourceId, relationType: effectiveRelation };
-    });
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
+    nodesRef.current = mutation.nodes;
+    setNodes(mutation.nodes);
     setSelectedNodeId(targetId);
     setActiveNodeId(targetId);
     window.setTimeout(() => setActiveNodeId(null), 700);
@@ -7142,20 +7435,25 @@ function App() {
   }
 
   function disconnectNodeInput(nodeId: string) {
-    if (blockLockedNodeMutation([nodeId], "断开连线")) return;
     const node = nodesRef.current.find((item) => item.id === nodeId);
     setSelectedNodeId(nodeId);
     if (!node) return;
     const requirementBindings = node.type === "requirement" ? requirementInputBindings(node, nodesRef.current) : [];
     if (!node.parentId && requirementBindings.length === 0) return;
+    const edges = node.type === "requirement"
+      ? requirementBindings.map((binding) => ({ sourceId: binding.nodeId, targetId: node.id }))
+      : [{ sourceId: node.parentId!, targetId: node.id }];
+    if (blockLockedNodeMutation(edges.flatMap((edge) => [edge.sourceId, edge.targetId]), "断开连线")) return;
+    let mutation;
+    try {
+      mutation = disconnectCanvasRelations(nodesRef.current, edges);
+    } catch (error) {
+      setServerMessage(automationErrorPayload(error).error);
+      return;
+    }
     pushCanvasHistory(node.type === "requirement" ? "断开需求来源" : "断开输入关系");
-    const nextNodes = nodesRef.current.map((item) => item.id === nodeId
-      ? item.type === "requirement" && item.requirement
-        ? { ...item, parentId: undefined, relationType: undefined, requirement: removeRequirementInputBindings(item.requirement) }
-        : { ...item, parentId: undefined, relationType: undefined }
-      : item);
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
+    nodesRef.current = mutation.nodes;
+    setNodes(mutation.nodes);
     setActiveNodeId(nodeId);
     setCanvasMenu(null);
     window.setTimeout(() => setActiveNodeId(null), 700);
@@ -7169,32 +7467,26 @@ function App() {
   }
 
   function disconnectNodeOutputs(nodeId: string) {
-    if (blockLockedNodeMutation([nodeId], "断开连线")) return;
-    const childCount = nodesRef.current.reduce((count, item) => {
-      if (item.type === "requirement" && requirementInputBindings(item, nodesRef.current).some((binding) => binding.nodeId === nodeId)) return count + 1;
-      return count + (item.parentId === nodeId ? 1 : 0);
-    }, 0);
+    const edges = nodesRef.current.flatMap((item) => {
+      if (item.type === "requirement" && requirementInputBindings(item, nodesRef.current).some((binding) => binding.nodeId === nodeId)) {
+        return [{ sourceId: nodeId, targetId: item.id }];
+      }
+      return item.parentId === nodeId ? [{ sourceId: nodeId, targetId: item.id }] : [];
+    });
+    const childCount = edges.length;
     setSelectedNodeId(nodeId);
     if (childCount === 0) return;
+    if (blockLockedNodeMutation(edges.flatMap((edge) => [edge.sourceId, edge.targetId]), "断开连线")) return;
+    let mutation;
+    try {
+      mutation = disconnectCanvasRelations(nodesRef.current, edges);
+    } catch (error) {
+      setServerMessage(automationErrorPayload(error).error);
+      return;
+    }
     pushCanvasHistory("断开输出关系");
-    const removedInputIds = new Set([nodeId]);
-    const nextNodes: WorkflowNode[] = nodesRef.current.map((item): WorkflowNode => {
-      if (item.type === "requirement" && item.requirement) {
-        const before = requirementInputBindings(item, nodesRef.current);
-        if (!before.some((binding) => binding.nodeId === nodeId)) return item;
-        const requirement = removeRequirementInputBindings({ ...item.requirement, inputBindings: before }, removedInputIds);
-        const bindings = requirementInputBindings({ ...item, requirement, parentId: undefined }, nodesRef.current);
-        return {
-          ...item,
-          requirement,
-          parentId: primaryRequirementInputNodeId(bindings) || undefined,
-          relationType: bindings.length ? "referenced" : undefined,
-        };
-      }
-      return item.parentId === nodeId ? { ...item, parentId: undefined, relationType: undefined } : item;
-    });
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
+    nodesRef.current = mutation.nodes;
+    setNodes(mutation.nodes);
     setActiveNodeId(nodeId);
     setCanvasMenu(null);
     window.setTimeout(() => setActiveNodeId(null), 700);
@@ -8067,6 +8359,279 @@ function App() {
     setNodes(next);
     setCanvasMenu(null);
     return true;
+  }
+
+  function finalizedAutomationImageLayout(sourceNodes: WorkflowNode[], sourceGroups: ImageLayoutGroup[]) {
+    const canonicalNodes = synchronizeImageContainerSpecs(sourceNodes, sourceGroups);
+    const canonicalGroups = sanitizeImageLayoutGroups(
+      canonicalNodes,
+      deriveImageLayoutGroupsFromContainerSpecs(canonicalNodes),
+    ).groups;
+    return {
+      nodes: normalizeNodeZOrders(fitImageLayoutHostNodes(canonicalNodes, canonicalGroups)),
+      layoutGroups: canonicalGroups,
+    };
+  }
+
+  function planDissolvedImageLayoutGroups(
+    sourceNodes: WorkflowNode[],
+    sourceGroups: ImageLayoutGroup[],
+    hostNodeIds: string[],
+  ) {
+    let workingNodes = sourceNodes.map(cloneWorkflowNode);
+    let workingGroups = sourceGroups.map((group) => ({ ...group, memberNodeIds: [...group.memberNodeIds] }));
+    const targets = hostNodeIds.map((hostNodeId) => {
+      const group = workingGroups.find((item) => item.hostNodeId === hostNodeId);
+      if (!group) {
+        throw automationCommandError("GROUP_CONFLICT", "目标节点不是可解散的可见图片容器。", { containerId: hostNodeId });
+      }
+      return { groupId: group.id, hostNodeId };
+    });
+    for (const target of targets) {
+      const group = workingGroups.find((item) => item.id === target.groupId || item.hostNodeId === target.hostNodeId);
+      if (!group) {
+        throw automationCommandError("GROUP_CONFLICT", "多个容器之间的嵌套关系发生冲突，整批操作未执行。", {
+          containerId: target.hostNodeId,
+        });
+      }
+      const remainingGroups = workingGroups.filter((item) => item.id !== group.id);
+      const memberIds = new Set(group.memberNodeIds);
+      const rawHost = workingNodes.find((node) => node.id === group.hostNodeId);
+      if (!rawHost) {
+        throw automationCommandError("NODE_NOT_FOUND", "图片容器宿主节点不存在，整批操作未执行。", { nodeIds: [group.hostNodeId] });
+      }
+      const hostAssetCount = Math.max(rawHost.assets?.length ?? rawHost.imageCollection?.items.length ?? 0, 1);
+      const hostSize = imageTaskSizeForNode(rawHost);
+      const preferredHostSize = rawHost.imageCollection?.kind === "series"
+        ? { width: IMAGE_COLLECTION_W, height: IMAGE_COLLECTION_SERIES_H }
+        : displaySizeForImageNode(hostSize, hostAssetCount, rawHost.assets ?? []);
+      const restoredHostSize = rawHost.imageCollection?.kind === "series"
+        ? preferredHostSize
+        : clampImageNodeDimensions(hostSize, hostAssetCount, preferredHostSize.width, preferredHostSize.height);
+      const host = { ...rawHost, width: restoredHostSize.width, height: restoredHostSize.height };
+      const hostBounds = workflowNodeBounds(host);
+      const positionedById = new Map<string, WorkflowNode>([[host.id, host]]);
+      const occupiedNodes = [
+        ...projectCanvasImageLayouts(workingNodes, remainingGroups).canvasNodes.filter((node) => !memberIds.has(node.id)),
+        host,
+      ];
+      for (const memberId of group.memberNodeIds) {
+        if (memberId === host.id) continue;
+        const member = workingNodes.find((node) => node.id === memberId);
+        if (!member) continue;
+        const memberBounds = workflowNodeBounds(member);
+        let position = { x: member.x, y: member.y };
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          const openPosition = findOpenWorkflowNodePosition(occupiedNodes, {
+            parent: host,
+            width: memberBounds.width,
+            height: memberBounds.height,
+            preferredX: hostBounds.x + hostBounds.width + 80 + attempt * (memberBounds.width + 80),
+            preferredY: hostBounds.y + (attempt % 3) * (memberBounds.height + 80),
+          });
+          const candidate = { ...member, x: Math.round(openPosition.x), y: Math.round(openPosition.y) };
+          position = { x: candidate.x, y: candidate.y };
+          if (!occupiedNodes.some((node) => rectOverlapArea(workflowNodeBounds(candidate), workflowNodeBounds(node)) > 0)) break;
+        }
+        const positioned = { ...member, x: position.x, y: position.y };
+        positionedById.set(member.id, positioned);
+        occupiedNodes.push(positioned);
+      }
+      const arrangedNodes = workingNodes.map((node) => positionedById.get(node.id) ?? node);
+      workingNodes = synchronizeImageContainerSpecs(arrangedNodes, remainingGroups);
+      workingGroups = deriveImageLayoutGroupsFromContainerSpecs(workingNodes);
+    }
+    return finalizedAutomationImageLayout(workingNodes, workingGroups);
+  }
+
+  function connectCanvasForAutomation(input: {
+    edges: CanvasRelationEdge[];
+    replaceExisting: boolean;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    const affectedNodeIds = input.edges.flatMap((edge) => [edge.sourceId, edge.targetId]);
+    assertAutomationCanvasMutationPreconditions(input, affectedNodeIds, "连接");
+    const mutation = connectCanvasRelations(nodesRef.current, input.edges, { replaceExisting: input.replaceExisting });
+    if (!mutation.changed) {
+      return { changed: false, edges: mutation.edges, canvasRevision: canvasRevisionRef.current };
+    }
+    const canvasRevision = commitAutomationCanvasMutation(mutation.nodes, layoutGroupsRef.current, "CLI 连接画布节点");
+    addEvent(`CLI 批量连接 ${mutation.edges.length} 条画布关系`);
+    return { changed: true, edges: mutation.edges, affectedNodeIds: mutation.affectedNodeIds, canvasRevision };
+  }
+
+  function disconnectCanvasForAutomation(input: {
+    edges: Array<{ sourceId: string; targetId: string }>;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    const affectedNodeIds = input.edges.flatMap((edge) => [edge.sourceId, edge.targetId]);
+    assertAutomationCanvasMutationPreconditions(input, affectedNodeIds, "断开连接");
+    const mutation = disconnectCanvasRelations(nodesRef.current, input.edges);
+    const canvasRevision = commitAutomationCanvasMutation(mutation.nodes, layoutGroupsRef.current, "CLI 断开画布节点");
+    addEvent(`CLI 批量断开 ${mutation.edges.length} 条画布关系`);
+    return { changed: true, edges: mutation.edges, affectedNodeIds: mutation.affectedNodeIds, canvasRevision };
+  }
+
+  function groupCanvasForAutomation(input: {
+    nodeIds: string[];
+    primaryId?: string;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    if (input.primaryId && !input.nodeIds.includes(input.primaryId)) {
+      throw automationCommandError("INVALID_ARGUMENT", "primaryId 必须包含在 nodeIds 中，命令未执行。", {
+        primaryId: input.primaryId,
+        nodeIds: input.nodeIds,
+      });
+    }
+    assertAutomationCanvasMutationPreconditions(input, [...input.nodeIds, ...(input.primaryId ? [input.primaryId] : [])], "归组");
+    const capabilities = analyzeCanvasSelection(
+      nodesRef.current,
+      layoutGroupsRef.current,
+      input.nodeIds,
+      input.primaryId || input.nodeIds[0] || "",
+    );
+    if (capabilities.groupExcluded.length) {
+      throw automationCommandError("GROUP_CONFLICT", "归组包含不兼容、空或分层节点，整批操作未执行。", {
+        excluded: capabilities.groupExcluded,
+      });
+    }
+    if (capabilities.groupableNodeIds.length < 2 || !capabilities.preferredContainerHostId) {
+      throw automationCommandError("GROUP_CONFLICT", "归组至少需要两个兼容的图片成果或容器。", {
+        nodeIds: input.nodeIds,
+      });
+    }
+    assertAutomationCanvasMutationPreconditions(input, capabilities.groupableNodeIds, "归组");
+    if (!capabilities.canGroupIntoContainer) {
+      return {
+        changed: false,
+        containerId: capabilities.preferredContainerHostId,
+        hostNodeId: capabilities.preferredContainerHostId,
+        memberNodeIds: capabilities.groupableNodeIds,
+        canvasRevision: canvasRevisionRef.current,
+      };
+    }
+    const sourceNodes = nodesRef.current;
+    const containerBoundaryIds = capabilities.groupableNodeIds.filter((nodeId) => {
+      const node = sourceNodes.find((item) => item.id === nodeId);
+      return Boolean(node && nodeUsesImageContainer(node));
+    });
+    const createContainerGroupHost = containerBoundaryIds.length >= 2;
+    const preferredHost = sourceNodes.find((node) => node.id === capabilities.preferredContainerHostId);
+    const hostNodeId = createContainerGroupHost
+      ? nextNodeId(sourceNodes, nodeSequenceRef.current)
+      : capabilities.preferredContainerHostId;
+    const groupHost: WorkflowNode | null = createContainerGroupHost ? {
+      id: hostNodeId,
+      displayCode: hostNodeId,
+      title: "容器组",
+      prompt: "由多个图片或文件夹容器组成；子容器边界保持独立。",
+      type: "image",
+      status: "done",
+      x: preferredHost?.x ?? 160,
+      y: preferredHost?.y ?? 160,
+      branch: "image-container-group",
+      outputs: 0,
+      createdAt: nowLabel(),
+      assets: [],
+      imageState: "empty",
+      imageContainer: true,
+      imageContainerSpec: {
+        version: 1,
+        kind: "container-group",
+        memberNodeIds: [],
+        childContainerNodeIds: [...containerBoundaryIds],
+        memberBindings: [],
+        layoutOrigin: "manual",
+        autoFit: true,
+      },
+      width: preferredHost?.width ?? IMAGE_CONTAINER_W,
+      height: preferredHost?.height ?? IMAGE_CONTAINER_H,
+      zOrder: nextNodeZOrder(sourceNodes),
+    } : null;
+    const workingNodes = groupHost ? [...sourceNodes, groupHost] : sourceNodes;
+    const mutation = mergeImageLayoutSelection(
+      { nodes: workingNodes, groups: layoutGroupsRef.current },
+      {
+        groupId: capabilities.selectedLayoutGroupIds.length === 1 ? capabilities.selectedLayoutGroupIds[0] : uid("image-layout"),
+        hostNodeId,
+        memberNodeIds: [hostNodeId, ...capabilities.groupableNodeIds],
+        replaceGroupIds: capabilities.selectedLayoutGroupIds,
+      },
+    );
+    if (!mutation.ok || !mutation.changed) {
+      throw automationCommandError("GROUP_CONFLICT", "图片归组规划失败，整批操作未执行。", { reason: mutation.reason });
+    }
+    const beforeRelations = new Map(sourceNodes.map((node) => [node.id, `${node.parentId || ""}|${node.relationType || ""}`]));
+    const causalityChanged = mutation.nodes.some((node) => beforeRelations.has(node.id) && beforeRelations.get(node.id) !== `${node.parentId || ""}|${node.relationType || ""}`);
+    if (causalityChanged) {
+      throw automationCommandError("GROUP_CONFLICT", "归组规划会改写成果来源关系，整批操作未执行。", { nodeIds: capabilities.groupableNodeIds });
+    }
+    const finalized = finalizedAutomationImageLayout(mutation.nodes, mutation.groups);
+    const canvasRevision = commitAutomationCanvasMutation(finalized.nodes, finalized.layoutGroups, "CLI 归组图片成果");
+    if (groupHost) observeAllocatedNodeCode(groupHost.id);
+    commitNodeSelection({ primaryId: hostNodeId, ids: [hostNodeId] }, "automation-group");
+    addEvent(`CLI 合并 ${capabilities.groupableNodeIds.length} 个图片成果到容器 ${hostNodeId}`);
+    return {
+      changed: true,
+      containerId: hostNodeId,
+      hostNodeId,
+      memberNodeIds: capabilities.groupableNodeIds,
+      canvasRevision,
+    };
+  }
+
+  function dissolveCanvasForAutomation(input: {
+    containerIds: string[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    assertAutomationCanvasMutationPreconditions(input, input.containerIds, "解散容器");
+    const selectedGroups = input.containerIds.map((containerId) => {
+      const group = layoutGroupsRef.current.find((item) => item.hostNodeId === containerId);
+      if (!group) throw automationCommandError("GROUP_CONFLICT", "目标节点不是可解散的可见图片容器。", { containerId });
+      return group;
+    });
+    assertAutomationCanvasMutationPreconditions(input, selectedGroups.flatMap((group) => group.memberNodeIds), "解散容器");
+    const planned = planDissolvedImageLayoutGroups(nodesRef.current, layoutGroupsRef.current, input.containerIds);
+    const canvasRevision = commitAutomationCanvasMutation(planned.nodes, planned.layoutGroups, `CLI 解散 ${input.containerIds.length} 个图片容器`);
+    commitNodeSelection({ primaryId: input.containerIds[0] || "", ids: [...input.containerIds] }, "automation-dissolve");
+    addEvent(`CLI 解散 ${input.containerIds.length} 个图片容器`);
+    return { changed: true, containerIds: [...input.containerIds], canvasRevision };
+  }
+
+  function nudgeCanvasForAutomation(input: {
+    nodeIds: string[];
+    dx: number;
+    dy: number;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    assertAutomationCanvasMutationPreconditions(input, input.nodeIds, "移动");
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const targetIds = [...new Set(input.nodeIds.map((nodeId) => projection.groupByMember.get(nodeId)?.hostNodeId ?? nodeId))];
+    assertAutomationCanvasMutationPreconditions(input, targetIds, "移动");
+    if (input.dx === 0 && input.dy === 0) {
+      return { changed: false, nodeIds: targetIds, canvasRevision: canvasRevisionRef.current };
+    }
+    const nextNodes = nodesRef.current.map((node) => {
+      if (!targetIds.includes(node.id)) return node;
+      const bounds = workflowNodeBounds(node);
+      const position = clampNodeWorldPosition(
+        { x: Math.round(node.x + input.dx), y: Math.round(node.y + input.dy) },
+        bounds.width,
+        bounds.height,
+      );
+      return { ...node, x: position.x, y: position.y };
+    });
+    if (!nextNodes.some((node, index) => node.x !== nodesRef.current[index]?.x || node.y !== nodesRef.current[index]?.y)) {
+      return { changed: false, nodeIds: targetIds, canvasRevision: canvasRevisionRef.current };
+    }
+    const canvasRevision = commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "CLI 移动画布节点");
+    addEvent(`CLI 移动 ${targetIds.length} 个画布节点 (${input.dx}, ${input.dy})`);
+    return { changed: true, nodeIds: targetIds, dx: input.dx, dy: input.dy, canvasRevision };
   }
 
 // -----------------------------------------------------------------------------
@@ -9179,6 +9744,12 @@ function App() {
     };
   }
 
+  function imageExportCleanupSuffix(result: { cleanupWarning?: string }) {
+    return result.cleanupWarning
+      ? "（图片已保存，但导出临时目录清理未完成，请检查目标目录中的 .naimage-export-* 临时目录。）"
+      : "";
+  }
+
   async function exportLayerGroupMergedPng(nodeId: string) {
     const bridge = window.naimageConfig;
     if (!bridge?.saveAssetAs) {
@@ -9196,8 +9767,9 @@ function App() {
       });
       if (!result.ok && !result.canceled) throw new Error(result.error || "合成 PNG 导出失败。");
       if (result.ok && !result.canceled && result.path) {
-        setServerMessage(`已导出合成 PNG：${result.path}`);
-        addEvent(`导出分层组 #${String(rendered.group.groupNumber).padStart(3, "0")} 合成 PNG`);
+        const exportedFormat = (result.format || "png").toUpperCase();
+        setServerMessage(`已导出合成 ${exportedFormat}：${result.path}${imageExportCleanupSuffix(result)}`);
+        addEvent(`导出分层组 #${String(rendered.group.groupNumber).padStart(3, "0")} 合成 ${exportedFormat}`);
       }
       return result;
     } catch (error) {
@@ -11028,6 +11600,7 @@ function App() {
   }
 
   function applyProjectSession(result: { project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: WorkflowSession & { sessionRevision?: number } }) {
+    clearGoalConfirmationAuthorizations();
     const nextSession = normalizeWorkflowSession(result.session);
     const nextProjectId = result.activeProjectId ?? result.project?.id ?? activeProjectId;
     const restoredPending = nextSession.pendingAgentExecution &&
@@ -11052,6 +11625,8 @@ function App() {
     suspendProjectSessionAutosave();
     activeProjectIdRef.current = nextProjectId;
     projectSessionRevisionRef.current[nextProjectId] = nextSession.sessionRevision;
+    resetProjectNodeMutationTracking(nextProjectId, nextSession);
+    automationCanvasCommitMarkerRef.current = null;
     canvasRevisionRef.current = nextSession.canvasRevision;
     nodeSequenceRef.current = nextSession.nodeSequence;
     activeConversationIdRef.current = nextSession.activeConversationId;
@@ -11122,6 +11697,7 @@ function App() {
     commitPendingAgentExecution(restoredPending);
     setQuotaDialog(null);
     setConfirmDialog(null);
+    setGoalConfirmation(null);
     setDeleteNodeDraft(null);
   }
 
@@ -11172,7 +11748,7 @@ function App() {
   async function flushActiveProjectSession() {
     if (!configReady) return;
     const projectId = activeProjectIdRef.current || activeProjectId || "default";
-    const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 3, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
+    const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
     await persistProjectSession(projectId, snapshot);
   }
 
@@ -11522,6 +12098,7 @@ function App() {
       setConfirmDialog(null);
       return;
     }
+    clearGoalConfirmationAuthorizations();
     activeRunRef.current = null;
     failAllLayerExecutionPlaceholders("会话已切换，分层任务已停止，可在原需求上重新执行。");
     clearLocalToolTimelineScope();
@@ -11592,6 +12169,7 @@ function App() {
     const conversationId = activeConversationIdRef.current;
     if (!conversationId) return;
     try {
+      clearGoalConfirmationAuthorizations();
       const result = await window.naimageAgent?.clearConversation?.({ projectId, conversationId });
       if (result && result.ok === false) throw new Error(result.error || "清理聊天失败。");
       activeRunRef.current = null;
@@ -11628,6 +12206,7 @@ function App() {
       : conversations;
     const target = withCurrent.find((conversation) => conversation.id === conversationId);
     if (!target) return;
+    clearGoalConfirmationAuthorizations();
     const nextMessages = validMessages(target.messages);
     clearLocalToolTimelineScope();
     setConversations(withCurrent);
@@ -11714,6 +12293,8 @@ function App() {
       manualImageTaskDialog ||
       deleteNodeDraft ||
       confirmDialog ||
+      commerceSetDialog ||
+      goalConfirmation ||
       imageViewer ||
       layerViewer ||
       regionRedrawDraft ||
@@ -11726,7 +12307,7 @@ function App() {
     );
 
     const handleCanvasShortcut = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || editableTarget(event.target)) return;
+      if (event.defaultPrevented || event.isComposing || editableTarget(event.target)) return;
       const key = event.key.toLowerCase();
       const command = event.ctrlKey || event.metaKey;
 
@@ -11751,6 +12332,18 @@ function App() {
       }
 
       if (blockingSurfaceOpen || fileMenuOpen || projectMenuOpen) return;
+
+      if (command && event.shiftKey && !event.altKey && !event.repeat) {
+        const shortcutDigit = /^Digit([1-9])$/.exec(event.code)?.[1];
+        const item = shortcutDigit
+          ? pluginToolbarItemsRef.current.find((candidate) => candidate.shortcut === `Mod+Shift+${shortcutDigit}`)
+          : undefined;
+        if (item) {
+          event.preventDefault();
+          executePluginCommandRef.current(item.command);
+          return;
+        }
+      }
 
       if (command && key === "a") {
         event.preventDefault();
@@ -11824,10 +12417,12 @@ function App() {
     assetContextMenu,
     canvasMenu,
     confirmDialog,
+    commerceSetDialog,
     deleteNodeDraft,
     fastMemoryEditorOpen,
     fileMenuOpen,
     imageViewer,
+    goalConfirmation,
     layerViewer,
     manualImageTaskDialog,
     nodeEditorDraft,
@@ -11965,6 +12560,97 @@ function App() {
     return true;
   }
 
+  function createImportedSkillNode(skill: ImportedCanvasSkill, preferredX: number, preferredY: number) {
+    const existing = nodesRef.current.find((node) =>
+      node.type === "requirement" &&
+      node.requirement?.skill?.contentFingerprint === skill.contentFingerprint
+    );
+    if (existing) {
+      replaceSelectedNodeId(existing.id);
+      setActiveNodeId(existing.id);
+      setCanvasMenu(null);
+      window.setTimeout(() => setActiveNodeId(null), 700);
+      const locallyModified = Boolean(existing.requirement?.skill?.locallyModifiedAt);
+      setServerMessage(locallyModified
+        ? `Skill “${skill.name}” 已在画布中且包含本地修改；已定位到现有节点，未覆盖修改。`
+        : `Skill “${skill.name}” 已在画布中，已定位到现有节点。`);
+      return {
+        id: existing.id,
+        created: false,
+        skill: existing.requirement!.skill!,
+        exact: !locallyModified,
+        ...(locallyModified ? { conflict: "locally-modified" as const } : {}),
+      };
+    }
+
+    const id = allocateNodeCode(nodesRef.current);
+    const position = findOpenWorkflowNodePosition(nodesRef.current, {
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      preferredX: Number.isFinite(preferredX) ? preferredX : 240,
+      preferredY: Number.isFinite(preferredY) ? preferredY : 180
+    });
+    const requirementNode: WorkflowNode = {
+      id,
+      displayCode: id,
+      title: `Skill · ${skill.name}`,
+      prompt: skill.instructions,
+      type: "requirement",
+      status: "done",
+      x: position.x,
+      y: position.y,
+      branch: "project-agent",
+      outputs: 0,
+      createdAt: nowLabel(),
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      zOrder: nextNodeZOrder(nodesRef.current),
+      requirement: {
+        version: 2,
+        text: skill.instructions,
+        revision: 1,
+        createdFrom: "canvas",
+        inputBindings: [],
+        skill: {
+          version: 1,
+          name: skill.name,
+          description: skill.description,
+          sourceName: skill.sourceName,
+          contentFingerprint: skill.contentFingerprint,
+          importedAt: skill.importedAt
+        }
+      }
+    };
+    pushCanvasHistory("导入 Skill 节点");
+    const nextNodes = [...nodesRef.current, requirementNode];
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    replaceSelectedNodeId(id);
+    setActiveNodeId(id);
+    setCanvasMenu(null);
+    addEvent(`导入 Skill 节点 ${id} · ${skill.name}`);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    setServerMessage(`已导入 Skill “${skill.name}”；连接原图或参考图后即可执行。`);
+    return { id, created: true, skill: requirementNode.requirement!.skill!, exact: true };
+  }
+
+  async function importSkillFileAt(worldX: number, worldY: number) {
+    setCanvasMenu(null);
+    const importSkill = window.naimageConfig?.importSkill;
+    if (!importSkill) {
+      setServerMessage("当前桌面运行时不支持导入 SKILL.md，请重启应用后再试。");
+      return;
+    }
+    try {
+      const result = await importSkill();
+      if (result?.canceled) return;
+      if (!result?.ok || !result.skill) throw new Error(result?.error || "SKILL.md 读取失败。");
+      createImportedSkillNode(result.skill, worldX, worldY);
+    } catch (error) {
+      setServerMessage(`导入 Skill 失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   function openRequirementEditorForSource(source: WorkflowNode) {
     if (source.type !== "image") return;
     setCanvasMenu(null);
@@ -12003,6 +12689,14 @@ function App() {
       text: node.requirement.text,
       runAfterSave: false
     });
+  }
+
+  function requirementSkillAfterTextEdit(requirement: CanvasRequirement, nextText: string) {
+    if (!requirement.skill || nextText === requirement.text) return requirement.skill;
+    return {
+      ...requirement.skill,
+      locallyModifiedAt: new Date().toISOString(),
+    };
   }
 
   function saveRequirementEditor(runAfterSave = requirementEditorDraft?.runAfterSave === true) {
@@ -12088,6 +12782,7 @@ function App() {
         text,
         revision: existing.requirement.revision + 1,
         lastError: undefined,
+        skill: requirementSkillAfterTextEdit(existing.requirement, text),
         ...(text !== existing.requirement.text
           ? { lastSourceSignature: undefined, lastRunAt: undefined, lastRunCount: 0 }
           : {})
@@ -12113,6 +12808,81 @@ function App() {
     return requirementNode;
   }
 
+  function createCommerceReusableNode(input: {
+    title: string;
+    text: string;
+    sourceNodeIds: string[];
+    kind: "requirement" | "skill";
+  }) {
+    const text = input.text.trim();
+    const sourceNodeIds = [...new Set(input.sourceNodeIds.map(String).filter(Boolean))];
+    if (!text || !sourceNodeIds.length) return null;
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const sourceNodes = sourceNodeIds
+      .map((id) => projection.canvasNodeById.get(id) ?? nodesRef.current.find((node) => node.id === id))
+      .filter((node): node is WorkflowNode => Boolean(node?.type === "image"));
+    if (sourceNodes.length !== sourceNodeIds.length) {
+      setServerMessage("套图计划的部分母图已不存在，未创建复用节点。");
+      return null;
+    }
+    const id = allocateNodeCode(nodesRef.current);
+    const primarySource = sourceNodes[0];
+    const position = findOpenWorkflowNodePosition(nodesRef.current, {
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      preferredX: primarySource.x + Number(primarySource.width ?? minimumNodeSize(primarySource).width ?? NODE_W) + 72,
+      preferredY: primarySource.y,
+      parent: primarySource,
+    });
+    const title = input.title.trim() || (input.kind === "skill" ? "跨境电商套图 Skill" : "跨境电商套图需求");
+    const createdAt = new Date().toISOString();
+    const inputBindings: CanvasRequirementInputBinding[] = sourceNodeIds.map((nodeId) => ({ nodeId, role: "source" }));
+    const node: WorkflowNode = {
+      id,
+      displayCode: id,
+      title: input.kind === "skill" ? `Skill · ${title}` : title,
+      prompt: text,
+      type: "requirement",
+      status: "done",
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+      parentId: primarySource.id,
+      relationType: "referenced",
+      branch: "project-agent",
+      outputs: 0,
+      createdAt: nowLabel(),
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      zOrder: nextNodeZOrder(nodesRef.current),
+      requirement: {
+        version: 2,
+        text,
+        revision: 1,
+        createdFrom: sourceNodes.length > 1 || sourceNodes.some((source) => nodeUsesImageContainer(source)) ? "container" : "node",
+        inputBindings,
+        ...(input.kind === "skill" ? {
+          skill: {
+            version: 1,
+            name: title,
+            description: "跨境电商批量套图与多国语言处理计划。",
+            sourceName: "commerce-set.skill.md",
+            contentFingerprint: `skill-${stableIdentityHash(`commerce-set:${text}`)}`,
+            importedAt: createdAt,
+          }
+        } : {})
+      }
+    };
+    pushCanvasHistory(input.kind === "skill" ? "创建跨境电商 Skill" : "创建跨境电商需求");
+    const nextNodes = [...nodesRef.current, node];
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    replaceSelectedNodeId(id);
+    setActiveNodeId(id);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    addEvent(`创建跨境电商${input.kind === "skill" ? " Skill" : "需求"} ${id} · 母图 ${sourceNodeIds.length} 个来源边界`);
+    return node;
+  }
+
   function executeRequirementNode(nodeId: string, confirmedUnchanged = false) {
     if (blockLockedNodeMutation([nodeId], "执行需求")) return false;
     if (agentExecutionBusyNow()) {
@@ -12123,6 +12893,19 @@ function App() {
     const requirementNode = nodesRef.current.find((node) => node.id === nodeId && node.type === "requirement" && node.requirement);
     if (!requirementNode?.requirement) return false;
     const inputBindings = requirementInputBindings(requirementNode, nodesRef.current);
+    if (requirementNode.requirement.text.includes("[NAIMAGE_COMMERCE_SET_V1]")) {
+      const parsedPlan = parseCommerceSetPromptPlan(requirementNode.requirement.text);
+      if (!parsedPlan) {
+        setServerMessage("套图计划的结构化数据已损坏，请重新创建该 Requirement 或 Skill。");
+        return false;
+      }
+      void requestGoalModeConfirmation(requirementNode.requirement.text, {
+        targetNodeIds: inputBindings.map((binding) => binding.nodeId),
+        operationsPerAsset: parsedPlan.outputsPerSource,
+      });
+      addEvent(`预览跨境电商复用节点 ${requirementNode.id} · 母图 ${inputBindings.length}`);
+      return true;
+    }
     if (blockLockedNodeMutation(inputBindings.map((binding) => binding.nodeId), "作为新任务来源")) return false;
     const inputEntries = inputBindings.map((binding) => ({
       binding,
@@ -12174,14 +12957,597 @@ function App() {
     return true;
   }
 
+  function automationRequirementBindings(
+    bindings: CanvasRequirementInputBinding[],
+    nodes: WorkflowNode[],
+  ): CanvasRequirementInputBinding[] {
+    const duplicateNodeIds = bindings
+      .map((binding) => binding.nodeId)
+      .filter((nodeId, index, values) => values.indexOf(nodeId) !== index);
+    if (duplicateNodeIds.length) {
+      throw automationCommandError("REQUIREMENT_INPUT_INVALID", "同一节点不能以多个角色重复绑定到一个需求。", {
+        nodeIds: [...new Set(duplicateNodeIds)],
+      });
+    }
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const invalid = bindings.filter((binding) => nodeById.get(binding.nodeId)?.type !== "image");
+    if (invalid.length) {
+      throw automationCommandError("REQUIREMENT_INPUT_INVALID", "需求输入必须引用现有图片成果、图片容器或分层图片。", {
+        bindings: invalid,
+      });
+    }
+    return bindings.map((binding) => ({ nodeId: binding.nodeId, role: binding.role }));
+  }
+
+  function createRequirementForAutomation(input: {
+    title?: string;
+    text: string;
+    inputBindings: CanvasRequirementInputBinding[];
+    x?: number;
+    y?: number;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    assertAutomationCanvasMutationPreconditions(input, [], "创建需求");
+    const text = input.text.trim();
+    if (!text) throw automationCommandError("INVALID_ARGUMENT", "需求正文不能为空。", { field: "text" });
+    const inputBindings = automationRequirementBindings(input.inputBindings, nodesRef.current);
+    assertAutomationCanvasMutationPreconditions(input, inputBindings.map((binding) => binding.nodeId), "创建需求");
+    const source = inputBindings.length
+      ? nodesRef.current.find((node) => node.id === primaryRequirementInputNodeId(inputBindings))
+      : undefined;
+    const id = nextNodeId(nodesRef.current, nodeSequenceRef.current);
+    const preferredX = input.x ?? (source
+      ? source.x + Number(source.width ?? minimumNodeSize(source).width ?? NODE_W) + 72
+      : 180);
+    const preferredY = input.y ?? source?.y ?? 160;
+    const position = findOpenWorkflowNodePosition(nodesRef.current, {
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      preferredX,
+      preferredY,
+      parent: source,
+    });
+    const createdFrom: CanvasRequirement["createdFrom"] = !source
+      ? "canvas"
+      : source.layerGroup || source.layerComposition
+        ? "layer"
+        : nodeUsesImageContainer(source)
+          ? "container"
+          : "node";
+    const requirementNode: WorkflowNode = {
+      id,
+      displayCode: id,
+      title: input.title?.trim() || requirementTitleFromText(text),
+      prompt: text,
+      type: "requirement",
+      status: "done",
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+      parentId: primaryRequirementInputNodeId(inputBindings) || undefined,
+      relationType: inputBindings.length ? "referenced" : undefined,
+      branch: "project-agent",
+      outputs: 0,
+      createdAt: nowLabel(),
+      width: REQUIREMENT_NODE_W,
+      height: REQUIREMENT_NODE_H,
+      zOrder: nextNodeZOrder(nodesRef.current),
+      requirement: {
+        version: 2,
+        text,
+        revision: 1,
+        createdFrom,
+        inputBindings,
+      },
+    };
+    const nextNodes = [...nodesRef.current, requirementNode];
+    assertCanvasRelationGraphAcyclic(nextNodes);
+    const canvasRevision = commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "CLI 创建可复用需求");
+    observeAllocatedNodeCode(id);
+    commitNodeSelection({ primaryId: id, ids: [id] }, "automation-create-requirement");
+    addEvent(`CLI 创建可复用需求 ${id}`);
+    return { changed: true, nodeId: id, requirementRevision: 1, canvasRevision };
+  }
+
+  function updateRequirementForAutomation(input: {
+    nodeId: string;
+    expectedRevision: number;
+    patch: { title?: string; text?: string; inputBindings?: CanvasRequirementInputBinding[] };
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    assertAutomationCanvasMutationPreconditions(input, [input.nodeId], "更新需求");
+    const current = nodesRef.current.find((node) => node.id === input.nodeId);
+    if (current?.type !== "requirement" || !current.requirement) {
+      throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是可编辑的需求节点。", { nodeId: input.nodeId });
+    }
+    if (current.requirement.revision !== input.expectedRevision) {
+      throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
+        nodeId: input.nodeId,
+        expectedRevision: input.expectedRevision,
+        currentRevision: current.requirement.revision,
+      });
+    }
+    const text = input.patch.text === undefined ? current.requirement.text : input.patch.text.trim();
+    if (!text) throw automationCommandError("INVALID_ARGUMENT", "需求正文不能为空。", { field: "patch.text" });
+    const inputBindings = input.patch.inputBindings === undefined
+      ? requirementInputBindings(current, nodesRef.current)
+      : automationRequirementBindings(input.patch.inputBindings, nodesRef.current);
+    const currentBindings = requirementInputBindings(current, nodesRef.current);
+    assertAutomationCanvasMutationPreconditions(
+      input,
+      [input.nodeId, ...currentBindings.map((binding) => binding.nodeId), ...inputBindings.map((binding) => binding.nodeId)],
+      "更新需求",
+    );
+    const title = input.patch.title === undefined
+      ? current.title
+      : input.patch.title.trim() || requirementTitleFromText(text);
+    const bindingsChanged = JSON.stringify(inputBindings) !== JSON.stringify(currentBindings);
+    const textChanged = text !== current.requirement.text;
+    const titleChanged = title !== current.title;
+    if (!bindingsChanged && !textChanged && !titleChanged) {
+      return {
+        changed: false,
+        nodeId: current.id,
+        requirementRevision: current.requirement.revision,
+        canvasRevision: canvasRevisionRef.current,
+      };
+    }
+    const requirement: CanvasRequirement = {
+      ...current.requirement,
+      version: 2,
+      text,
+      inputBindings,
+      revision: current.requirement.revision + 1,
+      lastError: undefined,
+      skill: requirementSkillAfterTextEdit(current.requirement, text),
+      ...(textChanged ? { lastSourceSignature: undefined, lastRunAt: undefined, lastRunCount: 0 } : {}),
+    };
+    const nextNode: WorkflowNode = {
+      ...current,
+      title,
+      prompt: text,
+      parentId: primaryRequirementInputNodeId(inputBindings) || undefined,
+      relationType: inputBindings.length ? "referenced" : undefined,
+      requirement,
+    };
+    const nextNodes = nodesRef.current.map((node) => node.id === current.id ? nextNode : node);
+    assertCanvasRelationGraphAcyclic(nextNodes);
+    const canvasRevision = commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "CLI 更新可复用需求");
+    addEvent(`CLI 更新可复用需求 ${current.id}`);
+    return {
+      changed: true,
+      nodeId: current.id,
+      requirementRevision: requirement.revision,
+      canvasRevision,
+      locallyModified: Boolean(requirement.skill?.locallyModifiedAt),
+    };
+  }
+
+  async function executeRequirementForAutomation(input: {
+    nodeId: string;
+    expectedRevision: number;
+    confirmedUnchanged: boolean;
+    expectedProjectId: string;
+  }) {
+    assertAutomationCanvasMutationPreconditions(input, [input.nodeId], "执行需求");
+    if (agentExecutionBusyNow()) {
+      throw automationCommandError("AGENT_BUSY", "Agent 正在执行当前任务，需求没有重复提交。", { nodeId: input.nodeId });
+    }
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const requirementNode = nodesRef.current.find((node) => node.id === input.nodeId);
+    if (requirementNode?.type !== "requirement" || !requirementNode.requirement) {
+      throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是可执行的需求节点。", { nodeId: input.nodeId });
+    }
+    if (requirementNode.requirement.revision !== input.expectedRevision) {
+      throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
+        nodeId: input.nodeId,
+        expectedRevision: input.expectedRevision,
+        currentRevision: requirementNode.requirement.revision,
+      });
+    }
+    const inputBindings = requirementInputBindings(requirementNode, nodesRef.current);
+    assertAutomationCanvasMutationPreconditions(input, inputBindings.map((binding) => binding.nodeId), "执行需求");
+    const invalidBindings = inputBindings.filter((binding) => {
+      const node = projection.canvasNodeById.get(binding.nodeId) ?? nodesRef.current.find((candidate) => candidate.id === binding.nodeId);
+      return node?.type !== "image";
+    });
+    if (invalidBindings.length) {
+      throw automationCommandError("REQUIREMENT_INPUT_INVALID", "部分需求输入已不存在或不再是图片成果。", {
+        bindings: invalidBindings,
+      });
+    }
+    const emptyBindings = inputBindings.filter((binding) => {
+      const node = projection.canvasNodeById.get(binding.nodeId) ?? nodesRef.current.find((candidate) => candidate.id === binding.nodeId);
+      return !(node?.assets?.length ?? 0);
+    });
+    if (emptyBindings.length) {
+      throw automationCommandError("REQUIREMENT_INPUT_EMPTY", "部分需求输入容器中还没有图片。", {
+        bindings: emptyBindings,
+      });
+    }
+    const inputSignature = stableRequirementInputSignature(requirementNode, nodesRef.current);
+    if (
+      !input.confirmedUnchanged &&
+      requirementNode.requirement.lastRunCount &&
+      requirementNode.requirement.lastSourceSignature === inputSignature
+    ) {
+      throw automationCommandError(
+        "REQUIREMENT_RERUN_CONFIRMATION_REQUIRED",
+        "需求正文和输入均未变化；如需重复执行，请显式传入 confirmedUnchanged=true。",
+        { nodeId: input.nodeId, inputSignature },
+      );
+    }
+    const accepted = await sendPrompt(requirementNode.requirement.text, {
+      sourceNodeIds: inputBindings.map((binding) => binding.nodeId),
+      focusedNodeId: primaryRequirementInputNodeId(inputBindings) || undefined,
+      taskOrigin: "requirement",
+      requirementNodeId: requirementNode.id,
+      requirementInputSignature: inputSignature,
+      useComposerAttachments: false,
+    });
+    if (!accepted) {
+      throw automationCommandError("AGENT_BUSY", "Agent 没有接受本次需求执行。", { nodeId: input.nodeId });
+    }
+    commitNodeSelection({ primaryId: requirementNode.id, ids: [requirementNode.id] }, "automation-execute-requirement");
+    addEvent(`CLI 执行可复用需求 ${requirementNode.id}`);
+    return {
+      accepted: true,
+      nodeId: requirementNode.id,
+      requirementRevision: requirementNode.requirement.revision,
+      inputSignature,
+      canvasRevision: canvasRevisionRef.current,
+    };
+  }
+
+  async function buildGoalModePreview(promptText: string, options: { targetNodeIds?: string[]; operationsPerAsset?: number } = {}) {
+    const goalMode = await loadGoalMode();
+    return goalMode.createGoalModePreview({
+      prompt: promptText,
+      nodes: nodesRef.current,
+      canvasRevision: canvasRevisionRef.current,
+      configuredConcurrency: settingsRef.current.imageBatchSize,
+      trialImagesRemaining: serverUser?.trialImagesRemaining,
+      imageCostCents: serverWallet?.imageCostCents,
+      targetNodeIds: options.targetNodeIds,
+      operationsPerAsset: options.operationsPerAsset,
+      projectAsset: goalMode.goalProjectAssetMetadata
+    });
+  }
+
+  async function activeGoalConfirmationLedger() {
+    if (goalConfirmationLedgerRef.current) return goalConfirmationLedgerRef.current;
+    const goalMode = await loadGoalMode();
+    return goalConfirmationLedgerRef.current ??= goalMode.createGoalConfirmationLedger();
+  }
+
+  function currentGoalConfirmationContext(issuerId = "renderer") {
+    return {
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default",
+      issuerId
+    };
+  }
+
+  async function issueGoalConfirmation(preview: GoalModePreview, issuerId: "main-dialog" | "automation" | "agent-window") {
+    const ledger = await activeGoalConfirmationLedger();
+    const confirmationHash = ledger.issue(preview, currentGoalConfirmationContext(issuerId));
+    return { ...preview, confirmationHash };
+  }
+
+  async function previewGoalMode(
+    promptText: string,
+    options: { sourceNodeIds?: string[]; operationsPerAsset?: number } = {}
+  ) {
+    const goalMode = await loadGoalMode();
+    const preview = await issueGoalConfirmation(await buildGoalModePreview(promptText, {
+      targetNodeIds: options.sourceNodeIds,
+      operationsPerAsset: options.operationsPerAsset,
+    }), "automation");
+    return goalMode.publicGoalModePreview(preview);
+  }
+
+  async function dispatchConfirmedGoal(preview: GoalModePreview) {
+    const [current, goalMode] = await Promise.all([
+      buildGoalModePreview(preview.prompt, {
+        targetNodeIds: preview.targetNodeIds,
+        operationsPerAsset: preview.operationsPerAsset,
+      }),
+      loadGoalMode()
+    ]);
+    if (goalMode.goalModeAuthorizationFingerprint(current) !== goalMode.goalModeAuthorizationFingerprint(preview)) {
+      throw Object.assign(new Error("画布范围或费用报价已变化，旧 Goal 确认已失效；请核对新预览后再次确认。"), { currentPreview: current });
+    }
+    if (agentExecutionBusyNow()) {
+      throw new Error("Goal 确认后出现了新的运行中任务；本次确认已消费且未派发，请重新预览。");
+    }
+    const dispatched = await sendPrompt(preview.prompt, {
+      sourceNodeIds: [...preview.taskScope.sourceNodeIds],
+      focusedNodeId: preview.taskScope.sourceNodeIds[0],
+      taskOrigin: "goal",
+      frozenTaskScope: preview.taskScope,
+      useComposerAttachments: false
+    });
+    if (!dispatched) {
+      throw new Error("Goal 确认已消费，但 Agent 没有接受本次派发；请重新预览后再试。");
+    }
+    return {
+      goalId: `goal-${preview.snapshotHash.slice(6)}`,
+      phase: "dispatched",
+      snapshotHash: preview.snapshotHash,
+      confirmationHash: preview.confirmationHash,
+      containerCount: preview.containerCount,
+      assetCount: preview.assetCount
+    };
+  }
+
+  async function requestGoalModeConfirmation(
+    promptText: string,
+    options: { targetNodeIds?: string[]; operationsPerAsset?: number } = {}
+  ) {
+    if (agentExecutionBusyNow()) {
+      setServerMessage("当前 Agent 任务仍在运行，请结束后再创建新的 Goal。");
+      return false;
+    }
+    try {
+      const preview = await issueGoalConfirmation(await buildGoalModePreview(promptText, options), "main-dialog");
+      setGoalConfirmationNotice("");
+      setGoalConfirmation(preview);
+      setGoalConfirmationBusy(false);
+      return true;
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  async function submitGoalModeConfirmation() {
+    const preview = goalConfirmation;
+    if (!preview || goalConfirmationBusy) return;
+    setGoalConfirmationBusy(true);
+    try {
+      const ledger = await activeGoalConfirmationLedger();
+      const receipt = ledger.consume(preview, preview.confirmationHash, currentGoalConfirmationContext("main-dialog"));
+      const [current, goalMode] = await Promise.all([
+        buildGoalModePreview(preview.prompt, {
+          targetNodeIds: preview.targetNodeIds,
+          operationsPerAsset: preview.operationsPerAsset,
+        }),
+        loadGoalMode()
+      ]);
+      if (goalMode.goalModeAuthorizationFingerprint(current) !== receipt.authorizationFingerprint) {
+        const refreshed = await issueGoalConfirmation(current, "main-dialog");
+        setGoalConfirmation(refreshed);
+        setGoalConfirmationNotice("画布范围或费用报价在确认前发生变化；已签发新的确认值，请重新核对后再确认。");
+        return;
+      }
+      setGoalConfirmationNotice("");
+      setGoalConfirmation(null);
+      setPrompt((value) => value.trim() === preview.prompt ? "" : value);
+      void dispatchConfirmedGoal(preview).then(() => {
+        const pending = pendingCommerceReusableNodeRef.current;
+        if (pending && preview.prompt.includes(pending.planHash)) {
+          createCommerceReusableNode(pending);
+        }
+        pendingCommerceReusableNodeRef.current = null;
+      }).catch((error) => {
+        pendingCommerceReusableNodeRef.current = null;
+        setServerMessage(error instanceof Error ? error.message : String(error));
+      });
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGoalConfirmationBusy(false);
+    }
+  }
+
+  async function executeGoalMode(
+    promptText: string,
+    expectedSnapshotHash: string,
+    issuerId: "automation" | "agent-window" = "automation",
+    options: { sourceNodeIds?: string[]; operationsPerAsset?: number } = {}
+  ) {
+    if (issuerId === "agent-window" && agentWindowGoalPreviewRef.current?.confirmationHash === expectedSnapshotHash) {
+      agentWindowGoalPreviewRef.current = null;
+    }
+    const ledger = await activeGoalConfirmationLedger();
+    // Burn before busy, preflight, live canvas, and billing checks.
+    const receipt = ledger.take(promptText, expectedSnapshotHash, currentGoalConfirmationContext(issuerId));
+    if (agentExecutionBusyNow()) throw new Error("当前 Agent 任务仍在运行，不能并行创建另一个 Goal；本次确认已消费。");
+    const [preview, goalMode] = await Promise.all([
+      buildGoalModePreview(promptText, {
+        targetNodeIds: options.sourceNodeIds,
+        operationsPerAsset: options.operationsPerAsset,
+      }),
+      loadGoalMode()
+    ]);
+    if (goalMode.goalModeAuthorizationFingerprint(preview) !== receipt.authorizationFingerprint) {
+      throw new Error("Goal 的画布范围或费用报价已变化；本次确认已消费，请重新预览。");
+    }
+    return dispatchConfirmedGoal({ ...preview, confirmationHash: receipt.confirmationHash });
+  }
+
 // -----------------------------------------------------------------------------
 // MAIN 10J Agent Execution Hub
 // -----------------------------------------------------------------------------
 
+  async function steerAgentRun(value: string, options: AgentSteerOptions = {}) {
+    const content = String(value || "").trim();
+    if (!content) return false;
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，请稍候；任务状态尚未改变。");
+      return false;
+    }
+    const runId = activeRunRef.current;
+    if (!runId || !window.naimageAgent?.steer) {
+      setServerMessage("当前任务暂时不能接收运行中修改；可以先结束任务再发送新要求。");
+      return false;
+    }
+    const activeGoal = lastDispatchedTaskScopeRef.current?.origin === "goal";
+    const goalScopeMutationRequested = activeGoal && (
+      options.taskScopeMode !== "keep" ||
+      Boolean(options.sourceMode && options.sourceMode !== "keep") ||
+      Boolean(options.referenceMode && options.referenceMode !== "keep") ||
+      Boolean(options.sourceNodeIds?.length || options.referenceNodeIds?.length || options.sourceImages?.length || options.referenceImages?.length) ||
+      options.useComposerAttachments !== false
+    );
+    if (goalScopeMutationRequested) {
+      setServerMessage("Goal 运行中的容器范围已冻结；请只修改文字，或结束后重新预览并确认范围。");
+      return false;
+    }
+    const useComposerAttachments = options.useComposerAttachments !== false;
+    const sourceNodeIds = options.sourceNodeIds !== undefined
+      ? [...options.sourceNodeIds]
+      : useComposerAttachments ? [...selectedNodeIdsRef.current] : [];
+    const referenceNodeIds = [...(options.referenceNodeIds ?? [])];
+    const sourceImages = (
+      options.sourceImages !== undefined
+        ? cloneReferenceImages(options.sourceImages)
+        : useComposerAttachments ? cloneReferenceImages(agentSourceImagesRef.current) : []
+    ).map((source, index): ReferenceImage => ({
+      ...source,
+      assetId: source.assetId || stableImageAssetId({ contentHash: source.contentHash, path: source.path, relativePath: source.relativePath, assetUrl: source.assetUrl, originalName: source.name }, index + 1),
+      displayCode: source.displayCode || `SRC${index + 1}`,
+      taskRole: "source"
+    }));
+    const referenceImages = (
+      options.referenceImages !== undefined
+        ? cloneReferenceImages(options.referenceImages)
+        : useComposerAttachments ? cloneReferenceImages(agentReferenceImagesRef.current) : []
+    ).map((reference, index): ReferenceImage => ({
+      ...reference,
+      assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
+      displayCode: reference.displayCode || `REF${index + 1}`,
+      taskRole: "reference"
+    }));
+    const explicitMode = options.taskScopeMode;
+    const taskScopeUpdate: AgentSteerTaskScopeUpdate = options.sourceMode || options.referenceMode
+      ? { sourceMode: options.sourceMode ?? "keep", referenceMode: options.referenceMode ?? "keep" }
+      : explicitMode === "clear-attachments"
+      ? { sourceMode: "clear", referenceMode: "clear" }
+      : explicitMode === "replace-source"
+        ? { sourceMode: "replace", referenceMode: "keep" }
+        : explicitMode === "merge-source"
+          ? { sourceMode: "merge", referenceMode: "keep" }
+        : explicitMode === "replace-reference"
+          ? { sourceMode: "keep", referenceMode: "replace" }
+          : explicitMode === "merge-reference"
+            ? { sourceMode: "keep", referenceMode: "merge" }
+            : explicitMode === "keep"
+              ? { sourceMode: "keep", referenceMode: "keep" }
+              : {
+                  sourceMode: sourceImages.length || sourceNodeIds.length ? "replace" : "keep",
+                  referenceMode: referenceImages.length || referenceNodeIds.length ? "merge" : "keep"
+                };
+    const needsCandidate = ["replace", "merge"].includes(taskScopeUpdate.sourceMode) || ["replace", "merge"].includes(taskScopeUpdate.referenceMode);
+    let candidateTaskScope: AgentTaskScope | undefined;
+    if (needsCandidate) {
+      const sourceContainer = ["replace", "merge"].includes(taskScopeUpdate.sourceMode) && sourceImages.length
+        ? materializeAgentTaskImages(sourceImages, "source")
+        : null;
+      const referenceContainer = ["replace", "merge"].includes(taskScopeUpdate.referenceMode) && referenceImages.length
+        ? materializeAgentTaskImages(referenceImages, "reference")
+        : null;
+      if (sourceContainer || referenceContainer) {
+        canvasRevisionRef.current = Math.max(1, canvasRevisionRef.current + 1);
+      }
+      const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+      const projectedNode = (nodeId: string) => {
+        const hostId = projection.groupByMember.get(nodeId)?.hostNodeId ?? nodeId;
+        return projection.canvasNodeById.get(hostId) ?? nodesRef.current.find((node) => node.id === hostId);
+      };
+      const sourceNodes = sourceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
+      const referenceNodes = referenceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
+      if (sourceContainer && !sourceNodes.some((node) => node.id === sourceContainer.id)) sourceNodes.push(sourceContainer);
+      const explicitNodeRoles = Object.fromEntries([
+        ...sourceNodes.map((node) => [node.id, "source" as const]),
+        ...referenceNodes.map((node) => [node.id, "reference" as const])
+      ]);
+      candidateTaskScope = agentTaskScopeForRequest(
+        [...sourceNodes, ...referenceNodes],
+        referenceImages,
+        referenceContainer,
+        "chat",
+        canvasRevisionRef.current,
+        null,
+        undefined,
+        explicitNodeRoles
+      );
+      taskScopeUpdate.taskScope = candidateTaskScope;
+      taskScopeUpdate.nodes = projection.canvasNodes;
+    }
+    const result = await window.naimageAgent.steer({
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default",
+      runId,
+      prompt: content,
+      taskScopeUpdate
+    }).catch((error) => ({
+      ok: false,
+      accepted: 0,
+      interrupted: 0,
+      taskScopeSnapshotHash: undefined,
+      error: error instanceof Error ? error.message : String(error)
+    }));
+    if (result.ok === false || !result.accepted) {
+      setServerMessage(result.error || "当前任务没有接收这条修改要求。");
+      return false;
+    }
+    const steerMessage: AgentMessage = {
+      id: uid("user-steer"),
+      role: "user",
+      content,
+      createdAt: nowLabel(),
+      status: "done",
+      meta: "human / steer",
+      attachments: candidateTaskScope && (candidateTaskScope.sourceAssetCount || candidateTaskScope.referenceAssetCount)
+        ? {
+            sourceAssets: candidateTaskScope.sourceAssets.slice(0, 40),
+            referenceAssets: candidateTaskScope.referenceAssets.slice(0, 40),
+            sourceCount: candidateTaskScope.sourceAssetCount,
+            referenceCount: candidateTaskScope.referenceAssetCount,
+            truncated: candidateTaskScope.truncated
+          }
+        : undefined
+    };
+    setMessages((current) => [...current, steerMessage].slice(-120));
+    setPrompt((current) => current.trim() === content ? "" : current);
+    if (useComposerAttachments) {
+      if (taskScopeUpdate.sourceMode !== "keep") setAgentSourceImages([]);
+      if (taskScopeUpdate.referenceMode !== "keep") setAgentReferenceImages([]);
+    }
+    setAgentProgress((current) => [...current, {
+      runId,
+      projectId: activeProjectIdRef.current || "default",
+      conversationId: activeConversationIdRef.current || "default",
+      phase: "steer-queued",
+      summary: agentPaused
+        ? "修改需求已排队，恢复后重新规划。"
+        : result.interrupted
+          ? "已中断旧计划，正在按修改需求重新规划。"
+          : "修改需求已加入当前任务。",
+      detail: {
+        sourceMode: taskScopeUpdate.sourceMode,
+        referenceMode: taskScopeUpdate.referenceMode,
+        taskScopeSnapshotHash: result.taskScopeSnapshotHash || candidateTaskScope?.snapshotHash
+      },
+      createdAt: new Date().toISOString()
+    }].slice(-48));
+    setServerMessage(agentPaused
+      ? "修改需求已记录；任务仍保持暂停，恢复后将按新要求继续。"
+      : "修改需求已发送，Agent 将保留已完成结果并停止旧计划。"
+    );
+    return true;
+  }
+
   async function sendPrompt(nextPrompt?: string, dispatch: AgentPromptDispatchOptions = {}) {
     if (agentExecutionBusyNow()) {
-      setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
-      return;
+      return steerAgentRun(nextPrompt ?? prompt, {
+        sourceNodeIds: dispatch.sourceNodeIds,
+        sourceImages: dispatch.sourceImages,
+        referenceImages: dispatch.referenceImages,
+        useComposerAttachments: dispatch.useComposerAttachments
+      });
     }
     const baseContent = (nextPrompt ?? prompt).trim();
     const useComposerAttachments = dispatch.useComposerAttachments !== false;
@@ -12207,7 +13573,7 @@ function App() {
     }));
     const content = baseContent;
     const visibleContent = String(dispatch.visibleContent ?? baseContent).trim() || baseContent;
-    if (!content) return;
+    if (!content) return false;
     const cancelledRequest = cancelledAgentRequestRef.current;
     const cancellationApplies = Boolean(
       cancelledRequest &&
@@ -12222,7 +13588,7 @@ function App() {
     const lastSubmit = lastSubmitRef.current;
     if (lastSubmit && lastSubmit.text === content && now - lastSubmit.time < 900) {
       addEvent("忽略重复提交");
-      return;
+      return false;
     }
     lastSubmitRef.current = { text: content, time: now };
     if (cancellationApplies) cancelledAgentRequestRef.current = null;
@@ -12328,7 +13694,7 @@ function App() {
     );
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
     const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
-    if (NAIMAGE_RUNTIME_METRICS) lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
+    lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
     if (taskScope.sourceAssetCount || taskScope.referenceAssetCount) {
       userMessage.attachments = {
         sourceAssets: taskScope.sourceAssets.slice(0, 40),
@@ -12381,7 +13747,7 @@ function App() {
         requestSelectedNodeIds,
         taskScope
       );
-      if (!runScopeIsCurrent()) return;
+      if (!runScopeIsCurrent()) return false;
       const rawAnswer = sanitizeAgentVisibleText(runtimeResult.content?.trim() || "已完成。") || "已完成。";
       const runtimeActions = effectiveRequirementNodeId
         ? (runtimeResult.actions ?? []).map((action) => parentImageActionToRequirement(action, effectiveRequirementNodeId))
@@ -12429,11 +13795,11 @@ function App() {
       const taskLayoutApplication = await applyTaskResultLayout(taskScope, taskResultNodeIdsBefore, runId, requestProjectId, requestConversationId);
       if (taskLayoutApplication === null) {
         pendingLayerNarrationRunIdsRef.current.delete(runId);
-        return;
+        return false;
       }
       const layoutWarning = taskLayoutApplication?.warning || "";
       pendingLayerNarrationRunIdsRef.current.delete(runId);
-      if (!runScopeIsCurrent()) return;
+      if (!runScopeIsCurrent()) return false;
       const failedCommit = actionApplication.commits.find((commit) => commit.status === "error");
       const cancelledCommit = actionApplication.commits.find((commit) => commit.status === "cancelled");
       const completedCommit = actionApplication.commits.find((commit) => commit.status === "done");
@@ -12545,9 +13911,10 @@ function App() {
       setAgentStatus("idle");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
+      return true;
     } catch (error) {
       pendingLayerNarrationRunIdsRef.current.delete(runId);
-      if (!runScopeIsCurrent()) return;
+      if (!runScopeIsCurrent()) return false;
       const message = error instanceof Error ? error.message : String(error);
       if (effectiveRequirementNodeId) {
         updateRequirementNode(effectiveRequirementNodeId, (requirement) => ({ ...requirement, lastError: message.slice(0, 500) }));
@@ -12565,6 +13932,7 @@ function App() {
       setAgentStatus("error");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
+      return false;
     } finally {
       requirementRunParentsRef.current.delete(runId);
     }
@@ -12573,6 +13941,23 @@ function App() {
   useEffect(() => {
     if (!__NAIMAGE_AIDEBUG__) return undefined;
     const waitForDebugSettle = (ms = 140) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+    const waitForDebugFrames = (frameCount = 2, timeoutMs = 240) => new Promise<void>((resolve) => {
+      let settled = false;
+      let remaining = Math.max(1, Math.floor(frameCount));
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve();
+      };
+      const onFrame = () => {
+        remaining -= 1;
+        if (remaining <= 0) finish();
+        else window.requestAnimationFrame(onFrame);
+      };
+      const timeoutId = window.setTimeout(finish, Math.max(50, timeoutMs));
+      window.requestAnimationFrame(onFrame);
+    });
     const debugMetricRound = (value: number) => Math.round(Number(value || 0) * 1000) / 1000;
     const debugRectSnapshot = (rect: DOMRect | null | undefined) => rect
       ? {
@@ -13241,6 +14626,7 @@ function App() {
         activeRunId: activeRunRef.current || "",
         activeImageRunIds: Object.keys(imageRunStartsRef.current),
         lastSurfaceClose: window.__naimageDebugLastSurfaceClose ? { ...window.__naimageDebugLastSurfaceClose } : null,
+        canvasImageCollectionProgress: window.__naimageCanvasImageCollectionProgress ? { ...window.__naimageCanvasImageCollectionProgress } : null,
         activeProjectId: activeProjectIdRef.current,
         activeConversationId: activeConversationIdRef.current,
         selectedNodeId: selectedNodeIdRef.current,
@@ -15410,16 +16796,46 @@ function App() {
     const runCanvasImageCollectionSuite = async () => {
       const steps: { label: string; ok: boolean; durationMs: number; detail?: unknown; error?: string }[] = [];
       const issues: { level: "warning" | "error"; area: string; message: string; detail?: unknown }[] = [];
+      window.__naimageCanvasImageCollectionProgress = {
+        status: "running",
+        completedSteps: 0,
+        visibilityState: document.visibilityState,
+        updatedAt: Date.now()
+      };
       const step = async (label: string, action: () => Promise<unknown>) => {
         const started = performance.now();
+        window.__naimageCanvasImageCollectionProgress = {
+          ...window.__naimageCanvasImageCollectionProgress,
+          status: "running",
+          currentStep: label,
+          completedSteps: steps.length,
+          visibilityState: document.visibilityState,
+          updatedAt: Date.now()
+        };
         try {
           const detail = await action();
           const ok = !detail || typeof detail !== "object" || (detail as { ok?: boolean }).ok !== false;
           steps.push({ label, ok, durationMs: Math.round(performance.now() - started), detail });
+          window.__naimageCanvasImageCollectionProgress = {
+            status: "running",
+            lastStep: label,
+            lastStepOk: ok,
+            completedSteps: steps.length,
+            visibilityState: document.visibilityState,
+            updatedAt: Date.now()
+          };
           return detail;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           steps.push({ label, ok: false, durationMs: Math.round(performance.now() - started), error: message });
+          window.__naimageCanvasImageCollectionProgress = {
+            status: "running",
+            lastStep: label,
+            lastStepOk: false,
+            completedSteps: steps.length,
+            visibilityState: document.visibilityState,
+            updatedAt: Date.now()
+          };
           return { ok: false, error: message };
         }
       };
@@ -16075,7 +17491,7 @@ function App() {
         await waitForDebugSettle(220);
         const after = nodesRef.current.find((node) => node.id === continuationId);
         const afterFrame = captureGestureFrame("released");
-        await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+        await waitForDebugFrames(2, 240);
         await waitForDebugSettle(80);
         const settledFrame = captureGestureFrame("settled");
         const grouped = layoutGroupsRef.current.some((group) => group.memberNodeIds.includes(continuationId));
@@ -16595,7 +18011,16 @@ function App() {
         exercisedStepCount: evidenceStepSummaries.length
       };
       const ok = steps.every((item) => item.ok) && !hasBlockingSuiteIssue(issues);
-      return {
+      const lastStep = steps[steps.length - 1];
+      window.__naimageCanvasImageCollectionProgress = {
+        status: ok ? "complete" : "failed",
+        lastStep: lastStep?.label,
+        lastStepOk: lastStep?.ok,
+        completedSteps: steps.length,
+        visibilityState: document.visibilityState,
+        updatedAt: Date.now()
+      };
+      const result = {
         ok,
         startedAt: new Date().toISOString(),
         ids: { singleId, seriesId, batchId, mixedBatchId, extractedId },
@@ -16606,6 +18031,8 @@ function App() {
         issues,
         state
       };
+      window.__naimageCanvasImageCollectionLastResult = result;
+      return result;
     };
     const runLayerStackSuite = async (options?: { agentDriven?: boolean; liveImage?: boolean }) => {
       const agentDriven = options?.agentDriven === true;
@@ -17366,7 +18793,7 @@ function App() {
       await step("persist-six-independent-layer-nodes", async () => {
         if (!window.naimageConfig?.saveSession || !window.naimageConfig?.loadSession) return { ok: false, error: "session bridge unavailable" };
         const snapshot = buildWorkflowSessionSnapshot({
-          schemaVersion: 3,
+          schemaVersion: 5,
           nodeSequence: nodeSequenceRef.current,
           canvasRevision: canvasRevisionRef.current,
           layoutGroups: layoutGroupsRef.current,
@@ -17397,7 +18824,7 @@ function App() {
         await waitForDebugSettle(180);
         const hidden = nodesRef.current.find((node) => node.id === subject.id);
         const snapshot = buildWorkflowSessionSnapshot({
-          schemaVersion: 3,
+          schemaVersion: 5,
           nodeSequence: nodeSequenceRef.current,
           canvasRevision: canvasRevisionRef.current,
           layoutGroups: layoutGroupsRef.current,
@@ -19011,6 +20438,14 @@ function App() {
         layoutRefocusTimerRef.current = -1;
         return { ok: true, state: readDebugState() };
       },
+      resumeLayoutRefocus: () => {
+        if (layoutRefocusTimerRef.current && layoutRefocusTimerRef.current !== -1) {
+          window.clearTimeout(layoutRefocusTimerRef.current);
+        }
+        layoutRefocusTimerRef.current = null;
+        scheduleFocusedNodeRefit();
+        return { ok: true };
+      },
       moveLayer: async (payload: { nodeId: string; layerId: string; x: number; y: number }) => {
         const nodeId = String(payload?.nodeId || "");
         const layerId = String(payload?.layerId || "");
@@ -19156,146 +20591,95 @@ function App() {
   }, [activeConversationId, activeProjectId, agentProgress, agentStatus, messages, nodeEditorDraft, nodes, regionRedrawDraft, requirementEditorDraft, sendPrompt, settings]);
 
   const executeAutomationCommand = useStableEvent(async (command: string, args: Record<string, unknown> = {}) => {
-    const canvasState = () => ({
-      activeProjectId: activeProjectIdRef.current,
-      activeConversationId: activeConversationIdRef.current,
-      agentStatus: agentStatusRef.current,
-      viewport: { ...viewportRef.current },
-      selection: {
-        primaryId: selectedNodeIdRef.current,
-        ids: [...selectedNodeIdsRef.current]
+    const runtime = await loadAutomationCommandRuntime();
+    return runtime.executeAutomationCommand(command, args, {
+      activeProjectId: () => activeProjectIdRef.current,
+      activeConversationId: () => activeConversationIdRef.current,
+      agentStatus: () => agentStatusRef.current,
+      activeRunId: () => activeRunRef.current || "",
+      agentPaused: () => agentPaused,
+      viewport: () => ({ ...viewportRef.current }),
+      selection: () => ({ primaryId: selectedNodeIdRef.current, ids: [...selectedNodeIdsRef.current] }),
+      canvasRevision: () => canvasRevisionRef.current,
+      lockedNodeIds: () => [...lockedNodeIdsRef.current],
+      mutationLocks: (nodeIds) => lockedMutationNodeIds(nodeIds),
+      projects: () => projects,
+      nodes: () => nodesRef.current,
+      layoutGroups: () => layoutGroupsRef.current,
+      messages: () => messagesRef.current,
+      switchProject,
+      createProject,
+      renameProject,
+      selectNodes: (ids, primaryId) => commitNodeSelection({ primaryId, ids }, "automation"),
+      fitCanvas,
+      removeFailedNodes: (ids) => commitNodeRemoval(ids, {
+        historyLabel: "清理失败成果",
+        eventText: `清理 ${ids.length} 个失败成果`,
+        agentText: `外部 Agent 清理了 ${ids.length} 个失败成果。`
+      }),
+      clearCanvas: () => runtimeActionHandlerRef.current([{ type: "workflow.canvas.clear", mode: "all" }]),
+      deleteSelectedNodes: deleteSelectedCanvasNodes,
+      createContainer: (role, x, y) => role ? createTaskImageContainerAt(x, y, role) : createImageContainerAt(x, y),
+      parseSkill: async (markdown, sourceName) => {
+        const result = await window.naimageConfig?.parseSkill?.({ markdown, sourceName });
+        if (!result?.ok || !result.skill) throw new Error(result?.error || "当前桌面运行时无法解析 SKILL.md。");
+        return result.skill;
       },
-      nodes: nodesRef.current.map((node) => ({
-        id: node.id,
-        type: node.type,
-        title: node.title,
-        status: node.status,
-        imageState: node.imageState,
-        assetCount: node.assets?.length || 0,
-        parentId: node.parentId || "",
-        relationType: node.relationType,
-        x: node.x,
-        y: node.y,
-        width: node.width,
-        height: node.height
-      }))
-    });
-    const appState = () => ({
-      ...canvasState(),
-      projects: projects.map((project) => ({ id: project.id, name: project.name, updatedAt: project.updatedAt })),
-      recentMessages: messagesRef.current.filter((message) => !message.hidden).slice(-20).map((message) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        status: message.status,
-        createdAt: message.createdAt
-      }))
-    });
-    const waitForAgent = async () => {
-      const deadline = Date.now() + 15 * 60_000;
-      let observedBusy = agentStatusRef.current === "thinking" || agentStatusRef.current === "editing";
-      if (!observedBusy) return appState();
-      while (Date.now() < deadline) {
-        const status = agentStatusRef.current;
-        if (status === "thinking" || status === "editing") observedBusy = true;
-        if (observedBusy && (status === "idle" || status === "error")) return appState();
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
-      }
-      throw new Error("等待 naimage Agent 完成超时。");
-    };
-
-    switch (command) {
-      case "app.state":
-        return appState();
-      case "canvas.state":
-        return canvasState();
-      case "project.list":
-        return { activeProjectId: activeProjectIdRef.current, projects: projects.map(({ id, name, updatedAt }) => ({ id, name, updatedAt })) };
-      case "project.switch": {
-        const id = String(args.id || "");
-        if (!projects.some((project) => project.id === id)) throw new Error("目标项目不存在。");
-        await switchProject(id);
-        return appState();
-      }
-      case "project.create":
-        await createProject(String(args.name || "").trim());
-        return appState();
-      case "project.rename":
-        await renameProject(String(args.name || "").trim());
-        return appState();
-      case "canvas.select": {
-        const available = new Set(nodesRef.current.map((node) => node.id));
-        const ids = [...new Set((Array.isArray(args.ids) ? args.ids : []).map((id) => String(id)).filter((id) => available.has(id)))];
-        const primaryId = ids.includes(String(args.primaryId || "")) ? String(args.primaryId) : ids[0] || "";
-        commitNodeSelection({ primaryId, ids }, "automation");
-        return canvasState();
-      }
-      case "canvas.fit":
-        fitCanvas();
-        return canvasState();
-      case "canvas.clear": {
-        const mode = args.mode === "failed" ? "failed" : "all";
-        if (mode === "all" && args.confirmed !== true) throw new Error("清空全部画布需要 confirmed=true。");
-        if (mode === "failed") {
-          const failedIds = nodesRef.current.filter((node) => node.imageState === "error" || node.status === "review").map((node) => node.id);
-          commitNodeRemoval(failedIds, {
-            historyLabel: "清理失败成果",
-            eventText: `清理 ${failedIds.length} 个失败成果`,
-            agentText: `外部 Agent 清理了 ${failedIds.length} 个失败成果。`
-          });
-        } else {
-          await runtimeActionHandlerRef.current([{ type: "workflow.canvas.clear", mode: "all" }]);
-        }
-        return canvasState();
-      }
-      case "canvas.delete-selected":
-        if (args.confirmed !== true) throw new Error("删除所选节点需要 confirmed=true。");
-        if (!deleteSelectedCanvasNodes()) throw new Error("当前选择中没有可删除节点。");
-        return canvasState();
-      case "canvas.create-container": {
-        const role = args.role === "source" || args.role === "reference" ? args.role : undefined;
-        const x = Number.isFinite(Number(args.x)) ? Number(args.x) : 180;
-        const y = Number.isFinite(Number(args.y)) ? Number(args.y) : 160;
-        const id = role ? createTaskImageContainerAt(x, y, role) : createImageContainerAt(x, y);
-        return { id, state: canvasState() };
-      }
-      case "canvas.import": {
-        const paths = (Array.isArray(args.paths) ? args.paths : []).map((item) => String(item)).filter(Boolean);
-        if (!paths.length) throw new Error("请提供至少一个导入路径。");
+      createSkillNode: createImportedSkillNode,
+      importPaths: async (paths, targetContainerId, x, y) => {
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect) throw new Error("画布尚未就绪。");
-        const worldX = Number.isFinite(Number(args.x)) ? Number(args.x) : 240;
-        const worldY = Number.isFinite(Number(args.y)) ? Number(args.y) : 180;
         const viewport = viewportRef.current;
         await importPathsToCanvas(
           paths,
-          rect.left + viewport.x + worldX * viewport.scale,
-          rect.top + viewport.y + worldY * viewport.scale,
-          String(args.targetContainerId || "")
+          rect.left + viewport.x + x * viewport.scale,
+          rect.top + viewport.y + y * viewport.scale,
+          targetContainerId
         );
-        return canvasState();
-      }
-      case "agent.chat": {
-        const promptText = String(args.prompt || "").trim();
-        if (!promptText) throw new Error("Agent 任务不能为空。");
-        const sourceNodeIds = (Array.isArray(args.sourceNodeIds) ? args.sourceNodeIds : [])
-          .map((id) => String(id))
-          .filter((id) => nodesRef.current.some((node) => node.id === id));
+      },
+      exportImage: async (nodeId, assetIndex, format) => {
+        const node = nodesRef.current.find((candidate) => candidate.id === nodeId);
+        if (!node?.assets?.[assetIndex]) throw new Error("目标图片不存在。");
+        return saveAssetAs(node, assetIndex, format);
+      },
+      connectCanvas: connectCanvasForAutomation,
+      disconnectCanvas: disconnectCanvasForAutomation,
+      groupCanvas: groupCanvasForAutomation,
+      dissolveCanvas: dissolveCanvasForAutomation,
+      nudgeCanvas: nudgeCanvasForAutomation,
+      createRequirement: createRequirementForAutomation,
+      createCommerceReusableNode,
+      updateRequirement: updateRequirementForAutomation,
+      executeRequirement: executeRequirementForAutomation,
+      sendPrompt: async (promptText, sourceNodeIds) => {
+        if (agentExecutionBusyNow()) {
+          const accepted = await steerAgentRun(promptText, {
+            taskScopeMode: sourceNodeIds.length ? "replace-source" : "keep",
+            ...(sourceNodeIds.length ? { sourceNodeIds } : {}),
+            useComposerAttachments: false
+          });
+          if (!accepted) throw new Error("当前 Agent 任务没有接收 agent.chat 要求。");
+          return true;
+        }
         await sendPrompt(promptText, {
           ...(sourceNodeIds.length ? { sourceNodeIds, focusedNodeId: sourceNodeIds[0] } : {}),
           useComposerAttachments: false
         });
-        return await waitForAgent();
-      }
-      case "agent.stop":
-        await stopAgentRun();
-        return appState();
-      case "agent.new-conversation":
-        confirmCreateConversation();
-        return appState();
-      default:
-        throw new Error(`不支持的 naimage 自动化命令：${command}`);
-    }
+        return true;
+      },
+      composePluginTask: async (payload) => {
+        const result = await window.naimageConfig?.composePluginTask?.(payload);
+        return result ?? { ok: false, error: "当前桌面运行时没有提供插件任务编排器。" };
+      },
+      previewGoal: previewGoalMode,
+      executeGoal: executeGoalMode,
+      steerAgent: steerAgentRun,
+      pauseAgent: pauseAgentRun,
+      resumeAgent: resumeAgentRun,
+      stopAgent: stopAgentRun,
+      newConversation: confirmCreateConversation,
+      agentBusy: agentExecutionBusyNow
+    });
   });
 
   useEffect(() => {
@@ -19307,7 +20691,7 @@ function App() {
         const result = await executeAutomationCommand(payload.command, payload.args || {});
         if (!disposed) bridge.respond({ requestId: payload.requestId, ok: true, result });
       } catch (error) {
-        if (!disposed) bridge.respond({ requestId: payload.requestId, ok: false, error: error instanceof Error ? error.message : String(error) });
+        if (!disposed) bridge.respond({ requestId: payload.requestId, ok: false, ...automationErrorPayload(error) });
       }
     });
     void bridge.ready().catch(() => undefined);
@@ -19318,33 +20702,55 @@ function App() {
   }, [executeAutomationCommand]);
 
   async function pauseAgentRun() {
-    if (!agentExecutionBusyNow() || agentPaused) return;
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，暂时不能暂停或恢复。");
+      return false;
+    }
+    if (!agentExecutionBusyNow() || agentPaused) return false;
+    if (!window.naimageAgent?.pause) {
+      setServerMessage("底层暂停控制器不可用，当前任务没有被暂停。");
+      return false;
+    }
     const result = await window.naimageAgent?.pause?.({
       projectId: activeProjectIdRef.current || "default",
       conversationId: activeConversationIdRef.current || "default"
     });
-    if (result?.ok === false) {
-      setServerMessage(result.error || "暂停任务失败。");
-      return;
+    if (result?.ok !== true) {
+      setServerMessage(result?.error || "暂停任务失败。");
+      return false;
     }
     setAgentPaused(true);
     setServerMessage("任务已暂停；当前已发出的请求会收尾，但不会派发下一批。点击恢复后继续。");
+    return true;
   }
 
   async function resumeAgentRun() {
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，暂时不能暂停或恢复。");
+      return false;
+    }
+    if (!agentPaused || !window.naimageAgent?.resume) {
+      setServerMessage(!agentPaused ? "当前 Agent 任务没有暂停。" : "底层恢复控制器不可用，当前任务仍保持暂停。");
+      return false;
+    }
     const result = await window.naimageAgent?.resume?.({
       projectId: activeProjectIdRef.current || "default",
       conversationId: activeConversationIdRef.current || "default"
     });
-    if (result?.ok === false) {
-      setServerMessage(result.error || "恢复任务失败。");
-      return;
+    if (result?.ok !== true) {
+      setServerMessage(result?.error || "恢复任务失败。");
+      return false;
     }
     setAgentPaused(false);
     setServerMessage("任务已恢复，继续派发后续批次。");
+    return true;
   }
 
   function requestPauseAgentRun() {
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，暂时不能暂停或恢复。");
+      return;
+    }
     if (!agentExecutionBusyNow() || agentPaused) return;
     openConfirmDialog({
       id: activeRunRef.current || "active-agent-run",
@@ -19358,6 +20764,10 @@ function App() {
   }
 
   function requestStopAgentRun() {
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，请勿重复操作。");
+      return;
+    }
     if (!agentExecutionBusyNow() && !agentPaused) return;
     openConfirmDialog({
       id: activeRunRef.current || "active-agent-run",
@@ -19372,35 +20782,64 @@ function App() {
   }
 
   async function stopAgentRun() {
-    if (!agentExecutionBusyNow() && !agentPaused) return;
+    if (!agentExecutionBusyNow() && !agentPaused) return false;
+    if (agentStopPendingRef.current) {
+      setServerMessage("正在确认结束当前任务，请勿重复操作；任务状态尚未改变。");
+      return false;
+    }
+    const stopBridge = window.naimageAgent?.stop;
+    if (!stopBridge) {
+      setServerMessage("底层运行控制器不可用，当前任务没有被确认结束。");
+      return false;
+    }
+    const requestToken = Symbol("agent-stop-request");
+    agentStopPendingRef.current = requestToken;
+    setAgentStopPending(true);
     const runId = activeRunRef.current ?? undefined;
     const pendingRequestId = pendingAgentExecutionRef.current?.requestId;
-    const stopRequest = window.naimageAgent?.stop?.({
-      projectId: activeProjectIdRef.current || "default",
-      conversationId: activeConversationIdRef.current || "default",
-      reason: "用户确认结束了当前任务。"
-    });
-    // The abort command is dispatched first, then local run identity is cleared
-    // immediately so a cancelled IPC response cannot be committed as success.
-    activeRunRef.current = null;
-    commitExecutionReservation(null);
-    if (pendingRequestId) closePendingAgentExecution(pendingRequestId);
-    failAllLayerExecutionPlaceholders("任务已中断，可在原需求上重新执行。");
-    setStreamingImagePreviews({});
-    Object.keys(imageRunStartsRef.current).forEach(markImageRunFinished);
-    setAgentStatus("idle");
-    setAgentPaused(false);
-    setActiveRunStartedAt(null);
-    flushPendingAgentStreamMessages();
-    setMessages((current) => finishRunStreamingMessages(current, runId).slice(-120));
-    pushSystemMessage(
-      "interrupt",
-      pendingRequestId && !runId
-        ? "已取消等待补充的任务；你可以直接发送新的要求。"
-        : "已结束当前任务：模型思考、生图请求和未派发批次均已取消；已完成成果会保留。"
-    );
-    const result = await stopRequest?.catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    if (result?.ok === false) setServerMessage(`任务已在界面结束，但底层取消失败：${result.error || "未知错误"}`);
+    try {
+      const { confirmAgentStopRequest } = await loadAgentStopRequest();
+      const result = await confirmAgentStopRequest(
+        () => stopBridge({
+          projectId: activeProjectIdRef.current || "default",
+          conversationId: activeConversationIdRef.current || "default",
+          reason: "用户确认结束了当前任务。"
+        }),
+        () => {
+          activeRunRef.current = null;
+          commitExecutionReservation(null);
+          if (pendingRequestId) closePendingAgentExecution(pendingRequestId);
+          failAllLayerExecutionPlaceholders("任务已中断，可在原需求上重新执行。");
+          setStreamingImagePreviews({});
+          Object.keys(imageRunStartsRef.current).forEach(markImageRunFinished);
+          setAgentProgress([]);
+          setAgentStatus("idle");
+          setAgentPaused(false);
+          setActiveRunStartedAt(null);
+          flushPendingAgentStreamMessages();
+          setMessages((current) => finishRunStreamingMessages(current, runId).slice(-120));
+          pushSystemMessage(
+            "interrupt",
+            pendingRequestId && !runId
+              ? "已取消等待补充的任务；你可以直接发送新的要求。"
+              : "已结束当前任务：模型思考、生图请求和未派发批次均已取消；已完成成果会保留。"
+          );
+        }
+      );
+      if (!result.ok) {
+        pushSystemMessage("interrupt-error", `结束失败，当前任务仍保持原状态，可以重试：${result.error}`);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      pushSystemMessage("interrupt-error", `结束失败，当前任务仍保持原状态，可以重试：${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    } finally {
+      if (agentStopPendingRef.current === requestToken) {
+        agentStopPendingRef.current = null;
+        setAgentStopPending(false);
+      }
+    }
   }
 
 // -----------------------------------------------------------------------------
@@ -19409,6 +20848,7 @@ function App() {
 
   async function submitAuth() {
     if (!authDraft.email.trim() || !authDraft.password.trim()) return;
+    clearGoalConfirmationAuthorizations();
     const authRequestEpoch = ++serverRefreshEpochRef.current;
     try {
       if (!window.naimageServer) throw new Error("本地账户服务正在启动或连接失败，请稍后重试。");
@@ -19520,6 +20960,7 @@ function App() {
 
   async function logoutServer() {
     serverRefreshEpochRef.current += 1;
+    clearGoalConfirmationAuthorizations();
     let logoutWarning = "";
     if (agentExecutionBusyNow()) await stopAgentRun();
     else failAllLayerExecutionPlaceholders("登录状态已结束，分层任务已停止。");
@@ -19545,6 +20986,7 @@ function App() {
     setAskUserDraft(null);
     setImageViewer(null);
     setConfirmDialog(null);
+    setGoalConfirmation(null);
     setDeleteNodeDraft(null);
     setProjectNameDraft(null);
     setQuotaDialog(null);
@@ -20103,11 +21545,11 @@ function App() {
     });
   }
 
-  async function saveAssetAs(node: WorkflowNode, assetIndex: number) {
+  async function saveAssetAs(node: WorkflowNode, assetIndex: number, format?: ImageExportFormat) {
     const asset = node.assets?.[assetIndex];
     if (!asset) return { ok: false, error: "图片资产不存在。" };
     const bridge = window.naimageConfig as typeof window.naimageConfig & {
-      saveAssetAs?: (payload: { asset: ImageAsset; projectId?: string; suggestedName?: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>;
+      saveAssetAs?: (payload: { asset: ImageAsset; projectId?: string; suggestedName?: string; format?: ImageExportFormat }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; format?: ImageExportFormat; cleanupWarning?: string; error?: string }>;
     };
     if (!bridge?.saveAssetAs) {
       setServerMessage("当前版本尚未连接图片另存为服务。");
@@ -20118,11 +21560,12 @@ function App() {
       const result = await bridge.saveAssetAs({
         asset,
         projectId: activeProjectIdRef.current,
-        suggestedName: suggestedAssetExportName(node, asset, assetIndex)
+        suggestedName: suggestedAssetExportName(node, asset, assetIndex),
+        format
       });
       if (!result.ok && !result.canceled) setServerMessage(result.error || "图片另存为失败。");
       if (result.ok && !result.canceled && result.path) {
-        setServerMessage(`已另存图片：${result.path}`);
+        setServerMessage(`已另存图片：${result.path}${imageExportCleanupSuffix(result)}`);
         addEvent(`另存图片 ${node.id}/${assetIndex + 1}`);
       }
       return result;
@@ -20180,7 +21623,7 @@ function App() {
       const result = await bridge.saveAssetAs({ asset, projectId: activeProjectIdRef.current, suggestedName });
       if (!result.ok && !result.canceled) setServerMessage(result.error || "图片另存为失败。");
       if (result.ok && !result.canceled && result.path) {
-        setServerMessage(`已另存图片：${result.path}`);
+        setServerMessage(`已另存图片：${result.path}${imageExportCleanupSuffix(result)}`);
         addEvent(`另存${eventLabel}`);
       }
       return result;
@@ -20241,22 +21684,70 @@ function App() {
     }
   }
 
-  const projectAgentSendPrompt = useStableEvent((nextPrompt?: string) => sendPrompt(nextPrompt));
-  const openCommerceTranslation = useStableEvent(() => {
+  const projectAgentSendPrompt = useStableEvent((
+    nextPrompt?: string,
+    taskScopeMode: AgentSteerTaskScopeMode | "auto" = "auto",
+    taskMode: AgentComposerTaskMode = "standard"
+  ) => {
+    const content = nextPrompt ?? prompt;
+    if (agentExecutionBusyNow()) {
+      if (lastDispatchedTaskScopeRef.current?.origin === "goal") {
+        return steerAgentRun(content, { taskScopeMode: "keep", useComposerAttachments: false });
+      }
+      return taskScopeMode !== "auto"
+        ? steerAgentRun(content, { taskScopeMode })
+        : sendPrompt(nextPrompt);
+    }
+    if (taskMode === "goal") {
+      pendingCommerceReusableNodeRef.current = null;
+      return requestGoalModeConfirmation(content);
+    }
+    return sendPrompt(nextPrompt);
+  });
+  function commerceSourceKeysForNodeIds(sourceNodeIds: readonly string[]) {
+    const seenBindings = new Set<string>();
+    const sourceKeys: string[] = [];
+    for (const nodeId of sourceNodeIds) {
+      for (const binding of flattenImageContainerBindings(nodesRef.current, nodeId)) {
+        if (binding.role === "reference" || seenBindings.has(binding.bindingId)) continue;
+        seenBindings.add(binding.bindingId);
+        sourceKeys.push(binding.bindingId);
+      }
+    }
+    return sourceKeys;
+  }
+
+  function currentCommerceSourceSelection() {
+    const selection = currentNodeSelection();
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const sourceNodeIds = [...new Set(selection.ids.map((id) => projection.groupByMember.get(id)?.hostNodeId ?? id))]
+      .filter((id) => {
+        const node = projection.canvasNodeById.get(id) ?? nodesRef.current.find((candidate) => candidate.id === id);
+        return node?.type === "image" && !node.layerGroup;
+      });
+    const sourceKeys = commerceSourceKeysForNodeIds(sourceNodeIds);
+    return {
+      sourceNodeIds,
+      sourceKeys,
+      sourceCount: sourceKeys.length,
+      sourceLabel: canvasSelectionSummary?.title || `${sourceKeys.length} 张母图`,
+    };
+  }
+
+  const openCommerceSet = useStableEvent((mode: "generate" | "translate") => {
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
       return;
     }
-    const sourceCount = selectedCanvasCapabilities.groupableNodeIds.length;
-    if (!sourceCount) {
-      setServerMessage("请先在画布选择至少一个包含图片的成果或容器，再使用套图翻译。");
+    const source = currentCommerceSourceSelection();
+    if (!source.sourceCount) {
+      setServerMessage(`请先在画布选择至少一张可用商品图，再使用${mode === "generate" ? "一键生成套图" : "一键多国语言"}。`);
       return;
     }
-    setCommerceTranslationDialog({
-      sourceCount,
-      sourceLabel: canvasSelectionSummary?.title || `${sourceCount} 个图片成果`
-    });
+    setCommerceSetDialog({ mode, ...source });
   });
+  const openCommerceGeneration = useStableEvent(() => openCommerceSet("generate"));
+  const openCommerceTranslation = useStableEvent(() => openCommerceSet("translate"));
   const openProjectGraphVisualization = useStableEvent(async () => {
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
@@ -20303,6 +21794,11 @@ function App() {
         const registry = new module.PluginCommandRegistry();
         unregisterCommands.push(registry.register(
           "sparkai.commerce-toolkit",
+          module.COMMERCE_GENERATE_SET_COMMAND,
+          openCommerceGeneration
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.commerce-toolkit",
           module.COMMERCE_TRANSLATION_COMMAND,
           openCommerceTranslation
         ));
@@ -20317,7 +21813,7 @@ function App() {
           openScientificFigure
         ));
         pluginCommandRegistryRef.current = registry;
-        setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates));
+        setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates, settings.disabledCanvasToolCommands));
       })
       .catch((error) => {
         if (!cancelled) {
@@ -20330,15 +21826,33 @@ function App() {
       unregisterCommands.splice(0).reverse().forEach((unregister) => unregister());
       pluginCommandRegistryRef.current = null;
     };
-  }, [settings.pluginStates, openCommerceTranslation, openProjectGraphVisualization, openScientificFigure]);
+  }, [settings.pluginStates, settings.disabledCanvasToolCommands, openCommerceGeneration, openCommerceTranslation, openProjectGraphVisualization, openScientificFigure]);
   const executePluginCommand = useStableEvent(async (commandId: string) => {
     try {
+      const item = pluginToolbarItemsRef.current.find((candidate) => candidate.command === commandId);
+      if (!item) throw new Error("该画布工具已在设置中停用。");
+      if (agentExecutionBusy) throw new Error("Agent 正在执行任务，请等待当前任务结束。");
+      if (item.when === "canvas.has-image-selection" && selectedCanvasCapabilities.groupableNodeIds.length === 0) {
+        throw new Error("请先选择图片成果或容器。");
+      }
       const runtime = pluginCommandRegistryRef.current;
       if (!runtime) throw new Error("插件正在加载，请稍后重试。");
       await runtime.execute(commandId, settingsRef.current.pluginStates);
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
     }
+  });
+  executePluginCommandRef.current = (commandId) => {
+    void executePluginCommand(commandId);
+  };
+  const persistCanvasToolDockMode = useStableEvent((mode: AppSettings["canvasToolDockMode"]) => {
+    const nextSettings = mergeSettings({ ...settingsRef.current, canvasToolDockMode: mode });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    setPluginToolbarPeekOpen(false);
+    void saveSettingsToStore(nextSettings).catch((error) => {
+      setServerMessage(`画布工具栏设置保存失败：${error instanceof Error ? error.message : String(error)}`);
+    });
   });
   const projectAgentPause = useStableEvent(() => requestPauseAgentRun());
   const projectAgentResume = useStableEvent(() => void resumeAgentRun());
@@ -20374,6 +21888,85 @@ function App() {
     if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
     const { buildAgentWindowSnapshot } = await loadAgentWindowSync();
     if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
+    const goalWarning = "多个窗口的 Goal 探测由 Main 串行准入；已派发或已被上游接受的请求仍可能计费，探测与熔断只阻止未派发请求。";
+    const activeGoalScope = agentExecutionBusyNow() && lastDispatchedTaskScopeRef.current?.origin === "goal"
+      ? lastDispatchedTaskScopeRef.current
+      : null;
+    let agentWindowGoal = {
+      available: false,
+      active: false,
+      snapshotHash: "",
+      containerCount: 0,
+      assetCount: 0,
+      operationsPerAsset: 1,
+      requestCount: 0,
+      skippedContainerCount: 0,
+      probeContainerCount: 1,
+      concurrencyCap: Math.max(1, Math.min(10, settingsRef.current.imageBatchSize)),
+      trialImagesUsed: 0,
+      paidImages: 0,
+      warning: goalWarning
+    };
+    if (activeGoalScope?.goal) {
+      const assetCount = activeGoalScope.goal.bindingCount;
+      const requestCount = activeGoalScope.goal.requestCount;
+      const trialImagesUsed = Math.min(requestCount, Math.max(0, Math.floor(Number(serverUser?.trialImagesRemaining) || 0)));
+      const paidImages = Math.max(0, requestCount - trialImagesUsed);
+      const imageCostCents = Number(serverWallet?.imageCostCents);
+      agentWindowGoal = {
+        available: true,
+        active: true,
+        snapshotHash: activeGoalScope.snapshotHash,
+        containerCount: activeGoalScope.goal.containerCount,
+        assetCount,
+        operationsPerAsset: activeGoalScope.goal.operationsPerAsset,
+        requestCount,
+        skippedContainerCount: 0,
+        probeContainerCount: activeGoalScope.goal.probeContainerCount,
+        concurrencyCap: activeGoalScope.goal.configuredConcurrency,
+        trialImagesUsed,
+        paidImages,
+        ...(Number.isFinite(imageCostCents) && imageCostCents >= 0
+          ? { estimatedMaxCostCents: Math.round(paidImages * imageCostCents) }
+          : {}),
+        warning: goalWarning
+      };
+    } else {
+      try {
+        const [unsignedPreview, goalMode, ledger] = await Promise.all([
+          buildGoalModePreview(prompt.trim() || "预览当前画布 Goal 范围"),
+          loadGoalMode(),
+          activeGoalConfirmationLedger()
+        ]);
+        const context = currentGoalConfirmationContext("agent-window");
+        const cached = agentWindowGoalPreviewRef.current;
+        const preview = cached &&
+          goalMode.goalModeAuthorizationFingerprint(cached) === goalMode.goalModeAuthorizationFingerprint(unsignedPreview) &&
+          ledger.isActive(cached.confirmationHash, context)
+          ? cached
+          : await issueGoalConfirmation(unsignedPreview, "agent-window");
+        agentWindowGoalPreviewRef.current = preview;
+        agentWindowGoal = {
+          available: true,
+          active: false,
+          snapshotHash: preview.confirmationHash,
+          containerCount: preview.containerCount,
+          assetCount: preview.assetCount,
+          operationsPerAsset: preview.operationsPerAsset,
+          requestCount: preview.requestCount,
+          skippedContainerCount: preview.skipped.length,
+          probeContainerCount: preview.probeContainerCount,
+          concurrencyCap: preview.concurrencyCap,
+          trialImagesUsed: preview.trialImagesUsed,
+          paidImages: preview.paidImages,
+          ...(preview.estimatedMaxCostCents === undefined ? {} : { estimatedMaxCostCents: preview.estimatedMaxCostCents }),
+          warning: goalWarning
+        };
+      } catch {
+        // An unavailable Goal is a normal canvas state; the detached window
+        // keeps the standard composer active without surfacing an error.
+      }
+    }
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
       ready: configReady && authReady && licenseReady && Boolean(serverUser && licenseStatus?.active),
       projectName: activeProjectName,
@@ -20381,6 +21974,7 @@ function App() {
       agentStatus,
       busy: agentExecutionBusyNow(),
       paused: agentPaused,
+      stopPending: agentStopPending,
       runElapsedSeconds,
       prompt,
       messages,
@@ -20389,10 +21983,14 @@ function App() {
       selectedArtifactCount: selectedNodes.length,
       sourceImageCount: agentSourceImages.length,
       referenceImageCount: agentReferenceImages.length,
+      goal: agentWindowGoal,
       agentProgress,
       theme: settings.theme,
       themePalette: settings.themePalette,
-      customTheme: settings.customTheme
+      customTheme: settings.customTheme,
+      glassTheme: settings.glassTheme,
+      glassMaterial: settings.glassMaterial,
+      glassParameters: settings.glassParameters
     }));
   });
   const projectAgentOpenWindow = useStableEvent(async () => {
@@ -20425,7 +22023,11 @@ function App() {
     }
     if (command.type === "send") {
       setPrompt(command.prompt);
-      await projectAgentSendPrompt(command.prompt);
+      if (command.taskMode === "goal") {
+        await executeGoalMode(command.prompt, command.expectedSnapshotHash, "agent-window");
+      } else {
+        await projectAgentSendPrompt(command.prompt, command.taskScopeMode);
+      }
       return;
     }
     if (command.type === "pause-confirmed") {
@@ -20489,6 +22091,7 @@ function App() {
     agentSourceImages,
     agentStatus,
     agentPaused,
+    agentStopPending,
     authReady,
     configReady,
     conversations,
@@ -20505,29 +22108,42 @@ function App() {
     serverUser,
     settings.agentModel,
     settings.customTheme,
+    settings.glassMaterial,
+    settings.glassParameters,
+    settings.glassTheme,
     settings.theme,
     settings.themePalette
   ]);
 
   if (!configReady || !authReady || !licenseReady) {
-    return <BootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在校验软件授权..."} />;
+    return (
+      <GlassThemeProvider settings={settings}>
+      <React.Suspense fallback={<main className="auth-shell" aria-busy="true" />}>
+        <LazyBootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在校验软件授权..."} />
+      </React.Suspense>
+      </GlassThemeProvider>
+    );
   }
 
   if (!serverUser || !licenseStatus?.active) {
     return (
+      <GlassThemeProvider settings={settings}>
       <>
         <OverflowTooltipLayer />
-        <AuthGate
-          authDraft={authDraft}
-          setAuthDraft={setAuthDraft}
-          submitAccount={submitAuth}
-          submitCustom={submitCustomAccess}
-          activateLicense={activateCurrentLicense}
-          accountAuthenticated={Boolean(serverUser && serverUser.id !== "custom-api")}
-          license={licenseStatus}
-          message={serverMessage}
-        />
+        <React.Suspense fallback={<main className="auth-shell" aria-busy="true" />}>
+          <LazyAuthGate
+            authDraft={authDraft}
+            setAuthDraft={setAuthDraft}
+            submitAccount={submitAuth}
+            submitCustom={submitCustomAccess}
+            activateLicense={activateCurrentLicense}
+            accountAuthenticated={Boolean(serverUser && serverUser.id !== "custom-api")}
+            license={licenseStatus}
+            message={serverMessage}
+          />
+        </React.Suspense>
       </>
+      </GlassThemeProvider>
     );
   }
 
@@ -20547,6 +22163,64 @@ function App() {
     pending: false
   });
 
+  const pluginToolbarExpanded = settings.canvasToolDockMode === "expanded" || pluginToolbarPeekOpen;
+
+  function openSettingsSection(section: "access" | "appearance") {
+    setFileMenuOpen(false);
+    setProjectMenuOpen(false);
+    setAccountOpen(false);
+    setSettingsInitialSection(section);
+    setSettingsOpen(true);
+  }
+
+  function changeWorkspaceViewMode(mode: WorkspaceViewMode) {
+    setWorkspaceViewMode(mode);
+    if (mode === "workbench") return;
+    const selected = nodesRef.current.find((node) => node.id === selectedNodeIdRef.current);
+    if (selected?.type === "image" && (selected.assets?.length ?? 0) > 0) return;
+    const nextImage = [...nodesRef.current].reverse().find((node) => node.type === "image" && (node.assets?.length ?? 0) > 0);
+    if (nextImage) replaceSelectedNodeId(nextImage.id);
+  }
+
+  function selectWorkspaceNavigatorNode(nodeId: string) {
+    const node = nodesRef.current.find((item) => item.id === nodeId);
+    if (!node) return;
+    const requiresWorkbenchProjection = node.type !== "image" || (node.assets?.length ?? 0) === 0;
+    // Search, the asset rail, Focus, and Review are explicit navigation
+    // surfaces. Their target must replace the canonical selection rather than
+    // use the selection reducer's "focus an existing member" semantics, which
+    // intentionally ignores an id outside the current selection.
+    replaceSelectedNodeId(node.id);
+    // Focus and Review only project completed image results. Navigating to a
+    // requirement or an in-flight image returns to the canonical Workbench so
+    // the selected target and the visible surface cannot disagree.
+    if (workspaceViewMode === "workbench" || requiresWorkbenchProjection) {
+      if (workspaceViewMode !== "workbench") setWorkspaceViewMode("workbench");
+      focusWorkflowNode(node, { revealInspector: false, recordEvent: false, selectNode: false });
+    }
+  }
+
+  function openWorkspaceImageNode(nodeId: string) {
+    const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "image" && (item.assets?.length ?? 0) > 0);
+    if (node) openImageViewer(node, 0);
+  }
+
+  function continueWorkspaceImageNode(nodeId: string) {
+    const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "image" && (item.assets?.length ?? 0) > 0);
+    if (!node) return;
+    replaceSelectedNodeId(node.id);
+    openNodeEditor(node, 0);
+  }
+
+  function importWorkspaceAssets() {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const point = clientToWorld(
+      (rect?.left ?? 0) + (rect?.width ?? 720) / 2,
+      (rect?.top ?? 0) + (rect?.height ?? 560) / 2
+    );
+    void importPickedImagesToCanvasAt(point.x, point.y);
+  }
+
   if (!firstWorkspaceRenderMarked) {
     firstWorkspaceRenderMarked = true;
     markPerformancePhase("workspace-render");
@@ -20557,6 +22231,7 @@ function App() {
 // MAIN 11 Main Workspace Render Tree
 // -----------------------------------------------------------------------------
 
+    <GlassThemeProvider settings={settings}>
     <div className="ide-shell">
       {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="app" record={recordDebugRenderCommit} /> : null}
       <OverflowTooltipLayer />
@@ -20652,12 +22327,32 @@ function App() {
             </ButtonBase>
           </div>
         </nav>
+        <div className="workspace-topbar-center">
+          <React.Suspense fallback={<span className="workspace-direction-switcher workspace-direction-switcher-loading" aria-hidden="true" />}>
+            <LazyWorkspaceDirectionSwitcher mode={workspaceViewMode} onChange={changeWorkspaceViewMode} />
+          </React.Suspense>
+          <ButtonBase
+            type="button"
+            className="workspace-glass-lab-button"
+            onClick={() => openSettingsSection("appearance")}
+            title="打开 Glass Lab 外观实验室"
+          >
+            <SlidersHorizontal size={14} />
+            <span>Glass Lab</span>
+          </ButtonBase>
+        </div>
         <div className="ide-actions">
+          <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
+            <LazyWorkspaceSearch
+              nodes={canvasNodes}
+              conversations={conversations}
+              activeConversationId={activeConversationId}
+              onSelectNode={selectWorkspaceNavigatorNode}
+              onSelectConversation={switchProjectConversation}
+            />
+          </React.Suspense>
           <ButtonBase className="icon-button app-settings-button" onClick={() => {
-            setFileMenuOpen(false);
-            setProjectMenuOpen(false);
-            setAccountOpen(false);
-            setSettingsOpen((current) => !current);
+            openSettingsSection("access");
           }} aria-label="设置">
             <Settings size={18} />
             {desktopUpdateNotice?.updateAvailable ? <span className="app-settings-update-dot" aria-label={`发现新版本 ${desktopUpdateNotice.latestVersion || ""}`} /> : null}
@@ -20681,7 +22376,7 @@ function App() {
 
       <main
         ref={workspaceRef}
-        className={`ide-main canvas-only agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
+        className={`ide-main canvas-only has-asset-rail workspace-mode-${workspaceViewMode} agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
         style={{
           "--agent-panel-width": `${agentPanelLayout.agentPanelWidth}px`,
           "--agent-panel-height": `${agentPanelLayout.agentPanelHeight}px`,
@@ -20689,32 +22384,20 @@ function App() {
           "--agent-panel-y": `${agentPanelLayout.agentPanelY}px`
         } as React.CSSProperties & Record<string, string>}
       >
-        <section className={`canvas-panel${pluginToolbarItems.length ? " has-plugin-toolbar" : ""}`}>
+        <React.Suspense fallback={<aside className="workspace-asset-rail is-loading" aria-label="正在载入项目素材" aria-busy="true" />}>
+          <LazyWorkspaceAssetRail
+            nodes={canvasNodes}
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            selectedNodeId={selectedNode?.id ?? selectedNodeId}
+            onSelectNode={selectWorkspaceNavigatorNode}
+            onSelectConversation={switchProjectConversation}
+            onImport={importWorkspaceAssets}
+            onOpenSettings={() => openSettingsSection("appearance")}
+          />
+        </React.Suspense>
+        <section className="canvas-panel">
           {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="canvas" record={recordDebugRenderCommit} /> : null}
-          {pluginToolbarItems.length ? (
-            <nav className="canvas-plugin-toolbar" aria-label="已启用插件工具栏">
-              <span><WandSparkles size={14} aria-hidden="true" />插件工具</span>
-              <div className="canvas-plugin-toolbar-actions">
-                {pluginToolbarItems.map((item) => {
-                  const needsSelection = item.when === "canvas.has-image-selection";
-                  const disabled = agentExecutionBusy || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
-                  return (
-                    <ButtonBase
-                      key={item.command}
-                      type="button"
-                      data-plugin-command={item.command}
-                      disabled={disabled}
-                      title={needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0 ? "请先选择图片成果或容器" : item.description}
-                      onClick={() => void executePluginCommand(item.command)}
-                    >
-                      <WandSparkles size={14} aria-hidden="true" />
-                      {item.label}
-                    </ButtonBase>
-                  );
-                })}
-              </div>
-            </nav>
-          ) : null}
           <div
             ref={bindCanvasRef}
             className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
@@ -20738,12 +22421,102 @@ function App() {
               if (!(event.target as HTMLElement).closest(".flow-node")) return;
             }}
           >
+            <React.Suspense fallback={null}>
+              <LazyWorkspaceTaskContext mode={workspaceViewMode} node={selectedNode} />
+            </React.Suspense>
             {externalCanvasDropActive ? (
               <div className="canvas-external-file-drop" role="status" aria-live="polite">
                 <ImageIcon size={22} />
                 <strong>松开即可导入当前项目</strong>
                 <span>图片和文件夹会先复制到项目素材库</span>
               </div>
+            ) : null}
+            {pluginToolbarItems.length ? (
+              <nav
+                className={`canvas-plugin-toolbar ${pluginToolbarExpanded ? "is-expanded" : "is-collapsed"}`}
+                data-toolbar-mode={settings.canvasToolDockMode}
+                data-expanded={pluginToolbarExpanded ? "true" : "false"}
+                aria-label="画布工具栏"
+                onPointerEnter={() => {
+                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
+                }}
+                onPointerLeave={() => {
+                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(false);
+                }}
+                onFocusCapture={() => {
+                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
+                }}
+                onBlurCapture={(event) => {
+                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setPluginToolbarPeekOpen(false);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape" || settings.canvasToolDockMode !== "hover") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPluginToolbarPeekOpen(false);
+                  (event.currentTarget.querySelector(".canvas-plugin-toolbar-trigger") as HTMLButtonElement | null)?.focus();
+                }}
+              >
+                {settings.canvasToolDockMode === "hover" ? (
+                  <ButtonBase
+                    type="button"
+                    className="canvas-plugin-toolbar-trigger"
+                    aria-expanded={pluginToolbarExpanded}
+                    aria-controls="canvas-plugin-toolbar-actions"
+                    onClick={() => setPluginToolbarPeekOpen((current) => !current)}
+                    title={pluginToolbarExpanded ? "收起画布工具" : "展开画布工具"}
+                  >
+                    <WandSparkles size={14} aria-hidden="true" />
+                    <span>画布工具</span>
+                    <small>{pluginToolbarItems.length}</small>
+                    <ChevronDown size={13} aria-hidden="true" />
+                  </ButtonBase>
+                ) : (
+                  <span className="canvas-plugin-toolbar-title">
+                    <WandSparkles size={14} aria-hidden="true" />
+                    <span>画布工具</span>
+                    <small>{pluginToolbarItems.length}</small>
+                  </span>
+                )}
+                <div
+                  id="canvas-plugin-toolbar-actions"
+                  className="canvas-plugin-toolbar-actions"
+                  aria-hidden={!pluginToolbarExpanded}
+                >
+                  {pluginToolbarItems.map((item) => {
+                    const needsSelection = item.when === "canvas.has-image-selection";
+                    const disabled = agentExecutionBusy || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
+                    const shortcut = canvasToolShortcutLabel(item.shortcut);
+                    return (
+                      <ButtonBase
+                        key={item.command}
+                        type="button"
+                        data-plugin-command={item.command}
+                        disabled={disabled}
+                        tabIndex={pluginToolbarExpanded ? 0 : -1}
+                        aria-keyshortcuts={canvasToolAriaShortcut(item.shortcut)}
+                        title={`${needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0 ? "请先选择图片成果或容器" : item.description}${shortcut ? ` · ${shortcut}` : ""}`}
+                        onClick={() => void executePluginCommand(item.command)}
+                      >
+                        {canvasToolIcon(item.icon)}
+                        <span>{item.label}</span>
+                        {shortcut ? <kbd aria-hidden="true">{shortcut}</kbd> : null}
+                      </ButtonBase>
+                    );
+                  })}
+                </div>
+                <ButtonBase
+                  type="button"
+                  className="canvas-plugin-toolbar-pin"
+                  aria-label={settings.canvasToolDockMode === "expanded" ? "改为悬停展开工具栏" : "固定展开工具栏"}
+                  title={settings.canvasToolDockMode === "expanded" ? "改为悬停展开" : "固定展开"}
+                  onClick={() => persistCanvasToolDockMode(settings.canvasToolDockMode === "expanded" ? "hover" : "expanded")}
+                >
+                  {settings.canvasToolDockMode === "expanded" ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
+                </ButtonBase>
+              </nav>
             ) : null}
             <canvas ref={canvasParticleRef} className="canvas-particle-field" aria-hidden="true" />
             {canvasSelectionSummary ? (
@@ -20862,7 +22635,7 @@ function App() {
                       tabIndex={0}
                       aria-label={node.title?.trim() || node.id}
                       title={`${node.title?.trim() || node.id} · 单击查看完整节点`}
-                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
+                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
                       style={{
                         left: bounds.x,
                         top: bounds.y,
@@ -20988,8 +22761,9 @@ function App() {
                     data-layer-order={layerGroup?.order || undefined}
                     data-layer-detached={layerGroup ? String(Boolean(layerGroup.detached)) : undefined}
                     data-image-run-state={nodeIsGenerating ? "placeholder" : "settled"}
+                    data-skill-name={node.requirement?.skill?.name || undefined}
                     data-node-locked={nodeLocked ? "true" : undefined}
-                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
+                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
                       activeNodeId === node.id && !nodeIsGenerating ? "active-build" : ""
                     } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeId === node.id ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
                     style={{
@@ -21312,13 +23086,13 @@ function App() {
                       </div>
                     ) : node.type === "requirement" && node.requirement ? (
                       <div className="requirement-node-body">
-                        <span className="requirement-node-kicker"><Workflow size={13} /> 可复用需求</span>
-                        <p title={node.requirement.text}>{node.requirement.text}</p>
+                        <span className="requirement-node-kicker"><Workflow size={13} /> {node.requirement.skill ? `Skill · ${node.requirement.skill.name}` : "可复用需求"}</span>
+                        <p title={node.requirement.text}>{node.requirement.skill?.description || node.requirement.text}</p>
                         <div className="requirement-node-meta">
                           <span className={requirementBindings.length ? "connected" : "missing"}>
                             原图 {requirementSourceCount} · 参考 {requirementReferenceCount}
                           </span>
-                          <span>{node.requirement.lastRunCount ? `已执行 ${node.requirement.lastRunCount} 次` : "尚未执行"}</span>
+                          <span>{node.requirement.skill?.sourceName || (node.requirement.lastRunCount ? `已执行 ${node.requirement.lastRunCount} 次` : "尚未执行")}</span>
                         </div>
                         {node.requirement.lastError ? <small className="requirement-node-error">{node.requirement.lastError}</small> : null}
                         <ActionButton
@@ -21333,7 +23107,7 @@ function App() {
                           }}
                           icon={<Send size={13} />}
                         >
-                          执行需求
+                          {node.requirement.skill ? "执行 Skill" : "执行需求"}
                         </ActionButton>
                       </div>
                     ) : null}
@@ -21344,7 +23118,7 @@ function App() {
                       </div>
                     ) : null}
                     <footer>
-                      <span>{node.type === "requirement" ? `需求版本 v${node.requirement?.revision ?? 1}` : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? imageTaskSizeForNode(node).replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
+                      <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? imageTaskSizeForNode(node).replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
                     <span
@@ -21426,6 +23200,9 @@ function App() {
                 <>
                   <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     创建需求节点
+                  </MenuItem>
+                  <MenuItem icon={<Import size={15} />} onClick={() => void importSkillFileAt(canvasMenu.worldX, canvasMenu.worldY)}>
+                    导入 SKILL.md
                   </MenuItem>
                   <MenuItem icon={<WandSparkles size={15} />} disabled={agentExecutionBusy} onClick={() => openManualImageTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     创建生图工作
@@ -21517,10 +23294,10 @@ function App() {
                         {targetNode.type === "requirement" ? (
                           <>
                             <MenuItem icon={<Send size={15} />} disabled={agentExecutionBusy} onClick={() => executeRequirementNode(targetNode.id)}>
-                              基于该需求继续工作
+                              {targetNode.requirement?.skill ? "执行该 Skill" : "基于该需求继续工作"}
                             </MenuItem>
                             <MenuItem icon={<Settings size={15} />} onClick={() => openRequirementEditor(targetNode)}>
-                              编辑需求
+                              {targetNode.requirement?.skill ? "编辑 Skill 指令" : "编辑需求"}
                             </MenuItem>
                             {requirementInputBindings(targetNode, nodes).length ? (
                               <MenuItem icon={<Workflow size={15} />} onClick={() => {
@@ -21668,7 +23445,7 @@ function App() {
                  }}>
                     {layoutGroups.some((group) => group.hostNodeId === canvasMenu.nodeId)
                       ? "解散图片容器"
-                       : canvasNodeById.get(canvasMenu.nodeId)?.type === "requirement" ? "删除需求节点" : canvasNodeById.get(canvasMenu.nodeId)?.imageContainer ? "删除图片容器" : "删除成果"}
+                       : canvasNodeById.get(canvasMenu.nodeId)?.requirement?.skill ? "删除 Skill 节点" : canvasNodeById.get(canvasMenu.nodeId)?.type === "requirement" ? "删除需求节点" : canvasNodeById.get(canvasMenu.nodeId)?.imageContainer ? "删除图片容器" : "删除成果"}
                  </MenuItem>
                 </>
               ) : null}
@@ -21785,6 +23562,29 @@ function App() {
             );
           })() : null}
 
+          {workspaceViewMode === "focus" ? (
+            <React.Suspense fallback={null}>
+              <LazyWorkspaceFocusStage
+                nodes={canvasNodes}
+                selectedNodeId={selectedNode?.id ?? selectedNodeId}
+                onSelectNode={selectWorkspaceNavigatorNode}
+                onOpenNode={openWorkspaceImageNode}
+                onContinueNode={continueWorkspaceImageNode}
+              />
+            </React.Suspense>
+          ) : null}
+
+          {workspaceViewMode === "review" ? (
+            <React.Suspense fallback={null}>
+              <LazyWorkspaceReviewGrid
+                nodes={canvasNodes}
+                selectedNodeId={selectedNode?.id ?? selectedNodeId}
+                onSelectNode={selectWorkspaceNavigatorNode}
+                onOpenNode={openWorkspaceImageNode}
+              />
+            </React.Suspense>
+          ) : null}
+
         </section>
 
         <ProjectAgentPanel
@@ -21799,6 +23599,14 @@ function App() {
           agentStatus={agentStatus}
           executionBusy={agentExecutionBusy}
           paused={agentPaused}
+          stopPending={agentStopPending}
+          goalActive={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.origin === "goal"}
+          goalContainerCount={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.goal
+            ? lastDispatchedTaskScopeRef.current.goal.containerCount
+            : goalCanvasSummary.containerCount}
+          goalAssetCount={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.goal
+            ? lastDispatchedTaskScopeRef.current.goal.bindingCount
+            : goalCanvasSummary.assetCount}
           conversationBoundaryBusy={agentActiveExecutionBusy}
           agentProgress={agentProgress}
           runElapsedSeconds={runElapsedSeconds}
@@ -21849,13 +23657,16 @@ function App() {
       ) : null}
 
       {settingsOpen ? (
-        <SettingsDrawer
-          settings={settings}
-          saveSettings={commitAppSettings}
-          initialUpdateInfo={desktopUpdateNotice}
-          openPromptEditor={openAgentPromptEditor}
-          close={() => setSettingsOpen(false)}
-        />
+        <React.Suspense fallback={null}>
+          <LazySettingsDrawer
+            settings={settings}
+            saveSettings={commitAppSettings}
+            initialSection={settingsInitialSection}
+            initialUpdateInfo={desktopUpdateNotice}
+            openPromptEditor={openAgentPromptEditor}
+            close={() => setSettingsOpen(false)}
+          />
+        </React.Suspense>
       ) : null}
 
       {manualImageTaskDialog ? (
@@ -21876,39 +23687,80 @@ function App() {
         </React.Suspense>
       ) : null}
 
-      {commerceTranslationDialog ? (
+      {commerceSetDialog ? (
         <React.Suspense fallback={null}>
-          <LazyCommerceTranslationDialog
-            sourceCount={commerceTranslationDialog.sourceCount}
-            sourceLabel={commerceTranslationDialog.sourceLabel}
+          <LazyCommerceSetDialog
+            sourceCount={commerceSetDialog.sourceCount}
+            sourceLabel={commerceSetDialog.sourceLabel}
+            sourceKeys={commerceSetDialog.sourceKeys}
+            initialMode={commerceSetDialog.mode}
+            errorMessage={commerceSetDialog.error}
+            allowModeSwitch
+            allowPersistence
             executionBusy={agentExecutionBusy}
-            close={() => setCommerceTranslationDialog(null)}
+            close={() => setCommerceSetDialog(null)}
             submit={(payload) => {
-              setCommerceTranslationDialog(null);
+              const dialog = commerceSetDialog;
+              const currentSourceKeys = commerceSourceKeysForNodeIds(dialog.sourceNodeIds);
+              if (
+                currentSourceKeys.length !== dialog.sourceKeys.length ||
+                currentSourceKeys.some((key, index) => key !== dialog.sourceKeys[index])
+              ) {
+                const message = "套图配置期间母图范围已发生变化。请关闭后重新选择母图并再次打开，避免按过期范围计费。";
+                setCommerceSetDialog({ ...dialog, error: message });
+                setServerMessage(message);
+                return;
+              }
+              setCommerceSetDialog(null);
               setAgentCollapsed(false);
               void window.naimageConfig?.composePluginTask?.({
-                command: "sparkai.commerce-toolkit.translate-listing-set",
+                command: payload.plan.mode === "generate"
+                  ? "sparkai.commerce-toolkit.generate-listing-set"
+                  : "sparkai.commerce-toolkit.translate-listing-set",
                 languageCodes: payload.languageCodes,
-                sourceCount: commerceTranslationDialog.sourceCount
-              }).then((result) => {
+                sourceCount: dialog.sourceCount,
+                sourceNodeIds: dialog.sourceNodeIds,
+                plan: payload.plan
+              }).then(async (result) => {
                 if (!result?.ok || !result.task) throw new Error(result?.error || "插件任务生成失败。");
-                return sendPrompt(result.task.prompt, { visibleContent: result.task.visibleContent });
-              }).catch((error) => setServerMessage(error instanceof Error ? error.message : String(error)));
+                const planHash = String(result.task.planHash || "").trim().toLowerCase();
+                if (!/^commerce-[a-f0-9]{32}$/.test(planHash)) throw new Error("套图计划缺少有效 planHash，请重新打开并提交。");
+                const outputsPerSource = Math.max(1, Math.floor(Number(result.task.counts?.outputsPerSource) || 1));
+                pendingCommerceReusableNodeRef.current = payload.plan.saveTarget === "requirement" || payload.plan.saveTarget === "skill"
+                  ? {
+                      planHash,
+                      title: payload.plan.reusableName || payload.plan.title,
+                      text: result.task.prompt,
+                      sourceNodeIds: [...dialog.sourceNodeIds],
+                      kind: payload.plan.saveTarget,
+                    }
+                  : null;
+                const opened = await requestGoalModeConfirmation(result.task.prompt, {
+                  targetNodeIds: dialog.sourceNodeIds,
+                  operationsPerAsset: outputsPerSource,
+                });
+                if (!opened) pendingCommerceReusableNodeRef.current = null;
+              }).catch((error) => {
+                pendingCommerceReusableNodeRef.current = null;
+                setServerMessage(error instanceof Error ? error.message : String(error));
+              });
             }}
           />
         </React.Suspense>
       ) : null}
 
       {referencePickerDraft ? (
-       <ReferencePickerDialog
-         draft={referencePickerDraft}
-         setDraft={setReferencePickerDraft}
-          projectId={activeProjectId}
-         close={() => referencePickerDraft.target.kind === "agent-request"
-           ? closePendingAgentExecution(referencePickerDraft.target.requestId)
-           : setReferencePickerDraft(null)}
-          save={() => saveReferencePicker(referencePickerDraft)}
-        />
+        <React.Suspense fallback={null}>
+          <LazyReferencePickerDialog
+            draft={referencePickerDraft}
+            setDraft={setReferencePickerDraft}
+            projectId={activeProjectId}
+            close={() => referencePickerDraft.target.kind === "agent-request"
+              ? closePendingAgentExecution(referencePickerDraft.target.requestId)
+              : setReferencePickerDraft(null)}
+            save={() => saveReferencePicker(referencePickerDraft)}
+          />
+        </React.Suspense>
       ) : null}
 
       {askUserDraft ? (
@@ -21962,6 +23814,23 @@ function App() {
             busy={fileActionBusy}
             close={closeConfirmDialog}
             submit={submitConfirmDialog}
+          />
+        ) : null}
+
+        {goalConfirmation ? (
+          <LazyGoalConfirmationDialog
+            draft={goalConfirmation as GoalConfirmationDraft}
+            busy={goalConfirmationBusy}
+            notice={goalConfirmationNotice}
+            close={() => {
+              if (!goalConfirmationBusy) {
+                revokeGoalConfirmation(goalConfirmation);
+                setGoalConfirmationNotice("");
+                setGoalConfirmation(null);
+                pendingCommerceReusableNodeRef.current = null;
+              }
+            }}
+            submit={submitGoalModeConfirmation}
           />
         ) : null}
       </React.Suspense>
@@ -22573,34 +24442,37 @@ function App() {
       })() : null}
 
       {imageViewer ? (
-        <ImageViewer
-          viewer={imageViewer}
-          setViewer={setImageViewer}
-          close={() => setImageViewer(null)}
-          openFolder={openAssetFolder}
-          saveAs={(index) => {
-            const source = imageViewerAssetSourcesRef.current[index];
-            const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
-            const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
-            return node ? saveAssetAs(node, assetIndex) : Promise.resolve({ ok: false, error: "图片成果不存在。" });
-          }}
-          exportPsd={(index) => {
-            const source = imageViewerAssetSourcesRef.current[index];
-            const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
-            const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
-            return node
-              ? exportAssetPsd(node, assetIndex)
-              : Promise.resolve({ ok: false, error: "图片成果不存在。" });
-          }}
-          openAssetMenu={(event, index) => {
-            const source = imageViewerAssetSourcesRef.current[index];
-            const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
-            const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
-            if (node) openAssetContextMenuAt(event, node, assetIndex, "viewer");
-          }}
-        />
+        <React.Suspense fallback={null}>
+          <LazyImageViewer
+            viewer={imageViewer}
+            setViewer={setImageViewer}
+            close={() => setImageViewer(null)}
+            openFolder={openAssetFolder}
+            saveAs={(index) => {
+              const source = imageViewerAssetSourcesRef.current[index];
+              const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
+              const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
+              return node ? saveAssetAs(node, assetIndex) : Promise.resolve({ ok: false, error: "图片成果不存在。" });
+            }}
+            exportPsd={(index) => {
+              const source = imageViewerAssetSourcesRef.current[index];
+              const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
+              const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
+              return node
+                ? exportAssetPsd(node, assetIndex)
+                : Promise.resolve({ ok: false, error: "图片成果不存在。" });
+            }}
+            openAssetMenu={(event, index) => {
+              const source = imageViewerAssetSourcesRef.current[index];
+              const node = nodesRef.current.find((item) => item.id === (source?.nodeId ?? imageViewer.nodeId));
+              const assetIndex = source?.assetIndex ?? imageViewer.assetIndices?.[index] ?? index;
+              if (node) openAssetContextMenuAt(event, node, assetIndex, "viewer");
+            }}
+          />
+        </React.Suspense>
       ) : null}
     </div>
+    </GlassThemeProvider>
   );
 }
 
@@ -22706,7 +24578,9 @@ function ProjectAgentFeedView({
         {renderedMessages.map((message) => (
           <article key={message.id} className={`agent-message ${message.role} ${message.status ?? "done"}`}>
             <span className="agent-message-node" aria-hidden="true" />
-            <AgentMessageContent message={message} />
+            <React.Suspense fallback={<div className="markdown-body agent-plain-text">{message.content}</div>}>
+              <LazyAgentMessageContent message={message} />
+            </React.Suspense>
           </article>
         ))}
         <div ref={endRef} />
@@ -22724,6 +24598,10 @@ function ProjectAgentComposerView({
   prompt,
   executionBusy,
   paused,
+  stopPending,
+  goalActive,
+  goalContainerCount,
+  goalAssetCount,
   inputRef,
   setPrompt,
   sendPrompt,
@@ -22741,9 +24619,13 @@ function ProjectAgentComposerView({
   prompt: string;
   executionBusy: boolean;
   paused: boolean;
+  stopPending: boolean;
+  goalActive: boolean;
+  goalContainerCount: number;
+  goalAssetCount: number;
   inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   setPrompt: (value: string) => void;
-  sendPrompt: (prompt?: string) => void | Promise<void>;
+  sendPrompt: (prompt?: string, taskScopeMode?: AgentSteerTaskScopeMode | "auto", taskMode?: AgentComposerTaskMode) => void | Promise<unknown>;
   pauseAgentRun: () => void;
   resumeAgentRun: () => void;
   stopAgentRun: () => void;
@@ -22752,99 +24634,32 @@ function ProjectAgentComposerView({
   editReferenceImages: () => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
-  const busy = executionBusy;
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy || !prompt.trim()) return;
-    void sendPrompt();
-  }
-
   return (
     <>
       {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="composer" record={debugCommit} /> : null}
-      <form className="project-agent-composer" onSubmit={submit}>
-        <div className="project-agent-composer-meta">
-          <ActionButton className="project-agent-sources" variant="secondary" onClick={editSourceImages} icon={<Import size={14} />}>
-            {sourceImages.length ? `${sourceImages.length} 张原图` : "添加原图"}
-          </ActionButton>
-          <ActionButton className="project-agent-references" variant="secondary" onClick={editReferenceImages} icon={<ImageIcon size={14} />}>
-            {referenceImages.length ? `${referenceImages.length} 张参考图` : "添加参考图"}
-          </ActionButton>
-          {selectedArtifacts.length ? (
-            <div
-              className="project-agent-composer-context has-artifact"
-              data-selection-kind={selectedArtifacts.length > 1 ? "multiple" : "single"}
-              data-selection-count={selectedArtifacts.length}
-              data-selection-ids={selectedArtifacts.map((node) => node.id).join(" ")}
-              title={selectedArtifacts.length > 1 ? selectedArtifacts.map((node) => nodeWorkName(node)).join("、") : undefined}
-              aria-label={`将基于 ${selectedArtifacts.length === 1 ? nodeWorkName(selectedArtifacts[0]) : `${selectedArtifacts.length} 个选中成果`}`}
-            >
-              <ImageIcon size={13} />
-              <span>将基于</span>
-              <strong>{selectedArtifacts.length === 1 ? nodeWorkName(selectedArtifacts[0]) : `${selectedArtifacts.length} 个选中成果`}</strong>
-              <IconActionButton label="取消当前选中" onClick={clearSelection} icon={<X size={12} />} />
-            </div>
-          ) : null}
-        </div>
-        <textarea
-          ref={inputRef}
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value.slice(0, 36000))}
-          onPaste={(event) => {
-            if (clipboardHasImage(event)) event.preventDefault();
-          }}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-              event.preventDefault();
-              if (!busy) void sendPrompt();
-            }
-          }}
-          placeholder={selectedArtifacts.length ? "描述如何继续处理选中的成果..." : "告诉 Agent 你想完成什么..."}
-          rows={4}
+      <React.Suspense fallback={<div className="project-agent-composer" aria-busy="true" />}>
+        <LazyProjectAgentComposerContent
+          selectedArtifacts={selectedArtifacts.map((node) => ({ id: node.id, name: nodeWorkName(node) }))}
+          sourceImageCount={sourceImages.length}
+          referenceImageCount={referenceImages.length}
+          prompt={prompt}
+          executionBusy={executionBusy}
+          paused={paused}
+          stopPending={stopPending}
+          goalActive={goalActive}
+          goalContainerCount={goalContainerCount}
+          goalAssetCount={goalAssetCount}
+          inputRef={inputRef}
+          setPrompt={setPrompt}
+          sendPrompt={sendPrompt}
+          pauseAgentRun={pauseAgentRun}
+          resumeAgentRun={resumeAgentRun}
+          stopAgentRun={stopAgentRun}
+          clearSelection={clearSelection}
+          editSourceImages={editSourceImages}
+          editReferenceImages={editReferenceImages}
         />
-        <footer>
-          <span>{paused ? "已暂停，恢复后继续下一批" : "Ctrl + Enter 发送"}</span>
-          {busy ? (
-            <div className="project-agent-run-controls">
-              <ActionButton
-                className="project-agent-pause"
-                variant="secondary"
-                type="button"
-                onClick={paused ? resumeAgentRun : pauseAgentRun}
-                aria-label={paused ? "恢复处理" : "暂停处理"}
-                title={paused ? "恢复后继续派发下一批" : "确认后暂停后续批次"}
-                icon={paused ? <Play size={15} /> : <Pause size={15} />}
-              >
-                {paused ? "恢复" : "暂停"}
-              </ActionButton>
-              <ActionButton
-                className="project-agent-stop"
-                variant="danger"
-                type="button"
-                onClick={stopAgentRun}
-                aria-label="结束处理"
-                title="确认后取消思考、生图和未开始批次"
-                icon={<X size={16} />}
-              >
-                结束
-              </ActionButton>
-            </div>
-          ) : (
-            <ActionButton
-              className="project-agent-send"
-              variant="primary"
-              type="submit"
-              disabled={!prompt.trim()}
-              aria-label="发送"
-              title="发送"
-              icon={<Send size={16} />}
-            >
-              发送
-            </ActionButton>
-          )}
-        </footer>
-      </form>
+      </React.Suspense>
     </>
   );
 }
@@ -22861,6 +24676,10 @@ function ProjectAgentPanelView({
   agentStatus,
   executionBusy,
   paused,
+  stopPending,
+  goalActive,
+  goalContainerCount,
+  goalAssetCount,
   conversationBoundaryBusy,
   agentProgress,
   runElapsedSeconds,
@@ -22898,6 +24717,10 @@ function ProjectAgentPanelView({
   agentStatus: AgentStatus;
   executionBusy: boolean;
   paused: boolean;
+  stopPending: boolean;
+  goalActive: boolean;
+  goalContainerCount: number;
+  goalAssetCount: number;
   conversationBoundaryBusy: boolean;
   agentProgress: AgentProgress[];
   runElapsedSeconds: number;
@@ -22905,7 +24728,7 @@ function ProjectAgentPanelView({
   inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   endRef: React.MutableRefObject<HTMLDivElement | null>;
   setPrompt: (value: string) => void;
-  sendPrompt: (prompt?: string) => void | Promise<void>;
+  sendPrompt: (prompt?: string, taskScopeMode?: AgentSteerTaskScopeMode | "auto", taskMode?: AgentComposerTaskMode) => void | Promise<unknown>;
   pauseAgentRun: () => void;
   resumeAgentRun: () => void;
   stopAgentRun: () => void;
@@ -22953,13 +24776,15 @@ function ProjectAgentPanelView({
     "model-request",
     "model-thinking-delta",
     "assistant-message-delta",
+    "steer-queued",
+    "steer-applied",
     "tool-start",
     "tool-poll",
     "image-request",
     "image-retry",
     "memory-start"
   ].includes(progressPhase);
-  const activityActive = !paused && (agentActivityBusy || progressActive);
+  const activityActive = stopPending || (!paused && (agentActivityBusy || progressActive));
   const currentTitle = useMemo(() => {
     const userMessage = visibleMessages.find((message) => message.role === "user" && message.content.trim());
     return userMessage?.content.replace(/\s+/g, " ").trim().slice(0, 28) || "当前会话";
@@ -22974,7 +24799,9 @@ function ProjectAgentPanelView({
       .filter((conversation, index, items) => items.findIndex((item) => item.id === conversation.id) === index)
       .slice(0, 24);
   }, [activeConversationId, conversations, currentTitle]);
-  const statusBase = paused
+  const statusBase = stopPending
+    ? "Agent 正在确认结束"
+    : paused
     ? "Agent 已暂停"
     : agentStatus === "error" || /error|失败/i.test(progressPhase)
     ? "Agent 遇到问题"
@@ -22987,7 +24814,7 @@ function ProjectAgentPanelView({
           : agentProgress.length > 0
             ? "Agent 思考完成"
             : "等待指令";
-  const statusText = activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
+  const statusText = !stopPending && activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
 
   function beginPanelPointer(
     event: React.PointerEvent<HTMLElement>,
@@ -23288,6 +25115,10 @@ function ProjectAgentPanelView({
         prompt={prompt}
         executionBusy={executionBusy}
         paused={paused}
+        stopPending={stopPending}
+        goalActive={goalActive}
+        goalContainerCount={goalContainerCount}
+        goalAssetCount={goalAssetCount}
         inputRef={inputRef}
         setPrompt={setPrompt}
         sendPrompt={sendPrompt}
@@ -23360,6 +25191,10 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.prompt === right.prompt &&
   left.executionBusy === right.executionBusy &&
   left.paused === right.paused &&
+  left.stopPending === right.stopPending &&
+  left.goalActive === right.goalActive &&
+  left.goalContainerCount === right.goalContainerCount &&
+  left.goalAssetCount === right.goalAssetCount &&
   left.inputRef === right.inputRef &&
   left.setPrompt === right.setPrompt &&
   left.sendPrompt === right.sendPrompt &&
@@ -23384,6 +25219,10 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.agentStatus === right.agentStatus &&
   left.executionBusy === right.executionBusy &&
   left.paused === right.paused &&
+  left.stopPending === right.stopPending &&
+  left.goalActive === right.goalActive &&
+  left.goalContainerCount === right.goalContainerCount &&
+  left.goalAssetCount === right.goalAssetCount &&
   left.conversationBoundaryBusy === right.conversationBoundaryBusy &&
   left.agentProgress === right.agentProgress &&
   left.runElapsedSeconds === right.runElapsedSeconds &&
@@ -23411,1236 +25250,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.debugCommit === right.debugCommit
 );
 
-function AgentMessageAttachmentGroup({ label, items, count }: { label: "原图" | "参考图"; items: TaskAssetReference[]; count: number }) {
-  if (!count) return null;
-  return (
-    <details className="agent-message-attachment-group">
-      <summary>{count} 张{label}</summary>
-      <div className={`agent-message-attachment-grid ${items.length === 1 ? "is-single" : ""}`}>
-        {items.map((item, index) => <img key={`${item.assetId}-${index}`} src={item.assetUrl || imageAssetSrc({ type: "file", path: item.path })} alt={item.displayCode} title={item.name} loading="lazy" />)}
-        {count > items.length ? <small>{items.length}/{count}</small> : null}
-      </div>
-    </details>
-  );
-}
 
-function AgentMessageContent({ message }: { message: AgentMessage }) {
-  const content = String(message.content || "").trim();
-  const isThinking = message.meta === "thinking";
-  const showToolTrace = Boolean(message.toolTrace);
-
-  if (isThinking) {
-    return (
-      <details className="agent-thinking-block" open={!message.collapsed}>
-        <summary>THOUGHTS</summary>
-        <div className="agent-thinking-body">
-          <MarkdownMessage content={content || (message.status === "running" ? "模型响应中。" : "已折叠。")} />
-        </div>
-      </details>
-    );
-  }
-
-  const externalToolBrief = showToolTrace && message.toolTrace && message.toolTrace.stage !== "result"
-    ? String(message.toolTrace.brief || "").trim()
-    : "";
-
-  return (
-    <>
-      {externalToolBrief ? <p className="agent-tool-brief-outside">{externalToolBrief}</p> : null}
-      {showToolTrace && message.toolTrace ? <AgentToolTraceCard trace={message.toolTrace} status={message.status ?? "done"} /> : null}
-      {content ? (
-        <MarkdownMessage content={content} />
-      ) : null}
-      {message.attachments ? (
-        <div className="agent-message-attachments">
-          <AgentMessageAttachmentGroup label="原图" items={message.attachments.sourceAssets ?? []} count={message.attachments.sourceCount ?? message.attachments.sourceAssets?.length ?? 0} />
-          <AgentMessageAttachmentGroup label="参考图" items={message.attachments.referenceAssets ?? []} count={message.attachments.referenceCount ?? message.attachments.referenceAssets?.length ?? 0} />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function AgentToolTraceCard({ trace, status }: { trace: AgentToolTrace; status: AgentMessage["status"] }) {
-  const [seconds, setSeconds] = useState(0);
-  const [copiedPromptIndex, setCopiedPromptIndex] = useState(-1);
-  const isImageGen = trace.name === "image_gen";
-  const isResult = trace.stage === "result" || (trace.stage !== "start" && Boolean(trace.completionText));
-  const toolName = agentToolTraceDisplayName(trace);
-  useEffect(() => {
-    if (!isImageGen || isResult || status !== "running") return;
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => setSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))), 1000);
-    return () => window.clearInterval(timer);
-  }, [isImageGen, isResult, status]);
-
-  async function copyPrompt(prompt: string, index: number) {
-    const value = String(prompt || "");
-    if (!value) return;
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
-      await navigator.clipboard.writeText(value);
-    } catch {
-      const textarea = document.createElement("textarea");
-      textarea.value = value;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      textarea.remove();
-    }
-    setCopiedPromptIndex(index);
-    window.setTimeout(() => setCopiedPromptIndex((current) => current === index ? -1 : current), 1_600);
-  }
-
-  return (
-    <div
-      className={`agent-tool-trace ${isImageGen ? "is-image-gen" : ""} ${trace.prompts?.length ? "has-prompts" : ""}`}
-      data-tool-stage={isResult ? "result" : "start"}
-      data-tool-operation={__NAIMAGE_AIDEBUG__ ? trace.operationId : undefined}
-      aria-label="Agent 工具调用"
-    >
-      {isImageGen && !isResult ? (
-        <span className="agent-tool-imagegen-timer">
-          {status === "running" ? <Loader2 size={13} className="spin" /> : <ImageIcon size={13} />}
-          {status === "running" ? `Image Gen 正在绘图 ${seconds}s` : `Image Gen 绘图请求 · ${seconds}s`}
-        </span>
-      ) : (
-        <strong className="agent-tool-trace-title">
-          <span>{isResult ? (status === "error" ? "工具调用失败 · " : "工具已完成 · ") : "正在使用工具 · "}</span>
-          <b>{toolName}</b>
-        </strong>
-      )}
-      {!isResult && trace.prompts?.length ? (
-        <div className="agent-tool-prompt-list" aria-label="Agent 生图提示词">
-          {trace.prompts.map((item, index) => (
-            <details key={`${item.title || "prompt"}-${index}`} className="agent-tool-prompt-block">
-              <summary>
-                <span>{trace.prompts!.length > 1 ? (item.title || `提示词 ${index + 1}`) : "查看生图提示词"}</span>
-                <small>{item.prompt.replace(/\s+/g, " ").slice(0, 48)}{item.prompt.length > 48 ? "…" : ""}</small>
-                <ChevronDown size={13} />
-              </summary>
-              <div className="agent-tool-prompt-content">
-                <div className="agent-tool-prompt-actions">
-                  <IconActionButton
-                    className="agent-tool-prompt-copy"
-                    label={copiedPromptIndex === index ? "提示词已复制" : "复制生图提示词"}
-                    title={copiedPromptIndex === index ? "已复制" : "复制提示词"}
-                    onClick={() => void copyPrompt(item.prompt, index)}
-                    icon={copiedPromptIndex === index ? <Check size={13} /> : <Copy size={13} />}
-                  />
-                </div>
-                <pre>{item.prompt}</pre>
-              </div>
-            </details>
-          ))}
-        </div>
-      ) : null}
-      {isResult && trace.completionText ? <span className={`agent-tool-trace-completion ${status === "error" ? "is-error" : ""}`}><Check size={13} />{trace.completionText}</span> : null}
-    </div>
-  );
-}
-
-function agentToolTraceDisplayName(trace: AgentToolTrace) {
-  const raw = String(trace.name || trace.label || "tool").trim();
-  const normalized = raw.toLowerCase();
-  const map: Record<string, string> = {
-    workflow: "Canvas",
-    image_gen: "Image Gen",
-    view_image: "View Image",
-    context_manage: "Context Manage",
-    memory: "Memory",
-    ask_user: "Ask User",
-    web_search: "Web Search",
-    command: "Command",
-    experience: "Experience"
-  };
-  if (map[normalized]) return map[normalized];
-  return raw
-    .replace(/[_-]+/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
-    .join(" ") || "Tool";
-}
-
-function messageNeedsMarkdown(content: string) {
-  return /(^|\n)\s{0,3}(?:#{1,6}\s|[-+*]\s|\d+[.)]\s|>\s|```|~~~)|(?:\*\*|__|~~|`|\[[^\]]+\]\(|\[\^[^\]]+\]|https?:\/\/|www\.|[\w.+-]+@[\w.-]+\.[a-z]{2,})|(^|\n)\s*\|.+\|\s*(?:\n|$)/im.test(content);
-}
-
-function MarkdownMessage({ content }: { content: string }) {
-  if (!messageNeedsMarkdown(content)) {
-    return <div className="markdown-body agent-plain-text">{content}</div>;
-  }
-  return (
-    <div className="markdown-body">
-      <React.Suspense fallback={<div className="agent-plain-text">{content}</div>}>
-        <RichMarkdownMessage content={content} />
-      </React.Suspense>
-    </div>
-  );
-}
-
-function formatSettingsBytes(value?: number) {
-  const bytes = Math.max(0, Number(value) || 0);
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function SettingsDrawer({
-  settings,
-  saveSettings,
-  initialUpdateInfo,
-  openPromptEditor,
-  close
-}: {
-  settings: AppSettings;
-  saveSettings: (settings: AppSettings) => Promise<void>;
-  initialUpdateInfo?: DesktopUpdateInfo | null;
-  openPromptEditor: () => void;
-  close: () => void;
-}) {
-  const [baselineSettings, setBaselineSettings] = useState(() => mergeSettings(settings));
-  const [draftSettings, setDraftSettings] = useState(() => mergeSettings(settings));
-  const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
-  const [activeSection, setActiveSection] = useState<"access" | "appearance" | "models" | "agent" | "plugins" | "updates">("access");
-  const [saving, setSaving] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState("");
-  const [settingsMessageError, setSettingsMessageError] = useState(false);
-  const [resetArmed, setResetArmed] = useState(false);
-  const [discardArmed, setDiscardArmed] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<DesktopUpdateInfo | null>(initialUpdateInfo || null);
-  const [updateProgress, setUpdateProgress] = useState<DesktopUpdateProgress | null>(null);
-  const [updateBusy, setUpdateBusy] = useState(false);
-  const [updateMessage, setUpdateMessage] = useState("");
-  const [updateError, setUpdateError] = useState(false);
-  const [installerCaptcha, setInstallerCaptcha] = useState<DesktopInstallerCaptcha | null>(null);
-  const [captchaCode, setCaptchaCode] = useState("");
-  const [accountTokens, setAccountTokens] = useState<AccountApiToken[]>([]);
-  const [accountTokenBaseUrl, setAccountTokenBaseUrl] = useState("");
-  const [accountTokenBusy, setAccountTokenBusy] = useState(false);
-  const [accountTokenError, setAccountTokenError] = useState("");
-  const [accountTokenSnapshot, setAccountTokenSnapshot] = useState({
-    loaded: false,
-    cached: false,
-    available: false,
-    updatedAt: 0
-  });
-  const [accountTokenEditor, setAccountTokenEditor] = useState<{
-    mode: "create" | "edit";
-    id: string;
-    name: string;
-    group: string;
-    status: number;
-    unlimitedQuota: boolean;
-    remainQuota: string;
-  } | null>(null);
-  const [accountTokenDeleteArmed, setAccountTokenDeleteArmed] = useState("");
-  const [integrationTargets, setIntegrationTargets] = useState<AgentIntegrationTarget[]>([]);
-  const [integrationBusy, setIntegrationBusy] = useState(false);
-  const [integrationError, setIntegrationError] = useState("");
-  const modelLoadRef = useRef<Promise<void> | null>(null);
-  const pendingModelRefreshRef = useRef<{ force: boolean; group: string; cacheOnly: boolean } | null>(null);
-  const captchaRequestEpochRef = useRef(0);
-  const captchaRequestInFlightRef = useRef(false);
-  const savedThemeRef = useRef(settings);
-  savedThemeRef.current = settings;
-  const [modelState, setModelState] = useState<{
-    loading: boolean;
-    imageModels: string[];
-    agentModels: string[];
-    groups: NonNullable<ServerPublicSettings["modelGroups"]>;
-    error: string;
-    cacheSource?: ServerPublicSettings["cacheSource"];
-    cacheAgeMs?: number;
-  }>(() => ({
-    loading: false,
-    imageModels: imageModelsWithPreferredFallback([], draftSettings.imageModel, selectedImageModelsFromSettings(draftSettings)),
-    agentModels: modelsWithPreferred([], draftSettings.agentModel, selectedAgentModelsFromSettings(draftSettings)),
-    groups: [],
-    error: "",
-    cacheSource: undefined,
-    cacheAgeMs: undefined
-  }));
-  const dirty = JSON.stringify(draftSettings) !== JSON.stringify(baselineSettings);
-
-  useEffect(() => {
-    applyTheme(draftSettings.theme, draftSettings.themePalette, draftSettings.customTheme);
-  }, [draftSettings.theme, draftSettings.themePalette, draftSettings.customTheme]);
-
-  useEffect(() => () => {
-    const saved = savedThemeRef.current;
-    applyTheme(saved.theme, saved.themePalette, saved.customTheme);
-  }, []);
-
-  function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    setDraftSettings((current) => ({ ...current, [key]: value }));
-    setSettingsMessage("");
-    setResetArmed(false);
-    setDiscardArmed(false);
-  }
-
-  function updateCustomApiCredentials(kind: "baseUrl" | "apiKey", value: string) {
-    setDraftSettings((current) => kind === "baseUrl"
-      ? { ...current, agentBaseUrl: value, imageBaseUrl: value }
-      : { ...current, agentApiKey: value, imageApiKey: value });
-    setSettingsMessage("");
-    setResetArmed(false);
-    setDiscardArmed(false);
-  }
-
-  async function refreshModels(forceRefresh = false, group = draftSettings.modelGroup, cacheOnly = false): Promise<void> {
-    if (modelLoadRef.current) {
-      const pending = pendingModelRefreshRef.current;
-      pendingModelRefreshRef.current = {
-        force: Boolean(forceRefresh || pending?.force),
-        group: String(group || ""),
-        cacheOnly: Boolean(cacheOnly && (pending?.cacheOnly ?? true))
-      };
-      const activeRequest = modelLoadRef.current;
-      return activeRequest.then(async () => {
-        const queued = pendingModelRefreshRef.current;
-        if (!queued) return;
-        pendingModelRefreshRef.current = null;
-        await refreshModels(queued.force, queued.group, queued.cacheOnly);
-      });
-    }
-    setModelState((current) => ({ ...current, loading: true, error: "" }));
-    const request = (async () => {
-      try {
-        const serverSettings = await fetchServerModelSettings(forceRefresh, group, cacheOnly);
-        const serverModels = fullServerModelList(serverSettings);
-        const imageModels = imageModelsWithPreferredFallback(serverModels, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
-        const agentModels = modelsWithPreferred(serverModels, draftSettings.agentModel, draftSettings.agentModelPool);
-        const preferredImageModel = preferredImageModelFromList(imageModels);
-        const preferredAgentModel = preferredAgentModelFromList(agentModels);
-        setModelState({
-          loading: false,
-          imageModels,
-          agentModels,
-          groups: serverSettings.modelGroups ?? [],
-          error: "",
-          cacheSource: serverSettings.cacheSource,
-          cacheAgeMs: serverSettings.cacheAgeMs
-        });
-        setDraftSettings((current) =>
-          normalizeModelPoolSelections(
-            {
-              ...current,
-              modelGroup: serverSettings.modelGroup ?? current.modelGroup,
-              imageModel: current.imageModel || serverSettings.imageModel || preferredImageModel,
-              imageModelPool: current.imageModelPool?.length ? current.imageModelPool : [current.imageModel || serverSettings.imageModel || preferredImageModel],
-              agentModel: current.agentModel || preferredAgentModel,
-              agentModelPool: current.agentModelPool?.length ? current.agentModelPool : [current.agentModel || preferredAgentModel]
-            },
-            agentModels,
-            imageModels
-          )
-        );
-      } catch (error) {
-        setModelState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }));
-      } finally {
-        modelLoadRef.current = null;
-      }
-    })();
-    modelLoadRef.current = request;
-    return request;
-  }
-
-  async function refreshAccountTokens(options: { preferCached?: boolean } = {}): Promise<AccountApiToken | undefined> {
-    if (draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
-    setAccountTokenBusy(true);
-    setAccountTokenError("");
-    try {
-      const result = await window.naimageServer.tokens({ preferCached: options.preferCached === true });
-      if (!result.ok) throw new Error(result.error || "无法获取账户密钥。");
-      const tokens = result.tokens ?? [];
-      setAccountTokens(tokens);
-      setAccountTokenBaseUrl(result.baseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`);
-      setAccountTokenSnapshot({
-        loaded: true,
-        cached: result.cached === true,
-        available: result.cacheAvailable === true,
-        updatedAt: Math.max(0, Number(result.cacheUpdatedAt) || 0)
-      });
-      const selected = tokens.find((token) => token.id === result.selectedTokenId);
-      if (selected) syncSelectedAccountToken(selected);
-      return selected;
-    } catch (error) {
-      setAccountTokens([]);
-      setAccountTokenSnapshot((current) => ({ ...current, loaded: true }));
-      setAccountTokenError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAccountTokenBusy(false);
-    }
-  }
-
-  async function refreshAccountAccess() {
-    const selected = await refreshAccountTokens();
-    await refreshModels(true, selected?.group || draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup);
-  }
-
-  useEffect(() => {
-    void refreshModels(false, draftSettings.modelGroup, true);
-    if (draftSettings.accessMode === "account" && draftSettings.serverUserId) {
-      void refreshAccountTokens({ preferCached: true });
-    }
-  }, []);
-
-  function syncSelectedAccountToken(token?: AccountApiToken | null) {
-    const patch = {
-      selectedAccountTokenId: token?.id || "",
-      selectedAccountTokenName: token?.name || "",
-      selectedAccountTokenGroup: token?.group || "",
-      modelGroup: token?.group || ""
-    };
-    setDraftSettings((current) => ({ ...current, ...patch }));
-    setBaselineSettings((current) => ({ ...current, ...patch }));
-  }
-
-  async function selectAccountToken(id: string) {
-    if (!window.naimageServer?.selectToken) return;
-    setAccountTokenBusy(true);
-    setAccountTokenError("");
-    try {
-      const result = await window.naimageServer.selectToken({ id });
-      if (!result.ok) throw new Error(result.error || "选择密钥失败。");
-      const token = result.token || accountTokens.find((item) => item.id === result.selectedTokenId);
-      syncSelectedAccountToken(token);
-      setAccountTokenBaseUrl(result.baseUrl || accountTokenBaseUrl);
-      await refreshModels(true, token?.group || "");
-    } catch (error) {
-      setAccountTokenError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAccountTokenBusy(false);
-    }
-  }
-
-  function openAccountTokenEditor(token?: AccountApiToken) {
-    setAccountTokenDeleteArmed("");
-    setAccountTokenEditor(token ? {
-      mode: "edit",
-      id: token.id,
-      name: token.name,
-      group: token.group || "default",
-      status: token.status,
-      unlimitedQuota: token.unlimitedQuota,
-      remainQuota: String(token.remainQuota)
-    } : {
-      mode: "create",
-      id: "",
-      name: "naimage",
-      group: draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup || "default",
-      status: 1,
-      unlimitedQuota: true,
-      remainQuota: "0"
-    });
-  }
-
-  async function saveAccountTokenEditor() {
-    if (!accountTokenEditor || !accountTokenEditor.name.trim()) return;
-    const bridge = window.naimageServer;
-    if (!bridge) return;
-    setAccountTokenBusy(true);
-    setAccountTokenError("");
-    try {
-      const payload = {
-        name: accountTokenEditor.name.trim(),
-        group: accountTokenEditor.group.trim() || "default",
-        status: accountTokenEditor.status,
-        unlimitedQuota: accountTokenEditor.unlimitedQuota,
-        remainQuota: Math.max(0, Math.floor(Number(accountTokenEditor.remainQuota) || 0)),
-        crossGroupRetry: true
-      };
-      const result = accountTokenEditor.mode === "create"
-        ? await bridge.createToken?.({ ...payload, select: true })
-        : await bridge.updateToken?.({ id: accountTokenEditor.id, ...payload });
-      if (!result?.ok) throw new Error(result?.error || "保存密钥失败。");
-      setAccountTokenEditor(null);
-      await refreshAccountTokens();
-      await refreshModels(true, payload.group);
-    } catch (error) {
-      setAccountTokenError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAccountTokenBusy(false);
-    }
-  }
-
-  async function deleteAccountToken(id: string) {
-    if (accountTokenDeleteArmed !== id) {
-      setAccountTokenDeleteArmed(id);
-      return;
-    }
-    if (!window.naimageServer?.deleteToken) return;
-    setAccountTokenBusy(true);
-    setAccountTokenError("");
-    try {
-      const result = await window.naimageServer.deleteToken({ id });
-      if (!result.ok) throw new Error(result.error || "删除密钥失败。");
-      setAccountTokenEditor(null);
-      setAccountTokenDeleteArmed("");
-      syncSelectedAccountToken(null);
-      await refreshAccountTokens();
-    } catch (error) {
-      setAccountTokenError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAccountTokenBusy(false);
-    }
-  }
-
-  async function detectAgentIntegrations() {
-    if (!window.naimageAgentIntegrations) return;
-    setIntegrationBusy(true);
-    setIntegrationError("");
-    try {
-      const result = await window.naimageAgentIntegrations.detect();
-      if (!result.ok) throw new Error(result.error || "无法检测 Agent 配置目录。");
-      setIntegrationTargets(result.targets ?? []);
-    } catch (error) {
-      setIntegrationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIntegrationBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    if (activeSection === "agent") void detectAgentIntegrations();
-  }, [activeSection, draftSettings.accessMode]);
-
-  async function mutateAgentIntegrations(action: "install" | "remove") {
-    const bridge = window.naimageAgentIntegrations;
-    if (!bridge) return;
-    const targets = draftSettings.agentSkillAutoInstallTargets;
-    if (!targets.length) {
-      setIntegrationError("请先勾选至少一个 Agent。");
-      return;
-    }
-    setIntegrationBusy(true);
-    setIntegrationError("");
-    try {
-      const result = action === "install" ? await bridge.install({ targets }) : await bridge.remove({ targets });
-      if (!result.ok && result.errors?.length) throw new Error(result.errors.join("；"));
-      setIntegrationTargets(result.targets ?? []);
-    } catch (error) {
-      setIntegrationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIntegrationBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    let disposed = false;
-    window.naimageUpdater?.status().then((result) => {
-      if (!disposed) {
-        setUpdateInfo(result);
-        if (result.progress) {
-          setUpdateProgress(result.progress);
-          if (result.progress.message) setUpdateMessage(result.progress.message);
-          setUpdateError(result.progress.stage === "error");
-        }
-        if (result.rollbackDetected) {
-          setUpdateMessage(result.progress?.message || result.recovery?.reason || "新版本启动失败，已自动恢复。请改用完整安装包完成升级。");
-          setUpdateError(true);
-        }
-      }
-    }).catch(() => undefined);
-    const unsubscribe = window.naimageUpdater?.onProgress?.((progress) => {
-      if (disposed) return;
-      setUpdateProgress(progress);
-      setUpdateInfo((current) => current ? {
-        ...current,
-        busy: ["checking", "downloading", "retrying", "verifying", "applying"].includes(progress.stage)
-      } : current);
-      if (progress.message) setUpdateMessage(progress.message);
-      setUpdateError(progress.stage === "error");
-    });
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, []);
-
-  function handleManualModelRefresh() {
-    void refreshModels(true);
-  }
-
-  async function commitSettings() {
-    setSaving(true);
-    setSettingsMessage("");
-    setSettingsMessageError(false);
-    try {
-      const normalized = mergeSettings(draftSettings);
-      await saveSettings(normalized);
-      setDraftSettings(normalized);
-      setBaselineSettings(normalized);
-      setResetArmed(false);
-      setDiscardArmed(false);
-      setSettingsMessage("设置已保存");
-    } catch (error) {
-      setSettingsMessage(error instanceof Error ? error.message : String(error));
-      setSettingsMessageError(true);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function restoreDefaults() {
-    if (!resetArmed) {
-      setResetArmed(true);
-      setSettingsMessage("再次点击“确认恢复默认”后生成默认设置草稿。");
-      setSettingsMessageError(false);
-      return;
-    }
-    const defaults = mergeSettings(defaultSettings);
-    setDraftSettings(defaults);
-    setResetArmed(false);
-    setDiscardArmed(false);
-    setSettingsMessage("已恢复为默认设置草稿，点击保存后生效。");
-    setSettingsMessageError(false);
-  }
-
-  function discardOrClose() {
-    if (dirty && !discardArmed) {
-      setDiscardArmed(true);
-      setSettingsMessage("存在未保存修改，再次点击“确认放弃”即可关闭。");
-      setSettingsMessageError(false);
-      return;
-    }
-    close();
-  }
-
-  async function checkForUpdates() {
-    if (!window.naimageUpdater) {
-      setUpdateMessage("当前运行环境不支持在线更新。");
-      setUpdateError(true);
-      return;
-    }
-    setUpdateBusy(true);
-    setUpdateError(false);
-    setUpdateMessage("正在安全检查新版本…");
-    setInstallerCaptcha(null);
-    setCaptchaCode("");
-    try {
-      const result = await window.naimageUpdater.check();
-      setUpdateInfo(result);
-      if (!result.ok) throw new Error(result.error || "检查更新失败。");
-      if (result.rollbackDetected) {
-        setUpdateProgress(result.progress || null);
-        setUpdateMessage(result.progress?.message || result.recovery?.reason || `已切换为 ${result.latestVersion || "新版"} 完整安装恢复。`);
-        setUpdateError(true);
-      } else {
-        setUpdateMessage(result.updateAvailable ? `发现新版本 ${result.latestVersion}` : "当前已是最新版本。");
-      }
-    } catch (error) {
-      setUpdateMessage(error instanceof Error ? error.message : String(error));
-      setUpdateError(true);
-    } finally {
-      setUpdateBusy(false);
-    }
-  }
-
-  async function loadInstallerCaptcha() {
-    if (!window.naimageUpdater) return;
-    if (captchaRequestInFlightRef.current) return;
-    captchaRequestInFlightRef.current = true;
-    const requestEpoch = ++captchaRequestEpochRef.current;
-    setUpdateBusy(true);
-    setUpdateError(false);
-    setUpdateMessage("正在获取升级验证码…");
-    try {
-      const result = await window.naimageUpdater.createInstallerCaptcha();
-      if (captchaRequestEpochRef.current !== requestEpoch) return;
-      if (!result.ok) throw new Error(result.error || "验证码获取失败。");
-      setInstallerCaptcha(result);
-      setCaptchaCode("");
-      setUpdateMessage("请输入验证码，授权下载完整安装包。");
-    } catch (error) {
-      if (captchaRequestEpochRef.current !== requestEpoch) return;
-      setInstallerCaptcha(null);
-      setUpdateMessage(error instanceof Error ? error.message : String(error));
-      setUpdateError(true);
-    } finally {
-      if (captchaRequestEpochRef.current === requestEpoch) {
-        captchaRequestInFlightRef.current = false;
-        setUpdateBusy(false);
-      }
-    }
-  }
-
-  async function downloadRestartUpdate() {
-    if (!window.naimageUpdater) return;
-    setUpdateBusy(true);
-    setUpdateError(false);
-    try {
-      const result = await window.naimageUpdater.downloadRestart();
-      if (!result.ok) throw new Error(result.error || "更新下载失败。");
-      setUpdateInfo((current) => ({ ...(current || { ok: true }), pending: result.pending || null }));
-      setUpdateMessage("更新已就绪，重启后生效。");
-    } catch (error) {
-      setUpdateMessage(error instanceof Error ? error.message : String(error));
-      setUpdateError(true);
-    } finally {
-      setUpdateBusy(false);
-    }
-  }
-
-  async function authorizeInstallerDownload() {
-    if (!window.naimageUpdater || !installerCaptcha?.challengeId || captchaCode.length !== 6) return;
-    setUpdateBusy(true);
-    setUpdateError(false);
-    try {
-      const result = await window.naimageUpdater.downloadInstaller({ challengeId: installerCaptcha.challengeId, code: captchaCode });
-      if (!result.ok) throw new Error(result.error || "安装包下载失败。");
-      setUpdateInfo((current) => ({ ...(current || { ok: true }), pending: result.pending || null }));
-      setInstallerCaptcha(null);
-      setCaptchaCode("");
-      setUpdateMessage("安装包已下载并通过完整性校验。");
-    } catch (error) {
-      setUpdateMessage(error instanceof Error ? error.message : String(error));
-      setUpdateError(true);
-      await loadInstallerCaptcha();
-    } finally {
-      setUpdateBusy(false);
-    }
-  }
-
-  async function installReadyUpdate() {
-    if (!window.naimageUpdater || !updateInfo?.pending) return;
-    setUpdateBusy(true);
-    setUpdateError(false);
-    try {
-      const result = updateInfo.pending.kind === "restart"
-        ? await window.naimageUpdater.applyRestart()
-        : await window.naimageUpdater.launchInstaller();
-      if (!result.ok) throw new Error(result.error || "无法启动更新。");
-      setUpdateMessage(updateInfo.pending.kind === "restart" ? "正在重启并完成更新…" : "正在退出并启动新版安装器…");
-    } catch (error) {
-      setUpdateMessage(error instanceof Error ? error.message : String(error));
-      setUpdateError(true);
-      setUpdateBusy(false);
-    }
-  }
-
-  const selectedImageModels = selectedImageModelsFromSettings(draftSettings);
-  const selectedAgentModels = selectedAgentModelsFromSettings(draftSettings);
-  const visibleImageModels = imageModelsWithPreferredFallback(modelState.imageModels, draftSettings.imageModel, selectedImageModels);
-  const visibleAgentModels = modelsWithPreferred(modelState.agentModels, draftSettings.agentModel, selectedAgentModels);
-  const pendingMatchesLatest = Boolean(updateInfo?.pending && updateInfo.pending.version === updateInfo.latestVersion);
-  const updateOperationBusy = updateBusy || Boolean(updateInfo?.busy);
-  let updateActionLabel = "检查更新";
-  if (pendingMatchesLatest) updateActionLabel = updateInfo?.pending?.kind === "restart" ? "重启并更新" : "启动安装程序";
-  else if (updateInfo?.updateType === "restart" && updateInfo.updateAvailable) updateActionLabel = "下载重启更新";
-  else if (updateInfo?.updateType === "installer" && updateInfo.updateAvailable) updateActionLabel = "验证并下载安装包";
-
-  async function runUpdateAction() {
-    if (updateOperationBusy) return;
-    if (pendingMatchesLatest) {
-      await installReadyUpdate();
-      return;
-    }
-    if (updateInfo?.updateType === "restart" && updateInfo.updateAvailable) {
-      await downloadRestartUpdate();
-      return;
-    }
-    if (updateInfo?.updateType === "installer" && updateInfo.updateAvailable) {
-      await loadInstallerCaptcha();
-      return;
-    }
-    await checkForUpdates();
-  }
-
-  return (
-    <>
-      <DrawerShell
-        surface="settings"
-        ariaLabel="设置"
-        className="settings-drawer"
-        busy={modelState.loading || saving}
-        dirty={dirty}
-        closePolicy={{ escape: "when-idle-and-clean", backdrop: "when-idle-and-clean", [CLOSE_BUTTON_REASON]: "when-idle-and-clean" }}
-        onCloseBlocked={() => {
-          setSettingsMessage("请先保存修改，或使用底部按钮放弃修改。");
-          setSettingsMessageError(false);
-        }}
-        onRequestClose={close}
-      >
-        {({ requestClose }) => (
-          <>
-            <SurfaceHeader
-              title="设置"
-              description="服务接入、外观、模型、Agent 与软件更新"
-              onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-              closeLabel="关闭设置"
-              closeDisabled={modelState.loading || saving}
-            />
-            <nav className="settings-section-tabs" aria-label="设置分类">
-              {([
-                ["access", "接入"],
-                ["appearance", "外观"],
-                ["models", "模型"],
-                ["agent", "Agent"],
-                ["plugins", "插件"],
-                ["updates", "更新"]
-              ] as const).map(([section, label]) => (
-                <ButtonBase
-                  key={section}
-                  type="button"
-                  className={`ui-segment-action settings-section-tab ${activeSection === section ? "active" : ""}`}
-                  aria-pressed={activeSection === section}
-                  onClick={() => setActiveSection(section)}
-                >
-                  {label}
-                </ButtonBase>
-              ))}
-            </nav>
-            <SurfaceBody className="settings-surface-body">
-              {activeSection === "access" ? (
-              <SurfaceSection className="settings-surface-section settings-access-section" aria-labelledby="settings-access-heading">
-                <div className="settings-section-header">
-                  <h3 id="settings-access-heading">服务接入</h3>
-                  <span className="settings-update-status available">{draftSettings.accessMode === "account" ? "账号模式" : "自定义接口"}</span>
-                </div>
-                <Field label="使用方式">
-                  <select value={draftSettings.accessMode} onChange={(event) => update("accessMode", event.target.value as AppSettings["accessMode"])}>
-                    <option value="account">SparkAPI 账号登录</option>
-                    <option value="custom">自定义 Base URL / API Key</option>
-                  </select>
-                </Field>
-                {draftSettings.accessMode === "account" ? (
-                  <>
-                    <Field label="账户服务地址">
-                      <input value={draftSettings.accountBaseUrl} onChange={(event) => update("accountBaseUrl", event.target.value)} type="url" placeholder="https://sparkapi.org" />
-                    </Field>
-                    <div className="settings-account-token-section">
-                      <div className="settings-section-header settings-account-token-header">
-                        <div>
-                          <strong>账户密钥</strong>
-                          <small>{accountTokenBaseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`}</small>
-                        </div>
-                        <div className="settings-inline-actions">
-                          <IconActionButton label="刷新密钥与分组" icon={<RotateCcw size={14} />} onClick={() => void refreshAccountAccess()} disabled={accountTokenBusy || modelState.loading} />
-                          <ActionButton variant="secondary" icon={<Plus size={14} />} onClick={() => openAccountTokenEditor()}>新建密钥</ActionButton>
-                        </div>
-                      </div>
-                      {accountTokenError ? <InlineNotice tone="danger">{accountTokenError}</InlineNotice> : null}
-                      {!accountTokenBusy && !accountTokenError && accountTokenSnapshot.loaded ? (
-                        <InlineNotice tone="neutral">
-                          {accountTokenSnapshot.available && accountTokenSnapshot.updatedAt > 0
-                            ? `${accountTokenSnapshot.cached ? "本地快照" : "账户数据"}更新于 ${new Date(accountTokenSnapshot.updatedAt).toLocaleString("zh-CN", { hour12: false })}。`
-                            : "尚无本地密钥快照，请点击“刷新密钥与分组”。"}
-                        </InlineNotice>
-                      ) : null}
-                      {accountTokens.length ? (
-                        <Field label="当前使用密钥">
-                          <select
-                            value={draftSettings.selectedAccountTokenId}
-                            disabled={accountTokenBusy}
-                            onChange={(event) => void selectAccountToken(event.target.value)}
-                          >
-                            <option value="">请选择密钥</option>
-                            {accountTokens.map((token) => (
-                              <option key={token.id} value={token.id} disabled={token.status !== 1}>
-                                {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </Field>
-                      ) : !accountTokenBusy && !accountTokenError && accountTokenSnapshot.available ? <InlineNotice tone="neutral">当前账户还没有密钥，请新建一枚后使用。</InlineNotice> : null}
-                      {accountTokens.find((token) => token.id === draftSettings.selectedAccountTokenId) ? (() => {
-                        const token = accountTokens.find((item) => item.id === draftSettings.selectedAccountTokenId)!;
-                        return (
-                          <div className="settings-account-token-summary">
-                            <span>分组 <strong>{token.group || "default"}</strong></span>
-                            <span>状态 <strong>{token.status === 1 ? "启用" : "停用"}</strong></span>
-                            <span className="settings-account-token-quota">
-                              额度
-                              <strong title={token.quotaAuditLabel}>{token.unlimitedQuota ? "不限" : token.remainCnyDisplay}</strong>
-                              {!token.unlimitedQuota ? <small>{token.remainRDisplay} R · 原始 {token.remainQuota.toLocaleString("zh-CN")}</small> : null}
-                            </span>
-                            <IconActionButton label="编辑当前密钥" icon={<Settings size={14} />} onClick={() => openAccountTokenEditor(token)} />
-                          </div>
-                        );
-                      })() : null}
-                      {accountTokenEditor ? (
-                        <div className="settings-account-token-editor">
-                          <Field label="密钥名称">
-                            <input value={accountTokenEditor.name} maxLength={50} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, name: event.target.value } : current)} />
-                          </Field>
-                          <Field label="密钥分组">
-                            <input value={accountTokenEditor.group} list="naimage-token-groups" onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, group: event.target.value } : current)} placeholder="default" />
-                          </Field>
-                          <datalist id="naimage-token-groups">
-                            {modelState.groups.map((group) => <option key={group.id} value={group.id}>{group.label}</option>)}
-                          </datalist>
-                          <label className="settings-checkbox-row">
-                            <input type="checkbox" checked={accountTokenEditor.status === 1} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, status: event.target.checked ? 1 : 2 } : current)} />
-                            <span>启用密钥</span>
-                          </label>
-                          <label className="settings-checkbox-row">
-                            <input type="checkbox" checked={accountTokenEditor.unlimitedQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, unlimitedQuota: event.target.checked } : current)} />
-                            <span>不限额度</span>
-                          </label>
-                          {!accountTokenEditor.unlimitedQuota ? <Field label="原始额度（New API quota）">
-                            <input type="number" min="0" step="1" value={accountTokenEditor.remainQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, remainQuota: event.target.value } : current)} />
-                          </Field> : null}
-                          <div className="settings-inline-actions">
-                            <ActionButton variant="primary" onClick={() => void saveAccountTokenEditor()} busy={accountTokenBusy}>保存密钥</ActionButton>
-                            <ActionButton onClick={() => setAccountTokenEditor(null)}>取消</ActionButton>
-                            {accountTokenEditor.mode === "edit" ? (
-                              <ActionButton variant={accountTokenDeleteArmed === accountTokenEditor.id ? "danger" : "secondary"} onClick={() => void deleteAccountToken(accountTokenEditor.id)}>
-                                {accountTokenDeleteArmed === accountTokenEditor.id ? "确认删除" : "删除"}
-                              </ActionButton>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <InlineNotice tone="neutral">Cookie 只用于账户与密钥管理；Agent 和生图使用所选密钥直连上方 `/v1` 地址。完整 Key 仅保留在 Electron 主进程内存中。</InlineNotice>
-                  </>
-                ) : (
-                  <>
-                    <Field label="Base URL">
-                      <input value={draftSettings.agentBaseUrl} onChange={(event) => updateCustomApiCredentials("baseUrl", event.target.value)} type="url" placeholder="https://example.com/v1" />
-                    </Field>
-                    <Field label="API Key">
-                      <input value={draftSettings.agentApiKey} onChange={(event) => updateCustomApiCredentials("apiKey", event.target.value)} type="password" placeholder="sk-..." autoComplete="off" />
-                    </Field>
-                    <InlineNotice tone="neutral">同一组凭证用于 Agent 与生图；模型名称仍在“模型”页选择。</InlineNotice>
-                  </>
-                )}
-                <Field label="网络代理（可选）">
-                  <input
-                    value={draftSettings.networkProxyUrl}
-                    onChange={(event) => update("networkProxyUrl", event.target.value)}
-                    type="url"
-                    placeholder="http://127.0.0.1:7897"
-                    autoComplete="off"
-                  />
-                </Field>
-                <InlineNotice tone="neutral">留空时使用 Node 直连；填写后仅 naimage 的服务请求使用该代理，不修改 Git 或系统全局代理。</InlineNotice>
-              </SurfaceSection>
-              ) : null}
-
-              {activeSection === "appearance" ? (
-              <SurfaceSection className="settings-surface-section settings-appearance-section" aria-labelledby="settings-appearance-heading">
-                <h3 id="settings-appearance-heading" className="settings-appearance-title">外观主题</h3>
-                <React.Suspense fallback={null}>
-                  <LazyThemePalettePicker
-                    theme={draftSettings.theme}
-                    palette={draftSettings.themePalette}
-                    customTheme={draftSettings.customTheme}
-                    onThemeChange={(choice) => update("theme", choice)}
-                    onPaletteChange={(choice) => update("themePalette", choice)}
-                    onCustomThemeChange={(preset) => update("customTheme", preset)}
-                  />
-                </React.Suspense>
-              </SurfaceSection>
-              ) : null}
-
-              {activeSection === "models" ? (
-              <SurfaceSection className="settings-surface-section settings-model-section" aria-labelledby="settings-model-heading">
-                <div className="settings-section-header">
-                  <h3 id="settings-model-heading">模型配置</h3>
-                  <ActionButton
-                    variant="secondary"
-                    className="settings-refresh-action"
-                    onClick={handleManualModelRefresh}
-                    busy={modelState.loading}
-                    icon={<RotateCcw size={15} />}
-                    aria-label="获取模型"
-                  >
-                    刷新模型
-                  </ActionButton>
-                </div>
-                {modelState.error ? <InlineNotice className="setting-error" tone="danger">{modelState.error}</InlineNotice> : null}
-                {!modelState.error && modelState.cacheSource ? (
-                  <InlineNotice tone="neutral">
-                    {modelState.cacheSource === "network"
-                      ? "模型与分组已从服务端刷新，并保存为本地快照。"
-                      : modelState.cacheSource === "settings"
-                        ? "当前使用已保存的模型配置；点击“刷新模型”后才会访问服务端。"
-                        : `当前使用本地模型快照${modelState.cacheAgeMs !== undefined ? `（约 ${Math.max(0, Math.round(modelState.cacheAgeMs / 60_000))} 分钟前更新）` : ""}；点击“刷新模型”可获取最新数据。`}
-                  </InlineNotice>
-                ) : null}
-                {draftSettings.accessMode === "account"
-                  ? <InlineNotice tone="neutral">当前分组由所选账户密钥决定：{draftSettings.selectedAccountTokenGroup || "尚未选择密钥"}。如需切换分组，请在“接入”页编辑或选择对应密钥。</InlineNotice>
-                  : <InlineNotice tone="neutral">自定义接口模式直接使用 API Key 对应权限，不发送 SparkAPI 模型分组。</InlineNotice>}
-                <div className="settings-model-list">
-                  <article className="settings-model-card">
-                    <div className="settings-model-meta">
-                      <span className="settings-model-kind"><Brain size={13} />对话模型</span>
-                      <strong title={draftSettings.agentModel || "未配置"}>{draftSettings.agentModel || "未配置"}</strong>
-                      <small>{selectedAgentModels.length} 个已选 · 用户自选模型</small>
-                    </div>
-                    <IconActionButton className="settings-model-config-action" label="配置对话模型" icon={<Settings size={15} />} onClick={() => setModelConfigTarget("agent")} />
-                  </article>
-                  <article className="settings-model-card">
-                    <div className="settings-model-meta">
-                      <span className="settings-model-kind"><ImageIcon size={13} />生图模型</span>
-                      <strong title={draftSettings.imageModel || "未配置"}>{draftSettings.imageModel || "未配置"}</strong>
-                      <small>{selectedImageModels.length} 个已选 · 用于画布生成</small>
-                    </div>
-                    <IconActionButton className="settings-model-config-action" label="配置生图模型" icon={<Settings size={15} />} onClick={() => setModelConfigTarget("image")} />
-                  </article>
-                </div>
-                <div className="settings-runtime-fields">
-                  <Field label="推理强度">
-                    <select value={draftSettings.reasoningEffort} onChange={(event) => update("reasoningEffort", event.target.value as AppSettings["reasoningEffort"])}>
-                      {REASONING_EFFORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="模式">
-                    <select value={draftSettings.fastMode ? "fast" : "standard"} onChange={(event) => update("fastMode", event.target.value === "fast")}>
-                      <option value="standard">标准</option>
-                      <option value="fast">快速</option>
-                    </select>
-                  </Field>
-                </div>
-              </SurfaceSection>
-              ) : null}
-
-              {activeSection === "agent" ? (
-              <SurfaceSection className="settings-surface-section settings-prompt-section" aria-label="Agent 提示词">
-                <div className="settings-section-header">
-                  <h3>Agent</h3>
-                  <ActionButton variant="secondary" className="settings-prompt-action" onClick={openPromptEditor} icon={<Brain size={15} />}>
-                    编辑提示词
-                  </ActionButton>
-                </div>
-                <div className="settings-context-policy">
-                  <div className="settings-section-header">
-                    <div>
-                      <strong>批量生图调度</strong>
-                      <small>同一批并行处理，不同批按顺序执行；暂停后不再派发下一批。</small>
-                    </div>
-                    <span className="settings-update-status available">每批 {draftSettings.imageBatchSize} 路</span>
-                  </div>
-                  <Field label="每批生图数量">
-                    <input
-                      type="number"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={draftSettings.imageBatchSize}
-                      onChange={(event) => update("imageBatchSize", Math.max(1, Math.min(10, Math.round(Number(event.target.value) || 1))))}
-                    />
-                  </Field>
-                  <InlineNotice tone="neutral">
-                    建议先使用 2–3 路。提高批次会更快占用接口并发与额度，但任务总量仍会拆成多个有序批次。
-                  </InlineNotice>
-                </div>
-                <div className="settings-context-policy">
-                  <div className="settings-section-header">
-                    <div>
-                      <strong>上下文控制</strong>
-                      <small>naimage 图片上下文叠加在模型原生 Agent 上下文之上；自动模式会按模型族选择策略。</small>
-                    </div>
-                    <span className="settings-update-status available">
-                      {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.label || "自动匹配"}
-                    </span>
-                  </div>
-                  <Field label="上下文策略">
-                    <select value={draftSettings.contextStrategy} onChange={(event) => update("contextStrategy", event.target.value as AppSettings["contextStrategy"])}>
-                      {CONTEXT_STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </Field>
-                  <InlineNotice tone="neutral">
-                    {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.detail}
-                    {draftSettings.contextStrategy === "auto" && /^gpt|codex|chatgpt/i.test(draftSettings.agentModel || "")
-                      ? " 当前模型将使用 Codex 级 272K 窗口，并在约 244.8K Token 时自动 checkpoint。"
-                      : draftSettings.contextStrategy === "auto" && /claude|anthropic/i.test(draftSettings.agentModel || "")
-                        ? " 当前模型将使用 Claude 策略，并按具体模型选择 200K 或长上下文窗口。"
-                        : ""}
-                  </InlineNotice>
-                  <Field label="压缩模型（可选）">
-                    <input
-                      value={draftSettings.compactModel}
-                      onChange={(event) => update("compactModel", event.target.value)}
-                      list="naimage-context-models"
-                      placeholder="留空时跟随当前 Agent 模型"
-                    />
-                  </Field>
-                  <datalist id="naimage-context-models">
-                    {visibleAgentModels.map((model) => <option key={model} value={model} />)}
-                  </datalist>
-                  {draftSettings.contextStrategy === "custom" ? (
-                    <div className="settings-runtime-fields settings-context-custom-fields">
-                      <Field label="上下文窗口 Token">
-                        <input type="number" min="8000" max="2000000" step="1000" value={draftSettings.contextWindowTokens} onChange={(event) => update("contextWindowTokens", Number(event.target.value))} />
-                      </Field>
-                      <Field label="有效窗口比例 %">
-                        <input type="number" min="50" max="99" step="1" value={draftSettings.contextEffectiveWindowPercent} onChange={(event) => update("contextEffectiveWindowPercent", Number(event.target.value))} />
-                      </Field>
-                      <Field label="自动压缩点 %">
-                        <input type="number" min="50" max="98" step="1" value={draftSettings.contextAutoCompactPercent} onChange={(event) => update("contextAutoCompactPercent", Number(event.target.value))} />
-                      </Field>
-                      <Field label="保留用户消息 Token">
-                        <input type="number" min="0" max="50000" step="1000" value={draftSettings.contextRetainedUserTokens} onChange={(event) => update("contextRetainedUserTokens", Number(event.target.value))} />
-                      </Field>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="settings-agent-integrations">
-                  <div className="settings-section-header">
-                    <div>
-                      <strong>外部 Agent 控制</strong>
-                      <small>安装 naimage CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
-                    </div>
-                    <IconActionButton label="重新检测" icon={<RotateCcw size={14} />} onClick={() => void detectAgentIntegrations()} disabled={integrationBusy} />
-                  </div>
-                  {integrationError ? <InlineNotice tone="danger">{integrationError}</InlineNotice> : null}
-                  <div className="settings-integration-list">
-                    {integrationTargets.map((target) => {
-                      const checked = draftSettings.agentSkillAutoInstallTargets.includes(target.id);
-                      return (
-                        <label key={target.id} className="settings-integration-row">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(event) => update("agentSkillAutoInstallTargets", event.target.checked
-                              ? [...draftSettings.agentSkillAutoInstallTargets, target.id]
-                              : draftSettings.agentSkillAutoInstallTargets.filter((id) => id !== target.id))}
-                          />
-                          <span>
-                            <strong>{target.label}</strong>
-                            <small title={target.skillsPath}>{target.detected ? target.skillsPath : `未检测到，安装时将创建 ${target.skillsPath}`}</small>
-                          </span>
-                          <em className={target.installed ? "installed" : ""}>{target.installed ? "已安装" : "未安装"}</em>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div className="settings-inline-actions">
-                    <ActionButton variant="primary" onClick={() => void mutateAgentIntegrations("install")} busy={integrationBusy}>安装 / 更新 Skill</ActionButton>
-                    <ActionButton variant="secondary" onClick={() => void mutateAgentIntegrations("remove")} disabled={integrationBusy}>移除所选 Skill</ActionButton>
-                  </div>
-                  <InlineNotice tone="neutral">勾选项保存后会在 naimage 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
-                </div>
-              </SurfaceSection>
-              ) : null}
-
-              {activeSection === "updates" ? (
-              <SurfaceSection className="settings-surface-section settings-update-section" aria-labelledby="settings-update-heading">
-                <div className="settings-section-header">
-                  <h3 id="settings-update-heading">软件更新</h3>
-                  <span className={`settings-update-status ${updateInfo?.updateAvailable ? "available" : ""}`}>
-                    {updateInfo?.updateAvailable ? "有新版本" : `当前 ${updateInfo?.currentVersion || "-"}`}
-                  </span>
-                </div>
-                <div className="settings-update-card">
-                  <div className="settings-update-version-row">
-                    <div>
-                      <small>稳定通道</small>
-                      <strong>{updateInfo?.updateAvailable ? `${updateInfo.currentVersion || "-"} → ${updateInfo.latestVersion}` : `naimage ${updateInfo?.currentVersion || "-"}`}</strong>
-                    </div>
-                    {updateInfo?.artifact ? <span>{formatSettingsBytes(updateInfo.artifact.size)}</span> : null}
-                  </div>
-                  {updateInfo?.notes?.length ? (
-                    <ul className="settings-update-notes">
-                      {updateInfo.notes.slice(0, 4).map((note) => <li key={note}>{note}</li>)}
-                    </ul>
-                  ) : null}
-                  {updateProgress?.stage === "downloading" ? (
-                    <div
-                      className="settings-update-progress"
-                      role="progressbar"
-                      aria-label="更新下载进度"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.max(0, Math.min(100, updateProgress.percent || 0))}
-                    >
-                      <span style={{ width: `${Math.max(0, Math.min(100, updateProgress.percent || 0))}%` }} />
-                    </div>
-                  ) : null}
-                  {updateMessage ? <InlineNotice className="settings-update-message" tone={updateError ? "danger" : "info"}>{updateMessage}</InlineNotice> : null}
-                  {installerCaptcha?.imageDataUrl ? (
-                    <div className="settings-update-captcha">
-                      <ButtonBase type="button" className="settings-update-captcha-image" onClick={() => void loadInstallerCaptcha()} title="点击刷新验证码" disabled={updateOperationBusy || captchaRequestInFlightRef.current}>
-                        <img src={installerCaptcha.imageDataUrl} alt="下载验证码" />
-                      </ButtonBase>
-                      <Field label="验证码">
-                        <input
-                          value={captchaCode}
-                          onChange={(event) => setCaptchaCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          placeholder="输入 6 位数字"
-                          autoFocus
-                        />
-                      </Field>
-                      <ActionButton variant="primary" onClick={() => void authorizeInstallerDownload()} busy={updateOperationBusy} disabled={captchaCode.length !== 6} icon={<Download size={15} />}>
-                        验证并下载
-                      </ActionButton>
-                    </div>
-                  ) : (
-                    <div className="settings-update-actions">
-                      <ActionButton variant="primary" onClick={() => void runUpdateAction()} busy={updateOperationBusy} icon={pendingMatchesLatest ? <RotateCcw size={15} /> : <Download size={15} />}>
-                        {updateActionLabel}
-                      </ActionButton>
-                    </div>
-                  )}
-                  <InlineNotice className="settings-update-security" tone="neutral" icon={<Shield size={14} />}>更新包会自动验证，失败时保留当前版本</InlineNotice>
-                </div>
-              </SurfaceSection>
-              ) : null}
-
-              {activeSection === "plugins" ? (
-              <SurfaceSection className="settings-surface-section settings-plugin-section" aria-labelledby="settings-plugin-heading">
-                <div className="settings-section-header">
-                  <div>
-                    <h3 id="settings-plugin-heading">插件</h3>
-                    <small>安装后保存设置，启用的工具会出现在画布顶部。</small>
-                  </div>
-                  <span className="settings-update-status available">声明式安全插件</span>
-                </div>
-                <React.Suspense fallback={null}>
-                  <LazyPluginSettingsPanel
-                    states={draftSettings.pluginStates}
-                    onChange={(pluginStates) => update("pluginStates", pluginStates)}
-                  />
-                </React.Suspense>
-              </SurfaceSection>
-              ) : null}
-            </SurfaceBody>
-            <SurfaceFooter
-              className="settings-surface-footer"
-              leading={
-                <>
-                  <ActionButton variant={resetArmed ? "danger" : "secondary"} onClick={restoreDefaults} disabled={saving} icon={<RotateCcw size={15} />}>
-                    {resetArmed ? "确认恢复默认" : "恢复默认"}
-                  </ActionButton>
-                  <StatusLine className="settings-save-state" tone={settingsMessageError ? "danger" : dirty ? "warning" : "success"} busy={saving} live="polite">
-                    {settingsMessage || (dirty ? "有未保存修改" : "设置已同步")}
-                  </StatusLine>
-                </>
-              }
-            >
-              <ActionButton onClick={discardOrClose} disabled={saving}>{discardArmed && dirty ? "确认放弃" : "关闭"}</ActionButton>
-              <ActionButton variant="primary" onClick={() => void commitSettings()} busy={saving} disabled={!dirty} icon={<Check size={15} />}>
-                保存设置
-              </ActionButton>
-            </SurfaceFooter>
-          </>
-        )}
-      </DrawerShell>
-      {modelConfigTarget ? (
-        <React.Suspense fallback={null}>
-          <LazyModelConfigDialog
-            kind={modelConfigTarget}
-            settings={draftSettings}
-            setSettings={setDraftSettings}
-            selectedModels={modelConfigTarget === "agent" ? selectedAgentModels : selectedImageModels}
-            models={modelConfigTarget === "agent" ? visibleAgentModels : visibleImageModels}
-            close={() => setModelConfigTarget(null)}
-          />
-        </React.Suspense>
-      ) : null}
-    </>
-  );
-}
 
 // -----------------------------------------------------------------------------
 // MAIN 18 React Root Mount

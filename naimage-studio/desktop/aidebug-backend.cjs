@@ -298,6 +298,130 @@ function createAidebugBackend({ enabled, log } = {}) {
       .filter((source) => source.bindingId);
   }
 
+  function aidebugBalancedJsonObjectAfterMarker(text = "", marker = "") {
+    const value = String(text || "");
+    const markerIndex = value.indexOf(marker);
+    if (markerIndex < 0) return "";
+    const start = value.indexOf("{", markerIndex + marker.length);
+    if (start < 0) return "";
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < value.length; index += 1) {
+      const character = value[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') inString = false;
+        continue;
+      }
+      if (character === '"') {
+        inString = true;
+        continue;
+      }
+      if (character === "{") depth += 1;
+      else if (character === "}") {
+        depth -= 1;
+        if (depth === 0) return value.slice(start, index + 1);
+        if (depth < 0) return "";
+      }
+    }
+    return "";
+  }
+
+  function aidebugCommercePromptPlan(text = "") {
+    const value = String(text || "");
+    if (!value.includes("[NAIMAGE_COMMERCE_SET_V1]")) return null;
+    const declaredPlanHash = value.match(/(?:^|\n)PLAN_HASH:\s*(commerce-[a-f0-9]{32})(?:\s|$)/i)?.[1]?.toLowerCase();
+    const json = aidebugBalancedJsonObjectAfterMarker(value, "COMMERCE_SET_PLAN_JSON:");
+    if (!declaredPlanHash || !json) return null;
+    try {
+      const plan = JSON.parse(json);
+      const mode = plan?.mode;
+      const sourceCount = Number(plan?.sourceCount);
+      const outputsPerSource = Number(plan?.outputsPerSource);
+      const totalRequests = Number(plan?.totalRequests);
+      const slots = Array.isArray(plan?.slots) ? plan.slots : [];
+      const targetLocales = Array.isArray(plan?.targetLocales) ? plan.targetLocales : [];
+      const expectedOutputs = mode === "generate"
+        ? slots.length * Math.max(1, targetLocales.length)
+        : mode === "translate"
+          ? targetLocales.length
+          : 0;
+      if (
+        Number(plan?.schemaVersion) !== 1 ||
+        !/^commerce-[a-f0-9]{32}$/.test(String(plan?.planHash || "")) || String(plan?.planHash || "").toLowerCase() !== declaredPlanHash ||
+        !Number.isSafeInteger(sourceCount) || sourceCount < 1 || sourceCount > 200 ||
+        !Number.isSafeInteger(outputsPerSource) || outputsPerSource < 1 || outputsPerSource > 200 ||
+        outputsPerSource !== expectedOutputs ||
+        !Number.isSafeInteger(totalRequests) || totalRequests !== sourceCount * outputsPerSource || totalRequests > 200 ||
+        (mode === "generate" && (slots.length < 1 || slots.length > 12)) ||
+        targetLocales.length > 10 ||
+        (mode === "generate" && slots.some((slot) => !slot || typeof slot !== "object" || !String(slot.id || "").trim() || !String(slot.prompt || "").trim())) ||
+        targetLocales.some((locale) => !locale || typeof locale !== "object" || !String(locale.code || "").trim())
+      ) return null;
+      return plan;
+    } catch {
+      return null;
+    }
+  }
+
+  function aidebugCommerceImageArgs(text = "") {
+    const plan = aidebugCommercePromptPlan(text);
+    if (!plan) return null;
+    const commonProductRules = "基于当前 SOURCE 母图制作独立完整的跨境电商商品图。严格保持商品身份、几何结构、比例、轮廓、颜色、材质、标签、Logo、包装和可核对文字不变；不添加母图未支持的卖点、认证、优惠或配件。";
+    const locales = plan.mode === "generate" && plan.targetLocales.length === 0
+      ? [{ code: "source-language", label: "母图语言", prompt: "沿用母图语言与用户提供的文字要求。" }]
+      : plan.targetLocales;
+    const items = plan.mode === "translate"
+      ? locales.map((locale) => ({
+          title: `${String(locale.label || locale.code).trim()} 本地化`,
+          prompt: [
+            commonProductRules,
+            `将母图制作为 ${String(locale.label || locale.code).trim()} 本地化版本。`,
+            String(plan.translatePrompt || "").trim(),
+            String(locale.prompt || "").trim(),
+            "只翻译真实可见文字并做必要排版；保持商品、背景、构图、画幅、Logo 与整体设计不变。"
+          ].filter(Boolean).join("\n"),
+          slotId: "translation",
+          slotIndex: 0,
+          localeCode: String(locale.code).trim()
+        }))
+      : locales.flatMap((locale) => plan.slots.map((slot, slotIndex) => ({
+          title: `${String(slot.title || slot.id).trim()} · ${String(locale.label || locale.code).trim()}`,
+          prompt: [
+            commonProductRules,
+            `套图用途：${String(slot.title || slot.id).trim()}。`,
+            `画面要求：${String(slot.prompt).trim()}`,
+            `语言与本地化：${String(locale.prompt).trim()}`
+          ].join("\n"),
+          slotId: String(slot.id).trim(),
+          slotIndex,
+          localeCode: String(locale.code).trim()
+        })));
+    if (items.length !== plan.outputsPerSource) return null;
+    const args = {
+      operation: "variants",
+      scopeExecution: "all-goal-sources",
+      generationMode: "parallel",
+      commercePlanHash: plan.planHash,
+      count: plan.outputsPerSource,
+      prompt: items.length === 1 ? items[0].prompt : commonProductRules,
+      ratio: "1:1",
+      resolution: "720P",
+      quality: "auto",
+      brief: "执行 AIDebug 跨境电商 Goal 套图任务。"
+    };
+    if (items.length === 1) {
+      args.slotId = items[0].slotId;
+      args.slotIndex = items[0].slotIndex;
+      args.localeCode = items[0].localeCode;
+    } else {
+      args.items = items;
+    }
+    return args;
+  }
+
   function aidebugImageArgs(text = "", messages = [], scopedSource = null) {
     const value = String(text || "");
     const taskScopeSource = scopedSource || aidebugTaskScopeSources(messages)[0] || null;
@@ -346,6 +470,10 @@ function createAidebugBackend({ enabled, log } = {}) {
   }
 
   function aidebugImageFunctionCalls(prefix, text = "", messages = []) {
+    const commerceArgs = aidebugCommerceImageArgs(text);
+    if (commerceArgs) {
+      return [aidebugFunctionCall(aidebugFunctionCallId(`${prefix}-commerce`), "image_gen", commerceArgs)];
+    }
     const sources = aidebugTaskScopeSources(messages).slice(0, 10);
     if (sources.length <= 1) {
       return [aidebugFunctionCall(aidebugFunctionCallId(prefix), "image_gen", aidebugImageArgs(text, messages, sources[0] || null))];

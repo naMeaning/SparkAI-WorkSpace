@@ -7,6 +7,12 @@ import type {
   ReasoningEffort,
   ThemePaletteChoice
 } from "./core.ts";
+import {
+  glassAppearanceProjection,
+  normalizeGlassThemeSettings,
+  type GlassThemeMode,
+  type GlassThemeSettings
+} from "./glass-theme.ts";
 import { normalizePluginStates } from "./plugin-state.ts";
 
 export const AGENT_PROVIDER_OPTIONS: { value: AgentProviderChoice; label: string; detail: string }[] = [
@@ -73,6 +79,7 @@ export function normalizeCustomThemePreset(value: unknown): CustomThemePreset | 
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://sparkapi.org";
 export const DEFAULT_UPDATE_BASE_URL = "https://sparkapi.org";
+const defaultGlassAppearance = normalizeGlassThemeSettings();
 
 export const defaultSettings: AppSettings = {
   accessMode: "account",
@@ -117,14 +124,31 @@ export const defaultSettings: AppSettings = {
   theme: "light",
   themePalette: "anthropic",
   customTheme: null,
+  ...defaultGlassAppearance,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
   agentSkillAutoInstallTargets: [],
-  pluginStates: []
+  pluginStates: [],
+  canvasToolDockMode: "expanded",
+  disabledCanvasToolCommands: []
 };
+
+export function normalizeDisabledCanvasToolCommands(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const commands: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const command = String(item || "").trim().slice(0, 160);
+    if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(command) || seen.has(command)) continue;
+    seen.add(command);
+    commands.push(command);
+    if (commands.length >= 128) break;
+  }
+  return commands;
+}
 
 const LEGACY_LOCAL_SERVER_URLS = new Set([
   "http://127.0.0.1:17860",
@@ -201,6 +225,14 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
+  const glassAppearance = normalizeGlassThemeSettings({
+    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : defaultSettings.glassTheme),
+    glassMaterial: source.glassMaterial,
+    glassParameters: source.glassParameters
+  });
+  next.glassTheme = glassAppearance.glassTheme;
+  next.glassMaterial = glassAppearance.glassMaterial;
+  next.glassParameters = glassAppearance.glassParameters;
   if (!["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))) next.agentPanelPlacement = defaultSettings.agentPanelPlacement;
   next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
   next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));
@@ -210,6 +242,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))] as AppSettings["agentSkillAutoInstallTargets"]
     : [];
   next.pluginStates = normalizePluginStates(source.pluginStates);
+  next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
+  next.disabledCanvasToolCommands = normalizeDisabledCanvasToolCommands(source.disabledCanvasToolCommands);
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))) next.contextStrategy = "auto";
   const contextWindowTokens = Number(next.contextWindowTokens);
@@ -246,6 +280,88 @@ export const STORAGE_SETTINGS = "naimage.settings.v1";
 export const STORAGE_SESSION = "naimage.ideSession.v1";
 export const STORAGE_IMAGE_STATS = "naimage.imageGenerationStats.v1";
 export const STORAGE_SERVER_AUTH = "naimage.serverAuth.v1";
+export const STORAGE_GLASS_THEME_BOOTSTRAP = "naimage.glassTheme.bootstrap.v1";
+
+export type GlassThemeBootstrapSnapshot = GlassThemeSettings & {
+  schemaVersion: 1;
+  type: "naimage-glass-theme-bootstrap";
+  mode: GlassThemeMode;
+  variables: Record<string, string>;
+};
+
+type BootstrapStorageReader = Pick<Storage, "getItem">;
+type BootstrapStorageWriter = Pick<Storage, "setItem">;
+
+function availableLocalStorage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Produces the complete and intentionally credential-free appearance subset
+ * that may be read before the native settings bridge becomes available.
+ */
+export function glassThemeBootstrapSnapshot(value?: unknown): GlassThemeBootstrapSnapshot {
+  const projection = glassAppearanceProjection(value);
+  return {
+    schemaVersion: 1,
+    type: "naimage-glass-theme-bootstrap",
+    ...projection.settings,
+    mode: projection.mode,
+    variables: projection.variables
+  };
+}
+
+export function readGlassThemeBootstrapSnapshot(
+  storage: BootstrapStorageReader | null = availableLocalStorage()
+): GlassThemeBootstrapSnapshot {
+  if (!storage) return glassThemeBootstrapSnapshot(defaultSettings);
+  try {
+    const raw = storage.getItem(STORAGE_GLASS_THEME_BOOTSTRAP);
+    if (!raw) return glassThemeBootstrapSnapshot(defaultSettings);
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (parsed?.schemaVersion !== 1 || parsed?.type !== "naimage-glass-theme-bootstrap") {
+      return glassThemeBootstrapSnapshot(defaultSettings);
+    }
+    return glassThemeBootstrapSnapshot(parsed);
+  } catch {
+    return glassThemeBootstrapSnapshot(defaultSettings);
+  }
+}
+
+/**
+ * Keeps the first React appearance aligned with the pre-React bootstrap while
+ * Electron loads the complete, authoritative settings file asynchronously.
+ * Only the credential-free Glass subset is borrowed from localStorage.
+ */
+export function settingsWithGlassBootstrap(
+  settings: AppSettings,
+  storage: BootstrapStorageReader | null = availableLocalStorage()
+): AppSettings {
+  const snapshot = readGlassThemeBootstrapSnapshot(storage);
+  return {
+    ...settings,
+    glassTheme: snapshot.glassTheme,
+    glassMaterial: snapshot.glassMaterial,
+    glassParameters: { ...snapshot.glassParameters }
+  };
+}
+
+export function writeGlassThemeBootstrapSnapshot(
+  value: unknown,
+  storage: BootstrapStorageWriter | null = availableLocalStorage()
+) {
+  if (!storage) return false;
+  try {
+    storage.setItem(STORAGE_GLASS_THEME_BOOTSTRAP, JSON.stringify(glassThemeBootstrapSnapshot(value)));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function readJson<T>(key: string, fallback: T): T {
   try {

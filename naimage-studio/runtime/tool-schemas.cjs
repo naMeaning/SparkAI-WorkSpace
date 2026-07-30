@@ -86,6 +86,11 @@ function toolSchemas(settings = {}) {
             quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
             count: { type: "integer", minimum: 1, maximum: 200, description: "独立输出图片总张数，只能来自用户明确要求。运行时按设置中的每批数量顺序派发，不会一次发出全部请求；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
             generationMode: { type: "string", enum: ["parallel", "sequential"], description: "count>1 时的执行与画布组织方式。parallel=同一轮要求 N 张、N 版、N 个候选或 N 个方案，并收纳为批量图片组；即使用户说‘基于这张继续给 N 版’，也应使用 parallel 并另设 parentId。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。" },
+            scopeExecution: { type: "string", enum: ["all-goal-sources"], description: "仅用于 Current Task Scope 明确标记 frozen=true 且完整、未截断的 Goal TaskScope。all-goal-sources=由运行时按冻结快照中的每个 SOURCE bindingId 逐绑定展开，并在探测批次与并发上限保护下执行；模型对整个 Goal 只调用一次 image_gen，不得自行按 SOURCE 重复调用。count 必须严格等于冻结的 goalOperationsPerAsset，SOURCE×count 必须严格等于 goalRequestCount；count=1 省略 items，count>1 使用 variants，相同要求可省略 items，逐项要求提供与 count 等长的 items。跨境电商矩阵还必须严格匹配冻结计划的 hash 与槽位/语言顺序。总请求不得超过 200。普通或不完整 TaskScope 必须省略。" },
+            commercePlanHash: { type: "string", pattern: "^commerce-[a-f0-9]{32}$", description: "可选。只用于已确认的跨境电商结构化套图计划，原样复制任务中的 PLAN_HASH，用于成果溯源。" },
+            slotId: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录该成品的结构化槽位 ID。" },
+            slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 0-11 的套图槽位零基序号。" },
+            localeCode: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 BCP-47 目标语言代码。" },
             items: {
               type: "array",
               minItems: 2,
@@ -96,6 +101,9 @@ function toolSchemas(settings = {}) {
                 properties: {
                   title: { type: "string", description: "该图片在批量组中的短标题。" },
                   prompt: { type: "string", description: "这一张图片自己的完整纯视觉提示词；必须重复系列身份、商品、服装、版式、文字等核心不变量，并清楚写出本项唯一变化。多角度商品图逐项写明方位角、俯仰角和必须显露的侧面/顶部结构，不能只写左侧、右侧等模糊方向。省略任务 nonce、测试标记、文件路径、节点/调用/记忆 ID 和实现说明，不能把这些内容写成负面约束。" },
+                  slotId: { type: "string", description: "可选的结构化套图槽位 ID；仅作成果溯源，不得写入画面。" },
+                  slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选的结构化套图槽位零基序号；同一槽位跨语言复用相同序号，仅作成果溯源。" },
+                  localeCode: { type: "string", description: "可选的 BCP-47 目标语言代码；仅作成果溯源与排版策略。" },
                   ratio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
                   resolution: { type: "string", enum: ["720P", "1080P", "2K", "4K"] },
                   quality: { type: "string", enum: ["low", "medium", "high", "auto"] }
@@ -399,6 +407,11 @@ function agentToolSchemas(settings = {}, options = {}) {
     "quality",
     "count",
     "generationMode",
+    "scopeExecution",
+    "commercePlanHash",
+    "slotId",
+    "slotIndex",
+    "localeCode",
     "items",
     "outputFormat",
     "background",

@@ -1,0 +1,790 @@
+{
+  "version": 1,
+  "superGoalStateFile": "AIDEBUG/SUPER_GOAL.json",
+  "superGoalProfile": "super-goal-specialists",
+  "goalFiles": [
+    "GOAL.md",
+    "AIDEBUG/SUPER_GOAL.md",
+    "AIDEBUG/SUPER_GOAL.json"
+  ],
+  "defaultJobs": 3,
+  "tasks": {
+    "aidebug-catalog": {
+      "label": "AIDebug stable command and catalog registration contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:aidebug-catalog",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "aidebug-options": {
+      "label": "AIDebug option contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:aidebug-options",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "aidebug-reporting": {
+      "label": "AIDebug report contract",
+      "kind": "logic",
+      "runner": "node",
+      "args": [
+        "scripts/aidebug-reporting-selftest.mjs"
+      ],
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "aidebug-fixture-bridge": {
+      "label": "AIDebug Agent fixture bridge",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:aidebug-agent-fixtures",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "aidebug-visual-review": {
+      "label": "AIDebug visual crop and montage",
+      "kind": "logic",
+      "runner": "node",
+      "args": [
+        "AIDEBUG/visual-review.mjs",
+        "--self-test"
+      ],
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "aidebug-workpack-closure": {
+      "label": "AIDebug multi-Agent workpack claim, lock, recovery, and closure protocol",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:aidebug-workpack",
+      "timeoutMs": 300000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "automation-contract": {
+      "label": "Agent CLI and automation contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:automation-service",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "commerce-set-contract": {
+      "label": "Cross-border commerce plan, matrix, persistence, and runtime contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:commerce-set",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "goal-task-scope": {
+      "label": "Frozen Goal TaskScope and request-count contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:goal-task-scope",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "goal-runtime": {
+      "label": "Goal runtime matrix and commerce metadata admission",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:goal-runtime",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "goal-probe-admission": {
+      "label": "Process-wide probe-first Goal admission and circuit policy",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:goal-probe-admission",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "goal-probe-dual-renderer": {
+      "label": "Dual-Renderer Goal admission, fairness, and provider drain",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:goal-probe-dual-renderer",
+      "timeoutMs": 240000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "node-mutation-journal": {
+      "label": "Node mutation journal, writer checkpoint, and tombstone GC",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:node-mutation-journal",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "project-session-merge": {
+      "label": "Project session v5 conservative merge contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:project-session-merge",
+      "timeoutMs": 240000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "project-save-coordinator": {
+      "label": "Renderer save serialization and revision coordination",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:project-save-coordinator",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "project-session-dual-renderer": {
+      "label": "Real dual-Renderer edit, delete, undo, rapid-save, and crash conflicts",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:project-session-dual-renderer",
+      "timeoutMs": 300000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "project-io": {
+      "label": "Project persistence and current session schema",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:project-io",
+      "timeoutMs": 300000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "agent-run-control": {
+      "label": "Renderer-owned Agent pause, stop, and lifecycle control",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:agent-run-control",
+      "timeoutMs": 240000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "agent-steer": {
+      "label": "Running-task steer and explicit TaskScope replacement protocol",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:agent-steer",
+      "timeoutMs": 240000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "agent-window": {
+      "label": "Detached Agent window synchronization and controls",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:agent-window",
+      "timeoutMs": 300000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "lifecycle": {
+      "label": "Electron shutdown and Renderer destruction lifecycle",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:lifecycle",
+      "timeoutMs": 240000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "ipc-registration": {
+      "label": "Main, preload, and internal Agent IPC symmetry",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:ipc-registration",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "image-format": {
+      "label": "Generated PNG, JPEG, and WebP byte-format contract",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:image-format",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "image-export": {
+      "label": "Local PNG, JPEG, WebP, AVIF, and TIFF export",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:image-export",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "typecheck": {
+      "label": "TypeScript boundary verification",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "typecheck",
+      "timeoutMs": 300000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "production-build": {
+      "label": "Production Renderer build",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "build",
+      "timeoutMs": 300000,
+      "resources": [
+        "production-dist"
+      ],
+      "requiresNetwork": false
+    },
+    "bundle-policy": {
+      "label": "Layered Bundle hard and advisory policy",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:bundle-policy",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "bundle-gate": {
+      "label": "Production Bundle structure and size gate",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:bundle",
+      "timeoutMs": 180000,
+      "resources": [
+        "production-dist"
+      ],
+      "requiresNetwork": false
+    },
+    "remote-asset-security": {
+      "label": "Managed remote image URL, redirect, DNS, and Renderer boundary",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:remote-asset-security",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "skill-import": {
+      "label": "SKILL.md parse, identity, and session persistence",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:skill-import",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "canvas-commands": {
+      "label": "Canvas commands and shortcuts",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:canvas-commands",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "selection-state": {
+      "label": "Single and multi-node selection",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:selection",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "requirement-graph": {
+      "label": "Requirement node relationships",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:requirement-graph",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "image-batch-scheduler": {
+      "label": "Parallel image batch scheduler",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:image-batch-scheduler",
+      "timeoutMs": 180000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "image-stream-preview": {
+      "label": "Parallel image stream preview",
+      "kind": "logic",
+      "runner": "pnpm",
+      "script": "test:image-stream-preview",
+      "timeoutMs": 120000,
+      "resources": [],
+      "requiresNetwork": false
+    },
+    "gui-smoke": {
+      "label": "Electron GUI quick smoke",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:gui",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-surface": {
+      "label": "Electron complete UI surface",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:gui:surface",
+      "timeoutMs": 1200000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-auth-gate": {
+      "label": "Electron authentication gate and account-entry states",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:auth-gate",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-image": {
+      "label": "Electron mock image generation and canvas result lifecycle",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:image",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-image-collection": {
+      "label": "Electron image collection, ImageViewer, save action, and canvas layout",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:image-collection",
+      "timeoutMs": 900000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-ask-user": {
+      "label": "Electron ask-user continuation, SOURCE, and REFERENCE restoration",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:ask-user",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-agent-text-ui": {
+      "label": "Electron Agent text, FastMemory, Markdown, settings, and authentication surfaces",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:agent-text-ui",
+      "timeoutMs": 1200000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-selection": {
+      "label": "Electron selection commands",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:selection",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-requirements": {
+      "label": "Electron requirement nodes",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:requirements",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-graph-cli": {
+      "label": "Electron loopback CLI graph lifecycle",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:graph-cli",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-skills": {
+      "label": "Electron Skill-backed requirement nodes and TaskScope controls",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:skills",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-goal": {
+      "label": "Electron Goal mode scope, probe policy, cost guard, and stale confirmation",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:goal",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-commerce-set": {
+      "label": "Electron cross-border commerce matrix, persistence, limits, and minimum viewport",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:commerce-set",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-glass-workspace": {
+      "label": "Electron liquid-glass controls, asset rail, 884x640 layout, and cold-restart persistence",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:glass-workspace",
+      "timeoutMs": 900000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-stop-pending": {
+      "label": "Electron Agent stop confirmation, failure retention, and retry",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:stop-pending",
+      "timeoutMs": 180000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-image-import": {
+      "label": "Electron managed image import",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:image-import",
+      "timeoutMs": 900000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    },
+    "gui-menus": {
+      "label": "Electron context menus",
+      "kind": "gui",
+      "runner": "pnpm",
+      "script": "aidebug:menus",
+      "timeoutMs": 600000,
+      "resources": [
+        "electron-ui"
+      ],
+      "requiresNetwork": false
+    }
+  },
+  "profiles": {
+    "aidebug-infra": {
+      "description": "Only the AIDebug control plane, evidence compositor, and fixture contracts.",
+      "agents": [
+        {
+          "id": "catalog-agent",
+          "scope": "Stable package commands and catalog registrations",
+          "tasks": [
+            "aidebug-catalog"
+          ]
+        },
+        {
+          "id": "options-agent",
+          "scope": "CLI option parsing and safe defaults",
+          "tasks": [
+            "aidebug-options"
+          ]
+        },
+        {
+          "id": "report-agent",
+          "scope": "Report truth and evidence aggregation",
+          "tasks": [
+            "aidebug-reporting"
+          ]
+        },
+        {
+          "id": "fixture-agent",
+          "scope": "Mock Agent fixture bridge",
+          "tasks": [
+            "aidebug-fixture-bridge"
+          ]
+        },
+        {
+          "id": "visual-agent",
+          "scope": "Screenshot crop and montage evidence",
+          "tasks": [
+            "aidebug-visual-review"
+          ]
+        },
+        {
+          "id": "workpack-agent",
+          "scope": "Cross-process workpack claims, locks, recovery, and closure evidence",
+          "tasks": [
+            "aidebug-workpack-closure"
+          ]
+        }
+      ]
+    },
+    "ui-smoke": {
+      "description": "One isolated Electron quick smoke for a completed Renderer/UI batch.",
+      "agents": [
+        {
+          "id": "gui-smoke-agent",
+          "scope": "Application startup and primary UI surface",
+          "tasks": [
+            "gui-smoke"
+          ]
+        }
+      ]
+    },
+    "ui-specialists": {
+      "description": "Feature-specific Electron suites. The electron-ui resource intentionally serializes them.",
+      "requireAgentSelection": true,
+      "agents": [
+        {
+          "id": "auth-gate-ui-agent",
+          "scope": "Authentication gate and account-entry states",
+          "tasks": [
+            "gui-auth-gate"
+          ]
+        },
+        {
+          "id": "image-ui-agent",
+          "scope": "Mock image generation and canvas result lifecycle",
+          "tasks": [
+            "gui-image"
+          ]
+        },
+        {
+          "id": "image-collection-ui-agent",
+          "scope": "Image collections, ImageViewer, save action, and canvas layout",
+          "tasks": [
+            "gui-image-collection"
+          ]
+        },
+        {
+          "id": "ask-user-ui-agent",
+          "scope": "Ask-user continuation and SOURCE/REFERENCE restoration",
+          "tasks": [
+            "gui-ask-user"
+          ]
+        },
+        {
+          "id": "agent-text-ui-agent",
+          "scope": "Agent text, FastMemory, Markdown, settings, and authentication surfaces",
+          "tasks": [
+            "gui-agent-text-ui"
+          ]
+        },
+        {
+          "id": "selection-ui-agent",
+          "scope": "Selection and command interactions",
+          "tasks": [
+            "gui-selection"
+          ]
+        },
+        {
+          "id": "requirement-ui-agent",
+          "scope": "Requirement node interactions",
+          "tasks": [
+            "gui-requirements"
+          ]
+        },
+        {
+          "id": "skills-ui-agent",
+          "scope": "Skill-backed requirement nodes and main/independent TaskScope controls",
+          "tasks": [
+            "gui-skills"
+          ]
+        },
+        {
+          "id": "goal-ui-agent",
+          "scope": "Goal scope confirmation, bounded probe-first concurrency, cost disclosure, and stale snapshot rejection",
+          "tasks": [
+            "gui-goal"
+          ]
+        },
+        {
+          "id": "commerce-set-ui-agent",
+          "scope": "Cross-border commerce set composition and Goal confirmation",
+          "tasks": [
+            "gui-commerce-set"
+          ]
+        },
+        {
+          "id": "glass-workspace-ui-agent",
+          "scope": "Liquid-glass controls, asset navigation, view modes, minimum window, and cold-restart persistence",
+          "tasks": [
+            "gui-glass-workspace"
+          ]
+        },
+        {
+          "id": "stop-pending-ui-agent",
+          "scope": "Stop confirmation pending, failure retention, visible error, and successful retry",
+          "tasks": [
+            "gui-stop-pending"
+          ]
+        },
+        {
+          "id": "import-ui-agent",
+          "scope": "Managed image import",
+          "tasks": [
+            "gui-image-import"
+          ]
+        },
+        {
+          "id": "menu-ui-agent",
+          "scope": "Context menu layout and actions",
+          "tasks": [
+            "gui-menus"
+          ]
+        }
+      ]
+    },
+    "super-goal-specialists": {
+      "description": "Machine-readable owner lanes for every SUPER GOAL workstream. Select only affected lanes for daily work; emit the whole profile for final closure.",
+      "requireAgentSelection": true,
+      "agents": [
+        {
+          "id": "skills-cli-agent",
+          "scope": "Skills import and external Agent CLI contract",
+          "tasks": [
+            "skill-import",
+            "automation-contract",
+            "gui-skills"
+          ]
+        },
+        {
+          "id": "node-interaction-agent",
+          "scope": "Requirement relationships, shortcuts, and multi-node selection",
+          "tasks": [
+            "canvas-commands",
+            "selection-state",
+            "requirement-graph",
+            "gui-graph-cli"
+          ]
+        },
+        {
+          "id": "parallel-image-agent",
+          "scope": "Parallel image scheduling and streamed previews",
+          "tasks": [
+            "image-batch-scheduler",
+            "image-stream-preview",
+            "goal-probe-admission",
+            "goal-probe-dual-renderer",
+            "gui-goal"
+          ]
+        },
+        {
+          "id": "commerce-set-agent",
+          "scope": "Cross-border commerce matrix, billing boundary, reusable nodes, and GUI",
+          "tasks": [
+            "commerce-set-contract",
+            "goal-task-scope",
+            "goal-runtime",
+            "gui-commerce-set"
+          ]
+        },
+        {
+          "id": "session-consistency-agent",
+          "scope": "Session v5 writer checkpoints, tombstone GC, and multi-Renderer conflict persistence",
+          "tasks": [
+            "node-mutation-journal",
+            "project-session-merge",
+            "project-save-coordinator",
+            "project-session-dual-renderer",
+            "project-io"
+          ]
+        },
+        {
+          "id": "agent-control-agent",
+          "scope": "Pause, stop, steer TaskScope replacement, detached window, and Renderer lifecycle",
+          "tasks": [
+            "agent-run-control",
+            "agent-steer",
+            "agent-window",
+            "lifecycle",
+            "ipc-registration",
+            "gui-stop-pending"
+          ]
+        },
+        {
+          "id": "aidebug-agent",
+          "scope": "AIDebug orchestration and visual evidence",
+          "tasks": [
+            "aidebug-catalog",
+            "aidebug-options",
+            "aidebug-reporting",
+            "aidebug-fixture-bridge",
+            "aidebug-visual-review",
+            "aidebug-workpack-closure"
+          ]
+        },
+        {
+          "id": "asset-delivery-agent",
+          "scope": "Generated image formats, local export, and managed public-network-only transport",
+          "tasks": [
+            "image-format",
+            "image-export",
+            "remote-asset-security"
+          ]
+        },
+        {
+          "id": "gui-smoke-agent",
+          "scope": "Type safety, production Bundle policy, application startup, and primary UI runtime observation",
+          "tasks": [
+            "typecheck",
+            "production-build",
+            "bundle-policy",
+            "bundle-gate",
+            "gui-smoke"
+          ]
+        }
+      ]
+    }
+  }
+}

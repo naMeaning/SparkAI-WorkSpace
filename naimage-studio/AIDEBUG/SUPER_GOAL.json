@@ -1,0 +1,566 @@
+{
+  "schemaVersion": 1,
+  "goalId": "naimage-super-goal-2026-07",
+  "status": "implemented-awaiting-current-closure",
+  "sourceOfTruth": "GOAL.md",
+  "runPolicy": "explicit-changed-scope-only",
+  "defaultSuite": null,
+  "workstreams": [
+    {
+      "id": "interaction-speed",
+      "state": "verified",
+      "ownerLane": "node-interaction-agent",
+      "verificationTasks": [
+        "canvas-commands",
+        "selection-state",
+        "requirement-graph",
+        "gui-graph-cli"
+      ]
+    },
+    {
+      "id": "skills-import-cli",
+      "state": "verified",
+      "ownerLane": "skills-cli-agent",
+      "verificationTasks": [
+        "skill-import",
+        "automation-contract",
+        "gui-skills"
+      ]
+    },
+    {
+      "id": "parallel-image-generation",
+      "state": "implemented-awaiting-current-closure",
+      "ownerLane": "parallel-image-agent",
+      "verificationTasks": [
+        "image-batch-scheduler",
+        "image-stream-preview",
+        "goal-probe-admission",
+        "goal-probe-dual-renderer",
+        "gui-goal"
+      ]
+    },
+    {
+      "id": "cross-border-commerce",
+      "state": "implemented-awaiting-current-closure",
+      "ownerLane": "commerce-set-agent",
+      "verificationTasks": [
+        "commerce-set-contract",
+        "goal-task-scope",
+        "goal-runtime",
+        "gui-commerce-set"
+      ]
+    },
+    {
+      "id": "session-consistency",
+      "state": "implemented-awaiting-current-closure",
+      "ownerLane": "session-consistency-agent",
+      "verificationTasks": [
+        "node-mutation-journal",
+        "project-session-merge",
+        "project-save-coordinator",
+        "project-session-dual-renderer",
+        "project-io"
+      ]
+    },
+    {
+      "id": "agent-control",
+      "state": "implemented-awaiting-current-closure",
+      "ownerLane": "agent-control-agent",
+      "verificationTasks": [
+        "agent-run-control",
+        "agent-steer",
+        "agent-window",
+        "lifecycle",
+        "ipc-registration",
+        "gui-stop-pending"
+      ]
+    },
+    {
+      "id": "aidebug-closed-loop",
+      "state": "verified",
+      "ownerLane": "aidebug-agent",
+      "verificationTasks": [
+        "aidebug-options",
+        "aidebug-reporting",
+        "aidebug-fixture-bridge",
+        "aidebug-visual-review",
+        "aidebug-workpack-closure"
+      ]
+    },
+    {
+      "id": "ui-runtime-observation",
+      "state": "verified",
+      "ownerLane": "gui-smoke-agent",
+      "verificationTasks": [
+        "typecheck",
+        "production-build",
+        "bundle-policy",
+        "bundle-gate",
+        "gui-smoke"
+      ]
+    },
+    {
+      "id": "asset-delivery-safety",
+      "state": "verified",
+      "ownerLane": "asset-delivery-agent",
+      "verificationTasks": [
+        "image-format",
+        "image-export",
+        "remote-asset-security"
+      ]
+    }
+  ],
+  "goalMode": {
+    "state": "implemented-awaiting-current-closure",
+    "workstreamId": "parallel-image-generation",
+    "scope": "All eligible image containers on the current canvas by default, or an exact explicit GUI/CLI boundary, frozen as one ordered TaskScope with one binding per image slot.",
+    "explicitBoundaryPolicy": "An explicit node boundary is atomic and never silently widened or reduced.",
+    "excludedContainers": [
+      "reference-only",
+      "empty",
+      "generating",
+      "stale"
+    ],
+    "frozenExecutionFields": [
+      "operationsPerAsset",
+      "requestCount",
+      "commercePlanHash-when-commerce",
+      "snapshotHash"
+    ],
+    "requestInvariant": "requestCount = bindingCount * operationsPerAsset",
+    "maxTotalRequests": 200,
+    "confirmation": {
+      "protocol": "preview-then-explicit-confirmation",
+      "hashDriftPolicy": "reject-with-zero-dispatch",
+      "surfaces": [
+        "main-renderer",
+        "detached-agent-window",
+        "agent.goal-cli"
+      ]
+    },
+    "batchSafety": {
+      "probe": "Serially validate one representative image from each of 1-2 distinct containers.",
+      "probeSuccessRequirements": [
+        "request-success",
+        "asset-persisted",
+        "full-image-decode",
+        "nonzero-dimensions",
+        "delivery-frame-match"
+      ],
+      "rampConcurrency": [
+        2,
+        4,
+        "configured-cap"
+      ],
+      "stopPolicy": "Stop immediately on any probe failure; open the circuit on later protected or concentrated failures.",
+      "feeBoundary": "Only undispatched work can be prevented; requests already accepted upstream may still complete and incur charges.",
+      "maxTotalRequests": 200
+    },
+    "v1": {
+      "operations": [
+        "edit",
+        "replace",
+        "variants"
+      ],
+      "outputsPerBinding": "frozen goal.operationsPerAsset",
+      "operationsPerAssetRange": [
+        1,
+        200
+      ],
+      "toolCallsPerGoal": 1,
+      "scopeExecution": "all-goal-sources",
+      "ordinaryItemsPolicy": "For operationsPerAsset > 1, omit items to repeat one prompt or provide items exactly equal to operationsPerAsset for per-output prompts.",
+      "commerceItemsPolicy": {
+        "multipleOutputs": "items is required and must exactly equal operationsPerAsset; slotId, slotIndex, and localeCode live only on each item and must match trusted plan order.",
+        "singleOutput": "items is forbidden; slotId, slotIndex, and localeCode are required at the top level and must match the trusted plan.",
+        "ordinaryGoal": "A Goal without frozen commercePlanHash forbids commerce markers, hashes, slot metadata, and locale metadata."
+      },
+      "steer": "text-only",
+      "unsupported": [
+        "extra-references",
+        "layers",
+        "cutout",
+        "redraw",
+        "runtime-source-or-reference-replacement"
+      ]
+    },
+    "mirrorInvariant": [
+      "renderer-ui",
+      "detached-agent-window",
+      "agent-runtime",
+      "tool-schema",
+      "shared-automation-command-registry",
+      "naimage-control-cli-and-skill",
+      "focused-tests"
+    ],
+    "runtimeOwner": "runtime/goal-image-execution.cjs",
+    "focusedVerification": [
+      "test:goal-task-scope",
+      "test:goal-runtime",
+      "test:goal-probe-admission",
+      "test:goal-probe-dual-renderer",
+      "test:image-batch-scheduler",
+      "test:automation-service",
+      "test:agent-window",
+      "test:agent-steer"
+    ],
+    "aidebug": {
+      "state": "historical-verified-for-frozen-inputs",
+      "catalogTask": "gui-goal",
+      "command": "aidebug:goal",
+      "evidence": {
+        "runId": "aidebug-2026-07-29T06-08-23-398Z",
+        "suiteReport": ".diagnostics/electron/aidebug-2026-07-29T06-08-23-398Z/goal-mode-suite.json",
+        "report": ".diagnostics/electron/aidebug-2026-07-29T06-08-23-398Z/report.json",
+        "minimumViewportScreenshot": ".diagnostics/electron/aidebug-2026-07-29T06-08-23-398Z/goal-mode-confirmation-min-900x640.png",
+        "scenes": 4,
+        "failures": 0,
+        "visualStatus": "verified",
+        "currentClosureCoverage": false
+      },
+      "requiredEvidence": [
+        "visible-goal-mode",
+        "actual-container-and-image-counts",
+        "confirmation-and-fee-warning",
+        "hash-drift-zero-dispatch",
+        "no-overlap-or-cropping"
+      ]
+    }
+  },
+  "commerceSet": {
+    "state": "implemented-awaiting-current-closure",
+    "workstreamId": "cross-border-commerce",
+    "ownerLane": "commerce-set-agent",
+    "surfaces": [
+      "canvas-commerce-toolbar",
+      "commerce.compose-set-cli",
+      "naimage-control-skill"
+    ],
+    "commands": [
+      "one-click-listing-set",
+      "one-click-multilingual",
+      "commerce.compose-set"
+    ],
+    "sourcePolicy": "One or more exact mother-image nodes or containers are frozen atomically; every eligible image binding remains independently traceable.",
+    "plan": {
+      "listingSetSlots": "1-12 slots with an independent title and prompt per slot",
+      "targetLanguages": "0-10 for generation and 1-10 for translation, with an independent prompt per locale",
+      "generationMatrix": "SOURCE bindings * max(1, targetLocales) * slots",
+      "translationMatrix": "SOURCE bindings * targetLocales",
+      "maxTotalRequests": 200
+    },
+    "goalFreeze": [
+      "operationsPerAsset",
+      "requestCount",
+      "commercePlanHash"
+    ],
+    "executionContract": [
+      "the trusted normalized plan and exact source boundary produce one deterministic commercePlanHash",
+      "preview and confirmation use the same one-time agent.goal ledger; any source, slot, prompt, locale, or save-target change requires a new preview",
+      "for multiple outputs, items length equals operationsPerAsset and each item metadata exactly matches trusted slot and locale order",
+      "for one output, items is omitted and slotId, slotIndex, and localeCode are top-level metadata",
+      "ordinary Goals reject all commerce markers, hashes, slot metadata, and locale metadata",
+      "all matrix shape, count, order, and hash failures reject before provider dispatch"
+    ],
+    "reusableNode": {
+      "targets": [
+        "requirement",
+        "skill"
+      ],
+      "inputRelations": "Preserve every selected mother-image input relation.",
+      "creationFence": "Create only after confirmed Goal dispatch is accepted; cancellation, expiry, stale hash, or rejection creates nothing."
+    },
+    "focusedVerification": [
+      "test:commerce-set",
+      "test:goal-task-scope",
+      "test:goal-runtime",
+      "test:automation-service",
+      "typecheck",
+      "aidebug:commerce-set"
+    ],
+    "aidebug": {
+      "state": "verified-direct-evidence-awaiting-workpack-closure",
+      "catalogTask": "gui-commerce-set",
+      "command": "aidebug:commerce-set",
+      "report": ".diagnostics/electron/commerce-set-2026-07-30T03-25-55-222Z/report.json",
+      "checks": 15,
+      "screenshots": 14,
+      "realProviderCalled": false,
+      "currentClosureCoverage": false
+    }
+  },
+  "graphAutomation": {
+    "state": "verified",
+    "workstreamId": "interaction-speed",
+    "schemaOwner": "integrations/naimage-control/references/commands.schema.json",
+    "commands": [
+      "canvas.state",
+      "canvas.select",
+      "canvas.connect",
+      "canvas.disconnect",
+      "canvas.group",
+      "canvas.dissolve",
+      "canvas.nudge",
+      "canvas.create-requirement",
+      "canvas.update-requirement",
+      "canvas.execute-requirement"
+    ],
+    "invariants": [
+      "renderer registry, CLI reference, and tests are generated from one shared schema",
+      "canvas.state returns the authoritative canvas revision, locks, relations, and active state",
+      "canvas.select validates every id and primary id before changing selection",
+      "every graph mutation requires the expected project id and may use expected canvas revision for compare-and-set",
+      "requirement update and execute additionally require the requirement revision",
+      "every explicit node and edge validates before one atomic commit",
+      "cycle, lock, stale, and unsupported-member failures never shrink to a valid subset",
+      "requirement execute fences revision and TaskScope before asynchronous Agent dispatch; provider and result persistence are not part of the graph commit"
+    ],
+    "focusedVerification": [
+      "test:canvas-commands",
+      "test:selection",
+      "test:requirement-graph",
+      "test:automation-service",
+      "test:aidebug-graph-cli-harness",
+      "aidebug:graph-cli"
+    ],
+    "evidence": {
+      "report": ".diagnostics/electron/aidebug-graph-cli-2026-07-29T16-05-00-768Z/report.json",
+      "review": ".diagnostics/aidebug-review/review-graph-cli-2026-07-29T16-05-00-768Z/review.json",
+      "montage": ".diagnostics/aidebug-review/review-graph-cli-2026-07-29T16-05-00-768Z/montage.png",
+      "scenes": 5,
+      "failures": 0,
+      "rendererViewport": "900x640",
+      "browserWindowBounds": "not-recorded",
+      "reportSha256": "5f724445453d3aa9a97dbe53210e3886c445db7cef9ef7426e84db562b1a81c3",
+      "reviewSha256": "55fbfcf3cf648c2d8d17b4ee7ade2625ab7fc0bf39ac2d73f7bb3313aa495adf",
+      "montageSha256": "109abc94a7e581341d11af508e6a9fb90c23f77de24bf7c84d8804018b64ee28"
+    }
+  },
+  "rendererLifecycle": {
+    "state": "implemented-awaiting-current-closure",
+    "workstreamId": "agent-control",
+    "scopeKey": "projectId + conversationId + Renderer owner",
+    "invariants": [
+      "same-project-and-conversation owners do not share pause or stop state",
+      "overlapping nodes remain mutually exclusive across owners",
+      "renderer destruction stops every run owned by that renderer",
+      "renderer destruction immediately rejects its pending automation commands",
+      "the final run releases its idle scope state",
+      "application shutdown stops all runs before transports are dismantled",
+      "accepted provider requests continue draining under Main-process admission"
+    ],
+    "focusedVerification": [
+      "test:agent-run-control",
+      "test:automation-service",
+      "test:lifecycle",
+      "test:agent-steer",
+      "test:agent-window",
+      "test:ipc-registration",
+      "test:goal-probe-dual-renderer",
+      "aidebug:stop-pending"
+    ],
+    "evidence": {
+      "lifecycleReport": ".diagnostics/electron/lifecycle-selftest-2026-07-29T08-52-13-363Z/report.json",
+      "electronExitedCleanly": true,
+      "agentRunAbortedBeforeTransportShutdown": true,
+      "rendererPendingCancellation": true,
+      "goalCrashDrainsProviderBeforeRelease": true,
+      "stopPendingReport": ".diagnostics/electron/stop-pending-2026-07-29T15-46-22-746Z/report.json",
+      "stopPendingReportSha256": "b32331ecda7038e1cf7bb0fa25e0787ac7cd9d9a3088cf0a19f30b4ce48487d7",
+      "stopPendingCases": 20,
+      "agentWindowCases": "44+54",
+      "ipcRegistration": {
+        "invokeHandlers": 95,
+        "preloadInvokes": 92,
+        "internalAgentInvokes": 3,
+        "receives": 5,
+        "sends": 2
+      }
+    }
+  },
+  "sessionJournal": {
+    "state": "implemented-awaiting-current-closure",
+    "workstreamId": "session-consistency",
+    "version": 5,
+    "scopeBoundary": "same Electron Main process",
+    "invariants": [
+      "top-level node fields merge by their mutation clocks while the same field resolves by Main commit order",
+      "only a writer that actually saves refreshes its checkpoint",
+      "writers inactive for 30 days may leave the tombstone GC quorum",
+      "delete and restore history may compact into a causal barrier without allowing stale resurrection",
+      "explicit undo may restore a tombstone observed by that writer",
+      "assets, generation terminal/progress state, and provenance retain specialized compatibility policies",
+      "this is not a recursive-field or remote multi-user CRDT"
+    ],
+    "focusedVerification": [
+      "test:node-mutation-journal",
+      "test:project-session-merge",
+      "test:project-save-coordinator",
+      "test:project-session-dual-renderer",
+      "test:project-io"
+    ],
+    "evidence": {
+      "nodeMutationJournalCases": 22,
+      "projectSessionMergeCases": 70,
+      "projectSaveCoordinatorCases": 18,
+      "dualRendererScenarios": [
+        "edit-edit",
+        "edit-delete",
+        "delete-undo",
+        "rapid-consecutive-save",
+        "renderer-destruction-before-and-after-receipt"
+      ]
+    }
+  },
+  "remoteAssetSecurity": {
+    "state": "verified",
+    "workstreamId": "asset-delivery-safety",
+    "policy": "Recorded project remote images may use public HTTP(S) only. Every redirect hop is resolved and pinned before a fresh connection; the actual socket address must match the approved public set.",
+    "rendererBoundary": "New provider URL results are materialized into managed files before entering the canvas. Legacy recorded URLs render only through naimage-asset; direct Renderer HTTP(S) image loading is blocked by CSP.",
+    "focusedVerification": [
+      "test:remote-asset-security",
+      "test:image-format",
+      "test:image-export",
+      "typecheck"
+    ],
+    "evidence": {
+      "catalogTask": "remote-asset-security",
+      "evidenceRoot": ".diagnostics/aidebug-agents",
+      "directLocalUrlsRejected": 11,
+      "redirectHopValidation": true,
+      "dnsRebindingPinned": true,
+      "socketAddressVerified": true,
+      "rendererDirectRemoteBlocked": true,
+      "generatedUrlsMaterialized": true,
+      "boundedDownloadAdmission": true,
+      "inFlightUrlDeduplication": true
+      }
+  },
+  "imageFormats": {
+    "state": "verified",
+    "generatedInputAndResultFormats": [
+      "png",
+      "jpeg",
+      "webp"
+    ],
+    "defaultGeneratedFormat": "png",
+    "localExportFormats": [
+      "png",
+      "jpeg",
+      "webp",
+      "avif",
+      "tiff"
+    ],
+    "invariants": [
+      "unknown generated formats are rejected before provider dispatch, and encoded bytes must match the requested generated format",
+      "GUI and canvas.export-image use one shared format registry and native Save authorization",
+      "JPEG flattens transparency over white",
+      "local conversion does not call an image model or mutate the managed source"
+    ],
+    "focusedVerification": [
+      "test:image-format",
+      "test:image-export",
+      "test:automation-service",
+      "test:ipc-registration"
+    ]
+  },
+  "bundlePolicy": {
+    "state": "verified",
+    "bundleHardGates": [
+      "initial-js-with-1024-byte-measurement-tolerance",
+      "core-async-js",
+      "plugin-js",
+      "css",
+      "diagnostic-leak-and-entry-graph-structure"
+    ],
+    "productPerformanceGate": "aidebug:performance:product",
+    "advisoryGates": [
+      "core-js",
+      "dist"
+    ],
+    "maintenancePolicy": "Prefer natural async boundaries, but never sacrifice maintainability or add risky refactors or complex splitting merely to cross any Bundle hard gate or advisory number.",
+    "focusedVerification": [
+      "test:bundle-policy"
+    ],
+    "latestBuildEvidence": {
+      "date": "2026-07-29",
+      "initialJsBytes": 670944,
+      "coreAsyncJsBytes": 88609,
+      "pluginJsBytes": 9258,
+      "cssBytes": 199454,
+      "coreJsBytes": 759553,
+      "distBytes": 1016274,
+      "hardFailures": 0
+    }
+  },
+  "aidebugWorkpack": {
+    "state": "verified",
+    "workstreamId": "aidebug-closed-loop",
+    "manifestVersion": 2,
+    "protocolVersion": 1,
+    "invariants": [
+      "exact manifest bytes are bound by a separate integrity sidecar",
+      "goal, catalog, package scripts, runner, SUPER GOAL contract validator, and workpack protocol hashes fail closed on drift",
+      "a full super-goal profile workpack includes every declared workstream owner lane",
+      "independent runner processes use collision-resistant exclusively created run directories",
+      "one atomic claim can launch each agent lane",
+      "all prior wave agents must pass before a later wave starts",
+      "declared resources are mutually exclusive across workpack processes",
+      "checkpoints are immutable and hash chained",
+      "stale reclaim requires an explicit command and refuses a live parent or child pid",
+      "runner result and report paths are deterministic and hash bound",
+      "GUI closure requires real Electron screenshots, montage coverage, reviewer, and verdict",
+      "every collect writes an immutable closure snapshot",
+      "a closure proves only the exact input hashes frozen in its manifest; any goal, catalog, package, runner, or protocol drift requires a new workpack"
+    ],
+    "focusedVerification": [
+      "test:aidebug-workpack",
+      "node AIDEBUG/run.mjs --check"
+    ],
+    "evidence": {
+      "atomicClaimContenders": 16,
+      "atomicClaimLaunches": 1,
+      "crossWorkpackResourceLock": true,
+      "waveBarrier": true,
+      "staleReclaim": true,
+      "inputDriftRejected": true,
+      "fixtureVisualReviewRejectedByProductionPolicy": true,
+      "missingOwnerLaneRejectedByCliCheck": true,
+      "missingVerificationTaskRejectedByCliCheck": true,
+      "concurrentRunnerDirectories": 4,
+      "historicalClosure": {
+        "scope": "Verified only for the frozen 2026-07-29 inputs; it does not cover the later commerce matrix and fee admission, session v5 journal and dual-Renderer conflicts, or explicit TaskScope steer.",
+        "workpackId": "workpack-2026-07-29T17-05-37-525Z-192677e4",
+        "manifestHash": "d812d70739bb86ed12cac66dbb8e37029bfc8190782d23a92f716e3056cae7dc",
+        "path": ".diagnostics/aidebug-agents/workpack-2026-07-29T17-05-37-525Z-192677e4/state/closures/closure-2026-07-29T17-15-26-049Z-30ab311c.json",
+        "sha256": "0c6df74e42a01be739d07c3443d7d9fa7ce28825a3547b2cf62f690634114e6e",
+        "waves": 4,
+        "agentsPassed": 6,
+        "verificationTasksPassed": 17,
+        "reviewsPassed": 4,
+        "reviewedScreenshots": 20,
+        "inputDrift": 0
+      },
+      "currentClosure": null,
+      "currentClosureState": "pending-current-input-hash"
+    }
+  },
+  "closure": {
+    "state": "pending-current-input-hash",
+    "requiredInputMatch": [
+      "GOAL.md",
+      "AIDEBUG/SUPER_GOAL.md",
+      "AIDEBUG/SUPER_GOAL.json",
+      "AIDEBUG/catalog.json",
+      "package.json",
+      "AIDEBUG runner and workpack protocol inputs"
+    ],
+    "requiredOutcome": "A newly emitted and collected full workpack must pass every owner lane, verification task, and required visual review with inputDrift = 0.",
+    "historicalEvidence": {
+      "workpackId": "workpack-2026-07-29T17-05-37-525Z-192677e4",
+      "sha256": "0c6df74e42a01be739d07c3443d7d9fa7ce28825a3547b2cf62f690634114e6e",
+      "status": "verified-for-frozen-2026-07-29-inputs-only"
+    }
+  },
+  "completionRule": "Every changed workstream has direct passing evidence and reviewed visual evidence when user-visible, and the current full workpack closure must match every current input hash with inputDrift = 0."
+}

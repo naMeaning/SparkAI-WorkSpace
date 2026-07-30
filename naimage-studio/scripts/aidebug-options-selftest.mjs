@@ -62,6 +62,8 @@ assert.deepEqual(Object.keys(defaults).sort(), [
   "selectionCommandSuiteOnly",
   "contextMenuSuiteOnly",
   "requirementNodeSuiteOnly",
+  "skillNodeSuiteOnly",
+  "goalModeSuiteOnly",
   "askUserContinuationSuiteOnly",
   "failureDiagnosticsSelfTestOnly",
   "imageRuns",
@@ -181,6 +183,8 @@ const aliasGroups = [
   ["selectionCommandSuiteOnly", ["--selection-command-suite", "--selection-suite"]],
   ["contextMenuSuiteOnly", ["--context-menu-suite", "--menu-suite"]],
   ["requirementNodeSuiteOnly", ["--requirement-node-suite", "--requirement-suite"]],
+  ["skillNodeSuiteOnly", ["--skill-node-suite", "--skills-suite"]],
+  ["goalModeSuiteOnly", ["--goal-mode-suite", "--goal-suite"]],
   ["askUserContinuationSuiteOnly", ["--ask-user-continuation-suite", "--ask-user-suite"]]
 ];
 for (const [field, aliases] of aliasGroups) {

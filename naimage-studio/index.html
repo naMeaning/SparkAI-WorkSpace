@@ -7,12 +7,26 @@
     <!-- Legacy iiimage-asset URLs remain readable while old project snapshots migrate. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://sparkapi.org; img-src 'self' data: blob: naimage-asset: iiimage-asset: https:; font-src 'self' data:;"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://sparkapi.org; img-src 'self' data: blob: naimage-asset: iiimage-asset:; font-src 'self' data:;"
     />
     <title>naimage</title>
+    <script vite-ignore src="./glass-theme-bootstrap.js"></script>
     <style>
       :root {
-        color-scheme: dark;
+        color-scheme: light;
+        --theme-canvas: #e8f2f6;
+        --theme-surface-solid: #f7fcfe;
+        --theme-ink: #203039;
+        --theme-muted: #5d7480;
+        --theme-line-strong: rgba(43, 48, 45, 0.16);
+        --theme-accent: #389bc9;
+        --glass-rgb: 191, 227, 244;
+        --glass-alpha: 0.44;
+        --glass-blur: 28px;
+        --glass-saturation: 128%;
+        --glass-highlight: 0.7;
+        --glass-shadow: 0.18;
+        --glass-radius: 14px;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           "Microsoft YaHei", sans-serif;
@@ -24,7 +38,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: #0e1513;
+        background: var(--theme-canvas);
       }
 
       #root {
@@ -35,11 +49,11 @@
         min-height: 100vh;
         display: grid;
         place-items: center;
-        color: #edf6f2;
+        color: var(--theme-ink);
         background:
-          linear-gradient(120deg, rgba(39, 208, 192, 0.055), transparent 34%),
-          linear-gradient(300deg, rgba(130, 170, 255, 0.045), transparent 38%),
-          #0e1513;
+          linear-gradient(120deg, rgba(var(--glass-rgb), 0.22), transparent 34%),
+          linear-gradient(300deg, color-mix(in srgb, var(--theme-accent) 8%, transparent), transparent 38%),
+          var(--theme-canvas);
       }
 
       .boot-shell-card {
@@ -47,10 +61,14 @@
         display: grid;
         gap: 12px;
         padding: 18px;
-        border: 1px solid rgba(236, 246, 241, 0.13);
-        border-radius: 8px;
-        background: rgba(24, 33, 31, 0.92);
-        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
+        border: 1px solid var(--theme-line-strong);
+        border-radius: var(--glass-radius);
+        background: rgba(var(--glass-rgb), var(--glass-alpha));
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
+          0 18px 45px rgba(0, 0, 0, var(--glass-shadow));
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+        backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
       }
 
       .boot-shell-mark {
@@ -58,9 +76,9 @@
         height: 34px;
         display: grid;
         place-items: center;
-        border: 1px solid rgba(236, 246, 241, 0.16);
+        border: 1px solid var(--theme-line-strong);
         border-radius: 8px;
-        color: #27d0c0;
+        color: var(--theme-accent);
       }
 
       .boot-shell h1 {
@@ -71,7 +89,7 @@
 
       .boot-shell p {
         margin: 0;
-        color: #a7b8b2;
+        color: var(--theme-muted);
         font-size: 12px;
         line-height: 1.5;
       }
@@ -82,18 +100,18 @@
         align-items: center;
         gap: 8px;
         padding: 0 10px;
-        border: 1px solid rgba(236, 246, 241, 0.13);
+        border: 1px solid var(--theme-line-strong);
         border-radius: 8px;
-        color: #72eee2;
-        background: rgba(32, 43, 40, 0.72);
+        color: var(--theme-accent);
+        background: color-mix(in srgb, var(--theme-surface-solid) 58%, transparent);
         font-size: 12px;
       }
 
       .boot-shell-spin {
         width: 14px;
         height: 14px;
-        border: 2px solid rgba(114, 238, 226, 0.24);
-        border-top-color: #72eee2;
+        border: 2px solid color-mix(in srgb, var(--theme-accent) 24%, transparent);
+        border-top-color: var(--theme-accent);
         border-radius: 999px;
         animation: boot-spin 0.82s linear infinite;
       }

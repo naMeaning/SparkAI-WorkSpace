@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 1,
+  "modes": [
+    {
+      "id": "generate",
+      "label": "生成整套",
+      "description": "每个母图按套图槽位生成一组商品图；选择语言后，每种语言分别生成完整一组。"
+    },
+    {
+      "id": "translate",
+      "label": "翻译现有套图",
+      "description": "把每张已选商品图按目标语言逐一进行文字本地化，不改变商品和整体设计。"
+    }
+  ],
+  "limits": {
+    "maxSourceCount": 200,
+    "minSlots": 1,
+    "maxSlots": 12,
+    "maxTargetLanguages": 10,
+    "maxPlanTitleLength": 120,
+    "maxSlotTitleLength": 80,
+    "maxSlotPromptLength": 2000,
+    "maxLanguagePromptLength": 800,
+    "maxTranslatePromptLength": 2000,
+    "maxTotalRequests": 200
+  },
+  "execution": {
+    "probeSourceCount": 2,
+    "rampConcurrency": [2, 4, 10],
+    "maxConcurrency": 10,
+    "feeRiskMediumRequests": 12,
+    "feeRiskHighRequests": 40
+  },
+  "defaults": {
+    "mode": "generate",
+    "planTitle": "跨境电商商品套图",
+    "translatePrompt": "只翻译真实可见文字；品牌、商标、型号、SKU、尺寸、数字、单位和法律标识默认保持原文。只做必要排版调整，不新增原图没有的卖点、认证、优惠或承诺。",
+    "translationLanguageCodes": ["en-US", "de-DE", "fr-FR", "es-ES", "ja-JP"],
+    "saveTarget": "none"
+  },
+  "languages": [
+    { "code": "en-US", "label": "英语（美国）", "nativeLabel": "English (US)", "direction": "ltr", "prompt": "采用自然的美式英语电商表达，保持品牌、型号、数字和单位准确。" },
+    { "code": "en-GB", "label": "英语（英国）", "nativeLabel": "English (UK)", "direction": "ltr", "prompt": "采用自然的英式英语电商表达，保持品牌、型号、数字和单位准确。" },
+    { "code": "de-DE", "label": "德语", "nativeLabel": "Deutsch", "direction": "ltr", "prompt": "采用清晰、克制的德语电商表达，为较长词组预留排版空间。" },
+    { "code": "fr-FR", "label": "法语", "nativeLabel": "Français", "direction": "ltr", "prompt": "采用自然的法语电商表达，保留品牌、型号、数字、单位和法律标识。" },
+    { "code": "es-ES", "label": "西班牙语", "nativeLabel": "Español", "direction": "ltr", "prompt": "采用自然的西班牙语电商表达，避免添加来源中没有的促销或功效表述。" },
+    { "code": "it-IT", "label": "意大利语", "nativeLabel": "Italiano", "direction": "ltr", "prompt": "采用自然的意大利语电商表达，保持商品信息、数字和单位准确。" },
+    { "code": "pt-BR", "label": "葡萄牙语（巴西）", "nativeLabel": "Português (Brasil)", "direction": "ltr", "prompt": "采用自然的巴西葡萄牙语电商表达，保持商品信息和法律标识准确。" },
+    { "code": "ja-JP", "label": "日语", "nativeLabel": "日本語", "direction": "ltr", "prompt": "采用简洁自然的日语电商表达，注意日文换行和信息层级。" },
+    { "code": "ko-KR", "label": "韩语", "nativeLabel": "한국어", "direction": "ltr", "prompt": "采用简洁自然的韩语电商表达，注意韩文换行和信息层级。" },
+    { "code": "ar-SA", "label": "阿拉伯语", "nativeLabel": "العربية", "direction": "rtl", "prompt": "采用专业阿拉伯语，并将文字与阅读顺序调整为正确的从右到左布局。" },
+    { "code": "ru-RU", "label": "俄语", "nativeLabel": "Русский", "direction": "ltr", "prompt": "采用清晰自然的俄语电商表达，为较长词组预留排版空间。" },
+    { "code": "th-TH", "label": "泰语", "nativeLabel": "ไทย", "direction": "ltr", "prompt": "采用自然的泰语电商表达，保持品牌、数字和单位准确。" },
+    { "code": "vi-VN", "label": "越南语", "nativeLabel": "Tiếng Việt", "direction": "ltr", "prompt": "采用自然的越南语电商表达，保持品牌、数字和单位准确。" },
+    { "code": "id-ID", "label": "印度尼西亚语", "nativeLabel": "Bahasa Indonesia", "direction": "ltr", "prompt": "采用自然的印度尼西亚语电商表达，避免添加来源中没有的承诺。" }
+  ],
+  "defaultSlots": [
+    {
+      "id": "hero",
+      "title": "商品主图",
+      "prompt": "制作干净、聚焦的商品主图。保持商品身份、轮廓、颜色、材质、Logo 与包装文字准确；背景和构图服务于快速识别，不添加来源中没有的配件、认证、折扣或卖点。"
+    },
+    {
+      "id": "key-features",
+      "title": "核心特点",
+      "prompt": "用清晰的信息层级呈现来源中能够确认的核心特点。只使用可见或用户明确提供的事实，不推断功效、等级、认证、销量或比较结论。"
+    },
+    {
+      "id": "detail",
+      "title": "细节与材质",
+      "prompt": "用局部特写展示真实可见的结构、工艺、接口、纹理或材质细节。保持比例和商品结构准确，不虚构内部构造或材料。"
+    },
+    {
+      "id": "dimensions",
+      "title": "尺寸规格",
+      "prompt": "设计易读的尺寸与规格版式。只有来源中存在准确数字和单位时才展示；信息不足时保留清晰版式，不编造尺寸、容量、重量或参数。"
+    },
+    {
+      "id": "usage",
+      "title": "使用场景",
+      "prompt": "把商品放入合理、真实的使用场景，突出使用方式和比例关系。场景不能暗示来源未支持的性能、医疗效果、安全保证或适用人群。"
+    },
+    {
+      "id": "brand-layout",
+      "title": "品牌氛围",
+      "prompt": "在保持商品和品牌资产准确的前提下，建立统一的品牌氛围、配色和留白。不要杜撰品牌历史、奖项、代言、口号或市场地位。"
+    },
+    {
+      "id": "package-contents",
+      "title": "包装与清单",
+      "prompt": "清楚展示来源中能够确认的包装、主体和随附物。只呈现真实可见或用户明确提供的内容，不添加赠品、配件、数量或服务承诺。"
+    }
+  ]
+}

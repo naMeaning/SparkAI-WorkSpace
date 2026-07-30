@@ -41,6 +41,12 @@ import {
 } from "./asset-identity.ts";
 import { collapseDuplicateToolTimelineMessages } from "./tool-timeline.ts";
 import type { PluginInstallationState } from "./plugin-state.ts";
+import { remoteAssetDisplaySource } from "./remote-asset-source.ts";
+import type {
+  GlassMaterialId,
+  GlassParameters,
+  GlassThemeId
+} from "./glass-theme.ts";
 
 export {
   imageAssetIdentityFingerprint,
@@ -62,6 +68,17 @@ export {
   shouldCreatePasteBlock,
   visiblePromptWithPasteBlocks
 } from "./paste-blocks.ts";
+export type {
+  GlassAccentId,
+  GlassMaterialId,
+  GlassMaterialPresetId,
+  GlassNumericParameterKey,
+  GlassNumericParameters,
+  GlassParameters,
+  GlassThemeId,
+  GlassThemeMode,
+  GlassThemeSettings
+} from "./glass-theme.ts";
 
 // -----------------------------------------------------------------------------
 // CORE 01 Shared Types And Bridge Contracts
@@ -153,9 +170,13 @@ export type ApiSettings = {
 
 export type AppSettings = ApiSettings & {
   modelGroup: string;
+  /** Legacy light/dark and palette fields remain readable for project compatibility. */
   theme: ThemeChoice;
   themePalette: ThemePaletteChoice;
   customTheme: CustomThemePreset | null;
+  glassTheme: GlassThemeId;
+  glassMaterial: GlassMaterialId;
+  glassParameters: GlassParameters;
   agentPanelPlacement: "right" | "left" | "top" | "bottom" | "floating";
   agentPanelWidth: number;
   agentPanelHeight: number;
@@ -163,6 +184,8 @@ export type AppSettings = ApiSettings & {
   agentPanelY: number;
   agentSkillAutoInstallTargets: AgentIntegrationTargetId[];
   pluginStates: PluginInstallationState[];
+  canvasToolDockMode: "expanded" | "hover";
+  disabledCanvasToolCommands: string[];
 };
 
 export type AgentIntegrationTargetId = "codex" | "claude-code" | "opencode" | "openclaw";
@@ -186,7 +209,14 @@ export type AgentIntegrationBridge = {
 export type AutomationBridge = {
   ready(): Promise<{ ok: boolean; error?: string }>;
   onRequest(handler: (payload: { requestId: string; command: string; args?: Record<string, unknown> }) => void | Promise<unknown>): () => void;
-  respond(payload: { requestId: string; ok: boolean; result?: unknown; error?: string }): void;
+  respond(payload: {
+    requestId: string;
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+    code?: string;
+    details?: Record<string, unknown>;
+  }): void;
 };
 
 export type AgentWindowBridge = {
@@ -242,6 +272,48 @@ export type CanvasRequirementInputBinding = {
   role: AssetTaskRole;
 };
 
+export type CanvasSkill = {
+  version: 1;
+  /** Skill frontmatter name. Kept separately from the editable canvas title. */
+  name: string;
+  description?: string;
+  /** File label only; absolute source paths are never persisted in a project. */
+  sourceName?: string;
+  /** Deterministic content identity used to recognize an exact re-import. */
+  contentFingerprint: string;
+  importedAt: string;
+  /** Set when imported instructions are edited locally; the import fingerprint remains source identity. */
+  locallyModifiedAt?: string;
+};
+
+export type ImportedCanvasSkill = CanvasSkill & {
+  instructions: string;
+};
+
+export function sanitizeCanvasSkill(value: unknown): CanvasSkill | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Partial<CanvasSkill>;
+  const clean = (input: unknown, maximum: number) => typeof input === "string"
+    ? input.replace(/\u0000/g, "").trim().slice(0, maximum)
+    : "";
+  const name = clean(source.name, 120);
+  const description = clean(source.description, 2_000);
+  const sourceName = clean(clean(source.sourceName, 1_000).replace(/\\/g, "/").split("/").pop(), 180);
+  const contentFingerprint = clean(source.contentFingerprint, 48).toLowerCase();
+  const importedAt = clean(source.importedAt, 80);
+  const locallyModifiedAt = clean(source.locallyModifiedAt, 80);
+  if (source.version !== 1 || !name || !/^skill-[a-f0-9]{32}$/.test(contentFingerprint) || !importedAt) return undefined;
+  return {
+    version: 1,
+    name,
+    ...(description ? { description } : {}),
+    ...(sourceName ? { sourceName } : {}),
+    contentFingerprint,
+    importedAt,
+    ...(locallyModifiedAt ? { locallyModifiedAt } : {})
+  };
+}
+
 export type CanvasRequirement = {
   version: 1 | 2;
   text: string;
@@ -253,6 +325,8 @@ export type CanvasRequirement = {
   lastRunAt?: string;
   lastRunCount?: number;
   lastError?: string;
+  /** Imported SKILL.md identity. Execution still uses the requirement/TaskScope path. */
+  skill?: CanvasSkill;
 };
 
 export type AgentTaskScopeType = "none" | "single" | "multi-source" | "container" | "container-group" | "layer" | "layer-group" | "mixed";
@@ -262,6 +336,25 @@ export type AgentTaskRequirementSnapshot = {
   nodeId: string;
   revision: number;
   sourceSignature?: string;
+};
+
+/** Immutable execution boundary captured when Goal mode targets the canvas. */
+export type AgentGoalTaskScopeMetadata = {
+  version: 1;
+  target: "all-image-containers";
+  frozen: true;
+  containerIds: string[];
+  bindingIds: string[];
+  containerCount: number;
+  bindingCount: number;
+  configuredConcurrency: number;
+  probeContainerCount: number;
+  /** User-confirmed provider operations for every frozen SOURCE binding. */
+  operationsPerAsset: number;
+  /** Immutable maximum provider requests: bindingCount * operationsPerAsset. */
+  requestCount: number;
+  /** Present only when the trusted task prompt contains a validated commerce plan. */
+  commercePlanHash?: string;
 };
 
 export type ImageTaskProvenance = {
@@ -276,6 +369,10 @@ export type ImageTaskProvenance = {
   sourceDisplayCode?: string;
   requirementNodeId?: string;
   requirementRevision?: number;
+  commercePlanHash?: string;
+  commerceSlotId?: string;
+  commerceSlotIndex?: number;
+  commerceLocaleCode?: string;
 };
 
 export type AgentAskUserOption = {
@@ -327,6 +424,49 @@ export type WorkflowNode = {
   height?: number;
   /** Persistent canvas stacking order. Higher values render above lower values. */
   zOrder?: number;
+};
+
+/**
+ * Renderer-authored node mutation persisted with the project session.
+ * Electron assigns commitRevision when the event first reaches the serialized
+ * project save queue. Delete events are tombstones: an older window cannot
+ * resurrect the logical node, while an explicit local undo records a restore
+ * event that causally references the tombstone it supersedes.
+ */
+export type NodeMutationEvent = {
+  version: 1;
+  eventId: string;
+  writerId: string;
+  writerSequence: number;
+  baseRevision: number;
+  commitRevision?: number;
+  kind: "upsert" | "delete" | "restore";
+  /** Top-level node fields changed by this mutation; legacy events imply "*". */
+  fields?: string[];
+  restoresEventId?: string;
+  nodeOriginId: string;
+  nodeId: string;
+  createdAt: string;
+};
+
+/** A writer reports the last project revision it has actually observed. */
+export type NodeMutationWriterCheckpoint = {
+  version: 1;
+  writerId: string;
+  writerSequence: number;
+  observedRevision: number;
+  lastSeenAt: string;
+};
+
+/** Compact causal boundary retained after the corresponding journal tombstone is collected. */
+export type NodeMutationBarrier = {
+  version: 1;
+  nodeOriginId: string;
+  nodeId: string;
+  eventId: string;
+  kind: "delete" | "restore";
+  commitRevision: number;
+  createdAt: string;
 };
 
 export type ImageNodeProgress = {
@@ -405,7 +545,7 @@ export type TaskAssetReference = {
 
 export type AgentTaskScope = {
   version: 2;
-  origin: "chat" | "canvas" | "node" | "container" | "layer" | "requirement";
+  origin: "chat" | "canvas" | "node" | "container" | "layer" | "requirement" | "goal";
   scopeType: AgentTaskScopeType;
   /** Monotonic project-canvas revision at dispatch time. */
   canvasRevision: number;
@@ -419,12 +559,33 @@ export type AgentTaskScope = {
   resultPolicy: AgentTaskResultPolicy;
   confirmationPolicy: AgentTaskConfirmationPolicy;
   requirement?: AgentTaskRequirementSnapshot;
+  /** Present only for a frozen Goal-mode canvas-wide container snapshot. */
+  goal?: AgentGoalTaskScopeMetadata;
   /** Immutable digest of material role, binding, policy and revision inputs. */
   snapshotHash: string;
   sourceAssetCount?: number;
   referenceAssetCount?: number;
   truncated?: boolean;
 };
+
+export type AgentSteerTaskScopeUpdate = {
+  /** SOURCE bindings stay frozen unless the user explicitly replaces or clears them. */
+  sourceMode: "keep" | "replace" | "merge" | "clear";
+  /** REFERENCE bindings may be preserved, replaced, appended to, or cleared independently. */
+  referenceMode: "keep" | "replace" | "merge" | "clear";
+  /** Renderer-authored candidate. Electron normalizes and re-hashes it before queueing the steer. */
+  taskScope?: AgentTaskScope;
+  /** Fresh canvas projection required when a replacement introduces new SOURCE/REFERENCE nodes. */
+  nodes?: WorkflowNode[];
+};
+
+export type AgentSteerTaskScopeMode =
+  | "keep"
+  | "replace-source"
+  | "merge-source"
+  | "replace-reference"
+  | "merge-reference"
+  | "clear-attachments";
 
 export type PendingAgentExecution = {
   version: 2;
@@ -600,6 +761,24 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
           revision: Math.max(1, Math.floor(Number(scope.requirement.revision) || 1)),
           sourceSignature: scope.requirement.sourceSignature || ""
         }
+      : null,
+    goal: scope.goal
+      ? {
+          version: 1,
+          target: scope.goal.target,
+          frozen: scope.goal.frozen === true,
+          containerIds: [...scope.goal.containerIds],
+          bindingIds: [...scope.goal.bindingIds],
+          containerCount: Math.max(0, Math.floor(Number(scope.goal.containerCount) || 0)),
+          bindingCount: Math.max(0, Math.floor(Number(scope.goal.bindingCount) || 0)),
+          configuredConcurrency: Math.max(1, Math.floor(Number(scope.goal.configuredConcurrency) || 1)),
+          probeContainerCount: Math.max(1, Math.floor(Number(scope.goal.probeContainerCount) || 1)),
+          operationsPerAsset: Math.max(1, Math.floor(Number(scope.goal.operationsPerAsset) || 1)),
+          requestCount: Math.max(1, Math.floor(Number(scope.goal.requestCount) || 1)),
+          commercePlanHash: /^commerce-[a-f0-9]{32}$/.test(String(scope.goal.commercePlanHash || "").trim().toLowerCase())
+            ? String(scope.goal.commercePlanHash).trim().toLowerCase()
+            : ""
+        }
       : null
   };
   return `scope-${stableIdentityHash(`task-scope:v2:${JSON.stringify(material)}`)}`;
@@ -637,18 +816,27 @@ export type ImageAssetExportResult = {
   ok: boolean;
   canceled?: boolean;
   path?: string;
+  format?: ImageExportFormat;
+  mimeType?: string;
+  converted?: boolean;
   files?: string[];
   count?: number;
   width?: number;
   height?: number;
   layerNames?: string[];
+  cleanupWarning?: string;
+  errorCode?: string;
   error?: string;
 };
+
+export type ImageExportFormat = "png" | "jpeg" | "webp" | "avif" | "tiff";
 
 export type SaveAssetAsPayload = {
   asset: ImageAsset;
   projectId?: string;
   suggestedName?: string;
+  /** Preferred local export format. The native picker can still choose another supported format. */
+  format?: ImageExportFormat;
   /** AIDebug only: bypasses the native picker and writes below .diagnostics. */
   aidebugName?: string;
 };
@@ -927,6 +1115,9 @@ export type WorkflowSession = {
   conversations?: AgentConversation[];
   activeConversationId?: string;
   nodes?: WorkflowNode[];
+  nodeMutationJournal?: NodeMutationEvent[];
+  nodeMutationWriterCheckpoints?: NodeMutationWriterCheckpoint[];
+  nodeMutationBarriers?: NodeMutationBarrier[];
   layoutGroups?: ImageLayoutGroup[];
   selectedNodeId?: string;
   pendingAgentExecution?: PendingAgentExecution | null;
@@ -1281,7 +1472,15 @@ export type ConfigBridge = {
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
   loadSession(payload?: { projectId?: string }): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
-  saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: { revision?: number }): Promise<{
+  saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: {
+    revision?: number;
+    nodeMutation?: {
+      writerId: string;
+      writerSequence?: number;
+      observedRevision: number;
+      baselineNodes: WorkflowNode[];
+    };
+  }): Promise<{
     ok: boolean;
     path?: string;
     appliedRevision?: number;
@@ -1290,6 +1489,10 @@ export type ConfigBridge = {
     skipped?: boolean;
     applied?: boolean;
     reason?: string;
+    nodeMutationJournal?: NodeMutationEvent[];
+    nodeMutationWriterCheckpoints?: NodeMutationWriterCheckpoint[];
+    nodeMutationBarriers?: NodeMutationBarrier[];
+    nodeMutationWriterSequence?: number;
     error?: string;
   }>;
   newWindow?(payload?: { projectId?: string; newConversation?: boolean }): Promise<{ ok: boolean }>;
@@ -1304,9 +1507,35 @@ export type ConfigBridge = {
   exportProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
   importProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; task?: { prompt: string; visibleContent: string }; errorCode?: string; error?: string }>;
+  importSkill?(): Promise<{ ok: boolean; canceled?: boolean; skill?: ImportedCanvasSkill; errorCode?: string; error?: string }>;
+  parseSkill?(payload: { markdown: unknown; sourceName?: unknown }): Promise<{ ok: boolean; skill?: ImportedCanvasSkill; errorCode?: string; error?: string }>;
   importThemePreset?(): Promise<{ ok: boolean; canceled?: boolean; theme?: CustomThemePreset; sourceName?: string; errorCode?: string; error?: string }>;
   exportThemePreset?(theme: CustomThemePreset): Promise<{ ok: boolean; canceled?: boolean; fileName?: string; errorCode?: string; error?: string }>;
-  composePluginTask?(payload: { command: string; languageCodes?: string[]; sourceCount?: number }): Promise<{ ok: boolean; task?: { prompt: string; visibleContent: string; languageCodes?: string[] }; error?: string }>;
+  composePluginTask?(payload: {
+    command: string;
+    languageCodes?: string[];
+    sourceCount?: number;
+    sourceNodeIds?: string[];
+    plan?: unknown;
+  }): Promise<{
+    ok: boolean;
+    task?: {
+      prompt: string;
+      visibleContent: string;
+      languageCodes?: string[];
+      planHash?: string;
+      plan?: unknown;
+      sourceNodeIds?: string[];
+      counts?: {
+        sourceCount?: number;
+        outputsPerSource?: number;
+        totalRequests?: number;
+        probeRequests?: number;
+        exceedsRequestLimit?: boolean;
+      };
+    };
+    error?: string;
+  }>;
   deleteProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   deleteProjectFolder?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   pickReferenceImage?(): Promise<{ ok: boolean; canceled?: boolean; image?: ReferenceImage; error?: string }>;
@@ -1475,6 +1704,13 @@ export type AgentBridge = {
   pause(payload: { projectId: string; conversationId: string; runId?: string }): Promise<AgentRunControlSnapshot>;
   resume(payload: { projectId: string; conversationId: string; runId?: string }): Promise<AgentRunControlSnapshot>;
   stop(payload: { projectId: string; conversationId: string; runId?: string; reason?: string }): Promise<AgentRunControlSnapshot & { stopped?: number }>;
+  steer(payload: {
+    projectId: string;
+    conversationId: string;
+    runId?: string;
+    prompt: string;
+    taskScopeUpdate?: AgentSteerTaskScopeUpdate;
+  }): Promise<AgentRunControlSnapshot & { accepted?: number; interrupted?: number; taskScopeSnapshotHash?: string }>;
   runStatus(payload?: { projectId?: string }): Promise<AgentRunControlSnapshot>;
   onRunState?(handler: (payload: AgentRunControlSnapshot) => void): () => void;
   smoke(): Promise<unknown>;
@@ -1486,13 +1722,21 @@ export type AgentRunControlSnapshot = {
     runId: string;
     projectId: string;
     conversationId: string;
+    ownerId?: string;
     nodeIds: string[];
     paused: boolean;
+    steerable?: boolean;
+    queuedSteerCount?: number;
+    taskScopeSnapshotHash?: string;
+    phase?: string;
     startedAt: number;
   }>;
+  scopeCount?: number;
   lockedNodeIds?: string[];
-  pausedScopes?: Array<{ projectId: string; conversationId: string }>;
+  pausedScopes?: Array<{ projectId: string; conversationId: string; ownerId?: string }>;
   stopped?: number;
+  accepted?: number;
+  interrupted?: number;
   error?: string;
 };
 
@@ -1665,6 +1909,17 @@ declare global {
     naimageAutomation?: AutomationBridge;
     naimageAgentWindow?: AgentWindowBridge;
     __naimageCanvasDebugReady?: boolean;
+    __naimageCanvasImageCollectionProgress?: {
+      status: "running" | "complete" | "failed";
+      currentStep?: string;
+      lastStep?: string;
+      lastStepOk?: boolean;
+      completedSteps: number;
+      totalSteps?: number;
+      visibilityState: DocumentVisibilityState;
+      updatedAt: number;
+    };
+    __naimageCanvasImageCollectionLastResult?: unknown;
     __naimageDebugResizeNode?: (payload: { id?: string; width?: number; height?: number }) => boolean;
     __naimageDebugMoveNode?: (payload: { id?: string; x?: number; y?: number }) => boolean;
     __naimageDebugSetViewport?: (payload: { scale?: number; x?: number; y?: number; nodeId?: string }) => boolean;
@@ -1680,6 +1935,7 @@ declare global {
      selectedNodeParentId?: string;
       sourceImageCount?: number;
       referenceImageCount?: number;
+      canvasImageCollectionProgress?: Window["__naimageCanvasImageCollectionProgress"] | null;
       pendingAgentExecution?: PendingAgentExecution | null;
       askUserOpen?: boolean;
       referencePickerOpen?: boolean;
@@ -1772,6 +2028,7 @@ declare global {
       mergeSelectedImages(): Promise<unknown>;
       createProbeImage(): Promise<unknown>;
       fitCanvas(): Promise<unknown>;
+      resumeLayoutRefocus(): { ok: boolean };
       moveLayer(payload: { nodeId: string; layerId: string; x: number; y: number }): Promise<unknown>;
       recomposeLayer(payload: { id: string }): Promise<unknown>;
       nativeAssetDrop(payload: { sourceNodeId: string; targetContainerId: string; assetIndex?: number; assetKey?: string }): Promise<unknown>;
@@ -2625,7 +2882,7 @@ export function upsertConversation(conversations: AgentConversation[], conversat
 // -----------------------------------------------------------------------------
 
 export function imageAssetSrc(asset: ImageAsset) {
-  return asset.assetUrl || asset.url || "";
+  return remoteAssetDisplaySource(asset.assetUrl || asset.url || "");
 }
 
 export function imageAssetThumbnailSrc(asset: ImageAsset, maxEdge = 512) {

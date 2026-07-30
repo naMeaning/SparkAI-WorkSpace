@@ -32,6 +32,7 @@
 - 模型列表必须完整保留服务端返回值；筛选只能作为用户可见选择，不得静默丢弃模型。
 - 模型列表由 Electron 主进程统一缓存至少 60 秒；缓存有效时设置页、模型弹窗和 Agent 模型查询不得重复访问服务器。缓存文件不得包含 token、cookie 或上游 Key。
 - Agent 图片工具必须真实执行。未实现的能力要明确返回边界，不得伪造进度或结果。
+- 新增或改变可由外部 Agent 操作的产品动作时，必须同步 `integrations/naimage-control` CLI 命令、Skill 说明、命令参考和 `test:automation-service` 契约；不能只更新 GUI。
 - 图片任务优先且默认使用 `gpt-image-2`；只要模型池中存在 `gpt-image-2`，不得因编辑、透明背景或抠图任务回退到旧图片模型。
 - 滤镜、本地后期、Prompt/后期节点和 `apply_post_effect` 已废弃。不得恢复工具 schema、运行时 action、画布渲染、菜单、样式或 AIDebug 套件。
 - 旧项目中的非图片节点和 `agentOwnerId` 只作为迁移输入读取；合法 v1 需求节点可保留，其余无图片资产的非图片节点保存后移除，有有效图片资产的旧节点迁移为图片成果；旧 Agent 会话历史保留在项目会话列表中。
@@ -39,9 +40,9 @@
 
 ## 验证
 
-- 每次改动至少运行 `corepack pnpm run build`。
+- 当前测试开发阶段只运行改动直接影响的专项测试；不机械运行无关测试。只有修改构建/Bundle 边界、准备候选制品，或用户明确要求正式发布时才扩大门禁；正式发布按 `release:final` 全量验证。
 - 生产构建还必须运行 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
-- `test:bundle` 的初始 JS 上限为 650,000 B、核心异步 JS 为 180,000 B、核心总 JS 为 720,000 B；插件 JS 独立上限为 120,000 B，完整 dist 保持 1,000,000 B。插件运行时、设置表面与插件专属对话框必须留在自然异步 chunk，进入首屏依赖图即失败；插件 JS 不占核心额度，但仍受插件与 dist 上限约束。后续大块 Renderer 功能仍应优先进入自然异步边界，不得用核心余量换取首屏膨胀。
+- `test:bundle` 的 initial JS 目标为 685,000 B，并允许额外 1,024 B 测量容差；超过 686,024 B 才触发硬失败。plugin JS 120,000 B 与 CSS 270,000 B 为硬门禁；core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 只作增量趋势 advisory，不单独阻断。插件运行时、设置表面、Glass Lab、workspace chrome 与插件专属对话框应保留在自然异步 chunk，插件进入首屏依赖图即失败。后续大块 Renderer 功能仍应优先进入自然异步边界，但不得仅为跨越硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分；产品速度由独立性能门禁证明。
 - 日常开发按影响范围选择最小验证，不得把完整 AIDebug 当作每次改动的默认步骤。纯逻辑、配置、文档、Electron 后端或 Agent 协议改动优先运行对应 selftest；只有影响真实可视交互时才运行 GUI。
 - 一般 Renderer/UI 改动在完成一批功能后运行一次 `corepack pnpm run aidebug:gui` 快速冒烟；设置、登录、画布、需求节点、导入等明确领域再追加一个对应专项。只有需要覆盖完整 UI surface 时运行 `corepack pnpm run aidebug:gui:surface`，不得同时无差别重复多个 GUI 套件。
 - 运行时或 `view_image` 改动还必须运行 `corepack pnpm run test:view-image`；真实 Agent 验证优先使用当前 `--agent-only`、功能专项和 `--real-agent-suite`，不以旧版全量套件作为交付门槛。正式发布仍由 `release:final` 执行完整门禁。

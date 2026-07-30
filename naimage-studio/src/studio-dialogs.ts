@@ -8,4 +8,3 @@ export { default as ManualImageTaskDialog } from "./manual-image-task-dialog";
 export { default as ModelConfigDialog } from "./model-config-dialog";
 export { default as RequirementEditorDialog } from "./requirement-editor-dialog";
 export { default as ThemePalettePicker } from "./theme-palette-picker";
-export { default as RichMarkdownMessage } from "./markdown";

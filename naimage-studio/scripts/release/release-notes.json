@@ -42,5 +42,14 @@
     "修复图片接口无效 JSON、空流与错误重试判断，优化 Agent 原图比例和生图进度展示。",
     "Base URL、API Key 与接入模式修改后可立即保存，不再等待旧渠道的模型列表加载完成。",
     "更新黄色 SparkAI 品牌视觉，并修复图片恢复、菜单选择、AskUser 续跑和新任务承接的稳定性问题。"
+  ],
+  "1.0.7": [
+    "新增可配置 Liquid Glass 工作区、正式左侧素材栏、Workbench/Focus/Review 视图与独立 Agent 窗口，六套主题和三种材质可持久化恢复。",
+    "新增当前画布 Goal 模式、并发前小批量探测、渐进放量与失败熔断，降低高并发生成失败和集中扣费风险。",
+    "Agent 支持暂停、恢复、真实停止和运行中 steer，SOURCE/REFERENCE 可独立保留、替换、合并或清空，并同步到 CLI 共享命令注册表。",
+    "项目会话升级为事件 journal、writer checkpoint、tombstone 与安全 GC，增强双窗口编辑、删除、撤销、快速保存和异常退出后的合并一致性。",
+    "新增 PNG/JPEG/WebP 输入识别及 PNG/JPEG/WebP/AVIF/TIFF 本地导出，远程图片统一经 Main 受管下载与公网安全校验。",
+    "新增跨境电商套图与多语言工作流、Requirement/Skill 节点复用、Project Graph 导入和画布 Graph CLI 原子操作。",
+    "自动化命令 schema 统一驱动 Renderer、CLI 文档和测试，并补齐正式发布的全量专项与真实 Electron GUI 门禁。"
   ]
 }

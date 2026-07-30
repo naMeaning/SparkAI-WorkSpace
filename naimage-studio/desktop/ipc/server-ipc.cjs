@@ -415,6 +415,7 @@ function registerServerIpc({
     try {
       controlledRun = agentRunControl?.begin({
         runId,
+        ownerId: String(event?.sender?.id ?? ""),
         projectId,
         conversationId,
         nodeIds: Array.isArray((payload ?? {}).nodeIds) ? (payload ?? {}).nodeIds : []
@@ -472,7 +473,7 @@ function registerServerIpc({
       });
       const stem = `basic-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
       const outputFormat = (payload ?? {}).outputFormat ?? (payload ?? {}).output_format ?? data.outputFormat ?? data.output_format ?? "png";
-      const assets = writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+      const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
       log(`new-api generate image returned=${assets.length}`);
       return { ...data, assets, runId, returned: assets.length };
     } catch (error) {

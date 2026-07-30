@@ -537,10 +537,35 @@ function outputMime(format: unknown) {
   return "image/png";
 }
 
+function base64ImageMime(value: string) {
+  const encoded = String(value || "").replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
+  let header = "";
+  try {
+    header = atob(encoded.slice(0, 24));
+  } catch {
+    throw new Error("图片服务返回了无效的 base64 图片数据。");
+  }
+  const bytes = Array.from(header, (character) => character.charCodeAt(0));
+  if (bytes.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((byte, index) => bytes[index] === byte)) {
+    return "image/png";
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (header.slice(0, 4) === "RIFF" && header.slice(8, 12) === "WEBP") return "image/webp";
+  throw new Error("图片服务返回的数据不是有效的 PNG、JPEG 或 WebP。");
+}
+
 function imagesToAssets(images: ReturnType<typeof extractImages>, runId: string, outputFormat: unknown): ImageAsset[] {
-  const mime = outputMime(outputFormat);
+  const requestedMime = outputMime(outputFormat);
   return images.map((image, index) => {
-    const url = image.type === "url" ? image.value : image.value.startsWith("data:") ? image.value : `data:${mime};base64,${image.value}`;
+    let url = image.value;
+    if (image.type === "base64") {
+      const mime = base64ImageMime(image.value);
+      if (mime !== requestedMime) {
+        throw new Error(`图片服务返回 ${mime}，与请求的 ${requestedMime} 格式不一致。`);
+      }
+      const encoded = image.value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
+      url = `data:${mime};base64,${encoded}`;
+    }
     return {
       index: index + 1,
       type: "url",

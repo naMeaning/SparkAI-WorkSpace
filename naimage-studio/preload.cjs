@@ -4,10 +4,7 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
   loadSession: (payload) => ipcRenderer.invoke("naimage:config:load-session", payload),
-  saveSession: (session, options = {}) => ipcRenderer.invoke(
-    "naimage:config:save-session",
-    Number.isSafeInteger(options?.revision) ? { ...(session || {}), revision: options.revision } : session
-  ),
+  saveSession: (session, options = {}) => ipcRenderer.invoke("naimage:config:save-session", session, options),
   newWindow: (payload) => ipcRenderer.invoke("naimage:window:new", payload),
   windowControl: (payload) => ipcRenderer.invoke("naimage:window:control", payload),
   listProjects: () => ipcRenderer.invoke("naimage:project:list"),
@@ -20,6 +17,8 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   exportProject: () => ipcRenderer.invoke("naimage:project:export"),
   importProject: () => ipcRenderer.invoke("naimage:project:import"),
   importProjectGraph: () => ipcRenderer.invoke("naimage:project-graph:import"),
+  importSkill: () => ipcRenderer.invoke("naimage:project-skill:import"),
+  parseSkill: (payload) => ipcRenderer.invoke("naimage:project-skill:parse", payload),
   importThemePreset: () => ipcRenderer.invoke("naimage:theme:import"),
   exportThemePreset: (theme) => ipcRenderer.invoke("naimage:theme:export", theme),
   composePluginTask: (payload) => ipcRenderer.invoke("naimage:plugin:compose-task", payload),
@@ -130,6 +129,7 @@ contextBridge.exposeInMainWorld("naimageAgent", {
   pause: (payload) => ipcRenderer.invoke("naimage:agent:pause", payload),
   resume: (payload) => ipcRenderer.invoke("naimage:agent:resume", payload),
   stop: (payload) => ipcRenderer.invoke("naimage:agent:stop", payload),
+  steer: (payload) => ipcRenderer.invoke("naimage:agent:steer", payload),
   runStatus: (payload) => ipcRenderer.invoke("naimage:agent:run-status", payload),
   smoke: () => ipcRenderer.invoke("naimage:agent:smoke"),
   onRunState: (handler) => {

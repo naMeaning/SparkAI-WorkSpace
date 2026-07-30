@@ -1,6 +1,15 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
+const {
+  normalizeNodeMutationBarriers,
+  normalizeNodeMutationJournal,
+  normalizeNodeMutationWriterCheckpoints
+} = require("./project-session-merge.cjs");
+const {
+  COMMERCE_SET_MARKER,
+  parseCommerceSetPromptPlan
+} = require("../runtime/commerce-set-plan.cjs");
 
 function safeImageSourceRelativePath(value, maximum = 1000) {
   const source = typeof value === "string" ? value.trim().replace(/\\/g, "/") : "";
@@ -287,6 +296,29 @@ function repairSessionMessageAssetIds(messages, resolve) {
   });
 }
 
+function sanitizePersistedCanvasSkill(value) {
+  if (!value || typeof value !== "object" || value.version !== 1) return null;
+  const clean = (input, maximum) => typeof input === "string"
+    ? input.replace(/\u0000/g, "").trim().slice(0, maximum)
+    : "";
+  const name = clean(value.name, 120);
+  const description = clean(value.description, 2_000);
+  const sourceName = clean(clean(value.sourceName, 1_000).replace(/\\/g, "/").split("/").pop(), 180);
+  const contentFingerprint = clean(value.contentFingerprint, 48).toLowerCase();
+  const importedAt = clean(value.importedAt, 80);
+  const locallyModifiedAt = clean(value.locallyModifiedAt, 80);
+  if (!name || !/^skill-[a-f0-9]{32}$/.test(contentFingerprint) || !importedAt) return null;
+  return {
+    version: 1,
+    name,
+    ...(description ? { description } : {}),
+    ...(sourceName ? { sourceName } : {}),
+    contentFingerprint,
+    importedAt,
+    ...(locallyModifiedAt ? { locallyModifiedAt } : {})
+  };
+}
+
 function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
   if (!value || typeof value !== "object") return null;
   const text = typeof value.text === "string" && value.text.trim()
@@ -295,12 +327,26 @@ function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
       ? fallbackText.trim().slice(0, 24_000)
       : "";
   if (!text) return null;
-  const createdFrom = value.createdFrom === "container" || value.createdFrom === "layer" ? value.createdFrom : "node";
+  const createdFrom = value.createdFrom === "canvas" || value.createdFrom === "container" || value.createdFrom === "layer" ? value.createdFrom : "node";
+  const inputBindings = [];
+  const usedBindings = new Set();
+  for (const binding of Array.isArray(value.inputBindings) ? value.inputBindings : []) {
+    const nodeId = typeof binding?.nodeId === "string" ? binding.nodeId.trim().slice(0, 160) : "";
+    const role = binding?.role === "reference" ? "reference" : binding?.role === "source" ? "source" : "";
+    const key = `${role}:${nodeId}`;
+    if (!nodeId || !role || usedBindings.has(key)) continue;
+    usedBindings.add(key);
+    inputBindings.push({ nodeId, role });
+    if (inputBindings.length >= 240) break;
+  }
+  const skill = sanitizePersistedCanvasSkill(value.skill);
   const requirement = {
-    version: 1,
+    version: value.version === 2 || inputBindings.length || skill ? 2 : 1,
     text,
     revision: Math.max(1, Math.floor(Number(value.revision || 1))),
     createdFrom,
+    ...(inputBindings.length ? { inputBindings } : {}),
+    ...(skill ? { skill } : {})
   };
   if (typeof value.lastSourceSignature === "string" && value.lastSourceSignature.trim()) {
     requirement.lastSourceSignature = value.lastSourceSignature.trim().slice(0, 160);
@@ -323,6 +369,8 @@ function sanitizePersistedImageTaskProvenance(value) {
   if (!/^scope-[a-f0-9]{32}$/.test(snapshotHash) || !resultPolicies.has(value.resultPolicy)) return null;
   const clean = (input, maximum) => typeof input === "string" && input.trim() ? input.trim().slice(0, maximum) : undefined;
   const revision = Number(value.requirementRevision);
+  const commerceSlotIndex = Number(value.commerceSlotIndex);
+  const commercePlanHash = clean(value.commercePlanHash, 48)?.toLowerCase();
   return {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
@@ -334,7 +382,13 @@ function sanitizePersistedImageTaskProvenance(value) {
     ...(clean(value.sourceContainerId, 160) ? { sourceContainerId: clean(value.sourceContainerId, 160) } : {}),
     ...(clean(value.sourceDisplayCode, 40) ? { sourceDisplayCode: clean(value.sourceDisplayCode, 40) } : {}),
     ...(clean(value.requirementNodeId, 160) ? { requirementNodeId: clean(value.requirementNodeId, 160) } : {}),
-    ...(Number.isInteger(revision) && revision >= 1 ? { requirementRevision: Math.floor(revision) } : {})
+    ...(Number.isInteger(revision) && revision >= 1 ? { requirementRevision: Math.floor(revision) } : {}),
+    ...(commercePlanHash && /^commerce-[a-f0-9]{32}$/.test(commercePlanHash) ? { commercePlanHash } : {}),
+    ...(clean(value.commerceSlotId, 80) ? { commerceSlotId: clean(value.commerceSlotId, 80) } : {}),
+    ...(Number.isInteger(commerceSlotIndex) && commerceSlotIndex >= 0 && commerceSlotIndex < 200
+      ? { commerceSlotIndex: Math.floor(commerceSlotIndex) }
+      : {}),
+    ...(clean(value.commerceLocaleCode, 32) ? { commerceLocaleCode: clean(value.commerceLocaleCode, 32) } : {})
   };
 }
 
@@ -629,10 +683,10 @@ function sanitizePersistedPendingAgentExecution(value) {
   const requestId = clean(value.requestId, 180);
   const projectId = clean(value.projectId, 180);
   const conversationId = clean(value.conversationId, 180);
-  const originalPrompt = clean(value.originalPrompt, 24_000);
+  const originalPrompt = clean(value.originalPrompt, 200_000);
   const question = clean(value.question, 4_000);
   const kinds = new Set(["clarify", "confirm", "source_images", "reference_images"]);
-  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement"]);
+  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
   const scopeTypes = new Set(["none", "single", "multi-source", "container", "container-group", "layer", "layer-group", "mixed"]);
   const resultPolicies = new Set(["single", "grouped-by-source", "grouped-by-container", "layer-variants"]);
   const confirmationPolicies = new Set(["auto", "preview-3", "staged", "direct"]);
@@ -646,11 +700,12 @@ function sanitizePersistedPendingAgentExecution(value) {
     const relativePath = cleanPath(item.relativePath).replace(/\\/g, "/");
     const assetUrl = clean(item.assetUrl, 4000);
     if (!assetId && !localPath && !relativePath && !assetUrl) return [];
+    const assetIndex = Number.isInteger(Number(item.assetIndex)) && Number(item.assetIndex) >= 0
+      ? Math.floor(Number(item.assetIndex))
+      : undefined;
     const containerSlot = Number.isInteger(Number(item.containerSlot)) && Number(item.containerSlot) >= 0
       ? Math.floor(Number(item.containerSlot))
-      : Number.isInteger(Number(item.assetIndex)) && Number(item.assetIndex) >= 0
-        ? Math.floor(Number(item.assetIndex))
-        : undefined;
+      : assetIndex;
     const ownerAssetIndex = Number.isInteger(Number(item.ownerAssetIndex)) && Number(item.ownerAssetIndex) >= 0
       ? Math.floor(Number(item.ownerAssetIndex))
       : undefined;
@@ -668,7 +723,8 @@ function sanitizePersistedPendingAgentExecution(value) {
       ...(/^[a-f0-9]{32,128}$/i.test(clean(item.contentHash, 128)) ? { contentHash: clean(item.contentHash, 128).toLowerCase() } : {}),
       role,
       name: clean(item.name, 260) || `${role === "source" ? "原图" : "参考图"} ${index + 1}`,
-      ...(containerSlot === undefined ? {} : { assetIndex: containerSlot, containerSlot }),
+      ...(assetIndex === undefined ? {} : { assetIndex }),
+      ...(containerSlot === undefined ? {} : { containerSlot }),
       ...(ownerAssetIndex === undefined ? {} : { ownerAssetIndex }),
       ...(clean(item.ownerNodeId, 160) ? { ownerNodeId: clean(item.ownerNodeId, 160) } : {}),
       ...(clean(item.nodeId, 160) ? { nodeId: clean(item.nodeId, 160) } : {}),
@@ -712,10 +768,30 @@ function sanitizePersistedPendingAgentExecution(value) {
   const options = normalizeOptions(value.options);
   const sourceNodeIds = [...new Set((Array.isArray(value.sourceNodeIds) ? value.sourceNodeIds : rawScope.sourceNodeIds || [])
     .map((id) => clean(id, 160)).filter(Boolean))].slice(0, 200);
-  const origin = origins.has(value.taskOrigin) ? value.taskOrigin : origins.has(rawScope.origin) ? rawScope.origin : "chat";
+  const outerOrigin = origins.has(value.taskOrigin) ? value.taskOrigin : "";
+  const scopeOrigin = origins.has(rawScope.origin) ? rawScope.origin : "";
+  if ((outerOrigin === "goal" || scopeOrigin === "goal") && outerOrigin && scopeOrigin && outerOrigin !== scopeOrigin) return null;
+  const origin = outerOrigin || scopeOrigin || "chat";
   const cleanIds = (items, maximum) => [...new Set((Array.isArray(items) ? items : [])
     .map((id) => clean(id, 520))
     .filter(Boolean))].slice(0, maximum);
+  const sameIds = (left, right) => left.length === right.length && left.every((id, index) => id === right[index]);
+  const scopeSourceNodeIds = [...new Set((Array.isArray(rawScope.sourceNodeIds) ? rawScope.sourceNodeIds : sourceNodeIds)
+    .map((id) => clean(id, 160)).filter(Boolean))].slice(0, 200);
+  const sourceContainerIds = cleanIds(rawScope.sourceContainerIds, 200);
+  const referenceContainerIds = cleanIds(rawScope.referenceContainerIds, 40);
+  const sourceBindingIds = cleanIds(
+    Array.isArray(rawScope.sourceBindingIds) && rawScope.sourceBindingIds.length
+      ? rawScope.sourceBindingIds
+      : sourceAssets.map((asset) => asset.bindingId),
+    200
+  );
+  const referenceBindingIds = cleanIds(
+    Array.isArray(rawScope.referenceBindingIds) && rawScope.referenceBindingIds.length
+      ? rawScope.referenceBindingIds
+      : referenceAssets.map((asset) => asset.bindingId),
+    40
+  );
   const scopeType = scopeTypes.has(rawScope.scopeType)
     ? rawScope.scopeType
     : sourceAssets.length > 1 || sourceNodeIds.length > 1
@@ -742,6 +818,97 @@ function sanitizePersistedPendingAgentExecution(value) {
   const snapshotHash = /^scope-[a-f0-9]{32}$/i.test(clean(rawScope.snapshotHash, 80))
     ? clean(rawScope.snapshotHash, 80).toLowerCase()
     : "";
+  const sourceAssetCount = Math.max(sourceAssets.length, Math.floor(Number(rawScope.sourceAssetCount || sourceAssets.length) || sourceAssets.length));
+  const referenceAssetCount = Math.max(referenceAssets.length, Math.floor(Number(rawScope.referenceAssetCount || referenceAssets.length) || referenceAssets.length));
+  let goal;
+  if (origin === "goal") {
+    const rawGoal = rawScope.goal && typeof rawScope.goal === "object" && !Array.isArray(rawScope.goal) ? rawScope.goal : null;
+    const strictIds = (items, maximum) => {
+      if (!Array.isArray(items) || !items.length || items.length > maximum) return null;
+      const normalized = items.map((id) => clean(id, 520));
+      if (
+        normalized.some((id, index) => !id || typeof items[index] !== "string" || items[index] !== id) ||
+        new Set(normalized).size !== normalized.length
+      ) return null;
+      return normalized;
+    };
+    const goalContainerIds = strictIds(rawGoal?.containerIds, 200);
+    const goalBindingIds = strictIds(rawGoal?.bindingIds, 200);
+    const configuredConcurrency = Number(rawGoal?.configuredConcurrency);
+    const probeContainerCount = Number(rawGoal?.probeContainerCount);
+    const operationsPerAsset = Number(rawGoal?.operationsPerAsset);
+    const requestCount = Number(rawGoal?.requestCount);
+    const rawCommercePlanHash = rawGoal?.commercePlanHash;
+    const commercePlanHash = typeof rawCommercePlanHash === "string" && /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
+      ? rawCommercePlanHash
+      : undefined;
+    const hasCommerceMarker = originalPrompt.includes(COMMERCE_SET_MARKER);
+    const commercePlan = hasCommerceMarker ? parseCommerceSetPromptPlan(originalPrompt) : null;
+    const rawContainerCount = Number(rawGoal?.containerCount);
+    const rawBindingCount = Number(rawGoal?.bindingCount);
+    const rawSourceNodeIds = Array.isArray(rawScope.sourceNodeIds) ? rawScope.sourceNodeIds.map((id) => clean(id, 160)) : [];
+    const rawOuterSourceNodeIds = Array.isArray(value.sourceNodeIds) ? value.sourceNodeIds.map((id) => clean(id, 160)) : [];
+    const rawSourceContainerIds = Array.isArray(rawScope.sourceContainerIds) ? rawScope.sourceContainerIds.map((id) => clean(id, 520)) : [];
+    const rawSourceBindingIds = Array.isArray(rawScope.sourceBindingIds) ? rawScope.sourceBindingIds.map((id) => clean(id, 520)) : [];
+    const rawSourceAssets = Array.isArray(rawScope.sourceAssets) ? rawScope.sourceAssets : [];
+    const sourceAssetBindingIds = sourceAssets.map((asset) => clean(asset.bindingId, 520));
+    const sourceAssetContainerIds = new Set(sourceAssets.map((asset) => clean(asset.containerId, 520)).filter(Boolean));
+    const sourceNodeIdSet = new Set(scopeSourceNodeIds);
+    const sourceAssetsAreFrozen = sourceAssets.length > 0 && rawSourceAssets.length === sourceAssets.length && rawSourceAssets.length <= 200 && sourceAssets.every((asset, index) => {
+      const rawAsset = rawSourceAssets[index];
+      const locator = cleanPath(asset.path) || cleanPath(asset.relativePath) || (!/^(?:data|blob):/i.test(clean(asset.assetUrl, 4000)) ? clean(asset.assetUrl, 4000) : "");
+      const ownerNodeId = clean(asset.ownerNodeId || asset.nodeId, 160);
+      return Boolean(
+        rawAsset && typeof rawAsset === "object" && clean(rawAsset.assetId, 160) && clean(rawAsset.bindingId, 520) &&
+        clean(asset.assetId, 160) && clean(asset.bindingId, 520) && locator && ownerNodeId && sourceNodeIdSet.has(ownerNodeId)
+      );
+    });
+    const rawListsAreCanonical = (
+      rawOuterSourceNodeIds.length > 0 && rawOuterSourceNodeIds.length <= 200 && sameIds(rawOuterSourceNodeIds, sourceNodeIds) && sameIds(sourceNodeIds, scopeSourceNodeIds) &&
+      value.sourceNodeIds.every((id, index) => typeof id === "string" && id === rawOuterSourceNodeIds[index]) &&
+      rawSourceNodeIds.length > 0 && rawSourceNodeIds.length <= 200 && sameIds(rawSourceNodeIds, scopeSourceNodeIds) &&
+      rawScope.sourceNodeIds.every((id, index) => typeof id === "string" && id === rawSourceNodeIds[index]) &&
+      rawSourceContainerIds.length > 0 && rawSourceContainerIds.length <= 200 && sameIds(rawSourceContainerIds, sourceContainerIds) &&
+      rawScope.sourceContainerIds.every((id, index) => typeof id === "string" && id === rawSourceContainerIds[index]) &&
+      rawSourceBindingIds.length > 0 && rawSourceBindingIds.length <= 200 && sameIds(rawSourceBindingIds, sourceBindingIds) &&
+      rawScope.sourceBindingIds.every((id, index) => typeof id === "string" && id === rawSourceBindingIds[index])
+    );
+    const goalIsValid = Boolean(
+      rawGoal && rawGoal.version === 1 && rawGoal.target === "all-image-containers" && rawGoal.frozen === true &&
+      goalContainerIds && goalBindingIds &&
+      sameIds(goalContainerIds, sourceContainerIds) && sameIds(goalBindingIds, sourceBindingIds) &&
+      sameIds(goalBindingIds, sourceAssetBindingIds) &&
+      typeof rawGoal.containerCount === "number" && Number.isInteger(rawContainerCount) && rawContainerCount === goalContainerIds.length &&
+      typeof rawGoal.bindingCount === "number" && Number.isInteger(rawBindingCount) && rawBindingCount === goalBindingIds.length &&
+      typeof rawGoal.configuredConcurrency === "number" && Number.isInteger(configuredConcurrency) && configuredConcurrency >= 1 && configuredConcurrency <= 10 &&
+      typeof rawGoal.probeContainerCount === "number" && Number.isInteger(probeContainerCount) && probeContainerCount >= 1 && probeContainerCount <= 2 &&
+      probeContainerCount <= configuredConcurrency && probeContainerCount <= goalBindingIds.length &&
+      typeof rawGoal.operationsPerAsset === "number" && Number.isSafeInteger(operationsPerAsset) && operationsPerAsset >= 1 && operationsPerAsset <= 200 &&
+      typeof rawGoal.requestCount === "number" && Number.isSafeInteger(requestCount) && requestCount === goalBindingIds.length * operationsPerAsset && requestCount <= 200 &&
+      (hasCommerceMarker
+        ? commercePlan && commercePlanHash && commercePlan.planHash === commercePlanHash &&
+          commercePlan.sourceCount === goalBindingIds.length && commercePlan.outputsPerSource === operationsPerAsset && commercePlan.totalRequests === requestCount
+        : rawCommercePlanHash === undefined) &&
+      goalContainerIds.every((containerId) => sourceAssetContainerIds.has(containerId)) &&
+      sourceAssetCount === goalBindingIds.length && sourceAssets.length === goalBindingIds.length &&
+      rawScope.truncated !== true && snapshotHash && rawListsAreCanonical && sourceAssetsAreFrozen
+    );
+    if (!goalIsValid) return null;
+    goal = {
+      version: 1,
+      target: "all-image-containers",
+      frozen: true,
+      containerIds: goalContainerIds,
+      bindingIds: goalBindingIds,
+      containerCount: goalContainerIds.length,
+      bindingCount: goalBindingIds.length,
+      configuredConcurrency,
+      probeContainerCount,
+      operationsPerAsset,
+      requestCount,
+      ...(commercePlanHash ? { commercePlanHash } : {})
+    };
+  }
   return {
     version: 2,
     requestId,
@@ -756,21 +923,11 @@ function sanitizePersistedPendingAgentExecution(value) {
       origin,
       scopeType,
       canvasRevision: Math.max(0, Math.floor(Number(rawScope.canvasRevision) || 0)),
-      sourceNodeIds: [...new Set((Array.isArray(rawScope.sourceNodeIds) ? rawScope.sourceNodeIds : sourceNodeIds).map((id) => clean(id, 160)).filter(Boolean))].slice(0, 200),
-      sourceContainerIds: cleanIds(rawScope.sourceContainerIds, 200),
-      referenceContainerIds: cleanIds(rawScope.referenceContainerIds, 40),
-      sourceBindingIds: cleanIds(
-        Array.isArray(rawScope.sourceBindingIds) && rawScope.sourceBindingIds.length
-          ? rawScope.sourceBindingIds
-          : sourceAssets.map((asset) => asset.bindingId),
-        200
-      ),
-      referenceBindingIds: cleanIds(
-        Array.isArray(rawScope.referenceBindingIds) && rawScope.referenceBindingIds.length
-          ? rawScope.referenceBindingIds
-          : referenceAssets.map((asset) => asset.bindingId),
-        40
-      ),
+      sourceNodeIds: scopeSourceNodeIds,
+      sourceContainerIds,
+      referenceContainerIds,
+      sourceBindingIds,
+      referenceBindingIds,
       sourceAssets,
       referenceAssets,
       resultPolicy,
@@ -778,9 +935,10 @@ function sanitizePersistedPendingAgentExecution(value) {
       ...(requirementNodeId && requirementRevision !== undefined
         ? { requirement: { nodeId: requirementNodeId, revision: requirementRevision, ...(requirementSourceSignature ? { sourceSignature: requirementSourceSignature } : {}) } }
         : {}),
+      ...(goal ? { goal } : {}),
       snapshotHash,
-      sourceAssetCount: Math.max(sourceAssets.length, Math.floor(Number(rawScope.sourceAssetCount || sourceAssets.length) || sourceAssets.length)),
-      referenceAssetCount: Math.max(referenceAssets.length, Math.floor(Number(rawScope.referenceAssetCount || referenceAssets.length) || referenceAssets.length)),
+      sourceAssetCount,
+      referenceAssetCount,
       truncated: rawScope.truncated === true
     },
     ...(requirementNodeId ? { requirementNodeId } : {}),
@@ -931,7 +1089,7 @@ function sanitizeSession(session) {
     ? pendingAgentExecution
     : null;
   return {
-    schemaVersion: Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 3 ? 3 : 2,
+    schemaVersion: Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 5 ? 5 : Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 4 ? 4 : Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 3 ? 3 : 2,
     sessionRevision: Math.max(0, Math.floor(Number(source.sessionRevision || 0))),
     canvasRevision: Math.max(0, Math.floor(Number(source.canvasRevision || 0))),
     nodeSequence: Math.max(
@@ -942,6 +1100,9 @@ function sanitizeSession(session) {
     conversations,
     activeConversationId,
     nodes: artifactNodes,
+    nodeMutationJournal: normalizeNodeMutationJournal(source.nodeMutationJournal),
+    nodeMutationWriterCheckpoints: normalizeNodeMutationWriterCheckpoints(source.nodeMutationWriterCheckpoints),
+    nodeMutationBarriers: normalizeNodeMutationBarriers(source.nodeMutationBarriers),
     layoutGroups,
     selectedNodeId,
     pendingAgentExecution: validPendingAgentExecution
@@ -971,4 +1132,3 @@ module.exports = {
   sessionAssetContentHash,
   sessionHasContent
 };
-

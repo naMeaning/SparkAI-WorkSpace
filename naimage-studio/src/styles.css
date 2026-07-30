@@ -8,17 +8,21 @@ File Contract
 
 Region Index
 01 Base Tokens And Shared Controls
+01 Liquid Glass Tokens And Theme Bridge
 02 Canvas Workspace And Node System
 03 Legacy Agent / Account / Composer Inactive Reference
 04 Dialogs, Image Editors, Viewers, And Prompt Entries
+04b Glass Lab Controls And Preview
 05 Desktop Polish And Dense IDE Rhythm
 06 Responsive Layout Rules
 07 VSCode Workbench Flattening Pass
+07j Liquid Glass Surfaces And Workspace Modes
 08 Motion Accessibility Policy
 */
 
 @import "./styles/01-base-controls.css";
 @import "./styles/01-theme-palettes.css";
+@import "./styles/01-liquid-glass-tokens.css";
 @import "./styles/02-canvas-workspace.css";
 @import "./styles/03-legacy-agent-reference.css";
 @import "./styles/04-dialogs-viewers.css";
@@ -26,4 +30,5 @@ Region Index
 @import "./styles/05-desktop-polish.css";
 @import "./styles/06-responsive.css";
 @import "./styles/07-workbench-flattening.css";
+@import "./styles/07j-liquid-glass-surfaces.css";
 @import "./styles/08-motion-accessibility.css";

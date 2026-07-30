@@ -1,44 +1,58 @@
 "use strict";
 
-const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
+const {
+  COMMERCE_GENERATE_SET_COMMAND,
+  COMMERCE_TRANSLATION_COMMAND,
+  composeCommerceSetTask,
+  normalizeCommerceSetPlan
+} = require("../runtime/commerce-set-plan.cjs");
 const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
 const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";
+const commerceSetSchema = require("../plugins/commerce-set-schema.json");
 const scientificFigureWorkflow = require("../plugins/builtin/sparkai.scientific-figure/resources/agent-workflow.json");
-const MAX_COMMERCE_TARGET_LANGUAGES = 10;
+const MAX_COMMERCE_TARGET_LANGUAGES = commerceSetSchema.limits.maxTargetLanguages;
 const MAX_PROJECT_GRAPH_PROMPT_NODES = 600;
 const MAX_PROJECT_GRAPH_PROMPT_EDGES = 1_200;
 
-const commerceLanguages = [
-  ["en-US", "英语（美国）", "English (US)"], ["en-GB", "英语（英国）", "English (UK)"],
-  ["de-DE", "德语", "Deutsch"], ["fr-FR", "法语", "Français"], ["es-ES", "西班牙语", "Español"],
-  ["it-IT", "意大利语", "Italiano"], ["pt-BR", "葡萄牙语（巴西）", "Português (Brasil)"],
-  ["ja-JP", "日语", "日本語"], ["ko-KR", "韩语", "한국어"], ["ar-SA", "阿拉伯语", "العربية"],
-  ["ru-RU", "俄语", "Русский"], ["th-TH", "泰语", "ไทย"], ["vi-VN", "越南语", "Tiếng Việt"],
-  ["id-ID", "印度尼西亚语", "Bahasa Indonesia"]
-];
+const commerceLanguages = commerceSetSchema.languages.map((language) => [language.code, language.label, language.nativeLabel]);
 const commerceLanguageByCode = new Map(commerceLanguages.map((language) => [language[0], language]));
 
 function normalizeCommerceLanguageCodes(value) {
   return [...new Set((Array.isArray(value) ? value : []).map(String).filter((code) => commerceLanguageByCode.has(code)))].slice(0, MAX_COMMERCE_TARGET_LANGUAGES);
 }
 
-function commerceTranslationPrompt(languageCodes, sourceCount) {
-  const normalized = normalizeCommerceLanguageCodes(languageCodes);
-  if (!normalized.length) throw new Error("请至少选择一种目标语言。");
-  const languageLines = normalized.map((code, index) => {
-    const language = commerceLanguageByCode.get(code);
-    return `${index + 1}. ${language[1]} / ${language[2]}（${code}）`;
-  }).join("\n");
-  return [
-    "执行跨境电商商品套图多语言本地化。当前选中的图片成果是本轮唯一 SOURCE，不要使用会话中的其他旧图片。",
-    `SOURCE：${Math.max(1, Math.floor(Number(sourceCount) || 1))} 个已选成果或容器。目标语言：\n${languageLines}`,
-    "规则：",
-    "- 识别真实可见文字；品牌、商标、型号、SKU、尺寸、数字、单位和法律标识默认保持原文。禁止添加原图没有的功效、认证、折扣、承诺或卖点。",
-    "- 只替换文字及必要排版；保持商品身份、轮廓、颜色、材质、背景、构图、画幅、Logo 和整体设计。",
-    "- 每种语言单独调用一次 image_gen，并进入自己的结果组；不同语言不得混在同一个结果组。每个 SOURCE 每种语言生成一张。",
-    "- 有 SOURCE 时使用 edit 或 replace，禁止用 generate 重画商品；总并发最多 10 路。阿拉伯语使用正确的从右到左排版。",
-    "- 完成后按语言列出成功/失败数量；未识别到文字时保留原图并说明。用户已勾选语言并授权执行，不要再次询问。"
-  ].join("\n");
+function withCommerceGoalRuntimeContract(task) {
+  const planHash = cleanText(task?.planHash, 48);
+  const mode = task?.plan?.mode === "translate" ? "translate" : "generate";
+  const outputsPerSource = Math.max(1, Math.floor(Number(task?.counts?.outputsPerSource) || 1));
+  const firstSlot = task?.plan?.slots?.[0];
+  const firstLocale = task?.plan?.targetLocales?.[0];
+  const itemContract = outputsPerSource === 1
+    ? mode === "translate"
+      ? `本计划每个 SOURCE 只输出一张：省略 items，并在顶层设置 slotId=translation、slotIndex=0、localeCode=${cleanText(firstLocale?.code, 32)}。`
+      : `本计划每个 SOURCE 只输出一张：省略 items，并在顶层设置 slotId=${cleanText(firstSlot?.id, 80) || "image-1"}、slotIndex=0、localeCode=${cleanText(firstLocale?.code, 32) || "source-language"}。`
+    : mode === "translate"
+      ? "items 按 targetLocales 顺序排列；每项设置 slotId=translation、slotIndex=0、localeCode=对应语言代码。"
+      : "items 按 targetLocales（没有目标语言时使用 source-language）外层、slots 内层展开；每项复制准确的 slotId、零基 slotIndex 和 localeCode。";
+  return {
+    ...task,
+    prompt: [
+      task.prompt,
+      "GOAL_RUNTIME_METADATA_CONTRACT:",
+      `- image_gen.commercePlanHash 必须严格等于 ${planHash}，不得省略、改写或写进画面 Prompt。`,
+      `- ${itemContract}`,
+      "- 这些字段只用于成果溯源；每项 title/prompt 仍必须对应当前槽位与语言的真实成品。"
+    ].join("\n")
+  };
+}
+
+function commerceTranslationPrompt(languageCodes, sourceCount, sourceNodeIds = []) {
+  return withCommerceGoalRuntimeContract(composeCommerceSetTask({
+    command: COMMERCE_TRANSLATION_COMMAND,
+    sourceCount,
+    sourceNodeIds,
+    plan: normalizeCommerceSetPlan({ mode: "translate", languageCodes })
+  })).prompt;
 }
 
 function cleanText(value, maximum) {
@@ -102,13 +116,13 @@ function projectGraphTask(graph) {
 }
 
 function composePluginTask(payload) {
-  if (payload?.command === COMMERCE_TRANSLATION_COMMAND) {
-    const languageCodes = normalizeCommerceLanguageCodes(payload.languageCodes);
-    return {
-      prompt: commerceTranslationPrompt(languageCodes, payload.sourceCount),
-      languageCodes,
-      visibleContent: `为当前选中的商品图生成多语言套图：${languageCodes.map((code) => commerceLanguageByCode.get(code)[1]).join("、")}`
-    };
+  if (payload?.command === COMMERCE_GENERATE_SET_COMMAND || payload?.command === COMMERCE_TRANSLATION_COMMAND) {
+    return withCommerceGoalRuntimeContract(composeCommerceSetTask({
+      ...payload,
+      plan: payload.plan ?? (payload.command === COMMERCE_TRANSLATION_COMMAND
+        ? { mode: "translate", languageCodes: payload.languageCodes }
+        : { mode: "generate" })
+    }));
   }
   if (payload?.command === SCIENTIFIC_FIGURE_COMMAND) {
     return {
@@ -120,12 +134,15 @@ function composePluginTask(payload) {
 }
 
 module.exports = {
+  COMMERCE_GENERATE_SET_COMMAND,
   COMMERCE_TRANSLATION_COMMAND,
   PROJECT_GRAPH_VISUALIZATION_COMMAND,
   SCIENTIFIC_FIGURE_COMMAND,
   commerceLanguages,
+  composeCommerceSetTask,
   commerceTranslationPrompt,
   composePluginTask,
+  normalizeCommerceSetPlan,
   normalizeCommerceLanguageCodes,
   projectGraphPromptPayload,
   projectGraphTask,

@@ -36,12 +36,21 @@ const {
   sessionHasContent
 } = require("./desktop/project-session-normalizer.cjs");
 const { createProjectStore } = require("./desktop/project-store.cjs");
+const { createPublicHttpDownloadAdmission } = require("./desktop/public-http-resource.cjs");
+const { loadRecordedRemoteAssetProxy } = require("./desktop/remote-asset-proxy.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
 const { createAgentRunControl, createAbortError } = require("./desktop/agent-run-control.cjs");
+const { createGoalProbeAdmission } = require("./runtime/goal-probe-admission.cjs");
+const { detectEncodedImageFormat, normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
+const {
+  defaultGlassAppearance,
+  nativeWindowBackgroundColor,
+  normalizeGlassThemeSettings: normalizeElectronGlassThemeSettings
+} = require("./runtime/glass-theme-settings.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
 const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
 const { parseProjectGraphFile } = require("./desktop/project-graph-adapter.cjs");
@@ -68,12 +77,16 @@ const {
 const packageMetadata = require("./package.json");
 
 const agentRunControl = createAgentRunControl({
-  onChange(payload) {
+  onChange() {
     for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send("naimage:agent:run-state", payload);
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send("naimage:agent:run-state", agentRunControl.snapshot("", String(window.webContents.id)));
+      }
     }
   }
 });
+const goalProbeAdmission = createGoalProbeAdmission();
+const remoteImageDownloads = createPublicHttpDownloadAdmission({ maxConcurrent: 2, maxQueued: 256 });
 
 function getDesktopVersion() {
   return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
@@ -204,6 +217,24 @@ const aidebugImageFaultsEnabled =
   aidebugMode &&
   !aidebugLiveImage &&
   desktopEnvironment("NAIMAGE_AIDEBUG_IMAGE_FAULTS") === "1";
+const aidebugStopFixtureMode = aidebugMode
+  ? String(desktopEnvironment("NAIMAGE_AIDEBUG_AGENT_STOP_FIXTURE") || "").trim().toLowerCase()
+  : "";
+const aidebugStopFixtureDelayMs = Math.min(
+  10_000,
+  Math.max(0, Number(desktopEnvironment("NAIMAGE_AIDEBUG_AGENT_STOP_DELAY_MS")) || 0)
+);
+let aidebugStopFixtureAttempts = 0;
+const aidebugAgentStopFixture = aidebugStopFixtureMode === "fail-once"
+  ? async ({ invokeStop }) => {
+      aidebugStopFixtureAttempts += 1;
+      if (aidebugStopFixtureDelayMs > 0) await delay(aidebugStopFixtureDelayMs);
+      if (aidebugStopFixtureAttempts === 1) {
+        return { ok: false, error: "AIDebug 注入的结束失败：底层暂未确认停止。" };
+      }
+      return invokeStop();
+    }
+  : null;
 const agentModelForceEnabled = false;
 const agentToolChoiceForceEnabled = false;
 const agentToolArgCorrectionEnabled = false;
@@ -274,7 +305,7 @@ const queuedImageEditRequests = [];
 // Production keeps the desktop workspace usable at its supported minimum.
 // AIDebug deliberately exercises the responsive 540px layout in an isolated
 // user-data directory, so its BrowserWindow must not clamp those captures.
-const minWindowWidth = aidebugMode ? 540 : 900;
+const minWindowWidth = aidebugMode ? 540 : 884;
 const minWindowHeight = 640;
 const useCustomWindowFrame = process.platform !== "darwin";
 const windowIconDataUrl =
@@ -341,13 +372,16 @@ const defaultSettings = {
   theme: "light",
   themePalette: "anthropic",
   customTheme: null,
+  ...defaultGlassAppearance,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
   agentSkillAutoInstallTargets: [],
-  pluginStates: []
+  pluginStates: [],
+  canvasToolDockMode: "expanded",
+  disabledCanvasToolCommands: []
 };
 
 const themePaletteValues = new Set([
@@ -501,10 +535,14 @@ function uniqueImageModels(models = []) {
 }
 
 const defaultSession = {
+  schemaVersion: 5,
   sessionRevision: 0,
   nodeSequence: 0,
   messages: [],
   nodes: [],
+  nodeMutationJournal: [],
+  nodeMutationWriterCheckpoints: [],
+  nodeMutationBarriers: [],
   selectedNodeId: ""
 };
 
@@ -575,6 +613,14 @@ function migrateSettings(value) {
   next.themePalette = themePaletteValues.has(String(next.themePalette)) ? String(next.themePalette) : defaultSettings.themePalette;
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
+  const glassAppearance = normalizeElectronGlassThemeSettings({
+    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : defaultSettings.glassTheme),
+    glassMaterial: source.glassMaterial,
+    glassParameters: source.glassParameters
+  });
+  next.glassTheme = glassAppearance.glassTheme;
+  next.glassMaterial = glassAppearance.glassMaterial;
+  next.glassParameters = glassAppearance.glassParameters;
   next.agentPanelPlacement = ["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))
     ? String(next.agentPanelPlacement)
     : defaultSettings.agentPanelPlacement;
@@ -586,6 +632,18 @@ function migrateSettings(value) {
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))]
     : [];
   next.pluginStates = normalizePluginStates(source.pluginStates);
+  next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
+  next.disabledCanvasToolCommands = [];
+  if (Array.isArray(source.disabledCanvasToolCommands)) {
+    const seenCanvasToolCommands = new Set();
+    for (const item of source.disabledCanvasToolCommands) {
+      const command = String(item || "").trim().slice(0, 160);
+      if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(command) || seenCanvasToolCommands.has(command)) continue;
+      seenCanvasToolCommands.add(command);
+      next.disabledCanvasToolCommands.push(command);
+      if (next.disabledCanvasToolCommands.length >= 128) break;
+    }
+  }
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.contextStrategy = ["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))
     ? String(next.contextStrategy)
@@ -677,6 +735,7 @@ const agentWindowService = createAgentWindowService({
   preloadPath: agentWindowPreload,
   applicationName,
   icon: createWindowIcon(),
+  getBackgroundColor: () => nativeWindowBackgroundColor(migrateSettings(readJson(settingsPath, defaultSettings))),
   log
 });
 const themePresetService = createThemePresetService({ dialog, readFileSync, statSync, writeFileSync });
@@ -1025,6 +1084,35 @@ function registerAssetProtocol() {
     try {
       const url = new URL(request.url);
       const pathname = url.pathname.replace(/^\/+/, "");
+      if (url.hostname === "remote") {
+        try {
+          const loaded = await loadRecordedRemoteAssetProxy(url, {
+            isRecorded(remoteUrl) {
+              const list = readProjectList();
+              const project = getActiveProject(list);
+              return Boolean(project?.path && recordedAssetSourcesForProject(project).urls.has(remoteUrl));
+            },
+            download: (remoteUrl) => remoteImageDownloads.download(remoteUrl, {
+              maxBytes: maxExportImageBytes,
+              timeoutMs: 30_000,
+              maxRedirects: 5
+            }),
+            detectFormat: detectImageFormat,
+            validateDimensions: (buffer) => assertSafeEncodedImageDimensions(buffer, "remote project image"),
+            isDecodable: (buffer) => !nativeImage.createFromBuffer(buffer).isEmpty()
+          });
+          return new Response(loaded.buffer, {
+            status: 200,
+            headers: {
+              "cache-control": "private, max-age=300",
+              "content-type": loaded.mimeType,
+              "x-content-type-options": "nosniff"
+            }
+          });
+        } catch (error) {
+          return new Response(error instanceof Error ? error.message : "remote asset request failed", { status: Number(error?.status) || 500 });
+        }
+      }
       const resolved = pathname.startsWith("abs/")
         ? path.resolve(decodeURIComponent(pathname.slice(4)))
         : path.resolve(projectRoot, decodeURIComponent(pathname));
@@ -1249,17 +1337,8 @@ function resolveManagedAssetFile(asset, context) {
 }
 
 function detectImageFormat(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
-  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return { extension: ".png", mimeType: "image/png" };
-  }
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    return { extension: ".jpg", mimeType: "image/jpeg" };
-  }
-  if (buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
-    return { extension: ".webp", mimeType: "image/webp" };
-  }
-  return null;
+  const detected = detectEncodedImageFormat(buffer);
+  return detected ? { extension: detected.extension, mimeType: detected.mimeType } : null;
 }
 
 function inspectImageFile(filePath) {
@@ -1307,40 +1386,11 @@ function imageBufferFromDataUrl(dataUrl) {
 }
 
 async function imageBufferFromRemoteUrl(remoteUrl) {
-  const parsed = new URL(remoteUrl);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("远程图片协议不受支持。");
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-  try {
-    const response = await net.fetch(parsed.toString(), { signal: controller.signal, redirect: "follow" });
-    if (!response.ok) throw new Error(`远程图片下载失败（HTTP ${response.status}）。`);
-    const finalUrl = new URL(response.url || parsed.toString());
-    if (finalUrl.protocol !== "http:" && finalUrl.protocol !== "https:") throw new Error("远程图片重定向到了不安全的协议。");
-    const contentLength = Number(response.headers.get("content-length") || 0);
-    if (Number.isFinite(contentLength) && contentLength > maxExportImageBytes) throw new Error("远程图片超过 128 MB，已取消导出。");
-    if (!response.body) throw new Error("远程图片响应为空。");
-    const reader = response.body.getReader();
-    const chunks = [];
-    let received = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value);
-      received += chunk.length;
-      if (received > maxExportImageBytes) {
-        await reader.cancel();
-        throw new Error("远程图片超过 128 MB，已取消导出。");
-      }
-      chunks.push(chunk);
-    }
-    if (received <= 0) throw new Error("远程图片数据为空。");
-    return Buffer.concat(chunks, received);
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error("远程图片下载超时。");
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return remoteImageDownloads.download(remoteUrl, {
+    maxBytes: maxExportImageBytes,
+    timeoutMs: 30_000,
+    maxRedirects: 5
+  });
 }
 
 function secureExportSourceCacheDir(context) {
@@ -1391,11 +1441,11 @@ function releaseTransientExportSource(source, context) {
     return;
   }
   transientExportSourceRefs.delete(key);
-  const cacheDir = path.resolve(activeProjectTempDir(context.project.id), "export-sources");
-  const resolved = path.resolve(source.path);
-  const ownedNamePattern = new RegExp(`^[a-f0-9]{64}-${process.pid}\\.(?:png|jpe?g|webp)$`, "i");
-  if (!ownedNamePattern.test(path.basename(resolved)) || !isComparablePathInside(resolved, cacheDir) || comparablePath(path.dirname(resolved)) !== comparablePath(cacheDir) || !existsSync(resolved)) return;
   try {
+    const cacheDir = path.resolve(activeProjectTempDir(context.project.id), "export-sources");
+    const resolved = path.resolve(source.path);
+    const ownedNamePattern = new RegExp(`^[a-f0-9]{64}-${process.pid}\\.(?:png|jpe?g|webp)$`, "i");
+    if (!ownedNamePattern.test(path.basename(resolved)) || !isComparablePathInside(resolved, cacheDir) || comparablePath(path.dirname(resolved)) !== comparablePath(cacheDir) || !existsSync(resolved)) return;
     const stats = lstatSync(resolved);
     if (!stats.isFile() || stats.isSymbolicLink()) return;
     const realCache = realpathSync(cacheDir);
@@ -1525,14 +1575,6 @@ function preferredAssetName(asset, suggestedName, fallback = "naimage-image") {
 
 function exportFileName(source, suggestedName, fallback = "naimage-image") {
   return `${safeExportStem(preferredAssetName(source.asset, suggestedName, fallback), fallback)}${source.extension}`;
-}
-
-function ensureMatchingExportExtension(filePath, extension) {
-  const selectedExtension = path.extname(filePath).toLowerCase();
-  if (!selectedExtension) return `${filePath}${extension}`;
-  if (extension === ".jpg" && (selectedExtension === ".jpg" || selectedExtension === ".jpeg")) return filePath;
-  if (selectedExtension === extension) return filePath;
-  return path.join(path.dirname(filePath), `${path.parse(filePath).name}${extension}`);
 }
 
 function uniqueExportPath(parentDir, name) {
@@ -1756,7 +1798,7 @@ async function serverGenerateImage(payload = {}) {
     });
     const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
     const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
-    const assets = writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+    const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
     log(`agent server generate image returned=${assets.length}`);
     return { ...data, assets, runId, returned: assets.length };
   } finally {
@@ -1851,6 +1893,7 @@ function getAgentRuntime() {
     agentRuntime = createAgentRuntime({
       projectRoot: agentWorkspaceRoot,
       configDir,
+      goalProbeAdmission,
       imageRoots: [referencesDir],
       includeProjectRootImageRoot: false,
       resolveImageRoots: agentImageRootsForContext,
@@ -1875,7 +1918,7 @@ function getAgentRuntime() {
           });
           const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
           const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
-          const assets = writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+          const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
           return {
             ...data,
             ok: data.ok !== false,
@@ -2099,6 +2142,8 @@ function shutdownApplicationServices() {
   if (applicationShutdownPromise) return applicationShutdownPromise;
   applicationShutdownStartedAt = Date.now();
   quitting = true;
+  const stoppedRuns = agentRunControl.stopAll("naimage 正在退出，所有 Agent 运行已停止。");
+  log(`shutdown agent runs stopped=${stoppedRuns.stopped}`);
   cancelQueuedImageEditRequests();
   const localServerStop = stopLocalServer();
   const cleanup = Promise.allSettled([
@@ -2108,6 +2153,7 @@ function shutdownApplicationServices() {
     recycleProjectImageImporter(false),
     imageThumbnailCache.close(),
     Promise.resolve(agentWindowService.close()),
+    Promise.resolve().then(() => goalProbeAdmission.dispose("Application shutdown.")),
     Promise.resolve().then(() => agentRuntime?.dispose?.())
   ]).then((results) => {
     for (const [index, result] of results.entries()) {
@@ -2674,6 +2720,14 @@ function prepareImageUploadPart(image, aggressive = false) {
 
 async function callNewApiImage(settings, payload = {}) {
   if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
+  const rawOutputFormat = payload.outputFormat ?? payload.output_format;
+  const outputFormat = normalizeEncodedImageFormat(rawOutputFormat);
+  if (String(rawOutputFormat ?? "").trim() && !outputFormat) {
+    const error = new Error(`不支持的生图格式：${String(rawOutputFormat).trim()}。仅支持 PNG、JPEG 和 WebP。`);
+    error.code = "NAIMAGE_IMAGE_OUTPUT_FORMAT_UNSUPPORTED";
+    error.failureKind = "validation";
+    throw error;
+  }
   if (!aidebugMode) await licenseService.requireActive();
   const customMode = isCustomApiMode(settings);
   if (!customMode) requireNewApiSession(settings);
@@ -2684,7 +2738,7 @@ async function callNewApiImage(settings, payload = {}) {
   const size = String(payload.size || settings.imageSize || "1024x1024").trim();
   const quality = String(payload.quality || settings.imageQuality || "auto").trim();
   const imageControls = {
-    outputFormat: payload.outputFormat ?? payload.output_format,
+    outputFormat: outputFormat || undefined,
     outputCompression: payload.outputCompression ?? payload.output_compression,
     background: payload.background,
     moderation: payload.moderation,
@@ -2891,8 +2945,18 @@ async function callNewApiImage(settings, payload = {}) {
         reject(timeoutError);
       }, imageTimeoutMs);
     });
+    const transportPromise = Promise.resolve().then(() => task(controller.signal));
     try {
-      return await Promise.race([task(controller.signal), timeoutPromise]);
+      payload.onTransportPromise?.(transportPromise, {
+        index,
+        count,
+        attempt: requestAttempts[index]?.attempts || 1
+      });
+    } catch {
+      // Admission tracking must never affect the provider request.
+    }
+    try {
+      return await Promise.race([transportPromise, timeoutPromise]);
     } catch (error) {
       if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
       if (error === timeoutError || timedOut) throw timeoutError;
@@ -3433,32 +3497,49 @@ function outputExtensionForFormat(format) {
   return "png";
 }
 
-function writeServerImageOutputs(images, stem, runId = "", projectId = "", outputFormat = "png") {
+async function writeServerImageOutputs(images, stem, runId = "", projectId = "", outputFormat = "png") {
   const outputDir = outputDirForProjectId(projectId);
   mkdirSync(outputDir, { recursive: true });
-  const ext = outputExtensionForFormat(outputFormat);
-  return images.map((image, index) => {
-    if (image.type === "url") {
-      return { index: index + 1, type: "url", url: image.value, revisedPrompt: image.revisedPrompt || "", runId };
+  return Promise.all(images.map(async (image, index) => {
+    const buffer = image.type === "url"
+      ? await remoteImageDownloads.download(image.value, {
+          maxBytes: maxExportImageBytes,
+          timeoutMs: 30_000,
+          maxRedirects: 5
+        })
+      : Buffer.from(image.value.replace(/^data:image\/\w+;base64,/, ""), "base64");
+    if (buffer.length <= 0 || buffer.length > maxExportImageBytes) {
+      const error = new Error(`Generated image ${index + 1} exceeds the managed asset byte limit.`);
+      error.code = "NAIMAGE_IMAGE_OUTPUT_SIZE_INVALID";
+      error.failureKind = "validation";
+      throw error;
     }
-    const clean = image.value.replace(/^data:image\/\w+;base64,/, "");
-    const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}.${ext}`);
-    const buffer = Buffer.from(clean, "base64");
-    writeFileSync(filePath, buffer);
+    const detected = requireEncodedImageFormat(buffer, outputFormat);
+    assertSafeEncodedImageDimensions(buffer, `generated image ${index + 1}`);
     const decoded = nativeImage.createFromBuffer(buffer);
-    const dimensions = decoded.isEmpty() ? { width: 0, height: 0 } : decoded.getSize();
+    if (decoded.isEmpty()) {
+      const error = new Error(`Generated image ${index + 1} could not be fully decoded.`);
+      error.code = "NAIMAGE_IMAGE_OUTPUT_DECODE_FAILED";
+      error.failureKind = "validation";
+      throw error;
+    }
+    const dimensions = decoded.getSize();
+    const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
+    writeFileSync(filePath, buffer);
     return {
       index: index + 1,
       type: "file",
       path: filePath,
       assetUrl: assetUrlFor(filePath),
       contentHash: createHash("sha256").update(buffer).digest("hex"),
+      mimeType: detected.mimeType,
+      outputFormat: detected.format,
       revisedPrompt: image.revisedPrompt || "",
       runId,
       width: dimensions.width > 0 ? dimensions.width : undefined,
       height: dimensions.height > 0 ? dimensions.height : undefined
     };
-  });
+  }));
 }
 
 function sanitizeFileStem(value, fallback = "image") {
@@ -3548,6 +3629,12 @@ function registerIpc() {
       accountTokenService.clearKeyCache();
       if (current?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch, userId: String(current.serverUserId) });
     },
+    onSettingsSaved(_event, next) {
+      const backgroundColor = nativeWindowBackgroundColor(next);
+      for (const targetWindow of BrowserWindow.getAllWindows()) {
+        if (!targetWindow.isDestroyed?.()) targetWindow.setBackgroundColor?.(backgroundColor);
+      }
+    },
     writeJson,
     readProjectList,
     getActiveProject,
@@ -3570,6 +3657,7 @@ function registerIpc() {
     emitAgentProgress,
     agentRunControl,
     aidebugMode,
+    aidebugAgentStopFixture,
     createWindow,
     BrowserWindow,
     screen,
@@ -3612,7 +3700,6 @@ function registerIpc() {
     materializeManagedImageAsset,
     exportFileName,
     aidebugExportFilePath,
-    ensureMatchingExportExtension,
     comparablePath,
     releaseTransientExportSources,
     maxFolderExportAssets,
@@ -3660,12 +3747,13 @@ function registerIpc() {
 function createWindow(launch = {}) {
   logBoot("create window start");
   const windowIcon = createWindowIcon();
+  const startupSettings = migrateSettings(readJson(settingsPath, defaultSettings));
   const window = new BrowserWindow({
     width: 1280,
     height: 720,
     minWidth: minWindowWidth,
     minHeight: minWindowHeight,
-    backgroundColor: "#0e1513",
+    backgroundColor: nativeWindowBackgroundColor(startupSettings),
     show: false,
     title: applicationName,
     ...(windowIcon ? { icon: windowIcon } : {}),
@@ -3680,6 +3768,14 @@ function createWindow(launch = {}) {
     }
   });
   window.setMinimumSize(minWindowWidth, minWindowHeight);
+  const rendererOwnerId = String(window.webContents.id);
+  const stopRendererOwnedWork = (reason) => {
+    const runs = agentRunControl.stopOwner({ ownerId: rendererOwnerId, reason });
+    const automation = automationService.rendererGone(rendererOwnerId, reason);
+    if (runs.stopped || automation.rejected) {
+      log(`renderer owner=${rendererOwnerId} stoppedRuns=${runs.stopped} rejectedAutomation=${automation.rejected}`);
+    }
+  };
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     openExternalUrl(url);
@@ -3712,6 +3808,10 @@ function createWindow(launch = {}) {
   });
   window.webContents.on("render-process-gone", (_event, details) => {
     log(`render gone ${JSON.stringify(details)}`);
+    stopRendererOwnedWork("naimage 界面进程已退出，相关 Agent 运行和自动化命令已取消。");
+  });
+  window.webContents.once("destroyed", () => {
+    stopRendererOwnedWork("naimage 窗口已关闭，相关 Agent 运行和自动化命令已取消。");
   });
   window.webContents.on("console-message", (details) => {
     log(`console level=${details.level} ${details.sourceId}:${details.lineNumber} ${details.message}`);
@@ -3830,6 +3930,13 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     }
     desktopUpdater.recoverRollback();
     if (lifecycleSelftestMode) {
+      const lifecycleRun = agentRunControl.begin({
+        runId: "lifecycle-shutdown-probe",
+        ownerId: "lifecycle-selftest",
+        projectId: "lifecycle-selftest",
+        conversationId: "lifecycle-selftest"
+      });
+      lifecycleRun.signal.addEventListener("abort", () => log("lifecycle agent run aborted before transport shutdown"), { once: true });
       startLocalServerIfNeeded();
       setTimeout(() => app.quit(), 420);
       return;

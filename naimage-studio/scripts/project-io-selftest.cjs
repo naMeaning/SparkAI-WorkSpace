@@ -703,6 +703,10 @@ async function run() {
           sourceDisplayCode: "A1",
           requirementNodeId: "REQ-1",
           requirementRevision: 5,
+          commercePlanHash: `commerce-${"5".repeat(32)}`,
+          commerceSlotId: "hero-image",
+          commerceSlotIndex: 0,
+          commerceLocaleCode: "en-US",
         },
         imageCollection: {
           id: "batch-v3",
@@ -754,6 +758,10 @@ async function run() {
     sourceDisplayCode: "A1",
     requirementNodeId: "REQ-1",
     requirementRevision: 5,
+    commercePlanHash: `commerce-${"5".repeat(32)}`,
+    commerceSlotId: "hero-image",
+    commerceSlotIndex: 0,
+    commerceLocaleCode: "en-US",
   }, "Image task provenance must survive the save boundary");
   const maliciousRequirement = containerV3Session.nodes.find((node) => node.id === "REQ-MALICIOUS");
   assert.equal(maliciousRequirement?.type, "requirement");
@@ -765,6 +773,10 @@ async function run() {
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "A")?.imageContainerSpec?.memberBindings?.find((binding) => binding.nodeId === "B")?.assetId, savedBContainerAssetId);
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.sourceBindingId, "binding:A:A:source-1");
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.requirementRevision, 5);
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commercePlanHash, `commerce-${"5".repeat(32)}`);
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotId, "hero-image");
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotIndex, 0);
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceLocaleCode, "en-US");
   const portableContainerV3 = projectIo.packageProject(containerV3Project);
   assert.equal(portableContainerV3.session.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.taskScopeSnapshotHash, `scope-${"3".repeat(32)}`);
   const portableContainerTarget = projectRecord("container-schema-v3-package-target");
@@ -772,6 +784,7 @@ async function run() {
   const importedContainerV3 = projectIo.sessionFromPackage(portableContainerV3, portableContainerTarget);
   assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.sourceContainerId, "SUPER");
   assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.requirementNodeId, "REQ-1");
+  assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotId, "hero-image");
 
   const occurrenceProject = projectRecord("occurrence-roundtrip");
   const occurrencePath = path.join(occurrenceProject.path, "output", "imagegen", "imports", "shared.png");

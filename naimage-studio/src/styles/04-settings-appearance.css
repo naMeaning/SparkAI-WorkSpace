@@ -5,7 +5,7 @@
 .settings-section-tabs {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 5px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
@@ -300,6 +300,97 @@
   transform: translateX(10px);
 }
 
+.settings-canvas-tools,
+.settings-canvas-tool-mode,
+.settings-canvas-tool-list,
+.settings-canvas-tool-copy {
+  min-width: 0;
+  display: grid;
+}
+
+.settings-canvas-tools {
+  gap: 12px;
+}
+
+.settings-canvas-tool-mode {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--canvas));
+}
+
+.settings-canvas-tool-mode > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.settings-canvas-tool-mode .ui-segment-control {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-canvas-tool-list {
+  border-block: 1px solid var(--line);
+}
+
+.settings-canvas-tool-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  cursor: pointer;
+}
+
+.settings-canvas-tool-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-canvas-tool-row.is-unavailable {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.settings-canvas-tool-row > input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.settings-canvas-tool-copy {
+  gap: 2px;
+}
+
+.settings-canvas-tool-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.settings-canvas-tool-copy small,
+.settings-canvas-tool-copy > span {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.settings-canvas-tool-row > kbd {
+  min-width: 86px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 9px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .settings-appearance-title {
   margin: 0;
   color: var(--ink);
@@ -546,5 +637,18 @@
 
   .settings-plugin-permissions {
     grid-template-columns: 1fr;
+  }
+
+  .settings-canvas-tool-mode {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-canvas-tool-row {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .settings-canvas-tool-row > kbd {
+    grid-column: 2;
+    justify-self: start;
   }
 }

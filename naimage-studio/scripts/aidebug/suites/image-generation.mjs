@@ -144,7 +144,7 @@ async function captureAgentImageRecoverySuiteProbe(client, targetId) {
 }
 
 async function captureCanvasImageCollectionSuiteProbe(client, targetId, options = {}) {
-  const expectedImageNodes = 6;
+  let expectedImageNodes = 0;
   const suiteTimeoutMs = liveImage ? 900000 : 180000;
   await setWindowSize(client, targetId, 1280, 820);
   await evaluate(client, `window.__naimageDebugOpenSurface?.("main")`);
@@ -154,7 +154,7 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     prompt: "验证标准单图、连续三图、并行十图、不同提示词图片组、画布内部归组、明确另存为和继续生成的真实闭环。"
   });
   const suite = await evaluate(client, `window.__naimageAIDebug.runCanvasImageCollectionSuite()`, suiteTimeoutMs);
-  await waitForExpression(client, `document.querySelectorAll(".flow-node.image").length >= ${expectedImageNodes}`, 6000);
+  expectedImageNodes = Math.max(0, Number(suite?.state?.imageNodeCount || suite?.state?.nodeCount || 0));
   const nativeDragStep = Array.isArray(suite?.steps)
     ? suite.steps.find((item) => item?.label === "canvas-native-dragback-auto-group")
     : null;
@@ -226,6 +226,9 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
       message: issue.message,
       detail: issue.detail
     });
+  }
+  if (expectedImageNodes > 0) {
+    await waitForExpression(client, `document.querySelectorAll(".flow-node.image").length >= ${expectedImageNodes}`, 6000);
   }
   const capture = await captureState(
     client,

@@ -51,6 +51,9 @@ importers:
       electron-builder:
         specifier: 26.0.12
         version: 26.0.12(electron-builder-squirrel-windows@26.0.12)
+      terser:
+        specifier: 5.44.0
+        version: 5.44.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

@@ -549,6 +549,9 @@ function createMemoryStore(options = {}) {
       retriable: options.retriable,
       advice: options.advice,
       ...(typeof options.modelOutput === "string" || Array.isArray(options.modelOutput) ? { modelOutput: options.modelOutput } : {}),
+      ...(options.batchSafety && typeof options.batchSafety === "object" && !Array.isArray(options.batchSafety)
+        ? { batchSafety: options.batchSafety }
+        : {}),
       memoryRef: {
         type: "toolmemory",
         entryId: entry.entry_id,

@@ -540,7 +540,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const authCardRect = authCardNode?.getBoundingClientRect?.() || null;
     const authFormNode = element(".auth-gate-form");
     const authFormRect = authFormNode?.getBoundingClientRect?.() || null;
-    const authSwitchNode = element(".auth-gate-form .auth-switch");
+    const authSwitchNodes = Array.from(document.querySelectorAll(".auth-gate-form .auth-switch"));
+    const authSwitchNode = authSwitchNodes[0] || null;
     const authSwitchRect = authSwitchNode?.getBoundingClientRect?.() || null;
     const authSwitchStyle = authSwitchNode ? getComputedStyle(authSwitchNode) : null;
     const authSwitchButtons = Array.from(document.querySelectorAll(".auth-gate-form .auth-switch button"));
@@ -549,6 +550,33 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       active: node.classList.contains("active"),
       ...plainRect(node.getBoundingClientRect())
     }));
+    const authSwitchMetrics = authSwitchNodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      const buttons = Array.from(node.querySelectorAll("button"));
+      const buttonMetrics = buttons.map((button) => ({
+        text: String(button.textContent || "").trim(),
+        active: button.classList.contains("active"),
+        ...plainRect(button.getBoundingClientRect())
+      }));
+      const columns = String(style.gridTemplateColumns || "").trim().split(/\\s+/).filter(Boolean);
+      const horizontalOk = Boolean(
+        buttons.length === 2 && buttonMetrics.length === 2 &&
+        Math.abs(Number(buttonMetrics[0]?.top || 0) - Number(buttonMetrics[1]?.top || 0)) <= 1 &&
+        Math.abs(Number(buttonMetrics[0]?.bottom || 0) - Number(buttonMetrics[1]?.bottom || 0)) <= 1 &&
+        Number(buttonMetrics[0]?.right || 0) <= Number(buttonMetrics[1]?.left || 0) + 1 &&
+        buttonMetrics.every((item) => Number(item.width || 0) >= Math.max(80, (box.width - 16) / 2)) &&
+        columns.length === 2
+      );
+      return {
+        ...plainRect(box),
+        display: style.display,
+        gridTemplateColumns: style.gridTemplateColumns,
+        gridAutoFlow: style.gridAutoFlow,
+        buttons: buttonMetrics,
+        horizontalOk
+      };
+    });
     const authActiveTab = element(".auth-gate-form .auth-switch button.active");
     const authActiveTabRect = authActiveTab?.getBoundingClientRect?.() || null;
     const authInputs = Array.from(document.querySelectorAll(".auth-gate-form input"));
@@ -580,18 +608,14 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       !element(".project-menu-popover") && !element(".file-command-popover") && !element(".dialog-layer")
     );
     const authGateSwitchHorizontalOk = !authGateVisible || Boolean(
-      authSwitchRect && authSwitchButtons.length === 2 && authSwitchButtonMetrics.length === 2 &&
-      Math.abs(Number(authSwitchButtonMetrics[0]?.top || 0) - Number(authSwitchButtonMetrics[1]?.top || 0)) <= 1 &&
-      Math.abs(Number(authSwitchButtonMetrics[0]?.bottom || 0) - Number(authSwitchButtonMetrics[1]?.bottom || 0)) <= 1 &&
-      Number(authSwitchButtonMetrics[0]?.right || 0) <= Number(authSwitchButtonMetrics[1]?.left || 0) + 1 &&
-      authSwitchButtonMetrics.every((item) => Number(item.width || 0) >= Math.max(80, (authSwitchRect.width - 16) / 2)) &&
-      String(authSwitchStyle?.gridTemplateColumns || "").trim().split(/\\s+/).filter(Boolean).length === 2
+      authSwitchMetrics.length >= 1 && authSwitchMetrics.every((item) => item.horizontalOk)
     );
     const authGateLayoutOk = !authGateVisible || Boolean(
       withinViewport(authShellRect, 1) && withinViewport(authCardRect, 2) && authStageRect &&
-      authCardRect.width >= Math.min(340, window.innerWidth - 32) && authCardRect.width <= 442 &&
+      authCardRect.width >= Math.min(340, window.innerWidth - 32) && authCardRect.width <= 540 &&
       authCardRect.height <= authStageRect.height - 12 && authFormRect.width >= authCardRect.width - 44 &&
-      authSwitchRect && authSwitchRect.width >= authFormRect.width - 2 && authActiveTabRect && authActiveTabRect.height >= 30 && authGateSwitchHorizontalOk
+      authSwitchMetrics.length >= 1 && authSwitchMetrics.every((item) => item.width >= authFormRect.width - 2) &&
+      authActiveTabRect && authActiveTabRect.height >= 30 && authGateSwitchHorizontalOk
     );
     const authGateControlsStyledOk = !authGateVisible || Boolean(
       authInputs.length >= 2 && authInputMetrics.every((item) => item.width >= Math.min(260, Number(authFormRect?.width || 0) - 4) && item.height >= 34 && item.borderWidth >= 0.5 && nonTransparentColor(item.backgroundColor) && item.fontSize >= 12) &&
@@ -617,6 +641,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       switch: plainRect(authSwitchRect),
       switchStyle: authSwitchStyle ? { display: authSwitchStyle.display, gridTemplateColumns: authSwitchStyle.gridTemplateColumns, gridAutoFlow: authSwitchStyle.gridAutoFlow } : null,
       switchButtons: authSwitchButtonMetrics,
+      switches: authSwitchMetrics,
       activeTab: plainRect(authActiveTabRect),
       inputs: authInputMetrics,
       submit: authSubmitRect ? { ...plainRect(authSubmitRect), backgroundColor: authSubmitStyle?.backgroundColor || "", backgroundImage: authSubmitStyle?.backgroundImage || "", color: authSubmitStyle?.color || "" } : null,

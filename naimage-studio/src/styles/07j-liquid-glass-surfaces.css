@@ -1,0 +1,1612 @@
+/* --------------------------------------------------------------------------
+   07j Liquid Glass Surfaces And Workspace Modes
+
+   Backdrop filtering is limited to application chrome and floating controls.
+   Canvas artwork and image-bearing nodes are explicitly opaque and unfiltered.
+-------------------------------------------------------------------------- */
+
+:root.glass-theme-active,
+:root[data-glass-theme] {
+  background: var(--glass-canvas);
+}
+
+:root.glass-theme-active body,
+:root[data-glass-theme] body,
+:root.glass-theme-active .ide-shell,
+:root[data-glass-theme] .ide-shell {
+  color: var(--ink);
+  background: var(--glass-canvas);
+}
+
+/* The surface base paints an opaque fallback first. Backdrop support replaces
+   only that paint, keeping the shell usable on reduced/unsupported GPUs. */
+:root.glass-theme-active :is(
+  .ide-topbar,
+  .workspace-asset-rail,
+  .project-agent-panel,
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .canvas-selection-indicator,
+  .workspace-search-popover,
+  .project-menu-popover,
+  .ui-menu-surface,
+  .canvas-context-menu,
+  .agent-placement-menu,
+  .project-agent-history,
+  .ui-surface[data-ui-surface],
+  .overflow-tooltip
+),
+:root[data-glass-theme] :is(
+  .ide-topbar,
+  .workspace-asset-rail,
+  .project-agent-panel,
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .canvas-selection-indicator,
+  .workspace-search-popover,
+  .project-menu-popover,
+  .ui-menu-surface,
+  .canvas-context-menu,
+  .agent-placement-menu,
+  .project-agent-history,
+  .ui-surface[data-ui-surface],
+  .overflow-tooltip
+) {
+  border-color: var(--glass-edge-color-soft);
+  color: var(--ink);
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
+    inset 1px 0 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.3)),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
+    0 18px 45px var(--glass-shadow-color);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active :is(
+    .ide-topbar,
+    .workspace-asset-rail,
+    .project-agent-panel,
+    .canvas-plugin-toolbar,
+    .workspace-task-context,
+    .workspace-focus-filmstrip,
+    .canvas-selection-indicator,
+    .workspace-search-popover,
+    .project-menu-popover,
+    .ui-menu-surface,
+    .canvas-context-menu,
+    .agent-placement-menu,
+    .project-agent-history,
+    .ui-surface[data-ui-surface],
+    .overflow-tooltip
+  ),
+  :root[data-glass-theme] :is(
+    .ide-topbar,
+    .workspace-asset-rail,
+    .project-agent-panel,
+    .canvas-plugin-toolbar,
+    .workspace-task-context,
+    .workspace-focus-filmstrip,
+    .canvas-selection-indicator,
+    .workspace-search-popover,
+    .project-menu-popover,
+    .ui-menu-surface,
+    .canvas-context-menu,
+    .agent-placement-menu,
+    .project-agent-history,
+    .ui-surface[data-ui-surface],
+    .overflow-tooltip
+  ) {
+    background-color: var(--glass-surface-fill);
+    -webkit-backdrop-filter: var(--glass-backdrop-filter);
+    backdrop-filter: var(--glass-backdrop-filter);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active :is(
+    .ide-topbar,
+    .workspace-asset-rail,
+    .project-agent-panel,
+    .canvas-plugin-toolbar,
+    .workspace-task-context,
+    .workspace-focus-filmstrip,
+    .canvas-selection-indicator,
+    .workspace-search-popover,
+    .project-menu-popover,
+    .ui-menu-surface,
+    .canvas-context-menu,
+    .agent-placement-menu,
+    .project-agent-history,
+    .ui-surface[data-ui-surface],
+    .overflow-tooltip
+  ),
+  :root[data-glass-theme] :is(
+    .ide-topbar,
+    .workspace-asset-rail,
+    .project-agent-panel,
+    .canvas-plugin-toolbar,
+    .workspace-task-context,
+    .workspace-focus-filmstrip,
+    .canvas-selection-indicator,
+    .workspace-search-popover,
+    .project-menu-popover,
+    .ui-menu-surface,
+    .canvas-context-menu,
+    .agent-placement-menu,
+    .project-agent-history,
+    .ui-surface[data-ui-surface],
+    .overflow-tooltip
+  ) {
+    background-color: var(--glass-fallback-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Micro-noise is a single non-interactive paint layer per glass surface. */
+:root.glass-theme-active :is(
+  .ide-topbar,
+  .workspace-asset-rail,
+  .project-agent-panel,
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .workspace-search-popover,
+  .ui-surface[data-ui-surface]
+)::before,
+:root[data-glass-theme] :is(
+  .ide-topbar,
+  .workspace-asset-rail,
+  .project-agent-panel,
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .workspace-search-popover,
+  .ui-surface[data-ui-surface]
+)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  opacity: var(--noise-opacity);
+  background-image: repeating-linear-gradient(
+    112deg,
+    rgba(255, 255, 255, 0.82) 0 1px,
+    transparent 1px 4px
+  );
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+
+/* Docked chrome is edge-to-edge. Only floating panes use the live radius. */
+:root.glass-theme-active .ide-topbar,
+:root[data-glass-theme] .ide-topbar {
+  position: relative;
+  z-index: 80;
+  grid-template-columns: auto minmax(140px, 1fr) auto auto auto;
+  gap: 6px;
+  padding: 0 0 0 8px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    0 7px 22px var(--glass-shadow-soft);
+}
+
+.workspace-topbar-center {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  -webkit-app-region: drag;
+}
+
+.workspace-glass-lab-button {
+  min-width: 0;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--glass-surface-raised) 24%, transparent);
+  font-size: 10px;
+  font-weight: 680;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-glass-lab-button:is(:hover, :focus-visible) {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
+}
+
+.workspace-search {
+  position: relative;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-search-loading {
+  width: 84px;
+  height: 31px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.workspace-search-trigger {
+  min-width: 0;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.workspace-search-trigger kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--glass-surface-raised) 34%, transparent);
+  font-family: inherit;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.workspace-search-trigger:is(:hover, :focus-visible),
+.workspace-search.is-open .workspace-search-trigger {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-control-hover));
+}
+
+.workspace-search-popover {
+  position: absolute;
+  z-index: 190;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 70px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--glass-edge-color-soft);
+  border-radius: clamp(9px, var(--glass-radius), 18px);
+}
+
+.workspace-search-popover > header {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--glass-surface-raised) 16%, transparent);
+}
+
+.workspace-search-popover input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: 0;
+  color: var(--ink);
+  background: var(--glass-control-bg);
+  font: inherit;
+  font-size: 11px;
+}
+
+.workspace-search-popover input:focus {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--line));
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+}
+
+.workspace-search-popover > header > button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-search-popover > header > button:is(:hover, :focus-visible) {
+  border-color: var(--line);
+  outline: 0;
+  color: var(--ink);
+  background: var(--glass-control-hover);
+}
+
+.workspace-search-results {
+  position: relative;
+  z-index: 1;
+  min-height: 56px;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.workspace-search-result {
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-search-result:is(:hover, :focus-visible) {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 7%, var(--glass-control-hover));
+}
+
+.workspace-search-result-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--glass-surface-solid);
+}
+
+.workspace-search-result-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-search-result > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-search-result :is(strong, small) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-search-result strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.workspace-search-result small,
+.workspace-search-results > p {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.workspace-search-results > p {
+  margin: 18px 8px;
+  text-align: center;
+}
+
+/* Retire legacy dark hard-coding for titlebar controls once glass is active. */
+:root.glass-theme-active .ide-topbar :is(.file-menu > .project-menu > button, .ide-actions .icon-button),
+:root[data-glass-theme] .ide-topbar :is(.file-menu > .project-menu > button, .ide-actions .icon-button) {
+  border-color: transparent !important;
+  color: var(--ink-soft) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+:root.glass-theme-active .ide-topbar :is(.file-menu > .project-menu > button, .ide-actions .icon-button):is(:hover, :focus-visible, .active),
+:root[data-glass-theme] .ide-topbar :is(.file-menu > .project-menu > button, .ide-actions .icon-button):is(:hover, :focus-visible, .active) {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line)) !important;
+  color: var(--ink) !important;
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-control-hover)) !important;
+  background-color: color-mix(in srgb, var(--accent) 8%, var(--glass-control-hover)) !important;
+  box-shadow: none !important;
+}
+
+:root.glass-theme-active :is(.ui-action-primary, .ui-segment-action.active, .ui-segment-action[aria-pressed="true"], .account-avatar-button),
+:root[data-glass-theme] :is(.ui-action-primary, .ui-segment-action.active, .ui-segment-action[aria-pressed="true"], .account-avatar-button) {
+  color: var(--accent-ink) !important;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active .ide-topbar,
+  :root[data-glass-theme] .ide-topbar {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+:root.glass-theme-active .project-agent-panel,
+:root[data-glass-theme] .project-agent-panel {
+  isolation: isolate;
+  border-radius: 0;
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.36)),
+    -8px 0 28px var(--glass-shadow-soft);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active .project-agent-panel,
+  :root[data-glass-theme] .project-agent-panel {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+:root.glass-theme-active .ide-main.canvas-only.agent-placement-floating .project-agent-panel,
+:root[data-glass-theme] .ide-main.canvas-only.agent-placement-floating .project-agent-panel {
+  border-radius: clamp(8px, var(--glass-radius), 18px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
+    0 24px 62px var(--glass-shadow-color);
+}
+
+:root.glass-theme-active :is(.project-agent-header, .project-agent-status),
+:root[data-glass-theme] :is(.project-agent-header, .project-agent-status) {
+  background: color-mix(in srgb, var(--glass-surface-raised) 14%, transparent);
+}
+
+:root.glass-theme-active .project-agent-feed,
+:root[data-glass-theme] .project-agent-feed {
+  background: transparent;
+}
+
+:root.glass-theme-active .project-agent-composer,
+:root[data-glass-theme] .project-agent-composer {
+  background: color-mix(in srgb, var(--glass-surface-raised) 12%, transparent);
+}
+
+:root.glass-theme-active .project-agent-panel.is-collapsed,
+:root[data-glass-theme] .project-agent-panel.is-collapsed {
+  background-color: var(--glass-fallback-bg);
+}
+
+/* Floating glass follows the live radius but is capped before becoming a pill. */
+:root.glass-theme-active :is(
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .canvas-selection-indicator,
+  .project-menu-popover,
+  .ui-menu-surface,
+  .canvas-context-menu,
+  .agent-placement-menu,
+  .project-agent-history,
+  .overflow-tooltip
+),
+:root[data-glass-theme] :is(
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .canvas-selection-indicator,
+  .project-menu-popover,
+  .ui-menu-surface,
+  .canvas-context-menu,
+  .agent-placement-menu,
+  .project-agent-history,
+  .overflow-tooltip
+) {
+  border-radius: clamp(7px, var(--glass-radius), 16px);
+}
+
+:root.glass-theme-active .canvas-plugin-toolbar,
+:root[data-glass-theme] .canvas-plugin-toolbar {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--glass-edge-color));
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
+    0 14px 38px var(--glass-shadow-color);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active .canvas-plugin-toolbar,
+  :root[data-glass-theme] .canvas-plugin-toolbar {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+:root.glass-theme-active .canvas-plugin-toolbar :is(button, kbd),
+:root[data-glass-theme] .canvas-plugin-toolbar :is(button, kbd) {
+  border-color: color-mix(in srgb, var(--line-strong) 78%, transparent);
+}
+
+:root.glass-theme-active .canvas-plugin-toolbar-actions button,
+:root.glass-theme-active .canvas-plugin-toolbar-pin,
+:root[data-glass-theme] .canvas-plugin-toolbar-actions button,
+:root[data-glass-theme] .canvas-plugin-toolbar-pin {
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--glass-surface-raised) 36%, transparent);
+}
+
+:root.glass-theme-active .canvas-plugin-toolbar :is(button:hover:not(:disabled), button:focus-visible),
+:root[data-glass-theme] .canvas-plugin-toolbar :is(button:hover:not(:disabled), button:focus-visible) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 11%, var(--glass-control-hover));
+}
+
+/* Menus and dialogs have one glass boundary; their internal rows stay flat. */
+:root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history),
+:root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) {
+  background-color: var(--glass-fallback-bg);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history),
+  :root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+:root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button,
+:root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button {
+  color: var(--ink-soft);
+  background: transparent;
+}
+
+:root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button:is(:hover, :focus-visible, .active),
+:root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button:is(:hover, :focus-visible, .active) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
+}
+
+:root.glass-theme-active .ui-surface-backdrop,
+:root[data-glass-theme] .ui-surface-backdrop {
+  background: rgba(var(--glass-shadow-rgb), 0.24);
+  -webkit-backdrop-filter: blur(3px) saturate(106%);
+  backdrop-filter: blur(3px) saturate(106%);
+}
+
+:root.glass-theme-active .ui-surface[data-ui-surface],
+:root[data-glass-theme] .ui-surface[data-ui-surface] {
+  border-radius: clamp(8px, var(--glass-radius), 18px);
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
+    0 26px 72px var(--glass-shadow-color);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active .ui-surface[data-ui-surface],
+  :root[data-glass-theme] .ui-surface[data-ui-surface] {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+:root.glass-theme-active .ui-surface.ui-drawer,
+:root[data-glass-theme] .ui-surface.ui-drawer {
+  border-radius: var(--glass-radius) 0 0 var(--glass-radius);
+}
+
+:root.glass-theme-active .ui-surface[data-ui-surface] > :is(.ui-surface-header, .ui-surface-footer),
+:root[data-glass-theme] .ui-surface[data-ui-surface] > :is(.ui-surface-header, .ui-surface-footer) {
+  background: color-mix(in srgb, var(--glass-surface-raised) 18%, transparent);
+}
+
+:root.glass-theme-active .ui-surface[data-ui-surface] > .ui-surface-body,
+:root[data-glass-theme] .ui-surface[data-ui-surface] > .ui-surface-body {
+  background: transparent;
+}
+
+:root.glass-theme-active .settings-section-tabs,
+:root[data-glass-theme] .settings-section-tabs {
+  background: color-mix(in srgb, var(--glass-surface-raised) 14%, transparent);
+}
+
+:root.glass-theme-active .settings-section-tab.active,
+:root.glass-theme-active .settings-section-tab[aria-pressed="true"],
+:root[data-glass-theme] .settings-section-tab.active,
+:root[data-glass-theme] .settings-section-tab[aria-pressed="true"] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 12%, var(--glass-control-hover));
+}
+
+/* Input glass uses translucent paint but deliberately does not stack blur. */
+:root.glass-theme-active :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .ui-search-field,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+),
+:root[data-glass-theme] :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .ui-search-field,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+) {
+  border-color: color-mix(in srgb, var(--glass-line-strong) 84%, transparent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--glass-surface-raised) 44%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.28));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root.glass-theme-active :is(input, textarea)::placeholder,
+:root[data-glass-theme] :is(input, textarea)::placeholder {
+  color: color-mix(in srgb, var(--muted) 84%, transparent);
+  opacity: 1;
+}
+
+:root.glass-theme-active :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .ui-search-field,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+):focus-within,
+:root.glass-theme-active :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+):focus-visible,
+:root[data-glass-theme] :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .ui-search-field,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+):focus-within,
+:root[data-glass-theme] :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  .ui-control,
+  .project-agent-composer textarea,
+  .project-agent-steer-mode select,
+  .setting-runtime-row select
+):focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+/* Hover paint is lightweight and always keeps readable foreground contrast. */
+:root.glass-theme-active :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled),
+:root[data-glass-theme] :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--ink);
+}
+
+:root.glass-theme-active .overflow-tooltip,
+:root[data-glass-theme] .overflow-tooltip {
+  color: var(--ink);
+  background-color: var(--glass-fallback-bg);
+}
+
+/* --------------------------------------------------------------------------
+   Thin asset rail and mode-aware workspace grid
+-------------------------------------------------------------------------- */
+
+.ide-main.canvas-only.has-asset-rail {
+  --workspace-asset-rail-width: 68px;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-right:not(.agent-collapsed) {
+  grid-template-columns: var(--workspace-asset-rail-width) minmax(0, 1fr) var(--agent-panel-preview-width, var(--agent-panel-width, 390px));
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-right.agent-collapsed {
+  grid-template-columns: var(--workspace-asset-rail-width) minmax(0, 1fr) 48px;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-left:not(.agent-collapsed) {
+  grid-template-columns: var(--workspace-asset-rail-width) var(--agent-panel-preview-width, var(--agent-panel-width, 390px)) minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-left.agent-collapsed {
+  grid-template-columns: var(--workspace-asset-rail-width) 48px minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-right > .workspace-asset-rail,
+.ide-main.canvas-only.has-asset-rail.agent-placement-left > .workspace-asset-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-right > .canvas-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-right > .project-agent-panel {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-left > .project-agent-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-left > .canvas-panel {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail:is(.agent-placement-top, .agent-placement-bottom, .agent-placement-floating) {
+  grid-template-columns: var(--workspace-asset-rail-width) minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail:is(.agent-placement-top, .agent-placement-bottom) > .workspace-asset-rail {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-top > .project-agent-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-top > .canvas-panel {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-bottom > .canvas-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-bottom > .project-agent-panel {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-floating > .workspace-asset-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.agent-placement-floating > .canvas-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.workspace-asset-rail {
+  position: relative;
+  z-index: 24;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 46px auto minmax(0, 1fr) 44px;
+  overflow: hidden;
+  border-width: 0 1px 0 0;
+  border-radius: 0;
+  background-color: var(--glass-fallback-bg);
+  box-shadow:
+    inset -1px 0 0 rgba(0, 0, 0, 0.08),
+    7px 0 24px var(--glass-shadow-soft);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root.glass-theme-active .workspace-asset-rail,
+  :root[data-glass-theme] .workspace-asset-rail {
+    background-color: var(--glass-surface-fill-strong);
+  }
+}
+
+.workspace-asset-rail-header,
+.workspace-asset-rail-footer {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+}
+
+.workspace-asset-rail-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-asset-rail-footer {
+  border-top: 1px solid var(--line);
+}
+
+.workspace-asset-rail :is(header, footer) > button,
+.workspace-asset-rail-tabs > button {
+  min-width: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.workspace-asset-rail :is(header, footer) > button {
+  width: 36px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.workspace-asset-rail-footer button > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.workspace-asset-rail-header > button {
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.54),
+    0 5px 14px rgba(var(--accent-rgb), 0.22);
+}
+
+.workspace-asset-rail-tabs {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workspace-asset-rail-tabs > button {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  font-size: 9px;
+}
+
+.workspace-asset-rail-tabs > button > span {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-asset-rail-tabs > button:is(:hover, :focus-visible, .active, [aria-pressed="true"]) {
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
+}
+
+.workspace-asset-rail-tabs > button:is(.active, [aria-pressed="true"]) {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.workspace-asset-rail-list {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 7px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.workspace-asset-rail-item {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--glass-surface-raised) 38%, transparent);
+  cursor: pointer;
+}
+
+.workspace-asset-rail-item img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 6px;
+  object-fit: cover;
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-asset-rail-item:is(:hover, :focus-visible, .active) {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+  outline: 0;
+  color: var(--accent-strong);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+}
+
+.workspace-asset-rail-check {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 14px;
+  height: 14px;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+.workspace-asset-rail-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workspace-direction-switcher {
+  min-width: 0;
+  width: 204px;
+  height: 31px;
+  flex: 0 0 204px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--glass-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--glass-surface-raised) 28%, transparent);
+  box-shadow: inset 0 1px 5px rgba(var(--glass-shadow-rgb), 0.12);
+}
+
+.workspace-direction-switcher button {
+  min-width: 0;
+  height: 25px;
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.workspace-direction-switcher button:is(:hover, :focus-visible, .active, [aria-pressed="true"]) {
+  outline: 0;
+  color: var(--ink);
+  background: var(--glass-control-hover);
+}
+
+.workspace-direction-switcher button:is(.active, [aria-pressed="true"]) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.4)),
+    0 3px 10px var(--glass-shadow-soft);
+}
+
+.workspace-task-context {
+  position: absolute;
+  z-index: 16;
+  top: 14px;
+  left: 14px;
+  width: min(280px, calc(100% - 28px));
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 9px;
+  padding: 9px 11px;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge-color-soft);
+  pointer-events: none;
+}
+
+.workspace-task-context > span {
+  grid-row: 1 / 3;
+  align-self: center;
+  padding: 4px 6px;
+  border-radius: 5px;
+  color: var(--accent-strong);
+  background: rgba(var(--accent-rgb), 0.11);
+  font-size: 8px;
+  font-weight: 720;
+}
+
+.workspace-task-context strong,
+.workspace-task-context small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-task-context strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.workspace-task-context small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+/* --------------------------------------------------------------------------
+   Focus and review views. Artwork remains a solid content layer.
+-------------------------------------------------------------------------- */
+
+.workspace-focus-stage,
+.workspace-review-grid {
+  display: none;
+}
+
+.workspace-mode-focus .canvas-stage,
+.workspace-mode-review .canvas-stage {
+  display: none;
+}
+
+.workspace-mode-focus :is(.canvas-selection-indicator, .canvas-selection-box),
+.workspace-mode-review :is(.canvas-selection-indicator, .canvas-selection-box) {
+  display: none;
+}
+
+.workspace-mode-focus .workspace-focus-stage {
+  position: absolute;
+  z-index: 5;
+  inset: 60px 16px 68px;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 72px;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.workspace-focus-card {
+  min-width: 0;
+  min-height: 0;
+  width: min(980px, 100%);
+  height: 100%;
+  justify-self: center;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 36px;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--ink-soft);
+  background: var(--glass-node-bg);
+  box-shadow: 0 18px 46px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.72));
+  cursor: zoom-in;
+  pointer-events: auto;
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-focus-card img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+  object-fit: contain;
+  background: var(--glass-surface-solid);
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-focus-card > span,
+.workspace-review-card button > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--glass-node-bg);
+}
+
+.workspace-focus-card strong,
+.workspace-review-card strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-focus-card small,
+.workspace-review-card small {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.workspace-focus-filmstrip {
+  position: relative;
+  min-width: 0;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--glass-edge-color-soft);
+  scrollbar-width: thin;
+  pointer-events: auto;
+}
+
+.workspace-focus-filmstrip button {
+  position: relative;
+  width: 78px;
+  height: 56px;
+  flex: 0 0 78px;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--glass-surface-solid);
+  cursor: pointer;
+}
+
+.workspace-focus-filmstrip button:is(:hover, :focus-visible, .active) {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.13);
+}
+
+.workspace-focus-filmstrip img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 5px;
+  object-fit: cover;
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-focus-filmstrip button > span {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.58);
+  font-size: 7px;
+}
+
+.workspace-focus-filmstrip .workspace-focus-add {
+  width: 88px;
+  flex-basis: 88px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 3px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-surface-solid));
+}
+
+.workspace-focus-filmstrip .workspace-focus-add > span {
+  position: static;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 8px;
+  font-weight: 680;
+}
+
+.workspace-focus-filmstrip .workspace-focus-add:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.workspace-mode-review .workspace-review-grid {
+  position: absolute;
+  z-index: 5;
+  inset: 66px 16px 66px;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  pointer-events: none;
+}
+
+.workspace-review-card {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--glass-node-bg);
+  box-shadow: 0 10px 28px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.54));
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.workspace-review-card.active {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px rgba(var(--accent-rgb), 0.12),
+    0 12px 32px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.64));
+}
+
+.workspace-review-card > button {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 34px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: var(--ink-soft);
+  background: var(--glass-node-bg);
+  cursor: pointer;
+}
+
+.workspace-review-card img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+  object-fit: contain;
+  background: var(--glass-surface-solid);
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.workspace-mode-empty {
+  min-width: 0;
+  min-height: 160px;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* Focus removes the material rail without changing or remounting canvas data. */
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus > .workspace-asset-rail {
+  display: none;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-right:not(.agent-collapsed) {
+  grid-template-columns: minmax(0, 1fr) var(--agent-panel-preview-width, var(--agent-panel-width, 390px));
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-right.agent-collapsed {
+  grid-template-columns: minmax(0, 1fr) 48px;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-right > .canvas-panel {
+  grid-column: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-right > .project-agent-panel {
+  grid-column: 2;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-left:not(.agent-collapsed) {
+  grid-template-columns: var(--agent-panel-preview-width, var(--agent-panel-width, 390px)) minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-left.agent-collapsed {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-left > .project-agent-panel {
+  grid-column: 1;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus.agent-placement-left > .canvas-panel {
+  grid-column: 2;
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus:is(.agent-placement-top, .agent-placement-bottom, .agent-placement-floating) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ide-main.canvas-only.has-asset-rail.workspace-mode-focus:is(.agent-placement-top, .agent-placement-bottom, .agent-placement-floating) > :is(.canvas-panel, .project-agent-panel) {
+  grid-column: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Canvas content protection
+-------------------------------------------------------------------------- */
+
+:root.glass-theme-active :is(.canvas-panel, .workflow-canvas),
+:root[data-glass-theme] :is(.canvas-panel, .workflow-canvas) {
+  background-color: var(--glass-canvas);
+}
+
+:root.glass-theme-active .workflow-canvas,
+:root[data-glass-theme] .workflow-canvas {
+  background:
+    linear-gradient(var(--glass-canvas-tint), var(--glass-canvas-tint)),
+    radial-gradient(ellipse 96% 78% at 18% 22%, rgba(var(--accent-rgb), 0.08), transparent 64%),
+    var(--glass-canvas);
+}
+
+:root.glass-theme-active :is(
+  .canvas-stage,
+  .flow-node,
+  .flow-node .node-image-preview,
+  .flow-node .node-image-tile,
+  .flow-node .container-image-tile,
+  .flow-node .node-layer-stack,
+  .flow-node .node-layer-stack-workbench
+),
+:root[data-glass-theme] :is(
+  .canvas-stage,
+  .flow-node,
+  .flow-node .node-image-preview,
+  .flow-node .node-image-tile,
+  .flow-node .container-image-tile,
+  .flow-node .node-layer-stack,
+  .flow-node .node-layer-stack-workbench
+) {
+  opacity: 1;
+  filter: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root.glass-theme-active :is(
+  .flow-node .node-image-preview img,
+  .flow-node .node-image-tile img,
+  .flow-node .container-image-tile img,
+  .workspace-focus-card img,
+  .workspace-focus-filmstrip img,
+  .workspace-review-card img,
+  .image-viewer-stage img,
+  .image-viewer-strip img
+),
+:root[data-glass-theme] :is(
+  .flow-node .node-image-preview img,
+  .flow-node .node-image-tile img,
+  .flow-node .container-image-tile img,
+  .workspace-focus-card img,
+  .workspace-focus-filmstrip img,
+  .workspace-review-card img,
+  .image-viewer-stage img,
+  .image-viewer-strip img
+) {
+  opacity: 1 !important;
+  filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  mix-blend-mode: normal !important;
+}
+
+:root.glass-theme-active .flow-node,
+:root[data-glass-theme] .flow-node {
+  background-clip: padding-box;
+}
+
+:root.glass-theme-active .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile),
+:root[data-glass-theme] .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile) {
+  background-color: var(--glass-surface-solid);
+}
+
+/* Explicit preference and the in-app switch both suppress decorative motion. */
+:root[data-glass-reduce-motion="true"] *,
+:root[data-glass-reduce-motion="true"] *::before,
+:root[data-glass-reduce-motion="true"] *::after,
+:root.glass-reduce-motion *,
+:root.glass-reduce-motion *::before,
+:root.glass-reduce-motion *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root.glass-theme-active *,
+  :root.glass-theme-active *::before,
+  :root.glass-theme-active *::after,
+  :root[data-glass-theme] *,
+  :root[data-glass-theme] *::before,
+  :root[data-glass-theme] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media (max-width: 1280px) {
+  .ide-main.canvas-only.has-asset-rail {
+    --workspace-asset-rail-width: 64px;
+  }
+
+  .workspace-direction-switcher button {
+    padding-inline: 6px;
+  }
+
+  .workspace-search-trigger kbd {
+    display: none;
+  }
+
+  .workspace-asset-rail-item {
+    width: 43px;
+    height: 43px;
+    flex-basis: 43px;
+  }
+
+  .workspace-task-context {
+    width: min(244px, calc(100% - 28px));
+  }
+
+  .workspace-mode-review .workspace-review-grid {
+    gap: 9px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .project-quick-actions {
+    display: none;
+  }
+
+  .workspace-glass-lab-button {
+    width: 31px;
+    padding: 0;
+  }
+
+  .workspace-glass-lab-button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .workspace-search-loading,
+  .workspace-search-trigger {
+    width: 31px;
+    padding: 0;
+  }
+
+  .workspace-search-trigger > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
+@media (max-width: 1000px) {
+  :root.glass-theme-active .ide-topbar,
+  :root[data-glass-theme] .ide-topbar {
+    grid-template-columns: auto minmax(130px, 1fr) auto auto auto;
+  }
+
+  .workspace-direction-switcher {
+    width: 108px;
+    flex-basis: 108px;
+  }
+
+  .workspace-direction-switcher button {
+    min-width: 0;
+    width: auto;
+    padding: 0;
+  }
+
+  .workspace-direction-switcher button > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .workspace-task-context {
+    width: min(210px, calc(100% - 20px));
+    top: 10px;
+    left: 10px;
+    padding: 7px 8px;
+  }
+
+  .workspace-task-context small {
+    display: none;
+  }
+
+  .workspace-task-context > span {
+    grid-row: auto;
+  }
+
+  .workspace-mode-focus .workspace-focus-stage {
+    inset: 54px 10px 66px;
+  }
+
+  .workspace-mode-review .workspace-review-grid {
+    inset: 58px 10px 66px;
+    gap: 8px;
+  }
+
+  .canvas-plugin-toolbar {
+    max-width: calc(100% - 16px);
+  }
+
+  .canvas-plugin-toolbar-actions {
+    max-width: min(520px, 58vw);
+  }
+}

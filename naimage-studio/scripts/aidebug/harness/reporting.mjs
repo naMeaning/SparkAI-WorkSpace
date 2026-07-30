@@ -1,5 +1,37 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const reportingRoot = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(reportingRoot, "..", "..", "..");
+const workpackDiagnosticsRoot = join(repoRoot, ".diagnostics", "aidebug-agents");
+
+function isInside(root, filePath) {
+  const rel = relative(resolve(root), resolve(filePath));
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function fileEvidence(filePath) {
+  const stat = statSync(filePath);
+  return {
+    path: resolve(filePath),
+    byteLength: stat.size,
+    modifiedAt: stat.mtime.toISOString(),
+    sha256: createHash("sha256").update(readFileSync(filePath)).digest("hex")
+  };
+}
+
+function currentWorkpackBinding() {
+  const workpackId = String(process.env.NAIMAGE_AIDEBUG_WORKPACK_ID || "").trim();
+  if (!workpackId) return null;
+  return {
+    workpackId,
+    agentId: String(process.env.NAIMAGE_AIDEBUG_WORKPACK_AGENT_ID || process.env.NAIMAGE_AIDEBUG_AGENT_ID || "").trim(),
+    claimToken: String(process.env.NAIMAGE_AIDEBUG_WORKPACK_CLAIM || "").trim(),
+    taskId: String(process.env.NAIMAGE_AIDEBUG_TASK_ID || "").trim()
+  };
+}
 
 export function createAidebugReporting({
   runDir,
@@ -549,7 +581,7 @@ export function createAidebugReporting({
       "",
       "## Scene Results",
       "",
-      ...results.map((item) => `- ${item.label}: stateIssues=${item.stateIssues.length}, overflow=${item.overflow.elementOverflowX.length}, captureIssues=${item.captureIssues.length}, visual=${item.visualReliability?.status || "unverified"}, policy=${item.visualPolicy || "overview"}, selectedPreview=${item.visualPolicy === "focus" ? item.state?.selectedImagePreviewDetailOk ? "ok" : "fail" : "n/a"}, frame=${item.screenshotFrameReport?.ok ? "ok" : "fail"}, surfaces=${item.screenshotSurfaceReport?.ok ? "ok" : "fail"}, stateLayers=${item.state?.stateLayerConsistencyOk ? "ok" : "fail"}`)
+      ...results.map((item) => `- ${item.label}: stateIssues=${item.stateIssues.length}, overflow=${item.overflow.elementOverflowX.length}, captureIssues=${item.captureIssues.length}, visual=${item.visualReliability?.status || "unverified"}, policy=${item.visualPolicy || "overview"}, selectedPreview=${item.visualPolicy === "focus" ? item.state?.selectedImagePreviewDetailOk ? "ok" : "fail" : "n/a"}, frame=${item.screenshotFrameReport?.ok ? "ok" : "fail"}, surfaces=${item.screenshotSurfaceReport?.ok ? "ok" : "fail"}, stateLayers=${stateLayerStatus(item)}`)
     ];
     const summaryPath = join(runDir, "summary.md");
     writeFileSync(summaryPath, `${lines.filter((line) => line != null).join("\n")}\n`);
@@ -624,6 +656,14 @@ export function createAidebugReporting({
     );
   }
 
+  function stateLayerStatus(item) {
+    const consistency = item?.state?.stateLayerConsistencyOk;
+    if (typeof consistency === "boolean") return consistency ? "ok" : "fail";
+    const evidenceOk = item?.state?.stateLayerEvidence?.ok;
+    if (typeof evidenceOk === "boolean") return evidenceOk ? "ok" : "fail";
+    return "n/a";
+  }
+
   function finishSuiteRun({
     results,
     reportMetadata = {},
@@ -637,9 +677,11 @@ export function createAidebugReporting({
     const summaryPath = writeRunSummary(results, failures, contactSheetPath);
     const reportPath = join(runDir, "report.json");
     const ok = failures.length === 0;
+    const workpack = currentWorkpackBinding();
     const reportPayload = {
       ok,
       ...reportMetadata,
+      workpack,
       runDir,
       ...(includeReportPathInReport ? { reportPath } : {}),
       contactSheetPath,
@@ -659,7 +701,25 @@ export function createAidebugReporting({
       ...consoleAfterSummary,
       failures
     };
-    writeFileSync(reportPath, JSON.stringify(reportPayload, null, 2));
+    writeFileSync(reportPath, `${JSON.stringify(reportPayload, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    const guiResultFile = String(process.env.NAIMAGE_AIDEBUG_GUI_RESULT_FILE || "").trim();
+    if (guiResultFile) {
+      const resolvedResultFile = resolve(guiResultFile);
+      if (!workpack?.workpackId || !workpack.agentId || !workpack.claimToken || !workpack.taskId) {
+        throw new Error("AIDEBUG GUI artifact is missing its workpack binding.");
+      }
+      if (!isInside(workpackDiagnosticsRoot, resolvedResultFile)) {
+        throw new Error(`AIDEBUG GUI result file must stay below ${workpackDiagnosticsRoot}.`);
+      }
+      mkdirSync(dirname(resolvedResultFile), { recursive: true });
+      writeFileSync(resolvedResultFile, `${JSON.stringify({
+        schemaVersion: 1,
+        ok,
+        workpack,
+        report: fileEvidence(reportPath),
+        completedAt: new Date().toISOString()
+      }, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    }
     log(JSON.stringify(consolePayload, null, 2));
     if (failures.length) setExitCode(1);
     return { ok, runDir, reportPath, contactSheetPath, summaryPath, results, failures };

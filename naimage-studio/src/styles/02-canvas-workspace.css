@@ -3,18 +3,28 @@
 -------------------------------------------------------------------------- */
 
 .canvas-plugin-toolbar {
+  z-index: 20;
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
   min-width: 0;
-  min-height: 36px;
+  max-width: min(860px, calc(100% - 24px));
+  min-height: 42px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 3px 8px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 3%);
+  justify-content: center;
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 76%, var(--accent));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-solid) 92%, transparent);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 18%, transparent), inset 0 1px 0 color-mix(in srgb, white 34%, transparent);
+  backdrop-filter: blur(14px) saturate(1.08);
+  transform: translateX(-50%);
 }
 
-.canvas-plugin-toolbar > span,
+.canvas-plugin-toolbar-title,
+.canvas-plugin-toolbar-trigger,
 .canvas-plugin-toolbar-actions,
 .canvas-plugin-toolbar-actions button {
   min-width: 0;
@@ -22,33 +32,92 @@
   align-items: center;
 }
 
-.canvas-plugin-toolbar > span {
+.canvas-plugin-toolbar-title,
+.canvas-plugin-toolbar-trigger {
   flex: 0 0 auto;
   gap: 6px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
   color: var(--ink-soft);
+  background: transparent;
   font-size: 10px;
   font-weight: 700;
 }
 
+.canvas-plugin-toolbar-title small,
+.canvas-plugin-toolbar-trigger small {
+  min-width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-raised));
+  font-size: 9px;
+}
+
+.canvas-plugin-toolbar-trigger:hover,
+.canvas-plugin-toolbar-trigger:focus-visible {
+  outline: 0;
+  color: var(--ink);
+  background: var(--hover-bg);
+}
+
+.canvas-plugin-toolbar-trigger svg:last-child {
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+
+.canvas-plugin-toolbar.is-expanded .canvas-plugin-toolbar-trigger svg:last-child {
+  transform: rotate(180deg);
+}
+
 .canvas-plugin-toolbar-actions {
   flex: 1 1 auto;
-  justify-content: flex-end;
+  max-width: min(680px, 70vw);
+  justify-content: center;
   gap: 5px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: max-width var(--motion-standard) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease), transform var(--motion-standard) var(--motion-ease);
+}
+
+.canvas-plugin-toolbar.is-collapsed .canvas-plugin-toolbar-actions {
+  flex-basis: 0;
+  max-width: 0;
+  gap: 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
 }
 
 .canvas-plugin-toolbar-actions button {
   flex: 0 0 auto;
-  min-height: 28px;
+  min-height: 32px;
   gap: 6px;
   padding: 0 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
-  border-radius: var(--ui-choice-radius);
+  border-radius: 8px;
   color: var(--accent-strong);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
   font-size: 11px;
   font-weight: 650;
+}
+
+.canvas-plugin-toolbar-actions kbd {
+  padding-left: 5px;
+  border-left: 1px solid color-mix(in srgb, var(--line-strong) 62%, transparent);
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .canvas-plugin-toolbar-actions button:hover:not(:disabled),
@@ -60,6 +129,27 @@
 
 .canvas-plugin-toolbar-actions button:disabled {
   opacity: 0.5;
+}
+
+.canvas-plugin-toolbar-pin {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface-raised) 88%, transparent);
+}
+
+.canvas-plugin-toolbar-pin:hover,
+.canvas-plugin-toolbar-pin:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  outline: 0;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
 }
 
 .workflow-canvas {
@@ -823,6 +913,22 @@
   font-style: normal;
 }
 
+.flow-node.requirement-node.skill-node {
+  border-color: color-mix(in srgb, var(--green) 58%, var(--accent));
+  background:
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--green) 20%, transparent), transparent 36%),
+    linear-gradient(145deg, color-mix(in srgb, var(--green) 9%, var(--surface-solid)), var(--surface-solid) 62%);
+}
+
+.flow-node.requirement-node.skill-node .node-id {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--green) 82%, var(--accent)), color-mix(in srgb, var(--accent) 76%, #8f68ff));
+}
+
+.flow-node.requirement-node.skill-node .requirement-node-kicker {
+  color: color-mix(in srgb, var(--green) 78%, var(--ink));
+  letter-spacing: 0.04em;
+}
+
 .requirement-node-body {
   min-height: 126px;
   display: grid;
@@ -1082,6 +1188,7 @@
 }
 
 .flow-node.image-container {
+  border-radius: 12px;
   border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
   background: color-mix(in srgb, var(--surface-solid) 94%, var(--accent) 6%);
   animation: image-layout-settle var(--motion-standard) var(--motion-ease-out) both;
@@ -1138,10 +1245,23 @@
 }
 
 .flow-node.image-collection {
+  border-radius: 12px;
   border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
   background: color-mix(in srgb, var(--surface-solid) 92%, var(--accent) 8%);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26), inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
   animation: image-layout-settle var(--motion-standard) var(--motion-ease-out) both;
+}
+
+.flow-node.image-container .node-image-preview,
+.flow-node.image-collection .node-image-preview {
+  border-radius: 10px;
+}
+
+.flow-node.image-container .node-image-tile,
+.flow-node.image-collection .node-image-tile,
+.flow-node.image-container .node-image-tile img,
+.flow-node.image-collection .node-image-tile img {
+  border-radius: 8px;
 }
 
 .flow-node.image:not(.image-container):not(.image-collection):not(.active-build) {

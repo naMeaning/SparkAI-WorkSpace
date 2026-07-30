@@ -67,6 +67,11 @@ function terminateProcessTree(child) {
 
 async function main() {
   assert(electronExecutable, "Electron executable was not found.");
+  const electronMainSource = readFileSync(path.join(repoRoot, "electron-main.cjs"), "utf8");
+  assert.match(electronMainSource, /const minWindowWidth = aidebugMode \? 540 : 884;/,
+    "Production windows must support the 884px glass-shell minimum; AIDebug keeps its 540px responsive fixture.");
+  assert.match(electronMainSource, /minWidth: minWindowWidth,/);
+  assert.match(electronMainSource, /window\.setMinimumSize\(minWindowWidth, minWindowHeight\)/);
   mkdirSync(runDir, { recursive: true });
   const child = spawn(electronExecutable, [`--user-data-dir=${path.join(runDir, "user-data")}`, "electron-main.cjs"], {
     cwd: repoRoot,
@@ -98,10 +103,13 @@ async function main() {
   const serverPid = Number(log.match(/local server start pid=(\d+)/)?.[1] || 0);
   const serverGone = await waitForProcessGone(serverPid);
   const checks = {
+    windowMinimumConfigured: /const minWindowWidth = aidebugMode \? 540 : 884;/.test(electronMainSource),
     electronExitedCleanly: exit.code === 0,
     logCreated: Boolean(log),
     serverStarted: serverPid > 0,
     serverStopRequested: /local server stop pid=\d+/.test(log),
+    agentRunAbortedBeforeTransportShutdown: /lifecycle agent run aborted before transport shutdown/.test(log),
+    agentRunStopAccounted: /shutdown agent runs stopped=1/.test(log),
     shutdownCompleted: /shutdown complete duration=\d+ms timedOut=false/.test(log),
     serverGone
   };

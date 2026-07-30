@@ -34,6 +34,18 @@ const {
 } = require("./runtime/image-frame.cjs");
 const { createImageBatchNormalization } = require("./runtime/image-batch-normalization.cjs");
 const { runImageBatchScheduler } = require("./runtime/image-batch-scheduler.cjs");
+const { normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
+const {
+  goalScopeExecutionValue,
+  goalSourceJobs,
+  normalizeGoalTaskScopeMetadata,
+  validateFrozenGoalTaskScope
+} = require("./runtime/goal-image-execution.cjs");
+const {
+  COMMERCE_SET_MARKER,
+  commerceSetPromptPlanItemMetadata,
+  parseCommerceSetPromptPlan
+} = require("./runtime/commerce-set-plan.cjs");
 const {
   imageInfo,
   mimeTypeForPath,
@@ -87,6 +99,7 @@ const internalOnlyToolNames = new Set(["memory", "context_manage"]);
 const experiencePublicArgumentKeys = new Set(["action", "title", "text", "summary", "instruction", "rating", "brief"]);
 const knownImageModelFallbacks = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"];
 const normalizedImageToolArgsMarker = Symbol("naimage.normalizedImageToolArgs");
+const rawImageToolShapeMarker = Symbol("naimage.rawImageToolShape");
 
 function isImageToolName(name = "") {
   return imageToolNames.has(String(name || ""));
@@ -104,6 +117,7 @@ const defaultMainAgentPromptLines = [
   "调用 image_gen 前，把用户目标整理成紧凑的结构化视觉提示词，优先按用途、主体及身份或商品、场景、风格与媒介、构图与景别、光线与氛围、必须逐字呈现的文字、参考图分工、保留项与禁改项、输出意图组织。复杂任务可使用这些短标签；不要把分析过程、内部说明或用户对话原文写入 prompt。",
   "每张输入图片都要明确分工：edit_target/source 是被修改的原图，identity 提供人物身份，garment 提供服装版型与图案，product 提供商品几何、标签和材质，style 只提供视觉语言，composition 只提供取景与版式，scene 只提供环境。不得默认把所有参考图都当作编辑目标，也不得让风格参考图替换主体或商品。purpose 要说明从该图迁移什么、必须保留什么。",
   "运行时会提供不可变的 TaskScope v2：scopeType 描述单图、容器、容器组或分层范围，SOURCE 是本轮需要处理的素材，REFERENCE 只影响视觉参考而不决定输出数量，resultPolicy 规定成果按单图、来源、容器或图层归组。snapshotHash 和 canvasRevision 用于识别这一轮冻结的画布状态；调用 ask_user 后继续任务时必须沿用同一份作用域，不得因为画布历史信息自行扩大或替换来源。confirmationPolicy=preview-3 时先向用户确认是否先做 3 版，staged 时确认分批规模，direct 仅在用户已经明确授权直接批量时使用，auto 不要添加多余确认。",
+  "Current Task Scope 的 origin=goal 时，用户已经确认对冻结快照内的来源执行批量要求。整个 Goal 只能调用一次 image_gen，并设置 scopeExecution=all-goal-sources；只允许 edit、replace 或 variants，不填写 parentId、sourceBindingId 或其他单项 SOURCE 选择。count 必须严格等于 Current Task Scope 的 goalOperationsPerAsset，SOURCE×count 必须严格等于 goalRequestCount；count=1 时省略 items，count>1 时使用 variants，相同画面要求可省略 items 让运行时重复，逐项要求则提供与 count 等长的 items。跨境电商任务必须提供完整 items（单项时改用顶层元数据），把任务中的 PLAN_HASH 原样写入 commercePlanHash，并严格按可信计划顺序填写 slotId、slotIndex、localeCode；SOURCE×items 总请求不得超过 200。运行时会展开冻结矩阵；多个 Renderer 共享 Main 进程级 Goal 准入控制，每个 Goal 先串行探测不同容器的代表图，验证落盘和解码后才进入放量。等待中的 probe 优先于新 ramp，多个已通过 Goal 公平共享进程容量；限流、5xx 或网络重试暂停新 ramp，保护性失败打开跨 Goal circuit，Renderer 结束后仍等已启动的 provider Promise 收尾再释放容量。禁止模型枚举 binding 或发起多次 Goal image_gen。探测或熔断只能阻止未派发请求，上游已经接受的请求仍可能计费。",
   "所有编辑、替换、重绘、抠图和基于来源图的变体都遵循‘只改变目标变量，其他成功要素保持不变’：重复声明人物身份与面部、姿势、商品几何与标签、服装结构与图案、背景、版式、文字、镜头和配色中需要锁定的部分。用户只要求局部变化时不得顺带重做整张图；系列与多版的每个 items.prompt 都要重复核心不变量，只写清本项唯一变化。",
   "电商商品图优先保证商品轮廓、比例、结构、标签、Logo、材质、颜色和真实接触关系；用户要求保留位置或尺度时，质检必须比较商品中心点以及宽高占整幅画面的比例，明显超过约 10% 的偏移或缩放应视为需要修正，不能只判断商品身份相似。多角度图要保持同一商品身份，只改变镜头，并为每张明确方位角、俯仰角、应当显露的侧面或顶部结构及对应投影变化，角度差在缩略图中也必须明显，禁止仅镜像、轻微平移或继续输出近似正面图；若参考图只展示正面，未展示的背面结构只能作为推断，最终必须说明该边界。质检中若图片仍像正面或前侧，就不得声称后侧机位已经成功。换物或改文案只替换指定目标，要求文字时用引号写出逐字正文，禁止额外单词和伪文字。服装上身优先锁定模特身份、人体结构与服装版型、领口、袖型、缝线、图案、Logo、材质、颜色和垂坠关系，不能把服装参考仅当作配色灵感。",
   "Logo 任务先探索清晰概念、轮廓和缩小辨识度，可按需要生成单色、反白或透明背景版本；image_gen 输出是栅格概念图，不得声称是可编辑矢量文件。UI 视觉任务先定义目标尺寸、信息层级、阅读顺序、导航与实际控件，再决定装饰风格；需要切片或分层时使用真实 layers，不把不可交互的装饰拼贴冒充可用界面。",
@@ -879,6 +893,24 @@ function taskScopeSnapshotHash(scope = {}) {
           revision: Math.max(1, Math.floor(Number(scope.requirement.revision) || 1)),
           sourceSignature: scope.requirement.sourceSignature || ""
         }
+      : null,
+    goal: scope.goal
+      ? {
+          version: 1,
+          target: scope.goal.target,
+          frozen: scope.goal.frozen === true,
+          containerIds: [...scope.goal.containerIds],
+          bindingIds: [...scope.goal.bindingIds],
+          containerCount: Math.max(0, Math.floor(Number(scope.goal.containerCount) || 0)),
+          bindingCount: Math.max(0, Math.floor(Number(scope.goal.bindingCount) || 0)),
+          configuredConcurrency: Math.max(1, Math.floor(Number(scope.goal.configuredConcurrency) || 1)),
+          probeContainerCount: Math.max(1, Math.floor(Number(scope.goal.probeContainerCount) || 1)),
+          operationsPerAsset: Math.max(1, Math.floor(Number(scope.goal.operationsPerAsset) || 1)),
+          requestCount: Math.max(1, Math.floor(Number(scope.goal.requestCount) || 1)),
+          commercePlanHash: /^commerce-[a-f0-9]{32}$/.test(String(scope.goal.commercePlanHash || "").trim().toLowerCase())
+            ? String(scope.goal.commercePlanHash).trim().toLowerCase()
+            : ""
+        }
       : null
   };
   return `scope-${stableTaskScopeIdentityHash(`task-scope:v2:${JSON.stringify(material)}`)}`;
@@ -935,7 +967,7 @@ function normalizedTaskScope(payload = {}) {
   const cleanIds = (items, maximum) => [...new Set((Array.isArray(items) ? items : [])
     .map((value) => cleanOneLine(value, 520))
     .filter(Boolean))].slice(0, maximum);
-  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement"]);
+  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
   const scopeTypes = new Set(["none", "single", "multi-source", "container", "container-group", "layer", "layer-group", "mixed"]);
   const resultPolicies = new Set(["single", "grouped-by-source", "grouped-by-container", "layer-variants"]);
   const confirmationPolicies = new Set(["auto", "preview-3", "staged", "direct"]);
@@ -970,6 +1002,13 @@ function normalizedTaskScope(payload = {}) {
           ? "grouped-by-source"
           : "single";
   const confirmationPolicy = confirmationPolicies.has(raw.confirmationPolicy) ? raw.confirmationPolicy : "auto";
+  const goal = origin === "goal" ? normalizeGoalTaskScopeMetadata(raw.goal) : undefined;
+  if (origin === "goal" && !goal) {
+    const error = new Error("Goal TaskScope 缺少完整的冻结执行与费用元数据，已拒绝运行。");
+    error.code = "NAIMAGE_GOAL_SCOPE_NOT_FROZEN";
+    error.failureKind = "validation";
+    throw error;
+  }
   const requirementNodeId = cleanOneLine(raw.requirement?.nodeId || "", 160);
   const requirementRevisionValue = Number(raw.requirement?.revision);
   const requirement = requirementNodeId && Number.isInteger(requirementRevisionValue) && requirementRevisionValue >= 1
@@ -994,11 +1033,206 @@ function normalizedTaskScope(payload = {}) {
     resultPolicy,
     confirmationPolicy,
     requirement,
+    goal,
     sourceAssetCount,
     referenceAssetCount,
     truncated: raw.truncated === true || sourceAssetCount > sourceAssets.length || referenceAssetCount > referenceAssets.length
   };
   return { ...scope, snapshotHash: taskScopeSnapshotHash(scope) };
+}
+
+function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
+  const current = normalizedTaskScope({ taskScope: currentTaskScope });
+  const raw = update && typeof update === "object" && !Array.isArray(update) ? update : {};
+  const sourceModes = new Set(["keep", "replace", "merge", "clear"]);
+  const referenceModes = new Set(["keep", "replace", "merge", "clear"]);
+  const sourceMode = cleanOneLine(raw.sourceMode || "keep", 20).toLowerCase();
+  const referenceMode = cleanOneLine(raw.referenceMode || "keep", 20).toLowerCase();
+  if (!sourceModes.has(sourceMode)) throw new Error(`TaskScope sourceMode=${sourceMode || "<missing>"} 无效。`);
+  if (!referenceModes.has(referenceMode)) throw new Error(`TaskScope referenceMode=${referenceMode || "<missing>"} 无效。`);
+  if (current.origin === "goal" && (sourceMode !== "keep" || referenceMode !== "keep")) {
+    throw new Error("Goal 运行中只能修改文字，冻结的 SOURCE / REFERENCE 不允许替换、追加或清空。");
+  }
+
+  const needsCandidate = sourceMode === "replace" || sourceMode === "merge" || referenceMode === "replace" || referenceMode === "merge";
+  if (needsCandidate && (!raw.taskScope || typeof raw.taskScope !== "object" || Array.isArray(raw.taskScope))) {
+    throw new Error("修改 SOURCE/REFERENCE 时必须提供新的 TaskScope 快照。");
+  }
+  const candidate = needsCandidate ? normalizedTaskScope({ taskScope: raw.taskScope }) : null;
+  if (["replace", "merge"].includes(sourceMode) && !candidate.sourceAssets.length) {
+    throw new Error(`${sourceMode} SOURCE 需要至少一个有效的 SOURCE；清空素材请使用 clear。`);
+  }
+  if (["replace", "merge"].includes(referenceMode) && !candidate.referenceAssets.length) {
+    throw new Error(`${referenceMode} REFERENCE 需要至少一个有效的 REFERENCE；清空素材请使用 clear。`);
+  }
+
+  const cloneAssets = (items) => items.map((item) => ({ ...item }));
+  const mergeAssets = (left, right, limit) => {
+    const seen = new Set();
+    return [...left, ...right].filter((item, index) => {
+      const key = item.bindingId
+        ? `binding:${item.bindingId}`
+        : item.occurrenceId
+          ? `occurrence:${item.occurrenceId}`
+          : item.contentHash
+            ? `content:${item.contentHash}`
+            : item.relativePath
+              ? `relative:${String(item.relativePath).replace(/\\/g, "/").toLowerCase()}`
+              : item.path
+                ? `path:${String(item.path).replace(/\\/g, "/").toLowerCase()}`
+                : item.assetId
+                  ? `asset:${item.assetId}`
+                  : `slot:${item.nodeId || item.containerId || item.role}:${item.containerSlot ?? item.assetIndex ?? index}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, limit).map((item) => ({ ...item }));
+  };
+  const mergeIds = (left, right, maximum) => [...new Set([...left, ...right])].slice(0, maximum);
+
+  const sourceAssets = sourceMode === "keep"
+    ? cloneAssets(current.sourceAssets)
+    : sourceMode === "replace"
+      ? cloneAssets(candidate.sourceAssets)
+      : sourceMode === "merge"
+        ? mergeAssets(current.sourceAssets, candidate.sourceAssets, 200)
+      : [];
+  const referenceAssets = referenceMode === "keep"
+    ? cloneAssets(current.referenceAssets)
+    : referenceMode === "replace"
+      ? cloneAssets(candidate.referenceAssets)
+      : referenceMode === "merge"
+        ? mergeAssets(current.referenceAssets, candidate.referenceAssets, 40)
+        : [];
+  const sourceBase = sourceMode === "replace" || (sourceMode === "merge" && !current.sourceAssets.length)
+    ? candidate
+    : current;
+  const sourceNodeIds = sourceMode === "keep"
+    ? [...current.sourceNodeIds]
+    : sourceMode === "replace"
+      ? [...candidate.sourceNodeIds]
+      : sourceMode === "merge"
+        ? mergeIds(current.sourceNodeIds, candidate.sourceNodeIds, 200)
+        : [];
+  const sourceContainerIds = sourceMode === "keep"
+    ? [...current.sourceContainerIds]
+    : sourceMode === "replace"
+      ? [...candidate.sourceContainerIds]
+      : sourceMode === "merge"
+        ? mergeIds(current.sourceContainerIds, candidate.sourceContainerIds, 200)
+        : [];
+  const sourceBindingIds = sourceMode === "keep"
+    ? [...current.sourceBindingIds]
+    : sourceMode === "replace"
+      ? [...candidate.sourceBindingIds]
+      : sourceMode === "merge"
+        ? mergeIds(current.sourceBindingIds, candidate.sourceBindingIds, 200)
+        : [];
+  const referenceContainerIds = referenceMode === "keep"
+    ? [...current.referenceContainerIds]
+    : referenceMode === "replace"
+      ? [...candidate.referenceContainerIds]
+      : referenceMode === "merge"
+        ? mergeIds(current.referenceContainerIds, candidate.referenceContainerIds, 40)
+        : [];
+  const referenceBindingIds = referenceMode === "keep"
+    ? [...current.referenceBindingIds]
+    : referenceMode === "replace"
+      ? [...candidate.referenceBindingIds]
+      : referenceMode === "merge"
+        ? mergeIds(current.referenceBindingIds, candidate.referenceBindingIds, 40)
+        : [];
+  const sourceAssetCount = sourceMode === "keep"
+    ? current.sourceAssetCount
+    : sourceMode === "replace"
+      ? candidate.sourceAssetCount
+      : sourceMode === "merge"
+        ? current.truncated || candidate.truncated
+          ? Math.max(sourceAssets.length, current.sourceAssetCount + candidate.sourceAssetCount)
+          : sourceAssets.length
+      : 0;
+  const referenceAssetCount = referenceMode === "keep"
+    ? current.referenceAssetCount
+    : referenceMode === "replace"
+      ? candidate.referenceAssetCount
+      : referenceMode === "merge"
+        ? current.truncated || candidate.truncated
+          ? Math.max(referenceAssets.length, current.referenceAssetCount + candidate.referenceAssetCount)
+          : referenceAssets.length
+        : 0;
+  const mergedSourceScopeType = () => {
+    const sourceTypes = [current.scopeType, candidate?.scopeType].filter((type) => type && type !== "none");
+    const hasLayer = sourceTypes.some((type) => type === "layer" || type === "layer-group");
+    const hasContainer = sourceTypes.some((type) => type === "container" || type === "container-group");
+    const hasPlain = sourceTypes.some((type) => type === "single" || type === "multi-source");
+    if (hasLayer && (hasContainer || hasPlain)) return "mixed";
+    if (hasLayer) return sourceNodeIds.length > 1 || sourceAssetCount > 1 ? "layer-group" : "layer";
+    if (sourceContainerIds.length > 1 || sourceTypes.includes("container-group")) return "container-group";
+    if (sourceContainerIds.length || hasContainer) return "container";
+    return sourceNodeIds.length > 1 || sourceAssetCount > 1 ? "multi-source" : sourceAssetCount ? "single" : "none";
+  };
+  const scopeType = sourceMode === "clear"
+    ? "none"
+    : sourceMode === "merge"
+      ? mergedSourceScopeType()
+      : sourceBase.scopeType;
+  const resultPolicy = sourceMode === "merge"
+    ? scopeType === "layer" || scopeType === "layer-group"
+      ? "layer-variants"
+      : scopeType === "container-group"
+        ? "grouped-by-container"
+        : sourceNodeIds.length > 1 || sourceAssetCount > 1
+          ? "grouped-by-source"
+          : "single"
+    : sourceMode === "clear" ? "single" : sourceBase.resultPolicy;
+  const confirmationPolicy = sourceMode === "clear"
+    ? "auto"
+    : sourceMode === "merge" && sourceAssetCount > 10
+      ? "staged"
+      : sourceMode === "merge" && scopeType === "container-group"
+        ? "preview-3"
+        : sourceBase.confirmationPolicy;
+  const scope = {
+    version: 2,
+    origin: sourceMode === "clear" ? "chat" : sourceBase.origin,
+    scopeType,
+    canvasRevision: Math.max(current.canvasRevision, candidate?.canvasRevision || 0),
+    sourceNodeIds,
+    sourceContainerIds,
+    referenceContainerIds,
+    sourceBindingIds,
+    referenceBindingIds,
+    sourceAssets,
+    referenceAssets,
+    resultPolicy,
+    confirmationPolicy,
+    requirement: sourceMode === "clear" || sourceMode === "merge"
+      ? undefined
+      : sourceBase.requirement ? { ...sourceBase.requirement } : undefined,
+    goal: sourceMode === "clear" || sourceMode === "merge" || sourceBase.origin !== "goal"
+      ? undefined
+      : sourceBase.goal
+        ? {
+            ...sourceBase.goal,
+            containerIds: [...sourceBase.goal.containerIds],
+            bindingIds: [...sourceBase.goal.bindingIds]
+          }
+        : undefined,
+    sourceAssetCount,
+    referenceAssetCount,
+    truncated: Boolean(
+      sourceAssetCount > sourceAssets.length ||
+      referenceAssetCount > referenceAssets.length
+    )
+  };
+  return {
+    sourceMode,
+    referenceMode,
+    taskScope: { ...scope, snapshotHash: taskScopeSnapshotHash(scope) },
+    ...(Array.isArray(raw.nodes) ? {
+      nodes: raw.nodes.filter((node) => node && typeof node === "object" && !Array.isArray(node)).slice(0, 2_000)
+    } : {})
+  };
 }
 
 function imageTaskProvenance(taskScope, sourceAsset = null) {
@@ -1088,6 +1322,15 @@ function taskScopeForPrompt(payload = {}, maxChars = 9000) {
     ...(scope.requirement
       ? [`requirement=${scope.requirement.nodeId}@${scope.requirement.revision}${scope.requirement.sourceSignature ? ` sourceSignature=${scope.requirement.sourceSignature}` : ""}`]
       : []),
+    ...(scope.goal
+      ? [
+          `goal=${scope.goal.target} frozen=${scope.goal.frozen ? "yes" : "no"}`,
+          `goalContainers=${scope.goal.containerCount} goalBindings=${scope.goal.bindingCount}`,
+          `goalConcurrency=${scope.goal.configuredConcurrency} goalProbeContainers=${scope.goal.probeContainerCount}`,
+          `goalOperationsPerAsset=${scope.goal.operationsPerAsset} goalRequestCount=${scope.goal.requestCount}${scope.goal.commercePlanHash ? ` commercePlanHash=${scope.goal.commercePlanHash}` : ""}`,
+          "goalExecution=call image_gen exactly once with scopeExecution=all-goal-sources; count must equal goalOperationsPerAsset and SOURCE*count must equal goalRequestCount; never enumerate SOURCE bindings"
+        ]
+      : []),
     `sourceAssets=${scope.sourceAssetCount}${scope.sourceAssetCount > scope.sourceAssets.length ? `（当前列出 ${scope.sourceAssets.length}）` : ""}`,
     `referenceAssets=${scope.referenceAssetCount}${scope.referenceAssetCount > scope.referenceAssets.length ? `（当前列出 ${scope.referenceAssets.length}）` : ""}`,
     "SOURCE（需要处理）:"
@@ -1142,9 +1385,11 @@ function taskScopeSourceAt(scope, parentId, assetIndex, toolName) {
 
 function taskSourceIndexInNode(source, node) {
   if (!source || !node || !Array.isArray(node.assets)) return -1;
-  const requestedSlot = Number.isInteger(Number(source.containerSlot)) && Number(source.containerSlot) >= 0
-    ? Number(source.containerSlot)
-    : Number(source.assetIndex);
+  const requestedSlot = Number.isInteger(Number(source.ownerAssetIndex)) && Number(source.ownerAssetIndex) >= 0
+    ? Number(source.ownerAssetIndex)
+    : Number.isInteger(Number(source.assetIndex)) && Number(source.assetIndex) >= 0
+      ? Number(source.assetIndex)
+      : Number(source.containerSlot);
   if (Number.isInteger(requestedSlot) && requestedSlot >= 0) {
     const index = requestedSlot;
     return index < node.assets.length ? index : -1;
@@ -1539,7 +1784,14 @@ function normalizeImageEnum(value, allowed) {
 }
 
 function normalizeImageOutputFormat(value) {
-  return normalizeImageEnum(value, ["png", "jpeg", "webp"]);
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const normalized = normalizeEncodedImageFormat(raw);
+  if (normalized) return normalized;
+  const error = new Error(`不支持的生图格式：${raw}。仅支持 PNG、JPEG 和 WebP。`);
+  error.code = "NAIMAGE_IMAGE_OUTPUT_FORMAT_UNSUPPORTED";
+  error.failureKind = "validation";
+  throw error;
 }
 
 function outputExtensionForFormat(format) {
@@ -1687,7 +1939,6 @@ function extractGeneratedImages(response) {
 function writeImageOutputs(projectRoot, images, stem, outputFormat = "png") {
   const outputDir = path.join(projectRoot, "output", "imagegen");
   mkdirSync(outputDir, { recursive: true });
-  const ext = outputExtensionForFormat(outputFormat);
 
   return images.map((image, index) => {
     if (image.type === "url") {
@@ -1695,14 +1946,18 @@ function writeImageOutputs(projectRoot, images, stem, outputFormat = "png") {
     }
 
     const clean = image.value.replace(/^data:image\/\w+;base64,/, "");
-    const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}.${ext}`);
-    writeFileSync(filePath, Buffer.from(clean, "base64"));
+    const buffer = Buffer.from(clean, "base64");
+    const detected = requireEncodedImageFormat(buffer, outputFormat);
+    const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
+    writeFileSync(filePath, buffer);
     const relativePath = path.relative(projectRoot, filePath).split(path.sep).map(encodeURIComponent).join("/");
     return {
       index: index + 1,
       type: "file",
       path: filePath,
       assetUrl: `naimage-asset://local/${relativePath}`,
+      mimeType: detected.mimeType,
+      outputFormat: detected.format,
       revisedPrompt: image.revisedPrompt ?? ""
     };
   });
@@ -1757,6 +2012,119 @@ function imageAssetWithDimensions(asset = {}) {
   return info.exists && Number(info.width) > 0 && Number(info.height) > 0
     ? { ...asset, width: Number(info.width), height: Number(info.height) }
     : { ...asset };
+}
+
+function validatePersistedImageBatchResult(value, collectionName, requireExplicitOk = false) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, reason: "Image generation returned an invalid result object." };
+  }
+  if (value.ok === false || (requireExplicitOk && value.ok !== true)) {
+    return { ok: false, reason: cleanOneLine(value.error || "Image generation did not return ok=true.", 260) };
+  }
+  const assets = value[collectionName];
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return { ok: false, reason: `Image generation returned no ${collectionName}.` };
+  }
+  const invalidAssetIndex = assets.findIndex((asset) => !asset || typeof asset !== "object" || Array.isArray(asset));
+  if (invalidAssetIndex >= 0) {
+    return { ok: false, reason: `${collectionName}[${invalidAssetIndex}] is not an asset object.` };
+  }
+  const missingAssetIndex = assets.findIndex((asset) => {
+    const assetPath = String(asset.path || "").trim();
+    return !assetPath || !existsSync(assetPath);
+  });
+  if (missingAssetIndex >= 0) {
+    return {
+      ok: false,
+      failureKind: "persistence",
+      reason: `${collectionName}[${missingAssetIndex}] was not persisted to a readable local path.`
+    };
+  }
+  return { ok: true, assetCount: assets.length, persisted: true };
+}
+
+async function validateGoalPersistedImageResult(value, deliverySize) {
+  if (value?.dryRun === true) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: "Goal probe cannot pass with a dry-run because no billable image result was validated."
+    };
+  }
+  const persisted = validatePersistedImageBatchResult(value, "outputs");
+  if (!persisted.ok) return persisted;
+  if (value.outputs.length !== 1) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: `Goal source execution must persist exactly one output, received ${value.outputs.length}.`
+    };
+  }
+  const assetPath = String(value.outputs[0]?.path || "").trim();
+  let info;
+  let imageBuffer;
+  try {
+    imageBuffer = readRuntimeImageFile(assetPath);
+    info = imageInfo(assetPath, imageBuffer);
+  } catch (error) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: `Goal output could not be read as an image: ${cleanOneLine(error?.message || String(error), 220)}`
+    };
+  }
+  if (!info.exists || Number(info.bytes) <= 0) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: "Goal output is empty or was not persisted as a readable image file."
+    };
+  }
+  if (!sharpImage) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: "Goal output decoder is unavailable; expansion was stopped conservatively."
+    };
+  }
+  let decodedWidth = 0;
+  let decodedHeight = 0;
+  try {
+    const metadata = await sharpImage(imageBuffer, { failOn: "error", limitInputPixels: 268402689 }).metadata();
+    decodedWidth = Number(metadata?.width || info.width || 0);
+    decodedHeight = Number(metadata?.height || info.height || 0);
+    if (decodedWidth <= 0 || decodedHeight <= 0) throw new Error("decoded image dimensions are empty");
+    const decoded = await sharpImage(imageBuffer, { failOn: "error", limitInputPixels: 268402689 })
+      .rotate()
+      .resize(1, 1, { fit: "inside", withoutEnlargement: true })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    if (!decoded?.data?.length || Number(decoded?.info?.width) <= 0 || Number(decoded?.info?.height) <= 0) {
+      throw new Error("decoded image is empty");
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: `Goal output failed full image decode: ${cleanOneLine(error?.message || String(error), 220)}`
+    };
+  }
+  const expected = parseImageSizeValue(deliverySize);
+  if (!expected || decodedWidth !== expected.width || decodedHeight !== expected.height) {
+    return {
+      ok: false,
+      failureKind: "validation",
+      reason: `Goal output delivery frame ${decodedWidth}x${decodedHeight} does not match ${deliverySize || "the requested frame"}.`
+    };
+  }
+  return {
+    ok: true,
+    assetCount: 1,
+    persisted: true,
+    decoded: true,
+    width: expected.width,
+    height: expected.height
+  };
 }
 
 function actualImageSizeFromAssets(assets = [], fallback = "") {
@@ -1848,6 +2216,9 @@ function createAgentRuntime(options) {
   const runtimeOptions = options || {};
   const projectRoot = runtimeOptions.projectRoot;
   const log = typeof runtimeOptions.log === "function" ? runtimeOptions.log : () => {};
+  const goalProbeAdmission = runtimeOptions.goalProbeAdmission && typeof runtimeOptions.goalProbeAdmission.acquire === "function"
+    ? runtimeOptions.goalProbeAdmission
+    : null;
   const diagnosticModelIO = runtimeOptions.diagnosticModelIO === true || process.env.NAIMAGE_AGENT_DIAGNOSTICS === "1";
   const configRoot = runtimeOptions.configDir || path.join(projectRoot, "config");
   const {
@@ -2084,6 +2455,9 @@ function createAgentRuntime(options) {
     const resumeSourceParentId = cleanOneLine(resumeLayerNodes.find((node) => node?.layerGroup?.sourceParentId)?.layerGroup?.sourceParentId || "", 160);
     const taskScopePresent = Boolean(context.taskScope && typeof context.taskScope === "object");
     const taskScope = normalizedTaskScope({ taskScope: context.taskScope, selectedNodeId: context.selectedNodeId, selectedNodeIds: context.selectedNodeIds });
+    if (taskScope.origin === "goal") {
+      throw new Error(`${toolName} Goal v1 不支持 layers；请用一次 image_gen(scopeExecution=all-goal-sources) 执行 edit、replace 或 variants。`);
+    }
     const pathKey = (value) => {
       const raw = String(value || "").trim();
       if (!raw) return "";
@@ -2199,6 +2573,9 @@ function createAgentRuntime(options) {
     if (count !== 1) throw new Error(`${toolName} operation=${operation} 只支持 count=1。`);
     const taskScopePresent = Boolean(context.taskScope && typeof context.taskScope === "object");
     const taskScope = normalizedTaskScope({ taskScope: context.taskScope, selectedNodeId: context.selectedNodeId, selectedNodeIds: context.selectedNodeIds });
+    if (taskScope.origin === "goal") {
+      throw new Error(`${toolName} Goal v1 不支持 ${operation}；请用一次 image_gen(scopeExecution=all-goal-sources) 执行 edit、replace 或 variants。`);
+    }
     const requestedSourceBindingId = cleanOneLine(args.sourceBindingId || args.sourceImage?.bindingId || "", 520);
     const requestedSourceAssetId = cleanOneLine(args.sourceAssetId || args.sourceImage?.assetId || "", 160);
     const assetIdMatches = requestedSourceAssetId
@@ -2254,9 +2631,174 @@ function createAgentRuntime(options) {
     };
   }
 
+  function rawImageToolShape(args = {}) {
+    const hasOwn = (key) => Object.prototype.hasOwnProperty.call(args, key);
+    return {
+      itemsProvided: hasOwn("items") && args.items !== undefined,
+      itemCount: Array.isArray(args.items) ? args.items.length : args.items === undefined ? 0 : 1,
+      countProvided: hasOwn("count") && args.count !== undefined,
+      count: args.count,
+      topSlotId: hasOwn("slotId") ? args.slotId : undefined,
+      topSlotIndex: hasOwn("slotIndex") ? args.slotIndex : undefined,
+      topLocaleCode: hasOwn("localeCode") ? args.localeCode : undefined
+    };
+  }
+
+  function goalExecutionValidationError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    error.failureKind = "validation";
+    return error;
+  }
+
+  function commercePromptPlanForExecution(context = {}, frozenPlanHash = "") {
+    const recentUserPrompts = (Array.isArray(context.messages) ? context.messages : [])
+      .slice(-40)
+      .reverse()
+      .filter((message) => message?.role === "user" && message.hidden !== true)
+      .map((message) => typeof message.content === "string" ? message.content : "");
+    const candidates = [
+      context.immutableTaskPrompt,
+      context.taskPrompt,
+      context.prompt,
+      ...recentUserPrompts
+    ];
+    const seen = new Set();
+    for (const candidate of candidates) {
+      const text = String(candidate || "");
+      if (!text || seen.has(text) || !text.includes(COMMERCE_SET_MARKER)) continue;
+      seen.add(text);
+      const plan = parseCommerceSetPromptPlan(text);
+      if (plan?.planHash === frozenPlanHash) return plan;
+    }
+    return null;
+  }
+
+  function validateGoalExecutionMatrix({
+    toolName,
+    args,
+    rawShape,
+    context,
+    validatedGoalScope,
+    normalizedBatchItems,
+    outputsPerSource,
+    hasCommerceMetadata
+  }) {
+    const { goal, sources } = validatedGoalScope;
+    if (
+      rawShape.countProvided &&
+      (typeof rawShape.count !== "number" || !Number.isSafeInteger(rawShape.count) || rawShape.count !== goal.operationsPerAsset)
+    ) {
+      throw goalExecutionValidationError(
+        `${toolName} count=${String(rawShape.count)} 与用户确认的每母图操作数 ${goal.operationsPerAsset} 不一致。`,
+        "NAIMAGE_GOAL_OPERATION_COUNT_MISMATCH"
+      );
+    }
+    if (outputsPerSource !== goal.operationsPerAsset) {
+      throw goalExecutionValidationError(
+        `${toolName} 实际每个 SOURCE 的输出数 ${outputsPerSource} 与用户确认的 ${goal.operationsPerAsset} 不一致。`,
+        "NAIMAGE_GOAL_OPERATION_COUNT_MISMATCH"
+      );
+    }
+    const matrixRequestCount = sources.length * outputsPerSource;
+    if (matrixRequestCount !== goal.requestCount) {
+      throw goalExecutionValidationError(
+        `${toolName} 实际请求总数 ${matrixRequestCount} 与用户确认的 ${goal.requestCount} 不一致。`,
+        "NAIMAGE_GOAL_REQUEST_COUNT_MISMATCH"
+      );
+    }
+
+    const taskPrompt = String(context.prompt || "");
+    const hasCommerceMarker = taskPrompt.includes(COMMERCE_SET_MARKER);
+    const frozenCommercePlanHash = goal.commercePlanHash;
+    if (!frozenCommercePlanHash) {
+      if (hasCommerceMarker || hasCommerceMetadata) {
+        throw goalExecutionValidationError(
+          `${toolName} 的普通 Goal 未冻结跨境电商计划，禁止提交 commerce 元数据。`,
+          "NAIMAGE_COMMERCE_METADATA_FORBIDDEN"
+        );
+      }
+      return;
+    }
+    const promptPlan = commercePromptPlanForExecution(context, frozenCommercePlanHash);
+    if (!promptPlan) {
+      throw goalExecutionValidationError(
+        `${toolName} 无法从可信任务 Prompt 恢复已冻结的跨境电商计划。`,
+        "NAIMAGE_COMMERCE_PLAN_INVALID"
+      );
+    }
+    if (promptPlan.planHash !== frozenCommercePlanHash || args.commercePlanHash !== frozenCommercePlanHash) {
+      throw goalExecutionValidationError(
+        `${toolName} commercePlanHash 与用户确认的冻结计划不一致。`,
+        "NAIMAGE_COMMERCE_PLAN_HASH_MISMATCH"
+      );
+    }
+    if (
+      promptPlan.sourceCount !== sources.length ||
+      promptPlan.outputsPerSource !== goal.operationsPerAsset ||
+      promptPlan.totalRequests !== goal.requestCount
+    ) {
+      throw goalExecutionValidationError(
+        `${toolName} 的可信跨境电商计划矩阵与冻结 Goal 计费范围不一致。`,
+        "NAIMAGE_COMMERCE_PLAN_SCOPE_MISMATCH"
+      );
+    }
+    const expectedMetadata = commerceSetPromptPlanItemMetadata(promptPlan);
+    if (expectedMetadata.length !== outputsPerSource) {
+      throw goalExecutionValidationError(
+        `${toolName} 的跨境电商槽位/语言矩阵数量无效。`,
+        "NAIMAGE_COMMERCE_ITEM_METADATA_MISMATCH"
+      );
+    }
+    const assertMetadata = (actual, expected, label) => {
+      if (
+        actual?.slotId !== expected.slotId ||
+        !Number.isInteger(actual?.slotIndex) || actual.slotIndex !== expected.slotIndex ||
+        actual?.localeCode !== expected.localeCode
+      ) {
+        throw goalExecutionValidationError(
+          `${toolName} ${label} 的 slotId/slotIndex/localeCode 未严格匹配可信计划顺序。`,
+          "NAIMAGE_COMMERCE_ITEM_METADATA_MISMATCH"
+        );
+      }
+    };
+    if (outputsPerSource === 1) {
+      if (rawShape.itemsProvided) {
+        throw goalExecutionValidationError(
+          `${toolName} 的单项跨境电商计划必须省略 items，并把槽位/语言元数据放在顶层。`,
+          "NAIMAGE_COMMERCE_ITEM_SHAPE_INVALID"
+        );
+      }
+      assertMetadata({
+        slotId: args.slotId,
+        slotIndex: args.slotIndex,
+        localeCode: args.localeCode
+      }, expectedMetadata[0], "顶层元数据");
+      return;
+    }
+    if (!rawShape.itemsProvided || rawShape.itemCount !== outputsPerSource || normalizedBatchItems.length !== outputsPerSource) {
+      throw goalExecutionValidationError(
+        `${toolName} 的多项跨境电商计划必须使用与冻结输出数完全相等的 items。`,
+        "NAIMAGE_COMMERCE_ITEM_SHAPE_INVALID"
+      );
+    }
+    if (rawShape.topSlotId !== undefined || rawShape.topSlotIndex !== undefined || rawShape.topLocaleCode !== undefined) {
+      throw goalExecutionValidationError(
+        `${toolName} 的多项跨境电商槽位/语言元数据只能放在各 items 项内。`,
+        "NAIMAGE_COMMERCE_ITEM_SHAPE_INVALID"
+      );
+    }
+    normalizedBatchItems.forEach((item, index) => assertMetadata(item, expectedMetadata[index], `items[${index}]`));
+  }
+
   function normalizeImageToolArgs(toolName, args, settings, context = {}) {
+    const rawShape = args?.[rawImageToolShapeMarker] || rawImageToolShape(args);
     args = normalizeSingleImageItemCompatibility(args);
     const requestedOperation = String(args.operation ?? args.mode ?? "").trim().toLowerCase();
+    const scopeExecution = cleanOneLine(args.scopeExecution || "", 80);
+    if (scopeExecution && scopeExecution !== goalScopeExecutionValue) {
+      throw new Error(`${toolName} scopeExecution=${scopeExecution} 无效。`);
+    }
     const supportedOperations = new Set(["generate", "edit", "replace", "variants", "redraw", "cutout"]);
     if (!supportedOperations.has(requestedOperation)) {
       throw new Error(`${toolName} operation=${requestedOperation || "<missing>"} 无效。请使用公开 schema 中列出的 operation。`);
@@ -2305,6 +2847,124 @@ function createAgentRuntime(options) {
       selectedNodeId: context.selectedNodeId,
       selectedNodeIds: context.selectedNodeIds
     });
+    const hasCommerceMetadata = Boolean(
+      cleanOneLine(args.commercePlanHash || "", 80) ||
+      cleanOneLine(args.slotId || "", 80) ||
+      (args.slotIndex !== undefined && args.slotIndex !== null && args.slotIndex !== "") ||
+      cleanOneLine(args.localeCode || "", 32) ||
+      normalizedBatchItems.some((item) => item?.slotId || Number.isInteger(item?.slotIndex) || item?.localeCode)
+    );
+    if (hasCommerceMetadata && scopeExecution !== goalScopeExecutionValue) {
+      const error = new Error(`${toolName} 的 commercePlanHash/slotId/slotIndex/localeCode 只允许用于已确认的 Goal 套图矩阵。`);
+      error.code = "NAIMAGE_COMMERCE_GOAL_REQUIRED";
+      error.failureKind = "validation";
+      throw error;
+    }
+    if (taskScope.origin === "goal" && scopeExecution !== goalScopeExecutionValue) {
+      throw new Error(`${toolName} Goal TaskScope 必须使用 scopeExecution=all-goal-sources，不能逐项调用。`);
+    }
+    if (scopeExecution === goalScopeExecutionValue) {
+      const validatedGoalScope = validateFrozenGoalTaskScope(taskScope, context.taskScope);
+      if (!["edit", "replace", "variants"].includes(requestedOperation)) {
+        throw new Error(`${toolName} Goal v1 只支持 edit、replace 或 variants。`);
+      }
+      const outputsPerSource = normalizedBatchItems.length > 1 ? normalizedBatchItems.length : count;
+      if (count !== outputsPerSource) {
+        throw new Error(`${toolName} Goal 的 count 必须等于每个 SOURCE 的输出数 ${outputsPerSource}。`);
+      }
+      if (outputsPerSource > 1 && requestedOperation !== "variants") {
+        throw new Error(`${toolName} Goal 的逐项 Prompt 矩阵只支持 operation=variants。`);
+      }
+      const matrixRequestCount = validatedGoalScope.sources.length * outputsPerSource;
+      const rawCommercePlanHash = cleanOneLine(args.commercePlanHash || "", 80);
+      const commercePlanHash = /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
+        ? rawCommercePlanHash
+        : "";
+      if (rawCommercePlanHash && !commercePlanHash) {
+        const error = new Error(`${toolName} commercePlanHash 必须原样使用任务中的 commerce-<32 hex> PLAN_HASH。`);
+        error.code = "NAIMAGE_COMMERCE_PLAN_HASH_INVALID";
+        error.failureKind = "validation";
+        throw error;
+      }
+      validateGoalExecutionMatrix({
+        toolName,
+        args,
+        rawShape,
+        context,
+        validatedGoalScope,
+        normalizedBatchItems,
+        outputsPerSource,
+        hasCommerceMetadata
+      });
+      if (matrixRequestCount > 200) {
+        const error = new Error(`${toolName} Goal 图片矩阵最多允许 200 个请求，当前为 ${matrixRequestCount} 个。`);
+        error.code = "NAIMAGE_GOAL_REQUEST_LIMIT";
+        error.failureKind = "validation";
+        throw error;
+      }
+      const explicitSourceSelector = Boolean(
+        cleanOneLine(args.parentId || "", 160) ||
+        cleanOneLine(args.sourceBindingId || "", 520) ||
+        cleanOneLine(args.sourceAssetId || "", 160) ||
+        cleanOneLine(args.sourceImage?.bindingId || args.sourceImage?.assetId || "", 520) ||
+        cleanOneLine(args.editImage?.bindingId || args.editImage?.assetId || args.sourcePath || "", 520) ||
+        Object.prototype.hasOwnProperty.call(args, "assetIndex")
+      );
+      if (explicitSourceSelector) {
+        throw new Error(`${toolName} Goal 的 SOURCE 由运行时展开，不能填写 parentId、assetIndex 或单项 SOURCE selector。`);
+      }
+      const requestedReferences = Array.isArray(args.referenceImages ?? args.references)
+        ? (args.referenceImages ?? args.references)
+        : (args.referenceImages ?? args.references) ? [args.referenceImages ?? args.references] : [];
+      if (requestedReferences.length) {
+        throw new Error(`${toolName} Goal v1 不接受额外 REFERENCE。`);
+      }
+      const layerHint = normalizeLayerHint(args);
+      const preferredModel = imageModelForTaskPreference({ ...args, mode, prompt }, settings, layerHint);
+      const frame = normalizeImageToolFrame({ ...args, model: preferredModel || args.model, prompt }, settings);
+      const imageControls = applyLayerPreferredImageControls(normalizeOptionalImageControls(args), layerHint);
+      const {
+        items: _discardedItems,
+        parentId: _discardedParentId,
+        assetIndex: _discardedAssetIndex,
+        sourceBindingId: _discardedSourceBindingId,
+        sourceAssetId: _discardedSourceAssetId,
+        sourceImage: _discardedSourceImage,
+        sourcePath: _discardedSourcePath,
+        editImage: _discardedEditImage,
+        referenceImages: _discardedReferences,
+        references: _discardedLegacyReferences,
+        layerPlan: _discardedLayerPlan,
+        layer_plan: _discardedSnakeLayerPlan,
+        ...goalArgs
+      } = args;
+      return {
+        ...goalArgs,
+        scopeExecution,
+        commercePlanHash: commercePlanHash || undefined,
+        goalTaskScope: taskScope,
+        operation: requestedOperation,
+        mode: "edit",
+        prompt,
+        count: outputsPerSource,
+        generationMode: "parallel",
+        collectionKind: undefined,
+        batchItems: normalizedBatchItems,
+        parentId: undefined,
+        assetIndex: undefined,
+        model: preferredModel || args.model,
+        size: frame.size,
+        ratio: frame.ratio,
+        resolution: frame.resolution,
+        quality: args.quality ?? settings?.imageQuality ?? "auto",
+        referenceImages: [],
+        editImage: undefined,
+        relationType: requestedOperation === "variants" ? "variant" : "derived-from",
+        taskProvenance: undefined,
+        ...imageControls,
+        ...layerHint
+      };
+    }
     const scopedPathKey = (value) => {
       const raw = String(value || "").trim();
       if (!raw) return "";
@@ -2525,7 +3185,7 @@ function createAgentRuntime(options) {
       // Keep a defensive memory guard, but do not impose the old ten-item
       // product ceiling. Requests are dispatched in ordered user-sized batches.
       const batchItems = args.batchItems.slice(0, 200);
-      const settled = await runImageBatchScheduler({
+      const batchRun = await runImageBatchScheduler({
         items: batchItems,
         batchSize: settings?.imageBatchSize || args.batchSize || 3,
         signal: args.signal,
@@ -2538,8 +3198,10 @@ function createAgentRuntime(options) {
           collectionKind: undefined,
           count: 1,
           runId: `${args.runId || `agent-${Date.now()}`}-item-${index + 1}`
-        }, settings, progress)
+        }, settings, progress),
+        validateResult: (result) => validatePersistedImageBatchResult(result, "outputs")
       });
+      const settled = batchRun.results;
       const outputs = [];
       const items = settled.map((entry, index) => {
         const batchItem = batchItems[index];
@@ -2588,6 +3250,7 @@ function createAgentRuntime(options) {
         executionMode: "parallel",
         returned: outputs.length,
         failed: items.filter((item) => item.status === "error").length,
+        batchSafety: batchRun.summary,
         errors: items.filter((item) => item.error).map((item, index) => `${item.title || `方案 ${index + 1}`}：${item.error}`),
         referenceImageCount: referenceImages.length,
         referenceImageDescriptors: referenceImageDescriptors(referenceImages),
@@ -2654,30 +3317,46 @@ function createAgentRuntime(options) {
                 requestIndex: Math.max(1, Math.min(10, Math.floor(Number(args.partialRequestIndex) || index + 1)))
               }
             }),
-            onRetry: (retry) => progress?.({
-              phase: "image-retry",
-              tool: primaryImageToolName,
-              operationId: String(args.operationId || args.toolRunId || args.runId || runId),
-              toolRunId: String(args.operationId || args.toolRunId || args.runId || runId),
-              childTaskId: runId,
-              summary: retry?.category === "timeout"
-                ? `图片请求超时，正在进行唯一一次补试。`
-                : `图片服务暂时不稳定，正在重试 ${retry?.retryCount || 1}/${retry?.maxRetries || 5}。`,
-              detail: `第 ${Number(retry?.index || 0) + 1}/${retry?.count || requestCount} 张 · ${retry?.category || "transient"}`,
-              retryCount: retry?.retryCount,
-              maxRetries: retry?.maxRetries,
-              errorCategory: retry?.category
-            })
+            onTransportPromise: (providerPromise, detail) => {
+              try {
+                args.onTransportPromise?.(providerPromise, detail);
+              } catch {
+                // Admission telemetry must not break the provider request.
+              }
+            },
+            onRetry: (retry) => {
+              try {
+                args.onTransportRetry?.(retry);
+              } catch {
+                // Admission telemetry must not break the provider retry loop.
+              }
+              progress?.({
+                phase: "image-retry",
+                tool: primaryImageToolName,
+                operationId: String(args.operationId || args.toolRunId || args.runId || runId),
+                toolRunId: String(args.operationId || args.toolRunId || args.runId || runId),
+                childTaskId: runId,
+                summary: retry?.category === "timeout"
+                  ? `图片请求超时，正在进行唯一一次补试。`
+                  : `图片服务暂时不稳定，正在重试 ${retry?.retryCount || 1}/${retry?.maxRetries || 5}。`,
+                detail: `第 ${Number(retry?.index || 0) + 1}/${retry?.count || requestCount} 张 · ${retry?.category || "transient"}`,
+                retryCount: retry?.retryCount,
+                maxRetries: retry?.maxRetries,
+                errorCategory: retry?.category
+              });
+            }
           })
         };
       });
-      const settled = await runImageBatchScheduler({
+      const batchRun = await runImageBatchScheduler({
         items: requests,
         batchSize: executionMode === "sequential" ? 1 : settings?.imageBatchSize || args.batchSize || 3,
         signal: args.signal,
         waitUntilRunnable: args.waitUntilRunnable,
-        runItem: (request) => request.run()
+        runItem: (request) => request.run(),
+        validateResult: (result) => validatePersistedImageBatchResult(result, "assets", true)
       });
+      const settled = batchRun.results;
       const serverResults = settled.map((item, index) =>
         item.status === "fulfilled"
           ? item.value
@@ -2733,6 +3412,7 @@ function createAgentRuntime(options) {
           executionMode,
           returned: assets.length,
           failed: failedResults.length,
+          batchSafety: batchRun.summary,
           errors: failedResults.map(({ item, index }) => `第 ${index + 1}/${requestCount} 张：${item?.error || "生图失败。"}`),
           referenceImageCount: Number(serverResult.referenceImageCount ?? referenceImages.length),
           referenceImageDescriptors: referenceImageDescriptors(referenceImages),
@@ -2923,6 +3603,395 @@ function createAgentRuntime(options) {
       ...layerHint,
       mode: editRequested ? mode : "generate",
       summary: failed.length ? `Image API 已返回 ${outputs.length} 个结果，${failed.length} 张失败。` : `Image API 已返回 ${outputs.length} 个结果。`
+    };
+  }
+
+  async function runGoalImageGeneration(toolArgs, context, currentToolRunId) {
+    const scope = toolArgs.goalTaskScope;
+    const { goal } = validateFrozenGoalTaskScope(scope);
+    if (toolArgs.count !== goal.operationsPerAsset) {
+      throw goalExecutionValidationError(
+        `image_gen Goal 的实际 count=${String(toolArgs.count)} 与冻结值 ${goal.operationsPerAsset} 不一致。`,
+        "NAIMAGE_GOAL_OPERATION_COUNT_MISMATCH"
+      );
+    }
+    const prepareGoalJob = (job) => {
+      const sourceNodeId = String(job.source.nodeId || job.source.ownerNodeId || "").trim();
+      const sourceNode = findWorkflowNode(context.nodes || [], sourceNodeId);
+      const sourceNodeAssetIndex = taskSourceIndexInNode(job.source, sourceNode);
+      const currentAssetId = cleanOneLine(sourceNode?.assets?.[sourceNodeAssetIndex]?.assetId || "", 160);
+      const editImage = normalizeReferenceImage(job.source, `goal-source-${job.sourceIndex + 1}.png`);
+      if (
+        !sourceNode || sourceNodeAssetIndex < 0 || !editImage ||
+        !currentAssetId || currentAssetId !== cleanOneLine(job.source.assetId || "", 160)
+      ) {
+        const error = new Error(`Goal SOURCE ${job.source.bindingId} 已不在冻结的画布槽位或本地文件不可读。`);
+        error.code = "NAIMAGE_GOAL_SOURCE_STALE";
+        error.failureKind = "persistence";
+        throw error;
+      }
+      return { ...job, sourceNodeId, sourceNodeAssetIndex, editImage };
+    };
+    const sourceJobs = goalSourceJobs(scope).map(prepareGoalJob);
+    const repeatedItem = {
+          title: toolArgs.title || "成果",
+          prompt: toolArgs.prompt,
+          ratio: toolArgs.ratio,
+          resolution: toolArgs.resolution,
+          size: toolArgs.size,
+          quality: toolArgs.quality,
+          slotId: toolArgs.slotId,
+          slotIndex: toolArgs.slotIndex,
+          localeCode: toolArgs.localeCode
+        };
+    const batchItems = Array.isArray(toolArgs.batchItems) && toolArgs.batchItems.length > 1
+      ? toolArgs.batchItems
+      : Array.from({ length: goal.operationsPerAsset }, () => ({ ...repeatedItem }));
+    if (batchItems.length !== goal.operationsPerAsset || sourceJobs.length * batchItems.length !== goal.requestCount) {
+      throw goalExecutionValidationError(
+        "image_gen Goal 的派发矩阵与冻结请求数量不一致。",
+        "NAIMAGE_GOAL_REQUEST_COUNT_MISMATCH"
+      );
+    }
+    const commercePlanHash = /^commerce-[a-f0-9]{32}$/.test(String(toolArgs.commercePlanHash || "").trim().toLowerCase())
+      ? String(toolArgs.commercePlanHash).trim().toLowerCase()
+      : undefined;
+    const provenanceFor = (job) => ({
+      ...imageTaskProvenance(scope, job.source),
+      ...(commercePlanHash ? {
+        commercePlanHash,
+        commerceSlotId: cleanOneLine(job.item?.slotId || "", 80) || undefined,
+        commerceSlotIndex: Number.isInteger(job.item?.slotIndex)
+          ? job.item.slotIndex
+          : Number.isInteger(job.itemIndex) ? job.itemIndex : undefined,
+        commerceLocaleCode: cleanOneLine(job.item?.localeCode || "", 32) || undefined
+      } : {})
+    });
+    const probeSourceJobs = sourceJobs.slice(0, goal.probeContainerCount);
+    const probeSourceIndexes = new Set(probeSourceJobs.map((job) => job.sourceIndex));
+    const jobs = [
+      ...probeSourceJobs.map((job) => ({ ...job, item: batchItems[0], itemIndex: 0, probeRepresentative: true })),
+      ...sourceJobs.flatMap((job) => batchItems.flatMap((item, itemIndex) => (
+        probeSourceIndexes.has(job.sourceIndex) && itemIndex === 0
+          ? []
+          : [{ ...job, item, itemIndex, probeRepresentative: false }]
+      )))
+    ];
+    if (jobs.length > 200) {
+      const error = new Error(`Goal 图片矩阵最多 200 个请求，当前为 ${jobs.length} 个。`);
+      error.code = "NAIMAGE_GOAL_REQUEST_LIMIT";
+      error.failureKind = "validation";
+      throw error;
+    }
+    const toolLabel = toolArgs.operation === "variants"
+      ? "Goal 多款设计"
+      : toolArgs.operation === "replace"
+        ? "Goal 元素替换"
+        : "Goal 图像编辑";
+    const nodeFor = (job, generation = null, asset = null, errorMessage = "") => {
+      const source = job.source;
+      const provenance = provenanceFor(job);
+      const sourceCode = cleanOneLine(source.displayCode || "", 40);
+      const prompt = generation?.prompt || job.item?.prompt || toolArgs.prompt;
+      const itemTitle = cleanOneLine(job.item?.title || "", 100);
+      const state = asset ? "done" : errorMessage ? "error" : "generating";
+      return {
+        title: `${sourceCode ? `${sourceCode} · ` : ""}${itemTitle || toolLabel}：${shortTitle(prompt, 18)}`,
+        prompt: [
+          `prompt: ${prompt}`,
+          `tool: ${primaryImageToolName}`,
+          `operation: ${toolArgs.operation}`,
+          "scopeExecution: all-goal-sources",
+          `sourceBindingId: ${source.bindingId}`,
+          Number.isInteger(job.itemIndex) ? `matrixItem: ${job.itemIndex + 1}/${batchItems.length}` : "",
+          job.item?.slotId ? `commerceSlotId: ${job.item.slotId}` : "",
+          job.item?.localeCode ? `commerceLocaleCode: ${job.item.localeCode}` : "",
+          `model: ${generation?.model || toolArgs.model || context?.settings?.imageModel || ""}`,
+          `ratio: ${generation?.ratio || toolArgs.ratio}`,
+          `resolution: ${generation?.resolution || toolArgs.resolution}`,
+          `size: ${generation?.size || toolArgs.size}`,
+          `quality: ${generation?.quality || toolArgs.quality}`,
+          errorMessage ? `error: ${errorMessage}` : ""
+        ].filter(Boolean).join("\n"),
+        nodeType: "image",
+        parentId: source.nodeId || source.ownerNodeId,
+        relationType: toolArgs.relationType || "derived-from",
+        outputs: asset ? 1 : 0,
+        assets: asset ? [{
+          ...asset,
+          index: 1,
+          prompt: asset.prompt || prompt,
+          title: sourceCode ? `${sourceCode} · ${itemTitle || asset.title || "成果"}` : itemTitle || asset.title
+        }] : [],
+        imageState: state,
+        imageError: errorMessage || undefined,
+        status: state === "generating" ? "working" : state === "error" ? "review" : "done",
+        taskProvenance: provenance,
+        imageParams: {
+          prompt,
+          size: generation?.size || toolArgs.size,
+          ratio: generation?.ratio || toolArgs.ratio,
+          resolution: generation?.resolution || toolArgs.resolution,
+          count: 1,
+          quality: generation?.quality || toolArgs.quality,
+          batchMode: "parallel",
+          referenceImages: [],
+          outputFormat: generation?.outputFormat || toolArgs.outputFormat,
+          outputCompression: generation?.outputCompression ?? toolArgs.outputCompression,
+          background: generation?.background ?? toolArgs.background,
+          moderation: generation?.moderation ?? toolArgs.moderation,
+          inputFidelity: generation?.inputFidelity ?? toolArgs.inputFidelity,
+          model: generation?.model || toolArgs.model || context?.settings?.imageModel || ""
+        },
+        imageProgress: {
+          total: 1,
+          completed: asset ? 1 : 0,
+          failed: errorMessage ? 1 : 0,
+          failedSlots: errorMessage ? [1] : [],
+          retryCount: 0,
+          maxRetries: 0,
+          stopped: Boolean(errorMessage),
+          message: asset ? `Goal 来源槽位 ${job.itemIndex + 1}/${batchItems.length} 已完成` : errorMessage ? "Goal 来源失败，后续放量可能已停止" : `Goal 来源槽位 ${job.itemIndex + 1}/${batchItems.length} 正在执行`
+        }
+      };
+    };
+    const operationIdFor = (job) => `${currentToolRunId}-goal-${job.sourceIndex + 1}-item-${job.itemIndex + 1}`;
+    const batchRun = await runImageBatchScheduler({
+      items: jobs,
+      batchSize: goal.configuredConcurrency,
+      probeSize: goal.probeContainerCount,
+      processCapacity: context.settings?.imageBatchSize || goal.configuredConcurrency,
+      probeAdmission: goalProbeAdmission,
+      probeAdmissionContext: {
+        admissionId: currentToolRunId,
+        runId: context.runId,
+        projectId: context.projectId,
+        conversationId: context.conversationId
+      },
+      signal: context.signal,
+      waitUntilRunnable: context.waitUntilRunnable,
+      onProbeAdmission: (admission) => context?.progress?.({
+        phase: admission.phase === "queued" ? "goal-probe-wait" : "goal-probe-admitted",
+        tool: primaryImageToolName,
+        operationId: currentToolRunId,
+        toolRunId: currentToolRunId,
+        summary: admission.phase === "queued"
+          ? "Goal 正在等待 Main 进程级探测槽位。"
+          : admission.waitMs > 0
+            ? `Goal 已取得探测槽位，等待 ${admission.waitMs} ms。`
+            : "Goal 已取得 Main 进程级探测槽位。",
+        detail: `mode=${admission.mode}; queueDepth=${admission.queueDepthAtEnqueue || 0}`,
+        internalOnly: true
+      }),
+      onBatchStart: (batch) => context?.progress?.({
+        phase: batch.phase === "probe" ? "goal-probe" : "goal-ramp",
+        tool: primaryImageToolName,
+        operationId: currentToolRunId,
+        toolRunId: currentToolRunId,
+        summary: batch.phase === "probe"
+          ? `Goal 正在串行探测第 ${batch.start + 1}-${batch.start + batch.size} 个不同母图代表项。`
+          : `Goal 已通过探测，正在以并发 ${batch.concurrency} 渐进执行下一批。`,
+        detail: `total=${batch.total}; concurrency=${batch.concurrency}`,
+        internalOnly: true
+      }),
+      runItem: async (job, jobIndex, _signal, dispatch = {}) => {
+        const { sourceNodeId, sourceNodeAssetIndex, editImage } = prepareGoalJob(job);
+        const operationId = operationIdFor(job);
+        context?.progress?.({
+          phase: "image-request",
+          tool: primaryImageToolName,
+          operationId,
+          toolRunId: operationId,
+          summary: `${toolLabel}请求已发出，等待模型返回图片。`,
+          brief: toolBriefFromArgs(primaryImageToolName, toolArgs),
+          operation: toolArgs.operation,
+          params: toolParamsFromArgs(primaryImageToolName, toolArgs),
+          workflowAction: {
+            type: "workflow.node.create",
+            operationId,
+            toolRunId: operationId,
+            node: nodeFor(job)
+          }
+        });
+        return callImageGeneration({
+          ...toolArgs,
+          ...job.item,
+          prompt: job.item?.prompt || toolArgs.prompt,
+          scopeExecution: undefined,
+          goalTaskScope: undefined,
+          parentId: sourceNodeId,
+          assetIndex: sourceNodeAssetIndex,
+          editImage,
+          sourceImage: undefined,
+          taskProvenance: provenanceFor(job),
+          count: 1,
+          batchItems: undefined,
+          operationId,
+          toolRunId: operationId,
+          runId: operationId,
+          partialRequestIndex: jobIndex + 1,
+          signal: context.signal,
+          waitUntilRunnable: context.waitUntilRunnable,
+          onTransportPromise: dispatch.trackProviderPromise,
+          onTransportRetry: dispatch.reportRetry,
+          batchSize: 1
+        }, context.settings || {}, context.progress);
+      },
+      validateResult: (generation) => validateGoalPersistedImageResult(generation, generation?.size || toolArgs.size)
+    });
+
+    const successful = [];
+    const failures = [];
+    batchRun.results.forEach((entry, jobIndex) => {
+      const job = jobs[jobIndex];
+      const operationId = operationIdFor(job);
+      if (entry?.status === "fulfilled") {
+        const generation = entry.value;
+        const asset = generation.outputs[0];
+        const action = {
+          type: "workflow.node.create",
+          operationId,
+          toolRunId: operationId,
+          node: nodeFor(job, generation, asset)
+        };
+        successful.push({ jobIndex, job, generation, asset, action });
+        context?.progress?.({
+          phase: "image-response",
+          tool: primaryImageToolName,
+          operationId,
+          toolRunId: operationId,
+          summary: `${job.source.displayCode || job.source.bindingId} 已生成并通过本地校验。`,
+          workflowAction: action
+        });
+        return;
+      }
+      const message = cleanOneLine(entry?.reason?.message || "Goal 来源未执行。", 260);
+      if (entry?.skipped === true) {
+        failures.push({ jobIndex, job, message, skipped: true });
+        context?.progress?.({
+          phase: "goal-source-skipped",
+          tool: primaryImageToolName,
+          operationId,
+          toolRunId: operationId,
+          summary: `${job.source.displayCode || job.source.bindingId} 未派发：${message}`,
+          internalOnly: true
+        });
+        return;
+      }
+      const failureAction = {
+        type: "workflow.node.create",
+        operationId,
+        toolRunId: operationId,
+        node: nodeFor(job, null, null, message)
+      };
+      failures.push({ jobIndex, job, message, skipped: false, action: failureAction });
+      context?.progress?.({
+        phase: "image-error",
+        tool: primaryImageToolName,
+        operationId,
+        toolRunId: operationId,
+        summary: message,
+        detail: "Goal 已停止下一波；已被上游接受的请求仍可能计费。",
+        workflowAction: failureAction
+      });
+    });
+    if (!successful.length) {
+      const firstFailure = failures[0]?.message || batchRun.summary?.circuit?.reason || "Goal 探针未通过。";
+      const error = new Error(firstFailure);
+      error.code = batchRun.summary?.circuit?.code || "NAIMAGE_GOAL_NO_VALID_OUTPUT";
+      error.failureKind = batchRun.summary?.circuit?.failureKind || "validation";
+      error.batchSafety = batchRun.summary;
+      throw error;
+    }
+    successful.sort((left, right) => (
+      left.job.sourceIndex - right.job.sourceIndex || left.job.itemIndex - right.job.itemIndex
+    ));
+    const actions = [
+      ...successful.map((item) => ({ job: item.job, action: item.action })),
+      ...failures.filter((item) => item.action).map((item) => ({ job: item.job, action: item.action }))
+    ].sort((left, right) => (
+      left.job.sourceIndex - right.job.sourceIndex || left.job.itemIndex - right.job.itemIndex
+    )).map((item) => item.action);
+    const outputPaths = successful.map((item) => String(item.asset.path || "").trim()).filter(Boolean);
+    const failedCount = failures.filter((item) => !item.skipped).length;
+    const skippedCount = failures.filter((item) => item.skipped).length;
+    const costCents = successful.reduce((total, item) => total + Number(item.generation.costCents || 0), 0);
+    const receipts = batchRun.results.map((entry, jobIndex) => {
+      const job = jobs[jobIndex];
+      const provenance = provenanceFor(job);
+      const status = entry?.status === "fulfilled"
+        ? "validated"
+        : entry?.skipped === true ? "not-dispatched" : "failed";
+      return Object.fromEntries(Object.entries({
+        dispatchIndex: jobIndex + 1,
+        sourceIndex: job.sourceIndex,
+        sourceBindingId: job.source.bindingId,
+        sourceNodeId: job.source.nodeId || job.source.ownerNodeId,
+        sourceContainerId: job.source.containerId,
+        itemIndex: job.itemIndex,
+        title: cleanOneLine(job.item?.title || "", 100) || undefined,
+        commercePlanHash: provenance.commercePlanHash,
+        commerceSlotId: provenance.commerceSlotId,
+        commerceSlotIndex: provenance.commerceSlotIndex,
+        commerceLocaleCode: provenance.commerceLocaleCode,
+        status,
+        failureKind: status === "validated" ? undefined : entry?.failureKind,
+        errorCode: status === "validated" ? undefined : entry?.reason?.code || entry?.skipCode,
+        error: status === "validated" ? undefined : cleanOneLine(entry?.reason?.message || String(entry?.reason || ""), 260) || undefined
+      }).filter(([, value]) => value !== undefined));
+    }).sort((left, right) => (
+      left.sourceIndex - right.sourceIndex || left.itemIndex - right.itemIndex
+    ));
+    const failedReceipts = receipts.filter((receipt) => receipt.status === "failed");
+    const notDispatchedReceipts = receipts.filter((receipt) => receipt.status === "not-dispatched");
+    const goalSummary = {
+      ...batchRun.summary,
+      matrix: {
+        sourceBindingCount: sourceJobs.length,
+        outputsPerSource: batchItems.length,
+        totalRequests: jobs.length,
+        commercePlanHash,
+        probeSourceBindingIds: probeSourceJobs.map((job) => job.source.bindingId)
+      },
+      receipts
+    };
+    return {
+      actions,
+      modelOutput: [
+        "image_gen Goal execution completed.",
+        `operation: ${toolArgs.operation}`,
+        `snapshotHash: ${scope.snapshotHash}`,
+        `matrix: ${sourceJobs.length}x${batchItems.length}=${jobs.length}`,
+        commercePlanHash ? `commercePlanHash: ${commercePlanHash}` : "",
+        `validated: ${successful.length}`,
+        `failed: ${failedCount}`,
+        `not_dispatched: ${skippedCount}`,
+        `circuit: ${batchRun.summary.circuit.open ? batchRun.summary.circuit.code : "closed"}`,
+        `failed_receipts: ${JSON.stringify(failedReceipts)}`,
+        `not_dispatched_receipts: ${JSON.stringify(notDispatchedReceipts)}`,
+        "project-local output_paths ready for view_image:",
+        ...outputPaths.map((value) => `- ${value}`),
+        "Requests already accepted upstream may still be charged; the circuit breaker only prevents later dispatches."
+      ].join("\n"),
+      result: [
+        "IMAGE Goal 已按冻结 SOURCE 范围执行。",
+        `tool: ${primaryImageToolName}`,
+        `operation: ${toolArgs.operation}`,
+        "scopeExecution: all-goal-sources",
+        `snapshotHash: ${scope.snapshotHash}`,
+        `matrix: ${sourceJobs.length}x${batchItems.length}`,
+        commercePlanHash ? `commercePlanHash: ${commercePlanHash}` : "",
+        `total: ${jobs.length}`,
+        `validated: ${successful.length}`,
+        `failed: ${failedCount}`,
+        `notDispatched: ${skippedCount}`,
+        `probeValidated: ${batchRun.summary.probe.succeeded}/${batchRun.summary.probe.targetSize}`,
+        `maximumObservedConcurrency: ${batchRun.summary.maxConcurrentObserved}`,
+        `circuit: ${batchRun.summary.circuit.open ? batchRun.summary.circuit.code : "closed"}`,
+        `costCents: ${costCents}`,
+        "计费边界：已派发或已被上游接受的请求仍可能计费，暂停、结束或熔断只阻止尚未派发的请求。"
+      ].join("\n"),
+      summary: goalSummary
     };
   }
 
@@ -3529,6 +4598,18 @@ function createAgentRuntime(options) {
       const isGenerate = toolArgs.mode === "generate";
       const actionParentId = String(toolArgs.parentId || "").trim();
       const currentToolRunId = String(toolArgs.toolRunId || context.toolRunId || toolArgs.runId || toolRunId(context, "image-gen"));
+      if (toolArgs.scopeExecution === goalScopeExecutionValue) {
+        const goalExecution = await runGoalImageGeneration(toolArgs, context, currentToolRunId);
+        return {
+          envelope: storeToolResult(
+            name,
+            { ...toolArgs, goalTaskScope: undefined },
+            goalExecution.result,
+            { modelOutput: goalExecution.modelOutput, batchSafety: goalExecution.summary }
+          ),
+          actions: goalExecution.actions
+        };
+      }
       const toolLabel =
         toolArgs.operation === "variants"
           ? "多款设计"
@@ -4921,11 +6002,74 @@ function createAgentRuntime(options) {
     let first = null;
     let assistantMessage = null;
     let modelRound = 0;
+    let goalImageToolCallAccepted = false;
     // Complex native tool sequences can legitimately include reference review,
     // generation, result review and one corrective pass. Keep a generous safety
     // ceiling while relying on the tool schema, duplicate-call guard and bounded
     // review contract to make the model converge naturally.
     const maxModelRounds = 16;
+
+    function appendSteersToMessages(queued, boundary = "boundary") {
+      if (!Array.isArray(queued) || !queued.length) return [];
+      const scopeSteer = [...queued].reverse().find((item) => item?.taskScope && typeof item.taskScope === "object");
+      let appliedTaskScope = null;
+      if (scopeSteer) {
+        appliedTaskScope = normalizedTaskScope({ taskScope: scopeSteer.taskScope });
+        payload.taskScope = appliedTaskScope;
+        if (Array.isArray(scopeSteer.nodes)) payload.nodes = scopeSteer.nodes;
+        payload.selectedNodeIds = [...appliedTaskScope.sourceNodeIds];
+        payload.selectedNodeId = appliedTaskScope.sourceNodeIds[0] || "";
+        payload.referenceImages = appliedTaskScope.referenceAssets.map((item) => ({ ...item }));
+      }
+      const steerText = queued
+        .map((item) => String(item?.prompt || "").trim())
+        .filter(Boolean)
+        .map((text, index) => `${index + 1}. ${text}`)
+        .join("\n")
+        .trim();
+      if (!steerText) return [];
+      const content = [
+        "[STEER: USER MODIFIED THE ACTIVE TASK]",
+        "Treat these instructions as the newest user intent. Stop the superseded plan and re-plan from the current completed results.",
+        steerText,
+        ...(appliedTaskScope ? [
+          `[TASK SCOPE UPDATE: SOURCE=${String(scopeSteer.taskScopeUpdate?.sourceMode || "keep").toUpperCase()}, REFERENCE=${String(scopeSteer.taskScopeUpdate?.referenceMode || "keep").toUpperCase()}]`,
+          "The following re-hashed Current Task Scope replaces the earlier attachment snapshot and is authoritative for every later tool call:",
+          taskScopeForPrompt({ taskScope: appliedTaskScope }).text
+        ] : [])
+      ].join("\n");
+      messages.push({ role: "user", content });
+      turnProtocolItems.push({ type: "message", role: "user", content: [{ type: "input_text", text: content }] });
+      progress({
+        phase: "steer-applied",
+        summary: "已接收运行中的修改需求，正在基于已完成结果重新规划。",
+        detail: {
+          boundary,
+          count: queued.length,
+          taskScopeSnapshotHash: appliedTaskScope?.snapshotHash,
+          sourceMode: scopeSteer?.taskScopeUpdate?.sourceMode,
+          referenceMode: scopeSteer?.taskScopeUpdate?.referenceMode
+        }
+      });
+      return queued;
+    }
+
+    function consumeSteers(boundary = "boundary") {
+      const queued = typeof payload.consumeSteers === "function" ? payload.consumeSteers() : [];
+      return appendSteersToMessages(queued, boundary);
+    }
+
+    function beginRuntimePhase(kind, meta = {}) {
+      if (typeof payload.beginPhase === "function") {
+        const phase = payload.beginPhase({ kind, ...meta });
+        if (phase?.signal) return phase;
+      }
+      return { signal: payload.signal, steered: false, finish: () => false };
+    }
+
+    function phaseWasSteered(phase, error) {
+      return phase?.steered === true || error?.code === "NAIMAGE_RUN_STEERED" || phase?.signal?.reason?.code === "NAIMAGE_RUN_STEERED";
+    }
 
     function appendToolMessage(call, envelope, name) {
       const modelOutput = typeof envelope?.modelOutput === "string" || Array.isArray(envelope?.modelOutput)
@@ -5023,8 +6167,19 @@ function createAgentRuntime(options) {
       }
       if (isImageToolName(name)) {
         try {
+          const submittedImageToolShape = rawImageToolShape(parsedInput);
           parsedInput = normalizeSingleImageItemCompatibility(parsedInput);
+          Object.defineProperty(parsedInput, rawImageToolShapeMarker, { value: submittedImageToolShape });
           const imageOperation = String(parsedInput.operation ?? parsedInput.mode ?? "").trim().toLowerCase();
+          const activeTaskScope = normalizedTaskScope({ taskScope: payload.taskScope });
+          if (activeTaskScope.origin === "goal") {
+            if (parsedInput.scopeExecution !== goalScopeExecutionValue) {
+              throw new Error("Goal TaskScope 必须由一次 image_gen(scopeExecution=all-goal-sources) 执行，不能逐项调用。");
+            }
+            if (goalImageToolCallAccepted) {
+              throw new Error("本次 Goal 已接受过 image_gen 调用；为避免重复扣费，禁止再次派发。");
+            }
+          }
           const publicImageOperations = new Set(["generate", "edit", "replace", "variants", "layers", "cutout", "redraw"]);
           if (!publicImageOperations.has(imageOperation)) {
             throw new Error(`image_gen operation=${imageOperation || "<missing>"} 无效。请使用公开 schema 中列出的 operation。`);
@@ -5054,6 +6209,7 @@ function createAgentRuntime(options) {
             });
             Object.defineProperty(parsedInput, normalizedImageToolArgsMarker, { value: true });
           }
+          if (parsedInput.scopeExecution === goalScopeExecutionValue) goalImageToolCallAccepted = true;
           input = parsedInput;
         } catch (error) {
           const validationError = cleanOneLine(errorMessage(error), 500);
@@ -5102,7 +6258,19 @@ function createAgentRuntime(options) {
       const params = toolParamsFromArgs(name, parsedInput);
       progress({ phase: "tool-start", tool: name, operationId: currentToolRunId, toolRunId: currentToolRunId, summary: brief, brief, operation, params, input: parsedInput });
       const stopPolling = startToolPolling(progress, name, brief, payload.runId, { operationId: currentToolRunId, toolRunId: currentToolRunId, operation, params, input: parsedInput });
+      const toolPhase = beginRuntimePhase("tool", { phaseId: currentToolRunId, tool: name });
       try {
+        if (phaseWasSteered(toolPhase)) {
+          stopPolling();
+          const envelope = {
+            ok: true,
+            tool: name,
+            summary: "用户修改了当前需求，旧计划中的工具未启动。",
+            internalOnly: true
+          };
+          toolResults.push(envelope);
+          return { envelope, actions: [], name, ok: true, steered: true };
+        }
         const result = await runTool(name, input, {
           settings,
           nodes: payload.nodes ?? [],
@@ -5118,7 +6286,7 @@ function createAgentRuntime(options) {
           selectedNodeIds: payload.selectedNodeIds ?? [],
           taskScope: payload.taskScope,
           referenceImages: payload.referenceImages ?? [],
-          signal: payload.signal,
+          signal: toolPhase.signal,
           waitUntilRunnable: payload.waitUntilRunnable,
           viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes
         });
@@ -5158,6 +6326,16 @@ function createAgentRuntime(options) {
         return { ...result, name, ok: true };
       } catch (error) {
         stopPolling();
+        if (phaseWasSteered(toolPhase, error)) {
+          const envelope = {
+            ok: true,
+            tool: name,
+            summary: "用户修改了当前需求，旧计划中的工具已中断。",
+            internalOnly: true
+          };
+          toolResults.push(envelope);
+          return { envelope, actions: [], name, ok: true, steered: true };
+        }
         const failure = makeToolErrorEnvelope(name, parsedInput, error);
         const envelope = storeToolResult(name, parsedInput, failure.resultText, {
           ok: false,
@@ -5183,6 +6361,8 @@ function createAgentRuntime(options) {
           input: parsedInput
         });
         return { envelope, actions: [], name, ok: false, error };
+      } finally {
+        toolPhase.finish?.();
       }
     }
 
@@ -5197,20 +6377,23 @@ function createAgentRuntime(options) {
       ));
       let waitingForUserAction = null;
       let failedTool = null;
+      let steered = false;
       settled.forEach((result, index) => {
         const item = batch[index];
         appendToolMessage(item.call, result.envelope, result.name || item.name);
+        if (result.steered) steered = true;
         if (!result.ok && !failedTool) failedTool = { ...result, callIndex: item.callIndex };
         if ((result.name || item.name) === "ask_user") {
           waitingForUserAction = (result.actions ?? [])[0] ?? waitingForUserAction;
         }
       });
-      return { failedTool, waitingForUserAction };
+      return { failedTool, waitingForUserAction, steered };
     }
 
     while (true) {
       await payload.waitUntilRunnable?.(payload.signal);
       if (payload.signal?.aborted) throw payload.signal.reason || new Error("任务已结束。");
+      consumeSteers("before-model");
       modelRound += 1;
       if (modelRound > maxModelRounds) {
         throw new Error(`Agent 工具循环超过 ${maxModelRounds} 轮，已停止以避免重复调用。`);
@@ -5220,7 +6403,12 @@ function createAgentRuntime(options) {
         summary: `请求 Agent 模型，第 ${modelRound} 轮。`
       });
       let response;
+      const modelPhase = beginRuntimePhase("model", { phaseId: `${payload.runId || "agent"}:model:${modelRound}` });
       try {
+        if (phaseWasSteered(modelPhase)) {
+          consumeSteers("before-model-phase");
+          continue;
+        }
         response = await callModel(
           settings,
           compactRuntimeMessagesForModel(messages),
@@ -5228,11 +6416,17 @@ function createAgentRuntime(options) {
             progress: (event) => progress({ ...event, modelRound }),
             tools: exposedTools,
             toolChoice: "auto",
-            signal: payload.signal
+            signal: modelPhase.signal
           }
         );
       } catch (error) {
+        if (phaseWasSteered(modelPhase, error)) {
+          consumeSteers("model-interrupted");
+          continue;
+        }
         throw error;
+      } finally {
+        modelPhase.finish?.();
       }
       progress({ phase: "model-response", summary: `Agent 模型第 ${modelRound} 轮已返回。` });
       if (!first) first = response;
@@ -5263,11 +6457,24 @@ function createAgentRuntime(options) {
           summary: assistantTextForProgress
         });
       }
-      if (toolCalls.length === 0) break;
+      if (toolCalls.length === 0) {
+        const queuedAfterResponse = typeof payload.consumeSteers === "function" ? payload.consumeSteers() : [];
+        if (!Array.isArray(queuedAfterResponse) || !queuedAfterResponse.length) break;
+        messages.push(assistantMessage);
+        appendSteersToMessages(queuedAfterResponse, "after-model");
+        continue;
+      }
 
       messages.push(assistantMessage);
+      const queuedBeforeTools = typeof payload.consumeSteers === "function" ? payload.consumeSteers() : [];
+      if (Array.isArray(queuedBeforeTools) && queuedBeforeTools.length) {
+        appendPendingToolSkips(toolCalls, 0, "User changed the active task; tools from the superseded plan were not executed.", { internalOnly: true });
+        appendSteersToMessages(queuedBeforeTools, "before-tools");
+        continue;
+      }
       let waitingForUserAction = null;
       let failedTool = null;
+      let steeredRound = false;
       let pendingParallelCalls = [];
       const toolCallSignatures = new Set();
       const flushPendingParallelCalls = async (skipStartIndex = toolCalls.length) => {
@@ -5277,6 +6484,12 @@ function createAgentRuntime(options) {
         const outcome = await flushParallelToolCalls(batch);
         waitingForUserAction = outcome.waitingForUserAction ?? waitingForUserAction;
         failedTool = outcome.failedTool ?? failedTool;
+        if (outcome.steered) {
+          steeredRound = true;
+          appendPendingToolSkips(toolCalls, skipStartIndex, "User changed the active task; remaining tools from the superseded plan were not executed.", { internalOnly: true });
+          consumeSteers("tool-interrupted");
+          return true;
+        }
         if (failedTool) {
           appendPendingToolSkips(toolCalls, skipStartIndex, "上一并行工具失败，本轮后续工具未执行，等待 Agent 重新决策。", {
             internalOnly: failedTool.envelope?.internalOnly === true
@@ -5311,6 +6524,12 @@ function createAgentRuntime(options) {
           ? exactDuplicateToolResult(call, name)
           : await executeToolCall(call, name);
         appendToolMessage(call, result.envelope, name);
+        if (result.steered) {
+          steeredRound = true;
+          appendPendingToolSkips(toolCalls, callIndex + 1, "User changed the active task; remaining tools from the superseded plan were not executed.", { internalOnly: true });
+          consumeSteers("tool-interrupted");
+          break;
+        }
         if (!result.ok) {
           failedTool = { ...result, callIndex };
           appendPendingToolSkips(toolCalls, callIndex + 1, "上一工具失败，本轮后续工具未执行，等待 Agent 重新决策。", {
@@ -5334,6 +6553,7 @@ function createAgentRuntime(options) {
       if (!failedTool && !waitingForUserAction) {
         await flushPendingParallelCalls(toolCalls.length);
       }
+      if (steeredRound) continue;
       if (waitingForUserAction) {
         const request = waitingForUserAction.request ?? {};
         assistantMessage = {
@@ -5728,6 +6948,8 @@ function createAgentRuntime(options) {
     debugScenario,
     smokeTest,
     ensureMemory,
+    normalizeTaskScope: normalizedTaskScope,
+    normalizeSteerTaskScopeUpdate: normalizedSteerTaskScopeUpdate,
     dispose: disposeMemoryStore
   };
 }
@@ -5737,6 +6959,7 @@ module.exports = {
   toolSchemas,
   defaultPromptText,
   normalizedTaskScope,
+  normalizedSteerTaskScopeUpdate,
   taskScopeSnapshotHash,
   taskScopeForPrompt,
   validateImageOperationSourcePolicy,

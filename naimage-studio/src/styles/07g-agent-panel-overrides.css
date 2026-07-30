@@ -216,12 +216,126 @@
   resize: none;
 }
 
+.project-agent-task-mode {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(68px, auto)) minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+
+.project-agent-task-mode button {
+  min-width: 68px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  background: var(--surface-solid);
+  cursor: pointer;
+}
+
+.project-agent-task-mode button.active {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-solid));
+  font-weight: 700;
+}
+
+.project-agent-task-mode button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.project-agent-task-mode small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-agent-steer-mode {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.project-agent-steer-mode select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-solid);
+  font: inherit;
+}
+
+.project-agent-steer-mode select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.project-agent-steer-mode > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-agent-composer-meta {
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.project-agent-composer-meta.goal {
+  justify-content: stretch;
+}
+
+.project-agent-goal-context {
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 6px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-solid));
+  font-size: 10px;
+}
+
+.project-agent-goal-context strong,
+.project-agent-goal-context span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-agent-goal-context span {
+  color: var(--muted);
 }
 
 .project-agent-composer-context {
@@ -347,6 +461,149 @@
 
 .project-agent-composer footer .project-agent-run-controls button {
   min-width: 72px;
+}
+
+.goal-confirmation-dialog {
+  width: min(540px, calc(100vw - 28px));
+}
+
+.goal-confirmation-body {
+  display: grid;
+  gap: 14px;
+}
+
+.goal-confirmation-scope {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--line));
+  border-radius: 7px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-solid));
+}
+
+.goal-confirmation-scope > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.goal-confirmation-scope strong,
+.goal-confirmation-scope span {
+  overflow-wrap: anywhere;
+}
+
+.goal-confirmation-scope span,
+.goal-confirmation-scope code {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.goal-confirmation-scope code {
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-confirmation-notice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--rose) 42%, var(--line));
+  border-radius: 7px;
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 7%, var(--surface-solid));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.goal-confirmation-notice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.goal-confirmation-policy {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.goal-confirmation-policy li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.goal-confirmation-policy li:last-child {
+  color: var(--rose);
+}
+
+.goal-confirmation-cost {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.goal-confirmation-cost strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.goal-confirmation-cost span,
+.goal-confirmation-skipped {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.goal-confirmation-skipped summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.goal-confirmation-skipped p {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .project-agent-task-mode {
+    grid-template-columns: repeat(2, minmax(64px, 1fr));
+  }
+
+  .project-agent-task-mode small {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+
+  .goal-confirmation-scope {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .goal-confirmation-scope code {
+    grid-column: 2;
+  }
+
+  .goal-confirmation-cost {
+    display: grid;
+    gap: 3px;
+  }
 }
 
 .project-agent-feed {

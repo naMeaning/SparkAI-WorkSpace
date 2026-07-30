@@ -49,6 +49,8 @@ export function parseAidebugOptions(argv, env, context) {
   const selectionCommandSuiteOnly = has("--selection-command-suite") || has("--selection-suite");
   const contextMenuSuiteOnly = has("--context-menu-suite") || has("--menu-suite");
   const requirementNodeSuiteOnly = has("--requirement-node-suite") || has("--requirement-suite");
+  const skillNodeSuiteOnly = has("--skill-node-suite") || has("--skills-suite");
+  const goalModeSuiteOnly = has("--goal-mode-suite") || has("--goal-suite");
   const askUserContinuationSuiteOnly = has("--ask-user-continuation-suite") || has("--ask-user-suite");
   const failureDiagnosticsSelfTestOnly = has("--failure-diagnostics-selftest");
   const imageRunsArg = find("--image-runs=");
@@ -156,6 +158,8 @@ export function parseAidebugOptions(argv, env, context) {
     selectionCommandSuiteOnly,
     contextMenuSuiteOnly,
     requirementNodeSuiteOnly,
+    skillNodeSuiteOnly,
+    goalModeSuiteOnly,
     askUserContinuationSuiteOnly,
     failureDiagnosticsSelfTestOnly,
     imageRuns,

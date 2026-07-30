@@ -9,6 +9,10 @@ import {
   upsertRequirementInputBinding,
 } from "../src/requirement-graph.ts";
 import { stableRequirementInputSignature } from "../src/requirement-signature.ts";
+import {
+  connectCanvasRelations,
+  disconnectCanvasRelations,
+} from "../src/canvas-relation-graph.ts";
 
 const image = (id: string, role?: "source" | "reference", content = id): WorkflowNode => ({
   id,
@@ -90,6 +94,79 @@ const removed = removeRequirementInputBindings(model, new Set([source.id]));
 assert.deepEqual(removed.inputBindings, [{ nodeId: "REF", role: "reference" }]);
 assert.equal(primaryRequirementInputNodeId(removed.inputBindings!), "REF");
 
+const connected = connectCanvasRelations([source, reference, requirement([{ nodeId: "SRC", role: "source" }])], [{
+  sourceId: "REF",
+  targetId: "REQ",
+  relationType: "referenced",
+  inputRole: "reference",
+}]);
+const connectedRequirement = connected.nodes.find((node) => node.id === "REQ")!;
+assert.equal(connectedRequirement.requirement?.revision, 2, "Relation edits participate in Requirement revision CAS");
+assert.deepEqual(requirementInputBindings(connectedRequirement, connected.nodes), [
+  { nodeId: "SRC", role: "source" },
+  { nodeId: "REF", role: "reference" },
+]);
+const disconnected = disconnectCanvasRelations(connected.nodes, [{ sourceId: "SRC", targetId: "REQ" }]);
+const disconnectedRequirement = disconnected.nodes.find((node) => node.id === "REQ")!;
+assert.equal(disconnectedRequirement.requirement?.revision, 3);
+assert.equal(disconnectedRequirement.parentId, "REF", "Primary compatibility parent must be recomputed after an exact disconnect");
+
+const idempotent = connectCanvasRelations(connected.nodes, [{ sourceId: "REF", targetId: "REQ", relationType: "referenced", inputRole: "reference" }]);
+assert.equal(idempotent.changed, false);
+assert.equal(idempotent.nodes.find((node) => node.id === "REQ")?.requirement?.revision, 2);
+
+assert.throws(
+  () => connectCanvasRelations([source, reference, requirement()], [
+    { sourceId: "SRC", targetId: "REQ", inputRole: "source" },
+    { sourceId: "SRC", targetId: "REQ", inputRole: "reference" },
+  ]),
+  (error: unknown) => (error as { code?: string }).code === "INVALID_ARGUMENT",
+  "Conflicting duplicate edges must fail instead of silently taking the first entry",
+);
+assert.throws(
+  () => connectCanvasRelations([source, requirement()], [{ sourceId: "SRC", targetId: "REQ", relationType: "variant", inputRole: "source" }]),
+  (error: unknown) => (error as { code?: string }).code === "INVALID_ARGUMENT",
+  "Requirement inputs must not silently normalize an explicit incompatible relation type",
+);
+
+const cycleRequirement = requirement([{ nodeId: "SRC", role: "source" }]);
+const cycleChild = image("CHILD", "source", "child");
+cycleChild.parentId = "REQ";
+cycleChild.relationType = "derived-from";
+const cycleSnapshot = JSON.stringify([source, cycleChild, cycleRequirement]);
+assert.throws(
+  () => connectCanvasRelations([source, cycleChild, cycleRequirement], [{ sourceId: "CHILD", targetId: "REQ", inputRole: "source" }]),
+  (error: unknown) => (error as { code?: string }).code === "GRAPH_CYCLE",
+  "Cycle detection must include every Requirement input, not only its primary compatibility parent",
+);
+assert.equal(JSON.stringify([source, cycleChild, cycleRequirement]), cycleSnapshot, "A failed batch must not mutate its source snapshot");
+const stagedBatchSource = [source, reference, cycleChild, cycleRequirement];
+const stagedBatchSnapshot = JSON.stringify(stagedBatchSource);
+assert.throws(
+  () => connectCanvasRelations(stagedBatchSource, [
+    { sourceId: "REF", targetId: "SRC", relationType: "referenced" },
+    { sourceId: "CHILD", targetId: "REQ", inputRole: "source" },
+  ]),
+  (error: unknown) => (error as { code?: string }).code === "GRAPH_CYCLE",
+  "A later invalid edge must roll back an earlier valid edge in the same staged batch",
+);
+assert.equal(JSON.stringify(stagedBatchSource), stagedBatchSnapshot);
+assert.equal(source.parentId, undefined);
+
+const ordinaryTarget = image("TARGET", "source", "target");
+ordinaryTarget.parentId = "SRC";
+ordinaryTarget.relationType = "derived-from";
+assert.throws(
+  () => connectCanvasRelations([source, reference, ordinaryTarget], [{ sourceId: "REF", targetId: "TARGET" }]),
+  (error: unknown) => (error as { code?: string }).code === "RELATION_CONFLICT",
+);
+const replaced = connectCanvasRelations(
+  [source, reference, ordinaryTarget],
+  [{ sourceId: "REF", targetId: "TARGET", relationType: "referenced" }],
+  { replaceExisting: true },
+);
+assert.equal(replaced.nodes.find((node) => node.id === "TARGET")?.parentId, "REF");
+
 console.log(JSON.stringify({
   ok: true,
   legacyFallback: true,
@@ -98,4 +175,7 @@ console.log(JSON.stringify({
   roleSensitiveSignature: true,
   contentSensitiveSignature: true,
   removalStable: true,
+  relationRevisionCas: true,
+  exactDisconnect: true,
+  atomicCycleRejection: true,
 }));

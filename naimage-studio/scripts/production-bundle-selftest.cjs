@@ -1,5 +1,11 @@
 const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
 const { basename, join, resolve } = require("node:path");
+const {
+  ADVISORY_BUDGET_KEYS,
+  BUNDLE_LIMITS,
+  HARD_BUDGET_KEYS,
+  classifyBundleBudgets
+} = require("./production-bundle-policy.cjs");
 
 const root = resolve(__dirname, "..");
 const dist = join(root, "dist");
@@ -64,27 +70,21 @@ const forbiddenMarkers = [
 ];
 const leakedMarkers = forbiddenMarkers.filter((marker) => jsText.includes(marker));
 
-const limits = {
-  // Plugins are an async product boundary and have an independent allowance.
-  // The core ceiling therefore remains useful as the plugin catalog grows.
-  initialJsBytes: 670_000,
-  coreAsyncJsBytes: 180_000,
-  coreJsBytes: 740_000,
-  pluginJsBytes: 120_000,
-  cssBytes: 220_000,
-  totalBytes: 1_000_000
-};
+const limits = BUNDLE_LIMITS;
 const failures = [];
 if (leakedMarkers.length) failures.push(`AIDebug markers leaked: ${leakedMarkers.join(", ")}`);
 if (!initialJsFiles.length) failures.push("production entry JS could not be identified from dist/index.html");
 if (!pluginJsFiles.length) failures.push("plugin JS chunks missing; expected plugin-* or commerce-*-dialog chunks");
 if (pluginInitialJsFiles.length) failures.push(`plugin JS must remain async: ${pluginInitialJsFiles.map((path) => basename(path)).join(", ")}`);
-if (initialJsBytes > limits.initialJsBytes) failures.push(`initial JS ${initialJsBytes} > ${limits.initialJsBytes}`);
-if (coreAsyncJsBytes > limits.coreAsyncJsBytes) failures.push(`core async JS ${coreAsyncJsBytes} > ${limits.coreAsyncJsBytes}`);
-if (coreJsBytes > limits.coreJsBytes) failures.push(`core JS ${coreJsBytes} > ${limits.coreJsBytes}`);
-if (pluginJsBytes > limits.pluginJsBytes) failures.push(`plugin JS ${pluginJsBytes} > ${limits.pluginJsBytes}`);
-if (cssBytes > limits.cssBytes) failures.push(`CSS ${cssBytes} > ${limits.cssBytes}`);
-if (totalBytes > limits.totalBytes) failures.push(`dist ${totalBytes} > ${limits.totalBytes}`);
+const budgetAssessment = classifyBundleBudgets({
+  initialJsBytes,
+  coreAsyncJsBytes,
+  coreJsBytes,
+  pluginJsBytes,
+  cssBytes,
+  totalBytes
+});
+failures.push(...budgetAssessment.failures);
 
 const report = {
   ok: failures.length === 0,
@@ -101,7 +101,15 @@ const report = {
   totalBytes,
   iconBytes: statSync(join(dist, "naimage.png")).size,
   limits,
+  gatePolicy: {
+    hardBudgets: HARD_BUDGET_KEYS,
+    advisoryBudgets: ADVISORY_BUDGET_KEYS,
+    structuralChecks: ["AIDebug leakage", "entry detection", "plugin chunk presence", "plugin async boundary"],
+    productPerformance: "separate hard release gate"
+  },
+  budgetChecks: budgetAssessment.checks,
   leakedMarkers,
+  advisories: budgetAssessment.advisories,
   failures
 };
 

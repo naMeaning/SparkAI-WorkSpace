@@ -17,12 +17,38 @@ export function cloneAgentTaskScope(scope: AgentTaskScope): AgentTaskScope {
     referenceBindingIds: [...scope.referenceBindingIds],
     sourceAssets: scope.sourceAssets.map((asset) => ({ ...asset })),
     referenceAssets: scope.referenceAssets.map((asset) => ({ ...asset })),
-    requirement: scope.requirement ? { ...scope.requirement } : undefined
+    requirement: scope.requirement ? { ...scope.requirement } : undefined,
+    goal: scope.goal
+      ? {
+          ...scope.goal,
+          containerIds: [...scope.goal.containerIds],
+          bindingIds: [...scope.goal.bindingIds]
+        }
+      : undefined
   };
+}
+
+export function isFrozenGoalTaskScope(scope: AgentTaskScope | undefined): boolean {
+  return Boolean(scope && (
+    scope.origin === "goal" ||
+    scope.goal?.target === "all-image-containers"
+  ));
 }
 
 export function mergeAgentTaskScopes(base: AgentTaskScope | undefined, added: AgentTaskScope): AgentTaskScope {
   if (!base) return cloneAgentTaskScope(added);
+  if (isFrozenGoalTaskScope(base) || isFrozenGoalTaskScope(added)) {
+    const baseMaterialHash = agentTaskScopeSnapshotHash(base);
+    const addedMaterialHash = agentTaskScopeSnapshotHash(added);
+    if (
+      isFrozenGoalTaskScope(base) &&
+      isFrozenGoalTaskScope(added) &&
+      baseMaterialHash === addedMaterialHash
+    ) {
+      return { ...cloneAgentTaskScope(base), snapshotHash: baseMaterialHash };
+    }
+    throw new Error("Goal TaskScope 是冻结的全画布容器快照，不能隐式合并或追加素材；请显式创建新的 Goal。");
+  }
   const mergeAssets = (left: TaskAssetReference[], right: TaskAssetReference[], limit: number) => {
     const seen = new Set<string>();
     return [...left, ...right].filter((item, index) => {

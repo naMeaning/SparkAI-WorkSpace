@@ -1,6 +1,9 @@
 "use strict";
 
-const { mergeProjectSessions } = require("../project-session-merge.cjs");
+const {
+  mergeProjectSessions,
+  prepareIncomingNodeMutationSession
+} = require("../project-session-merge.cjs");
 
 function registerSettingsIpc({
   ipcMain,
@@ -10,6 +13,7 @@ function registerSettingsIpc({
   defaultSettings,
   log,
   onNewApiAccountBaseUrlChanged,
+  onSettingsSaved,
   publicSettings,
   themePresetService,
   validateNewApiServiceSettings,
@@ -21,7 +25,7 @@ function registerSettingsIpc({
     return { ok: true, path: settingsPath, settings: publicSettings(settings) };
   });
 
-  ipcMain.handle("naimage:config:save-settings", (_event, settings) => {
+  ipcMain.handle("naimage:config:save-settings", (event, settings) => {
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     const incomingSessionCookie = typeof settings?.serverSessionCookie === "string" ? settings.serverSessionCookie.trim() : "";
     const incomingServerUserId = typeof settings?.serverUserId === "string" ? settings.serverUserId.trim() : "";
@@ -58,6 +62,11 @@ function registerSettingsIpc({
       onNewApiAccountBaseUrlChanged?.(current, next);
     }
     writeJson(settingsPath, next);
+    try {
+      onSettingsSaved?.(event, next, current);
+    } catch (error) {
+      log(`config saved callback failed ${error instanceof Error ? error.message : String(error)}`);
+    }
     log("config save settings");
     return { ok: true, path: settingsPath, accountChanged };
   });
@@ -101,7 +110,7 @@ function registerSessionIpc({
     return { ok: true, path: activeSessionPath, project: activeProject, projects: list.projects, activeProjectId: activeProject?.id || list.activeProjectId, session };
   });
 
-  ipcMain.handle("naimage:config:save-session", async (_event, session) => {
+  ipcMain.handle("naimage:config:save-session", async (_event, session, saveOptions = {}) => {
     const list = readProjectList();
     const requestedProjectId = typeof session?.projectId === "string" ? session.projectId.trim() : "";
     const targetProject = requestedProjectId ? getProjectById(requestedProjectId, list) : getActiveProject(list);
@@ -109,7 +118,16 @@ function registerSessionIpc({
       return { ok: false, error: "保存目标项目不存在或已被移除。", appliedRevision: 0, skippedStale: false };
     }
     const activeSessionPath = targetProject?.sessionPath || sessionPath;
-    const requestedRevision = session?.revision ?? session?.sessionRevision;
+    const requestedRevision = saveOptions?.revision ?? session?.revision ?? session?.sessionRevision;
+    const nodeMutationOptions = saveOptions?.nodeMutation && typeof saveOptions.nodeMutation === "object"
+      ? saveOptions.nodeMutation
+      : {};
+    const prepareIncomingSession = (latestRaw) => prepareIncomingNodeMutationSession(latestRaw, session, {
+      writerId: nodeMutationOptions.writerId,
+      baselineNodes: nodeMutationOptions.baselineNodes,
+      nextWriterSequence: nodeMutationOptions.writerSequence,
+      observedRevision: nodeMutationOptions.observedRevision
+    });
     const projectKey = targetProject?.id || "__global__";
     const applySession = async (appliedRevision, inputSession, mergedStale = false) => {
       const nextInput = { ...defaultSession, ...inputSession, sessionRevision: appliedRevision };
@@ -130,18 +148,54 @@ function registerSessionIpc({
         writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
       }
       log(`config save session project=${targetProject?.id || "global"} revision=${appliedRevision}${mergedStale ? " merged-stale" : ""}`);
-      return { ok: true, path: activeSessionPath, applied: true, mergedStale };
+      return {
+        ok: true,
+        path: activeSessionPath,
+        applied: true,
+        mergedStale,
+        nodeMutationJournal: Array.isArray(next.nodeMutationJournal) ? next.nodeMutationJournal : [],
+        nodeMutationWriterCheckpoints: Array.isArray(next.nodeMutationWriterCheckpoints) ? next.nodeMutationWriterCheckpoints : [],
+        nodeMutationBarriers: Array.isArray(next.nodeMutationBarriers) ? next.nodeMutationBarriers : []
+      };
     };
-    let saveResult = await projectSessionSaveCoordinator.enqueue(projectKey, requestedRevision, (appliedRevision) =>
-      applySession(appliedRevision, session, false)
-    );
+    let saveResult = await projectSessionSaveCoordinator.enqueue(projectKey, requestedRevision, async (appliedRevision) => {
+      const latestRaw = readJson(activeSessionPath, defaultSession);
+      const prepared = prepareIncomingSession(latestRaw);
+      const reconciled = mergeProjectSessions(latestRaw, prepared.session, {
+        nextRevision: appliedRevision,
+        incomingOwnsNonNodeState: true,
+        incomingWriterId: nodeMutationOptions.writerId
+      });
+      const applied = await applySession(appliedRevision, reconciled.session, false);
+      return {
+        ...applied,
+        remappedNodeIds: reconciled.remappedNodeIds,
+        nodeMutationJournal: reconciled.nodeMutationJournal,
+        nodeMutationWriterCheckpoints: reconciled.nodeMutationWriterCheckpoints,
+        nodeMutationBarriers: reconciled.nodeMutationBarriers,
+        nodeMutationWriterSequence: prepared.nextWriterSequence
+      };
+    });
     if (saveResult?.skippedStale) {
       const staleRequestedRevision = saveResult.requestedRevision;
       saveResult = await projectSessionSaveCoordinator.enqueue(projectKey, null, async (appliedRevision) => {
         const latestRaw = readJson(activeSessionPath, defaultSession);
-        const merged = mergeProjectSessions(latestRaw, session, { nextRevision: appliedRevision });
+        const prepared = prepareIncomingSession(latestRaw);
+        const merged = mergeProjectSessions(latestRaw, prepared.session, {
+          nextRevision: appliedRevision,
+          incomingWriterId: nodeMutationOptions.writerId
+        });
         const applied = await applySession(appliedRevision, merged.session, true);
-        return { ...applied, remappedNodeIds: merged.remappedNodeIds, mergedConversationCount: merged.mergedConversationCount, staleRequestedRevision };
+        return {
+          ...applied,
+          remappedNodeIds: merged.remappedNodeIds,
+          mergedConversationCount: merged.mergedConversationCount,
+          nodeMutationJournal: merged.nodeMutationJournal,
+          nodeMutationWriterCheckpoints: merged.nodeMutationWriterCheckpoints,
+          nodeMutationBarriers: merged.nodeMutationBarriers,
+          nodeMutationWriterSequence: prepared.nextWriterSequence,
+          staleRequestedRevision
+        };
       });
     }
     return { ...saveResult, path: saveResult.path || activeSessionPath };

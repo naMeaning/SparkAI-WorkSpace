@@ -14,14 +14,45 @@ const studioIconPlugin: Plugin = {
   }
 };
 
+const compactBuildHtmlPlugin: Plugin = {
+  name: "naimage-compact-build-html",
+  apply: "build" as const,
+  enforce: "post" as const,
+  transformIndexHtml(html) {
+    return html
+      .replace(/<!--[^]*?-->/g, "")
+      .replace(/<style>([^]*?)<\/style>/g, (_match, css: string) => `<style>${css
+        .replace(/\s+/g, " ")
+        .replace(/\s*([{}:;,])\s*/g, "$1")
+        .trim()}</style>`)
+      .replace(/>\s+</g, "><")
+      .trim();
+  }
+};
+
 export default defineConfig(({ command, mode }) => ({
   base: "./",
-  plugins: [react(), studioIconPlugin],
+  plugins: [react(), studioIconPlugin, compactBuildHtmlPlugin],
   define: {
     __NAIMAGE_AIDEBUG__: JSON.stringify(command === "serve"),
     __NAIMAGE_PERF_PROBE__: JSON.stringify(command === "build" && mode === "performance")
   },
   build: {
+    minify: "terser",
+    terserOptions: {
+      ecma: 2020,
+      module: true,
+      compress: {
+        passes: 4,
+        toplevel: true,
+        keep_fargs: false,
+        booleans_as_integers: true,
+        drop_console: true,
+        drop_debugger: true
+      },
+      mangle: { toplevel: true },
+      format: { comments: false }
+    },
     copyPublicDir: false,
     rolldownOptions: {
       output: {

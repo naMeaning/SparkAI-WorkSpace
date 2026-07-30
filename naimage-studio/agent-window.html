@@ -27,6 +27,28 @@
         <small id="model-name"></small>
       </section>
 
+      <section id="agent-goal-controls" class="agent-goal-controls" aria-label="Agent 任务模式">
+        <div id="task-mode-row" class="task-mode-row">
+          <div class="task-mode-switch" role="group" aria-label="Agent 任务模式">
+            <button id="standard-mode" class="active" type="button" aria-pressed="true">普通</button>
+            <button id="goal-mode" type="button" aria-pressed="false">Goal</button>
+          </div>
+          <span id="goal-availability">正在读取画布 Goal 范围</span>
+        </div>
+        <div id="goal-summary" class="goal-summary" hidden>
+          <div class="goal-summary-heading">
+            <strong id="goal-summary-title">全部图片容器</strong>
+            <span id="goal-counts"></span>
+            <code id="goal-hash"></code>
+          </div>
+          <div class="goal-metrics">
+            <span id="goal-probe"></span>
+            <span id="goal-cost"></span>
+          </div>
+          <p id="goal-warning"></p>
+        </div>
+      </section>
+
       <section id="agent-feed" class="agent-feed" aria-label="Agent 对话"></section>
 
       <section class="agent-context" aria-label="当前图片上下文">
@@ -38,6 +60,22 @@
 
       <form id="agent-composer" class="agent-composer">
         <textarea id="agent-prompt" rows="5" placeholder="告诉 Agent 你想完成什么…" aria-label="Agent 指令"></textarea>
+        <label id="steer-mode-field" class="steer-mode-field" hidden>
+          <span>本次 TaskScope</span>
+          <select id="steer-mode" aria-label="运行中素材修改方式">
+            <option value="auto">自动：选中替换 SOURCE，参考图追加</option>
+            <option value="keep">仅修改文字，保留 SOURCE / REFERENCE</option>
+            <option value="replace-source">替换 SOURCE</option>
+            <option value="merge-source">追加 SOURCE</option>
+            <option value="replace-reference">替换 REFERENCE</option>
+            <option value="merge-reference">追加 REFERENCE</option>
+            <option value="clear-attachments">清空 SOURCE / REFERENCE</option>
+          </select>
+        </label>
+        <div id="goal-steer-lock" class="goal-steer-lock" hidden>
+          <strong>Goal 范围已冻结</strong>
+          <span>运行中只能修改文字，不会替换或追加 SOURCE / REFERENCE。</span>
+        </div>
         <footer>
           <div class="dock-controls">
             <label for="dock-select">收回</label>
@@ -52,6 +90,7 @@
           </div>
           <span class="shortcut">Ctrl + Enter</span>
           <button id="pause-button" class="pause-button" type="button" hidden>暂停</button>
+          <button id="stop-button" class="stop-button" type="button" hidden>结束</button>
           <button id="send-button" class="send-button" type="submit">发送</button>
         </footer>
       </form>

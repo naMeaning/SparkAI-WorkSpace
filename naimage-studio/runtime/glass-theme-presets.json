@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "type": "naimage-glass-theme-registry",
+  "defaults": {
+    "theme": "light-sky",
+    "material": "frosted",
+    "accent": "theme",
+    "noise": true,
+    "reduceMotion": false
+  },
+  "themeOrder": [
+    "dark-rose",
+    "dark-ember",
+    "dark-emerald",
+    "light-lemon",
+    "light-sky",
+    "light-blush"
+  ],
+  "materialOrder": ["clear", "frosted", "dense"],
+  "accentOrder": ["theme", "rose", "mint", "coral", "amber", "ice"],
+  "ranges": {
+    "opacity": { "min": 8, "max": 72, "step": 1, "unit": "%" },
+    "blur": { "min": 0, "max": 48, "step": 1, "unit": "px" },
+    "saturation": { "min": 70, "max": 180, "step": 1, "unit": "%" },
+    "highlight": { "min": 8, "max": 70, "step": 1, "unit": "%" },
+    "shadow": { "min": 0, "max": 70, "step": 1, "unit": "%" },
+    "radius": { "min": 4, "max": 24, "step": 1, "unit": "px" }
+  },
+  "accents": {
+    "rose": { "name": "樱粉", "color": "#ff8eb8", "rgb": "255, 142, 184", "ink": "#3c1022" },
+    "mint": { "name": "薄荷绿", "color": "#73e3af", "rgb": "115, 227, 175", "ink": "#062a1c" },
+    "coral": { "name": "珊瑚红", "color": "#ff8b78", "rgb": "255, 139, 120", "ink": "#3d130d" },
+    "amber": { "name": "琥珀金", "color": "#f4bd67", "rgb": "244, 189, 103", "ink": "#312000" },
+    "ice": { "name": "冰川蓝", "color": "#8bc9ee", "rgb": "139, 201, 238", "ink": "#092b3d" }
+  },
+  "modeTokens": {
+    "dark": {
+      "line": "rgba(255, 255, 255, 0.1)",
+      "lineStrong": "rgba(255, 255, 255, 0.18)",
+      "solidControl": "rgba(255, 255, 255, 0.065)",
+      "solidControlHover": "rgba(255, 255, 255, 0.105)",
+      "success": "#78ddb2",
+      "danger": "#ff8477"
+    },
+    "light": {
+      "line": "rgba(43, 48, 45, 0.09)",
+      "lineStrong": "rgba(43, 48, 45, 0.16)",
+      "solidControl": "rgba(255, 255, 255, 0.44)",
+      "solidControlHover": "rgba(255, 255, 255, 0.68)",
+      "success": "#278662",
+      "danger": "#c4473d"
+    }
+  },
+  "materialPresets": {
+    "dark": {
+      "clear": { "opacity": 10, "blur": 10, "saturation": 112, "highlight": 24, "shadow": 20, "radius": 10 },
+      "frosted": { "opacity": 22, "blur": 26, "saturation": 138, "highlight": 34, "shadow": 40, "radius": 14 },
+      "dense": { "opacity": 62, "blur": 18, "saturation": 116, "highlight": 20, "shadow": 50, "radius": 12 }
+    },
+    "light": {
+      "clear": { "opacity": 24, "blur": 12, "saturation": 112, "highlight": 62, "shadow": 12, "radius": 10 },
+      "frosted": { "opacity": 44, "blur": 28, "saturation": 128, "highlight": 70, "shadow": 18, "radius": 14 },
+      "dense": { "opacity": 72, "blur": 20, "saturation": 112, "highlight": 76, "shadow": 24, "radius": 12 }
+    }
+  },
+  "themes": {
+    "dark-rose": {
+      "name": "绯樱夜光",
+      "mode": "dark",
+      "accent": "rose",
+      "tokens": {
+        "glassRgb": "48, 30, 40",
+        "accent": "#ff8eb8",
+        "accentRgb": "255, 142, 184",
+        "accentInk": "#3c1022",
+        "secondary": "#ffb06f",
+        "secondaryRgb": "255, 176, 111",
+        "canvas": "#100b0f",
+        "canvasTint": "rgba(180, 54, 103, 0.06)",
+        "surfaceSolid": "#1c151a",
+        "surfaceRaised": "#281b22",
+        "nodeBg": "rgba(27, 21, 25, 0.95)",
+        "ink": "#fff7fa",
+        "inkSoft": "#ddcbd2",
+        "muted": "#9d858f"
+      }
+    },
+    "dark-ember": {
+      "name": "蜜橙熔光",
+      "mode": "dark",
+      "accent": "coral",
+      "tokens": {
+        "glassRgb": "54, 34, 22",
+        "accent": "#ff9867",
+        "accentRgb": "255, 152, 103",
+        "accentInk": "#3c1707",
+        "secondary": "#ffd36f",
+        "secondaryRgb": "255, 211, 111",
+        "canvas": "#110c08",
+        "canvasTint": "rgba(220, 100, 38, 0.06)",
+        "surfaceSolid": "#1d1712",
+        "surfaceRaised": "#2a2018",
+        "nodeBg": "rgba(30, 23, 17, 0.95)",
+        "ink": "#fff9f3",
+        "inkSoft": "#e2d0c0",
+        "muted": "#a18c79"
+      }
+    },
+    "dark-emerald": {
+      "name": "翡翠黑曜",
+      "mode": "dark",
+      "accent": "mint",
+      "tokens": {
+        "glassRgb": "22, 48, 39",
+        "accent": "#73e3af",
+        "accentRgb": "115, 227, 175",
+        "accentInk": "#062a1c",
+        "secondary": "#9ccdf1",
+        "secondaryRgb": "156, 205, 241",
+        "canvas": "#07100d",
+        "canvasTint": "rgba(41, 151, 111, 0.055)",
+        "surfaceSolid": "#101c18",
+        "surfaceRaised": "#172820",
+        "nodeBg": "rgba(16, 27, 23, 0.95)",
+        "ink": "#f3fff9",
+        "inkSoft": "#c3ded2",
+        "muted": "#7fa092"
+      }
+    },
+    "light-lemon": {
+      "name": "柠檬晶糖",
+      "mode": "light",
+      "accent": "amber",
+      "tokens": {
+        "glassRgb": "255, 244, 164",
+        "accent": "#d4a91e",
+        "accentRgb": "212, 169, 30",
+        "accentInk": "#312600",
+        "secondary": "#71b68f",
+        "secondaryRgb": "113, 182, 143",
+        "canvas": "#f4f1dd",
+        "canvasTint": "rgba(225, 190, 45, 0.08)",
+        "surfaceSolid": "#fffdf3",
+        "surfaceRaised": "#ffffff",
+        "nodeBg": "rgba(255, 254, 247, 0.96)",
+        "ink": "#29281e",
+        "inkSoft": "#504d3b",
+        "muted": "#756f53"
+      }
+    },
+    "light-sky": {
+      "name": "天青冰璃",
+      "mode": "light",
+      "accent": "ice",
+      "tokens": {
+        "glassRgb": "191, 227, 244",
+        "accent": "#389bc9",
+        "accentRgb": "56, 155, 201",
+        "accentInk": "#06293a",
+        "secondary": "#79cba8",
+        "secondaryRgb": "121, 203, 168",
+        "canvas": "#e8f2f6",
+        "canvasTint": "rgba(56, 154, 201, 0.075)",
+        "surfaceSolid": "#f7fcfe",
+        "surfaceRaised": "#ffffff",
+        "nodeBg": "rgba(248, 253, 255, 0.96)",
+        "ink": "#203039",
+        "inkSoft": "#455d69",
+        "muted": "#5d7480"
+      }
+    },
+    "light-blush": {
+      "name": "蜜桃珍珠",
+      "mode": "light",
+      "accent": "rose",
+      "tokens": {
+        "glassRgb": "255, 206, 220",
+        "accent": "#e76f99",
+        "accentRgb": "231, 111, 153",
+        "accentInk": "#431125",
+        "secondary": "#f5a16f",
+        "secondaryRgb": "245, 161, 111",
+        "canvas": "#f8ebee",
+        "canvasTint": "rgba(231, 111, 153, 0.075)",
+        "surfaceSolid": "#fff8fa",
+        "surfaceRaised": "#ffffff",
+        "nodeBg": "rgba(255, 249, 251, 0.96)",
+        "ink": "#38272e",
+        "inkSoft": "#654a55",
+        "muted": "#836773"
+      }
+    }
+  }
+}

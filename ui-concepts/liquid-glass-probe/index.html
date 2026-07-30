@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>naimage Liquid Glass UI Probe</title>
+    <link rel="icon" href="../../naimage-studio/public/naimage.png" />
+    <link rel="stylesheet" href="./styles.css?v=3" />
+  </head>
+  <body data-direction="workbench" data-material="frosted" data-accent="rose" data-ui-theme="dark-rose">
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.14.37.35.7.6 1 .3.3.7.45 1.1.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></symbol>
+      <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+      <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="icon-images" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><circle cx="9" cy="9" r="2"/><path d="m20 15-3.1-3.1a2 2 0 0 0-2.8 0L6 20"/></symbol>
+      <symbol id="icon-wand" viewBox="0 0 24 24"><path d="m15 4 5 5L7 22H2v-5Z"/><path d="m14 15-5-5M6 4V2M5 3H3M19 17v-2M20 16h-2M11 2l.6 1.4L13 4l-1.4.6L11 6l-.6-1.4L9 4l1.4-.6Z"/></symbol>
+      <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5Z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></symbol>
+      <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+      <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 3-1.2 3.2L8 7.5l2.8 1.3L12 12l1.2-3.2L16 7.5l-2.8-1.3ZM5 14l-.8 2.1L2 17l2.2.9L5 20l.8-2.1L8 17l-2.2-.9ZM19 13l-.9 2.6-2.6.9 2.6.9L19 20l.9-2.6 2.6-.9-2.6-.9Z"/></symbol>
+      <symbol id="icon-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+      <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="icon-maximize" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+      <symbol id="icon-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></symbol>
+      <symbol id="icon-hand" viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v4-6a2 2 0 0 0-4 0v6-4a2 2 0 0 0-4 0v6l-1.2-1.2a2 2 0 0 0-2.8 2.8l5.2 5.2A7 7 0 0 0 12.1 21H14a7 7 0 0 0 7-7v-3a2 2 0 0 0-3-1.7"/></symbol>
+      <symbol id="icon-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/></symbol>
+      <symbol id="icon-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 12s3.5-7 9-7 9 7 9 7-3.5 7-9 7-9-7-9-7Z"/></symbol>
+      <symbol id="icon-message" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M10.3 3.7 2.2 17.8A2 2 0 0 0 4 21h16a2 2 0 0 0 1.8-3.2L13.7 3.7a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+      <symbol id="icon-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 0 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.6-1.4-.4-.4-.6-.9-.6-1.4a2 2 0 0 1 2-2H17a5 5 0 0 0 5-5c0-4.4-4.5-8.2-10-8.2Z"/></symbol>
+    </svg>
+
+    <div class="app-shell">
+      <header class="topbar glass-surface glass-chrome">
+        <div class="brand-lockup">
+          <img src="../../naimage-studio/public/naimage.png" alt="" />
+          <strong>naimage</strong>
+          <span class="brand-divider" aria-hidden="true"></span>
+          <button class="project-button" type="button" aria-label="切换项目">
+            <span>琥珀香氛发布</span>
+            <svg><use href="#icon-chevron" /></svg>
+          </button>
+        </div>
+
+        <div class="direction-switcher" role="group" aria-label="方案方向">
+          <button class="direction-button active" type="button" data-direction-value="workbench" title="方向 A：棱镜工作台">
+            <svg><use href="#icon-grid" /></svg><span>工作台</span>
+          </button>
+          <button class="direction-button" type="button" data-direction-value="focus" title="方向 B：专注画布">
+            <svg><use href="#icon-focus" /></svg><span>专注</span>
+          </button>
+          <button class="direction-button" type="button" data-direction-value="review" title="方向 C：版本评审">
+            <svg><use href="#icon-images" /></svg><span>评审</span>
+          </button>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="sync-state"><span></span>已同步</div>
+          <button class="icon-button" type="button" title="搜索" aria-label="搜索"><svg><use href="#icon-search" /></svg></button>
+          <button class="icon-button material-trigger active" type="button" title="玻璃外观" aria-label="打开玻璃外观配置" aria-expanded="true"><svg><use href="#icon-sliders" /></svg></button>
+          <button class="avatar-button" type="button" aria-label="账户">N</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="asset-rail glass-surface glass-chrome" aria-label="项目素材">
+          <div class="rail-head">
+            <button class="icon-button accent-action" type="button" title="导入素材" aria-label="导入素材"><svg><use href="#icon-plus" /></svg></button>
+          </div>
+          <nav class="rail-nav" aria-label="素材视图">
+            <button class="rail-button active" type="button" title="成果"><svg><use href="#icon-images" /></svg><span>成果</span></button>
+            <button class="rail-button" type="button" title="图层"><svg><use href="#icon-layers" /></svg><span>图层</span></button>
+            <button class="rail-button" type="button" title="需求"><svg><use href="#icon-wand" /></svg><span>需求</span></button>
+            <button class="rail-button" type="button" title="历史"><svg><use href="#icon-history" /></svg><span>历史</span></button>
+          </nav>
+          <div class="rail-assets" aria-label="最近素材">
+            <button class="asset-thumb active" type="button" aria-label="选中琥珀主视觉"><img src="../../naimage-studio/public/ui/style-library/cards/poster-kind-kv.png" alt="" /></button>
+            <button class="asset-thumb" type="button" aria-label="黑金产品台"><img src="../../naimage-studio/public/ui/style-library/cards/product-launch.png" alt="" /></button>
+            <button class="asset-thumb" type="button" aria-label="高级产品光影"><img src="../../naimage-studio/public/ui/style-library/cards/product-post-premium-glow.png" alt="" /></button>
+          </div>
+          <button class="rail-button rail-settings" type="button" title="素材设置"><svg><use href="#icon-settings" /></svg><span>设置</span></button>
+        </aside>
+
+        <section class="canvas-area" aria-label="成果画布">
+          <div class="canvas-atmosphere" aria-hidden="true"></div>
+          <div class="canvas-context glass-surface">
+            <span class="context-kicker">当前任务</span>
+            <strong class="direction-title">棱镜工作台</strong>
+            <small class="direction-description">同时查看素材、来源关系与 Agent 进度</small>
+          </div>
+
+          <nav class="canvas-toolbar glass-surface glass-chrome" aria-label="画布工具">
+            <button class="icon-button active" type="button" title="移动画布"><svg><use href="#icon-hand" /></svg></button>
+            <button class="icon-button" type="button" title="适应画布"><svg><use href="#icon-maximize" /></svg></button>
+            <span aria-hidden="true"></span>
+            <button class="icon-button" type="button" title="放大"><svg><use href="#icon-zoom-in" /></svg></button>
+          </nav>
+
+          <div class="canvas-stage">
+            <svg class="relation-lines" viewBox="0 0 1000 640" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M235 342 C 330 342, 330 292, 422 292" />
+              <path d="M548 292 C 618 292, 620 225, 690 225" />
+              <path d="M548 292 C 632 292, 618 430, 714 430" />
+              <circle cx="235" cy="342" r="4"/><circle cx="422" cy="292" r="4"/><circle cx="548" cy="292" r="4"/><circle cx="690" cy="225" r="4"/><circle cx="714" cy="430" r="4"/>
+            </svg>
+
+            <article class="image-node source-node" tabindex="0">
+              <div class="node-image"><img src="../../naimage-studio/public/ui/style-library/cards/product-launch.png" alt="黑色幕布覆盖的香水产品台" /></div>
+              <footer><span>参考产品台</span><small>SOURCE</small></footer>
+            </article>
+
+            <article class="requirement-node glass-surface">
+              <svg><use href="#icon-wand" /></svg>
+              <div><small>可复用需求</small><strong>发布 KV · 琥珀晶体 · 4:5</strong></div>
+            </article>
+
+            <article class="image-node primary-node selected" tabindex="0">
+              <div class="node-badge"><span></span>当前成果</div>
+              <div class="node-image"><img src="../../naimage-studio/public/ui/style-library/cards/poster-kind-kv.png" alt="琥珀色晶体香水视觉" /></div>
+              <footer><span>琥珀主视觉 01</span><small>2048 × 1536</small></footer>
+              <div class="node-quick-actions glass-surface">
+                <button type="button" title="继续生成" aria-label="继续生成"><svg><use href="#icon-sparkles" /></svg></button>
+                <button type="button" title="查看大图" aria-label="查看大图"><svg><use href="#icon-maximize" /></svg></button>
+                <button type="button" title="更多操作" aria-label="更多操作"><svg><use href="#icon-more" /></svg></button>
+              </div>
+            </article>
+
+            <article class="image-node variant-node variant-one" tabindex="0">
+              <div class="node-image"><img src="../../naimage-studio/public/ui/style-library/cards/product-post-premium-glow.png" alt="柔光产品视觉版本" /></div>
+              <footer><span>柔光版本</span><small>V2</small></footer>
+            </article>
+
+            <article class="image-node variant-node variant-two" tabindex="0">
+              <div class="node-image"><img src="../../naimage-studio/public/ui/style-library/cards/product-display.png" alt="暖光香氛视觉版本" /></div>
+              <footer><span>广告版本</span><small>V3</small></footer>
+            </article>
+
+            <article class="image-node variant-node variant-three" tabindex="0">
+              <div class="node-image"><img src="../../naimage-studio/public/ui/style-library/cards/product-post-film-ad.png" alt="自然材质香氛视觉版本" /></div>
+              <footer><span>材质版本</span><small>V4</small></footer>
+            </article>
+          </div>
+
+          <div class="focus-filmstrip glass-surface" aria-label="版本胶片条">
+            <button class="film-item active" type="button"><img src="../../naimage-studio/public/ui/style-library/cards/poster-kind-kv.png" alt="版本 1" /><span>01</span></button>
+            <button class="film-item" type="button"><img src="../../naimage-studio/public/ui/style-library/cards/product-post-premium-glow.png" alt="版本 2" /><span>02</span></button>
+            <button class="film-item" type="button"><img src="../../naimage-studio/public/ui/style-library/cards/product-display.png" alt="版本 3" /><span>03</span></button>
+            <button class="film-item" type="button"><img src="../../naimage-studio/public/ui/style-library/cards/product-post-film-ad.png" alt="版本 4" /><span>04</span></button>
+            <button class="film-add" type="button" aria-label="继续生成版本"><svg><use href="#icon-plus" /></svg></button>
+          </div>
+
+          <footer class="canvas-footer glass-surface glass-chrome">
+            <div><span class="presence-dot"></span><strong>12</strong> 个成果 <span class="footer-separator"></span> <strong>2</strong> 个需求</div>
+            <div class="footer-center">Image 2 <span>·</span> 画布已保存</div>
+            <div><button type="button">68%</button><button type="button" aria-label="适应画布"><svg><use href="#icon-maximize" /></svg></button></div>
+          </footer>
+        </section>
+
+        <aside class="agent-panel glass-surface glass-chrome" aria-label="项目 Agent">
+          <header class="agent-header">
+            <div class="agent-identity">
+              <span class="agent-mark"><svg><use href="#icon-sparkles" /></svg></span>
+              <div><strong>项目 Agent</strong><small>Image 2 · 已连接</small></div>
+            </div>
+            <div class="agent-actions">
+              <button class="icon-button" type="button" title="会话历史"><svg><use href="#icon-history" /></svg></button>
+              <button class="icon-button" type="button" title="展开 Agent"><svg><use href="#icon-maximize" /></svg></button>
+            </div>
+          </header>
+
+          <div class="selection-context">
+            <img src="../../naimage-studio/public/ui/style-library/cards/poster-kind-kv.png" alt="" />
+            <div><small>当前成果</small><strong>琥珀主视觉 01</strong><span>将作为 SOURCE</span></div>
+            <svg><use href="#icon-check" /></svg>
+          </div>
+
+          <div class="agent-feed">
+            <div class="message user-message">
+              <p>保留琥珀晶体主体，生成 4 个更高级的香氛发布 KV。画面克制，不要堆文字。</p>
+              <time>14:32</time>
+            </div>
+            <div class="message agent-message">
+              <span class="message-avatar"><svg><use href="#icon-sparkles" /></svg></span>
+              <div><p>我会沿用当前主体与暖金光线，分别探索留白、近景材质、镜面台座和纵向构图。</p></div>
+            </div>
+            <div class="tool-progress">
+              <div class="tool-progress-head"><span class="progress-orbit"></span><strong>Image 2 正在绘图</strong><time>18s</time></div>
+              <div class="progress-track"><span></span></div>
+              <p>已完成 3 / 4 个独立版本</p>
+            </div>
+            <div class="message agent-message compact-message">
+              <span class="message-avatar"><svg><use href="#icon-sparkles" /></svg></span>
+              <div><p>前三个版本已放入画布，最后一个正在处理镜面反射。</p></div>
+            </div>
+          </div>
+
+          <form class="agent-composer">
+            <div class="composer-mode" role="group" aria-label="任务模式">
+              <button class="active" type="button">普通</button><button type="button">Goal</button>
+              <span>1 张图已选中</span>
+            </div>
+            <textarea aria-label="给项目 Agent 发消息" placeholder="继续描述你想要的画面…"></textarea>
+            <footer>
+              <div><button class="icon-button" type="button" title="添加参考图"><svg><use href="#icon-plus" /></svg></button><button class="model-chip" type="button">Image 2 <svg><use href="#icon-chevron" /></svg></button></div>
+              <button class="send-button" type="button" aria-label="发送"><svg><use href="#icon-send" /></svg></button>
+            </footer>
+          </form>
+        </aside>
+
+        <aside class="material-panel glass-surface" aria-label="玻璃外观配置">
+          <header>
+            <div><span class="panel-icon"><svg><use href="#icon-palette" /></svg></span><div><strong>Glass Lab</strong><small>项目级材质</small></div></div>
+            <button class="icon-button material-close" type="button" aria-label="关闭玻璃配置"><svg><use href="#icon-chevron" /></svg></button>
+          </header>
+
+          <section class="theme-section">
+            <div class="section-label"><span>彩色玻璃主题</span><small>深色 / 浅色</small></div>
+            <div class="theme-presets" role="group" aria-label="彩色玻璃主题">
+              <button class="active" type="button" data-theme-value="dark-rose" aria-label="绯樱夜光深色主题"><span class="theme-swatch swatch-dark-rose"></span><span><strong>绯樱夜光</strong><small>深色 · 粉</small></span></button>
+              <button type="button" data-theme-value="dark-ember" aria-label="蜜橙熔光深色主题"><span class="theme-swatch swatch-dark-ember"></span><span><strong>蜜橙熔光</strong><small>深色 · 橙</small></span></button>
+              <button type="button" data-theme-value="dark-emerald" aria-label="翡翠黑曜深色主题"><span class="theme-swatch swatch-dark-emerald"></span><span><strong>翡翠黑曜</strong><small>深色 · 绿</small></span></button>
+              <button type="button" data-theme-value="light-lemon" aria-label="柠檬晶糖浅色主题"><span class="theme-swatch swatch-light-lemon"></span><span><strong>柠檬晶糖</strong><small>浅色 · 黄</small></span></button>
+              <button type="button" data-theme-value="light-sky" aria-label="天青冰璃浅色主题"><span class="theme-swatch swatch-light-sky"></span><span><strong>天青冰璃</strong><small>浅色 · 蓝</small></span></button>
+              <button type="button" data-theme-value="light-blush" aria-label="蜜桃珍珠浅色主题"><span class="theme-swatch swatch-light-blush"></span><span><strong>蜜桃珍珠</strong><small>浅色 · 粉橙</small></span></button>
+            </div>
+          </section>
+
+          <section class="preset-section">
+            <div class="section-label"><span>材质预设</span><button id="reset-settings" type="button">重置</button></div>
+            <div class="material-presets" role="group" aria-label="材质预设">
+              <button type="button" data-preset="clear"><span class="preset-swatch clear-swatch"></span><strong>Clear</strong><small>清透</small></button>
+              <button class="active" type="button" data-preset="frosted"><span class="preset-swatch frost-swatch"></span><strong>Frosted</strong><small>推荐</small></button>
+              <button type="button" data-preset="dense"><span class="preset-swatch dense-swatch"></span><strong>Dense</strong><small>稳重</small></button>
+            </div>
+          </section>
+
+          <section class="control-section">
+            <label class="range-control" for="glass-opacity"><span><strong>表面透明度</strong><output for="glass-opacity">18%</output></span><input id="glass-opacity" type="range" min="8" max="72" value="18" /></label>
+            <label class="range-control" for="glass-blur"><span><strong>背景模糊</strong><output for="glass-blur">26 px</output></span><input id="glass-blur" type="range" min="0" max="48" value="26" /></label>
+            <label class="range-control" for="glass-saturation"><span><strong>背景饱和</strong><output for="glass-saturation">132%</output></span><input id="glass-saturation" type="range" min="70" max="180" value="132" /></label>
+            <label class="range-control" for="glass-highlight"><span><strong>边缘高光</strong><output for="glass-highlight">32%</output></span><input id="glass-highlight" type="range" min="8" max="70" value="32" /></label>
+            <label class="range-control" for="glass-shadow"><span><strong>悬浮阴影</strong><output for="glass-shadow">38%</output></span><input id="glass-shadow" type="range" min="0" max="70" value="38" /></label>
+            <label class="range-control" for="glass-radius"><span><strong>圆角</strong><output for="glass-radius">14 px</output></span><input id="glass-radius" type="range" min="4" max="24" value="14" /></label>
+          </section>
+
+          <section class="accent-section">
+            <div class="section-label"><span>强调色</span><small>状态与焦点</small></div>
+            <div class="accent-swatches" role="group" aria-label="强调色">
+              <button class="rose" type="button" data-accent-value="rose" aria-label="樱粉"></button>
+              <button class="mint" type="button" data-accent-value="mint" aria-label="薄荷绿"></button>
+              <button class="coral" type="button" data-accent-value="coral" aria-label="珊瑚红"></button>
+              <button class="amber" type="button" data-accent-value="amber" aria-label="琥珀金"></button>
+              <button class="ice" type="button" data-accent-value="ice" aria-label="冰川蓝"></button>
+            </div>
+          </section>
+
+          <section class="switch-section">
+            <label><span><strong>微噪点</strong><small>增加实体质感</small></span><input id="noise-toggle" type="checkbox" checked /><i aria-hidden="true"></i></label>
+            <label><span><strong>减少动态</strong><small>关闭材质过渡</small></span><input id="motion-toggle" type="checkbox" /><i aria-hidden="true"></i></label>
+          </section>
+
+          <div class="readability-state"><svg><use href="#icon-check" /></svg><span><strong>可读性通过</strong><small>主要文字对比度 ≥ 7:1</small></span></div>
+        </aside>
+
+        <button class="mobile-agent-trigger glass-surface" type="button" aria-label="展开项目 Agent">
+          <span class="agent-mark"><svg><use href="#icon-sparkles" /></svg></span>
+          <span><strong>项目 Agent</strong><small>Image 2 正在绘图 · 3/4</small></span>
+          <svg><use href="#icon-chevron" /></svg>
+        </button>
+      </main>
+    </div>
+
+    <div class="toast" role="status" aria-live="polite"><svg><use href="#icon-check" /></svg><span>玻璃参数已更新</span></div>
+    <script src="./app.js?v=3"></script>
+  </body>
+</html>

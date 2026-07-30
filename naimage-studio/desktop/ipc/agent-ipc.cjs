@@ -8,10 +8,17 @@ function registerAgentIpc({
   listAgentModels,
   emitAgentProgress,
   agentRunControl,
-  aidebugMode
+  aidebugMode,
+  aidebugAgentStopFixture
 }) {
-  const runScope = (payload = {}, runId = "") => ({
+  const boundRunOwners = new WeakSet();
+  const ownerIdForEvent = (event) => String(event?.sender?.id ?? "").trim();
+  const runScope = (event, payload = {}, runId = "", steerable = false) => ({
     runId,
+    ownerId: ownerIdForEvent(event),
+    steerable,
+    taskScope: payload?.taskScope && typeof payload.taskScope === "object" ? payload.taskScope : undefined,
+    nodes: Array.isArray(payload?.nodes) ? payload.nodes : undefined,
     projectId: String(payload?.projectId || "default"),
     conversationId: String(payload?.conversationId || "default"),
     nodeIds: [...new Set([
@@ -23,13 +30,29 @@ function registerAgentIpc({
     ].map((value) => String(value || "").trim()).filter(Boolean))]
   });
 
-  const beginRun = (payload, runId) => agentRunControl?.begin(runScope(payload, runId)) || {
+  const beginRun = (event, payload, runId, steerable = false) => agentRunControl?.begin(runScope(event, payload, runId, steerable)) || {
     signal: undefined,
+    ownerId: ownerIdForEvent(event),
     projectId: String(payload?.projectId || "default"),
     conversationId: String(payload?.conversationId || "default")
   };
 
   const finishRun = (runId) => agentRunControl?.finish({ runId });
+
+  const bindRunOwnerToSender = (event) => {
+    const sender = event?.sender;
+    if (!sender || typeof sender.once !== "function" || boundRunOwners.has(sender)) return;
+    boundRunOwners.add(sender);
+    const ownerId = ownerIdForEvent(event);
+    const onDestroyed = () => {
+      agentRunControl?.stopOwner({ ownerId, reason: "Agent 窗口已关闭，运行已停止。" });
+    };
+    if (typeof sender.isDestroyed === "function" && sender.isDestroyed()) {
+      onDestroyed();
+      return;
+    }
+    sender.once("destroyed", onDestroyed);
+  };
 
   ipcMain.handle("naimage:agent:tools", () => {
     try {
@@ -79,18 +102,24 @@ function registerAgentIpc({
     }
     let controlledRun;
     try {
-      controlledRun = beginRun(payload, runId);
+      const runtime = getAgentRuntime();
+      const runtimePayload = {
+        ...(payload || {}),
+        taskScope: runtime.normalizeTaskScope(payload || {})
+      };
+      controlledRun = beginRun(event, runtimePayload, runId, false);
+      bindRunOwnerToSender(event);
       const settings = currentAgentSettings();
-      const result = await getAgentRuntime().runTool(name, payload?.input ?? {}, {
+      const result = await runtime.runTool(name, runtimePayload?.input ?? {}, {
         settings,
-         nodes: Array.isArray(payload?.nodes) ? payload.nodes : [],
-         selectedNodeId: payload?.selectedNodeId,
-         selectedNodeIds: Array.isArray(payload?.selectedNodeIds) ? payload.selectedNodeIds : [],
-         taskScope: payload?.taskScope && typeof payload.taskScope === "object" ? payload.taskScope : undefined,
-         referenceImages: Array.isArray(payload?.referenceImages) ? payload.referenceImages : [],
-        projectId: payload?.projectId,
-        conversationId: payload?.conversationId,
-        prompt: String(payload?.prompt || payload?.input?.prompt || ""),
+         nodes: Array.isArray(runtimePayload?.nodes) ? runtimePayload.nodes : [],
+         selectedNodeId: runtimePayload?.selectedNodeId,
+         selectedNodeIds: Array.isArray(runtimePayload?.selectedNodeIds) ? runtimePayload.selectedNodeIds : [],
+         taskScope: runtimePayload.taskScope,
+         referenceImages: Array.isArray(runtimePayload?.referenceImages) ? runtimePayload.referenceImages : [],
+        projectId: runtimePayload?.projectId,
+        conversationId: runtimePayload?.conversationId,
+        prompt: String(runtimePayload?.prompt || runtimePayload?.input?.prompt || ""),
         runId,
         operationId: runId,
         toolRunId: runId,
@@ -130,13 +159,21 @@ function registerAgentIpc({
     const runId = String(payload?.runId || `agent-chat-${Date.now()}`);
     let controlledRun;
     try {
-      controlledRun = beginRun(payload, runId);
-      const result = await getAgentRuntime().chat({
+      const runtime = getAgentRuntime();
+      const runtimePayload = {
         ...(payload || {}),
+        taskScope: runtime.normalizeTaskScope(payload || {})
+      };
+      controlledRun = beginRun(event, runtimePayload, runId, true);
+      bindRunOwnerToSender(event);
+      const result = await runtime.chat({
+        ...runtimePayload,
         settings: currentAgentSettings(),
         runId,
         signal: controlledRun.signal,
         waitUntilRunnable: (signal) => agentRunControl?.waitUntilRunnable(controlledRun, signal),
+        beginPhase: (meta) => agentRunControl?.beginPhase(controlledRun, meta),
+        consumeSteers: () => agentRunControl?.consumeSteers(controlledRun) || [],
         progress: (progressPayload) => emitAgentProgress(event.sender, runId, progressPayload, payload)
       });
       return result;
@@ -150,33 +187,48 @@ function registerAgentIpc({
     }
   });
 
-  ipcMain.handle("naimage:agent:pause", (_event, payload = {}) => {
+  ipcMain.handle("naimage:agent:pause", (event, payload = {}) => {
     try {
-      return agentRunControl?.pause(payload) || { ok: false, error: "运行控制器不可用。" };
+      return agentRunControl?.pause({ ...payload, ownerId: ownerIdForEvent(event) }) || { ok: false, error: "运行控制器不可用。" };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle("naimage:agent:resume", (_event, payload = {}) => {
+  ipcMain.handle("naimage:agent:resume", (event, payload = {}) => {
     try {
-      return agentRunControl?.resume(payload) || { ok: false, error: "运行控制器不可用。" };
+      return agentRunControl?.resume({ ...payload, ownerId: ownerIdForEvent(event) }) || { ok: false, error: "运行控制器不可用。" };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle("naimage:agent:stop", (_event, payload = {}) => {
+  ipcMain.handle("naimage:agent:stop", (event, payload = {}) => {
     try {
-      return agentRunControl?.stop(payload) || { ok: false, error: "运行控制器不可用。" };
+      const invokeStop = () => agentRunControl?.stop({ ...payload, ownerId: ownerIdForEvent(event) }) || { ok: false, error: "运行控制器不可用。" };
+      if (aidebugMode && typeof aidebugAgentStopFixture === "function") {
+        return aidebugAgentStopFixture({ payload, invokeStop });
+      }
+      return invokeStop();
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle("naimage:agent:run-status", (_event, payload = {}) => {
+  ipcMain.handle("naimage:agent:steer", (event, payload = {}) => {
     try {
-      return agentRunControl?.snapshot(payload?.projectId) || { ok: false, error: "运行控制器不可用。" };
+      return agentRunControl?.steer(
+        { ...payload, ownerId: ownerIdForEvent(event) },
+        (currentTaskScope, update) => getAgentRuntime().normalizeSteerTaskScopeUpdate(currentTaskScope, update)
+      ) || { ok: false, accepted: 0, interrupted: 0, error: "运行控制器不可用。" };
+    } catch (error) {
+      return { ok: false, accepted: 0, interrupted: 0, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle("naimage:agent:run-status", (event, payload = {}) => {
+    try {
+      return agentRunControl?.snapshot(payload?.projectId, ownerIdForEvent(event)) || { ok: false, error: "运行控制器不可用。" };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

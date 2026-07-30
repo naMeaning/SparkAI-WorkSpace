@@ -100,6 +100,18 @@ function createImageBatchNormalization(options = {}) {
         throw new Error(`image_gen count=1 的顶层 ${field} 与 items[0].${field} 不一致；请只保留顶层参数。`);
       }
     }
+    const hasValue = (value) => value !== undefined && value !== null && value !== "";
+    for (const field of ["slotId", "slotIndex", "localeCode"]) {
+      const topValue = args[field];
+      const itemValue = item[field];
+      if (!hasValue(topValue) && hasValue(itemValue)) {
+        normalized[field] = itemValue;
+        continue;
+      }
+      if (hasValue(topValue) && hasValue(itemValue) && String(topValue) !== String(itemValue)) {
+        throw new Error(`image_gen count=1 的顶层 ${field} 与 items[0].${field} 不一致；请只保留顶层参数。`);
+      }
+    }
     return normalized;
   }
 
@@ -117,9 +129,15 @@ function createImageBatchNormalization(options = {}) {
           model: item.model || args.model
         }, settings);
         const rawTitle = cleanOneLine(item.title || "", 100);
+        const rawSlotIndex = Number(item.slotIndex);
         return {
           title: rawTitle && !isImageBatchPlaceholder(rawTitle) ? rawTitle : "",
           prompt,
+          slotId: cleanOneLine(item.slotId || "", 80) || undefined,
+          slotIndex: Number.isInteger(rawSlotIndex) && rawSlotIndex >= 0 && rawSlotIndex <= 11
+            ? rawSlotIndex
+            : undefined,
+          localeCode: cleanOneLine(item.localeCode || "", 32) || undefined,
           ratio: frame.ratio,
           resolution: frame.resolution,
           size: frame.size,

@@ -1,6 +1,6 @@
 # naimage 工作区上下文地图
 
-> 最近同步：2026-07-28
+> 最近同步：2026-07-30
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -49,7 +49,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   Entry["electron-main.cjs"] --> Window["主 BrowserWindow / 独立 Agent BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n88 invokes / 4 receives / 2 sends"]
+  Entry --> Ipc["desktop/ipc/*\n95 invokes / 5 receives / 2 sends"]
   Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配 / 插件 Prompt / 主题导入导出"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
@@ -69,9 +69,9 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 88 个 invoke（85 preload + 3 internal）/4 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
-| `agent-runtime.cjs` | 保留 Prompt、tool loop、compact 与 action 编排；schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
-| `src/core.ts` | 仍包含 bridge/type、会话和图片算法；设置、资产身份、粘贴块已有独立所有者 | `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 95 个 invoke（92 preload + 3 internal）/5 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
+| `agent-runtime.cjs` | 保留 Prompt、tool loop、compact、steer 协议补齐与 action 编排；运行控制器、schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `desktop/agent-run-control.cjs`, `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
+| `src/core.ts` | 仍包含 bridge/type、session v5 journal/checkpoint/barrier 类型和图片算法；节点 mutation 采集由 Main 合并器负责，设置、资产身份、粘贴块已有独立所有者 | `desktop/project-session-merge.cjs`, `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
 | `scripts/aidebug-gui.mjs` | 仍是 GUI 诊断总编排；通用 harness 与多个场景域已移出，Requirement 默认使用轻量六层 fixture，完整 Layer Stack 仅显式运行 | `scripts/aidebug/harness/*`, `scripts/aidebug/suites/*`, `scripts/aidebug-requirement-node-suite.mjs` |
 
@@ -89,36 +89,24 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改自定义主题或导入导出 | `src/theme-palette-picker.tsx`, `desktop/theme-preset-service.cjs` | `AppSettings.customTheme` 双侧清洗、ConfigBridge/IPC、独立 Agent 主题快照、`test:theme-preset`、快速 `aidebug:gui` |
 | 修改资产 ID/路径清洗 | `src/asset-identity.ts` | Electron session 清洗、导入 worker、项目迁移 |
 | 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain | 当前选择、TaskScope、容器/关系、AIDebug 专项 |
+| 修改项目节点多窗口持久化 | `src/main.tsx`, `desktop/project-session-merge.cjs`, config IPC | session v5、Main commitRevision、顶层字段 clock、delete/restore tombstone 与 causal barrier、writer checkpoint/30 天 quorum GC、`test:node-mutation-journal`、`test:project-session-merge`、`test:project-session-dual-renderer`、`test:project-io` |
+| 修改 Agent 暂停/结束/steer | `desktop/agent-run-control.cjs`, Agent IPC/runtime、主/独立 Renderer | parent/child AbortSignal、节点锁、协议历史补齐、TaskScope update 的 Main 归一化/重哈希/先保存不变量、`test:agent-run-control`、`test:agent-steer`、窗口与 IPC 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
 | 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | `account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
-| 修改外部 Agent 控制 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单 |
+| 修改外部 Agent 控制或可自动化产品动作 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `src/automation-command-{registry,runtime}.ts`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单；`commands.schema.json` 同时驱动 Renderer、CLI 参考和测试。Graph 命令以 `canvas.state` 提供权威 revision/锁/关系并严格校验选择；mutation 强制项目 guard、canvas revision CAS 可选、Requirement update/execute revision 必需；图 mutation 与 create/update 整批提交，execute 仅在异步派发前 fence。GUI 动作变化必须同步 CLI 命令、Skill/参考文档和 `test:automation-service` |
 | 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；长 Prompt 归 Electron，插件禁止脚本注入、扩展执行和直接写 session |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
 | 修改 `view_image` | `runtime/view-image-payload.cjs` + runtime facade | 允许根、payload 预算、Sharp、持久化排除 |
 | 修改 Image 2 比例/尺寸 | `runtime/image-frame.cjs`、`src/core.ts`、主进程请求参数 | 三侧规则必须一致 |
 | 修改样式 | 对应 `src/styles/NN-*.css` | 不得改变 01→08 顺序；reduced-motion 文件必须最后 |
 
-### 3.4 最低验证
+### 3.4 变更范围内验证
 
-```powershell
-cd E:\019创业项目\nimage\naimage-studio
-corepack pnpm run typecheck
-corepack pnpm run test:account-token
-corepack pnpm run test:settings-lazy-load
-corepack pnpm run test:automation-service
-corepack pnpm run test:agent-integration
-corepack pnpm run test:ipc-registration
-corepack pnpm run test:project-graph
-corepack pnpm run test:theme-preset
-corepack pnpm run build
-corepack pnpm run test:bundle
-```
+测试开发阶段只运行本次改动直接相关的专项，以及确有跨类型/IPC 合同时需要的 `typecheck` 或 `test:ipc-registration`；可见 UI 改动运行对应的 AIDebug 专项并人工检查截图。不要把账户、插件、主题、Project Graph、完整 AIDebug、`build` 或 `test:bundle` 机械附加到无关改动。正式 `build`、分层 Bundle、产品性能和 `release:final` 只在用户明确要求正式发布/全量验证，或本次改动直接触及对应边界时运行。具体命令按仓库 `AGENTS.md`、`docs/CONTEXT_MAP.md` 的影响矩阵选择。
 
-再按领域追加 `test:model-catalog`、`test:settings-persistence`、`test:view-image`、`test:agent-protocol`、`test:project-io` 等。只有真实可视交互变化才追加一次 `aidebug:gui` 快速冒烟，不把完整 AIDebug 作为日常默认步骤。仓库的 `AGENTS.md` 和 `docs/CONTEXT_MAP.md` 是具体约束来源。
+当前 Renderer Bundle 采用 hard/advisory 分层：initial JS 目标 670,000 B 并允许额外 1,024 B 测量容差，core async 180,000 B、plugin JS 120,000 B、CSS 220,000 B 与首屏依赖/诊断泄漏为硬门禁；core JS 740,000 B 和完整 dist 1,000,000 B 为 advisory。真实启动、内存、缩放、平移、拖动与 long task 由 `aidebug:performance:product` 独立硬门禁负责，Bundle advisory 不能替代产品性能证据。最新构建证据为 initial 670,944 B、core async 88,609 B、plugin 9,258 B、CSS 199,454 B，hard gate 全部通过；core 759,553 B、dist 1,016,274 B 仅告警。
 
-当前 Renderer 门禁分别约束核心与插件：初始 JS 650,000 B、核心异步 JS 180,000 B、核心总 JS 720,000 B、插件 JS 120,000 B、完整 dist 1,000,000 B。插件运行时、设置表面和插件专属对话框是自然异步 chunk，禁止进入首屏依赖图；插件 JS 不占核心 JS 额度，但仍受插件和 dist 上限约束。当前证据为 initial 648,314 B、core 710,952 B、plugin 9,266 B、all JS 720,218 B、dist 969,919 B。
-
-Project Graph 插件批次证据：initial JS 646,764 B、total JS 719,964 B、完整 dist 968,264 B。总 JS 只剩 36 B；后续 Renderer 功能必须先减少或移出已有代码，再增加新的 Renderer 模块。
+Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,264 B 仅是历史基线；当时“只剩 36 B”的旧总量余量不再作为重构指令。后续 Renderer 功能仍优先复用或进入自然异步模块，但不得仅为跨越任何 Bundle 硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分。
 
 ### 3.5 数据安全边界
 
@@ -237,11 +225,11 @@ corepack pnpm run crm:check
 
 ## 8. 当前发布基线
 
-- 当前桌面正式版：`v1.0.6`，源码提交 `9f1d290e67ad1ea5572fb25555ce5a5593b58d88`。
-- 私有发布页：[naMeaning/naimage v1.0.6](https://github.com/naMeaning/naimage/releases/tag/v1.0.6)。仓库可见性保持 `PRIVATE`。
+- 当前桌面正式版：`v1.0.7`，冻结源码以同名 annotated tag `v1.0.7` 为准。
+- 私有发布页：[naMeaning/naimage v1.0.7](https://github.com/naMeaning/naimage/releases/tag/v1.0.7)。仓库可见性保持 `PRIVATE`。
 - Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
-- Setup SHA-256：`6e6e7064008b97a10315845897e77811aa6a4cb06e440944a381863fd44c3077`；Restart ASAR SHA-256：`cdd2590030f6f29a0c291f901d3ff3bff30e950eecda9dc738fa4fe9f3f850fd`。
-- 1.0.5 → 1.0.6 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希已通过正式编排。
+- Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准。
+- 1.0.6 → 1.0.7 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希由同一次 `release:final` 正式编排验证。
 - 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
 
-当前 1.0.6 发布后的开发分支已新增画布剪贴板/拖入、框选与批量连接、可配置图片批次、Agent 暂停/恢复/真实结束、节点锁及多 Renderer 项目/会话并行。项目 session 的 revision 防覆盖保持不变；旧窗口保存由 `desktop/project-session-merge.cjs` 合并最新磁盘快照，使用节点 `persistenceOriginId` 重映射并行创建的同名节点，并保留已完成资产与其他会话。该变化只涉及桌面本地持久化，不改变 New API、模型请求、线上数据或生产部署合同。
+1.0.7 新增画布剪贴板/拖入、框选与批量连接、可配置图片批次、Agent 暂停/恢复/真实结束/运行中修改、节点锁及多 Renderer 项目/会话并行。项目 session 已升级为 v5 `nodeMutationJournal`：Renderer 记录 upsert/delete/restore 与顶层字段 clock，Main 分配 commitRevision；writer checkpoint、30 天 quorum 过期和 delete/restore causal barrier 支持安全压缩，显式 undo 可恢复已观察 tombstone，并行创建仍按 `persistenceOriginId` 重映射冲突 ID。steer 可在同一父运行中独立 keep/replace/merge/clear SOURCE/REFERENCE；Main 在 child phase 中断前归一化、重哈希、重算节点锁并保存权威快照。共享 automation schema 还同步提供 Graph CLI 原子连接/断开、归组/解散、位移与 Requirement 创建/更新/执行，以及 `canvas.export-image` 的 PNG/JPEG/WebP/AVIF/TIFF 本地导出。上述变化不改变 New API、线上数据或生产部署合同，但上游已接收的被中断请求仍可能计费。

@@ -1,0 +1,362 @@
+/* --------------------------------------------------------------------------
+   01 Liquid Glass Design Tokens
+
+   Values are ported from ui-concepts/liquid-glass-probe/styles.css. The
+   --glass-* family is the visual authority; the established --theme-* family
+   remains a compatibility bridge for the existing workbench components.
+-------------------------------------------------------------------------- */
+
+:root {
+  /* light-sky + Frosted are the no-script/default material values. */
+  --glass-rgb: 191, 227, 244;
+  --glass-alpha: 0.44;
+  --glass-blur: 28px;
+  --glass-saturation: 128%;
+  --glass-highlight: 0.7;
+  --glass-shadow: 0.18;
+  --glass-radius: 14px;
+  --glass-noise-opacity: 0.025;
+  --noise-opacity: var(--glass-noise-opacity);
+
+  --accent: #389bc9;
+  --accent-rgb: 56, 155, 201;
+  --accent-ink: #06293a;
+  --glass-accent-rose: #ff8eb8;
+  --glass-accent-mint: #73e3af;
+  --glass-accent-coral: #ff8b78;
+  --glass-accent-amber: #f4bd67;
+  --glass-accent-ice: #8bc9ee;
+  --secondary: #79cba8;
+  --secondary-rgb: 121, 203, 168;
+  --success: #278662;
+  --danger: #c4473d;
+
+  --glass-canvas: #e8f2f6;
+  --glass-canvas-tint: rgba(56, 154, 201, 0.075);
+  --glass-surface-solid: #f7fcfe;
+  --glass-surface-raised: #ffffff;
+  --glass-node-bg: rgba(248, 253, 255, 0.96);
+  --glass-ink: #203039;
+  --glass-ink-soft: #455d69;
+  --glass-muted: #5d7480;
+  --glass-line: rgba(43, 48, 45, 0.09);
+  --glass-line-strong: rgba(43, 48, 45, 0.16);
+  --glass-control-bg: rgba(255, 255, 255, 0.44);
+  --glass-control-hover: rgba(255, 255, 255, 0.68);
+  --glass-shadow-rgb: 47, 66, 73;
+
+  /* Registry-backed swatch triplets also provide a first-paint fallback before
+     the persisted settings snapshot is projected onto the document root. */
+  --glass-swatch-dark-rose-canvas: #100b0f;
+  --glass-swatch-dark-rose-accent: #ff8eb8;
+  --glass-swatch-dark-rose-surface: #4a1e33;
+  --glass-swatch-dark-ember-canvas: #110c08;
+  --glass-swatch-dark-ember-accent: #ff9867;
+  --glass-swatch-dark-ember-surface: #482411;
+  --glass-swatch-dark-emerald-canvas: #07100d;
+  --glass-swatch-dark-emerald-accent: #73e3af;
+  --glass-swatch-dark-emerald-surface: #0f402d;
+  --glass-swatch-light-lemon-canvas: #f4f1dd;
+  --glass-swatch-light-lemon-accent: #d4a91e;
+  --glass-swatch-light-lemon-surface: #fff8bc;
+  --glass-swatch-light-sky-canvas: #e8f2f6;
+  --glass-swatch-light-sky-accent: #389bc9;
+  --glass-swatch-light-sky-surface: #dff6ff;
+  --glass-swatch-light-blush-canvas: #f8ebee;
+  --glass-swatch-light-blush-accent: #e76f99;
+  --glass-swatch-light-blush-surface: #ffe6ed;
+
+  --glass-ease: 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  --glass-surface-fill: rgba(var(--glass-rgb), var(--glass-alpha));
+  --glass-surface-fill-strong: rgba(var(--glass-rgb), calc(var(--glass-alpha) + 0.08));
+  --glass-fallback-bg: color-mix(in srgb, rgb(var(--glass-rgb)) 30%, var(--glass-surface-solid));
+  --glass-edge-color: rgba(255, 255, 255, calc(0.18 + var(--glass-highlight) * 0.58));
+  --glass-edge-color-soft: rgba(255, 255, 255, calc(0.08 + var(--glass-highlight) * 0.24));
+  --glass-shadow-color: rgba(var(--glass-shadow-rgb), var(--glass-shadow));
+  --glass-shadow-soft: rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.54));
+  --glass-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+}
+
+/* Activate the bridge only for the new system. Existing stored themes remain
+   intact until GlassThemeProvider has applied its authoritative root state. */
+:root.glass-theme-active,
+:root[data-glass-theme] {
+  --theme-bg: color-mix(in srgb, var(--glass-canvas) 88%, var(--glass-surface-solid));
+  --theme-canvas: var(--glass-canvas);
+  --theme-surface: color-mix(in srgb, var(--glass-surface-solid) 86%, var(--glass-canvas));
+  --theme-surface-solid: var(--glass-surface-solid);
+  --theme-surface-raised: var(--glass-surface-raised);
+  --theme-ink: var(--glass-ink);
+  --theme-ink-soft: var(--glass-ink-soft);
+  --theme-muted: var(--glass-muted);
+  --theme-line: var(--glass-line);
+  --theme-line-strong: var(--glass-line-strong);
+  --theme-accent: var(--accent);
+  --theme-accent-strong: color-mix(in srgb, var(--accent) 72%, var(--glass-ink));
+  --theme-blue: var(--secondary);
+  --theme-rose: var(--danger);
+  --theme-amber: color-mix(in srgb, #c68424 76%, var(--glass-ink));
+  --theme-green: var(--success);
+  --theme-control-bg: var(--glass-control-bg);
+  --theme-hover-bg: color-mix(in srgb, var(--accent) 8%, var(--glass-control-hover));
+  --theme-active-bg: color-mix(in srgb, var(--accent) 15%, var(--glass-control-hover));
+
+  --canvas-tint: var(--glass-canvas-tint);
+  --node-bg: var(--glass-node-bg);
+  --solid-control: var(--glass-control-bg);
+  --solid-control-hover: var(--glass-control-hover);
+  --focus-ring: 0 0 0 1px var(--accent), 0 0 0 3px rgba(var(--accent-rgb), 0.18);
+  --ui-surface-radius: clamp(8px, var(--glass-radius), 18px);
+  --ui-action-radius: clamp(6px, var(--glass-radius), 10px);
+  --ui-choice-radius: clamp(6px, var(--glass-radius), 10px);
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --motion-slow: 240ms;
+  --motion-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-glass-theme="dark-rose"] {
+  color-scheme: dark;
+  --glass-rgb: 48, 30, 40;
+  --accent: #ff8eb8;
+  --accent-rgb: 255, 142, 184;
+  --accent-ink: #3c1022;
+  --secondary: #ffb06f;
+  --secondary-rgb: 255, 176, 111;
+  --glass-canvas: #100b0f;
+  --glass-canvas-tint: rgba(180, 54, 103, 0.06);
+  --glass-surface-solid: #1c151a;
+  --glass-surface-raised: #281b22;
+  --glass-node-bg: rgba(27, 21, 25, 0.96);
+  --glass-ink: #fff7fa;
+  --glass-ink-soft: #ddcbd2;
+  --glass-muted: #9d858f;
+}
+
+:root[data-glass-theme="dark-ember"] {
+  color-scheme: dark;
+  --glass-rgb: 54, 34, 22;
+  --accent: #ff9867;
+  --accent-rgb: 255, 152, 103;
+  --accent-ink: #3c1707;
+  --secondary: #ffd36f;
+  --secondary-rgb: 255, 211, 111;
+  --glass-canvas: #110c08;
+  --glass-canvas-tint: rgba(220, 100, 38, 0.06);
+  --glass-surface-solid: #1d1712;
+  --glass-surface-raised: #2a2018;
+  --glass-node-bg: rgba(30, 23, 17, 0.96);
+  --glass-ink: #fff9f3;
+  --glass-ink-soft: #e2d0c0;
+  --glass-muted: #a18c79;
+}
+
+:root[data-glass-theme="dark-emerald"] {
+  color-scheme: dark;
+  --glass-rgb: 22, 48, 39;
+  --accent: #73e3af;
+  --accent-rgb: 115, 227, 175;
+  --accent-ink: #062a1c;
+  --secondary: #9ccdf1;
+  --secondary-rgb: 156, 205, 241;
+  --glass-canvas: #07100d;
+  --glass-canvas-tint: rgba(41, 151, 111, 0.055);
+  --glass-surface-solid: #101c18;
+  --glass-surface-raised: #172820;
+  --glass-node-bg: rgba(16, 27, 23, 0.96);
+  --glass-ink: #f3fff9;
+  --glass-ink-soft: #c3ded2;
+  --glass-muted: #7fa092;
+}
+
+:root[data-glass-theme="light-lemon"] {
+  color-scheme: light;
+  --glass-rgb: 255, 244, 164;
+  --accent: #d4a91e;
+  --accent-rgb: 212, 169, 30;
+  --accent-ink: #312600;
+  --secondary: #71b68f;
+  --secondary-rgb: 113, 182, 143;
+  --glass-canvas: #f4f1dd;
+  --glass-canvas-tint: rgba(225, 190, 45, 0.08);
+  --glass-surface-solid: #fffdf3;
+  --glass-surface-raised: #ffffff;
+  --glass-node-bg: rgba(255, 254, 247, 0.97);
+  --glass-ink: #29281e;
+  --glass-ink-soft: #504d3b;
+  --glass-muted: #756f53;
+}
+
+:root[data-glass-theme="light-sky"] {
+  color-scheme: light;
+  --glass-rgb: 191, 227, 244;
+  --accent: #389bc9;
+  --accent-rgb: 56, 155, 201;
+  --accent-ink: #06293a;
+  --secondary: #79cba8;
+  --secondary-rgb: 121, 203, 168;
+  --glass-canvas: #e8f2f6;
+  --glass-canvas-tint: rgba(56, 154, 201, 0.075);
+  --glass-surface-solid: #f7fcfe;
+  --glass-surface-raised: #ffffff;
+  --glass-node-bg: rgba(248, 253, 255, 0.97);
+  --glass-ink: #203039;
+  --glass-ink-soft: #455d69;
+  --glass-muted: #5d7480;
+}
+
+:root[data-glass-theme="light-blush"] {
+  color-scheme: light;
+  --glass-rgb: 255, 206, 220;
+  --accent: #e76f99;
+  --accent-rgb: 231, 111, 153;
+  --accent-ink: #431125;
+  --secondary: #f5a16f;
+  --secondary-rgb: 245, 161, 111;
+  --glass-canvas: #f8ebee;
+  --glass-canvas-tint: rgba(231, 111, 153, 0.075);
+  --glass-surface-solid: #fff8fa;
+  --glass-surface-raised: #ffffff;
+  --glass-node-bg: rgba(255, 249, 251, 0.97);
+  --glass-ink: #38272e;
+  --glass-ink-soft: #654a55;
+  --glass-muted: #836773;
+}
+
+:root:is([data-glass-mode="dark"], [data-glass-theme^="dark-"]) {
+  color-scheme: dark;
+  --glass-alpha: 0.22;
+  --glass-blur: 26px;
+  --glass-saturation: 138%;
+  --glass-highlight: 0.34;
+  --glass-shadow: 0.4;
+  --glass-radius: 14px;
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --glass-line-strong: rgba(255, 255, 255, 0.18);
+  --glass-control-bg: rgba(255, 255, 255, 0.065);
+  --glass-control-hover: rgba(255, 255, 255, 0.105);
+  --glass-shadow-rgb: 0, 0, 0;
+  --success: #78ddb2;
+  --danger: #ff8477;
+}
+
+:root:is([data-glass-mode="light"], [data-glass-theme^="light-"]) {
+  color-scheme: light;
+  --glass-alpha: 0.44;
+  --glass-blur: 28px;
+  --glass-saturation: 128%;
+  --glass-highlight: 0.7;
+  --glass-shadow: 0.18;
+  --glass-radius: 14px;
+  --glass-line: rgba(43, 48, 45, 0.09);
+  --glass-line-strong: rgba(43, 48, 45, 0.16);
+  --glass-control-bg: rgba(255, 255, 255, 0.44);
+  --glass-control-hover: rgba(255, 255, 255, 0.68);
+  --glass-shadow-rgb: 47, 66, 73;
+  --success: #278662;
+  --danger: #c4473d;
+}
+
+/* Material presets. Inline custom values intentionally win over these rules. */
+:root:is([data-glass-mode="dark"], [data-glass-theme^="dark-"])[data-glass-material="clear"] {
+  --glass-alpha: 0.1;
+  --glass-blur: 10px;
+  --glass-saturation: 112%;
+  --glass-highlight: 0.24;
+  --glass-shadow: 0.2;
+  --glass-radius: 10px;
+}
+
+:root:is([data-glass-mode="dark"], [data-glass-theme^="dark-"])[data-glass-material="frosted"] {
+  --glass-alpha: 0.22;
+  --glass-blur: 26px;
+  --glass-saturation: 138%;
+  --glass-highlight: 0.34;
+  --glass-shadow: 0.4;
+  --glass-radius: 14px;
+}
+
+:root:is([data-glass-mode="dark"], [data-glass-theme^="dark-"])[data-glass-material="dense"] {
+  --glass-alpha: 0.62;
+  --glass-blur: 18px;
+  --glass-saturation: 116%;
+  --glass-highlight: 0.2;
+  --glass-shadow: 0.5;
+  --glass-radius: 12px;
+}
+
+:root:is([data-glass-mode="light"], [data-glass-theme^="light-"])[data-glass-material="clear"] {
+  --glass-alpha: 0.24;
+  --glass-blur: 12px;
+  --glass-saturation: 112%;
+  --glass-highlight: 0.62;
+  --glass-shadow: 0.12;
+  --glass-radius: 10px;
+}
+
+:root:is([data-glass-mode="light"], [data-glass-theme^="light-"])[data-glass-material="frosted"] {
+  --glass-alpha: 0.44;
+  --glass-blur: 28px;
+  --glass-saturation: 128%;
+  --glass-highlight: 0.7;
+  --glass-shadow: 0.18;
+  --glass-radius: 14px;
+}
+
+:root:is([data-glass-mode="light"], [data-glass-theme^="light-"])[data-glass-material="dense"] {
+  --glass-alpha: 0.72;
+  --glass-blur: 20px;
+  --glass-saturation: 112%;
+  --glass-highlight: 0.76;
+  --glass-shadow: 0.24;
+  --glass-radius: 12px;
+}
+
+/* Optional accent mixing mirrors the prototype's five explicit swatches. */
+:root[data-glass-accent="rose"] {
+  --accent: #ff8eb8;
+  --accent-rgb: 255, 142, 184;
+  --accent-ink: #3c1022;
+}
+
+:root[data-glass-accent="mint"] {
+  --accent: #73e3af;
+  --accent-rgb: 115, 227, 175;
+  --accent-ink: #062a1c;
+}
+
+:root[data-glass-accent="coral"] {
+  --accent: #ff8b78;
+  --accent-rgb: 255, 139, 120;
+  --accent-ink: #3d130d;
+}
+
+:root[data-glass-accent="amber"] {
+  --accent: #f4bd67;
+  --accent-rgb: 244, 189, 103;
+  --accent-ink: #312000;
+}
+
+:root[data-glass-accent="ice"] {
+  --accent: #8bc9ee;
+  --accent-rgb: 139, 201, 238;
+  --accent-ink: #092b3d;
+}
+
+:root[data-glass-noise="off"],
+:root.glass-no-noise {
+  --noise-opacity: 0;
+}
+
+:root[data-glass-noise="on"] {
+  --noise-opacity: var(--glass-noise-opacity);
+}
+
+:root[data-glass-reduce-motion="true"],
+:root.glass-reduce-motion {
+  --motion-fast: 0.001ms;
+  --motion-standard: 0.001ms;
+  --motion-slow: 0.001ms;
+  --glass-ease: 0.001ms linear;
+}

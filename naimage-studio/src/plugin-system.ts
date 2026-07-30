@@ -21,6 +21,8 @@ export type PluginToolbarContribution = {
   label: string;
   description: string;
   order: number;
+  icon: "images" | "languages" | "workflow" | "microscope";
+  shortcut?: `Mod+Shift+${number}`;
   when?: "canvas.has-image-selection";
 };
 
@@ -65,11 +67,20 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
     const contribution = item && typeof item === "object" ? item as Record<string, unknown> : {};
     const command = String(contribution.command || "").trim();
     if (!commandIds.has(command)) throw new Error(`插件 ${id} 的工具栏引用了未声明命令 ${command || "<empty>"}。`);
+    const icon = ["images", "languages", "workflow", "microscope"].includes(String(contribution.icon))
+      ? String(contribution.icon) as PluginToolbarContribution["icon"]
+      : "workflow";
+    const shortcutValue = String(contribution.shortcut || "").trim();
+    const shortcut = /^Mod\+Shift\+[1-9]$/.test(shortcutValue)
+      ? shortcutValue as PluginToolbarContribution["shortcut"]
+      : undefined;
     return {
       command,
       label: String(contribution.label || command).trim().slice(0, 40),
       description: String(contribution.description || "").trim().slice(0, 160),
       order: Math.max(-10_000, Math.min(10_000, Math.round(Number(contribution.order) || 0))),
+      icon,
+      shortcut,
       when: contribution.when === "canvas.has-image-selection" ? "canvas.has-image-selection" as const : undefined
     };
   });
@@ -119,14 +130,15 @@ export function uninstallBuiltinPlugin(states: unknown, pluginId: string): Plugi
   return normalizePluginStates(states).filter((state) => state.id !== pluginId);
 }
 
-export function activePluginToolbarItems(states: unknown): ActivePluginToolbarItem[] {
+export function activePluginToolbarItems(states: unknown, disabledCommands: unknown = []): ActivePluginToolbarItem[] {
   const stateById = new Map(normalizePluginStates(states).map((state) => [state.id, state]));
+  const disabled = new Set((Array.isArray(disabledCommands) ? disabledCommands : []).map((item) => String(item || "").trim()));
   return builtinPluginManifests
     .flatMap((manifest) => {
       const state = stateById.get(manifest.id);
       const permissionComplete = Boolean(state && manifest.permissions.every((permission) => state.grantedPermissions.includes(permission)));
       if (!state?.enabled || !permissionComplete) return [];
-      return manifest.contributes.toolbar;
+      return manifest.contributes.toolbar.filter((item) => !disabled.has(item.command));
     })
     .sort((left, right) => left.order - right.order || left.command.localeCompare(right.command));
 }
@@ -168,5 +180,6 @@ export const pluginPermissionLabels: Record<PluginPermission, string> = {
 };
 
 export const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
+export const COMMERCE_GENERATE_SET_COMMAND = "sparkai.commerce-toolkit.generate-listing-set";
 export const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
 export const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";

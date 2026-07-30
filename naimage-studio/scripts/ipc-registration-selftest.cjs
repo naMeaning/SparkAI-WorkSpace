@@ -4,8 +4,10 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
+const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
 const { registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
+const { normalizedTaskScope } = require("../agent-runtime.cjs");
 
 const expectedUpdaterChannels = [
   "naimage:update:status",
@@ -39,6 +41,7 @@ const expectedChannels = [
   "naimage:agent:pause",
   "naimage:agent:resume",
   "naimage:agent:stop",
+  "naimage:agent:steer",
   "naimage:agent:run-status",
   "naimage:agent:compact",
   "naimage:agent:memory-check",
@@ -68,6 +71,8 @@ const expectedChannels = [
   "naimage:project:export",
   "naimage:project:import",
   "naimage:project-graph:import",
+  "naimage:project-skill:import",
+  "naimage:project-skill:parse",
   "naimage:project:open-current-folder",
   "naimage:project:delete",
   "naimage:project:delete-folder",
@@ -160,6 +165,7 @@ async function assertSettingsAccountBoundary() {
     selectedAccountTokenGroup: "image"
   };
   let boundaryCalls = 0;
+  const settingsSavedCalls = [];
   registerSettingsIpc({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     migrateSettings: (value) => ({ ...defaults, ...(value || {}) }),
@@ -170,10 +176,12 @@ async function assertSettingsAccountBoundary() {
     publicSettings: (settings) => settings,
     validateNewApiServiceSettings: () => true,
     onNewApiAccountBaseUrlChanged: () => { boundaryCalls += 1; },
+    onSettingsSaved: (event, next, previous) => settingsSavedCalls.push({ event, next, previous }),
     writeJson: (_path, value) => { stored = value; }
   });
   const save = handlers.get("naimage:config:save-settings");
-  const relayOnly = await save(null, {
+  const event = { sender: { id: 91 } };
+  const relayOnly = await save(event, {
     relayBaseUrl: "https://relay.example",
     licenseDeviceId: "device-renderer-tampered",
     licenseToken: "license-renderer-tampered",
@@ -190,12 +198,17 @@ async function assertSettingsAccountBoundary() {
   assert.equal(stored.licensePlan, "standard");
   assert.equal(stored.licenseExpiresAt, 123456);
   assert.equal(stored.licenseLastVerifiedAt, 123000);
-  const accountChange = await save(null, { accountBaseUrl: "https://account.example" });
+  assert.equal(settingsSavedCalls.length, 1);
+  assert.equal(settingsSavedCalls[0].event, event);
+  assert.equal(settingsSavedCalls[0].next.relayBaseUrl, "https://relay.example");
+  assert.equal(settingsSavedCalls[0].previous.serverSessionCookie, "session=old");
+  const accountChange = await save(event, { accountBaseUrl: "https://account.example" });
   assert.equal(accountChange.accountChanged, true);
   assert.equal(stored.serverSessionCookie, "");
   assert.equal(stored.serverUserId, "");
   assert.equal(stored.selectedAccountTokenId, "");
   assert.equal(boundaryCalls, 1);
+  assert.equal(settingsSavedCalls.length, 2);
 }
 
 async function assertBestEffortRemoteLogout() {
@@ -232,6 +245,56 @@ async function assertBestEffortRemoteLogout() {
   assert.equal(failedRemote.ok, true);
   assert.equal(failedRemote.remoteLogout, false);
   assert.equal(clearCalls, 2, "Local auth must clear even when remote logout fails");
+}
+
+async function assertInvalidGoalFailsBeforeRunAdmission() {
+  const handlers = new Map();
+  let beginCalls = 0;
+  let runToolCalls = 0;
+  registerAgentIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    currentAgentSettings: () => ({}),
+    getAgentRuntime: () => ({
+      normalizeTaskScope: normalizedTaskScope,
+      runTool: async () => {
+        runToolCalls += 1;
+        return { envelope: { ok: true }, actions: [] };
+      }
+    }),
+    log: () => {},
+    listAgentModels: async () => ({ ok: true, models: [] }),
+    emitAgentProgress: () => {},
+    agentRunControl: {
+      begin: () => {
+        beginCalls += 1;
+        return { signal: undefined };
+      },
+      finish: () => {}
+    },
+    aidebugMode: false,
+    aidebugAgentStopFixture: false
+  });
+
+  const response = await handlers.get("naimage:agent:run-tool")(
+    { sender: { id: 77, once: () => {}, isDestroyed: () => false } },
+    {
+      name: "image_gen",
+      runId: "invalid-legacy-goal",
+      taskScope: {
+        origin: "goal",
+        goal: {
+          version: 1,
+          target: "all-image-containers",
+          frozen: true
+        }
+      },
+      input: { operation: "variants" }
+    }
+  );
+
+  assert.equal(response.envelope?.ok, false);
+  assert.equal(beginCalls, 0, "An invalid legacy Goal must be rejected before run admission");
+  assert.equal(runToolCalls, 0, "An invalid legacy Goal must cause zero runtime/provider dispatch");
 }
 
 async function assertSettingsSnapshotPayloads() {
@@ -305,8 +368,8 @@ async function main() {
     agentIntegrationService: {}
   });
 
-  assert.equal(expectedChannels.length, 92, "The registration contract must contain exactly 92 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 92, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 95, "The registration contract must contain exactly 95 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 95, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -320,13 +383,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 89, "preload must expose exactly 89 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 89, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 92, "preload must expose exactly 92 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 92, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 89, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 92, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -340,6 +403,7 @@ async function main() {
   await assertSettingsAccountBoundary();
   await assertBestEffortRemoteLogout();
   await assertSettingsSnapshotPayloads();
+  await assertInvalidGoalFailsBeforeRunAdmission();
 
   process.stdout.write(`${JSON.stringify({
     ok: true,

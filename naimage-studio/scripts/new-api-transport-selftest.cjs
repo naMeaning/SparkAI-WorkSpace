@@ -363,6 +363,22 @@ async function run() {
     assert.equal(migrateSettings({ timeoutSeconds: "invalid" }).timeoutSeconds, 180);
     assert.equal(migrateSettings({ timeoutSeconds: 0 }).timeoutSeconds, 15);
     assert.equal(migrateSettings({ timeoutSeconds: Number.MAX_SAFE_INTEGER }).timeoutSeconds, 600);
+    assert.equal(migrateSettings({}).canvasToolDockMode, "expanded");
+    assert.equal(migrateSettings({ canvasToolDockMode: "hover" }).canvasToolDockMode, "hover");
+    assert.equal(migrateSettings({ canvasToolDockMode: "invalid" }).canvasToolDockMode, "expanded");
+    assert.deepEqual(
+      migrateSettings({ disabledCanvasToolCommands: [
+        "sparkai.commerce-toolkit.translate-listing-set",
+        "sparkai.commerce-toolkit.translate-listing-set",
+        "invalid",
+        "future.plugin.command"
+      ] }).disabledCanvasToolCommands,
+      ["sparkai.commerce-toolkit.translate-listing-set", "future.plugin.command"]
+    );
+    assert.equal(
+      migrateSettings({ disabledCanvasToolCommands: Array.from({ length: 140 }, (_, index) => `future.plugin.tool-${index}`) }).disabledCanvasToolCommands.length,
+      128
+    );
     // 127.0.0.2 stays on the loopback interface but is intentionally not the
     // app's reserved 127.0.0.1 local-server address.
     await listen(server, "127.0.0.2");

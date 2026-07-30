@@ -5,6 +5,15 @@ import { join } from "node:path";
 
 import { createAidebugReporting } from "./aidebug/harness/reporting.mjs";
 
+const expectedWorkpackBinding = process.env.NAIMAGE_AIDEBUG_WORKPACK_ID
+  ? {
+      workpackId: process.env.NAIMAGE_AIDEBUG_WORKPACK_ID,
+      agentId: process.env.NAIMAGE_AIDEBUG_WORKPACK_AGENT_ID || process.env.NAIMAGE_AIDEBUG_AGENT_ID || "",
+      claimToken: process.env.NAIMAGE_AIDEBUG_WORKPACK_CLAIM || "",
+      taskId: process.env.NAIMAGE_AIDEBUG_TASK_ID || ""
+    }
+  : null;
+
 function createPngHeader(width = 2, height = 2) {
   const buffer = Buffer.alloc(24);
   buffer.write("PNG", 1, "ascii");
@@ -85,13 +94,16 @@ try {
   assert.ok(existsSync(outcome.summaryPath));
   assert.ok(existsSync(success.desktopLogPath));
   assert.match(readFileSync(outcome.contactSheetPath, "utf8"), /reporting-selftest &amp; fixture/);
-  assert.match(readFileSync(outcome.summaryPath, "utf8"), /^# naimage AIDebug Run/u);
+  const successSummary = readFileSync(outcome.summaryPath, "utf8");
+  assert.match(successSummary, /^# naimage AIDebug Run/u);
+  assert.match(successSummary, /stateLayers=n\/a/u);
 
   const report = JSON.parse(readFileSync(outcome.reportPath, "utf8"));
   assert.deepEqual(Object.keys(report), [
     "ok",
     "mode",
     "reportOnly",
+    "workpack",
     "runDir",
     "reportPath",
     "contactSheetPath",
@@ -101,6 +113,7 @@ try {
     "results",
     "failures"
   ]);
+  assert.deepEqual(report.workpack, expectedWorkpackBinding);
   assert.equal(report.results[0].label, results[0].label);
   assert.deepEqual(report.performance, { durationMs: 12 });
 
@@ -140,6 +153,7 @@ try {
     "ok",
     "imageRuns",
     "stressRounds",
+    "workpack",
     "runDir",
     "contactSheetPath",
     "summaryPath",
@@ -147,6 +161,7 @@ try {
     "results",
     "failures"
   ]);
+  assert.deepEqual(failureReport.workpack, expectedWorkpackBinding);
 
   console.log("AIDebug reporting self-test passed.");
 } finally {
