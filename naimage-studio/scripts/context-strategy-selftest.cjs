@@ -62,12 +62,12 @@ assert.equal(repaired.effectiveWindowPercent, 99);
 assert.equal(repaired.autoCompactPercent, 50);
 assert.equal(repaired.retainedUserTokens, 50_000);
 
-const mainSource = fs.readFileSync(path.join(__dirname, "..", "src", "main.tsx"), "utf8");
+const settingsDrawerSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-drawer.tsx"), "utf8");
 const persistenceSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-persistence.ts"), "utf8");
-assert.match(mainSource, /value=\{draftSettings\.contextStrategy\}[\s\S]*CONTEXT_STRATEGY_OPTIONS\.map/);
-assert.match(mainSource, /draftSettings\.contextStrategy === "custom"/);
+assert.match(settingsDrawerSource, /value=\{draftSettings\.contextStrategy\}[\s\S]*CONTEXT_STRATEGY_OPTIONS\.map/);
+assert.match(settingsDrawerSource, /draftSettings\.contextStrategy === "custom"/);
 for (const field of ["contextWindowTokens", "contextEffectiveWindowPercent", "contextAutoCompactPercent", "contextRetainedUserTokens"]) {
-  assert.match(mainSource, new RegExp(`update\\("${field}"`), `Settings UI must edit ${field}`);
+  assert.match(settingsDrawerSource, new RegExp(`update\\("${field}"`), `Settings UI must edit ${field}`);
 }
 assert.match(persistenceSource, /\["auto", "codex", "claude", "naimage-balanced", "custom"\]/);
 
