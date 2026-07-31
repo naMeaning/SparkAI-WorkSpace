@@ -1858,9 +1858,11 @@ function imageModelForTaskPreference(args = {}, settings = {}, layerHint = {}) {
   const pooledExplicitModel = pool.find((model) => model.toLowerCase() === explicitModel.toLowerCase());
   const image2Model = pool.find((model) => /(?:^|[/_.:-])gpt-image-2(?:$|[/_.:-])/i.test(model)) ||
     pool.find((model) => /gpt-image-2/i.test(model));
-  if (image2Model) return image2Model;
-  if (pooledExplicitModel) return pooledExplicitModel;
-  return primary || pool[0] || explicitModel || undefined;
+  if (explicitModel) {
+    if (pooledExplicitModel) return pooledExplicitModel;
+    return primary || image2Model || pool[0] || undefined;
+  }
+  return image2Model || primary || pool[0] || undefined;
 }
 
 function normalizeLayerBlendMode(value) {
@@ -6659,8 +6661,9 @@ function createAgentRuntime(options) {
 
   function smokeTest() {
     ensureMemory();
-    const schemas = toolSchemas({ imageModel: "gpt-image-2", imageModelPool: ["gpt-image-2", "gpt-image-1.5", "gemini-2.5-flash-image"] });
-    const publicSchemas = agentToolSchemas({ imageModel: "gpt-image-2", imageModelPool: ["gpt-image-2", "gpt-image-1.5", "gemini-2.5-flash-image"] });
+    const imageModelSettings = { imageModel: "gpt-image-2", imageModelPool: ["gpt-image-2", "gpt-image-1.5", "gemini-2.5-flash-image"] };
+    const schemas = toolSchemas(imageModelSettings);
+    const publicSchemas = agentToolSchemas(imageModelSettings);
     const imageTool = schemas.find((tool) => tool.function?.name === primaryImageToolName);
     const publicImageTool = publicSchemas.find((tool) => tool.function?.name === primaryImageToolName);
     const publicExperienceTool = publicSchemas.find((tool) => tool.function?.name === "experience");
@@ -6707,6 +6710,12 @@ function createAgentRuntime(options) {
       publicToolNames: publicSchemas.map(toolSchemaName).filter(Boolean),
       publicImageOperations: publicImageTool?.function?.parameters?.properties?.operation?.enum ?? [],
       imageModelEnum: modelEnum,
+      explicitSelectedImageModelOk:
+        imageModelForTaskPreference({ model: "gemini-2.5-flash-image" }, imageModelSettings) === "gemini-2.5-flash-image",
+      unselectedImageModelFallbackOk:
+        imageModelForTaskPreference({ model: "not-selected-image-model" }, imageModelSettings) === "gpt-image-2",
+      singleModelDefaultSelectionOk:
+        imageModelForTaskPreference({}, imageModelSettings) === "gpt-image-2",
       tempImageBatchItemFilteredOk:
         tempItemRegression.length === 1 &&
         tempItemRegression[0]?.title === "JAVA 语言娘化｜虚拟机之焰" &&

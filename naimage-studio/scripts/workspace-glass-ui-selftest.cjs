@@ -28,16 +28,21 @@ assert.deepEqual(registry.materialOrder, expectedMaterials, "The glass registry 
 assert.deepEqual(Object.keys(registry.materialPresets.dark), expectedMaterials, "Dark themes must define all three material presets");
 assert.deepEqual(Object.keys(registry.materialPresets.light), expectedMaterials, "Light themes must define all three material presets");
 
-assert.match(workspaceSource, /export type WorkspaceAssetRailTab\s*=\s*"results"\s*\|\s*"layers"\s*\|\s*"requirements"\s*\|\s*"history"/, "The asset rail must keep the four product tabs as a closed contract");
-for (const [id, label] of [["results", "成果"], ["layers", "图层"], ["requirements", "需求"], ["history", "历史"]]) {
+assert.match(workspaceSource, /export type WorkspaceAssetRailTab\s*=\s*"results"\s*\|\s*"layers"\s*\|\s*"requirements"\s*\|\s*"templates"\s*\|\s*"history"/, "The asset rail must keep the five product tabs as a closed contract");
+for (const [id, label] of [["results", "成果"], ["layers", "图层"], ["requirements", "需求"], ["templates", "模板"], ["history", "历史"]]) {
   assert.match(workspaceSource, new RegExp(`\\{ id: "${id}", label: "${label}"`), `The ${id} asset tab must remain visible and labelled`);
 }
 assert.match(workspaceSource, /tab === "layers"[\s\S]{0,180}node\.layerGroup \|\| node\.layerComposition/, "The layers tab must derive from real layer nodes");
 assert.match(workspaceSource, /tab === "requirements"[\s\S]{0,140}node\.type === "requirement"/, "The requirements tab must derive from real requirement nodes");
 assert.match(workspaceSource, /node\.type === "image"[\s\S]{0,180}node\.assets\?\.length[\s\S]{0,100}node\.imageState === "generating"/, "The results tab must derive from real image results and in-flight image nodes");
 assert.match(workspaceSource, /tab === "history" \? historyItems\.map\(\(conversation\)[\s\S]{0,650}onSelectConversation\(conversation\.id\)/, "The history tab must invoke the real conversation selection action");
+assert.match(workspaceSource, /if \(tab === "templates"\) loadRequirementTemplatesRef\.current\?\.\(\)/, "Opening Templates must lazily load the personal requirement library");
+assert.match(workspaceSource, /requirementTemplates\.slice\(0, 200\)/, "The Templates rail must expose the complete 200-item local library contract");
+assert.match(workspaceSource, /onClick=\{tab === "templates" \? onSaveRequirementTemplate : onImport\}/, "The Templates header action must save the selected requirement instead of importing an image");
+assert.match(workspaceSource, /onClick=\{\(\) => onUseRequirementTemplate\?\.\(template\.id\)\}/, "Template selection must invoke the real insertion action with a stable template id");
+assert.match(workspaceSource, /if \(!deleteArmed\)[\s\S]{0,180}setDeleteArmedTemplateId\(template\.id\)[\s\S]{0,220}onDeleteRequirementTemplate\?\.\(template\.id\)/, "Template deletion must require a second confirming click");
 assert.match(workspaceSource, /data-node-id=\{node\.id\}[\s\S]{0,350}onSelectNode\(node\.id\)/, "Node tabs must invoke the real node selection action with stable node ids");
-assert.match(workspaceSource, /onClick=\{onImport\}/, "The asset rail import button must invoke the real import action");
+assert.match(workspaceSource, /onClick=\{tab === "templates" \? onSaveRequirementTemplate : onImport\}/, "The asset rail header must keep the real import action outside the Templates tab");
 assert.match(workspaceSource, /onClick=\{onOpenSettings\}/, "The asset rail settings button must invoke the real settings action");
 assert.match(workspaceSource, /export function WorkspaceSearch[\s\S]{0,1800}nodeResults[\s\S]{0,1200}conversationResults/, "Project search must derive results from live nodes and conversations");
 assert.match(workspaceSource, /event\.key\.toLowerCase\(\) !== "k"[\s\S]{0,180}setOpen\(true\)/, "Project search must expose the Ctrl or Command K shortcut");
@@ -53,6 +58,10 @@ assert.match(mainSource, /function selectWorkspaceNavigatorNode[\s\S]{0,420}requ
 assert.match(mainSource, /function changeWorkspaceViewMode[\s\S]{0,480}replaceSelectedNodeId\(nextImage\.id\)/, "Entering a projected workspace mode must replace a non-image selection with a real image result");
 assert.match(mainSource, /function continueWorkspaceImageNode[\s\S]{0,420}replaceSelectedNodeId\(node\.id\)[\s\S]{0,180}openNodeEditor\(node, 0\)/, "Focus continuation must select the result canonically and open its existing confirmation editor instead of dispatching generation immediately");
 assert.match(mainSource, /<LazyWorkspaceFocusStage[\s\S]{0,360}onContinueNode=\{continueWorkspaceImageNode\}/, "The Focus projection must bind its continue action to the confirmation editor");
+assert.match(mainSource, /const \[availableImageModels, setAvailableImageModels\][\s\S]{0,850}selectedImageModelsFromSettings\(settings\)[\s\S]{0,850}settings\.imageModelBindings/, "Composer model availability must retain selected and credential-bound image models independently of the active checkbox pool");
+assert.match(mainSource, /const composerImageModels = useMemo\([\s\S]{0,320}\.\.\.availableImageModels[\s\S]{0,320}\.\.\.selectedComposerImageModels/, "Composer chips must be driven by the persistent available-model catalog, not only the current selection");
+assert.match(mainSource, /function openWorkspaceLayerNode[\s\S]{0,260}node\?\.layerGroup[\s\S]{0,180}openLayerGroupViewer\(node\.id\)[\s\S]{0,220}node\?\.layerComposition[\s\S]{0,120}openNodeEditor\(node\)/, "The layer rail must open modern groups in the viewer and legacy compositions in their supported editor");
+assert.match(workspaceSource, /node\.layerComposition[\s\S]{0,220}双击打开图层编辑器/, "Legacy layer compositions must advertise the editor they actually open");
 
 const renderMarker = mainSource.indexOf("MAIN 11 Main Workspace Render Tree");
 const renderSource = mainSource.slice(renderMarker);
@@ -88,4 +97,4 @@ assert.match(protectionSource, /-webkit-backdrop-filter:\s*none\s*!important;/, 
 assert.match(protectionSource, /backdrop-filter:\s*none\s*!important;/, "Rendered images must disable backdrop filtering");
 assert.match(protectionSource, /mix-blend-mode:\s*normal\s*!important;/, "Rendered images must keep normal color blending");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 50 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 59 })}\n`);

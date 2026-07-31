@@ -347,7 +347,21 @@ function createAccountTokenService({
     return apiKey;
   }
 
-  async function credentials(settings) {
+  async function credentialsForToken(settings, tokenId) {
+    const token = await tokenById(settings, tokenId);
+    if (token.status !== TOKEN_STATUS_ENABLED) throw new Error("该密钥当前未启用，请先启用后再使用。");
+    const apiKey = await fullKey(settings, token.id);
+    return {
+      baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
+      apiKey,
+      tokenId: token.id,
+      tokenName: token.name,
+      group: token.group
+    };
+  }
+
+  async function credentials(settings, tokenId) {
+    if (String(tokenId || "").trim()) return credentialsForToken(settings, tokenId);
     const token = await ensureSelection(settings);
     const apiKey = await fullKey(settings, token.id);
     return {
@@ -443,6 +457,7 @@ function createAccountTokenService({
     clearKeyCache,
     create,
     credentials,
+    credentialsForToken,
     ensureSelection,
     list,
     remove,

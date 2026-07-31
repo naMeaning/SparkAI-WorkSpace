@@ -24,7 +24,7 @@ const fallbackPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAA
 
 const THEME_IDS = ["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"];
 const MATERIAL_IDS = ["clear", "frosted", "dense"];
-const RAIL_TAB_IDS = ["results", "layers", "requirements", "history"];
+const RAIL_TAB_IDS = ["results", "layers", "requirements", "templates", "history"];
 const VIEW_MODE_IDS = ["workbench", "focus", "review"];
 const CUSTOM_APPEARANCE = Object.freeze({
   theme: "light-sky",
@@ -47,7 +47,7 @@ const qaInventory = [
   { id: "custom-controls", claim: "Every numeric range, accent, noise and reduced-motion control updates live root tokens and can restore the recommended preset.", evidence: "03-custom-all-controls.png + 03-reset-recommended.png" },
   { id: "rapid-theme-switch", claim: "Rapid light/dark switching preserves the same canonical canvas and node DOM objects and geometry.", evidence: "report.json rapidThemeSwitch + canvasDomIdentity" },
   { id: "cold-restart", claim: "A saved high-radius, zero-blur custom material survives a real Electron close and cold restart through the pre-React bootstrap.", evidence: "09-custom-before-restart.png + 10-custom-after-restart.png" },
-  { id: "asset-rail", claim: "The left asset rail exposes results, layers, requirements and history as real tabs.", evidence: "04-rail-*.png" },
+  { id: "asset-rail", claim: "The left asset rail exposes results, layers, requirements, templates and history as real tabs.", evidence: "04-rail-*.png" },
   { id: "project-search", claim: "Topbar search queries live image, requirement and conversation state and navigates through canonical selectors.", evidence: "04-search-live-state.png + report.json projectSearch" },
   { id: "view-modes", claim: "Workbench, Focus and Review switch presentation while preserving node IDs and viewport.", evidence: "05-mode-*.png" },
   { id: "safe-continuation", claim: "Focus continuation opens the existing confirmation editor without dispatching image generation.", evidence: "05-focus-continue-confirmation.png + report.json focusContinuation" },
@@ -538,6 +538,11 @@ async function capture(label) {
   return result;
 }
 
+function railTabHasExpectedContent(tabId, state) {
+  if (tabId === "templates") return state.itemCount > 0 || state.emptyVisible;
+  return state.itemCount > 0;
+}
+
 async function selectRailTab(tabId) {
   const index = RAIL_TAB_IDS.indexOf(tabId);
   assert(index >= 0, `Unknown rail tab: ${tabId}`);
@@ -547,7 +552,7 @@ async function selectRailTab(tabId) {
   return evaluate(client, `(() => ({
     activeTab: document.querySelector('.workspace-asset-rail')?.getAttribute('data-active-tab') || '',
     activeButtons: document.querySelectorAll('.workspace-asset-rail-tabs > button[aria-pressed="true"]').length,
-    itemCount: document.querySelectorAll('.workspace-asset-rail-list > .workspace-asset-rail-item').length,
+    itemCount: document.querySelectorAll('.workspace-asset-rail-list .workspace-asset-rail-item').length,
     emptyVisible: Boolean(document.querySelector('.workspace-asset-rail-empty'))
   }))()`);
 }
@@ -577,9 +582,17 @@ async function runStaticSelfTest() {
   const suiteSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
   assert.deepEqual(THEME_IDS, ["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"]);
   assert.deepEqual(MATERIAL_IDS, ["clear", "frosted", "dense"]);
-  assert.deepEqual(RAIL_TAB_IDS, ["results", "layers", "requirements", "history"]);
+  assert.deepEqual(RAIL_TAB_IDS, ["results", "layers", "requirements", "templates", "history"]);
   assert.deepEqual(VIEW_MODE_IDS, ["workbench", "focus", "review"]);
   assert.equal(new Set(qaInventory.map((item) => item.id)).size, qaInventory.length);
+  assert.match(qaInventory.find((item) => item.id === "asset-rail")?.claim || "", /results, layers, requirements, templates and history/);
+  assert.equal(railTabHasExpectedContent("templates", { itemCount: 0, emptyVisible: true }), true);
+  assert.equal(railTabHasExpectedContent("templates", { itemCount: 1, emptyVisible: false }), true);
+  assert.equal(railTabHasExpectedContent("templates", { itemCount: 0, emptyVisible: false }), false);
+  for (const tabId of RAIL_TAB_IDS.filter((id) => id !== "templates")) {
+    assert.equal(railTabHasExpectedContent(tabId, { itemCount: 0, emptyVisible: true }), false, `${tabId} must remain fixture-backed`);
+    assert.equal(railTabHasExpectedContent(tabId, { itemCount: 1, emptyVisible: false }), true, `${tabId} must accept fixture content`);
+  }
   assert.equal(packageJson.scripts?.["aidebug:glass-workspace"], "node scripts/aidebug-glass-workspace-suite.mjs");
   assert.equal(packageJson.scripts?.["test:aidebug-glass-workspace"], "node scripts/aidebug-glass-workspace-suite.mjs --self-test");
   for (const token of ["WorkspaceAssetRail", "WorkspaceDirectionSwitcher", "data-active-tab"]) assert(workspaceSource.includes(token), `workspace chrome is missing ${token}`);
@@ -861,7 +874,12 @@ async function runGuiSuite() {
     const state = await selectRailTab(tabId);
     assert.equal(state.activeTab, tabId);
     assert.equal(state.activeButtons, 1);
-    assert(state.itemCount > 0, `Asset rail ${tabId} tab must expose fixture-backed content`);
+    assert(
+      railTabHasExpectedContent(tabId, state),
+      tabId === "templates"
+        ? "Asset rail templates tab must expose saved templates or its explicit empty state"
+        : `Asset rail ${tabId} tab must expose fixture-backed content`
+    );
     await assertCanvasInvariant(`Asset rail tab ${tabId}`, invariant);
     railChecks.push({ tabId, ...state });
     await capture(`04-rail-${tabId}`);

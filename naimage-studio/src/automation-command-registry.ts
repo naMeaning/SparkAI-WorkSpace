@@ -23,6 +23,10 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "canvas.import",
   "canvas.import-skill",
   "canvas.export-image",
+  "requirement-library.list",
+  "requirement-library.save",
+  "requirement-library.delete",
+  "requirement-library.use",
   "agent.chat",
   "agent.goal",
   "commerce.compose-set",
@@ -507,6 +511,141 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
             "tiff"
           ],
           "default": "png"
+        }
+      }
+    }
+  },
+  "requirement-library.list": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includeText": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "requirement-library.save": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "nodeId",
+        "expectedRequirementRevision",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "expectedRequirementRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "templateId": {
+          "type": "string",
+          "pattern": "^reqtpl-[a-f0-9]{32}$"
+        },
+        "expectedTemplateRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      }
+    }
+  },
+  "requirement-library.delete": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "templateId",
+        "expectedTemplateRevision",
+        "confirmed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "pattern": "^reqtpl-[a-f0-9]{32}$"
+        },
+        "expectedTemplateRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "confirmed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "destructive": true
+  },
+  "requirement-library.use": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "templateId",
+        "expectedTemplateRevision",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "pattern": "^reqtpl-[a-f0-9]{32}$"
+        },
+        "expectedTemplateRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inputBindings": {
+          "type": "array",
+          "maxItems": 240,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "nodeId",
+              "role"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "source",
+                  "reference"
+                ]
+              }
+            }
+          }
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "expectedCanvasRevision": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

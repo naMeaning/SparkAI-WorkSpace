@@ -673,6 +673,52 @@
   scrollbar-gutter: stable;
 }
 
+.project-agent-model-picker {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.project-agent-model-picker > span {
+  white-space: nowrap;
+}
+
+.project-agent-model-chips {
+  min-width: 0;
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 1px 0 3px;
+  scrollbar-width: thin;
+}
+
+.project-agent-model-chips button {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-solid);
+  font: inherit;
+  cursor: pointer;
+}
+
+.project-agent-model-chips button.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-solid));
+}
+
+.project-agent-model-chips button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .project-agent-composer footer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

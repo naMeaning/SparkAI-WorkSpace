@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 contextBridge.exposeInMainWorld("naimageConfig", {
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
+  listRequirementLibrary: (payload) => ipcRenderer.invoke("naimage:requirement-library:list", payload),
+  getRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:get", payload),
+  saveRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:save", payload),
+  deleteRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:delete", payload),
   loadSession: (payload) => ipcRenderer.invoke("naimage:config:load-session", payload),
   saveSession: (session, options = {}) => ipcRenderer.invoke("naimage:config:save-session", session, options),
   newWindow: (payload) => ipcRenderer.invoke("naimage:window:new", payload),

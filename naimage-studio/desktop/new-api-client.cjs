@@ -32,21 +32,63 @@ function createNewApiClient(options = {}) {
     return String(settings?.accessMode || "account").toLowerCase() === "custom";
   }
 
-  function customApiCredentials(settings, provider = "agent") {
+  function imageModelBinding(settings, model) {
+    const target = String(model || "").trim().toLowerCase();
+    if (!target || !Array.isArray(settings?.imageModelBindings)) return null;
+    for (const value of settings.imageModelBindings) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const bindingModel = String(value.model || "").trim();
+      if (!bindingModel || bindingModel.toLowerCase() !== target) continue;
+      const accountTokenId = /^\d+$/.test(String(value.accountTokenId || "").trim())
+        && Number(value.accountTokenId) > 0
+        ? String(value.accountTokenId).trim()
+        : "";
+      return {
+        model: bindingModel,
+        customApiKey: String(value.customApiKey || "").trim(),
+        accountTokenId
+      };
+    }
+    return null;
+  }
+
+  function modelFromRequestBody(body) {
+    if (!body || typeof body !== "object") return "";
+    if (typeof body.get === "function") {
+      const value = body.get("model");
+      return typeof value === "string" ? value.trim() : "";
+    }
+    return String(body.model || "").trim();
+  }
+
+  function isImagesApiEndpoint(endpoint) {
+    const path = String(endpoint || "").split(/[?#]/, 1)[0];
+    return /(?:^|\/)images(?:\/|$)/i.test(path);
+  }
+
+  function imageModelBindingForRequest(settings, endpoint, body, provider) {
+    if (provider !== "image" || !isImagesApiEndpoint(endpoint)) return null;
+    return imageModelBinding(settings, modelFromRequestBody(body));
+  }
+
+  function customApiCredentials(settings, provider = "agent", model = "") {
     const imageProvider = provider === "image";
+    const binding = imageProvider ? imageModelBinding(settings, model) : null;
     const baseUrl = normalizeServerUrl(
       imageProvider ? settings?.imageBaseUrl || settings?.agentBaseUrl : settings?.agentBaseUrl || settings?.imageBaseUrl,
       ""
     );
-    const apiKey = String(imageProvider ? settings?.imageApiKey || settings?.agentApiKey : settings?.agentApiKey || settings?.imageApiKey).trim();
+    const apiKey = String(imageProvider
+      ? binding?.customApiKey || settings?.imageApiKey || settings?.agentApiKey
+      : settings?.agentApiKey || settings?.imageApiKey).trim();
     if (!baseUrl) throw new Error(`${imageProvider ? "生图" : "Agent"} Base URL 尚未配置。`);
     parsedServiceBaseUrl(baseUrl, `${imageProvider ? "生图" : "Agent"} Base URL`);
     if (!apiKey) throw new Error(`${imageProvider ? "生图" : "Agent"} API Key 尚未配置。`);
     return { baseUrl, apiKey };
   }
 
-  function customApiUrl(settings, endpoint, provider = "agent") {
-    const { baseUrl } = customApiCredentials(settings, provider);
+  function customApiUrl(settings, endpoint, provider = "agent", model = "") {
+    const { baseUrl } = customApiCredentials(settings, provider, model);
     return directApiUrl(baseUrl, endpoint);
   }
 
@@ -58,10 +100,10 @@ function createNewApiClient(options = {}) {
     return `${baseUrl}${cleanEndpoint}`;
   }
 
-  async function accountApiCredentials(settings) {
+  async function accountApiCredentials(settings, tokenId = "") {
     requireNewApiSession(settings);
     if (typeof resolveAccountApiCredentials !== "function") throw new Error("账户密钥服务尚未就绪。");
-    const credentials = await resolveAccountApiCredentials(settings);
+    const credentials = await resolveAccountApiCredentials(settings, String(tokenId || "").trim() || undefined);
     const baseUrl = normalizeServerUrl(credentials?.baseUrl, "");
     const apiKey = String(credentials?.apiKey || "").trim();
     if (!baseUrl || !apiKey) throw new Error("所选账户密钥不可用，请在设置中重新选择。");
@@ -69,8 +111,15 @@ function createNewApiClient(options = {}) {
     return { ...credentials, baseUrl, apiKey };
   }
 
-  function customApiHeaders(settings, provider = "agent") {
-    const { apiKey } = customApiCredentials(settings, provider);
+  async function relayApiCredentials(settings, endpoint, body, provider) {
+    const binding = imageModelBindingForRequest(settings, endpoint, body, provider);
+    return isCustomApiMode(settings)
+      ? customApiCredentials(settings, provider, binding?.model)
+      : accountApiCredentials(settings, binding?.accountTokenId);
+  }
+
+  function customApiHeaders(settings, provider = "agent", model = "") {
+    const { apiKey } = customApiCredentials(settings, provider, model);
     return { authorization: `Bearer ${apiKey}` };
   }
 
@@ -391,9 +440,8 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
-    const customMode = isCustomApiMode(settings);
     const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
-    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const credentials = await relayApiCredentials(settings, endpoint, body, provider);
     const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
     if (relayBody && typeof relayBody === "object") delete relayBody.group;
     const { response, data } = await newApiFetch(settings, endpoint, {
@@ -414,11 +462,10 @@ function createNewApiClient(options = {}) {
   }
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
-    const customMode = isCustomApiMode(settings);
     const relayBody = { ...body, stream: true };
     delete relayBody.group;
     const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
-    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const credentials = await relayApiCredentials(settings, endpoint, relayBody, provider);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) {
       await ensureLocalServer(relayBaseUrl);
@@ -766,7 +813,6 @@ function createNewApiClient(options = {}) {
   }
 
   async function newApiRelayImage(settings, endpoint, body, onPartialImage, options = {}) {
-    const customMode = isCustomApiMode(settings);
     const provider = "image";
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     let requestBody;
@@ -781,7 +827,7 @@ function createNewApiClient(options = {}) {
       requestBody.partial_images = Math.max(1, Math.min(3, Math.floor(Number(options.partialImages || 3) || 3)));
       delete requestBody.group;
     }
-    const credentials = customMode ? customApiCredentials(settings, provider) : await accountApiCredentials(settings);
+    const credentials = await relayApiCredentials(settings, endpoint, requestBody, provider);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
     const response = await newApiTransportFetch(

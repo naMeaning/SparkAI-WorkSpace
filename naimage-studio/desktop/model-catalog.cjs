@@ -22,8 +22,37 @@ function looksLikeModelId(value) {
   const clean = String(value || "").trim();
   return /^[a-z0-9][a-z0-9._:/+-]{1,}$/i.test(clean) && (
     /[0-9.\/:+-]/.test(clean) ||
-    /^(gpt|chatgpt|claude|gemini|imagen|image|flux|dall|midjourney|mj|stable|sd|sora|veo|kling|runway|qwen|glm|deepseek|llama|mistral|recraft|ideogram|seedream|doubao|hunyuan|minimax|ernie|baichuan|moonshot|pixverse|hailuo|wanx|wanxiang|hidream)/i.test(clean)
+    /^(gpt|chatgpt|claude|gemini|imagen|image|flux|dall|midjourney|mj|stable|sd|sora|veo|kling|runway|qwen|glm|deepseek|llama|mistral|recraft|ideogram|seedream|doubao|hunyuan|minimax|ernie|baichuan|moonshot|pixverse|hailuo|wanx|wanxiang|hidream|grok|xai)/i.test(clean)
   );
+}
+
+function isExplicitImageModelId(value) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  return /(?:^|[\/:._+-])(?:image|images|imagen|flux|dall(?:[._+-]?e)?|midjourney|mj|stable[._+-]?diffusion|sdxl|sd3|recraft|ideogram|seedream|cogview|kolors|hidream|nano[._+-]?banana|grok[._+-]?imagine|wanx|wanxiang|jimeng)(?=$|[\/:._+-]|\d)/i.test(clean);
+}
+
+function isExplicitChatModelId(value) {
+  const clean = String(value || "").trim();
+  if (!clean || isExplicitImageModelId(clean)) return false;
+  return /(?:^|[\/:._+-])(?:gpt|chatgpt|claude|gemini|grok|xai|deepseek|qwen|qwq|glm|llama|meta[._+-]?llama|mistral|mixtral|gemma|moonshot|kimi|ernie|baichuan|command[._+-]?r|cohere|doubao|hunyuan|minimax|codex|o[134])(?=$|[\/:._+-]|\d)/i.test(clean);
+}
+
+function configuredImageModelIds(settings = {}) {
+  return uniqueModelIds([
+    settings.imageModel,
+    ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
+    ...(Array.isArray(settings.imageModelBindings)
+      ? settings.imageModelBindings.map((binding) => binding && typeof binding === "object" ? binding.model : "")
+      : [])
+  ]).filter((model) => !isExplicitChatModelId(model));
+}
+
+function configuredAgentModelIds(settings = {}) {
+  return uniqueModelIds([
+    settings.agentModel,
+    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : [])
+  ]).filter((model) => !isExplicitImageModelId(model));
 }
 
 function isModelMapEntry(key, value, depth) {
@@ -108,15 +137,25 @@ function modelGroupsFromResponse(payload) {
 
 function splitModelSettings(settings = {}, modelIds = [], modelGroups = []) {
   const unique = uniqueModelIds(modelIds);
-  const imageModels = unique;
-  const agentModels = unique;
+  const configuredImageModels = configuredImageModelIds(settings);
+  const configuredAgentModels = configuredAgentModelIds(settings);
+  // Most model APIs omit capability metadata, so unknown custom IDs stay visible in both catalogs.
+  // Only an explicit opposite-purpose family is filtered out.
+  const imageModels = uniqueModelIds([
+    ...unique.filter((model) => !isExplicitChatModelId(model)),
+    ...configuredImageModels
+  ]);
+  const agentModels = uniqueModelIds([
+    ...unique.filter((model) => !isExplicitImageModelId(model)),
+    ...configuredAgentModels
+  ]);
   const normalizedGroups = modelGroupsFromResponse(modelGroups);
   return {
     imageCostCents: 0,
     imageCostYuan: 0,
     trialImages: 0,
     models: unique,
-    imageModel: settings.imageModel || imageModels[0] || "",
+    imageModel: configuredImageModels[0] || imageModels[0] || "",
     imageModels,
     agentModels,
     modelGroup: String(settings.modelGroup || "").trim(),
@@ -152,13 +191,20 @@ function cachedModelSettings(settings = {}, value) {
     ...(Array.isArray(source.imageModels) ? source.imageModels : []),
     ...(Array.isArray(source.agentModels) ? source.agentModels : [])
   ]);
-  const normalized = splitModelSettings(settings, models, source.modelGroups);
+  const normalized = splitModelSettings({
+    ...settings,
+    imageModel: source.imageModel || settings.imageModel,
+    imageModelPool: uniqueModelIds([
+      ...(Array.isArray(source.imageModels) ? source.imageModels : []),
+      ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : [])
+    ])
+  }, models, source.modelGroups);
   return {
     ...normalized,
     imageCostCents: Number.isFinite(Number(source.imageCostCents)) ? Number(source.imageCostCents) : normalized.imageCostCents,
     imageCostYuan: Number.isFinite(Number(source.imageCostYuan)) ? Number(source.imageCostYuan) : normalized.imageCostYuan,
     trialImages: Number.isFinite(Number(source.trialImages)) ? Number(source.trialImages) : normalized.trialImages,
-    imageModel: String(source.imageModel || normalized.imageModel || ""),
+    imageModel: normalized.imageModel,
     modelGroup: String(source.modelGroup ?? normalized.modelGroup ?? ""),
     modelGroups: normalized.modelGroups,
     channelName: String(source.channelName || normalized.channelName || "New API"),

@@ -3,7 +3,7 @@
 const { registerAgentIpc } = require("./agent-ipc.cjs");
 const { registerAutomationIpc } = require("./automation-ipc.cjs");
 const { registerAssetIpc } = require("./asset-ipc.cjs");
-const { registerSettingsIpc, registerSessionIpc } = require("./config-ipc.cjs");
+const { registerRequirementLibraryIpc, registerSettingsIpc, registerSessionIpc } = require("./config-ipc.cjs");
 const { registerDebugIpc } = require("./debug-ipc.cjs");
 const { registerProjectIpc } = require("./project-ipc.cjs");
 const { registerPluginIpc } = require("./plugin-ipc.cjs");
@@ -13,6 +13,7 @@ const { registerWindowIpc } = require("./window-ipc.cjs");
 
 function registerDesktopIpc(dependencies = {}) {
   registerSettingsIpc(dependencies);
+  registerRequirementLibraryIpc(dependencies);
   registerPluginIpc(dependencies);
   registerAutomationIpc(dependencies);
   registerUpdateIpc(dependencies);

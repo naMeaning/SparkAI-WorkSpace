@@ -157,6 +157,28 @@ export type AutomationCommandContext = {
     confirmedUnchanged: boolean;
     expectedProjectId: string;
   }): Promise<unknown>;
+  listRequirementLibrary(includeText: boolean): Promise<unknown>;
+  saveRequirementLibrary(input: {
+    nodeId: string;
+    expectedRequirementRevision: number;
+    templateId?: string;
+    expectedTemplateRevision?: number;
+    expectedProjectId: string;
+  }): Promise<unknown>;
+  deleteRequirementLibrary(input: {
+    templateId: string;
+    expectedTemplateRevision: number;
+    confirmed: true;
+  }): Promise<unknown>;
+  useRequirementLibrary(input: {
+    templateId: string;
+    expectedTemplateRevision: number;
+    inputBindings: CanvasRequirementInputBinding[];
+    x?: number;
+    y?: number;
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }): Promise<unknown>;
   composePluginTask?(payload: {
     command: string;
     sourceCount: number;
@@ -673,6 +695,65 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       });
       const state = await waitForAgent(context);
       return { ...(isJsonObject(result) ? result : { result }), state };
+    },
+    "requirement-library.list": (value) => context.listRequirementLibrary(value.includeText === true),
+    "requirement-library.save": async (value) => {
+      assertExpectedProject(value, context);
+      const nodeId = String(value.nodeId);
+      const node = context.nodes().find((candidate) => candidate.id === nodeId);
+      if (node?.type !== "requirement" || !node.requirement) {
+        throw automationCommandError("UNSUPPORTED_NODE", "只能将当前存在的需求节点保存到个人模板库。", { nodeId });
+      }
+      const expectedRequirementRevision = value.expectedRequirementRevision as number;
+      if (node.requirement.revision !== expectedRequirementRevision) {
+        throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
+          nodeId,
+          expectedRevision: expectedRequirementRevision,
+          currentRevision: node.requirement.revision,
+        });
+      }
+      const templateId = value.templateId === undefined ? undefined : String(value.templateId);
+      const expectedTemplateRevision = value.expectedTemplateRevision as number | undefined;
+      if (Boolean(templateId) !== (expectedTemplateRevision !== undefined)) {
+        throw automationCommandError("INVALID_ARGUMENT", "覆盖个人需求模板时必须同时提供 templateId 和 expectedTemplateRevision。", {
+          fields: ["templateId", "expectedTemplateRevision"],
+        });
+      }
+      return context.saveRequirementLibrary({
+        nodeId,
+        expectedRequirementRevision,
+        templateId,
+        expectedTemplateRevision,
+        expectedProjectId: String(value.expectedProjectId),
+      });
+    },
+    "requirement-library.delete": (value) => {
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "删除个人需求模板需要 confirmed=true。", { field: "confirmed" });
+      }
+      return context.deleteRequirementLibrary({
+        templateId: String(value.templateId),
+        expectedTemplateRevision: value.expectedTemplateRevision as number,
+        confirmed: true,
+      });
+    },
+    "requirement-library.use": async (value) => {
+      assertExpectedProject(value, context);
+      const inputBindings = (value.inputBindings as JsonObject[] | undefined ?? []).map((binding) => ({
+        nodeId: String(binding.nodeId),
+        role: binding.role as AssetTaskRole,
+      }));
+      strictNodeIds(inputBindings.map((binding) => binding.nodeId), "inputBindings.nodeId", context);
+      const result = await context.useRequirementLibrary({
+        templateId: String(value.templateId),
+        expectedTemplateRevision: value.expectedTemplateRevision as number,
+        inputBindings,
+        x: value.x as number | undefined,
+        y: value.y as number | undefined,
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCanvasRevision: value.expectedCanvasRevision as number | undefined,
+      });
+      return canvasMutationResponse(result, context);
     },
     "canvas.fit": () => {
       context.fitCanvas();

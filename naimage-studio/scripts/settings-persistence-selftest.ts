@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+import { imageModelBindingFor, normalizeImageModelBindings } from "../src/core.ts";
+
 import {
   AGENT_PROVIDER_OPTIONS,
   CONTEXT_STRATEGY_OPTIONS,
@@ -36,6 +38,7 @@ assert.deepEqual(defaultSettings.agentSkillAutoInstallTargets, []);
 assert.deepEqual(defaultSettings.pluginStates, []);
 assert.equal(defaultSettings.canvasToolDockMode, "expanded");
 assert.deepEqual(defaultSettings.disabledCanvasToolCommands, []);
+assert.deepEqual(defaultSettings.imageModelBindings, []);
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
 assert.equal(STORAGE_SESSION, "naimage.ideSession.v1");
 assert.equal(STORAGE_IMAGE_STATS, "naimage.imageGenerationStats.v1");
@@ -48,6 +51,11 @@ const migrated = mergeSettings({
   agentModelPool: ["AGENT-PRIMARY", "agent-secondary", "agent-secondary"],
   imageModel: "image-primary",
   imageModelPool: ["IMAGE-PRIMARY", "image-secondary", ""],
+  imageModelBindings: [
+    { model: " image-primary ", customApiKey: " key-primary " },
+    { model: "IMAGE-PRIMARY", accountTokenId: "12" },
+    { model: "image-secondary", accountTokenId: "0" },
+  ],
   timeoutSeconds: 12.6,
   fastMode: "yes" as never,
   theme: "dark",
@@ -60,6 +68,21 @@ assert.equal(migrated.imageApiKey, "legacy-key");
 assert.equal(migrated.agentModel, "agent-primary");
 assert.deepEqual(migrated.agentModelPool, ["agent-primary", "agent-secondary"]);
 assert.deepEqual(migrated.imageModelPool, ["image-primary", "image-secondary"]);
+assert.deepEqual(migrated.imageModelBindings, [
+  { model: "image-primary", customApiKey: "key-primary", accountTokenId: "12" },
+  { model: "image-secondary" },
+]);
+assert.deepEqual(imageModelBindingFor(migrated, "IMAGE-PRIMARY"), {
+  model: "image-primary",
+  customApiKey: "key-primary",
+  accountTokenId: "12",
+});
+assert.deepEqual(normalizeImageModelBindings([
+  null,
+  { model: "" },
+  { model: " grok-image-latest ", customApiKey: " grok-key ", accountTokenId: "not-an-id" },
+]), [{ model: "grok-image-latest", customApiKey: "grok-key" }]);
+assert.deepEqual(mergeSettings({}).imageModelBindings, []);
 assert.equal(migrated.timeoutSeconds, 15);
 assert.equal(migrated.fastMode, true);
 assert.equal(migrated.theme, "dark");
@@ -228,4 +251,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 66 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 72 })}\n`);

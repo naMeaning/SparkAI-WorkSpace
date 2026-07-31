@@ -51,5 +51,12 @@
     "新增 PNG/JPEG/WebP 输入识别及 PNG/JPEG/WebP/AVIF/TIFF 本地导出，远程图片统一经 Main 受管下载与公网安全校验。",
     "新增跨境电商套图与多语言工作流、Requirement/Skill 节点复用、Project Graph 导入和画布 Graph CLI 原子操作。",
     "自动化命令 schema 统一驱动 Renderer、CLI 文档和测试，并补齐正式发布的全量专项与真实 Electron GUI 门禁。"
+  ],
+  "1.0.8": [
+    "优化工作区顶部标题和成果栏展示，批量节点生成的图片可逐张查看，并完善图层查看与编辑入口说明。",
+    "Composer 支持同时勾选 GPT Image、Gemini、Grok 等多个生图模型，保持稳定顺序，并为每个模型配置独立凭证。",
+    "图片模型共享统一 Base URL；显式选择的模型按用户意图执行，未指定时仍维持单模型运行，避免意外并发扣费。",
+    "新增本地个人需求与 Skill 模板库，支持保存、插入和安全删除，并同步 Agent CLI 与自动化命令定义。",
+    "改进账号 Token、自定义 API 传输、设置持久化和工作区交互的稳定性。"
   ]
 }

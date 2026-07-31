@@ -2,9 +2,12 @@ import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from
 import { Check, Plus, Search } from "lucide-react";
 
 import {
+  imageModelBindingFor,
   imageModelCapability,
   normalizeAgentModelPoolSelection,
+  normalizeImageModelBindings,
   normalizeImageModelPoolSelection,
+  type AccountApiToken,
   type AppSettings,
 } from "./core";
 
@@ -12,6 +15,7 @@ import {
   ActionButton,
   ButtonBase,
   DialogShell,
+  Field,
   SearchField,
   SurfaceBody,
   SurfaceFooter,
@@ -32,12 +36,18 @@ function uniqueModels(values: string[]) {
   });
 }
 
+function bindingSignature(value: unknown) {
+  return JSON.stringify(normalizeImageModelBindings(value)
+    .sort((left, right) => left.model.toLowerCase().localeCompare(right.model.toLowerCase())));
+}
+
 export default function ModelConfigDialog({
   kind,
   settings,
   setSettings,
   selectedModels,
   models,
+  accountTokens = [],
   close,
 }: {
   kind: "agent" | "image";
@@ -45,11 +55,13 @@ export default function ModelConfigDialog({
   setSettings: Dispatch<SetStateAction<AppSettings>>;
   selectedModels: string[];
   models: string[];
+  accountTokens?: AccountApiToken[];
   close: () => void;
 }) {
   const title = kind === "agent" ? "配置对话模型" : "配置生图模型";
   const currentModel = kind === "agent" ? settings.agentModel : settings.imageModel;
   const [draftModels, setDraftModels] = useState<string[]>(() => uniqueModels(selectedModels));
+  const [draftBindings, setDraftBindings] = useState(() => normalizeImageModelBindings(settings.imageModelBindings));
   const [query, setQuery] = useState("");
   const [customModel, setCustomModel] = useState("");
   const draftSet = new Set(draftModels.map((model) => model.toLowerCase()));
@@ -61,7 +73,21 @@ export default function ModelConfigDialog({
     filteredModels.find((model) => draftSet.has(model.toLowerCase())) ||
     filteredModels[0] || "";
   const dirty = uniqueModels(selectedModels).map((model) => model.toLowerCase()).sort().join("\n") !==
-    uniqueModels(draftModels).map((model) => model.toLowerCase()).sort().join("\n");
+    uniqueModels(draftModels).map((model) => model.toLowerCase()).sort().join("\n") ||
+    (kind === "image" && bindingSignature(settings.imageModelBindings) !== bindingSignature(draftBindings));
+
+  function updateBinding(model: string, field: "customApiKey" | "accountTokenId", value: string) {
+    setDraftBindings((current) => {
+      const existing = imageModelBindingFor({ imageModelBindings: current }, model) ?? { model };
+      const next = { ...existing };
+      if (value) next[field] = value;
+      else delete next[field];
+      return normalizeImageModelBindings([
+        ...current.filter((binding) => binding.model.toLowerCase() !== model.toLowerCase()),
+        next,
+      ]);
+    });
+  }
 
   function toggle(model: string) {
     const clean = String(model || "").trim();
@@ -106,7 +132,10 @@ export default function ModelConfigDialog({
         return normalizeAgentModelPoolSelection({ ...current, agentModel, agentModelPool: nextPool }, normalizedAvailableModels);
       }
       const imageModel = nextPool.some((model) => model.toLowerCase() === current.imageModel.toLowerCase()) ? current.imageModel : nextPool[0];
-      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool }, normalizedAvailableModels);
+      const imageModelBindings = normalizeImageModelBindings(nextPool.map((model) =>
+        imageModelBindingFor({ imageModelBindings: draftBindings }, model) ?? { model }
+      ));
+      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool, imageModelBindings }, normalizedAvailableModels);
     });
     close();
   }
@@ -175,6 +204,51 @@ export default function ModelConfigDialog({
                 <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
               </div>
               <small>适用于中转站尚未返回、但实际可请求的模型名称；添加后会自动选中并随设置保存。</small>
+              {kind === "image" ? (
+                <>
+                  <label>逐模型凭证</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 10, maxHeight: 190, overflowY: "auto", paddingRight: 4 }}>
+                    {draftModels.map((model) => {
+                      const binding = imageModelBindingFor({ imageModelBindings: draftBindings }, model);
+                      if (settings.accessMode === "custom") {
+                        return (
+                          <Field key={`binding-${model}`} label={model} hint="留空时回退到全局图片 API Key。">
+                            <input
+                              type="password"
+                              value={binding?.customApiKey || ""}
+                              maxLength={8_192}
+                              autoComplete="off"
+                              placeholder={settings.imageApiKey ? "使用全局图片 API Key" : "全局图片 API Key 尚未设置"}
+                              onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
+                            />
+                          </Field>
+                        );
+                      }
+                      const boundTokenId = binding?.accountTokenId || "";
+                      const boundTokenLoaded = accountTokens.some((token) => token.id === boundTokenId);
+                      const globalTokenLabel = settings.selectedAccountTokenName
+                        ? `${settings.selectedAccountTokenName}${settings.selectedAccountTokenGroup ? ` · ${settings.selectedAccountTokenGroup}` : ""}`
+                        : settings.selectedAccountTokenId
+                          ? `密钥 #${settings.selectedAccountTokenId}`
+                          : "尚未选择";
+                      return (
+                        <Field key={`binding-${model}`} label={model} hint={`留空时回退到全局密钥（${globalTokenLabel}）。`}>
+                          <select value={boundTokenId} onChange={(event) => updateBinding(model, "accountTokenId", event.target.value)}>
+                            <option value="">使用全局选中密钥</option>
+                            {boundTokenId && !boundTokenLoaded ? <option value={boundTokenId}>密钥 #{boundTokenId} · 元数据未加载</option> : null}
+                            {accountTokens.map((token) => (
+                              <option key={token.id} value={token.id} disabled={token.status !== 1}>
+                                {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                      );
+                    })}
+                  </div>
+                  <small>所有图片模型共享同一 Base URL；这里只保存自定义 Key 或账户 Token ID，账户完整 Key 不会进入界面进程。</small>
+                </>
+              ) : null}
             </div>
             <div className="model-picker-list" role="listbox" aria-multiselectable="true">
               {filteredModels.length ? filteredModels.map((model) => {

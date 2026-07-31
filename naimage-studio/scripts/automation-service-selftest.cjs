@@ -8,6 +8,80 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createAutomationService } = require("../desktop/automation-service.cjs");
 const { composePluginTask } = require("../desktop/plugin-task-prompts.cjs");
+const { createRequirementLibraryService } = require("../desktop/requirement-library.cjs");
+
+function assertRequirementLibraryStorageContract() {
+  let reads = 0;
+  let writes = 0;
+  let stored;
+  let second = 0;
+  const service = createRequirementLibraryService({
+    libraryPath: "fixture-requirement-library.json",
+    readJson: (_path, fallback) => {
+      reads += 1;
+      return stored ?? fallback;
+    },
+    writeJson: (_path, value) => {
+      writes += 1;
+      stored = JSON.parse(JSON.stringify(value));
+    },
+    now: () => `2026-07-30T00:00:${String(second++).padStart(2, "0")}.000Z`,
+    createId: () => "reqtpl-0123456789abcdef0123456789abcdef"
+  });
+  assert.equal(reads, 0, "The personal library must remain lazy until first use");
+  assert.deepEqual(service.list(), { ok: true, schemaVersion: 1, libraryRevision: 0, items: [] });
+  assert.equal(reads, 1);
+  const created = service.save({
+    title: " Product hero\u0000 ",
+    text: "Keep the exact product identity.\nCreate a clean marketplace hero.",
+    inputBindings: [{ nodeId: "must-not-persist", role: "source" }],
+    lastRunAt: "must-not-persist",
+    skill: {
+      version: 1,
+      name: "product-photo",
+      description: "Reusable product photo instructions",
+      sourceName: "C:\\private\\SKILL.md",
+      contentFingerprint: "skill-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      importedAt: "2026-07-29T00:00:00.000Z"
+    }
+  });
+  assert.equal(created.changed, true);
+  assert.equal(created.entry.id, "reqtpl-0123456789abcdef0123456789abcdef");
+  assert.equal(created.entry.title, "Product hero");
+  assert.equal(created.entry.skill.sourceName, "SKILL.md");
+  assert.equal(stored.items[0].inputBindings, undefined);
+  assert.equal(stored.items[0].lastRunAt, undefined);
+  assert.equal(writes, 1);
+  const summaries = service.list();
+  assert.equal(summaries.items[0].text, undefined, "Default list must not transfer complete instructions");
+  assert.match(summaries.items[0].summary, /exact product identity/);
+  const full = service.get({ id: created.entry.id });
+  assert.match(full.entry.text, /marketplace hero/);
+  assert.throws(
+    () => service.save({ id: created.entry.id, expectedRevision: 9, title: "Changed", text: full.entry.text }),
+    (error) => error.code === "TEMPLATE_REVISION_CONFLICT" && error.details?.currentRevision === 1
+  );
+  const updated = service.save({
+    id: created.entry.id,
+    expectedRevision: 1,
+    title: "Marketplace hero",
+    text: full.entry.text,
+    skill: full.entry.skill
+  });
+  assert.equal(updated.entry.revision, 2);
+  assert.equal(updated.libraryRevision, 2);
+  assert.throws(
+    () => service.remove({ id: created.entry.id, expectedRevision: 2 }),
+    (error) => error.code === "CONFIRMATION_REQUIRED"
+  );
+  assert.throws(
+    () => service.remove({ id: created.entry.id, expectedRevision: 1, confirmed: true }),
+    (error) => error.code === "TEMPLATE_REVISION_CONFLICT" && error.details?.currentRevision === 2
+  );
+  const removed = service.remove({ id: created.entry.id, expectedRevision: 2, confirmed: true });
+  assert.equal(removed.libraryRevision, 3);
+  assert.equal(service.list({ includeText: true }).items.length, 0);
+}
 
 function runCli(skillRoot, command, argsJson = "{}") {
   return new Promise((resolve) => {
@@ -25,6 +99,7 @@ function runCli(skillRoot, command, argsJson = "{}") {
 }
 
 async function main() {
+  assertRequirementLibraryStorageContract();
   const root = mkdtempSync(path.join(os.tmpdir(), "naimage-automation-"));
   const destroyedHandlers = [];
   let autoRespond = true;
@@ -363,7 +438,10 @@ async function main() {
       "canvas.connect", "canvas.disconnect", "canvas.group", "canvas.dissolve", "canvas.nudge",
       "canvas.create-requirement", "canvas.update-requirement", "canvas.execute-requirement"
     ];
-    for (const command of ["canvas.import-skill", "canvas.export-image", ...graphCommands, "agent.chat", "agent.goal", "commerce.compose-set", "agent.steer", "agent.pause", "agent.resume", "agent.stop"]) {
+    const requirementLibraryCommands = [
+      "requirement-library.list", "requirement-library.save", "requirement-library.delete", "requirement-library.use"
+    ];
+    for (const command of ["canvas.import-skill", "canvas.export-image", ...graphCommands, ...requirementLibraryCommands, "agent.chat", "agent.goal", "commerce.compose-set", "agent.steer", "agent.pause", "agent.resume", "agent.stop"]) {
       assert.equal(rendererCommands.has(command), true, `${command} must be registered in the shared command schema`);
       assert.match(commandReference, new RegExp("`" + command.replace(".", "\\.") + "`"));
     }
@@ -431,6 +509,22 @@ async function main() {
     assert.equal(connectSchema.parameters.additionalProperties, false);
     const updateRequirementSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "canvas.update-requirement");
     assert.deepEqual(updateRequirementSchema.parameters.required, ["nodeId", "expectedRevision", "patch", "expectedProjectId"]);
+    const libraryListSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.list");
+    const librarySaveSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.save");
+    const libraryDeleteSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.delete");
+    const libraryUseSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.use");
+    assert.equal(libraryListSchema.parameters.properties.includeText.default, false);
+    assert.deepEqual(librarySaveSchema.parameters.required, ["nodeId", "expectedRequirementRevision", "expectedProjectId"]);
+    assert.equal(librarySaveSchema.parameters.properties.templateId.pattern, "^reqtpl-[a-f0-9]{32}$");
+    assert.equal(libraryDeleteSchema.destructive, true);
+    assert.deepEqual(generatedExample("requirement-library.delete"), {
+      templateId: "reqtpl-0123456789abcdef0123456789abcdef",
+      expectedTemplateRevision: 1,
+      confirmed: true
+    });
+    assert.match(libraryUseSchema.description, /never executes the Requirement/);
+    assert.match(libraryUseSchema.description, /never spends image quota/);
+    assert.equal(generatedExample("requirement-library.use").inputBindings[0].role, "source");
     assert.equal(generatedExample("canvas.connect").edges.length, 1, "Nested edge examples must satisfy minItems");
     assert.equal(generatedExample("canvas.group").nodeIds.length, 2, "Unique node examples must satisfy minItems without duplicates");
     assert.equal(Object.keys(generatedExample("canvas.update-requirement").patch).length, 1, "Nested patch examples must satisfy minProperties");
@@ -447,6 +541,8 @@ async function main() {
       "Generated Renderer command registry must contain agent.goal");
     assert.equal(registryModule.AUTOMATION_RENDERER_COMMAND_NAMES.includes("commerce.compose-set"), true,
       "Generated Renderer command registry must contain commerce.compose-set");
+    assert.equal(registryModule.AUTOMATION_RENDERER_COMMAND_NAMES.includes("requirement-library.use"), true,
+      "Generated Renderer command registry must contain the personal Requirement library commands");
     assert.deepEqual([...registryModule.AUTOMATION_COMMAND_ENUMS["canvas.export-image"].format], exportImageSchema.parameters.properties.format.enum,
       "Renderer format validation must be generated from the shared command schema");
     assert.deepEqual([...registryModule.AUTOMATION_COMMAND_ENUMS["agent.steer"].taskScopeMode], steerSchema.parameters.properties.taskScopeMode.enum,
@@ -515,6 +611,7 @@ async function main() {
       }
     ];
     const graphCalls = [];
+    const libraryCalls = [];
     const canvasRuntimeContext = {
       activeProjectId: () => "PROJECT",
       activeConversationId: () => "CONVERSATION",
@@ -559,6 +656,23 @@ async function main() {
       createRequirement: (input) => { graphCalls.push({ command: "create-requirement", input }); canvasRevision += 1; return { changed: true, nodeId: "REQ-2", canvasRevision }; },
       updateRequirement: (input) => { graphCalls.push({ command: "update-requirement", input }); canvasRevision += 1; return { changed: true, nodeId: input.nodeId, canvasRevision }; },
       executeRequirement: async (input) => { graphCalls.push({ command: "execute-requirement", input }); return { accepted: true, nodeId: input.nodeId }; },
+      listRequirementLibrary: async (includeText) => {
+        libraryCalls.push({ command: "list", includeText });
+        return { ok: true, libraryRevision: 4, items: [{ id: "reqtpl-0123456789abcdef0123456789abcdef", revision: 2, title: "Hero" }] };
+      },
+      saveRequirementLibrary: async (input) => {
+        libraryCalls.push({ command: "save", input });
+        return { ok: true, changed: true, libraryRevision: 5, entry: { id: "reqtpl-0123456789abcdef0123456789abcdef", revision: 1 } };
+      },
+      deleteRequirementLibrary: async (input) => {
+        libraryCalls.push({ command: "delete", input });
+        return { ok: true, changed: true, libraryRevision: 6, id: input.templateId };
+      },
+      useRequirementLibrary: async (input) => {
+        libraryCalls.push({ command: "use", input });
+        canvasRevision += 1;
+        return { changed: true, nodeId: "REQ-LIB", canvasRevision };
+      },
       agentBusy: () => false
     };
     const authoritativeState = await runtimeModule.executeAutomationCommand("canvas.state", {}, canvasRuntimeContext);
@@ -618,6 +732,49 @@ async function main() {
     assert.equal(graphCalls[0].input.expectedCanvasRevision, 17);
     assert.deepEqual(graphCalls[0].input.edges[0], { sourceId: "A", targetId: "REQ", relationType: "referenced", inputRole: "source" });
     assert.equal(graphCalls.at(-1).input.confirmedUnchanged, false);
+
+    const listedLibrary = await runtimeModule.executeAutomationCommand("requirement-library.list", {}, canvasRuntimeContext);
+    assert.equal(listedLibrary.items[0].title, "Hero");
+    const savedLibrary = await runtimeModule.executeAutomationCommand("requirement-library.save", {
+      nodeId: "REQ",
+      expectedRequirementRevision: 3,
+      expectedProjectId: "PROJECT"
+    }, canvasRuntimeContext);
+    assert.equal(savedLibrary.entry.revision, 1);
+    await assert.rejects(
+      runtimeModule.executeAutomationCommand("requirement-library.save", {
+        nodeId: "REQ",
+        expectedRequirementRevision: 3,
+        templateId: "reqtpl-0123456789abcdef0123456789abcdef",
+        expectedProjectId: "PROJECT"
+      }, canvasRuntimeContext),
+      (error) => error.code === "INVALID_ARGUMENT" && /expectedTemplateRevision/.test(error.message)
+    );
+    await assert.rejects(
+      runtimeModule.executeAutomationCommand("requirement-library.delete", {
+        templateId: "reqtpl-0123456789abcdef0123456789abcdef",
+        expectedTemplateRevision: 1,
+        confirmed: false
+      }, canvasRuntimeContext),
+      (error) => error.code === "CONFIRMATION_REQUIRED"
+    );
+    await runtimeModule.executeAutomationCommand("requirement-library.delete", {
+      templateId: "reqtpl-0123456789abcdef0123456789abcdef",
+      expectedTemplateRevision: 1,
+      confirmed: true
+    }, canvasRuntimeContext);
+    const usedLibrary = await runtimeModule.executeAutomationCommand("requirement-library.use", {
+      templateId: "reqtpl-0123456789abcdef0123456789abcdef",
+      expectedTemplateRevision: 1,
+      inputBindings: [{ nodeId: "A", role: "source" }],
+      expectedProjectId: "PROJECT",
+      expectedCanvasRevision: 24
+    }, canvasRuntimeContext);
+    assert.equal(usedLibrary.nodeId, "REQ-LIB");
+    assert.equal(usedLibrary.state.canvasRevision, 25);
+    assert.deepEqual(libraryCalls.map((call) => call.command), ["list", "save", "delete", "use"]);
+    assert.equal(libraryCalls[0].includeText, false);
+    assert.equal(libraryCalls.at(-1).input.expectedTemplateRevision, 1);
 
     const goalCalls = { preview: [], execute: [], compose: [], waits: 0 };
     const commerceReusableNodes = [];

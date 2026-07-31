@@ -36,6 +36,7 @@ const {
   sessionHasContent
 } = require("./desktop/project-session-normalizer.cjs");
 const { createProjectStore } = require("./desktop/project-store.cjs");
+const { createRequirementLibraryService } = require("./desktop/requirement-library.cjs");
 const { createPublicHttpDownloadAdmission } = require("./desktop/public-http-resource.cjs");
 const { loadRecordedRemoteAssetProxy } = require("./desktop/remote-asset-proxy.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
@@ -263,6 +264,7 @@ const electronLog = electronLogOverride
   ? path.resolve(electronLogOverride)
   : path.join(debugDir, "latest.log");
 const settingsPath = path.join(configDir, "app-settings.json");
+const requirementLibraryPath = path.join(configDir, "requirement-library.json");
 const sessionPath = path.join(configDir, "session.json");
 const modelCachePath = path.join(configDir, "model-cache.json");
 const accountTokenCachePath = path.join(configDir, "account-token-cache.json");
@@ -349,6 +351,7 @@ const defaultSettings = {
   imageApiKey: "",
   imageModel: "",
   imageModelPool: [],
+  imageModelBindings: [],
   imageCount: 1,
   imageBatchSize: 3,
   imageSize: "1024x1024",
@@ -534,6 +537,34 @@ function uniqueImageModels(models = []) {
     .filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
 }
 
+function normalizeImageModelBindings(value) {
+  if (!Array.isArray(value)) return [];
+  const bindings = [];
+  const bindingByModel = new Map();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const model = String(item.model || "")
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .trim()
+      .slice(0, 180);
+    if (!model) continue;
+    const modelKey = model.toLowerCase();
+    let binding = bindingByModel.get(modelKey);
+    if (!binding) {
+      binding = { model };
+      bindingByModel.set(modelKey, binding);
+      bindings.push(binding);
+    }
+    const customApiKey = typeof item.customApiKey === "string"
+      ? item.customApiKey.trim().slice(0, 8_192)
+      : "";
+    const accountTokenId = String(item.accountTokenId || "").trim();
+    if (customApiKey) binding.customApiKey = customApiKey;
+    if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
+  }
+  return bindings;
+}
+
 const defaultSession = {
   schemaVersion: 5,
   sessionRevision: 0,
@@ -598,6 +629,7 @@ function migrateSettings(value) {
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
+  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
   next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
@@ -739,6 +771,11 @@ const agentWindowService = createAgentWindowService({
   log
 });
 const themePresetService = createThemePresetService({ dialog, readFileSync, statSync, writeFileSync });
+const requirementLibraryService = createRequirementLibraryService({
+  libraryPath: requirementLibraryPath,
+  readJson,
+  writeJson
+});
 
 const aidebugBackend = aidebugMode && aidebugMockAgent
   ? createAidebugBackend({ enabled: aidebugMode, log })
@@ -765,7 +802,7 @@ const newApiClient = createNewApiClient({
   newApiTransportFetch,
   normalizeServerUrl,
   readJson,
-  resolveAccountApiCredentials: (settings) => accountTokenService.credentials(settings),
+  resolveAccountApiCredentials: (settings, tokenId) => accountTokenService.credentials(settings, tokenId),
   settingsPath,
   writeJson
 });
@@ -2731,8 +2768,8 @@ async function callNewApiImage(settings, payload = {}) {
   if (!aidebugMode) await licenseService.requireActive();
   const customMode = isCustomApiMode(settings);
   if (!customMode) requireNewApiSession(settings);
-  const customImageCredentials = customMode ? customApiCredentials(settings, "image") : null;
   const model = String(payload.model || settings.imageModel || "gpt-image-2").trim();
+  const customImageCredentials = customMode ? customApiCredentials(settings, "image", model) : null;
   const requestedCount = Math.floor(Number(payload.count || 1));
   const count = Math.max(1, Math.min(Number.isFinite(requestedCount) ? requestedCount : 1, 10));
   const size = String(payload.size || settings.imageSize || "1024x1024").trim();
@@ -2972,7 +3009,7 @@ async function callNewApiImage(settings, payload = {}) {
     const executeAttempt = () => withImageRequestTimeout(async (signal) => {
       const prompt = promptForIndependentImage(payload.prompt, count, index);
       const requestHeaders = {
-        ...(customMode ? customApiHeaders(settings, "image") : newApiUserAuthHeaders(settings)),
+        ...(customMode ? customApiHeaders(settings, "image", model) : newApiUserAuthHeaders(settings)),
         "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`
       };
       const onPartialImage = (partial) => {
@@ -3055,7 +3092,7 @@ async function callNewApiImage(settings, payload = {}) {
           }
           const request = await newApiFetch(settings, customMode ? "/v1/images/edits" : managedRelayEndpoint("/v1/images/edits"), {
             service: "relay",
-            absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image") : undefined,
+            absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image", model) : undefined,
             requestBaseUrl: customImageCredentials?.baseUrl,
             method: "POST",
             headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}${idempotencySuffix}` },
@@ -3615,6 +3652,7 @@ function registerIpc() {
     agentWindowService,
     desktopUpdater,
     themePresetService,
+    requirementLibraryService,
     composePluginTask,
     migrateSettings,
     readJson,

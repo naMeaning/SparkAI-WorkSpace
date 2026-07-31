@@ -2823,6 +2823,9 @@ async function runSelftest(directory) {
     assert.equal(runtimeSmoke.publicExperienceSchemaMetadataHiddenOk, true);
     assert.equal(runtimeSmoke.modelToolEnvelopeMetadataHiddenOk, true);
     assert.equal(runtimeSmoke.modelToolFailureMetadataHiddenOk, true);
+    assert.equal(runtimeSmoke.explicitSelectedImageModelOk, true);
+    assert.equal(runtimeSmoke.unselectedImageModelFallbackOk, true);
+    assert.equal(runtimeSmoke.singleModelDefaultSelectionOk, true);
 
     const resetPrompt = assertOk(runtime.resetMainPrompt(), "reset Main Agent Prompt");
     const expectedDefaultPrompt = defaultPromptText("main");

@@ -215,7 +215,10 @@
               "confirmedUnchanged": { "type": "boolean", "default": false },
               "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
             }
-          }
+          },
+          "examples": [
+            { "nodeId": "REQ_A", "expectedRequirementRevision": 3, "expectedProjectId": "PROJECT_ID" }
+          ]
         },
         { "name": "canvas.fit", "surface": "renderer", "args": "", "description": "Fit current results into view." },
         { "name": "canvas.clear", "surface": "renderer", "args": "{ \"mode\": \"failed | all\", \"confirmed\": true }", "description": "Clear failed results or, with explicit confirmation, the whole canvas.", "destructive": true },
@@ -244,6 +247,103 @@
             "avif": { "extension": ".avif", "mimeType": "image/avif", "label": "AVIF 图片", "extensions": ["avif"] },
             "tiff": { "extension": ".tiff", "mimeType": "image/tiff", "label": "TIFF 图片", "extensions": ["tif", "tiff"] }
           }
+        }
+      ]
+    },
+    {
+      "title": "Requirement library",
+      "commands": [
+        {
+          "name": "requirement-library.list",
+          "surface": "renderer",
+          "description": "List the installation-local personal Requirement template library across projects. By default the response contains bounded summaries; includeText=true returns the complete stored instructions. Every library item still instantiates as a normal Requirement node, including items carrying Skill metadata.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "includeText": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        {
+          "name": "requirement-library.save",
+          "surface": "renderer",
+          "description": "Save one current canvas Requirement into the installation-local personal template library. expectedRequirementRevision and expectedProjectId guard the source node. Omit templateId to create a new item; when overwriting, pass templateId and its exact expectedTemplateRevision. The complete operation validates before one local CAS write.",
+          "parameters": {
+            "type": "object",
+            "required": ["nodeId", "expectedRequirementRevision", "expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRequirementRevision": { "type": "integer", "minimum": 1 },
+              "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          },
+          "examples": [
+            { "nodeId": "REQ_A", "expectedRequirementRevision": 3, "expectedProjectId": "PROJECT_ID" }
+          ]
+        },
+        {
+          "name": "requirement-library.delete",
+          "surface": "renderer",
+          "description": "Delete one personal Requirement template only when its exact revision is still current and confirmed=true. This does not delete any Requirement nodes already instantiated on project canvases.",
+          "destructive": true,
+          "parameters": {
+            "type": "object",
+            "required": ["templateId", "expectedTemplateRevision", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "confirmed": { "type": "boolean" }
+            }
+          },
+          "examples": [
+            { "templateId": "reqtpl-0123456789abcdef0123456789abcdef", "expectedTemplateRevision": 1, "confirmed": true }
+          ]
+        },
+        {
+          "name": "requirement-library.use",
+          "surface": "renderer",
+          "description": "Instantiate one exact personal template revision on the active canvas as a normal Requirement node. Optional ordered SOURCE/REFERENCE bindings and position use the same graph validation and project/canvas compare-and-set guards as direct Requirement creation. This command never executes the Requirement, never calls an image model, and never spends image quota.",
+          "parameters": {
+            "type": "object",
+            "required": ["templateId", "expectedTemplateRevision", "expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "inputBindings": {
+                "type": "array",
+                "maxItems": 240,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "required": ["nodeId", "role"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+                    "role": { "type": "string", "enum": ["source", "reference"] }
+                  }
+                }
+              },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "examples": [
+            {
+              "templateId": "reqtpl-0123456789abcdef0123456789abcdef",
+              "expectedTemplateRevision": 1,
+              "inputBindings": [{ "nodeId": "IMAGE_A", "role": "source" }],
+              "expectedProjectId": "PROJECT_ID",
+              "expectedCanvasRevision": 44
+            }
+          ]
         }
       ]
     },

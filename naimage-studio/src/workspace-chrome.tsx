@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BookMarked,
   Check,
   Focus,
   Grid2X2,
@@ -7,9 +8,12 @@ import {
   ImageIcon,
   Images,
   Layers3,
+  Loader2,
   Plus,
   Search,
+  Save,
   Settings,
+  Trash2,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -23,7 +27,15 @@ import {
 import { ButtonBase } from "./ui";
 
 export type WorkspaceViewMode = "workbench" | "focus" | "review";
-export type WorkspaceAssetRailTab = "results" | "layers" | "requirements" | "history";
+export type WorkspaceAssetRailTab = "results" | "layers" | "requirements" | "templates" | "history";
+
+export type WorkspaceRequirementTemplate = {
+  id: string;
+  title: string;
+  revision: number;
+  updatedAt: string;
+  skill?: { name?: string; description?: string };
+};
 
 const workspaceViewModes: Array<{
   id: WorkspaceViewMode;
@@ -39,16 +51,20 @@ const workspaceViewModes: Array<{
 const railTabs: Array<{
   id: WorkspaceAssetRailTab;
   label: string;
+  title?: string;
   icon: React.ReactNode;
 }> = [
   { id: "results", label: "成果", icon: <Images size={15} /> },
-  { id: "layers", label: "图层", icon: <Layers3 size={15} /> },
+  { id: "layers", label: "图层", title: "分层图片：定位、查看、合并与导出", icon: <Layers3 size={15} /> },
   { id: "requirements", label: "需求", icon: <WandSparkles size={15} /> },
+  { id: "templates", label: "模板", title: "跨项目复用的本机需求模板库", icon: <BookMarked size={15} /> },
   { id: "history", label: "历史", icon: <History size={15} /> },
 ];
 
-function nodePreview(node: WorkflowNode | null | undefined) {
-  const asset = node?.assets?.find((item) => item.status !== "error") ?? node?.assets?.[0];
+function nodePreview(node: WorkflowNode | null | undefined, assetIndex?: number) {
+  const asset = assetIndex === undefined
+    ? node?.assets?.find((item) => item.status !== "error") ?? node?.assets?.[0]
+    : node?.assets?.[assetIndex];
   return asset ? imageAssetThumbnailSrc(asset, 256) : "";
 }
 
@@ -61,6 +77,36 @@ function nodeArtwork(node: WorkflowNode | null | undefined, maxEdge?: number) {
 function nodeRailLabel(node: WorkflowNode) {
   if (node.requirement?.skill) return node.requirement.skill.name || node.title;
   return node.title || node.prompt || node.displayCode || node.id;
+}
+
+type WorkspaceRailItem = {
+  key: string;
+  node: WorkflowNode;
+  assetIndex?: number;
+  assetOrdinal?: number;
+  assetTotal?: number;
+  generating?: boolean;
+};
+
+function layerRailBadge(node: WorkflowNode) {
+  if (node.layerGroup) return `${node.layerGroup.order}/${node.layerGroup.total}`;
+  if (node.layerComposition) return `${node.layerComposition.layers.length}层`;
+  return "";
+}
+
+function layerRailTitle(node: WorkflowNode, opensViewer: boolean) {
+  if (node.layerGroup) {
+    const action = opensViewer ? "双击打开分层查看器" : "在画布中右键查看和管理";
+    const groupNumber = String(node.layerGroup.groupNumber ?? 0).padStart(3, "0");
+    return `分层 PNG #${groupNumber} · 第 ${node.layerGroup.order}/${node.layerGroup.total} 层 · ${node.layerGroup.layerTitle || nodeRailLabel(node)}；${action}`;
+  }
+  if (node.layerComposition) {
+    const action = opensViewer ? "双击打开图层编辑器" : "在画布中右键查看和管理";
+    const groupNumber = String(node.layerComposition.groupNumber ?? 0).padStart(3, "0");
+    return `分层 PNG #${groupNumber} · ${node.layerComposition.layers.length} 层；${action}`;
+  }
+  const action = opensViewer ? "双击打开图层" : "在画布中右键查看和管理";
+  return `${nodeRailLabel(node)}；${action}`;
 }
 
 export function WorkspaceDirectionSwitcher({
@@ -286,8 +332,16 @@ export function WorkspaceAssetRail({
   conversations,
   activeConversationId,
   selectedNodeId,
+  requirementTemplates = [],
+  requirementTemplatesLoading = false,
+  canSaveRequirementTemplate = false,
   onSelectNode,
+  onOpenLayer,
   onSelectConversation,
+  onLoadRequirementTemplates,
+  onUseRequirementTemplate,
+  onSaveRequirementTemplate,
+  onDeleteRequirementTemplate,
   onImport,
   onOpenSettings,
 }: {
@@ -295,19 +349,81 @@ export function WorkspaceAssetRail({
   conversations: AgentConversation[];
   activeConversationId: string;
   selectedNodeId: string;
+  requirementTemplates?: WorkspaceRequirementTemplate[];
+  requirementTemplatesLoading?: boolean;
+  canSaveRequirementTemplate?: boolean;
   onSelectNode: (nodeId: string) => void;
+  onOpenLayer?: (nodeId: string) => void;
   onSelectConversation: (conversationId: string) => void;
+  onLoadRequirementTemplates?: () => void;
+  onUseRequirementTemplate?: (templateId: string) => void;
+  onSaveRequirementTemplate?: () => void;
+  onDeleteRequirementTemplate?: (templateId: string) => void;
   onImport: () => void;
   onOpenSettings: () => void;
 }) {
   const [tab, setTab] = useState<WorkspaceAssetRailTab>("results");
-  const nodeItems = useMemo(() => {
-    const candidates = tab === "layers"
-      ? nodes.filter((node) => Boolean(node.layerGroup || node.layerComposition))
-      : tab === "requirements"
-        ? nodes.filter((node) => node.type === "requirement")
-        : nodes.filter((node) => node.type === "image" && ((node.assets?.length ?? 0) > 0 || node.imageState === "generating"));
-    return [...candidates].reverse().slice(0, 40);
+  const [deleteArmedTemplateId, setDeleteArmedTemplateId] = useState("");
+  const loadRequirementTemplatesRef = useRef(onLoadRequirementTemplates);
+  loadRequirementTemplatesRef.current = onLoadRequirementTemplates;
+
+  useEffect(() => {
+    if (tab === "templates") loadRequirementTemplatesRef.current?.();
+    else setDeleteArmedTemplateId("");
+  }, [tab]);
+
+  const nodeItems = useMemo<WorkspaceRailItem[]>(() => {
+    if (tab === "templates" || tab === "history") return [];
+    if (tab === "layers") {
+      return [...nodes]
+        .reverse()
+        .filter((node) => Boolean(node.layerGroup || node.layerComposition))
+        .slice(0, 40)
+        .map((node) => ({ key: node.id, node }));
+    }
+    if (tab === "requirements") {
+      return [...nodes]
+        .reverse()
+        .filter((node) => node.type === "requirement")
+        .slice(0, 40)
+        .map((node) => ({ key: node.id, node }));
+    }
+    return [...nodes]
+      .reverse()
+      .filter((node) => node.type === "image" && ((node.assets?.length ?? 0) > 0 || node.imageState === "generating"))
+      .flatMap((node) => {
+        const assetTotal = Math.max(1, ...[
+          node.assets?.length ?? 0,
+          Number(node.imageProgress?.total ?? 0),
+          Number(node.imageParams?.count ?? 0),
+        ].filter(Number.isFinite));
+        const completedItems = (node.assets ?? []).flatMap((asset, assetIndex): WorkspaceRailItem[] => (
+          asset.status === "error" || asset.status === "pending"
+            ? []
+            : [{
+                key: `${node.id}:asset:${assetIndex}`,
+                node,
+                assetIndex,
+                assetOrdinal: assetIndex + 1,
+                assetTotal,
+              }]
+        ));
+        if (node.imageState !== "generating") return completedItems;
+        const requestedActiveIndex = Number(node.imageProgress?.activeIndex ?? completedItems.length + 1);
+        const activeIndex = Math.max(0, Math.min(assetTotal - 1, Number.isFinite(requestedActiveIndex) ? requestedActiveIndex - 1 : completedItems.length));
+        return [
+          ...completedItems,
+          {
+            key: `${node.id}:generating`,
+            node,
+            assetIndex: activeIndex,
+            assetOrdinal: activeIndex + 1,
+            assetTotal,
+            generating: true,
+          },
+        ];
+      })
+      .slice(0, 80);
   }, [nodes, tab]);
   const historyItems = useMemo(() => {
     const items = [...conversations].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
@@ -326,8 +442,16 @@ export function WorkspaceAssetRail({
   return (
     <aside className="workspace-asset-rail" aria-label="项目素材与导航" data-active-tab={tab}>
       <header className="workspace-asset-rail-header">
-        <ButtonBase type="button" onClick={onImport} aria-label="导入图片素材" title="导入图片素材">
-          <Plus size={17} />
+        <ButtonBase
+          type="button"
+          onClick={tab === "templates" ? onSaveRequirementTemplate : onImport}
+          disabled={tab === "templates" && !canSaveRequirementTemplate}
+          aria-label={tab === "templates" ? "保存当前需求到模板库" : "导入图片素材"}
+          title={tab === "templates"
+            ? canSaveRequirementTemplate ? "保存当前选中的需求节点到本机模板库" : "请先在画布中选择一个需求节点"
+            : "导入图片素材"}
+        >
+          {tab === "templates" ? <Save size={16} /> : <Plus size={17} />}
         </ButtonBase>
       </header>
 
@@ -338,7 +462,7 @@ export function WorkspaceAssetRail({
             type="button"
             className={tab === item.id ? "active" : ""}
             aria-pressed={tab === item.id}
-            title={item.label}
+            title={item.title || item.label}
             onClick={() => setTab(item.id)}
           >
             {item.icon}
@@ -348,7 +472,57 @@ export function WorkspaceAssetRail({
       </nav>
 
       <div className="workspace-asset-rail-list" aria-live="polite">
-        {tab === "history" ? historyItems.map((conversation) => (
+        {tab === "layers" && nodeItems.length > 0 ? (
+          <div className="workspace-asset-rail-note" title="这里只显示真实分层 PNG；可在画布中右键显隐、合并或导出">
+            <strong>分层成果</strong>
+            <small>画布右键管理</small>
+          </div>
+        ) : null}
+        {tab === "templates" ? (
+          requirementTemplatesLoading ? (
+            <span className="workspace-asset-rail-template-loading" title="正在读取本机需求模板库"><Loader2 className="spin" size={16} /></span>
+          ) : requirementTemplates.length ? requirementTemplates.slice(0, 200).map((template) => {
+            const deleteArmed = deleteArmedTemplateId === template.id;
+            const label = template.skill?.name || template.title;
+            return (
+              <div key={template.id} className="workspace-asset-rail-template">
+                <ButtonBase
+                  type="button"
+                  className="workspace-asset-rail-item workspace-asset-rail-template-use"
+                  data-template-id={template.id}
+                  aria-label={`使用需求模板：${label}`}
+                  title={`${label} · 点击插入当前画布，不会自动执行或扣费`}
+                  onClick={() => onUseRequirementTemplate?.(template.id)}
+                >
+                  {template.skill ? <BookMarked size={16} /> : <WandSparkles size={16} />}
+                  <span className="workspace-asset-rail-template-mark">{label.trim().slice(0, 1) || "需"}</span>
+                </ButtonBase>
+                <ButtonBase
+                  type="button"
+                  className={`workspace-asset-rail-template-delete ${deleteArmed ? "is-armed" : ""}`}
+                  aria-label={deleteArmed ? `确认删除需求模板：${label}` : `删除需求模板：${label}`}
+                  title={deleteArmed ? "再次点击确认删除" : "删除模板"}
+                  onClick={() => {
+                    if (!deleteArmed) {
+                      setDeleteArmedTemplateId(template.id);
+                      return;
+                    }
+                    setDeleteArmedTemplateId("");
+                    onDeleteRequirementTemplate?.(template.id);
+                  }}
+                >
+                  <Trash2 size={9} />
+                </ButtonBase>
+              </div>
+            );
+          }) : (
+            <div className="workspace-asset-rail-empty is-explained" title="选择画布中的需求节点，再点击上方保存按钮">
+              <BookMarked size={15} />
+              <strong>暂无模板</strong>
+              <small>先保存需求</small>
+            </div>
+          )
+        ) : tab === "history" ? historyItems.map((conversation) => (
           <ButtonBase
             key={conversation.id}
             type="button"
@@ -360,26 +534,46 @@ export function WorkspaceAssetRail({
             <History size={14} />
             {conversation.id === activeConversationId ? <Check className="workspace-asset-rail-check" size={10} /> : null}
           </ButtonBase>
-        )) : nodeItems.map((node) => {
-          const preview = nodePreview(node);
+        )) : nodeItems.map((item) => {
+          const node = item.node;
+          const preview = item.generating ? "" : nodePreview(node, item.assetIndex);
           const active = selectedNodeId === node.id;
+          const layerBadge = tab === "layers" ? layerRailBadge(node) : "";
+          const title = tab === "results"
+            ? `${nodeRailLabel(node)} · 图片 ${item.assetOrdinal ?? 1}/${item.assetTotal ?? 1}${item.generating ? " · 生成中" : ""}`
+            : tab === "layers"
+              ? layerRailTitle(node, Boolean(onOpenLayer))
+              : nodeRailLabel(node);
           return (
             <ButtonBase
-              key={node.id}
+              key={item.key}
               type="button"
               className={`workspace-asset-rail-item ${active ? "active" : ""}`}
               data-node-id={node.id}
+              data-asset-index={tab === "results" ? item.assetIndex : undefined}
               aria-label={`定位${tab === "layers" ? "图层" : tab === "requirements" ? "需求" : "成果"}：${nodeRailLabel(node)}`}
-              title={nodeRailLabel(node)}
+              title={title}
               onClick={() => onSelectNode(node.id)}
+              onDoubleClick={tab === "layers" && onOpenLayer ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenLayer(node.id);
+              } : undefined}
             >
               {preview ? <img src={preview} alt="" draggable={false} loading="lazy" decoding="async" /> : tab === "requirements" ? <WandSparkles size={15} /> : tab === "layers" ? <Layers3 size={15} /> : <ImageIcon size={15} />}
+              {layerBadge ? <span className="workspace-asset-rail-layer-index">{layerBadge}</span> : null}
               {active ? <Check className="workspace-asset-rail-check" size={10} /> : null}
             </ButtonBase>
           );
         })}
-        {tab !== "history" && nodeItems.length === 0 ? (
-          <span className="workspace-asset-rail-empty" title="当前项目暂无对应内容">—</span>
+        {tab !== "history" && tab !== "templates" && nodeItems.length === 0 ? (
+          tab === "layers" ? (
+            <div className="workspace-asset-rail-empty is-explained" title="普通图片没有独立图层；使用分层生图后会在这里显示">
+              <Layers3 size={15} />
+              <strong>暂无分层</strong>
+              <small>分层生图后显示</small>
+            </div>
+          ) : <span className="workspace-asset-rail-empty" title="当前项目暂无对应内容">—</span>
         ) : null}
       </div>
 

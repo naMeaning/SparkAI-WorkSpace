@@ -52,7 +52,7 @@ async function main() {
     const keyId = endpoint.match(/^\/api\/token\/(\d+)\/key$/)?.[1];
     if (keyId) return { data: { key: `sk-secret-${keyId}` } };
     if (endpoint === "/api/token/" && options.method === "POST") {
-      tokens.push({ id: 12, key: "sk-masked", status: 1, used_quota: 0, created_time: 3, accessed_time: 3, ...options.body });
+      tokens.push({ id: 12, key: "sk-***masked***", status: 1, used_quota: 0, created_time: 3, accessed_time: 3, ...options.body });
       return { success: true };
     }
     if (endpoint === "/api/token/" && options.method === "PUT") {
@@ -154,7 +154,14 @@ async function main() {
   assert.equal(requests.filter((request) => request.endpoint.endsWith("/key")).length, keyEndpointCallsBefore, "Stock New API compatibility must not require the optional full-key endpoint");
   assert.equal(JSON.stringify(stored).includes("stock-new-api-secret"), false, "Stock New API keys must not enter persisted settings");
 
-  await service.create(stored, { name: "Agent", group: "default", unlimitedQuota: true, select: true });
+  await service.create(stored, { name: "Agent", group: "default", unlimitedQuota: true, select: false });
+  assert.equal(stored.selectedAccountTokenId, "11");
+  const boundCredentials = await service.credentialsForToken(stored, "12");
+  assert.equal(boundCredentials.apiKey, "sk-secret-12");
+  assert.equal(boundCredentials.tokenId, "12");
+  assert.equal(stored.selectedAccountTokenId, "11", "Per-model credential lookup must not change the global token selection");
+  assert.equal(JSON.stringify(tokenSnapshot).includes("sk-secret-12"), false, "Full per-model keys must not enter token snapshots");
+  await service.select(stored, "12");
   assert.equal(stored.selectedAccountTokenId, "12");
   await service.update(stored, { id: "12", name: "Agent Pro", group: "vip", unlimitedQuota: false, remainQuota: 1234, status: 1 });
   assert.equal(tokens.find((token) => token.id === 12).group, "vip");

@@ -5,7 +5,7 @@ const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
 const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
-const { registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
+const { registerRequirementLibraryIpc, registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
 
@@ -25,6 +25,10 @@ const expectedChannels = [
   "naimage:config:save-settings",
   "naimage:theme:import",
   "naimage:theme:export",
+  "naimage:requirement-library:list",
+  "naimage:requirement-library:get",
+  "naimage:requirement-library:save",
+  "naimage:requirement-library:delete",
   "naimage:plugin:compose-task",
   "naimage:automation:renderer-ready",
   "naimage:integration:detect",
@@ -211,6 +215,38 @@ async function assertSettingsAccountBoundary() {
   assert.equal(settingsSavedCalls.length, 2);
 }
 
+async function assertRequirementLibraryIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  registerRequirementLibraryIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    requirementLibraryService: {
+      list: (payload) => { calls.push({ command: "list", payload }); return { ok: true, items: [] }; },
+      get: (payload) => { calls.push({ command: "get", payload }); return { ok: true, entry: { id: payload.id } }; },
+      save: (payload) => { calls.push({ command: "save", payload }); return { ok: true, entry: { id: "reqtpl-fixture" } }; },
+      remove: (payload) => {
+        calls.push({ command: "delete", payload });
+        if (payload.expectedRevision === 9) {
+          const error = new Error("模板已更新。");
+          error.code = "TEMPLATE_REVISION_CONFLICT";
+          error.details = { currentRevision: 10 };
+          throw error;
+        }
+        return { ok: true, id: payload.id };
+      }
+    }
+  });
+  assert.deepEqual(await handlers.get("naimage:requirement-library:list")({}, { includeText: false }), { ok: true, items: [] });
+  assert.equal((await handlers.get("naimage:requirement-library:get")({}, { id: "reqtpl-a" })).entry.id, "reqtpl-a");
+  assert.equal((await handlers.get("naimage:requirement-library:save")({}, { title: "Hero", text: "Keep product" })).ok, true);
+  assert.equal((await handlers.get("naimage:requirement-library:delete")({}, { id: "reqtpl-a", expectedRevision: 1, confirmed: true })).id, "reqtpl-a");
+  const conflict = await handlers.get("naimage:requirement-library:delete")({}, { id: "reqtpl-a", expectedRevision: 9, confirmed: true });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.errorCode, "TEMPLATE_REVISION_CONFLICT");
+  assert.deepEqual(conflict.details, { currentRevision: 10 });
+  assert.deepEqual(calls.map((call) => call.command), ["list", "get", "save", "delete", "delete"]);
+}
+
 async function assertBestEffortRemoteLogout() {
   const handlers = new Map();
   let clearCalls = 0;
@@ -368,8 +404,8 @@ async function main() {
     agentIntegrationService: {}
   });
 
-  assert.equal(expectedChannels.length, 95, "The registration contract must contain exactly 95 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 95, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 99, "The registration contract must contain exactly 99 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 99, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -383,13 +419,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 92, "preload must expose exactly 92 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 92, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 96, "preload must expose exactly 96 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 96, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 92, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 96, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -401,6 +437,7 @@ async function main() {
   assert.deepEqual(agentWindowListeners, ["naimage:agent-window:state"], "Agent window preload listeners changed.");
   assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
+  await assertRequirementLibraryIpcBoundary();
   await assertBestEffortRemoteLogout();
   await assertSettingsSnapshotPayloads();
   await assertInvalidGoalFailsBeforeRunAdmission();

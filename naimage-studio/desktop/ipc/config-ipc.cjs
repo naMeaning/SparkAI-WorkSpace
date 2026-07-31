@@ -75,6 +75,29 @@ function registerSettingsIpc({
   ipcMain.handle("naimage:theme:export", (_event, theme) => themePresetService.exportPreset(theme));
 }
 
+function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService }) {
+  const invoke = (operation) => {
+    if (!requirementLibraryService) {
+      return { ok: false, errorCode: "REQUIREMENT_LIBRARY_UNAVAILABLE", error: "当前桌面运行时未提供个人需求模板库。" };
+    }
+    try {
+      return operation();
+    } catch (error) {
+      return {
+        ok: false,
+        errorCode: typeof error?.code === "string" ? error.code : "REQUIREMENT_LIBRARY_FAILED",
+        error: error instanceof Error ? error.message : String(error),
+        ...(error?.details && typeof error.details === "object" ? { details: error.details } : {})
+      };
+    }
+  };
+
+  ipcMain.handle("naimage:requirement-library:list", (_event, payload = {}) => invoke(() => requirementLibraryService.list(payload)));
+  ipcMain.handle("naimage:requirement-library:get", (_event, payload = {}) => invoke(() => requirementLibraryService.get(payload)));
+  ipcMain.handle("naimage:requirement-library:save", (_event, payload = {}) => invoke(() => requirementLibraryService.save(payload)));
+  ipcMain.handle("naimage:requirement-library:delete", (_event, payload = {}) => invoke(() => requirementLibraryService.remove(payload)));
+}
+
 function registerSessionIpc({
   ipcMain,
   readProjectList,
@@ -203,6 +226,7 @@ function registerSessionIpc({
 }
 
 module.exports = {
+  registerRequirementLibraryIpc,
   registerSettingsIpc,
   registerSessionIpc
 };

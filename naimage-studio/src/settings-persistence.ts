@@ -1,11 +1,12 @@
-import type {
-  AgentProviderChoice,
-  AppSettings,
-  ContextStrategyId,
-  CustomThemeMode,
-  CustomThemePreset,
-  ReasoningEffort,
-  ThemePaletteChoice
+import {
+  normalizeImageModelBindings,
+  type AgentProviderChoice,
+  type AppSettings,
+  type ContextStrategyId,
+  type CustomThemeMode,
+  type CustomThemePreset,
+  type ReasoningEffort,
+  type ThemePaletteChoice
 } from "./core.ts";
 import {
   glassAppearanceProjection,
@@ -101,6 +102,7 @@ export const defaultSettings: AppSettings = {
   imageApiKey: "",
   imageModel: "",
   imageModelPool: [],
+  imageModelBindings: [],
   imageCount: 1,
   imageBatchSize: 3,
   imageSize: "1024x1024",
@@ -211,6 +213,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
+  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
   next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);

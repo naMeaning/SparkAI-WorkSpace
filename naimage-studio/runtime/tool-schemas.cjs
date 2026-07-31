@@ -32,7 +32,7 @@ function imageModelContractForSettings(settings = {}) {
     text: [
       `主生图模型：${primary || "未配置"}`,
       `用户勾选的生图模型池：${pool.length ? pool.join(", ") : "未配置"}`,
-      "选择策略：图片任务固定优先使用 gpt-image-2；只要模型池中存在 gpt-image-2，编辑、透明 PNG、抠图、分层和高分辨率任务都不得回退旧图片模型。"
+      "选择策略：显式指定模型时，只要该模型在用户勾选池中就必须优先采用；未勾选的显式模型会安全回退到主生图模型。未显式指定时保持单模型执行，并可优先使用池中的 gpt-image-2。"
     ].join("\n")
   };
 }
@@ -43,7 +43,7 @@ function normalizeToolSchemas(schemas) {
 
 function imageModelToolProperty(settings = {}) {
   const contract = imageModelContractForSettings(settings);
-  const description = `可选。只能优先从用户勾选的生图模型池选择：${contract.pool.join(", ") || "未配置"}。不填则由运行时按任务自动选择，主模型为 ${contract.primary || "未配置"}。`;
+  const description = `可选。只能从用户勾选的生图模型池选择：${contract.pool.join(", ") || "未配置"}。显式填写且已勾选时运行时必须采用该模型；未勾选则安全回退主模型。不填时仍只选择一个模型，并可优先使用池中的 gpt-image-2。主模型为 ${contract.primary || "未配置"}。`;
   return contract.pool.length ? { type: "string", enum: contract.pool, description } : { type: "string", description };
 }
 

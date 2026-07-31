@@ -126,6 +126,12 @@ export type NodeStatus = "queued" | "working" | "review" | "done";
 export type ImageModelFamily = "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "compatible";
 export type ImageLayerBlendMode = "normal" | "multiply" | "screen" | "overlay" | "source-over";
 
+export type ImageModelBinding = {
+  model: string;
+  customApiKey?: string;
+  accountTokenId?: string;
+};
+
 export type ApiSettings = {
   accessMode: AccessMode;
   agentProvider: AgentProviderChoice;
@@ -146,6 +152,7 @@ export type ApiSettings = {
   imageApiKey: string;
   imageModel: string;
   imageModelPool: string[];
+  imageModelBindings: ImageModelBinding[];
   imageCount: number;
   /** Number of image requests dispatched together before the next ordered batch. */
   imageBatchSize: number;
@@ -288,6 +295,32 @@ export type CanvasSkill = {
 
 export type ImportedCanvasSkill = CanvasSkill & {
   instructions: string;
+};
+
+export type RequirementLibraryEntry = {
+  version: 1;
+  id: string;
+  title: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  summary?: string;
+  text?: string;
+  skill?: CanvasSkill;
+};
+
+export type RequirementLibraryResult = {
+  ok: boolean;
+  schemaVersion?: 1;
+  libraryRevision?: number;
+  items?: RequirementLibraryEntry[];
+  entry?: RequirementLibraryEntry;
+  changed?: boolean;
+  id?: string;
+  deletedRevision?: number;
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
 };
 
 export function sanitizeCanvasSkill(value: unknown): CanvasSkill | undefined {
@@ -1471,6 +1504,20 @@ export type ProjectGraphDocument = {
 export type ConfigBridge = {
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
+  listRequirementLibrary?(payload?: { includeText?: boolean }): Promise<RequirementLibraryResult>;
+  getRequirementLibraryEntry?(payload: { id: string }): Promise<RequirementLibraryResult>;
+  saveRequirementLibraryEntry?(payload: {
+    id?: string;
+    expectedRevision?: number;
+    title: string;
+    text: string;
+    skill?: CanvasSkill;
+  }): Promise<RequirementLibraryResult>;
+  deleteRequirementLibraryEntry?(payload: {
+    id: string;
+    expectedRevision: number;
+    confirmed: true;
+  }): Promise<RequirementLibraryResult>;
   loadSession(payload?: { projectId?: string }): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
   saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: {
     revision?: number;
@@ -2209,6 +2256,42 @@ export function uniqueImageModels(models: unknown[] = []) {
     .map((model) => String(model || "").trim())
     .filter(Boolean)
     .filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
+}
+
+export function normalizeImageModelBindings(value: unknown): ImageModelBinding[] {
+  if (!Array.isArray(value)) return [];
+  const bindings: ImageModelBinding[] = [];
+  const bindingByModel = new Map<string, ImageModelBinding>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const source = item as Record<string, unknown>;
+    const model = String(source.model || "")
+      .replace(/[\u0000-\u001f\u007f]/g, "")
+      .trim()
+      .slice(0, 180);
+    if (!model) continue;
+    const modelKey = model.toLowerCase();
+    let binding = bindingByModel.get(modelKey);
+    if (!binding) {
+      binding = { model };
+      bindingByModel.set(modelKey, binding);
+      bindings.push(binding);
+    }
+    const customApiKey = typeof source.customApiKey === "string"
+      ? source.customApiKey.trim().slice(0, 8_192)
+      : "";
+    const accountTokenId = String(source.accountTokenId || "").trim();
+    if (customApiKey) binding.customApiKey = customApiKey;
+    if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
+  }
+  return bindings;
+}
+
+export function imageModelBindingFor(settings: { imageModelBindings?: unknown }, model: unknown): ImageModelBinding | undefined {
+  const modelKey = String(model || "").trim().toLowerCase();
+  if (!modelKey) return undefined;
+  return normalizeImageModelBindings(settings.imageModelBindings)
+    .find((binding) => binding.model.toLowerCase() === modelKey);
 }
 
 export function imageModelsWithPreferredFallback(models: string[] = [], preferred?: string, selectedModels: string[] = []) {

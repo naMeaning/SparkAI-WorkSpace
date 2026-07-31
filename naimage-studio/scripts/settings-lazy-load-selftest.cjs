@@ -7,6 +7,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const settingsDrawerSource = fs.readFileSync(path.join(root, "src", "settings-drawer.tsx"), "utf8");
+const projectAgentComposerSource = fs.readFileSync(path.join(root, "src", "project-agent-composer.tsx"), "utf8");
 const electronSource = fs.readFileSync(path.join(root, "electron-main.cjs"), "utf8");
 const serverIpcSource = fs.readFileSync(path.join(root, "desktop", "ipc", "server-ipc.cjs"), "utf8");
 const preloadSource = fs.readFileSync(path.join(root, "preload.cjs"), "utf8");
@@ -22,6 +23,9 @@ assert.doesNotMatch(settingsDrawerSource, /manualModelRefreshCountRef/, "Manual 
 assert.match(settingsDrawerSource, /function handleManualModelRefresh\(\)\s*\{\s*void refreshModels\(true\);\s*\}/, "One model refresh click must request fresh server state");
 assert.match(settingsDrawerSource, /label="刷新密钥与分组"/, "Account access must expose an explicit refresh action");
 assert.match(settingsDrawerSource, />\s*刷新模型\s*<\/ActionButton>/, "Model settings must expose an explicit refresh action");
+assert.match(settingsDrawerSource, /const imageCatalog = serverSettings\.imageModels\?\.length \? serverSettings\.imageModels : serverModels;/, "Image model settings must prefer the classified image catalog over the combined server list");
+assert.match(settingsDrawerSource, /const agentCatalog = serverSettings\.agentModels\?\.length \? serverSettings\.agentModels : serverModels;/, "Agent model settings must prefer the classified conversation catalog over the combined server list");
+assert.match(projectAgentComposerSource, /uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)/, "Composer chips must preserve catalog order while retaining selected-model fallbacks");
 
 assert.match(electronSource, /accountTokenCachePath\s*=\s*path\.join\(configDir,\s*"account-token-cache\.json"\)/, "Token snapshots must use an application-data cache file");
 assert.match(electronSource, /const cacheOnly = options\?\.cacheOnly === true;[\s\S]*?if \(cacheOnly\) \{/, "Model settings must provide a cache-only branch");
@@ -29,4 +33,4 @@ assert.match(serverIpcSource, /cacheOnly:\s*payload\?\.cacheOnly === true/, "Mod
 assert.match(serverIpcSource, /preferCached:\s*payload\?\.preferCached === true/, "Token snapshot preference must cross IPC");
 assert.match(preloadSource, /tokens:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\("naimage:server:tokens",\s*payload\)/, "Preload must forward token snapshot options");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 16 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 19 })}\n`);

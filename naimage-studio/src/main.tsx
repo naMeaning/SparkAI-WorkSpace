@@ -320,7 +320,9 @@ import type {
   AssetTaskRole,
   CanvasRequirement,
   CanvasRequirementInputBinding,
+  CanvasSkill,
   ImportedCanvasSkill,
+  RequirementLibraryEntry,
   ImageAssetIdentityClaim,
   TaskAssetReference,
   WorkflowNode,
@@ -3135,6 +3137,10 @@ function App() {
     ? settingsWithGlassBootstrap(defaultSettings)
     : mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings))
   );
+  const [availableImageModels, setAvailableImageModels] = useState<string[]>(() => uniqueImageModels([
+    ...selectedImageModelsFromSettings(settings),
+    ...settings.imageModelBindings.map((binding) => binding.model),
+  ]));
   const [agentPanelLayout, setAgentPanelLayout] = useState<AgentPanelLayout>(() => agentPanelLayoutFromSettings(settings));
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
@@ -3161,6 +3167,10 @@ function App() {
       return "workbench";
     }
   });
+  const [requirementTemplates, setRequirementTemplates] = useState<RequirementLibraryEntry[]>([]);
+  const [requirementTemplatesLoading, setRequirementTemplatesLoading] = useState(false);
+  const requirementTemplatesLoadedRef = useRef(false);
+  const requirementTemplatesLoadRef = useRef<Promise<RequirementLibraryEntry[]> | null>(null);
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
   const [fastMemoryEditorOpen, setFastMemoryEditorOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -3974,6 +3984,11 @@ function App() {
         ]);
         if (cancelled) return;
         markPerformancePhase("config-load-resolved");
+        setAvailableImageModels((current) => uniqueImageModels([
+          ...current,
+          ...selectedImageModelsFromSettings(storedSettings),
+          ...storedSettings.imageModelBindings.map((binding) => binding.model),
+        ]));
         setSettings(storedSettings);
         setAuthDraft((current) => ({
           ...current,
@@ -4192,6 +4207,30 @@ function App() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    setAvailableImageModels((current) => uniqueImageModels([
+      ...current,
+      ...selectedImageModelsFromSettings(settings),
+      ...settings.imageModelBindings.map((binding) => binding.model),
+    ]));
+  }, [settings.imageModel, settings.imageModelPool, settings.imageModelBindings]);
+
+  useEffect(() => {
+    if (!configReady || !window.naimageServer?.models) return;
+    let cancelled = false;
+    void window.naimageServer.models({ cacheOnly: true }).then((result) => {
+      if (cancelled || !result?.ok) return;
+      setAvailableImageModels((current) => uniqueImageModels([
+        ...current,
+        result.settings?.imageModel,
+        ...(result.settings?.imageModels ?? []),
+      ]));
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [configReady]);
 
   useEffect(() => {
     const next = agentPanelLayoutFromSettings(settings);
@@ -4601,6 +4640,11 @@ function App() {
       const user = me.user;
       setServerUser(user);
       setServerWallet(me.wallet ?? walletFromServerSettings(user, me.settings));
+      setAvailableImageModels((current) => uniqueImageModels([
+        ...current,
+        me.settings?.imageModel,
+        ...(me.settings?.imageModels ?? []),
+      ]));
       if (options.loadLogs !== false) {
         void window.naimageServer.logs?.().then((logs) => {
           if (isCurrentRefresh() && logs?.ok) setServerLogs(logs.logs ?? []);
@@ -5623,6 +5667,18 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
+  const selectedComposerImageModels = useMemo(
+    () => selectedImageModelsFromSettings(settings),
+    [settings.imageModel, settings.imageModelPool]
+  );
+  const composerImageModels = useMemo(
+    () => uniqueImageModels([
+      ...availableImageModels,
+      ...selectedComposerImageModels,
+      ...settings.imageModelBindings.map((binding) => binding.model),
+    ]),
+    [availableImageModels, selectedComposerImageModels, settings.imageModelBindings]
+  );
   const goalCanvasSummary = useMemo(() => goalCanvasTargets(canvasNodes), [canvasNodes]);
   const selectedCanvasCapabilities = useMemo(
     () => analyzeCanvasSelection(nodes, layoutGroups, selectedNodeIds, selectedNodeId),
@@ -9397,6 +9453,15 @@ function App() {
     addEvent(`打开分层查看器 #${String(selected.layerGroup.groupNumber).padStart(3, "0")}`);
   }
 
+  function openWorkspaceLayerNode(nodeId: string) {
+    const node = nodesRef.current.find((item) => item.id === nodeId);
+    if (node?.layerGroup) {
+      openLayerGroupViewer(node.id);
+      return;
+    }
+    if (node?.layerComposition) openNodeEditor(node);
+  }
+
   function compositionFromLayerNodes(members: WorkflowNode[]): ImageLayerComposition | null {
     const first = members[0];
     const group = first?.layerGroup;
@@ -12987,6 +13052,9 @@ function App() {
     y?: number;
     expectedProjectId: string;
     expectedCanvasRevision?: number;
+    skill?: CanvasSkill;
+    historyLabel?: string;
+    eventLabel?: string;
   }) {
     assertAutomationCanvasMutationPreconditions(input, [], "创建需求");
     const text = input.text.trim();
@@ -13038,14 +13106,15 @@ function App() {
         revision: 1,
         createdFrom,
         inputBindings,
+        ...(input.skill ? { skill: { ...input.skill } } : {}),
       },
     };
     const nextNodes = [...nodesRef.current, requirementNode];
     assertCanvasRelationGraphAcyclic(nextNodes);
-    const canvasRevision = commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "CLI 创建可复用需求");
+    const canvasRevision = commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, input.historyLabel || "CLI 创建可复用需求");
     observeAllocatedNodeCode(id);
     commitNodeSelection({ primaryId: id, ids: [id] }, "automation-create-requirement");
-    addEvent(`CLI 创建可复用需求 ${id}`);
+    addEvent(`${input.eventLabel || "CLI 创建可复用需求"} ${id}`);
     return { changed: true, nodeId: id, requirementRevision: 1, canvasRevision };
   }
 
@@ -20651,6 +20720,17 @@ function App() {
       createCommerceReusableNode,
       updateRequirement: updateRequirementForAutomation,
       executeRequirement: executeRequirementForAutomation,
+      listRequirementLibrary: listRequirementLibraryForAutomation,
+      saveRequirementLibrary: saveRequirementLibraryForAutomation,
+      deleteRequirementLibrary: deleteRequirementLibraryForAutomation,
+      useRequirementLibrary: (input) => useRequirementTemplate(input.templateId, {
+        expectedTemplateRevision: input.expectedTemplateRevision,
+        inputBindings: input.inputBindings,
+        x: input.x,
+        y: input.y,
+        expectedProjectId: input.expectedProjectId,
+        expectedCanvasRevision: input.expectedCanvasRevision,
+      }),
       sendPrompt: async (promptText, sourceNodeIds) => {
         if (agentExecutionBusyNow()) {
           const accepted = await steerAgentRun(promptText, {
@@ -20869,10 +20949,17 @@ function App() {
       if (serverRefreshEpochRef.current !== authRequestEpoch) return;
       if (!result.ok || !result.user) throw new Error(result.error ?? "登录失败。");
       authCheckedTokenRef.current = "session";
+      setAvailableImageModels((current) => uniqueImageModels([
+        ...current,
+        result.settings?.imageModel,
+        ...(result.settings?.imageModels ?? []),
+      ]));
       setSettings((current) => {
         const serverModels = fullServerModelList(result.settings ?? {});
-        const imageModels = imageModelsWithPreferredFallback(serverModels, result.settings?.imageModel || current.imageModel, current.imageModelPool);
-        const agentModels = modelsWithPreferred(serverModels, current.agentModel, current.agentModelPool);
+        const imageCatalog = result.settings?.imageModels?.length ? result.settings.imageModels : serverModels;
+        const agentCatalog = result.settings?.agentModels?.length ? result.settings.agentModels : serverModels;
+        const imageModels = imageModelsWithPreferredFallback(imageCatalog, result.settings?.imageModel || current.imageModel, current.imageModelPool);
+        const agentModels = modelsWithPreferred(agentCatalog, current.agentModel, current.agentModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);
         return normalizeModelPoolSelections(
@@ -20920,6 +21007,13 @@ function App() {
       if (!result.ok || !result.user) throw new Error(result.error || "自定义接口连接失败。");
       const stored = await loadSettingsFromStore();
       setSettings(stored);
+      setAvailableImageModels((current) => uniqueImageModels([
+        ...current,
+        result.settings?.imageModel,
+        ...(result.settings?.imageModels ?? []),
+        ...selectedImageModelsFromSettings(stored),
+        ...stored.imageModelBindings.map((binding) => binding.model),
+      ]));
       setServerUser(result.user);
       setServerWallet(null);
       setServerLogs([]);
@@ -21884,6 +21978,20 @@ function App() {
   const projectAgentEditFastMemory = useStableEvent(() => setFastMemoryEditorOpen(true));
   const projectAgentSwitchConversation = useStableEvent((conversationId: string) => switchProjectConversation(conversationId));
   const projectAgentToggleCollapsed = useStableEvent(() => setAgentCollapsed((current) => !current));
+  const projectAgentChangeImageModels = useStableEvent((models: string[]) => {
+    const imageModelPool = uniqueImageModels(models);
+    if (!imageModelPool.length) return;
+    const current = settingsRef.current;
+    const imageModel = imageModelPool.some((model) => model.toLowerCase() === current.imageModel.toLowerCase())
+      ? current.imageModel
+      : imageModelPool[0];
+    const nextSettings = mergeSettings({ ...current, imageModel, imageModelPool });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    void saveSettingsToStore(nextSettings).catch((error) => {
+      setServerMessage(`生图模型选择保存失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
   const publishAgentWindowState = useStableEvent(async () => {
     if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
     const { buildAgentWindowSnapshot } = await loadAgentWindowSync();
@@ -22221,6 +22329,229 @@ function App() {
     void importPickedImagesToCanvasAt(point.x, point.y);
   }
 
+  function requirementLibraryBridge() {
+    return window.naimageConfig;
+  }
+
+  async function loadRequirementTemplates(force = false) {
+    if (!force && requirementTemplatesLoadedRef.current) return requirementTemplates;
+    if (requirementTemplatesLoadRef.current) return requirementTemplatesLoadRef.current;
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.listRequirementLibrary) {
+      setServerMessage("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
+      return [];
+    }
+    setRequirementTemplatesLoading(true);
+    const task = (async () => {
+      const result = await bridge.listRequirementLibrary?.({ includeText: false });
+      if (!result?.ok) throw new Error(result?.error || "读取个人需求模板库失败。");
+      const items = Array.isArray(result.items) ? result.items : [];
+      requirementTemplatesLoadedRef.current = true;
+      setRequirementTemplates(items);
+      return items;
+    })();
+    requirementTemplatesLoadRef.current = task;
+    try {
+      return await task;
+    } catch (error) {
+      setServerMessage(`读取需求模板库失败：${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    } finally {
+      if (requirementTemplatesLoadRef.current === task) requirementTemplatesLoadRef.current = null;
+      setRequirementTemplatesLoading(false);
+    }
+  }
+
+  function cacheRequirementTemplate(entry: RequirementLibraryEntry) {
+    requirementTemplatesLoadedRef.current = true;
+    setRequirementTemplates((current) => [
+      entry,
+      ...current.filter((item) => item.id !== entry.id),
+    ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
+  }
+
+  async function saveSelectedRequirementTemplate() {
+    const selectedId = selectedNodeIdRef.current;
+    const node = nodesRef.current.find((candidate) => candidate.id === selectedId && candidate.type === "requirement" && candidate.requirement);
+    if (!node?.requirement) {
+      setServerMessage("请先在画布中选择一个需求节点，再保存到个人模板库。");
+      return false;
+    }
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.saveRequirementLibraryEntry) {
+      setServerMessage("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
+      return false;
+    }
+    const result = await bridge.saveRequirementLibraryEntry({
+      title: node.title || requirementTitleFromText(node.requirement.text),
+      text: node.requirement.text,
+      ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
+    });
+    if (!result?.ok || !result.entry) {
+      setServerMessage(`保存需求模板失败：${result?.error || "模板库没有返回保存结果。"}`);
+      return false;
+    }
+    cacheRequirementTemplate(result.entry);
+    setServerMessage(`已保存到个人需求模板库：${result.entry.skill?.name || result.entry.title}`);
+    addEvent(`保存需求模板 ${result.entry.id} · 来源 ${node.id}`);
+    return true;
+  }
+
+  async function deleteRequirementTemplate(templateId: string) {
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.deleteRequirementLibraryEntry) {
+      setServerMessage("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
+      return false;
+    }
+    let entry = requirementTemplates.find((item) => item.id === templateId);
+    if (!entry && bridge.getRequirementLibraryEntry) {
+      const detail = await bridge.getRequirementLibraryEntry({ id: templateId });
+      entry = detail?.entry;
+    }
+    if (!entry) {
+      setServerMessage("需求模板已不存在，正在刷新模板库。");
+      await loadRequirementTemplates(true);
+      return false;
+    }
+    const result = await bridge.deleteRequirementLibraryEntry({
+      id: entry.id,
+      expectedRevision: entry.revision,
+      confirmed: true,
+    });
+    if (!result?.ok) {
+      setServerMessage(`删除需求模板失败：${result?.error || "未知错误"}`);
+      await loadRequirementTemplates(true);
+      return false;
+    }
+    requirementTemplatesLoadedRef.current = true;
+    setRequirementTemplates((current) => current.filter((item) => item.id !== entry!.id));
+    setServerMessage(`已删除需求模板：${entry.skill?.name || entry.title}`);
+    addEvent(`删除需求模板 ${entry.id}`);
+    return true;
+  }
+
+  async function useRequirementTemplate(templateId: string, options: {
+    expectedTemplateRevision?: number;
+    inputBindings?: CanvasRequirementInputBinding[];
+    x?: number;
+    y?: number;
+    expectedProjectId?: string;
+    expectedCanvasRevision?: number;
+  } = {}) {
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.getRequirementLibraryEntry) {
+      throw new Error("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
+    }
+    const detail = await bridge.getRequirementLibraryEntry({ id: templateId });
+    if (!detail?.ok || !detail.entry) throw new Error(detail?.error || "需求模板不存在或正文为空。");
+    const entry = detail.entry;
+    const templateText = typeof entry.text === "string" ? entry.text : "";
+    if (!templateText) throw new Error("需求模板不存在或正文为空。");
+    if (options.expectedTemplateRevision !== undefined && entry.revision !== options.expectedTemplateRevision) {
+      throw automationCommandError("TEMPLATE_REVISION_CONFLICT", "需求模板已发生变化，请读取最新模板 revision 后重试。", {
+        templateId: entry.id,
+        expectedRevision: options.expectedTemplateRevision,
+        currentRevision: entry.revision,
+      });
+    }
+    cacheRequirementTemplate(entry);
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const selectedIds = [...new Set([
+      ...selectedNodeIdsRef.current,
+      selectedNodeIdRef.current,
+    ].map((id) => projection.groupByMember.get(id)?.hostNodeId ?? id).filter(Boolean))];
+    const selectedBindings = selectedIds.flatMap((id): CanvasRequirementInputBinding[] => {
+      const node = projection.canvasNodeById.get(id) ?? nodesRef.current.find((candidate) => candidate.id === id);
+      return node?.type === "image" ? [{ nodeId: node.id, role: requirementInputRoleForNode(node) }] : [];
+    });
+    const inputBindings = options.inputBindings ?? selectedBindings;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const fallbackPoint = rect ? clientToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2) : { x: 180, y: 160 };
+    const result = createRequirementForAutomation({
+      title: entry.skill ? `Skill · ${entry.skill.name}` : entry.title,
+      text: templateText,
+      inputBindings,
+      x: options.x ?? (inputBindings.length ? undefined : fallbackPoint.x),
+      y: options.y ?? (inputBindings.length ? undefined : fallbackPoint.y),
+      expectedProjectId: options.expectedProjectId || activeProjectIdRef.current || "default",
+      expectedCanvasRevision: options.expectedCanvasRevision,
+      ...(entry.skill ? { skill: sanitizeCanvasSkill(entry.skill) } : {}),
+      historyLabel: "从个人需求模板库创建需求",
+      eventLabel: "使用需求模板",
+    });
+    setServerMessage(`已插入需求模板“${entry.skill?.name || entry.title}”${inputBindings.length ? `，并连接 ${inputBindings.length} 个当前图片来源` : "；连接图片后即可执行"}。`);
+    return { ...result, templateId: entry.id, templateRevision: entry.revision };
+  }
+
+  async function listRequirementLibraryForAutomation(includeText: boolean) {
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.listRequirementLibrary) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时未提供个人需求模板库。");
+    const result = await bridge.listRequirementLibrary({ includeText });
+    if (!result?.ok) throw automationCommandError(result?.errorCode || "REQUIREMENT_LIBRARY_FAILED", result?.error || "读取个人需求模板库失败。");
+    if (Array.isArray(result.items)) {
+      requirementTemplatesLoadedRef.current = true;
+      setRequirementTemplates(result.items);
+    }
+    return result;
+  }
+
+  async function saveRequirementLibraryForAutomation(input: {
+    nodeId: string;
+    expectedRequirementRevision: number;
+    templateId?: string;
+    expectedTemplateRevision?: number;
+    expectedProjectId: string;
+  }) {
+    if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+      throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，需求模板未保存。", {
+        expectedProjectId: input.expectedProjectId,
+        activeProjectId: activeProjectIdRef.current || "default",
+      });
+    }
+    const node = nodesRef.current.find((candidate) => candidate.id === input.nodeId && candidate.type === "requirement" && candidate.requirement);
+    if (!node?.requirement) throw automationCommandError("UNSUPPORTED_NODE", "只能将当前存在的需求节点保存到个人模板库。", { nodeId: input.nodeId });
+    if (node.requirement.revision !== input.expectedRequirementRevision) {
+      throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
+        nodeId: node.id,
+        expectedRevision: input.expectedRequirementRevision,
+        currentRevision: node.requirement.revision,
+      });
+    }
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.saveRequirementLibraryEntry) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时未提供个人需求模板库。");
+    const result = await bridge.saveRequirementLibraryEntry({
+      ...(input.templateId ? { id: input.templateId, expectedRevision: input.expectedTemplateRevision } : {}),
+      title: node.title || requirementTitleFromText(node.requirement.text),
+      text: node.requirement.text,
+      ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
+    });
+    if (!result?.ok || !result.entry) {
+      throw automationCommandError(result?.errorCode || "REQUIREMENT_LIBRARY_FAILED", result?.error || "保存个人需求模板失败。");
+    }
+    cacheRequirementTemplate(result.entry);
+    addEvent(`CLI 保存需求模板 ${result.entry.id} · 来源 ${node.id}`);
+    return result;
+  }
+
+  async function deleteRequirementLibraryForAutomation(input: {
+    templateId: string;
+    expectedTemplateRevision: number;
+    confirmed: true;
+  }) {
+    const bridge = requirementLibraryBridge();
+    if (!bridge?.deleteRequirementLibraryEntry) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时未提供个人需求模板库。");
+    const result = await bridge.deleteRequirementLibraryEntry({
+      id: input.templateId,
+      expectedRevision: input.expectedTemplateRevision,
+      confirmed: true,
+    });
+    if (!result?.ok) throw automationCommandError(result?.errorCode || "REQUIREMENT_LIBRARY_FAILED", result?.error || "删除个人需求模板失败。");
+    requirementTemplatesLoadedRef.current = true;
+    setRequirementTemplates((current) => current.filter((item) => item.id !== input.templateId));
+    addEvent(`CLI 删除需求模板 ${input.templateId}`);
+    return result;
+  }
+
   if (!firstWorkspaceRenderMarked) {
     firstWorkspaceRenderMarked = true;
     markPerformancePhase("workspace-render");
@@ -22390,8 +22721,20 @@ function App() {
             conversations={conversations}
             activeConversationId={activeConversationId}
             selectedNodeId={selectedNode?.id ?? selectedNodeId}
+            requirementTemplates={requirementTemplates}
+            requirementTemplatesLoading={requirementTemplatesLoading}
+            canSaveRequirementTemplate={selectedNode?.type === "requirement" && Boolean(selectedNode.requirement)}
             onSelectNode={selectWorkspaceNavigatorNode}
+            onOpenLayer={openWorkspaceLayerNode}
             onSelectConversation={switchProjectConversation}
+            onLoadRequirementTemplates={() => { void loadRequirementTemplates(); }}
+            onUseRequirementTemplate={(templateId) => {
+              void useRequirementTemplate(templateId).catch((error) => {
+                setServerMessage(`使用需求模板失败：${error instanceof Error ? error.message : String(error)}`);
+              });
+            }}
+            onSaveRequirementTemplate={() => { void saveSelectedRequirementTemplate(); }}
+            onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
             onOpenSettings={() => openSettingsSection("appearance")}
           />
@@ -23621,6 +23964,9 @@ function App() {
           clearSelection={projectAgentClearSelection}
           editSourceImages={projectAgentEditSources}
           editReferenceImages={projectAgentEditReferences}
+          imageModels={composerImageModels}
+          selectedImageModels={selectedComposerImageModels}
+          onSelectedImageModelsChange={projectAgentChangeImageModels}
           dropReferenceFiles={projectAgentDropReferences}
           requestNewConversation={projectAgentRequestNewConversation}
           requestClearConversation={projectAgentRequestClearConversation}
@@ -24611,6 +24957,9 @@ function ProjectAgentComposerView({
   clearSelection,
   editSourceImages,
   editReferenceImages,
+  imageModels,
+  selectedImageModels,
+  onSelectedImageModelsChange,
   debugCommit
 }: {
   selectedArtifacts: WorkflowNode[];
@@ -24632,6 +24981,9 @@ function ProjectAgentComposerView({
   clearSelection: () => void;
   editSourceImages: () => void;
   editReferenceImages: () => void;
+  imageModels: string[];
+  selectedImageModels: string[];
+  onSelectedImageModelsChange: (models: string[]) => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
   return (
@@ -24658,6 +25010,9 @@ function ProjectAgentComposerView({
           clearSelection={clearSelection}
           editSourceImages={editSourceImages}
           editReferenceImages={editReferenceImages}
+          imageModels={imageModels}
+          selectedImageModels={selectedImageModels}
+          onSelectedImageModelsChange={onSelectedImageModelsChange}
         />
       </React.Suspense>
     </>
@@ -24694,6 +25049,9 @@ function ProjectAgentPanelView({
   clearSelection,
  editSourceImages,
  editReferenceImages,
+  imageModels,
+  selectedImageModels,
+  onSelectedImageModelsChange,
   dropReferenceFiles,
  requestNewConversation,
  requestClearConversation,
@@ -24735,6 +25093,9 @@ function ProjectAgentPanelView({
   clearSelection: () => void;
  editSourceImages: () => void;
  editReferenceImages: () => void;
+  imageModels: string[];
+  selectedImageModels: string[];
+  onSelectedImageModelsChange: (models: string[]) => void;
   dropReferenceFiles: (files: File[]) => void | Promise<unknown>;
  requestNewConversation: () => void;
   requestClearConversation: () => void;
@@ -25128,6 +25489,9 @@ function ProjectAgentPanelView({
         clearSelection={clearSelection}
         editSourceImages={editSourceImages}
         editReferenceImages={editReferenceImages}
+        imageModels={imageModels}
+        selectedImageModels={selectedImageModels}
+        onSelectedImageModelsChange={onSelectedImageModelsChange}
         debugCommit={debugCommit}
       />
       {panelLayout.agentPanelPlacement === "floating" ? (
@@ -25204,6 +25568,9 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
+  left.imageModels === right.imageModels &&
+  left.selectedImageModels === right.selectedImageModels &&
+  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
   left.debugCommit === right.debugCommit
 );
 
@@ -25237,6 +25604,9 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
+  left.imageModels === right.imageModels &&
+  left.selectedImageModels === right.selectedImageModels &&
+  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
   left.dropReferenceFiles === right.dropReferenceFiles &&
   left.requestNewConversation === right.requestNewConversation &&
   left.requestClearConversation === right.requestClearConversation &&

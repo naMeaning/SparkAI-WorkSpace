@@ -189,8 +189,10 @@ export default function SettingsDrawer({
       try {
         const serverSettings = await fetchServerModelSettings(forceRefresh, group, cacheOnly);
         const serverModels = fullServerModelList(serverSettings);
-        const imageModels = imageModelsWithPreferredFallback(serverModels, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
-        const agentModels = modelsWithPreferred(serverModels, draftSettings.agentModel, draftSettings.agentModelPool);
+        const imageCatalog = serverSettings.imageModels?.length ? serverSettings.imageModels : serverModels;
+        const agentCatalog = serverSettings.agentModels?.length ? serverSettings.agentModels : serverModels;
+        const imageModels = imageModelsWithPreferredFallback(imageCatalog, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
+        const agentModels = modelsWithPreferred(agentCatalog, draftSettings.agentModel, draftSettings.agentModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);
         setModelState({
@@ -1132,6 +1134,7 @@ export default function SettingsDrawer({
             setSettings={setDraftSettings}
             selectedModels={modelConfigTarget === "agent" ? selectedAgentModels : selectedImageModels}
             models={modelConfigTarget === "agent" ? visibleAgentModels : visibleImageModels}
+            accountTokens={accountTokens}
             close={() => setModelConfigTarget(null)}
           />
         </React.Suspense>

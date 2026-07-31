@@ -238,8 +238,37 @@ function looksLikeModelId(value: string) {
   const clean = value.trim();
   return /^[a-z0-9][a-z0-9._:/+-]{1,}$/i.test(clean) && (
     /[0-9.\/:+-]/.test(clean) ||
-    /^(gpt|chatgpt|claude|gemini|imagen|image|flux|dall|midjourney|mj|stable|sd|sora|veo|kling|runway|qwen|glm|deepseek|llama|mistral|recraft|ideogram|seedream|doubao|hunyuan|minimax|ernie|baichuan|moonshot|pixverse|hailuo|wanx|wanxiang|hidream)/i.test(clean)
+    /^(gpt|chatgpt|claude|gemini|imagen|image|flux|dall|midjourney|mj|stable|sd|sora|veo|kling|runway|qwen|glm|deepseek|llama|mistral|recraft|ideogram|seedream|doubao|hunyuan|minimax|ernie|baichuan|moonshot|pixverse|hailuo|wanx|wanxiang|hidream|grok|xai)/i.test(clean)
   );
+}
+
+function isExplicitImageModelId(value: unknown) {
+  const clean = String(value || "").trim();
+  if (!clean) return false;
+  return /(?:^|[\/:._+-])(?:image|images|imagen|flux|dall(?:[._+-]?e)?|midjourney|mj|stable[._+-]?diffusion|sdxl|sd3|recraft|ideogram|seedream|cogview|kolors|hidream|nano[._+-]?banana|grok[._+-]?imagine|wanx|wanxiang|jimeng)(?=$|[\/:._+-]|\d)/i.test(clean);
+}
+
+function isExplicitChatModelId(value: unknown) {
+  const clean = String(value || "").trim();
+  if (!clean || isExplicitImageModelId(clean)) return false;
+  return /(?:^|[\/:._+-])(?:gpt|chatgpt|claude|gemini|grok|xai|deepseek|qwen|qwq|glm|llama|meta[._+-]?llama|mistral|mixtral|gemma|moonshot|kimi|ernie|baichuan|command[._+-]?r|cohere|doubao|hunyuan|minimax|codex|o[134])(?=$|[\/:._+-]|\d)/i.test(clean);
+}
+
+function configuredImageModelIds(settings: AppSettings) {
+  return uniqueModelIds([
+    settings.imageModel,
+    ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
+    ...(Array.isArray(settings.imageModelBindings)
+      ? settings.imageModelBindings.map((binding) => binding?.model)
+      : [])
+  ]).filter((model) => !isExplicitChatModelId(model));
+}
+
+function configuredAgentModelIds(settings: AppSettings) {
+  return uniqueModelIds([
+    settings.agentModel,
+    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : [])
+  ]).filter((model) => !isExplicitImageModelId(model));
 }
 
 function isModelMapEntry(key: string, value: unknown, depth: number) {
@@ -339,14 +368,24 @@ function splitModelSettings(
   modelGroups: NonNullable<ServerPublicSettings["modelGroups"]> = []
 ): ServerPublicSettings {
   const unique = uniqueModelIds(modelIds);
-  const imageModels = unique;
-  const agentModels = unique;
+  const configuredImageModels = configuredImageModelIds(settings);
+  const configuredAgentModels = configuredAgentModelIds(settings);
+  // Most model APIs omit capability metadata, so unknown custom IDs stay visible in both catalogs.
+  // Only an explicit opposite-purpose family is filtered out.
+  const imageModels = uniqueModelIds([
+    ...unique.filter((model) => !isExplicitChatModelId(model)),
+    ...configuredImageModels
+  ]);
+  const agentModels = uniqueModelIds([
+    ...unique.filter((model) => !isExplicitImageModelId(model)),
+    ...configuredAgentModels
+  ]);
   return {
     imageCostCents: 0,
     imageCostYuan: 0,
     trialImages: 0,
     models: unique,
-    imageModel: settings.imageModel || imageModels[0] || "",
+    imageModel: configuredImageModels[0] || imageModels[0] || "",
     imageModels,
     agentModels,
     modelGroup: String(settings.modelGroup || "").trim(),

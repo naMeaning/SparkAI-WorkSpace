@@ -44,6 +44,11 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  modelIdsFromResponse({ data: { grok: true, xai: true } }),
+  ["grok", "xai"]
+);
+
+assert.deepEqual(
   modelIdsFromResponse({
     rows: [
       "flux-1.1-pro",
@@ -71,14 +76,63 @@ assert.deepEqual(
 );
 
 const split = splitModelSettings(
-  { imageModel: "saved-image-model", modelGroup: "vip", accountBaseUrl: "https://sparkapi.org" },
-  ["gpt-5.6-sol", "gpt-image-2", "GPT-IMAGE-2"],
+  {
+    imageModel: "opaque-renderer-v9",
+    imageModelPool: ["opaque-renderer-v9", "gpt-5.6-sol"],
+    imageModelBindings: [
+      { model: "grok-image-latest", customApiKey: "fixture" },
+      { model: "claude-4.5-sonnet", customApiKey: "ignored" }
+    ],
+    agentModel: "gpt-5.6-sol",
+    agentModelPool: ["gpt-5.6-sol", "claude-4.5-sonnet"],
+    modelGroup: "vip",
+    accountBaseUrl: "https://sparkapi.org"
+  },
+  [
+    "gpt-5.6-sol",
+    "gpt-image-2",
+    "GPT-IMAGE-2",
+    "claude-4.5-sonnet",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash-image-preview",
+    "grok-3",
+    "xai/grok-2-image-1212",
+    "imagen-3",
+    "flux-1.1-pro",
+    "vendor/custom-model-v2"
+  ],
   { vip: { desc: "高级模型" } }
 );
-assert.deepEqual(split.models, ["gpt-5.6-sol", "gpt-image-2"]);
-assert.strictEqual(split.imageModels, split.models);
-assert.strictEqual(split.agentModels, split.models);
-assert.equal(split.imageModel, "saved-image-model");
+assert.deepEqual(split.models, [
+  "gpt-5.6-sol",
+  "gpt-image-2",
+  "claude-4.5-sonnet",
+  "gemini-2.5-pro",
+  "gemini-2.5-flash-image-preview",
+  "grok-3",
+  "xai/grok-2-image-1212",
+  "imagen-3",
+  "flux-1.1-pro",
+  "vendor/custom-model-v2"
+]);
+assert.deepEqual(split.imageModels, [
+  "gpt-image-2",
+  "gemini-2.5-flash-image-preview",
+  "xai/grok-2-image-1212",
+  "imagen-3",
+  "flux-1.1-pro",
+  "vendor/custom-model-v2",
+  "opaque-renderer-v9",
+  "grok-image-latest"
+]);
+assert.deepEqual(split.agentModels, [
+  "gpt-5.6-sol",
+  "claude-4.5-sonnet",
+  "gemini-2.5-pro",
+  "grok-3",
+  "vendor/custom-model-v2"
+]);
+assert.equal(split.imageModel, "opaque-renderer-v9");
 assert.equal(split.modelGroup, "vip");
 assert.deepEqual(split.modelGroups, [{ id: "vip", label: "vip", description: "高级模型", ratio: undefined }]);
 assert.equal(split.channelName, "SparkAPI");
@@ -90,6 +144,20 @@ assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5-latest"]), "gpt-5
 assert.equal(preferredAgentModelFromList(["claude-4"]), "claude-4");
 assert.equal(preferredImageModelFromList(["flux-1", "gpt-image-2", "gpt-image-1"]), "gpt-image-2");
 assert.equal(preferredImageModelFromList(["flux-1"]), "flux-1");
+
+const invalidSavedImage = splitModelSettings(
+  {
+    imageModel: "gpt-5.6-sol",
+    imageModelPool: ["gpt-5.6-sol", "private-render-v2"],
+    imageModelBindings: [],
+    agentModel: "gpt-5.6-sol",
+    agentModelPool: ["gpt-5.6-sol"],
+    accountBaseUrl: "https://example.com"
+  },
+  ["gpt-5.6-sol", "gpt-image-2"]
+);
+assert.equal(invalidSavedImage.imageModel, "private-render-v2");
+assert.deepEqual(invalidSavedImage.imageModels, ["gpt-image-2", "private-render-v2"]);
 
 assert.equal(
   createModelCacheKey(" HTTPS://ACCOUNT.EXAMPLE.COM ", " https://relay.example.com ", " user-7 "),
@@ -126,8 +194,8 @@ const cached = cachedModelSettings(
   }
 );
 assert.deepEqual(cached.models, ["gpt-5.6-sol", "gpt-image-2", "claude-4.5-sonnet"]);
-assert.deepEqual(cached.imageModels, cached.models);
-assert.deepEqual(cached.agentModels, cached.models);
+assert.deepEqual(cached.imageModels, ["gpt-image-2", "cached-image"]);
+assert.deepEqual(cached.agentModels, ["gpt-5.6-sol", "claude-4.5-sonnet"]);
 assert.equal(cached.imageCostCents, 12);
 assert.equal(cached.imageCostYuan, 0.12);
 assert.equal(cached.trialImages, 3);
@@ -140,6 +208,7 @@ assert.equal(cached.keyManaged, false);
 
 const cacheDefaults = cachedModelSettings({ imageModel: "settings-image" }, null);
 assert.equal(cacheDefaults.imageModel, "settings-image");
+assert.deepEqual(cacheDefaults.imageModels, ["settings-image"]);
 assert.equal(cacheDefaults.channelName, "New API");
 assert.equal(cacheDefaults.serviceReady, true);
 assert.equal(cacheDefaults.keyManaged, true);

@@ -1,7 +1,7 @@
 import React, { type FormEvent, useEffect, useState } from "react";
 import { AlertTriangle, Check, Goal, ImageIcon, Import, MessageSquare, Pause, Play, Send, ShieldCheck, X } from "lucide-react";
 
-import { clipboardHasImage, type AgentSteerTaskScopeMode, yuan } from "./core";
+import { clipboardHasImage, uniqueImageModels, type AgentSteerTaskScopeMode, yuan } from "./core";
 import { ActionButton, DialogShell, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
 
 export type ProjectAgentComposerArtifact = {
@@ -49,6 +49,9 @@ export type ProjectAgentComposerProps = {
   clearSelection: () => void;
   editSourceImages: () => void;
   editReferenceImages: () => void;
+  imageModels?: string[];
+  selectedImageModels?: string[];
+  onSelectedImageModelsChange?: (models: string[]) => void;
 };
 
 export default function ProjectAgentComposer({
@@ -70,7 +73,10 @@ export default function ProjectAgentComposer({
   stopAgentRun,
   clearSelection,
   editSourceImages,
-  editReferenceImages
+  editReferenceImages,
+  imageModels = [],
+  selectedImageModels = [],
+  onSelectedImageModelsChange
 }: ProjectAgentComposerProps) {
   const [taskScopeMode, setTaskScopeMode] = useState<AgentSteerTaskScopeMode | "auto">("auto");
   const [taskMode, setTaskMode] = useState<AgentComposerTaskMode>("standard");
@@ -96,6 +102,21 @@ export default function ProjectAgentComposer({
     : `${selectedArtifacts.length} 个选中成果`;
   const goalAvailable = goalContainerCount > 0 && goalAssetCount > 0;
   const goalSelected = !executionBusy && taskMode === "goal";
+  const availableModels = uniqueImageModels([...imageModels, ...selectedImageModels]);
+  const configuredModels = uniqueImageModels(selectedImageModels);
+  const activeModels = configuredModels.length ? configuredModels : availableModels.slice(0, 1);
+  const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
+
+  function toggleImageModel(model: string) {
+    if (!onSelectedImageModelsChange) return;
+    const key = model.toLowerCase();
+    if (activeModelKeys.has(key)) {
+      if (activeModels.length <= 1) return;
+      onSelectedImageModelsChange(activeModels.filter((item) => item.toLowerCase() !== key));
+      return;
+    }
+    onSelectedImageModelsChange([...activeModels, model]);
+  }
 
   return (
     <form className="project-agent-composer" onSubmit={submit} aria-busy={stopPending || undefined}>
@@ -175,6 +196,30 @@ export default function ProjectAgentComposer({
           : goalSelected ? "描述要对画布全部图片容器执行的操作..." : selectedArtifacts.length ? "描述如何继续处理选中的成果..." : "告诉 Agent 你想完成什么..."}
         rows={4}
       />
+      {availableModels.length ? (
+        <div className="project-agent-model-picker" role="group" aria-label="可用生图模型">
+          <span>生图模型</span>
+          <div className="project-agent-model-chips">
+            {availableModels.map((model) => {
+              const selected = activeModelKeys.has(model.toLowerCase());
+              const lastSelected = selected && activeModels.length === 1;
+              return (
+                <button
+                  key={model.toLowerCase()}
+                  type="button"
+                  className={selected ? "active" : ""}
+                  aria-pressed={selected}
+                  disabled={stopPending || !onSelectedImageModelsChange || lastSelected}
+                  title={lastSelected ? "至少保留一个生图模型" : selected ? `停用 ${model}` : `启用 ${model}`}
+                  onClick={() => toggleImageModel(model)}
+                >
+                  {model}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {executionBusy ? (
         <label className="project-agent-steer-mode">
           <span>本次 TaskScope</span>
