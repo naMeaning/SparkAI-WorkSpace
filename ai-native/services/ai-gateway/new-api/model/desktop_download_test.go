@@ -33,7 +33,7 @@ func TestReserveDesktopDownloadPersistsAndLimitsByUserAndIP(t *testing.T) {
 
 	for index := 0; index < 2; index++ {
 		err := ReserveDesktopDownload(9, "203.0.113.10", now.Add(time.Duration(index)*time.Minute), limits, map[string]interface{}{
-			"filename": "naimage-Setup.exe",
+			"filename": "SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe",
 		})
 		require.NoError(t, err)
 	}

@@ -36,11 +36,39 @@ func TestDesktopClientProductSupportsOnlyNaimage(t *testing.T) {
 	assert.False(t, desktopClientProductSupported("iiimage-studio"))
 }
 
+func TestDesktopInstallerFilenameTransition(t *testing.T) {
+	tests := []struct {
+		version  string
+		expected string
+		valid    bool
+	}{
+		{version: "1.0.5", expected: "naimage-Setup-1.0.5-x64.exe", valid: true},
+		{version: "1.0.8", expected: "naimage-Setup-1.0.8-x64.exe", valid: true},
+		{version: "1.0.9", expected: "SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe", valid: true},
+		{version: "1.2.3", expected: "SparkAI-WorkSpace-Unrestricted-Setup-1.2.3-x64.exe", valid: true},
+		{version: "1.0.9-beta.1", expected: "SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-beta.1-x64.exe", valid: true},
+		{version: "invalid", valid: false},
+	}
+	for _, test := range tests {
+		t.Run(test.version, func(t *testing.T) {
+			actual, valid := desktopInstallerFilenameForRelease(test.version)
+			require.Equal(t, test.valid, valid)
+			require.Equal(t, test.expected, actual)
+		})
+	}
+}
+
 func writeDesktopReleaseFixtureForProduct(t *testing.T, version string, minimumVersion string, compatibility string, product string) string {
 	t.Helper()
+	installerName, valid := desktopInstallerFilenameForRelease(version)
+	require.True(t, valid)
+	return writeDesktopReleaseFixtureForProductWithInstallerName(t, version, minimumVersion, compatibility, product, installerName)
+}
+
+func writeDesktopReleaseFixtureForProductWithInstallerName(t *testing.T, version string, minimumVersion string, compatibility string, product string, installerName string) string {
+	t.Helper()
 	directory := t.TempDir()
-	installerName := "naimage-Setup-" + version + "-x64.exe"
-	restartName := "naimage-Restart-Update-" + version + "-x64.asar"
+	restartName := desktopRestartFilenameForRelease(version)
 	installerBytes := []byte("installer-" + version)
 	restartBytes := []byte("restart-" + version)
 	require.NoError(t, os.WriteFile(filepath.Join(directory, installerName), installerBytes, 0o600))
@@ -80,6 +108,32 @@ func writeDesktopReleaseFixtureForProduct(t *testing.T, version string, minimumV
 	cache.mu.Unlock()
 	t.Setenv("DESKTOP_RELEASE_MANIFEST_PATH", path)
 	return path
+}
+
+func TestLoadDesktopReleaseManifestRejectsNoncanonicalInstallerName(t *testing.T) {
+	tests := []struct {
+		name          string
+		version       string
+		installerName string
+	}{
+		{name: "legacy name after transition", version: "1.0.9", installerName: "naimage-Setup-1.0.9-x64.exe"},
+		{name: "SparkAPI variant is not the update installer", version: "1.0.9", installerName: "SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe"},
+		{name: "branded name before transition", version: "1.0.8", installerName: "SparkAI-WorkSpace-Unrestricted-Setup-1.0.8-x64.exe"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			writeDesktopReleaseFixtureForProductWithInstallerName(
+				t,
+				test.version,
+				"1.0.0",
+				"win-x64-electron42-runtime1",
+				desktopReleaseProduct,
+				test.installerName,
+			)
+			_, err := loadDesktopReleaseManifest()
+			require.ErrorIs(t, err, errDesktopInstallerNotReady)
+		})
+	}
 }
 
 func TestDesktopDownloadChallengeIsOneTimeAndIdentityBound(t *testing.T) {
@@ -609,14 +663,14 @@ func TestDesktopResumeOffsetAcceptsOnlyOpenEndedSingleRange(t *testing.T) {
 
 func TestLoadDesktopInstallerManifestVerifiesExpectedHash(t *testing.T) {
 	directory := t.TempDir()
-	path := filepath.Join(directory, "naimage-Setup-1.0.0-x64.exe")
+	path := filepath.Join(directory, "SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe")
 	contents := []byte("test desktop installer")
 	require.NoError(t, os.WriteFile(path, contents, 0o600))
 	digest := sha256.Sum256(contents)
 	expected := hex.EncodeToString(digest[:])
 	t.Setenv("DESKTOP_INSTALLER_PATH", path)
 	t.Setenv("DESKTOP_INSTALLER_FILENAME", "naimage.exe")
-	t.Setenv("DESKTOP_INSTALLER_VERSION", "1.0.0")
+	t.Setenv("DESKTOP_INSTALLER_VERSION", "1.0.9")
 	t.Setenv("DESKTOP_INSTALLER_SHA256", expected)
 
 	manifest, err := loadDesktopInstallerManifest()

@@ -26,6 +26,7 @@ const (
 	desktopReleaseProduct       = "naimage-studio"
 	desktopDownloadPath         = "/downloads/naimage-studio/windows"
 	desktopClientProductHeader  = "X-Naimage-Desktop-Product"
+	desktopBrandedInstallerFrom = "1.0.9"
 )
 
 type desktopReleaseArtifactFile struct {
@@ -157,6 +158,22 @@ func compareDesktopSemver(left string, right string) (int, bool) {
 	return 0, true
 }
 
+func desktopInstallerFilenameForRelease(version string) (string, bool) {
+	clean := strings.TrimSpace(version)
+	comparison, valid := compareDesktopSemver(clean, desktopBrandedInstallerFrom)
+	if !valid {
+		return "", false
+	}
+	if comparison < 0 {
+		return "naimage-Setup-" + clean + "-x64.exe", true
+	}
+	return "SparkAI-WorkSpace-Unrestricted-Setup-" + clean + "-x64.exe", true
+}
+
+func desktopRestartFilenameForRelease(version string) string {
+	return "naimage-Restart-Update-" + strings.TrimSpace(version) + "-x64.asar"
+}
+
 func desktopArtifactFromFile(directory string, version string, kind string, source desktopReleaseArtifactFile) (desktopInstallerManifest, error) {
 	filename := strings.TrimSpace(source.Filename)
 	if filename == "" || filepath.Base(filename) != filename {
@@ -232,6 +249,14 @@ func loadDesktopReleaseManifestForProduct(product string) (desktopReleaseManifes
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
 	if _, valid := desktopSemver(source.Version); !valid {
+		return desktopReleaseManifest{}, errDesktopInstallerNotReady
+	}
+	expectedInstallerFilename, valid := desktopInstallerFilenameForRelease(source.Version)
+	if !valid || strings.TrimSpace(source.Installer.Filename) != expectedInstallerFilename {
+		return desktopReleaseManifest{}, errDesktopInstallerNotReady
+	}
+	if source.Restart != nil && strings.TrimSpace(source.Restart.Filename) != "" &&
+		strings.TrimSpace(source.Restart.Filename) != desktopRestartFilenameForRelease(source.Version) {
 		return desktopReleaseManifest{}, errDesktopInstallerNotReady
 	}
 	if source.MinimumVersion != "" {

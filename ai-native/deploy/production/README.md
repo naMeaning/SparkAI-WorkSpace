@@ -50,9 +50,13 @@ leaving the failed application live.
 The tracked `releases/desktop-release.json` is the signed canonical
 `naimage-studio` manifest and is deployed atomically with the matching artifacts.
 The verifier rejects retired product identities and artifact names without an
-override. Every newly signed release publishes only
-`desktop-release.json`, with `naimage-Setup-*` /
-`naimage-Restart-Update-*` artifacts. The retired
+override. Releases from `1.0.9` onward publish the canonical update installer as
+`SparkAI-WorkSpace-Unrestricted-Setup-*`; signed releases through `1.0.8`
+retain their historical `naimage-Setup-*` name. The SparkAPI-only installer is
+distributed separately and is not referenced by the automatic-update manifest.
+Restart updates continue using the compatibility-sensitive
+`naimage-Restart-Update-*` name. Every newly signed release publishes only
+`desktop-release.json`. The retired
 `desktop-release-legacy.json` rename bridge is no longer generated, deployed,
 or required by acceptance checks.
 

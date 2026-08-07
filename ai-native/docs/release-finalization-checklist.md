@@ -37,7 +37,7 @@ Do not edit the tracked server manifest until all of these are true:
 - The complete client release gate passes without relaxed thresholds.
 - The packaged application, modern installer/uninstaller, upgrade, uninstall,
   and restart-update E2E tests use that same frozen source.
-- `naimage-Setup-<version>-x64.exe` and
+- `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe` and
   `naimage-Restart-Update-<version>-x64.asar` were produced in the same
   release run.
 - `desktop-release.json` uses product `naimage-studio`, was signed by the release
@@ -45,10 +45,15 @@ Do not edit the tracked server manifest until all of these are true:
 - The installer, restart ASAR, manifest, sidecar, and `SHA256SUMS.txt`
   agree.
 
-The tracked manifest must use only the `naimage-studio` product identity and
-canonical `naimage-*` artifact names. The verifier has no retired-product
-override. Deploy the backend only when the signed manifest and matching
-artifacts are part of the same reviewed release change.
+The tracked manifest must use the `naimage-studio` product identity. Releases
+from `1.0.9` onward use
+`SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`; previously signed
+releases through `1.0.8` retain their historical `naimage-Setup-*` filename.
+Restart ASAR files keep the compatibility-sensitive `naimage-Restart-Update-*`
+name. The SparkAPI-only installer is a separate public distribution artifact,
+not the canonical automatic-update installer. The verifier has no mutable
+filename override. Deploy the backend only when the signed manifest and
+matching artifacts are part of the same reviewed release change.
 
 The release private key must never enter this repository, a command line, a
 ticket, a log, or the production server.

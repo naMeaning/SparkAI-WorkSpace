@@ -80,6 +80,7 @@ if not isinstance(minimum_version, str) or not semver_pattern.fullmatch(minimum_
     raise SystemExit("invalid desktop minimum version")
 version = version.strip()
 minimum_version = minimum_version.strip()
+version_core = tuple(int(item) for item in re.split(r"[-+]", version, maxsplit=1)[0].split("."))
 if product != "naimage-studio":
     raise SystemExit("desktop release manifest product must be naimage-studio")
 
@@ -139,7 +140,10 @@ for kind in ("installer", "restart"):
     if not filename or os.path.basename(filename) != filename:
         raise SystemExit(f"invalid {kind} filename")
     if kind == "installer":
-        canonical_filename = f"naimage-Setup-{version}-x64.exe"
+        if version_core >= (1, 0, 9):
+            canonical_filename = f"SparkAI-WorkSpace-Unrestricted-Setup-{version}-x64.exe"
+        else:
+            canonical_filename = f"naimage-Setup-{version}-x64.exe"
     else:
         canonical_filename = f"naimage-Restart-Update-{version}-x64.asar"
     if filename != canonical_filename:
