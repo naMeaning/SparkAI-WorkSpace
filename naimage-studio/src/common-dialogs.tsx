@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { Check, Plus, Shield, Trash2 } from "lucide-react";
+import { Check, Microscope, Plus, Share2, Shield, ShoppingBag, Sparkles, Trash2 } from "lucide-react";
 import {
   type ConfirmDialogDraft,
   type DeleteNodeDraft,
@@ -8,7 +8,8 @@ import {
   type WorkflowNode,
   yuan
 } from "./core";
-import { ActionButton, DialogShell, Field, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import { ActionButton, ButtonBase, DialogShell, Field, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import { normalizeWorkspaceDomain, workspaceDomainDefinitions } from "./workspace-domain.ts";
 
 const CLOSE_BUTTON_REASON = "close-button" as const;
 const WHEN_IDLE = "when-idle" as const;
@@ -27,8 +28,17 @@ export function ProjectNameDialog({
   busy: boolean;
 }) {
   const isRename = draft.mode === "rename";
-  const title = isRename ? "重命名项目" : "新建项目";
-  const submitLabel = isRename ? "保存" : "创建";
+  const isFolder = draft.mode === "create-folder";
+  const title = isRename ? "重命名项目" : isFolder ? "新建项目文件夹" : "新建项目";
+  const submitLabel = isRename ? "保存" : isFolder ? "选择文件夹并创建" : "创建";
+  const selectedDomain = normalizeWorkspaceDomain(draft.workspaceDomain);
+  const domainIcon = (icon: string) => icon === "shopping-bag"
+    ? <ShoppingBag size={19} />
+    : icon === "share-2"
+      ? <Share2 size={19} />
+      : icon === "microscope"
+        ? <Microscope size={19} />
+        : <Sparkles size={19} />;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,7 +50,7 @@ export function ProjectNameDialog({
     <DialogShell
       surface="project-name"
       ariaLabel={title}
-      className="project-create-dialog"
+      className={`project-create-dialog ${isRename ? "" : "has-workspace-domains"}`.trim()}
       busy={busy}
       closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE }}
       onRequestClose={close}
@@ -49,7 +59,7 @@ export function ProjectNameDialog({
         <>
           <SurfaceHeader
             title={title}
-            description={!isRename ? "新项目拥有独立会话、图片成果和一块单一画布。" : undefined}
+            description={!isRename ? "选择初始工作台；四种模式仍共用同一张无限画布，可随时切换。" : undefined}
             onClose={() => requestClose(CLOSE_BUTTON_REASON)}
             closeLabel={`关闭${title}`}
             closeDisabled={busy}
@@ -65,6 +75,29 @@ export function ProjectNameDialog({
                   placeholder="例如：产品主视觉"
                 />
               </Field>
+              {!isRename ? (
+                <fieldset className="project-domain-fieldset">
+                  <legend>初始工作台</legend>
+                  <div className="project-domain-grid">
+                    {workspaceDomainDefinitions.map((domain) => (
+                      <ButtonBase
+                        key={domain.id}
+                        type="button"
+                        className={`project-domain-card ${selectedDomain === domain.id ? "is-selected" : ""}`}
+                        aria-pressed={selectedDomain === domain.id}
+                        onClick={() => setDraft({ ...draft, workspaceDomain: domain.id })}
+                      >
+                        <span className="project-domain-card-icon" aria-hidden="true">{domainIcon(domain.icon)}</span>
+                        <span>
+                          <strong>{domain.title}</strong>
+                          <small>{domain.description}</small>
+                        </span>
+                        {selectedDomain === domain.id ? <Check size={15} aria-hidden="true" /> : null}
+                      </ButtonBase>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
             </form>
           </SurfaceBody>
           <SurfaceFooter>
@@ -187,7 +220,7 @@ export function ConfirmDialog({
             <div className="confirm-summary">
               <strong>{draft.message}</strong>
               {draft.detail ? <p>{draft.detail}</p> : null}
-              {draft.tone === "danger" ? <small>此操作不可从 naimage 内恢复。</small> : null}
+              {draft.tone === "danger" ? <small>此操作不可从 SparkAI WorkSpace 内恢复。</small> : null}
             </div>
           </SurfaceBody>
           <SurfaceFooter>

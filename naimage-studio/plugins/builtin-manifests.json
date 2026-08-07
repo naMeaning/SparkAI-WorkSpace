@@ -14,6 +14,22 @@
     "contributes": {
       "commands": [
         {
+          "id": "sparkai.commerce-toolkit.open-sku-library",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.commerce-toolkit.open-export-center",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.commerce-toolkit.open-template-market",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.commerce-toolkit.open-ab-comparison",
+          "requiredPermissions": []
+        },
+        {
           "id": "sparkai.commerce-toolkit.generate-listing-set"
         },
         {
@@ -22,10 +38,46 @@
       ],
       "toolbar": [
         {
+          "command": "sparkai.commerce-toolkit.open-sku-library",
+          "label": "SKU 商品素材库",
+          "description": "管理 Amazon 与速卖通商品、变体、SKU、母图、品牌素材和生成结果",
+          "order": 9,
+          "icon": "boxes",
+          "shortcut": "Mod+Shift+5",
+          "availableDuringAgentRun": true
+        },
+        {
+          "command": "sparkai.commerce-toolkit.open-export-center",
+          "label": "平台导出中心",
+          "description": "检查平台尺寸、比例、背景与文件名并按 SKU 打包",
+          "order": 10,
+          "icon": "package-check",
+          "shortcut": "Mod+Shift+6",
+          "availableDuringAgentRun": true
+        },
+        {
+          "command": "sparkai.commerce-toolkit.open-template-market",
+          "label": "套图模板市场",
+          "description": "浏览、导入、导出和复用 Amazon 与速卖通套图模板",
+          "order": 11,
+          "icon": "book-marked",
+          "shortcut": "Mod+Shift+7",
+          "availableDuringAgentRun": true
+        },
+        {
+          "command": "sparkai.commerce-toolkit.open-ab-comparison",
+          "label": "A/B 方案比较",
+          "description": "并排比较同一商品槽位的多个生成版本并选定最终成果",
+          "order": 12,
+          "icon": "columns-2",
+          "shortcut": "Mod+Shift+8",
+          "availableDuringAgentRun": true
+        },
+        {
           "command": "sparkai.commerce-toolkit.generate-listing-set",
           "label": "一键生成套图",
           "description": "为选中的一张或多张母图批量生成逐图 Prompt 套图",
-          "order": 10,
+          "order": 13,
           "icon": "images",
           "shortcut": "Mod+Shift+1",
           "when": "canvas.has-image-selection"
@@ -34,10 +86,87 @@
           "command": "sparkai.commerce-toolkit.translate-listing-set",
           "label": "一键多国语言",
           "description": "为选中的一张或多张商品图批量生成多国语言套图",
-          "order": 11,
+          "order": 14,
           "icon": "languages",
           "shortcut": "Mod+Shift+2",
           "when": "canvas.has-image-selection"
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "id": "sparkai.social-content",
+    "name": "小红书 / 抖音社媒创作",
+    "version": "1.0.0",
+    "publisher": "SparkAI",
+    "description": "在同一画布中规划、生成并导出小红书图文和抖音短视频发布包。",
+    "permissions": [
+      "canvas.read-selection",
+      "agent.submit-task",
+      "canvas.write-results"
+    ],
+    "contributes": {
+      "commands": [
+        {
+          "id": "sparkai.social-content.new-xiaohongshu"
+        },
+        {
+          "id": "sparkai.social-content.new-douyin"
+        },
+        {
+          "id": "sparkai.social-content.open-recent",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.social-content.open-templates",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.social-content.open-publish-export",
+          "requiredPermissions": []
+        }
+      ],
+      "toolbar": [
+        {
+          "command": "sparkai.social-content.new-xiaohongshu",
+          "label": "新建小红书图文",
+          "description": "完成 Brief、标题、正文、封面、6–9 页卡片和标签",
+          "order": 15,
+          "icon": "images",
+          "shortcut": "Mod+Alt+1"
+        },
+        {
+          "command": "sparkai.social-content.new-douyin",
+          "label": "新建抖音短视频",
+          "description": "完成 Hook、口播、分镜、字幕、封面和视频任务",
+          "order": 16,
+          "icon": "workflow",
+          "shortcut": "Mod+Alt+2"
+        },
+        {
+          "command": "sparkai.social-content.open-recent",
+          "label": "最近社媒项目",
+          "description": "查看当前画布中的社媒 Requirement 与成果",
+          "order": 17,
+          "icon": "columns-2",
+          "availableDuringAgentRun": true
+        },
+        {
+          "command": "sparkai.social-content.open-templates",
+          "label": "社媒模板",
+          "description": "从现有需求模板创建可复用社媒计划",
+          "order": 18,
+          "icon": "book-marked",
+          "availableDuringAgentRun": true
+        },
+        {
+          "command": "sparkai.social-content.open-publish-export",
+          "label": "发布包导出",
+          "description": "通过原生目录授权导出文案、封面、卡片、视频和 manifest",
+          "order": 19,
+          "icon": "package-check",
+          "availableDuringAgentRun": true
         }
       ]
     }
@@ -88,16 +217,73 @@
       "commands": [
         {
           "id": "sparkai.scientific-figure.start-workflow"
+        },
+        {
+          "id": "sparkai.scientific-figure.import-data",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.scientific-figure.new-chart"
+        },
+        {
+          "id": "sparkai.scientific-figure.new-panel"
+        },
+        {
+          "id": "sparkai.scientific-figure.new-schematic"
+        },
+        {
+          "id": "sparkai.scientific-figure.rerender",
+          "requiredPermissions": []
+        },
+        {
+          "id": "sparkai.scientific-figure.export",
+          "requiredPermissions": []
         }
       ],
       "toolbar": [
         {
-          "command": "sparkai.scientific-figure.start-workflow",
-          "label": "科研绘图",
-          "description": "创建科研图",
+          "command": "sparkai.scientific-figure.import-data",
+          "label": "导入数据",
+          "description": "导入当前项目的 CSV、TSV 或 TXT 科研数据",
           "order": 30,
-          "icon": "microscope",
+          "icon": "boxes",
           "shortcut": "Mod+Shift+4"
+        },
+        {
+          "command": "sparkai.scientific-figure.new-chart",
+          "label": "新建图表",
+          "description": "从受管数据创建投稿级统计图",
+          "order": 31,
+          "icon": "microscope"
+        },
+        {
+          "command": "sparkai.scientific-figure.new-panel",
+          "label": "新建 Panel 图",
+          "description": "规划并生成多 Panel 论文图",
+          "order": 32,
+          "icon": "columns-2"
+        },
+        {
+          "command": "sparkai.scientific-figure.new-schematic",
+          "label": "新建示意图",
+          "description": "以事实和结构为边界规划科研示意图",
+          "order": 33,
+          "icon": "microscope",
+          "shortcut": "Mod+Alt+4"
+        },
+        {
+          "command": "sparkai.scientific-figure.rerender",
+          "label": "重新渲染",
+          "description": "重新打开所选科研计划并受控执行",
+          "order": 34,
+          "icon": "images"
+        },
+        {
+          "command": "sparkai.scientific-figure.export",
+          "label": "导出论文图",
+          "description": "导出图片、脚本、QA 和计划资产",
+          "order": 35,
+          "icon": "package-check"
         }
       ]
     }

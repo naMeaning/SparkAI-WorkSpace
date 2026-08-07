@@ -163,7 +163,7 @@ function createProjectStore(options = {}) {
 
   function nextExternalProjectFolderPath(parentPath, name, list = readProjectList()) {
     const parent = path.resolve(parentPath);
-    const baseName = safeName(name, "naimage 项目");
+    const baseName = safeName(name, "SparkAI WorkSpace 项目");
     const occupied = new Set((Array.isArray(list?.projects) ? list.projects : [])
       .filter((item) => item?.path)
       .map((item) => comparablePath(item.path)));
@@ -183,6 +183,11 @@ function createProjectStore(options = {}) {
   function projectManifestPath(projectOrPath) {
     const projectPath = typeof projectOrPath === "string" ? projectOrPath : projectOrPath?.path;
     return path.join(path.resolve(projectPath || projectRoot), projectMetaDirName, projectManifestFileName);
+  }
+
+  function projectCommerceCatalogPath(projectOrPath) {
+    const projectPath = typeof projectOrPath === "string" ? projectOrPath : projectOrPath?.path;
+    return path.join(path.resolve(projectPath || projectRoot), projectMetaDirName, "commerce-catalog.json");
   }
 
   function projectExportSessionPath(projectOrPath) {
@@ -246,6 +251,7 @@ function createProjectStore(options = {}) {
     const projectPath = path.resolve(project.path);
     const normalizedSession = sessionForProjectSave(session, project);
     const assets = [];
+    const videos = [];
     for (const node of normalizedSession.nodes) {
       for (const asset of node.assets || []) {
         assets.push({
@@ -261,6 +267,20 @@ function createProjectStore(options = {}) {
           revisedPrompt: asset.revisedPrompt || ""
         });
       }
+      if (node.type === "video" && node.videoAsset) {
+        videos.push({
+          nodeId: node.id,
+          assetId: node.videoAsset.assetId || "",
+          contentHash: node.videoAsset.contentHash || "",
+          path: node.videoAsset.relativePath || projectRelativePath(projectPath, node.videoAsset.path),
+          fileName: node.videoAsset.originalName || (node.videoAsset.path ? path.basename(node.videoAsset.path) : ""),
+          mimeType: node.videoAsset.mimeType || "",
+          width: node.videoAsset.width,
+          height: node.videoAsset.height,
+          durationMs: node.videoAsset.durationMs,
+          model: node.videoModel || ""
+        });
+      }
     }
     const manifest = {
       format: "naimage-project",
@@ -273,7 +293,8 @@ function createProjectStore(options = {}) {
         updatedAt: project.updatedAt
       },
       sessionRevision: Math.max(0, Math.floor(Number(normalizedSession.sessionRevision || 0))),
-      assets
+      assets,
+      videos
     };
     writeJson(projectManifestPath(projectPath), manifest);
   }
@@ -355,6 +376,7 @@ function createProjectStore(options = {}) {
     nextExternalProjectFolderPath,
     normalizeProjectList,
     projectExportSessionPath,
+    projectCommerceCatalogPath,
     projectForFolderOpen,
     projectManifestPath,
     projectRelativePath,

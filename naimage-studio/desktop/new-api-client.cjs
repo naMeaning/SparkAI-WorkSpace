@@ -45,6 +45,7 @@ function createNewApiClient(options = {}) {
         : "";
       return {
         model: bindingModel,
+        customBaseUrl: String(value.customBaseUrl || value.baseUrl || "").trim(),
         customApiKey: String(value.customApiKey || "").trim(),
         accountTokenId
       };
@@ -75,7 +76,9 @@ function createNewApiClient(options = {}) {
     const imageProvider = provider === "image";
     const binding = imageProvider ? imageModelBinding(settings, model) : null;
     const baseUrl = normalizeServerUrl(
-      imageProvider ? settings?.imageBaseUrl || settings?.agentBaseUrl : settings?.agentBaseUrl || settings?.imageBaseUrl,
+      imageProvider
+        ? binding?.customBaseUrl || settings?.imageBaseUrl || settings?.agentBaseUrl
+        : settings?.agentBaseUrl || settings?.imageBaseUrl,
       ""
     );
     const apiKey = String(imageProvider
@@ -651,7 +654,7 @@ function createNewApiClient(options = {}) {
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
       const prompt = String(candidate.revised_prompt || candidate.revisedPrompt || fallbackPrompt || "").trim();
       const b64Json = String(
-        candidate.b64_json || candidate.image_base64 || candidate.base64 || candidate.partial_image_b64 || ""
+        candidate.b64_json || candidate.image_base64 || candidate.base64 || ""
       ).trim();
       const imageUrl = typeof candidate.image_url === "string"
         ? candidate.image_url

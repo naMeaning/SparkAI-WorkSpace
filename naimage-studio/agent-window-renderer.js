@@ -188,7 +188,7 @@ function renderFeed(messages) {
   const stickToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
   const fragment = document.createDocumentFragment();
   if (!messages.length) {
-    fragment.append(element("p", "empty-feed", "这是独立的 naimage Agent 窗口。主窗口仍然负责画布和任务状态，你可以在这里持续对话与控制图片任务。"));
+    fragment.append(element("p", "empty-feed", "这是独立的 SparkAI WorkSpace Agent 窗口。主窗口仍然负责画布和任务状态，你可以在这里持续对话与控制图片任务。"));
   } else {
     for (const message of messages) fragment.append(messageCard(message));
   }
@@ -211,14 +211,8 @@ function goalAvailable(goal) {
   );
 }
 
-function goalCostText(goal) {
-  const parts = [`试用 ${Number(goal?.trialImagesUsed) || 0} 张`, `计费 ${Number(goal?.paidImages) || 0} 张`];
-  if (Number.isFinite(Number(goal?.estimatedMaxCostCents))) {
-    parts.push(`预计最多 ¥${(Number(goal.estimatedMaxCostCents) / 100).toFixed(2)}`);
-  } else {
-    parts.push("费用以服务端结算为准");
-  }
-  return parts.join(" · ");
+function goalUsageText() {
+  return "不预估费用 · 完成后按上游返回值记录用量";
 }
 
 function renderGoalState(state) {
@@ -245,22 +239,21 @@ function renderGoalState(state) {
   document.getElementById("goal-counts").textContent = `${Number(goal.containerCount) || 0} 个容器 · ${Number(goal.assetCount) || 0} 张图 · 每图 ${Number(goal.operationsPerAsset) || 0} 项 · 最多 ${Number(goal.requestCount) || 0} 次请求${goal.skippedContainerCount ? ` · 跳过 ${goal.skippedContainerCount}` : ""}`;
   const hash = String(goal.snapshotHash || "");
   const hashElement = document.getElementById("goal-hash");
-  hashElement.textContent = hash ? `${hash.slice(0, 12)}…${hash.slice(-8)}` : "尚未冻结";
-  hashElement.title = hash;
+  hashElement.textContent = hash ? "本次来源范围已确认" : "等待来源范围";
+  hashElement.title = "";
   document.getElementById("goal-probe").textContent = `Main 串行准入 · 先探测 ${Number(goal.probeContainerCount) || 0} 个 · 通过后最高 ${Number(goal.concurrencyCap) || 0} 并发`;
-  document.getElementById("goal-cost").textContent = goalCostText(goal);
-  document.getElementById("goal-warning").textContent = String(goal.warning || "已派发或已被上游接受的请求仍可能计费；探测与熔断只阻止未派发请求。");
+  document.getElementById("goal-usage").textContent = goalUsageText();
+  document.getElementById("goal-warning").textContent = String(goal.warning || "用量与费用只采用上游完成后实际返回的数据。");
   document.documentElement.dataset.taskMode = activeGoal || goalSelected ? "goal" : "standard";
   return { activeGoal, available, goalSelected };
 }
 
 function goalConfirmationText(goal) {
   return [
-    `确认对当前冻结的 ${goal.containerCount} 个图片容器（${goal.assetCount} 张图，每图 ${goal.operationsPerAsset} 项，最多 ${goal.requestCount} 次请求）执行 Goal？`,
+    `确认对当前 ${goal.containerCount} 个图片容器（${goal.assetCount} 张图，每图 ${goal.operationsPerAsset} 项，最多 ${goal.requestCount} 次请求）执行 Goal？`,
     `多个窗口共享 Main 准入容量；先探测 ${goal.probeContainerCount} 个容器，等待探测时暂停其他 Goal 新放量；全部请求、资产落盘和结果校验成功后，才公平共享最高 ${goal.concurrencyCap} 并发。`,
-    goalCostText(goal),
-    String(goal.warning || "已派发或已被上游接受的请求仍可能计费；探测与熔断只阻止未派发请求。"),
-    `范围 ${goal.snapshotHash}`
+    goalUsageText(),
+    String(goal.warning || "用量与费用只采用上游完成后实际返回的数据。")
   ].join("\n\n");
 }
 
@@ -269,7 +262,7 @@ function render() {
   const state = currentState;
   if (!state) return;
   applyGlassAppearance(state);
-  document.getElementById("project-name").textContent = state.projectName || "项目";
+  document.getElementById("project-name").textContent = [state.projectName || "项目", state.workspaceDomain?.title].filter(Boolean).join(" · ");
   document.getElementById("status-text").textContent = state.ready ? state.statusText : "主窗口尚未就绪";
   document.getElementById("model-name").textContent = state.modelName || "";
   document.getElementById("source-count").textContent = String(state.sourceImageCount || 0);
@@ -302,7 +295,7 @@ function render() {
   steerMode.disabled = !state.ready || !state.busy || activeGoal || stopPending;
   if (!state.busy) steerMode.value = "auto";
   promptInput.placeholder = state.busy
-    ? activeGoal ? "修改 Goal 的处理要求，冻结容器范围保持不变…" : "输入修改要求，Agent 会停止旧计划并重新规划…"
+    ? activeGoal ? "修改 Goal 的处理要求，当前来源范围保持不变…" : "输入修改要求，Agent 会停止旧计划并重新规划…"
     : goalSelected ? "描述要对画布全部图片容器执行的操作…" : "告诉 Agent 你想完成什么…";
   editSourcesButton.disabled = activeGoal || goalSelected || stopPending;
   editReferencesButton.disabled = activeGoal || goalSelected || stopPending;

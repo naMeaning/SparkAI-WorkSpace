@@ -7,7 +7,7 @@
   // The focused glass-theme self-test checks every theme/material/accent against
   // the TypeScript projection so drift fails before packaging.
   var registry = {
-    defaults: { theme: "light-sky", material: "frosted", accent: "theme", noise: true, reduceMotion: false },
+    defaults: { theme: "dark-ember", material: "frosted", accent: "theme", noise: true, reduceMotion: false },
     ranges: {
       opacity: { min: 8, max: 72 },
       blur: { min: 0, max: 48 },
@@ -74,6 +74,13 @@
         secondary: "#9ccdf1", secondaryRgb: "156, 205, 241", canvas: "#07100d", canvasTint: "rgba(41, 151, 111, 0.055)",
         surfaceSolid: "#101c18", surfaceRaised: "#172820", nodeBg: "rgba(16, 27, 23, 0.95)",
         ink: "#f3fff9", inkSoft: "#c3ded2", muted: "#7fa092"
+      },
+      "light-silver": {
+        mode: "light", accent: "ice",
+        glassRgb: "213, 218, 224", accentColor: "#63798c", accentRgb: "99, 121, 140", accentInk: "#111c24",
+        secondary: "#9b7568", secondaryRgb: "155, 117, 104", canvas: "#dfe3e7", canvasTint: "rgba(93, 109, 123, 0.07)",
+        surfaceSolid: "#f4f6f8", surfaceRaised: "#ffffff", nodeBg: "rgba(245, 247, 249, 0.96)",
+        ink: "#252b31", inkSoft: "#46515b", muted: "#5f6b75"
       },
       "light-lemon": {
         mode: "light", accent: "amber",

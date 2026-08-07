@@ -9,6 +9,10 @@ import {
   applyGlassAppearanceToRoot,
   type GlassThemeSettings
 } from "./glass-theme.ts";
+import {
+  applyGlassBackgroundToRoot,
+  type GlassBackgroundSettings,
+} from "./glass-background.ts";
 import { readGlassThemeBootstrapSnapshot } from "./settings-persistence.ts";
 
 export async function fetchServerModelSettings(forceRefresh = false, group = "", cacheOnly = false): Promise<ServerPublicSettings> {
@@ -23,23 +27,34 @@ export function fullServerModelList(serverSettings: ServerPublicSettings) {
     ...(serverSettings.models ?? []),
     ...(serverSettings.imageModels ?? []),
     ...(serverSettings.agentModels ?? []),
+    ...(serverSettings.videoModels ?? []),
   ]);
 }
 
 export function preferredAgentModelFromList(models: string[] = []) {
-  return models.find((model) => /^gpt-5\.6\b/i.test(model)) ?? models.find((model) => /^gpt-5\.5\b/i.test(model)) ?? models[0] ?? "";
+  return models.find((model) => /^gpt-5\.6-terra(?:[-.:]|$)/i.test(model)) ??
+    models.find((model) => /^gpt-5\.6-sol(?:[-.:]|$)/i.test(model)) ??
+    models.find((model) => /^gpt-5\.6\b/i.test(model)) ??
+    models.find((model) => /^gpt-5\.5\b/i.test(model)) ??
+    models[0] ?? "";
 }
 
 export function preferredImageModelFromList(models: string[] = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
 }
 
+export function preferredVideoModelFromList(models: string[] = []) {
+  return models.find((model) => /^doubao-seedance-2-0-260128$/i.test(model)) ?? models[0] ?? "";
+}
+
 /** Applies appearance to the document root without touching React or canvas state. */
 export function applyGlassAppearance(
-  settings: GlassThemeSettings,
+  settings: GlassThemeSettings & Partial<GlassBackgroundSettings>,
   root: HTMLElement = document.documentElement
 ) {
-  return applyGlassAppearanceToRoot(settings, root);
+  const appearance = applyGlassAppearanceToRoot(settings, root);
+  void applyGlassBackgroundToRoot(settings, root);
+  return appearance;
 }
 
 /** Safe early-render fallback; the dedicated snapshot contains appearance only. */

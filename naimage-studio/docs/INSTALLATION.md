@@ -1,4 +1,4 @@
-# naimage 安装说明
+# SparkAI WorkSpace 安装说明
 
 ## 系统要求
 
@@ -8,7 +8,8 @@
 
 ## 安装包
 
-- 文件名：`naimage-Setup-<version>-x64.exe`
+- Unrestricted 文件名：`SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`
+- SparkAPI 账号专用文件名：`SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`
 - 主程序：`naimage.exe`
 - Authenticode：当前构建为 `NotSigned`
 - 完整性校验：以同一发布页的 `SHA256SUMS.txt` 和安装包旁置元数据为准
@@ -16,14 +17,14 @@
 在 PowerShell 中核对下载文件：
 
 ```powershell
-Get-FileHash -Algorithm SHA256 -LiteralPath '.\naimage-Setup-<version>-x64.exe'
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe'
 ```
 
 当前版本没有商业代码签名证书，Windows 可能显示发布者未知。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
 ## 安装与启动
 
-1. 双击安装包，进入 naimage 自有的深色品牌安装界面；不会显示旧式 Windows 安装向导。
+1. 双击安装包，进入 SparkAI WorkSpace 自有的透明玻璃品牌安装界面；不会显示旧式 Windows 安装向导。
 2. 阅读能力介绍，选择当前用户可写的安装目录，并决定是否创建桌面和开始菜单快捷方式。v1 不允许安装到 Windows、`Program Files` 或其他需要管理员权限的位置。
 3. 安装器会校验内部组件，再由隐藏的 NSIS 内核完成安全部署。已有版本会进入更新/修复流程、锁定原安装路径并保留用户数据。
 4. 完成后可立即启动，或从快捷方式、开始菜单及安装目录中的 `naimage.exe` 启动。
@@ -68,4 +69,4 @@ pnpm run release:final
 
 任一步失败时 `release/.naimage-release-incomplete.json` 会保留，当前版本 manifest、sidecar、Restart ASAR 和 `SHA256SUMS.txt` 会被撤销；存在该标记的目录不得上传或同步到下载服务器。
 
-安装包输出到 `release/naimage-Setup-<version>-x64.exe`，重启更新输出到 `release/naimage-Restart-Update-<version>-x64.asar`。
+默认安装包输出到 `release/SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`；双版本入口还会生成 `release/SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`。重启更新继续使用内部兼容名 `release/naimage-Restart-Update-<version>-x64.asar`。

@@ -32,6 +32,8 @@ function createProjectPackageService(options = {}) {
     log = () => {},
     mimeTypeForPath,
     nativeImage,
+    readCommerceCatalog,
+    sanitizeCommerceCatalogDocument,
     projectWritableAssetRoots,
     projectRelativePath,
     projectSessionFromDisk,
@@ -39,6 +41,7 @@ function createProjectPackageService(options = {}) {
     safeName,
     sanitizeSession,
     sessionForProjectSave,
+    writeCommerceCatalog,
     writeJson,
     writeProjectManifest
   } = options;
@@ -54,6 +57,9 @@ function createProjectPackageService(options = {}) {
       throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_INVALID", "画布项目包缺少有效会话数据。");
     }
     const nodes = Array.isArray(session.nodes) ? session.nodes : [];
+    if (nodes.some((node) => node?.type === "video")) {
+      throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_VIDEO_UNSUPPORTED", "当前项目包暂不嵌入视频文件；请先移除视频节点，或直接复制完整项目文件夹。");
+    }
     const messages = Array.isArray(session.messages) ? session.messages : [];
     const conversations = Array.isArray(session.conversations) ? session.conversations : [];
     if (nodes.length > projectPackageMaximumNodes) {
@@ -91,7 +97,7 @@ function createProjectPackageService(options = {}) {
     if (!packageData || typeof packageData !== "object" || Array.isArray(packageData)) {
       throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_INVALID", "画布文件格式无效。");
     }
-    if (!projectPackageFormats.has(packageData.format) || ![1, 2].includes(Number(packageData.version))) {
+    if (!projectPackageFormats.has(packageData.format) || ![1, 2, 3].includes(Number(packageData.version))) {
       throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_UNSUPPORTED", "这不是受支持的 naimage 画布项目包。");
     }
     validateProjectPackageSessionShape(packageData.session);
@@ -113,7 +119,19 @@ function createProjectPackageService(options = {}) {
         throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_TOO_LARGE", "项目包图片总量超过 128MB，无法安全导入。");
       }
     }
-    return { assets, decodedBytes };
+    let commerceCatalog = null;
+    if (Number(packageData.version) >= 3) {
+      commerceCatalog = typeof sanitizeCommerceCatalogDocument === "function"
+        ? sanitizeCommerceCatalogDocument(packageData.commerceCatalog)
+        : null;
+      if (!commerceCatalog) {
+        throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_INVALID", "项目包缺少有效的 SKU 商品素材库。");
+      }
+      if (Buffer.byteLength(JSON.stringify(commerceCatalog), "utf8") > 4 * 1024 * 1024) {
+        throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_TOO_LARGE", "项目包中的 SKU 商品素材库超过 4MB。");
+      }
+    }
+    return { assets, decodedBytes, commerceCatalog };
   }
 
   function validateProjectPackageImageBuffer(buffer, label) {
@@ -151,6 +169,9 @@ function createProjectPackageService(options = {}) {
 
   function packageProject(project) {
     const session = projectSessionFromDisk(project);
+    if (session.nodes.some((node) => node.type === "video")) {
+      throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_VIDEO_UNSUPPORTED", "当前项目包含视频节点，项目包暂不嵌入视频文件。请复制完整项目文件夹进行迁移。");
+    }
     const projectPath = path.resolve(project.path);
     const assets = [];
     let packagedDecodedBytes = 0;
@@ -288,6 +309,44 @@ function createProjectPackageService(options = {}) {
         }
       };
     };
+    const commerceCatalogPackagingEnabled = typeof readCommerceCatalog === "function"
+      && typeof sanitizeCommerceCatalogDocument === "function";
+    const sourceCommerceCatalog = commerceCatalogPackagingEnabled ? readCommerceCatalog(project) : null;
+    const portableCommerceCatalog = sourceCommerceCatalog && typeof sanitizeCommerceCatalogDocument === "function"
+      ? sanitizeCommerceCatalogDocument({
+          ...sourceCommerceCatalog,
+          products: sourceCommerceCatalog.products.map((product) => ({
+            ...product,
+            assets: product.assets.map((link, index) => {
+              const absolutePath = resolveProjectRelativePath(projectPath, link.relativePath);
+              const portable = portableFileReference({
+                ...link,
+                type: "file",
+                path: absolutePath,
+                relativePath: link.relativePath,
+                fileName: link.fileName
+              }, link.nodeId || "", `catalog-${link.linkId || index}`, Number(link.assetIndex || 0) + 1);
+              const packaged = assets.find((asset) => (
+                portable?.packageAssetKey && asset.packageAssetKey === portable.packageAssetKey
+              )) || assets.find((asset) => link.assetId && asset.assetId === link.assetId)
+                || assets.find((asset) => String(asset.path || "").replace(/\\/g, "/").toLowerCase() === String(link.relativePath || "").replace(/\\/g, "/").toLowerCase());
+              if (!packaged) {
+                throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_ASSET_MISSING", `SKU 商品素材“${link.fileName || link.linkId}”缺少可打包的受管图片。`);
+              }
+              return {
+                ...link,
+                assetId: packaged.assetId || link.assetId,
+                contentHash: packaged.contentHash,
+                relativePath: packaged.path,
+                fileName: packaged.fileName || link.fileName
+              };
+            })
+          }))
+        })
+      : null;
+    if (commerceCatalogPackagingEnabled && !portableCommerceCatalog) {
+      throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_INVALID", "当前项目的 SKU 商品素材库无法导出。");
+    }
     const portableSession = {
       ...session,
       // A pending AskUser continuation depends on local protocol history and
@@ -325,7 +384,7 @@ function createProjectPackageService(options = {}) {
     validateProjectPackageSessionShape(portableSession);
     return {
       format: "naimage-project-package",
-      version: 2,
+      version: portableCommerceCatalog ? 3 : 2,
       exportedAt: new Date().toISOString(),
       project: {
         id: project.id,
@@ -333,6 +392,7 @@ function createProjectPackageService(options = {}) {
         createdAt: project.createdAt,
         updatedAt: project.updatedAt
       },
+      ...(portableCommerceCatalog ? { commerceCatalog: portableCommerceCatalog } : {}),
       session: portableSession,
       assets
     };
@@ -610,12 +670,40 @@ function createProjectPackageService(options = {}) {
   }
 
   function importProjectPackage(packageData, targetPath) {
-    validateProjectPackageData(packageData);
+    const packageValidation = validateProjectPackageData(packageData);
     const name = safeName(packageData.project?.name || path.basename(targetPath), "导入画布");
     const record = createProjectRecord(name, targetPath);
     const session = sessionFromPackage(packageData, record);
     writeJson(record.sessionPath, sessionForProjectSave(session, record));
     writeProjectManifest(record, session);
+    if (packageValidation.commerceCatalog && typeof writeCommerceCatalog === "function") {
+      const packageAssets = Array.isArray(packageData.assets) ? packageData.assets : [];
+      const assetById = new Map(packageAssets.filter((asset) => asset?.assetId).map((asset) => [String(asset.assetId), asset]));
+      const assetByPath = new Map(packageAssets.map((asset) => [String(asset?.path || "").replace(/\\/g, "/").toLowerCase(), asset]));
+      const importedCatalog = sanitizeCommerceCatalogDocument({
+        ...packageValidation.commerceCatalog,
+        products: packageValidation.commerceCatalog.products.map((product) => ({
+          ...product,
+          assets: product.assets.map((link) => {
+            const packaged = assetById.get(link.assetId)
+              || assetByPath.get(String(link.relativePath || "").replace(/\\/g, "/").toLowerCase());
+            if (!packaged?.data) {
+              throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_ASSET_MISSING", `SKU 商品素材“${link.fileName || link.linkId}”不在项目包中。`);
+            }
+            const buffer = Buffer.from(String(packaged.data), "base64");
+            return {
+              ...link,
+              assetId: String(packaged.assetId || link.assetId),
+              contentHash: createHash("sha256").update(buffer).digest("hex"),
+              relativePath: String(packaged.path || link.relativePath).replace(/\\/g, "/"),
+              fileName: String(packaged.fileName || link.fileName)
+            };
+          })
+        }))
+      });
+      if (!importedCatalog) throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_CATALOG_INVALID", "导入的 SKU 商品素材库引用无效。");
+      writeCommerceCatalog(record, importedCatalog);
+    }
     return { record, session: projectSessionFromDisk(record) };
   }
 

@@ -401,6 +401,37 @@
   content: "·";
 }
 
+.ui-surface.manual-video-task-dialog {
+  --ui-surface-width: 700px;
+  width: min(700px, calc(100vw - 36px));
+  height: min(540px, calc(100dvh - 36px));
+}
+
+.manual-video-task-body {
+  display: grid;
+  grid-template-rows: auto minmax(180px, 1fr) auto;
+  align-content: stretch;
+  gap: 12px;
+}
+
+.manual-video-task-controls {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.5fr) repeat(3, minmax(92px, 0.62fr));
+  gap: 8px;
+}
+
+.manual-video-task-prompt {
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.manual-video-task-prompt textarea {
+  min-height: 180px;
+  height: 100%;
+}
+
 @media (max-width: 740px) {
   .image-create-dialog {
     width: min(100%, calc(100vw - 24px));
@@ -421,6 +452,15 @@
   .manual-image-task-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .ui-surface.manual-video-task-dialog {
+    width: calc(100vw - 24px);
+    height: min(580px, calc(100dvh - 24px));
+  }
+
+  .manual-video-task-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* Systemic UI repair pass: content-sized dialogs, direct editors, stable node layering. */
@@ -436,16 +476,17 @@
 
 .flow-node:not(.dragging):not(.resizing) {
   transition:
-    transform var(--motion-standard) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
     opacity var(--motion-standard) var(--motion-ease);
 }
 
 .flow-node.dragging {
   cursor: grabbing;
-  transform: translateY(-2px) scale(1.012);
+  transform: translate3d(var(--node-drag-x, 0px), var(--node-drag-y, 0px), 0);
   box-shadow: 0 22px 52px color-mix(in srgb, var(--accent) 22%, rgba(0, 0, 0, 0.44));
   transition: none;
-  will-change: left, top, transform;
+  will-change: transform;
 }
 
 .node-image-tile.movable-node-image-tile {

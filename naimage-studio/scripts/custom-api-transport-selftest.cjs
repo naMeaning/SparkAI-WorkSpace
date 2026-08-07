@@ -55,7 +55,7 @@ async function main() {
     imageBaseUrl: "https://images.example",
     imageApiKey: "image-key",
     imageModelBindings: [
-      { model: "gpt-image-2", customApiKey: "bound-image-key", accountTokenId: "12" },
+      { model: "gpt-image-2", customBaseUrl: "https://gpt-image.example/root/", customApiKey: "bound-image-key", accountTokenId: "12" },
       { model: "grok-image-1", customApiKey: "grok-bound-key" },
       { model: "gpt-5.6-sol", customApiKey: "must-not-use-responses-model-binding" }
     ],
@@ -65,6 +65,7 @@ async function main() {
   assert.equal(client.customApiUrl(settings, "/v1/responses"), "https://gateway.example/v1/responses");
   assert.equal(client.customApiUrl(settings, "v1/chat/completions"), "https://gateway.example/v1/chat/completions");
   assert.equal(client.customApiUrl(settings, "/v1/images/generations", "image"), "https://images.example/v1/images/generations");
+  assert.equal(client.customApiUrl(settings, "/v1/images/generations", "image", "gpt-image-2"), "https://gpt-image.example/root/v1/images/generations");
   assert.equal(client.customApiUrl({ ...settings, imageApiKey: "" }, "/v1/images/generations", "image", "grok-image-1"), "https://images.example/v1/images/generations");
   assert.equal(client.customApiHeaders({ ...settings, imageApiKey: "" }, "image", "grok-image-1").authorization, "Bearer grok-bound-key");
 
@@ -81,7 +82,7 @@ async function main() {
     group: "must-not-leak"
   };
   await client.newApiRelayJson(settings, "/v1/images/generations", imageBody, { provider: "image" });
-  assert.equal(captured.url, "https://images.example/v1/images/generations");
+  assert.equal(captured.url, "https://gpt-image.example/root/v1/images/generations");
   assert.equal(captured.options.headers.authorization, "Bearer bound-image-key");
   const forwardedImageBody = JSON.parse(captured.options.body);
   assert.equal(Object.hasOwn(forwardedImageBody, "group"), false);
@@ -92,7 +93,7 @@ async function main() {
   assert.equal(forwardedImageBody.n, 1);
 
   await client.newApiRelayJson({ ...settings, imageApiKey: "" }, "/v1/images/generations", { ...imageBody, model: "grok-image-1" }, { provider: "image" });
-  assert.equal(captured.url, "https://images.example/v1/images/generations", "All image bindings must share the configured image Base URL");
+  assert.equal(captured.url, "https://images.example/v1/images/generations", "Bindings without a Base URL override must use the global image Base URL");
   assert.equal(captured.options.headers.authorization, "Bearer grok-bound-key");
 
   if (typeof FormData !== "undefined") {
@@ -159,7 +160,7 @@ async function main() {
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":2,"partial_image_b64":"cHJldmlldy0z"}\n\n',
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":3,"partial_image_b64":"ZmluYWwtbGlrZS1wYXJ0aWFs"}\n\n',
       'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"}}\n\n',
-      'data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"}],"usage":{"total_tokens":9}}}\n\n'
+      'data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"},{"type":"image_generation_call","result":{"partial_image_b64":"cHJldmlldy1tdXN0LW5vdC1sZWFr"}}],"usage":{"total_tokens":9}}}\n\n'
     ].join("")
   });
   const responsePartials = [];
@@ -183,11 +184,12 @@ async function main() {
   assert.equal(forwardedResponsesBody.tools[0].partial_images, 3);
   assert.deepEqual(responsePartials.map((item) => item.index), [1, 2, 3]);
   assert(responsePartials.every((item) => item.total === 3));
-  assert.equal(responsesImage.data.length, 1, "output_item.done and response.completed finals must be deduplicated");
+  assert.equal(responsesImage.data.length, 1, "Only authoritative finals may survive completed Responses payloads; partial_image_b64 must not become an asset");
   assert.equal(responsesImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
   assert.equal(responsesImage.data[0].revised_prompt, "fixture revised");
   assert.equal(responsesImage.created, 123);
   assert.equal(responsesImage.partial_images, 3);
+  assert.deepEqual(responsesImage.usage, { total_tokens: 9 }, "Completed Responses usage must remain available to post-call accounting");
 
   const accountResponsesImage = await client.newApiRelayResponsesImage(accountSettings, {
     model: "gpt-5.6-sol",

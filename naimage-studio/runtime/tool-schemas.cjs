@@ -3,7 +3,11 @@
 // Owns the complete internal tool schema set and the sanitized public Agent tool set.
 // Keep names, order, descriptions, required fields, and model-pool enums stable.
 
+const { imagePromptRatios, imagePromptResolutions } = require("./image-frame.cjs");
+
 const primaryImageToolName = "image_gen";
+const imagePromptRatioValues = [...imagePromptRatios];
+const imagePromptResolutionValues = [...imagePromptResolutions];
 
 function nativeWebSearchToolSchema() {
   return { type: "web_search" };
@@ -49,18 +53,21 @@ function imageModelToolProperty(settings = {}) {
 
 function toolSchemas(settings = {}) {
   const imageModelProperty = imageModelToolProperty(settings);
+  const defaultImageRatio = imagePromptRatios.has(String(settings.imageRatio || "").trim()) ? String(settings.imageRatio).trim() : "1:1";
+  const requestedResolution = String(settings.imageResolution || "").trim().toUpperCase();
+  const defaultImageResolution = imagePromptResolutions.has(requestedResolution) ? requestedResolution : "1K";
   return normalizeToolSchemas([
     {
       type: "function",
       function: {
         name: "shell_command",
-        description: "Runs a Powershell command (Windows) and returns its output. naimage 将执行范围限制为当前项目内的受控只读诊断命令；画布与成果操作使用 workflow。",
+        description: "Runs a Powershell command (Windows) and returns its output. SparkAI WorkSpace 将执行范围限制为当前项目内的受控只读诊断命令；画布与成果操作使用 workflow。",
         parameters: {
           type: "object",
           properties: {
-            command: { type: "string", description: "Shell command to execute. naimage currently permits only its documented read-only project diagnostics allowlist." },
-            workdir: { type: "string", description: "Working directory for the command. Defaults to the current naimage project root and must remain inside it." },
-            timeout_ms: { type: "integer", minimum: 250, maximum: 30000, description: "Maximum command runtime in milliseconds. The effective naimage read-only limit may be lower." },
+            command: { type: "string", description: "Shell command to execute. SparkAI WorkSpace currently permits only its documented read-only project diagnostics allowlist." },
+            workdir: { type: "string", description: "Working directory for the command. Defaults to the current SparkAI WorkSpace project root and must remain inside it." },
+            timeout_ms: { type: "integer", minimum: 250, maximum: 30000, description: "Maximum command runtime in milliseconds. The effective SparkAI WorkSpace read-only limit may be lower." },
             login: { type: "boolean", description: "True uses login shell semantics; false disables them. Defaults to true." }
           },
           required: ["command"],
@@ -72,7 +79,7 @@ function toolSchemas(settings = {}) {
       type: "function",
       function: {
         name: primaryImageToolName,
-        description: "naimage 唯一图像执行工具。用于文字或参考图生成、精确编辑与换物改字、多款和多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果会自动同步到成果画布。",
+        description: "SparkAI WorkSpace 唯一图像执行工具。用于文字或参考图生成、精确编辑与换物改字、多款和多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果会自动同步到成果画布。",
         parameters: {
           type: "object",
           properties: {
@@ -80,8 +87,8 @@ function toolSchemas(settings = {}) {
             mode: { type: "string", enum: ["generate", "edit", "redraw", "cutout"], description: "兼容字段；优先使用 operation。" },
             prompt: { type: "string", description: "必填的顶层纯视觉画面 prompt。复杂任务按用途、主体与身份或商品、场景、风格媒介、构图景别、光线氛围、逐字文字、参考图分工、保留项与禁改项、输出意图组织；编辑任务明确‘只改变 X，保持 Y 不变’。用户要求、参考图 purpose 和当前 FastMemory 优先于通用风格，不擅自套用电影感、蓝金或海报模板。只能写最终画面需要呈现的内容；彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，不能把它们写成负面约束。count=1 时完整提示词只写在这里并且不要填写 items。多图且方向不同时这里只写共同约束，各自完整画面写入 items.prompt；不要把清晨/夜色/极简等多个互斥方案塞进同一个顶层 prompt。不要直接填用户评价、催促、对话文本或‘这张效果很好’等反馈原文。" },
             model: imageModelProperty,
-            ratio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"], description: "用户要求的画面比例。用户说 3:4、竖版海报等必须设置。多图时每张图使用同一比例。" },
-            resolution: { type: "string", enum: ["720P", "1080P", "2K", "4K"], description: "分辨率档位；不确定时用 1080P。" },
+            ratio: { type: "string", enum: imagePromptRatioValues, description: `用户要求的画面比例。当前默认值为 ${defaultImageRatio}；用户未明确其他比例时使用该值，用户说 3:4、竖版海报等时按用户要求覆盖。多图时每张图使用同一比例。` },
+            resolution: { type: "string", enum: imagePromptResolutionValues, description: `输出清晰度档位。当前默认值为 ${defaultImageResolution}；用户未明确其他清晰度时使用该值。清晰度与 quality（草稿/标准/精细）是两个不同参数。` },
             size: { type: "string", description: "可选最终交付尺寸。优先设置 ratio/resolution；运行时会使用图像服务稳定支持的基础画幅生成，再无拉伸地裁切到交付尺寸。" },
             quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
             count: { type: "integer", minimum: 1, maximum: 200, description: "独立输出图片总张数，只能来自用户明确要求。运行时按设置中的每批数量顺序派发，不会一次发出全部请求；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
@@ -91,6 +98,8 @@ function toolSchemas(settings = {}) {
             slotId: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录该成品的结构化槽位 ID。" },
             slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 0-11 的套图槽位零基序号。" },
             localeCode: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 BCP-47 目标语言代码。" },
+            socialContentType: { type: "string", enum: ["cover", "card", "shot"], description: "仅用于当前结构化社媒 Requirement 的图片成果类型。小红书使用 cover/card，抖音使用 cover/shot。" },
+            socialSlot: { type: "string", description: "仅用于当前结构化社媒 Requirement 的成果槽位：cover、card-N、card-set、shot-N 或 shot-set。批量卡片/分镜使用对应 *-set。" },
             items: {
               type: "array",
               minItems: 2,
@@ -104,8 +113,8 @@ function toolSchemas(settings = {}) {
                   slotId: { type: "string", description: "可选的结构化套图槽位 ID；仅作成果溯源，不得写入画面。" },
                   slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选的结构化套图槽位零基序号；同一槽位跨语言复用相同序号，仅作成果溯源。" },
                   localeCode: { type: "string", description: "可选的 BCP-47 目标语言代码；仅作成果溯源与排版策略。" },
-                  ratio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
-                  resolution: { type: "string", enum: ["720P", "1080P", "2K", "4K"] },
+                  ratio: { type: "string", enum: imagePromptRatioValues },
+                  resolution: { type: "string", enum: imagePromptResolutionValues },
                   quality: { type: "string", enum: ["low", "medium", "high", "auto"] }
                 },
                 required: ["prompt"]
@@ -269,7 +278,7 @@ function toolSchemas(settings = {}) {
           properties: {
             operation: {
               type: "string",
-              description: "成果操作：list_nodes 查看成果；describe_node 读取成果详情；focus_node 定位成果；connect_nodes 建立成果来源关系；disconnect_node 移除关系；delete_node 删除成果；clear_canvas 清空成果画布；update_node 修改成果元数据；continue_node/redraw_node/cutout_node 基于已有图片继续工作。",
+              description: "成果操作：list_nodes 查看成果；describe_node 读取成果详情；focus_node 定位成果；connect_nodes 建立成果来源关系；disconnect_node 移除关系；delete_node 删除成果；clear_canvas 清空成果画布；update_node 修改成果元数据；update_social_content 将完成的社媒文案/卡片/分镜结构化写回当前 Requirement；continue_node/redraw_node/cutout_node 基于已有图片继续工作。",
               enum: [
                 "list_nodes",
                 "describe_node",
@@ -279,6 +288,7 @@ function toolSchemas(settings = {}) {
                 "delete_node",
                 "clear_canvas",
                 "update_node",
+                "update_social_content",
                 "continue_node",
                 "redraw_node",
                 "cutout_node"
@@ -295,6 +305,31 @@ function toolSchemas(settings = {}) {
             deleteMode: { type: "string", enum: ["only", "branch"], description: "delete_node 的删除范围。only=默认，只删当前成果并保留衍生成果；branch=删除当前成果和所有衍生成果，只有用户明确要求时使用。" },
             title: { type: "string", description: "update_node 更新成果时使用的新标题。" },
             prompt: { type: "string", description: "更新成果说明，或 continue_node 的后续生成要求。真正生成或修改图片请用 image_gen(prompt=...)。" },
+            socialPlan: {
+              type: "object",
+              description: "update_social_content 的完整社媒计划。保留 SOCIAL_PLAN_JSON 中的 platform、workflowId、比例、页数/分镜数和时长，并补齐标题、正文/脚本、标签、封面、cards 或 shots。",
+              properties: {
+                platform: { type: "string", enum: ["xiaohongshu", "douyin"] },
+                workflowId: { type: "string" },
+                brief: { type: "string" },
+                audience: { type: "string" },
+                objective: { type: "string" },
+                language: { type: "string" },
+                titleCandidates: { type: "array", items: { type: "string" } },
+                recommendedTitle: { type: "string" },
+                title: { type: "string" },
+                body: { type: "string" },
+                script: { type: "string" },
+                subtitleText: { type: "string" },
+                tags: { type: "array", items: { type: "string" } },
+                cover: { type: "object" },
+                cards: { type: "array", items: { type: "object" } },
+                hooks: { type: "array", items: { type: "string" } },
+                shots: { type: "array", items: { type: "object" } },
+                status: { type: "string", enum: ["draft", "approved", "generated", "exported"] }
+              },
+              required: ["platform", "workflowId"]
+            },
             status: { type: "string", enum: ["queued", "working", "review", "done"] },
             x: { type: "number" },
             y: { type: "number" },
@@ -412,6 +447,8 @@ function agentToolSchemas(settings = {}, options = {}) {
     "slotId",
     "slotIndex",
     "localeCode",
+    "socialContentType",
+    "socialSlot",
     "items",
     "outputFormat",
     "background",
@@ -484,7 +521,7 @@ function agentToolSchemas(settings = {}, options = {}) {
         ...workflowTool,
         function: {
           ...workflowTool.function,
-          description: "成果画布管理工具。只管理已有图片成果及溯源关系，不创建任务、Prompt、工具或执行步骤节点。",
+          description: "成果画布管理工具。管理已有图片成果、溯源关系，并可将完整社媒内容写回当前结构化 Requirement；不创建任务、Prompt、工具或执行步骤节点。",
           parameters: workflowTool.function.parameters
         }
       }
@@ -492,7 +529,7 @@ function agentToolSchemas(settings = {}, options = {}) {
   if (publicWorkflowTool?.function?.parameters?.properties?.operation) {
     publicWorkflowTool.function.parameters.properties.operation = {
       ...publicWorkflowTool.function.parameters.properties.operation,
-      enum: ["list_nodes", "describe_node", "focus_node", "connect_nodes", "disconnect_node", "delete_node", "clear_canvas", "update_node"]
+      enum: ["list_nodes", "describe_node", "focus_node", "connect_nodes", "disconnect_node", "delete_node", "clear_canvas", "update_node", "update_social_content"]
     };
   }
   const experienceTool = schemas.find((tool) => String(tool.function?.name || "") === "experience");

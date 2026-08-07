@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "platforms": [
+    { "id": "amazon", "label": "Amazon" },
+    { "id": "aliexpress", "label": "速卖通" }
+  ],
+  "assetKinds": [
+    {
+      "id": "master",
+      "label": "母图",
+      "roles": [
+        { "id": "primary", "label": "主母图" },
+        { "id": "angle", "label": "角度图" },
+        { "id": "detail", "label": "细节图" },
+        { "id": "packaging", "label": "包装图" }
+      ]
+    },
+    {
+      "id": "brand",
+      "label": "品牌素材",
+      "roles": [
+        { "id": "logo", "label": "Logo" },
+        { "id": "style-reference", "label": "风格参考" },
+        { "id": "packaging", "label": "品牌包装" }
+      ]
+    },
+    {
+      "id": "result",
+      "label": "生成结果",
+      "roles": [
+        { "id": "listing", "label": "商品图" },
+        { "id": "main", "label": "主图" },
+        { "id": "selling-point", "label": "卖点图" },
+        { "id": "scene", "label": "场景图" },
+        { "id": "size", "label": "尺寸图" }
+      ]
+    }
+  ],
+  "ownerTypes": ["product", "variant", "sku"],
+  "resultStates": ["candidate", "approved", "rejected"],
+  "brandStyle": {
+    "schemaVersion": 1,
+    "referenceRoles": ["logo", "packaging", "style-reference"],
+    "defaultLogoUsage": "保持品牌 Logo 的原始图形、文字、颜色和比例，不得重绘、改字、拉伸或添加未经授权的变体。"
+  },
+  "exportProfiles": [
+    {
+      "id": "amazon",
+      "label": "Amazon",
+      "defaultFormat": "jpeg",
+      "allowedFormats": ["jpeg", "png"],
+      "minimumLongEdge": 500,
+      "recommendedLongEdge": 1600,
+      "recommendedAspectRatio": 1,
+      "aspectRatioTolerance": 0.03,
+      "mainRoles": ["main"],
+      "requireWhiteMainBackground": true,
+      "whiteBackgroundThreshold": 0.9,
+      "recommendedImagesPerSku": 9
+    },
+    {
+      "id": "aliexpress",
+      "label": "速卖通",
+      "defaultFormat": "jpeg",
+      "allowedFormats": ["jpeg", "png"],
+      "minimumLongEdge": 200,
+      "recommendedLongEdge": 800,
+      "recommendedAspectRatio": 1,
+      "aspectRatioTolerance": 0.03,
+      "mainRoles": ["main"],
+      "requireWhiteMainBackground": false,
+      "whiteBackgroundThreshold": 0.86,
+      "recommendedImagesPerSku": 9
+    }
+  ],
+  "limits": {
+    "maxProducts": 500,
+    "maxVariantsPerProduct": 500,
+    "maxSkusPerProduct": 1000,
+    "maxAssetsPerProduct": 2000,
+    "maxAssignmentBatch": 200,
+    "maxTitleLength": 160,
+    "maxCodeLength": 120,
+    "maxRoleLength": 60,
+    "maxBrandColors": 8,
+    "maxBrandFontLength": 120,
+    "maxBrandRuleLength": 600,
+    "maxBrandReferencesPerSource": 8,
+    "maxExportPackages": 500,
+    "maxExportImages": 2000
+  }
+}

@@ -1,8 +1,19 @@
-import React, { type FormEvent, useEffect, useState } from "react";
-import { AlertTriangle, Check, Goal, ImageIcon, Import, MessageSquare, Pause, Play, Send, ShieldCheck, X } from "lucide-react";
+import React, { type FormEvent, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Loader2, MessageSquare, Pause, Play, Search, Send, ShieldCheck, Star, X } from "lucide-react";
 
-import { clipboardHasImage, uniqueImageModels, type AgentSteerTaskScopeMode, yuan } from "./core";
-import { ActionButton, DialogShell, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import {
+  clipboardHasImage,
+  computedSizeFor,
+  frameOptionsForModel,
+  normalizeImageFrameRatio,
+  normalizeImageResolutionPreset,
+  sizePresetsForModel,
+  uniqueImageModels,
+  type AgentSteerTaskScopeMode,
+  type ImageFrameRatio,
+  type ImageResolutionPreset
+} from "./core";
+import { ActionButton, ButtonBase, DialogShell, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
 
 export type ProjectAgentComposerArtifact = {
   id: string;
@@ -20,9 +31,6 @@ export type GoalConfirmationDraft = {
   skipped: string[];
   probeContainerCount: number;
   concurrencyCap: number;
-  trialImagesUsed: number;
-  paidImages: number;
-  estimatedMaxCostCents?: number;
 };
 
 export type ProjectAgentComposerProps = {
@@ -52,6 +60,10 @@ export type ProjectAgentComposerProps = {
   imageModels?: string[];
   selectedImageModels?: string[];
   onSelectedImageModelsChange?: (models: string[]) => void;
+  requestImageModels?: () => void | Promise<void>;
+  imageRatio?: string;
+  imageResolution?: string;
+  onImageFrameChange?: (ratio: ImageFrameRatio, resolution: ImageResolutionPreset) => void;
 };
 
 export default function ProjectAgentComposer({
@@ -76,17 +88,75 @@ export default function ProjectAgentComposer({
   editReferenceImages,
   imageModels = [],
   selectedImageModels = [],
-  onSelectedImageModelsChange
+  onSelectedImageModelsChange,
+  requestImageModels,
+  imageRatio = "1:1",
+  imageResolution = "1K",
+  onImageFrameChange
 }: ProjectAgentComposerProps) {
   const [taskScopeMode, setTaskScopeMode] = useState<AgentSteerTaskScopeMode | "auto">("auto");
   const [taskMode, setTaskMode] = useState<AgentComposerTaskMode>("standard");
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelMenuLoading, setModelMenuLoading] = useState(false);
+  const [modelMenuError, setModelMenuError] = useState("");
+  const [modelQuery, setModelQuery] = useState("");
+  const [materialsMenuOpen, setMaterialsMenuOpen] = useState(false);
+  const [frameMenuOpen, setFrameMenuOpen] = useState<"ratio" | "resolution" | null>(null);
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const modelPickerRef = useRef<HTMLDivElement | null>(null);
+  const materialsPickerRef = useRef<HTMLDivElement | null>(null);
+  const framePickerRef = useRef<HTMLDivElement | null>(null);
+  const modePickerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!executionBusy) setTaskScopeMode("auto");
   }, [executionBusy]);
 
+  useEffect(() => {
+    if (!modelMenuOpen && !materialsMenuOpen && !frameMenuOpen && !modeMenuOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && [modelPickerRef, materialsPickerRef, framePickerRef, modePickerRef]
+        .some((ref) => ref.current?.contains(target))) return;
+      setModelMenuOpen(false);
+      setMaterialsMenuOpen(false);
+      setFrameMenuOpen(null);
+      setModeMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      const shouldRestoreModelFocus = modelMenuOpen;
+      setModelMenuOpen(false);
+      setMaterialsMenuOpen(false);
+      setFrameMenuOpen(null);
+      setModeMenuOpen(false);
+      if (shouldRestoreModelFocus) {
+        window.requestAnimationFrame(() => modelPickerRef.current?.querySelector<HTMLButtonElement>(".project-agent-model-trigger")?.focus());
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [frameMenuOpen, materialsMenuOpen, modeMenuOpen, modelMenuOpen]);
+
+  useEffect(() => {
+    if (!executionBusy && !stopPending) return;
+    setModelMenuOpen(false);
+    setMaterialsMenuOpen(false);
+    setFrameMenuOpen(null);
+    setModeMenuOpen(false);
+  }, [executionBusy, stopPending]);
+
   async function dispatchPrompt() {
     if (stopPending) return;
+    setModelMenuOpen(false);
+    setMaterialsMenuOpen(false);
+    setFrameMenuOpen(null);
+    setModeMenuOpen(false);
     await sendPrompt(undefined, goalActive ? "keep" : taskScopeMode, taskMode);
     if (executionBusy) setTaskScopeMode("auto");
   }
@@ -106,6 +176,17 @@ export default function ProjectAgentComposer({
   const configuredModels = uniqueImageModels(selectedImageModels);
   const activeModels = configuredModels.length ? configuredModels : availableModels.slice(0, 1);
   const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
+  const defaultImageModel = activeModels[0] || "";
+  const defaultImageModelKey = defaultImageModel.toLowerCase();
+  const activeImageRatio = normalizeImageFrameRatio(imageRatio);
+  const activeImageResolution = normalizeImageResolutionPreset(imageResolution);
+  const ratioOptions = frameOptionsForModel(activeImageResolution, defaultImageModel);
+  const resolutionOptions = sizePresetsForModel(activeImageRatio, defaultImageModel);
+  const normalizedModelQuery = modelQuery.trim().toLowerCase();
+  const filteredModels = normalizedModelQuery
+    ? availableModels.filter((model) => model.toLowerCase().includes(normalizedModelQuery))
+    : availableModels;
+  const selectedModelSummary = defaultImageModel || "选择模型";
 
   function toggleImageModel(model: string) {
     if (!onSelectedImageModelsChange) return;
@@ -118,50 +199,291 @@ export default function ProjectAgentComposer({
     onSelectedImageModelsChange([...activeModels, model]);
   }
 
+  function setDefaultImageModel(model: string) {
+    if (!onSelectedImageModelsChange) return;
+    const key = model.toLowerCase();
+    onSelectedImageModelsChange([model, ...activeModels.filter((item) => item.toLowerCase() !== key)]);
+  }
+
+  function changeImageRatio(ratio: string) {
+    if (!onImageFrameChange) return;
+    const nextRatio = normalizeImageFrameRatio(ratio, activeImageRatio);
+    const availableResolutions = sizePresetsForModel(nextRatio, defaultImageModel);
+    const nextResolution = availableResolutions.some((option) => option.resolution === activeImageResolution)
+      ? activeImageResolution
+      : availableResolutions[0]?.resolution || activeImageResolution;
+    onImageFrameChange(nextRatio, nextResolution);
+    setFrameMenuOpen(null);
+  }
+
+  function changeImageResolution(resolution: string) {
+    if (!onImageFrameChange) return;
+    const nextResolution = normalizeImageResolutionPreset(resolution, activeImageResolution);
+    const availableRatios = frameOptionsForModel(nextResolution, defaultImageModel);
+    const nextRatio = availableRatios.some((option) => option.ratio === activeImageRatio)
+      ? activeImageRatio
+      : availableRatios[0]?.ratio || activeImageRatio;
+    onImageFrameChange(nextRatio, nextResolution);
+    setFrameMenuOpen(null);
+  }
+
+  function selectTaskMode(nextMode: AgentComposerTaskMode) {
+    if (nextMode === "goal" && !goalAvailable) return;
+    setTaskMode(nextMode);
+    setModeMenuOpen(false);
+  }
+
+  async function toggleModelMenu() {
+    if (modelMenuOpen) {
+      setModelMenuOpen(false);
+      return;
+    }
+    setModelMenuOpen(true);
+    setModelQuery("");
+    setModelMenuError("");
+    if (!requestImageModels) return;
+    setModelMenuLoading(true);
+    try {
+      await requestImageModels();
+    } catch (error) {
+      setModelMenuError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setModelMenuLoading(false);
+    }
+  }
+
   return (
     <form className="project-agent-composer" onSubmit={submit} aria-busy={stopPending || undefined}>
-      {!executionBusy ? (
-        <div className="project-agent-task-mode" role="group" aria-label="Agent 任务模式">
-          <button
-            type="button"
-            className={`ui-button-base${taskMode === "standard" ? " active" : ""}`}
-            aria-pressed={taskMode === "standard"}
-            onClick={() => setTaskMode("standard")}
+      <div className="project-agent-composer-toolbar">
+        {!executionBusy ? (
+          <div
+            ref={modePickerRef}
+            className={`project-agent-mode-picker${modeMenuOpen ? " is-open" : ""}`}
+            onMouseEnter={() => setModeMenuOpen(true)}
+            onMouseLeave={() => setModeMenuOpen(false)}
+            onFocusCapture={() => setModeMenuOpen(true)}
+            onBlurCapture={(event) => {
+              if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+              setModeMenuOpen(false);
+            }}
           >
-            <MessageSquare size={13} />
-            <span>普通</span>
-          </button>
-          <button
-            type="button"
-            className={`ui-button-base${taskMode === "goal" ? " active" : ""}`}
-            aria-pressed={taskMode === "goal"}
-            disabled={!goalAvailable}
-            onClick={() => setTaskMode("goal")}
-          >
-            <Goal size={13} />
-            <span>Goal</span>
-          </button>
-          <small>{goalAvailable ? `${goalContainerCount} 个容器 · ${goalAssetCount} 张图` : "画布暂无可执行图片容器"}</small>
-        </div>
-      ) : null}
-      <div className={`project-agent-composer-meta${goalSelected || goalActive ? " goal" : ""}`}>
-        {goalSelected || goalActive ? (
-          <div className="project-agent-goal-context" aria-label={`Goal 范围 ${goalContainerCount} 个容器 ${goalAssetCount} 张图`}>
-            <Goal size={14} />
-            <strong>{goalActive ? "Goal 运行中" : "全部图片容器"}</strong>
-            <span>{goalContainerCount} 个容器 · {goalAssetCount} 张图</span>
+            <ButtonBase
+              type="button"
+              className={`project-agent-mode-trigger${taskMode === "goal" ? " is-goal" : ""}`}
+              aria-haspopup="menu"
+              aria-expanded={modeMenuOpen}
+              title={taskMode === "goal" ? "Goal：作用于画布全部合格图片容器" : "普通：向 Agent 发送当前任务"}
+              onClick={() => setModeMenuOpen(true)}
+            >
+              {taskMode === "goal" ? <Goal size={14} /> : <MessageSquare size={14} />}
+              <strong>{taskMode === "goal" ? "Goal" : "普通"}</strong>
+              <ChevronDown size={13} aria-hidden="true" />
+            </ButtonBase>
+            <div className="project-agent-mode-fan" role="menu" aria-label="选择 Agent 任务模式">
+              <ButtonBase
+                type="button"
+                role="menuitemradio"
+                className={`project-agent-mode-option standard${taskMode === "standard" ? " active" : ""}`}
+                aria-checked={taskMode === "standard"}
+                onClick={() => selectTaskMode("standard")}
+              >
+                <MessageSquare size={13} />
+                <span>普通</span>
+              </ButtonBase>
+              <ButtonBase
+                type="button"
+                role="menuitemradio"
+                className={`project-agent-mode-option goal${taskMode === "goal" ? " active" : ""}`}
+                aria-checked={taskMode === "goal"}
+                disabled={!goalAvailable}
+                title={goalAvailable ? `${goalContainerCount} 个容器 · ${goalAssetCount} 张图` : "画布暂无可执行图片容器"}
+                onClick={() => selectTaskMode("goal")}
+              >
+                <Goal size={13} />
+                <span>Goal</span>
+              </ButtonBase>
+            </div>
           </div>
-        ) : (
-          <>
-            <ActionButton className="project-agent-sources" variant="secondary" onClick={editSourceImages} disabled={stopPending} icon={<Import size={14} />}>
-              {sourceImageCount ? `${sourceImageCount} 张原图` : "添加原图"}
-            </ActionButton>
-            <ActionButton className="project-agent-references" variant="secondary" onClick={editReferenceImages} disabled={stopPending} icon={<ImageIcon size={14} />}>
-              {referenceImageCount ? `${referenceImageCount} 张参考图` : "添加参考图"}
-            </ActionButton>
-          </>
-        )}
-        {!goalSelected && !goalActive && selectedArtifacts.length ? (
+        ) : null}
+        {!goalSelected && !goalActive ? (
+          <div ref={materialsPickerRef} className={`project-agent-materials-picker${materialsMenuOpen ? " is-open" : ""}`}>
+            <ButtonBase
+              type="button"
+              className="project-agent-materials-trigger"
+              aria-haspopup="menu"
+              aria-expanded={materialsMenuOpen}
+              disabled={stopPending}
+              title={`素材：${sourceImageCount} 张原图，${referenceImageCount} 张参考图`}
+              onClick={() => setMaterialsMenuOpen((current) => !current)}
+            >
+              <ImageIcon size={14} />
+              <strong>素材</strong>
+              {sourceImageCount + referenceImageCount ? <small>{sourceImageCount + referenceImageCount}</small> : null}
+              <ChevronDown size={13} aria-hidden="true" />
+            </ButtonBase>
+            {materialsMenuOpen ? (
+              <div className="project-agent-materials-menu" role="menu" aria-label="管理输入素材">
+                <ButtonBase type="button" role="menuitem" onClick={() => { setMaterialsMenuOpen(false); editSourceImages(); }}>
+                  <Import size={14} />
+                  <span><strong>{sourceImageCount ? `${sourceImageCount} 张原图` : "添加原图"}</strong><small>作为当前任务的来源</small></span>
+                </ButtonBase>
+                <ButtonBase type="button" role="menuitem" onClick={() => { setMaterialsMenuOpen(false); editReferenceImages(); }}>
+                  <ImageIcon size={14} />
+                  <span><strong>{referenceImageCount ? `${referenceImageCount} 张参考图` : "添加参考图"}</strong><small>提供风格或内容参考</small></span>
+                </ButtonBase>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {availableModels.length || requestImageModels ? (
+          <div ref={modelPickerRef} className={`project-agent-model-picker${modelMenuOpen ? " is-open" : ""}`} role="group" aria-label="可用生图模型">
+            <ButtonBase
+              type="button"
+              className="project-agent-model-trigger"
+              aria-haspopup="dialog"
+              aria-expanded={modelMenuOpen}
+              disabled={stopPending || !onSelectedImageModelsChange}
+              title={defaultImageModel ? `默认模型：${defaultImageModel}；已选 ${activeModels.length} 个` : "选择生图模型"}
+              onClick={() => void toggleModelMenu()}
+            >
+              <ImageIcon size={13} />
+              <strong>{selectedModelSummary}</strong>
+              <small>{activeModels.length}</small>
+              <ChevronDown size={14} />
+            </ButtonBase>
+            {modelMenuOpen ? (
+              <section className="project-agent-model-menu" role="dialog" aria-label="选择生图模型">
+                <label className="project-agent-model-search">
+                  <Search size={13} />
+                  <input
+                    type="search"
+                    value={modelQuery}
+                    placeholder="搜索上游模型"
+                    aria-label="搜索生图模型"
+                    autoFocus
+                    onChange={(event) => setModelQuery(event.target.value.slice(0, 160))}
+                  />
+                  {modelMenuLoading ? <Loader2 className="spin" size={13} aria-label="正在刷新上游模型" /> : null}
+                </label>
+                <div className="project-agent-model-options" role="listbox" aria-label="上游生图模型" aria-multiselectable="true">
+                  {filteredModels.map((model) => {
+                    const selected = activeModelKeys.has(model.toLowerCase());
+                    const isDefault = model.toLowerCase() === defaultImageModelKey;
+                    const lastSelected = selected && activeModels.length === 1;
+                    return (
+                      <div
+                        key={model.toLowerCase()}
+                        className={`project-agent-model-row${selected ? " active" : ""}${lastSelected ? " is-required" : ""}`}
+                        role="option"
+                        aria-selected={selected}
+                      >
+                        <label className="project-agent-model-option" title={lastSelected ? "至少保留一个生图模型" : model}>
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={lastSelected}
+                            onChange={() => toggleImageModel(model)}
+                          />
+                          <span>{model}</span>
+                          {selected ? <Check size={13} aria-hidden="true" /> : null}
+                        </label>
+                        <ButtonBase
+                          type="button"
+                          className={`project-agent-model-default${isDefault ? " is-default" : ""}`}
+                          aria-label={isDefault ? `默认生图模型：${model}` : `设为默认生图模型：${model}`}
+                          title={isDefault ? "默认生图模型" : "设为默认生图模型"}
+                          onClick={() => setDefaultImageModel(model)}
+                        >
+                          <Star size={14} fill={isDefault ? "currentColor" : "none"} aria-hidden="true" />
+                        </ButtonBase>
+                      </div>
+                    );
+                  })}
+                  {!filteredModels.length ? <p>没有匹配的模型</p> : null}
+                </div>
+                {modelMenuError ? <small className="project-agent-model-error">刷新失败，已显示缓存模型：{modelMenuError}</small> : null}
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+        <div ref={framePickerRef} className="project-agent-image-frame" role="group" aria-label="默认生图比例与清晰度">
+          <div className={`project-agent-frame-picker ratio${frameMenuOpen === "ratio" ? " is-open" : ""}`}>
+            <ButtonBase
+              type="button"
+              className="project-agent-frame-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={frameMenuOpen === "ratio"}
+              aria-label="默认生图比例"
+              title="比例"
+              disabled={executionBusy || stopPending || !onImageFrameChange}
+              onClick={() => setFrameMenuOpen((current) => current === "ratio" ? null : "ratio")}
+            >
+              <strong>{activeImageRatio}</strong>
+              <ChevronDown size={13} aria-hidden="true" />
+            </ButtonBase>
+            {frameMenuOpen === "ratio" ? (
+              <div className="project-agent-frame-menu" role="listbox" aria-label="选择默认生图比例">
+                {ratioOptions.map((option) => (
+                  <ButtonBase
+                    key={option.ratio}
+                    type="button"
+                    role="option"
+                    className={option.ratio === activeImageRatio ? "active" : ""}
+                    aria-selected={option.ratio === activeImageRatio}
+                    onClick={() => changeImageRatio(option.ratio)}
+                  >
+                    <strong>{option.ratio}</strong>
+                    <small>{option.label}</small>
+                  </ButtonBase>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className={`project-agent-frame-picker resolution${frameMenuOpen === "resolution" ? " is-open" : ""}`}>
+            <ButtonBase
+              type="button"
+              className="project-agent-frame-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={frameMenuOpen === "resolution"}
+              aria-label="默认生图清晰度"
+              title="清晰度"
+              disabled={executionBusy || stopPending || !onImageFrameChange}
+              onClick={() => setFrameMenuOpen((current) => current === "resolution" ? null : "resolution")}
+            >
+              <strong>{activeImageResolution}</strong>
+              <ChevronDown size={13} aria-hidden="true" />
+            </ButtonBase>
+            {frameMenuOpen === "resolution" ? (
+              <div className="project-agent-frame-menu" role="listbox" aria-label="选择默认生图清晰度">
+                {resolutionOptions.map((option) => (
+                  <ButtonBase
+                    key={option.resolution}
+                    type="button"
+                    role="option"
+                    className={option.resolution === activeImageResolution ? "active" : ""}
+                    aria-selected={option.resolution === activeImageResolution}
+                    onClick={() => changeImageResolution(option.resolution)}
+                  >
+                    <strong>{option.resolution}</strong>
+                  </ButtonBase>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <small className="project-agent-frame-size" title="按当前比例与清晰度计算的实际交付尺寸">
+            {computedSizeFor(activeImageRatio, activeImageResolution)}
+          </small>
+        </div>
+      </div>
+      {goalSelected || goalActive || selectedArtifacts.length ? (
+        <div className={`project-agent-composer-meta${goalSelected || goalActive ? " goal" : ""}`}>
+          {goalSelected || goalActive ? (
+            <div className="project-agent-goal-context" aria-label={`Goal 范围 ${goalContainerCount} 个容器 ${goalAssetCount} 张图`}>
+              <Goal size={14} />
+              <strong>{goalActive ? "Goal 运行中" : "全部图片容器"}</strong>
+              <span>{goalContainerCount} 个容器 · {goalAssetCount} 张图</span>
+            </div>
+          ) : selectedArtifacts.length ? (
           <div
             className="project-agent-composer-context has-artifact"
             data-selection-kind={selectedArtifacts.length > 1 ? "multiple" : "single"}
@@ -175,8 +497,9 @@ export default function ProjectAgentComposer({
             <strong>{selectionLabel}</strong>
             <IconActionButton label="取消当前选中" onClick={clearSelection} disabled={stopPending} icon={<X size={12} />} />
           </div>
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      ) : null}
       <textarea
         ref={inputRef}
         value={prompt}
@@ -196,49 +519,28 @@ export default function ProjectAgentComposer({
           : goalSelected ? "描述要对画布全部图片容器执行的操作..." : selectedArtifacts.length ? "描述如何继续处理选中的成果..." : "告诉 Agent 你想完成什么..."}
         rows={4}
       />
-      {availableModels.length ? (
-        <div className="project-agent-model-picker" role="group" aria-label="可用生图模型">
-          <span>生图模型</span>
-          <div className="project-agent-model-chips">
-            {availableModels.map((model) => {
-              const selected = activeModelKeys.has(model.toLowerCase());
-              const lastSelected = selected && activeModels.length === 1;
-              return (
-                <button
-                  key={model.toLowerCase()}
-                  type="button"
-                  className={selected ? "active" : ""}
-                  aria-pressed={selected}
-                  disabled={stopPending || !onSelectedImageModelsChange || lastSelected}
-                  title={lastSelected ? "至少保留一个生图模型" : selected ? `停用 ${model}` : `启用 ${model}`}
-                  onClick={() => toggleImageModel(model)}
-                >
-                  {model}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
       {executionBusy ? (
         <label className="project-agent-steer-mode">
-          <span>本次 TaskScope</span>
-          {goalActive ? <strong>冻结全部容器，只修改文字</strong> : (
+          <span>本次修改使用的图片</span>
+          {goalActive ? <strong>保持全部图片范围，只修改要求</strong> : (
             <select
               value={taskScopeMode}
               disabled={stopPending}
               onChange={(event) => setTaskScopeMode(event.target.value as AgentSteerTaskScopeMode | "auto")}
-              aria-label="运行中素材修改方式"
+              aria-label="本次修改使用的图片"
             >
-              <option value="auto">自动：选中替换 SOURCE，参考图追加</option>
-              <option value="keep">仅修改文字，保留 SOURCE / REFERENCE</option>
-              <option value="replace-source">替换 SOURCE</option>
-              <option value="merge-source">追加 SOURCE</option>
-              <option value="replace-reference">替换 REFERENCE</option>
-              <option value="merge-reference">追加 REFERENCE</option>
-              <option value="clear-attachments">清空 SOURCE / REFERENCE</option>
+              <option value="auto">自动处理（推荐）</option>
+              <option value="keep">只修改要求，保留现有图片</option>
+              <option value="replace-source">更换处理图片</option>
             </select>
           )}
+          <small>{goalActive
+            ? "Goal 运行中不会悄悄扩大或更换图片范围。"
+            : taskScopeMode === "keep"
+              ? "只调整文字要求，不替换当前处理图片。"
+              : taskScopeMode === "replace-source"
+                ? "用当前选中的图片替换原处理图片。"
+                : "有新选中图片时用于处理；没有时沿用当前图片。"}</small>
         </label>
       ) : null}
       <footer>
@@ -312,9 +614,6 @@ export function GoalConfirmationDialog({
   close: () => void;
   submit: () => void | Promise<void>;
 }) {
-  const costText = typeof draft.estimatedMaxCostCents === "number"
-    ? `预计计费上限 ${yuan(draft.estimatedMaxCostCents)}`
-    : "费用以服务端实际账单为准";
   return (
     <DialogShell
       surface="goal-confirmation"
@@ -329,7 +628,7 @@ export function GoalConfirmationDialog({
           <SurfaceHeader
             eyebrow="GOAL"
             title="确认批量图片任务"
-            description="确认后冻结本次来源范围与费用估算；后续新增或变化的图片不会自动加入。"
+            description="确认本次处理范围后直接执行；后续新增或变化的图片不会自动加入。"
             onClose={() => requestClose("close-button")}
             closeDisabled={busy}
           />
@@ -340,7 +639,7 @@ export function GoalConfirmationDialog({
                 <strong>{draft.containerCount} 个来源边界 · {draft.assetCount} 张母图</strong>
                 <span>最多 {draft.requestCount} 次图片请求</span>
               </div>
-              <code>{draft.snapshotHash.slice(0, 18)}</code>
+              <code>范围已确认</code>
             </div>
             {notice ? (
               <div className="goal-confirmation-notice" role="status">
@@ -349,14 +648,10 @@ export function GoalConfirmationDialog({
               </div>
             ) : null}
             <ul className="goal-confirmation-policy">
-              <li><ShieldCheck size={15} /><span>多个窗口共享 Main 准入容量；先串行探测 {draft.probeContainerCount} 个不同母图代表项，等待探测时暂停其他 Goal 新放量。</span></li>
+              <li><ShieldCheck size={15} /><span>先小批量测试 {draft.probeContainerCount} 个不同母图代表项，通过后再逐步增加任务量。</span></li>
               <li><Check size={15} /><span>请求、落盘和技术校验通过后公平共享最高 {draft.concurrencyCap} 路；服务重试会暂停新波次，保护性失败会跨 Goal 熔断。</span></li>
-              <li><AlertTriangle size={15} /><span>已发出或已被上游接受的请求仍可能计费；暂停、结束和熔断不能追回已产生费用。</span></li>
+              <li><AlertTriangle size={15} /><span>软件不要求预估费用；上游若在任务完成后返回实际用量或费用，将按返回值记录。</span></li>
             </ul>
-            <div className="goal-confirmation-cost">
-              <strong>{costText}</strong>
-              <span>试用抵扣 {draft.trialImagesUsed} 张 · 预计付费 {draft.paidImages} 张</span>
-            </div>
             {draft.skipped.length ? (
               <details className="goal-confirmation-skipped">
                 <summary>{draft.skipped.length} 个容器不会执行</summary>
@@ -367,7 +662,7 @@ export function GoalConfirmationDialog({
           <SurfaceFooter>
             <ActionButton onClick={() => requestClose("action")} disabled={busy}>取消</ActionButton>
             <ActionButton variant="primary" onClick={submit} busy={busy} icon={<Goal size={16} />}>
-              冻结并执行
+              开始执行
             </ActionButton>
           </SurfaceFooter>
         </>

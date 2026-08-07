@@ -2,10 +2,16 @@
 
 const { statSync } = require("node:fs");
 const path = require("node:path");
+const commerceCatalogSchema = require("../plugins/commerce-catalog-schema.json");
 
 const maximumGoalBindings = 200;
 const maximumGoalConcurrency = 10;
 const goalScopeExecutionValue = "all-goal-sources";
+const maximumBrandReferencesPerSource = commerceCatalogSchema.limits.maxBrandReferencesPerSource;
+const maximumBrandColors = commerceCatalogSchema.limits.maxBrandColors;
+const maximumBrandFontLength = commerceCatalogSchema.limits.maxBrandFontLength;
+const maximumBrandRuleLength = commerceCatalogSchema.limits.maxBrandRuleLength;
+const brandReferenceRoles = new Set(commerceCatalogSchema.brandStyle.referenceRoles);
 
 function cleanId(value, maximum = 520) {
   return String(value || "").trim().slice(0, maximum);
@@ -18,33 +24,151 @@ function cleanIds(items, maximum = maximumGoalBindings) {
     .slice(0, maximum);
 }
 
-function normalizeGoalTaskScopeMetadata(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const operationsPerAsset = Number(value.operationsPerAsset);
-  const requestCount = Number(value.requestCount);
-  const rawCommercePlanHash = value.commercePlanHash;
-  const commercePlanHash = typeof rawCommercePlanHash === "string" && /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
-    ? rawCommercePlanHash
-    : undefined;
+function normalizeCommerceBrandStyle(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || value.version !== 1 || value.enabled !== true) return undefined;
+  const rawColors = Array.isArray(value.colors) ? value.colors : [];
+  const colors = [...new Set(rawColors.map((item) => cleanId(item, 7).toLowerCase()))];
+  const rawReferences = Array.isArray(value.references) ? value.references : [];
+  const references = rawReferences.map((reference) => {
+    if (!reference || typeof reference !== "object" || Array.isArray(reference)) return undefined;
+    const linkId = cleanId(reference.linkId, 48).toLowerCase();
+    const assetId = cleanId(reference.assetId, 160);
+    const contentHash = cleanId(reference.contentHash, 128).toLowerCase();
+    const nodeId = cleanId(reference.nodeId, 160);
+    const assetIndex = Number(reference.assetIndex);
+    const role = cleanId(reference.role, 32).toLowerCase();
+    const purpose = cleanId(reference.purpose, 320);
+    if (
+      !/^material-[a-f0-9]{32}$/.test(linkId) || !assetId || !/^[a-f0-9]{32,128}$/.test(contentHash) || !nodeId ||
+      !Number.isInteger(assetIndex) || assetIndex < 0 || !brandReferenceRoles.has(role) || !purpose
+    ) return undefined;
+    return { linkId, assetId, contentHash, nodeId, assetIndex, role, purpose };
+  });
   if (
-    value.version !== 1 || value.target !== "all-image-containers" || value.frozen !== true ||
-    typeof value.operationsPerAsset !== "number" || !Number.isSafeInteger(operationsPerAsset) || operationsPerAsset < 1 || operationsPerAsset > maximumGoalBindings ||
-    typeof value.requestCount !== "number" || !Number.isSafeInteger(requestCount) || requestCount < 1 || requestCount > maximumGoalBindings ||
-    (rawCommercePlanHash !== undefined && !commercePlanHash)
+    colors.length !== rawColors.length || colors.length > maximumBrandColors || colors.some((item) => !/^#[a-f0-9]{6}$/.test(item)) ||
+    references.some((item) => !item) || references.length > maximumBrandReferencesPerSource ||
+    new Set(references.map((item) => item?.linkId)).size !== references.length
+  ) return undefined;
+  const fontFamily = cleanId(value.fontFamily, maximumBrandFontLength);
+  const logoUsage = cleanId(value.logoUsage, maximumBrandRuleLength);
+  const modelAppearance = cleanId(value.modelAppearance, maximumBrandRuleLength);
+  const productAppearance = cleanId(value.productAppearance, maximumBrandRuleLength);
+  const visualStyle = cleanId(value.visualStyle, maximumBrandRuleLength);
+  return {
+    version: 1,
+    enabled: true,
+    ...(fontFamily ? { fontFamily } : {}),
+    colors,
+    ...(logoUsage ? { logoUsage } : {}),
+    ...(modelAppearance ? { modelAppearance } : {}),
+    ...(productAppearance ? { productAppearance } : {}),
+    ...(visualStyle ? { visualStyle } : {}),
+    references
+  };
+}
+
+function commerceBrandStylePrompt(value) {
+  const style = normalizeCommerceBrandStyle(value);
+  if (!style) return "";
+  return [
+    "品牌风格锁定（来自可信 SKU 商品素材库，必须逐项遵守）：",
+    style.fontFamily ? `- 字体规范：${style.fontFamily}` : "",
+    style.colors.length ? `- 品牌色板：${style.colors.join("、")}；除必要的商品真实色与中性色外，不得擅自替换主品牌色。` : "",
+    style.logoUsage ? `- Logo：${style.logoUsage}` : "",
+    style.modelAppearance ? `- 模特一致性：${style.modelAppearance}` : "",
+    style.productAppearance ? `- 商品外观：${style.productAppearance}` : "",
+    style.visualStyle ? `- 整体视觉语言：${style.visualStyle}` : "",
+    style.references.length ? `- 本请求附带 ${style.references.length} 张已冻结品牌参考素材；只按各自 role/purpose 使用，不得互相替代。` : "",
+    "- 槽位、语言或场景变化不得重新设计上述品牌身份与商品不变量。"
+  ].filter(Boolean).join("\n");
+}
+
+function normalizeCommerceCatalogGoalTarget(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const bindingId = cleanId(value.bindingId);
+  const catalogId = cleanId(value.catalogId, 48).toLowerCase();
+  const productId = cleanId(value.productId, 48).toLowerCase();
+  const ownerType = cleanId(value.ownerType, 24).toLowerCase();
+  const ownerId = cleanId(value.ownerId, 48).toLowerCase();
+  const sourceLinkId = cleanId(value.sourceLinkId, 48).toLowerCase();
+  const catalogRevision = Number(value.catalogRevision);
+  const productRevision = Number(value.productRevision);
+  const rawBrandStyle = value.brandStyle;
+  const brandStyle = rawBrandStyle === undefined ? undefined : normalizeCommerceBrandStyle(rawBrandStyle);
+  const ownerIdValid = ownerType === "product"
+    ? /^product-[a-f0-9]{32}$/.test(ownerId) && ownerId === productId
+    : ownerType === "variant"
+      ? /^variant-[a-f0-9]{32}$/.test(ownerId)
+      : ownerType === "sku" && /^sku-[a-f0-9]{32}$/.test(ownerId);
+  if (
+    !bindingId || !/^catalog-[a-f0-9]{32}$/.test(catalogId) || !/^product-[a-f0-9]{32}$/.test(productId) ||
+    !ownerIdValid || !/^material-[a-f0-9]{32}$/.test(sourceLinkId) ||
+    !Number.isSafeInteger(catalogRevision) || catalogRevision < 0 ||
+    !Number.isSafeInteger(productRevision) || productRevision < 1 || (rawBrandStyle !== undefined && !brandStyle)
   ) return undefined;
   return {
-    version: Number(value.version),
-    target: cleanId(value.target, 80),
-    frozen: value.frozen === true,
-    containerIds: cleanIds(value.containerIds),
-    bindingIds: cleanIds(value.bindingIds),
-    containerCount: Math.max(0, Math.floor(Number(value.containerCount) || 0)),
-    bindingCount: Math.max(0, Math.floor(Number(value.bindingCount) || 0)),
-    configuredConcurrency: Math.max(1, Math.floor(Number(value.configuredConcurrency) || 1)),
-    probeContainerCount: Math.max(1, Math.floor(Number(value.probeContainerCount) || 1)),
+    bindingId,
+    catalogId,
+    catalogRevision,
+    productId,
+    productRevision,
+    ownerType,
+    ownerId,
+    sourceLinkId,
+    ...(brandStyle ? { brandStyle } : {})
+  };
+}
+
+function normalizeGoalTaskScopeMetadata(value, fallback = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const fallbackBindingIds = cleanIds(fallback.bindingIds);
+  const fallbackContainerIds = cleanIds(fallback.containerIds);
+  const bindingIds = fallbackBindingIds.length ? fallbackBindingIds : cleanIds(source.bindingIds);
+  const containerIds = fallbackContainerIds.length ? fallbackContainerIds : cleanIds(source.containerIds);
+  const rawOperationsPerAsset = Number(source.operationsPerAsset);
+  const fallbackOperationsPerAsset = Number(fallback.operationsPerAsset);
+  const operationsPerAsset = Number.isSafeInteger(rawOperationsPerAsset) && rawOperationsPerAsset >= 1 && rawOperationsPerAsset <= maximumGoalBindings
+    ? rawOperationsPerAsset
+    : Number.isSafeInteger(fallbackOperationsPerAsset) && fallbackOperationsPerAsset >= 1 && fallbackOperationsPerAsset <= maximumGoalBindings
+      ? fallbackOperationsPerAsset
+      : 1;
+  const configuredConcurrency = Math.max(1, Math.min(
+    maximumGoalConcurrency,
+    Math.floor(Number(source.configuredConcurrency || fallback.configuredConcurrency) || 1)
+  ));
+  const maximumProbeCount = Math.max(1, Math.min(2, configuredConcurrency, bindingIds.length || 1));
+  const probeContainerCount = Math.max(1, Math.min(
+    maximumProbeCount,
+    Math.floor(Number(source.probeContainerCount || fallback.probeContainerCount) || maximumProbeCount)
+  ));
+  const requestCount = bindingIds.length * operationsPerAsset;
+  const rawCommercePlanHash = String(fallback.commercePlanHash || source.commercePlanHash || "").trim().toLowerCase();
+  const commercePlanHash = /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash) ? rawCommercePlanHash : undefined;
+  const normalizedTargets = Array.isArray(source.commerceCatalogTargets)
+    ? source.commerceCatalogTargets.map(normalizeCommerceCatalogGoalTarget).filter(Boolean)
+    : [];
+  const targetsByBindingId = new Map();
+  for (const target of normalizedTargets) {
+    if (!bindingIds.includes(target.bindingId) || targetsByBindingId.has(target.bindingId)) continue;
+    targetsByBindingId.set(target.bindingId, target);
+  }
+  const commerceCatalogTargets = commercePlanHash
+    ? bindingIds.flatMap((bindingId) => targetsByBindingId.has(bindingId) ? [targetsByBindingId.get(bindingId)] : [])
+    : [];
+  return {
+    version: 1,
+    target: "all-image-containers",
+    frozen: true,
+    containerIds,
+    bindingIds,
+    containerCount: containerIds.length,
+    bindingCount: bindingIds.length,
+    configuredConcurrency,
+    probeContainerCount,
     operationsPerAsset,
     requestCount,
-    ...(commercePlanHash ? { commercePlanHash } : {})
+    ...(commercePlanHash ? { commercePlanHash } : {}),
+    ...(commerceCatalogTargets.length ? { commerceCatalogTargets } : {})
   };
 }
 
@@ -144,6 +268,17 @@ function validateFrozenGoalTaskScope(scope, rawScope = scope) {
   if (goal.commercePlanHash !== undefined && !/^commerce-[a-f0-9]{32}$/.test(goal.commercePlanHash)) {
     throw goalScopeError("Goal TaskScope 的 commercePlanHash 无效。", "NAIMAGE_COMMERCE_PLAN_HASH_INVALID");
   }
+  const commerceCatalogTargets = Array.isArray(goal.commerceCatalogTargets) ? goal.commerceCatalogTargets : [];
+  const commerceTargetBindings = commerceCatalogTargets.map((target) => target.bindingId);
+  if (
+    commerceCatalogTargets.length > goal.bindingCount ||
+    new Set(commerceTargetBindings).size !== commerceTargetBindings.length ||
+    commerceTargetBindings.some((bindingId) => !goal.bindingIds.includes(bindingId)) ||
+    commerceTargetBindings.some((bindingId, index) => bindingId !== goal.bindingIds.filter((id) => commerceTargetBindings.includes(id))[index]) ||
+    (commerceCatalogTargets.length > 0 && !goal.commercePlanHash)
+  ) {
+    throw goalScopeError("Goal TaskScope 的 Commerce Catalog 目标与冻结 SOURCE binding 不一致。", "NAIMAGE_COMMERCE_CATALOG_TARGET_INVALID");
+  }
 
   const representedContainers = new Set();
   const representedNodeIds = [];
@@ -227,7 +362,11 @@ module.exports = {
   goalScopeExecutionValue,
   maximumGoalBindings,
   maximumGoalConcurrency,
+  maximumBrandReferencesPerSource,
   normalizeGoalTaskScopeMetadata,
+  normalizeCommerceCatalogGoalTarget,
+  normalizeCommerceBrandStyle,
+  commerceBrandStylePrompt,
   validateFrozenGoalTaskScope,
   goalSourceJobs
 };

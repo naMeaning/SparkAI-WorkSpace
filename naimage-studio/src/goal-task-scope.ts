@@ -12,6 +12,10 @@ import {
   imageContainerSpecForNode,
   nodeUsesImageContainer,
 } from "./image-container-spec.ts";
+import {
+  normalizeCommerceCatalogGoalTarget,
+  type CommerceCatalogGoalTarget,
+} from "./commerce-catalog.ts";
 
 export const MAX_GOAL_TASK_SCOPE_BINDINGS = 200;
 export const MAX_GOAL_TASK_SCOPE_CONCURRENCY = 10;
@@ -527,4 +531,47 @@ export function buildGoalTaskScopeFromNodes(
     scope: { ...scopeWithoutHash, snapshotHash: agentTaskScopeSnapshotHash(scopeWithoutHash) },
     preflight,
   };
+}
+
+export function withGoalCommerceCatalogTargets(
+  scope: AgentTaskScope,
+  values: readonly CommerceCatalogGoalTarget[],
+): AgentTaskScope {
+  if (!values.length) return scope;
+  if (scope.origin !== "goal" || !scope.goal?.commercePlanHash) {
+    throw new Error("Catalog targets are only valid for a trusted Commerce Goal.");
+  }
+  const allowedBindings = new Set(scope.goal.bindingIds);
+  const byBinding = new Map<string, CommerceCatalogGoalTarget>();
+  for (const value of values) {
+    const target = normalizeCommerceCatalogGoalTarget(value);
+    if (!target || !allowedBindings.has(target.bindingId) || byBinding.has(target.bindingId)) {
+      throw new Error("Commerce Goal Catalog targets contain an invalid, duplicate, or unknown SOURCE binding.");
+    }
+    byBinding.set(target.bindingId, target);
+  }
+  const commerceCatalogTargets = scope.goal.bindingIds.flatMap((bindingId) => {
+    const target = byBinding.get(bindingId);
+    return target ? [{
+      ...target,
+      ...(target.brandStyle ? {
+        brandStyle: {
+          ...target.brandStyle,
+          colors: [...target.brandStyle.colors],
+          references: target.brandStyle.references.map((reference) => ({ ...reference }))
+        }
+      } : {})
+    }] : [];
+  });
+  const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
+    ...scope,
+    goal: {
+      ...scope.goal,
+      containerIds: [...scope.goal.containerIds],
+      bindingIds: [...scope.goal.bindingIds],
+      commerceCatalogTargets,
+    },
+  };
+  delete (scopeWithoutHash as Partial<AgentTaskScope>).snapshotHash;
+  return { ...scopeWithoutHash, snapshotHash: agentTaskScopeSnapshotHash(scopeWithoutHash) };
 }

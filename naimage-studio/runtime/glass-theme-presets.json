@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "type": "naimage-glass-theme-registry",
   "defaults": {
-    "theme": "light-sky",
+    "theme": "dark-ember",
     "material": "frosted",
     "accent": "theme",
     "noise": true,
@@ -12,6 +12,7 @@
     "dark-rose",
     "dark-ember",
     "dark-emerald",
+    "light-silver",
     "light-lemon",
     "light-sky",
     "light-blush"
@@ -86,7 +87,7 @@
       }
     },
     "dark-ember": {
-      "name": "蜜橙熔光",
+      "name": "蜜橘融光",
       "mode": "dark",
       "accent": "coral",
       "tokens": {
@@ -125,6 +126,27 @@
         "ink": "#f3fff9",
         "inkSoft": "#c3ded2",
         "muted": "#7fa092"
+      }
+    },
+    "light-silver": {
+      "name": "雾银玻璃",
+      "mode": "light",
+      "accent": "ice",
+      "tokens": {
+        "glassRgb": "213, 218, 224",
+        "accent": "#63798c",
+        "accentRgb": "99, 121, 140",
+        "accentInk": "#111c24",
+        "secondary": "#9b7568",
+        "secondaryRgb": "155, 117, 104",
+        "canvas": "#dfe3e7",
+        "canvasTint": "rgba(93, 109, 123, 0.07)",
+        "surfaceSolid": "#f4f6f8",
+        "surfaceRaised": "#ffffff",
+        "nodeBg": "rgba(245, 247, 249, 0.96)",
+        "ink": "#252b31",
+        "inkSoft": "#46515b",
+        "muted": "#5f6b75"
       }
     },
     "light-lemon": {

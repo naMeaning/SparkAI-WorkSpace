@@ -13,13 +13,13 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>../../../assets/windows/naimage.ico</ApplicationIcon>
-    <AssemblyName>naimage Setup</AssemblyName>
+    <AssemblyName>SparkAI WorkSpace Installer</AssemblyName>
     <RootNamespace>Naimage.WindowsInstaller</RootNamespace>
-    <Title>naimage Setup</Title>
-    <Company>SparkAI</Company>
-    <Product>naimage</Product>
-    <Description>naimage 品牌安装程序</Description>
-    <Copyright>Copyright © 2026 SparkAI</Copyright>
+    <Title>SparkAI WorkSpace Setup</Title>
+    <Company>namean</Company>
+    <Product>SparkAI WorkSpace</Product>
+    <Description>SparkAI WorkSpace 透明玻璃安装程序</Description>
+    <Copyright>Copyright © 2026 namean</Copyright>
     <NeutralLanguage>zh-CN</NeutralLanguage>
     <Version Condition="'$(ProductVersion)' != ''">$(ProductVersion)</Version>
     <FileVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion).0</FileVersion>

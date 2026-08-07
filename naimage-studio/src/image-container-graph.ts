@@ -300,8 +300,9 @@ export function synchronizeImageContainerSpecs(
 export function flattenImageContainerBindings(
   sourceNodes: readonly WorkflowNode[],
   hostNodeId: string,
+  sourceNodeById?: ReadonlyMap<string, WorkflowNode>,
 ): ImageContainerMemberBinding[] {
-  const nodeById = new Map(sourceNodes.map((node) => [node.id, node]));
+  const nodeById = sourceNodeById ?? new Map(sourceNodes.map((node) => [node.id, node]));
   const collect = (nodeId: string, active = new Set<string>()): ImageContainerMemberBinding[] => {
     if (active.has(nodeId)) return [];
     const node = nodeById.get(nodeId);

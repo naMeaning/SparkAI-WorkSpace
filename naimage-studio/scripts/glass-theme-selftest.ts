@@ -65,7 +65,7 @@ class FakeStyle {
   }
 }
 
-const expectedThemes = ["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"];
+const expectedThemes = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"];
 assert.deepEqual([...GLASS_THEME_IDS], expectedThemes);
 assert.deepEqual(glassThemeRegistry.themeOrder, expectedThemes);
 assert.deepEqual([...GLASS_MATERIAL_PRESET_IDS], ["clear", "frosted", "dense"]);
@@ -76,8 +76,9 @@ assert.deepEqual(
   Object.fromEntries(expectedThemes.map((id) => [id, glassThemeRegistry.themes[id as keyof typeof glassThemeRegistry.themes].name])),
   {
     "dark-rose": "绯樱夜光",
-    "dark-ember": "蜜橙熔光",
+    "dark-ember": "蜜橘融光",
     "dark-emerald": "翡翠黑曜",
+    "light-silver": "雾银玻璃",
     "light-lemon": "柠檬晶糖",
     "light-sky": "天青冰璃",
     "light-blush": "蜜桃珍珠"
@@ -111,7 +112,7 @@ const liquidGlassCss = readFileSync(new URL("../src/styles/01-liquid-glass-token
 const indexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const agentWindowCss = readFileSync(new URL("../agent-window.css", import.meta.url), "utf8");
 
-for (const themeId of ["light-lemon", "light-sky", "light-blush"] as const) {
+for (const themeId of ["light-silver", "light-lemon", "light-sky", "light-blush"] as const) {
   const tokens = glassThemeRegistry.themes[themeId].tokens;
   assert(
     contrastRatio(tokens.muted, tokens.surfaceSolid) >= 4.5,
@@ -123,20 +124,20 @@ for (const themeId of ["light-lemon", "light-sky", "light-blush"] as const) {
     `${themeId} first-frame CSS muted token must match the registry`
   );
 }
-assert.equal(scopedCssVariable(liquidGlassCss, ":root", "--glass-muted"), glassThemeRegistry.themes["light-sky"].tokens.muted);
-assert.equal(scopedCssVariable(indexHtml, ":root", "--theme-muted"), glassThemeRegistry.themes["light-sky"].tokens.muted);
-assert.equal(scopedCssVariable(agentWindowCss, ":root", "--muted"), glassThemeRegistry.themes["light-sky"].tokens.muted);
+assert.equal(scopedCssVariable(liquidGlassCss, ":root", "--glass-muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
+assert.equal(scopedCssVariable(indexHtml, ":root", "--theme-muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
+assert.equal(scopedCssVariable(agentWindowCss, ":root", "--muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
 
 const defaults = normalizeGlassThemeSettings();
 assert.deepEqual(defaults, {
-  glassTheme: "light-sky",
+  glassTheme: "dark-ember",
   glassMaterial: "frosted",
   glassParameters: {
-    opacity: 44,
-    blur: 28,
-    saturation: 128,
-    highlight: 70,
-    shadow: 18,
+    opacity: 22,
+    blur: 26,
+    saturation: 138,
+    highlight: 34,
+    shadow: 40,
     radius: 14,
     accent: "theme",
     noise: true,
@@ -187,11 +188,11 @@ const clamped = normalizeGlassThemeSettings({
     reduceMotion: 1
   }
 });
-assert.equal(clamped.glassTheme, "light-sky");
+assert.equal(clamped.glassTheme, "dark-ember");
 assert.deepEqual(clamped.glassParameters, {
   opacity: 8,
   blur: 48,
-  saturation: 128,
+  saturation: 138,
   highlight: 70,
   shadow: 0,
   radius: 24,

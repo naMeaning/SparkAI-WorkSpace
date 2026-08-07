@@ -10,6 +10,7 @@ const uiModulePaths = [
   "dialog-shell.tsx",
   "primitives.tsx",
   "menu-surface.tsx",
+  "unsaved-changes-dialog.tsx",
   "overflow-tooltip.tsx",
   "floating-dialog-interactions.ts",
 ].map((file) => path.join(root, "src", "ui", file));
@@ -20,7 +21,13 @@ const agentTextEditorDialogPath = path.join(root, "src", "agent-text-editor-dial
 const authGatePath = path.join(root, "src", "auth-gate.tsx");
 const imageViewerPath = path.join(root, "src", "image-viewer.tsx");
 const referencePickerDialogPath = path.join(root, "src", "reference-picker-dialog.tsx");
+const commerceCatalogDialogPath = path.join(root, "src", "commerce-catalog-dialog.tsx");
+const requirementEditorDialogPath = path.join(root, "src", "requirement-editor-dialog.tsx");
+const scientificFigureDialogPath = path.join(root, "src", "scientific-figure-dialog.tsx");
+const socialContentDialogPath = path.join(root, "src", "social-content-dialog.tsx");
+const settingsDrawerPath = path.join(root, "src", "settings-drawer.tsx");
 const themePalettePickerPath = path.join(root, "src", "theme-palette-picker.tsx");
+const baseTokenPath = path.join(root, "src", "styles", "01-base-controls.css");
 
 function readCssGraph(entryPath, seen = new Set()) {
   const resolved = path.resolve(entryPath);
@@ -39,6 +46,8 @@ const cssSource = readCssGraph(cssPath);
 const uiFacadeSource = fs.readFileSync(uiPath, "utf8");
 const uiSource = [uiFacadeSource, ...uiModulePaths.map((file) => fs.readFileSync(file, "utf8"))].join("\n");
 const mainSource = fs.readFileSync(mainPath, "utf8");
+const settingsDrawerSource = fs.readFileSync(settingsDrawerPath, "utf8");
+const baseTokenSource = fs.readFileSync(baseTokenPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const businessUiSource = [
   accountDrawerPath,
   modelConfigDialogPath,
@@ -48,6 +57,15 @@ const businessUiSource = [
   referencePickerDialogPath,
   themePalettePickerPath,
 ].map((file) => fs.readFileSync(file, "utf8")).concat(mainSource).join("\n");
+const unsavedOwnerSource = [
+  agentTextEditorDialogPath,
+  commerceCatalogDialogPath,
+  modelConfigDialogPath,
+  referencePickerDialogPath,
+  requirementEditorDialogPath,
+  scientificFigureDialogPath,
+  socialContentDialogPath,
+].map((file) => fs.readFileSync(file, "utf8")).concat(mainSource, settingsDrawerSource).join("\n");
 const activeCss = cssSource.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\r\n]/g, " "));
 const failures = [];
 
@@ -113,13 +131,13 @@ check(
 );
 
 const bareRootBlocks = Array.from(activeCss.matchAll(/^:root\s*\{/gm)).length;
-check("theme has one bare :root authority", bareRootBlocks === 1, `found ${bareRootBlocks}`);
+check("theme has only base and glass bare :root authorities", bareRootBlocks === 2, `found ${bareRootBlocks}`);
 const canonicalThemeTokens = [
   "bg", "canvas", "surface", "surface-solid", "surface-raised", "ink", "ink-soft", "muted",
   "line", "line-strong", "accent", "accent-strong", "control-bg", "hover-bg", "active-bg"
 ];
 for (const token of canonicalThemeTokens) {
-  const declarations = Array.from(activeCss.matchAll(new RegExp(`--${token}\\s*:`, "g"))).length;
+  const declarations = Array.from(baseTokenSource.matchAll(new RegExp(`--${token}\\s*:`, "g"))).length;
   check(`theme token --${token} has only light and dark declarations`, declarations === 2, `found ${declarations}`);
 }
 
@@ -171,12 +189,38 @@ for (const [selector, property, token] of layerContracts) {
 
 check("DialogShell exposes a typed layer level", /export type DialogLayerLevel = "dialog" \| "nested";/.test(uiSource));
 check("DialogShell writes its layer level to the DOM", /data-ui-layer-level=\{layerLevel\}/.test(uiSource));
+check(
+  "UnsavedChangesDialog is always a nested modal",
+  /export function UnsavedChangesDialog[\s\S]*?layerLevel="nested"/.test(uiSource)
+);
+check(
+  "UnsavedChangesDialog exposes continue, discard, and optional save actions",
+  /继续编辑[\s\S]*?variant="danger"[\s\S]*?\{onSave \?/.test(uiSource)
+);
+for (const surface of [
+  "agent-prompt-editor-unsaved",
+  "commerce-catalog-unsaved",
+  "model-picker-${kind}-unsaved",
+  "node-editor-unsaved",
+  "reference-picker-unsaved",
+  "region-redraw-unsaved",
+  "requirement-editor-unsaved",
+  "scientific-figure-unsaved",
+  "settings-unsaved",
+  "social-content-unsaved",
+]) {
+  check(`${surface} close guard is wired`, unsavedOwnerSource.includes(surface));
+}
+check(
+  "draft editors no longer use a hidden second-close discard rule",
+  !/再次关闭将放弃/.test(unsavedOwnerSource)
+);
 
 const publicUiSymbols = [
   "DialogShell", "DrawerShell", "SurfaceBody", "SurfaceFooter", "SurfaceHeader", "SurfaceSection",
   "ActionButton", "ButtonBase", "CodeField", "ErrorBoundary", "Field", "IconActionButton", "InlineNotice",
   "SearchField", "SegmentButton", "SegmentedControl", "StatusLine", "MenuItem", "MenuSeparator", "MenuSummary",
-  "MenuSurface", "OverflowTooltipLayer", "useFloatingDialogInteractions",
+  "MenuSurface", "UnsavedChangesDialog", "OverflowTooltipLayer", "useFloatingDialogInteractions",
 ];
 for (const symbol of publicUiSymbols) {
   check(`${symbol} stays on the ui.tsx compatibility facade`, new RegExp(`\\b${symbol}\\b`).test(uiFacadeSource));
@@ -193,7 +237,7 @@ check("MenuSurface renders through the global portal", /return createPortal\(/.t
 check("MenuSurface clamps from measured dimensions", /menu\.offsetWidth/.test(uiSource) && /menu\.scrollHeight/.test(uiSource));
 check("MenuSurface exposes menu semantics", /role="menu"/.test(uiSource) && /data-ui-menu-surface="true"/.test(uiSource));
 check("MenuItem exposes a fixed semantic menu contract", /data-ui-menu-item="true"/.test(uiSource) && /data-ui-tone=\{tone\}/.test(uiSource));
-check("MenuItem uses icon, label, and shortcut columns", /grid-template-columns:\s*17px minmax\(0, 1fr\) max-content/.test(activeCss));
+check("MenuItem uses icon, label, and shortcut columns", /grid-template-columns:\s*18px minmax\(0, 1fr\) max-content/.test(activeCss));
 check("MenuItem danger tone has a dedicated visual rule", Boolean(ruleBody(".canvas-context-menu .ui-menu-item-danger")));
 check("MenuSeparator exposes separator semantics", /role="separator"/.test(uiSource));
 
@@ -283,19 +327,19 @@ check(
 );
 check(
   "manual model refresh immediately requests fresh server state",
-  !/manualModelRefreshCountRef/.test(businessUiSource) &&
-    /function handleManualModelRefresh\(\)\s*\{\s*void refreshModels\(true\);\s*\}/.test(businessUiSource)
+  !/manualModelRefreshCountRef/.test(settingsDrawerSource) &&
+    /function handleManualModelRefresh\(\)\s*\{\s*void refreshModels\(true\);\s*\}/.test(settingsDrawerSource)
 );
 check(
   "settings hydrate token and model state from local snapshots without remote access",
-  /refreshModels\(false,\s*draftSettings\.modelGroup,\s*true\)/.test(businessUiSource) &&
-    /refreshAccountTokens\(\{\s*preferCached:\s*true\s*\}\)/.test(businessUiSource) &&
-    !/activeSection === "access"[\s\S]{0,120}refreshAccountTokens\(\)/.test(businessUiSource)
+  /refreshModels\(false,\s*draftSettings\.modelGroup,\s*true\)/.test(settingsDrawerSource) &&
+    /refreshAccountTokens\(\{\s*preferCached:\s*true\s*\}\)/.test(settingsDrawerSource) &&
+    !/activeSection === "access"[\s\S]{0,120}refreshAccountTokens\(\)/.test(settingsDrawerSource)
 );
 check(
   "settings save availability is independent from model catalog loading",
-  /disabled=\{!dirty\}/.test(mainSource) &&
-    !/disabled=\{!dirty\s*\|\|\s*modelState\.loading\}/.test(mainSource)
+  /disabled=\{!dirty\}/.test(settingsDrawerSource) &&
+    !/disabled=\{!dirty\s*\|\|\s*modelState\.loading\}/.test(settingsDrawerSource)
 );
 
 const removedFeatureSelectors = [

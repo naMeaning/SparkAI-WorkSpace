@@ -27,6 +27,7 @@ function registerAssetIpc(options = {}) {
     app,
     log,
     importLocalImagesToProject,
+    importLocalVideosToProject,
     mimeTypeForPath,
     resolveOutputAsset,
     isAllowedAssetPath,
@@ -120,6 +121,23 @@ function registerAssetIpc(options = {}) {
     }
   });
 
+  ipcMain.handle("naimage:asset:pick-local-videos", async (_event, payload = {}) => {
+    try {
+      const maxFiles = Math.max(1, Math.min(Number(payload.maxFiles ?? 100), 100));
+      const result = await dialog.showOpenDialog({
+        title: "导入视频到画布",
+        properties: ["openFile", "multiSelections"],
+        filters: [{ name: "Videos", extensions: ["mp4", "webm", "mov", "m4v"] }]
+      });
+      if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true, assets: [] };
+      return await importLocalVideosToProject({ paths: result.filePaths, projectId: payload.projectId, maxFiles });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`asset pick local videos failed ${message}`);
+      return { ok: false, assets: [], errorCode: error?.code || "VIDEO_PICK_FAILED", error: message };
+    }
+  });
+
   async function pickReferenceImages(payload = {}) {
     const max = Math.max(1, Math.min(Number(payload.max ?? 9), 200));
     const result = await dialog.showOpenDialog({
@@ -163,11 +181,11 @@ function registerAssetIpc(options = {}) {
     const resolved = resolveOutputAsset((payload ?? {}).path);
     if (!resolved) {
       log("asset open folder denied");
-      return { ok: false, error: "图片不在 naimage output 目录内。" };
+      return { ok: false, error: "文件不在 SparkAI WorkSpace 项目输出目录内。" };
     }
     if (!existsSync(resolved)) {
       log(`asset open folder missing ${resolved}`);
-      return { ok: false, error: "图片文件不存在。" };
+      return { ok: false, error: "文件不存在。" };
     }
     shell.showItemInFolder(resolved);
     log(`asset open folder ${resolved}`);
@@ -181,7 +199,7 @@ function registerAssetIpc(options = {}) {
       const resolved = path.resolve(rawPath);
       if (!isAllowedAssetPath(resolved)) {
         log(`asset read data url denied ${resolved}`);
-        return { ok: false, error: "图片不在 naimage 可读取资产目录内。" };
+        return { ok: false, error: "图片不在 SparkAI WorkSpace 可读取资产目录内。" };
       }
       if (!existsSync(resolved)) {
         log(`asset read data url missing ${resolved}`);
@@ -258,6 +276,16 @@ function registerAssetIpc(options = {}) {
       const message = error instanceof Error ? error.message : String(error);
       log("asset batch import failed " + message);
       return { ok: false, assets: [], canceled: error?.code === "IMAGE_IMPORT_CLOSED", errorCode: error?.code || "IMAGE_IMPORT_FAILED", error: message };
+    }
+  });
+
+  ipcMain.handle("naimage:asset:import-local-videos", async (_event, payload) => {
+    try {
+      return await importLocalVideosToProject(payload ?? {});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`asset video import failed ${message}`);
+      return { ok: false, assets: [], errorCode: error?.code || "VIDEO_IMPORT_FAILED", error: message };
     }
   });
 

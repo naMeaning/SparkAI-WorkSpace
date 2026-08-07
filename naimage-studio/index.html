@@ -7,25 +7,25 @@
     <!-- Legacy iiimage-asset URLs remain readable while old project snapshots migrate. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://sparkapi.org; img-src 'self' data: blob: naimage-asset: iiimage-asset:; font-src 'self' data:;"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://sparkapi.org; img-src 'self' data: blob: naimage-asset: iiimage-asset:; media-src 'self' blob: naimage-asset: iiimage-asset:; font-src 'self' data:;"
     />
-    <title>naimage</title>
+    <title>SparkAI WorkSpace</title>
     <script vite-ignore src="./glass-theme-bootstrap.js"></script>
     <style>
       :root {
-        color-scheme: light;
-        --theme-canvas: #e8f2f6;
-        --theme-surface-solid: #f7fcfe;
-        --theme-ink: #203039;
-        --theme-muted: #5d7480;
-        --theme-line-strong: rgba(43, 48, 45, 0.16);
-        --theme-accent: #389bc9;
-        --glass-rgb: 191, 227, 244;
-        --glass-alpha: 0.44;
-        --glass-blur: 28px;
-        --glass-saturation: 128%;
-        --glass-highlight: 0.7;
-        --glass-shadow: 0.18;
+        color-scheme: dark;
+        --theme-canvas: #110c08;
+        --theme-surface-solid: #1d1712;
+        --theme-ink: #fff9f3;
+        --theme-muted: #a18c79;
+        --theme-line-strong: rgba(255, 255, 255, 0.18);
+        --theme-accent: #ff9867;
+        --glass-rgb: 54, 34, 22;
+        --glass-alpha: 0.22;
+        --glass-blur: 26px;
+        --glass-saturation: 138%;
+        --glass-highlight: 0.34;
+        --glass-shadow: 0.4;
         --glass-radius: 14px;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -125,10 +125,10 @@
   </head>
   <body>
     <div id="root">
-      <main class="boot-shell" aria-label="naimage 启动中">
+      <main class="boot-shell" aria-label="SparkAI WorkSpace 启动中">
         <section class="boot-shell-card">
           <div class="boot-shell-mark" aria-hidden="true">NA</div>
-          <h1>naimage 正在启动</h1>
+          <h1>SparkAI WorkSpace 正在启动</h1>
           <p>正在加载工作台界面与本地会话。</p>
           <div class="boot-shell-line">
             <span class="boot-shell-spin" aria-hidden="true"></span>

@@ -36,6 +36,8 @@ internal static class Program
         if (!string.IsNullOrWhiteSpace(operationLockProbe)) return InstallerOperationLockProbe.Run(operationLockProbe!);
         var versionPolicyProbe = BrandCapture.ArgumentValue(args, "--version-policy-probe");
         if (!string.IsNullOrWhiteSpace(versionPolicyProbe)) return InstallerVersionPolicyProbe.Run(versionPolicyProbe!);
+        var completionAutoCloseProbe = BrandCapture.ArgumentValue(args, "--completion-auto-close-probe");
+        if (!string.IsNullOrWhiteSpace(completionAutoCloseProbe)) return InstallerCompletionAutoCloseProbe.Run(completionAutoCloseProbe!);
         if (InstallArguments.IsSilent(args))
         {
             try
@@ -54,6 +56,76 @@ internal static class Program
         if (BrandCapture.TryCapture(window, args)) return 0;
         application.Run(window);
         return window.ResultCode;
+    }
+}
+
+internal static class InstallerCompletionAutoCloseProbe
+{
+    private static readonly TimeSpan ProbeDelay = TimeSpan.FromMilliseconds(80);
+
+    internal static int Run(string destination)
+    {
+        var completionShown = false;
+        var windowClosed = false;
+        var error = "";
+        var stopwatch = new Stopwatch();
+        var completionStopwatch = new Stopwatch();
+        try
+        {
+            var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+            var window = new InstallerWindow(Array.Empty<string>());
+            window.Closed += (_, _) => windowClosed = true;
+            window.Loaded += async (_, _) =>
+            {
+                try
+                {
+                    completionStopwatch.Start();
+                    var closeTask = window.ShowCompleteAndCloseForDiagnosticsAsync(ProbeDelay);
+                    completionShown = window.IsCompletionPageForDiagnostics;
+                    await closeTask;
+                    completionStopwatch.Stop();
+                }
+                catch (Exception exception)
+                {
+                    completionStopwatch.Stop();
+                    error = exception.Message;
+                    window.Close();
+                }
+            };
+            stopwatch.Start();
+            application.Run(window);
+            stopwatch.Stop();
+        }
+        catch (Exception exception)
+        {
+            stopwatch.Stop();
+            error = exception.Message;
+        }
+
+        var elapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+        var completionElapsedMs = completionStopwatch.Elapsed.TotalMilliseconds;
+        var ok = completionShown && windowClosed && completionElapsedMs >= 40 && completionElapsedMs < 1000 && string.IsNullOrWhiteSpace(error);
+        try
+        {
+            var path = Path.GetFullPath(destination);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var report = new Dictionary<string, object>
+            {
+                ["ok"] = ok,
+                ["completionShown"] = completionShown,
+                ["windowClosed"] = windowClosed,
+                ["elapsedMs"] = Math.Round(elapsedMs, 1),
+                ["completionElapsedMs"] = Math.Round(completionElapsedMs, 1),
+                ["probeDelayMs"] = ProbeDelay.TotalMilliseconds,
+                ["error"] = error
+            };
+            File.WriteAllText(path, new JavaScriptSerializer().Serialize(report) + "\n", Encoding.UTF8);
+        }
+        catch
+        {
+            return 1;
+        }
+        return ok ? 0 : 1;
     }
 }
 
@@ -113,8 +185,8 @@ internal static class InstallerAccessibilityProbe
             var productVersion = versionInfo.ProductVersion ?? "";
             var metadataClean = !string.IsNullOrWhiteSpace(productVersion) &&
                                 !productVersion.Contains("+") &&
-                                string.Equals(versionInfo.ProductName, "naimage", StringComparison.Ordinal) &&
-                                string.Equals(versionInfo.CompanyName, "SparkAI", StringComparison.Ordinal);
+                                string.Equals(versionInfo.ProductName, "SparkAI WorkSpace", StringComparison.Ordinal) &&
+                                string.Equals(versionInfo.CompanyName, "namean", StringComparison.Ordinal);
             window.Close();
             var ok = toggle.Focusable && toggle.IsTabStop && provider is not null && before && !after &&
                       string.Equals(automationName, "自动化测试选项", StringComparison.Ordinal) &&
@@ -481,10 +553,12 @@ internal static class ShortcutState
     internal static bool StartMenuExists() => StartMenuPaths().Any(File.Exists);
 
     internal static IEnumerable<string> DesktopPaths() =>
-        DesktopPathsForName("naimage.lnk").Concat(LegacyDesktopPaths());
+        DesktopPathsForName("SparkAI WorkSpace.lnk").Concat(LegacyDesktopPaths());
 
     internal static IEnumerable<string> LegacyDesktopPaths() =>
-        DesktopPathsForName("iiimage Studio.lnk");
+        DesktopPathsForName("naimage.lnk")
+            .Concat(DesktopPathsForName("Naimage.lnk"))
+            .Concat(DesktopPathsForName("iiimage Studio.lnk"));
 
     private static IEnumerable<string> DesktopPathsForName(string shortcutName)
     {
@@ -496,10 +570,12 @@ internal static class ShortcutState
     }
 
     internal static IEnumerable<string> StartMenuPaths() =>
-        StartMenuPathsForName("naimage", "naimage.lnk").Concat(LegacyStartMenuPaths());
+        StartMenuPathsForName("SparkAI WorkSpace", "SparkAI WorkSpace.lnk").Concat(LegacyStartMenuPaths());
 
     internal static IEnumerable<string> LegacyStartMenuPaths() =>
-        StartMenuPathsForName("iiimage Studio", "iiimage Studio.lnk");
+        StartMenuPathsForName("naimage", "naimage.lnk")
+            .Concat(StartMenuPathsForName("Naimage", "Naimage.lnk"))
+            .Concat(StartMenuPathsForName("iiimage Studio", "iiimage Studio.lnk"));
 
     private static IEnumerable<string> StartMenuPathsForName(string folderName, string shortcutName)
     {
@@ -557,7 +633,7 @@ internal static class InstallerEngine
             log.AppendLine($"[{DateTimeOffset.Now:O}] another install or uninstall operation is active");
             await WriteAllTextAsync(logPath, log.ToString());
             return new InstallResult(1618, false, false,
-                "另一个 naimage 安装、更新或卸载操作正在进行，请等待其完成后重试。", logPath);
+                "另一个 SparkAI WorkSpace 安装、更新或卸载操作正在进行，请等待其完成后重试。", logPath);
         }
         var existing = ExistingInstallation.Find();
         var wasFreshInstall = existing is null;
@@ -581,7 +657,7 @@ internal static class InstallerEngine
                 InstallerVersionPolicy.IsDowngrade(existing.Version, candidateVersion))
             {
                 throw new InvalidOperationException(
-                    $"这台电脑已安装较新的 naimage {existing.Version}。为保护项目兼容性，不能使用 {candidateVersion} 覆盖降级；请下载最新安装包。" );
+                    $"这台电脑已安装较新的 SparkAI WorkSpace {existing.Version}。为保护项目兼容性，不能使用 {candidateVersion} 覆盖降级；请下载最新安装包。" );
             }
             if (PathAccess.RequiresElevation(installDirectory))
                 throw new InvalidOperationException("当前版本仅支持安装到当前用户可写目录。请选择默认位置或其他个人文件夹。");
@@ -601,7 +677,7 @@ internal static class InstallerEngine
 
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(new InstallProgress(20, existing is null ? "部署应用" : "安全更新", existing is null
-                ? "正在安装 naimage 核心文件"
+                ? "正在安装 SparkAI WorkSpace 核心文件"
                 : $"正在从 {existing.Version} 更新并保留项目与设置"));
 
             var simulatedPercent = 23;
@@ -634,7 +710,7 @@ internal static class InstallerEngine
             var installedExe = Path.Combine(installDirectory, "naimage.exe");
             if (!File.Exists(installedExe)) throw new InvalidOperationException("安装完成后未找到 naimage.exe。");
             ApplyShortcutPreferences(desktopShortcut, startMenuShortcut);
-            progress?.Report(new InstallProgress(100, "安装完成", "naimage 已准备就绪"));
+            progress?.Report(new InstallProgress(100, "安装完成", "SparkAI WorkSpace 已准备就绪"));
             await WriteAllTextAsync(logPath, log.ToString());
 
             if (options.LaunchAfter)
@@ -757,7 +833,7 @@ internal static class InstallerEngine
         foreach (var managedRoot in managedDataRoots.Where(value => !string.IsNullOrWhiteSpace(value)))
         {
             if (IsWithin(directory, managedRoot) || IsWithin(managedRoot, directory))
-                throw new InvalidOperationException("安装目录不能与 naimage 的项目、会话、设置或缓存目录重叠。请选择默认位置或其他专用文件夹。");
+                throw new InvalidOperationException("安装目录不能与 SparkAI WorkSpace 的项目、会话、设置或缓存目录重叠。请选择默认位置或其他专用文件夹。");
         }
     }
 
@@ -811,7 +887,9 @@ internal static class InstallerEngine
         }
         var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
         if (string.IsNullOrWhiteSpace(programs)) return;
-        if (!startMenuShortcut) TryDeleteDirectory(Path.Combine(programs, "naimage"));
+        if (!startMenuShortcut) TryDeleteDirectory(Path.Combine(programs, "SparkAI WorkSpace"));
+        TryDeleteDirectory(Path.Combine(programs, "naimage"));
+        TryDeleteDirectory(Path.Combine(programs, "Naimage"));
         TryDeleteDirectory(Path.Combine(programs, "iiimage Studio"));
     }
 
@@ -888,6 +966,7 @@ internal static class InstallerEngine
 internal sealed class InstallerWindow : BrandWindow
 {
     private enum PageKind { Welcome, Options, Progress, Complete, Error }
+    private static readonly TimeSpan CompletionAutoCloseDelay = TimeSpan.FromMilliseconds(800);
 
     private readonly string[] _args;
     private readonly ExistingInstallation? _existing;
@@ -905,7 +984,7 @@ internal sealed class InstallerWindow : BrandWindow
 
     internal int ResultCode { get; private set; } = 1223;
 
-    internal InstallerWindow(string[] args) : base("naimage 安装程序", "naimage · " + DisplayVersion())
+    internal InstallerWindow(string[] args) : base("SparkAI WorkSpace 安装程序", "SparkAI WorkSpace · " + DisplayVersion())
     {
         _args = args;
         _existing = ExistingInstallation.Find();
@@ -922,7 +1001,7 @@ internal sealed class InstallerWindow : BrandWindow
         };
         _desktopToggle = new BrandToggle("创建桌面快捷方式", _existing is null || ShortcutState.DesktopExists());
         _startMenuToggle = new BrandToggle("添加到开始菜单", _existing is null || ShortcutState.StartMenuExists());
-        _launchToggle = new BrandToggle("完成后启动 naimage", true);
+        _launchToggle = new BrandToggle("完成后启动 SparkAI WorkSpace", true);
         _progressBar = MakeProgressBar();
         _progressStage = Text("准备安装", 17, BrandPalette.Text, FontWeights.SemiBold);
         _progressDetail = Text("正在检查安装环境", 12, BrandPalette.Muted);
@@ -994,7 +1073,7 @@ internal sealed class InstallerWindow : BrandWindow
         var releaseNotes = CreateReleaseNotesCard(_existing is null ? 96 : 188);
         releaseNotes.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(releaseNotes);
-        SetPage("WELCOME", _existing is null ? "欢迎使用 naimage" : "更新或修复 naimage",
+        SetPage("WELCOME", _existing is null ? "欢迎使用 SparkAI WorkSpace" : "更新或修复 SparkAI WorkSpace",
             _existing is null
                 ? "面向跨境电商的 AI 套图工作台将在当前用户下安全部署，不会触碰你已有的项目文件。"
                 : "安装器已识别现有版本。继续后将更新程序组件，画布、会话、设置和 FastMemory 保持不变。",
@@ -1101,9 +1180,9 @@ internal sealed class InstallerWindow : BrandWindow
             Width = 66,
             Height = 66,
             CornerRadius = new CornerRadius(22),
-            Background = new LinearGradientBrush(BrandPalette.Mint, BrandPalette.Blue, 35),
+            Background = new LinearGradientBrush(Color.FromRgb(238, 240, 243), Color.FromRgb(166, 172, 181), 35),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Child = Text("ii", 24, BrandPalette.Ink, FontWeights.Bold),
+            Child = Text("ii", 24, BrandPalette.Text, FontWeights.Bold),
             Padding = new Thickness(0, 15, 0, 0)
         };
         ((TextBlock)orb.Child).TextAlignment = TextAlignment.Center;
@@ -1116,7 +1195,7 @@ internal sealed class InstallerWindow : BrandWindow
         var note = Text("安装内核在后台静默运行，不会出现旧式 Windows 向导。", 10.5, BrandPalette.Muted);
         note.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(note);
-        SetPage("INSTALLING", _existing is null ? "正在安装 naimage" : "正在安全更新 naimage",
+        SetPage("INSTALLING", _existing is null ? "正在安装 SparkAI WorkSpace" : "正在安全更新 SparkAI WorkSpace",
             "请保持此窗口开启。程序文件完成写入后会自动配置系统入口。", stack);
         BackButton.Visibility = Visibility.Collapsed;
         PrimaryButton.Visibility = Visibility.Collapsed;
@@ -1140,7 +1219,7 @@ internal sealed class InstallerWindow : BrandWindow
             CornerRadius = new CornerRadius(24),
             Background = BrandPalette.Brush(BrandPalette.Mint),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Child = Text("✓", 31, BrandPalette.Ink, FontWeights.Bold),
+            Child = Text("✓", 31, Colors.White, FontWeights.Bold),
             Padding = new Thickness(0, 10, 0, 0)
         };
         ((TextBlock)mark.Child).TextAlignment = TextAlignment.Center;
@@ -1149,7 +1228,7 @@ internal sealed class InstallerWindow : BrandWindow
         ready.Margin = new Thickness(0, 20, 0, 8);
         stack.Children.Add(ready);
         stack.Children.Add(Text("登录账户后，Agent 会接手图像任务并将成果自动放入画布。", 12.5, BrandPalette.Muted));
-        SetPage("READY", "naimage 已准备就绪", "所有程序组件与系统入口均已配置完成。", stack);
+        SetPage("READY", "SparkAI WorkSpace 已准备就绪", "所有程序组件与系统入口均已配置完成。", stack);
         BackButton.Visibility = Visibility.Collapsed;
         SecondaryButton.Visibility = Visibility.Collapsed;
         PrimaryButton.Visibility = Visibility.Visible;
@@ -1159,6 +1238,16 @@ internal sealed class InstallerWindow : BrandWindow
         SetKeyboardButtons(PrimaryButton, null);
         FooterNote.Text = "默认保留项目、会话、设置与图片库";
     }
+
+    private async Task ShowCompleteAndCloseAsync(bool wasUpgrade, TimeSpan? delay = null)
+    {
+        ShowComplete(wasUpgrade);
+        await Task.Delay(delay ?? CompletionAutoCloseDelay);
+        if (_page == PageKind.Complete && !_installing && IsVisible) Close();
+    }
+
+    internal bool IsCompletionPageForDiagnostics => _page == PageKind.Complete;
+    internal Task ShowCompleteAndCloseForDiagnosticsAsync(TimeSpan delay) => ShowCompleteAndCloseAsync(false, delay);
 
     private void ShowError(string message, string logPath)
     {
@@ -1172,7 +1261,7 @@ internal sealed class InstallerWindow : BrandWindow
         detailCard.Margin = new Thickness(0, 15, 0, 0);
         detailCard.BorderBrush = BrandPalette.Brush(Color.FromRgb(104, 54, 60));
         stack.Children.Add(detailCard);
-        var log = Text($"诊断日志：{logPath}", 10.5, Color.FromRgb(118, 150, 155));
+        var log = Text($"诊断日志：{logPath}", 10.5, BrandPalette.Muted);
         log.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(log);
         SetPage("ERROR", "未能完成安装", "程序文件已停止写入；全新安装会自动撤销已创建的组件。", stack);
@@ -1262,7 +1351,7 @@ internal sealed class InstallerWindow : BrandWindow
                 _installing = false;
                 CloseEnabled = true;
                 ShowError(
-                    "安装已经完成，但自动撤销未能完整移除程序。请关闭 naimage，并从 Windows“已安装的应用”再次卸载。",
+                    "安装已经完成，但自动撤销未能完整移除程序。请关闭 SparkAI WorkSpace，并从 Windows“已安装的应用”再次卸载。",
                     Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                         "naimage",
@@ -1278,7 +1367,7 @@ internal sealed class InstallerWindow : BrandWindow
 
         _installing = false;
         ResultCode = result.ExitCode;
-        if (result.Success) ShowComplete(_existing is not null);
+        if (result.Success) await ShowCompleteAndCloseAsync(_existing is not null);
         else if (result.Cancelled) Close();
         else ShowError(result.Message, result.LogPath);
     }
@@ -1325,7 +1414,7 @@ internal sealed class InstallerWindow : BrandWindow
     private void BrowseFolder()
     {
         if (_existing is not null) return;
-        if (ModernFolderPicker.TryPick(this, "选择 naimage 安装位置", _pathBox.Text, out var selectedPath))
+        if (ModernFolderPicker.TryPick(this, "选择 SparkAI WorkSpace 安装位置", _pathBox.Text, out var selectedPath))
         {
             _pathBox.Text = string.Equals(Path.GetFileName(selectedPath), "naimage", StringComparison.OrdinalIgnoreCase)
                 ? selectedPath
@@ -1363,7 +1452,7 @@ internal sealed class InstallerWindow : BrandWindow
                 noteStack.Children.Add(row);
             }
         }
-        root.Children.Add(MakeScrollArea(noteStack, scrollHeight, $"naimage {version} 发布说明"));
+        root.Children.Add(MakeScrollArea(noteStack, scrollHeight, $"SparkAI WorkSpace {version} 发布说明"));
         return Card(root, new Thickness(14, 12, 14, 12));
     }
 

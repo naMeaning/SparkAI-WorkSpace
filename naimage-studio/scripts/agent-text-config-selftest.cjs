@@ -472,6 +472,9 @@ async function runSelftest(directory) {
   const capturedImageRequests = [];
   let activeLayerImageRequests = 0;
   let maximumLayerImageConcurrency = 0;
+  let activeParallelImageRequests = 0;
+  let maximumParallelImageConcurrency = 0;
+  const parallelImageCompletionOrder = [];
   const fixtureOutputDir = path.join(directory, "output", "imagegen");
   const fixtureImagePath = path.join(fixtureOutputDir, "autonomy-fixture.png");
   const fixtureImagePathB = path.join(fixtureOutputDir, "autonomy-fixture-b.png");
@@ -867,12 +870,24 @@ async function runSelftest(directory) {
       serverGenerateImage: async (request) => {
         capturedImageRequests.push(request);
         const trackedLayerRequest = Boolean(request.layerGroupId && request.layerId);
+        const trackedParallelRequest = request.prompt === "EXPLICIT_PARALLEL_PROMPT";
+        const parallelRequestIndex = trackedParallelRequest
+          ? Math.max(1, Number(String(request.runId || "").match(/-(\d+)$/)?.[1] || 1))
+          : 0;
         if (trackedLayerRequest) {
           activeLayerImageRequests += 1;
           maximumLayerImageConcurrency = Math.max(maximumLayerImageConcurrency, activeLayerImageRequests);
         }
+        if (trackedParallelRequest) {
+          activeParallelImageRequests += 1;
+          maximumParallelImageConcurrency = Math.max(maximumParallelImageConcurrency, activeParallelImageRequests);
+        }
         try {
           if (trackedLayerRequest) await new Promise((resolve) => setTimeout(resolve, 18));
+          if (trackedParallelRequest) {
+            await new Promise((resolve) => setTimeout(resolve, parallelRequestIndex === 1 ? 24 : 4));
+            parallelImageCompletionOrder.push(parallelRequestIndex);
+          }
           if (request.prompt === "SELFTEST_TERMINATED_IMAGE_ERROR") throw new Error("terminated");
           if (request.layerRole === "subject" && typeof request.onRetry === "function") {
             request.onRetry({ category: "transient", retryCount: 1, maxRetries: 5, index: 0, count: 1 });
@@ -882,10 +897,15 @@ async function runSelftest(directory) {
             model: request.model,
             size: request.size,
             quality: request.quality,
-            assets: [{ path: fixtureImagePath, name: "autonomy-fixture.png", mimeType: "image/png" }],
+            assets: [{
+              path: fixtureImagePath,
+              name: trackedParallelRequest ? `parallel-${parallelRequestIndex}.png` : "autonomy-fixture.png",
+              mimeType: "image/png"
+            }],
           };
         } finally {
           if (trackedLayerRequest) activeLayerImageRequests -= 1;
+          if (trackedParallelRequest) activeParallelImageRequests -= 1;
         }
       },
     });
@@ -2471,6 +2491,32 @@ async function runSelftest(directory) {
     assert.equal(parallelNode?.imageParams?.batchMode, "parallel");
     assert.equal(parallelNode?.imageCollection?.kind, "batch");
     assert.equal(parallelNode?.imageCollection?.generationMode, "parallel");
+    assert.equal(maximumParallelImageConcurrency, 2, "Parallel generation must start both requests before either one settles");
+    assert.deepEqual(parallelImageCompletionOrder, [2, 1], "The fixture must complete out of request order");
+    const parallelResultProgress = parallelProgress.filter((event) => event?.phase === "image-result");
+    assert.deepEqual(
+      parallelResultProgress.map((event) => event?.partialImage?.requestIndex),
+      [2, 1],
+      "Each completed image must be emitted immediately in completion order",
+    );
+    const parallelOperationIds = new Set(parallelProgress
+      .filter((event) => ["image-request", "image-result", "image-response"].includes(event?.phase))
+      .map((event) => event?.operationId));
+    assert.equal(parallelOperationIds.size, 1, "Incremental and terminal actions must update one image-group operation");
+    assert.deepEqual(
+      parallelResultProgress.map((event) => event?.workflowAction?.node?.assets?.length),
+      [1, 2],
+      "The same image group must grow as each request completes",
+    );
+    assert(
+      parallelResultProgress.every((event) => event?.workflowAction?.node?.imageCollection?.id === parallelNode?.imageCollection?.id),
+      "Every incremental action must target the final image collection",
+    );
+    assert.deepEqual(
+      parallelNode?.assets?.map((asset) => asset.name),
+      ["parallel-2.png", "parallel-1.png"],
+      "Final image-group assets must preserve actual completion order",
+    );
 
     const nonLayerVariantsProgress = [];
     const nonLayerVariantsBefore = capturedImageRequests.length;

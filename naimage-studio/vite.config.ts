@@ -1,6 +1,14 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { ACCESS_POLICY_FILENAME, buildAccessPolicy } = require("./runtime/access-variant.cjs") as {
+  ACCESS_POLICY_FILENAME: string;
+  buildAccessPolicy: (environment?: NodeJS.ProcessEnv) => Record<string, unknown>;
+};
+const buildAccessPolicyValue = buildAccessPolicy(process.env);
 
 const studioIconPlugin: Plugin = {
   name: "naimage-build-icon",
@@ -35,12 +43,25 @@ const compactBuildHtmlPlugin: Plugin = {
   }
 };
 
+const accessPolicyPlugin: Plugin = {
+  name: "sparkai-access-policy",
+  apply: "build" as const,
+  buildStart() {
+    this.emitFile({
+      type: "asset",
+      fileName: ACCESS_POLICY_FILENAME,
+      source: `${JSON.stringify(buildAccessPolicyValue, null, 2)}\n`
+    });
+  }
+};
+
 export default defineConfig(({ command, mode }) => ({
   base: "./",
-  plugins: [react(), studioIconPlugin, compactBuildHtmlPlugin],
+  plugins: [react(), studioIconPlugin, accessPolicyPlugin, compactBuildHtmlPlugin],
   define: {
     __NAIMAGE_AIDEBUG__: JSON.stringify(command === "serve"),
-    __NAIMAGE_PERF_PROBE__: JSON.stringify(command === "build" && mode === "performance")
+    __NAIMAGE_PERF_PROBE__: JSON.stringify(command === "build" && mode === "performance"),
+    __SPARKAI_ACCESS_POLICY__: JSON.stringify(buildAccessPolicyValue)
   },
   build: {
     minify: "terser",

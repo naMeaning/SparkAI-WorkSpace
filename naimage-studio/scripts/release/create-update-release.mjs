@@ -10,12 +10,13 @@ const projectRoot = resolve(scriptDir, "../..");
 const packageMetadata = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 const releaseNotes = JSON.parse(readFileSync(join(scriptDir, "release-notes.json"), "utf8"));
 const { canonicalDesktopRelease, desktopReleaseProduct, desktopReleaseSchemaVersion } = require(join(projectRoot, "update-release.cjs"));
+const { ACCESS_VARIANT_DUAL, windowsInstallerArtifactName } = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const version = String(packageMetadata.version || "").trim();
 const compatibility = String(packageMetadata.naimageUpdateCompatibility || "").trim();
 const minimumVersion = String(packageMetadata.naimageUpdateMinimumVersion || version).trim();
 const releaseDir = join(projectRoot, "release");
 const unpackedAsar = join(releaseDir, "win-unpacked", "resources", "app.asar");
-const installerName = `naimage-Setup-${version}-x64.exe`;
+const installerName = windowsInstallerArtifactName(version, ACCESS_VARIANT_DUAL);
 const installerPath = join(releaseDir, installerName);
 const restartName = `naimage-Restart-Update-${version}-x64.asar`;
 const restartPath = join(releaseDir, restartName);
@@ -59,7 +60,7 @@ const manifest = {
   published_at: new Date().toISOString(),
   minimum_version: minimumVersion,
   compatibility,
-  notes: Array.isArray(releaseNotes[version]) ? releaseNotes[version] : [`naimage ${version} 稳定性与体验更新。`],
+  notes: Array.isArray(releaseNotes[version]) ? releaseNotes[version] : [`SparkAI WorkSpace ${version} 稳定性与体验更新。`],
   restart: artifact(restartPath, restartName),
   installer: artifact(installerPath, installerName)
 };

@@ -3,8 +3,13 @@ import { stableIdentityHash } from "./asset-identity.ts";
 import {
   buildGoalTaskScopeFromNodes,
   type GoalTaskAssetProjectionInput,
-  type GoalTaskScopeExcludedReason
+  type GoalTaskScopeExcludedReason,
+  withGoalCommerceCatalogTargets,
 } from "./goal-task-scope.ts";
+import {
+  commerceCatalogGoalTargetsForSources,
+  type CommerceCatalogDocument,
+} from "./commerce-catalog.ts";
 import {
   COMMERCE_SET_MARKER,
   parseCommerceSetPromptPlan
@@ -12,7 +17,7 @@ import {
 
 export type GoalModePreview = {
   prompt: string;
-  /** Frozen TaskScope identity used by the runtime after authorization. */
+  /** Minimal TaskScope identity used to detect source drift before dispatch. */
   snapshotHash: string;
   /** Random, one-time bearer populated only after the ledger issues it. */
   confirmationHash: string;
@@ -27,9 +32,6 @@ export type GoalModePreview = {
   skipped: string[];
   probeContainerCount: number;
   concurrencyCap: number;
-  trialImagesUsed: number;
-  paidImages: number;
-  estimatedMaxCostCents?: number;
 };
 
 export type GoalConfirmationContext = {
@@ -64,12 +66,12 @@ export type GoalModePreviewInput = {
   nodes: WorkflowNode[];
   canvasRevision: number;
   configuredConcurrency: number;
-  trialImagesRemaining?: number;
-  imageCostCents?: number;
   /** Optional explicit image/container boundaries. Omit for the canvas-wide Goal. */
   targetNodeIds?: string[];
   /** Commerce and other matrix plans may request more than one output per SOURCE. */
   operationsPerAsset?: number;
+  /** Current project Catalog snapshot; used only to freeze unambiguous Commerce destinations. */
+  commerceCatalog?: CommerceCatalogDocument;
   projectAsset?: (input: GoalTaskAssetProjectionInput) => Partial<TaskAssetReference>;
 };
 
@@ -98,10 +100,7 @@ export function goalModeAuthorizationFingerprint(preview: GoalModePreview): stri
     operationsPerAsset: preview.operationsPerAsset,
     targetNodeIds: preview.targetNodeIds ?? null,
     probeContainerCount: preview.probeContainerCount,
-    concurrencyCap: preview.concurrencyCap,
-    trialImagesUsed: preview.trialImagesUsed,
-    paidImages: preview.paidImages,
-    estimatedMaxCostCents: preview.estimatedMaxCostCents ?? null
+    concurrencyCap: preview.concurrencyCap
   };
   return `goal-binding-${stableIdentityHash(`goal-confirmation:v2:${JSON.stringify(material)}`)}`;
 }
@@ -169,7 +168,7 @@ export function createGoalConfirmationLedger(
       const currentContext = normalizedContext(context);
       const prompt = normalizeGoalModePrompt(preview.prompt);
       if (!prompt || !String(preview.snapshotHash || "").startsWith("scope-")) {
-        throw new Error("Goal 预览缺少有效的 prompt 或冻结 TaskScope，必须重新预览。");
+        throw new Error("Goal 预览缺少有效要求或可执行来源，必须重新预览。");
       }
       // Each issuer has one current bearer. Re-previewing revokes that surface's
       // older token without touching another surface or Renderer.
@@ -204,7 +203,7 @@ export function createGoalConfirmationLedger(
         grant.taskScopeSnapshotHash !== preview.snapshotHash ||
         grant.authorizationFingerprint !== goalModeAuthorizationFingerprint(preview)
       ) {
-        throw new Error("Goal 的画布范围或费用报价已变化；请重新预览并再次确认。");
+        throw new Error("Goal 的来源范围或执行计划已变化；请重新预览并再次确认。");
       }
       return grant;
     },
@@ -233,7 +232,7 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
   const hasCommerceMarker = prompt.includes(COMMERCE_SET_MARKER);
   const commercePlan = hasCommerceMarker ? parseCommerceSetPromptPlan(prompt) : null;
   if (hasCommerceMarker && !commercePlan) {
-    throw new Error("跨境电商 Goal 的结构化计划已损坏，无法冻结可靠的计费范围。请重新创建计划。");
+    throw new Error("跨境电商 Goal 的结构化计划已损坏，无法确认可靠的执行矩阵。请重新创建计划。");
   }
   const requestedOperationsPerAsset = input.operationsPerAsset ?? commercePlan?.outputsPerSource ?? 1;
   const operationsPerAsset = Number(requestedOperationsPerAsset);
@@ -241,7 +240,7 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
     throw new Error("Goal 每张母图的操作数必须是 1-200 的整数。");
   }
   if (commercePlan && operationsPerAsset !== commercePlan.outputsPerSource) {
-    throw new Error(`跨境电商计划要求每张母图 ${commercePlan.outputsPerSource} 个输出，当前 Goal 报价为 ${operationsPerAsset} 个；请重新预览。`);
+    throw new Error(`跨境电商计划要求每张母图 ${commercePlan.outputsPerSource} 个输出，当前执行矩阵为 ${operationsPerAsset} 个；请重新预览。`);
   }
   const configuredConcurrency = Math.max(1, Math.min(10, Math.floor(Number(input.configuredConcurrency) || 1)));
   const built = buildGoalTaskScopeFromNodes(input.nodes, {
@@ -257,7 +256,13 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
   if (!built.ok) {
     throw new Error(built.preflight.issues[0]?.message || "当前画布没有可执行的图片容器。");
   }
-  const { preflight, scope } = built;
+  const { preflight } = built;
+  const catalogTargets = commercePlan && input.commerceCatalog
+    ? commerceCatalogGoalTargetsForSources(input.commerceCatalog, built.scope.sourceAssets)
+    : [];
+  const scope = catalogTargets.length
+    ? withGoalCommerceCatalogTargets(built.scope, catalogTargets)
+    : built.scope;
   const requestCount = scope.goal?.requestCount ?? 0;
   if (commercePlan) {
     const targetNodeIds = [...new Set((input.targetNodeIds ?? []).map(String).filter(Boolean))];
@@ -269,15 +274,9 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
         commercePlan.sourceNodeIds.some((nodeId, index) => nodeId !== targetNodeIds[index])
       ))
     ) {
-      throw new Error("跨境电商计划中的母图范围或请求总数与当前冻结画布不一致；请重新选择母图并创建计划。");
+      throw new Error("跨境电商计划中的母图范围或请求总数与当前画布不一致；请重新选择母图并创建计划。");
     }
   }
-  const trialImagesUsed = Math.min(
-    requestCount,
-    Math.max(0, Math.floor(Number(input.trialImagesRemaining) || 0))
-  );
-  const paidImages = Math.max(0, requestCount - trialImagesUsed);
-  const imageCostCents = Number(input.imageCostCents);
   return {
     prompt,
     snapshotHash: scope.snapshotHash,
@@ -290,12 +289,7 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
     ...(input.targetNodeIds?.length ? { targetNodeIds: [...new Set(input.targetNodeIds.map(String).filter(Boolean))] } : {}),
     skipped: preflight.excludedContainers.map((item) => `${item.containerId}：${excludedReasonLabel[item.reason]}`),
     probeContainerCount: preflight.probeContainerCount,
-    concurrencyCap: preflight.configuredConcurrency,
-    trialImagesUsed,
-    paidImages,
-    ...(Number.isFinite(imageCostCents) && imageCostCents >= 0
-      ? { estimatedMaxCostCents: Math.round(paidImages * imageCostCents) }
-      : {})
+    concurrencyCap: preflight.configuredConcurrency
   };
 }
 
@@ -328,10 +322,7 @@ export function publicGoalModePreview(preview: GoalModePreview) {
     skipped: [...preview.skipped],
     probeContainerCount: preview.probeContainerCount,
     concurrencyCap: preview.concurrencyCap,
-    trialImagesUsed: preview.trialImagesUsed,
-    paidImages: preview.paidImages,
-    estimatedMaxCostCents: preview.estimatedMaxCostCents,
-    warning: "确认值绑定本次 prompt、画布快照和费用报价，有效期十分钟且只能使用一次；已发出或已被上游接受的请求仍可能计费，熔断只阻止未派发请求。"
+    warning: "本次确认只绑定当前要求和来源范围，有效期十分钟且只能使用一次；不预估费用，完成后仅记录上游实际返回的用量。"
   };
 }
 

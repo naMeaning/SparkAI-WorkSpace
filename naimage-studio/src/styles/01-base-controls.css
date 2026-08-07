@@ -58,10 +58,10 @@
   --control-bg: var(--theme-control-bg);
   --hover-bg: var(--theme-hover-bg);
   --active-bg: var(--theme-active-bg);
-  --font-xs: 11px;
-  --font-sm: 12px;
-  --font-ui: 13px;
-  --font-title: 14px;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-ui: 14px;
+  --font-title: 15px;
   --radius: 2px;
   --node-w: 260px;
   --ii-workbench-min-width: 884px;
@@ -906,9 +906,124 @@ select.ui-control {
   gap: 0;
 }
 
+.settings-model-access-block {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 54%, transparent);
+}
+
+.settings-model-access-head,
+.settings-model-access-title,
+.settings-model-kind-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-model-access-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-model-access-head strong,
+.settings-model-access-title strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.settings-model-access-head small,
+.settings-model-access-head > span,
+.settings-model-access-title span,
+.settings-model-access-time {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.settings-model-access-head > span {
+  flex: 0 0 auto;
+  color: var(--accent-strong);
+}
+
+.settings-model-access-list {
+  min-width: 0;
+  max-height: 250px;
+  display: grid;
+  gap: 7px;
+  padding-right: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.settings-model-access-card {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-solid) 74%, transparent);
+}
+
+.settings-model-access-card.has-error {
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+}
+
+.settings-model-access-title span {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-access-url,
+.settings-model-access-error {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-access-url {
+  color: var(--ink-soft);
+}
+
+.settings-model-access-error,
+.settings-model-service-error {
+  color: var(--danger);
+}
+
+.settings-model-access-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.settings-model-access-meta span,
+.settings-model-service-badge {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-raised) 76%, transparent);
+  font-size: 9px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
 .settings-model-card {
   min-width: 0;
-  min-height: 66px;
+  min-height: 74px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--ui-icon-action-size);
   align-items: center;
@@ -935,6 +1050,30 @@ select.ui-control {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-model-kind-row {
+  justify-content: flex-start;
+}
+
+.settings-model-service-badge.ready {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--line));
+  color: var(--success);
+}
+
+.settings-model-service-badge.catalog-only {
+  border-color: color-mix(in srgb, var(--warning, #a96700) 40%, var(--line));
+  color: var(--warning, #a96700);
+}
+
+.settings-model-service-badge.unavailable {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  color: var(--danger);
+}
+
+.settings-model-meta .settings-model-service-copy,
+.settings-model-meta .settings-model-service-error {
+  font-size: 10px;
 }
 
 .settings-model-meta strong {
@@ -1564,13 +1703,14 @@ select.ui-control {
   background: var(--surface-solid);
 }
 
-.model-picker-dialog .model-picker-custom > label {
+.model-picker-dialog .model-picker-custom > label,
+.model-picker-dialog .model-picker-binding-title {
   color: var(--ink-soft);
   font-size: 11px;
   font-weight: 650;
 }
 
-.model-picker-dialog .model-picker-custom > div {
+.model-picker-dialog .model-picker-custom > div:not(.model-picker-binding-list) {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1598,6 +1738,49 @@ select.ui-control {
   line-height: 1.45;
 }
 
+.model-picker-dialog .model-picker-binding-list {
+  min-width: 0;
+  max-height: 230px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-right: 4px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.model-picker-dialog .model-picker-binding-card {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+}
+
+.model-picker-dialog .model-picker-binding-card > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker-dialog .model-picker-binding-fields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 620px) {
+  .model-picker-dialog .model-picker-binding-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .model-picker-dialog .model-picker-list {
   min-height: 0;
   display: grid;
@@ -1607,6 +1790,16 @@ select.ui-control {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   padding: 10px 12px;
+}
+
+.model-picker-dialog .model-picker-list.is-virtualized {
+  display: block;
+}
+
+.model-picker-dialog .model-picker-virtual-spacer {
+  position: relative;
+  min-width: 0;
+  width: 100%;
 }
 
 .model-picker-dialog .model-picker-option {
@@ -1737,7 +1930,7 @@ body {
   min-height: 100%;
   overflow: hidden;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
   background:
     linear-gradient(120deg, rgba(19, 163, 151, 0.055), transparent 32%),
     linear-gradient(300deg, rgba(79, 125, 217, 0.05), transparent 34%),

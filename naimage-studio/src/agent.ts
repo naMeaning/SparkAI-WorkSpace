@@ -1,5 +1,5 @@
 /*
-naimage Agent Map
+SparkAI WorkSpace Agent Map
 
 File Contract
 - agent.ts owns front-end Agent-facing helpers: progress text, streaming message merge, thinking-state settlement, and the main-to-Agent bridge call.
@@ -16,7 +16,7 @@ Region Index
 */
 
 import { sanitizeAgentVisibleText } from "./core";
-import type { AgentMessage, AgentProgress, AgentRuntimeResult, AgentTaskScope, AgentToolTrace, ReferenceImage, WorkflowNode } from "./core";
+import type { AgentMessage, AgentProgress, AgentRuntimeResult, AgentTaskScope, AgentToolTrace, ReferenceImage, WorkflowNode, WorkspaceDomain } from "./core";
 
 // -----------------------------------------------------------------------------
 // AGENT 01 Agent Progress Labels
@@ -298,13 +298,15 @@ export async function requestAgent(
   conversationId?: string,
   selectedNodeId?: string,
   selectedNodeIds: string[] = [],
-  taskScope?: AgentTaskScope
+  taskScope?: AgentTaskScope,
+  imageDefaults?: { ratio?: string; resolution?: string },
+  workspaceDomain?: WorkspaceDomain
 ) {
   if (!window.naimageAgent) {
     throw new Error("Agent 桥接不可用，请重启桌面端。");
   }
 
-  const result = await window.naimageAgent.chat({ runId, prompt, messages, nodes, referenceImages, taskScope, projectId, conversationId, selectedNodeId, selectedNodeIds });
+  const result = await window.naimageAgent.chat({ runId, prompt, messages, nodes, referenceImages, taskScope, projectId, conversationId, selectedNodeId, selectedNodeIds, imageDefaults, workspaceDomain });
   if (!result.ok) {
     throw new Error(result.error ?? "Agent runtime 请求失败。");
   }

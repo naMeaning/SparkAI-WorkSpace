@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Plus, X } from "lucide-react";
 
 import {
@@ -13,7 +13,8 @@ import {
   IconActionButton,
   SurfaceBody,
   SurfaceFooter,
-  SurfaceHeader
+  SurfaceHeader,
+  UnsavedChangesDialog
 } from "./ui";
 
 const CLOSE_BUTTON_REASON = "close-button" as const;
@@ -27,6 +28,8 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
 }) {
   const [message, setMessage] = useState("");
   const [page, setPage] = useState(0);
+  const [closePromptOpen, setClosePromptOpen] = useState(false);
+  const initialImagesRef = useRef(draft.images.map((image) => image.occurrenceId || image.assetId || image.path).join("\n"));
   const pageSize = 9;
   const pageCount = Math.max(1, Math.ceil(draft.max / pageSize));
   const visiblePage = Math.min(page, pageCount - 1);
@@ -36,6 +39,7 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
     draft.target.kind === "agent-request" && draft.target.role === "source"
   ) ? "原图" : "参考图";
   const remaining = Math.max(0, draft.max - draft.images.length);
+  const dirty = draft.images.map((image) => image.occurrenceId || image.assetId || image.path).join("\n") !== initialImagesRef.current;
 
   async function addImages() {
     if (remaining <= 0) return;
@@ -55,16 +59,27 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
     setMessage("");
   }
 
+  function requestPickerClose() {
+    if (dirty) {
+      setClosePromptOpen(true);
+      return;
+    }
+    close();
+  }
+
   return (
-    <DialogShell
-      surface="reference-picker"
-      ariaLabel={draft.title}
-      layerClassName="reference-picker-layer"
-      className="reference-picker-dialog"
-      onRequestClose={close}
-    >
-      {({ requestClose }) => (
-        <>
+    <>
+      <DialogShell
+        surface="reference-picker"
+        ariaLabel={draft.title}
+        layerClassName="reference-picker-layer"
+        className="reference-picker-dialog"
+        dirty={dirty}
+        closePolicy={{ escape: "always", backdrop: "always", [CLOSE_BUTTON_REASON]: "always", action: "always" }}
+        onRequestClose={requestPickerClose}
+      >
+        {({ requestClose }) => (
+          <>
           <SurfaceHeader title={draft.title} description={draft.detail} onClose={() => requestClose(CLOSE_BUTTON_REASON)} />
           <SurfaceBody className="reference-picker-body">
             <div className="reference-grid">
@@ -74,7 +89,7 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
                 return image ? (
                   <figure key={image.occurrenceId || `${image.path}:${index}`} className="reference-slot filled">
                     <img src={image.assetUrl || imageAssetSrc({ type: "file", path: image.path })} alt={image.name} loading="lazy" decoding="async" />
-                    <figcaption>{image.name}</figcaption>
+                    <figcaption title={image.name}>{image.name}</figcaption>
                     <IconActionButton className="reference-slot-remove" label={`移除${itemLabel}`} onClick={() => removeImage(index)} icon={<X size={14} />} />
                   </figure>
                 ) : (
@@ -98,8 +113,21 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
             <ActionButton onClick={() => requestClose("action")}>取消</ActionButton>
             <ActionButton variant="primary" onClick={save}>保存</ActionButton>
           </SurfaceFooter>
-        </>
-      )}
-    </DialogShell>
+          </>
+        )}
+      </DialogShell>
+      {closePromptOpen ? (
+        <UnsavedChangesDialog
+          surface="reference-picker-unsaved"
+          ariaLabel={`保存${itemLabel}修改`}
+          title={`关闭前要保存${itemLabel}修改吗？`}
+          description={`当前${itemLabel}列表与打开时不同。`}
+          detail={<p>保存会把当前列表应用到 Agent 输入；放弃不会删除项目素材或画布成果。</p>}
+          onContinueEditing={() => setClosePromptOpen(false)}
+          onDiscard={close}
+          onSave={save}
+        />
+      ) : null}
+    </>
   );
 }

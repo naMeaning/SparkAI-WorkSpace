@@ -1,22 +1,30 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
+const require = createRequire(import.meta.url);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "../..");
+const { ACCESS_POLICY_FILENAME, parseAccessPolicy, windowsInstallerArtifactName } = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const packageMetadata = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 const version = String(packageMetadata.version || "").trim();
+const accessPolicyPath = join(projectRoot, "dist", ACCESS_POLICY_FILENAME);
+const accessPolicy = existsSync(accessPolicyPath)
+  ? parseAccessPolicy(JSON.parse(readFileSync(accessPolicyPath, "utf8")))
+  : null;
+if (!accessPolicy) throw new Error(`Built access policy is required for installer UI smoke: ${accessPolicyPath}`);
 const installerArg = process.argv.find((item) => item.startsWith("--installer="));
 const uninstallerArg = process.argv.find((item) => item.startsWith("--uninstaller="));
 const installer = resolve(
   installerArg?.split("=").slice(1).join("=") ||
-  join(projectRoot, "release", `naimage-Setup-${version}-x64.exe`)
+  join(projectRoot, "release", windowsInstallerArtifactName(version, accessPolicy.variant))
 );
 const uninstaller = resolve(
   uninstallerArg?.split("=").slice(1).join("=") ||
-  join(projectRoot, ".release-tools", "brand-uninstaller", "naimage Uninstaller.exe")
+  join(projectRoot, ".release-tools", "brand-uninstaller", "SparkAI WorkSpace Uninstaller.exe")
 );
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outputDir = join(projectRoot, ".diagnostics", "release", `branded-installer-ui-${stamp}`);
@@ -57,6 +65,28 @@ if (
   String(accessibility.productVersion || "").includes("+")
 ) {
   throw new Error("Installer controls do not satisfy the keyboard/Automation contract.");
+}
+
+const completionAutoCloseProbePath = join(outputDir, "completion-auto-close.json");
+const completionAutoCloseRun = spawnSync(installer, [`--completion-auto-close-probe=${completionAutoCloseProbePath}`], {
+  cwd: projectRoot,
+  windowsHide: true,
+  encoding: "utf8",
+  timeout: 30_000,
+  env: smokeEnvironment
+});
+if (completionAutoCloseRun.status !== 0 || !existsSync(completionAutoCloseProbePath)) {
+  throw new Error(`Installer completion auto-close probe failed: exit=${completionAutoCloseRun.status}`);
+}
+const completionAutoClose = JSON.parse(readFileSync(completionAutoCloseProbePath, "utf8").replace(/^\uFEFF/, ""));
+if (
+  !completionAutoClose.ok ||
+  !completionAutoClose.completionShown ||
+  !completionAutoClose.windowClosed ||
+  completionAutoClose.completionElapsedMs < 40 ||
+  completionAutoClose.completionElapsedMs >= 1000
+) {
+  throw new Error(`Installer completion window did not close automatically: ${JSON.stringify(completionAutoClose)}`);
 }
 
 const watchdogProbePath = join(outputDir, "process-watchdog.json");
@@ -241,6 +271,8 @@ writeFileSync(reportPath, `${JSON.stringify({
   uninstaller,
   accessibility,
   accessibilityProbePath,
+  completionAutoClose,
+  completionAutoCloseProbePath,
   watchdog,
   watchdogProbePath,
   operationLock,

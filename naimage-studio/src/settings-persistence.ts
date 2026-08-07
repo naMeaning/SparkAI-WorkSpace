@@ -1,12 +1,18 @@
 import {
+  computedSizeFor,
+  imageFrameRatioFromSize,
+  imageResolutionPresetFromSize,
   normalizeImageModelBindings,
+  normalizeImageFrameRatio,
+  normalizeImageResolutionPreset,
   type AgentProviderChoice,
   type AppSettings,
   type ContextStrategyId,
   type CustomThemeMode,
   type CustomThemePreset,
   type ReasoningEffort,
-  type ThemePaletteChoice
+  type ThemePaletteChoice,
+  type WorkspaceAssetRailTabId
 } from "./core.ts";
 import {
   glassAppearanceProjection,
@@ -14,7 +20,24 @@ import {
   type GlassThemeMode,
   type GlassThemeSettings
 } from "./glass-theme.ts";
-import { normalizePluginStates } from "./plugin-state.ts";
+import {
+  defaultGlassBackgroundSettings,
+  normalizeGlassBackgroundSettings
+} from "./glass-background.ts";
+import {
+  defaultWorkspacePluginStates,
+  normalizeCanvasToolShortcuts,
+  normalizePluginStates,
+  WORKSPACE_PLUGIN_DEFAULTS_VERSION
+} from "./plugin-state.ts";
+
+export { normalizeCanvasToolShortcuts, WORKSPACE_PLUGIN_DEFAULTS_VERSION } from "./plugin-state.ts";
+
+export {
+  DEFAULT_GLASS_BACKGROUND_BLUR,
+  DEFAULT_GLASS_BACKGROUND_OVERLAY,
+  normalizeGlassBackgroundSettings
+} from "./glass-background.ts";
 
 export const AGENT_PROVIDER_OPTIONS: { value: AgentProviderChoice; label: string; detail: string }[] = [
   { value: "CODEX", label: "CODEX", detail: "支持推理强度与 Fast 模式。" },
@@ -34,7 +57,7 @@ export const CONTEXT_STRATEGY_OPTIONS: { value: ContextStrategyId; label: string
   { value: "auto", label: "自动匹配", detail: "GPT/Codex、Claude 和其他模型自动使用各自的上下文策略。" },
   { value: "codex", label: "Codex", detail: "使用长上下文、Responses 历史和 checkpoint compaction。" },
   { value: "claude", label: "Claude Code", detail: "使用 Claude 消息历史和模型窗口感知的摘要压缩。" },
-  { value: "naimage-balanced", label: "naimage 平衡", detail: "为未知兼容模型使用保守的 128K 上下文策略。" },
+  { value: "naimage-balanced", label: "SparkAI WorkSpace 平衡", detail: "为未知兼容模型使用保守的 128K 上下文策略。" },
   { value: "custom", label: "自定义", detail: "手动设置上下文窗口、有效比例、压缩点和保留用户消息预算。" }
 ];
 
@@ -51,6 +74,21 @@ export const THEME_PALETTE_VALUES: ThemePaletteChoice[] = [
   "lavender-dream",
   "custom"
 ];
+
+export const WORKSPACE_ASSET_RAIL_TAB_VALUES: WorkspaceAssetRailTabId[] = [
+  "results",
+  "layers",
+  "requirements",
+  "templates",
+  "history"
+];
+
+export function normalizeVisibleWorkspaceAssetRailTabs(value: unknown): WorkspaceAssetRailTabId[] {
+  if (!Array.isArray(value)) return [...WORKSPACE_ASSET_RAIL_TAB_VALUES];
+  const selected = new Set(value.map((item) => String(item)));
+  const visible = WORKSPACE_ASSET_RAIL_TAB_VALUES.filter((tab) => selected.has(tab));
+  return visible.length ? visible : ["results"];
+}
 
 function normalizeCustomThemeMode(value: unknown): CustomThemeMode | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -87,8 +125,8 @@ export const defaultSettings: AppSettings = {
   agentProvider: "CODEX",
   agentBaseUrl: "",
   agentApiKey: "",
-  agentModel: "",
-  agentModelPool: [],
+  agentModel: "gpt-5.6-terra",
+  agentModelPool: ["gpt-5.6-terra"],
   compactModel: "",
   contextStrategy: "auto",
   contextWindowTokens: 272_000,
@@ -100,11 +138,15 @@ export const defaultSettings: AppSettings = {
   timeoutSeconds: 180,
   imageBaseUrl: "",
   imageApiKey: "",
-  imageModel: "",
-  imageModelPool: [],
+  imageModel: "gpt-image-2",
+  imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
+  videoModel: "doubao-seedance-2-0-260128",
+  videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
   imageBatchSize: 3,
+  imageRatio: "1:1",
+  imageResolution: "1K",
   imageSize: "1024x1024",
   imageQuality: "auto",
   accountBaseUrl: DEFAULT_ACCOUNT_BASE_URL,
@@ -123,20 +165,35 @@ export const defaultSettings: AppSettings = {
   licenseExpiresAt: 0,
   licenseLastVerifiedAt: 0,
   modelGroup: "",
-  theme: "light",
+  theme: "dark",
   themePalette: "anthropic",
   customTheme: null,
   ...defaultGlassAppearance,
+  ...defaultGlassBackgroundSettings,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
   agentSkillAutoInstallTargets: [],
-  pluginStates: [],
+  workspacePluginDefaultsVersion: WORKSPACE_PLUGIN_DEFAULTS_VERSION,
+  pluginStates: defaultWorkspacePluginStates(),
   canvasToolDockMode: "expanded",
-  disabledCanvasToolCommands: []
+  disabledCanvasToolCommands: [],
+  canvasToolShortcuts: {},
+  visibleWorkspaceAssetRailTabs: [...WORKSPACE_ASSET_RAIL_TAB_VALUES],
+  workflowOnboarding: {}
 };
+
+const WORKFLOW_ONBOARDING_KEYS = ["social", "xiaohongshu", "douyin", "research", "commerce"] as const;
+
+export function normalizeWorkflowOnboardingState(value: unknown): AppSettings["workflowOnboarding"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(WORKFLOW_ONBOARDING_KEYS.flatMap((key) => (
+    source[key] === true ? [[key, true]] : []
+  ))) as AppSettings["workflowOnboarding"];
+}
 
 export function normalizeDisabledCanvasToolCommands(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -213,7 +270,20 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
+  next.videoModelPool = uniqueStoredModels(Array.isArray(source.videoModelPool) ? source.videoModelPool : next.videoModelPool);
+  if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
+  if (next.videoModel) next.videoModelPool = uniqueStoredModels([next.videoModel, ...next.videoModelPool]);
   next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  const legacyImageSize = String(source.imageSize ?? next.imageSize ?? "");
+  next.imageRatio = normalizeImageFrameRatio(
+    source.imageRatio,
+    imageFrameRatioFromSize(legacyImageSize, defaultSettings.imageRatio)
+  );
+  next.imageResolution = normalizeImageResolutionPreset(
+    source.imageResolution,
+    imageResolutionPresetFromSize(legacyImageSize)
+  );
+  next.imageSize = computedSizeFor(next.imageRatio, next.imageResolution);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
   next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
@@ -236,6 +306,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.glassTheme = glassAppearance.glassTheme;
   next.glassMaterial = glassAppearance.glassMaterial;
   next.glassParameters = glassAppearance.glassParameters;
+  Object.assign(next, normalizeGlassBackgroundSettings(source));
   if (!["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))) next.agentPanelPlacement = defaultSettings.agentPanelPlacement;
   next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
   next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));
@@ -244,9 +315,16 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))] as AppSettings["agentSkillAutoInstallTargets"]
     : [];
-  next.pluginStates = normalizePluginStates(source.pluginStates);
+  const storedWorkspacePluginDefaultsVersion = Math.max(0, Math.floor(Number(source.workspacePluginDefaultsVersion) || 0));
+  next.workspacePluginDefaultsVersion = WORKSPACE_PLUGIN_DEFAULTS_VERSION;
+  next.pluginStates = storedWorkspacePluginDefaultsVersion < WORKSPACE_PLUGIN_DEFAULTS_VERSION
+    ? defaultWorkspacePluginStates(source.pluginStates)
+    : normalizePluginStates(source.pluginStates);
   next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
   next.disabledCanvasToolCommands = normalizeDisabledCanvasToolCommands(source.disabledCanvasToolCommands);
+  next.canvasToolShortcuts = normalizeCanvasToolShortcuts(source.canvasToolShortcuts);
+  next.visibleWorkspaceAssetRailTabs = normalizeVisibleWorkspaceAssetRailTabs(source.visibleWorkspaceAssetRailTabs);
+  next.workflowOnboarding = normalizeWorkflowOnboardingState(source.workflowOnboarding);
   if (!["CODEX", "CUSTOM"].includes(String(next.agentProvider))) next.agentProvider = "CODEX";
   if (!["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))) next.contextStrategy = "auto";
   const contextWindowTokens = Number(next.contextWindowTokens);
@@ -284,6 +362,9 @@ export const STORAGE_SESSION = "naimage.ideSession.v1";
 export const STORAGE_IMAGE_STATS = "naimage.imageGenerationStats.v1";
 export const STORAGE_SERVER_AUTH = "naimage.serverAuth.v1";
 export const STORAGE_GLASS_THEME_BOOTSTRAP = "naimage.glassTheme.bootstrap.v1";
+export const STORAGE_UI_HINTS = "naimage.uiHints.v1";
+
+export type OneTimeUiHint = "commerce-template-market";
 
 export type GlassThemeBootstrapSnapshot = GlassThemeSettings & {
   schemaVersion: 1;
@@ -360,6 +441,34 @@ export function writeGlassThemeBootstrapSnapshot(
   if (!storage) return false;
   try {
     storage.setItem(STORAGE_GLASS_THEME_BOOTSTRAP, JSON.stringify(glassThemeBootstrapSnapshot(value)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function hasSeenOneTimeUiHint(
+  hint: OneTimeUiHint,
+  storage: BootstrapStorageReader | null = availableLocalStorage()
+) {
+  if (!storage) return false;
+  try {
+    const parsed = JSON.parse(storage.getItem(STORAGE_UI_HINTS) || "{}");
+    return parsed && typeof parsed === "object" && parsed[hint] === true;
+  } catch {
+    return false;
+  }
+}
+
+export function markOneTimeUiHintSeen(
+  hint: OneTimeUiHint,
+  storage: (BootstrapStorageReader & BootstrapStorageWriter) | null = availableLocalStorage()
+) {
+  if (!storage) return false;
+  try {
+    const parsed = JSON.parse(storage.getItem(STORAGE_UI_HINTS) || "{}");
+    const current = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    storage.setItem(STORAGE_UI_HINTS, JSON.stringify({ ...current, [hint]: true }));
     return true;
   } catch {
     return false;

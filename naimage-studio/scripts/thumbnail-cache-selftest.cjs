@@ -152,6 +152,18 @@ async function main() {
     assert.equal(runtimeStats.errors, 1);
     assert.equal(runtimeStats.recentErrors.length, 1);
     assert.equal(runtimeStats.recentErrors[0].code, "THUMBNAIL_DECODE_FAILED");
+
+    const pruneRoot = path.join(root, "prune-cache");
+    mkdirSync(pruneRoot, { recursive: true });
+    for (let index = 0; index < 24; index += 1) {
+      const target = path.join(pruneRoot, `${String(index).padStart(2, "0")}.webp`);
+      copyFileSync(png.path, target);
+      const changedAt = new Date(Date.now() - index * 1_000);
+      utimesSync(target, changedAt, changedAt);
+    }
+    const pruneResult = cache.prune({ cacheRoot: pruneRoot, maxFiles: 12, maxBytes: 64 * 1024 * 1024, maxAgeMs: 24 * 60 * 60 * 1000 });
+    assert.equal(pruneResult.prunedFiles, 12, "Pruning must retain only the newest bounded thumbnail set");
+    assert.equal(readdirSync(pruneRoot).filter((entry) => entry.endsWith(".webp")).length, 12);
     process.stdout.write(`${JSON.stringify({
       ok: true,
       maxEdge: 512,
@@ -166,6 +178,7 @@ async function main() {
       closeCanceledActiveAndQueued: true,
       cacheFiles: outputFiles.length,
       stagingClean: true,
+      cachePruned: pruneResult.prunedFiles,
       runtimeStats,
     })}\n`);
   } finally {

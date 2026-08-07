@@ -136,6 +136,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const canvasSelectionIndicatorTitleRect = canvasSelectionIndicatorTitleNode?.getBoundingClientRect?.() || null;
     const canvasSelectionIndicatorTitleStyle = canvasSelectionIndicatorTitleNode ? getComputedStyle(canvasSelectionIndicatorTitleNode) : null;
     const canvasSelectionIndicatorDetailNode = canvasSelectionIndicatorNode?.querySelector(".canvas-selection-indicator-copy small") || null;
+    const canvasSelectionIndicatorContextNode = canvasSelectionIndicatorNode?.closest(".workspace-context-bar") || null;
+    const canvasSelectionIndicatorContextRect = canvasSelectionIndicatorContextNode?.getBoundingClientRect?.() || null;
     const topbarRect = rect(".ide-topbar");
     const shellRect = rect(".ide-shell");
     const mainNode = element(".ide-main");
@@ -924,29 +926,41 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const canvasSelectionIndicatorDetail = normalizeContextText(canvasSelectionIndicatorDetailNode?.textContent);
     const canvasSelectionIndicatorOpacityValue = Number.parseFloat(canvasSelectionIndicatorStyle?.opacity || "1");
     const canvasSelectionIndicatorOpacity = Number.isFinite(canvasSelectionIndicatorOpacityValue) ? canvasSelectionIndicatorOpacityValue : 1;
-    const canvasSelectionIndicatorIntersection = intersectRect(canvasSelectionIndicatorRect, canvasRect);
+    // The current workspace deliberately places the compact selection summary
+    // in its context bar, above the interactive canvas.  A legacy floating HUD
+    // remains supported for old layouts, but must be measured against the
+    // canvas itself.  Measuring the compact bar against .workflow-canvas made
+    // a fully visible summary look invisible (zero geometric overlap).
+    const canvasSelectionIndicatorCompact = Boolean(canvasSelectionIndicatorContextNode && canvasSelectionIndicatorContextRect);
+    const canvasSelectionIndicatorHostRect = canvasSelectionIndicatorCompact ? canvasSelectionIndicatorContextRect : canvasRect;
+    const viewportRect = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight, width: window.innerWidth, height: window.innerHeight };
+    const canvasSelectionIndicatorHostIntersection = intersectRect(canvasSelectionIndicatorRect, canvasSelectionIndicatorHostRect);
+    const canvasSelectionIndicatorViewportIntersection = intersectRect(canvasSelectionIndicatorRect, viewportRect);
     const canvasSelectionIndicatorArea = Math.max(1, rectArea(canvasSelectionIndicatorRect));
-    const canvasSelectionIndicatorVisibleRatio = metricRound(rectArea(canvasSelectionIndicatorIntersection) / canvasSelectionIndicatorArea);
+    const canvasSelectionIndicatorVisibleRatio = metricRound(Math.min(
+      rectArea(canvasSelectionIndicatorHostIntersection) / canvasSelectionIndicatorArea,
+      rectArea(canvasSelectionIndicatorViewportIntersection) / canvasSelectionIndicatorArea
+    ));
     const canvasSelectionIndicatorTitleSingleLineOk = Boolean(
       canvasSelectionIndicatorTitleNode &&
       canvasSelectionIndicatorTitleRect &&
-      canvasSelectionIndicatorTitleRect.height >= 18 &&
-      canvasSelectionIndicatorTitleRect.width >= 48 &&
+      canvasSelectionIndicatorTitleRect.height >= (canvasSelectionIndicatorCompact ? 10 : 18) &&
+      canvasSelectionIndicatorTitleRect.width >= (canvasSelectionIndicatorCompact ? 32 : 48) &&
       Number(canvasSelectionIndicatorTitleNode.scrollHeight || 0) <= Number(canvasSelectionIndicatorTitleNode.clientHeight || 0) + 2 &&
       canvasSelectionIndicatorTitleStyle?.whiteSpace === "nowrap" &&
-      Number.parseFloat(canvasSelectionIndicatorTitleStyle?.fontSize || "0") >= 14
+      Number.parseFloat(canvasSelectionIndicatorTitleStyle?.fontSize || "0") >= (canvasSelectionIndicatorCompact ? 10 : 14)
     );
     const canvasSelectionIndicatorActualGeometryOk = Boolean(
       canvasSelectionIndicatorRect &&
-      canvasRect &&
-      canvasSelectionIndicatorRect.width >= 200 &&
-      canvasSelectionIndicatorRect.width <= 422 &&
-      canvasSelectionIndicatorRect.height >= 58 &&
-      canvasSelectionIndicatorRect.height <= 84 &&
-      canvasSelectionIndicatorRect.top >= canvasRect.top + 8 &&
-      canvasSelectionIndicatorRect.bottom <= canvasRect.bottom - 8 &&
-      canvasSelectionIndicatorRect.left >= canvasRect.left + 10 &&
-      canvasSelectionIndicatorRect.right <= canvasRect.right - 10 &&
+      canvasSelectionIndicatorHostRect &&
+      canvasSelectionIndicatorRect.width >= (canvasSelectionIndicatorCompact ? 160 : 200) &&
+      canvasSelectionIndicatorRect.width <= (canvasSelectionIndicatorCompact ? 432 : 422) &&
+      canvasSelectionIndicatorRect.height >= (canvasSelectionIndicatorCompact ? 30 : 58) &&
+      canvasSelectionIndicatorRect.height <= (canvasSelectionIndicatorCompact ? 44 : 84) &&
+      canvasSelectionIndicatorRect.top >= canvasSelectionIndicatorHostRect.top + (canvasSelectionIndicatorCompact ? 0 : 8) &&
+      canvasSelectionIndicatorRect.bottom <= canvasSelectionIndicatorHostRect.bottom - (canvasSelectionIndicatorCompact ? 0 : 8) &&
+      canvasSelectionIndicatorRect.left >= canvasSelectionIndicatorHostRect.left + (canvasSelectionIndicatorCompact ? 2 : 10) &&
+      canvasSelectionIndicatorRect.right <= canvasSelectionIndicatorHostRect.right - (canvasSelectionIndicatorCompact ? 2 : 10) &&
       canvasSelectionIndicatorVisibleRatio >= 0.98 &&
       canvasSelectionIndicatorTitleSingleLineOk
     );
@@ -991,6 +1005,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       visibility: canvasSelectionIndicatorStyle?.visibility || "missing",
       opacity: metricRound(canvasSelectionIndicatorOpacity),
       visibleRatio: canvasSelectionIndicatorVisibleRatio,
+      placement: canvasSelectionIndicatorCompact ? "workspace-context-bar" : "workflow-canvas",
+      hostGeometry: plainRect(canvasSelectionIndicatorHostRect),
       kind: canvasSelectionIndicatorKind,
       count: canvasSelectionIndicatorCount,
       ids: canvasSelectionIndicatorIds,

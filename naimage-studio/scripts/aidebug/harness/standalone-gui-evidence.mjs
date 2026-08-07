@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { PNG } from "pngjs";
+import sharp from "sharp";
 
 import { capturePngScreenshot } from "./screenshot.mjs";
 
@@ -64,6 +65,38 @@ function normalizedOverflow(value) {
   };
 }
 
+async function normalizeFullViewportScreenshot(buffer, snapshot, captureParams) {
+  const viewport = snapshot?.viewport ?? snapshot?.state?.viewport;
+  if (!viewport || captureParams?.clip || captureParams?.captureBeyondViewport !== false) {
+    return { buffer, normalized: false };
+  }
+  const width = Math.round(Number(viewport.width || 0));
+  const height = Math.round(Number(viewport.height || 0));
+  if (width <= 0 || height <= 0) return { buffer, normalized: false };
+  const metadata = await sharp(buffer).metadata();
+  const sourceWidth = Number(metadata.width || 0);
+  const sourceHeight = Number(metadata.height || 0);
+  if (sourceWidth === width && sourceHeight === height) return { buffer, normalized: false };
+  const widthScale = sourceWidth / width;
+  const heightScale = sourceHeight / height;
+  if (
+    sourceWidth <= 0 || sourceHeight <= 0 ||
+    widthScale < 0.5 || widthScale > 4 ||
+    Math.abs(widthScale - heightScale) > 0.02
+  ) {
+    return { buffer, normalized: false, sourceWidth, sourceHeight };
+  }
+  return {
+    buffer: await sharp(buffer).resize(width, height, { fit: "fill", kernel: "lanczos3" }).png().toBuffer(),
+    normalized: true,
+    sourceWidth,
+    sourceHeight,
+    width,
+    height,
+    scale: (widthScale + heightScale) / 2
+  };
+}
+
 export function createObservationLog() {
   const observations = [];
   return {
@@ -89,14 +122,26 @@ export async function captureStableCdpScene({
   let finalFrame = null;
   let firstSnapshot = null;
   let finalSnapshot = null;
+  let firstNormalization = { normalized: false };
+  let finalNormalization = { normalized: false };
   let stable = false;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     firstSnapshot = await readSnapshot();
-    firstFrame = await capturePngScreenshot(client, captureParams, timeoutMs);
+    firstNormalization = await normalizeFullViewportScreenshot(
+      await capturePngScreenshot(client, captureParams, timeoutMs),
+      firstSnapshot,
+      captureParams
+    );
+    firstFrame = firstNormalization.buffer;
     await delay(settleMs);
     finalSnapshot = await readSnapshot();
-    finalFrame = await capturePngScreenshot(client, captureParams, timeoutMs);
+    finalNormalization = await normalizeFullViewportScreenshot(
+      await capturePngScreenshot(client, captureParams, timeoutMs),
+      finalSnapshot,
+      captureParams
+    );
+    finalFrame = finalNormalization.buffer;
     stable = stableSignature(firstSnapshot?.state ?? firstSnapshot) === stableSignature(finalSnapshot?.state ?? finalSnapshot);
     if (stable) break;
     await delay(settleMs);
@@ -140,7 +185,11 @@ export async function captureStableCdpScene({
     byteLength: finalFrame.length,
     sha256: sha256Bytes(finalFrame),
     firstFrameSha256: sha256Bytes(firstFrame),
-    finalFrameSha256: sha256Bytes(finalFrame)
+    finalFrameSha256: sha256Bytes(finalFrame),
+    normalization: {
+      first: { ...firstNormalization, buffer: undefined },
+      final: { ...finalNormalization, buffer: undefined }
+    }
   };
   const functionalOk = stateIssues.length === 0;
   const stateOk = stable;

@@ -5,6 +5,7 @@ let newApiMeInflight = null;
 
 function registerServerIpc({
   ipcMain,
+  accessPolicy,
   aidebugLogs,
   aidebugLiveImage,
   aidebugMode,
@@ -52,6 +53,13 @@ function registerServerIpc({
   });
 
   ipcMain.handle("naimage:server:configure-custom", async (_event, payload = {}) => {
+    if (accessPolicy?.customApiAccess === false) {
+      return {
+        ok: false,
+        errorCode: "CUSTOM_API_ACCESS_DISABLED",
+        error: "此发行版仅支持 SparkAPI 账号登录，不能配置其他 Base URL 或 API Key。"
+      };
+    }
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     try {
       const next = migrateSettings({
@@ -77,7 +85,7 @@ function registerServerIpc({
       } catch (error) {
         warning = error instanceof Error ? error.message : String(error);
         if (!next.agentModel && !next.imageModel) throw error;
-        modelSettings = modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool]), "settings", Date.now());
+        modelSettings = modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool, ...next.videoModelPool]), "settings", Date.now());
       }
       const license = await licenseService.verify();
       return {

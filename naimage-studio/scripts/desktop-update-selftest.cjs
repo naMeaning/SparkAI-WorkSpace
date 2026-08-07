@@ -8,6 +8,7 @@ const path = require("node:path");
 const { app } = require("electron");
 const { canonicalDesktopRelease } = require("../update-release.cjs");
 const packageMetadata = require("../package.json");
+const { ACCESS_VARIANT_DUAL, windowsInstallerArtifactName } = require("../runtime/access-variant.cjs");
 const packageVersion = packageMetadata.version;
 const futureReleaseVersion = "99.0.0";
 const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), "naimage-update-selftest-"));
@@ -49,7 +50,7 @@ try {
       size: 1024
     },
     installer: {
-      filename: `naimage-Setup-${futureReleaseVersion}-x64.exe`,
+      filename: windowsInstallerArtifactName(futureReleaseVersion, ACCESS_VARIANT_DUAL),
       sha256: "b".repeat(64),
       size: 2048
     }
@@ -134,7 +135,7 @@ try {
     ...release,
     version: packageVersion,
     restart: { ...release.restart, filename: `naimage-Restart-Update-${packageVersion}-x64.asar` },
-    installer: { ...release.installer, filename: `naimage-Setup-${packageVersion}-x64.exe` }
+    installer: { ...release.installer, filename: windowsInstallerArtifactName(packageVersion, ACCESS_VARIANT_DUAL) }
   };
   const replayedCurrent = main.verifyDesktopReleasePayload({
     ...replayedCurrentRelease,
@@ -224,7 +225,7 @@ try {
   assert.equal(failedStatus.error, "probe failure");
 
   const staleInstallerDir = path.join(temporaryRoot, "updates", packageVersion);
-  const staleInstallerPath = path.join(staleInstallerDir, `naimage-Setup-${packageVersion}-x64.exe`);
+  const staleInstallerPath = path.join(staleInstallerDir, windowsInstallerArtifactName(packageVersion, ACCESS_VARIANT_DUAL));
   const staleInstallerBytes = Buffer.from("already-installed-full-package", "utf8");
   mkdirSync(staleInstallerDir, { recursive: true });
   originalFs.writeFileSync(staleInstallerPath, staleInstallerBytes);

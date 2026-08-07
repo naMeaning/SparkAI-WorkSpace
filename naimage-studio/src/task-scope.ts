@@ -22,7 +22,17 @@ export function cloneAgentTaskScope(scope: AgentTaskScope): AgentTaskScope {
       ? {
           ...scope.goal,
           containerIds: [...scope.goal.containerIds],
-          bindingIds: [...scope.goal.bindingIds]
+          bindingIds: [...scope.goal.bindingIds],
+          commerceCatalogTargets: scope.goal.commerceCatalogTargets?.map((target) => ({
+            ...target,
+            ...(target.brandStyle ? {
+              brandStyle: {
+                ...target.brandStyle,
+                colors: [...target.brandStyle.colors],
+                references: target.brandStyle.references.map((reference) => ({ ...reference }))
+              }
+            } : {})
+          }))
         }
       : undefined
   };

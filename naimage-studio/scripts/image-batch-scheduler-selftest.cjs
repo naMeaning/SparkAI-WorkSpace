@@ -60,6 +60,41 @@ async function testProbeAndRamp() {
   assert.equal(results.every((result) => result.status === "fulfilled" && result.validated === true), true);
 }
 
+async function testDirectDispatchWithinLimitAndCompletionOrder() {
+  const batches = [];
+  const completed = [];
+  let active = 0;
+  let maximumActive = 0;
+  const { results, summary } = await runImageBatchScheduler({
+    items: [1, 2, 3],
+    batchSize: 3,
+    dispatchMode: "direct",
+    onBatchStart: (batch) => batches.push(batch),
+    runItem: async (item) => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      try {
+        await delay(item === 1 ? 12 : item === 2 ? 7 : 2);
+        return { ok: true, assets: [{ id: item }] };
+      } finally {
+        active -= 1;
+      }
+    },
+    validateResult: validateImageResult,
+    onItemSettled: (entry, _item, index) => completed.push({ index, status: entry.status })
+  });
+
+  assert.deepEqual(batches.map(({ phase, start, size, concurrency }) => ({ phase, start, size, concurrency })), [
+    { phase: "direct", start: 0, size: 3, concurrency: 3 }
+  ]);
+  assert.equal(maximumActive, 3, "A batch at or below the configured limit must start together");
+  assert.deepEqual(completed.map((item) => item.index), [2, 1, 0], "Item callbacks must preserve actual completion order");
+  assert.equal(results.every((entry) => entry.status === "fulfilled"), true);
+  assert.equal(summary.policy.dispatchMode, "direct");
+  assert.equal(summary.probe.targetSize, 0);
+  assert.equal(summary.maxConcurrentObserved, 3);
+}
+
 async function testProbeFailureStopsSpread() {
   const dispatched = [];
   const { results, summary } = await runImageBatchScheduler({
@@ -304,6 +339,7 @@ async function testRawProviderPromiseDelaysAdmission() {
 
 (async () => {
   await testProbeAndRamp();
+  await testDirectDispatchWithinLimitAndCompletionOrder();
   await testProbeFailureStopsSpread();
   await testFulfilledInvalidIsRejected();
   await testProtectedFailureOpensCircuit();

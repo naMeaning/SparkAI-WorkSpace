@@ -8,6 +8,7 @@ const COMMERCE_GENERATE_SET_COMMAND = "sparkai.commerce-toolkit.generate-listing
 const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
 
 const languageByCode = new Map(schema.languages.map((language) => [language.code, language]));
+const platformTemplateById = new Map(schema.platformTemplates.map((template) => [template.id, template]));
 
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -56,6 +57,34 @@ function normalizeTargetLocales(value) {
   return result;
 }
 
+function normalizeTranslationItems(value, targetLocales) {
+  const items = Array.isArray(value) ? value : [];
+  const localeOrder = normalizeTargetLocales(targetLocales);
+  const localeEntries = localeOrder.length ? localeOrder : schema.languages;
+  const allowedLocales = new Set(localeEntries.map((locale) => locale.code));
+  const localeIndex = new Map(localeEntries.map((locale, index) => [locale.code, index]));
+  const used = new Set();
+  const result = [];
+  for (const item of items) {
+    const source = record(item);
+    const sourceIndex = Number(source.sourceIndex);
+    const localeCode = cleanText(source.localeCode, 32);
+    const prompt = cleanText(source.prompt, schema.limits.maxTranslationItemPromptLength);
+    const key = `${sourceIndex}:${localeCode}`;
+    if (
+      !Number.isSafeInteger(sourceIndex) || sourceIndex < 0 || sourceIndex >= schema.limits.maxSourceCount ||
+      !allowedLocales.has(localeCode) || !prompt || used.has(key)
+    ) continue;
+    used.add(key);
+    result.push({ sourceIndex, localeCode, prompt });
+    if (result.length >= schema.limits.maxTotalRequests) break;
+  }
+  return result.sort((left, right) => (
+    left.sourceIndex - right.sourceIndex ||
+    (localeIndex.get(left.localeCode) ?? Number.MAX_SAFE_INTEGER) - (localeIndex.get(right.localeCode) ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
 function genericSlot(index) {
   return {
     id: `image-${index + 1}`,
@@ -64,19 +93,30 @@ function genericSlot(index) {
   };
 }
 
-function normalizeSlots(value, requestedCount) {
+function normalizePlatformTemplateId(value) {
+  const id = cleanText(value, 32).toLowerCase();
+  return platformTemplateById.has(id) ? id : schema.defaults.platformTemplateId;
+}
+
+function slotsForPlatform(value) {
+  const template = platformTemplateById.get(normalizePlatformTemplateId(value));
+  return Array.isArray(template?.slots) && template.slots.length ? template.slots : schema.defaultSlots;
+}
+
+function normalizeSlots(value, requestedCount, platformTemplateId = schema.defaults.platformTemplateId) {
   const items = Array.isArray(value) ? value : [];
-  const fallbackCount = items.length || schema.defaultSlots.length;
+  const templateSlots = slotsForPlatform(platformTemplateId);
+  const fallbackCount = items.length || templateSlots.length;
   const count = boundedInteger(
     requestedCount,
     schema.limits.minSlots,
     schema.limits.maxSlots,
-    boundedInteger(fallbackCount, schema.limits.minSlots, schema.limits.maxSlots, schema.defaultSlots.length)
+    boundedInteger(fallbackCount, schema.limits.minSlots, schema.limits.maxSlots, templateSlots.length)
   );
   const used = new Set();
   return Array.from({ length: count }, (_item, index) => {
     const source = record(items[index]);
-    const fallback = schema.defaultSlots[index] || genericSlot(index);
+    const fallback = templateSlots[index] || genericSlot(index);
     const baseId = normalizedSlotId(source.id, fallback.id);
     let id = baseId;
     let suffix = 2;
@@ -104,13 +144,18 @@ function normalizeCommerceSetPlan(value = {}) {
   const saveTarget = ["none", "requirement", "skill"].includes(source.saveTarget)
     ? source.saveTarget
     : schema.defaults.saveTarget;
+  const platformTemplateId = normalizePlatformTemplateId(source.platformTemplateId);
+  const slotCount = source.setSize ?? source.slotCount ?? (Array.isArray(source.slots) ? source.slots.length : undefined);
+  const targetLocales = normalizeTargetLocales(localeInput);
   return {
     schemaVersion: schema.schemaVersion,
     mode,
+    platformTemplateId,
     title,
-    slots: normalizeSlots(source.slots, source.setSize ?? source.slotCount),
-    targetLocales: normalizeTargetLocales(localeInput),
+    slots: normalizeSlots(source.slots, slotCount, platformTemplateId),
+    targetLocales,
     translatePrompt: cleanText(source.translatePrompt, schema.limits.maxTranslatePromptLength) || schema.defaults.translatePrompt,
+    translationItems: mode === "translate" ? normalizeTranslationItems(source.translationItems, targetLocales) : [],
     saveTarget,
     reusableName: cleanText(source.reusableName, schema.limits.maxPlanTitleLength) || title,
     executionPolicy: {
@@ -160,6 +205,43 @@ function canonicalJson(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+// This small deterministic digest is available in both Renderer and CJS. It
+// fingerprints the visible prompt material without changing the legacy
+// Node-based commerce-* plan identifier.
+function stableCommerceMaterialHash(value) {
+  const hashes = [2166136261, 2246822507, 3266489909, 668265263];
+  const text = String(value);
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    hashes[0] = Math.imul(hashes[0] ^ code, 16777619);
+    hashes[1] = Math.imul(hashes[1] ^ (code + index), 2246822519);
+    hashes[2] = Math.imul(hashes[2] ^ (code + hashes[0]), 3266489917);
+    hashes[3] = Math.imul(hashes[3] ^ (code + hashes[1]), 668265263);
+  }
+  return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
+function commerceSetPromptMaterial(plan, sourceNodeIds = []) {
+  const normalized = normalizeCommerceSetPlan(plan);
+  return {
+    version: 1,
+    sourceNodeIds: normalizeSourceNodeIds(sourceNodeIds),
+    plan: {
+      mode: normalized.mode,
+      platformTemplateId: normalized.platformTemplateId,
+      title: normalized.title,
+      slots: normalized.mode === "generate" ? normalized.slots : [],
+      targetLocales: normalized.targetLocales,
+      translatePrompt: normalized.mode === "translate" ? normalized.translatePrompt : "",
+      translationItems: normalized.mode === "translate" ? normalized.translationItems : []
+    }
+  };
+}
+
+function commerceSetPromptMaterialHash(plan, sourceNodeIds = []) {
+  return stableCommerceMaterialHash(canonicalJson(commerceSetPromptMaterial(plan, sourceNodeIds)));
 }
 
 function commerceSetPlanHash(plan, sourceNodeIds = []) {
@@ -213,8 +295,9 @@ function parseCommerceSetPromptPlan(value) {
     const source = record(JSON.parse(json));
     if (source.mode !== "generate" && source.mode !== "translate") return null;
     const mode = source.mode;
+    const platformTemplateId = normalizePlatformTemplateId(source.platformTemplateId);
     const rawSlots = Array.isArray(source.slots) ? source.slots : [];
-    const slots = mode === "generate" ? normalizeSlots(rawSlots, rawSlots.length) : [];
+    const slots = mode === "generate" ? normalizeSlots(rawSlots, rawSlots.length, platformTemplateId) : [];
     if (
       (mode === "generate" && (
         rawSlots.length < schema.limits.minSlots || rawSlots.length > schema.limits.maxSlots ||
@@ -246,27 +329,55 @@ function parseCommerceSetPromptPlan(value) {
     const planHash = cleanText(source.planHash, 48).toLowerCase();
     const rawSourceNodeIds = Array.isArray(source.sourceNodeIds) ? source.sourceNodeIds : [];
     const sourceNodeIds = rawSourceNodeIds.map((item) => cleanText(item, 160));
+    const hasMaterialHash = Object.prototype.hasOwnProperty.call(source, "planMaterialHash");
+    const planMaterialHash = cleanText(source.planMaterialHash, 64).toLowerCase();
+    const rawTranslationItems = Array.isArray(source.translationItems) ? source.translationItems : [];
+    const translationItems = mode === "translate"
+      ? normalizeTranslationItems(rawTranslationItems, targetLocales)
+      : [];
     if (
       source.schemaVersion !== schema.schemaVersion ||
+      ("platformTemplateId" in source && source.platformTemplateId !== platformTemplateId) ||
       source.planHash !== planHash || declaredPlanHashes[0][1] !== planHash ||
       !/^commerce-[a-f0-9]{32}$/.test(planHash) ||
       !Number.isSafeInteger(sourceCount) || sourceCount < 1 || sourceCount > schema.limits.maxSourceCount ||
       !Number.isSafeInteger(outputsPerSource) || outputsPerSource !== expectedOutputsPerSource || outputsPerSource < 1 || outputsPerSource > schema.limits.maxTotalRequests ||
       !Number.isSafeInteger(totalRequests) || totalRequests !== sourceCount * outputsPerSource || totalRequests > schema.limits.maxTotalRequests ||
       rawSourceNodeIds.some((item, index) => typeof item !== "string" || !sourceNodeIds[index] || item !== sourceNodeIds[index]) ||
-      new Set(sourceNodeIds).size !== sourceNodeIds.length || sourceNodeIds.length > sourceCount
+      new Set(sourceNodeIds).size !== sourceNodeIds.length || sourceNodeIds.length > sourceCount ||
+      (mode === "generate" && rawTranslationItems.length !== 0) ||
+      translationItems.length !== rawTranslationItems.length ||
+      translationItems.some((item, index) => {
+        const raw = record(rawTranslationItems[index]);
+        return raw.sourceIndex !== item.sourceIndex || raw.localeCode !== item.localeCode || raw.prompt !== item.prompt || item.sourceIndex >= sourceCount;
+      }) ||
+      (hasMaterialHash && (
+        !/^[a-f0-9]{32}$/.test(planMaterialHash) ||
+        planMaterialHash !== commerceSetPromptMaterialHash({
+          mode,
+          platformTemplateId,
+          title: cleanText(source.title, schema.limits.maxPlanTitleLength) || schema.defaults.planTitle,
+          slots,
+          targetLocales,
+          translatePrompt,
+          translationItems
+        }, sourceNodeIds)
+      ))
     ) return null;
     return {
       schemaVersion: schema.schemaVersion,
       planHash,
+      ...(hasMaterialHash ? { planMaterialHash } : {}),
       mode,
+      platformTemplateId,
       sourceCount,
       sourceNodeIds,
       outputsPerSource,
       totalRequests,
       slots,
       targetLocales,
-      translatePrompt
+      translatePrompt,
+      translationItems
     };
   } catch {
     return null;
@@ -295,6 +406,12 @@ function commerceSetPromptPlanItemMetadata(plan) {
 function localeLabel(code) {
   const language = languageByCode.get(code);
   return language ? `${language.label} / ${language.nativeLabel}` : code;
+}
+
+function commerceSetTranslationItemPrompt(plan, sourceIndex, localeCode) {
+  const items = Array.isArray(plan?.translationItems) ? plan.translationItems : [];
+  const match = items.find((item) => item?.sourceIndex === sourceIndex && item?.localeCode === localeCode);
+  return match ? cleanText(match.prompt, schema.limits.maxTranslationItemPromptLength) : "";
 }
 
 function commerceSetPrompt(planValue, sourceCountValue, sourceNodeIds = []) {
@@ -328,6 +445,7 @@ function commerceSetPrompt(planValue, sourceCountValue, sourceNodeIds = []) {
     schemaVersion: 1,
     planHash,
     mode: plan.mode,
+    platformTemplateId: plan.platformTemplateId,
     title: plan.title,
     sourceCount: counts.sourceCount,
     sourceNodeIds: normalizedSourceNodeIds,
@@ -341,6 +459,8 @@ function commerceSetPrompt(planValue, sourceCountValue, sourceNodeIds = []) {
       prompt: locale.prompt
     })),
     translatePrompt: plan.mode === "translate" ? plan.translatePrompt : "",
+    translationItems: plan.mode === "translate" ? plan.translationItems : [],
+    planMaterialHash: commerceSetPromptMaterialHash(plan, normalizedSourceNodeIds),
     executionPolicy: plan.executionPolicy
   };
   return [
@@ -381,7 +501,9 @@ module.exports = {
   COMMERCE_GENERATE_SET_COMMAND,
   COMMERCE_TRANSLATION_COMMAND,
   commerceSetPlanHash,
+  commerceSetPromptMaterialHash,
   commerceSetPromptPlanItemMetadata,
+  commerceSetTranslationItemPrompt,
   commerceSetPrompt,
   commerceSetRequestCounts,
   composeCommerceSetTask,

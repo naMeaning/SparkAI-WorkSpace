@@ -88,7 +88,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
                   ))}
                 </select>
               </Field>
-              <Field label="分辨率">
+              <Field label="清晰度">
                 <select value={draft.resolution} onChange={(event) => updateResolution(event.target.value)}>
                   {(resolutionOptions.length ? resolutionOptions : SIZE_PRESETS).map((option) => (
                     <option key={option.resolution} value={option.resolution}>{option.label}</option>
@@ -142,7 +142,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
               />
             </Field>
             <div className="manual-image-task-summary">
-              <span>{computedSizeFor(draft.ratio, draft.resolution)}</span>
+              <span>{draft.resolution} · {computedSizeFor(draft.ratio, draft.resolution)}</span>
               <span>{qualityLabel(draft.quality)}</span>
               <span>{draft.count > 1 ? `${draft.count} 张 · 按 Agent 设置分批` : "单张"}</span>
             </div>

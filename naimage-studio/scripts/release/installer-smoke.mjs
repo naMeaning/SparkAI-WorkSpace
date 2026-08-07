@@ -10,18 +10,26 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import { createRequire } from "node:module";
 import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "../..");
+const { ACCESS_POLICY_FILENAME, parseAccessPolicy, windowsInstallerArtifactName } = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const packageMetadata = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 const version = String(packageMetadata.version || "").trim();
+const accessPolicyPath = join(projectRoot, "dist", ACCESS_POLICY_FILENAME);
+const accessPolicy = existsSync(accessPolicyPath)
+  ? parseAccessPolicy(JSON.parse(readFileSync(accessPolicyPath, "utf8")))
+  : null;
+if (!accessPolicy) throw new Error(`Built access policy is required for installer smoke: ${accessPolicyPath}`);
 const installerArg = process.argv.find((item) => item.startsWith("--installer="));
 const installer = resolve(
   installerArg?.split("=").slice(1).join("=") ||
-  join(projectRoot, "release", `naimage-Setup-${version}-x64.exe`)
+  join(projectRoot, "release", windowsInstallerArtifactName(version, accessPolicy.variant))
 );
 const uninstallerSourceArg = process.argv.find((item) => item.startsWith("--uninstaller-source="));
 const uninstallerSource = uninstallerSourceArg
@@ -106,7 +114,7 @@ function sameWindowsPath(left, right) {
 }
 
 function shortcutPaths() {
-  const managedShortcutNames = new Set(["naimage.lnk", "iiimage studio.lnk"]);
+  const managedShortcutNames = new Set(["sparkai workspace.lnk", "naimage.lnk", "iiimage studio.lnk"]);
   const desktopRoots = uniqueExisting([
     join(homedir(), "Desktop"),
     join(homedir(), "OneDrive", "Desktop")

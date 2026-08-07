@@ -1,7 +1,312 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+export async function runImmediateContainerRedragRegression({ client, evaluate }) {
+  const setup = await evaluate(client, `(async () => {
+    const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const debug = window.__naimageAIDebug;
+    if (!debug?.seedCanvas || !debug?.nativeAssetDrop) return { ok: false, error: "AIDebug canvas helpers unavailable" };
+    await debug.runTool({ name: "workflow", input: { operation: "clear_canvas", brief: "Prepare immediate container redrag regression." } });
+    const seeded = await debug.seedCanvas({ count: 2, fileBacked: true });
+    const imageIds = (seeded?.state?.nodes || []).filter((node) => node.type === "image").slice(-2).map((node) => node.id);
+    if (imageIds.length !== 2) return { ok: false, error: "Unable to seed two image nodes", imageIds };
+    const grouped = await debug.nativeAssetDrop({ sourceNodeId: imageIds[1], targetContainerId: imageIds[0], assetIndex: 0 });
+    const fixtureCanvas = document.createElement("canvas");
+    fixtureCanvas.width = 96;
+    fixtureCanvas.height = 96;
+    const fixtureContext = fixtureCanvas.getContext("2d");
+    if (!fixtureContext) return { ok: false, error: "Unable to create dense fixture image" };
+    fixtureContext.fillStyle = "#1f2937";
+    fixtureContext.fillRect(0, 0, 96, 96);
+    fixtureContext.fillStyle = "#f59e0b";
+    fixtureContext.fillRect(12, 12, 72, 72);
+    fixtureContext.fillStyle = "#111827";
+    fixtureContext.font = "700 18px Segoe UI, sans-serif";
+    fixtureContext.textAlign = "center";
+    fixtureContext.textBaseline = "middle";
+    fixtureContext.fillText("AI", 48, 48);
+    const fixtureDataUrl = fixtureCanvas.toDataURL("image/png");
+    const denseNodeCount = 15;
+    const denseActions = Array.from({ length: denseNodeCount }, (_item, nodeIndex) => {
+      const assetCount = nodeIndex === 0 ? 11 : nodeIndex === 1 ? 6 : 1;
+      const nodeId = nodeIndex === 0 ? "dense-container-11" : nodeIndex === 1 ? "dense-container-6" : "dense-node-" + (nodeIndex + 1);
+      const assets = Array.from({ length: assetCount }, (_asset, assetIndex) => ({
+        id: nodeId + "-asset-" + (assetIndex + 1),
+        index: assetIndex + 1,
+        runId: nodeId + "-run",
+        title: "Dense fixture image " + (assetIndex + 1),
+        prompt: "AIDebug dense canvas fixture " + nodeId + " image " + (assetIndex + 1),
+        status: "done",
+        type: "url",
+        url: fixtureDataUrl,
+        assetUrl: fixtureDataUrl,
+        mimeType: "image/png",
+        width: 96,
+        height: 96
+      }));
+      const collectionItems = assets.map((asset, assetIndex) => ({
+        id: nodeId + "-item-" + (assetIndex + 1),
+        assetIndex: assetIndex + 1,
+        title: asset.title,
+        prompt: asset.prompt,
+        status: "done"
+      }));
+      return {
+        type: "workflow.node.create",
+        toolRunId: nodeId + "-run",
+        node: {
+          id: nodeId,
+          parentId: nodeIndex > 1 ? (nodeIndex === 2 ? imageIds[0] : "dense-node-" + nodeIndex) : "",
+          relationType: nodeIndex > 1 ? "derived-from" : undefined,
+          nodeType: "image",
+          title: assetCount > 1 ? assetCount + " image dense container" : "Dense fixture node " + (nodeIndex + 1),
+          prompt: "AIDebug controlled dense canvas fixture " + (nodeIndex + 1),
+          status: "done",
+          imageState: "done",
+          x: 120 + (nodeIndex % 5) * 520,
+          y: 120 + Math.floor(nodeIndex / 5) * 520,
+          width: assetCount > 1 ? (assetCount === 11 ? 420 : 360) : 260,
+          height: assetCount > 1 ? 410 : 260,
+          assets,
+          imageParams: { prompt: "AIDebug dense canvas fixture", count: assetCount, size: "1024x1024" },
+          imageProgress: { total: assetCount, completed: assetCount, failed: 0, failedSlots: [], retryCount: 0, maxRetries: 0, stopped: false, message: "AIDebug fixture ready" },
+          ...(assetCount > 1 ? {
+            imageCollection: {
+              id: nodeId + "-collection",
+              kind: "batch",
+              generationMode: "parallel",
+              createdAt: new Date().toISOString(),
+              items: collectionItems
+            }
+          } : {})
+        }
+      };
+    });
+    window.__naimageDebugApplyAgentActions?.(denseActions);
+    await delay(320);
+    await debug.fitCanvas();
+    await delay(260);
+    const state = window.__naimageDebugAgentState?.() || {};
+    const group = (state.layoutGroups || []).find((item) => item.hostNodeId === imageIds[0] && item.memberNodeIds?.includes(imageIds[1]));
+    const targetNodeId = "dense-container-11";
+    const node = document.querySelector('.flow-node.image-collection[data-node-id="' + targetNodeId + '"]');
+    const handle = node?.querySelector('.node-head');
+    const imageTile = node?.querySelector('.node-image-tile');
+    const nodeRect = node?.getBoundingClientRect();
+    const handleRect = handle?.getBoundingClientRect();
+    const imageTileRect = imageTile?.getBoundingClientRect();
+    const canvasRect = document.querySelector('.workflow-canvas')?.getBoundingClientRect();
+    const runtimeNode = state.nodes?.find((item) => item.id === targetNodeId);
+    return {
+      ok: Boolean(grouped?.ok && group && node && handle && imageTile && nodeRect && handleRect && imageTileRect && canvasRect && runtimeNode),
+      grouped,
+      imageIds,
+      targetNodeId,
+      group,
+      density: {
+        nodeCount: state.nodes?.length || 0,
+        imageNodeCount: state.nodes?.filter((item) => item.type === "image").length || 0,
+        multiAssetCounts: (state.nodes || []).map((item) => Number(item.assetCount || item.assets?.length || 0)).filter((count) => count > 1).sort((left, right) => right - left)
+      },
+      nodeRect: nodeRect ? { left: nodeRect.left, top: nodeRect.top, width: nodeRect.width, height: nodeRect.height } : null,
+      handleRect: handleRect ? { left: handleRect.left, top: handleRect.top, width: handleRect.width, height: handleRect.height } : null,
+      imageTileRect: imageTileRect ? { left: imageTileRect.left, top: imageTileRect.top, width: imageTileRect.width, height: imageTileRect.height } : null,
+      canvasRect: canvasRect ? { left: canvasRect.left, top: canvasRect.top, right: canvasRect.right, bottom: canvasRect.bottom } : null,
+      runtime: runtimeNode ? { x: runtimeNode.x, y: runtimeNode.y } : null,
+      viewport: state.viewport || null
+    };
+  })()`, 30_000);
+  if (!setup?.ok) return { ok: false, setup };
+
+  const startX = setup.handleRect.left + setup.handleRect.width / 2;
+  const startY = setup.handleRect.top + setup.handleRect.height / 2;
+  const firstDelta = { x: -72, y: 36 };
+  const secondDelta = { x: 46, y: 30 };
+  const firstEnd = { x: startX + firstDelta.x, y: startY + firstDelta.y };
+  const secondEnd = { x: firstEnd.x + secondDelta.x, y: firstEnd.y + secondDelta.y };
+
+  await evaluate(client, `(() => {
+    window.__naimageImmediateRedragCleanup?.();
+    const trace = [];
+    const handlers = [];
+    for (const type of ['dragstart', 'pointercancel']) {
+      const handler = (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        trace.push({
+          type,
+          targetNodeId: target?.closest?.('.flow-node')?.getAttribute('data-node-id') || '',
+          targetClass: typeof target?.className === 'string' ? target.className : '',
+          defaultPrevented: event.defaultPrevented
+        });
+      };
+      document.addEventListener(type, handler);
+      handlers.push([type, handler]);
+    }
+    window.__naimageImmediateRedragTrace = trace;
+    window.__naimageImmediateRedragCleanup = () => {
+      for (const [type, handler] of handlers) document.removeEventListener(type, handler);
+    };
+    return true;
+  })()`);
+
+  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: startX, y: startY, button: "none", buttons: 0 });
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: startX, y: startY, button: "left", buttons: 1, clickCount: 1 });
+  for (const progress of [0.35, 0.7, 1]) {
+    await client.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: startX + firstDelta.x * progress,
+      y: startY + firstDelta.y * progress,
+      button: "left",
+      buttons: 1
+    });
+    await delay(12);
+  }
+
+  const chainedAt = performance.now();
+  const firstRelease = client.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: firstEnd.x,
+    y: firstEnd.y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1
+  });
+  const secondPressQueuedAt = performance.now();
+  const secondPress = client.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x: firstEnd.x,
+    y: firstEnd.y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1
+  });
+  await Promise.all([firstRelease, secondPress]);
+  const secondPressProcessedAt = performance.now();
+
+  const afterSecondPress = await evaluate(client, `(() => {
+    const node = document.querySelector('.flow-node[data-node-id="${setup.targetNodeId}"]');
+    const rect = node?.getBoundingClientRect();
+    const style = node ? getComputedStyle(node) : null;
+    return {
+      exists: Boolean(node),
+      dragging: Boolean(node?.classList.contains('dragging')),
+      rect: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null,
+      transform: style?.transform || '',
+      animationName: style?.animationName || '',
+      animationDuration: style?.animationDuration || '',
+      transitionDuration: style?.transitionDuration || '',
+      hit: document.elementFromPoint(${firstEnd.x}, ${firstEnd.y})?.className || '',
+      viewerOpen: Boolean(document.querySelector('.image-viewer'))
+    };
+  })()`);
+
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x: secondEnd.x,
+    y: secondEnd.y,
+    button: "left",
+    buttons: 1
+  });
+  const afterSecondMove = await evaluate(client, `(() => {
+    const node = document.querySelector('.flow-node[data-node-id="${setup.targetNodeId}"]');
+    const rect = node?.getBoundingClientRect();
+    const style = node ? getComputedStyle(node) : null;
+    return {
+      dragging: Boolean(node?.classList.contains('dragging')),
+      rect: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null,
+      transform: style?.transform || '',
+      animationName: style?.animationName || '',
+      animationDuration: style?.animationDuration || '',
+      transitionDuration: style?.transitionDuration || '',
+      viewerOpen: Boolean(document.querySelector('.image-viewer'))
+    };
+  })()`);
+  await client.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x: secondEnd.x,
+    y: secondEnd.y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1
+  });
+  await delay(90);
+
+  const settled = await evaluate(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    const node = document.querySelector('.flow-node[data-node-id="${setup.targetNodeId}"]');
+    const runtimeNode = state.nodes?.find((item) => item.id === "${setup.targetNodeId}");
+    const rect = node?.getBoundingClientRect();
+    const style = node ? getComputedStyle(node) : null;
+    const eventTrace = [...(window.__naimageImmediateRedragTrace || [])];
+    window.__naimageImmediateRedragCleanup?.();
+    delete window.__naimageImmediateRedragCleanup;
+    delete window.__naimageImmediateRedragTrace;
+    return {
+      dragging: Boolean(node?.classList.contains('dragging')),
+      rect: rect ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null,
+      runtime: runtimeNode ? { x: runtimeNode.x, y: runtimeNode.y } : null,
+      transform: style?.transform || '',
+      animationName: style?.animationName || '',
+      runningAnimations: node?.getAnimations().filter((animation) => animation.playState === 'running').length || 0,
+      viewerOpen: Boolean(document.querySelector('.image-viewer')),
+      eventTrace,
+      state
+    };
+  })()`);
+
+  const secondMoveDelta = afterSecondPress?.rect && afterSecondMove?.rect
+    ? {
+        x: afterSecondMove.rect.left - afterSecondPress.rect.left,
+        y: afterSecondMove.rect.top - afterSecondPress.rect.top
+      }
+    : { x: 0, y: 0 };
+  const settledDelta = setup.nodeRect && settled?.rect
+    ? { x: settled.rect.left - setup.nodeRect.left, y: settled.rect.top - setup.nodeRect.top }
+    : { x: 0, y: 0 };
+  const checks = {
+    denseFixtureMatchesProjectShape: setup.density?.nodeCount >= 16 && setup.density?.imageNodeCount >= 16 && setup.density?.multiAssetCounts?.includes(11) && setup.density?.multiAssetCounts?.includes(6),
+    secondPressQueuedImmediately: secondPressQueuedAt - chainedAt < 5,
+    releaseAndPressProcessedWithoutPause: secondPressProcessedAt - chainedAt < 100,
+    secondPressEnteredDrag: afterSecondPress?.dragging === true,
+    secondMoveStayedInDrag: afterSecondMove?.dragging === true,
+    secondMovePaintedImmediately: Math.abs(secondMoveDelta.x - secondDelta.x) <= 3 && Math.abs(secondMoveDelta.y - secondDelta.y) <= 3,
+    combinedMoveCommitted: Math.abs(settledDelta.x - (firstDelta.x + secondDelta.x)) <= 4 && Math.abs(settledDelta.y - (firstDelta.y + secondDelta.y)) <= 4,
+    dragStateCleared: settled?.dragging === false,
+    noUnexpectedNativeAssetDrag: !settled?.eventTrace?.some((entry) => entry.type === 'dragstart' && !entry.defaultPrevented),
+    noPointerCancellation: !settled?.eventTrace?.some((entry) => entry.type === 'pointercancel'),
+    noBlockingAnimation: afterSecondPress?.animationName === 'none' && afterSecondMove?.animationName === 'none' && settled?.runningAnimations === 0,
+    viewerSuppressed: !afterSecondPress?.viewerOpen && !afterSecondMove?.viewerOpen && !settled?.viewerOpen
+  };
+  return {
+    ok: Object.values(checks).every(Boolean),
+    checks,
+    timings: {
+      releaseToSecondPressQueueMs: secondPressQueuedAt - chainedAt,
+      releaseAndPressRoundTripMs: secondPressProcessedAt - chainedAt
+    },
+    gesture: { start: { x: startX, y: startY }, firstEnd, secondEnd, firstDelta, secondDelta },
+    setup,
+    afterSecondPress,
+    afterSecondMove,
+    secondMoveDelta,
+    settled: { ...settled, state: undefined },
+    settledDelta,
+    state: settled?.state
+  };
+}
+
 export async function runCanvasLayoutMutationRegression({ client, evaluate, fixturePath, fixturePaths = [] }) {
-  return evaluate(
-    client,
-    `(async () => {
+  let immediateContainerRedrag;
+  try {
+    immediateContainerRedrag = await runImmediateContainerRedragRegression({ client, evaluate });
+  } catch (error) {
+    immediateContainerRedrag = { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+
+  let regression;
+  try {
+    regression = await evaluate(
+      client,
+      `(async () => {
       const delay = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const externalFixturePaths = ${JSON.stringify(fixturePaths.length ? fixturePaths : [fixturePath])};
       const state = () => window.__naimageDebugAgentState?.();
@@ -625,6 +930,16 @@ export async function runCanvasLayoutMutationRegression({ client, evaluate, fixt
         });
         await delay(420);
         const afterMove = state();
+        const targetElementAfterMove = document.querySelector('.flow-node[data-node-id="' + c + '"]');
+        const targetStyleAfterMove = targetElementAfterMove ? getComputedStyle(targetElementAfterMove) : null;
+        const directManipulationSettled = Boolean(
+          targetElementAfterMove &&
+          !targetElementAfterMove.classList.contains('active-build') &&
+          targetStyleAfterMove?.animationName === 'none' &&
+          targetStyleAfterMove.opacity === '1' &&
+          targetStyleAfterMove.filter === 'none' &&
+          targetElementAfterMove.getAnimations().every((animation) => animation.playState !== 'running')
+        );
         const sourceGroupRemoved = Boolean(sourceGroupBefore && !afterMove?.layoutGroups?.some((item) => item.id === sourceGroupBefore.id));
         const targetGroupAfter = afterMove?.layoutGroups?.find((item) => item.id === targetGroupBefore?.id && item.hostNodeId === c);
         const expectedTargetMemberIds = [c, a, d];
@@ -663,7 +978,7 @@ export async function runCanvasLayoutMutationRegression({ client, evaluate, fixt
           ok: Boolean(
             groupedAB?.ok && groupedAB?.layoutApplied && groupedCD?.ok && groupedCD?.layoutApplied &&
             moved?.ok && pointerGestureProven && sourceGroupRemoved && targetMemberOrderExact && formerSourceMemberExposed &&
-            moveUnique && dissolved && uniqueZOrders(afterDissolve?.nodes) && dissolveZOrderPreserved &&
+            directManipulationSettled && moveUnique && dissolved && uniqueZOrders(afterDissolve?.nodes) && dissolveZOrderPreserved &&
             dissolveAssetsPreserved && dissolveHostPositionPreserved && dissolveHostSizeRestored && dissolveOverlapPairs.length === 0 &&
             Number(afterDissolve?.nodes?.length || 0) === 4 && causalityPreserved(beforeCausality, afterDissolve?.nodes)
           ),
@@ -676,6 +991,7 @@ export async function runCanvasLayoutMutationRegression({ client, evaluate, fixt
           targetGroupBefore,
           sourceGroupRemoved,
           targetGroupAfter,
+          directManipulationSettled,
           expectedTargetMemberIds,
           targetMemberOrderExact,
           formerSourceMemberExposed,
@@ -697,7 +1013,21 @@ export async function runCanvasLayoutMutationRegression({ client, evaluate, fixt
       }
 
       return { ok: Object.values(results).every((item) => item?.ok === true), results, state: state() };
-    })()`,
-    180000
-  );
+      })()`,
+      240000
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      results: { immediateContainerRedrag },
+      state: immediateContainerRedrag.state
+    };
+  }
+  return {
+    ...regression,
+    ok: Boolean(regression?.ok && immediateContainerRedrag.ok),
+    results: { ...(regression?.results || {}), immediateContainerRedrag },
+    state: immediateContainerRedrag.state || regression?.state
+  };
 }

@@ -76,7 +76,7 @@ function imageNode(id, assets, extra = {}) {
 }
 
 async function run() {
-  assert.equal(projectIo.applicationName, "naimage");
+  assert.equal(projectIo.applicationName, "SparkAI WorkSpace");
   assert.equal(projectIo.applicationId, "org.sparkai.naimage");
   const legacyUserDataRoot = path.join(testRoot, "legacy-user-data");
   const canonicalUserDataRoot = path.join(testRoot, "canonical-user-data");
@@ -146,6 +146,63 @@ async function run() {
     () => projectIo.outputBucketDirForProjectId("missing-project", "imagegen"),
     /输出目标项目不存在或已被移除/,
   );
+  const videoProject = projectRecord("video-roundtrip");
+  const videoPath = path.join(videoProject.path, "output", "video", "imports", "seedance.mp4");
+  const videoBytes = Buffer.alloc(32);
+  videoBytes.writeUInt32BE(24, 0);
+  videoBytes.write("ftyp", 4, "ascii");
+  videoBytes.write("isom", 8, "ascii");
+  mkdirSync(path.dirname(videoPath), { recursive: true });
+  writeFileSync(videoPath, videoBytes);
+  const videoContentHash = createHash("sha256").update(videoBytes).digest("hex");
+  const savedVideoSession = projectIo.sessionForProjectSave({
+    nodes: [{
+      id: "VIDEO-1",
+      title: "Seedance video",
+      prompt: "Imported video result",
+      type: "video",
+      status: "done",
+      outputs: 1,
+      x: 80,
+      y: 120,
+      videoState: "ready",
+      videoModel: "doubao-seedance-2-0-260128",
+      videoAsset: {
+        assetId: `video-${videoContentHash.slice(0, 32)}`,
+        occurrenceId: `occ-${"a".repeat(32)}`,
+        contentHash: videoContentHash,
+        type: "file",
+        path: videoPath,
+        originalName: "seedance.mp4",
+        mimeType: "video/mp4",
+        width: 1280,
+        height: 720,
+        durationMs: 3200,
+      },
+    }],
+    messages: [],
+    conversations: [],
+  }, videoProject);
+  const savedVideoAsset = savedVideoSession.nodes[0].videoAsset;
+  assert.equal(savedVideoAsset.path, undefined, "Video session persistence must strip managed absolute paths");
+  assert.equal(savedVideoAsset.assetUrl, undefined, "Runtime-only video URLs must not be persisted");
+  assert.equal(savedVideoAsset.relativePath, "output/video/imports/seedance.mp4");
+  assert.equal(JSON.stringify(savedVideoSession).includes(videoProject.path), false);
+  writeJson(videoProject.sessionPath, savedVideoSession);
+  projectIo.writeProjectManifest(videoProject, savedVideoSession);
+  const videoManifest = projectIo.readProjectManifest(videoProject);
+  assert.equal(videoManifest.videos.length, 1);
+  assert.equal(videoManifest.videos[0].path, "output/video/imports/seedance.mp4");
+  assert.equal(videoManifest.videos[0].model, "doubao-seedance-2-0-260128");
+  const restoredVideoSession = projectIo.sessionWithProjectAssets(savedVideoSession, videoProject);
+  assert.equal(path.resolve(restoredVideoSession.nodes[0].videoAsset.path), path.resolve(videoPath));
+  assert.match(restoredVideoSession.nodes[0].videoAsset.assetUrl, /^naimage-asset:/);
+  assert.equal(restoredVideoSession.nodes[0].videoState, "ready");
+  assert.throws(
+    () => projectIo.packageProject(videoProject),
+    (error) => error?.code === "NAIMAGE_PROJECT_PACKAGE_VIDEO_UNSUPPORTED",
+    "The image-only portable package path must reject video projects explicitly",
+  );
   const activeAgentImageRoots = projectIo.agentImageRootsForContext({ projectId: outputProjectA.id });
   assert.deepEqual(
     new Set(activeAgentImageRoots.map((root) => path.resolve(root))),
@@ -161,6 +218,7 @@ async function run() {
     new Set(projectIo.projectAssetRepository.projectWritableAssetRoots(outputProjectA.path).map((root) => path.resolve(root))),
     new Set([
       path.join(outputProjectA.path, "output", "imagegen"),
+      path.join(outputProjectA.path, "output", "video"),
       path.join(outputProjectA.path, "assets"),
       path.join(outputProjectA.path, ".naimage", "assets"),
     ].map((root) => path.resolve(root))),
@@ -662,6 +720,24 @@ async function run() {
   writeFileSync(containerPathA, fixturePng(31));
   writeFileSync(containerPathB, fixturePng(32));
   const reusedLegacyId = "legacy-container-asset";
+  const persistedBrandStyle = {
+    version: 1,
+    enabled: true,
+    fontFamily: "Inter, Arial, sans-serif",
+    colors: ["#0b1f33", "#f4c430"],
+    logoUsage: "Keep the original logo artwork and proportions.",
+    productAppearance: "Keep geometry, finish, labels, and printed markings unchanged.",
+    visualStyle: "Clean premium product photography.",
+    references: [{
+      linkId: `material-${"b".repeat(32)}`,
+      assetId: reusedLegacyId,
+      contentHash: createHash("sha256").update(fixturePng(31)).digest("hex"),
+      nodeId: "A",
+      assetIndex: 0,
+      role: "logo",
+      purpose: "Trusted brand Logo reference."
+    }]
+  };
   const containerV3Session = projectIo.sessionForProjectSave({
     schemaVersion: 3,
     messages: [],
@@ -707,6 +783,18 @@ async function run() {
           commerceSlotId: "hero-image",
           commerceSlotIndex: 0,
           commerceLocaleCode: "en-US",
+          commerceCatalogTarget: {
+            bindingId: "binding:A:A:source-1",
+            catalogId: `catalog-${"6".repeat(32)}`,
+            catalogRevision: 9,
+            productId: `product-${"7".repeat(32)}`,
+            productRevision: 4,
+            ownerType: "sku",
+            ownerId: `sku-${"8".repeat(32)}`,
+            sourceLinkId: `material-${"9".repeat(32)}`,
+            brandStyle: persistedBrandStyle,
+          },
+          commerceResultKey: `commerce-result-${"a".repeat(32)}`,
         },
         imageCollection: {
           id: "batch-v3",
@@ -762,6 +850,18 @@ async function run() {
     commerceSlotId: "hero-image",
     commerceSlotIndex: 0,
     commerceLocaleCode: "en-US",
+    commerceCatalogTarget: {
+      bindingId: "binding:A:A:source-1",
+      catalogId: `catalog-${"6".repeat(32)}`,
+      catalogRevision: 9,
+      productId: `product-${"7".repeat(32)}`,
+      productRevision: 4,
+      ownerType: "sku",
+      ownerId: `sku-${"8".repeat(32)}`,
+      sourceLinkId: `material-${"9".repeat(32)}`,
+      brandStyle: persistedBrandStyle,
+    },
+    commerceResultKey: `commerce-result-${"a".repeat(32)}`,
   }, "Image task provenance must survive the save boundary");
   const maliciousRequirement = containerV3Session.nodes.find((node) => node.id === "REQ-MALICIOUS");
   assert.equal(maliciousRequirement?.type, "requirement");
@@ -777,6 +877,10 @@ async function run() {
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotId, "hero-image");
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotIndex, 0);
   assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceLocaleCode, "en-US");
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceCatalogTarget?.ownerId, `sku-${"8".repeat(32)}`);
+  assert.deepEqual(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceCatalogTarget?.brandStyle, persistedBrandStyle,
+    "Frozen brand constraints and references must survive session restart");
+  assert.equal(restoredContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceResultKey, `commerce-result-${"a".repeat(32)}`);
   const portableContainerV3 = projectIo.packageProject(containerV3Project);
   assert.equal(portableContainerV3.session.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.taskScopeSnapshotHash, `scope-${"3".repeat(32)}`);
   const portableContainerTarget = projectRecord("container-schema-v3-package-target");
@@ -785,6 +889,9 @@ async function run() {
   assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.sourceContainerId, "SUPER");
   assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.requirementNodeId, "REQ-1");
   assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceSlotId, "hero-image");
+  assert.equal(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceCatalogTarget?.catalogRevision, 9);
+  assert.deepEqual(importedContainerV3.nodes.find((node) => node.id === "BATCH")?.taskProvenance?.commerceCatalogTarget?.brandStyle, persistedBrandStyle,
+    "Portable project import must retain frozen brand constraints without adding local paths");
 
   const occurrenceProject = projectRecord("occurrence-roundtrip");
   const occurrencePath = path.join(occurrenceProject.path, "output", "imagegen", "imports", "shared.png");
@@ -986,6 +1093,61 @@ async function run() {
     "Message-only relative and absolute aliases must converge without a node record"
   );
 
+  const catalogOnlySource = projectRecord("catalog-only-source");
+  const catalogOnlyAssetPath = path.join(catalogOnlySource.path, "assets", "catalog-only.png");
+  mkdirSync(path.dirname(catalogOnlyAssetPath), { recursive: true });
+  writeFileSync(catalogOnlyAssetPath, fixturePng(7));
+  writeJson(catalogOnlySource.sessionPath, projectIo.sessionForProjectSave({
+    sessionRevision: 1,
+    nodes: [],
+    messages: [],
+    conversations: [],
+    activeConversationId: "catalog-only"
+  }, catalogOnlySource));
+  const catalogOnlyHash = createHash("sha256").update(readFileSync(catalogOnlyAssetPath)).digest("hex");
+  const catalogTimestamp = "2026-07-31T00:00:00.000Z";
+  writeJson(path.join(catalogOnlySource.path, ".naimage", "commerce-catalog.json"), {
+    schemaVersion: 1,
+    catalogId: "catalog-11111111111111111111111111111111",
+    revision: 1,
+    createdAt: catalogTimestamp,
+    updatedAt: catalogTimestamp,
+    products: [{
+      productId: "product-22222222222222222222222222222222",
+      title: "Catalog-only product",
+      platforms: ["amazon"],
+      status: "active",
+      revision: 1,
+      createdAt: catalogTimestamp,
+      updatedAt: catalogTimestamp,
+      variants: [],
+      skus: [],
+      assets: [{
+        linkId: "material-33333333333333333333333333333333",
+        kind: "master",
+        ownerType: "product",
+        ownerId: "product-22222222222222222222222222222222",
+        role: "primary",
+        assetId: "asset-catalog-only",
+        contentHash: catalogOnlyHash,
+        relativePath: "assets/catalog-only.png",
+        fileName: "catalog-only.png",
+        createdAt: catalogTimestamp
+      }]
+    }]
+  });
+  const catalogOnlyPackage = projectIo.packageProject(catalogOnlySource);
+  assert.equal(catalogOnlyPackage.version, 3);
+  assert.equal(catalogOnlyPackage.commerceCatalog.products[0].assets.length, 1);
+  assert.equal(catalogOnlyPackage.assets.filter((asset) => asset.assetId === "asset-catalog-only").length, 1);
+  const catalogOnlyTargetPath = path.join(testRoot, "catalog-only-target");
+  const catalogOnlyImported = projectIo.importProjectPackage(catalogOnlyPackage, catalogOnlyTargetPath);
+  const importedCatalogOnlyDocument = readJson(path.join(catalogOnlyTargetPath, ".naimage", "commerce-catalog.json"));
+  const importedCatalogOnlyLink = importedCatalogOnlyDocument.products[0].assets[0];
+  assert.equal(importedCatalogOnlyLink.contentHash, catalogOnlyHash);
+  assert.equal(importedCatalogOnlyLink.relativePath, "assets/catalog-only.png");
+  assert.equal(existsSync(path.join(catalogOnlyImported.record.path, importedCatalogOnlyLink.relativePath)), true);
+
   const packageSourceProject = projectRecord("package-identity-source");
   const packageNodePath = path.join(packageSourceProject.path, "output", "imagegen", "node-asset.png");
   const packageReferencePath = path.join(packageSourceProject.path, "assets", "reference-only.png");
@@ -1033,7 +1195,9 @@ async function run() {
   }, packageSourceProject));
   const packageData = projectIo.packageProject(packageSourceProject);
   assert.equal(packageData.format, "naimage-project-package");
-  assert.equal(packageData.version, 2);
+  assert.equal(packageData.version, 3);
+  assert.equal(packageData.commerceCatalog?.schemaVersion, 1);
+  assert.deepEqual(packageData.commerceCatalog?.products, []);
   assert.equal(JSON.stringify(packageData.session).includes(testRoot), false, "Portable project session must not leak absolute local paths");
   assert(packageData.assets.some((asset) => asset.assetId === "asset-node-a1" && asset.displayCode === "A1"));
   assert(packageData.assets.some((asset) => asset.assetId === "asset-reference-b1" && asset.attachment === true));
@@ -1224,6 +1388,9 @@ async function run() {
     occurrencePortablePackagePreserved: true,
     unsafeSourceRelativePathsRejected: true,
     emptySelectionPreserved: true,
+    videoRelativePersistencePreserved: true,
+    videoManifestAndRestartRecoveryPreserved: true,
+    videoPortablePackageBoundaryEnforced: true,
     projectAssetRepositoryOwner: PROJECT_ASSET_REPOSITORY_OWNER,
     projectAssetRepositoryFacadeUnique: true,
     projectPackageServiceOwner: PROJECT_PACKAGE_SERVICE_OWNER,

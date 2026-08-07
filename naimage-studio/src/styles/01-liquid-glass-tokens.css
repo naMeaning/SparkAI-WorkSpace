@@ -7,43 +7,43 @@
 -------------------------------------------------------------------------- */
 
 :root {
-  /* light-sky + Frosted are the no-script/default material values. */
-  --glass-rgb: 191, 227, 244;
-  --glass-alpha: 0.44;
-  --glass-blur: 28px;
-  --glass-saturation: 128%;
-  --glass-highlight: 0.7;
-  --glass-shadow: 0.18;
+  /* dark-ember + Frosted are the no-script/default material values. */
+  --glass-rgb: 54, 34, 22;
+  --glass-alpha: 0.22;
+  --glass-blur: 26px;
+  --glass-saturation: 138%;
+  --glass-highlight: 0.34;
+  --glass-shadow: 0.4;
   --glass-radius: 14px;
   --glass-noise-opacity: 0.025;
   --noise-opacity: var(--glass-noise-opacity);
 
-  --accent: #389bc9;
-  --accent-rgb: 56, 155, 201;
-  --accent-ink: #06293a;
+  --accent: #ff9867;
+  --accent-rgb: 255, 152, 103;
+  --accent-ink: #3c1707;
   --glass-accent-rose: #ff8eb8;
   --glass-accent-mint: #73e3af;
   --glass-accent-coral: #ff8b78;
   --glass-accent-amber: #f4bd67;
   --glass-accent-ice: #8bc9ee;
-  --secondary: #79cba8;
-  --secondary-rgb: 121, 203, 168;
-  --success: #278662;
-  --danger: #c4473d;
+  --secondary: #ffd36f;
+  --secondary-rgb: 255, 211, 111;
+  --success: #78ddb2;
+  --danger: #ff8477;
 
-  --glass-canvas: #e8f2f6;
-  --glass-canvas-tint: rgba(56, 154, 201, 0.075);
-  --glass-surface-solid: #f7fcfe;
-  --glass-surface-raised: #ffffff;
-  --glass-node-bg: rgba(248, 253, 255, 0.96);
-  --glass-ink: #203039;
-  --glass-ink-soft: #455d69;
-  --glass-muted: #5d7480;
-  --glass-line: rgba(43, 48, 45, 0.09);
-  --glass-line-strong: rgba(43, 48, 45, 0.16);
-  --glass-control-bg: rgba(255, 255, 255, 0.44);
-  --glass-control-hover: rgba(255, 255, 255, 0.68);
-  --glass-shadow-rgb: 47, 66, 73;
+  --glass-canvas: #110c08;
+  --glass-canvas-tint: rgba(220, 100, 38, 0.06);
+  --glass-surface-solid: #1d1712;
+  --glass-surface-raised: #2a2018;
+  --glass-node-bg: rgba(30, 23, 17, 0.96);
+  --glass-ink: #fff9f3;
+  --glass-ink-soft: #e2d0c0;
+  --glass-muted: #a18c79;
+  --glass-line: rgba(255, 255, 255, 0.1);
+  --glass-line-strong: rgba(255, 255, 255, 0.18);
+  --glass-control-bg: rgba(255, 255, 255, 0.065);
+  --glass-control-hover: rgba(255, 255, 255, 0.105);
+  --glass-shadow-rgb: 0, 0, 0;
 
   /* Registry-backed swatch triplets also provide a first-paint fallback before
      the persisted settings snapshot is projected onto the document root. */
@@ -56,6 +56,9 @@
   --glass-swatch-dark-emerald-canvas: #07100d;
   --glass-swatch-dark-emerald-accent: #73e3af;
   --glass-swatch-dark-emerald-surface: #0f402d;
+  --glass-swatch-light-silver-canvas: #dfe3e7;
+  --glass-swatch-light-silver-accent: #63798c;
+  --glass-swatch-light-silver-surface: #f4f6f8;
   --glass-swatch-light-lemon-canvas: #f4f1dd;
   --glass-swatch-light-lemon-accent: #d4a91e;
   --glass-swatch-light-lemon-surface: #fff8bc;
@@ -70,11 +73,18 @@
   --glass-surface-fill: rgba(var(--glass-rgb), var(--glass-alpha));
   --glass-surface-fill-strong: rgba(var(--glass-rgb), calc(var(--glass-alpha) + 0.08));
   --glass-fallback-bg: color-mix(in srgb, rgb(var(--glass-rgb)) 30%, var(--glass-surface-solid));
+  --glass-menu-surface: color-mix(in srgb, var(--glass-surface-solid) 88%, rgb(var(--glass-rgb)));
+  --glass-menu-edge: color-mix(in srgb, var(--glass-ink) 16%, transparent);
   --glass-edge-color: rgba(255, 255, 255, calc(0.18 + var(--glass-highlight) * 0.58));
   --glass-edge-color-soft: rgba(255, 255, 255, calc(0.08 + var(--glass-highlight) * 0.24));
   --glass-shadow-color: rgba(var(--glass-shadow-rgb), var(--glass-shadow));
   --glass-shadow-soft: rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.54));
   --glass-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  --glass-workspace-background-image: none;
+  --glass-background-mask: rgba(250, 252, 255, 0.36);
+  --glass-background-blur: 0px;
+  --glass-readable-surface-fill: rgba(var(--glass-rgb), 0.5);
+  --glass-readable-surface-fill-strong: rgba(var(--glass-rgb), 0.6);
 }
 
 /* Activate the bridge only for the new system. Existing stored themes remain
@@ -168,6 +178,24 @@
   --glass-ink: #f3fff9;
   --glass-ink-soft: #c3ded2;
   --glass-muted: #7fa092;
+}
+
+:root[data-glass-theme="light-silver"] {
+  color-scheme: light;
+  --glass-rgb: 213, 218, 224;
+  --accent: #63798c;
+  --accent-rgb: 99, 121, 140;
+  --accent-ink: #111c24;
+  --secondary: #9b7568;
+  --secondary-rgb: 155, 117, 104;
+  --glass-canvas: #dfe3e7;
+  --glass-canvas-tint: rgba(93, 109, 123, 0.07);
+  --glass-surface-solid: #f4f6f8;
+  --glass-surface-raised: #ffffff;
+  --glass-node-bg: rgba(245, 247, 249, 0.96);
+  --glass-ink: #252b31;
+  --glass-ink-soft: #46515b;
+  --glass-muted: #5f6b75;
 }
 
 :root[data-glass-theme="light-lemon"] {

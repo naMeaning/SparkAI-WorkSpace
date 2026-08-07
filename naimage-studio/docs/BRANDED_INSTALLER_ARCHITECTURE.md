@@ -1,8 +1,8 @@
-# naimage 品牌安装与卸载架构
+# SparkAI WorkSpace 品牌安装与卸载架构
 
 ## 交付目标
 
-Windows 用户从双击安装包到安装完成，全程只看到 naimage 自有界面；从“已安装的应用”、开始菜单或内部卸载入口发起卸载时，也只看到同一视觉体系。electron-builder 生成的旧式 MUI 向导不再作为公开界面。
+Windows 用户从双击安装包到安装完成，全程只看到 SparkAI WorkSpace 自有界面；从“已安装的应用”、开始菜单或内部卸载入口发起卸载时，也只看到同一视觉体系。electron-builder 生成的旧式 MUI 向导不再作为公开界面。
 
 ## 两层设计
 
@@ -17,7 +17,9 @@ Windows 用户从双击安装包到安装完成，全程只看到 naimage 自有
 
 界面采用与黄色 Logo 配套的浅暖黄背景、陶土橙强调色和正式 Windows 图标，并以“一键翻译多国语言套图、专属个性配置、跨境电商套图”为核心宣传。所有按钮、间距、文字层级和错误反馈来自同一个组件层，不依赖 Windows 默认向导控件。
 
-公开安装器与卸载器都以单一 EXE 运行，不依赖旁置 `.config` 文件。Windows 文件属性统一显示 `naimage`、`SparkAI` 和纯净的发布版本号，不把内部 Git 提交哈希暴露成用户可见产品版本；提交身份仍由 GitHub 版本记录和发布清单追踪。
+公开安装器与卸载器都以单一 EXE 运行，不依赖旁置 `.config` 文件。Windows 文件属性统一显示 `SparkAI WorkSpace`、`namean` 和纯净的发布版本号，不把内部 Git 提交哈希暴露成用户可见产品版本；提交身份仍由 GitHub 版本记录和发布清单追踪。
+
+真实交互安装在内核成功、文件校验完成且可选的应用启动已经交接后，短暂展示完成反馈并自动关闭品牌安装引导窗口，不要求用户再次点击“完成”。失败页继续保留错误与重试入口，取消路径按既有回滚语义退出；`--capture-page=complete` 只用于发布截图，不调度自动关闭。
 
 品牌壳以 920 × 620 设计坐标构建，并根据当前显示器可用工作区等比缩放；文字、图形与控件仍由 WPF 矢量渲染。这样在 1366 × 768 且 125%、150%、200% 缩放的环境下不会越出屏幕，也不会为了适配高 DPI 改回系统向导。
 
@@ -62,11 +64,11 @@ electron-builder/NSIS 继续负责成熟且高风险的系统操作：
 2. 让 electron-builder 构建包含品牌卸载器的 NSIS 核心包。
 3. 将核心包移入 `.release-tools/brand-installer/` 并计算 SHA-256。
 4. 发布品牌安装器，把核心包和哈希嵌入单一 EXE。
-5. 用品牌安装器覆盖 `release/naimage-Setup-<version>-x64.exe`。
+5. 根据已构建的接入策略，直接输出 `release/SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe` 或 `release/SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`。
 6. 删除只属于内部 NSIS 核心、与最终 EXE 不匹配的 blockmap。
 7. 清除当前版本的旧签名清单、安装包旁置元数据和旧重启 ASAR，强制 `release:manifest` 基于同一轮新产物重新生成；中断构建不会留下一个表面完整、实际哈希错位的发布目录。
 
-最终安装包仍兼容现有文件命名、下载清单和应用内大版本更新。小版本 ASAR 重启更新链路不受影响。
+electron-builder 的内部核心包使用 `naimage-Core-*`，构建完成后立即移入 `.release-tools/`，不会作为公开制品。公开文件名、双版本构建、下载清单和应用内完整更新共用同一接入策略命名 authority；安装后的 `naimage.exe`、App ID、数据目录和小版本 ASAR 重启更新继续保持升级兼容。
 
 `pnpm run release:manifest` 会分别记录完整安装包和重启更新 ASAR 的大小与 SHA-256，使用项目内发布私钥签署规范化清单，并立即用随客户端打包的 `build/update-public-key.pem` 反向验签。私钥与客户端公钥不匹配时发布会直接失败，不能生成一个客户端必然拒绝的更新清单。完成后同时生成 `SHA256SUMS.txt`，覆盖安装包、重启 ASAR、签名清单和安装包旁置元数据，供 GitHub Release 下载页与人工核验统一使用。
 
@@ -94,6 +96,8 @@ pnpm run package:installer-smoke
 编排开始前会写入 `release/.naimage-release-incomplete.json` 并清除当前版本旧 manifest、sidecar、Restart ASAR 与校验单。任一步失败、源工作树在执行期间变化或进程收到中断信号，都会再次撤销这些“完整发布”标志并保留失败标记；只有最后一项验签与 SHA 门禁通过才移除标记。更新 E2E 基线通过 `NAIMAGE_RELEASE_BASELINE_EXE` 指定，必须位于项目目录内、版本低于当前 RC，且包含 update helper；编排器会复制后再测试，不修改基线本体。
 
 UI 烟测会生成安装和卸载的欢迎/选项/进度/完成/错误页、危险数据清理确认页，并覆盖 100%、125%、150%、200% 渲染倍率；还会模拟 1366 × 768 工作区的 125%、150%、200% 高 DPI 布局。安装烟测会验证：
+
+- 真实成功分支短暂进入完成态后自动关闭安装引导窗口，同时完成页截图模式仍可稳定取证；
 
 - 中文与空格路径隔离安装；
 - 已安装版本的 UI 路径锁定，并拒绝命令行迁移到另一目录；

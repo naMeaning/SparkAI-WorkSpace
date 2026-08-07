@@ -25,6 +25,7 @@ import {
   goalModeAuthorizationFingerprint,
   publicGoalModePreview,
 } from "../src/goal-mode.ts";
+import type { CommerceCatalogDocument } from "../src/commerce-catalog.ts";
 
 const require = createRequire(import.meta.url);
 const { composeCommerceSetTask } = require("../runtime/commerce-set-plan.cjs") as {
@@ -99,6 +100,7 @@ const superContainer = container("SUPER", [], {
 const solo = container("SOLO", [asset("solo", 4, { occurrenceId: occurrence("d") })]);
 const referenceOnly = container("REFERENCE", [asset("reference", 5, {
   occurrenceId: occurrence("e"),
+  contentHash: "c".repeat(64),
   taskRole: "reference",
 })], { imageContainerRole: "reference" });
 const empty = container("EMPTY");
@@ -212,8 +214,6 @@ const commercePreview = createGoalModePreview({
   configuredConcurrency: 8,
   targetNodeIds: [childA.id, solo.id],
   operationsPerAsset: 3,
-  trialImagesRemaining: 2,
-  imageCostCents: 10,
 });
 assert.equal(commercePreview.assetCount, 3);
 assert.equal(commercePreview.operationsPerAsset, 3);
@@ -222,9 +222,9 @@ assert.equal(commercePreview.taskScope.goal?.operationsPerAsset, 3);
 assert.equal(commercePreview.taskScope.goal?.requestCount, 9);
 assert.equal(commercePreview.taskScope.goal?.commercePlanHash, undefined);
 assert.deepEqual(commercePreview.targetNodeIds, [childA.id, solo.id]);
-assert.equal(commercePreview.trialImagesUsed, 2);
-assert.equal(commercePreview.paidImages, 7);
-assert.equal(commercePreview.estimatedMaxCostCents, 70);
+assert.equal("trialImagesUsed" in commercePreview, false);
+assert.equal("paidImages" in commercePreview, false);
+assert.equal("estimatedMaxCostCents" in commercePreview, false);
 const changedCommerceOperations = createGoalModePreview({
   prompt: commercePreview.prompt,
   nodes: projectedNodes,
@@ -232,15 +232,13 @@ const changedCommerceOperations = createGoalModePreview({
   configuredConcurrency: 8,
   targetNodeIds: [childA.id, solo.id],
   operationsPerAsset: 2,
-  trialImagesRemaining: 2,
-  imageCostCents: 10,
 });
 assert.notEqual(
   goalModeAuthorizationFingerprint(commercePreview),
   goalModeAuthorizationFingerprint(changedCommerceOperations),
   "Changing operationsPerAsset must invalidate a Goal confirmation"
 );
-assert.notEqual(commercePreview.snapshotHash, changedCommerceOperations.snapshotHash, "The frozen fee matrix must be material to TaskScope snapshotHash");
+assert.notEqual(commercePreview.snapshotHash, changedCommerceOperations.snapshotHash, "The request matrix must be material to TaskScope snapshotHash");
 
 const trustedCommerceTask = composeCommerceSetTask({
   sourceCount: 3,
@@ -258,6 +256,197 @@ const trustedCommercePreview = createGoalModePreview({
 assert.equal(trustedCommercePreview.taskScope.goal?.commercePlanHash, trustedCommerceTask.planHash);
 assert.equal(trustedCommercePreview.taskScope.goal?.operationsPerAsset, 3);
 assert.equal(trustedCommercePreview.taskScope.goal?.requestCount, trustedCommerceTask.counts.totalRequests);
+const catalogTimestamp = "2026-07-31T00:00:00.000Z";
+const commerceCatalog: CommerceCatalogDocument = {
+  schemaVersion: 1,
+  catalogId: `catalog-${"1".repeat(32)}`,
+  revision: 8,
+  createdAt: catalogTimestamp,
+  updatedAt: catalogTimestamp,
+  products: [{
+    productId: `product-${"2".repeat(32)}`,
+    title: "Shared product",
+    brandStyle: {
+      version: 1,
+      enabled: true,
+      fontFamily: "Inter, Arial, sans-serif",
+      colors: ["#0b1f33", "#f4c430"],
+      logoUsage: "Keep the original logo artwork, wording, colors, and proportions.",
+      modelAppearance: "Use the same adult model identity across every listing image.",
+      productAppearance: "Keep geometry, finish, labels, and printed markings unchanged.",
+      visualStyle: "Clean premium product photography with restrained typography.",
+    },
+    platforms: ["amazon"],
+    status: "active",
+    revision: 4,
+    createdAt: catalogTimestamp,
+    updatedAt: catalogTimestamp,
+    variants: [],
+    skus: [{
+      skuId: `sku-${"3".repeat(32)}`,
+      skuCode: "SHARED-SKU",
+      platforms: ["amazon"],
+      revision: 1,
+      createdAt: catalogTimestamp,
+      updatedAt: catalogTimestamp,
+    }],
+    assets: [{
+      linkId: `material-${"4".repeat(32)}`,
+      kind: "master",
+      ownerType: "sku",
+      ownerId: `sku-${"3".repeat(32)}`,
+      role: "primary",
+      assetId: "shared-blob",
+      contentHash: "a".repeat(64),
+      relativePath: "assets/shared.png",
+      fileName: "shared.png",
+      createdAt: catalogTimestamp,
+    }, {
+      linkId: `material-${"a".repeat(32)}`,
+      kind: "brand",
+      ownerType: "product",
+      ownerId: `product-${"2".repeat(32)}`,
+      role: "logo",
+      assetId: "reference",
+      contentHash: "c".repeat(64),
+      relativePath: "assets/reference.png",
+      fileName: "reference.png",
+      nodeId: referenceOnly.id,
+      assetIndex: 0,
+      createdAt: catalogTimestamp,
+    }, {
+      linkId: `material-${"b".repeat(32)}`,
+      kind: "brand",
+      ownerType: "sku",
+      ownerId: `sku-${"3".repeat(32)}`,
+      role: "logo",
+      assetId: "reference",
+      contentHash: "c".repeat(64),
+      relativePath: "assets/reference.png",
+      fileName: "reference.png",
+      nodeId: referenceOnly.id,
+      assetIndex: 0,
+      createdAt: "2026-07-31T00:00:01.000Z",
+    }, {
+      linkId: `material-${"c".repeat(32)}`,
+      kind: "brand",
+      ownerType: "product",
+      ownerId: `product-${"2".repeat(32)}`,
+      role: "style-reference",
+      assetId: "reference",
+      contentHash: "c".repeat(64),
+      relativePath: "assets/reference.png",
+      fileName: "reference.png",
+      nodeId: referenceOnly.id,
+      assetIndex: 0,
+      createdAt: "2026-07-31T00:00:02.000Z",
+    }],
+  }, {
+    productId: `product-${"5".repeat(32)}`,
+    title: "Solo product",
+    platforms: ["aliexpress"],
+    status: "active",
+    revision: 2,
+    createdAt: catalogTimestamp,
+    updatedAt: catalogTimestamp,
+    variants: [],
+    skus: [],
+    assets: [{
+      linkId: `material-${"6".repeat(32)}`,
+      kind: "master",
+      ownerType: "product",
+      ownerId: `product-${"5".repeat(32)}`,
+      role: "primary",
+      assetId: "solo",
+      contentHash: "b".repeat(64),
+      relativePath: "assets/solo.png",
+      fileName: "solo.png",
+      createdAt: catalogTimestamp,
+    }],
+  }],
+};
+const catalogBoundPreview = createGoalModePreview({
+  prompt: trustedCommerceTask.prompt,
+  nodes: projectedNodes,
+  canvasRevision: 45,
+  configuredConcurrency: 8,
+  targetNodeIds: [childA.id, solo.id],
+  operationsPerAsset: trustedCommerceTask.counts.outputsPerSource,
+  commerceCatalog,
+});
+const catalogTargets = catalogBoundPreview.taskScope.goal?.commerceCatalogTargets ?? [];
+assert.equal(catalogTargets.length, 3, "Each SOURCE binding must inherit its own unambiguous Catalog destination");
+assert.deepEqual(catalogTargets.map((target) => target.bindingId), catalogBoundPreview.taskScope.goal?.bindingIds);
+assert.deepEqual(catalogTargets.map((target) => target.ownerType), ["sku", "sku", "product"]);
+assert.equal(catalogTargets[0].brandStyle?.fontFamily, "Inter, Arial, sans-serif");
+assert.deepEqual(catalogTargets.slice(0, 2).map((target) => target.brandStyle?.references.map((reference) => reference.role)), [
+  ["logo", "style-reference"],
+  ["logo", "style-reference"],
+]);
+assert.deepEqual(catalogTargets[0].brandStyle?.references.map((reference) => reference.linkId), [
+  `material-${"b".repeat(32)}`,
+  `material-${"c".repeat(32)}`,
+], "SKU-owned Logo must override the product Logo while product style references still inherit");
+assert.equal(catalogTargets[2].brandStyle, undefined, "A product without an enabled brand profile must not gain constraints from another product");
+assert.notEqual(catalogBoundPreview.snapshotHash, trustedCommercePreview.snapshotHash, "Catalog destinations must be material to the Goal TaskScope hash");
+const changedBrandCatalog = structuredClone(commerceCatalog);
+if (!changedBrandCatalog.products[0].brandStyle) throw new Error("Brand style fixture missing");
+changedBrandCatalog.products[0].brandStyle.colors = ["#334455"];
+const changedBrandPreview = createGoalModePreview({
+  prompt: trustedCommerceTask.prompt,
+  nodes: projectedNodes,
+  canvasRevision: 45,
+  configuredConcurrency: 8,
+  targetNodeIds: [childA.id, solo.id],
+  operationsPerAsset: trustedCommerceTask.counts.outputsPerSource,
+  commerceCatalog: changedBrandCatalog,
+});
+assert.notEqual(changedBrandPreview.snapshotHash, catalogBoundPreview.snapshotHash, "Brand constraints must be material to the frozen TaskScope hash");
+const clonedCatalogScope = cloneAgentTaskScope(catalogBoundPreview.taskScope);
+const clonedBrandStyle = clonedCatalogScope.goal?.commerceCatalogTargets?.[0]?.brandStyle;
+if (!clonedBrandStyle) throw new Error("Cloned brand style fixture missing");
+clonedBrandStyle.colors.push("#ffffff");
+clonedBrandStyle.references[0].purpose = "mutated clone";
+assert.deepEqual(catalogTargets[0].brandStyle?.colors, ["#0b1f33", "#f4c430"]);
+assert.notEqual(catalogTargets[0].brandStyle?.references[0].purpose, "mutated clone", "Brand references must be deep-cloned with TaskScope");
+const changedCatalogRevisionPreview = createGoalModePreview({
+  prompt: trustedCommerceTask.prompt,
+  nodes: projectedNodes,
+  canvasRevision: 45,
+  configuredConcurrency: 8,
+  targetNodeIds: [childA.id, solo.id],
+  operationsPerAsset: trustedCommerceTask.counts.outputsPerSource,
+  commerceCatalog: { ...commerceCatalog, revision: commerceCatalog.revision + 1 },
+});
+assert.notEqual(changedCatalogRevisionPreview.snapshotHash, catalogBoundPreview.snapshotHash, "Catalog revision changes must invalidate the frozen confirmation");
+const ambiguousCatalog = structuredClone(commerceCatalog);
+ambiguousCatalog.products[0].skus.push({
+  skuId: `sku-${"7".repeat(32)}`,
+  skuCode: "SHARED-SKU-2",
+  platforms: ["amazon"],
+  revision: 1,
+  createdAt: catalogTimestamp,
+  updatedAt: catalogTimestamp,
+});
+ambiguousCatalog.products[0].assets.push({
+  ...ambiguousCatalog.products[0].assets[0],
+  linkId: `material-${"8".repeat(32)}`,
+  ownerId: `sku-${"7".repeat(32)}`,
+});
+const ambiguousPreview = createGoalModePreview({
+  prompt: trustedCommerceTask.prompt,
+  nodes: projectedNodes,
+  canvasRevision: 45,
+  configuredConcurrency: 8,
+  targetNodeIds: [childA.id, solo.id],
+  operationsPerAsset: trustedCommerceTask.counts.outputsPerSource,
+  commerceCatalog: ambiguousCatalog,
+});
+assert.deepEqual(
+  ambiguousPreview.taskScope.goal?.commerceCatalogTargets?.map((target) => target.bindingId),
+  [ambiguousPreview.taskScope.goal?.bindingIds[2]],
+  "Ambiguous same-depth SKU ownership must be skipped instead of guessed",
+);
 assert.throws(
   () => createGoalModePreview({
     prompt: trustedCommerceTask.prompt,
@@ -356,6 +545,9 @@ const publicAuthorization = ledger.issue(authorizedPreview, confirmationContext)
 const publicPreview = publicGoalModePreview({ ...authorizedPreview, confirmationHash: publicAuthorization });
 assert.equal(publicPreview.snapshot.snapshotHash, publicAuthorization);
 assert.equal(publicPreview.snapshot.taskScopeSnapshotHash, authorizedPreview.snapshotHash);
+assert.equal("trialImagesUsed" in publicPreview, false);
+assert.equal("paidImages" in publicPreview, false);
+assert.equal("estimatedMaxCostCents" in publicPreview, false);
 let authorizedDispatches = 0;
 const firstAuthorization = ledger.issue(authorizedPreview, confirmationContext);
 assert.notEqual(firstAuthorization, publicAuthorization, "Every preview must receive a fresh bearer even for identical prompt/scope material");
@@ -396,31 +588,6 @@ assert.throws(
   "A Goal confirmation cannot cross the project boundary",
 );
 assert.equal(ledger.size(), 0);
-
-const changedCostPreview = createGoalModePreview({
-  prompt: authorizedPreview.prompt,
-  nodes: projectedNodes,
-  canvasRevision: 41,
-  configuredConcurrency: 8,
-  trialImagesRemaining: 0,
-  imageCostCents: 25,
-});
-const quotedPreview = createGoalModePreview({
-  prompt: authorizedPreview.prompt,
-  nodes: projectedNodes,
-  canvasRevision: 41,
-  configuredConcurrency: 8,
-  trialImagesRemaining: changedCostPreview.assetCount,
-  imageCostCents: 25,
-});
-assert.equal(changedCostPreview.snapshotHash, quotedPreview.snapshotHash);
-assert.notEqual(goalModeAuthorizationFingerprint(changedCostPreview), goalModeAuthorizationFingerprint(quotedPreview));
-const quoteAuthorization = ledger.issue(quotedPreview, confirmationContext);
-assert.throws(
-  () => ledger.consume(changedCostPreview, quoteAuthorization, confirmationContext),
-  /费用报价|变化/,
-  "A changed paid/trial quote must require a new confirmation",
-);
 
 let clock = 1_000;
 const ttlLedger = createGoalConfirmationLedger(4, {

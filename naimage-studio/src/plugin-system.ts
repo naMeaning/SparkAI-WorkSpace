@@ -1,13 +1,48 @@
 import builtinManifestData from "../plugins/builtin-manifests.json" with { type: "json" };
+import type { WorkspaceDomain } from "./core";
+import { workspaceDomainOwnsPlugin } from "./workspace-domain.ts";
 import {
+  canvasToolShortcutAria,
+  canvasToolShortcutForCommand,
+  canvasToolShortcutFromKeyboardEvent,
+  canvasToolShortcutLabel,
+  canvasToolShortcutsConflict,
+  DEFAULT_WORKSPACE_PLUGIN_IDS,
+  defaultWorkspacePluginStates,
+  defaultCanvasToolShortcut,
+  normalizeCanvasToolShortcut,
+  normalizeCanvasToolShortcuts,
   normalizePluginPermissions,
   normalizePluginStates,
+  WORKSPACE_PLUGIN_DEFAULTS_VERSION,
+  type CanvasToolShortcut,
+  type CanvasToolShortcutEvent,
+  type CanvasToolShortcuts,
   type PluginInstallationState,
   type PluginPermission
 } from "./plugin-state.ts";
 
-export { normalizePluginStates } from "./plugin-state.ts";
-export type { PluginInstallationState, PluginPermission } from "./plugin-state.ts";
+export {
+  canvasToolShortcutAria,
+  canvasToolShortcutForCommand,
+  canvasToolShortcutFromKeyboardEvent,
+  canvasToolShortcutLabel,
+  canvasToolShortcutsConflict,
+  DEFAULT_WORKSPACE_PLUGIN_IDS,
+  defaultWorkspacePluginStates,
+  defaultCanvasToolShortcut,
+  normalizeCanvasToolShortcut,
+  normalizeCanvasToolShortcuts,
+  normalizePluginStates,
+  WORKSPACE_PLUGIN_DEFAULTS_VERSION
+} from "./plugin-state.ts";
+export type {
+  CanvasToolShortcut,
+  CanvasToolShortcutEvent,
+  CanvasToolShortcuts,
+  PluginInstallationState,
+  PluginPermission
+} from "./plugin-state.ts";
 
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1 as const;
 
@@ -21,9 +56,10 @@ export type PluginToolbarContribution = {
   label: string;
   description: string;
   order: number;
-  icon: "images" | "languages" | "workflow" | "microscope";
-  shortcut?: `Mod+Shift+${number}`;
+  icon: "images" | "languages" | "workflow" | "microscope" | "boxes" | "package-check" | "book-marked" | "columns-2";
+  shortcut?: CanvasToolShortcut;
   when?: "canvas.has-image-selection";
+  availableDuringAgentRun?: boolean;
 };
 
 export type PluginManifest = {
@@ -40,7 +76,7 @@ export type PluginManifest = {
   };
 };
 
-export type ActivePluginToolbarItem = PluginToolbarContribution;
+export type ActivePluginToolbarItem = PluginToolbarContribution & { pluginId: string };
 
 function normalizeBuiltinManifest(value: unknown): PluginManifest {
   if (!value || typeof value !== "object") throw new Error("插件 manifest 必须是对象。");
@@ -67,13 +103,10 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
     const contribution = item && typeof item === "object" ? item as Record<string, unknown> : {};
     const command = String(contribution.command || "").trim();
     if (!commandIds.has(command)) throw new Error(`插件 ${id} 的工具栏引用了未声明命令 ${command || "<empty>"}。`);
-    const icon = ["images", "languages", "workflow", "microscope"].includes(String(contribution.icon))
+    const icon = ["images", "languages", "workflow", "microscope", "boxes", "package-check", "book-marked", "columns-2"].includes(String(contribution.icon))
       ? String(contribution.icon) as PluginToolbarContribution["icon"]
       : "workflow";
-    const shortcutValue = String(contribution.shortcut || "").trim();
-    const shortcut = /^Mod\+Shift\+[1-9]$/.test(shortcutValue)
-      ? shortcutValue as PluginToolbarContribution["shortcut"]
-      : undefined;
+    const shortcut = normalizeCanvasToolShortcut(contribution.shortcut);
     return {
       command,
       label: String(contribution.label || command).trim().slice(0, 40),
@@ -81,7 +114,8 @@ function normalizeBuiltinManifest(value: unknown): PluginManifest {
       order: Math.max(-10_000, Math.min(10_000, Math.round(Number(contribution.order) || 0))),
       icon,
       shortcut,
-      when: contribution.when === "canvas.has-image-selection" ? "canvas.has-image-selection" as const : undefined
+      when: contribution.when === "canvas.has-image-selection" ? "canvas.has-image-selection" as const : undefined,
+      availableDuringAgentRun: contribution.availableDuringAgentRun === true
     };
   });
   return {
@@ -130,17 +164,34 @@ export function uninstallBuiltinPlugin(states: unknown, pluginId: string): Plugi
   return normalizePluginStates(states).filter((state) => state.id !== pluginId);
 }
 
-export function activePluginToolbarItems(states: unknown, disabledCommands: unknown = []): ActivePluginToolbarItem[] {
+export function availablePluginToolbarItems(
+  states: unknown,
+  shortcutOverrides: unknown = {},
+  workspaceDomain?: WorkspaceDomain
+): ActivePluginToolbarItem[] {
   const stateById = new Map(normalizePluginStates(states).map((state) => [state.id, state]));
-  const disabled = new Set((Array.isArray(disabledCommands) ? disabledCommands : []).map((item) => String(item || "").trim()));
+  const shortcuts = normalizeCanvasToolShortcuts(shortcutOverrides);
   return builtinPluginManifests
     .flatMap((manifest) => {
       const state = stateById.get(manifest.id);
       const permissionComplete = Boolean(state && manifest.permissions.every((permission) => state.grantedPermissions.includes(permission)));
       if (!state?.enabled || !permissionComplete) return [];
-      return manifest.contributes.toolbar.filter((item) => !disabled.has(item.command));
+      return manifest.contributes.toolbar
+        .map((item) => ({ ...item, pluginId: manifest.id, shortcut: shortcuts[item.command] ?? item.shortcut }));
     })
+    .filter((item) => workspaceDomain === undefined || workspaceDomainOwnsPlugin(workspaceDomain, item.pluginId))
     .sort((left, right) => left.order - right.order || left.command.localeCompare(right.command));
+}
+
+export function activePluginToolbarItems(
+  states: unknown,
+  hiddenCommands: unknown = [],
+  shortcutOverrides: unknown = {},
+  workspaceDomain?: WorkspaceDomain
+): ActivePluginToolbarItem[] {
+  const hidden = new Set((Array.isArray(hiddenCommands) ? hiddenCommands : []).map((item) => String(item || "").trim()));
+  return availablePluginToolbarItems(states, shortcutOverrides, workspaceDomain)
+    .filter((item) => !hidden.has(item.command));
 }
 
 export type PluginCommandHandler = (payload?: unknown) => void | Promise<void>;
@@ -181,5 +232,20 @@ export const pluginPermissionLabels: Record<PluginPermission, string> = {
 
 export const COMMERCE_TRANSLATION_COMMAND = "sparkai.commerce-toolkit.translate-listing-set";
 export const COMMERCE_GENERATE_SET_COMMAND = "sparkai.commerce-toolkit.generate-listing-set";
+export const COMMERCE_SKU_LIBRARY_COMMAND = "sparkai.commerce-toolkit.open-sku-library";
+export const COMMERCE_EXPORT_CENTER_COMMAND = "sparkai.commerce-toolkit.open-export-center";
+export const COMMERCE_TEMPLATE_MARKET_COMMAND = "sparkai.commerce-toolkit.open-template-market";
+export const COMMERCE_AB_COMPARISON_COMMAND = "sparkai.commerce-toolkit.open-ab-comparison";
+export const SOCIAL_XIAOHONGSHU_COMMAND = "sparkai.social-content.new-xiaohongshu";
+export const SOCIAL_DOUYIN_COMMAND = "sparkai.social-content.new-douyin";
+export const SOCIAL_RECENT_COMMAND = "sparkai.social-content.open-recent";
+export const SOCIAL_TEMPLATE_COMMAND = "sparkai.social-content.open-templates";
+export const SOCIAL_EXPORT_COMMAND = "sparkai.social-content.open-publish-export";
 export const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
 export const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";
+export const SCIENTIFIC_FIGURE_IMPORT_COMMAND = "sparkai.scientific-figure.import-data";
+export const SCIENTIFIC_FIGURE_CHART_COMMAND = "sparkai.scientific-figure.new-chart";
+export const SCIENTIFIC_FIGURE_PANEL_COMMAND = "sparkai.scientific-figure.new-panel";
+export const SCIENTIFIC_FIGURE_SCHEMATIC_COMMAND = "sparkai.scientific-figure.new-schematic";
+export const SCIENTIFIC_FIGURE_RERENDER_COMMAND = "sparkai.scientific-figure.rerender";
+export const SCIENTIFIC_FIGURE_EXPORT_COMMAND = "sparkai.scientific-figure.export";

@@ -101,7 +101,7 @@ async function main() {
     height: innerHeight,
     nodeIntegrationHidden: typeof require === 'undefined' && typeof process === 'undefined'
   }))()`);
-  assert.equal(initial.title, "naimage Agent");
+  assert.equal(initial.title, "SparkAI WorkSpace Agent");
   assert.equal(initial.nodeIntegrationHidden, true);
   assert(initial.width >= 360 && initial.height >= 480);
   assert(initial.project, "Project identity must synchronize from the main renderer");

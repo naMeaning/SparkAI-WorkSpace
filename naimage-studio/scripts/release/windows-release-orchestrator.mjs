@@ -48,6 +48,7 @@ const defaultBaselineExe = version === "1.0.5" || existsSync(defaultLegacyBaseli
   : defaultCanonicalBaselineExe;
 const defaultSettingsPath = join(projectRoot, "config", "app-settings.json");
 const { canonicalDesktopRelease } = require(join(projectRoot, "update-release.cjs"));
+const { ACCESS_VARIANT_DUAL, windowsInstallerArtifactName } = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const canonicalDesktopReleaseProduct = "naimage-studio";
 let activeReleaseChild = null;
 
@@ -229,7 +230,7 @@ function assertWindowsExecutable(filePath, label) {
 }
 
 function releaseArtifactPaths(root = releaseDir, targetVersion = version) {
-  const installerName = `naimage-Setup-${targetVersion}-x64.exe`;
+  const installerName = windowsInstallerArtifactName(targetVersion, ACCESS_VARIANT_DUAL);
   const restartName = `naimage-Restart-Update-${targetVersion}-x64.asar`;
   return {
     installerName,

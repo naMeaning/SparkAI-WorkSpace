@@ -434,7 +434,7 @@ function createDesktopUpdaterService(options = {}) {
         persistedDesktopUpdateRollback = null;
         latestDesktopUpdateProgress = normalizeDesktopUpdateProgress({
           stage: "checked",
-          message: `已通过完整安装更新到 naimage ${currentDesktopVersion()}。`,
+          message: `已通过完整安装更新到 SparkAI WorkSpace ${currentDesktopVersion()}。`,
           version: recoveredVersion,
           kind: "installer",
           percent: 100,
@@ -504,7 +504,7 @@ function createDesktopUpdaterService(options = {}) {
         return normalizeDesktopUpdateProgress({
           ...progress,
           stage: "checked",
-          message: `已更新到 naimage ${currentDesktopVersion()}。`,
+          message: `已更新到 SparkAI WorkSpace ${currentDesktopVersion()}。`,
           percent: 100
         });
       }
@@ -516,7 +516,7 @@ function createDesktopUpdaterService(options = {}) {
     }
     if (progress.stage === "ready" && !pending) {
       return comparison !== null && comparison >= 0
-        ? normalizeDesktopUpdateProgress({ ...progress, stage: "checked", message: `已更新到 naimage ${currentDesktopVersion()}。`, percent: 100 })
+        ? normalizeDesktopUpdateProgress({ ...progress, stage: "checked", message: `已更新到 SparkAI WorkSpace ${currentDesktopVersion()}。`, percent: 100 })
         : normalizeDesktopUpdateProgress({ ...progress, stage: "error", message: "已下载的更新文件不可用，请重新下载。" });
     }
     return progress;
@@ -688,9 +688,9 @@ function createDesktopUpdaterService(options = {}) {
     publishDesktopUpdateProgress({
       stage: "checked",
       message: recovery && verified.updateAvailable
-        ? `已切换为 naimage ${verified.latestVersion} 完整安装恢复。`
+        ? `已切换为 SparkAI WorkSpace ${verified.latestVersion} 完整安装恢复。`
         : verified.updateAvailable
-          ? `发现 naimage ${verified.latestVersion}`
+          ? `发现 SparkAI WorkSpace ${verified.latestVersion}`
           : "当前已是最新版本。",
       version: verified.latestVersion,
       kind: verified.updateType === "restart" || verified.updateType === "installer" ? verified.updateType : undefined
@@ -1140,7 +1140,7 @@ function createDesktopUpdaterService(options = {}) {
     log(`restart update helper ready pid=${helperPid}`);
     launcher.unref();
     desktopUpdateHandoffAccepted = true;
-    publishDesktopUpdateProgress({ stage: "applying", message: "naimage 即将重启并完成更新…", version: pending.version, kind: pending.kind });
+    publishDesktopUpdateProgress({ stage: "applying", message: "SparkAI WorkSpace 即将重启并完成更新…", version: pending.version, kind: pending.kind });
     setTimeout(() => app.quit(), 180);
     return { ok: true, restarting: true, version: pending.version };
     });
@@ -1162,7 +1162,7 @@ function createDesktopUpdaterService(options = {}) {
       installer.unref();
       const shutdown = await shutdownApplicationServices();
       desktopUpdateHandoffAccepted = true;
-      publishDesktopUpdateProgress({ stage: "applying", message: "新版安装器已启动，naimage 正在安全退出…", version: pending.version, kind: pending.kind });
+      publishDesktopUpdateProgress({ stage: "applying", message: "新版安装器已启动，SparkAI WorkSpace 正在安全退出…", version: pending.version, kind: pending.kind });
       log(`desktop installer spawned pid=${installer.pid || 0} shutdownTimedOut=${shutdown?.timedOut === true}`);
       setTimeout(() => app.exit(0), 80);
       return { ok: true, launching: true, version: pending.version, installerPid: installer.pid || 0 };

@@ -1,5 +1,11 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+const runtimeArguments = new Set(process.argv);
+contextBridge.exposeInMainWorld("naimageRuntime", Object.freeze({
+  aidebugEnabled: runtimeArguments.has("--naimage-aidebug-enabled=1"),
+  isolatedConfig: runtimeArguments.has("--naimage-aidebug-isolated-config=1")
+}));
+
 contextBridge.exposeInMainWorld("naimageConfig", {
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
@@ -7,6 +13,37 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   getRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:get", payload),
   saveRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:save", payload),
   deleteRequirementLibraryEntry: (payload) => ipcRenderer.invoke("naimage:requirement-library:delete", payload),
+  listCommerceTemplates: () => ipcRenderer.invoke("naimage:commerce-template:list"),
+  getCommerceTemplate: (payload) => ipcRenderer.invoke("naimage:commerce-template:get", payload),
+  saveCommerceTemplate: (payload) => ipcRenderer.invoke("naimage:commerce-template:save", payload),
+  deleteCommerceTemplate: (payload) => ipcRenderer.invoke("naimage:commerce-template:delete", payload),
+  importCommerceTemplate: () => ipcRenderer.invoke("naimage:commerce-template:import"),
+  exportCommerceTemplate: (payload) => ipcRenderer.invoke("naimage:commerce-template:export", payload),
+  onCommerceTemplateChanged: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:commerce-template:changed", listener);
+    return () => ipcRenderer.removeListener("naimage:commerce-template:changed", listener);
+  },
+  listCommerceCatalog: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:list", payload),
+  saveCommerceCatalogProduct: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:save-product", payload),
+  archiveCommerceCatalogProduct: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:archive-product", payload),
+  assignCommerceCatalogAssets: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:assign-assets", payload),
+  removeCommerceCatalogAsset: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:remove-asset", payload),
+  updateCommerceCatalogResultState: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:update-result-state", payload),
+  listCommerceCatalogComparisons: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:list-comparisons", payload),
+  selectCommerceCatalogComparisonWinner: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:select-comparison", payload),
+  reconcileCommerceCatalogGoalResults: (payload) => ipcRenderer.invoke("naimage:commerce-catalog:reconcile-goal-results", payload),
+  previewCommerceExport: (payload) => ipcRenderer.invoke("naimage:commerce-export:preview", payload),
+  exportCommercePackage: (payload) => ipcRenderer.invoke("naimage:commerce-export:package", payload),
+  previewSocialExport: (payload) => ipcRenderer.invoke("naimage:social-export:preview", payload),
+  exportSocialPackage: (payload) => ipcRenderer.invoke("naimage:social-export:package", payload),
+  onCommerceCatalogChanged: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:commerce-catalog:changed", listener);
+    return () => ipcRenderer.removeListener("naimage:commerce-catalog:changed", listener);
+  },
   loadSession: (payload) => ipcRenderer.invoke("naimage:config:load-session", payload),
   saveSession: (session, options = {}) => ipcRenderer.invoke("naimage:config:save-session", session, options),
   newWindow: (payload) => ipcRenderer.invoke("naimage:window:new", payload),
@@ -25,12 +62,16 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   parseSkill: (payload) => ipcRenderer.invoke("naimage:project-skill:parse", payload),
   importThemePreset: () => ipcRenderer.invoke("naimage:theme:import"),
   exportThemePreset: (theme) => ipcRenderer.invoke("naimage:theme:export", theme),
+  pickGlassBackground: () => ipcRenderer.invoke("naimage:glass-background:pick"),
+  loadGlassBackground: (payload) => ipcRenderer.invoke("naimage:glass-background:load", payload),
+  clearGlassBackground: (payload) => ipcRenderer.invoke("naimage:glass-background:clear", payload),
   composePluginTask: (payload) => ipcRenderer.invoke("naimage:plugin:compose-task", payload),
   deleteProject: (payload) => ipcRenderer.invoke("naimage:project:delete", payload),
   deleteProjectFolder: (payload) => ipcRenderer.invoke("naimage:project:delete-folder", payload),
   pickReferenceImage: () => ipcRenderer.invoke("naimage:asset:pick-reference-image"),
   pickReferenceImages: (payload) => ipcRenderer.invoke("naimage:asset:pick-reference-images", payload),
   pickLocalImages: (payload) => ipcRenderer.invoke("naimage:asset:pick-local-images", payload),
+  pickLocalVideos: (payload) => ipcRenderer.invoke("naimage:asset:pick-local-videos", payload),
   pathForDroppedFile: (file) => webUtils.getPathForFile(file),
   readAssetDataUrl: (payload) => ipcRenderer.invoke("naimage:asset:read-data-url", payload),
   refineSemanticLayers: (payload) => ipcRenderer.invoke("naimage:asset:refine-semantic-layers", payload),
@@ -40,6 +81,7 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   cancelImageImports: () => ipcRenderer.invoke("naimage:asset:cancel-image-imports"),
   importLocalImage: (payload) => ipcRenderer.invoke("naimage:asset:import-local-image", payload),
   importLocalImages: (payload) => ipcRenderer.invoke("naimage:asset:import-local-images", payload),
+  importLocalVideos: (payload) => ipcRenderer.invoke("naimage:asset:import-local-videos", payload),
   saveOutputImage: (payload) => ipcRenderer.invoke("naimage:asset:save-output-image", payload),
   saveAssetAs: (payload) => ipcRenderer.invoke("naimage:asset:save-as", payload),
   exportAssetPsd: (payload) => ipcRenderer.invoke("naimage:asset:export-psd", payload),
@@ -54,6 +96,36 @@ contextBridge.exposeInMainWorld("naimageAgentIntegrations", {
   detect: () => ipcRenderer.invoke("naimage:integration:detect"),
   install: (payload) => ipcRenderer.invoke("naimage:integration:install", payload),
   remove: (payload) => ipcRenderer.invoke("naimage:integration:remove", payload)
+});
+
+contextBridge.exposeInMainWorld("naimageVideo", {
+  create: (payload) => ipcRenderer.invoke("naimage:video-task:create", payload),
+  list: (payload) => ipcRenderer.invoke("naimage:video-task:list", payload),
+  get: (payload) => ipcRenderer.invoke("naimage:video-task:get", payload),
+  poll: (payload) => ipcRenderer.invoke("naimage:video-task:poll", payload),
+  retryDownload: (payload) => ipcRenderer.invoke("naimage:video-task:retry-download", payload),
+  onChanged: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:video-task:changed", listener);
+    return () => ipcRenderer.removeListener("naimage:video-task:changed", listener);
+  }
+});
+
+contextBridge.exposeInMainWorld("naimageScientific", {
+  importData: (payload) => ipcRenderer.invoke("naimage:scientific:import-data", payload),
+  listData: (payload) => ipcRenderer.invoke("naimage:scientific:list-data", payload),
+  render: (payload) => ipcRenderer.invoke("naimage:scientific:render", payload),
+  list: (payload) => ipcRenderer.invoke("naimage:scientific:list", payload),
+  get: (payload) => ipcRenderer.invoke("naimage:scientific:get", payload),
+  cancel: (payload) => ipcRenderer.invoke("naimage:scientific:cancel", payload),
+  export: (payload) => ipcRenderer.invoke("naimage:scientific:export", payload),
+  onChanged: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("naimage:scientific:changed", listener);
+    return () => ipcRenderer.removeListener("naimage:scientific:changed", listener);
+  }
 });
 
 contextBridge.exposeInMainWorld("naimageAutomation", {

@@ -253,7 +253,7 @@ function requestPublicTarget(target, options = {}) {
     const requestOptions = {
       method: "GET",
       headers: {
-        accept: "image/png,image/jpeg,image/webp,*/*;q=0.1",
+        accept: String(options.accept || "image/png,image/jpeg,image/webp,*/*;q=0.1").slice(0, 512),
         "accept-encoding": "identity"
       },
       agent: false,
@@ -443,5 +443,6 @@ module.exports = {
   downloadPublicHttpBuffer,
   isPublicIpAddress,
   parsePublicHttpUrl,
+  requestPublicHttpTarget: requestPublicTarget,
   resolvePublicHttpTarget
 };

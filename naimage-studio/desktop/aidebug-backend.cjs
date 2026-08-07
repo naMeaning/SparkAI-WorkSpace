@@ -434,7 +434,7 @@ function createAidebugBackend({ enabled, log } = {}) {
       .replace("：", ":");
     let ratio = explicitRatio || (/3\s*[:：]\s*4|竖屏|竖版|海报|portrait/i.test(value) ? "3:4" : "1:1");
     if (continuation && parentId) ratio = aidebugImageNodeRatio(messages, parentId) || ratio;
-    const explicitResolution = value.match(/\b(720P|1080P|2K|4K)\b/i)?.[1]?.toUpperCase();
+    const explicitResolution = value.match(/\b(720P|1080P|1K|2K|4K)\b/i)?.[1]?.toUpperCase();
     const explicitQuality = value.match(/\bquality\s*[:=]\s*(low|medium|high|auto)\b/i)?.[1]?.toLowerCase();
     const memoryHint = aidebugPersistenceExperienceHint(messages, value);
     const compactSummaryHint = aidebugCompactSummaryHint(messages, value);

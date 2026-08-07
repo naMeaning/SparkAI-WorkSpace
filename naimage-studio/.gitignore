@@ -3,6 +3,7 @@ node_modules/
 /release/
 /.release-tools/
 /.diagnostics/
+/artifacts/
 /.dev-logs/
 /.launcher-build/
 /output/

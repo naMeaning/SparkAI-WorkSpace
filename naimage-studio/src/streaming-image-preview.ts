@@ -19,7 +19,7 @@ export function upsertStreamingImagePreviewState(
   const dataUrl = String(partial?.dataUrl || "");
   const normalizedOperationId = String(operationId || "").trim();
   if (!normalizedOperationId || !/^data:image\/[a-z0-9.+-]+;base64,/i.test(dataUrl)) return current;
-  const requestIndex = Math.max(1, Math.min(10, Math.floor(Number(partial?.requestIndex || 1) || 1)));
+  const requestIndex = Math.max(1, Math.min(200, Math.floor(Number(partial?.requestIndex || 1) || 1)));
   const key = `${normalizedOperationId}:${requestIndex}`;
   const existing = current[key];
   return {

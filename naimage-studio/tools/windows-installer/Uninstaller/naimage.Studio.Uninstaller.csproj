@@ -13,13 +13,13 @@
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
     <ApplicationIcon>../../../assets/windows/naimage.ico</ApplicationIcon>
-    <AssemblyName>naimage Uninstaller</AssemblyName>
+    <AssemblyName>SparkAI WorkSpace Uninstaller</AssemblyName>
     <RootNamespace>Naimage.WindowsInstaller</RootNamespace>
-    <Title>naimage Uninstaller</Title>
-    <Company>SparkAI</Company>
-    <Product>naimage</Product>
-    <Description>naimage 品牌卸载程序</Description>
-    <Copyright>Copyright © 2026 SparkAI</Copyright>
+    <Title>SparkAI WorkSpace Uninstaller</Title>
+    <Company>namean</Company>
+    <Product>SparkAI WorkSpace</Product>
+    <Description>SparkAI WorkSpace 透明玻璃卸载程序</Description>
+    <Copyright>Copyright © 2026 namean</Copyright>
     <NeutralLanguage>zh-CN</NeutralLanguage>
     <Version Condition="'$(ProductVersion)' != ''">$(ProductVersion)</Version>
     <FileVersion Condition="'$(ProductVersion)' != ''">$(ProductVersion).0</FileVersion>

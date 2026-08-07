@@ -27,7 +27,7 @@ function resolveCommandCwd(root, cwd) {
   const baseLower = base.toLowerCase();
   const requestedLower = requested.toLowerCase();
   if (requestedLower !== baseLower && !requestedLower.startsWith(`${baseLower}${path.sep}`)) {
-    return { ok: false, error: "cwd 必须位于当前 naimage 项目目录内。", cwd: base };
+    return { ok: false, error: "cwd 必须位于当前 SparkAI WorkSpace 项目目录内。", cwd: base };
   }
   if (!existsSync(requested)) return { ok: false, error: "cwd 不存在。", cwd: requested };
   return { ok: true, cwd: requested };
@@ -45,7 +45,7 @@ function resolveCommandPath(root, cwd, rawPath = ".") {
   const value = String(rawPath || ".").trim();
   if (!value || /[*?<>|"\n\r]/.test(value)) return { ok: false, error: "路径为空或包含不受控字符。" };
   const resolved = path.resolve(cwd, value);
-  if (!isInsidePath(root, resolved)) return { ok: false, error: "路径必须位于当前 naimage 项目目录内。" };
+  if (!isInsidePath(root, resolved)) return { ok: false, error: "路径必须位于当前 SparkAI WorkSpace 项目目录内。" };
   if (!existsSync(resolved)) return { ok: false, error: "路径不存在。" };
   return {
     ok: true,
@@ -182,7 +182,7 @@ async function executeControlledCommand(args = {}, root = "") {
   const cwdResult = resolveCommandCwd(root, args.workdir ?? args.cwd);
   if (!cwdResult.ok) {
     const text = `COMMAND 已拒绝。\ncommand: ${command}\nreason: ${cwdResult.error}\nallowed: ${commandAllowedList}`;
-    return { ok: false, summary: "Command rejected · cwd policy", text, error: cwdResult.error, errorCategory: "policy", retriable: false, advice: "把 cwd 限制在当前 naimage 项目目录内，或省略 cwd。" };
+    return { ok: false, summary: "Command rejected · cwd policy", text, error: cwdResult.error, errorCategory: "policy", retriable: false, advice: "把 cwd 限制在当前 SparkAI WorkSpace 项目目录内，或省略 cwd。" };
   }
   const plan = controlledCommandPlan(args.command, cwdResult.cwd, root);
   if (!plan.ok) {

@@ -115,7 +115,7 @@ async function waitForDebugTarget() {
         throw new Error(`Electron exited before its remote debugging endpoint became ready (code=${electronProcess.exitCode}, signal=${electronProcess.signalCode || "none"}).`);
       }
     },
-    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("naimage"))),
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("SparkAI WorkSpace"))),
     notFoundMessage: `No Electron renderer target found on port ${debugPort}.`
   });
 }
@@ -383,6 +383,7 @@ async function surfaceSnapshot(client, selector) {
     const bodyStyle = getComputedStyle(document.body);
     return {
       surface: surface.getAttribute('data-ui-surface') || '',
+      layerLevel: layer?.getAttribute('data-ui-layer-level') || '',
       role: surface.getAttribute('role') || '',
       ariaModal: surface.getAttribute('aria-modal') || '',
       ariaBusy: surface.getAttribute('aria-busy') || '',
@@ -654,7 +655,7 @@ async function main() {
       const refresh = drawer?.querySelector('button[aria-label="获取模型"]');
       const configButtons = Array.from(drawer?.querySelectorAll('.settings-model-config-action') || []);
       const cards = Array.from(drawer?.querySelectorAll('.settings-model-card') || []);
-      if (!drawer || !body || !refresh || configButtons.length !== 2 || cards.length !== 2) return null;
+      if (!drawer || !body || !refresh || configButtons.length < 2 || cards.length !== configButtons.length) return null;
       const drawerRect = drawer.getBoundingClientRect();
       const bodyRect = body.getBoundingClientRect();
       const rectOf = (element) => {
@@ -672,7 +673,7 @@ async function main() {
         actionRects,
         cardRects,
         actionsInside: actionRects.every((rect) => rect.left >= drawerRect.left - 1 && rect.right <= drawerRect.right + 1 && rect.top >= contentTop - 1 && rect.bottom <= contentBottom + 1),
-        cardsAligned: cardRects[0].left === cardRects[1].left && cardRects[0].right === cardRects[1].right && cardRects.every((rect) => rect.height >= 72)
+        cardsAligned: cardRects.length >= 2 && cardRects.every((rect) => rect.left === cardRects[0].left && rect.right === cardRects[0].right && rect.height >= 72)
       };
     })()`);
     await clickButton(client, "Agent", ".settings-drawer");
@@ -894,11 +895,24 @@ async function main() {
     check("long prompt marks surface dirty", compactSurface?.dirty === "true", compactSurface || {});
     await captureScreenshot(client, "02b-prompt-editor-884x640-long");
 
-    await pressKey(client, "Escape");
-    await waitForExpression(client, `document.querySelector('.agent-text-editor-body [data-ui-status="true"]')?.textContent?.includes('再次关闭')`);
+    await clickAria(client, "关闭编辑器");
+    await waitForExpression(client, `Boolean(document.querySelector('[data-ui-surface="agent-prompt-editor-unsaved"]'))`);
     const dirtyEscapeState = await surfaceSnapshot(client, '.agent-text-editor-dialog');
-    check("dirty Escape requires explicit second close", dirtyEscapeState?.dirty === "true", dirtyEscapeState || {});
+    const dirtyPromptChoice = await surfaceSnapshot(client, '[data-ui-surface="agent-prompt-editor-unsaved"]');
+    const dirtyPromptActions = await evaluate(client, `Array.from(document.querySelectorAll('[data-ui-surface="agent-prompt-editor-unsaved"] button')).map((button) => button.textContent?.replace(/\\s+/g, ' ').trim()).filter(Boolean)`);
+    check(
+      "dirty close button opens save discard continue prompt",
+      dirtyEscapeState?.dirty === "true" &&
+        dirtyPromptChoice?.layerLevel === "nested" &&
+        ["继续编辑", "放弃修改", "保存并关闭"].every((label) => dirtyPromptActions.includes(label)),
+      { editor: dirtyEscapeState, prompt: dirtyPromptChoice, actions: dirtyPromptActions }
+    );
     await pressKey(client, "Escape");
+    await waitForExpression(client, `!document.querySelector('[data-ui-surface="agent-prompt-editor-unsaved"]') && Boolean(document.querySelector('.agent-text-editor-dialog'))`);
+    check("Escape from save-choice prompt continues editing", Boolean(await surfaceSnapshot(client, '.agent-text-editor-dialog')));
+    await pressKey(client, "Escape");
+    await waitForExpression(client, `Boolean(document.querySelector('[data-ui-surface="agent-prompt-editor-unsaved"]'))`);
+    await clickButton(client, "放弃修改", '[data-ui-surface="agent-prompt-editor-unsaved"]');
     await waitForExpression(client, `!document.querySelector('.agent-text-editor-dialog')`);
     await waitForExpression(client, `(() => {
       const active = document.activeElement;
@@ -906,7 +920,7 @@ async function main() {
       return ['编辑提示词', '接入', '设置'].includes(label);
     })()`, 5_000);
     const dirtyPromptCloseFocus = await focusedControl(client);
-    check("dirty second Escape closes and restores nested drawer focus", ["编辑提示词", "接入", "设置"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
+    check("explicit discard closes and restores nested drawer focus", ["编辑提示词", "接入", "设置"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
 
     await openPromptEditor(client);
     const busySentinel = `AIDEBUG_BUSY_CLOSE_${Date.now()}`;
@@ -1561,10 +1575,10 @@ async function main() {
     await clickAria(client, "账户");
     await waitForExpression(client, `Boolean(document.querySelector('.account-drawer[data-ui-surface="account"]'))`);
     await clickButton(client, "退出登录", ".account-drawer");
-    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="naimage 访问配置"]'))`, 7000);
+    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="SparkAI WorkSpace 访问配置"]'))`, 7000);
     const logoutAuthLayout = await evaluate(client, `(() => {
       const shell = document.querySelector('.auth-shell');
-      const card = shell?.querySelector('.auth-card[aria-label="naimage 访问配置"]');
+      const card = shell?.querySelector('.auth-card[aria-label="SparkAI WorkSpace 访问配置"]');
       const form = card?.querySelector('.auth-gate-form');
       const inputs = Array.from(form?.querySelectorAll('input') || []);
       const submit = form?.querySelector('button[type="submit"]');
@@ -1580,7 +1594,7 @@ async function main() {
       const submitRect = submit.getBoundingClientRect();
       return {
         authShellCount: document.querySelectorAll('.auth-shell').length,
-        authCardCount: document.querySelectorAll('.auth-card[aria-label="naimage 访问配置"]').length,
+        authCardCount: document.querySelectorAll('.auth-card[aria-label="SparkAI WorkSpace 访问配置"]').length,
         ideShellCount: document.querySelectorAll('.ide-shell').length,
         drawerCount: document.querySelectorAll('.account-drawer, .settings-drawer').length,
         shellWithinViewport: shellRect.left >= -1 && shellRect.top >= -1 && shellRect.right <= window.innerWidth + 1 && shellRect.bottom <= window.innerHeight + 1,

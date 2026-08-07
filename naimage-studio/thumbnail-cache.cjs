@@ -18,6 +18,10 @@ const path = require("node:path");
 const DEFAULT_MAX_EDGE = 512;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_EDGE_LIMIT = 4096;
+const DEFAULT_MAX_CACHE_FILES = 96;
+const DEFAULT_MAX_CACHE_BYTES = 96 * 1024 * 1024;
+const DEFAULT_MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
 class ThumbnailCacheError extends Error {
   constructor(code, message, details) {
@@ -137,6 +141,7 @@ function createThumbnailCache(options = {}) {
     : DEFAULT_TIMEOUT_MS;
   const log = typeof options.log === "function" ? options.log : () => undefined;
   const inflight = new Map();
+  const lastPrunedAt = new Map();
   const activeChildren = new Set();
   const pendingJobs = [];
   let activeJobCount = 0;
@@ -150,7 +155,81 @@ function createThumbnailCache(options = {}) {
     errors: 0,
     recentErrors: [],
     maxActiveWorkers: 0,
+    pruneRuns: 0,
+    prunedFiles: 0,
+    prunedBytes: 0,
   };
+
+  function prune(payload = {}) {
+    if (closed) throw new ThumbnailCacheError("THUMBNAIL_CACHE_CLOSED", "缩略图缓存已经关闭。");
+    const cacheRoot = secureCacheRoot(payload.cacheRoot);
+    const maxFiles = Number.isSafeInteger(Number(payload.maxFiles))
+      ? Math.max(8, Math.min(2_000, Number(payload.maxFiles)))
+      : DEFAULT_MAX_CACHE_FILES;
+    const maxBytes = Number.isSafeInteger(Number(payload.maxBytes))
+      ? Math.max(8 * 1024 * 1024, Math.min(2 * 1024 * 1024 * 1024, Number(payload.maxBytes)))
+      : DEFAULT_MAX_CACHE_BYTES;
+    const maxAgeMs = Number.isSafeInteger(Number(payload.maxAgeMs))
+      ? Math.max(60_000, Math.min(365 * 24 * 60 * 60 * 1000, Number(payload.maxAgeMs)))
+      : DEFAULT_MAX_CACHE_AGE_MS;
+    const protectedPaths = new Set([
+      ...[...inflight.keys()].map((key) => comparablePath(path.join(cacheRoot, `${key}.webp`))),
+      ...(Array.isArray(payload.protectedPaths) ? payload.protectedPaths : []).map((value) => comparablePath(String(value || ""))),
+    ]);
+    const now = Date.now();
+    const files = [];
+    for (const entry of readdirSync(cacheRoot)) {
+      if (!entry.toLowerCase().endsWith(".webp")) continue;
+      const candidate = path.join(cacheRoot, entry);
+      try {
+        const stats = lstatSync(candidate);
+        if (!stats.isFile() || stats.isSymbolicLink()) continue;
+        const realCandidate = realpathSync(candidate);
+        if (!pathInside(realCandidate, cacheRoot) || comparablePath(path.dirname(realCandidate)) !== comparablePath(cacheRoot)) continue;
+        files.push({ path: realCandidate, size: Number(stats.size) || 0, mtimeMs: Number(stats.mtimeMs) || 0 });
+      } catch {
+        // A concurrent worker or cleanup may have already removed the entry.
+      }
+    }
+    files.sort((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
+    let retainedFiles = files.length;
+    let retainedBytes = files.reduce((total, item) => total + item.size, 0);
+    let prunedFiles = 0;
+    let prunedBytes = 0;
+    for (let index = files.length - 1; index >= 0; index -= 1) {
+      const file = files[index];
+      const expired = now - file.mtimeMs > maxAgeMs;
+      const overLimit = retainedFiles > maxFiles || retainedBytes > maxBytes;
+      if (!expired && !overLimit) continue;
+      if (protectedPaths.has(comparablePath(file.path))) continue;
+      try {
+        rmSync(file.path, { force: true });
+        retainedFiles -= 1;
+        retainedBytes = Math.max(0, retainedBytes - file.size);
+        prunedFiles += 1;
+        prunedBytes += file.size;
+      } catch {
+        // Cache cleanup is opportunistic; preview generation must still work.
+      }
+    }
+    counters.pruneRuns += 1;
+    counters.prunedFiles += prunedFiles;
+    counters.prunedBytes += prunedBytes;
+    lastPrunedAt.set(comparablePath(cacheRoot), now);
+    if (prunedFiles) log(`thumbnail cache pruned files=${prunedFiles} bytes=${prunedBytes} retained=${retainedFiles}`);
+    return { prunedFiles, prunedBytes, retainedFiles, retainedBytes, maxFiles, maxBytes, maxAgeMs };
+  }
+
+  function maybePrune(cacheRoot) {
+    const cacheKey = comparablePath(cacheRoot);
+    const previous = Number(lastPrunedAt.get(cacheKey) || 0);
+    if (Date.now() - previous < DEFAULT_PRUNE_INTERVAL_MS) return;
+    try {
+      prune({ cacheRoot });
+    } catch (error) {
+      log(`thumbnail cache prune skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   function recordError(error, key = "") {
     counters.errors += 1;
@@ -263,6 +342,7 @@ function createThumbnailCache(options = {}) {
         const stats = lstatSync(outputPath);
         counters.cacheHits += 1;
         log(`thumbnail cache hit key=${key}`);
+        maybePrune(cacheRoot);
         return { path: outputPath, cacheHit: true, bytes: stats.size };
       }
       if (existsSync(outputPath)) rmSync(outputPath, { force: true });
@@ -287,6 +367,7 @@ function createThumbnailCache(options = {}) {
         if (result.cacheHit === true) counters.cacheHits += 1;
         else counters.generated += 1;
         log(`thumbnail cache ready key=${key} hit=${result.cacheHit === true}`);
+        maybePrune(cacheRoot);
         return {
           path: outputPath,
           cacheHit: result.cacheHit === true,
@@ -330,6 +411,9 @@ function createThumbnailCache(options = {}) {
       errors: 0,
       recentErrors: [],
       maxActiveWorkers: activeChildren.size,
+      pruneRuns: 0,
+      prunedFiles: 0,
+      prunedBytes: 0,
     };
     return stats();
   }
@@ -346,11 +430,14 @@ function createThumbnailCache(options = {}) {
     inflight.clear();
   }
 
-  return { ensure, close, stats, resetStats };
+  return { ensure, prune, close, stats, resetStats };
 }
 
 module.exports = {
   createThumbnailCache,
   ThumbnailCacheError,
   DEFAULT_MAX_EDGE,
+  DEFAULT_MAX_CACHE_FILES,
+  DEFAULT_MAX_CACHE_BYTES,
+  DEFAULT_MAX_CACHE_AGE_MS,
 };

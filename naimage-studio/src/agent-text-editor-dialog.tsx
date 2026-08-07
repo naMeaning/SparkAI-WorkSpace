@@ -8,13 +8,13 @@ import {
   SurfaceBody,
   SurfaceFooter,
   SurfaceHeader,
+  UnsavedChangesDialog,
 } from "./ui";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 
 const CLOSE_BUTTON_REASON = "close-button" as const;
 const WHEN_IDLE = "when-idle" as const;
-const WHEN_IDLE_AND_CLEAN = "when-idle-and-clean" as const;
 
 function mergeConcurrentFastMemory(baseText: string, localText: string, remoteText: string) {
   const base = baseText.trim();
@@ -51,7 +51,7 @@ export default function AgentTextEditorDialog({
   const [loadedUpdatedAt, setLoadedUpdatedAt] = useState("");
   const [isDefault, setIsDefault] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [discardArmed, setDiscardArmed] = useState(false);
+  const [closePromptOpen, setClosePromptOpen] = useState(false);
   const dirty = draft !== savedText;
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function AgentTextEditorDialog({
       setMessage("");
       setMessageError(false);
       setConfirmReset(false);
-      setDiscardArmed(false);
+      setClosePromptOpen(false);
       try {
         if (!window.naimageAgent) throw new Error("Agent 配置服务未就绪。");
         const result = isPrompt
@@ -89,9 +89,9 @@ export default function AgentTextEditorDialog({
     };
   }, [conversationId, isPrompt, projectId]);
 
-  async function save() {
+  async function save(closeAfterSave = false): Promise<boolean> {
     const text = draft.trim();
-    if (!text || saving || !window.naimageAgent) return;
+    if (!text || saving || !window.naimageAgent) return false;
     setSaving(true);
     setMessage("");
     setMessageError(false);
@@ -114,7 +114,8 @@ export default function AgentTextEditorDialog({
           : "Agent 在编辑期间新增了记忆，新增内容已合并；请检查后再次保存。"
         );
         setMessageError(false);
-        return;
+        setClosePromptOpen(false);
+        return false;
       }
       if (!result.ok) throw new Error(result.error || (isPrompt ? "提示词保存失败。" : "Agent 记忆保存失败。"));
       const nextText = String(result.text ?? draft);
@@ -122,11 +123,15 @@ export default function AgentTextEditorDialog({
       setSavedText(nextText);
       if (!isPrompt) setLoadedUpdatedAt(String("updatedAt" in result ? result.updatedAt || "" : ""));
       setIsDefault(isPrompt && "isDefault" in result ? result.isDefault === true : false);
-      setDiscardArmed(false);
+      setClosePromptOpen(false);
       setMessage(isPrompt ? "提示词已保存，下一轮 Agent 请求开始生效。" : "当前会话的 Agent 记忆已保存。");
+      if (closeAfterSave) close();
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
       setMessageError(true);
+      setClosePromptOpen(false);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -165,7 +170,7 @@ export default function AgentTextEditorDialog({
       setIsDefault(isPrompt);
       if (!isPrompt) setLoadedUpdatedAt("");
       setConfirmReset(false);
-      setDiscardArmed(false);
+      setClosePromptOpen(false);
       setMessage(isPrompt ? "已恢复默认提示词。" : "已清空当前会话的 Agent 记忆。其他会话不受影响。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -186,39 +191,39 @@ export default function AgentTextEditorDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
-  function closeBlocked() {
-    if (saving) {
-      setMessage("正在保存，请稍候。");
-      setMessageError(false);
+  function requestEditorClose() {
+    if (loading || saving) return;
+    if (dirty) {
+      setClosePromptOpen(true);
       return;
     }
-    if (dirty && !discardArmed) {
-      setDiscardArmed(true);
-      setMessage("有未保存修改。再次关闭将放弃这些修改。");
-      setMessageError(true);
-    }
+    close();
+  }
+
+  function discardAndClose() {
+    setClosePromptOpen(false);
+    close();
   }
 
   return (
-    <DialogShell
-      surface={isPrompt ? "agent-prompt-editor" : "agent-memory-editor"}
-      ariaLabel={isPrompt ? "编辑 Agent 提示词" : "编辑 Agent 记忆"}
-      className="agent-text-editor-dialog"
-      layerClassName="agent-text-editor-layer"
-      layerLevel="nested"
-      busy={loading || saving}
-      dirty={dirty}
-      closePolicy={{
-        escape: discardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-        backdrop: discardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-        [CLOSE_BUTTON_REASON]: discardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-        action: discardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-      }}
-      onRequestClose={close}
-      onCloseBlocked={closeBlocked}
-    >
-      {({ requestClose }) => (
-        <>
+    <>
+      <DialogShell
+        surface={isPrompt ? "agent-prompt-editor" : "agent-memory-editor"}
+        ariaLabel={isPrompt ? "编辑 Agent 提示词" : "编辑 Agent 记忆"}
+        className="agent-text-editor-dialog"
+        layerClassName="agent-text-editor-layer"
+        layerLevel="nested"
+        busy={loading || saving}
+        dirty={dirty}
+        closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
+        onRequestClose={requestEditorClose}
+        onCloseBlocked={() => {
+          setMessage(loading ? "正在读取，请稍候。" : "正在保存，请稍候。");
+          setMessageError(false);
+        }}
+      >
+        {({ requestClose }) => (
+          <>
           <SurfaceHeader
             title={isPrompt ? "编辑 Agent 提示词" : "编辑 Agent 记忆"}
             onClose={() => requestClose(CLOSE_BUTTON_REASON)}
@@ -240,7 +245,7 @@ export default function AgentTextEditorDialog({
               onChange={(event) => {
                 setDraft(event.target.value.slice(0, maxChars));
                 setConfirmReset(false);
-                setDiscardArmed(false);
+                setClosePromptOpen(false);
                 setMessage("");
               }}
               maxLength={maxChars}
@@ -272,7 +277,7 @@ export default function AgentTextEditorDialog({
             }
           >
             <ActionButton onClick={() => requestClose("action")} disabled={loading || saving}>
-              {discardArmed && dirty ? "确认放弃" : "关闭"}
+              关闭
             </ActionButton>
             <ActionButton
               variant="primary"
@@ -284,8 +289,23 @@ export default function AgentTextEditorDialog({
               保存
             </ActionButton>
           </SurfaceFooter>
-        </>
-      )}
-    </DialogShell>
+          </>
+        )}
+      </DialogShell>
+      {closePromptOpen ? (
+        <UnsavedChangesDialog
+          surface={isPrompt ? "agent-prompt-editor-unsaved" : "agent-memory-editor-unsaved"}
+          ariaLabel={isPrompt ? "保存 Agent 提示词修改" : "保存 Agent 记忆修改"}
+          title={isPrompt ? "关闭前要保存提示词吗？" : "关闭前要保存 Agent 记忆吗？"}
+          description="当前编辑内容还没有保存。"
+          detail={<p>保存后，新内容会从下一次 Agent 请求开始生效；放弃不会影响已经保存的版本。</p>}
+          busy={saving}
+          onContinueEditing={() => setClosePromptOpen(false)}
+          onDiscard={discardAndClose}
+          onSave={() => void save(true)}
+          saveDisabled={!draft.trim()}
+        />
+      ) : null}
+    </>
   );
 }

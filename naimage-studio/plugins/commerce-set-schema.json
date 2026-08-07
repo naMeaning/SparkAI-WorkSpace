@@ -22,6 +22,7 @@
     "maxSlotTitleLength": 80,
     "maxSlotPromptLength": 2000,
     "maxLanguagePromptLength": 800,
+    "maxTranslationItemPromptLength": 600,
     "maxTranslatePromptLength": 2000,
     "maxTotalRequests": 200
   },
@@ -34,6 +35,7 @@
   },
   "defaults": {
     "mode": "generate",
+    "platformTemplateId": "general",
     "planTitle": "跨境电商商品套图",
     "translatePrompt": "只翻译真实可见文字；品牌、商标、型号、SKU、尺寸、数字、单位和法律标识默认保持原文。只做必要排版调整，不新增原图没有的卖点、认证、优惠或承诺。",
     "translationLanguageCodes": ["en-US", "de-DE", "fr-FR", "es-ES", "ja-JP"],
@@ -54,6 +56,102 @@
     { "code": "th-TH", "label": "泰语", "nativeLabel": "ไทย", "direction": "ltr", "prompt": "采用自然的泰语电商表达，保持品牌、数字和单位准确。" },
     { "code": "vi-VN", "label": "越南语", "nativeLabel": "Tiếng Việt", "direction": "ltr", "prompt": "采用自然的越南语电商表达，保持品牌、数字和单位准确。" },
     { "code": "id-ID", "label": "印度尼西亚语", "nativeLabel": "Bahasa Indonesia", "direction": "ltr", "prompt": "采用自然的印度尼西亚语电商表达，避免添加来源中没有的承诺。" }
+  ],
+  "platformTemplates": [
+    {
+      "id": "general",
+      "label": "通用电商",
+      "description": "兼容现有通用套图；使用 defaultSlots 作为默认槽位。"
+    },
+    {
+      "id": "amazon",
+      "label": "Amazon",
+      "description": "面向 Amazon 商品详情页的主图与完整辅图套图。",
+      "slots": [
+        {
+          "id": "amazon-main",
+          "title": "Amazon 主图",
+          "prompt": "采用正方形构图和纯白背景（RGB 255,255,255），仅展示实际售卖商品及来源中可确认的包装内物；主体居中并约占画面 85%，不添加边框、水印、促销文案、装饰道具或来源外配件。保持商品本身的 Logo、标签与外观准确。"
+        },
+        {
+          "id": "amazon-feature-overview",
+          "title": "核心特点",
+          "prompt": "制作信息层级清楚的 Amazon 辅图，突出来源中能够核对的核心特点；商品保持完整可辨，只使用真实可见或用户明确提供的事实，不添加排名、评分、认证、功效或对比结论。"
+        },
+        {
+          "id": "amazon-detail",
+          "title": "细节与材质",
+          "prompt": "用清晰特写展示来源中可见的结构、接口、纹理、工艺或材质，保留商品轮廓与比例参照；不得虚构内部结构、材质等级或未展示的功能。"
+        },
+        {
+          "id": "amazon-dimensions",
+          "title": "尺寸规格",
+          "prompt": "使用简洁易读的规格版式展示来源中已有的尺寸、容量、重量或参数；数字与单位必须逐项可核对，信息不足时保留版式空间而不编造数值。"
+        },
+        {
+          "id": "amazon-use-case",
+          "title": "使用场景",
+          "prompt": "把商品放入符合真实尺寸与用途的使用场景，主体仍清晰突出；场景只演示来源支持的使用方式，不暗示未经证实的性能、安全保证、医疗效果或适用人群。"
+        },
+        {
+          "id": "amazon-how-to-use",
+          "title": "使用步骤",
+          "prompt": "用连续、易扫读的画面说明来源中能够确认的安装、连接、操作或维护步骤；保持部件、方向与先后关系准确，不补造缺失步骤、配件或兼容型号。"
+        },
+        {
+          "id": "amazon-package-contents",
+          "title": "包装清单",
+          "prompt": "清楚排列实际商品、包装和来源中可确认的随附物，保持数量、颜色、型号与比例准确；不添加赠品、额外配件、服务承诺或包装中不存在的物品。"
+        }
+      ]
+    },
+    {
+      "id": "aliexpress",
+      "label": "速卖通",
+      "description": "面向速卖通商品详情页的首图与完整信息套图。",
+      "slots": [
+        {
+          "id": "aliexpress-cover",
+          "title": "速卖通首图",
+          "prompt": "采用正方形、主体居中的清洁首图构图，使用纯白或浅色中性背景并预留安全边距；保持商品、包装文字、Logo 和颜色准确，不添加水印、边框、促销角标、拼贴或来源外配件。"
+        },
+        {
+          "id": "aliexpress-angles",
+          "title": "结构与角度",
+          "prompt": "用来源中能够确认的角度展示商品整体结构与关键部位，保持各视图比例、颜色和部件一致；不虚构母图未提供的背面结构、内部构造或可拆部件。"
+        },
+        {
+          "id": "aliexpress-features",
+          "title": "核心特点",
+          "prompt": "以移动端易读的信息层级呈现来源中可验证的特点，文案简短且不遮挡商品；不添加销量、折扣、认证、功效、排名或与竞品的未经证实比较。"
+        },
+        {
+          "id": "aliexpress-detail",
+          "title": "细节与材质",
+          "prompt": "通过局部特写展示真实可见的纹理、接口、工艺和材质细节，并保留整体商品作为参照；不得推断材质等级、耐久性或来源中没有的功能。"
+        },
+        {
+          "id": "aliexpress-dimensions",
+          "title": "尺寸规格",
+          "prompt": "用清晰图示展示来源中已有的尺寸、重量、容量或技术参数，数字与单位必须准确；缺少数据时不生成虚假数值，只保留可复用的整洁版式。"
+        },
+        {
+          "id": "aliexpress-how-to-use",
+          "title": "使用步骤",
+          "prompt": "用移动端易扫读的连续画面说明当前商品在来源中能够确认的安装、连接、操作或维护步骤；保持部件、方向与顺序准确，不补造缺失步骤、配件或兼容型号。"
+        },
+        {
+          "id": "aliexpress-use-case",
+          "title": "使用场景",
+          "prompt": "在符合真实比例的生活或工作场景中展示商品用途，构图适合移动端快速浏览；仅演示来源支持的使用方式，不夸大效果或扩展适用范围。"
+        },
+        {
+          "id": "aliexpress-package-contents",
+          "title": "包装与清单",
+          "prompt": "清晰展示来源中能够确认的商品主体、包装和随附物，并准确对应数量、型号和颜色；不添加赠品、配件、物流承诺、售后承诺或优惠信息。"
+        }
+      ]
+    }
   ],
   "defaultSlots": [
     {

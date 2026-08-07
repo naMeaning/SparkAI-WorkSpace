@@ -55,7 +55,7 @@ export default function PluginSettingsPanel({ states, onChange }: {
           </article>
         );
       })}
-      <InlineNotice tone="neutral">当前只允许 SparkAI 随应用签名发布的声明式插件。插件不能注入任意脚本，也不能直接写项目 session；所有命令执行前都会再次检查启用状态和授权。</InlineNotice>
+      <InlineNotice tone="neutral">当前只允许随 SparkAI WorkSpace 应用签名发布的声明式插件。插件不能注入任意脚本，也不能直接写项目 session；所有命令执行前都会再次检查启用状态和授权。</InlineNotice>
     </div>
   );
 }

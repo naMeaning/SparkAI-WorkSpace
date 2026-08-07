@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "limits": {
+    "maxBriefLength": 4000,
+    "maxAudienceLength": 500,
+    "maxObjectiveLength": 1000,
+    "maxTitleLength": 120,
+    "maxBodyLength": 12000,
+    "maxPromptLength": 4000,
+    "maxTags": 20,
+    "maxTagLength": 40,
+    "maxTitleCandidates": 5,
+    "minXiaohongshuCards": 6,
+    "maxXiaohongshuCards": 9,
+    "minDouyinShots": 5,
+    "maxDouyinShots": 8
+  },
+  "xiaohongshu": {
+    "defaultContentKind": "experience-share",
+    "contentKinds": [
+      { "id": "product-seeding", "label": "商品种草" },
+      { "id": "tutorial", "label": "使用教程" },
+      { "id": "comparison", "label": "对比测评" },
+      { "id": "knowledge", "label": "知识科普" },
+      { "id": "list", "label": "清单合集" },
+      { "id": "experience-share", "label": "经验分享" },
+      { "id": "travel", "label": "探店 / 旅行" }
+    ],
+    "ratios": ["3:4", "4:5", "1:1"],
+    "defaultRatio": "3:4",
+    "defaultCardCount": 7,
+    "defaultTitleCandidateCount": 3,
+    "defaultCoverEnabled": true
+  },
+  "douyin": {
+    "defaultFormat": "voiceover-assets",
+    "formats": [
+      { "id": "image-to-video", "label": "图片转视频" },
+      { "id": "product-showcase", "label": "商品展示" },
+      { "id": "voiceover-assets", "label": "口播加素材" },
+      { "id": "knowledge", "label": "知识讲解" },
+      { "id": "experience-share", "label": "经验分享" }
+    ],
+    "durations": [15, 30, 60],
+    "defaultDuration": 30,
+    "defaultRatio": "9:16",
+    "defaultShotCount": 6,
+    "defaultSubtitlesEnabled": true
+  }
+}

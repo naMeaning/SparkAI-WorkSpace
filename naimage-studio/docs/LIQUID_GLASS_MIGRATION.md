@@ -1,4 +1,4 @@
-# naimage Transparent Glass Migration
+# SparkAI WorkSpace Transparent Glass Migration
 
 ## Scope and source of truth
 

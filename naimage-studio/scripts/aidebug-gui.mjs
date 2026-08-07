@@ -101,6 +101,7 @@ const {
   persistenceSentinel,
   persistenceStateFile,
   aidebugConfigDir,
+  aidebugIsolationRoot,
   nativeCaptureMode,
   captureScope,
   cycles,
@@ -386,7 +387,8 @@ async function runContextPersistenceSupervisor() {
       !item.startsWith("--persistence-stage=") &&
       !item.startsWith("--persistence-sentinel=") &&
       !item.startsWith("--persistence-state-file=") &&
-      !item.startsWith("--aidebug-config-dir=")
+      !item.startsWith("--aidebug-config-dir=") &&
+      !item.startsWith("--aidebug-isolation-root=")
     );
   const stages = ["write", "read"];
   const results = [];
@@ -399,6 +401,7 @@ async function runContextPersistenceSupervisor() {
       `--persistence-sentinel=${sentinel}`,
       `--persistence-state-file=${stateFile}`,
       `--aidebug-config-dir=${sharedConfigDir}`,
+      `--aidebug-isolation-root=${runDir}`,
       "--cycles=1",
       `--cycle-index=${index + 1}`,
       `--cycle-total=${stages.length}`
@@ -447,7 +450,8 @@ async function runImageCollectionPersistenceSupervisor() {
       !item.startsWith("--cycle-total=") &&
       !item.startsWith("--persistence-stage=") &&
       !item.startsWith("--persistence-state-file=") &&
-      !item.startsWith("--aidebug-config-dir=")
+      !item.startsWith("--aidebug-config-dir=") &&
+      !item.startsWith("--aidebug-isolation-root=")
     );
   const stages = ["write", "read"];
   const results = [];
@@ -459,6 +463,7 @@ async function runImageCollectionPersistenceSupervisor() {
       `--persistence-stage=${stage}`,
       `--persistence-state-file=${stateFile}`,
       `--aidebug-config-dir=${sharedConfigDir}`,
+      `--aidebug-isolation-root=${runDir}`,
       "--cycles=1",
       `--cycle-index=${index + 1}`,
       `--cycle-total=${stages.length}`
@@ -604,6 +609,7 @@ function spawnElectron() {
       NAIMAGE_AIDEBUG_ASSERT_CLEAN_BACKGROUND_REFERENCE: layerStackOnly ? "1" : (process.env.NAIMAGE_AIDEBUG_ASSERT_CLEAN_BACKGROUND_REFERENCE || "0"),
       NAIMAGE_AGENT_DIAGNOSTICS: agentUiPromptSuiteOnly || realAgentSuiteOnly ? "1" : (process.env.NAIMAGE_AGENT_DIAGNOSTICS || "0"),
       NAIMAGE_CONFIG_DIR: aidebugConfigDir,
+      NAIMAGE_AIDEBUG_ISOLATION_ROOT: aidebugIsolationRoot,
       NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log")
     }
   });
@@ -611,7 +617,7 @@ function spawnElectron() {
 
 function scrubEphemeralLiveConfig() {
   if (!liveConfig) return;
-  const relativeConfigDir = relative(resolve(runDir), resolve(aidebugConfigDir));
+  const relativeConfigDir = relative(resolve(aidebugIsolationRoot), resolve(aidebugConfigDir));
   if (!relativeConfigDir || relativeConfigDir.startsWith("..") || isAbsolute(relativeConfigDir)) return;
   const targetSettingsPath = join(aidebugConfigDir, "app-settings.json");
   if (!existsSync(targetSettingsPath)) return;
@@ -653,7 +659,7 @@ async function waitForDebugTarget() {
     port: debugPort,
     attempts: 120,
     intervalMs: 250,
-    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("naimage"))),
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("SparkAI WorkSpace"))),
     notFoundMessage: `No Electron renderer debug target found on port ${debugPort}.`
   });
 }
@@ -6837,6 +6843,8 @@ async function captureContextMenuSuiteProbe(client, targetId) {
 
 async function captureAuthGateSuiteProbe(client, targetId) {
   const captures = [];
+  const sparkApiOnly = String(process.env.SPARKAI_ACCESS_VARIANT || "").trim().toLowerCase() === "sparkapi-account"
+    || /^(?:1|true|on)$/i.test(String(process.env.SPARKAI_ACCOUNT_ONLY || "").trim());
   const authExpected = {
     authGateVisible: true,
     authGateOnlyOk: true,
@@ -6857,6 +6865,7 @@ async function captureAuthGateSuiteProbe(client, targetId) {
   await setWindowSize(client, targetId, 1280, 820);
   await waitForExpression(client, "Boolean(document.querySelector('.ide-shell') && window.__naimageDebugOpenSurface)", 15000);
   const logoutProof = await evaluate(client, `(async () => {
+    const sparkApiOnly = ${JSON.stringify(sparkApiOnly)};
     const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
     const waitFor = async (predicate, timeout = 4000) => {
       const started = Date.now();
@@ -6875,6 +6884,16 @@ async function captureAuthGateSuiteProbe(client, targetId) {
     };
 
     const settingsOpened = await openSurface('settings', '.settings-drawer');
+    const accessSettingsTab = Array.from(document.querySelectorAll('.settings-drawer .settings-section-tab'))
+      .find((button) => String(button.textContent || '').trim() === '接入');
+    accessSettingsTab?.click();
+    await waitFor(() => Boolean(document.querySelector('.settings-access-section')));
+    const accessModeOptions = Array.from(document.querySelectorAll('.settings-access-section select option'))
+      .map((option) => String(option.textContent || '').trim());
+    const accountBaseUrlInput = document.querySelector('.settings-access-section input[type="url"]');
+    const settingsAccessPolicyOk = sparkApiOnly
+      ? Boolean(!accessModeOptions.some((text) => text.includes('自定义 Base URL')) && accountBaseUrlInput?.readOnly && accountBaseUrlInput?.value === 'https://sparkapi.org')
+      : accessModeOptions.some((text) => text.includes('自定义 Base URL'));
     const agentSettingsTab = Array.from(document.querySelectorAll('.settings-drawer .settings-section-tab'))
       .find((button) => String(button.textContent || '').trim() === 'Agent');
     agentSettingsTab?.click();
@@ -6905,10 +6924,18 @@ async function captureAuthGateSuiteProbe(client, targetId) {
     const residualSelectors = ['.settings-drawer', '.account-drawer', '.project-menu-popover', '.file-command-popover', '.dialog-layer', '.drawer-layer', '.canvas-context-menu'];
     const residual = residualSelectors.filter((selector) => document.querySelector(selector));
     const uniqueAuthGate = Boolean(authVisible && residual.length === 0);
+    const authHeading = String(document.querySelector('.auth-card h1')?.textContent || '').trim();
+    const authAccessButtons = Array.from(document.querySelectorAll('.auth-card .access-mode-switch button'))
+      .map((button) => String(button.textContent || '').trim());
+    const authAccessPolicyOk = sparkApiOnly
+      ? authHeading === '登录 SparkAPI' && !authAccessButtons.some((text) => text.includes('自定义接口'))
+      : authHeading === '选择使用方式' && authAccessButtons.some((text) => text.includes('自定义接口'));
     const pendingLogoutState = window.__naimageDebugAgentState?.() || {};
     const logoutPendingCleared = Boolean(!pendingLogoutState.pendingAgentExecution && !pendingLogoutState.askUserOpen && !pendingLogoutState.referencePickerOpen);
     const proof = {
       settingsOpened,
+      settingsAccessPolicyOk,
+      authAccessPolicyOk,
       promptDialogOpened,
       projectMenuOpened,
       fileMenuOpened,
@@ -6924,7 +6951,7 @@ async function captureAuthGateSuiteProbe(client, targetId) {
       logoutPendingCleared,
       residual,
       logoutFlowOk: Boolean(
-        settingsOpened && promptDialogOpened && projectMenuOpened && fileMenuOpened && timelineOpened &&
+        settingsOpened && settingsAccessPolicyOk && authAccessPolicyOk && promptDialogOpened && projectMenuOpened && fileMenuOpened && timelineOpened &&
         memoryDialogOpened && accountOpened && memoryDialogCoexisted && pendingStarted?.ok && pendingOpened &&
         logoutClicked && uniqueAuthGate && logoutPendingCleared
       )

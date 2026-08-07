@@ -1443,7 +1443,7 @@ function createMemoryStore(options = {}) {
       const text = rows.map((row) => `[${row.id || row.entry_id}] ${row.role || ""}/${row.title || ""}\n${row.text || ""}`).join("\n\n");
       return {
         date,
-        title: `${date} naimage 工作日记`,
+        title: `${date} SparkAI WorkSpace 工作日记`,
         keywords: Array.from(new Set(["naimage", "Agent", "绘图", ...rows.flatMap((row) => splitKeywords(row.title))])).slice(0, 12),
         sourceEntryIds: rows.map((row) => String(row.id || row.entry_id || "")).filter(Boolean),
         content: summarizeText(text, 3600)

@@ -1,4 +1,12 @@
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+
+export function assertAidebugConfigIsolation(configDir, isolationRoot) {
+  const relativeConfigDir = relative(resolve(isolationRoot), resolve(configDir));
+  if (!relativeConfigDir || relativeConfigDir.startsWith("..") || isAbsolute(relativeConfigDir)) {
+    throw new Error("AIDebug config directory must stay inside its isolated diagnostics root.");
+  }
+  return true;
+}
 
 export function parseAidebugOptions(argv, env, context) {
   const { pid, runDir, repoRoot, cwd, now } = context;
@@ -75,6 +83,9 @@ export function parseAidebugOptions(argv, env, context) {
   const persistenceStateFile = fullValue(persistenceStateFileArg) || join(runDir, "context-persistence-state.json");
   const aidebugConfigDirArg = find("--aidebug-config-dir=");
   const aidebugConfigDir = resolveFromCwd(fullValue(aidebugConfigDirArg) || env.NAIMAGE_AIDEBUG_CONFIG_DIR || join(runDir, "config"));
+  const aidebugIsolationRootArg = find("--aidebug-isolation-root=");
+  const aidebugIsolationRoot = resolveFromCwd(fullValue(aidebugIsolationRootArg) || env.NAIMAGE_AIDEBUG_ISOLATION_ROOT || runDir);
+  assertAidebugConfigIsolation(aidebugConfigDir, aidebugIsolationRoot);
   const nativeCaptureMode = has("--native-capture");
   const captureScope = nativeCaptureMode ? "window" : "page";
   const cyclesArg = find("--cycles=");
@@ -173,6 +184,7 @@ export function parseAidebugOptions(argv, env, context) {
     persistenceSentinel,
     persistenceStateFile,
     aidebugConfigDir,
+    aidebugIsolationRoot,
     nativeCaptureMode,
     captureScope,
     cycles,

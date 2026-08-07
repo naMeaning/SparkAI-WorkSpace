@@ -10,6 +10,17 @@ const {
   COMMERCE_SET_MARKER,
   parseCommerceSetPromptPlan
 } = require("../runtime/commerce-set-plan.cjs");
+const {
+  normalizeCommerceCatalogGoalTarget
+} = require("../runtime/goal-image-execution.cjs");
+const {
+  normalizeSocialContentMetadata,
+  normalizeSocialContentPlan
+} = require("../runtime/social-content-plan.cjs");
+const {
+  normalizeScientificFigurePlan
+} = require("../runtime/scientific-figure-plan.cjs");
+const { normalizeWorkspaceDomain } = require("../runtime/workspace-domain.cjs");
 
 function safeImageSourceRelativePath(value, maximum = 1000) {
   const source = typeof value === "string" ? value.trim().replace(/\\/g, "/") : "";
@@ -29,6 +40,51 @@ function sessionAssetContentHash(asset) {
   const source = asset && typeof asset === "object" ? asset : {};
   const value = String(source.contentHash || source.sha256 || "").trim().toLowerCase();
   return /^[a-f0-9]{32,128}$/.test(value) ? value : "";
+}
+
+function sanitizePersistedVideoAsset(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value;
+  const clean = (candidate, maximum = 32_767) => typeof candidate === "string" && candidate.trim()
+    ? candidate.trim().slice(0, maximum)
+    : undefined;
+  const pathValue = clean(source.path);
+  const relativePath = clean(source.relativePath)?.replace(/\\/g, "/");
+  const url = clean(source.url, 8_192);
+  const assetUrl = clean(source.assetUrl, 8_192);
+  if (!pathValue && !relativePath && !url && !assetUrl) return null;
+  const locator = String(relativePath || pathValue || url || assetUrl || "").toLowerCase();
+  const inferredMimeType = locator.endsWith(".webm")
+    ? "video/webm"
+    : locator.endsWith(".mov")
+      ? "video/quicktime"
+      : "video/mp4";
+  const mimeType = ["video/mp4", "video/webm", "video/quicktime"].includes(String(source.mimeType || "").toLowerCase())
+    ? String(source.mimeType).toLowerCase()
+    : inferredMimeType;
+  const contentHash = sessionAssetContentHash(source);
+  const assetId = clean(source.assetId, 160) || (contentHash ? `video-${contentHash.slice(0, 32)}` : undefined);
+  const occurrenceId = /^occ-[a-f0-9]{16,64}$/i.test(String(source.occurrenceId || "").trim())
+    ? String(source.occurrenceId).trim().toLowerCase()
+    : undefined;
+  const width = Number(source.width);
+  const height = Number(source.height);
+  const durationMs = Number(source.durationMs);
+  return {
+    assetId,
+    occurrenceId,
+    contentHash: contentHash || undefined,
+    type: source.type === "url" || (!pathValue && Boolean(url || assetUrl)) ? "url" : "file",
+    path: pathValue,
+    relativePath,
+    url,
+    assetUrl,
+    originalName: clean(source.originalName, 260),
+    mimeType,
+    width: Number.isFinite(width) && width > 0 ? Math.min(Math.round(width), 65_535) : undefined,
+    height: Number.isFinite(height) && height > 0 ? Math.min(Math.round(height), 65_535) : undefined,
+    durationMs: Number.isFinite(durationMs) && durationMs >= 0 ? Math.min(Math.round(durationMs), 604_800_000) : undefined
+  };
 }
 
 function sessionAssetOccurrenceId(asset, ownerId = "asset", assetIndex = 0) {
@@ -177,7 +233,11 @@ function repairSessionAssetIdentities(nodes) {
         collection: pinCollectionAssetSlots(node.imageContainerSpec.collection, rawAssets)
       };
     }
-    node.assets = (Array.isArray(node.assets) ? node.assets : []).map((asset, index) => register(asset, node.id, index, () => undefined));
+    if (node.type === "image" || Array.isArray(node.assets)) {
+      node.assets = (Array.isArray(node.assets) ? node.assets : []).map((asset, index) => register(asset, node.id, index, () => undefined));
+    } else {
+      delete node.assets;
+    }
     if (node.imageParams && Array.isArray(node.imageParams.referenceImages)) {
       node.imageParams = { ...node.imageParams, referenceImages: node.imageParams.referenceImages.map((asset, index) => register(asset, node.id, index, () => undefined, `${node.id}:imageParams`)) };
     }
@@ -340,13 +400,22 @@ function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
     if (inputBindings.length >= 240) break;
   }
   const skill = sanitizePersistedCanvasSkill(value.skill);
+  const socialPlan = value.socialPlan && typeof value.socialPlan === "object" && value.socialPlan.schemaVersion === 1 &&
+    (value.socialPlan.platform === "xiaohongshu" || value.socialPlan.platform === "douyin")
+    ? normalizeSocialContentPlan(value.socialPlan)
+    : null;
+  const scientificPlan = value.scientificPlan && typeof value.scientificPlan === "object" && value.scientificPlan.schemaVersion === 1
+    ? normalizeScientificFigurePlan(value.scientificPlan)
+    : null;
   const requirement = {
-    version: value.version === 2 || inputBindings.length || skill ? 2 : 1,
+    version: value.version === 2 || inputBindings.length || skill || socialPlan || scientificPlan ? 2 : 1,
     text,
     revision: Math.max(1, Math.floor(Number(value.revision || 1))),
     createdFrom,
     ...(inputBindings.length ? { inputBindings } : {}),
-    ...(skill ? { skill } : {})
+    ...(skill ? { skill } : {}),
+    ...(socialPlan?.brief ? { socialPlan } : {}),
+    ...(scientificPlan?.researchClaim ? { scientificPlan } : {})
   };
   if (typeof value.lastSourceSignature === "string" && value.lastSourceSignature.trim()) {
     requirement.lastSourceSignature = value.lastSourceSignature.trim().slice(0, 160);
@@ -362,6 +431,46 @@ function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
   return requirement;
 }
 
+function normalizeScientificFigureMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const workflowId = String(value.workflowId || "").trim().toLowerCase();
+  const planHash = String(value.planHash || "").trim().toLowerCase();
+  const kinds = new Set(["plan", "panel", "figure", "preview"]);
+  if (!/^scientific-workflow-[a-f0-9]{32}$/.test(workflowId) || !/^scientific-[a-f0-9]{32}$/.test(planHash) || !kinds.has(value.kind)) {
+    return null;
+  }
+  const clean = (candidate, maximum) => typeof candidate === "string" && candidate.trim()
+    ? candidate.trim().slice(0, maximum)
+    : undefined;
+  const backend = value.backend === "python" || value.backend === "r" ? value.backend : undefined;
+  const taskId = /^scientific-task-[a-f0-9]{32}$/.test(String(value.taskId || "").trim().toLowerCase())
+    ? String(value.taskId).trim().toLowerCase()
+    : undefined;
+  const scriptHash = /^[a-f0-9]{64}$/.test(String(value.scriptHash || "").trim().toLowerCase())
+    ? String(value.scriptHash).trim().toLowerCase()
+    : undefined;
+  const dataHashes = [...new Set((Array.isArray(value.dataHashes) ? value.dataHashes : [])
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter((item) => /^[a-f0-9]{64}$/.test(item)))]
+    .slice(0, 24);
+  const status = ["planned", "rendered", "failed"].includes(value.status) ? value.status : undefined;
+  return {
+    workflowId,
+    planHash,
+    kind: value.kind,
+    ...(clean(value.panelId, 80) ? { panelId: clean(value.panelId, 80) } : {}),
+    ...(backend ? { backend } : {}),
+    ...(taskId ? { taskId } : {}),
+    ...(scriptHash ? { scriptHash } : {}),
+    ...(dataHashes.length ? { dataHashes } : {}),
+    ...(status ? { status } : {})
+  };
+}
+
+function sanitizePersistedCommerceCatalogTarget(value) {
+  return normalizeCommerceCatalogGoalTarget(value) || null;
+}
+
 function sanitizePersistedImageTaskProvenance(value) {
   if (!value || typeof value !== "object" || value.version !== 1) return null;
   const snapshotHash = String(value.taskScopeSnapshotHash || "").trim().toLowerCase();
@@ -371,6 +480,10 @@ function sanitizePersistedImageTaskProvenance(value) {
   const revision = Number(value.requirementRevision);
   const commerceSlotIndex = Number(value.commerceSlotIndex);
   const commercePlanHash = clean(value.commercePlanHash, 48)?.toLowerCase();
+  const commerceCatalogTarget = sanitizePersistedCommerceCatalogTarget(value.commerceCatalogTarget);
+  const commerceResultKey = clean(value.commerceResultKey, 64)?.toLowerCase();
+  const socialContent = normalizeSocialContentMetadata(value.socialContent);
+  const scientificFigure = normalizeScientificFigureMetadata(value.scientificFigure);
   return {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
@@ -388,14 +501,18 @@ function sanitizePersistedImageTaskProvenance(value) {
     ...(Number.isInteger(commerceSlotIndex) && commerceSlotIndex >= 0 && commerceSlotIndex < 200
       ? { commerceSlotIndex: Math.floor(commerceSlotIndex) }
       : {}),
-    ...(clean(value.commerceLocaleCode, 32) ? { commerceLocaleCode: clean(value.commerceLocaleCode, 32) } : {})
+    ...(clean(value.commerceLocaleCode, 32) ? { commerceLocaleCode: clean(value.commerceLocaleCode, 32) } : {}),
+    ...(commerceCatalogTarget ? { commerceCatalogTarget } : {}),
+    ...(commerceResultKey && /^commerce-result-[a-f0-9]{32}$/.test(commerceResultKey) ? { commerceResultKey } : {}),
+    ...(socialContent ? { socialContent } : {}),
+    ...(scientificFigure ? { scientificFigure } : {})
   };
 }
 
 function sanitizePersistedImageCollection(value, assets = []) {
   if (!value || typeof value !== "object") return null;
   const source = value;
-  const items = (Array.isArray(source.items) ? source.items : []).slice(0, 10).map((item, index) => {
+  const items = (Array.isArray(source.items) ? source.items : []).slice(0, 200).map((item, index) => {
     const candidate = item && typeof item === "object" ? item : {};
     const requestedStatus = candidate.status === "pending" || candidate.status === "error" ? candidate.status : "done";
     const rawAssetIndex = Number(candidate.assetIndex);
@@ -405,7 +522,7 @@ function sanitizePersistedImageCollection(value, assets = []) {
     const candidateOccurrenceId = /^occ-[a-f0-9]{16,64}$/i.test(String(candidate.occurrenceId || "").trim())
       ? String(candidate.occurrenceId).trim().toLowerCase()
       : "";
-    const explicitAssetIndex = Number.isInteger(rawAssetIndex) && rawAssetIndex >= 1 && rawAssetIndex <= Math.min(10, assets.length)
+    const explicitAssetIndex = Number.isInteger(rawAssetIndex) && rawAssetIndex >= 1 && rawAssetIndex <= Math.min(200, assets.length)
       ? rawAssetIndex
       : undefined;
     const occurrenceIndex = explicitAssetIndex === undefined && candidateOccurrenceId
@@ -426,9 +543,10 @@ function sanitizePersistedImageCollection(value, assets = []) {
       : undefined;
     const asset = assetIndex === undefined ? null : assets[assetIndex - 1];
     const status = requestedStatus === "done" && !asset ? "error" : requestedStatus;
+    const taskProvenance = sanitizePersistedImageTaskProvenance(candidate.taskProvenance);
     return {
       id: typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim().slice(0, 120) : `item-${index + 1}`,
-      requestIndex: Math.max(1, Math.min(10, Math.floor(Number(candidate.requestIndex || index + 1) || index + 1))),
+      requestIndex: Math.max(1, Math.min(200, Math.floor(Number(candidate.requestIndex || index + 1) || index + 1))),
       ...(assetIndex === undefined ? {} : { assetIndex }),
       ...(status === "done" && asset?.assetId ? { assetId: asset.assetId } : {}),
       ...(status === "done" && asset ? { occurrenceId: sessionAssetOccurrenceId(asset, "image-collection", (assetIndex || 1) - 1) } : {}),
@@ -436,7 +554,11 @@ function sanitizePersistedImageCollection(value, assets = []) {
         ? candidate.prompt.trim().slice(0, 12_000)
         : String(asset?.prompt || asset?.revisedPrompt || "").slice(0, 12_000),
       ...(typeof candidate.title === "string" && candidate.title.trim() ? { title: candidate.title.trim().slice(0, 160) } : {}),
+      ...(typeof candidate.defectReason === "string" && candidate.defectReason.trim() ? { defectReason: candidate.defectReason.trim().slice(0, 320) } : {}),
+      ...(typeof candidate.replacedByAssetId === "string" && candidate.replacedByAssetId.trim() ? { replacedByAssetId: candidate.replacedByAssetId.trim().slice(0, 160) } : {}),
+      ...(typeof candidate.replacesItemId === "string" && candidate.replacesItemId.trim() ? { replacesItemId: candidate.replacesItemId.trim().slice(0, 120) } : {}),
       status,
+      ...(taskProvenance ? { taskProvenance } : {}),
       ...(typeof candidate.error === "string" && candidate.error.trim()
         ? { error: candidate.error.trim().slice(0, 320) }
         : requestedStatus === "done" && !asset ? { error: "图片槽位缺少对应成果。" } : {})
@@ -445,9 +567,11 @@ function sanitizePersistedImageCollection(value, assets = []) {
   if (!items.length && !assets.length) return null;
   return {
     id: typeof source.id === "string" && source.id.trim() ? source.id.trim().slice(0, 120) : "image-collection",
+    ...(typeof source.name === "string" && source.name.trim() ? { name: source.name.trim().slice(0, 160) } : {}),
     kind: source.kind === "series" ? "series" : "batch",
+    collectionRole: source.collectionRole === "defects" ? "defects" : "results",
     generationMode: source.generationMode === "sequential" ? "sequential" : "parallel",
-    items: items.length ? items : assets.slice(0, 10).map((asset, index) => ({
+    items: items.length ? items : assets.slice(0, 200).map((asset, index) => ({
       id: `item-${index + 1}`,
       requestIndex: index + 1,
       assetIndex: index + 1,
@@ -458,6 +582,8 @@ function sanitizePersistedImageCollection(value, assets = []) {
       status: "done"
     })),
     ...(typeof source.sourceNodeId === "string" && source.sourceNodeId.trim() ? { sourceNodeId: source.sourceNodeId.trim().slice(0, 160) } : {}),
+    ...(typeof source.sourceCollectionId === "string" && source.sourceCollectionId.trim() ? { sourceCollectionId: source.sourceCollectionId.trim().slice(0, 120) } : {}),
+    ...(typeof source.defectOfNodeId === "string" && source.defectOfNodeId.trim() ? { defectOfNodeId: source.defectOfNodeId.trim().slice(0, 160) } : {}),
     ...(typeof source.createdAt === "string" && source.createdAt.trim() ? { createdAt: source.createdAt.trim().slice(0, 80) } : {}),
     autoFit: source.autoFit !== false
   };
@@ -842,6 +968,11 @@ function sanitizePersistedPendingAgentExecution(value) {
     const commercePlanHash = typeof rawCommercePlanHash === "string" && /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
       ? rawCommercePlanHash
       : undefined;
+    const rawCommerceCatalogTargets = rawGoal?.commerceCatalogTargets;
+    const commerceCatalogTargets = (Array.isArray(rawCommerceCatalogTargets) ? rawCommerceCatalogTargets : [])
+      .map(sanitizePersistedCommerceCatalogTarget)
+      .filter(Boolean);
+    const commerceTargetBindingIds = commerceCatalogTargets.map((target) => target.bindingId);
     const hasCommerceMarker = originalPrompt.includes(COMMERCE_SET_MARKER);
     const commercePlan = hasCommerceMarker ? parseCommerceSetPromptPlan(originalPrompt) : null;
     const rawContainerCount = Number(rawGoal?.containerCount);
@@ -873,6 +1004,18 @@ function sanitizePersistedPendingAgentExecution(value) {
       rawSourceBindingIds.length > 0 && rawSourceBindingIds.length <= 200 && sameIds(rawSourceBindingIds, sourceBindingIds) &&
       rawScope.sourceBindingIds.every((id, index) => typeof id === "string" && id === rawSourceBindingIds[index])
     );
+    const expectedCommerceTargetBindingIds = goalBindingIds
+      ? goalBindingIds.filter((bindingId) => commerceTargetBindingIds.includes(bindingId))
+      : [];
+    const commerceCatalogTargetsAreCanonical = Boolean(
+      rawCommerceCatalogTargets === undefined || (
+        Array.isArray(rawCommerceCatalogTargets) && rawCommerceCatalogTargets.length === commerceCatalogTargets.length &&
+        goalBindingIds && commerceCatalogTargets.length <= goalBindingIds.length &&
+        new Set(commerceTargetBindingIds).size === commerceTargetBindingIds.length &&
+        commerceTargetBindingIds.every((bindingId, index) => bindingId === expectedCommerceTargetBindingIds[index]) &&
+        (commerceCatalogTargets.length === 0 || commercePlanHash)
+      )
+    );
     const goalIsValid = Boolean(
       rawGoal && rawGoal.version === 1 && rawGoal.target === "all-image-containers" && rawGoal.frozen === true &&
       goalContainerIds && goalBindingIds &&
@@ -892,6 +1035,7 @@ function sanitizePersistedPendingAgentExecution(value) {
       goalContainerIds.every((containerId) => sourceAssetContainerIds.has(containerId)) &&
       sourceAssetCount === goalBindingIds.length && sourceAssets.length === goalBindingIds.length &&
       rawScope.truncated !== true && snapshotHash && rawListsAreCanonical && sourceAssetsAreFrozen
+      && commerceCatalogTargetsAreCanonical
     );
     if (!goalIsValid) return null;
     goal = {
@@ -906,7 +1050,8 @@ function sanitizePersistedPendingAgentExecution(value) {
       probeContainerCount,
       operationsPerAsset,
       requestCount,
-      ...(commercePlanHash ? { commercePlanHash } : {})
+      ...(commercePlanHash ? { commercePlanHash } : {}),
+      ...(commerceCatalogTargets.length ? { commerceCatalogTargets } : {})
     };
   }
   return {
@@ -990,12 +1135,87 @@ function sanitizeSession(session) {
             next.status = "done";
             next.outputs = Math.max(Number(next.outputs ?? 0), next.assets.length);
           }
+          if (next.type !== "video") {
+            delete next.videoTaskId;
+            delete next.videoTaskState;
+            delete next.videoProgress;
+          }
+          next.socialContent = normalizeSocialContentMetadata(next.socialContent) || undefined;
+          if (!next.socialContent) delete next.socialContent;
+          next.scientificFigure = normalizeScientificFigureMetadata(next.scientificFigure) || undefined;
+          if (!next.scientificFigure) delete next.scientificFigure;
           if (next.type === "image") {
             next.taskProvenance = sanitizePersistedImageTaskProvenance(next.taskProvenance);
             if (!next.taskProvenance) delete next.taskProvenance;
+            delete next.videoAsset;
+            delete next.videoState;
+            delete next.videoError;
+            delete next.videoModel;
+          }
+          if (next.type === "video") {
+            next.videoAsset = sanitizePersistedVideoAsset(next.videoAsset);
+            next.videoTaskId = typeof next.videoTaskId === "string" && next.videoTaskId.trim() ? next.videoTaskId.trim().slice(0, 180) : undefined;
+            next.videoTaskState = ["prepared", "creating", "create-unknown", "queued", "running", "succeeded", "ready", "failed", "cancelled"].includes(next.videoTaskState)
+              ? next.videoTaskState
+              : undefined;
+            next.videoProgress = Number.isFinite(Number(next.videoProgress)) ? Math.max(0, Math.min(100, Math.round(Number(next.videoProgress)))) : undefined;
+            const recoverable = Boolean(next.videoTaskId);
+            const interrupted = next.videoState === "generating" && !recoverable;
+            next.videoState = next.videoAsset
+              ? "ready"
+              : recoverable && !["create-unknown", "failed", "cancelled", "ready"].includes(next.videoTaskState)
+                ? "generating"
+                : interrupted || next.videoState === "ready"
+                  ? "error"
+                  : next.videoState === "error"
+                    ? "error"
+                    : "empty";
+            next.videoError = recoverable && next.videoState === "generating"
+              ? undefined
+              : interrupted
+              ? "上次视频任务已中断。"
+              : typeof next.videoError === "string" && next.videoError.trim()
+                ? next.videoError.trim().slice(0, 320)
+                : next.videoState === "error" && !next.videoAsset
+                  ? "视频文件不可用。"
+                  : undefined;
+            next.videoModel = typeof next.videoModel === "string" && next.videoModel.trim() ? next.videoModel.trim().slice(0, 180) : undefined;
+            next.status = next.videoAsset ? "done" : next.videoState === "generating" ? "working" : "review";
+            next.outputs = next.videoAsset ? 1 : 0;
+            delete next.assets;
+            delete next.imageState;
+            delete next.imageError;
+            delete next.imageProgress;
+            delete next.imageParams;
+            delete next.imageCollection;
+            delete next.imageContainer;
+            delete next.imageContainerRole;
+            delete next.imageContainerSpec;
+            delete next.layerGroup;
+            delete next.layerComposition;
+            delete next.taskProvenance;
           }
           if (next.type === "requirement") {
             next.requirement = sanitizePersistedCanvasRequirement(next.requirement, next.prompt);
+            if (next.requirement?.socialPlan && !next.socialContent) {
+              next.socialContent = normalizeSocialContentMetadata({
+                platform: next.requirement.socialPlan.platform,
+                contentType: "brief",
+                workflowId: next.requirement.socialPlan.workflowId,
+                status: next.requirement.socialPlan.status
+              }) || undefined;
+            }
+            if (next.requirement?.scientificPlan && !next.scientificFigure) {
+              const plan = next.requirement.scientificPlan;
+              next.scientificFigure = normalizeScientificFigureMetadata({
+                workflowId: plan.workflowId,
+                planHash: plan.planHash,
+                kind: "plan",
+                backend: plan.backend,
+                taskId: plan.taskId,
+                status: plan.status
+              }) || undefined;
+            }
             next.status = "done";
             next.outputs = 0;
             delete next.assets;
@@ -1007,6 +1227,10 @@ function sanitizeSession(session) {
             delete next.imageContainerSpec;
             delete next.layerGroup;
             delete next.layerComposition;
+            delete next.videoAsset;
+            delete next.videoState;
+            delete next.videoError;
+            delete next.videoModel;
           }
           if (!Number.isFinite(Number(next.x))) next.x = 120 + index * 300;
           if (!Number.isFinite(Number(next.y))) next.y = 120 + index * 120;
@@ -1015,12 +1239,12 @@ function sanitizeSession(session) {
     : [];
   const removedLegacyIds = new Set(
     nodes
-      .filter((node) => node.type !== "image" && !(node.type === "requirement" && node.requirement) && (!Array.isArray(node.assets) || node.assets.length === 0))
+      .filter((node) => node.type !== "image" && node.type !== "video" && !(node.type === "requirement" && node.requirement) && (!Array.isArray(node.assets) || node.assets.length === 0))
       .map((node) => node.id)
   );
   const artifactNodes = nodes
-    .filter((node) => node.type === "image" || (node.type === "requirement" && node.requirement) || (Array.isArray(node.assets) && node.assets.length > 0))
-    .map((node) => node.type === "requirement" ? node : ({ ...node, type: "image" }));
+    .filter((node) => node.type === "image" || node.type === "video" || (node.type === "requirement" && node.requirement) || (Array.isArray(node.assets) && node.assets.length > 0))
+    .map((node) => node.type === "requirement" || node.type === "video" ? node : ({ ...node, type: "image" }));
   const ids = new Set(artifactNodes.map((node) => node.id));
   for (const node of artifactNodes) {
     if (node.parentId && !ids.has(node.parentId)) delete node.parentId;
@@ -1090,6 +1314,7 @@ function sanitizeSession(session) {
     : null;
   return {
     schemaVersion: Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 5 ? 5 : Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 4 ? 4 : Math.max(0, Math.floor(Number(source.schemaVersion || 0))) >= 3 ? 3 : 2,
+    workspaceDomain: normalizeWorkspaceDomain(source.workspaceDomain),
     sessionRevision: Math.max(0, Math.floor(Number(source.sessionRevision || 0))),
     canvasRevision: Math.max(0, Math.floor(Number(source.canvasRevision || 0))),
     nodeSequence: Math.max(
@@ -1128,6 +1353,7 @@ function hydrateSessionAssets(session) {
 module.exports = {
   hydrateSessionAssets,
   safeImageSourceRelativePath,
+  sanitizePersistedVideoAsset,
   sanitizeSession,
   sessionAssetContentHash,
   sessionHasContent

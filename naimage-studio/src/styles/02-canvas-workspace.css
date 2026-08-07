@@ -8,6 +8,7 @@
   left: 50%;
   bottom: 12px;
   min-width: 0;
+  width: max-content;
   max-width: min(860px, calc(100% - 24px));
   min-height: 42px;
   display: flex;
@@ -74,7 +75,7 @@
 }
 
 .canvas-plugin-toolbar-actions {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   max-width: min(680px, 70vw);
   justify-content: center;
   gap: 5px;
@@ -108,16 +109,6 @@
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
   font-size: 11px;
   font-weight: 650;
-}
-
-.canvas-plugin-toolbar-actions kbd {
-  padding-left: 5px;
-  border-left: 1px solid color-mix(in srgb, var(--line-strong) 62%, transparent);
-  color: var(--ink-soft);
-  font-family: inherit;
-  font-size: 8px;
-  font-weight: 650;
-  white-space: nowrap;
 }
 
 .canvas-plugin-toolbar-actions button:hover:not(:disabled),
@@ -465,15 +456,28 @@
   will-change: transform;
 }
 
+.workflow-canvas.is-viewport-detail-reduced .edge-layer,
+.workflow-canvas.is-viewport-detail-reduced .flow-node :is(img, video, canvas) {
+  visibility: hidden !important;
+}
+
+.workflow-canvas.is-viewport-detail-reduced .flow-node:not(.canvas-node-overview),
+.workflow-canvas.is-viewport-detail-reduced .flow-node .node-image-tile,
+.workflow-canvas.is-viewport-detail-reduced .flow-node .container-image-tile {
+  background-image: none !important;
+  box-shadow: none !important;
+  transition: none !important;
+}
+
 .canvas-context-menu {
   position: fixed;
   z-index: var(--z-menu);
-  width: 236px;
+  width: 252px;
   max-height: min(620px, calc(100vh - 24px));
   display: grid;
-  gap: 2px;
+  gap: 3px;
   overflow: auto;
-  padding: 5px;
+  padding: 6px;
   border: 1px solid var(--line);
   border-radius: var(--ui-surface-radius);
   background: var(--surface-solid);
@@ -493,12 +497,12 @@
 
 .canvas-context-menu .ui-menu-item {
   width: 100%;
-  min-height: var(--ui-action-h);
+  min-height: max(var(--ui-action-h), 36px);
   display: grid;
-  grid-template-columns: 17px minmax(0, 1fr) max-content;
+  grid-template-columns: 18px minmax(0, 1fr) max-content;
   align-items: center;
-  column-gap: 8px;
-  padding: 0 9px;
+  column-gap: 9px;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: var(--ui-action-radius);
   color: var(--ink);
@@ -533,9 +537,9 @@
   min-width: 0;
   overflow: hidden;
   color: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 1.35;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -549,7 +553,7 @@
   color: var(--muted);
   background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   font-family: inherit;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -582,7 +586,8 @@
 }
 
 .canvas-context-menu .ui-menu-item:disabled {
-  opacity: 0.48;
+  color: var(--muted);
+  opacity: 1;
   cursor: not-allowed;
 }
 
@@ -650,7 +655,8 @@
 .node-port.provenance-port {
   position: absolute;
   z-index: 3;
-  top: 33px;
+  top: 50%;
+  margin-top: -7px;
   width: 14px;
   height: 14px;
   padding: 0;
@@ -725,7 +731,7 @@
   user-select: none;
   text-rendering: geometricPrecision;
   animation: none;
-  transition: transform var(--motion-standard) var(--motion-ease), opacity var(--motion-standard) var(--motion-ease);
+  transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), opacity var(--motion-standard) var(--motion-ease);
 }
 
 .flow-node.canvas-node-overview[data-node-overview="true"] {
@@ -746,6 +752,11 @@
 .flow-node.canvas-node-overview.image-collection {
   border-color: color-mix(in srgb, var(--accent) 62%, var(--line-strong));
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 26%, var(--surface-solid)), color-mix(in srgb, var(--blue) 15%, var(--surface-solid)));
+}
+
+.flow-node.canvas-node-overview.video {
+  border-color: color-mix(in srgb, var(--rose) 62%, var(--line-strong));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--rose) 24%, var(--surface-solid)), color-mix(in srgb, var(--blue) 18%, var(--surface-solid)));
 }
 
 .flow-node.canvas-node-overview.requirement-node {
@@ -799,7 +810,6 @@
 
 .flow-node:hover,
 .flow-node.selected {
-  transform: translateY(-2px);
   border-color: var(--accent);
   box-shadow: var(--shadow);
 }
@@ -809,6 +819,16 @@
   transform: none;
   cursor: nwse-resize;
   transition: none;
+}
+
+.flow-node.dragging,
+.flow-node.dragging:hover,
+.flow-node.canvas-node-overview.dragging,
+.flow-node.canvas-node-overview.dragging:hover {
+  transform: translate3d(var(--node-drag-x, 0px), var(--node-drag-y, 0px), 0);
+  cursor: grabbing;
+  transition: none;
+  will-change: transform;
 }
 
 .flow-node.selected {
@@ -864,6 +884,14 @@
   background: linear-gradient(135deg, var(--blue), var(--rose));
 }
 
+.flow-node.video {
+  border-color: color-mix(in srgb, var(--rose) 54%, var(--line-strong));
+}
+
+.flow-node.video .node-id {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--rose) 88%, #8f68ff), color-mix(in srgb, var(--blue) 84%, #5b7cff));
+}
+
 .image-node-id {
   place-items: center;
 }
@@ -882,6 +910,17 @@
   font-style: normal;
   font-weight: 840;
   opacity: 0.9;
+}
+
+.video-node-id em {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 8px;
+  line-height: 1;
+  font-style: normal;
+  font-weight: 840;
+  opacity: 0.92;
 }
 
 .flow-node.export .node-id {
@@ -1099,6 +1138,83 @@
   background: color-mix(in srgb, var(--canvas) 88%, var(--surface-solid));
 }
 
+.node-video-preview {
+  position: relative;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: calc(100% - 50px);
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--rose) 28%, var(--line));
+  border-radius: 10px;
+  background: #050608;
+}
+
+.node-video-player {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  border: 0;
+  border-radius: inherit;
+  background: #050608;
+  cursor: default;
+  touch-action: auto;
+  user-select: auto;
+}
+
+.node-video-empty {
+  width: min(220px, calc(100% - 28px));
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: color-mix(in srgb, white 72%, var(--muted));
+  font-size: 12px;
+  text-align: center;
+}
+
+.node-video-empty > small {
+  color: color-mix(in srgb, white 62%, var(--muted));
+  font-size: 11px;
+}
+
+.node-video-progress {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, white 16%, transparent);
+}
+
+.node-video-progress > i {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 82%, white);
+  transition: width 0.24s ease;
+}
+
+.node-video-error {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--rose) 48%, transparent);
+  border-radius: 8px;
+  color: #fff;
+  background: color-mix(in srgb, #6f1725 86%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .node-image-preview.ready {
   grid-template-columns: var(--node-image-column-template, repeat(var(--node-image-cols, 2), minmax(0, 1fr)));
   grid-template-rows: var(--node-image-row-template, repeat(var(--node-image-rows, 1), minmax(0, 1fr)));
@@ -1191,7 +1307,6 @@
   border-radius: 12px;
   border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
   background: color-mix(in srgb, var(--surface-solid) 94%, var(--accent) 6%);
-  animation: image-layout-settle var(--motion-standard) var(--motion-ease-out) both;
 }
 
 .flow-node.image-container .image-node-id {
@@ -1249,7 +1364,6 @@
   border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
   background: color-mix(in srgb, var(--surface-solid) 92%, var(--accent) 8%);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26), inset 0 1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
-  animation: image-layout-settle var(--motion-standard) var(--motion-ease-out) both;
 }
 
 .flow-node.image-container .node-image-preview,
@@ -1266,19 +1380,6 @@
 
 .flow-node.image:not(.image-container):not(.image-collection):not(.active-build) {
   animation: none;
-}
-
-@keyframes image-layout-settle {
-  from {
-    opacity: 0.72;
-    transform: none;
-    filter: brightness(0.94) saturate(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
 }
 
 .flow-node.image-collection-series {

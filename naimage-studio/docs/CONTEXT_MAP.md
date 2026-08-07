@@ -1,9 +1,9 @@
-# naimage 上下文地图
+# SparkAI WorkSpace 上下文地图
 
-> 地图版本：9
-> 最近同步：2026-07-30
-> 对应桌面版本：1.0.7
-> 适用范围：Windows Electron 客户端、本地单 Agent runtime、项目文件与发布链路
+> 地图版本：29
+> 最近同步：2026-08-06
+> 对应桌面版本：1.0.9
+> 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 
 本文是面向开发者和 Agent 的当前实现导航。它回答“能力归谁所有、从哪里进入、跨越哪些边界、修改后验证什么”。产品方向仍以根目录 `PRODUCT_INTENT.md` 为准，强制编码约束以根目录 `AGENTS.md` 为准；日期开头的计划和审计文档只用于追溯历史。
 
@@ -33,6 +33,8 @@
 
 本仓库只维护桌面创作端和本地 Agent runtime：
 
+- 用户可见产品名称统一为 `SparkAI WorkSpace`。为保证原地升级和既有用户数据兼容，npm 包名、`naimage.exe`、App ID、协议头、Automation CLI、项目元数据目录和应用数据目录继续保留既有 `naimage` 标识。
+
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
 - `agent-runtime.cjs` 负责 Prompt/画布上下文组装、压缩编排、模型协议循环与工具执行；SQLite/JSON memory、Prompt/FastMemory 持久化、tool schema 和 Responses/Chat 响应解析由 `runtime/` 专属模块持有，但均不直接修改 React state。
@@ -40,7 +42,7 @@
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
-产品层把 Agent 定义为“Codex/Claude Code 式通用 Agent Runtime + naimage 图片创作 Agent”。前者拥有目标分解、工具循环、模型协议、上下文 checkpoint、Skills/CLI 和任务恢复；后者拥有画布语义、TaskScope、图片容器、Image Gen、素材归属和绘画经验。它是能力与协议的组合，不是把 Codex 产品或源码直接嵌入应用。
+产品层把 Agent 定义为“Codex/Claude Code 式通用 Agent Runtime + SparkAI WorkSpace 视觉创作 Agent”。前者拥有目标分解、工具循环、模型协议、上下文 checkpoint、Skills/CLI 和任务恢复；后者拥有画布语义、TaskScope、图片容器、Image Gen、素材归属和绘画经验。它是能力与协议的组合，不是把 Codex 产品或源码直接嵌入应用。
 
 ## 3. 进程拓扑
 
@@ -50,20 +52,27 @@
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：99 个 invoke handler（96 preload + 3 internal）/5 receive/2 send channel 的唯一注册顺序
-  │    └─ settings / requirement library / plugin / automation / updater / session / agent / window / debug / project / asset / server registrar
+  ├─ desktop/ipc/register-desktop-ipc.cjs：135 个 invoke handler（132 preload + 3 internal）/9 receive/2 send channel 的唯一注册顺序
+  │    └─ settings / glass background / requirement library / commerce / plugin / automation / updater / session / agent / window / debug / project / asset / server / video task registrar
   ├─ 项目、session、账户密钥脱敏快照、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
   ├─ desktop/model-catalog.cjs
+  ├─ desktop/video-import.cjs：本地视频头校验、流式复制、SHA-256 内容寻址与重复复用
+  ├─ desktop/video-task-adapter.cjs：视频 create/poll 端点、兼容请求与响应归一化
+  ├─ desktop/video-task-service.cjs：零重试创建、项目 journal、恢复轮询与安全下载落盘
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
-  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON/通用 SSE 与 Images SSE relay
+  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、重试、会话 cookie、JSON/通用 SSE 与 Images SSE relay；自定义模型接入按模型配置优先并受限回退
   ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、按账户隔离的脱敏磁盘快照与 Main-only 完整 Key 内存缓存
-  ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token 与 Renderer 命令转发
+  ├─ desktop/settings-secret-store.cjs：自定义 API Key 的 safeStorage sidecar、Renderer 占位符与旧明文迁移
+  ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token、Renderer 命令转发与 Main service command 分流
+  ├─ desktop/debug-command-service.cjs：开发/AIDebug 专用的脱敏状态/日志、受限截图、IPC/命令检查与测试白名单
+  ├─ integrations/naimage-control/scripts/naimage-mcp.mjs：同一 command schema 的 MCP stdio 工具包装，只转发本机 automation bridge
   ├─ desktop/requirement-library.cjs：安装级个人需求模板库的单文件 JSON、清洗、精确 revision CAS 与删除确认
   ├─ desktop/agent-integration-service.cjs：Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除
   ├─ desktop/plugin-task-prompts.cjs：电商与 Project Graph 受信任任务 Prompt
   ├─ desktop/theme-preset-service.cjs：自定义主题 schema 与原生导入/导出
+  ├─ desktop/glass-background-service.cjs：用户授权背景图的 WebP 受管转码、内容寻址加载与保留式 GC
   ├─ runtime/glass-theme-settings.cjs：共享 Glass registry 的 Electron 设置归一化与原生窗口底色
   ├─ desktop/agent-window-service.cjs：独立 Agent BrowserWindow 生命周期、主 Renderer 权威状态与命令中继
   ├─ desktop/license-service.cjs：设备激活、24 小时校验缓存与 72 小时离线宽限
@@ -101,15 +110,18 @@ React Renderer
   ├─ src/core.ts：共享类型、bridge contract、图片与 session 规则
   ├─ runtime/glass-theme-presets.json → src/glass-theme.ts → src/glass-theme-provider.tsx：Glass registry、归一化、根节点投影与无 wrapper Provider
   ├─ src/settings-persistence.ts：默认设置、迁移、浏览器回退存储与无敏感信息的 Glass bootstrap snapshot
-  ├─ src/workspace-chrome.tsx：自然异步左侧素材轨、工作台/专注/评审切换、任务上下文与只读成果投影
+  ├─ src/workspace-chrome.tsx：自然异步左侧素材轨、工作台/专注/评审切换、固定上下文栏与原图/生成组只读投影
   ├─ src/glass-lab.tsx：设置外观页内再次按需加载的 Glass Lab
-  ├─ src/plugin-state.ts / src/plugin-system.ts：声明式插件状态、manifest、权限、命令与工具栏贡献
+  ├─ src/help-center.tsx：自然异步快速开始、使用帮助、政策与关于表面
+  ├─ src/plugin-state.ts / src/plugin-system.ts：声明式插件状态、manifest、权限、工具栏贡献与快捷键默认值/用户覆盖
   ├─ src/plugins/*：内置插件领域任务契约；不直接修改项目 session
   ├─ src/agent-panel-layout.ts：Agent 停靠/浮动布局、边界限制与 CSS 拖动预览
   ├─ src/agent-window-sync.ts：按需加载的独立窗快照与命令校验
   ├─ src/asset-identity.ts / src/paste-blocks.ts：纯数据域
   ├─ src/agent.ts：Agent 请求和时间线适配
+  ├─ src/project-agent-composer.tsx：自然异步紧凑 Agent 输入区、玻璃菜单、模式切换与运行控制
   ├─ src/ui.tsx：基础 UI 兼容 façade；真实实现位于 src/ui/*
+  ├─ src/ui/unsaved-changes-dialog.tsx：具备保存语义表面的统一关闭确认
   ├─ auth / image viewer / reference picker / theme palette / window controls 表面模块
   ├─ src/styles.css → src/styles/01…08：01 Glass token/主题桥，04 设置外观，07a→07i workbench，07j Glass surface/视图模式；04b 随 Glass Lab 异步 chunk 加载
   ├─ 画布、容器、需求、TaskScope、选择与分层模块
@@ -136,7 +148,7 @@ package.json.main
 ### 4.1.1 Glass 主题首帧与实时投影
 
 ```text
-runtime/glass-theme-presets.json（六套主题、三套材质、强调色与参数范围）
+runtime/glass-theme-presets.json（七套主题、三套材质、强调色与参数范围）
   ├─ runtime/glass-theme-settings.cjs
   │    → Electron 设置归一化
   │    → 主窗口和独立 Agent BrowserWindow 创建时的原生 backgroundColor 使用已保存主题 canvas 色
@@ -146,7 +158,7 @@ runtime/glass-theme-presets.json（六套主题、三套材质、强调色与参
        → glassAppearanceProjection()
        → applyGlassAppearanceToRoot()
 
-index.html 的静态 light-sky + frosted fallback
+index.html 的静态 dark-ember + frosted fallback
   → public/glass-theme-bootstrap.js 在 React/Vite 入口前读取 naimage.glassTheme.bootstrap.v1
   → 只信任 glassTheme / glassMaterial / glassParameters 并重新计算变量
   → documentElement datasets / classes / CSS variables
@@ -155,11 +167,13 @@ index.html 的静态 light-sky + frosted fallback
   → useLayoutEffect 重新投影权威设置并刷新安全 bootstrap snapshot
 ```
 
-`runtime/glass-theme-presets.json` 是运行时 registry 的 canonical 数据源；`public/glass-theme-bootstrap.js` 为了在 Vite bundle 执行前工作而保留一份启动期投影镜像，必须由 `test:glass-theme` 对六主题、三材质、强调色和变量逐项防漂移。bootstrap snapshot 固定为 `naimage-glass-theme-bootstrap` v1，只包含 `glassTheme`、`glassMaterial`、`glassParameters.{opacity,blur,saturation,highlight,shadow,radius,accent,noise,reduceMotion}` 及可重建投影，不包含账号、Key、Cookie、Prompt 或项目数据；启动脚本忽略持久化的 `variables`，防止任意 CSS 值被直接信任。
+`runtime/glass-theme-presets.json` 是运行时 registry 的 canonical 数据源；`public/glass-theme-bootstrap.js` 为了在 Vite bundle 执行前工作而保留一份启动期投影镜像，必须由 `test:glass-theme` 对七主题、三材质、强调色和变量逐项防漂移。第七套 `light-silver` 显示为“雾银玻璃”，复用同一 token 投影而不增加第二套样式系统。bootstrap snapshot 固定为 `naimage-glass-theme-bootstrap` v1，只包含 `glassTheme`、`glassMaterial`、`glassParameters.{opacity,blur,saturation,highlight,shadow,radius,accent,noise,reduceMotion}` 及可重建投影，不包含账号、Key、Cookie、Prompt 或项目数据；启动脚本忽略持久化的 `variables`，防止任意 CSS 值被直接信任。
 
-根节点合同包括 `data-glass-theme`、`data-glass-mode`、`data-glass-material`、`data-glass-accent`、`data-glass-accent-resolved`、`data-glass-noise`、`data-glass-reduce-motion`，以及 `glass-theme-active`、`theme-light|theme-dark`、`glass-no-noise`、`glass-reduce-motion`。默认是 `light-sky + frosted`。Electron 的完整设置仍以 Main 磁盘配置为 authority；`settingsWithGlassBootstrap()` 只把无凭据的 Glass 子集借给首个 React frame，避免 bootstrap 已恢复的非默认主题被异步磁盘加载前的默认 state 短暂覆盖。`GlassThemeProvider` 不渲染 DOM wrapper，只更新根 datasets、classes 和 CSS variables；切换主题、材质或自定义参数不得卸载、重建或重新初始化画布。
+根节点合同包括 `data-glass-theme`、`data-glass-mode`、`data-glass-material`、`data-glass-accent`、`data-glass-accent-resolved`、`data-glass-noise`、`data-glass-reduce-motion`，以及 `glass-theme-active`、`theme-light|theme-dark`、`glass-no-noise`、`glass-reduce-motion`。新装默认是“蜜橘融光” (`dark-ember + frosted`)。Electron 的完整设置仍以 Main 磁盘配置为 authority；`settingsWithGlassBootstrap()` 只把无凭据的 Glass 子集借给首个 React frame，避免 bootstrap 已恢复的非默认主题被异步磁盘加载前的默认 state 短暂覆盖。`GlassThemeProvider` 不渲染 DOM wrapper，只更新根 datasets、classes 和 CSS variables；切换主题、材质或自定义参数不得卸载、重建或重新初始化画布。
 
-Glass Lab 的自然异步链路是：顶栏 `.workspace-glass-lab-button` 或素材轨设置按钮 → `LazySettingsDrawer` → 外观 section → `LazyGlassLab` → `src/glass-lab.tsx` 同 chunk 导入 `src/styles/04b-glass-lab.css`。Glass 全局 token/兼容桥由 `src/styles/01-liquid-glass-tokens.css` 持有，chrome、Agent、素材轨、工具栏、菜单/对话框/设置、输入框和浮动控件的 surface 由 `src/styles/07j-liquid-glass-surfaces.css` 持有；画布 artwork、图片节点和各成果预览保持不透明，并显式禁用 `filter`、`backdrop-filter` 与混合模式。
+Glass Lab 的自然异步链路是：顶栏 `.workspace-glass-lab-button` 或素材轨设置按钮 → `LazySettingsDrawer` → 外观 section → `LazyGlassLab` → `src/glass-lab.tsx` 同 chunk 导入 `src/styles/04b-glass-lab.css`。Glass 全局 token/兼容桥由 `src/styles/01-liquid-glass-tokens.css` 持有，chrome、Agent、素材轨、工具栏、菜单/对话框/设置、输入框、浮动控件以及图片容器、成果/Requirement/科研 Panel 节点外壳由 `src/styles/07j-liquid-glass-surfaces.css` 和对应领域异步样式共同持有。节点的框架、标题区和控件可透明玻璃化；实际图片/视频 artwork 与成果预览像素层必须保持不透明、原色，并显式禁用 `filter`、`backdrop-filter` 与混合模式。共享字体 token 由 `src/styles/01-base-controls.css` 维持 12/13/14/15 px 的紧凑可读层级，Agent 正文/状态/输入和模型菜单在 `07g-agent-panel-overrides.css` 使用对应关键字号。项目搜索浮层必须以近实色 `--glass-menu-surface` 绘制并关闭 backdrop filter，避免下层 artwork 穿透；文字、菜单和选中态维持可读对比，玻璃增强不得引入高成本画布特效或拖动延迟。
+
+自定义工作区背景经 `naimage:glass-background:{pick,load,clear}` 进入 Main：原生选择授权后只读取普通文件，限制 64 MiB/1 亿输入像素，使用 Sharp 旋转校正、最长边 3840 px 并统一压缩为单帧 WebP；文件以转码字节 SHA-256 作为 `glass-bg-*` 身份存入 `<configDir>/glass-backgrounds`。Renderer 只接收有界 metadata 与按需 data URL，不接收原始路径或受管路径，AppSettings 也只保存资产 ID、显示名、WebP metadata、启用状态、遮罩强度和模糊值，不保存 base64。clear 不立即物理删除文件，而是刷新 30 天恢复保留期；GC 每次最多删除 8 个超过保留期、未被当前设置引用、文件名和内容哈希均自校验通过的本模块 WebP，未知文件、符号链接、损坏文件和仍被引用的资产一律保留。
 
 ### 4.2 窗口控制
 
@@ -182,16 +196,40 @@ src/main.tsx workspaceViewMode（naimage.workspaceViewMode.v1，仅 UI 便利状
   → loadWorkspaceChrome() 单一自然异步模块
   ├─ WorkspaceDirectionSwitcher：workbench / focus / review
   ├─ WorkspaceSearch：顶栏项目搜索与 Ctrl/Cmd K 入口
-  ├─ WorkspaceAssetRail：成果 / 图层 / 需求 / 历史 + 导入 / 设置
+  ├─ WorkspaceAssetRail：成果 / 图层 / 需求 / 模板 / 历史 + 领域快捷区 + 导入 / 设置
   ├─ WorkspaceTaskContext：当前模式与选中节点摘要
-  ├─ WorkspaceFocusStage：当前成果 + 最近成果胶片条 + 继续生成
+  ├─ WorkspaceFocusStage：多选成果的原图/生成组分栏 + 最近成果胶片条 + 继续生成
   └─ WorkspaceReviewGrid：最近四个成果并排评审 + 当前方向
        → 选择、打开大图、切换会话、导入和设置均回调 src/main.tsx 的生产动作
 ```
 
-主 Shell 合同是 `.ide-main.canvas-only.has-asset-rail.workspace-mode-{workbench|focus|review}` 与既有 `agent-placement-*`/`agent-collapsed` 的组合。左侧素材栏是正式产品结构，必须保留成果、图层、需求、历史、导入和设置入口，不得再以“原 Shell 无永久侧栏”为由移除。异步加载期间分别使用 `.workspace-direction-switcher.workspace-direction-switcher-loading` 与 `.workspace-asset-rail.is-loading`，不能用空白或第二套临时布局替代。素材轨从 live `canvasNodes` 和 `conversations` 派生成果、图层、需求与历史，最多呈现有界的最近 40 项；它不持有第二份画布、会话或项目状态。原型入口必须连接既有生产动作或权威状态；禁止保留无行为按钮、平行 mock 数据或第二套业务实现，Agent 仍是唯一控制中心。
+主 Shell 合同是 `.ide-main.canvas-only.has-asset-rail.workspace-mode-{workbench|focus|review}` 与既有 `agent-placement-*`/`agent-collapsed` 的组合。左侧素材栏是正式产品结构，必须保留成果、图层、需求、历史、导入和设置入口，不得再以“原 Shell 无永久侧栏”为由移除。异步加载期间分别使用 `.workspace-direction-switcher.workspace-direction-switcher-loading` 与 `.workspace-asset-rail.is-loading`，不能用空白或第二套临时布局替代。素材轨从 live `canvasNodes` 和 `conversations` 派生成果、图层、需求与历史，最多呈现有界的最近 40 项；它不持有第二份画布、会话或项目状态。`commerce` 模式额外接收主 Renderer 提供的轻量 `WorkspaceDomainTool` DTO，以 SKU、套图、翻译、模板、A/B 和导出顺序优先展示；按钮保留原 plugin command ID 并回调同一个 `executePluginCommand`，不导入插件 Runtime、不复制业务逻辑。插件未安装或停用时显示设置恢复入口；已启用但工具全隐藏时进入“设置 → 工具”，不会自动安装、启用或恢复用户明确隐藏的命令。原型入口必须连接既有生产动作或权威状态；禁止保留无行为按钮、平行 mock 数据或第二套业务实现，Agent 仍是唯一控制中心。
 
-Workbench 始终保留 canonical 无限画布；Focus 与 Review 是挂在同一 `.canvas-panel` 内、位于 canonical canvas 之后的 sibling projection，只改变可见投影，不得条件卸载画布。切换到 Focus/Review 时若当前未选中有效图片，Main 只选择现有图片成果，不创建或改写节点。`WorkspaceSearch` 搜索真实图片、需求和会话，支持按钮与 Ctrl/Cmd K 调用，并按精确标题、标题前缀、内容匹配依次排序；选择结果必须回到 Main 的真实节点/会话选择动作，不能只关闭浮层或修改局部投影。Navigator、Workbench、Focus 与 Review 发起跨节点选择时必须使用 explicit replace 语义，不得复用 selection `focus` 手势；后者会保守忽略已存在选择下的跨节点切换。Focus/Review 只能投影已有图片成果；在这两个模式中搜索到需求或尚无资产的进行中图片时，Main 必须先切回 Workbench，再定位 canonical 节点，避免任务摘要与可见图片不一致。Focus 的“继续生成”只打开所选现有成果的编辑器，不立即派发图片请求或产生费用。Review 的“当前方向”以 canonical `selectedNodeId` 为权威，选择后进入现有项目持久化链，不得另设 Review-only 选择状态。生产 BrowserWindow 最小尺寸为 884 x 640 px；`07j-liquid-glass-surfaces.css` 对 1280/1100/1000 px 逐级收紧顶栏、素材轨和视图投影，AIDebug 的 540 px BrowserWindow 仅用于隔离响应式 fixture，不改变正式窗口门槛。
+Workbench 始终保留 canonical 无限画布；Focus 与 Review 是挂在同一 `.canvas-panel` 内、位于 canonical canvas 之后的 sibling projection，只改变可见投影，不得条件卸载画布。切换到 Focus/Review 时若当前未选中有效图片，Main 只选择现有图片成果，不创建或改写节点。`WorkspaceSearch` 搜索真实图片、需求和会话，支持按钮与 Ctrl/Cmd K 调用，并按精确标题、标题前缀、内容匹配依次排序；选择结果必须回到 Main 的真实节点/会话选择动作，不能只关闭浮层或修改局部投影。搜索浮层与通用 Glass surface 的选择器优先级必须一致，计算背景 alpha 为 1、`backdrop-filter` 为 `none`，输入、标题和详情字号分别至少为 12/11/10 px。Navigator、Workbench、Focus 与 Review 发起跨节点选择时必须使用 explicit replace 语义，不得复用 selection `focus` 手势；后者会保守忽略已存在选择下的跨节点切换。Focus/Review 只能投影已有图片成果；在这两个模式中搜索到需求或尚无资产的进行中图片时，Main 必须先切回 Workbench，再定位 canonical 节点，避免任务摘要与可见图片不一致。Focus 的“继续生成”只打开所选现有成果的编辑器，不立即派发图片请求或产生费用。Review 的“当前方向”以 canonical `selectedNodeId` 为权威，选择后进入现有项目持久化链，不得另设 Review-only 选择状态。生产 BrowserWindow 最小尺寸为 884 x 640 px；`07j-liquid-glass-surfaces.css` 对 1280/1100/1000 px 逐级收紧顶栏、素材轨和视图投影，AIDebug 的 540 px BrowserWindow 仅用于隔离响应式 fixture，不改变正式窗口门槛。
+
+### 4.2.2 四工作台领域投影
+
+```text
+runtime/workspace-domains.json（四领域唯一声明注册表）
+  ├─ runtime/workspace-domain.cjs → Main / Agent runtime / session normalizer
+  └─ src/workspace-domain.ts → Renderer 类型化投影
+       → src/main.tsx workspaceDomain + workspaceDomainRef
+       ├─ WorkspaceDomainSwitcher（顶部紧凑菜单）
+       ├─ Ctrl/Cmd + 1–4（插件有效自定义快捷键优先）
+       ├─ ProjectNameDialog（新项目四张入口卡）
+       ├─ availablePluginToolbarItems(..., workspaceDomain) → 命令/快捷键
+       ├─ activePluginToolbarItems(..., workspaceDomain) → 可见 Dock/领域菜单
+       ├─ WorkspaceAssetRail 领域快捷区（复用 active toolbar DTO）
+       ├─ Agent chat payload.workspaceDomain
+       └─ workspace.domain.list/get/set + project.create.workspaceDomain
+            → 同一 automation schema → Renderer registry / CLI reference / naimage-control Skill
+```
+
+`WorkspaceDomain` 固定为 `general | commerce | social | research`。领域只是同一项目的能力投影：切换只更新 `workspaceDomain` 并进入现有 session 自动保存，不替换 `.workflow-canvas`、节点、选择、会话、TaskScope、正在运行的 Agent 或受管资产，不调用模型、不联网、不产生费用。旧项目、非法导入值和缺失字段由 `desktop/project-session-normalizer.cjs` 统一归一为 `general`；新项目与新项目文件夹在首次创建文件时写入所选领域。独立 Agent 快照只公开领域 ID/标题，主 Renderer 仍是唯一 authority。正式最小窗口 `884 x 640` 下，顶部触发器仍必须显示“通用创作 / 电商创作 / 社媒创作 / 科研绘图”中的当前文字，不能退化为无法识别含义的单图标。
+
+`general` 为兼容模式，继续显示全部已安装且启用的插件工具；其他领域显示注册表中归属自身的插件以及未被任何领域声明的全局插件。`commerce` 投影 `sparkai.commerce-toolkit`，`social` 投影 `sparkai.social-content`，`research` 投影已交付的 `sparkai.scientific-figure`；素材轨与底部工具栏都复用各插件同一 active contribution。`AppSettings.workspacePluginDefaultsVersion` 对旧设置只执行一次版本化迁移，默认安装并启用这三个第一方工作台组件；迁移后明确停用的组件保持停用，用户随后卸载全部组件并保存时也不会在下次启动被重新安装。科研工具在左素材轨中以“数据 / 图表 / Panel / 示意 / 重绘 / 导出”紧凑标签呈现。Agent runtime 只注入注册表中的一句领域提示，详细流程由插件 Skill/受信任契约按需提供，不能建立四个 Agent Runtime。领域基础专项入口为 `test:workspace-domain`、`test:plugin-system`、`test:agent-window`、`test:automation-service` 与 `aidebug:workspace-domain`；社媒真实 Electron 证据位于 `.diagnostics/electron/glass-workspace-2026-08-03T07-45-12-422Z/report.json`，科研真实 Electron 证据位于 `.diagnostics/electron/glass-workspace-2026-08-03T09-53-46-537Z/report.json`；两者都为 0 Renderer console error、0 模型请求，科研 GUI 场景也没有执行本地 Runner。
+
+工具显隐采用两层投影：`availablePluginToolbarItems` 只按插件启用、权限和领域生成可执行/快捷键集合；`activePluginToolbarItems` 再应用 `disabledCanvasToolCommands`，生成底部工具栏与素材轨领域菜单的可见集合。该兼容字段现在只表示视觉隐藏，不能参与 `PluginCommandRegistry`、快捷键、Agent 或 CLI 能力判断。设置页即使取消勾选，仍允许修改该工具快捷键；只有插件停用或卸载才真正拒绝命令。
 
 ### 4.3 Agent 请求
 
@@ -216,7 +254,7 @@ src/main.tsx sendPrompt()
 
 Goal 是普通对话之外的显式全画布批量合同。`src/goal-task-scope.ts` 从当前画布投影全部顶层合格图片容器，排除纯 REFERENCE、空容器和生成中容器，并把每个图片槽位保留为独立有序 binding；`src/goal-mode.ts` 将容器/图片计数、费用估算、probe 策略和冻结 `snapshotHash` 组成预览。主窗口、独立 Agent 窗口与 `agent.goal` 自动化命令都必须先预览、再由用户明确确认；Main 在派发前按当前画布重算 hash，发生 drift 时零请求拒绝，不能沿用旧确认或现场重建范围。
 
-确认后的模型只允许一次 `image_gen(scopeExecution="all-goal-sources")`，`runtime/goal-image-execution.cjs` 校验 Goal metadata、TaskScope、SOURCE binding、容器顺序、本地路径和 hash 完全一致，再由 runtime 逐 binding 展开。`runtime/goal-probe-admission.cjs` 是 Main 进程唯一 Goal admission owner：probe 串行且优先于新 ramp，已通过 Goal 在 wave 边界公平共享冻结容量，retry hold、同项目唯一 lease、跨 Goal circuit 和 provider draining 都在这里决定。`runtime/image-batch-scheduler.cjs` 负责每个 Goal 内的 `1–2` probe 与 `2 → 4 → configuredConcurrency` 波次，并且只有请求、资产落盘、Sharp 完整解码、非零尺寸和交付画幅都通过后才完成 token。取消和熔断只能阻止未派发请求，已被上游接受的请求仍可能完成并计费。
+确认后的模型只允许一次 `image_gen(scopeExecution="all-goal-sources")`，`runtime/goal-image-execution.cjs` 校验 Goal metadata、TaskScope、SOURCE binding、容器顺序、本地路径和 hash 完全一致，再由 runtime 逐 binding 展开。`runtime/goal-probe-admission.cjs` 是 Main 进程唯一 Goal admission owner：probe 串行且优先于新 ramp，已通过 Goal 在 wave 边界公平共享冻结容量，retry hold、同项目唯一 lease、跨 Goal circuit 和 provider draining 都在这里决定。`runtime/image-batch-scheduler.cjs` 负责每个 Goal 内的 `1–2` probe 与 `2 → 4 → configuredConcurrency` 波次，并且只有请求、资产落盘、Sharp 完整解码、非零尺寸和交付画幅都通过后才完成 token。Goal 结果按 SOURCE 聚合为每个母图一个图片组，组内条目独立保存 Commerce 槽位、语言、SKU 与幂等 provenance；取消和熔断只能阻止未派发请求，已被上游接受的请求仍可能完成并计费。
 
 ### 4.4 Agent 模型与生图
 
@@ -239,14 +277,19 @@ image_gen
   → Renderer 归组与溯源
 ```
 
-`generate/edit/replace/variants/layers/cutout/redraw` 是桌面 Agent 的普通业务语义；远端边界是 OpenAI-compatible relay、用户会话、模型、计费和图片结果。Goal v1 刻意缩小为 `edit | replace | variants`，每个冻结 binding 按已确认的 `operationsPerAsset` 输出，总请求不超过 200；跨境电商多项矩阵接受并强制校验等长 `items`，单项矩阵改用顶层槽位/语言元数据。Goal 不接受额外 REFERENCE、layers、cutout、redraw 或运行中 SOURCE/REFERENCE 变化；Goal steer 只允许文字，范围变化必须重新预览和确认。
+`generate/edit/replace/variants/layers/cutout/redraw` 是桌面 Agent 的普通业务语义；远端边界是 OpenAI-compatible relay、用户会话、模型、计费和图片结果。新装默认 Agent 模型为 `gpt-5.6-terra`，默认图片模型为 `gpt-image-2`；目录仍保留上游返回的原始模型 ID 与大小写。普通 `parallel` 多图按配置并发上限使用 direct wave 同批启动，每个请求完成时立即发出 `image-result` 并用同一 operation 增量更新一个图片组，最终资产按实际完成顺序排列。Goal v1 刻意缩小为 `edit | replace | variants`，每个冻结 binding 按已确认的 `operationsPerAsset` 输出，总请求不超过 200；跨境电商多项矩阵接受并强制校验等长 `items`，单项矩阵改用顶层槽位/语言元数据。Goal 不接受额外 REFERENCE、layers、cutout、redraw 或运行中 SOURCE/REFERENCE 变化；Goal steer 只允许文字，范围变化必须重新预览和确认。
 
-桌面有两种互斥但可运行时切换的接入模式：
+桌面接入能力由构建产物内的 `dist/sparkai-access-policy.json` 固定，`runtime/access-variant.cjs` 是策略归一化、清单读取和 Main 设置强制的唯一 owner，Renderer 由 Vite 同源注入 `__SPARKAI_ACCESS_POLICY__`：
+
+- `dual-access`（无限制版）：提供两种互斥且可运行时切换的接入模式。
+- `sparkapi-account`（SparkAPI 专用版）：固定 `https://sparkapi.org`，强制 `account`、清空 Relay 覆盖，登录页和设置页不展示自定义入口，`naimage:server:configure-custom` 仍在 Electron Main 返回 `CUSTOM_API_ACCESS_DISABLED`。旧配置若来自其他账户地址，还必须清除旧 Session 与所选 Token，防止凭据跨域复用；未激活的自定义凭据可保留以便用户改装无限制版后恢复使用，但在专用版中不得参与传输。
+
+无限制版的两种模式为：
 
 - `account`：用户名/密码登录 SparkAPI/New API；Cookie + `New-Api-User` 只用于 `/api/user/*`、`/api/token/*`、设备授权和更新。登录后桌面列出、创建、编辑、分组、启停和删除用户密钥，并用用户选择的完整 Key 直连 `accountBaseUrl/v1`。完整 Key 优先兼容原生 New API 在 token 列表/详情中的返回值，脱敏部署则通过 `POST /api/token/:id/key` 按需取回；两者都只缓存在 Electron Main 内存，不进入 Renderer、设置文件、模型缓存或日志。`account-token-cache.json` 只按账户地址 + user ID 保存最多 8 份公开元数据快照，不保存任何 Key、Cookie、IP 白名单或模型限制。
 - `custom`：用户提供 Base URL、API Key、Agent 模型和生图模型；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。
 
-两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
+无限制版的两个模式共用安装级 `licenseDeviceId` 与激活令牌。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
 设置页数据加载是显式的离线优先边界：挂载时 `tokens({ preferCached: true })` 与 `models({ cacheOnly: true })` 只读 Main 本地快照；没有模型快照时回退到设置内模型池。切换设置分区不会联网；只有“刷新密钥与分组”“刷新模型”、密钥 CRUD 或切换密钥等明确用户动作可以请求 New API。模型磁盘快照即使超过 60 秒，在 `cacheOnly` 模式下也可用于离线显示，并标记来源/更新时间；正常运行时的 60 秒缓存规则仍保持。
 
@@ -254,9 +297,17 @@ image_gen
 
 生图 SOURCE/REFERENCE 输入和上游图片结果的受管格式为 PNG、JPEG、WebP；`image_gen.outputFormat` 未指定时默认 PNG，未知格式由 Electron Main 在 provider 派发前拒绝。这里的“上游结果格式”属于模型请求与项目资产落盘合同，本地“另存为”属于另一条完全离线的文件链路，不能混用计费语义或资产身份。
 
+#### 图片输出规格
+
+`runtime/image-frame.cjs` 是图片画幅与交付清晰度的唯一归一化 owner。可选比例固定为 `1:1`、`16:9`、`9:16`、`4:3`、`3:4`、`3:2`、`2:3`、`21:9`、`9:21`、`4:5`；可选清晰度固定为 `1K`、`2K`、`4K`。设置页默认值、主 Agent 输入、空白画布手动生图表单、`agent.chat` 与 `agent.goal` 的 automation schema/CLI 都必须使用这同一组值。`imageRatio` 与 `imageResolution` 是独立的用户偏好，`imageSize` 是由两者计算的兼容/展示字段，不能被另一入口单独写成冲突尺寸；旧项目的 `720P`/`1080P` 或旧 `imageSize` 只作为读取迁移输入，正常保存统一写入当前规格。
+
+对 `gpt-image-2`，该模块会将交付尺寸规整为 16 的倍数，并受最长边 3840 px、总像素 8,294,400 px 和比例上限保护；因此非方形 `4K` 可能按安全上限等比收敛（例如 `4:5` 为 `2576x3216`），不应把标签误解成所有方向均为 3840 px。`size` 表示最终交付尺寸，`requestSize` 只是上游兼容请求画布（`1024x1024`、`1536x1024` 或 `1024x1536`）的选择依据；两者都必须经 `normalizeImageToolFrame()` 生成，不能在 Renderer、CLI 或 Main 手工重算。对应最小验证为 `test:settings-persistence`、`test:agent-text`、`test:agent-protocol` 与 `test:automation-service`。
+
 单张画布资产的另存链路为：Renderer/`canvas.export-image` 只提交节点、槽位和目标格式 → Main 校验并物化项目受管源图 → 原生 Save 对话框取得用户目标授权 → `desktop/image-export-service.cjs` 按真实解码元数据识别源格式并在必要时使用 Sharp 转码 → 写入用户选择的位置。可选格式为 PNG、JPEG、WebP、AVIF、TIFF；JPEG 固定以白色背景展平 alpha，其余格式保留 alpha。相同格式可直接复制，跨格式转换在本机完成，不调用 Agent 或图片模型、不消耗生图额度，也不改变受管源图。新目标优先以同卷 hard-link 原子发布；文件系统不支持 hard-link 时回退到 `COPYFILE_EXCL` 排他复制，两条路径都不得覆盖并发创建的文件。确认覆盖才执行原子替换，Main 以真实父目录规范化目标锁并对所有既有目标执行锁内最终确认。分层成果原有 Photoshop PSD 导出继续独立保留，不经过单图格式转换降级。
 
-中间图只进入 `image-preview` 进度和 Renderer 的临时 `streamingImagePreviews`。`src/streaming-image-preview.ts` 按父 operation、生成节点与一基 request slot 建立归属；分层任务为每个图层传递独立 slot；`src/main.tsx` 再通过 layout projection 把 partial 放进目标单图、批量容器、连续系列或分层占位组的 pending tile。最终图、失败或停止后按槽位清理。中间图不进入 Agent 时间线卡、主/独立 Agent 对话窗口、项目成果、会话历史或图片库。单次图片任务最多 10 张，生成与编辑统一最多 10 路并发；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
+中间图只进入 `image-preview` 进度和 Renderer 的临时 `streamingImagePreviews`。`src/streaming-image-preview.ts` 按父 operation、生成节点与一基 request slot 建立归属；分层任务为每个图层传递独立 slot；`src/main.tsx` 再通过 layout projection 把 partial 放进目标单图、批量容器、连续系列或分层占位组的 pending tile。同一 `operationId + requestIndex` 只保留最新一张；最终 `image-result` 到达后在下一动画帧按槽位清理，使同批到达的最后一张 partial 至少真实绘制一次，随后立即由最终受管资产收口；失败、停止或工具终态清理整个 operation。中间图不进入 Agent 时间线卡、主/独立 Agent 对话窗口、项目成果、会话历史或图片库。单次图片计划最多 200 张，实际并发受用户配置和 10 路硬上限保护；任何失败仍按原请求槽位返回，不把中间图伪装成最终成果。Main 只记录模型、尺寸、质量、Prompt 字符/UTF-8 字节数和 body keys 等脱敏 metadata，不记录 Prompt 内容、API Key、Cookie。
+
+Renderer 的预览容器以 `data-stream-preview-count`、`data-preview-index` 和 `data-preview-total` 暴露当前替换状态；同一 `operationId + requestIndex` 永远只保留最新一张。`NAIMAGE_AIDEBUG_IMAGE_PARTIALS=1..3` 可让 Electron mock 分阶段发图；`aidebug:image --image-runs=1` 会并发采样真实 DOM 的索引、槽位和 `src` 指纹并验证终态清零。当前无付费权威报告为 `.diagnostics/electron/aidebug-2026-08-05T05-51-40-277Z/agent-image-suite.json`，3 个图片任务均观测到 `1/3 → 2/3 → 3/3`、每槽 3 个不同源指纹、`maxConcurrentTiles=1` 与 `finalPreviewCount=0`。
 
 AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、图层提示兼容推断和确定性 PNG base64 只由 `desktop/aidebug-image-fixture.cjs` 实现；真实图片服务请求、项目资产落盘与返回 DTO 不经过该 fixture owner。
 
@@ -264,15 +315,21 @@ AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、�
 
 ```text
 Codex / Claude Code / OpenCode / OpenClaw
-  → integrations/naimage-control/scripts/naimage.ps1
+  ├─ integrations/naimage-control/scripts/naimage.ps1（CLI）
+  └─ integrations/naimage-control/scripts/naimage-mcp.mjs（MCP stdio）
+       → integrations/naimage-control/references/commands.schema.json（唯一命令注册表）
   → <configRoot>/automation/endpoint.json（端口 + 每次启动随机 Token）
   → http://127.0.0.1:<random>/v1/execute
   → desktop/automation-service.cjs
-  → preload naimageAutomation request/response
-  → src/main.tsx 生产状态与生产动作
+       ├─ Renderer command → preload naimageAutomation request/response → src/main.tsx 生产状态与生产动作
+       └─ debug.* service command → desktop/debug-command-service.cjs（仅开发/AIDebug）
 ```
 
-`integrations/naimage-control` 是随安装包分发的正式 Skill；设置页可检测并复制到各 Agent 的 `skills/naimage-control`。安装目录的 `.naimage-connection.json` 只保存 endpoint 文件位置与 EXE 路径，不保存 Bearer Token；CLI 每次从应用私有 endpoint 文件读取当前 Token。服务只监听 loopback，Renderer 不使用任何 AIDebug hook。`references/commands.schema.json` 是命令名、参数示例、枚举和图片格式元数据的共享注册表，由 `scripts/automation-command-reference.mjs` 生成 Renderer registry 与命令参考，Main 的格式扩展名/MIME/Save 过滤器也读取同一注册表。公开命令覆盖项目、画布状态/选择/容器/导入和 Agent 会话，并与 GUI 同步提供 `canvas.export-image`、`agent.goal`、`agent.steer`、`agent.pause`、`agent.resume`、`agent.stop`。`canvas.export-image` 只接受 `nodeId`、`assetIndex` 和 PNG/JPEG/WebP/AVIF/TIFF 格式，通过 GUI 同一原生 Save 对话框获得目标授权；命令不能传任意目标路径，本地转换不调用模型或消耗额度，真实导出失败必须作为 CLI 失败传播，只有用户取消是正常 no-op。`agent.goal` 第一次调用只返回 `requiresConfirmation`、冻结 snapshot 和 counts；第二次必须携带 `confirmed=true` 及同一预览的 `expectedSnapshotHash`，命令说明同时公开 probe、渐进放量、熔断和已接收请求仍可能计费的边界。`agent.steer.taskScopeMode` 提供常用简写，`sourceMode`/`referenceMode` 可独立选择 `keep | replace | merge | clear`，清空全部或删除所选还必须传 `confirmed=true`。`canvas.import-skill` 与画布菜单“导入 SKILL.md”通过 `naimage:project-skill:parse` 共用 `desktop/skill-import.cjs` 的解析、长度限制和 `CanvasSkill` 身份；PowerShell CLI 优先用 `-SkillPath` 在本地读取用户授权文件，只把 Markdown 和 basename 交给 Renderer，再由 Main 解析。当前只导入一个不超过 256 KiB、指令不超过 24,000 字符的 Markdown 文件，不复制同级 scripts/references/assets；绝对源路径不进入请求或 session。导入结果仍是带 Skill 元数据的 requirement，执行继续走 requirement TaskScope、输入关系和重复执行 gate。新增可自动化产品动作时必须同步 schema、Renderer handler、Skill 和 `test:automation-service`。
+`integrations/naimage-control` 是随安装包分发的正式 Skill；设置页可检测并复制到各 Agent 的 `skills/naimage-control`。安装目录的 `.naimage-connection.json` 只保存 endpoint 文件位置与 EXE 路径，不保存 Bearer Token；CLI/MCP 每次从应用私有 endpoint 文件读取当前 Token，MCP 工具列表直接由同一 schema 生成，调用仍落到 `/v1/status` 或 `/v1/execute`，不复制任何画布、Agent、持久化或计费逻辑。服务只监听 loopback，Renderer 不使用任何 AIDebug hook。`references/commands.schema.json` 是命令名、surface、参数示例、枚举和图片格式元数据的共享注册表，由 `scripts/automation-command-reference.mjs` 生成 Renderer/service registry 与命令参考，Main 的格式扩展名/MIME/Save 过滤器也读取同一注册表。
+
+`debug.runtime-state`、`debug.renderer-logs`、`debug.main-logs`、`debug.run-targeted-test`、`debug.capture-window`、`debug.inspect-ipc` 和 `debug.inspect-command` 由 Main service 分流，不占用或复制 Renderer handler。它们仅在源代码开发态或显式 AIDebug 可用；生产安装包默认返回 `DEBUG_COMMAND_DISABLED`。日志和状态有界递归脱敏，截图固定写诊断目录且不接受路径/窗口 ID，测试执行固定在仓库根目录、使用 schema 枚举白名单、无 shell、清除凭据型环境变量并裁剪输出；它们不能安装依赖、编辑/删除代码、修改用户项目资产或调用模型。
+
+公开业务命令覆盖项目、工作台领域、画布状态/选择/容器/导入和 Agent 会话；`workspace.domain.list/get/set` 与 `project.create.workspaceDomain` 使用当前项目 guard 和同一 Renderer 状态，不触发模型或计费。GUI/CLI/MCP 同步提供 `canvas.import-video`、`canvas.generate-video`、`canvas.export-image`、`agent.goal`、`agent.steer`、`agent.pause`、`agent.resume`、`agent.stop`、`commerce.template.*` 与 `commerce.catalog.compare/select`。`canvas.import-video` 只接受用户授权的本地 MP4/WebM/MOV/M4V 路径，经 Main 复制到当前项目受管视频库后创建独立成果节点，不调用模型。`canvas.generate-video` 必须携带当前 `expectedProjectId` 与 `confirmed=true`，每次只创建一个已预写 journal 的任务；远端 ID 已确认后仅恢复轮询和下载，`ambiguous:true` 不得自动替换或循环重发，当前 Seedance 请求仍待用户授权的一条最小兼容验证。`canvas.export-image` 只接受 `nodeId`、`assetIndex` 和 PNG/JPEG/WebP/AVIF/TIFF 格式，通过 GUI 同一原生 Save 对话框获得目标授权；命令不能传任意目标路径，本地转换不调用模型或消耗额度，真实导出失败必须作为 CLI/MCP 失败传播，只有用户取消是正常 no-op。`agent.goal` 和 `commerce.compose-set` 的一次调用即是用户对上游扣费的授权；Renderer/Main 先构建并消费一次性冻结 receipt，返回 probe、渐进放量、熔断、请求计数和可能已计费边界，不再要求第二个 `confirmed`/snapshot 确认。`agent.steer.taskScopeMode` 提供常用简写，`sourceMode`/`referenceMode` 可独立选择 `keep | replace | merge | clear`，清空全部或删除所选还必须传 `confirmed=true`。`canvas.import-skill` 与画布菜单“导入 SKILL.md”通过 `naimage:project-skill:parse` 共用 `desktop/skill-import.cjs` 的解析、长度限制和 `CanvasSkill` 身份；PowerShell CLI 优先用 `-SkillPath` 在本地读取用户授权文件，只把 Markdown 和 basename 交给 Renderer，再由 Main 解析。当前只导入一个不超过 256 KiB、指令不超过 24,000 字符的 Markdown 文件，不复制同级 scripts/references/assets；绝对源路径不进入请求或 session。导入结果仍是带 Skill 元数据的 requirement，执行继续走 requirement TaskScope、输入关系和重复执行 gate。新增可自动化产品动作时必须同步 schema、Renderer handler、CLI/MCP 文档、Skill 和对应专项合同。
 
 个人需求模板库命令为 `requirement-library.list`、`requirement-library.save`、`requirement-library.delete` 与 `requirement-library.use`。`list` 读取跨项目共享的安装级个人库；`save` 以当前项目 ID 和来源 Requirement 的精确 revision 为 guard，新建模板或用模板精确 revision 做 CAS 覆盖；`delete` 必须携带模板精确 revision 与 `confirmed=true`，且不删除已实例化的画布节点；`use` 必须校验模板精确 revision，可带有序 SOURCE/REFERENCE bindings 及 canvas revision guard，但只在当前画布创建普通 Requirement，不执行需求、不调用模型、也不产生图片额度费用。带 `CanvasSkill` 元数据的条目实例化后仍遵循普通 Requirement 的 TaskScope 与执行 gate。
 
@@ -280,7 +337,7 @@ Graph CLI 与 GUI 共用生产画布关系实现，不维护第二套图模型�
 
 ### 4.6 Agent 上下文与 checkpoint
 
-`naimage Agent = Codex 式通用 Agent Runtime + naimage 图片领域 Agent`。通用部分拥有长上下文、模型协议历史、工具循环和 checkpoint；图片领域部分拥有画布快照、TaskScope SOURCE/REFERENCE、图片容器、Image Gen 与 FastMemory 绘画经验。
+`SparkAI WorkSpace Agent = Codex 式通用 Agent Runtime + 视觉创作领域 Agent`。通用部分拥有长上下文、模型协议历史、工具循环和 checkpoint；视觉领域部分拥有画布快照、TaskScope SOURCE/REFERENCE、图片容器、Image Gen 与 FastMemory 绘画经验。
 
 ```text
 settings + agentModel
@@ -332,31 +389,76 @@ GPT/Codex 不再按固定 32K 或消息条数过早压缩。单条 Responses 用
 
 ```text
 plugins/builtin-manifests.json
-  → desktop/plugin-state.cjs + src/plugin-state.ts 双侧清洗安装状态
+  → desktop/plugin-state.cjs + src/plugin-state.ts 双侧清洗安装状态与 canvasToolShortcuts
   → 设置页安装 / 授权 / 启用 / 停用 / 卸载
+  → 设置 > 工具录制快捷键、全工具冲突保护、单项恢复 manifest 默认值
   → 启用插件时动态 import src/plugin-system.ts
   → PluginCommandRegistry 在执行前复核安装状态、启用状态和权限
-  → 画布顶部 toolbar contribution
+  → activePluginToolbarItems(..., workspaceDomain) 按当前领域投影
+  → 画布底部居中 toolbar contribution + 电商素材轨轻量快捷投影
   ├─ plugins/commerce-set-schema.json
   │    → src/plugins/commerce-set.ts 归一化 generate/translate 计划、请求矩阵、费用计数和稳定 snapshot material
+  │    → translationItems + planMaterialHash 冻结图片×语言逐单元格要求
   │    → desktop/plugin-task-prompts.cjs 读取同一语言与上限注册表
   ├─ src/commerce-set-dialog.tsx（自然异步完整配置表面）
   │    → src/commerce-translation-dialog.tsx 保留现有翻译命令兼容适配
   │    → preload "naimage:plugin:compose-task"
   │    → desktop/ipc/plugin-ipc.cjs
   │    → desktop/plugin-task-prompts.cjs
-  │    → Renderer sendPrompt() → 按语言形成独立结果组
+  │    → Renderer sendPrompt() → runtime/goal-image-execution.cjs 按 SOURCE×语言逐项派发
+  ├─ plugins/commerce-catalog-schema.json
+  │    → desktop/project-commerce-catalog.cjs 项目级商品/SKU/素材持久化与 CAS
+  │    → desktop/ipc/commerce-catalog-ipc.cjs + preload
+  │    → src/commerce-catalog-dialog.tsx（自然异步本地管理表面）
+  │    → Renderer 共享命令注册表 + Agent CLI
+  │    → src/goal-task-scope.ts 按 SOURCE 冻结无歧义母图归属
+  │    → runtime/goal-image-execution.cjs + agent-runtime.cjs 写入结果 provenance/result key
+  │    → Renderer 保存 session → Main 按 TaskScope hash 幂等原子归档
+  ├─ plugins/commerce-template-schema.json
+  │    → desktop/commerce-template-library.cjs 安装级内置/个人模板、严格 portable v1 与 revision CAS
+  │    → desktop/ipc/commerce-template-ipc.cjs + preload 原生导入/导出与变更广播
+  │    → src/commerce-template-dialog.tsx（自然异步模板市场）
+  │    → Renderer 共享命令注册表 + Agent CLI
+  ├─ src/commerce-ab-dialog.tsx
+  │    → desktop/project-commerce-catalog.cjs 同槽位结果分组、Catalog/Product 双 CAS 原子终选
+  │    → desktop/ipc/commerce-catalog-ipc.cjs + preload
+  │    → Renderer 共享命令注册表 + Agent CLI commerce.catalog.compare/select
+  ├─ desktop/project-commerce-export.cjs
+  │    → Amazon/速卖通规则、真实文件/哈希/解码检查与商品/变体/SKU 结果继承
+  │    → desktop/ipc/commerce-export-ipc.cjs + preload 原生目录授权
+  │    → src/commerce-export-dialog.tsx（自然异步预检与 SKU 包表面）
+  │    → Renderer 共享命令注册表 + Agent CLI commerce.export.preview/package
   ├─ preload "naimage:project-graph:import"
        → desktop/project-graph-adapter.cjs 只读 .prg/JSON
        → desktop/plugin-task-prompts.cjs 生成有界 GRAPH Prompt
        → 返回 graph + task DTO
        → Renderer sendPrompt() → 按概念分支形成独立学习图片
-  └─ sparkai.scientific-figure.start-workflow
-       → desktop/plugin-task-prompts.cjs 生成 Python/R 单后端科研绘图契约
-       → Renderer sendPrompt() → Agent 收集结论、证据、Panel、导出与 QA 要求
+  ├─ sparkai.social-content
+  │    ├─ 小红书/抖音自然异步配置框 → 结构化 Requirement.socialPlan
+  │    ├─ workflow(update_social_content) → revision/workflowId/planHash 原子回写
+  │    ├─ 图片 socialContent provenance + 现有视频任务 journal
+  │    └─ 原生目录授权发布包 + social.* 共享 Automation/CLI
+  └─ sparkai.scientific-figure
+       ├─ plugins/scientific-figure-schema.json + runtime/scientific-figure-plan.cjs
+       ├─ src/scientific-figure-dialog.tsx（自然异步计划/任务表面）
+       ├─ window.naimageScientific → 7 个受限 IPC → desktop/scientific-runner-service.cjs
+       ├─ 受管数据、任务 journal、Python/R 单后端运行、Panel/组合图与投稿格式导出
+       └─ research.data.* + research.figure.* 共 7 个共享 Automation/CLI 命令
 ```
 
-插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results`。`plugins/commerce-set-schema.json` 是电商语言、单次请求上限、probe/ramp 策略和默认七张套图槽位的共享注册表；`src/plugins/commerce-set.ts` 提供 generate/translate 两种计划、单/多母图矩阵、请求/费用计数及按有序 SOURCE 生成的稳定 snapshot material。`src/commerce-set-dialog.tsx` 位于现有自然异步插件 chunk，支持整套张数、逐图标题/Prompt、目标语言与逐语言提示、Requirement/Skill 保存意图和执行前 probe/费用风险预览；跨境电商工具栏的一键套图与一键多国语言均已接入主 Renderer 和共享 command runtime，确认派发后可落盘 Requirement/Skill，并可从对应节点按同一 Goal 两阶段协议复用执行。`src/commerce-translation-dialog.tsx` 继续作为旧翻译入口的兼容适配层。`sparkai.project-graph` 申请 `project.read-graph`、`agent.submit-task`、`canvas.write-results`；它显式清空画布/附件继承，只把导入 GRAPH 作为知识 SOURCE。`.prg` 是 ZIP，适配器只读取最大 16 MiB 的 `stage.msgpack`，最多输出 1000 节点和 3000 关系，不读取附件、不执行扩展、不暴露绝对路径、不修改 `.prg` 或 session。`sparkai.scientific-figure` 以 `plugins/builtin/sparkai.scientific-figure/` 作为可拆包目录，只内置 Agent 工作流契约和 Apache-2.0 notice，不打包上游图库、示例或 Python/R 依赖；定量绘图必须先选择 Python 或 R，之后同一任务不得混用后端，也不得虚构实验值或统计。插件命令的长 Prompt 统一由 `desktop/plugin-task-prompts.cjs` 在受信任 Electron 侧生成；Renderer 只保留计划配置、对话框和有界 task DTO 消费，`src/plugin-system.ts` 仍按启用状态动态加载。专项入口为 `test:commerce-set`、`test:plugin-system`、`test:project-graph` 与 `test:ipc-registration`。
+插件只接受随应用发布的受信任声明式 manifest，不允许任意 JavaScript 注入 Renderer，也没有项目文件写权限。插件命令只能经主 Renderer 已登记的 handler 调用现有产品动作；`sparkai.commerce-toolkit` 申请 `canvas.read-selection`、`agent.submit-task`、`canvas.write-results`。领域过滤发生在已安装/启用/授权和用户隐藏设置之后，只改变工具可见投影，不自动安装、启用或执行插件。manifest 的 shortcut 是默认值，`AppSettings.canvasToolShortcuts` 只保存不同于默认值的用户覆盖；Renderer/Electron 使用同一规则清洗字母、数字、F1-F12 与 Mod/Ctrl/Alt/Shift 组合，并保守忽略未知、畸形或重复组合。设置页冲突时不修改原值，可单项恢复默认；主 Renderer 分派解析后的有效组合，底部工具按钮和工作台菜单均不渲染快捷键文本，只更新 hover 文案与 `aria-keyshortcuts`。这是本机 UI 偏好，不新增 Agent CLI 动作。`plugins/commerce-set-schema.json` 是电商语言、单次请求上限、probe/ramp 策略和默认七张套图槽位的共享注册表；`src/plugins/commerce-set.ts` 提供 generate/translate 两种计划、单/多母图矩阵、请求/费用计数及按有序 SOURCE 生成的稳定 snapshot material。翻译计划的 `translationItems` 精确绑定零基 SOURCE 序号与语言，标准化后进入 `planMaterialHash` 和 Goal 冻结范围；运行时逐 SOURCE×语言读取对应 Prompt，不允许派发后改变单元格材料。`src/commerce-set-dialog.tsx` 位于现有自然异步插件 chunk，支持图片×语言矩阵、逐单元格 Prompt、整套张数、逐图标题/Prompt、目标语言、Requirement/Skill 保存意图和执行前 probe/费用风险预览；用户点击 Commerce 执行即授权上游扣费并一次直接派发，不再经过第二个费用确认弹窗，Requirement 重跑仍保留 Goal 确认。跨境电商工具栏的一键套图与一键多国语言均接入主 Renderer 和共享 command runtime，派发后可落盘 Requirement/Skill，并可从对应节点复用执行。`src/commerce-translation-dialog.tsx` 继续作为旧翻译入口的兼容适配层。真实 Electron 专项报告为 `.diagnostics/electron/commerce-set-2026-07-31T15-38-04-682Z/report.json`，覆盖标准与 `900×640` 矩阵、模板市场、A/B 终选、快捷键冲突/覆盖、直接派发、过期 SOURCE 拒绝、正常图片容器圆角和工具启停，共 29 checks / 27 screenshots / 0 failures；高 DPI 截图只在原始像素与 CSS 视口同比例时归一化，不掩盖真实裁切。`sparkai.project-graph` 申请 `project.read-graph`、`agent.submit-task`、`canvas.write-results`；它显式清空画布/附件继承，只把导入 GRAPH 作为知识 SOURCE。`.prg` 是 ZIP，适配器只读取最大 16 MiB 的 `stage.msgpack`，最多输出 1000 节点和 3000 关系，不读取附件、不执行扩展、不暴露绝对路径、不修改 `.prg` 或 session。`sparkai.scientific-figure` 以 `plugins/builtin/sparkai.scientific-figure/` 作为可拆包目录，只内置 Agent 工作流契约和 Apache-2.0 notice，不打包上游图库、示例或 Python/R 依赖；定量绘图必须先选择 Python 或 R，之后同一任务不得混用后端，也不得虚构实验值或统计。插件命令的长 Prompt 统一由 `desktop/plugin-task-prompts.cjs` 在受信任 Electron 侧生成；Renderer 只保留计划配置、对话框和有界 task DTO 消费，`src/plugin-system.ts` 仍按启用状态动态加载。专项入口为 `test:commerce-set`、`aidebug:commerce-set`、`test:plugin-system`、`test:project-graph` 与 `test:ipc-registration`。
+
+`plugins/social-content-schema.json` 同时约束小红书和抖音的默认值、枚举与数量上限；`runtime/social-content-plan.cjs` 与 `src/plugins/social-content.ts` 镜像计划归一化、稳定 `workflowId/planHash`、写回校验和成果元数据。计划零模型、零费用地进入现有 Requirement；执行命令才明确授权可能计费的图片/视频生产动作。小红书产出标题、正文、标签、封面与 6–9 张卡片；抖音产出 Hook、文案、5–8 个分镜、字幕、封面并复用独立视频状态机。视频 journal 保留社媒身份且恢复时不得重复创建。`desktop/project-social-export.cjs` 只导出通过 workflow/revision/hash 与受管资产复核的相对发布包，目标目录必须由 Main 原生授权，Renderer/CLI 不接受路径。共享命令为 `social.xiaohongshu.plan/execute/export` 与 `social.douyin.plan/execute/status/export`；专项为 `test:social-content`、`test:social-export`、`test:video-node`、`test:automation-service`、`test:ipc-registration` 和单一 `aidebug:social-content`。
+
+`plugins/scientific-figure-schema.json` 同时驱动 Renderer 与 runtime 的计划归一化、Automation schema 和契约测试。数据必须通过原生选择导入为项目受管 CSV/TSV/TXT；`desktop/scientific-runner-service.cjs` 按项目串行 journal mutation，执行受信任内置脚本，关闭代理/依赖安装通道，并对超时、取消、日志、输出签名、尺寸与受管落盘进行复核。任务固定选择 Python 或 R，不混用后端，不推断显著性、样本量或研究结论。Renderer 仅在 Requirement revision/workflow/hash 仍匹配时将 PNG 组合图和 Panel 预览写回 canonical 画布；SVG/PDF/TIFF、脚本、计划和 QA 继续留在受管输出。共享命令为 `research.data.import/list` 与 `research.figure.plan/render/status/export/cancel`；专项为 `test:scientific-runner`、`test:automation-service`、`test:ipc-registration`、`test:workspace-glass-ui` 和单一 `aidebug:scientific-figure`。Python 专项已验证，R 尚未在真实 R 环境验证。科研对话框以局部 `--ui-surface-radius` 覆盖共享默认值；Glass 全局规则必须消费该 token，不得把所有功能表面重置为固定圆角。
+
+`src/commerce-tutorial.tsx` 是帮助中心启动的项目级零费用陪练编排层。它只读取 live 画布图片数、选择、`workspaceDomain`、Commerce 工具可用性、Agent 忙闲和 Commerce 受管成果计数，再回调 `src/main.tsx` 已有的导入、切换、套图、Agent、Focus 和导出动作；它不持有第二份 Commerce 业务或 Agent runtime。Agent 示例只填入输入框，不自动发送；只有基线之后新增 Commerce 受管成果才进入完成状态。进度以 `projectId` 为 key 保存在便利型 LocalStorage，切换项目时组件重新读取对应进度；设置未关闭时启动教学会先安全等待用户保存或关闭设置。可见专项为 `aidebug:commerce-tutorial`，不调用真实图片模型。
+
+`plugins/commerce-catalog-schema.json` 同时驱动 Main、Renderer、CLI 文档与测试。目录独立保存到项目 `.naimage/commerce-catalog.json`，写操作使用目录与商品 revision CAS；归档商品和解除图片关联都不删除画布节点或源文件。Renderer 关联素材时只提交 `nodeId + assetIndex`，路径与资产身份由 Main 从当前项目验证。Commerce Goal 为每个无歧义 SOURCE 冻结 Catalog/Product revision、owner 和母图 link，运行时把该目标与稳定 result key 写入 provenance；Renderer 完成结果归组并保存实时 session 后，Main 只按项目 ID 与 TaskScope hash 扫描权威结果，校验受管文件、大小与 SHA-256，再跨商品单次原子归档。重放按 result key 幂等；目录、商品或母图归属发生变化时保守拒绝自动归档，已生成图片仍留在画布。多语言矩阵从 Catalog 结果 provenance 还原来源图片、语言与状态，GUI 与 Agent CLI 共用 `commerce.catalog.review`，在 Catalog/Product 双 revision guard 下把一个或多个 result link 标记为 `candidate`、`approved` 或 `rejected`，复核不会删除画布节点或受管图片。A/B 比较使用同一商品归属、SOURCE 关系、槽位/语言/角色分组，排除相同内容哈希；终选一次性更新 winner/siblings 状态并保留所有关系、provenance、画布节点和文件。
+
+`plugins/commerce-template-schema.json` 同时约束内置/个人模板的 portable v1 文档、计划上限和严格未知字段拒绝。个人模板安装级持久化并使用 library revision CAS；导入始终创建新条目，导出由原生 Save 对话框授权，模板计划剥离来源专属翻译单元与 canvas saveTarget。模板市场和 A/B 对话框都走自然异步 chunk，GUI、共享 automation registry、CLI 参考和专项测试从同一命令契约生成/校验。
+
+平台导出由 `desktop/project-commerce-export.cjs` 单独持有。Product 结果继承到全部目标 SKU，Variant 结果只继承到对应变体，SKU 结果只进入自身包；默认只导出 `approved`，可显式包含 `candidate`，始终排除 `rejected`。预检校验受管文件存在、SHA-256、完整解码、尺寸/比例与 Amazon 主图白边；缺失、哈希不符或解码失败阻断，平台合规问题只提醒。`desktop/ipc/commerce-export-ipc.cjs` 是目标目录授权 owner，Renderer 与 CLI 请求都不得携带目标路径；完成包按 `products/<商品>/<SKU>/` 稳定命名，manifest 只记录相对路径和输出 SHA-256。导出先写 staging，全部成功后原子发布，失败不得留下半成品。第一版输出普通目录包，不引入 ZIP 依赖。专项入口为 `test:commerce-export`、`test:commerce-export-ui`、`test:commerce-catalog-ui`、`test:automation-service` 与 `test:ipc-registration`。
 
 ### 4.6.3 自定义主题导入、导出与实时应用
 
@@ -405,7 +507,7 @@ Renderer 自动保存 / 显式保存
   → 原子 JSON 写入 + project manifest 更新
 ```
 
-`desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`desktop/project-session-merge.cjs` 是 Main 的 baseline 比较、事件采集/compact、字段时钟、提交顺序、tombstone/restore、writer checkpoint、causal barrier 与 stale-save 合并 owner；Renderer 只保存最近一次已确认 baseline 和 Main 回传的权威 mutation 状态。`project-store.cjs` 拥有项目列表、路径和 manifest；session 清洗与资产索引分别只有一个 owner。`apply` 返回 `applied:false` 时不得推进 revision。该机制已由 `test:project-session-dual-renderer` 通过生产 save IPC 覆盖 edit/edit、edit/delete、delete/undo、连续快速保存和回执前后窗口销毁。它仍只保护同一 Electron Main 进程，不是递归字段或远程多人协作 CRDT；assets、生成终态/进度和 provenance 保留专用兼容策略。
+`desktop/project-save-coordinator.cjs` 只协调顺序和 revision，不决定 session 内容、不直接选择文件路径。`workspaceDomain` 与画布/会话一起进入 session v5，`desktop/project-session-normalizer.cjs` 对缺失或非法值写回 `general`；它不进入节点 journal，也不改变资产身份。`desktop/project-session-merge.cjs` 是 Main 的 baseline 比较、事件采集/compact、字段时钟、提交顺序、tombstone/restore、writer checkpoint、causal barrier 与 stale-save 合并 owner；Renderer 只保存最近一次已确认 baseline 和 Main 回传的权威 mutation 状态。`project-store.cjs` 拥有项目列表、路径和 manifest；session 清洗与资产索引分别只有一个 owner。`apply` 返回 `applied:false` 时不得推进 revision。该机制已由 `test:project-session-dual-renderer` 通过生产 save IPC 覆盖 edit/edit、edit/delete、delete/undo、连续快速保存和回执前后窗口销毁；领域字段的旧项目默认、新建项目/文件夹首写由 `test:workspace-domain` 覆盖。它仍只保护同一 Electron Main 进程，不是递归字段或远程多人协作 CRDT；assets、生成终态/进度和 provenance 保留专用兼容策略。
 
 ### 4.8 图片导入与输出
 
@@ -445,21 +547,30 @@ Renderer UpdaterBridge
 | 路径 | Owns | Must not own | 关键检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
 | `electron-main.cjs` | Electron 生命周期、桌面服务依赖装配、远端账户/图片编排、模型缓存和 runtime 工厂 | React UI、画布 reducer、内联 IPC handler、重复实现 project store/session normalization/asset repository、New API transport/client 或 AIDebug PNG fixture | `registerIpc`, `createWindow`, `serverChatCompletion`, `callNewApiImageWithSession` | `test:ipc-registration`, `test:project-io`, `test:new-api-transport`, `test:lifecycle`, `test:update`, `aidebug:gui` |
-| `preload.cjs`, `agent-window-preload.cjs` | 主 Renderer 七组受限 context bridge，以及独立 Agent 表面的 state/command 单用途桥 | 业务状态、磁盘实现、凭据展示、第二个 Agent Runtime | `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations`, `naimageAgentWindow`, `naimageAgentWindowSurface` | `test:ipc-registration`, `test:agent-window`, `test:lifecycle`, `aidebug:gui` |
-| `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → RequirementLibrary → Plugin → Automation → Updater → Session → Agent → Window → Debug → Project → Asset → Server 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerRequirementLibraryIpc`, `registerPluginIpc`, `registerAutomationIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
-| `agent-runtime.cjs` | Prompt/画布上下文组装、模型感知 checkpoint/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、SQLite/JSON memory CRUD、重复实现已抽出的策略/schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `runTool`, `buildPromptMessages`, `compactConversationIfNeeded` | `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol`, `test:view-image` |
+| `preload.cjs`, `agent-window-preload.cjs` | 主 Renderer 十组受限 context bridge（其中 `naimageRuntime` 是无 IPC 的只读运行时门禁），以及独立 Agent 表面的 state/command 单用途桥 | 业务状态、磁盘实现、凭据展示、第二个 Agent Runtime | `naimageRuntime`, `naimageConfig`, `naimageServer`, `naimageUpdater`, `naimageAgent`, `naimageAutomation`, `naimageAgentIntegrations`, `naimageVideo`, `naimageScientific`, `naimageAgentWindow`, `naimageAgentWindowSurface` | `test:ipc-registration`, `test:agent-window`, `test:lifecycle`, `test:aidebug-isolation`, `aidebug:gui` |
+| `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → GlassBackground → RequirementLibrary → CommerceTemplate → CommerceCatalog → CommerceExport → SocialExport → Scientific → Plugin → Automation → Updater → Session → Agent → Window → Debug → Project → Asset → Server → VideoTask 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerGlassBackgroundIpc`, `registerRequirementLibraryIpc`, `registerCommerceTemplateIpc`, `registerCommerceCatalogIpc`, `registerCommerceExportIpc`, `registerSocialExportIpc`, `registerScientificIpc`, `registerPluginIpc`, `registerAutomationIpc`, `registerAgentIpc`, `registerAssetIpc`, `registerServerIpc`, `registerVideoTaskIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
+| `agent-runtime.cjs` | Prompt/画布上下文组装、当前 `workspaceDomain` 的一句领域提示、模型感知 checkpoint/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、四套 Agent Runtime、SQLite/JSON memory CRUD、重复实现已抽出的策略/schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `workspaceDomainPrompt`, `runTool`, `buildPromptMessages`, `compactConversationIfNeeded` | `test:workspace-domain`, `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol`, `test:view-image` |
 | `desktop/agent-run-control.cjs` | 按项目/会话/Renderer owner 持有父运行取消、暂停、节点锁、有界 steer 队列与可中断 child phase；owner/global 停止和空闲 scope 回收 | 模型/工具执行、协议历史、React UI 或项目持久化 | `createAgentRunControl`, `beginPhase`, `consumeSteers`, `steer`, `stopOwner`, `stopAll`, `isRunnable` | `test:agent-run-control`, `test:agent-steer`, `test:lifecycle`, `test:ipc-registration` |
 | `desktop/project-store.cjs` | 项目列表与 active/default 项目、项目目录/session/manifest v2、当前元数据路径，以及更名前元数据的只读迁移 | session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-io`, `test:project-save-coordinator` |
-| `desktop/project-session-normalizer.cjs` | session v5、node mutation journal/writer checkpoint/causal barrier、node/message 清洗、资产身份修复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:project-io`, `test:asset-identity`, `test:image-container`, `test:node-mutation-journal` |
+| `desktop/project-session-normalizer.cjs` | session v5、`workspaceDomain` 旧项目默认、node mutation journal/writer checkpoint/causal barrier、node/message 清洗、图片资产身份修复、视频成果清洗/中断恢复、容器迁移、pending execution 兼容 | 项目路径选择、磁盘 IO、资产扫描或 IPC | `sanitizeSession`, `normalizeWorkspaceDomain`, `sanitizePersistedVideoAsset`, `hydrateSessionAssets`, `repairSessionAssetIdentities`, `sanitizePersistedPendingAgentExecution` | `test:workspace-domain`, `test:project-io`, `test:video-node`, `test:asset-identity`, `test:image-container`, `test:node-mutation-journal` |
 | `desktop/project-session-merge.cjs` | 已确认 baseline 间的 mutation 事件采集/compact、stale-save 合并、节点 ID 重映射、字段 mutation clock、Main commitRevision、delete/restore barrier、writer checkpoint 30 天保留与安全 GC | React 状态、磁盘 IO、保存队列或远程协作 | `collectNodeMutationEvents`, `mergeProjectSessions`, `normalizeNodeMutationJournal`, `mergeNodeMutationWriterCheckpoints`, `compactNodeMutationJournal` | `test:project-session-merge`, `test:project-session-dual-renderer`, `test:node-mutation-journal`, `test:project-io` |
-| `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、session hydrate 与保存归一化；新写入使用 `naimage-asset:` 与 `.naimage/assets`，读取兼容更名前资产 | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:project-save-coordinator` |
-| `desktop/project-package-service.cjs` | `.naimage` 项目包校验、大小/数量限制、可移植资产收集、导出写入、旧包导入恢复与路径重写 | 项目列表、active project、IPC/dialog 或普通 session 保存队列 | `createProjectPackageService`, `packageProject`, `validateProjectPackageData`, `sessionFromPackage`, `importProjectPackage` | `test:project-io`, `test:project-save-coordinator` |
+| `desktop/project-asset-repository.cjs` | 项目 asset index、recorded paths、图片/视频 session hydrate 与保存归一化；视频磁盘会话只保留受管相对路径，运行时重建绝对路径和 `naimage-asset:` URL | 项目列表、manifest 版本、package/export/import 或 IPC | `createProjectAssetRepository`, `buildProjectAssetIndex`, `projectAssetRoots`, `projectWritableAssetRoots`, `hydrateVideoAssetForProject`, `videoAssetForProjectSave`, `sessionForProjectSave`, `sessionWithProjectAssets` | `test:project-io`, `test:video-node`, `test:project-save-coordinator` |
+| `desktop/project-package-service.cjs` | `.naimage` 图片项目包校验、大小/数量限制、可移植资产收集、导出写入、旧包导入恢复与路径重写；含视频节点时显式拒绝，避免把大视频塞入图片 Base64 包 | 项目列表、active project、IPC/dialog、视频流式打包或普通 session 保存队列 | `createProjectPackageService`, `packageProject`, `validateProjectPackageData`, `sessionFromPackage`, `importProjectPackage`, `NAIMAGE_PROJECT_PACKAGE_VIDEO_UNSUPPORTED` | `test:project-io`, `test:video-node`, `test:project-save-coordinator` |
 | `desktop/project-graph-adapter.cjs` | 只读 `.prg` ZIP/`stage.msgpack` 与有界图结构 JSON 解析、Project Graph 对象引用还原、安全 DTO | 扩展执行、附件读取、Renderer、Agent 调用、项目/session 写入或绝对路径暴露 | `parseProjectGraphFile`, `parseProjectGraphBuffer`, `adaptSerializedStage` | `test:project-graph`, `test:ipc-registration` |
 | `desktop/plugin-task-prompts.cjs`, `desktop/ipc/plugin-ipc.cjs` | 受信任内置插件的长 Prompt、语言/GRAPH 输入清洗和 task DTO 生成；插件 compose IPC 只公开有界结果 | Renderer UI、插件安装状态、图片请求、项目/session 写入或任意外部插件代码 | `composePluginTask`, `projectGraphTask`, `projectGraphPromptPayload`, `registerPluginIpc` | `test:plugin-system`, `test:project-graph`, `test:ipc-registration`, `test:bundle` |
 | `desktop/theme-preset-service.cjs` | `naimage-theme v1` schema、十六进制颜色归一化、64 KiB 限制、原生导入/导出对话框与安全文件名 | Renderer 状态、CSS 应用、任意 CSS/URL/脚本解释或未授权路径访问 | `normalizeCustomThemePreset`, `parseThemePresetJson`, `createThemePresetService` | `test:theme-preset`, `test:settings-persistence`, `test:ipc-registration`, `aidebug:gui` |
+| `desktop/glass-background-service.cjs` | 原生选择后的有界读取、最长边 3840 px 单帧 WebP 转码、SHA-256 内容寻址、严格 ID 加载与 30 天保留式 GC | Renderer/CSS 状态、原始路径公开、任意路径读取、即时删除或扫描删除未知文件 | `createGlassBackgroundService`, `glass-bg-`, `GLASS_BACKGROUND_RETENTION_MS` | `test:glass-background`, `test:settings-persistence`, `test:ipc-registration` |
 | `runtime/glass-theme-presets.json`, `runtime/glass-theme-settings.cjs`, `public/glass-theme-bootstrap.js` | 六主题/三材质/强调色/范围 registry、Electron 归一化与原生窗口底色、React 前安全首帧投影 | React/画布状态、凭据或项目数据；bootstrap 不得信任 snapshot 内任意变量，启动期 registry 镜像不得静默漂移 | `naimage-glass-theme-registry`, `normalizeGlassThemeSettings`, `nativeWindowBackgroundColor`, `bootstrapNaimageGlassAppearance` | `test:glass-theme`, `test:settings-persistence`, `test:agent-window`, `test:ipc-registration`, `test:lifecycle`, `test:bundle` |
+| `runtime/workspace-domains.json`, `runtime/workspace-domain.cjs`, `src/workspace-domain.ts` | 四领域 ID/标题/说明/图标/插件归属/简短 Prompt/工具名注册表及 TS/CJS 归一化 | 项目状态、React UI、插件安装、模型调用、领域专属业务或平行 Runtime | `WORKSPACE_DOMAIN_IDS`, `workspaceDomainDefinitions`, `normalizeWorkspaceDomain`, `workspaceDomainPrompt`, `workspaceDomainOwnsPlugin` | `test:workspace-domain`, `test:plugin-system`, `test:automation-service`, `typecheck` |
+| `runtime/access-variant.cjs`, `src/access-policy.ts`, `vite.config.ts`, `scripts/release/{build-access-variants,build-windows,create-update-release,windows-release-orchestrator}.mjs` | 双接入/仅 SparkAPI 构建策略、产物清单、Renderer 常量、Main 设置强制、公开安装包命名与双安装包编排；公开制品只使用 `SparkAI-WorkSpace-Unrestricted-*` / `SparkAI-WorkSpace-SparkAPI-*`，electron-builder 的 `naimage-Core-*` 仅为嵌入品牌壳的内部临时包；开发 `--package` 默认跳过 Bundle，显式 `--enforce-bundle` 才执行 | 远端兑换码、账号计费、上游 Key、运行时可修改的生产开关、把内部 `naimage` 兼容名重新暴露为公开 Setup，或正式发布门禁豁免 | `SPARKAI_ACCOUNT_ONLY`, `SPARKAI_ACCESS_VARIANT`, `sparkai-access-policy.json`, `applyAccessPolicyToSettings`, `windowsInstallerArtifactName`, `windowsCoreInstallerArtifactName`, `windowsLegacyInstallerArtifactName`（仅清理/历史兼容） | `test:access-variant`, `test:update`, `test:release-orchestrator`, `typecheck`, `build:unrestricted`, `build:sparkapi`, `package:win:variants` |
+| `plugins/social-content-schema.json`, `runtime/social-content-plan.cjs` | 社媒平台/类型/默认值/上限、计划与成果元数据归一化、稳定 workflow/hash、结构化写回及 Agent 执行 Prompt | React UI、图片/视频请求、项目 IO 或第二套社媒数据库 | `normalizeSocialContentPlan`, `socialContentWriteback`, `socialRequirementPrompt`, `normalizeSocialContentMetadata` | `test:social-content`, `test:plugin-system`, `test:video-node` |
+| `plugins/scientific-figure-schema.json`, `runtime/scientific-figure-plan.cjs`, `desktop/scientific-runner-service.cjs`, `desktop/ipc/scientific-ipc.cjs` | 科研计划 schema/归一化、受管表格数据、项目 journal、受信任 Python/R 单后端执行、超时/取消、输出复核与原生导出授权 | 任意用户脚本、依赖安装、联网、研究结论推断、Renderer 画布 mutation 或绝对受限路径公开 | `normalizeScientificFigurePlan`, `createScientificRunnerService`, `registerScientificIpc`, `research.figure.*` | `test:scientific-runner`, `test:automation-service`, `test:ipc-registration`, `typecheck` |
 | `desktop/project-save-coordinator.cjs` | 按项目串行保存、revision 规范化、旧写入拒绝 | session 清洗、路径选择、磁盘格式 | `createProjectSaveCoordinator`, `normalizeSessionRevision`, `enqueue` | `test:project-save-coordinator`, `test:project-io` |
-| `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image 默认模型选择、缓存键与缓存归一化 | 网络请求、磁盘缓存时机、IPC | `uniqueModelIds`, `modelIdsFromResponse`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:new-api-transport`, `test:lifecycle` |
+| `desktop/model-catalog.cjs` | 模型响应解析、大小写去重、Agent/Image/Video 可见目录与默认模型选择、缓存键与缓存归一化；显式视频模型不混入对话或生图选择 | 网络请求、磁盘缓存时机、IPC 或视频生成调用 | `uniqueModelIds`, `isExplicitVideoModelId`, `preferredVideoModelFromList`, `splitModelSettings`, `cachedModelSettings` | `test:model-catalog`, `test:settings-persistence`, `test:new-api-transport`, `test:lifecycle` |
+| `desktop/video-import.cjs` | 用户授权本地 MP4/WebM/MOV/M4V 的普通文件/大小/文件头验证，流式 SHA-256 复制、原子发布、重复内容复用与脱敏错误 | Renderer 节点 mutation、视频模型调用、项目 session 写入、源文件修改或任意路径扫描 | `importVideoFiles`, `inspectVideoSource`, `VIDEO_FORMATS`, `VideoImportError` | `test:video-node`, `test:ipc-registration` |
+| `desktop/video-task-adapter.cjs` | `video-generations`/`videos` 端点选择、Seedance 待验证兼容请求、任务 ID/状态/进度/结果/错误归一化 | HTTP、凭证、重试、项目 IO、Renderer 状态或计费判断 | `createVideoTaskRequest`, `normalizeVideoTaskResponse`, `videoTaskEndpoints` | `test:video-node` |
+| `desktop/video-task-service.cjs`, `desktop/ipc/video-task-ipc.cjs` | 视频任务预写 journal、POST 零重试、创建不明保护、GET 轮询/恢复、content→安全 URL 下载回退、受管结果落盘及公开 DTO/IPC | Chat Completions、Renderer mutation、批量派发、Key/绝对路径/签名结果 URL 公开、创建不明自动重建 | `createVideoTaskService`, `publicVideoTask`, `resumeAll`, `retryDownload`, `registerVideoTaskIpc` | `test:video-node`, `test:ipc-registration`, `test:model-catalog`, `test:settings-lazy-load`, `typecheck` |
+| `desktop/project-social-export.cjs`, `desktop/ipc/social-export-ipc.cjs` | 社媒成果槽位/身份/受管文件复核、内容/字幕/manifest 生成、staging 原子目录发布和原生目标授权 | Renderer/CLI 目标路径、社媒数据库、模型调用、平台登录或自动发布 | `createProjectSocialExportService`, `preview`, `exportPackage`, `registerSocialExportIpc` | `test:social-export`, `test:automation-service`, `test:ipc-registration` |
 | `desktop/agent-responses-adapter.cjs` | Chat Completions 请求到 Responses API input/tool/tool-choice 的纯转换 | HTTP、流读取、凭据或重试 | `responsesRequestFromChatRequest`, `responsesInputFromChatMessages`, `responsesToolsFromChatTools` | `test:agent-responses-adapter`, `test:agent-protocol` |
 | `desktop/aidebug-image-fixture.cjs` | AIDebug mock 图片尺寸归一化、显式/旧 prompt 图层提示与确定性 PNG base64 | 真实图片服务、项目资产、用户图片、GUI suite 编排或 Main 生命周期 | `aidebugImageBase64`, `aidebugLayerFixtureHint` | `test:new-api-transport`, `aidebug:image-recovery`, `aidebug:gui` |
 | `desktop/image-export-service.cjs` | PNG/JPEG/WebP/AVIF/TIFF 真实解码格式识别、schema 驱动的 Save 过滤器/扩展名/MIME、Sharp 本地转码、no-clobber 发布与确认后的原子替换；JPEG 白底展平 | 原生对话框、项目资产授权、Renderer 状态、模型请求、计费或 PSD 分层导出 | `IMAGE_EXPORT_FORMATS`, `convertImageForExport`, `decodedImageExportFormat`, `imageExportFilters`, `normalizeImageExportFormat` | `test:image-export`, `test:automation-service`, `test:ipc-registration` |
@@ -467,10 +578,12 @@ Renderer UpdaterBridge
 | `desktop/requirement-library.cjs` | 安装级个人 Requirement 模板的懒读取/单文件 JSON 持久化、最多 200 项、可选 `CanvasSkill` 元数据、精确 revision CAS 与删除确认 | AppSettings、项目 session、画布 mutation、Requirement 执行、模型调用，或 bindings/节点 ID/坐标/运行记录/绝对路径持久化 | `createRequirementLibraryService`, `sanitizeRequirementLibraryDocument`, `RequirementLibraryError`, `reqtpl-` | `test:automation-service`, `test:ipc-registration` |
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
-| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:custom-api-transport`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/new-api-client.cjs` | New API URL、会话 cookie、重试、JSON request、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类；自定义模型独立 Base URL/API Key 的 Images SSE 优先级 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现 | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:custom-api-transport`, `test:image-stream-preview`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
 | `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、按账户隔离的公开元数据磁盘快照、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key/Cookie/IP 白名单/模型限制或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `list`, `select` | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck` |
-| `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联与超时 | 业务命令实现、AIDebug hook、远端监听或长期 Token | `createAutomationService`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:ipc-registration`, `test:bundle` |
-| `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI 安装更新和受控移除 | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件 | `createAgentIntegrationService`, `naimage.ps1`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, Skill `quick_validate.py`, `test:bundle` |
+| `desktop/settings-secret-store.cjs` | 自定义 Agent/图片/逐模型 API Key 的 Electron `safeStorage` 加密 sidecar、普通设置去明文、Renderer 占位符恢复和旧明文迁移；普通设置损坏恢复不得删除 sidecar | 账号 Token 完整 Key、项目数据、明文日志、Renderer 解密或无加密回退写盘 | `createSettingsSecretStore`, `SETTINGS_SECRET_PLACEHOLDER`, `recover`, `restorePlaceholders` | `test:settings-secret-store`, `test:settings-persistence`, `typecheck`, `build` |
+| `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联/超时与 Main service command 分流 | 业务命令实现、调试命令实现、远端监听或长期 Token | `createAutomationService`, `dispatch`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:automation-debug`, `test:mcp-wrapper`, `test:bundle` |
+| `desktop/debug-command-service.cjs` | 开发/AIDebug 的 7 个 service command：有界脱敏状态/日志、诊断目录截图、IPC/command 检查和无 shell 测试白名单；生产默认拒绝 | 任意命令/路径/窗口控制、代码或项目资产修改、依赖安装、模型调用、生产启用或业务动作复制 | `createDebugCommandService`, `TARGETED_TEST_SCRIPTS`, `DEBUG_COMMAND_DISABLED` | `test:automation-debug` |
+| `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI/MCP stdio 包装的安装更新和受控移除；CLI/MCP 均读取共享 command schema 并转发 loopback bridge | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件、复制 Renderer/Main 业务逻辑 | `createAgentIntegrationService`, `naimage.ps1`, `naimage-mcp.mjs`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, `test:mcp-wrapper`, Skill `quick_validate.py`, `test:bundle` |
 | `desktop/agent-window-service.cjs`, `agent-window-*` | 独立 Agent BrowserWindow 生命周期、已保存主题原生底色、主 Renderer owner 绑定、有界状态/命令中继、allowlist 外观镜像与隔离表面 | Agent Runtime、模型请求、项目写入、凭据、画布 reducer 或第二个设置 authority | `createAgentWindowService`, `getBackgroundColor`, `publishState`, `forwardCommand`, `applyGlassAppearance`, `naimageAgentWindowSurface` | `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `test:ipc-registration`, `test:lifecycle` |
 | `desktop/license-service.cjs` | 安装设备 ID 授权状态、激活/校验端点选择、24 小时缓存与 72 小时离线宽限 | 激活码生成、数据库、账户计费、Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:ipc-registration`, `aidebug:gui` |
 | `runtime/context-strategy.cjs` | 模型族识别、上下文窗口、有效窗口、自动 checkpoint、保留用户意图及 Prompt/协议/画布/记忆预算 | 模型调用、消息持久化、设置 UI 或画布读取 | `contextStrategyForSettings`, `contextModelFamily`, `autoCompactTokenLimit`, `protocolMessageMaxChars` | `test:context-strategy`, `test:context-checkpoint` |
@@ -490,33 +603,42 @@ Renderer UpdaterBridge
 
 | 路径 | Owns | Must not own | 关键导出/检索词 | 主要验证 |
 | --- | --- | --- | --- | --- |
-| `src/main.tsx` | App 状态、画布交互、项目/会话、Agent 调用、runtime action 落地和跨域编排 | 主进程文件 IO、真实 relay token、已抽出表面的内部实现 | `App`, `sendPrompt`, `applyRuntimeActions` | `build`, `aidebug:gui` 及对应专项 suite |
+| `src/main.tsx` | App 状态、单画布交互、项目/会话、`workspaceDomain` authority、Agent 调用、runtime action 落地、partial 预览终态编排、普通节点 transform-only 拖动预览、wheel 按帧合并、密集画布交互降载和低缩放轻量节点投影 | 主进程文件 IO、真实 relay token、四套画布/Session/Agent state、已抽出表面的内部实现，或拖动期间逐帧提交 React `left/top`、每个 wheel 事件直接提交 React/DOM transform | `App`, `changeWorkspaceDomain`, `sendPrompt`, `applyRuntimeActions`, `NODE_OVERVIEW_MIN_IMAGE_TILES`, `is-viewport-detail-reduced` | `test:workspace-domain`, `test:image-stream-preview`, `test:workspace-glass-ui`, `typecheck`, `aidebug:workspace-domain`, `aidebug:glass-workspace`, `aidebug:performance`, `aidebug:performance:product`, `build` 及对应专项 suite |
 | `src/glass-theme.ts`, `src/glass-theme-provider.tsx` | Glass 设置归一化、主题/材质转换、根 datasets/classes/CSS variables 投影，以及不增加 DOM wrapper 的状态保持 Provider | 画布/项目 mutation、组件 remount、Electron IO、独立窗设置持久化或任意 CSS 执行 | `normalizeGlassThemeSettings`, `glassAppearanceProjection`, `applyGlassAppearanceToRoot`, `GlassThemeProvider` | `test:glass-theme`, `test:settings-persistence`, `test:agent-window`, `typecheck`, `build` |
-| `src/workspace-chrome.tsx` | 自然异步 Workbench/Focus/Review 切换器、项目搜索、正式左素材栏、任务摘要与只读成果投影；Focus 只请求打开已有成果编辑器，Review 把当前方向交回 canonical 选择 | 第二份画布/会话/选择状态、节点 mutation、项目持久化、图片请求/计费或 canonical canvas 生命周期 | `WorkspaceDirectionSwitcher`, `WorkspaceSearch`, `WorkspaceAssetRail`, `WorkspaceTaskContext`, `WorkspaceFocusStage`, `WorkspaceReviewGrid` | `test:workspace-glass-ui`（50 cases）, `typecheck`, `build`, `aidebug:glass-workspace` |
-| `src/core.ts` | 共享类型与 bridge contract、session v5 mutation event/checkpoint/barrier 类型、会话清洗、图片/mask 与画布纯逻辑；保留资产/paste 兼容重导出 | React 渲染、长运行 Agent 状态、设置持久化与 alpha 归一化的新实现 | `ThemeChoice`, `ThemePaletteChoice`, `WorkflowNode`, `NodeMutationEvent`, `NodeMutationWriterCheckpoint`, `NodeMutationBarrier`, `AgentTaskScope`, `ConfigBridge`, `AgentBridge` | `typecheck`, `test:agent-text`, `test:layer-alpha`, `test:node-mutation-journal` |
-| `src/automation-command-runtime.ts`, `src/automation-command-registry.ts` | 懒加载 Renderer 自动化命令分派与 schema 生成的命令名注册表；Agent steer 与 GUI 共享 SOURCE/REFERENCE 模式 | loopback 鉴权、PowerShell 进程、React 状态所有权或手工维护第二份命令清单 | `executeAutomationCommand`, `AutomationCommandContext`, `AUTOMATION_RENDERER_COMMAND_NAMES` | `test:automation-service`, `typecheck`, `build`, `test:bundle` |
-| `src/project-agent-composer.tsx` | 自然异步的主 Agent 输入表面、运行控制和可见 TaskScope keep/replace/merge/clear 选择；每次 steer/运行结束重置自动模式 | Agent 执行、画布 mutation、IPC 或 run record | `ProjectAgentComposer` | `test:agent-panel-ui`, `test:automation-service`, `typecheck`, `build`, `test:bundle` |
-| `src/goal-mode.ts` | Goal 预览、计数/费用摘要和公开 CLI 确认 DTO | live runtime 展开、图片请求或 React 状态 | `createGoalModePreview`, `publicGoalModePreview` | `test:goal-task-scope`, `test:automation-service`, `typecheck` |
+| `src/workspace-chrome.tsx` | 自然异步顶部 `WorkspaceDomainSwitcher`、Workbench/Focus/Review 切换器、项目搜索、按设置过滤且自动修复当前页签的正式左素材栏、固定任务上下文与只读成果投影；Focus 支持多选图片的原图/生成组分栏、资产去重和受限缩略图挂载，并只请求打开已有成果编辑器，Review 把当前方向交回 canonical 选择 | 第二份画布/会话/领域/选择状态、节点 mutation、项目持久化、图片请求/计费或 canonical canvas 生命周期 | `WorkspaceDomainSwitcher`, `WorkspaceDirectionSwitcher`, `WorkspaceSearch`, `WorkspaceAssetRail`, `WorkspaceTaskContext`, `WorkspaceFocusStage`, `WorkspaceReviewGrid` | `test:workspace-domain`, `test:workspace-glass-ui`, `typecheck`, `build`, `aidebug:workspace-domain`, `aidebug:glass-workspace` |
+| `src/core.ts` | 共享类型与 bridge contract、`WorkspaceDomain`/Session 字段、session v5 mutation event/checkpoint/barrier 类型、图片/视频资产与模型设置类型、图片模型绑定（`ImageModelBinding.customBaseUrl`）及图片/mask 纯逻辑；保留资产/paste 兼容重导出 | React 渲染、长运行 Agent 状态、设置持久化与 alpha 归一化的新实现 | `WorkspaceDomain`, `WorkspaceDomainDefinition`, `WorkflowNode`, `VideoAsset`, `ImageModelBinding`, `NodeMutationEvent`, `AgentTaskScope`, `ConfigBridge`, `AgentBridge` | `test:workspace-domain`, `typecheck`, `test:video-node`, `test:agent-text`, `test:custom-api-transport`, `test:node-mutation-journal` |
+| `src/automation-command-runtime.ts`, `src/automation-command-registry.ts` | 懒加载 Renderer 自动化命令分派与 schema 生成的命令名注册表；`workspace.domain.list/get/set`、带领域的新项目、本地视频、Agent steer、套图模板市场和 A/B 终选与 GUI 共用契约 | loopback 鉴权、PowerShell 进程、React 状态所有权或手工维护第二份命令清单；`canvas.generate-video` 不得循环派发或重建 ambiguous POST | `executeAutomationCommand`, `AutomationCommandContext.workspaceDomain`, `setWorkspaceDomain`, `AUTOMATION_RENDERER_COMMAND_NAMES` | `test:workspace-domain`, `test:automation-service`, `test:ipc-registration`, `test:video-node`, `typecheck`, `build`, `test:bundle` |
+| `src/project-agent-composer.tsx` | 自然异步的主 Agent 输入表面与运行控制；模型、素材、当前模式、比例值和清晰度值组成紧凑玻璃工具栏，原图/参考图动作进入素材菜单，普通/Goal 共用单触发器和双瓣扇形菜单，画幅选项使用自定义 listbox；普通用户运行中只选择自动处理、只修改要求或更换处理图片，内部仍映射兼容 TaskScope 协议，每次 steer/运行结束重置自动模式 | Agent 执行、画布 mutation、密钥读取、直接网络请求、IPC 或 run record | `ProjectAgentComposer` | `test:settings-lazy-load`, `test:model-catalog`, `test:agent-panel-ui`, `test:agent-text-ui`, `typecheck`, `build`, `test:bundle` |
+| `src/ui/unsaved-changes-dialog.tsx` | 统一承载有保存语义表面的关闭确认，固定提供继续编辑、放弃修改和保存并关闭；临时无保存语义工具仍由所属表面提供明确放弃确认 | 判断各业务表面的 dirty 状态、执行实际保存或替代普通确认框 | `UnsavedChangesDialog`, `UnsavedChangesDialogProps` | `test:agent-text-ui`, `test:commerce-catalog-ui`, `test:ui-foundation`, `typecheck` |
+| `src/goal-mode.ts` | Goal 预览、计数/费用摘要和内部一次性授权 receipt DTO | live runtime 展开、图片请求或 React 状态 | `createGoalModePreview`, `publicGoalModePreview` | `test:goal-task-scope`, `test:automation-service`, `typecheck` |
 | `src/layer-alpha-normalization.ts` | 图层 RGBA alpha 像素归属归一化、透明图层互斥重建与归一化报告 | 分层合成编排、mask 生成、`core.ts` façade 重导出 | `normalizeLayerAlphaPixelBuffers`, `normalizeTransparentLayerAlphaExclusivity` | `test:layer-alpha`, `test:layer-mask-replay`, `typecheck`, `build`, `test:bundle` |
-| `src/settings-persistence.ts` | 默认设置、明暗/11 套调色盘/自定义主题与旧字段迁移、Glass bootstrap v1 安全快照、首个 React frame 安全外观 seed、上下文策略预算、模型池清洗、Storage Keys、`readJson`/`writeJson` | Electron 磁盘设置、远端账户状态、主题文件 IO；bootstrap snapshot 不得包含凭据、Prompt 或项目数据，也不得覆盖非外观设置 | `defaultSettings`, `mergeSettings`, `glassThemeBootstrapSnapshot`, `readGlassThemeBootstrapSnapshot`, `settingsWithGlassBootstrap`, `writeGlassThemeBootstrapSnapshot`, `STORAGE_*` | `test:glass-theme`, `test:settings-persistence`, `test:context-strategy`, `test:theme-preset`, `typecheck`, `build` |
-| `src/plugin-state.ts`, `desktop/plugin-state.cjs` | Renderer/Electron 插件安装状态、授权集合和启用状态清洗镜像 | manifest 解析、命令执行、UI 或项目修改 | `normalizePluginStates`, `normalizePluginPermissions` | `test:plugin-system`, `test:settings-persistence` |
-| `src/plugin-system.ts`, `plugins/builtin-manifests.json` | 受信任 manifest、生命周期操作、权限复核、命令注册表与工具栏 contribution；按启用状态动态加载 | 任意脚本执行、直接 session 写入、Agent Runtime 或文件 IO | `PluginCommandRegistry`, `activePluginToolbarItems`, `installBuiltinPlugin` | `test:plugin-system`, `typecheck`, `build`, `test:bundle` |
-| `plugins/commerce-set-schema.json`, `src/plugins/commerce-set.ts`, `src/commerce-set-dialog.tsx`, `src/commerce-translation-dialog.tsx` | 跨境电商共享语言/限制/默认槽位、generate/translate 计划归一化、请求矩阵/费用计数、稳定 snapshot material、完整自然异步配置 UI 与旧翻译入口适配 | Agent/automation 执行、SOURCE 冻结、图片网络请求、Requirement/Skill 落盘、插件权限或画布 reducer | `normalizeCommerceSetPlan`, `buildCommerceSetMatrix`, `commerceSetRequestCounts`, `commerceSetSnapshotMaterial`, `CommerceSetDialog` | `test:commerce-set`, `test:plugin-system`, `typecheck`, `build` |
+| `src/settings-persistence.ts` | 默认设置、明暗/11 套调色盘/自定义主题与旧字段迁移、第一方工作台组件的一次性版本迁移、左素材栏五模块显隐及至少一项规范化、底部工具视觉隐藏列表、`canvasToolShortcuts` 覆盖清洗、Glass bootstrap v1 安全快照、首个 React frame 安全外观 seed、上下文策略预算、模型池清洗、Storage Keys、`readJson`/`writeJson` | Electron 磁盘设置、远端账户状态、主题文件 IO；bootstrap snapshot 不得包含凭据、Prompt 或项目数据，也不得覆盖非外观设置 | `defaultSettings`, `mergeSettings`, `WORKSPACE_PLUGIN_DEFAULTS_VERSION`, `normalizeCanvasToolShortcuts`, `normalizeVisibleWorkspaceAssetRailTabs`, `glassThemeBootstrapSnapshot`, `readGlassThemeBootstrapSnapshot`, `settingsWithGlassBootstrap`, `writeGlassThemeBootstrapSnapshot`, `STORAGE_*` | `test:glass-theme`, `test:settings-persistence`, `test:context-strategy`, `test:theme-preset`, `typecheck`, `build` |
+| `src/help-center.tsx`, `docs/legal/*` | 快速开始、AI 示例教学入口、工作流帮助、隐私政策、用户协议、上游费用/退款说明和 `namean` 制作者信息 | 远端法律条款 authority、账号账单、项目 mutation 或联网请求 | `HelpCenter`, `HelpCenterSection`, `onStartTutorial` | `test:settings-lazy-load`, `test:ui-foundation`, `typecheck`, `aidebug:commerce-tutorial` |
+| `src/commerce-tutorial.tsx`, `src/styles/04i-commerce-tutorial.css` | 按真实画布/领域/工具/Agent/受管成果状态推进的跨境套图陪练，项目级便利进度、玻璃教练卡/聚焦框、成功徽章与减少动态适配 | Commerce/Agent 业务复制、自动发送、自动授权扣费、伪造成果、项目 session authority 或模型调用 | `CommerceTutorial`, `resolveCommerceTutorialStage`, `COMMERCE_TUTORIAL_AGENT_PROMPT` | `typecheck`, `test:workspace-glass-ui`, `aidebug:commerce-tutorial` |
+| `src/plugin-state.ts`, `desktop/plugin-state.cjs` | Renderer/Electron 插件安装状态、第一方工作台默认组件版本、授权集合、启用状态与画布工具快捷键规范化/冲突修复镜像 | 命令执行、UI 或项目修改 | `WORKSPACE_PLUGIN_DEFAULTS_VERSION`, `DEFAULT_WORKSPACE_PLUGIN_IDS`, `defaultWorkspacePluginStates`, `normalizePluginStates`, `normalizePluginPermissions`, `normalizeCanvasToolShortcut`, `normalizeCanvasToolShortcuts` | `test:plugin-system`, `test:settings-persistence` |
+| `src/plugin-system.ts`, `plugins/builtin-manifests.json` | 受信任 manifest、生命周期操作、权限复核、命令注册表、可执行与可见工具栏 contribution、领域投影与默认/覆盖后快捷键解析；按启用状态动态加载 | 任意脚本执行、直接 session 写入、日常切换时自动安装/启用/执行领域插件、Agent Runtime 或文件 IO | `PluginCommandRegistry`, `availablePluginToolbarItems`, `activePluginToolbarItems`, `workspaceDomainOwnsPlugin`, `installBuiltinPlugin` | `test:workspace-domain`, `test:plugin-system`, `typecheck`, `build`, `test:bundle` |
+| `plugins/commerce-set-schema.json`, `src/plugins/commerce-set.ts`, `src/commerce-set-dialog.tsx`, `src/commerce-translation-dialog.tsx`, `runtime/commerce-set-plan.cjs` | 跨境电商共享语言/限制/默认槽位、generate/translate 计划归一化、图片×语言矩阵、逐单元格 `translationItems`、`planMaterialHash`、请求/费用计数、稳定 snapshot material、完整自然异步配置 UI 与旧翻译入口适配 | Agent/automation 执行、SOURCE 冻结、图片网络请求、Requirement/Skill 落盘、插件权限或画布 reducer | `normalizeCommerceSetPlan`, `buildCommerceSetMatrix`, `commerceSetRequestCounts`, `commerceSetSnapshotMaterial`, `commerceSetPromptMaterialHash`, `CommerceSetDialog` | `test:commerce-set`, `test:goal-runtime`, `test:automation-service`, `aidebug:commerce-set`, `typecheck` |
+| `plugins/commerce-catalog-schema.json`, `desktop/project-commerce-catalog.cjs`, `desktop/ipc/commerce-catalog-ipc.cjs`, `src/commerce-catalog.ts`, `src/commerce-catalog-dialog.tsx` | 项目级商品/变体/SKU/图片关联、保守 CAS、逐 SOURCE Goal 目标冻结、结果 provenance/result key 与跨商品幂等自动归档、自然异步管理 UI 和共享 Agent CLI schema | 不接受 Renderer 路径或模型提交的 SKU 身份，不删画布节点或图片文件；归档只扫描已保存的权威 session | `readCommerceCatalog`, `saveCommerceCatalogProduct`, `commerceCatalogGoalTargetsForSources`, `CommerceCatalogDialog` | `test:commerce-catalog`, `test:commerce-catalog-ui`, `test:goal-task-scope`, `test:goal-runtime`, `test:project-session-merge`, `test:automation-service`, `test:project-io` |
+| `desktop/commerce-template-library.cjs`, `desktop/ipc/commerce-template-ipc.cjs`, `plugins/commerce-template-schema.json`, `src/commerce-template.ts`, `src/commerce-template-dialog.tsx` | 安装级内置/个人套图模板、portable v1 导入导出、revision CAS、同名 `overwrite`/`copy` 冲突策略、自然异步模板市场与 CLI 同步 | 不保存绝对路径、SOURCE 专属翻译单元或 canvas saveTarget；内置模板只读，导入始终另存副本，不删除画布节点/结果 | `createCommerceTemplateLibraryService`, `portableTemplateDocument`, `uniqueCopyTitle`, `CommerceTemplateDialog` | `test:commerce-template`, `test:commerce-catalog-ui`, `test:automation-service`, `test:ipc-registration`, `typecheck` |
+| `desktop/project-commerce-catalog.cjs` A/B、`desktop/ipc/commerce-catalog-ipc.cjs`, `src/commerce-ab-dialog.tsx` | 同商品/SOURCE/槽位/语言/角色结果分组、去重、并排预览、Catalog/Product 双 CAS 原子 winner/sibling 状态更新 | 不把 plan hash 当分组身份，不删除关系、provenance、画布节点或受管文件 | `comparisonGroupsForDocument`, `selectComparisonWinner`, `CommerceAbDialog` | `test:commerce-catalog`, `test:commerce-catalog-ui`, `test:automation-service`, `test:ipc-registration`, `typecheck` |
+| `desktop/project-commerce-export.cjs`, `desktop/ipc/commerce-export-ipc.cjs`, `src/commerce-export.ts`, `src/commerce-export-dialog.tsx` | Amazon/速卖通导出 profile、Catalog 结果继承与状态筛选、真实文件/哈希/解码/平台检查、稳定 SKU 命名、相对 manifest、staging 原子目录发布、原生目标授权与自然异步 UI | Renderer/CLI 目标路径输入、ZIP 依赖、源图修改、模型调用、账户扣费或平台上传 | `createProjectCommerceExportService`, `preview`, `exportPackage`, `CommerceExportDialog` | `test:commerce-export`, `test:commerce-export-ui`, `test:commerce-catalog-ui`, `test:automation-service`, `test:ipc-registration`, `typecheck` |
+| `src/plugins/social-content.ts`, `src/social-content-dialog.tsx` | 小红书/抖音计划与成果元数据镜像、7 页/6 镜默认配置、自然异步首次引导和 SOURCE 摘要 | Agent/图片/视频执行、项目文件、目标目录授权或第二套画布 | `normalizeSocialContentPlan`, `applySocialPlanToRequirementNode`, `SocialContentDialog` | `test:social-content`, `test:workspace-domain`, `test:plugin-system`, `aidebug:social-content`, `typecheck` |
+| `src/plugins/scientific-figure.ts`, `src/scientific-figure-dialog.tsx`, `src/styles/04h-scientific-figure-dialog.css` | 科研计划/元数据镜像、数据与 Panel 编排、任务状态/导出表面、局部可覆盖的 `--ui-surface-radius` 与原色成果预览 | 本地进程执行、项目磁盘 IO、研究结论推断、平行画布或直接调用模型 | `ScientificFigureDialog`, `normalizeScientificFigurePlan`, `SCIENTIFIC_FIGURE_*_COMMAND` | `test:scientific-runner`, `test:workspace-domain`, `test:automation-service`, `aidebug:scientific-figure`, `typecheck` |
 | `src/theme-palette-picker.tsx` | 11 套配色选择、自定义主题名称、浅/深色 10 项编辑、导入/导出/恢复交互 | 文件 IO、schema 权威校验、任意 CSS 解释或设置磁盘写入 | `ThemePalettePicker`, `defaultCustomTheme`, `transferTheme` | `test:theme-preset`, `test:settings-persistence`, `test:ui-foundation`, `aidebug:gui`, `build`, `test:bundle` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
-| `src/agent-window-sync.ts` | 独立窗脱敏有界快照、Glass appearance projection、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、Agent 执行、项目持久化或独立设置 authority | `AgentWindowGlassAppearance`, `buildAgentWindowSnapshot`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
-| `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、operation/request slot 键与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
+| `src/agent-window-sync.ts` | 独立窗脱敏有界快照（含领域 ID/标题）、Glass appearance projection、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、领域 authority、Agent 执行、项目持久化或独立设置 authority | `AgentWindowGlassAppearance`, `buildAgentWindowSnapshot`, `workspaceDomain`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:workspace-domain`, `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
+| `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、`operationId + requestIndex` 同槽替换与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session 或最终资产列表 | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
 | `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
 | `src/aidebug/agent-fixture-bridge.ts` | Renderer Agent action/message fixture 窗口钩子、32ms 流消息合并及安装清理生命周期 | 真实 runtime action 实现、React/项目状态、正式 bundle chunk | `installAgentFixtureBridge`, `__naimageDebugApplyAgentActions`, `__naimageDebugSeedAgentMessages` | `test:aidebug-agent-fixtures`, `typecheck`, `test:agent-text-ui`, `aidebug:gui`, `test:bundle` |
 | `src/ui.tsx` | 对现有调用方保持稳定的基础 UI 兼容重导出 façade | primitives 内部实现、产品业务状态 | `DialogShell`, `DrawerShell`, `ButtonBase`, `useFloatingDialogInteractions` | `test:ui-foundation`, `typecheck`, `build` |
-| `src/ui/*` | Dialog/Drawer focus 与 close policy、共享 controls、菜单 surface、overflow tooltip、浮窗拖动 | 产品业务状态、功能页数据获取 | `dialog-shell.tsx`, `primitives.tsx`, `menu-surface.tsx`, `overflow-tooltip.tsx`, `floating-dialog-interactions.ts` | `test:ui-foundation`, `aidebug:gui` |
+| `src/ui/*` | Dialog/Drawer focus 与 close policy、共享 controls、可清空后延迟规范化的数字输入、菜单 surface、overflow tooltip、浮窗拖动 | 产品业务状态、功能页数据获取 | `dialog-shell.tsx`, `primitives.tsx`, `DeferredNumberInput`, `menu-surface.tsx`, `overflow-tooltip.tsx`, `floating-dialog-interactions.ts` | `test:ui-foundation`, `test:commerce-set`, `test:settings-lazy-load`, `aidebug:gui` |
 | `src/window-controls.tsx` | 原生窗口最小化、最大化/还原、关闭按钮 | BrowserWindow 实现、项目状态 | `WindowControls`, `windowControl` | `build`, `aidebug:gui`, `test:lifecycle` |
 | `src/theme-palette-picker.tsx` | 设置页明暗模式与 10 套命名调色盘选择表面 | 设置持久化、全局 App 状态、CSS canonical token | `ThemePalettePicker`, `aria-pressed`, `data-palette` | `test:settings-persistence`, `test:ui-foundation`, `typecheck`, `aidebug:gui` |
 | `src/studio-dialogs.ts` | 设置、账户、编辑对话框、主题与 Markdown 的统一动态 import barrel | 业务状态、手工吸入共享依赖、初始 Renderer chunk | `loadStudioDialogs`, named surface exports | `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
 | `src/use-stable-event.ts` | 持久 handler identity、调用最新闭包 | 业务状态或事件策略 | `useStableEvent` | `typecheck`, `build` |
-| `src/styles.css`, `src/styles/01…08` | 有序样式入口与 base/canvas/legacy/dialog/desktop/responsive/workbench/motion 区域；`01-liquid-glass-tokens.css` 持有 Glass token/旧 `--theme-*` 桥，07a→07i 仍由 workbench 聚合，`07j-liquid-glass-surfaces.css` 在其后持有 Glass surface、素材轨和视图模式 | 数据修复、运行时状态补丁、画布 artwork 滤镜、跨文件随意改 import 顺序，或把 `04b-glass-lab.css` 提前放入全局首屏入口 | `@import`, `01-liquid-glass-tokens.css`, `07-workbench-flattening.css`, `07j-liquid-glass-surfaces.css`, `08-motion-accessibility.css` | `test:workspace-glass-ui`, `test:ui-foundation`, `test:settings-lazy-load`, `test:aidebug-glass-workspace`, `aidebug:glass-workspace`, `test:bundle` |
+| `src/styles.css`, `src/styles/01…08` | 有序样式入口与 base/canvas/legacy/dialog/desktop/responsive/workbench/motion 区域；`01-base-controls.css` 持有共享字体 token，`01-liquid-glass-tokens.css` 持有 Glass token/旧 `--theme-*` 桥，07a→07i 仍由 workbench 聚合，`07j-liquid-glass-surfaces.css` 在其后持有 Glass surface、近实色搜索菜单和 reduced-motion 直接操作例外；`02-canvas-workspace.css` 的普通拖动只消费 `--node-drag-x/y`，`image-layout-settle` 不得声明 transform，密集 viewport 交互只在 `is-viewport-detail-reduced` 生命周期内停绘媒体、关系线和高成本阴影；共享 `.ui-surface` 消费组件局部可覆盖的 `--ui-surface-radius` | 数据修复、运行时状态补丁、静止态画布 artwork 滤镜、拖动 transition 延迟、布局动画占用 transform、交互结束后残留降载 class、跨文件随意改 import 顺序、固定重置所有功能表面圆角，或把 `04b-glass-lab.css` 提前放入全局首屏入口 | `@import`, `--font-*`, `--ui-surface-radius`, `--node-drag-x`, `--node-drag-y`, `is-viewport-detail-reduced`, `01-liquid-glass-tokens.css`, `07-workbench-flattening.css`, `07j-liquid-glass-surfaces.css`, `08-motion-accessibility.css` | `test:workspace-glass-ui`, `test:ui-foundation`, `test:settings-lazy-load`, `test:aidebug-glass-workspace`, `aidebug:glass-workspace`, `aidebug:performance`, `test:bundle` |
 | `src/markdown.tsx` | Agent Markdown 呈现 | 模型协议或工具执行 | Markdown renderer exports | `build`, `aidebug:gui` |
 
 ### 5.3 画布、需求与图片组织
@@ -542,7 +664,7 @@ Renderer UpdaterBridge
 | 路径组 | 职责 | 主要验证 |
 | --- | --- | --- |
 | `src/account-drawer.tsx` | 账户、余额、日志入口 | `aidebug:gui` |
-| `src/model-config-dialog.tsx` | Agent/图片模型选择和服务端模型展示 | `test:agent-text-ui`, `aidebug:gui` |
+| `src/model-config-dialog.tsx` | Agent/图片模型选择、服务端模型展示和逐模型接入绑定（Base URL/API Key 或账户密钥） | `test:agent-text-ui`, `test:model-catalog`, `test:settings-lazy-load`, `aidebug:gui` |
 | `src/agent-text-editor-dialog.tsx` | 主 Prompt 与 FastMemory 编辑 | `test:agent-text`, `test:agent-text-ui` |
 | `src/ask-user-dialog.tsx` | `ask_user` 继续执行输入 | `aidebug:ask-user`, `test:execution-gate` |
 | `src/requirement-editor-dialog.tsx` | 需求节点编辑与执行入口 | `aidebug:requirements` |
@@ -550,15 +672,15 @@ Renderer UpdaterBridge
 | `src/common-dialogs.tsx` | 通用项目、确认和导出弹窗 | `test:ui-foundation`, `aidebug:gui` |
 | `src/auth-gate.tsx` | 启动检查、账号/自定义接入切换、激活输入、登录/注册表面与认证标题栏 | `test:custom-api-transport`, `test:license`, `aidebug:gui`, `test:lifecycle` |
 | `src/glass-lab.tsx`, `src/styles/04b-glass-lab.css` | 外观 section 内自然异步的六主题、三材质、自定义参数、强调色、噪点/减弱动态和实时预览表面；样式跟随该异步 chunk | 全局主题 authority、设置磁盘写入、画布 remount 或初始 Renderer CSS | `test:glass-theme`, `test:settings-lazy-load`, `test:aidebug-glass-workspace`, `aidebug:glass-workspace` |
-| `src/image-viewer.tsx` | 图片缩放、适配、平移、切图与导出入口 | `test:ui-foundation`, `aidebug:gui` |
-| `src/reference-picker-dialog.tsx` | SOURCE/REFERENCE 图片选择、分页和上限展示 | `aidebug:ask-user`, `aidebug:gui`, `test:execution-gate` |
+| `src/image-viewer.tsx`, `src/styles/04-dialogs-viewers.css` | 只读取已受管最终资产的图片查看器；上方单张大图负责缩放/适配/平移，下方最终图缩略条固定为单行横向滚动，并保留切图与导出入口 | `test:workspace-glass-ui`, `test:ui-foundation`, `aidebug:glass-workspace`, `aidebug:gui` |
+| `src/reference-picker-dialog.tsx`, `src/styles/04-dialogs-viewers.css` | SOURCE/REFERENCE 图片选择、分页和上限展示；引用图使用约 96px 透明玻璃缩略容器完整显示 | `aidebug:ask-user`, `aidebug:gui --ui-surface-suite`, `test:commerce-catalog-ui`, `test:execution-gate` |
 
 ### 5.5 图片与 Worker 模块
 
 | 路径 | 职责 | 边界 | 主要验证 |
 | --- | --- | --- | --- |
 | `image-import.cjs`, `image-import-worker.cjs` | 扫描、校验、复制、哈希、尺寸读取 | 不修改外部原图；防路径逃逸和资源超限 | `test:image-import`, `aidebug:image-import` |
-| `thumbnail-cache.cjs`, `image-thumbnail-worker.cjs` | 项目私有 WebP 缩略图 | 缩略图不替换原资产 | `test:thumbnail-cache` |
+| `thumbnail-cache.cjs`, `image-thumbnail-worker.cjs` | 项目私有 WebP 缩略图、按数量/容量/保留天数节流的保留式 GC | 缩略图不替换原资产；GC 不删除原图、生成结果或正在生成的缩略图 | `prune`, `test:thumbnail-cache` |
 | `semantic-matting.cjs`, `semantic-matting-worker.cjs` | OpenCV/PNGJS 蒙版细化和 alpha 验证 | worker 隔离；保持尺寸与资源限制 | `test:semantic-matting`, `test:layer-alpha` |
 | `background-removal.cjs` | 边缘连通背景移除兼容逻辑 | 不恢复为产品滤镜入口 | `test:chroma-key` |
 | `psd-export.cjs`, `psd-export-worker.cjs`, `psd-raster-source-worker.cjs` | PSD 隔离导出、源图栅格化、回读校验 | 临时源按进程隔离并清理 | `test:psd-export` |
@@ -570,18 +692,21 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 | 路径 | Owns | Must not own | 主要验证 |
 | --- | --- | --- | --- |
 | `scripts/aidebug-gui.mjs` | 已解析参数的消费、suite 选择顺序、运行目录、Vite/Electron/CDP 总编排和最终报告 | CLI/env 解析、已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `test:aidebug-options`, `aidebug:gui` 与各 `--*-suite` 专项 |
-| `scripts/aidebug/options.mjs` | AIDebug CLI alias、env/CLI 优先级、数值边界、路径/references 归一化和 supervisor `rawArgs` 快照 | suite 选择/dispatch、进程状态读取、运行目录创建或 GUI 启动副作用 | `test:aidebug-options`, `node --check` |
+| `scripts/aidebug/options.mjs` | AIDebug CLI alias、env/CLI 优先级、数值边界、路径/references 归一化、显式隔离根及 config 必须位于隔离根内的 fail-closed 校验、supervisor `rawArgs` 快照 | suite 选择/dispatch、进程状态读取、运行目录创建或 GUI 启动副作用 | `test:aidebug-options`, `test:aidebug-isolation`, `node --check` |
+| `scripts/aidebug-isolation-selftest.cjs` | 启动真实 Electron Main，验证仅传临时 `--user-data-dir` 时自动使用 `<user-data>/data`、默认项目留在该根内、仓库 config 哈希不变，并验证显式指向仓库 config 会非零退出 | Renderer 交互、业务 fixture、真实模型请求、清理或改写现有用户画布 | `test:aidebug-isolation` |
+| `scripts/aidebug-isolation-gui.mjs` | 启动真实 Vite + Electron + CDP，在运行时双门禁开启后创建/移动一个容器并等待自动保存，核对节点只进入临时项目、仓库 config 不变并保存截图证据 | 完整 GUI surface、真实用户项目、真实模型请求或通用 AIDebug suite 替身 | `aidebug:isolation` |
 | `scripts/aidebug/harness/*` | CDP 连接、受控进程退出、PNG 读取/比较、双帧和原生截图证据 | 产品场景、画布业务断言、suite CLI 决策 | `aidebug:gui`, `node --check` |
 | `scripts/aidebug/harness/state-snapshot.mjs` | Renderer DOM、几何、可访问性、画布和 Agent 状态的统一快照表达式；显式接收 evaluator 与 workbench 最小宽度 | suite 路由、进程生命周期、报告写入或产品状态修改 | `aidebug:gui`, `node --check` |
 | `scripts/aidebug/suites/selection-command.mjs` | selection/command 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:selection` |
 | `scripts/aidebug/suites/ui-surface.mjs` | UI surface 场景 probe | 通用 CDP/截图实现、其他 suite | `aidebug:gui` |
 | `scripts/aidebug/suites/image-generation.mjs` | 单图、图片恢复和图片集合三个图像 probe | CLI/process/CDP 生命周期、其他 suite | `aidebug:image`, `aidebug:image-recovery`, `aidebug:image-collection` |
+| `scripts/aidebug-image-layout-regression.mjs` | 图片容器归组/拆组/跨组/Z-order 回归，以及密集画布容器松手后立即复拖的真实 CDP 手势、原生 drag 取消与 `pointercancel` 证据 | 产品拖动实现、通用 Electron 生命周期、真实模型请求 | `aidebug:image-collection`, `runCanvasLayoutMutationRegression`, `runImmediateContainerRedragRegression` |
 | `scripts/aidebug/suites/layer-editing.mjs` | layer stack、抠图、区域重绘 probe 与专属 DOM proof | CLI/process/CDP 生命周期、其他 suite 或通用 PNG/CDP helper | `aidebug:gui` 的 `--layer-stack-suite`、`--cutout-suite`、`--region-redraw-suite` |
-| `scripts/aidebug/suites/performance.mjs` | 200/1000 节点、长/流式时间线、10 张 4K 图片、交互、内存、Long Task、持久化与视觉检查点基线 probe | CLI/process/CDP 生命周期、最终报告路由、其他 suite | `node --check scripts/aidebug/suites/performance.mjs`、模块 import smoke、`aidebug:performance` |
+| `scripts/aidebug/suites/performance.mjs` | 200/1000 节点、长/流式时间线、10 张 4K 图片、交互、内存、Long Task、持久化与视觉检查点基线 probe；`denseViewportZoom` 固定验证 80 次 wheel/10 帧、stage 写入预算和降载状态恢复 | CLI/process/CDP 生命周期、最终报告路由、其他 suite | `node --check scripts/aidebug/suites/performance.mjs`、模块 import smoke、`aidebug:performance`、`aidebug:performance:product` |
 | `scripts/aidebug-requirement-node-suite.mjs` | 需求节点创建、连接、重复执行与六层成果的专项 probe；默认使用轻量六层 fixture，完整 Layer Stack 仅由显式 `--full-suite` 运行 | 重复执行完整 Layer Stack、通用 CDP/进程生命周期、其他 suite | `aidebug:requirements`；需要完整图层回归时使用 `aidebug:requirements:full` |
 | `scripts/aidebug-skill-node-suite.mjs` | 经 loopback 自动化正式入口导入 Skill-backed requirement，验证重复聚焦、异常 frontmatter、正常/最小窗口视觉，以及主/独立 Agent TaskScope 模式与发送后复位 | 产品解析/执行实现、任意真实凭证或图片服务、通用 CDP/进程生命周期 | `aidebug:skills`、`aidebug:evidence`、`AIDEBUG/visual-review.mjs` |
 | `scripts/aidebug-goal-mode-suite.mjs` | 构造真实图片容器 fixture，验证可见普通/Goal 模式、合格容器/图片计数、probe/放量/费用确认文案、画布变化后的 stale hash 零派发及截图健康度 | 真实付费图片请求、Goal runtime 逻辑替身、通用 CDP/进程生命周期 | `aidebug:goal`、`aidebug:evidence`、`AIDEBUG/visual-review.mjs` |
-| `scripts/aidebug-glass-workspace-suite.mjs`, `AIDEBUG/catalog.json` | 独立 Electron Glass/Workspace 可见闭环及 catalog/profile 注册：默认外观、六主题、三材质、九类自定义控制、推荐值恢复、canonical canvas/node DOM 身份与 geometry、素材轨四 tab、三视图、surface/图片不透明、884 x 640 Shell/设置/菜单，以及同配置目录真实关闭冷重启 | 真实网络/付费生图、产品主题实现、通用截图/报告替身或日常隐式全量 GUI | `test:aidebug-glass-workspace`, `test:aidebug-catalog`, `aidebug:glass-workspace`, `node AIDEBUG/run.mjs --check` |
+| `scripts/aidebug-glass-workspace-suite.mjs`, `AIDEBUG/catalog.json` | 独立 Electron Glass/Workspace 可见闭环及 catalog/profile 注册：默认外观、六主题、三材质、九类自定义控制、推荐值恢复、canonical canvas/node DOM 身份与 geometry、素材轨四 tab、三视图、surface/图片不透明、884 x 640 Shell/设置/菜单、同配置目录真实关闭冷重启，以及可独立运行的科研工作台和 Commerce AI 陪练场景 | 真实网络/付费生图、真实科研 Runner、产品主题实现、通用截图/报告替身或日常隐式全量 GUI | `test:aidebug-glass-workspace`, `test:aidebug-catalog`, `aidebug:glass-workspace`, `aidebug:scientific-figure`, `aidebug:commerce-tutorial`, `node AIDEBUG/run.mjs --check` |
 | `AIDEBUG/run.mjs` | 显式 task/profile/可重复 Agent 选择、单进程并发 runner、毫秒时间戳加 UUID 的独占证据目录、覆盖全部 SUPER GOAL owner lane 的 workpack v2 manifest 生成和确定性 `--result-file` 回链 | 跨进程 claim/recovery、GUI 审阅结论、日常隐式全量测试 | `node AIDEBUG/run.mjs --check`、`test:aidebug-workpack` |
 | `AIDEBUG/super-goal-contract.mjs` | fail-closed 校验最终 profile 覆盖每个 workstream owner lane 及其全部 verificationTasks | 执行测试、生成 workpack 或修改目标状态 | `node AIDEBUG/run.mjs --check`、`test:aidebug-workpack` |
 | `AIDEBUG/workpack.mjs` | manifest/integrity/目标哈希复核、wave 屏障、原子 claim、追加 checkpoint、跨 workpack 资源锁、stale reclaim、runner/GUI evidence 绑定与不可变 closure | 产品 Renderer、模型分派、未声明的手工 `run.mjs` 进程、自动审美评分 | `test:aidebug-workpack` |
@@ -593,12 +718,15 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 | Bridge | Renderer 入口 | 主进程职责 |
 | --- | --- | --- |
-| `window.naimageConfig` | 设置、项目、session、导入/导出、图片另存、Project Graph 只读导入、窗口控制 | 本地文件、原生 Save 授权、项目目录、BrowserWindow、原子保存、受限 `.prg` 解析 |
+| `window.naimageRuntime` | 只读 `aidebugEnabled` / `isolatedConfig`；Renderer 只有在二者同时为真时才安装可修改画布的 AIDebug 控制面 | Main 先确认显式临时 `user-data`、config 与隔离根均安全，再通过 `webPreferences.additionalArguments` 向 preload 投影两个布尔值；不注册 IPC、不公开路径 |
+| `window.naimageScientific` | 原生导入受管数据、数据/任务列表、单任务渲染/查询/取消/导出与状态订阅 | 项目级数据 registry、任务 journal、受信任 Python/R Runner、输出复核与原生目录授权；不公开绝对路径或任意脚本入口 |
+| `window.naimageConfig` | 设置、项目、session、导入/导出、图片另存、受管工作区背景、Project Graph 只读导入、社媒发布包预检/导出、窗口控制 | 本地文件、原生 Open/Save 授权、项目目录、BrowserWindow、原子保存、受限 `.prg` 解析、背景 WebP 转码与社媒原生目录授权 |
 | `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、账户密钥 CRUD/选择、生图 | New API session、公开脱敏 token DTO、Main-only 完整 Key、授权状态与结果落盘 |
 | `window.naimageUpdater` | 检查、下载、应用更新、进度订阅 | 签名、hash、ticket、helper、回滚 |
 | `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory | Agent runtime 生命周期、memory、模型与工具循环 |
 | `window.naimageAutomation` | Renderer ready、生产命令接收与结果回传 | loopback HTTP 请求关联、随机 Token 与超时 |
 | `window.naimageAgentIntegrations` | Agent 目录检测、安装/更新/移除 Skill | 目标路径验证、复制和 `.naimage-connection.json` 生成 |
+| `window.naimageVideo` | 单任务创建、列表/查询、显式刷新、重试下载与状态订阅 | 独立视频任务适配器、项目 journal、凭证绑定、恢复轮询与受管落盘；不公开 Key、绝对持久化路径或上游签名结果 URL |
 
 任何 bridge 变更必须同步：
 
@@ -607,6 +735,8 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 3. 对应 `desktop/ipc/*-ipc.cjs` handler 与 `register-desktop-ipc.cjs` 注册顺序。
 4. Renderer 调用方与错误处理。
 5. 对应 selftest/AIDebug。
+
+`window.naimageRuntime` 是上述 IPC 对称性规则的只读例外：它没有 handler，变更时必须同步 Main `additionalArguments`、preload 投影、`src/core.ts` 类型、Renderer 门禁以及 `test:aidebug-isolation` / `aidebug:isolation`。
 
 ### 6.2 Runtime action
 
@@ -620,7 +750,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 ### 6.3 TaskScope v2
 
-TaskScope 是每轮 Agent 请求冻结的来源合同，区分 `SOURCE` 和 `REFERENCE`，包含 scope、result、confirmation policy 和 snapshot hash。`ask_user` 继续执行必须沿用同一份作用域，不得根据后续画布变化静默替换来源。运行中 steer 只有携带显式 update 才能改变附件；SOURCE/REFERENCE 均支持 `keep | replace | merge | clear`。Renderer 生成候选 v2 scope，Main 重新归一化和哈希、重算 SOURCE locks、先写入 run record，再将带权威快照的 steer 交给 runtime continuation。
+TaskScope 是每轮 Agent 请求冻结的内部来源合同，区分 `SOURCE` 和 `REFERENCE`，包含 scope、result、confirmation policy 和 snapshot hash；普通用户界面不展示这些协议词，只提供“自动处理 / 只修改要求 / 更换处理图片”三种选择。`ask_user` 继续执行必须沿用同一份作用域，不得根据后续画布变化静默替换来源。运行中 steer 只有携带显式 update 才能改变附件；SOURCE/REFERENCE 在内部协议与 CLI 中仍支持 `keep | replace | merge | clear`。Renderer 生成候选 v2 scope，Main 重新归一化和哈希、重算 SOURCE locks、先写入 run record，再将带权威快照的 steer 交给 runtime continuation。
 
 来源上限：SOURCE 200、REFERENCE 40；真实图片工具单轮参考图上限 9。需求节点执行时来源只能来自需求节点左侧合法图片关系。
 
@@ -637,7 +767,7 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 
 ### 6.5 远端服务
 
-账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 naimage 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
+账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 SparkAI WorkSpace 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
 
 账户管理认证使用 session cookie 与 `New-Api-User`；标准模型接口认证使用所选 token 的 `Authorization: Bearer <key>`。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证、所选 token 元数据和完整 Key 内存缓存。账户密钥额度保留原始 quota，`desktop/account-token-quota.cjs` 使用公开状态中的 `quota_per_unit` 得到 R（`1 R = 1 USD`），再使用 `usd_exchange_rate` 得到人民币分值；`price` 是充值价格倍率，禁止参与余额换算。显式刷新时并行读取状态与密钥，缓存读取不联网。主要契约：
 
@@ -660,14 +790,19 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 
 | 镜像合同 | 位置 | 同步要求 |
 | --- | --- | --- |
+| Automation registry / Renderer / CLI / MCP / debug service | `integrations/naimage-control/references/commands.schema.json`、`scripts/automation-command-reference.mjs`、`src/automation-command-{registry,runtime}.ts`、`desktop/{automation-service,debug-command-service}.cjs`、`integrations/naimage-control/{SKILL.md,scripts/*,references/commands.md}` | command name/surface/schema/destructive 边界必须同源；MCP 只转发 loopback bridge；debug 仅开发/AIDebug、有界脱敏、生产拒绝；业务动作变化同步 Renderer/CLI/MCP/Skill 与专项；运行 `automation:generate --check`, `test:automation-debug`, `test:mcp-wrapper`，实际改动业务命令时再运行对应领域专项与 `test:automation-service` |
+| WorkspaceDomain registry / Session / Agent / GUI / CLI | `runtime/workspace-domains.json`、`runtime/workspace-domain.cjs`、`src/{core,workspace-domain,workspace-chrome,main,plugin-system,agent-window-sync,automation-command-runtime}.ts*`、`desktop/project-session-normalizer.cjs`、Project/Agent IPC、`agent-runtime.cjs`、`integrations/naimage-control/` | 四个 ID、默认值、标题/图标/插件归属、简短 Prompt 与公开 DTO 必须同源；旧 Session 默认 `general`；切换不重挂画布、不改选择/任务/关系、不联网或计费；共享 schema 同步 Renderer/CLI 文档/Skill；运行 `test:workspace-domain`, `test:plugin-system`, `test:agent-window`, `test:automation-service`, `typecheck`, `aidebug:workspace-domain` |
+| Social plan / Requirement / provenance / video / export / CLI | `plugins/social-content-schema.json`、`runtime/social-content-plan.cjs`、`src/plugins/social-content.ts`、`src/social-content-dialog.tsx`、`src/main.tsx`、session normalizer、video task service、social export service/IPC、automation registry/runtime 与 `integrations/naimage-control/` | 平台/枚举/默认值、workflowId/planHash、revision 写回、成果槽位、视频 journal 身份和命令 schema 必须一致；计划不计费，execute 才授权派发；导出不得接受路径；运行 `test:social-content`, `test:social-export`, `test:video-node`, `test:automation-service`, `test:ipc-registration`, `typecheck`, `aidebug:social-content` |
 | TaskScope snapshot hash | `src/core.ts`、`agent-runtime.cjs` | 哈希材料、字段顺序和 v2 前缀必须一致；运行 `test:task-scope`、`test:agent-protocol` |
 | Image 2 比例/分辨率/尺寸 | `src/core.ts`、`runtime/image-frame.cjs`、主进程生图参数 | UI 展示、runtime normalization 和真实请求必须一致；运行 `test:agent-text`、`test:agent-protocol`、真实图片专项 |
 | Asset identity | Renderer `src/asset-identity.ts`（由 `core.ts` 兼容重导出）、`electron-main.cjs` 项目/session 清洗、导入 worker | assetId/occurrenceId/content hash 不得因重启或迁移漂移；运行 `test:asset-identity`, `test:project-io`, `test:image-import` |
 | Session revision、节点事件与多窗口合并 | Renderer `src/main.tsx` 的确认 baseline/journal 快照、`desktop/project-save-coordinator.cjs`、`desktop/project-session-merge.cjs`、项目 manifest/session | revision 单调；Main 从确认 baseline 采集事件并分配 commitRevision；字段 clock 不得被 legacy richer fallback 覆盖；delete/restore barrier 必须阻止旧事件；只有真实 incoming writer 刷新 checkpoint；运行 `test:node-mutation-journal`, `test:project-save-coordinator`, `test:project-session-merge`, `test:project-session-dual-renderer`, `test:project-io` |
 | Agent 运行控制与 steer | 主/独立 Renderer、`preload.cjs`、Agent IPC、`desktop/agent-run-control.cjs`、`agent-runtime.cjs` | pause 等待派发边界；stop 中断父运行；steer 只中断 child phase，queued steer 不得漏启新 phase；TaskScope update 必须先在 Main 归一化、重哈希、重算锁并保存，再补齐工具输出并在同一协议历史注入权威新 scope 与用户意图；运行 `test:agent-run-control`, `test:agent-steer`, `test:agent-window`, `test:ipc-registration` |
-| Goal GUI/runtime/CLI/schema | `src/{goal-task-scope,goal-mode,project-agent-composer,automation-command-runtime}.ts*`、`src/main.tsx`、`agent-window-*`、`runtime/{goal-image-execution,goal-probe-admission,image-batch-scheduler,tool-schemas}.cjs`、`agent-runtime.cjs`、`integrations/naimage-control/` | 普通/Goal 模式、两阶段确认、hash drift 零派发、`all-goal-sources` 单次调用、逐 binding 输出、串行 probe、等待 probe 优先、公平进程容量、retry hold、provider draining、跨 Goal circuit 与费用边界必须一致；共享 command registry 同时驱动 Renderer、CLI 参考和测试；运行 `test:goal-task-scope`, `test:goal-runtime`, `test:goal-probe-admission`, `test:image-batch-scheduler`, `test:goal-probe-dual-renderer`, `test:automation-service`, `test:agent-window` 和 `aidebug:goal` |
+| Goal GUI/runtime/CLI/schema | `src/{goal-task-scope,goal-mode,project-agent-composer,automation-command-runtime}.ts*`、`src/main.tsx`、`agent-window-*`、`runtime/{goal-image-execution,goal-probe-admission,image-batch-scheduler,tool-schemas}.cjs`、`agent-runtime.cjs`、`integrations/naimage-control/` | 普通/Goal 在主输入区共用单触发器和双瓣扇形菜单；两阶段确认、hash drift 零派发、`all-goal-sources` 单次调用、逐 binding 输出、串行 probe、等待 probe 优先、公平进程容量、retry hold、provider draining、跨 Goal circuit 与费用边界必须一致；共享 command registry 同时驱动 Renderer、CLI 参考和测试；运行 `test:goal-task-scope`, `test:goal-runtime`, `test:goal-probe-admission`, `test:image-batch-scheduler`, `test:goal-probe-dual-renderer`, `test:automation-service`, `test:agent-window` 和 `aidebug:goal` |
 | Glass registry、首帧与独立 Agent 镜像 | `runtime/glass-theme-presets.json`、`runtime/glass-theme-settings.cjs`、`public/glass-theme-bootstrap.js`、`src/{glass-theme,glass-theme-provider,settings-persistence,agent-window-sync}.ts*`、`desktop/ipc/config-ipc.cjs`、`electron-main.cjs`、`preload.cjs`、`desktop/ipc/window-ipc.cjs`、`desktop/agent-window-service.cjs`、`agent-window-renderer.js`、`agent-window.css` | registry/default/range、TS/CJS 归一化和启动期镜像必须一致；bootstrap 只信任安全 appearance 字段并重建变量；首个 React frame 必须用 `settingsWithGlassBootstrap` 保持同一外观，完整磁盘设置随后恢复 authority；主题切换只能投影根节点，不得 remount canvas；浅色 muted 在实色 surface 上至少 4.5:1；主/独立 BrowserWindow 创建和设置保存后的原生底色必须跟随主题 canvas；主 Renderer 是设置 authority，Main 只中继有界快照，独立窗只应用变量 allowlist；运行 `test:glass-theme`, `test:settings-persistence`, `test:settings-lazy-load`, `test:agent-window`, `test:ipc-registration`, `test:workspace-glass-ui`, `test:aidebug-glass-workspace`，需要真实可见证据时才运行 `aidebug:glass-workspace` |
+| 自定义 Glass 背景资产 | `desktop/glass-background-service.cjs`、`desktop/ipc/config-ipc.cjs`、`electron-main.cjs`、`preload.cjs`、`src/{core,settings-persistence,glass-background}.ts`、`src/glass-lab.tsx` | AppSettings 的 ID/name/metadata/enable/overlay/blur 必须与 Main 镜像；磁盘仅接受内容寻址文件名，Renderer 不得接收路径或把 data URL 持久化；异步加载必须防止旧请求覆盖新设置，背景图启用时必须保留可读表面最低透明度且不得给作品图应用滤镜；clear 使用 30 天恢复保留，GC 只删除未引用且哈希通过的自有 WebP；运行 `test:glass-background`, `test:settings-persistence`, `test:workspace-glass-ui`, `test:ipc-registration`, `typecheck` |
 | 图片格式、本地导出与远程资产 | `runtime/{tool-schemas,encoded-image-format}.cjs`、`electron-main.cjs`、`desktop/{image-export-service,public-http-resource,remote-asset-proxy}.cjs`、Asset IPC/preload、`src/remote-asset-source.ts`、Renderer/automation/CLI | 上游输入/结果限 PNG/JPEG/WebP，默认 PNG，未知格式在 provider 派发前拒绝，真实字节必须与请求格式一致；Provider URL 逐跳限公网 HTTP(S)，DNS 固定到禁用共享连接池的一次性连接并复核真实 socket，全局下载并发 2 且相同 URL 在途去重；新结果必须落盘后再进入画布，历史 URL 只经 recorded-only `naimage-asset:`，CSP 禁止 Renderer 直连；本地导出限 PNG/JPEG/WebP/AVIF/TIFF，格式元数据由共享 schema 驱动，同目标串行且无覆盖授权时 no-clobber；运行 `test:image-format`, `test:image-export`, `test:remote-asset-security`, `test:automation-service`, `typecheck` |
+| 视频节点/导入/任务/模型目录 | `desktop/video-import.cjs`、`desktop/video-task-{adapter,service}.cjs`、`desktop/{model-catalog,project-session-normalizer,project-asset-repository,project-package-service}.cjs`、Asset/Agent/Server/VideoTask IPC、`electron-main.cjs`、`preload.cjs`、`src/{core,settings-persistence,settings-runtime,settings-drawer,model-config-dialog,automation-command-runtime,main}.ts*`、CLI schema/Skill、`docs/NEWAPI_INTEGRATION.md` | 本地格式/大小/受管复制与播放；生成任务先写 journal 再做单次 POST，4xx 明确拒绝，5xx/超时/无 ID 进入 `create-unknown` 且不得自动重建；有远端 ID 仅恢复 GET；下载优先 content 端点再回退经安全校验的结果 URL；journal 只留相对路径和凭证指纹，Renderer/CLI 不接收签名结果 URL；`doubao-seedance-2-0-260128` 兼容请求已开发但未真实验证，必须等用户允许后用一条最小任务确认字段与计费；图片 Base64 项目包显式拒绝视频；运行 `test:video-node`, `test:model-catalog`, `test:settings-persistence`, `test:settings-lazy-load`, `test:automation-service`, `test:ipc-registration`, `test:project-io`, `typecheck` |
 | 服务返回清洗 | `electron-main.cjs` 正式路径、`src/server.ts` 浏览器回退 | 登录、用户、模型、日志和图片 DTO 不能静默分叉；正式行为以 Electron 路径为准 |
 | Agent 文本清洗 | `agent-runtime.cjs` tool envelope、`src/core.ts` 持久化消息清洗、`src/agent.ts` 时间线 | 不泄露 entry id/FastMemory metadata，不重复最终文本；运行 `test:agent-text`, `test:timeline` |
 | 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `ai-native` release manifest | canonical 清单的 product、version、minimum version、compatibility、hash、size 与制品必须一致，并独立验签 |
@@ -678,11 +813,13 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 
 | 修改类型 | 首要位置 | 必须联动检查 | 最低专项验证 |
 | --- | --- | --- | --- |
+| 四工作台领域、切换器或领域插件投影 | `runtime/workspace-domains.json`, `runtime/workspace-domain.cjs`, `src/{workspace-domain,workspace-chrome,main,plugin-system}.ts*` | `WorkspaceDomain` 类型、默认 Session/normalizer、新项目入口、保存恢复、Agent IPC/runtime Prompt、独立窗脱敏快照、automation schema/生成 registry/CLI Skill；切换不 remount、不清选择/任务、不联网/计费 | `test:workspace-domain`, `test:plugin-system`, `test:agent-window`, `test:automation-service`, `typecheck`；真实 UI 只运行 `aidebug:workspace-domain` |
 | 顶栏、窗口按钮 | `src/main.tsx`, `src/window-controls.tsx`, `src/styles/01-base-controls.css` 与后续覆盖区域 | `ConfigBridge`, preload, window IPC | `build`, `aidebug:gui`, `test:lifecycle` |
 | Glass 主题、材质、Glass Lab 或首帧 | `runtime/glass-theme-presets.json`, `src/glass-theme.ts`, `src/glass-theme-provider.tsx`, `src/settings-persistence.ts`, `public/glass-theme-bootstrap.js`, `src/glass-lab.tsx`, `styles/{01-liquid-glass-tokens,04b-glass-lab,07j-liquid-glass-surfaces}.css` | Electron `runtime/glass-theme-settings.cjs`、主/独立 BrowserWindow 创建底色与 `onSettingsSaved` 实时底色、root dataset/class/variable 合同、bootstrap 安全字段与首个 React seed、浅色 muted 对比、设置懒加载、独立 Agent appearance snapshot/变量 allowlist、画布不得 remount、artwork 必须不透明 | `test:glass-theme`, `test:settings-persistence`, `test:settings-lazy-load`, `test:workspace-glass-ui`, `test:agent-window`, `test:ipc-registration`, `test:aidebug-glass-workspace`；仅需真实视觉证据时运行 `aidebug:glass-workspace` |
-| 左素材栏、项目搜索、Workspace 模式或 884 x 640 Shell | `src/workspace-chrome.tsx`, `src/main.tsx`, `src/styles/07j-liquid-glass-surfaces.css`, `electron-main.cjs` | 正式保留成果/图层/需求/历史/导入/设置；live nodes/conversations；Ctrl/Cmd K 与精确标题→前缀→内容排序；搜索真实选择；Navigator/Workbench/Focus/Review 跨节点选择使用 explicit replace，不能使用会保守忽略的 selection `focus`；Focus/Review 选择需求或未完成图片时回到 Workbench 定位；Focus 继续生成只开编辑器且不派发/计费；Review 当前方向使用并持久化 canonical `selectedNodeId`；canonical canvas 持续挂载、Focus/Review sibling projection、全部 agent placement、异步 fallback 与窄屏断点；原型入口不得是无行为 mock | `test:workspace-glass-ui`（50 cases）, `test:lifecycle`, `test:aidebug-glass-workspace`, `typecheck`；视觉或布局变更再运行 `aidebug:glass-workspace` |
-| 画布交互/选择 | `src/main.tsx`, `selection-state.ts`, `canvas-commands.ts` | Agent 当前上下文、容器拖放 | `test:selection`, `test:canvas-commands`, `aidebug:selection` |
-| 图片容器/布局 | `image-container-spec.ts`, `image-container-graph.ts`, `task-result-layout.ts`, `image-layout.ts`；`image-container.ts` 仅作兼容 façade | session migration、TaskScope provenance、layout projection | `test:image-container`, `test:image-layout`, `aidebug:gui` |
+| 左素材栏、项目搜索、Workspace 模式或 884 x 640 Shell | `src/workspace-chrome.tsx`, `src/main.tsx`, `src/settings-persistence.ts`, `src/settings-drawer.tsx`, `src/canvas-tools-settings-panel.tsx`, `src/styles/01-base-controls.css`, `src/styles/07j-liquid-glass-surfaces.css`, `electron-main.cjs` | 成果/图层/需求/模板/历史由 `visibleWorkspaceAssetRailTabs` 分别控制，旧设置默认全开且至少保留一项，隐藏当前页签后切至首个可见页签；模板页必须解释选中需求/Skill 后从顶部保存，节点右键提供同一真实保存动作；live nodes/conversations；Ctrl/Cmd K 与精确标题→前缀→内容排序；搜索真实选择；搜索浮层必须绘制 near-opaque 菜单面且关闭 backdrop filter，输入/标题/详情字号不得回退到旧 micro-text；Navigator/Workbench/Focus/Review 跨节点选择使用 explicit replace，不能使用会保守忽略的 selection `focus`；Focus/Review 选择需求或未完成图片时回到 Workbench 定位；Focus 继续生成只开编辑器且不派发/计费；Review 当前方向使用并持久化 canonical `selectedNodeId`；canonical canvas 持续挂载、Focus/Review sibling projection、全部 agent placement、异步 fallback 与窄屏断点；原型入口不得是无行为 mock | `test:workspace-glass-ui`, `test:settings-persistence`, `typecheck`；视觉或布局变更再运行 `aidebug:glass-workspace` |
+| 画布交互/选择与普通节点拖动 | `src/main.tsx`, `selection-state.ts`, `canvas-commands.ts`, `src/styles/02-canvas-workspace.css`, `src/styles/07c-module-and-editor-repair.css`, `src/styles/07j-liquid-glass-surfaces.css` | Agent 当前上下文、容器拖放、关系线瞬时几何；正式关系线和连线草稿必须复用 `workflowNodeBounds` 的左右边框中点，lane 只影响 Bézier 控制点而不得移动端点；普通图片/容器拖动期间只更新 CSS transform 与边路径，`left/top` 保持稳定，hover/selected 和后置样式不得占用或过渡节点 transform，按下与松手都不得改变屏幕坐标，松手后单次提交真实坐标并清理变量/`will-change`；活动节点拖动拥有当前 pointer stream，移动后暴露的 `.node-image-tile` 原生 `dragstart` 必须被取消，不能触发 `pointercancel` 或阻塞立即复拖 | `test:selection`, `test:canvas-commands`, `test:workspace-glass-ui`, `typecheck`, `aidebug:selection`, `aidebug:canvas-clarity`, `aidebug:glass-workspace`, `aidebug:image-collection` |
+| 图片容器/布局与最终图查看 | `image-container-spec.ts`, `image-container-graph.ts`, `task-result-layout.ts`, `image-layout.ts`, `src/image-viewer.tsx`, `src/styles/04-dialogs-viewers.css`；`image-container.ts` 仅作兼容 façade | session migration、TaskScope provenance、layout projection；`image-layout-settle` 不得占用 drag transform；查看器过滤 pending/error/partial，只显示最终资产，上方大图与下方单行横向缩略条保持稳定 | `test:image-container`, `test:image-layout`, `test:workspace-glass-ui`, `typecheck`, `aidebug:glass-workspace` |
+| 视频成果节点与生成任务 | `desktop/video-import.cjs`, `desktop/video-task-{adapter,service}.cjs`, `desktop/project-{session-normalizer,asset-repository,store,package-service}.cjs`, Asset/VideoTask IPC, `electron-main.cjs`, `preload.cjs`, `src/{core,main}.ts*`, `src/manual-video-task-dialog.tsx`, `src/styles/02-canvas-workspace.css`, automation registry/runtime 与 CLI Skill | 本地导入仍走 `output/video/imports`；生成结果走 `output/video/generated`，任务状态走项目 journal；每文件/每任务独立节点、原生播放/seek、相对路径持久化、重启恢复、项目包拒绝；创建不明不得重建，Seedance 未授权前不得真实请求 | `test:video-node`, `test:project-io`, `test:model-catalog`, `test:settings-lazy-load`, `test:automation-service`, `test:ipc-registration`, `typecheck`；真实播放或任务 UI 变更时再运行对应 GUI 冒烟 |
 | 需求节点 | `requirement-graph.ts`, `requirement-signature.ts`, dialogs, `main.tsx` | TaskScope、重复执行 gate、关系边 | requirement、task-scope、execution-gate、AIDebug suites |
 | SKILL.md 导入/Skill 身份 | `skill-import.ts`, `CanvasRequirement.skill`, `main.tsx`, project IPC | 24,000 字符持久化上限、GUI/CLI 同 parser、绝对路径排除、requirement TaskScope/关系边、schema/Skill 文档 | `test:skill-import`, `test:automation-service`, `test:ipc-registration`, `typecheck`, `aidebug:skills` |
 | Graph CLI/多节点原子操作 | `src/automation-command-{registry,runtime}.ts`, `src/canvas-relation-graph.ts`, `src/canvas-commands.ts`, `src/main.tsx`, `integrations/naimage-control` | 共享 schema；`canvas.state` 权威 revision/锁/关系，严格选择；项目 guard 必需、canvas revision CAS 可选、Requirement update/execute revision 必需；完整集合预校验，图 mutation 与 create/update 单次 commit/receipt；execute 仅在异步派发前 fence | `test:canvas-commands`, `test:selection`, `test:requirement-graph`, `test:automation-service`, `test:aidebug-graph-cli-harness`, `aidebug:graph-cli` |
@@ -691,16 +828,17 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | 当前画布 Goal 模式 | `src/goal-task-scope.ts`, `src/goal-mode.ts`, `src/main.tsx`, `src/project-agent-composer.tsx`, `runtime/goal-image-execution.cjs`, `runtime/goal-probe-admission.cjs`, `runtime/image-batch-scheduler.cjs`, `agent-runtime.cjs` | 独立窗、session continuation 清洗/节点锁、共享 automation schema/Renderer registry/CLI Skill、一次工具调用、输出 provenance、进程 probe/ramp 准入、retry/draining/circuit 与费用文案 | `test:goal-task-scope`, `test:goal-runtime`, `test:goal-probe-admission`, `test:image-batch-scheduler`, `test:goal-probe-dual-renderer`, `test:automation-service`, `test:agent-window`, `test:agent-steer`, `typecheck`, `aidebug:goal` |
 | 图片格式/另存为/远程 URL | `runtime/encoded-image-format.cjs`, `desktop/{image-export-service,public-http-resource,remote-asset-proxy}.cjs`, `desktop/ipc/asset-ipc.cjs`, `electron-main.cjs`, `preload.cjs`, `src/remote-asset-source.ts`, `src/main.tsx`, automation registry/runtime 与 CLI schema/Skill | 上游 PNG/JPEG/WebP 真实字节与请求一致、本地五格式、真实解码识别、alpha 规则、共享格式注册表、原生 Save 授权、受管源图只读、同目标串行、no-clobber/确认后原子替换、真实失败传播、PSD 独立；远程结果逐跳公网校验、DNS pin、真实 socket 复核、禁共享 agent、全局并发 2/同 URL 去重、新结果落盘、历史 recorded-only proxy、Renderer CSP 禁止直连；不得引入模型调用或计费 | `test:image-format`, `test:image-export`, `test:remote-asset-security`, `test:automation-service`, `typecheck`, `build`, `test:bundle` |
 | `view_image` | `runtime/view-image-payload.cjs`, `agent-runtime.cjs` | 允许根、payload 预算、Sharp、持久化排除 | `test:view-image`, `test:agent-protocol` |
-| 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs` | 服务响应 DTO、60 秒运行缓存、`cacheOnly` 离线磁盘快照、设置/Agent 共用模型 | `test:model-catalog`, `test:settings-lazy-load`, `test:ipc-registration`, `test:new-api-transport` |
+| 模型目录/缓存 | `desktop/model-catalog.cjs`, `electron-main.cjs`, `src/main.tsx`, `src/project-agent-composer.tsx`, `src/settings-drawer.tsx`, `src/model-config-dialog.tsx`, `docs/NEWAPI_INTEGRATION.md` | 服务响应 DTO、当前账户密钥或自定义接口的 `/v1/models`、每模型 `supported_endpoint_types`、独立 Agent/Image/Video 状态、能力证据与最近验证时间；60 秒运行缓存、`cacheOnly` 离线磁盘快照、旧缓存先显示/后台刷新和大列表虚拟化；自定义模式缓存键含 Key 的单向指纹，更换 Key 不得复用旧目录，磁盘缓存仍不得含 Key；端点能力是正向证据，缺失或错误时保留图像/视频名称回退，显式视频模型不得混入前两类 | `test:model-catalog`, `test:settings-persistence`, `test:settings-lazy-load`, `test:ipc-registration`, `test:new-api-transport`, `typecheck` |
 | 账户密钥快照/显式刷新 | `desktop/account-token-service.cjs`, server IPC, `src/main.tsx` | 按账户隔离、脱敏字段、preload bridge、设置页不得自动联网 | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
-| 设置/浏览器回退存储 | `settings-persistence.ts` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界 | `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `aidebug:gui` |
+| 设置/浏览器回退存储 | `settings-persistence.ts`, `electron-main.cjs`, `desktop/plugin-state.cjs` | `AppSettings` 类型、Electron ConfigBridge、当前 `naimage.*` LocalStorage 键、更名前键的只读迁移、账户切换认证边界、`workspacePluginDefaultsVersion` 一次性第一方组件迁移、`visibleWorkspaceAssetRailTabs`、视觉隐藏专用 `disabledCanvasToolCommands` 与 `canvasToolShortcuts` 的 Renderer/Electron 同构默认值及规范化 | `test:settings-persistence`, `test:plugin-system`, `test:workspace-glass-ui`, `test:ipc-registration`, `typecheck`, `aidebug:workspace-domain` |
+| 自定义 API Key 安全存储 | `desktop/settings-secret-store.cjs`, `electron-main.cjs`, `desktop/ipc/config-ipc.cjs`, Renderer 设置表面 | 普通 JSON 不含明文；Renderer 只收占位符；占位符保存保留旧 Key，显式清空删除 Key；损坏普通设置不删除 sidecar | `test:settings-secret-store`, `test:settings-persistence`, `typecheck`, `build` |
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `desktop/theme-preset-service.cjs`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette/customTheme`、Electron `defaultSettings/migrateSettings` 镜像、ConfigBridge/IPC、独立 Agent 快照、Vite `studio-dialogs` 懒加载 chunk | `test:theme-preset`, `test:settings-persistence`, `test:agent-window`, `test:ui-foundation`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
-| 插件/电商/Project Graph | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态清洗镜像、设置持久化、权限、动态 chunk、preload/IPC、主 Renderer handler；长 Prompt 归 Main；禁止脚本注入、扩展执行和直接 session 写入 | `test:plugin-system`, `test:project-graph`, `test:settings-persistence`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle` |
-| 远端 API/模型/登录 | `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | preload/core bridge、ai-native | `test:new-api-transport`, `test:lifecycle`, `aidebug:gui` |
+| 插件/电商/Project Graph | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态与快捷键覆盖清洗镜像、设置持久化、权限、动态 chunk、preload/IPC、主 Renderer handler；长 Prompt 归 Main；禁止脚本注入、扩展执行和直接 session 写入 | `test:plugin-system`, `test:project-graph`, `test:settings-persistence`, `test:workspace-glass-ui`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle`, `aidebug:commerce-set` |
+| 远端 API/模型/登录 | `runtime/access-variant.cjs`, `src/access-policy.ts`, `desktop/ipc/server-ipc.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | 构建策略清单、preload/core bridge、ai-native；SparkAPI 专用版不得接受自定义 Base URL/API Key 或 Relay 覆盖 | `test:access-variant`, `test:new-api-transport`, `test:lifecycle`, `aidebug:auth-gate` |
 | 项目保存/session | `main.tsx`, `desktop/ipc/config-ipc.cjs`, `desktop/project-save-coordinator.cjs`, `desktop/project-session-merge.cjs` | session v5、manifest、revision、writer baseline/sequence/checkpoint、字段事件、delete/restore barrier、节点 ID 重映射、迁移、原子写入 | `test:node-mutation-journal`, `test:project-save-coordinator`, `test:project-session-merge`, `test:project-session-dual-renderer`, `test:project-io` |
 | 图片导入/缩略图 | import/cache modules | 资产身份、路径限制、容器 | `test:image-import`, `test:thumbnail-cache`, AIDebug import |
 | 抠图/alpha/分层 | `layer-alpha-normalization.ts`, `core.ts`, matting/background/layer modules | 尺寸、透明度、mask replay、PSD | alpha、mask、matting、chroma-key、PSD tests |
-| 更新/安装器 | main/update/release scripts/build/tools | ai-native manifest、签名密钥、回滚 | update tests、installer smoke、update E2E |
+| 更新/安装器 | main/update/release scripts/build/tools | ai-native manifest、签名密钥、回滚；公开 Setup 名称由接入策略统一生成，内部 `naimage.exe` / App ID / 数据目录保持升级兼容；安装/卸载器灰白透明玻璃视觉与品牌文案；真实安装成功后完成反馈自动关闭，错误/取消与截图模式保持独立 | access-variant、update、release-orchestrator、installer UI smoke（含 completion auto-close probe）、installer smoke、update E2E |
 | Bundle 分层策略或异步边界 | `scripts/production-bundle-policy.cjs`, `scripts/production-bundle-selftest.cjs`, Vite imports/chunks | initial/plugin/CSS hard gate、core async/core/dist advisory、AIDebug marker 与插件初始图结构门禁；优先复用和自然异步，不为数字引入高风险重构或复杂拆分 | `test:bundle-policy`；只有直接影响 Bundle/chunk 边界或正式发布时再运行 `build` + `test:bundle` |
 | 模块移动/拆分 | 原模块与新模块 | public re-export、打包 files、worker/ASAR 路径、本文 | `typecheck`, `build`, `test:bundle` + 对应专项 |
 
@@ -710,27 +848,32 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 
 | 数据 | 开发态 | 打包态 |
 | --- | --- | --- |
-| config 根 | 仓库 `config/` | Electron `userData/data/` |
+| config 根 | 普通源码开发且未显式覆盖 `user-data` 时为仓库 `config/`；只要传入 `--user-data-dir`，默认即为 `<user-data>/data` | Electron `userData/data/` |
 | Agent workspace | 仓库根目录 | Electron `userData/workspace/` |
 | Electron diagnostics | `.diagnostics/electron/` | Electron logs 下的 `runtime/` |
 
-可用 `NAIMAGE_CONFIG_DIR`、`NAIMAGE_DEBUG_DIR` 等诊断变量覆盖隔离测试目录；不得把真实用户数据写入随机源码目录。
+可用 `NAIMAGE_CONFIG_DIR`、`NAIMAGE_DEBUG_DIR` 等诊断变量覆盖隔离测试目录；不得把真实用户数据写入随机源码目录。AIDebug 必须同时提供显式临时 `--user-data-dir`，并让 config 位于 `NAIMAGE_AIDEBUG_ISOLATION_ROOT`（CLI 默认为本次诊断目录）内部；若 config 指向仓库 `config/`、真实 AppData userData，或逃逸隔离根，Main/CLI 必须 fail closed，不能启动可写调试控制面。
 
 ### 9.2 应用与项目文件
 
 | 路径/文件 | 内容 | 所有者 |
 | --- | --- | --- |
-| `app-settings.json` | App 设置、Glass theme/material/parameters、账号 session、所选账户密钥的 ID/名称/分组元数据、自定义 API Key、可选应用级代理 URL、随机安装 ID 与授权令牌 | Electron Main；账户完整 Key 不得写入该文件、日志、模型缓存或项目文件 |
+| `app-settings.json` + `app-settings.secrets.json` | 普通文件保存 App 设置、Glass、账号 session、所选账户密钥的 ID/名称/分组和代理等；safeStorage sidecar 加密保存自定义 Agent/图片/逐模型 API Key | Electron Main；普通 JSON、日志、模型缓存和项目文件不得含完整 Key，Renderer 只接收占位符 |
 | `requirement-library.json` | 跨项目共享的安装级个人 Requirement 模板，最多 200 项，包含标题、正文、模板 revision、时间戳与可选 `CanvasSkill` 元数据 | Electron Main；独立于 AppSettings 和项目 session，不保存 bindings、节点 ID、坐标、运行记录或绝对路径 |
+| `commerce-template-library.json` | 安装级个人套图模板、library/item revision 与便携计划；同名新建显式选择覆盖个人模板或另存副本，导入固定另存副本 | Electron Main；内置模板只读，不保存 SOURCE 专属翻译单元、canvas saveTarget 或绝对路径 |
 | Renderer LocalStorage `naimage.glassTheme.bootstrap.v1` | React/bridge 可用前使用的 `naimage-glass-theme-bootstrap` v1 安全外观快照；变量必须由 appearance 字段重建 | `GlassThemeProvider` 写、`public/glass-theme-bootstrap.js` 读；不是设置 authority，不得含凭据、Prompt 或项目数据 |
 | Renderer LocalStorage `naimage.workspaceViewMode.v1` | `workbench` / `focus` / `review` 便利视图偏好 | Renderer UI；不进入项目 session，不改变画布或 Agent TaskScope |
+| Renderer LocalStorage `naimage.commerceTutorial.v1:<projectId>` | 跨境套图 AI 陪练的当前阶段、初始图片数和成果基线 | Renderer 便利进度；按项目隔离，不是 session authority，不保存 Prompt/凭据或触发执行 |
 | `session.json` | 全局/兼容 session | Electron Main |
 | `model-cache.json` | 60 秒模型运行缓存的磁盘回退；设置页 `cacheOnly` 可读取过期快照 | Electron Main；不得含 token/cookie/key |
 | `account-token-cache.json` | 最多 8 个账户的密钥公开元数据、选择状态与更新时间快照 | Electron Main；按账户地址 + user ID 隔离，不得含完整/掩码 Key、Cookie、IP 白名单或模型限制 |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
-| `projects/<id>/session.json` 或用户选择项目的 session | 画布、会话、容器、需求与资产引用 | Renderer 产生、Main 清洗并原子写入 |
+| `projects/<id>/session.json` 或用户选择项目的 session | `workspaceDomain`、画布、会话、容器、需求与资产引用；旧项目缺失领域时归一为 `general` | Renderer 产生、Main 清洗并原子写入 |
 | `<project>/.naimage/project.json` | `naimage-project` manifest v2、revision 和统计 | Electron Main |
-| `<project>/output/` | 生成或衍生图片 | Main/Agent 图片链路 |
+| `<project>/.naimage/commerce-catalog.json` | 独立目录 revision、商品/变体/SKU 与母图、品牌素材、生成结果关联 | Electron Main；项目路径是持久化范围，Renderer 只提交 `nodeId + assetIndex` |
+| `<project>/.naimage/video-task-journal.json` | 视频任务 ID、状态、兼容端点族、请求参数、相对输出路径与凭证单向指纹 | Electron Main；不得保存 Key、绝对路径、`naimage-asset:` 或向 Renderer 公开的签名结果 URL |
+| `<project>/.naimage/scientific/` | `data-registry.json`、内容寻址受管数据、`task-journal.json`、任务工作目录和有界日志 | Electron Main 科研 Runner；Renderer/CLI 只使用脱敏 ID/metadata，不接收绝对路径 |
+| `<project>/output/` | 生成/衍生图片，以及 `video/imports` 本地受管导入、`video/generated` 上游视频结果和 `scientific/<workflow>/<task>` 科研图/脚本/计划/QA 成果 | Main/Agent 图片链路、视频任务服务与科研 Runner |
 | `references/` | 兼容/受管参考资产 | Electron Main |
 | `updates/` | 更新状态、下载和健康标记 | Electron updater |
 | `start.naimage` / `*.naimage` | `naimage-project-package` 可移植项目数据 | 项目 IO |
@@ -774,6 +917,10 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 领域 | 命令 |
 | --- | --- |
+| 四工作台领域注册表、旧 Session、新项目、插件投影、Agent/CLI 镜像 | `corepack pnpm run test:workspace-domain`, `corepack pnpm run test:plugin-system`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:automation-service`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:workspace-domain` |
+| 社媒计划/Requirement/provenance、发布包、视频身份和共享命令 | `corepack pnpm run test:social-content`, `corepack pnpm run test:social-export`, `corepack pnpm run test:video-node`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:social-content` |
+| 科研计划/Requirement、受管数据、Python/R Runner、Panel/导出与 7 个共享命令 | `corepack pnpm run test:scientific-runner`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:workspace-glass-ui`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:scientific-figure`，该 GUI 场景不执行 Runner |
+| 跨境套图 AI 陪练的状态推进、导入/工具/Agent 引导、费用边界、项目进度与成功奖励 | `corepack pnpm run typecheck`, `corepack pnpm run test:workspace-glass-ui`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:commerce-tutorial`，不发送 Agent 或真实图片请求 |
 | Agent Prompt/FastMemory/tool contract | `corepack pnpm run test:agent-text` |
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
@@ -781,33 +928,42 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | New API 账户密钥列表/选择/CRUD、原生 Key 响应兼容与账号 `/v1` 直连 | `corepack pnpm run test:account-token` |
 | 设置页账户/模型离线快照与显式刷新 | `corepack pnpm run test:settings-lazy-load` |
 | 本机 loopback 自动化鉴权与正式 CLI | `corepack pnpm run test:automation-service` |
+| MCP 同注册表包装、stdio JSON-RPC、loopback 转发和 Token 不回显 | `corepack pnpm run test:mcp-wrapper` |
+| 开发调试 service command、schema 参数、日志/状态脱敏、固定截图目录、生产拒绝和无 Renderer 分流 | `corepack pnpm run test:automation-debug` |
 | 个人需求模板库的 JSON/CAS、IPC/preload 与 CLI list/save/delete/use | `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration` |
 | Goal 冻结范围、runtime 展开与跨 Renderer 高并发保护 | `corepack pnpm run test:goal-task-scope`, `corepack pnpm run test:goal-runtime`, `corepack pnpm run test:goal-probe-admission`, `corepack pnpm run test:image-batch-scheduler`, `corepack pnpm run test:goal-probe-dual-renderer`；GUI 为 `corepack pnpm run aidebug:goal`，验证可见模式、真实计数、确认警告、hash drift 零派发及无重叠/裁切 |
 | SKILL.md 解析、限制、CanvasSkill 持久化往返 | `corepack pnpm run test:skill-import` |
 | Skill-backed requirement 节点、重复导入、异常 frontmatter、主/独立 TaskScope 控件 | `corepack pnpm run aidebug:skills` |
 | Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除 | `corepack pnpm run test:agent-integration` + Skill `quick_validate.py` |
 | 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |
+| 双发行接入策略、SparkAPI 专用 Main 门禁、公开安装包命名与构建清单 | `corepack pnpm run test:access-variant`、`corepack pnpm run test:update`、`corepack pnpm run test:release-orchestrator`；Renderer 类型为 `corepack pnpm run typecheck`，需要产物时分别运行 `build:unrestricted` / `build:sparkapi`，双 EXE 使用 `package:win:variants` |
 | 设备激活、缓存与离线宽限 | `corepack pnpm run test:license` |
 | `view_image` | `corepack pnpm run test:view-image` |
 | 项目 IO | `corepack pnpm run test:project-io` |
+| 视频文件头/受管复制、独立 create/poll/download、相对 journal、幂等失败、创建不明、重启恢复、下载回退、公开 DTO 与项目包边界 | `corepack pnpm run test:video-node`；模型/设置/CLI/IPC 镜像再运行 `test:model-catalog`, `test:settings-persistence`, `test:settings-lazy-load`, `test:automation-service`, `test:ipc-registration`；真实 Seedance 只在用户明确允许后单独执行一条最小任务 |
 | 保存 revision/队列/节点 journal/多窗口合并 | `corepack pnpm run test:node-mutation-journal`, `corepack pnpm run test:project-save-coordinator`, `corepack pnpm run test:project-session-merge`, `corepack pnpm run test:project-session-dual-renderer` |
 | Agent 暂停/结束/运行中修改 | `corepack pnpm run test:agent-run-control`, `corepack pnpm run test:agent-steer`；主/独立窗为 `test:agent-window`（44+68 cases），真实失败保留/重试为 `aidebug:stop-pending` |
 | 模型目录/缓存纯逻辑 | `corepack pnpm run test:model-catalog` |
 | 设置迁移与 localStorage 回退 | `corepack pnpm run test:settings-persistence` |
 | Glass registry、首帧 bootstrap/首个 React seed、根投影、浅色 muted 对比、Electron 归一化与原生窗口底色 | `corepack pnpm run test:glass-theme`；设置保存回调与独立窗口底色同时运行 `corepack pnpm run test:ipc-registration`、`corepack pnpm run test:agent-window` |
-| Workspace 正式左素材栏、项目搜索、Workbench/Focus/Review、Glass CSS/artwork 保护 | `corepack pnpm run test:workspace-glass-ui`（50 cases，覆盖 Ctrl/Cmd K、排序/真实选择、四入口跨节点 explicit replace、非图片目标回 Workbench、Focus 只开编辑器不扣费、Review canonical 当前方向及真实入口接线）；设置/Glass Lab 自然异步为 `corepack pnpm run test:settings-lazy-load`；AIDebug 注册静态合同为 `corepack pnpm run test:aidebug-glass-workspace` 与 `corepack pnpm run test:aidebug-catalog`；真实 Electron 专项为 `corepack pnpm run aidebug:glass-workspace`，当前证据覆盖 25 checks / 30 screenshots、九类控制、canvas/node DOM identity + geometry、884 x 640 Shell/设置/菜单、真实关闭冷重启、0 应用级 console error 和 0 生图网络请求 |
+| 自定义 Glass 背景的 WebP 转码、内容寻址、受限加载与保留式 GC | `corepack pnpm run test:glass-background`, `corepack pnpm run test:settings-persistence`, `corepack pnpm run test:ipc-registration` |
+| Workspace 正式左素材栏、项目搜索、Workbench/Focus/Review、Glass CSS/artwork 保护、最终图查看器、普通节点合成层拖动与关键字号 | `corepack pnpm run test:workspace-glass-ui`（142 cases，覆盖 Workspace 真实接线、菜单近实色可读性、自定义背景加载防竞态、最低表面实色、背景柔化隔离、artwork 无滤镜、图片多选 Focus 投影与缩略图去重、最终资产过滤/单行缩略条、拖动 transform 合同、布局动画 transform 隔离、reduced-motion 首帧和关键字体 token）；设置/Glass Lab 自然异步为 `corepack pnpm run test:settings-lazy-load`；AIDebug 注册静态合同为 `corepack pnpm run test:aidebug-glass-workspace` 与 `corepack pnpm run test:aidebug-catalog`；真实 Electron 专项为 `corepack pnpm run aidebug:glass-workspace`，当前权威报告 `.diagnostics/electron/glass-workspace-2026-08-05T05-45-00-365Z/report.json` 覆盖 28 checks / 34 screenshots、七套主题与关键控制、canvas/node DOM identity + geometry、884 x 640 Shell/设置/菜单、最终查看器、容器 transform-only 拖动、关键字号、真实关闭冷重启、0 应用级 console error 和 0 生图网络请求 |
 | 粘贴块 | `corepack pnpm run test:paste-blocks` |
 | Agent 文本 UI | `corepack pnpm run test:agent-text-ui` |
 | AIDebug CLI/options 纯解析 | `corepack pnpm run test:aidebug-options` |
+| AIDebug 项目隔离、Main 危险目录拒绝、preload/Renderer 运行时双门禁与真实自动保存落点 | `corepack pnpm run test:aidebug-isolation`；真实 Vite + Electron + CDP 专项为 `corepack pnpm run aidebug:isolation`，两者都必须证明仓库 `config/` 未变化 |
 | 布局/容器 | `corepack pnpm run test:image-layout`, `corepack pnpm run test:image-container` |
+| 画布流式中间图 | `corepack pnpm run test:image-stream-preview`（23 cases，包含同槽替换、最终图下一动画帧清理、Agent/独立窗/项目不持久化合同）；无付费真实 DOM 替换验证使用 `$env:NAIMAGE_AIDEBUG_IMAGE_PARTIALS='3'; node scripts/aidebug-gui.mjs --image-only --mock-agent --image-runs=1`，当前权威报告为 `.diagnostics/electron/aidebug-2026-08-05T05-51-40-277Z/agent-image-suite.json` |
 | 需求/TaskScope/gate | `test:requirement-signature`, `test:requirement-graph`, `test:task-scope`, `test:execution-gate`；GUI 专项为 `aidebug:requirements`，完整 Layer Stack 仅按需运行 `aidebug:requirements:full` |
 | UI primitives | `corepack pnpm run test:ui-foundation` |
-| Agent 面板布局/拖动/提示词复制区/独立窗口 | `corepack pnpm run test:agent-panel-layout`, `corepack pnpm run test:agent-panel-ui`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:agent-window-ui` |
+| Agent 面板布局/拖动/提示词复制区/紧凑模型与素材工具栏/比例和清晰度玻璃 listbox/普通与 Goal 扇形菜单/引用图/独立窗口 | `corepack pnpm run test:agent-panel-layout`, `corepack pnpm run test:agent-panel-ui`, `corepack pnpm run test:agent-text-ui`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:agent-window-ui` |
 | alpha/mask/matting | `test:chroma-key`, `test:layer-alpha`, `test:layer-mask-replay`, `test:semantic-matting` |
 | 选择/画布/资产与 Graph CLI | `test:selection`, `test:canvas-commands`, `test:asset-identity`, `test:requirement-graph`, `test:aidebug-graph-cli-harness`；真实 CLI 闭环为 `aidebug:graph-cli` |
 | 工具时间线 | `corepack pnpm run test:timeline` |
 | PSD/缩略图/导入/单图本地导出 | `test:psd-export`, `test:thumbnail-cache`, `test:image-import`, `test:image-format`, `test:image-export` |
-| IPC 注册顺序/preload 对称性 | `corepack pnpm run test:ipc-registration`；当前合同为 99 invoke handlers / 96 preload invokes / 3 internal Agent invokes / 5 receives / 2 sends |
+| IPC 注册顺序/preload 对称性 | `corepack pnpm run test:ipc-registration`；当前合同为 135 invoke handlers / 132 preload invokes / 3 internal Agent invokes / 9 receives / 2 sends |
+| 平台导出规则、目录包与真实 UI | `corepack pnpm run test:commerce-export`, `corepack pnpm run test:commerce-catalog-ui`, `corepack pnpm run test:commerce-export-ui` |
+| 跨境套图/多语言矩阵与直接派发 | `corepack pnpm run test:commerce-set`, `corepack pnpm run test:goal-runtime`, `corepack pnpm run test:commerce-catalog`, `corepack pnpm run test:commerce-catalog-ui`, `corepack pnpm run aidebug:commerce-set` |
 | Project Graph `.prg`/JSON 适配与安全边界 | `corepack pnpm run test:project-graph` |
 | 自定义主题 schema/导入导出 | `corepack pnpm run test:theme-preset` |
 | Electron 生命周期 | `corepack pnpm run test:lifecycle` |
@@ -819,9 +975,9 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 完整 UI surface 基线 | `corepack pnpm run aidebug:gui:surface` |
 | 正式发布 | `corepack pnpm run release:final` |
 
-测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI；正式制品仍必须通过 `test:bundle`、独立的 `aidebug:performance:product` 产品性能硬门禁和发布编排器的完整要求。
+测试存在不代表所有改动都要执行全量套件。日常开发优先跑纯逻辑 selftest 和一个受影响领域专项；一般 Renderer/UI 改动在一批功能完成后只跑一次快速 `aidebug:gui`，跨页面或全局 surface 改动才跑 `aidebug:gui:surface`。Electron、项目或 Agent 非可视改动无需机械追加 GUI。双版本测试开发包通过 `scripts/release/build-access-variants.mjs --package` 构建时默认不执行 Bundle 门禁，只有显式传入 `--enforce-bundle` 才追加；正式制品仍必须通过 `test:bundle`、独立的 `aidebug:performance:product` 产品性能硬门禁和发布编排器的完整要求。
 
-当前 Renderer Bundle 采用 hard/advisory 分层策略。硬门禁为：initial JS 目标 685,000 B，并额外允许 1,024 B 测量容差；685,001–686,024 B 记录 advisory，超过 686,024 B 才失败；plugin JS 120,000 B 与 CSS 270,000 B 无额外容差并直接失败。core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 是 advisory 趋势目标，不单独导致 `test:bundle` 失败。AIDebug marker 泄漏、首屏入口无法识别、插件 chunk 缺失或插件进入初始依赖图仍是结构性硬失败；插件 JS 不计入 core JS/core async，但继续受 plugin hard gate。真实启动、堆内存、缩放、平移、拖动和 long task 由 `aidebug:performance:product` 独立硬门禁验证，任何 Bundle advisory 结果都不能替代产品性能证据。
+当前 Renderer Bundle 采用 hard/advisory 分层策略。硬门禁为：initial JS 目标 685,000 B，并额外允许 1,024 B 测量容差；685,001–686,024 B 记录 advisory，超过 686,024 B 才失败；plugin JS 120,000 B 与 CSS 270,000 B 无额外容差并直接失败。core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 是 advisory 趋势目标，不单独导致 `test:bundle` 失败。AIDebug marker 泄漏、首屏入口无法识别、插件 chunk 缺失或插件进入初始依赖图仍是结构性硬失败；插件 JS 不计入 core JS/core async，但继续受 plugin hard gate。真实启动、堆内存、缩放、平移、拖动和 long task 由 `aidebug:performance:product` 独立硬门禁验证；采集 CPU profile 时只排除不随产品加载的 source map，完整运行资源总量仍仅作趋势预警，任何 Bundle advisory 结果都不能替代产品性能证据。
 
 这组当前基线承认 Glass token/surface CSS 和自然异步 Workspace/Glass Lab 的真实产品成本：保留首屏、插件与 CSS 的硬边界，同时把 core async/core/dist 作为趋势预警。后续优先复用和迁入自然业务异步边界，但不得为了跨过 hard 或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分。
 
@@ -843,7 +999,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 ## 11. 当前高风险热点
 
-- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 99 个 invoke handler（96 个 preload invoke + 3 个内部 Agent invoke）、5 个进度接收和 2 个 send channel 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema、Responses/Chat parser 与图片批次调度也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
+- `src/main.tsx`、`electron-main.cjs`、`agent-runtime.cjs` 和 `src/core.ts` 仍较大，但已分别建立 renderer surface、desktop domain、runtime domain 与纯数据模块边界；Main 的 135 个 invoke handler（132 个 preload invoke + 3 个内部 Agent invoke）、9 个进度/命令接收和 2 个 preload send channel 已由 `desktop/ipc/*` 独立拥有，`agent-runtime.cjs` 的 memory store、tool schema、Responses/Chat parser 与图片批次调度也已有独立 owner，后续继续沿现有边界拆，不要重新内联。
 - 同项目并行采用多个 Renderer 窗口隔离运行状态；Main 以 `projectId + conversationId + Renderer owner` 管理暂停、恢复、结束、steer 和节点锁。Renderer 消失会停止其全部 run 并立即拒绝对应 automation pending；最后一个 run 回收 scope，应用退出在拆 transport 前执行 `stopAll`。不同 owner 即使共享项目/会话也不共享暂停状态，重叠节点仍互斥。项目 session 仍是整份 JSON，但 v5 journal 已提供顶层字段 clock、writer checkpoint、30 天保留策略及 delete/restore compact barrier，并由真实双 Renderer 专项覆盖关键竞态。它仍不是递归字段或远程多人 CRDT；同字段按 Main 提交顺序决胜，保护范围只覆盖同一 Electron Main 进程。
 - steer 已支持显式 TaskScope update：SOURCE 与 REFERENCE 都可保留/替换/追加/清空；主窗口和独立窗口提供可见模式且每次使用后回到自动，CLI 既支持 `taskScopeMode` 简写也支持独立 `sourceMode`/`referenceMode`。替换 SOURCE 会同步重算节点锁；上游 transport 若未及时响应 `AbortSignal`，已经接受的模型或图片请求仍可能计费。
 - Goal 已使用 Main 进程唯一 admission controller：Renderer 间 probe 串行，等待 probe 优先于新 ramp，已通过 Goal 在 wave 边界公平共享冻结容量；限流/5xx/网络 retry 打开全局 ramp hold，保护性失败打开跨 Goal circuit，同项目重复确认被拒绝。reservation 同时等待 scheduler 最终验证与真实 provider Promise；Renderer 退出或 Abort 不会提前释放仍在途的计费槽位。该机制仍只能阻止未来派发，无法取消上游已接受请求或追回费用，真实视觉质量也不能成为确定性自动 gate。Goal v1 仍限制为 edit/replace/variants、每 binding 1 输出和文字 steer；layers、cutout、redraw、额外 REFERENCE 与运行中换范围仍是后续协议工作。逻辑、真实双 Renderer 与可见 AIDEBUG Goal 专项提供分层证据；完整 SUPER GOAL closure 已覆盖对应 owner lane。
@@ -852,7 +1008,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 - `public/glass-theme-bootstrap.js` 必须在 Vite/React 前独立运行，因此启动期 registry/projection 与 canonical `runtime/glass-theme-presets.json` 存在技术栈镜像；修改主题、材质、范围、强调色或变量时必须同步并运行 `test:glass-theme`。不要把 snapshot 的任意 `variables` 恢复为可信输入。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
 - `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
-- New API 登录 session 只负责账户、余额、密钥 CRUD、授权和更新管理；账号模式的 Agent、生图与 `/v1/models` 使用所选账户密钥，分组由 token 自身决定，模型 JSON/FormData 不得注入 `group`。`/api/user/self/groups` 只用于密钥编辑候选与模型目录查询。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
+- New API 登录 session 只负责账户、余额、密钥 CRUD、授权和更新管理；账号模式的 Agent、生图与 `/v1/models` 使用所选账户密钥，分组由 token 自身决定，模型 JSON/FormData 不得注入 `group`。模型目录同时保存无凭证的 `supported_endpoint_types` 快照并对错误能力标注保留模型名回退。`/api/user/self/groups` 只用于密钥编辑候选与模型目录查询。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
 - Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
@@ -862,6 +1018,37 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-08-06 | 1.0.9-dev | 上下文地图 v31 完成测试项目隔离：显式 `--user-data-dir` 在开发态默认将 config 放到 `<user-data>/data`；AIDebug 要求 config 位于显式隔离根内，并对仓库 `config/`、真实 AppData 或根外目录 fail closed。Main 仅在校验通过后通过 `additionalArguments` 向 preload 投影只读 `naimageRuntime.aidebugEnabled/isolatedConfig`，Renderer 必须同时满足编译期与运行时双门禁才安装可写 AIDebug 控制面。`test:aidebug-options`、`test:aidebug-isolation`、`typecheck`、真实 `aidebug:isolation` 与 production `build` 通过；Main 报告 `.diagnostics/electron/aidebug-isolation-2026-08-06T10-13-44-879Z/report.json` 和 GUI 报告 `.diagnostics/electron/aidebug-isolation-gui-2026-08-06T10-24-52-327Z/report.json` 均证明仓库 config 未变化，后者完成真实容器创建、移动、自动保存和截图。以 `bundleEnforced: false` 重新生成 `SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`（175,926,272 B，SHA-256 `9DCE84E46286910653201C7CF320D8C77D47578C097891962A770F466FBBE142`）和 `SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`（175,926,272 B，SHA-256 `19603331D15F92A59BBF4121A80DD36F39FB7C771BFB3FDB737AE1CB507CBF3F`）；当前版本旧公开命名不存在。未自动删除无法可靠归因的现有画布图片，未调用真实模型，也未执行正式 Bundle/发布验收、数字签名验证或真实安装/卸载 smoke。 |
+| 2026-08-06 | 1.0.9-dev | 上下文地图 v30 优化密集画布缩放：wheel 输入通过 `requestAnimationFrame` 合并为每帧最多一次 stage transform，提交前刷新待处理帧；图片 tile 达到 10 个时，缩放/平移期间暂时停绘图片、视频、关系线和高成本阴影，结束后恢复；低于 0.3 缩放时可用保留选择/拖动能力的轻量节点轮廓。AIDebug `.diagnostics/electron/aidebug-2026-08-06T09-33-39-213Z/report.json` 为 `ok: true` / `failures: []`，`denseViewportZoom` 记录 80 次 wheel、10 次 stage 写入、帧 P95 5.7 ms、交互阶段 0 Long Task；三轮 production-like `.diagnostics/electron/product-performance-2026-08-06T09-34-48-686Z/report.json` 为 `productPerformanceReady: true`、zoom frame P95 33.1 ms、交互 Long Task 最大值 0，全部 checks 通过。production build 与 `package:win:variants` 成功；新制品为 `SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`（175,925,760 B，SHA-256 `5BF115661A57B59BF12D296E49D65611BED7CDFF58C4E24065D3A64CB8A4CCA3`）和 `SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`（175,926,272 B，SHA-256 `0B0AD87F924EEA5F1241A3A056E6E0F848D4873D9D7532E53DEC04FFD3EDD5D3`）；当前版本旧公开命名不存在。安装器 UI smoke `.diagnostics/release/branded-installer-ui-2026-08-06T09-49-00-249Z/report.json` 为 `ok: true` / 19 captures，完成页出现后约 241.3 ms 自动关闭。未调用真实模型、未执行正式 Bundle/发布验收、数字签名验证或真实安装/卸载 smoke。 |
+| 2026-08-06 | 1.0.9-dev | 上下文地图 v29 修复密集画布中图片容器松手后短暂无响应：根因是容器移动后露出下层可拖图片块，Chromium 发起原生 `dragstart` 并以 `pointercancel` 中断当前节点拖动。`beginInternalAssetDrag` 在 `dragRef` 已持有节点拖动时取消该原生资产拖动，同时保留无节点拖动时的正常图片提取/归组。AIDebug CLI 自检确认 7 个受限 `debug.*` 命令、脱敏和生产拒绝合同；生产安全 `canvas.state` 从当前项目读取到 17 节点、16 图片节点及 6/11 图容器。真实 `aidebug:image-collection` 报告 `.diagnostics/electron/aidebug-2026-08-06T08-19-03-782Z/canvas-image-collection-suite.json` 中完整 layout mutation 与新增 `immediateContainerRedrag` 均通过：第二次按下/移动立即进入并保持拖动、合并位移提交、原生 drag 无接管、0 `pointercancel`、0 阻塞动画；完整集合套件仍只被既有 `canvas-mixed-prompts-batch` 与 `collection-member-editor-preserves-asset-index` 两项无关失败阻断。`typecheck`、Workspace Glass 142 cases、图片容器 12 cases、图片布局 14 cases 与 production `vite build` 通过。以 `bundleEnforced: false` 重新生成 `SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`（175,925,760 B，SHA-256 `DC7FBD25661CA22E98022A7306FE238BCBD1CCF8809164E6453E2438BE4FDC71`）和 `SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`（175,925,760 B，SHA-256 `2E8A5F260F86966F734F24EBC015F39EC8A2D6F77F9DA68ACB6E2F0BD2A89BCB`）；安装器 UI smoke `.diagnostics/release/branded-installer-ui-2026-08-06T08-27-07-298Z/report.json` 为 19 captures / 0 failures，完成页出现后约 249 ms 自动关闭。未调用真实模型、未执行正式 Bundle/发布验收、数字签名验证或真实安装/卸载 smoke。 |
+| 2026-08-06 | 1.0.9-dev | 上下文地图 v28 清理 Windows 发行旧命名链路：`runtime/access-variant.cjs` 统一拥有 Unrestricted、SparkAPI、内部 Core 与历史清理文件名；双版本脚本不再重命名或自行拼接旧 Setup，品牌壳编译输出改为 `SparkAI WorkSpace Installer/Uninstaller`。`ai-native` 下载清单与生产校验器从 1.0.9 起只接受 `SparkAI-WorkSpace-Unrestricted-Setup-*`，同时保留 1.0.8 及以前已签名 `naimage-Setup-*` 历史兼容；manifest schema、`naimage-studio` product、Restart ASAR 和下载端点不变。Node 语法、`test:access-variant`、`test:update`、`test:release-orchestrator`、New API controller/model Desktop Go 测试、Shell 语法与差异检查通过。以 `bundleEnforced: false` 重新生成两套 1.0.9 测试 EXE：Unrestricted 175,925,760 B / SHA-256 `A1FC5C406578E4E3382E1167DAFD692248DB56D8458316495EEF1E0014C774F0`，SparkAPI 175,925,760 B / SHA-256 `752FB26D8C7BF66AB4B9010F2BDA3AC4F29616F99C39615117126C2A9F131621`；错误的当前版本 `release/naimage-Setup-1.0.9-x64.exe` 与公开 Core/blockmap 已删除。安装器 UI smoke 报告 `.diagnostics/release/branded-installer-ui-2026-08-06T02-45-56-426Z/report.json` 为 19 captures / 0 failures，完成页显示后约 443.1 ms 自动关闭。未执行正式 Bundle/发布验收、Windows 数字签名或真实安装/卸载。 |
+| 2026-08-05 | 1.0.9-dev | 上下文地图 v27 修复图片容器拖动松手时的视觉跳动：普通节点在拖动开始即稳定选中外观，不再到 `pointerup` 才切换边框与阴影；手动移动、重排或取出容器图片的 `commitImageLayout` 提交明确关闭 `active-build` 反馈，图片容器与图片组移除会在布局主体切换时重播的 `image-layout-settle` 透明度/滤镜动画。Glass 静态专项 142 cases、`typecheck` 与生产 `vite build` 通过；真实 Glass GUI 报告 `.diagnostics/electron/glass-workspace-2026-08-05T09-04-46-134Z/report.json` 为 29 checks / 35 screenshots / 0 应用级 console error / 0 failures，在动画开启且容器未预选的条件下测得按下与松手位移均为 0、松手前即完成选中、前后 opacity=1/filter=none/animation=none 且运行中动画为 0。图片容器布局拖放回归中的 `zOrderHostTransfer` 与新增 `directManipulationSettled` 通过；完整 `aidebug:image-collection` 仍被既有的 mixed-prompts/member-editor 映射失败及其后续提取步骤阻断。随后重新生成 `dual-access` Windows x64 本地测试安装包 `release/naimage-Setup-1.0.9-x64.exe`（175,925,760 B / 167.78 MiB，SHA-256 `91D72860279321ADD74526383EC1BB78BE846C4C9915C2918E2CD803C10DB032`），安装器资源、Electron/NSIS、品牌卸载器与品牌安装器编译均成功；该包未做数字签名、正式 Bundle/发布验收或真实安装 smoke。该错误公开命名制品已在 v28 中废止并删除，本行只保留历史审计。未调用真实模型或运行全量测试。 |
+| 2026-08-05 | 1.0.9-dev | 上下文地图 v26 调整品牌安装器完成态：真实交互安装仅在内核成功、文件校验完成且可选应用启动已交接后显示完成反馈，并在约 800 ms 后自动关闭引导窗口；错误页保留重试/日志，取消路径保持回滚语义，`--capture-page=complete` 继续稳定取证。新增 `--completion-auto-close-probe` 并接入 `package:installer-ui-smoke`；安装器 C# Release 编译为 0 warning / 0 error，UI smoke 报告 `.diagnostics/release/branded-installer-ui-2026-08-05T08-31-34-961Z/report.json` 为 19 captures / 0 failures，精确探针记录完成态出现、窗口关闭且完成态后耗时约 400.2 ms；生产 `vite build` 通过。未执行真实安装/卸载、NSIS 打包、全量测试或模型请求。 |
+| 2026-08-05 | 1.0.9-dev | 上下文地图 v25 修复画布关系线与拖动连续性：`workflowNodeRenderMetrics()` 统一拥有节点 JSX 与关系线端点使用的实际渲染尺寸，包含无持久化宽高的多图容器自适应尺寸；正式边和连线草稿因此锚定可见节点左右边框中点，端口 lane 只作用于曲线控制点。hover/selected 及后置 repair 样式不再拥有或过渡节点 transform，普通节点按下、拖动、松手保持同一坐标基线。`typecheck`、Glass AIDebug 静态专项、Workspace Glass UI 142 cases 与生产 `vite build` 通过；真实 `aidebug:glass-workspace` 报告 `.diagnostics/electron/glass-workspace-2026-08-05T07-45-13-883Z/report.json` 为 29 checks / 35 screenshots / 0 应用级 console error / 0 failures，标准拖动 pointerdown/release shift 均为 0；新增两个未保存宽高、实际自适应宽度约 361 px 的四图容器场景，路径起点到源节点右边框误差约 0.00029 px、终点到目标节点左边框误差约 0.00030 px。分层 Bundle 检查无 AIDebug 泄漏且 plugin JS 79,780 B 在限额内，但当前工作区 initial JS 812,353 B 与 CSS 385,528 B 超过硬门禁，core async/core JS/完整 dist 也保留 advisory 超限；未调用真实模型、未运行全量测试或打包。 |
+| 2026-08-05 | 1.0.9-dev | 上下文地图 v24 完成阶段 10：partial 按 `operationId + requestIndex` 同槽替换且不持久化，最终图在下一动画帧清理临时预览；查看器只读取最终受管资产，采用上方大图与下方单行横向缩略条；普通图片/容器拖动改为 CSS 合成层位移预览，布局 settle 动画不再拥有 transform，reduced-motion 也不延迟首帧；共享关键字号与项目搜索 near-opaque 菜单同步提高可读性。`test:workspace-glass-ui`（142）、`test:image-stream-preview`（23）、`test:custom-api-transport`（18）、`test:image-batch-scheduler`、`test:goal-runtime`（43）、`test:commerce-catalog`、`typecheck` 和 Glass AIDebug 静态专项通过。真实 Glass GUI 报告 `.diagnostics/electron/glass-workspace-2026-08-05T05-45-00-365Z/report.json` 为 28 checks / 34 screenshots / 0 应用级 console error / 0 生图网络；无付费 partial 报告 `.diagnostics/electron/aidebug-2026-08-05T05-51-40-277Z/agent-image-suite.json` 观察到三个图片任务的 `1/3 → 2/3 → 3/3`、单槽替换与终态清零。随后以 `bundleEnforced: false` 成功生成无限制版与 SparkAPI 账号专用版两个 Windows x64 测试安装包；未调用真实模型、全量测试或 Bundle 门禁。 |
+| 2026-08-04 | 1.0.9-dev | Glass 真实 GUI 回归与制品冒烟：`aidebug:glass-workspace` 覆盖七套主题（含 `light-silver`）与冷重启，25 checks / 32 screenshots / 0 console errors / 0 failures，报告 `.diagnostics/electron/glass-workspace-2026-08-04T10-42-17-938Z/report.json`；隔离无网络 `package:smoke` 验证 SparkAPI unpacked 启动、桥接、项目 IO、图片保存/回读、导入、PSD 和本地处理，报告 `.diagnostics/release/packaged-smoke-2026-08-04T10-40-27-747Z/report.json`。 |
+| 2026-08-04 | 1.0.9-dev | 上下文地图 v23：普通并发生图改为在配置上限内 direct 同批派发，并在每张完成时用同一 operation 增量更新单个图片组，最终按实际完成顺序展示；Goal 每个母图聚为一个图片组，条目保留槽位/语言/SKU/幂等 provenance。内置 Glass 扩为七套，新增“雾银玻璃”，新装默认“蜜橘融光”；默认模型统一为 `gpt-5.6-terra` 与 `gpt-image-2`。Agent 逆序完成夹具、流预览、Commerce 归档、模型目录、Agent 模型菜单、主题、设置和 Glass 合同专项通过；双测试开发 EXE 已以 `bundleEnforced: false` 重新生成，当前未做 Windows 代码签名；SparkAPI unpacked 应用通过隔离无网络 `package:smoke`，报告为 `.diagnostics/release/packaged-smoke-2026-08-04T10-40-27-747Z/report.json`。未调用真实模型、全量测试或 Bundle 门禁。 |
+| 2026-08-04 | 1.0.9-dev | 上下文地图 v22：图片 partial 在画布目标容器内按 `operationId + requestIndex` 同槽实时替换，终态清理且不持久化；AIDebug 增加 1–3 张无付费分阶段 mock 与真实 DOM 指纹采样。工具设置将兼容字段解释为纯视觉隐藏，`availablePluginToolbarItems` 继续驱动快捷键与显式命令，`activePluginToolbarItems` 只驱动底部 Dock/领域菜单。`typecheck`、插件 115 cases、流预览 23 cases 通过；Commerce Electron mock 为 29 checks / 27 screenshots / 0 failures / 0 network。图片 partial 证明通过，最终双帧截图仍有既有自动聚焦几何变化；未调用真实模型、全量测试或 Bundle 门禁。 |
+| 2026-08-04 | 1.0.9-dev | 上下文地图 v21 完成阶段 9：`workspacePluginDefaultsVersion=1` 在 Renderer/Electron 两侧对旧设置执行一次性迁移，默认安装并启用电商、社媒、科研三个第一方组件，同时保留迁移前明确停用和迁移后卸载为空的用户选择；`884 x 640` 顶部入口继续显示当前工作台文字。`typecheck`、设置（118）、插件（115）、领域（47）与接入策略专项通过；真实 `aidebug:workspace-domain` 报告为 `.diagnostics/electron/glass-workspace-2026-08-04T07-36-40-071Z/report.json`，5 张截图、0 Renderer 错误、0 模型请求，电商/社媒/科研分别显示 6/5/6 项工具并保持同一画布、选择与 Agent 状态。双测试开发 EXE 已按默认跳过 Bundle 的策略重新生成；未运行全量测试或真实模型。 |
+| 2026-08-04 | 1.0.9-dev | 阶段 8 冻结后执行双发行构建：`test:access-variant` 和两种 Vite production build 通过；最新 Bundle 为 initial JS 809,555 B、CSS 375,338 B，仍超过既有硬门禁，阈值未修改。按测试开发交付范围继续生成并分别保存 `SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 与 `SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`，两者是可安装测试包而非正式 Release 候选；未运行全量测试或真实模型。 |
+| 2026-08-04 | 1.0.9-dev | 上下文地图 v20 完成阶段 8：`project-agent-composer.tsx` 将模型、素材、普通/Goal、比例和清晰度收束为紧凑玻璃工具栏，原图/参考图进入素材菜单，普通/Goal 使用单触发器双瓣扇形，比例/清晰度使用最小 160 px 的自定义玻璃 listbox；新增共享 `UnsavedChangesDialog`，让 Prompt/FastMemory、SKU、模型、参考图、Requirement、成果、科研/社媒计划和设置等有保存语义表面在首次关闭时提供继续编辑、放弃或保存并关闭。`typecheck`、设置懒加载、UI foundation、Commerce catalog UI 与 Agent panel UI 专项通过；Agent text UI 的本轮关闭路径通过，两个无关旧断言保留为非本阶段边界。未调用真实模型或运行全量测试。 |
+| 2026-08-04 | 1.0.9-dev | 上下文地图 v19 新增构建期双发行接入：`dual-access` 保留账号与自定义 API，`sparkapi-account` 固定官方 SparkAPI、Main 强制账号设置并拒绝自定义 IPC；Vite 将同源策略写入 Renderer 与产物清单，新增两个单独构建入口及双 EXE 编排入口。策略自测、135/132/3 IPC 合同、类型、两种 Vite build 和两次登录 GUI 专项通过；现有 Bundle 门禁仍因 initial JS 808,208 B 与 CSS 370,223 B 超限而失败，未修改门禁或执行 NSIS。当前实现不代表兑换码会话和服务端 Gateway 已完成。 |
+| 2026-08-03 | 1.0.9-dev | 上下文地图 v18 将全部用户可见产品名称统一为精确拼写 `SparkAI WorkSpace`，覆盖窗口、启动/认证、帮助与政策、安装/卸载 UI、Windows 产品元数据、快捷方式和随软件分发的 Agent 文案；显式固定旧 `naimage` 用户数据目录与内部 User-Agent，保留 `naimage.exe`、App ID、CLI 和协议作为升级兼容标识。安装器品牌资源、旧名称残留、JSON/Node 语法、Automation 文档一致性、`typecheck`、`test:agent-window`、`test:project-io` 和安装/卸载器 C# 编译均通过；未运行全量测试、Bundle、GUI、安装包或真实模型。 |
+| 2026-08-03 | 1.0.9-dev | 上下文地图 v17 完成 SparkAI WorkSpace 阶段 6：共享 command schema 新增 7 个 `debug.*` Main service command，`desktop/debug-command-service.cjs` 提供开发/AIDebug 有界脱敏状态/日志、固定诊断目录截图、IPC/命令检查和无 shell 测试白名单，生产默认拒绝；`naimage-mcp.mjs` 将同一 76 命令注册表包装为 MCP stdio tools 并只转发 authenticated loopback bridge，不复制业务。CLI Skill/命令参考与 package 测试入口已同步；`test:automation-debug`、`test:mcp-wrapper`、schema generation check 通过，未运行全量 Automation、IPC、GUI、Bundle、安装器或真实模型。 |
+| 2026-08-03 | 1.0.9-dev | 上下文地图 v16 登记 SparkAI WorkSpace 阶段 4–5 完成：科研工作台现已包含受管数据、结构化 Requirement、安全 Python/R Runner、Panel/组合图、投稿格式导出、7 个共享命令与 research 工具投影；帮助中心新增状态驱动的跨境套图 AI 陪练、项目级便利进度、费用授权边界、真实 Commerce 成果检测和成功奖励。IPC 合同为 135/132/3，`test:workspace-glass-ui` 为 130 cases。科研 GUI 报告为 `.diagnostics/electron/glass-workspace-2026-08-03T09-53-46-537Z/report.json`，AI 陪练 GUI 报告为 `.diagnostics/electron/glass-workspace-2026-08-03T10-13-20-954Z/report.json`；各 3 张截图、0 Renderer 错误、0 模型/Provider 请求，科研 GUI 也未执行 Runner。R Runner、真实付费生图教学完成分支与 Seedance 仍未真实验证；未运行全量测试、Bundle 门禁或发布验收。 |
+| 2026-08-03 | 1.0.9-dev | 上下文地图 v15 登记 SparkAI WorkSpace 阶段 3：`sparkai.social-content`、小红书/抖音结构化计划、Requirement/provenance 原子回写、现有视频 journal 社媒身份、原生发布包和七个 `social.*` 共享命令；同时明确图片容器、成果/Requirement/科研 Panel 使用透明玻璃外壳，实际 artwork 保持不透明无滤镜。`typecheck`、社媒计划/导出、领域、插件、视频、automation 与 128/125/3 IPC 专项通过；`aidebug:social-content` 报告为 `.diagnostics/electron/glass-workspace-2026-08-03T07-45-12-422Z/report.json`，3 张截图、0 Renderer console error、0 模型/生成请求。Seedance 未真实付费验证；未运行全量测试。 |
+| 2026-08-03 | 1.0.9-dev | 上下文地图 v14 登记 SparkAI WorkSpace 阶段 1：共享四领域注册表、顶部紧凑切换与 Ctrl/Cmd+1–4、新项目四入口、Session/Agent/独立窗持久化镜像、领域插件投影及 `workspace.domain.list/get/set`。automation schema 已重新生成并同步 CLI Skill；`typecheck`、领域/插件/独立窗/automation 专项和单一 Electron `aidebug:workspace-domain` 全部通过，GUI 报告为 `.diagnostics/electron/glass-workspace-2026-08-03T03-55-43-282Z/report.json`，0 console error、0 模型请求；未运行全量测试。 |
+| 2026-08-03 | 1.0.9 | 上下文地图 v13 补齐图片输出规格：`runtime/image-frame.cjs` 统一十种比例、1K/2K/4K、旧规格迁移、Image 2 安全交付尺寸与 request/delivery size 区分；设置、主 Agent、手动生图、自动化 schema/CLI 均复用同一合同。最新 Windows 安装包已按常规构建、资源生成和 NSIS 打包生成；未为本次文档同步追加全量测试。 |
+| 2026-08-01 | 1.0.9-dev | 上下文地图 v12 登记待验证视频生成链路：独立 adapter/service/IPC、`canvas.generate-video`、POST 零重试与 `create-unknown`、项目相对 journal、凭证指纹、重启只恢复 GET、content→安全结果 URL 下载回退和受管 `output/video/generated`；Renderer/CLI 不接收上游签名结果 URL。模型缓存按自定义 Key 单向指纹隔离；模板同名覆盖/另存策略与当前 126/123/3 IPC 合同同步。未运行测试、构建或真实 Seedance 请求。 |
+| 2026-08-01 | 1.0.9-dev | 补齐模板保存可发现性：套图模板市场提供“新建→保存到模板市场”步骤，需求/Skill 可从左侧模板页或节点右键保存。NewAPI `/v1/models` 的 `supported_endpoint_types` 已进入 Main 进程分类与磁盘缓存，同时保留 Seedance 等名称回退；新增官方源码与 qiuqiutoken 实例差异说明，未发起任何计费生成。 |
+| 2026-08-01 | 1.0.9-dev | 新增第一阶段视频成果节点：本地 MP4/WebM/MOV/M4V 经格式头和大小校验后流式复制到项目 `output/video`，画布独立播放并保存尺寸/时长，session 只保留相对路径且重启恢复 `naimage-asset:`；共享 CLI 增加 `canvas.import-video`。模型目录新增 Video 分类并以 `doubao-seedance-2-0-260128` 为默认候选，但未伪造视频生成协议；图片 Base64 项目包对视频显式拒绝。IPC 当前为 121 注册 / 118 preload / 3 internal。只运行相关专项，不做全量测试或 Bundle。 |
+| 2026-08-01 | 1.0.9-dev | 新手与上架体验、模型接入和性能收口：安装/卸载引导改灰白透明玻璃；每模型独立 Base URL/API Key、Images SSE 优先级、可清空数字输入、Focus 多选投影与缩略图保留式 GC；普通 steer 只暴露三种范围选择；设置关闭增加保存选择；新增帮助、隐私、协议、费用与关于页并标明制作者 `namean`。专项按改动范围执行，不运行全量测试或 Bundle 门禁。 |
+| 2026-07-31 | 1.0.8-dev | 完成本轮目标专项收口：模型触发器与默认按钮统一使用 `ButtonBase`，真实 Agent 面板覆盖上游模型搜索、多选恢复、默认切换及紧凑玻璃引用图，共 50 cases；`.diagnostics/electron/aidebug-2026-07-31T15-54-14-505Z/report.json` 覆盖 8 个右键菜单宽/窄场景并为 0 failures。 |
+| 2026-07-31 | 1.0.8-dev | 画布工具快捷键支持本机逐项自定义：manifest 保留默认值，`canvasToolShortcuts` 仅持久化覆盖；Renderer/Electron 镜像清洗组合和全工具冲突，设置页冲突不改原值并可单项恢复，实际分派、hover 文案与 ARIA 同步使用覆盖值。最新 `aidebug:commerce-set` 为 29 checks / 27 screenshots / 0 failures，覆盖模板市场、A/B、冲突提示、旧组合失效和新组合生效。 |
+| 2026-07-31 | 1.0.8-dev | 完成多语言翻译矩阵：图片×语言单元格、逐项 Prompt、`translationItems` 与 `planMaterialHash` 防篡改、逐项运行时派发、Catalog candidate/approved/rejected 复核和共享 CLI 契约；Commerce 点击一次直接授权派发，Requirement 重跑仍保留 Goal 确认。真实 Electron 证据覆盖标准/900×640、过期 SOURCE、正常图片容器圆角与工具启停，为 24 checks / 22 screenshots / 0 failures。 |
+| 2026-07-31 | 1.0.8-dev | 完成结构化套图模板市场与 A/B 方案比较：内置 Amazon/速卖通模板、个人模板 revision CAS、严格 portable v1 导入/导出、模板复用；同商品/SOURCE/槽位/语言/角色结果分组、并排比较与 Catalog/Product 双 CAS 原子终选，保留关系、provenance、画布节点和文件。共享 schema 已生成 Renderer registry/CLI 参考并同步 Skill；IPC 当前为 119 注册 / 116 preload / 3 internal / 7 receive / 2 send。专项为 `test:commerce-template`、`test:commerce-catalog`、`test:commerce-catalog-ui`、`test:automation-service` 与 `test:ipc-registration`。 |
+| 2026-07-31 | 1.0.8-dev | 完成平台导出中心：Amazon/速卖通规则预检、Catalog 商品/变体/SKU 结果继承、approved/candidate/rejected 状态边界、JPEG/PNG 转换、稳定 SKU 目录与相对 manifest、staging 原子发布和原生目录授权；GUI 与共享 Agent CLI 同步提供 preview/package，Renderer/CLI 均不能提交目标路径。专项为 `test:commerce-export`、`test:commerce-export-ui`、`test:commerce-catalog-ui`、`test:automation-service` 与 `test:ipc-registration`。 |
+| 2026-07-31 | 1.0.8-dev | 新增受管自定义 Glass 背景后端：本地图仅经原生选择读取，限制源大小/像素后统一压缩为最长边 3840 px WebP，以 SHA-256 内容寻址保存；preload/IPC 只公开 metadata 与按需 data URL。clear 采用 30 天恢复保留，GC 仅处理未引用、超期且哈希自校验通过的自有文件。IPC 更新为 102 invoke / 99 preload / 3 internal，专项为 `test:glass-background`、`test:settings-persistence` 与 `test:ipc-registration`。 |
 | 2026-07-30 | 1.0.7 | 上下文地图 v9 登记安装级个人需求模板库：`requirement-library.json` 独立于 AppSettings 和项目 session，Main 提供懒读取、最多 200 项、精确 revision CAS 与确认删除；GUI 与共享 automation schema/CLI 同步支持 list/save/delete/use，use 只创建普通 Requirement，不执行、不调用模型、不计费。IPC 更新为 99 invoke / 96 preload / 3 internal，专项映射为 `test:automation-service` 与 `test:ipc-registration`。 |
 | 2026-07-30 | 1.0.7 | 冻结 1.0.7 正式发布范围：Liquid Glass 与左素材栏/三视图、Goal 小批量探测和渐进并发、Agent pause/resume/stop/steer、session v5 journal/checkpoint/tombstone GC、图片多格式导出与远程资产安全、跨境套图/多语工作流、Graph CLI 和共享 automation schema。正式编排扩充为覆盖全部新增逻辑专项和真实 Electron GUI 的发布门禁，并以官方 1.0.6 运行时验证 1.0.6 → 1.0.7 Restart 更新。 |
 | 2026-07-30 | 1.0.6-dev | 上下文地图 v8 登记 Liquid Glass 与 Workspace Chrome：六主题/三材质 registry、React 前安全 bootstrap、无 wrapper 根投影、设置保存后全部 BrowserWindow 原生底色同步、独立 Agent 有界 appearance 镜像；左素材轨与 Workbench/Focus/Review 通过单一自然异步模块接入且 canonical canvas 持续挂载，Glass Lab/CSS 跟随设置外观异步边界，artwork 保持不透明。新增 `test:glass-theme`、`test:workspace-glass-ui`、`test:aidebug-glass-workspace` 与 `aidebug:glass-workspace` 映射；最终 Bundle 为 initial 684,208 B、core async 190,127 B、core 874,335 B、plugin 19,042 B、CSS 267,530 B、dist 1,209,732 B，hard gate 全部通过，三项 advisory 仅保留趋势预警，不为门禁数字引入高风险重构或复杂拆分。 |

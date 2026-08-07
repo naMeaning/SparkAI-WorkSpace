@@ -81,14 +81,14 @@ const sidebarSvg = `
   <circle cx="140" cy="20" r="58" fill="#d97832" opacity="0.12"/>
   <rect x="16" y="18" width="132" height="278" rx="18" fill="#fff8dc" fill-opacity="0.22" stroke="#8e651d" stroke-opacity="0.22"/>
   <image href="${iconDataUrl}" x="38" y="30" width="88" height="88"/>
-  <text x="18" y="150" fill="#3a2a16" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="18" font-weight="720">naimage</text>
+  <text x="18" y="150" fill="#1f2a3a" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13.5" font-weight="720">SparkAI WorkSpace</text>
   <rect x="18" y="164" width="68" height="3" rx="1.5" fill="url(#line)"/>
   <text x="18" y="190" fill="#58431f" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10.5" font-weight="600">一键翻译多语言套图</text>
   <text x="18" y="215" fill="#7a6235" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="8.7">Brand Personalization</text>
   <text x="18" y="231" fill="#7a6235" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="8.7">Cross-border Commerce</text>
   <text x="18" y="247" fill="#7a6235" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="8.7">Layered Delivery</text>
   <circle cx="20" cy="276" r="2.5" fill="#d97832"/>
-  <text x="28" y="279" fill="#76582c" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="7.6">SparkAI Workspace</text>
+  <text x="28" y="279" fill="#53627a" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="7.6">Created by namean</text>
 </svg>`;
 
 const headerSvg = `
@@ -101,8 +101,8 @@ const headerSvg = `
   </defs>
   <rect width="150" height="57" fill="url(#header)"/>
   <circle cx="130" cy="7" r="46" fill="#f2b81f" opacity="0.18"/>
-  <text x="12" y="23" fill="#3a2a16" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="12.5" font-weight="720">naimage</text>
-  <text x="12" y="40" fill="#755c30" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="7.6">SparkAI cross-border image workspace</text>
+  <text x="12" y="20" fill="#1f2a3a" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="10.5" font-weight="720">SparkAI</text>
+  <text x="12" y="34" fill="#1f2a3a" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="9.5" font-weight="650">WorkSpace</text>
   <rect x="12" y="47" width="54" height="2" rx="1" fill="#d97832"/>
   <image href="${iconDataUrl}" x="106" y="9" width="39" height="39"/>
 </svg>`;

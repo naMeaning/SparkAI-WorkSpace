@@ -37,6 +37,7 @@ export function requirementInputRoleForNode(node: WorkflowNode | null | undefine
 export function requirementInputBindings(
   node: Pick<WorkflowNode, "parentId" | "requirement">,
   allNodes: readonly WorkflowNode[] = [],
+  nodeById?: ReadonlyMap<string, WorkflowNode>,
 ): CanvasRequirementInputBinding[] {
   const explicit = sanitizeRequirementInputBindings(node.requirement?.inputBindings);
   if (explicit.length) return explicit;
@@ -44,7 +45,7 @@ export function requirementInputBindings(
   if (!parentId) return [];
   return [{
     nodeId: parentId,
-    role: requirementInputRoleForNode(allNodes.find((candidate) => candidate.id === parentId)),
+    role: requirementInputRoleForNode(nodeById?.get(parentId) ?? allNodes.find((candidate) => candidate.id === parentId)),
   }];
 }
 

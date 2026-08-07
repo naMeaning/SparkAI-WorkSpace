@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "defaultDomain": "general",
+  "domains": [
+    {
+      "id": "general",
+      "title": "通用创作",
+      "description": "适合自由图片、视频和画布 Agent 任务",
+      "icon": "sparkles",
+      "pluginIds": ["sparkai.project-graph"],
+      "defaultPrompt": "当前工作台为通用创作。围绕用户目标和当前画布素材自由选择图片、视频、需求与通用工具。",
+      "availableTools": ["image_gen", "view_image", "web_search", "shell_command", "ask_user", "workflow", "experience"]
+    },
+    {
+      "id": "commerce",
+      "title": "电商创作",
+      "description": "适合商品套图、多语言、SKU 和平台导出",
+      "icon": "shopping-bag",
+      "pluginIds": ["sparkai.commerce-toolkit"],
+      "defaultPrompt": "当前工作台为电商创作。优先保持商品与品牌一致性，并按平台、SKU、语言和交付规格组织成果。",
+      "availableTools": ["image_gen", "view_image", "web_search", "shell_command", "ask_user", "workflow", "experience"]
+    },
+    {
+      "id": "social",
+      "title": "社媒创作",
+      "description": "适合小红书图文和抖音短视频",
+      "icon": "share-2",
+      "pluginIds": ["sparkai.social-content"],
+      "defaultPrompt": "当前工作台为社媒创作。围绕平台、受众、内容目标和发布规格组织图文、脚本、分镜与视频成果。",
+      "availableTools": ["image_gen", "view_image", "web_search", "shell_command", "ask_user", "workflow", "experience"]
+    },
+    {
+      "id": "research",
+      "title": "科研绘图",
+      "description": "适合数据图表、论文插图和多 Panel 图",
+      "icon": "microscope",
+      "pluginIds": ["sparkai.scientific-figure"],
+      "defaultPrompt": "当前工作台为科研绘图。以用户提供的数据和可追溯脚本为依据，不虚构研究结果，并保留图表与输出来源。",
+      "availableTools": ["image_gen", "view_image", "web_search", "shell_command", "ask_user", "workflow", "experience"]
+    }
+  ]
+}

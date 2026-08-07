@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "portableType": "naimage-commerce-template",
+  "builtIns": [
+    {
+      "id": "commerce-builtin-amazon",
+      "platformTemplateId": "amazon",
+      "title": "Amazon 标准商品套图",
+      "description": "主图、卖点、细节、场景、尺寸、包装和品牌收尾的七图结构。"
+    },
+    {
+      "id": "commerce-builtin-aliexpress",
+      "platformTemplateId": "aliexpress",
+      "title": "速卖通标准商品套图",
+      "description": "首图、卖点、场景、细节、尺寸、包装、服务与品牌收尾的八图结构。"
+    }
+  ],
+  "limits": {
+    "maxItems": 200,
+    "maxTitleLength": 120,
+    "maxDescriptionLength": 600,
+    "maxPortableFileBytes": 1048576
+  }
+}

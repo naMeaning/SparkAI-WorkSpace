@@ -82,9 +82,9 @@ function createThemePresetService({ dialog, readFileSync, statSync, writeFileSyn
   return {
     async importPreset() {
       const selected = await dialog.showOpenDialog({
-        title: "导入 naimage 自定义主题",
+        title: "导入 SparkAI WorkSpace 自定义主题",
         properties: ["openFile"],
-        filters: [{ name: "naimage Theme", extensions: ["json"] }]
+        filters: [{ name: "SparkAI WorkSpace Theme", extensions: ["json"] }]
       });
       if (selected.canceled || !selected.filePaths.length) return { ok: true, canceled: true };
       try {
@@ -106,9 +106,9 @@ function createThemePresetService({ dialog, readFileSync, statSync, writeFileSyn
         const theme = normalizeCustomThemePreset(value);
         if (!theme) throw themePresetFailure("NAIMAGE_THEME_SCHEMA_INVALID", "当前自定义主题字段不完整，无法导出。");
         const selected = await dialog.showSaveDialog({
-          title: "导出 naimage 自定义主题",
+          title: "导出 SparkAI WorkSpace 自定义主题",
           defaultPath: safeThemeFileName(theme.name),
-          filters: [{ name: "naimage Theme", extensions: ["json"] }]
+          filters: [{ name: "SparkAI WorkSpace Theme", extensions: ["json"] }]
         });
         if (selected.canceled || !selected.filePath) return { ok: true, canceled: true };
         writeFileSync(selected.filePath, serializeThemePreset(theme), "utf8");

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "limits": {
+    "maxResearchClaimLength": 4000,
+    "maxTextLength": 4000,
+    "maxPanelTitleLength": 240,
+    "maxPanels": 12,
+    "maxDataSources": 12,
+    "maxFieldsPerSource": 256,
+    "maxFieldLength": 160,
+    "maxYFields": 24,
+    "maxReviewerRisks": 20,
+    "maxDataFileBytes": 67108864,
+    "maxSampleRows": 12,
+    "maxSampleCellLength": 240,
+    "maxJournalTasks": 200,
+    "maxOutputFiles": 32,
+    "maxOutputFileBytes": 67108864,
+    "maxOutputTotalBytes": 268435456,
+    "defaultTimeoutMs": 120000,
+    "maxTimeoutMs": 300000
+  },
+  "backends": [
+    { "id": "python", "label": "Python", "description": "pandas / numpy / matplotlib / scipy" },
+    { "id": "r", "label": "R", "description": "ggplot2 / patchwork" }
+  ],
+  "figureTypes": [
+    { "id": "statistical-chart", "label": "数据图表" },
+    { "id": "multi-panel", "label": "多 Panel 论文图" },
+    { "id": "schematic", "label": "科研示意图" },
+    { "id": "workflow", "label": "流程图" },
+    { "id": "image-comparison", "label": "论文图片比较" }
+  ],
+  "archetypes": [
+    { "id": "quantitative-grid", "label": "定量图表矩阵" },
+    { "id": "schematic-led-composite", "label": "示意图主导组合" },
+    { "id": "image-plate-quant", "label": "图像图版与定量" },
+    { "id": "asymmetric-mixed-modality", "label": "非对称混合模态" }
+  ],
+  "chartTypes": [
+    { "id": "scatter", "label": "散点图" },
+    { "id": "line", "label": "折线图" },
+    { "id": "bar", "label": "柱状图" },
+    { "id": "box", "label": "箱线图" },
+    { "id": "violin", "label": "小提琴图" },
+    { "id": "histogram", "label": "直方图" },
+    { "id": "heatmap", "label": "热图" },
+    { "id": "image", "label": "图片 Panel" },
+    { "id": "schematic", "label": "示意 Panel" }
+  ],
+  "outputFormats": ["png", "tiff", "svg", "pdf"],
+  "stylePresets": [
+    { "id": "nature", "label": "Nature 通用" },
+    { "id": "nmi-pastel", "label": "NMI 低饱和" },
+    { "id": "grayscale", "label": "灰度打印" }
+  ],
+  "defaults": {
+    "figureType": "statistical-chart",
+    "archetype": "quantitative-grid",
+    "chartType": "scatter",
+    "outputFormats": ["png", "svg", "pdf"],
+    "stylePreset": "nature",
+    "targetJournal": "Nature 系列",
+    "widthMm": 183,
+    "heightMm": 120,
+    "dpi": 600
+  },
+  "dataExtensions": [".csv", ".tsv", ".txt"]
+}

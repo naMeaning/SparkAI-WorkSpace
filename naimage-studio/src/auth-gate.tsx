@@ -10,13 +10,14 @@ import {
   SegmentButton
 } from "./ui";
 import { WindowControls } from "./window-controls";
+import { appAccessPolicy } from "./access-policy";
 
 function AuthTitlebar({ status }: { status: string }) {
   return (
     <header className="ide-topbar auth-topbar">
       <div className="titlebar-brand">
         <img className="titlebar-brand-icon" src="./naimage.png" alt="" draggable={false} />
-        <strong>naimage</strong>
+        <strong>SparkAI WorkSpace</strong>
       </div>
       <span className="auth-titlebar-status">{status}</span>
       <span className="auth-titlebar-spacer" aria-hidden="true" />
@@ -32,7 +33,7 @@ export function BootScreen({ message }: { message: string }) {
       <div className="auth-stage">
         <section className="auth-card boot-card" aria-label="启动检查">
           <img className="auth-brand-icon" src="./naimage.png" alt="" draggable={false} />
-          <span className="eyebrow">SparkAI Workspace</span>
+          <span className="eyebrow">SparkAI WorkSpace</span>
           <h1>正在启动</h1>
           <p>{message}</p>
           <div className="boot-line">
@@ -65,7 +66,7 @@ export function AuthGate({
   message: string;
 }) {
   const [busy, setBusy] = useState(false);
-  const customMode = authDraft.accessMode === "custom";
+  const customMode = appAccessPolicy.customApiAccess && authDraft.accessMode === "custom";
   const needsActivation = license?.required === true && license.active !== true;
   const accountNeedsActivation = !customMode && accountAuthenticated && needsActivation;
   const messageIsError = /(?:错误|失败|失效|不可用|未连接|请重新|无效|拒绝|过期)/i.test(message);
@@ -93,24 +94,26 @@ export function AuthGate({
     <main className="auth-shell" onPasteCapture={blockImagePaste}>
       <AuthTitlebar status={status} />
       <div className="auth-stage">
-        <section className="auth-card auth-access-card" aria-label="naimage 访问配置">
+        <section className="auth-card auth-access-card" aria-label="SparkAI WorkSpace 访问配置">
           <div className="auth-card-top">
             <img className="auth-brand-icon" src="./naimage.png" alt="" draggable={false} />
-            <span>SparkAI Workspace</span>
+            <span>SparkAI WorkSpace</span>
           </div>
-          <span className="eyebrow">naimage</span>
-          <h1>选择使用方式</h1>
-          <p>登录 SparkAPI 使用账户额度，或连接你自己的 OpenAI 兼容接口。</p>
+          <span className="eyebrow">SparkAI WorkSpace</span>
+          <h1>{appAccessPolicy.customApiAccess ? "选择使用方式" : "登录 SparkAPI"}</h1>
+          <p>{appAccessPolicy.customApiAccess ? "登录 SparkAPI 使用账户额度，或连接你自己的 OpenAI 兼容接口。" : "此版本使用 SparkAPI 账号、模型与账户额度。"}</p>
 
           <form className="auth-form auth-gate-form" onSubmit={submit}>
-            <SegmentedControl className="auth-switch access-mode-switch" aria-label="访问方式">
-              <SegmentButton active={!customMode} type="button" onClick={() => updateAuth("accessMode", "account")}>
-                <LogIn size={14} />账号登录
-              </SegmentButton>
-              <SegmentButton active={customMode} type="button" onClick={() => updateAuth("accessMode", "custom")}>
-                <Server size={14} />自定义接口
-              </SegmentButton>
-            </SegmentedControl>
+            {appAccessPolicy.customApiAccess ? (
+              <SegmentedControl className="auth-switch access-mode-switch" aria-label="访问方式">
+                <SegmentButton active={!customMode} type="button" onClick={() => updateAuth("accessMode", "account")}>
+                  <LogIn size={14} />账号登录
+                </SegmentButton>
+                <SegmentButton active={customMode} type="button" onClick={() => updateAuth("accessMode", "custom")}>
+                  <Server size={14} />自定义接口
+                </SegmentButton>
+              </SegmentedControl>
+            ) : null}
 
             {!customMode && !accountNeedsActivation ? (
               <>

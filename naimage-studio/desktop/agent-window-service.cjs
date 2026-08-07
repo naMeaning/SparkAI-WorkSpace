@@ -24,7 +24,7 @@ function createAgentWindowService({
   BrowserWindow,
   htmlPath,
   preloadPath,
-  applicationName = "naimage",
+  applicationName = "SparkAI WorkSpace",
   icon,
   getBackgroundColor = () => "#f6eadf",
   log = () => {}

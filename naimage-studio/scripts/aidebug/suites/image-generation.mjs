@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { runCanvasLayoutMutationRegression } from "../../aidebug-image-layout-regression.mjs";
 
@@ -26,7 +27,81 @@ async function captureAgentImageSuiteProbe(client, targetId, runs = imageRuns) {
     runs,
     prompt: "AIDebug 连续执行真实 image_gen 生图任务并观察节点布局。"
   });
-  const suite = await evaluate(client, `window.__naimageAIDebug.runImageSuite({ runs: ${Number(runs)} })`, suiteTimeoutMs);
+  const expectedPartialCount = Math.max(0, Math.min(3, Math.floor(Number(process.env.NAIMAGE_AIDEBUG_IMAGE_PARTIALS || 0) || 0)));
+  const partialSnapshots = [];
+  let suiteSettled = false;
+  const suitePromise = evaluate(client, `window.__naimageAIDebug.runImageSuite({ runs: ${Number(runs)} })`, suiteTimeoutMs)
+    .finally(() => { suiteSettled = true; });
+  if (expectedPartialCount > 0) {
+    const partialDeadline = Date.now() + 20_000;
+    while (!suiteSettled && Date.now() < partialDeadline) {
+      const snapshot = await evaluate(client, `(() => ({
+        tiles: Array.from(document.querySelectorAll('.stream-preview-tile')).map((tile) => {
+          const source = tile.querySelector('img')?.getAttribute('src') || '';
+          let sourceHash = 0;
+          for (let index = 0; index < source.length; index += 1) sourceHash = (Math.imul(sourceHash, 31) + source.charCodeAt(index)) >>> 0;
+          return {
+            operationId: tile.getAttribute('data-operation-id') || '',
+            requestIndex: Number(tile.getAttribute('data-request-index') || 0),
+            previewIndex: Number(tile.getAttribute('data-preview-index') || 0),
+            previewTotal: Number(tile.getAttribute('data-preview-total') || 0),
+            sourceHash: sourceHash.toString(16)
+          };
+        })
+      }))()`);
+      if (snapshot?.tiles?.length) partialSnapshots.push(snapshot);
+      await delay(25);
+    }
+  }
+  const suite = await suitePromise;
+  if (expectedPartialCount > 0) {
+    const partialEvents = [];
+    let previousSignature = "";
+    for (const snapshot of partialSnapshots) {
+      const signature = JSON.stringify(snapshot.tiles);
+      if (signature === previousSignature) continue;
+      previousSignature = signature;
+      partialEvents.push(...snapshot.tiles);
+    }
+    const seenIndexes = [...new Set(partialEvents.map((item) => item.previewIndex))].sort((left, right) => left - right);
+    const expectedIndexes = Array.from({ length: expectedPartialCount }, (_item, index) => index + 1);
+    const slotKeys = [...new Set(partialEvents.map((item) => `${item.operationId}:${item.requestIndex}`))];
+    const slotProofs = slotKeys.map((slotKey) => {
+      const events = partialEvents.filter((item) => `${item.operationId}:${item.requestIndex}` === slotKey);
+      const indexes = [...new Set(events.map((item) => item.previewIndex))].sort((left, right) => left - right);
+      const sourceHashes = [...new Set(events.map((item) => item.sourceHash).filter(Boolean))];
+      return {
+        slotKey,
+        indexes,
+        sourceHashes,
+        ok: JSON.stringify(indexes) === JSON.stringify(expectedIndexes) && sourceHashes.length >= expectedPartialCount
+      };
+    });
+    const finalPreviewCount = await evaluate(client, `document.querySelectorAll('.stream-preview-tile').length`);
+    const streamingPreviewProof = {
+      ok: JSON.stringify(seenIndexes) === JSON.stringify(expectedIndexes)
+        && partialEvents.every((item) => item.previewTotal === expectedPartialCount)
+        && Math.max(0, ...partialSnapshots.map((snapshot) => snapshot.tiles.length)) === 1
+        && slotProofs.length > 0
+        && slotProofs.every((slot) => slot.ok)
+        && finalPreviewCount === 0,
+      expectedIndexes,
+      seenIndexes,
+      slotProofs,
+      maxConcurrentTiles: Math.max(0, ...partialSnapshots.map((snapshot) => snapshot.tiles.length)),
+      finalPreviewCount
+    };
+    suite.streamingPreviewProof = streamingPreviewProof;
+    if (!streamingPreviewProof.ok) {
+      suite.ok = false;
+      suite.issues = [...(Array.isArray(suite.issues) ? suite.issues : []), {
+        level: "error",
+        area: "streaming-image-preview",
+        message: "画布中间图未按同一请求槽位依次替换并在最终结果后清理。",
+        detail: streamingPreviewProof
+      }];
+    }
+  }
   const suitePath = join(runDir, "agent-image-suite.json");
   writeFileSync(suitePath, JSON.stringify(suite, null, 2));
   if (!suite?.ok) {
@@ -333,6 +408,62 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
       ok: total > 0 && toolbarOk && description.startsWith(expectedPrefix) && (!internalNodeId || !description.includes(internalNodeId))
     };
   })()`);
+  const viewerSwitchProof = await evaluate(client, `(async () => {
+    const surface = document.querySelector('[data-ui-surface="image-viewer"]');
+    const stage = surface?.querySelector('.image-viewer-stage');
+    const buttons = Array.from(surface?.querySelectorAll('.image-viewer-strip button') || []);
+    if (!surface || !stage || buttons.length < 3) return { ok: false, error: 'viewer switch fixture unavailable' };
+    const surfaceBefore = surface.getBoundingClientRect();
+    const samples = [];
+    let blankFrames = 0;
+    let maxSurfaceDelta = 0;
+    let frameHandle = 0;
+    const sample = () => {
+      const surfaceRect = surface.getBoundingClientRect();
+      maxSurfaceDelta = Math.max(
+        maxSurfaceDelta,
+        Math.abs(surfaceRect.width - surfaceBefore.width),
+        Math.abs(surfaceRect.height - surfaceBefore.height)
+      );
+      const images = Array.from(stage.querySelectorAll('.image-viewer-image'));
+      const visible = images.filter((image) => {
+        const rect = image.getBoundingClientRect();
+        const style = getComputedStyle(image);
+        return image.complete && image.naturalWidth > 0 && rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity || 1) > 0;
+      });
+      if (!visible.length) blankFrames += 1;
+      samples.push({
+        buffering: stage.getAttribute('data-buffering'),
+        targetSrc: stage.getAttribute('data-target-src'),
+        displayedSrc: stage.getAttribute('data-displayed-src'),
+        imageCount: images.length,
+        visibleCount: visible.length
+      });
+      frameHandle = requestAnimationFrame(sample);
+    };
+    frameHandle = requestAnimationFrame(sample);
+    const clickOrder = [Math.min(7, buttons.length - 1), 1, buttons.length - 1, 2];
+    for (const index of clickOrder) {
+      buttons[index]?.click();
+      await new Promise((resolve) => setTimeout(resolve, 24));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    cancelAnimationFrame(frameHandle);
+    const finalTarget = stage.getAttribute('data-target-src') || '';
+    const finalDisplayed = stage.getAttribute('data-displayed-src') || '';
+    const currentImages = Array.from(stage.querySelectorAll('.image-viewer-image-current')).filter((image) => image.complete && image.naturalWidth > 0);
+    return {
+      ok: samples.length >= 4 && blankFrames === 0 && maxSurfaceDelta <= 1 && finalTarget === finalDisplayed && currentImages.length === 1,
+      sampleCount: samples.length,
+      blankFrames,
+      maxSurfaceDelta,
+      finalTarget,
+      finalDisplayed,
+      currentImageCount: currentImages.length,
+      maxBufferedImageCount: Math.max(0, ...samples.map((item) => item.imageCount)),
+      samples
+    };
+  })()`);
   const viewerCapture = await captureState(
     client,
     targetId,
@@ -351,11 +482,19 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     }
   );
   viewerCapture.viewerHeaderProof = viewerHeaderProof;
+  viewerCapture.viewerSwitchProof = viewerSwitchProof;
   if (!viewerHeaderProof?.ok) {
     viewerCapture.stateIssues.push({
       key: "imageViewerPublicHeaderOk",
       expected: true,
       actual: viewerHeaderProof
+    });
+  }
+  if (!viewerSwitchProof?.ok) {
+    viewerCapture.stateIssues.push({
+      key: "imageViewerSwitchStable",
+      expected: true,
+      actual: viewerSwitchProof
     });
   }
   await evaluate(client, `document.querySelector('[data-ui-surface="image-viewer"] .ui-surface-close')?.click()`);

@@ -317,12 +317,15 @@ export async function capturePerformanceSuiteProbe({
     const originY = (canvasBox?.top || 0) + Math.max(48, Math.min(160, Number(canvasBox?.height || 0) / 3));
     const pan = await measureFrames('pan', () => {
       const before = performanceState().viewport || null;
-      canvas?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: originX, clientY: originY }));
+      // The canvas intentionally reserves the primary button for selection.
+      // Exercise the documented middle-button pan gesture rather than
+      // incorrectly treating a selection drag as a viewport interaction.
+      canvas?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 4, clientX: originX, clientY: originY }));
       return before;
     }, (index) => {
-      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: originX + index * 2, clientY: originY + index }));
+      window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 4, clientX: originX + index * 2, clientY: originY + index }));
     }, async (before) => {
-      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0, clientX: originX + 72, clientY: originY + 36 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 201, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 0, clientX: originX + 72, clientY: originY + 36 }));
       await nextFrames(2);
       const after = performanceState().viewport || null;
       return {
@@ -487,7 +490,19 @@ export async function capturePerformanceSuiteProbe({
     const longTimelineAccepted = window.__naimageDebugSeedAgentMessages?.({ messages: timelineMessages, append: false, maxMessages: 500 });
     const longTimelineRenderWindow = 80;
     const longTimelineVisibleToolPairs = 40;
-    const longTimelineWait = await waitFor(() => Number(performanceState().messageCount || 0) === 500 && document.querySelectorAll('.project-agent-feed .agent-message').length === longTimelineRenderWindow, 12000, '500-message timeline window');
+    const longTimelineWait = await waitFor(() => {
+      const messagesReady = Number(performanceState().messageCount || 0) === 500 && document.querySelectorAll('.project-agent-feed .agent-message').length === longTimelineRenderWindow;
+      const toolTraces = document.querySelectorAll('.project-agent-feed .agent-tool-trace');
+      const toolStarts = document.querySelectorAll('.project-agent-feed .agent-tool-trace[data-tool-stage="start"]');
+      const toolResults = document.querySelectorAll('.project-agent-feed .agent-tool-trace[data-tool-stage="result"]');
+      // Tool content is naturally lazy-loaded with each message.  Waiting only
+      // for the message shells used to sample the window before that content
+      // had mounted, so the suite could report a false timeline failure.
+      return messagesReady &&
+        toolTraces.length === longTimelineVisibleToolPairs * 2 &&
+        toolStarts.length === longTimelineVisibleToolPairs &&
+        toolResults.length === longTimelineVisibleToolPairs;
+    }, 12000, '500-message timeline and tool stages');
     const feed = document.querySelector('.project-agent-feed');
     if (feed) feed.scrollTop = feed.scrollHeight;
     await nextFrames(3);
@@ -697,6 +712,13 @@ export async function capturePerformanceSuiteProbe({
       const images = host?.querySelectorAll('.node-image-tile img') || [];
       return tiles.length === 10 && images.length === 10 && Array.from(images).every((image) => image.complete && image.naturalWidth > 0);
     }, 30000, '10-image container render');
+    const assetRailWait = await waitFor(() => {
+      const images = Array.from(document.querySelectorAll('.workspace-asset-rail .workspace-asset-rail-item img'));
+      return images.length === 1 && images.every((image) => {
+        const source = String(image.currentSrc || image.getAttribute('src') || '');
+        return image.complete && image.naturalWidth > 0 && /[?&]preview=thumbnail(?:&|$)/.test(source) && /[?&]max=256(?:&|$)/.test(source);
+      });
+    }, 30000, '10-image asset rail thumbnail render');
     await nextFrames(3);
     const containerHost = document.querySelector('.flow-node[data-node-id="aidebug-performance-container-10"]');
     const containerImages = Array.from(containerHost?.querySelectorAll('.node-image-tile img') || []);
@@ -704,10 +726,37 @@ export async function capturePerformanceSuiteProbe({
     const canvasNaturalSizes = containerImages.map((image) => ({ width: image.naturalWidth, height: image.naturalHeight }));
     const canvasUsesThumbnails = canvasImageSources.length === 10 && canvasImageSources.every((source) => /[?&]preview=thumbnail(?:&|$)/.test(source));
     const thumbnailDimensionsBounded = canvasNaturalSizes.length === 10 && canvasNaturalSizes.every((size) => Math.max(Number(size.width || 0), Number(size.height || 0)) <= 512);
+    const assetRailImages = Array.from(document.querySelectorAll('.workspace-asset-rail .workspace-asset-rail-item img'));
+    const assetRailThumbnailSources = assetRailImages.map((image) => String(image.currentSrc || image.getAttribute('src') || ''));
+    const assetRailNaturalSizes = assetRailImages.map((image) => ({ width: image.naturalWidth, height: image.naturalHeight }));
+    const assetRailUsesThumbnails = assetRailThumbnailSources.length === 1 && assetRailThumbnailSources.every((source) => /[?&]preview=thumbnail(?:&|$)/.test(source) && /[?&]max=256(?:&|$)/.test(source));
+    const assetRailDimensionsBounded = assetRailNaturalSizes.length === 1 && assetRailNaturalSizes.every((size) => Math.max(Number(size.width || 0), Number(size.height || 0)) <= 256);
+    const thumbnailCacheIdentity = (source) => {
+      try {
+        const url = new URL(source);
+        if (url.searchParams.get('preview') !== 'thumbnail') return '';
+        const max = url.searchParams.get('max');
+        if (!max) return '';
+        url.searchParams.delete('warmProbe');
+        return url.protocol + '//' + url.host + url.pathname + '?preview=thumbnail&max=' + max;
+      } catch {
+        return '';
+      }
+    };
+    const expectedThumbnailVariantKeys = [...new Set([...canvasImageSources, ...assetRailThumbnailSources]
+      .map(thumbnailCacheIdentity)
+      .filter(Boolean))];
+    const expectedThumbnailVariantCount = expectedThumbnailVariantKeys.length;
     const firstTile = containerHost?.querySelector('.node-image-tile');
     firstTile?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
     const viewerWait = await waitFor(() => Boolean(document.querySelector('.image-viewer-stage img')), 3000, 'original image viewer');
-    await delay(260);
+    const viewerStripWait = await waitFor(() => {
+      const images = Array.from(document.querySelectorAll('.image-viewer-strip img'));
+      return images.length === 10 && images.every((image) => {
+        const source = String(image.currentSrc || image.getAttribute('src') || '');
+        return image.complete && image.naturalWidth > 0 && /[?&]preview=thumbnail(?:&|$)/.test(source);
+      });
+    }, 30000, '10-image viewer thumbnail strip');
     const viewerMainImage = document.querySelector('.image-viewer-stage img');
     const viewerMainSource = String(viewerMainImage?.currentSrc || viewerMainImage?.getAttribute('src') || '');
     const viewerStripSources = Array.from(document.querySelectorAll('.image-viewer-strip img')).map((image) => String(image.currentSrc || image.getAttribute('src') || ''));
@@ -718,13 +767,29 @@ export async function capturePerformanceSuiteProbe({
     const viewerCloseWait = await waitFor(() => !document.querySelector('[data-ui-surface="image-viewer"]'), 3000, 'image viewer close');
     await nextFrames(2);
     const imageContainerRenderCommits = window.__naimageAIDebug?.renderCommits?.() || null;
-    const coldThumbnailStatsResult = await window.naimageConfig?.thumbnailStats?.();
+    const thumbnailIdleStartedAt = performance.now();
+    let thumbnailIdleStatsResult = null;
+    while (performance.now() - thumbnailIdleStartedAt < 30000) {
+      thumbnailIdleStatsResult = await window.naimageConfig?.thumbnailStats?.();
+      const stats = thumbnailIdleStatsResult?.stats;
+      if (thumbnailIdleStatsResult?.ok && stats && Number(stats.activeWorkers) === 0 && Number(stats.activeJobs) === 0 && Number(stats.queuedJobs) === 0 && Number(stats.inflight) === 0) break;
+      await delay(80);
+    }
+    const thumbnailIdleOk = Boolean(
+      thumbnailIdleStatsResult?.ok &&
+      Number(thumbnailIdleStatsResult?.stats?.activeWorkers) === 0 &&
+      Number(thumbnailIdleStatsResult?.stats?.activeJobs) === 0 &&
+      Number(thumbnailIdleStatsResult?.stats?.queuedJobs) === 0 &&
+      Number(thumbnailIdleStatsResult?.stats?.inflight) === 0
+    );
+    const coldThumbnailStatsResult = thumbnailIdleStatsResult || await window.naimageConfig?.thumbnailStats?.();
     const coldThumbnailStats = coldThumbnailStatsResult?.stats || null;
     const coldThumbnailOk = Boolean(
       thumbnailStatsReset?.ok && coldThumbnailStatsResult?.ok && coldThumbnailStats &&
-      Number(coldThumbnailStats.generated) === 10 && Number(coldThumbnailStats.workerStarts) === 10 &&
+      expectedThumbnailVariantCount === 11 &&
+      Number(coldThumbnailStats.generated) === expectedThumbnailVariantCount && Number(coldThumbnailStats.workerStarts) === expectedThumbnailVariantCount &&
       Number(coldThumbnailStats.maxActiveWorkers) > 0 && Number(coldThumbnailStats.maxActiveWorkers) <= 2 &&
-      Number(coldThumbnailStats.errors) === 0
+      Number(coldThumbnailStats.errors) === 0 && thumbnailIdleOk
     );
     await window.naimageConfig?.thumbnailStats?.({ reset: true });
     const warmStartedAt = performance.now();
@@ -742,10 +807,10 @@ export async function capturePerformanceSuiteProbe({
       Number(warmThumbnailStats.cacheHits) === 10 && Number(warmThumbnailStats.workerStarts) === 0 &&
       Number(warmThumbnailStats.generated) === 0 && Number(warmThumbnailStats.errors) === 0
     );
-    const thumbnailEvidenceOk = canvasUsesThumbnails && thumbnailDimensionsBounded && viewerUsesOriginal && viewerStripUsesThumbnails && viewerCloseWait.ok && coldThumbnailOk && warmThumbnailOk;
+    const thumbnailEvidenceOk = canvasUsesThumbnails && thumbnailDimensionsBounded && assetRailWait.ok && assetRailUsesThumbnails && assetRailDimensionsBounded && viewerUsesOriginal && viewerStripWait.ok && viewerStripUsesThumbnails && viewerCloseWait.ok && coldThumbnailOk && warmThumbnailOk;
     const imageContainer10 = {
       status: containerAccepted && containerWait.ok && thumbnailEvidenceOk ? 'measured' : 'unknown',
-      reason: containerAccepted && containerWait.ok && thumbnailEvidenceOk ? '' : containerWait.error || viewerWait.error || viewerCloseWait.error || 'thumbnail/original source boundary was not observed',
+      reason: containerAccepted && containerWait.ok && thumbnailEvidenceOk ? '' : containerWait.error || assetRailWait.error || viewerWait.error || viewerStripWait.error || viewerCloseWait.error || (thumbnailIdleOk ? '' : 'thumbnail cache did not settle') || 'thumbnail/original source boundary was not observed',
       durationMs: round(performance.now() - containerStartedAt),
       requestedImageCount: 10,
       renderedImageCount: containerHost?.querySelectorAll('.node-image-tile').length || 0,
@@ -754,6 +819,12 @@ export async function capturePerformanceSuiteProbe({
       thumbnailDimensionsBounded,
       canvasImageSources,
       canvasNaturalSizes,
+      assetRailUsesThumbnails,
+      assetRailDimensionsBounded,
+      assetRailThumbnailSources,
+      assetRailNaturalSizes,
+      expectedThumbnailVariantCount,
+      expectedThumbnailVariantKeys,
       viewerUsesOriginal,
       viewerMainSource,
       viewerStripUsesThumbnails,
@@ -761,18 +832,103 @@ export async function capturePerformanceSuiteProbe({
       viewerClosed: viewerCloseWait.ok,
       coldThumbnailOk,
       coldThumbnailStats,
+      thumbnailIdleOk,
       warmThumbnailOk,
       warmThumbnailStats,
       warmDurationMs: round(warmDurationMs),
       warmNaturalSizes: warmResponses.map((item) => ({ width: item.width, height: item.height })),
       thumbnailEvidenceOk,
       renderCommits: imageContainerRenderCommits,
-      fixture: 'one parallel imageCollection node with ten managed 4K PNG/JPEG/WebP assets'
+      fixture: 'one parallel imageCollection node with ten managed 4K PNG/JPEG/WebP assets, ten 512px canvas previews and one 256px asset-rail representative preview'
     };
     await endPhase(imageContainerPhase);
     captureRendererMemory('afterImageContainer10');
     await window.__naimageAIDebug?.fitCanvas?.();
     await delay(450);
+    const denseViewportPhase = beginPhase('denseViewportZoom');
+    const denseCanvas = document.querySelector('.workflow-canvas');
+    const denseStage = document.querySelector('.canvas-stage');
+    const denseCanvasBox = denseCanvas?.getBoundingClientRect();
+    const denseCenterX = Number(denseCanvasBox?.left || 0) + Number(denseCanvasBox?.width || 0) / 2;
+    const denseCenterY = Number(denseCanvasBox?.top || 0) + Number(denseCanvasBox?.height || 0) / 2;
+    const denseViewportBefore = performanceState().viewport || null;
+    const denseStageMutations = [];
+    const denseStageObserver = denseStage ? new MutationObserver((records) => denseStageMutations.push(...records)) : null;
+    denseStageObserver?.observe(denseStage, { attributes: true, attributeFilter: ['style'] });
+    const denseFrameIntervals = [];
+    const denseScaleSamples = [];
+    let densePreviousFrame = null;
+    let denseWheelEventCount = 0;
+    let denseDetailReducedObserved = false;
+    const denseBurstStartedAt = performance.now();
+    await new Promise((resolve) => {
+      let burstFrameIndex = 0;
+      const step = (timestamp) => {
+        if (densePreviousFrame !== null) denseFrameIntervals.push(timestamp - densePreviousFrame);
+        densePreviousFrame = timestamp;
+        for (let eventIndex = 0; eventIndex < 8; eventIndex += 1) {
+          const index = burstFrameIndex * 8 + eventIndex;
+          denseCanvas?.dispatchEvent(new WheelEvent('wheel', {
+            bubbles: true,
+            cancelable: true,
+            clientX: denseCenterX,
+            clientY: denseCenterY,
+            deltaY: index < 40 ? -8 : 8
+          }));
+          denseWheelEventCount += 1;
+          denseScaleSamples.push(Number(performanceState().viewport?.scale || 0));
+          denseDetailReducedObserved = denseDetailReducedObserved || Boolean(denseCanvas?.classList.contains('is-viewport-detail-reduced'));
+        }
+        burstFrameIndex += 1;
+        if (burstFrameIndex < 10) requestAnimationFrame(step);
+        else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+    await delay(420);
+    await nextFrames(2);
+    denseStageObserver?.disconnect();
+    const denseViewportAfter = performanceState().viewport || null;
+    const denseScaleMin = denseScaleSamples.length ? Math.min(...denseScaleSamples) : 0;
+    const denseScaleMax = denseScaleSamples.length ? Math.max(...denseScaleSamples) : 0;
+    const denseViewportSettled = Boolean(
+      denseCanvas &&
+      !denseCanvas.classList.contains('is-viewport-interacting') &&
+      !denseCanvas.classList.contains('is-viewport-detail-reduced')
+    );
+    const denseStageMutationBudget = 20;
+    const denseViewportZoomOk = Boolean(
+      denseCanvas && denseStage &&
+      denseWheelEventCount === 80 &&
+      denseScaleMax - denseScaleMin >= 0.055 &&
+      denseDetailReducedObserved &&
+      denseViewportSettled &&
+      denseStageMutations.length > 0 &&
+      denseStageMutations.length <= denseStageMutationBudget
+    );
+    const denseViewportZoom = {
+      status: denseViewportZoomOk ? 'measured' : 'unknown',
+      reason: denseViewportZoomOk ? '' : 'dense wheel burst was not frame-coalesced or its reduced-detail lifecycle did not settle',
+      durationMs: round(performance.now() - denseBurstStartedAt),
+      wheelEventCount: denseWheelEventCount,
+      frameCount: 10,
+      frameIntervalCount: denseFrameIntervals.length,
+      frameP50Ms: round(percentile(denseFrameIntervals, 0.5)),
+      frameP95Ms: round(percentile(denseFrameIntervals, 0.95)),
+      frameMaxMs: round(denseFrameIntervals.length ? Math.max(...denseFrameIntervals) : null),
+      stageStyleMutationCount: denseStageMutations.length,
+      stageStyleMutationBudget: denseStageMutationBudget,
+      detailReducedObserved: denseDetailReducedObserved,
+      settled: denseViewportSettled,
+      scaleMin: round(denseScaleMin),
+      scaleMax: round(denseScaleMax),
+      before: denseViewportBefore,
+      after: denseViewportAfter,
+      overviewNodeCount: document.querySelectorAll('.canvas-node-overview').length,
+      visibleImageCount: document.querySelectorAll('.flow-node img').length,
+      fixture: 'ten-image managed 4K container, 80 wheel events grouped into ten animation frames'
+    };
+    await endPhase(denseViewportPhase);
     const loadStartedAt = performance.now();
     const loaded = await window.naimageConfig?.loadSession?.();
     const loadBeforeSaveMs = performance.now() - loadStartedAt;
@@ -859,7 +1015,7 @@ export async function capturePerformanceSuiteProbe({
       lastFlushMs: Number(automaticPersistenceMetrics?.lastFlushMs ?? NaN),
       source: String(automaticPersistenceMetrics?.source || '')
     };
-    return { nodes200, nodes1000, longTimeline, streamingTimeline, imageContainer10, interactions: { pan, zoom, drag }, rendererCommits, persistence, save, longTasks, phaseLongTasks, rendererMemory, rendererMemorySamples };
+    return { nodes200, nodes1000, longTimeline, streamingTimeline, imageContainer10, interactions: { pan, zoom, drag, denseViewportZoom }, rendererCommits, persistence, save, longTasks, phaseLongTasks, rendererMemory, rendererMemorySamples };
   })()`, 180000);
   const thumbnailCacheDir = join(aidebugConfigDir, "projects", "default", ".naimage", "thumbnails");
   const thumbnailEntries = existsSync(thumbnailCacheDir) ? readdirSync(thumbnailCacheDir) : [];
@@ -867,10 +1023,13 @@ export async function capturePerformanceSuiteProbe({
   const thumbnailStagingFiles = thumbnailEntries.filter((entry) => entry.endsWith(".tmp"));
   const thumbnailBytes = thumbnailFiles.reduce((sum, entry) => sum + statSync(join(thumbnailCacheDir, entry)).size, 0);
   const sourceBytes = imageFixtures.reduce((sum, fixture) => sum + Number(fixture.bytes || 0), 0);
+  const expectedThumbnailVariantCount = Number(rendererMetrics?.imageContainer10?.expectedThumbnailVariantCount || 0);
+  const thumbnailDiskCacheOk = expectedThumbnailVariantCount === imageFixtures.length + 1 && thumbnailFiles.length === expectedThumbnailVariantCount && thumbnailStagingFiles.length === 0;
   const thumbnailDiskCache = {
-    status: thumbnailFiles.length === 10 && thumbnailStagingFiles.length === 0 ? "measured" : "unknown",
-    reason: thumbnailFiles.length === 10 && thumbnailStagingFiles.length === 0 ? "" : `expected 10 committed WebP thumbnails and no staging files, received ${thumbnailFiles.length}/${thumbnailStagingFiles.length}`,
+    status: thumbnailDiskCacheOk ? "measured" : "unknown",
+    reason: thumbnailDiskCacheOk ? "" : `expected ${expectedThumbnailVariantCount || "the observed"} committed WebP thumbnail variants and no staging files, received ${thumbnailFiles.length}/${thumbnailStagingFiles.length}`,
     sourceAssetCount: imageFixtures.length,
+    expectedThumbnailVariantCount,
     sourceFormats: [...new Set(imageFixtures.map((fixture) => fixture.mimeType))],
     sourceBytes,
     thumbnailCount: thumbnailFiles.length,
@@ -914,9 +1073,10 @@ export async function capturePerformanceSuiteProbe({
         reason: "",
         durationMs: imageContainerMetric.durationMs,
         stats: imageContainerMetric.coldThumbnailStats,
-        naturalSizes: imageContainerMetric.canvasNaturalSizes
+        naturalSizes: imageContainerMetric.canvasNaturalSizes,
+        expectedThumbnailVariantCount: imageContainerMetric.expectedThumbnailVariantCount
       }
-    : { status: "unknown", reason: "cold thumbnail runtime stats did not prove ten generated assets", stats: imageContainerMetric?.coldThumbnailStats || null };
+    : { status: "unknown", reason: "cold thumbnail runtime stats did not prove all requested preview variants", stats: imageContainerMetric?.coldThumbnailStats || null };
   const imageThumbnailWarm = imageContainerMetric?.warmThumbnailOk
     ? {
         status: "measured",

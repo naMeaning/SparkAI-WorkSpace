@@ -3,6 +3,7 @@ import commerceSetSchema from "../../plugins/commerce-set-schema.json" with { ty
 export type CommerceSetMode = "generate" | "translate";
 export type CommerceSetSaveTarget = "none" | "requirement" | "skill";
 export type CommerceSetFeeRisk = "none" | "low" | "medium" | "high" | "blocked";
+export type CommercePlatformTemplateId = "general" | "amazon" | "aliexpress";
 
 export type CommerceLanguage = {
   code: string;
@@ -18,8 +19,21 @@ export type CommerceSetSlot = {
   prompt: string;
 };
 
+export type CommercePlatformTemplate = {
+  id: CommercePlatformTemplateId;
+  label: string;
+  description: string;
+  slots: CommerceSetSlot[];
+};
+
 export type CommerceSetTargetLocale = {
   code: string;
+  prompt: string;
+};
+
+export type CommerceSetTranslationItem = {
+  sourceIndex: number;
+  localeCode: string;
   prompt: string;
 };
 
@@ -33,10 +47,12 @@ export type CommerceSetExecutionPolicy = {
 export type CommerceSetPlan = {
   schemaVersion: number;
   mode: CommerceSetMode;
+  platformTemplateId: CommercePlatformTemplateId;
   title: string;
   slots: CommerceSetSlot[];
   targetLocales: CommerceSetTargetLocale[];
   translatePrompt: string;
+  translationItems: CommerceSetTranslationItem[];
   saveTarget: CommerceSetSaveTarget;
   reusableName: string;
   executionPolicy: CommerceSetExecutionPolicy;
@@ -70,6 +86,7 @@ export type CommerceSetMatrixJob = {
   slotPrompt: string;
   localeCode: string;
   localePrompt: string;
+  itemPrompt: string;
 };
 
 export type CommerceSetSnapshotMaterial = {
@@ -81,7 +98,9 @@ export type CommerceSetSnapshotMaterial = {
 export type CommerceSetPromptPlan = {
   schemaVersion: number;
   planHash: string;
+  planMaterialHash?: string;
   mode: CommerceSetMode;
+  platformTemplateId: CommercePlatformTemplateId;
   sourceCount: number;
   sourceNodeIds: string[];
   outputsPerSource: number;
@@ -89,6 +108,7 @@ export type CommerceSetPromptPlan = {
   slots: CommerceSetSlot[];
   targetLocales: CommerceSetTargetLocale[];
   translatePrompt: string;
+  translationItems: CommerceSetTranslationItem[];
 };
 
 type CommerceSetSchemaDefinition = {
@@ -103,6 +123,7 @@ type CommerceSetSchemaDefinition = {
     maxSlotTitleLength: number;
     maxSlotPromptLength: number;
     maxLanguagePromptLength: number;
+    maxTranslationItemPromptLength: number;
     maxTranslatePromptLength: number;
     maxTotalRequests: number;
   };
@@ -115,12 +136,19 @@ type CommerceSetSchemaDefinition = {
   };
   defaults: {
     mode: CommerceSetMode;
+    platformTemplateId: CommercePlatformTemplateId;
     planTitle: string;
     translatePrompt: string;
     translationLanguageCodes: string[];
     saveTarget: CommerceSetSaveTarget;
   };
   languages: CommerceLanguage[];
+  platformTemplates: Array<{
+    id: CommercePlatformTemplateId;
+    label: string;
+    description: string;
+    slots?: CommerceSetSlot[];
+  }>;
   defaultSlots: CommerceSetSlot[];
 };
 
@@ -136,10 +164,15 @@ export const COMMERCE_SET_EXECUTION = Object.freeze({
 });
 export const COMMERCE_LANGUAGES: CommerceLanguage[] = schema.languages.map((language) => ({ ...language }));
 export const DEFAULT_COMMERCE_SET_SLOTS: CommerceSetSlot[] = schema.defaultSlots.map((slot) => ({ ...slot }));
+export const COMMERCE_SET_PLATFORM_TEMPLATES: CommercePlatformTemplate[] = schema.platformTemplates.map((template) => ({
+  ...template,
+  slots: (template.slots ?? schema.defaultSlots).map((slot) => ({ ...slot }))
+}));
 export const DEFAULT_COMMERCE_LANGUAGE_CODES = [...schema.defaults.translationLanguageCodes];
 export const MAX_COMMERCE_TARGET_LANGUAGES = COMMERCE_SET_LIMITS.maxTargetLanguages;
 
 const commerceLanguageByCode = new Map(COMMERCE_LANGUAGES.map((language) => [language.code, language]));
+const commercePlatformTemplateById = new Map(COMMERCE_SET_PLATFORM_TEMPLATES.map((template) => [template.id, template]));
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -187,6 +220,17 @@ function genericSlot(index: number): CommerceSetSlot {
   };
 }
 
+export function normalizeCommercePlatformTemplateId(value: unknown): CommercePlatformTemplateId {
+  const id = cleanText(value, 32).toLowerCase() as CommercePlatformTemplateId;
+  return commercePlatformTemplateById.has(id) ? id : schema.defaults.platformTemplateId;
+}
+
+export function commerceSetSlotsForPlatform(value: unknown): CommerceSetSlot[] {
+  const platformTemplateId = normalizeCommercePlatformTemplateId(value);
+  const template = commercePlatformTemplateById.get(platformTemplateId);
+  return (template?.slots ?? DEFAULT_COMMERCE_SET_SLOTS).map((slot) => ({ ...slot }));
+}
+
 export function normalizeCommerceLanguageCodes(value: unknown): string[] {
   const entries = Array.isArray(value) ? value : [];
   const result: string[] = [];
@@ -222,18 +266,53 @@ export function normalizeCommerceTargetLocales(value: unknown): CommerceSetTarge
   return result;
 }
 
-export function normalizeCommerceSetSlots(value: unknown, requestedCount?: unknown): CommerceSetSlot[] {
+export function normalizeCommerceTranslationItems(
+  value: unknown,
+  targetLocales?: unknown
+): CommerceSetTranslationItem[] {
   const entries = Array.isArray(value) ? value : [];
-  const fallbackCount = entries.length || DEFAULT_COMMERCE_SET_SLOTS.length;
+  const localeOrder = normalizeCommerceTargetLocales(targetLocales);
+  const allowedLocales = new Set((localeOrder.length ? localeOrder : COMMERCE_LANGUAGES).map((locale) => locale.code));
+  const localeIndex = new Map((localeOrder.length ? localeOrder : COMMERCE_LANGUAGES).map((locale, index) => [locale.code, index]));
+  const used = new Set<string>();
+  const result: CommerceSetTranslationItem[] = [];
+  for (const item of entries) {
+    const source = record(item);
+    const sourceIndex = Number(source.sourceIndex);
+    const localeCode = cleanText(source.localeCode, 32);
+    const prompt = cleanText(source.prompt, COMMERCE_SET_LIMITS.maxTranslationItemPromptLength);
+    const key = `${sourceIndex}:${localeCode}`;
+    if (
+      !Number.isSafeInteger(sourceIndex) || sourceIndex < 0 || sourceIndex >= COMMERCE_SET_LIMITS.maxSourceCount ||
+      !allowedLocales.has(localeCode) || !prompt || used.has(key)
+    ) continue;
+    used.add(key);
+    result.push({ sourceIndex, localeCode, prompt });
+    if (result.length >= COMMERCE_SET_LIMITS.maxTotalRequests) break;
+  }
+  return result.sort((left, right) => (
+    left.sourceIndex - right.sourceIndex ||
+    (localeIndex.get(left.localeCode) ?? Number.MAX_SAFE_INTEGER) - (localeIndex.get(right.localeCode) ?? Number.MAX_SAFE_INTEGER)
+  ));
+}
+
+export function normalizeCommerceSetSlots(
+  value: unknown,
+  requestedCount?: unknown,
+  platformTemplateId: unknown = schema.defaults.platformTemplateId
+): CommerceSetSlot[] {
+  const entries = Array.isArray(value) ? value : [];
+  const templateSlots = commerceSetSlotsForPlatform(platformTemplateId);
+  const fallbackCount = entries.length || templateSlots.length;
   const count = boundedInteger(
     requestedCount,
     COMMERCE_SET_LIMITS.minSlots,
     COMMERCE_SET_LIMITS.maxSlots,
-    boundedInteger(fallbackCount, COMMERCE_SET_LIMITS.minSlots, COMMERCE_SET_LIMITS.maxSlots, DEFAULT_COMMERCE_SET_SLOTS.length)
+    boundedInteger(fallbackCount, COMMERCE_SET_LIMITS.minSlots, COMMERCE_SET_LIMITS.maxSlots, templateSlots.length)
   );
   const usedIds = new Set<string>();
   return Array.from({ length: count }, (_, index) => {
-    const fallback = DEFAULT_COMMERCE_SET_SLOTS[index] || genericSlot(index);
+    const fallback = templateSlots[index] || genericSlot(index);
     const source = record(entries[index]);
     const candidateId = normalizedSlotId(source.id, fallback.id);
     return {
@@ -244,8 +323,12 @@ export function normalizeCommerceSetSlots(value: unknown, requestedCount?: unkno
   });
 }
 
-export function resizeCommerceSetSlots(value: unknown, requestedCount: unknown): CommerceSetSlot[] {
-  return normalizeCommerceSetSlots(value, requestedCount);
+export function resizeCommerceSetSlots(
+  value: unknown,
+  requestedCount: unknown,
+  platformTemplateId: unknown = schema.defaults.platformTemplateId
+): CommerceSetSlot[] {
+  return normalizeCommerceSetSlots(value, requestedCount, platformTemplateId);
 }
 
 export function normalizeCommerceSetPlan(value: unknown = {}): CommerceSetPlan {
@@ -265,13 +348,17 @@ export function normalizeCommerceSetPlan(value: unknown = {}): CommerceSetPlan {
     ? source.saveTarget
     : schema.defaults.saveTarget;
   const title = cleanText(source.title, COMMERCE_SET_LIMITS.maxPlanTitleLength) || schema.defaults.planTitle;
+  const platformTemplateId = normalizeCommercePlatformTemplateId(source.platformTemplateId);
+  const targetLocales = normalizeCommerceTargetLocales(localeInput);
   return {
     schemaVersion: COMMERCE_SET_SCHEMA_VERSION,
     mode,
+    platformTemplateId,
     title,
-    slots: normalizeCommerceSetSlots(source.slots, slotCount),
-    targetLocales: normalizeCommerceTargetLocales(localeInput),
+    slots: normalizeCommerceSetSlots(source.slots, slotCount, platformTemplateId),
+    targetLocales,
     translatePrompt: cleanText(source.translatePrompt, COMMERCE_SET_LIMITS.maxTranslatePromptLength) || schema.defaults.translatePrompt,
+    translationItems: mode === "translate" ? normalizeCommerceTranslationItems(source.translationItems, targetLocales) : [],
     saveTarget,
     reusableName: cleanText(source.reusableName, COMMERCE_SET_LIMITS.maxPlanTitleLength) || title,
     executionPolicy: {
@@ -325,8 +412,9 @@ export function parseCommerceSetPromptPlan(value: unknown): CommerceSetPromptPla
     const source = record(JSON.parse(json));
     if (source.mode !== "generate" && source.mode !== "translate") return null;
     const mode = source.mode;
+    const platformTemplateId = normalizeCommercePlatformTemplateId(source.platformTemplateId);
     const rawSlots = Array.isArray(source.slots) ? source.slots : [];
-    const slots = mode === "generate" ? normalizeCommerceSetSlots(rawSlots, rawSlots.length) : [];
+    const slots = mode === "generate" ? normalizeCommerceSetSlots(rawSlots, rawSlots.length, platformTemplateId) : [];
     if (
       (mode === "generate" && (
         rawSlots.length < COMMERCE_SET_LIMITS.minSlots || rawSlots.length > COMMERCE_SET_LIMITS.maxSlots ||
@@ -358,27 +446,55 @@ export function parseCommerceSetPromptPlan(value: unknown): CommerceSetPromptPla
     const planHash = cleanText(source.planHash, 48).toLowerCase();
     const rawSourceNodeIds = Array.isArray(source.sourceNodeIds) ? source.sourceNodeIds : [];
     const sourceNodeIds = rawSourceNodeIds.map((item) => cleanText(item, 160));
+    const hasMaterialHash = Object.prototype.hasOwnProperty.call(source, "planMaterialHash");
+    const planMaterialHash = cleanText(source.planMaterialHash, 64).toLowerCase();
+    const rawTranslationItems = Array.isArray(source.translationItems) ? source.translationItems : [];
+    const translationItems = mode === "translate"
+      ? normalizeCommerceTranslationItems(rawTranslationItems, targetLocales)
+      : [];
     if (
       source.schemaVersion !== COMMERCE_SET_SCHEMA_VERSION ||
+      ("platformTemplateId" in source && source.platformTemplateId !== platformTemplateId) ||
       source.planHash !== planHash || declaredPlanHashes[0][1] !== planHash ||
       !/^commerce-[a-f0-9]{32}$/.test(planHash) ||
       !Number.isSafeInteger(sourceCount) || sourceCount < 1 || sourceCount > COMMERCE_SET_LIMITS.maxSourceCount ||
       !Number.isSafeInteger(outputsPerSource) || outputsPerSource !== expectedOutputsPerSource || outputsPerSource < 1 || outputsPerSource > COMMERCE_SET_LIMITS.maxTotalRequests ||
       !Number.isSafeInteger(totalRequests) || totalRequests !== sourceCount * outputsPerSource || totalRequests > COMMERCE_SET_LIMITS.maxTotalRequests ||
       rawSourceNodeIds.some((item, index) => typeof item !== "string" || !sourceNodeIds[index] || item !== sourceNodeIds[index]) ||
-      new Set(sourceNodeIds).size !== sourceNodeIds.length || sourceNodeIds.length > sourceCount
+      new Set(sourceNodeIds).size !== sourceNodeIds.length || sourceNodeIds.length > sourceCount ||
+      (mode === "generate" && rawTranslationItems.length !== 0) ||
+      translationItems.length !== rawTranslationItems.length ||
+      translationItems.some((item, index) => {
+        const raw = record(rawTranslationItems[index]);
+        return raw.sourceIndex !== item.sourceIndex || raw.localeCode !== item.localeCode || raw.prompt !== item.prompt || item.sourceIndex >= sourceCount;
+      }) ||
+      (hasMaterialHash && (
+        !/^[a-f0-9]{32}$/.test(planMaterialHash) ||
+        planMaterialHash !== commerceSetPromptMaterialHash({
+          mode,
+          platformTemplateId,
+          title: cleanText(source.title, COMMERCE_SET_LIMITS.maxPlanTitleLength) || commerceSetSchema.defaults.planTitle,
+          slots,
+          targetLocales,
+          translatePrompt,
+          translationItems
+        }, sourceNodeIds)
+      ))
     ) return null;
     return {
       schemaVersion: COMMERCE_SET_SCHEMA_VERSION,
       planHash,
+      ...(hasMaterialHash ? { planMaterialHash } : {}),
       mode,
+      platformTemplateId,
       sourceCount,
       sourceNodeIds,
       outputsPerSource,
       totalRequests,
       slots,
       targetLocales,
-      translatePrompt
+      translatePrompt,
+      translationItems
     };
   } catch {
     return null;
@@ -470,6 +586,16 @@ function matrixKey(...parts: string[]): string {
   return parts.map((part) => encodeURIComponent(part)).join(":");
 }
 
+export function commerceSetTranslationItemPrompt(value: unknown, sourceIndex: number, localeCode: string): string {
+  const source = record(value);
+  const items = Array.isArray(source.translationItems) ? source.translationItems : [];
+  const match = items.find((item) => {
+    const candidate = record(item);
+    return candidate.sourceIndex === sourceIndex && candidate.localeCode === localeCode;
+  });
+  return match ? cleanText(record(match).prompt, COMMERCE_SET_LIMITS.maxTranslationItemPromptLength) : "";
+}
+
 export function buildCommerceSetMatrix(value: unknown, sources: number | readonly unknown[]): CommerceSetMatrixJob[] {
   const plan = normalizeCommerceSetPlan(value);
   const sourceKeys = normalizeCommerceSourceKeys(sources);
@@ -486,7 +612,8 @@ export function buildCommerceSetMatrix(value: unknown, sources: number | readonl
       slotTitle: `来源图 ${sourceIndex + 1}`,
       slotPrompt: plan.translatePrompt,
       localeCode: locale.code,
-      localePrompt: locale.prompt
+      localePrompt: locale.prompt,
+      itemPrompt: commerceSetTranslationItemPrompt(plan, sourceIndex, locale.code)
     })));
   }
   const locales = plan.targetLocales.length
@@ -503,7 +630,8 @@ export function buildCommerceSetMatrix(value: unknown, sources: number | readonl
     slotTitle: slot.title,
     slotPrompt: slot.prompt,
     localeCode: locale.code,
-    localePrompt: locale.prompt
+    localePrompt: locale.prompt,
+    itemPrompt: ""
   }))));
 }
 
@@ -523,6 +651,41 @@ function canonicalCommerceSetJson(value: unknown): string {
     return `{${Object.keys(source).sort().map((key) => `${JSON.stringify(key)}:${canonicalCommerceSetJson(source[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+// Keep this tiny digest in sync with the CJS prompt parser. It fingerprints
+// visible plan material without changing the legacy commerce-* identifier.
+function stableCommerceMaterialHash(value: string): string {
+  const hashes = [2166136261, 2246822507, 3266489909, 668265263];
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    hashes[0] = Math.imul(hashes[0] ^ code, 16777619);
+    hashes[1] = Math.imul(hashes[1] ^ (code + index), 2246822519);
+    hashes[2] = Math.imul(hashes[2] ^ (code + hashes[0]), 3266489917);
+    hashes[3] = Math.imul(hashes[3] ^ (code + hashes[1]), 668265263);
+  }
+  return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, "0")).join("");
+}
+
+function commerceSetPromptMaterial(plan: unknown, sourceNodeIds: readonly unknown[] = []) {
+  const normalized = normalizeCommerceSetPlan(plan);
+  return {
+    version: 1,
+    sourceNodeIds: normalizeCommerceSourceKeys(sourceNodeIds),
+    plan: {
+      mode: normalized.mode,
+      platformTemplateId: normalized.platformTemplateId,
+      title: normalized.title,
+      slots: normalized.mode === "generate" ? normalized.slots : [],
+      targetLocales: normalized.targetLocales,
+      translatePrompt: normalized.mode === "translate" ? normalized.translatePrompt : "",
+      translationItems: normalized.mode === "translate" ? normalized.translationItems : []
+    }
+  };
+}
+
+export function commerceSetPromptMaterialHash(plan: unknown, sourceNodeIds: readonly unknown[] = []): string {
+  return stableCommerceMaterialHash(canonicalCommerceSetJson(commerceSetPromptMaterial(plan, sourceNodeIds)));
 }
 
 export function serializeCommerceSetSnapshotMaterial(value: unknown, sources: number | readonly unknown[]): string {

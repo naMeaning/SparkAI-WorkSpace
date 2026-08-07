@@ -22,7 +22,7 @@ const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const fallbackPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
-const THEME_IDS = ["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"];
+const THEME_IDS = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"];
 const MATERIAL_IDS = ["clear", "frosted", "dense"];
 const RAIL_TAB_IDS = ["results", "layers", "requirements", "templates", "history"];
 const VIEW_MODE_IDS = ["workbench", "focus", "review"];
@@ -41,8 +41,8 @@ const CUSTOM_APPEARANCE = Object.freeze({
 });
 
 const qaInventory = [
-  { id: "default", claim: "A fresh workspace starts with light-sky and Frosted glass.", evidence: "00-default-workbench.png" },
-  { id: "themes", claim: "All six registered themes update the live root without rebuilding canvas state.", evidence: "01-theme-*.png" },
+  { id: "default", claim: "A fresh workspace starts with dark-ember and Frosted glass.", evidence: "00-default-workbench.png" },
+  { id: "themes", claim: "All seven registered themes update the live root without rebuilding canvas state.", evidence: "01-theme-*.png" },
   { id: "materials", claim: "Clear, Frosted and Dense are live material presets.", evidence: "02-material-*.png" },
   { id: "custom-controls", claim: "Every numeric range, accent, noise and reduced-motion control updates live root tokens and can restore the recommended preset.", evidence: "03-custom-all-controls.png + 03-reset-recommended.png" },
   { id: "rapid-theme-switch", claim: "Rapid light/dark switching preserves the same canonical canvas and node DOM objects and geometry.", evidence: "report.json rapidThemeSwitch + canvasDomIdentity" },
@@ -256,6 +256,18 @@ async function readCanvasDomProbe() {
 }
 
 async function assertCanvasDomProbe(label, expected) {
+  try {
+    await waitFor(`(() => {
+      const probe = window.__naimageGlassCanvasDomProbe;
+      const canvas = document.querySelector('.workflow-canvas');
+      if (!probe || !(canvas instanceof HTMLElement) || canvas !== probe.canvas || !probe.canvas.isConnected) return false;
+      const nodes = Array.from(canvas.querySelectorAll('.flow-node[data-node-id]'));
+      return nodes.length === probe.nodeRefs.size && nodes.every((node) => probe.nodeRefs.get(node.getAttribute('data-node-id') || '') === node);
+    })()`, 5_000, 80);
+  } catch (error) {
+    const actual = await readCanvasDomProbe();
+    throw new Error(`${label} canvas DOM probe did not stabilize: ${JSON.stringify({ expectedNodeIds: expected?.nodeIds || [], actual })}`, { cause: error });
+  }
   const actual = await readCanvasDomProbe();
   assert(actual, `${label} canvas DOM probe is unavailable`);
   assert.equal(actual.sameCanvas, true, `${label} must preserve the canonical canvas DOM object`);
@@ -575,12 +587,716 @@ async function selectWorkspaceMode(modeId) {
   }))()`);
 }
 
+async function runWorkspaceDomainSmoke() {
+  const seeded = await evaluate(client, `(async () => {
+    const result = await window.__naimageAIDebug.seedSelectionCanvas();
+    await window.__naimageAIDebug.fitCanvas();
+    await window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' });
+    return { result, state: window.__naimageAIDebug.state() };
+  })()`, 30_000);
+  assert.equal(seeded?.result?.ok, true);
+  assert.equal(seeded.state.workspaceDomain, "general");
+  assert.equal(seeded.state.selectedNodeId, "A");
+
+  const invariant = await readCanvasInvariant();
+  assert(invariant?.nodeIds?.length > 0);
+  const domBaseline = await installCanvasDomProbe();
+  assert(domBaseline?.nodeIds?.length > 0);
+  const executionBaseline = {
+    agentStatus: seeded.state.agentStatus,
+    activeRunId: seeded.state.activeRunId,
+    messageCount: seeded.state.messageCount,
+    progressCount: seeded.state.progressCount,
+    nodeCount: seeded.state.nodeCount,
+    selectedNodeId: seeded.state.selectedNodeId,
+    selectedNodeIds: seeded.state.selectedNodeIds
+  };
+
+  const trigger = await evaluate(client, `(() => {
+    const element = document.querySelector('.workspace-domain-switcher-trigger');
+    return element instanceof HTMLElement ? { text: element.textContent?.trim(), title: element.title } : null;
+  })()`);
+  assert.match(trigger?.text || "", /通用创作/);
+  assert.match(trigger?.title || "", /Ctrl\/Cmd \+ 1/);
+
+  const compactWindow = await setWindowSize(884, 640);
+  assert(Math.abs(compactWindow.metrics.innerWidth - 884) <= 2);
+  const compactTrigger = await evaluate(client, `(() => {
+    const trigger = document.querySelector('.workspace-domain-switcher-trigger');
+    const label = trigger?.querySelector('span:nth-child(2)');
+    if (!(trigger instanceof HTMLElement) || !(label instanceof HTMLElement)) return null;
+    const triggerRect = trigger.getBoundingClientRect();
+    const labelRect = label.getBoundingClientRect();
+    const labelStyle = getComputedStyle(label);
+    return {
+      text: label.textContent?.trim() || '',
+      triggerWidth: triggerRect.width,
+      labelWidth: labelRect.width,
+      labelPosition: labelStyle.position,
+      insideViewport: triggerRect.left >= -1 && triggerRect.right <= innerWidth + 1
+    };
+  })()`);
+  assert.equal(compactTrigger?.text, "通用创作");
+  assert((compactTrigger?.triggerWidth || 0) >= 72);
+  assert((compactTrigger?.labelWidth || 0) >= 36);
+  assert.notEqual(compactTrigger?.labelPosition, "absolute");
+  assert.equal(compactTrigger?.insideViewport, true);
+  await clickSelector(".workspace-domain-switcher-trigger");
+  await waitFor("document.querySelectorAll('.workspace-domain-menu > button').length === 4");
+  const compactMenu = await evaluate(client, `(() => {
+    const menu = document.querySelector('.workspace-domain-menu');
+    if (!(menu instanceof HTMLElement)) return null;
+    const rect = menu.getBoundingClientRect();
+    return {
+      titles: Array.from(menu.querySelectorAll('strong')).map((item) => item.textContent?.trim() || ''),
+      insideViewport: rect.left >= -1 && rect.top >= -1 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1
+    };
+  })()`);
+  assert.deepEqual(compactMenu?.titles, ["通用创作", "电商创作", "社媒创作", "科研绘图"]);
+  assert.equal(compactMenu?.insideViewport, true);
+  await capture("workspace-domain-compact-menu");
+  await clickSelector(".workspace-domain-switcher-trigger");
+  await waitFor("!document.querySelector('.workspace-domain-menu')");
+  await setWindowSize(1400, 900);
+  await waitFor("innerWidth >= 1300 && innerHeight >= 800");
+
+  await clickSelector(".workspace-domain-switcher-trigger");
+  await waitFor("document.querySelectorAll('.workspace-domain-menu > button').length === 4");
+  const menu = await evaluate(client, `(() => ({
+    items: Array.from(document.querySelectorAll('.workspace-domain-menu > button')).map((button) => ({
+      title: button.querySelector('strong')?.textContent?.trim() || '',
+      description: button.querySelector('small')?.textContent?.trim() || '',
+      shortcut: button.getAttribute('aria-keyshortcuts') || '',
+      visibleShortcutCount: button.querySelectorAll('kbd').length
+    })),
+    activeCount: document.querySelectorAll('.workspace-domain-menu > button[aria-checked="true"]').length
+  }))()`);
+  assert.deepEqual(menu.items.map((item) => item.title), ["通用创作", "电商创作", "社媒创作", "科研绘图"]);
+  assert(menu.items.every((item) => item.description.length > 0));
+  assert(menu.items.every((item) => item.shortcut.includes("Control+") && item.visibleShortcutCount === 0));
+  assert.equal(menu.activeCount, 1);
+
+  await clickSelector(".workspace-domain-menu > button", 1);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'commerce' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-commerce')");
+  await assertCanvasInvariant("Commerce domain switch", invariant);
+  const commerceDom = await readCanvasDomProbe();
+  assert.equal(commerceDom?.sameCanvas, true);
+  assert.equal(commerceDom?.sameNodeCount, true);
+  assert.equal(commerceDom?.sameNodeElements, true);
+  assert.equal(commerceDom?.canvasConnected, true);
+  assert.deepEqual(commerceDom?.nodeIds, domBaseline.nodeIds);
+
+  await waitFor("Boolean(document.querySelector('.workspace-domain-tools[data-workspace-domain=\"commerce\"]'))");
+  await waitFor("document.querySelectorAll('.workspace-domain-tool-button').length === 6");
+  const commerceRail = await evaluate(client, `(() => ({
+    heading: document.querySelector('.workspace-domain-tools-heading')?.textContent?.trim() || '',
+    commands: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('data-domain-tool-command') || ''),
+    labels: Array.from(document.querySelectorAll('.workspace-domain-tool-button span')).map((item) => item.textContent?.trim() || ''),
+    shortcutTitles: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('title') || ''),
+    recoveryVisible: Boolean(document.querySelector('.workspace-domain-tools-settings'))
+  }))()`);
+  assert.match(commerceRail.heading, /电商工具/);
+  assert.deepEqual(commerceRail.commands, [
+    "sparkai.commerce-toolkit.open-sku-library",
+    "sparkai.commerce-toolkit.generate-listing-set",
+    "sparkai.commerce-toolkit.translate-listing-set",
+    "sparkai.commerce-toolkit.open-template-market",
+    "sparkai.commerce-toolkit.open-ab-comparison",
+    "sparkai.commerce-toolkit.open-export-center"
+  ]);
+  assert.deepEqual(commerceRail.labels, ["SKU", "套图", "翻译", "模板", "A/B", "导出"]);
+  assert(commerceRail.shortcutTitles.every((title) => title.includes("Ctrl/⌘")));
+  assert.equal(commerceRail.recoveryVisible, false);
+  await capture("workspace-domain-commerce-tools");
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'social' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-social')");
+  await waitFor("document.querySelectorAll('.workspace-domain-tool-button').length === 5");
+  await assertCanvasInvariant("Social domain shortcut", invariant);
+  const socialRail = await evaluate(client, `(() => ({
+    heading: document.querySelector('.workspace-domain-tools-heading')?.textContent?.trim() || '',
+    commands: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('data-domain-tool-command') || ''),
+    recoveryVisible: Boolean(document.querySelector('.workspace-domain-tools-settings'))
+  }))()`);
+  assert.match(socialRail.heading, /社媒工具/);
+  assert.equal(socialRail.commands.length, 5);
+  assert.equal(socialRail.recoveryVisible, false);
+  await capture("workspace-domain-social-tools");
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '4', code: 'Digit4', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'research' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-research')");
+  await waitFor("document.querySelectorAll('.workspace-domain-tool-button').length === 6");
+  await assertCanvasInvariant("Research domain shortcut", invariant);
+  const researchRail = await evaluate(client, `(() => ({
+    heading: document.querySelector('.workspace-domain-tools-heading')?.textContent?.trim() || '',
+    commands: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('data-domain-tool-command') || ''),
+    recoveryVisible: Boolean(document.querySelector('.workspace-domain-tools-settings'))
+  }))()`);
+  assert.match(researchRail.heading, /科研工具/);
+  assert.equal(researchRail.commands.length, 6);
+  assert.equal(researchRail.recoveryVisible, false);
+  await capture("workspace-domain-research-tools");
+
+  await clickSelector(".project-quick-actions > button", 0);
+  await waitFor("document.querySelectorAll('.project-create-dialog .project-domain-card').length === 4");
+  const projectDialog = await evaluate(client, `(() => ({
+    titles: Array.from(document.querySelectorAll('.project-create-dialog .project-domain-card strong')).map((item) => item.textContent?.trim() || ''),
+    descriptions: Array.from(document.querySelectorAll('.project-create-dialog .project-domain-card small')).map((item) => item.textContent?.trim() || ''),
+    selected: document.querySelector('.project-create-dialog .project-domain-card[aria-pressed="true"] strong')?.textContent?.trim() || ''
+  }))()`);
+  assert.deepEqual(projectDialog.titles, ["通用创作", "电商创作", "社媒创作", "科研绘图"]);
+  assert(projectDialog.descriptions.every((item) => item.length > 0));
+  assert.equal(projectDialog.selected, "科研绘图", "New projects must inherit the current workspace domain until the user chooses another card");
+  await capture("workspace-domain-new-project");
+  await clickSelector('.project-create-dialog button[aria-label="关闭新建项目"]');
+  await waitFor("!document.querySelector('.project-create-dialog')");
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'general' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-general')");
+  const finalState = await evaluate(client, "window.__naimageAIDebug.state()");
+  assert.deepEqual({
+    agentStatus: finalState.agentStatus,
+    activeRunId: finalState.activeRunId,
+    messageCount: finalState.messageCount,
+    progressCount: finalState.progressCount,
+    nodeCount: finalState.nodeCount,
+    selectedNodeId: finalState.selectedNodeId,
+    selectedNodeIds: finalState.selectedNodeIds
+  }, executionBaseline, "Workspace switching must not alter Agent execution, messages, nodes, or selection");
+  await assertCanvasInvariant("Return to general domain", invariant);
+  assert.deepEqual(consoleErrors, [], `Renderer console errors were recorded: ${JSON.stringify(consoleErrors, null, 2)}`);
+
+  checks.workspaceDomain = {
+    ok: true,
+    domains: menu.items.map((item) => item.title),
+    selectedNodeId: finalState.selectedNodeId,
+    canvasDomPreserved: true,
+    agentExecutionPreserved: true,
+    compactTrigger,
+    compactMenu,
+    commerceTools: commerceRail.commands,
+    socialTools: socialRail.commands,
+    researchTools: researchRail.commands,
+    projectCards: projectDialog.titles
+  };
+  const report = reporting.finishSuiteRun({
+    results: evidenceResults,
+    reportMetadata: {
+      mode: "workspace-domain-smoke",
+      suite: "workspace-domain-gui",
+      agentMode: "mock-agent",
+      liveImageProvider: false,
+      networkUsedForGeneration: false
+    },
+    reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors },
+    consoleAfterSummary: { checks: 1, screenshots: Object.keys(screenshots).length, consoleErrors: consoleErrors.length }
+  });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: "workspace-domain-gui", report: join(runDir, "report.json"), screenshot: screenshots["workspace-domain-new-project"]?.path })}\n`);
+}
+
+async function readSocialContentDialog() {
+  return evaluate(client, `(() => {
+    const dialog = document.querySelector('.social-content-dialog');
+    if (!(dialog instanceof HTMLElement)) return null;
+    const body = dialog.querySelector('.social-content-body');
+    const footer = dialog.querySelector('.ui-surface-footer');
+    const rect = dialog.getBoundingClientRect();
+    const footerRect = footer?.getBoundingClientRect();
+    return {
+      title: dialog.querySelector('.ui-surface-heading h2')?.textContent?.trim() || '',
+      activePlatform: dialog.querySelector('.social-platform-switch button[aria-pressed="true"] strong')?.textContent?.trim() || '',
+      selectValues: Array.from(dialog.querySelectorAll('select')).map((item) => item.value),
+      numberValues: Array.from(dialog.querySelectorAll('input[type="number"]')).map((item) => item.value),
+      readonlyValues: Array.from(dialog.querySelectorAll('input[readonly]')).map((item) => item.value),
+      notices: Array.from(dialog.querySelectorAll('.ui-inline-notice-copy')).map((item) => item.textContent?.replace(/\\s+/g, ' ').trim() || ''),
+      sourceSummary: dialog.querySelector('.social-source-summary')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      footerSummary: dialog.querySelector('.social-content-footer-summary')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+      viewportOk: rect.left >= -1 && rect.top >= -1 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1,
+      footerViewportOk: Boolean(footerRect && footerRect.left >= -1 && footerRect.top >= -1 && footerRect.right <= innerWidth + 1 && footerRect.bottom <= innerHeight + 1),
+      bodyOverflowX: body instanceof HTMLElement ? body.scrollWidth > body.clientWidth + 1 : true,
+      dialogRect: { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+    };
+  })()`);
+}
+
+async function runSocialContentSmoke() {
+  const seeded = await evaluate(client, `(async () => {
+    const result = await window.__naimageAIDebug.seedSelectionCanvas();
+    await window.__naimageAIDebug.fitCanvas();
+    await window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' });
+    return { result, state: window.__naimageAIDebug.state() };
+  })()`, 30_000);
+  assert.equal(seeded?.result?.ok, true);
+  assert.equal(seeded.state.workspaceDomain, "general");
+  assert.equal(seeded.state.selectedNodeId, "A");
+  const invariant = await readCanvasInvariant();
+  const baseline = {
+    agentStatus: seeded.state.agentStatus,
+    activeRunId: seeded.state.activeRunId,
+    messageCount: seeded.state.messageCount,
+    progressCount: seeded.state.progressCount,
+    nodeCount: seeded.state.nodeCount,
+    selectedNodeId: seeded.state.selectedNodeId,
+    selectedNodeIds: seeded.state.selectedNodeIds
+  };
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '3', code: 'Digit3', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'social' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-social')");
+  await assertCanvasInvariant("Social domain switch", invariant);
+  await waitFor("Boolean(document.querySelector('.workspace-domain-tools[data-workspace-domain=\"social\"]'))");
+
+  const beforeInstall = await evaluate(client, `(() => ({
+    toolCount: document.querySelectorAll('.workspace-domain-tool-button').length,
+    recoveryLabel: document.querySelector('.workspace-domain-tools-settings')?.getAttribute('aria-label') || ''
+  }))()`);
+  assert.equal(beforeInstall.toolCount, 0);
+  assert.equal(beforeInstall.recoveryLabel, "前往设置启用社媒工具");
+  await clickSelector(".workspace-domain-tools-settings");
+  await waitFor("document.querySelector('.settings-drawer .settings-section-tab[aria-pressed=\"true\"]')?.textContent?.trim() === '插件'");
+  await waitFor("Boolean(document.querySelector('[data-plugin-id=\"sparkai.social-content\"] .ui-action-primary'))");
+  await clickSelector('[data-plugin-id="sparkai.social-content"] .ui-action-primary');
+  await waitFor("document.querySelector('[data-plugin-id=\"sparkai.social-content\"] .settings-plugin-enable-toggle')?.getAttribute('aria-checked') === 'true'");
+  await clickSelector(".settings-drawer .settings-surface-footer .ui-action-primary");
+  await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
+  await clickSelector(".settings-drawer .ui-surface-close");
+  await waitFor("!document.querySelector('.settings-drawer') && document.querySelectorAll('.workspace-domain-tool-button').length === 5");
+
+  const tools = await evaluate(client, `(() => ({
+    commands: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('data-domain-tool-command') || ''),
+    labels: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.querySelector('span')?.textContent?.trim() || ''),
+    titles: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('title') || ''),
+    visibleShortcutCount: document.querySelectorAll('.workspace-domain-tool-button kbd').length
+  }))()`);
+  assert.deepEqual(tools.commands, [
+    "sparkai.social-content.new-xiaohongshu",
+    "sparkai.social-content.new-douyin",
+    "sparkai.social-content.open-recent",
+    "sparkai.social-content.open-templates",
+    "sparkai.social-content.open-publish-export"
+  ]);
+  assert.deepEqual(tools.labels, ["小红书", "抖音", "最近", "模板", "导出"]);
+  assert.equal(tools.visibleShortcutCount, 0);
+  assert(tools.titles[0].includes("Ctrl/⌘") && tools.titles[1].includes("Ctrl/⌘"));
+
+  await clickSelector('[data-domain-tool-command="sparkai.social-content.new-xiaohongshu"]');
+  await waitFor("Boolean(document.querySelector('.social-content-dialog'))");
+  const xiaohongshu = await readSocialContentDialog();
+  assert.equal(xiaohongshu?.title, "新建小红书图文");
+  assert.equal(xiaohongshu?.activePlatform, "小红书图文");
+  assert.deepEqual(xiaohongshu?.selectValues, ["experience-share", "3:4"]);
+  assert.deepEqual(xiaohongshu?.numberValues, ["7"]);
+  assert(xiaohongshu?.notices.some((item) => item.includes("第一次使用该工作流")));
+  assert(xiaohongshu?.notices.some((item) => item.includes("预计生成约 8 张") && item.includes("点击执行即授权")));
+  assert.match(xiaohongshu?.sourceSummary || "", /使用当前选中的 1 个图片素材范围/);
+  assert.match(xiaohongshu?.footerSummary || "", /7 页图文.*8 张素材/);
+  assert.equal(xiaohongshu?.viewportOk, true);
+  assert.equal(xiaohongshu?.footerViewportOk, true);
+  assert.equal(xiaohongshu?.bodyOverflowX, false);
+  await capture("social-xiaohongshu-dialog");
+  await clickSelector(".social-content-dialog .ui-surface-close");
+  await waitFor("!document.querySelector('.social-content-dialog')");
+
+  await clickSelector('[data-domain-tool-command="sparkai.social-content.new-douyin"]');
+  await waitFor("Boolean(document.querySelector('.social-content-dialog'))");
+  const douyin = await readSocialContentDialog();
+  assert.equal(douyin?.title, "新建抖音短视频");
+  assert.equal(douyin?.activePlatform, "抖音短视频");
+  assert.deepEqual(douyin?.selectValues, ["voiceover-assets", "30"]);
+  assert.deepEqual(douyin?.numberValues, ["6"]);
+  assert.deepEqual(douyin?.readonlyValues, ["9:16"]);
+  assert(douyin?.notices.some((item) => item.includes("第一次使用该工作流")));
+  assert(douyin?.notices.some((item) => item.includes("预计生成约 7 张") && item.includes("1 个视频任务") && item.includes("点击执行即授权")));
+  assert.match(douyin?.footerSummary || "", /30 秒.*6 镜.*7 张素材/);
+  assert.equal(douyin?.viewportOk, true);
+  assert.equal(douyin?.footerViewportOk, true);
+  assert.equal(douyin?.bodyOverflowX, false);
+  await capture("social-douyin-dialog");
+  await clickSelector(".social-content-dialog .ui-surface-close");
+  await waitFor("!document.querySelector('.social-content-dialog')");
+
+  await clickSelector('[data-domain-tool-command="sparkai.social-content.open-publish-export"]');
+  await waitFor("document.querySelector('.workspace-asset-rail')?.getAttribute('data-active-tab') === 'requirements'");
+  await waitFor("document.querySelector('.project-agent-panel')?.textContent?.includes('当前画布还没有可导出的社媒项目。') === true");
+  const finalState = await evaluate(client, "window.__naimageAIDebug.state()");
+  assert.equal(finalState.messageCount, baseline.messageCount + 1, "Missing export guidance should add one local system message, not invoke the model");
+  assert.deepEqual({
+    agentStatus: finalState.agentStatus,
+    activeRunId: finalState.activeRunId,
+    progressCount: finalState.progressCount,
+    nodeCount: finalState.nodeCount,
+    selectedNodeId: finalState.selectedNodeId,
+    selectedNodeIds: finalState.selectedNodeIds
+  }, {
+    agentStatus: baseline.agentStatus,
+    activeRunId: baseline.activeRunId,
+    progressCount: baseline.progressCount,
+    nodeCount: baseline.nodeCount,
+    selectedNodeId: baseline.selectedNodeId,
+    selectedNodeIds: baseline.selectedNodeIds
+  }, "Switching mode and opening Social dialogs must not call a model, mutate canvas nodes, or alter selection");
+  await assertCanvasInvariant("Social dialog and export guidance", invariant);
+  assert.deepEqual(consoleErrors, [], `Renderer console errors were recorded: ${JSON.stringify(consoleErrors, null, 2)}`);
+  await capture("social-export-guidance");
+
+  checks.socialContent = {
+    ok: true,
+    commands: tools.commands,
+    labels: tools.labels,
+    xiaohongshu,
+    douyin,
+    exportGuard: { activeRailTab: "requirements", localGuidanceMessages: 1, directoryPickerGuardedByMissingRequirement: true },
+    modelCalls: 0,
+    providerCalls: 0
+  };
+  const report = reporting.finishSuiteRun({
+    results: evidenceResults,
+    reportMetadata: {
+      mode: "social-content-smoke",
+      suite: "social-content-gui",
+      agentMode: "mock-agent",
+      liveImageProvider: false,
+      networkUsedForGeneration: false
+    },
+    reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors },
+    consoleAfterSummary: { checks: 1, screenshots: Object.keys(screenshots).length, consoleErrors: consoleErrors.length }
+  });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: "social-content-gui", report: join(runDir, "report.json"), screenshots: Object.keys(screenshots).length, modelCalls: 0 })}\n`);
+}
+
+async function readScientificFigureDialog() {
+  return evaluate(client, `(() => {
+    const dialog = document.querySelector('.scientific-figure-dialog');
+    if (!(dialog instanceof HTMLElement)) return null;
+    const body = dialog.querySelector('.scientific-figure-body');
+    const footer = dialog.querySelector('.ui-surface-footer');
+    const rect = dialog.getBoundingClientRect();
+    const footerRect = footer?.getBoundingClientRect();
+    const style = getComputedStyle(dialog);
+    return {
+      title: dialog.querySelector('.ui-surface-heading h2')?.textContent?.trim() || '',
+      hero: dialog.querySelector('.scientific-hero')?.textContent?.replace(/\s+/g, ' ').trim() || '',
+      typeLabels: Array.from(dialog.querySelectorAll('.scientific-type-grid button span')).map((item) => item.textContent?.trim() || ''),
+      backendLabels: Array.from(dialog.querySelectorAll('.scientific-backend-switch button > span')).map((item) => item.textContent?.trim() || ''),
+      activeBackend: dialog.querySelector('.scientific-backend-switch button.active > span')?.textContent?.trim() || '',
+      issueLabels: Array.from(dialog.querySelectorAll('.scientific-checklist li')).map((item) => item.textContent?.trim() || ''),
+      panelCount: dialog.querySelectorAll('.scientific-panel-card').length,
+      hasDataEmptyState: Boolean(dialog.querySelector('.scientific-data-empty')),
+      footerActions: Array.from(dialog.querySelectorAll('.ui-surface-footer button')).map((item) => ({ text: item.textContent?.trim() || '', disabled: item.disabled })),
+      viewportOk: rect.left >= -1 && rect.top >= -1 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1,
+      footerViewportOk: Boolean(footerRect && footerRect.left >= -1 && footerRect.top >= -1 && footerRect.right <= innerWidth + 1 && footerRect.bottom <= innerHeight + 1),
+      bodyOverflowX: body instanceof HTMLElement ? body.scrollWidth > body.clientWidth + 1 : true,
+      borderRadius: style.borderRadius,
+      backgroundColor: style.backgroundColor,
+      dialogRect: { left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+    };
+  })()`);
+}
+
+async function runScientificFigureSmoke() {
+  const seeded = await evaluate(client, `(async () => {
+    const result = await window.__naimageAIDebug.seedSelectionCanvas();
+    await window.__naimageAIDebug.fitCanvas();
+    await window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' });
+    return { result, state: window.__naimageAIDebug.state() };
+  })()`, 30_000);
+  assert.equal(seeded?.result?.ok, true);
+  const invariant = await readCanvasInvariant();
+  const baseline = {
+    agentStatus: seeded.state.agentStatus,
+    activeRunId: seeded.state.activeRunId,
+    messageCount: seeded.state.messageCount,
+    progressCount: seeded.state.progressCount,
+    nodeCount: seeded.state.nodeCount,
+    selectedNodeId: seeded.state.selectedNodeId,
+    selectedNodeIds: seeded.state.selectedNodeIds
+  };
+  const nodeGlass = await evaluate(client, `(() => {
+    const node = Array.from(document.querySelectorAll('.flow-node[data-node-id="A"]')).find((candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      const style = getComputedStyle(candidate);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    });
+    const image = node?.querySelector('.node-image-preview img, .node-image-tile img, .container-image-tile img');
+    const nodeStyle = node ? getComputedStyle(node) : null;
+    const imageStyle = image ? getComputedStyle(image) : null;
+    return {
+      borderRadius: nodeStyle?.borderRadius || '',
+      backgroundColor: nodeStyle?.backgroundColor || '',
+      imageOpacity: imageStyle?.opacity || '',
+      imageFilter: imageStyle?.filter || '',
+      imageBlendMode: imageStyle?.mixBlendMode || ''
+    };
+  })()`);
+  assert(Number.parseFloat(nodeGlass.borderRadius) >= 10);
+  assert.notEqual(nodeGlass.backgroundColor, "rgba(0, 0, 0, 0)");
+  assert.equal(nodeGlass.imageOpacity, "1");
+  assert.equal(nodeGlass.imageFilter, "none");
+  assert.equal(nodeGlass.imageBlendMode, "normal");
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '4', code: 'Digit4', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'research' && document.querySelector('.ide-main')?.classList.contains('workspace-domain-research')");
+  await assertCanvasInvariant("Research domain switch", invariant);
+  await waitFor("Boolean(document.querySelector('.workspace-domain-tools[data-workspace-domain=\"research\"]'))");
+  const initialToolCount = await evaluate(client, "document.querySelectorAll('.workspace-domain-tool-button').length");
+  if (initialToolCount === 0) {
+    await clickSelector(".workspace-domain-tools-settings");
+    await waitFor("document.querySelector('.settings-drawer .settings-section-tab[aria-pressed=\"true\"]')?.textContent?.trim() === '插件'");
+    await waitFor("Boolean(document.querySelector('[data-plugin-id=\"sparkai.scientific-figure\"] .ui-action-primary'))");
+    await clickSelector('[data-plugin-id="sparkai.scientific-figure"] .ui-action-primary');
+    await waitFor("document.querySelector('[data-plugin-id=\"sparkai.scientific-figure\"] .settings-plugin-enable-toggle')?.getAttribute('aria-checked') === 'true'");
+    await clickSelector(".settings-drawer .settings-surface-footer .ui-action-primary");
+    await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
+    await clickSelector(".settings-drawer .ui-surface-close");
+  }
+  await waitFor("!document.querySelector('.settings-drawer') && document.querySelectorAll('.workspace-domain-tool-button').length === 6");
+  const tools = await evaluate(client, `(() => ({
+    commands: Array.from(document.querySelectorAll('.workspace-domain-tool-button')).map((button) => button.getAttribute('data-domain-tool-command') || ''),
+    labels: Array.from(document.querySelectorAll('.workspace-domain-tool-button span')).map((item) => item.textContent?.trim() || ''),
+    visibleShortcutCount: document.querySelectorAll('.workspace-domain-tool-button kbd').length
+  }))()`);
+  assert.deepEqual(tools.commands, [
+    "sparkai.scientific-figure.import-data",
+    "sparkai.scientific-figure.new-chart",
+    "sparkai.scientific-figure.new-panel",
+    "sparkai.scientific-figure.new-schematic",
+    "sparkai.scientific-figure.rerender",
+    "sparkai.scientific-figure.export"
+  ]);
+  assert.deepEqual(tools.labels, ["数据", "图表", "Panel", "示意", "重绘", "导出"]);
+  assert.equal(tools.visibleShortcutCount, 0);
+
+  await clickSelector('[data-domain-tool-command="sparkai.scientific-figure.new-chart"]');
+  await waitFor("Boolean(document.querySelector('.scientific-figure-dialog'))");
+  const chartInitial = await readScientificFigureDialog();
+  assert.equal(chartInitial?.title, "科研绘图工作台");
+  assert.match(chartInitial?.hero || "", /先讲清结论.*受控执行/);
+  assert.deepEqual(chartInitial?.typeLabels, ["数据图表", "多 Panel 论文图", "科研示意图", "流程图", "论文图片比较"]);
+  assert.deepEqual(chartInitial?.backendLabels, ["Python", "R"]);
+  assert.equal(chartInitial?.activeBackend, "");
+  assert.equal(chartInitial?.hasDataEmptyState, true);
+  assert(chartInitial?.issueLabels.some((item) => item.includes("Python 或 R")));
+  assert.equal(chartInitial?.viewportOk, true);
+  assert.equal(chartInitial?.footerViewportOk, true);
+  assert.equal(chartInitial?.bodyOverflowX, false);
+  assert(Number.parseFloat(chartInitial?.borderRadius || "0") >= 16);
+  await clickSelector(".scientific-backend-switch button", 0);
+  await waitFor("document.querySelector('.scientific-backend-switch button.active > span')?.textContent?.trim() === 'Python'");
+  const chartPython = await readScientificFigureDialog();
+  assert.equal(chartPython?.activeBackend, "Python");
+  assert.equal(chartPython?.issueLabels.some((item) => item.includes("Python 或 R")), false);
+  await capture("scientific-chart-glass-dialog");
+
+  await setWindowSize(1000, 700);
+  await waitFor("innerWidth <= 1000 && innerHeight <= 700");
+  const compact = await readScientificFigureDialog();
+  assert.equal(compact?.viewportOk, true);
+  assert.equal(compact?.footerViewportOk, true);
+  assert.equal(compact?.bodyOverflowX, false);
+  await capture("scientific-chart-compact-1000x700");
+  await setWindowSize(1400, 900);
+  await waitFor("innerWidth >= 1300 && innerHeight >= 800");
+  await clickSelector(".scientific-figure-dialog .ui-surface-close");
+  await waitFor("!document.querySelector('.scientific-figure-dialog')");
+
+  await clickSelector('[data-domain-tool-command="sparkai.scientific-figure.new-panel"]');
+  await waitFor("document.querySelectorAll('.scientific-panel-card').length === 2");
+  const panelDialog = await readScientificFigureDialog();
+  assert.equal(panelDialog?.panelCount, 2);
+  assert.equal(panelDialog?.viewportOk, true);
+  assert.equal(panelDialog?.bodyOverflowX, false);
+  await capture("scientific-panel-glass-dialog");
+  await clickSelector(".scientific-figure-dialog .ui-surface-close");
+  await waitFor("!document.querySelector('.scientific-figure-dialog')");
+
+  const finalState = await evaluate(client, "window.__naimageAIDebug.state()");
+  assert.deepEqual({
+    agentStatus: finalState.agentStatus,
+    activeRunId: finalState.activeRunId,
+    messageCount: finalState.messageCount,
+    progressCount: finalState.progressCount,
+    nodeCount: finalState.nodeCount,
+    selectedNodeId: finalState.selectedNodeId,
+    selectedNodeIds: finalState.selectedNodeIds
+  }, baseline, "Research planning dialogs must not call a model, mutate canvas nodes, or alter selection");
+  await assertCanvasInvariant("Scientific dialogs", invariant);
+  assert.deepEqual(consoleErrors, [], `Renderer console errors were recorded: ${JSON.stringify(consoleErrors, null, 2)}`);
+
+  checks.scientificFigure = {
+    ok: true,
+    commands: tools.commands,
+    labels: tools.labels,
+    chartInitial,
+    chartPython,
+    compact,
+    panelDialog,
+    nodeGlass,
+    modelCalls: 0,
+    providerCalls: 0,
+    runnerCalls: 0
+  };
+  const report = reporting.finishSuiteRun({
+    results: evidenceResults,
+    reportMetadata: {
+      mode: "scientific-figure-smoke",
+      suite: "scientific-figure-gui",
+      agentMode: "mock-agent",
+      liveImageProvider: false,
+      networkUsedForGeneration: false
+    },
+    reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors },
+    consoleAfterSummary: { checks: 1, screenshots: Object.keys(screenshots).length, consoleErrors: consoleErrors.length }
+  });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: "scientific-figure-gui", report: join(runDir, "report.json"), screenshots: Object.keys(screenshots).length, modelCalls: 0, runnerCalls: 0 })}\n`);
+}
+
+async function runCommerceTutorialSmoke() {
+  const seeded = await evaluate(client, `(async () => {
+    const result = await window.__naimageAIDebug.seedSelectionCanvas();
+    await window.__naimageAIDebug.fitCanvas();
+    await window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' });
+    return { result, state: window.__naimageAIDebug.state() };
+  })()`, 30_000);
+  assert.equal(seeded?.result?.ok, true);
+  const invariant = await readCanvasInvariant();
+  const baseline = {
+    agentStatus: seeded.state.agentStatus,
+    activeRunId: seeded.state.activeRunId,
+    messageCount: seeded.state.messageCount,
+    progressCount: seeded.state.progressCount,
+    nodeCount: seeded.state.nodeCount
+  };
+
+  await evaluate(client, `window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', ctrlKey: true, bubbles: true })); undefined`);
+  await waitFor("window.__naimageAIDebug.state().workspaceDomain === 'commerce' && Boolean(document.querySelector('.workspace-domain-tools[data-workspace-domain=\"commerce\"]'))");
+  const initialToolCount = await evaluate(client, "document.querySelectorAll('.workspace-domain-tool-button').length");
+  if (initialToolCount === 0) {
+    await clickSelector(".workspace-domain-tools-settings");
+    await waitFor("document.querySelector('.settings-drawer .settings-section-tab[aria-pressed=\"true\"]')?.textContent?.trim() === '插件'");
+    await clickSelector('[data-plugin-id="sparkai.commerce-toolkit"] .ui-action-primary');
+    await waitFor("document.querySelector('[data-plugin-id=\"sparkai.commerce-toolkit\"] .settings-plugin-enable-toggle')?.getAttribute('aria-checked') === 'true'");
+    await clickSelector(".settings-drawer .settings-surface-footer .ui-action-primary");
+    await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
+    await clickSelector(".settings-drawer .ui-surface-close");
+  }
+  await waitFor("!document.querySelector('.settings-drawer') && document.querySelectorAll('.workspace-domain-tool-button').length === 6");
+
+  await clickSelector(".app-help-button");
+  await waitFor("Boolean(document.querySelector('.help-center-dialog'))");
+  const tutorialNavIndex = await evaluate(client, `Array.from(document.querySelectorAll('.help-center-nav > button')).findIndex((button) => button.textContent?.includes('AI 示例教学'))`);
+  assert(tutorialNavIndex >= 0);
+  await clickSelector(".help-center-nav > button", tutorialNavIndex);
+  await waitFor("document.querySelector('.help-center-nav > button[aria-pressed=\"true\"]')?.textContent?.includes('AI 示例教学') === true");
+  await clickSelector(".help-tutorial-intro > .ui-action-button");
+  await waitFor("Boolean(document.querySelector('.commerce-tutorial-layer.stage-welcome')) && !document.querySelector('.help-center-dialog')");
+
+  const welcome = await evaluate(client, `(() => {
+    const coach = document.querySelector('.commerce-tutorial-coach');
+    const rect = coach?.getBoundingClientRect();
+    const style = coach ? getComputedStyle(coach) : null;
+    return {
+      title: coach?.querySelector('h3')?.textContent?.trim() || '',
+      safety: coach?.textContent?.includes('教学本身零费用') || false,
+      borderRadius: style?.borderRadius || '',
+      backgroundColor: style?.backgroundColor || '',
+      viewportOk: Boolean(rect && rect.left >= -1 && rect.top >= -1 && rect.right <= innerWidth + 1 && rect.bottom <= innerHeight + 1)
+    };
+  })()`);
+  assert.match(welcome.title, /第一套跨境商品图/);
+  assert.equal(welcome.safety, true);
+  assert(Number.parseFloat(welcome.borderRadius) >= 18);
+  assert.notEqual(welcome.backgroundColor, "rgba(0, 0, 0, 0)");
+  assert.equal(welcome.viewportOk, true);
+
+  await clickSelector(".stage-welcome .commerce-tutorial-action.primary");
+  await waitFor("Boolean(document.querySelector('.commerce-tutorial-layer.stage-import'))");
+  await capture("commerce-tutorial-import-glass");
+  await clickSelector(".stage-import .commerce-tutorial-actions .commerce-tutorial-action", 1);
+  await waitFor("Boolean(document.querySelector('.commerce-tutorial-layer.stage-tool'))");
+  const toolStage = await evaluate(client, `(() => ({
+    hasSpotlight: Boolean(document.querySelector('.commerce-tutorial-spotlight')),
+    copy: document.querySelector('.commerce-tutorial-content')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+    setToolVisible: Boolean(document.querySelector('[data-domain-tool-command="sparkai.commerce-toolkit.generate-listing-set"]'))
+  }))()`);
+  assert.equal(toolStage.hasSpotlight, true);
+  assert.equal(toolStage.setToolVisible, true);
+  assert.match(toolStage.copy, /套图.*Agent/);
+  await capture("commerce-tutorial-tool-choice");
+
+  await clickSelector(".stage-tool .commerce-tutorial-actions .commerce-tutorial-action", 1);
+  await waitFor("Boolean(document.querySelector('.commerce-tutorial-layer.stage-agent')) && document.querySelector('.project-agent-composer textarea')?.value?.includes('Amazon') === true");
+  const agentStage = await evaluate(client, `(() => ({
+    prompt: document.querySelector('.project-agent-composer textarea')?.value || '',
+    explainsNoSend: document.querySelector('.commerce-tutorial-notice')?.textContent?.includes('尚未发送') || false,
+    coachOnLeft: document.querySelector('.commerce-tutorial-coach')?.classList.contains('is-left') || false
+  }))()`);
+  assert.match(agentStage.prompt, /7 张上架套图/);
+  assert.equal(agentStage.explainsNoSend, true);
+  assert.equal(agentStage.coachOnLeft, true);
+  await capture("commerce-tutorial-agent-example");
+
+  await clickSelector(".stage-agent .commerce-tutorial-actions .commerce-tutorial-action", 1);
+  await waitFor("Boolean(document.querySelector('.commerce-set-dialog')) && Boolean(document.querySelector('.commerce-tutorial-layer.stage-consent'))");
+  const consent = await evaluate(client, `(() => ({
+    dialogTitle: document.querySelector('.commerce-set-dialog .ui-surface-heading h2')?.textContent?.trim() || '',
+    executionButtons: Array.from(document.querySelectorAll('.commerce-set-dialog .ui-surface-footer button')).map((button) => button.textContent?.trim() || ''),
+    feeCopy: document.querySelector('.commerce-set-execution')?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+    tutorialBehindDialog: Number(getComputedStyle(document.querySelector('.commerce-tutorial-layer')).zIndex) < Number(getComputedStyle(document.querySelector('.ui-surface-layer.dialog-layer')).zIndex)
+  }))()`);
+  assert.match(consent.dialogTitle, /套图/);
+  assert(consent.executionButtons.some((label) => label.includes("确认并执行")));
+  assert.match(consent.feeCopy, /可计费请求/);
+  assert.equal(consent.tutorialBehindDialog, true);
+  await clickSelector(".commerce-set-dialog .ui-surface-close");
+  await waitFor("!document.querySelector('.commerce-set-dialog') && Boolean(document.querySelector('.commerce-tutorial-layer.stage-consent'))");
+
+  const finalState = await evaluate(client, "window.__naimageAIDebug.state()");
+  assert.deepEqual({
+    agentStatus: finalState.agentStatus,
+    activeRunId: finalState.activeRunId,
+    messageCount: finalState.messageCount,
+    progressCount: finalState.progressCount,
+    nodeCount: finalState.nodeCount
+  }, baseline, "Tutorial guidance and preview must not call a model or mutate canvas nodes");
+  const finalCanvas = await readCanvasInvariant();
+  assert.deepEqual(finalCanvas?.nodeIds, invariant?.nodeIds, "Commerce tutorial preview must not add or remove canvas nodes");
+  assert.deepEqual(consoleErrors, [], `Renderer console errors were recorded: ${JSON.stringify(consoleErrors, null, 2)}`);
+
+  checks.commerceTutorial = {
+    ok: true,
+    welcome,
+    toolStage,
+    agentStage: { explainsNoSend: agentStage.explainsNoSend, coachOnLeft: agentStage.coachOnLeft },
+    consent,
+    modelCalls: 0,
+    providerCalls: 0
+  };
+  const report = reporting.finishSuiteRun({
+    results: evidenceResults,
+    reportMetadata: {
+      mode: "commerce-tutorial-smoke",
+      suite: "commerce-tutorial-gui",
+      agentMode: "mock-agent",
+      liveImageProvider: false,
+      networkUsedForGeneration: false
+    },
+    reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors },
+    consoleAfterSummary: { checks: 1, screenshots: Object.keys(screenshots).length, consoleErrors: consoleErrors.length }
+  });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: "commerce-tutorial-gui", report: join(runDir, "report.json"), screenshots: Object.keys(screenshots).length, modelCalls: 0 })}\n`);
+}
+
 async function runStaticSelfTest() {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const workspaceSource = readFileSync(join(repoRoot, "src", "workspace-chrome.tsx"), "utf8");
   const glassLabSource = readFileSync(join(repoRoot, "src", "glass-lab.tsx"), "utf8");
+  const commerceTutorialSource = readFileSync(join(repoRoot, "src", "commerce-tutorial.tsx"), "utf8");
+  const commerceTutorialStyle = readFileSync(join(repoRoot, "src", "styles", "04i-commerce-tutorial.css"), "utf8");
   const suiteSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
-  assert.deepEqual(THEME_IDS, ["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"]);
+  assert.deepEqual(THEME_IDS, ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"]);
   assert.deepEqual(MATERIAL_IDS, ["clear", "frosted", "dense"]);
   assert.deepEqual(RAIL_TAB_IDS, ["results", "layers", "requirements", "templates", "history"]);
   assert.deepEqual(VIEW_MODE_IDS, ["workbench", "focus", "review"]);
@@ -595,9 +1311,14 @@ async function runStaticSelfTest() {
   }
   assert.equal(packageJson.scripts?.["aidebug:glass-workspace"], "node scripts/aidebug-glass-workspace-suite.mjs");
   assert.equal(packageJson.scripts?.["test:aidebug-glass-workspace"], "node scripts/aidebug-glass-workspace-suite.mjs --self-test");
+  assert.equal(packageJson.scripts?.["aidebug:social-content"], "node scripts/aidebug-glass-workspace-suite.mjs --social-content-smoke");
+  assert.equal(packageJson.scripts?.["aidebug:scientific-figure"], "node scripts/aidebug-glass-workspace-suite.mjs --scientific-figure-smoke");
+  assert.equal(packageJson.scripts?.["aidebug:commerce-tutorial"], "node scripts/aidebug-glass-workspace-suite.mjs --commerce-tutorial-smoke");
   for (const token of ["WorkspaceAssetRail", "WorkspaceDirectionSwitcher", "data-active-tab"]) assert(workspaceSource.includes(token), `workspace chrome is missing ${token}`);
   for (const token of ["data-glass-theme", "data-glass-material", "data-glass-accent", "data-glass-control", "data-glass-toggle=\"noise\"", "data-glass-toggle=\"reduce-motion\""]) assert(glassLabSource.includes(token), `Glass Lab is missing ${token}`);
-  for (const token of ["NAIMAGE_AIDEBUG_LIVE_IMAGE: \"0\"", "NAIMAGE_AIDEBUG_REAL_AGENT: \"0\"", "seedSelectionCanvas()", "CUSTOM_APPEARANCE", "installCanvasDomProbe", "waitForChildExit", "coldRestartPersistence", "setWindowSize(884, 640)", "projectSearch", "focusContinuation", "reviewDirection", "nonImageNavigation", "consoleErrors"]) assert(suiteSource.includes(token), `suite safety/coverage token is missing: ${token}`);
+  for (const token of ["resolveCommerceTutorialStage", "COMMERCE_TUTORIAL_AGENT_PROMPT", "baselineResultCount", "教学本身零费用", "套图创作者徽章"]) assert(commerceTutorialSource.includes(token), `Commerce tutorial is missing ${token}`);
+  for (const token of ["commerce-tutorial-spotlight", "commerce-tutorial-confetti", "prefers-reduced-motion", "var(--glass-backdrop-filter)"]) assert(commerceTutorialStyle.includes(token), `Commerce tutorial style is missing ${token}`);
+  for (const token of ["NAIMAGE_AIDEBUG_LIVE_IMAGE: \"0\"", "NAIMAGE_AIDEBUG_REAL_AGENT: \"0\"", "seedSelectionCanvas()", "seedConnectionGeometryCanvas()", "CUSTOM_APPEARANCE", "installCanvasDomProbe", "waitForChildExit", "coldRestartPersistence", "setWindowSize(884, 640)", "projectSearch", "focusContinuation", "reviewDirection", "nonImageNavigation", "consoleErrors"]) assert(suiteSource.includes(token), `suite safety/coverage token is missing: ${token}`);
   process.stdout.write(`${JSON.stringify({
     ok: true,
     suite: "glass-workspace-static-selftest",
@@ -658,14 +1379,31 @@ async function runGuiSuite() {
   await waitForHttpServer(devUrl, { attempts: 160, intervalMs: 100, errorMessage: "Glass workspace AIDebug Vite server did not start." });
   await startElectronRenderer({ debugPort, vitePort, logName: "electron-process.log" });
 
+  if (process.argv.includes("--workspace-domain-smoke")) {
+    await runWorkspaceDomainSmoke();
+    return;
+  }
+  if (process.argv.includes("--commerce-tutorial-smoke")) {
+    await runCommerceTutorialSmoke();
+    return;
+  }
+  if (process.argv.includes("--social-content-smoke")) {
+    await runSocialContentSmoke();
+    return;
+  }
+  if (process.argv.includes("--scientific-figure-smoke")) {
+    await runScientificFigureSmoke();
+    return;
+  }
+
   const initialAppearance = await readAppearance();
-  assert.equal(initialAppearance.theme, "light-sky");
+  assert.equal(initialAppearance.theme, "dark-ember");
   assert.equal(initialAppearance.material, "frosted");
-  assert.equal(initialAppearance.mode, "light");
+  assert.equal(initialAppearance.mode, "dark");
   assert(initialAppearance.glassRgb);
   assert(initialAppearance.blur.endsWith("px"));
   const storedDefault = await evaluate(client, "window.naimageConfig.loadSettings()");
-  assert.equal(storedDefault?.settings?.glassTheme, "light-sky");
+  assert.equal(storedDefault?.settings?.glassTheme, "dark-ember");
   assert.equal(storedDefault?.settings?.glassMaterial, "frosted");
   checks.defaultAppearance = { ok: true, initialAppearance, stored: { glassTheme: storedDefault.settings.glassTheme, glassMaterial: storedDefault.settings.glassMaterial } };
 
@@ -745,9 +1483,9 @@ async function runGuiSuite() {
     themeChecks.push({ themeId, appearance, cardPressed });
     await capture(`01-theme-${themeId}`);
   }
-  checks.sixThemes = { ok: true, themes: themeChecks };
+  checks.sevenThemes = { ok: true, themes: themeChecks };
 
-  const rapidThemeSequence = ["dark-rose", "light-sky", "dark-emerald", "light-lemon", "dark-ember", "light-blush", "dark-rose", "light-sky"];
+  const rapidThemeSequence = ["dark-rose", "light-silver", "dark-emerald", "light-lemon", "dark-ember", "light-blush", "dark-rose", "light-sky"];
   for (const themeId of rapidThemeSequence) await clickTheme(themeId, 35);
   const rapidThemeCanvas = await assertCanvasDomProbe("Rapid light/dark theme switching", canvasDomBaseline);
   await assertCanvasInvariant("Rapid light/dark theme switching", invariant);
@@ -895,11 +1633,50 @@ async function runGuiSuite() {
   const searchNodeResult = await evaluate(client, `(() => {
     const result = document.querySelector('.workspace-search-result[data-search-kind="node"][data-search-id="B"]');
     const first = document.querySelector('.workspace-search-result[data-search-kind="node"]');
-    return { label: result?.querySelector('strong')?.textContent?.trim() || '', detail: result?.querySelector('small')?.textContent?.trim() || '', exactMatchRanksFirst: first === result };
+    const popover = document.querySelector('.workspace-search-popover');
+    const input = popover?.querySelector('input');
+    const title = result?.querySelector('strong');
+    const detail = result?.querySelector('small');
+    const popoverStyle = popover ? getComputedStyle(popover) : null;
+    const alphaOf = (value) => {
+      const text = String(value || '').trim().toLowerCase();
+      if (!text || text === 'transparent') return 0;
+      if (text.startsWith('rgba(')) {
+        const closeIndex = text.lastIndexOf(')');
+        const channels = text
+          .slice(5, closeIndex > 5 ? closeIndex : undefined)
+          .split(',')
+          .map((channel) => channel.trim());
+        const alphaText = channels[3] || '';
+        const alpha = Number.parseFloat(alphaText);
+        if (Number.isFinite(alpha)) return alphaText.endsWith('%') ? alpha / 100 : alpha;
+      }
+      const slashIndex = text.lastIndexOf('/');
+      if (slashIndex >= 0) {
+        const alphaText = text.slice(slashIndex + 1).split(')')[0].trim();
+        const alpha = Number.parseFloat(alphaText);
+        if (Number.isFinite(alpha)) return alphaText.endsWith('%') ? alpha / 100 : alpha;
+      }
+      return 1;
+    };
+    return {
+      label: title?.textContent?.trim() || '',
+      detail: detail?.textContent?.trim() || '',
+      exactMatchRanksFirst: first === result,
+      backgroundColor: popoverStyle?.backgroundColor || '',
+      backgroundAlpha: alphaOf(popoverStyle?.backgroundColor),
+      backdropFilter: popoverStyle?.backdropFilter || popoverStyle?.webkitBackdropFilter || '',
+      inputFontSize: Number.parseFloat(input ? getComputedStyle(input).fontSize : '0') || 0,
+      titleFontSize: Number.parseFloat(title ? getComputedStyle(title).fontSize : '0') || 0,
+      detailFontSize: Number.parseFloat(detail ? getComputedStyle(detail).fontSize : '0') || 0
+    };
   })()`);
   assert.equal(searchNodeResult.label, "选择测试 B");
   assert.equal(searchNodeResult.detail, "图片成果");
   assert.equal(searchNodeResult.exactMatchRanksFirst, true);
+  assert(searchNodeResult.backgroundAlpha >= 0.95, `Project search surface must be effectively opaque: ${JSON.stringify(searchNodeResult)}`);
+  assert.equal(searchNodeResult.backdropFilter, "none", `Project search must not bleed the canvas through backdrop filtering: ${JSON.stringify(searchNodeResult)}`);
+  assert(searchNodeResult.inputFontSize >= 12 && searchNodeResult.titleFontSize >= 11 && searchNodeResult.detailFontSize >= 10, `Project search typography is too small: ${JSON.stringify(searchNodeResult)}`);
   await clickSelector('.workspace-search-result[data-search-kind="node"][data-search-id="B"]');
   await waitFor("window.__naimageAIDebug.state().selectedNodeId === 'B'");
   await clickSelector(".workspace-search-trigger");
@@ -1033,6 +1810,16 @@ async function runGuiSuite() {
   const minimumWindow = await setWindowSize(884, 640);
   assert(Math.abs(minimumWindow.metrics.innerWidth - 884) <= 2, `Expected 884 px content width: ${JSON.stringify(minimumWindow)}`);
   assert(Math.abs(minimumWindow.metrics.innerHeight - 640) <= 2, `Expected 640 px content height: ${JSON.stringify(minimumWindow)}`);
+  await waitFor(`(() => {
+    const canvas = document.querySelector('.canvas-panel');
+    const selectedNodeId = window.__naimageAIDebug?.state?.().selectedNodeId || '';
+    const selected = Array.from(document.querySelectorAll('.flow-node.selected[data-node-id]'))
+      .find((element) => element.getAttribute('data-node-id') === selectedNodeId);
+    if (!(canvas instanceof HTMLElement) || !(selected instanceof HTMLElement)) return false;
+    const canvasRect = canvas.getBoundingClientRect();
+    const selectedRect = selected.getBoundingClientRect();
+    return selectedRect.left >= canvasRect.left - 1 && selectedRect.top >= canvasRect.top - 1 && selectedRect.right <= canvasRect.right + 1 && selectedRect.bottom <= canvasRect.bottom + 1;
+  })()`, 5_000, 80);
   const minimumLayout = await evaluate(client, `(() => {
     const rect = (selector) => {
       const element = document.querySelector(selector);
@@ -1280,6 +2067,284 @@ async function runGuiSuite() {
   assert(artworkStyles.length > 0);
   assert(artworkStyles.every((item) => Number.parseFloat(item.opacity) === 1 && item.filter === "none" && item.backdropFilter === "none"));
   checks.artworkIsolation = { ok: true, imageCount: artworkStyles.length, styles: artworkStyles };
+
+  const interactionFixture = await evaluate(client, `(async () => {
+    await window.__naimageAIDebug.seedSelectionCanvas();
+    await window.__naimageAIDebug.selectNodes({ ids: ['A', 'B', 'C'], primaryId: 'A' });
+    const merged = await window.__naimageAIDebug.mergeSelectedImages();
+    const group = merged?.state?.layoutGroups?.find((candidate) => candidate.memberNodeIds?.length === 3);
+    return { ok: Boolean(merged?.ok && group?.hostNodeId), containerId: group?.hostNodeId || '', state: merged?.state || null };
+  })()`, 30_000);
+  assert.equal(interactionFixture.ok, true, `Final-viewer and drag fixture could not be created: ${JSON.stringify(interactionFixture)}`);
+
+  const viewerOpened = await evaluate(client, `window.__naimageAIDebug.openImageViewer({ id: ${JSON.stringify(interactionFixture.containerId)}, index: 1 })`, 15_000);
+  assert.equal(viewerOpened?.ok, true, `Final image viewer could not be opened: ${JSON.stringify(viewerOpened)}`);
+  await waitFor("Boolean(document.querySelector('.image-viewer-stage') && document.querySelectorAll('.image-viewer-strip button[data-final-asset=\"true\"]').length === 3)", 15_000, 80);
+  const finalViewerProof = await evaluate(client, `(() => {
+    const viewer = document.querySelector('.image-viewer');
+    const stage = viewer?.querySelector('.image-viewer-stage');
+    const strip = viewer?.querySelector('.image-viewer-strip');
+    const buttons = Array.from(strip?.querySelectorAll('button[data-final-asset="true"]') || []);
+    const stripStyle = strip ? getComputedStyle(strip) : null;
+    const stageRect = stage?.getBoundingClientRect();
+    const stripRect = strip?.getBoundingClientRect();
+    const rowTops = [...new Set(buttons.map((button) => Math.round(button.getBoundingClientRect().top)))];
+    return {
+      viewerVisible: Boolean(viewer && stageRect && stripRect && stageRect.width > 0 && stageRect.height > 0),
+      finalAssetCount: Number(strip?.getAttribute('data-final-asset-count') || 0),
+      finalButtonCount: buttons.length,
+      previewCount: viewer?.querySelectorAll('[data-stream-preview-count], [data-preview-index], [data-preview-total]').length || 0,
+      display: stripStyle?.display || '',
+      flexWrap: stripStyle?.flexWrap || '',
+      overflowX: stripStyle?.overflowX || '',
+      overflowY: stripStyle?.overflowY || '',
+      rowCount: rowTops.length,
+      stageAboveStrip: Boolean(stageRect && stripRect && stageRect.bottom <= stripRect.top + 1),
+      stageHeight: Math.round(stageRect?.height || 0),
+      stripHeight: Math.round(stripRect?.height || 0)
+    };
+  })()`);
+  assert.equal(finalViewerProof.viewerVisible, true);
+  assert.equal(finalViewerProof.finalAssetCount, 3);
+  assert.equal(finalViewerProof.finalButtonCount, 3);
+  assert.equal(finalViewerProof.previewCount, 0);
+  assert.equal(finalViewerProof.display, "flex");
+  assert.equal(finalViewerProof.flexWrap, "nowrap");
+  assert(["auto", "scroll"].includes(finalViewerProof.overflowX), `Viewer strip must scroll horizontally: ${JSON.stringify(finalViewerProof)}`);
+  assert.equal(finalViewerProof.overflowY, "hidden");
+  assert.equal(finalViewerProof.rowCount, 1);
+  assert.equal(finalViewerProof.stageAboveStrip, true);
+  assert(finalViewerProof.stageHeight > finalViewerProof.stripHeight * 2, `The primary image must remain dominant: ${JSON.stringify(finalViewerProof)}`);
+  checks.finalImageViewer = { ok: true, ...finalViewerProof };
+  await capture("11-final-image-viewer-single-row");
+  await clickSelector('.image-viewer [aria-label="关闭图片查看器"]');
+  await waitFor("!document.querySelector('.image-viewer')");
+
+  const dragSelection = await evaluate(client, `(async () => {
+    const nodeId = ${JSON.stringify(interactionFixture.containerId)};
+    await window.__naimageAIDebug.selectNodes({ ids: [], primaryId: '' });
+    document.documentElement.dataset.glassReduceMotion = 'false';
+    document.documentElement.classList.remove('glass-reduce-motion');
+    return { nodeId, selectedNodeId: window.__naimageAIDebug.state().selectedNodeId };
+  })()`);
+  assert.equal(dragSelection?.selectedNodeId, "", `Canvas drag fixture must begin unselected: ${JSON.stringify(dragSelection)}`);
+  const dragFit = await evaluate(client, "window.__naimageAIDebug.fitCanvas()", 15_000);
+  assert.equal(dragFit?.ok, true, `Canvas drag fixture could not fit the live canvas: ${JSON.stringify(dragFit)}`);
+  const dragStart = await evaluate(client, `(() => {
+    const nodeId = ${JSON.stringify(interactionFixture.containerId)};
+    const element = document.querySelector('.flow-node[data-node-id="' + nodeId + '"]');
+    const handle = element?.querySelector('.node-head');
+    if (!(element instanceof HTMLElement) || !(handle instanceof HTMLElement)) return { ok: false, error: 'container drag DOM unavailable' };
+    const beforeNode = window.__naimageAIDebug.state().nodes.find((node) => node.id === nodeId);
+    const rect = handle.getBoundingClientRect();
+    const startX = rect.left + Math.min(rect.width - 12, Math.max(12, rect.width * 0.46));
+    const startY = rect.top + Math.min(rect.height - 8, Math.max(8, rect.height * 0.5));
+    const endX = startX + 92;
+    const endY = startY + 54;
+    const pointerId = 964;
+    const baseLeft = element.style.left;
+    const baseTop = element.style.top;
+    const beforeRect = element.getBoundingClientRect();
+    const beforeTransform = getComputedStyle(element).transform;
+    handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: startX, clientY: startY }));
+    const pointerDownRect = element.getBoundingClientRect();
+    const pointerDownTransform = getComputedStyle(element).transform;
+    element.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: endX, clientY: endY }));
+    return {
+      ok: true,
+      nodeId,
+      before: beforeNode ? { x: beforeNode.x, y: beforeNode.y } : null,
+      baseLeft,
+      baseTop,
+      endX,
+      endY,
+      pointerId,
+      pointerDown: {
+        beforeTransform,
+        afterTransform: pointerDownTransform,
+        shiftPx: Math.hypot(pointerDownRect.left - beforeRect.left, pointerDownRect.top - beforeRect.top)
+      }
+    };
+  })()`);
+  assert.equal(dragStart?.ok, true, `Canvas image-container drag could not start: ${JSON.stringify(dragStart)}`);
+  assert(dragStart.pointerDown.shiftPx <= 0.5, `Canvas node jumped on pointerdown: ${JSON.stringify(dragStart.pointerDown)}`);
+  await delay(140);
+  const dragActive = await evaluate(client, `(() => {
+    const element = document.querySelector('.flow-node[data-node-id=${JSON.stringify(dragStart.nodeId)}]');
+    if (!(element instanceof HTMLElement)) return { ok: false, error: 'container drag DOM disappeared' };
+    const activeStyle = getComputedStyle(element);
+    const translateX = Number.parseFloat(element.style.getPropertyValue('--node-drag-x')) || 0;
+    const translateY = Number.parseFloat(element.style.getPropertyValue('--node-drag-y')) || 0;
+    const transformRules = [];
+    const visitRules = (rules, sheetIndex) => {
+      for (const rule of Array.from(rules || [])) {
+        if (rule instanceof CSSStyleRule && rule.style.transform) {
+          try {
+            if (element.matches(rule.selectorText)) transformRules.push({ selector: rule.selectorText, transform: rule.style.transform, priority: rule.style.getPropertyPriority('transform'), sheetIndex });
+          } catch {}
+        } else if ('cssRules' in rule) {
+          try { visitRules(rule.cssRules, sheetIndex); } catch {}
+        }
+      }
+    };
+    Array.from(document.styleSheets).forEach((sheet, sheetIndex) => {
+      try { visitRules(sheet.cssRules, sheetIndex); } catch {}
+    });
+    const active = {
+      className: element.className,
+      translateX,
+      translateY,
+      computedTranslateX: activeStyle.getPropertyValue('--node-drag-x').trim(),
+      computedTranslateY: activeStyle.getPropertyValue('--node-drag-y').trim(),
+      transform: activeStyle.transform,
+      inlineTransform: element.style.transform,
+      transformRules,
+      transitionProperty: activeStyle.transitionProperty,
+      transitionDuration: activeStyle.transitionDuration,
+      transitionDelay: activeStyle.transitionDelay,
+      animationName: activeStyle.animationName,
+      animationDuration: activeStyle.animationDuration,
+      animations: element.getAnimations().map((animation) => ({
+        type: animation.constructor?.name || '',
+        playState: animation.playState,
+        currentTime: animation.currentTime,
+        id: animation.id || '',
+        keyframes: animation.effect?.getKeyframes?.().map((frame) => ({ offset: frame.offset, transform: frame.transform })) || []
+      })),
+      supportsResolvedTransform: CSS.supports('transform', 'translate3d(' + (activeStyle.getPropertyValue('--node-drag-x').trim() || '0px') + ', ' + (activeStyle.getPropertyValue('--node-drag-y').trim() || '0px') + ', 0)'),
+      rootReduceMotion: document.documentElement.dataset.glassReduceMotion || '',
+      prefersReducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      willChange: activeStyle.willChange,
+      selected: element.classList.contains('selected'),
+      opacity: activeStyle.opacity,
+      filter: activeStyle.filter,
+      boxShadow: activeStyle.boxShadow,
+      leftStable: element.style.left === ${JSON.stringify(dragStart.baseLeft)},
+      topStable: element.style.top === ${JSON.stringify(dragStart.baseTop)}
+    };
+    const activeRect = element.getBoundingClientRect();
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: ${JSON.stringify(dragStart.pointerId)}, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0, clientX: ${JSON.stringify(dragStart.endX)}, clientY: ${JSON.stringify(dragStart.endY)} }));
+    const releasedRect = element.getBoundingClientRect();
+    const releasedStyle = getComputedStyle(element);
+    return {
+      ok: true,
+      active,
+      release: {
+        shiftPx: Math.hypot(releasedRect.left - activeRect.left, releasedRect.top - activeRect.top),
+        activeRect: { left: activeRect.left, top: activeRect.top },
+        releasedRect: { left: releasedRect.left, top: releasedRect.top },
+        selected: element.classList.contains('selected'),
+        animationName: releasedStyle.animationName,
+        opacity: releasedStyle.opacity,
+        filter: releasedStyle.filter,
+        boxShadow: releasedStyle.boxShadow
+      }
+    };
+  })()`);
+  assert.equal(dragActive?.ok, true, `Canvas image-container drag active state could not be sampled: ${JSON.stringify(dragActive)}`);
+  await delay(320);
+  const dragSettled = await evaluate(client, `(() => {
+    const nodeId = ${JSON.stringify(dragStart.nodeId)};
+    const element = document.querySelector('.flow-node[data-node-id="' + nodeId + '"]');
+    if (!(element instanceof HTMLElement)) return { ok: false, error: 'container drag DOM disappeared after pointerup' };
+    const afterNode = window.__naimageAIDebug.state().nodes.find((node) => node.id === nodeId);
+    const cleared = {
+      dragging: element.classList.contains('dragging'),
+      translateX: element.style.getPropertyValue('--node-drag-x'),
+      translateY: element.style.getPropertyValue('--node-drag-y'),
+      willChange: element.style.willChange,
+      selected: element.classList.contains('selected'),
+      animationName: getComputedStyle(element).animationName,
+      opacity: getComputedStyle(element).opacity,
+      filter: getComputedStyle(element).filter,
+      runningAnimationCount: element.getAnimations().filter((animation) => animation.playState === 'running').length
+    };
+    return { ok: true, after: afterNode ? { x: afterNode.x, y: afterNode.y } : null, cleared };
+  })()`);
+  assert.equal(dragSettled?.ok, true, `Canvas image-container drag final state could not be sampled: ${JSON.stringify(dragSettled)}`);
+  const active = dragActive.active;
+  const cleared = dragSettled.cleared;
+  const pointerDownStable = dragStart.pointerDown.shiftPx <= 0.5;
+  const releaseStable = dragActive.release.shiftPx <= 1;
+  const compositorActive = Math.abs(active.translateX) + Math.abs(active.translateY) > 1 && active.transform !== "none" && active.willChange.includes("transform") && active.leftStable && active.topStable;
+  const committed = Boolean(dragStart.before && dragSettled.after && Math.abs(dragSettled.after.x - dragStart.before.x) > 40 && Math.abs(dragSettled.after.y - dragStart.before.y) > 20);
+  const compositorCleared = !cleared.dragging && !cleared.translateX && !cleared.translateY && !cleared.willChange.includes("transform");
+  const selectedBeforeRelease = active.selected && dragActive.release.selected && cleared.selected;
+  const releaseSurfaceStable = active.animationName === "none" && dragActive.release.animationName === "none" && cleared.animationName === "none" && active.opacity === "1" && dragActive.release.opacity === "1" && cleared.opacity === "1" && active.filter === "none" && dragActive.release.filter === "none" && cleared.filter === "none" && active.boxShadow === dragActive.release.boxShadow && cleared.runningAnimationCount === 0;
+  const canvasDragProof = { ok: pointerDownStable && releaseStable && compositorActive && committed && compositorCleared && selectedBeforeRelease && releaseSurfaceStable, nodeId: dragStart.nodeId, before: dragStart.before, after: dragSettled.after, pointerDown: dragStart.pointerDown, release: dragActive.release, active, cleared, pointerDownStable, releaseStable, compositorActive, committed, compositorCleared, selectedBeforeRelease, releaseSurfaceStable };
+  assert.equal(canvasDragProof.ok, true, `Canvas image-container drag did not use a clean compositor preview: ${JSON.stringify(canvasDragProof)}`);
+  checks.canvasCompositorDrag = { ok: true, ...canvasDragProof };
+
+  const connectionFixture = await evaluate(client, "window.__naimageAIDebug.seedConnectionGeometryCanvas()", 30_000);
+  assert.equal(connectionFixture?.ok, true, `Auto-sized connection fixture could not be created: ${JSON.stringify(connectionFixture)}`);
+  await waitFor(`Boolean(document.querySelector('.edge.provenance[data-source-id=${JSON.stringify(connectionFixture.sourceId)}][data-target-id=${JSON.stringify(connectionFixture.targetId)}]'))`, 15_000, 80);
+  const connectionBorderProof = await evaluate(client, `(() => {
+    const sourceId = ${JSON.stringify(connectionFixture.sourceId)};
+    const targetId = ${JSON.stringify(connectionFixture.targetId)};
+    const source = document.querySelector('.flow-node[data-node-id="' + sourceId + '"]');
+    const target = document.querySelector('.flow-node[data-node-id="' + targetId + '"]');
+    const path = document.querySelector('.edge.provenance[data-source-id="' + sourceId + '"][data-target-id="' + targetId + '"]');
+    const sourcePort = source?.querySelector('.node-port-out');
+    const targetPort = target?.querySelector('.node-port-in');
+    if (!(source instanceof HTMLElement) || !(target instanceof HTMLElement) || !(path instanceof SVGPathElement) || !(sourcePort instanceof HTMLElement) || !(targetPort instanceof HTMLElement)) {
+      return { ok: false, error: 'connection geometry DOM unavailable' };
+    }
+    const matrix = path.getScreenCTM();
+    if (!matrix) return { ok: false, error: 'connection path screen matrix unavailable' };
+    const screenPoint = (point) => new DOMPoint(point.x, point.y).matrixTransform(matrix);
+    const start = screenPoint(path.getPointAtLength(0));
+    const end = screenPoint(path.getPointAtLength(path.getTotalLength()));
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const sourcePortRect = sourcePort.getBoundingClientRect();
+    const targetPortRect = targetPort.getBoundingClientRect();
+    const sourcePortCenter = { x: sourcePortRect.left + sourcePortRect.width / 2, y: sourcePortRect.top + sourcePortRect.height / 2 };
+    const targetPortCenter = { x: targetPortRect.left + targetPortRect.width / 2, y: targetPortRect.top + targetPortRect.height / 2 };
+    const state = window.__naimageAIDebug.state();
+    const sourceState = state.nodes.find((node) => node.id === sourceId);
+    const targetState = state.nodes.find((node) => node.id === targetId);
+    const scale = Math.max(0.0001, Math.hypot(matrix.a, matrix.b));
+    const errors = {
+      sourceBorder: Math.abs(start.x - sourceRect.right),
+      targetBorder: Math.abs(end.x - targetRect.left),
+      sourcePort: Math.hypot(start.x - sourcePortCenter.x, start.y - sourcePortCenter.y),
+      targetPort: Math.hypot(end.x - targetPortCenter.x, end.y - targetPortCenter.y),
+      sourceVerticalCenter: Math.abs(start.y - (sourceRect.top + sourceRect.height / 2)),
+      targetVerticalCenter: Math.abs(end.y - (targetRect.top + targetRect.height / 2))
+    };
+    return {
+      ok: true,
+      sourceStoredSize: { width: sourceState?.width ?? null, height: sourceState?.height ?? null },
+      targetStoredSize: { width: targetState?.width ?? null, height: targetState?.height ?? null },
+      sourceWorldWidth: sourceRect.width / scale,
+      targetWorldWidth: targetRect.width / scale,
+      errors,
+      start: { x: start.x, y: start.y },
+      end: { x: end.x, y: end.y },
+      sourceBorder: { x: sourceRect.right, centerY: sourceRect.top + sourceRect.height / 2 },
+      targetBorder: { x: targetRect.left, centerY: targetRect.top + targetRect.height / 2 }
+    };
+  })()`);
+  assert.equal(connectionBorderProof?.ok, true, `Auto-sized connection geometry could not be sampled: ${JSON.stringify(connectionBorderProof)}`);
+  assert.deepEqual(connectionBorderProof.sourceStoredSize, { width: null, height: null }, `Source fixture must exercise automatic render sizing: ${JSON.stringify(connectionBorderProof)}`);
+  assert.deepEqual(connectionBorderProof.targetStoredSize, { width: null, height: null }, `Target fixture must exercise automatic render sizing: ${JSON.stringify(connectionBorderProof)}`);
+  assert(connectionBorderProof.sourceWorldWidth > 340 && connectionBorderProof.targetWorldWidth > 340, `Auto-sized containers did not expand beyond their logical fallback width: ${JSON.stringify(connectionBorderProof)}`);
+  assert(Math.max(...Object.values(connectionBorderProof.errors)) <= 2, `Connection endpoints must stay on the visible left/right borders and port centers: ${JSON.stringify(connectionBorderProof)}`);
+  checks.connectionBorderAnchors = { ok: true, ...connectionBorderProof };
+  await capture("12-auto-sized-connection-border-anchors");
+
+  const typographyProof = await evaluate(client, `(() => {
+    const size = (selector) => Number.parseFloat(getComputedStyle(document.querySelector(selector)).fontSize) || 0;
+    return {
+      body: Number.parseFloat(getComputedStyle(document.body).fontSize) || 0,
+      agentStatus: size('.project-agent-status span'),
+      composer: size('.project-agent-composer textarea'),
+      modelTrigger: size('.project-agent-model-trigger strong')
+    };
+  })()`);
+  assert(typographyProof.body >= 14 && typographyProof.agentStatus >= 12 && typographyProof.composer >= 14 && typographyProof.modelTrigger >= 13, `Critical UI typography is too small: ${JSON.stringify(typographyProof)}`);
+  checks.criticalTypography = { ok: true, ...typographyProof };
+  await capture("11-image-container-after-compositor-drag");
 
   await delay(400);
   assert.deepEqual(consoleErrors, [], `Renderer console errors were recorded: ${JSON.stringify(consoleErrors, null, 2)}`);

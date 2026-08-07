@@ -567,13 +567,53 @@ commerceGoalSessionInput.pendingAgentExecution.originalPrompt = persistedCommerc
 commerceGoalSessionInput.pendingAgentExecution.taskScope.goal.operationsPerAsset = persistedCommerceTask.counts.outputsPerSource;
 commerceGoalSessionInput.pendingAgentExecution.taskScope.goal.requestCount = persistedCommerceTask.counts.totalRequests;
 commerceGoalSessionInput.pendingAgentExecution.taskScope.goal.commercePlanHash = persistedCommerceTask.planHash;
+const persistedCommerceCatalogTargets = [{
+  bindingId: "binding:goal:a",
+  catalogId: `catalog-${"1".repeat(32)}`,
+  catalogRevision: 7,
+  productId: `product-${"2".repeat(32)}`,
+  productRevision: 4,
+  ownerType: "sku",
+  ownerId: `sku-${"3".repeat(32)}`,
+  sourceLinkId: `material-${"4".repeat(32)}`
+}, {
+  bindingId: "binding:goal:b",
+  catalogId: `catalog-${"1".repeat(32)}`,
+  catalogRevision: 7,
+  productId: `product-${"5".repeat(32)}`,
+  productRevision: 2,
+  ownerType: "product",
+  ownerId: `product-${"5".repeat(32)}`,
+  sourceLinkId: `material-${"6".repeat(32)}`
+}];
+commerceGoalSessionInput.pendingAgentExecution.taskScope.goal.commerceCatalogTargets = persistedCommerceCatalogTargets;
 const persistedCommerceGoal = sanitizeSession(commerceGoalSessionInput).pendingAgentExecution?.taskScope.goal;
 assert.equal(persistedCommerceGoal?.commercePlanHash, persistedCommerceTask.planHash, "A validated commerce plan hash must survive pending Goal persistence");
 assert.equal(persistedCommerceGoal?.operationsPerAsset, 2);
 assert.equal(persistedCommerceGoal?.requestCount, 4);
+assert.deepEqual(
+  persistedCommerceGoal?.commerceCatalogTargets,
+  persistedCommerceCatalogTargets,
+  "Frozen per-SOURCE Catalog targets must survive pending Goal persistence exactly"
+);
 const tamperedCommerceGoalSession = structuredClone(commerceGoalSessionInput);
 tamperedCommerceGoalSession.pendingAgentExecution.taskScope.goal.commercePlanHash = `commerce-${"f".repeat(32)}`;
 assert.equal(sanitizeSession(tamperedCommerceGoalSession).pendingAgentExecution, null, "A persisted commerce hash must match the trusted prompt exactly");
+const unknownCatalogBindingSession = structuredClone(commerceGoalSessionInput);
+unknownCatalogBindingSession.pendingAgentExecution.taskScope.goal.commerceCatalogTargets[0].bindingId = "binding:goal:unknown";
+assert.equal(sanitizeSession(unknownCatalogBindingSession).pendingAgentExecution, null, "Persisted Catalog targets must remain a subset of the frozen SOURCE bindings");
+const duplicateCatalogBindingSession = structuredClone(commerceGoalSessionInput);
+duplicateCatalogBindingSession.pendingAgentExecution.taskScope.goal.commerceCatalogTargets[1].bindingId = "binding:goal:a";
+assert.equal(sanitizeSession(duplicateCatalogBindingSession).pendingAgentExecution, null, "Persisted Catalog targets must not duplicate a SOURCE binding");
+const reorderedCatalogTargetsSession = structuredClone(commerceGoalSessionInput);
+reorderedCatalogTargetsSession.pendingAgentExecution.taskScope.goal.commerceCatalogTargets.reverse();
+assert.equal(sanitizeSession(reorderedCatalogTargetsSession).pendingAgentExecution, null, "Persisted Catalog targets must retain frozen SOURCE order");
+const invalidCatalogOwnerSession = structuredClone(commerceGoalSessionInput);
+invalidCatalogOwnerSession.pendingAgentExecution.taskScope.goal.commerceCatalogTargets[1].ownerId = `product-${"7".repeat(32)}`;
+assert.equal(sanitizeSession(invalidCatalogOwnerSession).pendingAgentExecution, null, "Product-owned Catalog targets must retain the frozen product identity");
+const catalogTargetsWithoutPlanSession = structuredClone(commerceGoalSessionInput);
+delete catalogTargetsWithoutPlanSession.pendingAgentExecution.taskScope.goal.commercePlanHash;
+assert.equal(sanitizeSession(catalogTargetsWithoutPlanSession).pendingAgentExecution, null, "Persisted Catalog targets require a trusted Commerce plan");
 
 const oneContainerProbeInput = structuredClone(goalSessionInput);
 oneContainerProbeInput.pendingAgentExecution.taskScope.sourceContainerIds = ["GOAL-CONTAINER-A"];
@@ -639,4 +679,4 @@ const ordinaryPendingWithGoalMetadata = invalidGoalPending((pending) => {
 assert.ok(ordinaryPendingWithGoalMetadata);
 assert.equal(ordinaryPendingWithGoalMetadata.taskScope.goal, undefined, "Non-Goal pending tasks must not retain Goal-only metadata");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 70 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 76 })}\n`);

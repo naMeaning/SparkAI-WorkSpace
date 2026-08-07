@@ -63,7 +63,7 @@ export const sanitizeImageContainerCollection = (
       const rawAssetIndex = Number(candidate.assetIndex);
       const candidateAssetId = cleanText(candidate.assetId, 160);
       const candidateOccurrenceId = cleanText(candidate.occurrenceId, 80)?.toLowerCase();
-      const explicitAssetIndex = Number.isInteger(rawAssetIndex) && rawAssetIndex >= 1 && rawAssetIndex <= Math.min(10, assets.length)
+      const explicitAssetIndex = Number.isInteger(rawAssetIndex) && rawAssetIndex >= 1 && rawAssetIndex <= Math.min(200, assets.length)
         ? rawAssetIndex
         : undefined;
       const occurrenceIndex = explicitAssetIndex === undefined && candidateOccurrenceId
@@ -93,9 +93,12 @@ export const sanitizeImageContainerCollection = (
           ? stableImageOccurrenceId(asset, "image-collection", (assetIndex ?? 1) - 1)
           : undefined,
         assetIndex,
-        requestIndex: Math.max(1, Math.min(10, Math.floor(Number(candidate.requestIndex ?? index + 1) || index + 1))),
+        requestIndex: Math.max(1, Math.min(200, Math.floor(Number(candidate.requestIndex ?? index + 1) || index + 1))),
         prompt: cleanText(candidate.prompt, 12000) || cleanText(asset?.prompt || asset?.revisedPrompt, 12000) || "",
         title: cleanText(candidate.title, 160),
+        defectReason: cleanText(candidate.defectReason, 320),
+        replacedByAssetId: cleanText(candidate.replacedByAssetId, 160),
+        replacesItemId: cleanText(candidate.replacesItemId, 120),
         status,
         error: cleanText(candidate.error, 320) || (
           requestedStatus === "done" && !asset ? "图片槽位缺少对应成果。" : undefined
@@ -103,14 +106,18 @@ export const sanitizeImageContainerCollection = (
       } satisfies ImageCollection["items"][number];
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
-    .slice(0, 10);
+    .slice(0, 200);
   if (!items.length && !(fallback?.items.length)) return undefined;
   return {
     id: cleanText(source.id, 120) || cleanText(fallback?.id, 120) || "image-collection",
+    name: cleanText(source.name, 160) || cleanText(fallback?.name, 160),
     kind: source.kind === "series" ? "series" : "batch",
+    collectionRole: source.collectionRole === "defects" ? "defects" : "results",
     generationMode: source.generationMode === "sequential" ? "sequential" : "parallel",
     items: items.length ? items : cloneImageContainerCollection(fallback)?.items ?? [],
     sourceNodeId: cleanText(source.sourceNodeId, 160),
+    sourceCollectionId: cleanText(source.sourceCollectionId, 120),
+    defectOfNodeId: cleanText(source.defectOfNodeId, 160),
     createdAt: cleanText(source.createdAt, 80),
     autoFit: source.autoFit !== false,
   };

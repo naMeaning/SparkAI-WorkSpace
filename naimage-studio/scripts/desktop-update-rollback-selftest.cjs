@@ -37,7 +37,7 @@ try {
     writeFileSync(path.join(temporaryRoot, "updates", "update-state.json"), `${JSON.stringify({
       progress: {
         stage: "applying",
-        message: "naimage 即将重启并完成更新…",
+        message: "SparkAI WorkSpace 即将重启并完成更新…",
         version,
         kind: "restart",
         createdAt: "2026-07-20T08:00:01.000Z"

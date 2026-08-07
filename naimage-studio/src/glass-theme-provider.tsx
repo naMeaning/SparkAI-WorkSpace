@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useLayoutEffect,
   useMemo,
   type ReactNode
@@ -10,6 +11,10 @@ import {
   normalizeGlassThemeSettings,
   type GlassThemeSettings
 } from "./glass-theme";
+import {
+  applyGlassBackgroundToRoot,
+  type GlassBackgroundSettings,
+} from "./glass-background";
 import { writeGlassThemeBootstrapSnapshot } from "./settings-persistence";
 
 const defaultAppearance = normalizeGlassThemeSettings();
@@ -69,7 +74,7 @@ function appendReactAppearanceTrace(appearance: GlassThemeSettings, target: HTML
 }
 
 export type GlassThemeProviderProps = {
-  settings: GlassThemeSettings;
+  settings: GlassThemeSettings & Partial<GlassBackgroundSettings>;
   children: ReactNode;
   /** Useful for isolated previews and tests; the application uses documentElement. */
   root?: HTMLElement | null;
@@ -112,6 +117,24 @@ export function GlassThemeProvider({
       writeGlassThemeBootstrapSnapshot(appearance);
     }
   }, [appearance, persistBootstrap, root]);
+
+  useEffect(() => {
+    const target = root === undefined
+      ? typeof document === "undefined" ? null : document.documentElement
+      : root;
+    if (!target) return;
+    void applyGlassBackgroundToRoot(settings, target);
+  }, [
+    root,
+    settings.glassTheme,
+    settings.glassMaterial,
+    settings.glassParameters.opacity,
+    settings.glassBackgroundEnabled,
+    settings.glassBackgroundAssetId,
+    settings.glassBackgroundAssetName,
+    settings.glassBackgroundOverlay,
+    settings.glassBackgroundBlur,
+  ]);
 
   return <GlassThemeContext.Provider value={appearance}>{children}</GlassThemeContext.Provider>;
 }

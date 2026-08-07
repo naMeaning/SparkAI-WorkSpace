@@ -1,4 +1,4 @@
-# naimage 项目结构
+# SparkAI WorkSpace 项目结构
 
 本仓库只维护 Windows Electron 客户端与本地单 Agent runtime。服务端 New API、账户渠道与下载站属于独立 `ai-native` 仓库，不复制到这里。符号级所有权、进程调用链与测试影响见 [CONTEXT_MAP.md](./CONTEXT_MAP.md)。
 

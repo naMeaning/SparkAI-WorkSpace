@@ -10,11 +10,24 @@ import {
   rmSync,
   writeFileSync
 } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { path7za } from "7zip-bin";
 
+const require = createRequire(import.meta.url);
+const projectRoot = process.cwd();
+const {
+  ACCESS_POLICY_FILENAME,
+  ACCESS_VARIANT_DUAL,
+  ACCESS_VARIANT_SPARKAPI,
+  buildAccessPolicy,
+  parseAccessPolicy,
+  windowsCoreInstallerArtifactName,
+  windowsInstallerArtifactName,
+  windowsLegacyInstallerArtifactName
+} = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const mirror = String(process.env.ELECTRON_BUILDER_BINARIES_MIRROR || "https://npmmirror.com/mirrors/electron-builder-binaries/").replace(/\/+$/, "");
 const cacheRoot = process.env.ELECTRON_BUILDER_CACHE || join(
   process.env.LOCALAPPDATA || join(process.env.USERPROFILE || ".", "AppData", "Local"),
@@ -23,12 +36,36 @@ const cacheRoot = process.env.ELECTRON_BUILDER_CACHE || join(
 );
 const toolsRoot = join(process.cwd(), ".release-tools", "downloads");
 const isDirectoryBuild = process.argv.includes("--dir");
-const packageMetadata = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+const packageMetadata = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 const productVersion = String(packageMetadata.version || "").trim();
-const releaseDir = join(process.cwd(), "release");
-const brandedUninstallerDir = join(process.cwd(), ".release-tools", "brand-uninstaller");
-const brandedUninstaller = join(brandedUninstallerDir, "naimage Uninstaller.exe");
-const brandedInstallerDir = join(process.cwd(), ".release-tools", "brand-installer");
+const releaseDir = join(projectRoot, "release");
+const brandedUninstallerDir = join(projectRoot, ".release-tools", "brand-uninstaller");
+const brandedUninstaller = join(brandedUninstallerDir, "SparkAI WorkSpace Uninstaller.exe");
+const brandedInstallerDir = join(projectRoot, ".release-tools", "brand-installer");
+const coreInstallerName = windowsCoreInstallerArtifactName(productVersion);
+const legacyInstallerName = windowsLegacyInstallerArtifactName(productVersion);
+
+function builtAccessVariant() {
+  const policyPath = join(projectRoot, "dist", ACCESS_POLICY_FILENAME);
+  if (!existsSync(policyPath)) throw new Error(`Access policy was not built before packaging: ${policyPath}`);
+  let policy = null;
+  try {
+    policy = parseAccessPolicy(JSON.parse(readFileSync(policyPath, "utf8")));
+  } catch {
+    // The explicit error below keeps packaging from guessing a public name.
+  }
+  if (!policy) throw new Error(`Built access policy is invalid: ${policyPath}`);
+  if (String(process.env.SPARKAI_ACCESS_VARIANT || process.env.SPARKAI_ACCOUNT_ONLY || "").trim()) {
+    const requestedPolicy = buildAccessPolicy(process.env);
+    if (requestedPolicy.variant !== policy.variant) {
+      throw new Error(`Built access policy ${policy.variant} does not match requested packaging variant ${requestedPolicy.variant}.`);
+    }
+  }
+  return policy.variant;
+}
+
+const accessVariant = isDirectoryBuild ? null : builtAccessVariant();
+const publicInstallerName = accessVariant ? windowsInstallerArtifactName(productVersion, accessVariant) : "";
 
 function isPathInside(candidate, root) {
   const relation = relative(resolve(root), resolve(candidate));
@@ -126,13 +163,13 @@ async function publishBrandedUninstaller() {
 }
 
 async function wrapCoreInstaller() {
-  const finalName = `naimage-Setup-${productVersion}-x64.exe`;
-  const finalInstaller = join(releaseDir, finalName);
-  if (!existsSync(finalInstaller)) throw new Error(`NSIS core installer was not produced: ${finalInstaller}`);
+  const coreSource = join(releaseDir, coreInstallerName);
+  const finalInstaller = join(releaseDir, publicInstallerName);
+  if (!existsSync(coreSource)) throw new Error(`NSIS core installer was not produced: ${coreSource}`);
   rmSync(brandedInstallerDir, { recursive: true, force: true });
   mkdirSync(brandedInstallerDir, { recursive: true });
-  const coreInstaller = join(brandedInstallerDir, `naimage-Core-${productVersion}-x64.exe`);
-  renameSync(finalInstaller, coreInstaller);
+  const coreInstaller = join(brandedInstallerDir, coreInstallerName);
+  renameSync(coreSource, coreInstaller);
   const coreHashPath = join(brandedInstallerDir, "core.sha256");
   const coreHash = createHash("sha256").update(readFileSync(coreInstaller)).digest("hex");
   writeFileSync(coreHashPath, `${coreHash}\n`, "ascii");
@@ -147,7 +184,7 @@ async function wrapCoreInstaller() {
     `-p:CoreInstallerPath=${coreInstaller}`,
     `-p:CoreInstallerHashPath=${coreHashPath}`
   ]);
-  const publishedInstaller = join(publishDir, "naimage Setup.exe");
+  const publishedInstaller = join(publishDir, "SparkAI WorkSpace Installer.exe");
   if (!existsSync(publishedInstaller)) throw new Error(`Branded setup was not produced: ${publishedInstaller}`);
   copyFileSync(publishedInstaller, finalInstaller);
 
@@ -157,13 +194,23 @@ async function wrapCoreInstaller() {
   rmSync(join(releaseDir, "desktop-release.json"), { force: true });
   rmSync(join(releaseDir, "desktop-release-legacy.json"), { force: true });
   rmSync(join(releaseDir, "SHA256SUMS.txt"), { force: true });
-  rmSync(`${finalInstaller}.json`, { force: true });
+  for (const installerName of [
+    windowsInstallerArtifactName(productVersion, ACCESS_VARIANT_DUAL),
+    windowsInstallerArtifactName(productVersion, ACCESS_VARIANT_SPARKAPI),
+    legacyInstallerName
+  ]) {
+    rmSync(join(releaseDir, `${installerName}.json`), { force: true });
+  }
   rmSync(join(releaseDir, `naimage-Restart-Update-${productVersion}-x64.asar`), { force: true });
 
   // electron-builder's blockmap belongs to the hidden NSIS core and must not
   // be published beside the branded wrapper as if it described the final exe.
-  rmSync(`${finalInstaller}.blockmap`, { force: true });
+  rmSync(`${coreSource}.blockmap`, { force: true });
+  const legacyInstaller = join(releaseDir, legacyInstallerName);
+  rmSync(legacyInstaller, { force: true });
+  rmSync(`${legacyInstaller}.blockmap`, { force: true });
   console.log(JSON.stringify({
+    accessVariant,
     finalInstaller,
     coreInstaller,
     brandedUninstaller,

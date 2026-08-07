@@ -58,6 +58,7 @@ function createProjectAssetRepository(options = {}) {
     const resolvedProject = path.resolve(projectPath || projectRoot);
     return [
       path.join(resolvedProject, "output", "imagegen"),
+      path.join(resolvedProject, "output", "video"),
       path.join(resolvedProject, "assets"),
       path.join(resolvedProject, projectMetaDirName, "assets")
     ];
@@ -188,6 +189,42 @@ function createProjectAssetRepository(options = {}) {
     return null;
   }
 
+  function hydrateVideoAssetForProject(asset, project) {
+    if (!asset || typeof asset !== "object") return null;
+    const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
+    const next = { ...asset };
+    const candidates = [];
+    if (typeof next.relativePath === "string") candidates.push(resolveProjectRelativePath(projectPath, next.relativePath));
+    if (typeof next.path === "string") candidates.push(path.resolve(next.path));
+    for (const value of [next.assetUrl, next.url]) {
+      const decodedPath = assetPathFromUrl(value);
+      if (decodedPath) candidates.push(decodedPath);
+    }
+    const found = candidates.map((candidate) => controlledProjectAssetFile(candidate, projectPath)).find(Boolean);
+    if (found) {
+      const extension = path.extname(found).toLowerCase();
+      if (![".mp4", ".m4v", ".webm", ".mov"].includes(extension)) return null;
+      next.type = "file";
+      next.path = found;
+      next.relativePath = projectRelativePath(projectPath, found);
+      next.assetUrl = assetUrlFor(found);
+      next.originalName = String(next.originalName || path.basename(found)).slice(0, 260);
+      next.mimeType = extension === ".webm" ? "video/webm" : extension === ".mov" ? "video/quicktime" : "video/mp4";
+      delete next.url;
+      return next;
+    }
+    const remoteUrl = [next.url, next.assetUrl]
+      .map((value) => typeof value === "string" ? value.trim() : "")
+      .find((value) => /^https?:\/\//i.test(value));
+    if (!remoteUrl) return null;
+    next.type = "url";
+    next.url = remoteUrl;
+    delete next.path;
+    delete next.relativePath;
+    delete next.assetUrl;
+    return next;
+  }
+
   function recoverNodeAssets(node, project, assetIndex) {
     const assets = Array.isArray(node.assets)
       ? node.assets.map((asset) => hydrateAssetForProject(asset, project, assetIndex)).filter(Boolean)
@@ -278,6 +315,10 @@ function createProjectAssetRepository(options = {}) {
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
     const normalizedProject = { ...project, path: projectPath };
     const validatedNodes = source.nodes.map((node) => {
+      if (node.type === "video") {
+        const videoAsset = hydrateVideoAssetForProject(node.videoAsset, normalizedProject);
+        return { node, recordedAssets: [], assets: [], videoAsset, needsRecovery: false };
+      }
       const recordedAssets = Array.isArray(node.assets) ? node.assets : [];
       const assets = recordedAssets.map((asset) => hydrateAssetForProject(asset, normalizedProject, null));
       const missingRecordedAssets = assets.some((asset) => !asset);
@@ -294,7 +335,19 @@ function createProjectAssetRepository(options = {}) {
       : null;
     options.onAssetIndex?.({ projectPath, scanned: Boolean(assetIndex), missingNodeCount: validatedNodes.filter((item) => item.needsRecovery).length + nestedMissingCount });
     const hydrateReference = (reference) => hydrateAssetForProject(reference, normalizedProject, assetIndex);
-    const nodes = validatedNodes.map(({ node, recordedAssets, assets: validatedAssets, needsRecovery: nodeNeedsRecovery }) => {
+    const nodes = validatedNodes.map(({ node, recordedAssets, assets: validatedAssets, videoAsset, needsRecovery: nodeNeedsRecovery }) => {
+      if (node.type === "video") {
+        const ready = Boolean(videoAsset);
+        return {
+          ...node,
+          assets: undefined,
+          videoAsset: videoAsset || undefined,
+          videoState: ready ? "ready" : node.videoAsset ? "error" : node.videoState,
+          videoError: ready ? undefined : node.videoAsset ? "项目视频文件不存在或不在受管目录中。" : node.videoError,
+          status: ready ? "done" : node.status,
+          outputs: ready ? 1 : 0
+        };
+      }
       let assets = validatedAssets.filter(Boolean);
       if (nodeNeedsRecovery && assetIndex) {
         if (recordedAssets.length > 0) {
@@ -347,6 +400,37 @@ function createProjectAssetRepository(options = {}) {
     return next;
   }
 
+  function videoAssetForProjectSave(asset, projectPath) {
+    if (!asset || typeof asset !== "object") return undefined;
+    const next = { ...asset };
+    const controlledCurrent = typeof next.path === "string" ? controlledProjectAssetFile(next.path, projectPath) : "";
+    const safeRelativeTarget = typeof next.relativePath === "string" ? resolveProjectRelativePath(projectPath, next.relativePath) : "";
+    const controlledRelative = safeRelativeTarget ? controlledProjectAssetFile(safeRelativeTarget, projectPath) : "";
+    const resolved = controlledCurrent || controlledRelative;
+    if (resolved) {
+      next.type = "file";
+      next.relativePath = projectRelativePath(projectPath, resolved);
+      next.originalName = String(next.originalName || path.basename(resolved)).slice(0, 260);
+      delete next.path;
+      delete next.assetUrl;
+      delete next.url;
+      return next;
+    }
+    const remoteUrl = [next.url, next.assetUrl]
+      .map((value) => typeof value === "string" ? value.trim() : "")
+      .find((value) => /^https?:\/\//i.test(value));
+    delete next.path;
+    delete next.relativePath;
+    delete next.assetUrl;
+    if (remoteUrl) {
+      next.type = "url";
+      next.url = remoteUrl;
+      return next;
+    }
+    delete next.url;
+    return undefined;
+  }
+
   function sessionForProjectSave(session, project) {
     const source = sanitizeSession(session);
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
@@ -355,7 +439,8 @@ function createProjectAssetRepository(options = {}) {
       ...source,
       nodes: source.nodes.map((node) => mapNestedNodeAssetReferences({
         ...node,
-        assets: Array.isArray(node.assets) ? node.assets.map(normalizeAsset).filter(Boolean) : []
+        assets: node.type === "video" ? undefined : Array.isArray(node.assets) ? node.assets.map(normalizeAsset).filter(Boolean) : [],
+        videoAsset: node.type === "video" ? videoAssetForProjectSave(node.videoAsset, projectPath) : undefined
       }, normalizeAsset)),
       messages: mapMessageAssetReferences(source.messages, normalizeAsset),
       conversations: Array.isArray(source.conversations)
@@ -375,6 +460,7 @@ function createProjectAssetRepository(options = {}) {
     controlledProjectAssetFile,
     controlledRecordedAssetUrl,
     hydrateAssetForProject,
+    hydrateVideoAssetForProject,
     mapMessageAssetReferences,
     mapNestedNodeAssetReferences,
     nestedSessionAssetReferences,
@@ -382,7 +468,8 @@ function createProjectAssetRepository(options = {}) {
     projectWritableAssetRoots,
     recoverNodeAssets,
     sessionForProjectSave,
-    sessionWithProjectAssets
+    sessionWithProjectAssets,
+    videoAssetForProjectSave
   };
 }
 

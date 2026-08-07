@@ -1,0 +1,182 @@
+.social-content-dialog {
+  --ui-surface-width: 840px;
+  height: min(760px, calc(100dvh - 40px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.social-content-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  overflow: auto;
+}
+
+.social-platform-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.social-platform-switch > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+  text-align: left;
+}
+
+.social-platform-switch > button.active {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface-raised));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 28%, transparent);
+}
+
+.social-platform-switch span,
+.social-content-toggle span,
+.social-source-summary > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.social-platform-switch small,
+.social-content-toggle small,
+.social-source-summary small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.social-content-section,
+.social-source-summary {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface-raised) 62%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+}
+
+.social-content-dialog input,
+.social-content-dialog select,
+.social-content-dialog textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-deep) 72%, transparent);
+}
+
+.social-content-dialog input,
+.social-content-dialog select {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.social-content-dialog textarea {
+  min-height: 96px;
+  padding: 10px 11px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.social-content-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.social-content-field-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.social-content-field-grid.four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.social-content-dialog input[readonly] {
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+.social-content-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.social-content-toggle > input {
+  width: 17px;
+  min-height: 17px;
+  accent-color: var(--accent);
+}
+
+.social-content-toggle span {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.social-content-toggle span small {
+  grid-column: 2;
+}
+
+.social-source-summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.social-source-strip {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+}
+
+.social-source-strip span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  margin-left: -8px;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  border-radius: 10px;
+  color: var(--ink-muted);
+  background: var(--surface-deep);
+}
+
+.social-source-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.social-source-strip em {
+  margin-left: 6px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.social-content-footer-summary {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .social-content-field-grid,
+  .social-content-field-grid.three,
+  .social-content-field-grid.four,
+  .social-platform-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .social-source-summary {
+    grid-template-columns: 1fr;
+  }
+}

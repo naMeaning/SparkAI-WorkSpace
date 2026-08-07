@@ -10,6 +10,7 @@ import {
 const base = {
   ready: true,
   projectName: "跨境商品图",
+  workspaceDomain: "commerce" as const,
   modelName: "gpt-5.6-sol",
   agentStatus: "thinking" as const,
   busy: true,
@@ -86,6 +87,7 @@ const base = {
 
 const snapshot = buildAgentWindowSnapshot(base);
 assert.equal(snapshot.version, 1);
+assert.deepEqual(snapshot.workspaceDomain, { id: "commerce", title: "电商创作" });
 assert.equal(snapshot.statusText, "Agent 正在输出 12s");
 assert.equal(snapshot.messages.length, 2);
 assert.equal(snapshot.messages[0].sourceCount, 1);
@@ -100,7 +102,9 @@ assert.equal(snapshot.goal.operationsPerAsset, 1);
 assert.equal(snapshot.goal.requestCount, 6);
 assert.equal(snapshot.goal.probeContainerCount, 2);
 assert.equal(snapshot.goal.concurrencyCap, 6);
-assert.equal(snapshot.goal.estimatedMaxCostCents, 80);
+assert.equal("trialImagesUsed" in snapshot.goal, false);
+assert.equal("paidImages" in snapshot.goal, false);
+assert.equal("estimatedMaxCostCents" in snapshot.goal, false);
 assert.equal(snapshot.stopPending, false);
 assert.equal(snapshot.glassAppearance.glassTheme, "dark-emerald");
 assert.equal(snapshot.glassAppearance.glassMaterial, "custom");
@@ -171,15 +175,14 @@ const unavailableGoalSnapshot = buildAgentWindowSnapshot({
     available: true,
     active: true,
     snapshotHash: "invalid",
-    probeContainerCount: 9,
-    estimatedMaxCostCents: -1
+    probeContainerCount: 9
   }
 });
 assert.equal(unavailableGoalSnapshot.goal.available, false);
 assert.equal(unavailableGoalSnapshot.goal.active, false);
 assert.equal(unavailableGoalSnapshot.goal.snapshotHash, "");
 assert.equal(unavailableGoalSnapshot.goal.probeContainerCount, 2);
-assert.equal(unavailableGoalSnapshot.goal.estimatedMaxCostCents, undefined);
+assert.equal("estimatedMaxCostCents" in unavailableGoalSnapshot.goal, false);
 
 const activeGoalSnapshot = buildAgentWindowSnapshot({
   ...base,

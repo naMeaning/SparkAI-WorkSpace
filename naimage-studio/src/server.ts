@@ -176,7 +176,7 @@ function isAuthError(error: unknown) {
 
 function normalizeUser(userData: JsonRecord = {}): ServerUser {
   const username = String(userData.username || userData.email || userData.id || "").trim();
-  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "naimage User").trim();
+  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "SparkAI WorkSpace User").trim();
   const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
   const balanceCents = Number.isFinite(quota)
     ? Math.max(0, Math.round((quota / NEW_API_QUOTA_PER_UNIT) * 100))
@@ -397,7 +397,11 @@ function splitModelSettings(
 }
 
 function preferredAgentModelFromList(models: string[] = []) {
-  return models.find((model) => /^gpt-5\.5\b/i.test(model)) ?? models[0] ?? "";
+  return models.find((model) => /^gpt-5\.6-terra(?:[-.:]|$)/i.test(model)) ??
+    models.find((model) => /^gpt-5\.6-sol(?:[-.:]|$)/i.test(model)) ??
+    models.find((model) => /^gpt-5\.6\b/i.test(model)) ??
+    models.find((model) => /^gpt-5\.5\b/i.test(model)) ??
+    models[0] ?? "";
 }
 
 function preferredImageModelFromList(models: string[] = []) {
@@ -806,10 +810,10 @@ function createBrowserServerBridge(): ServerBridge {
       }
     },
     async activateLicense() {
-      return { ok: false, active: false, required: true, error: "激活码核销仅支持 naimage 桌面版。" };
+      return { ok: false, active: false, required: true, error: "激活码核销仅支持 SparkAI WorkSpace 桌面版。" };
     },
     async configureCustom() {
-      return { ok: false, error: "自定义 API Key 模式仅支持 naimage 桌面版。" };
+      return { ok: false, error: "自定义 API Key 模式仅支持 SparkAI WorkSpace 桌面版。" };
     }
   };
 }

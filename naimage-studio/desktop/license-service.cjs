@@ -156,7 +156,7 @@ function createLicenseService({
   async function requireActive() {
     const status = await verify();
     if (!status.active) {
-      const error = new Error(status.error || "naimage 尚未激活。");
+      const error = new Error(status.error || "SparkAI WorkSpace 尚未激活。");
       error.code = "NAIMAGE_LICENSE_REQUIRED";
       throw error;
     }

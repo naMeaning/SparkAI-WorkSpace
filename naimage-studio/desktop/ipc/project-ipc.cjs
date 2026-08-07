@@ -7,6 +7,7 @@ const {
   parseSkillResult,
   readSkillMarkdownFile
 } = require("../skill-import.cjs");
+const { normalizeWorkspaceDomain } = require("../../runtime/workspace-domain.cjs");
 
 const LEGACY_PROJECT_PACKAGE_EXTENSION = "iiimage";
 
@@ -53,10 +54,12 @@ function registerProjectIpc(options = {}) {
   ipcMain.handle("naimage:project:create", (_event, payload) => {
     const list = readProjectList();
     const record = createProjectRecord(payload?.name || `画布 ${list.projects.length + 1}`);
-    ensureProjectFiles(record, defaultSession);
+    const initialSession = { ...defaultSession, workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain) };
+    ensureProjectFiles(record, initialSession);
     const next = writeProjectList({ activeProjectId: record.id, projects: [record, ...list.projects] });
+    const session = projectSessionFromDisk(record);
     log(`project create ${record.id}`);
-    return { ok: true, project: record, projects: next.projects, activeProjectId: next.activeProjectId, session: defaultSession };
+    return { ok: true, project: record, projects: next.projects, activeProjectId: next.activeProjectId, session };
   });
 
   ipcMain.handle("naimage:project:create-folder", async (_event, payload) => {
@@ -71,7 +74,8 @@ function registerProjectIpc(options = {}) {
     const selectedPath = nextExternalProjectFolderPath(result.filePaths[0], projectName, list);
     const record = createProjectRecord(projectName, selectedPath);
     list.projects.unshift(record);
-    ensureProjectFiles(record, defaultSession);
+    const initialSession = { ...defaultSession, workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain) };
+    ensureProjectFiles(record, initialSession);
     const next = writeProjectList({ ...list, activeProjectId: record.id });
     const session = projectSessionFromDisk(record);
     log(`project create folder ${selectedPath}`);
@@ -115,7 +119,7 @@ function registerProjectIpc(options = {}) {
 
   ipcMain.handle("naimage:project:open", async () => {
     const result = await dialog.showOpenDialog({
-      title: "打开 naimage 画布",
+      title: "打开 SparkAI WorkSpace 画布",
       properties: ["openDirectory"]
     });
     if (result.canceled || result.filePaths.length === 0) {
@@ -144,9 +148,9 @@ function registerProjectIpc(options = {}) {
     const project = getActiveProject(list);
     if (!project) return { ok: false, error: "当前没有可导出的画布。" };
     const result = await dialog.showSaveDialog({
-      title: "导出 naimage 画布",
+      title: "导出 SparkAI WorkSpace 画布",
       defaultPath: path.join(project.path || desktopRoot, `${safeName(project.name, "naimage画布")}.naimage`),
-      filters: [{ name: "naimage Project", extensions: ["naimage"] }]
+      filters: [{ name: "SparkAI WorkSpace Project", extensions: ["naimage"] }]
     });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
     const packageData = packageProject(project);
@@ -158,9 +162,9 @@ function registerProjectIpc(options = {}) {
 
   ipcMain.handle("naimage:project:import", async () => {
     const open = await dialog.showOpenDialog({
-      title: "导入 naimage 画布",
+      title: "导入 SparkAI WorkSpace 画布",
       properties: ["openFile"],
-      filters: [{ name: "naimage Project", extensions: ["naimage", LEGACY_PROJECT_PACKAGE_EXTENSION, "json"] }]
+      filters: [{ name: "SparkAI WorkSpace Project", extensions: ["naimage", LEGACY_PROJECT_PACKAGE_EXTENSION, "json"] }]
     });
     if (open.canceled || open.filePaths.length === 0) return { ok: true, canceled: true };
     const sourceFile = open.filePaths[0];
@@ -279,7 +283,7 @@ function registerProjectIpc(options = {}) {
     const protectedPaths = new Set([path.resolve(projectRoot), path.resolve(desktopRoot), path.resolve(configDir), path.resolve(projectsDir)]);
     if (!projectPath || protectedPaths.has(projectPath)) return { ok: false, error: "画布路径受保护，已取消删除。" };
     if (project.external || !isPathInside(projectPath, projectsDir)) {
-      return { ok: false, error: "外部画布文件夹不会被 naimage 删除。可以使用“移除”从画布列表移除，磁盘文件请在系统文件管理器中处理。" };
+      return { ok: false, error: "外部画布文件夹不会被 SparkAI WorkSpace 删除。可以使用“移除”从画布列表移除，磁盘文件请在系统文件管理器中处理。" };
     }
     if (existsSync(projectPath)) {
       rmSync(projectPath, { recursive: true, force: true });

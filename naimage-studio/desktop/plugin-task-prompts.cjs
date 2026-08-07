@@ -6,10 +6,17 @@ const {
   composeCommerceSetTask,
   normalizeCommerceSetPlan
 } = require("../runtime/commerce-set-plan.cjs");
+const {
+  SOCIAL_DOUYIN_COMMAND,
+  SOCIAL_XIAOHONGSHU_COMMAND,
+  composeSocialContentTask
+} = require("../runtime/social-content-plan.cjs");
 const PROJECT_GRAPH_VISUALIZATION_COMMAND = "sparkai.project-graph.visualize-learning-map";
-const SCIENTIFIC_FIGURE_COMMAND = "sparkai.scientific-figure.start-workflow";
+const {
+  SCIENTIFIC_FIGURE_START_COMMAND: SCIENTIFIC_FIGURE_COMMAND,
+  composeScientificFigureTask
+} = require("../runtime/scientific-figure-plan.cjs");
 const commerceSetSchema = require("../plugins/commerce-set-schema.json");
-const scientificFigureWorkflow = require("../plugins/builtin/sparkai.scientific-figure/resources/agent-workflow.json");
 const MAX_COMMERCE_TARGET_LANGUAGES = commerceSetSchema.limits.maxTargetLanguages;
 const MAX_PROJECT_GRAPH_PROMPT_NODES = 600;
 const MAX_PROJECT_GRAPH_PROMPT_EDGES = 1_200;
@@ -124,11 +131,11 @@ function composePluginTask(payload) {
         : { mode: "generate" })
     }));
   }
+  if (payload?.command === SOCIAL_XIAOHONGSHU_COMMAND || payload?.command === SOCIAL_DOUYIN_COMMAND) {
+    return composeSocialContentTask(payload);
+  }
   if (payload?.command === SCIENTIFIC_FIGURE_COMMAND) {
-    return {
-      prompt: scientificFigureWorkflow.prompt,
-      visibleContent: "创建投稿级科研图"
-    };
+    return composeScientificFigureTask(payload);
   }
   throw new Error("不支持的插件任务。");
 }
@@ -138,6 +145,8 @@ module.exports = {
   COMMERCE_TRANSLATION_COMMAND,
   PROJECT_GRAPH_VISUALIZATION_COMMAND,
   SCIENTIFIC_FIGURE_COMMAND,
+  SOCIAL_DOUYIN_COMMAND,
+  SOCIAL_XIAOHONGSHU_COMMAND,
   commerceLanguages,
   composeCommerceSetTask,
   commerceTranslationPrompt,

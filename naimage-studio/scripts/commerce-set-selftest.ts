@@ -8,14 +8,19 @@ import commerceSetSchema from "../plugins/commerce-set-schema.json" with { type:
 import {
   COMMERCE_LANGUAGES,
   COMMERCE_SET_LIMITS,
+  COMMERCE_SET_PLATFORM_TEMPLATES,
   DEFAULT_COMMERCE_SET_SLOTS,
   MAX_COMMERCE_TARGET_LANGUAGES,
   buildCommerceSetMatrix,
+  commerceSetSlotsForPlatform,
+  commerceSetPromptMaterialHash,
   commerceSetRequestCounts,
   normalizeCommerceLanguageCodes,
+  normalizeCommerceTranslationItems,
   normalizeCommerceSetPlan,
   normalizeCommerceSourceKeys,
   parseCommerceSetPromptPlan,
+  resizeCommerceSetSlots,
   serializeCommerceSetSnapshotMaterial
 } from "../src/plugins/commerce-set.ts";
 
@@ -31,8 +36,11 @@ const pluginPrompts = require("../desktop/plugin-task-prompts.cjs") as {
   };
 };
 const commerceSetRuntime = require("../runtime/commerce-set-plan.cjs") as {
-  normalizeCommerceSetPlan: (plan: unknown) => unknown;
+  normalizeCommerceSetPlan: (plan: unknown) => ReturnType<typeof normalizeCommerceSetPlan>;
   commerceSetRequestCounts: (plan: unknown, sourceCount: number) => unknown;
+  commerceSetPlanHash: (plan: unknown, sourceNodeIds?: string[]) => string;
+  commerceSetPromptMaterialHash: (plan: unknown, sourceNodeIds?: string[]) => string;
+  parseCommerceSetPromptPlan: (prompt: unknown) => ReturnType<typeof parseCommerceSetPromptPlan>;
 };
 const { createAidebugBackend } = require("../desktop/aidebug-backend.cjs") as {
   createAidebugBackend: (options: { enabled: boolean; log: (message: string) => void }) => {
@@ -56,8 +64,23 @@ function aidebugImageCall(prompt: string): Record<string, unknown> {
 assert.equal(commerceSetSchema.schemaVersion, 1);
 assert.equal(COMMERCE_LANGUAGES.length, commerceSetSchema.languages.length);
 assert.equal(DEFAULT_COMMERCE_SET_SLOTS.length, commerceSetSchema.defaultSlots.length);
+assert.deepEqual(
+  COMMERCE_SET_PLATFORM_TEMPLATES.map((template) => template.id),
+  ["general", "amazon", "aliexpress"],
+  "The shared registry must expose the supported platform templates in a stable order"
+);
 assert.equal(MAX_COMMERCE_TARGET_LANGUAGES, commerceSetSchema.limits.maxTargetLanguages);
 assert.ok(DEFAULT_COMMERCE_SET_SLOTS.length >= 7, "The default listing set should cover a complete commerce story");
+const generalTemplateSlots = commerceSetSlotsForPlatform("general");
+const amazonTemplateSlots = commerceSetSlotsForPlatform("amazon");
+const aliexpressTemplateSlots = commerceSetSlotsForPlatform("aliexpress");
+assert.deepEqual(generalTemplateSlots, DEFAULT_COMMERCE_SET_SLOTS, "The general template must preserve the original default slots");
+assert.equal(amazonTemplateSlots.length, 7, "Amazon must provide a complete seven-image listing set");
+assert.equal(aliexpressTemplateSlots.length, 8, "AliExpress must provide a complete eight-image listing set");
+assert.ok(amazonTemplateSlots.every((slot) => slot.id.startsWith("amazon-") && slot.title && slot.prompt));
+assert.ok(aliexpressTemplateSlots.every((slot) => slot.id.startsWith("aliexpress-") && slot.title && slot.prompt));
+assert.equal(new Set(amazonTemplateSlots.map((slot) => slot.id)).size, amazonTemplateSlots.length);
+assert.equal(new Set(aliexpressTemplateSlots.map((slot) => slot.id)).size, aliexpressTemplateSlots.length);
 assert.deepEqual(
   pluginPrompts.commerceLanguages.map((language) => language[0]),
   COMMERCE_LANGUAGES.map((language) => language.code),
@@ -86,11 +109,51 @@ assert.equal(resized.slots[1].id, "hero-2", "Duplicate slot IDs must be made sta
 assert.deepEqual(resized.targetLocales.map((locale) => locale.code), ["en-US", "de-DE"]);
 
 const defaultGenerate = normalizeCommerceSetPlan({ mode: "generate", languageCodes: [] });
+assert.equal(defaultGenerate.platformTemplateId, "general", "Plans created before platform templates must remain general");
+assert.deepEqual(defaultGenerate.slots, DEFAULT_COMMERCE_SET_SLOTS);
 const defaultGenerateCounts = commerceSetRequestCounts(defaultGenerate, 1);
 assert.equal(defaultGenerateCounts.outputsPerGroup, DEFAULT_COMMERCE_SET_SLOTS.length);
 assert.equal(defaultGenerateCounts.groupCount, 1);
 assert.equal(defaultGenerateCounts.totalRequests, DEFAULT_COMMERCE_SET_SLOTS.length);
 assert.equal(defaultGenerateCounts.localeVariantCount, 1, "No generate locale means one source-language group");
+
+const amazonGenerate = normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "amazon" });
+const aliexpressGenerate = normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "aliexpress" });
+assert.equal(amazonGenerate.platformTemplateId, "amazon");
+assert.equal(aliexpressGenerate.platformTemplateId, "aliexpress");
+assert.deepEqual(amazonGenerate.slots, amazonTemplateSlots);
+assert.deepEqual(aliexpressGenerate.slots, aliexpressTemplateSlots);
+assert.deepEqual(amazonGenerate.targetLocales, [], "Selecting Amazon must not implicitly multiply generation by language");
+assert.deepEqual(aliexpressGenerate.targetLocales, [], "Selecting AliExpress must not implicitly multiply generation by language");
+assert.deepEqual(
+  commerceSetRuntime.normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "amazon" }),
+  amazonGenerate,
+  "CLI and Renderer normalizers must fill the same Amazon defaults"
+);
+assert.deepEqual(
+  commerceSetRuntime.normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "aliexpress" }),
+  aliexpressGenerate,
+  "CLI and Renderer normalizers must fill the same AliExpress defaults"
+);
+assert.deepEqual(
+  commerceSetRuntime.normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "amazon", slots: [] }),
+  normalizeCommerceSetPlan({ mode: "generate", platformTemplateId: "amazon", slots: [] }),
+  "CLI and Renderer must agree for an explicitly empty slot list"
+);
+const editedAmazon = normalizeCommerceSetPlan({
+  mode: "generate",
+  platformTemplateId: "amazon",
+  setSize: 2,
+  slots: [{ id: "custom-hero", title: "自定义首图", prompt: "只展示真实商品。" }]
+});
+assert.equal(editedAmazon.slots[0]?.id, "custom-hero", "Platform templates must remain editable");
+assert.equal(editedAmazon.slots[1]?.id, amazonTemplateSlots[1]?.id, "Missing edited slots must use the selected platform fallback");
+assert.equal(
+  resizeCommerceSetSlots(editedAmazon.slots.slice(0, 1), 3, "amazon")[2]?.id,
+  amazonTemplateSlots[2]?.id,
+  "Resizing an edited platform set must continue with that platform's defaults"
+);
+assert.equal(normalizeCommerceSetPlan({ platformTemplateId: "unknown" }).platformTemplateId, "general");
 
 const twoSlotPlan = normalizeCommerceSetPlan({
   mode: "generate",
@@ -133,6 +196,55 @@ assert.equal(translatedMatrix.length, 8);
 assert.equal(new Set(translatedMatrix.map((job) => job.groupKey)).size, 2);
 assert.ok(translatedMatrix.filter((job) => job.localeCode === "ar-SA").every((job) => /阿拉伯语/.test(job.localePrompt)));
 
+const normalizedTranslationItems = normalizeCommerceTranslationItems([
+  { sourceIndex: 1, localeCode: "en-US", prompt: "  source two English  " },
+  { sourceIndex: 0, localeCode: "en-US", prompt: "source one English" },
+  { sourceIndex: 0, localeCode: "ar-SA", prompt: "source one Arabic" },
+  { sourceIndex: 0, localeCode: "ar-SA", prompt: "duplicate must be ignored" },
+  { sourceIndex: -1, localeCode: "en-US", prompt: "invalid source" },
+  { sourceIndex: 2, localeCode: "xx-XX", prompt: "invalid locale" },
+  { sourceIndex: 1, localeCode: "en-US", prompt: "" }
+], ["ar-SA", "en-US"]);
+assert.deepEqual(normalizedTranslationItems, [
+  { sourceIndex: 0, localeCode: "ar-SA", prompt: "source one Arabic" },
+  { sourceIndex: 0, localeCode: "en-US", prompt: "source one English" },
+  { sourceIndex: 1, localeCode: "en-US", prompt: "source two English" }
+], "Translation cell prompts must be cleaned, deduplicated, and sorted by SOURCE then selected language order");
+const normalizedTranslationPlan = normalizeCommerceSetPlan({
+  mode: "translate",
+  targetLocales: ["ar-SA", "en-US"],
+  translationItems: normalizedTranslationItems
+});
+assert.deepEqual(
+  commerceSetRuntime.normalizeCommerceSetPlan(normalizedTranslationPlan).translationItems,
+  normalizedTranslationPlan.translationItems,
+  "CJS and Renderer must normalize the same image x language cells"
+);
+assert.equal(
+  commerceSetPromptMaterialHash(normalizedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  commerceSetRuntime.commerceSetPromptMaterialHash(normalizedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  "CJS and Renderer material fingerprints must agree"
+);
+const changedTranslationPlan = normalizeCommerceSetPlan({
+  ...normalizedTranslationPlan,
+  translationItems: [{ sourceIndex: 0, localeCode: "ar-SA", prompt: "changed Arabic requirement" }]
+});
+assert.notEqual(
+  commerceSetRuntime.commerceSetPlanHash(normalizedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  commerceSetRuntime.commerceSetPlanHash(changedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  "The frozen commerce plan hash must change when one translation cell prompt changes"
+);
+assert.notEqual(
+  commerceSetPromptMaterialHash(normalizedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  commerceSetPromptMaterialHash(changedTranslationPlan, ["SOURCE-A", "SOURCE-B"]),
+  "The prompt material fingerprint must change when one translation cell prompt changes"
+);
+assert.deepEqual(
+  normalizeCommerceSetPlan({ mode: "generate", translationItems: normalizedTranslationItems }).translationItems,
+  [],
+  "Non-translation plans must never retain translation cell instructions"
+);
+
 const blockedCounts = commerceSetRequestCounts({
   mode: "generate",
   setSize: COMMERCE_SET_LIMITS.maxSlots,
@@ -170,6 +282,23 @@ const stableTwo = serializeCommerceSetSnapshotMaterial({
   reusableName: "商品套图"
 }, [{ nodeId: "sku-a" }, { nodeId: "sku-b" }]);
 assert.equal(stableOne, stableTwo, "Equivalent plans must yield byte-stable snapshot material");
+const identitySlot = [{ id: "identity", title: "相同槽位", prompt: "相同提示。" }];
+const generalIdentitySnapshot = serializeCommerceSetSnapshotMaterial({
+  mode: "generate",
+  platformTemplateId: "general",
+  slots: identitySlot
+}, ["sku-a"]);
+const amazonIdentitySnapshot = serializeCommerceSetSnapshotMaterial({
+  mode: "generate",
+  platformTemplateId: "amazon",
+  slots: identitySlot
+}, ["sku-a"]);
+assert.notEqual(generalIdentitySnapshot, amazonIdentitySnapshot, "Frozen snapshots must retain platform identity");
+assert.notEqual(
+  commerceSetRuntime.commerceSetPlanHash({ mode: "generate", platformTemplateId: "general", slots: identitySlot }, ["sku-a"]),
+  commerceSetRuntime.commerceSetPlanHash({ mode: "generate", platformTemplateId: "amazon", slots: identitySlot }, ["sku-a"]),
+  "Plan hashes must retain platform identity even when slots are otherwise identical"
+);
 assert.deepEqual(
   commerceSetRuntime.normalizeCommerceSetPlan(twoSlotPlan),
   normalizeCommerceSetPlan(twoSlotPlan),
@@ -230,10 +359,51 @@ assert.equal(
   "The visible PLAN_HASH and structured plan hash must remain identical"
 );
 assert.equal(
-  parseCommerceSetPromptPlan(twelveSlotTrustedTask.prompt.replace('"sourceNodeIds":["SOURCE-A"]', '"sourceNodeIds":[]'))?.outputsPerSource,
+  parseCommerceSetPromptPlan(
+    twelveSlotTrustedTask.prompt
+      .replace(/,"planMaterialHash":"[a-f0-9]{32}"/, "")
+      .replace('"sourceNodeIds":["SOURCE-A"]', '"sourceNodeIds":[]')
+  )?.outputsPerSource,
   12,
-  "Plans composed without explicit node IDs remain compatible"
+  "Legacy plans composed without explicit node IDs remain compatible"
 );
+const amazonTrustedTask = pluginPrompts.composePluginTask({
+  command: "sparkai.commerce-toolkit.generate-listing-set",
+  sourceCount: 1,
+  sourceNodeIds: ["SOURCE-A"],
+  plan: { mode: "generate", platformTemplateId: "amazon" }
+});
+const parsedAmazonPlan = parseCommerceSetPromptPlan(amazonTrustedTask.prompt);
+assert.equal(parsedAmazonPlan?.platformTemplateId, "amazon", "Structured prompt plans must retain Amazon identity");
+assert.deepEqual(parsedAmazonPlan?.slots, amazonTemplateSlots);
+assert.deepEqual(
+  commerceSetRuntime.parseCommerceSetPromptPlan(amazonTrustedTask.prompt),
+  parsedAmazonPlan,
+  "CLI and Renderer prompt-plan parsers must agree on platform identity and slots"
+);
+assert.equal(amazonTrustedTask.counts.outputsPerSource, amazonTemplateSlots.length);
+const amazonTrustedArgs = aidebugImageCall(amazonTrustedTask.prompt);
+const amazonTrustedItems = amazonTrustedArgs.items as Array<Record<string, unknown>>;
+assert.match(String(amazonTrustedItems[0]?.prompt || ""), /正方形/);
+assert.match(String(amazonTrustedItems[0]?.prompt || ""), /纯白背景/);
+assert.equal(
+  parseCommerceSetPromptPlan(amazonTrustedTask.prompt.replace('"platformTemplateId":"amazon"', '"platformTemplateId":"invalid"')),
+  null,
+  "Unknown platform identities in trusted prompt plans must be rejected"
+);
+const generalTrustedTask = pluginPrompts.composePluginTask({
+  command: "sparkai.commerce-toolkit.generate-listing-set",
+  sourceCount: 1,
+  sourceNodeIds: ["SOURCE-A"],
+  plan: { mode: "generate" }
+});
+const legacyPromptWithoutPlatform = generalTrustedTask.prompt.replace(',"platformTemplateId":"general"', "");
+assert.equal(
+  parseCommerceSetPromptPlan(legacyPromptWithoutPlatform)?.platformTemplateId,
+  "general",
+  "Prompt plans created before platformTemplateId must remain compatible as general"
+);
+assert.equal(commerceSetRuntime.parseCommerceSetPromptPlan(legacyPromptWithoutPlatform)?.platformTemplateId, "general");
 const multiAssetContainerTask = pluginPrompts.composePluginTask({
   command: "sparkai.commerce-toolkit.generate-listing-set",
   sourceCount: 2,
@@ -291,8 +461,37 @@ const translationTask = pluginPrompts.composePluginTask({
   command: "sparkai.commerce-toolkit.translate-listing-set",
   sourceCount: 2,
   sourceNodeIds: ["SOURCE-A", "SOURCE-B"],
-  plan: { mode: "translate", languageCodes: ["en-US", "ar-SA"] }
+  plan: {
+    mode: "translate",
+    languageCodes: ["en-US", "ar-SA"],
+    translationItems: [
+      { sourceIndex: 0, localeCode: "en-US", prompt: "SOURCE A English: keep the title concise." },
+      { sourceIndex: 0, localeCode: "ar-SA", prompt: "SOURCE A Arabic: preserve RTL dimensions." },
+      { sourceIndex: 1, localeCode: "en-US", prompt: "SOURCE B English: retain the packaging copy." }
+    ]
+  }
 });
+assert.match(translationTask.prompt, /planMaterialHash/);
+const parsedTranslationTask = parseCommerceSetPromptPlan(translationTask.prompt);
+assert.deepEqual(
+  parsedTranslationTask?.translationItems,
+  [
+    { sourceIndex: 0, localeCode: "en-US", prompt: "SOURCE A English: keep the title concise." },
+    { sourceIndex: 0, localeCode: "ar-SA", prompt: "SOURCE A Arabic: preserve RTL dimensions." },
+    { sourceIndex: 1, localeCode: "en-US", prompt: "SOURCE B English: retain the packaging copy." }
+  ],
+  "Trusted translation prompts must preserve each SOURCE x locale cell"
+);
+assert.deepEqual(
+  commerceSetRuntime.parseCommerceSetPromptPlan(translationTask.prompt)?.translationItems,
+  parsedTranslationTask?.translationItems,
+  "CJS and Renderer trusted prompt parsers must agree on translation cells"
+);
+assert.equal(
+  parseCommerceSetPromptPlan(translationTask.prompt.replace("SOURCE B English", "tampered SOURCE B English")),
+  null,
+  "Changing a translation cell without regenerating the material fingerprint must be rejected"
+);
 const translationArgs = aidebugImageCall(translationTask.prompt);
 const translationItems = translationArgs.items as Array<Record<string, unknown>>;
 assert.equal(translationArgs.count, 2);
@@ -300,7 +499,8 @@ assert.deepEqual(
   translationItems.map((item) => [item.slotId, item.slotIndex, item.localeCode]),
   [["translation", 0, "en-US"], ["translation", 0, "ar-SA"]]
 );
-assert.ok(translationItems.every((item) => /Logo 与整体设计不变/.test(String(item.prompt || ""))));
+assert.match(translationTask.prompt, /SOURCE A English: keep the title concise/);
+assert.match(translationTask.prompt, /SOURCE A Arabic: preserve RTL dimensions/);
 assert.notEqual(
   stableOne,
   serializeCommerceSetSnapshotMaterial(twoSlotPlan, ["sku-b", "sku-a"]),
@@ -309,21 +509,36 @@ assert.notEqual(
 
 const compatibilitySource = fs.readFileSync(path.join(root, "src", "commerce-translation-dialog.tsx"), "utf8");
 const fullDialogSource = fs.readFileSync(path.join(root, "src", "commerce-set-dialog.tsx"), "utf8");
+const templateDialogSource = fs.readFileSync(path.join(root, "src", "commerce-template-dialog.tsx"), "utf8");
 const dialogCssSource = fs.readFileSync(path.join(root, "src", "styles", "04a-commerce-set-dialog.css"), "utf8");
 const commerceGuiSuiteSource = fs.readFileSync(path.join(root, "scripts", "aidebug-commerce-set-suite.mjs"), "utf8");
 const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 assert.match(compatibilitySource, /CommerceSetDialog/);
 assert.match(compatibilitySource, /initialMode="translate"/);
 assert.match(fullDialogSource, /整套张数/);
+assert.match(fullDialogSource, /COMMERCE_SET_PLATFORM_TEMPLATES/);
+assert.match(fullDialogSource, /commerceSetSlotsForPlatform\(platformTemplateId\)/, "Changing platform must explicitly load that platform's slots");
+assert.match(fullDialogSource, /<DeferredNumberInput[\s\S]{0,260}onValueChange=\{\(value\) => updatePlan\(\{ slots: resizeCommerceSetSlots\(plan\.slots, value, plan\.platformTemplateId\) \}\)\}/, "Resizing must allow an empty edit buffer while continuing with the selected platform defaults after normalization");
+assert.match(fullDialogSource, /aria-label="套图平台模板"/);
 assert.match(fullDialogSource, /逐语言提示/);
-assert.match(fullDialogSource, /Requirement/);
-assert.match(fullDialogSource, /Skill/);
+assert.match(fullDialogSource, /执行后保存到画布/);
+assert.match(fullDialogSource, /需求节点/);
+assert.match(fullDialogSource, /Skill 节点/);
+assert.match(fullDialogSource, /保存到模板市场/);
+assert.match(templateDialogSource, /点击“新建”，配置套图或多语言计划/);
+assert.match(templateDialogSource, /createTemplate/);
+assert.match(templateDialogSource, /尚未保存个人套图模板。点击顶部“新建”开始配置。/);
 assert.match(fullDialogSource, /probeRequests/);
+assert.match(fullDialogSource, /commerce-set-source-strip[\s\S]{0,700}onFocusSource\?\.\(source\)/, "The compact mother-image strip must focus its real canvas source");
+assert.match(fullDialogSource, /commerce-translation-source-preview[\s\S]{0,420}onFocusSource\?\.\(source\)/, "Translation rows must focus the same real canvas source");
+assert.doesNotMatch(fullDialogSource, /预计可计费请求/, "The commerce dialog must not fabricate a pre-call billing estimate");
 assert.match(mainSource, /React\.lazy\(\(\) => import\("\.\/commerce-(?:translation|set)-dialog"\)\)/, "The commerce configuration surface must remain a natural lazy boundary");
 assert.match(mainSource, /command: payload\.plan\.mode === "generate"/, "The final dialog mode must choose the trusted command");
 assert.match(mainSource, /套图配置期间母图范围已发生变化/, "A stale cross-Renderer SOURCE selection must not silently execute");
 assert.match(mainSource, /createCommerceReusableNode\(pending\)/, "Confirmed plans may create reusable Requirement or Skill nodes");
+assert.match(mainSource, /function createCommerceTemplatePlan|const createCommerceTemplatePlan/, "The template market must expose a direct new-template path into the commerce plan editor");
 assert.match(mainSource, /parseCommerceSetPromptPlan/, "Reusable commerce execution must recover its matrix size from the trusted plan block");
+assert.match(mainSource, /onFocusSource=\{\(source\) => \{[\s\S]{0,160}selectWorkspaceNavigatorNode\(source\.nodeId\)/, "Mother-image previews must use canonical canvas selection and focus");
 assert.match(fullDialogSource, /errorMessage/, "Stale SOURCE rejection must remain visible inside the commerce dialog");
 assert.match(fullDialogSource, /validationMessage && validationMessage !== feeRiskCopy\[counts\.feeRisk\]/, "A blocked request plan must not render the same danger notice twice");
 assert.match(fullDialogSource, /disabled=\{Boolean\(validationMessage \|\| errorMessage\)\}/, "A stale SOURCE snapshot must disable repeated submission");
@@ -333,6 +548,7 @@ assert.match(fullDialogSource, /来源已变化，请重新配置/, "Stale SOURC
 assert.match(fullDialogSource, /请选择至少一张母图/);
 assert.match(fullDialogSource, /请选择目标语言/);
 assert.match(dialogCssSource, /\.commerce-set-submit\.ui-action-button:disabled:not\(\[aria-busy="true"\]\)/, "Invalid commerce submissions need a scoped neutral disabled style");
+assert.match(dialogCssSource, /\.commerce-set-platform-control/);
 assert.match(dialogCssSource, /opacity:\s*1;/, "The disabled commerce action must not rely on opacity alone");
 assert.match(commerceGuiSuiteSource, /dialog\.querySelector\('\.commerce-set-submit'\)/, "GUI coverage must locate submit by its stable selector");
 assert.doesNotMatch(commerceGuiSuiteSource, /find\(\(button\) => String\(button\.textContent \|\| ''\)\.includes\('确认并执行'\)\)/, "GUI coverage must not depend on the happy-path submit copy");

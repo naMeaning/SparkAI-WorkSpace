@@ -4,6 +4,7 @@ export const GLASS_THEME_IDS = [
   "dark-rose",
   "dark-ember",
   "dark-emerald",
+  "light-silver",
   "light-lemon",
   "light-sky",
   "light-blush"

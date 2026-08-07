@@ -5,7 +5,10 @@ const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
 const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
-const { registerRequirementLibraryIpc, registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
+const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-ipc.cjs");
+const { registerCommerceExportIpc } = require("../desktop/ipc/commerce-export-ipc.cjs");
+const { registerCommerceTemplateIpc } = require("../desktop/ipc/commerce-template-ipc.cjs");
+const { registerGlassBackgroundIpc, registerRequirementLibraryIpc, registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
 
@@ -25,10 +28,39 @@ const expectedChannels = [
   "naimage:config:save-settings",
   "naimage:theme:import",
   "naimage:theme:export",
+  "naimage:glass-background:pick",
+  "naimage:glass-background:load",
+  "naimage:glass-background:clear",
   "naimage:requirement-library:list",
   "naimage:requirement-library:get",
   "naimage:requirement-library:save",
   "naimage:requirement-library:delete",
+  "naimage:commerce-template:list",
+  "naimage:commerce-template:get",
+  "naimage:commerce-template:save",
+  "naimage:commerce-template:delete",
+  "naimage:commerce-template:import",
+  "naimage:commerce-template:export",
+  "naimage:commerce-catalog:list",
+  "naimage:commerce-catalog:save-product",
+  "naimage:commerce-catalog:archive-product",
+  "naimage:commerce-catalog:assign-assets",
+  "naimage:commerce-catalog:remove-asset",
+  "naimage:commerce-catalog:update-result-state",
+  "naimage:commerce-catalog:list-comparisons",
+  "naimage:commerce-catalog:select-comparison",
+  "naimage:commerce-catalog:reconcile-goal-results",
+  "naimage:commerce-export:preview",
+  "naimage:commerce-export:package",
+  "naimage:social-export:preview",
+  "naimage:social-export:package",
+  "naimage:scientific:import-data",
+  "naimage:scientific:list-data",
+  "naimage:scientific:render",
+  "naimage:scientific:list",
+  "naimage:scientific:get",
+  "naimage:scientific:cancel",
+  "naimage:scientific:export",
   "naimage:plugin:compose-task",
   "naimage:automation:renderer-ready",
   "naimage:integration:detect",
@@ -81,6 +113,7 @@ const expectedChannels = [
   "naimage:project:delete",
   "naimage:project:delete-folder",
   "naimage:asset:pick-local-images",
+  "naimage:asset:pick-local-videos",
   "naimage:asset:pick-reference-images",
   "naimage:asset:pick-reference-image",
   "naimage:asset:open-folder",
@@ -91,6 +124,7 @@ const expectedChannels = [
   "naimage:asset:image-import-status",
   "naimage:asset:cancel-image-imports",
   "naimage:asset:import-local-images",
+  "naimage:asset:import-local-videos",
   "naimage:asset:import-local-image",
   "naimage:asset:save-output-image",
   "naimage:asset:save-as",
@@ -112,7 +146,12 @@ const expectedChannels = [
   "naimage:server:update-token",
   "naimage:server:delete-token",
   "naimage:server:recharge",
-  "naimage:server:generate-image"
+  "naimage:server:generate-image",
+  "naimage:video-task:create",
+  "naimage:video-task:list",
+  "naimage:video-task:get",
+  "naimage:video-task:poll",
+  "naimage:video-task:retry-download"
 ];
 
 const internalChannels = new Set([
@@ -121,6 +160,10 @@ const internalChannels = new Set([
   "naimage:agent:memory-read"
 ]);
 const expectedProgressChannels = [
+  "naimage:commerce-template:changed",
+  "naimage:commerce-catalog:changed",
+  "naimage:video-task:changed",
+  "naimage:scientific:changed",
   "naimage:automation:request",
   "naimage:agent-window:command",
   "naimage:update:progress",
@@ -215,6 +258,77 @@ async function assertSettingsAccountBoundary() {
   assert.equal(settingsSavedCalls.length, 2);
 }
 
+async function assertGlassBackgroundIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  const owner = { id: "owner-window" };
+  registerGlassBackgroundIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    BrowserWindow: { fromWebContents: (sender) => sender?.owner || null },
+    getReferencedGlassBackgroundAssetIds: () => ["glass-bg-referenced"],
+    glassBackgroundService: {
+      pick: async (target) => {
+        calls.push({ command: "pick", target });
+        return { ok: true, asset: { assetId: "glass-bg-picked" } };
+      },
+      load: async (payload) => {
+        calls.push({ command: "load", payload });
+        return { ok: true, asset: { assetId: payload.assetId } };
+      },
+      clear: (payload, referencedAssetIds) => {
+        calls.push({ command: "clear", payload, referencedAssetIds });
+        return { ok: true, cleared: true };
+      },
+      cleanup: (payload) => {
+        calls.push({ command: "cleanup", payload });
+        return { ok: true, removed: 0 };
+      }
+    }
+  });
+
+  assert.deepEqual([...handlers.keys()], [
+    "naimage:glass-background:pick",
+    "naimage:glass-background:load",
+    "naimage:glass-background:clear"
+  ]);
+  const pick = await handlers.get("naimage:glass-background:pick")({ sender: { owner } });
+  assert.equal(pick.asset.assetId, "glass-bg-picked");
+  assert.deepEqual(calls[0], { command: "pick", target: owner });
+  assert.deepEqual(calls[1], {
+    command: "cleanup",
+    payload: { referencedAssetIds: ["glass-bg-referenced", "glass-bg-picked"] }
+  });
+  const loadPayload = { assetId: "glass-bg-picked", name: "workspace.webp" };
+  await handlers.get("naimage:glass-background:load")({}, loadPayload);
+  assert.deepEqual(calls[2], { command: "load", payload: loadPayload });
+  const clearPayload = { assetId: "glass-bg-picked" };
+  await handlers.get("naimage:glass-background:clear")({}, clearPayload);
+  assert.deepEqual(calls[3], {
+    command: "clear",
+    payload: clearPayload,
+    referencedAssetIds: ["glass-bg-referenced"]
+  });
+
+  const unavailableHandlers = new Map();
+  registerGlassBackgroundIpc({
+    ipcMain: { handle: (channel, handler) => unavailableHandlers.set(channel, handler) }
+  });
+  for (const channel of [
+    "naimage:glass-background:pick",
+    "naimage:glass-background:load",
+    "naimage:glass-background:clear"
+  ]) {
+    assert.deepEqual(
+      await unavailableHandlers.get(channel)({ sender: {} }, {}),
+      {
+        ok: false,
+        errorCode: "GLASS_BACKGROUND_UNAVAILABLE",
+        error: "Managed workspace backgrounds are unavailable in this runtime."
+      }
+    );
+  }
+}
+
 async function assertRequirementLibraryIpcBoundary() {
   const handlers = new Map();
   const calls = [];
@@ -245,6 +359,197 @@ async function assertRequirementLibraryIpcBoundary() {
   assert.equal(conflict.errorCode, "TEMPLATE_REVISION_CONFLICT");
   assert.deepEqual(conflict.details, { currentRevision: 10 });
   assert.deepEqual(calls.map((call) => call.command), ["list", "get", "save", "delete", "delete"]);
+}
+
+async function assertCommerceTemplateIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  const broadcasts = [];
+  const owner = { id: "owner-window" };
+  const personalId = `commerce-template-${"a".repeat(32)}`;
+  registerCommerceTemplateIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    BrowserWindow: {
+      fromWebContents: (sender) => sender?.id === 77 ? owner : null,
+      getAllWindows: () => [{
+        isDestroyed: () => false,
+        webContents: { send: (channel, payload) => broadcasts.push({ channel, payload }) }
+      }, { isDestroyed: () => true, webContents: { send: () => assert.fail("Destroyed windows must not receive template events") } }]
+    },
+    commerceTemplateLibraryService: {
+      list: () => { calls.push({ command: "list" }); return { ok: true, libraryRevision: 1, items: [] }; },
+      get: (payload) => { calls.push({ command: "get", payload }); return { ok: true, entry: { id: payload.id } }; },
+      save: (payload) => {
+        calls.push({ command: "save", payload });
+        return { ok: true, changed: true, libraryRevision: 2, entry: { id: personalId, revision: 1 } };
+      },
+      remove: (payload) => {
+        calls.push({ command: "delete", payload });
+        if (payload.expectedRevision === 9) {
+          const error = new Error("template changed");
+          error.code = "COMMERCE_TEMPLATE_REVISION_CONFLICT";
+          error.details = { currentRevision: 10 };
+          throw error;
+        }
+        return { ok: true, changed: true, libraryRevision: 3, id: payload.id };
+      },
+      importTemplate: (window) => {
+        calls.push({ command: "import", owner: window });
+        return { ok: true, changed: true, libraryRevision: 4, entry: { id: `commerce-template-${"b".repeat(32)}`, revision: 1 } };
+      },
+      exportTemplate: (payload, window) => {
+        calls.push({ command: "export", payload, owner: window });
+        return { ok: true, canceled: false, fileName: "template.json" };
+      }
+    }
+  });
+  assert.deepEqual([...handlers.keys()], [
+    "naimage:commerce-template:list",
+    "naimage:commerce-template:get",
+    "naimage:commerce-template:save",
+    "naimage:commerce-template:delete",
+    "naimage:commerce-template:import",
+    "naimage:commerce-template:export"
+  ]);
+  const event = { sender: { id: 77 } };
+  assert.equal((await handlers.get("naimage:commerce-template:list")()).libraryRevision, 1);
+  assert.equal((await handlers.get("naimage:commerce-template:get")({}, { id: personalId })).entry.id, personalId);
+  assert.equal((await handlers.get("naimage:commerce-template:save")({}, { title: "Amazon" })).libraryRevision, 2);
+  assert.equal((await handlers.get("naimage:commerce-template:delete")({}, { id: personalId, expectedRevision: 1, confirmed: true })).libraryRevision, 3);
+  const conflict = await handlers.get("naimage:commerce-template:delete")({}, { id: personalId, expectedRevision: 9, confirmed: true });
+  assert.equal(conflict.errorCode, "COMMERCE_TEMPLATE_REVISION_CONFLICT");
+  assert.deepEqual(conflict.details, { currentRevision: 10 });
+  assert.equal((await handlers.get("naimage:commerce-template:import")(event)).libraryRevision, 4);
+  assert.equal((await handlers.get("naimage:commerce-template:export")(event, { id: "commerce-builtin-amazon" })).fileName, "template.json");
+  assert.deepEqual(calls.map((call) => call.command), ["list", "get", "save", "delete", "delete", "import", "export"]);
+  assert.equal(calls[5].owner, owner, "The native import picker must belong to the invoking Renderer window");
+  assert.equal(calls[6].owner, owner, "The native export picker must belong to the invoking Renderer window");
+  assert.deepEqual(broadcasts, [{
+    channel: "naimage:commerce-template:changed",
+    payload: { libraryRevision: 2, id: personalId }
+  }, {
+    channel: "naimage:commerce-template:changed",
+    payload: { libraryRevision: 3, id: personalId }
+  }, {
+    channel: "naimage:commerce-template:changed",
+    payload: { libraryRevision: 4, id: `commerce-template-${"b".repeat(32)}` }
+  }]);
+}
+
+async function assertCommerceCatalogIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  const broadcasts = [];
+  const product = { productId: "product-a", revision: 2 };
+  registerCommerceCatalogIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    BrowserWindow: {
+      getAllWindows: () => [{
+        isDestroyed: () => false,
+        webContents: { send: (channel, payload) => broadcasts.push({ channel, payload }) }
+      }]
+    },
+    commerceCatalogService: {
+      list: (payload) => { calls.push({ command: "list", payload }); return { ok: true, projectId: "project-a", catalogRevision: 1, catalog: { products: [] } }; },
+      saveProduct: (payload) => { calls.push({ command: "save", payload }); return { ok: true, changed: true, projectId: "project-a", catalogRevision: 2, product }; },
+      archiveProduct: (payload) => { calls.push({ command: "archive", payload }); return { ok: true, changed: false, projectId: "project-a", catalogRevision: 2, product }; },
+      assignAssets: (payload) => { calls.push({ command: "assign", payload }); return { ok: true, changed: true, projectId: "project-a", catalogRevision: 3, product }; },
+      removeAsset: (payload) => {
+        calls.push({ command: "remove", payload });
+        const error = new Error("catalog changed");
+        error.code = "CATALOG_REVISION_CONFLICT";
+        error.details = { currentRevision: 4 };
+        throw error;
+      },
+      updateResultState: (payload) => { calls.push({ command: "state", payload }); return { ok: true, changed: false, projectId: "project-a", catalogRevision: 3, product }; },
+      listComparisons: (payload) => { calls.push({ command: "compare", payload }); return { ok: true, projectId: "project-a", catalogRevision: 3, groups: [{ groupKey: "comparison-a" }] }; },
+      selectComparisonWinner: (payload) => { calls.push({ command: "select", payload }); return { ok: true, changed: true, projectId: "project-a", catalogRevision: 4, product }; },
+      reconcileGoalResults: (payload) => { calls.push({ command: "reconcile", payload }); return { ok: true, changed: true, projectId: "project-a", catalogRevision: 4, details: { added: 2 } }; }
+    }
+  });
+  assert.deepEqual([...handlers.keys()], [
+    "naimage:commerce-catalog:list",
+    "naimage:commerce-catalog:save-product",
+    "naimage:commerce-catalog:archive-product",
+    "naimage:commerce-catalog:assign-assets",
+    "naimage:commerce-catalog:remove-asset",
+    "naimage:commerce-catalog:update-result-state",
+    "naimage:commerce-catalog:list-comparisons",
+    "naimage:commerce-catalog:select-comparison",
+    "naimage:commerce-catalog:reconcile-goal-results"
+  ]);
+  assert.equal((await handlers.get("naimage:commerce-catalog:list")({}, { expectedProjectId: "project-a" })).ok, true);
+  assert.equal((await handlers.get("naimage:commerce-catalog:save-product")({}, { expectedCatalogRevision: 1 })).catalogRevision, 2);
+  assert.equal((await handlers.get("naimage:commerce-catalog:archive-product")({}, { expectedCatalogRevision: 2 })).changed, false);
+  assert.equal((await handlers.get("naimage:commerce-catalog:assign-assets")({}, { expectedCatalogRevision: 2 })).catalogRevision, 3);
+  const conflict = await handlers.get("naimage:commerce-catalog:remove-asset")({}, { expectedCatalogRevision: 2 });
+  assert.equal(conflict.errorCode, "CATALOG_REVISION_CONFLICT");
+  assert.deepEqual(conflict.details, { currentRevision: 4 });
+  assert.equal((await handlers.get("naimage:commerce-catalog:update-result-state")({}, { expectedCatalogRevision: 3 })).changed, false);
+  assert.equal((await handlers.get("naimage:commerce-catalog:list-comparisons")({}, { expectedProjectId: "project-a" })).groups[0].groupKey, "comparison-a");
+  assert.equal((await handlers.get("naimage:commerce-catalog:select-comparison")({}, { expectedCatalogRevision: 3 })).catalogRevision, 4);
+  assert.equal((await handlers.get("naimage:commerce-catalog:reconcile-goal-results")({}, { taskScopeSnapshotHash: `scope-${"a".repeat(32)}` })).details.added, 2);
+  assert.deepEqual(calls.map((call) => call.command), ["list", "save", "archive", "assign", "remove", "state", "compare", "select", "reconcile"]);
+  assert.deepEqual(broadcasts, [{
+    channel: "naimage:commerce-catalog:changed",
+    payload: { projectId: "project-a", catalogRevision: 2 }
+  }, {
+    channel: "naimage:commerce-catalog:changed",
+    payload: { projectId: "project-a", catalogRevision: 3 }
+  }, {
+    channel: "naimage:commerce-catalog:changed",
+    payload: { projectId: "project-a", catalogRevision: 4 }
+  }, {
+    channel: "naimage:commerce-catalog:changed",
+    payload: { projectId: "project-a", catalogRevision: 4 }
+  }]);
+}
+
+async function assertCommerceExportIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  const pickerResults = [
+    { canceled: true, filePaths: [] },
+    { canceled: false, filePaths: ["D:/picked-commerce-export"] }
+  ];
+  let pickerCalls = 0;
+  registerCommerceExportIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    dialog: {
+      async showOpenDialog(options) {
+        pickerCalls += 1;
+        assert.deepEqual(options.properties, ["openDirectory", "createDirectory"]);
+        return pickerResults.shift();
+      }
+    },
+    commerceExportService: {
+      async preview(payload) {
+        calls.push({ command: "preview", payload });
+        return { ok: true, catalogRevision: payload.expectedCatalogRevision, summary: { packages: 1 } };
+      },
+      async exportPackage(payload) {
+        calls.push({ command: "package", payload });
+        if (payload.confirmed !== true) {
+          const error = new Error("confirmation required");
+          error.code = "EXPORT_CONFIRMATION_REQUIRED";
+          throw error;
+        }
+        return { ok: true, path: `${payload.destinationParent}/naimage-amazon-export` };
+      }
+    }
+  });
+  assert.deepEqual([...handlers.keys()], ["naimage:commerce-export:preview", "naimage:commerce-export:package"]);
+  const preview = await handlers.get("naimage:commerce-export:preview")({}, { expectedProjectId: "project-a", expectedCatalogRevision: 4 });
+  assert.equal(preview.catalogRevision, 4);
+  const unconfirmed = await handlers.get("naimage:commerce-export:package")({}, { confirmed: false, destinationParent: "C:/forbidden" });
+  assert.equal(unconfirmed.errorCode, "EXPORT_CONFIRMATION_REQUIRED");
+  assert.equal(pickerCalls, 0, "Unconfirmed export must fail before opening the directory picker");
+  const canceled = await handlers.get("naimage:commerce-export:package")({}, { confirmed: true, destinationParent: "C:/forbidden" });
+  assert.deepEqual(canceled, { ok: true, canceled: true });
+  assert.equal(calls.filter((call) => call.command === "package").length, 1, "Canceled picker must not call the export service");
+  const exported = await handlers.get("naimage:commerce-export:package")({}, { confirmed: true, destinationParent: "C:/forbidden" });
+  assert.equal(exported.path, "D:/picked-commerce-export/naimage-amazon-export");
+  assert.equal(calls.at(-1).payload.destinationParent, "D:/picked-commerce-export", "Renderer destination input must be replaced by the native picker result");
 }
 
 async function assertBestEffortRemoteLogout() {
@@ -401,11 +706,12 @@ async function main() {
     ipcMain,
     desktopUpdater,
     automationService: {},
-    agentIntegrationService: {}
+    agentIntegrationService: {},
+    videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 99, "The registration contract must contain exactly 99 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 99, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 135, "The registration contract must contain exactly 135 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 135, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -419,13 +725,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 96, "preload must expose exactly 96 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 96, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 132, "preload must expose exactly 132 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 132, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 96, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 132, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -437,7 +743,11 @@ async function main() {
   assert.deepEqual(agentWindowListeners, ["naimage:agent-window:state"], "Agent window preload listeners changed.");
   assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
+  await assertGlassBackgroundIpcBoundary();
   await assertRequirementLibraryIpcBoundary();
+  await assertCommerceTemplateIpcBoundary();
+  await assertCommerceCatalogIpcBoundary();
+  await assertCommerceExportIpcBoundary();
   await assertBestEffortRemoteLogout();
   await assertSettingsSnapshotPayloads();
   await assertInvalidGoalFailsBeforeRunAdmission();

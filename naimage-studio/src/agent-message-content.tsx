@@ -15,11 +15,16 @@ const RichMarkdownMessage = React.lazy(() => import("./markdown"));
 
 function AgentMessageAttachmentGroup({ label, items, count }: { label: "原图" | "参考图"; items: TaskAssetReference[]; count: number }) {
   if (!count) return null;
+  const columnClass = items.length <= 1 ? "is-single" : items.length === 2 ? "is-double" : "";
   return (
     <details className="agent-message-attachment-group">
       <summary>{count} 张{label}</summary>
-      <div className={`agent-message-attachment-grid ${items.length === 1 ? "is-single" : ""}`}>
-        {items.map((item, index) => <img key={`${item.assetId}-${index}`} src={imageAssetSrc({ type: item.assetUrl ? "url" : "file", path: item.path, assetUrl: item.assetUrl })} alt={item.displayCode} title={item.name} loading="lazy" />)}
+      <div className={`agent-message-attachment-grid ${columnClass}`}>
+        {items.map((item, index) => (
+          <span className="agent-message-attachment-preview" key={`${item.assetId}-${index}`}>
+            <img src={imageAssetSrc({ type: item.assetUrl ? "url" : "file", path: item.path, assetUrl: item.assetUrl })} alt={item.displayCode} title={item.name} loading="lazy" />
+          </span>
+        ))}
         {count > items.length ? <small>{items.length}/{count}</small> : null}
       </div>
     </details>

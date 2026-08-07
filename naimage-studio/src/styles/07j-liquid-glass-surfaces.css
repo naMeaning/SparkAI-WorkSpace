@@ -260,7 +260,7 @@
   border-radius: 8px;
   color: var(--ink-soft);
   background: transparent;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -271,7 +271,7 @@
   color: var(--muted);
   background: color-mix(in srgb, var(--glass-surface-raised) 34%, transparent);
   font-family: inherit;
-  font-size: 8px;
+  font-size: 9px;
   white-space: nowrap;
 }
 
@@ -295,6 +295,16 @@
   overflow: hidden;
   border: 1px solid var(--glass-edge-color-soft);
   border-radius: clamp(9px, var(--glass-radius), 18px);
+}
+
+/* Match the generic :is() surface rule's highest specificity so the search
+   menu stays readable even when backdrop filtering is supported. */
+:root.glass-theme-active .workspace-search-popover.workspace-search-popover,
+:root[data-glass-theme] .workspace-search-popover.workspace-search-popover {
+  background-color: var(--glass-menu-surface);
+  background-image: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .workspace-search-popover > header {
@@ -321,7 +331,7 @@
   color: var(--ink);
   background: var(--glass-control-bg);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .workspace-search-popover input:focus {
@@ -423,13 +433,13 @@
 
 .workspace-search-result strong {
   color: var(--ink);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .workspace-search-result small,
 .workspace-search-results > p {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .workspace-search-results > p {
@@ -579,14 +589,16 @@
 /* Menus and dialogs have one glass boundary; their internal rows stay flat. */
 :root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history),
 :root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) {
-  background-color: var(--glass-fallback-bg);
+  border-color: var(--glass-menu-edge);
+  background-color: var(--glass-menu-surface);
 }
 
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history),
-  :root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) {
-    background-color: var(--glass-surface-fill-strong);
-  }
+/* The generic glass selector includes a two-part data surface selector inside
+   :is(), so match that specificity for the menu that can sit over artwork. */
+:root.glass-theme-active .canvas-context-menu.canvas-context-menu,
+:root[data-glass-theme] .canvas-context-menu.canvas-context-menu {
+  border-color: var(--glass-menu-edge);
+  background-color: var(--glass-menu-surface);
 }
 
 :root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button,
@@ -601,6 +613,29 @@
   background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
 }
 
+:root.glass-theme-active .canvas-context-menu .ui-menu-item:not(:disabled),
+:root[data-glass-theme] .canvas-context-menu .ui-menu-item:not(:disabled) {
+  color: var(--ink);
+}
+
+:root.glass-theme-active .canvas-context-menu .ui-menu-item:disabled,
+:root[data-glass-theme] .canvas-context-menu .ui-menu-item:disabled {
+  color: var(--muted);
+  opacity: 1;
+}
+
+:root.glass-theme-active .canvas-context-menu .ui-menu-item:disabled .ui-menu-item-icon,
+:root[data-glass-theme] .canvas-context-menu .ui-menu-item:disabled .ui-menu-item-icon {
+  color: currentColor;
+}
+
+:root.glass-theme-active .canvas-context-menu .ui-menu-item-danger:not(:disabled),
+:root[data-glass-theme] .canvas-context-menu .ui-menu-item-danger:not(:disabled),
+:root.glass-theme-active .canvas-context-menu .ui-menu-item-danger:not(:disabled):is(:hover, :focus-visible),
+:root[data-glass-theme] .canvas-context-menu .ui-menu-item-danger:not(:disabled):is(:hover, :focus-visible) {
+  color: var(--danger);
+}
+
 :root.glass-theme-active .ui-surface-backdrop,
 :root[data-glass-theme] .ui-surface-backdrop {
   background: rgba(var(--glass-shadow-rgb), 0.24);
@@ -610,7 +645,7 @@
 
 :root.glass-theme-active .ui-surface[data-ui-surface],
 :root[data-glass-theme] .ui-surface[data-ui-surface] {
-  border-radius: clamp(8px, var(--glass-radius), 18px);
+  border-radius: var(--ui-surface-radius);
   background-color: var(--glass-fallback-bg);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
@@ -649,7 +684,10 @@
 :root[data-glass-theme] .settings-section-tab.active,
 :root[data-glass-theme] .settings-section-tab[aria-pressed="true"] {
   color: var(--ink);
-  background: color-mix(in srgb, var(--accent) 12%, var(--glass-control-hover));
+  background: color-mix(in srgb, var(--accent) 14%, var(--glass-readable-surface-fill));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, var(--glass-edge-color-soft)),
+    0 3px 10px var(--glass-shadow-soft);
 }
 
 /* Input glass uses translucent paint but deliberately does not stack blur. */
@@ -893,6 +931,19 @@
     0 5px 14px rgba(var(--accent-rgb), 0.22);
 }
 
+.workspace-asset-rail-header > button.is-template-save {
+  height: 38px;
+  grid-template-rows: 18px auto;
+  gap: 0;
+  padding: 3px 0 2px;
+}
+
+.workspace-asset-rail-header > button.is-template-save > span {
+  font-size: 7px;
+  font-weight: 760;
+  line-height: 1;
+}
+
 .workspace-asset-rail-tabs {
   min-width: 0;
   display: grid;
@@ -942,6 +993,239 @@
   scrollbar-width: thin;
 }
 
+.workspace-domain-tools {
+  width: 54px;
+  display: grid;
+  justify-items: center;
+  padding: 0 0 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.workspace-domain-tools-launcher {
+  width: 52px;
+  height: 42px;
+  display: grid;
+  grid-template-columns: 1fr 10px;
+  grid-template-rows: 20px 12px;
+  place-items: center;
+  gap: 0;
+  padding: 3px 3px 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 9px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-surface-raised));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * .7));
+  cursor: pointer;
+}
+
+.workspace-domain-tools-launcher > svg:first-child {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.workspace-domain-tools-launcher > span {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 8px;
+  font-weight: 760;
+}
+
+.workspace-domain-tools-launcher > svg:last-child {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.workspace-domain-tools-launcher:is(:hover, :focus-visible),
+.workspace-domain-tools-launcher[aria-expanded="true"] {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--line));
+  background: color-mix(in srgb, var(--accent) 14%, var(--glass-control-hover));
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .1), inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight));
+}
+
+.workspace-domain-tools-menu,
+.workspace-asset-group-preview {
+  position: fixed;
+  z-index: 205;
+  width: 292px;
+  max-width: calc(100vw - 16px);
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge-color);
+  border-radius: 12px;
+  color: var(--ink);
+  background-color: var(--glass-readable-surface-fill-strong, var(--glass-fallback-bg));
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  backdrop-filter: var(--glass-backdrop-filter);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)), 0 18px 52px var(--glass-shadow-color);
+}
+
+.workspace-domain-tools-menu > header,
+.workspace-asset-group-preview > header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--glass-line);
+  background: color-mix(in srgb, var(--glass-surface-raised) 34%, transparent);
+}
+
+.workspace-domain-tools-menu-icon,
+.workspace-domain-tools-menu-item-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 10%, var(--glass-control-bg));
+}
+
+.workspace-domain-tools-menu-icon {
+  width: 34px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--glass-line));
+  border-radius: 8px;
+}
+
+.workspace-domain-tools-menu > header > span:nth-child(2),
+.workspace-asset-group-preview > header > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-domain-tools-menu > header strong,
+.workspace-asset-group-preview > header strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-tools-menu > header small,
+.workspace-asset-group-preview > header small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-tools-menu > header > button,
+.workspace-asset-group-preview > header > button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.workspace-domain-tools-menu > header > button:is(:hover, :focus-visible),
+.workspace-asset-group-preview > header > button:is(:hover, :focus-visible) {
+  outline: 0;
+  color: var(--ink);
+  background: var(--glass-control-hover);
+}
+
+.workspace-domain-tools-menu-list {
+  min-height: 54px;
+  max-height: min(370px, calc(100vh - 150px));
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  overflow-y: auto;
+}
+
+.workspace-domain-tools-menu-item {
+  min-width: 0;
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+}
+
+.workspace-domain-tools-menu-item-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.workspace-domain-tools-menu-item > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.workspace-domain-tools-menu-item strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-tools-menu-item small {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-tools-menu-item:is(:hover, :focus-visible) {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--glass-line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--glass-control-hover));
+}
+
+.workspace-domain-tools-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.workspace-domain-tools-menu-loading,
+.workspace-domain-tools-menu-empty {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workspace-domain-tools-menu > footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 7px 9px;
+  border-top: 1px solid var(--glass-line);
+}
+
+.workspace-domain-tools-menu > footer > button {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: var(--glass-control-bg);
+  font-size: 10px;
+  font-weight: 720;
+}
+
 .workspace-asset-rail-item {
   position: relative;
   width: 46px;
@@ -975,6 +1259,112 @@
   outline: 0;
   color: var(--accent-strong);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+}
+
+.workspace-asset-rail-kind,
+.workspace-asset-rail-generating {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.workspace-asset-rail-kind {
+  top: 2px;
+  left: 2px;
+  min-width: 15px;
+  max-width: calc(100% - 4px);
+  padding: 1px 3px;
+  overflow: hidden;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(18, 30, 40, .78);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .24);
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-asset-rail-kind.is-group {
+  background: color-mix(in srgb, var(--accent) 82%, rgba(18, 30, 40, .78));
+}
+
+.workspace-asset-rail-generating {
+  right: 3px;
+  top: 3px;
+  padding: 2px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.workspace-asset-group-preview {
+  width: 304px;
+  max-height: min(430px, calc(100vh - 16px));
+}
+
+.workspace-asset-group-preview > header {
+  grid-template-columns: minmax(0, 1fr) 30px;
+}
+
+.workspace-asset-group-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  padding: 9px;
+  overflow-y: auto;
+}
+
+.workspace-asset-group-preview-grid > button {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 1;
+  padding: 2px;
+  overflow: hidden;
+  border: 1px solid var(--glass-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--glass-surface-raised) 48%, transparent);
+}
+
+.workspace-asset-group-preview-grid > button:is(:hover, :focus-visible) {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--glass-line));
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .1);
+}
+
+.workspace-asset-group-preview-grid img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 6px;
+  object-fit: cover;
+  filter: none;
+}
+
+.workspace-asset-group-preview-grid > button > span {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  min-width: 17px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(18, 30, 40, .76);
+  font-size: 8px;
+  font-weight: 760;
+  text-align: center;
+}
+
+.workspace-asset-group-preview-more {
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--glass-line);
+  border-radius: 8px;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 760;
 }
 
 .workspace-asset-rail-check {
@@ -1115,6 +1505,122 @@
   font-size: 12px;
 }
 
+.workspace-domain-switcher {
+  position: relative;
+  min-width: 0;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+
+.workspace-domain-switcher-trigger {
+  min-width: 122px;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--glass-line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--glass-surface-raised) 30%, transparent);
+  box-shadow: inset 0 1px 5px rgba(var(--glass-shadow-rgb), 0.1);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.workspace-domain-switcher-trigger:is(:hover, :focus-visible),
+.workspace-domain-switcher.is-open .workspace-domain-switcher-trigger {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  outline: 0;
+  background: var(--glass-control-hover);
+}
+
+.workspace-domain-switcher-trigger > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-switcher-trigger > svg:last-child {
+  flex: 0 0 auto;
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+
+.workspace-domain-switcher.is-open .workspace-domain-switcher-trigger > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.workspace-domain-switcher-icon,
+.workspace-domain-menu-icon {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  color: var(--accent-strong);
+}
+
+.workspace-domain-menu {
+  position: absolute;
+  z-index: 96;
+  top: calc(100% + 7px);
+  left: 50%;
+  width: min(356px, calc(100vw - 24px));
+  display: grid;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--glass-line-strong);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--glass-surface-solid) 94%, transparent);
+  box-shadow: 0 18px 46px var(--glass-shadow-color), inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.56));
+  transform: translateX(-50%);
+  backdrop-filter: var(--glass-backdrop-filter);
+}
+
+.workspace-domain-menu > button {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+}
+
+.workspace-domain-menu > button:is(:hover, :focus-visible, .is-active) {
+  outline: 0;
+  background: var(--glass-control-hover);
+}
+
+.workspace-domain-menu > button > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-domain-menu strong {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.workspace-domain-menu small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-domain-menu > button > svg {
+  color: var(--accent-strong);
+}
+
 .workspace-direction-switcher {
   min-width: 0;
   width: 204px;
@@ -1166,18 +1672,18 @@
 }
 
 .workspace-task-context {
-  position: absolute;
-  z-index: 16;
-  top: 14px;
-  left: 14px;
-  width: min(280px, calc(100% - 28px));
+  position: static;
+  z-index: auto;
+  width: min(420px, 48%);
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 9px;
-  padding: 9px 11px;
+  padding: 0;
   overflow: hidden;
-  border: 1px solid var(--glass-edge-color-soft);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   pointer-events: none;
 }
 
@@ -1210,6 +1716,110 @@
   font-size: 9px;
 }
 
+.canvas-panel {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+}
+
+.canvas-panel > .workflow-canvas {
+  min-height: 0;
+  height: auto;
+}
+
+.workspace-context-bar {
+  position: relative;
+  z-index: 22;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+}
+
+.workspace-context-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-context-bar .canvas-selection-indicator {
+  position: static;
+  z-index: auto;
+  width: min(430px, 52%);
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  gap: 7px;
+  padding: 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
+  box-shadow: none;
+  transform: none;
+  pointer-events: none;
+  animation: none;
+}
+
+.workspace-context-bar .canvas-selection-indicator-icon {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+}
+
+.workspace-context-bar .canvas-selection-indicator-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.workspace-context-bar .canvas-selection-indicator-copy > span {
+  flex: 0 0 auto;
+  font-size: 8px;
+}
+
+.workspace-context-bar .canvas-selection-indicator-copy strong {
+  font-size: 11px;
+}
+
+.workspace-context-bar .canvas-selection-indicator-copy small {
+  font-size: 9px;
+}
+
+.workspace-context-bar .canvas-selection-indicator > button {
+  width: 26px;
+  height: 26px;
+}
+
+:root.glass-theme-active .workspace-context-bar,
+:root[data-glass-theme] .workspace-context-bar,
+:root.glass-theme-active .workspace-focus-groups,
+:root[data-glass-theme] .workspace-focus-groups {
+  border-color: var(--glass-edge-color-soft);
+  background-color: var(--glass-readable-surface-fill);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.55));
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  backdrop-filter: var(--glass-backdrop-filter);
+}
+
+:root.glass-theme-active .workspace-context-bar .workspace-task-context,
+:root[data-glass-theme] .workspace-context-bar .workspace-task-context {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* --------------------------------------------------------------------------
    Focus and review views. Artwork remains a solid content layer.
 -------------------------------------------------------------------------- */
@@ -1224,19 +1834,19 @@
   display: none;
 }
 
-.workspace-mode-focus :is(.canvas-selection-indicator, .canvas-selection-box),
-.workspace-mode-review :is(.canvas-selection-indicator, .canvas-selection-box) {
+.workspace-mode-focus .canvas-selection-box,
+.workspace-mode-review .canvas-selection-box {
   display: none;
 }
 
 .workspace-mode-focus .workspace-focus-stage {
   position: absolute;
   z-index: 5;
-  inset: 60px 16px 68px;
+  inset: 14px 16px 68px;
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 72px;
+  grid-template-rows: minmax(0, 1fr) 112px;
   gap: 12px;
   pointer-events: none;
 }
@@ -1306,27 +1916,71 @@
   font-size: 8px;
 }
 
-.workspace-focus-filmstrip {
+.workspace-focus-groups {
   position: relative;
   min-width: 0;
-  height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
+  min-height: 112px;
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1.2fr) 82px;
+  align-items: stretch;
+  gap: 8px;
   padding: 7px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   border: 1px solid var(--glass-edge-color-soft);
+  border-radius: 11px;
   scrollbar-width: thin;
   pointer-events: auto;
 }
 
-.workspace-focus-filmstrip button {
+.workspace-focus-group {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 5px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--glass-surface-raised) 34%, transparent);
+}
+
+.workspace-focus-group > header {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-focus-group > header strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.workspace-focus-group > header small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-focus-group-items {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.workspace-focus-group-items button {
   position: relative;
-  width: 78px;
-  height: 56px;
-  flex: 0 0 78px;
+  width: 70px;
+  height: 58px;
+  flex: 0 0 70px;
   padding: 2px;
   overflow: hidden;
   border: 1px solid var(--line-strong);
@@ -1336,13 +1990,13 @@
   cursor: pointer;
 }
 
-.workspace-focus-filmstrip button:is(:hover, :focus-visible, .active) {
+.workspace-focus-group-items button:is(:hover, :focus-visible, .active) {
   border-color: var(--accent);
   outline: 0;
   box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.13);
 }
 
-.workspace-focus-filmstrip img {
+.workspace-focus-group-items img {
   width: 100%;
   height: 100%;
   display: block;
@@ -1354,7 +2008,7 @@
   backdrop-filter: none;
 }
 
-.workspace-focus-filmstrip button > span {
+.workspace-focus-group-items button > span {
   position: absolute;
   right: 4px;
   bottom: 3px;
@@ -1365,9 +2019,18 @@
   font-size: 7px;
 }
 
-.workspace-focus-filmstrip .workspace-focus-add {
-  width: 88px;
-  flex-basis: 88px;
+.workspace-focus-group-empty {
+  min-width: 150px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.workspace-focus-groups .workspace-focus-add {
+  width: auto;
+  min-width: 0;
+  height: 100%;
   display: grid;
   place-items: center;
   align-content: center;
@@ -1376,7 +2039,7 @@
   background: color-mix(in srgb, var(--accent) 8%, var(--glass-surface-solid));
 }
 
-.workspace-focus-filmstrip .workspace-focus-add > span {
+.workspace-focus-groups .workspace-focus-add > span {
   position: static;
   padding: 0;
   color: inherit;
@@ -1385,7 +2048,7 @@
   font-weight: 680;
 }
 
-.workspace-focus-filmstrip .workspace-focus-add:disabled {
+.workspace-focus-groups .workspace-focus-add:disabled {
   cursor: default;
   opacity: 0.5;
 }
@@ -1557,8 +2220,9 @@
   .flow-node .node-image-preview img,
   .flow-node .node-image-tile img,
   .flow-node .container-image-tile img,
+  .flow-node .node-video-player,
   .workspace-focus-card img,
-  .workspace-focus-filmstrip img,
+  .workspace-focus-group-items img,
   .workspace-review-card img,
   .image-viewer-stage img,
   .image-viewer-strip img
@@ -1567,8 +2231,9 @@
   .flow-node .node-image-preview img,
   .flow-node .node-image-tile img,
   .flow-node .container-image-tile img,
+  .flow-node .node-video-player,
   .workspace-focus-card img,
-  .workspace-focus-filmstrip img,
+  .workspace-focus-group-items img,
   .workspace-review-card img,
   .image-viewer-stage img,
   .image-viewer-strip img
@@ -1582,12 +2247,144 @@
 
 :root.glass-theme-active .flow-node,
 :root[data-glass-theme] .flow-node {
+  --node-glass-accent: var(--accent);
+  border-color: color-mix(in srgb, var(--node-glass-accent) 30%, var(--glass-edge-color-soft));
+  border-radius: clamp(10px, var(--glass-radius), 18px);
+  background-color: var(--glass-surface-fill-strong);
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, calc(var(--glass-highlight) * 0.22)), transparent 42%),
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--node-glass-accent) 12%, transparent), transparent 54%);
   background-clip: padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
+    inset 0 -1px 0 rgba(var(--glass-shadow-rgb), 0.1),
+    0 10px 28px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.58));
+}
+
+:root.glass-theme-active .flow-node.image,
+:root[data-glass-theme] .flow-node.image {
+  --node-glass-accent: var(--blue);
+}
+
+:root.glass-theme-active .flow-node:is(.image-container, .image-collection),
+:root[data-glass-theme] .flow-node:is(.image-container, .image-collection) {
+  --node-glass-accent: var(--accent);
+}
+
+:root.glass-theme-active .flow-node.video,
+:root[data-glass-theme] .flow-node.video {
+  --node-glass-accent: var(--rose);
+}
+
+:root.glass-theme-active .flow-node.requirement-node,
+:root[data-glass-theme] .flow-node.requirement-node {
+  --node-glass-accent: var(--amber);
+}
+
+:root.glass-theme-active .flow-node.scientific-figure-node,
+:root[data-glass-theme] .flow-node.scientific-figure-node {
+  --node-glass-accent: color-mix(in srgb, var(--accent) 72%, var(--green));
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, calc(var(--glass-highlight) * 0.12)), transparent 38%),
+    radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--node-glass-accent) 8%, transparent), transparent 48%);
+}
+
+:root.glass-theme-active .flow-node.scientific-figure-node .node-image-preview,
+:root[data-glass-theme] .flow-node.scientific-figure-node .node-image-preview {
+  border-radius: max(8px, calc(var(--glass-radius) - 5px));
+  background: var(--surface-solid);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--node-glass-accent) 17%, var(--glass-edge-color-soft)),
+    0 8px 22px rgba(var(--glass-shadow-rgb), 0.18);
+}
+
+:root.glass-theme-active .flow-node:is(.layer-stack-node, .layer-group-member),
+:root[data-glass-theme] .flow-node:is(.layer-stack-node, .layer-group-member) {
+  --node-glass-accent: var(--green);
+}
+
+:root.glass-theme-active .flow-node:hover,
+:root[data-glass-theme] .flow-node:hover {
+  border-color: color-mix(in srgb, var(--node-glass-accent) 68%, var(--glass-edge-color));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.82)),
+    inset 0 -1px 0 rgba(var(--glass-shadow-rgb), 0.12),
+    0 14px 34px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.72));
+}
+
+:root.glass-theme-active .flow-node.selected,
+:root[data-glass-theme] .flow-node.selected {
+  outline-color: color-mix(in srgb, var(--node-glass-accent) 28%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.9)),
+    0 0 0 1px color-mix(in srgb, var(--node-glass-accent) 42%, transparent),
+    0 16px 38px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.78));
 }
 
 :root.glass-theme-active .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile),
 :root[data-glass-theme] .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile) {
   background-color: var(--glass-surface-solid);
+}
+
+/* A managed background lives behind the complete workbench, so every glass
+   surface samples the same image. The image layer is isolated from canvas
+   artwork; only this pseudo-element receives the optional softening filter. */
+:root[data-glass-background="ready"] .ide-shell {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+:root[data-glass-background="ready"] .ide-shell::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: calc(-24px - var(--glass-background-blur));
+  background-color: var(--glass-canvas);
+  background-image:
+    linear-gradient(var(--glass-background-mask), var(--glass-background-mask)),
+    var(--glass-workspace-background-image);
+  background-position: center;
+  background-size: cover;
+  filter: blur(var(--glass-background-blur)) saturate(1.06);
+  transform: scale(1.025);
+  transform-origin: center;
+  pointer-events: none;
+}
+
+:root[data-glass-background="ready"] :is(.ide-main, .canvas-panel, .workflow-canvas) {
+  background-color: transparent;
+}
+
+:root[data-glass-background="ready"] .workflow-canvas {
+  background:
+    radial-gradient(ellipse 96% 78% at 18% 22%, rgba(var(--accent-rgb), 0.055), transparent 64%),
+    transparent;
+}
+
+:root[data-glass-background="ready"] :is(
+  .ide-topbar,
+  .workspace-asset-rail,
+  .project-agent-panel,
+  .canvas-plugin-toolbar,
+  .workspace-task-context,
+  .workspace-focus-filmstrip,
+  .canvas-selection-indicator
+) {
+  background-color: var(--glass-readable-surface-fill);
+  background-image: linear-gradient(
+    132deg,
+    rgba(255, 255, 255, calc(var(--glass-highlight) * 0.12)),
+    transparent 36%,
+    rgba(var(--accent-rgb), 0.025)
+  );
+}
+
+:root[data-glass-background="ready"] :is(
+  .ui-surface[data-ui-surface],
+  .overflow-tooltip
+) {
+  background-color: var(--glass-readable-surface-fill-strong);
 }
 
 /* Explicit preference and the in-app switch both suppress decorative motion. */
@@ -1601,6 +2398,17 @@
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
+}
+
+/* Direct manipulation must track the pointer on its first frame. The global
+   reduced-motion duration above is intentionally important, so explicitly
+   cancel transitions for node drag/resize instead of letting even its tiny
+   duration hold the previous transform for one sampled frame. */
+:root[data-glass-reduce-motion="true"] .flow-node:is(.dragging, .resizing),
+:root.glass-reduce-motion .flow-node:is(.dragging, .resizing) {
+  transition-property: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1637,7 +2445,7 @@
   }
 
   .workspace-task-context {
-    width: min(244px, calc(100% - 28px));
+    width: min(360px, 48%);
   }
 
   .workspace-mode-review .workspace-review-grid {
@@ -1689,6 +2497,20 @@
     flex-basis: 108px;
   }
 
+  .workspace-domain-switcher-trigger {
+    min-width: 78px;
+    width: auto;
+    padding: 0 7px;
+  }
+
+  .workspace-domain-switcher-trigger > svg:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
   .workspace-direction-switcher button {
     min-width: 0;
     width: auto;
@@ -1704,10 +2526,7 @@
   }
 
   .workspace-task-context {
-    width: min(210px, calc(100% - 20px));
-    top: 10px;
-    left: 10px;
-    padding: 7px 8px;
+    width: min(300px, 48%);
   }
 
   .workspace-task-context small {
@@ -1719,7 +2538,7 @@
   }
 
   .workspace-mode-focus .workspace-focus-stage {
-    inset: 54px 10px 66px;
+    inset: 10px 10px 66px;
   }
 
   .workspace-mode-review .workspace-review-grid {

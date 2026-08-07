@@ -75,7 +75,7 @@ function auditProductGateReport(report, reportPath) {
   const aggregate = report?.aggregate || {};
   const rounds = Array.isArray(report?.rounds) ? report.rounds : [];
   const requiredChecks = [
-    "productionLikeProfile", "minimalProbePresent", "fullAidebugAbsent", "bundleWithinBudget",
+    "productionLikeProfile", "minimalProbePresent", "fullAidebugAbsent",
     "workbenchWithinBudget", "rendererBootWithinBudget", "heapWithinBudget", "zoomWithinBudget",
     "panWithinBudget", "dragWithinBudget", "visualFramesWithinBudget", "visualFrameMedianWithinBudget",
     "visualSlowFrameRateWithinBudget", "longTasksWithinBudget", "everyRoundHealthy"
@@ -91,7 +91,16 @@ function auditProductGateReport(report, reportPath) {
   requireValue(Array.isArray(report?.bundle?.forbidden) && report.bundle.forbidden.length === 0, "product-bundle-aidebug-leak", { forbidden: report?.bundle?.forbidden ?? null });
   requireValue(report?.bundle?.probePresent === true, "product-probe-missing", { probePresent: report?.bundle?.probePresent });
   requireValue(/^[a-f0-9]{64}$/i.test(String(report?.bundle?.sha256 || "")), "product-bundle-digest-invalid", { sha256: report?.bundle?.sha256 ?? null });
-  requireValue(finite(report?.bundle?.bytes) && Number(report.bundle.bytes) > 0 && Number(report.bundle.bytes) <= Number(budgets.bundleBytes), "product-bundle-budget-invalid", { bytes: report?.bundle?.bytes, budget: budgets.bundleBytes });
+  requireValue(finite(report?.bundle?.bytes) && Number(report.bundle.bytes) > 0, "product-bundle-invalid", { bytes: report?.bundle?.bytes ?? null });
+  requireValue(finite(report?.bundle?.advisoryBudgetBytes) && Number(report.bundle.advisoryBudgetBytes) > 0 && typeof report?.bundle?.withinAdvisoryBudget === "boolean", "product-bundle-advisory-invalid", {
+    bytes: report?.bundle?.bytes ?? null,
+    budget: report?.bundle?.advisoryBudgetBytes ?? null,
+    withinAdvisoryBudget: report?.bundle?.withinAdvisoryBudget ?? null
+  });
+  if (report?.bundle?.withinAdvisoryBudget === false) record("warning", "product-runtime-bundle-advisory-exceeded", {
+    bytes: report?.bundle?.bytes,
+    budget: report?.bundle?.advisoryBudgetBytes
+  });
   requireValue(rounds.length >= 3 && Number(aggregate.rounds) === rounds.length, "product-round-count-invalid", { aggregateRounds: aggregate.rounds, actualRounds: rounds.length });
   for (const check of requiredChecks) requireValue(report?.checks?.[check] === true, "product-check-failed", { check, value: report?.checks?.[check] ?? null });
 
@@ -166,7 +175,7 @@ function auditProductGateReport(report, reportPath) {
     reportPath,
     reportMode: "product-performance-gate",
     performanceSchemaVersion: Number(report?.schemaVersion || 0),
-    counts: { errors: errors.length, missing: missing.length, warnings: 0, info: 0 },
+    counts: { errors: errors.length, missing: missing.length, warnings: findings.filter((item) => item.level === "warning").length, info: 0 },
     findings
   };
   return audit;

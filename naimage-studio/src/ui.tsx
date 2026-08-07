@@ -30,10 +30,14 @@ export type {
   DrawerShellProps
 } from "./ui/dialog-shell";
 
+export { UnsavedChangesDialog } from "./ui/unsaved-changes-dialog";
+export type { UnsavedChangesDialogProps } from "./ui/unsaved-changes-dialog";
+
 export {
   ActionButton,
   ButtonBase,
   CodeField,
+  DeferredNumberInput,
   ErrorBoundary,
   Field,
   IconActionButton,

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, net, protocol, screen, shell } = require("electron");
+const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, net, protocol, safeStorage, screen, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const { closeSync, constants: fsConstants, copyFileSync, createReadStream, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } = require("node:fs");
 const { createHash, randomBytes } = require("node:crypto");
@@ -13,6 +13,8 @@ const { createAgentRuntime } = require("./agent-runtime.cjs");
 const { exportLayeredPsd, preparePsdRasterSource } = require("./psd-export.cjs");
 const { createThumbnailCache } = require("./thumbnail-cache.cjs");
 const { createImageImporter, ImageImportError, DEFAULT_MAX_FILES: maxImportedImageFiles } = require("./image-import.cjs");
+const { importVideoFiles, DEFAULT_MAX_FILES: maxImportedVideoFiles } = require("./desktop/video-import.cjs");
+const { createVideoTaskService } = require("./desktop/video-task-service.cjs");
 const { refineSemanticLayers } = require("./semantic-matting.cjs");
 const { createAidebugBackend } = require("./desktop/aidebug-backend.cjs");
 const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aidebug-image-fixture.cjs");
@@ -36,34 +38,68 @@ const {
   sessionHasContent
 } = require("./desktop/project-session-normalizer.cjs");
 const { createProjectStore } = require("./desktop/project-store.cjs");
+const {
+  createProjectCommerceCatalogService,
+  sanitizeCommerceCatalogDocument
+} = require("./desktop/project-commerce-catalog.cjs");
+const { createProjectCommerceExportService } = require("./desktop/project-commerce-export.cjs");
+const { createProjectSocialExportService } = require("./desktop/project-social-export.cjs");
+const { createScientificRunnerService } = require("./desktop/scientific-runner-service.cjs");
 const { createRequirementLibraryService } = require("./desktop/requirement-library.cjs");
-const { createPublicHttpDownloadAdmission } = require("./desktop/public-http-resource.cjs");
+const { createCommerceTemplateLibraryService } = require("./desktop/commerce-template-library.cjs");
+const {
+  createGlassBackgroundService,
+  defaultGlassBackgroundSettings,
+  normalizeGlassBackgroundSettings
+} = require("./desktop/glass-background-service.cjs");
+const {
+  createPublicHttpDownloadAdmission,
+  requestPublicHttpTarget,
+  resolvePublicHttpTarget
+} = require("./desktop/public-http-resource.cjs");
 const { loadRecordedRemoteAssetProxy } = require("./desktop/remote-asset-proxy.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
 const { createAutomationService } = require("./desktop/automation-service.cjs");
+const { createDebugCommandService } = require("./desktop/debug-command-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
 const { createAgentRunControl, createAbortError } = require("./desktop/agent-run-control.cjs");
 const { createGoalProbeAdmission } = require("./runtime/goal-probe-admission.cjs");
 const { detectEncodedImageFormat, normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
+const { imagePromptRatios, normalizeImagePromptResolution, parseImageSizeValue } = require("./runtime/image-frame.cjs");
+const { applyAccessPolicyToSettings, loadDesktopAccessPolicy } = require("./runtime/access-variant.cjs");
 const {
   defaultGlassAppearance,
   nativeWindowBackgroundColor,
   normalizeGlassThemeSettings: normalizeElectronGlassThemeSettings
 } = require("./runtime/glass-theme-settings.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
-const { normalizePluginStates } = require("./desktop/plugin-state.cjs");
+const {
+  defaultWorkspacePluginStates,
+  normalizeCanvasToolShortcuts,
+  normalizePluginStates,
+  WORKSPACE_PLUGIN_DEFAULTS_VERSION
+} = require("./desktop/plugin-state.cjs");
 const { parseProjectGraphFile } = require("./desktop/project-graph-adapter.cjs");
 const { createThemePresetService, normalizeCustomThemePreset } = require("./desktop/theme-preset-service.cjs");
+const { createSettingsSecretStore } = require("./desktop/settings-secret-store.cjs");
 const { composePluginTask, projectGraphTask } = require("./desktop/plugin-task-prompts.cjs");
+const sharp = require("sharp");
 const {
   cachedModelSettings,
+  createModelAccessProfile,
   createModelCacheKey,
+  markModelAccessProfilesVerified,
+  mergeModelCapabilities,
+  mergeModelAccessProfiles,
+  modelCapabilitiesFromResponse,
   modelGroupsFromResponse,
   modelIdsFromResponse,
   preferredAgentModelFromList,
   preferredImageModelFromList,
+  preferredVideoModelFromList,
+  preserveRuntimeVerifiedModelAccessProfiles,
   splitModelSettings
 } = require("./desktop/model-catalog.cjs");
 const {
@@ -93,7 +129,8 @@ function getDesktopVersion() {
   return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
 }
 
-const applicationName = "naimage";
+const applicationName = "SparkAI WorkSpace";
+const internalApplicationName = "naimage";
 const applicationId = "org.sparkai.naimage";
 const legacyApplicationNames = ["iiimage Studio", "IIimage Studio", "iiimage-studio"];
 const legacyUserDataMigrationMarker = ".naimage-user-data-migration-v1.json";
@@ -187,7 +224,11 @@ function migrateLegacyUserData(options = {}) {
 const windowsCurlPath = process.platform === "win32"
   ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "curl.exe")
   : "";
+const canonicalUserDataPath = path.join(app.getPath("appData"), internalApplicationName);
+const explicitUserDataPath = String(app.commandLine.getSwitchValue("user-data-dir") || "").trim();
+const resolvedExplicitUserDataPath = explicitUserDataPath ? path.resolve(explicitUserDataPath) : "";
 app.setName(applicationName);
+app.setPath("userData", resolvedExplicitUserDataPath || canonicalUserDataPath);
 
 const devUrl = desktopEnvironment("NAIMAGE_DEV_URL") || "";
 const rendererIndexOverride = desktopEnvironment("NAIMAGE_RENDERER_INDEX");
@@ -197,6 +238,12 @@ const rendererIndex = rendererIndexOverride
 const agentWindowHtml = path.join(__dirname, "agent-window.html");
 const agentWindowPreload = path.join(__dirname, "agent-window-preload.cjs");
 const projectRoot = __dirname;
+const accessPolicy = loadDesktopAccessPolicy({
+  projectRoot,
+  preferManifest: app.isPackaged || !rendererIndexOverride,
+  manifestRequired: app.isPackaged,
+  environment: process.env
+});
 const workspaceRoot = path.resolve(projectRoot, "..");
 const desktopRoot = path.join(process.env.USERPROFILE || projectRoot, "Desktop");
 const localServerEntryCandidates = [
@@ -249,9 +296,39 @@ const legacyPackagedDataRoots = app.isPackaged
 const configDirOverride = desktopEnvironment("NAIMAGE_CONFIG_DIR");
 const configDir = configDirOverride
   ? path.resolve(configDirOverride)
-  : app.isPackaged
-    ? path.join(packagedDataRoot, "data")
+  : app.isPackaged || resolvedExplicitUserDataPath
+    ? path.join(app.getPath("userData"), "data")
     : path.join(projectRoot, "config");
+const aidebugIsolationRootOverride = String(desktopEnvironment("NAIMAGE_AIDEBUG_ISOLATION_ROOT") || "").trim();
+const aidebugIsolationRoot = aidebugIsolationRootOverride
+  ? path.resolve(aidebugIsolationRootOverride)
+  : resolvedExplicitUserDataPath
+    ? configDirOverride
+      ? path.dirname(resolvedExplicitUserDataPath)
+      : resolvedExplicitUserDataPath
+    : "";
+const aidebugConfigIsolated = (() => {
+  if (!aidebugMode || !resolvedExplicitUserDataPath || !aidebugIsolationRoot) return false;
+  const resolvedConfigDir = realPathIfPresent(configDir);
+  const resolvedIsolationRoot = realPathIfPresent(aidebugIsolationRoot);
+  const resolvedUserDataDir = realPathIfPresent(resolvedExplicitUserDataPath);
+  const resolvedRepositoryConfig = realPathIfPresent(path.join(projectRoot, "config"));
+  const resolvedCanonicalUserData = realPathIfPresent(canonicalUserDataPath);
+  if (isComparablePathInside(resolvedConfigDir, resolvedRepositoryConfig)) return false;
+  if (isComparablePathInside(resolvedConfigDir, resolvedCanonicalUserData)) return false;
+  if (isComparablePathInside(resolvedUserDataDir, resolvedCanonicalUserData)) return false;
+  return isComparablePathInside(resolvedConfigDir, resolvedIsolationRoot);
+})();
+if (aidebugMode && !aidebugConfigIsolated) {
+  process.stderr.write(
+    "AIDebug refused to start without an isolated --user-data-dir and config directory. " +
+    "Use the repository AIDebug CLI so tests cannot modify real projects.\n"
+  );
+  process.exit(1);
+}
+const aidebugRendererArguments = aidebugConfigIsolated
+  ? ["--naimage-aidebug-enabled=1", "--naimage-aidebug-isolated-config=1"]
+  : [];
 const agentWorkspaceRoot = app.isPackaged ? path.join(packagedDataRoot, "workspace") : projectRoot;
 const debugDirOverride = desktopEnvironment("NAIMAGE_DEBUG_DIR");
 const debugDir = debugDirOverride
@@ -264,13 +341,21 @@ const electronLog = electronLogOverride
   ? path.resolve(electronLogOverride)
   : path.join(debugDir, "latest.log");
 const settingsPath = path.join(configDir, "app-settings.json");
+const settingsSecretsPath = path.join(configDir, "app-settings.secrets.json");
 const requirementLibraryPath = path.join(configDir, "requirement-library.json");
+const commerceTemplateLibraryPath = path.join(configDir, "commerce-template-library.json");
 const sessionPath = path.join(configDir, "session.json");
 const modelCachePath = path.join(configDir, "model-cache.json");
 const accountTokenCachePath = path.join(configDir, "account-token-cache.json");
 const projectListPath = path.join(configDir, "project-list.json");
 const projectsDir = path.join(configDir, "projects");
 const referencesDir = path.join(configDir, "references");
+const glassBackgroundAssetsDir = path.join(configDir, "glass-backgrounds");
+const settingsSecretStore = createSettingsSecretStore({
+  safeStorage,
+  secretsPath: settingsSecretsPath,
+  log: (message) => log(message)
+});
 const projectMetaDirName = ".naimage";
 const legacyProjectMetaDirNames = [".iiimage"];
 const projectManifestFileName = "project.json";
@@ -336,8 +421,8 @@ const defaultSettings = {
   agentProvider: "CODEX",
   agentBaseUrl: "",
   agentApiKey: "",
-  agentModel: "",
-  agentModelPool: [],
+  agentModel: "gpt-5.6-terra",
+  agentModelPool: ["gpt-5.6-terra"],
   compactModel: "",
   contextStrategy: "auto",
   contextWindowTokens: 272_000,
@@ -349,11 +434,15 @@ const defaultSettings = {
   timeoutSeconds: 180,
   imageBaseUrl: "",
   imageApiKey: "",
-  imageModel: "",
-  imageModelPool: [],
+  imageModel: "gpt-image-2",
+  imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
+  videoModel: "doubao-seedance-2-0-260128",
+  videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
   imageBatchSize: 3,
+  imageRatio: "1:1",
+  imageResolution: "1K",
   imageSize: "1024x1024",
   imageQuality: "auto",
   accountBaseUrl: "https://sparkapi.org",
@@ -372,19 +461,24 @@ const defaultSettings = {
   licenseExpiresAt: 0,
   licenseLastVerifiedAt: 0,
   modelGroup: "",
-  theme: "light",
+  theme: "dark",
   themePalette: "anthropic",
   customTheme: null,
   ...defaultGlassAppearance,
+  ...defaultGlassBackgroundSettings,
   agentPanelPlacement: "right",
   agentPanelWidth: 390,
   agentPanelHeight: 680,
   agentPanelX: 56,
   agentPanelY: 56,
   agentSkillAutoInstallTargets: [],
-  pluginStates: [],
+  workspacePluginDefaultsVersion: WORKSPACE_PLUGIN_DEFAULTS_VERSION,
+  pluginStates: defaultWorkspacePluginStates(),
   canvasToolDockMode: "expanded",
-  disabledCanvasToolCommands: []
+  disabledCanvasToolCommands: [],
+  canvasToolShortcuts: {},
+  visibleWorkspaceAssetRailTabs: ["results", "layers", "requirements", "templates", "history"],
+  workflowOnboarding: {}
 };
 
 const themePaletteValues = new Set([
@@ -406,7 +500,9 @@ const aidebugPublicSettings = {
   imageCostYuan: 0.3,
   trialImages: 10,
   imageModel: "gpt-image-2",
+  videoModel: "doubao-seedance-2-0-260128",
   models: [
+    "gpt-5.6-terra",
     "gpt-5.6-sol",
     "gpt-5.6",
     "gpt-5.6-codex",
@@ -429,10 +525,12 @@ const aidebugPublicSettings = {
     "gpt-image-1.5",
     "gpt-image-1",
     "flux-1.1-pro",
-    "imagen-4"
+    "imagen-4",
+    "doubao-seedance-2-0-260128"
   ],
   imageModels: ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "flux-1.1-pro", "imagen-4"],
-  agentModels: ["gpt-5.6-sol", "gpt-5.6", "gpt-5.6-codex", "gpt-5.5", "gpt-5.5-mini", "gpt-5-codex", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "o3", "deepseek-v3.2", "deepseek-r1", "glm-4.6", "doubao-seed-1.8"],
+  videoModels: ["doubao-seedance-2-0-260128"],
+  agentModels: ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6", "gpt-5.6-codex", "gpt-5.5", "gpt-5.5-mini", "gpt-5-codex", "gpt-5.4", "gpt-5.3", "gpt-5.2", "gpt-5.1", "gpt-4.1", "gpt-4.1-mini", "o4-mini", "o3", "deepseek-v3.2", "deepseek-r1", "glm-4.6", "doubao-seed-1.8"],
   channelName: "AIDebug",
   serviceReady: true,
   keyManaged: true
@@ -470,6 +568,8 @@ function aidebugSettings() {
     serverUserId: "aidebug-user",
     imageModel: aidebugPublicSettings.imageModel,
     imageModelPool: aidebugPublicSettings.imageModels,
+    videoModel: aidebugPublicSettings.videoModel,
+    videoModelPool: aidebugPublicSettings.videoModels,
     agentModel: aidebugPublicSettings.agentModels[0],
     agentModelPool: aidebugPublicSettings.agentModels
   };
@@ -555,10 +655,17 @@ function normalizeImageModelBindings(value) {
       bindingByModel.set(modelKey, binding);
       bindings.push(binding);
     }
+    const customBaseUrl = typeof (item.customBaseUrl ?? item.baseUrl) === "string"
+      ? String(item.customBaseUrl ?? item.baseUrl)
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .trim()
+        .slice(0, 2_048)
+      : "";
     const customApiKey = typeof item.customApiKey === "string"
       ? item.customApiKey.trim().slice(0, 8_192)
       : "";
     const accountTokenId = String(item.accountTokenId || "").trim();
+    if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
   }
@@ -567,6 +674,7 @@ function normalizeImageModelBindings(value) {
 
 const defaultSession = {
   schemaVersion: 5,
+  workspaceDomain: "general",
   sessionRevision: 0,
   nodeSequence: 0,
   messages: [],
@@ -587,12 +695,26 @@ function ensureRuntimeFiles() {
   desktopUpdater.ensureRuntimeDirectories();
   if (!existsSync(settingsPath)) {
     writeJson(settingsPath, aidebugMode ? aidebugSettings() : defaultSettings);
+  } else {
+    try {
+      writeJson(settingsPath, migrateSettings(readJson(settingsPath, defaultSettings)));
+    } catch (error) {
+      log(`settings secret migration deferred: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   if (!existsSync(sessionPath)) {
     writeJson(sessionPath, defaultSession);
   }
   if (!existsSync(projectListPath)) {
     writeJson(projectListPath, defaultProjectList());
+  }
+  if (existsSync(glassBackgroundAssetsDir)) {
+    try {
+      const backgroundAssetId = String(migrateSettings(readJson(settingsPath, defaultSettings)).glassBackgroundAssetId || "").trim();
+      glassBackgroundService.cleanup({ referencedAssetIds: backgroundAssetId ? [backgroundAssetId] : [] });
+    } catch (error) {
+      log(`glass background startup cleanup failed code=${String(error?.code || "CLEANUP_FAILED")}`);
+    }
   }
   const list = readProjectList();
   const activeProject = getActiveProject(list);
@@ -629,7 +751,37 @@ function migrateSettings(value) {
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
+  next.videoModelPool = uniqueImageModels(Array.isArray(source.videoModelPool) ? source.videoModelPool : next.videoModelPool);
+  if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
+  if (next.videoModel) next.videoModelPool = uniqueImageModels([next.videoModel, ...next.videoModelPool]);
   next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  const legacyImageDimensions = parseImageSizeValue(String(source.imageSize || next.imageSize || ""));
+  const inferredLegacyRatio = (() => {
+    if (!legacyImageDimensions) return defaultSettings.imageRatio;
+    const target = legacyImageDimensions.width / legacyImageDimensions.height;
+    let nearest = defaultSettings.imageRatio;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const ratio of imagePromptRatios) {
+      const [width, height] = ratio.split(":").map(Number);
+      const nextDistance = Math.abs((width / height) - target);
+      if (nextDistance >= distance) continue;
+      nearest = ratio;
+      distance = nextDistance;
+    }
+    return distance <= 0.035 ? nearest : defaultSettings.imageRatio;
+  })();
+  const requestedImageRatio = source.imageRatio === undefined ? inferredLegacyRatio : String(next.imageRatio || "").trim();
+  next.imageRatio = imagePromptRatios.has(requestedImageRatio) ? requestedImageRatio : defaultSettings.imageRatio;
+  const inferredLegacyResolution = (() => {
+    const text = String(source.imageSize || next.imageSize || "").trim().toUpperCase();
+    if (text === "4K" || text.includes("3840") || text.includes("2160")) return "4K";
+    if (text === "2K" || text.includes("2048")) return "2K";
+    return "1K";
+  })();
+  const storedImageResolution = String(source.imageResolution === undefined ? inferredLegacyResolution : next.imageResolution || "").trim().toUpperCase();
+  next.imageResolution = storedImageResolution === "720P" || storedImageResolution === "1080P"
+    ? "1K"
+    : normalizeImagePromptResolution(storedImageResolution, defaultSettings.imageResolution);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
   next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
@@ -653,6 +805,7 @@ function migrateSettings(value) {
   next.glassTheme = glassAppearance.glassTheme;
   next.glassMaterial = glassAppearance.glassMaterial;
   next.glassParameters = glassAppearance.glassParameters;
+  Object.assign(next, normalizeGlassBackgroundSettings(source));
   next.agentPanelPlacement = ["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))
     ? String(next.agentPanelPlacement)
     : defaultSettings.agentPanelPlacement;
@@ -663,8 +816,18 @@ function migrateSettings(value) {
   next.agentSkillAutoInstallTargets = Array.isArray(source.agentSkillAutoInstallTargets)
     ? [...new Set(source.agentSkillAutoInstallTargets.map((item) => String(item)).filter((item) => ["codex", "claude-code", "opencode", "openclaw"].includes(item)))]
     : [];
-  next.pluginStates = normalizePluginStates(source.pluginStates);
+  const storedWorkspacePluginDefaultsVersion = Math.max(0, Math.floor(Number(source.workspacePluginDefaultsVersion) || 0));
+  next.workspacePluginDefaultsVersion = WORKSPACE_PLUGIN_DEFAULTS_VERSION;
+  next.pluginStates = storedWorkspacePluginDefaultsVersion < WORKSPACE_PLUGIN_DEFAULTS_VERSION
+    ? defaultWorkspacePluginStates(source.pluginStates)
+    : normalizePluginStates(source.pluginStates);
   next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
+  next.workflowOnboarding = {};
+  if (source.workflowOnboarding && typeof source.workflowOnboarding === "object" && !Array.isArray(source.workflowOnboarding)) {
+    for (const key of ["social", "xiaohongshu", "douyin", "research", "commerce"]) {
+      if (source.workflowOnboarding[key] === true) next.workflowOnboarding[key] = true;
+    }
+  }
   next.disabledCanvasToolCommands = [];
   if (Array.isArray(source.disabledCanvasToolCommands)) {
     const seenCanvasToolCommands = new Set();
@@ -676,6 +839,12 @@ function migrateSettings(value) {
       if (next.disabledCanvasToolCommands.length >= 128) break;
     }
   }
+  next.canvasToolShortcuts = normalizeCanvasToolShortcuts(source.canvasToolShortcuts);
+  const visibleWorkspaceAssetRailTabSet = new Set(Array.isArray(source.visibleWorkspaceAssetRailTabs)
+    ? source.visibleWorkspaceAssetRailTabs.map((item) => String(item))
+    : defaultSettings.visibleWorkspaceAssetRailTabs);
+  next.visibleWorkspaceAssetRailTabs = defaultSettings.visibleWorkspaceAssetRailTabs.filter((tab) => visibleWorkspaceAssetRailTabSet.has(tab));
+  if (!next.visibleWorkspaceAssetRailTabs.length) next.visibleWorkspaceAssetRailTabs = ["results"];
   next.agentProvider = ["CODEX", "CUSTOM"].includes(String(next.agentProvider)) ? String(next.agentProvider) : "CODEX";
   next.contextStrategy = ["auto", "codex", "claude", "naimage-balanced", "custom"].includes(String(next.contextStrategy))
     ? String(next.contextStrategy)
@@ -716,6 +885,7 @@ function migrateSettings(value) {
     next.selectedAccountTokenName = "";
     next.selectedAccountTokenGroup = "";
   }
+  Object.assign(next, applyAccessPolicyToSettings(next, accessPolicy));
 
   delete next.baseUrl;
   delete next.apiKey;
@@ -725,7 +895,7 @@ function migrateSettings(value) {
 }
 
 function publicSettings(settings) {
-  const next = { ...migrateSettings(settings) };
+  const next = settingsSecretStore.publicSettings({ ...migrateSettings(settings) });
   delete next.serverSessionCookie;
   delete next.serverUserId;
   delete next.licenseDeviceId;
@@ -748,12 +918,28 @@ function logBoot(stage) {
   log(`boot +${Date.now() - bootStartedAt}ms ${stage}`);
 }
 
-const automationService = createAutomationService({
+let automationService = null;
+const debugCommandService = createDebugCommandService({
+  appRoot: projectRoot,
+  debugDir,
+  electronLog,
+  commandSchemaPath: path.join(projectRoot, "integrations", "naimage-control", "references", "commands.schema.json"),
+  BrowserWindow,
+  ipcMain,
+  version: getDesktopVersion(),
+  packaged: app.isPackaged,
+  enabled: aidebugMode || !app.isPackaged,
+  getRendererState: () => automationService?.dispatch("app.state", {}, 5_000),
+  log
+});
+automationService = createAutomationService({
   BrowserWindow,
   configDir,
   version: getDesktopVersion(),
   executablePath: process.execPath,
-  log
+  log,
+  serviceCommandHandler: debugCommandService.execute,
+  serviceCommandNames: debugCommandService.commands
 });
 const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
@@ -771,10 +957,25 @@ const agentWindowService = createAgentWindowService({
   log
 });
 const themePresetService = createThemePresetService({ dialog, readFileSync, statSync, writeFileSync });
+const glassBackgroundService = createGlassBackgroundService({
+  assetsDir: glassBackgroundAssetsDir,
+  dialog,
+  sharp,
+  log
+});
 const requirementLibraryService = createRequirementLibraryService({
   libraryPath: requirementLibraryPath,
   readJson,
   writeJson
+});
+const commerceTemplateLibraryService = createCommerceTemplateLibraryService({
+  libraryPath: commerceTemplateLibraryPath,
+  readJson,
+  writeJson,
+  dialog,
+  readFileSync,
+  writeFileSync,
+  statSync
 });
 
 const aidebugBackend = aidebugMode && aidebugMockAgent
@@ -782,7 +983,7 @@ const aidebugBackend = aidebugMode && aidebugMockAgent
   : null;
 const newApiTransport = createNewApiTransport({
   app,
-  applicationName,
+  applicationName: internalApplicationName,
   windowsCurlPath,
   getDesktopVersion,
   getAuthEpoch: () => newApiAuthEpoch
@@ -966,25 +1167,48 @@ function recycleProjectImageImporter(reopen = true) {
 }
 
 function readJson(filePath, fallback) {
+  const settingsDocument = isSettingsJsonPath(filePath);
   try {
     if (!existsSync(filePath)) {
+      if (settingsDocument) {
+        const recovered = settingsSecretStore.recover(fallback);
+        writeJsonDocument(filePath, recovered.persisted);
+        return recovered.settings;
+      }
       writeJson(filePath, fallback);
       return fallback;
     }
     const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-    return { ...fallback, ...parsed };
+    const merged = { ...fallback, ...parsed };
+    return settingsDocument ? settingsSecretStore.hydrate(merged) : merged;
   } catch (error) {
     log(`read-json-failed ${filePath}: ${error.message}`);
+    if (settingsDocument) {
+      const recovered = settingsSecretStore.recover(fallback);
+      writeJsonDocument(filePath, recovered.persisted);
+      return recovered.settings;
+    }
     writeJson(filePath, fallback);
     return fallback;
   }
 }
 
-function writeJson(filePath, value) {
+function writeJsonDocument(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.tmp`;
   writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   renameSync(tempPath, filePath);
+}
+
+function writeJson(filePath, value) {
+  const persistedValue = isSettingsJsonPath(filePath) ? settingsSecretStore.persist(value) : value;
+  writeJsonDocument(filePath, persistedValue);
+}
+
+function isSettingsJsonPath(filePath) {
+  const resolved = path.resolve(String(filePath || ""));
+  const expected = path.resolve(settingsPath);
+  return process.platform === "win32" ? resolved.toLowerCase() === expected.toLowerCase() : resolved === expected;
 }
 
 let projectAssetRepository = null;
@@ -1022,6 +1246,7 @@ const {
   getProjectById,
   nextExternalProjectFolderPath,
   projectExportSessionPath,
+  projectCommerceCatalogPath,
   projectForFolderOpen,
   projectManifestPath,
   projectRelativePath,
@@ -1062,6 +1287,186 @@ const {
   sessionWithProjectAssets
 } = projectAssetRepository;
 
+const commerceCatalogService = createProjectCommerceCatalogService({
+  getProjectById,
+  projectCommerceCatalogPath,
+  projectRelativePath,
+  resolveProjectRelativePath,
+  projectSessionFromDisk,
+  readProjectList
+});
+const commerceExportService = createProjectCommerceExportService({
+  getProjectById,
+  readProjectList,
+  readCommerceCatalog: (project) => commerceCatalogService.readDocument(project),
+  resolveProjectRelativePath
+});
+const socialExportService = createProjectSocialExportService({
+  getProjectById,
+  projectSessionFromDisk,
+  readProjectList,
+  resolveProjectRelativePath
+});
+const scientificRunnerService = createScientificRunnerService({
+  assetUrlFor,
+  getProjectById,
+  log: (message) => log(`scientific runner ${message}`),
+  onTaskChanged(task) {
+    for (const targetWindow of BrowserWindow.getAllWindows()) {
+      if (!targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
+        targetWindow.webContents.send("naimage:scientific:changed", task);
+      }
+    }
+  },
+  projectMetaDirName,
+  projectRelativePath,
+  readProjectList,
+  resolveProjectRelativePath
+});
+
+async function resolveVideoTaskCredentials({ model, credentialRef } = {}) {
+  const settings = currentAgentSettings();
+  if (isCustomApiMode(settings)) {
+    const credentials = customApiCredentials(settings, "image", model);
+    return {
+      ...credentials,
+      mode: "custom",
+      tokenId: "",
+      label: "自定义 API Key"
+    };
+  }
+  const tokenId = String(credentialRef?.tokenId || settings.selectedAccountTokenId || "").trim();
+  const credentials = await accountTokenService.credentials(settings, tokenId || undefined);
+  return {
+    ...credentials,
+    mode: "account",
+    tokenId: String(credentials?.id || tokenId || settings.selectedAccountTokenId || "").trim(),
+    label: String(credentials?.name || settings.selectedAccountTokenName || (tokenId ? `Token #${tokenId}` : "账户 Token")).trim()
+  };
+}
+
+async function requestVideoTaskJson({ credentials, endpoint, method = "GET", body, headers = {}, timeoutMs = 30_000, retries = 0 } = {}) {
+  const settings = currentAgentSettings();
+  const request = await newApiFetch(settings, endpoint, {
+    method,
+    body,
+    absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
+    requestBaseUrl: credentials.baseUrl,
+    headers: {
+      authorization: `Bearer ${credentials.apiKey}`,
+      ...headers
+    },
+    timeoutMs,
+    retries,
+    maxResponseBytes: 8 * 1024 * 1024
+  });
+  const bodyRejected = Boolean(request.data?.error) || request.data?.success === false || request.data?.ok === false;
+  if (!request.response.ok || request.data?.parseFailed === true || bodyRejected) {
+    const error = new Error(newApiErrorMessage(request.data, request.response.status));
+    error.status = request.response.status;
+    error.data = request.data;
+    error.responseReceived = true;
+    error.explicitRejection = bodyRejected && request.response.status < 500;
+    throw error;
+  }
+  return { data: request.data, status: request.response.status };
+}
+
+function videoDownloadUrl(credentials, endpointOrUrl) {
+  const source = String(endpointOrUrl || "").trim();
+  const absolute = /^https?:\/\//i.test(source) ? source : directApiUrl(credentials.baseUrl, source);
+  const parsed = new URL(absolute);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("视频结果只允许通过 HTTP 或 HTTPS 下载。");
+  if (parsed.username || parsed.password) throw new Error("视频结果地址不能包含用户名或密码。");
+  return parsed;
+}
+
+function nodeVideoDownloadResponse(response) {
+  const status = Number(response?.statusCode || 0);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get(name) {
+        const value = response?.headers?.[String(name || "").toLowerCase()];
+        return Array.isArray(value) ? value[0] : value === undefined ? null : String(value);
+      }
+    },
+    body: response
+  };
+}
+
+async function fetchVideoTaskBinary({ credentials, endpointOrUrl, timeoutMs = 5 * 60_000, maxResponseBytes } = {}) {
+  const settings = currentAgentSettings();
+  const credentialOrigin = new URL(credentials.baseUrl).origin;
+  let target = videoDownloadUrl(credentials, endpointOrUrl);
+  for (let redirect = 0; redirect <= 5; redirect += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("视频结果下载超时。")), Math.max(1_000, Number(timeoutMs) || 5 * 60_000));
+    let response;
+    try {
+      if (target.origin === credentialOrigin) {
+        response = await newApiTransportFetch(target.toString(), {
+          method: "GET",
+          headers: { authorization: `Bearer ${credentials.apiKey}` },
+          signal: controller.signal,
+          headersTimeoutMs: Math.min(60_000, Math.max(5_000, Number(timeoutMs) || 30_000)),
+          connectTimeoutMs: 20_000,
+          proxyUrl: settings.networkProxyUrl,
+          maxResponseBytes
+        });
+      } else {
+        const publicTarget = await resolvePublicHttpTarget(target, { signal: controller.signal });
+        const incoming = await requestPublicHttpTarget(publicTarget, {
+          signal: controller.signal,
+          accept: "video/mp4,video/webm,video/quicktime,application/octet-stream,*/*;q=0.1"
+        });
+        response = nodeVideoDownloadResponse(incoming);
+      }
+    } catch (error) {
+      clearTimeout(timer);
+      throw error;
+    }
+    const clearTimer = () => clearTimeout(timer);
+    response.body?.once?.("end", clearTimer);
+    response.body?.once?.("close", clearTimer);
+    response.body?.once?.("error", clearTimer);
+    if (![301, 302, 303, 307, 308].includes(Number(response.status))) return response;
+    const location = String(response.headers?.get?.("location") || "").trim();
+    response.body?.resume?.();
+    clearTimer();
+    if (!location) return response;
+    if (redirect >= 5) throw new Error("视频结果下载重定向次数过多。");
+    target = videoDownloadUrl(credentials, new URL(location, target).toString());
+  }
+  throw new Error("视频结果下载失败。");
+}
+
+const videoTaskService = createVideoTaskService({
+  assetUrlFor,
+  fetchBinary: fetchVideoTaskBinary,
+  getProjectById,
+  log: (message) => log(`video task ${message}`),
+  markRuntimeVerified({ model, endpointType }) {
+    markModelRuntimeVerified(currentAgentSettings(), "video", model, endpointType);
+  },
+  onTaskChanged(task) {
+    for (const targetWindow of BrowserWindow.getAllWindows()) {
+      if (!targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
+        targetWindow.webContents.send("naimage:video-task:changed", task);
+      }
+    }
+  },
+  projectMetaDirName,
+  projectRelativePath,
+  readJson,
+  readProjectList,
+  requestJson: requestVideoTaskJson,
+  resolveProjectRelativePath,
+  resolveCredentials: resolveVideoTaskCredentials,
+  writeJson
+});
+
 
 function copyDirectory(sourceDir, targetDir) {
   if (!existsSync(sourceDir)) return;
@@ -1094,13 +1499,16 @@ const projectPackageService = createProjectPackageService({
   log,
   mimeTypeForPath,
   nativeImage,
+  readCommerceCatalog: (project) => commerceCatalogService.readDocument(project),
   projectWritableAssetRoots,
   projectRelativePath,
   projectSessionFromDisk,
   resolveProjectRelativePath,
   safeName,
+  sanitizeCommerceCatalogDocument,
   sanitizeSession,
   sessionForProjectSave,
+  writeCommerceCatalog: (project, catalog) => commerceCatalogService.replaceCatalogForProject(project, catalog),
   writeJson,
   writeProjectManifest
 });
@@ -1174,7 +1582,12 @@ function registerAssetProtocol() {
         }
       }
 
-      return net.fetch(pathToFileURL(resolved).toString());
+      const forwardedHeaders = {};
+      for (const headerName of ["range", "if-range", "if-modified-since", "if-none-match"]) {
+        const value = request.headers.get(headerName);
+        if (value) forwardedHeaders[headerName] = value;
+      }
+      return net.fetch(pathToFileURL(resolved).toString(), { headers: forwardedHeaders });
     } catch (error) {
       log(`asset protocol failed: ${error.message}`);
       return new Response("asset protocol error", { status: 500 });
@@ -1213,6 +1626,9 @@ function mimeTypeForPath(filePath) {
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".webp") return "image/webp";
   if (ext === ".png") return "image/png";
+  if (ext === ".mp4" || ext === ".m4v") return "video/mp4";
+  if (ext === ".webm") return "video/webm";
+  if (ext === ".mov") return "video/quicktime";
   return "application/octet-stream";
 }
 
@@ -1746,9 +2162,31 @@ async function importLocalImagesToProject(payload = {}) {
   }
 }
 
+async function importLocalVideosToProject(payload = {}) {
+  const requestedProjectId = typeof payload.projectId === "string" ? payload.projectId.trim() : "";
+  const outputDir = outputBucketDirForProjectId(requestedProjectId, "video", "imports");
+  const projectPath = path.resolve(outputDir, "..", "..", "..");
+  const requestedLimit = Number(payload.maxFiles);
+  const maxFiles = Number.isSafeInteger(requestedLimit)
+    ? Math.max(1, Math.min(requestedLimit, maxImportedVideoFiles))
+    : maxImportedVideoFiles;
+  const imported = await importVideoFiles({
+    inputPaths: Array.isArray(payload.paths) ? payload.paths : [],
+    outputDir,
+    maxFiles
+  });
+  const assets = (imported.assets || []).map((asset) => ({
+    ...asset,
+    relativePath: projectRelativePath(projectPath, asset.path),
+    assetUrl: assetUrlFor(asset.path)
+  }));
+  log(`asset video import project=${requestedProjectId || "active"} files=${assets.length} skipped=${imported.skippedCount || 0}`);
+  return { ...imported, assets };
+}
+
 function sanitizeOutputBucket(value) {
   const normalized = String(value || "imagegen").trim().toLowerCase();
-  return normalized === "post" || normalized === "imagegen" ? normalized : "imagegen";
+  return normalized === "post" || normalized === "imagegen" || normalized === "video" ? normalized : "imagegen";
 }
 
 function sanitizeOutputSubdir(value) {
@@ -1901,6 +2339,7 @@ async function serverChatCompletion(payload = {}) {
         }, { signal: controller.signal, headersTimeoutMs: timeoutMs, connectTimeoutMs: 30_000 }),
         timeoutPromise
       ]);
+      markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
       log(`agent new-api ${useResponsesApi ? "responses" : "chat"} stream chunks=${chunks.length} model=${payload.model || settings.agentModel || "server-selected"}`);
       return { stream: true, chunks, model: payload.model || settings.agentModel };
     }
@@ -1908,6 +2347,7 @@ async function serverChatCompletion(payload = {}) {
       newApiRelayJson(settings, endpoint, relayBody, { signal: controller.signal }),
       timeoutPromise
     ]);
+    markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
     log(`agent new-api ${useResponsesApi ? "responses" : "chat"} model=${data.model || payload.model || settings.agentModel || "server-selected"}`);
     return data;
   } catch (error) {
@@ -1989,9 +2429,13 @@ function emitAgentProgress(sender, runId, payload = {}, scope = {}) {
 
 async function listAgentModels(provider, incomingSettings = {}) {
   const settings = migrateSettings({ ...currentAgentSettings(), ...(incomingSettings || {}) });
-  const target = provider === "image" ? "image" : "agent";
+  const target = provider === "image" ? "image" : provider === "video" ? "video" : "agent";
   const serverSettings = await newApiModelSettings(settings);
-  const models = uniqueImageModels(target === "image" ? serverSettings.imageModels : serverSettings.agentModels);
+  const models = uniqueImageModels(target === "image"
+    ? serverSettings.imageModels
+    : target === "video"
+      ? serverSettings.videoModels
+      : serverSettings.agentModels);
   return {
     ok: true,
     provider: target,
@@ -2179,7 +2623,7 @@ function shutdownApplicationServices() {
   if (applicationShutdownPromise) return applicationShutdownPromise;
   applicationShutdownStartedAt = Date.now();
   quitting = true;
-  const stoppedRuns = agentRunControl.stopAll("naimage 正在退出，所有 Agent 运行已停止。");
+  const stoppedRuns = agentRunControl.stopAll("SparkAI WorkSpace 正在退出，所有 Agent 运行已停止。");
   log(`shutdown agent runs stopped=${stoppedRuns.stopped}`);
   cancelQueuedImageEditRequests();
   const localServerStop = stopLocalServer();
@@ -2191,6 +2635,8 @@ function shutdownApplicationServices() {
     imageThumbnailCache.close(),
     Promise.resolve(agentWindowService.close()),
     Promise.resolve().then(() => goalProbeAdmission.dispose("Application shutdown.")),
+    Promise.resolve().then(() => videoTaskService.dispose()),
+    Promise.resolve().then(() => scientificRunnerService.dispose()),
     Promise.resolve().then(() => agentRuntime?.dispose?.())
   ]).then((results) => {
     for (const [index, result] of results.entries()) {
@@ -2294,7 +2740,7 @@ function cancelQueuedImageEditRequests() {
 
 function normalizeNewApiUser(userData = {}) {
   const username = String(userData.username || userData.email || userData.id || "").trim();
-  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "naimage User").trim();
+  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "SparkAI WorkSpace User").trim();
   const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
   const balanceCents = Number.isFinite(quota)
     ? Math.max(0, Math.round((quota / newApiQuotaPerUnit) * 100))
@@ -2332,10 +2778,25 @@ function tokenItemsFromNewApiPayload(payload) {
 }
 
 function modelCacheKey(settings) {
+  let credentialIdentity = isCustomApiMode(settings) ? "custom-api" : settings.serverUserId;
+  if (isCustomApiMode(settings)) {
+    const fingerprints = [];
+    for (const provider of ["agent", "image"]) {
+      try {
+        const credentials = customApiCredentials(settings, provider);
+        fingerprints.push(`${provider}:${createHash("sha256")
+          .update(`${credentials.baseUrl.toLowerCase()}\n${credentials.apiKey}`)
+          .digest("hex")}`);
+      } catch {
+        fingerprints.push(`${provider}:unavailable`);
+      }
+    }
+    credentialIdentity = `custom-api:${createHash("sha256").update(fingerprints.join("\n")).digest("hex")}`;
+  }
   return createModelCacheKey(
     isCustomApiMode(settings) ? settings.agentBaseUrl : resolveNewApiBaseUrl(settings, "account"),
     isCustomApiMode(settings) ? settings.imageBaseUrl : directApiUrl(resolveNewApiBaseUrl(settings, "account"), "/v1"),
-    isCustomApiMode(settings) ? "custom-api" : settings.serverUserId,
+    credentialIdentity,
     isCustomApiMode(settings) ? settings.modelGroup : settings.selectedAccountTokenId
   );
 }
@@ -2375,35 +2836,153 @@ function modelSettingsWithCacheMeta(settings, cacheSource, cachedAt) {
   };
 }
 
+function markModelRuntimeVerified(settings, provider, model, endpointType) {
+  const targetModel = String(model || "").trim();
+  if (!targetModel) return false;
+  loadModelCacheFromDisk(settings);
+  const key = modelCacheKey(settings);
+  const entry = modelCacheMemory.get(key);
+  if (!entry?.settings) return false;
+  const profiles = markModelAccessProfilesVerified(entry.settings.modelAccessProfiles, {
+    provider,
+    model: targetModel,
+    endpointType,
+    verifiedAt: new Date().toISOString()
+  });
+  if (JSON.stringify(profiles) === JSON.stringify(entry.settings.modelAccessProfiles || [])) return false;
+  entry.settings = cachedModelSettings(settings, { ...entry.settings, modelAccessProfiles: profiles });
+  modelCacheMemory.set(key, entry);
+  persistModelCache();
+  return true;
+}
+
+function modelAccessProfileId(baseUrl, credentialIdentity) {
+  return `model-access-${createHash("sha256")
+    .update(`${String(baseUrl || "").trim().toLowerCase()}\n${String(credentialIdentity || "anonymous")}`)
+    .digest("hex")
+    .slice(0, 32)}`;
+}
+
+function providerModelSettings(settings, payload, provider) {
+  const split = splitModelSettings(settings, payload.modelIds, [], payload.modelCapabilities);
+  if (provider === "agent") return split.agentModels;
+  if (provider === "video") return split.videoModels;
+  return split.imageModels;
+}
+
+function serviceStatus(state, profileIds, error, lastCheckedAt) {
+  return {
+    state,
+    profileIds: [...new Set((profileIds || []).filter(Boolean))],
+    ...(error ? { error: String(error).slice(0, 1_000) } : {}),
+    lastCheckedAt
+  };
+}
+
 async function fetchNewApiModelSettings(settings) {
+  const lastCheckedAt = new Date().toISOString();
   if (isCustomApiMode(settings)) {
-    const collected = [];
-    const seenBases = new Set();
-    for (const provider of ["agent", "image"]) {
-      const credentials = customApiCredentials(settings, provider);
-      const key = credentials.baseUrl.toLowerCase();
-      if (seenBases.has(key)) continue;
-      seenBases.add(key);
-      const request = await newApiFetch(settings, "/v1/models", {
-        method: "GET",
-        absoluteUrl: customApiUrl(settings, "/v1/models", provider),
-        requestBaseUrl: credentials.baseUrl,
-        headers: customApiHeaders(settings, provider),
-        timeoutMs: 20_000,
-        retries: 1
-      });
-      if (!request.response.ok || request.data?.error || request.data?.parseFailed) {
-        throw new Error(newApiErrorMessage(request.data, request.response.status));
+    const grouped = new Map();
+    const providerErrors = {};
+    const providerPayloads = {};
+    const profiles = [];
+    for (const provider of ["agent", "image", "video"]) {
+      try {
+        const credentialProvider = provider === "agent" ? "agent" : "image";
+        const credentials = customApiCredentials(settings, credentialProvider);
+        const credentialFingerprint = createHash("sha256")
+          .update(`${credentials.baseUrl.toLowerCase()}\n${credentials.apiKey}`)
+          .digest("hex");
+        const existing = grouped.get(credentialFingerprint) || {
+          credentialFingerprint,
+          credentials,
+          providers: []
+        };
+        existing.providers.push(provider);
+        grouped.set(credentialFingerprint, existing);
+      } catch (error) {
+        providerErrors[provider] = error instanceof Error ? error.message : String(error);
       }
-      collected.push(...modelIdsFromResponse(request.data));
     }
-    return splitModelSettings(settings, collected, []);
+
+    for (const group of grouped.values()) {
+      const profileId = modelAccessProfileId(group.credentials.baseUrl, group.credentialFingerprint);
+      try {
+        const request = await newApiFetch(settings, "/v1/models", {
+          method: "GET",
+          absoluteUrl: directApiUrl(group.credentials.baseUrl, "/v1/models"),
+          requestBaseUrl: group.credentials.baseUrl,
+          headers: { authorization: `Bearer ${group.credentials.apiKey}` },
+          timeoutMs: 20_000,
+          retries: 1
+        });
+        if (!request.response.ok || request.data?.error || request.data?.parseFailed) {
+          throw new Error(newApiErrorMessage(request.data, request.response.status));
+        }
+        const modelIds = modelIdsFromResponse(request.data);
+        const modelCapabilities = modelCapabilitiesFromResponse(request.data);
+        const payload = { modelIds, modelCapabilities, profileId };
+        for (const provider of group.providers) providerPayloads[provider] = payload;
+        profiles.push(createModelAccessProfile({
+          id: profileId,
+          label: group.providers.includes("agent") && group.providers.some((provider) => provider !== "agent")
+            ? "自定义统一接入"
+            : group.providers.includes("agent")
+              ? "自定义 Agent 接入"
+              : "自定义图片 / 视频接入",
+          baseUrl: group.credentials.baseUrl,
+          credentialLabel: "自定义 API Key",
+          providers: group.providers,
+          modelIds,
+          modelCapabilities,
+          lastCheckedAt
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        for (const provider of group.providers) providerErrors[provider] = message;
+        profiles.push(createModelAccessProfile({
+          id: profileId,
+          label: group.providers.includes("agent") && group.providers.some((provider) => provider !== "agent")
+            ? "自定义统一接入"
+            : group.providers.includes("agent")
+              ? "自定义 Agent 接入"
+              : "自定义图片 / 视频接入",
+          baseUrl: group.credentials.baseUrl,
+          credentialLabel: "自定义 API Key",
+          providers: group.providers,
+          lastCheckedAt,
+          error: message
+        }));
+      }
+    }
+
+    const collected = Object.values(providerPayloads).flatMap((payload) => payload.modelIds || []);
+    const modelCapabilities = mergeModelCapabilities(...Object.values(providerPayloads).map((payload) => payload.modelCapabilities));
+    const profileIdsFor = (provider) => profiles.filter((profile) => profile?.providers?.includes(provider)).map((profile) => profile.id);
+    const serviceStatuses = Object.fromEntries(["agent", "image", "video"].map((provider) => [
+      provider,
+      serviceStatus(providerPayloads[provider] ? "ready" : "unavailable", profileIdsFor(provider), providerErrors[provider], lastCheckedAt)
+    ]));
+    const split = splitModelSettings(settings, collected, [], modelCapabilities, {
+      modelAccessProfiles: profiles,
+      serviceStatuses
+    });
+    return {
+      ...split,
+      agentModels: providerPayloads.agent ? providerModelSettings(settings, providerPayloads.agent, "agent") : splitModelSettings(settings, []).agentModels,
+      imageModels: providerPayloads.image ? providerModelSettings(settings, providerPayloads.image, "image") : splitModelSettings(settings, []).imageModels,
+      videoModels: providerPayloads.video ? providerModelSettings(settings, providerPayloads.video, "video") : splitModelSettings(settings, []).videoModels
+    };
   }
   const collected = [];
+  let modelCapabilities = {};
   let modelGroups = [];
   let groupsLoaded = false;
   let successfulRequests = 0;
   let lastError = null;
+  let directoryPayload = null;
+  let relayPayload = null;
+  const profiles = [];
   try {
     const groupsResponse = await newApiRequest(settings, "/api/user/self/groups", {
       headers: newApiUserAuthHeaders(settings),
@@ -2425,7 +3004,21 @@ async function fetchNewApiModelSettings(settings) {
       retries: 0
     });
     successfulRequests += 1;
-    collected.push(...modelIdsFromResponse(userModels));
+    const modelIds = modelIdsFromResponse(userModels);
+    const capabilities = modelCapabilitiesFromResponse(userModels);
+    directoryPayload = { modelIds, modelCapabilities: capabilities };
+    collected.push(...modelIds);
+    modelCapabilities = mergeModelCapabilities(modelCapabilities, capabilities);
+    profiles.push(createModelAccessProfile({
+      id: modelAccessProfileId(resolveNewApiBaseUrl(settings, "account"), `directory:${settings.serverUserId || "anonymous"}:${selectedGroup || "default"}`),
+      label: "账户模型目录",
+      baseUrl: resolveNewApiBaseUrl(settings, "account"),
+      credentialLabel: selectedGroup ? `分组 ${selectedGroup}` : "默认分组",
+      providers: ["agent", "image", "video"],
+      modelIds,
+      modelCapabilities: capabilities,
+      lastCheckedAt
+    }));
   } catch (error) {
     lastError = error;
     log(`new-api user models failed ${error instanceof Error ? error.message : String(error)}`);
@@ -2442,17 +3035,69 @@ async function fetchNewApiModelSettings(settings) {
       });
       if (response.ok && data.parseFailed !== true && !data.error) {
         successfulRequests += 1;
-        collected.push(...modelIdsFromResponse(data));
+        const modelIds = modelIdsFromResponse(data);
+        const capabilities = modelCapabilitiesFromResponse(data);
+        relayPayload = { modelIds, modelCapabilities: capabilities };
+        collected.push(...modelIds);
+        modelCapabilities = mergeModelCapabilities(modelCapabilities, capabilities);
+        profiles.push(createModelAccessProfile({
+          id: modelAccessProfileId(credentials.baseUrl, `token:${settings.selectedAccountTokenId || credentials.id || "selected"}`),
+          label: "所选账户 Token",
+          baseUrl: credentials.baseUrl,
+          credentialLabel: settings.selectedAccountTokenName
+            ? `${settings.selectedAccountTokenName}${settings.selectedAccountTokenGroup ? ` · ${settings.selectedAccountTokenGroup}` : ""}`
+            : settings.selectedAccountTokenId
+              ? `Token #${settings.selectedAccountTokenId}`
+              : "账户 Token",
+          providers: ["agent", "image", "video"],
+          modelIds,
+          modelCapabilities: capabilities,
+          lastCheckedAt
+        }));
       } else {
         lastError = new Error(newApiErrorMessage(data, response.status));
+        profiles.push(createModelAccessProfile({
+          id: modelAccessProfileId(credentials.baseUrl, `token:${settings.selectedAccountTokenId || credentials.id || "selected"}`),
+          label: "所选账户 Token",
+          baseUrl: credentials.baseUrl,
+          credentialLabel: settings.selectedAccountTokenName || (settings.selectedAccountTokenId ? `Token #${settings.selectedAccountTokenId}` : "账户 Token"),
+          providers: ["agent", "image", "video"],
+          lastCheckedAt,
+          error: lastError.message
+        }));
       }
     }
   } catch (error) {
     lastError = error;
-        log(`managed relay models failed ${error instanceof Error ? error.message : String(error)}`);
+    const message = error instanceof Error ? error.message : String(error);
+    const baseUrl = resolveNewApiBaseUrl(settings, "account");
+    profiles.push(createModelAccessProfile({
+      id: modelAccessProfileId(baseUrl, `token:${settings.selectedAccountTokenId || "selected"}`),
+      label: "所选账户 Token",
+      baseUrl,
+      credentialLabel: settings.selectedAccountTokenName
+        ? `${settings.selectedAccountTokenName}${settings.selectedAccountTokenGroup ? ` · ${settings.selectedAccountTokenGroup}` : ""}`
+        : settings.selectedAccountTokenId
+          ? `Token #${settings.selectedAccountTokenId}`
+          : "账户 Token",
+      providers: ["agent", "image", "video"],
+      lastCheckedAt,
+      error: message
+    }));
+    log(`managed relay models failed ${message}`);
   }
-  if (successfulRequests === 0) throw lastError || new Error("模型服务暂时不可用。");
-  return splitModelSettings({ ...settings, modelGroup: selectedGroup }, collected, modelGroups);
+  const relayError = relayPayload ? "" : lastError instanceof Error ? lastError.message : lastError ? String(lastError) : "";
+  const state = relayPayload ? "ready" : directoryPayload ? "catalog-only" : "unavailable";
+  const profileIds = profiles.map((profile) => profile?.id).filter(Boolean);
+  const serviceStatuses = Object.fromEntries(["agent", "image", "video"].map((provider) => [
+    provider,
+    serviceStatus(state, profileIds, relayError, lastCheckedAt)
+  ]));
+  const split = splitModelSettings({ ...settings, modelGroup: selectedGroup }, collected, modelGroups, modelCapabilities, {
+    modelAccessProfiles: profiles,
+    serviceStatuses
+  });
+  return successfulRequests === 0 ? { ...split, modelCatalogUnavailable: true } : split;
 }
 
 async function newApiModelSettings(settings, options = {}) {
@@ -2470,8 +3115,10 @@ async function newApiModelSettings(settings, options = {}) {
     const fallbackModels = [
       ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
       ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
+      ...(Array.isArray(settings.videoModelPool) ? settings.videoModelPool : []),
       settings.agentModel,
-      settings.imageModel
+      settings.imageModel,
+      settings.videoModel
     ];
     return modelSettingsWithCacheMeta(
       cachedModelSettings(settings, { models: fallbackModels }),
@@ -2492,7 +3139,28 @@ async function newApiModelSettings(settings, options = {}) {
       const loaded = aidebugMode && !aidebugLiveImage
         ? cachedModelSettings(settings, aidebugPublicSettings)
         : await fetchNewApiModelSettings(settings);
-      const entry = { cachedAt: Date.now(), settings: cachedModelSettings(settings, loaded) };
+      if (loaded.modelCatalogUnavailable === true) {
+        const base = memoryEntry?.settings || loaded;
+        const entry = {
+          cachedAt: memoryEntry?.cachedAt || Date.now(),
+          settings: cachedModelSettings(settings, {
+            ...base,
+            modelAccessProfiles: mergeModelAccessProfiles(base.modelAccessProfiles, loaded.modelAccessProfiles),
+            serviceStatuses: loaded.serviceStatuses
+          })
+        };
+        modelCacheMemory.set(key, entry);
+        persistModelCache();
+        return modelSettingsWithCacheMeta(entry.settings, memoryEntry ? "stale" : "network", entry.cachedAt);
+      }
+      const preservedProfiles = preserveRuntimeVerifiedModelAccessProfiles(
+        loaded.modelAccessProfiles,
+        memoryEntry?.settings?.modelAccessProfiles
+      );
+      const entry = {
+        cachedAt: Date.now(),
+        settings: cachedModelSettings(settings, { ...loaded, modelAccessProfiles: preservedProfiles })
+      };
       modelCacheMemory.set(key, entry);
       persistModelCache();
       return modelSettingsWithCacheMeta(entry.settings, "network", entry.cachedAt);
@@ -2755,6 +3423,50 @@ function prepareImageUploadPart(image, aggressive = false) {
   };
 }
 
+const completedUsageNumberFields = [
+  "input_tokens",
+  "output_tokens",
+  "total_tokens",
+  "prompt_tokens",
+  "completion_tokens",
+  "image_tokens",
+  "images",
+  "cost",
+  "cost_cents",
+  "charged_cents",
+  "quota"
+];
+
+function normalizeCompletedProviderUsage(value, requestIndex) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const usage = { requestIndex };
+  for (const field of completedUsageNumberFields) {
+    const numeric = Number(value[field]);
+    if (Number.isFinite(numeric) && numeric >= 0) usage[field] = numeric;
+  }
+  return Object.keys(usage).length > 1 ? usage : null;
+}
+
+function completedImageAccounting(responses) {
+  const providerUsage = [];
+  let costCents = 0;
+  let hasCost = false;
+  for (const [index, response] of responses.entries()) {
+    const usage = normalizeCompletedProviderUsage(response?.usage, index + 1);
+    if (usage) providerUsage.push(usage);
+    const rawCost = response?.costCents ?? response?.chargedCents ?? response?.usage?.cost_cents ?? response?.usage?.charged_cents;
+    const numericCost = Number(rawCost);
+    if (Number.isFinite(numericCost) && numericCost >= 0) {
+      costCents += numericCost;
+      hasCost = true;
+    }
+  }
+  return {
+    ...(providerUsage.length ? { providerUsage } : {}),
+    ...(hasCost ? { costCents } : {})
+  };
+}
+
 async function callNewApiImage(settings, payload = {}) {
   if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
   const rawOutputFormat = payload.outputFormat ?? payload.output_format;
@@ -2769,6 +3481,10 @@ async function callNewApiImage(settings, payload = {}) {
   const customMode = isCustomApiMode(settings);
   if (!customMode) requireNewApiSession(settings);
   const model = String(payload.model || settings.imageModel || "gpt-image-2").trim();
+  const customImageBinding = customMode
+    ? normalizeImageModelBindings(settings.imageModelBindings).find((binding) => binding.model.toLowerCase() === model.toLowerCase())
+    : null;
+  const preferDirectImageTransport = Boolean(customMode && (customImageBinding?.customBaseUrl || customImageBinding?.customApiKey));
   const customImageCredentials = customMode ? customApiCredentials(settings, "image", model) : null;
   const requestedCount = Math.floor(Number(payload.count || 1));
   const count = Math.max(1, Math.min(Number.isFinite(requestedCount) ? requestedCount : 1, 10));
@@ -3031,6 +3747,21 @@ async function callNewApiImage(settings, payload = {}) {
         if (directive && attempt <= directive.failures) {
           throw aidebugImageFaultError(directive.category, attempt);
         }
+        const previewCount = Math.max(0, Math.min(3, Math.floor(Number(
+          desktopEnvironment("NAIMAGE_AIDEBUG_IMAGE_PARTIALS") || 0
+        ) || 0)));
+        for (let previewIndex = 0; previewIndex < previewCount; previewIndex += 1) {
+          await delay(140);
+          const b64Json = aidebugImageBase64(index + previewIndex + 1, { ...payload, prompt });
+          onPartialImage({
+            b64Json,
+            dataUrl: `data:image/png;base64,${b64Json}`,
+            partialImageIndex: previewIndex,
+            index: previewIndex + 1,
+            total: previewCount,
+            eventType: "aidebug.image_generation.partial_image"
+          });
+        }
         return {
           data: [{
             b64_json: aidebugImageBase64(index, { ...payload, prompt }),
@@ -3139,7 +3870,7 @@ async function callNewApiImage(settings, payload = {}) {
       if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
       if (imageControls.background) body.background = imageControls.background;
       if (imageControls.moderation) body.moderation = imageControls.moderation;
-      const responsesImageModel = String(settings.agentModel || "gpt-5.6-sol").trim() || "gpt-5.6-sol";
+      const responsesImageModel = String(settings.agentModel || "gpt-5.6-terra").trim() || "gpt-5.6-terra";
       log(`image request metadata ${JSON.stringify({
         endpoint: "/v1/responses",
         accessMode: customMode ? "custom" : "account",
@@ -3173,35 +3904,37 @@ async function callNewApiImage(settings, payload = {}) {
         tools: [imageTool],
         tool_choice: "required"
       };
-      try {
-        return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
-          provider: "image",
-          signal,
-          headers: { "Idempotency-Key": idempotencyKey },
-          headersTimeoutMs: imageTimeoutMs,
-          connectTimeoutMs: 60_000,
-          idleTimeoutMs: imageTimeoutMs,
-          maxResponseBytes: 256 * 1024 * 1024,
-          partialImages: 3
-        });
-      } catch (error) {
-        if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
-        log(`Responses image generation unsupported for ${customMode ? "custom" : "account"} access; falling back to Images API (${error?.message || "unknown"})`);
-      }
-      if (!customMode) {
+      if (!preferDirectImageTransport) {
         try {
-          return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
+          return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
             provider: "image",
             signal,
             headers: { "Idempotency-Key": idempotencyKey },
             headersTimeoutMs: imageTimeoutMs,
             connectTimeoutMs: 60_000,
-            maxResponseBytes: 96 * 1024 * 1024,
+            idleTimeoutMs: imageTimeoutMs,
+            maxResponseBytes: 256 * 1024 * 1024,
             partialImages: 3
           });
         } catch (error) {
-          if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
+          if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
+          log(`Responses image generation unsupported for ${customMode ? "custom" : "account"} access; falling back to Images API (${error?.message || "unknown"})`);
         }
+      } else {
+        log(`image model ${model} has custom credentials; using its direct Images transport for streaming previews`);
+      }
+      try {
+        return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
+          provider: "image",
+          signal,
+          headers: { "Idempotency-Key": idempotencyKey },
+          headersTimeoutMs: imageTimeoutMs,
+          connectTimeoutMs: 60_000,
+          maxResponseBytes: 96 * 1024 * 1024,
+          partialImages: 3
+        });
+      } catch (error) {
+        if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
       }
       return newApiRelayJson(settings, "/v1/images/generations", body, {
         provider: "image",
@@ -3285,6 +4018,7 @@ async function callNewApiImage(settings, payload = {}) {
     if (first.status === "rejected") throw first.reason;
     throw new Error("New API 生图失败。");
   }
+  const accounting = completedImageAccounting(responses);
   return {
     ok: true,
     model,
@@ -3309,6 +4043,7 @@ async function callNewApiImage(settings, payload = {}) {
     sourceUploadCompressed: compressedSourceUploadCount > 0,
     sourceUploadRetryCount: compressedSourceRetryCount,
     mode: editRequested ? payload.mode || "edit" : "generate",
+    ...accounting,
     summary: failed.length ? `New API 已返回 ${responses.length} 个生图结果，${failed.length} 张失败。` : `New API 已返回 ${count} 个生图结果。`
   };
 }
@@ -3393,6 +4128,10 @@ async function completeNewApiLogin(settings, payload = {}) {
     imageModelPool: nextSettings.imageModelPool?.length
       ? nextSettings.imageModelPool
       : [nextSettings.imageModel || modelSettings.imageModel || preferredImageModelFromList(modelSettings.imageModels)],
+    videoModel: nextSettings.videoModel || modelSettings.videoModel || preferredVideoModelFromList(modelSettings.videoModels),
+    videoModelPool: nextSettings.videoModelPool?.length
+      ? nextSettings.videoModelPool
+      : [nextSettings.videoModel || modelSettings.videoModel || preferredVideoModelFromList(modelSettings.videoModels)],
     agentModel: nextSettings.agentModel || preferredAgentModelFromList(modelSettings.agentModels),
     agentModelPool: nextSettings.agentModelPool?.length ? nextSettings.agentModelPool : [nextSettings.agentModel || preferredAgentModelFromList(modelSettings.agentModels)]
   });
@@ -3409,7 +4148,8 @@ async function completeNewApiLogin(settings, payload = {}) {
     wallet: walletFromNewApiUser(userData),
     settings: {
       ...modelSettings,
-      imageModel: nextSettings.imageModel
+      imageModel: nextSettings.imageModel,
+      videoModel: nextSettings.videoModel
     },
     imageCostCents: modelSettings.imageCostCents
   };
@@ -3447,7 +4187,9 @@ function clearNewApiAuth(settings) {
 
 
 async function callNewApiImageWithSession(settings, payload = {}) {
-  return await callNewApiImage(settings, payload);
+  const result = await callNewApiImage(settings, payload);
+  markModelRuntimeVerified(settings, "image", payload.model || settings.imageModel, "image-generation");
+  return result;
 }
 
 function mapNewApiLogType(type) {
@@ -3647,12 +4389,24 @@ const projectSessionSaveCoordinator = createProjectSaveCoordinator({
 function registerIpc() {
   registerDesktopIpc({
     ipcMain,
+    accessPolicy,
     automationService,
     agentIntegrationService,
     agentWindowService,
     desktopUpdater,
     themePresetService,
+    glassBackgroundService,
+    getReferencedGlassBackgroundAssetIds() {
+      const assetId = String(migrateSettings(readJson(settingsPath, defaultSettings)).glassBackgroundAssetId || "").trim();
+      return assetId ? [assetId] : [];
+    },
     requirementLibraryService,
+    commerceTemplateLibraryService,
+    commerceCatalogService,
+    commerceExportService,
+    socialExportService,
+    videoTaskService,
+    scientificRunnerService,
     composePluginTask,
     migrateSettings,
     readJson,
@@ -3660,6 +4414,7 @@ function registerIpc() {
     defaultSettings,
     log,
     publicSettings,
+    restoreSettingsSecrets: settingsSecretStore.restorePlaceholders,
     validateNewApiServiceSettings,
     onNewApiAccountBaseUrlChanged(current) {
       const previousEpoch = newApiAuthEpoch;
@@ -3672,6 +4427,9 @@ function registerIpc() {
       for (const targetWindow of BrowserWindow.getAllWindows()) {
         if (!targetWindow.isDestroyed?.()) targetWindow.setBackgroundColor?.(backgroundColor);
       }
+      glassBackgroundService.cleanup({
+        referencedAssetIds: next.glassBackgroundAssetId ? [next.glassBackgroundAssetId] : []
+      });
     },
     writeJson,
     readProjectList,
@@ -3724,6 +4482,7 @@ function registerIpc() {
     isPathInside,
     app,
     importLocalImagesToProject,
+    importLocalVideosToProject,
     mimeTypeForPath,
     resolveOutputAsset,
     isAllowedAssetPath,
@@ -3799,6 +4558,7 @@ function createWindow(launch = {}) {
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
+      additionalArguments: aidebugRendererArguments,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -3846,10 +4606,10 @@ function createWindow(launch = {}) {
   });
   window.webContents.on("render-process-gone", (_event, details) => {
     log(`render gone ${JSON.stringify(details)}`);
-    stopRendererOwnedWork("naimage 界面进程已退出，相关 Agent 运行和自动化命令已取消。");
+    stopRendererOwnedWork("SparkAI WorkSpace 界面进程已退出，相关 Agent 运行和自动化命令已取消。");
   });
   window.webContents.once("destroyed", () => {
-    stopRendererOwnedWork("naimage 窗口已关闭，相关 Agent 运行和自动化命令已取消。");
+    stopRendererOwnedWork("SparkAI WorkSpace 窗口已关闭，相关 Agent 运行和自动化命令已取消。");
   });
   window.webContents.on("console-message", (details) => {
     log(`console level=${details.level} ${details.sourceId}:${details.lineNumber} ${details.message}`);
@@ -3876,6 +4636,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     agentImageRootsForContext,
     buildProjectAssetIndex,
     boundedImageRead,
+    completedImageAccounting,
     assetUrlFor,
     decodeLocalAssetUrl,
     clearNewApiAuth,
@@ -3884,6 +4645,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     encodedImageDimensions,
     ensureProjectFiles,
     imageEditRequestLimiterStatus,
+    importProjectPackage,
     nextExternalProjectFolderPath,
     normalizeSessionRevision,
     outputBucketDirForProjectId,
@@ -3982,6 +4744,12 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     cleanupAbandonedExportSourceCaches();
     registerAssetProtocol();
     registerIpc();
+    void videoTaskService.resumeAll()
+      .then((result) => log(`video task resume projects=${result.projects} resumed=${result.resumed} ambiguous=${result.ambiguous}`))
+      .catch((error) => log(`video task resume failed ${error instanceof Error ? error.message : String(error)}`));
+    void scientificRunnerService.recoverAll()
+      .then((result) => log(`scientific runner recovery projects=${result.projects} interrupted=${result.interrupted}`))
+      .catch((error) => log(`scientific runner recovery failed ${error instanceof Error ? error.message : String(error)}`));
     startLocalServerMonitor();
     createWindow();
 

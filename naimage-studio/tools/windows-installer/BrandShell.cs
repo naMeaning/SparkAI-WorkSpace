@@ -21,17 +21,17 @@ namespace Naimage.WindowsInstaller;
 
 internal static class BrandPalette
 {
-    internal static readonly Color Ink = Color.FromRgb(58, 42, 22);
-    internal static readonly Color Panel = Color.FromRgb(255, 249, 232);
-    internal static readonly Color Card = Color.FromRgb(255, 242, 201);
-    internal static readonly Color CardHover = Color.FromRgb(255, 233, 168);
-    internal static readonly Color Line = Color.FromRgb(229, 197, 107);
-    internal static readonly Color Muted = Color.FromRgb(125, 105, 65);
-    internal static readonly Color Text = Color.FromRgb(58, 42, 22);
-    internal static readonly Color Mint = Color.FromRgb(244, 189, 36);
-    internal static readonly Color Blue = Color.FromRgb(217, 119, 50);
+    internal static readonly Color Ink = Color.FromRgb(31, 34, 39);
+    internal static readonly Color Panel = Color.FromArgb(232, 249, 250, 252);
+    internal static readonly Color Card = Color.FromArgb(178, 255, 255, 255);
+    internal static readonly Color CardHover = Color.FromArgb(224, 255, 255, 255);
+    internal static readonly Color Line = Color.FromArgb(162, 255, 255, 255);
+    internal static readonly Color Muted = Color.FromRgb(91, 96, 104);
+    internal static readonly Color Text = Color.FromRgb(31, 34, 39);
+    internal static readonly Color Mint = Color.FromRgb(48, 52, 59);
+    internal static readonly Color Blue = Color.FromRgb(104, 110, 120);
     internal static readonly Color Danger = Color.FromRgb(201, 79, 68);
-    internal static readonly Color Success = Color.FromRgb(104, 132, 70);
+    internal static readonly Color Success = Color.FromRgb(76, 82, 90);
 
     internal static SolidColorBrush Brush(Color color) => new(color);
 }
@@ -76,7 +76,7 @@ internal sealed class BrandToggle : ToggleButton
             Text = "✓",
             FontSize = 13,
             FontWeight = FontWeights.Bold,
-            Foreground = BrandPalette.Brush(BrandPalette.Ink),
+            Foreground = Brushes.White,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -238,7 +238,11 @@ internal class BrandWindow : Window
             CornerRadius = new CornerRadius(22),
             BorderThickness = new Thickness(1),
             BorderBrush = BrandPalette.Brush(BrandPalette.Line),
-            Background = BrandPalette.Brush(BrandPalette.Panel),
+            Background = new LinearGradientBrush(
+                Color.FromArgb(240, 255, 255, 255),
+                Color.FromArgb(218, 226, 229, 234),
+                new Point(0, 0),
+                new Point(1, 1)),
             Effect = new DropShadowEffect
             {
                 BlurRadius = 36,
@@ -258,7 +262,10 @@ internal class BrandWindow : Window
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(CreateHero(edition));
 
-        var right = new Grid { Background = BrandPalette.Brush(BrandPalette.Panel) };
+        var right = new Grid
+        {
+            Background = BrandPalette.Brush(Color.FromArgb(122, 255, 255, 255))
+        };
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(56) });
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -453,9 +460,9 @@ internal class BrandWindow : Window
         {
             BrandButtonTone.Primary => new BrandButtonColors(
                 BrandPalette.Mint,
-                Color.FromRgb(255, 213, 83),
-                BrandPalette.Ink,
-                BrandPalette.Mint),
+                Color.FromRgb(68, 73, 82),
+                Colors.White,
+                BrandPalette.Blue),
             BrandButtonTone.Danger => new BrandButtonColors(
                 BrandPalette.Danger,
                 Color.FromRgb(220, 105, 93),
@@ -548,7 +555,7 @@ internal class BrandWindow : Window
             Height = 8,
             Minimum = 0,
             Maximum = 100,
-            Background = BrandPalette.Brush(Color.FromRgb(241, 223, 167)),
+            Background = BrandPalette.Brush(Color.FromRgb(222, 225, 230)),
             Foreground = BrandPalette.Brush(BrandPalette.Mint),
             BorderThickness = new Thickness(0)
         };
@@ -613,8 +620,8 @@ internal class BrandWindow : Window
         var hero = new Grid
         {
             Background = new LinearGradientBrush(
-                Color.FromRgb(255, 250, 225),
-                Color.FromRgb(246, 207, 91),
+                Color.FromArgb(218, 255, 255, 255),
+                Color.FromArgb(188, 202, 207, 215),
                 new Point(0, 0),
                 new Point(1, 1))
         };
@@ -648,8 +655,8 @@ internal class BrandWindow : Window
             Margin = new Thickness(0, 0, 13, 0)
         };
         var brandText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        brandText.Children.Add(Text("naimage", 22, BrandPalette.Text, FontWeights.Bold));
-        brandText.Children.Add(Text("STUDIO", 9, BrandPalette.Mint, FontWeights.Bold));
+        brandText.Children.Add(Text("SparkAI WorkSpace", 18.5, BrandPalette.Text, FontWeights.Bold));
+        brandText.Children.Add(Text("AI VISUAL WORKSPACE", 9, BrandPalette.Mint, FontWeights.Bold));
         logoRow.Children.Add(logo);
         logoRow.Children.Add(brandText);
         brand.Children.Add(logoRow);
@@ -678,7 +685,7 @@ internal class BrandWindow : Window
         hero.Children.Add(message);
 
         var foot = new StackPanel { Margin = new Thickness(28, 0, 28, 28) };
-        foot.Children.Add(Text("SparkAI Workspace", 9, BrandPalette.Blue, FontWeights.Bold));
+        foot.Children.Add(Text("Created by namean", 9, BrandPalette.Blue, FontWeights.Bold));
         foot.Children.Add(Text("Windows 10 / 11 · x64", 10.5, BrandPalette.Muted));
         Grid.SetRow(foot, 2);
         hero.Children.Add(foot);

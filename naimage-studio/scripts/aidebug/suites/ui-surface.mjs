@@ -34,6 +34,20 @@ export async function captureUiSurfaceSuite({ client, targetId, captureState, op
   captures.push(await captureState(client, targetId, "ui-reference-picker-1280", referenceExpression, { width: 1280, height: 820 }, referenceExpected));
   captures.push(await captureState(client, targetId, "ui-reference-picker-min-884", referenceExpression, { width: workbenchMinWidth, height: 720 }, { ...referenceExpected, imageNodeViewportOk: true }));
 
+  const filledReferenceExpression = openSurfaceExpression("agent-running-references", `
+    const triggerDeadline = Date.now() + 2400;
+    while (Date.now() < triggerDeadline && !document.querySelector(".project-agent-references")) await delay(40);
+    document.querySelector(".project-agent-references")?.click();
+    const pickerDeadline = Date.now() + 2400;
+    while (Date.now() < pickerDeadline && !document.querySelector('[data-ui-surface="reference-picker"] .reference-slot.filled')) await delay(40);
+  `);
+  const filledReferenceExpected = {
+    ...referenceExpected,
+    imageTaskOpen: false
+  };
+  captures.push(await captureState(client, targetId, "ui-reference-picker-filled-1280", filledReferenceExpression, { width: 1280, height: 820 }, filledReferenceExpected));
+  captures.push(await captureState(client, targetId, "ui-reference-picker-filled-min-884", filledReferenceExpression, { width: workbenchMinWidth, height: 720 }, { ...filledReferenceExpected, imageNodeViewportOk: true }));
+
   const manualSubmitExpression = `new Promise((resolve) => {
     const delay = (ms) => new Promise((done) => setTimeout(done, ms));
     const setNativeValue = (node, value) => {

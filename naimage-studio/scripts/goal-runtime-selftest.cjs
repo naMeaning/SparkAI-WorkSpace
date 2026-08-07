@@ -110,7 +110,8 @@ function goalFixture(root, options = {}) {
       probeContainerCount: options.probeContainerCount ?? Math.min(2, containerIds.length),
       operationsPerAsset: options.operationsPerAsset ?? 1,
       requestCount: sourceAssets.length * (options.operationsPerAsset ?? 1),
-      ...(options.commercePlanHash ? { commercePlanHash: options.commercePlanHash } : {})
+      ...(options.commercePlanHash ? { commercePlanHash: options.commercePlanHash } : {}),
+      ...(options.commerceCatalogTargets?.length ? { commerceCatalogTargets: options.commerceCatalogTargets } : {})
     },
     sourceAssetCount: sourceAssets.length,
     referenceAssetCount: 0,
@@ -138,11 +139,19 @@ async function main() {
     const legacyMissingFeeScope = structuredClone(fixture.scope);
     delete legacyMissingFeeScope.goal.operationsPerAsset;
     delete legacyMissingFeeScope.goal.requestCount;
-    assert.throws(
-      () => normalizedTaskScope({ taskScope: legacyMissingFeeScope }),
-      (error) => error?.code === "NAIMAGE_GOAL_SCOPE_NOT_FROZEN",
-      "An old Goal without frozen fee counts must fail during runtime ingress normalization"
+    const normalizedLegacyScope = normalizedTaskScope({ taskScope: legacyMissingFeeScope });
+    assert.equal(normalizedLegacyScope.goal.operationsPerAsset, 1);
+    assert.equal(normalizedLegacyScope.goal.requestCount, normalizedLegacyScope.sourceAssets.length);
+    assert.equal(
+      validateFrozenGoalTaskScope(normalizedLegacyScope).sources.length,
+      fixture.sourceAssets.length,
+      "A legacy Goal without fee metadata must derive a conservative execution matrix"
     );
+    const missingGoalMetadata = structuredClone(fixture.scope);
+    delete missingGoalMetadata.goal;
+    const normalizedMinimalScope = normalizedTaskScope({ taskScope: missingGoalMetadata });
+    assert.equal(normalizedMinimalScope.goal.operationsPerAsset, 1);
+    assert.equal(normalizedMinimalScope.goal.requestCount, normalizedMinimalScope.sourceAssets.length);
     const missingSourceNodesScope = normalizedTaskScope({
       taskScope: { ...fixture.scope, sourceNodeIds: [] }
     });
@@ -237,7 +246,8 @@ async function main() {
             model: "mock-image-model",
             size: "128x128",
             assets: [{ path: outputPath, mimeType: webpOutput ? "image/webp" : "image/png", runId: request.runId }],
-            costCents: 3
+            costCents: 3,
+            providerUsage: [{ requestIndex: 1, total_tokens: 9, ignoredPrivateField: 42 }]
           };
         } finally {
           active -= 1;
@@ -289,6 +299,10 @@ async function main() {
     assert.match(result.envelope.modelOutput, /accepted upstream may still be charged/i);
     assert.equal(result.envelope.batchSafety.admission.mode, "local");
     assert.equal(result.envelope.batchSafety.probe.succeeded, 2);
+    assert.equal(result.envelope.batchSafety.costCents, 12);
+    assert.equal(result.envelope.batchSafety.providerUsage.length, 4);
+    assert.equal(result.envelope.batchSafety.providerUsage.every((usage) => usage.total_tokens === 9), true);
+    assert.equal(result.envelope.batchSafety.providerUsage.some((usage) => Object.hasOwn(usage, "ignoredPrivateField")), false);
     assert.equal(progress.some((event) => event.phase === "goal-probe"), true);
     assert.equal(progress.some((event) => event.phase === "goal-ramp"), true);
 
@@ -328,7 +342,13 @@ async function main() {
     });
     repeatedRuntime.dispose();
     assert.equal(repeatedRequests, 3, "A non-commerce Goal must dispatch exactly its frozen repeated count");
-    assert.equal(repeatedResult.actions.length, 3);
+    assert.equal(repeatedResult.actions.length, 1, "Repeated outputs for one SOURCE must finish in one image-group node");
+    assert.equal(repeatedResult.actions[0].node.assets.length, 3);
+    assert.equal(repeatedResult.actions[0].node.imageCollection.items.length, 3);
+    assert.equal(repeatedResult.actions[0].node.imageCollection.items.every((item) => item.status === "done"), true);
+    assert.equal(Object.hasOwn(repeatedResult.envelope.batchSafety, "costCents"), false);
+    assert.equal(Object.hasOwn(repeatedResult.envelope.batchSafety, "providerUsage"), false);
+    assert.doesNotMatch(String(repeatedResult.envelope.visibleOutput || ""), /costCents:\s*0/, "Missing upstream accounting must not be rendered as a zero-cost receipt");
 
     const matrixCommerceTask = composePluginTask({
       command: COMMERCE_GENERATE_SET_COMMAND,
@@ -345,6 +365,8 @@ async function main() {
       }
     });
     const commercePlanHash = matrixCommerceTask.planHash;
+    const brandReferencePath = path.join(root, "brand-references", "north-logo.png");
+    const brandReferenceHash = "9".repeat(64);
     const matrixFixture = goalFixture(root, {
       definitions: [
         { nodeId: "MATRIX-A", containerId: "MATRIX-CONTAINER-A", slot: 0, code: "MA1" },
@@ -353,9 +375,61 @@ async function main() {
       configuredConcurrency: 4,
       probeContainerCount: 2,
       operationsPerAsset: 3,
-      commercePlanHash
+      commercePlanHash,
+      commerceCatalogTargets: [{
+        bindingId: "binding-ma1",
+        catalogId: `catalog-${"1".repeat(32)}`,
+        catalogRevision: 7,
+        productId: `product-${"2".repeat(32)}`,
+        productRevision: 3,
+        ownerType: "sku",
+        ownerId: `sku-${"3".repeat(32)}`,
+        sourceLinkId: `material-${"4".repeat(32)}`,
+        brandStyle: {
+          version: 1,
+          enabled: true,
+          fontFamily: "Inter, Arial, sans-serif",
+          colors: ["#0b1f33", "#f4c430"],
+          logoUsage: "Keep the original North logo artwork, wording, colors, and proportions.",
+          modelAppearance: "Use the same adult model identity across the complete listing set.",
+          productAppearance: "Keep the mug body, lid geometry, finish, and printed markings unchanged.",
+          visualStyle: "Clean premium product photography with restrained typography.",
+          references: [{
+            linkId: `material-${"7".repeat(32)}`,
+            assetId: "asset-north-logo",
+            contentHash: brandReferenceHash,
+            nodeId: "BRAND-LOGO",
+            assetIndex: 0,
+            role: "logo",
+            purpose: "Trusted North brand Logo identity reference."
+          }]
+        }
+      }, {
+        bindingId: "binding-mb1",
+        catalogId: `catalog-${"1".repeat(32)}`,
+        catalogRevision: 7,
+        productId: `product-${"5".repeat(32)}`,
+        productRevision: 6,
+        ownerType: "product",
+        ownerId: `product-${"5".repeat(32)}`,
+        sourceLinkId: `material-${"6".repeat(32)}`
+      }]
     });
     await writeGoalFixtureSources(matrixFixture);
+    await writePng(brandReferencePath, { r: 244, g: 196, b: 48, alpha: 1 }, 40, 40);
+    matrixFixture.nodes.push({
+      id: "BRAND-LOGO",
+      type: "image",
+      status: "done",
+      assets: [{
+        assetId: "asset-north-logo",
+        contentHash: brandReferenceHash,
+        path: brandReferencePath,
+        mimeType: "image/png",
+        title: "North logo"
+      }]
+    });
+    assert.equal(matrixFixture.scope.snapshotHash, agentTaskScopeSnapshotHash(matrixFixture.scope), "Brand-aware Renderer and runtime Goal hashes must match");
     const matrixItems = [
       { title: "Hero", prompt: "Hero product composition", slotId: "hero", slotIndex: 0, localeCode: "en-US" },
       { title: "Detail", prompt: "Detail close-up composition", slotId: "detail", slotIndex: 1, localeCode: "en-US" },
@@ -366,7 +440,16 @@ async function main() {
       projectRoot: root,
       configDir: path.join(root, "config-matrix"),
       serverGenerateImage: async (request) => {
-        matrixRequests.push({ path: request.editImage?.path, prompt: request.prompt });
+        matrixRequests.push({
+          path: request.editImage?.path,
+          prompt: request.prompt,
+          inputFidelity: request.inputFidelity,
+          referenceImages: (request.referenceImages || []).map((reference) => ({
+            path: reference.path,
+            role: reference.role,
+            purpose: reference.purpose
+          }))
+        });
         const outputPath = path.join(root, "matrix-outputs", `${matrixRequests.length}.png`);
         await writePng(outputPath, { r: 32, g: 150, b: 110, alpha: 1 }, 48, 48);
         return {
@@ -403,35 +486,68 @@ async function main() {
       ["MA1.png", "MB1.png"],
       "Matrix probes must represent different source containers"
     );
-    assert.deepEqual(
-      matrixRequests.slice(0, 2).map((request) => request.prompt),
-      [matrixItems[0].prompt, matrixItems[0].prompt],
-      "Each probe source must use the same representative first slot"
-    );
-    assert.equal(matrixResult.actions.length, 6);
+    assert.equal(matrixRequests[0].prompt.includes(matrixItems[0].prompt), true);
+    assert.equal(matrixRequests[1].prompt, matrixItems[0].prompt,
+      "The unbranded probe must use the representative first slot without another SOURCE's constraints");
+    const brandedRequests = matrixRequests.filter((request) => path.basename(request.path) === "MA1.png");
+    const unbrandedRequests = matrixRequests.filter((request) => path.basename(request.path) === "MB1.png");
+    assert.equal(brandedRequests.length, 3);
+    assert.equal(brandedRequests.every((request) => (
+      request.inputFidelity === "high" && request.referenceImages.length === 1 &&
+      request.referenceImages[0].path === brandReferencePath && request.referenceImages[0].role === "product" &&
+      request.referenceImages[0].purpose === "Trusted North brand Logo identity reference."
+    )), true, "Every branded SOURCE request must receive its frozen trusted reference at high fidelity");
+    assert.equal(brandedRequests.every((request) => (
+      /品牌风格锁定/.test(request.prompt) && /Inter, Arial, sans-serif/.test(request.prompt) &&
+      /#0b1f33、#f4c430/.test(request.prompt) && /Keep the mug body/.test(request.prompt)
+    )), true, "Brand fields must reach the actual provider prompt for every matrix slot");
+    assert.equal(unbrandedRequests.every((request) => request.referenceImages.length === 0 && !/品牌风格锁定/.test(request.prompt)), true,
+      "Brand constraints must remain scoped to the matching SOURCE product");
+    assert.equal(matrixResult.actions.length, 2, "Each SOURCE must own one image group instead of one canvas node per slot");
     assert.deepEqual(
       matrixResult.actions.map((action) => action.node.parentId),
-      ["MATRIX-A", "MATRIX-A", "MATRIX-A", "MATRIX-B", "MATRIX-B", "MATRIX-B"]
+      ["MATRIX-A", "MATRIX-B"]
     );
+    const matrixCollectionItems = matrixResult.actions.flatMap((action) => action.node.imageCollection.items);
     assert.deepEqual(
-      matrixResult.actions.map((action) => action.node.imageParams.prompt),
+      matrixCollectionItems.map((item) => item.prompt.split("\n")[0]),
       [...matrixItems.map((item) => item.prompt), ...matrixItems.map((item) => item.prompt)]
     );
+    assert.equal(matrixResult.actions[0].node.imageCollection.items.every((item) => /品牌风格锁定/.test(item.prompt)), true);
+    assert.equal(matrixResult.actions[1].node.imageCollection.items.every((item) => !/品牌风格锁定/.test(item.prompt)), true);
     assert.deepEqual(
-      matrixResult.actions.map((action) => action.node.taskProvenance.commerceSlotId),
+      matrixCollectionItems.map((item) => item.taskProvenance.commerceSlotId),
       ["hero", "detail", "lifestyle", "hero", "detail", "lifestyle"]
     );
     assert.deepEqual(
-      matrixResult.actions.map((action) => action.node.taskProvenance.commerceSlotIndex),
+      matrixCollectionItems.map((item) => item.taskProvenance.commerceSlotIndex),
       [0, 1, 2, 0, 1, 2]
     );
     assert.equal(
-      matrixResult.actions.every((action) => (
-        action.node.taskProvenance.commercePlanHash === commercePlanHash &&
-        action.node.taskProvenance.commerceLocaleCode === "en-US"
+      matrixCollectionItems.every((item) => (
+        item.taskProvenance.commercePlanHash === commercePlanHash &&
+        item.taskProvenance.commerceLocaleCode === "en-US"
       )),
       true
     );
+    assert.deepEqual(
+      matrixCollectionItems.map((item) => item.taskProvenance.commerceCatalogTarget.ownerType),
+      ["sku", "sku", "sku", "product", "product", "product"],
+      "Every matrix result must inherit the Catalog target of its own SOURCE binding"
+    );
+    assert.equal(
+      matrixCollectionItems.every((item) => /^commerce-result-[a-f0-9]{32}$/.test(item.taskProvenance.commerceResultKey)),
+      true,
+      "Every Catalog-bound result must carry a deterministic idempotency key"
+    );
+    assert.equal(new Set(matrixCollectionItems.map((item) => item.taskProvenance.commerceResultKey)).size, 6);
+    const resultBrandStyle = matrixCollectionItems[0].taskProvenance.commerceCatalogTarget.brandStyle;
+    resultBrandStyle.colors.push("#ffffff");
+    resultBrandStyle.references[0].purpose = "mutated result provenance";
+    const frozenBrandStyle = matrixFixture.scope.goal.commerceCatalogTargets[0].brandStyle;
+    assert.deepEqual(frozenBrandStyle.colors, ["#0b1f33", "#f4c430"]);
+    assert.notEqual(frozenBrandStyle.references[0].purpose, "mutated result provenance",
+      "Result provenance must not share mutable brand arrays with the frozen TaskScope");
     assert.deepEqual(matrixResult.envelope.batchSafety.matrix, {
       sourceBindingCount: 2,
       outputsPerSource: 3,
@@ -440,6 +556,122 @@ async function main() {
       probeSourceBindingIds: ["binding-ma1", "binding-mb1"]
     });
     assert.equal(matrixResult.envelope.batchSafety.receipts.every((receipt) => receipt.status === "validated"), true);
+
+    const staleBrandNodes = structuredClone(matrixFixture.nodes);
+    const staleBrandNode = staleBrandNodes.find((node) => node.id === "BRAND-LOGO");
+    staleBrandNode.assets[0].contentHash = "8".repeat(64);
+    let staleBrandProviderCalls = 0;
+    const staleBrandRuntime = createAgentRuntime({
+      projectRoot: root,
+      configDir: path.join(root, "config-stale-brand-reference"),
+      serverGenerateImage: async () => {
+        staleBrandProviderCalls += 1;
+        throw new Error("stale brand reference must fail before provider dispatch");
+      }
+    });
+    try {
+      await assert.rejects(
+        staleBrandRuntime.runTool("image_gen", {
+          operation: "variants",
+          prompt: "Shared product identity and geometry",
+          size: "128x128",
+          count: 3,
+          items: matrixItems,
+          commercePlanHash,
+          scopeExecution: "all-goal-sources"
+        }, {
+          projectId: "project-stale-brand",
+          conversationId: "conversation-stale-brand",
+          runId: "run-stale-brand",
+          settings,
+          nodes: staleBrandNodes,
+          taskScope: matrixFixture.scope,
+          prompt: matrixCommerceTask.prompt,
+          progress: () => {}
+        }),
+        (error) => error?.code === "NAIMAGE_COMMERCE_BRAND_REFERENCE_STALE"
+      );
+    } finally {
+      staleBrandRuntime.dispose();
+    }
+    assert.equal(staleBrandProviderCalls, 0, "A changed brand reference must block the complete Goal before any provider request");
+
+    const translationCommerceTask = composePluginTask({
+      command: "sparkai.commerce-toolkit.translate-listing-set",
+      sourceCount: 2,
+      sourceNodeIds: ["TRANSLATE-A", "TRANSLATE-B"],
+      plan: {
+        mode: "translate",
+        languageCodes: ["en-US"],
+        translationItems: [
+          { sourceIndex: 0, localeCode: "en-US", prompt: "SOURCE A: use a concise English title." },
+          { sourceIndex: 1, localeCode: "en-US", prompt: "SOURCE B: preserve the technical packaging copy." }
+        ]
+      }
+    });
+    const translationFixture = goalFixture(root, {
+      definitions: [
+        { nodeId: "TRANSLATE-A", containerId: "TRANSLATE-CONTAINER-A", slot: 0, code: "TA1" },
+        { nodeId: "TRANSLATE-B", containerId: "TRANSLATE-CONTAINER-B", slot: 0, code: "TB1" }
+      ],
+      configuredConcurrency: 2,
+      probeContainerCount: 2,
+      operationsPerAsset: 1,
+      commercePlanHash: translationCommerceTask.planHash
+    });
+    await writeGoalFixtureSources(translationFixture);
+    const translationRequests = [];
+    const translationRuntime = createAgentRuntime({
+      projectRoot: root,
+      configDir: path.join(root, "config-translation-cells"),
+      serverGenerateImage: async (request) => {
+        translationRequests.push({
+          sourcePath: request.editImage?.path,
+          prompt: request.prompt
+        });
+        const outputPath = path.join(root, "translation-cell-outputs", `${translationRequests.length}.png`);
+        await writePng(outputPath, { r: 196, g: 118, b: 42, alpha: 1 }, 48, 48);
+        return {
+          ok: true,
+          model: "mock-image-model",
+          size: "128x128",
+          assets: [{ path: outputPath, mimeType: "image/png", runId: request.runId }]
+        };
+      }
+    });
+    const translationResult = await translationRuntime.runTool("image_gen", {
+      operation: "variants",
+      prompt: "Translate visible product copy while preserving the product.",
+      size: "128x128",
+      count: 1,
+      commercePlanHash: translationCommerceTask.planHash,
+      slotId: "translation",
+      slotIndex: 0,
+      localeCode: "en-US",
+      scopeExecution: "all-goal-sources"
+    }, {
+      projectId: "project-translation-cells",
+      conversationId: "conversation-translation-cells",
+      runId: "run-translation-cells",
+      settings,
+      nodes: translationFixture.nodes,
+      taskScope: translationFixture.scope,
+      prompt: translationCommerceTask.prompt,
+      progress: () => {}
+    });
+    translationRuntime.dispose();
+    assert.equal(translationRequests.length, 2, "Two translation SOURCE bindings must dispatch one request each");
+    const translationBySource = new Map(translationRequests.map((request) => [path.basename(request.sourcePath), request.prompt]));
+    assert.match(translationBySource.get("TA1.png") || "", /SOURCE A: use a concise English title/);
+    assert.doesNotMatch(translationBySource.get("TA1.png") || "", /SOURCE B: preserve the technical packaging copy/);
+    assert.match(translationBySource.get("TB1.png") || "", /SOURCE B: preserve the technical packaging copy/);
+    assert.doesNotMatch(translationBySource.get("TB1.png") || "", /SOURCE A: use a concise English title/);
+    assert.equal(translationResult.actions.length, 2);
+    assert.deepEqual(
+      translationResult.actions.map((action) => action.node.taskProvenance.commerceLocaleCode),
+      ["en-US", "en-US"],
+      "Per-cell translation prompts must keep the shared locale provenance"
+    );
 
     const singleCommerceTask = composePluginTask({
       command: COMMERCE_GENERATE_SET_COMMAND,
@@ -566,9 +798,10 @@ async function main() {
       progress: () => {}
     });
     boundaryRuntime.dispose();
-    assert.equal(twelveItemResult.actions.length, 12, "The UI's supported 12-slot set must execute without a hidden 10-item cap");
+    assert.equal(twelveItemResult.actions.length, 1, "A 12-slot set must remain one image-group node");
+    assert.equal(twelveItemResult.actions[0].node.assets.length, 12, "The UI's supported 12-slot set must execute without a hidden 10-item cap");
     assert.deepEqual(
-      twelveItemResult.actions.map((action) => action.node.taskProvenance.commerceSlotIndex),
+      twelveItemResult.actions[0].node.imageCollection.items.map((item) => item.taskProvenance.commerceSlotIndex),
       Array.from({ length: 12 }, (_item, index) => index)
     );
 
@@ -578,7 +811,7 @@ async function main() {
       configDir: path.join(root, "config-matrix-partial"),
       serverGenerateImage: async (request) => {
         partialCalls += 1;
-        if (request.prompt === matrixItems[2].prompt) {
+        if (request.prompt.split("\n")[0] === matrixItems[2].prompt) {
           throw new Error("simulated persistence failure for lifestyle slot");
         }
         const outputPath = path.join(root, "matrix-partial-outputs", `${partialCalls}.png`);
@@ -615,10 +848,12 @@ async function main() {
       partialResult.envelope.batchSafety.receipts.map((receipt) => receipt.status),
       ["validated", "validated", "failed", "validated", "not-dispatched", "not-dispatched"]
     );
-    assert.equal(partialResult.actions.length, 4, "Final actions must include the attempted failed slot as an error node");
-    const partialFailureAction = partialResult.actions.find((action) => action.node.imageState === "error");
-    assert.equal(partialFailureAction?.node?.taskProvenance?.commerceSlotId, "lifestyle");
-    assert.equal(partialFailureAction?.node?.taskProvenance?.commerceSlotIndex, 2);
+    assert.equal(partialResult.actions.length, 2, "Partial results must remain one image group per SOURCE");
+    const partialFailureItem = partialResult.actions
+      .flatMap((action) => action.node.imageCollection.items)
+      .find((item) => item.status === "error" && item.taskProvenance?.commerceSlotId === "lifestyle");
+    assert.equal(partialFailureItem?.taskProvenance?.commerceSlotId, "lifestyle");
+    assert.equal(partialFailureItem?.taskProvenance?.commerceSlotIndex, 2);
     assert.match(partialResult.envelope.modelOutput, /failed_receipts: .*lifestyle/);
     assert.match(partialResult.envelope.modelOutput, /not_dispatched_receipts: .*detail/);
 

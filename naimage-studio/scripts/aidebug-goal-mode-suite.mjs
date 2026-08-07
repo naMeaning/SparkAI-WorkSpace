@@ -111,35 +111,40 @@ export async function captureGoalModeSuite(context) {
 
   await waitForExpression(
     client,
-    "Boolean(document.querySelector('.project-agent-task-mode') && Array.from(document.querySelectorAll('.project-agent-task-mode button')).some((button) => String(button.textContent || '').includes('Goal') && !button.disabled))",
+    "Boolean(document.querySelector('.project-agent-mode-picker') && document.querySelector('.project-agent-mode-option.goal:not(:disabled)'))",
     10_000
   );
 
   phase("select-goal-mode", { setupOk: Boolean(setup?.ok) });
   const selected = await evaluate(client, `(async () => {
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const buttons = Array.from(document.querySelectorAll(".project-agent-task-mode button"));
-    const goal = buttons.find((button) => String(button.textContent || "").includes("Goal"));
+    const trigger = document.querySelector(".project-agent-mode-trigger");
+    trigger?.click();
+    await delay(80);
+    const buttons = Array.from(document.querySelectorAll(".project-agent-mode-option"));
+    const goal = document.querySelector(".project-agent-mode-option.goal");
     goal?.click();
     await delay(180);
     const context = document.querySelector(".project-agent-goal-context");
-    const summary = document.querySelector(".project-agent-task-mode small");
     const modeTexts = buttons.map((button) => String(button.textContent || "").replace(/\\s+/g, " ").trim());
-    const summaryText = String(summary?.textContent || "").replace(/\\s+/g, " ").trim();
+    const triggerText = String(document.querySelector(".project-agent-mode-trigger")?.textContent || "").replace(/\\s+/g, " ").trim();
+    const scopeTitle = String(goal?.getAttribute("title") || "");
     const contextText = String(context?.textContent || "").replace(/\\s+/g, " ").trim();
     return {
       ok: Boolean(
         buttons.length === 2 &&
         modeTexts.some((text) => text === "普通") &&
         modeTexts.some((text) => text === "Goal") &&
-        goal && !goal.disabled && goal.getAttribute("aria-pressed") === "true" &&
-        summaryText.includes("5 个容器") && summaryText.includes("10 张图") &&
+        goal && !goal.disabled && goal.getAttribute("aria-checked") === "true" &&
+        triggerText.includes("Goal") &&
+        scopeTitle.includes("5 个容器") && scopeTitle.includes("10 张图") &&
         contextText.includes("全部图片容器") && contextText.includes("5 个容器") && contextText.includes("10 张图")
       ),
       modeTexts,
       goalDisabled: Boolean(goal?.disabled),
-      goalPressed: goal?.getAttribute("aria-pressed") || "",
-      summaryText,
+      goalChecked: goal?.getAttribute("aria-checked") || "",
+      triggerText,
+      scopeTitle,
       contextText
     };
   })()`);
@@ -186,10 +191,10 @@ export async function captureGoalModeSuite(context) {
     const skipped = String(dialog?.querySelector(".goal-confirmation-skipped")?.textContent || "").replace(/\\s+/g, " ").trim();
     return {
       ok: Boolean(
-        dialog && scope === "5 个容器 · 10 张图" &&
+        dialog && scope === "5 个来源边界 · 10 张母图" &&
         /^scope-[0-9a-f]+$/i.test(snapshotHash) &&
         policies.length === 3 &&
-        policies[0].includes("先单路探测 2 个容器") && policies[0].includes("暂停其他 Goal 新放量") &&
+        policies[0].includes("先串行探测 2 个不同母图代表项") && policies[0].includes("暂停其他 Goal 新放量") &&
         policies[1].includes("技术校验通过") && policies[1].includes("最高 3 路") && policies[1].includes("保护性失败") &&
         policies[2].includes("仍可能计费") && policies[2].includes("不能追回已产生费用") &&
         cost.includes("预计计费上限 ¥0.60") && cost.includes("试用抵扣 8 张") && cost.includes("预计付费 2 张") &&
@@ -357,7 +362,7 @@ export async function captureGoalModeSuite(context) {
     return {
       ok: Boolean(
         confirm && dialog && nextHash && nextHash !== oldSnapshotHash &&
-        scope === "6 个容器 · 12 张图" &&
+        scope === "6 个来源边界 · 12 张母图" &&
         text.includes("画布范围或费用报价在确认前发生变化") && text.includes("新的确认值") && text.includes("重新") &&
         !oldGoalDispatched && after.agentExecutionBusy === false && after.messageCount === before.messageCount
       ),
@@ -395,7 +400,7 @@ export async function captureGoalModeSuite(context) {
     fixtureCanvas: setup?.ok === true,
     segmentedModeAndCounts: selected?.ok === true,
     confirmationOpened: prompted?.ok === true,
-    probeBeforeScalePolicy: Boolean(confirmation?.policies?.[0]?.includes("先单路探测 2 个容器")),
+    probeBeforeScalePolicy: Boolean(confirmation?.policies?.[0]?.includes("先串行探测 2 个不同母图代表项")),
     gradualConcurrencyPolicy: Boolean(confirmation?.policies?.[1]?.includes("最高 3 路")),
     dispatchedCostWarning: Boolean(confirmation?.policies?.[2]?.includes("仍可能计费")),
     quotaAndCostEstimate: Boolean(confirmation?.cost?.includes("¥0.60") && confirmation?.cost?.includes("8 张") && confirmation?.cost?.includes("2 张")),

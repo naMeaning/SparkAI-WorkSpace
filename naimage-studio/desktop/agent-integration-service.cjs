@@ -73,7 +73,7 @@ function createAgentIntegrationService({ appRoot, endpointPath, executablePath, 
   }
 
   function install(values) {
-    if (!existsSync(path.join(sourceSkillPath, "SKILL.md"))) throw new Error("内置 naimage Skill 缺失，请重新安装软件。");
+    if (!existsSync(path.join(sourceSkillPath, "SKILL.md"))) throw new Error("内置 SparkAI WorkSpace Skill 缺失，请重新安装软件。");
     const ids = validateTargetIds(values);
     const installed = [];
     const errors = [];

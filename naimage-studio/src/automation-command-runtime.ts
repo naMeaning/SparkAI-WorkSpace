@@ -12,15 +12,51 @@ import type {
   CanvasSkill,
   ImageAssetExportResult,
   ImageExportFormat,
+  ImageFrameRatio,
+  ImageResolutionPreset,
   ImportedCanvasSkill,
+  ScientificDataImportResult,
+  ScientificDataSource,
+  ScientificFigurePlan,
+  ScientificTask,
+  SocialContentPlan,
+  SocialPlatform,
+  WorkspaceDomain,
   WorkflowNode,
 } from "./core";
+import {
+  DEFAULT_WORKSPACE_DOMAIN,
+  normalizeWorkspaceDomain,
+  publicWorkspaceDomainDefinition,
+  workspaceDomainDefinitions,
+} from "./workspace-domain.ts";
 import { imageContainerSpecForNode } from "./image-container-spec.ts";
 import type { ImageLayoutGroup } from "./image-layout.ts";
 import { flattenImageContainerBindings } from "./image-container-graph.ts";
-import { commerceSetRequestCounts, normalizeCommerceSetPlan } from "./plugins/commerce-set.ts";
+import { commerceSetRequestCounts, normalizeCommerceSetPlan, type CommerceSetPlan } from "./plugins/commerce-set.ts";
+import {
+  normalizeDouyinPlan,
+  normalizeSocialContentPlan,
+  normalizeXiaohongshuPlan,
+  SOCIAL_DOUYIN_COMMAND,
+  SOCIAL_XIAOHONGSHU_COMMAND,
+  socialContentWritebackIssues,
+} from "./plugins/social-content.ts";
+import {
+  normalizeScientificFigurePlan,
+  SCIENTIFIC_FIGURE_START_COMMAND,
+  scientificFigurePlanIssues,
+} from "./plugins/scientific-figure.ts";
 import { requirementInputBindings } from "./requirement-graph.ts";
 import { stableRequirementInputSignature } from "./requirement-signature.ts";
+import type {
+  CommerceCatalogAssetKind,
+  CommerceCatalogAssetOwnerType,
+  CommerceCatalogProductDraft,
+  CommerceCatalogResult,
+  CommerceCatalogResultState
+} from "./commerce-catalog.ts";
+import type { CommerceExportFormat, CommerceExportRequest } from "./commerce-export.ts";
 
 type JsonObject = Record<string, unknown>;
 type JsonSchema = {
@@ -47,14 +83,13 @@ const imageExportFormats = new Set<string>(AUTOMATION_COMMAND_ENUMS["canvas.expo
 const steerTaskScopeModes = new Set<string>(AUTOMATION_COMMAND_ENUMS["agent.steer"].taskScopeMode);
 const steerSourceModes = new Set<string>(AUTOMATION_COMMAND_ENUMS["agent.steer"].sourceMode);
 const steerReferenceModes = new Set<string>(AUTOMATION_COMMAND_ENUMS["agent.steer"].referenceMode);
-type AutomationGoalPreview = {
-  requiresConfirmation: boolean;
-  snapshot: unknown;
-  counts: unknown;
-};
+const agentImageRatios = new Set<string>(AUTOMATION_COMMAND_ENUMS["agent.chat"].ratio);
+const agentImageResolutions = new Set<string>(AUTOMATION_COMMAND_ENUMS["agent.chat"].resolution);
 type AutomationGoalScopeOptions = {
   sourceNodeIds: string[];
   operationsPerAsset: number;
+  ratio?: ImageFrameRatio;
+  resolution?: ImageResolutionPreset;
 };
 type Project = { id: string; name: string; updatedAt?: string };
 type MessageSummarySource = {
@@ -66,8 +101,30 @@ type MessageSummarySource = {
   hidden?: boolean;
 };
 
+function promptWithImageOutputSpec(prompt: string, value: Record<string, unknown>) {
+  const ratio = String(value.ratio || "").trim().replace("：", ":");
+  const resolution = String(value.resolution || "").trim().toUpperCase();
+  const specifications = [
+    agentImageRatios.has(ratio) ? `画面比例 ${ratio}` : "",
+    agentImageResolutions.has(resolution) ? `清晰度 ${resolution}` : ""
+  ].filter(Boolean);
+  if (!specifications.length) return prompt;
+  return `${prompt}\n\n[图片输出规格] ${specifications.join("；")}。生成图片时必须将这些规格传给 image_gen；清晰度与 quality 质量档位是不同参数。`;
+}
+
+function imageOutputDefaults(value: Record<string, unknown>) {
+  const ratio = String(value.ratio || "").trim().replace("：", ":");
+  const resolution = String(value.resolution || "").trim().toUpperCase();
+  return {
+    ...(agentImageRatios.has(ratio) ? { ratio: ratio as ImageFrameRatio } : {}),
+    ...(agentImageResolutions.has(resolution) ? { resolution: resolution as ImageResolutionPreset } : {})
+  };
+}
+
 export type AutomationCommandContext = {
   activeProjectId(): string;
+  workspaceDomain(): WorkspaceDomain;
+  setWorkspaceDomain(domain: WorkspaceDomain): boolean | void;
   activeConversationId(): string;
   agentStatus(): string;
   activeRunId(): string;
@@ -82,7 +139,7 @@ export type AutomationCommandContext = {
   layoutGroups(): ImageLayoutGroup[];
   messages(): MessageSummarySource[];
   switchProject(id: string): Promise<unknown>;
-  createProject(name: string): Promise<unknown>;
+  createProject(name: string, workspaceDomain?: WorkspaceDomain): Promise<unknown>;
   renameProject(name: string): Promise<unknown>;
   selectNodes(ids: string[], primaryId: string): void;
   fitCanvas(): void;
@@ -91,6 +148,17 @@ export type AutomationCommandContext = {
   deleteSelectedNodes(): boolean;
   createContainer(role: "source" | "reference" | undefined, x: number, y: number): string;
   importPaths(paths: string[], targetContainerId: string, x: number, y: number): Promise<unknown>;
+  importVideoPaths(paths: string[], x: number, y: number): Promise<unknown>;
+  generateVideo(input: {
+    expectedProjectId: string;
+    prompt: string;
+    model?: string;
+    seconds: number;
+    aspectRatio: string;
+    resolution: string;
+    x: number;
+    y: number;
+  }): Promise<unknown>;
   exportImage(nodeId: string, assetIndex: number, format: ImageExportFormat): Promise<ImageAssetExportResult>;
   parseSkill(markdown: unknown, sourceName?: unknown): Promise<ImportedCanvasSkill>;
   createSkillNode(skill: ImportedCanvasSkill, x: number, y: number): {
@@ -137,6 +205,8 @@ export type AutomationCommandContext = {
     y?: number;
     expectedProjectId: string;
     expectedCanvasRevision?: number;
+    socialPlan?: SocialContentPlan;
+    scientificPlan?: ScientificFigurePlan;
   }): unknown;
   createCommerceReusableNode?(input: {
     title: string;
@@ -179,6 +249,101 @@ export type AutomationCommandContext = {
     expectedProjectId: string;
     expectedCanvasRevision?: number;
   }): Promise<unknown>;
+  listCommerceTemplates(): Promise<unknown>;
+  saveCommerceTemplate(input: {
+    id?: string;
+    expectedRevision?: number;
+    conflictPolicy?: "overwrite" | "copy";
+    title: string;
+    description?: string;
+    plan: CommerceSetPlan;
+  }): Promise<unknown>;
+  deleteCommerceTemplate(input: { id: string; expectedRevision: number; confirmed: true }): Promise<unknown>;
+  importCommerceTemplate(): Promise<unknown>;
+  exportCommerceTemplate(input: { id: string; expectedRevision?: number }): Promise<unknown>;
+  listCommerceCatalog(input: {
+    expectedProjectId: string;
+    includeArchived: boolean;
+  }): Promise<unknown>;
+  saveCommerceCatalogProduct(input: CommerceCatalogProductDraft & {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+  }): Promise<unknown>;
+  archiveCommerceCatalogProduct(input: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    archived: boolean;
+  }): Promise<unknown>;
+  assignCommerceCatalogAssets(input: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    expectedCanvasRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    kind: CommerceCatalogAssetKind;
+    ownerType: CommerceCatalogAssetOwnerType;
+    ownerId?: string;
+    role: string;
+    assets: Array<{ nodeId: string; assetIndex: number }>;
+  }): Promise<unknown>;
+  removeCommerceCatalogAsset(input: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    linkId: string;
+  }): Promise<unknown>;
+  updateCommerceCatalogResultState(input: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    linkId: string;
+    state: CommerceCatalogResultState;
+  }): Promise<CommerceCatalogResult>;
+  listCommerceCatalogComparisons(input: { expectedProjectId: string; productId?: string }): Promise<CommerceCatalogResult>;
+  selectCommerceCatalogComparisonWinner(input: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    groupKey: string;
+    winnerLinkId: string;
+  }): Promise<CommerceCatalogResult>;
+  previewCommerceExport(input: CommerceExportRequest): Promise<unknown>;
+  exportCommercePackage(input: CommerceExportRequest & { confirmed: true }): Promise<unknown>;
+  exportSocialPackage(input: {
+    expectedProjectId: string;
+    requirementNodeId: string;
+    expectedRequirementRevision: number;
+    workflowId: string;
+    confirmed: true;
+  }): Promise<unknown>;
+  importScientificData(input: { expectedProjectId: string }): Promise<ScientificDataImportResult>;
+  listScientificData(input: { expectedProjectId: string }): Promise<ScientificDataSource[]>;
+  renderScientificTask(input: {
+    expectedProjectId: string;
+    expectedCanvasRevision: number;
+    requirementNodeId: string;
+    expectedRequirementRevision: number;
+    plan: ScientificFigurePlan;
+    timeoutMs: number;
+  }): Promise<ScientificTask>;
+  landScientificTask(task: ScientificTask, saved: {
+    plan: ScientificFigurePlan;
+    requirementNodeId: string;
+    requirementRevision: number;
+  }): {
+    landed: boolean;
+    createdNodeIds: string[];
+    existingNodeId?: string;
+    reason?: string;
+  };
+  listScientificTasks(input: { expectedProjectId: string }): Promise<ScientificTask[]>;
+  cancelScientificTask(input: { expectedProjectId: string; taskId: string }): Promise<ScientificTask>;
+  exportScientificTask(input: { expectedProjectId: string; taskId: string; confirmed: true }): Promise<unknown>;
   composePluginTask?(payload: {
     command: string;
     sourceCount: number;
@@ -202,7 +367,7 @@ export type AutomationCommandContext = {
     };
     error?: string;
   }>;
-  sendPrompt(prompt: string, sourceNodeIds: string[]): Promise<boolean | void>;
+  sendPrompt(prompt: string, sourceNodeIds: string[], imageDefaults?: { ratio?: ImageFrameRatio; resolution?: ImageResolutionPreset }): Promise<boolean | void>;
   steerAgent(prompt: string, options?: {
     taskScopeMode?: AgentSteerTaskScopeMode;
     sourceMode?: AgentSteerTaskScopeUpdate["sourceMode"];
@@ -211,13 +376,7 @@ export type AutomationCommandContext = {
     referenceNodeIds?: string[];
     useComposerAttachments?: boolean;
   }): Promise<boolean>;
-  previewGoal(prompt: string, options?: AutomationGoalScopeOptions): Promise<AutomationGoalPreview>;
-  executeGoal(
-    prompt: string,
-    expectedSnapshotHash: string,
-    issuerId?: "automation",
-    options?: AutomationGoalScopeOptions
-  ): Promise<unknown>;
+  executeAuthorizedGoal(prompt: string, options?: AutomationGoalScopeOptions): Promise<unknown>;
   pauseAgent(): Promise<boolean>;
   resumeAgent(): Promise<boolean>;
   stopAgent(): Promise<boolean>;
@@ -242,8 +401,412 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function jsonDeepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+function socialPlannedRequestCounts(planValue: SocialContentPlan) {
+  const plan = normalizeSocialContentPlan(planValue);
+  const imageRequests = plan.platform === "xiaohongshu"
+    ? plan.cardCount + (plan.cover.enabled ? 1 : 0)
+    : plan.shotCount + 1;
+  const videoRequests = plan.platform === "douyin" ? 1 : 0;
+  return {
+    imageRequests,
+    videoRequests,
+    totalRequests: imageRequests + videoRequests,
+  };
+}
+
+function requireSocialRequirement(value: JsonObject, platform: SocialPlatform, context: AutomationCommandContext) {
+  assertExpectedProject(value, context);
+  const nodeId = String(value.nodeId || "").trim();
+  const node = context.nodes().find((candidate) => candidate.id === nodeId);
+  if (node?.type !== "requirement" || !node.requirement?.socialPlan) {
+    throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是社媒 Requirement。", { nodeId });
+  }
+  const plan = normalizeSocialContentPlan(node.requirement.socialPlan);
+  if (plan.platform !== platform) {
+    throw automationCommandError("SOCIAL_PLATFORM_MISMATCH", `目标 Requirement 不属于${platform === "douyin" ? "抖音" : "小红书"}工作流。`, {
+      nodeId,
+      expectedPlatform: platform,
+      currentPlatform: plan.platform,
+    });
+  }
+  return { node, plan };
+}
+
+function socialWorkflowStatus(node: WorkflowNode, context: AutomationCommandContext) {
+  if (node.type !== "requirement" || !node.requirement?.socialPlan) {
+    throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是社媒 Requirement。", { nodeId: node.id });
+  }
+  const plan = normalizeSocialContentPlan(node.requirement.socialPlan);
+  const workflowId = plan.workflowId;
+  const outcomes = context.nodes().flatMap((candidate) => {
+    if (candidate.type !== "image" && candidate.type !== "video") return [];
+    const metadata = candidate.socialContent || candidate.taskProvenance?.socialContent;
+    const belongsToWorkflow = metadata?.workflowId === workflowId || (
+      plan.platform === "douyin" && candidate.type === "video" && (
+        candidate.id === plan.videoNodeId || candidate.videoTaskId === plan.videoTaskId
+      )
+    );
+    if (!belongsToWorkflow) return [];
+    return [{
+      nodeId: candidate.id,
+      nodeType: candidate.type,
+      nodeStatus: candidate.status,
+      outputs: Number(candidate.outputs || candidate.assets?.length || (candidate.videoAsset ? 1 : 0)),
+      contentType: metadata?.contentType || (candidate.type === "video" ? "video" : undefined),
+      slot: metadata?.slot,
+      contentStatus: metadata?.status,
+      ...(candidate.type === "video" ? {
+        videoTaskId: candidate.videoTaskId,
+        videoTaskState: candidate.videoTaskState,
+        videoState: candidate.videoState,
+        progress: candidate.videoProgress,
+        ambiguous: candidate.videoTaskState === "create-unknown",
+        error: candidate.videoError,
+      } : {}),
+    }];
+  });
+  const images = outcomes.filter((outcome) => outcome.nodeType === "image");
+  const videos = outcomes.filter((outcome) => outcome.nodeType === "video");
+  const issues = socialContentWritebackIssues(plan);
+  return {
+    activeProjectId: context.activeProjectId(),
+    requirement: {
+      nodeId: node.id,
+      title: node.title,
+      revision: node.requirement.revision,
+    },
+    platform: plan.platform,
+    workflowId,
+    planHash: plan.planHash,
+    planStatus: plan.status,
+    ready: issues.length === 0,
+    issues,
+    plan,
+    plannedRequests: socialPlannedRequestCounts(plan),
+    outcomes: { images, videos },
+    dispatched: outcomes.length > 0,
+    ambiguous: videos.some((video) => video.ambiguous === true),
+  };
+}
+
+async function createSocialRequirement(value: JsonObject, platform: SocialPlatform, context: AutomationCommandContext) {
+  assertExpectedProject(value, context);
+  const sourceNodeIds = strictNodeIds(value.sourceNodeIds, "sourceNodeIds", context);
+  const invalidSourceNodeIds = sourceNodeIds.filter((nodeId) => context.nodes().find((node) => node.id === nodeId)?.type !== "image");
+  if (invalidSourceNodeIds.length) {
+    throw automationCommandError("INVALID_ARGUMENT", "社媒计划的 SOURCE 必须是图片成果或图片容器。", { nodeIds: invalidSourceNodeIds });
+  }
+  const plan = platform === "xiaohongshu"
+    ? normalizeXiaohongshuPlan({ ...value, platform, cover: { enabled: value.coverEnabled !== false } })
+    : normalizeDouyinPlan({ ...value, platform });
+  const command = platform === "xiaohongshu" ? SOCIAL_XIAOHONGSHU_COMMAND : SOCIAL_DOUYIN_COMMAND;
+  const composed = await context.composePluginTask?.({
+    command,
+    sourceCount: sourceNodeIds.reduce((count, nodeId) => count + Number(context.nodes().find((node) => node.id === nodeId)?.assets?.length || 0), 0),
+    sourceNodeIds,
+    plan,
+  });
+  if (!composed?.ok || !composed.task?.prompt) {
+    throw automationCommandError("SOCIAL_COMPOSE_FAILED", composed?.error || "社媒计划生成失败。");
+  }
+  const canonicalPlan = normalizeSocialContentPlan(composed.task.plan ?? plan);
+  if (canonicalPlan.platform !== platform || canonicalPlan.workflowId !== plan.workflowId) {
+    throw automationCommandError("SOCIAL_IDENTITY_MISMATCH", "社媒计划的工作流身份发生变化，未创建 Requirement。", {
+      expectedWorkflowId: plan.workflowId,
+      currentWorkflowId: canonicalPlan.workflowId,
+    });
+  }
+  const result = context.createRequirement({
+    title: `${platform === "xiaohongshu" ? "小红书" : "抖音"} · ${canonicalPlan.brief.slice(0, 32)}`,
+    text: composed.task.prompt,
+    inputBindings: sourceNodeIds.map((nodeId) => ({ nodeId, role: "source" as const })),
+    x: value.x === undefined ? undefined : number(value.x, 0),
+    y: value.y === undefined ? undefined : number(value.y, 0),
+    expectedProjectId: String(value.expectedProjectId),
+    expectedCanvasRevision: value.expectedCanvasRevision as number,
+    socialPlan: canonicalPlan,
+  });
+  return {
+    ...(isJsonObject(result) ? result : { result }),
+    platform,
+    workflowId: canonicalPlan.workflowId,
+    planHash: canonicalPlan.planHash,
+    plan: canonicalPlan,
+    plannedRequests: socialPlannedRequestCounts(canonicalPlan),
+    dispatched: false,
+    mayProduceCharges: false,
+  };
+}
+
+async function executeSocialRequirement(value: JsonObject, platform: SocialPlatform, context: AutomationCommandContext) {
+  const { node, plan } = requireSocialRequirement(value, platform, context);
+  const expectedRevision = value.expectedRevision as number;
+  if (node.requirement!.revision !== expectedRevision) {
+    throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "社媒 Requirement 已发生变化，请读取最新 revision 后重试。", {
+      nodeId: node.id,
+      expectedRevision,
+      currentRevision: node.requirement!.revision,
+    });
+  }
+  const result = await context.executeRequirement({
+    nodeId: node.id,
+    expectedRevision,
+    confirmedUnchanged: value.confirmedUnchanged === true,
+    expectedProjectId: String(value.expectedProjectId),
+  });
+  const state = await waitForAgent(context);
+  const latest = context.nodes().find((candidate) => candidate.id === node.id) || node;
+  const status = socialWorkflowStatus(latest, context);
+  const plannedRequests = socialPlannedRequestCounts(plan);
+  return {
+    ...(isJsonObject(result) ? result : { result }),
+    state,
+    status,
+    billing: {
+      requestCount: plannedRequests.totalRequests,
+      ...plannedRequests,
+      dispatched: status.dispatched,
+      mayProduceCharges: true,
+      ambiguous: status.ambiguous,
+    },
+  };
+}
+
+async function exportSocialRequirement(value: JsonObject, platform: SocialPlatform, context: AutomationCommandContext) {
+  const { node, plan } = requireSocialRequirement(value, platform, context);
+  const expectedRevision = value.expectedRevision as number;
+  if (node.requirement!.revision !== expectedRevision) {
+    throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "社媒 Requirement 已发生变化，请读取最新 revision 后重试。", {
+      nodeId: node.id,
+      expectedRevision,
+      currentRevision: node.requirement!.revision,
+    });
+  }
+  if (value.confirmed !== true) {
+    throw automationCommandError("CONFIRMATION_REQUIRED", "导出社媒发布包必须显式传入 confirmed=true。");
+  }
+  const result = await context.exportSocialPackage({
+    expectedProjectId: String(value.expectedProjectId),
+    requirementNodeId: node.id,
+    expectedRequirementRevision: expectedRevision,
+    workflowId: plan.workflowId,
+    confirmed: true,
+  });
+  const latest = context.nodes().find((candidate) => candidate.id === node.id) || node;
+  return {
+    ...(isJsonObject(result) ? result : { result }),
+    status: socialWorkflowStatus(latest, context),
+  };
+}
+
+function requireScientificRequirement(
+  value: JsonObject,
+  context: AutomationCommandContext,
+  expectedRevision?: number,
+) {
+  assertExpectedProject(value, context);
+  const nodeId = String(value.nodeId || "").trim();
+  const node = context.nodes().find((candidate) => candidate.id === nodeId);
+  if (node?.type !== "requirement" || !node.requirement?.scientificPlan) {
+    throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是科研绘图 Requirement。", { nodeId });
+  }
+  if (expectedRevision !== undefined && node.requirement.revision !== expectedRevision) {
+    throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "科研 Requirement 已发生变化，请读取最新 revision 后重试。", {
+      nodeId,
+      expectedRevision,
+      currentRevision: node.requirement.revision,
+    });
+  }
+  const plan = normalizeScientificFigurePlan(node.requirement.scientificPlan);
+  if (
+    (node.scientificFigure?.workflowId && node.scientificFigure.workflowId !== plan.workflowId)
+    || (node.scientificFigure?.planHash && node.scientificFigure.planHash !== plan.planHash)
+  ) {
+    throw automationCommandError("SCIENTIFIC_PLAN_IDENTITY_CONFLICT", "科研计划身份与节点元数据不一致，未执行任务。", {
+      nodeId,
+      workflowId: plan.workflowId,
+      planHash: plan.planHash,
+    });
+  }
+  return { node, plan };
+}
+
+function publicScientificTask(task: ScientificTask) {
+  return {
+    taskId: task.taskId,
+    projectId: task.projectId,
+    workflowId: task.workflowId,
+    planHash: task.planHash,
+    requirementNodeId: task.requirementNodeId,
+    requirementRevision: task.requirementRevision,
+    backend: task.backend,
+    state: task.state,
+    progress: task.progress,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    startedAt: task.startedAt,
+    finishedAt: task.finishedAt,
+    error: task.error,
+    exitCode: task.exitCode,
+    scriptHash: task.scriptHash,
+    outputs: task.outputs.map(({ assetUrl: _assetUrl, ...output }) => output),
+    plan: normalizeScientificFigurePlan(task.plan),
+  };
+}
+
+async function createScientificRequirement(value: JsonObject, context: AutomationCommandContext) {
+  assertExpectedProject(value, context);
+  assertExpectedCanvasRevision(value, context);
+  const sourceNodeIds = strictNodeIds(value.sourceNodeIds, "sourceNodeIds", context);
+  const invalidSourceNodeIds = sourceNodeIds.filter((nodeId) => context.nodes().find((node) => node.id === nodeId)?.type !== "image");
+  if (invalidSourceNodeIds.length) {
+    throw automationCommandError("INVALID_ARGUMENT", "科研计划的画布 SOURCE 必须是图片成果、图片容器或分层图片。", {
+      nodeIds: invalidSourceNodeIds,
+    });
+  }
+  const availableData = await context.listScientificData({ expectedProjectId: String(value.expectedProjectId) });
+  const dataById = new Map(availableData.map((item) => [item.id, item]));
+  const requestedDataIds = [...new Set((Array.isArray(value.dataSourceIds) ? value.dataSourceIds : []).map(String))];
+  const missingDataSourceIds = requestedDataIds.filter((id) => !dataById.has(id));
+  if (missingDataSourceIds.length) {
+    throw automationCommandError("SCIENTIFIC_DATA_STALE", "科研计划引用了不存在或已变化的受管数据，请重新读取 research.data.list。", {
+      dataSourceIds: missingDataSourceIds,
+    });
+  }
+  const plan = normalizeScientificFigurePlan({
+    backend: value.backend,
+    figureType: value.figureType,
+    archetype: value.archetype,
+    researchClaim: value.researchClaim,
+    targetJournal: value.targetJournal,
+    dataSources: requestedDataIds.map((id) => dataById.get(id)),
+    panels: value.panels,
+    outputFormats: value.outputFormats,
+    stylePreset: value.stylePreset,
+    dimensions: {
+      widthMm: value.widthMm,
+      heightMm: value.heightMm,
+      dpi: value.dpi,
+    },
+    statisticsNotes: value.statisticsNotes,
+    sourceDataNotes: value.sourceDataNotes,
+    imageIntegrityNotes: value.imageIntegrityNotes,
+    reviewerRisks: value.reviewerRisks,
+  });
+  const issues = scientificFigurePlanIssues(plan, { forRender: false });
+  if (issues.length) {
+    throw automationCommandError("SCIENTIFIC_PLAN_INCOMPLETE", `科研绘图计划尚不能保存：${issues.join("；")}。`, { issues });
+  }
+  const composed = await context.composePluginTask?.({
+    command: SCIENTIFIC_FIGURE_START_COMMAND,
+    sourceCount: sourceNodeIds.reduce((count, nodeId) => count + Number(context.nodes().find((node) => node.id === nodeId)?.assets?.length || 0), 0),
+    sourceNodeIds,
+    plan,
+  });
+  if (!composed?.ok || !composed.task?.prompt) {
+    throw automationCommandError("SCIENTIFIC_COMPOSE_FAILED", composed?.error || "科研绘图计划生成失败。");
+  }
+  const canonicalPlan = normalizeScientificFigurePlan(composed.task.plan ?? plan);
+  if (canonicalPlan.workflowId !== plan.workflowId || canonicalPlan.planHash !== plan.planHash) {
+    throw automationCommandError("SCIENTIFIC_PLAN_IDENTITY_CONFLICT", "科研计划在写入 Requirement 前发生了变化，未创建节点。", {
+      expectedWorkflowId: plan.workflowId,
+      currentWorkflowId: canonicalPlan.workflowId,
+      expectedPlanHash: plan.planHash,
+      currentPlanHash: canonicalPlan.planHash,
+    });
+  }
+  assertExpectedProject(value, context);
+  assertExpectedCanvasRevision(value, context);
+  const result = context.createRequirement({
+    title: `科研图 · ${canonicalPlan.researchClaim.slice(0, 36)}`,
+    text: composed.task.prompt,
+    inputBindings: sourceNodeIds.map((nodeId) => ({ nodeId, role: "source" as const })),
+    x: value.x === undefined ? undefined : number(value.x, 0),
+    y: value.y === undefined ? undefined : number(value.y, 0),
+    expectedProjectId: String(value.expectedProjectId),
+    expectedCanvasRevision: value.expectedCanvasRevision as number,
+    scientificPlan: canonicalPlan,
+  });
+  return {
+    ...canvasMutationResponse(result, context),
+    workflowId: canonicalPlan.workflowId,
+    planHash: canonicalPlan.planHash,
+    plan: canonicalPlan,
+    dispatched: false,
+    mayProduceCharges: false,
+  };
+}
+
+async function renderScientificRequirement(value: JsonObject, context: AutomationCommandContext) {
+  assertExpectedProject(value, context);
+  assertExpectedCanvasRevision(value, context);
+  const expectedRevision = value.expectedRevision as number;
+  const { node, plan } = requireScientificRequirement(value, context, expectedRevision);
+  const issues = scientificFigurePlanIssues(plan, { forRender: true });
+  if (issues.length) {
+    throw automationCommandError("SCIENTIFIC_PLAN_INCOMPLETE", `科研绘图计划尚不能执行：${issues.join("；")}。`, { issues });
+  }
+  const task = await context.renderScientificTask({
+    expectedProjectId: String(value.expectedProjectId),
+    expectedCanvasRevision: value.expectedCanvasRevision as number,
+    requirementNodeId: node.id,
+    expectedRequirementRevision: expectedRevision,
+    plan,
+    timeoutMs: number(value.timeoutMs, 120_000),
+  });
+  if (task.state !== "ready") {
+    throw automationCommandError("SCIENTIFIC_TASK_NOT_READY", "科研任务没有完成，未向画布写入任何成果。", {
+      taskId: task.taskId,
+      state: task.state,
+    });
+  }
+  assertExpectedProject(value, context);
+  assertExpectedCanvasRevision(value, context, {
+    taskId: task.taskId,
+    taskState: task.state,
+    managedOutputsPersisted: true,
+  });
+  const latest = requireScientificRequirement(value, context, expectedRevision);
+  if (latest.plan.workflowId !== task.workflowId || latest.plan.planHash !== task.planHash) {
+    throw automationCommandError("SCIENTIFIC_PLAN_IDENTITY_CONFLICT", "科研任务完成后 Requirement 计划身份已变化；输出已受管保存，但未写入画布。", {
+      taskId: task.taskId,
+      requirementNodeId: node.id,
+    });
+  }
+  const landing = context.landScientificTask(task, {
+    plan: latest.plan,
+    requirementNodeId: node.id,
+    requirementRevision: expectedRevision,
+  });
+  if (!landing.landed) {
+    throw automationCommandError("SCIENTIFIC_OUTPUT_NOT_LANDED", "科研输出已受管保存，但画布前置条件已变化，未伪造写入成功。", {
+      taskId: task.taskId,
+      reason: landing.reason,
+      managedOutputsPersisted: true,
+    });
+  }
+  return {
+    task: publicScientificTask(task),
+    landing,
+    state: canvasState(context),
+  };
+}
+
+async function scientificTaskStatus(value: JsonObject, context: AutomationCommandContext) {
+  assertExpectedProject(value, context);
+  const requestedNodeId = String(value.nodeId || "").trim();
+  if (requestedNodeId) requireScientificRequirement({ ...value, nodeId: requestedNodeId }, context);
+  const requestedTaskId = String(value.taskId || "").trim();
+  const tasks = (await context.listScientificTasks({ expectedProjectId: String(value.expectedProjectId) }))
+    .filter((task) => !requestedTaskId || task.taskId === requestedTaskId)
+    .filter((task) => !requestedNodeId || task.requirementNodeId === requestedNodeId);
+  if (requestedTaskId && !tasks.length) {
+    throw automationCommandError("SCIENTIFIC_TASK_NOT_FOUND", "科研绘图任务不存在。", { taskId: requestedTaskId });
+  }
+  return {
+    activeProjectId: context.activeProjectId(),
+    tasks: tasks.map(publicScientificTask),
+  };
 }
 
 async function commerceSetGoal(value: JsonObject, context: AutomationCommandContext) {
@@ -259,10 +822,6 @@ async function commerceSetGoal(value: JsonObject, context: AutomationCommandCont
       { fields: ["plan.languageCodes", "plan.targetLocales"] },
     );
   }
-  const confirmationArgs = jsonDeepClone({
-    sourceNodeIds: value.sourceNodeIds,
-    plan: rawPlan,
-  });
   const sourceNodeIds = strictNodeIds(value.sourceNodeIds, "sourceNodeIds", context);
   if (!sourceNodeIds.length) throw new Error("commerce.compose-set 需要至少一个有效 sourceNodeId。");
   const nodes = context.nodes();
@@ -285,6 +844,18 @@ async function commerceSetGoal(value: JsonObject, context: AutomationCommandCont
   const sourceCount = sourceBindingIds.size;
   if (!sourceCount) throw new Error("commerce.compose-set 选择的节点中没有可执行的 SOURCE 图片。");
   const plan = normalizeCommerceSetPlan(rawPlan);
+  const rawTranslationItems = isJsonObject(rawPlan) && Array.isArray(rawPlan.translationItems) ? rawPlan.translationItems : [];
+  if (
+    rawTranslationItems.length !== plan.translationItems.length ||
+    (plan.mode !== "translate" && rawTranslationItems.length > 0) ||
+    plan.translationItems.some((item) => item.sourceIndex >= sourceCount)
+  ) {
+    throw automationCommandError(
+      "INVALID_ARGUMENT",
+      "commerce.compose-set 的 translationItems 必须唯一对应当前 SOURCE 序号与已选择语言。",
+      { field: "plan.translationItems", sourceCount },
+    );
+  }
   const counts = commerceSetRequestCounts(plan, sourceCount);
   if (plan.mode === "translate" && plan.targetLocales.length === 0) {
     throw new Error("commerce.compose-set 翻译计划需要至少一种有效目标语言。");
@@ -320,7 +891,6 @@ async function commerceSetGoal(value: JsonObject, context: AutomationCommandCont
     counts,
     sourceNodeIds,
     operationsPerAsset,
-    confirmationArgs,
   };
 }
 
@@ -421,6 +991,23 @@ function assertExpectedProject(value: JsonObject, context: AutomationCommandCont
   }
 }
 
+function assertExpectedCanvasRevision(
+  value: JsonObject,
+  context: AutomationCommandContext,
+  extraDetails: JsonObject = {},
+): void {
+  if (value.expectedCanvasRevision === undefined) return;
+  const expectedCanvasRevision = Number(value.expectedCanvasRevision);
+  const currentCanvasRevision = context.canvasRevision();
+  if (expectedCanvasRevision !== currentCanvasRevision) {
+    throw automationCommandError("CANVAS_REVISION_CONFLICT", "画布已发生变化，请读取最新 canvas.state 后重试。", {
+      expectedCanvasRevision,
+      currentCanvasRevision,
+      ...extraDetails,
+    });
+  }
+}
+
 function strictNodeIds(value: unknown, label: string, context: AutomationCommandContext): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw automationCommandError("INVALID_ARGUMENT", `${label} 必须是节点 ID 数组。`, { field: label });
@@ -439,6 +1026,7 @@ function canvasState(context: AutomationCommandContext) {
   const directlyLocked = new Set(directlyLockedNodeIds);
   return {
     activeProjectId: context.activeProjectId(),
+    workspaceDomain: context.workspaceDomain(),
     activeConversationId: context.activeConversationId(),
     canvasRevision: typeof context.canvasRevision === "function" ? context.canvasRevision() : 0,
     agentStatus: context.agentStatus(),
@@ -453,7 +1041,7 @@ function canvasState(context: AutomationCommandContext) {
       const blockingNodeIds = typeof context.mutationLocks === "function"
         ? context.mutationLocks([node.id])
         : directlyLocked.has(node.id) ? [node.id] : [];
-      const generationBusy = node.status === "working" || node.imageState === "generating" || Boolean(node.generationRunId);
+      const generationBusy = node.status === "working" || node.imageState === "generating" || node.videoState === "generating" || Boolean(node.generationRunId);
       const busyReasons = [
         ...(generationBusy ? ["generation"] : []),
         ...(blockingNodeIds.length ? ["mutation-lock"] : []),
@@ -466,6 +1054,18 @@ function canvasState(context: AutomationCommandContext) {
         status: node.status,
         imageState: node.imageState,
         assetCount: node.assets?.length || 0,
+        video: node.type === "video" ? {
+          state: node.videoState,
+          mimeType: node.videoAsset?.mimeType,
+          originalName: node.videoAsset?.originalName,
+          width: node.videoAsset?.width,
+          height: node.videoAsset?.height,
+          durationMs: node.videoAsset?.durationMs,
+          model: node.videoModel,
+          taskId: node.videoTaskId,
+          taskState: node.videoTaskState,
+          progress: node.videoProgress,
+        } : undefined,
         relation: {
           parentId: node.parentId || null,
           relationType: node.relationType || null,
@@ -550,7 +1150,7 @@ async function waitForAgent(context: AutomationCommandContext) {
     if (observedBusy && ["idle", "error"].includes(status)) return appState(context);
     await wait(120);
   }
-  throw new Error("等待 naimage Agent 完成超时。");
+  throw new Error("等待 SparkAI WorkSpace Agent 完成超时。");
 }
 
 type Handler = (args: JsonObject) => unknown | Promise<unknown>;
@@ -559,6 +1159,24 @@ export async function executeAutomationCommand(command: string, args: JsonObject
   const handlers: Record<AutomationRendererCommandName, Handler> = {
     "app.state": () => appState(context),
     "canvas.state": () => canvasState(context),
+    "workspace.domain.list": () => ({
+      defaultDomain: DEFAULT_WORKSPACE_DOMAIN,
+      domains: workspaceDomainDefinitions.map((definition) => publicWorkspaceDomainDefinition(definition.id))
+    }),
+    "workspace.domain.get": () => ({
+      activeProjectId: context.activeProjectId(),
+      domain: publicWorkspaceDomainDefinition(context.workspaceDomain())
+    }),
+    "workspace.domain.set": (value) => {
+      assertExpectedProject(value, context);
+      const domain = normalizeWorkspaceDomain(value.domain);
+      const changed = context.setWorkspaceDomain(domain) !== false;
+      return {
+        activeProjectId: context.activeProjectId(),
+        changed,
+        domain: publicWorkspaceDomainDefinition(context.workspaceDomain())
+      };
+    },
     "project.list": () => ({ activeProjectId: context.activeProjectId(), projects: context.projects() }),
     "project.switch": async (value) => {
       const id = String(value.id || "");
@@ -567,7 +1185,10 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return appState(context);
     },
     "project.create": async (value) => {
-      await context.createProject(String(value.name || "").trim());
+      await context.createProject(
+        String(value.name || "").trim(),
+        value.workspaceDomain === undefined ? context.workspaceDomain() : normalizeWorkspaceDomain(value.workspaceDomain)
+      );
       return appState(context);
     },
     "project.rename": async (value) => {
@@ -755,6 +1376,185 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       });
       return canvasMutationResponse(result, context);
     },
+    "commerce.template.list": () => context.listCommerceTemplates(),
+    "commerce.template.save": (value) => {
+      if (Boolean(value.templateId) !== (value.expectedTemplateRevision !== undefined)) {
+        throw automationCommandError("INVALID_ARGUMENT", "覆盖个人套图模板时必须同时提供 templateId 和 expectedTemplateRevision。", {
+          fields: ["templateId", "expectedTemplateRevision"],
+        });
+      }
+      if (value.conflictPolicy === "overwrite" && !value.templateId) {
+        throw automationCommandError("INVALID_ARGUMENT", "选择 overwrite 时必须同时提供同名个人模板的 templateId 和 expectedTemplateRevision。", {
+          fields: ["conflictPolicy", "templateId", "expectedTemplateRevision"],
+        });
+      }
+      if (value.conflictPolicy === "copy" && value.templateId) {
+        throw automationCommandError("INVALID_ARGUMENT", "选择 copy 时不能同时指定 templateId；软件会自动生成不重复的副本名称。", {
+          fields: ["conflictPolicy", "templateId"],
+        });
+      }
+      const plan = normalizeCommerceSetPlan(value.plan);
+      if (plan.mode === "translate" && plan.targetLocales.length === 0) {
+        throw automationCommandError("INVALID_ARGUMENT", "翻译套图模板至少需要一种目标语言。", { field: "plan.targetLocales" });
+      }
+      return context.saveCommerceTemplate({
+        ...(value.templateId ? { id: String(value.templateId), expectedRevision: value.expectedTemplateRevision as number } : {}),
+        ...(value.conflictPolicy ? { conflictPolicy: value.conflictPolicy as "overwrite" | "copy" } : {}),
+        title: String(value.title),
+        ...(value.description !== undefined ? { description: String(value.description) } : {}),
+        plan: { ...plan, translationItems: [], saveTarget: "none", reusableName: plan.title },
+      });
+    },
+    "commerce.template.delete": (value) => {
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "删除个人套图模板需要 confirmed=true。", { field: "confirmed" });
+      }
+      return context.deleteCommerceTemplate({
+        id: String(value.templateId),
+        expectedRevision: value.expectedTemplateRevision as number,
+        confirmed: true,
+      });
+    },
+    "commerce.template.import": () => context.importCommerceTemplate(),
+    "commerce.template.export": (value) => context.exportCommerceTemplate({
+      id: String(value.templateId),
+      ...(value.expectedTemplateRevision !== undefined ? { expectedRevision: value.expectedTemplateRevision as number } : {}),
+    }),
+    "commerce.catalog.list": (value) => {
+      assertExpectedProject(value, context);
+      return context.listCommerceCatalog({
+        expectedProjectId: String(value.expectedProjectId),
+        includeArchived: value.includeArchived === true,
+      });
+    },
+    "commerce.catalog.upsert": (value) => {
+      assertExpectedProject(value, context);
+      const product = value.product as JsonObject;
+      if (Boolean(product.productId) !== (product.expectedProductRevision !== undefined)) {
+        throw automationCommandError("INVALID_ARGUMENT", "更新商品时必须同时提供 productId 和 expectedProductRevision。", {
+          fields: ["product.productId", "product.expectedProductRevision"],
+        });
+      }
+      return context.saveCommerceCatalogProduct({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        ...(product as CommerceCatalogProductDraft),
+      });
+    },
+    "commerce.catalog.delete": (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "归档商品需要 confirmed=true。", { field: "confirmed" });
+      }
+      return context.archiveCommerceCatalogProduct({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        productId: String(value.productId),
+        expectedProductRevision: value.expectedProductRevision as number,
+        archived: true,
+      });
+    },
+    "commerce.catalog.assign": (value) => {
+      assertExpectedProject(value, context);
+      const assets = (value.assets as JsonObject[]).map((asset) => ({
+        nodeId: String(asset.nodeId),
+        assetIndex: asset.assetIndex as number,
+      }));
+      strictNodeIds(assets.map((asset) => asset.nodeId), "assets.nodeId", context);
+      return context.assignCommerceCatalogAssets({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        expectedCanvasRevision: value.expectedCanvasRevision as number,
+        productId: String(value.productId),
+        expectedProductRevision: value.expectedProductRevision as number,
+        kind: value.kind as CommerceCatalogAssetKind,
+        ownerType: value.ownerType as CommerceCatalogAssetOwnerType,
+        ...(value.ownerId !== undefined ? { ownerId: String(value.ownerId) } : {}),
+        role: String(value.role),
+        assets,
+      });
+    },
+    "commerce.catalog.remove": (value) => {
+      assertExpectedProject(value, context);
+      return context.removeCommerceCatalogAsset({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        productId: String(value.productId),
+        expectedProductRevision: value.expectedProductRevision as number,
+        linkId: String(value.linkId),
+      });
+    },
+    "commerce.catalog.review": async (value) => {
+      assertExpectedProject(value, context);
+      const linkIds = (value.linkIds as unknown[]).map(String);
+      let expectedCatalogRevision = value.expectedCatalogRevision as number;
+      let expectedProductRevision = value.expectedProductRevision as number;
+      let productId = String(value.productId);
+      let result: CommerceCatalogResult | undefined;
+      for (const linkId of linkIds) {
+        result = await context.updateCommerceCatalogResultState({
+          expectedProjectId: String(value.expectedProjectId),
+          expectedCatalogRevision,
+          productId,
+          expectedProductRevision,
+          linkId,
+          state: value.state as CommerceCatalogResultState,
+        });
+        if (!result.ok || !result.product) {
+          throw automationCommandError(result.errorCode || "COMMERCE_CATALOG_FAILED", result.error || "复核翻译结果失败。", result.details);
+        }
+        expectedCatalogRevision = Number(result.catalogRevision ?? expectedCatalogRevision);
+        expectedProductRevision = result.product.revision;
+        productId = result.product.productId;
+      }
+      return { ...result, reviewed: linkIds.length, state: value.state };
+    },
+    "commerce.catalog.compare": (value) => {
+      assertExpectedProject(value, context);
+      return context.listCommerceCatalogComparisons({
+        expectedProjectId: String(value.expectedProjectId),
+        ...(value.productId !== undefined ? { productId: String(value.productId) } : {}),
+      });
+    },
+    "commerce.catalog.select": (value) => {
+      assertExpectedProject(value, context);
+      return context.selectCommerceCatalogComparisonWinner({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        productId: String(value.productId),
+        expectedProductRevision: value.expectedProductRevision as number,
+        groupKey: String(value.groupKey),
+        winnerLinkId: String(value.winnerLinkId),
+      });
+    },
+    "commerce.export.preview": (value) => {
+      assertExpectedProject(value, context);
+      return context.previewCommerceExport({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        platform: value.platform as CommerceExportRequest["platform"],
+        format: value.format as CommerceExportFormat,
+        includeCandidates: value.includeCandidates === true,
+        ...(value.productIds !== undefined ? { productIds: (value.productIds as unknown[]).map(String) } : {}),
+        ...(value.skuIds !== undefined ? { skuIds: (value.skuIds as unknown[]).map(String) } : {}),
+      });
+    },
+    "commerce.export.package": (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "平台打包导出需要 confirmed=true。", { field: "confirmed" });
+      }
+      return context.exportCommercePackage({
+        expectedProjectId: String(value.expectedProjectId),
+        expectedCatalogRevision: value.expectedCatalogRevision as number,
+        platform: value.platform as CommerceExportRequest["platform"],
+        format: value.format as CommerceExportFormat,
+        includeCandidates: value.includeCandidates === true,
+        ...(value.productIds !== undefined ? { productIds: (value.productIds as unknown[]).map(String) } : {}),
+        ...(value.skuIds !== undefined ? { skuIds: (value.skuIds as unknown[]).map(String) } : {}),
+        confirmed: true,
+      });
+    },
     "canvas.fit": () => {
       context.fitCanvas();
       return canvasState(context);
@@ -783,6 +1583,34 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       await context.importPaths(paths, String(value.targetContainerId || ""), number(value.x, 240), number(value.y, 180));
       return canvasState(context);
     },
+    "canvas.import-video": async (value) => {
+      const paths = (Array.isArray(value.paths) ? value.paths : []).map(String).filter(Boolean);
+      if (!paths.length) throw new Error("请提供至少一个视频导入路径。");
+      await context.importVideoPaths(paths, number(value.x, 240), number(value.y, 180));
+      return canvasState(context);
+    },
+    "canvas.generate-video": async (value) => {
+      const expectedProjectId = String(value.expectedProjectId || "").trim();
+      if (expectedProjectId !== context.activeProjectId()) {
+        throw automationCommandError("PROJECT_REVISION_CONFLICT", "当前项目已变化，请重新读取 canvas.state 后再创建视频任务。", {
+          expectedProjectId,
+          activeProjectId: context.activeProjectId()
+        });
+      }
+      if (value.confirmed !== true) throw new Error("创建视频任务需要 confirmed=true；调用后可能由上游扣费。");
+      const prompt = String(value.prompt || "").trim();
+      if (!prompt) throw new Error("请提供视频画面要求。");
+      return context.generateVideo({
+        expectedProjectId,
+        prompt,
+        model: String(value.model || "").trim() || undefined,
+        seconds: number(value.seconds, 5),
+        aspectRatio: String(value.aspectRatio || "16:9"),
+        resolution: String(value.resolution || "720p"),
+        x: number(value.x, 240),
+        y: number(value.y, 180)
+      });
+    },
     "canvas.import-skill": async (value) => {
       const skill = await context.parseSkill(value.markdown, value.sourceName);
       const result = context.createSkillNode(skill, number(value.x, 240), number(value.y, 180));
@@ -807,9 +1635,58 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       if (!result.ok && !result.canceled) throw new Error(result.error || "图片导出失败。");
       return { nodeId, assetIndex, requestedFormat: format, result };
     },
+    "research.data.import": async (value) => {
+      assertExpectedProject(value, context);
+      const result = await context.importScientificData({ expectedProjectId: String(value.expectedProjectId) });
+      assertExpectedProject(value, context);
+      return result;
+    },
+    "research.data.list": async (value) => {
+      assertExpectedProject(value, context);
+      return {
+        activeProjectId: context.activeProjectId(),
+        dataSources: await context.listScientificData({ expectedProjectId: String(value.expectedProjectId) }),
+      };
+    },
+    "research.figure.plan": (value) => createScientificRequirement(value, context),
+    "research.figure.render": (value) => renderScientificRequirement(value, context),
+    "research.figure.status": (value) => scientificTaskStatus(value, context),
+    "research.figure.export": async (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "导出科研图资产必须显式传入 confirmed=true。");
+      }
+      return context.exportScientificTask({
+        expectedProjectId: String(value.expectedProjectId),
+        taskId: String(value.taskId),
+        confirmed: true,
+      });
+    },
+    "research.figure.cancel": async (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "取消科研绘图任务必须显式传入 confirmed=true。");
+      }
+      const task = await context.cancelScientificTask({
+        expectedProjectId: String(value.expectedProjectId),
+        taskId: String(value.taskId),
+      });
+      return { task: publicScientificTask(task) };
+    },
+    "social.xiaohongshu.plan": (value) => createSocialRequirement(value, "xiaohongshu", context),
+    "social.xiaohongshu.execute": (value) => executeSocialRequirement(value, "xiaohongshu", context),
+    "social.xiaohongshu.export": (value) => exportSocialRequirement(value, "xiaohongshu", context),
+    "social.douyin.plan": (value) => createSocialRequirement(value, "douyin", context),
+    "social.douyin.execute": (value) => executeSocialRequirement(value, "douyin", context),
+    "social.douyin.status": (value) => {
+      const { node } = requireSocialRequirement(value, "douyin", context);
+      return socialWorkflowStatus(node, context);
+    },
+    "social.douyin.export": (value) => exportSocialRequirement(value, "douyin", context),
     "agent.chat": async (value) => {
-      const prompt = String(value.prompt || "").trim();
-      if (!prompt) throw new Error("Agent 任务不能为空。");
+      const basePrompt = String(value.prompt || "").trim();
+      if (!basePrompt) throw new Error("Agent 任务不能为空。");
+      const prompt = promptWithImageOutputSpec(basePrompt, value);
       const sourceNodeIds = strictNodeIds(value.sourceNodeIds, "sourceNodeIds", context);
       if (context.agentBusy()) {
         if (sourceNodeIds.length) {
@@ -826,25 +1703,20 @@ export async function executeAutomationCommand(command: string, args: JsonObject
         if (!accepted) throw new Error("当前 Agent 任务没有接收 agent.chat 修改要求。");
         return { accepted: true, steered: true, state: appState(context) };
       }
-      if (await context.sendPrompt(prompt, sourceNodeIds) === false) {
+      if (await context.sendPrompt(prompt, sourceNodeIds, imageOutputDefaults(value)) === false) {
         throw new Error("当前 Agent 任务没有接收 agent.chat 要求。");
       }
       return waitForAgent(context);
     },
     "agent.goal": async (value) => {
-      const prompt = String(value.prompt || "").trim();
-      if (!prompt) throw new Error("Goal prompt cannot be empty.");
+      const basePrompt = String(value.prompt || "").trim();
+      if (!basePrompt) throw new Error("Goal prompt cannot be empty.");
+      const prompt = promptWithImageOutputSpec(basePrompt, value);
       const sourceNodeIds = strictNodeIds(value.sourceNodeIds, "sourceNodeIds", context);
       const operationsPerAsset = Number(value.operationsPerAsset ?? 1);
-      const scopeOptions = { sourceNodeIds, operationsPerAsset };
-      if (value.confirmed !== true) {
-        const preview = await context.previewGoal(prompt, scopeOptions);
-        return { ...preview, requiresConfirmation: true };
-      }
-      const expectedSnapshotHash = String(value.expectedSnapshotHash || "").trim();
-      if (!expectedSnapshotHash) throw new Error("agent.goal with confirmed=true requires expectedSnapshotHash from the latest preview.");
-      await context.executeGoal(prompt, expectedSnapshotHash, "automation", scopeOptions);
-      return waitForAgent(context);
+      const scopeOptions = { sourceNodeIds, operationsPerAsset, ...imageOutputDefaults(value) };
+      const goal = await context.executeAuthorizedGoal(prompt, scopeOptions);
+      return { ...(await waitForAgent(context)), goal };
     },
     "commerce.compose-set": async (value) => {
       const composed = await commerceSetGoal(value, context);
@@ -852,31 +1724,11 @@ export async function executeAutomationCommand(command: string, args: JsonObject
         sourceNodeIds: composed.sourceNodeIds,
         operationsPerAsset: composed.operationsPerAsset,
       };
-      if (value.confirmed !== true) {
-        const preview = await context.previewGoal(composed.prompt, scopeOptions);
-        return {
-          ...preview,
-          requiresConfirmation: true,
-          confirmationArgs: composed.confirmationArgs,
-          composition: {
-            plan: composed.plan,
-            normalizedPlan: composed.plan,
-            counts: composed.counts,
-            planHash: composed.planHash,
-            sourceNodeIds: composed.sourceNodeIds,
-            operationsPerAsset: composed.operationsPerAsset,
-          },
-        };
-      }
-      const expectedSnapshotHash = String(value.expectedSnapshotHash || "").trim();
-      if (!expectedSnapshotHash) {
-        throw new Error("commerce.compose-set with confirmed=true requires expectedSnapshotHash from its latest preview.");
-      }
       const saveTarget = composed.plan.saveTarget;
       if ((saveTarget === "requirement" || saveTarget === "skill") && !context.createCommerceReusableNode) {
         throw new Error("当前 Renderer 无法创建跨境电商 Requirement/Skill 节点，命令未执行。");
       }
-      await context.executeGoal(composed.prompt, expectedSnapshotHash, "automation", scopeOptions);
+      const goal = await context.executeAuthorizedGoal(composed.prompt, scopeOptions);
       let reusableNode: { created: boolean; nodeId?: string; kind?: "requirement" | "skill"; error?: string } | undefined;
       if (saveTarget === "requirement" || saveTarget === "skill") {
         try {
@@ -898,7 +1750,7 @@ export async function executeAutomationCommand(command: string, args: JsonObject
         }
       }
       const result = await waitForAgent(context);
-      return reusableNode ? { ...result, reusableNode } : result;
+      return reusableNode ? { ...result, goal, reusableNode } : { ...result, goal };
     },
     "agent.steer": async (value) => {
       const prompt = String(value.prompt || "").trim();
@@ -954,6 +1806,6 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return appState(context);
     }
   };
-  if (!Object.prototype.hasOwnProperty.call(handlers, command)) throw new Error(`不支持的 naimage 自动化命令：${command}`);
+  if (!Object.prototype.hasOwnProperty.call(handlers, command)) throw new Error(`不支持的 SparkAI WorkSpace 自动化命令：${command}`);
   return handlers[command as AutomationRendererCommandName](validateCommandArgs(command, args));
 }

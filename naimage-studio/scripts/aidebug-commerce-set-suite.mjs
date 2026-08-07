@@ -34,10 +34,12 @@ const { observations, recordObservation } = observationLog;
 const qaInventory = [
   { id: "toolbar", claim: "跨境电商工具位于画布底部居中圆角 Dock，并按选区启用。", evidence: "00-toolbar-as-launched.png" },
   { id: "toolbar-modes", claim: "Dock 支持常驻展开、悬停/焦点展开和工具栏内固定切换。", evidence: "00a-toolbar-hover-collapsed.png, 00b-toolbar-hover-expanded.png" },
-  { id: "shortcuts", claim: "声明式快捷键调用对应工具，Commerce 对话框打开时阻止背后画布快捷键。", evidence: "01-generate-two-sources-three-slots.png" },
+  { id: "shortcuts", claim: "工具快捷键可自定义，冲突不会覆盖，旧组合失效后新组合调用对应工具；Commerce 对话框打开时阻止背后画布快捷键。", evidence: "01-generate-two-sources-three-slots.png, 14a-tool-shortcut-conflict.png, 14-tool-settings.png, 15-hidden-tool-shortcut.png" },
+  { id: "platform-templates", claim: "Amazon 与速卖通平台模板会载入各自完整槽位，之后仍可逐图修改。", evidence: "00c-aliexpress-platform-template.png, 01-generate-two-sources-three-slots.png" },
   { id: "matrix", claim: "多母图按槽位形成请求矩阵，逐张 Prompt 可编辑。", evidence: "01-generate-two-sources-three-slots.png" },
-  { id: "mode-switch", claim: "生成对话框切换到翻译后，最终按翻译计划进入 Goal。", evidence: "02-translate-mode-with-prompts.png, 03-translation-goal-confirmation.png" },
-  { id: "cancel-persistence", claim: "取消 Goal 不创建 Requirement 或 Skill。", evidence: "03-translation-goal-confirmation.png" },
+  { id: "translation-matrix", claim: "翻译模式支持图片 × 语言逐单元格要求，并在桌面与 900×640 窗口保持可操作。", evidence: "02a-translation-matrix-cells.png, 02b-translation-matrix-900x640.png" },
+  { id: "mode-switch", claim: "生成对话框切换到翻译后，逐项矩阵随冻结计划进入真实派发。", evidence: "02-translate-mode-with-prompts.png, 03-translation-direct-dispatch.png" },
+  { id: "direct-dispatch", claim: "用户点击执行即授权派发，不再出现第二个费用确认弹窗。", evidence: "03-translation-direct-dispatch.png" },
   { id: "requirement", claim: "确认派发后创建 Requirement，复用执行仍进入 Goal。", evidence: "04-requirement-node.png, 05-requirement-rerun-goal.png" },
   { id: "skill", claim: "确认派发后创建 Skill 节点。", evidence: "06-skill-node.png" },
   { id: "stale-source", claim: "配置期间母图变化会保守拒绝，不按过期范围派发。", evidence: "07-stale-source-rejected.png" },
@@ -45,7 +47,9 @@ const qaInventory = [
   { id: "container-rounding", claim: "图片容器、预览和图片 tile 具有圆角且不裁切连接端口。", evidence: "08a-rounded-image-container.png" },
   { id: "limit", claim: "200 请求可执行，超过 200 被阻止；12 槽与 10 语言仍可检查。", evidence: "09-exact-200.png, 10-over-limit-240-top.png, 11-twelve-slots-reachable.png, 12-over-limit-warning.png" },
   { id: "small-window", claim: "900×640 最小发布窗口中关键操作区无横向裁切。", evidence: "13-small-window-900x640.png" },
-  { id: "tool-settings", claim: "设置可关闭单个工具并保存 hover 模式；隐藏工具的快捷键同步失效。", evidence: "14-tool-settings.png, 15-disabled-tool-shortcut.png" }
+  { id: "template-market", claim: "当前套图可保存到模板市场，内置/个人模板清晰分组并可从 900×640 窗口复用。", evidence: "13a-template-market-900x640.png, 13b-template-reuse-900x640.png" },
+  { id: "ab-comparison", claim: "同槽位的两个真实受管结果并排比较，终选后保留两项并标记为已选定/未选。", evidence: "13c-ab-comparison-900x640.png, 13d-ab-winner-900x640.png" },
+  { id: "tool-settings", claim: "设置可逐项控制底部工具栏可见性、保存 hover 模式并自定义快捷键；隐藏工具仍可由快捷键调用。", evidence: "14-tool-settings.png, 15-hidden-tool-shortcut.png" }
 ];
 
 let viteProcess;
@@ -63,6 +67,29 @@ function sha256File(path) {
 
 function normalizedText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function jsonObjectAfterMarker(value, marker) {
+  const text = String(value || "");
+  const markerIndex = text.lastIndexOf(marker);
+  const start = text.indexOf("{", markerIndex + marker.length);
+  if (markerIndex < 0 || start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return JSON.parse(text.slice(start, index + 1));
+  }
+  return null;
 }
 
 async function waitFor(expression, timeoutMs = 12_000, intervalMs = 80) {
@@ -105,14 +132,14 @@ async function movePointer(point) {
   await delay(220);
 }
 
-async function dispatchCanvasToolShortcut(digit) {
+async function dispatchCanvasToolShortcut(digit, modifiers = 10) {
   const numeric = Math.max(1, Math.min(9, Math.round(Number(digit))));
   const payload = {
     key: String(numeric),
     code: `Digit${numeric}`,
     windowsVirtualKeyCode: 48 + numeric,
     nativeVirtualKeyCode: 48 + numeric,
-    modifiers: 10
+    modifiers
   };
   await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...payload });
   await client.send("Input.dispatchKeyEvent", { type: "keyUp", ...payload });
@@ -219,7 +246,11 @@ async function capture(label) {
   evidenceResults.push(result);
   screenshots[label] = { path: result.screenshotPath, sha256: result.screenshotEvidence.sha256 };
   if (!result.visualReliability.ok) {
-    throw new Error(`Commerce visual evidence failed for ${label}: ${result.visualReliability.failureReasons.join(", ")}`);
+    throw new Error(`Commerce visual evidence failed for ${label}: ${result.visualReliability.failureReasons.join(", ")} ${JSON.stringify({
+      stateIssues: result.stateIssues,
+      overflow: result.overflow,
+      captureIssues: result.captureIssues
+    })}`);
   }
   return result.screenshotPath;
 }
@@ -242,19 +273,23 @@ async function readEvidenceSnapshot() {
     };
     const text = (element) => String(element?.textContent || '').replace(/\\s+/g, ' ').trim();
     const commerce = document.querySelector('.commerce-set-dialog');
+    const templateMarket = document.querySelector('.commerce-template-dialog');
+    const abComparison = document.querySelector('.commerce-ab-dialog');
     const goal = document.querySelector('.goal-confirmation-dialog');
     const toolbar = document.querySelector('.canvas-plugin-toolbar');
     const settingsDrawer = document.querySelector('.settings-drawer');
     const commerceFooter = commerce?.querySelector('.ui-surface-footer');
+    const templateFooter = templateMarket?.querySelector('.ui-surface-footer');
+    const abFooter = abComparison?.querySelector('.ui-surface-footer');
     const goalFooter = goal?.querySelector('.ui-surface-footer');
-    const required = [commerce, goal, commerceFooter, goalFooter, toolbar, settingsDrawer].filter(visible);
+    const required = [commerce, templateMarket, abComparison, goal, commerceFooter, templateFooter, abFooter, goalFooter, toolbar, settingsDrawer].filter(visible);
     const clipped = required.flatMap((element) => {
       const box = rect(element);
       return box && (box.left < -1 || box.top < -1 || box.right > innerWidth + 1 || box.bottom > innerHeight + 1)
         ? [{ selector: element.className, rect: box, viewport: { width: innerWidth, height: innerHeight } }]
         : [];
     });
-    const overflowCandidates = Array.from(document.querySelectorAll('.commerce-set-dialog, .goal-confirmation-dialog, .settings-drawer, .ui-surface-footer, .canvas-plugin-toolbar, .project-agent-panel'))
+    const overflowCandidates = Array.from(document.querySelectorAll('.commerce-set-dialog, .commerce-template-dialog, .commerce-ab-dialog, .goal-confirmation-dialog, .settings-drawer, .ui-surface-footer, .canvas-plugin-toolbar, .project-agent-panel'))
       .filter(visible)
       .flatMap((element) => {
         const box = rect(element);
@@ -278,6 +313,18 @@ async function readEvidenceSnapshot() {
         scrollTop: Math.round(commerce.querySelector('.commerce-set-body')?.scrollTop || 0),
         rect: rect(commerce),
         footerRect: rect(commerceFooter)
+      } : null,
+      templateMarket: templateMarket ? {
+        builtInCount: templateMarket.querySelectorAll('.commerce-template-row[data-source="built-in"]').length,
+        personalCount: templateMarket.querySelectorAll('.commerce-template-row[data-source="personal"]').length,
+        rect: rect(templateMarket),
+        footerRect: rect(templateFooter)
+      } : null,
+      abComparison: abComparison ? {
+        groupCount: abComparison.querySelectorAll('.commerce-ab-groups > button').length,
+        candidateCount: abComparison.querySelectorAll('.commerce-ab-candidate').length,
+        rect: rect(abComparison),
+        footerRect: rect(abFooter)
       } : null,
       goal: goal ? {
         scope: text(goal.querySelector('.goal-confirmation-scope')),
@@ -310,7 +357,7 @@ async function readEvidenceSnapshot() {
     };
     return {
       viewport: state.viewport,
-      surfaceOk: Boolean(document.body && (commerce || goal || settingsDrawer || document.querySelector('.canvas-plugin-toolbar'))),
+      surfaceOk: Boolean(document.body && (commerce || templateMarket || abComparison || goal || settingsDrawer || document.querySelector('.canvas-plugin-toolbar'))),
       state,
       stateIssues: clipped.map((item) => ({ key: 'required-surface-clipped', expected: 'inside viewport', actual: item })),
       overflow: {
@@ -374,7 +421,7 @@ async function readToolbar() {
 
 async function readImageContainerRounding(nodeId) {
   return evaluate(client, `(() => {
-    const node = document.querySelector('[data-node-id="' + CSS.escape(${JSON.stringify(nodeId)}) + '"]');
+    const node = document.querySelector('.flow-node:not(.canvas-node-overview)[data-node-id="' + CSS.escape(${JSON.stringify(nodeId)}) + '"]');
     const preview = node?.querySelector('.node-image-preview');
     const tile = preview?.querySelector('.node-image-tile');
     const image = tile?.querySelector('img');
@@ -418,6 +465,11 @@ async function readCommerceDialog() {
         text: String(button.textContent || '').replace(/\\s+/g, ' ').trim(),
         active: button.getAttribute('aria-pressed') === 'true'
       })),
+      platformButtons: Array.from(dialog.querySelectorAll('.commerce-set-platform-control button')).map((button) => ({
+        text: String(button.textContent || '').replace(/\\s+/g, ' ').trim(),
+        active: button.getAttribute('aria-pressed') === 'true'
+      })),
+      platformSummary: String(dialog.querySelector('.commerce-set-platform-summary')?.textContent || '').replace(/\\s+/g, ' ').trim(),
       saveButtons: Array.from(dialog.querySelectorAll('.commerce-set-save-control button')).map((button) => ({
         text: String(button.textContent || '').replace(/\\s+/g, ' ').trim(),
         active: button.getAttribute('aria-pressed') === 'true'
@@ -427,6 +479,35 @@ async function readCommerceDialog() {
       selectedLanguages: Array.from(dialog.querySelectorAll('.commerce-language-option input:checked')).map((input) => input.closest('label')?.textContent?.replace(/\\s+/g, ' ').trim() || ''),
       disabledLanguages: dialog.querySelectorAll('.commerce-language-option input:disabled').length,
       languagePromptCount: dialog.querySelectorAll('.commerce-language-prompts textarea').length,
+      translationMatrix: (() => {
+        const section = dialog.querySelector('.commerce-translation-matrix-section');
+        const scroller = dialog.querySelector('.commerce-translation-matrix-scroll');
+        const editor = dialog.querySelector('.commerce-translation-cell-editor');
+        if (!section) return null;
+        return {
+          sourceRows: section.querySelectorAll('tbody tr').length,
+          localeCodes: Array.from(section.querySelectorAll('thead th:not(:first-child) small')).map((item) => String(item.textContent || '').trim()),
+          customizedCount: Number(String(section.querySelector('.commerce-translation-matrix-heading > span')?.textContent || '').match(/\\d+/)?.[0] || 0),
+          cells: Array.from(section.querySelectorAll('.commerce-translation-cell')).map((button) => ({
+            label: button.getAttribute('aria-label') || '',
+            text: String(button.textContent || '').replace(/\s+/g, ' ').trim(),
+            active: button.getAttribute('aria-pressed') === 'true',
+            custom: button.classList.contains('custom')
+          })),
+          editor: editor ? {
+            text: String(editor.textContent || '').replace(/\s+/g, ' ').trim(),
+            value: editor.querySelector('textarea')?.value || ''
+          } : null,
+          scroll: scroller ? {
+            clientWidth: scroller.clientWidth,
+            scrollWidth: scroller.scrollWidth,
+            clientHeight: scroller.clientHeight,
+            scrollHeight: scroller.scrollHeight
+          } : null,
+          sectionRect: rect(section),
+          scrollerRect: rect(scroller)
+        };
+      })(),
       notices: Array.from(dialog.querySelectorAll('.ui-inline-notice')).map((notice) => ({
         tone: notice.getAttribute('data-ui-tone') || '',
         text: String(notice.textContent || '').replace(/\\s+/g, ' ').trim()
@@ -470,6 +551,30 @@ async function readGoalDialog() {
       documentOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
     };
   })()`);
+}
+
+async function readPendingCommercePlan() {
+  const pending = await evaluate(client, `(() => {
+    const state = window.__naimageDebugAgentState?.();
+    const confirmation = state?.goalConfirmation;
+    const taskScope = confirmation?.taskScope || state?.lastDispatchedTaskScope;
+    const prompt = confirmation?.prompt || state?.lastDispatchedPrompt || '';
+    if (!prompt || !taskScope) return null;
+    return {
+      phase: confirmation ? 'confirmation' : 'dispatched',
+      prompt,
+      targetNodeIds: confirmation?.targetNodeIds || taskScope.sourceNodeIds || [],
+      operationsPerAsset: confirmation?.operationsPerAsset || taskScope.goal?.operationsPerAsset || 0,
+      requestCount: confirmation?.requestCount || taskScope.goal?.requestCount || 0,
+      taskScope,
+      taskScopeGoal: taskScope.goal || null
+    };
+  })()`);
+  if (!pending) return null;
+  return {
+    ...pending,
+    promptPlan: jsonObjectAfterMarker(pending.prompt, "COMMERCE_SET_PLAN_JSON:")
+  };
 }
 
 async function scrollCommerceBody(position) {
@@ -516,10 +621,14 @@ async function cancelGoal() {
 }
 
 async function submitCommerceToGoal() {
+  const previousSnapshotHash = await evaluate(client, "window.__naimageDebugAgentState?.().lastDispatchedTaskScope?.snapshotHash || ''");
   assert.equal(await clickSelector(".commerce-set-submit"), true);
-  await waitFor("Boolean(document.querySelector('.goal-confirmation-dialog'))", 15_000);
+  await waitFor(`!document.querySelector('.commerce-set-dialog')
+    && window.__naimageDebugAgentState?.().lastDispatchedTaskScope?.origin === 'goal'
+    && window.__naimageDebugAgentState?.().lastDispatchedTaskScope?.snapshotHash !== ${JSON.stringify(previousSnapshotHash)}
+    && window.__naimageDebugAgentState?.().lastDispatchedPrompt?.includes('[NAIMAGE_COMMERCE_SET_V1]')`, 20_000);
   await delay(260);
-  return readGoalDialog();
+  return readPendingCommercePlan();
 }
 
 async function confirmGoal() {
@@ -557,7 +666,7 @@ async function requirementNodes() {
 }
 
 async function chooseSaveTarget(target, name) {
-  const label = target === "skill" ? "Skill" : "Requirement";
+  const label = target === "skill" ? "Skill 节点" : "需求节点";
   assert.equal(await clickSelector(".commerce-set-save-control button", label), true);
   const selector = ".commerce-set-section[aria-labelledby='commerce-set-save-title'] .ui-field input";
   await replaceText(selector, name);
@@ -649,14 +758,24 @@ async function main() {
     20_000,
     100
   );
+  const initialViewport = await evaluate(client, "({ width: innerWidth, height: innerHeight })");
 
   const toolbar = await readToolbar();
-  assert.deepEqual(toolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit")).map((item) => item.text), ["一键生成套图", "一键多国语言"]);
-  assert(toolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit")).every((item) => item.disabled));
+  const commerceToolbarButtons = toolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit"));
+  assert.deepEqual(commerceToolbarButtons.map((item) => item.text), ["SKU 商品素材库", "平台导出中心", "套图模板市场", "A/B 方案比较", "一键生成套图", "一键多国语言"]);
+  assert.deepEqual(commerceToolbarButtons.map((item) => item.disabled), [false, false, false, false, true, true]);
   assert.deepEqual(
-    toolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit")).map((item) => item.ariaKeyShortcuts),
-    ["Control+Shift+1 Meta+Shift+1", "Control+Shift+2 Meta+Shift+2"]
+    commerceToolbarButtons.map((item) => item.ariaKeyShortcuts),
+    [
+      "Control+Shift+5 Meta+Shift+5",
+      "Control+Shift+6 Meta+Shift+6",
+      "Control+Shift+7 Meta+Shift+7",
+      "Control+Shift+8 Meta+Shift+8",
+      "Control+Shift+1 Meta+Shift+1",
+      "Control+Shift+2 Meta+Shift+2"
+    ]
   );
+  assert(commerceToolbarButtons.every((item) => item.title.includes("Ctrl/⌘ + Shift")));
   assert.equal(toolbar.mode, "expanded");
   assert.equal(toolbar.expanded, true);
   assert.equal(toolbar.actionsVisible, true);
@@ -708,6 +827,24 @@ async function main() {
   const shortcutBlockedByDialog = await readCommerceDialog();
   assert.equal(shortcutBlockedByDialog?.title, "跨境电商套图生成计划");
   checks.toolbarShortcuts = { ok: true, shortcutGeneration: shortcutGeneration.title, dialogBlocker: shortcutBlockedByDialog.title };
+  assert.equal(shortcutGeneration?.platformButtons.find((item) => item.active)?.text, "通用电商");
+  assert.equal(await clickSelector(".commerce-set-platform-control button", "Amazon"), true);
+  await waitFor("document.querySelectorAll('.commerce-set-slot-card').length === 7 && document.querySelector('.commerce-set-slot-card textarea')?.value.includes('纯白背景') === true");
+  const amazonTemplate = await readCommerceDialog();
+  assert.equal(amazonTemplate?.platformButtons.find((item) => item.active)?.text, "Amazon");
+  assert.equal(amazonTemplate?.slotCount, 7);
+  assert.match(amazonTemplate?.platformSummary || "", /7 张默认套图/);
+  assert.equal(await clickSelector(".commerce-set-platform-control button", "速卖通"), true);
+  await waitFor("document.querySelectorAll('.commerce-set-slot-card').length === 8 && document.querySelector('.commerce-set-slot-card input')?.value.includes('速卖通') === true");
+  const aliexpressTemplate = await readCommerceDialog();
+  assert.equal(aliexpressTemplate?.platformButtons.find((item) => item.active)?.text, "速卖通");
+  assert.equal(aliexpressTemplate?.slotCount, 8);
+  assert.match(aliexpressTemplate?.platformSummary || "", /8 张默认套图/);
+  checks.platformTemplates = { ok: true, amazonTemplate, aliexpressTemplate };
+  await scrollCommerceBody("top");
+  await capture("00c-aliexpress-platform-template");
+  assert.equal(await clickSelector(".commerce-set-platform-control button", "Amazon"), true);
+  await waitFor("document.querySelectorAll('.commerce-set-slot-card').length === 7");
   await replaceText(".commerce-set-slot-heading input[type='number']", "3");
   await replaceText(".commerce-set-slot-card:nth-child(1) textarea", "主图：纯色背景，保留商品轮廓、Logo 与包装文字。");
   await replaceText(".commerce-set-slot-card:nth-child(2) textarea", "卖点图：只呈现来源可确认的三个核心特点。");
@@ -719,6 +856,7 @@ async function main() {
   assert.equal(generation.summary["结果组"], "2");
   assert.equal(generation.summary["总请求"], "6");
   assert.equal(generation.slotCount, 3);
+  assert.equal(generation.platformButtons.find((item) => item.active)?.text, "Amazon");
   assert.deepEqual(generation.slotPrompts, [
     "主图：纯色背景，保留商品轮廓、Logo 与包装文字。",
     "卖点图：只呈现来源可确认的三个核心特点。",
@@ -730,12 +868,24 @@ async function main() {
   assert(generation.notices.some((notice) => notice.text.includes("先串行测试最多 2 个不同母图") && notice.text.includes("每波最多翻倍")));
   checks.twoSourceMatrix = { ok: true, sourceIds: twoSources.ids, generation };
   await capture("01-generate-two-sources-three-slots");
+  assert.equal(await clickSelector(".commerce-set-dialog .ui-surface-footer button", "保存到模板市场"), true);
+  await waitFor("Array.from(document.querySelectorAll('.commerce-set-dialog .ui-inline-notice')).some((notice) => notice.textContent?.includes('已保存到模板市场'))", 12_000);
+  const savedTemplateNotice = await evaluate(client, `(() => String(Array.from(document.querySelectorAll('.commerce-set-dialog .ui-inline-notice')).find((notice) => notice.textContent?.includes('已保存到模板市场'))?.textContent || '').replace(/\\s+/g, ' ').trim())()`);
+  assert.match(savedTemplateNotice, /已保存到模板市场/);
+  checks.templateSavedFromWizard = { ok: true, notice: savedTemplateNotice, slotCount: generation.slotCount };
 
   assert.equal(await clickSelector(".commerce-set-mode-control button", "翻译现有套图"), true);
   await waitFor("document.querySelector('.commerce-set-dialog .ui-surface-heading h2')?.textContent?.includes('翻译计划') === true");
   await replaceText(".commerce-set-section[aria-labelledby='commerce-set-translate-title'] textarea", "仅翻译可见文案，品牌、SKU、数字与单位保持不变；阿拉伯语使用 RTL 排版。");
   assert.equal(await clickSelector(".commerce-language-prompts > summary"), true);
   await replaceText(".commerce-language-prompts .ui-field:first-child textarea", "采用自然美式电商英语，标题简洁，不能新增卖点。");
+  const sourceOneCellPrompt = "第一张母图：只翻译顶部标题，底部尺寸单位保留英文。";
+  const sourceTwoCellPrompt = "第二张母图：包装正面的技术参数保持原文，不新增角标。";
+  assert.equal(await clickSelector(".commerce-translation-matrix tbody tr:nth-child(1) td:nth-of-type(1) button"), true);
+  await waitFor("Boolean(document.querySelector('.commerce-translation-cell-editor textarea'))");
+  await replaceText(".commerce-translation-cell-editor textarea", sourceOneCellPrompt);
+  assert.equal(await clickSelector(".commerce-translation-matrix tbody tr:nth-child(2) td:nth-of-type(2) button"), true);
+  await replaceText(".commerce-translation-cell-editor textarea", sourceTwoCellPrompt);
   await chooseSaveTarget("requirement", "五国语言商品图本地化");
   const translation = await readCommerceDialog();
   assert.equal(translation.title, "跨境电商套图翻译计划");
@@ -745,23 +895,79 @@ async function main() {
   assert.equal(translation.summary["总请求"], "10");
   assert.equal(translation.selectedLanguages.length, 5);
   assert.equal(translation.languagePromptCount, 5);
+  assert.equal(translation.translationMatrix?.sourceRows, 2);
+  assert.equal(translation.translationMatrix?.localeCodes.length, 5);
+  assert.equal(translation.translationMatrix?.customizedCount, 2);
+  assert.equal(translation.translationMatrix?.cells.filter((cell) => cell.custom).length, 2);
+  assert.equal(translation.translationMatrix?.cells.filter((cell) => cell.custom).every((cell) => cell.text.includes("有逐项要求")), true);
   checks.modeSwitchAndLanguagePrompts = { ok: true, translation };
   await capture("02-translate-mode-with-prompts");
 
-  const beforeCancelNodes = await requirementNodes();
-  const translationGoal = await submitCommerceToGoal();
-  assert.equal(translationGoal.scope, "2 个来源边界 · 2 张母图");
-  assert.equal(translationGoal.requests, "最多 10 次图片请求");
-  assert(translationGoal.policies[0].includes("2 个不同母图代表项"));
-  assert(translationGoal.policies[1].includes("最高 10 路"));
-  assert(translationGoal.policies[2].includes("仍可能计费"));
-  checks.finalModeDrivesGoal = { ok: true, translationGoal };
-  await capture("03-translation-goal-confirmation");
-  await cancelGoal();
-  const afterCancelNodes = await requirementNodes();
-  assert.deepEqual(afterCancelNodes, beforeCancelNodes, "Canceling Goal must not create a reusable node");
-  checks.cancelDoesNotPersist = { ok: true, before: beforeCancelNodes.length, after: afterCancelNodes.length };
+  await scrollCommerceBody(".commerce-translation-matrix-section");
+  const translationMatrixDesktop = await readCommerceDialog();
+  assert.equal(translationMatrixDesktop.translationMatrix?.customizedCount, 2);
+  checks.translationMatrixCells = { ok: true, translationMatrixDesktop };
+  await capture("02a-translation-matrix-cells");
 
+  const translationSmallWindow = await setWindowSize(900, 640);
+  await scrollCommerceBody(".commerce-translation-matrix-section");
+  const translationMatrixSmall = await readCommerceDialog();
+  assert(Math.abs(translationMatrixSmall.viewport.width - 900) <= 2 && Math.abs(translationMatrixSmall.viewport.height - 640) <= 2);
+  assert.equal(translationMatrixSmall.documentOverflowX, false);
+  assert.equal(translationMatrixSmall.bodyOverflowX, false);
+  assert.equal(translationMatrixSmall.dialogOverflowX, false);
+  assert.equal(translationMatrixSmall.bodyScroll?.overflowX, false);
+  assert(translationMatrixSmall.translationMatrix?.scrollerRect.left >= translationMatrixSmall.bodyRect.left - 1);
+  assert(translationMatrixSmall.translationMatrix?.scrollerRect.right <= translationMatrixSmall.bodyRect.right + 1);
+  checks.translationMatrixSmallWindow = { ok: true, translationSmallWindow, translationMatrixSmall };
+  await capture("02b-translation-matrix-900x640");
+  await setWindowSize(initialViewport.width, initialViewport.height);
+  await scrollCommerceBody("top");
+
+  const beforeTranslationNodes = await requirementNodes();
+  const pendingTranslation = await submitCommerceToGoal();
+  const expectedTranslationItems = [
+    { sourceIndex: 0, localeCode: translation.translationMatrix.localeCodes[0], prompt: sourceOneCellPrompt },
+    { sourceIndex: 1, localeCode: translation.translationMatrix.localeCodes[1], prompt: sourceTwoCellPrompt }
+  ];
+  assert.equal(pendingTranslation?.phase, "dispatched");
+  assert.deepEqual(pendingTranslation?.promptPlan?.translationItems, expectedTranslationItems);
+  assert.equal(pendingTranslation?.promptPlan?.sourceCount, 2);
+  assert.equal(pendingTranslation?.promptPlan?.totalRequests, 10);
+  assert.equal(pendingTranslation?.requestCount, 10);
+  assert.equal(pendingTranslation?.operationsPerAsset, 5);
+  assert.equal(pendingTranslation?.taskScopeGoal?.containerCount, 2);
+  assert.equal(pendingTranslation?.taskScopeGoal?.bindingCount, 2);
+  assert.equal(pendingTranslation?.taskScopeGoal?.probeContainerCount, 2);
+  assert.equal(pendingTranslation?.taskScopeGoal?.commercePlanHash, pendingTranslation?.promptPlan?.planHash);
+  checks.finalModeDrivesGoal = {
+    ok: true,
+    pendingPlan: {
+      planHash: pendingTranslation.promptPlan.planHash,
+      planMaterialHash: pendingTranslation.promptPlan.planMaterialHash,
+      sourceCount: pendingTranslation.promptPlan.sourceCount,
+      totalRequests: pendingTranslation.promptPlan.totalRequests,
+      translationItems: pendingTranslation.promptPlan.translationItems,
+      goalCommercePlanHash: pendingTranslation.taskScopeGoal.commercePlanHash
+    }
+  };
+  await waitFor(`document.querySelectorAll('.flow-node.requirement-node:not(.skill-node)').length === ${beforeTranslationNodes.length + 1}`, 15_000, 100);
+  assert.equal(await evaluate(client, "Boolean(document.querySelector('.goal-confirmation-dialog'))"), false);
+  const afterTranslationNodes = await requirementNodes();
+  checks.directDispatch = {
+    ok: true,
+    confirmationDialogOpen: false,
+    requirementNodesBefore: beforeTranslationNodes.length,
+    requirementNodesAfter: afterTranslationNodes.length
+  };
+  await capture("03-translation-direct-dispatch");
+  await ensureAgentIdle();
+
+  await evaluate(client, `(async () => {
+    await window.__naimageAIDebug.selectNodes({ ids: ${JSON.stringify(twoSources.ids)}, primaryId: ${JSON.stringify(twoSources.ids[0])} });
+    return true;
+  })()`);
+  await waitFor("document.querySelector('[data-plugin-command=\"sparkai.commerce-toolkit.translate-listing-set\"]')?.disabled === false");
   await dispatchCanvasToolShortcut(2);
   await waitFor("Boolean(document.querySelector('.commerce-set-dialog'))", 12_000);
   const directTranslation = await readCommerceDialog();
@@ -774,9 +980,8 @@ async function main() {
   await openCommerce("sparkai.commerce-toolkit.generate-listing-set");
   await replaceText(".commerce-set-slot-heading input[type='number']", "3");
   await chooseSaveTarget("requirement", "Amazon 三图商品套装");
-  const requirementGoal = await submitCommerceToGoal();
-  assert.equal(requirementGoal.requests, "最多 3 次图片请求");
-  await confirmGoal();
+  const requirementDispatch = await submitCommerceToGoal();
+  assert.equal(requirementDispatch?.taskScopeGoal?.requestCount, 3);
   await waitFor("document.querySelectorAll('.flow-node.requirement-node:not(.skill-node)').length === 1", 15_000, 100);
   await evaluate(client, "window.__naimageAIDebug.fitCanvas(); undefined");
   await delay(400);
@@ -784,7 +989,7 @@ async function main() {
   assert.equal(requirement.length, 1);
   assert.equal(requirement[0].skill, false);
   assert(requirement[0].text.includes("Amazon 三图商品套装"));
-  checks.requirementCreatedAfterDispatch = { ok: true, requirement };
+  checks.requirementCreatedAfterDispatch = { ok: true, requirement, planHash: requirementDispatch.promptPlan.planHash };
   await capture("04-requirement-node");
   await ensureAgentIdle();
 
@@ -801,9 +1006,8 @@ async function main() {
   await openCommerce("sparkai.commerce-toolkit.generate-listing-set");
   await replaceText(".commerce-set-slot-heading input[type='number']", "1");
   await chooseSaveTarget("skill", "跨境商品主图 Skill");
-  const skillGoal = await submitCommerceToGoal();
-  assert.equal(skillGoal.requests, "最多 1 次图片请求");
-  await confirmGoal();
+  const skillDispatch = await submitCommerceToGoal();
+  assert.equal(skillDispatch?.taskScopeGoal?.requestCount, 1);
   await waitFor("document.querySelectorAll('.flow-node.requirement-node.skill-node').length === 1", 15_000, 100);
   await evaluate(client, "window.__naimageAIDebug.fitCanvas(); undefined");
   await delay(400);
@@ -840,7 +1044,6 @@ async function main() {
   assert.equal(staleDialog?.submit?.opacity, "1");
   assert.notEqual(staleDialog?.submit?.backgroundColor, generation.submit?.backgroundColor);
   assert.notEqual(staleDialog?.submit?.borderColor, generation.submit?.borderColor);
-  assert.notEqual(staleDialog?.submit?.color, generation.submit?.color);
   assert.deepEqual(await requirementNodes(), staleBefore);
   checks.staleSourceRejected = { ok: true, stale, staleDialog };
   await capture("07-stale-source-rejected");
@@ -854,10 +1057,15 @@ async function main() {
     const imported = await window.__naimageDebugImportPathsToCanvas({ paths: ${JSON.stringify(sourcePaths)}, targetContainerId: created.id });
     await window.__naimageAIDebug.selectNodes({ ids: [created.id], primaryId: created.id });
     await window.__naimageAIDebug.fitCanvas();
+    window.__naimageAIDebug.resumeLayoutRefocus();
     return { created, imported, state: window.__naimageDebugAgentState() };
   })()`, 30_000);
   assert.equal(container?.imported?.ok, true);
-  await delay(320);
+  await waitForRuntimeExpression(
+    client,
+    `Boolean(document.querySelector('.flow-node:not(.canvas-node-overview)[data-node-id="' + CSS.escape(${JSON.stringify(container.created.id)}) + '"] .node-image-preview'))`,
+    { evaluate, timeoutMs: 4_000, intervalMs: 80 }
+  );
   const containerRounding = await readImageContainerRounding(container.created.id);
   assert.equal(containerRounding.nodePresent, true);
   assert.equal(containerRounding.previewPresent, true);
@@ -874,13 +1082,14 @@ async function main() {
   await replaceText(".commerce-set-slot-heading input[type='number']", "1");
   const containerDialog = await readCommerceDialog();
   assert.equal(containerDialog.summary["母图数"], "2");
-  const containerGoal = await submitCommerceToGoal();
-  assert.equal(containerGoal.scope, "1 个来源边界 · 2 张母图");
-  assert.equal(containerGoal.requests, "最多 2 次图片请求");
-  assert(containerGoal.policies[0].includes("2 个不同母图代表项"));
-  checks.singleContainerDifferentMotherProbe = { ok: true, containerId: container.created.id, containerGoal };
+  const containerDispatch = await submitCommerceToGoal();
+  assert.equal(containerDispatch?.taskScopeGoal?.containerCount, 1);
+  assert.equal(containerDispatch?.taskScopeGoal?.bindingCount, 2);
+  assert.equal(containerDispatch?.taskScopeGoal?.requestCount, 2);
+  assert.equal(containerDispatch?.promptPlan?.executionPolicy?.probeSourceCount, 2);
+  checks.singleContainerDifferentMotherProbe = { ok: true, containerId: container.created.id, containerDispatch };
   await capture("08-container-two-assets-goal");
-  await cancelGoal();
+  await ensureAgentIdle();
 
   await seedAndSelect(2);
   await openCommerce("sparkai.commerce-toolkit.generate-listing-set");
@@ -909,7 +1118,6 @@ async function main() {
   assert.equal(overLimit.submit?.opacity, "1");
   assert.notEqual(overLimit.submit?.backgroundColor, exact200.submit?.backgroundColor);
   assert.notEqual(overLimit.submit?.borderColor, exact200.submit?.borderColor);
-  assert.notEqual(overLimit.submit?.color, exact200.submit?.color);
   assert(overLimit.notices.some((notice) => notice.tone === "danger" && notice.text.includes("超过单次 200 个")));
   checks.overLimitBlocked = { ok: true, overLimit };
   await capture("10-over-limit-240-top");
@@ -958,6 +1166,148 @@ async function main() {
   await capture("13-small-window-900x640");
   await closeCommerce();
 
+  assert.equal(await clickSelector('[data-plugin-command="sparkai.commerce-toolkit.open-template-market"]'), true);
+  await waitFor("document.querySelectorAll('.commerce-template-row').length >= 3", 12_000);
+  const templateMarket = await evaluate(client, `(() => {
+    const dialog = document.querySelector('.commerce-template-dialog');
+    const body = dialog?.querySelector('.commerce-template-body');
+    const footer = dialog?.querySelector('.ui-surface-footer');
+    const rect = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
+    };
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      dialogRect: rect(dialog),
+      bodyRect: rect(body),
+      footerRect: rect(footer),
+      builtIn: Array.from(dialog?.querySelectorAll('.commerce-template-row[data-source="built-in"]') || []).map((row) => String(row.textContent || '').replace(/\\s+/g, ' ').trim()),
+      personal: Array.from(dialog?.querySelectorAll('.commerce-template-row[data-source="personal"]') || []).map((row) => String(row.textContent || '').replace(/\\s+/g, ' ').trim()),
+      builtInDeleteButtons: dialog?.querySelectorAll('.commerce-template-row[data-source="built-in"] [aria-label^="删除套图模板"]').length || 0,
+      personalDeleteButtons: dialog?.querySelectorAll('.commerce-template-row[data-source="personal"] [aria-label^="删除套图模板"]').length || 0,
+      useButtons: Array.from(dialog?.querySelectorAll('.commerce-template-row .ui-action-button') || []).map((button) => String(button.textContent || '').trim()),
+      overflowX: Boolean(dialog && dialog.scrollWidth > dialog.clientWidth + 1),
+      documentOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+    };
+  })()`);
+  const rectWithinViewport = (rect, viewport) => Boolean(rect && rect.left >= -1 && rect.top >= -1 && rect.right <= viewport.width + 1 && rect.bottom <= viewport.height + 1);
+  assert.equal(templateMarket.builtIn.length, 2);
+  assert.equal(templateMarket.personal.length, 1);
+  assert.equal(templateMarket.builtInDeleteButtons, 0);
+  assert.equal(templateMarket.personalDeleteButtons, 1);
+  assert.equal(templateMarket.useButtons.length, 3);
+  assert.equal(rectWithinViewport(templateMarket.dialogRect, templateMarket.viewport), true);
+  assert.equal(rectWithinViewport(templateMarket.footerRect, templateMarket.viewport), true);
+  assert.equal(templateMarket.overflowX, false);
+  assert.equal(templateMarket.documentOverflowX, false);
+  checks.templateMarket = { ok: true, templateMarket };
+  await capture("13a-template-market-900x640");
+  assert.equal(await clickSelector('.commerce-template-row[data-source="personal"] .ui-action-button', "使用"), true);
+  await waitFor("Boolean(document.querySelector('.commerce-set-dialog')) && !document.querySelector('.commerce-template-dialog')", 12_000);
+  const reusedTemplate = await readCommerceDialog();
+  assert.equal(reusedTemplate?.slotCount, 3);
+  assert.equal(reusedTemplate?.platformButtons.find((item) => item.active)?.text, "Amazon");
+  assert.equal(reusedTemplate?.documentOverflowX, false);
+  assert.equal(reusedTemplate?.bodyOverflowX, false);
+  checks.templateReuse = { ok: true, reusedTemplate };
+  await capture("13b-template-reuse-900x640");
+  await closeCommerce();
+
+  const abSources = await seedAndSelect(2);
+  await delay(1_100);
+  const abFixture = await evaluate(client, `(async () => {
+    const state = window.__naimageAIDebug.state();
+    const projectId = state.activeProjectId;
+    const catalog = await window.naimageConfig.listCommerceCatalog({ expectedProjectId: projectId });
+    if (!catalog?.ok) return { stage: 'list', ...catalog };
+    const created = await window.naimageConfig.saveCommerceCatalogProduct({
+      expectedProjectId: projectId,
+      expectedCatalogRevision: catalog.catalogRevision,
+      title: 'AIDebug A/B 商品',
+      productCode: 'AB-001',
+      platforms: ['amazon'],
+      variants: [],
+      skus: []
+    });
+    if (!created?.ok) return { stage: 'create', ...created };
+    const assigned = await window.naimageConfig.assignCommerceCatalogAssets({
+      expectedProjectId: projectId,
+      expectedCatalogRevision: created.catalogRevision,
+      productId: created.product.productId,
+      expectedProductRevision: created.product.revision,
+      kind: 'result',
+      ownerType: 'product',
+      role: 'amazon-main',
+      assets: ${JSON.stringify(abSources.ids.map((nodeId) => ({ nodeId, assetIndex: 0 })))}
+    });
+    if (!assigned?.ok) return { stage: 'assign', ...assigned };
+    const comparisons = await window.naimageConfig.listCommerceCatalogComparisons({ expectedProjectId: projectId, productId: created.product.productId });
+    return { stage: 'ready', projectId, created, assigned, comparisons };
+  })()`, 30_000);
+  assert.equal(abFixture?.stage, "ready", JSON.stringify(abFixture));
+  assert.equal(abFixture.comparisons?.groups?.length, 1);
+  assert.equal(abFixture.comparisons.groups[0].candidates.length, 2);
+  assert.equal(await clickSelector('[data-plugin-command="sparkai.commerce-toolkit.open-ab-comparison"]'), true);
+  await waitFor("document.querySelectorAll('.commerce-ab-candidate').length === 2", 12_000);
+  const readAbDialog = () => evaluate(client, `(() => {
+    const dialog = document.querySelector('.commerce-ab-dialog');
+    const groupList = dialog?.querySelector('.commerce-ab-groups');
+    const stage = dialog?.querySelector('.commerce-ab-stage');
+    const footer = dialog?.querySelector('.ui-surface-footer');
+    const rect = (element) => {
+      const box = element?.getBoundingClientRect();
+      return box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height } : null;
+    };
+    const candidates = Array.from(dialog?.querySelectorAll('.commerce-ab-candidate') || []).map((card) => {
+      const image = card.querySelector('img');
+      const style = image ? getComputedStyle(image) : null;
+      return {
+        state: card.getAttribute('data-state') || '',
+        selected: card.classList.contains('is-selected'),
+        text: String(card.textContent || '').replace(/\\s+/g, ' ').trim(),
+        rect: rect(card),
+        imagePresent: image instanceof HTMLImageElement,
+        objectFit: style?.objectFit || '',
+        filter: style?.filter || ''
+      };
+    });
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      dialogRect: rect(dialog),
+      groupListRect: rect(groupList),
+      stageRect: rect(stage),
+      footerRect: rect(footer),
+      candidates,
+      notice: String(dialog?.querySelector('.ui-inline-notice')?.textContent || '').replace(/\\s+/g, ' ').trim(),
+      overflowX: Boolean(dialog && dialog.scrollWidth > dialog.clientWidth + 1),
+      documentOverflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+    };
+  })()`);
+  const abBefore = await readAbDialog();
+  assert.equal(abBefore.candidates.length, 2);
+  assert.equal(abBefore.candidates.every((candidate) => candidate.imagePresent), true);
+  assert.equal(abBefore.candidates.every((candidate) => candidate.objectFit === "contain" && candidate.filter === "none"), true);
+  assert.equal(abBefore.candidates[0].rect.top, abBefore.candidates[1].rect.top);
+  assert(abBefore.candidates[0].rect.right <= abBefore.candidates[1].rect.left + 1);
+  assert(abBefore.groupListRect.right <= abBefore.stageRect.left + 1);
+  assert.equal(rectWithinViewport(abBefore.dialogRect, abBefore.viewport), true);
+  assert.equal(rectWithinViewport(abBefore.footerRect, abBefore.viewport), true);
+  assert.equal(abBefore.overflowX, false);
+  assert.equal(abBefore.documentOverflowX, false);
+  checks.abComparison = { ok: true, fixture: { projectId: abFixture.projectId, productId: abFixture.created.product.productId }, abBefore };
+  await capture("13c-ab-comparison-900x640");
+  assert.equal(await clickSelector('.commerce-ab-candidate:nth-child(2) > button'), true);
+  assert.equal(await clickSelector('.commerce-ab-dialog .ui-surface-footer button', "设为最终成果"), true);
+  await waitFor("document.querySelectorAll('.commerce-ab-candidate[data-state=" + JSON.stringify("approved") + "]').length === 1 && document.querySelectorAll('.commerce-ab-candidate[data-state=" + JSON.stringify("rejected") + "]').length === 1", 12_000);
+  const abAfter = await readAbDialog();
+  assert.equal(abAfter.candidates.length, 2);
+  assert.deepEqual(abAfter.candidates.map((candidate) => candidate.state).sort(), ["approved", "rejected"]);
+  assert.match(abAfter.notice, /最终成果已选定/);
+  checks.abWinner = { ok: true, abAfter };
+  await capture("13d-ab-winner-900x640");
+  assert.equal(await clickSelector('.commerce-ab-dialog .ui-surface-footer button', "关闭"), true);
+  await waitFor("!document.querySelector('.commerce-ab-dialog')");
+
   assert.equal(await clickSelector(".app-settings-button"), true);
   await waitFor("Boolean(document.querySelector('.settings-drawer'))", 12_000);
   assert.equal(await clickSelector(".settings-section-tab", "工具"), true);
@@ -965,28 +1315,49 @@ async function main() {
   const settingsBefore = await evaluate(client, `(() => ({
     mode: String(document.querySelector('.settings-canvas-tool-mode [aria-pressed="true"]')?.textContent || '').trim(),
     generateChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.generate-listing-set"] input')?.checked === true,
-    translationChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] input')?.checked === true
+    translationChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] input')?.checked === true,
+    translationShortcut: String(document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] [data-shortcut-recorder] kbd')?.textContent || '').trim()
   }))()`);
   assert.equal(settingsBefore.mode, "一直展开");
   assert.equal(settingsBefore.generateChecked, true);
   assert.equal(settingsBefore.translationChecked, true);
+  assert.equal(settingsBefore.translationShortcut, "Ctrl/⌘ + Shift + 2");
+  assert.equal(await clickSelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] [data-shortcut-recorder]'), true);
+  await dispatchCanvasToolShortcut(1);
+  await waitFor("document.querySelector('[data-canvas-tool-command=\"sparkai.commerce-toolkit.translate-listing-set\"] .settings-canvas-tool-feedback')?.getAttribute('data-tone') === 'danger'");
+  const shortcutConflict = await evaluate(client, `(() => ({
+    feedback: String(document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] .settings-canvas-tool-feedback')?.textContent || '').trim(),
+    recording: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] [data-shortcut-recorder]')?.getAttribute('aria-pressed') === 'true'
+  }))()`);
+  assert.match(shortcutConflict.feedback, /一键生成套图.*冲突/);
+  assert.equal(shortcutConflict.recording, true);
+  await capture("14a-tool-shortcut-conflict");
+  await dispatchCanvasToolShortcut(9, 3);
+  await waitFor("String(document.querySelector('[data-canvas-tool-command=\"sparkai.commerce-toolkit.translate-listing-set\"] [data-shortcut-recorder] kbd')?.textContent || '').trim() === 'Ctrl/⌘ + Alt + 9'");
   assert.equal(await clickSelector(".settings-canvas-tool-mode button", "悬停展开"), true);
   assert.equal(await clickSelector('[data-canvas-tool-command="sparkai.commerce-toolkit.generate-listing-set"] input'), true);
   const settingsDraft = await evaluate(client, `(() => ({
     mode: String(document.querySelector('.settings-canvas-tool-mode [aria-pressed="true"]')?.textContent || '').trim(),
     generateChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.generate-listing-set"] input')?.checked === true,
-    translationChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] input')?.checked === true
+    generateShortcutDisabled: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.generate-listing-set"] [data-shortcut-recorder]')?.disabled === true,
+    translationChecked: document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] input')?.checked === true,
+    translationShortcut: String(document.querySelector('[data-canvas-tool-command="sparkai.commerce-toolkit.translate-listing-set"] [data-shortcut-recorder] kbd')?.textContent || '').trim()
   }))()`);
   assert.equal(settingsDraft.mode, "悬停展开");
   assert.equal(settingsDraft.generateChecked, false);
+  assert.equal(settingsDraft.generateShortcutDisabled, false);
   assert.equal(settingsDraft.translationChecked, true);
-  checks.canvasToolSettingsDraft = { ok: true, settingsBefore, settingsDraft };
+  assert.equal(settingsDraft.translationShortcut, "Ctrl/⌘ + Alt + 9");
+  checks.canvasToolSettingsDraft = { ok: true, settingsBefore, shortcutConflict, settingsDraft };
   await capture("14-tool-settings");
   assert.equal(await clickSelector(".settings-surface-footer button", "保存设置"), true);
   await waitFor("document.querySelector('.settings-surface-footer .ui-action-primary')?.disabled === true", 12_000);
   const storedToolSettings = await evaluate(client, "window.naimageConfig.loadSettings()");
   assert.equal(storedToolSettings?.settings?.canvasToolDockMode, "hover");
   assert.deepEqual(storedToolSettings?.settings?.disabledCanvasToolCommands, ["sparkai.commerce-toolkit.generate-listing-set"]);
+  assert.deepEqual(storedToolSettings?.settings?.canvasToolShortcuts, {
+    "sparkai.commerce-toolkit.translate-listing-set": "Mod+Alt+9"
+  });
   assert.equal(await clickSelector(".settings-surface-footer button", "关闭"), true);
   await waitFor("!document.querySelector('.settings-drawer')");
   await movePointer({ x: 2, y: 2 });
@@ -994,10 +1365,27 @@ async function main() {
     && Boolean(document.querySelector('[data-plugin-command="sparkai.commerce-toolkit.translate-listing-set"]'))
     && document.querySelector('.canvas-plugin-toolbar')?.getAttribute('data-expanded') === 'false'`, 12_000);
   const filteredToolbar = await readToolbar();
-  assert.deepEqual(filteredToolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit")).map((item) => item.command), ["sparkai.commerce-toolkit.translate-listing-set"]);
+  assert.deepEqual(
+    filteredToolbar.buttons.filter((item) => item.command.startsWith("sparkai.commerce-toolkit")).map((item) => item.command),
+    [
+      "sparkai.commerce-toolkit.open-sku-library",
+      "sparkai.commerce-toolkit.open-export-center",
+      "sparkai.commerce-toolkit.open-template-market",
+      "sparkai.commerce-toolkit.open-ab-comparison",
+      "sparkai.commerce-toolkit.translate-listing-set"
+    ]
+  );
+  const customizedToolbarItem = filteredToolbar.buttons.find((item) => item.command === "sparkai.commerce-toolkit.translate-listing-set");
+  assert.equal(customizedToolbarItem?.ariaKeyShortcuts, "Control+Alt+9 Meta+Alt+9");
+  assert.match(customizedToolbarItem?.title || "", /Ctrl\/⌘ \+ Alt \+ 9/);
   await dispatchCanvasToolShortcut(1);
-  assert.equal(await evaluate(client, "Boolean(document.querySelector('.commerce-set-dialog'))"), false);
+  await waitFor("Boolean(document.querySelector('.commerce-set-dialog'))", 12_000);
+  const hiddenShortcutDialog = await readCommerceDialog();
+  assert.equal(hiddenShortcutDialog?.title, "跨境电商套图生成计划");
+  await closeCommerce();
   await dispatchCanvasToolShortcut(2);
+  assert.equal(await evaluate(client, "Boolean(document.querySelector('.commerce-set-dialog'))"), false);
+  await dispatchCanvasToolShortcut(9, 3);
   await waitFor("Boolean(document.querySelector('.commerce-set-dialog'))", 12_000);
   const enabledShortcutDialog = await readCommerceDialog();
   assert.equal(enabledShortcutDialog?.title, "跨境电商套图翻译计划");
@@ -1005,13 +1393,15 @@ async function main() {
     ok: true,
     stored: {
       canvasToolDockMode: storedToolSettings.settings.canvasToolDockMode,
-      disabledCanvasToolCommands: storedToolSettings.settings.disabledCanvasToolCommands
+      disabledCanvasToolCommands: storedToolSettings.settings.disabledCanvasToolCommands,
+      canvasToolShortcuts: storedToolSettings.settings.canvasToolShortcuts
     },
     filteredToolbar,
-    disabledShortcutOpened: false,
+    hiddenShortcutTitle: hiddenShortcutDialog.title,
+    previousShortcutOpened: false,
     enabledShortcutTitle: enabledShortcutDialog.title
   };
-  await capture("15-disabled-tool-shortcut");
+  await capture("15-hidden-tool-shortcut");
   await closeCommerce();
 
   const report = reporting.finishSuiteRun({

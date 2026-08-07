@@ -7,10 +7,11 @@ import { parseAidebugOptions } from "./aidebug/options.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(scriptDir, "..");
-const cwd = join(packageRoot, ".diagnostics", "aidebug-options-cwd");
+const runDir = join(packageRoot, ".diagnostics", "electron", "aidebug-options-run");
+const cwd = runDir;
 const context = Object.freeze({
   pid: 1234,
-  runDir: join(packageRoot, ".diagnostics", "electron", "aidebug-options-run"),
+  runDir,
   repoRoot: packageRoot,
   cwd,
   now: 1_700_000_000_123
@@ -77,6 +78,7 @@ assert.deepEqual(Object.keys(defaults).sort(), [
   "persistenceSentinel",
   "persistenceStateFile",
   "aidebugConfigDir",
+  "aidebugIsolationRoot",
   "nativeCaptureMode",
   "captureScope",
   "cycles",
@@ -115,6 +117,7 @@ assert.deepEqual({
   persistenceSentinel: defaults.persistenceSentinel,
   persistenceStateFile: defaults.persistenceStateFile,
   aidebugConfigDir: defaults.aidebugConfigDir,
+  aidebugIsolationRoot: defaults.aidebugIsolationRoot,
   captureScope: defaults.captureScope,
   cycles: defaults.cycles,
   cycleIndex: defaults.cycleIndex,
@@ -148,6 +151,7 @@ assert.deepEqual({
   persistenceSentinel: "AIDEBUG_CONTEXT_PERSIST_1700000000123",
   persistenceStateFile: join(context.runDir, "context-persistence-state.json"),
   aidebugConfigDir: join(context.runDir, "config"),
+  aidebugIsolationRoot: context.runDir,
   captureScope: "page",
   cycles: 1,
   cycleIndex: 1,
@@ -243,6 +247,7 @@ assert.deepEqual({
   liveConfig: envOptions.liveConfig,
   mockAgent: envOptions.mockAgent,
   aidebugConfigDir: envOptions.aidebugConfigDir,
+  aidebugIsolationRoot: envOptions.aidebugIsolationRoot,
   agentUiPrompt: envOptions.agentUiPrompt,
   agentUiFollowupPrompt: envOptions.agentUiFollowupPrompt,
   agentUiReferencePaths: envOptions.agentUiReferencePaths,
@@ -257,6 +262,7 @@ assert.deepEqual({
   liveConfig: true,
   mockAgent: true,
   aidebugConfigDir: resolve(cwd, "env-config"),
+  aidebugIsolationRoot: context.runDir,
   agentUiPrompt: "env prompt",
   agentUiFollowupPrompt: "env followup",
   agentUiReferencePaths: [resolve(cwd, "env-a.png"), resolve(cwd, "env-b.png")],
@@ -281,6 +287,7 @@ const mixedPrecedence = parse([
 assert.equal(mixedPrecedence.devPort, 6222);
 assert.equal(mixedPrecedence.debugPort, 9422);
 assert.equal(mixedPrecedence.aidebugConfigDir, resolve(cwd, "cli-config"));
+assert.equal(mixedPrecedence.aidebugIsolationRoot, context.runDir);
 assert.equal(mixedPrecedence.agentUiPrompt, "env prompt");
 assert.equal(mixedPrecedence.agentUiFollowupPrompt, "env followup");
 assert.deepEqual(mixedPrecedence.agentUiReferencePaths, [resolve(cwd, "env.png")]);
@@ -406,8 +413,25 @@ const customPaths = parse([
 ]);
 assert.equal(customPaths.persistenceStateFile, "relative-state.json");
 assert.equal(customPaths.aidebugConfigDir, resolve(cwd, "relative-config"));
+assert.equal(customPaths.aidebugIsolationRoot, context.runDir);
 assert.equal(customPaths.desktopLogPath, "relative-history.md");
 assert.equal(customPaths.persistenceSentinel, "custom-sentinel");
+
+const sharedIsolationRoot = join(packageRoot, ".diagnostics", "electron", "aidebug-options-shared");
+const sharedIsolation = parse([
+  `--aidebug-config-dir=${join(sharedIsolationRoot, "shared-config")}`,
+  `--aidebug-isolation-root=${sharedIsolationRoot}`
+]);
+assert.equal(sharedIsolation.aidebugConfigDir, join(sharedIsolationRoot, "shared-config"));
+assert.equal(sharedIsolation.aidebugIsolationRoot, sharedIsolationRoot);
+assert.throws(
+  () => parse([`--aidebug-config-dir=${join(packageRoot, "config")}`]),
+  /must stay inside its isolated diagnostics root/
+);
+assert.throws(
+  () => parse([`--aidebug-config-dir=${context.runDir}`]),
+  /must stay inside its isolated diagnostics root/
+);
 
 let lazyNowCalls = 0;
 const lazyNow = () => {

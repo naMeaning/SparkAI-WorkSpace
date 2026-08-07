@@ -5,6 +5,7 @@ export { default as AgentTextEditorDialog } from "./agent-text-editor-dialog";
 export { default as AskUserDialog } from "./ask-user-dialog";
 export { ConfirmDialog, DeleteNodeDialog, ProjectNameDialog, QuotaDialog } from "./common-dialogs";
 export { default as ManualImageTaskDialog } from "./manual-image-task-dialog";
+export { default as ManualVideoTaskDialog } from "./manual-video-task-dialog";
 export { default as ModelConfigDialog } from "./model-config-dialog";
 export { default as RequirementEditorDialog } from "./requirement-editor-dialog";
 export { default as ThemePalettePicker } from "./theme-palette-picker";

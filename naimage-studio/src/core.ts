@@ -41,6 +41,22 @@ import {
 } from "./asset-identity.ts";
 import { collapseDuplicateToolTimelineMessages } from "./tool-timeline.ts";
 import type { PluginInstallationState } from "./plugin-state.ts";
+import type {
+  CommerceCatalogAssetKind,
+  CommerceCatalogAssetLocator,
+  CommerceCatalogAssetOwnerType,
+  CommerceCatalogGoalTarget,
+  CommerceCatalogProductDraft,
+  CommerceCatalogResult,
+  CommerceCatalogResultState
+} from "./commerce-catalog.ts";
+import type {
+  CommerceExportPackageResult,
+  CommerceExportPreviewResult,
+  CommerceExportRequest
+} from "./commerce-export.ts";
+import type { CommerceTemplateResult } from "./commerce-template.ts";
+import type { CommerceSetPlan } from "./plugins/commerce-set.ts";
 import { remoteAssetDisplaySource } from "./remote-asset-source.ts";
 import type {
   GlassMaterialId,
@@ -125,12 +141,44 @@ export type AgentStatus = "idle" | "thinking" | "editing" | "error";
 export type NodeStatus = "queued" | "working" | "review" | "done";
 export type ImageModelFamily = "gpt-image-2" | "gpt-image-1.5" | "gpt-image-1" | "compatible";
 export type ImageLayerBlendMode = "normal" | "multiply" | "screen" | "overlay" | "source-over";
+export type WorkspaceAssetRailTabId = "results" | "layers" | "requirements" | "templates" | "history";
+
+export type GlassBackgroundAssetMetadata = {
+  mimeType: "image/webp";
+  width: number;
+  height: number;
+  bytes: number;
+};
+
+export type GlassBackgroundAsset = GlassBackgroundAssetMetadata & {
+  schemaVersion: 1;
+  assetId: string;
+  name?: string;
+};
+
+export type GlassBackgroundResult = {
+  ok: boolean;
+  canceled?: boolean;
+  cleared?: boolean;
+  retained?: boolean;
+  retainedUntil?: number;
+  garbageCollected?: number;
+  assetId?: string;
+  asset?: GlassBackgroundAsset;
+  dataUrl?: string;
+  errorCode?: string;
+  error?: string;
+};
 
 export type ImageModelBinding = {
   model: string;
+  customBaseUrl?: string;
   customApiKey?: string;
   accountTokenId?: string;
 };
+
+export type ImageFrameRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9" | "9:21" | "4:5";
+export type ImageResolutionPreset = "1K" | "2K" | "4K";
 
 export type ApiSettings = {
   accessMode: AccessMode;
@@ -153,9 +201,18 @@ export type ApiSettings = {
   imageModel: string;
   imageModelPool: string[];
   imageModelBindings: ImageModelBinding[];
+  /** Default video model used by the future video execution path. */
+  videoModel: string;
+  /** Video models selected for later multi-model dispatch. */
+  videoModelPool: string[];
   imageCount: number;
   /** Number of image requests dispatched together before the next ordered batch. */
   imageBatchSize: number;
+  /** Default output frame used when the current image task does not override it. */
+  imageRatio: ImageFrameRatio;
+  /** User-facing output clarity tier. Legacy 720P/1080P values migrate to 1K. */
+  imageResolution: ImageResolutionPreset;
+  /** Legacy computed size retained for older projects and provider adapters. */
   imageSize: string;
   imageQuality: "low" | "medium" | "high" | "auto";
   accountBaseUrl: string;
@@ -184,15 +241,35 @@ export type AppSettings = ApiSettings & {
   glassTheme: GlassThemeId;
   glassMaterial: GlassMaterialId;
   glassParameters: GlassParameters;
+  glassBackgroundEnabled: boolean;
+  glassBackgroundAssetId: string;
+  glassBackgroundAssetName: string;
+  glassBackgroundAssetMetadata: GlassBackgroundAssetMetadata | null;
+  glassBackgroundOverlay: number;
+  glassBackgroundBlur: number;
   agentPanelPlacement: "right" | "left" | "top" | "bottom" | "floating";
   agentPanelWidth: number;
   agentPanelHeight: number;
   agentPanelX: number;
   agentPanelY: number;
   agentSkillAutoInstallTargets: AgentIntegrationTargetId[];
+  workspacePluginDefaultsVersion: number;
   pluginStates: PluginInstallationState[];
   canvasToolDockMode: "expanded" | "hover";
+  /** Commands hidden from visual tool surfaces; plugin execution and shortcuts stay enabled. */
   disabledCanvasToolCommands: string[];
+  canvasToolShortcuts: Record<string, string>;
+  visibleWorkspaceAssetRailTabs: WorkspaceAssetRailTabId[];
+  /** Installation-level flags only; no user brief or generated content is stored here. */
+  workflowOnboarding: WorkflowOnboardingState;
+};
+
+export type WorkflowOnboardingState = {
+  social?: boolean;
+  xiaohongshu?: boolean;
+  douyin?: boolean;
+  research?: boolean;
+  commerce?: boolean;
 };
 
 export type AgentIntegrationTargetId = "codex" | "claude-code" | "opencode" | "openclaw";
@@ -297,6 +374,188 @@ export type ImportedCanvasSkill = CanvasSkill & {
   instructions: string;
 };
 
+export type SocialPlatform = "xiaohongshu" | "douyin";
+export type SocialContentType = "brief" | "title" | "post" | "cover" | "card" | "script" | "shot" | "video" | "publish-package";
+export type SocialContentStatus = "draft" | "approved" | "generated" | "exported";
+
+export type SocialContentMetadata = {
+  platform: SocialPlatform;
+  contentType: SocialContentType;
+  workflowId: string;
+  slot?: string;
+  variant?: number;
+  status?: SocialContentStatus;
+};
+
+export type XiaohongshuSocialCard = {
+  id: string;
+  order: number;
+  title: string;
+  copy: string;
+  prompt: string;
+  status: SocialContentStatus;
+};
+
+export type XiaohongshuSocialPlan = {
+  schemaVersion: 1;
+  platform: "xiaohongshu";
+  workflowId: string;
+  planHash: string;
+  contentKind: "product-seeding" | "tutorial" | "comparison" | "knowledge" | "list" | "experience-share" | "travel";
+  brief: string;
+  audience: string;
+  objective: string;
+  language: string;
+  ratio: "3:4" | "4:5" | "1:1";
+  cardCount: number;
+  titleCandidateCount: number;
+  titleCandidates: string[];
+  recommendedTitle: string;
+  body: string;
+  tags: string[];
+  cover: { enabled: boolean; title: string; prompt: string; status: SocialContentStatus };
+  cards: XiaohongshuSocialCard[];
+  status: SocialContentStatus;
+};
+
+export type DouyinSocialShot = {
+  id: string;
+  order: number;
+  durationSeconds: number;
+  narration: string;
+  visual: string;
+  prompt: string;
+  status: SocialContentStatus;
+};
+
+export type DouyinSocialPlan = {
+  schemaVersion: 1;
+  platform: "douyin";
+  workflowId: string;
+  planHash: string;
+  format: "image-to-video" | "product-showcase" | "voiceover-assets" | "knowledge" | "experience-share";
+  brief: string;
+  audience: string;
+  objective: string;
+  language: string;
+  ratio: "9:16";
+  durationSeconds: 15 | 30 | 60;
+  subtitlesEnabled: boolean;
+  shotCount: number;
+  hooks: string[];
+  title: string;
+  script: string;
+  subtitleText: string;
+  tags: string[];
+  shots: DouyinSocialShot[];
+  cover: { title: string; prompt: string; status: SocialContentStatus };
+  videoTaskId: string;
+  videoNodeId: string;
+  status: SocialContentStatus;
+};
+
+export type SocialContentPlan = XiaohongshuSocialPlan | DouyinSocialPlan;
+
+export type ScientificFigureBackend = "python" | "r";
+export type ScientificFigureType = "statistical-chart" | "multi-panel" | "schematic" | "workflow" | "image-comparison";
+export type ScientificFigureArchetype = "quantitative-grid" | "schematic-led-composite" | "image-plate-quant" | "asymmetric-mixed-modality";
+export type ScientificFigureOutputFormat = "png" | "tiff" | "svg" | "pdf";
+export type ScientificFigureStatus = "planned" | "rendered" | "failed";
+
+export type ScientificDataSource = {
+  id: string;
+  sourceName: string;
+  contentHash: string;
+  size: number;
+  rowCount: number;
+  columnCount: number;
+  fields: string[];
+  delimiter: "," | "\t";
+};
+
+export type ScientificFigurePanel = {
+  id: string;
+  label?: string;
+  title?: string;
+  chartType: "scatter" | "line" | "bar" | "box" | "violin" | "histogram" | "heatmap" | "image" | "schematic";
+  sourceBindings: string[];
+  description: string;
+  xField: string;
+  yFields: string[];
+  groupField: string;
+  status: ScientificFigureStatus;
+};
+
+export type ScientificFigurePlan = {
+  schemaVersion: 1;
+  workflowId: string;
+  planHash: string;
+  /** Null is allowed only while the UI is asking the blocking Python/R question. Persisted runnable plans require a backend. */
+  backend: ScientificFigureBackend | null;
+  figureType: ScientificFigureType;
+  archetype: ScientificFigureArchetype;
+  researchClaim: string;
+  targetJournal: string;
+  dimensions: { widthMm: number; heightMm: number; dpi: number };
+  dataSources: ScientificDataSource[];
+  panels: ScientificFigurePanel[];
+  outputFormats: ScientificFigureOutputFormat[];
+  stylePreset: string;
+  evidenceHierarchy: {
+    heroEvidence: string;
+    validationEvidence: string;
+    controlsRobustness: string;
+  };
+  statisticsNotes: string;
+  sourceDataNotes: string;
+  imageIntegrityNotes: string;
+  reviewerRisks: string[];
+  placeholderData: boolean;
+  status: ScientificFigureStatus;
+  taskId: string;
+};
+
+export type ScientificFigureMetadata = {
+  workflowId: string;
+  planHash: string;
+  kind: "plan" | "panel" | "figure" | "preview";
+  panelId?: string;
+  backend?: ScientificFigureBackend;
+  taskId?: string;
+  scriptHash?: string;
+  dataHashes?: string[];
+  status?: ScientificFigureStatus;
+};
+
+export type SocialExportRequest = {
+  expectedProjectId: string;
+  requirementNodeId: string;
+  expectedRequirementRevision?: number;
+  workflowId?: string;
+};
+
+export type SocialExportResult = {
+  ok: boolean;
+  canceled?: boolean;
+  exported?: boolean;
+  projectId?: string;
+  requirementNodeId?: string;
+  requirementRevision?: number;
+  workflowId?: string;
+  planHash?: string;
+  platform?: SocialPlatform;
+  title?: string;
+  folderName?: string;
+  manifest?: string;
+  fileCount?: number;
+  images?: number;
+  videos?: number;
+  summary?: { images: number; videos: number; missingSlots: string[] };
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
 export type RequirementLibraryEntry = {
   version: 1;
   id: string;
@@ -307,6 +566,8 @@ export type RequirementLibraryEntry = {
   summary?: string;
   text?: string;
   skill?: CanvasSkill;
+  socialPlan?: SocialContentPlan;
+  scientificPlan?: ScientificFigurePlan;
 };
 
 export type RequirementLibraryResult = {
@@ -360,6 +621,10 @@ export type CanvasRequirement = {
   lastError?: string;
   /** Imported SKILL.md identity. Execution still uses the requirement/TaskScope path. */
   skill?: CanvasSkill;
+  /** Structured social copy/shot plan; persisted on the existing Requirement primitive. */
+  socialPlan?: SocialContentPlan;
+  /** Structured claim/evidence/Panel plan; persisted on the existing Requirement primitive. */
+  scientificPlan?: ScientificFigurePlan;
 };
 
 export type AgentTaskScopeType = "none" | "single" | "multi-source" | "container" | "container-group" | "layer" | "layer-group" | "mixed";
@@ -388,6 +653,8 @@ export type AgentGoalTaskScopeMetadata = {
   requestCount: number;
   /** Present only when the trusted task prompt contains a validated commerce plan. */
   commercePlanHash?: string;
+  /** Unambiguous project Catalog destinations, ordered by frozen bindingIds. */
+  commerceCatalogTargets?: CommerceCatalogGoalTarget[];
 };
 
 export type ImageTaskProvenance = {
@@ -406,6 +673,10 @@ export type ImageTaskProvenance = {
   commerceSlotId?: string;
   commerceSlotIndex?: number;
   commerceLocaleCode?: string;
+  commerceCatalogTarget?: CommerceCatalogGoalTarget;
+  commerceResultKey?: string;
+  socialContent?: SocialContentMetadata;
+  scientificFigure?: ScientificFigureMetadata;
 };
 
 export type AgentAskUserOption = {
@@ -424,7 +695,7 @@ export type WorkflowNode = {
   assetSequence?: number;
   title: string;
   prompt: string;
-  type: "intent" | "image" | "requirement" | "review" | "export" | "branch" | "post" | "agent";
+  type: "intent" | "image" | "video" | "requirement" | "review" | "export" | "branch" | "post" | "agent";
   status: NodeStatus;
   x: number;
   y: number;
@@ -439,6 +710,15 @@ export type WorkflowNode = {
   agentInitState?: "checking" | "awaiting-brief" | "ready" | "error";
   agentLastMemoryEntryId?: string;
   assets?: ImageAsset[];
+  /** Managed local video result metadata. Video nodes do not use image assets. */
+  videoAsset?: VideoAsset;
+  videoState?: "empty" | "generating" | "ready" | "error";
+  videoError?: string;
+  videoModel?: string;
+  /** Local durable video task identity used to reconnect journal state after restart. */
+  videoTaskId?: string;
+  videoTaskState?: VideoTaskState;
+  videoProgress?: number;
   imageState?: "generating" | "done" | "empty" | "error";
   imageError?: string;
   imageParams?: ImageTaskDraft;
@@ -452,6 +732,10 @@ export type WorkflowNode = {
   imageContainerSpec?: ImageContainerSpec;
   imageCollection?: ImageCollection;
   taskProvenance?: ImageTaskProvenance;
+  /** Lightweight social identity for Requirement, image or video成果. */
+  socialContent?: SocialContentMetadata;
+  /** Lightweight scientific plan/result identity. Data, scripts and task journals remain project-managed Main assets. */
+  scientificFigure?: ScientificFigureMetadata;
   requirement?: CanvasRequirement;
   width?: number;
   height?: number;
@@ -544,6 +828,169 @@ export type ImageAsset = {
   status?: "pending" | "done" | "error";
   error?: string;
   runId?: string;
+};
+
+export type VideoAsset = {
+  assetId?: string;
+  occurrenceId?: string;
+  contentHash?: string;
+  type: "file" | "url";
+  path?: string;
+  relativePath?: string;
+  url?: string;
+  assetUrl?: string;
+  originalName?: string;
+  mimeType: "video/mp4" | "video/webm" | "video/quicktime";
+  width?: number;
+  height?: number;
+  durationMs?: number;
+};
+
+export type VideoTaskState = "prepared" | "creating" | "create-unknown" | "queued" | "running" | "succeeded" | "ready" | "failed" | "cancelled";
+
+export type VideoTask = {
+  taskId: string;
+  projectId: string;
+  nodeId?: string;
+  endpointFamily: "video-generations" | "videos";
+  model: string;
+  prompt: string;
+  seconds: number;
+  aspectRatio: string;
+  resolution: string;
+  placement: { x: number; y: number };
+  state: VideoTaskState;
+  createState: "not-started" | "started" | "confirmed" | "rejected" | "unknown";
+  remoteTaskId?: string;
+  progress?: number;
+  createAttempts: number;
+  pollAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+  lastPolledAt?: string;
+  error?: string;
+  pollError?: string;
+  downloadError?: string;
+  credentialLabel?: string;
+  credentialBaseUrl?: string;
+  socialContent?: SocialContentMetadata;
+  output?: VideoAsset;
+};
+
+export type VideoTaskResult = {
+  ok: boolean;
+  reused?: boolean;
+  ambiguous?: boolean;
+  task?: VideoTask;
+  tasks?: VideoTask[];
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
+export type VideoTaskBridge = {
+  create(payload: {
+    expectedProjectId: string;
+    nodeId: string;
+    model: string;
+    prompt: string;
+    seconds: number;
+    aspectRatio: string;
+    resolution: string;
+    placement: { x: number; y: number };
+    idempotencyKey?: string;
+    socialContent?: SocialContentMetadata;
+    confirmed: true;
+    endpointFamily?: "video-generations" | "videos";
+    sourceImageUrl?: string;
+    seed?: number;
+  }): Promise<VideoTaskResult>;
+  list(payload: { expectedProjectId: string }): Promise<VideoTaskResult>;
+  get(payload: { expectedProjectId: string; taskId: string }): Promise<VideoTaskResult>;
+  poll(payload: { expectedProjectId: string; taskId: string }): Promise<VideoTaskResult>;
+  retryDownload(payload: { expectedProjectId: string; taskId: string }): Promise<VideoTaskResult>;
+  onChanged(handler: (task: VideoTask) => void): () => void;
+};
+
+export type ScientificTaskState = "prepared" | "running" | "ready" | "failed" | "cancelled" | "interrupted";
+
+export type ScientificTaskOutput = {
+  outputId: string;
+  kind: "panel" | "figure" | "script" | "log" | "qa" | "source-data";
+  format: ScientificFigureOutputFormat | "py" | "r" | "json" | "txt" | "csv" | "tsv";
+  name: string;
+  relativePath: string;
+  assetUrl?: string;
+  mimeType: string;
+  size: number;
+  contentHash: string;
+  panelId?: string;
+  width?: number;
+  height?: number;
+};
+
+export type ScientificTask = {
+  taskId: string;
+  projectId: string;
+  workflowId: string;
+  planHash: string;
+  requirementNodeId?: string;
+  requirementRevision?: number;
+  backend: ScientificFigureBackend;
+  state: ScientificTaskState;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+  exitCode?: number;
+  scriptHash?: string;
+  outputs: ScientificTaskOutput[];
+  plan: ScientificFigurePlan;
+};
+
+export type ScientificDataImportResult = {
+  ok: boolean;
+  canceled?: boolean;
+  dataSource?: ScientificDataSource;
+  sampleRows?: Array<Record<string, string>>;
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
+export type ScientificTaskResult = {
+  ok: boolean;
+  canceled?: boolean;
+  changed?: boolean;
+  task?: ScientificTask;
+  tasks?: ScientificTask[];
+  dataSources?: ScientificDataSource[];
+  exported?: boolean;
+  folderName?: string;
+  fileCount?: number;
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
+export type ScientificBridge = {
+  importData(payload: { expectedProjectId: string }): Promise<ScientificDataImportResult>;
+  listData(payload: { expectedProjectId: string }): Promise<ScientificTaskResult>;
+  render(payload: {
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+    requirementNodeId?: string;
+    expectedRequirementRevision?: number;
+    plan: ScientificFigurePlan;
+    timeoutMs?: number;
+  }): Promise<ScientificTaskResult>;
+  list(payload: { expectedProjectId: string }): Promise<ScientificTaskResult>;
+  get(payload: { expectedProjectId: string; taskId: string }): Promise<ScientificTaskResult>;
+  cancel(payload: { expectedProjectId: string; taskId: string }): Promise<ScientificTaskResult>;
+  export(payload: { expectedProjectId: string; taskId: string; confirmed: true }): Promise<ScientificTaskResult>;
+  onChanged(handler: (task: ScientificTask) => void): () => void;
 };
 
 export type AssetTaskRole = "source" | "reference";
@@ -810,7 +1257,38 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
           requestCount: Math.max(1, Math.floor(Number(scope.goal.requestCount) || 1)),
           commercePlanHash: /^commerce-[a-f0-9]{32}$/.test(String(scope.goal.commercePlanHash || "").trim().toLowerCase())
             ? String(scope.goal.commercePlanHash).trim().toLowerCase()
-            : ""
+            : "",
+          commerceCatalogTargets: (scope.goal.commerceCatalogTargets ?? []).map((target) => ({
+            bindingId: target.bindingId,
+            catalogId: target.catalogId,
+            catalogRevision: Math.max(0, Math.floor(Number(target.catalogRevision) || 0)),
+            productId: target.productId,
+            productRevision: Math.max(1, Math.floor(Number(target.productRevision) || 1)),
+            ownerType: target.ownerType,
+            ownerId: target.ownerId,
+            sourceLinkId: target.sourceLinkId,
+            brandStyle: target.brandStyle
+              ? {
+                  version: 1,
+                  enabled: target.brandStyle.enabled === true,
+                  fontFamily: target.brandStyle.fontFamily || "",
+                  colors: [...target.brandStyle.colors],
+                  logoUsage: target.brandStyle.logoUsage || "",
+                  modelAppearance: target.brandStyle.modelAppearance || "",
+                  productAppearance: target.brandStyle.productAppearance || "",
+                  visualStyle: target.brandStyle.visualStyle || "",
+                  references: target.brandStyle.references.map((reference) => ({
+                    linkId: reference.linkId,
+                    assetId: reference.assetId,
+                    contentHash: reference.contentHash,
+                    nodeId: reference.nodeId,
+                    assetIndex: reference.assetIndex,
+                    role: reference.role,
+                    purpose: reference.purpose,
+                  }))
+                }
+              : null,
+          }))
         }
       : null
   };
@@ -909,6 +1387,7 @@ export type ExportAssetPsdPayload = {
 };
 
 export type ImageCollectionKind = "batch" | "series";
+export type ImageCollectionRole = "results" | "defects";
 
 export type ImageCollectionItem = {
   id: string;
@@ -920,16 +1399,31 @@ export type ImageCollectionItem = {
   requestIndex?: number;
   prompt: string;
   title?: string;
+  /** Human-readable reason retained when this result is moved to a defect group. */
+  defectReason?: string;
+  /** Stable identity of the replacement now occupying this request slot. */
+  replacedByAssetId?: string;
+  /** Original collection item that this repaired result replaced. */
+  replacesItemId?: string;
   status: "pending" | "done" | "error";
   error?: string;
+  /** Per-result identity for grouped Goal outputs such as Commerce slots. */
+  taskProvenance?: ImageTaskProvenance;
 };
 
 export type ImageCollection = {
   id: string;
+  /** User-facing export and organization name. */
+  name?: string;
   kind: ImageCollectionKind;
+  collectionRole?: ImageCollectionRole;
   generationMode: "parallel" | "sequential";
   items: ImageCollectionItem[];
   sourceNodeId?: string;
+  /** Result collection that owns this independent defect history group. */
+  sourceCollectionId?: string;
+  /** Canvas node that owns the result collection. */
+  defectOfNodeId?: string;
   createdAt?: string;
   autoFit?: boolean;
 };
@@ -1107,6 +1601,20 @@ export type ImageImportResult = {
   error?: string;
 };
 
+export type VideoImportResult = {
+  ok: boolean;
+  assets?: VideoAsset[];
+  selectedCount?: number;
+  importedCount?: number;
+  skippedCount?: number;
+  truncated?: boolean;
+  reusedCount?: number;
+  canceled?: boolean;
+  errors?: Array<{ name: string; errorCode: string; error: string }>;
+  errorCode?: string;
+  error?: string;
+};
+
 export function fileDragPayloadPresent(types: Iterable<string> = [], itemKinds: Iterable<string> = [], fileCount = 0) {
   const normalizedTypes = Array.from(types, (value) => String(value || "").trim().toLowerCase());
   if (normalizedTypes.includes("files") || normalizedTypes.includes("application/x-moz-file")) return true;
@@ -1123,10 +1631,23 @@ export type ProjectRecord = {
   external?: boolean;
 };
 
+export type WorkspaceDomain = "general" | "commerce" | "social" | "research";
+
+export type WorkspaceDomainDefinition = {
+  id: WorkspaceDomain;
+  title: string;
+  description: string;
+  icon: string;
+  pluginIds: string[];
+  defaultPrompt?: string;
+  availableTools: string[];
+};
+
 export type ProjectNameDraft = {
-  mode: "create" | "rename";
+  mode: "create" | "create-folder" | "rename";
   id?: string;
   name: string;
+  workspaceDomain?: WorkspaceDomain;
 };
 
 export type ConfirmDialogDraft = {
@@ -1142,6 +1663,7 @@ export type ConfirmDialogDraft = {
 
 export type WorkflowSession = {
   schemaVersion?: number;
+  workspaceDomain?: WorkspaceDomain;
   nodeSequence?: number;
   canvasRevision?: number;
   messages?: AgentMessage[];
@@ -1301,6 +1823,34 @@ export type ServerWallet = {
   imageCostYuan: number;
 };
 
+export type ModelCapabilityEvidence = "name-inferred" | "upstream-declared" | "runtime-verified";
+
+export type ModelAccessCapability = {
+  model: string;
+  endpointTypes: string[];
+  evidence: ModelCapabilityEvidence;
+  lastCheckedAt?: string;
+  lastVerifiedAt?: string;
+};
+
+export type ModelAccessProfile = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  credentialLabel: string;
+  providers: ModelProvider[];
+  capabilities: Record<string, ModelAccessCapability>;
+  lastCheckedAt?: string;
+  error?: string;
+};
+
+export type ModelServiceStatus = {
+  state: "ready" | "catalog-only" | "unavailable";
+  profileIds: string[];
+  lastCheckedAt?: string;
+  error?: string;
+};
+
 export type ServerPublicSettings = {
   imageCostCents?: number;
   imageCostYuan?: number;
@@ -1309,6 +1859,8 @@ export type ServerPublicSettings = {
   imageModel?: string;
   imageModels?: string[];
   agentModels?: string[];
+  videoModel?: string;
+  videoModels?: string[];
   modelGroup?: string;
   modelGroups?: Array<{
     id: string;
@@ -1319,12 +1871,14 @@ export type ServerPublicSettings = {
   channelName?: string;
   serviceReady?: boolean;
   keyManaged?: boolean;
+  modelAccessProfiles?: ModelAccessProfile[];
+  serviceStatuses?: Partial<Record<ModelProvider, ModelServiceStatus>>;
   cacheSource?: "network" | "memory" | "disk" | "stale" | "settings";
   cacheAgeMs?: number;
   cacheTtlMs?: number;
 };
 
-export type ModelProvider = "agent" | "image";
+export type ModelProvider = "agent" | "image" | "video";
 
 export type ServerLogEntry = {
   id: string;
@@ -1512,12 +2066,94 @@ export type ConfigBridge = {
     title: string;
     text: string;
     skill?: CanvasSkill;
+    socialPlan?: SocialContentPlan;
+    scientificPlan?: ScientificFigurePlan;
   }): Promise<RequirementLibraryResult>;
   deleteRequirementLibraryEntry?(payload: {
     id: string;
     expectedRevision: number;
     confirmed: true;
   }): Promise<RequirementLibraryResult>;
+  listCommerceTemplates?(): Promise<CommerceTemplateResult>;
+  getCommerceTemplate?(payload: { id: string }): Promise<CommerceTemplateResult>;
+  saveCommerceTemplate?(payload: {
+    id?: string;
+    expectedRevision?: number;
+    conflictPolicy?: "overwrite" | "copy";
+    title: string;
+    description?: string;
+    plan: CommerceSetPlan;
+  }): Promise<CommerceTemplateResult>;
+  deleteCommerceTemplate?(payload: {
+    id: string;
+    expectedRevision: number;
+    confirmed: true;
+  }): Promise<CommerceTemplateResult>;
+  importCommerceTemplate?(): Promise<CommerceTemplateResult>;
+  exportCommerceTemplate?(payload: { id: string; expectedRevision?: number }): Promise<CommerceTemplateResult>;
+  onCommerceTemplateChanged?(handler: (payload: { libraryRevision?: number; id?: string }) => void): () => void;
+  listCommerceCatalog?(payload: { expectedProjectId: string }): Promise<CommerceCatalogResult>;
+  saveCommerceCatalogProduct?(payload: CommerceCatalogProductDraft & {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+  }): Promise<CommerceCatalogResult>;
+  archiveCommerceCatalogProduct?(payload: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    archived?: boolean;
+  }): Promise<CommerceCatalogResult>;
+  assignCommerceCatalogAssets?(payload: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    kind: CommerceCatalogAssetKind;
+    ownerType?: CommerceCatalogAssetOwnerType;
+    ownerId?: string;
+    role?: string;
+    assets: CommerceCatalogAssetLocator[];
+  }): Promise<CommerceCatalogResult>;
+  removeCommerceCatalogAsset?(payload: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    linkId: string;
+  }): Promise<CommerceCatalogResult>;
+  updateCommerceCatalogResultState?(payload: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    linkId: string;
+    state: CommerceCatalogResultState;
+  }): Promise<CommerceCatalogResult>;
+  listCommerceCatalogComparisons?(payload: {
+    expectedProjectId: string;
+    productId?: string;
+  }): Promise<CommerceCatalogResult>;
+  selectCommerceCatalogComparisonWinner?(payload: {
+    expectedProjectId: string;
+    expectedCatalogRevision: number;
+    productId: string;
+    expectedProductRevision: number;
+    groupKey: string;
+    winnerLinkId: string;
+  }): Promise<CommerceCatalogResult>;
+  reconcileCommerceCatalogGoalResults?(payload: {
+    expectedProjectId: string;
+    taskScopeSnapshotHash: string;
+  }): Promise<CommerceCatalogResult>;
+  previewCommerceExport?(payload: CommerceExportRequest): Promise<CommerceExportPreviewResult>;
+  exportCommercePackage?(payload: CommerceExportRequest & { confirmed: true }): Promise<CommerceExportPackageResult>;
+  previewSocialExport?(payload: SocialExportRequest): Promise<SocialExportResult>;
+  exportSocialPackage?(payload: SocialExportRequest & { confirmed: true }): Promise<SocialExportResult>;
+  onCommerceCatalogChanged?(handler: (payload: {
+    projectId: string;
+    catalogRevision: number;
+  }) => void): () => void;
   loadSession(payload?: { projectId?: string }): Promise<{ ok: boolean; path?: string; session?: PersistedWorkflowSession; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string }>;
   saveSession(session: WorkflowSession & { projectId?: string; revision?: number; sessionRevision?: number }, options?: {
     revision?: number;
@@ -1545,8 +2181,8 @@ export type ConfigBridge = {
   newWindow?(payload?: { projectId?: string; newConversation?: boolean }): Promise<{ ok: boolean }>;
   windowControl?(payload: { action: "minimize" | "toggle-maximize" | "close" | "state" }): Promise<{ ok: boolean; action?: string; maximized?: boolean; minimized?: boolean; error?: string }>;
   listProjects?(): Promise<{ ok: boolean; projects?: ProjectRecord[]; activeProjectId?: string; error?: string }>;
-  createProject?(payload: { name?: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
-  createProjectFolder?(payload?: { name?: string }): Promise<{ ok: boolean; canceled?: boolean; path?: string; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
+  createProject?(payload: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
+  createProjectFolder?(payload?: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; canceled?: boolean; path?: string; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   switchProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   renameProject?(payload: { id: string; name: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   openProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
@@ -1558,6 +2194,9 @@ export type ConfigBridge = {
   parseSkill?(payload: { markdown: unknown; sourceName?: unknown }): Promise<{ ok: boolean; skill?: ImportedCanvasSkill; errorCode?: string; error?: string }>;
   importThemePreset?(): Promise<{ ok: boolean; canceled?: boolean; theme?: CustomThemePreset; sourceName?: string; errorCode?: string; error?: string }>;
   exportThemePreset?(theme: CustomThemePreset): Promise<{ ok: boolean; canceled?: boolean; fileName?: string; errorCode?: string; error?: string }>;
+  pickGlassBackground?(): Promise<GlassBackgroundResult>;
+  loadGlassBackground?(payload: { assetId: string; name?: string }): Promise<GlassBackgroundResult>;
+  clearGlassBackground?(payload?: { assetId?: string }): Promise<GlassBackgroundResult>;
   composePluginTask?(payload: {
     command: string;
     languageCodes?: string[];
@@ -1588,6 +2227,7 @@ export type ConfigBridge = {
   pickReferenceImage?(): Promise<{ ok: boolean; canceled?: boolean; image?: ReferenceImage; error?: string }>;
   pickReferenceImages?(payload?: { max?: number; projectId?: string; title?: string }): Promise<{ ok: boolean; canceled?: boolean; images?: ReferenceImage[]; image?: ReferenceImage; truncated?: boolean; selectedCount?: number; error?: string }>;
   pickLocalImages?(payload?: { projectId?: string; maxFiles?: number }): Promise<ImageImportResult>;
+  pickLocalVideos?(payload?: { projectId?: string; maxFiles?: number }): Promise<VideoImportResult>;
   pathForDroppedFile?(file: File): string;
   readAssetDataUrl?(payload: { path: string }): Promise<{ ok: boolean; dataUrl?: string; mimeType?: string; name?: string; error?: string }>;
   refineSemanticLayers?(payload: SemanticLayerMattingRequest): Promise<SemanticLayerMattingResult>;
@@ -1604,6 +2244,7 @@ export type ConfigBridge = {
   cancelImageImports?(): Promise<{ ok: boolean; status?: Record<string, unknown>; error?: string }>;
   importLocalImage?(payload: { path: string; projectId?: string }): Promise<{ ok: boolean; asset?: ImageAsset; canceled?: boolean; errorCode?: string; error?: string }>;
   importLocalImages?(payload: { paths: string[]; projectId?: string; maxFiles?: number }): Promise<ImageImportResult>;
+  importLocalVideos?(payload: { paths: string[]; projectId?: string; maxFiles?: number }): Promise<VideoImportResult>;
   saveOutputImage?(payload: { dataUrl: string; stem?: string; runId?: string; projectId?: string; bucket?: "imagegen" | "post"; subdir?: string }): Promise<{ ok: boolean; asset?: ImageAsset; error?: string }>;
   saveAssetAs?(payload: SaveAssetAsPayload): Promise<ImageAssetExportResult>;
   exportAssetPsd?(payload: ExportAssetPsdPayload): Promise<ImageAssetExportResult>;
@@ -1691,6 +2332,9 @@ export type AgentRuntimeAction = {
   composition?: ImageLayerComposition;
   parentId?: string | null;
   patch?: Partial<WorkflowNode> & { id?: string };
+  /** Complete structured social plan written back to its locked Requirement. */
+  socialPlan?: SocialContentPlan;
+  expectedRequirementRevision?: number;
   request?: {
     requestId?: string;
     kind?: "clarify" | "confirm" | "source_images" | "reference_images";
@@ -1717,7 +2361,7 @@ export type AgentRuntimeAction = {
 
 export type AgentBridge = {
   tools(): Promise<{ ok: boolean; tools?: unknown[] }>;
-  listModels(payload: { provider: "agent" | "image"; settings: AppSettings }): Promise<{ ok: boolean; provider: string; models?: string[]; cacheSource?: ServerPublicSettings["cacheSource"]; cacheAgeMs?: number; cacheTtlMs?: number; error?: string }>;
+  listModels(payload: { provider: "agent" | "image" | "video"; settings: AppSettings }): Promise<{ ok: boolean; provider: string; models?: string[]; cacheSource?: ServerPublicSettings["cacheSource"]; cacheAgeMs?: number; cacheTtlMs?: number; error?: string }>;
   runTool(payload: { runId?: string; name: string; input: Record<string, unknown>; prompt?: string; nodes?: WorkflowNode[]; selectedNodeId?: string; selectedNodeIds?: string[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string }): Promise<{
     envelope?: {
       ok?: boolean;
@@ -1738,7 +2382,7 @@ export type AgentBridge = {
     currentCount: number;
     currentQuality: AppSettings["imageQuality"];
   }): Promise<{ ok: boolean; draft?: Partial<ImageTaskDraft>; envelope?: { visibleOutput?: string; summary?: string }; error?: string }>;
-  chat(payload: { runId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[] }): Promise<AgentRuntimeResult>;
+  chat(payload: { runId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[]; workspaceDomain?: WorkspaceDomain; imageDefaults?: { ratio?: string; resolution?: string } }): Promise<AgentRuntimeResult>;
   onProgress?(handler: (payload: AgentProgress) => void): () => void;
   getMainPrompt(): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
   saveMainPrompt(payload: { text: string }): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
@@ -1854,6 +2498,20 @@ export type ServerBridge = {
     assets?: ImageAsset[];
     balanceCents?: number;
     costCents?: number;
+    providerUsage?: Array<{
+      requestIndex?: number;
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      image_tokens?: number;
+      images?: number;
+      cost?: number;
+      cost_cents?: number;
+      charged_cents?: number;
+      quota?: number;
+    }>;
     deficitCents?: number;
     paidImages?: number;
     trialImagesUsed?: number;
@@ -1948,10 +2606,16 @@ export type UpdaterBridge = {
 
 declare global {
   interface Window {
+    naimageRuntime?: {
+      aidebugEnabled: boolean;
+      isolatedConfig: boolean;
+    };
     naimageConfig?: ConfigBridge;
     naimageAgent?: AgentBridge;
     naimageServer?: ServerBridge;
     naimageUpdater?: UpdaterBridge;
+    naimageVideo?: VideoTaskBridge;
+    naimageScientific?: ScientificBridge;
     naimageAgentIntegrations?: AgentIntegrationBridge;
     naimageAutomation?: AutomationBridge;
     naimageAgentWindow?: AgentWindowBridge;
@@ -1973,6 +2637,7 @@ declare global {
     __naimageDebugConnectNodes?: (payload: { sourceId?: string; targetId?: string }) => boolean;
     __naimageDebugSendAgentPrompt?: (prompt: string, options?: { skipAsk?: boolean }) => Promise<boolean>;
     __naimageDebugAgentState?: () => {
+      configReady?: boolean;
       agentStatus: AgentStatus;
       messageCount: number;
       progressCount: number;
@@ -2068,9 +2733,10 @@ declare global {
       imageImportStatus(payload?: { reset?: boolean }): Promise<unknown>;
       cancelImageImports(): Promise<unknown>;
       addReferencePickerPaths(payload?: { paths?: string[] }): Promise<unknown>;
-      seedCanvas(payload?: { count?: number; fileBacked?: boolean; duplicateContent?: boolean }): Promise<unknown>;
-      seedSelectionCanvas(): Promise<unknown>;
-      selectNodes(payload: { ids: string[]; primaryId?: string }): Promise<unknown>;
+       seedCanvas(payload?: { count?: number; fileBacked?: boolean; duplicateContent?: boolean }): Promise<unknown>;
+       seedSelectionCanvas(): Promise<unknown>;
+       seedConnectionGeometryCanvas(): Promise<unknown>;
+       selectNodes(payload: { ids: string[]; primaryId?: string }): Promise<unknown>;
       deleteSelectedNodes(): Promise<unknown>;
       mergeSelectedImages(): Promise<unknown>;
       createProbeImage(): Promise<unknown>;
@@ -2277,10 +2943,17 @@ export function normalizeImageModelBindings(value: unknown): ImageModelBinding[]
       bindingByModel.set(modelKey, binding);
       bindings.push(binding);
     }
+    const customBaseUrl = typeof (source.customBaseUrl ?? source.baseUrl) === "string"
+      ? String(source.customBaseUrl ?? source.baseUrl)
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .trim()
+        .slice(0, 2_048)
+      : "";
     const customApiKey = typeof source.customApiKey === "string"
       ? source.customApiKey.trim().slice(0, 8_192)
       : "";
     const accountTokenId = String(source.accountTokenId || "").trim();
+    if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
   }
@@ -2316,6 +2989,10 @@ export function selectedImageModelsFromSettings(settings: Pick<ApiSettings, "ima
   return uniqueImageModels([settings.imageModel, ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : [])]);
 }
 
+export function selectedVideoModelsFromSettings(settings: Pick<ApiSettings, "videoModel" | "videoModelPool">) {
+  return uniqueImageModels([settings.videoModel, ...(Array.isArray(settings.videoModelPool) ? settings.videoModelPool : [])]);
+}
+
 export function normalizeAgentModelPoolSelection(settings: AppSettings, availableModels: string[] = []): AppSettings {
   const available = modelsWithPreferred(availableModels, settings.agentModel, settings.agentModelPool);
   const selected = selectedAgentModelsFromSettings(settings);
@@ -2344,8 +3021,30 @@ export function normalizeImageModelPoolSelection(settings: AppSettings, availabl
   };
 }
 
-export function normalizeModelPoolSelections(settings: AppSettings, availableAgentModels: string[] = [], availableImageModels: string[] = []): AppSettings {
-  return normalizeImageModelPoolSelection(normalizeAgentModelPoolSelection(settings, availableAgentModels), availableImageModels);
+export function normalizeVideoModelPoolSelection(settings: AppSettings, availableModels: string[] = []): AppSettings {
+  const available = modelsWithPreferred(availableModels, settings.videoModel, settings.videoModelPool);
+  const selected = selectedVideoModelsFromSettings(settings);
+  const modelPool = selected.length ? selected : available.slice(0, 1);
+  const videoModel = settings.videoModel && modelPool.some((model) => model.toLowerCase() === settings.videoModel.toLowerCase())
+    ? settings.videoModel
+    : modelPool[0] || "";
+  return {
+    ...settings,
+    videoModel,
+    videoModelPool: uniqueImageModels([videoModel, ...modelPool])
+  };
+}
+
+export function normalizeModelPoolSelections(
+  settings: AppSettings,
+  availableAgentModels: string[] = [],
+  availableImageModels: string[] = [],
+  availableVideoModels: string[] = []
+): AppSettings {
+  return normalizeVideoModelPoolSelection(
+    normalizeImageModelPoolSelection(normalizeAgentModelPoolSelection(settings, availableAgentModels), availableImageModels),
+    availableVideoModels
+  );
 }
 
 export function toggleImageModelSelection(settings: AppSettings, model: string): AppSettings {
@@ -2393,25 +3092,16 @@ export const FRAME_OPTIONS = [
   { ratio: "21:9", label: "电影宽屏", use: "电影感 / 大场景 / 横幅", previewClass: "cinema" },
   { ratio: "9:21", label: "超长竖屏", use: "手机长图 / 竖屏长海报", previewClass: "scroll" },
   { ratio: "4:5", label: "社媒竖图", use: "小红书 / Instagram / 电商", previewClass: "social" }
-] as const;
+] as const satisfies readonly { ratio: ImageFrameRatio; label: string; use: string; previewClass: string }[];
 
 export const SIZE_PRESETS = [
   {
-    id: "720p",
-    resolution: "720P",
+    id: "1k",
+    resolution: "1K",
     longEdge: 1280,
     squareEdge: 1024,
-    label: "720P 快速",
-    detail: "快速试稿和抽卡，成本低，适合先看方向。",
-    badge: "快"
-  },
-  {
-    id: "1080p",
-    resolution: "1080P",
-    longEdge: 1920,
-    squareEdge: 1088,
-    label: "1080P 标准",
-    detail: "日常成图档位，接近 1080P 且符合 API 尺寸规则。",
+    label: "1K 标准",
+    detail: "日常预览和快速出图；实际像素会按所选比例计算。",
     badge: "推荐"
   },
   {
@@ -2432,7 +3122,15 @@ export const SIZE_PRESETS = [
     detail: "最终输出和大图裁切，生成会更慢、成本更高。",
     badge: "成片"
   }
-] as const;
+] as const satisfies readonly {
+  id: string;
+  resolution: ImageResolutionPreset;
+  longEdge: number;
+  squareEdge: number;
+  label: string;
+  detail: string;
+  badge: string;
+}[];
 
 export const QUALITY_OPTIONS = [
   { value: "auto", label: "自动", detail: "服务端按模型默认选择" },
@@ -2448,18 +3146,47 @@ export const MAX_REFERENCE_IMAGES = 9;
 export const MAX_AGENT_REFERENCE_IMAGES = 40;
 export const MAX_AGENT_SOURCE_IMAGES = 200;
 
+export function normalizeImageFrameRatio(value: unknown, fallback: ImageFrameRatio = "1:1"): ImageFrameRatio {
+  const ratio = String(value || "").trim().replace("：", ":") as ImageFrameRatio;
+  return FRAME_OPTIONS.some((option) => option.ratio === ratio) ? ratio : fallback;
+}
+
+export function normalizeImageResolutionPreset(value: unknown, fallback: ImageResolutionPreset = "1K"): ImageResolutionPreset {
+  const resolution = String(value || "").trim().toUpperCase();
+  if (resolution === "2K" || resolution === "4K") return resolution;
+  if (resolution === "1K" || resolution === "720P" || resolution === "1080P") return "1K";
+  return fallback;
+}
+
+export function imageResolutionPresetFromSize(value: unknown): ImageResolutionPreset {
+  const text = String(value || "").trim().toUpperCase();
+  if (text === "4K" || text.includes("3840") || text.includes("2160")) return "4K";
+  if (text === "2K" || text.includes("2048")) return "2K";
+  return "1K";
+}
+
+export function imageFrameRatioFromSize(value: unknown, fallback: ImageFrameRatio = "1:1"): ImageFrameRatio {
+  const parsed = parseImageSizeValue(String(value || ""));
+  if (!parsed || parsed.width <= 0 || parsed.height <= 0) return fallback;
+  const target = parsed.width / parsed.height;
+  let nearest: ImageFrameRatio = FRAME_OPTIONS[0].ratio;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const option of FRAME_OPTIONS) {
+    const parsedOption = parseRatio(option.ratio);
+    const distance = Math.abs((parsedOption.width / parsedOption.height) - target);
+    if (distance >= nearestDistance) continue;
+    nearest = option.ratio;
+    nearestDistance = distance;
+  }
+  return nearestDistance <= 0.035 ? nearest : fallback;
+}
+
 export function defaultImageTaskDraft(settings: AppSettings): ImageTaskDraft {
-  const resolution =
-    settings.imageSize === "4K" || settings.imageSize.includes("3840") || settings.imageSize.includes("2160")
-      ? "4K"
-      : settings.imageSize === "2K" || settings.imageSize.includes("2048")
-        ? "2K"
-        : settings.imageSize === "1080P" || settings.imageSize.includes("1920") || settings.imageSize.includes("1080")
-          ? "1080P"
-          : "720P";
+  const ratio = normalizeImageFrameRatio(settings.imageRatio, imageFrameRatioFromSize(settings.imageSize));
+  const resolution = normalizeImageResolutionPreset(settings.imageResolution, imageResolutionPresetFromSize(settings.imageSize));
   return {
     prompt: "",
-    ratio: "1:1",
+    ratio,
     resolution,
     size: "",
     count: settings.imageCount,
@@ -2484,7 +3211,8 @@ function roundToImageStep(value: number) {
 }
 
 function sizePresetForResolution(resolution: string) {
-  return SIZE_PRESETS.find((item) => item.resolution === resolution) ?? SIZE_PRESETS[1];
+  const normalized = normalizeImageResolutionPreset(resolution);
+  return SIZE_PRESETS.find((item) => item.resolution === normalized) ?? SIZE_PRESETS[0];
 }
 
 export function computedSizeFor(ratio: string, resolution: string) {
@@ -2494,14 +3222,21 @@ export function computedSizeFor(ratio: string, resolution: string) {
     const edge = roundToImageStep(preset.squareEdge);
     return `${edge}x${edge}`;
   }
-  if (parsed.width > parsed.height) {
-    const width = roundToImageStep(preset.longEdge);
-    const height = roundToImageStep((width * parsed.height) / parsed.width);
-    return `${width}x${height}`;
+  const landscape = parsed.width > parsed.height;
+  const longUnits = Math.max(parsed.width, parsed.height);
+  const shortUnits = Math.min(parsed.width, parsed.height);
+  const pixelLimitedLongEdge = Math.floor(Math.sqrt((IMAGE2_MAX_PIXELS * longUnits) / shortUnits) / 16) * 16;
+  let longEdge = Math.min(roundToImageStep(preset.longEdge), IMAGE2_MAX_EDGE, pixelLimitedLongEdge);
+  const dimensionsForLongEdge = (value: number) => {
+    const shortEdge = roundToImageStep((value * shortUnits) / longUnits);
+    return landscape ? { width: value, height: shortEdge } : { width: shortEdge, height: value };
+  };
+  let dimensions = dimensionsForLongEdge(longEdge);
+  while (dimensions.width * dimensions.height > IMAGE2_MAX_PIXELS && longEdge > 512) {
+    longEdge -= 16;
+    dimensions = dimensionsForLongEdge(longEdge);
   }
-  const height = roundToImageStep(preset.longEdge);
-  const width = roundToImageStep((height * parsed.width) / parsed.height);
-  return `${width}x${height}`;
+  return `${dimensions.width}x${dimensions.height}`;
 }
 
 export function parseImageSizeValue(size: string) {
@@ -2548,7 +3283,7 @@ export function sizePresetsForModel(ratio: string, imageModel?: string) {
 }
 
 export function sizeFromDraft(draft: ImageTaskDraft, settings: AppSettings) {
-  if (SIZE_PRESETS.some((item) => item.resolution === draft.resolution)) {
+  if (["1K", "2K", "4K", "720P", "1080P"].includes(String(draft.resolution).toUpperCase())) {
     return computedSizeFor(draft.ratio, draft.resolution);
   }
   return draft.size || settings.imageSize || "1024x1024";
@@ -2719,7 +3454,21 @@ export function cloneImageCollection(collection?: ImageCollection): ImageCollect
   if (!collection) return undefined;
   return {
     ...collection,
-    items: collection.items.map((item) => ({ ...item }))
+    items: collection.items.map((item) => ({
+      ...item,
+      ...(item.taskProvenance ? {
+        taskProvenance: {
+          ...item.taskProvenance,
+          commerceCatalogTarget: item.taskProvenance.commerceCatalogTarget
+            ? structuredClone(item.taskProvenance.commerceCatalogTarget)
+            : undefined,
+          socialContent: item.taskProvenance.socialContent ? { ...item.taskProvenance.socialContent } : undefined,
+          scientificFigure: item.taskProvenance.scientificFigure
+            ? structuredClone(item.taskProvenance.scientificFigure)
+            : undefined
+        }
+      } : {})
+    }))
   };
 }
 
@@ -2738,16 +3487,27 @@ export function cloneWorkflowNode(node: WorkflowNode): WorkflowNode {
   return {
     ...node,
     assets: cloneImageAssets(node.assets),
+    videoAsset: node.videoAsset ? { ...node.videoAsset } : undefined,
     imageParams: node.imageParams ? cloneImageTaskDraft(node.imageParams) : undefined,
     imageProgress: node.imageProgress ? { ...node.imageProgress } : undefined,
     layerGroup: cloneImageLayerNodeGroup(node.layerGroup),
     layerComposition: cloneImageLayerComposition(node.layerComposition),
     imageContainerSpec: cloneImageContainerSpec(node.imageContainerSpec),
     imageCollection: cloneImageCollection(node.imageCollection),
-    taskProvenance: node.taskProvenance ? { ...node.taskProvenance } : undefined,
+    taskProvenance: node.taskProvenance ? {
+      ...node.taskProvenance,
+      socialContent: node.taskProvenance.socialContent ? { ...node.taskProvenance.socialContent } : undefined,
+      scientificFigure: node.taskProvenance.scientificFigure
+        ? structuredClone(node.taskProvenance.scientificFigure)
+        : undefined
+    } : undefined,
+    socialContent: node.socialContent ? { ...node.socialContent } : undefined,
+    scientificFigure: node.scientificFigure ? structuredClone(node.scientificFigure) : undefined,
     requirement: node.requirement ? {
       ...node.requirement,
-      inputBindings: node.requirement.inputBindings?.map((binding) => ({ ...binding }))
+      inputBindings: node.requirement.inputBindings?.map((binding) => ({ ...binding })),
+      socialPlan: node.requirement.socialPlan ? structuredClone(node.requirement.socialPlan) : undefined,
+      scientificPlan: node.requirement.scientificPlan ? structuredClone(node.requirement.scientificPlan) : undefined
     } : undefined
   };
 }
@@ -2791,7 +3551,7 @@ export function sanitizeStoredAgentMessageContent(role: MessageRole, value: unkn
 export function validMessages(value: unknown): AgentMessage[] {
   if (!Array.isArray(value)) return [];
   const messages = (value as AgentMessage[])
-    .filter((message) => message?.id !== "welcome" && !String(message?.content ?? "").includes("naimage 已就绪"))
+    .filter((message) => message?.id !== "welcome" && !String(message?.content ?? "").toLocaleLowerCase().includes("naimage 已就绪"))
     .map((message) => {
       const pasteBlocks = Array.isArray(message.pasteBlocks)
         ? message.pasteBlocks
@@ -2973,8 +3733,10 @@ export function imageAssetThumbnailSrc(asset: ImageAsset, maxEdge = 512) {
   if (!source || !source.startsWith("naimage-asset:")) return source;
   try {
     const url = new URL(source);
+    const requestedEdge = clamp(Math.round(Number(maxEdge) || 512), 128, 1024);
+    const bucketedEdge = requestedEdge <= 256 ? 256 : requestedEdge <= 512 ? 512 : 1024;
     url.searchParams.set("preview", "thumbnail");
-    url.searchParams.set("max", String(clamp(Math.round(Number(maxEdge) || 512), 128, 1024)));
+    url.searchParams.set("max", String(bucketedEdge));
     return url.toString();
   } catch {
     return source;

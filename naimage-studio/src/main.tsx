@@ -52,13 +52,18 @@ Main Region Index
 import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
+  Boxes,
+  BookMarked,
   Brain,
   Check,
   ChevronDown,
+  CircleHelp,
+  Columns2,
   Copy,
   Download,
   Eye,
   EyeOff,
+  Film,
   FolderOpen,
   FolderPlus,
   ImageIcon,
@@ -80,6 +85,7 @@ import {
   PanelRightOpen,
   PanelTop,
   PanelsTopLeft,
+  PackageCheck,
   Pause,
   Pin,
   PinOff,
@@ -138,17 +144,42 @@ import {
   settingsWithGlassBootstrap,
   writeJson
 } from "./settings-persistence";
+import { appAccessPolicy, enforceRendererAccessPolicy } from "./access-policy";
 import {
   fullServerModelList,
   preferredAgentModelFromList,
   preferredImageModelFromList,
+  preferredVideoModelFromList,
 } from "./settings-runtime";
 import { GlassThemeProvider } from "./glass-theme-provider";
-import type { WorkspaceViewMode } from "./workspace-chrome";
+import type { WorkspaceAssetRailTab, WorkspaceViewMode } from "./workspace-chrome";
 import type { ActivePluginToolbarItem } from "./plugin-system";
-import { parseCommerceSetPromptPlan } from "./plugins/commerce-set";
+import {
+  DEFAULT_WORKSPACE_DOMAIN,
+  normalizeWorkspaceDomain,
+  workspaceDomainDefinition,
+  workspaceDomainDefinitions,
+} from "./workspace-domain.ts";
+import { normalizeCommerceCatalogGoalTarget } from "./commerce-catalog";
+import type { CommerceCatalogDocument, CommerceCatalogResult } from "./commerce-catalog";
+import type { CommerceExportPackageResult, CommerceExportPreviewResult } from "./commerce-export";
+import type { CommerceTemplateEntry, CommerceTemplateResult } from "./commerce-template.ts";
+import { parseCommerceSetPromptPlan, type CommerceSetPlan } from "./plugins/commerce-set";
+import {
+  applySocialPlanToRequirementNode,
+  composeDouyinVideoPrompt,
+  normalizeSocialContentMetadata,
+  normalizeSocialContentPlan,
+  SOCIAL_DOUYIN_COMMAND,
+  SOCIAL_XIAOHONGSHU_COMMAND,
+  socialContentWritebackIssues
+} from "./plugins/social-content";
+import {
+  normalizeScientificFigurePlan
+} from "./plugins/scientific-figure";
 import {
   canvasClipboardSummary,
+  clipboardImageFiles,
   copyCanvasNodes,
   pasteCanvasNodes,
   type CanvasClipboardPayload
@@ -203,6 +234,7 @@ import {
   stableImageOccurrenceId,
   selectedAgentModelsFromSettings,
   selectedImageModelsFromSettings,
+  selectedVideoModelsFromSettings,
   uniqueImageModels,
   upsertConversation,
   validatePendingRequirementContinuation,
@@ -211,6 +243,7 @@ import {
   yuan
 } from "./core";
 import type { ManualImageTaskDialogState } from "./manual-image-task-dialog";
+import type { ManualVideoTaskDialogState } from "./manual-video-task-dialog";
 import {
   applyImageContainerCompatibility,
   containerBoundarySummary,
@@ -249,6 +282,7 @@ import {
   SurfaceHeader,
   SurfaceSection,
   StatusLine,
+  UnsavedChangesDialog,
   useFloatingDialogInteractions
 } from "./ui";
 import {
@@ -314,6 +348,8 @@ import type {
   AgentTaskResultPolicy,
   AgentTaskConfirmationPolicy,
   ImageTaskProvenance,
+  SocialContentMetadata,
+  SocialContentPlan,
   AgentAskUserOption,
   AgentExecutionScopeSnapshot,
   PendingAgentExecution,
@@ -323,6 +359,7 @@ import type {
   CanvasSkill,
   ImportedCanvasSkill,
   RequirementLibraryEntry,
+  SocialPlatform,
   ImageAssetIdentityClaim,
   TaskAssetReference,
   WorkflowNode,
@@ -331,6 +368,8 @@ import type {
   NodeMutationWriterCheckpoint,
   ImageNodeProgress,
   ImageAsset,
+  VideoAsset,
+  VideoTask,
   ImageExportFormat,
   ImageCollection,
   ImageContainerKind,
@@ -339,6 +378,7 @@ import type {
   ReferenceImage,
   ProjectRecord,
   ProjectNameDraft,
+  WorkspaceDomain,
   ConfirmDialogDraft,
   WorkflowSession,
   CanvasViewport,
@@ -369,13 +409,19 @@ import type {
   DesktopUpdateProgress,
   DesktopInstallerCaptcha,
   ImageLayerComposition,
-  ImageLayerNodeGroup
+  ImageLayerNodeGroup,
+  ScientificFigurePlan,
+  ScientificTask
 } from "./core";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 declare const __NAIMAGE_PERF_PROBE__: boolean;
 
-const NAIMAGE_RUNTIME_METRICS = __NAIMAGE_AIDEBUG__ || __NAIMAGE_PERF_PROBE__;
+const NAIMAGE_AIDEBUG_RUNTIME_ENABLED =
+  __NAIMAGE_AIDEBUG__ &&
+  window.naimageRuntime?.aidebugEnabled === true &&
+  window.naimageRuntime?.isolatedConfig === true;
+const NAIMAGE_RUNTIME_METRICS = NAIMAGE_AIDEBUG_RUNTIME_ENABLED || __NAIMAGE_PERF_PROBE__;
 
 type StudioWorkflowSession = Required<Omit<WorkflowSession, "pendingAgentExecution">> & {
   schemaVersion: number;
@@ -401,7 +447,7 @@ type CanvasHistorySnapshot = {
   selection: NodeSelectionState;
 };
 
-if (__NAIMAGE_AIDEBUG__) {
+if (NAIMAGE_AIDEBUG_RUNTIME_ENABLED) {
   document.documentElement.dataset.aidebug = "true";
   installBrowserServerBridge();
 }
@@ -414,7 +460,6 @@ type RegionRedrawDraft = {
   initialPrompt: string;
   brushSize: number;
   maskDirty: boolean;
-  discardArmed?: boolean;
   sourceWidth?: number;
   sourceHeight?: number;
   ready: boolean;
@@ -427,7 +472,6 @@ type NodeEditorDraft = {
   assetIndex: number;
   title: string;
   prompt: string;
-  discardArmed?: boolean;
   error?: string;
 };
 
@@ -440,7 +484,6 @@ type RequirementEditorDraft = {
   title: string;
   text: string;
   runAfterSave: boolean;
-  discardArmed?: boolean;
   error?: string;
 };
 
@@ -458,6 +501,8 @@ type AgentPromptDispatchOptions = {
   continuationRequestId?: string;
   originalPrompt?: string;
   visibleContent?: string;
+  imageRatio?: AppSettings["imageRatio"];
+  imageResolution?: AppSettings["imageResolution"];
 };
 
 type AgentSteerOptions = {
@@ -613,6 +658,8 @@ const IMAGE_CONTAINER_MIN_H = 300;
 const IMAGE_COLLECTION_W = 420;
 const IMAGE_COLLECTION_BATCH_H = 410;
 const IMAGE_COLLECTION_SERIES_H = 330;
+const VIDEO_NODE_W = 440;
+const VIDEO_NODE_H = 340;
 const LAYER_STACK_W = 430;
 const LAYER_STACK_H = 500;
 const NODE_CONNECT_Y = 40;
@@ -627,10 +674,10 @@ const NODE_RENDER_BUFFER = 520;
 // node silhouette until the user selects a node or zooms in for editing.
 const NODE_OVERVIEW_MAX_SCALE = 0.3;
 const NODE_OVERVIEW_MIN_COUNT = 80;
+const NODE_OVERVIEW_MIN_IMAGE_TILES = 10;
 const INTERNAL_ASSET_DRAG_MIME = "application/x-naimage-asset";
 const CLOSE_BUTTON_REASON = "close-button" as const;
 const WHEN_IDLE = "when-idle" as const;
-const WHEN_IDLE_AND_CLEAN = "when-idle-and-clean" as const;
 function progressInputOperation(progress?: AgentProgress | null) {
   const input = progress?.input;
   if (!input || typeof input !== "object" || Array.isArray(input)) return "";
@@ -647,27 +694,27 @@ type ConnectionDraft = {
   worldY: number;
 };
 
+function provenancePortCenter(node: WorkflowNode, side: "input" | "output") {
+  const { renderWidth, renderHeight, nodeMinimum } = workflowNodeRenderMetrics(node);
+  const height = renderHeight ?? nodeMinimum.height ?? NODE_RESIZE_MIN_H;
+  return {
+    x: side === "output" ? node.x + renderWidth : node.x,
+    y: node.y + height / 2
+  };
+}
+
 function provenanceEdgePath(
   source: WorkflowNode,
   target: WorkflowNode,
   laneIndex = 0,
   laneCount = 1
 ) {
-  const sourceCount = source.imageContainer
-    ? Math.max(source.assets?.length ?? 0, 1)
-    : imageNodeSlotCount(source);
-  const adaptiveWidth = displaySizeForImageNode(imageTaskSizeForNode(source), sourceCount, source.assets ?? []).width ?? NODE_W;
-  const defaultWidth = source.imageContainer
-    ? adaptiveWidth
-    : source.imageCollection
-      ? source.imageCollection.kind === "series" ? IMAGE_COLLECTION_W : adaptiveWidth
-      : source.layerComposition
-        ? LAYER_STACK_W
-        : adaptiveWidth;
-  const x1 = source.x + Math.max(Number(source.width ?? defaultWidth), minimumNodeSize(source).width ?? NODE_W);
-  const y1 = source.y + NODE_CONNECT_Y;
-  const x2 = target.x;
-  const y2 = target.y + NODE_CONNECT_Y;
+  const sourcePort = provenancePortCenter(source, "output");
+  const targetPort = provenancePortCenter(target, "input");
+  const x1 = sourcePort.x;
+  const y1 = sourcePort.y;
+  const x2 = targetPort.x;
+  const y2 = targetPort.y;
   const lane = (laneIndex - (laneCount - 1) / 2) * 34;
   const mid = (x1 + x2) / 2;
   return `M ${x1} ${y1} C ${mid} ${y1 + lane}, ${mid} ${y2 + lane}, ${x2} ${y2}`;
@@ -752,6 +799,8 @@ type AgentComposerTaskMode = import("./project-agent-composer").AgentComposerTas
 type GoalConfirmationDraft = import("./project-agent-composer").GoalConfirmationDraft;
 type GoalModePreview = import("./goal-mode").GoalModePreview;
 type GoalConfirmationLedger = import("./goal-mode").GoalConfirmationLedger;
+type HelpCenterSection = import("./help-center").HelpCenterSection;
+type SettingsSection = import("./settings-drawer").SettingsSection;
 function lazyStudioDialog<K extends keyof StudioDialogModule>(name: K) {
   return React.lazy(() => loadStudioDialogs().then((module) => ({ default: module[name] })));
 }
@@ -761,14 +810,22 @@ const QuotaDialog = lazyStudioDialog("QuotaDialog");
 const DeleteNodeDialog = lazyStudioDialog("DeleteNodeDialog");
 const ConfirmDialog = lazyStudioDialog("ConfirmDialog");
 const ManualImageTaskDialog = lazyStudioDialog("ManualImageTaskDialog");
+const ManualVideoTaskDialog = lazyStudioDialog("ManualVideoTaskDialog");
 const AgentTextEditorDialog = lazyStudioDialog("AgentTextEditorDialog");
 const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
 const LazySettingsDrawer = React.lazy(() => import("./settings-drawer"));
 const LazyCommerceSetDialog = React.lazy(() => import("./commerce-set-dialog"));
+const LazyCommerceCatalogDialog = React.lazy(() => import("./commerce-catalog-dialog"));
+const LazyCommerceExportDialog = React.lazy(() => import("./commerce-export-dialog"));
+const LazyCommerceTemplateDialog = React.lazy(() => import("./commerce-template-dialog"));
+const LazyCommerceAbDialog = React.lazy(() => import("./commerce-ab-dialog"));
+const LazySocialContentDialog = React.lazy(() => import("./social-content-dialog"));
+const LazyScientificFigureDialog = React.lazy(() => import("./scientific-figure-dialog"));
 let workspaceChromePromise: Promise<typeof import("./workspace-chrome")> | null = null;
 const loadWorkspaceChrome = () => workspaceChromePromise ??= import("./workspace-chrome");
 const LazyWorkspaceAssetRail = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceAssetRail })));
+const LazyWorkspaceDomainSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDomainSwitcher })));
 const LazyWorkspaceDirectionSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDirectionSwitcher })));
 const LazyWorkspaceFocusStage = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceFocusStage })));
 const LazyWorkspaceReviewGrid = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceReviewGrid })));
@@ -779,6 +836,8 @@ const loadAuthGate = () => authGatePromise ??= import("./auth-gate");
 const LazyAuthGate = React.lazy(() => loadAuthGate().then((module) => ({ default: module.AuthGate })));
 const LazyBootScreen = React.lazy(() => loadAuthGate().then((module) => ({ default: module.BootScreen })));
 const LazyImageViewer = React.lazy(() => import("./image-viewer").then((module) => ({ default: module.ImageViewer })));
+const LazyHelpCenter = React.lazy(() => import("./help-center"));
+const LazyCommerceTutorial = React.lazy(() => import("./commerce-tutorial"));
 const LazyReferencePickerDialog = React.lazy(() => import("./reference-picker-dialog").then((module) => ({ default: module.ReferencePickerDialog })));
 const LazyAgentMessageContent = React.lazy(() => import("./agent-message-content"));
 let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
@@ -789,15 +848,45 @@ let goalModePromise: Promise<typeof import("./goal-mode")> | null = null;
 const loadGoalMode = () => goalModePromise ??= import("./goal-mode");
 
 function canvasToolShortcutLabel(shortcut?: string) {
-  return shortcut ? shortcut.replace("Mod", "Ctrl/⌘").replace(/\+/g, " ") : "";
+  return shortcut ? shortcut.split("+").map((part) => part === "Mod" ? "Ctrl/⌘" : part).join(" + ") : "";
 }
 
 function canvasToolAriaShortcut(shortcut?: string) {
-  const digit = /^Mod\+Shift\+([1-9])$/.exec(String(shortcut || ""))?.[1];
-  return digit ? `Control+Shift+${digit} Meta+Shift+${digit}` : undefined;
+  const parts = String(shortcut || "").split("+").filter(Boolean);
+  if (parts.length < 2) return undefined;
+  const ariaParts = (primary: "Control" | "Meta") => parts.map((part) => {
+    if (part === "Mod") return primary;
+    if (part === "Ctrl") return "Control";
+    return part;
+  }).join("+");
+  return parts.includes("Mod") ? `${ariaParts("Control")} ${ariaParts("Meta")}` : ariaParts("Control");
+}
+
+function canvasToolShortcutMatchesEvent(event: KeyboardEvent, shortcut?: string) {
+  const parts = String(shortcut || "").split("+").filter(Boolean);
+  if (parts.length < 2) return false;
+  const expectedKey = parts[parts.length - 1];
+  const eventKey = /^Key([A-Z])$/.exec(event.code)?.[1]
+    ?? /^Digit([0-9])$/.exec(event.code)?.[1]
+    ?? /^(F(?:[1-9]|1[0-2]))$/.exec(event.code)?.[1];
+  if (!eventKey || eventKey !== expectedKey) return false;
+  const hasMod = parts.includes("Mod");
+  const hasCtrl = parts.includes("Ctrl");
+  if (hasMod) {
+    if (event.ctrlKey === event.metaKey) return false;
+  } else if (hasCtrl) {
+    if (!event.ctrlKey || event.metaKey) return false;
+  } else if (event.ctrlKey || event.metaKey) {
+    return false;
+  }
+  return event.altKey === parts.includes("Alt") && event.shiftKey === parts.includes("Shift");
 }
 
 function canvasToolIcon(icon: ActivePluginToolbarItem["icon"]) {
+  if (icon === "boxes") return <Boxes size={14} aria-hidden="true" />;
+  if (icon === "package-check") return <PackageCheck size={14} aria-hidden="true" />;
+  if (icon === "book-marked") return <BookMarked size={14} aria-hidden="true" />;
+  if (icon === "columns-2") return <Columns2 size={14} aria-hidden="true" />;
   if (icon === "images") return <Images size={14} aria-hidden="true" />;
   if (icon === "languages") return <Languages size={14} aria-hidden="true" />;
   if (icon === "microscope") return <Microscope size={14} aria-hidden="true" />;
@@ -838,6 +927,10 @@ function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCo
   // interpolation, especially at 125–150% Windows display scaling.
   if (requiredEdge > 900) return imageAssetSrc(asset);
   return imageAssetThumbnailSrc(asset, requiredEdge > 440 ? 1024 : 512);
+}
+
+function videoAssetPlayerSrc(asset?: VideoAsset) {
+  return asset?.assetUrl || asset?.url || "";
 }
 
 function imageNodeSlotCount(node: WorkflowNode) {
@@ -969,25 +1062,26 @@ function detachedLayerNodeDisplaySize(group: ImageLayerNodeGroup) {
   return clampImageNodeDimensions(size, 1, preferred.width, preferred.height);
 }
 
-function minimumNodeSize(node: WorkflowNode): Pick<WorkflowNode, "width" | "height"> {
+function minimumNodeSize(node: WorkflowNode, knownImageSize = ""): Pick<WorkflowNode, "width" | "height"> {
   if (node.type === "agent") return { width: NODE_W, height: NODE_RESIZE_MIN_H };
   if (node.type === "requirement") return { width: 300, height: 200 };
+  if (node.type === "video") return { width: 320, height: 240 };
   if (node.imageContainer) {
     const count = Math.max(node.assets?.length ?? 0, 1);
     return count > 1
-      ? minimumImageNodeSize(imageTaskSizeForNode(node), count, node.assets ?? [])
+      ? minimumImageNodeSize(knownImageSize || imageTaskSizeForNode(node), count, node.assets ?? [])
       : { width: IMAGE_CONTAINER_MIN_W, height: IMAGE_CONTAINER_MIN_H };
   }
   if (node.imageCollection) {
     const count = Math.max(node.assets?.length ?? node.imageCollection.items.length ?? 0, 1);
     return node.imageCollection.kind === "series"
       ? { width: 360, height: 260 }
-      : minimumImageNodeSize(imageTaskSizeForNode(node), count, node.assets ?? []);
+      : minimumImageNodeSize(knownImageSize || imageTaskSizeForNode(node), count, node.assets ?? []);
   }
   if (node.layerGroup && !node.layerGroup.detached) return { width: 260, height: 200 };
   if (node.layerComposition) return { width: 360, height: 420 };
   if (node.type !== "image") return { width: NODE_RESIZE_MIN_W, height: NODE_RESIZE_MIN_H };
-  return minimumImageNodeSize(imageTaskSizeForNode(node), imageNodeSlotCount(node), node.assets ?? []);
+  return minimumImageNodeSize(knownImageSize || imageTaskSizeForNode(node), imageNodeSlotCount(node), node.assets ?? []);
 }
 
 function displaySizeForImageNode(size: string, assetCount: number, assets: ImageAsset[] = []): Pick<WorkflowNode, "width" | "height"> {
@@ -1012,6 +1106,56 @@ function displaySizeForImageNode(size: string, assetCount: number, assets: Image
   const previewHeight = clamp(Math.round(contentWidth / ratio), tall ? 360 : 136, tall ? 620 : wide ? 300 : 390);
   const height = clamp(previewHeight + 116, NODE_RESIZE_MIN_H, NODE_RESIZE_MAX_H);
   return clampImageNodeDimensions(size, count, width, height, assets);
+}
+
+function workflowNodeRenderMetrics(node: WorkflowNode) {
+  const visibleAssets = node.assets ?? [];
+  const canvasPreviewAssets = node.imageContainer && visibleAssets.length > 12 ? visibleAssets.slice(0, 12) : visibleAssets;
+  const containerOverflowCount = Math.max(0, visibleAssets.length - canvasPreviewAssets.length);
+  const slotCount = imageNodeSlotCount(node);
+  const displaySlotCount = node.imageContainer
+    ? Math.max(canvasPreviewAssets.length + (containerOverflowCount ? 1 : 0), 1)
+    : slotCount;
+  const nodeImageSize = imageTaskSizeForNode(node);
+  const nodeMinimum = minimumNodeSize(node, nodeImageSize);
+  const adaptiveGroupSize = displaySizeForImageNode(nodeImageSize, displaySlotCount, canvasPreviewAssets);
+  const renderSize = node.imageContainer
+    ? {
+        width: clamp(Number(node.width ?? adaptiveGroupSize.width ?? IMAGE_CONTAINER_W), nodeMinimum.width ?? IMAGE_CONTAINER_MIN_W, NODE_RESIZE_MAX_W),
+        height: clamp(Number(node.height ?? adaptiveGroupSize.height ?? IMAGE_CONTAINER_H), nodeMinimum.height ?? IMAGE_CONTAINER_MIN_H, NODE_RESIZE_MAX_H)
+      }
+    : node.imageCollection
+      ? {
+          width: clamp(Number(node.width ?? (node.imageCollection.kind === "series" ? IMAGE_COLLECTION_W : adaptiveGroupSize.width)), nodeMinimum.width ?? 360, NODE_RESIZE_MAX_W),
+          height: clamp(Number(node.height ?? (node.imageCollection.kind === "series" ? IMAGE_COLLECTION_SERIES_H : adaptiveGroupSize.height ?? IMAGE_COLLECTION_BATCH_H)), nodeMinimum.height ?? (node.imageCollection.kind === "series" ? 260 : 300), NODE_RESIZE_MAX_H)
+        }
+    : node.layerGroup && !node.layerGroup.detached
+      ? {
+          width: Number(node.width ?? layerArtboardDisplaySize(node.layerGroup.compositionWidth, node.layerGroup.compositionHeight).width),
+          height: Number(node.height ?? layerArtboardDisplaySize(node.layerGroup.compositionWidth, node.layerGroup.compositionHeight).height)
+        }
+    : node.layerComposition
+      ? {
+          width: clamp(Number(node.width ?? LAYER_STACK_W), 360, NODE_RESIZE_MAX_W),
+          height: clamp(Number(node.height ?? LAYER_STACK_H), 420, NODE_RESIZE_MAX_H)
+        }
+    : node.type === "image"
+      ? clampImageNodeDimensions(nodeImageSize, slotCount, node.width, node.height, visibleAssets)
+      : {
+          width: Math.max(node.width ?? NODE_W, nodeMinimum.width ?? NODE_RESIZE_MIN_W),
+          height: node.height ? Math.max(node.height, nodeMinimum.height ?? NODE_RESIZE_MIN_H) : undefined
+        };
+  return {
+    visibleAssets,
+    canvasPreviewAssets,
+    containerOverflowCount,
+    slotCount,
+    displaySlotCount,
+    nodeImageSize,
+    nodeMinimum,
+    renderWidth: renderSize.width,
+    renderHeight: renderSize.height
+  };
 }
 
 function fitImageLayoutHostNodes(
@@ -1151,7 +1295,7 @@ function normalizeImageState(value: unknown, assets: ImageAsset[]): WorkflowNode
 }
 
 function normalizeNodeType(value: unknown): WorkflowNode["type"] {
-  return value === "intent" || value === "image" || value === "requirement" || value === "review" || value === "export" || value === "branch" || value === "post" || value === "agent" ? value : "intent";
+  return value === "intent" || value === "image" || value === "video" || value === "requirement" || value === "review" || value === "export" || value === "branch" || value === "post" || value === "agent" ? value : "intent";
 }
 
 function validNumber(value: unknown, fallback: number) {
@@ -1219,6 +1363,48 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
   return normalized;
 }
 
+function sanitizeStoredVideoAsset(value: unknown): VideoAsset | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Partial<VideoAsset>;
+  const path = safeImageLocatorText(source.path);
+  const relativePath = safeImageLocatorText(source.relativePath)?.replace(/\\/g, "/");
+  const url = typeof source.url === "string" && /^https?:\/\//i.test(source.url.trim()) ? source.url.trim().slice(0, 8_192) : undefined;
+  const assetUrl = typeof source.assetUrl === "string" && /^(?:naimage|iiimage)-asset:/i.test(source.assetUrl.trim()) ? source.assetUrl.trim().slice(0, 8_192) : undefined;
+  if (!path && !relativePath && !url && !assetUrl) return null;
+  const locator = String(relativePath || path || url || assetUrl || "").toLowerCase();
+  const inferredMimeType: VideoAsset["mimeType"] = locator.endsWith(".webm")
+    ? "video/webm"
+    : locator.endsWith(".mov")
+      ? "video/quicktime"
+      : "video/mp4";
+  const mimeType = source.mimeType === "video/webm" || source.mimeType === "video/quicktime" || source.mimeType === "video/mp4"
+    ? source.mimeType
+    : inferredMimeType;
+  const contentHash = typeof source.contentHash === "string" && /^[a-f0-9]{32,128}$/i.test(source.contentHash.trim())
+    ? source.contentHash.trim().toLowerCase()
+    : undefined;
+  const assetId = typeof source.assetId === "string" && source.assetId.trim()
+    ? source.assetId.trim().slice(0, 160)
+    : contentHash
+      ? `video-${contentHash.slice(0, 32)}`
+      : undefined;
+  return {
+    assetId,
+    occurrenceId: typeof source.occurrenceId === "string" && /^occ-[a-f0-9]{16,64}$/i.test(source.occurrenceId.trim()) ? source.occurrenceId.trim().toLowerCase() : undefined,
+    contentHash,
+    type: source.type === "url" || (!path && Boolean(url || assetUrl)) ? "url" : "file",
+    path,
+    relativePath,
+    url,
+    assetUrl,
+    originalName: typeof source.originalName === "string" && source.originalName.trim() ? source.originalName.trim().slice(0, 260) : undefined,
+    mimeType,
+    width: Number(source.width) > 0 ? Math.min(Math.round(Number(source.width)), 65_535) : undefined,
+    height: Number(source.height) > 0 ? Math.min(Math.round(Number(source.height)), 65_535) : undefined,
+    durationMs: Number(source.durationMs) >= 0 && Number.isFinite(Number(source.durationMs)) ? Math.min(Math.round(Number(source.durationMs)), 604_800_000) : undefined
+  };
+}
+
 function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackPrompt: string): ImageCollection | undefined {
   if (!value || typeof value !== "object") return undefined;
   const source = value as Partial<ImageCollection>;
@@ -1235,8 +1421,8 @@ function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackP
       const candidateOccurrenceId = typeof candidate.occurrenceId === "string" && /^occ-[a-f0-9]{16,64}$/i.test(candidate.occurrenceId.trim())
         ? candidate.occurrenceId.trim().toLowerCase()
         : "";
-      const explicitAssetIndex = Number.isInteger(candidateAssetIndex) && candidateAssetIndex >= 1 && candidateAssetIndex <= Math.min(10, assets.length)
-        ? clamp(candidateAssetIndex, 1, 10)
+      const explicitAssetIndex = Number.isInteger(candidateAssetIndex) && candidateAssetIndex >= 1 && candidateAssetIndex <= Math.min(200, assets.length)
+        ? clamp(candidateAssetIndex, 1, 200)
         : undefined;
       const occurrenceIndex = explicitAssetIndex === undefined && candidateOccurrenceId
         ? assets.findIndex((asset) => asset.occurrenceId === candidateOccurrenceId)
@@ -1256,10 +1442,11 @@ function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackP
         : undefined;
       const asset = assetIndex === undefined ? undefined : assets[assetIndex - 1];
       const status = requestedStatus === "done" && !asset ? "error" as const : requestedStatus;
+      const taskProvenance = sanitizeImageTaskProvenance(candidate.taskProvenance);
       return {
         id: typeof candidate.id === "string" && candidate.id.trim() ? candidate.id.trim().slice(0, 120) : `item-${index + 1}`,
         assetIndex,
-        requestIndex: clamp(Number(candidate.requestIndex ?? index + 1), 1, 10),
+        requestIndex: clamp(Number(candidate.requestIndex ?? index + 1), 1, 200),
         assetId: status === "done" && asset
           ? asset.assetId || stableImageAssetId(asset, assetIndex)
           : undefined,
@@ -1270,7 +1457,11 @@ function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackP
           ? candidate.prompt.trim().slice(0, 12000)
           : asset?.prompt || asset?.revisedPrompt || fallbackPrompt,
         title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim().slice(0, 160) : undefined,
+        defectReason: typeof candidate.defectReason === "string" && candidate.defectReason.trim() ? candidate.defectReason.trim().slice(0, 320) : undefined,
+        replacedByAssetId: typeof candidate.replacedByAssetId === "string" && candidate.replacedByAssetId.trim() ? candidate.replacedByAssetId.trim().slice(0, 160) : undefined,
+        replacesItemId: typeof candidate.replacesItemId === "string" && candidate.replacesItemId.trim() ? candidate.replacesItemId.trim().slice(0, 120) : undefined,
         status,
+        ...(taskProvenance ? { taskProvenance: { ...taskProvenance } } : {}),
         error: typeof candidate.error === "string" && candidate.error.trim()
           ? friendlyImageError(candidate.error).slice(0, 320)
           : requestedStatus === "done" && !asset
@@ -1279,11 +1470,11 @@ function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackP
       } satisfies ImageCollection["items"][number];
     })
     .filter((item): item is NonNullable<typeof item> => item !== null)
-    .slice(0, 10);
+    .slice(0, 200);
   if (!items.length && !assets.length) return undefined;
   const normalizedItems = items.length
     ? items
-    : assets.slice(0, 10).map((asset, index) => ({
+    : assets.slice(0, 200).map((asset, index) => ({
         id: `item-${index + 1}`,
         assetIndex: index + 1,
         requestIndex: index + 1,
@@ -1295,10 +1486,14 @@ function sanitizeImageCollection(value: unknown, assets: ImageAsset[], fallbackP
       }));
   return {
     id: typeof source.id === "string" && source.id.trim() ? source.id.trim().slice(0, 120) : uid("collection"),
+    name: typeof source.name === "string" && source.name.trim() ? source.name.trim().slice(0, 160) : undefined,
     kind: source.kind === "series" ? "series" : "batch",
+    collectionRole: source.collectionRole === "defects" ? "defects" : "results",
     generationMode: source.generationMode === "sequential" ? "sequential" : "parallel",
     items: normalizedItems,
     sourceNodeId: typeof source.sourceNodeId === "string" && source.sourceNodeId.trim() ? source.sourceNodeId.trim().slice(0, 120) : undefined,
+    sourceCollectionId: typeof source.sourceCollectionId === "string" && source.sourceCollectionId.trim() ? source.sourceCollectionId.trim().slice(0, 120) : undefined,
+    defectOfNodeId: typeof source.defectOfNodeId === "string" && source.defectOfNodeId.trim() ? source.defectOfNodeId.trim().slice(0, 160) : undefined,
     createdAt: typeof source.createdAt === "string" && source.createdAt.trim() ? source.createdAt : undefined,
     autoFit: source.autoFit !== false
   };
@@ -1332,10 +1527,14 @@ function parallelImageCollection(
   });
   return sanitizeImageCollection({
     id: current?.id || `batch-${nodeId}`,
+    name: current?.name,
     kind: "batch",
+    collectionRole: current?.collectionRole || "results",
     generationMode: "parallel",
     items,
     sourceNodeId: current?.sourceNodeId,
+    sourceCollectionId: current?.sourceCollectionId,
+    defectOfNodeId: current?.defectOfNodeId,
     createdAt: current?.createdAt || new Date().toISOString(),
     autoFit: current?.autoFit !== false
   }, assets, fallbackPrompt);
@@ -1538,8 +1737,12 @@ function sanitizeCanvasRequirement(value: unknown, fallbackText = ""): CanvasReq
   const source = value as Partial<CanvasRequirement>;
   const text = typeof source.text === "string" && source.text.trim() ? source.text.trim().slice(0, 24000) : fallbackText.trim().slice(0, 24000);
   if (!text) return undefined;
+  const socialPlan = source.socialPlan && source.socialPlan.schemaVersion === 1 &&
+    (source.socialPlan.platform === "xiaohongshu" || source.socialPlan.platform === "douyin")
+    ? normalizeSocialContentPlan(source.socialPlan)
+    : undefined;
   return {
-    version: source.version === 2 ? 2 : 1,
+    version: source.version === 2 || socialPlan ? 2 : 1,
     text,
     revision: Math.max(1, Math.floor(Number(source.revision ?? 1) || 1)),
     createdFrom: source.createdFrom === "canvas" || source.createdFrom === "container" || source.createdFrom === "layer" ? source.createdFrom : "node",
@@ -1548,7 +1751,8 @@ function sanitizeCanvasRequirement(value: unknown, fallbackText = ""): CanvasReq
     lastRunAt: typeof source.lastRunAt === "string" && source.lastRunAt.trim() ? source.lastRunAt.trim().slice(0, 80) : undefined,
     lastRunCount: Number.isFinite(Number(source.lastRunCount)) ? Math.max(0, Math.floor(Number(source.lastRunCount))) : undefined,
     lastError: typeof source.lastError === "string" && source.lastError.trim() ? source.lastError.trim().slice(0, 500) : undefined,
-    skill: sanitizeCanvasSkill(source.skill)
+    skill: sanitizeCanvasSkill(source.skill),
+    socialPlan: socialPlan?.brief ? socialPlan : undefined
   };
 }
 
@@ -1562,6 +1766,9 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
   const revision = Number(source.requirementRevision);
   const commerceSlotIndex = Number(source.commerceSlotIndex);
   const commercePlanHash = clean(source.commercePlanHash, 48)?.toLowerCase();
+  const commerceCatalogTarget = normalizeCommerceCatalogGoalTarget(source.commerceCatalogTarget);
+  const commerceResultKey = clean(source.commerceResultKey, 64)?.toLowerCase();
+  const socialContent = normalizeSocialContentMetadata(source.socialContent);
   return {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
@@ -1579,7 +1786,12 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
     commerceSlotIndex: Number.isInteger(commerceSlotIndex) && commerceSlotIndex >= 0 && commerceSlotIndex < 200
       ? Math.floor(commerceSlotIndex)
       : undefined,
-    commerceLocaleCode: clean(source.commerceLocaleCode, 32)
+    commerceLocaleCode: clean(source.commerceLocaleCode, 32),
+    commerceCatalogTarget,
+    commerceResultKey: commerceResultKey && /^commerce-result-[a-f0-9]{32}$/.test(commerceResultKey)
+      ? commerceResultKey
+      : undefined,
+    socialContent
   };
 }
 
@@ -1607,7 +1819,7 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
   const type = normalizeNodeType(source.type);
   const sourceImageState = source.imageState;
   const generationRunId = typeof source.generationRunId === "string" && source.generationRunId.trim() ? source.generationRunId.trim() : undefined;
-  const assets = (Array.isArray(source.assets)
+  const storedAssets = (Array.isArray(source.assets)
     ? source.assets.map((asset, assetIndex) => sanitizeStoredImageAsset(asset, assetIndex + 1)).filter((asset): asset is ImageAsset => Boolean(asset)).filter((asset) => {
         if (sourceImageState === "generating" || sourceImageState === "empty") return false;
         if (generationRunId && asset.runId && asset.runId !== generationRunId) return false;
@@ -1618,16 +1830,41 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
       assetId: stableImageAssetId(asset, assetIndex + 1),
       displayCode: asset.displayCode || `${displayCode}${assetIndex + 1}`
     }));
+  const assets = type === "video" ? [] : storedAssets;
   const normalizedImageState = type === "image" ? normalizeImageState(source.imageState, assets) : undefined;
   const interruptedImageRun = type === "image" && normalizedImageState === "generating";
   const imageState = interruptedImageRun ? "error" : normalizedImageState;
-  const status = imageState === "done" ? "done" : imageState === "generating" ? "working" : interruptedImageRun ? "review" : normalizeNodeStatus(source.status);
+  const videoAsset = type === "video" ? sanitizeStoredVideoAsset(source.videoAsset) : null;
+  const videoTaskId = type === "video" && typeof source.videoTaskId === "string" && source.videoTaskId.trim()
+    ? source.videoTaskId.trim().slice(0, 180)
+    : undefined;
+  const videoTaskState = type === "video" && ["prepared", "creating", "create-unknown", "queued", "running", "succeeded", "ready", "failed", "cancelled"].includes(String(source.videoTaskState || ""))
+    ? source.videoTaskState as VideoTask["state"]
+    : undefined;
+  const videoProgress = type === "video" && Number.isFinite(Number(source.videoProgress))
+    ? clamp(Math.round(Number(source.videoProgress)), 0, 100)
+    : undefined;
+  const interruptedVideoRun = type === "video" && source.videoState === "generating" && !videoTaskId;
+  const videoState: WorkflowNode["videoState"] = type !== "video"
+    ? undefined
+    : videoAsset
+      ? "ready"
+      : videoTaskId && !["create-unknown", "failed", "cancelled", "ready"].includes(String(videoTaskState || ""))
+        ? "generating"
+        : interruptedVideoRun || source.videoState === "ready"
+          ? "error"
+          : source.videoState === "error"
+            ? "error"
+            : "empty";
+  const status = type === "video"
+    ? videoState === "ready" ? "done" : videoState === "generating" ? "working" : "review"
+    : imageState === "done" ? "done" : imageState === "generating" ? "working" : interruptedImageRun ? "review" : normalizeNodeStatus(source.status);
   const parentId = typeof source.parentId === "string" && source.parentId.trim() && source.parentId !== id ? source.parentId.trim() : undefined;
   const agentOwnerId = typeof source.agentOwnerId === "string" && source.agentOwnerId.trim() && source.agentOwnerId !== id ? source.agentOwnerId.trim() : undefined;
-  const outputs = Math.max(assets.length, Number.isFinite(Number(source.outputs)) ? Math.max(0, Number(source.outputs)) : 0);
-  const imageParams = sanitizeImageParams(source.imageParams, promptParts.prompt);
-  const layerGroup = sanitizeLayerNodeGroup(source.layerGroup);
-  const layerComposition = sanitizeLayerComposition(source.layerComposition);
+  const outputs = type === "video" ? videoAsset ? 1 : 0 : Math.max(assets.length, Number.isFinite(Number(source.outputs)) ? Math.max(0, Number(source.outputs)) : 0);
+  const imageParams = type === "video" ? undefined : sanitizeImageParams(source.imageParams, promptParts.prompt);
+  const layerGroup = type === "video" ? undefined : sanitizeLayerNodeGroup(source.layerGroup);
+  const layerComposition = type === "video" ? undefined : sanitizeLayerComposition(source.layerComposition);
   const requirement = type === "requirement" ? sanitizeCanvasRequirement(source.requirement, promptParts.prompt) : undefined;
   const storedCollection = sanitizeImageCollection(source.imageCollection, assets, promptParts.prompt);
   const imageCollection = storedCollection || (
@@ -1640,6 +1877,16 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     : undefined;
   const imageProgress = type === "image" ? sanitizeImageProgress(source.imageProgress, assets, (imageParams?.count ?? outputs) || 1) : undefined;
   const taskProvenance = type === "image" ? sanitizeImageTaskProvenance(source.taskProvenance) : undefined;
+  const socialContent = normalizeSocialContentMetadata(source.socialContent) ?? (
+    requirement?.socialPlan
+      ? normalizeSocialContentMetadata({
+          platform: requirement.socialPlan.platform,
+          contentType: "brief",
+          workflowId: requirement.socialPlan.workflowId,
+          status: requirement.socialPlan.status
+        })
+      : undefined
+  );
   const completedImageProgress =
     type === "image" && imageState === "done" && imageProgress
       ? {
@@ -1654,6 +1901,17 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
   const rawImageError =
     typeof source.imageError === "string" && source.imageError.trim() ? source.imageError.trim() : promptParts.error;
   const imageError = interruptedImageRun ? "上次生成已中断。" : rawImageError;
+  const videoError = type === "video"
+    ? videoTaskId && videoState === "generating"
+      ? undefined
+      : interruptedVideoRun
+      ? "上次视频任务已中断。"
+      : typeof source.videoError === "string" && source.videoError.trim()
+        ? source.videoError.trim().slice(0, 320)
+        : videoState === "error" && !videoAsset
+          ? "视频文件不可用。"
+          : undefined
+    : undefined;
 
   const createdAt = typeof source.createdAt === "string" && source.createdAt.trim() ? source.createdAt : nowLabel();
   const persistenceOriginId = typeof source.persistenceOriginId === "string" && source.persistenceOriginId.trim()
@@ -1695,7 +1953,14 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
           ? "awaiting-brief"
           : undefined,
     agentLastMemoryEntryId: type === "agent" && typeof source.agentLastMemoryEntryId === "string" && source.agentLastMemoryEntryId.trim() ? source.agentLastMemoryEntryId.trim() : undefined,
-    assets,
+    assets: type === "video" ? undefined : assets,
+    videoAsset: videoAsset || undefined,
+    videoState,
+    videoError,
+    videoModel: type === "video" && typeof source.videoModel === "string" && source.videoModel.trim() ? source.videoModel.trim().slice(0, 180) : undefined,
+    videoTaskId,
+    videoTaskState,
+    videoProgress,
     imageState,
     imageError: type === "image" && imageError ? friendlyImageError(imageError) : undefined,
     imageParams,
@@ -1708,9 +1973,10 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     imageContainerSpec,
     imageCollection,
     taskProvenance,
+    socialContent,
     requirement,
-    width: validNumber(source.width, NODE_W),
-    height: validNumber(source.height, 0) || undefined,
+    width: validNumber(source.width, type === "video" ? VIDEO_NODE_W : NODE_W),
+    height: validNumber(source.height, type === "video" ? VIDEO_NODE_H : 0) || undefined,
     zOrder: Number.isFinite(Number(source.zOrder)) ? clamp(Math.round(Number(source.zOrder)), 1, 1_000_000) : undefined
   });
 }
@@ -1983,13 +2249,13 @@ function validNodes(value: unknown, fallbackOriginId = ""): WorkflowNode[] {
   });
   const removedLegacyIds = new Set(
     migrated
-      .filter((node) => node.type !== "image" && !(node.type === "requirement" && node.requirement) && (node.assets?.length ?? 0) === 0)
+      .filter((node) => node.type !== "image" && node.type !== "video" && !(node.type === "requirement" && node.requirement) && (node.assets?.length ?? 0) === 0)
       .map((node) => node.id)
   );
   const nodes = migrated
-    .filter((node) => node.type === "image" || (node.type === "requirement" && node.requirement) || (node.assets?.length ?? 0) > 0)
+    .filter((node) => node.type === "image" || node.type === "video" || (node.type === "requirement" && node.requirement) || (node.assets?.length ?? 0) > 0)
     .map((node): WorkflowNode => {
-      if (node.type === "image" || node.type === "requirement") return node;
+      if (node.type === "image" || node.type === "video" || node.type === "requirement") return node;
       const assets = cloneImageAssets(node.assets);
       const total = Math.max(assets.length, 1);
       return applyImageContainerCompatibility({
@@ -2215,6 +2481,22 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   const commercePlanHash = typeof rawCommercePlanHash === "string" && /^commerce-[a-f0-9]{32}$/.test(rawCommercePlanHash)
     ? rawCommercePlanHash
     : undefined;
+  const rawCommerceCatalogTargets = rawGoal?.commerceCatalogTargets;
+  const commerceCatalogTargets = (Array.isArray(rawCommerceCatalogTargets) ? rawCommerceCatalogTargets : []).flatMap((value) => {
+    const target = normalizeCommerceCatalogGoalTarget(value);
+    return target ? [target] : [];
+  });
+  const commerceTargetBindingIds = commerceCatalogTargets.map((target) => target.bindingId);
+  const expectedCommerceTargetBindingIds = goalBindingIds.filter((bindingId) => commerceTargetBindingIds.includes(bindingId));
+  const commerceCatalogTargetsValid = (
+    rawCommerceCatalogTargets === undefined || (
+      Array.isArray(rawCommerceCatalogTargets) && rawCommerceCatalogTargets.length === commerceCatalogTargets.length &&
+      commerceCatalogTargets.length <= goalBindingIds.length &&
+      new Set(commerceTargetBindingIds).size === commerceTargetBindingIds.length &&
+      commerceTargetBindingIds.every((bindingId, index) => bindingId === expectedCommerceTargetBindingIds[index]) &&
+      (commerceCatalogTargets.length === 0 || Boolean(commercePlanHash))
+    )
+  );
   const hasCommerceMarker = originalPrompt.includes("[NAIMAGE_COMMERCE_SET_V1]");
   const commercePlan = hasCommerceMarker ? parseCommerceSetPromptPlan(originalPrompt) : null;
   const goal = rawGoal?.version === 1 && rawGoal.target === "all-image-containers" && rawGoal.frozen === true &&
@@ -2222,6 +2504,7 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
     goalProbeCount >= 1 && goalProbeCount <= 2 && goalProbeCount <= goalConcurrency && goalProbeCount <= goalBindingIds.length &&
     typeof rawGoal.operationsPerAsset === "number" && Number.isSafeInteger(goalOperationsPerAsset) && goalOperationsPerAsset >= 1 && goalOperationsPerAsset <= 200 &&
     typeof rawGoal.requestCount === "number" && Number.isSafeInteger(goalRequestCount) && goalRequestCount === goalBindingIds.length * goalOperationsPerAsset && goalRequestCount <= 200 &&
+    commerceCatalogTargetsValid &&
     (hasCommerceMarker
       ? commercePlan && commercePlanHash && commercePlan.planHash === commercePlanHash && commercePlan.sourceCount === goalBindingIds.length &&
         commercePlan.outputsPerSource === goalOperationsPerAsset && commercePlan.totalRequests === goalRequestCount
@@ -2238,7 +2521,8 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
         probeContainerCount: goalProbeCount,
         operationsPerAsset: goalOperationsPerAsset,
         requestCount: goalRequestCount,
-        ...(commercePlanHash ? { commercePlanHash } : {})
+        ...(commercePlanHash ? { commercePlanHash } : {}),
+        ...(commerceCatalogTargets.length ? { commerceCatalogTargets } : {})
       }
     : undefined;
   if (taskOrigin === "goal" && !goal) return null;
@@ -2364,6 +2648,7 @@ function normalizeWorkflowSession(session?: WorkflowSession | Partial<StudioWork
 
   return {
     schemaVersion: 5,
+    workspaceDomain: normalizeWorkspaceDomain((session as Partial<StudioWorkflowSession> | undefined)?.workspaceDomain),
     sessionRevision: Math.max(0, Math.floor(Number((session as Partial<StudioWorkflowSession> | undefined)?.sessionRevision ?? 0) || 0)),
     canvasRevision: Math.max(0, Math.floor(Number((session as Partial<StudioWorkflowSession> | undefined)?.canvasRevision ?? 0) || 0)),
     nodeSequence: Math.max(
@@ -2411,6 +2696,7 @@ function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): Stud
 
   return {
     schemaVersion: 5,
+    workspaceDomain: normalizeWorkspaceDomain(session.workspaceDomain),
     sessionRevision: Math.max(0, Math.floor(Number(session.sessionRevision ?? 0) || 0)),
     canvasRevision: Math.max(0, Math.floor(Number(session.canvasRevision ?? 0) || 0)),
     nodeSequence: Math.max(inferredNodeSequence(nodes), Math.floor(Number(session.nodeSequence ?? 0) || 0)),
@@ -2434,21 +2720,22 @@ function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): Stud
 async function loadSettingsFromStore(): Promise<AppSettings> {
   if (window.naimageConfig) {
     const result = await window.naimageConfig.loadSettings();
-    if (result.ok) return mergeSettings(result.settings);
+    if (result.ok) return enforceRendererAccessPolicy(mergeSettings(result.settings));
   }
-  return mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings));
+  return enforceRendererAccessPolicy(mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings)));
 }
 
 async function saveSettingsToStore(settings: AppSettings) {
+  const protectedSettings = enforceRendererAccessPolicy(settings);
   if (window.naimageConfig) {
-    const result = await window.naimageConfig.saveSettings(settings);
+    const result = await window.naimageConfig.saveSettings(protectedSettings);
     if (!result.ok) throw new Error(result.error || "设置保存失败。");
     return result;
   }
   const current = mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings));
-  const accountChanged = current.accountBaseUrl.toLowerCase() !== settings.accountBaseUrl.toLowerCase();
+  const accountChanged = current.accountBaseUrl.toLowerCase() !== protectedSettings.accountBaseUrl.toLowerCase();
   if (accountChanged) writeJson(STORAGE_SERVER_AUTH, { accountBaseUrl: "", serverUserId: "" });
-  writeJson(STORAGE_SETTINGS, settings);
+  writeJson(STORAGE_SETTINGS, protectedSettings);
   return { ok: true, accountChanged };
 }
 
@@ -2504,6 +2791,12 @@ function nodeLabel(status: NodeStatus) {
 }
 
 function nodeStateLabel(node: WorkflowNode) {
+  if (node.type === "video") {
+    if (node.videoState === "generating") return "生成中";
+    if (node.videoState === "error") return "视频异常";
+    if (node.videoState === "ready") return "视频成果";
+    return "等待视频";
+  }
   const containerKind = imageContainerKindForNode(node);
   if (containerKind === "folder") return "文件夹容器";
   if (containerKind === "container-group") return "容器组";
@@ -2892,6 +3185,7 @@ function firstPromptLine(prompt: string) {
 
 function nodeWorkName(node: WorkflowNode) {
   if (node.type === "agent") return node.title?.trim() || "旧 Agent";
+  if (node.type === "video") return node.title?.trim() || node.videoAsset?.originalName || "视频成果";
   if (node.type === "requirement") return node.title?.trim() || "图片处理需求";
   if (node.layerComposition) return node.title?.trim() || node.layerComposition.title || "图层合成";
   const containerKind = imageContainerKindForNode(node);
@@ -2907,11 +3201,13 @@ function nodeWorkName(node: WorkflowNode) {
     export: "导出成果",
     branch: "版本成果",
     post: "处理成果",
-    agent: "旧 Agent"
+    agent: "旧 Agent",
+    video: "视频成果"
   }[node.type] ?? node.title;
 }
 
 function nodeErrorMessage(node: WorkflowNode) {
+  if (node.type === "video") return node.videoError || "";
   if (node.imageError) return friendlyImageError(node.imageError);
   const match = String(node.prompt || "").match(/\nerror:\s*([\s\S]+)$/i);
   return match ? friendlyImageError(match[1]) : "";
@@ -3059,7 +3355,7 @@ function projectCanvasImageLayouts(nodes: WorkflowNode[], layoutGroups: ImageLay
     if (group.hostNodeId !== node.id) continue;
     const members = group.memberNodeIds.map((id) => nodeById.get(id)).filter((item): item is WorkflowNode => Boolean(item));
     const containerSpec = imageContainerSpecForNode(node);
-    const flattenedBindings = flattenImageContainerBindings(nodes, node.id);
+    const flattenedBindings = flattenImageContainerBindings(nodes, node.id, nodeById);
     const sources: Array<{ bindingId?: string; nodeId: string; containerNodeId?: string; assetIndex: number; role?: AssetTaskRole }> = [];
     const assets = members.flatMap((member) => (member.assets ?? []).map((asset, assetIndex) => {
       const binding = flattenedBindings[sources.length];
@@ -3096,10 +3392,9 @@ function projectCanvasImageLayouts(nodes: WorkflowNode[], layoutGroups: ImageLay
       outputs: assets.length,
       imageState: assets.length ? "done" : "empty",
       imageContainer: !projectedCollection,
-      imageContainerSpec: (() => {
-        const spec = imageContainerSpecForNode(node);
-        return spec ? { ...cloneImageContainerSpec(spec)!, memberBindings: flattenedBindings.map((binding) => ({ ...binding })) } : undefined;
-      })(),
+      imageContainerSpec: containerSpec
+        ? { ...cloneImageContainerSpec(containerSpec)!, memberBindings: flattenedBindings.map((binding) => ({ ...binding })) }
+        : undefined,
       imageCollection: projectedCollection,
       imageParams: node.imageParams ? cloneImageTaskDraft({ ...node.imageParams, count }) : node.imageParams,
       width,
@@ -3109,6 +3404,7 @@ function projectCanvasImageLayouts(nodes: WorkflowNode[], layoutGroups: ImageLay
   return {
     canvasNodes,
     canvasNodeById: new Map(canvasNodes.map((node) => [node.id, node])),
+    sourceNodeById: nodeById,
     groupByMember,
     assetSourcesByHost
   };
@@ -3158,7 +3454,10 @@ function App() {
   const zoom = viewport.scale;
   const [prompt, setPrompt] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<"access" | "appearance">("access");
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("access");
+  const [helpOpen, setHelpOpen] = useState<HelpCenterSection | null>(null);
+  const [commerceTutorialOpen, setCommerceTutorialOpen] = useState(false);
+  const [workspaceDomain, setWorkspaceDomain] = useState<WorkspaceDomain>(DEFAULT_WORKSPACE_DOMAIN);
   const [workspaceViewMode, setWorkspaceViewMode] = useState<WorkspaceViewMode>(() => {
     try {
       const stored = localStorage.getItem("naimage.workspaceViewMode.v1");
@@ -3171,6 +3470,7 @@ function App() {
   const [requirementTemplatesLoading, setRequirementTemplatesLoading] = useState(false);
   const requirementTemplatesLoadedRef = useRef(false);
   const requirementTemplatesLoadRef = useRef<Promise<RequirementLibraryEntry[]> | null>(null);
+  const [workspaceAssetRailTabRequest, setWorkspaceAssetRailTabRequest] = useState<{ tab: WorkspaceAssetRailTab; nonce: number }>();
   const [promptEditorOpen, setPromptEditorOpen] = useState(false);
   const [fastMemoryEditorOpen, setFastMemoryEditorOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -3178,13 +3478,17 @@ function App() {
   const agentWindowOpenRef = useRef(false);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null);
   const [manualImageTaskDialog, setManualImageTaskDialog] = useState<ManualImageTaskDialogState | null>(null);
+  const [manualVideoTaskDialog, setManualVideoTaskDialog] = useState<ManualVideoTaskDialogState | null>(null);
+  const [videoTaskBusy, setVideoTaskBusy] = useState(false);
   const [deleteNodeDraft, setDeleteNodeDraft] = useState<DeleteNodeDraft | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogDraft | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextMenuState | null>(null);
   const [layerViewer, setLayerViewer] = useState<LayerViewerState | null>(null);
   const [regionRedrawDraft, setRegionRedrawDraft] = useState<RegionRedrawDraft | null>(null);
+  const [regionRedrawClosePromptOpen, setRegionRedrawClosePromptOpen] = useState(false);
   const [nodeEditorDraft, setNodeEditorDraft] = useState<NodeEditorDraft | null>(null);
+  const [nodeEditorClosePromptOpen, setNodeEditorClosePromptOpen] = useState(false);
   const [requirementEditorDraft, setRequirementEditorDraft] = useState<RequirementEditorDraft | null>(null);
   const [referencePickerDraft, setReferencePickerDraft] = useState<ReferencePickerDraft | null>(null);
   const [askUserDraft, setAskUserDraft] = useState<AskUserDraft | null>(null);
@@ -3197,10 +3501,34 @@ function App() {
   const [goalConfirmationNotice, setGoalConfirmationNotice] = useState("");
   const [commerceSetDialog, setCommerceSetDialog] = useState<{
     mode: "generate" | "translate";
+    initialPlan?: CommerceSetPlan;
     sourceNodeIds: string[];
     sourceKeys: string[];
+    sourceItems: Array<{ key: string; label: string; previewUrl?: string; nodeId?: string; assetIndex?: number }>;
     sourceCount: number;
     sourceLabel: string;
+    error?: string;
+  } | null>(null);
+  const [commerceCatalogDialog, setCommerceCatalogDialog] = useState<{
+    projectId: string;
+    selectedAssets: Array<{ nodeId: string; assetIndex: number; bindingId?: string }>;
+  } | null>(null);
+  const [commerceExportDialog, setCommerceExportDialog] = useState<{ projectId: string } | null>(null);
+  const [commerceTemplateDialog, setCommerceTemplateDialog] = useState<{ focusTemplateId?: string } | null>(null);
+  const [commerceAbDialog, setCommerceAbDialog] = useState<{ projectId: string } | null>(null);
+  const [socialContentDialog, setSocialContentDialog] = useState<{
+    initialPlatform: SocialPlatform;
+    initialPlan?: SocialContentPlan;
+    sourceNodeIds: string[];
+    sourceKeys: string[];
+    sourceItems: Array<{ key: string; label: string; previewUrl?: string }>;
+    error?: string;
+  } | null>(null);
+  const [scientificFigureDialog, setScientificFigureDialog] = useState<{
+    initialPlan?: ScientificFigurePlan;
+    initialTaskId?: string;
+    initialAction: "plan" | "import" | "render" | "export";
+    sourceNodeIds: string[];
     error?: string;
   } | null>(null);
   const pendingCommerceReusableNodeRef = useRef<null | {
@@ -3211,10 +3539,11 @@ function App() {
     kind: "requirement" | "skill";
   }>(null);
   const [pluginToolbarItems, setPluginToolbarItems] = useState<ActivePluginToolbarItem[]>([]);
-  const pluginToolbarItemsRef = useRef<ActivePluginToolbarItem[]>([]);
+  const [pluginToolbarLoading, setPluginToolbarLoading] = useState(false);
+  const pluginCommandItemsRef = useRef<ActivePluginToolbarItem[]>([]);
+  const pluginShortcutItemsRef = useRef<ActivePluginToolbarItem[]>([]);
   const executePluginCommandRef = useRef<(commandId: string) => void>(() => undefined);
   const [pluginToolbarPeekOpen, setPluginToolbarPeekOpen] = useState(false);
-  pluginToolbarItemsRef.current = pluginToolbarItems;
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("idle");
   const [agentPaused, setAgentPaused] = useState(false);
   const [agentStopPending, setAgentStopPending] = useState(false);
@@ -3228,6 +3557,12 @@ function App() {
   agentReferenceImagesRef.current = agentReferenceImages;
   const [agentProgress, setAgentProgress] = useState<AgentProgress[]>([]);
   const [streamingImagePreviews, setStreamingImagePreviews] = useState<Record<string, StreamingImagePreview>>({});
+  const streamingPreviewClearFramesRef = useRef<Map<string, {
+    frame: number;
+    operationId: string;
+    runId: string;
+    requestIndex?: number;
+  }>>(new Map());
   const [activeRunStartedAt, setActiveRunStartedAt] = useState<number | null>(null);
   const [runElapsedSeconds, setRunElapsedSeconds] = useState(0);
   const imageGenerationStatsRef = useRef<ImageGenerationStats>(readImageGenerationStats());
@@ -3273,7 +3608,9 @@ function App() {
     text: string;
   } | null>(null);
   const viewportRef = useRef(viewport);
+  const canvasVisualComplexityRef = useRef({ imageTiles: 0 });
   const settingsRef = useRef(settings);
+  const workspaceDomainRef = useRef(workspaceDomain);
   const pluginCommandRegistryRef = useRef<{ execute(commandId: string, states: unknown, payload?: unknown): Promise<void> } | null>(null);
   const agentPanelLayoutRef = useRef(agentPanelLayout);
   const nodesRef = useRef(nodes);
@@ -3287,6 +3624,7 @@ function App() {
   const pendingAgentExecutionRef = useRef<PendingAgentExecution | null>(pendingAgentExecution);
   const cancelledAgentRequestRef = useRef<{ projectId: string; conversationId: string; requestId: string } | null>(null);
   const lastDispatchedTaskScopeRef = useRef<AgentTaskScope | null>(null);
+  const lastDispatchedPromptRef = useRef("");
   const requirementRunParentsRef = useRef<Map<string, string>>(new Map());
   const imageRunStartsRef = useRef<Record<string, number>>({});
   const agentToolNodeIdsRef = useRef<Record<string, string>>({});
@@ -3318,6 +3656,12 @@ function App() {
   const pendingAgentStreamMessagesRef = useRef<Map<string, AgentMessage>>(new Map());
   const agentStreamFlushTimerRef = useRef<number | null>(null);
   const pendingRuntimeFocusNodeIdRef = useRef("");
+  const pendingSocialVideoDispatchesRef = useRef<Map<string, {
+    projectId: string;
+    requirementNodeId: string;
+    expectedRequirementRevision: number;
+    planHash: string;
+  }>>(new Map());
   const layoutRefocusTimerRef = useRef<number | null>(null);
   const activeProjectIdRef = useRef(activeProjectId);
   const lockedNodeIdsRef = useRef<Set<string>>(new Set());
@@ -3372,6 +3716,7 @@ function App() {
     layerGroupStart?: Record<string, { x: number; y: number; anchorX: number; anchorY: number; detached: boolean }>;
     pendingX?: number;
     pendingY?: number;
+    previewApplied?: boolean;
     frame?: number;
     nodeElement?: HTMLDivElement;
     originalZIndex?: string;
@@ -3403,7 +3748,7 @@ function App() {
   const regionRedrawSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const regionRedrawMaskCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const recordLayerDetachAudit = useCallback((entry: Omit<(typeof layerDetachAuditRef.current)[number], "at">) => {
-    if (!__NAIMAGE_AIDEBUG__) return;
+    if (!NAIMAGE_AIDEBUG_RUNTIME_ENABLED) return;
     layerDetachAuditRef.current.push({ ...entry, at: Date.now() });
     if (layerDetachAuditRef.current.length > 96) layerDetachAuditRef.current.splice(0, layerDetachAuditRef.current.length - 96);
   }, []);
@@ -3605,7 +3950,7 @@ function App() {
   }
 
   function recordImageToolCommitEvidence(operationId: string, patch: Partial<ImageToolCommitEvidence>) {
-    if (!__NAIMAGE_AIDEBUG__) return;
+    if (!NAIMAGE_AIDEBUG_RUNTIME_ENABLED) return;
     const id = String(operationId || "").trim();
     if (!id) return;
     const current = imageToolCommitEvidenceRef.current.get(id);
@@ -3835,20 +4180,43 @@ function App() {
   }
 
   function upsertStreamingImagePreview(payload: AgentProgress, operationId: string) {
+    const requestIndex = Math.max(1, Math.floor(Number(payload.partialImage?.requestIndex || 1) || 1));
+    cancelStreamingImagePreviewClear(operationId, "", requestIndex);
     setStreamingImagePreviews((current) => upsertStreamingImagePreviewState(current, payload, operationId));
   }
 
+  function cancelStreamingImagePreviewClear(operationId: string, runId = "", requestIndex?: number) {
+    const pending = streamingPreviewClearFramesRef.current;
+    for (const [key, scheduled] of pending) {
+      const scopeMatches = operationId
+        ? scheduled.operationId === operationId
+        : runId
+          ? scheduled.runId === runId
+          : true;
+      if (!scopeMatches) continue;
+      if (requestIndex && scheduled.requestIndex && scheduled.requestIndex !== requestIndex) continue;
+      window.cancelAnimationFrame(scheduled.frame);
+      pending.delete(key);
+    }
+  }
+
   function clearStreamingImagePreview(operationId: string, runId = "", requestIndex?: number) {
-    setStreamingImagePreviews((current) => {
-      const entries = Object.entries(current).filter(([, preview]) => {
-        if (operationId && preview.operationId === operationId) {
-          return requestIndex ? preview.requestIndex !== requestIndex : false;
-        }
-        if (!operationId && runId && preview.runId === runId) return false;
-        return true;
+    const clearKey = `${operationId || `run:${runId || "all"}`}:${requestIndex || "*"}`;
+    cancelStreamingImagePreviewClear(operationId, runId, requestIndex);
+    const frame = window.requestAnimationFrame(() => {
+      streamingPreviewClearFramesRef.current.delete(clearKey);
+      setStreamingImagePreviews((current) => {
+        const entries = Object.entries(current).filter(([, preview]) => {
+          if (operationId && preview.operationId === operationId) {
+            return requestIndex ? preview.requestIndex !== requestIndex : false;
+          }
+          if (!operationId && runId && preview.runId === runId) return false;
+          return true;
+        });
+        return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
       });
-      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
     });
+    streamingPreviewClearFramesRef.current.set(clearKey, { frame, operationId, runId, requestIndex });
   }
 
   const bindCanvasRef = useCallback((element: HTMLDivElement | null) => {
@@ -4074,7 +4442,7 @@ function App() {
   }, [authReady, serverUser?.id]);
 
   async function commitAppSettings(nextSettings: AppSettings) {
-    const normalized = mergeSettings(nextSettings);
+    const normalized = enforceRendererAccessPolicy(mergeSettings(nextSettings));
     const accountChanged = settings.accountBaseUrl.toLowerCase() !== normalized.accountBaseUrl.toLowerCase();
     const accessModeChanged = settings.accessMode !== normalized.accessMode;
     await saveSettingsToStore(normalized);
@@ -4145,7 +4513,7 @@ function App() {
     }
     const timer = window.setTimeout(() => {
       flushStarted = true;
-      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
+      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, workspaceDomain, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
       persistProjectSession(projectId, snapshot).catch((error) =>
         console.error("save session failed", error)
       );
@@ -4154,7 +4522,7 @@ function App() {
       window.clearTimeout(timer);
       if (NAIMAGE_RUNTIME_METRICS && !flushStarted) persistenceDebugMetricsRef.current.coalescedWriteCount += 1;
     };
-  }, [messages, conversations, activeConversationId, nodes, layoutGroups, selectedNodeId, pendingAgentExecution, activeProjectId, configReady]);
+  }, [messages, conversations, activeConversationId, nodes, layoutGroups, selectedNodeId, pendingAgentExecution, workspaceDomain, activeProjectId, configReady]);
 
   useEffect(() => {
     let layoutFrame = 0;
@@ -4207,6 +4575,10 @@ function App() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    workspaceDomainRef.current = workspaceDomain;
+  }, [workspaceDomain]);
 
   useEffect(() => {
     setAvailableImageModels((current) => uniqueImageModels([
@@ -4277,6 +4649,33 @@ function App() {
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
+
+  useEffect(() => {
+    const bridge = window.naimageVideo;
+    if (!configReady || !bridge?.list) return;
+    let disposed = false;
+    const projectId = activeProjectId;
+    const applyTask = (task: VideoTask) => {
+      if (disposed || task.projectId !== projectId || activeProjectIdRef.current !== projectId) return;
+      applyVideoTaskToCanvas(task, true);
+    };
+    const unsubscribe = bridge.onChanged?.(applyTask);
+    void bridge.list({ expectedProjectId: projectId })
+      .then((result) => {
+        if (disposed || activeProjectIdRef.current !== projectId) return;
+        for (const task of result.tasks ?? []) applyTask(task);
+        if (!result.ok && result.error) setServerMessage(`视频任务恢复失败：${result.error}`);
+      })
+      .catch((error) => {
+        if (!disposed && activeProjectIdRef.current === projectId) {
+          setServerMessage(`视频任务恢复失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [activeProjectId, configReady]);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -4398,6 +4797,10 @@ function App() {
       const isImageTool = String(timelinePayload.tool || "") === "image_gen" || String(timelinePayload.phase || "").startsWith("image-");
       if (timelinePayload.phase === "image-preview" && isImageTool && operationId) {
         upsertStreamingImagePreview(timelinePayload, operationId);
+      }
+      if (timelinePayload.phase === "image-result" && isImageTool && operationId) {
+        const requestIndex = Math.max(1, Math.floor(Number(timelinePayload.partialImage?.requestIndex || 1) || 1));
+        clearStreamingImagePreview(operationId, String(timelinePayload.runId || ""), requestIndex);
       }
       if (
         isImageTool &&
@@ -4758,6 +5161,8 @@ function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let wheelCommitTimer = 0;
+    let wheelFrame = 0;
+    let pendingWheelViewport: CanvasViewport | null = null;
     let viewportQualityTimer = 0;
 
     const beginViewportInteraction = () => {
@@ -4766,6 +5171,10 @@ function App() {
         viewportQualityTimer = 0;
       }
       canvas.classList.add("is-viewport-interacting");
+      canvas.classList.toggle(
+        "is-viewport-detail-reduced",
+        canvasVisualComplexityRef.current.imageTiles >= NODE_OVERVIEW_MIN_IMAGE_TILES
+      );
     };
 
     const settleViewportQuality = () => {
@@ -4773,6 +5182,7 @@ function App() {
       viewportQualityTimer = window.setTimeout(() => {
         viewportQualityTimer = 0;
         canvas.classList.remove("is-viewport-interacting");
+        canvas.classList.remove("is-viewport-detail-reduced");
         if (canvasStageRef.current) {
           canvasStageRef.current.style.transform = canvasViewportTransform(viewportRef.current);
         }
@@ -4784,10 +5194,28 @@ function App() {
       if (canvasStageRef.current) canvasStageRef.current.style.transform = canvasViewportTransform(next, true);
     };
 
+    const flushWheelViewport = () => {
+      if (wheelFrame) window.cancelAnimationFrame(wheelFrame);
+      wheelFrame = 0;
+      const next = pendingWheelViewport;
+      pendingWheelViewport = null;
+      if (next && canvasStageRef.current) {
+        canvasStageRef.current.style.transform = canvasViewportTransform(next, true);
+      }
+    };
+
+    const queueWheelViewport = (next: CanvasViewport) => {
+      viewportRef.current = next;
+      pendingWheelViewport = next;
+      if (wheelFrame) return;
+      wheelFrame = window.requestAnimationFrame(flushWheelViewport);
+    };
+
     const scheduleViewportCommit = () => {
       if (wheelCommitTimer) window.clearTimeout(wheelCommitTimer);
       wheelCommitTimer = window.setTimeout(() => {
         wheelCommitTimer = 0;
+        flushWheelViewport();
         setViewport({ ...viewportRef.current });
         settleViewportQuality();
       }, VIEWPORT_WHEEL_COMMIT_DELAY_MS);
@@ -4796,7 +5224,6 @@ function App() {
     const handleWheel = (event: WheelEvent) => {
       if (Math.abs(event.deltaY) <= 0) return;
       event.preventDefault();
-      beginViewportInteraction();
       const rect = canvas.getBoundingClientRect();
       const pointerX = event.clientX - rect.left;
       const pointerY = event.clientY - rect.top;
@@ -4804,9 +5231,10 @@ function App() {
       const current = viewportRef.current;
       const nextScale = clamp(current.scale + (event.deltaY > 0 ? -0.055 : 0.055), ZOOM_MIN, ZOOM_MAX);
       if (nextScale === current.scale) return;
+      beginViewportInteraction();
       const worldX = (pointerX - current.x) / current.scale;
       const worldY = (pointerY - current.y) / current.scale;
-      applyTransientViewport({
+      queueWheelViewport({
         x: pointerX - worldX * nextScale,
         y: pointerY - worldY * nextScale,
         scale: nextScale
@@ -4861,6 +5289,11 @@ function App() {
       event.stopPropagation();
       setCanvasMenu(null);
       if (pan) return;
+      if (wheelCommitTimer) {
+        window.clearTimeout(wheelCommitTimer);
+        wheelCommitTimer = 0;
+      }
+      flushWheelViewport();
       beginViewportInteraction();
       pan = {
         startX: event.clientX,
@@ -5012,7 +5445,7 @@ function App() {
     };
 
     let cleanupCanvasDebug = () => {};
-    if (__NAIMAGE_AIDEBUG__) {
+    if (NAIMAGE_AIDEBUG_RUNTIME_ENABLED) {
     const handleDebugPan = (event: Event) => {
       const detail = (event as CustomEvent<{ dx?: number; dy?: number }>).detail ?? {};
       const next = {
@@ -5106,9 +5539,13 @@ function App() {
       setGoalConfirmation(null);
       setImageViewer(null);
       setManualImageTaskDialog(null);
+      setManualVideoTaskDialog(null);
+      setCommerceCatalogDialog(null);
       setNodeEditorDraft(null);
+      setNodeEditorClosePromptOpen(false);
       setRequirementEditorDraft(null);
       setRegionRedrawDraft(null);
+      setRegionRedrawClosePromptOpen(false);
       setLayerViewer(null);
       setReferencePickerDraft(null);
       setAskUserDraft(null);
@@ -5352,13 +5789,14 @@ function App() {
     window.addEventListener("keyup", handleSpaceUp);
     return () => {
       if (wheelCommitTimer) window.clearTimeout(wheelCommitTimer);
+      flushWheelViewport();
       stopPan();
       if (viewportQualityTimer) {
         window.clearTimeout(viewportQualityTimer);
         viewportQualityTimer = 0;
       }
       cancelSelection();
-      canvas.classList.remove("is-viewport-interacting");
+      canvas.classList.remove("is-viewport-interacting", "is-viewport-detail-reduced");
       if (canvasStageRef.current) canvasStageRef.current.style.transform = canvasViewportTransform(viewportRef.current);
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("pointerdown", handlePointerDown);
@@ -5654,7 +6092,7 @@ function App() {
     const mapped = layoutProjection.assetSourcesByHost.get(node.id)?.[assetIndex];
     if (!mapped) return { node, assetIndex };
     return {
-      node: nodes.find((candidate) => candidate.id === mapped.nodeId) ?? node,
+      node: layoutProjection.sourceNodeById.get(mapped.nodeId) ?? node,
       assetIndex: mapped.assetIndex
     };
   }
@@ -5704,9 +6142,11 @@ function App() {
   }, [layoutProjection.groupByMember, lockedNodeIds]);
   const canvasImageStatus = useMemo(() => {
     const imageCount = canvasNodes.filter((node) => node.type === "image").length;
+    const videoCount = canvasNodes.filter((node) => node.type === "video").length;
     const requirementCount = canvasNodes.filter((node) => node.type === "requirement").length;
     const meta = [
       imageCount > 0 ? `${imageCount} 个图片成果` : "",
+      videoCount > 0 ? `${videoCount} 个视频成果` : "",
       requirementCount > 0 ? `${requirementCount} 个可复用需求` : ""
     ].filter(Boolean).join(" · ");
     return {
@@ -5719,30 +6159,35 @@ function App() {
     () => new Map(canvasNodes.map((node, index) => [node.id, nodeZOrder(node, index)])),
     [canvasNodes]
   );
-  const nodesWithOutputs = useMemo(
-    () => new Set(nodes.flatMap((node) => node.type === "requirement"
-      ? requirementInputNodeIds(node, nodes)
-      : node.parentId ? [node.parentId] : [])),
-    [nodes]
-  );
+  const nodeInputBindingsById = useMemo(() => {
+    const result = new Map<string, CanvasRequirementInputBinding[]>();
+    for (const node of nodes) {
+      const bindings: CanvasRequirementInputBinding[] = node.type === "requirement"
+        ? requirementInputBindings(node, nodes, layoutProjection.sourceNodeById)
+        : node.parentId ? [{ nodeId: node.parentId, role: "source" }] : [];
+      if (bindings.length) result.set(node.id, bindings);
+    }
+    return result;
+  }, [layoutProjection.sourceNodeById, nodes]);
+  const nodesWithOutputs = useMemo(() => {
+    const result = new Set<string>();
+    nodeInputBindingsById.forEach((bindings) => bindings.forEach((binding) => result.add(binding.nodeId)));
+    return result;
+  }, [nodeInputBindingsById]);
   const nodeOutputCountById = useMemo(() => {
     const counts = new Map<string, number>();
-    nodes.forEach((node) => {
-      const inputIds = node.type === "requirement" ? requirementInputNodeIds(node, nodes) : node.parentId ? [node.parentId] : [];
-      inputIds.forEach((inputId) => counts.set(inputId, (counts.get(inputId) ?? 0) + 1));
-    });
+    nodeInputBindingsById.forEach((bindings) => bindings.forEach((binding) => {
+      counts.set(binding.nodeId, (counts.get(binding.nodeId) ?? 0) + 1);
+    }));
     return counts;
-  }, [nodes]);
+  }, [nodeInputBindingsById]);
 
   const edges = useMemo(() => {
-    const byId = new Map(nodes.map((node) => [node.id, node]));
     const uniqueEdges = new Set<string>();
     const rawEdges = nodes.flatMap((node) => {
-      const inputs: CanvasRequirementInputBinding[] = node.type === "requirement"
-        ? requirementInputBindings(node, nodes)
-        : node.parentId ? [{ nodeId: node.parentId, role: "source" }] : [];
+      const inputs = nodeInputBindingsById.get(node.id) ?? [];
       return inputs.flatMap((input) => {
-        const causalSource = byId.get(input.nodeId);
+        const causalSource = layoutProjection.sourceNodeById.get(input.nodeId);
         if (!causalSource) return [];
         const sourceId = layoutProjection.groupByMember.get(causalSource.id)?.hostNodeId ?? causalSource.id;
         const targetId = layoutProjection.groupByMember.get(node.id)?.hostNodeId ?? node.id;
@@ -5763,14 +6208,18 @@ function App() {
       group.push(edge);
       bySource.set(edge.source.id, group);
     });
-    bySource.forEach((group) => group.sort((left, right) =>
-      (nodeStackById.get(left.target.id) ?? 0) - (nodeStackById.get(right.target.id) ?? 0) || left.target.id.localeCompare(right.target.id)
-    ));
+    const laneIndexByEdge = new Map<(typeof rawEdges)[number], number>();
+    bySource.forEach((group) => {
+      group.sort((left, right) =>
+        (nodeStackById.get(left.target.id) ?? 0) - (nodeStackById.get(right.target.id) ?? 0) || left.target.id.localeCompare(right.target.id)
+      );
+      group.forEach((edge, laneIndex) => laneIndexByEdge.set(edge, laneIndex));
+    });
     return rawEdges.map((edge) => {
       const siblings = bySource.get(edge.source.id) ?? [edge];
-      return { ...edge, laneIndex: siblings.indexOf(edge), laneCount: siblings.length };
+      return { ...edge, laneIndex: laneIndexByEdge.get(edge) ?? 0, laneCount: siblings.length };
     });
-  }, [canvasNodeById, layoutProjection.groupByMember, nodeStackById, nodes]);
+  }, [canvasNodeById, layoutProjection.groupByMember, layoutProjection.sourceNodeById, nodeInputBindingsById, nodeStackById, nodes]);
 
   const renderedNodes = useMemo(() => {
     const importantIds = new Set<string>();
@@ -5804,18 +6253,28 @@ function App() {
 
     const baseRenderedIds = new Set(renderedIds);
     for (const node of canvasNodes) {
-      const inputIds = node.type === "requirement" ? requirementInputNodeIds(node, nodes) : node.parentId ? [node.parentId] : [];
-      inputIds.forEach((inputId) => {
+      const inputs = nodeInputBindingsById.get(node.id) ?? [];
+      inputs.forEach((input) => {
+        const inputId = input.nodeId;
         if (baseRenderedIds.has(node.id)) renderedIds.add(inputId);
         if (baseRenderedIds.has(inputId)) renderedIds.add(node.id);
       });
     }
 
     return canvasNodes.filter((node) => renderedIds.has(node.id));
-  }, [activeNodeId, canvasNodes, canvasViewportSize.height, canvasViewportSize.width, draggingNodeId, imageRunStarts, layoutProjection.groupByMember, nodes, resizingNodeId, selectedNodeId, selectedNodeIds, viewport.scale, viewport.x, viewport.y]);
+  }, [activeNodeId, canvasNodes, canvasViewportSize.height, canvasViewportSize.width, draggingNodeId, imageRunStarts, layoutProjection.groupByMember, nodeInputBindingsById, resizingNodeId, selectedNodeId, selectedNodeIds, viewport.scale, viewport.x, viewport.y]);
   const renderedNodesRef = useRef(renderedNodes);
   renderedNodesRef.current = renderedNodes;
-  const canvasNodeOverviewMode = viewport.scale <= NODE_OVERVIEW_MAX_SCALE && renderedNodes.length >= NODE_OVERVIEW_MIN_COUNT;
+  const renderedImageTileCount = useMemo(
+    () => renderedNodes.reduce((count, node) => (
+      node.type === "image" ? count + Math.max(1, node.assets?.length ?? 0) : count
+    ), 0),
+    [renderedNodes]
+  );
+  canvasVisualComplexityRef.current.imageTiles = renderedImageTileCount;
+  const canvasNodeOverviewMode = viewport.scale <= NODE_OVERVIEW_MAX_SCALE && (
+    renderedNodes.length >= NODE_OVERVIEW_MIN_COUNT || renderedImageTileCount >= NODE_OVERVIEW_MIN_IMAGE_TILES
+  );
   const renderedNodeIdSet = useMemo(() => new Set(renderedNodes.map((node) => node.id)), [renderedNodes]);
   const renderedEdges = useMemo(
     () => edges.filter((edge) => renderedNodeIdSet.has(edge.source.id) || renderedNodeIdSet.has(edge.target.id)),
@@ -6236,6 +6695,10 @@ function App() {
     return Array.from(new Set(paths));
   }
 
+  function localPathLooksLikeVideo(filePath: string) {
+    return /\.(?:mp4|webm|mov|m4v)$/i.test(String(filePath || "").trim());
+  }
+
   function clampNodeWorldPosition(position: { x: number; y: number }, width: number, height: number) {
     const rect = canvasRef.current?.getBoundingClientRect();
     const viewportNow = viewportRef.current;
@@ -6273,6 +6736,297 @@ function App() {
     }
     if (!result?.ok) return { ok: false, assets: [] as ImageAsset[], error: result?.error || "图片入库失败。" };
     return { ...result, assets: cloneImageAssets(result.assets ?? []) };
+  }
+
+  async function importExternalVideoPaths(paths: string[], maxFiles = 100) {
+    if (!paths.length) return { ok: false, assets: [] as VideoAsset[], error: "没有可导入的本地视频路径。" };
+    if (!window.naimageConfig?.importLocalVideos) return { ok: false, assets: [] as VideoAsset[], error: "当前环境不支持导入本地视频。" };
+    const requestProjectId = activeProjectIdRef.current;
+    const result = await window.naimageConfig.importLocalVideos({ paths, projectId: requestProjectId, maxFiles });
+    if (activeProjectIdRef.current !== requestProjectId) {
+      return { ok: false, assets: [] as VideoAsset[], error: "画布已切换，本次视频导入结果不会加入当前画布。" };
+    }
+    const assets = (result?.assets ?? []).map((asset) => sanitizeStoredVideoAsset(asset)).filter((asset): asset is VideoAsset => Boolean(asset));
+    return { ...result, assets };
+  }
+
+  function createVideoNodesAt(videoAssets: VideoAsset[], worldX: number, worldY: number) {
+    if (!videoAssets.length) return [];
+    pushCanvasHistory(`导入 ${videoAssets.length} 个视频成果`);
+    let nextNodes = [...nodesRef.current];
+    let nextZ = nextNodeZOrder(nextNodes);
+    const createdIds: string[] = [];
+    for (const [index, videoAsset] of videoAssets.entries()) {
+      const id = allocateNodeCode(nextNodes);
+      const preferredPosition = clampNodeWorldPosition({ x: worldX + index * 34, y: worldY + index * 34 }, VIDEO_NODE_W, VIDEO_NODE_H);
+      const position = findOpenWorkflowNodePosition(nextNodes, {
+        width: VIDEO_NODE_W,
+        height: VIDEO_NODE_H,
+        preferredX: preferredPosition.x,
+        preferredY: preferredPosition.y
+      });
+      const node: WorkflowNode = {
+        id,
+        displayCode: id,
+        title: videoAsset.originalName || `视频成果 ${index + 1}`,
+        prompt: "用户导入的本地视频成果。",
+        type: "video",
+        status: "done",
+        x: position.x,
+        y: position.y,
+        branch: "video-import",
+        outputs: 1,
+        createdAt: nowLabel(),
+        videoAsset: { ...videoAsset },
+        videoState: "ready",
+        width: VIDEO_NODE_W,
+        height: VIDEO_NODE_H,
+        zOrder: nextZ++
+      };
+      nextNodes.push(node);
+      createdIds.push(id);
+    }
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    const primaryId = createdIds[createdIds.length - 1] || "";
+    if (primaryId) {
+      replaceSelectedNodeId(primaryId);
+      setActiveNodeId(primaryId);
+      window.setTimeout(() => setActiveNodeId(null), 700);
+    }
+    setCanvasMenu(null);
+    addEvent(`导入视频成果 ${createdIds.length} 个`);
+    notifyAgentOfManualAction("导入视频成果", `用户向画布导入了 ${createdIds.length} 个本地视频成果；当前 Agent 只把它们作为不可执行成果节点展示。`);
+    return createdIds;
+  }
+
+  function videoTaskErrorMessage(task: VideoTask) {
+    if (task.state === "create-unknown") return task.error || "创建结果无法确认；为避免重复扣费，SparkAI WorkSpace 不会自动重建。";
+    if (task.state === "cancelled") return task.error || "上游已取消视频任务。";
+    if (task.state === "failed") return task.error || "上游视频任务失败。";
+    if (task.state === "succeeded" && task.downloadError) return `视频已生成，结果下载暂时失败：${task.downloadError}`;
+    if (task.pollError) return `状态查询暂时失败，正在自动恢复：${task.pollError}`;
+    return "";
+  }
+
+  function videoTaskIsGenerating(task: VideoTask) {
+    return ["prepared", "creating", "queued", "running", "succeeded"].includes(task.state);
+  }
+
+  function applyVideoTaskToCanvas(task: VideoTask, allowOrphanCreation = true) {
+    if (!task?.taskId || task.projectId !== activeProjectIdRef.current) return "";
+    const nextNodes = [...nodesRef.current];
+    const taskSocialContent = normalizeSocialContentMetadata(task.socialContent);
+    const resolvedSocialContent = taskSocialContent
+      ? { ...taskSocialContent, status: task.output ? "generated" as const : taskSocialContent.status }
+      : undefined;
+    const attachSocialRequirement = (sourceNodes: WorkflowNode[], videoNodeId: string) => {
+      if (!resolvedSocialContent || resolvedSocialContent.platform !== "douyin") return sourceNodes;
+      const requirementIndex = sourceNodes.findIndex((node) => (
+        node.type === "requirement" &&
+        node.requirement?.socialPlan?.platform === "douyin" &&
+        node.requirement.socialPlan.workflowId === resolvedSocialContent.workflowId
+      ));
+      if (requirementIndex < 0) return sourceNodes;
+      const requirementNode = sourceNodes[requirementIndex];
+      const plan = requirementNode.requirement!.socialPlan!;
+      if (plan.platform !== "douyin" || (plan.videoTaskId === task.taskId && plan.videoNodeId === videoNodeId)) return sourceNodes;
+      const updated = applySocialPlanToRequirementNode(requirementNode, {
+        ...plan,
+        videoTaskId: task.taskId,
+        videoNodeId
+      }, requirementNode.requirement!.revision);
+      return updated ? sourceNodes.map((node, index) => index === requirementIndex ? updated : node) : sourceNodes;
+    };
+    let index = nextNodes.findIndex((node) => node.type === "video" && node.videoTaskId === task.taskId);
+    if (index < 0 && task.nodeId) {
+      index = nextNodes.findIndex((node) => node.id === task.nodeId && node.type === "video" && (!node.videoTaskId || node.videoTaskId === task.taskId));
+    }
+    const output = task.output ? sanitizeStoredVideoAsset(task.output) : null;
+    const generating = videoTaskIsGenerating(task) && !output;
+    const videoState: WorkflowNode["videoState"] = output ? "ready" : generating ? "generating" : "error";
+    const videoError = output ? undefined : videoTaskErrorMessage(task) || (task.state === "ready" ? "视频结果文件不可用。" : undefined);
+    if (index >= 0) {
+      const current = nextNodes[index];
+      const updated: WorkflowNode = {
+        ...current,
+        prompt: task.prompt || current.prompt,
+        status: output ? "done" : generating ? "working" : "review",
+        outputs: output ? 1 : 0,
+        videoAsset: output || undefined,
+        videoState,
+        videoError,
+        videoModel: task.model,
+        videoTaskId: task.taskId,
+        videoTaskState: task.state,
+        videoProgress: task.progress,
+        socialContent: resolvedSocialContent || current.socialContent,
+      };
+      const unchanged = current.status === updated.status &&
+        current.outputs === updated.outputs &&
+        current.videoState === updated.videoState &&
+        current.videoError === updated.videoError &&
+        current.videoModel === updated.videoModel &&
+        current.videoTaskId === updated.videoTaskId &&
+        current.videoTaskState === updated.videoTaskState &&
+        current.videoProgress === updated.videoProgress &&
+        JSON.stringify(current.socialContent || null) === JSON.stringify(updated.socialContent || null) &&
+        current.videoAsset?.path === updated.videoAsset?.path &&
+        current.videoAsset?.assetUrl === updated.videoAsset?.assetUrl;
+      if (unchanged) return current.id;
+      nextNodes[index] = updated;
+      const committedNodes = attachSocialRequirement(nextNodes, current.id);
+      nodesRef.current = committedNodes;
+      setNodes(committedNodes);
+      return current.id;
+    }
+    if (!allowOrphanCreation) return "";
+    const id = task.nodeId && !nextNodes.some((node) => node.id === task.nodeId) ? task.nodeId : allocateNodeCode(nextNodes);
+    const preferredPosition = clampNodeWorldPosition(task.placement, VIDEO_NODE_W, VIDEO_NODE_H);
+    const position = findOpenWorkflowNodePosition(nextNodes, {
+      width: VIDEO_NODE_W,
+      height: VIDEO_NODE_H,
+      preferredX: preferredPosition.x,
+      preferredY: preferredPosition.y
+    });
+    const socialRequirementNode = resolvedSocialContent
+      ? nextNodes.find((candidate) => candidate.type === "requirement" && candidate.requirement?.socialPlan?.workflowId === resolvedSocialContent.workflowId)
+      : undefined;
+    const node: WorkflowNode = {
+      id,
+      displayCode: id,
+      title: resolvedSocialContent ? "抖音短视频成果" : `视频生成 · ${task.model}`,
+      prompt: task.prompt,
+      type: "video",
+      status: output ? "done" : generating ? "working" : "review",
+      x: position.x,
+      y: position.y,
+      branch: "video-generation",
+      outputs: output ? 1 : 0,
+      createdAt: task.createdAt || nowLabel(),
+      videoAsset: output || undefined,
+      videoState,
+      videoError,
+      videoModel: task.model,
+      videoTaskId: task.taskId,
+      videoTaskState: task.state,
+      videoProgress: task.progress,
+      socialContent: resolvedSocialContent,
+      parentId: socialRequirementNode?.id,
+      relationType: socialRequirementNode ? "derived-from" : undefined,
+      width: VIDEO_NODE_W,
+      height: VIDEO_NODE_H,
+      zOrder: nextNodeZOrder(nextNodes)
+    };
+    nextNodes.push(node);
+    const committedNodes = attachSocialRequirement(nextNodes, id);
+    nodesRef.current = committedNodes;
+    setNodes(committedNodes);
+    addEvent(`恢复视频任务 ${id}`);
+    return id;
+  }
+
+  function createPendingVideoNodeAt(dialog: ManualVideoTaskDialogState, options: {
+    title?: string;
+    parentId?: string;
+    socialContent?: SocialContentMetadata;
+  } = {}) {
+    pushCanvasHistory("创建视频任务");
+    const nextNodes = [...nodesRef.current];
+    const id = allocateNodeCode(nextNodes);
+    const preferredPosition = clampNodeWorldPosition({ x: dialog.worldX, y: dialog.worldY }, VIDEO_NODE_W, VIDEO_NODE_H);
+    const position = findOpenWorkflowNodePosition(nextNodes, {
+      width: VIDEO_NODE_W,
+      height: VIDEO_NODE_H,
+      preferredX: preferredPosition.x,
+      preferredY: preferredPosition.y
+    });
+    const node: WorkflowNode = {
+      id,
+      displayCode: id,
+      title: options.title || `视频生成 · ${dialog.draft.model}`,
+      prompt: dialog.draft.prompt,
+      type: "video",
+      status: "working",
+      x: position.x,
+      y: position.y,
+      branch: "video-generation",
+      outputs: 0,
+      createdAt: nowLabel(),
+      videoState: "generating",
+      videoModel: dialog.draft.model,
+      videoTaskState: "prepared",
+      videoProgress: 0,
+      socialContent: options.socialContent,
+      parentId: options.parentId,
+      relationType: options.parentId ? "derived-from" : undefined,
+      width: VIDEO_NODE_W,
+      height: VIDEO_NODE_H,
+      zOrder: nextNodeZOrder(nextNodes)
+    };
+    nextNodes.push(node);
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+    replaceSelectedNodeId(id);
+    setActiveNodeId(id);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    return id;
+  }
+
+  async function refreshVideoTaskNode(node: WorkflowNode, retryDownload = false) {
+    if (!node.videoTaskId || !window.naimageVideo) return;
+    setCanvasMenu(null);
+    try {
+      const payload = { expectedProjectId: activeProjectIdRef.current, taskId: node.videoTaskId };
+      const result = retryDownload
+        ? await window.naimageVideo.retryDownload(payload)
+        : await window.naimageVideo.poll(payload);
+      if (result.task) applyVideoTaskToCanvas(result.task, false);
+      setServerMessage(result.ok
+        ? retryDownload ? "视频结果已重新下载到项目目录。" : "视频任务状态已刷新。"
+        : result.error || "视频任务操作失败。");
+    } catch (error) {
+      setServerMessage(`视频任务操作失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async function importVideoPathsToCanvas(paths: string[], worldX: number, worldY: number) {
+    try {
+      const result = await importExternalVideoPaths(paths);
+      if (!result.ok || !result.assets.length) throw new Error(result.error || "没有找到可导入的 MP4、WebM、MOV 或 M4V 视频。");
+      const ids = createVideoNodesAt(result.assets, worldX, worldY);
+      const skipped = Math.max(0, Number(result.skippedCount || 0));
+      setServerMessage(`已将 ${ids.length} 个视频复制到项目视频库并创建成果节点${skipped ? `；另有 ${skipped} 个文件未通过格式检查` : ""}。`);
+      return { ok: true, ids, assets: result.assets, skippedCount: skipped };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setServerMessage(`视频导入失败：${message}`);
+      return { ok: false, ids: [] as string[], assets: [] as VideoAsset[], error: message };
+    }
+  }
+
+  async function importPickedVideosToCanvasAt(worldX: number, worldY: number) {
+    const requestProjectId = activeProjectIdRef.current;
+    setCanvasMenu(null);
+    if (!window.naimageConfig?.pickLocalVideos) {
+      setServerMessage("当前环境不支持从系统文件选择器导入视频。");
+      return;
+    }
+    try {
+      const result = await window.naimageConfig.pickLocalVideos({ projectId: requestProjectId, maxFiles: 100 });
+      if (result?.canceled) return;
+      if (activeProjectIdRef.current !== requestProjectId) {
+        setServerMessage("画布已经切换，本次视频选择不会加入当前画布。");
+        return;
+      }
+      const assets = (result?.assets ?? []).map((asset) => sanitizeStoredVideoAsset(asset)).filter((asset): asset is VideoAsset => Boolean(asset));
+      if (!result?.ok || !assets.length) throw new Error(result?.error || "没有找到可导入的视频。");
+      const ids = createVideoNodesAt(assets, worldX, worldY);
+      const skipped = Math.max(0, Number(result.skippedCount || 0));
+      setServerMessage(`已导入 ${ids.length} 个视频成果${skipped ? `；跳过 ${skipped} 个无效文件` : ""}。`);
+    } catch (error) {
+      setServerMessage(`视频导入失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   function buildImageContainerNodeAt(
@@ -6644,6 +7398,7 @@ function App() {
     }
     const task = cloneImageTaskDraft(dialog.draft);
     setManualImageTaskDialog(null);
+    setManualVideoTaskDialog(null);
     void runManualImageTask(task, {
       worldX: dialog.worldX,
       worldY: dialog.worldY,
@@ -6651,6 +7406,208 @@ function App() {
       targetTotal: task.count,
       quotaChecked: false
     });
+  }
+
+  function openManualVideoTaskAt(worldX: number, worldY: number) {
+    const models = selectedVideoModelsFromSettings(settings);
+    const model = settings.videoModel || models[0] || "doubao-seedance-2-0-260128";
+    setCanvasMenu(null);
+    setManualVideoTaskDialog({
+      draft: {
+        prompt: "",
+        model,
+        seconds: 5,
+        aspectRatio: "16:9",
+        resolution: "720p"
+      },
+      worldX: Math.round(worldX),
+      worldY: Math.round(worldY),
+      projectId: activeProjectIdRef.current
+    });
+  }
+
+  async function dispatchVideoTask(dialog: ManualVideoTaskDialogState, options: {
+    title?: string;
+    parentId?: string;
+    idempotencyKey?: string;
+    socialContent?: SocialContentMetadata;
+  } = {}) {
+    if (dialog.projectId !== activeProjectIdRef.current) throw new Error("画布已经切换，请在当前画布重新创建视频工作。");
+    if (!window.naimageVideo?.create) throw new Error("当前版本未加载视频任务服务。");
+    const nodeId = createPendingVideoNodeAt(dialog, options);
+    try {
+      const result = await window.naimageVideo.create({
+        expectedProjectId: dialog.projectId,
+        nodeId,
+        model: dialog.draft.model,
+        prompt: dialog.draft.prompt,
+        seconds: dialog.draft.seconds,
+        aspectRatio: dialog.draft.aspectRatio,
+        resolution: dialog.draft.resolution,
+        placement: { x: dialog.worldX, y: dialog.worldY },
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+        ...(options.socialContent ? { socialContent: options.socialContent } : {}),
+        confirmed: true
+      });
+      if (result.task) applyVideoTaskToCanvas(result.task, false);
+      if (!result.ok && !result.task && activeProjectIdRef.current === dialog.projectId) {
+        updateNode(nodeId, {
+          status: "review",
+          videoState: "error",
+          videoTaskState: result.ambiguous ? "create-unknown" : "failed",
+          videoError: result.error || "视频任务创建失败。"
+        });
+      }
+      return { ...result, nodeId };
+    } catch (error) {
+      if (activeProjectIdRef.current === dialog.projectId) {
+        const message = error instanceof Error ? error.message : String(error);
+        updateNode(nodeId, { status: "review", videoState: "error", videoTaskState: "create-unknown", videoError: message });
+      }
+      return {
+        ok: false,
+        ambiguous: true,
+        nodeId,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  async function composeSocialRequirementExecution(requirementNode: WorkflowNode) {
+    const planValue = requirementNode.type === "requirement" ? requirementNode.requirement?.socialPlan : undefined;
+    if (!planValue) return { prompt: requirementNode.requirement?.text || requirementNode.prompt };
+    const plan = normalizeSocialContentPlan(planValue);
+    const command = plan.platform === "xiaohongshu" ? SOCIAL_XIAOHONGSHU_COMMAND : SOCIAL_DOUYIN_COMMAND;
+    const composed = await window.naimageConfig?.composePluginTask?.({ command, plan });
+    if (!composed?.ok || !composed.task) throw new Error(composed?.error || "社媒任务生成失败。");
+    const canonicalPlan = normalizeSocialContentPlan(composed.task.plan ?? plan);
+    if (canonicalPlan.platform !== plan.platform || canonicalPlan.workflowId !== plan.workflowId) {
+      throw new Error("社媒 Requirement 的工作流身份已变化，请重新打开并检查计划。");
+    }
+    return {
+      prompt: composed.task.prompt,
+      visibleContent: composed.task.visibleContent
+    };
+  }
+
+  async function dispatchSocialVideoForRequirement(requirementNodeId: string) {
+    const requirementNode = nodesRef.current.find((node) => node.id === requirementNodeId && node.type === "requirement" && node.requirement?.socialPlan?.platform === "douyin");
+    if (!requirementNode?.requirement?.socialPlan || requirementNode.requirement.socialPlan.platform !== "douyin") {
+      throw new Error("抖音 Requirement 已不存在或不再包含有效计划。");
+    }
+    const plan = normalizeSocialContentPlan(requirementNode.requirement.socialPlan);
+    if (plan.platform !== "douyin") throw new Error("当前社媒计划不是抖音短视频。");
+    const issues = socialContentWritebackIssues(plan);
+    if (issues.length) throw new Error(`抖音内容尚未补齐，视频任务未创建：${issues.join("；")}。`);
+    const existingNode = nodesRef.current.find((node) => node.type === "video" && (
+      node.id === plan.videoNodeId ||
+      node.videoTaskId === plan.videoTaskId ||
+      node.socialContent?.workflowId === plan.workflowId
+    ));
+    if (existingNode) {
+      return {
+        ok: existingNode.videoState !== "error",
+        reused: true,
+        nodeId: existingNode.id,
+        ...(existingNode.videoTaskId ? { task: { taskId: existingNode.videoTaskId } } : {})
+      };
+    }
+    const model = settingsRef.current.videoModel || selectedVideoModelsFromSettings(settingsRef.current)[0] || "doubao-seedance-2-0-260128";
+    const socialContent = normalizeSocialContentMetadata({
+      platform: "douyin",
+      contentType: "video",
+      workflowId: plan.workflowId,
+      slot: "video",
+      status: "draft"
+    });
+    if (!socialContent) throw new Error("抖音视频任务缺少有效的社媒身份。");
+    const result = await dispatchVideoTask({
+      draft: {
+        prompt: composeDouyinVideoPrompt(plan),
+        model,
+        seconds: plan.durationSeconds,
+        aspectRatio: "9:16",
+        resolution: "720p"
+      },
+      worldX: Math.round(requirementNode.x + Number(requirementNode.width || REQUIREMENT_NODE_W) + 72),
+      worldY: Math.round(requirementNode.y),
+      projectId: activeProjectIdRef.current
+    }, {
+      title: `抖音视频 · ${plan.title}`,
+      parentId: requirementNode.id,
+      idempotencyKey: `social-video:${plan.workflowId}:${plan.planHash}`,
+      socialContent
+    });
+    return result;
+  }
+
+  useEffect(() => {
+    if (!pendingSocialVideoDispatchesRef.current.size) return;
+    for (const [key, pending] of pendingSocialVideoDispatchesRef.current) {
+      if (pending.projectId !== activeProjectId) {
+        pendingSocialVideoDispatchesRef.current.delete(key);
+        continue;
+      }
+      const requirementNode = nodes.find((node) => node.id === pending.requirementNodeId);
+      if (requirementNode?.type !== "requirement" || !requirementNode.requirement?.socialPlan) {
+        pendingSocialVideoDispatchesRef.current.delete(key);
+        continue;
+      }
+      if (requirementNode.requirement.revision < pending.expectedRequirementRevision) continue;
+      const plan = normalizeSocialContentPlan(requirementNode.requirement.socialPlan);
+      if (
+        requirementNode.requirement.revision !== pending.expectedRequirementRevision ||
+        plan.platform !== "douyin" ||
+        plan.planHash !== pending.planHash ||
+        socialContentWritebackIssues(plan).length
+      ) {
+        pendingSocialVideoDispatchesRef.current.delete(key);
+        continue;
+      }
+      pendingSocialVideoDispatchesRef.current.delete(key);
+      void dispatchSocialVideoForRequirement(requirementNode.id).then((result) => {
+        const ambiguous = "ambiguous" in result && result.ambiguous === true;
+        const error = "error" in result ? result.error : undefined;
+        setServerMessage(result.ok
+          ? result.reused
+            ? "抖音视频任务已存在，继续使用原任务，未重复创建。"
+            : "抖音视频任务已创建；SparkAI WorkSpace 会在后台轮询并将结果写入当前社媒项目。"
+          : ambiguous
+            ? error || "抖音视频创建结果不明；为避免重复扣费，不会自动重试。"
+            : error || "抖音视频任务创建失败。");
+      }).catch((error) => {
+        setServerMessage(`抖音视频任务未创建：${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+  }, [activeProjectId, nodes]);
+
+  async function submitManualVideoTask(dialog: ManualVideoTaskDialogState) {
+    if (videoTaskBusy) return;
+    if (dialog.projectId !== activeProjectIdRef.current) {
+      setManualVideoTaskDialog(null);
+      setServerMessage("画布已经切换，请在当前画布重新创建视频工作。");
+      return;
+    }
+    setManualVideoTaskDialog(null);
+    setVideoTaskBusy(true);
+    try {
+      const result = await dispatchVideoTask(dialog);
+      if (activeProjectIdRef.current === dialog.projectId) {
+        setServerMessage(result.ok
+          ? "视频任务已创建；可以继续使用画布，SparkAI WorkSpace 会在后台轮询并自动落盘。"
+          : result.ambiguous
+            ? result.error || "视频创建结果不明；为避免重复扣费，不会自动重试。"
+            : result.error || "视频任务创建失败。");
+      }
+      notifyAgentOfManualAction(
+        "创建视频任务",
+        result.ok
+          ? `用户创建了 ${dialog.draft.model} 视频任务；任务会独立轮询并在完成后形成视频成果。`
+          : `用户尝试创建 ${dialog.draft.model} 视频任务，但当前状态为${result.ambiguous ? "创建结果不明" : "失败"}。`
+      );
+    } finally {
+      setVideoTaskBusy(false);
+    }
   }
 
   async function importPickedImagesToCanvasAt(worldX: number, worldY: number) {
@@ -7200,7 +8157,12 @@ function App() {
     return next;
   }
 
-  function commitImageLayout(nodes: WorkflowNode[], groups: ImageLayoutGroup[], selectedId: string) {
+  function commitImageLayout(
+    nodes: WorkflowNode[],
+    groups: ImageLayoutGroup[],
+    selectedId: string,
+    options: { animate?: boolean } = {}
+  ) {
     const canonicalNodes = synchronizeImageContainerSpecs(nodes, groups);
     const canonicalGroups = sanitizeImageLayoutGroups(
       canonicalNodes,
@@ -7212,8 +8174,12 @@ function App() {
     setNodes(fittedNodes);
     setLayoutGroups(canonicalGroups);
     setSelectedNodeId(selectedId);
-    setActiveNodeId(selectedId);
-    window.setTimeout(() => setActiveNodeId(null), 700);
+    if (options.animate === false) {
+      setActiveNodeId(null);
+    } else {
+      setActiveNodeId(selectedId);
+      window.setTimeout(() => setActiveNodeId(null), 700);
+    }
   }
 
   async function applyTaskResultLayout(
@@ -7422,7 +8388,7 @@ function App() {
       const causalityChanged = workingNodes.some((node) => beforeCausality.has(node.id) && beforeCausality.get(node.id) !== `${node.parentId || ""}|${node.relationType || ""}`);
       if (causalityChanged) return { ok: false, error: "已阻止会改写成果来源关系的归组操作。" };
 
-      commitImageLayout(workingNodes, workingGroups, selectedId);
+      commitImageLayout(workingNodes, workingGroups, selectedId, { animate: false });
       addEvent(`整理图片 ${memberNodeId} → ${selectedId}`);
       notifyAgentOfManualAction("整理图片成果", `用户将图片成果 ${memberNodeId} 放入画布图片容器 ${selectedId}；原始生成关系保持不变。`);
       return { ok: true, nodeId: selectedId, reason: mutation.reason };
@@ -7453,7 +8419,7 @@ function App() {
       bounds.height
     );
     workingNodes = workingNodes.map((node) => node.id === memberNodeId ? { ...node, x: position.x, y: position.y, zOrder: nextNodeZOrder(workingNodes) } : node);
-    commitImageLayout(workingNodes, workingGroups, memberNodeId);
+    commitImageLayout(workingNodes, workingGroups, memberNodeId, { animate: false });
     pendingRuntimeFocusNodeIdRef.current = memberNodeId;
     addEvent(`从图片容器取出 ${memberNode.title}`);
     notifyAgentOfManualAction("取出图片成果", `用户将图片 ${memberNode.title} 从容器取出为独立画布成果 ${memberNodeId}；原始生成关系保持不变。`);
@@ -7481,11 +8447,11 @@ function App() {
       initialPrompt,
       brushSize: 72,
       maskDirty: false,
-      discardArmed: false,
       ready: false,
       busy: false
     };
     regionRedrawDraftRef.current = draft;
+    setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(draft);
     return true;
   }
@@ -7562,9 +8528,9 @@ function App() {
     const startX = event.clientX;
     const startY = event.clientY;
     let moved = false;
-    const sourceBounds = workflowNodeBounds(source);
-    const sourceX = sourceBounds.x + sourceBounds.width;
-    const sourceY = sourceBounds.y + NODE_CONNECT_Y;
+    const sourcePort = provenancePortCenter(source, "output");
+    const sourceX = sourcePort.x;
+    const sourceY = sourcePort.y;
     setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: sourceX + 90, worldY: sourceY });
     const target = event.currentTarget;
     try {
@@ -7656,10 +8622,7 @@ function App() {
   }
 
   async function handleCanvasPaste(event: React.ClipboardEvent<HTMLDivElement>) {
-    const imageFiles = [
-      ...Array.from(event.clipboardData.items, (item) => item.kind === "file" && item.type.startsWith("image/") ? item.getAsFile() : null),
-      ...Array.from(event.clipboardData.files)
-    ].filter((file): file is File => Boolean(file?.type.startsWith("image/")));
+    const imageFiles = clipboardImageFiles(event.clipboardData);
     if (!imageFiles.length) {
       if (canvasClipboardRef.current) {
         event.preventDefault();
@@ -7723,11 +8686,11 @@ function App() {
       initialPrompt,
       brushSize: 72,
       maskDirty: false,
-      discardArmed: false,
       ready: false,
       busy: false
     };
     regionRedrawDraftRef.current = draft;
+    setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(draft);
     return true;
   }
@@ -7756,7 +8719,7 @@ function App() {
     context.restore();
     setRegionRedrawDraft((current) => {
       if (!current || current.nodeId !== regionRedrawDraft.nodeId) return current;
-      const next = { ...current, maskDirty: true, discardArmed: false, error: undefined };
+      const next = { ...current, maskDirty: true, error: undefined };
       regionRedrawDraftRef.current = next;
       return next;
     });
@@ -7805,7 +8768,7 @@ function App() {
     context.clearRect(0, 0, canvas.width, canvas.height);
     setRegionRedrawDraft((current) => {
       if (!current) return current;
-      const next = { ...current, maskDirty: false, discardArmed: false, error: undefined };
+      const next = { ...current, maskDirty: false, error: undefined };
       regionRedrawDraftRef.current = next;
       return next;
     });
@@ -7896,6 +8859,7 @@ function App() {
     setActiveRunStartedAt(Date.now());
     setRunElapsedSeconds(0);
     regionRedrawDraftRef.current = null;
+    setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(null);
     setServerMessage(`${operationTitle}已提交，可继续操作画布。`);
     setAgentProgress((current) => [...current, {
@@ -8076,7 +9040,7 @@ function App() {
     ];
     const paths = droppedPathsFromFiles(Array.from(new Set(droppedFiles)));
     if (!paths.length) {
-      setServerMessage("无法读取拖入文件的本地路径，请改用画布右键“导入图片”。");
+      setServerMessage("无法读取拖入文件的本地路径，请改用画布右键导入。");
       addEvent("画布拖入未取得本地文件路径");
       return;
     }
@@ -8085,7 +9049,15 @@ function App() {
       layoutGroupsRef.current.some((group) => group.hostNodeId === targetNodeId)
         ? targetNodeId
         : "";
-    void importPathsToCanvas(paths, event.clientX, event.clientY, targetContainerId);
+    const videoPaths = paths.filter(localPathLooksLikeVideo);
+    const imagePaths = paths.filter((filePath) => !localPathLooksLikeVideo(filePath));
+    void (async () => {
+      if (videoPaths.length) {
+        const point = clientToWorld(event.clientX, event.clientY);
+        await importVideoPathsToCanvas(videoPaths, point.x, point.y);
+      }
+      if (imagePaths.length) await importPathsToCanvas(imagePaths, event.clientX, event.clientY, targetContainerId);
+    })();
   }
 
   function normalizeLayerGroupsAfterRemoval(source: WorkflowNode[], removeIds: Set<string>) {
@@ -10115,6 +11087,20 @@ function App() {
       action.type === "workflow.node.cutout"
     );
 
+    for (const action of actions) {
+      if (action.type !== "workflow.node.social.update" || !action.id || !action.socialPlan || !action.expectedRequirementRevision) continue;
+      const plan = normalizeSocialContentPlan(action.socialPlan);
+      if (plan.platform !== "douyin" || socialContentWritebackIssues(plan).length) continue;
+      const expectedRequirementRevision = action.expectedRequirementRevision + 1;
+      const key = `${activeProjectIdRef.current}:${action.id}:${expectedRequirementRevision}:${plan.planHash}`;
+      pendingSocialVideoDispatchesRef.current.set(key, {
+        projectId: activeProjectIdRef.current,
+        requirementNodeId: action.id,
+        expectedRequirementRevision,
+        planHash: plan.planHash
+      });
+    }
+
     setNodes((current) => {
       let next = [...current];
       let runtimeParentContextId = initialRuntimeParentContextId;
@@ -10320,6 +11306,7 @@ function App() {
             imageContainerSpec: incomingContainerSpec ?? cloneImageContainerSpec(existingNode?.imageContainerSpec),
             imageCollection,
             taskProvenance: taskProvenance ? { ...taskProvenance } : undefined,
+            socialContent: taskProvenance?.socialContent ? { ...taskProvenance.socialContent } : existingNode?.socialContent,
             imageProgress: nodeType === "image" ? {
               total,
               completed,
@@ -10358,6 +11345,20 @@ function App() {
           if (imageState === "generating") markImageRunStarted(id, Date.now());
           if (imageState !== "generating") markImageRunFinished(id);
           addEvent(existingNode ? `runtime 更新节点 ${id}` : `runtime 创建节点 ${id}`);
+          continue;
+        }
+
+        if (action.type === "workflow.node.social.update" && action.id && action.socialPlan && action.expectedRequirementRevision) {
+          const targetIndex = next.findIndex((node) => node.id === action.id);
+          const updated = targetIndex >= 0
+            ? applySocialPlanToRequirementNode(next[targetIndex], action.socialPlan, action.expectedRequirementRevision)
+            : undefined;
+          if (!updated) {
+            addEvent(`runtime 拒绝过期或身份不一致的社媒回写 ${action.id}`);
+            continue;
+          }
+          next = next.map((node, index) => index === targetIndex ? updated : node);
+          addEvent(`runtime 更新社媒计划 ${action.id} · ${updated.requirement?.socialPlan?.platform}`);
           continue;
         }
 
@@ -10587,7 +11588,7 @@ function App() {
   });
 
   useEffect(() => {
-    if (!__NAIMAGE_AIDEBUG__) return;
+    if (!NAIMAGE_AIDEBUG_RUNTIME_ENABLED) return;
     return installAgentFixtureBridge({
       applyActions: (actions) => {
         runtimeActionHandlerRef.current(actions);
@@ -10604,11 +11605,13 @@ function App() {
   }, []);
 
   function cancelTransientCanvasInteractions() {
-    if (dragRef.current?.frame) window.cancelAnimationFrame(dragRef.current.frame);
-    if (dragRef.current?.nodeElement) {
-      dragRef.current.nodeElement.classList.remove("dragging");
-      dragRef.current.nodeElement.style.zIndex = dragRef.current.originalZIndex ?? "";
-      dragRef.current.nodeElement.style.willChange = dragRef.current.originalWillChange ?? "";
+    const drag = dragRef.current;
+    if (drag?.frame) window.cancelAnimationFrame(drag.frame);
+    if (drag?.nodeElement) {
+      if (!drag.layerGroupId) {
+        applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
+      }
+      clearTransientNodeDragStyles(drag);
     }
     if (layerDragRef.current?.frame) window.cancelAnimationFrame(layerDragRef.current.frame);
     dragRef.current = null;
@@ -10734,15 +11737,21 @@ function App() {
     x: number,
     y: number,
     cachedNodeElement?: HTMLElement,
-    cachedEdges?: TransientNodeDragEdge[]
+    cachedEdges?: TransientNodeDragEdge[],
+    dragOrigin?: { x: number; y: number }
   ) {
     const nodeElement = cachedNodeElement?.isConnected
       ? cachedNodeElement
       : Array.from(document.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
           .find((element) => element.dataset.nodeId === nodeId);
     if (nodeElement) {
-      nodeElement.style.left = `${x}px`;
-      nodeElement.style.top = `${y}px`;
+      if (dragOrigin) {
+        nodeElement.style.setProperty("--node-drag-x", `${x - dragOrigin.x}px`);
+        nodeElement.style.setProperty("--node-drag-y", `${y - dragOrigin.y}px`);
+      } else {
+        nodeElement.style.left = `${x}px`;
+        nodeElement.style.top = `${y}px`;
+      }
     }
 
     if (cachedEdges) {
@@ -10770,6 +11779,16 @@ function App() {
     }
   }
 
+  function clearTransientNodeDragStyles(drag: NonNullable<typeof dragRef.current>) {
+    const nodeElement = drag.nodeElement;
+    if (!nodeElement) return;
+    nodeElement.classList.remove("dragging");
+    nodeElement.style.removeProperty("--node-drag-x");
+    nodeElement.style.removeProperty("--node-drag-y");
+    nodeElement.style.zIndex = drag.originalZIndex ?? "";
+    nodeElement.style.willChange = drag.originalWillChange ?? "";
+  }
+
   function beginNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
     if (event.button !== 0) return;
     if (event.ctrlKey || event.metaKey) return;
@@ -10790,6 +11809,7 @@ function App() {
     if (imageTile && !imageTileMovesNode) return;
     if (node.layerGroup && !node.layerGroup.detached && !layerGroupTitleDrag && !layerMemberDrag) return;
     if (target.closest(".node-port, .node-resize-handle, textarea, input, select, button")) return;
+    selectNodeFromPlainClick(node.id, "node-drag-start");
     const sourceAsset = imageTileMovesNode ? node.assets?.[0] : undefined;
     const layerGroupStart = layerGroupTitleDrag && node.layerGroup
       ? Object.fromEntries(nodesRef.current
@@ -10818,8 +11838,10 @@ function App() {
     const originalZIndex = nodeElement.style.zIndex;
     const originalWillChange = nodeElement.style.willChange;
     nodeElement.classList.add("dragging");
+    nodeElement.style.setProperty("--node-drag-x", "0px");
+    nodeElement.style.setProperty("--node-drag-y", "0px");
     nodeElement.style.zIndex = "1000000";
-    nodeElement.style.willChange = "left, top";
+    nodeElement.style.willChange = "transform";
     setDraggingNodeId(node.id);
     dragRef.current = {
       id: node.id,
@@ -10868,6 +11890,22 @@ function App() {
     drag.pendingX = Math.round(drag.nodeX + dx);
     drag.pendingY = Math.round(drag.nodeY + dy);
 
+    // Paint the first ordinary-node movement immediately so pointerdown never
+    // feels stuck while waiting for the next animation frame. Subsequent move
+    // events remain frame-coalesced and still update transform-only preview.
+    if (!drag.layerGroupId && !drag.previewApplied) {
+      applyTransientNodePosition(
+        drag.id,
+        drag.moved ? drag.pendingX : drag.nodeX,
+        drag.moved ? drag.pendingY : drag.nodeY,
+        drag.nodeElement,
+        drag.transientEdges,
+        { x: drag.nodeX, y: drag.nodeY }
+      );
+      drag.previewApplied = true;
+      return;
+    }
+
     if (drag.frame) return;
     drag.frame = window.requestAnimationFrame(() => {
       const current = dragRef.current;
@@ -10900,7 +11938,8 @@ function App() {
         current.moved ? current.pendingX ?? current.nodeX : current.nodeX,
         current.moved ? current.pendingY ?? current.nodeY : current.nodeY,
         current.nodeElement,
-        current.transientEdges
+        current.transientEdges,
+        { x: current.nodeX, y: current.nodeY }
       );
       current.frame = undefined;
     });
@@ -10915,11 +11954,6 @@ function App() {
       // Pointer capture can be released by the browser before pointerup.
     }
     if (drag.frame) window.cancelAnimationFrame(drag.frame);
-    if (drag.nodeElement) {
-      drag.nodeElement.classList.remove("dragging");
-      drag.nodeElement.style.zIndex = drag.originalZIndex ?? "";
-      drag.nodeElement.style.willChange = drag.originalWillChange ?? "";
-    }
     if (event.type === "pointercancel") {
       if (drag.layerGroupId && drag.layerGroupStart) {
         Object.entries(drag.layerGroupStart).forEach(([id, start]) => {
@@ -10960,6 +11994,7 @@ function App() {
       } else if (drag.nodeElement) {
         applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
       }
+      clearTransientNodeDragStyles(drag);
       recordLayerDetachAudit({
         action: "cancel",
         source: "node-pointer-cancel-rollback",
@@ -10990,6 +12025,16 @@ function App() {
       drag.pendingY = undefined;
       if (drag.nodeElement) applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
     }
+    if (!drag.layerGroupId && drag.nodeElement) {
+      applyTransientNodePosition(
+        drag.id,
+        drag.moved ? drag.pendingX ?? drag.nodeX : drag.nodeX,
+        drag.moved ? drag.pendingY ?? drag.nodeY : drag.nodeY,
+        drag.nodeElement,
+        drag.transientEdges
+      );
+    }
+    clearTransientNodeDragStyles(drag);
     const dropTargetId = event.type === "pointercancel" ? "" : drag.dropTargetId || "";
     if (drag.layerGroupId && drag.layerGroupStart && drag.pendingX !== undefined && drag.pendingY !== undefined) {
       const dx = drag.pendingX - drag.nodeX;
@@ -11039,7 +12084,6 @@ function App() {
           : {})
       });
     }
-    if (drag.moved) selectNodeFromPlainClick(node.id, "node-drag-end");
     if (drag.moved && drag.layerGroupId) {
       addEvent(`移动分层 PNG #${String(node.layerGroup?.groupNumber ?? 0).padStart(3, "0")}`);
       notifyAgentOfManualAction("移动分层 PNG", `用户移动了分层 PNG 组 #${String(node.layerGroup?.groupNumber ?? 0).padStart(3, "0")}；各图层顺序和归属保持不变。`);
@@ -11689,6 +12733,7 @@ function App() {
     setAgentPaused(false);
     suspendProjectSessionAutosave();
     activeProjectIdRef.current = nextProjectId;
+    workspaceDomainRef.current = nextSession.workspaceDomain;
     projectSessionRevisionRef.current[nextProjectId] = nextSession.sessionRevision;
     resetProjectNodeMutationTracking(nextProjectId, nextSession);
     automationCanvasCommitMarkerRef.current = null;
@@ -11701,6 +12746,7 @@ function App() {
 
     setProjects((current) => result.projects ?? current);
     setActiveProjectId(nextProjectId);
+    setWorkspaceDomain(nextSession.workspaceDomain);
     setNodes(nextSession.nodes);
     setLayoutGroups(nextSession.layoutGroups);
     replaceSelectedNodeId(nextSession.selectedNodeId);
@@ -11725,13 +12771,17 @@ function App() {
     setPromptEditorOpen(false);
     setFastMemoryEditorOpen(false);
     setManualImageTaskDialog(null);
+    setManualVideoTaskDialog(null);
+    setCommerceCatalogDialog(null);
     setCanvasMenu(null);
     setAssetContextMenu(null);
     setImageViewer(null);
     setLayerViewer(null);
     setRegionRedrawDraft(null);
+    setRegionRedrawClosePromptOpen(false);
     regionRedrawDraftRef.current = null;
     setNodeEditorDraft(null);
+    setNodeEditorClosePromptOpen(false);
     setRequirementEditorDraft(null);
     setReferencePickerDraft(restoredPending && (restoredPending.kind === "source_images" || restoredPending.kind === "reference_images")
       ? {
@@ -11782,11 +12832,13 @@ function App() {
             ? "图片容器"
             : node.imageCollection
               ? "图片组"
-              : node.type === "requirement" ? "可复用需求" : node.type === "image" ? "图片成果" : "成果节点";
+              : node.type === "requirement" ? "可复用需求" : node.type === "video" ? "视频成果" : node.type === "image" ? "图片成果" : "成果节点";
       const detail = node.layerGroup
         ? `分层 PNG #${String(node.layerGroup.groupNumber).padStart(3, "0")} · 第 ${node.layerGroup.order}/${node.layerGroup.total} 层`
         : node.type === "requirement"
           ? `${typeLabel} · ${node.parentId ? "已连接来源" : "未连接来源"}`
+        : node.type === "video"
+          ? `${typeLabel} · ${node.videoAsset?.originalName || "本地视频"}`
         : node.imageContainer || node.imageCollection
           ? `${typeLabel} · ${Math.max(0, node.assets?.length ?? 0)} 张`
           : typeLabel;
@@ -11810,11 +12862,46 @@ function App() {
     };
   }, [selectedCanvasCapabilities, selectedNodes]);
 
-  async function flushActiveProjectSession() {
+  async function flushActiveProjectSession(options: { live?: boolean; projectId?: string } = {}) {
     if (!configReady) return;
-    const projectId = activeProjectIdRef.current || activeProjectId || "default";
-    const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
-    await persistProjectSession(projectId, snapshot);
+    const projectId = options.projectId || activeProjectIdRef.current || activeProjectId || "default";
+    if (options.projectId && options.projectId !== activeProjectIdRef.current) {
+      throw new Error("目标项目已切换，无法保存 Commerce Goal 结果。");
+    }
+    const live = options.live === true;
+    const snapshot = buildWorkflowSessionSnapshot({
+      schemaVersion: 5,
+      workspaceDomain: workspaceDomainRef.current,
+      nodeSequence: nodeSequenceRef.current,
+      canvasRevision: canvasRevisionRef.current,
+      layoutGroups: live ? layoutGroupsRef.current : layoutGroups,
+      messages: live ? messagesRef.current : messages,
+      conversations,
+      activeConversationId: live ? activeConversationIdRef.current : activeConversationId,
+      nodes: live ? nodesRef.current : nodes,
+      selectedNodeId: live ? selectedNodeIdRef.current : selectedNodeId,
+      pendingAgentExecution: live ? pendingAgentExecutionRef.current : pendingAgentExecution,
+    });
+    return persistProjectSession(projectId, snapshot);
+  }
+
+  async function reconcileCommerceGoalResults(taskScope: AgentTaskScope, projectId: string): Promise<string> {
+    if (!taskScope.goal?.commerceCatalogTargets?.length) return "";
+    const bridge = window.naimageConfig?.reconcileCommerceCatalogGoalResults;
+    if (!bridge) return "";
+    try {
+      const saved = await flushActiveProjectSession({ live: true, projectId });
+      if (!saved?.ok) throw new Error(saved?.error || "项目结果尚未可靠保存。");
+      const result = await bridge({ expectedProjectId: projectId, taskScopeSnapshotHash: taskScope.snapshotHash });
+      if (!result?.ok) throw new Error(result?.error || "SKU 商品素材库自动归档失败。");
+      const added = Number(result.details?.added || 0);
+      const existing = Number(result.details?.existing || 0);
+      if (added > 0) addEvent(`Commerce Goal 自动归档 ${added} 张结果到 SKU 商品素材库`);
+      else if (existing > 0) addEvent(`Commerce Goal 的 ${existing} 张结果已在 SKU 商品素材库中`);
+      return "";
+    } catch (error) {
+      return `图片已生成，但未自动归档到 SKU 商品素材库：${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 
   function executionScopeBoundaryBlocked(allowPendingCancellation = false) {
@@ -11826,23 +12913,24 @@ function App() {
 
   function openCreateProjectDialog() {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
-    setProjectNameDraft({ mode: "create", name: `项目 ${projects.length + 1}` });
+    setProjectNameDraft({ mode: "create", name: `项目 ${projects.length + 1}`, workspaceDomain: workspaceDomainRef.current });
     setProjectMenuOpen(false);
     setFileMenuOpen(false);
   }
 
-  async function createProject(name: string) {
+  async function createProject(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current) {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
     const fallbackName = `项目 ${projects.length + 1}`;
     const projectName = name.trim() || fallbackName;
+    const projectWorkspaceDomain = normalizeWorkspaceDomain(initialDomain);
     setFileActionBusy(true);
     try {
       await flushActiveProjectSession();
-      const result = await window.naimageConfig?.createProject?.({ name: projectName });
+      const result = await window.naimageConfig?.createProject?.({ name: projectName, workspaceDomain: projectWorkspaceDomain });
       if (!result?.ok) throw new Error(result?.error ?? "创建画布失败。");
       setProjectNameDraft(null);
       applyProjectSession(result);
-      addEvent(`创建画布 ${result.project?.name ?? projectName}`);
+      addEvent(`创建${workspaceDomainDefinition(projectWorkspaceDomain).title}画布 ${result.project?.name ?? projectName}`);
     } catch (error) {
       pushSystemMessage("project", `创建画布失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -11853,6 +12941,13 @@ function App() {
   function openRenameProjectDialog() {
     if (fileActionBusy || !activeProject || executionScopeBoundaryBlocked()) return;
     setProjectNameDraft({ mode: "rename", id: activeProject.id, name: activeProject.name });
+    setProjectMenuOpen(false);
+    setFileMenuOpen(false);
+  }
+
+  function openCreateProjectFolderDialog() {
+    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+    setProjectNameDraft({ mode: "create-folder", name: `项目 ${projects.length + 1}`, workspaceDomain: workspaceDomainRef.current });
     setProjectMenuOpen(false);
     setFileMenuOpen(false);
   }
@@ -11876,16 +12971,19 @@ function App() {
     }
   }
 
-  async function createProjectFolder() {
+  async function createProjectFolder(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current) {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+    const projectName = name.trim() || `项目 ${projects.length + 1}`;
+    const projectWorkspaceDomain = normalizeWorkspaceDomain(initialDomain);
     setFileActionBusy(true);
     try {
       await flushActiveProjectSession();
-      const result = await window.naimageConfig?.createProjectFolder?.({ name: `画布 ${projects.length + 1}` });
+      const result = await window.naimageConfig?.createProjectFolder?.({ name: projectName, workspaceDomain: projectWorkspaceDomain });
       if (!result?.ok) throw new Error(result?.error ?? "新建画布文件夹失败。");
       if (!result.canceled) {
+        setProjectNameDraft(null);
         applyProjectSession(result);
-        addEvent(`新建画布文件夹 ${result.path ?? result.project?.path ?? ""}`);
+        addEvent(`新建${workspaceDomainDefinition(projectWorkspaceDomain).title}项目文件夹 ${result.path ?? result.project?.path ?? ""}`);
       }
     } catch (error) {
       pushSystemMessage("project", `新建画布文件夹失败：${error instanceof Error ? error.message : String(error)}`);
@@ -12352,13 +13450,21 @@ function App() {
     };
     const blockingSurfaceOpen = Boolean(
       settingsOpen ||
+      helpOpen ||
       promptEditorOpen ||
       fastMemoryEditorOpen ||
       accountOpen ||
       manualImageTaskDialog ||
+      manualVideoTaskDialog ||
       deleteNodeDraft ||
       confirmDialog ||
       commerceSetDialog ||
+      commerceCatalogDialog ||
+      commerceExportDialog ||
+      commerceTemplateDialog ||
+      commerceAbDialog ||
+      socialContentDialog ||
+      scientificFigureDialog ||
       goalConfirmation ||
       imageViewer ||
       layerViewer ||
@@ -12398,14 +13504,20 @@ function App() {
 
       if (blockingSurfaceOpen || fileMenuOpen || projectMenuOpen) return;
 
-      if (command && event.shiftKey && !event.altKey && !event.repeat) {
-        const shortcutDigit = /^Digit([1-9])$/.exec(event.code)?.[1];
-        const item = shortcutDigit
-          ? pluginToolbarItemsRef.current.find((candidate) => candidate.shortcut === `Mod+Shift+${shortcutDigit}`)
-          : undefined;
+      if (!event.repeat) {
+        const item = pluginShortcutItemsRef.current.find((candidate) => canvasToolShortcutMatchesEvent(event, candidate.shortcut));
         if (item) {
           event.preventDefault();
           executePluginCommandRef.current(item.command);
+          return;
+        }
+      }
+
+      if (!event.repeat && command && !event.altKey && !event.shiftKey && /^[1-4]$/.test(key)) {
+        const nextDomain = workspaceDomainDefinitions[Number(key) - 1]?.id;
+        if (nextDomain) {
+          event.preventDefault();
+          changeWorkspaceDomain(nextDomain);
           return;
         }
       }
@@ -12482,7 +13594,13 @@ function App() {
     assetContextMenu,
     canvasMenu,
     confirmDialog,
+    commerceCatalogDialog,
+    commerceExportDialog,
+    commerceTemplateDialog,
+    commerceAbDialog,
     commerceSetDialog,
+    socialContentDialog,
+    scientificFigureDialog,
     deleteNodeDraft,
     fastMemoryEditorOpen,
     fileMenuOpen,
@@ -12490,6 +13608,7 @@ function App() {
     goalConfirmation,
     layerViewer,
     manualImageTaskDialog,
+    manualVideoTaskDialog,
     nodeEditorDraft,
     requirementEditorDraft,
     projectMenuOpen,
@@ -12498,7 +13617,8 @@ function App() {
     quotaDialog,
     referencePickerDraft,
     regionRedrawDraft,
-    settingsOpen
+    settingsOpen,
+    helpOpen
   ]);
 
   function openNodeEditor(node: WorkflowNode, requestedAssetIndex = 0) {
@@ -12508,12 +13628,12 @@ function App() {
     const assetIndex = clamp(Number(requestedAssetIndex || 0), 0, Math.max(0, (node.assets?.length ?? 1) - 1));
     const asset = node.assets?.[assetIndex];
     const collectionItem = imageCollectionItemForAsset(node, assetIndex) ?? node.imageCollection?.items[assetIndex];
+    setNodeEditorClosePromptOpen(false);
     setNodeEditorDraft({
       nodeId: node.id,
       assetIndex,
       title: collectionItem?.title || asset?.title || node.title || nodeWorkName(node),
-      prompt: collectionItem?.prompt || asset?.prompt || asset?.revisedPrompt || node.imageParams?.prompt || firstPromptLine(node.prompt) || node.prompt || "",
-      discardArmed: false
+      prompt: collectionItem?.prompt || asset?.prompt || asset?.revisedPrompt || node.imageParams?.prompt || firstPromptLine(node.prompt) || node.prompt || ""
     });
     addEvent(`打开成果编辑器 ${node.id}`);
   }
@@ -12557,7 +13677,10 @@ function App() {
       };
     }));
     addEvent(`保存成果编辑 ${node.id}`);
-    if (closeAfterSave) setNodeEditorDraft(null);
+    if (closeAfterSave) {
+      setNodeEditorClosePromptOpen(false);
+      setNodeEditorDraft(null);
+    }
     return { node, title, visualPrompt, assetIndex };
   }
 
@@ -12605,6 +13728,7 @@ function App() {
       count: 1,
       referenceImages: mergeReferenceImages(base.referenceImages ?? [], sourceReference, MAX_REFERENCE_IMAGES)
     });
+    setNodeEditorClosePromptOpen(false);
     setNodeEditorDraft(null);
     setRequirementEditorDraft(null);
     void runManualImageTask(task, { forkFromNodeId: node.id, requestedCount: 1, targetTotal: 1, quotaChecked: false });
@@ -12971,6 +14095,18 @@ function App() {
       addEvent(`预览跨境电商复用节点 ${requirementNode.id} · 母图 ${inputBindings.length}`);
       return true;
     }
+    if (requirementNode.requirement.scientificPlan) {
+      setScientificFigureDialog({
+        initialPlan: normalizeScientificFigurePlan(requirementNode.requirement.scientificPlan),
+        initialTaskId: requirementNode.requirement.scientificPlan.taskId || requirementNode.scientificFigure?.taskId,
+        initialAction: "render",
+        sourceNodeIds: inputBindings.map((binding) => binding.nodeId),
+      });
+      replaceSelectedNodeId(requirementNode.id);
+      setCanvasMenu(null);
+      addEvent(`打开科研 Requirement ${requirementNode.id} 的受控执行界面`);
+      return true;
+    }
     if (blockLockedNodeMutation(inputBindings.map((binding) => binding.nodeId), "作为新任务来源")) return false;
     const inputEntries = inputBindings.map((binding) => ({
       binding,
@@ -13010,13 +14146,24 @@ function App() {
 
     replaceSelectedNodeId(requirementNode.id);
     setCanvasMenu(null);
-    void sendPrompt(requirementNode.requirement.text, {
+    void composeSocialRequirementExecution(requirementNode).then((execution) => sendPrompt(execution.prompt, {
       sourceNodeIds: inputBindings.map((binding) => binding.nodeId),
       focusedNodeId: primaryRequirementInputNodeId(inputBindings) || undefined,
       taskOrigin: "requirement",
       requirementNodeId: requirementNode.id,
       requirementInputSignature: inputSignature,
-      useComposerAttachments: false
+      useComposerAttachments: false,
+      visibleContent: execution.visibleContent
+    })).then((accepted) => {
+      if (accepted) return;
+      updateRequirementNode(requirementNode.id, (requirement) => ({
+        ...requirement,
+        lastError: "Agent 当前未接受任务；可稍后重新执行该 Requirement。"
+      }));
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      updateRequirementNode(requirementNode.id, (requirement) => ({ ...requirement, lastError: message }));
+      setServerMessage(`需求执行失败：${message}`);
     });
     addEvent(`执行可复用需求 ${requirementNode.id} · 原图 ${inputBindings.filter((binding) => binding.role === "source").length} · 参考 ${inputBindings.filter((binding) => binding.role === "reference").length}`);
     return true;
@@ -13053,6 +14200,8 @@ function App() {
     expectedProjectId: string;
     expectedCanvasRevision?: number;
     skill?: CanvasSkill;
+    socialPlan?: SocialContentPlan;
+    scientificPlan?: ScientificFigurePlan;
     historyLabel?: string;
     eventLabel?: string;
   }) {
@@ -13107,7 +14256,19 @@ function App() {
         createdFrom,
         inputBindings,
         ...(input.skill ? { skill: { ...input.skill } } : {}),
+        ...(input.socialPlan ? { socialPlan: structuredClone(input.socialPlan) } : {}),
+        ...(input.scientificPlan ? { scientificPlan: structuredClone(input.scientificPlan) } : {}),
       },
+      ...(input.scientificPlan ? {
+        scientificFigure: {
+          workflowId: input.scientificPlan.workflowId,
+          planHash: input.scientificPlan.planHash,
+          kind: "plan" as const,
+          backend: input.scientificPlan.backend || undefined,
+          taskId: input.scientificPlan.taskId || undefined,
+          status: input.scientificPlan.status,
+        }
+      } : {}),
     };
     const nextNodes = [...nodesRef.current, requirementNode];
     assertCanvasRelationGraphAcyclic(nextNodes);
@@ -13247,13 +14408,15 @@ function App() {
         { nodeId: input.nodeId, inputSignature },
       );
     }
-    const accepted = await sendPrompt(requirementNode.requirement.text, {
+    const execution = await composeSocialRequirementExecution(requirementNode);
+    const accepted = await sendPrompt(execution.prompt, {
       sourceNodeIds: inputBindings.map((binding) => binding.nodeId),
       focusedNodeId: primaryRequirementInputNodeId(inputBindings) || undefined,
       taskOrigin: "requirement",
       requirementNodeId: requirementNode.id,
       requirementInputSignature: inputSignature,
       useComposerAttachments: false,
+      visibleContent: execution.visibleContent,
     });
     if (!accepted) {
       throw automationCommandError("AGENT_BUSY", "Agent 没有接受本次需求执行。", { nodeId: input.nodeId });
@@ -13270,16 +14433,26 @@ function App() {
   }
 
   async function buildGoalModePreview(promptText: string, options: { targetNodeIds?: string[]; operationsPerAsset?: number } = {}) {
-    const goalMode = await loadGoalMode();
+    const projectId = activeProjectIdRef.current;
+    const catalogBridge = window.naimageConfig?.listCommerceCatalog;
+    const shouldResolveCatalog = Boolean(
+      projectId && catalogBridge && promptText.includes("[NAIMAGE_COMMERCE_SET_V1]")
+    );
+    const [goalMode, catalogResult] = await Promise.all([
+      loadGoalMode(),
+      shouldResolveCatalog
+        ? catalogBridge!({ expectedProjectId: projectId }).catch(() => undefined)
+        : Promise.resolve(undefined),
+    ]);
+    const commerceCatalog: CommerceCatalogDocument | undefined = catalogResult?.ok ? catalogResult.catalog : undefined;
     return goalMode.createGoalModePreview({
       prompt: promptText,
       nodes: nodesRef.current,
       canvasRevision: canvasRevisionRef.current,
       configuredConcurrency: settingsRef.current.imageBatchSize,
-      trialImagesRemaining: serverUser?.trialImagesRemaining,
-      imageCostCents: serverWallet?.imageCostCents,
       targetNodeIds: options.targetNodeIds,
       operationsPerAsset: options.operationsPerAsset,
+      commerceCatalog,
       projectAsset: goalMode.goalProjectAssetMetadata
     });
   }
@@ -13316,7 +14489,10 @@ function App() {
     return goalMode.publicGoalModePreview(preview);
   }
 
-  async function dispatchConfirmedGoal(preview: GoalModePreview) {
+  async function dispatchConfirmedGoal(
+    preview: GoalModePreview,
+    imageDefaults: { ratio?: AppSettings["imageRatio"]; resolution?: AppSettings["imageResolution"] } = {}
+  ) {
     const [current, goalMode] = await Promise.all([
       buildGoalModePreview(preview.prompt, {
         targetNodeIds: preview.targetNodeIds,
@@ -13325,7 +14501,7 @@ function App() {
       loadGoalMode()
     ]);
     if (goalMode.goalModeAuthorizationFingerprint(current) !== goalMode.goalModeAuthorizationFingerprint(preview)) {
-      throw Object.assign(new Error("画布范围或费用报价已变化，旧 Goal 确认已失效；请核对新预览后再次确认。"), { currentPreview: current });
+      throw Object.assign(new Error("来源范围或执行计划已变化，旧 Goal 确认已失效；请核对新预览后再次确认。"), { currentPreview: current });
     }
     if (agentExecutionBusyNow()) {
       throw new Error("Goal 确认后出现了新的运行中任务；本次确认已消费且未派发，请重新预览。");
@@ -13335,6 +14511,8 @@ function App() {
       focusedNodeId: preview.taskScope.sourceNodeIds[0],
       taskOrigin: "goal",
       frozenTaskScope: preview.taskScope,
+      ...(imageDefaults.ratio ? { imageRatio: imageDefaults.ratio } : {}),
+      ...(imageDefaults.resolution ? { imageResolution: imageDefaults.resolution } : {}),
       useComposerAttachments: false
     });
     if (!dispatched) {
@@ -13387,7 +14565,7 @@ function App() {
       if (goalMode.goalModeAuthorizationFingerprint(current) !== receipt.authorizationFingerprint) {
         const refreshed = await issueGoalConfirmation(current, "main-dialog");
         setGoalConfirmation(refreshed);
-        setGoalConfirmationNotice("画布范围或费用报价在确认前发生变化；已签发新的确认值，请重新核对后再确认。");
+        setGoalConfirmationNotice("来源范围或执行计划在确认前发生变化；请重新核对后再确认。");
         return;
       }
       setGoalConfirmationNotice("");
@@ -13431,9 +14609,43 @@ function App() {
       loadGoalMode()
     ]);
     if (goalMode.goalModeAuthorizationFingerprint(preview) !== receipt.authorizationFingerprint) {
-      throw new Error("Goal 的画布范围或费用报价已变化；本次确认已消费，请重新预览。");
+      throw new Error("Goal 的来源范围或执行计划已变化；请重新预览。");
     }
     return dispatchConfirmedGoal({ ...preview, confirmationHash: receipt.confirmationHash });
+  }
+
+  async function authorizeAndDispatchGoal(
+    promptText: string,
+    issuerId: "main-dialog" | "automation",
+    options: {
+      targetNodeIds?: string[];
+      operationsPerAsset?: number;
+      imageRatio?: AppSettings["imageRatio"];
+      imageResolution?: AppSettings["imageResolution"];
+    } = {}
+  ) {
+    if (agentExecutionBusyNow()) throw new Error("The current Agent task is still running.");
+    const preview = await issueGoalConfirmation(
+      await buildGoalModePreview(promptText, options),
+      issuerId
+    );
+    const ledger = await activeGoalConfirmationLedger();
+    const receipt = ledger.consume(
+      preview,
+      preview.confirmationHash,
+      currentGoalConfirmationContext(issuerId)
+    );
+    const dispatched = await dispatchConfirmedGoal({
+      ...preview,
+      confirmationHash: receipt.confirmationHash
+    }, { ratio: options.imageRatio, resolution: options.imageResolution });
+    return {
+      ...dispatched,
+      requestCount: preview.requestCount,
+      operationsPerAsset: preview.operationsPerAsset,
+      probeContainerCount: preview.probeContainerCount,
+      concurrencyCap: preview.concurrencyCap
+    };
   }
 
 // -----------------------------------------------------------------------------
@@ -13461,7 +14673,7 @@ function App() {
       options.useComposerAttachments !== false
     );
     if (goalScopeMutationRequested) {
-      setServerMessage("Goal 运行中的容器范围已冻结；请只修改文字，或结束后重新预览并确认范围。");
+      setServerMessage("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。");
       return false;
     }
     const useComposerAttachments = options.useComposerAttachments !== false;
@@ -13764,6 +14976,7 @@ function App() {
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
     const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
     lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
+    lastDispatchedPromptRef.current = content;
     if (taskScope.sourceAssetCount || taskScope.referenceAssetCount) {
       userMessage.attachments = {
         sourceAssets: taskScope.sourceAssets.slice(0, 40),
@@ -13814,7 +15027,12 @@ function App() {
         requestConversationId,
         requestSelectedNodeId,
         requestSelectedNodeIds,
-        taskScope
+        taskScope,
+        {
+          ratio: dispatch.imageRatio ?? settingsRef.current.imageRatio,
+          resolution: dispatch.imageResolution ?? settingsRef.current.imageResolution
+        },
+        workspaceDomainRef.current
       );
       if (!runScopeIsCurrent()) return false;
       const rawAnswer = sanitizeAgentVisibleText(runtimeResult.content?.trim() || "已完成。") || "已完成。";
@@ -13866,7 +15084,8 @@ function App() {
         pendingLayerNarrationRunIdsRef.current.delete(runId);
         return false;
       }
-      const layoutWarning = taskLayoutApplication?.warning || "";
+      const commerceCatalogWarning = await reconcileCommerceGoalResults(taskScope, requestProjectId);
+      const layoutWarning = [taskLayoutApplication?.warning || "", commerceCatalogWarning].filter(Boolean).join("\n");
       pendingLayerNarrationRunIdsRef.current.delete(runId);
       if (!runScopeIsCurrent()) return false;
       const failedCommit = actionApplication.commits.find((commit) => commit.status === "error");
@@ -14008,7 +15227,7 @@ function App() {
   }
 
   useEffect(() => {
-    if (!__NAIMAGE_AIDEBUG__) return undefined;
+    if (!NAIMAGE_AIDEBUG_RUNTIME_ENABLED) return undefined;
     const waitForDebugSettle = (ms = 140) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
     const waitForDebugFrames = (frameCount = 2, timeoutMs = 240) => new Promise<void>((resolve) => {
       let settled = false;
@@ -14689,6 +15908,7 @@ function App() {
         cards: toolTimelineCards.slice(-24)
       };
       return {
+        configReady,
         agentStatus: agentStatusRef.current,
         agentExecutionBusy: agentExecutionBusyNow(),
         executionReservation: Boolean(executionReservationRef.current),
@@ -14697,6 +15917,7 @@ function App() {
         lastSurfaceClose: window.__naimageDebugLastSurfaceClose ? { ...window.__naimageDebugLastSurfaceClose } : null,
         canvasImageCollectionProgress: window.__naimageCanvasImageCollectionProgress ? { ...window.__naimageCanvasImageCollectionProgress } : null,
         activeProjectId: activeProjectIdRef.current,
+        workspaceDomain: workspaceDomainRef.current,
         activeConversationId: activeConversationIdRef.current,
         selectedNodeId: selectedNodeIdRef.current,
         selectedNodeIds: [...selectedNodeIdsRef.current],
@@ -14726,6 +15947,13 @@ function App() {
        selectedNodeParentId: currentNodes.find((node) => node.id === selectedNodeIdRef.current)?.parentId ?? "",
         sourceImageCount: agentSourceImagesRef.current.length,
         referenceImageCount: agentReferenceImagesRef.current.length,
+        goalConfirmation: goalConfirmation ? {
+          prompt: goalConfirmation.prompt,
+          targetNodeIds: [...(goalConfirmation.targetNodeIds ?? [])],
+          operationsPerAsset: goalConfirmation.operationsPerAsset,
+          requestCount: goalConfirmation.requestCount,
+          taskScope: cloneAgentTaskScope(goalConfirmation.taskScope)
+        } : null,
         pendingAgentExecution: pendingAgentExecutionRef.current ? {
           ...pendingAgentExecutionRef.current,
           sourceNodeIds: [...pendingAgentExecutionRef.current.sourceNodeIds],
@@ -14737,6 +15965,7 @@ function App() {
         lastDispatchedTaskScope: lastDispatchedTaskScopeRef.current
           ? cloneAgentTaskScope(lastDispatchedTaskScopeRef.current)
           : null,
+        lastDispatchedPrompt: lastDispatchedPromptRef.current,
         askUserOpen: Boolean(askUserDraft),
         referencePickerOpen: Boolean(referencePickerDraft),
         referencePickerImageCount: referencePickerDraft?.images.length ?? 0,
@@ -15684,6 +16913,55 @@ function App() {
         },
         state: readDebugState()
       };
+    };
+    const seedConnectionGeometryCanvas = async () => {
+      const makeContainer = (id: string, x: number, y: number, parentId?: string): WorkflowNode => {
+        const assets = Array.from({ length: 4 }, (_item, index) => {
+          const label = `${id.slice(-1)}${index + 1}`;
+          const dataUrl = debugProbeImageDataUrl(id.charCodeAt(0) + index, label);
+          return {
+            index: index + 1,
+            type: "url" as const,
+            url: dataUrl,
+            assetUrl: dataUrl,
+            width: 128,
+            height: 128,
+            revisedPrompt: `自动尺寸连线测试 ${label}`
+          } satisfies ImageAsset;
+        });
+        return {
+          id,
+          title: `自动尺寸连线测试 ${id}`,
+          prompt: "验证多图容器没有持久化宽高时，关系线仍锚定可见边框。",
+          type: "image",
+          status: "done",
+          x,
+          y,
+          parentId,
+          relationType: parentId ? "derived-from" : undefined,
+          createdAt: nowLabel(),
+          assets,
+          imageState: "done",
+          imageContainer: true,
+          imageParams: cloneImageTaskDraft({ ...defaultImageTaskDraft(settings), prompt: `自动尺寸连线测试 ${id}`, count: assets.length, size: "128x128" }),
+          imageProgress: imageProgressState(assets.length, assets.length, "自动尺寸容器已就绪"),
+          branch: "aidebug-connection-geometry",
+          outputs: assets.length
+        };
+      };
+      const source = makeContainer("AUTO-SOURCE", 160, 220);
+      const target = makeContainer("AUTO-TARGET", 760, 260, source.id);
+      const nextNodes = [source, target];
+      nodesRef.current = nextNodes;
+      layoutGroupsRef.current = [];
+      setNodes(nextNodes);
+      setLayoutGroups([]);
+      selectCanvas();
+      canvasUndoRef.current = null;
+      await waitForDebugSettle(260);
+      fitCanvas();
+      await waitForDebugSettle(320);
+      return { ok: true, sourceId: source.id, targetId: target.id, state: readDebugState() };
     };
     const selectDebugNodes = async (payload?: { ids?: string[]; primaryId?: string }) => {
       const ids = [...new Set((Array.isArray(payload?.ids) ? payload.ids : []).map(String))]
@@ -17968,10 +19246,19 @@ function App() {
         if (!viewerNode || !viewerAsset) {
           return { ok: false, error: "image viewer fixture unavailable" };
         }
-        openImageViewer(viewerNode, viewerAssetIndex);
+        const expectedFinalAssets = (viewerNode.assets ?? []).filter((asset) => asset.status !== "pending" && asset.status !== "error" && imageAssetSrc(asset));
+        openImageViewer({
+          ...viewerNode,
+          assets: [
+            ...(viewerNode.assets ?? []),
+            { ...viewerAsset, status: "pending" }
+          ]
+        }, viewerAssetIndex);
         await waitForDebugSettle(180);
         const viewerElement = document.querySelector<HTMLElement>(".image-viewer");
         const stage = viewerElement?.querySelector<HTMLElement>(".image-viewer-stage");
+        const strip = viewerElement?.querySelector<HTMLElement>(".image-viewer-strip");
+        const stripButtons = strip ? Array.from(strip.querySelectorAll<HTMLElement>('button[data-final-asset="true"]')) : [];
         const viewerSave = viewerElement?.querySelector<HTMLButtonElement>('header [aria-label="另存为"]');
         const viewerPsd = viewerElement?.querySelector<HTMLButtonElement>('header [aria-label="导出 Photoshop PSD"]');
         const viewerDragHandle = stage?.querySelector(".image-viewer-drag-handle");
@@ -17986,12 +19273,38 @@ function App() {
         const psdStyle = getComputedStyle(viewerPsd);
         const psdRect = viewerPsd.getBoundingClientRect();
         const psdVisible = psdStyle.display !== "none" && psdStyle.visibility !== "hidden" && psdRect.width > 0 && psdRect.height > 0;
+        const stageRect = stage.getBoundingClientRect();
+        const stripRect = strip?.getBoundingClientRect();
+        const stripStyle = strip ? getComputedStyle(strip) : null;
+        const thumbnailTops = [...new Set(stripButtons.map((button) => Math.round(button.getBoundingClientRect().top)))];
+        const finalStripOnly = Boolean(
+          strip &&
+          Number(strip.dataset.finalAssetCount || 0) === expectedFinalAssets.length &&
+          stripButtons.length === expectedFinalAssets.length &&
+          !viewerElement.querySelector('[data-stream-preview-count], [data-preview-index], [data-preview-total]')
+        );
+        const singleRowStrip = Boolean(
+          stripStyle?.display === "flex" &&
+          stripStyle.flexWrap === "nowrap" &&
+          ["auto", "scroll"].includes(stripStyle.overflowX) &&
+          stripStyle.overflowY === "hidden" &&
+          thumbnailTops.length === 1 &&
+          stripRect && stageRect.bottom <= stripRect.top + 1
+        );
         setImageViewer(null);
         await waitForDebugSettle(100);
         return {
-          ok: Boolean(saveVisible && psdVisible && !viewerDragHandle && canvasDragHandles.length === 0 && !document.querySelector(".image-viewer")),
+          ok: Boolean(saveVisible && psdVisible && finalStripOnly && singleRowStrip && !viewerDragHandle && canvasDragHandles.length === 0 && !document.querySelector(".image-viewer")),
           saveVisible,
           psdVisible,
+          finalStripOnly,
+          singleRowStrip,
+          expectedFinalAssetCount: expectedFinalAssets.length,
+          renderedFinalAssetCount: stripButtons.length,
+          stripOverflowX: stripStyle?.overflowX || "",
+          stripOverflowY: stripStyle?.overflowY || "",
+          stripFlexWrap: stripStyle?.flexWrap || "",
+          thumbnailRowCount: thumbnailTops.length,
           viewerDragHandleVisible: Boolean(viewerDragHandle),
           canvasDragHandleCount: canvasDragHandles.length,
           sourceAssetIndex: viewerAssetIndex
@@ -18863,6 +20176,7 @@ function App() {
         if (!window.naimageConfig?.saveSession || !window.naimageConfig?.loadSession) return { ok: false, error: "session bridge unavailable" };
         const snapshot = buildWorkflowSessionSnapshot({
           schemaVersion: 5,
+          workspaceDomain: workspaceDomainRef.current,
           nodeSequence: nodeSequenceRef.current,
           canvasRevision: canvasRevisionRef.current,
           layoutGroups: layoutGroupsRef.current,
@@ -18894,6 +20208,7 @@ function App() {
         const hidden = nodesRef.current.find((node) => node.id === subject.id);
         const snapshot = buildWorkflowSessionSnapshot({
           schemaVersion: 5,
+          workspaceDomain: workspaceDomainRef.current,
           nodeSequence: nodeSequenceRef.current,
           canvasRevision: canvasRevisionRef.current,
           layoutGroups: layoutGroupsRef.current,
@@ -19029,6 +20344,8 @@ function App() {
         let bodyMove: { ok: boolean; [key: string]: unknown } = { ok: false, error: "merged body move fixture unavailable" };
         if (mergedElement && mergedTile && canvasRect && mergedRect) {
           const beforeMove = nodesRef.current.find((node) => node.id === merged.id);
+          const dragBaseInlineLeft = mergedElement.style.left;
+          const dragBaseInlineTop = mergedElement.style.top;
           const startX = mergedRect.left + mergedRect.width / 2;
           const startY = mergedRect.top + mergedRect.height / 2;
           const leftRoom = Math.max(0, mergedRect.left - canvasRect.left - 28);
@@ -19056,17 +20373,32 @@ function App() {
           const dragClassActive = mergedElement.classList.contains("dragging");
           const dragRefMatches = dragRef.current?.id === merged.id;
           const dragRefMoved = dragRef.current?.moved === true;
-          const dragComputedZIndex = Number.parseInt(getComputedStyle(mergedElement).zIndex || "0", 10) || 0;
+          const dragStyle = getComputedStyle(mergedElement);
+          const dragComputedZIndex = Number.parseInt(dragStyle.zIndex || "0", 10) || 0;
+          const dragTranslateX = Number.parseFloat(mergedElement.style.getPropertyValue("--node-drag-x")) || 0;
+          const dragTranslateY = Number.parseFloat(mergedElement.style.getPropertyValue("--node-drag-y")) || 0;
+          const compositorPreviewActive = Boolean(
+            Math.abs(dragTranslateX) + Math.abs(dragTranslateY) > 1 &&
+            dragStyle.transform !== "none" &&
+            dragStyle.willChange.includes("transform") &&
+            mergedElement.style.left === dragBaseInlineLeft &&
+            mergedElement.style.top === dragBaseInlineTop
+          );
           const draggingVisual = Boolean(
-            dragClassActive && dragRefMatches && dragRefMoved && dragComputedZIndex >= 1_000_000
+            dragClassActive && dragRefMatches && dragRefMoved && compositorPreviewActive && dragComputedZIndex >= 1_000_000
           );
           const armedDropTargetId = dragRef.current?.dropTargetId || "";
           mergedElement.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0, clientX: endX, clientY: endY }));
           await waitForDebugSettle(240);
           const afterMove = nodesRef.current.find((node) => node.id === merged.id);
+          const compositorPreviewCleared = Boolean(
+            !mergedElement.style.getPropertyValue("--node-drag-x") &&
+            !mergedElement.style.getPropertyValue("--node-drag-y") &&
+            !mergedElement.style.willChange.includes("transform")
+          );
           bodyMove = {
             ok: Boolean(
-              beforeMove && afterMove && draggingVisual && !armedDropTargetId &&
+              beforeMove && afterMove && draggingVisual && compositorPreviewCleared && !armedDropTargetId &&
               Math.abs(afterMove.x - beforeMove.x) >= 60 && Math.abs(afterMove.y - beforeMove.y) >= 30 &&
               afterMove.parentId === beforeMove.parentId && afterMove.relationType === beforeMove.relationType &&
               afterMove.assets?.[0]?.path === beforeMove.assets?.[0]?.path &&
@@ -19078,6 +20410,11 @@ function App() {
             dragRefMatches,
             dragRefMoved,
             dragComputedZIndex,
+            dragTranslateX,
+            dragTranslateY,
+            dragComputedTransform: dragStyle.transform,
+            compositorPreviewActive,
+            compositorPreviewCleared,
             armedDropTargetId,
             before: beforeMove ? { x: beforeMove.x, y: beforeMove.y, parentId: beforeMove.parentId || "", relationType: beforeMove.relationType || "" } : null,
             after: afterMove ? { x: afterMove.x, y: afterMove.y, parentId: afterMove.parentId || "", relationType: afterMove.relationType || "" } : null,
@@ -19660,7 +20997,7 @@ function App() {
       if (missingCount > 0) directCount = Math.min(30 - agentCount, directCount + missingCount);
       if (agentCount + directCount <= 0) directCount = requestedTotal;
       const total = agentCount + directCount;
-      const resolution = ["720P", "1080P", "2K", "4K"].includes(String(payload?.resolution || "")) ? String(payload?.resolution) : "1080P";
+      const resolution = ["1K", "2K", "4K", "720P", "1080P"].includes(String(payload?.resolution || "")) ? String(payload?.resolution) : "1K";
       const quality = ["low", "medium", "high", "auto"].includes(String(payload?.quality || "")) ? String(payload?.quality) : "auto";
       const posterVariants = [
         "雾气玉色庭院，青绿与象牙白，细雨后的石阶、留白、安静镜头感。",
@@ -19803,7 +21140,7 @@ function App() {
           const beforeProgressCount = agentProgressRef.current.length;
           const sent = await debugSendPrompt(
             [
-              `请直接调用 naimage 的 image_gen 工具一次生成第 ${index + 1}/${agentCount} 张竖屏微海报，不要只回复文字或计划。`,
+              `请直接调用 SparkAI WorkSpace 的 image_gen 工具一次生成第 ${index + 1}/${agentCount} 张竖屏微海报，不要只回复文字或计划。`,
               "工具参数必须包含 operation=generate, ratio=9:16, count=1。",
               `resolution=${resolution}, quality=${quality}。`,
               "生成完成后同步到画布。",
@@ -20470,6 +21807,7 @@ function App() {
       },
       seedCanvas: seedDebugCanvas,
       seedSelectionCanvas,
+      seedConnectionGeometryCanvas,
       selectNodes: selectDebugNodes,
       deleteSelectedNodes: async () => {
         const before = nodesRef.current.length;
@@ -20544,7 +21882,9 @@ function App() {
       },
       nativeAssetDrop: debugNativeAssetDrop,
       openImageViewer: async (payload: { id: string; index?: number }) => {
-        const node = nodesRef.current.find((item) => item.id === String(payload?.id || ""));
+        const nodeId = String(payload?.id || "");
+        const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+        const node = projection.canvasNodeById.get(nodeId) ?? nodesRef.current.find((item) => item.id === nodeId);
         if (!node?.assets?.length) return { ok: false, error: "image viewer node unavailable" };
         const index = clamp(Number(payload?.index ?? 0), 0, node.assets.length - 1);
         openImageViewer(node, index);
@@ -20657,12 +21997,14 @@ function App() {
       delete window.__naimageDebugNativeAssetDrop;
      delete window.__naimageAIDebug;
     };
-  }, [activeConversationId, activeProjectId, agentProgress, agentStatus, messages, nodeEditorDraft, nodes, regionRedrawDraft, requirementEditorDraft, sendPrompt, settings]);
+  }, [activeConversationId, activeProjectId, agentProgress, agentStatus, configReady, goalConfirmation, messages, nodeEditorDraft, nodes, regionRedrawDraft, requirementEditorDraft, sendPrompt, settings]);
 
   const executeAutomationCommand = useStableEvent(async (command: string, args: Record<string, unknown> = {}) => {
     const runtime = await loadAutomationCommandRuntime();
     return runtime.executeAutomationCommand(command, args, {
       activeProjectId: () => activeProjectIdRef.current,
+      workspaceDomain: () => workspaceDomainRef.current,
+      setWorkspaceDomain: changeWorkspaceDomain,
       activeConversationId: () => activeConversationIdRef.current,
       agentStatus: () => agentStatusRef.current,
       activeRunId: () => activeRunRef.current || "",
@@ -20706,6 +22048,40 @@ function App() {
           targetContainerId
         );
       },
+      importVideoPaths: async (paths, x, y) => {
+        const result = await importVideoPathsToCanvas(paths, x, y);
+        if (!result.ok) throw new Error(result.error || "视频导入失败。");
+        return result;
+      },
+      generateVideo: async (input) => {
+        const dialog: ManualVideoTaskDialogState = {
+          draft: {
+            prompt: input.prompt,
+            model: input.model || settingsRef.current.videoModel || "doubao-seedance-2-0-260128",
+            seconds: clamp(Math.round(Number(input.seconds) || 5), 1, 60),
+            aspectRatio: input.aspectRatio,
+            resolution: input.resolution
+          },
+          worldX: input.x,
+          worldY: input.y,
+          projectId: input.expectedProjectId
+        };
+        const result = await dispatchVideoTask(dialog);
+        const node = nodesRef.current.find((candidate) => candidate.id === result.nodeId);
+        return {
+          accepted: result.ok === true,
+          ambiguous: result.ambiguous === true,
+          task: result.task,
+          error: result.error,
+          node: node ? {
+            id: node.id,
+            videoState: node.videoState,
+            videoTaskState: node.videoTaskState,
+            videoTaskId: node.videoTaskId,
+            model: node.videoModel
+          } : { id: result.nodeId }
+        };
+      },
       exportImage: async (nodeId, assetIndex, format) => {
         const node = nodesRef.current.find((candidate) => candidate.id === nodeId);
         if (!node?.assets?.[assetIndex]) throw new Error("目标图片不存在。");
@@ -20731,7 +22107,197 @@ function App() {
         expectedProjectId: input.expectedProjectId,
         expectedCanvasRevision: input.expectedCanvasRevision,
       }),
-      sendPrompt: async (promptText, sourceNodeIds) => {
+      listCommerceTemplates: async () => {
+        const bridge = window.naimageConfig?.listCommerceTemplates;
+        if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时未提供套图模板市场。");
+        return requireCommerceTemplateResult(await bridge(), "读取套图模板市场失败。");
+      },
+      saveCommerceTemplate: async (input) => {
+        const bridge = window.naimageConfig?.saveCommerceTemplate;
+        if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时未提供套图模板市场。");
+        return requireCommerceTemplateResult(await bridge(input), "保存套图模板失败。");
+      },
+      deleteCommerceTemplate: async (input) => {
+        const bridge = window.naimageConfig?.deleteCommerceTemplate;
+        if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时未提供套图模板市场。");
+        return requireCommerceTemplateResult(await bridge(input), "删除套图模板失败。");
+      },
+      importCommerceTemplate: async () => {
+        const bridge = window.naimageConfig?.importCommerceTemplate;
+        if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时不支持导入套图模板。");
+        return requireCommerceTemplateResult(await bridge(), "导入套图模板失败。");
+      },
+      exportCommerceTemplate: async (input) => {
+        const bridge = window.naimageConfig?.exportCommerceTemplate;
+        if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时不支持导出套图模板。");
+        return requireCommerceTemplateResult(await bridge(input), "导出套图模板失败。");
+      },
+      listCommerceCatalog: async (input) => {
+        const bridge = window.naimageConfig?.listCommerceCatalog;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 SKU 商品素材库。");
+        const result = requireCommerceCatalogResult(await bridge({ expectedProjectId: input.expectedProjectId }), "读取 SKU 商品素材库失败。");
+        if (input.includeArchived || !result.catalog) return result;
+        return {
+          ...result,
+          catalog: {
+            ...result.catalog,
+            products: result.catalog.products.filter((product) => product.status !== "archived")
+          }
+        };
+      },
+      saveCommerceCatalogProduct: async (input) => {
+        const bridge = window.naimageConfig?.saveCommerceCatalogProduct;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 SKU 商品素材库。");
+        return requireCommerceCatalogResult(await bridge(input), "保存 SKU 商品失败。");
+      },
+      archiveCommerceCatalogProduct: async (input) => {
+        const bridge = window.naimageConfig?.archiveCommerceCatalogProduct;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 SKU 商品素材库。");
+        return requireCommerceCatalogResult(await bridge(input), "归档 SKU 商品失败。");
+      },
+      assignCommerceCatalogAssets: async (input) => {
+        assertAutomationCanvasMutationPreconditions(input, input.assets.map((asset) => asset.nodeId), "关联 SKU 商品素材");
+        const bridge = window.naimageConfig?.assignCommerceCatalogAssets;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 SKU 商品素材库。");
+        const { expectedCanvasRevision: _expectedCanvasRevision, ...payload } = input;
+        return requireCommerceCatalogResult(await bridge(payload), "关联 SKU 商品素材失败。");
+      },
+      removeCommerceCatalogAsset: async (input) => {
+        const bridge = window.naimageConfig?.removeCommerceCatalogAsset;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 SKU 商品素材库。");
+        return requireCommerceCatalogResult(await bridge(input), "解除 SKU 商品素材关联失败。");
+      },
+      updateCommerceCatalogResultState: async (input) => {
+        const bridge = window.naimageConfig?.updateCommerceCatalogResultState;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供生成结果复核能力。");
+        return requireCommerceCatalogResult(await bridge(input), "复核生成结果失败。");
+      },
+      listCommerceCatalogComparisons: async (input) => {
+        const bridge = window.naimageConfig?.listCommerceCatalogComparisons;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 A/B 方案比较。");
+        return requireCommerceCatalogResult(await bridge(input), "读取 A/B 比较组失败。");
+      },
+      selectCommerceCatalogComparisonWinner: async (input) => {
+        const bridge = window.naimageConfig?.selectCommerceCatalogComparisonWinner;
+        if (!bridge) throw automationCommandError("COMMERCE_CATALOG_UNAVAILABLE", "当前桌面运行时未提供 A/B 终选能力。");
+        return requireCommerceCatalogResult(await bridge(input), "选定 A/B 最终成果失败。");
+      },
+      previewCommerceExport: async (input) => {
+        const bridge = window.naimageConfig?.previewCommerceExport;
+        if (!bridge) throw automationCommandError("COMMERCE_EXPORT_UNAVAILABLE", "当前桌面运行时未提供平台导出预检。");
+        return requireCommerceExportResult(await bridge(input), "平台导出预检失败。");
+      },
+      exportCommercePackage: async (input) => {
+        const bridge = window.naimageConfig?.exportCommercePackage;
+        if (!bridge) throw automationCommandError("COMMERCE_EXPORT_UNAVAILABLE", "当前桌面运行时未提供平台打包导出。");
+        return requireCommerceExportResult(await bridge(input), "平台打包导出失败。");
+      },
+      exportSocialPackage: async (input) => {
+        assertAutomationCanvasMutationPreconditions(input, [input.requirementNodeId], "导出社媒发布包");
+        return exportSocialRequirementPackage(input);
+      },
+      importScientificData: async (input) => {
+        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+          throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未导入科研数据。", {
+            expectedProjectId: input.expectedProjectId,
+            activeProjectId: activeProjectIdRef.current || "default",
+          });
+        }
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研数据服务。");
+        const result = await bridge.importData(input);
+        if (!result?.ok && !result?.canceled) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_DATA_IMPORT_FAILED", result?.error || "科研数据导入失败。", result?.details);
+        }
+        return result;
+      },
+      listScientificData: async (input) => {
+        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+          throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未读取科研数据。", {
+            expectedProjectId: input.expectedProjectId,
+            activeProjectId: activeProjectIdRef.current || "default",
+          });
+        }
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研数据服务。");
+        const result = await bridge.listData(input);
+        if (!result?.ok) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_DATA_LIST_FAILED", result?.error || "读取科研数据失败。", result?.details);
+        }
+        return result.dataSources || [];
+      },
+      renderScientificTask: async (input) => {
+        assertAutomationCanvasMutationPreconditions({
+          expectedProjectId: input.expectedProjectId,
+          expectedCanvasRevision: input.expectedCanvasRevision,
+        }, [input.requirementNodeId], "执行科研绘图计划");
+        const requirement = nodesRef.current.find((node) => node.id === input.requirementNodeId && node.type === "requirement" && node.requirement?.scientificPlan);
+        if (!requirement?.requirement?.scientificPlan) {
+          throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是科研绘图 Requirement。", { nodeId: input.requirementNodeId });
+        }
+        if (requirement.requirement.revision !== input.expectedRequirementRevision) {
+          throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "科研 Requirement 已发生变化，未启动 Runner。", {
+            nodeId: requirement.id,
+            expectedRevision: input.expectedRequirementRevision,
+            currentRevision: requirement.requirement.revision,
+          });
+        }
+        const currentPlan = normalizeScientificFigurePlan(requirement.requirement.scientificPlan);
+        if (currentPlan.workflowId !== input.plan.workflowId || currentPlan.planHash !== input.plan.planHash) {
+          throw automationCommandError("SCIENTIFIC_PLAN_IDENTITY_CONFLICT", "科研计划身份已变化，未启动 Runner。", {
+            nodeId: requirement.id,
+          });
+        }
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研 Runner。");
+        const result = await bridge.render({
+          expectedProjectId: input.expectedProjectId,
+          expectedCanvasRevision: input.expectedCanvasRevision,
+          requirementNodeId: input.requirementNodeId,
+          expectedRequirementRevision: input.expectedRequirementRevision,
+          plan: input.plan,
+          timeoutMs: input.timeoutMs,
+        });
+        if (!result?.ok || !result.task) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_RENDER_FAILED", result?.error || "科研图执行失败。", result?.details);
+        }
+        return result.task;
+      },
+      landScientificTask: (task, saved) => landScientificTaskOnCanvas(task, saved),
+      listScientificTasks: async (input) => {
+        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+          throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未读取科研任务。", {
+            expectedProjectId: input.expectedProjectId,
+            activeProjectId: activeProjectIdRef.current || "default",
+          });
+        }
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研任务服务。");
+        const result = await bridge.list(input);
+        if (!result?.ok) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_TASK_LIST_FAILED", result?.error || "读取科研任务失败。", result?.details);
+        }
+        return result.tasks || [];
+      },
+      cancelScientificTask: async (input) => {
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研任务服务。");
+        const result = await bridge.cancel(input);
+        if (!result?.ok || !result.task) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_CANCEL_FAILED", result?.error || "取消科研任务失败。", result?.details);
+        }
+        return result.task;
+      },
+      exportScientificTask: async (input) => {
+        const bridge = window.naimageScientific;
+        if (!bridge) throw automationCommandError("SCIENTIFIC_RUNNER_UNAVAILABLE", "当前桌面运行时未提供科研导出服务。");
+        const result = await bridge.export(input);
+        if (!result?.ok && !result?.canceled) {
+          throw automationCommandError(result?.errorCode || "SCIENTIFIC_EXPORT_FAILED", result?.error || "科研图导出失败。", result?.details);
+        }
+        return result;
+      },
+      sendPrompt: async (promptText, sourceNodeIds, imageDefaults) => {
         if (agentExecutionBusyNow()) {
           const accepted = await steerAgentRun(promptText, {
             taskScopeMode: sourceNodeIds.length ? "replace-source" : "keep",
@@ -20743,6 +22309,8 @@ function App() {
         }
         await sendPrompt(promptText, {
           ...(sourceNodeIds.length ? { sourceNodeIds, focusedNodeId: sourceNodeIds[0] } : {}),
+          ...(imageDefaults?.ratio ? { imageRatio: imageDefaults.ratio } : {}),
+          ...(imageDefaults?.resolution ? { imageResolution: imageDefaults.resolution } : {}),
           useComposerAttachments: false
         });
         return true;
@@ -20751,8 +22319,12 @@ function App() {
         const result = await window.naimageConfig?.composePluginTask?.(payload);
         return result ?? { ok: false, error: "当前桌面运行时没有提供插件任务编排器。" };
       },
-      previewGoal: previewGoalMode,
-      executeGoal: executeGoalMode,
+      executeAuthorizedGoal: (promptText, options) => authorizeAndDispatchGoal(promptText, "automation", {
+        targetNodeIds: options?.sourceNodeIds,
+        operationsPerAsset: options?.operationsPerAsset,
+        imageRatio: options?.ratio,
+        imageResolution: options?.resolution,
+      }),
       steerAgent: steerAgentRun,
       pauseAgent: pauseAgentRun,
       resumeAgent: resumeAgentRun,
@@ -20958,10 +22530,13 @@ function App() {
         const serverModels = fullServerModelList(result.settings ?? {});
         const imageCatalog = result.settings?.imageModels?.length ? result.settings.imageModels : serverModels;
         const agentCatalog = result.settings?.agentModels?.length ? result.settings.agentModels : serverModels;
+        const videoCatalog = result.settings?.videoModels?.length ? result.settings.videoModels : current.videoModelPool;
         const imageModels = imageModelsWithPreferredFallback(imageCatalog, result.settings?.imageModel || current.imageModel, current.imageModelPool);
         const agentModels = modelsWithPreferred(agentCatalog, current.agentModel, current.agentModelPool);
+        const videoModels = modelsWithPreferred(videoCatalog, result.settings?.videoModel || current.videoModel, current.videoModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);
+        const preferredVideoModel = preferredVideoModelFromList(videoModels);
         return normalizeModelPoolSelections(
           {
             ...current,
@@ -20971,10 +22546,13 @@ function App() {
             imageModel: current.imageModel || result.settings?.imageModel || preferredImageModel,
             imageModelPool: current.imageModelPool?.length ? current.imageModelPool : [current.imageModel || result.settings?.imageModel || preferredImageModel],
             agentModel: current.agentModel || preferredAgentModel,
-            agentModelPool: current.agentModelPool?.length ? current.agentModelPool : [current.agentModel || preferredAgentModel]
+            agentModelPool: current.agentModelPool?.length ? current.agentModelPool : [current.agentModel || preferredAgentModel],
+            videoModel: current.videoModel || result.settings?.videoModel || preferredVideoModel,
+            videoModelPool: current.videoModelPool?.length ? current.videoModelPool : [current.videoModel || result.settings?.videoModel || preferredVideoModel]
           },
           agentModels,
-          imageModels
+          imageModels,
+          videoModels
         );
       });
       setServerUser(result.user ?? null);
@@ -20992,6 +22570,10 @@ function App() {
   }
 
   async function submitCustomAccess() {
+    if (!appAccessPolicy.customApiAccess) {
+      setServerMessage("此发行版仅支持 SparkAPI 账号登录。");
+      return;
+    }
     if (!authDraft.baseUrl.trim() || !authDraft.apiKey.trim()) {
       setServerMessage("请输入 Base URL 和 API Key。");
       return;
@@ -21046,7 +22628,7 @@ function App() {
       setLicenseReady(true);
       if (!status.active) throw new Error(status.error || "激活失败。");
       setAuthDraft((current) => ({ ...current, activationCode: "" }));
-      setServerMessage("naimage 已激活。");
+      setServerMessage("SparkAI WorkSpace 已激活。");
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
     }
@@ -21076,6 +22658,7 @@ function App() {
     setPromptEditorOpen(false);
     setFastMemoryEditorOpen(false);
     setManualImageTaskDialog(null);
+    setManualVideoTaskDialog(null);
     setReferencePickerDraft(null);
     setAskUserDraft(null);
     setImageViewer(null);
@@ -21417,7 +23000,7 @@ function App() {
                         `count: ${total}`,
                         `batchMode: parallel`,
                         `returned: ${assets.length}`,
-                        `cost: ${yuan(result.costCents)}`
+                        ...(typeof result.costCents === "number" ? [`cost: ${yuan(result.costCents)}`] : [])
                       ].join("\n"),
                       ...nodeSize
                     }, imageCollection);
@@ -21599,7 +23182,7 @@ function App() {
   function openImageViewer(node: WorkflowNode, index: number) {
     const entries = (node.assets ?? [])
       .map((asset, assetIndex) => ({ asset, assetIndex }))
-      .filter((entry) => imageAssetSrc(entry.asset));
+      .filter((entry) => entry.asset.status !== "pending" && entry.asset.status !== "error" && imageAssetSrc(entry.asset));
     if (entries.length === 0) return;
     const groupedSources = layoutProjection.assetSourcesByHost.get(node.id);
     imageViewerAssetSourcesRef.current = entries.map((entry) => groupedSources?.[entry.assetIndex] ?? { nodeId: node.id, assetIndex: entry.assetIndex });
@@ -21732,6 +23315,17 @@ function App() {
   }
 
   function beginInternalAssetDrag(event: React.DragEvent<HTMLElement>, node: WorkflowNode, assetIndex: number) {
+    if (dragRef.current) {
+      // Moving a node can expose a draggable image tile below the original
+      // press point. Chromium may try to start that tile's native HTML drag,
+      // which cancels the active pointer stream and makes an immediate redrag
+      // appear stuck. Only asset drags that begin without a node drag own the
+      // native drag lifecycle.
+      event.preventDefault();
+      event.stopPropagation();
+      internalAssetDragRef.current = null;
+      return;
+    }
     const asset = node.assets?.[assetIndex];
     const assetKey = imageAssetLogicalKey(asset, node.id, assetIndex);
     if (!asset || !assetKey || !canGroupImageAsset(node)) {
@@ -21761,20 +23355,30 @@ function App() {
     }, 0);
   }
 
-  async function openAssetFolder(asset?: ImageAsset) {
+  function recordVideoMetadata(nodeId: string, player: HTMLVideoElement) {
+    const node = nodesRef.current.find((candidate) => candidate.id === nodeId && candidate.type === "video");
+    if (!node?.videoAsset) return;
+    const width = Math.max(0, Math.round(Number(player.videoWidth) || 0)) || undefined;
+    const height = Math.max(0, Math.round(Number(player.videoHeight) || 0)) || undefined;
+    const durationMs = Number.isFinite(player.duration) && player.duration >= 0 ? Math.round(player.duration * 1000) : undefined;
+    if (node.videoAsset.width === width && node.videoAsset.height === height && node.videoAsset.durationMs === durationMs) return;
+    updateNode(nodeId, { videoAsset: { ...node.videoAsset, width, height, durationMs } });
+  }
+
+  async function openAssetFolder(asset?: { path?: string; url?: string }) {
     if (!asset) return;
     if (!asset.path) {
-      pushSystemMessage("asset", "这张图不是本地输出文件，当前没有可打开的本地文件夹。");
+      pushSystemMessage("asset", "这个成果不是本地输出文件，当前没有可打开的文件夹。");
       return;
     }
 
     try {
       const result = await window.naimageConfig?.openAssetFolder?.({ path: asset.path, url: asset.url });
       if (!result?.ok) {
-        pushSystemMessage("asset", `打开图片文件夹失败：${result?.error ?? "本地资产服务未就绪。"}`);
+        pushSystemMessage("asset", `打开文件夹失败：${result?.error ?? "本地资产服务未就绪。"}`);
       }
     } catch (error) {
-      pushSystemMessage("asset", `打开图片文件夹失败：${error instanceof Error ? error.message : String(error)}`);
+      pushSystemMessage("asset", `打开文件夹失败：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -21798,17 +23402,29 @@ function App() {
     }
     return sendPrompt(nextPrompt);
   });
-  function commerceSourceKeysForNodeIds(sourceNodeIds: readonly string[]) {
+  function commerceSourceItemsForNodeIds(sourceNodeIds: readonly string[]) {
     const seenBindings = new Set<string>();
-    const sourceKeys: string[] = [];
+    const sourceItems: Array<{ key: string; label: string; previewUrl?: string; nodeId?: string; assetIndex?: number }> = [];
     for (const nodeId of sourceNodeIds) {
       for (const binding of flattenImageContainerBindings(nodesRef.current, nodeId)) {
         if (binding.role === "reference" || seenBindings.has(binding.bindingId)) continue;
         seenBindings.add(binding.bindingId);
-        sourceKeys.push(binding.bindingId);
+        const node = nodesRef.current.find((candidate) => candidate.id === binding.nodeId);
+        const asset = node?.assets?.[binding.assetIndex];
+        sourceItems.push({
+          key: binding.bindingId,
+          label: asset ? `${node?.displayCode || node?.id || `图片 ${sourceItems.length + 1}`} · ${imageAssetName(asset)}` : node?.title || `来源图 ${sourceItems.length + 1}`,
+          nodeId: binding.nodeId,
+          assetIndex: binding.assetIndex,
+          ...(asset ? { previewUrl: imageAssetThumbnailSrc(asset, 160) } : {})
+        });
       }
     }
-    return sourceKeys;
+    return sourceItems;
+  }
+
+  function commerceSourceKeysForNodeIds(sourceNodeIds: readonly string[]) {
+    return commerceSourceItemsForNodeIds(sourceNodeIds).map((item) => item.key);
   }
 
   function currentCommerceSourceSelection() {
@@ -21819,10 +23435,12 @@ function App() {
         const node = projection.canvasNodeById.get(id) ?? nodesRef.current.find((candidate) => candidate.id === id);
         return node?.type === "image" && !node.layerGroup;
       });
-    const sourceKeys = commerceSourceKeysForNodeIds(sourceNodeIds);
+    const sourceItems = commerceSourceItemsForNodeIds(sourceNodeIds);
+    const sourceKeys = sourceItems.map((item) => item.key);
     return {
       sourceNodeIds,
       sourceKeys,
+      sourceItems,
       sourceCount: sourceKeys.length,
       sourceLabel: canvasSelectionSummary?.title || `${sourceKeys.length} 张母图`,
     };
@@ -21842,6 +23460,287 @@ function App() {
   });
   const openCommerceGeneration = useStableEvent(() => openCommerceSet("generate"));
   const openCommerceTranslation = useStableEvent(() => openCommerceSet("translate"));
+  const openSocialContent = useStableEvent((platform: SocialPlatform, initialPlan?: SocialContentPlan) => {
+    if (agentExecutionBusyNow()) {
+      setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
+      return;
+    }
+    const source = currentCommerceSourceSelection();
+    setSocialContentDialog({
+      initialPlatform: platform,
+      ...(initialPlan ? { initialPlan: normalizeSocialContentPlan(initialPlan) } : {}),
+      sourceNodeIds: source.sourceNodeIds,
+      sourceKeys: source.sourceKeys,
+      sourceItems: source.sourceItems,
+    });
+  });
+  const openSocialXiaohongshu = useStableEvent(() => openSocialContent("xiaohongshu"));
+  const openSocialDouyin = useStableEvent(() => openSocialContent("douyin"));
+  const showSocialGuidance = useStableEvent((message: string) => {
+    setServerMessage(message);
+    setAgentCollapsed(false);
+    const latestVisible = [...messagesRef.current].reverse().find((item) => !item.hidden);
+    if (latestVisible?.role !== "system" || latestVisible.content !== message) {
+      pushSystemMessage("social-guide", message);
+    }
+  });
+  const openSocialRecent = useStableEvent(() => {
+    setWorkspaceAssetRailTabRequest((current) => ({ tab: "requirements", nonce: (current?.nonce || 0) + 1 }));
+    const latest = [...nodesRef.current]
+      .filter((node) => node.type === "requirement" && Boolean(node.requirement?.socialPlan))
+      .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))[0];
+    if (!latest) {
+      showSocialGuidance("当前画布还没有社媒项目。可以先新建小红书图文或抖音短视频。");
+      return;
+    }
+    selectWorkspaceNavigatorNode(latest.id);
+    setServerMessage(`已定位最近社媒项目：${latest.title}`);
+  });
+  const openSocialTemplates = useStableEvent(() => {
+    setWorkspaceAssetRailTabRequest((current) => ({ tab: "templates", nonce: (current?.nonce || 0) + 1 }));
+    void loadRequirementTemplates().then((items) => {
+      if (!items.some((entry) => entry.socialPlan)) {
+        showSocialGuidance("社媒模板页已打开。当前还没有社媒模板，可先把画布中的社媒 Requirement 保存为个人模板。");
+      }
+    });
+  });
+
+  async function exportSocialRequirementPackage(input: {
+    expectedProjectId: string;
+    requirementNodeId: string;
+    expectedRequirementRevision: number;
+    workflowId: string;
+    confirmed: true;
+  }) {
+    if (input.expectedProjectId !== activeProjectIdRef.current) {
+      throw automationCommandError("PROJECT_MISMATCH", "当前项目与导出请求不一致，发布包没有导出。", {
+        expectedProjectId: input.expectedProjectId,
+        activeProjectId: activeProjectIdRef.current,
+      });
+    }
+    const target = nodesRef.current.find((node) => node.id === input.requirementNodeId);
+    if (target?.type !== "requirement" || !target.requirement?.socialPlan) {
+      throw automationCommandError("UNSUPPORTED_NODE", "目标节点不是可导出的社媒 Requirement。", { nodeId: input.requirementNodeId });
+    }
+    if (target.requirement.revision !== input.expectedRequirementRevision) {
+      throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "社媒 Requirement 已发生变化，请读取最新 revision 后重试。", {
+        nodeId: target.id,
+        expectedRevision: input.expectedRequirementRevision,
+        currentRevision: target.requirement.revision,
+      });
+    }
+    if (target.requirement.socialPlan.workflowId !== input.workflowId) {
+      throw automationCommandError("SOCIAL_IDENTITY_MISMATCH", "社媒工作流身份已变化，发布包没有导出。", {
+        nodeId: target.id,
+        expectedWorkflowId: input.workflowId,
+        currentWorkflowId: target.requirement.socialPlan.workflowId,
+      });
+    }
+    if (lockedNodeIdsRef.current.has(target.id)) {
+      throw automationCommandError("NODE_LOCKED", "该社媒项目仍在执行中，请等待结构化内容和素材稳定后再导出。", { nodeId: target.id });
+    }
+    const bridge = window.naimageConfig?.exportSocialPackage;
+    if (!bridge) throw automationCommandError("SOCIAL_EXPORT_UNAVAILABLE", "当前桌面运行时未提供社媒发布包导出。");
+    const saved = await flushActiveProjectSession({ live: true, projectId: input.expectedProjectId });
+    if (!saved?.ok) throw new Error(saved?.error || "当前社媒项目尚未可靠保存。");
+    const result = await bridge(input);
+    if (result?.canceled) return result;
+    if (!result?.ok || !result.exported) throw new Error(result?.error || "社媒发布包导出失败。");
+    const currentIndex = nodesRef.current.findIndex((node) => node.id === target.id);
+    const current = currentIndex >= 0 ? nodesRef.current[currentIndex] : undefined;
+    const exported = current?.requirement?.socialPlan && current.requirement.revision === target.requirement.revision
+      ? applySocialPlanToRequirementNode(current, { ...current.requirement.socialPlan, status: "exported" }, current.requirement.revision)
+      : undefined;
+    if (exported) {
+      const nextNodes = nodesRef.current.map((node, index) => index === currentIndex ? exported : node);
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    }
+    addEvent(`导出社媒发布包 ${target.requirement.socialPlan.workflowId}`);
+    return result;
+  }
+
+  const openSocialPublishExport = useStableEvent(async () => {
+    if (fileActionBusy) return;
+    const selectedId = currentNodeSelection().primaryId;
+    const selected = nodesRef.current.find((node) => node.id === selectedId && node.type === "requirement" && node.requirement?.socialPlan);
+    const workflows = [...nodesRef.current]
+      .filter((node) => node.type === "requirement" && Boolean(node.requirement?.socialPlan))
+      .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+    const target = selected || (workflows.length === 1 ? workflows[0] : undefined);
+    if (!target?.requirement?.socialPlan) {
+      setWorkspaceAssetRailTabRequest((current) => ({ tab: "requirements", nonce: (current?.nonce || 0) + 1 }));
+      showSocialGuidance(workflows.length
+        ? "当前画布有多个社媒项目，请先在左侧需求页选择一个社媒 Requirement，再点击发布包导出。"
+        : "当前画布还没有可导出的社媒项目。");
+      return;
+    }
+    setFileActionBusy(true);
+    try {
+      const result = await exportSocialRequirementPackage({
+        expectedProjectId: activeProjectIdRef.current,
+        requirementNodeId: target.id,
+        expectedRequirementRevision: target.requirement.revision,
+        workflowId: target.requirement.socialPlan.workflowId,
+        confirmed: true
+      });
+      if (result?.canceled) return;
+      setServerMessage(`社媒发布包已导出：${result.folderName || "发布包目录"} · ${result.images || 0} 张图片${result.videos ? ` · ${result.videos} 个视频` : ""}`);
+    } catch (error) {
+      setServerMessage(`社媒发布包导出失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFileActionBusy(false);
+    }
+  });
+
+  const submitSocialContent = useStableEvent(async (dialog: NonNullable<typeof socialContentDialog>, requestedPlan: SocialContentPlan) => {
+    if (agentExecutionBusyNow()) throw new Error("Agent 正在执行当前任务，请等待完成或先停止。");
+    const currentSourceKeys = commerceSourceKeysForNodeIds(dialog.sourceNodeIds);
+    if (currentSourceKeys.length !== dialog.sourceKeys.length || currentSourceKeys.some((key, index) => key !== dialog.sourceKeys[index])) {
+      const message = "社媒配置期间素材范围已发生变化。请关闭后重新选择素材并再次打开，避免按过期范围执行。";
+      setSocialContentDialog({ ...dialog, error: message });
+      throw new Error(message);
+    }
+    const plan = normalizeSocialContentPlan(requestedPlan);
+    const command = plan.platform === "xiaohongshu"
+      ? "sparkai.social-content.new-xiaohongshu"
+      : "sparkai.social-content.new-douyin";
+    const composed = await window.naimageConfig?.composePluginTask?.({ command, plan });
+    if (!composed?.ok || !composed.task) throw new Error(composed?.error || "社媒任务生成失败。");
+    const canonicalPlan = normalizeSocialContentPlan(composed.task.plan ?? plan);
+    if (canonicalPlan.platform !== plan.platform || !/^social-workflow-[a-f0-9]{32}$/.test(canonicalPlan.workflowId)) {
+      throw new Error("社媒任务缺少有效的工作流身份，请重新打开并提交。");
+    }
+    const inputBindings = dialog.sourceNodeIds.map((nodeId): CanvasRequirementInputBinding => ({ nodeId, role: "source" }));
+    const created = createRequirementForAutomation({
+      title: canonicalPlan.platform === "xiaohongshu" ? `小红书 · ${canonicalPlan.brief.slice(0, 32)}` : `抖音 · ${canonicalPlan.brief.slice(0, 32)}`,
+      text: composed.task.prompt,
+      inputBindings,
+      expectedProjectId: activeProjectIdRef.current || "default",
+      socialPlan: canonicalPlan,
+      historyLabel: canonicalPlan.platform === "xiaohongshu" ? "创建小红书图文计划" : "创建抖音短视频计划",
+      eventLabel: "创建社媒 Requirement",
+    });
+    const requirementNode = nodesRef.current.find((node) => node.id === created.nodeId && node.type === "requirement" && node.requirement);
+    if (!requirementNode?.requirement) throw new Error("社媒 Requirement 创建后未能进入当前画布。");
+    const inputSignature = stableRequirementInputSignature(requirementNode, nodesRef.current);
+    setSocialContentDialog(null);
+    setAgentCollapsed(false);
+    const currentSettings = settingsRef.current;
+    const nextSettings = mergeSettings({
+      ...currentSettings,
+      workflowOnboarding: {
+        ...currentSettings.workflowOnboarding,
+        social: true,
+        [canonicalPlan.platform]: true,
+      }
+    });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    void saveSettingsToStore(nextSettings).catch(() => undefined);
+    const accepted = await sendPrompt(composed.task.prompt, {
+      sourceNodeIds: [...dialog.sourceNodeIds],
+      focusedNodeId: dialog.sourceNodeIds[0],
+      taskOrigin: "requirement",
+      requirementNodeId: requirementNode.id,
+      requirementInputSignature: inputSignature,
+      useComposerAttachments: false,
+      visibleContent: composed.task.visibleContent,
+    });
+    if (!accepted) {
+      updateRequirementNode(requirementNode.id, (requirement) => ({ ...requirement, lastError: "Agent 当前未接受任务；可稍后右键重新执行该社媒 Requirement。" }));
+      throw new Error("社媒计划已保存到画布，但 Agent 当前未接受任务；稍后可从 Requirement 重新执行。");
+    }
+    addEvent(`执行${canonicalPlan.platform === "xiaohongshu" ? "小红书" : "抖音"}社媒计划 ${requirementNode.id}`);
+  });
+  const commerceCatalogCanvasAssets = useMemo(() => {
+    const seen = new Set<string>();
+    return nodes.flatMap((node) => node.type === "image" && !node.layerGroup
+      ? (node.assets || []).flatMap((asset, assetIndex) => {
+          if (asset.status === "error" || asset.status === "pending") return [];
+          const key = String(asset.assetId || asset.contentHash || `${node.id}:${assetIndex}`);
+          if (seen.has(key)) return [];
+          seen.add(key);
+          return [{
+            nodeId: node.id,
+            assetIndex,
+            assetId: asset.assetId,
+            contentHash: asset.contentHash,
+            previewUrl: imageAssetThumbnailSrc(asset, 192),
+            label: imageAssetName(asset)
+          }];
+        })
+      : []);
+  }, [nodes]);
+  const commerceTutorialResultCount = useMemo(() => nodes.reduce((count, node) => {
+    const planHash = String(node.taskProvenance?.commercePlanHash || "").trim().toLowerCase();
+    if (!/^commerce-[a-f0-9]{32}$/.test(planHash)) return count;
+    return count + (node.assets || []).filter((asset) => asset.status !== "error" && asset.status !== "pending").length;
+  }, 0), [nodes]);
+  const commerceCatalogTranslationCanvasItems = useMemo(() => nodes.flatMap((node) => {
+    const provenance = node.taskProvenance;
+    const target = provenance?.commerceCatalogTarget;
+    const commercePlanHash = String(provenance?.commercePlanHash || "").trim().toLowerCase();
+    const localeCode = String(provenance?.commerceLocaleCode || "").trim();
+    const sourceBindingId = String(provenance?.sourceBindingId || "").trim();
+    if (
+      provenance?.commerceSlotId !== "translation" || !target?.productId || !sourceBindingId || !localeCode ||
+      !/^commerce-[a-f0-9]{32}$/.test(commercePlanHash)
+    ) return [];
+    const asset = node.assets?.[0];
+    return [{
+      productId: target.productId,
+      sourceBindingId,
+      sourceLinkId: target.sourceLinkId,
+      commercePlanHash,
+      localeCode,
+      status: node.imageState === "generating" ? "generating" as const : node.imageState === "error" ? "failed" as const : "done" as const,
+      ...(asset ? { previewUrl: imageAssetThumbnailSrc(asset, 160) } : {}),
+      ...(node.imageError ? { error: node.imageError } : {}),
+      createdAt: node.createdAt
+    }];
+  }), [nodes]);
+  const openCommerceCatalog = useStableEvent(() => {
+    const selection = currentNodeSelection();
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const hostNodeIds = [...new Set(selection.ids.map((id) => projection.groupByMember.get(id)?.hostNodeId ?? id))];
+    const seen = new Set<string>();
+    const selectedAssets = hostNodeIds
+      .flatMap((nodeId) => flattenImageContainerBindings(nodesRef.current, nodeId))
+      .filter((binding) => binding.role !== "reference")
+      .flatMap((binding) => {
+        const key = binding.bindingId || `${binding.nodeId}:${binding.assetIndex}`;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        return [{ nodeId: binding.nodeId, assetIndex: binding.assetIndex, bindingId: binding.bindingId }];
+      });
+    setCanvasMenu(null);
+    setCommerceCatalogDialog({ projectId: activeProjectIdRef.current, selectedAssets });
+  });
+  const openCommerceExport = useStableEvent(() => {
+    setCanvasMenu(null);
+    setCommerceExportDialog({ projectId: activeProjectIdRef.current });
+  });
+  const openCommerceTemplateMarket = useStableEvent(() => {
+    setCanvasMenu(null);
+    setCommerceTemplateDialog({});
+  });
+  const createCommerceTemplatePlan = useStableEvent(() => {
+    const source = currentCommerceSourceSelection();
+    setCommerceTemplateDialog(null);
+    setCommerceSetDialog({ mode: "generate", ...source });
+  });
+  const openCommerceAbComparison = useStableEvent(() => {
+    setCanvasMenu(null);
+    setCommerceAbDialog({ projectId: activeProjectIdRef.current });
+  });
+  const useCommerceTemplate = useStableEvent(async (entry: CommerceTemplateEntry & { plan: CommerceSetPlan }) => {
+    if (agentExecutionBusyNow()) throw new Error("Agent 正在执行当前任务，请等待完成或先停止。");
+    const source = currentCommerceSourceSelection();
+    if (!source.sourceCount) throw new Error("请先在画布选择至少一张可用商品图，再使用套图模板。");
+    setCommerceTemplateDialog(null);
+    setCommerceSetDialog({ mode: entry.plan.mode, initialPlan: entry.plan, ...source });
+  });
   const openProjectGraphVisualization = useStableEvent(async () => {
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
@@ -21868,24 +23767,321 @@ function App() {
       setServerMessage(`Project Graph 视觉学习失败：${error instanceof Error ? error.message : String(error)}`);
     }
   });
-  const openScientificFigure = useStableEvent(async () => {
-    const result = await window.naimageConfig?.composePluginTask?.({ command: "sparkai.scientific-figure.start-workflow" });
-    if (!result?.task) throw new Error(result?.error || "科研绘图任务生成失败。");
-    setAgentCollapsed(false);
-    await sendPrompt(result.task.prompt, { visibleContent: result.task.visibleContent });
+  function selectedScientificRequirement() {
+    const primaryId = currentNodeSelection().primaryId;
+    const primary = nodesRef.current.find((node) => node.id === primaryId);
+    if (primary?.type === "requirement" && primary.requirement?.scientificPlan) return primary;
+    const workflowId = primary?.scientificFigure?.workflowId || primary?.taskProvenance?.scientificFigure?.workflowId;
+    if (workflowId) {
+      const linked = nodesRef.current.find((node) => node.type === "requirement" && node.requirement?.scientificPlan?.workflowId === workflowId);
+      if (linked) return linked;
+    }
+    return undefined;
+  }
+
+  const openScientificFigureDialog = useStableEvent((input: {
+    action?: "plan" | "import" | "render" | "export";
+    figureType?: ScientificFigurePlan["figureType"];
+    preferExisting?: boolean;
+  } = {}) => {
+    const selected = selectedScientificRequirement();
+    const existing = input.preferExisting
+      ? selected || [...nodesRef.current].reverse().find((node) => node.type === "requirement" && node.requirement?.scientificPlan)
+      : undefined;
+    const sourceNodeIds = currentNodeSelection().ids.filter((id) => nodesRef.current.some((node) => node.id === id && node.type === "image"));
+    const initialPlan = existing?.requirement?.scientificPlan
+      ? normalizeScientificFigurePlan(existing.requirement.scientificPlan)
+      : normalizeScientificFigurePlan({
+          figureType: input.figureType || "statistical-chart",
+          archetype: input.figureType === "multi-panel" ? "quantitative-grid" : undefined,
+          panels: input.figureType === "multi-panel" ? [{ id: "panel-a", label: "A" }, { id: "panel-b", label: "B" }] : undefined,
+        });
+    setScientificFigureDialog({
+      initialPlan,
+      initialTaskId: existing?.requirement?.scientificPlan?.taskId || selected?.scientificFigure?.taskId,
+      initialAction: input.action || "plan",
+      sourceNodeIds,
+    });
   });
+
+  const saveScientificFigurePlan = useStableEvent(async (requestedPlan: ScientificFigurePlan) => {
+    const composed = await window.naimageConfig?.composePluginTask?.({
+      command: "sparkai.scientific-figure.start-workflow",
+      plan: requestedPlan,
+    });
+    if (!composed?.ok || !composed.task) throw new Error(composed?.error || "科研绘图计划生成失败。");
+    const composedTask = composed.task;
+    const plan = normalizeScientificFigurePlan(composedTask.plan ?? requestedPlan);
+    if (!plan.backend) throw new Error("保存科研计划前请选择 Python 或 R 后端。");
+    const dialog = scientificFigureDialog;
+    const sourceNodeIds = (dialog?.sourceNodeIds || []).filter((id) => nodesRef.current.some((node) => node.id === id && node.type === "image"));
+    const inputBindings = sourceNodeIds.map((nodeId): CanvasRequirementInputBinding => ({ nodeId, role: "source" }));
+    const existing = nodesRef.current.find((node) => node.type === "requirement" && node.requirement?.scientificPlan?.workflowId === plan.workflowId);
+    let requirementNodeId = "";
+    let requirementRevision = 1;
+    if (existing?.requirement) {
+      assertAutomationCanvasMutationPreconditions({
+        expectedProjectId: activeProjectIdRef.current || "default",
+        expectedCanvasRevision: canvasRevisionRef.current,
+      }, [existing.id, ...sourceNodeIds], "保存科研图计划");
+      const bindings = inputBindings.length ? automationRequirementBindings(inputBindings, nodesRef.current) : existing.requirement.inputBindings || [];
+      requirementRevision = existing.requirement.revision + 1;
+      const nextNodes = nodesRef.current.map((node) => node.id === existing.id ? {
+        ...node,
+        title: `科研图 · ${plan.researchClaim.slice(0, 36) || "未命名计划"}`,
+        prompt: composedTask.prompt,
+        requirement: {
+          ...existing.requirement!,
+          version: 2 as const,
+          text: composedTask.prompt,
+          revision: requirementRevision,
+          inputBindings: bindings,
+          scientificPlan: structuredClone(plan),
+          lastError: undefined,
+        },
+        scientificFigure: {
+          workflowId: plan.workflowId,
+          planHash: plan.planHash,
+          kind: "plan" as const,
+          backend: plan.backend || undefined,
+          taskId: plan.taskId || undefined,
+          status: plan.status,
+        },
+      } : node);
+      assertCanvasRelationGraphAcyclic(nextNodes);
+      commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "更新科研绘图计划");
+      requirementNodeId = existing.id;
+      commitNodeSelection({ primaryId: existing.id, ids: [existing.id] }, "scientific-plan-update");
+    } else {
+      const created = createRequirementForAutomation({
+        title: `科研图 · ${plan.researchClaim.slice(0, 36) || "未命名计划"}`,
+        text: composedTask.prompt,
+        inputBindings,
+        expectedProjectId: activeProjectIdRef.current || "default",
+        expectedCanvasRevision: canvasRevisionRef.current,
+        scientificPlan: plan,
+        historyLabel: "创建科研绘图计划",
+        eventLabel: "创建科研 Requirement",
+      });
+      requirementNodeId = created.nodeId;
+      requirementRevision = created.requirementRevision;
+    }
+    if (!settingsRef.current.workflowOnboarding?.research) {
+      const nextSettings = mergeSettings({
+        ...settingsRef.current,
+        workflowOnboarding: { ...settingsRef.current.workflowOnboarding, research: true },
+      });
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+      void saveSettingsToStore(nextSettings).catch(() => undefined);
+    }
+    addEvent(`保存科研图计划 ${plan.workflowId}`);
+    return { plan, requirementNodeId, requirementRevision };
+  });
+
+  const submitScientificAgentPlan = useStableEvent(async (saved: {
+    plan: ScientificFigurePlan;
+    requirementNodeId: string;
+    requirementRevision: number;
+  }) => {
+    if (agentExecutionBusyNow()) throw new Error("Agent 正在执行当前任务，请等待完成或先停止。");
+    const requirementNode = nodesRef.current.find((node) => node.id === saved.requirementNodeId && node.type === "requirement" && node.requirement);
+    if (!requirementNode?.requirement) throw new Error("科研 Requirement 已不存在，请重新保存计划。");
+    const composed = await window.naimageConfig?.composePluginTask?.({ command: "sparkai.scientific-figure.start-workflow", plan: saved.plan });
+    if (!composed?.ok || !composed.task) throw new Error(composed?.error || "科研示意图任务生成失败。");
+    const sourceNodeIds = requirementInputNodeIds(requirementNode, nodesRef.current);
+    setAgentCollapsed(false);
+    const accepted = await sendPrompt(composed.task.prompt, {
+      sourceNodeIds,
+      focusedNodeId: sourceNodeIds[0],
+      taskOrigin: "requirement",
+      requirementNodeId: requirementNode.id,
+      requirementInputSignature: stableRequirementInputSignature(requirementNode, nodesRef.current),
+      useComposerAttachments: false,
+      visibleContent: composed.task.visibleContent,
+    });
+    if (!accepted) {
+      updateRequirementNode(requirementNode.id, (requirement) => ({ ...requirement, lastError: "Agent 当前未接受科研图任务；可稍后从 Requirement 重新执行。" }));
+      throw new Error("科研图计划已保存，但 Agent 当前未接受任务。");
+    }
+    addEvent(`执行科研示意图计划 ${requirementNode.id}`);
+  });
+
+  const landScientificTaskOnCanvas = useStableEvent((task: ScientificTask, saved: {
+    plan: ScientificFigurePlan;
+    requirementNodeId: string;
+    requirementRevision: number;
+  }) => {
+    const duplicate = nodesRef.current.find((node) => node.scientificFigure?.taskId === task.taskId && node.type === "image");
+    if (duplicate) {
+      commitNodeSelection({ primaryId: duplicate.id, ids: [duplicate.id] }, "scientific-result-existing");
+      return { landed: true, createdNodeIds: [] as string[], existingNodeId: duplicate.id };
+    }
+    const requirement = nodesRef.current.find((node) => node.id === saved.requirementNodeId && node.type === "requirement" && node.requirement);
+    if (!requirement?.requirement) {
+      setServerMessage("科研图已生成并保存在项目输出目录，但对应 Requirement 已被删除，未自动写入画布。");
+      return { landed: false, createdNodeIds: [] as string[], reason: "requirement-missing" };
+    }
+    const currentPlan = requirement.requirement.scientificPlan
+      ? normalizeScientificFigurePlan(requirement.requirement.scientificPlan)
+      : null;
+    if (
+      requirement.requirement.revision !== saved.requirementRevision
+      || !currentPlan
+      || currentPlan.workflowId !== saved.plan.workflowId
+      || currentPlan.planHash !== saved.plan.planHash
+      || task.workflowId !== saved.plan.workflowId
+      || task.planHash !== saved.plan.planHash
+    ) {
+      setServerMessage("科研图已生成并受管保存，但 Requirement 在执行期间发生变化；为避免覆盖新计划，本次结果未自动写入画布。");
+      return { landed: false, createdNodeIds: [] as string[], reason: "requirement-revision-or-plan-drift" };
+    }
+    const preview = task.outputs.find((output) => output.kind === "figure" && output.format === "png" && output.name.toLowerCase() === "figure-preview.png")
+      || task.outputs.find((output) => output.kind === "figure" && output.format === "png");
+    const panels = task.outputs.filter((output) => output.kind === "panel" && output.format === "png");
+    const visualOutputs = [...(preview ? [preview] : []), ...panels];
+    if (!visualOutputs.length) {
+      setServerMessage("科研任务已完成，但没有可放入画布的 PNG 预览；SVG/PDF/TIFF 仍保留在项目输出中。");
+      return { landed: false, createdNodeIds: [] as string[], reason: "png-preview-missing" };
+    }
+    const renderedPlan = normalizeScientificFigurePlan({ ...task.plan, status: "rendered", taskId: task.taskId });
+    let nextNodes = nodesRef.current.map((node) => node.id === requirement.id ? {
+      ...node,
+      requirement: {
+        ...requirement.requirement!,
+        revision: requirement.requirement!.revision + 1,
+        scientificPlan: renderedPlan,
+        lastError: undefined,
+      },
+      scientificFigure: {
+        workflowId: renderedPlan.workflowId,
+        planHash: renderedPlan.planHash,
+        kind: "plan" as const,
+        backend: renderedPlan.backend || undefined,
+        taskId: task.taskId,
+        scriptHash: task.scriptHash,
+        dataHashes: renderedPlan.dataSources.map((source) => source.contentHash),
+        status: "rendered" as const,
+      },
+    } : node);
+    const createdIds: string[] = [];
+    const baseX = requirement.x + Number(requirement.width || REQUIREMENT_NODE_W) + 72;
+    const baseY = requirement.y;
+    const ratio = Math.max(.45, Math.min(2.4, renderedPlan.dimensions.widthMm / renderedPlan.dimensions.heightMm));
+    for (const [index, output] of visualOutputs.entries()) {
+      const id = allocateNodeCode(nextNodes);
+      const isPanel = output.kind === "panel";
+      const width = isPanel ? 250 : 330;
+      const height = Math.max(190, Math.min(390, Math.round(width / ratio) + 88));
+      const preferredX = baseX + (index % 3) * (width + 28);
+      const preferredY = baseY + Math.floor(index / 3) * (height + 30);
+      const position = findOpenWorkflowNodePosition(nextNodes, { width, height, preferredX, preferredY, parent: requirement });
+      const panel = output.panelId ? renderedPlan.panels.find((item) => item.id === output.panelId) : undefined;
+      const assetBase: ImageAsset = {
+        assetId: output.outputId,
+        contentHash: output.contentHash,
+        index: 1,
+        type: "file",
+        relativePath: output.relativePath,
+        assetUrl: output.assetUrl,
+        originalName: output.name,
+        revisedPrompt: renderedPlan.researchClaim,
+        prompt: panel?.description || renderedPlan.researchClaim,
+        title: isPanel ? `${panel?.label || output.panelId || "Panel"} · ${panel?.title || "科研图"}` : `论文图 · ${renderedPlan.researchClaim.slice(0, 42)}`,
+        status: "done",
+        runId: task.taskId,
+      };
+      const asset: ImageAsset = {
+        ...assetBase,
+        assetId: stableImageAssetId(assetBase, 1),
+        occurrenceId: stableImageOccurrenceId(assetBase, id, 0),
+        displayCode: `${id}1`,
+      };
+      nextNodes.push({
+        id,
+        displayCode: id,
+        title: asset.title || "科研图",
+        prompt: asset.prompt || renderedPlan.researchClaim,
+        type: "image",
+        status: "done",
+        x: Math.round(position.x),
+        y: Math.round(position.y),
+        parentId: requirement.id,
+        relationType: "derived-from",
+        branch: "scientific-figure",
+        outputs: 1,
+        createdAt: nowLabel(),
+        assets: [asset],
+        imageState: "done",
+        imageProgress: imageProgressState(1, 1, isPanel ? "科研 Panel 已渲染" : "论文图已渲染"),
+        scientificFigure: {
+          workflowId: renderedPlan.workflowId,
+          planHash: renderedPlan.planHash,
+          kind: isPanel ? "panel" : "figure",
+          panelId: output.panelId,
+          backend: task.backend,
+          taskId: task.taskId,
+          scriptHash: task.scriptHash,
+          dataHashes: renderedPlan.dataSources.map((source) => source.contentHash),
+          status: "rendered",
+        },
+        width,
+        height,
+        zOrder: nextNodeZOrder(nextNodes),
+      });
+      createdIds.push(id);
+    }
+    assertCanvasRelationGraphAcyclic(nextNodes);
+    commitAutomationCanvasMutation(nextNodes, layoutGroupsRef.current, "写入科研图与 Panel 预览");
+    commitNodeSelection({ primaryId: createdIds[0], ids: createdIds }, "scientific-results-created");
+    addEvent(`科研图写入画布 ${task.taskId} · ${createdIds.length} 个预览`);
+    setServerMessage(`科研图已完成：画布新增 ${createdIds.length} 个透明玻璃成果节点；PNG 预览保持原色，脚本与投稿格式已关联保存。`);
+    return { landed: true, createdNodeIds: createdIds };
+  });
+
+  const openScientificFigure = useStableEvent(() => openScientificFigureDialog({ figureType: "statistical-chart" }));
+  const openScientificImport = useStableEvent(() => openScientificFigureDialog({ action: "import", preferExisting: true }));
+  const openScientificChart = useStableEvent(() => openScientificFigureDialog({ figureType: "statistical-chart" }));
+  const openScientificPanel = useStableEvent(() => openScientificFigureDialog({ figureType: "multi-panel" }));
+  const openScientificSchematic = useStableEvent(() => openScientificFigureDialog({ figureType: "schematic" }));
+  const openScientificRerender = useStableEvent(() => openScientificFigureDialog({ action: "render", preferExisting: true }));
+  const openScientificExport = useStableEvent(() => openScientificFigureDialog({ action: "export", preferExisting: true }));
   useEffect(() => {
     let cancelled = false;
     const unregisterCommands: Array<() => void> = [];
 
     pluginCommandRegistryRef.current = null;
+    pluginCommandItemsRef.current = [];
+    pluginShortcutItemsRef.current = [];
     setPluginToolbarItems([]);
+    setPluginToolbarLoading(false);
     if (!settings.pluginStates.some((state) => state.enabled)) return undefined;
+    setPluginToolbarLoading(true);
 
     void import("./plugin-system")
       .then((module) => {
         if (cancelled) return;
         const registry = new module.PluginCommandRegistry();
+        unregisterCommands.push(registry.register(
+          "sparkai.commerce-toolkit",
+          module.COMMERCE_SKU_LIBRARY_COMMAND,
+          openCommerceCatalog
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.commerce-toolkit",
+          module.COMMERCE_EXPORT_CENTER_COMMAND,
+          openCommerceExport
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.commerce-toolkit",
+          module.COMMERCE_TEMPLATE_MARKET_COMMAND,
+          openCommerceTemplateMarket
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.commerce-toolkit",
+          module.COMMERCE_AB_COMPARISON_COMMAND,
+          openCommerceAbComparison
+        ));
         unregisterCommands.push(registry.register(
           "sparkai.commerce-toolkit",
           module.COMMERCE_GENERATE_SET_COMMAND,
@@ -21897,6 +24093,31 @@ function App() {
           openCommerceTranslation
         ));
         unregisterCommands.push(registry.register(
+          "sparkai.social-content",
+          module.SOCIAL_XIAOHONGSHU_COMMAND,
+          openSocialXiaohongshu
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.social-content",
+          module.SOCIAL_DOUYIN_COMMAND,
+          openSocialDouyin
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.social-content",
+          module.SOCIAL_RECENT_COMMAND,
+          openSocialRecent
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.social-content",
+          module.SOCIAL_TEMPLATE_COMMAND,
+          openSocialTemplates
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.social-content",
+          module.SOCIAL_EXPORT_COMMAND,
+          openSocialPublishExport
+        ));
+        unregisterCommands.push(registry.register(
           "sparkai.project-graph",
           module.PROJECT_GRAPH_VISUALIZATION_COMMAND,
           openProjectGraphVisualization
@@ -21906,11 +24127,57 @@ function App() {
           module.SCIENTIFIC_FIGURE_COMMAND,
           openScientificFigure
         ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_IMPORT_COMMAND,
+          openScientificImport
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_CHART_COMMAND,
+          openScientificChart
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_PANEL_COMMAND,
+          openScientificPanel
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_SCHEMATIC_COMMAND,
+          openScientificSchematic
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_RERENDER_COMMAND,
+          openScientificRerender
+        ));
+        unregisterCommands.push(registry.register(
+          "sparkai.scientific-figure",
+          module.SCIENTIFIC_FIGURE_EXPORT_COMMAND,
+          openScientificExport
+        ));
         pluginCommandRegistryRef.current = registry;
-        setPluginToolbarItems(module.activePluginToolbarItems(settings.pluginStates, settings.disabledCanvasToolCommands));
+        pluginCommandItemsRef.current = module.availablePluginToolbarItems(
+          settings.pluginStates,
+          settings.canvasToolShortcuts
+        );
+        pluginShortcutItemsRef.current = module.availablePluginToolbarItems(
+          settings.pluginStates,
+          settings.canvasToolShortcuts,
+          workspaceDomainRef.current
+        );
+        setPluginToolbarItems(module.activePluginToolbarItems(
+          settings.pluginStates,
+          settings.disabledCanvasToolCommands,
+          settings.canvasToolShortcuts,
+          workspaceDomainRef.current
+        ));
+        setPluginToolbarLoading(false);
       })
       .catch((error) => {
         if (!cancelled) {
+          setPluginToolbarLoading(false);
           setServerMessage(`插件加载失败：${error instanceof Error ? error.message : String(error)}`);
         }
       });
@@ -21919,13 +24186,15 @@ function App() {
       cancelled = true;
       unregisterCommands.splice(0).reverse().forEach((unregister) => unregister());
       pluginCommandRegistryRef.current = null;
+      pluginCommandItemsRef.current = [];
+      pluginShortcutItemsRef.current = [];
     };
-  }, [settings.pluginStates, settings.disabledCanvasToolCommands, openCommerceGeneration, openCommerceTranslation, openProjectGraphVisualization, openScientificFigure]);
+  }, [settings.pluginStates, settings.disabledCanvasToolCommands, settings.canvasToolShortcuts, workspaceDomain, openCommerceCatalog, openCommerceExport, openCommerceTemplateMarket, openCommerceAbComparison, openCommerceGeneration, openCommerceTranslation, openSocialXiaohongshu, openSocialDouyin, openSocialRecent, openSocialTemplates, openSocialPublishExport, openProjectGraphVisualization, openScientificFigure, openScientificImport, openScientificChart, openScientificPanel, openScientificSchematic, openScientificRerender, openScientificExport]);
   const executePluginCommand = useStableEvent(async (commandId: string) => {
     try {
-      const item = pluginToolbarItemsRef.current.find((candidate) => candidate.command === commandId);
-      if (!item) throw new Error("该画布工具已在设置中停用。");
-      if (agentExecutionBusy) throw new Error("Agent 正在执行任务，请等待当前任务结束。");
+      const item = pluginCommandItemsRef.current.find((candidate) => candidate.command === commandId);
+      if (!item) throw new Error("该工具所属插件未启用。");
+      if (agentExecutionBusy && !item.availableDuringAgentRun) throw new Error("Agent 正在执行任务，请等待当前任务结束。");
       if (item.when === "canvas.has-image-selection" && selectedCanvasCapabilities.groupableNodeIds.length === 0) {
         throw new Error("请先选择图片成果或容器。");
       }
@@ -21982,9 +24251,7 @@ function App() {
     const imageModelPool = uniqueImageModels(models);
     if (!imageModelPool.length) return;
     const current = settingsRef.current;
-    const imageModel = imageModelPool.some((model) => model.toLowerCase() === current.imageModel.toLowerCase())
-      ? current.imageModel
-      : imageModelPool[0];
+    const imageModel = imageModelPool[0];
     const nextSettings = mergeSettings({ ...current, imageModel, imageModelPool });
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
@@ -21992,11 +24259,41 @@ function App() {
       setServerMessage(`生图模型选择保存失败：${error instanceof Error ? error.message : String(error)}`);
     });
   });
+  const projectAgentChangeImageFrame = useStableEvent((imageRatio: AppSettings["imageRatio"], imageResolution: AppSettings["imageResolution"]) => {
+    const current = settingsRef.current;
+    const nextSettings = mergeSettings({
+      ...current,
+      imageRatio,
+      imageResolution,
+      imageSize: computedSizeFor(imageRatio, imageResolution)
+    });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    void saveSettingsToStore(nextSettings).catch((error) => {
+      setServerMessage(`默认出图规格保存失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
+  const projectAgentRequestImageModels = useStableEvent(async () => {
+    if (!window.naimageServer?.models) throw new Error("当前桌面后端不支持读取上游模型。");
+    const currentSettings = settingsRef.current;
+    const result = await window.naimageServer.models({
+      group: currentSettings.selectedAccountTokenGroup || currentSettings.modelGroup,
+    });
+    if (!result?.ok) throw new Error(result?.error || "当前密钥的上游模型目录暂时不可用。");
+    const upstreamModels = result.settings?.imageModels?.length
+      ? result.settings.imageModels
+      : result.settings?.models ?? [];
+    setAvailableImageModels((current) => uniqueImageModels([
+      ...upstreamModels,
+      ...current,
+      ...selectedImageModelsFromSettings(settingsRef.current),
+    ]));
+  });
   const publishAgentWindowState = useStableEvent(async () => {
     if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
     const { buildAgentWindowSnapshot } = await loadAgentWindowSync();
     if (!agentWindowOpenRef.current || !window.naimageAgentWindow) return;
-    const goalWarning = "多个窗口的 Goal 探测由 Main 串行准入；已派发或已被上游接受的请求仍可能计费，探测与熔断只阻止未派发请求。";
+    const goalWarning = "多个窗口的 Goal 探测由 Main 串行准入；不预估费用，完成后仅记录上游实际返回的用量。";
     const activeGoalScope = agentExecutionBusyNow() && lastDispatchedTaskScopeRef.current?.origin === "goal"
       ? lastDispatchedTaskScopeRef.current
       : null;
@@ -22011,16 +24308,11 @@ function App() {
       skippedContainerCount: 0,
       probeContainerCount: 1,
       concurrencyCap: Math.max(1, Math.min(10, settingsRef.current.imageBatchSize)),
-      trialImagesUsed: 0,
-      paidImages: 0,
       warning: goalWarning
     };
     if (activeGoalScope?.goal) {
       const assetCount = activeGoalScope.goal.bindingCount;
       const requestCount = activeGoalScope.goal.requestCount;
-      const trialImagesUsed = Math.min(requestCount, Math.max(0, Math.floor(Number(serverUser?.trialImagesRemaining) || 0)));
-      const paidImages = Math.max(0, requestCount - trialImagesUsed);
-      const imageCostCents = Number(serverWallet?.imageCostCents);
       agentWindowGoal = {
         available: true,
         active: true,
@@ -22032,11 +24324,6 @@ function App() {
         skippedContainerCount: 0,
         probeContainerCount: activeGoalScope.goal.probeContainerCount,
         concurrencyCap: activeGoalScope.goal.configuredConcurrency,
-        trialImagesUsed,
-        paidImages,
-        ...(Number.isFinite(imageCostCents) && imageCostCents >= 0
-          ? { estimatedMaxCostCents: Math.round(paidImages * imageCostCents) }
-          : {}),
         warning: goalWarning
       };
     } else {
@@ -22065,9 +24352,6 @@ function App() {
           skippedContainerCount: preview.skipped.length,
           probeContainerCount: preview.probeContainerCount,
           concurrencyCap: preview.concurrencyCap,
-          trialImagesUsed: preview.trialImagesUsed,
-          paidImages: preview.paidImages,
-          ...(preview.estimatedMaxCostCents === undefined ? {} : { estimatedMaxCostCents: preview.estimatedMaxCostCents }),
           warning: goalWarning
         };
       } catch {
@@ -22078,6 +24362,7 @@ function App() {
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
       ready: configReady && authReady && licenseReady && Boolean(serverUser && licenseStatus?.active),
       projectName: activeProjectName,
+      workspaceDomain: workspaceDomainRef.current,
       modelName: settings.agentModel,
       agentStatus,
       busy: agentExecutionBusyNow(),
@@ -22273,12 +24558,73 @@ function App() {
 
   const pluginToolbarExpanded = settings.canvasToolDockMode === "expanded" || pluginToolbarPeekOpen;
 
-  function openSettingsSection(section: "access" | "appearance") {
+  function openSettingsSection(section: SettingsSection) {
     setFileMenuOpen(false);
     setProjectMenuOpen(false);
     setAccountOpen(false);
     setSettingsInitialSection(section);
     setSettingsOpen(true);
+  }
+
+  function startCommerceTutorial() {
+    setHelpOpen(null);
+    setCommerceTutorialOpen(true);
+    if (settingsOpen) {
+      setServerMessage("AI 示例教学已准备好；请先保存或关闭设置，教学会自动显示，不会丢失尚未保存的设置。");
+      return;
+    }
+    setFileMenuOpen(false);
+    setProjectMenuOpen(false);
+    setAccountOpen(false);
+    setAgentCollapsed(false);
+  }
+
+  function selectLatestCommerceTutorialImage() {
+    const latest = [...nodesRef.current].reverse().find((node) => node.type === "image" && !node.layerGroup && (node.assets?.some((asset) => asset.status !== "error" && asset.status !== "pending") ?? false));
+    if (!latest) {
+      setServerMessage("画布还没有可用于教学的商品图片，请先粘贴或导入一张母图。");
+      return;
+    }
+    if (workspaceViewMode !== "workbench") setWorkspaceViewMode("workbench");
+    replaceSelectedNodeId(latest.id);
+    focusWorkflowNode(latest, { revealInspector: false, recordEvent: false, selectNode: false });
+  }
+
+  function openCommerceTutorialToolSettings() {
+    const enabled = settingsRef.current.pluginStates.some((state) => state.id === "sparkai.commerce-toolkit" && state.enabled);
+    openSettingsSection(enabled ? "tools" : "plugins");
+  }
+
+  function prepareCommerceTutorialAgent(examplePrompt: string) {
+    setAgentCollapsed(false);
+    setPrompt(examplePrompt);
+    window.requestAnimationFrame(() => agentInputRef.current?.focus({ preventScroll: true }));
+  }
+
+  function viewCommerceTutorialResults() {
+    const latest = [...nodesRef.current].reverse().find((node) => {
+      const planHash = String(node.taskProvenance?.commercePlanHash || "").trim().toLowerCase();
+      return /^commerce-[a-f0-9]{32}$/.test(planHash) && node.type === "image" && (node.assets?.some((asset) => asset.status !== "error" && asset.status !== "pending") ?? false);
+    });
+    if (!latest) {
+      setServerMessage("当前画布还没有可查看的套图成果。");
+      return;
+    }
+    replaceSelectedNodeId(latest.id);
+    setWorkspaceViewMode("focus");
+    setCommerceTutorialOpen(false);
+  }
+
+  function completeCommerceTutorial() {
+    if (settingsRef.current.workflowOnboarding?.commerce) return;
+    const nextSettings = mergeSettings({
+      ...settingsRef.current,
+      workflowOnboarding: { ...settingsRef.current.workflowOnboarding, commerce: true },
+    });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    addEvent("完成跨境电商套图 AI 示例教学");
+    void saveSettingsToStore(nextSettings).catch(() => undefined);
   }
 
   function changeWorkspaceViewMode(mode: WorkspaceViewMode) {
@@ -22288,6 +24634,17 @@ function App() {
     if (selected?.type === "image" && (selected.assets?.length ?? 0) > 0) return;
     const nextImage = [...nodesRef.current].reverse().find((node) => node.type === "image" && (node.assets?.length ?? 0) > 0);
     if (nextImage) replaceSelectedNodeId(nextImage.id);
+  }
+
+  function changeWorkspaceDomain(nextDomain: WorkspaceDomain) {
+    const normalized = normalizeWorkspaceDomain(nextDomain);
+    if (workspaceDomainRef.current === normalized) return false;
+    workspaceDomainRef.current = normalized;
+    setWorkspaceDomain(normalized);
+    setFileMenuOpen(false);
+    setProjectMenuOpen(false);
+    addEvent(`切换到${workspaceDomainDefinition(normalized).title}`);
+    return true;
   }
 
   function selectWorkspaceNavigatorNode(nodeId: string) {
@@ -22308,9 +24665,9 @@ function App() {
     }
   }
 
-  function openWorkspaceImageNode(nodeId: string) {
+  function openWorkspaceImageNode(nodeId: string, assetIndex = 0) {
     const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "image" && (item.assets?.length ?? 0) > 0);
-    if (node) openImageViewer(node, 0);
+    if (node) openImageViewer(node, assetIndex);
   }
 
   function continueWorkspaceImageNode(nodeId: string) {
@@ -22370,8 +24727,8 @@ function App() {
     ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)));
   }
 
-  async function saveSelectedRequirementTemplate() {
-    const selectedId = selectedNodeIdRef.current;
+  async function saveSelectedRequirementTemplate(requestedNodeId = selectedNodeIdRef.current) {
+    const selectedId = String(requestedNodeId || "");
     const node = nodesRef.current.find((candidate) => candidate.id === selectedId && candidate.type === "requirement" && candidate.requirement);
     if (!node?.requirement) {
       setServerMessage("请先在画布中选择一个需求节点，再保存到个人模板库。");
@@ -22386,6 +24743,8 @@ function App() {
       title: node.title || requirementTitleFromText(node.requirement.text),
       text: node.requirement.text,
       ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
+      ...(node.requirement.socialPlan ? { socialPlan: structuredClone(node.requirement.socialPlan) } : {}),
+      ...(node.requirement.scientificPlan ? { scientificPlan: structuredClone(node.requirement.scientificPlan) } : {}),
     });
     if (!result?.ok || !result.entry) {
       setServerMessage(`保存需求模板失败：${result?.error || "模板库没有返回保存结果。"}`);
@@ -22476,6 +24835,8 @@ function App() {
       expectedProjectId: options.expectedProjectId || activeProjectIdRef.current || "default",
       expectedCanvasRevision: options.expectedCanvasRevision,
       ...(entry.skill ? { skill: sanitizeCanvasSkill(entry.skill) } : {}),
+      ...(entry.socialPlan ? { socialPlan: normalizeSocialContentPlan(entry.socialPlan) } : {}),
+      ...(entry.scientificPlan ? { scientificPlan: normalizeScientificFigurePlan(entry.scientificPlan) } : {}),
       historyLabel: "从个人需求模板库创建需求",
       eventLabel: "使用需求模板",
     });
@@ -22524,6 +24885,8 @@ function App() {
       title: node.title || requirementTitleFromText(node.requirement.text),
       text: node.requirement.text,
       ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
+      ...(node.requirement.socialPlan ? { socialPlan: structuredClone(node.requirement.socialPlan) } : {}),
+      ...(node.requirement.scientificPlan ? { scientificPlan: structuredClone(node.requirement.scientificPlan) } : {}),
     });
     if (!result?.ok || !result.entry) {
       throw automationCommandError(result?.errorCode || "REQUIREMENT_LIBRARY_FAILED", result?.error || "保存个人需求模板失败。");
@@ -22552,6 +24915,42 @@ function App() {
     return result;
   }
 
+  function requireCommerceCatalogResult(result: CommerceCatalogResult | undefined, fallbackMessage: string) {
+    if (!result?.ok) {
+      throw automationCommandError(
+        result?.errorCode || "COMMERCE_CATALOG_FAILED",
+        result?.error || fallbackMessage,
+        result?.details
+      );
+    }
+    return result;
+  }
+
+  function requireCommerceTemplateResult(result: CommerceTemplateResult | undefined, fallbackMessage: string) {
+    if (!result?.ok) {
+      throw automationCommandError(
+        result?.errorCode || "COMMERCE_TEMPLATE_FAILED",
+        result?.error || fallbackMessage,
+        result?.details
+      );
+    }
+    return result;
+  }
+
+  function requireCommerceExportResult(
+    result: CommerceExportPreviewResult | CommerceExportPackageResult | undefined,
+    fallbackMessage: string
+  ) {
+    if (!result?.ok) {
+      throw automationCommandError(
+        result?.errorCode || "COMMERCE_EXPORT_FAILED",
+        result?.error || fallbackMessage,
+        result?.details
+      );
+    }
+    return result;
+  }
+
   if (!firstWorkspaceRenderMarked) {
     firstWorkspaceRenderMarked = true;
     markPerformancePhase("workspace-render");
@@ -22569,7 +24968,7 @@ function App() {
       <header className="ide-topbar">
         <div className="titlebar-brand">
           <img className="titlebar-brand-icon" src="./naimage.png" alt="" draggable={false} />
-          <strong>naimage</strong>
+          <strong>SparkAI WorkSpace</strong>
         </div>
         <nav className="file-menu project-actions" aria-label="项目菜单">
           <div className="project-menu file-command-menu">
@@ -22585,7 +24984,7 @@ function App() {
             {fileMenuOpen ? (
               <div className="project-menu-popover file-command-popover">
                 <div className="project-list file-command-list">
-                  <ButtonBase onClick={createProjectFolder} disabled={fileActionBusy || agentExecutionBusy} title="选择一个文件夹，并在其中创建全新的 naimage 项目">
+                  <ButtonBase onClick={openCreateProjectFolderDialog} disabled={fileActionBusy || agentExecutionBusy} title="选择工作台类型和文件夹，并创建全新的 SparkAI WorkSpace 项目">
                     <FolderPlus size={14} />
                     <span>新建项目文件夹</span>
                   </ButtonBase>
@@ -22659,6 +25058,9 @@ function App() {
           </div>
         </nav>
         <div className="workspace-topbar-center">
+          <React.Suspense fallback={<span className="workspace-domain-switcher workspace-domain-switcher-loading" aria-hidden="true" />}>
+            <LazyWorkspaceDomainSwitcher domain={workspaceDomain} onChange={changeWorkspaceDomain} />
+          </React.Suspense>
           <React.Suspense fallback={<span className="workspace-direction-switcher workspace-direction-switcher-loading" aria-hidden="true" />}>
             <LazyWorkspaceDirectionSwitcher mode={workspaceViewMode} onChange={changeWorkspaceViewMode} />
           </React.Suspense>
@@ -22689,6 +25091,19 @@ function App() {
             {desktopUpdateNotice?.updateAvailable ? <span className="app-settings-update-dot" aria-label={`发现新版本 ${desktopUpdateNotice.latestVersion || ""}`} /> : null}
           </ButtonBase>
           <ButtonBase
+            className="icon-button app-help-button"
+            onClick={() => {
+              setFileMenuOpen(false);
+              setProjectMenuOpen(false);
+              setAccountOpen(false);
+              setHelpOpen("start");
+            }}
+            aria-label="帮助与政策"
+            title="打开 AI 示例教学、使用帮助、隐私政策和用户协议"
+          >
+            <CircleHelp size={18} />
+          </ButtonBase>
+          <ButtonBase
             className={`account-avatar-button ${accountOpen ? "active" : ""}`}
             onClick={() => {
               setFileMenuOpen(false);
@@ -22707,7 +25122,7 @@ function App() {
 
       <main
         ref={workspaceRef}
-        className={`ide-main canvas-only has-asset-rail workspace-mode-${workspaceViewMode} agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
+        className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-${workspaceViewMode} agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
         style={{
           "--agent-panel-width": `${agentPanelLayout.agentPanelWidth}px`,
           "--agent-panel-height": `${agentPanelLayout.agentPanelHeight}px`,
@@ -22737,10 +25152,62 @@ function App() {
             onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
             onOpenSettings={() => openSettingsSection("appearance")}
+            workspaceDomain={workspaceDomain}
+            domainTools={workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research" ? pluginToolbarItems : []}
+            domainToolsLoading={(workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research") && pluginToolbarLoading}
+            domainToolExecutionBusy={agentExecutionBusy}
+            domainToolHasImageSelection={selectedCanvasCapabilities.groupableNodeIds.length > 0}
+            onExecuteDomainTool={(command) => { void executePluginCommand(command); }}
+            onOpenDomainToolsSettings={() => {
+              const projectedPluginId = workspaceDomain === "research"
+                ? "sparkai.scientific-figure"
+                : workspaceDomain === "social"
+                  ? "sparkai.social-content"
+                  : "sparkai.commerce-toolkit";
+              const projectedPluginEnabled = settings.pluginStates.some((state) => state.id === projectedPluginId && state.enabled);
+              openSettingsSection(projectedPluginEnabled ? "tools" : "plugins");
+            }}
+            visibleTabs={settings.visibleWorkspaceAssetRailTabs}
+            requestedTab={workspaceAssetRailTabRequest}
           />
         </React.Suspense>
         <section className="canvas-panel">
           {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="canvas" record={recordDebugRenderCommit} /> : null}
+          <div className="workspace-context-bar" aria-label="工作区上下文">
+            <React.Suspense fallback={null}>
+              <LazyWorkspaceTaskContext mode={workspaceViewMode} node={selectedNode} />
+            </React.Suspense>
+            {canvasSelectionSummary ? (
+              <div
+                key={`${canvasSelectionSummary.kind}:${selectedNodes.map((node) => node.id).join(":")}`}
+                className={`canvas-selection-indicator workspace-selection-context is-${canvasSelectionSummary.kind}`}
+                data-selection-kind={canvasSelectionSummary.kind}
+                data-selection-count={selectedNodes.length}
+                data-selection-ids={selectedNodes.map((node) => node.id).join(" ")}
+                aria-label={`当前选中：${canvasSelectionSummary.fullText}`}
+                title={canvasSelectionSummary.fullText}
+              >
+                <span className="canvas-selection-indicator-icon" aria-hidden="true">
+                  <ImageIcon size={15} />
+                </span>
+                <div className="canvas-selection-indicator-copy">
+                  <span>当前选中</span>
+                  <strong>{canvasSelectionSummary.title}</strong>
+                  <small>{canvasSelectionSummary.detail}</small>
+                </div>
+                <ButtonBase
+                  type="button"
+                  onClick={selectCanvas}
+                  aria-label="取消当前选中"
+                  title="取消当前选中"
+                >
+                  <X size={13} />
+                </ButtonBase>
+              </div>
+            ) : (
+              <span className="workspace-context-hint">选择图片后，可在 Agent 中继续处理</span>
+            )}
+          </div>
           <div
             ref={bindCanvasRef}
             className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
@@ -22764,9 +25231,6 @@ function App() {
               if (!(event.target as HTMLElement).closest(".flow-node")) return;
             }}
           >
-            <React.Suspense fallback={null}>
-              <LazyWorkspaceTaskContext mode={workspaceViewMode} node={selectedNode} />
-            </React.Suspense>
             {externalCanvasDropActive ? (
               <div className="canvas-external-file-drop" role="status" aria-live="polite">
                 <ImageIcon size={22} />
@@ -22830,7 +25294,8 @@ function App() {
                 >
                   {pluginToolbarItems.map((item) => {
                     const needsSelection = item.when === "canvas.has-image-selection";
-                    const disabled = agentExecutionBusy || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
+                    const disabled = (agentExecutionBusy && !item.availableDuringAgentRun)
+                      || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
                     const shortcut = canvasToolShortcutLabel(item.shortcut);
                     return (
                       <ButtonBase
@@ -22845,7 +25310,6 @@ function App() {
                       >
                         {canvasToolIcon(item.icon)}
                         <span>{item.label}</span>
-                        {shortcut ? <kbd aria-hidden="true">{shortcut}</kbd> : null}
                       </ButtonBase>
                     );
                   })}
@@ -22862,42 +25326,6 @@ function App() {
               </nav>
             ) : null}
             <canvas ref={canvasParticleRef} className="canvas-particle-field" aria-hidden="true" />
-            {canvasSelectionSummary ? (
-              <div
-                key={`${canvasSelectionSummary.kind}:${selectedNodes.map((node) => node.id).join(":")}`}
-                className={`canvas-selection-indicator is-${canvasSelectionSummary.kind}`}
-                data-selection-kind={canvasSelectionSummary.kind}
-                data-selection-count={selectedNodes.length}
-                data-selection-ids={selectedNodes.map((node) => node.id).join(" ")}
-                aria-label={`当前选中：${canvasSelectionSummary.fullText}`}
-                title={canvasSelectionSummary.fullText}
-              >
-                <span className="canvas-selection-indicator-icon" aria-hidden="true">
-                  <ImageIcon size={18} />
-                </span>
-                <div className="canvas-selection-indicator-copy">
-                  <span>当前选中</span>
-                  <strong>{canvasSelectionSummary.title}</strong>
-                  <small>{canvasSelectionSummary.detail}</small>
-                </div>
-                <ButtonBase
-                  type="button"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    selectCanvas();
-                  }}
-                  aria-label="取消当前选中"
-                  title="取消当前选中"
-                >
-                  <X size={14} />
-                </ButtonBase>
-              </div>
-            ) : null}
             <div
               ref={canvasStageRef}
               className="canvas-stage"
@@ -22936,9 +25364,9 @@ function App() {
                 {connectionDraft ? (() => {
                   const source = nodes.find((node) => node.id === connectionDraft.sourceId);
                   if (!source) return null;
-                  const bounds = workflowNodeBounds(source);
-                  const x1 = bounds.x + bounds.width;
-                  const y1 = bounds.y + NODE_CONNECT_Y;
+                  const sourcePort = provenancePortCenter(source, "output");
+                  const x1 = sourcePort.x;
+                  const y1 = sourcePort.y;
                   const mid = (x1 + connectionDraft.worldX) / 2;
                   return (
                     <path
@@ -22978,7 +25406,7 @@ function App() {
                       tabIndex={0}
                       aria-label={node.title?.trim() || node.id}
                       title={`${node.title?.trim() || node.id} · 单击查看完整节点`}
-                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
+                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
                       style={{
                         left: bounds.x,
                         top: bounds.y,
@@ -23004,7 +25432,7 @@ function App() {
                         event.preventDefault();
                         event.stopPropagation();
                         if (node.type === "requirement") openRequirementEditor(node);
-                        else openNodeEditor(node);
+                        else if (node.type === "image") openNodeEditor(node);
                       }}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
@@ -23018,46 +25446,21 @@ function App() {
                 }
                 const promptPreview = "";
                 const nodeLocked = lockedNodeIdSet.has(node.id);
-                const visibleAssets = node.assets ?? [];
-                const canvasPreviewAssets = node.imageContainer && visibleAssets.length > 12 ? visibleAssets.slice(0, 12) : visibleAssets;
-                const containerOverflowCount = Math.max(0, visibleAssets.length - canvasPreviewAssets.length);
                 const layerGroup = node.layerGroup;
                 const stackedLayerMember = Boolean(layerGroup && !layerGroup.detached);
-                const slotCount = imageNodeSlotCount(node);
-                const displaySlotCount = node.imageContainer ? Math.max(canvasPreviewAssets.length + (containerOverflowCount ? 1 : 0), 1) : slotCount;
-                const nodeImageSize = imageTaskSizeForNode(node);
+                const {
+                  visibleAssets,
+                  canvasPreviewAssets,
+                  containerOverflowCount,
+                  slotCount,
+                  displaySlotCount,
+                  nodeImageSize,
+                  nodeMinimum,
+                  renderWidth,
+                  renderHeight
+                } = workflowNodeRenderMetrics(node);
                 const gridRatios = imageRatiosForAssets(canvasPreviewAssets, displaySlotCount, nodeImageSize);
                 const gridPresentation = imageGridPresentationForRatios(displaySlotCount, gridRatios, imageTileRatioForSize(nodeImageSize));
-                const nodeMinimum = minimumNodeSize(node);
-                const adaptiveGroupSize = displaySizeForImageNode(nodeImageSize, displaySlotCount, canvasPreviewAssets);
-                const clampedRenderSize = node.imageContainer
-                  ? {
-                      width: clamp(Number(node.width ?? adaptiveGroupSize.width ?? IMAGE_CONTAINER_W), nodeMinimum.width ?? IMAGE_CONTAINER_MIN_W, NODE_RESIZE_MAX_W),
-                      height: clamp(Number(node.height ?? adaptiveGroupSize.height ?? IMAGE_CONTAINER_H), nodeMinimum.height ?? IMAGE_CONTAINER_MIN_H, NODE_RESIZE_MAX_H)
-                    }
-                  : node.imageCollection
-                    ? {
-                        width: clamp(Number(node.width ?? (node.imageCollection.kind === "series" ? IMAGE_COLLECTION_W : adaptiveGroupSize.width)), nodeMinimum.width ?? 360, NODE_RESIZE_MAX_W),
-                        height: clamp(Number(node.height ?? (node.imageCollection.kind === "series" ? IMAGE_COLLECTION_SERIES_H : adaptiveGroupSize.height ?? IMAGE_COLLECTION_BATCH_H)), nodeMinimum.height ?? (node.imageCollection.kind === "series" ? 260 : 300), NODE_RESIZE_MAX_H)
-                      }
-                  : layerGroup && !layerGroup.detached
-                    ? {
-                        width: Number(node.width ?? layerArtboardDisplaySize(layerGroup.compositionWidth, layerGroup.compositionHeight).width),
-                        height: Number(node.height ?? layerArtboardDisplaySize(layerGroup.compositionWidth, layerGroup.compositionHeight).height)
-                      }
-                  : node.layerComposition
-                    ? {
-                        width: clamp(Number(node.width ?? LAYER_STACK_W), 360, NODE_RESIZE_MAX_W),
-                        height: clamp(Number(node.height ?? LAYER_STACK_H), 420, NODE_RESIZE_MAX_H)
-                      }
-                  : node.type === "image"
-                  ? clampImageNodeDimensions(imageTaskSizeForNode(node), slotCount, node.width, node.height, visibleAssets)
-                  : {
-                      width: Math.max(node.width ?? NODE_W, nodeMinimum.width ?? NODE_RESIZE_MIN_W),
-                      height: node.height ? Math.max(node.height, nodeMinimum.height ?? NODE_RESIZE_MIN_H) : undefined
-                    };
-                const renderWidth = clampedRenderSize.width;
-                const renderHeight = clampedRenderSize.height;
                 const previewBaseHeight = renderHeight ?? nodeMinimum.height ?? NODE_RESIZE_MIN_H;
                 const pendingTileCount = pendingImageTileCount(node, nodeIsGenerating);
                 const nodeStreamingPreviews = streamingPreviewsByNodeId[node.id] ?? [];
@@ -23077,7 +25480,7 @@ function App() {
                 })() : null;
                 const nodeTitle = nodeWorkName(node);
                 const outputConnected = nodesWithOutputs.has(node.id);
-                const requirementBindings = node.type === "requirement" ? requirementInputBindings(node, nodes) : [];
+                const requirementBindings = node.type === "requirement" ? nodeInputBindingsById.get(node.id) ?? [] : [];
                 const requirementSourceCount = requirementBindings.filter((binding) => binding.role === "source").length;
                 const requirementReferenceCount = requirementBindings.filter((binding) => binding.role === "reference").length;
                 const requirementOutputCount = node.type === "requirement" ? nodeOutputCountById.get(node.id) ?? 0 : 0;
@@ -23106,7 +25509,7 @@ function App() {
                     data-image-run-state={nodeIsGenerating ? "placeholder" : "settled"}
                     data-skill-name={node.requirement?.skill?.name || undefined}
                     data-node-locked={nodeLocked ? "true" : undefined}
-                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
+                    className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
                       activeNodeId === node.id && !nodeIsGenerating ? "active-build" : ""
                     } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeId === node.id ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
                     style={{
@@ -23144,7 +25547,7 @@ function App() {
                       event.preventDefault();
                       event.stopPropagation();
                       if (node.type === "requirement") openRequirementEditor(node);
-                      else openNodeEditor(node);
+                      else if (node.type === "image") openNodeEditor(node);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
@@ -23206,10 +25609,15 @@ function App() {
                       </>
                     ) : null}
                     <span className="node-head">
-                      <span className={`node-id ${node.type === "image" ? "image-node-id" : ""}`}>
+                      <span className={`node-id ${node.type === "image" ? "image-node-id" : node.type === "video" ? "video-node-id" : ""}`}>
                         {node.type === "image" ? (
                           <>
                             <ImageIcon size={16} aria-hidden="true" />
+                            <em>{nodeDisplayCode(node)}</em>
+                          </>
+                        ) : node.type === "video" ? (
+                          <>
+                            <Film size={16} aria-hidden="true" />
                             <em>{nodeDisplayCode(node)}</em>
                           </>
                         ) : node.type === "requirement" ? (
@@ -23231,6 +25639,8 @@ function App() {
                         data-container-core={node.imageContainer || node.imageCollection ? "image-result-container" : undefined}
                         data-container-presentation={node.imageCollection?.kind === "series" ? "series" : node.imageContainer || node.imageCollection ? "grid" : undefined}
                         data-container-layout={node.imageContainer || node.imageCollection ? gridPresentation.variant : undefined}
+                        data-stream-preview-count={nodeStreamingPreviews.length || undefined}
+                        aria-live={nodeIsGenerating ? "polite" : undefined}
                       >
                         {layerGroup ? (
                           <strong className="node-layer-member-badge">
@@ -23400,6 +25810,8 @@ function App() {
                                 data-stream-preview="true"
                                 data-operation-id={preview.operationId}
                                 data-request-index={preview.requestIndex}
+                                data-preview-index={preview.index}
+                                data-preview-total={preview.total}
                                 role="status"
                                 aria-label={`并发任务 ${preview.requestIndex} 中间预览 ${preview.index}/${preview.total}`}
                               >
@@ -23427,15 +25839,61 @@ function App() {
                           </div>
                         )}
                       </div>
+                    ) : node.type === "video" ? (
+                      <div className={`node-video-preview ${node.videoState || "empty"} ${node.videoError ? "has-error" : ""}`}>
+                        {videoAssetPlayerSrc(node.videoAsset) ? (
+                          <video
+                            className="node-video-player"
+                            src={videoAssetPlayerSrc(node.videoAsset)}
+                            controls
+                            preload="metadata"
+                            playsInline
+                            aria-label={node.videoAsset?.originalName || node.title || "视频成果"}
+                            onLoadedMetadata={(event) => recordVideoMetadata(node.id, event.currentTarget)}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onPointerMove={(event) => event.stopPropagation()}
+                            onPointerUp={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                            onDoubleClick={(event) => event.stopPropagation()}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openNodeMenuAt(node, event.clientX, event.clientY);
+                            }}
+                          />
+                        ) : (
+                          <div className="node-video-empty">
+                            {node.videoState === "generating" ? <Loader2 className="spin" size={24} /> : <Film size={24} />}
+                            <span>{node.videoState === "error"
+                              ? node.videoTaskState === "create-unknown" ? "创建结果待人工确认" : "视频不可用"
+                              : node.videoTaskState === "succeeded" ? "生成完成，正在下载"
+                                : node.videoTaskState === "running" ? "上游正在生成视频"
+                                  : node.videoTaskState === "queued" ? "已排队，等待生成"
+                                    : "正在创建视频任务"}</span>
+                            {Number.isFinite(node.videoProgress) ? <small>{node.videoProgress}%</small> : null}
+                            {Number.isFinite(node.videoProgress) ? (
+                              <span className="node-video-progress" aria-hidden="true">
+                                <i style={{ width: `${clamp(Number(node.videoProgress), 0, 100)}%` }} />
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                        {node.videoError ? <small className="node-video-error">{node.videoError}</small> : null}
+                      </div>
                     ) : node.type === "requirement" && node.requirement ? (
                       <div className="requirement-node-body">
-                        <span className="requirement-node-kicker"><Workflow size={13} /> {node.requirement.skill ? `Skill · ${node.requirement.skill.name}` : "可复用需求"}</span>
-                        <p title={node.requirement.text}>{node.requirement.skill?.description || node.requirement.text}</p>
+                        <span className="requirement-node-kicker">
+                          {node.requirement.scientificPlan ? <Microscope size={13} /> : <Workflow size={13} />}
+                          {node.requirement.skill ? `Skill · ${node.requirement.skill.name}` : node.requirement.scientificPlan ? "科研绘图计划" : "可复用需求"}
+                        </span>
+                        <p title={node.requirement.scientificPlan?.researchClaim || node.requirement.text}>{node.requirement.skill?.description || node.requirement.scientificPlan?.researchClaim || node.requirement.text}</p>
                         <div className="requirement-node-meta">
                           <span className={requirementBindings.length ? "connected" : "missing"}>
                             原图 {requirementSourceCount} · 参考 {requirementReferenceCount}
                           </span>
-                          <span>{node.requirement.skill?.sourceName || (node.requirement.lastRunCount ? `已执行 ${node.requirement.lastRunCount} 次` : "尚未执行")}</span>
+                          <span>{node.requirement.skill?.sourceName || (node.requirement.scientificPlan
+                            ? `${node.requirement.scientificPlan.backend?.toUpperCase() || "未选后端"} · ${node.requirement.scientificPlan.panels.length} Panel`
+                            : node.requirement.lastRunCount ? `已执行 ${node.requirement.lastRunCount} 次` : "尚未执行")}</span>
                         </div>
                         {node.requirement.lastError ? <small className="requirement-node-error">{node.requirement.lastError}</small> : null}
                         <ActionButton
@@ -23448,9 +25906,9 @@ function App() {
                             event.stopPropagation();
                             executeRequirementNode(node.id);
                           }}
-                          icon={<Send size={13} />}
+                          icon={node.requirement.scientificPlan ? <Microscope size={13} /> : <Send size={13} />}
                         >
-                          {node.requirement.skill ? "执行 Skill" : "执行需求"}
+                          {node.requirement.skill ? "执行 Skill" : node.requirement.scientificPlan ? "打开科研工作台" : "执行需求"}
                         </ActionButton>
                       </div>
                     ) : null}
@@ -23461,8 +25919,8 @@ function App() {
                       </div>
                     ) : null}
                     <footer>
-                      <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? imageTaskSizeForNode(node).replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
-                      <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
+                      <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.type === "video" ? node.videoAsset?.width && node.videoAsset?.height ? `${node.videoAsset.width} × ${node.videoAsset.height}` : node.videoTaskId ? `${node.videoModel || "生成"}视频任务` : "本地视频成果" : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? nodeImageSize.replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
+                      <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.type === "video" ? node.videoAsset?.durationMs ? `${Math.max(0.1, node.videoAsset.durationMs / 1000).toFixed(1)} 秒` : Number.isFinite(node.videoProgress) ? `${node.videoProgress}%` : node.videoTaskId ? "等待视频成果" : "1 个视频" : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
                     <span
                       className={`node-port provenance-port node-port-in node-connection-port input ${node.type === "requirement" ? requirementBindings.length ? "connected" : "" : node.parentId ? "connected" : ""}`}
@@ -23550,9 +26008,15 @@ function App() {
                   <MenuItem icon={<WandSparkles size={15} />} disabled={agentExecutionBusy} onClick={() => openManualImageTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     创建生图工作
                   </MenuItem>
+                  <MenuItem icon={<Film size={15} />} disabled={videoTaskBusy} onClick={() => openManualVideoTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
+                    创建视频工作
+                  </MenuItem>
                   <MenuSeparator />
                   <MenuItem icon={<Import size={15} />} onClick={() => void importPickedImagesToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     导入图片
+                  </MenuItem>
+                  <MenuItem icon={<Film size={15} />} onClick={() => void importPickedVideosToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>
+                    导入视频
                   </MenuItem>
                   <MenuItem icon={<ImageIcon size={15} />} onClick={() => createTaskImageContainerAt(canvasMenu.worldX, canvasMenu.worldY, "source")}>
                     创建原图容器
@@ -23642,6 +26106,13 @@ function App() {
                             <MenuItem icon={<Settings size={15} />} onClick={() => openRequirementEditor(targetNode)}>
                               {targetNode.requirement?.skill ? "编辑 Skill 指令" : "编辑需求"}
                             </MenuItem>
+                            <MenuItem icon={<BookMarked size={15} />} onClick={() => {
+                              setSelectedNodeId(targetNode.id);
+                              setCanvasMenu(null);
+                              void saveSelectedRequirementTemplate(targetNode.id);
+                            }}>
+                              {targetNode.requirement?.skill ? "保存 Skill 到个人模板" : "保存为个人需求模板"}
+                            </MenuItem>
                             {requirementInputBindings(targetNode, nodes).length ? (
                               <MenuItem icon={<Workflow size={15} />} onClick={() => {
                                 disconnectNodeInput(targetNode.id);
@@ -23650,6 +26121,25 @@ function App() {
                                 断开全部输入素材
                               </MenuItem>
                             ) : null}
+                          </>
+                        ) : targetNode.type === "video" ? (
+                          <>
+                            {targetNode.videoTaskId && targetNode.videoState === "generating" ? (
+                              <MenuItem icon={<RotateCcw size={15} />} onClick={() => void refreshVideoTaskNode(targetNode)}>
+                                刷新视频任务状态
+                              </MenuItem>
+                            ) : null}
+                            {targetNode.videoTaskId && !targetNode.videoAsset && (targetNode.videoTaskState === "succeeded" || targetNode.videoTaskState === "ready") ? (
+                              <MenuItem icon={<Download size={15} />} onClick={() => void refreshVideoTaskNode(targetNode, true)}>
+                                重新下载视频结果
+                              </MenuItem>
+                            ) : null}
+                            <MenuItem icon={<FolderOpen size={15} />} disabled={!targetNode.videoAsset?.path} onClick={() => {
+                              setCanvasMenu(null);
+                              void openAssetFolder(targetNode.videoAsset);
+                            }}>
+                              打开视频所在文件夹
+                            </MenuItem>
                           </>
                         ) : (
                           <>
@@ -23788,7 +26278,7 @@ function App() {
                  }}>
                     {layoutGroups.some((group) => group.hostNodeId === canvasMenu.nodeId)
                       ? "解散图片容器"
-                       : canvasNodeById.get(canvasMenu.nodeId)?.requirement?.skill ? "删除 Skill 节点" : canvasNodeById.get(canvasMenu.nodeId)?.type === "requirement" ? "删除需求节点" : canvasNodeById.get(canvasMenu.nodeId)?.imageContainer ? "删除图片容器" : "删除成果"}
+                       : canvasNodeById.get(canvasMenu.nodeId)?.requirement?.skill ? "删除 Skill 节点" : canvasNodeById.get(canvasMenu.nodeId)?.type === "requirement" ? "删除需求节点" : canvasNodeById.get(canvasMenu.nodeId)?.type === "video" ? "删除视频节点" : canvasNodeById.get(canvasMenu.nodeId)?.imageContainer ? "删除图片容器" : "删除成果"}
                  </MenuItem>
                 </>
               ) : null}
@@ -23910,6 +26400,7 @@ function App() {
               <LazyWorkspaceFocusStage
                 nodes={canvasNodes}
                 selectedNodeId={selectedNode?.id ?? selectedNodeId}
+                selectedNodeIds={selectedNodeIds}
                 onSelectNode={selectWorkspaceNavigatorNode}
                 onOpenNode={openWorkspaceImageNode}
                 onContinueNode={continueWorkspaceImageNode}
@@ -23967,6 +26458,10 @@ function App() {
           imageModels={composerImageModels}
           selectedImageModels={selectedComposerImageModels}
           onSelectedImageModelsChange={projectAgentChangeImageModels}
+          requestImageModels={projectAgentRequestImageModels}
+          imageRatio={settings.imageRatio}
+          imageResolution={settings.imageResolution}
+          onImageFrameChange={projectAgentChangeImageFrame}
           dropReferenceFiles={projectAgentDropReferences}
           requestNewConversation={projectAgentRequestNewConversation}
           requestClearConversation={projectAgentRequestClearConversation}
@@ -24010,7 +26505,50 @@ function App() {
             initialSection={settingsInitialSection}
             initialUpdateInfo={desktopUpdateNotice}
             openPromptEditor={openAgentPromptEditor}
+            openHelp={(section) => setHelpOpen(section)}
             close={() => setSettingsOpen(false)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {helpOpen ? (
+        <React.Suspense fallback={null}>
+          <LazyHelpCenter
+            initialSection={helpOpen}
+            nested={settingsOpen}
+            startCommerceTutorial={startCommerceTutorial}
+            close={() => setHelpOpen(null)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceTutorialOpen ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceTutorial
+            key={activeProjectId || "default"}
+            projectId={activeProjectId || "default"}
+            imageCount={commerceCatalogCanvasAssets.length}
+            selectedImageCount={selectedCanvasCapabilities.groupableNodeIds.length}
+            workspaceDomain={workspaceDomain}
+            agentExecutionBusy={agentExecutionBusy}
+            commerceDialogOpen={Boolean(commerceSetDialog)}
+            commerceResultCount={commerceTutorialResultCount}
+            commerceToolAvailable={pluginToolbarItems.some((item) => item.command === "sparkai.commerce-toolkit.generate-listing-set")}
+            commerceToolLoading={pluginToolbarLoading}
+            completedBefore={Boolean(settings.workflowOnboarding?.commerce)}
+            onClose={() => setCommerceTutorialOpen(false)}
+            onImport={importWorkspaceAssets}
+            onSelectLatestImage={selectLatestCommerceTutorialImage}
+            onSwitchCommerce={() => { changeWorkspaceDomain("commerce"); }}
+            onOpenSetTool={() => { void executePluginCommand("sparkai.commerce-toolkit.generate-listing-set"); }}
+            onOpenToolsSettings={openCommerceTutorialToolSettings}
+            onPrepareAgent={prepareCommerceTutorialAgent}
+            onViewResults={viewCommerceTutorialResults}
+            onOpenExport={() => {
+              setCommerceTutorialOpen(false);
+              void executePluginCommand("sparkai.commerce-toolkit.open-export-center");
+            }}
+            onCompleted={completeCommerceTutorial}
           />
         </React.Suspense>
       ) : null}
@@ -24033,18 +26571,88 @@ function App() {
         </React.Suspense>
       ) : null}
 
+      {manualVideoTaskDialog ? (
+        <React.Suspense fallback={null}>
+          <ManualVideoTaskDialog
+            state={manualVideoTaskDialog}
+            setState={setManualVideoTaskDialog}
+            models={uniqueImageModels([
+              manualVideoTaskDialog.draft.model,
+              ...selectedVideoModelsFromSettings(settings)
+            ])}
+            busy={videoTaskBusy}
+            close={() => setManualVideoTaskDialog(null)}
+            submit={() => void submitManualVideoTask(manualVideoTaskDialog)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceCatalogDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceCatalogDialog
+            key={commerceCatalogDialog.projectId}
+            projectId={commerceCatalogDialog.projectId}
+            selectedAssets={commerceCatalogDialog.selectedAssets}
+            canvasAssets={commerceCatalogCanvasAssets}
+            translationCanvasItems={commerceCatalogTranslationCanvasItems}
+            close={() => setCommerceCatalogDialog(null)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceExportDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceExportDialog
+            key={commerceExportDialog.projectId}
+            projectId={commerceExportDialog.projectId}
+            close={() => setCommerceExportDialog(null)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceTemplateDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceTemplateDialog
+            close={() => setCommerceTemplateDialog(null)}
+            createTemplate={createCommerceTemplatePlan}
+            useTemplate={useCommerceTemplate}
+            focusTemplateId={commerceTemplateDialog.focusTemplateId}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {commerceAbDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyCommerceAbDialog
+            key={commerceAbDialog.projectId}
+            projectId={commerceAbDialog.projectId}
+            canvasAssets={commerceCatalogCanvasAssets}
+            close={() => setCommerceAbDialog(null)}
+          />
+        </React.Suspense>
+      ) : null}
+
       {commerceSetDialog ? (
         <React.Suspense fallback={null}>
           <LazyCommerceSetDialog
             sourceCount={commerceSetDialog.sourceCount}
             sourceLabel={commerceSetDialog.sourceLabel}
             sourceKeys={commerceSetDialog.sourceKeys}
+            sourceItems={commerceSetDialog.sourceItems}
             initialMode={commerceSetDialog.mode}
+            initialPlan={commerceSetDialog.initialPlan}
             errorMessage={commerceSetDialog.error}
             allowModeSwitch
             allowPersistence
             executionBusy={agentExecutionBusy}
+            onFocusSource={(source) => {
+              if (source.nodeId) selectWorkspaceNavigatorNode(source.nodeId);
+            }}
             close={() => setCommerceSetDialog(null)}
+            viewTemplate={(templateId) => {
+              setCommerceSetDialog(null);
+              setCommerceTemplateDialog({ focusTemplateId: templateId });
+            }}
             submit={(payload) => {
               const dialog = commerceSetDialog;
               const currentSourceKeys = commerceSourceKeysForNodeIds(dialog.sourceNodeIds);
@@ -24081,16 +26689,59 @@ function App() {
                       kind: payload.plan.saveTarget,
                     }
                   : null;
-                const opened = await requestGoalModeConfirmation(result.task.prompt, {
+                await authorizeAndDispatchGoal(result.task.prompt, "main-dialog", {
                   targetNodeIds: dialog.sourceNodeIds,
                   operationsPerAsset: outputsPerSource,
                 });
-                if (!opened) pendingCommerceReusableNodeRef.current = null;
+                const pending = pendingCommerceReusableNodeRef.current;
+                if (pending && result.task.prompt.includes(pending.planHash)) {
+                  createCommerceReusableNode(pending);
+                }
+                pendingCommerceReusableNodeRef.current = null;
               }).catch((error) => {
                 pendingCommerceReusableNodeRef.current = null;
                 setServerMessage(error instanceof Error ? error.message : String(error));
               });
             }}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {socialContentDialog ? (
+        <React.Suspense fallback={null}>
+          <LazySocialContentDialog
+            key={`${socialContentDialog.initialPlatform}:${socialContentDialog.initialPlan?.workflowId || "new"}`}
+            initialPlatform={socialContentDialog.initialPlatform}
+            initialPlan={socialContentDialog.initialPlan}
+            sourceItems={socialContentDialog.sourceItems}
+            firstUse={!settings.workflowOnboarding?.[socialContentDialog.initialPlatform]}
+            executionBusy={agentExecutionBusy}
+            errorMessage={socialContentDialog.error}
+            close={() => setSocialContentDialog(null)}
+            submit={(plan) => {
+              const dialog = socialContentDialog;
+              void submitSocialContent(dialog, plan).catch((error) => {
+                setServerMessage(error instanceof Error ? error.message : String(error));
+              });
+            }}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {scientificFigureDialog ? (
+        <React.Suspense fallback={null}>
+          <LazyScientificFigureDialog
+            key={`${activeProjectId}:${scientificFigureDialog.initialPlan?.workflowId || "new"}:${scientificFigureDialog.initialAction}`}
+            projectId={activeProjectIdRef.current || "default"}
+            initialPlan={scientificFigureDialog.initialPlan}
+            initialTaskId={scientificFigureDialog.initialTaskId}
+            initialAction={scientificFigureDialog.initialAction}
+            firstUse={!settings.workflowOnboarding?.research}
+            errorMessage={scientificFigureDialog.error}
+            close={() => setScientificFigureDialog(null)}
+            savePlan={saveScientificFigurePlan}
+            submitAgentPlan={submitScientificAgentPlan}
+            onRendered={landScientificTaskOnCanvas}
           />
         </React.Suspense>
       ) : null}
@@ -24128,7 +26779,11 @@ function App() {
             draft={projectNameDraft}
             setDraft={setProjectNameDraft}
             close={() => setProjectNameDraft(null)}
-            submit={() => (projectNameDraft.mode === "rename" ? renameProject(projectNameDraft.name) : createProject(projectNameDraft.name))}
+            submit={() => projectNameDraft.mode === "rename"
+              ? renameProject(projectNameDraft.name)
+              : projectNameDraft.mode === "create-folder"
+                ? createProjectFolder(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))
+                : createProject(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))}
             busy={fileActionBusy}
           />
         ) : null}
@@ -24218,7 +26873,6 @@ function App() {
         const dirty = requirementEditorDraft.mode === "create"
           ? Boolean(requirementEditorDraft.text.trim() || requirementEditorDraft.title.trim() !== "图片处理需求")
           : requirementEditorDraft.text !== originalText || requirementEditorDraft.title !== originalTitle;
-        const discardArmed = requirementEditorDraft.discardArmed === true;
         return (
           <React.Suspense fallback={null}>
             <RequirementEditorDialog
@@ -24227,20 +26881,14 @@ function App() {
               text={requirementEditorDraft.text}
               error={requirementEditorDraft.error}
               dirty={dirty}
-              discardArmed={discardArmed}
               agentExecutionBusy={agentExecutionBusy}
               requirementCode={editingNode ? nodeDisplayCode(editingNode) : "新节点"}
               sourceCount={editorSourceCount}
               referenceCount={editorReferenceCount}
               close={() => setRequirementEditorDraft(null)}
-              armDiscard={() => setRequirementEditorDraft((current) => current ? {
-                ...current,
-                discardArmed: true,
-                error: "内容尚未保存；再次关闭将放弃本次修改。"
-              } : current)}
-              changeTitle={(title) => setRequirementEditorDraft((current) => current ? { ...current, title, discardArmed: false, error: undefined } : current)}
-              changeText={(text) => setRequirementEditorDraft((current) => current ? { ...current, text, discardArmed: false, error: undefined } : current)}
-              save={(runAfterSave) => { saveRequirementEditor(runAfterSave); }}
+              changeTitle={(title) => setRequirementEditorDraft((current) => current ? { ...current, title, error: undefined } : current)}
+              changeText={(text) => setRequirementEditorDraft((current) => current ? { ...current, text, error: undefined } : current)}
+              save={(runAfterSave) => Boolean(saveRequirementEditor(runAfterSave))}
             />
           </React.Suspense>
         );
@@ -24265,32 +26913,29 @@ function App() {
           : (editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "");
         const editorDirty = nodeEditorDraft.title !== editorSourceTitle || nodeEditorDraft.prompt !== editorSourcePrompt;
         const editorBusy = fileActionBusy;
-        const editorDiscardArmed = nodeEditorDraft.discardArmed === true;
         return (
-          <DialogShell
-            surface="node-editor"
-            ariaLabel="成果编辑器"
-            layerClassName="node-editor-layer"
-            className="node-editor-dialog unified-node-editor"
-            busy={editorBusy}
-            dirty={editorDirty}
-            closePolicy={{
-              escape: editorDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              backdrop: editorDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              [CLOSE_BUTTON_REASON]: editorDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              action: editorDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN
-            }}
-            onRequestClose={() => setNodeEditorDraft(null)}
-            onCloseBlocked={(_reason, state) => {
-              setNodeEditorDraft((current) => current ? {
-                ...current,
-                discardArmed: state.dirty ? true : current.discardArmed,
-                error: state.busy ? "正在处理图片文件，请稍候。" : "有未保存修改。再次关闭将放弃这些修改。"
-              } : current);
-            }}
-          >
-            {({ requestClose }) => (
-            <>
+          <>
+            <DialogShell
+              surface="node-editor"
+              ariaLabel="成果编辑器"
+              layerClassName="node-editor-layer"
+              className="node-editor-dialog unified-node-editor"
+              busy={editorBusy}
+              dirty={editorDirty}
+              closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
+              onRequestClose={() => {
+                if (editorDirty) {
+                  setNodeEditorClosePromptOpen(true);
+                  return;
+                }
+                setNodeEditorDraft(null);
+              }}
+              onCloseBlocked={() => {
+                setNodeEditorDraft((current) => current ? { ...current, error: "正在处理图片文件，请稍候。" } : current);
+              }}
+            >
+              {({ requestClose }) => (
+              <>
               <SurfaceHeader
                 title="编辑成果"
                 description={editorNode
@@ -24360,14 +27005,14 @@ function App() {
                   <Field label={editingCollectionMember ? "图片标题" : "成果标题"}>
                     <input
                       value={nodeEditorDraft.title}
-                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, title: event.target.value, discardArmed: false, error: undefined } : current)}
+                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, title: event.target.value, error: undefined } : current)}
                       placeholder="给这个成果一个容易识别的名称"
                     />
                   </Field>
                   <Field className="is-prompt" label="提示词">
                     <textarea
                       value={nodeEditorDraft.prompt}
-                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, prompt: event.target.value, discardArmed: false, error: undefined } : current)}
+                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, prompt: event.target.value, error: undefined } : current)}
                       placeholder="编辑这个成果的完整提示词；继续生成时会直接使用这里的内容"
                     />
                   </Field>
@@ -24461,7 +27106,7 @@ function App() {
 
               <SurfaceFooter className="unified-node-editor-footer">
                 <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="cancel" onClick={() => requestClose("action")}>
-                  {editorDiscardArmed && editorDirty ? "确认放弃" : "取消"}
+                  取消
                 </ActionButton>
                 <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="save" onClick={() => saveNodeEditorDraft(true)} icon={<Check size={15} />} disabled={!editorDirty}>
                   保存
@@ -24484,9 +27129,29 @@ function App() {
                   </ActionButton>
                 ) : null}
               </SurfaceFooter>
-            </>
-            )}
-          </DialogShell>
+              </>
+              )}
+            </DialogShell>
+            {nodeEditorClosePromptOpen ? (
+              <UnsavedChangesDialog
+                surface="node-editor-unsaved"
+                ariaLabel="保存成果修改"
+                title="关闭前要保存成果修改吗？"
+                description="成果标题或提示词还有未保存的修改。"
+                detail={<p>保存只更新当前成果信息，不会执行图片模型或产生费用。</p>}
+                busy={editorBusy}
+                onContinueEditing={() => setNodeEditorClosePromptOpen(false)}
+                onDiscard={() => {
+                  setNodeEditorClosePromptOpen(false);
+                  setNodeEditorDraft(null);
+                }}
+                onSave={() => {
+                  const saved = saveNodeEditorDraft(true);
+                  if (!saved) setNodeEditorClosePromptOpen(false);
+                }}
+              />
+            ) : null}
+          </>
         );
       })() : null}
 
@@ -24498,44 +27163,40 @@ function App() {
         const sourceWidth = regionRedrawDraft.sourceWidth || fallbackSize?.width || 1;
         const sourceHeight = regionRedrawDraft.sourceHeight || fallbackSize?.height || 1;
         const redrawDirty = regionRedrawDraft.prompt !== regionRedrawDraft.initialPrompt || regionRedrawDraft.maskDirty;
-        const redrawDiscardArmed = regionRedrawDraft.discardArmed === true;
         const closeRedraw = () => {
           regionRedrawPaintRef.current = null;
           regionRedrawDraftRef.current = null;
+          setRegionRedrawClosePromptOpen(false);
           setRegionRedrawDraft(null);
         };
         return (
-          <DialogShell
-            surface="region-redraw"
-            ariaLabel={editorTitle}
-            layerClassName="region-redraw-layer"
-            className={`region-redraw-dialog ${isCutout ? "is-cutout" : "is-redraw"}`}
-            busy={regionRedrawDraft.busy}
-            dirty={redrawDirty}
-            closePolicy={{
-              escape: redrawDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              backdrop: redrawDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              [CLOSE_BUTTON_REASON]: redrawDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN,
-              action: redrawDiscardArmed ? WHEN_IDLE : WHEN_IDLE_AND_CLEAN
-            }}
-            onRequestClose={closeRedraw}
-            onCloseBlocked={(_reason, state) => {
-              setRegionRedrawDraft((current) => {
-                if (!current) return current;
-                const next = {
-                  ...current,
-                  discardArmed: state.dirty ? true : current.discardArmed,
-                  error: state.busy
-                    ? `${editorTitle}正在执行，请稍候。`
-                    : "有未提交的描述或涂抹选区。再次关闭将放弃这些修改。"
-                };
-                regionRedrawDraftRef.current = next;
-                return next;
-              });
-            }}
-          >
-            {({ requestClose }) => (
-            <>
+          <>
+            <DialogShell
+              surface="region-redraw"
+              ariaLabel={editorTitle}
+              layerClassName="region-redraw-layer"
+              className={`region-redraw-dialog ${isCutout ? "is-cutout" : "is-redraw"}`}
+              busy={regionRedrawDraft.busy}
+              dirty={redrawDirty}
+              closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
+              onRequestClose={() => {
+                if (redrawDirty) {
+                  setRegionRedrawClosePromptOpen(true);
+                  return;
+                }
+                closeRedraw();
+              }}
+              onCloseBlocked={() => {
+                setRegionRedrawDraft((current) => {
+                  if (!current) return current;
+                  const next = { ...current, error: `${editorTitle}正在执行，请稍候。` };
+                  regionRedrawDraftRef.current = next;
+                  return next;
+                });
+              }}
+            >
+              {({ requestClose }) => (
+              <>
               <SurfaceHeader
                 title={editorTitle}
                 description={redrawNode?.title || "选中的图片成果"}
@@ -24584,7 +27245,7 @@ function App() {
                       disabled={regionRedrawDraft.busy}
                       onChange={(event) => setRegionRedrawDraft((current) => {
                         if (!current) return current;
-                        const next = { ...current, prompt: event.target.value, discardArmed: false, error: undefined };
+                        const next = { ...current, prompt: event.target.value, error: undefined };
                         regionRedrawDraftRef.current = next;
                         return next;
                       })}
@@ -24626,15 +27287,29 @@ function App() {
                 )}
               >
                 <ActionButton onClick={() => requestClose("action")} disabled={regionRedrawDraft.busy}>
-                  {redrawDiscardArmed && redrawDirty ? "确认放弃" : "取消"}
+                  取消
                 </ActionButton>
                 <ActionButton variant="primary" onClick={() => void submitRegionRedraw()} busy={regionRedrawDraft.busy} disabled={agentExecutionBusy || !regionRedrawDraft.ready} icon={<WandSparkles size={15} />}>
                   {regionRedrawDraft.busy ? (isCutout ? "正在抠图…" : "正在重绘…") : `执行${editorTitle}`}
                 </ActionButton>
               </SurfaceFooter>
-            </>
-            )}
-          </DialogShell>
+              </>
+              )}
+            </DialogShell>
+            {regionRedrawClosePromptOpen ? (
+              <UnsavedChangesDialog
+                surface="region-redraw-unsaved"
+                ariaLabel={`放弃${editorTitle}修改`}
+                title={`要放弃未提交的${editorTitle}修改吗？`}
+                description="当前描述或涂抹选区还没有提交。"
+                detail={<p>继续编辑会保留当前蒙版；放弃只关闭编辑器，不会调用图片模型或产生费用。</p>}
+                busy={regionRedrawDraft.busy}
+                onContinueEditing={() => setRegionRedrawClosePromptOpen(false)}
+                onDiscard={closeRedraw}
+                discardLabel="放弃并关闭"
+              />
+            ) : null}
+          </>
         );
       })() : null}
 
@@ -24960,6 +27635,10 @@ function ProjectAgentComposerView({
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
+  requestImageModels,
+  imageRatio,
+  imageResolution,
+  onImageFrameChange,
   debugCommit
 }: {
   selectedArtifacts: WorkflowNode[];
@@ -24984,6 +27663,10 @@ function ProjectAgentComposerView({
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
+  requestImageModels: () => void | Promise<void>;
+  imageRatio: AppSettings["imageRatio"];
+  imageResolution: AppSettings["imageResolution"];
+  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
   return (
@@ -25013,6 +27696,10 @@ function ProjectAgentComposerView({
           imageModels={imageModels}
           selectedImageModels={selectedImageModels}
           onSelectedImageModelsChange={onSelectedImageModelsChange}
+          requestImageModels={requestImageModels}
+          imageRatio={imageRatio}
+          imageResolution={imageResolution}
+          onImageFrameChange={onImageFrameChange}
         />
       </React.Suspense>
     </>
@@ -25052,6 +27739,10 @@ function ProjectAgentPanelView({
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
+  requestImageModels,
+  imageRatio,
+  imageResolution,
+  onImageFrameChange,
   dropReferenceFiles,
  requestNewConversation,
  requestClearConversation,
@@ -25096,6 +27787,10 @@ function ProjectAgentPanelView({
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
+  requestImageModels: () => void | Promise<void>;
+  imageRatio: AppSettings["imageRatio"];
+  imageResolution: AppSettings["imageResolution"];
+  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
   dropReferenceFiles: (files: File[]) => void | Promise<unknown>;
  requestNewConversation: () => void;
   requestClearConversation: () => void;
@@ -25492,6 +28187,10 @@ function ProjectAgentPanelView({
         imageModels={imageModels}
         selectedImageModels={selectedImageModels}
         onSelectedImageModelsChange={onSelectedImageModelsChange}
+        requestImageModels={requestImageModels}
+        imageRatio={imageRatio}
+        imageResolution={imageResolution}
+        onImageFrameChange={onImageFrameChange}
         debugCommit={debugCommit}
       />
       {panelLayout.agentPanelPlacement === "floating" ? (
@@ -25571,6 +28270,10 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
+  left.requestImageModels === right.requestImageModels &&
+  left.imageRatio === right.imageRatio &&
+  left.imageResolution === right.imageResolution &&
+  left.onImageFrameChange === right.onImageFrameChange &&
   left.debugCommit === right.debugCommit
 );
 
@@ -25607,6 +28310,10 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
+  left.requestImageModels === right.requestImageModels &&
+  left.imageRatio === right.imageRatio &&
+  left.imageResolution === right.imageResolution &&
+  left.onImageFrameChange === right.onImageFrameChange &&
   left.dropReferenceFiles === right.dropReferenceFiles &&
   left.requestNewConversation === right.requestNewConversation &&
   left.requestClearConversation === right.requestClearConversation &&

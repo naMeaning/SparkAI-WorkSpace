@@ -1,14 +1,16 @@
-# naimage 开发约束
+# SparkAI WorkSpace 开发约束
 
 ## 产品边界
 
 - 本仓库只维护 Electron 桌面 GUI 和本地 Agent runtime。远端后端位于独立仓库，不要把服务端管理后台复制回来。
 - 当前是傻瓜式单画布 AI 生图工作台，不要恢复“基础模式 / Agent 模式”切换。
+- 产品名称为 SparkAI WorkSpace；`general`、`commerce`、`social`、`research` 只是同一项目、同一画布、同一 Session、同一 Agent Runtime、同一资产与 TaskScope 上的能力投影。切换领域不得重挂画布、清空选择、打断任务、自动联网或产生费用，也不得复制四套平行状态。
 - 右侧项目 Agent 是唯一控制中心，可折叠为窄侧栏但不能被卸载或替换；画布上的 Agent 核心节点、节点内对话框和手动工作流入口已废弃，不得恢复。
-- 画布主要展示图片成果、图片容器及成果关系，只允许一种可执行的非图片原语：需求节点。需求节点保存用户可复用、可编辑的自然语言图片处理要求，关系必须保持“图片/容器/分层成果 → 需求节点 → 新图片成果”；它不能派生出计划、Prompt 步骤、工具节点、后期节点、子 Agent 或任意工作流节点。图片容器仍是素材整理视图。连接头只调整来源/成果关系，不得因连线动作自动执行任务；需求只可由用户明确保存并执行或右键再次执行。
-- 空白画布右键保留“创建生图工作 / 导入图片 / 创建图片容器”三个直接操作。“创建生图工作”只是精简的手动图片请求表单，提交后直接调用现有图片执行链路并把成果放到右键位置；它不得创建任务节点、Prompt 节点、执行流程或恢复旧工作流编辑器。
-- 外部拖入的图片或文件夹必须先复制到当前项目管理的图片库，再进入参考图容器或画布图片容器。不得直接保存或修改用户原始路径。画布批量拖入默认进入同一图片容器，容器图片可拖出成为独立成果。
-- `image_gen` 是唯一图片执行工具，允许的任务语义为 `generate`、`edit`、`replace`、`variants`、`layers`、`cutout`、`redraw`。主 Agent 可使用与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 naimage 的 `experience` 与成果查询工具完成任务；不得自建 Bing/DuckDuckGo 搜索器。`view_image` 必须把本地图片作为 `input_image` 回到当前主模型上下文，不能另起一次视觉模型请求代替。conversation compact、toolmemory 和底层 `context_manage` 由运行时维护，不向主 Agent 暴露内部 entry ID。这些过程不得创建画布节点或演化为手动工作流。
+- 画布主要展示图片成果、视频成果、图片容器及成果关系，只允许一种可执行的非图片原语：需求节点。视频成果节点只负责播放受管媒体和保留来源信息，不执行模型、工作流或图片需求，也不能伪装成图片 SOURCE。需求节点保存用户可复用、可编辑的自然语言图片处理要求，关系必须保持“图片/容器/分层成果 → 需求节点 → 新图片成果”；它不能派生出计划、Prompt 步骤、工具节点、后期节点、子 Agent 或任意工作流节点。图片容器仍是素材整理视图。连接头只调整来源/成果关系，不得因连线动作自动执行任务；需求只可由用户明确保存并执行或右键再次执行。
+- 空白画布右键保留“创建生图工作 / 创建视频工作 / 导入图片 / 导入视频 / 创建图片容器”等直接操作。“创建生图工作”只是精简的手动图片请求表单，提交后直接调用现有图片执行链路并把成果放到右键位置；它不得创建任务节点、Prompt 节点、执行流程或恢复旧工作流编辑器。“创建视频工作”每次只创建一个独立、可恢复的上游任务，结果节点本身仍不可执行；“导入视频”只复制用户授权的本地视频并创建成果节点。
+- 外部拖入的图片或文件夹必须先复制到当前项目管理的图片库，再进入参考图容器或画布图片容器；外部视频必须先复制到当前项目的 `output/video` 受管目录，再创建独立视频成果节点。不得直接保存或修改用户原始路径。画布批量拖入图片默认进入同一图片容器，容器图片可拖出成为独立成果；多个视频保持多个独立成果节点。
+- `image_gen` 是唯一图片执行工具，允许的任务语义为 `generate`、`edit`、`replace`、`variants`、`layers`、`cutout`、`redraw`。主 Agent 可使用与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 SparkAI WorkSpace 的 `experience` 与成果查询工具完成任务；不得自建 Bing/DuckDuckGo 搜索器。`view_image` 必须把本地图片作为 `input_image` 回到当前主模型上下文，不能另起一次视觉模型请求代替。conversation compact、toolmemory 和底层 `context_manage` 由运行时维护，不向主 Agent 暴露内部 entry ID。这些过程不得创建画布节点或演化为手动工作流。
+- `doubao-seedance-2-0-260128` 已接入待验证的独立视频任务适配器、画布入口和 `canvas.generate-video` CLI，但兼容请求仍不是经真实 Token 固定的正式协议。未获得用户明确授权前不得发起真实 Seedance 请求；不得用 Chat Completions 代替 create/poll/download，也不得在创建结果不明时自动重建。真实验证后必须按 Base URL/Token 更新协议画像与计费边界。
 - `view_image detail=high` 可为模型上下文生成受控尺寸、受控请求体的观察副本，`detail=original` 保留原分辨率；两者都不得覆盖项目原图、降低画布预览清晰度或把大体积 base64 长期写入会话持久化。
 - `replace` 和 `variants` 必须自动使用当前选中图片或附件作为来源；不得要求模型猜测或输出本地路径。`variants` 输出独立图片并使用 `variant` 关系。
 - `layers` 必须生成真实合成预览、独立同尺寸 PNG 图层和重组校验结果；非背景层优先透明。不得只创建图层说明节点或伪造完成状态。
@@ -35,16 +37,18 @@
 - 新增或改变可由外部 Agent 操作的产品动作时，必须同步 `integrations/naimage-control` CLI 命令、Skill 说明、命令参考和 `test:automation-service` 契约；不能只更新 GUI。
 - 图片任务优先且默认使用 `gpt-image-2`；只要模型池中存在 `gpt-image-2`，不得因编辑、透明背景或抠图任务回退到旧图片模型。
 - 滤镜、本地后期、Prompt/后期节点和 `apply_post_effect` 已废弃。不得恢复工具 schema、运行时 action、画布渲染、菜单、样式或 AIDebug 套件。
-- 旧项目中的非图片节点和 `agentOwnerId` 只作为迁移输入读取；合法 v1 需求节点可保留，其余无图片资产的非图片节点保存后移除，有有效图片资产的旧节点迁移为图片成果；旧 Agent 会话历史保留在项目会话列表中。
+- 旧项目中的非图片节点和 `agentOwnerId` 只作为迁移输入读取；合法 v1 需求节点与合法受管视频成果可保留，其余无图片/视频资产的非图片节点保存后移除，有有效图片资产的旧节点迁移为图片成果；旧 Agent 会话历史保留在项目会话列表中。
 - 旧版本只可作为经用户明确认可的连接点、无箭头线路动画、窗口排版等局部设计参考；不得把 `--legacy-full-suite` 当成新版兼容目标，也不得因旧断言失败恢复旧 Agent、旧工作流、旧窄屏交互或旧信息架构。
 
 ## 验证
 
-- 当前测试开发阶段只运行改动直接影响的专项测试；不机械运行无关测试。只有修改构建/Bundle 边界、准备候选制品，或用户明确要求正式发布时才扩大门禁；正式发布按 `release:final` 全量验证。
-- 生产构建还必须运行 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
-- `test:bundle` 的 initial JS 目标为 685,000 B，并允许额外 1,024 B 测量容差；超过 686,024 B 才触发硬失败。plugin JS 120,000 B 与 CSS 270,000 B 为硬门禁；core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 只作增量趋势 advisory，不单独阻断。插件运行时、设置表面、Glass Lab、workspace chrome 与插件专属对话框应保留在自然异步 chunk，插件进入首屏依赖图即失败。后续大块 Renderer 功能仍应优先进入自然异步边界，但不得仅为跨越硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分；产品速度由独立性能门禁证明。
+- 每次代码修复完成后、交付前都必须至少运行一次 `corepack pnpm run build`；如果构建失败，必须报告真实失败项，不得把仅通过专项测试描述为已完成编译。
+- 当前测试开发阶段只运行改动直接影响的专项测试；不机械运行无关测试。开发 EXE 可以记录 Bundle 结果，但超限暂不阻断构建或 NSIS 打包；只有准备候选制品或用户明确要求正式发布时才扩大门禁，正式发布按 `release:final` 全量验证。
+- 正式发布候选必须运行并通过 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
+- 正式发布时，`test:bundle` 的 initial JS 目标为 685,000 B，并允许额外 1,024 B 测量容差；超过 686,024 B 才触发硬失败。plugin JS 120,000 B 与 CSS 270,000 B 为硬门禁；core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 只作增量趋势 advisory，不单独阻断。开发阶段保留这些数字作为趋势记录。插件运行时、设置表面、Glass Lab、workspace chrome 与插件专属对话框应保留在自然异步 chunk，插件进入首屏依赖图即失败。后续大块 Renderer 功能仍应优先进入自然异步边界，但不得仅为跨越硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分；产品速度由独立性能门禁证明。
 - 日常开发按影响范围选择最小验证，不得把完整 AIDebug 当作每次改动的默认步骤。纯逻辑、配置、文档、Electron 后端或 Agent 协议改动优先运行对应 selftest；只有影响真实可视交互时才运行 GUI。
 - 一般 Renderer/UI 改动在完成一批功能后运行一次 `corepack pnpm run aidebug:gui` 快速冒烟；设置、登录、画布、需求节点、导入等明确领域再追加一个对应专项。只有需要覆盖完整 UI surface 时运行 `corepack pnpm run aidebug:gui:surface`，不得同时无差别重复多个 GUI 套件。
+- 四工作台领域变更优先运行 `test:workspace-domain`、`test:plugin-system`、`test:automation-service` 和单一 `aidebug:workspace-domain`；不要因此自动运行完整 Glass Workspace 或全量 GUI。
 - 运行时或 `view_image` 改动还必须运行 `corepack pnpm run test:view-image`；真实 Agent 验证优先使用当前 `--agent-only`、功能专项和 `--real-agent-suite`，不以旧版全量套件作为交付门槛。正式发布仍由 `release:final` 执行完整门禁。
 - AIDebug 断言必须检查可见性、裁切、尺寸和真实状态，不能只检查 DOM 是否存在或文字值是否正确。
 - 真实服务端测试不得输出凭证；只汇报状态、数量和无敏感信息的错误摘要。

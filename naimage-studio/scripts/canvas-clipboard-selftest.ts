@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { copyCanvasNodes, pasteCanvasNodes } from "../src/canvas-clipboard.ts";
+import { clipboardImageFiles, copyCanvasNodes, pasteCanvasNodes } from "../src/canvas-clipboard.ts";
 import type { WorkflowNode } from "../src/core.ts";
 
 const image = (id: string, x: number, parentId?: string): WorkflowNode => ({
@@ -58,5 +58,34 @@ assert.equal(result.pastedNodes[0].x, 500);
 assert.equal(result.pastedNodes[0].y, 600);
 assert.deepEqual(result.pastedNodes[2].requirement?.inputBindings, [{ nodeId: "N1", role: "source" }]);
 assert.equal(result.pastedNodes[2].requirement?.lastRunCount, undefined);
+
+const clipboardFile = (name: string, type = "image/png") => ({
+  name,
+  type,
+  size: 100,
+  lastModified: 1,
+}) as File;
+const itemFiles = [clipboardFile("one.png"), clipboardFile("two.png"), clipboardFile("three.png")];
+const mirroredFiles = itemFiles.map((file) => clipboardFile(file.name));
+const mirroredClipboard = {
+  items: itemFiles.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })),
+  files: mirroredFiles,
+} as unknown as Pick<DataTransfer, "items" | "files">;
+assert.deepEqual(
+  clipboardImageFiles(mirroredClipboard),
+  itemFiles,
+  "The same three images mirrored in items and files must be pasted exactly once",
+);
+
+const fallbackFiles = [clipboardFile("fallback-one.webp", "image/webp"), clipboardFile("fallback-two.jpg", "image/jpeg")];
+const fallbackClipboard = {
+  items: [{ kind: "file", type: "image/webp", getAsFile: () => null }],
+  files: fallbackFiles,
+} as unknown as Pick<DataTransfer, "items" | "files">;
+assert.deepEqual(
+  clipboardImageFiles(fallbackClipboard),
+  fallbackFiles,
+  "Files must remain the fallback when clipboard items cannot materialize every image",
+);
 
 console.log("canvas clipboard self-test passed");

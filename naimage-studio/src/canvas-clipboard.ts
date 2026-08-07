@@ -16,6 +16,21 @@ const deepClone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const uniqueIds = (values: Iterable<string>) => [...new Set([...values].map((value) => String(value || "").trim()).filter(Boolean))];
 
+export function clipboardImageFiles(clipboardData: Pick<DataTransfer, "items" | "files">): File[] {
+  const imageItems = Array.from(clipboardData.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"));
+  const itemFiles = imageItems
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file?.type.startsWith("image/")));
+
+  // Chromium exposes the same native clipboard files through both collections.
+  if (imageItems.length > 0 && itemFiles.length === imageItems.length) return itemFiles;
+
+  const fallbackFiles = Array.from(clipboardData.files)
+    .filter((file): file is File => file.type.startsWith("image/"));
+  return fallbackFiles.length ? fallbackFiles : itemFiles;
+}
+
 export function copyCanvasNodes(nodes: readonly WorkflowNode[], selectedIds: readonly string[]): CanvasClipboardPayload | null {
   const selected = new Set(uniqueIds(selectedIds));
   const copied = nodes.filter((node) => selected.has(node.id)).map((node) => deepClone(node));
@@ -26,7 +41,7 @@ export function copyCanvasNodes(nodes: readonly WorkflowNode[], selectedIds: rea
 export function canvasClipboardSummary(payload: CanvasClipboardPayload | null) {
   if (!payload?.nodes.length) return "";
   const labels = payload.nodes.slice(0, 4).map((node) => node.title?.trim() || node.id);
-  return `naimage 画布：已复制 ${payload.nodes.length} 个成果${labels.length ? `（${labels.join("、")}${payload.nodes.length > labels.length ? "…" : ""}）` : ""}`;
+  return `SparkAI WorkSpace 画布：已复制 ${payload.nodes.length} 个成果${labels.length ? `（${labels.join("、")}${payload.nodes.length > labels.length ? "…" : ""}）` : ""}`;
 }
 
 export function pasteCanvasNodes(

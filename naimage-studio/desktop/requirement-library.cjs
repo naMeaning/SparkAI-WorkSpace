@@ -1,6 +1,8 @@
 "use strict";
 
 const { randomBytes } = require("node:crypto");
+const { normalizeSocialContentPlan } = require("../runtime/social-content-plan.cjs");
+const { normalizeScientificFigurePlan } = require("../runtime/scientific-figure-plan.cjs");
 
 const REQUIREMENT_LIBRARY_SCHEMA_VERSION = 1;
 const REQUIREMENT_LIBRARY_MAX_ITEMS = 200;
@@ -59,6 +61,13 @@ function sanitizeRequirementLibraryEntry(value, fallbackNow = new Date().toISOSt
   const createdAt = normalizedTimestamp(value.createdAt, fallbackNow);
   const updatedAt = normalizedTimestamp(value.updatedAt, createdAt);
   const skill = sanitizeRequirementLibrarySkill(value.skill);
+  const socialPlan = value.socialPlan && typeof value.socialPlan === "object" &&
+    (value.socialPlan.platform === "xiaohongshu" || value.socialPlan.platform === "douyin")
+    ? normalizeSocialContentPlan(value.socialPlan)
+    : null;
+  const scientificPlan = value.scientificPlan && typeof value.scientificPlan === "object" && value.scientificPlan.schemaVersion === 1
+    ? normalizeScientificFigurePlan(value.scientificPlan)
+    : null;
   return {
     version: 1,
     id,
@@ -67,7 +76,9 @@ function sanitizeRequirementLibraryEntry(value, fallbackNow = new Date().toISOSt
     revision: Math.max(1, Math.floor(Number(value.revision) || 1)),
     createdAt,
     updatedAt,
-    ...(skill ? { skill } : {})
+    ...(skill ? { skill } : {}),
+    ...(socialPlan?.brief ? { socialPlan } : {}),
+    ...(scientificPlan?.researchClaim ? { scientificPlan } : {})
   };
 }
 
@@ -99,7 +110,9 @@ function publicRequirementLibraryEntry(entry, includeText = false) {
     updatedAt: entry.updatedAt,
     summary: entry.text.replace(/\s+/g, " ").trim().slice(0, 240),
     ...(includeText ? { text: entry.text } : {}),
-    ...(entry.skill ? { skill: { ...entry.skill } } : {})
+    ...(entry.skill ? { skill: { ...entry.skill } } : {}),
+    ...(entry.socialPlan ? { socialPlan: structuredClone(entry.socialPlan) } : {}),
+    ...(entry.scientificPlan ? { scientificPlan: structuredClone(entry.scientificPlan) } : {})
   };
 }
 
@@ -172,6 +185,21 @@ function createRequirementLibraryService({
       skill = sanitizeRequirementLibrarySkill(payload.skill);
       if (!skill) throw new RequirementLibraryError("INVALID_TEMPLATE", "需求模板包含无效的 Skill 身份。", { field: "skill" });
     }
+    let socialPlan;
+    if (payload.socialPlan !== undefined && payload.socialPlan !== null) {
+      socialPlan = normalizeSocialContentPlan(payload.socialPlan);
+      if (!socialPlan.brief) throw new RequirementLibraryError("INVALID_TEMPLATE", "社媒模板缺少内容 Brief。", { field: "socialPlan.brief" });
+    }
+    let scientificPlan;
+    if (payload.scientificPlan !== undefined && payload.scientificPlan !== null) {
+      scientificPlan = normalizeScientificFigurePlan(payload.scientificPlan);
+      if (!scientificPlan.researchClaim) {
+        throw new RequirementLibraryError("INVALID_TEMPLATE", "科研模板缺少需要图件支撑的核心结论。", { field: "scientificPlan.researchClaim" });
+      }
+      if (!scientificPlan.backend) {
+        throw new RequirementLibraryError("INVALID_TEMPLATE", "科研模板必须明确选择 Python 或 R 后端。", { field: "scientificPlan.backend" });
+      }
+    }
     const id = cleanText(payload.id, 48).toLowerCase();
     const currentIndex = id ? document.items.findIndex((entry) => entry.id === id) : -1;
     if (id && currentIndex < 0) {
@@ -188,7 +216,9 @@ function createRequirementLibraryService({
         });
       }
       const sameSkill = JSON.stringify(current.skill || null) === JSON.stringify(skill || null);
-      if (current.title === title && current.text === text && sameSkill) {
+      const sameSocialPlan = JSON.stringify(current.socialPlan || null) === JSON.stringify(socialPlan || null);
+      const sameScientificPlan = JSON.stringify(current.scientificPlan || null) === JSON.stringify(scientificPlan || null);
+      if (current.title === title && current.text === text && sameSkill && sameSocialPlan && sameScientificPlan) {
         return {
           ok: true,
           changed: false,
@@ -202,9 +232,13 @@ function createRequirementLibraryService({
         text,
         revision: current.revision + 1,
         updatedAt: now(),
-        ...(skill ? { skill } : {})
+        ...(skill ? { skill } : {}),
+        ...(socialPlan ? { socialPlan } : {}),
+        ...(scientificPlan ? { scientificPlan } : {})
       };
       if (!skill) delete updated.skill;
+      if (!socialPlan) delete updated.socialPlan;
+      if (!scientificPlan) delete updated.scientificPlan;
       const nextItems = [...document.items];
       nextItems[currentIndex] = updated;
       const nextDocument = persistDocument({ ...document, revision: document.revision + 1, items: nextItems });
@@ -230,7 +264,9 @@ function createRequirementLibraryService({
       revision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
-      ...(skill ? { skill } : {})
+      ...(skill ? { skill } : {}),
+      ...(socialPlan ? { socialPlan } : {}),
+      ...(scientificPlan ? { scientificPlan } : {})
     };
     const nextDocument = persistDocument({ ...document, revision: document.revision + 1, items: [...document.items, entry] });
     return {

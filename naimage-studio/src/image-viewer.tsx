@@ -25,13 +25,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function imageOrientationForSize(size?: { width: number; height: number } | null) {
-  if (!size?.width || !size.height) return "unknown";
-  const ratio = size.width / size.height;
-  if (ratio >= 1.22) return "landscape";
-  if (ratio <= 0.82) return "portrait";
-  return "square";
-}
+type ViewerImageFrame = {
+  src: string;
+  size?: { width: number; height: number } | null;
+};
 
 export function ImageViewer({
   viewer,
@@ -52,6 +49,7 @@ export function ImageViewer({
 }) {
   const asset = viewer.assets[viewer.index] ?? viewer.assets[0];
   const src = imageAssetSrc(asset);
+  const initialSrcRef = useRef(src);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const userAdjustedImageRef = useRef(false);
   const panRef = useRef<{
@@ -64,7 +62,16 @@ export function ImageViewer({
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const [imageView, setImageView] = useState({ scale: 1, x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-  const viewerOrientation = imageOrientationForSize(naturalSize);
+  // The dialog frame must not resize while the selected image is loading. A
+  // stable class also prevents the old image from being replaced by a blank
+  // orientation frame during rapid keyboard/thumbnail navigation.
+  const viewerOrientation = "stable";
+  const [displayedSrc, setDisplayedSrc] = useState(initialSrcRef.current);
+  const displayedSrcRef = useRef(initialSrcRef.current);
+  const [outgoingFrame, setOutgoingFrame] = useState<ViewerImageFrame | null>(null);
+  const [displayedFrameSize, setDisplayedFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const displayedFrameSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const preloadSequenceRef = useRef(0);
 
   function setIndex(index: number) {
     const nextIndex = (index + viewer.assets.length) % viewer.assets.length;
@@ -116,15 +123,80 @@ export function ImageViewer({
 
   function handleImageLoad(event: SyntheticEvent<HTMLImageElement>) {
     const image = event.currentTarget;
+    // The outgoing buffer may finish decoding after the active buffer. It
+    // must never change the active dimensions or fit transform.
+    if (image.dataset.viewerSrc !== displayedSrcRef.current) return;
     const size = {
       width: image.naturalWidth || 1,
       height: image.naturalHeight || 1
     };
+    displayedFrameSizeRef.current = size;
+    setDisplayedFrameSize(size);
     setNaturalSize(size);
+    setOutgoingFrame(null);
     window.requestAnimationFrame(() => {
       if (!userAdjustedImageRef.current) fitImage(size);
     });
   }
+
+  useEffect(() => {
+    if (!src || src === displayedSrcRef.current) return;
+    const sequence = ++preloadSequenceRef.current;
+    let disposed = false;
+    const preload = new window.Image();
+    preload.decoding = "async";
+    preload.onload = async () => {
+      if (disposed || sequence !== preloadSequenceRef.current) return;
+      const size = {
+        width: preload.naturalWidth || 1,
+        height: preload.naturalHeight || 1
+      };
+      // `onload` means the bytes are available, but decode can still be
+      // pending. Wait for the compositor-ready bitmap before swapping the
+      // visible layer.
+      try {
+        await preload.decode?.();
+      } catch {
+        // A decoded bitmap is an optimization; the browser can still paint
+        // the loaded image if decode() is unavailable or rejects.
+      }
+      if (disposed || sequence !== preloadSequenceRef.current) return;
+      // Keep the old image mounted until the new one is decoded. React then
+      // mounts the new buffer above it and removes the old buffer on the next
+      // frame, avoiding a blank frame between thumbnails.
+      const previousFrame: ViewerImageFrame = {
+        src: displayedSrcRef.current,
+        size: displayedFrameSizeRef.current
+      };
+      setOutgoingFrame(previousFrame.src && previousFrame.src !== src ? previousFrame : null);
+      displayedSrcRef.current = src;
+      setDisplayedSrc(src);
+      displayedFrameSizeRef.current = size;
+      setDisplayedFrameSize(size);
+      setNaturalSize(size);
+      setIsPanning(false);
+      panRef.current = null;
+      userAdjustedImageRef.current = false;
+      window.requestAnimationFrame(() => {
+        if (!disposed && sequence === preloadSequenceRef.current && !userAdjustedImageRef.current) {
+          setImageView({ scale: fitScaleFor(size), x: 0, y: 0 });
+        }
+      });
+    };
+    preload.onerror = () => {
+      // Leave the previous image visible when a transient asset URL fails.
+      if (!disposed && sequence === preloadSequenceRef.current) {
+        setIsPanning(false);
+        panRef.current = null;
+      }
+    };
+    preload.src = src;
+    return () => {
+      disposed = true;
+      preload.onload = null;
+      preload.onerror = null;
+    };
+  }, [src]);
 
   const handleViewerWheel = useStableEvent((event: WheelEvent) => {
     event.preventDefault();
@@ -170,11 +242,11 @@ export function ImageViewer({
   }
 
   useEffect(() => {
-    setNaturalSize(null);
-    setImageView({ scale: 1, x: 0, y: 0 });
+    if (displayedSrcRef.current === src) return;
+    // The preload effect owns the actual source swap. Do not clear the old
+    // dimensions or transform here; that was the source of the visible flash.
     setIsPanning(false);
     panRef.current = null;
-    userAdjustedImageRef.current = false;
   }, [src]);
 
   useEffect(() => {
@@ -251,6 +323,9 @@ export function ImageViewer({
               data-scale={imageView.scale.toFixed(3)}
               data-offset-x={Math.round(imageView.x)}
               data-offset-y={Math.round(imageView.y)}
+              data-displayed-src={displayedSrc}
+              data-target-src={src}
+              data-buffering={displayedSrc === src ? "false" : "true"}
               onPointerDown={beginPan}
               onPointerMove={movePan}
               onPointerUp={endPan}
@@ -258,25 +333,54 @@ export function ImageViewer({
               onDoubleClick={() => (Math.abs(imageView.scale - 1) > 0.02 ? showActualSize() : fitImage(undefined, true))}
               onContextMenu={(event) => openAssetMenu(event, viewer.index)}
             >
+              {outgoingFrame ? (
+                <img
+                  key={`outgoing:${outgoingFrame.src}`}
+                  className="image-viewer-image image-viewer-image-outgoing"
+                  src={outgoingFrame.src}
+                  data-viewer-src={outgoingFrame.src}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  style={{
+                    width: outgoingFrame.size?.width ? `${outgoingFrame.size.width}px` : undefined,
+                    height: outgoingFrame.size?.height ? `${outgoingFrame.size.height}px` : undefined,
+                    transform: `translate(-50%, -50%) translate3d(${imageView.x}px, ${imageView.y}px, 0) scale(${imageView.scale})`
+                  }}
+                />
+              ) : null}
               <img
-                src={src}
+                key={`current:${displayedSrc}`}
+                className="image-viewer-image image-viewer-image-current"
+                src={displayedSrc}
+                data-viewer-src={displayedSrc}
                 alt={`生成图 ${viewer.index + 1}`}
                 draggable={false}
                 onLoad={handleImageLoad}
                 style={{
-                  width: naturalSize?.width ? `${naturalSize.width}px` : undefined,
-                  height: naturalSize?.height ? `${naturalSize.height}px` : undefined,
+                  width: displayedFrameSize?.width ? `${displayedFrameSize.width}px` : naturalSize?.width ? `${naturalSize.width}px` : undefined,
+                  height: displayedFrameSize?.height ? `${displayedFrameSize.height}px` : naturalSize?.height ? `${naturalSize.height}px` : undefined,
                   transform: `translate(-50%, -50%) translate3d(${imageView.x}px, ${imageView.y}px, 0) scale(${imageView.scale})`
                 }}
               />
             </div>
             {viewer.assets.length > 1 ? (
-              <div className="image-viewer-strip" aria-label="图片列表">
-                {viewer.assets.map((item, index) => (
+              <div
+                className="image-viewer-strip"
+                aria-label="最终图片列表"
+                data-final-asset-count={viewer.assets.length}
+              >
+                {viewer.assets.map((item, index) => {
+                  const identity = item.assetId || item.occurrenceId || item.runId || item.assetUrl || item.url || item.path || `asset-${index}`;
+                  const duplicateCount = viewer.assets.slice(0, index).filter((candidate) => (
+                    (candidate.assetId || candidate.occurrenceId || candidate.runId || candidate.assetUrl || candidate.url || candidate.path || "") === identity
+                  )).length;
+                  return (
                   <ButtonBase
-                    key={`${item.runId || item.assetUrl || item.url || item.path || "asset"}-${item.index ?? index}-${index}`}
+                    key={`${identity}-${duplicateCount}`}
                     className={`ui-choice-row ${index === viewer.index ? "active" : ""}`}
                     type="button"
+                    data-final-asset="true"
                     aria-label={`查看图片 ${index + 1}`}
                     title={`查看图片 ${index + 1}`}
                     onClick={() => setIndex(index)}
@@ -284,7 +388,8 @@ export function ImageViewer({
                   >
                     <img src={imageAssetThumbnailSrc(item)} alt={`生成图 ${index + 1}`} draggable={false} loading="lazy" decoding="async" />
                   </ButtonBase>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </SurfaceBody>

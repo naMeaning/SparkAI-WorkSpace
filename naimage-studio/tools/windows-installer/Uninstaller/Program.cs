@@ -51,14 +51,14 @@ internal static class UninstallerDataPolicyProbe
             var pageControlsReusable = window.VerifyPageReuseForDiagnostics();
             var closeHelpMatchesWindow = string.Equals(
                 System.Windows.Automation.AutomationProperties.GetHelpText(window.CloseButton),
-                "关闭 naimage 卸载程序",
+                "关闭 SparkAI WorkSpace 卸载程序",
                 StringComparison.Ordinal);
             var versionInfo = FileVersionInfo.GetVersionInfo(typeof(Program).Assembly.Location);
             var productVersion = versionInfo.ProductVersion ?? "";
             var metadataClean = !string.IsNullOrWhiteSpace(productVersion) &&
                                 !productVersion.Contains("+") &&
-                                string.Equals(versionInfo.ProductName, "naimage", StringComparison.Ordinal) &&
-                                string.Equals(versionInfo.CompanyName, "SparkAI", StringComparison.Ordinal);
+                                string.Equals(versionInfo.ProductName, "SparkAI WorkSpace", StringComparison.Ordinal) &&
+                                string.Equals(versionInfo.CompanyName, "namean", StringComparison.Ordinal);
             window.Close();
             var path = Path.GetFullPath(destination);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -270,7 +270,7 @@ internal static class UninstallerEngine
             log.AppendLine($"[{DateTimeOffset.Now:O}] another install or uninstall operation is active");
             await WriteAllTextAsync(logPath, log.ToString());
             return new UninstallResult(1618, false,
-                "另一个 naimage 安装、更新或卸载操作正在进行，请等待其完成后重试。", logPath);
+                "另一个 SparkAI WorkSpace 安装、更新或卸载操作正在进行，请等待其完成后重试。", logPath);
         }
         log.AppendLine($"[{DateTimeOffset.Now:O}] operationLock={(joinedParentUpgrade ? "joined-parent-upgrade" : "owner")}");
         var tempRoot = Path.Combine(Path.GetTempPath(), "naimage-studio-uninstaller", Guid.NewGuid().ToString("N"));
@@ -334,7 +334,7 @@ internal static class UninstallerEngine
             for (var retry = 0; retry < 180 && File.Exists(installedExecutable); retry++)
                 await Task.Delay(250);
             if (File.Exists(installedExecutable))
-                throw new InvalidOperationException("程序仍在运行，未能完整移除。请关闭 naimage 后重试。");
+                throw new InvalidOperationException("程序仍在运行，未能完整移除。请关闭 SparkAI WorkSpace 后重试。");
 
             if (options.DeleteUserData)
             {
@@ -405,7 +405,7 @@ internal static class UninstallerEngine
                 progress?.Report(new UninstallProgress(42, "恢复卸载", "卸载内核响应超时，正在重新检查并继续清理"));
             }
         }
-        throw new TimeoutException("卸载内核长时间未响应，已停止本次操作。请关闭 naimage 后重试；重复执行会继续清理未完成的组件。");
+        throw new TimeoutException("卸载内核长时间未响应，已停止本次操作。请关闭 SparkAI WorkSpace 后重试；重复执行会继续清理未完成的组件。");
     }
 
     private static void ScheduleSelfRemoval(string installDirectory)
@@ -526,7 +526,7 @@ internal sealed class UninstallerWindow : BrandWindow
     internal int ResultCode { get; private set; } = 1223;
 
     internal UninstallerWindow(string[] args, UninstallArguments options)
-        : base("naimage 卸载程序", "安全卸载")
+        : base("SparkAI WorkSpace 卸载程序", "安全卸载")
     {
         _options = options;
         _preserveToggle = new BrandToggle("保留项目、会话、设置与图片库（推荐）", true);
@@ -545,7 +545,7 @@ internal sealed class UninstallerWindow : BrandWindow
             case "data-confirm": _preserveToggle.IsChecked = false; ShowDataConfirmation(); break;
             case "progress": ShowProgressPreview(); break;
             case "complete": ShowComplete(true); break;
-            case "error": ShowError("naimage 仍在运行，请关闭后重试。", @"C:\Users\Demo\AppData\Local\naimage\installer-logs\uninstall.log"); break;
+            case "error": ShowError("SparkAI WorkSpace 仍在运行，请关闭后重试。", @"C:\Users\Demo\AppData\Local\naimage\installer-logs\uninstall.log"); break;
             default: ShowConfirm(); break;
         }
     }
@@ -604,12 +604,12 @@ internal sealed class UninstallerWindow : BrandWindow
         stack.Children.Add(summaryCard);
         _preserveToggle.Margin = new Thickness(0, 13, 0, 0);
         stack.Children.Add(_preserveToggle);
-        var warning = Text("关闭此选项会同时清理本机账户下的会话、FastMemory、缓存、图片库与安装日志。位于其他目录的外部项目不会被删除。", 11, Color.FromRgb(177, 153, 128));
+        var warning = Text("关闭此选项会同时清理本机账户下的会话、FastMemory、缓存、图片库与安装日志。位于其他目录的外部项目不会被删除。", 11, BrandPalette.Muted);
         var warningCard = Card(warning, new Thickness(14, 12, 14, 12));
         warningCard.Margin = new Thickness(0, 13, 0, 0);
-        warningCard.BorderBrush = BrandPalette.Brush(Color.FromRgb(91, 73, 50));
+        warningCard.BorderBrush = BrandPalette.Brush(BrandPalette.Blue);
         stack.Children.Add(warningCard);
-        SetPage("UNINSTALL", "卸载 naimage", "移除程序组件与系统快捷入口。你可以明确决定是否保留本地创作数据。", stack);
+        SetPage("UNINSTALL", "卸载 SparkAI WorkSpace", "移除程序组件与系统快捷入口。你可以明确决定是否保留本地创作数据。", stack);
         BackButton.Visibility = Visibility.Collapsed;
         SecondaryButton.Visibility = Visibility.Visible;
         SetButtonLabel(SecondaryButton, "取消");
@@ -684,7 +684,7 @@ internal sealed class UninstallerWindow : BrandWindow
         stack.Children.Add(_progressDetail);
         _progressBar.Margin = new Thickness(0, 24, 0, 0);
         stack.Children.Add(_progressBar);
-        SetPage("REMOVING", "正在卸载 naimage", "请保持此窗口开启，卸载器会先关闭应用再安全移除组件。", stack);
+        SetPage("REMOVING", "正在卸载 SparkAI WorkSpace", "请保持此窗口开启，卸载器会先关闭应用再安全移除组件。", stack);
         BackButton.Visibility = Visibility.Collapsed;
         SecondaryButton.Visibility = Visibility.Collapsed;
         PrimaryButton.Visibility = Visibility.Collapsed;
@@ -706,12 +706,12 @@ internal sealed class UninstallerWindow : BrandWindow
             CornerRadius = new CornerRadius(24),
             Background = BrandPalette.Brush(BrandPalette.Mint),
             HorizontalAlignment = HorizontalAlignment.Left,
-            Child = Text("✓", 31, BrandPalette.Ink, FontWeights.Bold),
+            Child = Text("✓", 31, Colors.White, FontWeights.Bold),
             Padding = new Thickness(0, 10, 0, 0)
         };
         ((TextBlock)mark.Child).TextAlignment = TextAlignment.Center;
         stack.Children.Add(mark);
-        var title = Text("naimage 已从这台电脑移除。", 17, BrandPalette.Text, FontWeights.SemiBold);
+        var title = Text("SparkAI WorkSpace 已从这台电脑移除。", 17, BrandPalette.Text, FontWeights.SemiBold);
         title.Margin = new Thickness(0, 20, 0, 8);
         stack.Children.Add(title);
         stack.Children.Add(Text(preserve
@@ -726,7 +726,7 @@ internal sealed class UninstallerWindow : BrandWindow
         SetButtonTone(PrimaryButton, BrandButtonTone.Primary);
         CloseEnabled = true;
         SetKeyboardButtons(PrimaryButton, null);
-        FooterNote.Text = preserve ? "感谢使用 naimage" : "本地数据清理已完成";
+        FooterNote.Text = preserve ? "感谢使用 SparkAI WorkSpace" : "本地数据清理已完成";
     }
 
     private void ShowError(string message, string logPath)
@@ -740,7 +740,7 @@ internal sealed class UninstallerWindow : BrandWindow
         card.Margin = new Thickness(0, 15, 0, 0);
         card.BorderBrush = BrandPalette.Brush(Color.FromRgb(104, 54, 60));
         stack.Children.Add(card);
-        var log = Text($"诊断日志：{logPath}", 10.5, Color.FromRgb(118, 150, 155));
+        var log = Text($"诊断日志：{logPath}", 10.5, BrandPalette.Muted);
         log.Margin = new Thickness(0, 12, 0, 0);
         stack.Children.Add(log);
         SetPage("ERROR", "未能完成卸载", "卸载器已停止继续操作；已完成的系统清理不会回滚。请根据下方原因处理后重试。", stack);

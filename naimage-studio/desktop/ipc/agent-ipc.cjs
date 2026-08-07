@@ -1,5 +1,21 @@
 "use strict";
 
+const { imagePromptRatios, imagePromptResolutions } = require("../../runtime/image-frame.cjs");
+const { validateFrozenGoalTaskScope } = require("../../runtime/goal-image-execution.cjs");
+const { normalizeWorkspaceDomain } = require("../../runtime/workspace-domain.cjs");
+
+function settingsWithRequestedImageDefaults(settings = {}, payload = {}) {
+  const requested = payload?.imageDefaults && typeof payload.imageDefaults === "object" ? payload.imageDefaults : {};
+  const ratio = String(requested.ratio || "").trim().replace("：", ":");
+  const rawResolution = String(requested.resolution || "").trim().toUpperCase();
+  const resolution = rawResolution === "720P" || rawResolution === "1080P" ? "1K" : rawResolution;
+  return {
+    ...settings,
+    ...(imagePromptRatios.has(ratio) ? { imageRatio: ratio } : {}),
+    ...(imagePromptResolutions.has(resolution) ? { imageResolution: resolution } : {})
+  };
+}
+
 function registerAgentIpc({
   ipcMain,
   currentAgentSettings,
@@ -39,6 +55,12 @@ function registerAgentIpc({
 
   const finishRun = (runId) => agentRunControl?.finish({ runId });
 
+  const normalizedRunnableTaskScope = (runtime, payload = {}) => {
+    const taskScope = runtime.normalizeTaskScope(payload || {});
+    if (taskScope?.origin === "goal") validateFrozenGoalTaskScope(taskScope, payload?.taskScope);
+    return taskScope;
+  };
+
   const bindRunOwnerToSender = (event) => {
     const sender = event?.sender;
     if (!sender || typeof sender.once !== "function" || boundRunOwners.has(sender)) return;
@@ -66,7 +88,7 @@ function registerAgentIpc({
   });
 
   ipcMain.handle("naimage:agent:list-models", async (_event, payload = {}) => {
-    const provider = payload?.provider === "image" ? "image" : "agent";
+    const provider = payload?.provider === "image" ? "image" : payload?.provider === "video" ? "video" : "agent";
     try {
       return await listAgentModels(provider, payload?.settings);
     } catch (error) {
@@ -105,7 +127,8 @@ function registerAgentIpc({
       const runtime = getAgentRuntime();
       const runtimePayload = {
         ...(payload || {}),
-        taskScope: runtime.normalizeTaskScope(payload || {})
+        workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain),
+        taskScope: normalizedRunnableTaskScope(runtime, payload)
       };
       controlledRun = beginRun(event, runtimePayload, runId, false);
       bindRunOwnerToSender(event);
@@ -162,13 +185,13 @@ function registerAgentIpc({
       const runtime = getAgentRuntime();
       const runtimePayload = {
         ...(payload || {}),
-        taskScope: runtime.normalizeTaskScope(payload || {})
+        taskScope: normalizedRunnableTaskScope(runtime, payload)
       };
       controlledRun = beginRun(event, runtimePayload, runId, true);
       bindRunOwnerToSender(event);
       const result = await runtime.chat({
         ...runtimePayload,
-        settings: currentAgentSettings(),
+        settings: settingsWithRequestedImageDefaults(currentAgentSettings(), runtimePayload),
         runId,
         signal: controlledRun.signal,
         waitUntilRunnable: (signal) => agentRunControl?.waitUntilRunnable(controlledRun, signal),

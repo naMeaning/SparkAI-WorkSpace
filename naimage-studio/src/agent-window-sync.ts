@@ -4,7 +4,8 @@ import type {
   AgentProgress,
   AgentSteerTaskScopeMode,
   AgentStatus,
-  AppSettings
+  AppSettings,
+  WorkspaceDomain
 } from "./core";
 import {
   glassAppearanceProjection,
@@ -12,6 +13,7 @@ import {
   type GlassThemeMode,
   type GlassThemeSettings
 } from "./glass-theme.ts";
+import { workspaceDomainDefinition } from "./workspace-domain.ts";
 
 const maximumPromptChars = 200_000;
 const maximumMessageChars = 16_000;
@@ -30,9 +32,6 @@ export type AgentWindowGoalState = {
   skippedContainerCount: number;
   probeContainerCount: number;
   concurrencyCap: number;
-  trialImagesUsed: number;
-  paidImages: number;
-  estimatedMaxCostCents?: number;
   warning: string;
 };
 
@@ -66,6 +65,7 @@ export type AgentWindowSnapshot = {
   version: 1;
   ready: boolean;
   projectName: string;
+  workspaceDomain: { id: WorkspaceDomain; title: string };
   modelName: string;
   statusText: string;
   busy: boolean;
@@ -97,6 +97,7 @@ export type AgentWindowCommand =
 export type AgentWindowSnapshotInput = {
   ready: boolean;
   projectName: string;
+  workspaceDomain: WorkspaceDomain;
   modelName: string;
   agentStatus: AgentStatus;
   busy: boolean;
@@ -130,13 +131,6 @@ function boundedCount(value: unknown, maximum = 999) {
   return Math.max(0, Math.min(maximum, Math.floor(Number(value) || 0)));
 }
 
-function boundedCost(value: unknown) {
-  const cost = Number(value);
-  return Number.isFinite(cost) && cost >= 0
-    ? Math.min(Number.MAX_SAFE_INTEGER, Math.round(cost))
-    : undefined;
-}
-
 function agentWindowGoalState(value: AgentWindowGoalState): AgentWindowGoalState {
   const snapshotHash = boundedText(value?.snapshotHash, 80).trim().toLowerCase();
   const active = Boolean(value?.active);
@@ -149,7 +143,6 @@ function agentWindowGoalState(value: AgentWindowGoalState): AgentWindowGoalState
   const requestCount = boundedCount(value?.requestCount, 200);
   const probeContainerCount = boundedCount(value?.probeContainerCount, 2);
   const concurrencyCap = boundedCount(value?.concurrencyCap, 10);
-  const estimatedMaxCostCents = boundedCost(value?.estimatedMaxCostCents);
   const available = Boolean(
     value?.available &&
     containerCount > 0 &&
@@ -171,11 +164,6 @@ function agentWindowGoalState(value: AgentWindowGoalState): AgentWindowGoalState
     skippedContainerCount: boundedCount(value?.skippedContainerCount, 200),
     probeContainerCount,
     concurrencyCap,
-    trialImagesUsed: boundedCount(value?.trialImagesUsed, 200),
-    paidImages: boundedCount(value?.paidImages, 200),
-    ...(estimatedMaxCostCents !== undefined
-      ? { estimatedMaxCostCents }
-      : {}),
     warning: boundedText(value?.warning, 1_000)
   };
 }
@@ -271,10 +259,12 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
     glassMaterial: input.glassMaterial,
     glassParameters: input.glassParameters
   });
+  const domain = workspaceDomainDefinition(input.workspaceDomain);
   return {
     version: 1,
     ready: Boolean(input.ready),
     projectName: boundedText(input.projectName || "项目", 256),
+    workspaceDomain: { id: domain.id, title: boundedText(domain.title, 64) },
     modelName: boundedText(input.modelName, 256),
     statusText: agentWindowStatusText(input),
     busy: Boolean(input.busy),

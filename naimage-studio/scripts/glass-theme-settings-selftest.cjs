@@ -12,14 +12,14 @@ const {
 } = require("../runtime/glass-theme-settings.cjs");
 
 assert.deepEqual(defaultGlassAppearance, {
-  glassTheme: "light-sky",
+  glassTheme: "dark-ember",
   glassMaterial: "frosted",
   glassParameters: {
-    opacity: 44,
-    blur: 28,
-    saturation: 128,
-    highlight: 70,
-    shadow: 18,
+    opacity: 22,
+    blur: 26,
+    saturation: 138,
+    highlight: 34,
+    shadow: 40,
     radius: 14,
     accent: "theme",
     noise: true,

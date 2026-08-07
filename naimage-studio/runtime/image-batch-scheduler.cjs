@@ -128,7 +128,7 @@ function skippedResult(index, code, message, circuit) {
   };
 }
 
-function createSummary(total, batchSize, probeSize, clusterThreshold, clusterRate, processAdmission) {
+function createSummary(total, batchSize, probeSize, clusterThreshold, clusterRate, processAdmission, dispatchMode) {
   return {
     version: 1,
     status: total ? "running" : "empty",
@@ -167,6 +167,7 @@ function createSummary(total, batchSize, probeSize, clusterThreshold, clusterRat
       itemIndexes: []
     },
     policy: {
+      dispatchMode,
       probeConcurrency: 1,
       clusterFailureThreshold: clusterThreshold,
       clusterFailureRate: clusterRate,
@@ -200,7 +201,8 @@ function refreshSummary(summary, results) {
 async function runImageBatchScheduler(options = {}) {
   const items = Array.isArray(options.items) ? options.items : [];
   const batchSize = clampInteger(options.batchSize, 1, maximumBatchSize, 1);
-  const configuredProbeSize = clampInteger(options.probeSize, 1, 2, 2);
+  const dispatchMode = options.dispatchMode === "direct" ? "direct" : "probe-ramp";
+  const configuredProbeSize = dispatchMode === "direct" ? 0 : clampInteger(options.probeSize, 1, 2, 2);
   const clusterThreshold = clampInteger(options.circuitBreakerFailureThreshold, 2, maximumBatchSize, 2);
   const rawClusterRate = Number(options.circuitBreakerFailureRate);
   const clusterRate = Number.isFinite(rawClusterRate) ? Math.max(0.25, Math.min(1, rawClusterRate)) : 0.5;
@@ -209,12 +211,16 @@ async function runImageBatchScheduler(options = {}) {
   const runItem = typeof options.runItem === "function" ? options.runItem : async (item) => item;
   const validateResult = options.validateResult;
   const onBatchStart = typeof options.onBatchStart === "function" ? options.onBatchStart : () => {};
+  const onItemSettled = typeof options.onItemSettled === "function" ? options.onItemSettled : null;
   const probeAdmission = options.probeAdmission && typeof options.probeAdmission.acquire === "function"
     ? options.probeAdmission
     : null;
   const onProbeAdmission = typeof options.onProbeAdmission === "function" ? options.onProbeAdmission : () => {};
   const results = Array(items.length);
-  const summary = createSummary(items.length, batchSize, configuredProbeSize, clusterThreshold, clusterRate, Boolean(probeAdmission));
+  const summary = createSummary(items.length, batchSize, configuredProbeSize, clusterThreshold, clusterRate, Boolean(probeAdmission), dispatchMode);
+  if (dispatchMode === "direct") {
+    summary.ramp.initialConcurrency = batchSize;
+  }
   let nextIndex = 0;
   let active = 0;
   let goalLease = null;
@@ -315,6 +321,7 @@ async function runImageBatchScheduler(options = {}) {
         };
         active += 1;
         summary.maxConcurrentObserved = Math.max(summary.maxConcurrentObserved, active);
+        let outcome;
         try {
           if (signal?.aborted) throw abortError(signal);
           const runPromise = Promise.resolve().then(() => runItem(item, index, signal, dispatchContext));
@@ -322,10 +329,10 @@ async function runImageBatchScheduler(options = {}) {
           const value = await abortable(() => runPromise, signal);
           const validation = await validateSettledValue(validateResult, value, item, index, dispatchContext, signal);
           dispatchToken?.complete?.("fulfilled");
-          return { status: "fulfilled", value, validated: true, validation };
+          outcome = { status: "fulfilled", value, validated: true, validation };
         } catch (reason) {
           dispatchToken?.complete?.(isAbortFailure(reason, signal) ? "aborted" : "rejected");
-          return {
+          outcome = {
             status: "rejected",
             reason,
             failureKind: failureKindFor(reason),
@@ -334,6 +341,14 @@ async function runImageBatchScheduler(options = {}) {
         } finally {
           active -= 1;
         }
+        if (onItemSettled) {
+          try {
+            await onItemSettled(outcome, item, index, dispatchContext);
+          } catch {
+            // Canvas progress is best-effort and must not change provider results.
+          }
+        }
+        return outcome;
       }));
 
       settled.forEach((result, offset) => {
@@ -394,6 +409,36 @@ async function runImageBatchScheduler(options = {}) {
   };
 
   try {
+    if (dispatchMode === "direct") {
+      summary.probe.complete = true;
+      while (nextIndex < items.length && !summary.circuit.open) {
+        const wave = await executeOrOpenCircuit("direct", Math.min(batchSize, items.length - nextIndex));
+        if (!wave) break;
+        if (signal?.aborted) throw abortError(signal);
+        if (wave.concurrency > 1) summary.ramp.expanded = true;
+        const protectedFailure = wave.failures.find((failure) => protectedFailureKinds.has(failure.failureKind));
+        const clusteredFailure = wave.failed >= clusterThreshold && wave.failed / Math.max(1, wave.attempted) >= clusterRate;
+        if (protectedFailure || clusteredFailure) {
+          const code = protectedFailure
+            ? "NAIMAGE_BATCH_PROTECTED_FAILURE"
+            : "NAIMAGE_BATCH_FAILURE_CLUSTER";
+          openCircuit(
+            code,
+            protectedFailure?.message || `${wave.failed}/${wave.attempted} requests failed in one wave.`,
+            protectedFailure?.failureKind || "cluster",
+            wave.waveIndex,
+            wave.failures.map((item) => item.itemIndex)
+          );
+          fillSkipped("NAIMAGE_BATCH_CIRCUIT_OPEN", "The image batch circuit breaker opened; remaining requests were not dispatched.");
+        }
+      }
+      refreshSummary(summary, results);
+      summary.status = summary.circuit.open
+        ? "circuit-open"
+        : summary.failed > 0 ? "completed-with-errors" : "completed";
+      return { results, summary };
+    }
+
     const probeTarget = Math.min(items.length, configuredProbeSize);
     if (probeAdmission) {
       await abortable(() => waitUntilRunnable(signal), signal);

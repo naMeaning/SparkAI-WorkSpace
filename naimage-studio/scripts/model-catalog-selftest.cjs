@@ -3,11 +3,19 @@
 const assert = require("node:assert/strict");
 const {
   cachedModelSettings,
+  createModelAccessProfile,
   createModelCacheKey,
+  markModelAccessProfilesVerified,
+  mergeModelCapabilities,
+  mergeModelAccessProfiles,
+  modelCapabilitiesFromResponse,
   modelGroupsFromResponse,
   modelIdsFromResponse,
+  isExplicitVideoModelId,
   preferredAgentModelFromList,
   preferredImageModelFromList,
+  preferredVideoModelFromList,
+  preserveRuntimeVerifiedModelAccessProfiles,
   splitModelSettings,
   uniqueModelIds
 } = require("../desktop/model-catalog.cjs");
@@ -59,6 +67,94 @@ assert.deepEqual(
   ["flux-1.1-pro", "deepseek-v3"]
 );
 
+const responseCapabilities = modelCapabilitiesFromResponse({
+  success: true,
+  data: [
+    { id: "opaque-chat-v2", supported_endpoint_types: ["openai-response"] },
+    { id: "opaque-image-v2", supported_endpoint_types: "[\"image-generation\"]" },
+    { id: "opaque-video-v2", supportedEndpointTypes: { "openai-video": true, openai: false } },
+    { id: "doubao-seedance-2-0-260128", supported_endpoint_types: ["openai"] }
+  ]
+});
+assert.deepEqual(responseCapabilities["opaque-chat-v2"], {
+  id: "opaque-chat-v2",
+  endpointTypes: ["openai-response"]
+});
+assert.deepEqual(responseCapabilities["opaque-image-v2"], {
+  id: "opaque-image-v2",
+  endpointTypes: ["image-generation"]
+});
+assert.deepEqual(responseCapabilities["opaque-video-v2"], {
+  id: "opaque-video-v2",
+  endpointTypes: ["openai-video"]
+});
+assert.deepEqual(
+  mergeModelCapabilities(
+    responseCapabilities,
+    { "opaque-chat-v2": { id: "OPAQUE-CHAT-V2", endpointTypes: ["anthropic"] } }
+  )["opaque-chat-v2"].endpointTypes,
+  ["openai-response", "anthropic"]
+);
+
+const capabilitySplit = splitModelSettings(
+  {
+    imageModel: "opaque-chat-v2",
+    imageModelPool: ["opaque-chat-v2", "opaque-image-v2"],
+    agentModel: "opaque-chat-v2",
+    agentModelPool: ["opaque-chat-v2", "opaque-video-v2"],
+    videoModel: "doubao-seedance-2-0-260128",
+    videoModelPool: ["doubao-seedance-2-0-260128"]
+  },
+  ["opaque-chat-v2", "opaque-image-v2", "opaque-video-v2", "doubao-seedance-2-0-260128", "opaque-unknown-v2"],
+  [],
+  responseCapabilities
+);
+assert.deepEqual(capabilitySplit.imageModels, ["opaque-image-v2", "opaque-unknown-v2"]);
+assert.equal(capabilitySplit.imageModel, "opaque-image-v2", "A capability-known chat model must not remain the selected image model");
+assert.deepEqual(capabilitySplit.agentModels, ["opaque-chat-v2", "opaque-unknown-v2"]);
+assert.deepEqual(capabilitySplit.videoModels, ["opaque-video-v2", "doubao-seedance-2-0-260128"]);
+assert.deepEqual(capabilitySplit.modelCapabilities, responseCapabilities);
+
+const checkedAt = "2026-08-01T10:00:00.000Z";
+const declaredProfile = createModelAccessProfile({
+  id: "model-access-fixture",
+  label: "所选账户 Token",
+  baseUrl: "https://user:password@example.com/v1?secret=1#fragment",
+  credentialLabel: "Default token",
+  providers: ["agent", "image", "video"],
+  modelIds: ["opaque-image-v2", "doubao-seedance-2-0-260128"],
+  modelCapabilities: responseCapabilities,
+  lastCheckedAt: checkedAt
+});
+assert.equal(declaredProfile.baseUrl, "https://example.com/v1", "Access profiles must never retain URL credentials, queries, or fragments");
+assert.equal(declaredProfile.capabilities["opaque-image-v2"].evidence, "upstream-declared");
+assert.equal(declaredProfile.capabilities["doubao-seedance-2-0-260128"].evidence, "upstream-declared");
+const verifiedProfiles = markModelAccessProfilesVerified([declaredProfile], {
+  provider: "video",
+  model: "doubao-seedance-2-0-260128",
+  endpointType: "openai-video",
+  verifiedAt: "2026-08-01T10:05:00.000Z"
+});
+assert.equal(verifiedProfiles[0].capabilities["doubao-seedance-2-0-260128"].evidence, "runtime-verified");
+assert.deepEqual(verifiedProfiles[0].capabilities["doubao-seedance-2-0-260128"].endpointTypes, ["openai", "openai-video"]);
+const failedRefreshProfile = createModelAccessProfile({
+  id: "model-access-fixture",
+  label: "所选账户 Token",
+  baseUrl: "https://example.com/v1",
+  credentialLabel: "Default token",
+  providers: ["agent", "image", "video"],
+  lastCheckedAt: "2026-08-01T10:10:00.000Z",
+  error: "Token lookup failed"
+});
+const mergedFailureProfile = mergeModelAccessProfiles(verifiedProfiles, [failedRefreshProfile])[0];
+assert.equal(mergedFailureProfile.error, "Token lookup failed");
+assert.equal(mergedFailureProfile.capabilities["doubao-seedance-2-0-260128"].evidence, "runtime-verified");
+assert.equal(
+  preserveRuntimeVerifiedModelAccessProfiles([failedRefreshProfile], verifiedProfiles)[0]
+    .capabilities["doubao-seedance-2-0-260128"].evidence,
+  "runtime-verified"
+);
+
 assert.deepEqual(
   modelGroupsFromResponse({
     success: true,
@@ -85,6 +181,8 @@ const split = splitModelSettings(
     ],
     agentModel: "gpt-5.6-sol",
     agentModelPool: ["gpt-5.6-sol", "claude-4.5-sonnet"],
+    videoModel: "doubao-seedance-2-0-260128",
+    videoModelPool: ["doubao-seedance-2-0-260128"],
     modelGroup: "vip",
     accountBaseUrl: "https://sparkapi.org"
   },
@@ -92,6 +190,8 @@ const split = splitModelSettings(
     "gpt-5.6-sol",
     "gpt-image-2",
     "GPT-IMAGE-2",
+    "doubao-seedance-2-0-260128",
+    "sora-2",
     "claude-4.5-sonnet",
     "gemini-2.5-pro",
     "gemini-2.5-flash-image-preview",
@@ -106,6 +206,8 @@ const split = splitModelSettings(
 assert.deepEqual(split.models, [
   "gpt-5.6-sol",
   "gpt-image-2",
+  "doubao-seedance-2-0-260128",
+  "sora-2",
   "claude-4.5-sonnet",
   "gemini-2.5-pro",
   "gemini-2.5-flash-image-preview",
@@ -132,18 +234,25 @@ assert.deepEqual(split.agentModels, [
   "grok-3",
   "vendor/custom-model-v2"
 ]);
+assert.deepEqual(split.videoModels, ["doubao-seedance-2-0-260128", "sora-2"]);
 assert.equal(split.imageModel, "opaque-renderer-v9");
+assert.equal(split.videoModel, "doubao-seedance-2-0-260128");
 assert.equal(split.modelGroup, "vip");
 assert.deepEqual(split.modelGroups, [{ id: "vip", label: "vip", description: "高级模型", ratio: undefined }]);
 assert.equal(split.channelName, "SparkAPI");
 assert.equal(split.serviceReady, true);
 assert.equal(split.keyManaged, true);
 
+assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol-pro", "gpt-5.6-terra"]), "gpt-5.6-terra");
 assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol-pro"]), "gpt-5.6-sol-pro");
 assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5-latest"]), "gpt-5.5-latest");
 assert.equal(preferredAgentModelFromList(["claude-4"]), "claude-4");
 assert.equal(preferredImageModelFromList(["flux-1", "gpt-image-2", "gpt-image-1"]), "gpt-image-2");
 assert.equal(preferredImageModelFromList(["flux-1"]), "flux-1");
+assert.equal(isExplicitVideoModelId("doubao-seedance-2-0-260128"), true);
+assert.equal(isExplicitVideoModelId("gpt-image-2"), false);
+assert.equal(preferredVideoModelFromList(["sora-2", "doubao-seedance-2-0-260128"]), "doubao-seedance-2-0-260128");
+assert.equal(preferredVideoModelFromList(["sora-2"]), "sora-2");
 
 const invalidSavedImage = splitModelSettings(
   {
@@ -180,12 +289,19 @@ const cached = cachedModelSettings(
   { imageModel: "settings-image", modelGroup: "default" },
   {
     models: ["gpt-5.6-sol"],
-    imageModels: ["gpt-image-2"],
+    imageModels: ["gpt-image-2", "cached-image"],
     agentModels: ["GPT-5.6-SOL", "claude-4.5-sonnet"],
+    videoModels: ["doubao-seedance-2-0-260128"],
     imageCostCents: "12",
     imageCostYuan: 0.12,
     trialImages: "3",
     imageModel: "cached-image",
+    videoModel: "doubao-seedance-2-0-260128",
+    modelCapabilities: {
+      "gpt-5.6-sol": { id: "gpt-5.6-sol", endpointTypes: ["openai-response"] },
+      "gpt-image-2": { id: "gpt-image-2", endpointTypes: ["image-generation", "openai"] },
+      "doubao-seedance-2-0-260128": { id: "doubao-seedance-2-0-260128", endpointTypes: ["openai"] }
+    },
     modelGroup: "vip",
     modelGroups: { vip: { desc: "高级模型", ratio: 2 } },
     channelName: "Managed New API",
@@ -193,13 +309,16 @@ const cached = cachedModelSettings(
     keyManaged: false
   }
 );
-assert.deepEqual(cached.models, ["gpt-5.6-sol", "gpt-image-2", "claude-4.5-sonnet"]);
-assert.deepEqual(cached.imageModels, ["gpt-image-2", "cached-image"]);
-assert.deepEqual(cached.agentModels, ["gpt-5.6-sol", "claude-4.5-sonnet"]);
+assert.deepEqual(cached.models, ["gpt-5.6-sol", "gpt-image-2", "cached-image", "claude-4.5-sonnet", "doubao-seedance-2-0-260128"]);
+assert.deepEqual(cached.imageModels, ["gpt-image-2", "cached-image", "settings-image"]);
+assert.deepEqual(cached.agentModels, ["GPT-5.6-SOL", "claude-4.5-sonnet"]);
+assert.deepEqual(cached.videoModels, ["doubao-seedance-2-0-260128"]);
 assert.equal(cached.imageCostCents, 12);
 assert.equal(cached.imageCostYuan, 0.12);
 assert.equal(cached.trialImages, 3);
 assert.equal(cached.imageModel, "cached-image");
+assert.equal(cached.videoModel, "doubao-seedance-2-0-260128");
+assert.deepEqual(cached.modelCapabilities["gpt-image-2"].endpointTypes, ["image-generation", "openai"]);
 assert.equal(cached.modelGroup, "vip");
 assert.deepEqual(cached.modelGroups, [{ id: "vip", label: "vip", description: "高级模型", ratio: 2 }]);
 assert.equal(cached.channelName, "Managed New API");

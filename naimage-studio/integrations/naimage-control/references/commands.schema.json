@@ -15,11 +15,140 @@
       ]
     },
     {
+      "title": "Development debugging",
+      "commands": [
+        {
+          "name": "debug.runtime-state",
+          "surface": "service",
+          "description": "Return a bounded, redacted Main/Renderer runtime snapshot. Available only in local development or AIDebug mode; it never includes API keys, cookies, endpoint tokens, or absolute user asset paths.",
+          "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "debug.renderer-logs",
+          "surface": "service",
+          "description": "Read the most recent bounded Renderer console entries from the local diagnostic log after redaction. Development/AIDebug only.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
+            }
+          }
+        },
+        {
+          "name": "debug.main-logs",
+          "surface": "service",
+          "description": "Read the most recent bounded Main-process diagnostic log after redaction. Development/AIDebug only.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
+            }
+          }
+        },
+        {
+          "name": "debug.run-targeted-test",
+          "surface": "service",
+          "description": "Run one fixed, read-only repository test script and return bounded stdout/stderr. Arbitrary shell, paths, package installs, and user project mutations are not allowed.",
+          "parameters": {
+            "type": "object",
+            "required": ["testName"],
+            "additionalProperties": false,
+            "properties": {
+              "testName": {
+                "type": "string",
+                "enum": ["typecheck", "test:automation-debug", "test:mcp-wrapper", "test:ipc-registration", "test:workspace-domain", "test:automation-service", "test:scientific-runner", "test:commerce-template"]
+              },
+              "timeoutMs": { "type": "integer", "minimum": 1000, "maximum": 120000, "default": 60000 }
+            }
+          }
+        },
+        {
+          "name": "debug.capture-window",
+          "surface": "service",
+          "description": "Capture the focused SparkAI WorkSpace window into the bounded diagnostic directory. The caller cannot choose an arbitrary path or window.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": { "type": "string", "maxLength": 80, "default": "window" },
+              "scope": { "type": "string", "enum": ["page", "window"], "default": "page" }
+            }
+          }
+        },
+        {
+          "name": "debug.inspect-ipc",
+          "surface": "service",
+          "description": "List registered IPC channel names and counts without exposing handlers, payloads, credentials, or user data.",
+          "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "debug.inspect-command",
+          "surface": "service",
+          "description": "Inspect one shared automation command definition, including its surface and parameter schema, without executing it.",
+          "parameters": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Workspace domains",
+      "commands": [
+        {
+          "name": "workspace.domain.list",
+          "surface": "renderer",
+          "description": "List the four canonical SparkAI workspace domains with their public titles, descriptions, icons, plugin projections, and available tool names.",
+          "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "workspace.domain.get",
+          "surface": "renderer",
+          "description": "Return the active project's current workspace domain. Old projects normalize to general.",
+          "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "workspace.domain.set",
+          "surface": "renderer",
+          "description": "Set the active project's workspace domain without remounting the canvas, clearing selection, interrupting tasks, calling a model, or producing charges.",
+          "parameters": {
+            "type": "object",
+            "required": ["domain", "expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "domain": { "type": "string", "enum": ["general", "commerce", "social", "research"] },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          },
+          "examples": [{ "domain": "commerce", "expectedProjectId": "PROJECT_ID" }]
+        }
+      ]
+    },
+    {
       "title": "Projects",
       "commands": [
         { "name": "project.list", "surface": "renderer", "args": "", "description": "List projects and the active project ID." },
         { "name": "project.switch", "surface": "renderer", "args": "{ \"id\": \"project-id\" }", "description": "Switch to an existing project." },
-        { "name": "project.create", "surface": "renderer", "args": "{ \"name\": \"Project name\" }", "description": "Create and activate a project." },
+        {
+          "name": "project.create",
+          "surface": "renderer",
+          "description": "Create and activate a project in the requested workspace domain; omitted workspaceDomain inherits the current domain.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "maxLength": 60 },
+              "workspaceDomain": { "type": "string", "enum": ["general", "commerce", "social", "research"] }
+            }
+          },
+          "examples": [{ "name": "Amazon launch", "workspaceDomain": "commerce" }]
+        },
         { "name": "project.rename", "surface": "renderer", "args": "{ \"name\": \"New name\" }", "description": "Rename the active project." }
       ]
     },
@@ -225,6 +354,61 @@
         { "name": "canvas.delete-selected", "surface": "renderer", "args": "{ \"confirmed\": true }", "description": "Delete selected nodes after explicit user authorization.", "destructive": true },
         { "name": "canvas.create-container", "surface": "renderer", "args": "{ \"x\": 180, \"y\": 160, \"role\": \"source | reference\" }", "description": "Create an image container; omit role for a normal container." },
         { "name": "canvas.import", "surface": "renderer", "args": "{ \"paths\": [\"C:\\\\path\\\\image.png\"], \"targetContainerId\": \"optional-node-id\", \"x\": 240, \"y\": 180 }", "description": "Copy local images into the active project and place them on the canvas." },
+        {
+          "name": "canvas.import-video",
+          "surface": "renderer",
+          "args": "{ \"paths\": [\"C:\\\\path\\\\video.mp4\"], \"x\": 240, \"y\": 180 }",
+          "description": "Copy authorized local MP4, WebM, MOV, or M4V files into the active project and create independent video result nodes. This command imports existing files only; it does not call a video model or incur generation charges.",
+          "examples": [
+            { "paths": ["C:\\path\\video.mp4"], "x": 240, "y": 180 }
+          ],
+          "parameters": {
+            "type": "object",
+            "required": ["paths"],
+            "additionalProperties": false,
+            "properties": {
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": { "type": "string", "minLength": 1, "maxLength": 32767 }
+              },
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          }
+        },
+        {
+          "name": "canvas.generate-video",
+          "surface": "renderer",
+          "description": "Create one durable asynchronous video task through the independent video adapter. The command writes the project journal before provider dispatch, returns the task and canvas-node state without waiting for the video to finish, resumes polling after restart, and never automatically recreates an ambiguous POST. confirmed=true is required because the upstream Base URL or Token may charge for the request.",
+          "examples": [
+            {
+              "prompt": "Slow orbit around the exact product on a clean studio pedestal.",
+              "seconds": 5,
+              "aspectRatio": "16:9",
+              "resolution": "720p",
+              "expectedProjectId": "PROJECT_ID",
+              "confirmed": true
+            }
+          ],
+          "parameters": {
+            "type": "object",
+            "required": ["prompt", "expectedProjectId", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "prompt": { "type": "string", "minLength": 1, "maxLength": 20000 },
+              "model": { "type": "string", "minLength": 1, "maxLength": 240 },
+              "seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 5 },
+              "aspectRatio": { "type": "string", "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"], "default": "16:9" },
+              "resolution": { "type": "string", "enum": ["480p", "720p", "1080p"], "default": "720p" },
+              "x": { "type": "number", "default": 240 },
+              "y": { "type": "number", "default": 180 },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
         { "name": "canvas.import-skill", "surface": "renderer", "args": "{ \"markdown\": \"---\\nname: product-photo\\ndescription: Product photography guidance\\n---\\n\\nFollow these instructions...\", \"sourceName\": \"SKILL.md\", \"x\": 240, \"y\": 180 }", "description": "Import one bounded SKILL.md document as a reusable Skill-backed requirement node. An unchanged exact re-import selects the existing node. If that node's instructions were edited locally, the response returns exact:false and conflict:locally-modified without overwriting local text." },
         {
           "name": "canvas.export-image",
@@ -348,26 +532,725 @@
       ]
     },
     {
+      "title": "Commerce templates",
+      "commands": [
+        {
+          "name": "commerce.template.list",
+          "surface": "renderer",
+          "description": "List the installation-local commerce template market. Built-in Amazon and AliExpress entries are read-only; personal entries include exact revisions for compare-and-set updates, export, and deletion. This command does not require a canvas selection and never generates images."
+        },
+        {
+          "name": "commerce.template.save",
+          "surface": "renderer",
+          "description": "Save a reusable structured commerce set plan to the installation-local template market. Omit templateId for a new personal template. A same-name create fails with TEMPLATE_NAME_CONFLICT instead of silently overwriting; use conflictPolicy=copy to create an automatically numbered copy, or re-read the library and pass conflictPolicy=overwrite with the exact personal templateId and expectedTemplateRevision. Source-specific translationItems and canvas saveTarget state are intentionally not accepted or persisted.",
+          "parameters": {
+            "type": "object",
+            "required": ["title", "plan"],
+            "additionalProperties": false,
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^commerce-template-[a-f0-9]{32}$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "conflictPolicy": { "type": "string", "enum": ["overwrite", "copy"] },
+              "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "description": { "type": "string", "maxLength": 600 },
+              "plan": {
+                "type": "object",
+                "required": ["mode"],
+                "additionalProperties": false,
+                "properties": {
+                  "schemaVersion": { "type": "integer", "enum": [1], "default": 1 },
+                  "mode": { "type": "string", "enum": ["generate", "translate"] },
+                  "platformTemplateId": { "type": "string", "enum": ["general", "amazon", "aliexpress"], "default": "general" },
+                  "title": { "type": "string", "maxLength": 120 },
+                  "slots": {
+                    "type": "array", "minItems": 1, "maxItems": 12,
+                    "items": {
+                      "type": "object", "additionalProperties": false,
+                      "properties": {
+                        "id": { "type": "string", "maxLength": 80 },
+                        "title": { "type": "string", "maxLength": 80 },
+                        "prompt": { "type": "string", "maxLength": 2000 }
+                      }
+                    }
+                  },
+                  "targetLocales": {
+                    "type": "array", "maxItems": 10,
+                    "items": {
+                      "type": "object", "required": ["code"], "additionalProperties": false,
+                      "properties": {
+                        "code": { "type": "string", "minLength": 2, "maxLength": 32, "enum": ["en-US", "en-GB", "de-DE", "fr-FR", "es-ES", "it-IT", "pt-BR", "ja-JP", "ko-KR", "ar-SA", "ru-RU", "th-TH", "vi-VN", "id-ID"] },
+                        "prompt": { "type": "string", "maxLength": 800 }
+                      }
+                    }
+                  },
+                  "translatePrompt": { "type": "string", "maxLength": 2000 }
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "title": "Amazon summer listing set",
+              "description": "Seven-image summer campaign structure.",
+              "plan": {
+                "mode": "generate",
+                "platformTemplateId": "amazon",
+                "title": "Amazon summer listing set"
+              }
+            }
+          ]
+        },
+        {
+          "name": "commerce.template.delete",
+          "surface": "renderer",
+          "destructive": true,
+          "description": "Delete one exact personal commerce template revision. confirmed=true is required. Built-in templates, existing canvas nodes, generated images, and catalog relations are never deleted.",
+          "parameters": {
+            "type": "object",
+            "required": ["templateId", "expectedTemplateRevision", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^commerce-template-[a-f0-9]{32}$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "name": "commerce.template.import",
+          "surface": "renderer",
+          "description": "Open the native file picker and import one strict naimage-commerce-template v1 JSON document as a new personal template. Unknown fields, oversized files, invalid plans, and silent overwrites are rejected."
+        },
+        {
+          "name": "commerce.template.export",
+          "surface": "renderer",
+          "description": "Export one built-in or personal commerce template through the native save dialog. Personal templates require the exact displayed revision; the portable file excludes local IDs, timestamps, source-specific translation cells, canvas paths, and saveTarget state.",
+          "parameters": {
+            "type": "object",
+            "required": ["templateId"],
+            "additionalProperties": false,
+            "properties": {
+              "templateId": { "type": "string", "pattern": "^(?:commerce-builtin-(?:amazon|aliexpress)|commerce-template-[a-f0-9]{32})$" },
+              "expectedTemplateRevision": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Commerce catalog",
+      "commands": [
+        {
+          "name": "commerce.catalog.list",
+          "surface": "renderer",
+          "description": "Read the project-local SKU product catalog with its aggregate CAS revision. The response includes products, variants, SKUs and portable asset relations, but never absolute paths, URLs, blobs or image data.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "includeArchived": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        {
+          "name": "commerce.catalog.upsert",
+          "surface": "renderer",
+          "description": "Create or update one product aggregate through catalog and product compare-and-set guards. Variant and SKU IDs are Main-owned stable identities; omit them only when creating a new row. An enabled brandStyle is frozen into future Commerce Goals whose SOURCE resolves to this product/SKU; linked logo, packaging and style-reference assets are selected from commerce.catalog.assign records at Goal preview time. This command performs no image generation and never changes canvas nodes.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "product"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "product": {
+                "type": "object",
+                "required": ["title"],
+                "additionalProperties": false,
+                "properties": {
+                  "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+                  "expectedProductRevision": { "type": "integer", "minimum": 1 },
+                  "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+                  "productCode": { "type": "string", "maxLength": 120 },
+                  "brand": { "type": "string", "maxLength": 120 },
+                  "brandStyle": {
+                    "type": "object",
+                    "required": ["enabled"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "version": { "type": "integer", "enum": [1], "default": 1 },
+                      "enabled": { "type": "boolean" },
+                      "fontFamily": { "type": "string", "maxLength": 120 },
+                      "colors": { "type": "array", "maxItems": 8, "uniqueItems": true, "items": { "type": "string", "pattern": "^#[a-fA-F0-9]{6}$" } },
+                      "logoUsage": { "type": "string", "maxLength": 600 },
+                      "modelAppearance": { "type": "string", "maxLength": 600 },
+                      "productAppearance": { "type": "string", "maxLength": 600 },
+                      "visualStyle": { "type": "string", "maxLength": 600 }
+                    }
+                  },
+                  "platforms": { "type": "array", "maxItems": 2, "uniqueItems": true, "items": { "type": "string", "enum": ["amazon", "aliexpress"] } },
+                  "variants": {
+                    "type": "array", "maxItems": 500,
+                    "items": {
+                      "type": "object", "required": ["title"], "additionalProperties": false,
+                      "properties": {
+                        "variantId": { "type": "string", "pattern": "^variant-[a-f0-9]{32}$" },
+                        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "optionValues": {
+                          "type": "array", "maxItems": 24,
+                          "items": {
+                            "type": "object", "required": ["name", "value"], "additionalProperties": false,
+                            "properties": {
+                              "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+                              "value": { "type": "string", "minLength": 1, "maxLength": 120 }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "skus": {
+                    "type": "array", "maxItems": 1000,
+                    "items": {
+                      "type": "object", "required": ["skuCode"], "additionalProperties": false,
+                      "properties": {
+                        "skuId": { "type": "string", "pattern": "^sku-[a-f0-9]{32}$" },
+                        "skuCode": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "title": { "type": "string", "maxLength": 120 },
+                        "variantId": { "type": "string", "pattern": "^variant-[a-f0-9]{32}$" },
+                        "variantIndex": { "type": "integer", "minimum": 0, "maximum": 499 },
+                        "platforms": { "type": "array", "maxItems": 2, "uniqueItems": true, "items": { "type": "string", "enum": ["amazon", "aliexpress"] } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "expectedCatalogRevision": 0,
+              "product": {
+                "title": "Travel mug",
+                "productCode": "SPU-001",
+                "brand": "North",
+                "brandStyle": {
+                  "enabled": true,
+                  "fontFamily": "Inter, Arial, sans-serif",
+                  "colors": ["#0B1F33", "#F4C430"],
+                  "logoUsage": "Keep the original logo artwork, wording, colors and proportions.",
+                  "modelAppearance": "Use the same adult model identity across the listing set.",
+                  "productAppearance": "Keep body geometry, finish and printed markings unchanged.",
+                  "visualStyle": "Clean premium product photography with restrained typography."
+                },
+                "platforms": ["amazon", "aliexpress"],
+                "variants": [{ "title": "Black 500ml", "optionValues": [{ "name": "Color", "value": "Black" }] }],
+                "skus": [{ "skuCode": "MUG-BLK-500", "platforms": ["amazon"], "variantIndex": 0 }]
+              }
+            }
+          ]
+        },
+        {
+          "name": "commerce.catalog.delete",
+          "surface": "renderer",
+          "destructive": true,
+          "description": "Archive one exact product revision. This never deletes canvas nodes or image files and performs no implicit cascade. confirmed=true is still required because the product disappears from the default active catalog view.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "productId", "expectedProductRevision", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+              "expectedProductRevision": { "type": "integer", "minimum": 1 },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "name": "commerce.catalog.assign",
+          "surface": "renderer",
+          "description": "Atomically associate 1-200 authoritative canvas images with a product, variant or SKU as a mother image, brand asset or generated result. Inputs accept only nodeId plus zero-based assetIndex; Main resolves managed asset identity and rejects stale, unfinished, unmanaged or path-like input before writing.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "expectedCanvasRevision", "productId", "expectedProductRevision", "kind", "ownerType", "role", "assets"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+              "expectedProductRevision": { "type": "integer", "minimum": 1 },
+              "kind": { "type": "string", "enum": ["master", "brand", "result"] },
+              "ownerType": { "type": "string", "enum": ["product", "variant", "sku"] },
+              "ownerId": { "type": "string", "maxLength": 48 },
+              "role": { "type": "string", "minLength": 1, "maxLength": 60 },
+              "assets": {
+                "type": "array", "minItems": 1, "maxItems": 200, "uniqueItems": true,
+                "items": {
+                  "type": "object", "required": ["nodeId", "assetIndex"], "additionalProperties": false,
+                  "properties": {
+                    "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+                    "assetIndex": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "commerce.catalog.remove",
+          "surface": "renderer",
+          "description": "Remove one exact material or result relation through catalog and product CAS guards. The underlying canvas node and managed image file are retained.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "productId", "expectedProductRevision", "linkId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+              "expectedProductRevision": { "type": "integer", "minimum": 1 },
+              "linkId": { "type": "string", "pattern": "^(?:material|result)-[a-f0-9]{32}$" }
+            }
+          }
+        },
+        {
+          "name": "commerce.catalog.review",
+          "surface": "renderer",
+          "description": "Review one or more generated catalog results through catalog and product compare-and-set guards. linkIds are processed in order against the evolving revisions and may be marked candidate, approved, or rejected; this changes only review state and retains canvas nodes and managed image files.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "productId", "expectedProductRevision", "linkIds", "state"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+              "expectedProductRevision": { "type": "integer", "minimum": 1 },
+              "linkIds": { "type": "array", "minItems": 1, "maxItems": 200, "uniqueItems": true, "items": { "type": "string", "pattern": "^result-[a-f0-9]{32}$" } },
+              "state": { "type": "string", "enum": ["candidate", "approved", "rejected"] }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "expectedCatalogRevision": 12,
+              "productId": "product-0123456789abcdef0123456789abcdef",
+              "expectedProductRevision": 4,
+              "linkIds": ["result-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "result-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+              "state": "approved"
+            }
+          ]
+        },
+        {
+          "name": "commerce.catalog.compare",
+          "surface": "renderer",
+          "description": "List A/B comparison groups for retained results sharing the same product ownership, source relation, slot, locale, and role. Different commerce plan runs remain comparable. Groups contain at least two distinct result payloads and preserve exact catalog/product revisions for final selection.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" }
+            }
+          }
+        },
+        {
+          "name": "commerce.catalog.select",
+          "surface": "renderer",
+          "description": "Atomically select one exact A/B winner through catalog and product compare-and-set guards. The winner becomes approved and every retained sibling in the recomputed comparison group becomes rejected in one catalog write. No relation, provenance record, canvas node, or managed image file is deleted.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "productId", "expectedProductRevision", "groupKey", "winnerLinkId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "productId": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" },
+              "expectedProductRevision": { "type": "integer", "minimum": 1 },
+              "groupKey": { "type": "string", "pattern": "^comparison-[a-f0-9]{32}$" },
+              "winnerLinkId": { "type": "string", "pattern": "^result-[a-f0-9]{32}$" }
+            }
+          }
+        },
+        {
+          "name": "commerce.export.preview",
+          "surface": "renderer",
+          "description": "Preview an Amazon or AliExpress export from the authoritative project SKU catalog. Product-level results inherit to every selected SKU, variant-level results inherit only to matching SKUs, and SKU-level results remain local. Approved results are included by default; includeCandidates=true also includes candidates, while rejected results are always excluded. The response reports dimensions, aspect ratio, Amazon main-image white-edge checks, stable SKU filenames, package counts, and integrity blockers without exposing source paths or writing files.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "platform", "format"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "platform": { "type": "string", "enum": ["amazon", "aliexpress"] },
+              "format": { "type": "string", "enum": ["jpeg", "png"] },
+              "includeCandidates": { "type": "boolean", "default": false },
+              "productIds": { "type": "array", "maxItems": 500, "uniqueItems": true, "items": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" } },
+              "skuIds": { "type": "array", "maxItems": 500, "uniqueItems": true, "items": { "type": "string", "pattern": "^sku-[a-f0-9]{32}$" } }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "expectedCatalogRevision": 12,
+              "platform": "amazon",
+              "format": "jpeg",
+              "includeCandidates": false,
+              "skuIds": ["sku-0123456789abcdef0123456789abcdef"]
+            }
+          ]
+        },
+        {
+          "name": "commerce.export.package",
+          "surface": "renderer",
+          "description": "Re-run the authoritative platform checks and export the selected SKU packages plus a relative-path manifest through a native directory picker. confirmed=true is mandatory. The command never accepts a caller-provided destination path, never mutates managed source images, blocks missing or hash-mismatched assets, and publishes the completed directory atomically.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCatalogRevision", "platform", "format", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCatalogRevision": { "type": "integer", "minimum": 0 },
+              "platform": { "type": "string", "enum": ["amazon", "aliexpress"] },
+              "format": { "type": "string", "enum": ["jpeg", "png"] },
+              "includeCandidates": { "type": "boolean", "default": false },
+              "productIds": { "type": "array", "maxItems": 500, "uniqueItems": true, "items": { "type": "string", "pattern": "^product-[a-f0-9]{32}$" } },
+              "skuIds": { "type": "array", "maxItems": 500, "uniqueItems": true, "items": { "type": "string", "pattern": "^sku-[a-f0-9]{32}$" } },
+              "confirmed": { "type": "boolean" }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "expectedCatalogRevision": 12,
+              "platform": "aliexpress",
+              "format": "png",
+              "includeCandidates": true,
+              "productIds": ["product-0123456789abcdef0123456789abcdef"],
+              "confirmed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Social content",
+      "commands": [
+        {
+          "name": "social.xiaohongshu.plan",
+          "surface": "renderer",
+          "description": "Create a structured Xiaohongshu Requirement on the current canvas without calling a model or producing charges. The optional SOURCE nodes are exact and atomically checked against the active project and canvas revision.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCanvasRevision", "brief"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "sourceNodeIds": { "type": "array", "maxItems": 200, "uniqueItems": true, "default": [], "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+              "brief": { "type": "string", "minLength": 1, "maxLength": 4000 },
+              "contentKind": { "type": "string", "enum": ["product-seeding", "tutorial", "comparison", "knowledge", "list", "experience-share", "travel"], "default": "experience-share" },
+              "audience": { "type": "string", "maxLength": 500 },
+              "objective": { "type": "string", "maxLength": 1000 },
+              "language": { "type": "string", "maxLength": 80, "default": "跟随用户" },
+              "ratio": { "type": "string", "enum": ["3:4", "4:5", "1:1"], "default": "3:4" },
+              "cardCount": { "type": "integer", "minimum": 6, "maximum": 9, "default": 7 },
+              "titleCandidateCount": { "type": "integer", "minimum": 1, "maximum": 5, "default": 3 },
+              "coverEnabled": { "type": "boolean", "default": true },
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          },
+          "examples": [{ "expectedProjectId": "PROJECT_ID", "expectedCanvasRevision": 12, "sourceNodeIds": ["A"], "brief": "制作一组适合小红书发布的通勤防晒经验图文", "contentKind": "experience-share", "ratio": "3:4", "cardCount": 7 }]
+        },
+        {
+          "name": "social.xiaohongshu.execute",
+          "surface": "renderer",
+          "description": "Execute one existing Xiaohongshu social Requirement through the production Agent and image task path, then wait for the current turn to settle. This explicit command authorizes the planned image requests and possible upstream billing; the response reports planned request counts and observed dispatch state.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "nodeId", "expectedRevision"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRevision": { "type": "integer", "minimum": 1 },
+              "confirmedUnchanged": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        {
+          "name": "social.xiaohongshu.export",
+          "surface": "renderer",
+          "description": "Export one Xiaohongshu publish package through the native directory picker after rechecking project, Requirement revision, workflow identity and managed assets. confirmed=true is mandatory; no caller-provided destination path is accepted.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "nodeId", "expectedRevision", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRevision": { "type": "integer", "minimum": 1 },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "name": "social.douyin.plan",
+          "surface": "renderer",
+          "description": "Create a structured Douyin short-video Requirement on the current canvas without calling a model or producing charges. The optional SOURCE nodes are exact and atomically checked against the active project and canvas revision.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCanvasRevision", "brief"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "sourceNodeIds": { "type": "array", "maxItems": 200, "uniqueItems": true, "default": [], "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+              "brief": { "type": "string", "minLength": 1, "maxLength": 4000 },
+              "format": { "type": "string", "enum": ["image-to-video", "product-showcase", "voiceover-assets", "knowledge", "experience-share"], "default": "voiceover-assets" },
+              "audience": { "type": "string", "maxLength": 500 },
+              "objective": { "type": "string", "maxLength": 1000 },
+              "language": { "type": "string", "maxLength": 80, "default": "跟随用户" },
+              "durationSeconds": { "type": "integer", "enum": [15, 30, 60], "default": 30 },
+              "shotCount": { "type": "integer", "minimum": 5, "maximum": 8, "default": 6 },
+              "subtitlesEnabled": { "type": "boolean", "default": true },
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          },
+          "examples": [{ "expectedProjectId": "PROJECT_ID", "expectedCanvasRevision": 12, "sourceNodeIds": ["A"], "brief": "制作一条新品咖啡杯展示短视频", "format": "product-showcase", "durationSeconds": 30, "shotCount": 6 }]
+        },
+        {
+          "name": "social.douyin.execute",
+          "surface": "renderer",
+          "description": "Execute one existing Douyin social Requirement through the production Agent, image tasks and independent video task journal, then wait for the current Agent turn to settle. This explicit command authorizes the planned image and video requests and possible upstream billing. Ambiguous video creation is reported and never retried automatically.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "nodeId", "expectedRevision"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRevision": { "type": "integer", "minimum": 1 },
+              "confirmedUnchanged": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        {
+          "name": "social.douyin.status",
+          "surface": "renderer",
+          "description": "Inspect one Douyin Requirement and its sanitized image/video outcomes, including video task state and ambiguous creation, without exposing managed paths, provider URLs or credentials.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "nodeId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          }
+        },
+        {
+          "name": "social.douyin.export",
+          "surface": "renderer",
+          "description": "Export one Douyin publish package through the native directory picker after rechecking project, Requirement revision, workflow identity and managed images/video. confirmed=true is mandatory; no caller-provided destination path is accepted.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "nodeId", "expectedRevision", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRevision": { "type": "integer", "minimum": 1 },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Research figures",
+      "commands": [
+        {
+          "name": "research.data.import",
+          "surface": "renderer",
+          "description": "Open the native file picker and import one CSV, TSV, or TXT dataset into the active project's managed scientific data registry. The CLI cannot pass an arbitrary source path; Renderer receives only bounded fields, dimensions, hashes, and sample rows.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          }
+        },
+        {
+          "name": "research.data.list",
+          "surface": "renderer",
+          "description": "List sanitized managed scientific datasets for the active project. Absolute paths and full table contents are never returned.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          }
+        },
+        {
+          "name": "research.figure.plan",
+          "surface": "renderer",
+          "description": "Create a structured ScientificFigurePlan as a Requirement on the existing canvas. This does not execute Python/R, call a model, or produce charges. A persisted plan must explicitly select one backend and may reference only managed dataSourceIds returned by research.data.list.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCanvasRevision", "backend", "figureType", "researchClaim"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "sourceNodeIds": { "type": "array", "maxItems": 200, "uniqueItems": true, "default": [], "items": { "type": "string", "minLength": 1, "maxLength": 160 } },
+              "backend": { "type": "string", "enum": ["python", "r"] },
+              "figureType": { "type": "string", "enum": ["statistical-chart", "multi-panel", "schematic", "workflow", "image-comparison"] },
+              "archetype": { "type": "string", "enum": ["quantitative-grid", "schematic-led-composite", "image-plate-quant", "asymmetric-mixed-modality"], "default": "quantitative-grid" },
+              "researchClaim": { "type": "string", "minLength": 1, "maxLength": 4000 },
+              "targetJournal": { "type": "string", "maxLength": 240, "default": "Nature 系列" },
+              "dataSourceIds": { "type": "array", "maxItems": 12, "uniqueItems": true, "default": [], "items": { "type": "string", "pattern": "^scientific-data-[a-f0-9]{32}$" } },
+              "panels": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "required": ["id", "chartType", "sourceBindings"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": { "type": "string", "minLength": 1, "maxLength": 80 },
+                    "label": { "type": "string", "maxLength": 12 },
+                    "title": { "type": "string", "maxLength": 240 },
+                    "chartType": { "type": "string", "enum": ["scatter", "line", "bar", "box", "violin", "histogram", "heatmap", "image", "schematic"] },
+                    "sourceBindings": { "type": "array", "maxItems": 12, "uniqueItems": true, "items": { "type": "string", "pattern": "^scientific-data-[a-f0-9]{32}$" } },
+                    "description": { "type": "string", "maxLength": 4000 },
+                    "xField": { "type": "string", "maxLength": 160 },
+                    "yFields": { "type": "array", "maxItems": 24, "uniqueItems": true, "items": { "type": "string", "maxLength": 160 } },
+                    "groupField": { "type": "string", "maxLength": 160 }
+                  }
+                }
+              },
+              "outputFormats": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "default": ["png", "svg", "pdf"], "items": { "type": "string", "enum": ["png", "tiff", "svg", "pdf"] } },
+              "stylePreset": { "type": "string", "enum": ["nature", "nmi-pastel", "grayscale"], "default": "nature" },
+              "widthMm": { "type": "integer", "minimum": 40, "maximum": 500, "default": 183 },
+              "heightMm": { "type": "integer", "minimum": 40, "maximum": 500, "default": 120 },
+              "dpi": { "type": "integer", "minimum": 150, "maximum": 1200, "default": 600 },
+              "statisticsNotes": { "type": "string", "maxLength": 4000 },
+              "sourceDataNotes": { "type": "string", "maxLength": 4000 },
+              "imageIntegrityNotes": { "type": "string", "maxLength": 4000 },
+              "reviewerRisks": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "maxLength": 4000 } },
+              "x": { "type": "number" },
+              "y": { "type": "number" }
+            }
+          },
+          "examples": [{ "expectedProjectId": "PROJECT_ID", "expectedCanvasRevision": 12, "backend": "python", "figureType": "statistical-chart", "researchClaim": "处理组随时间呈现更高的测量值，不在此处推断显著性。", "dataSourceIds": ["scientific-data-0123456789abcdef0123456789abcdef"], "panels": [{ "id": "panel-a", "label": "A", "chartType": "line", "sourceBindings": ["scientific-data-0123456789abcdef0123456789abcdef"], "xField": "time", "yFields": ["control", "treated"] }] }]
+        },
+        {
+          "name": "research.figure.render",
+          "surface": "renderer",
+          "description": "Execute one exact scientific Requirement through the trusted project-scoped Python/R runner, then land its PNG figure and Panel previews on the existing canvas. The command validates project, canvas and Requirement revisions, never switches backend, never installs dependencies, never accesses model billing, and returns script/output/status metadata.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "expectedCanvasRevision", "nodeId", "expectedRevision"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedRevision": { "type": "integer", "minimum": 1 },
+              "timeoutMs": { "type": "integer", "minimum": 10000, "maximum": 300000, "default": 120000 }
+            }
+          }
+        },
+        {
+          "name": "research.figure.status",
+          "surface": "renderer",
+          "description": "Inspect sanitized scientific tasks for the active project, optionally filtering by taskId or scientific Requirement nodeId. Managed absolute paths and full logs are not returned.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "taskId": { "type": "string", "pattern": "^scientific-task-[a-f0-9]{32}$" },
+              "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 }
+            }
+          }
+        },
+        {
+          "name": "research.figure.export",
+          "surface": "renderer",
+          "description": "Export one ready scientific task through the native directory picker. confirmed=true is mandatory; callers cannot provide a destination path. PNG/TIFF/SVG/PDF, trusted script, plan, QA, and bounded log assets are copied together.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "taskId", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "taskId": { "type": "string", "pattern": "^scientific-task-[a-f0-9]{32}$" },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
+        {
+          "name": "research.figure.cancel",
+          "surface": "renderer",
+          "destructive": true,
+          "description": "Cancel one prepared or running local scientific task. Existing managed data and completed output assets are retained; confirmed=true is required.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "taskId", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "taskId": { "type": "string", "pattern": "^scientific-task-[a-f0-9]{32}$" },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        }
+      ]
+    },
+    {
       "title": "Agent",
       "commands": [
         {
           "name": "agent.chat",
           "surface": "renderer",
-          "description": "Start an idle task and wait for its current Agent turn to settle. While a task is already running, this command performs a text-only steer with the frozen TaskScope kept unchanged and returns after acceptance; sourceNodeIds are then rejected and explicit attachment changes must use agent.steer. Every supplied sourceNodeId must still exist; a mixed valid/stale list fails before any Agent call.",
+          "description": "Start an idle task and wait for its current Agent turn to settle. Optional ratio/resolution fields add an explicit image output specification to the instruction. While a task is already running, this command performs a text-only steer with the frozen TaskScope kept unchanged and returns after acceptance; sourceNodeIds are then rejected and explicit attachment changes must use agent.steer. Every supplied sourceNodeId must still exist; a mixed valid/stale list fails before any Agent call.",
           "parameters": {
             "type": "object",
             "required": ["prompt"],
             "additionalProperties": false,
             "properties": {
               "prompt": { "type": "string", "minLength": 1 },
-              "sourceNodeIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true, "default": [] }
+              "sourceNodeIds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true, "default": [] },
+              "ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
+              "resolution": { "type": "string", "enum": ["1K", "2K", "4K"] }
             }
-          }
+          },
+          "examples": [
+            { "prompt": "生成一张 Amazon 商品主图", "sourceNodeIds": [], "ratio": "1:1", "resolution": "2K" }
+          ]
         },
         {
           "name": "agent.goal",
           "surface": "renderer",
-          "description": "Preview or execute a Goal across either the exact sourceNodeIds or, when omitted, all eligible SOURCE image containers. operationsPerAsset freezes the number of requested operations for every eligible source asset. Empty, generating, stale, and reference-only containers are rejected or reported as skipped before dispatch. First omit confirmed (or use false) to receive requiresConfirmation, counts, and a one-time snapshot.snapshotHash bound to prompt, sourceNodeIds, operationsPerAsset, TaskScope, and billing. Execute only by repeating those exact values with confirmed=true and expectedSnapshotHash. Changed inputs, stale canvas state, cross-project use, and replay fail with zero dispatch. The command waits for the current Agent turn to settle.",
+          "description": "Execute a Goal across either the exact sourceNodeIds or, when omitted, all eligible SOURCE image containers. Optional ratio/resolution fields add one explicit output specification for every generated image. Invoking this command is explicit authorization to dispatch image requests and accept upstream billing; no second fee confirmation is requested. operationsPerAsset freezes the number of requested operations for every eligible source asset. Before dispatch, naimage internally builds the complete preview, TaskScope and billing quote, issues and consumes a one-time authorization receipt, and rechecks canvas drift. Empty, generating, stale, reference-only, changed, or busy inputs fail before provider dispatch. The result includes the frozen request count, billing estimate, probe count, and concurrency cap, and the command waits for the current Agent turn to settle.",
           "parameters": {
             "type": "object",
             "required": ["prompt"],
@@ -376,15 +1259,18 @@
               "prompt": { "type": "string", "minLength": 1 },
               "sourceNodeIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 1, "maxLength": 160 }, "uniqueItems": true, "default": [] },
               "operationsPerAsset": { "type": "integer", "minimum": 1, "maximum": 200, "default": 1 },
-              "confirmed": { "type": "boolean", "default": false },
-              "expectedSnapshotHash": { "type": "string", "pattern": "^goal-[a-f0-9]{32}$" }
+              "ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
+              "resolution": { "type": "string", "enum": ["1K", "2K", "4K"] }
             }
-          }
+          },
+          "examples": [
+            { "prompt": "为每张母图生成两张方形商品图", "sourceNodeIds": [], "operationsPerAsset": 2, "ratio": "1:1", "resolution": "2K" }
+          ]
         },
         {
           "name": "commerce.compose-set",
           "surface": "renderer",
-          "description": "Compose a deterministic cross-border commerce listing-set prompt and submit it through the same two-stage Goal preview/confirmation gate. sourceNodeIds are exact and atomic. The plan determines operationsPerAsset. Preview returns confirmationArgs containing the original sourceNodeIds and plan, plus composition.normalizedPlan for observation and the compatibility alias composition.plan. Execute only by spreading confirmationArgs unchanged and adding confirmed=true plus the preview snapshot hash; never reconstruct confirmation input from either normalized-plan field. This command never bypasses agent.goal confirmation.",
+          "description": "Compose and execute a deterministic cross-border commerce listing-set plan. platformTemplateId selects the built-in general, amazon, or aliexpress slot registry; explicit slots may then override the selected template one image at a time. In translate mode, translationItems applies a non-empty prompt to one exact zero-based sourceIndex and selected localeCode cell; duplicate, unselected, or out-of-range cells fail before dispatch. Invoking this command is explicit authorization to dispatch the resulting image requests and accept upstream billing; no second fee confirmation is requested. sourceNodeIds are exact and atomic, and the plan determines operationsPerAsset. naimage normalizes the plan, builds the complete frozen Goal preview, TaskScope and billing quote, then internally issues and consumes the same one-time authorization receipt used by agent.goal before dispatch. When a SOURCE mother image has one unambiguous active master relation in the project SKU catalog, that binding is frozen into the TaskScope and successful results are automatically filed to the matching product, variant, or SKU after the session is saved; ambiguous or changed catalog ownership is reported without deleting the generated images. The dispatch response includes frozen request, billing, probe, and concurrency metadata. Probe-first admission, progressive ramp-up, circuit protection, and duplicate-dispatch protection remain mandatory.",
           "parameters": {
             "type": "object",
             "required": ["sourceNodeIds", "plan"],
@@ -396,6 +1282,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "mode": { "type": "string", "enum": ["generate", "translate"], "default": "generate" },
+                  "platformTemplateId": { "type": "string", "enum": ["general", "amazon", "aliexpress"], "default": "general" },
                   "title": { "type": "string", "maxLength": 120 },
                   "setSize": { "type": "integer", "minimum": 1, "maximum": 12 },
                   "slots": {
@@ -421,12 +1308,21 @@
                     }
                   },
                   "translatePrompt": { "type": "string", "maxLength": 2000 },
+                  "translationItems": {
+                    "type": "array", "maxItems": 200, "uniqueItems": true,
+                    "items": {
+                      "type": "object", "required": ["sourceIndex", "localeCode", "prompt"], "additionalProperties": false,
+                      "properties": {
+                        "sourceIndex": { "type": "integer", "minimum": 0, "maximum": 199 },
+                        "localeCode": { "type": "string", "minLength": 2, "maxLength": 32, "enum": ["en-US", "en-GB", "de-DE", "fr-FR", "es-ES", "it-IT", "pt-BR", "ja-JP", "ko-KR", "ar-SA", "ru-RU", "th-TH", "vi-VN", "id-ID"] },
+                        "prompt": { "type": "string", "minLength": 1, "maxLength": 600 }
+                      }
+                    }
+                  },
                   "saveTarget": { "type": "string", "enum": ["none", "requirement", "skill"], "default": "none" },
                   "reusableName": { "type": "string", "maxLength": 120 }
                 }
-              },
-              "confirmed": { "type": "boolean", "default": false },
-              "expectedSnapshotHash": { "type": "string", "pattern": "^goal-[a-f0-9]{32}$" }
+              }
             }
           },
           "examples": [
@@ -434,27 +1330,41 @@
               "sourceNodeIds": ["SOURCE_A", "SOURCE_B"],
               "plan": {
                 "mode": "generate",
-                "title": "Marketplace listing set",
-                "setSize": 2,
-                "slots": [
-                  { "id": "hero", "title": "Hero image", "prompt": "Keep the exact product identity and create a clean white-background hero composition." },
-                  { "id": "detail", "title": "Detail image", "prompt": "Show the real visible material and construction details without inventing specifications." }
-                ],
-                "languageCodes": ["en-US", "de-DE"],
+                "platformTemplateId": "amazon",
+                "title": "Amazon standard listing set",
+                "languageCodes": ["en-US"],
                 "saveTarget": "requirement",
-                "reusableName": "Marketplace listing-set requirement"
+                "reusableName": "Amazon standard listing-set requirement"
+              }
+            },
+            {
+              "sourceNodeIds": ["SOURCE_A", "SOURCE_B"],
+              "plan": {
+                "mode": "generate",
+                "platformTemplateId": "aliexpress",
+                "title": "AliExpress standard listing set",
+                "slots": [
+                  { "id": "cover", "title": "商品首图", "prompt": "保持商品身份准确，制作适合速卖通列表识别的干净方形首图。" },
+                  { "id": "detail", "title": "细节材质", "prompt": "展示来源中真实可见的结构和材质细节，不虚构规格或功效。" }
+                ],
+                "saveTarget": "requirement",
+                "reusableName": "AliExpress customized listing-set requirement"
               }
             },
             {
               "sourceNodeIds": ["SOURCE_A", "SOURCE_B"],
               "plan": {
                 "mode": "translate",
+                "platformTemplateId": "general",
                 "title": "Localized marketplace listing set",
                 "targetLocales": [
                   { "code": "en-US", "prompt": "Use concise US marketplace wording and preserve brand names, model numbers, numbers, and units." },
                   { "code": "ja-JP", "prompt": "Use natural concise Japanese commerce wording with readable line breaks and hierarchy." }
                 ],
                 "translatePrompt": "Translate only text that is visibly present and preserve the product, layout intent, trademarks, and factual claims.",
+                "translationItems": [
+                  { "sourceIndex": 0, "localeCode": "en-US", "prompt": "Translate the top headline only; preserve the dimensions table and unit labels." }
+                ],
                 "saveTarget": "skill",
                 "reusableName": "Marketplace localization skill"
               }
@@ -501,11 +1411,11 @@
     },
     {
       "title": "Goal dispatch safety",
-      "body": "A Goal preview issues a cryptographically random, ten-minute, one-time confirmation bound to the complete automation request (including prompt, sourceNodeIds, operationsPerAsset, or commerce plan), frozen TaskScope, billing quote, active project, conversation, and issuing surface. Re-previewing revokes that surface's older token. The first execution attempt burns the token before busy, preflight, live-scope, billing, or dispatch checks; changed inputs, stale scopes, changed costs, cross-context use, cancellation, and replay are rejected before dispatch and require a fresh preview. commerce.compose-set composes a structured plan but passes through this same gate. Goal execution uses the app's configured concurrency limit, but first serially probes 1-2 distinct SOURCE images, preferring different containers when available. Renderer windows share one Main-process Goal admission controller: queued probes take priority over new ramp waves, and admitted Goals fairly share the frozen process capacity. The app expands only after request acceptance, asset persistence, and result validation succeed; protected failures open a cross-Goal circuit. A bounded transport retry pauses every new ramp wave until the request settles, and closing a Renderer does not release its reservation until the real provider Promise drains. These safeguards stop only work that has not yet been dispatched. An upstream request already accepted by a provider may still complete and incur charges, so process-wide admission is not a cost guarantee."
+      "body": "An explicit agent.goal or commerce.compose-set invocation authorizes upstream image charges. The Renderer still builds a complete preview and cryptographically random one-time receipt bound to the full request, frozen TaskScope, billing quote, active project, conversation, and issuing surface, then consumes it internally before dispatch. Changed inputs, stale scopes, changed costs, cancellation, and replay are rejected before provider dispatch. Goal execution uses the app's configured concurrency limit, but first serially probes 1-2 distinct SOURCE images, preferring different containers when available. Renderer windows share one Main-process Goal admission controller: queued probes take priority over new ramp waves, and admitted Goals fairly share the frozen process capacity. The app expands only after request acceptance, asset persistence, and result validation succeed; protected failures open a cross-Goal circuit. A bounded transport retry pauses every new ramp wave until the request settles, and closing a Renderer does not release its reservation until the real provider Promise drains. These safeguards stop only work that has not yet been dispatched. An upstream request already accepted by a provider may still complete and incur charges, so process-wide admission is not a cost guarantee."
     },
     {
       "title": "Commerce plan contract",
-      "body": "For commerce.compose-set, languageCodes and targetLocales are mutually exclusive and every language code must come from the canonical commerce language registry. Unknown languages or supplying both fields fails before plugin composition, Goal preview, or provider dispatch. Treat composition.normalizedPlan and composition.plan as read-only quote details; preserve and spread the preview's confirmationArgs byte-for-byte when confirming."
+      "body": "For commerce.compose-set, languageCodes and targetLocales are mutually exclusive and every language code must come from the canonical commerce language registry. Unknown languages or supplying both fields fails before plugin composition, the internal Goal preview, or provider dispatch. TranslationItems uses the exact SOURCE expansion order and may override only a selected image-language cell; its normalized prompts are included in the frozen plan hash and prompt-material fingerprint. The structured plan, exact SOURCE boundary, and any unambiguous project SKU Catalog destination are frozen into the one-time internal authorization receipt and cannot be changed after dispatch begins. Successful results are reconciled from the persisted session into the frozen product, variant, or SKU target; ambiguous ownership or a Catalog revision conflict leaves the image on the canvas and returns a retry/manual-filing warning."
     }
   ]
 }

@@ -274,7 +274,7 @@ function createAgentRunControl(options = {}) {
     return { ...snapshot(clean(value?.projectId)), stopped, ownerId };
   }
 
-  function stopAll(reason = "naimage 正在退出，所有 Agent 运行已停止。") {
+  function stopAll(reason = "SparkAI WorkSpace 正在退出，所有 Agent 运行已停止。") {
     const targets = [...runs.values()];
     const stopped = stopRecords(targets, createAbortError(reason));
     for (const state of scopeState.values()) {

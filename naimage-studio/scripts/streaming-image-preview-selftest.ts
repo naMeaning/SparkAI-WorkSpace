@@ -31,6 +31,7 @@ const updated = upsertStreamingImagePreviewState(previews, {
 }, "parent-1");
 assert.equal(Object.keys(updated).length, 2);
 assert.equal(updated["parent-1:1"].index, 3);
+assert.equal(updated["parent-1:1"].dataUrl, `${dataUrl}AA`, "A newer partial must replace the existing request slot");
 
 const unchanged = upsertStreamingImagePreviewState(updated, {
   ...firstProgress,
@@ -53,18 +54,25 @@ const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const cssSource = fs.readFileSync(path.join(root, "src", "styles", "02-canvas-workspace.css"), "utf8");
 const serverIpcSource = fs.readFileSync(path.join(root, "desktop", "ipc", "server-ipc.cjs"), "utf8");
 const runtimeSource = fs.readFileSync(path.join(root, "agent-runtime.cjs"), "utf8");
+const electronMainSource = fs.readFileSync(path.join(root, "electron-main.cjs"), "utf8");
 const agentTraceSource = fs.readFileSync(path.join(root, "src", "agent.ts"), "utf8");
 const agentWindowRendererSource = fs.readFileSync(path.join(root, "agent-window-renderer.js"), "utf8");
 
 assert.match(mainSource, /className="node-image-pending-tile stream-preview-tile"/, "Streaming previews must render inside image slots");
+assert.match(mainSource, /data-stream-preview-count=\{nodeStreamingPreviews\.length \|\| undefined\}/, "The container must expose its current transient preview count");
+assert.match(mainSource, /data-preview-index=\{preview\.index\}[\s\S]{0,100}data-preview-total=\{preview\.total\}/, "Each transient slot must expose replacement progress without becoming an asset");
+assert.match(mainSource, /function clearStreamingImagePreview[\s\S]{0,900}requestAnimationFrame/, "Final image arrival must defer transient preview cleanup until the next paint");
 assert.doesNotMatch(mainSource, /image-stream-preview/, "Renderer must not create a separate floating preview node");
 assert.match(cssSource, /\.node-image-pending-tile\.stream-preview-tile/, "Container preview slots must own their styling");
 assert.doesNotMatch(cssSource, /\.flow-node\.image-stream-preview/, "Obsolete floating preview styling must be removed");
 assert.match(serverIpcSource, /onPartialImage:\s*\(partial\)\s*=>\s*emitAgentProgress/, "Manual image IPC must forward partial images");
 assert.match(mainSource, /operationId:\s*generationRunId,[\s\S]{0,80}requestIndex:\s*index \+ 1/, "Manual parallel requests must preserve parent operation and slot index");
-assert.match(runtimeSource, /requestIndex:\s*Math\.max\(1, Math\.min\(10, Math\.floor\(Number\(args\.partialRequestIndex\) \|\| index \+ 1\)\)\)/, "Agent parallel previews must use one-based request indexes");
+assert.match(runtimeSource, /requestIndex:\s*Math\.max\(1, Math\.min\(200, Math\.floor\(Number\(args\.partialRequestIndex\) \|\| index \+ 1\)\)\)/, "Agent parallel previews must use one-based request indexes");
 assert.match(runtimeSource, /partialRequestIndex:\s*index \+ 1,[\s\S]{0,80}runId:\s*`\$\{groupId\}-\$\{index \+ 1\}-\$\{layer\.id\}`/, "Layer partials must preserve their own container slot");
 assert.doesNotMatch(agentTraceSource, /partialImageFromProgress/, "Intermediate images must not be copied into Agent timeline messages");
 assert.doesNotMatch(agentWindowRendererSource, /tool-preview|trace\.partialImage/, "Agent windows must not render intermediate images outside the canvas container");
+assert.match(electronMainSource, /preferDirectImageTransport[\s\S]{0,180}customImageBinding\?\.customBaseUrl[\s\S]{0,80}customImageBinding\?\.customApiKey/, "Per-model custom credentials must select the direct image streaming transport");
+assert.match(electronMainSource, /return await newApiRelayImage\(settings, "\/v1\/images\/generations"[\s\S]{0,500}partialImages:\s*3/, "Images SSE must be attempted for both account and custom generation after Responses fallback");
+assert.match(electronMainSource, /NAIMAGE_AIDEBUG_IMAGE_PARTIALS[\s\S]{0,700}onPartialImage\(\{[\s\S]{0,300}eventType:\s*"aidebug\.image_generation\.partial_image"/, "The paid-call-free Electron fixture must emit staged partial images for real UI verification");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 17 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 23 })}\n`);

@@ -156,7 +156,7 @@ function validProductReport() {
   const budgets = {
     workbenchReadyMs: 3500,
     rendererBootMs: 2500,
-    bundleBytes: 1200000,
+    runtimeBundleAdvisoryBytes: 1200000,
     heapBytes: 160 * 1024 * 1024,
     maxMountedNodes: 80,
     zoomP95Ms: 34,
@@ -205,7 +205,7 @@ function validProductReport() {
     exit: { code: 0, signal: null },
   }));
   const checks = Object.fromEntries([
-    "productionLikeProfile", "minimalProbePresent", "fullAidebugAbsent", "bundleWithinBudget",
+    "productionLikeProfile", "minimalProbePresent", "fullAidebugAbsent",
     "workbenchWithinBudget", "rendererBootWithinBudget", "heapWithinBudget", "zoomWithinBudget",
     "panWithinBudget", "dragWithinBudget", "visualFramesWithinBudget", "visualFrameMedianWithinBudget",
     "visualSlowFrameRateWithinBudget", "longTasksWithinBudget", "everyRoundHealthy"
@@ -219,7 +219,15 @@ function validProductReport() {
     evidenceScope: "product-gate",
     diagnosticOnly: false,
     fixture: { nodeCount: 1000, relationCount: 199, messageCount: 500 },
-    bundle: { bytes: 860000, sha256: "b".repeat(64), fileCount: 5, forbidden: [], probePresent: true },
+    bundle: {
+      bytes: 860000,
+      sha256: "b".repeat(64),
+      fileCount: 5,
+      advisoryBudgetBytes: 1200000,
+      withinAdvisoryBudget: true,
+      forbidden: [],
+      probePresent: true
+    },
     budgets,
     aggregate: {
       rounds: 3,
@@ -277,6 +285,17 @@ test("production-like product gate passes the strict audit as authoritative evid
   assert.equal(result.audit.productPerformanceReady, true);
   assert.equal(result.audit.evidenceScope, "product-gate");
   assert.equal(result.audit.reportMode, "product-performance-gate");
+});
+
+test("runtime bundle trend advisory does not invalidate real interaction evidence", () => {
+  const report = validProductReport();
+  report.bundle.bytes = report.bundle.advisoryBudgetBytes + 1;
+  report.bundle.withinAdvisoryBudget = false;
+  const result = runAudit(report);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.audit.ok, true);
+  assert.equal(result.audit.productPerformanceReady, true);
+  assert(result.audit.findings.some((finding) => finding.rule === "product-runtime-bundle-advisory-exceeded"));
 });
 
 test("diagnostic product profile cannot masquerade as an authoritative gate", () => {

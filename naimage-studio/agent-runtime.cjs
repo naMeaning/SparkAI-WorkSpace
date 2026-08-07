@@ -1,5 +1,5 @@
 /*
-naimage Agent Runtime Map
+SparkAI WorkSpace Agent Runtime Map
 
 File Contract
 - agent-runtime.cjs orchestrates the desktop Agent loop: prompt/context assembly, tool execution, image generation, and model protocol decisions.
@@ -36,6 +36,7 @@ const { createImageBatchNormalization } = require("./runtime/image-batch-normali
 const { runImageBatchScheduler } = require("./runtime/image-batch-scheduler.cjs");
 const { normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
 const {
+  commerceBrandStylePrompt,
   goalScopeExecutionValue,
   goalSourceJobs,
   normalizeGoalTaskScopeMetadata,
@@ -44,8 +45,13 @@ const {
 const {
   COMMERCE_SET_MARKER,
   commerceSetPromptPlanItemMetadata,
+  commerceSetTranslationItemPrompt,
   parseCommerceSetPromptPlan
 } = require("./runtime/commerce-set-plan.cjs");
+const {
+  mergeSocialContentWriteback,
+  socialContentWritebackIssues
+} = require("./runtime/social-content-plan.cjs");
 const {
   imageInfo,
   mimeTypeForPath,
@@ -72,6 +78,7 @@ const {
 const { createMemoryStore } = require("./runtime/memory-store.cjs");
 const { contextStrategyForSettings } = require("./runtime/context-strategy.cjs");
 const { executeControlledCommand, isExploreCommand } = require("./runtime/controlled-shell-command.cjs");
+const { workspaceDomainDefinition, workspaceDomainPrompt } = require("./runtime/workspace-domain.cjs");
 
 let sharpImage = null;
 
@@ -106,9 +113,9 @@ function isImageToolName(name = "") {
 }
 
 const defaultMainAgentPromptLines = [
-  "你是 naimage 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
+  "你是 SparkAI WorkSpace 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
-  "naimage 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
+  "SparkAI WorkSpace 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
   `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 只管理已有成果；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
   `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。Current Task Scope 存在 SOURCE 时禁止使用 generate，因为 generate 不会读取原图；必须按意图使用 edit、replace、variants、layers、cutout 或 redraw，并在多 SOURCE 时逐项填写 sourceBindingId。缺少需要处理的 SOURCE 时使用 ask_user(kind=source_images)，缺少仅作参考的 REFERENCE 时使用 ask_user(kind=reference_images)，不要猜路径，也不要把 REFERENCE 当成 SOURCE。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
   "先理解目标，再直接执行；不要只输出计划。图片任务成功则简短汇报，失败则读取错误类别并最多修正参数重试两次。复杂任务可先用 view_image、web_search 或 shell_command 获取必要事实，再调用 image_gen。缺少来源图片时打开参考图收集，不得假装已经出图。",
@@ -137,7 +144,7 @@ const defaultMainAgentPromptLines = [
 ];
 
 const defaultMemoryAgentPromptLines = [
-  "你是 naimage 的后台记忆 Agent。你不面对用户，只负责上下文压缩、datememory 写入、toolmemory 大回执摘要和 fastmemory 经验提炼。",
+  "你是 SparkAI WorkSpace 的后台记忆 Agent。你不面对用户，只负责上下文压缩、datememory 写入、toolmemory 大回执摘要和 fastmemory 经验提炼。",
   "维护任务只处理本轮明确提供的内容，不主动展开主 Agent 的完整上下文。",
   "写 datememory 时按日期生成日记，关键词必须明确；保留任务起因、关键过程、决定、结果、风险和下一步线索。",
   "压缩 context 时保留用户意图、关键决策、图像参数、必要的工具引用、错误证据和验证结果；同时把稳定偏好或可复用绘图经验写入当前项目当前会话的 fastmemory。",
@@ -593,6 +600,49 @@ function cleanOneLine(text, maxChars = 140) {
   return clean.length > maxChars ? `${clean.slice(0, maxChars)}...` : clean;
 }
 
+const providerUsageNumberFields = new Set([
+  "requestIndex",
+  "input_tokens",
+  "output_tokens",
+  "total_tokens",
+  "prompt_tokens",
+  "completion_tokens",
+  "image_tokens",
+  "images",
+  "cost",
+  "cost_cents",
+  "charged_cents",
+  "quota"
+]);
+
+function optionalGenerationAccounting(values) {
+  const entries = Array.isArray(values) ? values.filter((value) => value && typeof value === "object") : [];
+  let costCents = 0;
+  let hasCost = false;
+  const providerUsage = [];
+  for (const entry of entries) {
+    const numericCost = Number(entry.costCents);
+    if (Number.isFinite(numericCost) && numericCost >= 0) {
+      costCents += numericCost;
+      hasCost = true;
+    }
+    for (const rawUsage of Array.isArray(entry.providerUsage) ? entry.providerUsage : []) {
+      if (!rawUsage || typeof rawUsage !== "object" || providerUsage.length >= 200) continue;
+      const normalized = {};
+      for (const [key, value] of Object.entries(rawUsage)) {
+        if (!providerUsageNumberFields.has(key)) continue;
+        const numeric = Number(value);
+        if (Number.isFinite(numeric) && numeric >= 0) normalized[key] = numeric;
+      }
+      if (Object.keys(normalized).length) providerUsage.push(normalized);
+    }
+  }
+  return {
+    ...(hasCost ? { costCents } : {}),
+    ...(providerUsage.length ? { providerUsage } : {})
+  };
+}
+
 function cleanFilesystemPath(value, maximum = 32767) {
   const clean = typeof value === "string" ? value.trim() : "";
   if (!clean || clean.length > maximum || clean.includes("\u0000")) return "";
@@ -751,6 +801,7 @@ function workflowNodeSummary(node = {}, options = {}) {
     node.imageContainerRole ? `containerRole=${node.imageContainerRole}` : "",
     node.requirement?.text ? `requirement=${cleanOneLine(node.requirement.text, 180)}` : "",
     node.requirement?.revision ? `requirementRevision=${node.requirement.revision}` : "",
+    node.requirement?.socialPlan ? `social=${node.requirement.socialPlan.platform}:${node.requirement.socialPlan.workflowId}:${node.requirement.socialPlan.planHash}` : "",
     `outputs=${node.outputs ?? 0}`,
     params.prompt ? `prompt=${cleanOneLine(params.prompt, 120)}` : node.prompt ? `prompt=${cleanOneLine(node.prompt, 120)}` : "",
     params.size ? `size=${params.size}` : "",
@@ -909,7 +960,38 @@ function taskScopeSnapshotHash(scope = {}) {
           requestCount: Math.max(1, Math.floor(Number(scope.goal.requestCount) || 1)),
           commercePlanHash: /^commerce-[a-f0-9]{32}$/.test(String(scope.goal.commercePlanHash || "").trim().toLowerCase())
             ? String(scope.goal.commercePlanHash).trim().toLowerCase()
-            : ""
+            : "",
+          commerceCatalogTargets: (scope.goal.commerceCatalogTargets || []).map((target) => ({
+            bindingId: target.bindingId,
+            catalogId: target.catalogId,
+            catalogRevision: Math.max(0, Math.floor(Number(target.catalogRevision) || 0)),
+            productId: target.productId,
+            productRevision: Math.max(1, Math.floor(Number(target.productRevision) || 1)),
+            ownerType: target.ownerType,
+            ownerId: target.ownerId,
+            sourceLinkId: target.sourceLinkId,
+            brandStyle: target.brandStyle
+              ? {
+                  version: 1,
+                  enabled: target.brandStyle.enabled === true,
+                  fontFamily: target.brandStyle.fontFamily || "",
+                  colors: [...(target.brandStyle.colors || [])],
+                  logoUsage: target.brandStyle.logoUsage || "",
+                  modelAppearance: target.brandStyle.modelAppearance || "",
+                  productAppearance: target.brandStyle.productAppearance || "",
+                  visualStyle: target.brandStyle.visualStyle || "",
+                  references: (target.brandStyle.references || []).map((reference) => ({
+                    linkId: reference.linkId,
+                    assetId: reference.assetId,
+                    contentHash: reference.contentHash,
+                    nodeId: reference.nodeId,
+                    assetIndex: reference.assetIndex,
+                    role: reference.role,
+                    purpose: reference.purpose
+                  }))
+                }
+              : null
+          }))
         }
       : null
   };
@@ -1002,9 +1084,17 @@ function normalizedTaskScope(payload = {}) {
           ? "grouped-by-source"
           : "single";
   const confirmationPolicy = confirmationPolicies.has(raw.confirmationPolicy) ? raw.confirmationPolicy : "auto";
-  const goal = origin === "goal" ? normalizeGoalTaskScopeMetadata(raw.goal) : undefined;
+  const commercePromptPlan = origin === "goal" && String(payload.prompt || "").includes(COMMERCE_SET_MARKER)
+    ? parseCommerceSetPromptPlan(String(payload.prompt || ""))
+    : null;
+  const goal = origin === "goal" ? normalizeGoalTaskScopeMetadata(raw.goal, {
+    containerIds: sourceContainerIds,
+    bindingIds: sourceBindingIds,
+    operationsPerAsset: commercePromptPlan?.outputsPerSource,
+    commercePlanHash: commercePromptPlan?.planHash
+  }) : undefined;
   if (origin === "goal" && !goal) {
-    const error = new Error("Goal TaskScope 缺少完整的冻结执行与费用元数据，已拒绝运行。");
+    const error = new Error("Goal TaskScope 无法建立可执行的图片范围。");
     error.code = "NAIMAGE_GOAL_SCOPE_NOT_FROZEN";
     error.failureKind = "validation";
     throw error;
@@ -1215,7 +1305,17 @@ function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
         ? {
             ...sourceBase.goal,
             containerIds: [...sourceBase.goal.containerIds],
-            bindingIds: [...sourceBase.goal.bindingIds]
+            bindingIds: [...sourceBase.goal.bindingIds],
+            commerceCatalogTargets: sourceBase.goal.commerceCatalogTargets?.map((target) => ({
+              ...target,
+              ...(target.brandStyle ? {
+                brandStyle: {
+                  ...target.brandStyle,
+                  colors: [...target.brandStyle.colors],
+                  references: target.brandStyle.references.map((reference) => ({ ...reference }))
+                }
+              } : {})
+            }))
           }
         : undefined,
     sourceAssetCount,
@@ -1240,11 +1340,15 @@ function imageTaskProvenance(taskScope, sourceAsset = null) {
   const snapshotHash = cleanOneLine(taskScope.snapshotHash || "", 96);
   if (!/^scope-[a-f0-9]{32}$/i.test(snapshotHash)) return undefined;
   const source = sourceAsset && typeof sourceAsset === "object" ? sourceAsset : {};
+  const sourceBindingId = cleanOneLine(source.bindingId || "", 520) || undefined;
+  const commerceCatalogTarget = sourceBindingId
+    ? taskScope.goal?.commerceCatalogTargets?.find((target) => target.bindingId === sourceBindingId)
+    : undefined;
   const result = {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
     resultPolicy: taskScope.resultPolicy,
-    sourceBindingId: cleanOneLine(source.bindingId || "", 520) || undefined,
+    sourceBindingId,
     sourceAssetId: cleanOneLine(source.assetId || "", 160) || undefined,
     sourceOccurrenceId: cleanOneLine(source.occurrenceId || "", 80) || undefined,
     sourceNodeId: cleanOneLine(source.nodeId || "", 160) || undefined,
@@ -1253,9 +1357,63 @@ function imageTaskProvenance(taskScope, sourceAsset = null) {
     requirementNodeId: cleanOneLine(taskScope.requirement?.nodeId || "", 160) || undefined,
     requirementRevision: Number.isInteger(Number(taskScope.requirement?.revision))
       ? Math.max(1, Math.floor(Number(taskScope.requirement.revision)))
+      : undefined,
+    commerceCatalogTarget: commerceCatalogTarget
+      ? {
+          ...commerceCatalogTarget,
+          ...(commerceCatalogTarget.brandStyle ? {
+            brandStyle: {
+              ...commerceCatalogTarget.brandStyle,
+              colors: [...commerceCatalogTarget.brandStyle.colors],
+              references: commerceCatalogTarget.brandStyle.references.map((reference) => ({ ...reference }))
+            }
+          } : {})
+        }
       : undefined
   };
   return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+}
+
+function socialContentForImageTask(taskScope, nodes = [], args = {}, outputCount = 1) {
+  const requirementNodeId = cleanOneLine(taskScope?.requirement?.nodeId || "", 160);
+  const requirementNode = requirementNodeId ? findWorkflowNode(nodes, requirementNodeId) : null;
+  const plan = requirementNode?.type === "requirement" ? requirementNode.requirement?.socialPlan : null;
+  const contentType = cleanOneLine(args.socialContentType || "", 40).toLowerCase();
+  const slot = cleanOneLine(args.socialSlot || "", 80).toLowerCase();
+  if (!plan) {
+    if (contentType || slot) throw new Error("image_gen 的社媒成果元数据只能用于当前结构化社媒 Requirement。");
+    return undefined;
+  }
+  if (!contentType || !slot) {
+    throw new Error("当前社媒 Requirement 的 image_gen 必须填写 socialContentType 和 socialSlot，确保发布包可准确归档成果。");
+  }
+  const count = Math.max(1, Math.floor(Number(outputCount) || 1));
+  if (plan.platform === "xiaohongshu") {
+    const singleCard = /^card-([1-9])$/.exec(slot);
+    const valid = contentType === "cover"
+      ? slot === "cover" && count === 1
+      : contentType === "card" && (
+          (slot === "card-set" && count === plan.cardCount) ||
+          (singleCard && Number(singleCard[1]) <= plan.cardCount && count === 1)
+        );
+    if (!valid) throw new Error(`小红书成果槽位必须为单张 cover/card-N，或 ${plan.cardCount} 张 card-set。`);
+  } else {
+    const singleShot = /^shot-([1-8])$/.exec(slot);
+    const valid = contentType === "cover"
+      ? slot === "cover" && count === 1
+      : contentType === "shot" && (
+          (slot === "shot-set" && count === plan.shotCount) ||
+          (singleShot && Number(singleShot[1]) <= plan.shotCount && count === 1)
+        );
+    if (!valid) throw new Error(`抖音成果槽位必须为单张 cover/shot-N，或 ${plan.shotCount} 张 shot-set。`);
+  }
+  return {
+    platform: plan.platform,
+    contentType,
+    workflowId: plan.workflowId,
+    slot,
+    status: "generated"
+  };
 }
 
 function taskAssetIdentityKey(item, index = 0) {
@@ -1660,10 +1818,19 @@ function providerSettings(settings = {}, provider = "agent") {
     };
   }
 
+  if (provider === "video") {
+    return {
+      baseUrl: settings.agentBaseUrl ?? settings.imageBaseUrl ?? settings.baseUrl,
+      apiKey: settings.agentApiKey ?? settings.imageApiKey ?? settings.apiKey,
+      model: settings.videoModel ?? "doubao-seedance-2-0-260128",
+      modelPool: Array.isArray(settings.videoModelPool) ? settings.videoModelPool : []
+    };
+  }
+
   return {
     baseUrl: settings.agentBaseUrl ?? settings.baseUrl,
     apiKey: settings.agentApiKey ?? settings.apiKey,
-    model: settings.agentModel ?? settings.model ?? "gpt-5.6-sol"
+    model: settings.agentModel ?? settings.model ?? "gpt-5.6-terra"
   };
 }
 
@@ -1986,7 +2153,7 @@ function normalizeImagePromptDraft(args, current = {}) {
   if (!prompt) return null;
 
   const fallbackRatio = imagePromptRatios.has(current.ratio) ? current.ratio : "1:1";
-  const fallbackResolution = normalizeImagePromptResolution(current.resolution, "1080P");
+  const fallbackResolution = normalizeImagePromptResolution(current.resolution, "1K");
   const fallbackQuality = imagePromptQualities.has(current.quality) ? current.quality : "auto";
   const fallbackCount = clampNumber(current.count, 1, 10, 1);
   const ratio = imagePromptRatios.has(String(source.ratio ?? "").trim()) ? String(source.ratio).trim() : fallbackRatio;
@@ -2295,7 +2462,7 @@ function createAgentRuntime(options) {
 
   async function listModels(input = {}) {
     ensureMemory();
-    const provider = input.provider === "image" ? "image" : "agent";
+    const provider = input.provider === "image" ? "image" : input.provider === "video" ? "video" : "agent";
     const config = providerSettings(input.settings ?? {}, provider);
     const apiKey = String(config.apiKey ?? "").trim();
 
@@ -2304,7 +2471,7 @@ function createAgentRuntime(options) {
         ok: false,
         provider,
         models: [],
-        error: `${provider === "image" ? "Image" : "Agent"} API key 未配置。`
+        error: `${provider === "image" ? "Image" : provider === "video" ? "Video" : "Agent"} API key 未配置。`
       };
     }
 
@@ -2331,6 +2498,13 @@ function createAgentRuntime(options) {
       .map(String)
       .sort((a, b) => a.localeCompare(b));
     if (provider === "image") models = imageModelsWithPreferredFallback(models, config.model);
+    if (provider === "video") {
+      models = [...new Set([
+        ...models.filter((model) => /(?:^|[\/:._+-])(?:video|seedance|sora|veo|kling|runway|pixverse|hailuo|pika)(?=$|[\/:._+-]|\d)/i.test(model)),
+        config.model,
+        ...(Array.isArray(config.modelPool) ? config.modelPool : [])
+      ].map((model) => String(model || "").trim()).filter(Boolean))];
+    }
 
     return { ok: true, provider, models, count: models.length };
   }
@@ -2849,6 +3023,9 @@ function createAgentRuntime(options) {
       selectedNodeId: context.selectedNodeId,
       selectedNodeIds: context.selectedNodeIds
     });
+    const socialContent = taskScope.origin === "goal"
+      ? undefined
+      : socialContentForImageTask(taskScope, context.nodes, args, count);
     const hasCommerceMetadata = Boolean(
       cleanOneLine(args.commercePlanHash || "", 80) ||
       cleanOneLine(args.slotId || "", 80) ||
@@ -3154,7 +3331,10 @@ function createAgentRuntime(options) {
       maskImage,
       maskDataUrl,
       relationType: requestedOperation === "variants" ? "variant" : "derived-from",
-      taskProvenance: imageTaskProvenance(taskScopePresent ? taskScope : null, scopedSourceAsset),
+      taskProvenance: (() => {
+        const provenance = imageTaskProvenance(taskScopePresent ? taskScope : null, scopedSourceAsset);
+        return provenance && socialContent ? { ...provenance, socialContent } : provenance;
+      })(),
       ...imageControls,
       ...layerHint,
       ...(requestedOperation === "cutout" ? {
@@ -3182,14 +3362,20 @@ function createAgentRuntime(options) {
     const imageControls = applyLayerPreferredImageControls(normalizeOptionalImageControls(args), layerHint);
     const editRequested = Boolean(editImage || referenceImages.length > 0 || maskImage || maskDataUrl || mode === "edit" || mode === "cutout" || mode === "redraw");
     const executionMode = args.generationMode === "sequential" ? "sequential" : "parallel";
+    const reportRequestSettled = async (entry, requestIndex, detail = {}) => {
+      if (typeof args.onRequestSettled !== "function") return;
+      await args.onRequestSettled(entry, requestIndex, detail);
+    };
 
     if (Array.isArray(args.batchItems) && args.batchItems.length > 1) {
       // Keep a defensive memory guard, but do not impose the old ten-item
       // product ceiling. Requests are dispatched in ordered user-sized batches.
       const batchItems = args.batchItems.slice(0, 200);
+      const completionOrder = [];
       const batchRun = await runImageBatchScheduler({
         items: batchItems,
-        batchSize: settings?.imageBatchSize || args.batchSize || 3,
+        batchSize: executionMode === "sequential" ? 1 : settings?.imageBatchSize || args.batchSize || 3,
+        dispatchMode: executionMode === "parallel" ? "direct" : undefined,
         signal: args.signal,
         waitUntilRunnable: args.waitUntilRunnable,
         runItem: (item, index) => callImageGeneration({
@@ -3199,27 +3385,45 @@ function createAgentRuntime(options) {
           batchItems: undefined,
           collectionKind: undefined,
           count: 1,
+          onRequestSettled: undefined,
           runId: `${args.runId || `agent-${Date.now()}`}-item-${index + 1}`
         }, settings, progress),
-        validateResult: (result) => validatePersistedImageBatchResult(result, "outputs")
+        validateResult: (result) => validatePersistedImageBatchResult(result, "outputs"),
+        onItemSettled: async (entry, item, index) => {
+          completionOrder.push(index);
+          await reportRequestSettled(entry, index, { item });
+        }
       });
       const settled = batchRun.results;
       const outputs = [];
-      const items = settled.map((entry, index) => {
+      const assetIndexByRequest = new Map();
+      const orderedIndexes = [
+        ...completionOrder,
+        ...settled.map((_entry, index) => index).filter((index) => !completionOrder.includes(index))
+      ];
+      for (const index of orderedIndexes) {
+        const entry = settled[index];
         const batchItem = batchItems[index];
         if (entry.status === "fulfilled" && entry.value?.outputs?.length) {
           const asset = {
             ...entry.value.outputs[0],
-            index: outputs.length + 1,
+            index: index + 1,
             prompt: batchItem.prompt,
             title: batchItem.title || `方案 ${index + 1}`,
             status: "done"
           };
           outputs.push(asset);
+          assetIndexByRequest.set(index, outputs.length);
+        }
+      }
+      const items = settled.map((entry, index) => {
+        const batchItem = batchItems[index];
+        const assetIndex = assetIndexByRequest.get(index);
+        if (entry.status === "fulfilled" && assetIndex) {
           return {
             id: `item-${index + 1}`,
             requestIndex: index + 1,
-            assetIndex: outputs.length,
+            assetIndex,
             prompt: batchItem.prompt,
             title: batchItem.title || `方案 ${index + 1}`,
             status: "done"
@@ -3238,6 +3442,7 @@ function createAgentRuntime(options) {
       });
       if (!outputs.length) throw new Error(items.find((item) => item.error)?.error || "批量图片生成失败。");
       const firstSuccess = settled.find((entry) => entry.status === "fulfilled")?.value || {};
+      const accounting = optionalGenerationAccounting(settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []));
       return {
         dryRun: settled.every((entry) => entry.status === "fulfilled" && entry.value?.dryRun),
         model: firstSuccess.model || preferredModel || args.model || settings.imageModel || "server-selected-image-model",
@@ -3264,7 +3469,7 @@ function createAgentRuntime(options) {
         moderation: firstSuccess.moderation ?? imageControls.moderation,
         inputFidelity: firstSuccess.inputFidelity ?? imageControls.inputFidelity,
         mode: editRequested ? mode : "generate",
-        costCents: settled.reduce((total, entry) => total + (entry.status === "fulfilled" ? Number(entry.value?.costCents || 0) : 0), 0),
+        ...accounting,
         summary: items.some((item) => item.status === "error")
           ? `批量任务返回 ${outputs.length}/${batchItems.length} 张图片。`
           : `批量任务已按批次返回 ${outputs.length} 张不同提示词图片。`
@@ -3316,7 +3521,7 @@ function createAgentRuntime(options) {
                 dataUrl: String(partial?.dataUrl || ""),
                 index: Math.max(1, Number(partial?.index || 1)),
                 total: Math.max(1, Number(partial?.total || 3)),
-                requestIndex: Math.max(1, Math.min(10, Math.floor(Number(args.partialRequestIndex) || index + 1)))
+                requestIndex: Math.max(1, Math.min(200, Math.floor(Number(args.partialRequestIndex) || index + 1)))
               }
             }),
             onTransportPromise: (providerPromise, detail) => {
@@ -3350,13 +3555,19 @@ function createAgentRuntime(options) {
           })
         };
       });
+      const completionOrder = [];
       const batchRun = await runImageBatchScheduler({
         items: requests,
         batchSize: executionMode === "sequential" ? 1 : settings?.imageBatchSize || args.batchSize || 3,
+        dispatchMode: executionMode === "parallel" ? "direct" : undefined,
         signal: args.signal,
         waitUntilRunnable: args.waitUntilRunnable,
         runItem: (request) => request.run(),
-        validateResult: (result) => validatePersistedImageBatchResult(result, "assets", true)
+        validateResult: (result) => validatePersistedImageBatchResult(result, "assets", true),
+        onItemSettled: async (entry, request, index) => {
+          completionOrder.push(index);
+          await reportRequestSettled(entry, index, { request });
+        }
       });
       const settled = batchRun.results;
       const serverResults = settled.map((item, index) =>
@@ -3373,8 +3584,13 @@ function createAgentRuntime(options) {
         .map((item, index) => ({ item, index }))
         .filter(({ item }) => !item?.ok);
       const serverResult = successResults[0] ?? serverResults[0];
-      const rawAssets = serverResults.flatMap((item, requestIndex) =>
-        item?.ok && Array.isArray(item.assets)
+      const orderedIndexes = [
+        ...completionOrder,
+        ...serverResults.map((_item, index) => index).filter((index) => !completionOrder.includes(index))
+      ];
+      const rawAssets = orderedIndexes.flatMap((requestIndex) => {
+        const item = serverResults[requestIndex];
+        return item?.ok && Array.isArray(item.assets)
           ? item.assets.map((asset) => ({
               ...asset,
               prompt: requests[requestIndex]?.prompt || prompt,
@@ -3382,8 +3598,8 @@ function createAgentRuntime(options) {
               index: requestIndex + 1,
               status: "done"
             }))
-          : []
-      ).map(imageAssetWithDimensions);
+          : [];
+      }).map(imageAssetWithDimensions);
       const assets = await normalizeGeneratedAssetsToDeliveryFrame(rawAssets, size);
       const items = serverResults.map((item, requestIndex) => {
         const compactIndex = item?.ok ? assets.findIndex((asset) => Number(asset.index) === requestIndex + 1) : -1;
@@ -3399,6 +3615,7 @@ function createAgentRuntime(options) {
       });
       if (!successResults.length) throw new Error(failedResults[0]?.item?.error || "用户服务生图失败。");
       if (serverResult && serverResult.ok) {
+        const accounting = optionalGenerationAccounting(successResults);
         return {
           dryRun: Boolean(serverResult.dryRun),
           model: serverResult.model ?? preferredModel ?? args.model ?? settings?.imageModel ?? "server-selected-image-model",
@@ -3427,7 +3644,7 @@ function createAgentRuntime(options) {
           inputFidelity: serverResult.inputFidelity ?? imageControls.inputFidelity,
           ...layerHint,
           mode: editRequested ? mode : "generate",
-          costCents: serverResults.reduce((total, item) => total + Number(item.costCents ?? 0), 0),
+          ...accounting,
           summary: serverResult.dryRun
             ? "服务端 dry-run 已记录生图任务。"
             : failedResults.length
@@ -3632,7 +3849,30 @@ function createAgentRuntime(options) {
         error.failureKind = "persistence";
         throw error;
       }
-      return { ...job, sourceNodeId, sourceNodeAssetIndex, editImage };
+      const commerceTarget = goal.commerceCatalogTargets?.find((target) => target.bindingId === job.source.bindingId);
+      const brandStyle = commerceTarget?.brandStyle;
+      const brandReferences = (brandStyle?.references || []).map((reference, referenceIndex) => {
+        const referenceNode = findWorkflowNode(context.nodes || [], reference.nodeId);
+        const referenceAsset = referenceNode?.assets?.[reference.assetIndex];
+        const currentAssetId = cleanOneLine(referenceAsset?.assetId || "", 160);
+        const currentContentHash = cleanOneLine(referenceAsset?.contentHash || "", 128).toLowerCase();
+        const normalized = normalizeReferenceImage({
+          ...referenceAsset,
+          role: reference.role === "style-reference" ? "style" : "product",
+          purpose: reference.purpose
+        }, `brand-reference-${referenceIndex + 1}.png`);
+        if (
+          !referenceNode || !referenceAsset || !normalized || currentAssetId !== reference.assetId ||
+          currentContentHash !== reference.contentHash
+        ) {
+          const error = new Error(`SOURCE ${job.source.bindingId} 的品牌参考素材 ${reference.linkId} 已离开冻结画布槽位或内容发生变化。`);
+          error.code = "NAIMAGE_COMMERCE_BRAND_REFERENCE_STALE";
+          error.failureKind = "persistence";
+          throw error;
+        }
+        return normalized;
+      });
+      return { ...job, sourceNodeId, sourceNodeAssetIndex, editImage, brandStyle, brandReferences };
     };
     const sourceJobs = goalSourceJobs(scope).map(prepareGoalJob);
     const repeatedItem = {
@@ -3658,25 +3898,56 @@ function createAgentRuntime(options) {
     const commercePlanHash = /^commerce-[a-f0-9]{32}$/.test(String(toolArgs.commercePlanHash || "").trim().toLowerCase())
       ? String(toolArgs.commercePlanHash).trim().toLowerCase()
       : undefined;
-    const provenanceFor = (job) => ({
-      ...imageTaskProvenance(scope, job.source),
-      ...(commercePlanHash ? {
-        commercePlanHash,
-        commerceSlotId: cleanOneLine(job.item?.slotId || "", 80) || undefined,
-        commerceSlotIndex: Number.isInteger(job.item?.slotIndex)
-          ? job.item.slotIndex
-          : Number.isInteger(job.itemIndex) ? job.itemIndex : undefined,
-        commerceLocaleCode: cleanOneLine(job.item?.localeCode || "", 32) || undefined
-      } : {})
-    });
+    const trustedCommercePlan = commercePlanHash
+      ? commercePromptPlanForExecution(context, commercePlanHash)
+      : null;
+    const itemForSource = (job, item) => {
+      const itemPrompt = trustedCommercePlan?.mode === "translate"
+        ? commerceSetTranslationItemPrompt(trustedCommercePlan, job.sourceIndex, item?.localeCode)
+        : "";
+      const brandPrompt = commerceBrandStylePrompt(job.brandStyle);
+      if (!itemPrompt && !brandPrompt) return item;
+      return {
+        ...item,
+        prompt: [
+          item?.prompt || toolArgs.prompt,
+          brandPrompt,
+          itemPrompt ? `当前 SOURCE ${job.sourceIndex + 1} 的可信逐项翻译要求：${itemPrompt}` : ""
+        ].filter(Boolean).join("\n")
+      };
+    };
+    const provenanceFor = (job) => {
+      const base = imageTaskProvenance(scope, job.source) || {};
+      const commerceSlotId = cleanOneLine(job.item?.slotId || "", 80) || undefined;
+      const commerceSlotIndex = Number.isInteger(job.item?.slotIndex)
+        ? job.item.slotIndex
+        : Number.isInteger(job.itemIndex) ? job.itemIndex : undefined;
+      const commerceLocaleCode = cleanOneLine(job.item?.localeCode || "", 32) || undefined;
+      const commerceResultKey = base.commerceCatalogTarget
+        ? `commerce-result-${stableTaskScopeIdentityHash(JSON.stringify({
+            version: 1,
+            taskScopeSnapshotHash: base.taskScopeSnapshotHash,
+            sourceBindingId: base.sourceBindingId,
+            commercePlanHash,
+            commerceSlotId: commerceSlotId || "",
+            commerceSlotIndex: Number.isInteger(commerceSlotIndex) ? commerceSlotIndex : -1,
+            commerceLocaleCode: commerceLocaleCode || ""
+          }))}`
+        : undefined;
+      return {
+        ...base,
+        ...(commercePlanHash ? { commercePlanHash, commerceSlotId, commerceSlotIndex, commerceLocaleCode } : {}),
+        ...(commerceResultKey ? { commerceResultKey } : {})
+      };
+    };
     const probeSourceJobs = sourceJobs.slice(0, goal.probeContainerCount);
     const probeSourceIndexes = new Set(probeSourceJobs.map((job) => job.sourceIndex));
     const jobs = [
-      ...probeSourceJobs.map((job) => ({ ...job, item: batchItems[0], itemIndex: 0, probeRepresentative: true })),
+      ...probeSourceJobs.map((job) => ({ ...job, item: itemForSource(job, batchItems[0]), itemIndex: 0, probeRepresentative: true })),
       ...sourceJobs.flatMap((job) => batchItems.flatMap((item, itemIndex) => (
         probeSourceIndexes.has(job.sourceIndex) && itemIndex === 0
           ? []
-          : [{ ...job, item, itemIndex, probeRepresentative: false }]
+          : [{ ...job, item: itemForSource(job, item), itemIndex, probeRepresentative: false }]
       )))
     ];
     if (jobs.length > 200) {
@@ -3690,74 +3961,153 @@ function createAgentRuntime(options) {
       : toolArgs.operation === "replace"
         ? "Goal 元素替换"
         : "Goal 图像编辑";
-    const nodeFor = (job, generation = null, asset = null, errorMessage = "") => {
-      const source = job.source;
-      const provenance = provenanceFor(job);
+    const sourceStates = new Map(sourceJobs.map((sourceJob) => {
+      const operationId = `${currentToolRunId}-goal-${sourceJob.sourceIndex + 1}`;
+      const sourceItems = batchItems.map((item, itemIndex) => {
+        const resolvedItem = itemForSource(sourceJob, item);
+        const itemJob = { ...sourceJob, item: resolvedItem, itemIndex };
+        return {
+          id: `item-${itemIndex + 1}`,
+          requestIndex: itemIndex + 1,
+          assetIndex: undefined,
+          prompt: resolvedItem.prompt || toolArgs.prompt,
+          title: resolvedItem.title || `方案 ${itemIndex + 1}`,
+          status: "pending",
+          taskProvenance: provenanceFor(itemJob)
+        };
+      });
+      return [sourceJob.source.bindingId, {
+        sourceJob,
+        operationId,
+        createdAt: new Date().toISOString(),
+        items: sourceItems,
+        assets: [],
+        settledSlots: new Set(),
+        failures: new Map(),
+        terminalEmitted: false,
+        finalized: false
+      }];
+    }));
+    const sourceStateFor = (job) => sourceStates.get(job.source.bindingId);
+    const nodeForState = (sourceState) => {
+      const source = sourceState.sourceJob.source;
       const sourceCode = cleanOneLine(source.displayCode || "", 40);
-      const prompt = generation?.prompt || job.item?.prompt || toolArgs.prompt;
-      const itemTitle = cleanOneLine(job.item?.title || "", 100);
-      const state = asset ? "done" : errorMessage ? "error" : "generating";
+      const total = batchItems.length;
+      const completed = sourceState.assets.length;
+      const failed = sourceState.failures.size;
+      const complete = sourceState.finalized || sourceState.settledSlots.size >= total;
+      const imageState = complete ? completed ? "done" : "error" : "generating";
+      const representative = sourceState.items.find((item) => item.status === "done") || sourceState.items[0];
+      const prompt = representative?.prompt || toolArgs.prompt;
+      const nodeProvenance = total === 1
+        ? sourceState.items[0]?.taskProvenance || imageTaskProvenance(scope, source) || {}
+        : imageTaskProvenance(scope, source) || {};
+      const errorMessage = [...sourceState.failures.values()].slice(0, 3).join("；");
       return {
-        title: `${sourceCode ? `${sourceCode} · ` : ""}${itemTitle || toolLabel}：${shortTitle(prompt, 18)}`,
+        title: `${sourceCode ? `${sourceCode} · ` : ""}${total > 1 ? "图片组" : toolLabel}：${shortTitle(prompt, 18)}`,
         prompt: [
           `prompt: ${prompt}`,
           `tool: ${primaryImageToolName}`,
           `operation: ${toolArgs.operation}`,
           "scopeExecution: all-goal-sources",
           `sourceBindingId: ${source.bindingId}`,
-          Number.isInteger(job.itemIndex) ? `matrixItem: ${job.itemIndex + 1}/${batchItems.length}` : "",
-          job.item?.slotId ? `commerceSlotId: ${job.item.slotId}` : "",
-          job.item?.localeCode ? `commerceLocaleCode: ${job.item.localeCode}` : "",
-          `model: ${generation?.model || toolArgs.model || context?.settings?.imageModel || ""}`,
-          `ratio: ${generation?.ratio || toolArgs.ratio}`,
-          `resolution: ${generation?.resolution || toolArgs.resolution}`,
-          `size: ${generation?.size || toolArgs.size}`,
-          `quality: ${generation?.quality || toolArgs.quality}`,
+          `items: ${total}`,
+          `model: ${toolArgs.model || context?.settings?.imageModel || ""}`,
+          `ratio: ${toolArgs.ratio}`,
+          `resolution: ${toolArgs.resolution}`,
+          `size: ${toolArgs.size}`,
+          `quality: ${toolArgs.quality}`,
           errorMessage ? `error: ${errorMessage}` : ""
         ].filter(Boolean).join("\n"),
         nodeType: "image",
         parentId: source.nodeId || source.ownerNodeId,
         relationType: toolArgs.relationType || "derived-from",
-        outputs: asset ? 1 : 0,
-        assets: asset ? [{
-          ...asset,
-          index: 1,
-          prompt: asset.prompt || prompt,
-          title: sourceCode ? `${sourceCode} · ${itemTitle || asset.title || "成果"}` : itemTitle || asset.title
-        }] : [],
-        imageState: state,
+        outputs: completed,
+        assets: sourceState.assets.map((asset) => ({ ...asset })),
+        imageState,
         imageError: errorMessage || undefined,
-        status: state === "generating" ? "working" : state === "error" ? "review" : "done",
-        taskProvenance: provenance,
+        status: imageState === "generating" ? "working" : imageState === "error" ? "review" : "done",
+        taskProvenance: {
+          ...nodeProvenance,
+          ...(commercePlanHash ? { commercePlanHash } : {})
+        },
         imageParams: {
           prompt,
-          size: generation?.size || toolArgs.size,
-          ratio: generation?.ratio || toolArgs.ratio,
-          resolution: generation?.resolution || toolArgs.resolution,
-          count: 1,
-          quality: generation?.quality || toolArgs.quality,
+          size: toolArgs.size,
+          ratio: toolArgs.ratio,
+          resolution: toolArgs.resolution,
+          count: total,
+          quality: toolArgs.quality,
           batchMode: "parallel",
-          referenceImages: [],
-          outputFormat: generation?.outputFormat || toolArgs.outputFormat,
-          outputCompression: generation?.outputCompression ?? toolArgs.outputCompression,
-          background: generation?.background ?? toolArgs.background,
-          moderation: generation?.moderation ?? toolArgs.moderation,
-          inputFidelity: generation?.inputFidelity ?? toolArgs.inputFidelity,
-          model: generation?.model || toolArgs.model || context?.settings?.imageModel || ""
+          referenceImages: sourceState.sourceJob.brandReferences || [],
+          outputFormat: toolArgs.outputFormat,
+          outputCompression: toolArgs.outputCompression,
+          background: toolArgs.background,
+          moderation: toolArgs.moderation,
+          inputFidelity: sourceState.sourceJob.brandReferences?.length ? "high" : toolArgs.inputFidelity,
+          model: toolArgs.model || context?.settings?.imageModel || ""
         },
         imageProgress: {
-          total: 1,
-          completed: asset ? 1 : 0,
-          failed: errorMessage ? 1 : 0,
-          failedSlots: errorMessage ? [1] : [],
+          total,
+          completed,
+          failed,
+          failedSlots: [...sourceState.failures.keys()].map((index) => index + 1),
           retryCount: 0,
           maxRetries: 0,
-          stopped: Boolean(errorMessage),
-          message: asset ? `Goal 来源槽位 ${job.itemIndex + 1}/${batchItems.length} 已完成` : errorMessage ? "Goal 来源失败，后续放量可能已停止" : `Goal 来源槽位 ${job.itemIndex + 1}/${batchItems.length} 正在执行`
-        }
+          stopped: imageState === "error",
+          message: imageState === "generating"
+            ? `Goal 图片组生成中，已完成 ${completed}/${total} 张${failed ? `，失败 ${failed} 张` : ""}`
+            : imageState === "done"
+              ? failed ? `图片组部分完成 ${completed}/${total} 张` : `图片组已完成 ${completed}/${total} 张`
+              : errorMessage || "Goal 图片组生成失败"
+        },
+        ...(total > 1 ? {
+          imageCollection: {
+            id: `collection-${sourceState.operationId}`,
+            name: sourceState.title || undefined,
+            kind: "batch",
+            collectionRole: "results",
+            generationMode: "parallel",
+            sourceNodeId: source.nodeId || source.ownerNodeId,
+            createdAt: sourceState.createdAt,
+            items: sourceState.items.map((item) => ({ ...item, taskProvenance: { ...item.taskProvenance } }))
+          }
+        } : {})
       };
     };
-    const operationIdFor = (job) => `${currentToolRunId}-goal-${job.sourceIndex + 1}-item-${job.itemIndex + 1}`;
+    const operationIdFor = (job) => sourceStateFor(job)?.operationId || `${currentToolRunId}-goal-${job.sourceIndex + 1}`;
+    const childOperationIdFor = (job) => `${operationIdFor(job)}-item-${job.itemIndex + 1}`;
+    const settleSourceState = (entry, job) => {
+      const sourceState = sourceStateFor(job);
+      if (!sourceState || sourceState.settledSlots.has(job.itemIndex)) return sourceState;
+      sourceState.settledSlots.add(job.itemIndex);
+      const collectionItem = sourceState.items[job.itemIndex];
+      if (entry?.status === "fulfilled") {
+        const generation = entry.value;
+        const asset = generation.outputs[0];
+        const provenance = provenanceFor(job);
+        sourceState.assets.push({
+          ...asset,
+          index: job.itemIndex + 1,
+          prompt: asset.prompt || job.item?.prompt || toolArgs.prompt,
+          title: job.source.displayCode
+            ? `${job.source.displayCode} · ${job.item?.title || asset.title || `方案 ${job.itemIndex + 1}`}`
+            : job.item?.title || asset.title || `方案 ${job.itemIndex + 1}`,
+          status: "done",
+          taskProvenance: provenance
+        });
+        collectionItem.assetIndex = sourceState.assets.length;
+        collectionItem.status = "done";
+        collectionItem.taskProvenance = provenance;
+      } else {
+        const message = cleanOneLine(entry?.reason?.message || "Goal 来源未执行。", 260);
+        sourceState.failures.set(job.itemIndex, message);
+        collectionItem.assetIndex = undefined;
+        collectionItem.status = "error";
+        collectionItem.error = message;
+      }
+      return sourceState;
+    };
     const batchRun = await runImageBatchScheduler({
       items: jobs,
       batchSize: goal.configuredConcurrency,
@@ -3799,11 +4149,14 @@ function createAgentRuntime(options) {
       runItem: async (job, jobIndex, _signal, dispatch = {}) => {
         const { sourceNodeId, sourceNodeAssetIndex, editImage } = prepareGoalJob(job);
         const operationId = operationIdFor(job);
+        const childOperationId = childOperationIdFor(job);
+        const sourceState = sourceStateFor(job);
         context?.progress?.({
           phase: "image-request",
           tool: primaryImageToolName,
           operationId,
           toolRunId: operationId,
+          childTaskId: childOperationId,
           summary: `${toolLabel}请求已发出，等待模型返回图片。`,
           brief: toolBriefFromArgs(primaryImageToolName, toolArgs),
           operation: toolArgs.operation,
@@ -3812,7 +4165,7 @@ function createAgentRuntime(options) {
             type: "workflow.node.create",
             operationId,
             toolRunId: operationId,
-            node: nodeFor(job)
+            node: nodeForState(sourceState)
           }
         });
         return callImageGeneration({
@@ -3824,14 +4177,16 @@ function createAgentRuntime(options) {
           parentId: sourceNodeId,
           assetIndex: sourceNodeAssetIndex,
           editImage,
+          referenceImages: job.brandReferences || [],
+          inputFidelity: job.brandReferences?.length ? "high" : toolArgs.inputFidelity,
           sourceImage: undefined,
           taskProvenance: provenanceFor(job),
           count: 1,
           batchItems: undefined,
           operationId,
           toolRunId: operationId,
-          runId: operationId,
-          partialRequestIndex: jobIndex + 1,
+          runId: childOperationId,
+          partialRequestIndex: job.itemIndex + 1,
           signal: context.signal,
           waitUntilRunnable: context.waitUntilRunnable,
           onTransportPromise: dispatch.trackProviderPromise,
@@ -3839,32 +4194,46 @@ function createAgentRuntime(options) {
           batchSize: 1
         }, context.settings || {}, context.progress);
       },
-      validateResult: (generation) => validateGoalPersistedImageResult(generation, generation?.size || toolArgs.size)
+      validateResult: (generation) => validateGoalPersistedImageResult(generation, generation?.size || toolArgs.size),
+      onItemSettled: (entry, job) => {
+        const sourceState = settleSourceState(entry, job);
+        if (!sourceState) return;
+        const sourceComplete = sourceState.settledSlots.size >= batchItems.length;
+        if (sourceComplete) sourceState.finalized = true;
+        const terminalPhase = sourceComplete
+          ? sourceState.assets.length ? "image-response" : "image-error"
+          : "image-result";
+        if (sourceComplete) sourceState.terminalEmitted = true;
+        context?.progress?.({
+          phase: terminalPhase,
+          tool: primaryImageToolName,
+          operationId: sourceState.operationId,
+          toolRunId: sourceState.operationId,
+          childTaskId: childOperationIdFor(job),
+          partialImage: { requestIndex: job.itemIndex + 1 },
+          summary: entry?.status === "fulfilled"
+            ? `${job.source.displayCode || job.source.bindingId} 的第 ${job.itemIndex + 1}/${batchItems.length} 张已生成并显示。`
+            : sourceState.failures.get(job.itemIndex),
+          internalOnly: !sourceComplete,
+          workflowAction: {
+            type: "workflow.node.create",
+            operationId: sourceState.operationId,
+            toolRunId: sourceState.operationId,
+            node: nodeForState(sourceState)
+          }
+        });
+      }
     });
 
     const successful = [];
     const failures = [];
     batchRun.results.forEach((entry, jobIndex) => {
       const job = jobs[jobIndex];
-      const operationId = operationIdFor(job);
+      settleSourceState(entry, job);
       if (entry?.status === "fulfilled") {
         const generation = entry.value;
         const asset = generation.outputs[0];
-        const action = {
-          type: "workflow.node.create",
-          operationId,
-          toolRunId: operationId,
-          node: nodeFor(job, generation, asset)
-        };
-        successful.push({ jobIndex, job, generation, asset, action });
-        context?.progress?.({
-          phase: "image-response",
-          tool: primaryImageToolName,
-          operationId,
-          toolRunId: operationId,
-          summary: `${job.source.displayCode || job.source.bindingId} 已生成并通过本地校验。`,
-          workflowAction: action
-        });
+        successful.push({ jobIndex, job, generation, asset });
         return;
       }
       const message = cleanOneLine(entry?.reason?.message || "Goal 来源未执行。", 260);
@@ -3873,30 +4242,38 @@ function createAgentRuntime(options) {
         context?.progress?.({
           phase: "goal-source-skipped",
           tool: primaryImageToolName,
-          operationId,
-          toolRunId: operationId,
+          operationId: operationIdFor(job),
+          toolRunId: operationIdFor(job),
           summary: `${job.source.displayCode || job.source.bindingId} 未派发：${message}`,
           internalOnly: true
         });
         return;
       }
-      const failureAction = {
-        type: "workflow.node.create",
-        operationId,
-        toolRunId: operationId,
-        node: nodeFor(job, null, null, message)
-      };
-      failures.push({ jobIndex, job, message, skipped: false, action: failureAction });
-      context?.progress?.({
-        phase: "image-error",
-        tool: primaryImageToolName,
-        operationId,
-        toolRunId: operationId,
-        summary: message,
-        detail: "Goal 已停止下一波；已被上游接受的请求仍可能计费。",
-        workflowAction: failureAction
-      });
+      failures.push({ jobIndex, job, message, skipped: false });
     });
+    for (const sourceState of sourceStates.values()) {
+      sourceState.finalized = true;
+      if (sourceState.terminalEmitted) continue;
+      sourceState.terminalEmitted = true;
+      const completed = sourceState.assets.length;
+      const action = {
+        type: "workflow.node.create",
+        operationId: sourceState.operationId,
+        toolRunId: sourceState.operationId,
+        node: nodeForState(sourceState)
+      };
+      context?.progress?.({
+        phase: completed ? "image-response" : "image-error",
+        tool: primaryImageToolName,
+        operationId: sourceState.operationId,
+        toolRunId: sourceState.operationId,
+        summary: completed
+          ? `${sourceState.sourceJob.source.displayCode || sourceState.sourceJob.source.bindingId} 图片组已返回 ${completed}/${batchItems.length} 张。`
+          : [...sourceState.failures.values()][0] || "Goal 来源未执行。",
+        detail: completed ? undefined : "Goal 已停止下一波；已被上游接受的请求仍可能计费。",
+        workflowAction: action
+      });
+    }
     if (!successful.length) {
       const firstFailure = failures[0]?.message || batchRun.summary?.circuit?.reason || "Goal 探针未通过。";
       const error = new Error(firstFailure);
@@ -3908,16 +4285,18 @@ function createAgentRuntime(options) {
     successful.sort((left, right) => (
       left.job.sourceIndex - right.job.sourceIndex || left.job.itemIndex - right.job.itemIndex
     ));
-    const actions = [
-      ...successful.map((item) => ({ job: item.job, action: item.action })),
-      ...failures.filter((item) => item.action).map((item) => ({ job: item.job, action: item.action }))
-    ].sort((left, right) => (
-      left.job.sourceIndex - right.job.sourceIndex || left.job.itemIndex - right.job.itemIndex
-    )).map((item) => item.action);
+    const actions = [...sourceStates.values()]
+      .sort((left, right) => left.sourceJob.sourceIndex - right.sourceJob.sourceIndex)
+      .map((sourceState) => ({
+        type: "workflow.node.create",
+        operationId: sourceState.operationId,
+        toolRunId: sourceState.operationId,
+        node: nodeForState(sourceState)
+      }));
     const outputPaths = successful.map((item) => String(item.asset.path || "").trim()).filter(Boolean);
     const failedCount = failures.filter((item) => !item.skipped).length;
     const skippedCount = failures.filter((item) => item.skipped).length;
-    const costCents = successful.reduce((total, item) => total + Number(item.generation.costCents || 0), 0);
+    const accounting = optionalGenerationAccounting(successful.map((item) => item.generation));
     const receipts = batchRun.results.map((entry, jobIndex) => {
       const job = jobs[jobIndex];
       const provenance = provenanceFor(job);
@@ -3955,7 +4334,8 @@ function createAgentRuntime(options) {
         commercePlanHash,
         probeSourceBindingIds: probeSourceJobs.map((job) => job.source.bindingId)
       },
-      receipts
+      receipts,
+      ...accounting
     };
     return {
       actions,
@@ -3976,7 +4356,7 @@ function createAgentRuntime(options) {
         "Requests already accepted upstream may still be charged; the circuit breaker only prevents later dispatches."
       ].join("\n"),
       result: [
-        "IMAGE Goal 已按冻结 SOURCE 范围执行。",
+        "IMAGE Goal 已按当前 SOURCE 范围执行。",
         `tool: ${primaryImageToolName}`,
         `operation: ${toolArgs.operation}`,
         "scopeExecution: all-goal-sources",
@@ -3990,8 +4370,9 @@ function createAgentRuntime(options) {
         `probeValidated: ${batchRun.summary.probe.succeeded}/${batchRun.summary.probe.targetSize}`,
         `maximumObservedConcurrency: ${batchRun.summary.maxConcurrentObserved}`,
         `circuit: ${batchRun.summary.circuit.open ? batchRun.summary.circuit.code : "closed"}`,
-        `costCents: ${costCents}`,
-        "计费边界：已派发或已被上游接受的请求仍可能计费，暂停、结束或熔断只阻止尚未派发的请求。"
+        ...(accounting.costCents === undefined ? [] : [`costCents: ${accounting.costCents}`]),
+        ...(accounting.providerUsage ? [`providerUsage: ${JSON.stringify(accounting.providerUsage)}`] : []),
+        "用量与费用仅在上游完成响应明确返回时记录；缺失不会阻断成果。"
       ].join("\n"),
       summary: goalSummary
     };
@@ -4650,6 +5031,145 @@ function createAgentRuntime(options) {
                 title: `方案 ${index + 1}`
               })))
         : [];
+      const liveCreatedAt = new Date().toISOString();
+      const liveAssets = [];
+      const liveItems = collectionSeedItems.map((item) => ({ ...item, status: "pending" }));
+      const liveSettledSlots = new Set();
+      const liveFailedSlots = new Map();
+      const liveImageNode = (terminalError = "") => {
+        const total = Math.max(1, Number(toolArgs.count || liveItems.length || 1));
+        const settledCount = liveSettledSlots.size;
+        const complete = settledCount >= total || Boolean(terminalError);
+        const imageState = complete
+          ? liveAssets.length ? "done" : "error"
+          : "generating";
+        return {
+          title: `${toolArgs.count > 1 ? "批量图片组" : nodeTitlePrefix}：${shortTitle(toolArgs.prompt, 18)}`,
+          prompt: [
+            `prompt: ${toolArgs.prompt}`,
+            `tool: ${primaryImageToolName}`,
+            `operation: ${toolArgs.operation || toolArgs.mode || "generate"}`,
+            `mode: ${toolArgs.mode ?? (isGenerate ? "generate" : "edit")}`,
+            `model: ${toolArgs.model ?? context?.settings?.imageModel ?? ""}`,
+            `ratio: ${toolArgs.ratio}`,
+            `resolution: ${toolArgs.resolution}`,
+            `size: ${toolArgs.size}`,
+            `quality: ${toolArgs.quality}`,
+            `count: ${toolArgs.count}`,
+            `referenceImages: ${(toolArgs.referenceImages ?? []).length}`,
+            `editImage: ${toolArgs.editImage ? "yes" : "no"}`,
+            `maskImage: ${toolArgs.maskImage || toolArgs.maskDataUrl ? "yes" : "no"}`,
+            terminalError ? `error: ${terminalError}` : "",
+            ...layerLines
+          ].filter(Boolean).join("\n"),
+          nodeType: "image",
+          parentId: actionParentId,
+          ...(actionParentId ? { relationType: toolArgs.relationType || "derived-from" } : {}),
+          outputs: liveAssets.length,
+          assets: liveAssets.map((asset) => ({ ...asset })),
+          imageState,
+          imageError: imageState === "error"
+            ? terminalError || [...liveFailedSlots.values()].slice(0, 3).join("；") || "生图失败。"
+            : undefined,
+          status: imageState === "generating" ? "working" : imageState === "done" ? "done" : "review",
+          taskProvenance: toolArgs.taskProvenance,
+          imageParams: {
+            prompt: toolArgs.prompt,
+            size: toolArgs.size,
+            ratio: toolArgs.ratio,
+            resolution: toolArgs.resolution,
+            count: total,
+            quality: toolArgs.quality,
+            batchMode: toolArgs.generationMode || "parallel",
+            referenceImages: toolArgs.referenceImages ?? [],
+            outputFormat: toolArgs.outputFormat,
+            outputCompression: toolArgs.outputCompression,
+            background: toolArgs.background,
+            moderation: toolArgs.moderation,
+            inputFidelity: toolArgs.inputFidelity,
+            model: toolArgs.model ?? context?.settings?.imageModel ?? "",
+            layerId: toolArgs.layerId,
+            layerRole: toolArgs.layerRole,
+            layerGroupId: toolArgs.layerGroupId,
+            transparentPreferred: toolArgs.transparentPreferred
+          },
+          imageProgress: {
+            total,
+            completed: Math.min(total, liveAssets.length),
+            failed: liveFailedSlots.size,
+            failedSlots: [...liveFailedSlots.keys()].map((index) => index + 1),
+            retryCount: 0,
+            maxRetries: 0,
+            stopped: imageState === "error",
+            message: imageState === "generating"
+              ? `Agent 并行生成中，已完成 ${liveAssets.length}/${total} 张${liveFailedSlots.size ? `，失败 ${liveFailedSlots.size} 张` : ""}`
+              : imageState === "done"
+                ? liveFailedSlots.size ? `部分失败，已完成 ${liveAssets.length}/${total} 张` : `已完成 ${liveAssets.length}/${total} 张`
+                : terminalError || "生图失败，已停止。可手动重试。"
+          },
+          ...(total > 1 ? {
+            imageCollection: {
+              id: `collection-${currentToolRunId}`,
+              name: `${toolArgs.count > 1 ? "批量图片组" : nodeTitlePrefix}：${shortTitle(toolArgs.prompt, 18)}`,
+              kind: toolArgs.collectionKind === "series" ? "series" : "batch",
+              collectionRole: "results",
+              generationMode: toolArgs.generationMode || "parallel",
+              sourceNodeId: actionParentId || undefined,
+              createdAt: liveCreatedAt,
+              items: liveItems.map((item) => ({ ...item }))
+            }
+          } : {})
+        };
+      };
+      const handleLiveImageResult = async (entry, requestIndex) => {
+        if (liveSettledSlots.has(requestIndex)) return;
+        liveSettledSlots.add(requestIndex);
+        const seedItem = liveItems[requestIndex];
+        if (entry?.status === "fulfilled") {
+          const value = entry.value || {};
+          const assets = Array.isArray(value.outputs) ? value.outputs : Array.isArray(value.assets) ? value.assets : [];
+          const asset = assets[0];
+          if (asset) {
+            liveAssets.push({
+              ...imageAssetWithDimensions(asset),
+              index: requestIndex + 1,
+              prompt: asset.prompt || seedItem?.prompt || toolArgs.prompt,
+              title: asset.title || seedItem?.title || (toolArgs.count > 1 ? `方案 ${requestIndex + 1}` : undefined),
+              status: "done"
+            });
+            if (seedItem) {
+              seedItem.assetIndex = liveAssets.length;
+              seedItem.status = "done";
+            }
+          } else {
+            liveFailedSlots.set(requestIndex, "没有返回图片。");
+          }
+        } else {
+          liveFailedSlots.set(requestIndex, cleanOneLine(entry?.reason?.message || String(entry?.reason || "生图失败。"), 260));
+        }
+        if (seedItem && liveFailedSlots.has(requestIndex)) {
+          seedItem.assetIndex = undefined;
+          seedItem.status = "error";
+          seedItem.error = liveFailedSlots.get(requestIndex);
+        }
+        context?.progress?.({
+          phase: "image-result",
+          tool: primaryImageToolName,
+          operationId: currentToolRunId,
+          toolRunId: currentToolRunId,
+          partialImage: { requestIndex: requestIndex + 1 },
+          summary: entry?.status === "fulfilled"
+            ? `第 ${requestIndex + 1}/${Math.max(1, toolArgs.count)} 张已完成。`
+            : `第 ${requestIndex + 1}/${Math.max(1, toolArgs.count)} 张生成失败。`,
+          internalOnly: true,
+          workflowAction: {
+            type: "workflow.node.create",
+            operationId: currentToolRunId,
+            toolRunId: currentToolRunId,
+            node: liveImageNode()
+          }
+        });
+      };
       context?.progress?.({
         phase: "image-request",
         tool: primaryImageToolName,
@@ -4665,63 +5185,7 @@ function createAgentRuntime(options) {
           type: "workflow.node.create",
           operationId: currentToolRunId,
           toolRunId: currentToolRunId,
-          node: {
-            title: `${nodeTitlePrefix}：${shortTitle(toolArgs.prompt, 18)}`,
-            prompt: [
-              `prompt: ${toolArgs.prompt}`,
-              `tool: ${primaryImageToolName}`,
-              `operation: ${toolArgs.operation || toolArgs.mode || "generate"}`,
-              `mode: ${toolArgs.mode ?? (isGenerate ? "generate" : "edit")}`,
-              `model: ${toolArgs.model ?? context?.settings?.imageModel ?? ""}`,
-              `ratio: ${toolArgs.ratio}`,
-              `resolution: ${toolArgs.resolution}`,
-              `size: ${toolArgs.size}`,
-              `quality: ${toolArgs.quality}`,
-              `count: ${toolArgs.count}`,
-              `referenceImages: ${(toolArgs.referenceImages ?? []).length}`,
-              `editImage: ${toolArgs.editImage ? "yes" : "no"}`,
-              `maskImage: ${toolArgs.maskImage || toolArgs.maskDataUrl ? "yes" : "no"}`,
-              ...layerLines
-            ].join("\n"),
-            nodeType: "image",
-            parentId: actionParentId,
-            ...(actionParentId ? { relationType: toolArgs.relationType || "derived-from" } : {}),
-            outputs: 0,
-            assets: [],
-            imageState: "generating",
-            status: "working",
-            taskProvenance: toolArgs.taskProvenance,
-            imageParams: {
-              prompt: toolArgs.prompt,
-              size: toolArgs.size,
-              ratio: toolArgs.ratio,
-              resolution: toolArgs.resolution,
-              count: toolArgs.count,
-              quality: toolArgs.quality,
-              batchMode: toolArgs.generationMode || "parallel",
-              referenceImages: toolArgs.referenceImages ?? [],
-              outputFormat: toolArgs.outputFormat,
-              outputCompression: toolArgs.outputCompression,
-              background: toolArgs.background,
-              moderation: toolArgs.moderation,
-              inputFidelity: toolArgs.inputFidelity,
-              model: toolArgs.model ?? context?.settings?.imageModel ?? "",
-              layerId: toolArgs.layerId,
-              layerRole: toolArgs.layerRole,
-              layerGroupId: toolArgs.layerGroupId,
-              transparentPreferred: toolArgs.transparentPreferred
-            },
-            ...(toolArgs.count > 1 ? {
-              imageCollection: {
-                id: `collection-${currentToolRunId}`,
-                kind: toolArgs.collectionKind === "series" ? "series" : "batch",
-                generationMode: toolArgs.generationMode || "parallel",
-                sourceNodeId: actionParentId || undefined,
-                createdAt: new Date().toISOString(),
-                items: collectionSeedItems.map((item) => ({ ...item, status: "pending" }))
-              }
-            } : {})
-          }
+          node: liveImageNode()
         }
       });
       let generation;
@@ -4732,7 +5196,8 @@ function createAgentRuntime(options) {
           toolRunId: currentToolRunId,
           signal: context.signal,
           waitUntilRunnable: context.waitUntilRunnable,
-          batchSize: context.settings?.imageBatchSize
+          batchSize: context.settings?.imageBatchSize,
+          onRequestSettled: handleLiveImageResult
         }, context.settings ?? {}, context.progress);
       } catch (error) {
         const message = cleanOneLine(error instanceof Error ? error.message : String(error), 260);
@@ -4807,7 +5272,9 @@ function createAgentRuntime(options) {
               ...(toolArgs.count > 1 ? {
                 imageCollection: {
                   id: `collection-${currentToolRunId}`,
+                  name: `${toolArgs.count > 1 ? "批量图片组" : nodeTitlePrefix}：${shortTitle(toolArgs.prompt, 18)}`,
                   kind: toolArgs.collectionKind === "series" ? "series" : "batch",
+                  collectionRole: "results",
                   generationMode: toolArgs.generationMode || "parallel",
                   sourceNodeId: actionParentId || undefined,
                   createdAt: new Date().toISOString(),
@@ -4959,18 +5426,20 @@ function createAgentRuntime(options) {
             imageState: groupAssets.length ? "done" : generation.failed ? "error" : "empty",
             imageCollection: {
               id: `collection-${currentToolRunId}`,
+              name: `${collectionKind === "series" ? "连续系列" : "批量图片组"}：${shortTitle(generation.prompt, 18)}`,
               kind: collectionKind,
+              collectionRole: "results",
               generationMode: generation.executionMode === "sequential" ? "sequential" : "parallel",
               sourceNodeId: actionParentId || undefined,
               createdAt: new Date().toISOString(),
               items: collectionItems.map((item, index) => {
                 const compactAssetIndex = Number.isInteger(Number(item.assetIndex)) && Number(item.assetIndex) >= 1
-                  ? clampNumber(item.assetIndex, 1, 10, 1)
+                  ? clampNumber(item.assetIndex, 1, 200, 1)
                   : undefined;
                 const boundAsset = compactAssetIndex === undefined ? undefined : groupAssets[compactAssetIndex - 1];
                 return {
                   id: String(item.id || `item-${index + 1}`),
-                  requestIndex: clampNumber(item.requestIndex, 1, 10, index + 1),
+                  requestIndex: clampNumber(item.requestIndex, 1, 200, index + 1),
                   assetIndex: compactAssetIndex,
                   prompt: String(item.prompt || boundAsset?.prompt || generation.prompt),
                   title: item.title ? String(item.title) : boundAsset?.title,
@@ -5144,9 +5613,18 @@ function createAgentRuntime(options) {
       const rawNodeId = String(args.nodeId || args.id || "").trim();
       const rawNodeTitle = String(args.nodeTitle || "").trim();
       const selectedNode = findWorkflowNode(nodes, context.selectedNodeId);
-      const selectedDefaultOperations = new Set(["describe_node", "focus_node", "update_node", "disconnect_node", "delete_node", "continue_node", "redraw_node", "cutout_node"]);
+      const selectedDefaultOperations = new Set(["describe_node", "focus_node", "update_node", "update_social_content", "disconnect_node", "delete_node", "continue_node", "redraw_node", "cutout_node"]);
+      const activeTaskScope = normalizedTaskScope({
+        taskScope: context.taskScope,
+        selectedNodeId: context.selectedNodeId,
+        selectedNodeIds: context.selectedNodeIds
+      });
+      const scopedRequirementNode = activeTaskScope.requirement?.nodeId
+        ? findWorkflowNode(nodes, activeTaskScope.requirement.nodeId)
+        : null;
       const resolvedTargetNode =
         resolveWorkflowNodeReference(nodes, { id: rawNodeId, title: rawNodeTitle }) ||
+        (operation === "update_social_content" ? scopedRequirementNode : null) ||
         (!rawNodeId && !rawNodeTitle && selectedDefaultOperations.has(operation) ? selectedNode : null);
       const nodeId = resolvedTargetNode?.id || rawNodeId;
       const targetNode = resolvedTargetNode;
@@ -5229,6 +5707,38 @@ function createAgentRuntime(options) {
           }
         ];
         result = `ARTIFACT CANVAS 更新成果。\n${safeJson(actions[0].patch)}`;
+      } else if (operation === "update_social_content") {
+        if (!targetNode || targetNode.type !== "requirement" || !targetNode.requirement?.socialPlan) {
+          throw new Error("update_social_content 只能写回当前带社媒计划的 Requirement。");
+        }
+        if (activeTaskScope.requirement?.nodeId && targetNode.id !== activeTaskScope.requirement.nodeId) {
+          throw new Error("update_social_content 只能写回本轮 TaskScope 锁定的 Requirement。");
+        }
+        const expectedRequirementRevision = Math.max(1, Math.floor(Number(
+          activeTaskScope.requirement?.revision || targetNode.requirement.revision || 1
+        )));
+        if (Number(targetNode.requirement.revision) !== expectedRequirementRevision) {
+          throw new Error("社媒 Requirement 已在本轮执行期间发生变化，请读取最新版本后重新执行。");
+        }
+        const socialPlan = mergeSocialContentWriteback(targetNode.requirement.socialPlan, args.socialPlan);
+        const issues = socialContentWritebackIssues(socialPlan);
+        if (issues.length) {
+          throw new Error(`社媒结构化内容尚未补齐：${issues.join("；")}。`);
+        }
+        actions = [{
+          type: "workflow.node.social.update",
+          id: targetNode.id,
+          expectedRequirementRevision,
+          socialPlan
+        }];
+        result = [
+          "SOCIAL CONTENT 已完成结构化回写，等待客户端原子提交。",
+          `nodeId: ${targetNode.id}`,
+          `platform: ${socialPlan.platform}`,
+          `workflowId: ${socialPlan.workflowId}`,
+          `planHash: ${socialPlan.planHash}`,
+          `requirementRevision: ${expectedRequirementRevision}`
+        ].join("\n");
       } else if (operation === "continue_node") {
         actions = [{ type: "workflow.node.continue", id: nodeId, prompt }];
         result = `WORKBENCH 基于节点继续生图。\nnodeId: ${nodeId}${prompt ? `\nprompt: ${prompt}` : ""}`;
@@ -5448,7 +5958,8 @@ function createAgentRuntime(options) {
     const taskScopeText = taskScopeForPrompt(payload, strategy.taskScopeMaxChars).text;
     const fastMemoryText = fastMemoryForPrompt(payload, { maxChars: strategy.fastMemoryPromptMaxChars });
     const toolSchemaText = safeJson(agentToolSchemas(payload.settings ?? {}, { includeNativeWebSearch: strategy.useNativeWebSearch }));
-    return estimateTokens(`${externalPromptFor("main")}\n${fastMemoryText}\n${state.summary || ""}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${referenceText}\n${toolSchemaText}\n${payload.prompt || ""}`);
+    const domainText = workspaceDomainPrompt(payload.workspaceDomain);
+    return estimateTokens(`${externalPromptFor("main")}\n${domainText}\n${fastMemoryText}\n${state.summary || ""}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${referenceText}\n${toolSchemaText}\n${payload.prompt || ""}`);
   }
 
   function compactAidebugMarkers(existingSummary = "", messages = [], prompt = "") {
@@ -5527,7 +6038,7 @@ function createAgentRuntime(options) {
               content: [
                 "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.",
                 "Include current progress and key decisions, important constraints and user preferences, clear remaining steps, and critical data or references needed to continue.",
-                "This is a naimage image-production Agent. Preserve SOURCE/REFERENCE roles, TaskScope snapshot identity, canvas/result relationships, image parameters, tool outcomes, errors, unresolved work, and exact AIDEBUG_* markers.",
+                "This is a SparkAI WorkSpace image-production Agent. Preserve SOURCE/REFERENCE roles, TaskScope snapshot identity, canvas/result relationships, image parameters, tool outcomes, errors, unresolved work, and exact AIDEBUG_* markers.",
                 "Do not invent facts. Be concise and structured. Return only JSON with keys summary and keywords."
               ].join("\n")
             },
@@ -5603,7 +6114,7 @@ function createAgentRuntime(options) {
     progress?.({
       phase: "context-compact-done",
       tool: "compact",
-      summary: `上下文 checkpoint 已完成：窗口 ${contextWindowNumber}，保留约 ${retainedUserMessages.reduce((total, content) => total + estimateTokens(content), 0).toLocaleString()} Token 用户意图，并重新注入当前 naimage 画布状态。`,
+      summary: `上下文 checkpoint 已完成：窗口 ${contextWindowNumber}，保留约 ${retainedUserMessages.reduce((total, content) => total + estimateTokens(content), 0).toLocaleString()} Token 用户意图，并重新注入当前 SparkAI WorkSpace 画布状态。`,
       detail: {
         contextStrategy: strategy.resolvedId,
         contextWindowNumber,
@@ -5617,6 +6128,7 @@ function createAgentRuntime(options) {
 
   function buildPromptMessages(payload, compactState = null, strategy = contextStrategyForSettings(payload.settings ?? {})) {
     const modelContract = imageModelContractForSettings(payload.settings ?? {});
+    const domainDefinition = workspaceDomainDefinition(payload.workspaceDomain);
     const selectedNodeId = String(payload.selectedNodeId || "").trim();
     const selectedNodeIds = selectedCanvasArtifactIds(payload);
     const workbenchSnapshot = workbenchSnapshotForPrompt(payload, {
@@ -5626,7 +6138,7 @@ function createAgentRuntime(options) {
     const nodeSnapshot = workbenchSnapshot.text;
     const taskScopeSnapshot = taskScopeForPrompt(payload, strategy.taskScopeMaxChars);
     const runtimeToolContract = [
-      `运行时向主 Agent 暴露 naimage 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
+      `运行时向主 Agent 暴露 SparkAI WorkSpace 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
       "由你根据用户目标自主决定是否调用工具以及调用顺序，系统不会替你强制 tool_choice 或改写参数。需要生成或修改图片时必须通过 image_gen tool_call 表达；普通问答直接回复，不要声称执行了不存在的工具。",
       "同一用户图片任务优先合并为一次 image_gen：相同提示词多张使用 count，不同提示词多张使用 items，并显式选择 generationMode=parallel 或 sequential；分层任务使用 operation=layers。用户在同一轮要求 N 张、N 版或 N 个候选时使用 parallel，即使表达为‘基于这张继续给 N 版’；parentId 表示来源，不决定执行模式。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。不要用多次单图调用模拟批量，但工具回执明确失败时应根据错误修正参数后再自主决定。",
       "",
@@ -5669,6 +6181,9 @@ function createAgentRuntime(options) {
         content: [
           "Runtime Context Boundary",
           runtimeToolContract,
+          "",
+          `Current Workspace Domain: ${domainDefinition.id} / ${domainDefinition.title}`,
+          workspaceDomainPrompt(domainDefinition.id),
           "",
           "Internal image preference context:",
           fastMemoryText,
@@ -6610,7 +7125,7 @@ function createAgentRuntime(options) {
     const current = {
       prompt: String(payload.currentPrompt ?? "").trim(),
       ratio: String(payload.currentRatio ?? "1:1").trim(),
-      resolution: String(payload.currentResolution ?? "1080P").trim(),
+      resolution: String(payload.currentResolution ?? "1K").trim(),
       count: clampNumber(payload.currentCount, 1, 10, 1),
       quality: String(payload.currentQuality ?? "auto").trim()
     };
@@ -6618,7 +7133,7 @@ function createAgentRuntime(options) {
       {
         role: "system",
         content:
-          "你是 naimage 的生图提示词与参数优化 Agent。你必须调用 image_gen 工具一次提交最终结果，并设置 operation=compose；不要直接生成图片，不要只输出正文。prompt 要写成可直接交给 Image2 的完整画面要求，并结合用户当前提示词、补充要求和参数。提示词必须使用正向、健康、具体、视觉化的表达；删除或改写性暗示、未成年擦边、血腥暴力、自伤、仇恨、病理化、规避审查等高风险措辞。不要写否定式敏感词，例如“不要血腥/不色情/不暴力”，要改成“干净、非伤害性、健康成人角色、时尚摄影、自然姿态”等正面描述。不要使用隐蔽词、谐音、拆字、暗号或任何绕过审核的写法。"
+          "你是 SparkAI WorkSpace 的生图提示词与参数优化 Agent。你必须调用 image_gen 工具一次提交最终结果，并设置 operation=compose；不要直接生成图片，不要只输出正文。prompt 要写成可直接交给 Image2 的完整画面要求，并结合用户当前提示词、补充要求和参数。提示词必须使用正向、健康、具体、视觉化的表达；删除或改写性暗示、未成年擦边、血腥暴力、自伤、仇恨、病理化、规避审查等高风险措辞。不要写否定式敏感词，例如“不要血腥/不色情/不暴力”，要改成“干净、非伤害性、健康成人角色、时尚摄影、自然姿态”等正面描述。不要使用隐蔽词、谐音、拆字、暗号或任何绕过审核的写法。"
       },
       {
         role: "user",
@@ -6969,6 +7484,7 @@ module.exports = {
   defaultPromptText,
   normalizedTaskScope,
   normalizedSteerTaskScopeUpdate,
+  socialContentForImageTask,
   taskScopeSnapshotHash,
   taskScopeForPrompt,
   validateImageOperationSourcePolicy,

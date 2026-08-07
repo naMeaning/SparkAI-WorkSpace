@@ -1,6 +1,8 @@
 # New API 双接入与激活授权部署说明
 
-本文对应 naimage 1.0.6 的两种服务接入方式和设备激活授权。它面向 New API 运维与桌面开发，不包含任何生产密钥。
+本文对应 SparkAI WorkSpace 的两种服务接入方式、双发行策略和设备激活授权。它面向 New API 运维与桌面开发，不包含任何生产密钥。
+
+构建期提供两个发行版：`dual-access` 保留下文两种接入方式；`sparkapi-account` 只允许 `https://sparkapi.org` 账号登录，并在 Electron Main 拒绝自定义 Base URL/API Key。生产门禁来自随构建写入的 `sparkai-access-policy.json`，运行 EXE 时设置环境变量不能解锁。构建入口为 `build:unrestricted`、`build:sparkapi`，需要同时生成两种安装包时使用 `package:win:variants`。
 
 ## 1. 两种接入模式
 
@@ -36,7 +38,7 @@ Base URL 可以写成 `https://example.com` 或 `https://example.com/v1`，客�
 
 只有上游以 400/404/422 明确表示 Responses 端点、所选 Agent 模型或 `image_generation` 工具不受支持时，客户端才安全回退 `POST /v1/images/generations` 的非流式 `{ model, prompt, size, quality, n }` JSON。HTTP 200 空 SSE、已收到 partial 后断流、`response.failed` 或 `response.incomplete` 都不会触发第二次生图，避免重复扣费。带参考图、蒙版或编辑语义的自定义请求仍使用 `/v1/images/edits` multipart 非流式协议。
 
-API Key 保存在 Electron 的 `app-settings.json`，不会进入项目、模型缓存、Git 或日志。桌面软件无法在服务端强制控制用户自有 Key 的调用，因此自定义模式的激活门禁属于客户端授权边界；账号模式的 Session Relay 同时有服务端强制门禁。
+自定义 API Key 由 Electron Main 通过 Windows `safeStorage` 加密保存在独立 sidecar；普通 `app-settings.json` 只含占位符，Key 不进入 Renderer、项目、模型缓存、Git 或日志。桌面软件无法在服务端强制控制用户自有 Key 的调用，因此自定义模式的激活门禁属于客户端授权边界；账号模式的远端授权仍必须由服务端强制。
 
 ## 2. 激活授权模型
 
@@ -195,6 +197,7 @@ Studio 快速验证：
 
 ```powershell
 corepack pnpm run test:license
+corepack pnpm run test:access-variant
 corepack pnpm run test:custom-api-transport
 corepack pnpm run typecheck
 corepack pnpm run build

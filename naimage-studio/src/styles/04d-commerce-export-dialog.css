@@ -1,0 +1,390 @@
+.commerce-export-dialog {
+  --ui-surface-width: min(1040px, calc(100vw - 36px));
+  --ui-surface-max-height: min(84vh, 760px);
+  height: min(84vh, 760px);
+}
+
+.ui-surface .ui-surface-body.commerce-export-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.36fr) minmax(0, 0.64fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.commerce-export-selection,
+.commerce-export-preview {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.commerce-export-selection {
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 58%, transparent);
+}
+
+.commerce-export-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px 12px 8px;
+}
+
+.commerce-export-controls select {
+  width: 100%;
+  min-height: 34px;
+}
+
+.commerce-export-candidate-toggle {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--control-bg);
+  font-size: 12px;
+}
+
+.commerce-export-candidate-toggle input,
+.commerce-export-product input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.commerce-export-selection-header,
+.commerce-export-package-list > header,
+.commerce-export-issue-list > header {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.commerce-export-selection-header small,
+.commerce-export-package-list > header small,
+.commerce-export-issue-list > header small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.commerce-export-product-list,
+.commerce-export-package-list,
+.commerce-export-issue-list {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.commerce-export-product-list {
+  flex: 1;
+}
+
+.commerce-export-product {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+}
+
+.commerce-export-product-row,
+.commerce-export-sku-list label {
+  min-width: 0;
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.commerce-export-product-row {
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  min-height: 46px;
+  padding: 5px 12px;
+  background: color-mix(in srgb, var(--surface-solid) 66%, transparent);
+}
+
+.commerce-export-product-row > span,
+.commerce-export-sku-list label > span,
+.commerce-export-package-row > span:first-of-type {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.commerce-export-product-row strong,
+.commerce-export-sku-list strong,
+.commerce-export-package-row strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-export-product-row small,
+.commerce-export-sku-list small,
+.commerce-export-package-row small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-export-product-row b,
+.commerce-export-package-row > b {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.commerce-export-sku-list {
+  display: grid;
+}
+
+.commerce-export-sku-list label {
+  grid-template-columns: 15px minmax(0, 1fr);
+  min-height: 40px;
+  padding: 4px 12px 4px 34px;
+}
+
+.commerce-export-product-row:hover,
+.commerce-export-sku-list label:hover {
+  background: var(--hover-bg);
+}
+
+.commerce-export-preview {
+  gap: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--canvas) 58%, transparent);
+}
+
+.commerce-export-preview .ui-inline-notice {
+  flex: 0 0 auto;
+}
+
+.commerce-export-preview .ui-inline-notice-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.commerce-export-preview .ui-inline-notice-copy > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commerce-export-summary {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+
+.commerce-export-summary > div {
+  min-width: 0;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  border-right: 1px solid var(--line);
+  color: var(--accent-strong);
+}
+
+.commerce-export-summary > div:last-child {
+  border-right: 0;
+}
+
+.commerce-export-summary > div.has-warning {
+  color: var(--warning, #a96700);
+}
+
+.commerce-export-summary > div.has-blocking {
+  color: var(--danger);
+}
+
+.commerce-export-summary span {
+  display: grid;
+  gap: 1px;
+}
+
+.commerce-export-summary strong {
+  color: currentColor;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.commerce-export-summary small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.commerce-export-results {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-rows: minmax(150px, 0.52fr) minmax(120px, 0.48fr);
+  gap: 10px;
+}
+
+.commerce-export-package-list,
+.commerce-export-issue-list {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+}
+
+.commerce-export-package-list > header,
+.commerce-export-issue-list > header {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  border-top: 0;
+  background: var(--surface-solid);
+}
+
+.commerce-export-package-row {
+  min-width: 0;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 16px minmax(90px, 0.8fr) minmax(120px, 1.2fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--accent-strong);
+}
+
+.commerce-export-package-images {
+  min-width: 0;
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.commerce-export-package-images i {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: var(--hover-bg);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.commerce-export-issue {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--warning, #a96700);
+}
+
+.commerce-export-issue.is-blocking {
+  color: var(--danger);
+}
+
+.commerce-export-issue span {
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.commerce-export-issue small {
+  color: currentColor;
+  font-size: 9px;
+}
+
+.commerce-export-clean,
+.commerce-export-awaiting,
+.commerce-export-loading,
+.commerce-export-empty {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.commerce-export-clean {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--success, #17835c);
+}
+
+.commerce-export-awaiting,
+.commerce-export-loading {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+}
+
+.commerce-export-awaiting strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.commerce-export-empty {
+  margin: 0;
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.commerce-export-footer-status {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+@media (max-width: 920px) {
+  .ui-surface .ui-surface-body.commerce-export-body {
+    grid-template-columns: minmax(240px, 0.4fr) minmax(0, 0.6fr);
+  }
+
+  .commerce-export-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .commerce-export-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .commerce-export-summary > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .commerce-export-package-row {
+    grid-template-columns: 16px minmax(90px, 1fr) auto;
+  }
+
+  .commerce-export-package-images {
+    display: none;
+  }
+}

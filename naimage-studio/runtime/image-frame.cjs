@@ -1,21 +1,27 @@
 const imagePromptRatios = new Set(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"]);
-const imagePromptResolutions = new Set(["720P", "1080P", "2K", "4K"]);
+const imagePromptResolutions = new Set(["1K", "2K", "4K"]);
+const legacyImagePromptResolutions = new Set(["720P", "1080P"]);
 const imagePromptQualities = new Set(["low", "medium", "high", "auto"]);
 const image2MaxEdge = 3840;
 const image2MinPixels = 655360;
 const image2MaxPixels = 8294400;
 const image2SourceRequestSizes = ["1024x1024", "1536x1024", "1024x1536"];
 const imageResolutionPresets = {
+  "1K": { longEdge: 1280, squareEdge: 1024 },
   "720P": { longEdge: 1280, squareEdge: 1024 },
   "1080P": { longEdge: 1920, squareEdge: 1088 },
   "2K": { longEdge: 2048, squareEdge: 2048 },
   "4K": { longEdge: 3840, squareEdge: 2880 }
 };
 
-function normalizeImagePromptResolution(value, fallback = "1080P") {
+function normalizeImagePromptResolution(value, fallback = "1K") {
   const raw = String(value ?? "").trim().toUpperCase();
-  if (raw === "720P" || raw === "1080P" || raw === "2K" || raw === "4K") return raw;
-  return imagePromptResolutions.has(fallback) ? fallback : "1080P";
+  if (imagePromptResolutions.has(raw)) return raw;
+  if (legacyImagePromptResolutions.has(raw)) return raw;
+  const normalizedFallback = String(fallback || "").trim().toUpperCase();
+  if (imagePromptResolutions.has(normalizedFallback)) return normalizedFallback;
+  if (legacyImagePromptResolutions.has(normalizedFallback)) return normalizedFallback;
+  return "1K";
 }
 
 function isImage2Model(model) {
@@ -57,14 +63,21 @@ function computedImageSizeFor(ratio, resolution) {
     const edge = roundToImageStep(preset.squareEdge);
     return `${edge}x${edge}`;
   }
-  if (parsed.width > parsed.height) {
-    const width = roundToImageStep(preset.longEdge);
-    const height = roundToImageStep((width * parsed.height) / parsed.width);
-    return `${width}x${height}`;
+  const landscape = parsed.width > parsed.height;
+  const longUnits = Math.max(parsed.width, parsed.height);
+  const shortUnits = Math.min(parsed.width, parsed.height);
+  const pixelLimitedLongEdge = Math.floor(Math.sqrt((image2MaxPixels * longUnits) / shortUnits) / 16) * 16;
+  let longEdge = Math.min(roundToImageStep(preset.longEdge), image2MaxEdge, pixelLimitedLongEdge);
+  const dimensionsForLongEdge = (value) => {
+    const shortEdge = roundToImageStep((value * shortUnits) / longUnits);
+    return landscape ? { width: value, height: shortEdge } : { width: shortEdge, height: value };
+  };
+  let dimensions = dimensionsForLongEdge(longEdge);
+  while (dimensions.width * dimensions.height > image2MaxPixels && longEdge > 512) {
+    longEdge -= 16;
+    dimensions = dimensionsForLongEdge(longEdge);
   }
-  const height = roundToImageStep(preset.longEdge);
-  const width = roundToImageStep((height * parsed.width) / parsed.height);
-  return `${width}x${height}`;
+  return `${dimensions.width}x${dimensions.height}`;
 }
 
 function isImage2DeliverySize(size) {
@@ -133,10 +146,10 @@ function image2SourceRequestSizeForDelivery(size) {
 
 function normalizeImageToolFrame(args = {}, settings = {}) {
   const ratio = normalizeImageRatio(args.ratio ?? settings.imageRatio, "1:1");
-  const resolution = normalizeImagePromptResolution(args.resolution ?? settings.imageResolution, "1080P");
+  const resolution = normalizeImagePromptResolution(args.resolution ?? settings.imageResolution, "1K");
   const model = args.model ?? settings?.imageModel ?? "gpt-image-2";
-  const hasRatioRequest = Boolean(args.ratio);
-  const requestedSize = args.size ?? (hasRatioRequest ? computedImageSizeFor(ratio, resolution) : settings?.imageSize ?? computedImageSizeFor(ratio, resolution));
+  const hasFramePreference = Boolean(args.ratio || args.resolution || settings.imageRatio || settings.imageResolution);
+  const requestedSize = args.size ?? (hasFramePreference ? computedImageSizeFor(ratio, resolution) : settings?.imageSize ?? computedImageSizeFor(ratio, resolution));
   const size = isImage2Model(model) ? normalizeImage2Size(requestedSize, ratio, resolution) : String(requestedSize || "1024x1024");
   const requestSize = isImage2Model(model) ? image2SourceRequestSizeForDelivery(size) : size;
   return { ratio, resolution, size, requestSize };
@@ -151,8 +164,8 @@ function validateImageFrameFields(args = {}, label = "image_gen") {
   }
   if (args.resolution !== undefined && args.resolution !== null && String(args.resolution).trim()) {
     const resolution = String(args.resolution).trim().toUpperCase();
-    if (!imagePromptResolutions.has(resolution)) {
-      throw new Error(`${label} resolution=${String(args.resolution)} 不受支持。请使用 720P、1080P、2K 或 4K。`);
+    if (!imagePromptResolutions.has(resolution) && !legacyImagePromptResolutions.has(resolution)) {
+      throw new Error(`${label} resolution=${String(args.resolution)} 不受支持。请使用 1K、2K 或 4K。`);
     }
   }
   if (args.quality !== undefined && args.quality !== null && String(args.quality).trim()) {

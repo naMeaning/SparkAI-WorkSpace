@@ -16,6 +16,7 @@ const { aidebugImageBase64, aidebugLayerFixtureHint } = aidebugImageFixture;
 const {
   activeNewApiCurlTransportCount,
   boundedImageRead,
+  completedImageAccounting,
   encodedImageDimensions,
   imageEditRequestLimiterStatus,
   migrateSettings,
@@ -151,6 +152,21 @@ async function run() {
   webpVp8x.writeUIntLE(799, 24, 3);
   webpVp8x.writeUIntLE(1199, 27, 3);
   assert.deepEqual(encodedImageDimensions(webpVp8x), { width: 800, height: 1200 });
+  assert.deepEqual(completedImageAccounting([{
+    usage: {
+      total_tokens: "9",
+      image_tokens: 7,
+      cost_cents: 12,
+      ignored_private_field: "must-not-leak"
+    }
+  }, { data: [] }]), {
+    providerUsage: [{ requestIndex: 1, total_tokens: 9, image_tokens: 7, cost_cents: 12 }],
+    costCents: 12
+  });
+  const missingAccounting = completedImageAccounting([{ data: [] }]);
+  assert.deepEqual(missingAccounting, {}, "A completed response without usage must not fabricate zero-cost metadata");
+  assert.equal(Object.hasOwn(missingAccounting, "costCents"), false);
+  assert.equal(Object.hasOwn(missingAccounting, "providerUsage"), false);
   let activeEditTasks = 0;
   let maximumEditTasks = 0;
   await Promise.all(Array.from({ length: 10 }, () => withImageEditRequestSlot(async () => {

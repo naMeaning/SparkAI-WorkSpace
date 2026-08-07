@@ -5,6 +5,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { PNG } from "pngjs";
 
+import { allocateDebugPort } from "../aidebug/harness/process.mjs";
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "../..");
 const exeArg = process.argv.find((item) => item.startsWith("--exe="));
@@ -19,7 +21,7 @@ const userDataDir = join(runDir, "user-data");
 const debugDir = join(runDir, "runtime");
 const electronLog = join(runDir, "electron.log");
 const reportPath = join(runDir, "report.json");
-const remotePort = 12100 + (process.pid % 1600);
+const remotePort = await allocateDebugPort();
 
 if (!existsSync(executable)) throw new Error(`Packaged executable not found: ${executable}`);
 
@@ -265,7 +267,7 @@ try {
       ok: Boolean(
         settings && projects?.ok && smoke?.ok && saved?.ok && readBack?.ok &&
         imported?.ok && semantic?.ok && psd?.ok && thumbnail?.ok && network?.ok &&
-        title === "naimage" && bodyText.length > 20
+        title === "SparkAI WorkSpace" && bodyText.length > 20
       ),
       title,
       bodyTextLength: bodyText.length,

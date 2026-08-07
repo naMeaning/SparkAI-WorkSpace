@@ -15,6 +15,7 @@ function registerSettingsIpc({
   onNewApiAccountBaseUrlChanged,
   onSettingsSaved,
   publicSettings,
+  restoreSettingsSecrets,
   themePresetService,
   validateNewApiServiceSettings,
   writeJson
@@ -27,11 +28,12 @@ function registerSettingsIpc({
 
   ipcMain.handle("naimage:config:save-settings", (event, settings) => {
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
-    const incomingSessionCookie = typeof settings?.serverSessionCookie === "string" ? settings.serverSessionCookie.trim() : "";
-    const incomingServerUserId = typeof settings?.serverUserId === "string" ? settings.serverUserId.trim() : "";
+    const restoredSettings = restoreSettingsSecrets?.(settings, current) || settings;
+    const incomingSessionCookie = typeof restoredSettings?.serverSessionCookie === "string" ? restoredSettings.serverSessionCookie.trim() : "";
+    const incomingServerUserId = typeof restoredSettings?.serverUserId === "string" ? restoredSettings.serverUserId.trim() : "";
     let next = migrateSettings({
       ...current,
-      ...(settings || {}),
+      ...(restoredSettings || {}),
       serverSessionCookie: incomingSessionCookie || current.serverSessionCookie,
       serverUserId: incomingServerUserId || current.serverUserId,
       // License identity and tokens are Main-owned secrets. They are omitted
@@ -73,6 +75,44 @@ function registerSettingsIpc({
 
   ipcMain.handle("naimage:theme:import", () => themePresetService.importPreset());
   ipcMain.handle("naimage:theme:export", (_event, theme) => themePresetService.exportPreset(theme));
+}
+
+function registerGlassBackgroundIpc({
+  ipcMain,
+  glassBackgroundService,
+  BrowserWindow,
+  getReferencedGlassBackgroundAssetIds = () => []
+}) {
+  const unavailable = () => ({
+    ok: false,
+    errorCode: "GLASS_BACKGROUND_UNAVAILABLE",
+    error: "Managed workspace backgrounds are unavailable in this runtime."
+  });
+
+  ipcMain.handle("naimage:glass-background:pick", async (event) => {
+    if (!glassBackgroundService) return unavailable();
+    const owner = BrowserWindow?.fromWebContents?.(event.sender) || null;
+    const result = await glassBackgroundService.pick(owner);
+    if (result?.ok && result.asset?.assetId) {
+      glassBackgroundService.cleanup({
+        referencedAssetIds: [
+          ...getReferencedGlassBackgroundAssetIds(),
+          result.asset.assetId
+        ]
+      });
+    }
+    return result;
+  });
+
+  ipcMain.handle("naimage:glass-background:load", (_event, payload = {}) => {
+    if (!glassBackgroundService) return unavailable();
+    return glassBackgroundService.load(payload);
+  });
+
+  ipcMain.handle("naimage:glass-background:clear", (_event, payload = {}) => {
+    if (!glassBackgroundService) return unavailable();
+    return glassBackgroundService.clear(payload, getReferencedGlassBackgroundAssetIds());
+  });
 }
 
 function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService }) {
@@ -226,6 +266,7 @@ function registerSessionIpc({
 }
 
 module.exports = {
+  registerGlassBackgroundIpc,
   registerRequirementLibraryIpc,
   registerSettingsIpc,
   registerSessionIpc

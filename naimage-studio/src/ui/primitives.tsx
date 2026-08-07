@@ -1,4 +1,4 @@
-import React, { useId } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 export function joinClassNames(...names: Array<string | false | null | undefined>) {
@@ -22,7 +22,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
         <div className="fatal-screen">
           <div>
             <span className="eyebrow">Main Error</span>
-            <h1>naimage 界面启动失败</h1>
+            <h1>SparkAI WorkSpace 界面启动失败</h1>
             <p>{this.state.error.message}</p>
             <ButtonBase onClick={() => window.location.reload()}>
               重新加载
@@ -279,5 +279,109 @@ export function SearchField({
       {icon ? <span className="ui-search-field-icon" aria-hidden="true">{icon}</span> : null}
       <input {...inputProps} id={inputId} aria-label={inputProps?.["aria-label"] ?? label} type={inputProps?.type ?? "search"} />
     </label>
+  );
+}
+
+function finiteInputNumber(value: string | number | readonly string[] | undefined) {
+  const number = Number(Array.isArray(value) ? value[0] : value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function normalizedDeferredNumber(
+  value: number,
+  min: number | undefined,
+  max: number | undefined,
+  step: number | undefined
+) {
+  let next = value;
+  if (min !== undefined) next = Math.max(min, next);
+  if (max !== undefined) next = Math.min(max, next);
+  if (step !== undefined && step > 0) {
+    const origin = min ?? 0;
+    next = origin + Math.round((next - origin) / step) * step;
+    const precision = Math.max(0, String(step).split(".")[1]?.length ?? 0);
+    next = Number(next.toFixed(Math.min(12, precision)));
+  }
+  return next;
+}
+
+/**
+ * A controlled number field that preserves an empty editing state. Native
+ * controlled number inputs otherwise snap back to the last value as soon as
+ * the user presses Backspace, which makes replacing the whole value awkward.
+ */
+export function DeferredNumberInput({
+  value,
+  onValueChange,
+  onBlur,
+  onKeyDown,
+  min,
+  max,
+  step,
+  ...inputProps
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "type" | "value" | "onChange"> & {
+  value: number;
+  onValueChange: (value: number) => void;
+}) {
+  const focusedRef = useRef(false);
+  const [draft, setDraft] = useState(() => String(value));
+  const minimum = finiteInputNumber(min);
+  const maximum = finiteInputNumber(max);
+  const increment = finiteInputNumber(step);
+
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(String(value));
+  }, [value]);
+
+  function commit(raw: string, restoreInvalid = true) {
+    const parsed = Number(raw);
+    if (!raw.trim() || !Number.isFinite(parsed)) {
+      if (restoreInvalid) setDraft(String(value));
+      return;
+    }
+    const normalized = normalizedDeferredNumber(parsed, minimum, maximum, increment);
+    setDraft(String(normalized));
+    if (normalized !== value) onValueChange(normalized);
+  }
+
+  return (
+    <input
+      {...inputProps}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft}
+      onFocus={(event) => {
+        focusedRef.current = true;
+        inputProps.onFocus?.(event);
+      }}
+      onChange={(event) => {
+        const next = event.target.value;
+        setDraft(next);
+        if (!next.trim()) return;
+        const parsed = Number(next);
+        if (!Number.isFinite(parsed)) return;
+        if (minimum !== undefined && parsed < minimum) return;
+        if (maximum !== undefined && parsed > maximum) return;
+        const normalized = normalizedDeferredNumber(parsed, minimum, maximum, increment);
+        if (normalized !== value) onValueChange(normalized);
+      }}
+      onBlur={(event) => {
+        focusedRef.current = false;
+        commit(event.currentTarget.value);
+        onBlur?.(event);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          commit(event.currentTarget.value);
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          setDraft(String(value));
+          event.currentTarget.blur();
+        }
+        onKeyDown?.(event);
+      }}
+    />
   );
 }

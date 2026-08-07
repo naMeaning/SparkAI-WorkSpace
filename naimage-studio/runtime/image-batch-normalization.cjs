@@ -2,6 +2,7 @@
 
 const {
   imagePromptQualities,
+  normalizeImagePromptResolution,
   normalizeImageToolFrame,
   parseImageRatioValue,
   parseImageSizeValue
@@ -18,7 +19,10 @@ function createImageBatchNormalization(options = {}) {
   function comparableSingleItemField(name, value) {
     if (value === undefined || value === null || value === "") return "";
     if (name === "ratio") return parseImageRatioValue(value)?.ratio || String(value).trim();
-    if (name === "resolution") return String(value).trim().toUpperCase();
+    if (name === "resolution") {
+      const resolution = normalizeImagePromptResolution(value);
+      return resolution === "720P" || resolution === "1080P" ? "1K" : resolution;
+    }
     if (name === "quality") return String(value).trim().toLowerCase();
     if (name === "size") {
       const parsed = parseImageSizeValue(value);
