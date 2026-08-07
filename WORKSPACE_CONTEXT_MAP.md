@@ -4,6 +4,8 @@
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
+> Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
+
 ## 1. 两个项目分别是什么
 
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
@@ -181,7 +183,7 @@ corepack pnpm run crm:check
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
 | 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、按用户设置每批 1–10 张顺序派发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
-| 桌面更新 | updater、`update-release.cjs`、公钥 | release manifest、下载/更新 API、生产制品 | `naimage-studio` product、version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
+| 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | release manifest、下载/更新 API、`deploy/production/verify-installer.sh`、生产制品 | manifest schema 与 `naimage-studio` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
