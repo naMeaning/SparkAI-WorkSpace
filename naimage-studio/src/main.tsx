@@ -66,6 +66,7 @@ import {
   Film,
   FolderOpen,
   FolderPlus,
+  HardDriveDownload,
   ImageIcon,
   Images,
   Import,
@@ -258,6 +259,13 @@ import {
   mergeLegacyImageLayoutGroups,
   synchronizeImageContainerSpecs
 } from "./image-container-graph";
+import {
+  ImageCollectionMutationError,
+  renameImageCollections as applyImageCollectionRenames,
+  replaceImageCollectionItems as applyImageCollectionReplacements,
+  type RenameImageCollectionRequest,
+  type ReplaceImageCollectionItemRequest,
+} from "./image-collection-mutation";
 import type { TaskResultLayoutMutation } from "./task-result-layout";
 import {
   ActionButton,
@@ -371,12 +379,15 @@ import type {
   VideoAsset,
   VideoTask,
   ImageExportFormat,
+  ImageCollectionExportPreviewResult,
+  ImageCollectionExportResult,
   ImageCollection,
   ImageContainerKind,
   ImageContainerMemberBinding,
   ImageContainerSpec,
   ReferenceImage,
   ProjectRecord,
+  ProjectDataMigrationPreviewResult,
   ProjectNameDraft,
   WorkspaceDomain,
   ConfirmDialogDraft,
@@ -524,6 +535,26 @@ type AssetContextMenuState = {
   source: "canvas" | "viewer";
 };
 
+type ImageCollectionDialogState = {
+  mode: "rename" | "replace";
+  collectionIds: string[];
+  names: Record<string, string>;
+  sourceCollectionId?: string;
+  itemId?: string;
+  requestIndex?: number;
+  replacementNodeId?: string;
+  replacementAssetIndex?: number;
+  defectReason?: string;
+  error?: string;
+};
+
+type ImageCollectionExportDialogState = {
+  collectionIds: string[];
+  format: ImageExportFormat;
+  preview: ImageCollectionExportPreviewResult;
+  error?: string;
+};
+
 type LayerViewerState = {
   groupId: string;
   selectedNodeId: string;
@@ -577,6 +608,7 @@ type RuntimeActionCommitResult = {
   operationId: string;
   status: "done" | "error" | "cancelled";
   summary: string;
+  category?: "layer" | "image-collection";
 };
 
 type RuntimeActionApplicationResult = {
@@ -609,6 +641,15 @@ type TransientNodeDragEdge = {
   kind: string;
   laneIndex: number;
   laneCount: number;
+};
+
+type TransientNodeDragMember = {
+  id: string;
+  x: number;
+  y: number;
+  nodeElement?: HTMLDivElement;
+  originalZIndex?: string;
+  originalWillChange?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -1363,6 +1404,15 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
   return normalized;
 }
 
+function generatedImageAssetKey(asset: Partial<ImageAsset>) {
+  if (asset.importBatchId && asset.importRootId && safeImageSourceRelativePath(asset.sourceRelativePath)) return "";
+  const runId = String(asset.runId ?? "").trim().toLowerCase();
+  if (runId.startsWith("import-")) return "";
+  const locator = String(asset.relativePath || asset.path || asset.assetUrl || asset.url || "").trim();
+  if (!runId || !locator || /^(?:data|blob):/i.test(locator)) return "";
+  return `generated:${runId}:${locator.replace(/\\/g, "/").toLowerCase()}`;
+}
+
 function sanitizeStoredVideoAsset(value: unknown): VideoAsset | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Partial<VideoAsset>;
@@ -1861,7 +1911,11 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     : imageState === "done" ? "done" : imageState === "generating" ? "working" : interruptedImageRun ? "review" : normalizeNodeStatus(source.status);
   const parentId = typeof source.parentId === "string" && source.parentId.trim() && source.parentId !== id ? source.parentId.trim() : undefined;
   const agentOwnerId = typeof source.agentOwnerId === "string" && source.agentOwnerId.trim() && source.agentOwnerId !== id ? source.agentOwnerId.trim() : undefined;
-  const outputs = type === "video" ? videoAsset ? 1 : 0 : Math.max(assets.length, Number.isFinite(Number(source.outputs)) ? Math.max(0, Number(source.outputs)) : 0);
+  const outputs = type === "video"
+    ? videoAsset ? 1 : 0
+    : assets.length > 0
+      ? assets.length
+      : Number.isFinite(Number(source.outputs)) ? Math.max(0, Number(source.outputs)) : 0;
   const imageParams = type === "video" ? undefined : sanitizeImageParams(source.imageParams, promptParts.prompt);
   const layerGroup = type === "video" ? undefined : sanitizeLayerNodeGroup(source.layerGroup);
   const layerComposition = type === "video" ? undefined : sanitizeLayerComposition(source.layerComposition);
@@ -3414,6 +3468,22 @@ function projectCanvasImageLayouts(nodes: WorkflowNode[], layoutGroups: ImageLay
 // MAIN 10 App State Hub And Workflow Orchestration
 // -----------------------------------------------------------------------------
 
+function formatProjectMigrationBytes(value: number) {
+  const bytes = Math.max(0, Number(value || 0));
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+const IMAGE_EXPORT_FORMAT_LABELS: Record<ImageExportFormat, string> = {
+  png: "PNG",
+  jpeg: "JPEG",
+  webp: "WebP",
+  avif: "AVIF",
+  tiff: "TIFF",
+};
+
 function App() {
   if (!firstAppRenderMarked) {
     firstAppRenderMarked = true;
@@ -3447,9 +3517,10 @@ function App() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [canvasSelectionBox, setCanvasSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState("default");
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const projectDataMigrationPreviewRef = useRef<ProjectDataMigrationPreviewResult | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>(initialViewport);
   const zoom = viewport.scale;
   const [prompt, setPrompt] = useState("");
@@ -3484,6 +3555,9 @@ function App() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogDraft | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [assetContextMenu, setAssetContextMenu] = useState<AssetContextMenuState | null>(null);
+  const [imageCollectionDialog, setImageCollectionDialog] = useState<ImageCollectionDialogState | null>(null);
+  const [imageCollectionExportDialog, setImageCollectionExportDialog] = useState<ImageCollectionExportDialogState | null>(null);
+  const [imageCollectionActionBusy, setImageCollectionActionBusy] = useState(false);
   const [layerViewer, setLayerViewer] = useState<LayerViewerState | null>(null);
   const [regionRedrawDraft, setRegionRedrawDraft] = useState<RegionRedrawDraft | null>(null);
   const [regionRedrawClosePromptOpen, setRegionRedrawClosePromptOpen] = useState(false);
@@ -3701,6 +3775,7 @@ function App() {
     debugRenderCommitsRef.current[area] += 1;
   }, []);
   pendingAgentExecutionRef.current = pendingAgentExecution;
+  const draggingNodeIdsRef = useRef<Set<string>>(new Set());
   const dragRef = useRef<{
     id: string;
     pointerId: number;
@@ -3714,6 +3789,7 @@ function App() {
     dropTargetId?: string;
     layerGroupId?: string;
     layerGroupStart?: Record<string, { x: number; y: number; anchorX: number; anchorY: number; detached: boolean }>;
+    multiNodeStart?: TransientNodeDragMember[];
     pendingX?: number;
     pendingY?: number;
     previewApplied?: boolean;
@@ -4083,7 +4159,7 @@ function App() {
 
   async function waitForCanvasImageCommit(nodeId: string) {
     let element: HTMLElement | null = null;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
       element = document.querySelector<HTMLElement>(`.flow-node[data-node-id="${CSS.escape(nodeId)}"]`);
       if (element) break;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 25));
@@ -4263,14 +4339,15 @@ function App() {
 // -----------------------------------------------------------------------------
 
   function resetProjectNodeMutationTracking(projectId: string, session: StudioWorkflowSession) {
-    const key = projectId || "default";
-    projectNodeMutationJournalRef.current[key] = [...(session.nodeMutationJournal ?? [])];
-    projectNodeMutationWriterCheckpointsRef.current[key] = [...(session.nodeMutationWriterCheckpoints ?? [])];
-    projectNodeMutationBarriersRef.current[key] = [...(session.nodeMutationBarriers ?? [])];
-    projectNodeMutationBaselineRef.current[key] = session.nodes.map(cloneWorkflowNode);
+    if (!projectId) return;
+    projectNodeMutationJournalRef.current[projectId] = [...(session.nodeMutationJournal ?? [])];
+    projectNodeMutationWriterCheckpointsRef.current[projectId] = [...(session.nodeMutationWriterCheckpoints ?? [])];
+    projectNodeMutationBarriersRef.current[projectId] = [...(session.nodeMutationBarriers ?? [])];
+    projectNodeMutationBaselineRef.current[projectId] = session.nodes.map(cloneWorkflowNode);
   }
 
   async function persistProjectSessionNow(projectId: string, snapshot: StudioWorkflowSession) {
+    if (!projectId) throw new Error("请先创建或打开项目，再保存画布。");
     const flushStartedAt = performance.now();
     try {
       const currentRevision = Math.max(0, Math.floor(Number(projectSessionRevisionRef.current[projectId] ?? snapshot.sessionRevision ?? 0) || 0));
@@ -4366,12 +4443,15 @@ function App() {
           agentModel: storedSettings.agentModel,
           imageModel: storedSettings.imageModel
         }));
-        let loadedProjectId = "default";
+        let loadedProjectId = "";
         let loadedProjects: ProjectRecord[] | undefined;
         if (window.naimageConfig?.listProjects) {
           const list = await window.naimageConfig.listProjects();
           if (list.ok) {
-            loadedProjectId = launchContextRef.current.projectId || list.activeProjectId || "default";
+            const requestedProjectId = launchContextRef.current.projectId;
+            loadedProjectId = requestedProjectId && list.projects?.some((project) => project.id === requestedProjectId)
+              ? requestedProjectId
+              : list.activeProjectId || "";
             loadedProjects = list.projects ?? [];
           }
         }
@@ -4505,7 +4585,8 @@ function App() {
       skipInitialSessionAutosaveRef.current = false;
       return;
     }
-    const projectId = activeProjectId || activeProjectIdRef.current || "default";
+    const projectId = activeProjectId || activeProjectIdRef.current;
+    if (!projectId) return;
     let flushStarted = false;
     if (NAIMAGE_RUNTIME_METRICS) {
       persistenceDebugMetricsRef.current.mutationCount += 1;
@@ -4652,7 +4733,7 @@ function App() {
 
   useEffect(() => {
     const bridge = window.naimageVideo;
-    if (!configReady || !bridge?.list) return;
+    if (!configReady || !bridge?.list || !activeProjectId) return;
     let disposed = false;
     const projectId = activeProjectId;
     const applyTask = (task: VideoTask) => {
@@ -4694,11 +4775,16 @@ function App() {
 
   useEffect(() => {
     const bridge = window.naimageAgent;
-    if (!bridge?.runStatus) return;
+    const projectId = activeProjectIdRef.current;
+    if (!bridge?.runStatus || !projectId) {
+      lockedNodeIdsRef.current.clear();
+      setLockedNodeIds([]);
+      setAgentPaused(false);
+      return;
+    }
     let disposed = false;
     const applySnapshot = (snapshot?: AgentRunControlSnapshot) => {
       if (disposed || !snapshot?.ok) return;
-      const projectId = activeProjectIdRef.current || "default";
       const conversationId = activeConversationIdRef.current || "default";
       const projectRuns = (snapshot.runs ?? []).filter((run) => run.projectId === projectId);
       const nextLocked = [...new Set(projectRuns.flatMap((run) => run.nodeIds))];
@@ -5538,6 +5624,8 @@ function App() {
       clearGoalConfirmationAuthorizations();
       setGoalConfirmation(null);
       setImageViewer(null);
+      setImageCollectionDialog(null);
+      setImageCollectionExportDialog(null);
       setManualImageTaskDialog(null);
       setManualVideoTaskDialog(null);
       setCommerceCatalogDialog(null);
@@ -6545,7 +6633,10 @@ function App() {
     expectedProjectId: string;
     expectedCanvasRevision?: number;
   }, nodeIds: Iterable<string>, action: string) {
-    const activeProject = activeProjectIdRef.current || "default";
+    const activeProject = activeProjectIdRef.current;
+    if (!activeProject) {
+      throw automationCommandError("PROJECT_REQUIRED", "请先创建或打开项目，再操作画布。", {});
+    }
     if (input.expectedProjectId !== activeProject) {
       throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，命令未执行。", {
         expectedProjectId: input.expectedProjectId,
@@ -6586,6 +6677,192 @@ function App() {
     setNodes(nextNodes);
     setLayoutGroups(nextLayoutGroups);
     return canvasRevisionRef.current;
+  }
+
+  function imageCollectionMutationError(error: unknown, fallback: string) {
+    if (error instanceof ImageCollectionMutationError) {
+      return automationCommandError(error.code, error.message, error.details);
+    }
+    return automationCommandError("IMAGE_COLLECTION_MUTATION_FAILED", error instanceof Error ? error.message : fallback);
+  }
+
+  function collectionNodeIdsForAutomation(collectionIds: readonly string[]) {
+    const requested = new Set(collectionIds.map((id) => String(id || "").trim()).filter(Boolean));
+    return nodesRef.current
+      .filter((node) => {
+        const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
+        return Boolean(collection && requested.has(collection.id));
+      })
+      .map((node) => node.id);
+  }
+
+  async function commitImageCollectionMutation(
+    nextNodes: WorkflowNode[],
+    historyLabel: string,
+    eventText: string,
+    actionText: string,
+  ) {
+    const previousNodes = nodesRef.current;
+    const previousGroups = layoutGroupsRef.current;
+    const previousRevision = canvasRevisionRef.current;
+    const previousUndo = canvasUndoRef.current;
+    const nextRevision = commitAutomationCanvasMutation(nextNodes, previousGroups, historyLabel);
+    try {
+      const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectIdRef.current });
+      if (!saved?.ok) throw new Error(saved?.error || "图片组修改尚未可靠保存。");
+      addEvent(eventText);
+      notifyAgentOfManualAction(actionText, eventText);
+      return nextRevision;
+    } catch (error) {
+      // A persisted canvas mutation is all-or-nothing from the user's point of
+      // view. Restore the exact pre-mutation snapshot if the session write fails.
+      nodesRef.current = previousNodes;
+      layoutGroupsRef.current = previousGroups;
+      canvasRevisionRef.current = previousRevision;
+      canvasUndoRef.current = previousUndo;
+      automationCanvasCommitMarkerRef.current = null;
+      setNodes(previousNodes);
+      setLayoutGroups(previousGroups);
+      throw error;
+    }
+  }
+
+  async function renameImageCollectionsForAutomation(input: {
+    requests: RenameImageCollectionRequest[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    const collectionIds = input.requests.map((request) => request.collectionId);
+    assertAutomationCanvasMutationPreconditions(
+      input,
+      collectionNodeIdsForAutomation(collectionIds),
+      "重命名图片组",
+    );
+    let mutation;
+    try {
+      mutation = applyImageCollectionRenames(nodesRef.current, input.requests);
+    } catch (error) {
+      throw imageCollectionMutationError(error, "图片组重命名失败，整批操作未执行。");
+    }
+    if (mutation.changed) {
+      await commitImageCollectionMutation(
+        mutation.nodes,
+        `重命名 ${mutation.renamed.length} 个图片组`,
+        `已重命名 ${mutation.renamed.length} 个图片组：${mutation.renamed.map((entry) => entry.name).join("、")}`,
+        "重命名图片组",
+      );
+    }
+    return {
+      ...mutation,
+      canvasRevision: canvasRevisionRef.current,
+      state: undefined,
+    };
+  }
+
+  async function replaceImageCollectionItemsForAutomation(input: {
+    requests: ReplaceImageCollectionItemRequest[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }) {
+    const affectedNodeIds = input.requests.flatMap((request) => {
+      const sourceNodeId = nodesRef.current.find((node) => {
+        const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
+        return collection?.id === request.sourceCollectionId;
+      })?.id;
+      return [sourceNodeId, request.replacementNodeId].filter((id): id is string => Boolean(id));
+    });
+    assertAutomationCanvasMutationPreconditions(input, affectedNodeIds, "替换图片组槽位");
+    let mutation;
+    try {
+      mutation = applyImageCollectionReplacements(nodesRef.current, input.requests);
+    } catch (error) {
+      throw imageCollectionMutationError(error, "图片替换失败，整批操作未执行。");
+    }
+    if (mutation.changed) {
+      await commitImageCollectionMutation(
+        mutation.nodes,
+        `替换 ${mutation.replacements.length} 个图片组槽位`,
+        `已替换 ${mutation.replacements.length} 个图片组槽位，原图已保留到瑕疵图片组`,
+        "替换图片组槽位",
+      );
+    }
+    return {
+      ...mutation,
+      canvasRevision: canvasRevisionRef.current,
+      state: undefined,
+    };
+  }
+
+  async function previewImageCollectionsForExport(input: {
+    collectionIds: string[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+    format: ImageExportFormat;
+  }): Promise<ImageCollectionExportPreviewResult> {
+    assertAutomationCanvasMutationPreconditions(
+      input,
+      collectionNodeIdsForAutomation(input.collectionIds),
+      "预检图片组导出",
+    );
+    const bridge = window.naimageConfig?.previewImageCollectionExport;
+    if (!bridge) throw automationCommandError("IMAGE_COLLECTION_EXPORT_UNAVAILABLE", "当前桌面运行时未提供图片组导出预检。");
+    const saved = await flushActiveProjectSession({ live: true, projectId: input.expectedProjectId });
+    if (!saved?.ok) throw automationCommandError("IMAGE_COLLECTION_PERSIST_FAILED", saved?.error || "图片组预检前项目尚未可靠保存。");
+    const result = await bridge({
+      expectedProjectId: input.expectedProjectId,
+      collectionIds: input.collectionIds,
+      format: input.format,
+    });
+    if (!result?.ok || !result.previewToken) {
+      throw automationCommandError(result?.errorCode || "IMAGE_COLLECTION_EXPORT_PREVIEW_FAILED", result?.error || "图片组导出预检失败。", result?.details);
+    }
+    return result;
+  }
+
+  async function performImageCollectionExport(input: {
+    collectionIds: string[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+    format: ImageExportFormat;
+    previewToken: string;
+    confirmed: true;
+  }): Promise<ImageCollectionExportResult> {
+    assertAutomationCanvasMutationPreconditions(
+      input,
+      collectionNodeIdsForAutomation(input.collectionIds),
+      "导出图片组",
+    );
+    const bridge = window.naimageConfig?.exportImageCollections;
+    if (!bridge) throw automationCommandError("IMAGE_COLLECTION_EXPORT_UNAVAILABLE", "当前桌面运行时未提供图片组导出服务。");
+    const saved = await flushActiveProjectSession({ live: true, projectId: input.expectedProjectId });
+    if (!saved?.ok) throw automationCommandError("IMAGE_COLLECTION_PERSIST_FAILED", saved?.error || "图片组导出前项目尚未可靠保存。");
+    const result = await bridge({
+      expectedProjectId: input.expectedProjectId,
+      collectionIds: input.collectionIds,
+      format: input.format,
+      previewToken: input.previewToken,
+      confirmed: true,
+    });
+    if (!result?.ok) {
+      throw automationCommandError(result?.errorCode || "IMAGE_COLLECTION_EXPORT_FAILED", result?.error || "图片组导出失败。", result?.details);
+    }
+    addEvent(`导出 ${result.exported?.length ?? input.collectionIds.length} 个图片组`);
+    return result;
+  }
+
+  async function exportImageCollectionsForAutomation(input: {
+    collectionIds: string[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+    format: ImageExportFormat;
+    confirmed: true;
+  }) {
+    const preview = await previewImageCollectionsForExport(input);
+    const result = await performImageCollectionExport({
+      ...input,
+      previewToken: preview.previewToken!,
+    });
+    return { ...result, preview, canvasRevision: canvasRevisionRef.current, state: undefined };
   }
 
   function clientToWorld(clientX: number, clientY: number) {
@@ -6718,10 +6995,18 @@ function App() {
   function mergeContainerAssets(currentAssets: ImageAsset[] = [], incomingAssets: ImageAsset[] = [], displayPrefix = "I", minimumSequence = 0) {
     const merged = new Map<string, ImageAsset>();
     for (const asset of [...currentAssets, ...incomingAssets]) {
-      const key = asset.occurrenceId
+      const generatedKey = generatedImageAssetKey(asset);
+      const key = generatedKey || (asset.occurrenceId
         ? `occurrence:${asset.occurrenceId}`
-        : asset.path || asset.assetUrl || asset.url || `${asset.runId || "asset"}-${asset.index || merged.size + 1}`;
-      if (!merged.has(key)) merged.set(key, { ...asset });
+        : asset.path || asset.assetUrl || asset.url || `${asset.runId || "asset"}-${asset.index || merged.size + 1}`);
+      const existing = merged.get(key);
+      merged.set(key, existing ? {
+        ...existing,
+        ...asset,
+        occurrenceId: existing.occurrenceId || asset.occurrenceId,
+        assetId: existing.assetId || asset.assetId,
+        displayCode: existing.displayCode || asset.displayCode
+      } : { ...asset });
     }
     return imageAssetsWithIdentity(Array.from(merged.values()), displayPrefix, minimumSequence);
   }
@@ -7371,6 +7656,10 @@ function App() {
   }
 
   function openManualImageTaskAt(worldX: number, worldY: number) {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再创建图片任务。");
+      return;
+    }
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
       return;
@@ -7409,6 +7698,10 @@ function App() {
   }
 
   function openManualVideoTaskAt(worldX: number, worldY: number) {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再创建视频任务。");
+      return;
+    }
     const models = selectedVideoModelsFromSettings(settings);
     const model = settings.videoModel || models[0] || "doubao-seedance-2-0-260128";
     setCanvasMenu(null);
@@ -7613,6 +7906,10 @@ function App() {
   async function importPickedImagesToCanvasAt(worldX: number, worldY: number) {
     const requestProjectId = activeProjectIdRef.current;
     setCanvasMenu(null);
+    if (!requestProjectId) {
+      setServerMessage("请先创建或打开项目，再导入图片。");
+      return;
+    }
     if (!window.naimageConfig?.pickLocalImages) {
       setServerMessage("当前环境不支持从系统文件选择器导入图片。");
       return;
@@ -8032,12 +8329,13 @@ function App() {
 
   function imageCollectionItemForAsset(node: WorkflowNode, assetIndex: number) {
     const asset = node.assets?.[assetIndex];
+    const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
     const occurrenceId = asset ? stableImageOccurrenceId(asset, node.id, assetIndex) : "";
-    const byOccurrence = node.imageCollection?.items.find((item) => Boolean(occurrenceId && item.occurrenceId === occurrenceId));
+    const byOccurrence = collection?.items.find((item) => Boolean(occurrenceId && item.occurrenceId === occurrenceId));
     if (byOccurrence) return byOccurrence;
-    const bySlot = node.imageCollection?.items.find((item) => item.assetIndex === assetIndex + 1);
+    const bySlot = collection?.items.find((item) => item.assetIndex === assetIndex + 1);
     if (bySlot) return bySlot;
-    const matchingAssetItems = asset?.assetId ? node.imageCollection?.items.filter((item) => item.assetId === asset.assetId) ?? [] : [];
+    const matchingAssetItems = asset?.assetId ? collection?.items.filter((item) => item.assetId === asset.assetId) ?? [] : [];
     return matchingAssetItems.length === 1 ? matchingAssetItems[0] : undefined;
   }
 
@@ -10800,7 +11098,8 @@ function App() {
       const result = await bridge.saveAssetAs({
         asset: rendered.asset,
         projectId: activeProjectIdRef.current,
-        suggestedName: `${rendered.group.title || "分层作品"}-合成-${String(rendered.group.groupNumber).padStart(3, "0")}.png`
+        suggestedName: `${rendered.group.title || "分层作品"}-合成-${String(rendered.group.groupNumber).padStart(3, "0")}.png`,
+        format: "png"
       });
       if (!result.ok && !result.canceled) throw new Error(result.error || "合成 PNG 导出失败。");
       if (result.ok && !result.canceled && result.path) {
@@ -10988,8 +11287,98 @@ function App() {
     }
   }
 
+  function isImageCollectionRuntimeAction(action: AgentRuntimeAction) {
+    return action.type === "workflow.image-collection.rename"
+      || action.type === "workflow.image-collection.replace"
+      || action.type === "workflow.image-collection.export";
+  }
+
+  async function commitImageCollectionRuntimeAction(action: AgentRuntimeAction): Promise<RuntimeActionCommitResult> {
+    const operationId = String(action.operationId || action.toolRunId || "").trim();
+    const payload = action.imageCollection;
+    const failed = (summary: string): RuntimeActionCommitResult => ({
+      operationId,
+      status: "error",
+      summary,
+      category: "image-collection",
+    });
+    if (!payload) return failed("图片组操作缺少结构化提交数据，画布未发生变更。");
+    const expectedProjectId = String(payload.expectedProjectId || "").trim();
+    const expectedCanvasRevision = payload.expectedCanvasRevision;
+    try {
+      if (action.type === "workflow.image-collection.rename" && payload.operation === "rename") {
+        const requests = (payload.requests ?? []).map((request) => ({
+          collectionId: String(request.collectionId || ""),
+          name: String(request.name || ""),
+        }));
+        const result = await renameImageCollectionsForAutomation({ requests, expectedProjectId, expectedCanvasRevision });
+        return {
+          operationId,
+          status: "done",
+          category: "image-collection",
+          summary: result.changed
+            ? `已重命名 ${result.renamed.length} 个图片组：${result.renamed.map((entry) => entry.name).join("、")}。`
+            : `已核对 ${result.renamed.length} 个图片组，名称无需变更。`,
+        };
+      }
+      if (action.type === "workflow.image-collection.replace" && payload.operation === "replace") {
+        const requests: ReplaceImageCollectionItemRequest[] = (payload.requests ?? []).map((request) => ({
+          sourceCollectionId: String(request.sourceCollectionId || ""),
+          ...(request.itemId ? { itemId: String(request.itemId) } : {}),
+          ...(request.requestIndex === undefined ? {} : { requestIndex: Number(request.requestIndex) }),
+          replacementNodeId: String(request.replacementNodeId || ""),
+          replacementAssetIndex: Number(request.replacementAssetIndex),
+          defectReason: String(request.defectReason || ""),
+        }));
+        const result = await replaceImageCollectionItemsForAutomation({ requests, expectedProjectId, expectedCanvasRevision });
+        return {
+          operationId,
+          status: "done",
+          category: "image-collection",
+          summary: result.changed
+            ? `已替换 ${result.replacements.length} 个图片组槽位，原图已保留到独立瑕疵图片组。`
+            : `已核对 ${result.replacements.length} 个图片组槽位，重复替换未产生新副本。`,
+        };
+      }
+      if (action.type === "workflow.image-collection.export" && payload.operation === "export") {
+        if (payload.confirmed !== true) return failed("图片组导出缺少明确确认，未写入任何文件。");
+        const format = String(payload.format || "") as ImageExportFormat;
+        if (!Object.prototype.hasOwnProperty.call(IMAGE_EXPORT_FORMAT_LABELS, format)) {
+          return failed("图片组导出缺少明确格式，未写入任何文件。");
+        }
+        const result = await exportImageCollectionsForAutomation({
+          collectionIds: (payload.collectionIds ?? []).map(String),
+          expectedProjectId,
+          expectedCanvasRevision,
+          format,
+          confirmed: true,
+        });
+        return {
+          operationId,
+          status: "done",
+          category: "image-collection",
+          summary: `已导出 ${result.exported?.length ?? payload.collectionIds?.length ?? 0} 个图片组到当前项目的 exports/image-groups。`,
+        };
+      }
+      return failed("图片组操作类型与提交数据不一致，画布未发生变更。");
+    } catch (error) {
+      return failed(automationErrorPayload(error).error);
+    }
+  }
+
   async function applyRuntimeActions(actions: AgentRuntimeAction[]): Promise<RuntimeActionApplicationResult> {
     if (actions.length === 0) return { commits: [] };
+    const imageCollectionCommits: RuntimeActionCommitResult[] = [];
+    const remainingActions: AgentRuntimeAction[] = [];
+    for (const action of actions) {
+      if (isImageCollectionRuntimeAction(action)) {
+        imageCollectionCommits.push(await commitImageCollectionRuntimeAction(action));
+      } else {
+        remainingActions.push(action);
+      }
+    }
+    actions = remainingActions;
+    if (actions.length === 0) return { commits: imageCollectionCommits };
     const initialRuntimeParentContextId = selectedNodeIdRef.current || selectedNode?.id || "";
     const layerMergeJobs: LayerMergeRuntimeJob[] = [];
     const layerCommitPromises: Promise<RuntimeActionCommitResult>[] = [];
@@ -11580,7 +11969,7 @@ function App() {
 
     window.setTimeout(() => setActiveNodeId(null), 900);
     const commits = layerCommitPromises.length ? await Promise.all(layerCommitPromises) : [];
-    return { commits };
+    return { commits: [...imageCollectionCommits, ...commits] };
   }
 
   useEffect(() => {
@@ -11607,7 +11996,10 @@ function App() {
   function cancelTransientCanvasInteractions() {
     const drag = dragRef.current;
     if (drag?.frame) window.cancelAnimationFrame(drag.frame);
-    if (drag?.nodeElement) {
+    if (drag?.multiNodeStart?.length) {
+      applyTransientNodePositions(drag.multiNodeStart, 0, 0, drag.transientEdges);
+      clearTransientNodeDragStyles(drag);
+    } else if (drag?.nodeElement) {
       if (!drag.layerGroupId) {
         applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
       }
@@ -11619,6 +12011,7 @@ function App() {
     internalAssetDragRef.current = null;
     nativeAssetDropTraceRef.current = null;
     lastNodeDragEndRef.current = null;
+    draggingNodeIdsRef.current.clear();
     setAssetDropTargetId("");
     setDraggingNodeId("");
     setResizingNodeId("");
@@ -11779,20 +12172,60 @@ function App() {
     }
   }
 
+  function applyTransientNodePositions(
+    members: TransientNodeDragMember[],
+    dx: number,
+    dy: number,
+    cachedEdges: TransientNodeDragEdge[] = []
+  ) {
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const member of members) {
+      const x = Math.round(member.x + dx);
+      const y = Math.round(member.y + dy);
+      positions.set(member.id, { x, y });
+      const nodeElement = member.nodeElement?.isConnected
+        ? member.nodeElement
+        : Array.from(document.querySelectorAll<HTMLDivElement>(".flow-node[data-node-id]"))
+            .find((element) => element.dataset.nodeId === member.id);
+      if (!nodeElement) continue;
+      member.nodeElement = nodeElement;
+      nodeElement.style.setProperty("--node-drag-x", `${x - member.x}px`);
+      nodeElement.style.setProperty("--node-drag-y", `${y - member.y}px`);
+    }
+    for (const edge of cachedEdges) {
+      const sourcePosition = positions.get(edge.source.id);
+      const targetPosition = positions.get(edge.target.id);
+      const source = sourcePosition ? { ...edge.source, ...sourcePosition } : edge.source;
+      const target = targetPosition ? { ...edge.target, ...targetPosition } : edge.target;
+      edge.element.setAttribute("d", provenanceEdgePath(source, target, edge.laneIndex, edge.laneCount));
+    }
+  }
+
   function clearTransientNodeDragStyles(drag: NonNullable<typeof dragRef.current>) {
-    const nodeElement = drag.nodeElement;
-    if (!nodeElement) return;
-    nodeElement.classList.remove("dragging");
-    nodeElement.style.removeProperty("--node-drag-x");
-    nodeElement.style.removeProperty("--node-drag-y");
-    nodeElement.style.zIndex = drag.originalZIndex ?? "";
-    nodeElement.style.willChange = drag.originalWillChange ?? "";
+    const members = drag.multiNodeStart?.length
+      ? drag.multiNodeStart
+      : [{
+          id: drag.id,
+          x: drag.nodeX,
+          y: drag.nodeY,
+          nodeElement: drag.nodeElement,
+          originalZIndex: drag.originalZIndex,
+          originalWillChange: drag.originalWillChange
+        }];
+    for (const member of members) {
+      const nodeElement = member.nodeElement;
+      if (!nodeElement) continue;
+      nodeElement.classList.remove("dragging");
+      nodeElement.style.removeProperty("--node-drag-x");
+      nodeElement.style.removeProperty("--node-drag-y");
+      nodeElement.style.zIndex = member.originalZIndex ?? "";
+      nodeElement.style.willChange = member.originalWillChange ?? "";
+    }
   }
 
   function beginNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
     if (event.button !== 0) return;
     if (event.ctrlKey || event.metaKey) return;
-    if (blockLockedNodeMutation([node.id], "移动")) return;
     const target = event.target as HTMLElement;
     const imageTile = target.closest<HTMLElement>(".node-image-tile");
     const imageTileMovesNode = Boolean(
@@ -11809,6 +12242,19 @@ function App() {
     if (imageTile && !imageTileMovesNode) return;
     if (node.layerGroup && !node.layerGroup.detached && !layerGroupTitleDrag && !layerMemberDrag) return;
     if (target.closest(".node-port, .node-resize-handle, textarea, input, select, button")) return;
+    const currentProjection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const selectedHostIds = [...new Set(selectedNodeIdsRef.current.map((id) => (
+      currentProjection.groupByMember.get(id)?.hostNodeId ?? id
+    )))];
+    const selectedContainerNodes = selectedHostIds
+      .map((id) => currentProjection.canvasNodeById.get(id))
+      .filter((item): item is WorkflowNode => Boolean(item));
+    const multiContainerDrag = selectedHostIds.length > 1 &&
+      selectedHostIds.includes(node.id) &&
+      selectedContainerNodes.length === selectedHostIds.length &&
+      selectedContainerNodes.every(isDraggableImageGroup);
+    const mutationIds = multiContainerDrag ? selectedHostIds : [node.id];
+    if (blockLockedNodeMutation(mutationIds, "移动")) return;
     selectNodeFromPlainClick(node.id, "node-drag-start");
     const sourceAsset = imageTileMovesNode ? node.assets?.[0] : undefined;
     const layerGroupStart = layerGroupTitleDrag && node.layerGroup
@@ -11828,21 +12274,49 @@ function App() {
         element
       ])
     );
+    const draggedIds = new Set(mutationIds);
     const transientEdges = edges
-      .filter((edge) => edge.source.id === node.id || edge.target.id === node.id)
+      .filter((edge) => draggedIds.has(edge.source.id) || draggedIds.has(edge.target.id))
       .flatMap((edge): TransientNodeDragEdge[] => {
         const element = edgeElements.get(`${edge.source.id}\u0000${edge.target.id}\u0000${edge.kind}`);
         return element ? [{ element, ...edge }] : [];
       });
     const nodeElement = event.currentTarget;
-    const originalZIndex = nodeElement.style.zIndex;
-    const originalWillChange = nodeElement.style.willChange;
-    nodeElement.classList.add("dragging");
-    nodeElement.style.setProperty("--node-drag-x", "0px");
-    nodeElement.style.setProperty("--node-drag-y", "0px");
-    nodeElement.style.zIndex = "1000000";
-    nodeElement.style.willChange = "transform";
-    setDraggingNodeId(node.id);
+    const nodeElements = new Map(
+      Array.from(document.querySelectorAll<HTMLDivElement>(".flow-node[data-node-id]"))
+        .map((element) => [element.dataset.nodeId || "", element])
+    );
+    nodeElements.set(node.id, nodeElement);
+    const multiNodeStart = multiContainerDrag
+      ? selectedContainerNodes.map((item): TransientNodeDragMember => {
+          const element = nodeElements.get(item.id);
+          return {
+            id: item.id,
+            x: item.x,
+            y: item.y,
+            nodeElement: element,
+            originalZIndex: element?.style.zIndex,
+            originalWillChange: element?.style.willChange
+          };
+        })
+      : undefined;
+    const styledMembers = multiNodeStart ?? [{
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      nodeElement,
+      originalZIndex: nodeElement.style.zIndex,
+      originalWillChange: nodeElement.style.willChange
+    }];
+    for (const member of styledMembers) {
+      const element = member.nodeElement;
+      if (!element) continue;
+      element.classList.add("dragging");
+      element.style.setProperty("--node-drag-x", "0px");
+      element.style.setProperty("--node-drag-y", "0px");
+      element.style.zIndex = "1000000";
+      element.style.willChange = "transform";
+    }
     dragRef.current = {
       id: node.id,
       pointerId: event.pointerId,
@@ -11851,13 +12325,14 @@ function App() {
       nodeX: node.x,
       nodeY: node.y,
       moved: false,
-      allowImageGrouping: imageTileMovesNode && Boolean(sourceAsset),
+      allowImageGrouping: !multiContainerDrag && imageTileMovesNode && Boolean(sourceAsset),
       assetKey: imageAssetLogicalKey(sourceAsset, node.id, 0),
       layerGroupId: layerGroupTitleDrag ? node.layerGroup?.id : undefined,
       layerGroupStart,
+      multiNodeStart,
       nodeElement,
-      originalZIndex,
-      originalWillChange,
+      originalZIndex: styledMembers[0]?.originalZIndex,
+      originalWillChange: styledMembers[0]?.originalWillChange,
       originalWidth: node.width,
       originalHeight: node.height,
       originalLayerGroup: node.layerGroup ? cloneImageLayerNodeGroup(node.layerGroup) : undefined,
@@ -11865,6 +12340,8 @@ function App() {
       startedAt: Date.now(),
       transientEdges
     };
+    draggingNodeIdsRef.current = new Set(styledMembers.map((member) => member.id));
+    setDraggingNodeId(node.id);
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -11889,6 +12366,26 @@ function App() {
     }
     drag.pendingX = Math.round(drag.nodeX + dx);
     drag.pendingY = Math.round(drag.nodeY + dy);
+
+    if (drag.multiNodeStart?.length) {
+      const previewDx = drag.moved ? drag.pendingX - drag.nodeX : 0;
+      const previewDy = drag.moved ? drag.pendingY - drag.nodeY : 0;
+      if (!drag.previewApplied) {
+        applyTransientNodePositions(drag.multiNodeStart, previewDx, previewDy, drag.transientEdges);
+        drag.previewApplied = true;
+        return;
+      }
+      if (drag.frame) return;
+      drag.frame = window.requestAnimationFrame(() => {
+        const current = dragRef.current;
+        if (!current?.multiNodeStart?.length) return;
+        const currentDx = current.moved ? (current.pendingX ?? current.nodeX) - current.nodeX : 0;
+        const currentDy = current.moved ? (current.pendingY ?? current.nodeY) - current.nodeY : 0;
+        applyTransientNodePositions(current.multiNodeStart, currentDx, currentDy, current.transientEdges);
+        current.frame = undefined;
+      });
+      return;
+    }
 
     // Paint the first ordinary-node movement immediately so pointerdown never
     // feels stuck while waiting for the next animation frame. Subsequent move
@@ -11955,7 +12452,9 @@ function App() {
     }
     if (drag.frame) window.cancelAnimationFrame(drag.frame);
     if (event.type === "pointercancel") {
-      if (drag.layerGroupId && drag.layerGroupStart) {
+      if (drag.multiNodeStart?.length) {
+        applyTransientNodePositions(drag.multiNodeStart, 0, 0, drag.transientEdges);
+      } else if (drag.layerGroupId && drag.layerGroupStart) {
         Object.entries(drag.layerGroupStart).forEach(([id, start]) => {
           applyTransientNodePosition(id, start.x, start.y);
         });
@@ -12007,6 +12506,7 @@ function App() {
         dy: (drag.pendingY ?? drag.nodeY) - drag.nodeY
       });
       dragRef.current = null;
+      draggingNodeIdsRef.current.clear();
       setAssetDropTargetId("");
       setDraggingNodeId("");
       return;
@@ -12025,7 +12525,16 @@ function App() {
       drag.pendingY = undefined;
       if (drag.nodeElement) applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
     }
-    if (!drag.layerGroupId && drag.nodeElement) {
+    if (drag.multiNodeStart?.length) {
+      const commitDx = drag.moved ? (drag.pendingX ?? drag.nodeX) - drag.nodeX : 0;
+      const commitDy = drag.moved ? (drag.pendingY ?? drag.nodeY) - drag.nodeY : 0;
+      applyTransientNodePositions(drag.multiNodeStart, commitDx, commitDy, drag.transientEdges);
+      for (const member of drag.multiNodeStart) {
+        if (!member.nodeElement) continue;
+        member.nodeElement.style.left = `${Math.round(member.x + commitDx)}px`;
+        member.nodeElement.style.top = `${Math.round(member.y + commitDy)}px`;
+      }
+    } else if (!drag.layerGroupId && drag.nodeElement) {
       applyTransientNodePosition(
         drag.id,
         drag.moved ? drag.pendingX ?? drag.nodeX : drag.nodeX,
@@ -12036,7 +12545,17 @@ function App() {
     }
     clearTransientNodeDragStyles(drag);
     const dropTargetId = event.type === "pointercancel" ? "" : drag.dropTargetId || "";
-    if (drag.layerGroupId && drag.layerGroupStart && drag.pendingX !== undefined && drag.pendingY !== undefined) {
+    if (drag.multiNodeStart?.length && drag.moved && drag.pendingX !== undefined && drag.pendingY !== undefined) {
+      const dx = drag.pendingX - drag.nodeX;
+      const dy = drag.pendingY - drag.nodeY;
+      const startById = new Map(drag.multiNodeStart.map((member) => [member.id, member]));
+      const next = nodesRef.current.map((item) => {
+        const start = startById.get(item.id);
+        return start ? { ...item, x: Math.round(start.x + dx), y: Math.round(start.y + dy) } : item;
+      });
+      nodesRef.current = next;
+      setNodes(next);
+    } else if (drag.layerGroupId && drag.layerGroupStart && drag.pendingX !== undefined && drag.pendingY !== undefined) {
       const dx = drag.pendingX - drag.nodeX;
       const dy = drag.pendingY - drag.nodeY;
       setNodes((source) => {
@@ -12084,7 +12603,14 @@ function App() {
           : {})
       });
     }
-    if (drag.moved && drag.layerGroupId) {
+    if (drag.moved && drag.multiNodeStart?.length) {
+      lastNodeDragEndRef.current = { nodeId: node.id, endedAt: Date.now() };
+      addEvent(`移动 ${drag.multiNodeStart.length} 个图片容器`);
+      notifyAgentOfManualAction(
+        "移动图片容器",
+        `用户同步移动了 ${drag.multiNodeStart.length} 个已选图片容器；容器相对位置、图片内容和成果关系保持不变。`
+      );
+    } else if (drag.moved && drag.layerGroupId) {
       addEvent(`移动分层 PNG #${String(node.layerGroup?.groupNumber ?? 0).padStart(3, "0")}`);
       notifyAgentOfManualAction("移动分层 PNG", `用户移动了分层 PNG 组 #${String(node.layerGroup?.groupNumber ?? 0).padStart(3, "0")}；各图层顺序和归属保持不变。`);
     } else if (drag.moved && dropTargetId && drag.assetKey && drag.allowImageGrouping) {
@@ -12101,6 +12627,7 @@ function App() {
       );
     }
     dragRef.current = null;
+    draggingNodeIdsRef.current.clear();
     setAssetDropTargetId("");
     setDraggingNodeId("");
   }
@@ -12708,10 +13235,10 @@ function App() {
     }, 0);
   }
 
-  function applyProjectSession(result: { project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: WorkflowSession & { sessionRevision?: number } }) {
+  function applyProjectSession(result: { project?: ProjectRecord | null; projects?: ProjectRecord[]; activeProjectId?: string; session?: WorkflowSession & { sessionRevision?: number } }) {
     clearGoalConfirmationAuthorizations();
     const nextSession = normalizeWorkflowSession(result.session);
-    const nextProjectId = result.activeProjectId ?? result.project?.id ?? activeProjectId;
+    const nextProjectId = String(result.activeProjectId ?? result.project?.id ?? activeProjectId ?? "").trim();
     const restoredPending = nextSession.pendingAgentExecution &&
       nextSession.pendingAgentExecution.projectId === nextProjectId &&
       nextSession.pendingAgentExecution.conversationId === nextSession.activeConversationId
@@ -12734,8 +13261,10 @@ function App() {
     suspendProjectSessionAutosave();
     activeProjectIdRef.current = nextProjectId;
     workspaceDomainRef.current = nextSession.workspaceDomain;
-    projectSessionRevisionRef.current[nextProjectId] = nextSession.sessionRevision;
-    resetProjectNodeMutationTracking(nextProjectId, nextSession);
+    if (nextProjectId) {
+      projectSessionRevisionRef.current[nextProjectId] = nextSession.sessionRevision;
+      resetProjectNodeMutationTracking(nextProjectId, nextSession);
+    }
     automationCanvasCommitMarkerRef.current = null;
     canvasRevisionRef.current = nextSession.canvasRevision;
     nodeSequenceRef.current = nextSession.nodeSequence;
@@ -12775,6 +13304,8 @@ function App() {
     setCommerceCatalogDialog(null);
     setCanvasMenu(null);
     setAssetContextMenu(null);
+    setImageCollectionDialog(null);
+    setImageCollectionExportDialog(null);
     setImageViewer(null);
     setLayerViewer(null);
     setRegionRedrawDraft(null);
@@ -12816,8 +13347,8 @@ function App() {
     setDeleteNodeDraft(null);
   }
 
-  const activeProject = projects.find((item) => item.id === activeProjectId) ?? projects[0];
-  const activeProjectName = activeProject?.name ?? "项目";
+  const activeProject = projects.find((item) => item.id === activeProjectId);
+  const activeProjectName = activeProject?.name ?? "未打开项目";
   const activeProjectPath = activeProject?.path ?? "";
   const canvasSelectionSummary = useMemo(() => {
     if (!selectedNodes.length) return null;
@@ -12864,7 +13395,8 @@ function App() {
 
   async function flushActiveProjectSession(options: { live?: boolean; projectId?: string } = {}) {
     if (!configReady) return;
-    const projectId = options.projectId || activeProjectIdRef.current || activeProjectId || "default";
+    const projectId = options.projectId || activeProjectIdRef.current || activeProjectId;
+    if (!projectId) return;
     if (options.projectId && options.projectId !== activeProjectIdRef.current) {
       throw new Error("目标项目已切换，无法保存 Commerce Goal 结果。");
     }
@@ -12945,13 +13477,6 @@ function App() {
     setFileMenuOpen(false);
   }
 
-  function openCreateProjectFolderDialog() {
-    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
-    setProjectNameDraft({ mode: "create-folder", name: `项目 ${projects.length + 1}`, workspaceDomain: workspaceDomainRef.current });
-    setProjectMenuOpen(false);
-    setFileMenuOpen(false);
-  }
-
   async function renameProject(name: string) {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
     const targetId = projectNameDraft?.id ?? activeProjectId;
@@ -13013,7 +13538,7 @@ function App() {
   }
 
   async function openCurrentProjectFolder() {
-    if (fileActionBusy) return;
+    if (fileActionBusy || !activeProject) return;
     const requestProjectId = activeProjectIdRef.current || activeProjectId;
     setFileActionBusy(true);
     try {
@@ -13030,8 +13555,166 @@ function App() {
     }
   }
 
+  async function startProjectDataMigration() {
+    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+    const bridge = window.naimageConfig?.previewProjectDataMigration;
+    if (!bridge) {
+      setServerMessage("当前桌面运行时未提供旧项目数据迁移服务，请重启应用后再试。");
+      return;
+    }
+    setFileActionBusy(true);
+    setFileMenuOpen(false);
+    try {
+      const preview = await bridge();
+      if (!preview.ok) throw new Error(preview.error || "旧项目数据预检失败。");
+      const candidates = preview.candidates || [];
+      const pendingCleanup = preview.pendingCleanup || [];
+      if (!candidates.length && pendingCleanup.length) {
+        openPendingProjectDataCleanupConfirm(pendingCleanup[0]);
+        return;
+      }
+      if (!candidates.length) {
+        setServerMessage("未发现仍位于旧应用数据目录中的项目数据。");
+        return;
+      }
+      const blocked = candidates.filter((candidate) => candidate.blockedReason);
+      if (blocked.length) {
+        throw new Error(`${blocked.length} 个旧项目未通过安全预检：${blocked.map((candidate) => candidate.name).slice(0, 3).join("、")}`);
+      }
+      projectDataMigrationPreviewRef.current = preview;
+      const names = candidates.map((candidate) => candidate.name).slice(0, 4).join("、");
+      openConfirmDialog({
+        id: preview.previewToken || "project-migration",
+        eyebrow: "MIGRATION",
+        title: "迁移旧项目数据",
+        message: `发现 ${candidates.length} 个旧项目，共 ${preview.fileCount || 0} 个文件（${formatProjectMigrationBytes(preview.totalBytes || 0)}）。`,
+        detail: `${names}${candidates.length > 4 ? " 等" : ""}。确认后选择新的项目父目录；迁移会先复制并校验，C 盘源数据仍会保留。`,
+        confirmLabel: "选择目录并迁移",
+        action: "migrate-project-data"
+      });
+    } catch (error) {
+      pushSystemMessage("project", `旧项目数据预检失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFileActionBusy(false);
+    }
+  }
+
+  function openPendingProjectDataCleanupConfirm(pending: { migrationId: string; projectCount: number; fileCount: number }) {
+    openConfirmDialog({
+      id: pending.migrationId,
+      eyebrow: "CLEANUP",
+      title: "清理已迁移的 C 盘旧数据",
+      message: `有 ${pending.projectCount} 个项目已经迁移并校验，C 盘源数据仍保留，共 ${pending.fileCount} 个文件。`,
+      detail: "清理前会再次确认源数据未发生变化。关闭此确认不会删除任何文件，之后仍可从本菜单重新处理。",
+      confirmLabel: "删除 C 盘旧数据",
+      tone: "danger",
+      action: "cleanup-migrated-project-data"
+    });
+  }
+
+  async function startPendingProjectDataCleanup() {
+    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+    const bridge = window.naimageConfig?.previewProjectDataMigration;
+    if (!bridge) {
+      setServerMessage("当前桌面运行时未提供旧项目数据迁移服务，请重启应用后再试。");
+      return;
+    }
+    setFileActionBusy(true);
+    setFileMenuOpen(false);
+    try {
+      const preview = await bridge();
+      if (!preview.ok) throw new Error(preview.error || "旧项目数据预检失败。");
+      const pending = preview.pendingCleanup?.[0];
+      if (!pending) {
+        setServerMessage("没有等待清理的旧项目源数据。");
+        return;
+      }
+      openPendingProjectDataCleanupConfirm(pending);
+    } catch (error) {
+      pushSystemMessage("project", `旧项目清理预检失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFileActionBusy(false);
+    }
+  }
+
+  async function confirmProjectDataMigration() {
+    const preview = projectDataMigrationPreviewRef.current;
+    if (!preview?.previewToken || !preview.candidates?.length || fileActionBusy) {
+      setConfirmDialog(null);
+      return;
+    }
+    const bridge = window.naimageConfig?.migrateProjectData;
+    if (!bridge) {
+      setConfirmDialog(null);
+      setServerMessage("当前桌面运行时未提供旧项目数据迁移服务，请重启应用后再试。");
+      return;
+    }
+    setConfirmDialog(null);
+    setFileActionBusy(true);
+    try {
+      const saved = await flushActiveProjectSession();
+      if (activeProjectIdRef.current && saved?.ok === false) throw new Error(saved.error || "当前项目尚未可靠保存。");
+      const result = await bridge({
+        previewToken: preview.previewToken,
+        candidateIds: preview.candidates.map((candidate) => candidate.candidateId),
+        confirmed: true
+      });
+      if (result.canceled) return;
+      if (!result.ok) throw new Error(result.error || "旧项目数据迁移失败。");
+      applyProjectSession(result);
+      projectDataMigrationPreviewRef.current = null;
+      addEvent(`迁移旧项目 ${result.migratedProjectCount || 0} 个，校验 ${result.copiedFileCount || 0} 个文件`);
+      setServerMessage(`迁移完成：${result.migratedProjectCount || 0} 个项目、${formatProjectMigrationBytes(result.copiedBytes || 0)}。C 盘源数据尚未删除。`);
+      if (result.cleanupAvailable && result.migrationId) {
+        openConfirmDialog({
+          id: result.migrationId,
+          eyebrow: "CLEANUP",
+          title: "清理 C 盘旧数据",
+          message: "迁移副本已经逐文件校验并加入项目列表。是否删除对应的 C 盘旧项目数据？",
+          detail: "清理前会再次确认源数据未发生变化。此操作不会删除新项目目录，也不会删除密钥、账号设置或应用配置。",
+          confirmLabel: "删除 C 盘旧数据",
+          tone: "danger",
+          action: "cleanup-migrated-project-data"
+        });
+      }
+    } catch (error) {
+      pushSystemMessage("project", `旧项目数据迁移失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFileActionBusy(false);
+      setFileMenuOpen(false);
+    }
+  }
+
+  async function confirmCleanupMigratedProjectData(migrationId: string) {
+    if (!migrationId || fileActionBusy) {
+      setConfirmDialog(null);
+      return;
+    }
+    const bridge = window.naimageConfig?.cleanupMigratedProjectData;
+    if (!bridge) {
+      setConfirmDialog(null);
+      setServerMessage("当前桌面运行时未提供旧数据清理服务，请重启应用后再试。");
+      return;
+    }
+    setConfirmDialog(null);
+    setFileActionBusy(true);
+    try {
+      const result = await bridge({ migrationId, confirmedCleanup: true });
+      if (!result.ok) throw new Error(result.error || "C 盘旧数据清理失败。");
+      const warnings = result.cleanupWarnings || [];
+      addEvent(`清理旧项目数据 ${result.removedProjectCount || 0} 个来源`);
+      setServerMessage(warnings.length
+        ? `旧项目源数据已处理，但有 ${warnings.length} 条清理警告：${warnings[0]}`
+        : `C 盘旧项目数据已清理，共 ${result.removedFileCount || 0} 个文件。`);
+    } catch (error) {
+      pushSystemMessage("project", `C 盘旧数据清理失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setFileActionBusy(false);
+    }
+  }
+
   async function exportProject() {
-    if (fileActionBusy) return;
+    if (fileActionBusy || !activeProject) return;
     setFileActionBusy(true);
     try {
       await flushActiveProjectSession();
@@ -13071,11 +13754,6 @@ function App() {
   async function removeActiveProject() {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
     if (!activeProject) return;
-    if (activeProject.id === "default") {
-      pushSystemMessage("project", "默认项目不能移除。可以新建或打开其他项目后继续工作。");
-      setProjectMenuOpen(false);
-      return;
-    }
     openConfirmDialog({
       id: activeProject.id,
       eyebrow: "CANVAS",
@@ -13111,53 +13789,6 @@ function App() {
       setFileActionBusy(false);
       setConfirmDialog(null);
       setProjectMenuOpen(false);
-    }
-  }
-
-  async function deleteActiveProjectFolder() {
-    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
-    if (!activeProject) return;
-    if (activeProject.id === "default") {
-      pushSystemMessage("project", "默认项目文件夹不能通过这里删除。");
-      setFileMenuOpen(false);
-      return;
-    }
-    openConfirmDialog({
-      id: activeProject.id,
-      eyebrow: "DELETE",
-      title: "删除当前画布文件夹",
-      message: `删除当前画布文件夹“${activeProject.name}”？`,
-      detail: `将从磁盘删除：${activeProject.path}`,
-      confirmLabel: "删除文件夹",
-      tone: "danger",
-      action: "delete-project-folder"
-    });
-    setFileMenuOpen(false);
-  }
-
-  async function confirmDeleteProjectFolder(id: string) {
-    if (fileActionBusy || executionScopeBoundaryBlocked()) {
-      setConfirmDialog(null);
-      return;
-    }
-    const project = projects.find((item) => item.id === id);
-    if (!project) {
-      setConfirmDialog(null);
-      return;
-    }
-    setFileActionBusy(true);
-    try {
-      await flushActiveProjectSession();
-      const result = await window.naimageConfig?.deleteProjectFolder?.({ id });
-      if (!result?.ok) throw new Error(result?.error ?? "删除当前画布文件夹失败。");
-      applyProjectSession(result);
-      addEvent(`删除当前画布文件夹 ${project.name}`);
-    } catch (error) {
-      pushSystemMessage("project", `删除当前画布文件夹失败：${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setFileActionBusy(false);
-      setConfirmDialog(null);
-      setFileMenuOpen(false);
     }
   }
 
@@ -13207,8 +13838,12 @@ function App() {
       void confirmRemoveProject(confirmDialog.id);
       return;
     }
-    if (confirmDialog.action === "delete-project-folder") {
-      void confirmDeleteProjectFolder(confirmDialog.id);
+    if (confirmDialog.action === "migrate-project-data") {
+      void confirmProjectDataMigration();
+      return;
+    }
+    if (confirmDialog.action === "cleanup-migrated-project-data") {
+      void confirmCleanupMigratedProjectData(confirmDialog.id);
       return;
     }
     if (confirmDialog.action === "rerun-requirement") {
@@ -13287,8 +13922,13 @@ function App() {
 
   function requestNewConversation() {
     if (agentExecutionBusyNow()) {
+      const projectId = activeProjectIdRef.current;
+      if (!projectId) {
+        setServerMessage("请先创建或打开项目，再新建 Agent 会话。");
+        return;
+      }
       void window.naimageConfig?.newWindow?.({
-        projectId: activeProjectIdRef.current || "default",
+        projectId,
         newConversation: true
       }).then((result) => {
         setServerMessage(result?.ok === false
@@ -13328,9 +13968,13 @@ function App() {
       setConfirmDialog(null);
       return;
     }
-    const projectId = activeProjectIdRef.current || activeProjectId || "default";
+    const projectId = activeProjectIdRef.current || activeProjectId;
     const conversationId = activeConversationIdRef.current;
-    if (!conversationId) return;
+    if (!projectId || !conversationId) {
+      setConfirmDialog(null);
+      setServerMessage("请先创建或打开项目，并选择一个对话。");
+      return;
+    }
     try {
       clearGoalConfirmationAuthorizations();
       const result = await window.naimageAgent?.clearConversation?.({ projectId, conversationId });
@@ -13458,6 +14102,8 @@ function App() {
       manualVideoTaskDialog ||
       deleteNodeDraft ||
       confirmDialog ||
+      imageCollectionDialog ||
+      imageCollectionExportDialog ||
       commerceSetDialog ||
       commerceCatalogDialog ||
       commerceExportDialog ||
@@ -13606,6 +14252,8 @@ function App() {
     fileMenuOpen,
     imageViewer,
     goalConfirmation,
+    imageCollectionDialog,
+    imageCollectionExportDialog,
     layerViewer,
     manualImageTaskDialog,
     manualVideoTaskDialog,
@@ -14465,8 +15113,8 @@ function App() {
 
   function currentGoalConfirmationContext(issuerId = "renderer") {
     return {
-      projectId: activeProjectIdRef.current || "default",
-      conversationId: activeConversationIdRef.current || "default",
+      projectId: activeProjectIdRef.current,
+      conversationId: activeConversationIdRef.current,
       issuerId
     };
   }
@@ -14758,8 +15406,8 @@ function App() {
       taskScopeUpdate.nodes = projection.canvasNodes;
     }
     const result = await window.naimageAgent.steer({
-      projectId: activeProjectIdRef.current || "default",
-      conversationId: activeConversationIdRef.current || "default",
+      projectId: activeProjectIdRef.current,
+      conversationId: activeConversationIdRef.current,
       runId,
       prompt: content,
       taskScopeUpdate
@@ -14799,8 +15447,8 @@ function App() {
     }
     setAgentProgress((current) => [...current, {
       runId,
-      projectId: activeProjectIdRef.current || "default",
-      conversationId: activeConversationIdRef.current || "default",
+      projectId: activeProjectIdRef.current,
+      conversationId: activeConversationIdRef.current,
       phase: "steer-queued",
       summary: agentPaused
         ? "修改需求已排队，恢复后重新规划。"
@@ -14822,6 +15470,10 @@ function App() {
   }
 
   async function sendPrompt(nextPrompt?: string, dispatch: AgentPromptDispatchOptions = {}) {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再使用 Agent。");
+      return false;
+    }
     if (agentExecutionBusyNow()) {
       return steerAgentRun(nextPrompt ?? prompt, {
         sourceNodeIds: dispatch.sourceNodeIds,
@@ -15032,7 +15684,8 @@ function App() {
           ratio: dispatch.imageRatio ?? settingsRef.current.imageRatio,
           resolution: dispatch.imageResolution ?? settingsRef.current.imageResolution
         },
-        workspaceDomainRef.current
+        workspaceDomainRef.current,
+        canvasRevisionRef.current
       );
       if (!runScopeIsCurrent()) return false;
       const rawAnswer = sanitizeAgentVisibleText(runtimeResult.content?.trim() || "已完成。") || "已完成。";
@@ -15119,15 +15772,19 @@ function App() {
       }
       const pendingLocalCommitNarration = Boolean(completedCommit && (
         /(?:正在|仍在).{0,24}(?:校验|重组|提交)/.test(rawAnswer) ||
-        /校验完成后|完成后.{0,16}提交|将提交.{0,16}画布/.test(rawAnswer)
+        /校验完成后|完成后.{0,16}提交|将提交.{0,16}画布|等待客户端.{0,12}提交/.test(rawAnswer)
       ));
       const completedCommitAnswer = completedCommit
         ? `${completedCommit.summary}${/画布/.test(completedCommit.summary) ? "" : " 画布已更新。"}`
         : "";
       const baseAnswer = failedCommit
-        ? `分层素材已返回，但本地质量校验未通过，因此没有提交到画布。${failedCommit.summary}`
+        ? failedCommit.category === "image-collection"
+          ? `图片组操作未提交成功。${failedCommit.summary}`
+          : `分层素材已返回，但本地质量校验未通过，因此没有提交到画布。${failedCommit.summary}`
         : cancelledCommit
-          ? "本次分层提交已取消，画布未发生变更。"
+          ? cancelledCommit.category === "image-collection"
+            ? "本次图片组操作已取消，画布和导出目录未发生变更。"
+            : "本次分层提交已取消，画布未发生变更。"
           : completedCommit
             ? pendingLocalCommitNarration
               ? completedCommitAnswer
@@ -16711,6 +17368,7 @@ function App() {
         nodes: runtimeNodes,
         selectedNodeId: selectedId,
         selectedNodeIds: selectedIds,
+        canvasRevision: canvasRevisionRef.current,
         referenceImages,
         taskScope,
         projectId: activeProjectIdRef.current,
@@ -18205,8 +18863,19 @@ function App() {
       const collectionIsComplete = (node: WorkflowNode | undefined, kind: ImageCollection["kind"], count: number, parentId = "") => {
         if (!node?.imageCollection) return false;
         const expectedIndexes = Array.from({ length: count }, (_item, index) => index + 1);
-        const itemIndexes = node.imageCollection.items.map((item) => item.assetIndex);
+        const itemRequestIndexes = node.imageCollection.items.map((item, index) => Number(item.requestIndex ?? index + 1));
+        const itemAssetIndexes = node.imageCollection.items.map((item) => Number(item.assetIndex));
         const assetIndexes = (node.assets ?? []).map((asset, index) => Number(asset.index ?? index + 1));
+        const itemBindingsOk = node.imageCollection.items.every((item, index) => {
+          const assetIndex = Number(item.assetIndex);
+          const asset = Number.isInteger(assetIndex) && assetIndex >= 1 ? node.assets?.[assetIndex - 1] : undefined;
+          return Boolean(
+            asset &&
+            (!item.assetId || asset.assetId === item.assetId) &&
+            (!item.prompt || asset.prompt === item.prompt || asset.revisedPrompt === item.prompt) &&
+            (!item.title || String(asset.title || "").endsWith(item.title))
+          );
+        });
         return Boolean(
           node.type === "image" &&
           node.imageState === "done" &&
@@ -18216,10 +18885,49 @@ function App() {
           node.imageCollection.items.length === count &&
           (node.assets?.length ?? 0) === count &&
           node.outputs === count &&
-          itemIndexes.join(",") === expectedIndexes.join(",") &&
-          assetIndexes.join(",") === expectedIndexes.join(",") &&
+          itemRequestIndexes.join(",") === expectedIndexes.join(",") &&
+          [...itemAssetIndexes].sort((left, right) => left - right).join(",") === expectedIndexes.join(",") &&
+          [...assetIndexes].sort((left, right) => left - right).join(",") === expectedIndexes.join(",") &&
+          itemBindingsOk &&
           node.imageCollection.items.every((item) => item.status === "done" && Boolean(item.prompt.trim()))
         );
+      };
+      const captureMultiContainerDragFrame = (ids: string[], phase: string) => ({
+        phase,
+        capturedAt: performance.now(),
+        selection: [...selectedNodeIdsRef.current],
+        members: ids.map((id) => {
+          const runtime = nodesRef.current.find((node) => node.id === id);
+          const element = Array.from(document.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
+            .find((candidate) => candidate.dataset.nodeId === id);
+          const rect = element?.getBoundingClientRect();
+          const style = element ? getComputedStyle(element) : null;
+          const edge = Array.from(document.querySelectorAll<SVGPathElement>(".edge-layer .edge.provenance"))
+            .find((candidate) => candidate.dataset.targetId === id || candidate.dataset.sourceId === id);
+          return {
+            id,
+            runtime: runtime ? { x: runtime.x, y: runtime.y } : null,
+            dom: debugRectSnapshot(rect),
+            dragging: Boolean(element?.classList.contains("dragging")),
+            inlineLeft: element?.style.left || "",
+            inlineTop: element?.style.top || "",
+            inlineWillChange: element?.style.willChange || "",
+            dragX: element?.style.getPropertyValue("--node-drag-x") || "",
+            dragY: element?.style.getPropertyValue("--node-drag-y") || "",
+            transform: style?.transform || "",
+            edgePath: edge?.getAttribute("d") || ""
+          };
+        })
+      });
+      const restoreDebugNodePositions = async (positions: Array<{ id: string; x: number; y: number }>) => {
+        const byId = new Map(positions.map((position) => [position.id, position]));
+        const next = nodesRef.current.map((node) => {
+          const position = byId.get(node.id);
+          return position ? { ...node, x: position.x, y: position.y } : node;
+        });
+        nodesRef.current = next;
+        setNodes(next);
+        await waitForDebugSettle(180);
       };
 
       await step("clear-before-canvas-collection-suite", () =>
@@ -18338,9 +19046,15 @@ function App() {
         const itemIdentityOk = Boolean(mixed?.imageCollection?.items.every((item, index) =>
           item.title === mixedItems[index].title && item.prompt === mixedItems[index].prompt
         ));
-        const assetIdentityOk = Boolean((mixed?.assets ?? []).every((asset, index) =>
-          String(asset.title || "").endsWith(mixedItems[index].title) && asset.prompt === mixedItems[index].prompt
-        ));
+        const assetIdentityOk = Boolean(mixed?.imageCollection?.items.every((item, index) => {
+          const assetIndex = Number(item.assetIndex);
+          const asset = Number.isInteger(assetIndex) && assetIndex >= 1 ? mixed.assets?.[assetIndex - 1] : undefined;
+          return Boolean(
+            asset &&
+            String(asset.title || "").endsWith(mixedItems[index].title) &&
+            asset.prompt === mixedItems[index].prompt
+          );
+        }));
         const mixedImages = Array.from(document.querySelectorAll<HTMLImageElement>(`.flow-node[data-node-id="${mixedBatchId}"] .node-image-tile img`));
         mixedImages.forEach((image) => { image.loading = "eager"; });
         await Promise.race([
@@ -18393,6 +19107,7 @@ function App() {
         const beforeItems = collection?.imageCollection?.items.map((item) => ({ ...item })) ?? [];
         const beforeAssets = collection?.assets?.map((asset) => ({ ...asset })) ?? [];
         if (!collection || !targetAsset || beforeItems.length < 3) return { ok: false, error: "collection member editor fixture unavailable" };
+        const targetItemBefore = beforeItems.find((item) => Number(item.assetIndex) === targetIndex + 1) ?? beforeItems[targetIndex];
         openNodeEditor(collection, targetIndex);
         await waitForDebugSettle(180);
         const dialog = document.querySelector<HTMLElement>(".unified-node-editor");
@@ -18406,7 +19121,7 @@ function App() {
           return { ok: false, error: "collection member editor UI unavailable" };
         }
         const previewMapped = preview.getAttribute("src") === imageAssetSrc(targetAsset);
-        const initialPromptMapped = promptTextarea.value === (beforeItems[targetIndex]?.prompt || targetAsset.prompt || targetAsset.revisedPrompt || "");
+        const initialPromptMapped = promptTextarea.value === (targetItemBefore?.prompt || targetAsset.prompt || targetAsset.revisedPrompt || "");
         const textareaCount = dialog.querySelectorAll("textarea").length;
         const textareaResize = getComputedStyle(promptTextarea).resize;
         const exportPsdRect = exportPsdButton.getBoundingClientRect();
@@ -18426,9 +19141,10 @@ function App() {
         await waitForDebugSettle(180);
         const after = nodesRef.current.find((node) => node.id === mixedBatchId);
         const targetItem = after?.imageCollection?.items.find((item) => item.assetIndex === targetIndex + 1) ?? after?.imageCollection?.items[targetIndex];
-        const otherItemsStable = beforeItems.every((item, index) => index === targetIndex || (
-          after?.imageCollection?.items[index]?.title === item.title && after?.imageCollection?.items[index]?.prompt === item.prompt
-        ));
+        const otherItemsStable = beforeItems.every((item) => item.id === targetItemBefore?.id || (() => {
+          const candidate = after?.imageCollection?.items.find((afterItem) => afterItem.id === item.id);
+          return candidate?.title === item.title && candidate?.prompt === item.prompt;
+        })());
         const otherAssetsStable = beforeAssets.every((asset, index) => index === targetIndex || (
           after?.assets?.[index]?.path === asset.path && after?.assets?.[index]?.title === asset.title && after?.assets?.[index]?.prompt === asset.prompt
         ));
@@ -18589,7 +19305,10 @@ function App() {
         const sourceAfter = nodesRef.current.find((node) => node.id === mixedBatchId);
         const extracted = nodeAfter(beforeIds, (node) => !node.imageCollection && (node.assets?.length ?? 0) === 1);
         extractedId = extracted?.id || "";
-        const remainingIndexes = sourceAfter?.imageCollection?.items.map((item) => item.assetIndex).join(",");
+        const remainingIndexes = sourceAfter?.imageCollection?.items
+          .map((item) => Number(item.assetIndex))
+          .sort((left, right) => left - right)
+          .join(",");
         const afterRead = asset.path ? await window.naimageConfig?.readAssetDataUrl?.({ path: asset.path }) : null;
         const sourceBytesUnchanged = Boolean(beforeRead?.ok && afterRead?.ok && beforeRead.dataUrl && beforeRead.dataUrl === afterRead.dataUrl);
         const causalityPreserved = nodesRef.current.every((node) => !causalityBefore.has(node.id) || causalityBefore.get(node.id) === `${node.parentId || ""}|${node.relationType || ""}`);
@@ -19161,6 +19880,233 @@ function App() {
           after: after ? { x: after.x, y: after.y, parentId: after.parentId || "", relationType: after.relationType || "" } : null,
           layoutGroupsBefore: beforeGroups,
           layoutGroupsAfter: afterGroups
+        };
+      });
+
+      await step("multi-selected-image-containers-move-together", async () => {
+        const ids = [seriesId, batchId].filter(Boolean);
+        if (ids.length !== 2) return { ok: false, error: "multi-container drag fixture unavailable" };
+        await selectDebugNodes({ ids, primaryId: ids[0] });
+        fitCanvas();
+        await waitForDebugSettle(320);
+        const sourceElement = Array.from(document.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
+          .find((element) => element.dataset.nodeId === ids[0]);
+        const titlebar = sourceElement?.querySelector<HTMLElement>(".node-title-block");
+        const sourceRect = titlebar?.getBoundingClientRect();
+        const fixtures = ids.map((id) => nodesRef.current.find((node) => node.id === id));
+        if (!sourceElement || !titlebar || !sourceRect || fixtures.some((node) => !node || !isDraggableImageGroup(node))) {
+          return { ok: false, error: "selected image containers were not rendered as draggable groups" };
+        }
+        const originalPositions = fixtures.map((node) => ({ id: node!.id, x: node!.x, y: node!.y }));
+        const before = captureMultiContainerDragFrame(ids, "before");
+        const startX = sourceRect.left + Math.min(86, Math.max(28, sourceRect.width * 0.45));
+        const startY = sourceRect.top + sourceRect.height / 2;
+        const endX = startX + 74;
+        const endY = startY + 46;
+        const pointerId = 922;
+        titlebar.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX: startX,
+          clientY: startY
+        }));
+        const dragStarted = Boolean(
+          dragRef.current?.id === ids[0] &&
+          dragRef.current.multiNodeStart?.length === ids.length &&
+          dragRef.current.multiNodeStart.every((member) => ids.includes(member.id)) &&
+          dragRef.current.allowImageGrouping === false
+        );
+        sourceElement.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX: endX,
+          clientY: endY
+        }));
+        await waitForDebugSettle(90);
+        const mid = captureMultiContainerDragFrame(ids, "preview");
+        sourceElement.dispatchEvent(new PointerEvent("pointerup", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 0,
+          clientX: endX,
+          clientY: endY
+        }));
+        await waitForDebugSettle(220);
+        const released = captureMultiContainerDragFrame(ids, "released");
+        const stateDeltas = released.members.map((member, index) => ({
+          id: member.id,
+          dx: Number(member.runtime?.x ?? 0) - Number(before.members[index]?.runtime?.x ?? 0),
+          dy: Number(member.runtime?.y ?? 0) - Number(before.members[index]?.runtime?.y ?? 0)
+        }));
+        const domDeltas = mid.members.map((member, index) => ({
+          id: member.id,
+          dx: Number(member.dom?.left ?? 0) - Number(before.members[index]?.dom?.left ?? 0),
+          dy: Number(member.dom?.top ?? 0) - Number(before.members[index]?.dom?.top ?? 0)
+        }));
+        const checks = {
+          dragStarted,
+          allMembersUseTransformPreview: mid.members.every((member) => (
+            member.dragging &&
+            Math.abs(Number.parseFloat(member.dragX || "0")) > 1 &&
+            Math.abs(Number.parseFloat(member.dragY || "0")) > 1 &&
+            member.transform !== "none"
+          )),
+          reactCoordinatesDeferred: mid.members.every((member, index) => (
+            member.runtime?.x === before.members[index]?.runtime?.x && member.runtime?.y === before.members[index]?.runtime?.y
+          )),
+          layoutCoordinatesDeferred: mid.members.every((member, index) => (
+            member.inlineLeft === before.members[index]?.inlineLeft && member.inlineTop === before.members[index]?.inlineTop
+          )),
+          previewDeltaShared: domDeltas.length === 2 && Math.abs(domDeltas[0].dx - domDeltas[1].dx) <= 1 && Math.abs(domDeltas[0].dy - domDeltas[1].dy) <= 1,
+          relationshipLinesFollow: mid.members.every((member, index) => Boolean(
+            member.edgePath && before.members[index]?.edgePath && member.edgePath !== before.members[index]?.edgePath
+          )),
+          stateDeltaShared: stateDeltas.length === 2 && stateDeltas[0].dx !== 0 && stateDeltas[0].dy !== 0 &&
+            stateDeltas[0].dx === stateDeltas[1].dx && stateDeltas[0].dy === stateDeltas[1].dy,
+          relativePositionPreserved: Boolean(
+            before.members[0]?.runtime && before.members[1]?.runtime && released.members[0]?.runtime && released.members[1]?.runtime &&
+            before.members[1].runtime.x - before.members[0].runtime.x === released.members[1].runtime.x - released.members[0].runtime.x &&
+            before.members[1].runtime.y - before.members[0].runtime.y === released.members[1].runtime.y - released.members[0].runtime.y
+          ),
+          selectionPreserved: ids.every((id) => selectedNodeIdsRef.current.includes(id)) && selectedNodeIdsRef.current.length === ids.length,
+          transientStylesCleared: released.members.every((member, index) => (
+            !member.dragging && !member.dragX && !member.dragY && member.inlineWillChange === before.members[index]?.inlineWillChange
+          )),
+          dragStateCleared: dragRef.current === null && draggingNodeIdsRef.current.size === 0,
+          noGroupingSideEffect: !document.querySelector(".flow-node.asset-drop-target")
+        };
+        await restoreDebugNodePositions(originalPositions);
+        const restored = captureMultiContainerDragFrame(ids, "restored");
+        const restoredOk = restored.members.every((member, index) => (
+          member.runtime?.x === before.members[index]?.runtime?.x && member.runtime?.y === before.members[index]?.runtime?.y
+        ));
+        return {
+          ok: Object.values(checks).every(Boolean) && restoredOk,
+          checks: { ...checks, restoredOk },
+          evidenceLayers: {
+            functional: { ok: checks.stateDeltaShared && checks.relativePositionPreserved && checks.selectionPreserved, checks },
+            state: { ok: checks.reactCoordinatesDeferred && checks.layoutCoordinatesDeferred && checks.dragStateCleared && restoredOk, checks },
+            gesture: { ok: checks.dragStarted && checks.allMembersUseTransformPreview && checks.previewDeltaShared, checks },
+            visual: { ok: checks.relationshipLinesFollow && checks.transientStylesCleared && checks.noGroupingSideEffect, checks },
+            evidence: { ok: true, checks: { pointerId, ids, stateDeltas, domDeltas } }
+          },
+          gesture: {
+            kind: "multi-container-pointer-drag",
+            pointerId,
+            start: { clientX: debugMetricRound(startX), clientY: debugMetricRound(startY), hitStack: debugHitStackAt(startX, startY) },
+            end: { clientX: debugMetricRound(endX), clientY: debugMetricRound(endY), hitStack: debugHitStackAt(endX, endY) },
+            sourceRect: debugRectSnapshot(sourceRect)
+          },
+          frames: { before, preview: mid, released, restored },
+          stateDeltas,
+          domDeltas
+        };
+      });
+
+      await step("multi-selected-image-containers-pointercancel-rolls-back", async () => {
+        const ids = [seriesId, batchId].filter(Boolean);
+        if (ids.length !== 2) return { ok: false, error: "multi-container cancel fixture unavailable" };
+        await selectDebugNodes({ ids, primaryId: ids[0] });
+        const sourceElement = Array.from(document.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
+          .find((element) => element.dataset.nodeId === ids[0]);
+        const titlebar = sourceElement?.querySelector<HTMLElement>(".node-title-block");
+        const sourceRect = titlebar?.getBoundingClientRect();
+        if (!sourceElement || !titlebar || !sourceRect) return { ok: false, error: "multi-container cancel DOM fixture unavailable" };
+        const before = captureMultiContainerDragFrame(ids, "before-cancel");
+        const startX = sourceRect.left + Math.min(78, Math.max(28, sourceRect.width * 0.4));
+        const startY = sourceRect.top + sourceRect.height / 2;
+        const endX = startX - 62;
+        const endY = startY + 38;
+        const pointerId = 923;
+        titlebar.dispatchEvent(new PointerEvent("pointerdown", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX: startX,
+          clientY: startY
+        }));
+        sourceElement.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+          clientX: endX,
+          clientY: endY
+        }));
+        await waitForDebugSettle(90);
+        const preview = captureMultiContainerDragFrame(ids, "cancel-preview");
+        sourceElement.dispatchEvent(new PointerEvent("pointercancel", {
+          bubbles: true,
+          cancelable: true,
+          pointerId,
+          pointerType: "mouse",
+          isPrimary: true,
+          button: 0,
+          buttons: 0,
+          clientX: endX,
+          clientY: endY
+        }));
+        await waitForDebugSettle(220);
+        const cancelled = captureMultiContainerDragFrame(ids, "cancelled");
+        const checks = {
+          previewMovedBoth: preview.members.every((member, index) => (
+            member.dragging && member.dom && before.members[index]?.dom &&
+            Math.abs(member.dom.left - before.members[index].dom.left) + Math.abs(member.dom.top - before.members[index].dom.top) > 4
+          )),
+          runtimeNeverCommitted: cancelled.members.every((member, index) => (
+            member.runtime?.x === before.members[index]?.runtime?.x && member.runtime?.y === before.members[index]?.runtime?.y
+          )),
+          domRolledBack: cancelled.members.every((member, index) => (
+            member.dom && before.members[index]?.dom &&
+            Math.abs(member.dom.left - before.members[index].dom.left) <= 1 && Math.abs(member.dom.top - before.members[index].dom.top) <= 1
+          )),
+          relationshipLinesRolledBack: cancelled.members.every((member, index) => member.edgePath === before.members[index]?.edgePath),
+          selectionPreserved: ids.every((id) => selectedNodeIdsRef.current.includes(id)) && selectedNodeIdsRef.current.length === ids.length,
+          transientStylesCleared: cancelled.members.every((member, index) => (
+            !member.dragging && !member.dragX && !member.dragY && member.inlineWillChange === before.members[index]?.inlineWillChange
+          )),
+          dragStateCleared: dragRef.current === null && draggingNodeIdsRef.current.size === 0,
+          noDropHighlight: !document.querySelector(".flow-node.asset-drop-target")
+        };
+        return {
+          ok: Object.values(checks).every(Boolean),
+          checks,
+          evidenceLayers: {
+            functional: { ok: checks.runtimeNeverCommitted && checks.selectionPreserved, checks },
+            state: { ok: checks.domRolledBack && checks.relationshipLinesRolledBack && checks.dragStateCleared, checks },
+            gesture: { ok: checks.previewMovedBoth, checks },
+            visual: { ok: checks.transientStylesCleared && checks.noDropHighlight, checks },
+            evidence: { ok: true, checks: { pointerId, ids } }
+          },
+          gesture: {
+            kind: "multi-container-pointer-cancel",
+            pointerId,
+            start: { clientX: debugMetricRound(startX), clientY: debugMetricRound(startY), hitStack: debugHitStackAt(startX, startY) },
+            end: { clientX: debugMetricRound(endX), clientY: debugMetricRound(endY), hitStack: debugHitStackAt(endX, endY) },
+            sourceRect: debugRectSnapshot(sourceRect)
+          },
+          frames: { before, preview, cancelled }
         };
       });
 
@@ -20243,6 +21189,7 @@ function App() {
           asset: sourceAsset,
           projectId: activeProjectIdRef.current,
           suggestedName: "01-aidebug-layer.png",
+          format: "png",
           aidebugName: `${token}-single`
         });
         const singleLayerPsd = await bridge.exportAssetPsd({
@@ -22087,6 +23034,9 @@ function App() {
         if (!node?.assets?.[assetIndex]) throw new Error("目标图片不存在。");
         return saveAssetAs(node, assetIndex, format);
       },
+      renameImageCollections: renameImageCollectionsForAutomation,
+      replaceImageCollectionItems: replaceImageCollectionItemsForAutomation,
+      exportImageCollections: exportImageCollectionsForAutomation,
       connectCanvas: connectCanvasForAutomation,
       disconnectCanvas: disconnectCanvasForAutomation,
       groupCanvas: groupCanvasForAutomation,
@@ -22197,10 +23147,10 @@ function App() {
         return exportSocialRequirementPackage(input);
       },
       importScientificData: async (input) => {
-        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+        if (input.expectedProjectId !== activeProjectIdRef.current) {
           throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未导入科研数据。", {
             expectedProjectId: input.expectedProjectId,
-            activeProjectId: activeProjectIdRef.current || "default",
+            activeProjectId: activeProjectIdRef.current,
           });
         }
         const bridge = window.naimageScientific;
@@ -22212,10 +23162,10 @@ function App() {
         return result;
       },
       listScientificData: async (input) => {
-        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+        if (input.expectedProjectId !== activeProjectIdRef.current) {
           throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未读取科研数据。", {
             expectedProjectId: input.expectedProjectId,
-            activeProjectId: activeProjectIdRef.current || "default",
+            activeProjectId: activeProjectIdRef.current,
           });
         }
         const bridge = window.naimageScientific;
@@ -22265,10 +23215,10 @@ function App() {
       },
       landScientificTask: (task, saved) => landScientificTaskOnCanvas(task, saved),
       listScientificTasks: async (input) => {
-        if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+        if (input.expectedProjectId !== activeProjectIdRef.current) {
           throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，未读取科研任务。", {
             expectedProjectId: input.expectedProjectId,
-            activeProjectId: activeProjectIdRef.current || "default",
+            activeProjectId: activeProjectIdRef.current,
           });
         }
         const bridge = window.naimageScientific;
@@ -22364,7 +23314,7 @@ function App() {
       return false;
     }
     const result = await window.naimageAgent?.pause?.({
-      projectId: activeProjectIdRef.current || "default",
+      projectId: activeProjectIdRef.current,
       conversationId: activeConversationIdRef.current || "default"
     });
     if (result?.ok !== true) {
@@ -22386,7 +23336,7 @@ function App() {
       return false;
     }
     const result = await window.naimageAgent?.resume?.({
-      projectId: activeProjectIdRef.current || "default",
+      projectId: activeProjectIdRef.current,
       conversationId: activeConversationIdRef.current || "default"
     });
     if (result?.ok !== true) {
@@ -22453,7 +23403,7 @@ function App() {
       const { confirmAgentStopRequest } = await loadAgentStopRequest();
       const result = await confirmAgentStopRequest(
         () => stopBridge({
-          projectId: activeProjectIdRef.current || "default",
+          projectId: activeProjectIdRef.current,
           conversationId: activeConversationIdRef.current || "default",
           reason: "用户确认结束了当前任务。"
         }),
@@ -22693,6 +23643,14 @@ function App() {
     task: ImageTaskDraft,
     options?: { targetNodeId?: string; forkFromNodeId?: string; worldX?: number; worldY?: number; quotaChecked?: boolean; append?: boolean; requestedCount?: number; targetTotal?: number }
   ) {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再生成图片。");
+      return;
+    }
+    if (!activeConversationIdRef.current) {
+      setServerMessage("请先创建或选择一个对话，再生成图片。");
+      return;
+    }
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，新的图片任务没有被重复提交。");
       return;
@@ -23222,9 +24180,261 @@ function App() {
     });
   }
 
+  function imageCollectionForNode(node: WorkflowNode): ImageCollection | undefined {
+    return node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
+  }
+
+  function imageCollectionEntriesForNodeIds(nodeIds: readonly string[]) {
+    const entries: Array<{ node: WorkflowNode; collection: ImageCollection }> = [];
+    const seen = new Set<string>();
+    for (const nodeId of nodeIds) {
+      const node = nodesRef.current.find((candidate) => candidate.id === nodeId);
+      const collection = node ? imageCollectionForNode(node) : undefined;
+      if (!node || !collection || seen.has(collection.id)) continue;
+      seen.add(collection.id);
+      entries.push({ node, collection });
+    }
+    return entries;
+  }
+
+  function imageCollectionEntriesForCollectionIds(collectionIds: readonly string[]) {
+    const byCollectionId = new Map(nodesRef.current.flatMap((node) => {
+      const collection = imageCollectionForNode(node);
+      return collection ? [[collection.id, { node, collection }] as const] : [];
+    }));
+    return collectionIds
+      .map((id) => byCollectionId.get(String(id || "").trim()))
+      .filter((entry): entry is { node: WorkflowNode; collection: ImageCollection } => Boolean(entry));
+  }
+
+  function imageCollectionReplacementCandidates(sourceNodeId?: string, sourceAssetIndex?: number) {
+    return nodesRef.current
+      .filter((candidate) => candidate.type === "image" && candidate.imageState !== "generating")
+      .flatMap((candidate) => (candidate.assets ?? []).flatMap((asset, assetIndex) => {
+        if (candidate.id === sourceNodeId && assetIndex === sourceAssetIndex) return [];
+        if (asset.status === "pending" || asset.status === "error") return [];
+        if (!asset.path && !asset.relativePath && !asset.assetUrl && !asset.url) return [];
+        return [{ node: candidate, asset, assetIndex }];
+      }));
+  }
+
+  function openImageCollectionRenameDialog(collectionIds: readonly string[]) {
+    const entries = imageCollectionEntriesForNodeIds(collectionIds);
+    if (!entries.length) {
+      setServerMessage("当前选择没有可重命名的图片组。");
+      return;
+    }
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setImageCollectionExportDialog(null);
+    setImageCollectionDialog({
+      mode: "rename",
+      collectionIds: entries.map((entry) => entry.collection.id),
+      names: Object.fromEntries(entries.map((entry) => [entry.collection.id, entry.collection.name || entry.node.title || "图片组"])),
+    });
+  }
+
+  function openImageCollectionReplaceDialog(node: WorkflowNode, assetIndex: number) {
+    const collection = imageCollectionForNode(node);
+    const item = collection ? imageCollectionItemForAsset(node, assetIndex) : undefined;
+    if (!collection || !item) {
+      setServerMessage("该图片不是可替换的图片组槽位。");
+      return;
+    }
+    const replacement = imageCollectionReplacementCandidates(node.id, assetIndex)[0];
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setImageCollectionExportDialog(null);
+    setImageCollectionDialog({
+      mode: "replace",
+      collectionIds: [collection.id],
+      names: {},
+      sourceCollectionId: collection.id,
+      itemId: item.id,
+      requestIndex: item.requestIndex,
+      replacementNodeId: replacement?.node.id,
+      replacementAssetIndex: replacement?.assetIndex,
+      defectReason: "原图存在瑕疵，已替换为新图片。",
+    });
+  }
+
+  async function submitImageCollectionDialog() {
+    const draft = imageCollectionDialog;
+    if (!draft || imageCollectionActionBusy) return;
+    setImageCollectionActionBusy(true);
+    try {
+      if (draft.mode === "rename") {
+        const requests: RenameImageCollectionRequest[] = draft.collectionIds.map((collectionId) => ({
+          collectionId,
+          name: draft.names[collectionId] || "图片组",
+        }));
+        await renameImageCollectionsForAutomation({
+          requests,
+          expectedProjectId: activeProjectIdRef.current,
+          expectedCanvasRevision: canvasRevisionRef.current,
+        });
+        setServerMessage(`已重命名 ${requests.length} 个图片组。`);
+      } else {
+        const sourceCollectionId = String(draft.sourceCollectionId || "").trim();
+        const replacementNodeId = String(draft.replacementNodeId || "").trim();
+        const replacementAssetIndex = Number(draft.replacementAssetIndex);
+        const defectReason = String(draft.defectReason || "").trim();
+        if (!sourceCollectionId || !replacementNodeId || !Number.isInteger(replacementAssetIndex) || !defectReason) {
+          throw automationCommandError("INVALID_ARGUMENT", "请选择替换图片并填写瑕疵原因。");
+        }
+        await replaceImageCollectionItemsForAutomation({
+          requests: [{
+            sourceCollectionId,
+            ...(draft.itemId ? { itemId: draft.itemId } : {}),
+            ...(draft.requestIndex !== undefined ? { requestIndex: draft.requestIndex } : {}),
+            replacementNodeId,
+            replacementAssetIndex,
+            defectReason,
+          }],
+          expectedProjectId: activeProjectIdRef.current,
+          expectedCanvasRevision: canvasRevisionRef.current,
+        });
+        setServerMessage("图片已替换，原图已保留到独立瑕疵图片组。重复执行相同替换不会生成重复图片。");
+      }
+      setImageCollectionDialog(null);
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      setImageCollectionDialog((current) => current ? { ...current, error: payload.error } : current);
+      setServerMessage(payload.error);
+    } finally {
+      setImageCollectionActionBusy(false);
+    }
+  }
+
+  async function exportImageCollectionsFromUi(collectionIds: readonly string[]) {
+    const ids = [...new Set(collectionIds.map((id) => String(id || "").trim()).filter(Boolean))];
+    if (!ids.length || imageCollectionActionBusy) return;
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再导出图片组。");
+      return;
+    }
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setImageCollectionDialog(null);
+    setImageCollectionActionBusy(true);
+    try {
+      const format: ImageExportFormat = "png";
+      const preview = await previewImageCollectionsForExport({
+        collectionIds: ids,
+        expectedProjectId: activeProjectIdRef.current,
+        format,
+      });
+      setImageCollectionExportDialog({ collectionIds: ids, format, preview });
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      setServerMessage(payload.error);
+    } finally {
+      setImageCollectionActionBusy(false);
+    }
+  }
+
+  async function refreshImageCollectionExportPreview(format: ImageExportFormat) {
+    const draft = imageCollectionExportDialog;
+    if (!draft || imageCollectionActionBusy) return;
+    setImageCollectionActionBusy(true);
+    setImageCollectionExportDialog((current) => current ? { ...current, format, error: undefined } : current);
+    try {
+      const preview = await previewImageCollectionsForExport({
+        collectionIds: draft.collectionIds,
+        expectedProjectId: activeProjectIdRef.current,
+        format,
+      });
+      setImageCollectionExportDialog((current) => current && current.collectionIds.join("\0") === draft.collectionIds.join("\0")
+        ? { ...current, format, preview, error: undefined }
+        : current);
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      setImageCollectionExportDialog((current) => current ? { ...current, format, error: payload.error } : current);
+      setServerMessage(payload.error);
+    } finally {
+      setImageCollectionActionBusy(false);
+    }
+  }
+
+  async function confirmImageCollectionExport() {
+    const draft = imageCollectionExportDialog;
+    if (!draft || imageCollectionActionBusy || !draft.preview.previewToken) return;
+    setImageCollectionActionBusy(true);
+    try {
+      const result = await performImageCollectionExport({
+        collectionIds: draft.collectionIds,
+        expectedProjectId: activeProjectIdRef.current,
+        format: draft.format,
+        previewToken: draft.preview.previewToken,
+        confirmed: true,
+      });
+      setImageCollectionExportDialog(null);
+      setServerMessage(
+        `已导出 ${result.exported?.length ?? draft.collectionIds.length} 个图片组、${result.imageCount ?? 0} 张 ${IMAGE_EXPORT_FORMAT_LABELS[draft.format]} 图片，共 ${formatProjectMigrationBytes(result.totalBytes || 0)}。`,
+      );
+    } catch (error) {
+      const payload = automationErrorPayload(error);
+      if (payload.code === "IMAGE_COLLECTION_EXPORT_PREVIEW_STALE") {
+        try {
+          const preview = await previewImageCollectionsForExport({
+            collectionIds: draft.collectionIds,
+            expectedProjectId: activeProjectIdRef.current,
+            format: draft.format,
+          });
+          setImageCollectionExportDialog({
+            ...draft,
+            preview,
+            error: "图片组内容或目录已变化，预检数据已刷新，请再次确认。",
+          });
+          return;
+        } catch (refreshError) {
+          const refreshedPayload = automationErrorPayload(refreshError);
+          setImageCollectionExportDialog((current) => current ? { ...current, error: refreshedPayload.error } : current);
+          setServerMessage(refreshedPayload.error);
+          return;
+        }
+      }
+      setImageCollectionExportDialog((current) => current ? { ...current, error: payload.error } : current);
+      setServerMessage(payload.error);
+    } finally {
+      setImageCollectionActionBusy(false);
+    }
+  }
+
+  async function openImageCollectionFolderFromUi(collectionId: string) {
+    const id = String(collectionId || "").trim();
+    if (!id || imageCollectionActionBusy) return;
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setImageCollectionActionBusy(true);
+    try {
+      const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectIdRef.current });
+      if (!saved?.ok) throw new Error(saved?.error || "打开图片组文件夹前项目尚未可靠保存。");
+      const result = await window.naimageConfig?.openImageCollectionFolder?.({
+        expectedProjectId: activeProjectIdRef.current,
+        collectionId: id,
+      });
+      if (!result?.ok) {
+        if (result?.errorCode === "IMAGE_COLLECTION_NOT_EXPORTED") {
+          throw new Error("该图片组尚未导出，请先执行“导出图片组”。");
+        }
+        throw new Error(result?.error || "打开图片组文件夹失败。");
+      }
+      addEvent(`打开图片组文件夹 ${result.directoryName || id}`);
+    } catch (error) {
+      setServerMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setImageCollectionActionBusy(false);
+    }
+  }
+
   async function saveAssetAs(node: WorkflowNode, assetIndex: number, format?: ImageExportFormat) {
     const asset = node.assets?.[assetIndex];
     if (!asset) return { ok: false, error: "图片资产不存在。" };
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再导出图片。");
+      return { ok: false, error: "当前没有打开的项目。" };
+    }
     const bridge = window.naimageConfig as typeof window.naimageConfig & {
       saveAssetAs?: (payload: { asset: ImageAsset; projectId?: string; suggestedName?: string; format?: ImageExportFormat }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; format?: ImageExportFormat; cleanupWarning?: string; error?: string }>;
     };
@@ -23259,6 +24469,10 @@ function App() {
   async function exportAssetPsd(node: WorkflowNode, assetIndex: number) {
     const asset = node.assets?.[assetIndex];
     if (!asset) return { ok: false, error: "图片资产不存在。" };
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再导出 PSD。");
+      return { ok: false, error: "当前没有打开的项目。" };
+    }
     const bridge = window.naimageConfig;
     if (!bridge?.exportAssetPsd) {
       setServerMessage("当前版本尚未连接 Photoshop PSD 导出服务。");
@@ -23290,6 +24504,10 @@ function App() {
   }
 
   async function saveStandaloneAssetAs(asset: ImageAsset, suggestedName: string, eventLabel = "图片成果") {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再导出图片。");
+      return { ok: false, error: "当前没有打开的项目。" };
+    }
     const bridge = window.naimageConfig;
     if (!bridge?.saveAssetAs) {
       setServerMessage("当前版本尚未连接图片另存为服务。");
@@ -23616,7 +24834,7 @@ function App() {
       title: canonicalPlan.platform === "xiaohongshu" ? `小红书 · ${canonicalPlan.brief.slice(0, 32)}` : `抖音 · ${canonicalPlan.brief.slice(0, 32)}`,
       text: composed.task.prompt,
       inputBindings,
-      expectedProjectId: activeProjectIdRef.current || "default",
+      expectedProjectId: activeProjectIdRef.current,
       socialPlan: canonicalPlan,
       historyLabel: canonicalPlan.platform === "xiaohongshu" ? "创建小红书图文计划" : "创建抖音短视频计划",
       eventLabel: "创建社媒 Requirement",
@@ -23821,7 +25039,7 @@ function App() {
     let requirementRevision = 1;
     if (existing?.requirement) {
       assertAutomationCanvasMutationPreconditions({
-        expectedProjectId: activeProjectIdRef.current || "default",
+        expectedProjectId: activeProjectIdRef.current,
         expectedCanvasRevision: canvasRevisionRef.current,
       }, [existing.id, ...sourceNodeIds], "保存科研图计划");
       const bindings = inputBindings.length ? automationRequirementBindings(inputBindings, nodesRef.current) : existing.requirement.inputBindings || [];
@@ -23857,7 +25075,7 @@ function App() {
         title: `科研图 · ${plan.researchClaim.slice(0, 36) || "未命名计划"}`,
         text: composedTask.prompt,
         inputBindings,
-        expectedProjectId: activeProjectIdRef.current || "default",
+        expectedProjectId: activeProjectIdRef.current,
         expectedCanvasRevision: canvasRevisionRef.current,
         scientificPlan: plan,
         historyLabel: "创建科研绘图计划",
@@ -24832,7 +26050,7 @@ function App() {
       inputBindings,
       x: options.x ?? (inputBindings.length ? undefined : fallbackPoint.x),
       y: options.y ?? (inputBindings.length ? undefined : fallbackPoint.y),
-      expectedProjectId: options.expectedProjectId || activeProjectIdRef.current || "default",
+      expectedProjectId: options.expectedProjectId || activeProjectIdRef.current,
       expectedCanvasRevision: options.expectedCanvasRevision,
       ...(entry.skill ? { skill: sanitizeCanvasSkill(entry.skill) } : {}),
       ...(entry.socialPlan ? { socialPlan: normalizeSocialContentPlan(entry.socialPlan) } : {}),
@@ -24863,10 +26081,10 @@ function App() {
     expectedTemplateRevision?: number;
     expectedProjectId: string;
   }) {
-    if (input.expectedProjectId !== (activeProjectIdRef.current || "default")) {
+    if (input.expectedProjectId !== activeProjectIdRef.current) {
       throw automationCommandError("PROJECT_MISMATCH", "当前项目与命令预期项目不一致，需求模板未保存。", {
         expectedProjectId: input.expectedProjectId,
-        activeProjectId: activeProjectIdRef.current || "default",
+        activeProjectId: activeProjectIdRef.current,
       });
     }
     const node = nodesRef.current.find((candidate) => candidate.id === input.nodeId && candidate.type === "requirement" && candidate.requirement);
@@ -24977,18 +26195,18 @@ function App() {
               setSettingsOpen(false);
               setAccountOpen(false);
               setFileMenuOpen((current) => !current);
-            }} disabled={fileActionBusy} title="管理项目文件夹、导入导出和删除当前项目文件夹">
+            }} disabled={fileActionBusy} title="管理项目文件夹、迁移旧数据和导入导出">
               <FolderOpen size={14} />
               文件
             </ButtonBase>
             {fileMenuOpen ? (
               <div className="project-menu-popover file-command-popover">
                 <div className="project-list file-command-list">
-                  <ButtonBase onClick={openCreateProjectFolderDialog} disabled={fileActionBusy || agentExecutionBusy} title="选择工作台类型和文件夹，并创建全新的 SparkAI WorkSpace 项目">
+                  <ButtonBase onClick={openCreateProjectDialog} disabled={fileActionBusy || agentExecutionBusy} title="选择工作台类型和保存位置，并创建全新的 SparkAI WorkSpace 项目">
                     <FolderPlus size={14} />
-                    <span>新建项目文件夹</span>
+                    <span>新建项目</span>
                   </ButtonBase>
-                  <ButtonBase onClick={openCurrentProjectFolder} disabled={fileActionBusy} title={activeProjectPath ? `在资源管理器中打开：${activeProjectPath}` : "在资源管理器中打开当前项目所在文件夹"}>
+                  <ButtonBase onClick={openCurrentProjectFolder} disabled={fileActionBusy || !activeProject} title={activeProjectPath ? `在资源管理器中打开：${activeProjectPath}` : "请先创建或打开项目"}>
                     <FolderOpen size={14} />
                     <span>打开当前项目文件夹</span>
                   </ButtonBase>
@@ -24996,17 +26214,21 @@ function App() {
                     <Import size={14} />
                     <span>打开已有项目</span>
                   </ButtonBase>
-                  <ButtonBase onClick={exportProject} disabled={fileActionBusy} title="导出图片成果、关系和会话为 .naimage 项目文件">
+                  <ButtonBase onClick={startProjectDataMigration} disabled={fileActionBusy || agentExecutionBusy} title="把旧应用数据目录中的项目复制并校验到你选择的项目目录">
+                    <HardDriveDownload size={14} />
+                    <span>迁移旧 C 盘项目数据</span>
+                  </ButtonBase>
+                  <ButtonBase onClick={startPendingProjectDataCleanup} disabled={fileActionBusy || agentExecutionBusy} title="再次校验后清理已经成功迁移的 C 盘项目源数据">
+                    <Trash2 size={14} />
+                    <span>清理已迁移的旧数据</span>
+                  </ButtonBase>
+                  <ButtonBase onClick={exportProject} disabled={fileActionBusy || !activeProject} title="导出图片成果、关系和会话为 .naimage 项目文件">
                     <Download size={14} />
                     <span>导出项目文件</span>
                   </ButtonBase>
                   <ButtonBase onClick={importProject} disabled={fileActionBusy || agentExecutionBusy} title="选择 .naimage 项目文件并恢复到项目文件夹">
                     <Import size={14} />
                     <span>导入项目文件</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={deleteActiveProjectFolder} disabled={fileActionBusy || agentExecutionBusy || activeProjectId === "default"} title={activeProjectPath ? `删除磁盘文件夹：${activeProjectPath}` : "删除当前项目文件夹"}>
-                    <Trash2 size={14} />
-                    <span>删除当前项目文件夹</span>
                   </ButtonBase>
                 </div>
               </div>
@@ -25049,7 +26271,7 @@ function App() {
               <Plus className="compact-project-action-icon" size={15} aria-hidden="true" />
               <span className="compact-project-action-label">新建项目</span>
             </ButtonBase>
-            <ButtonBase onClick={removeActiveProject} disabled={fileActionBusy || agentExecutionBusy || activeProjectId === "default"} title="只从画布列表移除，不删除文件夹">
+            <ButtonBase onClick={removeActiveProject} disabled={fileActionBusy || agentExecutionBusy || !activeProject} title="只从项目列表移除，不删除文件夹">
               移除
             </ButtonBase>
             <ButtonBase onClick={openRenameProjectDialog} disabled={fileActionBusy || agentExecutionBusy || !activeProject} title="重命名当前画布，文件夹路径保持不变">
@@ -25406,11 +26628,11 @@ function App() {
                       tabIndex={0}
                       aria-label={node.title?.trim() || node.id}
                       title={`${node.title?.trim() || node.id} · 单击查看完整节点`}
-                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeId === node.id ? "dragging" : ""}`}
+                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""}`}
                       style={{
                         left: bounds.x,
                         top: bounds.y,
-                        zIndex: draggingNodeId === node.id ? 1_000_000 : nodeStackById.get(node.id),
+                        zIndex: draggingNodeIdsRef.current.has(node.id) ? 1_000_000 : nodeStackById.get(node.id),
                         width: bounds.width,
                         height: bounds.height,
                         minWidth: bounds.width,
@@ -25511,11 +26733,11 @@ function App() {
                     data-node-locked={nodeLocked ? "true" : undefined}
                     className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
                       activeNodeId === node.id && !nodeIsGenerating ? "active-build" : ""
-                    } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeId === node.id ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
+                    } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
                     style={{
                       left: node.x,
                       top: node.y,
-                      zIndex: resizingNodeId === node.id || draggingNodeId === node.id ? 1_000_000 : nodeStackById.get(node.id),
+                      zIndex: resizingNodeId === node.id || draggingNodeIdsRef.current.has(node.id) ? 1_000_000 : nodeStackById.get(node.id),
                       width: renderWidth,
                       height: renderHeight,
                       minWidth: nodeMinimum.width ?? NODE_RESIZE_MIN_W,
@@ -26024,11 +27246,22 @@ function App() {
                   <MenuItem icon={<Layers3 size={15} />} onClick={() => createTaskImageContainerAt(canvasMenu.worldX, canvasMenu.worldY, "reference")}>
                     创建参考图容器
                   </MenuItem>
-                  <MenuItem icon={<FolderPlus size={15} />} onClick={() => createImageContainerAt(canvasMenu.worldX, canvasMenu.worldY)}>
-                    创建图片容器
-                  </MenuItem>
-                </>
-              ) : null}
+                   <MenuItem icon={<FolderPlus size={15} />} onClick={() => createImageContainerAt(canvasMenu.worldX, canvasMenu.worldY)}>
+                     创建图片容器
+                   </MenuItem>
+                   <MenuSeparator />
+                   <MenuItem
+                     icon={<FolderOpen size={15} />}
+                     disabled={fileActionBusy}
+                     onClick={() => {
+                       setCanvasMenu(null);
+                       void openCurrentProjectFolder();
+                     }}
+                   >
+                     打开当前项目文件夹
+                   </MenuItem>
+                 </>
+               ) : null}
               {canvasMenu.kind === "selection" && menuSelectionCapabilities ? (
                 <>
                   <MenuSummary title={`已选择 ${canvasMenu.nodeIds.length} 个成果`}>
@@ -26071,6 +27304,31 @@ function App() {
                       </MenuItem>
                     </>
                   ) : null}
+                  {(() => {
+                    const collectionEntries = imageCollectionEntriesForNodeIds(canvasMenu.nodeIds);
+                    const allSelectedAreCollections = collectionEntries.length > 0 && collectionEntries.length === canvasMenu.nodeIds.length;
+                    if (!allSelectedAreCollections) return null;
+                    const collectionIds = collectionEntries.map((entry) => entry.collection.id);
+                    return (
+                      <>
+                        <MenuSeparator />
+                        <MenuItem
+                          icon={<Settings size={15} />}
+                          disabled={imageCollectionActionBusy}
+                          onClick={() => openImageCollectionRenameDialog(canvasMenu.nodeIds)}
+                        >
+                          批量重命名 {collectionIds.length} 个图片组
+                        </MenuItem>
+                        <MenuItem
+                          icon={<Download size={15} />}
+                          busy={imageCollectionActionBusy}
+                          onClick={() => void exportImageCollectionsFromUi(collectionIds)}
+                        >
+                          批量导出 {collectionIds.length} 个图片组
+                        </MenuItem>
+                      </>
+                    );
+                  })()}
                   <MenuSeparator />
                   <MenuItem
                     tone="danger"
@@ -26190,6 +27448,46 @@ function App() {
                             <MenuItem icon={<Layers3 size={15} />} busy={fileActionBusy} onClick={() => void exportAssetPsd(targetNode, 0)}>
                               {targetNode.layerGroup ? "导出当前图层 PSD…" : "导出 Photoshop PSD…"}
                             </MenuItem>
+                            {imageCollectionForNode(targetNode) ? (() => {
+                              const collection = imageCollectionForNode(targetNode)!;
+                              const collectionItem = imageCollectionItemForAsset(targetNode, 0);
+                              return (
+                                <>
+                                  <MenuSeparator />
+                                  <MenuItem
+                                    icon={<Settings size={15} />}
+                                    disabled={imageCollectionActionBusy}
+                                    onClick={() => openImageCollectionRenameDialog([targetNode.id])}
+                                  >
+                                    重命名图片组
+                                  </MenuItem>
+                                  <MenuItem
+                                    icon={<Download size={15} />}
+                                    busy={imageCollectionActionBusy}
+                                    onClick={() => void exportImageCollectionsFromUi([collection.id])}
+                                  >
+                                    导出图片组
+                                  </MenuItem>
+                                  <MenuItem
+                                    icon={<FolderOpen size={15} />}
+                                    busy={imageCollectionActionBusy}
+                                    onClick={() => void openImageCollectionFolderFromUi(collection.id)}
+                                  >
+                                    打开图片组文件夹
+                                  </MenuItem>
+                                  {collection.collectionRole !== "defects" && collectionItem ? (
+                                    <MenuItem
+                                      icon={<Images size={15} />}
+                                      disabled={imageCollectionActionBusy}
+                                      onClick={() => openImageCollectionReplaceDialog(targetNode, 0)}
+                                    >
+                                      替换第一张图片组槽位
+                                    </MenuItem>
+                                  ) : null}
+                                  <MenuSeparator />
+                                </>
+                              );
+                            })() : null}
                             <MenuItem icon={<WandSparkles size={15} />} onClick={() => openAICutout(targetNode, 0)} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
                               AI 抠图
                             </MenuItem>
@@ -26334,6 +27632,45 @@ function App() {
                     打开所在文件夹
                   </MenuItem>
                 ) : null}
+                {imageCollectionForNode(targetNode) ? (() => {
+                  const collection = imageCollectionForNode(targetNode)!;
+                  const collectionItem = imageCollectionItemForAsset(targetNode, assetContextMenu.assetIndex);
+                  return (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        icon={<Settings size={15} />}
+                        disabled={imageCollectionActionBusy}
+                        onClick={() => openImageCollectionRenameDialog([targetNode.id])}
+                      >
+                        重命名图片组
+                      </MenuItem>
+                      <MenuItem
+                        icon={<Download size={15} />}
+                        busy={imageCollectionActionBusy}
+                        onClick={() => void exportImageCollectionsFromUi([collection.id])}
+                      >
+                        导出图片组
+                      </MenuItem>
+                      <MenuItem
+                        icon={<FolderOpen size={15} />}
+                        busy={imageCollectionActionBusy}
+                        onClick={() => void openImageCollectionFolderFromUi(collection.id)}
+                      >
+                        打开图片组文件夹
+                      </MenuItem>
+                      {collection.collectionRole !== "defects" && collectionItem ? (
+                        <MenuItem
+                          icon={<Images size={15} />}
+                          disabled={imageCollectionActionBusy}
+                          onClick={() => openImageCollectionReplaceDialog(targetNode, assetContextMenu.assetIndex)}
+                        >
+                          替换当前图片组槽位
+                        </MenuItem>
+                      ) : null}
+                    </>
+                  );
+                })() : null}
                 {targetNode.layerGroup ? (
                   <>
                     <MenuSeparator />
@@ -26525,8 +27862,8 @@ function App() {
       {commerceTutorialOpen ? (
         <React.Suspense fallback={null}>
           <LazyCommerceTutorial
-            key={activeProjectId || "default"}
-            projectId={activeProjectId || "default"}
+            key={activeProjectId}
+            projectId={activeProjectId}
             imageCount={commerceCatalogCanvasAssets.length}
             selectedImageCount={selectedCanvasCapabilities.groupableNodeIds.length}
             workspaceDomain={workspaceDomain}
@@ -26732,7 +28069,7 @@ function App() {
         <React.Suspense fallback={null}>
           <LazyScientificFigureDialog
             key={`${activeProjectId}:${scientificFigureDialog.initialPlan?.workflowId || "new"}:${scientificFigureDialog.initialAction}`}
-            projectId={activeProjectIdRef.current || "default"}
+            projectId={activeProjectIdRef.current}
             initialPlan={scientificFigureDialog.initialPlan}
             initialTaskId={scientificFigureDialog.initialTaskId}
             initialAction={scientificFigureDialog.initialAction}
@@ -26787,6 +28124,254 @@ function App() {
             busy={fileActionBusy}
           />
         ) : null}
+
+        {imageCollectionDialog ? (() => {
+          const collectionEntries = imageCollectionEntriesForCollectionIds(imageCollectionDialog.collectionIds);
+          const sourceEntry = collectionEntries.find((entry) => entry.collection.id === imageCollectionDialog.sourceCollectionId);
+          const sourceItem = sourceEntry?.collection.items.find((item) => (
+            (imageCollectionDialog.itemId && item.id === imageCollectionDialog.itemId) ||
+            (!imageCollectionDialog.itemId && imageCollectionDialog.requestIndex !== undefined && item.requestIndex === imageCollectionDialog.requestIndex)
+          ));
+          const sourceAssetIndex = sourceItem?.assetIndex ? sourceItem.assetIndex - 1 : undefined;
+          const replacementCandidates = imageCollectionReplacementCandidates(sourceEntry?.node.id, sourceAssetIndex);
+          const replacementNodes = [...new Map(replacementCandidates.map((candidate) => [candidate.node.id, candidate.node])).values()];
+          const replacementAssets = replacementCandidates.filter((candidate) => candidate.node.id === imageCollectionDialog.replacementNodeId);
+          const selectedReplacement = replacementAssets.find((candidate) => candidate.assetIndex === imageCollectionDialog.replacementAssetIndex);
+          const isRename = imageCollectionDialog.mode === "rename";
+          const canSubmit = isRename
+            ? collectionEntries.length > 0 && collectionEntries.every((entry) => Boolean(imageCollectionDialog.names[entry.collection.id]?.trim()))
+            : Boolean(sourceEntry && sourceItem && selectedReplacement && imageCollectionDialog.defectReason?.trim());
+          return (
+            <DialogShell
+              surface="image-collection"
+              ariaLabel={isRename ? "重命名图片组" : "替换图片组槽位"}
+              className="image-collection-dialog"
+              busy={imageCollectionActionBusy}
+              closePolicy={{ escape: "when-idle", backdrop: "when-idle", [CLOSE_BUTTON_REASON]: "when-idle", action: "when-idle" }}
+              onRequestClose={() => setImageCollectionDialog(null)}
+              onCloseBlocked={() => setServerMessage("图片组操作正在保存，请稍候。")}
+            >
+              {({ requestClose }) => (
+                <>
+                  <SurfaceHeader
+                    title={isRename ? (collectionEntries.length > 1 ? "批量重命名图片组" : "重命名图片组") : "替换图片组槽位"}
+                    description={isRename
+                      ? "保存后会同步画布标题、项目会话、导出目录名称和 Agent 查询名称。"
+                      : "替换图必须来自当前项目；原图会保留到独立瑕疵图片组。"}
+                    onClose={() => requestClose(CLOSE_BUTTON_REASON)}
+                    closeDisabled={imageCollectionActionBusy}
+                  />
+                  <SurfaceBody>
+                    <form
+                      id="image-collection-action-form"
+                      className="image-collection-action-form"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault();
+                        void submitImageCollectionDialog();
+                      }}
+                    >
+                      {isRename ? (
+                        <div className="image-collection-rename-fields">
+                          {collectionEntries.map((entry, index) => (
+                            <Field
+                              key={entry.collection.id}
+                              label={collectionEntries.length > 1 ? `图片组 ${index + 1}` : "图片组名称"}
+                              hint={`${entry.node.displayCode || entry.node.id} · 当前：${entry.collection.name || entry.node.title || "图片组"}`}
+                            >
+                              <input
+                                data-autofocus={index === 0 ? "true" : undefined}
+                                value={imageCollectionDialog.names[entry.collection.id] ?? ""}
+                                maxLength={80}
+                                placeholder="输入图片组名称"
+                                disabled={imageCollectionActionBusy}
+                                onChange={(event) => setImageCollectionDialog((current) => current ? {
+                                  ...current,
+                                  names: { ...current.names, [entry.collection.id]: event.target.value },
+                                  error: undefined,
+                                } : current)}
+                              />
+                            </Field>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="image-collection-slot-summary">
+                            <strong>{sourceEntry?.collection.name || sourceEntry?.node.title || "图片组"}</strong>
+                            <span>槽位 {sourceItem?.requestIndex ?? imageCollectionDialog.requestIndex ?? "-"}</span>
+                            {sourceItem?.title ? <small>{sourceItem.title}</small> : null}
+                          </div>
+                          <Field label="替换图片所在成果">
+                            <select
+                              data-autofocus="true"
+                              value={imageCollectionDialog.replacementNodeId || ""}
+                              disabled={imageCollectionActionBusy || replacementNodes.length === 0}
+                              onChange={(event) => {
+                                const replacementNodeId = event.target.value;
+                                const firstAsset = replacementCandidates.find((candidate) => candidate.node.id === replacementNodeId);
+                                setImageCollectionDialog((current) => current ? {
+                                  ...current,
+                                  replacementNodeId,
+                                  replacementAssetIndex: firstAsset?.assetIndex,
+                                  error: undefined,
+                                } : current);
+                              }}
+                            >
+                              <option value="">选择当前项目中的成果</option>
+                              {replacementNodes.map((node) => (
+                                <option key={node.id} value={node.id}>{node.displayCode || node.id} · {node.title || "图片成果"}</option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="替换图片槽位">
+                            <select
+                              value={Number.isInteger(imageCollectionDialog.replacementAssetIndex) ? String(imageCollectionDialog.replacementAssetIndex) : ""}
+                              disabled={imageCollectionActionBusy || replacementAssets.length === 0}
+                              onChange={(event) => setImageCollectionDialog((current) => current ? {
+                                ...current,
+                                replacementAssetIndex: event.target.value === "" ? undefined : Number(event.target.value),
+                                error: undefined,
+                              } : current)}
+                            >
+                              <option value="">选择图片</option>
+                              {replacementAssets.map((candidate) => (
+                                <option key={`${candidate.node.id}:${candidate.assetIndex}`} value={candidate.assetIndex}>
+                                  图片 {candidate.assetIndex + 1} · {candidate.asset.title || candidate.asset.originalName || candidate.asset.displayCode || "受管图片"}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="瑕疵原因" hint="该说明会写入瑕疵图片组 manifest。">
+                            <textarea
+                              value={imageCollectionDialog.defectReason || ""}
+                              maxLength={320}
+                              rows={4}
+                              placeholder="说明原图需要被替换的原因"
+                              disabled={imageCollectionActionBusy}
+                              onChange={(event) => setImageCollectionDialog((current) => current ? {
+                                ...current,
+                                defectReason: event.target.value,
+                                error: undefined,
+                              } : current)}
+                            />
+                          </Field>
+                          {replacementCandidates.length === 0 ? (
+                            <InlineNotice tone="warning">当前项目没有其他已完成的受管图片可用于替换。</InlineNotice>
+                          ) : null}
+                        </>
+                      )}
+                      {imageCollectionDialog.error ? (
+                        <InlineNotice tone="danger" role="alert">{imageCollectionDialog.error}</InlineNotice>
+                      ) : null}
+                    </form>
+                  </SurfaceBody>
+                  <SurfaceFooter>
+                    <ActionButton onClick={() => requestClose("action")} disabled={imageCollectionActionBusy}>取消</ActionButton>
+                    <ActionButton
+                      variant="primary"
+                      type="submit"
+                      form="image-collection-action-form"
+                      busy={imageCollectionActionBusy}
+                      disabled={!canSubmit}
+                      icon={isRename ? <Check size={16} /> : <Images size={16} />}
+                    >
+                      {isRename ? "保存名称" : "替换并保留原图"}
+                    </ActionButton>
+                  </SurfaceFooter>
+                </>
+              )}
+            </DialogShell>
+          );
+        })() : null}
+
+        {imageCollectionExportDialog ? (() => {
+          const draft = imageCollectionExportDialog;
+          const preview = draft.preview;
+          const groups = preview.groups ?? [];
+          const canSubmit = Boolean(preview.ok && preview.previewToken && preview.imageCount);
+          return (
+            <DialogShell
+              surface="image-collection"
+              ariaLabel="图片组导出预检"
+              className="image-collection-dialog image-collection-export-dialog"
+              busy={imageCollectionActionBusy}
+              closePolicy={{ escape: "when-idle", backdrop: "when-idle", [CLOSE_BUTTON_REASON]: "when-idle", action: "when-idle" }}
+              onRequestClose={() => setImageCollectionExportDialog(null)}
+              onCloseBlocked={() => setServerMessage("图片组导出正在校验或写入，请稍候。")}
+            >
+              {({ requestClose }) => (
+                <>
+                  <SurfaceHeader
+                    title={groups.length > 1 ? `导出 ${groups.length} 个图片组` : "导出图片组"}
+                    description="文件将写入当前项目的 exports/image-groups，每组包含独立目录和 image-group.json。"
+                    onClose={() => requestClose(CLOSE_BUTTON_REASON)}
+                    closeDisabled={imageCollectionActionBusy}
+                  />
+                  <SurfaceBody>
+                    <form
+                      id="image-collection-export-form"
+                      className="image-collection-export-form"
+                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault();
+                        void confirmImageCollectionExport();
+                      }}
+                    >
+                      <Field label="输出格式" hint="JPEG 会使用白色背景展平透明像素。">
+                        <select
+                          data-autofocus="true"
+                          value={draft.format}
+                          disabled={imageCollectionActionBusy}
+                          onChange={(event) => void refreshImageCollectionExportPreview(event.target.value as ImageExportFormat)}
+                        >
+                          {(Object.keys(IMAGE_EXPORT_FORMAT_LABELS) as ImageExportFormat[]).map((format) => (
+                            <option key={format} value={format}>{IMAGE_EXPORT_FORMAT_LABELS[format]}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="image-collection-export-summary" aria-label="导出预检统计">
+                        <div><span>图片组</span><strong>{preview.collectionCount ?? groups.length}</strong></div>
+                        <div><span>可导出图片</span><strong>{preview.imageCount ?? 0}</strong></div>
+                        <div><span>总槽位</span><strong>{preview.slotCount ?? 0}</strong></div>
+                        <div><span>失败槽位</span><strong>{preview.failedSlotCount ?? 0}</strong></div>
+                        <div><span>等待槽位</span><strong>{preview.pendingSlotCount ?? 0}</strong></div>
+                        <div><span>预计图片体积</span><strong>约 {formatProjectMigrationBytes(preview.estimatedBytes || 0)}</strong></div>
+                      </div>
+                      {(preview.failedSlotCount || preview.pendingSlotCount) ? (
+                        <InlineNotice tone="warning">
+                          失败或等待槽位会保留在 manifest 中，但不会伪造图片文件。
+                        </InlineNotice>
+                      ) : null}
+                      <div className="image-collection-export-groups" aria-label="导出图片组明细">
+                        {groups.map((group) => (
+                          <div key={group.collectionId} className="image-collection-export-group-row">
+                            <span>
+                              <strong>{group.name}</strong>
+                              <small>{group.role === "defects" ? "瑕疵组" : "结果组"} · {group.directoryName}</small>
+                            </span>
+                            <span>{group.imageCount} 张 / {group.slotCount} 槽</span>
+                          </div>
+                        ))}
+                      </div>
+                      {draft.error ? <InlineNotice tone="danger" role="alert">{draft.error}</InlineNotice> : null}
+                    </form>
+                  </SurfaceBody>
+                  <SurfaceFooter>
+                    <ActionButton onClick={() => requestClose("action")} disabled={imageCollectionActionBusy}>取消</ActionButton>
+                    <ActionButton
+                      variant="primary"
+                      type="submit"
+                      form="image-collection-export-form"
+                      busy={imageCollectionActionBusy}
+                      disabled={!canSubmit}
+                      icon={<Download size={16} />}
+                    >
+                      确认导出 {preview.imageCount ?? 0} 张图片
+                    </ActionButton>
+                  </SurfaceFooter>
+                </>
+              )}
+            </DialogShell>
+          );
+        })() : null}
 
         {quotaDialog ? (
           <QuotaDialog

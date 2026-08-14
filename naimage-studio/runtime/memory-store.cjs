@@ -41,6 +41,8 @@ function localSafeJson(value) {
 function createMemoryStore(options = {}) {
   const configRoot = options.configRoot;
   if (!configRoot) throw new Error("createMemoryStore requires configRoot");
+  const resolveProjectRoot = typeof options.resolveProjectRoot === "function" ? options.resolveProjectRoot : null;
+  const projectMetaDirName = String(options.projectMetaDirName || ".naimage");
 
   const safeJson = typeof options.safeJson === "function" ? options.safeJson : localSafeJson;
   const summarizeText = options.summarizeText;
@@ -235,6 +237,29 @@ function createMemoryStore(options = {}) {
     return String(value || "").trim().slice(0, 160);
   }
 
+  function projectAgentDirectory(input = {}, write = false) {
+    const projectId = externalScopeValue(input.projectId);
+    if (!resolveProjectRoot) return "";
+    const projectRoot = projectId ? String(resolveProjectRoot(projectId) || "").trim() : "";
+    if (!projectRoot) {
+      if (!write) return "";
+      const error = new Error("当前项目不存在或尚未打开，不能写入项目级 Agent 记忆。");
+      error.code = "PROJECT_REQUIRED";
+      throw error;
+    }
+    return path.join(path.resolve(projectRoot), projectMetaDirName, "agent");
+  }
+
+  function projectFastMemoryPath(input = {}, write = false) {
+    const agentDirectory = projectAgentDirectory(input, write);
+    return agentDirectory ? path.join(agentDirectory, "fastmemory.json") : "";
+  }
+
+  function projectConversationStatePath(input = {}, write = false) {
+    const agentDirectory = projectAgentDirectory(input, write);
+    return agentDirectory ? path.join(agentDirectory, "conversations.json") : "";
+  }
+
   function externalScopeFromInput(input = {}) {
     return {
       projectId: externalScopeValue(input.projectId),
@@ -259,6 +284,71 @@ function createMemoryStore(options = {}) {
     return `conversation_protocol:${compactScopeId(payload.projectId)}:${compactScopeId(payload.conversationId)}`;
   }
 
+  function normalizedProjectConversationDocument(raw, projectId = "") {
+    const source = raw && typeof raw === "object" ? raw : {};
+    return {
+      version: 1,
+      projectId: externalScopeValue(source.projectId || projectId),
+      summaries: source.summaries && typeof source.summaries === "object" ? source.summaries : {},
+      protocols: source.protocols && typeof source.protocols === "object" ? source.protocols : {},
+      updatedAt: String(source.updatedAt || "")
+    };
+  }
+
+  function projectConversationValue(payload, bucket, fallback) {
+    if (!resolveProjectRoot) {
+      const key = bucket === "summaries" ? conversationSummaryKey(payload) : conversationProtocolKey(payload);
+      return runtimeMetaJson(key, fallback) || fallback;
+    }
+    const filePath = projectConversationStatePath(payload, false);
+    if (!filePath) return fallback;
+    if (existsSync(filePath)) {
+      const document = normalizedProjectConversationDocument(readJson(filePath, {}), payload.projectId);
+      const conversationId = compactScopeId(payload.conversationId);
+      if (Object.prototype.hasOwnProperty.call(document[bucket], conversationId)) {
+        const value = document[bucket][conversationId];
+        return value && typeof value === "object" ? value : fallback;
+      }
+    }
+    const legacyKey = bucket === "summaries" ? conversationSummaryKey(payload) : conversationProtocolKey(payload);
+    return runtimeMetaJson(legacyKey, fallback) || fallback;
+  }
+
+  function writeProjectConversationValue(payload, bucket, value) {
+    if (!resolveProjectRoot) {
+      const key = bucket === "summaries" ? conversationSummaryKey(payload) : conversationProtocolKey(payload);
+      writeRuntimeMetaJson(key, value);
+      return;
+    }
+    const filePath = projectConversationStatePath(payload, true);
+    const document = normalizedProjectConversationDocument(readJson(filePath, {}), payload.projectId);
+    const conversationId = compactScopeId(payload.conversationId);
+    document.projectId = externalScopeValue(payload.projectId);
+    document[bucket] = { ...document[bucket], [conversationId]: value ?? null };
+    document.updatedAt = new Date().toISOString();
+    writeJson(filePath, document);
+  }
+
+  function clearProjectConversationValue(payload, bucket) {
+    const fallback = bucket === "summaries"
+      ? { summary: "", messageCount: 0, updatedAt: "" }
+      : { version: 1, turns: [], updatedAt: "" };
+    const current = projectConversationValue(payload, bucket, fallback);
+    if (!resolveProjectRoot) {
+      ensureMemory();
+      const key = bucket === "summaries" ? conversationSummaryKey(payload) : conversationProtocolKey(payload);
+      return Number(db.prepare("DELETE FROM runtime_meta WHERE key = ?").run(key)?.changes || 0) > 0;
+    }
+    writeProjectConversationValue(payload, bucket, null);
+    return bucket === "summaries"
+      ? Boolean(current?.summary || current?.messageCount)
+      : Boolean(Array.isArray(current?.turns) && current.turns.length);
+  }
+
+  function writeConversationSummary(payload = {}, value = {}) {
+    writeProjectConversationValue(payload, "summaries", value);
+  }
+
   function makeEntryId(prefix = "ent") {
     return `${prefix}-${compactDateKey(dateKey())}-${String(getNextSequence()).padStart(6, "0")}`;
   }
@@ -269,8 +359,9 @@ function createMemoryStore(options = {}) {
     return Number(row?.max_order ?? 0) + 1;
   }
 
-  function externalStorePath(target) {
-    return target === "memorycontext" ? memoryContextPath : fastMemoryPath;
+  function externalStorePath(target, input = {}, write = false) {
+    if (target === "memorycontext") return memoryContextPath;
+    return projectFastMemoryPath(input, write) || fastMemoryPath;
   }
 
   function readPromptTextStore() {
@@ -295,10 +386,14 @@ function createMemoryStore(options = {}) {
     return normalized;
   }
 
-  function readExternalStore(target) {
+  function readExternalStore(target, input = {}) {
     const fallback = { version: 1, entries: [] };
-    const store = readJson(externalStorePath(target), fallback);
-    return {
+    const projectPath = target === "fastmemory" ? projectFastMemoryPath(input, false) : "";
+    const sourcePath = projectPath
+      ? existsSync(projectPath) ? projectPath : fastMemoryPath
+      : externalStorePath(target, input, false);
+    const store = readJson(sourcePath, fallback);
+    const normalized = {
       version: 1,
       entries: Array.isArray(store.entries)
         ? store.entries
@@ -319,11 +414,24 @@ function createMemoryStore(options = {}) {
             }))
         : fallback.entries
     };
+    if (target !== "fastmemory" || !resolveProjectRoot || !externalScopeValue(input.projectId)) return normalized;
+    const projectId = externalScopeValue(input.projectId);
+    return {
+      version: 1,
+      entries: normalized.entries.filter((entry) => externalScopeValue(entry.projectId) === projectId)
+    };
   }
 
-  function writeExternalStore(target, store) {
-    const entries = Array.isArray(store.entries) ? store.entries : [];
-    writeJson(externalStorePath(target), {
+  function writeExternalStore(target, store, input = {}) {
+    let entries = Array.isArray(store.entries) ? store.entries : [];
+    if (target === "fastmemory" && resolveProjectRoot) {
+      const projectId = externalScopeValue(input.projectId);
+      projectAgentDirectory(input, true);
+      entries = entries
+        .filter((entry) => externalScopeValue(entry.projectId) === projectId)
+        .map((entry) => ({ ...entry, projectId }));
+    }
+    writeJson(externalStorePath(target, input, true), {
       version: 1,
       entries: entries.map((entry, index) => ({ ...entry, order_index: Number(entry.order_index || index + 1) }))
     });
@@ -334,7 +442,7 @@ function createMemoryStore(options = {}) {
   }
 
   function resolveExternalSelector(target, selector, section = "", input = {}) {
-    const store = readExternalStore(target);
+    const store = readExternalStore(target, input);
     const activeEntries = store.entries.filter((entry) =>
       entry.status === "active" && (!section || entry.section === section) && externalEntryMatchesScope(target, entry, input)
     );
@@ -655,7 +763,7 @@ function createMemoryStore(options = {}) {
   function getFastMemory(input = {}) {
     const scope = requiredFastMemoryScope(input);
     if (!scope.ok) return { ok: false, error: scope.error, text: "", isEmpty: true, maxChars: scopedFastMemoryMaxChars };
-    const store = readExternalStore("fastmemory");
+    const store = readExternalStore("fastmemory", scope);
     const text = scopedFastMemoryText(store, scope);
     return {
       ok: true,
@@ -673,7 +781,7 @@ function createMemoryStore(options = {}) {
     if (!scope.ok) return { ok: false, error: scope.error, text: "", isEmpty: true, maxChars: scopedFastMemoryMaxChars };
     const validated = validateEditableText(input?.text, scopedFastMemoryMaxChars, "绘画经验", sanitizeFastMemoryText);
     if (!validated.ok) return { ok: false, error: validated.error, text: "", isEmpty: true, maxChars: scopedFastMemoryMaxChars };
-    const store = readExternalStore("fastmemory");
+    const store = readExternalStore("fastmemory", scope);
     const currentText = scopedFastMemoryText(store, scope);
     const currentUpdatedAt = scopedFastMemoryUpdatedAt(store, scope);
     if (Object.prototype.hasOwnProperty.call(input, "expectedUpdatedAt") && String(input.expectedUpdatedAt || "") !== currentUpdatedAt) {
@@ -705,14 +813,14 @@ function createMemoryStore(options = {}) {
       projectId: scope.projectId,
       conversationId: scope.conversationId
     });
-    writeExternalStore("fastmemory", store);
+    writeExternalStore("fastmemory", store, scope);
     return { ok: true, text: validated.text, isEmpty: false, maxChars: scopedFastMemoryMaxChars, updatedAt: now };
   }
 
   function resetFastMemory(input = {}) {
     const scope = requiredFastMemoryScope(input);
     if (!scope.ok) return { ok: false, error: scope.error, text: "", isEmpty: true, maxChars: scopedFastMemoryMaxChars };
-    const store = readExternalStore("fastmemory");
+    const store = readExternalStore("fastmemory", scope);
     const currentText = scopedFastMemoryText(store, scope);
     const currentUpdatedAt = scopedFastMemoryUpdatedAt(store, scope);
     if (Object.prototype.hasOwnProperty.call(input, "expectedUpdatedAt") && String(input.expectedUpdatedAt || "") !== currentUpdatedAt) {
@@ -731,37 +839,36 @@ function createMemoryStore(options = {}) {
       externalScopeValue(entry.projectId) === scope.projectId && externalScopeValue(entry.conversationId) === scope.conversationId
     ));
     const cleared = before - store.entries.length;
-    if (cleared > 0) writeExternalStore("fastmemory", store);
+    if (cleared > 0 || (resolveProjectRoot && projectFastMemoryPath(scope, false))) writeExternalStore("fastmemory", store, scope);
     return { ok: true, text: "", isEmpty: true, maxChars: scopedFastMemoryMaxChars, cleared, updatedAt: "" };
   }
 
   function clearConversationState(input = {}) {
-    ensureMemory();
     const scope = requiredFastMemoryScope(input);
     if (!scope.ok) return { ok: false, error: "清理会话需要 projectId 和 conversationId。", clearedFastMemory: 0, clearedSummary: false };
     const { projectId, conversationId } = scope;
-    const store = readExternalStore("fastmemory");
+    const store = readExternalStore("fastmemory", scope);
     const before = store.entries.length;
     store.entries = store.entries.filter((entry) => !(
       externalScopeValue(entry.projectId) === projectId && externalScopeValue(entry.conversationId) === conversationId
     ));
     const clearedFastMemory = before - store.entries.length;
-    if (clearedFastMemory > 0) writeExternalStore("fastmemory", store);
-    const summaryResult = db.prepare("DELETE FROM runtime_meta WHERE key = ?").run(conversationSummaryKey({ projectId, conversationId }));
-    const protocolResult = db.prepare("DELETE FROM runtime_meta WHERE key = ?").run(conversationProtocolKey({ projectId, conversationId }));
+    if (clearedFastMemory > 0 || (resolveProjectRoot && projectFastMemoryPath(scope, false))) writeExternalStore("fastmemory", store, scope);
+    const clearedSummary = clearProjectConversationValue(scope, "summaries");
+    const clearedProtocol = clearProjectConversationValue(scope, "protocols");
     return {
       ok: true,
       projectId,
       conversationId,
       clearedFastMemory,
-      clearedSummary: Number(summaryResult?.changes || 0) > 0,
-      clearedProtocol: Number(protocolResult?.changes || 0) > 0,
+      clearedSummary,
+      clearedProtocol,
       summary: "当前聊天上下文和绘画经验已清理。"
     };
   }
 
   function addExternalEntry(target, input = {}) {
-    const store = readExternalStore(target);
+    const store = readExternalStore(target, input);
     const now = new Date().toISOString();
     const section = String(input.section || (target === "memorycontext" ? "private" : "surface"));
     const prefix = target === "memorycontext" ? "mctx" : "fmem";
@@ -782,7 +889,7 @@ function createMemoryStore(options = {}) {
     };
     if (!entry.text.trim()) return { ok: false, target, summary: "缺少 text，未写入。" };
     store.entries.push(entry);
-    writeExternalStore(target, store);
+    writeExternalStore(target, store, input);
     return {
       ok: true,
       target,
@@ -826,7 +933,7 @@ function createMemoryStore(options = {}) {
             }
           : entry
       );
-      writeExternalStore(target, store);
+      writeExternalStore(target, store, input);
       return {
         ok: true,
         target,
@@ -855,7 +962,7 @@ function createMemoryStore(options = {}) {
     };
     store.entries = store.entries.map((entry) => selectedIds.has(entry.entry_id) ? { ...entry, status: "compacted", updated_at: now } : entry);
     store.entries.push(newEntry);
-    writeExternalStore(target, store);
+    writeExternalStore(target, store, input);
     return {
       ok: true,
       target,
@@ -898,7 +1005,7 @@ function createMemoryStore(options = {}) {
           }
         : entry
     );
-    writeExternalStore(target, store);
+    writeExternalStore(target, store, input);
     return {
       ok: true,
       target,
@@ -1272,7 +1379,7 @@ function createMemoryStore(options = {}) {
   function fastMemoryForPrompt(scope = {}, limits = {}) {
     const exactScope = requiredFastMemoryScope(scope);
     if (!exactScope.ok) return "暂无绘画经验。";
-    const store = readExternalStore("fastmemory");
+    const store = readExternalStore("fastmemory", exactScope);
     const entries = exactScopedFastMemoryEntries(store, exactScope);
     if (!entries.length) return "暂无绘画经验。";
     return selectFastMemoryPromptContext(entries, scope, limits).text || "暂无绘画经验。";
@@ -1300,7 +1407,7 @@ function createMemoryStore(options = {}) {
   }
 
   function compactStateForPayload(payload = {}) {
-    const state = runtimeMetaJson(conversationSummaryKey(payload), { summary: "", messageCount: 0, updatedAt: "" }) ||
+    const state = projectConversationValue(payload, "summaries", { summary: "", messageCount: 0, updatedAt: "" }) ||
       { summary: "", messageCount: 0, updatedAt: "" };
     return { ...state, summary: sanitizeModelVisibleToolText(state.summary) };
   }
@@ -1376,7 +1483,7 @@ function createMemoryStore(options = {}) {
   }
 
   function protocolStateForPayload(payload = {}) {
-    const state = runtimeMetaJson(conversationProtocolKey(payload), { version: 1, turns: [], updatedAt: "" }) ||
+    const state = projectConversationValue(payload, "protocols", { version: 1, turns: [], updatedAt: "" }) ||
       { version: 1, turns: [], updatedAt: "" };
     return {
       version: 1,
@@ -1414,7 +1521,7 @@ function createMemoryStore(options = {}) {
     const state = protocolStateForPayload(payload);
     const turns = [...state.turns, { createdAt: new Date().toISOString(), items: persistedItems }].slice(-maxTurns);
     while (turns.length > 1 && safeJson(turns).length > maxStoreChars) turns.shift();
-    writeRuntimeMetaJson(conversationProtocolKey(payload), { version: 1, turns, updatedAt: new Date().toISOString() });
+    writeProjectConversationValue(payload, "protocols", { version: 1, turns, updatedAt: new Date().toISOString() });
   }
 
   function replaceConversationProtocolItems(payload = {}, items = [], limits = {}) {
@@ -1422,7 +1529,7 @@ function createMemoryStore(options = {}) {
     const maxStoreChars = Math.max(8_000, Number(limits.storeChars || protocolHistoryStoreChars));
     while (persistedItems.length > 1 && safeJson(persistedItems).length > maxStoreChars) persistedItems.shift();
     const turns = persistedItems.length ? [{ createdAt: new Date().toISOString(), items: persistedItems }] : [];
-    writeRuntimeMetaJson(conversationProtocolKey(payload), { version: 1, turns, updatedAt: new Date().toISOString() });
+    writeProjectConversationValue(payload, "protocols", { version: 1, turns, updatedAt: new Date().toISOString() });
   }
 
   function dateMemoryBuffer() {
@@ -1502,6 +1609,7 @@ function createMemoryStore(options = {}) {
     saveFastMemory,
     saveMainPrompt,
     storeToolResult,
+    writeConversationSummary,
     writeRuntimeMetaJson
   };
 }

@@ -29,6 +29,7 @@ const glassThemeProviderSource = read("src", "glass-theme-provider.tsx");
 const scientificDialogSource = read("src", "scientific-figure-dialog.tsx");
 const scientificDialogStyleSource = read("src", "styles", "04h-scientific-figure-dialog.css");
 const preloadSource = read("preload.cjs");
+const projectIpcSource = read("desktop", "ipc", "project-ipc.cjs");
 const registry = JSON.parse(read("runtime", "glass-theme-presets.json"));
 
 const expectedThemes = [
@@ -90,6 +91,7 @@ assert.match(mainSource, /node\.scientificFigure \? "scientific-figure-node" : "
 assert.match(mainSource, /visibleTabs=\{settings\.visibleWorkspaceAssetRailTabs\}/, "The live asset rail must consume the persisted visibility preference");
 assert.match(mainSource, /保存为个人需求模板/, "Requirement context menus must expose a direct personal-template save action");
 assert.match(mainSource, /保存 Skill 到个人模板/, "Skill context menus must expose a direct personal-template save action");
+assert.match(mainSource, /canvasMenu\.kind === "canvas"[\s\S]{0,2400}setCanvasMenu\(null\);[\s\S]{0,160}openCurrentProjectFolder\(\);[\s\S]{0,180}打开当前项目文件夹/, "The blank canvas context menu must expose the real current-project-folder action");
 assert.match(settingsDrawerSource, /visibleAssetRailTabs=\{draftSettings\.visibleWorkspaceAssetRailTabs\}[\s\S]{0,650}update\("visibleWorkspaceAssetRailTabs", visibleWorkspaceAssetRailTabs\)/, "The Tools settings page must update asset rail visibility through the normal settings draft");
 assert.match(settingsDrawerSource, /shortcuts=\{draftSettings\.canvasToolShortcuts\}[\s\S]{0,520}update\("canvasToolShortcuts", canvasToolShortcuts\)/, "The Tools settings page must update shortcut overrides through the normal settings draft");
 for (const [id, label] of [["results", "成果"], ["layers", "图层"], ["requirements", "需求"], ["templates", "模板"], ["history", "历史"]]) {
@@ -115,6 +117,12 @@ assert.match(mainSource, /function changeWorkspaceViewMode[\s\S]{0,480}replaceSe
 assert.match(mainSource, /function continueWorkspaceImageNode[\s\S]{0,420}replaceSelectedNodeId\(node\.id\)[\s\S]{0,180}openNodeEditor\(node, 0\)/, "Focus continuation must select the result canonically and open its existing confirmation editor instead of dispatching generation immediately");
 assert.match(mainSource, /<LazyWorkspaceFocusStage[\s\S]{0,360}onContinueNode=\{continueWorkspaceImageNode\}/, "The Focus projection must bind its continue action to the confirmation editor");
 assert.match(mainSource, /<LazyWorkspaceFocusStage[\s\S]{0,220}selectedNodeIds=\{selectedNodeIds\}/, "The Focus projection must receive the canonical multi-selection");
+assert.match(mainSource, /async function startProjectDataMigration\(\)[\s\S]{0,900}previewProjectDataMigration[\s\S]{0,1200}openConfirmDialog\(\{[\s\S]{0,500}action: "migrate-project-data"/, "The File menu migration flow must preview legacy data before it can request confirmation");
+assert.match(mainSource, /async function confirmProjectDataMigration\(\)[\s\S]{0,700}migrateProjectData[\s\S]{0,900}previewToken: preview\.previewToken[\s\S]{0,220}candidateIds:[\s\S]{0,220}confirmed: true/, "Project migration must submit the confirmed preview token and candidate ids through preload");
+assert.match(projectIpcSource, /ipcMain\.handle\("naimage:project:migrate"[\s\S]{0,900}dialog\.showOpenDialog\(\{[\s\S]{0,240}properties: \["openDirectory", "createDirectory"\][\s\S]{0,500}targetParent: target\.filePaths\[0\]/, "Electron Main must own migration destination selection instead of accepting a Renderer path");
+assert.match(mainSource, /async function confirmCleanupMigratedProjectData\(migrationId: string\)[\s\S]{0,500}cleanupMigratedProjectData[\s\S]{0,500}confirmedCleanup: true/, "Legacy source cleanup must use a separate explicit confirmation path");
+assert.match(mainSource, /async function exportImageCollectionsFromUi\(collectionIds: readonly string\[\]\)[\s\S]{0,900}previewImageCollectionsForExport\([\s\S]{0,500}setImageCollectionExportDialog/, "GUI image-collection export must open from a Main-backed preview instead of exporting immediately");
+assert.match(mainSource, /async function confirmImageCollectionExport\(\)[\s\S]{0,700}previewToken: draft\.preview\.previewToken[\s\S]{0,180}confirmed: true[\s\S]{0,900}IMAGE_COLLECTION_EXPORT_PREVIEW_STALE[\s\S]{0,500}previewImageCollectionsForExport/, "A stale image-collection preview must be refreshed and confirmed again before export");
 assert.match(mainSource, /const \[availableImageModels, setAvailableImageModels\][\s\S]{0,850}selectedImageModelsFromSettings\(settings\)[\s\S]{0,850}settings\.imageModelBindings/, "Composer model availability must retain selected and credential-bound image models independently of the active checkbox pool");
 assert.match(mainSource, /const composerImageModels = useMemo\([\s\S]{0,320}\.\.\.availableImageModels[\s\S]{0,320}\.\.\.selectedComposerImageModels/, "Composer chips must be driven by the persistent available-model catalog, not only the current selection");
 assert.match(mainSource, /function openWorkspaceLayerNode[\s\S]{0,260}node\?\.layerGroup[\s\S]{0,180}openLayerGroupViewer\(node\.id\)[\s\S]{0,220}node\?\.layerComposition[\s\S]{0,120}openNodeEditor\(node\)/, "The layer rail must open modern groups in the viewer and legacy compositions in their supported editor");
@@ -143,6 +151,7 @@ assert.match(agentPanelSource, /\.project-agent-status span\s*\{[\s\S]{0,240}fon
 assert.match(agentPanelSource, /\.project-agent-model-row\s*\{[\s\S]{0,300}font-size:\s*13px;/, "Agent model choices must use a readable desktop size");
 assert.match(glassSurfaceSource, /:root\.glass-theme-active \.workspace-search-popover\.workspace-search-popover,[\s\S]{0,320}background-color:\s*var\(--glass-menu-surface\);[\s\S]{0,160}backdrop-filter:\s*none;/, "Project search must match the generic glass surface specificity and paint a dedicated near-opaque menu surface without background bleed");
 assert.match(glassSurfaceSource, /\.workspace-search-popover input\s*\{[\s\S]{0,260}font-size:\s*12px;[\s\S]{0,5000}\.workspace-search-result strong\s*\{[\s\S]{0,120}font-size:\s*11px;[\s\S]{0,240}font-size:\s*10px;/, "Project search input, titles and details must use the raised readable type scale");
+assert.match(glassSurfaceSource, /@media \(max-width: 1000px\)[\s\S]{0,700}\.project-actions > \.project-menu:not\(\.file-command-menu\)[\s\S]{0,180}flex:\s*1 1 auto;[\s\S]{0,180}overflow:\s*hidden;[\s\S]{0,320}max-width:\s*100%;/, "The project name control must shrink without internal overflow at the supported minimum window width");
 assert.match(mainSource, /function openImageViewer[\s\S]{0,360}asset\.status !== "pending" && entry\.asset\.status !== "error" && imageAssetSrc\(entry\.asset\)/, "The image viewer must reject pending and failed assets before rendering its final list");
 assert.match(imageViewerSource, /aria-label="最终图片列表"[\s\S]{0,180}data-final-asset-count=\{viewer\.assets\.length\}[\s\S]{0,420}data-final-asset="true"/, "The image viewer must expose an explicit final-only thumbnail list");
 assert.match(dialogViewerSource, /\.image-viewer-strip\s*\{[\s\S]{0,260}display:\s*flex;[\s\S]{0,120}flex-wrap:\s*nowrap;[\s\S]{0,180}overflow-x:\s*auto;[\s\S]{0,80}overflow-y:\s*hidden;/, "Viewer thumbnails must stay in one horizontally scrollable row");
@@ -226,4 +235,4 @@ assert.match(scientificDialogSource, /<DialogShell[\s\S]{0,160}surface="scientif
 assert.match(scientificDialogStyleSource, /\.scientific-hero,[\s\S]{0,120}\.scientific-glass-section[\s\S]{0,420}var\(--glass-surface-raised\)/, "Scientific sections must use the shared translucent Glass tokens instead of an opaque parallel theme");
 assert.match(protectionSource, /mix-blend-mode:\s*normal\s*!important;/, "Rendered images must keep normal color blending");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 142 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 149 })}\n`);

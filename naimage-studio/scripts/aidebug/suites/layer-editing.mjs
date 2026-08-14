@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 export function createLayerEditingSuiteProbes({
   aidebugConfigDir,
+  aidebugProjectDir,
   captureState,
   evaluate,
   fileSha256,
@@ -227,7 +228,7 @@ async function captureLayerStackSuiteProbe(client, targetId) {
       let imageOutputCount = 0;
       let latestOutputAt = "";
       try {
-        const imagegenDir = join(aidebugConfigDir, "projects", "default", "output", "imagegen");
+        const imagegenDir = join(aidebugProjectDir, "output", "imagegen");
         const outputFiles = existsSync(imagegenDir)
           ? readdirSync(imagegenDir).filter((name) => name.toLowerCase().endsWith(".png"))
           : [];
@@ -448,7 +449,7 @@ async function captureLayerStackSuiteProbe(client, targetId) {
     exportProof = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
   await delay(760);
-  const sessionPath = join(aidebugConfigDir, "projects", "default", "session.json");
+  const sessionPath = join(aidebugProjectDir, "session.json");
   let persistence = { ok: false, path: sessionPath, error: "session missing" };
   try {
     if (existsSync(sessionPath)) {

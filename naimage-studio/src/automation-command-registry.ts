@@ -27,6 +27,9 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "canvas.import-video",
   "canvas.generate-video",
   "canvas.import-skill",
+  "canvas.rename-image-collections",
+  "canvas.replace-image-collection-item",
+  "canvas.export-image-collections",
   "canvas.export-image",
   "requirement-library.list",
   "requirement-library.save",
@@ -117,6 +120,9 @@ export const AUTOMATION_COMMAND_NAMES = [
   "canvas.import-video",
   "canvas.generate-video",
   "canvas.import-skill",
+  "canvas.rename-image-collections",
+  "canvas.replace-image-collection-item",
+  "canvas.export-image-collections",
   "canvas.export-image",
   "requirement-library.list",
   "requirement-library.save",
@@ -871,6 +877,164 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
     }
   },
   "canvas.import-skill": {},
+  "canvas.rename-image-collections": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "requests",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": [
+              "collectionId",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "collectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              }
+            }
+          }
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "expectedCanvasRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "canvas.replace-image-collection-item": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "requests",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": [
+              "sourceCollectionId",
+              "replacementNodeId",
+              "replacementAssetIndex",
+              "defectReason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "sourceCollectionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "itemId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "requestIndex": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              },
+              "replacementNodeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "replacementAssetIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 199
+              },
+              "defectReason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320
+              }
+            }
+          }
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "expectedCanvasRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "canvas.export-image-collections": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "collectionIds",
+        "expectedProjectId",
+        "format",
+        "confirmed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "collectionIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp",
+            "avif",
+            "tiff"
+          ],
+          "default": "png"
+        },
+        "confirmed": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
   "canvas.export-image": {
     "parameters": {
       "type": "object",
@@ -2973,6 +3137,9 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "canvas.import-video": "renderer",
   "canvas.generate-video": "renderer",
   "canvas.import-skill": "renderer",
+  "canvas.rename-image-collections": "renderer",
+  "canvas.replace-image-collection-item": "renderer",
+  "canvas.export-image-collections": "renderer",
   "canvas.export-image": "renderer",
   "requirement-library.list": "renderer",
   "requirement-library.save": "renderer",
@@ -3064,6 +3231,15 @@ export const AUTOMATION_COMMAND_ENUMS = {
       "480p",
       "720p",
       "1080p"
+    ]
+  },
+  "canvas.export-image-collections": {
+    "format": [
+      "png",
+      "jpeg",
+      "webp",
+      "avif",
+      "tiff"
     ]
   },
   "canvas.export-image": {

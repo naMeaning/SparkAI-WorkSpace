@@ -105,6 +105,115 @@ const concurrentAssets = mergeProjectSessions(
 ).session;
 assert.deepEqual(concurrentAssets.nodes[0].assets.map((asset) => asset.assetId), ["one", "two"]);
 
+const generatedPath = "output/imagegen/agent-run-1-01.png";
+const generatedAsset = (occurrenceId, extra = {}) => ({
+  assetId: "asset-generated",
+  occurrenceId,
+  type: "file",
+  path: `C:/project/${generatedPath}`,
+  relativePath: generatedPath,
+  runId: "agent-run-1",
+  ...extra
+});
+const repeatedGenerated = mergeProjectSessions(
+  { ...existing, nodes: [node("A", "shared:generated", { assets: [generatedAsset(`occ-${"1".repeat(32)}`)], outputs: 1, imageState: "done" })] },
+  { ...incoming, nodes: [node("A", "shared:generated", { assets: [generatedAsset(`occ-${"2".repeat(32)}`, { width: 1024 })], outputs: 1, imageState: "done" })] },
+  { nextRevision: 8 }
+).session.nodes[0];
+assert.equal(repeatedGenerated.assets.length, 1, "The same generated run/file must remain idempotent across renderer occurrences");
+assert.equal(repeatedGenerated.assets[0].width, 1024);
+assert.equal(repeatedGenerated.assets[0].occurrenceId, `occ-${"1".repeat(32)}`, "The first persisted occurrence must remain the canonical identity");
+const replayedGenerated = mergeProjectSessions(
+  { ...existing, nodes: [{ ...repeatedGenerated, outputs: 42 }] },
+  { ...incoming, nodes: [node("A", "shared:generated", { assets: [generatedAsset(`occ-${"7".repeat(32)}`)], outputs: 1, imageState: "done" })] },
+  { nextRevision: 9 }
+).session.nodes[0];
+assert.equal(replayedGenerated.assets.length, 1);
+assert.equal(replayedGenerated.outputs, 1, "A stale inflated output count must converge to the actual asset count");
+assert.equal(replayedGenerated.assets[0].occurrenceId, `occ-${"1".repeat(32)}`);
+
+const repeatedImports = mergeProjectSessions(
+  { ...existing, nodes: [node("A", "shared:imports", { assets: [{ assetId: "imported", occurrenceId: `occ-${"3".repeat(32)}`, type: "file", path: "C:/project/assets/shared.png", importBatchId: "batch-a", importRootId: "root-a", sourceRelativePath: "shared.png", runId: "preserved-old-run" }] })] },
+  { ...incoming, nodes: [node("A", "shared:imports", { assets: [{ assetId: "imported", occurrenceId: `occ-${"4".repeat(32)}`, type: "file", path: "C:/project/assets/shared.png", importBatchId: "batch-b", importRootId: "root-a", sourceRelativePath: "shared.png", runId: "preserved-old-run" }] })] },
+  { nextRevision: 8 }
+).session.nodes[0];
+assert.equal(repeatedImports.assets.length, 2, "Two intentional import occurrences of the same file must remain distinct");
+const legacyRepeatedImports = mergeProjectSessions(
+  { ...existing, nodes: [node("A", "shared:legacy-imports", { assets: [{ assetId: "legacy-imported", occurrenceId: `occ-${"8".repeat(32)}`, type: "file", path: "C:/project/assets/legacy.png", runId: "import-abc123" }] })] },
+  { ...incoming, nodes: [node("A", "shared:legacy-imports", { assets: [{ assetId: "legacy-imported", occurrenceId: `occ-${"9".repeat(32)}`, type: "file", path: "C:/project/assets/legacy.png", runId: "import-abc123" }] })] },
+  { nextRevision: 8 }
+).session.nodes[0];
+assert.equal(legacyRepeatedImports.assets.length, 2, "Legacy import-* runs must retain separate occurrences without full batch metadata");
+
+const historicalDuplicates = Array.from({ length: 42 }, (_item, index) => generatedAsset(`occ-${String(index + 10).padStart(32, "0")}`, { index: index + 1 }));
+const normalizedHistoricalDuplicates = sanitizeSession({
+  ...existing,
+  nodes: [node("C", "shared:historical-generated", {
+    assets: historicalDuplicates,
+    outputs: 42,
+    imageState: "done",
+    imageProgress: { total: 42, completed: 42, failed: 0, failedSlots: [] },
+    imageCollection: {
+      id: "legacy-C",
+      kind: "batch",
+      generationMode: "parallel",
+      items: historicalDuplicates.map((asset, index) => ({ id: `item-${index + 1}`, requestIndex: index + 1, assetIndex: index + 1, assetId: asset.assetId, occurrenceId: asset.occurrenceId, prompt: "prompt", status: "done" }))
+    },
+    imageContainerSpec: { version: 1, kind: "batch-result", memberNodeIds: [], childContainerNodeIds: [], memberBindings: historicalDuplicates.map((asset, index) => ({ bindingId: `binding-C-${index}`, assetId: asset.assetId, occurrenceId: asset.occurrenceId, nodeId: "C", containerNodeId: "C", assetIndex: index })), layoutOrigin: "generation", autoFit: true }
+  })]
+}).nodes[0];
+assert.equal(normalizedHistoricalDuplicates.assets.length, 1, "A damaged historical session must collapse repeated generated files on load");
+assert.equal(normalizedHistoricalDuplicates.outputs, 1);
+assert.equal(normalizedHistoricalDuplicates.imageCollection.items.length, 1);
+assert.equal(normalizedHistoricalDuplicates.imageContainerSpec.memberBindings.length, 1);
+assert.equal(normalizedHistoricalDuplicates.imageProgress.completed, 1);
+assert.equal(normalizedHistoricalDuplicates.imageProgress.total, 1);
+assert.deepEqual(
+  sanitizeSession({ ...existing, nodes: [normalizedHistoricalDuplicates] }).nodes[0],
+  normalizedHistoricalDuplicates,
+  "Historical duplicate repair must itself be idempotent"
+);
+
+const mixedCollection = sanitizeSession({
+  ...existing,
+  nodes: [node("D", "shared:mixed-generated", {
+    assets: [generatedAsset(`occ-${"5".repeat(32)}`), generatedAsset(`occ-${"6".repeat(32)}`, { index: 2 })],
+    outputs: 2,
+    imageState: "done",
+    imageProgress: { total: 2, completed: 1, failed: 1, failedSlots: [2] },
+    imageCollection: { id: "collection-D", kind: "batch", generationMode: "parallel", items: [
+      { id: "item-1", requestIndex: 1, assetIndex: 1, assetId: "asset-generated", prompt: "done", status: "done" },
+      { id: "item-2", requestIndex: 2, prompt: "failed", status: "error", error: "failed" }
+    ] }
+  })]
+}).nodes[0];
+assert.equal(mixedCollection.assets.length, 1);
+assert.deepEqual(mixedCollection.imageCollection.items.map((item) => item.status), ["done", "error"]);
+assert.deepEqual(
+  {
+    total: mixedCollection.imageProgress.total,
+    completed: mixedCollection.imageProgress.completed,
+    failed: mixedCollection.imageProgress.failed,
+    failedSlots: mixedCollection.imageProgress.failedSlots,
+    message: mixedCollection.imageProgress.message
+  },
+  { total: 2, completed: 1, failed: 1, failedSlots: [2], message: "已完成 1/2 张，失败 1 张" }
+);
+const noCollectionFailure = sanitizeSession({
+  ...existing,
+  nodes: [node("E", "shared:no-collection-failure", {
+    assets: [generatedAsset(`occ-${"a".repeat(32)}`), generatedAsset(`occ-${"b".repeat(32)}`, { index: 2 })],
+    outputs: 2,
+    imageState: "done",
+    imageParams: { count: 2 },
+    imageProgress: { total: 2, completed: 1, failed: 1, failedSlots: [2], activeIndex: 2 }
+  })]
+}).nodes[0];
+assert.equal(noCollectionFailure.assets.length, 1);
+assert.deepEqual(noCollectionFailure.imageProgress.failedSlots, [2]);
+assert.equal(noCollectionFailure.imageProgress.total, 2);
+assert.equal(noCollectionFailure.imageProgress.activeIndex, undefined);
+
 const editedExisting = {
   ...existing,
   schemaVersion: 4,
@@ -679,4 +788,4 @@ const ordinaryPendingWithGoalMetadata = invalidGoalPending((pending) => {
 assert.ok(ordinaryPendingWithGoalMetadata);
 assert.equal(ordinaryPendingWithGoalMetadata.taskScope.goal, undefined, "Non-Goal pending tasks must not retain Goal-only metadata");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 76 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 87 })}\n`);

@@ -21,6 +21,8 @@ const userDataDir = join(runDir, "user-data");
 const debugDir = join(runDir, "runtime");
 const electronLog = join(runDir, "electron.log");
 const reportPath = join(runDir, "report.json");
+const smokeProjectId = "packaged-smoke-project";
+const smokeProjectDir = join(runDir, "project");
 const remotePort = await allocateDebugPort();
 
 if (!existsSync(executable)) throw new Error(`Packaged executable not found: ${executable}`);
@@ -64,6 +66,20 @@ const hygiene = packagedRuntimeHygiene(executable);
 mkdirSync(configDir, { recursive: true });
 mkdirSync(userDataDir, { recursive: true });
 mkdirSync(debugDir, { recursive: true });
+mkdirSync(smokeProjectDir, { recursive: true });
+const smokeProjectCreatedAt = new Date().toISOString();
+writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
+  activeProjectId: smokeProjectId,
+  projects: [{
+    id: smokeProjectId,
+    name: "Packaged Smoke",
+    path: smokeProjectDir,
+    sessionPath: join(smokeProjectDir, "session.json"),
+    createdAt: smokeProjectCreatedAt,
+    updatedAt: smokeProjectCreatedAt,
+    external: true
+  }]
+}, null, 2)}\n`, "utf8");
 if (sourceSettings) {
   if (!existsSync(sourceSettings)) throw new Error(`Packaged smoke settings not found: ${sourceSettings}`);
   copyFileSync(sourceSettings, join(configDir, "app-settings.json"));
@@ -197,11 +213,12 @@ try {
     const settings = await window.naimageConfig.loadSettings();
     const projects = await window.naimageConfig.listProjects();
     const smoke = await window.naimageAgent.smoke();
+    const projectId = ${JSON.stringify(smokeProjectId)};
     const saved = await window.naimageConfig.saveOutputImage({
       dataUrl: ${JSON.stringify(sourceDataUrl)},
       stem: "packaged-smoke",
       runId: "packaged-smoke-${stamp}",
-      projectId: "default",
+      projectId,
       bucket: "imagegen"
     });
     const readBack = saved?.asset?.path
@@ -209,7 +226,7 @@ try {
       : { ok: false, error: "saved asset path missing" };
     const imported = await window.naimageConfig.importLocalImage({
       path: ${JSON.stringify(fixturePath)},
-      projectId: "default"
+      projectId
     });
     const semantic = await window.naimageConfig.refineSemanticLayers({
       width: 64,
@@ -228,7 +245,7 @@ try {
           asset: saved.asset,
           assetIndex: 0,
           nodeTitle: "Packaged Smoke",
-          projectId: "default",
+          projectId,
           suggestedName: "packaged-smoke.psd",
           aidebugName: "packaged-smoke"
         })

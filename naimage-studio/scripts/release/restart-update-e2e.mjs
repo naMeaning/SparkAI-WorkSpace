@@ -40,6 +40,8 @@ const runtimeDir = join(runDir, "runtime");
 const electronLog = join(runtimeDir, "electron.log");
 const reportPath = join(runDir, "report.json");
 const settingsPath = join(configDir, "app-settings.json");
+const updateProjectId = "restart-update-e2e-project";
+const updateProjectDir = join(runDir, "project");
 const helperLog = join(configDir, "updates", "update-helper.log");
 const helperBootstrapLog = join(configDir, "updates", "update-helper-bootstrap.log");
 const targetAsar = join(dirname(executable), "resources", "app.asar");
@@ -52,7 +54,21 @@ for (const filePath of [executable, sourceSettings, expectedAsar, targetAsar]) {
 mkdirSync(configDir, { recursive: true });
 mkdirSync(userDataDir, { recursive: true });
 mkdirSync(runtimeDir, { recursive: true });
+mkdirSync(updateProjectDir, { recursive: true });
 copyFileSync(sourceSettings, settingsPath);
+const updateProjectCreatedAt = new Date().toISOString();
+writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
+  activeProjectId: updateProjectId,
+  projects: [{
+    id: updateProjectId,
+    name: "Restart Update E2E",
+    path: updateProjectDir,
+    sessionPath: join(updateProjectDir, "session.json"),
+    createdAt: updateProjectCreatedAt,
+    updatedAt: updateProjectCreatedAt,
+    external: true
+  }]
+}, null, 2)}\n`, "utf8");
 
 function sha256(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
@@ -206,7 +222,8 @@ try {
     }
     const marker = ${JSON.stringify(marker)};
     const loaded = await window.naimageConfig.loadSession();
-    const projectId = loaded?.activeProjectId || loaded?.project?.id || "default";
+    const projectId = String(loaded?.activeProjectId || loaded?.project?.id || "");
+    if (projectId !== ${JSON.stringify(updateProjectId)}) throw new Error("The isolated update fixture project is not active.");
     const conversationId = "conversation-update-e2e";
     const session = loaded?.session || {};
     const saved = await window.naimageConfig.saveSession({

@@ -9,6 +9,7 @@ const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-
 const { registerCommerceExportIpc } = require("../desktop/ipc/commerce-export-ipc.cjs");
 const { registerCommerceTemplateIpc } = require("../desktop/ipc/commerce-template-ipc.cjs");
 const { registerGlassBackgroundIpc, registerRequirementLibraryIpc, registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
+const { registerImageCollectionIpc } = require("../desktop/ipc/image-collection-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
 
@@ -99,6 +100,9 @@ const expectedChannels = [
   "naimage:debug:window-bounds",
   "naimage:debug:capture-gui",
   "naimage:project:list",
+  "naimage:project:migration-preview",
+  "naimage:project:migrate",
+  "naimage:project:migration-cleanup",
   "naimage:project:create",
   "naimage:project:create-folder",
   "naimage:project:switch",
@@ -112,6 +116,9 @@ const expectedChannels = [
   "naimage:project:open-current-folder",
   "naimage:project:delete",
   "naimage:project:delete-folder",
+  "naimage:image-collection:export-preview",
+  "naimage:image-collection:export",
+  "naimage:image-collection:open-folder",
   "naimage:asset:pick-local-images",
   "naimage:asset:pick-local-videos",
   "naimage:asset:pick-reference-images",
@@ -552,6 +559,93 @@ async function assertCommerceExportIpcBoundary() {
   assert.equal(calls.at(-1).payload.destinationParent, "D:/picked-commerce-export", "Renderer destination input must be replaced by the native picker result");
 }
 
+async function assertImageCollectionIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  const opened = [];
+  registerImageCollectionIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    imageCollectionExportService: {
+      async previewCollections(payload) {
+        calls.push({ command: "preview", payload });
+        return { ok: true, projectId: payload.expectedProjectId, format: payload.format, previewToken: "preview-token", collectionCount: payload.collectionIds.length };
+      },
+      async exportCollections(payload) {
+        calls.push({ command: "export", payload });
+        if (payload.confirmed !== true) {
+          const error = new Error("confirmation required");
+          error.code = "IMAGE_COLLECTION_EXPORT_CONFIRMATION_REQUIRED";
+          throw error;
+        }
+        return { ok: true, projectId: payload.expectedProjectId, exported: payload.collectionIds.map((collectionId) => ({ collectionId })) };
+      },
+      async resolveExportedCollectionFolder(payload) {
+        calls.push({ command: "resolve", payload });
+        if (payload.collectionId === "missing") {
+          const error = new Error("not exported");
+          error.code = "IMAGE_COLLECTION_NOT_EXPORTED";
+          throw error;
+        }
+        return { projectId: payload.expectedProjectId, collectionId: payload.collectionId, directoryName: "组 A", folderPath: "D:/managed/project/exports/image-groups/组 A" };
+      }
+    },
+    shell: { openPath: async (folderPath) => { opened.push(folderPath); return ""; } }
+  });
+  assert.deepEqual([...handlers.keys()], ["naimage:image-collection:export-preview", "naimage:image-collection:export", "naimage:image-collection:open-folder"]);
+  const preview = await handlers.get("naimage:image-collection:export-preview")({}, {
+    expectedProjectId: "project-a",
+    collectionIds: ["collection-a", "collection-b"],
+    format: "webp",
+    destinationPath: "C:/renderer-path-must-be-ignored"
+  });
+  assert.equal(preview.previewToken, "preview-token");
+  assert.deepEqual(calls[0].payload, {
+    expectedProjectId: "project-a",
+    collectionIds: ["collection-a", "collection-b"],
+    format: "webp"
+  });
+  const unconfirmed = await handlers.get("naimage:image-collection:export")({}, {
+    expectedProjectId: "project-a",
+    collectionIds: ["collection-a"],
+    format: "png",
+    previewToken: "preview-token",
+    confirmed: false,
+    destinationPath: "C:/renderer-path-must-be-ignored"
+  });
+  assert.equal(unconfirmed.errorCode, "IMAGE_COLLECTION_EXPORT_CONFIRMATION_REQUIRED");
+  const exported = await handlers.get("naimage:image-collection:export")({}, {
+    expectedProjectId: "project-a",
+    collectionIds: ["collection-a", "collection-b"],
+    format: "avif",
+    previewToken: "preview-token",
+    confirmed: true,
+    destinationPath: "C:/renderer-path-must-be-ignored"
+  });
+  assert.equal(exported.exported.length, 2);
+  assert.deepEqual(calls[2].payload, {
+    expectedProjectId: "project-a",
+    collectionIds: ["collection-a", "collection-b"],
+    format: "avif",
+    previewToken: "preview-token",
+    confirmed: true
+  });
+  const missing = await handlers.get("naimage:image-collection:open-folder")({}, {
+    expectedProjectId: "project-a",
+    collectionId: "missing",
+    path: "C:/renderer-path-must-be-ignored"
+  });
+  assert.equal(missing.errorCode, "IMAGE_COLLECTION_NOT_EXPORTED");
+  assert.equal(opened.length, 0);
+  const folder = await handlers.get("naimage:image-collection:open-folder")({}, {
+    expectedProjectId: "project-a",
+    collectionId: "collection-a",
+    path: "C:/renderer-path-must-be-ignored"
+  });
+  assert.equal(folder.ok, true);
+  assert.deepEqual(calls.at(-1).payload, { expectedProjectId: "project-a", collectionId: "collection-a" });
+  assert.deepEqual(opened, ["D:/managed/project/exports/image-groups/组 A"]);
+}
+
 async function assertBestEffortRemoteLogout() {
   const handlers = new Map();
   let clearCalls = 0;
@@ -621,6 +715,8 @@ async function assertInvalidGoalFailsBeforeRunAdmission() {
     {
       name: "image_gen",
       runId: "invalid-legacy-goal",
+      projectId: "fixture-project",
+      conversationId: "fixture-conversation",
       taskScope: {
         origin: "goal",
         goal: {
@@ -636,6 +732,14 @@ async function assertInvalidGoalFailsBeforeRunAdmission() {
   assert.equal(response.envelope?.ok, false);
   assert.equal(beginCalls, 0, "An invalid legacy Goal must be rejected before run admission");
   assert.equal(runToolCalls, 0, "An invalid legacy Goal must cause zero runtime/provider dispatch");
+
+  const missingProject = await handlers.get("naimage:agent:run-tool")(
+    { sender: { id: 77, once: () => {}, isDestroyed: () => false } },
+    { name: "image_gen", runId: "missing-project", input: { prompt: "must not run" } }
+  );
+  assert.equal(missingProject.envelope?.errorCode, "PROJECT_REQUIRED");
+  assert.equal(beginCalls, 0, "A missing project must be rejected before run admission");
+  assert.equal(runToolCalls, 0, "A missing project must cause zero runtime/provider dispatch");
 }
 
 async function assertSettingsSnapshotPayloads() {
@@ -710,8 +814,8 @@ async function main() {
     videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 135, "The registration contract must contain exactly 135 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 135, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 141, "The registration contract must contain exactly 141 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 141, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -725,13 +829,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 132, "preload must expose exactly 132 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 132, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 138, "preload must expose exactly 138 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 138, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 132, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 138, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -748,6 +852,7 @@ async function main() {
   await assertCommerceTemplateIpcBoundary();
   await assertCommerceCatalogIpcBoundary();
   await assertCommerceExportIpcBoundary();
+  await assertImageCollectionIpcBoundary();
   await assertBestEffortRemoteLogout();
   await assertSettingsSnapshotPayloads();
   await assertInvalidGoalFailsBeforeRunAdmission();

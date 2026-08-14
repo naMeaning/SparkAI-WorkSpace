@@ -38,12 +38,14 @@ const {
   sessionHasContent
 } = require("./desktop/project-session-normalizer.cjs");
 const { createProjectStore } = require("./desktop/project-store.cjs");
+const { createProjectDataMigrationService } = require("./desktop/project-data-migration.cjs");
 const {
   createProjectCommerceCatalogService,
   sanitizeCommerceCatalogDocument
 } = require("./desktop/project-commerce-catalog.cjs");
 const { createProjectCommerceExportService } = require("./desktop/project-commerce-export.cjs");
 const { createProjectSocialExportService } = require("./desktop/project-social-export.cjs");
+const { createImageCollectionExportService } = require("./desktop/image-collection-export-service.cjs");
 const { createScientificRunnerService } = require("./desktop/scientific-runner-service.cjs");
 const { createRequirementLibraryService } = require("./desktop/requirement-library.cjs");
 const { createCommerceTemplateLibraryService } = require("./desktop/commerce-template-library.cjs");
@@ -90,6 +92,7 @@ const {
   cachedModelSettings,
   createModelAccessProfile,
   createModelCacheKey,
+  modelBindingCacheFingerprint,
   markModelAccessProfilesVerified,
   mergeModelCapabilities,
   mergeModelAccessProfiles,
@@ -423,6 +426,7 @@ const defaultSettings = {
   agentApiKey: "",
   agentModel: "gpt-5.6-terra",
   agentModelPool: ["gpt-5.6-terra"],
+  agentModelBindings: [],
   compactModel: "",
   contextStrategy: "auto",
   contextWindowTokens: 272_000,
@@ -637,7 +641,7 @@ function uniqueImageModels(models = []) {
     .filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
 }
 
-function normalizeImageModelBindings(value) {
+function normalizeModelConnectionBindings(value) {
   if (!Array.isArray(value)) return [];
   const bindings = [];
   const bindingByModel = new Map();
@@ -672,6 +676,14 @@ function normalizeImageModelBindings(value) {
   return bindings;
 }
 
+function normalizeAgentModelBindings(value) {
+  return normalizeModelConnectionBindings(value);
+}
+
+function normalizeImageModelBindings(value) {
+  return normalizeModelConnectionBindings(value);
+}
+
 const defaultSession = {
   schemaVersion: 5,
   workspaceDomain: "general",
@@ -690,7 +702,6 @@ function ensureRuntimeFiles() {
   mkdirSync(agentWorkspaceRoot, { recursive: true });
   mkdirSync(debugDir, { recursive: true });
   mkdirSync(path.dirname(electronLog), { recursive: true });
-  mkdirSync(projectsDir, { recursive: true });
   mkdirSync(referencesDir, { recursive: true });
   desktopUpdater.ensureRuntimeDirectories();
   if (!existsSync(settingsPath)) {
@@ -701,9 +712,6 @@ function ensureRuntimeFiles() {
     } catch (error) {
       log(`settings secret migration deferred: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }
-  if (!existsSync(sessionPath)) {
-    writeJson(sessionPath, defaultSession);
   }
   if (!existsSync(projectListPath)) {
     writeJson(projectListPath, defaultProjectList());
@@ -748,6 +756,10 @@ function migrateSettings(value) {
     ? defaultSettings.updateBaseUrl
     : normalizeServerUrl(next.updateBaseUrl, defaultSettings.updateBaseUrl);
   next.networkProxyUrl = normalizeStoredServerUrl(next.networkProxyUrl).slice(0, 2_048);
+  next.agentModelPool = uniqueImageModels(Array.isArray(source.agentModelPool) ? source.agentModelPool : next.agentModelPool);
+  if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
+  if (next.agentModel) next.agentModelPool = uniqueImageModels([next.agentModel, ...next.agentModelPool]);
+  next.agentModelBindings = normalizeAgentModelBindings(source.agentModelBindings ?? next.agentModelBindings);
   next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
@@ -1260,6 +1272,17 @@ const {
   writeProjectList,
   writeProjectManifest
 } = projectStore;
+const projectDataMigrationService = createProjectDataMigrationService({
+  configDir,
+  projectsDir,
+  sessionPath,
+  installRoot: projectRoot,
+  projectMetaDirName,
+  readProjectList,
+  writeProjectList,
+  sessionHasContent,
+  log
+});
 projectAssetRepository = createProjectAssetRepository({
   assetPathFromUrl: decodeLocalAssetUrl,
   assetUrlFor,
@@ -1302,6 +1325,13 @@ const commerceExportService = createProjectCommerceExportService({
   resolveProjectRelativePath
 });
 const socialExportService = createProjectSocialExportService({
+  getProjectById,
+  projectSessionFromDisk,
+  readProjectList,
+  resolveProjectRelativePath
+});
+const imageCollectionExportService = createImageCollectionExportService({
+  controlledProjectAssetFile,
   getProjectById,
   projectSessionFromDisk,
   readProjectList,
@@ -2370,6 +2400,11 @@ function getAgentRuntime() {
     agentRuntime = createAgentRuntime({
       projectRoot: agentWorkspaceRoot,
       configDir,
+      projectMetaDirName,
+      resolveProjectRoot(projectId) {
+        const project = getProjectById(String(projectId || "").trim(), readProjectList());
+        return project?.path || "";
+      },
       goalProbeAdmission,
       imageRoots: [referencesDir],
       includeProjectRootImageRoot: false,
@@ -2428,7 +2463,12 @@ function emitAgentProgress(sender, runId, payload = {}, scope = {}) {
 }
 
 async function listAgentModels(provider, incomingSettings = {}) {
-  const settings = migrateSettings({ ...currentAgentSettings(), ...(incomingSettings || {}) });
+  const currentSettings = currentAgentSettings();
+  const restoredSettings = settingsSecretStore.restorePlaceholders({
+    ...currentSettings,
+    ...(incomingSettings || {})
+  }, currentSettings);
+  const settings = migrateSettings(restoredSettings);
   const target = provider === "image" ? "image" : provider === "video" ? "video" : "agent";
   const serverSettings = await newApiModelSettings(settings);
   const models = uniqueImageModels(target === "image"
@@ -2778,7 +2818,10 @@ function tokenItemsFromNewApiPayload(payload) {
 }
 
 function modelCacheKey(settings) {
-  let credentialIdentity = isCustomApiMode(settings) ? "custom-api" : settings.serverUserId;
+  const bindingFingerprint = modelBindingCacheFingerprint(settings);
+  let credentialIdentity = isCustomApiMode(settings)
+    ? `custom-api:${bindingFingerprint}`
+    : `${settings.serverUserId || "anonymous"}:${bindingFingerprint}`;
   if (isCustomApiMode(settings)) {
     const fingerprints = [];
     for (const provider of ["agent", "image"]) {
@@ -2791,7 +2834,7 @@ function modelCacheKey(settings) {
         fingerprints.push(`${provider}:unavailable`);
       }
     }
-    credentialIdentity = `custom-api:${createHash("sha256").update(fingerprints.join("\n")).digest("hex")}`;
+    credentialIdentity = `custom-api:${createHash("sha256").update(`${fingerprints.join("\n")}\n${bindingFingerprint}`).digest("hex")}`;
   }
   return createModelCacheKey(
     isCustomApiMode(settings) ? settings.agentBaseUrl : resolveNewApiBaseUrl(settings, "account"),
@@ -4379,9 +4422,6 @@ function removeOwnedDataUrlTemp(image, projectId = "") {
 
 const projectSessionSaveCoordinator = createProjectSaveCoordinator({
   initialRevision(projectId) {
-    if (projectId === "__global__") {
-      return normalizeSessionRevision(readJson(sessionPath, defaultSession)?.sessionRevision) ?? 0;
-    }
     return projectSessionRevisionFromDisk(getProjectById(projectId, readProjectList()));
   }
 });
@@ -4405,6 +4445,8 @@ function registerIpc() {
     commerceCatalogService,
     commerceExportService,
     socialExportService,
+    imageCollectionExportService,
+    projectDataMigrationService,
     videoTaskService,
     scientificRunnerService,
     composePluginTask,

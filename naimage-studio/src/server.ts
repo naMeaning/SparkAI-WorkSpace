@@ -267,7 +267,10 @@ function configuredImageModelIds(settings: AppSettings) {
 function configuredAgentModelIds(settings: AppSettings) {
   return uniqueModelIds([
     settings.agentModel,
-    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : [])
+    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
+    ...(Array.isArray(settings.agentModelBindings)
+      ? settings.agentModelBindings.map((binding) => binding?.model)
+      : [])
   ]).filter((model) => !isExplicitImageModelId(model));
 }
 

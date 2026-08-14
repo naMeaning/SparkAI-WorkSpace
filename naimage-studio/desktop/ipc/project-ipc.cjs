@@ -1,6 +1,6 @@
 "use strict";
 
-const { existsSync, mkdirSync, rmSync } = require("node:fs");
+const { existsSync, mkdirSync } = require("node:fs");
 const path = require("node:path");
 const {
   MAX_SKILL_MARKDOWN_BYTES,
@@ -40,6 +40,7 @@ function registerProjectIpc(options = {}) {
     parseProjectGraphFile,
     projectGraphTask,
     projectForFolderOpen,
+    projectDataMigrationService,
     projectRoot,
     configDir,
     projectsDir,
@@ -51,18 +52,85 @@ function registerProjectIpc(options = {}) {
     return { ok: true, ...list };
   });
 
-  ipcMain.handle("naimage:project:create", (_event, payload) => {
-    const list = readProjectList();
-    const record = createProjectRecord(payload?.name || `画布 ${list.projects.length + 1}`);
-    const initialSession = { ...defaultSession, workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain) };
-    ensureProjectFiles(record, initialSession);
-    const next = writeProjectList({ activeProjectId: record.id, projects: [record, ...list.projects] });
-    const session = projectSessionFromDisk(record);
-    log(`project create ${record.id}`);
-    return { ok: true, project: record, projects: next.projects, activeProjectId: next.activeProjectId, session };
+  const migrationUnavailable = () => ({
+    ok: false,
+    errorCode: "PROJECT_MIGRATION_UNAVAILABLE",
+    error: "当前桌面运行时未提供旧项目数据迁移服务，请重启应用后再试。"
   });
 
-  ipcMain.handle("naimage:project:create-folder", async (_event, payload) => {
+  function migrationFailure(error, fallbackMessage) {
+    const errorCode = String(error?.code || "PROJECT_MIGRATION_FAILED");
+    const expected = errorCode.startsWith("PROJECT_MIGRATION_");
+    log(`project migration failed code=${errorCode}`);
+    return {
+      ok: false,
+      errorCode,
+      error: expected && error instanceof Error ? error.message : fallbackMessage,
+      ...(error?.details?.candidateId ? { details: { candidateId: String(error.details.candidateId) } } : {})
+    };
+  }
+
+  ipcMain.handle("naimage:project:migration-preview", async () => {
+    if (!projectDataMigrationService) return migrationUnavailable();
+    try {
+      const preview = await projectDataMigrationService.previewLegacyData();
+      return projectDataMigrationService.publicMigrationPreview(preview);
+    } catch (error) {
+      return migrationFailure(error, "旧项目数据预检失败，未修改任何文件。");
+    }
+  });
+
+  ipcMain.handle("naimage:project:migrate", async (_event, payload = {}) => {
+    if (!projectDataMigrationService) return migrationUnavailable();
+    if (payload?.confirmed !== true) {
+      return {
+        ok: false,
+        errorCode: "PROJECT_MIGRATION_CONFIRMATION_REQUIRED",
+        error: "迁移前必须明确确认预检结果。"
+      };
+    }
+    try {
+      const target = await dialog.showOpenDialog({
+        title: "选择迁移后的项目父目录",
+        buttonLabel: "迁移到这里",
+        properties: ["openDirectory", "createDirectory"]
+      });
+      if (target.canceled || target.filePaths.length === 0) return { ok: true, canceled: true };
+      const migrated = await projectDataMigrationService.migrateLegacyProjects({
+        confirmed: true,
+        previewToken: payload?.previewToken,
+        candidateIds: payload?.candidateIds,
+        targetParent: target.filePaths[0]
+      });
+      const list = readProjectList();
+      const project = getActiveProject(list);
+      if (project) ensureProjectFiles(project, defaultSession);
+      const session = project ? projectSessionFromDisk(project) : { ...defaultSession };
+      return {
+        ...migrated,
+        project,
+        projects: list.projects,
+        activeProjectId: list.activeProjectId,
+        session
+      };
+    } catch (error) {
+      return migrationFailure(error, "旧项目数据迁移失败，C 盘源数据保持不变。");
+    }
+  });
+
+  ipcMain.handle("naimage:project:migration-cleanup", async (_event, payload = {}) => {
+    if (!projectDataMigrationService) return migrationUnavailable();
+    try {
+      return await projectDataMigrationService.cleanupMigratedSource({
+        migrationId: payload?.migrationId,
+        confirmedCleanup: payload?.confirmedCleanup === true
+      });
+    } catch (error) {
+      return migrationFailure(error, "C 盘旧数据清理失败，未继续删除其他源数据。");
+    }
+  });
+
+  async function createProjectInSelectedParent(payload) {
     const result = await dialog.showOpenDialog({
       title: "选择新项目保存位置",
       buttonLabel: "在这里创建",
@@ -80,7 +148,10 @@ function registerProjectIpc(options = {}) {
     const session = projectSessionFromDisk(record);
     log(`project create folder ${selectedPath}`);
     return { ok: true, path: selectedPath, project: record, projects: next.projects, activeProjectId: record.id, session };
-  });
+  }
+
+  ipcMain.handle("naimage:project:create", (_event, payload) => createProjectInSelectedParent(payload));
+  ipcMain.handle("naimage:project:create-folder", (_event, payload) => createProjectInSelectedParent(payload));
 
   ipcMain.handle("naimage:project:switch", (_event, payload) => {
     const id = String(payload?.id || "");
@@ -259,15 +330,12 @@ function registerProjectIpc(options = {}) {
     const list = readProjectList();
     const project = list.projects.find((item) => item.id === id);
     if (!project) return { ok: false, error: "画布不存在或已被移除。" };
-    if (project.id === "default") return { ok: false, error: "默认项目不能删除，可以创建或打开其他项目后切换使用。" };
-
     const remaining = list.projects.filter((item) => item.id !== id);
-    if (!remaining.length) return { ok: false, error: "至少需要保留一个画布。" };
-    const activeProjectId = list.activeProjectId === id ? remaining[0].id : list.activeProjectId;
+    const activeProjectId = list.activeProjectId === id ? remaining[0]?.id || "" : list.activeProjectId;
     const next = writeProjectList({ activeProjectId, projects: remaining });
     const activeProject = getActiveProject(next);
-    ensureProjectFiles(activeProject, defaultSession);
-    const session = projectSessionFromDisk(activeProject);
+    if (activeProject) ensureProjectFiles(activeProject, defaultSession);
+    const session = activeProject ? projectSessionFromDisk(activeProject) : { ...defaultSession };
     log(`project remove ${id}`);
     return { ok: true, project: activeProject, projects: next.projects, activeProjectId: next.activeProjectId, session };
   });
@@ -277,27 +345,11 @@ function registerProjectIpc(options = {}) {
     const list = readProjectList();
     const project = list.projects.find((item) => item.id === id);
     if (!project) return { ok: false, error: "画布不存在或已被移除。" };
-    if (project.id === "default") return { ok: false, error: "默认项目文件夹不能删除。" };
-
-    const projectPath = path.resolve(project.path || "");
-    const protectedPaths = new Set([path.resolve(projectRoot), path.resolve(desktopRoot), path.resolve(configDir), path.resolve(projectsDir)]);
-    if (!projectPath || protectedPaths.has(projectPath)) return { ok: false, error: "画布路径受保护，已取消删除。" };
-    if (project.external || !isPathInside(projectPath, projectsDir)) {
-      return { ok: false, error: "外部画布文件夹不会被 SparkAI WorkSpace 删除。可以使用“移除”从画布列表移除，磁盘文件请在系统文件管理器中处理。" };
-    }
-    if (existsSync(projectPath)) {
-      rmSync(projectPath, { recursive: true, force: true });
-    }
-
-    const remaining = list.projects.filter((item) => item.id !== id);
-    if (!remaining.length) return { ok: false, error: "至少需要保留一个画布。" };
-    const activeProjectId = list.activeProjectId === id ? remaining[0].id : list.activeProjectId;
-    const next = writeProjectList({ activeProjectId, projects: remaining });
-    const activeProject = getActiveProject(next);
-    ensureProjectFiles(activeProject, defaultSession);
-    const session = projectSessionFromDisk(activeProject);
-    log(`project delete folder ${id}`);
-    return { ok: true, project: activeProject, projects: next.projects, activeProjectId: next.activeProjectId, session };
+    return {
+      ok: false,
+      errorCode: "PROJECT_FOLDER_DELETE_UNSUPPORTED",
+      error: "SparkAI WorkSpace 不会删除项目文件夹。请先从项目列表移除，再在系统文件管理器中自行处理磁盘文件。"
+    };
   });
 }
 

@@ -52,6 +52,10 @@ async function main() {
     accessMode: "custom",
     agentBaseUrl: "https://gateway.example/v1/",
     agentApiKey: "agent-key",
+    agentModelBindings: [
+      { model: "agent-bound", customBaseUrl: "https://agent-bound.example/root/", customApiKey: "bound-agent-key", accountTokenId: "23" },
+      { model: "agent-key-only", customApiKey: "agent-key-only-secret" }
+    ],
     imageBaseUrl: "https://images.example",
     imageApiKey: "image-key",
     imageModelBindings: [
@@ -120,6 +124,21 @@ async function main() {
   assert.equal(resolvedAccountTokenIds.at(-1), "12");
   assert.equal(captured.options.headers.authorization, "Bearer account-key-12");
 
+  await client.newApiRelayJson(settings, "/v1/chat/completions", { model: "agent-bound", messages: [] }, { provider: "agent" });
+  assert.equal(captured.url, "https://agent-bound.example/root/v1/chat/completions");
+  assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key");
+
+  await client.newApiRelayJson(settings, "/v1/chat/completions", { model: "agent-key-only", messages: [] }, { provider: "agent" });
+  assert.equal(captured.url, "https://gateway.example/v1/chat/completions");
+  assert.equal(captured.options.headers.authorization, "Bearer agent-key-only-secret", "Agent bindings without a Base URL must inherit the global Agent Base URL");
+
+  await client.newApiRelayJson(settings, "/v1/chat/completions", { model: "agent-unbound", messages: [] }, { provider: "agent" });
+  assert.equal(captured.options.headers.authorization, "Bearer agent-key", "Unbound Agent models must inherit the global Agent API Key");
+
+  await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-bound", messages: [] }, { provider: "agent" });
+  assert.equal(resolvedAccountTokenIds.at(-1), "23");
+  assert.equal(captured.options.headers.authorization, "Bearer account-key-23");
+
   transport = async () => response({
     contentType: "application/json; charset=utf-8",
     data: { type: "response.completed", response: { output_text: "fixture response" } }
@@ -130,6 +149,10 @@ async function main() {
   assert.equal(captured.options.headers.authorization, "Bearer agent-key");
   assert.equal(JSON.parse(captured.options.body).group, undefined);
   assert.equal(jsonEvents[0].response.output_text, "fixture response");
+
+  await client.newApiRelayStream(settings, "/v1/responses", { model: "agent-bound" }, () => {});
+  assert.equal(captured.url, "https://agent-bound.example/root/v1/responses");
+  assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key", "Responses conversations must use the selected Agent model binding");
 
   transport = async () => response({ contentType: "application/json", data: {} });
   await assert.rejects(
@@ -253,7 +276,7 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 18,
+    cases: 23,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
@@ -261,6 +284,9 @@ async function main() {
     customJsonBodyForwarded: true,
     perModelCustomCredentials: true,
     perModelAccountCredentials: true,
+    perAgentModelCustomCredentials: true,
+    perAgentModelAccountCredentials: true,
+    agentModelGlobalFallback: true,
     formDataModelBinding: true,
     responsesModelBindingIgnored: true,
     responsesImageStreaming: true,

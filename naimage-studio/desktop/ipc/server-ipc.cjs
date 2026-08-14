@@ -34,6 +34,8 @@ function registerServerIpc({
   newApiUserAuthHeaders,
   newApiUserLogsEndpoint,
   normalizeNewApiUser,
+  readProjectList,
+  getProjectById,
   readJson,
   removeOwnedDataUrlTemp,
   settingsPath,
@@ -414,8 +416,13 @@ function registerServerIpc({
     const runId = String((payload ?? {}).runId || `run-${Date.now()}`);
     const operationId = String((payload ?? {}).operationId || runId);
     const requestIndex = Math.max(1, Math.min(10_000, Math.floor(Number((payload ?? {}).requestIndex || 1) || 1)));
-    const projectId = (payload ?? {}).projectId;
-    const conversationId = String((payload ?? {}).conversationId || "default");
+    const projectId = String((payload ?? {}).projectId || "").trim();
+    const conversationId = String((payload ?? {}).conversationId || "").trim();
+    if (!projectId) return { ok: false, errorCode: "PROJECT_REQUIRED", error: "请先创建或打开项目，再生成图片。" };
+    if (typeof getProjectById === "function" && typeof readProjectList === "function" && !getProjectById(projectId, readProjectList())) {
+      return { ok: false, errorCode: "PROJECT_NOT_FOUND", error: "当前项目不存在或已经被移除，请重新打开项目。" };
+    }
+    if (!conversationId) return { ok: false, errorCode: "CONVERSATION_REQUIRED", error: "请先创建或选择一个对话，再生成图片。" };
     let controlledRun;
     const ownedMaskImage = (payload ?? {}).maskDataUrl
       ? writeDataUrlTemp((payload ?? {}).maskDataUrl, `mask-${runId.replace(/[^a-z0-9_-]/gi, "-")}`, projectId)

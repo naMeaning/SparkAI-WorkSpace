@@ -117,6 +117,8 @@ const {
   agentUiExpectedReviewCount
 } = aidebugOptions;
 let { devPort, debugPort } = aidebugOptions;
+const aidebugProjectId = "aidebug-project";
+const aidebugProjectDir = join(aidebugIsolationRoot, "fixture-projects", aidebugProjectId);
 let devUrl = `http://127.0.0.1:${devPort}`;
 const electronBinName = isWindows ? "electron.cmd" : "electron";
 const electronCli =
@@ -563,6 +565,39 @@ function prepareLiveImageConfig() {
       target: targetSettingsPath
     });
   }
+}
+
+function prepareIsolatedProjectFixture() {
+  mkdirSync(aidebugConfigDir, { recursive: true });
+  mkdirSync(aidebugProjectDir, { recursive: true });
+  const sessionPath = join(aidebugProjectDir, "session.json");
+  if (!existsSync(sessionPath)) {
+    writeFileSync(sessionPath, `${JSON.stringify({
+      schemaVersion: 5,
+      workspaceDomain: "general",
+      sessionRevision: 0,
+      nodeSequence: 0,
+      canvasRevision: 0,
+      messages: [],
+      conversations: [],
+      nodes: [],
+      layoutGroups: [],
+      selectedNodeId: ""
+    }, null, 2)}\n`, "utf8");
+  }
+  const now = new Date().toISOString();
+  writeFileSync(join(aidebugConfigDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: aidebugProjectId,
+    projects: [{
+      id: aidebugProjectId,
+      name: "AIDebug 隔离项目",
+      path: aidebugProjectDir,
+      sessionPath,
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
 }
 
 async function waitForServer(url) {
@@ -5058,6 +5093,7 @@ const {
   captureRegionRedrawSuiteProbe
 } = createLayerEditingSuiteProbes({
   aidebugConfigDir,
+  aidebugProjectDir,
   captureState,
   evaluate,
   fileSha256,
@@ -7783,6 +7819,7 @@ async function main() {
     writeFileSync(join(folder, index === 0 ? "same-a.png" : "same-b.png"), occurrenceBytes);
   }
   prepareLiveImageConfig();
+  prepareIsolatedProjectFixture();
   const serverProbeStartedAtMs = Date.now();
   viteProcess = spawnVite();
   pipeProcessLogs(viteProcess, "vite");
@@ -7946,6 +7983,7 @@ async function main() {
         client,
         targetId: target.id,
         aidebugConfigDir,
+        aidebugProjectDir,
         packageRoot,
         runDir,
         startupPerformance,
@@ -9361,7 +9399,7 @@ async function main() {
         await delay(380);
       `);
       const imageContainerCapture = await captureState(client, target.id, "project-image-container-import-1280", imageContainerExpression, { width: 1280, height: 820 }, { ...fixedAgentExpected, imageContainerRuntimeOk: true, imageContainerGridOk: true, imageResultContainerCoreOk: true, imageLibraryPathsOk: true, imageLayoutSourcesRetainedOk: true, imageLayoutCausalityOk: true, imageLayoutAutoDissolveOk: true, canvasImageContainerActionVisible: true, referenceContainerDropOk: true, referenceCapacityNineOk: true, referencePickerClosedOk: true, imageContainerAgentReferenceOk: true, referenceDropNoInlineThumbsOk: true });
-      const imageContainerSessionPath = join(aidebugConfigDir, "projects", "default", "session.json");
+      const imageContainerSessionPath = join(aidebugProjectDir, "session.json");
       const imageContainerSessionSnapshotPath = join(runDir, "image-container-session.json");
       let imageContainerPersistence = { ok: false, path: imageContainerSessionPath, snapshotPath: imageContainerSessionSnapshotPath, error: "session not saved" };
       for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -9470,7 +9508,7 @@ async function main() {
         await delay(160);
       `);
       const layeredCapture = await captureState(client, target.id, "project-agent-layered-png-1280", layeredPngExpression, { width: 1280, height: 820 }, { ...fixedAgentExpected, layerPngRuntimeOk: true, layerFolderActionVisible: true });
-      const layeredSessionPath = join(aidebugConfigDir, "projects", "default", "session.json");
+      const layeredSessionPath = join(aidebugProjectDir, "session.json");
       const layeredSessionSnapshotPath = join(runDir, "layered-session.json");
       let layerSessionPersistence = { ok: false, path: layeredSessionPath, snapshotPath: layeredSessionSnapshotPath, roles: [], error: "session not saved" };
       for (let attempt = 0; attempt < 20; attempt += 1) {

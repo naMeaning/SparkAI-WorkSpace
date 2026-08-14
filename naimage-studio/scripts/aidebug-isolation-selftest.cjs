@@ -14,6 +14,9 @@ const expectedConfigDir = path.join(userDataDir, "data");
 const rendererIndex = path.join(runDir, "renderer.html");
 const electronLog = path.join(runDir, "electron.log");
 const reportPath = path.join(runDir, "report.json");
+const fixtureProjectId = "aidebug-isolation-project";
+const fixtureProjectDir = path.join(runDir, "fixture-projects", fixtureProjectId);
+const fixtureSessionPath = path.join(fixtureProjectDir, "session.json");
 const repositoryConfigDir = path.join(repoRoot, "config");
 const repositoryStateFiles = [
   "app-settings.json",
@@ -107,10 +110,41 @@ function isolatedEnvironment(overrides = {}) {
   return environment;
 }
 
+function prepareFixtureProject() {
+  mkdirSync(expectedConfigDir, { recursive: true });
+  mkdirSync(fixtureProjectDir, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(fixtureSessionPath, `${JSON.stringify({
+    schemaVersion: 5,
+    workspaceDomain: "general",
+    sessionRevision: 0,
+    nodeSequence: 0,
+    canvasRevision: 0,
+    messages: [],
+    conversations: [],
+    nodes: [],
+    layoutGroups: [],
+    selectedNodeId: ""
+  }, null, 2)}\n`, "utf8");
+  writeFileSync(path.join(expectedConfigDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "AIDebug 隔离项目",
+      path: fixtureProjectDir,
+      sessionPath: fixtureSessionPath,
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
+}
+
 async function main() {
   assert(electronExecutable, "Electron executable was not found.");
   mkdirSync(runDir, { recursive: true });
   writeFileSync(rendererIndex, "<!doctype html><html><body>AIDebug isolation probe</body></html>\n", "utf8");
+  prepareFixtureProject();
 
   const electronMainSource = readFileSync(path.join(repoRoot, "electron-main.cjs"), "utf8");
   const preloadSource = readFileSync(path.join(repoRoot, "preload.cjs"), "utf8");
@@ -135,9 +169,8 @@ async function main() {
 
   const expectedFiles = [
     path.join(expectedConfigDir, "app-settings.json"),
-    path.join(expectedConfigDir, "session.json"),
     path.join(expectedConfigDir, "project-list.json"),
-    path.join(expectedConfigDir, "projects", "default", "session.json")
+    fixtureSessionPath
   ];
   const isolatedFilesCreated = await waitForFiles(expectedFiles, child);
   const earlyExit = child.exitCode !== null || child.signalCode !== null;
@@ -150,7 +183,7 @@ async function main() {
     : null;
   const isolatedProjectPaths = Array.isArray(projectList?.projects) && projectList.projects.every((project) => {
     const projectPath = path.resolve(String(project?.path || ""));
-    const projectsRoot = path.resolve(expectedConfigDir, "projects");
+    const projectsRoot = path.resolve(runDir, "fixture-projects");
     return projectPath === projectsRoot || projectPath.startsWith(`${projectsRoot}${path.sep}`);
   });
 

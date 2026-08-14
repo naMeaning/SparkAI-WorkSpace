@@ -25,6 +25,10 @@ import type {
   WorkflowNode,
 } from "./core";
 import {
+  type RenameImageCollectionRequest,
+  type ReplaceImageCollectionItemRequest,
+} from "./image-collection-mutation.ts";
+import {
   DEFAULT_WORKSPACE_DOMAIN,
   normalizeWorkspaceDomain,
   publicWorkspaceDomainDefinition,
@@ -160,6 +164,22 @@ export type AutomationCommandContext = {
     y: number;
   }): Promise<unknown>;
   exportImage(nodeId: string, assetIndex: number, format: ImageExportFormat): Promise<ImageAssetExportResult>;
+  renameImageCollections(input: {
+    requests: RenameImageCollectionRequest[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }): unknown;
+  replaceImageCollectionItems(input: {
+    requests: ReplaceImageCollectionItemRequest[];
+    expectedProjectId: string;
+    expectedCanvasRevision?: number;
+  }): unknown;
+  exportImageCollections(input: {
+    collectionIds: string[];
+    expectedProjectId: string;
+    format: "png" | "jpeg" | "webp" | "avif" | "tiff";
+    confirmed: true;
+  }): Promise<unknown>;
   parseSkill(markdown: unknown, sourceName?: unknown): Promise<ImportedCanvasSkill>;
   createSkillNode(skill: ImportedCanvasSkill, x: number, y: number): {
     id: string;
@@ -1047,6 +1067,7 @@ function canvasState(context: AutomationCommandContext) {
         ...(blockingNodeIds.length ? ["mutation-lock"] : []),
       ];
       const inputBindings = node.type === "requirement" ? requirementInputBindings(node, nodes) : [];
+      const collection = node.imageCollection ?? spec?.collection;
       return {
         id: node.id,
         type: node.type,
@@ -1104,6 +1125,30 @@ function canvasState(context: AutomationCommandContext) {
             hostNodeId: layoutGroup.hostNodeId,
             memberNodeIds: [...layoutGroup.memberNodeIds],
           } : undefined,
+        } : undefined,
+        imageCollection: collection ? {
+          id: collection.id,
+          name: collection.name || node.title,
+          kind: collection.kind,
+          role: collection.collectionRole === "defects" ? "defects" : "results",
+          generationMode: collection.generationMode,
+          sourceNodeId: collection.sourceNodeId,
+          sourceCollectionId: collection.sourceCollectionId,
+          defectOfNodeId: collection.defectOfNodeId,
+          items: collection.items.map((item, index) => ({
+            id: item.id,
+            order: index + 1,
+            requestIndex: item.requestIndex,
+            assetIndex: item.assetIndex,
+            assetId: item.assetId,
+            status: item.status,
+            prompt: item.prompt,
+            title: item.title,
+            replacedByAssetId: item.replacedByAssetId,
+            replacesItemId: item.replacesItemId,
+            defectReason: item.defectReason,
+            taskProvenance: item.taskProvenance,
+          })),
         } : undefined,
         activity: {
           busy: busyReasons.length > 0,
@@ -1634,6 +1679,34 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       const result = await context.exportImage(nodeId, assetIndex, format);
       if (!result.ok && !result.canceled) throw new Error(result.error || "图片导出失败。");
       return { nodeId, assetIndex, requestedFormat: format, result };
+    },
+    "canvas.rename-image-collections": (value) => {
+      assertExpectedProject(value, context);
+      return context.renameImageCollections({
+        requests: (Array.isArray(value.requests) ? value.requests : []) as RenameImageCollectionRequest[],
+        expectedProjectId: String(value.expectedProjectId),
+        ...(value.expectedCanvasRevision === undefined ? {} : { expectedCanvasRevision: Number(value.expectedCanvasRevision) })
+      });
+    },
+    "canvas.replace-image-collection-item": (value) => {
+      assertExpectedProject(value, context);
+      return context.replaceImageCollectionItems({
+        requests: (Array.isArray(value.requests) ? value.requests : []) as ReplaceImageCollectionItemRequest[],
+        expectedProjectId: String(value.expectedProjectId),
+        ...(value.expectedCanvasRevision === undefined ? {} : { expectedCanvasRevision: Number(value.expectedCanvasRevision) })
+      });
+    },
+    "canvas.export-image-collections": async (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) {
+        throw automationCommandError("CONFIRMATION_REQUIRED", "导出图片组必须显式传入 confirmed=true。");
+      }
+      return context.exportImageCollections({
+        collectionIds: (Array.isArray(value.collectionIds) ? value.collectionIds : []).map(String),
+        expectedProjectId: String(value.expectedProjectId),
+        format: String(value.format || "png") as "png" | "jpeg" | "webp" | "avif" | "tiff",
+        confirmed: true
+      });
     },
     "research.data.import": async (value) => {
       assertExpectedProject(value, context);

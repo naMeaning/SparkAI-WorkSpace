@@ -97,9 +97,9 @@ registerProjectIpc({
 });
 
 const createProject = handlers.get("naimage:project:create")!;
-const researchProject = createProject(undefined, { name: "Research", workspaceDomain: "research" }) as { session: { workspaceDomain: string } };
+const researchProject = await createProject(undefined, { name: "Research", workspaceDomain: "research" }) as { session: { workspaceDomain: string } };
 assert.equal(researchProject.session.workspaceDomain, "research");
-const legacyProject = createProject(undefined, { name: "Legacy" }) as { session: { workspaceDomain: string } };
+const legacyProject = await createProject(undefined, { name: "Legacy" }) as { session: { workspaceDomain: string } };
 assert.equal(legacyProject.session.workspaceDomain, "general");
 const createProjectFolder = handlers.get("naimage:project:create-folder")!;
 const socialFolder = await createProjectFolder(undefined, { name: "Social", workspaceDomain: "social" }) as { session: { workspaceDomain: string } };

@@ -57,6 +57,7 @@ const runtimeSource = fs.readFileSync(path.join(root, "agent-runtime.cjs"), "utf
 const electronMainSource = fs.readFileSync(path.join(root, "electron-main.cjs"), "utf8");
 const agentTraceSource = fs.readFileSync(path.join(root, "src", "agent.ts"), "utf8");
 const agentWindowRendererSource = fs.readFileSync(path.join(root, "agent-window-renderer.js"), "utf8");
+const imageViewerSource = fs.readFileSync(path.join(root, "src", "image-viewer.tsx"), "utf8");
 
 assert.match(mainSource, /className="node-image-pending-tile stream-preview-tile"/, "Streaming previews must render inside image slots");
 assert.match(mainSource, /data-stream-preview-count=\{nodeStreamingPreviews\.length \|\| undefined\}/, "The container must expose its current transient preview count");
@@ -74,5 +75,12 @@ assert.doesNotMatch(agentWindowRendererSource, /tool-preview|trace\.partialImage
 assert.match(electronMainSource, /preferDirectImageTransport[\s\S]{0,180}customImageBinding\?\.customBaseUrl[\s\S]{0,80}customImageBinding\?\.customApiKey/, "Per-model custom credentials must select the direct image streaming transport");
 assert.match(electronMainSource, /return await newApiRelayImage\(settings, "\/v1\/images\/generations"[\s\S]{0,500}partialImages:\s*3/, "Images SSE must be attempted for both account and custom generation after Responses fallback");
 assert.match(electronMainSource, /NAIMAGE_AIDEBUG_IMAGE_PARTIALS[\s\S]{0,700}onPartialImage\(\{[\s\S]{0,300}eventType:\s*"aidebug\.image_generation\.partial_image"/, "The paid-call-free Electron fixture must emit staged partial images for real UI verification");
+assert.match(imageViewerSource, /function viewerAssetIdentity[\s\S]{0,500}stableImageOccurrenceId[\s\S]{0,220}stableIdentityHash/, "The viewer must derive a path-safe identity for each logical asset");
+assert.match(imageViewerSource, /const requestIsCurrent = \(\) => \([\s\S]{0,320}sequence === preloadSequenceRef\.current[\s\S]{0,260}targetFrameRef\.current\.identity === requestedFrame\.identity/, "Preload completion must match both the latest token and target asset identity");
+assert.match(imageViewerSource, /await preload\.decode\(\);[\s\S]{0,420}if \(!requestIsCurrent\(\)\) return;[\s\S]{0,700}setDisplayedAssetIdentity\(requestedFrame\.identity\)/, "The displayed asset must switch only after decode and a final identity check");
+assert.match(imageViewerSource, /image\.dataset\.viewerSrc !== displayedSrcRef\.current[\s\S]{0,180}image\.dataset\.viewerIdentity !== displayedAssetIdentityRef\.current/, "Stale DOM load events must match source and logical asset identity");
+assert.match(imageViewerSource, /data-target-asset=\{assetIdentity\}[\s\S]{0,120}data-displayed-asset=\{displayedAssetIdentity\}[\s\S]{0,180}displayedAssetIdentity === assetIdentity/, "The viewer stage must expose real target/displayed identity and buffering state");
+assert.match(imageViewerSource, /key=\{`outgoing:\$\{outgoingFrame\.identity\}:\$\{outgoingFrame\.src\}`\}[\s\S]{0,240}data-viewer-identity=\{outgoingFrame\.identity\}/, "Outgoing buffers must retain the identity of the frame they display");
+assert.match(imageViewerSource, /\}, \[src, assetIdentity\]\);/, "Same-source assets must still trigger the preload effect when identity changes");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 23 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 30 })}\n`);

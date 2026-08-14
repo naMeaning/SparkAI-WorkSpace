@@ -928,7 +928,7 @@ async function runSelftest(directory) {
     const migratedStore = readJson(promptPath);
     assert.equal(migratedStore.version, 2);
     assert.equal(migratedStore.format, "plain-text");
-    assert.equal(migratedStore.contractRevision, 12);
+    assert.equal(migratedStore.contractRevision, 13);
     assert.equal(migratedStore.baseDefaultPromptRevision, 0);
     assert.equal(migratedStore.baseDefaultPromptHash, "");
     assert.equal(Object.prototype.hasOwnProperty.call(migratedStore, "entries"), false, "Prompt v2 must not retain entries");
@@ -962,7 +962,7 @@ async function runSelftest(directory) {
     assert.equal(/create_agent_node|list_agents|manage_agent|子\s*Agent|母\s*Agent|context_manage|entryId/i.test(migratedLegacyV2.text), false);
     assert.equal(migratedLegacyV2.defaultUpdateAvailable, true);
     const migratedLegacyV2Store = readJson(promptPath);
-    assert.equal(migratedLegacyV2Store.contractRevision, 12);
+    assert.equal(migratedLegacyV2Store.contractRevision, 13);
     assert.equal(migratedLegacyV2Store.memoryPrompt.includes("需要 compact 的 entries"), false);
     assert(migratedLegacyV2Store.memoryPrompt.includes("当前项目当前会话的 fastmemory"));
 
@@ -1836,6 +1836,148 @@ async function runSelftest(directory) {
     );
     assertOk(filteredRelation.envelope, "large canvas relation filter");
     assert.match(String(filteredRelation.envelope.visibleOutput || ""), new RegExp(`total: ${expectedVariantCount}`));
+
+    const imageCollectionNodes = [
+      {
+        id: "collection-node",
+        title: "商品主图组",
+        prompt: "商品主图",
+        type: "image",
+        status: "done",
+        imageState: "done",
+        assets: [{ assetId: "asset-original", path: fixtureImagePath, status: "done" }],
+        imageCollection: {
+          id: "collection-results",
+          name: "商品主图组",
+          kind: "batch",
+          collectionRole: "results",
+          generationMode: "parallel",
+          items: [{
+            id: "collection-item-1",
+            requestIndex: 1,
+            assetIndex: 1,
+            assetId: "asset-original",
+            prompt: "正面主图",
+            status: "done",
+          }],
+        },
+      },
+      {
+        id: "replacement-node",
+        title: "候选替换图",
+        prompt: "候选替换图",
+        type: "image",
+        status: "done",
+        imageState: "done",
+        assets: [{ assetId: "asset-replacement", path: fixtureImagePath, status: "done" }],
+      },
+    ];
+    const imageCollectionContext = {
+      settings: schemaSettings,
+      nodes: imageCollectionNodes,
+      projectId: "selftest-image-collection-project",
+      conversationId: "selftest-image-collection-conversation",
+      canvasRevision: 27,
+      operationId: "selftest-image-collection-operation",
+      toolRunId: "selftest-image-collection-operation",
+    };
+    const describedCollection = await runtime.runTool(
+      "workflow",
+      { operation: "describe_node", nodeId: "collection-node" },
+      imageCollectionContext,
+    );
+    assert.match(String(describedCollection.envelope.visibleOutput || ""), /imageCollection=collection-results:商品主图组:role=results/);
+    assert.match(String(describedCollection.envelope.visibleOutput || ""), /collection-item-1,slot=1,asset=asset-original,status=done,prompt=正面主图/);
+
+    const renameCollection = await runtime.runTool(
+      "workflow",
+      {
+        operation: "rename_image_collections",
+        expectedProjectId: imageCollectionContext.projectId,
+        expectedCanvasRevision: 27,
+        requests: [{ collectionId: "collection-results", name: "秋季新品主图" }],
+      },
+      imageCollectionContext,
+    );
+    assert.deepEqual(renameCollection.actions?.[0], {
+      type: "workflow.image-collection.rename",
+      operationId: imageCollectionContext.operationId,
+      toolRunId: imageCollectionContext.toolRunId,
+      imageCollection: {
+        operation: "rename",
+        expectedProjectId: imageCollectionContext.projectId,
+        expectedCanvasRevision: 27,
+        requests: [{ collectionId: "collection-results", name: "秋季新品主图" }],
+      },
+    });
+    assert.match(String(renameCollection.envelope.visibleOutput || ""), /等待客户端提交/);
+
+    const replaceCollectionItem = await runtime.runTool(
+      "workflow",
+      {
+        operation: "replace_image_collection_item",
+        expectedProjectId: imageCollectionContext.projectId,
+        expectedCanvasRevision: 27,
+        requests: [{
+          sourceCollectionId: "collection-results",
+          requestIndex: 1,
+          replacementNodeId: "replacement-node",
+          replacementAssetIndex: 0,
+          defectReason: "主体边缘存在瑕疵",
+        }],
+      },
+      imageCollectionContext,
+    );
+    assert.equal(replaceCollectionItem.actions?.[0]?.type, "workflow.image-collection.replace");
+    assert.equal(replaceCollectionItem.actions?.[0]?.imageCollection?.requests?.[0]?.itemId, "collection-item-1");
+    assert.equal(replaceCollectionItem.actions?.[0]?.imageCollection?.requests?.[0]?.replacementNodeId, "replacement-node");
+    assert.match(String(replaceCollectionItem.envelope.visibleOutput || ""), /等待客户端提交/);
+
+    const exportCollections = await runtime.runTool(
+      "workflow",
+      {
+        operation: "export_image_collections",
+        expectedProjectId: imageCollectionContext.projectId,
+        expectedCanvasRevision: 27,
+        collectionIds: ["collection-results"],
+        format: "webp",
+        confirmed: true,
+      },
+      imageCollectionContext,
+    );
+    assert.equal(exportCollections.actions?.[0]?.type, "workflow.image-collection.export");
+    assert.deepEqual(exportCollections.actions?.[0]?.imageCollection?.collectionIds, ["collection-results"]);
+    assert.equal(exportCollections.actions?.[0]?.imageCollection?.confirmed, true);
+    assert.equal(exportCollections.actions?.[0]?.imageCollection?.format, "webp");
+    assert.match(String(exportCollections.envelope.visibleOutput || ""), /等待客户端提交/);
+    await assert.rejects(
+      runtime.runTool(
+        "workflow",
+        { operation: "export_image_collections", collectionIds: ["collection-results"], format: "png", confirmed: false },
+        imageCollectionContext,
+      ),
+      /confirmed=true/,
+    );
+    await assert.rejects(
+      runtime.runTool(
+        "workflow",
+        { operation: "export_image_collections", collectionIds: ["collection-results"], confirmed: true },
+        imageCollectionContext,
+      ),
+      /显式选择/,
+    );
+    await assert.rejects(
+      runtime.runTool(
+        "workflow",
+        {
+          operation: "rename_image_collections",
+          expectedCanvasRevision: 26,
+          requests: [{ collectionId: "collection-results", name: "过期名称" }],
+        },
+        imageCollectionContext,
+      ),
+      /画布已发生变化/,
+    );
 
     await runtime.chat({
       projectId: largeCanvasScope.projectId,

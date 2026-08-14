@@ -165,6 +165,109 @@ function sessionAssetAliasFingerprints(asset, fallbackIndex = 1, ownerId = "", s
   return [...new Set([primary, ...locators.map((locator) => createHash("sha256").update(locator).digest("hex").slice(0, 32))])];
 }
 
+function sessionGeneratedAssetKey(asset) {
+  const source = asset && typeof asset === "object" ? asset : {};
+  const importBatchId = String(source.importBatchId || "").trim();
+  const importRootId = String(source.importRootId || "").trim();
+  const sourceRelativePath = safeImageSourceRelativePath(source.sourceRelativePath);
+  if (importBatchId && importRootId && sourceRelativePath) return "";
+  const runId = String(source.runId || "").trim().toLowerCase();
+  if (runId.startsWith("import-")) return "";
+  const locator = sessionAssetIdentityLocators(source)[0] || "";
+  return runId && locator ? `generated:${runId}:${locator}` : "";
+}
+
+function collapseRepeatedGeneratedAssets(node) {
+  const rawAssets = Array.isArray(node?.assets) ? node.assets : [];
+  if (rawAssets.length < 2) return;
+  const assets = [];
+  const firstSlotByKey = new Map();
+  const oldToNewSlot = new Map();
+  for (const [slot, asset] of rawAssets.entries()) {
+    const key = sessionGeneratedAssetKey(asset);
+    const repeatedSlot = key ? firstSlotByKey.get(key) : undefined;
+    if (repeatedSlot === undefined) {
+      oldToNewSlot.set(slot, assets.length);
+      if (key) firstSlotByKey.set(key, assets.length);
+      assets.push({ ...asset });
+      continue;
+    }
+    oldToNewSlot.set(slot, repeatedSlot);
+    const previous = assets[repeatedSlot];
+    assets[repeatedSlot] = {
+      ...previous,
+      ...asset,
+      ...(previous.occurrenceId ? { occurrenceId: previous.occurrenceId } : {}),
+      ...(previous.assetId ? { assetId: previous.assetId } : {}),
+      ...(previous.displayCode ? { displayCode: previous.displayCode } : {})
+    };
+  }
+  if (assets.length === rawAssets.length) return;
+  node.assets = assets.map((asset, index) => ({ ...asset, index: index + 1 }));
+
+  const rawCollection = node.imageCollection && typeof node.imageCollection === "object"
+    ? node.imageCollection
+    : node.imageContainerSpec?.collection && typeof node.imageContainerSpec.collection === "object"
+      ? node.imageContainerSpec.collection
+      : null;
+  if (rawCollection) {
+    const items = [];
+    const seenDoneSlots = new Set();
+    for (const item of Array.isArray(rawCollection.items) ? rawCollection.items : []) {
+      if (!item || typeof item !== "object") continue;
+      const oldSlot = Number(item.assetIndex) - 1;
+      const newSlot = Number.isInteger(oldSlot) ? oldToNewSlot.get(oldSlot) : undefined;
+      if (item.status !== "pending" && item.status !== "error" && newSlot !== undefined) {
+        if (seenDoneSlots.has(newSlot)) continue;
+        seenDoneSlots.add(newSlot);
+        items.push({ ...item, assetIndex: newSlot + 1 });
+      } else {
+        items.push({ ...item });
+      }
+    }
+    const collection = { ...rawCollection, items };
+    node.imageCollection = collection;
+    if (node.imageContainerSpec?.collection) {
+      node.imageContainerSpec = { ...node.imageContainerSpec, collection };
+    }
+  }
+
+  if (node.type === "image") {
+    node.outputs = node.assets.length;
+    const progress = node.imageProgress && typeof node.imageProgress === "object" ? node.imageProgress : null;
+    if (progress) {
+      const collectionItems = Array.isArray(node.imageCollection?.items) ? node.imageCollection.items : [];
+      const completed = collectionItems.length
+        ? collectionItems.filter((item) => item?.status !== "pending" && item?.status !== "error").length
+        : node.assets.length;
+      const failed = collectionItems.length
+        ? collectionItems.filter((item) => item?.status === "error").length
+        : Math.max(0, Number(progress.failed) || 0);
+      const preservedFailedSlots = Array.isArray(progress.failedSlots)
+        ? [...new Set(progress.failedSlots
+            .map((slot) => Math.max(1, Math.floor(Number(slot) || 0)))
+            .filter(Boolean))]
+        : [];
+      const failedSlots = collectionItems.length
+        ? collectionItems
+            .filter((item) => item?.status === "error")
+            .map((item, index) => Math.max(1, Math.floor(Number(item.requestIndex || index + 1) || index + 1)))
+        : preservedFailedSlots;
+      const configuredTotal = Math.max(0, Math.floor(Number(node.imageParams?.count) || 0));
+      const total = Math.max(1, completed + failed, collectionItems.length, configuredTotal);
+      node.imageProgress = {
+        ...progress,
+        total,
+        completed,
+        failed,
+        failedSlots,
+        activeIndex: undefined,
+        message: failed ? `已完成 ${completed}/${total} 张，失败 ${failed} 张` : `已完成 ${completed}/${total} 张`
+      };
+    }
+  }
+}
+
 function repairSessionAssetIdentities(nodes) {
   const records = [];
   const pinCollectionAssetSlots = (collection, assets) => {
@@ -225,6 +328,7 @@ function repairSessionAssetIdentities(nodes) {
     return next;
   };
   for (const node of nodes) {
+    collapseRepeatedGeneratedAssets(node);
     const rawAssets = Array.isArray(node.assets) ? node.assets : [];
     if (node.imageCollection) node.imageCollection = pinCollectionAssetSlots(node.imageCollection, rawAssets);
     if (node.imageContainerSpec?.collection) {
@@ -1133,7 +1237,7 @@ function sanitizeSession(session) {
           if (next.type === "image" && Array.isArray(next.assets) && next.assets.length > 0) {
             next.imageState = "done";
             next.status = "done";
-            next.outputs = Math.max(Number(next.outputs ?? 0), next.assets.length);
+            next.outputs = next.assets.length;
           }
           if (next.type !== "video") {
             delete next.videoTaskId;

@@ -7,6 +7,7 @@ import {
   type ImageAsset,
   type ImageViewerState
 } from "./core";
+import { stableIdentityHash, stableImageAssetId, stableImageOccurrenceId } from "./asset-identity";
 import {
   ActionButton,
   ButtonBase,
@@ -27,8 +28,16 @@ function clamp(value: number, min: number, max: number) {
 
 type ViewerImageFrame = {
   src: string;
+  identity: string;
   size?: { width: number; height: number } | null;
 };
+
+function viewerAssetIdentity(asset: ImageAsset | undefined, nodeId: string, assetIndex: number) {
+  if (!asset) return `viewer-empty-${Math.max(0, assetIndex)}`;
+  const assetId = stableImageAssetId(asset, assetIndex + 1);
+  const occurrenceId = stableImageOccurrenceId(asset, nodeId || "image-viewer", assetIndex);
+  return `viewer-${stableIdentityHash(`${occurrenceId}|${assetId}`)}`;
+}
 
 export function ImageViewer({
   viewer,
@@ -49,7 +58,11 @@ export function ImageViewer({
 }) {
   const asset = viewer.assets[viewer.index] ?? viewer.assets[0];
   const src = imageAssetSrc(asset);
-  const initialSrcRef = useRef(src);
+  const sourceAssetIndex = viewer.assetIndices?.[viewer.index] ?? viewer.index;
+  const assetIdentity = viewerAssetIdentity(asset, viewer.nodeId, sourceAssetIndex);
+  const initialFrameRef = useRef({ src, identity: assetIdentity });
+  const targetFrameRef = useRef(initialFrameRef.current);
+  targetFrameRef.current = { src, identity: assetIdentity };
   const stageRef = useRef<HTMLDivElement | null>(null);
   const userAdjustedImageRef = useRef(false);
   const panRef = useRef<{
@@ -66,8 +79,10 @@ export function ImageViewer({
   // stable class also prevents the old image from being replaced by a blank
   // orientation frame during rapid keyboard/thumbnail navigation.
   const viewerOrientation = "stable";
-  const [displayedSrc, setDisplayedSrc] = useState(initialSrcRef.current);
-  const displayedSrcRef = useRef(initialSrcRef.current);
+  const [displayedSrc, setDisplayedSrc] = useState(initialFrameRef.current.src);
+  const displayedSrcRef = useRef(initialFrameRef.current.src);
+  const [displayedAssetIdentity, setDisplayedAssetIdentity] = useState(initialFrameRef.current.identity);
+  const displayedAssetIdentityRef = useRef(initialFrameRef.current.identity);
   const [outgoingFrame, setOutgoingFrame] = useState<ViewerImageFrame | null>(null);
   const [displayedFrameSize, setDisplayedFrameSize] = useState<{ width: number; height: number } | null>(null);
   const displayedFrameSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -125,7 +140,10 @@ export function ImageViewer({
     const image = event.currentTarget;
     // The outgoing buffer may finish decoding after the active buffer. It
     // must never change the active dimensions or fit transform.
-    if (image.dataset.viewerSrc !== displayedSrcRef.current) return;
+    if (
+      image.dataset.viewerSrc !== displayedSrcRef.current ||
+      image.dataset.viewerIdentity !== displayedAssetIdentityRef.current
+    ) return;
     const size = {
       width: image.naturalWidth || 1,
       height: image.naturalHeight || 1
@@ -140,13 +158,20 @@ export function ImageViewer({
   }
 
   useEffect(() => {
-    if (!src || src === displayedSrcRef.current) return;
+    if (!src || (src === displayedSrcRef.current && assetIdentity === displayedAssetIdentityRef.current)) return;
     const sequence = ++preloadSequenceRef.current;
+    const requestedFrame = { src, identity: assetIdentity };
     let disposed = false;
     const preload = new window.Image();
+    const requestIsCurrent = () => (
+      !disposed &&
+      sequence === preloadSequenceRef.current &&
+      targetFrameRef.current.src === requestedFrame.src &&
+      targetFrameRef.current.identity === requestedFrame.identity
+    );
     preload.decoding = "async";
     preload.onload = async () => {
-      if (disposed || sequence !== preloadSequenceRef.current) return;
+      if (!requestIsCurrent()) return;
       const size = {
         width: preload.naturalWidth || 1,
         height: preload.naturalHeight || 1
@@ -154,23 +179,29 @@ export function ImageViewer({
       // `onload` means the bytes are available, but decode can still be
       // pending. Wait for the compositor-ready bitmap before swapping the
       // visible layer.
-      try {
-        await preload.decode?.();
-      } catch {
-        // A decoded bitmap is an optimization; the browser can still paint
-        // the loaded image if decode() is unavailable or rejects.
+      if (typeof preload.decode === "function") {
+        try {
+          await preload.decode();
+        } catch {
+          // Keep the previous frame visible when Chromium cannot produce a
+          // compositor-ready bitmap for the requested asset.
+          return;
+        }
       }
-      if (disposed || sequence !== preloadSequenceRef.current) return;
+      if (!requestIsCurrent()) return;
       // Keep the old image mounted until the new one is decoded. React then
       // mounts the new buffer above it and removes the old buffer on the next
       // frame, avoiding a blank frame between thumbnails.
       const previousFrame: ViewerImageFrame = {
         src: displayedSrcRef.current,
+        identity: displayedAssetIdentityRef.current,
         size: displayedFrameSizeRef.current
       };
-      setOutgoingFrame(previousFrame.src && previousFrame.src !== src ? previousFrame : null);
-      displayedSrcRef.current = src;
-      setDisplayedSrc(src);
+      setOutgoingFrame(previousFrame.src && previousFrame.identity !== requestedFrame.identity ? previousFrame : null);
+      displayedSrcRef.current = requestedFrame.src;
+      displayedAssetIdentityRef.current = requestedFrame.identity;
+      setDisplayedSrc(requestedFrame.src);
+      setDisplayedAssetIdentity(requestedFrame.identity);
       displayedFrameSizeRef.current = size;
       setDisplayedFrameSize(size);
       setNaturalSize(size);
@@ -178,14 +209,14 @@ export function ImageViewer({
       panRef.current = null;
       userAdjustedImageRef.current = false;
       window.requestAnimationFrame(() => {
-        if (!disposed && sequence === preloadSequenceRef.current && !userAdjustedImageRef.current) {
+        if (requestIsCurrent() && displayedAssetIdentityRef.current === requestedFrame.identity && !userAdjustedImageRef.current) {
           setImageView({ scale: fitScaleFor(size), x: 0, y: 0 });
         }
       });
     };
     preload.onerror = () => {
       // Leave the previous image visible when a transient asset URL fails.
-      if (!disposed && sequence === preloadSequenceRef.current) {
+      if (requestIsCurrent()) {
         setIsPanning(false);
         panRef.current = null;
       }
@@ -196,7 +227,7 @@ export function ImageViewer({
       preload.onload = null;
       preload.onerror = null;
     };
-  }, [src]);
+  }, [src, assetIdentity]);
 
   const handleViewerWheel = useStableEvent((event: WheelEvent) => {
     event.preventDefault();
@@ -242,12 +273,12 @@ export function ImageViewer({
   }
 
   useEffect(() => {
-    if (displayedSrcRef.current === src) return;
+    if (displayedSrcRef.current === src && displayedAssetIdentityRef.current === assetIdentity) return;
     // The preload effect owns the actual source swap. Do not clear the old
     // dimensions or transform here; that was the source of the visible flash.
     setIsPanning(false);
     panRef.current = null;
-  }, [src]);
+  }, [src, assetIdentity]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -325,7 +356,10 @@ export function ImageViewer({
               data-offset-y={Math.round(imageView.y)}
               data-displayed-src={displayedSrc}
               data-target-src={src}
-              data-buffering={displayedSrc === src ? "false" : "true"}
+              data-final-asset={assetIdentity}
+              data-target-asset={assetIdentity}
+              data-displayed-asset={displayedAssetIdentity}
+              data-buffering={displayedSrc === src && displayedAssetIdentity === assetIdentity ? "false" : "true"}
               onPointerDown={beginPan}
               onPointerMove={movePan}
               onPointerUp={endPan}
@@ -335,10 +369,11 @@ export function ImageViewer({
             >
               {outgoingFrame ? (
                 <img
-                  key={`outgoing:${outgoingFrame.src}`}
+                  key={`outgoing:${outgoingFrame.identity}:${outgoingFrame.src}`}
                   className="image-viewer-image image-viewer-image-outgoing"
                   src={outgoingFrame.src}
                   data-viewer-src={outgoingFrame.src}
+                  data-viewer-identity={outgoingFrame.identity}
                   alt=""
                   aria-hidden="true"
                   draggable={false}
@@ -350,10 +385,11 @@ export function ImageViewer({
                 />
               ) : null}
               <img
-                key={`current:${displayedSrc}`}
+                key={`current:${displayedAssetIdentity}:${displayedSrc}`}
                 className="image-viewer-image image-viewer-image-current"
                 src={displayedSrc}
                 data-viewer-src={displayedSrc}
+                data-viewer-identity={displayedAssetIdentity}
                 alt={`生成图 ${viewer.index + 1}`}
                 draggable={false}
                 onLoad={handleImageLoad}
@@ -369,6 +405,7 @@ export function ImageViewer({
                 className="image-viewer-strip"
                 aria-label="最终图片列表"
                 data-final-asset-count={viewer.assets.length}
+                data-final-asset="true"
               >
                 {viewer.assets.map((item, index) => {
                   const identity = item.assetId || item.occurrenceId || item.runId || item.assetUrl || item.url || item.path || `asset-${index}`;

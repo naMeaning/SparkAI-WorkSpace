@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { imageModelBindingFor, normalizeImageModelBindings } from "../src/core.ts";
+import {
+  agentModelBindingFor,
+  imageModelBindingFor,
+  normalizeAgentModelBindings,
+  normalizeImageModelBindings
+} from "../src/core.ts";
 
 import {
   AGENT_PROVIDER_OPTIONS,
@@ -73,6 +78,7 @@ assert.deepEqual(defaultSettings.disabledCanvasToolCommands, []);
 assert.deepEqual(defaultSettings.canvasToolShortcuts, {});
 assert.deepEqual(defaultSettings.visibleWorkspaceAssetRailTabs, ["results", "layers", "requirements", "templates", "history"]);
 assert.deepEqual(WORKSPACE_ASSET_RAIL_TAB_VALUES, ["results", "layers", "requirements", "templates", "history"]);
+assert.deepEqual(defaultSettings.agentModelBindings, []);
 assert.deepEqual(defaultSettings.imageModelBindings, []);
 assert.equal(defaultSettings.videoModel, "doubao-seedance-2-0-260128");
 assert.deepEqual(defaultSettings.videoModelPool, ["doubao-seedance-2-0-260128"]);
@@ -86,6 +92,11 @@ const migrated = mergeSettings({
   apiKey: "legacy-key",
   model: "agent-primary",
   agentModelPool: ["AGENT-PRIMARY", "agent-secondary", "agent-secondary"],
+  agentModelBindings: [
+    { model: " agent-primary ", customBaseUrl: " https://agent-primary.example/v1/ ", customApiKey: " agent-key-primary " },
+    { model: "AGENT-PRIMARY", accountTokenId: "21" },
+    { model: "agent-secondary", accountTokenId: "0" },
+  ],
   imageModel: "image-primary",
   imageModelPool: ["IMAGE-PRIMARY", "image-secondary", ""],
   videoModel: "doubao-seedance-2-0-260128",
@@ -106,6 +117,21 @@ assert.equal(migrated.agentApiKey, "legacy-key");
 assert.equal(migrated.imageApiKey, "legacy-key");
 assert.equal(migrated.agentModel, "agent-primary");
 assert.deepEqual(migrated.agentModelPool, ["agent-primary", "agent-secondary"]);
+assert.deepEqual(migrated.agentModelBindings, [
+  { model: "agent-primary", customBaseUrl: "https://agent-primary.example/v1/", customApiKey: "agent-key-primary", accountTokenId: "21" },
+  { model: "agent-secondary" },
+]);
+assert.deepEqual(agentModelBindingFor(migrated, "AGENT-PRIMARY"), {
+  model: "agent-primary",
+  customBaseUrl: "https://agent-primary.example/v1/",
+  customApiKey: "agent-key-primary",
+  accountTokenId: "21",
+});
+assert.deepEqual(normalizeAgentModelBindings([
+  null,
+  { model: "" },
+  { model: " claude-private ", baseUrl: " https://agent.example/v1 ", customApiKey: " agent-private-key ", accountTokenId: "bad" },
+]), [{ model: "claude-private", customBaseUrl: "https://agent.example/v1", customApiKey: "agent-private-key" }]);
 assert.deepEqual(migrated.imageModelPool, ["image-primary", "image-secondary"]);
 assert.equal(migrated.videoModel, "doubao-seedance-2-0-260128");
 assert.deepEqual(migrated.videoModelPool, ["doubao-seedance-2-0-260128", "sora-2"]);
@@ -125,6 +151,7 @@ assert.deepEqual(normalizeImageModelBindings([
   { model: " grok-image-latest ", baseUrl: " https://grok.example/v1 ", customApiKey: " grok-key ", accountTokenId: "not-an-id" },
 ]), [{ model: "grok-image-latest", customBaseUrl: "https://grok.example/v1", customApiKey: "grok-key" }]);
 assert.deepEqual(mergeSettings({}).imageModelBindings, []);
+assert.deepEqual(mergeSettings({}).agentModelBindings, []);
 assert.deepEqual(mergeSettings({ videoModel: "", videoModelPool: ["sora-2"] }).videoModelPool, ["sora-2"]);
 assert.equal(mergeSettings({ videoModel: "", videoModelPool: ["sora-2"] }).videoModel, "sora-2");
 assert.equal(migrated.timeoutSeconds, 15);
@@ -422,4 +449,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 118 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 124 })}\n`);

@@ -123,11 +123,17 @@ export function createGoalConfirmationLedger(
   const ttlMs = Math.max(1, Math.min(60 * 60_000, Math.floor(Number(options.ttlMs) || GOAL_CONFIRMATION_TTL_MS)));
   const now = typeof options.now === "function" ? options.now : Date.now;
   const tokenFactory = typeof options.tokenFactory === "function" ? options.tokenFactory : createRandomGoalConfirmationHash;
-  const normalizedContext = (context: GoalConfirmationContext): Required<GoalConfirmationContext> => ({
-    projectId: String(context?.projectId || "").trim() || "default",
-    conversationId: String(context?.conversationId || "").trim() || "default",
-    issuerId: String(context?.issuerId || "").trim() || "renderer"
-  });
+  const normalizedContext = (context: GoalConfirmationContext): Required<GoalConfirmationContext> => {
+    const projectId = String(context?.projectId || "").trim();
+    const conversationId = String(context?.conversationId || "").trim();
+    if (!projectId) throw new Error("Goal 授权必须绑定当前项目。");
+    if (!conversationId) throw new Error("Goal 授权必须绑定当前对话。");
+    return {
+      projectId,
+      conversationId,
+      issuerId: String(context?.issuerId || "").trim() || "renderer"
+    };
+  };
   const sameContext = (grant: GoalConfirmationReceipt, context: Required<GoalConfirmationContext>) => (
     grant.projectId === context.projectId &&
     grant.conversationId === context.conversationId &&

@@ -1,5 +1,7 @@
 "use strict";
 
+const { createHash } = require("node:crypto");
+
 const MODEL_ID_KEYS = ["id", "name", "model", "modelName", "model_name", "modelId", "model_id", "Model", "value"];
 const MODEL_LIST_KEYS = ["data", "items", "Items", "models", "Models", "modelList", "model_list", "availableModels", "available_models", "result", "results", "rows", "list"];
 const MODEL_META_KEYS = new Set(["success", "ok", "message", "msg", "error", "code", "total", "count", "page", "limit", "object", "created", "owned_by", "permission", "permissions", "capabilities", "type", "label", "description", "desc", "price", "quota"]);
@@ -74,7 +76,10 @@ function configuredImageModelIds(settings = {}) {
 function configuredAgentModelIds(settings = {}) {
   return uniqueModelIds([
     settings.agentModel,
-    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : [])
+    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
+    ...(Array.isArray(settings.agentModelBindings)
+      ? settings.agentModelBindings.map((binding) => binding && typeof binding === "object" ? binding.model : "")
+      : [])
   ]).filter((model) => !isExplicitImageModelId(model));
 }
 
@@ -546,6 +551,28 @@ function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId, modelGr
     .join("::");
 }
 
+function modelBindingCacheFingerprint(settings = {}) {
+  const entries = [
+    ["agent", settings.agentModelBindings],
+    ["image", settings.imageModelBindings]
+  ].flatMap(([provider, bindings]) => Array.isArray(bindings)
+    ? bindings.flatMap((binding) => {
+        if (!binding || typeof binding !== "object" || Array.isArray(binding)) return [];
+        const model = String(binding.model || "").trim().toLowerCase();
+        if (!model) return [];
+        return [[
+          provider,
+          model,
+          String(binding.customBaseUrl || binding.baseUrl || "").trim(),
+          String(binding.customApiKey || "").trim(),
+          String(binding.accountTokenId || "").trim()
+        ]];
+      })
+    : [])
+    .sort((left, right) => left.slice(0, 2).join(":").localeCompare(right.slice(0, 2).join(":")));
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
 function cachedModelSettings(settings = {}, value) {
   const source = value && typeof value === "object" ? value : {};
   const models = uniqueModelIds([
@@ -612,6 +639,7 @@ function cachedModelSettings(settings = {}, value) {
 module.exports = {
   cachedModelSettings,
   createModelAccessProfile,
+  modelBindingCacheFingerprint,
   createModelCacheKey,
   markModelAccessProfilesVerified,
   mergeModelCapabilities,

@@ -45,6 +45,13 @@ async function main() {
   assert.equal(invalid.ok, false);
   assert.equal(invalid.appliedRevision, 4);
 
+  const missingProject = await coordinator.enqueue("", 1, async () => {
+    throw new Error("A missing project must never enter the save queue");
+  });
+  assert.equal(missingProject.ok, false);
+  assert.equal(missingProject.errorCode, "PROJECT_REQUIRED");
+  assert.equal(coordinator.revision(""), null);
+
   const serialEvents = [];
   let releaseFirst;
   const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
@@ -75,7 +82,7 @@ async function main() {
   assert.equal(coordinator.pendingProjectCount(), 0);
   assert.equal(recovery.pendingProjectCount(), 0);
 
-  process.stdout.write(`${JSON.stringify({ ok: true, cases: 18 })}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: true, cases: 21 })}\n`);
 }
 
 main().catch((error) => {

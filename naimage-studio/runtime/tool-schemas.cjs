@@ -272,13 +272,13 @@ function toolSchemas(settings = {}) {
       type: "function",
       function: {
         name: "workflow",
-        description: "成果画布管理工具。用于查看、描述、定位、删除、清理或更新成果，并维护成果之间的来源关系。不要创建 Agent、任务、计划、提示词步骤、后期步骤或工具调用节点；真实生成和修改图片时使用 image_gen。",
+        description: "成果画布管理工具。用于查看、描述、定位、删除、清理或更新成果，维护成果之间的来源关系，并对当前项目受管的图片组执行重命名、替换槽位或批量导出。不要创建 Agent、任务、计划、提示词步骤、后期步骤或工具调用节点；真实生成和修改图片时使用 image_gen。",
         parameters: {
           type: "object",
           properties: {
             operation: {
               type: "string",
-              description: "成果操作：list_nodes 查看成果；describe_node 读取成果详情；focus_node 定位成果；connect_nodes 建立成果来源关系；disconnect_node 移除关系；delete_node 删除成果；clear_canvas 清空成果画布；update_node 修改成果元数据；update_social_content 将完成的社媒文案/卡片/分镜结构化写回当前 Requirement；continue_node/redraw_node/cutout_node 基于已有图片继续工作。",
+              description: "成果操作：list_nodes 查看成果；describe_node 读取成果详情；focus_node 定位成果；connect_nodes 建立成果来源关系；disconnect_node 移除关系；delete_node 删除成果；clear_canvas 清空成果画布；update_node 修改成果元数据；update_social_content 将完成的社媒文案/卡片/分镜结构化写回当前 Requirement；rename_image_collections 重命名一个或多个图片组；replace_image_collection_item 用当前画布受管资产替换图片组槽位并保留瑕疵记录；export_image_collections 将一个或多个图片组导出到当前项目目录；continue_node/redraw_node/cutout_node 基于已有图片继续工作。图片组操作不能提交路径、URL 或目标目录。",
               enum: [
                 "list_nodes",
                 "describe_node",
@@ -289,6 +289,9 @@ function toolSchemas(settings = {}) {
                 "clear_canvas",
                 "update_node",
                 "update_social_content",
+                "rename_image_collections",
+                "replace_image_collection_item",
+                "export_image_collections",
                 "continue_node",
                 "redraw_node",
                 "cutout_node"
@@ -335,6 +338,50 @@ function toolSchemas(settings = {}) {
             y: { type: "number" },
             parentId: { type: "string", description: "成果来源 ID。生成或修改图片时优先使用 image_gen.parentId，由运行时自动建立来源关系。" },
             assetIndex: { type: "integer", minimum: 0, description: "图片资产序号；0 表示第一张。" },
+            collectionId: { type: "string", minLength: 1, maxLength: 120, description: "单个图片组 ID。仅使用当前画布返回的受管图片组 ID。" },
+            collectionIds: {
+              type: "array",
+              minItems: 1,
+              maxItems: 200,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 120 },
+              description: "export_image_collections 要导出的当前项目图片组 ID 列表；不要填写路径。"
+            },
+            format: {
+              type: "string",
+              enum: ["png", "jpeg", "webp", "avif", "tiff"],
+              description: "export_image_collections 的明确输出格式。JPEG 会以白色背景展平透明像素。"
+            },
+            name: { type: "string", minLength: 1, maxLength: 240, description: "图片组新名称；运行时会执行 Windows 安全清洗和重复处理。" },
+            itemId: { type: "string", minLength: 1, maxLength: 120, description: "replace_image_collection_item 的原图片组 item ID。" },
+            requestIndex: { type: "integer", minimum: 1, maximum: 200, description: "replace_image_collection_item 的原图片请求序号（一-based）。" },
+            sourceCollectionId: { type: "string", minLength: 1, maxLength: 120, description: "replace_image_collection_item 的原结果图片组 ID。" },
+            replacementNodeId: { type: "string", minLength: 1, maxLength: 160, description: "当前画布中已受管替换图片所在的节点 ID；不能是本地路径。" },
+            replacementAssetIndex: { type: "integer", minimum: 0, maximum: 199, description: "替换节点中的图片资产序号（zero-based）。" },
+            defectReason: { type: "string", minLength: 1, maxLength: 320, description: "替换原因，将写入独立瑕疵图片组。" },
+            requests: {
+              type: "array",
+              minItems: 1,
+              maxItems: 200,
+              description: "rename_image_collections 使用 [{collectionId,name}]；replace_image_collection_item 使用 [{sourceCollectionId,itemId 或 requestIndex,replacementNodeId,replacementAssetIndex,defectReason}]。",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  collectionId: { type: "string", minLength: 1, maxLength: 120 },
+                  name: { type: "string", minLength: 1, maxLength: 240 },
+                  sourceCollectionId: { type: "string", minLength: 1, maxLength: 120 },
+                  itemId: { type: "string", minLength: 1, maxLength: 120 },
+                  requestIndex: { type: "integer", minimum: 1, maximum: 200 },
+                  replacementNodeId: { type: "string", minLength: 1, maxLength: 160 },
+                  replacementAssetIndex: { type: "integer", minimum: 0, maximum: 199 },
+                  defectReason: { type: "string", minLength: 1, maxLength: 320 }
+                }
+              }
+            },
+            expectedProjectId: { type: "string", minLength: 1, maxLength: 160, description: "当前项目 ID；运行时也会与活动项目核对。" },
+            expectedCanvasRevision: { type: "integer", minimum: 0, description: "读取 canvas.state 后得到的画布版本，用于阻止过期写入。" },
+            confirmed: { type: "boolean", description: "export_image_collections 必须显式传 true。" },
             offset: { type: "integer", minimum: 0, description: "list_nodes 分页起点，默认 0。" },
             limit: { type: "integer", minimum: 1, maximum: 100, description: "list_nodes 每页数量，默认 25，最大 100。" },
             query: { type: "string", description: "list_nodes 按节点 ID、标题或提示词模糊筛选。" },
@@ -529,7 +576,7 @@ function agentToolSchemas(settings = {}, options = {}) {
   if (publicWorkflowTool?.function?.parameters?.properties?.operation) {
     publicWorkflowTool.function.parameters.properties.operation = {
       ...publicWorkflowTool.function.parameters.properties.operation,
-      enum: ["list_nodes", "describe_node", "focus_node", "connect_nodes", "disconnect_node", "delete_node", "clear_canvas", "update_node", "update_social_content"]
+      enum: ["list_nodes", "describe_node", "focus_node", "connect_nodes", "disconnect_node", "delete_node", "clear_canvas", "update_node", "update_social_content", "rename_image_collections", "replace_image_collection_item", "export_image_collections"]
     };
   }
   const experienceTool = schemas.find((tool) => String(tool.function?.name || "") === "experience");

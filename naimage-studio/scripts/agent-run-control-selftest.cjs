@@ -11,6 +11,14 @@ const { normalizedTaskScope, normalizedSteerTaskScopeUpdate } = require("../agen
   const { confirmAgentStopRequest } = await import("../src/agent-stop-request.ts");
   const snapshots = [];
   const control = createAgentRunControl({ onChange: (snapshot) => snapshots.push(snapshot) });
+  assert.throws(
+    () => control.begin({ runId: "missing-project", conversationId: "C1" }),
+    (error) => error.code === "PROJECT_REQUIRED"
+  );
+  assert.throws(
+    () => control.begin({ runId: "missing-conversation", projectId: "P" }),
+    (error) => error.code === "CONVERSATION_REQUIRED"
+  );
   const initialTaskScope = normalizedTaskScope({ taskScope: {
     version: 2,
     origin: "chat",

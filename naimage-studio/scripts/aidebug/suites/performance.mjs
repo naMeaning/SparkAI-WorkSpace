@@ -58,6 +58,7 @@ export async function capturePerformanceSuiteProbe({
   client,
   targetId,
   aidebugConfigDir,
+  aidebugProjectDir,
   packageRoot,
   runDir,
   startupPerformance,
@@ -81,7 +82,7 @@ export async function capturePerformanceSuiteProbe({
       height: 176
     }
   }));
-  const imageFixtureDir = join(aidebugConfigDir, "projects", "default", "output", "imagegen", "performance-image-fixtures");
+  const imageFixtureDir = join(aidebugProjectDir, "output", "imagegen", "performance-image-fixtures");
   mkdirSync(imageFixtureDir, { recursive: true });
   const fixtureFormats = ["png", "jpeg", "webp"];
   const imageFixtures = [];
@@ -287,7 +288,7 @@ export async function capturePerformanceSuiteProbe({
     const largeProjectSaved = largeProjectLoaded?.ok && loadedNodeCount === 200
       ? await window.naimageConfig?.saveSession?.({
           ...largeProjectLoaded.session,
-          projectId: largeProjectLoaded.activeProjectId || largeProjectLoaded.project?.id || 'default',
+          projectId: largeProjectLoaded.activeProjectId || largeProjectLoaded.project?.id || '',
           sessionRevision: requestedRevision
         })
       : null;
@@ -934,7 +935,7 @@ export async function capturePerformanceSuiteProbe({
     const loadBeforeSaveMs = performance.now() - loadStartedAt;
     const saveStartedAt = performance.now();
     const saved = loaded?.ok && loaded.session
-      ? await window.naimageConfig?.saveSession?.({ ...loaded.session, projectId: loaded.activeProjectId || loaded.project?.id || 'default' })
+      ? await window.naimageConfig?.saveSession?.({ ...loaded.session, projectId: loaded.activeProjectId || loaded.project?.id || '' })
       : null;
     const save = {
       status: loaded?.ok && saved?.ok ? 'measured' : 'unknown',
@@ -1017,7 +1018,7 @@ export async function capturePerformanceSuiteProbe({
     };
     return { nodes200, nodes1000, longTimeline, streamingTimeline, imageContainer10, interactions: { pan, zoom, drag, denseViewportZoom }, rendererCommits, persistence, save, longTasks, phaseLongTasks, rendererMemory, rendererMemorySamples };
   })()`, 180000);
-  const thumbnailCacheDir = join(aidebugConfigDir, "projects", "default", ".naimage", "thumbnails");
+  const thumbnailCacheDir = join(aidebugProjectDir, ".naimage", "thumbnails");
   const thumbnailEntries = existsSync(thumbnailCacheDir) ? readdirSync(thumbnailCacheDir) : [];
   const thumbnailFiles = thumbnailEntries.filter((entry) => extname(entry).toLowerCase() === ".webp");
   const thumbnailStagingFiles = thumbnailEntries.filter((entry) => entry.endsWith(".tmp"));

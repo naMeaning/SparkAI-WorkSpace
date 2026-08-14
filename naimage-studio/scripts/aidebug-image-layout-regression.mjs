@@ -1028,6 +1028,6 @@ export async function runCanvasLayoutMutationRegression({ client, evaluate, fixt
     ...regression,
     ok: Boolean(regression?.ok && immediateContainerRedrag.ok),
     results: { ...(regression?.results || {}), immediateContainerRedrag },
-    state: immediateContainerRedrag.state || regression?.state
+    state: regression?.state || immediateContainerRedrag.state
   };
 }

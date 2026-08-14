@@ -156,21 +156,35 @@ function registerSessionIpc({
   projectSessionSaveCoordinator,
   sanitizeSession,
   sessionHasContent,
-  writeProjectList
+  writeProjectList,
+  projectsDir,
+  isPathInside
 }) {
   ipcMain.handle("naimage:config:load-session", (_event, payload = {}) => {
     const list = readProjectList();
     const requestedProjectId = typeof payload?.projectId === "string" ? payload.projectId.trim() : "";
     const activeProject = requestedProjectId ? getProjectById(requestedProjectId, list) : getActiveProject(list);
-    const activeSessionPath = activeProject?.sessionPath || sessionPath;
-    if (activeProject) ensureProjectFiles(activeProject, readJson(activeSessionPath, readJson(sessionPath, defaultSession)));
-    const session = activeProject ? projectSessionFromDisk(activeProject) : hydrateSessionAssets(readJson(activeSessionPath, readJson(sessionPath, defaultSession)));
-    if (activeProject) {
-      writeJson(activeSessionPath, sessionForProjectSave(session, activeProject));
-      writeProjectManifest(activeProject, session);
+    if (requestedProjectId && !activeProject) {
+      return { ok: false, errorCode: "PROJECT_NOT_FOUND", error: "要加载的项目不存在或已经被移除。" };
     }
+    if (!activeProject) {
+      log("config load session without project");
+      return { ok: true, path: "", project: null, projects: list.projects, activeProjectId: "", session: sanitizeSession(defaultSession) };
+    }
+    const activeSessionPath = activeProject.sessionPath;
+    const isLegacyManagedProject = Boolean(
+      activeProject.external === false &&
+      projectsDir &&
+      typeof isPathInside === "function" &&
+      isPathInside(activeProject.path, projectsDir)
+    );
+    const legacyFallback = isLegacyManagedProject ? readJson(sessionPath, defaultSession) : defaultSession;
+    ensureProjectFiles(activeProject, readJson(activeSessionPath, legacyFallback));
+    const session = projectSessionFromDisk(activeProject);
+    writeJson(activeSessionPath, sessionForProjectSave(session, activeProject));
+    writeProjectManifest(activeProject, session);
     log("config load session");
-    return { ok: true, path: activeSessionPath, project: activeProject, projects: list.projects, activeProjectId: activeProject?.id || list.activeProjectId, session };
+    return { ok: true, path: activeSessionPath, project: activeProject, projects: list.projects, activeProjectId: activeProject.id, session };
   });
 
   ipcMain.handle("naimage:config:save-session", async (_event, session, saveOptions = {}) => {
@@ -178,9 +192,12 @@ function registerSessionIpc({
     const requestedProjectId = typeof session?.projectId === "string" ? session.projectId.trim() : "";
     const targetProject = requestedProjectId ? getProjectById(requestedProjectId, list) : getActiveProject(list);
     if (requestedProjectId && !targetProject) {
-      return { ok: false, error: "保存目标项目不存在或已被移除。", appliedRevision: 0, skippedStale: false };
+      return { ok: false, errorCode: "PROJECT_NOT_FOUND", error: "保存目标项目不存在或已被移除。", appliedRevision: 0, skippedStale: false };
     }
-    const activeSessionPath = targetProject?.sessionPath || sessionPath;
+    if (!targetProject) {
+      return { ok: false, errorCode: "PROJECT_REQUIRED", error: "请先创建或打开项目，再保存画布。", appliedRevision: 0, skippedStale: false };
+    }
+    const activeSessionPath = targetProject.sessionPath;
     const requestedRevision = saveOptions?.revision ?? session?.revision ?? session?.sessionRevision;
     const nodeMutationOptions = saveOptions?.nodeMutation && typeof saveOptions.nodeMutation === "object"
       ? saveOptions.nodeMutation
@@ -191,26 +208,23 @@ function registerSessionIpc({
       nextWriterSequence: nodeMutationOptions.writerSequence,
       observedRevision: nodeMutationOptions.observedRevision
     });
-    const projectKey = targetProject?.id || "__global__";
+    const projectKey = targetProject.id;
     const applySession = async (appliedRevision, inputSession, mergedStale = false) => {
       const nextInput = { ...defaultSession, ...inputSession, sessionRevision: appliedRevision };
       delete nextInput.revision;
       delete nextInput.projectId;
-      const next = targetProject ? sessionForProjectSave(nextInput, targetProject) : sanitizeSession(nextInput);
+      const next = sessionForProjectSave(nextInput, targetProject);
       const existingRaw = readJson(activeSessionPath, defaultSession);
       if (targetProject && !sessionHasContent(next) && sessionHasContent(existingRaw)) {
         log(`config save session skipped empty overwrite ${targetProject.id}`);
         return { ok: true, path: activeSessionPath, skipped: true, applied: false, reason: "empty-session-overwrite" };
       }
       writeJson(activeSessionPath, next);
-      if (targetProject?.id === "default" && activeSessionPath !== sessionPath) writeJson(sessionPath, next);
-      if (targetProject) writeProjectManifest(targetProject, next);
-      if (targetProject) {
-        targetProject.updatedAt = new Date().toISOString();
-        const latestList = readProjectList();
-        writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
-      }
-      log(`config save session project=${targetProject?.id || "global"} revision=${appliedRevision}${mergedStale ? " merged-stale" : ""}`);
+      writeProjectManifest(targetProject, next);
+      targetProject.updatedAt = new Date().toISOString();
+      const latestList = readProjectList();
+      writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
+      log(`config save session project=${targetProject.id} revision=${appliedRevision}${mergedStale ? " merged-stale" : ""}`);
       return {
         ok: true,
         path: activeSessionPath,

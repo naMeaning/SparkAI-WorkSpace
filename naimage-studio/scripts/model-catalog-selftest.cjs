@@ -8,6 +8,7 @@ const {
   markModelAccessProfilesVerified,
   mergeModelCapabilities,
   mergeModelAccessProfiles,
+  modelBindingCacheFingerprint,
   modelCapabilitiesFromResponse,
   modelGroupsFromResponse,
   modelIdsFromResponse,
@@ -181,6 +182,9 @@ const split = splitModelSettings(
     ],
     agentModel: "gpt-5.6-sol",
     agentModelPool: ["gpt-5.6-sol", "claude-4.5-sonnet"],
+    agentModelBindings: [
+      { model: "private-chat-bound", customBaseUrl: "https://private-chat.example/v1", customApiKey: "private-chat-key" }
+    ],
     videoModel: "doubao-seedance-2-0-260128",
     videoModelPool: ["doubao-seedance-2-0-260128"],
     modelGroup: "vip",
@@ -232,7 +236,8 @@ assert.deepEqual(split.agentModels, [
   "claude-4.5-sonnet",
   "gemini-2.5-pro",
   "grok-3",
-  "vendor/custom-model-v2"
+  "vendor/custom-model-v2",
+  "private-chat-bound"
 ]);
 assert.deepEqual(split.videoModels, ["doubao-seedance-2-0-260128", "sora-2"]);
 assert.equal(split.imageModel, "opaque-renderer-v9");
@@ -284,6 +289,20 @@ assert.notEqual(
   createModelCacheKey("https://account.example", "https://relay.example", "7", "default"),
   createModelCacheKey("https://account.example", "https://relay.example", "7", "vip")
 );
+
+const agentBindingFingerprint = modelBindingCacheFingerprint({
+  agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-a.example/v1", customApiKey: "secret-a", accountTokenId: "7" }]
+});
+assert.notEqual(agentBindingFingerprint, modelBindingCacheFingerprint({
+  agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-b.example/v1", customApiKey: "secret-a", accountTokenId: "7" }]
+}), "Changing an Agent model Base URL must rotate the model cache identity");
+assert.notEqual(agentBindingFingerprint, modelBindingCacheFingerprint({
+  agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-a.example/v1", customApiKey: "secret-b", accountTokenId: "7" }]
+}), "Changing an Agent model API Key must rotate the model cache identity");
+assert.notEqual(agentBindingFingerprint, modelBindingCacheFingerprint({
+  agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-a.example/v1", customApiKey: "secret-a", accountTokenId: "8" }]
+}), "Changing an Agent model account Token must rotate the model cache identity");
+assert.equal(agentBindingFingerprint.includes("secret-a"), false, "The cache fingerprint must not expose an Agent model API Key");
 
 const cached = cachedModelSettings(
   { imageModel: "settings-image", modelGroup: "default" },

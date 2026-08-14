@@ -21,19 +21,60 @@ function bindingSecretMap(bindings) {
   return result;
 }
 
+function stripBindingSecrets(bindings) {
+  return Array.isArray(bindings)
+    ? bindings.map((binding) => {
+        if (!binding || typeof binding !== "object") return binding;
+        const { customApiKey: _customApiKey, ...rest } = binding;
+        return rest;
+      })
+    : [];
+}
+
+function mergeBindingSecrets(bindings, bindingKeys) {
+  const keys = bindingKeys && typeof bindingKeys === "object" ? bindingKeys : {};
+  return Array.isArray(bindings)
+    ? bindings.map((binding) => {
+        if (!binding || typeof binding !== "object") return binding;
+        const model = typeof binding.model === "string" ? binding.model.trim().toLowerCase() : "";
+        const customApiKey = cleanSecret(keys[model]) || cleanSecret(binding.customApiKey);
+        return customApiKey ? { ...binding, customApiKey } : { ...binding };
+      })
+    : [];
+}
+
+function publicBindingSettings(bindings) {
+  return Array.isArray(bindings)
+    ? bindings.map((binding) => {
+        if (!binding || typeof binding !== "object") return binding;
+        return cleanSecret(binding.customApiKey)
+          ? { ...binding, customApiKey: SETTINGS_SECRET_PLACEHOLDER }
+          : { ...binding };
+      })
+    : [];
+}
+
+function restoreBindingPlaceholders(bindings, currentBindings) {
+  const currentBindingKeys = bindingSecretMap(currentBindings);
+  return Array.isArray(bindings)
+    ? bindings.map((binding) => {
+        if (!binding || typeof binding !== "object" || binding.customApiKey !== SETTINGS_SECRET_PLACEHOLDER) return binding;
+        const model = typeof binding.model === "string" ? binding.model.trim().toLowerCase() : "";
+        const customApiKey = cleanSecret(currentBindingKeys[model]);
+        const { customApiKey: _placeholder, ...rest } = binding;
+        return customApiKey ? { ...rest, customApiKey } : rest;
+      })
+    : [];
+}
+
 function stripPlaintextSecrets(settings) {
   const source = settings && typeof settings === "object" ? settings : {};
   return {
     ...source,
     agentApiKey: "",
     imageApiKey: "",
-    imageModelBindings: Array.isArray(source.imageModelBindings)
-      ? source.imageModelBindings.map((binding) => {
-          if (!binding || typeof binding !== "object") return binding;
-          const { customApiKey: _customApiKey, ...rest } = binding;
-          return rest;
-        })
-      : []
+    agentModelBindings: stripBindingSecrets(source.agentModelBindings),
+    imageModelBindings: stripBindingSecrets(source.imageModelBindings)
   };
 }
 
@@ -42,27 +83,19 @@ function secretsFromSettings(settings) {
     version: 1,
     agentApiKey: cleanSecret(settings?.agentApiKey),
     imageApiKey: cleanSecret(settings?.imageApiKey),
+    agentModelBindingKeys: bindingSecretMap(settings?.agentModelBindings),
     imageModelBindingKeys: bindingSecretMap(settings?.imageModelBindings)
   };
 }
 
 function mergeSecrets(settings, secrets) {
   const source = settings && typeof settings === "object" ? settings : {};
-  const bindingKeys = secrets?.imageModelBindingKeys && typeof secrets.imageModelBindingKeys === "object"
-    ? secrets.imageModelBindingKeys
-    : {};
   return {
     ...source,
     agentApiKey: cleanSecret(secrets?.agentApiKey) || cleanSecret(source.agentApiKey),
     imageApiKey: cleanSecret(secrets?.imageApiKey) || cleanSecret(source.imageApiKey),
-    imageModelBindings: Array.isArray(source.imageModelBindings)
-      ? source.imageModelBindings.map((binding) => {
-          if (!binding || typeof binding !== "object") return binding;
-          const model = typeof binding.model === "string" ? binding.model.trim().toLowerCase() : "";
-          const customApiKey = cleanSecret(bindingKeys[model]) || cleanSecret(binding.customApiKey);
-          return customApiKey ? { ...binding, customApiKey } : { ...binding };
-        })
-      : []
+    agentModelBindings: mergeBindingSecrets(source.agentModelBindings, secrets?.agentModelBindingKeys),
+    imageModelBindings: mergeBindingSecrets(source.imageModelBindings, secrets?.imageModelBindingKeys)
   };
 }
 
@@ -70,6 +103,7 @@ function hasSecrets(secrets) {
   return Boolean(
     cleanSecret(secrets?.agentApiKey)
     || cleanSecret(secrets?.imageApiKey)
+    || Object.keys(secrets?.agentModelBindingKeys || {}).length
     || Object.keys(secrets?.imageModelBindingKeys || {}).length
   );
 }
@@ -103,6 +137,7 @@ function createSettingsSecretStore({ safeStorage, secretsPath, log = () => undef
         version: 1,
         agentApiKey: cleanSecret(parsed?.agentApiKey),
         imageApiKey: cleanSecret(parsed?.imageApiKey),
+        agentModelBindingKeys: bindingSecretMap(Object.entries(parsed?.agentModelBindingKeys || {}).map(([model, customApiKey]) => ({ model, customApiKey }))),
         imageModelBindingKeys: bindingSecretMap(Object.entries(parsed?.imageModelBindingKeys || {}).map(([model, customApiKey]) => ({ model, customApiKey })))
       };
     } catch (error) {
@@ -156,33 +191,19 @@ function createSettingsSecretStore({ safeStorage, secretsPath, log = () => undef
       ...source,
       agentApiKey: cleanSecret(source.agentApiKey) ? SETTINGS_SECRET_PLACEHOLDER : "",
       imageApiKey: cleanSecret(source.imageApiKey) ? SETTINGS_SECRET_PLACEHOLDER : "",
-      imageModelBindings: Array.isArray(source.imageModelBindings)
-        ? source.imageModelBindings.map((binding) => {
-            if (!binding || typeof binding !== "object") return binding;
-            return cleanSecret(binding.customApiKey)
-              ? { ...binding, customApiKey: SETTINGS_SECRET_PLACEHOLDER }
-              : { ...binding };
-          })
-        : []
+      agentModelBindings: publicBindingSettings(source.agentModelBindings),
+      imageModelBindings: publicBindingSettings(source.imageModelBindings)
     };
   }
 
   function restorePlaceholders(incoming, current) {
     const source = incoming && typeof incoming === "object" ? incoming : {};
-    const currentBindingKeys = bindingSecretMap(current?.imageModelBindings);
     return {
       ...source,
       agentApiKey: source.agentApiKey === SETTINGS_SECRET_PLACEHOLDER ? cleanSecret(current?.agentApiKey) : source.agentApiKey,
       imageApiKey: source.imageApiKey === SETTINGS_SECRET_PLACEHOLDER ? cleanSecret(current?.imageApiKey) : source.imageApiKey,
-      imageModelBindings: Array.isArray(source.imageModelBindings)
-        ? source.imageModelBindings.map((binding) => {
-            if (!binding || typeof binding !== "object" || binding.customApiKey !== SETTINGS_SECRET_PLACEHOLDER) return binding;
-            const model = typeof binding.model === "string" ? binding.model.trim().toLowerCase() : "";
-            const customApiKey = cleanSecret(currentBindingKeys[model]);
-            const { customApiKey: _placeholder, ...rest } = binding;
-            return customApiKey ? { ...rest, customApiKey } : rest;
-          })
-        : []
+      agentModelBindings: restoreBindingPlaceholders(source.agentModelBindings, current?.agentModelBindings),
+      imageModelBindings: restoreBindingPlaceholders(source.imageModelBindings, current?.imageModelBindings)
     };
   }
 

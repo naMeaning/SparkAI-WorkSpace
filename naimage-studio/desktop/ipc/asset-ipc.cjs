@@ -4,6 +4,7 @@ const { createHash } = require("node:crypto");
 const {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   realpathSync,
   renameSync
@@ -13,9 +14,7 @@ const {
   IMAGE_EXPORT_FORMATS,
   convertImageForExport,
   imageExportFilters,
-  imageExportFormatFromExtension,
-  matchingImageExportExtension,
-  normalizeImageExportFormat
+  matchingImageExportExtension
 } = require("../image-export-service.cjs");
 
 function registerAssetIpc(options = {}) {
@@ -24,7 +23,6 @@ function registerAssetIpc(options = {}) {
     dialog,
     shell,
     BrowserWindow,
-    app,
     log,
     importLocalImagesToProject,
     importLocalVideosToProject,
@@ -45,7 +43,6 @@ function registerAssetIpc(options = {}) {
     exportFileName,
     aidebugMode,
     aidebugExportFilePath,
-    desktopRoot,
     comparablePath,
     releaseTransientExportSources,
     maxFolderExportAssets,
@@ -61,16 +58,131 @@ function registerAssetIpc(options = {}) {
     preparePsdRasterSource,
     secureExportSourceCacheDir,
     retainTransientExportSource,
-    exportLayeredPsd
+    exportLayeredPsd,
+    convertImageForExport: convertImageForExportOverride
   } = options;
+  const convertImageForExportImpl = typeof convertImageForExportOverride === "function"
+    ? convertImageForExportOverride
+    : convertImageForExport;
+  const comparablePathImpl = typeof comparablePath === "function"
+    ? comparablePath
+    : (value) => process.platform === "win32" ? path.resolve(value).toLowerCase() : path.resolve(value);
+  const isPathInside = typeof isComparablePathInside === "function"
+    ? isComparablePathInside
+    : (candidate, root) => {
+        const candidatePath = comparablePathImpl(candidate);
+        const rootPath = comparablePathImpl(root);
+        return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${path.sep}`);
+      };
   const exportTargetTurns = new Map();
+
+  function exportFailure(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    throw error;
+  }
+
+  function projectExportDirectory(context, category) {
+    const declaredProjectRoot = path.resolve(context?.project?.path || "");
+    const projectStats = existsSync(declaredProjectRoot) ? lstatSync(declaredProjectRoot) : null;
+    if (!projectStats?.isDirectory() || projectStats.isSymbolicLink()) {
+      exportFailure("PROJECT_PATH_INVALID", "当前项目目录不可用，已取消导出。");
+    }
+    const realProjectRoot = realpathSync(declaredProjectRoot);
+    const requestedRoot = path.join(realProjectRoot, "exports", category);
+    if (!isPathInside(requestedRoot, realProjectRoot)) {
+      exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出目录越过了当前项目边界。");
+    }
+    mkdirSync(requestedRoot, { recursive: true });
+    const exportStats = lstatSync(requestedRoot);
+    if (!exportStats.isDirectory() || exportStats.isSymbolicLink()) {
+      exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出目录不是安全的普通目录。");
+    }
+    const realExportRoot = realpathSync(requestedRoot);
+    if (!isPathInside(realExportRoot, realProjectRoot)) {
+      exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出目录包含越界链接。");
+    }
+    return realExportRoot;
+  }
+
+  function validatedProjectExportDirectory(selectedPath, exportRoot) {
+    const resolved = path.resolve(selectedPath || "");
+    if (!existsSync(resolved)) exportFailure("IMAGE_EXPORT_PATH_INVALID", "所选导出目录不存在。");
+    const stats = lstatSync(resolved);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      exportFailure("IMAGE_EXPORT_PATH_INVALID", "所选导出位置不是安全的普通目录。");
+    }
+    const realSelected = realpathSync(resolved);
+    if (!isPathInside(realSelected, exportRoot)) {
+      exportFailure("IMAGE_EXPORT_OUTSIDE_PROJECT", "导出位置必须位于当前项目的 exports 目录内。");
+    }
+    return realSelected;
+  }
+
+  function validatedProjectExportFile(selectedPath, exportRoot) {
+    const resolved = path.resolve(selectedPath || "");
+    const realParent = validatedProjectExportDirectory(path.dirname(resolved), exportRoot);
+    const target = path.join(realParent, path.basename(resolved));
+    if (!isPathInside(target, exportRoot)) {
+      exportFailure("IMAGE_EXPORT_OUTSIDE_PROJECT", "导出文件必须位于当前项目的 exports 目录内。");
+    }
+    if (existsSync(target)) {
+      const stats = lstatSync(target);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出目标不是安全的普通文件。");
+      }
+    }
+    return target;
+  }
+
+  function strictImageExportFormat(value) {
+    const normalized = String(value || "").trim().toLowerCase().replace(/^\./, "");
+    const alias = normalized === "jpg" ? "jpeg" : normalized === "tif" ? "tiff" : normalized;
+    return Object.prototype.hasOwnProperty.call(IMAGE_EXPORT_FORMATS, alias) ? alias : "";
+  }
+
+  async function chooseImageExportFormat(owner, payload = {}) {
+    if (payload.format !== undefined && payload.format !== null && String(payload.format).trim()) {
+      const format = strictImageExportFormat(payload.format);
+      if (!format) exportFailure("IMAGE_EXPORT_FORMAT_INVALID", "不支持该图片导出格式。");
+      return format;
+    }
+    if (aidebugMode && payload.aidebugName) return "png";
+    const formats = Object.keys(IMAGE_EXPORT_FORMATS);
+    const options = {
+      type: "question",
+      title: "选择图片导出格式",
+      message: "请先选择格式，再选择项目内的文件名。",
+      detail: "JPEG 会使用白色背景展平透明像素；其他格式保留透明通道。",
+      buttons: [...formats.map((format) => IMAGE_EXPORT_FORMATS[format].label.replace(/\s*图片$/, "")), "取消"],
+      defaultId: 0,
+      cancelId: formats.length,
+      noLink: true
+    };
+    const selected = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
+    return selected.response >= 0 && selected.response < formats.length ? formats[selected.response] : "";
+  }
+
+  async function confirmExportOverwrite(owner, destinationPath, kind) {
+    const options = {
+      type: "warning",
+      title: `最终确认覆盖${kind}`,
+      message: `“${path.basename(destinationPath)}”已经存在。是否确认覆盖当前文件？`,
+      buttons: ["覆盖", "取消"],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    };
+    const confirmation = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
+    return confirmation.response === 0;
+  }
 
   function exportTargetLockKey(filePath) {
     const resolved = path.resolve(filePath);
     try {
-      return comparablePath(path.join(realpathSync(path.dirname(resolved)), path.basename(resolved)));
+      return comparablePathImpl(path.join(realpathSync(path.dirname(resolved)), path.basename(resolved)));
     } catch {
-      return comparablePath(resolved);
+      return comparablePathImpl(resolved);
     }
   }
 
@@ -329,33 +441,34 @@ function registerAssetIpc(options = {}) {
     const transientSources = [];
     try {
       context = createAssetExportContext(payload?.projectId);
+      const owner = BrowserWindow.fromWebContents(event.sender);
+      const requestedFormat = await chooseImageExportFormat(owner, payload);
+      if (!requestedFormat) return { ok: true, canceled: true };
+      const requestedDefinition = IMAGE_EXPORT_FORMATS[requestedFormat];
       const source = await materializeManagedImageAsset(payload?.asset, context);
       transientSources.push(source);
       const defaultName = exportFileName(source, payload?.suggestedName);
-      const sourceFormat = imageExportFormatFromExtension(source.extension) || "png";
-      const requestedFormat = normalizeImageExportFormat(payload?.format, sourceFormat);
-      const requestedDefinition = IMAGE_EXPORT_FORMATS[requestedFormat];
-      const owner = BrowserWindow.fromWebContents(event.sender);
       let selectedPath = "";
+      let projectImageExportRoot = "";
       if (aidebugMode && payload?.aidebugName) {
         selectedPath = aidebugExportFilePath(payload.aidebugName, requestedDefinition.extension, "aidebug-image");
       } else {
+        projectImageExportRoot = projectExportDirectory(context, "images");
         const defaultStem = path.parse(defaultName).name;
         const options = {
           title: "图片另存为",
-          defaultPath: path.join(
-            app.getPath("desktop") || desktopRoot,
-            payload?.format ? `${defaultStem}${requestedDefinition.extension}` : defaultStem
-          ),
+          defaultPath: path.join(projectImageExportRoot, `${defaultStem}${requestedDefinition.extension}`),
           buttonLabel: "保存",
-          filters: imageExportFilters(requestedFormat)
+          filters: imageExportFilters(requestedFormat).slice(0, 1)
         };
         const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
         if (result.canceled || !result.filePath) return { ok: true, canceled: true };
-        selectedPath = path.resolve(result.filePath);
+        selectedPath = validatedProjectExportFile(result.filePath, projectImageExportRoot);
       }
-      const selectedFormat = imageExportFormatFromExtension(selectedPath) || requestedFormat;
-      const destinationPath = matchingImageExportExtension(selectedPath, selectedFormat);
+      const matchedPath = matchingImageExportExtension(selectedPath, requestedFormat);
+      const destinationPath = projectImageExportRoot
+        ? validatedProjectExportFile(matchedPath, projectImageExportRoot)
+        : matchedPath;
       return await withExportTargetLock(destinationPath, async () => {
         const existsAtCommit = existsSync(destinationPath);
         if (existsAtCommit && aidebugMode && payload?.aidebugName) {
@@ -364,21 +477,9 @@ function registerAssetIpc(options = {}) {
           throw conflict;
         }
         if (existsAtCommit) {
-          const confirmOptions = {
-            type: "warning",
-            title: "最终确认覆盖图片",
-            message: `“${path.basename(destinationPath)}”已经存在。是否确认覆盖当前文件？`,
-            buttons: ["覆盖", "取消"],
-            defaultId: 1,
-            cancelId: 1,
-            noLink: true
-          };
-          const confirmation = owner
-            ? await dialog.showMessageBox(owner, confirmOptions)
-            : await dialog.showMessageBox(confirmOptions);
-          if (confirmation.response !== 0) return { ok: true, canceled: true };
+          if (!await confirmExportOverwrite(owner, destinationPath, "图片")) return { ok: true, canceled: true };
         }
-        const exported = await convertImageForExport(source.path, destinationPath, selectedFormat, { overwrite: existsAtCommit });
+        const exported = await convertImageForExportImpl(source.path, destinationPath, requestedFormat, { overwrite: existsAtCommit });
         if (exported.cleanupWarning) log(`asset save as cleanup warning ${exported.cleanupWarning}`);
         log(`asset save as project=${context.project.id} format=${exported.format} bytes=${exported.bytes} converted=${exported.converted}`);
         return {
@@ -408,6 +509,9 @@ function registerAssetIpc(options = {}) {
     const transientSources = [];
     try {
       context = createAssetExportContext(payload?.projectId);
+      const projectLayerExportRoot = aidebugMode && payload?.aidebugName
+        ? ""
+        : projectExportDirectory(context, "layers");
       const rawItems = Array.isArray(payload?.assets) ? payload.assets : [];
       if (rawItems.length <= 0) return { ok: false, error: "没有可导出的图片或图层。" };
       if (rawItems.length > maxFolderExportAssets) return { ok: false, error: `单次最多导出 ${maxFolderExportAssets} 张图片。` };
@@ -424,12 +528,13 @@ function registerAssetIpc(options = {}) {
       } else {
         const options = {
           title: "选择图层文件夹的保存位置",
+          defaultPath: projectLayerExportRoot,
           buttonLabel: "导出到此处",
           properties: ["openDirectory", "createDirectory"]
         };
         const selected = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
         if (selected.canceled || !selected.filePaths[0]) return { ok: true, canceled: true };
-        selectedParent = realpathSync(selected.filePaths[0]);
+        selectedParent = validatedProjectExportDirectory(selected.filePaths[0], projectLayerExportRoot);
       }
 
       const materializedItems = [];
@@ -451,7 +556,7 @@ function registerAssetIpc(options = {}) {
       const folderName = safeExportStem(payload?.aidebugName || payload?.folderName || defaultFolderName, "naimage-分层图片");
       const targetPath = uniqueExportPath(selectedParent, folderName);
       stagingPath = path.join(selectedParent, `.naimage-export-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`);
-      if (!isComparablePathInside(stagingPath, selectedParent)) throw new Error("导出暂存目录无效。");
+      if (!isPathInside(stagingPath, selectedParent)) throw new Error("导出暂存目录无效。");
       mkdirSync(stagingPath, { recursive: false });
 
       const relativeFiles = [];
@@ -534,22 +639,27 @@ function registerAssetIpc(options = {}) {
       const defaultStem = safeExportStem(payload?.suggestedName || `${nodeTitle}-图片-${assetIndex + 1}`, "naimage-图片成果");
       const owner = BrowserWindow.fromWebContents(event.sender);
       let selectedPath = "";
+      let projectPsdExportRoot = "";
       if (aidebugMode && payload?.aidebugCancelBeforeMaterialize) return { ok: true, canceled: true };
       if (aidebugMode && payload?.aidebugName) {
         selectedPath = aidebugExportFilePath(payload.aidebugName, ".psd", "aidebug-image-psd");
       } else {
+        projectPsdExportRoot = projectExportDirectory(context, "psd");
         const options = {
           title: "导出 Photoshop PSD",
-          defaultPath: path.join(app.getPath("desktop") || desktopRoot, `${defaultStem}.psd`),
+          defaultPath: path.join(projectPsdExportRoot, `${defaultStem}.psd`),
           buttonLabel: "导出 PSD",
           filters: [{ name: "Adobe Photoshop 文档", extensions: ["psd"] }]
         };
         const selected = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
         if (selected.canceled || !selected.filePath) return { ok: true, canceled: true };
-        selectedPath = path.resolve(selected.filePath);
+        selectedPath = validatedProjectExportFile(selected.filePath, projectPsdExportRoot);
       }
 
-      const outputPath = path.extname(selectedPath).toLowerCase() === ".psd" ? selectedPath : `${selectedPath}.psd`;
+      const matchedOutputPath = path.extname(selectedPath).toLowerCase() === ".psd" ? selectedPath : `${selectedPath}.psd`;
+      const outputPath = projectPsdExportRoot
+        ? validatedProjectExportFile(matchedOutputPath, projectPsdExportRoot)
+        : matchedOutputPath;
       const source = await materializeManagedImageAsset(asset, context);
       transientSources.push(source);
       let psdSource = source;
@@ -563,28 +673,39 @@ function registerAssetIpc(options = {}) {
         retainTransientExportSource(psdSource.path);
         transientSources.push(psdSource);
       }
-      const exportResult = await exportLayeredPsd({
-        outputPath,
-        width: Number(asset.width) || Number(psdSource.width) || undefined,
-        height: Number(asset.height) || Number(psdSource.height) || undefined,
-        overwrite: true,
-        layers: [{ name: layerName, path: psdSource.path }],
-        onProgress: (progress) => {
-          if (progress?.stage === "complete" || progress?.stage === "verify") {
-            log(`asset single psd export ${progress.stage} ${progress.completed || 0}/${progress.total || 1}`);
-          }
+      return await withExportTargetLock(outputPath, async () => {
+        const existsAtCommit = existsSync(outputPath);
+        if (existsAtCommit && aidebugMode && payload?.aidebugName) {
+          const conflict = new Error("AIDebug PSD export target already exists; choose a fresh evidence name.");
+          conflict.code = "PSD_EXPORT_OUTPUT_EXISTS";
+          throw conflict;
         }
+        if (existsAtCommit && !await confirmExportOverwrite(owner, outputPath, " PSD")) {
+          return { ok: true, canceled: true };
+        }
+        const exportResult = await exportLayeredPsd({
+          outputPath,
+          width: Number(asset.width) || Number(psdSource.width) || undefined,
+          height: Number(asset.height) || Number(psdSource.height) || undefined,
+          overwrite: existsAtCommit,
+          layers: [{ name: layerName, path: psdSource.path }],
+          onProgress: (progress) => {
+            if (progress?.stage === "complete" || progress?.stage === "verify") {
+              log(`asset single psd export ${progress.stage} ${progress.completed || 0}/${progress.total || 1}`);
+            }
+          }
+        });
+        log(`asset single psd export project=${context.project.id} assetIndex=${assetIndex} source=${source.extension} bytes=${exportResult.bytes || 0}`);
+        return {
+          ok: true,
+          path: outputPath,
+          files: [outputPath],
+          count: 1,
+          width: exportResult.width,
+          height: exportResult.height,
+          layerNames: exportResult.layerNames
+        };
       });
-      log(`asset single psd export project=${context.project.id} assetIndex=${assetIndex} source=${source.extension} bytes=${exportResult.bytes || 0}`);
-      return {
-        ok: true,
-        path: outputPath,
-        files: [outputPath],
-        count: 1,
-        width: exportResult.width,
-        height: exportResult.height,
-        layerNames: exportResult.layerNames
-      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`asset single psd export failed ${message}`);
@@ -622,35 +743,25 @@ function registerAssetIpc(options = {}) {
       );
       const owner = BrowserWindow.fromWebContents(event.sender);
       let selectedPath = "";
+      let projectPsdExportRoot = "";
       if (aidebugMode && payload?.aidebugName) {
         selectedPath = aidebugExportFilePath(payload.aidebugName, ".psd", "aidebug-layers");
       } else {
+        projectPsdExportRoot = projectExportDirectory(context, "psd");
         const options = {
           title: "导出 Photoshop PSD",
-          defaultPath: path.join(app.getPath("desktop") || desktopRoot, `${defaultStem}.psd`),
+          defaultPath: path.join(projectPsdExportRoot, `${defaultStem}.psd`),
           buttonLabel: "导出 PSD",
           filters: [{ name: "Adobe Photoshop 文档", extensions: ["psd"] }]
         };
         const selected = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
         if (selected.canceled || !selected.filePath) return { ok: true, canceled: true };
-        selectedPath = path.resolve(selected.filePath);
+        selectedPath = validatedProjectExportFile(selected.filePath, projectPsdExportRoot);
       }
-      const outputPath = path.extname(selectedPath).toLowerCase() === ".psd" ? selectedPath : `${selectedPath}.psd`;
-      if (comparablePath(outputPath) !== comparablePath(selectedPath) && existsSync(outputPath)) {
-        const confirmationOptions = {
-          type: "warning",
-          title: "确认覆盖 PSD",
-          message: `“${path.basename(outputPath)}”已经存在，是否覆盖？`,
-          buttons: ["覆盖", "取消"],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true
-        };
-        const confirmation = owner
-          ? await dialog.showMessageBox(owner, confirmationOptions)
-          : await dialog.showMessageBox(confirmationOptions);
-        if (confirmation.response !== 0) return { ok: true, canceled: true };
-      }
+      const matchedOutputPath = path.extname(selectedPath).toLowerCase() === ".psd" ? selectedPath : `${selectedPath}.psd`;
+      const outputPath = projectPsdExportRoot
+        ? validatedProjectExportFile(matchedOutputPath, projectPsdExportRoot)
+        : matchedOutputPath;
 
       const materializedItems = [];
       for (const item of items) {
@@ -662,25 +773,36 @@ function registerAssetIpc(options = {}) {
         materializedItems.push({ ...item, source });
       }
 
-      const exportResult = await exportLayeredPsd({
-        outputPath,
-        width: group.width,
-        height: group.height,
-        overwrite: true,
-        layers: materializedItems.map((item) => ({
-          name: item.title,
-          path: item.source.path,
-          visible: item.visible,
-          opacity: item.opacity
-        })),
-        onProgress: (progress) => {
-          if (progress?.stage === "complete" || progress?.stage === "verify") {
-            log(`asset psd export ${progress.stage} ${progress.completed || 0}/${progress.total || materializedItems.length}`);
-          }
+      return await withExportTargetLock(outputPath, async () => {
+        const existsAtCommit = existsSync(outputPath);
+        if (existsAtCommit && aidebugMode && payload?.aidebugName) {
+          const conflict = new Error("AIDebug PSD export target already exists; choose a fresh evidence name.");
+          conflict.code = "PSD_EXPORT_OUTPUT_EXISTS";
+          throw conflict;
         }
+        if (existsAtCommit && !await confirmExportOverwrite(owner, outputPath, " PSD")) {
+          return { ok: true, canceled: true };
+        }
+        const exportResult = await exportLayeredPsd({
+          outputPath,
+          width: group.width,
+          height: group.height,
+          overwrite: existsAtCommit,
+          layers: materializedItems.map((item) => ({
+            name: item.title,
+            path: item.source.path,
+            visible: item.visible,
+            opacity: item.opacity
+          })),
+          onProgress: (progress) => {
+            if (progress?.stage === "complete" || progress?.stage === "verify") {
+              log(`asset psd export ${progress.stage} ${progress.completed || 0}/${progress.total || materializedItems.length}`);
+            }
+          }
+        });
+        log(`asset psd export project=${context.project.id} layers=${materializedItems.length} bytes=${exportResult.bytes || 0}`);
+        return { ok: true, path: outputPath, files: [outputPath], count: materializedItems.length };
       });
-      log(`asset psd export project=${context.project.id} layers=${materializedItems.length} bytes=${exportResult.bytes || 0}`);
-      return { ok: true, path: outputPath, files: [outputPath], count: materializedItems.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`asset psd export failed ${message}`);

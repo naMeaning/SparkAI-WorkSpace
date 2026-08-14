@@ -2,9 +2,13 @@ import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type Se
 import { Check, Plus, Search } from "lucide-react";
 
 import {
+  agentModelBindingFor,
   imageModelBindingFor,
   imageModelCapability,
+  modelConnectionBindingFor,
+  normalizeAgentModelBindings,
   normalizeAgentModelPoolSelection,
+  normalizeModelConnectionBindings,
   normalizeImageModelBindings,
   normalizeImageModelPoolSelection,
   normalizeVideoModelPoolSelection,
@@ -51,7 +55,7 @@ function uniqueModels(values: string[]) {
 }
 
 function bindingSignature(value: unknown) {
-  return JSON.stringify(normalizeImageModelBindings(value)
+  return JSON.stringify(normalizeModelConnectionBindings(value)
     .sort((left, right) => left.model.toLowerCase().localeCompare(right.model.toLowerCase())));
 }
 
@@ -117,8 +121,9 @@ export default function ModelConfigDialog({
 }) {
   const title = kind === "agent" ? "配置对话模型" : kind === "video" ? "配置视频模型" : "配置生图模型";
   const currentModel = kind === "agent" ? settings.agentModel : kind === "video" ? settings.videoModel : settings.imageModel;
+  const storedBindings = kind === "agent" ? settings.agentModelBindings : kind === "image" ? settings.imageModelBindings : [];
   const [draftModels, setDraftModels] = useState<string[]>(() => uniqueModels(selectedModels));
-  const [draftBindings, setDraftBindings] = useState(() => normalizeImageModelBindings(settings.imageModelBindings));
+  const [draftBindings, setDraftBindings] = useState(() => normalizeModelConnectionBindings(storedBindings));
   const [query, setQuery] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [closePromptOpen, setClosePromptOpen] = useState(false);
@@ -147,7 +152,7 @@ export default function ModelConfigDialog({
   const virtualTabStopVisible = tabStopIndex >= virtualStartIndex && tabStopIndex < virtualEndIndex;
   const dirty = uniqueModels(selectedModels).map((model) => model.toLowerCase()).sort().join("\n") !==
     uniqueModels(draftModels).map((model) => model.toLowerCase()).sort().join("\n") ||
-    (kind === "image" && bindingSignature(settings.imageModelBindings) !== bindingSignature(draftBindings));
+    (kind !== "video" && bindingSignature(storedBindings) !== bindingSignature(draftBindings));
 
   useEffect(() => {
     const element = modelListRef.current;
@@ -167,11 +172,11 @@ export default function ModelConfigDialog({
 
   function updateBinding(model: string, field: "customBaseUrl" | "customApiKey" | "accountTokenId", value: string) {
     setDraftBindings((current) => {
-      const existing = imageModelBindingFor({ imageModelBindings: current }, model) ?? { model };
+      const existing = modelConnectionBindingFor(current, model) ?? { model };
       const next = { ...existing };
       if (value) next[field] = value;
       else delete next[field];
-      return normalizeImageModelBindings([
+      return normalizeModelConnectionBindings([
         ...current.filter((binding) => binding.model.toLowerCase() !== model.toLowerCase()),
         next,
       ]);
@@ -205,10 +210,17 @@ export default function ModelConfigDialog({
       else if (optionBottom > list.scrollTop + list.clientHeight) list.scrollTop = optionBottom - list.clientHeight;
       setModelListScrollTop(list.scrollTop);
     }
+    const focusTarget = () => {
+      const target = modelListRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-model-index="${targetIndex}"]`);
+      if (!target) return false;
+      target.focus({ preventScroll: true });
+      return true;
+    };
+    if (focusTarget()) return;
     requestAnimationFrame(() => {
-      modelListRef.current
-        ?.querySelector<HTMLButtonElement>(`[data-model-index="${targetIndex}"]`)
-        ?.focus({ preventScroll: true });
+      if (focusTarget()) return;
+      requestAnimationFrame(() => { focusTarget(); });
     });
   }
 
@@ -264,7 +276,10 @@ export default function ModelConfigDialog({
       const normalizedAvailableModels = uniqueModels([...models, ...nextPool]);
       if (kind === "agent") {
         const agentModel = nextPool.some((model) => model.toLowerCase() === current.agentModel.toLowerCase()) ? current.agentModel : nextPool[0];
-        return normalizeAgentModelPoolSelection({ ...current, agentModel, agentModelPool: nextPool }, normalizedAvailableModels);
+        const agentModelBindings = normalizeAgentModelBindings(nextPool.map((model) =>
+          agentModelBindingFor({ agentModelBindings: draftBindings }, model) ?? { model }
+        ));
+        return normalizeAgentModelPoolSelection({ ...current, agentModel, agentModelPool: nextPool, agentModelBindings }, normalizedAvailableModels);
       }
       if (kind === "video") {
         const videoModel = nextPool.some((model) => model.toLowerCase() === current.videoModel.toLowerCase()) ? current.videoModel : nextPool[0];
@@ -351,34 +366,37 @@ export default function ModelConfigDialog({
                 <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
               </div>
               <small>适用于中转站尚未返回、但实际可请求的模型名称；添加后会自动选中并随设置保存。</small>
-              {kind === "image" ? (
+              {kind !== "video" ? (
                 <>
                   <span className="model-picker-binding-title">逐模型连接</span>
                   <div className="model-picker-binding-list">
                     {draftModels.map((model) => {
-                      const binding = imageModelBindingFor({ imageModelBindings: draftBindings }, model);
+                      const binding = modelConnectionBindingFor(draftBindings, model);
+                      const providerLabel = kind === "agent" ? "对话" : "图片";
+                      const globalBaseUrl = kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl;
+                      const globalApiKey = kind === "agent" ? settings.agentApiKey : settings.imageApiKey;
                       if (settings.accessMode === "custom") {
                         return (
                           <section key={`binding-${model}`} className="model-picker-binding-card">
                             <strong title={model}>{model}</strong>
                             <div className="model-picker-binding-fields">
-                              <Field label="Base URL" hint="留空时使用全局图片 Base URL。">
+                              <Field label="Base URL" hint={`留空时使用全局${providerLabel} Base URL。`}>
                                 <input
                                   type="url"
                                   value={binding?.customBaseUrl || ""}
                                   maxLength={2_048}
                                   autoComplete="url"
-                                  placeholder={settings.imageBaseUrl || "使用全局图片 Base URL"}
+                                  placeholder={globalBaseUrl || `使用全局${providerLabel} Base URL`}
                                   onChange={(event) => updateBinding(model, "customBaseUrl", event.target.value)}
                                 />
                               </Field>
-                              <Field label="API Key" hint="留空时使用全局图片 API Key。">
+                              <Field label="API Key" hint={`留空时使用全局${providerLabel} API Key。`}>
                                 <input
                                   type="password"
                                   value={binding?.customApiKey || ""}
                                   maxLength={8_192}
                                   autoComplete="off"
-                                  placeholder={settings.imageApiKey ? "使用全局图片 API Key" : "全局图片 API Key 尚未设置"}
+                                  placeholder={globalApiKey ? `使用全局${providerLabel} API Key` : `全局${providerLabel} API Key 尚未设置`}
                                   onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
                                 />
                               </Field>
@@ -411,7 +429,7 @@ export default function ModelConfigDialog({
                       );
                     })}
                   </div>
-                  <small>{settings.accessMode === "custom" ? "每个图片模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。" : "每个模型可绑定不同的账户 Token；账户完整 Key 不会进入界面进程。"}</small>
+                  <small>{settings.accessMode === "custom" ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。` : "每个模型可绑定不同的账户 Token；账户完整 Key 不会进入界面进程。"}</small>
                 </>
               ) : null}
             </div>

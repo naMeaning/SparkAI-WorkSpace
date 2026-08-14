@@ -411,9 +411,91 @@
         },
         { "name": "canvas.import-skill", "surface": "renderer", "args": "{ \"markdown\": \"---\\nname: product-photo\\ndescription: Product photography guidance\\n---\\n\\nFollow these instructions...\", \"sourceName\": \"SKILL.md\", \"x\": 240, \"y\": 180 }", "description": "Import one bounded SKILL.md document as a reusable Skill-backed requirement node. An unchanged exact re-import selects the existing node. If that node's instructions were edited locally, the response returns exact:false and conflict:locally-modified without overwriting local text." },
         {
+          "name": "canvas.rename-image-collections",
+          "surface": "renderer",
+          "description": "Rename one or more current image groups through the shared transactional mutation. Names are NFKC-normalized, Windows-safe, length-limited, and deterministically de-duplicated; node titles, legacy imageCollection, and imageContainerSpec.collection stay synchronized.",
+          "parameters": {
+            "type": "object",
+            "required": ["requests", "expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "requests": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "items": {
+                  "type": "object",
+                  "required": ["collectionId", "name"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "collectionId": { "type": "string", "minLength": 1, "maxLength": 120 },
+                    "name": { "type": "string", "minLength": 1, "maxLength": 240 }
+                  }
+                }
+              },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "name": "canvas.replace-image-collection-item",
+          "surface": "renderer",
+          "description": "Replace one or more completed image-group slots with already-managed assets from current canvas nodes. The original remains in an independent defects group; requestIndex, prompt, title and provenance are preserved. The complete batch validates first and is idempotent for the same replacement.",
+          "parameters": {
+            "type": "object",
+            "required": ["requests", "expectedProjectId"],
+            "additionalProperties": false,
+            "properties": {
+              "requests": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "items": {
+                  "type": "object",
+                  "required": ["sourceCollectionId", "replacementNodeId", "replacementAssetIndex", "defectReason"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "sourceCollectionId": { "type": "string", "minLength": 1, "maxLength": 120 },
+                    "itemId": { "type": "string", "minLength": 1, "maxLength": 120 },
+                    "requestIndex": { "type": "integer", "minimum": 1, "maximum": 200 },
+                    "replacementNodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
+                    "replacementAssetIndex": { "type": "integer", "minimum": 0, "maximum": 199 },
+                    "defectReason": { "type": "string", "minLength": 1, "maxLength": 320 }
+                  }
+                }
+              },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "name": "canvas.export-image-collections",
+          "surface": "renderer",
+          "description": "Export one or more current image groups in one explicit PNG, JPEG, WebP, AVIF, or TIFF format below the active project's exports/image-groups directory. Main re-reads the project session, verifies every asset is managed by that project, calculates preview counts and estimated bytes, writes stable request-slot filenames and image-group.json manifests, then publishes atomically. confirmed=true is required; arbitrary Renderer destination paths are ignored.",
+          "parameters": {
+            "type": "object",
+            "required": ["collectionIds", "expectedProjectId", "format", "confirmed"],
+            "additionalProperties": false,
+            "properties": {
+              "collectionIds": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "maxLength": 120 }
+              },
+              "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "format": { "type": "string", "enum": ["png", "jpeg", "webp", "avif", "tiff"], "default": "png" },
+              "confirmed": { "type": "boolean" }
+            }
+          }
+        },
+        {
           "name": "canvas.export-image",
           "surface": "renderer",
-          "description": "Export one canvas image through the native Save dialog as PNG, JPEG, WebP, AVIF, or TIFF. Conversion is local, does not call an image model, and never overwrites the managed source asset. Recorded remote assets are accepted only through the app's public-HTTP(S), redirect-validated managed asset path.",
+          "description": "Export one canvas image through a single-format native Save dialog below the active project's exports/images directory as PNG, JPEG, WebP, AVIF, or TIFF. Conversion is local, does not call an image model, never leaves the current project, and never overwrites the managed source asset. Recorded remote assets are accepted only through the app's public-HTTP(S), redirect-validated managed asset path.",
           "parameters": {
             "type": "object",
             "required": ["nodeId"],

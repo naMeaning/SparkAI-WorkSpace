@@ -32,10 +32,11 @@ function createNewApiClient(options = {}) {
     return String(settings?.accessMode || "account").toLowerCase() === "custom";
   }
 
-  function imageModelBinding(settings, model) {
+  function modelBinding(settings, provider, model) {
     const target = String(model || "").trim().toLowerCase();
-    if (!target || !Array.isArray(settings?.imageModelBindings)) return null;
-    for (const value of settings.imageModelBindings) {
+    const bindings = provider === "image" ? settings?.imageModelBindings : settings?.agentModelBindings;
+    if (!target || !Array.isArray(bindings)) return null;
+    for (const value of bindings) {
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const bindingModel = String(value.model || "").trim();
       if (!bindingModel || bindingModel.toLowerCase() !== target) continue;
@@ -53,6 +54,10 @@ function createNewApiClient(options = {}) {
     return null;
   }
 
+  function imageModelBinding(settings, model) {
+    return modelBinding(settings, "image", model);
+  }
+
   function modelFromRequestBody(body) {
     if (!body || typeof body !== "object") return "";
     if (typeof body.get === "function") {
@@ -67,23 +72,23 @@ function createNewApiClient(options = {}) {
     return /(?:^|\/)images(?:\/|$)/i.test(path);
   }
 
-  function imageModelBindingForRequest(settings, endpoint, body, provider) {
-    if (provider !== "image" || !isImagesApiEndpoint(endpoint)) return null;
-    return imageModelBinding(settings, modelFromRequestBody(body));
+  function modelBindingForRequest(settings, endpoint, body, provider) {
+    if (provider === "image" && !isImagesApiEndpoint(endpoint)) return null;
+    return modelBinding(settings, provider === "image" ? "image" : "agent", modelFromRequestBody(body));
   }
 
   function customApiCredentials(settings, provider = "agent", model = "") {
     const imageProvider = provider === "image";
-    const binding = imageProvider ? imageModelBinding(settings, model) : null;
+    const binding = modelBinding(settings, imageProvider ? "image" : "agent", model);
     const baseUrl = normalizeServerUrl(
       imageProvider
         ? binding?.customBaseUrl || settings?.imageBaseUrl || settings?.agentBaseUrl
-        : settings?.agentBaseUrl || settings?.imageBaseUrl,
+        : binding?.customBaseUrl || settings?.agentBaseUrl || settings?.imageBaseUrl,
       ""
     );
     const apiKey = String(imageProvider
       ? binding?.customApiKey || settings?.imageApiKey || settings?.agentApiKey
-      : settings?.agentApiKey || settings?.imageApiKey).trim();
+      : binding?.customApiKey || settings?.agentApiKey || settings?.imageApiKey).trim();
     if (!baseUrl) throw new Error(`${imageProvider ? "生图" : "Agent"} Base URL 尚未配置。`);
     parsedServiceBaseUrl(baseUrl, `${imageProvider ? "生图" : "Agent"} Base URL`);
     if (!apiKey) throw new Error(`${imageProvider ? "生图" : "Agent"} API Key 尚未配置。`);
@@ -115,7 +120,7 @@ function createNewApiClient(options = {}) {
   }
 
   async function relayApiCredentials(settings, endpoint, body, provider) {
-    const binding = imageModelBindingForRequest(settings, endpoint, body, provider);
+    const binding = modelBindingForRequest(settings, endpoint, body, provider);
     return isCustomApiMode(settings)
       ? customApiCredentials(settings, provider, binding?.model)
       : accountApiCredentials(settings, binding?.accountTokenId);

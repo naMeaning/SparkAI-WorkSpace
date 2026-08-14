@@ -16,6 +16,9 @@ const userDataDir = join(runDir, "user-data");
 const expectedConfigDir = join(userDataDir, "data");
 const reportPath = join(runDir, "report.json");
 const screenshotPath = join(runDir, "isolated-canvas.png");
+const fixtureProjectId = "aidebug-isolation-project";
+const fixtureProjectDir = join(runDir, "fixture-projects", fixtureProjectId);
+const fixtureSessionPath = join(fixtureProjectDir, "session.json");
 const repositoryConfigDir = join(repoRoot, "config");
 const repositoryStateFiles = [
   "app-settings.json",
@@ -49,7 +52,7 @@ async function waitForProjectSession(timeoutMs = 15_000) {
       const list = JSON.parse(readFileSync(projectListPath, "utf8"));
       const project = list.projects?.find((item) => item.id === list.activeProjectId) || list.projects?.[0];
       const sessionPath = resolve(String(project?.sessionPath || ""));
-      const projectsRoot = resolve(expectedConfigDir, "projects");
+      const projectsRoot = resolve(runDir, "fixture-projects");
       if (
         sessionPath &&
         (sessionPath === projectsRoot || sessionPath.startsWith(`${projectsRoot}${sep}`)) &&
@@ -73,10 +76,41 @@ function cleanEnvironment(values) {
   return Object.assign(environment, values);
 }
 
+function prepareFixtureProject() {
+  mkdirSync(expectedConfigDir, { recursive: true });
+  mkdirSync(fixtureProjectDir, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(fixtureSessionPath, `${JSON.stringify({
+    schemaVersion: 5,
+    workspaceDomain: "general",
+    sessionRevision: 0,
+    nodeSequence: 0,
+    canvasRevision: 0,
+    messages: [],
+    conversations: [],
+    nodes: [],
+    layoutGroups: [],
+    selectedNodeId: ""
+  }, null, 2)}\n`, "utf8");
+  writeFileSync(join(expectedConfigDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "AIDebug 隔离项目",
+      path: fixtureProjectDir,
+      sessionPath: fixtureSessionPath,
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
+}
+
 async function main() {
   assert(existsSync(electronCli), "Electron CLI was not found.");
   assert(existsSync(viteCli), "Vite CLI was not found.");
   mkdirSync(runDir, { recursive: true });
+  prepareFixtureProject();
   const beforeRepositoryState = repositorySnapshot();
   const devPort = await allocateDebugPort();
   const debugPort = await allocateDebugPort();
@@ -163,7 +197,7 @@ async function main() {
       runtimeGateEnabled: runtime.runtime.aidebugEnabled && runtime.runtime.isolatedConfig,
       debugControlInstalled: runtime.debugControlType === "object",
       isolatedSessionPersistedOneNode: persisted.session.nodes.length === 1,
-      isolatedSessionPath: persisted.sessionPath.startsWith(`${resolve(expectedConfigDir, "projects")}${sep}`),
+      isolatedSessionPath: persisted.sessionPath.startsWith(`${resolve(runDir, "fixture-projects")}${sep}`),
       repositoryConfigUnchanged: JSON.stringify(beforeRepositoryState) === JSON.stringify(afterRepositoryState),
       screenshotCreated: existsSync(screenshotPath) && statSync(screenshotPath).size > 10_000
     };

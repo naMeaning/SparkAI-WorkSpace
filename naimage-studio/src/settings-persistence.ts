@@ -2,6 +2,7 @@ import {
   computedSizeFor,
   imageFrameRatioFromSize,
   imageResolutionPresetFromSize,
+  normalizeAgentModelBindings,
   normalizeImageModelBindings,
   normalizeImageFrameRatio,
   normalizeImageResolutionPreset,
@@ -127,6 +128,7 @@ export const defaultSettings: AppSettings = {
   agentApiKey: "",
   agentModel: "gpt-5.6-terra",
   agentModelPool: ["gpt-5.6-terra"],
+  agentModelBindings: [],
   compactModel: "",
   contextStrategy: "auto",
   contextWindowTokens: 272_000,
@@ -267,6 +269,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.agentModelPool = uniqueStoredModels(Array.isArray(source.agentModelPool) ? source.agentModelPool : next.agentModelPool);
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueStoredModels([next.agentModel, ...next.agentModelPool]);
+  next.agentModelBindings = normalizeAgentModelBindings(source.agentModelBindings ?? next.agentModelBindings);
   next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);

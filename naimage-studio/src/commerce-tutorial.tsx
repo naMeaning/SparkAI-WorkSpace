@@ -155,7 +155,7 @@ export default function CommerceTutorial({
   onOpenExport: () => void;
   onCompleted: () => void;
 }) {
-  const storageKey = `naimage.commerceTutorial.v1:${projectId || "default"}`;
+  const storageKey = `naimage.commerceTutorial.v1:${projectId}`;
   const initial = useMemo(() => readProgress(storageKey, imageCount, commerceResultCount), [storageKey]);
   const [stage, setStage] = useState<CommerceTutorialStage>(initial.stage);
   const [initialImageCount, setInitialImageCount] = useState(initial.initialImageCount);

@@ -19,7 +19,7 @@ function taskScopeLockedNodeIds(taskScope = {}) {
 }
 
 function scopeKey(value = {}) {
-  const base = `${clean(value.projectId) || "default"}::${clean(value.conversationId) || "default"}`;
+  const base = `${clean(value.projectId)}::${clean(value.conversationId)}`;
   const ownerId = runOwnerId(value);
   return ownerId ? `${base}::owner:${ownerId}` : base;
 }
@@ -50,8 +50,8 @@ function createAgentRunControl(options = {}) {
   function stateFor(scope) {
     const key = scopeKey(scope);
     if (!scopeState.has(key)) scopeState.set(key, {
-      projectId: clean(scope?.projectId) || "default",
-      conversationId: clean(scope?.conversationId) || "default",
+      projectId: clean(scope?.projectId),
+      conversationId: clean(scope?.conversationId),
       ownerId: runOwnerId(scope),
       paused: false,
       waiters: new Set()
@@ -115,8 +115,18 @@ function createAgentRunControl(options = {}) {
 
   function begin(value = {}) {
     const runId = clean(value.runId) || `run-${Date.now()}`;
-    const projectId = clean(value.projectId) || "default";
-    const conversationId = clean(value.conversationId) || "default";
+    const projectId = clean(value.projectId);
+    const conversationId = clean(value.conversationId);
+    if (!projectId) {
+      const error = new Error("请先创建或打开项目，再启动 Agent 任务。");
+      error.code = "PROJECT_REQUIRED";
+      throw error;
+    }
+    if (!conversationId) {
+      const error = new Error("请先创建或选择对话，再启动 Agent 任务。");
+      error.code = "CONVERSATION_REQUIRED";
+      throw error;
+    }
     const ownerId = runOwnerId(value);
     const taskScopeNodeIds = taskScopeLockedNodeIds(value.taskScope);
     const nodeIds = new Set([

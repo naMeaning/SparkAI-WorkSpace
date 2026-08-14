@@ -506,12 +506,36 @@ function mergeNodeMutationJournals(existingValue, incomingValue, barrierValues, 
   };
 }
 
+function normalizedAssetLocator(asset) {
+  const value = cleanString(asset?.relativePath || asset?.path || asset?.assetUrl || asset?.url);
+  if (!value || /^(?:data|blob):/i.test(value)) return "";
+  return value.replace(/\\/g, "/").toLowerCase();
+}
+
+function generatedAssetKey(asset) {
+  const importBatchId = cleanString(asset?.importBatchId);
+  const importRootId = cleanString(asset?.importRootId);
+  const sourceRelativePath = cleanString(asset?.sourceRelativePath);
+  if (importBatchId && importRootId && sourceRelativePath) return "";
+  const runId = cleanString(asset?.runId).toLowerCase();
+  if (runId.startsWith("import-")) return "";
+  const locator = normalizedAssetLocator(asset);
+  // Imported assets intentionally use occurrence identity: selecting the same
+  // file twice is a valid canvas operation. Generated files are idempotent by
+  // their run and managed locator even if a stale renderer minted a new
+  // occurrence while replaying the same result.
+  if (!runId || !locator) return "";
+  return `generated:${runId}:${locator}`;
+}
+
 function assetKey(asset, index) {
+  const generatedKey = generatedAssetKey(asset);
+  if (generatedKey) return generatedKey;
   const occurrenceId = cleanString(asset?.occurrenceId);
   if (occurrenceId) return `occurrence:${occurrenceId}`;
   const assetId = cleanString(asset?.assetId);
   if (assetId) return `asset:${assetId}`;
-  const path = cleanString(asset?.path || asset?.relativePath || asset?.assetUrl || asset?.url);
+  const path = normalizedAssetLocator(asset);
   return path ? `path:${path}` : `slot:${index}:${cleanString(asset?.runId)}`;
 }
 
@@ -527,7 +551,14 @@ function mergeAssets(existingAssets, incomingAssets) {
         indexByKey.set(key, result.length);
         result.push(clone(asset));
       } else {
-        result[existingIndex] = { ...result[existingIndex], ...clone(asset) };
+        const previous = result[existingIndex];
+        result[existingIndex] = {
+          ...previous,
+          ...clone(asset),
+          ...(previous.occurrenceId ? { occurrenceId: previous.occurrenceId } : {}),
+          ...(previous.assetId ? { assetId: previous.assetId } : {}),
+          ...(previous.displayCode ? { displayCode: previous.displayCode } : {})
+        };
       }
     });
   }
@@ -569,7 +600,7 @@ function mergeLogicalNode(existingNode, incomingNode, mutationState = {}) {
 
   if (mergedAssets.length) {
     merged.assets = mergedAssets;
-    merged.outputs = Math.max(Number(existing.outputs) || 0, Number(incoming.outputs) || 0, mergedAssets.length);
+    merged.outputs = mergedAssets.length;
     merged.imageState = "done";
     merged.status = "done";
     merged.imageError = undefined;

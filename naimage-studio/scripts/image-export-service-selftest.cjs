@@ -50,8 +50,14 @@ async function assertAlphaPreserved(filePath, expectedFormat) {
 
 async function testSaveAsIpc(root, sourcePath) {
   const handlers = new Map();
-  const dialogPaths = [path.join(root, "native-choice.avif"), path.join(root, "requested-format.jpg")];
+  const imageExportRoot = path.join(root, "exports", "images");
+  const dialogPaths = [
+    path.join(imageExportRoot, "native-choice.avif"),
+    path.join(imageExportRoot, "requested-format.jpg"),
+    path.join(root, "..", "forbidden-outside-project.png")
+  ];
   const dialogOptions = [];
+  const formatDialogOptions = [];
   let released = 0;
   registerAssetIpc({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
@@ -59,13 +65,17 @@ async function testSaveAsIpc(root, sourcePath) {
       async showSaveDialog(options) {
         dialogOptions.push(options);
         return { canceled: false, filePath: dialogPaths.shift() };
+      },
+      async showMessageBox(options) {
+        formatDialogOptions.push(options);
+        return { response: 3 };
       }
     },
     shell: {},
     BrowserWindow: { fromWebContents: () => null },
     app: { getPath: () => root },
     log: () => {},
-    createAssetExportContext: () => ({ project: { id: "project-export" } }),
+    createAssetExportContext: () => ({ project: { id: "project-export", path: root } }),
     materializeManagedImageAsset: async (asset) => ({
       asset,
       path: sourcePath,
@@ -86,7 +96,9 @@ async function testSaveAsIpc(root, sourcePath) {
   assert.equal(selectedByExtension.format, "avif");
   assert.equal(selectedByExtension.converted, true);
   assert.equal(path.extname(selectedByExtension.path), ".avif");
-  assert.deepEqual(dialogOptions[0].filters.map((filter) => filter.extensions[0]), ["png", "jpg", "webp", "avif", "tif"]);
+  assert.deepEqual(formatDialogOptions[0].buttons, ["PNG", "JPEG", "WebP", "AVIF", "TIFF", "取消"]);
+  assert.deepEqual(dialogOptions[0].filters, [{ name: "AVIF 图片", extensions: ["avif"] }]);
+  assert.equal(path.dirname(dialogOptions[0].defaultPath), imageExportRoot);
 
   const requestedFormat = await saveAs({ sender: {} }, {
     asset: { path: sourcePath },
@@ -98,12 +110,108 @@ async function testSaveAsIpc(root, sourcePath) {
   assert.equal(path.extname(requestedFormat.path), ".jpg");
   assert.deepEqual(dialogOptions[1].filters[0], { name: "JPEG 图片", extensions: ["jpg", "jpeg"] });
   assert.equal((await sharp(requestedFormat.path).metadata()).hasAlpha, false);
-  assert.equal(released, 2, "Each export must release its transient materialized source");
+  const outside = await saveAs({ sender: {} }, {
+    asset: { path: sourcePath },
+    projectId: "project-export",
+    format: "png"
+  });
+  assert.equal(outside.ok, false);
+  assert.equal(outside.errorCode, "IMAGE_EXPORT_OUTSIDE_PROJECT");
+  assert.equal(released, 3, "Each export must release its transient materialized source");
+}
+
+async function testNormalAndPsdIpcIsolation(root, sourcePath) {
+  const handlers = new Map();
+  const normalPath = path.join(root, "exports", "images", "ipc-isolation.png");
+  const psdPath = path.join(root, "exports", "psd", "ipc-isolation.psd");
+  const dialogPaths = [normalPath, psdPath];
+  const dialogOptions = [];
+  let normalConversionCalls = 0;
+  let psdExportCalls = 0;
+  registerAssetIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    dialog: {
+      async showSaveDialog(options) {
+        dialogOptions.push(options);
+        return { canceled: false, filePath: dialogPaths.shift() };
+      }
+    },
+    shell: {},
+    BrowserWindow: { fromWebContents: () => null },
+    app: { getPath: () => root },
+    log: () => {},
+    createAssetExportContext: () => ({ project: { id: "project-export-isolation", path: root } }),
+    materializeManagedImageAsset: async (asset) => ({
+      asset,
+      path: sourcePath,
+      extension: ".png",
+      mimeType: "image/png",
+      size: readFileSync(sourcePath).length,
+      width: 37,
+      height: 23
+    }),
+    exportFileName: () => "ipc-isolation.png",
+    desktopRoot: root,
+    comparablePath: (value) => path.resolve(value).toLowerCase(),
+    releaseTransientExportSources: () => {},
+    normalizedExportAsset: (asset) => asset && typeof asset === "object" ? asset : null,
+    safeExportStem: (value, fallback) => String(value || fallback || "image").replace(/[\\/:*?"<>|]/g, "-").trim() || "image",
+    preparePsdRasterSource: async () => { throw new Error("PNG PSD source must not require raster conversion"); },
+    secureExportSourceCacheDir: () => root,
+    retainTransientExportSource: () => {},
+    convertImageForExport: async (inputPath, outputPath, format) => {
+      normalConversionCalls += 1;
+      copyFileSync(inputPath, outputPath);
+      return {
+        path: outputPath,
+        format,
+        mimeType: "image/png",
+        width: 37,
+        height: 23,
+        bytes: readFileSync(outputPath).length,
+        converted: false
+      };
+    },
+    exportLayeredPsd: async ({ outputPath, layers }) => {
+      psdExportCalls += 1;
+      assert.equal(layers.length, 1);
+      writeFileSync(outputPath, Buffer.from("isolated-psd"));
+      return { width: 37, height: 23, bytes: 12, layerNames: layers.map((layer) => layer.name) };
+    }
+  });
+
+  const saveAs = handlers.get("naimage:asset:save-as");
+  const exportPsd = handlers.get("naimage:asset:export-psd");
+  assert.equal(typeof saveAs, "function");
+  assert.equal(typeof exportPsd, "function");
+
+  const normalResult = await saveAs({ sender: {} }, {
+    asset: { type: "file", path: sourcePath },
+    projectId: "project-export-isolation",
+    format: "png"
+  });
+  assert.equal(normalResult.ok, true);
+  assert.equal(normalConversionCalls, 1, "Ordinary save-as must use only the normal image converter");
+  assert.equal(psdExportCalls, 0, "Ordinary save-as must never trigger PSD export");
+  assert.deepEqual(dialogOptions[0].filters[0], { name: "PNG 图片", extensions: ["png"] });
+
+  const psdResult = await exportPsd({ sender: {} }, {
+    asset: { type: "file", path: sourcePath, width: 37, height: 23 },
+    assetIndex: 0,
+    nodeTitle: "隔离验证",
+    projectId: "project-export-isolation"
+  });
+  assert.equal(psdResult.ok, true);
+  assert.equal(psdExportCalls, 1, "PSD export must use only the PSD writer");
+  assert.equal(normalConversionCalls, 1, "PSD export must not call or mutate the ordinary converter path");
+  assert.deepEqual(dialogOptions[1].filters, [{ name: "Adobe Photoshop 文档", extensions: ["psd"] }]);
+  assert.deepEqual(readFileSync(normalPath), readFileSync(sourcePath));
+  assert.equal(readFileSync(psdPath, "utf8"), "isolated-psd");
 }
 
 async function testConcurrentSaveAsIpc(root, sourcePath) {
   const handlers = new Map();
-  const destinationPath = path.join(root, "concurrent-native-choice.png");
+  const destinationPath = path.join(root, "exports", "images", "concurrent-native-choice.png");
   let pickerCount = 0;
   let resolveBothPickers;
   const bothPickersReady = new Promise((resolve) => { resolveBothPickers = resolve; });
@@ -127,7 +235,7 @@ async function testConcurrentSaveAsIpc(root, sourcePath) {
     BrowserWindow: { fromWebContents: () => null },
     app: { getPath: () => root },
     log: () => {},
-    createAssetExportContext: () => ({ project: { id: "project-concurrent-export" } }),
+    createAssetExportContext: () => ({ project: { id: "project-concurrent-export", path: root } }),
     materializeManagedImageAsset: async (asset) => ({
       asset,
       path: sourcePath,
@@ -143,8 +251,8 @@ async function testConcurrentSaveAsIpc(root, sourcePath) {
 
   const saveAs = handlers.get("naimage:asset:save-as");
   const results = await Promise.all([
-    saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-concurrent-export" }),
-    saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-concurrent-export" })
+    saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-concurrent-export", format: "png" }),
+    saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-concurrent-export", format: "png" })
   ]);
   assert.equal(results.filter((result) => result.ok && !result.canceled).length, 1);
   assert.equal(results.filter((result) => result.ok && result.canceled).length, 1);
@@ -155,7 +263,7 @@ async function testConcurrentSaveAsIpc(root, sourcePath) {
 
 async function testPickerReturnRaceAndCleanupIsolation(root, sourcePath) {
   const handlers = new Map();
-  const destinationPath = path.join(root, "picker-return-race.png");
+  const destinationPath = path.join(root, "exports", "images", "picker-return-race.png");
   const logs = [];
   let racedDestinationBytes = null;
   let overwriteConfirmations = 0;
@@ -178,7 +286,7 @@ async function testPickerReturnRaceAndCleanupIsolation(root, sourcePath) {
     BrowserWindow: { fromWebContents: () => null },
     app: { getPath: () => root },
     log: (message) => logs.push(String(message)),
-    createAssetExportContext: () => ({ project: { id: "project-picker-race" } }),
+    createAssetExportContext: () => ({ project: { id: "project-picker-race", path: root } }),
     materializeManagedImageAsset: async (asset) => ({
       asset,
       path: sourcePath,
@@ -196,7 +304,7 @@ async function testPickerReturnRaceAndCleanupIsolation(root, sourcePath) {
   });
 
   const saveAs = handlers.get("naimage:asset:save-as");
-  const result = await saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-picker-race" });
+  const result = await saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-picker-race", format: "png" });
   assert.deepEqual({ ok: result.ok, canceled: result.canceled }, { ok: true, canceled: true });
   assert.equal(overwriteConfirmations, 1, "A target created before the picker Promise returns still requires final confirmation");
   assert.deepEqual(readFileSync(destinationPath), racedDestinationBytes, "Canceling final confirmation must preserve the raced target");
@@ -401,6 +509,7 @@ async function main() {
     await testCommittedCleanupWarning(root, sourcePath);
     await testNoHardlinkFallback(root, sourcePath);
     await testSaveAsIpc(root, sourcePath);
+    await testNormalAndPsdIpcIsolation(root, sourcePath);
     await testConcurrentSaveAsIpc(root, sourcePath);
     await testPickerReturnRaceAndCleanupIsolation(root, sourcePath);
     assert.deepEqual(readFileSync(sourcePath), sourceBefore, "IPC export must not mutate the managed source image");
@@ -420,6 +529,7 @@ async function main() {
       noHardlinkFallbackVerified: true,
       hardlinkSourcePreserved: true,
       ipcPickerFormats: true,
+      normalPsdIpcIsolationVerified: true,
       concurrentTargetReconfirmed: true,
       pickerReturnRaceReconfirmed: true,
       cleanupFinalizerIsolated: true,

@@ -58,22 +58,7 @@ function createProjectStore(options = {}) {
   }
 
   function defaultProjectList() {
-    const defaultProjectId = "default";
-    const defaultSessionPath = path.join(projectsDir, defaultProjectId, "session.json");
-    return {
-      activeProjectId: defaultProjectId,
-      projects: [
-        {
-          id: defaultProjectId,
-          name: "默认项目",
-          path: path.dirname(defaultSessionPath),
-          sessionPath: defaultSessionPath,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          external: false
-        }
-      ]
-    };
+    return { activeProjectId: "", projects: [] };
   }
 
   function normalizeProjectList(raw) {
@@ -96,13 +81,9 @@ function createProjectStore(options = {}) {
       })
       .filter((item) => item.id && item.sessionPath);
 
-    if (!normalized.some((item) => item.id === "default")) {
-      normalized.unshift(base.projects[0]);
-    }
-
     const activeProjectId = normalized.some((item) => item.id === source.activeProjectId)
       ? source.activeProjectId
-      : normalized[0].id;
+      : normalized[0]?.id || "";
 
     return { activeProjectId, projects: normalized };
   }
@@ -133,7 +114,7 @@ function createProjectStore(options = {}) {
   }
 
   function getActiveProject(list = readProjectList()) {
-    return list.projects.find((item) => item.id === list.activeProjectId) || list.projects[0];
+    return list.projects.find((item) => item.id === list.activeProjectId) || list.projects[0] || null;
   }
 
   function getProjectById(projectIdValue, list = readProjectList()) {
@@ -143,13 +124,18 @@ function createProjectStore(options = {}) {
   }
 
   function currentSessionPath() {
-    return getActiveProject(readProjectList())?.sessionPath || sessionPath;
+    return getActiveProject(readProjectList())?.sessionPath || "";
   }
 
   function createProjectRecord(name, externalPath = "") {
+    if (!String(externalPath || "").trim()) {
+      const error = new Error("创建项目时必须先选择保存位置。");
+      error.code = "PROJECT_PATH_REQUIRED";
+      throw error;
+    }
     const id = projectId();
     const now = new Date().toISOString();
-    const projectPath = externalPath ? path.resolve(externalPath) : path.join(projectsDir, id);
+    const projectPath = path.resolve(externalPath);
     return {
       id,
       name: safeName(name, "未命名画布"),
@@ -157,7 +143,7 @@ function createProjectStore(options = {}) {
       sessionPath: path.join(projectPath, "session.json"),
       createdAt: now,
       updatedAt: now,
-      external: Boolean(externalPath)
+      external: true
     };
   }
 

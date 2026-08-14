@@ -7,6 +7,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const settingsDrawerSource = fs.readFileSync(path.join(root, "src", "settings-drawer.tsx"), "utf8");
+const modelConfigDialogSource = fs.readFileSync(path.join(root, "src", "model-config-dialog.tsx"), "utf8");
 const projectAgentComposerSource = fs.readFileSync(path.join(root, "src", "project-agent-composer.tsx"), "utf8");
 const agentPanelStyleSource = fs.readFileSync(path.join(root, "src", "styles", "07g-agent-panel-overrides.css"), "utf8");
 const helpCenterSource = fs.readFileSync(path.join(root, "src", "help-center.tsx"), "utf8");
@@ -36,6 +37,9 @@ assert.match(settingsDrawerSource, /const imageCatalog = serverSettings\.imageMo
 assert.match(settingsDrawerSource, /const agentCatalog = serverSettings\.agentModels\?\.length \? serverSettings\.agentModels : serverModels;/, "Agent model settings must prefer the classified conversation catalog over the combined server list");
 assert.match(settingsDrawerSource, /accessProfiles:\s*serverSettings\.modelAccessProfiles \?\? \[\]/, "Settings must expose credential-safe compatibility profiles");
 assert.match(settingsDrawerSource, /serviceStatuses:\s*serverSettings\.serviceStatuses \?\? \{\}/, "Settings must preserve independent Agent, image, and video service statuses");
+assert.match(modelConfigDialogSource, /kind !== "video"[\s\S]{0,360}逐模型连接/, "Conversation and image model dialogs must expose per-model connections");
+assert.match(modelConfigDialogSource, /kind === "agent" \? settings\.agentModelBindings : kind === "image" \? settings\.imageModelBindings : \[\]/, "The conversation model dialog must edit Agent bindings rather than image bindings");
+assert.match(modelConfigDialogSource, /kind === "agent"[\s\S]{0,420}agentModelBindings[\s\S]{0,360}normalizeAgentModelPoolSelection/, "Saving the conversation model dialog must persist its per-model bindings");
 assert.match(projectAgentComposerSource, /uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)/, "Composer model menu must preserve catalog order while retaining selected-model fallbacks");
 assert.match(projectAgentComposerSource, /className="project-agent-model-trigger"[\s\S]{0,260}aria-haspopup="dialog"[\s\S]{0,180}aria-expanded=\{modelMenuOpen\}/, "Composer must expose the image catalog through one expandable model control");
 const composerToolbarControlOrder = ["project-agent-mode-picker", "project-agent-materials-picker", "project-agent-model-picker", "project-agent-image-frame"]
@@ -85,6 +89,7 @@ assert.match(electronSource, /function modelCacheKey\(settings\)[\s\S]{0,900}cre
 assert.match(electronSource, /accountTokenService\.credentials\(settings\)[\s\S]{0,260}directApiUrl\(credentials\.baseUrl, "\/v1\/models"\)[\s\S]{0,260}authorization: `Bearer \$\{credentials\.apiKey\}`/, "Account mode must query the selected NewAPI key's upstream /v1/models endpoint with its Main-only key");
 assert.match(electronSource, /for \(const provider of \["agent", "image", "video"\]\)[\s\S]{0,900}customApiCredentials\(settings, credentialProvider\)/, "Custom API mode must classify each Agent, image, and video service while deduplicating shared credentials");
 assert.match(electronSource, /credentialFingerprint = createHash\("sha256"\)[\s\S]{0,220}credentials\.apiKey/, "Distinct custom API keys on one Base URL must not be collapsed into one model request");
+assert.match(electronSource, /const currentSettings = currentAgentSettings\(\);[\s\S]{0,260}settingsSecretStore\.restorePlaceholders\(\{[\s\S]{0,160}\.\.\.currentSettings,[\s\S]{0,160}\.\.\.\(incomingSettings \|\| \{\}\)[\s\S]{0,100}\}, currentSettings\)/, "Model-list drafts must merge the complete Main-owned settings before restoring encrypted Agent binding placeholders");
 assert.match(electronSource, /const modelCapabilities = modelCapabilitiesFromResponse\(request\.data\);[\s\S]{0,180}const payload = \{ modelIds, modelCapabilities, profileId \};/, "Custom model discovery must retain each upstream endpoint capability payload");
 assert.match(electronSource, /const modelCapabilities = mergeModelCapabilities\([\s\S]{0,180}payload\.modelCapabilities[\s\S]{0,500}splitModelSettings\(settings, collected, \[\], modelCapabilities, \{/, "Custom model discovery must preserve merged endpoint capabilities in the shared cache profile");
 assert.match(electronSource, /modelCatalogUnavailable:\s*true/, "A failed account model refresh must return an explicit unavailable profile instead of erasing the saved catalog");
@@ -93,4 +98,4 @@ assert.match(serverIpcSource, /cacheOnly:\s*payload\?\.cacheOnly === true/, "Mod
 assert.match(serverIpcSource, /preferCached:\s*payload\?\.preferCached === true/, "Token snapshot preference must cross IPC");
 assert.match(preloadSource, /tokens:\s*\(payload\)\s*=>\s*ipcRenderer\.invoke\("naimage:server:tokens",\s*payload\)/, "Preload must forward token snapshot options");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 63 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 67 })}\n`);

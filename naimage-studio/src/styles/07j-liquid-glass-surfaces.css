@@ -2492,6 +2492,26 @@
     grid-template-columns: auto minmax(130px, 1fr) auto auto auto;
   }
 
+  .project-actions > .project-menu.file-command-menu {
+    flex: 0 0 auto;
+  }
+
+  .project-actions > .project-menu:not(.file-command-menu) {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .project-actions > .project-menu:not(.file-command-menu) > button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .project-actions .project-active-name {
+    max-width: 100%;
+  }
+
   .workspace-direction-switcher {
     width: 108px;
     flex-basis: 108px;

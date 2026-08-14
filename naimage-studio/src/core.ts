@@ -170,12 +170,15 @@ export type GlassBackgroundResult = {
   error?: string;
 };
 
-export type ImageModelBinding = {
+export type ModelConnectionBinding = {
   model: string;
   customBaseUrl?: string;
   customApiKey?: string;
   accountTokenId?: string;
 };
+
+export type AgentModelBinding = ModelConnectionBinding;
+export type ImageModelBinding = ModelConnectionBinding;
 
 export type ImageFrameRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9" | "9:21" | "4:5";
 export type ImageResolutionPreset = "1K" | "2K" | "4K";
@@ -187,6 +190,7 @@ export type ApiSettings = {
   agentApiKey: string;
   agentModel: string;
   agentModelPool: string[];
+  agentModelBindings: AgentModelBinding[];
   compactModel: string;
   contextStrategy: ContextStrategyId;
   contextWindowTokens: number;
@@ -1342,11 +1346,66 @@ export type ImageAssetExportResult = {
 
 export type ImageExportFormat = "png" | "jpeg" | "webp" | "avif" | "tiff";
 
+export type ImageCollectionExportGroupStats = {
+  collectionId: string;
+  name: string;
+  role: ImageCollectionRole;
+  directoryName: string;
+  imageCount: number;
+  slotCount: number;
+  failedSlotCount: number;
+  pendingSlotCount: number;
+  sourceBytes: number;
+  estimatedBytes: number;
+};
+
+export type ImageCollectionExportPreviewResult = {
+  ok: boolean;
+  projectId?: string;
+  format?: ImageExportFormat;
+  previewToken?: string;
+  collectionCount?: number;
+  imageCount?: number;
+  slotCount?: number;
+  failedSlotCount?: number;
+  pendingSlotCount?: number;
+  sourceBytes?: number;
+  estimatedBytes?: number;
+  groups?: ImageCollectionExportGroupStats[];
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
+export type ImageCollectionExportResult = ImageCollectionExportPreviewResult & {
+  exportedAt?: string;
+  imageBytes?: number;
+  manifestBytes?: number;
+  totalBytes?: number;
+  convertedCount?: number;
+  exported?: Array<{
+    collectionId: string;
+    name: string;
+    role: ImageCollectionRole;
+    directoryName: string;
+    relativePath: string;
+    imageCount: number;
+    itemCount: number;
+    failedSlotCount: number;
+    pendingSlotCount: number;
+    imageBytes: number;
+    manifestBytes: number;
+    totalBytes: number;
+    convertedCount: number;
+    manifest: string;
+  }>;
+};
+
 export type SaveAssetAsPayload = {
   asset: ImageAsset;
   projectId?: string;
   suggestedName?: string;
-  /** Preferred local export format. The native picker can still choose another supported format. */
+  /** Preferred local export format. When omitted, Main asks for a format before opening a single-format Save dialog. */
   format?: ImageExportFormat;
   /** AIDebug only: bypasses the native picker and writes below .diagnostics. */
   aidebugName?: string;
@@ -1631,6 +1690,67 @@ export type ProjectRecord = {
   external?: boolean;
 };
 
+export type ProjectDataMigrationCandidate = {
+  candidateId: string;
+  projectId: string;
+  name: string;
+  sourceKind: "managed-project" | "unindexed-project" | "global-session";
+  fileCount: number;
+  totalBytes: number;
+  memoryEntryCount: number;
+  blockedReason?: string;
+};
+
+export type ProjectDataMigrationPreviewResult = {
+  ok: boolean;
+  previewToken?: string;
+  candidateCount?: number;
+  migratableCount?: number;
+  blockedCount?: number;
+  fileCount?: number;
+  totalBytes?: number;
+  memoryEntryCount?: number;
+  pendingCleanupCount?: number;
+  pendingCleanup?: Array<{
+    migrationId: string;
+    createdAt: string;
+    projectCount: number;
+    fileCount: number;
+  }>;
+  candidates?: ProjectDataMigrationCandidate[];
+  errorCode?: string;
+  error?: string;
+};
+
+export type ProjectDataMigrationResult = {
+  ok: boolean;
+  canceled?: boolean;
+  migrationId?: string;
+  cleanupAvailable?: boolean;
+  migratedAt?: string;
+  migratedProjectCount?: number;
+  copiedFileCount?: number;
+  copiedBytes?: number;
+  project?: ProjectRecord | null;
+  projects?: ProjectRecord[];
+  activeProjectId?: string;
+  session?: PersistedWorkflowSession;
+  errorCode?: string;
+  error?: string;
+};
+
+export type ProjectDataMigrationCleanupResult = {
+  ok: boolean;
+  migrationId?: string;
+  cleanedAt?: string;
+  alreadyCleaned?: boolean;
+  removedProjectCount?: number;
+  removedFileCount?: number;
+  cleanupWarnings?: string[];
+  errorCode?: string;
+  error?: string;
+};
+
 export type WorkspaceDomain = "general" | "commerce" | "social" | "research";
 
 export type WorkspaceDomainDefinition = {
@@ -1658,7 +1778,7 @@ export type ConfirmDialogDraft = {
   detail?: string;
   confirmLabel: string;
   tone?: "default" | "danger";
-  action: "remove-project" | "delete-project-folder" | "new-conversation" | "clear-conversation" | "rerun-requirement" | "pause-agent" | "stop-agent";
+  action: "remove-project" | "migrate-project-data" | "cleanup-migrated-project-data" | "new-conversation" | "clear-conversation" | "rerun-requirement" | "pause-agent" | "stop-agent";
 };
 
 export type WorkflowSession = {
@@ -2181,12 +2301,39 @@ export type ConfigBridge = {
   newWindow?(payload?: { projectId?: string; newConversation?: boolean }): Promise<{ ok: boolean }>;
   windowControl?(payload: { action: "minimize" | "toggle-maximize" | "close" | "state" }): Promise<{ ok: boolean; action?: string; maximized?: boolean; minimized?: boolean; error?: string }>;
   listProjects?(): Promise<{ ok: boolean; projects?: ProjectRecord[]; activeProjectId?: string; error?: string }>;
+  previewProjectDataMigration?(): Promise<ProjectDataMigrationPreviewResult>;
+  migrateProjectData?(payload: { previewToken: string; candidateIds: string[]; confirmed: true }): Promise<ProjectDataMigrationResult>;
+  cleanupMigratedProjectData?(payload: { migrationId: string; confirmedCleanup: true }): Promise<ProjectDataMigrationCleanupResult>;
   createProject?(payload: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   createProjectFolder?(payload?: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; canceled?: boolean; path?: string; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   switchProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   renameProject?(payload: { id: string; name: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   openProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   openCurrentProjectFolder?(payload?: { id?: string }): Promise<{ ok: boolean; path?: string; projectId?: string; error?: string }>;
+  previewImageCollectionExport?(payload: {
+    expectedProjectId: string;
+    collectionIds: string[];
+    format: ImageExportFormat;
+  }): Promise<ImageCollectionExportPreviewResult>;
+  exportImageCollections?(payload: {
+    expectedProjectId: string;
+    collectionIds: string[];
+    format: ImageExportFormat;
+    previewToken: string;
+    confirmed: true;
+  }): Promise<ImageCollectionExportResult>;
+  openImageCollectionFolder?(payload: {
+    expectedProjectId: string;
+    collectionId: string;
+  }): Promise<{
+    ok: boolean;
+    projectId?: string;
+    collectionId?: string;
+    directoryName?: string;
+    errorCode?: string;
+    error?: string;
+    details?: Record<string, unknown>;
+  }>;
   exportProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
   importProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; task?: { prompt: string; visibleContent: string }; errorCode?: string; error?: string }>;
@@ -2303,6 +2450,25 @@ export type AgentRuntimeAction = {
   type: string;
   operationId?: string;
   toolRunId?: string;
+  /** Main-owned image-collection mutation requested by the built-in workflow tool. */
+  imageCollection?: {
+    operation: "rename" | "replace" | "export";
+    expectedProjectId?: string;
+    expectedCanvasRevision?: number;
+    confirmed?: boolean;
+    format?: ImageExportFormat;
+    requests?: Array<{
+      collectionId?: string;
+      name?: string;
+      sourceCollectionId?: string;
+      itemId?: string;
+      requestIndex?: number;
+      replacementNodeId?: string;
+      replacementAssetIndex?: number;
+      defectReason?: string;
+    }>;
+    collectionIds?: string[];
+  };
   /** Existing recoverable PNG layer group that this action resumes in place. */
   resumeLayerGroupId?: string;
   /** Failed layer identities retried by this action. Successful layers are reused. */
@@ -2362,7 +2528,7 @@ export type AgentRuntimeAction = {
 export type AgentBridge = {
   tools(): Promise<{ ok: boolean; tools?: unknown[] }>;
   listModels(payload: { provider: "agent" | "image" | "video"; settings: AppSettings }): Promise<{ ok: boolean; provider: string; models?: string[]; cacheSource?: ServerPublicSettings["cacheSource"]; cacheAgeMs?: number; cacheTtlMs?: number; error?: string }>;
-  runTool(payload: { runId?: string; name: string; input: Record<string, unknown>; prompt?: string; nodes?: WorkflowNode[]; selectedNodeId?: string; selectedNodeIds?: string[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string }): Promise<{
+  runTool(payload: { runId?: string; name: string; input: Record<string, unknown>; prompt?: string; nodes?: WorkflowNode[]; selectedNodeId?: string; selectedNodeIds?: string[]; canvasRevision?: number; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string }): Promise<{
     envelope?: {
       ok?: boolean;
       entryId?: string;
@@ -2382,7 +2548,7 @@ export type AgentBridge = {
     currentCount: number;
     currentQuality: AppSettings["imageQuality"];
   }): Promise<{ ok: boolean; draft?: Partial<ImageTaskDraft>; envelope?: { visibleOutput?: string; summary?: string }; error?: string }>;
-  chat(payload: { runId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[]; workspaceDomain?: WorkspaceDomain; imageDefaults?: { ratio?: string; resolution?: string } }): Promise<AgentRuntimeResult>;
+  chat(payload: { runId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[]; canvasRevision?: number; workspaceDomain?: WorkspaceDomain; imageDefaults?: { ratio?: string; resolution?: string } }): Promise<AgentRuntimeResult>;
   onProgress?(handler: (payload: AgentProgress) => void): () => void;
   getMainPrompt(): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
   saveMainPrompt(payload: { text: string }): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
@@ -2924,10 +3090,10 @@ export function uniqueImageModels(models: unknown[] = []) {
     .filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
 }
 
-export function normalizeImageModelBindings(value: unknown): ImageModelBinding[] {
+export function normalizeModelConnectionBindings(value: unknown): ModelConnectionBinding[] {
   if (!Array.isArray(value)) return [];
-  const bindings: ImageModelBinding[] = [];
-  const bindingByModel = new Map<string, ImageModelBinding>();
+  const bindings: ModelConnectionBinding[] = [];
+  const bindingByModel = new Map<string, ModelConnectionBinding>();
   for (const item of value) {
     if (!item || typeof item !== "object" || Array.isArray(item)) continue;
     const source = item as Record<string, unknown>;
@@ -2960,11 +3126,27 @@ export function normalizeImageModelBindings(value: unknown): ImageModelBinding[]
   return bindings;
 }
 
-export function imageModelBindingFor(settings: { imageModelBindings?: unknown }, model: unknown): ImageModelBinding | undefined {
+export function normalizeAgentModelBindings(value: unknown): AgentModelBinding[] {
+  return normalizeModelConnectionBindings(value);
+}
+
+export function normalizeImageModelBindings(value: unknown): ImageModelBinding[] {
+  return normalizeModelConnectionBindings(value);
+}
+
+export function modelConnectionBindingFor(bindings: unknown, model: unknown): ModelConnectionBinding | undefined {
   const modelKey = String(model || "").trim().toLowerCase();
   if (!modelKey) return undefined;
-  return normalizeImageModelBindings(settings.imageModelBindings)
+  return normalizeModelConnectionBindings(bindings)
     .find((binding) => binding.model.toLowerCase() === modelKey);
+}
+
+export function agentModelBindingFor(settings: { agentModelBindings?: unknown }, model: unknown): AgentModelBinding | undefined {
+  return modelConnectionBindingFor(settings.agentModelBindings, model);
+}
+
+export function imageModelBindingFor(settings: { imageModelBindings?: unknown }, model: unknown): ImageModelBinding | undefined {
+  return modelConnectionBindingFor(settings.imageModelBindings, model);
 }
 
 export function imageModelsWithPreferredFallback(models: string[] = [], preferred?: string, selectedModels: string[] = []) {
@@ -2981,8 +3163,14 @@ export function modelsWithPreferred(models: string[] = [], preferred?: string, s
   return ordered.filter((model, index, list) => list.findIndex((item) => item.toLowerCase() === model.toLowerCase()) === index);
 }
 
-export function selectedAgentModelsFromSettings(settings: Pick<ApiSettings, "agentModel" | "agentModelPool">) {
-  return uniqueImageModels([settings.agentModel, ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : [])]);
+export function selectedAgentModelsFromSettings(
+  settings: Pick<ApiSettings, "agentModel" | "agentModelPool"> & Partial<Pick<ApiSettings, "agentModelBindings">>
+) {
+  return uniqueImageModels([
+    settings.agentModel,
+    ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
+    ...(Array.isArray(settings.agentModelBindings) ? settings.agentModelBindings.map((binding) => binding.model) : [])
+  ]);
 }
 
 export function selectedImageModelsFromSettings(settings: Pick<ApiSettings, "imageModel" | "imageModelPool">) {

@@ -11,7 +11,10 @@ function createProjectSaveCoordinator(options = {}) {
   const initialRevision = typeof options.initialRevision === "function" ? options.initialRevision : () => 0;
 
   function enqueue(projectId, requestedRevision, apply) {
-    const key = String(projectId || "__global__");
+    const key = String(projectId || "").trim();
+    if (!key) {
+      return Promise.resolve({ ok: false, errorCode: "PROJECT_REQUIRED", error: "保存会话前必须指定项目。", appliedRevision: 0, skippedStale: false });
+    }
     const explicitRevision = requestedRevision === undefined || requestedRevision === null || requestedRevision === ""
       ? null
       : normalizeSessionRevision(requestedRevision);
@@ -44,7 +47,8 @@ function createProjectSaveCoordinator(options = {}) {
   return {
     enqueue,
     revision(projectId) {
-      return revisions.get(String(projectId || "__global__")) ?? null;
+      const key = String(projectId || "").trim();
+      return key ? revisions.get(key) ?? null : null;
     },
     pendingProjectCount() {
       return queues.size;

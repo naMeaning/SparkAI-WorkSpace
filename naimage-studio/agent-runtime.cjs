@@ -100,7 +100,7 @@ const mainWorkbenchRecentArtifacts = 24;
 const protocolHistoryMaxTurns = 36;
 const protocolHistoryPromptChars = 180000;
 const protocolHistoryStoreChars = 260000;
-const promptTextContractRevision = 12;
+const promptTextContractRevision = 13;
 const imageToolNames = new Set([primaryImageToolName]);
 const internalOnlyToolNames = new Set(["memory", "context_manage"]);
 const experiencePublicArgumentKeys = new Set(["action", "title", "text", "summary", "instruction", "rating", "brief"]);
@@ -116,7 +116,7 @@ const defaultMainAgentPromptLines = [
   "你是 SparkAI WorkSpace 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
   "SparkAI WorkSpace 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
-  `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 只管理已有成果；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
+  `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 管理已有成果，并可重命名、替换或导出当前项目受管图片组；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。图片组替换只能引用当前画布节点和 zero-based 资产序号，图片组导出必须 confirmed=true，禁止提交路径、URL 或目标目录。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
   `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。Current Task Scope 存在 SOURCE 时禁止使用 generate，因为 generate 不会读取原图；必须按意图使用 edit、replace、variants、layers、cutout 或 redraw，并在多 SOURCE 时逐项填写 sourceBindingId。缺少需要处理的 SOURCE 时使用 ask_user(kind=source_images)，缺少仅作参考的 REFERENCE 时使用 ask_user(kind=reference_images)，不要猜路径，也不要把 REFERENCE 当成 SOURCE。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
   "先理解目标，再直接执行；不要只输出计划。图片任务成功则简短汇报，失败则读取错误类别并最多修正参数重试两次。复杂任务可先用 view_image、web_search 或 shell_command 获取必要事实，再调用 image_gen。缺少来源图片时打开参考图收集，不得假装已经出图。",
   "默认交付商业级高质量图片：主体与视觉层级明确，构图有清晰意图，景别严格符合用户要求，留白和视觉动线可控，材质、光线、边缘与细节可信。特效必须克制且服务主体；除非用户明确要求，不堆砌粒子、光斑、几何碎片、廉价辉光、无意义装饰或伪文字，也不把多个独立方案画成拼贴。先服从用户给定的风格与审美，再用这些底线避免俗气、混乱和模板感。",
@@ -785,6 +785,40 @@ function nodeAssetSummary(node = {}) {
     .join(" | ");
 }
 
+function workflowImageCollectionForNode(node = {}) {
+  const collection = node?.imageCollection || node?.imageContainerSpec?.collection;
+  return collection && typeof collection === "object" && Array.isArray(collection.items) ? collection : null;
+}
+
+function workflowImageCollectionSummary(node = {}) {
+  const collection = workflowImageCollectionForNode(node);
+  if (!collection) return [];
+  const role = collection.collectionRole === "defects" ? "defects" : "results";
+  const items = collection.items.slice(0, 80).map((item, index) => {
+    const requestIndex = Number.isInteger(Number(item?.requestIndex)) ? Number(item.requestIndex) : index + 1;
+    const assetId = cleanOneLine(item?.assetId || "", 160);
+    const replacement = cleanOneLine(item?.replacedByAssetId || "", 160);
+    const replaces = cleanOneLine(item?.replacesItemId || "", 120);
+    const reason = cleanOneLine(item?.defectReason || "", 180);
+    return [
+      cleanOneLine(item?.id || `item-${index + 1}`, 120),
+      `slot=${requestIndex}`,
+      `asset=${assetId || "-"}`,
+      `status=${item?.status || "done"}`,
+      item?.prompt ? `prompt=${cleanOneLine(item.prompt, 180)}` : "",
+      replacement ? `replacedBy=${replacement}` : "",
+      replaces ? `replaces=${replaces}` : "",
+      reason ? `defectReason=${reason}` : ""
+    ].filter(Boolean).join(",");
+  });
+  return [
+    `imageCollection=${cleanOneLine(collection.id || "", 120)}:${cleanOneLine(collection.name || node.title || "图片组", 120)}:role=${role}:kind=${collection.kind || "batch"}:mode=${collection.generationMode || "parallel"}`,
+    collection.sourceCollectionId ? `sourceCollectionId=${cleanOneLine(collection.sourceCollectionId, 120)}` : "",
+    collection.defectOfNodeId ? `defectOfNodeId=${cleanOneLine(collection.defectOfNodeId, 160)}` : "",
+    items.length ? `collectionItems=${items.join(" | ")}` : ""
+  ].filter(Boolean);
+}
+
 function workflowNodeSummary(node = {}, options = {}) {
   const params = node.imageParams || {};
   const layerRecovery = node.layerGroup?.recovery;
@@ -799,6 +833,7 @@ function workflowNodeSummary(node = {}, options = {}) {
     node.parentId ? `relation=${node.relationType || "derived-from"}` : "",
     `state=${node.imageState || "-"}`,
     node.imageContainerRole ? `containerRole=${node.imageContainerRole}` : "",
+    ...workflowImageCollectionSummary(node),
     node.requirement?.text ? `requirement=${cleanOneLine(node.requirement.text, 180)}` : "",
     node.requirement?.revision ? `requirementRevision=${node.requirement.revision}` : "",
     node.requirement?.socialPlan ? `social=${node.requirement.socialPlan.platform}:${node.requirement.socialPlan.workflowId}:${node.requirement.socialPlan.planHash}` : "",
@@ -1834,6 +1869,39 @@ function providerSettings(settings = {}, provider = "agent") {
   };
 }
 
+function modelConnectionBindingForSettings(settings = {}, provider = "agent", model = "") {
+  const target = String(model || "").trim().toLowerCase();
+  if (!target) return null;
+  const bindings = provider === "image" ? settings?.imageModelBindings : settings?.agentModelBindings;
+  if (!Array.isArray(bindings)) return null;
+  for (const value of bindings) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const bindingModel = String(value.model || "").trim();
+    if (!bindingModel || bindingModel.toLowerCase() !== target) continue;
+    return {
+      model: bindingModel,
+      customBaseUrl: String(value.customBaseUrl || value.baseUrl || "").trim(),
+      customApiKey: String(value.customApiKey || "").trim(),
+      accountTokenId: String(value.accountTokenId || "").trim()
+    };
+  }
+  return null;
+}
+
+function providerSettingsForModel(settings = {}, provider = "agent", model = "") {
+  const config = providerSettings(settings, provider);
+  // Account-mode requests are resolved in Electron Main, where the selected
+  // account Token can be looked up without exposing its secret to the runtime.
+  if (String(settings?.accessMode || "account").toLowerCase() !== "custom") return config;
+  const binding = modelConnectionBindingForSettings(settings, provider, model);
+  if (!binding) return config;
+  return {
+    ...config,
+    baseUrl: binding.customBaseUrl || config.baseUrl,
+    apiKey: binding.customApiKey || config.apiKey
+  };
+}
+
 function normalizeReferenceImage(value, fallbackName = "image.png") {
   if (!value) return null;
   if (typeof value === "string") {
@@ -2396,6 +2464,8 @@ function createAgentRuntime(options) {
   } = createImageBatchNormalization({ cleanOneLine, stripPastedBlockMarkers });
   const memoryStore = createMemoryStore({
     configRoot,
+    resolveProjectRoot: runtimeOptions.resolveProjectRoot,
+    projectMetaDirName: runtimeOptions.projectMetaDirName,
     safeJson,
     summarizeText,
     toolSummary,
@@ -2432,7 +2502,6 @@ function createAgentRuntime(options) {
     compactStateForPayload,
     contextManage,
     conversationProtocolItemsForPrompt,
-    conversationSummaryKey,
     dateMemoryBuffer,
     diagnostics: memoryDiagnostics,
     dispose: disposeMemoryStore,
@@ -2456,7 +2525,7 @@ function createAgentRuntime(options) {
     saveFastMemory,
     saveMainPrompt,
     storeToolResult,
-    writeRuntimeMetaJson
+    writeConversationSummary
   } = memoryStore;
   let maintenanceRunning = false;
 
@@ -5610,6 +5679,94 @@ function createAgentRuntime(options) {
     } else if (name === "workflow") {
       const operation = String(args.operation || "list_nodes");
       const nodes = canvasArtifacts(context);
+      const runtimeProjectId = cleanOneLine(context?.projectId || args.projectId || "", 160);
+      const runtimeCanvasRevision = Math.max(
+        0,
+        Math.floor(Number(context?.canvasRevision ?? context?.taskScope?.canvasRevision ?? 0) || 0)
+      );
+      const collectionForNode = (node) => workflowImageCollectionForNode(node);
+      const collectionEntries = nodes.flatMap((node) => {
+        const collection = collectionForNode(node);
+        return collection?.id ? [{ node, collection }] : [];
+      });
+      const collectionEntry = (collectionId) => {
+        const id = cleanOneLine(collectionId || "", 120);
+        const matches = collectionEntries.filter((entry) => String(entry.collection.id) === id);
+        if (matches.length !== 1) {
+          throw new Error(matches.length ? "图片组 ID 不唯一，整批操作未执行。" : "图片组不存在，整批操作未执行。");
+        }
+        return matches[0];
+      };
+      const assertImageCollectionMutationContext = () => {
+        if (!runtimeProjectId) throw new Error("当前项目身份不可用，图片组操作未执行。");
+        if (args.expectedProjectId !== undefined && cleanOneLine(args.expectedProjectId, 160) !== runtimeProjectId) {
+          throw new Error("当前项目与命令预期项目不一致，图片组操作未执行。");
+        }
+        if (args.expectedCanvasRevision !== undefined) {
+          const expected = Math.floor(Number(args.expectedCanvasRevision));
+          if (!Number.isFinite(expected) || expected !== runtimeCanvasRevision) {
+            throw new Error(`画布已发生变化（expectedCanvasRevision=${expected}, currentCanvasRevision=${runtimeCanvasRevision}），请先读取最新成果后重试。`);
+          }
+        }
+      };
+      const cleanCollectionRequests = (value) => Array.isArray(value)
+        ? value.filter((item) => item && typeof item === "object" && !Array.isArray(item))
+        : [];
+      const replacementAssetFor = (nodeId, assetIndex) => {
+        const replacementNodeId = cleanOneLine(nodeId || "", 160);
+        const index = Number(assetIndex);
+        const node = nodes.find((candidate) => String(candidate.id) === replacementNodeId);
+        if (!node) throw new Error("替换图片所在节点不存在，整批操作未执行。");
+        if (!Number.isInteger(index) || index < 0 || index >= (Array.isArray(node.assets) ? node.assets.length : 0)) {
+          throw new Error("替换图片资产序号不存在，整批操作未执行。");
+        }
+        const asset = node.assets[index];
+        if (!asset || asset.status === "pending" || asset.status === "error" || node.imageState === "generating") {
+          throw new Error("替换图片尚未完成，整批操作未执行。");
+        }
+        if (!asset.assetId && !asset.path && !asset.relativePath && !asset.assetUrl && !asset.url) {
+          throw new Error("替换图片不是当前项目中的受管资产，整批操作未执行。");
+        }
+        return { nodeId: replacementNodeId, assetIndex: index };
+      };
+      const replacementRequestsFor = () => {
+        const raw = cleanCollectionRequests(args.requests);
+        if (!raw.length && args.sourceCollectionId) raw.push(args);
+        if (!raw.length) throw new Error("replace_image_collection_item 至少需要一个 requests 项。");
+        const seen = new Set();
+        return raw.map((request) => {
+          const sourceCollectionId = cleanOneLine(request.sourceCollectionId || "", 120);
+          const entry = collectionEntry(sourceCollectionId);
+          if (entry.collection.collectionRole === "defects") throw new Error("瑕疵图片组不能作为替换目标。");
+          const itemId = cleanOneLine(request.itemId || "", 120);
+          const requestIndex = Number(request.requestIndex);
+          const hasRequestIndex = Number.isInteger(requestIndex) && requestIndex >= 1 && requestIndex <= 200;
+          if (!itemId && !hasRequestIndex) throw new Error("替换图片时必须指定 itemId 或 requestIndex。");
+          const matches = entry.collection.items.filter((item) => (
+            (!itemId || String(item.id) === itemId) && (!hasRequestIndex || Number(item.requestIndex) === requestIndex)
+          ));
+          if (matches.length !== 1) throw new Error(matches.length ? "图片组槽位不唯一，整批操作未执行。" : "图片组槽位不存在，整批操作未执行。");
+          const item = matches[0];
+          const sourceAssetIndex = Number(item.assetIndex) - 1;
+          if (item.status !== "done" || !Number.isInteger(sourceAssetIndex) || sourceAssetIndex < 0 || !entry.node.assets?.[sourceAssetIndex]) {
+            throw new Error("目标图片槽位没有可替换的完成图片，整批操作未执行。");
+          }
+          const replacement = replacementAssetFor(request.replacementNodeId, request.replacementAssetIndex);
+          const key = `${sourceCollectionId}:${item.id}`;
+          if (seen.has(key)) throw new Error("同一图片槽位在批次中出现多次，整批操作未执行。");
+          seen.add(key);
+          const defectReason = cleanOneLine(request.defectReason || "", 320);
+          if (!defectReason) throw new Error("替换图片必须填写 defectReason。");
+          return {
+            sourceCollectionId,
+            itemId: item.id,
+            ...(hasRequestIndex ? { requestIndex } : {}),
+            replacementNodeId: replacement.nodeId,
+            replacementAssetIndex: replacement.assetIndex,
+            defectReason
+          };
+        });
+      };
       const rawNodeId = String(args.nodeId || args.id || "").trim();
       const rawNodeTitle = String(args.nodeTitle || "").trim();
       const selectedNode = findWorkflowNode(nodes, context.selectedNodeId);
@@ -5652,6 +5809,17 @@ function createAgentRuntime(options) {
             node.title,
             node.prompt,
             node.imageParams?.prompt,
+            workflowImageCollectionForNode(node)?.id,
+            workflowImageCollectionForNode(node)?.name,
+            ...(workflowImageCollectionForNode(node)?.items || []).flatMap((item) => [
+              item?.id,
+              item?.requestIndex,
+              item?.prompt,
+              item?.assetId,
+              item?.replacedByAssetId,
+              item?.replacesItemId,
+              item?.defectReason
+            ]),
             node.parentId,
             node.relationType
           ].map((value) => normalizeWorkflowTitle(value)).join(" ");
@@ -5738,6 +5906,90 @@ function createAgentRuntime(options) {
           `workflowId: ${socialPlan.workflowId}`,
           `planHash: ${socialPlan.planHash}`,
           `requirementRevision: ${expectedRequirementRevision}`
+        ].join("\n");
+      } else if (operation === "rename_image_collections") {
+        assertImageCollectionMutationContext();
+        const rawRequests = cleanCollectionRequests(args.requests);
+        if (!rawRequests.length && args.collectionId) rawRequests.push(args);
+        if (!rawRequests.length) throw new Error("rename_image_collections 至少需要一个 requests 项。");
+        const seen = new Set();
+        const requests = rawRequests.map((request) => {
+          const collectionId = cleanOneLine(request.collectionId || "", 120);
+          if (!collectionId || seen.has(collectionId)) throw new Error("图片组 ID 不能为空或重复，整批操作未执行。");
+          const entry = collectionEntry(collectionId);
+          const name = String(request.name || "").trim();
+          if (!name) throw new Error("图片组新名称不能为空，整批操作未执行。");
+          seen.add(collectionId);
+          return { collectionId: entry.collection.id, name: name.slice(0, 240) };
+        });
+        const operationId = String(context.operationId || context.toolRunId || toolRunId(context, "workflow-image-collection-rename"));
+        actions = [{
+          type: "workflow.image-collection.rename",
+          operationId,
+          toolRunId: operationId,
+          imageCollection: {
+            operation: "rename",
+            expectedProjectId: runtimeProjectId,
+            expectedCanvasRevision: args.expectedCanvasRevision === undefined ? runtimeCanvasRevision : Math.floor(Number(args.expectedCanvasRevision)),
+            requests
+          }
+        }];
+        result = [
+          "IMAGE COLLECTION 重命名已通过当前画布校验，等待客户端提交。",
+          `collections: ${requests.map((request) => request.collectionId).join(", ")}`,
+          `canvasRevision: ${runtimeCanvasRevision}`
+        ].join("\n");
+      } else if (operation === "replace_image_collection_item") {
+        assertImageCollectionMutationContext();
+        const requests = replacementRequestsFor();
+        const operationId = String(context.operationId || context.toolRunId || toolRunId(context, "workflow-image-collection-replace"));
+        actions = [{
+          type: "workflow.image-collection.replace",
+          operationId,
+          toolRunId: operationId,
+          imageCollection: {
+            operation: "replace",
+            expectedProjectId: runtimeProjectId,
+            expectedCanvasRevision: args.expectedCanvasRevision === undefined ? runtimeCanvasRevision : Math.floor(Number(args.expectedCanvasRevision)),
+            requests
+          }
+        }];
+        result = [
+          "IMAGE COLLECTION 替换已通过当前画布校验，等待客户端提交。",
+          `slots: ${requests.map((request) => `${request.sourceCollectionId}/${request.itemId}`).join(", ")}`,
+          `canvasRevision: ${runtimeCanvasRevision}`
+        ].join("\n");
+      } else if (operation === "export_image_collections") {
+        assertImageCollectionMutationContext();
+        if (args.confirmed !== true) throw new Error("导出图片组必须显式传入 confirmed=true。");
+        const format = cleanOneLine(args.format || "", 16).toLowerCase();
+        if (!["png", "jpeg", "webp", "avif", "tiff"].includes(format)) {
+          throw new Error("导出图片组必须显式选择 PNG、JPEG、WebP、AVIF 或 TIFF 格式。");
+        }
+        const collectionIds = Array.isArray(args.collectionIds)
+          ? args.collectionIds.map((id) => cleanOneLine(id, 120)).filter(Boolean)
+          : args.collectionId ? [cleanOneLine(args.collectionId, 120)] : [];
+        if (!collectionIds.length || new Set(collectionIds).size !== collectionIds.length) throw new Error("请选择不重复的当前项目图片组。");
+        collectionIds.forEach((id) => collectionEntry(id));
+        const operationId = String(context.operationId || context.toolRunId || toolRunId(context, "workflow-image-collection-export"));
+        actions = [{
+          type: "workflow.image-collection.export",
+          operationId,
+          toolRunId: operationId,
+          imageCollection: {
+            operation: "export",
+            expectedProjectId: runtimeProjectId,
+            expectedCanvasRevision: args.expectedCanvasRevision === undefined ? runtimeCanvasRevision : Math.floor(Number(args.expectedCanvasRevision)),
+            confirmed: true,
+            format,
+            collectionIds
+          }
+        }];
+        result = [
+          "IMAGE COLLECTION 导出已通过当前项目和资产校验，等待客户端提交。",
+          `collections: ${collectionIds.join(", ")}`,
+          `format: ${format}`,
+          `canvasRevision: ${runtimeCanvasRevision}`
         ].join("\n");
       } else if (operation === "continue_node") {
         actions = [{ type: "workflow.node.continue", id: nodeId, prompt }];
@@ -6102,7 +6354,7 @@ function createAgentRuntime(options) {
       updatedAt: new Date().toISOString(),
       compactModel: compactModel || "local-fallback"
     };
-    writeRuntimeMetaJson(conversationSummaryKey(payload), nextState);
+    writeConversationSummary(payload, nextState);
     const compactedProtocolFoundation = strategy.useResponsesProtocol
       ? retainedUserMessages.map((content) => ({
           type: "message",
@@ -6227,8 +6479,9 @@ function createAgentRuntime(options) {
   }
 
   async function callModel(settings, messages, requestOptions = {}) {
-    const config = providerSettings(settings, "agent");
-    const model = String(requestOptions.model ?? config.model ?? "").trim();
+    const defaultConfig = providerSettings(settings, "agent");
+    const model = String(requestOptions.model ?? defaultConfig.model ?? "").trim();
+    const config = providerSettingsForModel(settings, "agent", model);
     const progress = typeof requestOptions.progress === "function" ? requestOptions.progress : () => {};
     const nativeWebSearchState = new Map();
     if (!Object.prototype.hasOwnProperty.call(requestOptions, "tools") || !Array.isArray(requestOptions.tools)) {
@@ -6502,6 +6755,10 @@ function createAgentRuntime(options) {
   async function chat(payload = {}) {
     ensureMemory();
     const settings = payload.settings ?? {};
+    payload.canvasRevision = Math.max(
+      0,
+      Math.floor(Number(payload.canvasRevision ?? payload.taskScope?.canvasRevision ?? 0) || 0)
+    );
     const progress = typeof payload.progress === "function" ? payload.progress : () => {};
     const strategy = contextStrategyForSettings(settings);
 
@@ -6709,6 +6966,7 @@ function createAgentRuntime(options) {
           const imageContext = {
             settings,
             nodes: payload.nodes ?? [],
+            canvasRevision: payload.canvasRevision,
             prompt: payload.prompt,
             messages: payload.messages ?? [],
             selectedNodeId: payload.selectedNodeId,
@@ -6801,6 +7059,7 @@ function createAgentRuntime(options) {
           messages: payload.messages ?? [],
           selectedNodeId: payload.selectedNodeId,
           selectedNodeIds: payload.selectedNodeIds ?? [],
+          canvasRevision: payload.canvasRevision,
           taskScope: payload.taskScope,
           referenceImages: payload.referenceImages ?? [],
           signal: toolPhase.signal,
@@ -7101,9 +7360,9 @@ function createAgentRuntime(options) {
     ensureMemory();
     const settings = payload.settings ?? {};
     const progress = typeof payload.progress === "function" ? payload.progress : () => {};
-    const config = providerSettings(settings, "agent");
-    const apiKey = String(config.apiKey ?? "").trim();
     const model = String(settings.agentModel ?? settings.model ?? "").trim();
+    const config = providerSettingsForModel(settings, "agent", model);
+    const apiKey = String(config.apiKey ?? "").trim();
     if (!apiKey && typeof runtimeOptions.serverChatCompletion !== "function") {
       return { ok: false, error: "Agent API key 未配置，无法执行真实 Agent 辅助。" };
     }

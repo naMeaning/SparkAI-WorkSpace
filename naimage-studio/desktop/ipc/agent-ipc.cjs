@@ -25,7 +25,9 @@ function registerAgentIpc({
   emitAgentProgress,
   agentRunControl,
   aidebugMode,
-  aidebugAgentStopFixture
+  aidebugAgentStopFixture,
+  readProjectList,
+  getProjectById
 }) {
   const boundRunOwners = new WeakSet();
   const ownerIdForEvent = (event) => String(event?.sender?.id ?? "").trim();
@@ -35,8 +37,8 @@ function registerAgentIpc({
     steerable,
     taskScope: payload?.taskScope && typeof payload.taskScope === "object" ? payload.taskScope : undefined,
     nodes: Array.isArray(payload?.nodes) ? payload.nodes : undefined,
-    projectId: String(payload?.projectId || "default"),
-    conversationId: String(payload?.conversationId || "default"),
+    projectId: String(payload?.projectId || "").trim(),
+    conversationId: String(payload?.conversationId || "").trim(),
     nodeIds: [...new Set([
       ...(Array.isArray(payload?.selectedNodeIds) ? payload.selectedNodeIds : []),
       ...(Array.isArray(payload?.taskScope?.sourceNodeIds) ? payload.taskScope.sourceNodeIds : []),
@@ -49,8 +51,19 @@ function registerAgentIpc({
   const beginRun = (event, payload, runId, steerable = false) => agentRunControl?.begin(runScope(event, payload, runId, steerable)) || {
     signal: undefined,
     ownerId: ownerIdForEvent(event),
-    projectId: String(payload?.projectId || "default"),
-    conversationId: String(payload?.conversationId || "default")
+    projectId: String(payload?.projectId || "").trim(),
+    conversationId: String(payload?.conversationId || "").trim()
+  };
+
+  const requiredProjectScope = (payload = {}) => {
+    const projectId = String(payload?.projectId || "").trim();
+    const conversationId = String(payload?.conversationId || "").trim();
+    if (!projectId) return { ok: false, errorCode: "PROJECT_REQUIRED", error: "请先创建或打开项目，再使用 Agent。" };
+    if (typeof getProjectById === "function" && typeof readProjectList === "function" && !getProjectById(projectId, readProjectList())) {
+      return { ok: false, errorCode: "PROJECT_NOT_FOUND", error: "当前项目不存在或已经被移除，请重新打开项目。" };
+    }
+    if (!conversationId) return { ok: false, errorCode: "CONVERSATION_REQUIRED", error: "请先创建或选择一个对话，再使用 Agent。" };
+    return { ok: true, projectId, conversationId };
   };
 
   const finishRun = (runId) => agentRunControl?.finish({ runId });
@@ -111,6 +124,10 @@ function registerAgentIpc({
     const name = String(payload?.name || "").trim();
     const runId = String(payload?.runId || `agent-tool-${Date.now()}`);
     if (!name) return { envelope: { ok: false, summary: "缺少工具名称。", error: "missing tool name" }, actions: [] };
+    const projectScope = requiredProjectScope(payload);
+    if (!projectScope.ok) {
+      return { envelope: { ok: false, errorCode: projectScope.errorCode, summary: projectScope.error, error: projectScope.error }, actions: [] };
+    }
     if (name !== "image_gen" && !aidebugMode) {
       return {
         envelope: {
@@ -138,6 +155,7 @@ function registerAgentIpc({
          nodes: Array.isArray(runtimePayload?.nodes) ? runtimePayload.nodes : [],
          selectedNodeId: runtimePayload?.selectedNodeId,
          selectedNodeIds: Array.isArray(runtimePayload?.selectedNodeIds) ? runtimePayload.selectedNodeIds : [],
+         canvasRevision: Math.max(0, Math.floor(Number(runtimePayload?.canvasRevision ?? runtimePayload?.taskScope?.canvasRevision ?? 0) || 0)),
          taskScope: runtimePayload.taskScope,
          referenceImages: Array.isArray(runtimePayload?.referenceImages) ? runtimePayload.referenceImages : [],
         projectId: runtimePayload?.projectId,
@@ -163,6 +181,8 @@ function registerAgentIpc({
 
   ipcMain.handle("naimage:agent:compose-image-prompt", async (event, payload = {}) => {
     const runId = String(payload?.runId || `agent-compose-${Date.now()}`);
+    const projectScope = requiredProjectScope(payload);
+    if (!projectScope.ok) return projectScope;
     try {
       return await getAgentRuntime().composeImagePrompt({
         ...(payload || {}),
@@ -180,6 +200,8 @@ function registerAgentIpc({
 
   ipcMain.handle("naimage:agent:chat", async (event, payload = {}) => {
     const runId = String(payload?.runId || `agent-chat-${Date.now()}`);
+    const projectScope = requiredProjectScope(payload);
+    if (!projectScope.ok) return { ...projectScope, content: "" };
     let controlledRun;
     try {
       const runtime = getAgentRuntime();

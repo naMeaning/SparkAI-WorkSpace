@@ -436,6 +436,8 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
         buffering: stage.getAttribute('data-buffering'),
         targetSrc: stage.getAttribute('data-target-src'),
         displayedSrc: stage.getAttribute('data-displayed-src'),
+        targetAsset: stage.getAttribute('data-target-asset'),
+        displayedAsset: stage.getAttribute('data-displayed-asset'),
         imageCount: images.length,
         visibleCount: visible.length
       });
@@ -451,19 +453,194 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     cancelAnimationFrame(frameHandle);
     const finalTarget = stage.getAttribute('data-target-src') || '';
     const finalDisplayed = stage.getAttribute('data-displayed-src') || '';
+    const finalTargetAsset = stage.getAttribute('data-target-asset') || '';
+    const finalDisplayedAsset = stage.getAttribute('data-displayed-asset') || '';
     const currentImages = Array.from(stage.querySelectorAll('.image-viewer-image-current')).filter((image) => image.complete && image.naturalWidth > 0);
     return {
-      ok: samples.length >= 4 && blankFrames === 0 && maxSurfaceDelta <= 1 && finalTarget === finalDisplayed && currentImages.length === 1,
+      ok: samples.length >= 4 && blankFrames === 0 && maxSurfaceDelta <= 1 && finalTarget === finalDisplayed && finalTargetAsset === finalDisplayedAsset && stage.getAttribute('data-buffering') === 'false' && currentImages.length === 1,
       sampleCount: samples.length,
       blankFrames,
       maxSurfaceDelta,
       finalTarget,
       finalDisplayed,
+      finalTargetAsset,
+      finalDisplayedAsset,
       currentImageCount: currentImages.length,
       maxBufferedImageCount: Math.max(0, ...samples.map((item) => item.imageCount)),
       samples
     };
   })()`);
+  const viewerIdentityRaceProof = await evaluate(client, `(async () => {
+    const waitFor = async (predicate, timeoutMs = 5000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const value = predicate();
+        if (value) return value;
+        await new Promise((resolve) => setTimeout(resolve, 16));
+      }
+      return null;
+    };
+    const nodeId = 'viewer-race-' + Date.now().toString(36);
+    const sharedSrc = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const accepted = window.__naimageDebugApplyAgentActions?.([{
+      type: 'workflow.node.create',
+      toolRunId: nodeId,
+      node: {
+        id: nodeId,
+        title: 'Image Viewer Identity Race',
+        prompt: 'local identity race fixture',
+        nodeType: 'image',
+        status: 'done',
+        imageState: 'done',
+        outputs: 3,
+        assets: [
+          { type: 'url', assetUrl: sharedSrc, assetId: 'viewer-race-asset-a', occurrenceId: 'occ-aaaaaaaaaaaaaaaa', status: 'done', width: 1, height: 1 },
+          { type: 'url', assetUrl: sharedSrc, assetId: 'viewer-race-asset-b', occurrenceId: 'occ-bbbbbbbbbbbbbbbb', status: 'done', width: 1, height: 1 },
+          { type: 'url', assetUrl: sharedSrc, assetId: 'viewer-race-asset-c', occurrenceId: 'occ-cccccccccccccccc', status: 'done', width: 1, height: 1 }
+        ]
+      }
+    }]);
+    const nodeReady = await waitFor(() => window.__naimageDebugAgentState?.().nodes?.some((node) => node.id === nodeId));
+    if (!accepted || !nodeReady) return { ok: false, nodeId, error: 'race fixture node unavailable' };
+    await window.__naimageAIDebug.openImageViewer({ id: nodeId, index: 0 });
+    const stage = await waitFor(() => document.querySelector('[data-ui-surface="image-viewer"] .image-viewer-stage'));
+    const buttons = Array.from(document.querySelectorAll('[data-ui-surface="image-viewer"] .image-viewer-strip button[data-final-asset="true"]'));
+    await waitFor(() => stage?.getAttribute('data-buffering') === 'false' && stage?.querySelector('.image-viewer-image-current')?.complete);
+    if (!stage || buttons.length !== 3) return { ok: false, nodeId, error: 'race viewer unavailable', buttonCount: buttons.length };
+
+    const NativeImage = window.Image;
+    const pending = [];
+    function ControlledImage() {
+      const image = this;
+      const record = { image, src: '', decodeStarted: false, resolveDecode: null, loadPromise: null };
+      image.decoding = 'async';
+      image.onload = null;
+      image.onerror = null;
+      image.naturalWidth = 1;
+      image.naturalHeight = 1;
+      image.decode = () => {
+        record.decodeStarted = true;
+        return new Promise((resolve) => { record.resolveDecode = resolve; });
+      };
+      Object.defineProperty(image, 'src', {
+        configurable: true,
+        get: () => record.src,
+        set: (value) => {
+          record.src = String(value || '');
+          pending.push(record);
+        }
+      });
+    }
+
+    const samples = [];
+    let frameHandle = 0;
+    let sampling = true;
+    const sample = () => {
+      const images = Array.from(stage.querySelectorAll('.image-viewer-image'));
+      const visible = images.filter((image) => {
+        const rect = image.getBoundingClientRect();
+        const style = getComputedStyle(image);
+        return image.complete && image.naturalWidth > 0 && rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity || 1) > 0;
+      });
+      samples.push({
+        targetAsset: stage.getAttribute('data-target-asset') || '',
+        displayedAsset: stage.getAttribute('data-displayed-asset') || '',
+        targetSrc: stage.getAttribute('data-target-src') || '',
+        displayedSrc: stage.getAttribute('data-displayed-src') || '',
+        buffering: stage.getAttribute('data-buffering') || '',
+        visibleCount: visible.length,
+        frameCount: images.length
+      });
+      if (sampling) frameHandle = requestAnimationFrame(sample);
+    };
+
+    const assetA = stage.getAttribute('data-displayed-asset') || '';
+    let assetB = '';
+    let assetC = '';
+    let beforeCDecode = null;
+    let final = null;
+    try {
+      window.Image = ControlledImage;
+      frameHandle = requestAnimationFrame(sample);
+      buttons[1].click();
+      const requestB = await waitFor(() => pending[0]);
+      assetB = await waitFor(() => {
+        const value = stage.getAttribute('data-target-asset') || '';
+        return value && value !== assetA ? value : '';
+      }) || '';
+      if (!requestB || !assetB) throw new Error('B preload was not scheduled');
+      requestB.loadPromise = requestB.image.onload?.();
+      if (!await waitFor(() => requestB.decodeStarted && requestB.resolveDecode)) throw new Error('B decode did not start');
+
+      buttons[2].click();
+      const requestC = await waitFor(() => pending[1]);
+      assetC = await waitFor(() => {
+        const value = stage.getAttribute('data-target-asset') || '';
+        return value && value !== assetA && value !== assetB ? value : '';
+      }) || '';
+      if (!requestC || !assetC) throw new Error('C preload was not scheduled');
+      requestC.loadPromise = requestC.image.onload?.();
+      if (!await waitFor(() => requestC.decodeStarted && requestC.resolveDecode)) throw new Error('C decode did not start');
+      beforeCDecode = {
+        targetAsset: stage.getAttribute('data-target-asset') || '',
+        displayedAsset: stage.getAttribute('data-displayed-asset') || '',
+        buffering: stage.getAttribute('data-buffering') || '',
+        visibleCount: samples.at(-1)?.visibleCount || 0
+      };
+      requestC.resolveDecode();
+      await requestC.loadPromise;
+      if (!await waitFor(() => stage.getAttribute('data-displayed-asset') === assetC && stage.getAttribute('data-buffering') === 'false')) {
+        throw new Error('C did not become the displayed asset');
+      }
+      requestB.resolveDecode();
+      await requestB.loadPromise;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      final = {
+        targetAsset: stage.getAttribute('data-target-asset') || '',
+        displayedAsset: stage.getAttribute('data-displayed-asset') || '',
+        finalAsset: stage.getAttribute('data-final-asset') || '',
+        targetSrc: stage.getAttribute('data-target-src') || '',
+        displayedSrc: stage.getAttribute('data-displayed-src') || '',
+        buffering: stage.getAttribute('data-buffering') || ''
+      };
+    } catch (error) {
+      final = { error: error instanceof Error ? error.message : String(error) };
+    } finally {
+      sampling = false;
+      cancelAnimationFrame(frameHandle);
+      window.Image = NativeImage;
+    }
+    const blankFrames = samples.filter((entry) => entry.visibleCount <= 0).length;
+    const staleRollback = samples.findIndex((entry) => entry.displayedAsset === assetC) >= 0 && samples.slice(samples.findIndex((entry) => entry.displayedAsset === assetC)).some((entry) => entry.displayedAsset === assetB);
+    return {
+      ok: Boolean(
+        !final?.error && assetA && assetB && assetC && assetA !== assetB && assetB !== assetC &&
+        beforeCDecode?.targetAsset === assetC && beforeCDecode?.displayedAsset === assetA && beforeCDecode?.buffering === 'true' && beforeCDecode?.visibleCount > 0 &&
+        final?.targetAsset === assetC && final?.displayedAsset === assetC && final?.finalAsset === assetC &&
+        final?.targetSrc === sharedSrc && final?.displayedSrc === sharedSrc && final?.buffering === 'false' &&
+        blankFrames === 0 && !staleRollback
+      ),
+      nodeId,
+      assetA,
+      assetB,
+      assetC,
+      requestCount: pending.length,
+      beforeCDecode,
+      final,
+      blankFrames,
+      staleRollback,
+      samples
+    };
+  })()`, 20000);
+  if (viewerIdentityRaceProof?.nodeId) {
+    await evaluate(client, `window.__naimageDebugApplyAgentActions?.([{ type: 'workflow.node.delete', id: ${JSON.stringify(String(viewerIdentityRaceProof.nodeId))}, mode: 'only' }])`);
+    await waitForExpression(client, `!window.__naimageDebugAgentState?.().nodes?.some((node) => node.id === ${JSON.stringify(String(viewerIdentityRaceProof.nodeId))})`, 5000);
+  }
+  await evaluate(
+    client,
+    `window.__naimageAIDebug.openImageViewer({ id: ${JSON.stringify(String(suite?.ids?.batchId || ""))}, index: 4 })`
+  );
+  await waitForExpression(client, "document.querySelector('.image-viewer-stage')?.getAttribute('data-buffering') === 'false'", 5000);
   const viewerCapture = await captureState(
     client,
     targetId,
@@ -483,6 +660,7 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
   );
   viewerCapture.viewerHeaderProof = viewerHeaderProof;
   viewerCapture.viewerSwitchProof = viewerSwitchProof;
+  viewerCapture.viewerIdentityRaceProof = viewerIdentityRaceProof;
   if (!viewerHeaderProof?.ok) {
     viewerCapture.stateIssues.push({
       key: "imageViewerPublicHeaderOk",
@@ -495,6 +673,13 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
       key: "imageViewerSwitchStable",
       expected: true,
       actual: viewerSwitchProof
+    });
+  }
+  if (!viewerIdentityRaceProof?.ok) {
+    viewerCapture.stateIssues.push({
+      key: "imageViewerIdentityRaceStable",
+      expected: true,
+      actual: viewerIdentityRaceProof
     });
   }
   await evaluate(client, `document.querySelector('[data-ui-surface="image-viewer"] .ui-surface-close')?.click()`);
