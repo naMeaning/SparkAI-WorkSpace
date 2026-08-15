@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -86,6 +86,22 @@ async function choosePlacement(label, placement) {
 
 async function main() {
   mkdirSync(runDir, { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  const projectDir = join(runDir, "project");
+  mkdirSync(projectDir, { recursive: true });
+  const projectTimestamp = new Date().toISOString();
+  writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: "agent-panel-ui-project",
+    projects: [{
+      id: "agent-panel-ui-project",
+      name: "Agent Panel UI Fixture",
+      path: projectDir,
+      sessionPath: join(projectDir, "session.json"),
+      createdAt: projectTimestamp,
+      updatedAt: projectTimestamp,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
   assert(existsSync(electronCli), "Electron CLI is missing");
   assert(existsSync(viteCli), "Vite CLI is missing");
   const [debugPort, vitePort] = await Promise.all([allocateDebugPort(), allocateDebugPort()]);
@@ -285,7 +301,9 @@ async function main() {
   assert.equal(composerToolbar.adjacentFrameControls, true, `Ratio and resolution must stay in one compact group: ${JSON.stringify(composerToolbar)}`);
   assert.equal(composerToolbar.toolbarOverflowX, false, `Composer toolbar must not overflow: ${JSON.stringify(composerToolbar)}`);
 
-  await mouseClick(await elementRect('.project-agent-mode-trigger'));
+  const modeTriggerPoint = rectCenter(await elementRect('.project-agent-mode-trigger'));
+  await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: modeTriggerPoint.x, y: modeTriggerPoint.y, button: 'none' });
+  await waitForRuntimeExpression(client, "document.querySelector('.project-agent-mode-trigger')?.getAttribute('aria-expanded') === 'true'", { evaluate, timeoutMs: 2_000, intervalMs: 50 });
   await waitForRuntimeExpression(client, `(() => {
     const fan = document.querySelector('.project-agent-mode-fan');
     return Boolean(fan && getComputedStyle(fan).opacity === '1' && getComputedStyle(fan).pointerEvents === 'auto');
@@ -431,6 +449,112 @@ async function main() {
   );
   assert.equal(await evaluate(client, "document.querySelector('.ide-main').classList.contains('agent-panel-interacting')"), false);
 
+  const selectableMessageText = "Agent 对话正文可以直接选中，并使用 Ctrl+C 复制。";
+  const selectableSeeded = await evaluate(client, `window.__naimageDebugSeedAgentMessages({ messages: [{
+    id: 'agent-panel-selectable-message',
+    role: 'assistant',
+    content: ${JSON.stringify(selectableMessageText)},
+    status: 'done'
+  }], maxMessages: 4 })`);
+  assert.equal(selectableSeeded, true);
+  await waitForRuntimeExpression(client, "Boolean(document.querySelector('.agent-message.assistant .agent-plain-text'))", { evaluate, timeoutMs: 3_000, intervalMs: 60 });
+  const selectableMessage = await evaluate(client, `(() => {
+    const message = document.querySelector('.agent-message.assistant');
+    const content = message?.querySelector('.agent-plain-text');
+    if (!(message instanceof HTMLElement) || !(content instanceof HTMLElement)) return null;
+    const range = document.createRange();
+    range.selectNodeContents(content);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    window.__naimageAgentCopyCapture = '';
+    document.addEventListener('copy', () => {
+      window.__naimageAgentCopyCapture = window.getSelection()?.toString() || '';
+    }, { capture: true, once: true });
+    const style = getComputedStyle(content);
+    return {
+      userSelect: style.userSelect,
+      webkitUserSelect: style.webkitUserSelect,
+      selectedText: selection?.toString() || '',
+      messageButtonCount: message.querySelectorAll('button').length
+    };
+  })()`);
+  assert.equal(selectableMessage?.userSelect, "text");
+  assert.equal(selectableMessage?.webkitUserSelect, "text");
+  assert.equal(selectableMessage?.selectedText, selectableMessageText);
+  assert.equal(selectableMessage?.messageButtonCount, 0, "ordinary Agent messages must not add per-message copy buttons");
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 2, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 2, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
+  await waitForRuntimeExpression(client, `window.__naimageAgentCopyCapture === ${JSON.stringify(selectableMessageText)}`, { evaluate, timeoutMs: 2_000, intervalMs: 50 });
+
+  const titleFixturePrompt = [
+    "用途：面向开发者与科技爱好者的宽幅 AI 产品宣传海报。",
+    "品牌主题：Grok，xAI 的 AI 助手，突出快速推理与实时信息能力。",
+    "场景：未来感产品发布会主舞台。"
+  ].join("\n");
+  const expectedContentTitle = "Grok · xAI AI 助手 · 宽幅 AI 产品宣传海报";
+  const titleActionApplied = await evaluate(client, `window.__naimageDebugApplyAgentActions?.([{
+    type: 'workflow.node.create',
+    operationId: 'agent-panel-content-title',
+    toolRunId: 'agent-panel-content-title',
+    node: {
+      id: 'TITLE-FIXTURE',
+      title: ${JSON.stringify(`批量图片组：${titleFixturePrompt.slice(0, 18)}`)},
+      prompt: ${JSON.stringify(`prompt: ${titleFixturePrompt}\ntool: image_gen\noperation: generate`)},
+      nodeType: 'image',
+      outputs: 2,
+      assets: [1, 2].map((index) => ({
+        assetId: 'title-fixture-asset-' + index,
+        index,
+        type: 'url',
+        assetUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGP8z8Dwn4GBgYGJAQkwMaACDAwAFwICBXS9U/8AAAAASUVORK5CYII=',
+        width: 2,
+        height: 2,
+        prompt: ${JSON.stringify(titleFixturePrompt)},
+        title: '方案 ' + index,
+        status: 'done'
+      })),
+      imageState: 'done',
+      status: 'done',
+      imageParams: {
+        prompt: ${JSON.stringify(titleFixturePrompt)},
+        size: '1024x1024',
+        ratio: '1:1',
+        resolution: '1K',
+        count: 2,
+        quality: 'high',
+        batchMode: 'parallel',
+        referenceImages: []
+      },
+      imageCollection: {
+        id: 'title-fixture-collection',
+        name: ${JSON.stringify(`批量图片组：${titleFixturePrompt.slice(0, 18)}`)},
+        kind: 'batch',
+        collectionRole: 'results',
+        generationMode: 'parallel',
+        items: [1, 2].map((index) => ({
+          id: 'title-fixture-item-' + index,
+          assetIndex: index,
+          requestIndex: index,
+          prompt: ${JSON.stringify(titleFixturePrompt)},
+          title: '方案 ' + index,
+          status: 'done'
+        }))
+      }
+    }
+  }])`);
+  assert.equal(titleActionApplied, true);
+  await waitForRuntimeExpression(client, `window.__naimageDebugAgentState?.().nodes?.some((node) => node.title === ${JSON.stringify(expectedContentTitle)})`, { evaluate, timeoutMs: 3_000, intervalMs: 60 });
+  const contentTitleState = await evaluate(client, `(() => {
+    const node = window.__naimageDebugAgentState?.().nodes?.find((item) => item.title === ${JSON.stringify(expectedContentTitle)});
+    return node ? {
+      nodeTitle: node.title,
+      itemTitles: node.imageCollection?.items?.map((item) => item.title) || []
+    } : null;
+  })()`);
+  assert.equal(contentTitleState?.nodeTitle, expectedContentTitle);
+  assert.deepEqual(contentTitleState?.itemTitles, [`${expectedContentTitle} · 1`, `${expectedContentTitle} · 2`]);
+
   const longPrompt = Array.from({ length: 48 }, (_item, index) => `第 ${index + 1} 行商品图提示词：保持商品身份、材质、标签、构图与光线一致。`).join("\n");
   const seeded = await evaluate(client, `window.__naimageDebugSeedAgentMessages({ messages: [{
     id: 'agent-panel-prompt-layout',
@@ -560,12 +684,14 @@ async function main() {
   await capturePngScreenshotToFile(client, screenshotPath, { captureBeyondViewport: false }, 15_000);
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 50,
+    cases: 52,
     initialFit,
     modelMenuLayout,
     topLayout,
     bottomLayout,
     dragPreview,
+    selectableMessage,
+    contentTitleState,
     promptLayout,
     pickerLayout,
     attachmentLayout,

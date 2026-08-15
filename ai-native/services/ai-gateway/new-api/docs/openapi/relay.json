@@ -325,6 +325,86 @@
         ]
       }
     },
+    "/v1/image-tasks": {
+      "post": {
+        "summary": "创建异步图片生成任务",
+        "deprecated": false,
+        "description": "校验并保存与 Images generation 相同的 JSON 请求，立即返回 task_id；图片上游由后台任务调用。",
+        "operationId": "createImageTask",
+        "tags": [
+          "图片生成/OpenAI兼容格式"
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageGenerationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "任务已入队",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageTaskAccepted"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/image-tasks/{id}": {
+      "get": {
+        "summary": "查询异步图片生成任务",
+        "deprecated": false,
+        "description": "返回 queued、running、succeeded 或 failed；成功时 result 为原 Images API JSON。",
+        "operationId": "getImageTask",
+        "tags": [
+          "图片生成/OpenAI兼容格式"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "任务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageTaskStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "任务不存在或不属于当前用户"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/images/generations": {
       "post": {
         "summary": "生成图像(qwen-image)",
@@ -3637,6 +3717,73 @@
               },
               "total_tokens": {
                 "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "ImageTaskAccepted": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "example": "task_0123456789abcdef"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued"
+            ]
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ImageTaskStatusResponse": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "started_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completed_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ImageResponse"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
               }
             }
           }

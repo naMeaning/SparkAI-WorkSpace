@@ -53,7 +53,9 @@ func TestManagedSessionRelayRegistersNaimagePublicRoutes(t *testing.T) {
 
 	for _, route := range []string{
 		http.MethodGet + " " + managedRelayBasePath + "/models",
+		http.MethodGet + " " + managedRelayBasePath + "/image-tasks/:id",
 		http.MethodPost + " " + managedRelayBasePath + "/chat/completions",
+		http.MethodPost + " " + managedRelayBasePath + "/image-tasks",
 		http.MethodPost + " " + managedRelayBasePath + "/responses",
 		http.MethodPost + " " + managedRelayBasePath + "/responses/compact",
 		http.MethodPost + " " + managedRelayBasePath + "/images/generations",
@@ -74,6 +76,14 @@ func TestManagedSessionRelayRegistersNaimagePublicRoutes(t *testing.T) {
 		_, postExists := routes[http.MethodPost+" "+legacyPath]
 		assert.False(t, exists || postExists, "legacy managed relay route must stay unregistered: %s", legacyPath)
 	}
+	for _, route := range []string{
+		http.MethodPost + " /v1/image-tasks",
+		http.MethodGet + " /v1/image-tasks/:id",
+		http.MethodPost + " /v1/images/generations",
+	} {
+		_, exists := routes[route]
+		require.True(t, exists, "missing native relay route %s", route)
+	}
 }
 
 func TestManagedRelayNativePathLeavesUnrelatedPathUntouched(t *testing.T) {
@@ -82,4 +92,23 @@ func TestManagedRelayNativePathLeavesUnrelatedPathUntouched(t *testing.T) {
 	context.Request = httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	managedRelayNativePath()(context)
 	require.Equal(t, "/api/status", context.Request.URL.Path)
+}
+
+func TestImageTaskGenerationPathUsesImagesRouteOnlyInsideHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	observed := ""
+	engine.POST("/v1/image-tasks", imageTaskGenerationPath(), func(c *gin.Context) {
+		observed = c.Request.URL.Path
+		c.Status(http.StatusAccepted)
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/image-tasks?probe=1", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	require.Equal(t, "/v1/images/generations", observed)
+	require.Equal(t, "/v1/image-tasks", request.URL.Path)
+	require.Equal(t, "probe=1", request.URL.RawQuery)
 }

@@ -802,6 +802,32 @@ export type ImageNodeProgress = {
   message?: string;
 };
 
+export type ImageGenerationParameterSnapshot = {
+  model?: string;
+  ratio?: string;
+  resolution?: string;
+  size?: string;
+  quality?: string;
+  outputFormat?: "png" | "jpeg" | "webp";
+  outputCompression?: number;
+  background?: string;
+  moderation?: string;
+  inputFidelity?: string;
+};
+
+export type ImageGenerationResponseSnapshot = ImageGenerationParameterSnapshot & {
+  createdAt?: string;
+};
+
+export type ImageAssetGenerationMetadata = {
+  version: 1;
+  request?: ImageGenerationParameterSnapshot;
+  response?: ImageGenerationResponseSnapshot;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+};
+
 export type ImageAsset = {
   assetId?: string;
   /** Logical user-visible occurrence. Multiple occurrences may share one assetId/blob. */
@@ -826,12 +852,15 @@ export type ImageAsset = {
   url?: string;
   assetUrl?: string;
   originalName?: string;
+  mimeType?: string;
+  outputFormat?: "png" | "jpeg" | "webp";
   revisedPrompt?: string;
   prompt?: string;
   title?: string;
   status?: "pending" | "done" | "error";
   error?: string;
   runId?: string;
+  generation?: ImageAssetGenerationMetadata;
 };
 
 export type VideoAsset = {
@@ -1077,6 +1106,9 @@ export type PendingAgentExecution = {
   projectId: string;
   conversationId: string;
   originalPrompt: string;
+  /** Run-level frame selected in the Agent composer before the continuation paused. */
+  imageRatio?: ImageFrameRatio;
+  imageResolution?: ImageResolutionPreset;
   sourceNodeIds: string[];
   focusedNodeId?: string;
   taskOrigin: AgentTaskScope["origin"];
@@ -2069,9 +2101,11 @@ export type LicenseStatus = {
   ok: boolean;
   active: boolean;
   required: boolean;
+  scope?: "account" | "custom";
   supported?: boolean;
   grace?: boolean;
   plan?: string;
+  requiredPlan?: string;
   expiresAt?: number;
   verifiedAt?: number;
   error?: string;
@@ -2630,6 +2664,8 @@ export type ServerBridge = {
     nodeIds?: string[];
     prompt: string;
     model?: string;
+    ratio?: string;
+    resolution?: string;
     size: string;
     quality: string;
     count: number;
@@ -2691,7 +2727,7 @@ export type ServerBridge = {
     message?: string;
     error?: string;
   }>;
-  licenseStatus(payload?: { force?: boolean }): Promise<LicenseStatus>;
+  licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;
 };
@@ -2914,6 +2950,7 @@ declare global {
       openImageViewer(payload: { id: string; index?: number }): Promise<unknown>;
       openLayerViewer(payload: { id: string; mode?: "composite" | "solo" | "onion" }): Promise<unknown>;
       openNodeEditor(payload: { id: string; index?: number }): Promise<unknown>;
+      toggleNodeEditorMaximized(): Promise<unknown>;
       openRequirementForSource(payload: { id: string }): Promise<unknown>;
       openRequirementAt(payload: { worldX?: number; worldY?: number }): Promise<unknown>;
       setContainerRole(payload: { id: string; role?: AssetTaskRole }): Promise<unknown>;
@@ -3608,18 +3645,29 @@ export function cloneImageTaskDraft(draft: ImageTaskDraft): ImageTaskDraft {
 }
 
 export function cloneImageAssets(assets?: ImageAsset[]) {
-  return (assets ?? []).map((asset) => ({ ...asset }));
+  return (assets ?? []).map(cloneImageAsset);
+}
+
+function cloneImageAsset(asset: ImageAsset): ImageAsset {
+  return {
+    ...asset,
+    generation: asset.generation ? {
+      ...asset.generation,
+      request: asset.generation.request ? { ...asset.generation.request } : undefined,
+      response: asset.generation.response ? { ...asset.generation.response } : undefined
+    } : undefined
+  };
 }
 
 export function cloneImageLayerComposition(composition?: ImageLayerComposition): ImageLayerComposition | undefined {
   if (!composition) return undefined;
   return {
     ...composition,
-    previewAsset: composition.previewAsset ? { ...composition.previewAsset } : undefined,
-    mergedAsset: composition.mergedAsset ? { ...composition.mergedAsset } : undefined,
+    previewAsset: composition.previewAsset ? cloneImageAsset(composition.previewAsset) : undefined,
+    mergedAsset: composition.mergedAsset ? cloneImageAsset(composition.mergedAsset) : undefined,
     layers: composition.layers.map((layer) => ({
       ...layer,
-      asset: layer.asset ? { ...layer.asset } : undefined
+      asset: layer.asset ? cloneImageAsset(layer.asset) : undefined
     }))
   };
 }
@@ -3628,8 +3676,8 @@ export function cloneImageLayerNodeGroup(group?: ImageLayerNodeGroup): ImageLaye
   if (!group) return undefined;
   return {
     ...group,
-    previewAsset: group.previewAsset ? { ...group.previewAsset } : undefined,
-    mergedAsset: group.mergedAsset ? { ...group.mergedAsset } : undefined,
+    previewAsset: group.previewAsset ? cloneImageAsset(group.previewAsset) : undefined,
+    mergedAsset: group.mergedAsset ? cloneImageAsset(group.mergedAsset) : undefined,
     recovery: group.recovery ? {
       ...group.recovery,
       failedLayerIds: [...group.recovery.failedLayerIds],

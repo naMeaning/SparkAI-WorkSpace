@@ -79,3 +79,53 @@ func TestNaimageActivationLimitAndSameDeviceRetry(t *testing.T) {
 	_, err = ActivateNaimage(codes[0], "device-fedcba0987654321", 0)
 	assert.ErrorIs(t, err, ErrNaimageActivationUsed)
 }
+
+func TestNaimageProLicenseAllowsThreeDevicesAndRevocation(t *testing.T) {
+	setupNaimageActivationTest(t)
+	codes, err := CreateNaimageActivationCodes(NaimageActivationCodeCreate{
+		Name:           "desktop-pro",
+		Plan:           "Pro",
+		MaxActivations: 3,
+	}, 1)
+	require.NoError(t, err)
+
+	devices := []string{
+		"device-pro-000000000001",
+		"device-pro-000000000002",
+		"device-pro-000000000003",
+	}
+	grants := make([]*NaimageActivationResult, 0, len(devices))
+	for _, deviceID := range devices {
+		grant, activateErr := ActivateNaimageForPlan(codes[0], deviceID, 0, NaimageLicensePlanPro)
+		require.NoError(t, activateErr)
+		assert.Equal(t, NaimageLicensePlanPro, grant.Plan)
+		assert.Zero(t, grant.ExpiresAt, "valid_days=0 must produce a permanent license")
+		grants = append(grants, grant)
+	}
+
+	_, err = ActivateNaimageForPlan(codes[0], "device-pro-000000000004", 0, NaimageLicensePlanPro)
+	assert.ErrorIs(t, err, ErrNaimageActivationUsed)
+
+	var stored NaimageActivationCode
+	require.NoError(t, DB.First(&stored).Error)
+	require.NoError(t, DisableNaimageActivationCode(stored.Id))
+	_, err = VerifyNaimageLicenseForPlan(grants[0].Token, devices[0], 0, NaimageLicensePlanPro)
+	assert.ErrorIs(t, err, ErrNaimageLicenseInvalid)
+}
+
+func TestNaimageCustomAPIRejectsNonProCodeWithoutConsumingActivation(t *testing.T) {
+	setupNaimageActivationTest(t)
+	codes, err := CreateNaimageActivationCodes(NaimageActivationCodeCreate{
+		Name:           "desktop-standard",
+		Plan:           "standard",
+		MaxActivations: 3,
+	}, 1)
+	require.NoError(t, err)
+
+	_, err = ActivateNaimageForPlan(codes[0], "device-standard-000001", 0, NaimageLicensePlanPro)
+	assert.ErrorIs(t, err, ErrNaimageLicensePlanInvalid)
+
+	var stored NaimageActivationCode
+	require.NoError(t, DB.First(&stored).Error)
+	assert.Zero(t, stored.ActivationCount)
+}

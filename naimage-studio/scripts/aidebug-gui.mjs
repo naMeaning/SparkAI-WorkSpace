@@ -39,7 +39,12 @@ const isWindows = process.platform === "win32";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(scriptDir, "..");
 const repoRoot = packageRoot;
-const diagnosticsRoot = join(repoRoot, ".diagnostics", "electron");
+// Keep the default repository diagnostics contract, while allowing restricted
+// environments to redirect disposable GUI evidence to an explicit writable
+// directory without changing the application/project data roots.
+const diagnosticsRoot = process.env.NAIMAGE_AIDEBUG_DIAGNOSTICS_ROOT?.trim()
+  ? resolve(process.env.NAIMAGE_AIDEBUG_DIAGNOSTICS_ROOT.trim())
+  : join(repoRoot, ".diagnostics", "electron");
 const runDir = join(diagnosticsRoot, `aidebug-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const workbenchMinWidth = 884;
 // Real Agent diagnostics use the product's authenticated local settings. A
@@ -611,7 +616,7 @@ async function waitForServer(url) {
 function spawnVite() {
   const command = viteCli ? process.execPath : isWindows ? "cmd.exe" : "pnpm";
   const args = viteCli
-    ? [viteCli, "--host", "127.0.0.1", "--port", String(devPort), "--strictPort"]
+    ? [viteCli, "--configLoader", "runner", "--host", "127.0.0.1", "--port", String(devPort), "--strictPort"]
     : isWindows
       ? ["/d", "/s", "/c", `pnpm run dev:web -- --host 127.0.0.1 --port ${devPort} --strictPort`]
       : ["run", "dev:web", "--", "--host", "127.0.0.1", "--port", String(devPort), "--strictPort"];
@@ -623,7 +628,17 @@ function spawnVite() {
 }
 
 function spawnElectron() {
-  const args = [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${join(runDir, "user-data")}`, "electron-main.cjs"];
+  const args = [
+    "--disable-gpu",
+    "--disable-gpu-compositing",
+    "--in-process-gpu",
+    "--use-gl=swiftshader",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    `--remote-debugging-port=${debugPort}`,
+    `--user-data-dir=${join(runDir, "user-data")}`,
+    "electron-main.cjs"
+  ];
   const command = electronCli ? process.execPath : electronBin;
   const commandArgs = electronCli ? [electronCli, ...args] : args;
   return spawn(command, commandArgs, {

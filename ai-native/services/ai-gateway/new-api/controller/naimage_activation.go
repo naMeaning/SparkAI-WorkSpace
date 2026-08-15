@@ -12,8 +12,10 @@ import (
 )
 
 const (
-	naimageLicenseRequiredEnv = "NAIMAGE_LICENSE_REQUIRED"
-	naimageLicenseGraceHours  = 72
+	naimageLicenseRequiredEnv       = "NAIMAGE_LICENSE_REQUIRED"
+	naimageLicenseGraceHours        = 72
+	naimageLicenseDefaultMaxDevices = 3
+	naimageCustomAPIRequiredPlan    = model.NaimageLicensePlanPro
 )
 
 type naimageActivationRequest struct {
@@ -43,11 +45,17 @@ func GetNaimageLicenseConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"required":                 NaimageLicenseRequired(),
-			"verification_ttl_seconds": 24 * 60 * 60,
-			"offline_grace_seconds":    naimageLicenseGraceHours * 60 * 60,
-			"supports_account_mode":    true,
-			"supports_custom_api_mode": true,
+			"required":                    false,
+			"legacy_license_required":     NaimageLicenseRequired(),
+			"verification_ttl_seconds":    24 * 60 * 60,
+			"offline_grace_seconds":       naimageLicenseGraceHours * 60 * 60,
+			"supports_account_mode":       true,
+			"supports_custom_api_mode":    true,
+			"account_login_required":      true,
+			"account_license_required":    false,
+			"custom_api_license_required": true,
+			"custom_api_required_plan":    naimageCustomAPIRequiredPlan,
+			"default_max_activations":     naimageLicenseDefaultMaxDevices,
 		},
 	})
 }
@@ -58,10 +66,15 @@ func naimageActivationError(c *gin.Context, err error) {
 	if errors.Is(err, model.ErrNaimageActivationExpired) {
 		message = "激活码或授权已过期。"
 	}
+	if errors.Is(err, model.ErrNaimageLicensePlanInvalid) {
+		status = http.StatusForbidden
+		message = "该兑换码不是自定义 Base URL 所需的 Pro 授权。"
+	}
 	if !errors.Is(err, model.ErrNaimageActivationInvalid) &&
 		!errors.Is(err, model.ErrNaimageActivationExpired) &&
 		!errors.Is(err, model.ErrNaimageActivationUsed) &&
-		!errors.Is(err, model.ErrNaimageLicenseInvalid) {
+		!errors.Is(err, model.ErrNaimageLicenseInvalid) &&
+		!errors.Is(err, model.ErrNaimageLicensePlanInvalid) {
 		common.SysError("naimage activation failed: " + err.Error())
 		status = http.StatusServiceUnavailable
 		message = "授权服务暂时不可用，请稍后重试。"
@@ -69,13 +82,13 @@ func naimageActivationError(c *gin.Context, err error) {
 	c.JSON(status, gin.H{"success": false, "message": message})
 }
 
-func activateNaimage(c *gin.Context, userId int) {
+func activateNaimage(c *gin.Context, userId int, requiredPlan string) {
 	var request naimageActivationRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "激活请求格式无效。"})
 		return
 	}
-	result, err := model.ActivateNaimage(request.Code, request.DeviceId, userId)
+	result, err := model.ActivateNaimageForPlan(request.Code, request.DeviceId, userId, requiredPlan)
 	if err != nil {
 		naimageActivationError(c, err)
 		return
@@ -91,20 +104,20 @@ func activateNaimage(c *gin.Context, userId int) {
 }
 
 func ActivateNaimageDevice(c *gin.Context) {
-	activateNaimage(c, 0)
+	activateNaimage(c, 0, naimageCustomAPIRequiredPlan)
 }
 
 func ActivateNaimageAccount(c *gin.Context) {
-	activateNaimage(c, c.GetInt("id"))
+	activateNaimage(c, c.GetInt("id"), "")
 }
 
-func verifyNaimage(c *gin.Context, userId int) {
+func verifyNaimage(c *gin.Context, userId int, requiredPlan string) {
 	var request naimageLicenseVerifyRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "授权校验请求格式无效。"})
 		return
 	}
-	grant, err := model.VerifyNaimageLicense(request.Token, request.DeviceId, userId)
+	grant, err := model.VerifyNaimageLicenseForPlan(request.Token, request.DeviceId, userId, requiredPlan)
 	if err != nil {
 		naimageActivationError(c, err)
 		return
@@ -121,11 +134,11 @@ func verifyNaimage(c *gin.Context, userId int) {
 }
 
 func VerifyNaimageDevice(c *gin.Context) {
-	verifyNaimage(c, 0)
+	verifyNaimage(c, 0, naimageCustomAPIRequiredPlan)
 }
 
 func VerifyNaimageAccount(c *gin.Context) {
-	verifyNaimage(c, c.GetInt("id"))
+	verifyNaimage(c, c.GetInt("id"), "")
 }
 
 func CreateNaimageActivationCodes(c *gin.Context) {
@@ -140,10 +153,10 @@ func CreateNaimageActivationCodes(c *gin.Context) {
 		request.Count = 1
 	}
 	if request.Plan == "" {
-		request.Plan = "standard"
+		request.Plan = naimageCustomAPIRequiredPlan
 	}
 	if request.MaxActivations == 0 {
-		request.MaxActivations = 1
+		request.MaxActivations = naimageLicenseDefaultMaxDevices
 	}
 	codes, err := model.CreateNaimageActivationCodes(model.NaimageActivationCodeCreate{
 		Name:           request.Name,

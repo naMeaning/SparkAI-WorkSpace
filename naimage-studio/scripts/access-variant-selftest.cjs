@@ -89,9 +89,37 @@ registerServerIpc({
 Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
   baseUrl: "https://bypass.example/v1",
   apiKey: "sk-bypass"
-})).then((result) => {
+})).then(async (result) => {
   assert.equal(result.ok, false);
   assert.equal(result.errorCode, "CUSTOM_API_ACCESS_DISABLED");
+
+  let customSettingsWrites = 0;
+  const unrestrictedHandlers = new Map();
+  registerServerIpc({
+    ipcMain: { handle: (channel, handler) => unrestrictedHandlers.set(channel, handler) },
+    accessPolicy: accessPolicyForVariant(ACCESS_VARIANT_DUAL),
+    defaultSettings: { accessMode: "account" },
+    migrateSettings: (settings) => ({ ...settings }),
+    readJson: () => ({ accessMode: "account" }),
+    writeJson: () => { customSettingsWrites += 1; },
+    settingsPath: "memory://settings.json",
+    log: () => {},
+    licenseService: {
+      async requireActive(options) {
+        assert.deepEqual(options, { scope: "custom" });
+        const error = new Error("Pro License required");
+        error.code = "NAIMAGE_PRO_LICENSE_REQUIRED";
+        throw error;
+      }
+    }
+  });
+  const unlicensedCustom = await unrestrictedHandlers.get("naimage:server:configure-custom")({}, {
+    baseUrl: "https://private.example/v1",
+    apiKey: "sk-private"
+  });
+  assert.equal(unlicensedCustom.ok, false);
+  assert.equal(unlicensedCustom.errorCode, "NAIMAGE_PRO_LICENSE_REQUIRED");
+  assert.equal(customSettingsWrites, 0, "Unlicensed custom credentials must not be persisted before server-side License verification");
 
   const viteSource = readFileSync(path.join(root, "vite.config.ts"), "utf8");
   const mainSource = readFileSync(path.join(root, "electron-main.cjs"), "utf8");
@@ -106,7 +134,10 @@ Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
   assert.match(viteSource, /ACCESS_POLICY_FILENAME/);
   assert.match(mainSource, /applyAccessPolicyToSettings\(next, accessPolicy\)/);
   assert.match(authSource, /appAccessPolicy\.customApiAccess/);
+  assert.match(authSource, /customNeedsActivation/);
+  assert.doesNotMatch(authSource, /accountNeedsActivation/, "Account login must not be coupled to device License activation");
   assert.match(settingsSource, /accountBaseUrlLocked/);
+  assert.match(readFileSync(path.join(root, "src", "model-config-dialog.tsx"), "utf8"), /自定义 API Key（可选）/, "The account-only build must retain per-model custom API Keys after login");
   assert.match(buildSource, /windowsInstallerArtifactName/);
   assert.match(buildSource, /windowsLegacyInstallerArtifactName/);
   assert.doesNotMatch(buildSource, /renameSync|naimage-Setup-/);

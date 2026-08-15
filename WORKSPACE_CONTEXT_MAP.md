@@ -1,6 +1,6 @@
 # naimage 工作区上下文地图
 
-> 最近同步：2026-07-30
+> 最近同步：2026-08-15
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -177,21 +177,21 @@ corepack pnpm run crm:check
 | 合同 | 桌面侧 | 后端侧 | 修改时检查 |
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为 |
-| 设备激活 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 随机安装 ID、hash-only 存储、24 小时校验缓存、72 小时离线宽限、账号 Relay 402 门禁 |
+| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、hash-only 存储、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
-| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 所选账户 Key 或自定义 Key 直连 `/v1/responses` image_generation 与 `/v1/images/*` | ratio/size/quality、参考图、按用户设置每批 1–10 张顺序派发、三阶段预览按 operation/槽位进入目标图片容器、最终 result、计费与结果落盘；中间图不进入对话/session，模型请求体不注入 group |
+| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/server.ts`、`src/streaming-image-preview.ts` | New API `POST /v1/image-tasks` / `GET /v1/image-tasks/:id`、现有 `Task`/`SystemTask`、共享 `ExecuteRelay`，以及兼容 `/v1/responses` 与 `/v1/images/*` | 纯文生图创建立即返回、2.5 秒 GET 轮询、queued/running/succeeded/failed、创建成功/结果不明后不重建；ratio/size/quality、参考图、旧同步回退、计费与结果落盘；任务 MVP 无 partial，编辑/参考图仍走原链路，模型请求体不注入 group |
 | CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
 | 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | release manifest、下载/更新 API、`deploy/production/verify-installer.sh`、生产制品 | manifest schema 与 `naimage-studio` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-桌面 1.0.6 支持两种互斥出口：账号模式用 session cookie + `New-Api-User` 管理账户、余额、密钥和设备授权，再以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起模型请求；默认组合是 `https://sparkapi.org/v1`。自定义模式只向用户填写的 OpenAI-compatible `/v1/*` 发送用户 API Key。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。原生 New API 可提供登录、密钥和标准模型接口，`/api/naimage/license*`、桌面更新与旧 `/naimage/v1/*` Relay 仍属于可选后端扩展。
+桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；session cookie + `New-Api-User` 只管理账户、余额和密钥，模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
-生图传输由所选账户 Key 或自定义图片 Key 直连 OpenAI-compatible `/v1/*`，两种模式使用同一 Responses-first 策略：纯文生图优先请求 `/v1/responses` 的 `image_generation` 工具，顶层模型取 `agentModel`，完整 Prompt 位于 `input`，中间预览来自 `response.image_generation_call.partial_image`，最终图来自 `response.output_item.done` 或 `response.completed`；明确不支持时才回退 `/v1/images/generations`，编辑/参考图走 `/v1/images/edits` multipart。账号模式以所选完整 Key 进行 Bearer 鉴权，不把账户 Cookie、用户 ID 或客户端 `group` 发送给模型端点。partial 按父 operation 和一基并发槽位进入目标图片节点/容器的 pending tile，终态清理，不进入 Agent 对话、项目 session 或图片库。空流、断流或已有 partial 的歧义结果不补发。New API 图片消费日志把缺失 usage 的 token 记为 `1`，详情只拼接尺寸、品质和数量，因此“输入 Token 1/日志未显示 Prompt”不能证明客户端没有发送 Prompt。
+纯文生图由所选账户 Key 或自定义图片 Key 优先直连 New API `POST /v1/image-tasks`；服务端完成鉴权、模型限流与渠道选择后把规范化 Images 请求写入现有 `Task`，由现有 `SystemTask` 租约调度在原 HTTP 请求之外调用共享 `ExecuteRelay → ImageHelper`，客户端每 2.5 秒通过 `GET /v1/image-tasks/:id` 查询。上游即使同步运行 3–5 分钟，Cloudflare 只承载短 POST/GET；Task 成功后返回原 Images JSON 并进入既有受管落盘。拿到 `task_id` 或创建结果不明后不得自动重新 POST，短暂查询错误只重试 GET；进程崩溃留下的 running task 标记失败而不重放上游。仅当创建端点明确不支持时，Desktop 才回退既有 `/v1/responses` image_generation → `/v1/images/generations` 同步链路；编辑/参考图继续走 `/v1/images/edits` multipart。任务化 MVP 不提供 partial，旧同步链路的 partial 规则保持不变。账号 Bearer 请求不携带账户 Cookie、用户 ID 或客户端 `group`；浏览器回退通过 Session `/naimage/v1/image-tasks` 别名使用同一后端任务实现。
 
-产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。旧 `/naimage/v1/*` 仅作为后端扩展/历史 Relay 合同保留，不是当前 Studio 模型调用路径。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
+产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，包括本轮新增的 `/v1/image-tasks`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。`/naimage/v1/*` 仍是浏览器 Session Relay/历史扩展合同，本轮只增加 image-task 镜像，不替代 Desktop 的 Bearer `/v1/*`。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
 
 生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，服务端内部归一化到冻结命名空间并保持上游派生键稳定，确保跨品牌升级重试仍命中同一记录；这不恢复任何旧公共路由。
 

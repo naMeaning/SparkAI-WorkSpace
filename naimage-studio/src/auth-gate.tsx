@@ -52,7 +52,7 @@ export function AuthGate({
   submitAccount,
   submitCustom,
   activateLicense,
-  accountAuthenticated,
+  selectAccessMode,
   license,
   message
 }: {
@@ -61,14 +61,17 @@ export function AuthGate({
   submitAccount: () => void | Promise<void>;
   submitCustom: () => void | Promise<void>;
   activateLicense: () => void | Promise<void>;
-  accountAuthenticated: boolean;
+  selectAccessMode: (mode: AuthDraft["accessMode"]) => void | Promise<void>;
   license: LicenseStatus | null;
   message: string;
 }) {
   const [busy, setBusy] = useState(false);
   const customMode = appAccessPolicy.customApiAccess && authDraft.accessMode === "custom";
-  const needsActivation = license?.required === true && license.active !== true;
-  const accountNeedsActivation = !customMode && accountAuthenticated && needsActivation;
+  const customLicenseActive = customMode
+    && license?.scope === "custom"
+    && license.active === true
+    && String(license.plan || "").toLowerCase() === "pro";
+  const customNeedsActivation = customMode && !customLicenseActive;
   const messageIsError = /(?:错误|失败|失效|不可用|未连接|请重新|无效|拒绝|过期)/i.test(message);
 
   function updateAuth<K extends keyof AuthDraft>(key: K, value: AuthDraft[K]) {
@@ -80,7 +83,7 @@ export function AuthGate({
     if (busy) return;
     setBusy(true);
     try {
-      if (accountNeedsActivation) await activateLicense();
+      if (customNeedsActivation) await activateLicense();
       else if (customMode) await submitCustom();
       else await submitAccount();
     } finally {
@@ -88,7 +91,7 @@ export function AuthGate({
     }
   }
 
-  const status = customMode ? "自定义接口" : accountNeedsActivation ? "激活软件" : authDraft.mode === "register" ? "账户注册" : "账户登录";
+  const status = customNeedsActivation ? "Pro 授权" : customMode ? "自定义接口" : authDraft.mode === "register" ? "账户注册" : "账户登录";
 
   return (
     <main className="auth-shell" onPasteCapture={blockImagePaste}>
@@ -106,16 +109,16 @@ export function AuthGate({
           <form className="auth-form auth-gate-form" onSubmit={submit}>
             {appAccessPolicy.customApiAccess ? (
               <SegmentedControl className="auth-switch access-mode-switch" aria-label="访问方式">
-                <SegmentButton active={!customMode} type="button" onClick={() => updateAuth("accessMode", "account")}>
+                <SegmentButton active={!customMode} type="button" onClick={() => void selectAccessMode("account")}>
                   <LogIn size={14} />账号登录
                 </SegmentButton>
-                <SegmentButton active={customMode} type="button" onClick={() => updateAuth("accessMode", "custom")}>
+                <SegmentButton active={customMode} type="button" onClick={() => void selectAccessMode("custom")}>
                   <Server size={14} />自定义接口
                 </SegmentButton>
               </SegmentedControl>
             ) : null}
 
-            {!customMode && !accountNeedsActivation ? (
+            {!customMode ? (
               <>
                 <SegmentedControl className="auth-switch" aria-label="登录注册切换">
                   <SegmentButton active={authDraft.mode === "login"} type="button" onClick={() => updateAuth("mode", "login")}>登录</SegmentButton>
@@ -135,7 +138,7 @@ export function AuthGate({
               </>
             ) : null}
 
-            {customMode ? (
+            {customMode && !customNeedsActivation ? (
               <>
                 <Field label="Base URL">
                   <input value={authDraft.baseUrl} onChange={(event) => updateAuth("baseUrl", event.target.value)} type="url" placeholder="https://example.com/v1" autoComplete="url" required />
@@ -154,23 +157,24 @@ export function AuthGate({
               </>
             ) : null}
 
-            {(customMode || accountNeedsActivation) && (needsActivation || authDraft.activationCode) ? (
-              <Field label="激活码">
+            {customNeedsActivation ? (
+              <Field label="Pro 兑换码">
                 <input
                   value={authDraft.activationCode}
                   onChange={(event) => updateAuth("activationCode", event.target.value.toUpperCase())}
                   placeholder="NAI-XXXX-XXXX-XXXX-XXXX"
                   autoComplete="off"
-                  required={needsActivation}
+                  required
                 />
               </Field>
             ) : null}
 
             {license?.grace ? <InlineNotice tone="warning">授权服务器暂时不可用，当前处于离线宽限期。</InlineNotice> : null}
-            {!license?.required && license?.supported === false ? <InlineNotice tone="neutral">当前服务尚未启用激活门禁，可以直接进入。</InlineNotice> : null}
+            {customNeedsActivation ? <InlineNotice tone="neutral">自定义 Base URL 需要当前设备的 Pro License；账号登录不需要兑换码。</InlineNotice> : null}
+            {customMode && !customNeedsActivation ? <InlineNotice tone="neutral">当前设备已获得 Pro 授权，可以配置本地 Base URL 与 API Key。</InlineNotice> : null}
 
-            <ActionButton className="basic-auth-submit" variant="primary" type="submit" busy={busy} icon={accountNeedsActivation ? <KeyRound size={16} /> : <Shield size={16} />}>
-              {accountNeedsActivation ? "激活并进入" : customMode ? "连接并进入" : authDraft.mode === "register" ? "注册并继续" : "登录"}
+            <ActionButton className="basic-auth-submit" variant="primary" type="submit" busy={busy} icon={customNeedsActivation ? <KeyRound size={16} /> : <Shield size={16} />}>
+              {customNeedsActivation ? "验证并解锁" : customMode ? "连接并进入" : authDraft.mode === "register" ? "注册并继续" : "登录"}
             </ActionButton>
           </form>
 

@@ -47,7 +47,10 @@ function registerServerIpc({
   writeServerImageOutputs
 }) {
   ipcMain.handle("naimage:server:license-status", async (_event, payload = {}) => {
-    return await licenseService.verify({ force: payload?.force === true });
+    return await licenseService.verify({
+      force: payload?.force === true,
+      scope: payload?.scope === "custom" ? "custom" : payload?.scope === "account" ? "account" : undefined
+    });
   });
 
   ipcMain.handle("naimage:server:activate-license", async (_event, payload = {}) => {
@@ -64,6 +67,7 @@ function registerServerIpc({
     }
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     try {
+      const license = await licenseService.requireActive({ scope: "custom" });
       const next = migrateSettings({
         ...current,
         accessMode: "custom",
@@ -89,7 +93,6 @@ function registerServerIpc({
         if (!next.agentModel && !next.imageModel) throw error;
         modelSettings = modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool, ...next.videoModelPool]), "settings", Date.now());
       }
-      const license = await licenseService.verify();
       return {
         ok: true,
         user: { id: "custom-api", username: "自定义接口", account: "自定义接口", name: "自定义 API" },
@@ -100,7 +103,7 @@ function registerServerIpc({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`custom API configuration failed ${message}`);
-      return { ok: false, error: message };
+      return { ok: false, errorCode: error?.code, error: message };
     }
   });
 
@@ -488,7 +491,27 @@ function registerServerIpc({
       });
       const stem = `basic-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
       const outputFormat = (payload ?? {}).outputFormat ?? (payload ?? {}).output_format ?? data.outputFormat ?? data.output_format ?? "png";
-      const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+      const assets = await writeServerImageOutputs(
+        extractServerImages(data),
+        stem,
+        runId,
+        projectId,
+        outputFormat,
+        {
+          request: {
+            model: (payload ?? {}).model || data.model,
+            ratio: (payload ?? {}).ratio,
+            resolution: (payload ?? {}).resolution,
+            size: (payload ?? {}).size || data.size,
+            quality: (payload ?? {}).quality || data.quality,
+            outputFormat,
+            outputCompression: (payload ?? {}).outputCompression ?? (payload ?? {}).output_compression ?? data.outputCompression ?? data.output_compression,
+            background: (payload ?? {}).background ?? data.background,
+            moderation: (payload ?? {}).moderation ?? data.moderation,
+            inputFidelity: (payload ?? {}).inputFidelity ?? (payload ?? {}).input_fidelity ?? data.inputFidelity ?? data.input_fidelity
+          }
+        }
+      );
       log(`new-api generate image returned=${assets.length}`);
       return { ...data, assets, runId, returned: assets.length };
     } catch (error) {

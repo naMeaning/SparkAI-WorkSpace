@@ -68,7 +68,24 @@ export async function captureAskUserContinuationSuite(context) {
     const deadline = performance.now() + 30000;
     while (performance.now() < deadline) {
       const state = window.__naimageDebugAgentState?.();
-      if (state?.askUserOpen && state?.pendingAgentExecution?.kind === "clarify") return { ok: true, accepted, state };
+      if (state?.askUserOpen && state?.pendingAgentExecution?.kind === "clarify") {
+        const ratio = String(document.querySelector('[aria-label="默认生图比例"] strong')?.textContent || '').trim();
+        const resolution = String(document.querySelector('[aria-label="默认生图清晰度"] strong')?.textContent || '').trim();
+        return {
+          ok: Boolean(
+            ratio && resolution &&
+            state.pendingAgentExecution.imageRatio === ratio &&
+            state.pendingAgentExecution.imageResolution === resolution
+          ),
+          accepted,
+          composerFrame: { ratio, resolution },
+          pendingFrame: {
+            ratio: state.pendingAgentExecution.imageRatio,
+            resolution: state.pendingAgentExecution.imageResolution
+          },
+          state
+        };
+      }
       await new Promise((resolve) => setTimeout(resolve, 80));
     }
     return { ok: false, accepted, state: window.__naimageDebugAgentState?.() };
@@ -101,13 +118,34 @@ export async function captureAskUserContinuationSuite(context) {
       const output = (state.nodes || []).find((node) => !beforeIds.has(node.id) && node.type === "image" && node.parentId === ${JSON.stringify(requirementId)} && node.imageState === "done" && Number(node.assetCount || 0) > 0);
       const requirement = (state.nodes || []).find((node) => node.id === ${JSON.stringify(requirementId)});
       if (!state.pendingAgentExecution && !state.askUserOpen && state.agentStatus === "idle" && output && Number(requirement?.requirement?.lastRunCount || 0) >= 1) {
-        return { ok: true, output, requirement, state };
+        return {
+          ok: Boolean(
+            output.imageParams?.ratio === before.pendingAgentExecution?.imageRatio &&
+            output.imageParams?.resolution === before.pendingAgentExecution?.imageResolution
+          ),
+          output,
+          requirement,
+          resumedFrame: {
+            ratio: output.imageParams?.ratio,
+            resolution: output.imageParams?.resolution
+          },
+          pendingFrame: {
+            ratio: before.pendingAgentExecution?.imageRatio,
+            resolution: before.pendingAgentExecution?.imageResolution
+          },
+          state
+        };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return { ok: false, state: window.__naimageDebugAgentState?.() };
   })()`, 60000) : { ok: false, error: "requirement unavailable" };
   checks.requirementClarify = Boolean(cleanStart?.conversation?.ok && requirementCreated?.ok && requirementAsk?.ok && requirementResume?.ok);
+  checks.frameContractSurvivesContinuation = Boolean(
+    requirementAsk?.ok && requirementResume?.ok &&
+    requirementAsk.pendingFrame?.ratio === requirementResume.pendingFrame?.ratio &&
+    requirementAsk.pendingFrame?.resolution === requirementResume.pendingFrame?.resolution
+  );
 
   const runPickerContinuation = async (kind, fixturePath) => {
     phase(`picker-${kind}-request`, { fixturePath });

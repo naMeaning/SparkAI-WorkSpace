@@ -14,6 +14,7 @@ import (
 )
 
 func TestManagedRelayTokenAuthCreatesAndUsesHiddenRelayToken(t *testing.T) {
+	t.Setenv(naimageLicenseRequiredEnv, "true")
 	user := setupUserManageRelayTokenTestDB(t)
 	gin.SetMode(gin.TestMode)
 

@@ -38,9 +38,8 @@ func ManagedRelayTokenAuth() gin.HandlerFunc {
 			})
 			return
 		}
-		if !RequireNaimageLicense(c, userID) {
-			return
-		}
+		// A valid middle-station account is the product entitlement for managed
+		// relay. Device Pro licenses only unlock the desktop custom Base URL mode.
 
 		token, _, err := ensureRelayTokenForUser(*user)
 		if err != nil {

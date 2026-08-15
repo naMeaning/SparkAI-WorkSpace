@@ -97,15 +97,25 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	Key            string                `json:"key,omitempty"`
+	UpstreamTaskID string                `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL      string                `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	ImageTask      *ImageTaskPrivateData `json:"image_task,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+}
+
+// ImageTaskPrivateData is never returned by task query APIs. It contains the
+// normalized Images request needed by the in-process background runner and a
+// non-secret idempotency key that must survive a process-local handoff.
+type ImageTaskPrivateData struct {
+	Request        json.RawMessage `json:"request,omitempty"`
+	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	AutoGroup      string          `json:"auto_group,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
@@ -293,6 +303,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
+		Where("platform != ?", constant.TaskPlatformImage).
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
@@ -308,7 +319,11 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ?", "100%").
+		Where("platform != ?", constant.TaskPlatformImage).
+		Where("status != ?", TaskStatusFailure).
+		Where("status != ?", TaskStatusSuccess).
+		Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -323,11 +338,66 @@ func HasUnfinishedSyncTasks() bool {
 	var id int64
 	err := DB.Model(&Task{}).
 		Where("progress != ?", "100%").
+		Where("platform != ?", constant.TaskPlatformImage).
 		Where("status != ?", TaskStatusFailure).
 		Where("status != ?", TaskStatusSuccess).
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
+}
+
+func HasUnfinishedImageTasks() bool {
+	var id int64
+	err := DB.Model(&Task{}).
+		Where("platform = ?", constant.TaskPlatformImage).
+		Where("action = ?", constant.TaskActionImageGeneration).
+		Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess}).
+		Limit(1).
+		Pluck("id", &id).Error
+	return err == nil && id != 0
+}
+
+func HasQueuedImageTasks() bool {
+	var id int64
+	err := DB.Model(&Task{}).
+		Where("platform = ?", constant.TaskPlatformImage).
+		Where("action = ?", constant.TaskActionImageGeneration).
+		Where("status IN ?", []TaskStatus{TaskStatusNotStart, TaskStatusSubmitted, TaskStatusQueued}).
+		Limit(1).
+		Pluck("id", &id).Error
+	return err == nil && id != 0
+}
+
+func GetQueuedImageTasks(limit int) []*Task {
+	if limit <= 0 {
+		limit = 1
+	}
+	var tasks []*Task
+	err := DB.Where("platform = ?", constant.TaskPlatformImage).
+		Where("action = ?", constant.TaskActionImageGeneration).
+		Where("status IN ?", []TaskStatus{TaskStatusNotStart, TaskStatusSubmitted, TaskStatusQueued}).
+		Order("id").
+		Limit(limit).
+		Find(&tasks).Error
+	if err != nil {
+		return nil
+	}
+	return tasks
+}
+
+func GetInProgressImageTasks(limit int) []*Task {
+	if limit <= 0 {
+		limit = 1
+	}
+	var tasks []*Task
+	err := DB.Where("platform = ? AND action = ? AND status = ?", constant.TaskPlatformImage, constant.TaskActionImageGeneration, TaskStatusInProgress).
+		Order("id").
+		Limit(limit).
+		Find(&tasks).Error
+	if err != nil {
+		return nil
+	}
+	return tasks
 }
 
 func GetByOnlyTaskId(taskId string) (*Task, bool, error) {

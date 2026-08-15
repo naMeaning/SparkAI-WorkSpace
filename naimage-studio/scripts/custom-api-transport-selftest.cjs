@@ -54,13 +54,15 @@ async function main() {
     agentApiKey: "agent-key",
     agentModelBindings: [
       { model: "agent-bound", customBaseUrl: "https://agent-bound.example/root/", customApiKey: "bound-agent-key", accountTokenId: "23" },
-      { model: "agent-key-only", customApiKey: "agent-key-only-secret" }
+      { model: "agent-key-only", customApiKey: "agent-key-only-secret" },
+      { model: "agent-account-token", accountTokenId: "24" }
     ],
     imageBaseUrl: "https://images.example",
     imageApiKey: "image-key",
     imageModelBindings: [
       { model: "gpt-image-2", customBaseUrl: "https://gpt-image.example/root/", customApiKey: "bound-image-key", accountTokenId: "12" },
       { model: "grok-image-1", customApiKey: "grok-bound-key" },
+      { model: "image-account-token", accountTokenId: "13" },
       { model: "gpt-5.6-sol", customApiKey: "must-not-use-responses-model-binding" }
     ],
     modelGroup: "must-not-leak"
@@ -120,10 +122,114 @@ async function main() {
     selectedAccountTokenId: "7",
     selectedAccountTokenGroup: "vision"
   };
+  const accountCredentialResolutionsBeforeCustomKey = resolvedAccountTokenIds.length;
   await client.newApiRelayJson(accountSettings, "/v1/images/generations", imageBody, { provider: "image" });
-  assert.equal(resolvedAccountTokenIds.at(-1), "12");
-  assert.equal(captured.options.headers.authorization, "Bearer account-key-12");
+  assert.equal(captured.url, "https://sparkapi.org/v1/images/generations", "Account mode must ignore the custom-mode Base URL override");
+  assert.equal(captured.options.headers.authorization, "Bearer bound-image-key", "A per-model custom API Key must remain usable after account login");
+  assert.equal(resolvedAccountTokenIds.length, accountCredentialResolutionsBeforeCustomKey, "A custom model Key must take precedence without resolving an account Key");
 
+  await client.newApiRelayJson(accountSettings, "/v1/images/generations", { ...imageBody, model: "image-account-token" }, { provider: "image" });
+  assert.equal(resolvedAccountTokenIds.at(-1), "13");
+  assert.equal(captured.options.headers.authorization, "Bearer account-key-13", "Bindings without a custom Key must retain account-token routing");
+
+  const imageTaskCalls = [];
+  let imageTaskPoll = 0;
+  transport = async (url, options) => {
+    imageTaskCalls.push({ url, options });
+    if (String(options.method || "GET").toUpperCase() === "POST") {
+      return response({
+        contentType: "application/json; charset=utf-8",
+        status: 202,
+        data: { task_id: "task_fixture", status: "queued" }
+      });
+    }
+    imageTaskPoll += 1;
+    if (imageTaskPoll === 1) {
+      return response({
+        contentType: "application/json; charset=utf-8",
+        status: 503,
+        data: { error: { message: "temporary poll failure" } }
+      });
+    }
+    if (imageTaskPoll === 2) {
+      return response({
+        contentType: "application/json; charset=utf-8",
+        data: { task_id: "task_fixture", status: "running" }
+      });
+    }
+    return response({
+      contentType: "application/json; charset=utf-8",
+      data: {
+        task_id: "task_fixture",
+        status: "succeeded",
+        result: { created: 123, data: [{ b64_json: "dGFzay1pbWFnZQ==" }] }
+      }
+    });
+  };
+  const acceptedImageTasks = [];
+  const accountCredentialResolutionsBeforeImageTask = resolvedAccountTokenIds.length;
+  const imageTaskResult = await client.newApiRelayImageTask(accountSettings, {
+    ...imageBody,
+    group: "must-not-leak",
+    stream: true,
+    partial_images: 3
+  }, {
+    headers: { "Idempotency-Key": "task-fixture-key" },
+    pollIntervalMs: 0,
+    onAccepted: (task) => acceptedImageTasks.push(task)
+  });
+  assert.equal(resolvedAccountTokenIds.length, accountCredentialResolutionsBeforeImageTask, "Image tasks must retain the model custom-Key priority after account login");
+  assert.equal(imageTaskCalls.filter((call) => call.options.method === "POST").length, 1, "Transient polling errors must not create a second image task");
+  assert.equal(imageTaskCalls.filter((call) => call.options.method === "GET").length, 3);
+  assert.equal(imageTaskCalls[0].url, "https://sparkapi.org/v1/image-tasks");
+  assert.equal(imageTaskCalls[0].options.headers.authorization, "Bearer bound-image-key");
+  assert.equal(imageTaskCalls[0].options.headers["Idempotency-Key"], "task-fixture-key");
+  const imageTaskBody = JSON.parse(imageTaskCalls[0].options.body);
+  assert.equal(imageTaskBody.group, undefined);
+  assert.equal(imageTaskBody.stream, undefined);
+  assert.equal(imageTaskBody.partial_images, undefined);
+  assert.equal(imageTaskBody.prompt, imageBody.prompt);
+  assert.deepEqual(acceptedImageTasks, [{ taskId: "task_fixture", status: "queued" }]);
+  assert.deepEqual(imageTaskResult, { created: 123, data: [{ b64_json: "dGFzay1pbWFnZQ==" }] });
+
+  transport = async () => response({
+    contentType: "application/json; charset=utf-8",
+    status: 404,
+    data: { error: { message: "route not found" } }
+  });
+  await assert.rejects(
+    () => client.newApiRelayImageTask(settings, imageBody, { pollIntervalMs: 0 }),
+    (error) => error?.code === "NEW_API_IMAGE_TASK_UNSUPPORTED" && error?.unsafeToRetry !== true
+  );
+
+  transport = async () => response({
+    contentType: "application/json; charset=utf-8",
+    status: 408,
+    data: { error: { message: "task creation response timed out" } }
+  });
+  await assert.rejects(
+    () => client.newApiRelayImageTask(settings, imageBody, { pollIntervalMs: 0 }),
+    (error) => error?.ambiguous === true && error?.unsafeToRetry === true
+  );
+
+  let failedTaskRequestCount = 0;
+  transport = async (_url, options) => {
+    failedTaskRequestCount += 1;
+    if (String(options.method || "GET").toUpperCase() === "POST") {
+      return response({ contentType: "application/json", status: 202, data: { task_id: "task_failed", status: "queued" } });
+    }
+    return response({
+      contentType: "application/json",
+      data: { task_id: "task_failed", status: "failed", error: { message: "mock upstream failed" } }
+    });
+  };
+  await assert.rejects(
+    () => client.newApiRelayImageTask(settings, imageBody, { pollIntervalMs: 0 }),
+    (error) => error?.code === "NEW_API_IMAGE_TASK_FAILED" && error?.unsafeToRetry === true && error?.taskId === "task_failed"
+  );
+  assert.equal(failedTaskRequestCount, 2, "A failed accepted task must be queried once and never recreated inside the task client");
+
+  transport = async () => response({ contentType: "application/json", data: {} });
   await client.newApiRelayJson(settings, "/v1/chat/completions", { model: "agent-bound", messages: [] }, { provider: "agent" });
   assert.equal(captured.url, "https://agent-bound.example/root/v1/chat/completions");
   assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key");
@@ -136,8 +242,12 @@ async function main() {
   assert.equal(captured.options.headers.authorization, "Bearer agent-key", "Unbound Agent models must inherit the global Agent API Key");
 
   await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-bound", messages: [] }, { provider: "agent" });
-  assert.equal(resolvedAccountTokenIds.at(-1), "23");
-  assert.equal(captured.options.headers.authorization, "Bearer account-key-23");
+  assert.equal(captured.url, "https://sparkapi.org/v1/chat/completions");
+  assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key", "Account login must retain per-conversation-model custom API Keys");
+
+  await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-account-token", messages: [] }, { provider: "agent" });
+  assert.equal(resolvedAccountTokenIds.at(-1), "24");
+  assert.equal(captured.options.headers.authorization, "Bearer account-key-24");
 
   transport = async () => response({
     contentType: "application/json; charset=utf-8",
@@ -178,12 +288,13 @@ async function main() {
   transport = async () => response({
     contentType: "text/event-stream; charset=utf-8",
     data: [
+      'data: {"type":"response.created","response":{"created_at":123,"model":"gpt-image-2"}}\n\n',
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":0,"partial_image_b64":"cHJldmlldy0x"}\n\n',
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":1,"partial_image_b64":"cHJldmlldy0y"}\n\n',
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":2,"partial_image_b64":"cHJldmlldy0z"}\n\n',
       'data: {"type":"response.image_generation_call.partial_image","partial_image_index":3,"partial_image_b64":"ZmluYWwtbGlrZS1wYXJ0aWFs"}\n\n',
-      'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"}}\n\n',
-      'data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised"},{"type":"image_generation_call","result":{"partial_image_b64":"cHJldmlldy1tdXN0LW5vdC1sZWFr"}}],"usage":{"total_tokens":9}}}\n\n'
+      'data: {"type":"response.output_item.done","item":{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised","size":"1536x1024","quality":"high"}}\n\n',
+      'data: {"type":"response.completed","response":{"created_at":123,"output":[{"type":"image_generation_call","result":"ZmluYWwtaW1hZ2U=","revised_prompt":"fixture revised","size":"1536x1024","quality":"high","output_format":"webp","output_compression":82,"moderation":"low"},{"type":"image_generation_call","result":{"partial_image_b64":"cHJldmlldy1tdXN0LW5vdC1sZWFr"}}],"usage":{"total_tokens":9}}}\n\n'
     ].join("")
   });
   const responsePartials = [];
@@ -210,6 +321,15 @@ async function main() {
   assert.equal(responsesImage.data.length, 1, "Only authoritative finals may survive completed Responses payloads; partial_image_b64 must not become an asset");
   assert.equal(responsesImage.data[0].b64_json, "ZmluYWwtaW1hZ2U=");
   assert.equal(responsesImage.data[0].revised_prompt, "fixture revised");
+  assert.deepEqual(responsesImage.data[0].actualParams, {
+    model: "gpt-image-2",
+    size: "1536x1024",
+    quality: "high",
+    outputFormat: "webp",
+    outputCompression: 82,
+    moderation: "low",
+    createdAt: "1970-01-01T00:02:03.000Z"
+  }, "Responses image_generation_call parameters must remain attached to the authoritative final image");
   assert.equal(responsesImage.created, 123);
   assert.equal(responsesImage.partial_images, 3);
   assert.deepEqual(responsesImage.usage, { total_tokens: 9 }, "Completed Responses usage must remain available to post-call accounting");
@@ -276,7 +396,7 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 23,
+    cases: 31,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
@@ -284,6 +404,7 @@ async function main() {
     customJsonBodyForwarded: true,
     perModelCustomCredentials: true,
     perModelAccountCredentials: true,
+    accountModePerModelCustomCredentials: true,
     perAgentModelCustomCredentials: true,
     perAgentModelAccountCredentials: true,
     agentModelGlobalFallback: true,
@@ -293,8 +414,14 @@ async function main() {
     accountResponsesImageStreaming: true,
     responsesImageThreePreviews: true,
     responsesImageFinalDeduplication: true,
+    responsesImageActualParametersPreserved: true,
     responsesImageUnsupportedClassified: true,
-    ambiguousResponsesImageNotRetryable: true
+    ambiguousResponsesImageNotRetryable: true,
+    imageTaskPolling: true,
+    imageTaskTransientPollRetry: true,
+    imageTaskUnsupportedClassified: true,
+    ambiguousImageTaskCreateNotRetried: true,
+    acceptedImageTaskNotRecreated: true
   })}\n`);
 }
 

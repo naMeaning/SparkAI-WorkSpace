@@ -16,6 +16,8 @@ const glassSurfaceSource = read("src", "styles", "07j-liquid-glass-surfaces.css"
 const canvasWorkspaceSource = read("src", "styles", "02-canvas-workspace.css");
 const workbenchRepairSource = read("src", "styles", "07c-module-and-editor-repair.css");
 const dialogViewerSource = read("src", "styles", "04-dialogs-viewers.css");
+const editorDialogSource = read("src", "styles", "07f-editor-dialog-overrides.css");
+const imageGenerationMetadataSource = read("src", "image-generation-metadata.ts");
 const agentPanelSource = read("src", "styles", "07g-agent-panel-overrides.css");
 const settingsAppearanceSource = read("src", "styles", "04-settings-appearance.css");
 const settingsDrawerSource = read("src", "settings-drawer.tsx");
@@ -127,6 +129,15 @@ assert.match(mainSource, /const \[availableImageModels, setAvailableImageModels\
 assert.match(mainSource, /const composerImageModels = useMemo\([\s\S]{0,320}\.\.\.availableImageModels[\s\S]{0,320}\.\.\.selectedComposerImageModels/, "Composer chips must be driven by the persistent available-model catalog, not only the current selection");
 assert.match(mainSource, /function openWorkspaceLayerNode[\s\S]{0,260}node\?\.layerGroup[\s\S]{0,180}openLayerGroupViewer\(node\.id\)[\s\S]{0,220}node\?\.layerComposition[\s\S]{0,120}openNodeEditor\(node\)/, "The layer rail must open modern groups in the viewer and legacy compositions in their supported editor");
 assert.match(workspaceSource, /node\.layerComposition[\s\S]{0,220}双击打开图层编辑器/, "Legacy layer compositions must advertise the editor they actually open");
+assert.match(mainSource, /className="unified-node-editor-image-specs"[\s\S]{0,260}editorAssetRatio[\s\S]{0,160}editorAssetPixels/, "The result editor preview must expose the final image ratio and pixel dimensions beside the artwork");
+assert.match(mainSource, /className="node-editor-generation-details"[\s\S]{0,260}data-generation-source=\{generationSource\}[\s\S]{0,700}data-generation-param=\{row\.key\}/, "The result editor must render per-image generation parameters with an observable source contract");
+assert.match(mainSource, /row\.actualSource === "api" \? "响应" : row\.actualSource === "asset" \? "成图" : "本次"/, "Requested, API response, final asset and runtime values must remain visibly distinct");
+assert.match(mainSource, /data-node-editor-action="toggle-maximize"[\s\S]{0,420}setNodeEditorMaximized\(\(current\) => !current\)[\s\S]{0,220}Minimize2/, "The result editor must expose an accessible maximize and restore control in its header");
+assert.match(imageGenerationMetadataSource, /export function sanitizeImageAssetGenerationMetadata[\s\S]{0,2400}version:\s*1/, "Persisted image-generation metadata must pass through a versioned whitelist sanitizer");
+assert.match(imageGenerationMetadataSource, /export function actualImageAspectRatio[\s\S]{0,520}greatestCommonDivisor/, "Displayed aspect ratios must derive from final pixel dimensions instead of inferred provider defaults");
+assert.match(editorDialogSource, /\.node-editor-generation-grid[\s\S]{0,220}grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, "Generation parameters must use a stable compact grid in the result editor");
+assert.match(editorDialogSource, /\.unified-node-editor\.is-maximized\s*\{[\s\S]{0,260}width:\s*calc\(100vw - 24px\);[\s\S]{0,160}height:\s*calc\(100dvh - 24px\);/, "The result editor maximize state must expand both axes to the available viewport");
+assert.match(editorDialogSource, /\.node-editor-generation-grid dt\s*\{[\s\S]{0,180}font-size:\s*12px;[\s\S]{0,420}\.node-editor-generation-grid dd\s*\{[\s\S]{0,220}font-size:\s*12px;/, "Generation parameter labels and values must keep a readable 12 px minimum");
 
 const renderMarker = mainSource.indexOf("MAIN 11 Main Workspace Render Tree");
 const renderSource = mainSource.slice(renderMarker);
@@ -235,4 +246,4 @@ assert.match(scientificDialogSource, /<DialogShell[\s\S]{0,160}surface="scientif
 assert.match(scientificDialogStyleSource, /\.scientific-hero,[\s\S]{0,120}\.scientific-glass-section[\s\S]{0,420}var\(--glass-surface-raised\)/, "Scientific sections must use the shared translucent Glass tokens instead of an opaque parallel theme");
 assert.match(protectionSource, /mix-blend-mode:\s*normal\s*!important;/, "Rendered images must keep normal color blending");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 149 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 155 })}\n`);

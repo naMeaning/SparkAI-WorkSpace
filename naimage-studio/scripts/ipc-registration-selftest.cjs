@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
 const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
 const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-ipc.cjs");
@@ -190,6 +191,62 @@ const expectedRegisteredSendChannels = [
 
 function sorted(values) {
   return [...values].sort((left, right) => left.localeCompare(right));
+}
+
+async function assertPreloadMigrationConfirmationBoundary(preloadSource, preloadPath) {
+  const exposed = new Map();
+  const invocations = [];
+  const ipcRenderer = {
+    invoke(channel, ...args) {
+      invocations.push({ channel, args });
+      return Promise.resolve({ ok: true });
+    },
+    on() {},
+    removeListener() {},
+    send() {}
+  };
+  vm.runInNewContext(preloadSource, {
+    console,
+    process: { argv: [] },
+    require(request) {
+      if (request !== "electron") throw new Error(`Unexpected preload dependency: ${request}`);
+      return {
+        contextBridge: { exposeInMainWorld: (name, value) => exposed.set(name, value) },
+        ipcRenderer,
+        webUtils: { getPathForFile: () => "" }
+      };
+    }
+  }, { filename: preloadPath });
+  const config = exposed.get("naimageConfig");
+  assert(config, "preload must expose naimageConfig");
+
+  async function forwarded(method, payload, channel) {
+    invocations.length = 0;
+    await config[method](payload);
+    assert.equal(invocations.length, 1, `${method} must make exactly one IPC call`);
+    assert.equal(invocations[0].channel, channel);
+    return invocations[0].args[0];
+  }
+
+  const bundledMigrationPayload = { previewToken: "preview-fixture", candidateIds: ["candidate-a"], confirmed: 1 };
+  const numericMigration = await forwarded("migrateProjectData", bundledMigrationPayload, "naimage:project:migrate");
+  assert.equal(numericMigration.confirmed, true, "production-bundled confirmed=1 must cross preload as boolean true");
+  assert.equal(bundledMigrationPayload.confirmed, 1, "preload normalization must not mutate the Renderer object");
+  assert.equal((await forwarded("migrateProjectData", { confirmed: true }, "naimage:project:migrate")).confirmed, true);
+  assert.equal((await forwarded("migrateProjectData", { confirmed: "1" }, "naimage:project:migrate")).confirmed, "1");
+  assert.equal((await forwarded("migrateProjectData", { confirmed: 2 }, "naimage:project:migrate")).confirmed, 2);
+  assert.equal((await forwarded("migrateProjectData", { confirmed: false }, "naimage:project:migrate")).confirmed, false);
+  assert.equal(Object.hasOwn(await forwarded("migrateProjectData", {}, "naimage:project:migrate"), "confirmed"), false);
+
+  const bundledCleanupPayload = { migrationId: "migration-fixture", confirmedCleanup: 1 };
+  const numericCleanup = await forwarded("cleanupMigratedProjectData", bundledCleanupPayload, "naimage:project:migration-cleanup");
+  assert.equal(numericCleanup.confirmedCleanup, true, "production-bundled confirmedCleanup=1 must cross preload as boolean true");
+  assert.equal(bundledCleanupPayload.confirmedCleanup, 1);
+  assert.equal((await forwarded("cleanupMigratedProjectData", { confirmedCleanup: "1" }, "naimage:project:migration-cleanup")).confirmedCleanup, "1");
+
+  const projectIpcSource = readFileSync(path.resolve(__dirname, "..", "desktop", "ipc", "project-ipc.cjs"), "utf8");
+  assert.match(projectIpcSource, /payload\?\.confirmed\s*!==\s*true/, "Main migration handler must keep strict boolean confirmation");
+  assert.match(projectIpcSource, /confirmedCleanup:\s*payload\?\.confirmedCleanup\s*===\s*true/, "Main cleanup handler must keep strict boolean confirmation");
 }
 
 async function assertSettingsAccountBoundary() {
@@ -822,6 +879,7 @@ async function main() {
 
   const preloadPath = path.resolve(__dirname, "..", "preload.cjs");
   const preloadSource = readFileSync(preloadPath, "utf8");
+  await assertPreloadMigrationConfirmationBoundary(preloadSource, preloadPath);
   const invokeChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*invoke\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
   const progressChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*on\s*\(\s*["']([^"']+)["']/g)]

@@ -627,6 +627,46 @@ function hasReferencePayload(payload: { referenceImages?: ReferenceImage[]; edit
   return Boolean(payload.editImage || payload.maskDataUrl || (Array.isArray(payload.referenceImages) && payload.referenceImages.length));
 }
 
+function imageTaskUnsupported(error: unknown) {
+  const status = Number((error as { status?: number } | null)?.status || 0);
+  if ([404, 405, 501].includes(status)) return true;
+  if (![400, 422].includes(status)) return false;
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /image[_ -]?tasks?|图片任务/i.test(message) && /unsupported|not supported|unknown|not found|不存在|不支持|未找到/i.test(message);
+}
+
+async function waitForImageTask(settings: AppSettings, taskId: string) {
+  const deadline = Date.now() + 15 * 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    let task: JsonRecord;
+    try {
+      task = await newApiRequest(settings, `/naimage/v1/image-tasks/${encodeURIComponent(taskId)}`, {
+        service: "relay",
+        method: "GET",
+        headers: userAuthHeaders(settings)
+      });
+    } catch (error) {
+      const status = Number((error as { status?: number } | null)?.status || 0);
+      if (!status || status === 408 || status === 425 || status === 429 || status >= 500) continue;
+      throw error;
+    }
+    const status = String(task.status || "").trim().toLowerCase();
+    if (status === "queued" || status === "running") continue;
+    if (status === "succeeded" && task.result && typeof task.result === "object" && !Array.isArray(task.result)) {
+      return task.result as JsonRecord;
+    }
+    if (status === "failed") {
+      const detail = task.error && typeof task.error === "object"
+        ? String((task.error as JsonRecord).message || "")
+        : "";
+      throw new Error(detail || "图片生成任务失败。");
+    }
+    throw new Error(`图片任务返回了未知状态：${status || "empty"}。`);
+  }
+  throw new Error("图片任务等待超过 15 分钟，请稍后在桌面版中重试。");
+}
+
 async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[0]) {
   const settings = readSettings();
   if (!readAuthState(settings).serverUserId) throw new Error("登录会话已失效，请重新登录。");
@@ -655,12 +695,26 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
     if (payload.background) body.background = payload.background;
     if (payload.moderation) body.moderation = payload.moderation;
     if (payload.inputFidelity) body.input_fidelity = payload.inputFidelity;
-    return newApiRequest(settings, "/naimage/v1/images/generations", {
-      service: "relay",
-      method: "POST",
-      headers: userAuthHeaders(settings),
-      body
-    });
+    let created: JsonRecord;
+    try {
+      created = await newApiRequest(settings, "/naimage/v1/image-tasks", {
+        service: "relay",
+        method: "POST",
+        headers: userAuthHeaders(settings),
+        body
+      });
+    } catch (error) {
+      if (!imageTaskUnsupported(error)) throw error;
+      return newApiRequest(settings, "/naimage/v1/images/generations", {
+        service: "relay",
+        method: "POST",
+        headers: userAuthHeaders(settings),
+        body
+      });
+    }
+    const taskId = String(created.task_id || created.id || "").trim();
+    if (!taskId) throw new Error("图片任务接口已返回成功，但缺少 task_id。");
+    return await waitForImageTask(settings, taskId);
   };
 
   const settled = await Promise.allSettled(Array.from({ length: count }, (_item, index) => requestSingle(index)));
@@ -801,15 +855,19 @@ function createBrowserServerBridge(): ServerBridge {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
     },
-    async licenseStatus() {
+    async licenseStatus(payload = {}) {
       const settings = readSettings();
+      const scope = payload.scope === "custom" ? "custom" : payload.scope === "account" ? "account" : settings.accessMode;
+      if (scope === "account") {
+        return { ok: true, active: true, required: false, supported: true, scope: "account" as const };
+      }
       try {
         const response = await newApiRequest(settings, "/api/naimage/license");
-        const required = (response as { data?: { required?: boolean } })?.data?.required === true;
-        return { ok: true, active: !required || Boolean(settings.licenseToken), required, supported: true };
+        const supported = (response as { data?: { supports_custom_api_mode?: boolean } })?.data?.supports_custom_api_mode !== false;
+        const active = supported && Boolean(settings.licenseToken) && String(settings.licensePlan || "").toLowerCase() === "pro";
+        return { ok: true, active, required: true, supported, scope: "custom" as const, plan: settings.licensePlan, requiredPlan: "pro" };
       } catch (error) {
-        if (Number((error as { status?: number })?.status) === 404) return { ok: true, active: true, required: false, supported: false };
-        return { ok: false, active: false, required: true, error: error instanceof Error ? error.message : String(error) };
+        return { ok: false, active: false, required: true, supported: false, scope: "custom" as const, requiredPlan: "pro", error: error instanceof Error ? error.message : String(error) };
       }
     },
     async activateLicense() {

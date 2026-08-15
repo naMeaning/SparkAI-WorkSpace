@@ -20,7 +20,18 @@ const {
 const {
   normalizeScientificFigurePlan
 } = require("../runtime/scientific-figure-plan.cjs");
+const { imagePromptRatios, imagePromptResolutions } = require("../runtime/image-frame.cjs");
 const { normalizeWorkspaceDomain } = require("../runtime/workspace-domain.cjs");
+const { normalizeImageAssetGenerationMetadata } = require("../runtime/image-generation-metadata.cjs");
+
+function sanitizePersistedImageAssetGeneration(asset) {
+  if (!asset || typeof asset !== "object" || Array.isArray(asset)) return asset;
+  const next = { ...asset };
+  const generation = normalizeImageAssetGenerationMetadata(next.generation);
+  if (generation) next.generation = generation;
+  else delete next.generation;
+  return next;
+}
 
 function safeImageSourceRelativePath(value, maximum = 1000) {
   const source = typeof value === "string" ? value.trim().replace(/\\/g, "/") : "";
@@ -914,6 +925,14 @@ function sanitizePersistedPendingAgentExecution(value) {
   const projectId = clean(value.projectId, 180);
   const conversationId = clean(value.conversationId, 180);
   const originalPrompt = clean(value.originalPrompt, 200_000);
+  const requestedImageRatio = clean(value.imageRatio, 16).replace("：", ":");
+  const requestedImageResolution = clean(value.imageResolution, 16).toUpperCase();
+  const imageRatio = imagePromptRatios.has(requestedImageRatio) ? requestedImageRatio : "";
+  const imageResolution = imagePromptResolutions.has(requestedImageResolution)
+    ? requestedImageResolution
+    : requestedImageResolution === "720P" || requestedImageResolution === "1080P"
+      ? "1K"
+      : "";
   const question = clean(value.question, 4_000);
   const kinds = new Set(["clarify", "confirm", "source_images", "reference_images"]);
   const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
@@ -1164,6 +1183,8 @@ function sanitizePersistedPendingAgentExecution(value) {
     projectId,
     conversationId,
     originalPrompt,
+    ...(imageRatio ? { imageRatio } : {}),
+    ...(imageResolution ? { imageResolution } : {}),
     sourceNodeIds,
     ...(clean(value.focusedNodeId, 160) ? { focusedNodeId: clean(value.focusedNodeId, 160) } : {}),
     taskOrigin: origin,
@@ -1233,6 +1254,26 @@ function sanitizeSession(session) {
           usedDisplayCodes.add(next.displayCode);
           if (next.parentId === next.id || typeof next.parentId !== "string" || !next.parentId.trim()) delete next.parentId;
           if (next.agentOwnerId === next.id || typeof next.agentOwnerId !== "string" || !next.agentOwnerId.trim()) delete next.agentOwnerId;
+          if (Array.isArray(next.assets)) next.assets = next.assets.map(sanitizePersistedImageAssetGeneration);
+          if (next.layerGroup && typeof next.layerGroup === "object") {
+            next.layerGroup = {
+              ...next.layerGroup,
+              previewAsset: sanitizePersistedImageAssetGeneration(next.layerGroup.previewAsset),
+              mergedAsset: sanitizePersistedImageAssetGeneration(next.layerGroup.mergedAsset)
+            };
+          }
+          if (next.layerComposition && typeof next.layerComposition === "object") {
+            next.layerComposition = {
+              ...next.layerComposition,
+              previewAsset: sanitizePersistedImageAssetGeneration(next.layerComposition.previewAsset),
+              mergedAsset: sanitizePersistedImageAssetGeneration(next.layerComposition.mergedAsset),
+              layers: Array.isArray(next.layerComposition.layers)
+                ? next.layerComposition.layers.map((layer) => layer && typeof layer === "object"
+                  ? { ...layer, asset: sanitizePersistedImageAssetGeneration(layer.asset) }
+                  : layer)
+                : next.layerComposition.layers
+            };
+          }
           if (next.type === "image" && next.imageState === "queued") next.imageState = "empty";
           if (next.type === "image" && Array.isArray(next.assets) && next.assets.length > 0) {
             next.imageState = "done";

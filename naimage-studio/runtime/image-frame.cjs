@@ -144,15 +144,83 @@ function image2SourceRequestSizeForDelivery(size) {
   return parsed.width > parsed.height ? image2SourceRequestSizes[1] : image2SourceRequestSizes[2];
 }
 
+function imageFrameContractForSettings(settings = {}) {
+  const ratio = normalizeImageRatio(settings.imageRatio, "1:1");
+  const resolution = normalizeImagePromptResolution(settings.imageResolution, "1K");
+  return {
+    locked: settings.imageFrameLocked === true,
+    ratio,
+    resolution,
+    size: computedImageSizeFor(ratio, resolution)
+  };
+}
+
+function freezeImageFrameSettings(settings = {}, requested = {}) {
+  const rawRatio = String(requested?.ratio || "").trim().replace("：", ":");
+  const rawResolution = String(requested?.resolution || "").trim().toUpperCase();
+  const resolution = rawResolution === "720P" || rawResolution === "1080P" ? "1K" : rawResolution;
+  const base = { ...settings, imageFrameLocked: false };
+  if (!imagePromptRatios.has(rawRatio) || !imagePromptResolutions.has(resolution)) return base;
+  return {
+    ...base,
+    imageRatio: rawRatio,
+    imageResolution: resolution,
+    imageSize: computedImageSizeFor(rawRatio, resolution),
+    imageFrameLocked: true
+  };
+}
+
+function imageToolArgsWithFrameContract(args = {}, settings = {}) {
+  const contract = imageFrameContractForSettings(settings);
+  if (!contract.locked) return { ...args };
+  const lockItem = (item) => item && typeof item === "object" && !Array.isArray(item)
+    ? { ...item, ratio: contract.ratio, resolution: contract.resolution, size: contract.size }
+    : item;
+  return {
+    ...args,
+    ratio: contract.ratio,
+    resolution: contract.resolution,
+    size: contract.size,
+    ...(Array.isArray(args.items)
+      ? { items: args.items.map(lockItem) }
+      : args.items && typeof args.items === "object"
+        ? { items: lockItem(args.items) }
+        : {})
+  };
+}
+
 function normalizeImageToolFrame(args = {}, settings = {}) {
-  const ratio = normalizeImageRatio(args.ratio ?? settings.imageRatio, "1:1");
-  const resolution = normalizeImagePromptResolution(args.resolution ?? settings.imageResolution, "1K");
+  const contract = imageFrameContractForSettings(settings);
+  const ratio = contract.locked ? contract.ratio : normalizeImageRatio(args.ratio ?? settings.imageRatio, "1:1");
+  const resolution = contract.locked
+    ? contract.resolution
+    : normalizeImagePromptResolution(args.resolution ?? settings.imageResolution, "1K");
   const model = args.model ?? settings?.imageModel ?? "gpt-image-2";
   const hasFramePreference = Boolean(args.ratio || args.resolution || settings.imageRatio || settings.imageResolution);
-  const requestedSize = args.size ?? (hasFramePreference ? computedImageSizeFor(ratio, resolution) : settings?.imageSize ?? computedImageSizeFor(ratio, resolution));
+  const requestedSize = contract.locked
+    ? contract.size
+    : args.size ?? (hasFramePreference ? computedImageSizeFor(ratio, resolution) : settings?.imageSize ?? computedImageSizeFor(ratio, resolution));
   const size = isImage2Model(model) ? normalizeImage2Size(requestedSize, ratio, resolution) : String(requestedSize || "1024x1024");
   const requestSize = isImage2Model(model) ? image2SourceRequestSizeForDelivery(size) : size;
   return { ratio, resolution, size, requestSize };
+}
+
+function imageDeliverySpecification(frame = {}) {
+  const ratio = normalizeImageRatio(frame.ratio, "1:1");
+  const resolution = normalizeImagePromptResolution(frame.resolution, "1K");
+  const parsedSize = parseImageSizeValue(frame.size) || parseImageSizeValue(computedImageSizeFor(ratio, resolution));
+  const pixels = parsedSize ? `${parsedSize.width}×${parsedSize.height}` : computedImageSizeFor(ratio, resolution).replace("x", "×");
+  return [
+    `交付规格：画面比例 ${ratio}，清晰度 ${resolution}，最终像素 ${pixels}。`,
+    "必须按该画幅构图，主体和关键内容完整位于安全区；不得拉伸画面，也不要把这段规格文字绘制到图片中。"
+  ].join("\n");
+}
+
+function appendImageDeliverySpecification(prompt = "", frame = {}) {
+  const source = String(prompt || "").trim();
+  const specification = imageDeliverySpecification(frame);
+  if (!source) return specification;
+  return source.includes(specification) ? source : `${source}\n\n${specification}`;
 }
 
 function validateImageFrameFields(args = {}, label = "image_gen") {
@@ -180,9 +248,15 @@ function validateImageFrameFields(args = {}, label = "image_gen") {
 }
 
 module.exports = {
+  appendImageDeliverySpecification,
+  computedImageSizeFor,
+  freezeImageFrameSettings,
+  imageDeliverySpecification,
+  imageFrameContractForSettings,
   imagePromptQualities,
   imagePromptRatios,
   imagePromptResolutions,
+  imageToolArgsWithFrameContract,
   normalizeImage2Size,
   normalizeImagePromptResolution,
   normalizeImageToolFrame,

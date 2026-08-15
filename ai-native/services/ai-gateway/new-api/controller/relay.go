@@ -66,15 +66,23 @@ func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewA
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {
+	_ = executeRelay(c, relayFormat, true)
+}
+
+// ExecuteRelay runs the same relay lifecycle used by the HTTP compatibility
+// handlers without serializing an error response. Background jobs use their
+// own detached Gin context and capture the successful provider response.
+func ExecuteRelay(c *gin.Context, relayFormat types.RelayFormat) *types.NewAPIError {
+	return executeRelay(c, relayFormat, false)
+}
+
+func executeRelay(c *gin.Context, relayFormat types.RelayFormat, writeErrorResponse bool) (newAPIError *types.NewAPIError) {
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
-	var (
-		newAPIError *types.NewAPIError
-		ws          *websocket.Conn
-	)
+	var ws *websocket.Conn
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -90,6 +98,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			if !writeErrorResponse {
+				return
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -246,6 +257,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
 	}
+	return newAPIError
 }
 
 var upgrader = websocket.Upgrader{

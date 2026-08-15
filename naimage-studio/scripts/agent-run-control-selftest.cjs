@@ -291,15 +291,17 @@ const { normalizedTaskScope, normalizedSteerTaskScopeUpdate } = require("../agen
   const ipcHandlers = new Map();
   const destroyedHandlers = [];
   const ipcControl = createAgentRunControl();
+  let capturedChatSettings;
   const runtime = {
     normalizeTaskScope: (payload) => payload.taskScope || { version: 2, origin: "chat", sourceNodeIds: [] },
-    chat: async ({ signal }) => new Promise((_resolve, reject) => {
+    chat: async ({ signal, settings }) => new Promise((_resolve, reject) => {
+      capturedChatSettings = settings;
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     })
   };
   registerAgentIpc({
     ipcMain: { handle: (channel, handler) => ipcHandlers.set(channel, handler) },
-    currentAgentSettings: () => ({}),
+    currentAgentSettings: () => ({ imageRatio: "1:1", imageResolution: "1K", imageSize: "1024x1024" }),
     getAgentRuntime: () => runtime,
     log: () => {},
     listAgentModels: async () => ({ ok: true, models: [] }),
@@ -320,9 +322,14 @@ const { normalizedTaskScope, normalizedSteerTaskScopeUpdate } = require("../agen
     runId: "renderer-owned-run",
     projectId: "IPC-P",
     conversationId: "IPC-C",
+    imageDefaults: { ratio: "3:4", resolution: "2K" },
     taskScope: { version: 2, origin: "chat", sourceNodeIds: [] }
   });
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(capturedChatSettings.imageFrameLocked, true);
+  assert.equal(capturedChatSettings.imageRatio, "3:4");
+  assert.equal(capturedChatSettings.imageResolution, "2K");
+  assert.equal(capturedChatSettings.imageSize, "1536x2048");
   assert.equal(ipcControl.snapshot("IPC-P").runs[0].ownerId, "303");
   const otherRendererRun = ipcControl.begin({
     runId: "other-renderer-run",

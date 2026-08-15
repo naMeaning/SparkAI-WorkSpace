@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,6 +94,32 @@ func insertTask(t *testing.T, task *Task) {
 	task.CreatedAt = time.Now().Unix()
 	task.UpdatedAt = time.Now().Unix()
 	require.NoError(t, DB.Create(task).Error)
+}
+
+func TestImageTasksAreSeparatedFromUpstreamPollingTasks(t *testing.T) {
+	truncateTables(t)
+	insertTask(t, &Task{
+		TaskID:   "task_image_queued",
+		Platform: constant.TaskPlatformImage,
+		Action:   constant.TaskActionImageGeneration,
+		Status:   TaskStatusQueued,
+		Progress: "0%",
+	})
+	insertTask(t, &Task{
+		TaskID:   "task_video_running",
+		Platform: constant.TaskPlatform("kling"),
+		Status:   TaskStatusInProgress,
+		Progress: "30%",
+	})
+
+	assert.True(t, HasUnfinishedImageTasks())
+	assert.True(t, HasQueuedImageTasks())
+	require.Len(t, GetQueuedImageTasks(10), 1)
+
+	assert.True(t, HasUnfinishedSyncTasks())
+	upstreamTasks := GetAllUnFinishSyncTasks(10)
+	require.Len(t, upstreamTasks, 1)
+	assert.Equal(t, "task_video_running", upstreamTasks[0].TaskID)
 }
 
 // ---------------------------------------------------------------------------

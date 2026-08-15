@@ -28,6 +28,21 @@ func managedRelayNativePath() gin.HandlerFunc {
 	}
 }
 
+// imageTaskGenerationPath makes the existing distributor select a channel as
+// if this were the synchronous Images generation route. Route matching has
+// already completed, so the public task endpoint remains unchanged.
+func imageTaskGenerationPath() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		originalPath := c.Request.URL.Path
+		originalRawPath := c.Request.URL.RawPath
+		c.Request.URL.Path = "/v1/images/generations"
+		c.Request.URL.RawPath = ""
+		c.Next()
+		c.Request.URL.Path = originalPath
+		c.Request.URL.RawPath = originalRawPath
+	}
+}
+
 func registerManagedSessionRelayRoutes(router *gin.Engine, basePath string) {
 	managedModelsRouter := router.Group(basePath + "/models")
 	managedModelsRouter.Use(middleware.RouteTag("relay"))
@@ -50,23 +65,32 @@ func registerManagedSessionRelayRoutes(router *gin.Engine, basePath string) {
 	// for access logs. This also gives image idempotency and stream/multipart
 	// handling one canonical /v1/* path regardless of the public route alias.
 	managedRelayRouter.Use(managedRelayNativePath())
-	managedRelayRouter.Use(controller.ManagedImageIdempotency())
-	managedRelayRouter.Use(middleware.ModelRequestRateLimit())
-	managedRelayRouter.Use(middleware.Distribute())
+	managedRelayRouter.GET("/image-tasks/:id", controller.GetImageTask)
+
+	managedImageTaskRouter := managedRelayRouter.Group("")
+	managedImageTaskRouter.Use(imageTaskGenerationPath())
+	managedImageTaskRouter.Use(middleware.ModelRequestRateLimit())
+	managedImageTaskRouter.Use(middleware.Distribute())
+	managedImageTaskRouter.POST("/image-tasks", controller.CreateImageTask)
+
+	managedProviderRouter := managedRelayRouter.Group("")
+	managedProviderRouter.Use(controller.ManagedImageIdempotency())
+	managedProviderRouter.Use(middleware.ModelRequestRateLimit())
+	managedProviderRouter.Use(middleware.Distribute())
 	{
-		managedRelayRouter.POST("/chat/completions", func(c *gin.Context) {
+		managedProviderRouter.POST("/chat/completions", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
-		managedRelayRouter.POST("/responses", func(c *gin.Context) {
+		managedProviderRouter.POST("/responses", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponses)
 		})
-		managedRelayRouter.POST("/responses/compact", func(c *gin.Context) {
+		managedProviderRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
-		managedRelayRouter.POST("/images/generations", func(c *gin.Context) {
+		managedProviderRouter.POST("/images/generations", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
-		managedRelayRouter.POST("/images/edits", func(c *gin.Context) {
+		managedProviderRouter.POST("/images/edits", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIImage)
 		})
 	}
@@ -131,7 +155,15 @@ func SetRelayRouter(router *gin.Engine) {
 	relayV1Router.Use(middleware.RouteTag("relay"))
 	relayV1Router.Use(middleware.SystemPerformanceCheck())
 	relayV1Router.Use(middleware.TokenAuth())
+	// Polling is a short authenticated DB read, not a new model request.
+	// Register it before the model limiter so 2.5s status checks do not consume
+	// the user's generation request allowance.
+	relayV1Router.GET("/image-tasks/:id", controller.GetImageTask)
 	relayV1Router.Use(middleware.ModelRequestRateLimit())
+	imageTaskRouter := relayV1Router.Group("")
+	imageTaskRouter.Use(imageTaskGenerationPath())
+	imageTaskRouter.Use(middleware.Distribute())
+	imageTaskRouter.POST("/image-tasks", controller.CreateImageTask)
 	{
 		// WebSocket 路由（统一到 Relay）
 		wsRouter := relayV1Router.Group("")

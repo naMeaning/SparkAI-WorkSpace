@@ -5,7 +5,10 @@ type TaskPlatform string
 const (
 	TaskPlatformSuno       TaskPlatform = "suno"
 	TaskPlatformMidjourney              = "mj"
+	TaskPlatformImage                   = "image"
 )
+
+const TaskActionImageGeneration = "IMAGE_GENERATION"
 
 const (
 	SunoActionMusic  = "MUSIC"

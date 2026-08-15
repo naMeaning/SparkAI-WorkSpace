@@ -1,5 +1,12 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
+function normalizeExplicitConfirmation(payload, key) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const value = payload[key];
+  if (value !== true && value !== 1) return payload;
+  return { ...payload, [key]: true };
+}
+
 const runtimeArguments = new Set(process.argv);
 contextBridge.exposeInMainWorld("naimageRuntime", Object.freeze({
   aidebugEnabled: runtimeArguments.has("--naimage-aidebug-enabled=1"),
@@ -50,8 +57,8 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   windowControl: (payload) => ipcRenderer.invoke("naimage:window:control", payload),
   listProjects: () => ipcRenderer.invoke("naimage:project:list"),
   previewProjectDataMigration: () => ipcRenderer.invoke("naimage:project:migration-preview"),
-  migrateProjectData: (payload) => ipcRenderer.invoke("naimage:project:migrate", payload),
-  cleanupMigratedProjectData: (payload) => ipcRenderer.invoke("naimage:project:migration-cleanup", payload),
+  migrateProjectData: (payload) => ipcRenderer.invoke("naimage:project:migrate", normalizeExplicitConfirmation(payload, "confirmed")),
+  cleanupMigratedProjectData: (payload) => ipcRenderer.invoke("naimage:project:migration-cleanup", normalizeExplicitConfirmation(payload, "confirmedCleanup")),
   createProject: (payload) => ipcRenderer.invoke("naimage:project:create", payload),
   createProjectFolder: (payload) => ipcRenderer.invoke("naimage:project:create-folder", payload),
   switchProject: (payload) => ipcRenderer.invoke("naimage:project:switch", payload),

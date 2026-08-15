@@ -40,6 +40,18 @@ function assertOk(result, label) {
   return result;
 }
 
+function providerPromptBase(request) {
+  return String(request?.prompt || "").split("\n\n交付规格：")[0];
+}
+
+function assertProviderPromptIncludesDeliverySpecification(request, originalPrompt) {
+  const prompt = String(request?.prompt || "");
+  assert.equal(providerPromptBase(request), originalPrompt);
+  assert.equal(prompt.startsWith(`${originalPrompt}\n\n交付规格：`), true);
+  assert.match(prompt, /画面比例 [0-9]+:[0-9]+，清晰度 (?:1K|2K|4K|720P|1080P)，最终像素 [0-9]+×[0-9]+/);
+  assert.equal((prompt.match(/交付规格：/g) || []).length, 1);
+}
+
 function assertRejected(result, label) {
   assert.equal(result?.ok, false, `${label} should be rejected`);
   assert.equal(typeof result.error, "string", `${label} should return an error message`);
@@ -870,7 +882,8 @@ async function runSelftest(directory) {
       serverGenerateImage: async (request) => {
         capturedImageRequests.push(request);
         const trackedLayerRequest = Boolean(request.layerGroupId && request.layerId);
-        const trackedParallelRequest = request.prompt === "EXPLICIT_PARALLEL_PROMPT";
+        const requestPromptBase = providerPromptBase(request);
+        const trackedParallelRequest = requestPromptBase === "EXPLICIT_PARALLEL_PROMPT";
         const parallelRequestIndex = trackedParallelRequest
           ? Math.max(1, Number(String(request.runId || "").match(/-(\d+)$/)?.[1] || 1))
           : 0;
@@ -888,7 +901,7 @@ async function runSelftest(directory) {
             await new Promise((resolve) => setTimeout(resolve, parallelRequestIndex === 1 ? 24 : 4));
             parallelImageCompletionOrder.push(parallelRequestIndex);
           }
-          if (request.prompt === "SELFTEST_TERMINATED_IMAGE_ERROR") throw new Error("terminated");
+          if (requestPromptBase === "SELFTEST_TERMINATED_IMAGE_ERROR") throw new Error("terminated");
           if (request.layerRole === "subject" && typeof request.onRetry === "function") {
             request.onRetry({ category: "transient", retryCount: 1, maxRetries: 5, index: 0, count: 1 });
           }
@@ -1385,7 +1398,7 @@ async function runSelftest(directory) {
     });
     assertOk(singleItemTop, "single-item items compatibility with matching top-level prompt");
     assert.equal(capturedImageRequests.length, singleItemTopBefore + 1);
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "SINGLE_ITEM_TOP_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "SINGLE_ITEM_TOP_PROMPT");
     const singleItemTopInput = singleItemTopProgress.find((event) => event?.phase === "image-request")?.input;
     assert.equal(singleItemTopInput?.prompt, "SINGLE_ITEM_TOP_PROMPT");
     assert.equal(singleItemTopInput?.count, 1);
@@ -1405,7 +1418,7 @@ async function runSelftest(directory) {
     });
     assertOk(singleItemPromote, "single-item items prompt promotion");
     assert.equal(capturedImageRequests.length, singleItemPromoteBefore + 1);
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "SINGLE_ITEM_PROMOTED_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "SINGLE_ITEM_PROMOTED_PROMPT");
     const singleItemPromoteInput = singleItemPromoteProgress.find((event) => event?.phase === "image-request")?.input;
     assert.equal(singleItemPromoteInput?.prompt, "SINGLE_ITEM_PROMOTED_PROMPT");
     assert.equal(singleItemPromoteInput?.ratio, "4:5");
@@ -1426,7 +1439,7 @@ async function runSelftest(directory) {
     });
     assertOk(ambiguousResult, "ambiguous single-item internal correction");
     assert.equal(capturedImageRequests.length, ambiguousImageBefore + 1, "Ambiguous first call must not reach the image API");
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "AMBIGUOUS_TOP_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "AMBIGUOUS_TOP_PROMPT");
     const ambiguousRequests = capturedModelRequests.filter((request) => JSON.stringify(request.messages || []).includes("SELFTEST_SINGLE_ITEM_AMBIGUOUS"));
     assert.equal(ambiguousRequests.length, 3, "Ambiguous model arguments should be returned internally, corrected, then followed by a native model final response");
     assert.equal(ambiguousProgress.filter((event) => event?.phase === "tool-start" && event?.tool === "image_gen").length, 1, "Only the corrected, executable image call should create a visible tool-start state");
@@ -1611,7 +1624,7 @@ async function runSelftest(directory) {
     assertOk(viewImageChain, "view_image to image_gen native loop");
     assert.equal(viewImageChain.content, "我已基于观察结果完成图片并同步到画布。");
     assert.equal(capturedImageRequests.length, viewImageChainBefore + 1);
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "VIEW_IMAGE_CHAIN_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "VIEW_IMAGE_CHAIN_PROMPT");
     const viewImageChainRequests = capturedModelRequests.filter((request) =>
       JSON.stringify(request.messages || []).includes("SELFTEST_VIEW_IMAGE_TO_IMAGE_FINAL")
     );
@@ -1679,7 +1692,7 @@ async function runSelftest(directory) {
     assertOk(webSearchChain, "web_search to image_gen native loop");
     assert.equal(webSearchChain.content, "我已结合检索结果完成图片并同步到画布。");
     assert.equal(capturedImageRequests.length, webSearchChainBefore + 1);
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "WEB_SEARCH_CHAIN_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "WEB_SEARCH_CHAIN_PROMPT");
     const webSearchChainRequests = capturedModelRequests.filter((request) =>
       JSON.stringify(request.messages || []).includes("SELFTEST_WEB_SEARCH_TO_IMAGE_FINAL")
     );
@@ -1708,7 +1721,7 @@ async function runSelftest(directory) {
     assertOk(experienceChain, "experience to image_gen native loop");
     assert.equal(experienceChain.content, "我已记录经验并按新原则完成一版图片。");
     assert.equal(capturedImageRequests.length, experienceChainBefore + 1);
-    assert.equal(capturedImageRequests.at(-1)?.prompt, "EXPERIENCE_CHAIN_PROMPT");
+    assertProviderPromptIncludesDeliverySpecification(capturedImageRequests.at(-1), "EXPERIENCE_CHAIN_PROMPT");
     const experienceChainRequests = capturedModelRequests.filter((request) =>
       JSON.stringify(request.messages || []).includes("SELFTEST_EXPERIENCE_TO_IMAGE_FINAL")
     );
@@ -1735,7 +1748,7 @@ async function runSelftest(directory) {
     assert.equal(exactDuplicateResult.toolResults?.length, 2, "One exact duplicate should be hidden while a different argument set remains executable");
     assert.equal(capturedImageRequests.length, exactDuplicateImageBefore + 2, "The exact duplicate image call must be blocked while the different prompt remains executable");
     assert.deepEqual(
-      capturedImageRequests.slice(exactDuplicateImageBefore).map((request) => request.prompt),
+      capturedImageRequests.slice(exactDuplicateImageBefore).map(providerPromptBase),
       ["EXACT_DUPLICATE_PROMPT_A", "EXACT_DUPLICATE_PROMPT_B"],
     );
     assert.deepEqual(
@@ -2048,8 +2061,8 @@ async function runSelftest(directory) {
     assertOk(autonomousArgs, "model-owned image arguments");
     assert.equal(capturedImageRequests.length, imageRequestsBeforeArgs + 2, "The model's legal count=2 must be executed without keyword-derived count rewriting");
     assert(
-      capturedImageRequests.slice(imageRequestsBeforeArgs).every((request) => request.prompt === "MODEL_OWN_PROMPT 保持模型给出的画面语义。"),
-      "The image API must receive the model's legal prompt verbatim for every count item",
+      capturedImageRequests.slice(imageRequestsBeforeArgs).every((request) => providerPromptBase(request) === "MODEL_OWN_PROMPT 保持模型给出的画面语义。" && /交付规格：/.test(request.prompt)),
+      "The image API must preserve the model's legal prompt and append the delivery specification for every count item",
     );
     const normalizedImageRequest = argsProgress.find((event) => event?.phase === "image-request" && event?.tool === "image_gen")?.input;
     assert(normalizedImageRequest, "Expected normalized image-request progress input");

@@ -612,6 +612,8 @@ async function run() {
       projectId: pendingProject.id,
       conversationId: pendingConversationId,
       originalPrompt: "替换商品颜色",
+      imageRatio: "3:4",
+      imageResolution: "2K",
       sourceNodeIds: ["A"],
       focusedNodeId: "A",
       taskOrigin: "requirement",
@@ -675,6 +677,8 @@ async function run() {
   assert.equal(pendingSession.canvasRevision, 41, "Canvas revision must survive the Electron persistence boundary");
   assert.equal(pendingSession.pendingAgentExecution?.requestId, "ask-source-1");
   assert.equal(pendingSession.pendingAgentExecution?.version, 2);
+  assert.equal(pendingSession.pendingAgentExecution?.imageRatio, "3:4");
+  assert.equal(pendingSession.pendingAgentExecution?.imageResolution, "2K");
   assert.equal(pendingSession.pendingAgentExecution?.requirementRevision, 4);
   assert.equal(pendingSession.pendingAgentExecution?.requirementSourceNodeId, "A");
   assert.equal(pendingSession.pendingAgentExecution?.taskScope?.sourceAssets?.[0]?.bindingId, "binding:A:A:pending-source:1");
@@ -695,6 +699,8 @@ async function run() {
   writeJson(pendingProject.sessionPath, pendingSession);
   const restoredPendingSession = projectIo.projectSessionFromDisk(pendingProject);
   assert.equal(restoredPendingSession.pendingAgentExecution?.conversationId, pendingConversationId, "Pending Agent execution must survive restart");
+  assert.equal(restoredPendingSession.pendingAgentExecution?.imageRatio, "3:4", "Pending Agent frame ratio must survive restart");
+  assert.equal(restoredPendingSession.pendingAgentExecution?.imageResolution, "2K", "Pending Agent frame resolution must survive restart");
   assert.equal(restoredPendingSession.canvasRevision, 41, "Canvas revision must survive restart");
   assert.equal(restoredPendingSession.pendingAgentExecution?.requirementRevision, 4, "Pending Requirement revision must survive restart");
   assert.equal(restoredPendingSession.pendingAgentExecution?.requirementSourceNodeId, "A", "Pending Requirement source binding must survive restart");

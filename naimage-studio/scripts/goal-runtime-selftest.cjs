@@ -487,8 +487,9 @@ async function main() {
       "Matrix probes must represent different source containers"
     );
     assert.equal(matrixRequests[0].prompt.includes(matrixItems[0].prompt), true);
-    assert.equal(matrixRequests[1].prompt, matrixItems[0].prompt,
-      "The unbranded probe must use the representative first slot without another SOURCE's constraints");
+    assert.equal(matrixRequests[1].prompt.startsWith(`${matrixItems[0].prompt}\n\n交付规格：`), true,
+      "The unbranded probe must preserve the representative first slot and append only the delivery specification");
+    assert.match(matrixRequests[1].prompt, /画面比例 1:1，清晰度 1K，最终像素 128×128/);
     const brandedRequests = matrixRequests.filter((request) => path.basename(request.path) === "MA1.png");
     const unbrandedRequests = matrixRequests.filter((request) => path.basename(request.path) === "MB1.png");
     assert.equal(brandedRequests.length, 3);
@@ -513,6 +514,8 @@ async function main() {
       matrixCollectionItems.map((item) => item.prompt.split("\n")[0]),
       [...matrixItems.map((item) => item.prompt), ...matrixItems.map((item) => item.prompt)]
     );
+    assert.equal(matrixCollectionItems.every((item) => !/交付规格：/.test(item.prompt)), true,
+      "Provider-only delivery specifications must not pollute editable collection prompts");
     assert.equal(matrixResult.actions[0].node.imageCollection.items.every((item) => /品牌风格锁定/.test(item.prompt)), true);
     assert.equal(matrixResult.actions[1].node.imageCollection.items.every((item) => !/品牌风格锁定/.test(item.prompt)), true);
     assert.deepEqual(

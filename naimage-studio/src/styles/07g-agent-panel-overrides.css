@@ -907,6 +907,22 @@
   scrollbar-width: thin;
 }
 
+.project-agent-feed .agent-message .markdown-body,
+.project-agent-feed .agent-message .markdown-body *,
+.project-agent-feed .agent-thinking-body,
+.project-agent-feed .agent-thinking-body *,
+.project-agent-feed .agent-tool-brief-outside,
+.project-agent-feed .agent-tool-trace-title,
+.project-agent-feed .agent-tool-trace-title *,
+.project-agent-feed .agent-tool-imagegen-timer,
+.project-agent-feed .agent-tool-trace-completion,
+.project-agent-feed .agent-tool-prompt-block summary span,
+.project-agent-feed .agent-tool-prompt-block summary small,
+.project-agent-feed .agent-tool-prompt-content pre {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .project-agent-feed.is-empty {
   justify-content: center;
 }

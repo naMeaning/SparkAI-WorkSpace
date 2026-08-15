@@ -70,6 +70,12 @@ const { createAgentRunControl, createAbortError } = require("./desktop/agent-run
 const { createGoalProbeAdmission } = require("./runtime/goal-probe-admission.cjs");
 const { detectEncodedImageFormat, normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
 const { imagePromptRatios, normalizeImagePromptResolution, parseImageSizeValue } = require("./runtime/image-frame.cjs");
+const {
+  buildImageAssetGenerationMetadata,
+  mergeImageGenerationResponseMetadata,
+  normalizeImageGenerationParameters,
+  pickImageGenerationResponseMetadata
+} = require("./runtime/image-generation-metadata.cjs");
 const { applyAccessPolicyToSettings, loadDesktopAccessPolicy } = require("./runtime/access-variant.cjs");
 const {
   defaultGlassAppearance,
@@ -259,6 +265,7 @@ const localServerEntryCandidates = [
 const localServerEntry = localServerEntryCandidates.find((candidate) => existsSync(candidate)) || localServerEntryCandidates[0];
 const localServerRoot = path.dirname(localServerEntry);
 const aidebugMode = desktopEnvironment("NAIMAGE_AIDEBUG") === "1";
+if (aidebugMode) app.disableHardwareAcceleration();
 const aidebugLiveImage = desktopEnvironment("NAIMAGE_AIDEBUG_LIVE_IMAGE") === "1";
 const aidebugStatefulAuth = desktopEnvironment("NAIMAGE_AIDEBUG_AUTH_SESSION") === "1";
 const aidebugMockAgent =
@@ -1031,6 +1038,7 @@ const {
   newApiErrorMessage,
   newApiFetch,
   newApiRelayImage,
+  newApiRelayImageTask,
   newApiRelayJson,
   newApiRelayResponsesImage,
   newApiRelayStream,
@@ -1057,10 +1065,10 @@ accountTokenService = createAccountTokenService({
 });
 const licenseService = createLicenseService({
   defaultSettings,
+  licenseBaseUrl: accessPolicy.officialAccountBaseUrl,
   log,
   migrateSettings,
   newApiRequest,
-  newApiUserAuthHeaders,
   readJson,
   settingsPath,
   writeJson
@@ -2303,7 +2311,14 @@ async function serverGenerateImage(payload = {}) {
     });
     const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
     const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
-    const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+    const assets = await writeServerImageOutputs(
+      extractServerImages(data),
+      stem,
+      runId,
+      projectId,
+      outputFormat,
+      imageGenerationContext(payload, data, outputFormat)
+    );
     log(`agent server generate image returned=${assets.length}`);
     return { ...data, assets, runId, returned: assets.length };
   } finally {
@@ -2430,7 +2445,14 @@ function getAgentRuntime() {
           });
           const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
           const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
-          const assets = await writeServerImageOutputs(extractServerImages(data), stem, runId, projectId, outputFormat);
+          const assets = await writeServerImageOutputs(
+            extractServerImages(data),
+            stem,
+            runId,
+            projectId,
+            outputFormat,
+            imageGenerationContext(payload, data, outputFormat)
+          );
           return {
             ...data,
             ok: data.ok !== false,
@@ -3612,7 +3634,16 @@ async function callNewApiImage(settings, payload = {}) {
     }
   }
   const imageTimeoutMs = 5 * 60 * 1000;
-  const requestAttempts = Array.from({ length: count }, () => ({ attempts: 0, retries: 0, timeoutRetries: 0, transientRetries: 0, lastCategory: "" }));
+  const imageTaskTimeoutMs = 15 * 60 * 1000;
+  const requestAttempts = Array.from({ length: count }, () => ({
+    attempts: 0,
+    retries: 0,
+    timeoutRetries: 0,
+    transientRetries: 0,
+    lastCategory: "",
+    taskAccepted: false,
+    taskId: ""
+  }));
   const idempotencyKeys = Array.from({ length: count }, (_item, index) => createHash("sha256")
     .update(`${settings.serverUserId || settings.licenseDeviceId}|${String(payload.runId || "")}|${index}|${model}|${promptForIndependentImage(payload.prompt, count, index)}`)
     .digest("hex"));
@@ -3731,15 +3762,20 @@ async function callNewApiImage(settings, payload = {}) {
     const abortFromCaller = () => controller.abort(payload.signal?.reason || createAbortError("用户结束了当前任务。"));
     if (payload.signal?.aborted) abortFromCaller();
     else payload.signal?.addEventListener?.("abort", abortFromCaller, { once: true });
-    const timeoutError = new Error(`Image 2 第 ${index + 1}/${count} 张请求超过 300 秒，已中断。`);
+    const requestTimeoutMs = editRequested ? imageTimeoutMs : imageTaskTimeoutMs;
+    const timeoutError = new Error(`Image 2 第 ${index + 1}/${count} 张请求超过 ${Math.round(requestTimeoutMs / 1000)} 秒，已中断。`);
     timeoutError.code = "NAIMAGE_IMAGE_TIMEOUT";
     timeoutError.errorCategory = "timeout";
     const timeoutPromise = new Promise((_resolve, reject) => {
       timer = setTimeout(() => {
         timedOut = true;
+        if (requestAttempts[index]?.taskAccepted) {
+          timeoutError.unsafeToRetry = true;
+          timeoutError.taskId = requestAttempts[index].taskId;
+        }
         controller.abort();
         reject(timeoutError);
-      }, imageTimeoutMs);
+      }, requestTimeoutMs);
     });
     const transportPromise = Promise.resolve().then(() => task(controller.signal));
     try {
@@ -3806,9 +3842,18 @@ async function callNewApiImage(settings, payload = {}) {
           });
         }
         return {
+          created: Math.floor(Date.now() / 1000),
+          model,
           data: [{
             b64_json: aidebugImageBase64(index, { ...payload, prompt }),
-            revised_prompt: `AIDebug mock image ${index + 1}/${count}${payload.layerId ? ` · layer=${payload.layerId}` : ""}`
+            revised_prompt: `AIDebug mock image ${index + 1}/${count}${payload.layerId ? ` · layer=${payload.layerId}` : ""}`,
+            size,
+            quality: quality === "auto" ? "high" : quality,
+            output_format: imageControls.outputFormat || "png",
+            ...(imageControls.outputCompression === undefined ? {} : { output_compression: imageControls.outputCompression }),
+            ...(imageControls.background ? { background: imageControls.background } : {}),
+            ...(imageControls.moderation ? { moderation: imageControls.moderation } : {}),
+            ...(imageControls.inputFidelity ? { input_fidelity: imageControls.inputFidelity } : {})
           }]
         };
       }
@@ -3947,6 +3992,46 @@ async function callNewApiImage(settings, payload = {}) {
         tools: [imageTool],
         tool_choice: "required"
       };
+      try {
+        return await newApiRelayImageTask(settings, body, {
+          signal,
+          headers: { "Idempotency-Key": idempotencyKey },
+          connectTimeoutMs: 30_000,
+          createHeadersTimeoutMs: 30_000,
+          pollHeadersTimeoutMs: 30_000,
+          pollIntervalMs: 2500,
+          maxResponseBytes: 96 * 1024 * 1024,
+          onAccepted: ({ taskId, status }) => {
+            requestAttempts[index].taskAccepted = true;
+            requestAttempts[index].taskId = taskId;
+            try {
+              payload.onImageTaskStatus?.({
+                taskId,
+                status,
+                requestIndex: index + 1,
+                requestCount: count
+              });
+            } catch {
+              // Task telemetry must never affect the accepted generation.
+            }
+          },
+          onStatus: ({ taskId, status }) => {
+            try {
+              payload.onImageTaskStatus?.({
+                taskId,
+                status,
+                requestIndex: index + 1,
+                requestCount: count
+              });
+            } catch {
+              // Task telemetry must never affect polling.
+            }
+          }
+        });
+      } catch (error) {
+        if (error?.code !== "NEW_API_IMAGE_TASK_UNSUPPORTED") throw error;
+        log(`Image task endpoint unsupported for ${customMode ? "custom" : "account"} access; falling back to the compatible synchronous image transports`);
+      }
       if (!preferDirectImageTransport) {
         try {
           return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
@@ -3993,11 +4078,20 @@ async function callNewApiImage(settings, payload = {}) {
 
   async function requestSingleImage(index) {
     const stats = requestAttempts[index];
+    const startedAtMs = Date.now();
     for (;;) {
       if (payload.signal?.aborted) throw createAbortError(payload.signal.reason);
       stats.attempts += 1;
       try {
-        return await requestSingleImageAttempt(index);
+        const response = await requestSingleImageAttempt(index);
+        const completedAtMs = Date.now();
+        return {
+          response,
+          requestIndex: index + 1,
+          startedAt: new Date(startedAtMs).toISOString(),
+          completedAt: new Date(completedAtMs).toISOString(),
+          durationMs: completedAtMs - startedAtMs
+        };
       } catch (error) {
         const info = imageRequestErrorInfo(error);
         stats.lastCategory = info.category;
@@ -4052,7 +4146,8 @@ async function callNewApiImage(settings, payload = {}) {
   };
   const requestConcurrency = Math.min(10, count);
   await Promise.all(Array.from({ length: requestConcurrency }, () => worker()));
-  const responses = settled.filter((item) => item.status === "fulfilled").map((item) => item.value);
+  const successfulResponses = settled.filter((item) => item.status === "fulfilled").map((item) => item.value);
+  const responses = successfulResponses.map((item) => item.response);
   const failed = settled
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.status === "rejected");
@@ -4068,7 +4163,13 @@ async function callNewApiImage(settings, payload = {}) {
     size,
     quality,
     count,
-    images: responses.flatMap((response) => extractServerImages(response)),
+    images: successfulResponses.flatMap((entry) => extractServerImages(entry.response).map((image) => ({
+      ...image,
+      requestIndex: entry.requestIndex,
+      startedAt: entry.startedAt,
+      completedAt: entry.completedAt,
+      durationMs: entry.durationMs
+    }))),
     failed: failed.length,
     errors: failed.map(({ item, index }) => `第 ${index + 1}/${count} 张：${item.status === "rejected" ? item.reason?.message || String(item.reason) : "生图失败。"}`),
     retryCount: requestAttempts.reduce((total, item) => total + item.retries, 0),
@@ -4279,34 +4380,43 @@ function mapNewApiLogEntry(logEntry) {
 
 function extractServerImages(data) {
   const images = [];
+  const parentActualParams = Array.isArray(data?.images)
+    ? pickImageGenerationResponseMetadata(data?.actualParams)
+    : pickImageGenerationResponseMetadata(data);
+  const append = (type, value, source, inheritedActualParams = parentActualParams) => {
+    const cleanValue = String(value || "").trim();
+    if (!cleanValue) return;
+    const actualParams = mergeImageGenerationResponseMetadata(inheritedActualParams, source?.actualParams, source);
+    images.push({
+      type,
+      value: cleanValue,
+      revisedPrompt: source?.revised_prompt || source?.revisedPrompt || "",
+      ...(Object.keys(actualParams).length ? { actualParams } : {}),
+      ...(source?.requestIndex === undefined ? {} : { requestIndex: source.requestIndex }),
+      ...(source?.startedAt ? { startedAt: source.startedAt } : {}),
+      ...(source?.completedAt ? { completedAt: source.completedAt } : {}),
+      ...(Number.isFinite(Number(source?.durationMs)) ? { durationMs: Number(source.durationMs) } : {})
+    });
+  };
   const source = Array.isArray(data?.images) ? data.images : Array.isArray(data?.data) ? data.data : [];
   for (const item of source) {
-    if (item?.b64_json) {
-      images.push({ type: "base64", value: String(item.b64_json), revisedPrompt: item.revised_prompt || item.revisedPrompt || "" });
-    }
-    if (item?.image_base64) {
-      images.push({ type: "base64", value: String(item.image_base64), revisedPrompt: item.revised_prompt || item.revisedPrompt || "" });
-    }
-    if (item?.base64) {
-      images.push({ type: "base64", value: String(item.base64), revisedPrompt: item.revised_prompt || item.revisedPrompt || "" });
-    }
-    if (item?.url) {
-      images.push({ type: "url", value: String(item.url), revisedPrompt: item.revised_prompt || item.revisedPrompt || "" });
-    }
-    if (item?.image_url?.url) {
-      images.push({ type: "url", value: String(item.image_url.url), revisedPrompt: item.revised_prompt || item.revisedPrompt || "" });
-    }
-    if (item?.type === "base64" && item.value) images.push({ type: "base64", value: String(item.value), revisedPrompt: item.revisedPrompt || "" });
-    if (item?.type === "url" && item.value) images.push({ type: "url", value: String(item.value), revisedPrompt: item.revisedPrompt || "" });
+    if (item?.b64_json) append("base64", item.b64_json, item);
+    if (item?.image_base64) append("base64", item.image_base64, item);
+    if (item?.base64) append("base64", item.base64, item);
+    if (item?.url) append("url", item.url, item);
+    if (item?.image_url?.url) append("url", item.image_url.url, item);
+    if (item?.type === "base64" && item.value) append("base64", item.value, item);
+    if (item?.type === "url" && item.value) append("url", item.value, item);
   }
   const output = Array.isArray(data?.output) ? data.output : [];
   for (const item of output) {
+    const itemActualParams = mergeImageGenerationResponseMetadata(parentActualParams, item?.actualParams, item);
     const content = Array.isArray(item?.content) ? item.content : [];
     for (const part of content) {
       const b64 = part?.image_base64 ?? part?.b64_json;
       const url = part?.image_url ?? part?.url;
-      if (b64) images.push({ type: "base64", value: String(b64), revisedPrompt: part?.revised_prompt || "" });
-      if (url) images.push({ type: "url", value: String(url), revisedPrompt: part?.revised_prompt || "" });
+      if (b64) append("base64", b64, part, itemActualParams);
+      if (url) append("url", url, part, itemActualParams);
     }
   }
   return images;
@@ -4319,7 +4429,7 @@ function outputExtensionForFormat(format) {
   return "png";
 }
 
-async function writeServerImageOutputs(images, stem, runId = "", projectId = "", outputFormat = "png") {
+async function writeServerImageOutputs(images, stem, runId = "", projectId = "", outputFormat = "png", generationContext = {}) {
   const outputDir = outputDirForProjectId(projectId);
   mkdirSync(outputDir, { recursive: true });
   return Promise.all(images.map(async (image, index) => {
@@ -4348,8 +4458,15 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
     const dimensions = decoded.getSize();
     const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
     writeFileSync(filePath, buffer);
+    const generation = buildImageAssetGenerationMetadata({
+      request: generationContext.request,
+      response: image.actualParams,
+      startedAt: image.startedAt || generationContext.startedAt,
+      completedAt: image.completedAt || generationContext.completedAt,
+      durationMs: image.durationMs ?? generationContext.durationMs
+    });
     return {
-      index: index + 1,
+      index: Number.isFinite(Number(image.requestIndex)) ? Math.max(1, Math.round(Number(image.requestIndex))) : index + 1,
       type: "file",
       path: filePath,
       assetUrl: assetUrlFor(filePath),
@@ -4359,9 +4476,27 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
       revisedPrompt: image.revisedPrompt || "",
       runId,
       width: dimensions.width > 0 ? dimensions.width : undefined,
-      height: dimensions.height > 0 ? dimensions.height : undefined
+      height: dimensions.height > 0 ? dimensions.height : undefined,
+      ...(generation ? { generation } : {})
     };
   }));
+}
+
+function imageGenerationContext(payload = {}, data = {}, outputFormat = "png") {
+  return {
+    request: normalizeImageGenerationParameters({
+      model: payload.model || data.model,
+      ratio: payload.ratio,
+      resolution: payload.resolution,
+      size: payload.size || data.size,
+      quality: payload.quality || data.quality,
+      outputFormat: payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? outputFormat,
+      outputCompression: payload.outputCompression ?? payload.output_compression ?? data.outputCompression ?? data.output_compression,
+      background: payload.background ?? data.background,
+      moderation: payload.moderation ?? data.moderation,
+      inputFidelity: payload.inputFidelity ?? payload.input_fidelity ?? data.inputFidelity ?? data.input_fidelity
+    })
+  };
 }
 
 function sanitizeFileStem(value, fallback = "image") {

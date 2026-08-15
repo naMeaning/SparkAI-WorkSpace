@@ -74,6 +74,7 @@ import {
   Languages,
   Loader2,
   Maximize2,
+  Minimize2,
   Microscope,
   Minus,
   Move,
@@ -243,6 +244,14 @@ import {
   validMessages,
   yuan
 } from "./core";
+import {
+  actualImageAspectRatio,
+  imageAssetOutputFormat,
+  imageGenerationDisplayRows,
+  imageGenerationSourceLabel,
+  sanitizeImageAssetGenerationMetadata
+} from "./image-generation-metadata";
+import { normalizeGeneratedImageContentPresentation } from "./image-content-title";
 import type { ManualImageTaskDialogState } from "./manual-image-task-dialog";
 import type { ManualVideoTaskDialogState } from "./manual-video-task-dialog";
 import {
@@ -1373,6 +1382,7 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
   const url = typeof source.url === "string" && source.url.trim() ? source.url.trim() : undefined;
   const assetUrl = typeof source.assetUrl === "string" && source.assetUrl.trim() ? source.assetUrl.trim() : undefined;
   const sourceRelativePath = safeImageSourceRelativePath(source.sourceRelativePath);
+  const sourceOutputFormat = String((source as { outputFormat?: unknown }).outputFormat || "").trim().toLowerCase();
   if (!path && !relativePath && !url && !assetUrl) return null;
   const normalized: ImageAsset = {
     occurrenceId: typeof source.occurrenceId === "string" && /^occ-[a-f0-9]{16,64}$/i.test(source.occurrenceId.trim()) ? source.occurrenceId.trim().toLowerCase() : undefined,
@@ -1392,13 +1402,20 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
     url,
     assetUrl,
     originalName: typeof source.originalName === "string" && source.originalName.trim() ? source.originalName.trim().slice(0, 260) : undefined,
+    mimeType: typeof source.mimeType === "string" && /^image\/(?:png|jpe?g|webp)$/i.test(source.mimeType.trim()) ? source.mimeType.trim().toLowerCase().replace("image/jpg", "image/jpeg") : undefined,
+    outputFormat: sourceOutputFormat === "jpg" || sourceOutputFormat === "jpeg"
+      ? "jpeg"
+      : sourceOutputFormat === "png" || sourceOutputFormat === "webp"
+        ? sourceOutputFormat
+        : undefined,
     revisedPrompt: typeof source.revisedPrompt === "string" && source.revisedPrompt.trim() ? source.revisedPrompt.trim().slice(0, 12000) : undefined,
     prompt: typeof source.prompt === "string" && source.prompt.trim() ? source.prompt.trim().slice(0, 12000) : undefined,
     title: typeof source.title === "string" && source.title.trim() ? source.title.trim().slice(0, 160) : undefined,
     status: source.status === "pending" || source.status === "error" ? source.status : "done",
     error: typeof source.error === "string" && source.error.trim() ? friendlyImageError(source.error).slice(0, 320) : undefined,
     runId: typeof source.runId === "string" && source.runId.trim() ? source.runId.trim().slice(0, 180) : undefined,
-    displayCode: typeof source.displayCode === "string" && source.displayCode.trim() ? source.displayCode.trim().replace(/\s+/g, "").slice(0, 32) : undefined
+    displayCode: typeof source.displayCode === "string" && source.displayCode.trim() ? source.displayCode.trim().replace(/\s+/g, "").slice(0, 32) : undefined,
+    generation: sanitizeImageAssetGenerationMetadata(source.generation)
   };
   normalized.assetId = stableImageAssetId({ ...normalized, assetId: typeof source.assetId === "string" ? source.assetId : undefined }, fallbackIndex);
   return normalized;
@@ -1669,6 +1686,32 @@ function withNodeImageCollection(node: WorkflowNode, collection: ImageCollection
       imageContainerSpecForNode(node)
     )
   });
+}
+
+function withGeneratedImageContentPresentation(
+  node: WorkflowNode,
+  collection: ImageCollection | undefined,
+  existingNode?: WorkflowNode | null,
+): WorkflowNode {
+  const promptAsset = node.assets?.find((asset) => asset.prompt || asset.revisedPrompt);
+  const presentation = normalizeGeneratedImageContentPresentation({
+    title: node.title,
+    existingTitle: existingNode?.title,
+    prompt: node.imageParams?.prompt || promptAsset?.prompt || promptAsset?.revisedPrompt || node.prompt,
+    assets: node.assets,
+    existingAssets: existingNode?.assets,
+    collection,
+    existingCollection: existingNode?.imageCollection ?? (existingNode ? imageContainerSpecForNode(existingNode)?.collection : undefined),
+  });
+  const normalizedNode = {
+    ...node,
+    title: presentation.title,
+    assets: presentation.assets,
+    imageCollection: presentation.collection,
+  };
+  return presentation.collection
+    ? withNodeImageCollection(normalizedNode, presentation.collection)
+    : applyImageContainerCompatibility(normalizedNode);
 }
 
 function sanitizeLayerComposition(value: unknown): ImageLayerComposition | undefined {
@@ -3562,6 +3605,7 @@ function App() {
   const [regionRedrawDraft, setRegionRedrawDraft] = useState<RegionRedrawDraft | null>(null);
   const [regionRedrawClosePromptOpen, setRegionRedrawClosePromptOpen] = useState(false);
   const [nodeEditorDraft, setNodeEditorDraft] = useState<NodeEditorDraft | null>(null);
+  const [nodeEditorMaximized, setNodeEditorMaximized] = useState(false);
   const [nodeEditorClosePromptOpen, setNodeEditorClosePromptOpen] = useState(false);
   const [requirementEditorDraft, setRequirementEditorDraft] = useState<RequirementEditorDraft | null>(null);
   const [referencePickerDraft, setReferencePickerDraft] = useState<ReferencePickerDraft | null>(null);
@@ -3666,6 +3710,14 @@ function App() {
   });
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [licenseReady, setLicenseReady] = useState(false);
+  const accountWorkspaceAuthorized = settings.accessMode === "account"
+    && Boolean(serverUser && serverUser.id !== "custom-api");
+  const customWorkspaceAuthorized = settings.accessMode === "custom"
+    && serverUser?.id === "custom-api"
+    && licenseStatus?.scope === "custom"
+    && licenseStatus.active === true
+    && String(licenseStatus.plan || "").toLowerCase() === "pro";
+  const workspaceAccessAuthorized = accountWorkspaceAuthorized || customWorkspaceAuthorized;
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState<ProjectNameDraft | null>(null);
   const [configReady, setConfigReady] = useState(false);
@@ -3692,6 +3744,10 @@ function App() {
   const reactNodesRef = useRef(nodes);
   const layoutGroupsRef = useRef(layoutGroups);
   const nodeEditorDraftRef = useRef(nodeEditorDraft);
+
+  useEffect(() => {
+    if (!nodeEditorDraft) setNodeEditorMaximized(false);
+  }, [nodeEditorDraft]);
   const activeRunRef = useRef<string | null>(null);
   const agentStopPendingRef = useRef<symbol | null>(null);
   const executionReservationRef = useRef<string | null>(null);
@@ -5152,24 +5208,41 @@ function App() {
     }
   }
 
-  async function refreshLicenseState(force = false) {
+  async function refreshLicenseState(force = false, scope?: "account" | "custom"): Promise<LicenseStatus> {
+    const requestedScope = scope || settingsRef.current.accessMode;
     if (!window.naimageServer?.licenseStatus) {
-      const fallback = { ok: true, active: true, required: false, supported: false } satisfies LicenseStatus;
+      const fallback = requestedScope === "account"
+        ? { ok: true, active: true, required: false, supported: false, scope: "account" } satisfies LicenseStatus
+        : { ok: false, active: false, required: true, supported: false, scope: "custom", requiredPlan: "pro", error: "当前客户端不支持 Pro License 校验。" } satisfies LicenseStatus;
       setLicenseStatus(fallback);
       setLicenseReady(true);
       return fallback;
     }
     try {
-      const status = await window.naimageServer.licenseStatus({ force });
+      const status = await window.naimageServer.licenseStatus({ force, scope: requestedScope });
       setLicenseStatus(status);
       return status;
     } catch (error) {
-      const status = { ok: false, active: false, required: true, error: error instanceof Error ? error.message : String(error) } satisfies LicenseStatus;
+      const status = {
+        ok: false,
+        active: requestedScope === "account",
+        required: requestedScope === "custom",
+        scope: requestedScope,
+        ...(requestedScope === "custom" ? { requiredPlan: "pro" } : {}),
+        error: error instanceof Error ? error.message : String(error)
+      } satisfies LicenseStatus;
       setLicenseStatus(status);
       return status;
     } finally {
       setLicenseReady(true);
     }
+  }
+
+  async function selectAuthAccessMode(accessMode: "account" | "custom") {
+    setAuthDraft((current) => ({ ...current, accessMode }));
+    setServerMessage("");
+    setLicenseReady(false);
+    await refreshLicenseState(true, accessMode);
   }
 
   useEffect(() => {
@@ -11711,9 +11784,7 @@ function App() {
             zOrder: existingNode?.zOrder ?? nextNodeZOrder(next),
             ...nodeSize
           };
-          const node = imageCollection
-            ? withNodeImageCollection(nodeBase, imageCollection)
-            : applyImageContainerCompatibility(nodeBase);
+          const node = withGeneratedImageContentPresentation(nodeBase, imageCollection, existingNode);
           next = existingNode ? next.map((item) => (item.id === id ? { ...item, ...node } : item)) : [...next, node];
           if (action.toolRunId) agentToolNodeIdsRef.current[action.toolRunId] = id;
           if (action.operationId) agentToolNodeIdsRef.current[action.operationId] = id;
@@ -12791,6 +12862,8 @@ function App() {
       sourceNodeIds: [...pending.sourceNodeIds],
       focusedNodeId: pending.focusedNodeId,
       taskOrigin: pending.taskOrigin,
+      imageRatio: pending.imageRatio,
+      imageResolution: pending.imageResolution,
       requirementNodeId: pending.requirementNodeId,
       requirementInputSignature: pending.requirementInputSignature,
       requirementSourceSignature: pending.requirementSourceSignature,
@@ -14271,6 +14344,7 @@ function App() {
 
   function openNodeEditor(node: WorkflowNode, requestedAssetIndex = 0) {
     if (blockLockedNodeMutation([node.id], "编辑")) return;
+    if (!nodeEditorDraft) setNodeEditorMaximized(false);
     setSelectedNodeId(node.id);
     setCanvasMenu(null);
     const assetIndex = clamp(Number(requestedAssetIndex || 0), 0, Math.max(0, (node.assets?.length ?? 1) - 1));
@@ -15640,6 +15714,10 @@ function App() {
     }
     const requestProjectId = activeProjectIdRef.current;
     const requestConversationId = activeConversationIdRef.current;
+    const requestImageDefaults = {
+      ratio: dispatch.imageRatio ?? settingsRef.current.imageRatio,
+      resolution: dispatch.imageResolution ?? settingsRef.current.imageResolution
+    };
     const executionScope = currentExecutionScope(taskScope.snapshotHash);
     const runScopeIsCurrent = () => activeRunRef.current === runId && executionScopeIsCurrent(executionScope);
     const taskResultNodeIdsBefore = new Set(nodesRef.current.map((node) => node.id));
@@ -15680,10 +15758,7 @@ function App() {
         requestSelectedNodeId,
         requestSelectedNodeIds,
         taskScope,
-        {
-          ratio: dispatch.imageRatio ?? settingsRef.current.imageRatio,
-          resolution: dispatch.imageResolution ?? settingsRef.current.imageResolution
-        },
+        requestImageDefaults,
         workspaceDomainRef.current,
         canvasRevisionRef.current
       );
@@ -15707,6 +15782,8 @@ function App() {
           projectId: requestProjectId,
           conversationId: requestConversationId,
           originalPrompt: dispatch.originalPrompt || content,
+          imageRatio: requestImageDefaults.ratio,
+          imageResolution: requestImageDefaults.resolution,
           sourceNodeIds: [...(effectiveSourceNodeIds ?? requestSelectedNodeIds)],
           focusedNodeId: effectiveFocusedNodeId || requestSelectedNodeId || undefined,
           taskOrigin: effectiveTaskOrigin,
@@ -16338,6 +16415,7 @@ function App() {
         const promptField = fields?.querySelector<HTMLElement>(".is-prompt") ?? null;
         const promptCaption = promptField?.querySelector<HTMLElement>(":scope > span") ?? null;
         const promptTextarea = promptField?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
+        const generationPanel = fields?.querySelector<HTMLElement>(".node-editor-generation-details") ?? null;
         const layerPanel = fields?.querySelector<HTMLElement>(".node-editor-layer-panel") ?? null;
         const error = fields?.querySelector<HTMLElement>(".node-editor-error") ?? null;
         if (!body || !fields || !titleField || !promptField || !promptCaption || !promptTextarea) return null;
@@ -16348,6 +16426,7 @@ function App() {
         const promptFieldRect = promptField.getBoundingClientRect();
         const promptCaptionRect = promptCaption.getBoundingClientRect();
         const promptRect = promptTextarea.getBoundingClientRect();
+        const generationRect = generationPanel?.getBoundingClientRect() ?? null;
         const layerRect = layerPanel?.getBoundingClientRect() ?? null;
         const errorRect = error?.getBoundingClientRect() ?? null;
         const footerRect = nodeEditorFooter?.getBoundingClientRect() ?? null;
@@ -16371,12 +16450,40 @@ function App() {
           dialogRect.right <= window.innerWidth + 1 && dialogRect.bottom <= window.innerHeight + 1
         );
         const compactPrompt = fields.classList.contains("is-compact-prompt");
-        const promptMinimum = layerPanel ? 132 : 220;
+        const promptMinimum = layerPanel ? 132 : generationPanel ? 132 : 220;
         const promptHeightOk = promptRect.height >= promptMinimum - 1;
         const promptUsesSlotOk = promptSlotTrailingBlank <= 2 && textareaFillRatio >= 0.97;
+        const generationParameterKeys = generationPanel
+          ? Array.from(generationPanel.querySelectorAll<HTMLElement>("[data-generation-param]")).map((item) => item.dataset.generationParam || "").filter(Boolean)
+          : [];
+        const generationActualSources = generationPanel
+          ? Array.from(generationPanel.querySelectorAll<HTMLElement>("[data-param-source]")).map((item) => item.dataset.paramSource || "").filter(Boolean)
+          : [];
+        const generationTypography = generationPanel ? (() => {
+          const label = generationPanel.querySelector<HTMLElement>("dt");
+          const value = generationPanel.querySelector<HTMLElement>("dd");
+          const source = generationPanel.querySelector<HTMLElement>("dd > strong > small");
+          return {
+            labelFontSize: label ? window.getComputedStyle(label).fontSize : "",
+            valueFontSize: value ? window.getComputedStyle(value).fontSize : "",
+            sourceFontSize: source ? window.getComputedStyle(source).fontSize : ""
+          };
+        })() : null;
+        const generationPanelOk = !generationPanel || Boolean(
+          generationRect && generationRect.left >= fieldsRect.left - 1 && generationRect.right <= fieldsRect.right + 1 &&
+          generationRect.top >= titleRect.bottom - 1 && generationRect.bottom <= promptFieldRect.top + 1 &&
+          generationPanel.scrollWidth <= generationPanel.clientWidth + 1 &&
+          generationParameterKeys.includes("ratio") && generationParameterKeys.includes("pixels")
+        );
         return {
-          ok: Boolean(dialogViewportOk && footerViewportOk && promptHeightOk && promptUsesSlotOk),
+          ok: Boolean(dialogViewportOk && footerViewportOk && promptHeightOk && promptUsesSlotOk && generationPanelOk),
           hasLayerPanel: Boolean(layerPanel),
+          hasGenerationPanel: Boolean(generationPanel),
+          generationPanelOk,
+          generationSource: generationPanel?.dataset.generationSource || "",
+          generationParameterKeys,
+          generationActualSources,
+          generationTypography,
           compactPrompt,
           dialogViewportOk,
           footerViewportOk,
@@ -16393,6 +16500,7 @@ function App() {
           titleRect: debugRectSnapshot(titleRect),
           promptFieldRect: debugRectSnapshot(promptFieldRect),
           promptRect: debugRectSnapshot(promptRect),
+          generationRect: debugRectSnapshot(generationRect),
           layerRect: debugRectSnapshot(layerRect),
           footerRect: debugRectSnapshot(footerRect)
         };
@@ -16638,6 +16746,7 @@ function App() {
         nodeEditorOpen: Boolean(document.querySelector(".unified-node-editor")),
         nodeEditorNodeId: document.querySelector(".unified-node-editor") ? (nodeEditorDraftRef.current?.nodeId || selectedNodeIdRef.current) : "",
         nodeEditorUi: nodeEditorElement ? {
+          maximized: nodeEditorElement.classList.contains("is-maximized"),
           footerDisplay: nodeEditorFooter ? window.getComputedStyle(nodeEditorFooter).display : "",
           layerPanel: Boolean(nodeEditorElement.querySelector(".node-editor-layer-panel")),
           spaceUse: nodeEditorSpaceUse,
@@ -22857,6 +22966,16 @@ function App() {
           spaceUse: state.nodeEditorUi?.spaceUse ?? null
         };
       },
+      toggleNodeEditorMaximized: async () => {
+        const button = document.querySelector<HTMLButtonElement>('.unified-node-editor [data-node-editor-action="toggle-maximize"]');
+        if (!button) return { ok: false, error: "node editor maximize control unavailable" };
+        const before = document.querySelector<HTMLElement>(".unified-node-editor")?.classList.contains("is-maximized") ?? false;
+        button.click();
+        await waitForDebugSettle(180);
+        const state = readDebugState();
+        const after = state.nodeEditorUi?.maximized === true;
+        return { ok: after !== before, before, after, state };
+      },
       openRequirementForSource: async (payload: { id: string }) => {
         const node = nodesRef.current.find((item) => item.id === String(payload?.id || ""));
         if (!node || node.type !== "image") return { ok: false, error: "requirement source unavailable" };
@@ -23510,7 +23629,7 @@ function App() {
       setServerMessage(authDraft.mode === "register" ? "注册成功，账户已开通。" : "登录成功。");
       setAuthDraft((current) => ({ ...current, password: "" }));
       setAuthReady(true);
-      await refreshLicenseState(true);
+      await refreshLicenseState(true, "account");
       window.setTimeout(() => void refreshServerState(), 120);
     } catch (error) {
       if (serverRefreshEpochRef.current !== authRequestEpoch) return;
@@ -23529,6 +23648,12 @@ function App() {
       return;
     }
     try {
+      const currentLicense = licenseStatus?.scope === "custom" && licenseStatus.active
+        ? licenseStatus
+        : await refreshLicenseState(true, "custom");
+      if (!currentLicense.active || String(currentLicense.plan || "").toLowerCase() !== "pro") {
+        throw new Error(currentLicense.error || "请先使用 Pro 兑换码解锁自定义 Base URL。");
+      }
       if (!window.naimageServer?.configureCustom) throw new Error("当前桌面后端不支持自定义接口模式。");
       const result = await window.naimageServer.configureCustom({
         baseUrl: authDraft.baseUrl.trim(),
@@ -23549,15 +23674,12 @@ function App() {
       setServerUser(result.user);
       setServerWallet(null);
       setServerLogs([]);
-      let status = result.license || await refreshLicenseState(true);
-      if (authDraft.activationCode.trim() && window.naimageServer.activateLicense) {
-        status = await window.naimageServer.activateLicense({ code: authDraft.activationCode.trim() });
-      }
+      const status = result.license || await refreshLicenseState(true, "custom");
       setLicenseStatus(status);
       setLicenseReady(true);
       if (!status.active) throw new Error(status.error || "请输入有效激活码后继续。");
       setServerMessage("自定义接口已连接。");
-      setAuthDraft((current) => ({ ...current, apiKey: "", activationCode: "" }));
+      setAuthDraft((current) => ({ ...current, apiKey: "" }));
       setAuthReady(true);
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
@@ -23578,7 +23700,7 @@ function App() {
       setLicenseReady(true);
       if (!status.active) throw new Error(status.error || "激活失败。");
       setAuthDraft((current) => ({ ...current, activationCode: "" }));
-      setServerMessage("SparkAI WorkSpace 已激活。");
+      setServerMessage("Pro License 已激活，请继续配置 Base URL 与 API Key。");
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
     }
@@ -23796,7 +23918,7 @@ function App() {
       generationRunId,
       ...clampedInitialNodeSize
     };
-    const node = initialImageCollection ? withNodeImageCollection(nodeBase, initialImageCollection) : nodeBase;
+    const node = withGeneratedImageContentPresentation(nodeBase, initialImageCollection, targetNode);
     setNodes((current) => (targetNode
       ? current.map((item) => (item.id === id ? { ...item, ...node, zOrder: item.zOrder ?? node.zOrder ?? nextNodeZOrder(current) } : item))
       : [...current, { ...node, zOrder: nextNodeZOrder(current) }]
@@ -23892,6 +24014,8 @@ function App() {
             nodeIds: [id],
             prompt: promptForIndependentImage(taskSnapshot.prompt, total, index),
             model: taskSnapshot.model || settings.imageModel,
+            ratio: taskSnapshot.ratio,
+            resolution: taskSnapshot.resolution,
             size,
             quality: taskSnapshot.quality,
             count: 1,
@@ -23931,7 +24055,7 @@ function App() {
                 ? (() => {
                     const nodeSize = clampImageNodeDimensions(result.size ?? size, Math.max(total, assets.length), item.width, item.height);
                     const imageCollection = parallelImageCollection(id, total, assets, taskSnapshot.prompt, item.imageCollection, Array.from(failedSlots));
-                    return withNodeImageCollection({
+                    return withGeneratedImageContentPresentation({
                       ...item,
                       status: assets.length >= total ? "done" : "working",
                       outputs: assets.length,
@@ -23961,7 +24085,7 @@ function App() {
                         ...(typeof result.costCents === "number" ? [`cost: ${yuan(result.costCents)}`] : [])
                       ].join("\n"),
                       ...nodeSize
-                    }, imageCollection);
+                    }, imageCollection, item);
                   })()
                 : item
             )
@@ -23989,7 +24113,7 @@ function App() {
           setNodes((current) =>
             current.map((item) =>
               item.id === id && item.generationRunId === generationRunId
-                ? withNodeImageCollection({
+                ? withGeneratedImageContentPresentation({
                     ...item,
                     status: settledCount >= total ? "review" : "working",
                     outputs: assets.length,
@@ -24006,7 +24130,7 @@ function App() {
                       activeIndex: settledCount >= total ? undefined : settledCount + 1
                     }
                   )
-                  }, parallelImageCollection(id, total, assets, taskSnapshot.prompt, item.imageCollection, Array.from(failedSlots)))
+                  }, parallelImageCollection(id, total, assets, taskSnapshot.prompt, item.imageCollection, Array.from(failedSlots)), item)
                 : item
             )
           );
@@ -24043,7 +24167,7 @@ function App() {
       setNodes((current) =>
         current.map((item) =>
           item.id === id && item.generationRunId === generationRunId
-            ? withNodeImageCollection({
+            ? withGeneratedImageContentPresentation({
                 ...item,
                 status: stopped || !completedAll ? "review" : "done",
                 outputs: assets.length,
@@ -24061,7 +24185,7 @@ function App() {
                     stopped
                   }
                 )
-              }, parallelImageCollection(id, total, assets, taskSnapshot.prompt, item.imageCollection, Array.from(failedSlots)))
+              }, parallelImageCollection(id, total, assets, taskSnapshot.prompt, item.imageCollection, Array.from(failedSlots)), item)
             : item
         )
       );
@@ -24083,7 +24207,7 @@ function App() {
       setNodes((current) =>
         current.map((item) =>
           item.id === id && item.generationRunId === generationRunId
-            ? withNodeImageCollection({
+            ? withGeneratedImageContentPresentation({
                 ...item,
                 status: "review",
                 imageState: "error",
@@ -24104,7 +24228,7 @@ function App() {
                 taskSnapshot.prompt,
                 item.imageCollection,
                 Array.from({ length: total }, (_slot, slotIndex) => slotIndex + 1).filter((slot) => !(item.assets ?? []).some((asset, compactIndex) => Number(asset.index ?? compactIndex + 1) === slot))
-              ))
+              ), item)
             : item
         )
       );
@@ -25578,7 +25702,7 @@ function App() {
       }
     }
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
-      ready: configReady && authReady && licenseReady && Boolean(serverUser && licenseStatus?.active),
+      ready: configReady && authReady && licenseReady && workspaceAccessAuthorized,
       projectName: activeProjectName,
       workspaceDomain: workspaceDomainRef.current,
       modelName: settings.agentModel,
@@ -25709,7 +25833,7 @@ function App() {
     executionReservation,
     imageRunStarts,
     licenseReady,
-    licenseStatus?.active,
+    workspaceAccessAuthorized,
     messages,
     pendingAgentExecution,
     prompt,
@@ -25736,7 +25860,7 @@ function App() {
     );
   }
 
-  if (!serverUser || !licenseStatus?.active) {
+  if (!workspaceAccessAuthorized) {
     return (
       <GlassThemeProvider settings={settings}>
       <>
@@ -25748,7 +25872,7 @@ function App() {
             submitAccount={submitAuth}
             submitCustom={submitCustomAccess}
             activateLicense={activateCurrentLicense}
-            accountAuthenticated={Boolean(serverUser && serverUser.id !== "custom-api")}
+            selectAccessMode={selectAuthAccessMode}
             license={licenseStatus}
             message={serverMessage}
           />
@@ -28498,13 +28622,23 @@ function App() {
           : (editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "");
         const editorDirty = nodeEditorDraft.title !== editorSourceTitle || nodeEditorDraft.prompt !== editorSourcePrompt;
         const editorBusy = fileActionBusy;
+        const showGenerationDetails = Boolean(editorAsset && !layerComposition && !layerGroup);
+        const editorAssetRatio = editorAsset ? actualImageAspectRatio(editorAsset.width, editorAsset.height) : undefined;
+        const editorAssetPixels = editorAsset && Number(editorAsset.width) > 0 && Number(editorAsset.height) > 0
+          ? `${Math.round(Number(editorAsset.width))}×${Math.round(Number(editorAsset.height))}`
+          : undefined;
+        const editorAssetFormat = editorAsset ? imageAssetOutputFormat(editorAsset) : undefined;
+        const generationRows = editorAsset
+          ? imageGenerationDisplayRows(editorAsset, editorNode?.imageParams, editorAssetIndex, editorNode?.assets?.length ?? 1)
+          : [];
+        const generationSource = editorAsset ? imageGenerationSourceLabel(editorAsset, editorNode?.imageParams) : "";
         return (
           <>
             <DialogShell
               surface="node-editor"
               ariaLabel="成果编辑器"
               layerClassName="node-editor-layer"
-              className="node-editor-dialog unified-node-editor"
+              className={`node-editor-dialog unified-node-editor${nodeEditorMaximized ? " is-maximized" : ""}`}
               busy={editorBusy}
               dirty={editorDirty}
               closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
@@ -28535,7 +28669,17 @@ function App() {
                 onClose={() => requestClose(CLOSE_BUTTON_REASON)}
                 closeLabel="关闭成果编辑器"
                 closeDisabled={editorBusy}
-              />
+              >
+                <IconActionButton
+                  className="node-editor-maximize"
+                  data-node-editor-action="toggle-maximize"
+                  label={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
+                  aria-label={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
+                  title={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
+                  onClick={() => setNodeEditorMaximized((current) => !current)}
+                  icon={nodeEditorMaximized ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+                />
+              </SurfaceHeader>
 
               <SurfaceBody className="unified-node-editor-body">
                 {editorAsset ? (
@@ -28561,7 +28705,13 @@ function App() {
                       title={editorNode?.layerGroup ? "查看原图；分层组请使用合成、图层文件夹或 PSD 导出" : "查看原图；右键可保存图片"}
                     >
                       <img src={imageAssetSrc(editorAsset)} alt={nodeEditorDraft.title || "图片成果"} />
-                      <span><ImageIcon size={14} />单击查看原图</span>
+                      {editorAssetRatio || editorAssetPixels ? (
+                        <span className="unified-node-editor-image-specs" aria-label="最终图片规格">
+                          {editorAssetRatio ? <b>{editorAssetRatio}</b> : null}
+                          {editorAssetPixels ? <b>{editorAssetPixels}</b> : null}
+                        </span>
+                      ) : null}
+                      <span className="unified-node-editor-preview-hint"><ImageIcon size={14} />单击查看原图</span>
                     </ButtonBase>
                     <ActionButton
                       variant="secondary"
@@ -28586,7 +28736,7 @@ function App() {
                     <span>当前成果没有图片预览</span>
                   </div>
                 )}
-                <div className={`unified-node-editor-fields ${layerComposition || layerGroup ? "has-layer-composition" : ""}`}>
+                <div className={`unified-node-editor-fields ${layerComposition || layerGroup ? "has-layer-composition" : ""} ${showGenerationDetails ? "has-generation-details" : ""}`.trim()}>
                   <Field label={editingCollectionMember ? "图片标题" : "成果标题"}>
                     <input
                       value={nodeEditorDraft.title}
@@ -28594,6 +28744,35 @@ function App() {
                       placeholder="给这个成果一个容易识别的名称"
                     />
                   </Field>
+                  {showGenerationDetails ? (
+                    <section
+                      className="node-editor-generation-details"
+                      aria-label={generationSource === "本地导入" ? "图片信息" : "生成参数"}
+                      data-generation-source={generationSource}
+                    >
+                      <header>
+                        <span><SlidersHorizontal size={14} />{generationSource === "本地导入" ? "图片信息" : "生成参数"}</span>
+                        <em>{generationSource}{editorAssetFormat ? ` · ${editorAssetFormat.toUpperCase()}` : ""}</em>
+                      </header>
+                      <dl className="node-editor-generation-grid">
+                        {generationRows.map((row) => (
+                          <div key={row.key} data-generation-param={row.key}>
+                            <dt>{row.label}</dt>
+                            <dd title={[row.requested, row.actual].filter(Boolean).join(" → ")}>
+                              {row.requested ? <span className="is-request">{row.requested}</span> : null}
+                              {row.requested && row.actual ? <i aria-hidden="true">→</i> : null}
+                              {row.actual ? (
+                                <strong className={`is-${row.actualSource || "value"}`} data-param-source={row.actualSource || "value"}>
+                                  {row.actualSource ? <small>{row.actualSource === "api" ? "响应" : row.actualSource === "asset" ? "成图" : "本次"}</small> : null}
+                                  {row.actual}
+                                </strong>
+                              ) : null}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </section>
+                  ) : null}
                   <Field className="is-prompt" label="提示词">
                     <textarea
                       value={nodeEditorDraft.prompt}

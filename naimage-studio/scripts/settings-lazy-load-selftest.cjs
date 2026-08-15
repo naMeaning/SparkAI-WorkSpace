@@ -40,6 +40,9 @@ assert.match(settingsDrawerSource, /serviceStatuses:\s*serverSettings\.serviceSt
 assert.match(modelConfigDialogSource, /kind !== "video"[\s\S]{0,360}逐模型连接/, "Conversation and image model dialogs must expose per-model connections");
 assert.match(modelConfigDialogSource, /kind === "agent" \? settings\.agentModelBindings : kind === "image" \? settings\.imageModelBindings : \[\]/, "The conversation model dialog must edit Agent bindings rather than image bindings");
 assert.match(modelConfigDialogSource, /kind === "agent"[\s\S]{0,420}agentModelBindings[\s\S]{0,360}normalizeAgentModelPoolSelection/, "Saving the conversation model dialog must persist its per-model bindings");
+assert.match(modelConfigDialogSource, /label=\{accountMode \? "自定义 API Key（可选）" : "API Key"\}/, "Account mode must retain the per-model custom API Key field");
+assert.match(modelConfigDialogSource, /accountMode[\s\S]{0,900}customApiKey[\s\S]{0,1600}账户密钥/, "Account mode must keep custom model Keys and account-token fallback in one binding card");
+assert.match(modelConfigDialogSource, /账号登录与逐模型自定义 API Key 可以同时使用/, "The model dialog must explain custom-Key priority without hiding account-token fallback");
 assert.match(projectAgentComposerSource, /uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)/, "Composer model menu must preserve catalog order while retaining selected-model fallbacks");
 assert.match(projectAgentComposerSource, /className="project-agent-model-trigger"[\s\S]{0,260}aria-haspopup="dialog"[\s\S]{0,180}aria-expanded=\{modelMenuOpen\}/, "Composer must expose the image catalog through one expandable model control");
 const composerToolbarControlOrder = ["project-agent-mode-picker", "project-agent-materials-picker", "project-agent-model-picker", "project-agent-image-frame"]

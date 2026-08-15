@@ -13,13 +13,15 @@ import (
 const (
 	NaimageActivationEnabled  = 1
 	NaimageActivationDisabled = 2
+	NaimageLicensePlanPro     = "pro"
 )
 
 var (
-	ErrNaimageActivationInvalid = errors.New("naimage activation code is invalid")
-	ErrNaimageActivationExpired = errors.New("naimage activation code is expired")
-	ErrNaimageActivationUsed    = errors.New("naimage activation code has reached its activation limit")
-	ErrNaimageLicenseInvalid    = errors.New("naimage license is invalid")
+	ErrNaimageActivationInvalid  = errors.New("naimage activation code is invalid")
+	ErrNaimageActivationExpired  = errors.New("naimage activation code is expired")
+	ErrNaimageActivationUsed     = errors.New("naimage activation code has reached its activation limit")
+	ErrNaimageLicenseInvalid     = errors.New("naimage license is invalid")
+	ErrNaimageLicensePlanInvalid = errors.New("naimage license plan is invalid")
 )
 
 // NaimageActivationCode stores only a digest and a short display hint. The
@@ -75,7 +77,7 @@ type NaimageActivationCodeCreate struct {
 
 func CreateNaimageActivationCodes(input NaimageActivationCodeCreate, count int) ([]string, error) {
 	input.Name = strings.TrimSpace(input.Name)
-	input.Plan = strings.TrimSpace(input.Plan)
+	input.Plan = normalizeNaimageLicensePlan(input.Plan)
 	if input.Name == "" || input.Plan == "" || count < 1 || count > 100 || input.ValidDays < 0 || input.ValidDays > 3650 || input.MaxActivations < 1 || input.MaxActivations > 100 {
 		return nil, ErrNaimageActivationInvalid
 	}
@@ -168,9 +170,23 @@ func hashNaimageDevice(value string) string {
 	return hex.EncodeToString(common.Sha256Raw([]byte(strings.TrimSpace(value))))
 }
 
+func normalizeNaimageLicensePlan(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func naimageLicensePlanMatches(plan, requiredPlan string) bool {
+	requiredPlan = normalizeNaimageLicensePlan(requiredPlan)
+	return requiredPlan == "" || normalizeNaimageLicensePlan(plan) == requiredPlan
+}
+
 func ActivateNaimage(code, deviceId string, userId int) (*NaimageActivationResult, error) {
+	return ActivateNaimageForPlan(code, deviceId, userId, "")
+}
+
+func ActivateNaimageForPlan(code, deviceId string, userId int, requiredPlan string) (*NaimageActivationResult, error) {
 	code = normalizeNaimageActivationSecret(code)
 	deviceId = strings.TrimSpace(deviceId)
+	requiredPlan = normalizeNaimageLicensePlan(requiredPlan)
 	if len(code) < 12 || len(code) > 128 || len(deviceId) < 16 || len(deviceId) > 128 || userId < 0 {
 		return nil, ErrNaimageActivationInvalid
 	}
@@ -188,6 +204,9 @@ func ActivateNaimage(code, deviceId string, userId int) (*NaimageActivationResul
 		}
 		if activationCode.ExpiredTime > 0 && activationCode.ExpiredTime <= now {
 			return ErrNaimageActivationExpired
+		}
+		if !naimageLicensePlanMatches(activationCode.Plan, requiredPlan) {
+			return ErrNaimageLicensePlanInvalid
 		}
 
 		var existing NaimageActivationGrant
@@ -260,8 +279,13 @@ func ActivateNaimage(code, deviceId string, userId int) (*NaimageActivationResul
 }
 
 func VerifyNaimageLicense(token, deviceId string, userId int) (*NaimageActivationGrant, error) {
+	return VerifyNaimageLicenseForPlan(token, deviceId, userId, "")
+}
+
+func VerifyNaimageLicenseForPlan(token, deviceId string, userId int, requiredPlan string) (*NaimageActivationGrant, error) {
 	token = normalizeNaimageActivationSecret(token)
 	deviceId = strings.TrimSpace(deviceId)
+	requiredPlan = normalizeNaimageLicensePlan(requiredPlan)
 	if len(token) < 32 || len(deviceId) < 16 || len(deviceId) > 128 || userId < 0 {
 		return nil, ErrNaimageLicenseInvalid
 	}
@@ -277,6 +301,9 @@ func VerifyNaimageLicense(token, deviceId string, userId int) (*NaimageActivatio
 	}
 	if grant.ExpiresAt > 0 && grant.ExpiresAt <= now {
 		return nil, ErrNaimageActivationExpired
+	}
+	if !naimageLicensePlanMatches(grant.Plan, requiredPlan) {
+		return nil, ErrNaimageLicensePlanInvalid
 	}
 	if now-grant.LastVerifiedTime >= 5*60 {
 		if err := DB.Model(&grant).Update("last_verified_time", now).Error; err != nil {

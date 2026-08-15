@@ -375,35 +375,7 @@ export default function ModelConfigDialog({
                       const providerLabel = kind === "agent" ? "对话" : "图片";
                       const globalBaseUrl = kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl;
                       const globalApiKey = kind === "agent" ? settings.agentApiKey : settings.imageApiKey;
-                      if (settings.accessMode === "custom") {
-                        return (
-                          <section key={`binding-${model}`} className="model-picker-binding-card">
-                            <strong title={model}>{model}</strong>
-                            <div className="model-picker-binding-fields">
-                              <Field label="Base URL" hint={`留空时使用全局${providerLabel} Base URL。`}>
-                                <input
-                                  type="url"
-                                  value={binding?.customBaseUrl || ""}
-                                  maxLength={2_048}
-                                  autoComplete="url"
-                                  placeholder={globalBaseUrl || `使用全局${providerLabel} Base URL`}
-                                  onChange={(event) => updateBinding(model, "customBaseUrl", event.target.value)}
-                                />
-                              </Field>
-                              <Field label="API Key" hint={`留空时使用全局${providerLabel} API Key。`}>
-                                <input
-                                  type="password"
-                                  value={binding?.customApiKey || ""}
-                                  maxLength={8_192}
-                                  autoComplete="off"
-                                  placeholder={globalApiKey ? `使用全局${providerLabel} API Key` : `全局${providerLabel} API Key 尚未设置`}
-                                  onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
-                                />
-                              </Field>
-                            </div>
-                          </section>
-                        );
-                      }
+                      const accountMode = settings.accessMode === "account";
                       const boundTokenId = binding?.accountTokenId || "";
                       const boundTokenLoaded = accountTokens.some((token) => token.id === boundTokenId);
                       const globalTokenLabel = settings.selectedAccountTokenName
@@ -414,22 +386,55 @@ export default function ModelConfigDialog({
                       return (
                         <section key={`binding-${model}`} className="model-picker-binding-card">
                           <strong title={model}>{model}</strong>
-                          <Field label="账户密钥" hint={`留空时回退到全局密钥（${globalTokenLabel}）。`}>
-                            <select value={boundTokenId} onChange={(event) => updateBinding(model, "accountTokenId", event.target.value)}>
-                              <option value="">使用全局选中密钥</option>
-                              {boundTokenId && !boundTokenLoaded ? <option value={boundTokenId}>密钥 #{boundTokenId} · 元数据未加载</option> : null}
-                              {accountTokens.map((token) => (
-                                <option key={token.id} value={token.id} disabled={token.status !== 1}>
-                                  {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
+                          <div className="model-picker-binding-fields">
+                            {!accountMode ? (
+                              <Field label="Base URL" hint={`留空时使用全局${providerLabel} Base URL。`}>
+                                <input
+                                  type="url"
+                                  value={binding?.customBaseUrl || ""}
+                                  maxLength={2_048}
+                                  autoComplete="url"
+                                  placeholder={globalBaseUrl || `使用全局${providerLabel} Base URL`}
+                                  onChange={(event) => updateBinding(model, "customBaseUrl", event.target.value)}
+                                />
+                              </Field>
+                            ) : null}
+                            <Field
+                              label={accountMode ? "自定义 API Key（可选）" : "API Key"}
+                              hint={accountMode
+                                ? `填写后仅此模型优先使用该 Key；留空时使用账户密钥（${globalTokenLabel}）。`
+                                : `留空时使用全局${providerLabel} API Key。`}
+                            >
+                              <input
+                                type="password"
+                                value={binding?.customApiKey || ""}
+                                maxLength={8_192}
+                                autoComplete="off"
+                                placeholder={accountMode
+                                  ? "留空时使用账户密钥"
+                                  : globalApiKey ? `使用全局${providerLabel} API Key` : `全局${providerLabel} API Key 尚未设置`}
+                                onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
+                              />
+                            </Field>
+                            {accountMode ? (
+                              <Field label="账户密钥" hint={`自定义 API Key 留空时回退到这里，再回退到全局密钥（${globalTokenLabel}）。`}>
+                                <select value={boundTokenId} onChange={(event) => updateBinding(model, "accountTokenId", event.target.value)}>
+                                  <option value="">使用全局选中密钥</option>
+                                  {boundTokenId && !boundTokenLoaded ? <option value={boundTokenId}>密钥 #{boundTokenId} · 元数据未加载</option> : null}
+                                  {accountTokens.map((token) => (
+                                    <option key={token.id} value={token.id} disabled={token.status !== 1}>
+                                      {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+                            ) : null}
+                          </div>
                         </section>
                       );
                     })}
                   </div>
-                  <small>{settings.accessMode === "custom" ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。` : "每个模型可绑定不同的账户 Token；账户完整 Key 不会进入界面进程。"}</small>
+                  <small>{settings.accessMode === "custom" ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。` : "账号登录与逐模型自定义 API Key 可以同时使用；自定义 Key 优先，留空时使用该模型绑定或全局账户密钥。"}</small>
                 </>
               ) : null}
             </div>

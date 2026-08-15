@@ -1,6 +1,10 @@
 "use strict";
 
 const { setTimeout: delay } = require("node:timers/promises");
+const {
+  mergeImageGenerationResponseMetadata,
+  pickImageGenerationResponseMetadata
+} = require("../runtime/image-generation-metadata.cjs");
 
 const MANAGED_RELAY_PREFIX = "/naimage";
 
@@ -69,7 +73,7 @@ function createNewApiClient(options = {}) {
 
   function isImagesApiEndpoint(endpoint) {
     const path = String(endpoint || "").split(/[?#]/, 1)[0];
-    return /(?:^|\/)images(?:\/|$)/i.test(path);
+    return /(?:^|\/)images(?:\/|$)/i.test(path) || /(?:^|\/)image-tasks(?:\/|$)/i.test(path);
   }
 
   function modelBindingForRequest(settings, endpoint, body, provider) {
@@ -119,11 +123,20 @@ function createNewApiClient(options = {}) {
     return { ...credentials, baseUrl, apiKey };
   }
 
+  function accountModelCustomCredentials(settings, binding) {
+    const apiKey = String(binding?.customApiKey || "").trim();
+    if (!apiKey) return null;
+    requireNewApiSession(settings);
+    const baseUrl = normalizeServerUrl(resolveNewApiBaseUrl(settings, "relay"), "");
+    parsedServiceBaseUrl(baseUrl, "账户模型 Base URL");
+    return { baseUrl, apiKey, model: binding?.model || "", source: "model-custom-key" };
+  }
+
   async function relayApiCredentials(settings, endpoint, body, provider) {
     const binding = modelBindingForRequest(settings, endpoint, body, provider);
-    return isCustomApiMode(settings)
-      ? customApiCredentials(settings, provider, binding?.model)
-      : accountApiCredentials(settings, binding?.accountTokenId);
+    if (isCustomApiMode(settings)) return customApiCredentials(settings, provider, binding?.model);
+    return accountModelCustomCredentials(settings, binding)
+      || accountApiCredentials(settings, binding?.accountTokenId);
   }
 
   function customApiHeaders(settings, provider = "agent", model = "") {
@@ -468,6 +481,159 @@ function createNewApiClient(options = {}) {
     }
     return data;
   }
+
+  function imageTaskUnsupportedError(status, data) {
+    const numericStatus = Number(status);
+    if ([404, 405, 501].includes(numericStatus)) return true;
+    if (![400, 422].includes(numericStatus)) return false;
+    const message = String(newApiErrorMessage(data, numericStatus) || "").toLowerCase();
+    return /(image[_ -]?tasks?|task[_ -]?image)/.test(message)
+      && /(unsupported|not supported|unknown|not found|no route|不存在|不支持|未找到)/.test(message);
+  }
+
+  function imageTaskRequestError(status, data, fallback) {
+    const error = new Error(newApiErrorMessage(data, status) || fallback);
+    error.status = Number(status) || undefined;
+    error.data = data;
+    return error;
+  }
+
+  async function newApiRelayImageTask(settings, body, options = {}) {
+    const provider = "image";
+    const endpoint = "/v1/image-tasks";
+    const requestBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+    delete requestBody.group;
+    delete requestBody.stream;
+    delete requestBody.partial_images;
+
+    const credentials = await relayApiCredentials(settings, endpoint, requestBody, provider);
+    const relayBaseUrl = credentials.baseUrl;
+    if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
+
+    let createResponse;
+    try {
+      createResponse = await newApiTransportFetch(directApiUrl(relayBaseUrl, endpoint), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${credentials.apiKey}`,
+          ...(options.headers || {})
+        },
+        body: JSON.stringify(requestBody),
+        signal: options.signal,
+        headersTimeoutMs: options.createHeadersTimeoutMs || 30_000,
+        connectTimeoutMs: options.connectTimeoutMs || 30_000,
+        proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+        maxRequestBytes: options.maxRequestBytes,
+        maxResponseBytes: options.createMaxResponseBytes || 1024 * 1024
+      });
+    } catch (error) {
+      if (error && typeof error === "object") {
+        error.ambiguous = true;
+        error.unsafeToRetry = true;
+      }
+      throw error;
+    }
+    const createData = parseJsonText(await createResponse.text());
+    if (!createResponse.ok || createData.parseFailed === true || createData.error || createData.success === false || createData.ok === false) {
+      const error = imageTaskRequestError(createResponse.status, createData, "图片任务创建失败。");
+      if (imageTaskUnsupportedError(createResponse.status, createData)) {
+        error.code = "NEW_API_IMAGE_TASK_UNSUPPORTED";
+      } else if ([408, 425].includes(Number(createResponse.status)) || Number(createResponse.status) >= 500) {
+        error.ambiguous = true;
+        error.unsafeToRetry = true;
+      }
+      throw error;
+    }
+
+    const taskId = String(createData.task_id || createData.id || "").trim();
+    if (!taskId) {
+      const error = new Error("图片任务接口已返回成功，但缺少 task_id。");
+      error.code = "NEW_API_IMAGE_TASK_ID_MISSING";
+      error.ambiguous = true;
+      error.unsafeToRetry = true;
+      throw error;
+    }
+    options.onAccepted?.({ taskId, status: String(createData.status || "queued") });
+
+    const configuredPollInterval = Number(options.pollIntervalMs);
+    const pollIntervalMs = Number.isFinite(configuredPollInterval)
+      ? Math.max(0, configuredPollInterval)
+      : 2500;
+    let transientPollFailures = 0;
+    for (;;) {
+      if (pollIntervalMs > 0) {
+        await delay(pollIntervalMs, undefined, options.signal ? { signal: options.signal } : undefined);
+      }
+      let pollResponse;
+      try {
+        pollResponse = await newApiTransportFetch(
+          directApiUrl(relayBaseUrl, `${endpoint}/${encodeURIComponent(taskId)}`),
+          {
+            method: "GET",
+            headers: { authorization: `Bearer ${credentials.apiKey}` },
+            signal: options.signal,
+            headersTimeoutMs: options.pollHeadersTimeoutMs || 30_000,
+            connectTimeoutMs: options.connectTimeoutMs || 30_000,
+            proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+            maxResponseBytes: options.maxResponseBytes || 96 * 1024 * 1024
+          }
+        );
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        transientPollFailures += 1;
+        options.onPollRetry?.({ taskId, failures: transientPollFailures });
+        continue;
+      }
+
+      const taskData = parseJsonText(await pollResponse.text());
+      if (!pollResponse.ok || taskData.parseFailed === true || taskData.success === false || taskData.ok === false || taskData.error && !taskData.status) {
+        const status = Number(pollResponse.status);
+        if (status === 408 || status === 425 || status === 429 || status >= 500 || taskData.parseFailed === true) {
+          transientPollFailures += 1;
+          options.onPollRetry?.({ taskId, failures: transientPollFailures, status });
+          continue;
+        }
+        const error = imageTaskRequestError(status, taskData, "图片任务状态查询失败。");
+        error.taskId = taskId;
+        error.unsafeToRetry = true;
+        throw error;
+      }
+
+      transientPollFailures = 0;
+      const status = String(taskData.status || "").trim().toLowerCase();
+      options.onStatus?.({ taskId, status });
+      if (status === "queued" || status === "running") continue;
+      if (status === "succeeded") {
+        const result = taskData.result;
+        if (!result || typeof result !== "object" || Array.isArray(result)) {
+          const error = new Error("图片任务已完成，但没有返回可识别的最终结果。");
+          error.code = "NEW_API_IMAGE_TASK_RESULT_MISSING";
+          error.taskId = taskId;
+          error.unsafeToRetry = true;
+          throw error;
+        }
+        return result;
+      }
+      if (status === "failed") {
+        const error = imageTaskRequestError(
+          0,
+          taskData,
+          String(taskData?.error?.message || taskData?.message || "图片生成任务失败。")
+        );
+        error.code = "NEW_API_IMAGE_TASK_FAILED";
+        error.taskId = taskId;
+        error.unsafeToRetry = true;
+        throw error;
+      }
+
+      const error = new Error(`图片任务返回了未知状态：${status || "empty"}。`);
+      error.code = "NEW_API_IMAGE_TASK_STATUS_INVALID";
+      error.taskId = taskId;
+      error.unsafeToRetry = true;
+      throw error;
+    }
+  }
   
   async function newApiRelayStream(settings, endpoint, body, onEvent, options = {}) {
     const relayBody = { ...body, stream: true };
@@ -617,46 +783,53 @@ function createNewApiClient(options = {}) {
 
   function imageItemsFromPayload(payload) {
     const items = [];
-    const append = (candidate) => {
+    const payloadActualParams = pickImageGenerationResponseMetadata(payload);
+    const append = (candidate, inheritedActualParams = payloadActualParams) => {
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
       const b64Json = typeof candidate.b64_json === "string" ? candidate.b64_json.trim() : "";
       const url = typeof candidate.url === "string" ? candidate.url.trim() : "";
       if (!b64Json && !url) return;
+      const actualParams = mergeImageGenerationResponseMetadata(inheritedActualParams, candidate);
       items.push({
         ...(b64Json ? { b64_json: b64Json } : {}),
         ...(url ? { url } : {}),
         ...(typeof candidate.revised_prompt === "string" ? { revised_prompt: candidate.revised_prompt } : {}),
         ...(typeof candidate.size === "string" ? { size: candidate.size } : {}),
         ...(typeof candidate.quality === "string" ? { quality: candidate.quality } : {}),
-        ...(typeof candidate.output_format === "string" ? { output_format: candidate.output_format } : {})
+        ...(typeof candidate.output_format === "string" ? { output_format: candidate.output_format } : {}),
+        ...(Object.keys(actualParams).length ? { actualParams } : {})
       });
     };
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return items;
-    append(payload);
-    for (const candidate of Array.isArray(payload.data) ? payload.data : []) append(candidate);
+    append(payload, payloadActualParams);
+    for (const candidate of Array.isArray(payload.data) ? payload.data : []) append(candidate, payloadActualParams);
     const result = payload.result && typeof payload.result === "object" ? payload.result : null;
-    append(result);
-    for (const candidate of Array.isArray(result?.data) ? result.data : []) append(candidate);
+    const resultActualParams = mergeImageGenerationResponseMetadata(payloadActualParams, result);
+    append(result, resultActualParams);
+    for (const candidate of Array.isArray(result?.data) ? result.data : []) append(candidate, resultActualParams);
     return items;
   }
 
-  function responsesImageItemsFromValue(value, revisedPrompt = "") {
+  function responsesImageItemsFromValue(value, revisedPrompt = "", inheritedActualParams = {}) {
     const items = [];
-    const append = (candidate, fallbackPrompt = revisedPrompt) => {
+    const append = (candidate, fallbackPrompt = revisedPrompt, parentActualParams = inheritedActualParams) => {
       if (typeof candidate === "string") {
         const clean = candidate.trim();
         if (!clean) return;
+        const actualParams = mergeImageGenerationResponseMetadata(parentActualParams);
+        const metadata = Object.keys(actualParams).length ? { actualParams } : {};
         const dataUrl = clean.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/is);
         if (dataUrl) {
-          items.push({ b64_json: dataUrl[1], ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+          items.push({ b64_json: dataUrl[1], ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}), ...metadata });
         } else if (/^https?:\/\//i.test(clean)) {
-          items.push({ url: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+          items.push({ url: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}), ...metadata });
         } else {
-          items.push({ b64_json: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}) });
+          items.push({ b64_json: clean, ...(fallbackPrompt ? { revised_prompt: fallbackPrompt } : {}), ...metadata });
         }
         return;
       }
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
+      const actualParams = mergeImageGenerationResponseMetadata(parentActualParams, candidate);
       const prompt = String(candidate.revised_prompt || candidate.revisedPrompt || fallbackPrompt || "").trim();
       const b64Json = String(
         candidate.b64_json || candidate.image_base64 || candidate.base64 || ""
@@ -667,27 +840,29 @@ function createNewApiClient(options = {}) {
           ? candidate.image_url.url
           : "";
       const url = String(candidate.url || imageUrl || "").trim();
-      if (b64Json) append(b64Json, prompt);
-      if (url) append(url, prompt);
-      if (candidate.result !== undefined) append(candidate.result, prompt);
+      if (b64Json) append(b64Json, prompt, actualParams);
+      if (url) append(url, prompt, actualParams);
+      if (candidate.result !== undefined) append(candidate.result, prompt, actualParams);
     };
-    append(value, revisedPrompt);
+    append(value, revisedPrompt, inheritedActualParams);
     return items;
   }
 
   function responsesImageItemsFromPayload(payload) {
     const items = [];
-    const appendOutputItem = (item) => {
+    const appendOutputItem = (item, inheritedActualParams = {}) => {
       if (!item || typeof item !== "object" || Array.isArray(item)) return;
       if (item.type && item.type !== "image_generation_call") return;
-      items.push(...responsesImageItemsFromValue(item.result, String(item.revised_prompt || item.revisedPrompt || "")));
+      const actualParams = mergeImageGenerationResponseMetadata(inheritedActualParams, item);
+      items.push(...responsesImageItemsFromValue(item.result, String(item.revised_prompt || item.revisedPrompt || ""), actualParams));
     };
     const appendPayload = (candidate) => {
       if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return;
-      appendOutputItem(candidate.item);
-      for (const item of Array.isArray(candidate.output) ? candidate.output : []) appendOutputItem(item);
+      const actualParams = pickImageGenerationResponseMetadata(candidate);
+      appendOutputItem(candidate.item, actualParams);
+      for (const item of Array.isArray(candidate.output) ? candidate.output : []) appendOutputItem(item, actualParams);
       for (const item of Array.isArray(candidate.data) ? candidate.data : []) {
-        items.push(...responsesImageItemsFromValue(item));
+        items.push(...responsesImageItemsFromValue(item, "", actualParams));
       }
     };
     appendPayload(payload);
@@ -713,17 +888,28 @@ function createNewApiClient(options = {}) {
     requestBody.tool_choice = requestBody.tool_choice || "required";
 
     const completed = [];
-    const completedKeys = new Set();
+    const completedIndexes = new Map();
     const previewIndexes = new Set();
     let sequentialPartialIndex = 0;
     let observedStreamEvent = false;
     let created = 0;
     let usage;
+    let streamActualParams = {};
     const appendCompleted = (items) => {
       for (const item of items) {
         const key = item.b64_json ? `b64:${item.b64_json}` : `url:${item.url}`;
-        if (completedKeys.has(key)) continue;
-        completedKeys.add(key);
+        const existingIndex = completedIndexes.get(key);
+        if (existingIndex !== undefined) {
+          const existing = completed[existingIndex];
+          completed[existingIndex] = {
+            ...existing,
+            ...item,
+            revised_prompt: item.revised_prompt || existing.revised_prompt,
+            actualParams: mergeImageGenerationResponseMetadata(existing.actualParams, item.actualParams)
+          };
+          continue;
+        }
+        completedIndexes.set(key, completed.length);
         completed.push(item);
       }
     };
@@ -733,6 +919,7 @@ function createNewApiClient(options = {}) {
         observedStreamEvent = true;
         const type = String(event?.type || "");
         const responsePayload = event?.response && typeof event.response === "object" ? event.response : null;
+        streamActualParams = mergeImageGenerationResponseMetadata(streamActualParams, event, responsePayload);
         if (Number.isFinite(Number(event?.created_at || event?.created || responsePayload?.created_at))) {
           created = Number(event.created_at || event.created || responsePayload.created_at);
         }
@@ -772,7 +959,10 @@ function createNewApiClient(options = {}) {
         }
 
         if (type === "response.output_item.done") {
-          appendCompleted(responsesImageItemsFromPayload({ item: event?.item }));
+          appendCompleted(responsesImageItemsFromPayload({
+            item: event?.item,
+            actualParams: streamActualParams
+          }));
           return;
         }
         if (type === "response.completed" || !type) {
@@ -1006,6 +1196,7 @@ function createNewApiClient(options = {}) {
     newApiFetch,
     newApiUrl,
     newApiRelayJson,
+    newApiRelayImageTask,
     newApiRelayImage,
     newApiRelayResponsesImage,
     newApiRelayStream,

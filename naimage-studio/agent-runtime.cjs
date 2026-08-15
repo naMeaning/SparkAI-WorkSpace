@@ -23,9 +23,11 @@ const { createHash } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const {
+  appendImageDeliverySpecification,
   imagePromptQualities,
   imagePromptRatios,
   imagePromptResolutions,
+  imageToolArgsWithFrameContract,
   normalizeImage2Size,
   normalizeImagePromptResolution,
   normalizeImageToolFrame,
@@ -35,6 +37,12 @@ const {
 const { createImageBatchNormalization } = require("./runtime/image-batch-normalization.cjs");
 const { runImageBatchScheduler } = require("./runtime/image-batch-scheduler.cjs");
 const { normalizeEncodedImageFormat, requireEncodedImageFormat } = require("./runtime/encoded-image-format.cjs");
+const {
+  buildImageAssetGenerationMetadata,
+  mergeImageGenerationResponseMetadata,
+  normalizeImageGenerationParameters,
+  pickImageGenerationResponseMetadata
+} = require("./runtime/image-generation-metadata.cjs");
 const {
   commerceBrandStylePrompt,
   goalScopeExecutionValue,
@@ -2150,36 +2158,62 @@ function normalizeLayerComposition(args = {}) {
 
 function extractGeneratedImages(response) {
   const images = [];
+  const parentActualParams = pickImageGenerationResponseMetadata(response);
+  const append = (type, value, source, inheritedActualParams = parentActualParams) => {
+    const cleanValue = String(value || "").trim();
+    if (!cleanValue) return;
+    const actualParams = mergeImageGenerationResponseMetadata(inheritedActualParams, source?.actualParams, source);
+    images.push({
+      type,
+      value: cleanValue,
+      revisedPrompt: source?.revised_prompt || source?.revisedPrompt,
+      ...(Object.keys(actualParams).length ? { actualParams } : {})
+    });
+  };
   const data = Array.isArray(response?.data) ? response.data : [];
 
   for (const item of data) {
     const b64 = item?.b64_json ?? item?.image_base64 ?? item?.base64;
     const url = item?.url ?? item?.image_url?.url;
-    if (b64) images.push({ type: "base64", value: String(b64), revisedPrompt: item?.revised_prompt });
-    if (url) images.push({ type: "url", value: String(url), revisedPrompt: item?.revised_prompt });
+    if (b64) append("base64", b64, item);
+    if (url) append("url", url, item);
   }
 
   const output = Array.isArray(response?.output) ? response.output : [];
   for (const item of output) {
+    const itemActualParams = mergeImageGenerationResponseMetadata(parentActualParams, item?.actualParams, item);
     const content = Array.isArray(item?.content) ? item.content : [];
     for (const part of content) {
       const b64 = part?.image_base64 ?? part?.b64_json;
       const url = part?.image_url ?? part?.url;
-      if (b64) images.push({ type: "base64", value: String(b64), revisedPrompt: part?.revised_prompt });
-      if (url) images.push({ type: "url", value: String(url), revisedPrompt: part?.revised_prompt });
+      if (b64) append("base64", b64, part, itemActualParams);
+      if (url) append("url", url, part, itemActualParams);
     }
   }
 
   return images;
 }
 
-function writeImageOutputs(projectRoot, images, stem, outputFormat = "png") {
+function writeImageOutputs(projectRoot, images, stem, outputFormat = "png", generationContext = {}) {
   const outputDir = path.join(projectRoot, "output", "imagegen");
   mkdirSync(outputDir, { recursive: true });
 
   return images.map((image, index) => {
+    const generation = buildImageAssetGenerationMetadata({
+      request: generationContext.request,
+      response: image.actualParams,
+      startedAt: image.startedAt,
+      completedAt: image.completedAt,
+      durationMs: image.durationMs
+    });
     if (image.type === "url") {
-      return { index: index + 1, type: "url", url: image.value, revisedPrompt: image.revisedPrompt ?? "" };
+      return {
+        index: index + 1,
+        type: "url",
+        url: image.value,
+        revisedPrompt: image.revisedPrompt ?? "",
+        ...(generation ? { generation } : {})
+      };
     }
 
     const clean = image.value.replace(/^data:image\/\w+;base64,/, "");
@@ -2195,7 +2229,8 @@ function writeImageOutputs(projectRoot, images, stem, outputFormat = "png") {
       assetUrl: `naimage-asset://local/${relativePath}`,
       mimeType: detected.mimeType,
       outputFormat: detected.format,
-      revisedPrompt: image.revisedPrompt ?? ""
+      revisedPrompt: image.revisedPrompt ?? "",
+      ...(generation ? { generation } : {})
     };
   });
 }
@@ -2649,6 +2684,7 @@ function createAgentRuntime(options) {
     };
   }
   function normalizeLayeredImageToolArgs(toolName, args, settings, context = {}) {
+    args = imageToolArgsWithFrameContract(args, settings);
     args = normalizeSingleImageItemCompatibility(args);
     const operation = String(args.operation ?? args.mode ?? "").trim().toLowerCase();
     if (operation !== "layers") {
@@ -2804,6 +2840,7 @@ function createAgentRuntime(options) {
   }
 
   function normalizeRegionEditorOpenArgs(toolName, args, settings, context = {}) {
+    args = imageToolArgsWithFrameContract(args, settings);
     args = normalizeSingleImageItemCompatibility(args);
     const operation = String(args.operation ?? args.mode ?? "").trim().toLowerCase();
     if (!["redraw", "cutout"].includes(operation)) {
@@ -3038,6 +3075,7 @@ function createAgentRuntime(options) {
 
   function normalizeImageToolArgs(toolName, args, settings, context = {}) {
     const rawShape = args?.[rawImageToolShapeMarker] || rawImageToolShape(args);
+    args = imageToolArgsWithFrameContract(args, settings);
     args = normalizeSingleImageItemCompatibility(args);
     const requestedOperation = String(args.operation ?? args.mode ?? "").trim().toLowerCase();
     const scopeExecution = cleanOneLine(args.scopeExecution || "", 80);
@@ -3421,6 +3459,7 @@ function createAgentRuntime(options) {
     const layerHint = normalizeLayerHint(args);
     const preferredModel = imageModelForTaskPreference({ ...args, mode, prompt }, settings, layerHint);
     const frame = normalizeImageToolFrame({ ...args, model: preferredModel || args.model, prompt }, settings);
+    const upstreamPrompt = appendImageDeliverySpecification(prompt, frame);
     const size = frame.size;
     const requestSize = frame.requestSize || size;
     const quality = args.quality ?? settings?.imageQuality ?? "auto";
@@ -3555,8 +3594,10 @@ function createAgentRuntime(options) {
           runId,
           prompt: requestPrompt,
           run: () => runtimeOptions.serverGenerateImage({
-            prompt: requestPrompt,
+            prompt: upstreamPrompt,
             model: preferredModel ?? args.model ?? settings?.imageModel,
+            ratio: frame.ratio,
+            resolution: frame.resolution,
             size: requestSize,
             quality,
             count: 1,
@@ -3763,9 +3804,11 @@ function createAgentRuntime(options) {
         : maskImage;
 
     async function requestSingleImage(index) {
+      const startedAtMs = Date.now();
+      let responseData;
       if (editRequested) {
-        return callImageEditUpstreamDirect(config, {
-          prompt,
+        responseData = await callImageEditUpstreamDirect(config, {
+          prompt: upstreamPrompt,
           model,
           size: requestSize,
           quality,
@@ -3779,36 +3822,42 @@ function createAgentRuntime(options) {
           moderation: imageControls.moderation,
           inputFidelity: imageControls.inputFidelity
         });
-      }
+      } else {
+        const endpoint = normalizeApiUrl(config.baseUrl, "/images/generations");
+        const body = {
+          model,
+          prompt: upstreamPrompt,
+          size: requestSize,
+          quality,
+          n: 1
+        };
+        if (!isGptImageModel(model)) body.response_format = "b64_json";
+        if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
+        if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
+        if (imageControls.background) body.background = imageControls.background;
+        if (imageControls.moderation) body.moderation = imageControls.moderation;
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(body)
+        });
 
-      const endpoint = normalizeApiUrl(config.baseUrl, "/images/generations");
-      const body = {
-        model,
-        prompt,
-        size: requestSize,
-        quality,
-        n: 1
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`image_gen generate ${response.status} 第 ${index + 1}/${count} 张: ${text.slice(0, 480)}`);
+        }
+        responseData = await response.json();
+      }
+      const completedAtMs = Date.now();
+      return {
+        response: responseData,
+        startedAt: new Date(startedAtMs).toISOString(),
+        completedAt: new Date(completedAtMs).toISOString(),
+        durationMs: completedAtMs - startedAtMs
       };
-      if (!isGptImageModel(model)) body.response_format = "b64_json";
-      if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
-      if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
-      if (imageControls.background) body.background = imageControls.background;
-      if (imageControls.moderation) body.moderation = imageControls.moderation;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`image_gen generate ${response.status} 第 ${index + 1}/${count} 张: ${text.slice(0, 480)}`);
-      }
-
-      return response.json();
     }
 
     const settled = executionMode === "sequential"
@@ -3827,7 +3876,7 @@ function createAgentRuntime(options) {
     const successfulResponses = settled
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => item.status === "fulfilled")
-      .map(({ item, index }) => ({ response: item.value, index }));
+      .map(({ item, index }) => ({ ...item.value, index }));
     const responses = successfulResponses.map((item) => item.response);
     const failed = settled
       .map((item, index) => ({ item, index }))
@@ -3836,12 +3885,34 @@ function createAgentRuntime(options) {
       const firstError = failed[0]?.item;
       throw new Error(firstError && firstError.status === "rejected" ? firstError.reason?.message || String(firstError.reason) : "Image API 生图失败。");
     }
-    const imageEntries = successfulResponses.flatMap(({ response, index }) =>
-      extractGeneratedImages(response).map((image) => ({ image, index, prompt }))
+    const imageEntries = successfulResponses.flatMap(({ response, index, startedAt, completedAt, durationMs }) =>
+      extractGeneratedImages(response).map((image) => ({
+        image: {
+          ...image,
+          startedAt,
+          completedAt,
+          durationMs
+        },
+        index,
+        prompt
+      }))
     );
     const images = imageEntries.map((entry) => entry.image);
     const stem = `image-${compactDateKey(dateKey())}-${String(Date.now()).slice(-8)}`;
-    const rawOutputs = writeImageOutputs(projectRoot, images, stem, imageControls.outputFormat ?? "png").map((asset, outputIndex) => ({
+    const rawOutputs = writeImageOutputs(projectRoot, images, stem, imageControls.outputFormat ?? "png", {
+      request: normalizeImageGenerationParameters({
+        model,
+        ratio: frame.ratio,
+        resolution: frame.resolution,
+        size: requestSize,
+        quality,
+        outputFormat: imageControls.outputFormat ?? "png",
+        outputCompression: imageControls.outputCompression,
+        background: imageControls.background,
+        moderation: imageControls.moderation,
+        inputFidelity: imageControls.inputFidelity
+      })
+    }).map((asset, outputIndex) => ({
       ...asset,
       prompt: imageEntries[outputIndex]?.prompt || prompt,
       title: count > 1 ? `方案 ${(imageEntries[outputIndex]?.index ?? outputIndex) + 1}` : asset.title,

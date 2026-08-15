@@ -276,6 +276,47 @@
   --ui-surface-width: 920px;
 }
 
+/* The editor is a working surface, so its maximize action expands the whole
+   dialog instead of only stretching the preview column. The surrounding
+   dialog layer keeps a small safety margin for window edges and focus rings. */
+.unified-node-editor.is-maximized {
+  width: calc(100vw - 24px);
+  height: calc(100dvh - 24px);
+  max-width: none;
+  max-height: none;
+  border-radius: 6px;
+}
+
+.unified-node-editor.is-maximized .unified-node-editor-body {
+  grid-template-columns: minmax(0, 1.12fr) minmax(400px, 0.88fr);
+}
+
+.unified-node-editor.is-maximized .unified-node-editor-preview {
+  min-height: 0;
+  padding: 24px;
+}
+
+.unified-node-editor.is-maximized .unified-node-editor-preview img {
+  max-height: none;
+}
+
+.unified-node-editor.is-maximized .unified-node-editor-fields {
+  padding: 24px;
+}
+
+.unified-node-editor.is-maximized .node-editor-generation-grid {
+  max-height: 260px;
+}
+
+.node-editor-maximize {
+  color: var(--muted);
+}
+
+.node-editor-maximize:hover:not(:disabled),
+.node-editor-maximize:focus-visible {
+  color: var(--ink);
+}
+
 .node-editor-layer-actions {
   min-width: 0;
   display: flex;
@@ -344,7 +385,7 @@
   object-fit: contain;
 }
 
-.unified-node-editor-preview-open > span {
+.unified-node-editor-preview-hint {
   position: absolute;
   right: 12px;
   bottom: 12px;
@@ -356,6 +397,35 @@
   color: var(--ink-soft);
   background: color-mix(in srgb, var(--surface-solid) 88%, transparent);
   font-size: 11px;
+}
+
+.unified-node-editor-image-specs {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  max-width: calc(100% - 116px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.unified-node-editor-image-specs > b {
+  min-width: 0;
+  padding: 5px 7px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--green) 36%, var(--line));
+  border-radius: 6px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-solid) 90%, transparent);
+  box-shadow: var(--small-shadow);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .unified-node-editor-save-image {
@@ -405,6 +475,135 @@
   scrollbar-gutter: stable;
 }
 
+.unified-node-editor-fields.has-generation-details {
+  grid-template-rows: max-content max-content minmax(132px, 1fr);
+  gap: 10px;
+}
+
+.node-editor-generation-details {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+}
+
+.node-editor-generation-details > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.node-editor-generation-details > header > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.node-editor-generation-details > header > span svg {
+  flex: 0 0 auto;
+  color: var(--accent-strong);
+}
+
+.node-editor-generation-details > header > em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-editor-generation-grid {
+  min-width: 0;
+  max-height: 142px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 1px 14px;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.node-editor-generation-grid > div {
+  min-width: 0;
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 48%, transparent);
+}
+
+.node-editor-generation-grid dt {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-editor-generation-grid dd {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.node-editor-generation-grid dd > span,
+.node-editor-generation-grid dd > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-editor-generation-grid dd > i {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.node-editor-generation-grid dd > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent-strong);
+  font-weight: 760;
+}
+
+.node-editor-generation-grid dd > strong.is-asset {
+  color: var(--green);
+}
+
+.node-editor-generation-grid dd > strong.is-runtime {
+  color: var(--ink-soft);
+}
+
+.node-editor-generation-grid dd > strong > small {
+  flex: 0 0 auto;
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 760;
+  opacity: 0.78;
+}
+
 .unified-node-editor-fields .ui-field {
   min-width: 0;
   min-height: 0;
@@ -417,7 +616,7 @@
 }
 
 .unified-node-editor-fields .ui-field-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 760;
 }
 
@@ -581,8 +780,23 @@
     border-bottom: 1px solid var(--line);
   }
 
+  .unified-node-editor.is-maximized {
+    width: calc(100vw - 16px);
+    height: calc(100dvh - 16px);
+  }
+
+  .unified-node-editor.is-maximized .unified-node-editor-preview {
+    max-height: min(46dvh, 520px);
+    padding: 14px;
+  }
+
+  .unified-node-editor.is-maximized .unified-node-editor-fields {
+    padding: 18px;
+  }
+
   .unified-node-editor-fields,
-  .unified-node-editor-fields.has-layer-composition {
+  .unified-node-editor-fields.has-layer-composition,
+  .unified-node-editor-fields.has-generation-details {
     height: auto;
     grid-template-rows: max-content minmax(180px, auto);
     overflow: visible;
@@ -590,6 +804,10 @@
 
   .unified-node-editor-fields.has-layer-composition {
     grid-template-rows: max-content minmax(140px, auto) max-content;
+  }
+
+  .unified-node-editor-fields.has-generation-details {
+    grid-template-rows: max-content max-content minmax(160px, auto);
   }
 
   .unified-node-editor-fields textarea {
@@ -602,5 +820,15 @@
 
   .unified-node-editor-footer .node-editor-action {
     flex: 1 1 auto;
+  }
+}
+
+@media (max-height: 760px) {
+  .node-editor-generation-grid {
+    max-height: 126px;
+  }
+
+  .unified-node-editor-fields.has-generation-details {
+    padding-block: 14px;
   }
 }

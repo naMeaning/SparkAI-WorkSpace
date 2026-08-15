@@ -1,19 +1,12 @@
 "use strict";
 
-const { imagePromptRatios, imagePromptResolutions } = require("../../runtime/image-frame.cjs");
+const { freezeImageFrameSettings } = require("../../runtime/image-frame.cjs");
 const { validateFrozenGoalTaskScope } = require("../../runtime/goal-image-execution.cjs");
 const { normalizeWorkspaceDomain } = require("../../runtime/workspace-domain.cjs");
 
 function settingsWithRequestedImageDefaults(settings = {}, payload = {}) {
   const requested = payload?.imageDefaults && typeof payload.imageDefaults === "object" ? payload.imageDefaults : {};
-  const ratio = String(requested.ratio || "").trim().replace("：", ":");
-  const rawResolution = String(requested.resolution || "").trim().toUpperCase();
-  const resolution = rawResolution === "720P" || rawResolution === "1080P" ? "1K" : rawResolution;
-  return {
-    ...settings,
-    ...(imagePromptRatios.has(ratio) ? { imageRatio: ratio } : {}),
-    ...(imagePromptResolutions.has(resolution) ? { imageResolution: resolution } : {})
-  };
+  return freezeImageFrameSettings(settings, requested);
 }
 
 function registerAgentIpc({

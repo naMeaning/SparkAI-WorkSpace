@@ -302,8 +302,80 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
       detail: issue.detail
     });
   }
+  let nodeEditorMaximizedPreflightCapture = null;
+  const nodeEditorPreflightOpen = await evaluate(
+    client,
+    `window.__naimageAIDebug?.openNodeEditor?.({ id: ${JSON.stringify(String(suite?.ids?.singleId || ""))}, index: 0 })`
+  );
+  if (nodeEditorPreflightOpen?.ok) {
+    await waitForExpression(client, "Boolean(window.__naimageDebugAgentState?.().nodeEditorOpen)", 5000);
+    const nodeEditorPreflightToggle = await evaluate(client, `window.__naimageAIDebug?.toggleNodeEditorMaximized?.()`);
+    await waitForExpression(client, "window.__naimageDebugAgentState?.().nodeEditorUi?.maximized === true", 5000);
+    const nodeEditorPreflightState = await evaluate(client, `window.__naimageDebugAgentState?.().nodeEditorUi || null`);
+    const nodeEditorPreflightViewport = await evaluate(client, `({ width: window.innerWidth, height: window.innerHeight })`);
+    const nodeEditorPreflightSpace = nodeEditorPreflightState?.spaceUse || null;
+    nodeEditorMaximizedPreflightCapture = await captureState(
+      client,
+      targetId,
+      "standard-node-editor-maximized-preflight-1280",
+      null,
+      null,
+      {
+        settingsOpen: false,
+        historyOpen: false,
+        modalOpen: true,
+        modalWithinViewport: true,
+        titlebarOverlay: true,
+        agentDebugReady: true,
+        agentIdle: true
+      }
+    );
+    const dialogRect = nodeEditorPreflightSpace?.dialogRect;
+    const typography = nodeEditorPreflightSpace?.generationTypography;
+    const nodeEditorPreflightProof = {
+      ok: Boolean(
+        nodeEditorPreflightToggle?.ok && nodeEditorPreflightState?.maximized === true &&
+        nodeEditorPreflightSpace?.generationPanelOk === true && dialogRect &&
+        dialogRect.width >= Number(nodeEditorPreflightViewport?.width || 0) - 40 &&
+        dialogRect.height >= Number(nodeEditorPreflightViewport?.height || 0) - 40 &&
+        Number(typography?.labelFontSize?.replace("px", "") || 0) >= 12 &&
+        Number(typography?.valueFontSize?.replace("px", "") || 0) >= 12
+      ),
+      open: nodeEditorPreflightOpen,
+      toggle: nodeEditorPreflightToggle,
+      viewport: nodeEditorPreflightViewport,
+      dialogRect,
+      typography,
+      generationPanelOk: nodeEditorPreflightSpace?.generationPanelOk === true
+    };
+    suite.nodeEditorMaximizedPreflight = nodeEditorPreflightProof;
+    nodeEditorMaximizedPreflightCapture.nodeEditorMaximizedPreflight = nodeEditorPreflightProof;
+    if (!nodeEditorPreflightProof.ok) {
+      nodeEditorMaximizedPreflightCapture.stateIssues.push({
+        key: "standardNodeEditorMaximizedPreflightOk",
+        expected: true,
+        actual: nodeEditorPreflightProof
+      });
+    }
+    await evaluate(client, `window.__naimageAIDebug?.toggleNodeEditorMaximized?.()`);
+    await evaluate(client, `document.querySelector('.unified-node-editor [aria-label="关闭成果编辑器"]')?.click()`);
+    await waitForExpression(client, "!window.__naimageDebugAgentState?.().nodeEditorOpen", 5000);
+    writeFileSync(suitePath, JSON.stringify(suite, null, 2));
+  } else {
+    suite.nodeEditorMaximizedPreflight = { ok: false, open: nodeEditorPreflightOpen };
+    writeFileSync(suitePath, JSON.stringify(suite, null, 2));
+  }
   if (expectedImageNodes > 0) {
-    await waitForExpression(client, `document.querySelectorAll(".flow-node.image").length >= ${expectedImageNodes}`, 6000);
+    try {
+      await waitForExpression(client, `document.querySelectorAll(".flow-node.image").length >= ${expectedImageNodes}`, 6000);
+      suite.renderedNodeWaitOk = true;
+    } catch (error) {
+      suite.renderedNodeWaitOk = false;
+      recordObservation("issue", "canvas-image-collection-render-wait", {
+        expectedImageNodes,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
   const capture = await captureState(
     client,
@@ -375,7 +447,14 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     client,
     `window.__naimageAIDebug.openImageViewer({ id: ${JSON.stringify(String(suite?.ids?.batchId || ""))}, index: 4 })`
   );
-  await waitForExpression(client, "Boolean(document.querySelector('.image-viewer header [aria-label=\"另存为\"]')) && !document.querySelector('.image-viewer .image-viewer-drag-handle')", 5000);
+  try {
+    await waitForExpression(client, "Boolean(document.querySelector('.image-viewer header [aria-label=\"另存为\"]')) && !document.querySelector('.image-viewer .image-viewer-drag-handle')", 5000);
+  } catch (error) {
+    recordObservation("issue", "image-viewer-header-wait", {
+      error: error instanceof Error ? error.message : String(error),
+      viewerOpen
+    });
+  }
   const viewerHeaderProof = await evaluate(client, `(() => {
     const surface = document.querySelector('[data-ui-surface="image-viewer"]');
     const description = String(surface?.querySelector('.ui-surface-description')?.textContent || '').replace(/\\s+/g, ' ').trim();
@@ -640,7 +719,13 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     client,
     `window.__naimageAIDebug.openImageViewer({ id: ${JSON.stringify(String(suite?.ids?.batchId || ""))}, index: 4 })`
   );
-  await waitForExpression(client, "document.querySelector('.image-viewer-stage')?.getAttribute('data-buffering') === 'false'", 5000);
+  try {
+    await waitForExpression(client, "document.querySelector('.image-viewer-stage')?.getAttribute('data-buffering') === 'false'", 5000);
+  } catch (error) {
+    recordObservation("issue", "image-viewer-final-buffer-wait", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
   const viewerCapture = await captureState(
     client,
     targetId,
@@ -709,13 +794,70 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
   );
   normalEditorCapture.nodeEditorSpaceProof = normalEditorSpaceProof;
   normalEditorCapture.nodeEditorOpen = normalEditorOpen;
-  if (!normalEditorOpen?.ok || !normalEditorSpaceProof?.ok || normalEditorSpaceProof?.hasLayerPanel) {
+  if (
+    !normalEditorOpen?.ok || !normalEditorSpaceProof?.ok || normalEditorSpaceProof?.hasLayerPanel ||
+    !normalEditorSpaceProof?.hasGenerationPanel || !normalEditorSpaceProof?.generationPanelOk ||
+    !normalEditorSpaceProof?.generationParameterKeys?.includes("model") ||
+    !normalEditorSpaceProof?.generationParameterKeys?.includes("quality") ||
+    !normalEditorSpaceProof?.generationActualSources?.includes("api") ||
+    !normalEditorSpaceProof?.generationActualSources?.includes("asset")
+  ) {
     normalEditorCapture.stateIssues.push({
       key: "standardNodeEditorSpaceUseOk",
       expected: true,
       actual: { open: normalEditorOpen, spaceUse: normalEditorSpaceProof }
     });
   }
+  const normalEditorMaximizeToggle = await evaluate(
+    client,
+    `window.__naimageAIDebug?.toggleNodeEditorMaximized?.()`
+  );
+  const normalEditorMaximizedUi = await evaluate(client, `window.__naimageDebugAgentState?.().nodeEditorUi || null`);
+  const normalEditorMaximizedSpaceProof = await evaluate(client, `window.__naimageDebugAgentState?.().nodeEditorUi?.spaceUse || null`);
+  const normalEditorMaximizedViewport = await evaluate(client, `({ width: window.innerWidth, height: window.innerHeight })`);
+  const normalEditorMaximizedCapture = await captureState(
+    client,
+    targetId,
+    "standard-node-editor-maximized-1280",
+    null,
+    null,
+    {
+      settingsOpen: false,
+      historyOpen: false,
+      modalOpen: true,
+      modalWithinViewport: true,
+      titlebarOverlay: true,
+      agentDebugReady: true,
+      agentIdle: true
+    }
+  );
+  normalEditorMaximizedCapture.nodeEditorMaximizeToggle = normalEditorMaximizeToggle;
+  normalEditorMaximizedCapture.nodeEditorUi = normalEditorMaximizedUi;
+  normalEditorMaximizedCapture.nodeEditorSpaceProof = normalEditorMaximizedSpaceProof;
+  const maximizedDialogRect = normalEditorMaximizedSpaceProof?.dialogRect;
+  const maximizedViewportFillOk = Boolean(
+    normalEditorMaximizedUi?.maximized === true &&
+    maximizedDialogRect &&
+    maximizedDialogRect.width >= Number(normalEditorMaximizedViewport?.width || 0) - 40 &&
+    maximizedDialogRect.height >= Number(normalEditorMaximizedViewport?.height || 0) - 40 &&
+    Number(normalEditorMaximizedSpaceProof?.generationTypography?.labelFontSize?.replace("px", "") || 0) >= 12 &&
+    Number(normalEditorMaximizedSpaceProof?.generationTypography?.valueFontSize?.replace("px", "") || 0) >= 12
+  );
+  normalEditorMaximizedCapture.maximizedViewportFillOk = maximizedViewportFillOk;
+  if (!normalEditorMaximizeToggle?.ok || !maximizedViewportFillOk) {
+    normalEditorMaximizedCapture.stateIssues.push({
+      key: "standardNodeEditorMaximizedSpaceUseOk",
+      expected: true,
+      actual: {
+        toggle: normalEditorMaximizeToggle,
+        nodeEditorUi: normalEditorMaximizedUi,
+        spaceUse: normalEditorMaximizedSpaceProof,
+        viewport: normalEditorMaximizedViewport
+      }
+    });
+  }
+  await evaluate(client, `window.__naimageAIDebug?.toggleNodeEditorMaximized?.()`);
+  await waitForExpression(client, "window.__naimageDebugAgentState?.().nodeEditorUi?.maximized !== true", 5000);
   await evaluate(client, `document.querySelector('.unified-node-editor [aria-label="关闭成果编辑器"]')?.click()`);
   await waitForExpression(client, "!window.__naimageDebugAgentState?.().nodeEditorOpen", 5000);
   const compactCapture = await captureState(
@@ -767,7 +909,14 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
   );
   compactNormalEditorCapture.nodeEditorSpaceProof = compactNormalEditorSpaceProof;
   compactNormalEditorCapture.nodeEditorOpen = compactNormalEditorOpen;
-  if (!compactNormalEditorOpen?.ok || !compactNormalEditorSpaceProof?.ok || compactNormalEditorSpaceProof?.hasLayerPanel) {
+  if (
+    !compactNormalEditorOpen?.ok || !compactNormalEditorSpaceProof?.ok || compactNormalEditorSpaceProof?.hasLayerPanel ||
+    !compactNormalEditorSpaceProof?.hasGenerationPanel || !compactNormalEditorSpaceProof?.generationPanelOk ||
+    !compactNormalEditorSpaceProof?.generationParameterKeys?.includes("ratio") ||
+    !compactNormalEditorSpaceProof?.generationParameterKeys?.includes("pixels") ||
+    !compactNormalEditorSpaceProof?.generationActualSources?.includes("api") ||
+    !compactNormalEditorSpaceProof?.generationActualSources?.includes("asset")
+  ) {
     compactNormalEditorCapture.stateIssues.push({
       key: "compactStandardNodeEditorSpaceUseOk",
       expected: true,
@@ -778,11 +927,13 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
   await waitForExpression(client, "!window.__naimageDebugAgentState?.().nodeEditorOpen", 5000);
   const collectionSuite = JSON.parse(JSON.stringify(suite));
   const baseCaptures = [
+    ...(nodeEditorMaximizedPreflightCapture ? [{ ...nodeEditorMaximizedPreflightCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.singleId }] : []),
     { ...capture, suite: collectionSuite, suitePath },
     { ...seriesCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.seriesId },
     { ...batchCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.batchId },
     { ...viewerCapture, suite: collectionSuite, suitePath, viewerOpen, focusedNodeId: suite?.ids?.batchId, viewerIndex: 4 },
     { ...normalEditorCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.singleId },
+    { ...normalEditorMaximizedCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.singleId },
     { ...compactCapture, suite: collectionSuite, suitePath, compactOf: "canvas-image-collection-suite-1280" },
     { ...compactNormalEditorCapture, suite: collectionSuite, suitePath, focusedNodeId: suite?.ids?.singleId, compactOf: "standard-node-editor-space-1280" }
   ];

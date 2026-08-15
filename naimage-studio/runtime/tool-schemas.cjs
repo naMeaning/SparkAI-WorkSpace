@@ -3,7 +3,11 @@
 // Owns the complete internal tool schema set and the sanitized public Agent tool set.
 // Keep names, order, descriptions, required fields, and model-pool enums stable.
 
-const { imagePromptRatios, imagePromptResolutions } = require("./image-frame.cjs");
+const {
+  imageFrameContractForSettings,
+  imagePromptRatios,
+  imagePromptResolutions
+} = require("./image-frame.cjs");
 
 const primaryImageToolName = "image_gen";
 const imagePromptRatioValues = [...imagePromptRatios];
@@ -53,9 +57,24 @@ function imageModelToolProperty(settings = {}) {
 
 function toolSchemas(settings = {}) {
   const imageModelProperty = imageModelToolProperty(settings);
-  const defaultImageRatio = imagePromptRatios.has(String(settings.imageRatio || "").trim()) ? String(settings.imageRatio).trim() : "1:1";
-  const requestedResolution = String(settings.imageResolution || "").trim().toUpperCase();
-  const defaultImageResolution = imagePromptResolutions.has(requestedResolution) ? requestedResolution : "1K";
+  const imageFrameContract = imageFrameContractForSettings(settings);
+  const defaultImageRatio = imageFrameContract.ratio;
+  const defaultImageResolution = imageFrameContract.resolution;
+  const imageRatioValues = imageFrameContract.locked ? [defaultImageRatio] : imagePromptRatioValues;
+  const imageResolutionValues = imageFrameContract.locked ? [defaultImageResolution] : imagePromptResolutionValues;
+  const imageSizeProperty = imageFrameContract.locked
+    ? {
+        type: "string",
+        enum: [imageFrameContract.size],
+        description: `本次最终交付尺寸已由对话框按钮锁定为 ${imageFrameContract.size}，模型不能覆盖。运行时会为上游选择兼容基础画幅，再无拉伸地规整到该尺寸。`
+      }
+    : { type: "string", description: "可选最终交付尺寸。优先设置 ratio/resolution；运行时会使用图像服务稳定支持的基础画幅生成，再无拉伸地裁切到交付尺寸。" };
+  const ratioDescription = imageFrameContract.locked
+    ? `本次画面比例已由对话框按钮锁定为 ${defaultImageRatio}，模型和批量子项都不能覆盖。`
+    : `用户要求的画面比例。当前默认值为 ${defaultImageRatio}；用户未明确其他比例时使用该值，用户说 3:4、竖版海报等时按用户要求覆盖。多图时每张图使用同一比例。`;
+  const resolutionDescription = imageFrameContract.locked
+    ? `本次输出清晰度已由对话框按钮锁定为 ${defaultImageResolution}，模型和批量子项都不能覆盖。清晰度与 quality（草稿/标准/精细）是两个不同参数。`
+    : `输出清晰度档位。当前默认值为 ${defaultImageResolution}；用户未明确其他清晰度时使用该值。清晰度与 quality（草稿/标准/精细）是两个不同参数。`;
   return normalizeToolSchemas([
     {
       type: "function",
@@ -87,9 +106,9 @@ function toolSchemas(settings = {}) {
             mode: { type: "string", enum: ["generate", "edit", "redraw", "cutout"], description: "兼容字段；优先使用 operation。" },
             prompt: { type: "string", description: "必填的顶层纯视觉画面 prompt。复杂任务按用途、主体与身份或商品、场景、风格媒介、构图景别、光线氛围、逐字文字、参考图分工、保留项与禁改项、输出意图组织；编辑任务明确‘只改变 X，保持 Y 不变’。用户要求、参考图 purpose 和当前 FastMemory 优先于通用风格，不擅自套用电影感、蓝金或海报模板。只能写最终画面需要呈现的内容；彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，不能把它们写成负面约束。count=1 时完整提示词只写在这里并且不要填写 items。多图且方向不同时这里只写共同约束，各自完整画面写入 items.prompt；不要把清晨/夜色/极简等多个互斥方案塞进同一个顶层 prompt。不要直接填用户评价、催促、对话文本或‘这张效果很好’等反馈原文。" },
             model: imageModelProperty,
-            ratio: { type: "string", enum: imagePromptRatioValues, description: `用户要求的画面比例。当前默认值为 ${defaultImageRatio}；用户未明确其他比例时使用该值，用户说 3:4、竖版海报等时按用户要求覆盖。多图时每张图使用同一比例。` },
-            resolution: { type: "string", enum: imagePromptResolutionValues, description: `输出清晰度档位。当前默认值为 ${defaultImageResolution}；用户未明确其他清晰度时使用该值。清晰度与 quality（草稿/标准/精细）是两个不同参数。` },
-            size: { type: "string", description: "可选最终交付尺寸。优先设置 ratio/resolution；运行时会使用图像服务稳定支持的基础画幅生成，再无拉伸地裁切到交付尺寸。" },
+            ratio: { type: "string", enum: imageRatioValues, description: ratioDescription },
+            resolution: { type: "string", enum: imageResolutionValues, description: resolutionDescription },
+            size: imageSizeProperty,
             quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
             count: { type: "integer", minimum: 1, maximum: 200, description: "独立输出图片总张数，只能来自用户明确要求。运行时按设置中的每批数量顺序派发，不会一次发出全部请求；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
             generationMode: { type: "string", enum: ["parallel", "sequential"], description: "count>1 时的执行与画布组织方式。parallel=同一轮要求 N 张、N 版、N 个候选或 N 个方案，并收纳为批量图片组；即使用户说‘基于这张继续给 N 版’，也应使用 parallel 并另设 parentId。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。" },
@@ -113,8 +132,9 @@ function toolSchemas(settings = {}) {
                   slotId: { type: "string", description: "可选的结构化套图槽位 ID；仅作成果溯源，不得写入画面。" },
                   slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选的结构化套图槽位零基序号；同一槽位跨语言复用相同序号，仅作成果溯源。" },
                   localeCode: { type: "string", description: "可选的 BCP-47 目标语言代码；仅作成果溯源与排版策略。" },
-                  ratio: { type: "string", enum: imagePromptRatioValues },
-                  resolution: { type: "string", enum: imagePromptResolutionValues },
+                  ratio: { type: "string", enum: imageRatioValues, description: ratioDescription },
+                  resolution: { type: "string", enum: imageResolutionValues, description: resolutionDescription },
+                  size: imageSizeProperty,
                   quality: { type: "string", enum: ["low", "medium", "high", "auto"] }
                 },
                 required: ["prompt"]
