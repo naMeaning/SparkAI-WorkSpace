@@ -23,6 +23,7 @@ import sharp from "sharp";
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptRoot, "..");
 const diagnosticsRoot = join(repoRoot, ".diagnostics", "aidebug-agents");
+const electronDiagnosticsRoot = join(repoRoot, ".diagnostics", "electron");
 const catalogPath = join(repoRoot, "AIDEBUG", "catalog.json");
 const packageJsonPath = join(repoRoot, "package.json");
 const runnerPath = join(repoRoot, "AIDEBUG", "run.mjs");
@@ -363,6 +364,8 @@ function assertReclaimNotStale(pack, label, staleAfterMs = 100) {
 
 async function main() {
   const evidence = {};
+  mkdirSync(diagnosticsRoot, { recursive: true });
+  mkdirSync(electronDiagnosticsRoot, { recursive: true });
 
   const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
   const superGoal = JSON.parse(readFileSync(superGoalPath, "utf8"));
@@ -611,7 +614,7 @@ async function main() {
   ], [["task-aidebug-options"]]);
   const reviewedAgent = await runWorkpackAgent(reviewPack.workpackPath, "task-aidebug-options", { heartbeatMs: 250 });
   assert.equal(reviewedAgent.result.ok, true);
-  const guiRunDir = join(repoRoot, ".diagnostics", "electron", `aidebug-workpack-protocol-${timestamp()}`);
+  const guiRunDir = join(electronDiagnosticsRoot, `aidebug-workpack-protocol-${timestamp()}`);
   const guiReportPath = join(guiRunDir, "report.json");
   const screenshotPath = join(guiRunDir, "protocol-frame.png");
   mkdirSync(guiRunDir, { recursive: false });
