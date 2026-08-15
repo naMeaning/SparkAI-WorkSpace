@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,23 @@ let agentClient;
 
 async function main() {
   mkdirSync(runDir, { recursive: true });
+  mkdirSync(configDir, { recursive: true });
+  const projectDir = join(runDir, "project");
+  mkdirSync(projectDir, { recursive: true });
+  const projectTimestamp = new Date().toISOString();
+  const projectName = "Agent Window UI Fixture";
+  writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: "agent-window-ui-project",
+    projects: [{
+      id: "agent-window-ui-project",
+      name: projectName,
+      path: projectDir,
+      sessionPath: join(projectDir, "session.json"),
+      createdAt: projectTimestamp,
+      updatedAt: projectTimestamp,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
   assert(existsSync(electronCli), "Electron CLI is missing");
   assert(existsSync(viteCli), "Vite CLI is missing");
   const [debugPort, vitePort] = await Promise.all([allocateDebugPort(), allocateDebugPort()]);
@@ -60,15 +77,28 @@ async function main() {
   await mainClient.open();
   await mainClient.send("Runtime.enable");
   await mainClient.send("Page.enable");
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.project-agent-panel') && window.__naimageAIDebug && window.naimageAgentWindow)", { evaluate, timeoutMs: 15_000, intervalMs: 100 });
+  await waitForRuntimeExpression(
+    mainClient,
+    "Boolean(document.querySelector('.project-agent-panel:not([aria-busy=\"true\"]) button[aria-label=\"调整对话框位置\"]') && window.__naimageAIDebug && window.naimageAgentWindow)",
+    { evaluate, timeoutMs: 15_000, intervalMs: 100 }
+  );
 
-  const openedPlacementMenu = await evaluate(mainClient, `(() => {
+  const placementProbe = await evaluate(mainClient, `(() => {
     const toggle = document.querySelector('button[aria-label="调整对话框位置"]');
-    if (!(toggle instanceof HTMLButtonElement)) return false;
+    const panel = document.querySelector('.project-agent-panel');
+    const shell = document.querySelector('.ide-main');
+    const labels = Array.from(panel?.querySelectorAll('button[aria-label]') || []).map((item) => item.getAttribute('aria-label'));
+    if (!(toggle instanceof HTMLButtonElement)) return {
+      opened: false,
+      panelLabel: panel?.getAttribute('aria-label') || '',
+      panelClass: panel?.className || '',
+      shellClass: shell?.className || '',
+      buttonLabels: labels
+    };
     toggle.click();
-    return true;
+    return { opened: true, panelLabel: panel?.getAttribute('aria-label') || '', panelClass: panel?.className || '', shellClass: shell?.className || '', buttonLabels: labels };
   })()`);
-  assert.equal(openedPlacementMenu, true, "Agent placement menu toggle must be available");
+  assert.equal(placementProbe?.opened, true, `Agent placement menu toggle must be available: ${JSON.stringify(placementProbe)}`);
   await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.agent-placement-menu'))", { evaluate, timeoutMs: 3_000, intervalMs: 60 });
   const openedFromMenu = await evaluate(mainClient, `(() => {
     const button = Array.from(document.querySelectorAll('.agent-placement-menu button')).find((item) => item.textContent?.includes('独立浮动窗口'));
@@ -90,7 +120,13 @@ async function main() {
   await agentClient.open();
   await agentClient.send("Runtime.enable");
   await agentClient.send("Page.enable");
-  await waitForRuntimeExpression(agentClient, "document.querySelector('#agent-prompt')?.disabled === false && document.querySelector('#project-name')?.textContent?.length > 0", { evaluate, timeoutMs: 8_000, intervalMs: 80 });
+  await agentClient.send("Page.bringToFront");
+  await waitForRuntimeExpression(agentClient, "document.visibilityState === 'visible'", { evaluate, timeoutMs: 5_000, intervalMs: 80 });
+  await waitForRuntimeExpression(
+    agentClient,
+    `document.querySelector('#agent-prompt')?.disabled === false && document.querySelector('#project-name')?.textContent?.startsWith(${JSON.stringify(projectName)}) && document.querySelector('#model-name')?.textContent?.length > 0`,
+    { evaluate, timeoutMs: 8_000, intervalMs: 80 }
+  );
 
   const initial = await evaluate(agentClient, `(() => ({
     title: document.title,
@@ -104,7 +140,7 @@ async function main() {
   assert.equal(initial.title, "SparkAI WorkSpace Agent");
   assert.equal(initial.nodeIntegrationHidden, true);
   assert(initial.width >= 360 && initial.height >= 480);
-  assert(initial.project, "Project identity must synchronize from the main renderer");
+  assert(String(initial.project || "").startsWith(projectName), "Project identity must synchronize from the main renderer");
 
   const uniquePrompt = `独立浮窗测试 ${Date.now()}`;
   const submitted = await evaluate(agentClient, `(() => {
