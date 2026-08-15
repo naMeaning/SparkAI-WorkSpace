@@ -1,25 +1,17 @@
-import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const isWindows = process.platform === "win32";
-const pnpm = "pnpm";
+const pnpmScript = String(process.env.npm_execpath || "").trim();
+const command = pnpmScript ? process.execPath : process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const prefix = pnpmScript ? [pnpmScript] : [];
 
-const checks = [
-  ["node", ["--test", "scripts/dev-main.test.mjs", "scripts/gateway-server.test.mjs"]],
-  [pnpm, ["run", "verify:workspace"]],
-  [pnpm, ["--filter", "@ai-native/crm-contracts", "check"]],
-  [pnpm, ["--filter", "@ai-native/crm-api", "check"]],
-  [pnpm, ["--filter", "@ai-native/ai-gateway", "smoke"]]
-];
-
-for (const [command, args] of checks) {
-  const runCommand = isWindows ? process.env.ComSpec || "cmd.exe" : command;
-  const runArgs = isWindows
-    ? ["/d", "/s", "/c", [command, ...args].join(" ")]
-    : args;
-  const result = spawnSync(runCommand, runArgs, {
+for (const args of [
+  ["run", "verify:workspace"],
+  ["--filter", "@sparkai/extension", "check"]
+]) {
+  const result = spawnSync(command, [...prefix, ...args], {
     cwd: root,
     env: process.env,
     stdio: "inherit",

@@ -1,0 +1,17 @@
+{
+  "name": "@sparkai/extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/main.mjs",
+    "start": "node src/main.mjs",
+    "build": "node scripts/check-sources.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check-sources.mjs && node --test test/*.test.mjs",
+    "license:admin": "node src/license-admin.mjs"
+  }
+}

@@ -11,12 +11,13 @@
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
 | --- | --- | --- | --- | --- |
 | `naimage-studio/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
-| `ai-native/` | naimage 的统一后端与运营 monorepo；账号、session、角色、quota、模型路由/计费、唯一 Web GUI、生产部署；现有 CRM 为待删除的旧模块，本轮不修改 | 本地多进程或 Linux/Docker 生产环境 | Node 24、pnpm workspace、Go 1.25/Gin/GORM、React 19/TypeScript/Rsbuild/TanStack/Tailwind 4、Bun workspace、原生 Node HTTP + mysql2、MySQL/SQLite/Postgres/Redis、Docker Compose/Caddy/systemd | 账号身份、角色、quota、模型目录、计费与用量日志、发布清单；CRM 数据仅在旧模块内 |
+| `ai-native/` | SparkAI 独立扩展服务；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | Node 24 原生 HTTP、`node:sqlite`、Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
 
 一句话判断：
 
 - 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `naimage-studio/`。
-- 改登录、模型服务、余额/计费、CRM、Web 管理界面、后端 API 或生产部署：进入 `ai-native/`。
+- 改账号、渠道、余额、计费或 New API 管理界面：修改用户独立维护的原生 New API，不进入本工作区。
+- 改 Pro License、兑换码、`/v1/image-tasks` 或其同域反向代理部署：进入 `ai-native/`。
 - 改远端 API、模型 DTO、更新 manifest 或认证规则：通常需要两边同步。
 
 ## 2. 跨项目总体拓扑
@@ -24,24 +25,21 @@
 ```mermaid
 flowchart LR
   User["用户"] --> Desktop["naimage-studio\nElectron 桌面端"]
-  User --> Web["ai-native\n唯一 Web GUI"]
 
-  Desktop -->|"session cookie + New-Api-User\n账户/密钥管理"| NewAPI["New API\nGo / Gin / GORM"]
-  Desktop -->|"selected token + Bearer\n/v1 模型调用"| NewAPI
-  Web -->|"同源 /api 与模型接口"| NewAPI
+  Desktop -->|"账号/session/Token/普通 /v1"| NewAPI["用户已部署的原生 New API\n保持上游版本"]
+  Desktop -->|"/api/naimage/license/*\n/v1/image-tasks/*"| Extension["ai-native / SparkAI Extension\nNode 24 + SQLite"]
 
-  NewAPI -->|"/api/crm/* 代理\nHMAC signed identity"| CRM["CRM API\nNode + TypeScript + mysql2"]
+  Extension -->|"Bearer 只在内存\n内网 /v1/images/generations"| NewAPI
   NewAPI --> Providers["上游模型与图片服务"]
 
   Desktop --> LocalProject["本地项目目录\nsession / assets / output"]
   Desktop --> LocalAgent["本地单 Agent runtime\nFastMemory / tools"]
 
-  CRM --> MySQL["MySQL\n分销 / 账本 / 风控"]
-  NewAPI --> NewAPIData["SQLite 默认\n可接 MySQL/Postgres/Redis"]
+  NewAPI --> NewAPIData["New API 自有数据库\n不由本仓维护"]
+  Extension --> ExtensionData["SQLite + 任务结果\nHMAC 身份，不存模型 Key"]
 
-  Deploy["Docker Compose + Caddy\nsystemd watcher"] --> NewAPI
-  Deploy --> CRM
-  Deploy --> MySQL
+  Caddy["现有 API 域名 / Caddy"] -->|"两个扩展路径优先"| Extension
+  Caddy -->|"其余路径"| NewAPI
 ```
 
 ## 3. `naimage-studio` 上下文
@@ -120,80 +118,74 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 
 ## 4. `ai-native` 上下文
 
-### 4.1 Monorepo 组成
+### 4.1 活跃组成
 
 | 路径 | 职责 | 关键技术 |
 | --- | --- | --- |
-| `services/ai-gateway/` | 唯一对外后端入口；检查、构建和启动内嵌 New API | Node/CommonJS 编排 |
-| `services/ai-gateway/new-api/` | 账号、session、角色、quota、模型路由/计费、用量、桌面下载/更新/relay | Go 1.25、Gin、GORM、SQLite/MySQL/Postgres、Redis |
-| `services/ai-gateway/new-api/web/default/` | 唯一 Web GUI，包括 CRM 页面 | React 19、TypeScript、Rsbuild、TanStack Query/Router/Table、Tailwind 4、VChart |
-| `services/crm-api/` | 内部分销、客户归属、佣金、提现、线下充值、账本、风控、审计、月结 | Node HTTP、TypeScript、mysql2 |
-| `packages/crm-contracts/` | CRM DTO、常量和前后端共享契约 | TypeScript workspace package |
-| `packages/shared/` | 非业务共享工具 | TypeScript workspace package |
-| `deploy/production/` | 生产 Compose、Caddy、发布/回滚、备份、验收和 watcher | Docker Compose、Shell、Caddy、systemd |
+| `services/sparkai-extension/` | Pro 兑换码/设备授权与图片任务创建、查询、后台转发 | Node 24 原生 HTTP、`node:sqlite`、进程内并发队列 |
+| `deploy/sparkai-extension/` | 单服务 Docker、数据卷、健康检查与同域 Caddy 路由示例 | Docker Compose、Caddy |
+| `scripts/verify-workspace.mjs` | 保证根 `dev/start/build/test/check` 只指向扩展服务 | Node.js |
 
-### 4.2 本地三进程
+`services/ai-gateway/`、`services/crm-api/`、`packages/crm-contracts/` 与 `deploy/production/` 已退出活跃入口，仅作为后续经验证清理的遗留源码保留。根脚本不得再构建或启动它们。
+
+### 4.2 单进程与同域路由
 
 | 端口 | 服务 | 用途 |
 | --- | --- | --- |
-| `17860` | New API gateway | API 与嵌入式前端产物入口 |
-| `17861` | CRM API | 内部业务服务，仅由 New API 代理正常访问 |
-| `17862` | Web dev server | 本地热更新入口，代理到 17860 |
-
-浏览器正常 CRM 链路：
+| `17910` | SparkAI Extension | 只监听回环/私网，由现有 Caddy 转发扩展路径 |
+| 用户现有端口 | 原生 New API | 账号、Token、模型、渠道、quota、计费及其他全部原生接口 |
 
 ```text
-Web GUI → New API session → /api/crm/* → HMAC signed identity → CRM /crm/*
+/api/naimage/license/* → 127.0.0.1:17910
+/v1/image-tasks/*      → 127.0.0.1:17910
+其他路径                → 用户现有原生 New API
 ```
 
-CRM 不保存浏览器密码、session、模型 Key 或 New API 余额事实；它只保存分销扩展、账本、风控和运营数据。
+图片 Worker 的 `SPARKAI_NEW_API_UPSTREAM` 必须指向 New API 的回环、Docker 网络或私网地址，不能再次经过 Cloudflare 公网域名。调用者 Bearer Key 只存在于任务进程内存；SQLite 仅保存带服务端秘密的 HMAC owner hash。
 
 ### 4.3 常见修改入口
 
 | 需求 | 首要位置 | 必须联动 |
 | --- | --- | --- |
-| 登录、角色、quota、模型路由/计费 | `new-api` Go controller/service/model | Web DTO、桌面 API 合同、数据库迁移/配置 |
-| CRM DTO 或字段 | `packages/crm-contracts` | CRM API 与 Web GUI 同批更新 |
-| CRM 分销/账本/风控 | `services/crm-api/src` | MySQL migration、审计、New API quota 协调 |
-| CRM 或管理 Web UI | `web/default/src` | Query/Router 契约、New API proxy、响应错误协议 |
-| 统一启动/构建 | 根 `scripts/`、`services/ai-gateway/server.cjs` | 三进程端口、构建产物探测、Windows/Linux 差异 |
-| 生产部署 | `deploy/production/` | Compose、Caddy、备份、回滚、manifest、systemd watcher |
-| 桌面下载/更新 API | New API + `deploy/production/releases` | `naimage-studio` 版本、minimum version、compatibility、公钥、canonical 签名清单与制品；历史签名 sidecar 不进入当前服务路径 |
+| 兑换码、设备数、期限、撤销 | `src/license-service.mjs` | SQLite schema、管理员 CLI、License HTTP 测试、桌面 `test:license` |
+| 图片任务状态、并发、上游转发 | `src/image-task-service.mjs` | `/v1/image-tasks` HTTP 合同、幂等键、结果上限、桌面 transport 测试 |
+| HTTP 鉴权、限流、路由 | `src/http-server.mjs` | Caddy 路径、公开错误 DTO、安全测试 |
+| 部署 | `deploy/sparkai-extension/` | 稳定 HMAC secret、数据卷备份、New API 私网地址、单副本约束 |
+| 账号、渠道、quota、计费 | 用户维护的原生 New API | 不在本仓修改或复制 |
 
 ### 4.4 验证
-
-当前可执行：
 
 ```powershell
 cd E:\019创业项目\nimage\ai-native
 corepack pnpm run verify:workspace
-corepack pnpm run crm:check
+corepack pnpm run build
+corepack pnpm run test
+corepack pnpm run check
 ```
-
-完整 `pnpm run check`/`build` 还需要 New API Web 的 Bun 依赖安装成功。
 
 ## 5. 跨仓同步合同
 
 | 合同 | 桌面侧 | 后端侧 | 修改时检查 |
 | --- | --- | --- | --- |
-| 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | New API user/session controller | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为 |
-| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | New API `naimage_activation_*` model/controller/router | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、hash-only 存储、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
+| 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
+| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC-only 存储、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
-| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/server.ts`、`src/streaming-image-preview.ts` | New API `POST /v1/image-tasks` / `GET /v1/image-tasks/:id`、现有 `Task`/`SystemTask`、共享 `ExecuteRelay`，以及兼容 `/v1/responses` 与 `/v1/images/*` | 纯文生图创建立即返回、2.5 秒 GET 轮询、queued/running/succeeded/failed、创建成功/结果不明后不重建；ratio/size/quality、参考图、旧同步回退、计费与结果落盘；任务 MVP 无 partial，编辑/参考图仍走原链路，模型请求体不注入 group |
-| CRM session | 桌面/Web 的 CRM 入口 | New API proxy + CRM signed identity | 角色、菜单能力、HMAC secret、错误 DTO |
-| 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | release manifest、下载/更新 API、`deploy/production/verify-installer.sh`、生产制品 | manifest schema 与 `naimage-studio` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
+| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | SparkAI Extension `POST /v1/image-tasks` / `GET /v1/image-tasks/:id`；用户原生 New API `/v1/images/generations` 与其他兼容接口 | Electron 纯文生图创建立即返回、2.5 秒 GET 轮询、queued/running/succeeded/failed、Bearer 仅内存、HMAC owner、创建成功/结果不明后不重建；扩展服务通过私网调用原生同步 Images，计费仍完全归 New API；任务无 partial，编辑/参考图仍走原链路 |
+| 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | 独立更新服务、签名 release manifest 与生产制品；不属于 SparkAI Extension | manifest schema 与 `naimage-studio` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
 桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；session cookie + `New-Api-User` 只管理账户、余额和密钥，模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
-纯文生图由所选账户 Key 或自定义图片 Key 优先直连 New API `POST /v1/image-tasks`；服务端完成鉴权、模型限流与渠道选择后把规范化 Images 请求写入现有 `Task`，由现有 `SystemTask` 租约调度在原 HTTP 请求之外调用共享 `ExecuteRelay → ImageHelper`，客户端每 2.5 秒通过 `GET /v1/image-tasks/:id` 查询。上游即使同步运行 3–5 分钟，Cloudflare 只承载短 POST/GET；Task 成功后返回原 Images JSON 并进入既有受管落盘。拿到 `task_id` 或创建结果不明后不得自动重新 POST，短暂查询错误只重试 GET；进程崩溃留下的 running task 标记失败而不重放上游。仅当创建端点明确不支持时，Desktop 才回退既有 `/v1/responses` image_generation → `/v1/images/generations` 同步链路；编辑/参考图继续走 `/v1/images/edits` multipart。任务化 MVP 不提供 partial，旧同步链路的 partial 规则保持不变。账号 Bearer 请求不携带账户 Cookie、用户 ID 或客户端 `group`；浏览器回退通过 Session `/naimage/v1/image-tasks` 别名使用同一后端任务实现。
+账号模式纯文生图使用所选账户 Key 请求同域 `POST /v1/image-tasks`；Caddy 只把该路径交给 SparkAI Extension。扩展服务立即写入自己的 SQLite 任务表并返回 `task_id`，Bearer Key 只留在单进程内存，后台通过 `SPARKAI_NEW_API_UPSTREAM` 的私网地址调用原生 New API `/v1/images/generations`，原生 New API 继续完成鉴权、渠道选择、计费与上游同步等待。客户端每 2.5 秒查询 `GET /v1/image-tasks/:id`；SQLite 以 HMAC owner 隔离任务，结果短期落盘，服务重启把 queued/running 标记失败且不重放。Cloudflare 只承载短 POST/GET。拿到 `task_id` 或创建结果不明后不得重新 POST；只有扩展端点明确不支持时才回退既有同步链路。自定义 Base URL 仍直接访问用户接口，若其不支持 image-task 则走原兼容回退，用户 Base URL/API Key 不上传扩展 License API。
 
-产品的 canonical 对外身份是 `naimage`；当前桌面账号模型入口为标准 `/v1/*`，包括本轮新增的 `/v1/image-tasks`，账户与密钥管理入口为 `/api/user/*`、`/api/token/*`，下载入口为 `/downloads/naimage-studio/windows`。`/naimage/v1/*` 仍是浏览器 Session Relay/历史扩展合同，本轮只增加 image-task 镜像，不替代 Desktop 的 Bearer `/v1/*`。manifest product、数据格式和 `/naimage-logo.svg` 均使用当前品牌。旧本地项目与设置只保留只读迁移；生产 Compose、容器、网络、数据根和 systemd unit 仍属于既有物理 ABI，本轮没有切换，后续改名必须另开维护窗口并准备备份和回滚。
+正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 
-生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，服务端内部归一化到冻结命名空间并保持上游派生键稳定，确保跨品牌升级重试仍命中同一记录；这不恢复任何旧公共路由。
+产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务没有 Web GUI、账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。
+
+生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，扩展服务按 owner + idempotency HMAC 返回同一任务，并把原键继续传给私网 New API；已收到任务 ID或创建结果不明时不得重建，以避免重复扣费。
 
 冻结的 1.0.4 manifest 仅供历史验签；当前后端只接受 `naimage-studio`，因此首次 1.0.5 上线必须与新签名 manifest 原子部署。部署校验默认拒绝历史 product，只有显式只读审计才可开启历史验签开关。
 
@@ -207,14 +199,14 @@ corepack pnpm run crm:check
 
 已验证版本：Node `24.15.0`、Corepack pnpm `10.12.1`、Bun `1.3.14`/`1.2.23`、Go `1.25.1`、.NET SDK `9.0.316`。
 
-当前本地依赖和工具链已可完成 Studio typecheck/build、New API Web Bun typecheck/build、Go 定向测试与工作区验证。若后续在更深的 Windows 路径重新安装 Bun 依赖，仍需留意系统长路径策略。
+当前本地依赖和工具链已可完成 Studio typecheck/build、SparkAI Extension Node 测试、Compose 静态校验与工作区验证。旧 New API Web/Go 工具链只属于待清理源码，不再是活跃服务的完成条件。
 
 ## 7. Agent 检索与维护规则
 
 优先检索稳定符号，不依赖行号：
 
 - 桌面：`applyRuntimeActions`, `ConfigBridge`, `createProjectSaveCoordinator`, `responsesRequestFromChatRequest`, `prepareViewImageModelPayload`。
-- 后端：`crm_proxy`, `CRM_EMBED_TRUST_SECRET`, `/naimage/v1`, `/api/desktop-update`, `crm_account_events`。
+- 扩展服务：`LicenseService`, `ImageTaskService`, `createExtensionHttpServer`, `/api/naimage/license`, `/v1/image-tasks`。
 
 以下变化必须同步本文；若只影响桌面，还必须同步 `naimage-studio/docs/CONTEXT_MAP.md`：
 

@@ -14,17 +14,13 @@
   },
   "scripts": {
     "verify:workspace": "node scripts/verify-workspace.mjs",
-    "dev": "pnpm run dev:main",
-    "dev:main": "node scripts/dev-main.mjs",
-    "start": "pnpm run dev:main",
-    "build": "pnpm run build:main",
-    "build:main": "pnpm run build:gateway",
+    "dev": "pnpm --filter @sparkai/extension dev",
+    "start": "pnpm --filter @sparkai/extension start",
+    "build": "pnpm --filter @sparkai/extension build",
+    "test": "pnpm --filter @sparkai/extension test",
     "check": "node scripts/check.mjs",
-    "dev:gateway": "pnpm --filter @ai-native/ai-gateway dev",
-    "build:gateway": "pnpm --filter @ai-native/ai-gateway build:new-api",
-    "diagnostics:gateway": "pnpm --filter @ai-native/ai-gateway diagnostics",
-    "diagnostics:crm-ui": "node scripts/diagnostics/crm-ui-audit.mjs",
-    "smoke:gateway": "pnpm --filter @ai-native/ai-gateway smoke",
-    "crm:check": "pnpm --filter @ai-native/crm-api check"
+    "license:create": "node services/sparkai-extension/src/license-admin.mjs create",
+    "license:list": "node services/sparkai-extension/src/license-admin.mjs list",
+    "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable"
   }
 }

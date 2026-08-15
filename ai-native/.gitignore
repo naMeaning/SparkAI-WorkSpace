@@ -10,6 +10,8 @@ apps/image-studio/.diagnostics/
 services/ai-gateway/config/
 services/ai-gateway/.diagnostics/
 services/crm-api/data/
+services/sparkai-extension/data/
+deploy/sparkai-extension/data/
 services/ai-gateway/new-api/logs/
 services/ai-gateway/new-api/data/
 services/ai-gateway/new-api/upload/

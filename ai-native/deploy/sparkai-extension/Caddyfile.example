@@ -1,0 +1,10 @@
+# Put these handlers before the catch-all reverse_proxy for the stock New API.
+@sparkai_extension path /api/naimage/license /api/naimage/license/* /v1/image-tasks /v1/image-tasks/*
+handle @sparkai_extension {
+  reverse_proxy 127.0.0.1:17910
+}
+
+# Keep the existing upstream and all of its native routes unchanged.
+handle {
+  reverse_proxy 127.0.0.1:3000
+}

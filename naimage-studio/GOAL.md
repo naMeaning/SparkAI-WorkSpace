@@ -3,7 +3,7 @@
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
 
-当前里程碑：阶段 1–13 的既有产品实现保留。当前 Goal 的项目根、旧数据迁移、导出完善、成果图片生成参数展示、顶部对话框生图规格绑定、Cloudflare 图片长请求任务化 MVP，以及 Agent 文本原生复制、图片内容摘要标题、production 迁移确认兼容均已完成实现：新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。旧数据迁移工具显式扫描 AppData 中的旧项目/全局 Session，复制到用户选择的项目目录，并在目标空间预检、完整哈希校验、原子发布、索引切换后才允许单独确认清理源数据；preload 只对 production 压缩产生的数字 `1` 做有界布尔恢复，Main 仍严格要求显式确认。Agent 普通消息允许原生选中和 `Ctrl+C`，不增加逐消息按钮。生成成果由本地纯函数从 Prompt 提炼内容摘要，统一节点、图片组、资产和槽位标题，不修改原始 Prompt、不增加模型调用。应用级设置、加密密钥、账号/模型缓存、项目索引和迁移回执继续留在系统应用数据目录，不进入项目或安装目录。每张生成图独立保留白名单请求/响应/耗时元数据，编辑成果按请求、响应、成图实测和本次运行分源展示；缺失响应字段不推测，本地导入不继承虚假请求。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格，模型提交的冲突参数不得覆盖；请求同时携带结构化画幅参数，并在上游 Prompt 中明确画幅、清晰度和最终像素。纯文生图先创建 New API 图片任务并轮询短 GET，真正的同步上游调用在现有后台调度内完成；编辑/参考图及第三方同步接口保持兼容。全程未调用真实模型。
+当前里程碑：阶段 1–13 的既有产品实现保留。当前 Goal 的项目根、旧数据迁移、导出完善、成果图片生成参数展示、顶部对话框生图规格绑定、Cloudflare 图片长请求任务化 MVP，以及 Agent 文本原生复制、图片内容摘要标题、production 迁移确认兼容均已完成实现：新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。旧数据迁移工具显式扫描 AppData 中的旧项目/全局 Session，复制到用户选择的项目目录，并在目标空间预检、完整哈希校验、原子发布、索引切换后才允许单独确认清理源数据；preload 只对 production 压缩产生的数字 `1` 做有界布尔恢复，Main 仍严格要求显式确认。Agent 普通消息允许原生选中和 `Ctrl+C`，不增加逐消息按钮。生成成果由本地纯函数从 Prompt 提炼内容摘要，统一节点、图片组、资产和槽位标题，不修改原始 Prompt、不增加模型调用。应用级设置、加密密钥、账号/模型缓存、项目索引和迁移回执继续留在系统应用数据目录，不进入项目或安装目录。每张生成图独立保留白名单请求/响应/耗时元数据，编辑成果按请求、响应、成图实测和本次运行分源展示；缺失响应字段不推测，本地导入不继承虚假请求。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格，模型提交的冲突参数不得覆盖；请求同时携带结构化画幅参数，并在上游 Prompt 中明确画幅、清晰度和最终像素。纯文生图默认向独立 SparkAI Extension 创建任务并轮询短 GET，扩展进程再通过私网同步调用用户现有的原生 New API；不再要求维护 New API fork。编辑/参考图及第三方同步接口保持兼容。全程未调用真实模型。
 
 并行治理轨道：已完成工作区 Agent Harness。它把历史对话中的稳定用户意图、任务路由、授权边界、验证分级与完成审计固化为根目录 `AGENTS.md`、`HARNESS.md`、`harness/` 及结构校验器；该轨道不覆盖阶段 10 的产品目标，也不扩大其测试范围。
 
@@ -49,7 +49,7 @@
 - 新安装不得创建 AppData 默认项目或全局画布 Session。创建项目与导入项目必须先取得用户选择的目标目录；取消选择不得创建目录、切换项目或写入索引。移除最后一个项目后进入内存空画布，自动保存、导入、生成和导出均不得伪造 `default` 项目。
 - 旧 AppData 项目只做显式迁移，不在启动时自动移动或删除。迁移必须先预检源项目、目标冲突和空间，复制到目标 staging，校验受管文件数量、大小与 SHA-256，原子发布并更新项目索引；源数据清理必须在迁移成功后由用户单独确认。安装目录不作为项目数据目标，避免更新、卸载和权限导致数据丢失。
 - 普通图片、单图 PSD、分层 PSD、图层文件夹与图片组导出均默认写入当前项目的 `exports/` 子目录，Main 在最终提交前复核目标仍在项目根内；普通图片需先明确格式，图片组需提供格式、图片数、槽位失败、预计体积和导出统计预检。
-- 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；服务端必须复用现有 `Task`、`SystemTask` 租约和共享 Relay/ImageHelper，不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 running task 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退 `/v1/responses`/`/v1/images/generations` 同步兼容链路。
+- 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；该端点由独立 SparkAI Extension 提供，不修改原生 New API。扩展服务使用自己的 SQLite 状态和进程内队列，把调用者 Bearer Key 仅保留在内存并通过私网调用原生 `/v1/images/generations`；不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 queued/running 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退同步兼容链路。
 - Agent 普通消息、Markdown、thinking 和工具说明必须允许浏览器原生文本选择及 `Ctrl+C`；普通消息不得增加逐条复制按钮，已有生图提示词专用复制动作保持不变。
 - 生成图片节点、图片组、资产和槽位标题必须表达图片内容摘要，不再复用完整 Prompt 或泛化成果名；摘要只由本地纯函数生成，优先提取结构化主体/场景/用途，保留已有简短人工标题，不修改原始 Prompt、不调用额外模型，同 Prompt 多图使用稳定序号。
 - 项目迁移与清理的 Main handler 继续只接受真正布尔 `true`。preload 只允许把字面 `true` 或 production 压缩后的数字 `1` 归一化为布尔 `true`；字符串 `"1"`、数字 `2`、其他 truthy 值及缺失确认不得提升，归一化也不得修改输入对象。
@@ -81,6 +81,7 @@
 | 当前追加：Cloudflare 图片长请求任务化（已完成） | New API 图片任务创建立即返回，后台调用原同步上游；Desktop/Web 轮询直到最终结果 | `queued/running/succeeded/failed`、用户隔离、Task CAS、SystemTask 租约、失败与崩溃不重放、旧同步接口兼容；本地 mock/fixture 专项、最终 build 与双 Windows x64 测试包均已核验，不调用真实模型。 |
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复（已完成） | 恢复普通消息文本选择复制；让生成成果标题表达图片内容；修复 production 安装包迁移确认被压缩为数字导致的拒绝 | 普通消息无新增按钮且真实 Selection/`Ctrl+C` 通过；标题纯函数与无网络 Electron action 通过；真实 preload VM 只提升 `true`/`1`，Main 保持严格布尔校验；专项、production build、最终 ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权（已完成） | 账号登录直接进入工作区；自定义 Base URL 先激活 Pro；账号模式完整保留逐模型自定义 API Key | 后端计划/设备/撤销合同、桌面登录门禁、官方 License 域名、凭据隔离和逐模型 Key 优先级已实现；双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
+| 当前追加：原生 New API 外置扩展（进行中） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、Docker/Caddy 同域路由和双仓文档已迁移；旧 fork 待扩展部署验证后另行删除。 |
 
 ## 登录与 Pro 自定义接入授权核验（2026-08-15）
 
@@ -101,10 +102,17 @@
 - [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,967,232 bytes，2026-08-15 12:35:53 +08:00，SHA-256 `380E22389355812DED477013A94B051E238D77B44A8A82C73D44098B446FCF5A`。
 - 未调用真实图片/视频模型，未直接迁移或删除用户真实 AppData 数据；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交或推送。
 
-## Cloudflare 图片长请求任务化核验（2026-08-15）
+## SparkAI Extension 外置服务核验（2026-08-15）
 
-- New API 新增 `POST /v1/image-tasks` 与 `GET /v1/image-tasks/:id`，复用现有 `Task`、`SystemTask` 跨实例租约和共享 `ExecuteRelay -> ImageHelper`；纯文生图创建只做鉴权、渠道选择、入库和调度唤醒，HTTP 202 立即返回。后台最多并行两项，CAS 为 running 后执行原 Images provider 链路并保存原 Images JSON；进程崩溃遗留的 running task 标记失败而不重放上游。
-- Desktop 与浏览器纯文生图每 2.5 秒 GET 同一 `task_id`，成功后进入原受管落盘和画布显示；短暂查询错误只重试 GET，创建成功或创建结果不明后均不自动重新 POST。只有创建端点明确返回 404/405/501 或不支持图片任务时才回退旧同步链路；编辑、参考图、`/v1/images/generations` 与 `/v1/responses` 保持不变。
+- `ai-native` 的活跃根入口已改为独立 Node 24 SparkAI Extension，仅提供 `/api/naimage/license*` 与 `/v1/image-tasks*`；账号、Token、渠道、quota、计费和管理后台继续完全属于用户现有的原生 New API。旧 `ai-gateway`、CRM 与 production 部署树已退出根构建/运行入口，只作为部署验证后的待清理输入保留。
+- Extension 使用自己的 SQLite/HMAC 保存兑换码、设备授权、任务 owner 与状态；调用者 Bearer Key 只在进程内存中存在，并通过 `SPARKAI_NEW_API_UPSTREAM` 私网调用原生 `/v1/images/generations`。创建立即返回 `task_id`，进程重启将未完成任务置为 failed 且不重放，结果按保留期启动时及每 15 分钟清理。
+- 本地管理员 CLI 已真实完成“创建 2 枚测试码 → 列表查询 → 禁用 1 枚”闭环，测试码只写入隔离 `.diagnostics` 数据库且临时服务已停止。Extension `build` 与 5 项 loopback 测试（含限时授权/兑换截止）、Compose 静态配置、桌面 `test:license`（9 cases）、`test:custom-api-transport`（31 cases）、`typecheck` 和 production `build`（1667 modules）均退出 0。
+- 本轮没有部署生产、访问真实 License/New API、调用真实图片模型或删除旧 fork。独立浏览器开发回退 `src/server.ts` 仍是历史 session-relay 适配，不作为当前 Electron + Extension 合同的验证证据；若以后发布独立 Web 版，需要另行定义不暴露账户 Key 的服务端凭据桥。
+
+## Cloudflare 图片长请求任务化核验（历史实现，已由外置扩展替代）
+
+- v42 曾把 `POST /v1/image-tasks` 与 `GET /v1/image-tasks/:id` 直接加入 New API，并复用其 `Task`、`SystemTask`、`ExecuteRelay -> ImageHelper`。该实现在当时通过验证，但会形成用户不接受的 New API 二开维护负担，已由上面的独立 SparkAI Extension 架构取代，不再是活跃构建或部署入口。
+- 当时 Desktop 与浏览器使用同一 `task_id` 轮询并通过对应专项；这些历史证据只用于审计，不能证明当前原生 New API + Extension 部署已经在线联调。
 - New API `go test ./controller ./router ./model ./service -count=1` 退出 0；Desktop `test:custom-api-transport` 29 cases、两个 CJS 语法检查、`typecheck`、OpenAPI JSON 解析和 `git diff --check` 均退出 0。独立 `corepack pnpm run build` 退出 0，Vite 转换 1666 modules、10.61 s，仅有既有大 chunk advisory。
 - `corepack pnpm run package:win:variants` 退出 0，包含 `test:access-variant`、安装器资源、两次 production build、两个 Electron/NSIS 内核与品牌安装器封装，`bundleEnforced:false`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
 - [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,965,696 bytes（167.81 MiB），2026-08-15 11:26:41 +08:00，SHA-256 `E9638C6DFC7AA519E132218299FC66ABC3099397ED24663A5FD277B7C0409F4C`。

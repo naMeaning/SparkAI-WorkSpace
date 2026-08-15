@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：44
+> 地图版本：46
 > 最近同步：2026-08-15
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -272,7 +272,7 @@ image_gen
   → electron-main.cjs serverGenerateImage()
   → callNewApiImageWithSession()
   ├─ 纯文生图：POST /v1/image-tasks → task_id → 每 2.5 秒 GET /v1/image-tasks/:id
-  │    └─ New API Task/SystemTask → ExecuteRelay → 原 ImageHelper/provider/retry/billing
+  │    └─ SparkAI Extension 内存凭据/SQLite 状态 → 私网原生 New API /v1/images/generations
   ├─ 编辑/参考图/蒙版：继续使用 /v1/images/edits
   └─ image-task 创建端点明确不支持时：回退既有 Responses-first / Images 同步兼容链路
   → 项目 output 资产
@@ -298,7 +298,7 @@ image_gen
 
 对话模型和生图模型共用 `ModelConnectionBinding` 结构，但分别持久化为 `agentModelBindings` 与 `imageModelBindings`。自定义模式允许每个已选模型覆盖 Base URL/API Key，字段留空时继承全局连接；账号模式同时允许逐模型自定义 API Key 与账户 Token，顺序为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”。账号模式故意忽略绑定中的自定义 Base URL，逐模型 Key 仍只向账号/Relay 地址请求，避免把模型 Key 变成未授权的 Base URL 入口。普通 Chat Completions 和 `/v1/responses` 对话都按请求体中的实际 `model` 解析对话绑定；Responses 生图继续由图片 provider 取图片连接，不能让顶层对话模型绑定抢占图片凭据。Main 在模型列表草稿合并前用当前已解密设置恢复 Renderer 占位符；逐模型 Key 与全局 Key 一样只进入 Windows `safeStorage` sidecar，普通 JSON、Renderer、日志和模型缓存均不含明文。模型缓存身份包含逐模型 Base URL/Key/Token 的 SHA-256 指纹，更换任一绑定后不得复用旧目录。无 Main 注入的 Agent Runtime 直连回退只在 `accessMode=custom` 时应用逐模型 URL/Key；账号 Token 始终由 Main 解析。最低验证为 `test:agent-model-binding`、`test:custom-api-transport`、`test:settings-secret-store`、`test:model-catalog`、`test:settings-lazy-load`、`test:access-variant`、`test:license` 和 `typecheck`。
 
-账号和自定义模式的纯文生图优先使用图片凭据向 `POST /v1/image-tasks` 提交与 Images generation 相同的 JSON；Desktop 使用所选账户 Key 或逐图片模型自定义 Key，浏览器回退使用 Session 认证的 `/naimage/v1/image-tasks` 别名。New API 在正常鉴权、模型限流和渠道分发后写入现有 `Task`（`platform=image`、`action=IMAGE_GENERATION`），唤醒已有 `SystemTask` 租约调度并立即返回 HTTP 202 + `task_id`；后台最多并行两项，把任务 CAS 为 running 后用 detached Gin context 调用共享 `ExecuteRelay → ImageHelper → provider/retry/billing`，最终把原 Images JSON 保存到 Task。客户端每 2.5 秒只做 GET，queued/running 继续，succeeded 进入原落盘/画布链路，failed 显示服务端错误；短暂 GET 网络错误、408/425/429/5xx 只重查同一 ID。拿到 `task_id` 后的所有错误，以及创建阶段网络/408/425/5xx 等结果不明错误，都禁止自动重新 POST；只有创建端点 404/405/501 或明确“不支持 image task”才回退既有 Responses-first / Images 同步兼容链路。任务化 MVP 不提供 partial image；编辑、参考图和蒙版仍走原 `/v1/images/edits`，原 `/v1/images/generations` 与 `/v1/responses` 对第三方保持不变。进程崩溃留下的 running task 会标记失败而不重放上游，优先避免重复生成和重复扣费。
+账号模式纯文生图使用所选账户 Key 向同域 `POST /v1/image-tasks` 提交与 Images generation 相同的 JSON；Caddy 仅把 `/v1/image-tasks*` 分流到独立 SparkAI Extension，其余账号、Token、模型和计费接口继续由用户部署的原生 New API 处理。扩展服务把 Bearer Key 只保留在单进程内存，SQLite 仅保存 HMAC owner 与任务状态，HTTP 202 立即返回 `task_id`；后台最多按配置并行两项，通过不经过 Cloudflare 的私网 `SPARKAI_NEW_API_UPSTREAM` 调用原生 `/v1/images/generations`，把原 Images JSON 短期落盘。客户端每 2.5 秒只做 GET，queued/running 继续，succeeded 进入原落盘/画布链路，failed 显示服务端错误；短暂 GET 网络错误、408/425/429/5xx 只重查同一 ID。拿到 `task_id` 后的所有错误以及创建结果不明错误都禁止重新 POST；扩展进程重启会把 queued/running 标记失败且不重放，优先避免重复扣费。自定义 Base URL 仍直接访问用户接口并在 task endpoint 明确不支持时回退既有同步链路，用户 Base URL/API Key 不上传 License 服务。任务化不提供 partial image；编辑、参考图和蒙版仍走原 `/v1/images/edits`。
 
 生图 SOURCE/REFERENCE 输入和上游图片结果的受管格式为 PNG、JPEG、WebP；`image_gen.outputFormat` 未指定时默认 PNG，未知格式由 Electron Main 在 provider 派发前拒绝。这里的“上游结果格式”属于模型请求与项目资产落盘合同，本地“另存为”属于另一条完全离线的文件链路，不能混用计费语义或资产身份。
 
@@ -804,15 +804,14 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 - `/api/token/?p=1&size=100`, `POST /api/token/:id/key`, `POST/PUT /api/token/`, `DELETE /api/token/:id/`
 - `/api/log/self`
 - `/v1/models`, `/v1/chat/completions`, `/v1/responses`
-- `POST /v1/image-tasks`, `GET /v1/image-tasks/:id`（纯文生图异步任务；短请求创建/查询）
+- `POST /v1/image-tasks`, `GET /v1/image-tasks/:id`（由同域 SparkAI Extension 提供的短请求创建/查询）
 - `/v1/images/generations`, `/v1/images/edits`（兼容同步接口继续保留；密钥自身决定分组，客户端不传 `group`）
 - `/api/naimage/license`, `/api/naimage/license/{activate,verify}`
-- `/api/naimage/license/account/{activate,verify}`（需要 New API 用户 session）
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
-设备激活仍由 `/api/naimage/license*` 单独校验；激活码明文只在管理员创建时返回一次，数据库只保存激活码和授权令牌的 SHA-256；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
+设备激活由独立 SparkAI Extension 的 `/api/naimage/license*` 校验；激活码明文只在管理员 CLI 创建时返回一次，SQLite 只保存激活码、设备、授权令牌的 HMAC；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。扩展服务不读取 New API 数据库、不验证账号、不接收用户 Base URL/API Key。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
 
-账号账户管理的 canonical 入口是 `/api/user/*` 与 `/api/token/*`，账号模型调用的 canonical 入口是账户站 `/v1/*`，其中纯文生图优先使用 `/v1/image-tasks`；更新下载入口是 `/downloads/naimage-studio/windows`。`/naimage/v1/*` 继续作为浏览器 Session Relay/历史扩展合同，本轮只为浏览器回退镜像 `image-tasks`，Desktop 账号模型请求仍使用 Bearer `/v1/*`。修改这些路径、方法、认证 header、DTO、上传限制或更新 schema 时，必须同步审计独立 `ai-native` 仓库。
+账号账户管理的 canonical 入口仍是用户原生 New API 的 `/api/user/*` 与 `/api/token/*`，账号模型调用使用其 `/v1/*`；只有 `/v1/image-tasks*` 和 `/api/naimage/license*` 在反向代理层抢先交给 SparkAI Extension。修改这两个扩展路径、认证 header、DTO、请求/结果上限或同域路由时，必须同步审计独立 `ai-native` 仓库。
 
 ## 7. 镜像实现与同步规则
 
@@ -972,7 +971,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | Skill-backed requirement 节点、重复导入、异常 frontmatter、主/独立 TaskScope 控件 | `corepack pnpm run aidebug:skills` |
 | Codex/Claude Code/OpenCode/OpenClaw Skill 检测、安装与移除 | `corepack pnpm run test:agent-integration` + Skill `quick_validate.py` |
 | 自定义 API `/v1`、JSON/SSE 回退 | `corepack pnpm run test:custom-api-transport` |
-| Cloudflare 图片长请求任务化、单次创建、GET 轮询与旧同步接口兼容 | Desktop `corepack pnpm run test:custom-api-transport`、`corepack pnpm run typecheck`、`node --check desktop/new-api-client.cjs`、`node --check electron-main.cjs`；New API `go test ./controller ./router ./model ./service -count=1` |
+| Cloudflare 图片长请求任务化、单次创建、GET 轮询与旧同步接口兼容 | Desktop `corepack pnpm run test:custom-api-transport`、`corepack pnpm run typecheck`、`node --check desktop/new-api-client.cjs`、`node --check electron-main.cjs`；SparkAI Extension `corepack pnpm run check`（仅 loopback fixture，不调用真实模型） |
 | 顶部 Agent 比例/清晰度冻结、冲突覆盖、AskUser continuation、上游规格 Prompt 与最终像素 | `corepack pnpm run test:image-frame-contract`、`corepack pnpm run test:agent-run-control`、`corepack pnpm run test:goal-runtime`、`corepack pnpm run test:agent-text`、`corepack pnpm run test:custom-api-transport`、`corepack pnpm run test:project-io`、`corepack pnpm run typecheck`；隔离 UI 用 `corepack pnpm run aidebug:ask-user` 核对 composer/pending/resumed frame |
 | 每张最终图片的请求/响应参数、成图实测规格、白名单持久化与本地导入兼容 | `corepack pnpm run test:image-generation-metadata`（13 cases）、`corepack pnpm run test:custom-api-transport`（24 cases）、`corepack pnpm run test:workspace-glass-ui`（155 cases）、`corepack pnpm run typecheck`；编辑成果宽/窄真实 Electron 证据由 `corepack pnpm run aidebug:image-collection` 覆盖 |
 | 双发行接入策略、SparkAPI 专用 Main 门禁、公开安装包命名与构建清单 | `corepack pnpm run test:access-variant`、`corepack pnpm run test:update`、`corepack pnpm run test:release-orchestrator`；Renderer 类型为 `corepack pnpm run typecheck`，需要产物时分别运行 `build:unrestricted` / `build:sparkapi`，双 EXE 使用 `package:win:variants` |
@@ -1050,20 +1049,22 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 - `src/styles.css` 是有序入口；`src/styles/07-workbench-flattening.css` 只保持 07a→07i 顺序，`07j-liquid-glass-surfaces.css` 必须紧随其后，`08-motion-accessibility.css` 继续作为最终 reduced-motion gate。`04b-glass-lab.css` 只由懒加载的 `glass-lab.tsx` 导入，不能为了方便移进全局首屏 CSS。任何样式调整都必须同时保持这些级联与 artwork 不透明保护。
 - `public/glass-theme-bootstrap.js` 必须在 Vite/React 前独立运行，因此启动期 registry/projection 与 canonical `runtime/glass-theme-presets.json` 存在技术栈镜像；修改主题、材质、范围、强调色或变量时必须同步并运行 `test:glass-theme`。不要把 snapshot 的任意 `variables` 恢复为可信输入。
 - `settings-persistence.ts` 直接拥有设置/Storage 导出；新代码不要再从 `core.ts` 查找这些符号。
-- `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线。
+- `src/server.ts` 是浏览器开发回退，不是正式 Electron 产品能力基线；它仍引用历史 `/naimage/v1` session-relay，不能作为当前原生 New API + SparkAI Extension 合同的完成证据。发布独立 Web 版前需要另行设计不向浏览器 Renderer 暴露账户完整 Key 的服务端凭据桥。
 - New API 登录 session 只负责账户、余额、密钥 CRUD、授权和更新管理；账号模式的 Agent、生图与 `/v1/models` 使用所选账户密钥，分组由 token 自身决定，模型 JSON/FormData 不得注入 `group`。模型目录同时保存无凭证的 `supported_endpoint_types` 快照并对错误能力标注保留模型名回退。`/api/user/self/groups` 只用于密钥编辑候选与模型目录查询。设置抽屉按接入、外观、模型、Agent、更新五个分页显示，默认打开接入页。
 - Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
-- 远端 API 和更新发布跨越 `naimage-studio` 与 `ai-native` 两仓，单仓修改不能证明交付完成。
+- Pro License 与 `/v1/image-tasks` 跨越 `naimage-studio` 与 `ai-native` 两仓，单仓修改不能证明交付完成；账号、计费和更新服务不属于 SparkAI Extension。
 
 ## 12. 最近同步记录
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-08-15 | 1.0.9-dev | 上下文地图 v46 完成外置扩展服务收口：`ai-native` 根入口只运行 Node 24 SparkAI Extension，提供 SQLite/HMAC Pro License、管理员发码 CLI 与内存 Bearer/私网原生 Images 的 `/v1/image-tasks`；旧 New API/CRM/production 树退出活跃入口，等待真实部署、备份和回滚验证后再清理。管理员 CLI 创建/列表/禁用闭环、Extension 5 项 loopback 测试（含限时授权/兑换截止）、Compose 配置、桌面 License 9 cases、任务传输 31 cases、typecheck 与 1667-module production build 通过；未访问生产、真实 License/New API 或图片模型。浏览器开发回退仍属历史 session-relay，不计入当前合同。 |
+| 2026-08-15 | 1.0.9-dev | 上下文地图 v45 将服务端边界从定制 New API 改为独立 SparkAI Extension：用户原生 New API 保持可直接升级并继续拥有账号、Token、渠道、quota 与计费；同域仅分流 `/api/naimage/license*`、`/v1/image-tasks*`。扩展服务使用 SQLite/HMAC、管理员独立 Token、单进程内存 Bearer 与私网上游，重启不重放；旧 `ai-native` fork 退出活跃根入口，待部署验证后另行清理。 |
 | 2026-08-15 | 1.0.9-dev | 登录与授权合同拆分：账号登录本身允许进入工作区，不再请求设备 License；自定义 Base URL 必须通过官方服务的 `pro` 兑换码，默认 3 台并沿用永久/限时、禁用撤销、24 小时缓存和 72 小时离线宽限。账号模式保留逐模型自定义 API Key，优先于模型/全局账户 Token，但不接受逐模型 Base URL 绕过；Base URL、Key、Cookie 不进入 License 请求。 |
 | 2026-08-15 | 1.0.9-dev | 上下文地图 v43 修复用户可见的三项问题：Agent 普通消息恢复原生文本选择与 `Ctrl+C`，不增加逐消息复制按钮；`src/image-content-title.ts` 本地提炼内容摘要并统一生成节点/图片组/资产/槽位标题，不改原始 Prompt、不调用模型；迁移失败定位为 production Terser 把 `confirmed:true` 压成 `confirmed:1`，现由 preload 仅将真正 `true`/数字 `1` 恢复为布尔确认，Main 严格校验保持。内容标题 7 cases、IPC 141/138/3、迁移 41 cases、Agent Panel 52 cases（真实 Selection 与 Ctrl+C）、图片容器/布局/组 mutation/流预览、五类导出/Automation、Workspace Glass、project IO、typecheck、`git diff --check` 和最终 production build（1667 modules、9.00 s）通过。最终 ASAR 同时验证压缩后 `confirmed:1`/`confirmedCleanup:1` 与 preload normalizer；双 Windows x64 测试打包退出 0、`bundleEnforced:false`，Unrestricted 为 175,967,232 bytes / SHA-256 `928A6F73C1F30EA2DCDAFB94EE03B430DEFDCEDF9F9C0001799F1678DD299DD4`，SparkAPI 为 175,967,232 bytes / SHA-256 `380E22389355812DED477013A94B051E238D77B44A8A82C73D44098B446FCF5A`。未调用真实模型，未执行正式 Bundle、签名或安装 smoke，代码未提交。 |
-| 2026-08-15 | 1.0.9-dev | 上下文地图 v42 完成 Cloudflare 图片长请求规避用任务化 MVP：New API 以现有 Task/SystemTask 和共享 ExecuteRelay 提供 `POST /v1/image-tasks`、`GET /v1/image-tasks/:id`，创建立即返回，后台最多两项并行执行原 Images provider 链路；Desktop/Web 纯文生图每 2.5 秒轮询，创建成功或结果不明后不重建，只有端点明确不支持才回退旧同步链路，编辑/参考图、`/v1/images/generations` 与 `/v1/responses` 保持原合同。Go controller/router/model/service 定向测试、客户端 29 项传输专项、Node 语法、TypeScript 类型、OpenAPI JSON、production build（1666 modules、10.61 s）与双 Windows x64 测试打包均退出 0，`bundleEnforced:false`；Unrestricted 为 175,965,696 bytes / SHA-256 `E9638C6DFC7AA519E132218299FC66ABC3099397ED24663A5FD277B7C0409F4C`，SparkAPI 为 175,965,184 bytes / SHA-256 `F60E19A1A39271FF52CC1ED2CCC144AE613D2DED9DFB52F2754A6D200680F718`，公开目录无当前版本旧命名。未调用真实模型，未在真实 Cloudflare/provider 验证长时生成，未执行正式 Bundle、签名或安装 smoke，代码未提交。 |
+| 2026-08-15 | 1.0.9-dev | 历史 v42 曾把 Cloudflare 图片任务直接加入 New API，使用 Task/SystemTask 与内部 ExecuteRelay；当时的 Go、客户端、OpenAPI、构建和双包测试证据保留用于审计，但该方案已由 v46 的独立 SparkAI Extension 取代，不再是活跃构建或部署入口，也不能证明当前线上联调。 |
 | 2026-08-14 | 1.0.9-dev | 上下文地图 v40 完成顶部对话框生图规格绑定收口：补丁后 `typecheck`、`git diff --check` 和独立 production build（1666 modules、7.64 s）通过；`package:win:variants` 通过接入策略专项、安装器资源、两次 production build（7.71 s、7.88 s）与双 Electron/NSIS/品牌封装，`bundleEnforced:false`。PowerShell 独立复核：Unrestricted 为 175,960,576 bytes、2026-08-14 17:08:56 +08:00、SHA-256 `FEAF4D033C6E2B0BDD57B2EB0A9FE65311D3E9C6FF642039B950662B3215FC2A`；SparkAPI 为 175,964,160 bytes、2026-08-14 17:10:06 +08:00、SHA-256 `17CE9B3AB71CE3E9C3A2ECF903B0D2C23FABDE7863D92C0C70B46408CA260130`。公开目录无当前版本旧命名；未调用真实模型，未执行正式 Release/签名/真实安装卸载，代码未提交。 |
 | 2026-08-14 | 1.0.9-dev | 上下文地图 v39 补齐同一生图任务的 AskUser continuation：`PendingAgentExecution v2` 可保存合法 `imageRatio/imageResolution`，Session 清洗、重启恢复和继续派发保持首轮按钮值，运行锁仍只在 IPC 派发时重建。`test:project-io`、`test:image-frame-contract`、`test:workspace-glass-ui`（155）、`typecheck` 与语法检查通过；隔离 `aidebug:ask-user` 的 10 项功能 checks 全 true，`frameContractSurvivesContinuation:true`，composer/pending/resumed 均为 `1:1 / 1K`，提示词中的 `3:4` 未覆盖按钮值。完整 AIDebug 仍因既有概览节点 B 仅约 2 px 可见触发 `visual-area-too-small` 而退出 1，未记为整套通过。双版本 EXE 仍待沙箱外打包授权，未调用真实模型，代码未提交。 |
 | 2026-08-14 | 1.0.9-dev | 上下文地图 v38 登记顶部 Agent 生图规格绑定：`agent:chat` 派发时冻结 Renderer `imageDefaults`，公开 Schema 只允许按钮比例/清晰度，runtime 对顶层与 `items[*]` 冲突值二次覆盖，并让普通、批量、Goal、分层和区域操作的真实上游 Prompt 明确画幅、清晰度、最终像素与禁止拉伸；成果仍保留原始可编辑 Prompt。`test:image-frame-contract`、`test:agent-run-control`、`test:goal-runtime`（43）、`test:agent-text`、`test:custom-api-transport`（24）、`test:image-generation-metadata`（13）、`test:ipc-registration`（141/138/3）、`test:image-stream-preview`（30）、`typecheck`、语法/差异/Harness 检查和 production build（1666 modules、7.75 s）通过。未调用真实模型。双版本打包先通过接入策略专项，后因沙箱复制安装器图标 `EPERM` 中断；沙箱外审批服务过载，命令未执行，本轮 EXE 尚未重建或核对哈希，代码未提交。 |

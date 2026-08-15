@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This workspace contains two independently deployable systems that together deliver SparkAI WorkSpace. Use this file as the workspace entry point; then load the nested `AGENTS.md` in the repository that owns the change.
+This workspace contains the SparkAI WorkSpace desktop client and a small optional extension service. The user's stock New API deployment is external to this workspace and must remain independently upgradeable.
 
 The harness is designed around the operating preferences established in the Nimage conversations: ship useful product increments quickly, keep the implementation small and maintainable, verify the affected user path rather than mechanically running every check, and never describe an unverified result as complete.
 
@@ -11,10 +11,11 @@ The harness is designed around the operating preferences established in the Nima
 | Request concerns | Work in | Read first |
 | --- | --- | --- |
 | Electron desktop UI, canvas, local project/assets/session, local Agent runtime, plugins, IPC, CLI/MCP, installer, Windows EXE | `naimage-studio/` | `naimage-studio/AGENTS.md`, `PRODUCT_INTENT.md`, relevant `docs/CONTEXT_MAP.md` sections |
-| Login service, account/quota, model routing or billing, New API, web admin UI, CRM, deployment | `ai-native/` | `ai-native/AGENTS.md`, relevant `WORKSPACE_CONTEXT_MAP.md` sections |
-| Auth/model/update/API/DTO contract crossing desktop and server | Both repositories | `WORKSPACE_CONTEXT_MAP.md`, then each repository's local map |
+| Pro License, redemption codes, `/v1/image-tasks`, extension Docker/Caddy deployment | `ai-native/` | `ai-native/AGENTS.md`, relevant `WORKSPACE_CONTEXT_MAP.md` sections |
+| Account/quota/channel/billing or New API web admin | External stock New API | Do not modify or copy it into this workspace; use its upstream documentation |
+| Auth/image-task/API contract crossing desktop and extension | Both repositories | `WORKSPACE_CONTEXT_MAP.md`, then each repository's local map |
 
-`ai-native/` is not a submodule of the desktop client. Do not copy backend management features into Electron, and do not treat a desktop-only test as proof of a cross-repository change.
+`ai-native/` is not a New API fork or a submodule of the desktop client. Do not copy account, channel, quota, billing, CRM, or New API management features into it or Electron, and do not treat a desktop-only test as proof of a cross-repository change.
 
 ## Authority And Precedence
 

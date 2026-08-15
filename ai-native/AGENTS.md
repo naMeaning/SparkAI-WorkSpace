@@ -1,70 +1,45 @@
-# Repository Guide
-
-This repository is now organized around one delivered product: `naimage`.
+# SparkAI Extension Repository Guide
 
 ## Product Boundary
 
-- Unified backend entry: `services/ai-gateway`
-- Embedded New API source: `services/ai-gateway/new-api`
-- Unified frontend GUI: `services/ai-gateway/new-api/web/default`
-- Internal CRM service: `services/crm-api`
-- Shared CRM contracts: `packages/crm-contracts`
-- Shared runtime helpers: `packages/shared`
+This repository now owns one small service: `services/sparkai-extension`.
 
-## Commands
+- The user's independently deployed stock New API remains authoritative for accounts, sessions, model API keys, channels, quota, billing, usage logs, and its web admin.
+- SparkAI Extension owns only Pro device licenses and asynchronous image-task wrapping.
+- Do not copy, patch, build, deploy, or fork New API as part of the active product.
+- Do not accept a user Base URL or API key in the License API. Image-task Bearer keys may exist only in process memory long enough to forward one task to the configured private New API origin.
 
-Run commands from the repository root.
+The historical `services/ai-gateway`, `services/crm-api`, `packages/crm-contracts`, and `deploy/production` trees are legacy cleanup inputs. Active root scripts and new code must not depend on them. Delete them only in a separately verified cleanup after the extension is deployed and backed up.
+
+## Active Commands
+
+Run from the repository root:
 
 ```bash
-pnpm install
 pnpm run dev
 pnpm run build
+pnpm run test
 pnpm run check
+pnpm run verify:workspace
 ```
 
-Important scripts:
+License administration uses `SPARKAI_EXTENSION_URL` and `SPARKAI_EXTENSION_ADMIN_TOKEN`:
 
-- `pnpm run dev` / `pnpm run start`: start the unified local stack.
-- `pnpm run dev:main`: explicit unified local stack entry.
-- `pnpm run build`: build the unified product.
-- `pnpm run check`: verify workspace, CRM contracts, CRM API, and gateway smoke.
-- `pnpm run crm:check`: check only the internal CRM API.
+```bash
+pnpm run license:create -- --name "Pro" --count 10 --valid-days 0 --max-devices 3
+pnpm run license:list -- --page 1 --size 20
+pnpm run license:disable -- --id 1
+```
 
-## Architecture Rules
+## Security And Reliability
 
-- `services/ai-gateway` is the only public backend entry.
-- `services/crm-api` remains an internal backend component and is reached through the New API CRM proxy in normal product use.
-- `services/ai-gateway/new-api/web/default` is the only GUI.
-- Do not add a second CRM frontend.
-- Do not add root scripts that make CRM or image studio look like separate products.
-- Product identity, roles, sessions, quota, model billing, and usage logs belong to New API.
-- The unified GUI may call New API native APIs and CRM distribution APIs; do not duplicate New API native capabilities in CRM API.
-- Keep CRM shared DTOs and constants in `packages/crm-contracts` before consuming them from `crm-api` or the New API frontend.
-- Keep generic shared helpers in `packages/shared`; do not place business DTOs there.
-
-## Generated And Runtime Files
-
-Do not commit runtime data, build output, logs, diagnostics, binaries, or vendored generated dependency folders. Important generated/runtime paths include:
-
-- `logs/`
-- `.diagnostics/`
-- `services/ai-gateway/config/`
-- `services/ai-gateway/.diagnostics/`
-- `services/ai-gateway/new-api/bin/`
-- `services/ai-gateway/new-api/vendor/`
-- `services/ai-gateway/new-api/logs/`
-- `services/ai-gateway/new-api/data/`
-- `services/ai-gateway/new-api/upload/`
-- `services/ai-gateway/new-api/web/*/dist/`
-- `services/crm-api/data/`
+- Keep `SPARKAI_EXTENSION_HASH_SECRET` stable and outside Git. Rotating it invalidates existing hashes.
+- Route the worker to a loopback, Docker-network, or private New API origin that bypasses Cloudflare.
+- Persist only SQLite and result files under the configured data directory. Never log or persist caller Bearer keys.
+- Run one service replica. Queued/running tasks become failed after restart and are never replayed automatically.
+- Use idempotency keys end to end. Do not recreate a task after an ambiguous create response.
+- Do not run a real image request during tests without explicit authorization.
 
 ## Validation
 
-Before pushing structural changes, run:
-
-```bash
-pnpm run verify:workspace
-pnpm run check
-```
-
-If Go backend routes or controllers changed, also run the targeted New API build/test commands relevant to the change.
+Use `pnpm run check` for source syntax, isolated License tests, loopback image-task tests, workspace routing, and restart behavior. Deployment changes must also validate the Compose configuration and document the exact reverse-proxy order.

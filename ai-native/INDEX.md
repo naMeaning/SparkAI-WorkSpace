@@ -1,37 +1,14 @@
 # Repository Index
 
-The repository is structured around one product: `naimage`.
+## Active entry points
 
-## Top Level
+- `services/sparkai-extension/src/main.mjs`: service process entry.
+- `services/sparkai-extension/src/license-service.mjs`: redemption codes and device licenses.
+- `services/sparkai-extension/src/image-task-service.mjs`: in-process queue and private New API forwarding.
+- `services/sparkai-extension/src/license-admin.mjs`: operator CLI.
+- `deploy/sparkai-extension/`: standalone deployment and same-domain routing.
+- `scripts/verify-workspace.mjs`: prevents active root scripts from returning to the legacy fork.
 
-```text
-services/
-  ai-gateway/
-  crm-api/
-packages/
-  crm-contracts/
-  shared/
-scripts/
-docs/
-```
+## Legacy cleanup boundary
 
-## Primary Entry Points
-
-- `package.json`: root scripts for the unified product.
-- `scripts/dev-main.mjs`: starts the local New API gateway and internal CRM API together.
-- `scripts/diagnostics/crm-ui-audit.mjs`: captures repeatable desktop/mobile UI evidence without storing credentials.
-- `services/ai-gateway/server.cjs`: builds and starts the embedded New API runtime.
-- `services/ai-gateway/new-api/`: Go backend and naimage frontend.
-- `services/ai-gateway/new-api/web/default/`: only frontend GUI.
-- `services/crm-api/src/scripts/dev-memory.ts`: internal CRM API for local unified development.
-
-## Important Packages
-
-- `@ai-native/ai-gateway`: public backend entry and New API launcher.
-- `@ai-native/crm-api`: internal CRM business service.
-- `@ai-native/crm-contracts`: shared CRM DTOs, enums, and stable business constants.
-- `@ai-native/shared`: generic shared runtime helpers.
-
-## Structure Boundary
-
-Do not add product code under a root `apps/` directory. The active GUI lives under the embedded New API frontend.
+`services/ai-gateway`, `services/crm-api`, `packages/crm-contracts`, and `deploy/production` are no longer active runtime inputs. They remain temporarily so cleanup can occur after a verified extension deployment rather than as an unreviewed broad deletion.
