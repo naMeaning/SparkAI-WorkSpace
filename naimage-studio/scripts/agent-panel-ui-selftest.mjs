@@ -31,6 +31,25 @@ async function mouseClick(rect) {
   await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
 
+async function copySelectionWithKeyboard() {
+  const control = {
+    key: "Control",
+    code: "ControlLeft",
+    windowsVirtualKeyCode: 17,
+    nativeVirtualKeyCode: 17
+  };
+  const keyC = {
+    key: "c",
+    code: "KeyC",
+    windowsVirtualKeyCode: 67,
+    nativeVirtualKeyCode: 67
+  };
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 2, ...control });
+  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 2, commands: ["Copy"], ...keyC });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 2, ...keyC });
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...control });
+}
+
 async function elementRect(selector) {
   const rect = await evaluate(client, `(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -458,6 +477,8 @@ async function main() {
   }], maxMessages: 4 })`);
   assert.equal(selectableSeeded, true);
   await waitForRuntimeExpression(client, "Boolean(document.querySelector('.agent-message.assistant .agent-plain-text'))", { evaluate, timeoutMs: 3_000, intervalMs: 60 });
+  await client.send("Page.bringToFront");
+  await delay(50);
   const selectableMessage = await evaluate(client, `(() => {
     const message = document.querySelector('.agent-message.assistant');
     const content = message?.querySelector('.agent-plain-text');
@@ -483,9 +504,15 @@ async function main() {
   assert.equal(selectableMessage?.webkitUserSelect, "text");
   assert.equal(selectableMessage?.selectedText, selectableMessageText);
   assert.equal(selectableMessage?.messageButtonCount, 0, "ordinary Agent messages must not add per-message copy buttons");
-  await client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 2, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
-  await client.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 2, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, nativeVirtualKeyCode: 67 });
-  await waitForRuntimeExpression(client, `window.__naimageAgentCopyCapture === ${JSON.stringify(selectableMessageText)}`, { evaluate, timeoutMs: 2_000, intervalMs: 50 });
+  await copySelectionWithKeyboard();
+  await delay(180);
+  const copyState = await evaluate(client, `({
+    captured: window.__naimageAgentCopyCapture,
+    selectedText: window.getSelection()?.toString() || '',
+    focused: document.hasFocus(),
+    activeTag: document.activeElement?.tagName || ''
+  })`);
+  assert.equal(copyState?.captured, selectableMessageText, `Ctrl+C must fire the native copy event: ${JSON.stringify(copyState)}`);
 
   const titleFixturePrompt = [
     "用途：面向开发者与科技爱好者的宽幅 AI 产品宣传海报。",
