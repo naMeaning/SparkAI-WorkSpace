@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
   ChevronDown,
@@ -359,6 +359,7 @@ function ProjectAgentPanelView({
   const [placementOpen, setPlacementOpen] = useState(false);
   const [referenceDropActive, setReferenceDropActive] = useState(false);
   const historyRef = useRef<HTMLDivElement | null>(null);
+  const restoreHistoryToggleFocusRef = useRef(false);
   const panelDragRef = useRef<{
     pointerId: number;
     mode: AgentPanelPointerMode;
@@ -506,14 +507,11 @@ function ProjectAgentPanelView({
     }
   }, [collapsed]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!historyOpen) return;
-    const restoreHistoryToggleFocus = () => window.requestAnimationFrame(() => {
-      document.getElementById(PROJECT_AGENT_HISTORY_TOGGLE_ID)?.focus();
-    });
     const closeHistory = (restoreFocus = false) => {
+      restoreHistoryToggleFocusRef.current = restoreFocus;
       setHistoryOpen(false);
-      if (restoreFocus) restoreHistoryToggleFocus();
     };
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Node ? event.target : null;
@@ -524,14 +522,21 @@ function ProjectAgentPanelView({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      event.stopImmediatePropagation();
       closeHistory(true);
     };
     document.addEventListener("pointerdown", handlePointerDown, true);
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
-      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown, true);
     };
+  }, [historyOpen]);
+
+  useLayoutEffect(() => {
+    if (historyOpen || !restoreHistoryToggleFocusRef.current) return;
+    restoreHistoryToggleFocusRef.current = false;
+    document.getElementById(PROJECT_AGENT_HISTORY_TOGGLE_ID)?.focus();
   }, [historyOpen]);
 
   useEffect(() => {

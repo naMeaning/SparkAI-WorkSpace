@@ -98,6 +98,7 @@ export function DialogShell({
   const restoreFocusRef = useRef<HTMLElement | null>(
     typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null
   );
+  const focusRestoredRef = useRef(false);
   const latestRef = useRef({ busy, dirty, closePolicy, onRequestClose, onCloseBlocked });
   latestRef.current = { busy, dirty, closePolicy, onRequestClose, onCloseBlocked };
 
@@ -118,7 +119,10 @@ export function DialogShell({
     // below remains as a safety net for callers that close the surface
     // directly after a successful action.
     const restoreTarget = restoreFocusRef.current;
-    if (restoreTarget?.isConnected) restoreTarget.focus({ preventScroll: true });
+    if (restoreTarget?.isConnected) {
+      restoreTarget.focus({ preventScroll: true });
+      focusRestoredRef.current = true;
+    }
     latest.onRequestClose(reason);
     return true;
   }, []);
@@ -170,8 +174,15 @@ export function DialogShell({
       const stackIndex = dialogStack.findIndex((entry) => entry.token === token);
       if (stackIndex >= 0) dialogStack.splice(stackIndex, 1);
       const restoreTarget = restoreFocusRef.current;
+      const closingDialog = dialogRef.current;
       window.requestAnimationFrame(() => {
-        if (restoreTarget?.isConnected) restoreTarget.focus({ preventScroll: true });
+        if (focusRestoredRef.current || !restoreTarget?.isConnected) return;
+        const active = document.activeElement;
+        const focusNeedsRestore = !(active instanceof HTMLElement) ||
+          active === document.body ||
+          !active.isConnected ||
+          Boolean(closingDialog?.contains(active));
+        if (focusNeedsRestore) restoreTarget.focus({ preventScroll: true });
       });
     };
   }, [layerLevel, requestClose]);

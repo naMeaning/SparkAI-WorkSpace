@@ -27,6 +27,8 @@ const repoRoot = resolve(scriptDir, "..");
 const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(repoRoot, ".diagnostics", "electron", `agent-text-ui-${timestamp}`);
 const configDir = join(runDir, "config");
+const projectDir = join(runDir, "project");
+const fixtureProjectId = "agent-text-ui-project";
 const devUrl = "http://127.0.0.1:5173";
 const portArg = process.argv.find((item) => item.startsWith("--port="));
 const requestedDebugPort = Number(portArg?.split("=")[1] || process.env.NAIMAGE_REMOTE_DEBUGGING_PORT || 0);
@@ -489,6 +491,20 @@ async function focusedControl(client) {
   })()`);
 }
 
+async function waitForFocusedControl(client, expected, timeoutMs = 2500) {
+  try {
+    await waitForExpression(client, `(() => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return false;
+      const label = active.getAttribute('aria-label') || (active.textContent || '').replace(/\\s+/g, ' ').trim() || active.tagName;
+      return label === ${JSON.stringify(expected)};
+    })()`, timeoutMs);
+  } catch {
+    // The caller records the actual focused control in its assertion detail.
+  }
+  return focusedControl(client);
+}
+
 async function emulateReducedMotion(client, reduced) {
   await client.send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: reduced ? "reduce" : "no-preference" }]
@@ -603,6 +619,20 @@ async function stopProcess(child) {
 
 async function main() {
   mkdirSync(configDir, { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
+  const projectTimestamp = new Date().toISOString();
+  writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "Agent Text UI Fixture",
+      path: projectDir,
+      sessionPath: join(projectDir, "session.json"),
+      createdAt: projectTimestamp,
+      updatedAt: projectTimestamp,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
   recordObservation("info", "suite-checkpoint", { label: "bootstrap:prepare-run", runDir, mode: "agent-text-ui-aidebug" });
   reporting = createAidebugReporting({
     runDir,
@@ -631,7 +661,7 @@ async function main() {
 
   let fatalError = "";
   try {
-    await waitForExpression(client, `Boolean(document.querySelector('.ide-shell') && window.naimageAgent && window.__naimageDebugAgentState)`);
+    await waitForExpression(client, `Boolean(document.querySelector('.ide-shell') && window.naimageAgent && window.__naimageDebugAgentState?.().activeProjectId === ${JSON.stringify(fixtureProjectId)})`);
     await setWindowSize(client, target.id, 1280, 820);
 
     const toolsBefore = await evaluate(client, `window.naimageAgent.tools()`);
@@ -749,8 +779,8 @@ async function main() {
     await setWindowSize(client, target.id, 884, 720);
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.settings-drawer')`);
-    await delay(120);
-    check("settings drawer Escape restores invoking control focus", (await focusedControl(client)) === "设置", { focused: await focusedControl(client) });
+    const settingsDrawerFocus = await waitForFocusedControl(client, "设置");
+    check("settings drawer Escape restores invoking control focus", settingsDrawerFocus === "设置", { focused: settingsDrawerFocus });
 
     await clickAria(client, "账户");
     await waitForExpression(client, `Boolean(document.querySelector('.account-drawer[data-ui-surface="account"]'))`);
@@ -806,8 +836,8 @@ async function main() {
     await captureScreenshot(client, "00a-account-drawer-884x720");
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.account-drawer')`);
-    await delay(120);
-    check("account drawer Escape restores invoking control focus", (await focusedControl(client)) === "账户", { focused: await focusedControl(client) });
+    const accountEscapeFocus = await waitForFocusedControl(client, "账户");
+    check("account drawer Escape restores invoking control focus", accountEscapeFocus === "账户", { focused: accountEscapeFocus });
 
     await setWindowSize(client, target.id, 1280, 820);
     await clickAria(client, "账户");
@@ -818,8 +848,8 @@ async function main() {
     await captureScreenshot(client, "00b-account-drawer-1280x820");
     await pointerDownBackdrop(client, "account");
     await waitForExpression(client, `!document.querySelector('.account-drawer')`);
-    await delay(120);
-    check("account drawer backdrop restores invoking control focus", (await focusedControl(client)) === "账户", { focused: await focusedControl(client) });
+    const accountBackdropFocus = await waitForFocusedControl(client, "账户");
+    check("account drawer backdrop restores invoking control focus", accountBackdropFocus === "账户", { focused: accountBackdropFocus });
 
     await setWindowSize(client, target.id, 1280, 820);
     await openPromptEditor(client);
@@ -952,8 +982,8 @@ async function main() {
     check("prompt restore matches original default", String(resetPrompt?.text || "") === defaultPromptText, { originalLength: defaultPromptText.length, resetLength: String(resetPrompt?.text || "").length });
     await pointerDownBackdrop(client, "agent-prompt-editor");
     await waitForExpression(client, `!document.querySelector('.agent-text-editor-dialog')`);
-    await delay(120);
-    check("clean backdrop close restores settings action focus", (await focusedControl(client)) === "编辑提示词", { focused: await focusedControl(client) });
+    const promptBackdropFocus = await waitForFocusedControl(client, "编辑提示词");
+    check("clean backdrop close restores settings action focus", promptBackdropFocus === "编辑提示词", { focused: promptBackdropFocus });
 
     await setWindowSize(client, target.id, 884, 720);
     await clickButton(client, "模型", ".settings-drawer");
@@ -975,13 +1005,22 @@ async function main() {
       return { ok: true, optionCount: options.length };
     })()`);
     if (!modelSearchKeyboardProbe?.ok) throw new Error(`Model picker keyboard controls unavailable: ${JSON.stringify(modelSearchKeyboardProbe)}`);
-    await delay(120);
+    await waitForExpression(client, `(() => {
+      const dialog = document.querySelector('.model-picker-dialog');
+      const options = Array.from(dialog?.querySelectorAll('.model-picker-option[role="option"]') || []);
+      return document.activeElement?.getAttribute?.('role') === 'option' && options.filter((option) => option.tabIndex === 0).length === 1;
+    })()`);
+    await evaluate(client, `document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }))`);
+    await waitForExpression(client, `(() => {
+      const dialog = document.querySelector('.model-picker-dialog');
+      const options = Array.from(dialog?.querySelectorAll('.model-picker-option[role="option"]') || []);
+      return options.length >= 2 && document.activeElement === options[options.length - 1] && options.filter((option) => option.tabIndex === 0).length === 1;
+    })()`);
     const modelKeyboardProbe = await evaluate(client, `(() => {
       const dialog = document.querySelector('.model-picker-dialog');
       const options = Array.from(dialog?.querySelectorAll('.model-picker-option[role="option"]') || []);
       if (!dialog || options.length < 2) return { ok: false, reason: 'controls-missing', optionCount: options.length };
       const afterSearch = document.activeElement;
-      afterSearch?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
       const afterEnd = document.activeElement;
       const tabStops = options.filter((option) => option.tabIndex === 0);
       return {
@@ -998,8 +1037,8 @@ async function main() {
     await captureScreenshot(client, "02c-model-picker-884x720");
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.model-picker-dialog')`);
-    await delay(120);
-    check("nested model picker restores its settings trigger focus", (await focusedControl(client)) === "配置对话模型", { focused: await focusedControl(client) });
+    const modelPickerFocus = await waitForFocusedControl(client, "配置对话模型");
+    check("nested model picker restores its settings trigger focus", modelPickerFocus === "配置对话模型", { focused: modelPickerFocus });
 
     await setWindowSize(client, target.id, 1280, 820);
     await evaluate(client, `window.__naimageDebugOpenSurface?.('agent-timeline')`);
@@ -1014,8 +1053,8 @@ async function main() {
     await captureScreenshot(client, "02d-confirm-1280x820");
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.confirm-dialog')`);
-    await delay(120);
-    check("confirm Escape restores the invoking control focus", (await focusedControl(client)) === "新建会话", { focused: await focusedControl(client) });
+    const confirmFocus = await waitForFocusedControl(client, "新建会话");
+    check("confirm Escape restores the invoking control focus", confirmFocus === "新建会话", { focused: confirmFocus });
 
     await openFastMemoryEditor(client);
     const firstScope = await evaluate(client, `window.__naimageDebugAgentState()`);
@@ -1076,10 +1115,27 @@ async function main() {
     check("conversation history exposes expanded and controlled-region semantics", historyAria?.expanded === 'true' && historyAria?.controls && historyAria.controls === historyAria.historyId, historyAria || {});
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.project-agent-history')`);
-    await delay(60);
+    await waitForFocusedControl(client, "会话历史");
     const historyEscape = await evaluate(client, `(() => {
       const toggle = document.querySelector('[aria-label="会话历史"]');
-      return { expanded: toggle?.getAttribute('aria-expanded'), focusRestored: document.activeElement === toggle };
+      const active = document.activeElement;
+      const focusRestored = active === toggle;
+      return {
+        expanded: toggle?.getAttribute('aria-expanded'),
+        focusRestored,
+        documentHasFocus: document.hasFocus(),
+        toggleId: toggle?.id || '',
+        toggleConnected: Boolean(toggle?.isConnected),
+        toggleTabIndex: toggle?.tabIndex,
+        toggleDisabled: Boolean(toggle?.disabled),
+        active: active ? {
+          tagName: active.tagName,
+          id: active.id || '',
+          ariaLabel: active.getAttribute?.('aria-label') || '',
+          className: typeof active.className === 'string' ? active.className : '',
+          text: active.textContent?.replace(/\\s+/g, ' ').trim().slice(0, 120) || ''
+        } : null
+      };
     })()`);
     check("Escape closes conversation history and restores toggle focus", historyEscape?.expanded === 'false' && historyEscape?.focusRestored === true, historyEscape || {});
     await clickAria(client, "会话历史");
@@ -1244,7 +1300,7 @@ async function main() {
       };
     })()`);
     check("running Image Gen keeps its only dynamic status in the Agent timeline", /^Image Gen 正在绘图 \d+s$/.test(runtimeStatusUniqueness?.timerText || '') && runtimeStatusUniqueness?.agentText.includes(runtimeStatusUniqueness.timerText), runtimeStatusUniqueness || {});
-    check("busy composer remains a static control surface", runtimeStatusUniqueness?.composerFooterText === 'Ctrl + Enter 发送 停止' && !/正在执行|正在生成|运行中/.test(runtimeStatusUniqueness?.composerFooterText || ''), runtimeStatusUniqueness || {});
+    check("busy composer remains a static control surface", runtimeStatusUniqueness?.composerFooterText === 'Ctrl + Enter 修改当前任务 修改 暂停 结束' && !/正在执行|正在生成|运行中/.test(runtimeStatusUniqueness?.composerFooterText || ''), runtimeStatusUniqueness || {});
     check("canvas image node uses static placeholders without duplicate running status", runtimeStatusUniqueness?.canvasForbiddenHits.length === 0 && runtimeStatusUniqueness?.nodeState === '图片组' && runtimeStatusUniqueness?.pendingCount === 3 && runtimeStatusUniqueness?.progressBlockCount === 0 && ['none', 'normal', ''].includes(String(runtimeStatusUniqueness?.previewAfterContent || '').replace(/[\"']/g, '')) && runtimeStatusUniqueness?.pendingAnimationName === 'none' && runtimeStatusUniqueness?.nodeBorder?.leftWidth === runtimeStatusUniqueness?.nodeBorder?.rightWidth && runtimeStatusUniqueness?.nodeBorder?.leftColor === runtimeStatusUniqueness?.nodeBorder?.rightColor, runtimeStatusUniqueness || {});
     const reducedRuntimeMotion = await motionSnapshot(client, [
       '.flow-node',
@@ -1281,7 +1337,7 @@ async function main() {
     await waitForExpression(client, `Boolean(document.querySelector('.flow-node[data-image-container-kind="batch-result"]'))`);
     const normalNodeMotion = await motionSnapshot(client, ['.flow-node[data-image-container-kind="batch-result"]']);
     const normalNodeRow = normalNodeMotion.rows[0];
-    check("normal grouped node uses finite settle feedback", normalNodeRow?.animationName.includes('image-layout-settle') && normalNodeRow?.animationIterationCount !== 'infinite' && !normalNodeRow?.permanentAnimation, normalNodeMotion);
+    check("normal grouped node uses finite entry feedback", normalNodeRow?.animationName.split(',').map((value) => value.trim()).includes('node-pop') && Number.parseFloat(normalNodeRow?.animationDuration || '0') > 0 && normalNodeRow?.animationIterationCount !== 'infinite' && !normalNodeRow?.permanentAnimation, normalNodeMotion);
     check("normal node positioning never transitions left or top", !String(normalNodeRow?.transitionProperty || '').split(',').map((value) => value.trim()).some((value) => value === 'left' || value === 'top'), normalNodeMotion);
     const normalNodeLayout = await stableLayoutProbe(client, '.flow-node[data-image-container-kind="batch-result"]', 280);
     check("normal grouped node feedback does not shift layout geometry", normalNodeLayout?.ok === true, normalNodeLayout || {});
