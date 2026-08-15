@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
 import { publicError, serviceError } from "./errors.mjs";
+import { licenseAdminUiAsset } from "./license-admin-ui.mjs";
 import { safeSecretEqual } from "./secrets.mjs";
 
 class FixedWindowLimiter {
@@ -55,6 +56,21 @@ function sendJson(response, status, payload) {
   response.end(body);
 }
 
+function sendAdminAsset(response, asset) {
+  response.writeHead(200, {
+    "content-type": asset.contentType,
+    "content-length": Buffer.byteLength(asset.body),
+    "cache-control": "no-store",
+    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "x-robots-tag": "noindex, nofollow"
+  });
+  response.end(asset.body);
+}
+
 async function readJson(request, maximumBytes) {
   const contentType = String(request.headers["content-type"] || "").toLowerCase();
   if (!contentType.startsWith("application/json")) throw serviceError(415, "json_required", "请求必须使用 application/json。");
@@ -94,6 +110,12 @@ export function createExtensionHttpServer({ config, licenseService, imageTaskSer
 
       if (method === "GET" && path === "/healthz") {
         sendJson(response, 200, { ok: true, service: "sparkai-extension", image_tasks: imageTaskService.stats() });
+        return;
+      }
+
+      const adminAsset = method === "GET" ? licenseAdminUiAsset(path) : null;
+      if (adminAsset) {
+        sendAdminAsset(response, adminAsset);
         return;
       }
 

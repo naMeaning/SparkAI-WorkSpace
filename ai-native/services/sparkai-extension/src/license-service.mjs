@@ -87,12 +87,27 @@ export class LicenseService {
   listCodes({ page = 1, size = 20 } = {}) {
     const cleanPage = boundedInteger(page, 1, 1, 1_000_000, "页码无效。");
     const cleanSize = boundedInteger(size, 20, 1, 100, "每页数量必须在 1 到 100 之间。");
-    const total = Number(this.database.prepare("SELECT COUNT(*) AS total FROM activation_codes").get().total || 0);
+    const summaryRow = this.database.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS enabled,
+        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS disabled,
+        SUM(activation_count) AS activation_count,
+        SUM(max_activations) AS activation_capacity
+      FROM activation_codes
+    `).get(STATUS_ENABLED, STATUS_DISABLED);
+    const summary = {
+      total: Number(summaryRow.total || 0),
+      enabled: Number(summaryRow.enabled || 0),
+      disabled: Number(summaryRow.disabled || 0),
+      activation_count: Number(summaryRow.activation_count || 0),
+      activation_capacity: Number(summaryRow.activation_capacity || 0)
+    };
     const items = this.database.prepare(`
       SELECT id, name, code_hint, plan, valid_days, max_activations, activation_count, status, expired_time, created_time
       FROM activation_codes ORDER BY id DESC LIMIT ? OFFSET ?
     `).all(cleanSize, (cleanPage - 1) * cleanSize);
-    return { items, total, page: cleanPage, size: cleanSize };
+    return { items, total: summary.total, page: cleanPage, size: cleanSize, summary };
   }
 
   disableCode(id) {

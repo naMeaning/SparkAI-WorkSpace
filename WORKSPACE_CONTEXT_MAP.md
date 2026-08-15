@@ -122,7 +122,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 
 | 路径 | 职责 | 关键技术 |
 | --- | --- | --- |
-| `services/sparkai-extension/` | Pro 兑换码/设备授权与图片任务创建、查询、后台转发 | Node 24 原生 HTTP、`node:sqlite`、进程内并发队列 |
+| `services/sparkai-extension/` | Pro 兑换码/设备授权、Token 保护的 License 管理页与图片任务创建、查询、后台转发 | Node 24 原生 HTTP、`node:sqlite`、进程内并发队列 |
 | `deploy/sparkai-extension/` | 单服务 Docker、外部 New API network、数据卷、健康检查、Codex `AGENTS.md` 与两种 Caddy 布局 | Docker Compose、Caddy |
 | `scripts/package-extension.mjs` | 只收集扩展源码/部署合同并生成 ZIP、TAR.GZ、manifest 与 SHA-256 | Node.js、bsdtar；排除旧 New API/CRM、`.env`、数据库和诊断数据 |
 | `scripts/verify-workspace.mjs` | 保证根 `dev/start/build/test/check` 只指向扩展服务 | Node.js |
@@ -148,7 +148,7 @@ Compose 默认强制加入 `SPARKAI_DOCKER_NETWORK` 指定的既有 user-defined
 
 | 需求 | 首要位置 | 必须联动 |
 | --- | --- | --- |
-| 兑换码、设备数、期限、撤销 | `src/license-service.mjs` | SQLite schema、管理员 CLI、License HTTP 测试、桌面 `test:license` |
+| 兑换码、设备数、期限、撤销和管理页 | `src/license-service.mjs`, `src/license-admin-ui.mjs` | SQLite schema、管理员 HTTP/CLI、License HTTP/UI 测试、部署文档、桌面 `test:license` |
 | 图片任务状态、并发、上游转发 | `src/image-task-service.mjs` | `/v1/image-tasks` HTTP 合同、幂等键、结果上限、桌面 transport 测试 |
 | HTTP 鉴权、限流、路由 | `src/http-server.mjs` | Caddy 路径、公开错误 DTO、安全测试 |
 | 部署/交付包 | `deploy/sparkai-extension/`, `scripts/package-extension.mjs` | 先读包根 `AGENTS.md`；现有 Docker network/DNS、稳定 HMAC secret、数据卷备份、代理位置、单副本约束、archive manifest/hash |
@@ -185,7 +185,7 @@ corepack pnpm run package:extension
 
 正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 
-产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务没有 Web GUI、账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。
+产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务只有 `/api/naimage/license/admin` 这一处管理员 Token 保护的 License 管理页；它没有账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。管理页不持久化管理员 Token，数据库仍只保存兑换码 HMAC 与展示提示。
 
 生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，扩展服务按 owner + idempotency HMAC 返回同一任务，并把原键继续传给私网 New API；已收到任务 ID或创建结果不明时不得重建，以避免重复扣费。
 

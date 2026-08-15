@@ -8,6 +8,7 @@ import test from "node:test";
 import { openDatabase } from "../src/database.mjs";
 import { createExtensionHttpServer, closeServer, listen } from "../src/http-server.mjs";
 import { ImageTaskService } from "../src/image-task-service.mjs";
+import { compileLicenseAdminScript } from "../src/license-admin-ui.mjs";
 import { LicenseService } from "../src/license-service.mjs";
 
 const ADMIN_TOKEN = "admin-token-for-tests-1234567890abcdef";
@@ -123,6 +124,13 @@ test("license API creates hash-only codes, limits devices, verifies, and revokes
   });
   assert.equal(listed.response.status, 200);
   assert.equal(listed.payload.data.items[0].activation_count, 3);
+  assert.deepEqual(listed.payload.data.summary, {
+    total: 1,
+    enabled: 1,
+    disabled: 0,
+    activation_count: 3,
+    activation_capacity: 3
+  });
   assert.equal(JSON.stringify(listed.payload).includes("code_hash"), false);
 
   const disabled = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes/${storedCode.id}/disable`, {
@@ -137,6 +145,43 @@ test("license API creates hash-only codes, limits devices, verifies, and revokes
   });
   assert.equal(revoked.response.status, 400);
   assert.equal(revoked.payload.error.code, "license_invalid");
+
+  const afterDisable = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes?page=1&size=20`, {
+    headers: { authorization: `Bearer ${ADMIN_TOKEN}` }
+  });
+  assert.deepEqual(afterDisable.payload.data.summary, {
+    total: 1,
+    enabled: 0,
+    disabled: 1,
+    activation_count: 3,
+    activation_capacity: 3
+  });
+});
+
+test("license admin page exposes no secrets and keeps data endpoints protected", async (t) => {
+  compileLicenseAdminScript();
+  const harness = await createHarness(t);
+
+  const page = await fetch(`${harness.extensionUrl}/api/naimage/license/admin`);
+  const pageBody = await page.text();
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type"), /^text\/html/);
+  assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.equal(pageBody.includes(ADMIN_TOKEN), false);
+  assert.equal(pageBody.includes(HASH_SECRET), false);
+  assert.match(pageBody, /License 管理/);
+  assert.match(pageBody, /autocomplete="off"/);
+
+  const script = await fetch(`${harness.extensionUrl}/api/naimage/license/admin/assets/app.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get("content-type"), /^application\/javascript/);
+  const scriptBody = await script.text();
+  assert.equal(scriptBody.includes(ADMIN_TOKEN), false);
+  assert.equal(/localStorage|sessionStorage/.test(scriptBody), false);
+
+  const unauthorized = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes?page=1&size=20`);
+  assert.equal(unauthorized.response.status, 401);
+  assert.equal(unauthorized.payload.error.code, "authorization_required");
 });
 
 test("time-limited licenses and redemption deadlines expire", async (t) => {

@@ -20,7 +20,7 @@ The image worker calls the existing synchronous `/v1/images/generations` endpoin
 ## Active structure
 
 ```text
-services/sparkai-extension/   Node.js 24 HTTP service, SQLite, tests and admin CLI
+services/sparkai-extension/   Node.js 24 HTTP service, SQLite, License admin page/CLI and tests
 deploy/sparkai-extension/     Docker Compose and Caddy routing example
 scripts/                      active workspace validation
 ```
@@ -36,5 +36,7 @@ corepack pnpm run package:extension
 ```
 
 Configuration is documented in [`services/sparkai-extension/.env.example`](services/sparkai-extension/.env.example). Deployment steps are in [`deploy/sparkai-extension/README.md`](deploy/sparkai-extension/README.md).
+
+After the reverse proxy is configured, open `/api/naimage/license/admin` on the public API hostname and enter `SPARKAI_EXTENSION_ADMIN_TOKEN`. The page can create permanent or time-limited codes, set the number of devices allowed per code, set a redemption deadline, inspect usage, and disable a code with all of its issued device licenses.
 
 `package:extension` creates a standalone ZIP and TAR.GZ under `release/`. The bundle contains a deployment-specific root `AGENTS.md`, Docker-network Compose, both Caddy layouts, source checks, file manifests and SHA-256 sums. It never includes the legacy New API/CRM trees, local `.env`, databases or diagnostics.

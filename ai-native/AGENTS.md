@@ -32,6 +32,8 @@ pnpm run license:list -- --page 1 --size 20
 pnpm run license:disable -- --id 1
 ```
 
+The same API is available through the built-in `/api/naimage/license/admin` page. Its login shell contains no secrets; the operator enters the admin token, which remains in page memory and is sent only as a Bearer header. Never add the token to a URL, cookie, local storage, rendered HTML, or logs.
+
 ## Security And Reliability
 
 - Keep `SPARKAI_EXTENSION_HASH_SECRET` stable and outside Git. Rotating it invalidates existing hashes.

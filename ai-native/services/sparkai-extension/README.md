@@ -22,12 +22,27 @@ Node.js 24 or newer is required because the service uses the built-in `node:sqli
 
 ## License administration
 
-Set `SPARKAI_EXTENSION_URL` and the same admin token used by the service, then run:
+The built-in administration page is available at:
+
+```text
+https://<your-api-domain>/api/naimage/license/admin
+```
+
+Enter `SPARKAI_EXTENSION_ADMIN_TOKEN` in the page. The token stays in page memory and is sent only in the `Authorization` header; it is cleared by refresh or logout. The page supports:
+
+- Creating 1 to 100 codes per batch.
+- Limiting each code to 1 to 100 activated devices and showing `used / maximum`.
+- Permanent licenses or licenses valid for a fixed number of days after activation.
+- An optional redemption deadline after which new devices cannot activate.
+- Disabling a code and immediately revoking all device licenses issued by it.
+- Copying or downloading newly generated plaintext codes.
+
+Plain redemption codes are visible only once after creation. The database retains an HMAC and a short display hint, so losing the creation result requires issuing a new code.
+
+The CLI remains available for server-side operation. Set `SPARKAI_EXTENSION_URL` and the same admin token used by the service, then run:
 
 ```powershell
 corepack pnpm run license:create -- --name "Pro permanent" --count 10 --valid-days 0 --max-devices 3
 corepack pnpm run license:list -- --page 1 --size 20
 corepack pnpm run license:disable -- --id 12
 ```
-
-Plain redemption codes are returned only by `create`; the database retains an HMAC and a short display hint.
