@@ -1788,10 +1788,14 @@
 }
 
 .workspace-context-bar .canvas-selection-indicator-copy strong {
+  flex: 0 1 55%;
+  min-width: min(48px, 50%);
+  max-width: 55%;
   font-size: 11px;
 }
 
 .workspace-context-bar .canvas-selection-indicator-copy small {
+  flex: 1 1 0;
   font-size: 9px;
 }
 

@@ -19,6 +19,9 @@ import { captureStableCdpScene, createObservationLog } from "./aidebug/harness/s
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = join(repoRoot, ".diagnostics", "electron", `commerce-set-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const configDir = join(runDir, "config");
+const projectListPath = join(configDir, "project-list.json");
+const fixtureProjectId = "aidebug-commerce-project";
+const fixtureProjectPath = join(runDir, "project");
 const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const commercePluginState = {
@@ -60,6 +63,24 @@ const screenshots = {};
 const checks = {};
 const evidenceResults = [];
 let reporting;
+
+function prepareProjectFixture() {
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(fixtureProjectPath, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(projectListPath, `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "AIDebug Commerce",
+      path: fixtureProjectPath,
+      sessionPath: join(fixtureProjectPath, "session.json"),
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
+}
 
 function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
@@ -681,7 +702,7 @@ async function selectFirstLanguages(count) {
 }
 
 async function main() {
-  mkdirSync(configDir, { recursive: true });
+  prepareProjectFixture();
   recordObservation("info", "suite-checkpoint", { label: "bootstrap:prepare-run", runDir, mode: "commerce-set-suite" });
   reporting = createAidebugReporting({
     runDir,

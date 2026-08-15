@@ -184,27 +184,22 @@ export async function captureGoalModeSuite(context) {
     const dialog = document.querySelector(".goal-confirmation-dialog");
     const text = String(dialog?.textContent || "").replace(/\\s+/g, " ").trim();
     const scope = String(dialog?.querySelector(".goal-confirmation-scope strong")?.textContent || "").replace(/\\s+/g, " ").trim();
-    const snapshotHash = String(dialog?.querySelector(".goal-confirmation-scope code")?.textContent || "").trim();
     const policies = Array.from(dialog?.querySelectorAll(".goal-confirmation-policy li") || [])
       .map((item) => String(item.textContent || "").replace(/\\s+/g, " ").trim());
-    const cost = String(dialog?.querySelector(".goal-confirmation-cost")?.textContent || "").replace(/\\s+/g, " ").trim();
     const skipped = String(dialog?.querySelector(".goal-confirmation-skipped")?.textContent || "").replace(/\\s+/g, " ").trim();
     return {
       ok: Boolean(
         dialog && scope === "5 个来源边界 · 10 张母图" &&
-        /^scope-[0-9a-f]+$/i.test(snapshotHash) &&
+        text.includes("范围已确认") &&
         policies.length === 3 &&
-        policies[0].includes("先串行探测 2 个不同母图代表项") && policies[0].includes("暂停其他 Goal 新放量") &&
-        policies[1].includes("技术校验通过") && policies[1].includes("最高 3 路") && policies[1].includes("保护性失败") &&
-        policies[2].includes("仍可能计费") && policies[2].includes("不能追回已产生费用") &&
-        cost.includes("预计计费上限 ¥0.60") && cost.includes("试用抵扣 8 张") && cost.includes("预计付费 2 张") &&
+        policies[0].includes("先小批量测试 2 个不同母图代表项") && policies[0].includes("逐步增加任务量") &&
+        policies[1].includes("请求、落盘和技术校验通过") && policies[1].includes("最高 3 路") && policies[1].includes("保护性失败") &&
+        policies[2].includes("不要求预估费用") && policies[2].includes("实际用量或费用") &&
         skipped.includes("2 个容器不会执行") && skipped.includes("仅包含参考图") && skipped.includes("空容器") &&
         text.includes("最多 10 次图片请求")
       ),
       scope,
-      snapshotHash,
       policies,
-      cost,
       skipped,
       text
     };
@@ -280,7 +275,6 @@ export async function captureGoalModeSuite(context) {
     const sections = [
       dialog?.querySelector(".goal-confirmation-scope"),
       dialog?.querySelector(".goal-confirmation-policy"),
-      dialog?.querySelector(".goal-confirmation-cost"),
       dialog?.querySelector(".goal-confirmation-skipped")
     ];
     const sectionRects = sections.map(plainRect);
@@ -313,7 +307,7 @@ export async function captureGoalModeSuite(context) {
     productionMinimum?.ok === true
   ));
 
-  phase("mutate-confirmed-scope", { oldSnapshotHash: confirmation?.snapshotHash || "" });
+  phase("mutate-confirmed-scope", { oldScope: confirmation?.scope || "" });
   const mutation = await evaluate(client, `(async () => {
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const created = await window.__naimageDebugCreateImageContainer({ worldX: 1860, worldY: 460, role: "source" });
@@ -340,36 +334,34 @@ export async function captureGoalModeSuite(context) {
   phase("reject-stale-confirmation", { mutationOk: Boolean(mutation?.ok) });
   const stale = await evaluate(client, `(async () => {
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const oldSnapshotHash = ${JSON.stringify(confirmation?.snapshotHash || "")};
+    const oldScope = ${JSON.stringify(confirmation?.scope || "")};
     const before = window.__naimageDebugAgentState() || {};
     const confirm = Array.from(document.querySelectorAll(".goal-confirmation-dialog footer button"))
-      .find((button) => String(button.textContent || "").replace(/\\s+/g, " ").trim() === "冻结并执行");
+      .find((button) => String(button.textContent || "").replace(/\\s+/g, " ").trim() === "开始执行");
     confirm?.click();
     const deadline = performance.now() + 6000;
     while (performance.now() < deadline) {
       const dialog = document.querySelector(".goal-confirmation-dialog");
-      const nextHash = String(dialog?.querySelector(".goal-confirmation-scope code")?.textContent || "").trim();
-      if (dialog && nextHash && nextHash !== oldSnapshotHash) break;
+      const nextScope = String(dialog?.querySelector(".goal-confirmation-scope strong")?.textContent || "").replace(/\\s+/g, " ").trim();
+      if (dialog && nextScope && nextScope !== oldScope) break;
       await delay(50);
     }
     const dialog = document.querySelector(".goal-confirmation-dialog");
     const text = String(dialog?.textContent || "").replace(/\\s+/g, " ").trim();
-    const nextHash = String(dialog?.querySelector(".goal-confirmation-scope code")?.textContent || "").trim();
     const scope = String(dialog?.querySelector(".goal-confirmation-scope strong")?.textContent || "").replace(/\\s+/g, " ").trim();
     const after = window.__naimageDebugAgentState() || {};
     const dispatched = after.lastDispatchedTaskScope;
     const oldGoalDispatched = Boolean(dispatched?.origin === "goal");
     return {
       ok: Boolean(
-        confirm && dialog && nextHash && nextHash !== oldSnapshotHash &&
+        confirm && dialog && scope && scope !== oldScope &&
         scope === "6 个来源边界 · 12 张母图" &&
-        text.includes("画布范围或费用报价在确认前发生变化") && text.includes("新的确认值") && text.includes("重新") &&
+        text.includes("来源范围或执行计划在确认前发生变化") && text.includes("请重新核对") &&
         !oldGoalDispatched && after.agentExecutionBusy === false && after.messageCount === before.messageCount
       ),
-      oldSnapshotHash,
-      nextHash,
+      oldScope,
       scope,
-      refreshMessageVisible: text.includes("画布范围或费用报价在确认前发生变化") && text.includes("新的确认值") && text.includes("重新"),
+      refreshMessageVisible: text.includes("来源范围或执行计划在确认前发生变化") && text.includes("请重新核对"),
       dialogOpen: Boolean(dialog),
       oldGoalDispatched,
       busy: Boolean(after.agentExecutionBusy),
@@ -400,11 +392,10 @@ export async function captureGoalModeSuite(context) {
     fixtureCanvas: setup?.ok === true,
     segmentedModeAndCounts: selected?.ok === true,
     confirmationOpened: prompted?.ok === true,
-    probeBeforeScalePolicy: Boolean(confirmation?.policies?.[0]?.includes("先串行探测 2 个不同母图代表项")),
+    probeBeforeScalePolicy: Boolean(confirmation?.policies?.[0]?.includes("先小批量测试 2 个不同母图代表项")),
     gradualConcurrencyPolicy: Boolean(confirmation?.policies?.[1]?.includes("最高 3 路")),
-    dispatchedCostWarning: Boolean(confirmation?.policies?.[2]?.includes("仍可能计费")),
-    quotaAndCostEstimate: Boolean(confirmation?.cost?.includes("¥0.60") && confirmation?.cost?.includes("8 张") && confirmation?.cost?.includes("2 张")),
-    snapshotHashPresent: Boolean(confirmation?.snapshotHash?.startsWith("scope-")),
+    actualUsagePolicy: Boolean(confirmation?.policies?.[2]?.includes("实际用量或费用")),
+    scopeMarkerPresent: Boolean(confirmation?.text?.includes("范围已确认")),
     productionMinimumViewportFit: productionMinimum?.ok === true,
     staleSnapshotRejected: stale?.ok === true,
     capturesHealthy: results.every(captureHealthy)

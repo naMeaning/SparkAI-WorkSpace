@@ -18,6 +18,9 @@ import { captureStableCdpScene, createObservationLog } from "./aidebug/harness/s
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = join(repoRoot, ".diagnostics", "electron", `glass-workspace-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const configDir = join(runDir, "config");
+const projectListPath = join(configDir, "project-list.json");
+const fixtureProjectId = "aidebug-glass-project";
+const fixtureProjectPath = join(runDir, "project");
 const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const fallbackPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
@@ -74,6 +77,24 @@ let electronProcess;
 let client;
 let target;
 let reporting;
+
+function prepareProjectFixture() {
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(fixtureProjectPath, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(projectListPath, `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "AIDebug Glass Workspace",
+      path: fixtureProjectPath,
+      sessionPath: join(fixtureProjectPath, "session.json"),
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
+}
 
 function normalizedText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -1332,7 +1353,7 @@ async function runStaticSelfTest() {
 }
 
 async function runGuiSuite() {
-  mkdirSync(configDir, { recursive: true });
+  prepareProjectFixture();
   recordObservation("info", "suite-checkpoint", { label: "bootstrap:prepare-run", runDir, mode: "glass-workspace-suite" });
   reporting = createAidebugReporting({
     runDir,

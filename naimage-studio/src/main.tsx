@@ -18960,6 +18960,20 @@ function App() {
           const events = imageProgressSince(beforeProgressCount);
           const retries = events.filter((item) => item.phase === "image-retry");
           const operationId = parentOperationId(events);
+          const timelineWait = operationId
+            ? await waitForDebugState(
+                `${config.label}-timeline-settled`,
+                (state) => {
+                  const timeline = operationTimeline(state, operationId);
+                  const commit = state.imageCommitEvidence?.operations?.find((entry) => entry.operationId === operationId);
+                  return Boolean(
+                    timeline.startCount === 1 && timeline.resultCount === 1 &&
+                    commit?.resultCardScheduledAt && commit.visibleCommitReady && commit.orderOk
+                  );
+                },
+                6_000
+              )
+            : { ok: false, label: `${config.label}-timeline-settled`, error: "missing operation id" };
           const state = readDebugState();
           const timeline = operationTimeline(state, operationId);
           const created = nodesRef.current.filter((node) => !beforeIds.has(node.id) && node.type === "image");
@@ -18974,7 +18988,7 @@ function App() {
             detail.ok && wait.ok && created.length === 1 && created[0]?.imageState === "done" &&
             (created[0]?.assets?.length ?? 0) === 1 && retries.length === config.failures &&
             retries.every((item) => item.errorCategory === expectedCategory && Number(item.maxRetries) === expectedMaxRetries) &&
-            retryIdentityOk && operationId && timeline.startCount === 1 && timeline.resultCount === 1 &&
+            retryIdentityOk && operationId && timelineWait.ok && timeline.startCount === 1 && timeline.resultCount === 1 &&
             state.toolTimelineEvidence.ok
           );
           return {
@@ -18994,6 +19008,7 @@ function App() {
               summary: item.summary
             })),
             operationId,
+            timelineWait,
             timeline,
             createdNodeIds: created.map((node) => node.id),
             wait
@@ -21428,6 +21443,10 @@ function App() {
 
       await step("persist-six-independent-layer-nodes", async () => {
         if (!window.naimageConfig?.saveSession || !window.naimageConfig?.loadSession) return { ok: false, error: "session bridge unavailable" };
+        const persistenceProjectId = activeProjectIdRef.current;
+        const baselineBefore = projectNodeMutationBaselineRef.current[persistenceProjectId]
+          ?.find((node) => node.id === subjectId);
+        const revisionBefore = projectSessionRevisionRef.current[persistenceProjectId] ?? 0;
         const snapshot = buildWorkflowSessionSnapshot({
           schemaVersion: 5,
           workspaceDomain: workspaceDomainRef.current,
@@ -21440,16 +21459,44 @@ function App() {
           nodes: nodesRef.current,
           selectedNodeId: selectedNodeIdRef.current
         });
-        const saved = await persistProjectSession(activeProjectIdRef.current, snapshot);
+        const snapshotSubject = snapshot.nodes.find((node) => node.id === subjectId);
+        const saved = await persistProjectSession(persistenceProjectId, snapshot);
         const loaded = await window.naimageConfig.loadSession();
         const storedNodes = Array.isArray(loaded.session?.nodes) ? loaded.session.nodes : [];
         const storedMembers = storedNodes.filter((node) => node.layerGroup?.id === groupId);
+        const baselineAfter = projectNodeMutationBaselineRef.current[persistenceProjectId]
+          ?.find((node) => node.id === subjectId);
+        const savedSubjectEvents = (saved.nodeMutationJournal ?? []).filter((event) =>
+          event.nodeId === subjectId || event.nodeOriginId === snapshotSubject?.persistenceOriginId
+        );
+        const savedRecentEvents = (saved.nodeMutationJournal ?? [])
+          .filter((event) => event.writerId === RENDERER_PERSISTENCE_ORIGIN_ID && event.writerSequence >= 40)
+          .map((event) => ({
+            writerSequence: event.writerSequence,
+            baseRevision: event.baseRevision,
+            commitRevision: event.commitRevision,
+            kind: event.kind,
+            nodeId: event.nodeId,
+            nodeOriginId: event.nodeOriginId,
+            fields: event.fields
+          }));
         return {
           ok: Boolean(
             saved.ok && loaded.ok && storedMembers.length === 6 && new Set(storedMembers.map((node) => node.id)).size === 6 &&
             storedMembers.every((node) => node.assets?.length === 1 && node.layerGroup && node.layerGroup.detached === false && !node.layerComposition)
           ),
           path: saved.path,
+          persistence: {
+            revisionBefore,
+            appliedRevision: saved.appliedRevision,
+            skippedStale: saved.skippedStale,
+            nodeMutationWriterSequence: saved.nodeMutationWriterSequence,
+            snapshotSubject: snapshotSubject ? { x: snapshotSubject.x, y: snapshotSubject.y, layerGroup: snapshotSubject.layerGroup } : null,
+            baselineBefore: baselineBefore ? { x: baselineBefore.x, y: baselineBefore.y, layerGroup: baselineBefore.layerGroup } : null,
+            baselineAfter: baselineAfter ? { x: baselineAfter.x, y: baselineAfter.y, layerGroup: baselineAfter.layerGroup } : null,
+            savedSubjectEvents,
+            savedRecentEvents
+          },
           storedMembers: storedMembers.map((node) => ({ id: node.id, x: node.x, y: node.y, assetCount: node.assets?.length ?? 0, layerGroup: node.layerGroup, hasLegacyComposition: Boolean(node.layerComposition) }))
         };
       });
@@ -21457,9 +21504,13 @@ function App() {
       await step("layer-visibility-persistence", async () => {
         const subject = nodesRef.current.find((node) => node.id === subjectId && node.layerGroup);
         if (!subject?.layerGroup || !window.naimageConfig?.saveSession || !window.naimageConfig?.loadSession) return { ok: false, error: "visibility persistence bridge unavailable" };
+        const persistenceProjectId = activeProjectIdRef.current;
         setLayerNodeVisibility(subject.id, false);
         await waitForDebugSettle(180);
         const hidden = nodesRef.current.find((node) => node.id === subject.id);
+        const baselineBefore = projectNodeMutationBaselineRef.current[persistenceProjectId]
+          ?.find((node) => node.id === subject.id);
+        const revisionBefore = projectSessionRevisionRef.current[persistenceProjectId] ?? 0;
         const snapshot = buildWorkflowSessionSnapshot({
           schemaVersion: 5,
           workspaceDomain: workspaceDomainRef.current,
@@ -21472,15 +21523,43 @@ function App() {
           nodes: nodesRef.current,
           selectedNodeId: selectedNodeIdRef.current
         });
-        const saved = await persistProjectSession(activeProjectIdRef.current, snapshot);
+        const snapshotSubject = snapshot.nodes.find((node) => node.id === subject.id);
+        const saved = await persistProjectSession(persistenceProjectId, snapshot);
         const loaded = await window.naimageConfig.loadSession();
         const stored = loaded.session?.nodes?.find((node) => node.id === subject.id);
+        const baselineAfter = projectNodeMutationBaselineRef.current[persistenceProjectId]
+          ?.find((node) => node.id === subject.id);
+        const savedSubjectEvents = (saved.nodeMutationJournal ?? []).filter((event) =>
+          event.nodeId === subject.id || event.nodeOriginId === hidden?.persistenceOriginId
+        );
+        const savedRecentEvents = (saved.nodeMutationJournal ?? [])
+          .filter((event) => event.writerId === RENDERER_PERSISTENCE_ORIGIN_ID && event.writerSequence >= 40)
+          .map((event) => ({
+            writerSequence: event.writerSequence,
+            baseRevision: event.baseRevision,
+            commitRevision: event.commitRevision,
+            kind: event.kind,
+            nodeId: event.nodeId,
+            nodeOriginId: event.nodeOriginId,
+            fields: event.fields
+          }));
         setLayerNodeVisibility(subject.id, true);
         await waitForDebugSettle(120);
         return {
           ok: Boolean(saved.ok && loaded.ok && hidden?.layerGroup?.visible === false && stored?.layerGroup?.visible === false && nodesRef.current.find((node) => node.id === subject.id)?.layerGroup?.visible !== false),
           hidden: hidden?.layerGroup,
-          stored: stored?.layerGroup
+          stored: stored?.layerGroup,
+          persistence: {
+            revisionBefore,
+            appliedRevision: saved.appliedRevision,
+            skippedStale: saved.skippedStale,
+            nodeMutationWriterSequence: saved.nodeMutationWriterSequence,
+            snapshotSubject: snapshotSubject ? { x: snapshotSubject.x, y: snapshotSubject.y, layerGroup: snapshotSubject.layerGroup } : null,
+            baselineBefore: baselineBefore ? { x: baselineBefore.x, y: baselineBefore.y, layerGroup: baselineBefore.layerGroup } : null,
+            baselineAfter: baselineAfter ? { x: baselineAfter.x, y: baselineAfter.y, layerGroup: baselineAfter.layerGroup } : null,
+            savedSubjectEvents,
+            savedRecentEvents
+          }
         };
       });
 

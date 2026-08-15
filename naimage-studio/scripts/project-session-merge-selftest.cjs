@@ -1,7 +1,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { mergeProjectSessions } = require("../desktop/project-session-merge.cjs");
+const {
+  mergeProjectSessions,
+  prepareIncomingNodeMutationSession
+} = require("../desktop/project-session-merge.cjs");
 const { sanitizeSession } = require("../desktop/project-session-normalizer.cjs");
 const { composeCommerceSetTask } = require("../runtime/commerce-set-plan.cjs");
 
@@ -386,6 +389,105 @@ const disjointFieldEdit = mergeProjectSessions(
 assert.equal(disjointFieldEdit.nodes[0].x, 44, "A persisted x edit must survive a concurrent y edit");
 assert.equal(disjointFieldEdit.nodes[0].y, 88, "The independent incoming y edit must also be applied");
 assert.deepEqual(disjointFieldEdit.nodeMutationJournal.map((event) => event.fields[0]), ["x", "y"]);
+
+const layerWriterId = "renderer-layer-persistence";
+const committedLayerNode = node("L", "shared:layer-persistence", {
+  layerGroup: {
+    id: "layers-1",
+    title: "Layer group",
+    groupNumber: 1,
+    total: 1,
+    order: 1,
+    layerId: "subject",
+    layerTitle: "Subject",
+    role: "subject",
+    compositionWidth: 1024,
+    compositionHeight: 1024,
+    anchorX: 10,
+    anchorY: 20,
+    detached: true,
+    visible: true,
+    opacity: 1,
+    blendMode: "normal"
+  }
+});
+const committedLayerEvent = {
+  version: 1,
+  eventId: `${layerWriterId}:1`,
+  writerId: layerWriterId,
+  writerSequence: 1,
+  baseRevision: 10,
+  commitRevision: 11,
+  kind: "upsert",
+  fields: ["layerGroup"],
+  nodeOriginId: committedLayerNode.persistenceOriginId,
+  nodeId: committedLayerNode.id,
+  createdAt: "2026-07-29T01:20:00.000Z"
+};
+const committedLayerSession = {
+  ...existing,
+  schemaVersion: 5,
+  sessionRevision: 11,
+  nodes: [committedLayerNode],
+  nodeMutationJournal: [committedLayerEvent],
+  nodeMutationWriterCheckpoints: [{
+    version: 1,
+    writerId: layerWriterId,
+    writerSequence: 1,
+    observedRevision: 10,
+    lastSeenAt: "2026-07-29T01:20:00.000Z"
+  }]
+};
+const recomposedLayerNode = node("L", "shared:layer-persistence", {
+  layerGroup: { ...committedLayerNode.layerGroup, detached: false }
+});
+const preparedRecompose = prepareIncomingNodeMutationSession(
+  committedLayerSession,
+  { ...committedLayerSession, sessionRevision: 12, nodes: [recomposedLayerNode] },
+  {
+    writerId: layerWriterId,
+    baselineNodes: [committedLayerNode],
+    observedRevision: 11,
+    now: new Date("2026-07-29T01:21:00.000Z")
+  }
+);
+assert.equal(preparedRecompose.events.length, 1);
+assert.equal(preparedRecompose.events[0].writerSequence, 2);
+assert.deepEqual(
+  preparedRecompose.session.nodeMutationJournal.map((event) => event.eventId),
+  [`${layerWriterId}:1`, `${layerWriterId}:2`],
+  "A pending same-field event must survive beside the older committed event until the coordinator stamps it"
+);
+const recomposedLayerSession = mergeProjectSessions(
+  committedLayerSession,
+  preparedRecompose.session,
+  { nextRevision: 12, incomingOwnsNonNodeState: true, incomingWriterId: layerWriterId }
+).session;
+assert.equal(recomposedLayerSession.nodes[0].layerGroup.detached, false);
+assert.equal(recomposedLayerSession.nodeMutationJournal.at(-1).commitRevision, 12);
+
+const hiddenLayerNode = node("L", "shared:layer-persistence", {
+  layerGroup: { ...recomposedLayerNode.layerGroup, visible: false }
+});
+const preparedVisibility = prepareIncomingNodeMutationSession(
+  recomposedLayerSession,
+  { ...recomposedLayerSession, sessionRevision: 13, nodes: [hiddenLayerNode] },
+  {
+    writerId: layerWriterId,
+    baselineNodes: [recomposedLayerNode],
+    observedRevision: 12,
+    now: new Date("2026-07-29T01:22:00.000Z")
+  }
+);
+const hiddenLayerSession = mergeProjectSessions(
+  recomposedLayerSession,
+  preparedVisibility.session,
+  { nextRevision: 13, incomingOwnsNonNodeState: true, incomingWriterId: layerWriterId }
+).session;
+assert.equal(hiddenLayerSession.nodes[0].layerGroup.detached, false);
+assert.equal(hiddenLayerSession.nodes[0].layerGroup.visible, false);
+assert.equal(hiddenLayerSession.nodeMutationJournal.at(-1).writerSequence, 3);
+assert.equal(hiddenLayerSession.nodeMutationJournal.at(-1).commitRevision, 13);
 
 const clockedContentEdit = mergeProjectSessions(
   {

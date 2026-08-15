@@ -7533,6 +7533,16 @@ async function captureImageImportSuiteProbe(client, targetId) {
       layerIsolation: {
         ok: layerIsolationOk,
         layerSuiteOk: layers?.ok,
+        layerCompletion: layers?.completion,
+        failedSteps: Array.isArray(layers?.steps)
+          ? layers.steps.filter((item) => item?.ok === false).map((item) => ({
+              label: item.label,
+              durationMs: item.durationMs,
+              error: item.error || "",
+              detail: item.detail
+            }))
+          : [],
+        issues: Array.isArray(layers?.issues) ? layers.issues : [],
         layerIds,
         subjectId: layers?.subjectId,
         result: layerTargetImport,
@@ -7750,7 +7760,11 @@ async function captureCanvasClaritySuiteProbe(client, targetId) {
       const transform = String(stage?.style.transform || '');
       const translate = transform.match(/translate\\(([-0-9.]+)px,\\s*([-0-9.]+)px\\)/);
       const translationAligned = Boolean(translate && [Number(translate[1]), Number(translate[2])].every((value) => Math.abs(value * dpr - Math.round(value * dpr)) < 0.001));
-      const sourceTierOk = displayedDeviceLongest <= 900 || !thumbnail;
+      // Canvas previews intentionally cap large single images at the 1024px
+      // tier to avoid decoding every 2K/4K original. Judge the selected tier
+      // against real device pixels instead of forcing the original above an
+      // arbitrary CSS-size threshold; the viewer still uses the full source.
+      const sourceTierOk = !thumbnail || thumbnailMax >= displayedDeviceLongest * 1.05;
       const proof = {
         scale: Number(window.__naimageDebugAgentState?.().viewport?.scale || 0),
         dpr,

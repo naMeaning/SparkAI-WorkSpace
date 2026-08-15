@@ -14,6 +14,8 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = join(repoRoot, ".diagnostics", "electron", `commerce-export-ui-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const configDir = join(runDir, "config");
 const projectDir = join(configDir, "projects", "default");
+const projectListPath = join(configDir, "project-list.json");
+const fixtureProjectId = "commerce-export-ui-project";
 const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const exportCommand = "sparkai.commerce-toolkit.open-export-center";
@@ -21,6 +23,24 @@ let viteProcess;
 let electronProcess;
 let client;
 let target;
+
+function prepareProjectFixture() {
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(projectDir, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(projectListPath, `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "Commerce Export UI",
+      path: projectDir,
+      sessionPath: join(projectDir, "session.json"),
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
+}
 
 function sha256File(filePath) {
   return createHash("sha256").update(readFileSync(filePath)).digest("hex");
@@ -170,7 +190,7 @@ async function readLayout() {
 
 async function main() {
   mkdirSync(runDir, { recursive: true });
-  mkdirSync(configDir, { recursive: true });
+  prepareProjectFixture();
   assert(existsSync(electronCli), "Electron CLI is missing");
   assert(existsSync(viteCli), "Vite CLI is missing");
   writeFileSync(join(configDir, "app-settings.json"), `${JSON.stringify({

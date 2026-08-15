@@ -337,7 +337,14 @@ function collectNodeMutationEvents(input = {}) {
 
   return {
     events,
-    journal: compactNodeMutationJournal([...(Array.isArray(input.journal) ? input.journal : []), ...events]),
+    // New events do not have a commitRevision until the save coordinator
+    // accepts them. Keep them beside the committed journal here; compacting
+    // now would make an older committed event win the same field and discard
+    // the pending mutation before it can be stamped.
+    journal: [
+      ...compactNodeMutationJournal(Array.isArray(input.journal) ? input.journal : []),
+      ...events
+    ],
     nextWriterSequence
   };
 }

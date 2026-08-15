@@ -15,6 +15,7 @@ const TASK_SCOPE_VALUES = [
   "merge-reference",
   "clear-attachments"
 ];
+const MAIN_TASK_SCOPE_VALUES = ["auto", "keep", "replace-source"];
 
 function captureHealthy(capture) {
   return Boolean(
@@ -247,7 +248,7 @@ function mergeCaptureDetail(capture, key, detail, ok) {
   return capture;
 }
 
-async function taskScopeMetrics(evaluate, client, selector, expectedValue) {
+async function taskScopeMetrics(evaluate, client, selector, expectedValue, expectedValues = TASK_SCOPE_VALUES) {
   return evaluate(client, `(() => {
     const select = document.querySelector(${JSON.stringify(selector)});
     const field = select?.closest('label');
@@ -267,7 +268,7 @@ async function taskScopeMetrics(evaluate, client, selector, expectedValue) {
       ? Array.from(select.options).map((option) => ({ value: option.value, text: String(option.textContent || '').trim() }))
       : [];
     const values = options.map((option) => option.value);
-    const expectedValues = ${JSON.stringify(TASK_SCOPE_VALUES)};
+    const expectedValues = ${JSON.stringify(expectedValues)};
     const optionsOk = JSON.stringify(values) === JSON.stringify(expectedValues) && options.every((option) => option.text.length > 0);
     const layoutOk = [selectRect, fieldRect, textareaRect, submitRect].every(inside) &&
       selectRect?.width >= 140 && selectRect?.height >= 24 &&
@@ -449,9 +450,9 @@ export async function captureSkillNodeSuite(context) {
   phase("main-task-scope-stage");
   await evaluate(client, `window.__naimageDebugOpenSurface?.("agent-running")`);
   await waitForExpression(client, "Boolean(document.querySelector('.project-agent-steer-mode select:not(:disabled)'))", 5_000);
-  const mainModeSelection = await selectOptionWithKeyboard(evaluate, client, ".project-agent-steer-mode select", "merge-reference");
-  const mainSelectedMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "merge-reference");
-  const mainSelectedCapture = await captureState(client, targetId, "task-scope-main-merge-reference", "undefined", { width: 1280, height: 820 }, {
+  const mainModeSelection = await selectOptionWithKeyboard(evaluate, client, ".project-agent-steer-mode select", "replace-source");
+  const mainSelectedMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "replace-source", MAIN_TASK_SCOPE_VALUES);
+  const mainSelectedCapture = await captureState(client, targetId, "task-scope-main-replace-source", "undefined", { width: 1280, height: 820 }, {
     agentBusy: true
   });
   results.push(mergeCaptureDetail(mainSelectedCapture, "mainTaskScopeSelected", {
@@ -463,7 +464,7 @@ export async function captureSkillNodeSuite(context) {
   const mainPrompt = await replaceTextWithKeyboard(evaluate, client, ".project-agent-composer textarea", "AIDEBUG_TASK_SCOPE_MAIN_RESET");
   const mainSent = await clickSelector(evaluate, client, ".project-agent-steer");
   await delay(300);
-  const mainResetMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "auto");
+  const mainResetMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "auto", MAIN_TASK_SCOPE_VALUES);
   const mainResetCapture = await captureState(client, targetId, "task-scope-main-reset-auto", "undefined", { width: 1280, height: 820 }, {
     agentBusy: true
   });

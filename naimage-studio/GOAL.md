@@ -7,7 +7,7 @@
 
 并行治理轨道：已完成工作区 Agent Harness。它把历史对话中的稳定用户意图、任务路由、授权边界、验证分级与完成审计固化为根目录 `AGENTS.md`、`HARNESS.md`、`harness/` 及结构校验器；该轨道不覆盖阶段 10 的产品目标，也不扩大其测试范围。
 
-当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性已完成实现和专项验证。首轮源码稳定的 `1.0.9` 发布门禁通过前 88/113 项并暴露共享弹层焦点竞态；修复后第二份稳定报告通过前 91 项，又在 AskUser 窄屏场景发现像素验证器错误要求采样宽 2px 的画布边缘残片。验证器现记录并跳过无法采样的裁剪残片，但当全部节点都不可采样时仍失败；AskUser 专项已连续两轮通过。正式 `release:final` 因本机现有安装在零步骤预检退出，未触碰安装环境并保留 incomplete 标记；当前只继续推进全量门禁和强制 Bundle 的本地双版本候选，不冒充正式发布。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内。
+当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性均已完成实现和专项验证。最终源码稳定报告 [verify-2026-08-15T22-12-37-714Z/report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 为 `113/113`、`sourceStable:true`；此前暴露的共享弹层焦点竞态和 AskUser 窄屏裁剪残片误报均已修复。Commerce、Glass、Graph CLI 和导出 UI AIDebug 现在都使用显式隔离项目 fixture，不依赖废弃的 AppData 默认项目；Session mutation journal 也已补上待提交事件保留回归。正式 `release:final` 仍因本机现有安装在零步骤预检退出而保留 incomplete，强制 Bundle、本地双版本候选和针对性门禁已通过，但不冒充正式发布。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内。
 
 ## 结果
 
@@ -43,7 +43,7 @@
 - 连接头只有形成拖动手势后才尝试建边；单击输入/输出连接头、空白松手、`Escape` 与 `pointercancel` 只取消草稿，不得隐式删除关系。目标必须真实包含指针；具体连线提供宽命中区和单边断开菜单，节点右键菜单才提供明确的全部输入/输出断开。图片容器投影线必须携带底层真实 source/target，不能用可见宿主 ID 误删关系。
 - 普通 PNG/JPEG/WebP/AVIF/TIFF 另存、单图 PSD、分层 PSD 使用互不隐式调用的 IPC/UI 链路；普通导出不能改变 PSD 状态，PSD 不能改写普通导出配置或目标。
 - 图片查看器保留双缓冲并以 identity/token、source/identity/target 校验和 decode 完成作为换帧条件；过期 preload/decode/DOM load 不得覆盖最新选择，真实 `data-final-asset`、`data-target-asset`、`data-displayed-asset`、`data-buffering` 状态必须可验证。
-- 2026-08-11 性能审计确认：冷缩略图请求由 Main 侧最多 2 个 Sharp 子进程排队处理，而且每个 cache miss 都会重新 `fork()` 一个只处理单次请求的进程；10 张 4K fixture 共请求 11 个 256/512 变体，首次生成约 4.57 秒而 Renderer Long Task 为 0，同一批缓存命中约 83 毫秒。默认缓存仅保留 96 个变体，单张生成成果又可能在画布直接解码原图，因此图片规模上升时还会叠加缓存淘汰/重复生成与 Chromium 解码/GPU 压力。后续优化应优先考虑持久 worker/预生成、合并缩略图变体和扩大/改进缓存策略；查看器主图继续保留原图以维持清晰度，不能用缩略图替代最终查看。
+- 2026-08-11 性能审计历史基线：冷缩略图请求由 Main 侧最多 2 个 Sharp 子进程排队处理，而且每个 cache miss 都会重新 `fork()` 一个只处理单次请求的进程；10 张 4K fixture 共请求 11 个 256/512 变体，首次生成约 4.57 秒而 Renderer Long Task 为 0，同一批缓存命中约 83 毫秒。默认缓存仅保留 96 个变体，单张生成成果又可能在画布直接解码原图，因此图片规模上升时还会叠加缓存淘汰/重复生成与 Chromium 解码/GPU 压力。该条只保留为优化前基线；当前实现和新证据见下一条。
 - 本轮性能整备已把冷缩略图改为最多 2 个常驻 Worker 的 `requestId` 任务池，并验证进程复用、崩溃恢复与 Main 退出清理；磁盘缓存扩大到 512 个/512 MiB，画布大图优先使用现有 1024 缩略图桶，最终图片查看器继续解码受管原图。同一 10 张 4K fixture 的 11 个冷变体由旧基线约 4.57 秒/11 次进程启动降为 1.40 秒/2 次启动，热缓存由约 83 毫秒降为 27.2 毫秒，图片阶段 Renderer Long Task 为 0。
 - 每个对话模型可独立覆盖 Base URL/API Key 或绑定账户 Token，留空继承全局对话连接；Chat Completions 与 Responses 对话按实际请求模型路由，Responses 生图继续使用图片连接。账号模式仍保留逐模型自定义 API Key，优先于模型绑定账户 Token 和全局账户 Token；逐模型自定义 Base URL 只在 `custom` 模式生效。逐模型 Key 只保存在 Windows `safeStorage` sidecar，Renderer 和普通 JSON 仅见占位符；模型缓存用单向指纹区分 URL/Key/Token 变化。SparkAPI 专用版继续强制账号地址，但不得移除账号登录后的逐模型自定义 Key。
 - 软件通行条件是“成功登录中转站账号”或“设备持有有效 Pro License 且配置自定义 Base URL”。账号登录本身授权使用且不请求 License；自定义模式只接受服务端 `pro` 兑换码，默认最多 3 台设备，沿用永久/限时、禁用撤销、24 小时在线校验和 72 小时离线宽限。License 请求不得携带用户 Base URL、API Key 或账号 Cookie。
@@ -87,7 +87,14 @@
 | 当前追加：账号登录与 Pro 自定义接入授权（已完成） | 账号登录直接进入工作区；自定义 Base URL 先激活 Pro；账号模式完整保留逐模型自定义 API Key | 后端计划/设备/撤销合同、桌面登录门禁、官方 License 域名、凭据隔离和逐模型 Key 优先级已实现；双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
 | 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
 | 当前追加：图片组项目目录与连线交互（已完成） | 图片组名称直接映射项目级交付文件夹；多组选中导出多个同级目录；连线与取消必须非破坏且可精确断开 | Main-only 新目录、旧目录兼容、整批原子发布、真实边身份、精确目标、单边/批量断开、隔离 GUI、最终 build 与双 Windows x64 测试包均已核验。 |
-| 当前整备：大量图片、统一导出与安全验收（已完成实现） | 常驻缩略图 Worker、扩大缓存、项目级统一导出中心，以及默认拒绝真实请求/真实迁移的验收工具 | 10 张 4K 冷热缓存证据、导出逻辑/UI、迁移/模型验收专项、15 场景 UI Surface 和三轮产品性能门禁均通过；Agent Text UI 与 AskUser GUI 修复后均连续两轮通过。正式发布仍只接受同一次完整 `release:final`，现有安装阻断时生成的双版本包只能称本地候选。 |
+| 当前整备：大量图片、统一导出与安全验收（已完成实现） | 常驻缩略图 Worker、扩大缓存、项目级统一导出中心，以及默认拒绝真实请求/真实迁移的验收工具 | 10 张 4K 冷热缓存证据、导出逻辑/UI、迁移/模型验收专项、15 场景 UI Surface 和三轮产品性能门禁均通过；Agent Text UI 与 AskUser GUI 修复后均连续两轮通过。最终 `release:verify` 为 113/113 且源码稳定。正式发布仍只接受同一次完整 `release:final`，现有安装阻断时生成的双版本包只能称本地候选。 |
+
+## 本地整备收口（2026-08-16）
+
+- 最终本地发布门禁 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 完成 113/113 项，`sourceStable:true`；覆盖 typecheck、协议/IPC、项目 Session、迁移/导出、图片性能、UI Surface、更新/回滚和 Bundle hard gate。
+- AIDebug/导出 UI 已改为每次运行创建隔离项目列表和项目目录，Commerce、Glass、Graph CLI、Skill、图片生成与 Commerce Export UI 不再依赖测试机上的默认项目；这只影响测试夹具，不改变用户项目路径策略。
+- `project-session-merge.cjs` 保留尚未获得 `commitRevision` 的新 mutation，避免旧已提交事件在保存协调器盖章前把图层状态丢掉；对应 selftest 覆盖重组与可见性连续保存。
+- 本地验证不等于外部验收：正式安装/升级/卸载、Windows 签名、真实模型供应商服从度、真实 C 盘迁移清理和 SparkAI Extension 生产部署仍需在用户明确授权和实际环境中完成。
 
 ## 图片组项目目录与连线交互核验（2026-08-15）
 

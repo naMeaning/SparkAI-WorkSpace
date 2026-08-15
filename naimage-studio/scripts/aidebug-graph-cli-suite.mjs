@@ -41,6 +41,9 @@ const runKey = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(diagnosticsRoot, `aidebug-graph-cli-${runKey}`);
 const reviewDir = join(reviewRoot, `review-graph-cli-${runKey}`);
 const configDir = join(runDir, "config");
+const projectListPath = join(configDir, "project-list.json");
+const fixtureProjectId = "aidebug-graph-project";
+const fixtureProjectPath = join(runDir, "project");
 const endpointPath = join(configDir, "automation", "endpoint.json");
 const schemaPath = join(packageRoot, "integrations", "naimage-control", "references", "commands.schema.json");
 const sourceCliPath = join(packageRoot, "integrations", "naimage-control", "scripts", "naimage.ps1");
@@ -91,6 +94,24 @@ function fileEvidence(filePath) {
 function appendJsonLine(filePath, value) {
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, `${JSON.stringify(value)}\n`, { encoding: "utf8", flag: "a" });
+}
+
+function prepareProjectFixture() {
+  mkdirSync(configDir, { recursive: true });
+  mkdirSync(fixtureProjectPath, { recursive: true });
+  const now = new Date().toISOString();
+  writeFileSync(projectListPath, `${JSON.stringify({
+    activeProjectId: fixtureProjectId,
+    projects: [{
+      id: fixtureProjectId,
+      name: "AIDebug Graph CLI",
+      path: fixtureProjectPath,
+      sessionPath: join(fixtureProjectPath, "session.json"),
+      createdAt: now,
+      updatedAt: now,
+      external: true
+    }]
+  }, null, 2)}\n`, "utf8");
 }
 
 const observations = [];
@@ -877,6 +898,7 @@ async function main() {
   }
 
   mkdirSync(runDir, { recursive: true });
+  prepareProjectFixture();
   recordObservation("info", "suite-checkpoint", { label: "bootstrap:prepare-run", runDir, mode: "graph-cli-suite" });
   const schema = readCommandSchema();
   if (schema.missing.length) throw new Error(`Graph CLI commands are not registered yet: ${schema.missing.join(", ")}`);

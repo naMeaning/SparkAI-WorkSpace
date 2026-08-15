@@ -672,6 +672,10 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
       if (!requestC || !assetC) throw new Error('C preload was not scheduled');
       requestC.loadPromise = requestC.image.onload?.();
       if (!await waitFor(() => requestC.decodeStarted && requestC.resolveDecode)) throw new Error('C decode did not start');
+      // The RAF sampler may not have produced its first frame yet. Capture the
+      // transition synchronously so the old decoded frame is not reported as
+      // invisible merely because the samples array is still empty.
+      sample();
       beforeCDecode = {
         targetAsset: stage.getAttribute('data-target-asset') || '',
         displayedAsset: stage.getAttribute('data-displayed-asset') || '',
