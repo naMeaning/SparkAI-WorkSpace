@@ -21,6 +21,7 @@ pnpm run build
 pnpm run test
 pnpm run check
 pnpm run verify:workspace
+pnpm run package:extension
 ```
 
 License administration uses `SPARKAI_EXTENSION_URL` and `SPARKAI_EXTENSION_ADMIN_TOKEN`:
@@ -34,7 +35,7 @@ pnpm run license:disable -- --id 1
 ## Security And Reliability
 
 - Keep `SPARKAI_EXTENSION_HASH_SECRET` stable and outside Git. Rotating it invalidates existing hashes.
-- Route the worker to a loopback, Docker-network, or private New API origin that bypasses Cloudflare.
+- By default join the existing New API user-defined Docker network and use its service DNS/internal port. Never route the worker through the Cloudflare public hostname.
 - Persist only SQLite and result files under the configured data directory. Never log or persist caller Bearer keys.
 - Run one service replica. Queued/running tasks become failed after restart and are never replayed automatically.
 - Use idempotency keys end to end. Do not recreate a task after an ambiguous create response.

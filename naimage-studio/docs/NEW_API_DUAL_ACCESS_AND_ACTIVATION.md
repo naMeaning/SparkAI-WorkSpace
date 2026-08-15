@@ -31,7 +31,7 @@ SparkAI Extension
      → 现有原生 New API
 ```
 
-`SPARKAI_NEW_API_UPSTREAM` 必须使用回环、Docker service name 或私网地址，不能再次指向 Cloudflare 橙云域名，否则后台长请求仍可能超时。
+扩展 Compose 默认加入原生 New API 已使用的 user-defined Docker network。`SPARKAI_NEW_API_UPSTREAM` 必须使用该网络中的 service DNS/alias 与内部端口，例如 `http://new-api:3000`；禁止使用 `host.docker.internal`、Cloudflare 橙云域名或公网 IP，否则后台长请求仍可能超时。
 
 扩展服务不读取 New API 数据库、不共享 New API session、不复制管理后台。图片 Bearer Key 只存在于处理该任务的进程内存，SQLite 仅保存 HMAC owner；结果文件按保留期清理。服务重启会把 queued/running 标记失败且不重放，避免上游已受理时重复扣费。
 
@@ -61,12 +61,13 @@ ai-native/deploy/sparkai-extension/Caddyfile.example
 
 部署顺序：
 
-1. 为 `SPARKAI_EXTENSION_ADMIN_TOKEN` 与 `SPARKAI_EXTENSION_HASH_SECRET` 分别生成至少 32 字符的随机值。
-2. 设置 `SPARKAI_NEW_API_UPSTREAM` 为现有原生 New API 的私网地址。
-3. 启动单实例扩展服务并持久化 `/data`。
-4. 把 Caddy 两个扩展路径放在原生 New API catch-all 之前。
-5. 验证 `GET /api/naimage/license`，再用管理员 CLI创建测试码。
-6. 验证账号登录、Pro 激活、3 台上限、禁用撤销和同一 `task_id` 轮询。
+1. 运行 `corepack pnpm run package:extension` 生成独立 ZIP/TAR.GZ；上传并解压后先让 Codex 完整读取包根 `AGENTS.md`。
+2. 只读识别现有 New API 容器的 user-defined network、DNS/alias 与内部端口。
+3. 为 `SPARKAI_EXTENSION_ADMIN_TOKEN` 与 `SPARKAI_EXTENSION_HASH_SECRET` 分别生成至少 32 字符的随机值，并设置 `SPARKAI_DOCKER_NETWORK` 与容器 DNS形式的 `SPARKAI_NEW_API_UPSTREAM`。
+4. 启动单实例扩展服务并持久化 `/data`。
+5. 按 Caddy 位于 Docker 或宿主机选择对应示例，把两个扩展路径放在原生 New API catch-all 之前。
+6. 验证 `GET /api/naimage/license`；只有用户明确要求时再用管理员 CLI创建生产兑换码。
+7. 获得真实付费测试授权后，再验证账号登录和同一 `task_id` 的端到端轮询。
 
 详细 Docker 命令见 `ai-native/deploy/sparkai-extension/README.md`。
 
@@ -135,7 +136,7 @@ corepack pnpm run license:disable -- --id 12
 | Pro 激活失败 | 兑换码失效、过期、设备满额或 HMAC secret 不一致 | 用管理员 list/disable 和扩展日志核对，不查看明文 token |
 | `/v1/image-tasks` 404 | 请求仍落到原生 New API | 将 image-task 路径放在 New API catch-all 前 |
 | task 很快 failed 且 401 | Bearer Key 被原生 New API 拒绝 | 检查桌面所选账户 Token |
-| 后台约 2 分钟超时 | Worker 仍经 Cloudflare 请求 New API | 把 `SPARKAI_NEW_API_UPSTREAM` 改为内网地址 |
+| 后台约 2 分钟超时 | Worker 仍经 Cloudflare 请求 New API | 确认扩展与 New API 共享 user-defined network，并把 upstream 改为容器 DNS/内部端口 |
 | 服务重启后任务 failed | 按防重复策略不重放 | 用户明确重新生成；不得自动重建 |
 | 自定义 Base URL 生图仍同步 | 用户上游没有 image-task API | 这是兼容行为；扩展服务不会接收用户自定义 Key |
 

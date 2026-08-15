@@ -32,6 +32,9 @@ Historical New API/CRM sources remain temporarily as cleanup input, but no root 
 ```powershell
 corepack pnpm run check
 corepack pnpm run dev
+corepack pnpm run package:extension
 ```
 
 Configuration is documented in [`services/sparkai-extension/.env.example`](services/sparkai-extension/.env.example). Deployment steps are in [`deploy/sparkai-extension/README.md`](deploy/sparkai-extension/README.md).
+
+`package:extension` creates a standalone ZIP and TAR.GZ under `release/`. The bundle contains a deployment-specific root `AGENTS.md`, Docker-network Compose, both Caddy layouts, source checks, file manifests and SHA-256 sums. It never includes the legacy New API/CRM trees, local `.env`, databases or diagnostics.

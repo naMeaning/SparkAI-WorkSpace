@@ -29,7 +29,7 @@ flowchart LR
   Desktop -->|"账号/session/Token/普通 /v1"| NewAPI["用户已部署的原生 New API\n保持上游版本"]
   Desktop -->|"/api/naimage/license/*\n/v1/image-tasks/*"| Extension["ai-native / SparkAI Extension\nNode 24 + SQLite"]
 
-  Extension -->|"Bearer 只在内存\n内网 /v1/images/generations"| NewAPI
+  Extension -->|"Bearer 只在内存\n共享 Docker network\n/v1/images/generations"| NewAPI
   NewAPI --> Providers["上游模型与图片服务"]
 
   Desktop --> LocalProject["本地项目目录\nsession / assets / output"]
@@ -123,7 +123,8 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 | 路径 | 职责 | 关键技术 |
 | --- | --- | --- |
 | `services/sparkai-extension/` | Pro 兑换码/设备授权与图片任务创建、查询、后台转发 | Node 24 原生 HTTP、`node:sqlite`、进程内并发队列 |
-| `deploy/sparkai-extension/` | 单服务 Docker、数据卷、健康检查与同域 Caddy 路由示例 | Docker Compose、Caddy |
+| `deploy/sparkai-extension/` | 单服务 Docker、外部 New API network、数据卷、健康检查、Codex `AGENTS.md` 与两种 Caddy 布局 | Docker Compose、Caddy |
+| `scripts/package-extension.mjs` | 只收集扩展源码/部署合同并生成 ZIP、TAR.GZ、manifest 与 SHA-256 | Node.js、bsdtar；排除旧 New API/CRM、`.env`、数据库和诊断数据 |
 | `scripts/verify-workspace.mjs` | 保证根 `dev/start/build/test/check` 只指向扩展服务 | Node.js |
 
 `services/ai-gateway/`、`services/crm-api/`、`packages/crm-contracts/` 与 `deploy/production/` 已退出活跃入口，仅作为后续经验证清理的遗留源码保留。根脚本不得再构建或启动它们。
@@ -132,7 +133,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 
 | 端口 | 服务 | 用途 |
 | --- | --- | --- |
-| `17910` | SparkAI Extension | 只监听回环/私网，由现有 Caddy 转发扩展路径 |
+| `17910` | SparkAI Extension | 容器内监听并仅映射宿主机 `127.0.0.1:17910`；Docker 代理也可通过服务 DNS 访问 |
 | 用户现有端口 | 原生 New API | 账号、Token、模型、渠道、quota、计费及其他全部原生接口 |
 
 ```text
@@ -141,7 +142,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 其他路径                → 用户现有原生 New API
 ```
 
-图片 Worker 的 `SPARKAI_NEW_API_UPSTREAM` 必须指向 New API 的回环、Docker 网络或私网地址，不能再次经过 Cloudflare 公网域名。调用者 Bearer Key 只存在于任务进程内存；SQLite 仅保存带服务端秘密的 HMAC owner hash。
+Compose 默认强制加入 `SPARKAI_DOCKER_NETWORK` 指定的既有 user-defined New API network；`SPARKAI_NEW_API_UPSTREAM` 必须使用该网络中的容器 DNS/alias 与内部端口，例如 `http://new-api:3000`，不能使用 `host.docker.internal`、Cloudflare 公网域名或公网 IP。调用者 Bearer Key 只存在于任务进程内存；SQLite 仅保存带服务端秘密的 HMAC owner hash。
 
 ### 4.3 常见修改入口
 
@@ -150,7 +151,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 | 兑换码、设备数、期限、撤销 | `src/license-service.mjs` | SQLite schema、管理员 CLI、License HTTP 测试、桌面 `test:license` |
 | 图片任务状态、并发、上游转发 | `src/image-task-service.mjs` | `/v1/image-tasks` HTTP 合同、幂等键、结果上限、桌面 transport 测试 |
 | HTTP 鉴权、限流、路由 | `src/http-server.mjs` | Caddy 路径、公开错误 DTO、安全测试 |
-| 部署 | `deploy/sparkai-extension/` | 稳定 HMAC secret、数据卷备份、New API 私网地址、单副本约束 |
+| 部署/交付包 | `deploy/sparkai-extension/`, `scripts/package-extension.mjs` | 先读包根 `AGENTS.md`；现有 Docker network/DNS、稳定 HMAC secret、数据卷备份、代理位置、单副本约束、archive manifest/hash |
 | 账号、渠道、quota、计费 | 用户维护的原生 New API | 不在本仓修改或复制 |
 
 ### 4.4 验证
@@ -161,6 +162,7 @@ corepack pnpm run verify:workspace
 corepack pnpm run build
 corepack pnpm run test
 corepack pnpm run check
+corepack pnpm run package:extension
 ```
 
 ## 5. 跨仓同步合同
@@ -179,7 +181,7 @@ corepack pnpm run check
 
 桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；session cookie + `New-Api-User` 只管理账户、余额和密钥，模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
-账号模式纯文生图使用所选账户 Key 请求同域 `POST /v1/image-tasks`；Caddy 只把该路径交给 SparkAI Extension。扩展服务立即写入自己的 SQLite 任务表并返回 `task_id`，Bearer Key 只留在单进程内存，后台通过 `SPARKAI_NEW_API_UPSTREAM` 的私网地址调用原生 New API `/v1/images/generations`，原生 New API 继续完成鉴权、渠道选择、计费与上游同步等待。客户端每 2.5 秒查询 `GET /v1/image-tasks/:id`；SQLite 以 HMAC owner 隔离任务，结果短期落盘，服务重启把 queued/running 标记失败且不重放。Cloudflare 只承载短 POST/GET。拿到 `task_id` 或创建结果不明后不得重新 POST；只有扩展端点明确不支持时才回退既有同步链路。自定义 Base URL 仍直接访问用户接口，若其不支持 image-task 则走原兼容回退，用户 Base URL/API Key 不上传扩展 License API。
+账号模式纯文生图使用所选账户 Key 请求同域 `POST /v1/image-tasks`；Caddy 只把该路径交给 SparkAI Extension。扩展服务立即写入自己的 SQLite 任务表并返回 `task_id`，Bearer Key 只留在单进程内存，后台通过共享 Docker network 的容器 DNS调用原生 New API `/v1/images/generations`，原生 New API 继续完成鉴权、渠道选择、计费与上游同步等待。客户端每 2.5 秒查询 `GET /v1/image-tasks/:id`；SQLite 以 HMAC owner 隔离任务，结果短期落盘，服务重启把 queued/running 标记失败且不重放。Cloudflare 只承载短 POST/GET。拿到 `task_id` 或创建结果不明后不得重新 POST；只有扩展端点明确不支持时才回退既有同步链路。自定义 Base URL 仍直接访问用户接口，若其不支持 image-task 则走原兼容回退，用户 Base URL/API Key 不上传扩展 License API。
 
 正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 

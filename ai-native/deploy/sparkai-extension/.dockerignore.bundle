@@ -1,0 +1,9 @@
+.git
+.env
+release
+**/.diagnostics
+**/data
+**/*.db
+**/*.sqlite
+**/*.log
+**/node_modules

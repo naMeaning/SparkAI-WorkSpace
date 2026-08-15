@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：46
+> 地图版本：47
 > 最近同步：2026-08-15
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -298,7 +298,7 @@ image_gen
 
 对话模型和生图模型共用 `ModelConnectionBinding` 结构，但分别持久化为 `agentModelBindings` 与 `imageModelBindings`。自定义模式允许每个已选模型覆盖 Base URL/API Key，字段留空时继承全局连接；账号模式同时允许逐模型自定义 API Key 与账户 Token，顺序为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”。账号模式故意忽略绑定中的自定义 Base URL，逐模型 Key 仍只向账号/Relay 地址请求，避免把模型 Key 变成未授权的 Base URL 入口。普通 Chat Completions 和 `/v1/responses` 对话都按请求体中的实际 `model` 解析对话绑定；Responses 生图继续由图片 provider 取图片连接，不能让顶层对话模型绑定抢占图片凭据。Main 在模型列表草稿合并前用当前已解密设置恢复 Renderer 占位符；逐模型 Key 与全局 Key 一样只进入 Windows `safeStorage` sidecar，普通 JSON、Renderer、日志和模型缓存均不含明文。模型缓存身份包含逐模型 Base URL/Key/Token 的 SHA-256 指纹，更换任一绑定后不得复用旧目录。无 Main 注入的 Agent Runtime 直连回退只在 `accessMode=custom` 时应用逐模型 URL/Key；账号 Token 始终由 Main 解析。最低验证为 `test:agent-model-binding`、`test:custom-api-transport`、`test:settings-secret-store`、`test:model-catalog`、`test:settings-lazy-load`、`test:access-variant`、`test:license` 和 `typecheck`。
 
-账号模式纯文生图使用所选账户 Key 向同域 `POST /v1/image-tasks` 提交与 Images generation 相同的 JSON；Caddy 仅把 `/v1/image-tasks*` 分流到独立 SparkAI Extension，其余账号、Token、模型和计费接口继续由用户部署的原生 New API 处理。扩展服务把 Bearer Key 只保留在单进程内存，SQLite 仅保存 HMAC owner 与任务状态，HTTP 202 立即返回 `task_id`；后台最多按配置并行两项，通过不经过 Cloudflare 的私网 `SPARKAI_NEW_API_UPSTREAM` 调用原生 `/v1/images/generations`，把原 Images JSON 短期落盘。客户端每 2.5 秒只做 GET，queued/running 继续，succeeded 进入原落盘/画布链路，failed 显示服务端错误；短暂 GET 网络错误、408/425/429/5xx 只重查同一 ID。拿到 `task_id` 后的所有错误以及创建结果不明错误都禁止重新 POST；扩展进程重启会把 queued/running 标记失败且不重放，优先避免重复扣费。自定义 Base URL 仍直接访问用户接口并在 task endpoint 明确不支持时回退既有同步链路，用户 Base URL/API Key 不上传 License 服务。任务化不提供 partial image；编辑、参考图和蒙版仍走原 `/v1/images/edits`。
+账号模式纯文生图使用所选账户 Key 向同域 `POST /v1/image-tasks` 提交与 Images generation 相同的 JSON；Caddy 仅把 `/v1/image-tasks*` 分流到独立 SparkAI Extension，其余账号、Token、模型和计费接口继续由用户部署的原生 New API 处理。扩展服务把 Bearer Key 只保留在单进程内存，SQLite 仅保存 HMAC owner 与任务状态，HTTP 202 立即返回 `task_id`；Compose 强制加入现有 `SPARKAI_DOCKER_NETWORK`，后台最多按配置并行两项，以容器 DNS/内部端口形式的 `SPARKAI_NEW_API_UPSTREAM` 调用原生 `/v1/images/generations`，禁止重新经过 Cloudflare。客户端每 2.5 秒只做 GET，queued/running 继续，succeeded 进入原落盘/画布链路，failed 显示服务端错误；短暂 GET 网络错误、408/425/429/5xx 只重查同一 ID。拿到 `task_id` 后的所有错误以及创建结果不明错误都禁止重新 POST；扩展进程重启会把 queued/running 标记失败且不重放，优先避免重复扣费。自定义 Base URL 仍直接访问用户接口并在 task endpoint 明确不支持时回退既有同步链路，用户 Base URL/API Key 不上传 License 服务。任务化不提供 partial image；编辑、参考图和蒙版仍走原 `/v1/images/edits`。
 
 生图 SOURCE/REFERENCE 输入和上游图片结果的受管格式为 PNG、JPEG、WebP；`image_gen.outputFormat` 未指定时默认 PNG，未知格式由 Electron Main 在 provider 派发前拒绝。这里的“上游结果格式”属于模型请求与项目资产落盘合同，本地“另存为”属于另一条完全离线的文件链路，不能混用计费语义或资产身份。
 
@@ -1060,6 +1060,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-08-15 | 1.0.9-dev | 上下文地图 v47 将外置 Extension 的默认部署固定为现有 New API user-defined Docker network + 容器 DNS/内部端口，移除 `host.docker.internal` 默认；新增宿主机/Docker Caddy 示例、部署专用 `AGENTS.md` 与 `package:extension`。部署包只含 25 个扩展/运维文件，提供 manifest、逐文件/归档 SHA-256、ZIP/TAR.GZ，并通过包内 source check、5 项 loopback 测试、Compose 静态校验和旧 fork/secret 边界检查。Docker daemon 本机未运行，因此没有把静态包校验误写成实际镜像 build 或线上部署。 |
 | 2026-08-15 | 1.0.9-dev | 上下文地图 v46 完成外置扩展服务收口：`ai-native` 根入口只运行 Node 24 SparkAI Extension，提供 SQLite/HMAC Pro License、管理员发码 CLI 与内存 Bearer/私网原生 Images 的 `/v1/image-tasks`；旧 New API/CRM/production 树退出活跃入口，等待真实部署、备份和回滚验证后再清理。管理员 CLI 创建/列表/禁用闭环、Extension 5 项 loopback 测试（含限时授权/兑换截止）、Compose 配置、桌面 License 9 cases、任务传输 31 cases、typecheck 与 1667-module production build 通过；未访问生产、真实 License/New API 或图片模型。浏览器开发回退仍属历史 session-relay，不计入当前合同。 |
 | 2026-08-15 | 1.0.9-dev | 上下文地图 v45 将服务端边界从定制 New API 改为独立 SparkAI Extension：用户原生 New API 保持可直接升级并继续拥有账号、Token、渠道、quota 与计费；同域仅分流 `/api/naimage/license*`、`/v1/image-tasks*`。扩展服务使用 SQLite/HMAC、管理员独立 Token、单进程内存 Bearer 与私网上游，重启不重放；旧 `ai-native` fork 退出活跃根入口，待部署验证后另行清理。 |
 | 2026-08-15 | 1.0.9-dev | 登录与授权合同拆分：账号登录本身允许进入工作区，不再请求设备 License；自定义 Base URL 必须通过官方服务的 `pro` 兑换码，默认 3 台并沿用永久/限时、禁用撤销、24 小时缓存和 72 小时离线宽限。账号模式保留逐模型自定义 API Key，优先于模型/全局账户 Token，但不接受逐模型 Base URL 绕过；Base URL、Key、Cookie 不进入 License 请求。 |

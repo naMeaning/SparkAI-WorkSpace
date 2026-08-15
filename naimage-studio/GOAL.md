@@ -49,7 +49,7 @@
 - 新安装不得创建 AppData 默认项目或全局画布 Session。创建项目与导入项目必须先取得用户选择的目标目录；取消选择不得创建目录、切换项目或写入索引。移除最后一个项目后进入内存空画布，自动保存、导入、生成和导出均不得伪造 `default` 项目。
 - 旧 AppData 项目只做显式迁移，不在启动时自动移动或删除。迁移必须先预检源项目、目标冲突和空间，复制到目标 staging，校验受管文件数量、大小与 SHA-256，原子发布并更新项目索引；源数据清理必须在迁移成功后由用户单独确认。安装目录不作为项目数据目标，避免更新、卸载和权限导致数据丢失。
 - 普通图片、单图 PSD、分层 PSD、图层文件夹与图片组导出均默认写入当前项目的 `exports/` 子目录，Main 在最终提交前复核目标仍在项目根内；普通图片需先明确格式，图片组需提供格式、图片数、槽位失败、预计体积和导出统计预检。
-- 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；该端点由独立 SparkAI Extension 提供，不修改原生 New API。扩展服务使用自己的 SQLite 状态和进程内队列，把调用者 Bearer Key 仅保留在内存并通过私网调用原生 `/v1/images/generations`；不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 queued/running 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退同步兼容链路。
+- 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；该端点由独立 SparkAI Extension 提供，不修改原生 New API。扩展服务使用自己的 SQLite 状态和进程内队列，把调用者 Bearer Key 仅保留在内存，并默认加入 New API 的 user-defined Docker network、通过容器 DNS调用原生 `/v1/images/generations`；禁止把内部上游重新指向 Cloudflare 公网。不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 queued/running 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退同步兼容链路。
 - Agent 普通消息、Markdown、thinking 和工具说明必须允许浏览器原生文本选择及 `Ctrl+C`；普通消息不得增加逐条复制按钮，已有生图提示词专用复制动作保持不变。
 - 生成图片节点、图片组、资产和槽位标题必须表达图片内容摘要，不再复用完整 Prompt 或泛化成果名；摘要只由本地纯函数生成，优先提取结构化主体/场景/用途，保留已有简短人工标题，不修改原始 Prompt、不调用额外模型，同 Prompt 多图使用稳定序号。
 - 项目迁移与清理的 Main handler 继续只接受真正布尔 `true`。preload 只允许把字面 `true` 或 production 压缩后的数字 `1` 归一化为布尔 `true`；字符串 `"1"`、数字 `2`、其他 truthy 值及缺失确认不得提升，归一化也不得修改输入对象。
@@ -78,10 +78,10 @@
 | 当前追加：导出完善（已完成） | 普通图片、PSD、图层目录和图片组导出收口到项目 `exports/`，补格式与预检/确认/统计 | Main 目标边界不可绕过；格式与扩展名一致；图片组预检和事务发布真实通过；GUI/Automation/IPC 契约与文档同步。 |
 | 当前追加：成果图片生成参数展示（已完成） | 参考 GPT Image Playground，把每张图的请求配置、服务器实际返回参数、成图实测规格与本次运行信息保存并显示在成果编辑器 | 每图 response metadata 独立；响应缺失不推测；最终比例/像素/文件格式来自真实受管文件；本地导入不显示伪请求；白名单持久化不含凭据/URL；宽/窄编辑器无重叠或溢出；编辑器支持最大化/还原，参数文字保持可读字号。 |
 | 当前追加：顶部对话框生图规格绑定（已完成） | 顶部 Agent 对话框的比例与清晰度成为本次生成任务的权威配置，并与实际上游请求、Prompt 和最终交付尺寸一致 | 派发时冻结按钮值；Schema 与 runtime 覆盖模型冲突值；普通、批量、Goal、分层与区域操作复用同一合同；上游 Prompt 明确画幅、清晰度和最终像素；成果仍保存原始 Prompt；最终 build 与双 Windows x64 测试包完成核验。 |
-| 当前追加：Cloudflare 图片长请求任务化（已完成） | New API 图片任务创建立即返回，后台调用原同步上游；Desktop/Web 轮询直到最终结果 | `queued/running/succeeded/failed`、用户隔离、Task CAS、SystemTask 租约、失败与崩溃不重放、旧同步接口兼容；本地 mock/fixture 专项、最终 build 与双 Windows x64 测试包均已核验，不调用真实模型。 |
+| 当前追加：Cloudflare 图片长请求任务化（已完成） | Extension 图片任务创建立即返回，后台经 Docker 内网调用原生同步 New API；Electron 轮询直到最终结果 | `queued/running/succeeded/failed`、HMAC owner 隔离、内存 Bearer、失败与崩溃不重放、旧同步接口兼容；Extension loopback、Compose、桌面传输专项和生产构建均已核验，不调用真实模型。 |
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复（已完成） | 恢复普通消息文本选择复制；让生成成果标题表达图片内容；修复 production 安装包迁移确认被压缩为数字导致的拒绝 | 普通消息无新增按钮且真实 Selection/`Ctrl+C` 通过；标题纯函数与无网络 Electron action 通过；真实 preload VM 只提升 `true`/`1`，Main 保持严格布尔校验；专项、production build、最终 ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权（已完成） | 账号登录直接进入工作区；自定义 Base URL 先激活 Pro；账号模式完整保留逐模型自定义 API Key | 后端计划/设备/撤销合同、桌面登录门禁、官方 License 域名、凭据隔离和逐模型 Key 优先级已实现；双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
-| 当前追加：原生 New API 外置扩展（进行中） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、Docker/Caddy 同域路由和双仓文档已迁移；旧 fork 待扩展部署验证后另行删除。 |
+| 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
 
 ## 登录与 Pro 自定义接入授权核验（2026-08-15）
 
@@ -108,6 +108,7 @@
 - Extension 使用自己的 SQLite/HMAC 保存兑换码、设备授权、任务 owner 与状态；调用者 Bearer Key 只在进程内存中存在，并通过 `SPARKAI_NEW_API_UPSTREAM` 私网调用原生 `/v1/images/generations`。创建立即返回 `task_id`，进程重启将未完成任务置为 failed 且不重放，结果按保留期启动时及每 15 分钟清理。
 - 本地管理员 CLI 已真实完成“创建 2 枚测试码 → 列表查询 → 禁用 1 枚”闭环，测试码只写入隔离 `.diagnostics` 数据库且临时服务已停止。Extension `build` 与 5 项 loopback 测试（含限时授权/兑换截止）、Compose 静态配置、桌面 `test:license`（9 cases）、`test:custom-api-transport`（31 cases）、`typecheck` 和 production `build`（1667 modules）均退出 0。
 - 本轮没有部署生产、访问真实 License/New API、调用真实图片模型或删除旧 fork。独立浏览器开发回退 `src/server.ts` 仍是历史 session-relay 适配，不作为当前 Electron + Extension 合同的验证证据；若以后发布独立 Web 版，需要另行定义不暴露账户 Key 的服务端凭据桥。
+- 交付包默认要求现有 `SPARKAI_DOCKER_NETWORK`，内部上游使用容器 DNS；包根 `AGENTS.md` 固化只读发现、secret 保护、Compose 启动、Docker 内网状态检查、宿主机/Docker 代理分流、无费用验收、备份升级和禁止 `down -v` 的回滚边界。`package:extension` 只包含 25 个扩展/部署文件，并生成 bundle manifest、内部/外部 SHA-256、ZIP 与 TAR.GZ；旧网关/CRM、`.env`、数据库、诊断和用户数据均不进入包。
 
 ## Cloudflare 图片长请求任务化核验（历史实现，已由外置扩展替代）
 

@@ -21,8 +21,8 @@ services:
       - "127.0.0.1:17910:17910"
     volumes:
       - sparkai-extension-data:/data
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - sparkai-private
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:17910/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s
@@ -32,3 +32,8 @@ services:
 
 volumes:
   sparkai-extension-data:
+
+networks:
+  sparkai-private:
+    external: true
+    name: ${SPARKAI_DOCKER_NETWORK:?set SPARKAI_DOCKER_NETWORK to the existing New API Docker network}

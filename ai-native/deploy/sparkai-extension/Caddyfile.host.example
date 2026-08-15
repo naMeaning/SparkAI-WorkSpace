@@ -1,0 +1,10 @@
+# Host-installed Caddy example. The extension port is published on loopback.
+@sparkai_extension path /api/naimage/license /api/naimage/license/* /v1/image-tasks /v1/image-tasks/*
+handle @sparkai_extension {
+  reverse_proxy 127.0.0.1:17910
+}
+
+# Preserve the existing stock New API catch-all and its current origin.
+handle {
+  reverse_proxy 127.0.0.1:3000
+}

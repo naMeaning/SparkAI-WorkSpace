@@ -7,6 +7,15 @@ const pnpmScript = String(process.env.npm_execpath || "").trim();
 const command = pnpmScript ? process.execPath : process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const prefix = pnpmScript ? [pnpmScript] : [];
 
+const packageScriptCheck = spawnSync(process.execPath, ["--check", resolve(root, "scripts/package-extension.mjs")], {
+  cwd: root,
+  env: process.env,
+  stdio: "inherit",
+  shell: false
+});
+if (packageScriptCheck.error) throw packageScriptCheck.error;
+if (packageScriptCheck.status !== 0) process.exit(packageScriptCheck.status ?? 1);
+
 for (const args of [
   ["run", "verify:workspace"],
   ["--filter", "@sparkai/extension", "check"]

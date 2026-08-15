@@ -19,6 +19,7 @@
     "build": "pnpm --filter @sparkai/extension build",
     "test": "pnpm --filter @sparkai/extension test",
     "check": "node scripts/check.mjs",
+    "package:extension": "node scripts/package-extension.mjs",
     "license:create": "node services/sparkai-extension/src/license-admin.mjs create",
     "license:list": "node services/sparkai-extension/src/license-admin.mjs list",
     "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable"

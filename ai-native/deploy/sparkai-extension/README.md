@@ -1,18 +1,19 @@
-# Deployment
+# SparkAI Extension 部署包
 
-This Compose project deploys only the SparkAI extension. It does not deploy or fork New API.
+该 Compose 只部署 SparkAI Extension，不包含、不修改也不升级原生 New API。扩展容器默认加入 New API 已使用的 Docker 内网，并通过容器 DNS 调用同步 `/v1/images/generations`，避免再次经过 Cloudflare。
 
-1. Copy `.env.example` to `.env` and generate independent random values for the admin token and HMAC secret.
-2. Set `SPARKAI_NEW_API_UPSTREAM` to the existing New API private origin. A loopback address, Docker service name, or private network address is preferred; do not use the Cloudflare public hostname.
-3. Start the extension:
+部署前先让 Codex 完整读取包根目录的 `AGENTS.md`。最小流程：
 
-   ```bash
-   docker compose -f deploy/sparkai-extension/compose.yaml up -d --build
-   ```
+```bash
+cp .env.example .env
+chmod 600 .env
+# 填写现有 New API 的 Docker network、容器 DNS/内部端口和两个随机 secret。
+docker compose --env-file .env config --quiet
+docker compose --env-file .env up -d --build
+docker compose --env-file .env ps
+curl -fsS http://127.0.0.1:17910/healthz
+```
 
-4. Merge `Caddyfile.example` into the existing public site's routing before its New API catch-all.
-5. Check `https://sparkapi.org/healthz` only if you explicitly expose that route, and verify `GET /api/naimage/license` through the public hostname.
+反向代理也在 Docker 时使用 `Caddyfile.example`；Caddy 安装在宿主机时使用 `Caddyfile.host.example`。只能把 `/api/naimage/license*` 与 `/v1/image-tasks*` 放到扩展服务，其他路径继续交给现有原生 New API。
 
-Back up the `sparkai-extension-data` volume. `SPARKAI_EXTENSION_HASH_SECRET` must remain stable: changing it invalidates existing redemption codes, licenses, and task ownership hashes.
-
-Run one replica. Image credentials exist only in that process memory, and interrupted tasks intentionally fail without replay to avoid duplicate upstream billing.
+必须备份 `sparkai-extension-data` 数据卷和稳定的 `SPARKAI_EXTENSION_HASH_SECRET`。只运行一个副本；重启后未完成图片任务按防重复策略失败且不自动重放。回滚不得执行 `docker compose down -v`。

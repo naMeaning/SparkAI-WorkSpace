@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 进度
 
-本轮追加：后端边界改为“用户现有原生 New API + 独立 SparkAI Extension”。原生 New API 不二开，继续负责账号、Token、渠道、quota 和计费；`ai-native` 根入口只运行 Node 24 扩展服务，提供 SQLite/HMAC Pro License、管理员发码 CLI，以及把 Bearer 仅留内存并经私网调用原生 Images 的 `/v1/image-tasks`。同域 Caddy 只分流两个扩展路径，旧 New API/CRM 源码退出根构建与部署入口，待扩展真实部署验证后另行清理。管理员 CLI 的创建/列表/禁用闭环、Extension 5 项 loopback 测试（含限时授权/兑换截止）、Compose 配置、桌面 License/任务传输专项、typecheck 和 production build 已通过；未访问生产或真实模型。
+本轮追加：后端边界改为“用户现有原生 New API + 独立 SparkAI Extension”。原生 New API 不二开，继续负责账号、Token、渠道、quota 和计费；`ai-native` 根入口只运行 Node 24 扩展服务，提供 SQLite/HMAC Pro License、管理员发码 CLI，以及把 Bearer 仅留内存并经 Docker 内网调用原生 Images 的 `/v1/image-tasks`。Compose 强制加入现有 `SPARKAI_DOCKER_NETWORK` 并使用容器 DNS，Caddy 同域只分流两个扩展路径。独立 ZIP/TAR.GZ 包含 Codex 部署 `AGENTS.md`、宿主机/Docker 代理示例、manifest 与 SHA-256，明确排除旧 New API/CRM、`.env`、数据库和诊断。旧源码退出根入口，待真实部署、备份和回滚验证后另行清理。
 
 登录与授权仍是两条独立通行条件。SparkAPI/New API 账号登录成功即可进入，不请求设备 License；自定义 Base URL 必须先由官方服务验证 `pro` 兑换码，默认最多 3 台，支持永久/限时、禁用撤销、24 小时缓存与 72 小时离线宽限。账号模式的逐模型自定义 API Key 完整保留，优先于模型绑定账户 Token 和全局账户 Token，同时忽略逐模型自定义 Base URL 以避免绕过 Pro。License 请求不发送用户 Base URL、API Key 或账号 Cookie。
 
@@ -43,10 +43,10 @@ Harness 治理轨道：已完成。历史对话、产品意图与双仓边界已
 | 当前追加：导出完善 | 已完成 | 普通图片/PSD/图层分别约束到项目 `exports/images|psd|layers`；图片组提供 PNG/JPEG/WebP/AVIF/TIFF 预检、统计、内容令牌、漂移重确认、staging 和原子发布。 |
 | 当前追加：成果图片生成参数展示 | 已完成实现 | Images/Responses 每张最终图保留独立 `actualParams`，Main/Agent 落盘 `ImageAsset.generation v1`；成果编辑器区分请求、响应、成图与本次运行值，并显示真实比例/像素/文件格式。本地导入无伪请求，Session 白名单丢弃凭据和 URL。 |
 | 当前追加：顶部对话框生图规格绑定 | 已完成 | `agent:chat` 派发时冻结 `imageDefaults`；公开 Schema 只允许按钮值，runtime 再覆盖顶层与批量子项冲突参数；普通/批量/Goal/分层/区域执行都在真实上游 Prompt 中注明比例、清晰度与最终像素，成果保留原始 Prompt；AskUser 挂起/重启/恢复继续使用首轮冻结规格；最终 build 与双 Windows x64 测试包已核验。 |
-| 当前追加：Cloudflare 图片长请求任务化 | 已完成 | New API 以现有 Task/SystemTask 和共享 Relay 提供短 POST/GET；Desktop/Web 纯文生图轮询同一 task_id，创建结果不明不重建，编辑/参考图及第三方同步接口保持兼容。Go 定向测试、客户端 29 项传输专项、语法、typecheck、OpenAPI、production build、双 Windows x64 测试包与哈希均已通过。 |
+| 当前追加：Cloudflare 图片长请求任务化 | 已完成 | SparkAI Extension 提供短 POST/GET，后台经 Docker 内网调用原生 New API；Electron 轮询同一 task_id，创建结果不明不重建，编辑/参考图及第三方同步接口保持兼容。Extension、Compose、客户端传输、typecheck 与 production build 已通过。 |
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复 | 已完成 | 普通消息原生选择/`Ctrl+C` 且无逐消息按钮；生成内容摘要统一节点/图片组/资产/槽位标题；preload 有界恢复 production 数字确认，Main 严格布尔校验不变。专项、最终 build/ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权 | 已完成 | 账号登录直接授权；自定义 Base URL 仅接受官方 Pro License；账号模式逐模型自定义 Key、模型 Token 和全局 Token 按优先级共存。双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
-| 当前追加：原生 New API 外置扩展 | 进行中 | `ai-native` 活跃入口已改为独立 SparkAI Extension；License、管理员 CLI、图片任务内存转发、SQLite 状态和 Docker/Caddy 配置已实现。待完成全量专项、Compose 校验与文档收口后，再决定旧 fork 的单独删除批次。 |
+| 当前追加：原生 New API 外置扩展 | 已完成 | `ai-native` 活跃入口只保留 SparkAI Extension；License、管理员 CLI、图片任务内存转发、SQLite、强制 Docker 内网、双 Caddy 布局、包内 Codex `AGENTS.md` 与独立 ZIP/TAR.GZ 打包器已实现并通过 bundle smoke。旧 fork 只等待真实部署/备份/回滚后的单独删除批次。 |
 
 登录与 Pro 授权最终验证（2026-08-15）：New API `go test ./model ./controller ./router -count=1` 退出 0；Desktop `test:license` 9 cases、`test:access-variant`、`test:custom-api-transport` 31 cases、`test:agent-model-binding` 4 cases、`test:settings-secret-store`、`test:settings-persistence` 124 cases、`test:model-catalog`、`test:settings-lazy-load` 67 cases、`test:ipc-registration` 141/138/3、CJS 语法和 `typecheck` 均退出 0。隔离 `aidebug:auth-gate` 报告 `.diagnostics/electron/aidebug-2026-08-15T05-23-48-437Z/report.json` 为 9 scenes / 0 failures；最终 production build 为 1667 modules、8.42 s。未访问真实 License/模型服务，未打包 EXE，代码未提交。
 

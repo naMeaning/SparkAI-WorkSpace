@@ -7,6 +7,8 @@
 - `services/sparkai-extension/src/image-task-service.mjs`: in-process queue and private New API forwarding.
 - `services/sparkai-extension/src/license-admin.mjs`: operator CLI.
 - `deploy/sparkai-extension/`: standalone deployment and same-domain routing.
+- `deploy/sparkai-extension/AGENTS.md`: Codex deployment contract, Docker-network discovery, safety, validation and rollback.
+- `scripts/package-extension.mjs`: produces the standalone ZIP/TAR.GZ bundle and SHA-256 manifests.
 - `scripts/verify-workspace.mjs`: prevents active root scripts from returning to the legacy fork.
 
 ## Legacy cleanup boundary
