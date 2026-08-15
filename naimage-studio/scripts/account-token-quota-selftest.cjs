@@ -55,9 +55,9 @@ assert.equal(unlimited.remainCnyCents, 14_600, "Unlimited tokens retain raw audi
 
 assert.equal(formatAccountQuotaCny(1), "￥0.01");
 
-const mainSource = fs.readFileSync(path.join(__dirname, "..", "src", "main.tsx"), "utf8");
-assert.match(mainSource, /token\.remainCnyDisplay/, "Account token UI must display the derived CNY amount");
-assert.match(mainSource, /token\.remainRDisplay[\s\S]{0,80}原始/, "Account token UI must preserve R and raw quota audit values");
-assert.match(mainSource, /原始额度（New API quota）/, "Token editing must explicitly keep raw New API quota semantics");
+const settingsDrawerSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-drawer.tsx"), "utf8");
+assert.match(settingsDrawerSource, /token\.remainCnyDisplay/, "Account token UI must display the derived CNY amount");
+assert.match(settingsDrawerSource, /token\.remainRDisplay[\s\S]{0,80}原始/, "Account token UI must preserve R and raw quota audit values");
+assert.match(settingsDrawerSource, /原始额度（New API quota）/, "Token editing must explicitly keep raw New API quota semantics");
 
 process.stdout.write(`${JSON.stringify({ ok: true, cases: 10 })}\n`);
