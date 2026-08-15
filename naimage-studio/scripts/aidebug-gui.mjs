@@ -2242,31 +2242,52 @@ function screenshotSurfacePixelReport(screenshotBuffer, state, snapshot) {
       geometry: item.clippedGeometry,
       ...analyzePngVisualArea(png, toPixelBox(item.clippedGeometry))
     }));
-    const nodeSamples = nodes.filter((item) => item?.visible && item?.clippedGeometry).slice(0, 8).map((item) => ({
+    const visibleNodeMetrics = nodes.filter((item) => item?.visible && item?.clippedGeometry);
+    const nodePixelEntry = (item) => {
+      const pixelBox = toPixelBox(item.clippedGeometry);
+      const width = Math.max(0, Math.ceil(pixelBox.right) - Math.floor(pixelBox.left));
+      const height = Math.max(0, Math.ceil(pixelBox.bottom) - Math.floor(pixelBox.top));
+      return { item, pixelBox, width, height };
+    };
+    const nodePixelEntries = visibleNodeMetrics.map(nodePixelEntry);
+    const skippedNodeSlivers = nodePixelEntries.filter(({ width, height }) => width < 4 || height < 4).map(({ item, width, height }) => ({
+      kind: "node",
+      name: item.id,
+      visibleRatio: item.visibleRatio,
+      geometry: item.clippedGeometry,
+      width,
+      height,
+      reason: "clipped-below-pixel-sampling-minimum"
+    }));
+    const nodeSamples = nodePixelEntries.filter(({ width, height }) => width >= 4 && height >= 4).slice(0, 8).map(({ item, pixelBox }) => ({
       kind: "node",
       name: item.id,
       visibleRatio: item.visibleRatio,
       centerHitSelf: item.centerHitSelf,
       previewHitSelf: item.previewHitSelf,
       geometry: item.clippedGeometry,
-      ...analyzePngVisualArea(png, toPixelBox(item.clippedGeometry))
+      ...analyzePngVisualArea(png, pixelBox)
     }));
     const requiredSurfaceNames = ["shell", "canvas"];
     const sampledSurfaceNames = surfaceSamples.filter((item) => item.sampled).map((item) => item.name);
     const missingRequiredSurfaces = requiredSurfaceNames.filter((name) => surfaces.some((item) => item.name === name && item.present) && !sampledSurfaceNames.includes(name));
     const invalidSamples = [...surfaceSamples, ...nodeSamples].filter((item) => !item.sampled || Number(item.opaqueRatio || 0) < 0.85);
+    const noSampleableVisibleNodes = visibleNodeMetrics.length > 0 && nodeSamples.length === 0;
     const failureReasons = [
       ...missingRequiredSurfaces.map((name) => `surface-not-sampled:${name}`),
+      ...(noSampleableVisibleNodes ? ["no-sampleable-visible-nodes"] : []),
       ...invalidSamples.map((item) => `${item.kind}-pixel-evidence-invalid:${item.name}`)
     ];
     return {
       checked: true,
-      ok: surfaceSamples.length >= 2 && missingRequiredSurfaces.length === 0 && invalidSamples.length === 0,
+      ok: surfaceSamples.length >= 2 && missingRequiredSurfaces.length === 0 && !noSampleableVisibleNodes && invalidSamples.length === 0,
       scaleX: Math.round(scaleX * 1000) / 1000,
       scaleY: Math.round(scaleY * 1000) / 1000,
       surfaceSamples,
       nodeSamples,
+      skippedNodeSlivers,
       missingRequiredSurfaces,
+      noSampleableVisibleNodes,
       invalidSamples,
       failureReasons,
       error: ""

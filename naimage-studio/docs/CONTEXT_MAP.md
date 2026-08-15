@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：52
+> 地图版本：53
 > 最近同步：2026-08-16
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -724,7 +724,7 @@ Worker 文件位于仓库根目录是 Electron ASAR 和 worker 路径解析约�
 
 | 路径 | Owns | Must not own | 主要验证 |
 | --- | --- | --- | --- |
-| `scripts/aidebug-gui.mjs` | 已解析参数的消费、suite 选择顺序、运行目录、Vite/Electron/CDP 总编排和最终报告 | CLI/env 解析、已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper | `test:aidebug-options`, `aidebug:gui` 与各 `--*-suite` 专项 |
+| `scripts/aidebug-gui.mjs` | 已解析参数的消费、suite 选择顺序、运行目录、Vite/Electron/CDP 总编排和最终报告；截图像素验证只采样至少 4×4 px 的可见节点，低于阈值的裁剪残片进入 `skippedNodeSlivers`，但全部可见节点均不可采样时必须以 `no-sampleable-visible-nodes` 失败 | CLI/env 解析、已迁出 suite 的场景函数体、重复实现公共截图/进程/PNG helper，或把边缘残片误写为完整节点像素证据 | `test:aidebug-options`, `test:aidebug-catalog`, `test:aidebug-workpack`, `aidebug:gui` 与各 `--*-suite` 专项 |
 | `scripts/aidebug/options.mjs` | AIDebug CLI alias、env/CLI 优先级、数值边界、路径/references 归一化、显式隔离根及 config 必须位于隔离根内的 fail-closed 校验、supervisor `rawArgs` 快照 | suite 选择/dispatch、进程状态读取、运行目录创建或 GUI 启动副作用 | `test:aidebug-options`, `test:aidebug-isolation`, `node --check` |
 | `scripts/aidebug-isolation-selftest.cjs` | 启动真实 Electron Main，验证仅传临时 `--user-data-dir` 时自动使用 `<user-data>/data`、默认项目留在该根内、仓库 config 哈希不变，并验证显式指向仓库 config 会非零退出 | Renderer 交互、业务 fixture、真实模型请求、清理或改写现有用户画布 | `test:aidebug-isolation` |
 | `scripts/aidebug-isolation-gui.mjs` | 启动真实 Vite + Electron + CDP，在运行时双门禁开启后创建/移动一个容器并等待自动保存，核对节点只进入临时项目、仓库 config 不变并保存截图证据 | 完整 GUI surface、真实用户项目、真实模型请求或通用 AIDebug suite 替身 | `aidebug:isolation` |
@@ -1072,6 +1072,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-08-16 | 1.0.9-rc | 上下文地图 v53 修复 AskUser 门禁的视觉证据误报：窄屏画布左边缘仅剩约 1.757px 的节点 B 无法形成 4×4 像素采样区，现明确记录为 `skippedNodeSlivers`，C/D/E/G/H 仍逐节点采样；如果全部节点都只剩残片，验证器仍以 `no-sampleable-visible-nodes` 失败。AskUser 连续报告 `.diagnostics/electron/aidebug-2026-08-15T20-21-51-512Z/report.json`、`.diagnostics/electron/aidebug-2026-08-15T20-22-42-170Z/report.json` 均为 10 项功能检查和 5 个视觉场景全通过，AIDebug catalog/workpack 与语法检查通过。正式 `release:final` 因本机现有安装在零步骤环境预检退出，未触碰安装环境，incomplete 标记保留；当前只续跑全量门禁并生成强制 Bundle 的本地双版本候选。 |
 | 2026-08-16 | 1.0.9-rc | 上下文地图 v52 收口正式门禁暴露的共享焦点竞态：`DialogShell` 正常关闭不再与卸载 cleanup 重复恢复焦点，直接卸载只在焦点仍无有效去向时兜底；Agent 会话历史在捕获阶段独占 `Escape` 并在布局提交后恢复触发按钮。AIDebug 使用显式隔离项目，不再依赖废弃的 AppData 默认项目，同时把运行中 composer 与节点有限入场动画断言对齐当前合同。`test:ui-foundation`、`test:agent-panel-ui`（52）、`typecheck` 和 Agent Text UI 连续两轮 155/155 通过；源码稳定的发布报告此前已通过前 88/113 项，当前只从 `agent text UI` 失败点续跑。未调用真实模型、未迁移真实 AppData、未部署 Extension。 |
 | 2026-08-16 | 1.0.9-rc | 上下文地图 v51 冻结本地正式候选边界：大量图片治理、统一导出中心、默认 dry-run 的真实模型验收工具、只读显式来源迁移审计和受影响 UI 测试稳定性已完成。最终 UI Surface `.diagnostics/electron/aidebug-2026-08-15T18-14-40-181Z/report.json` 为 15 scenes / 0 failures；三轮产品性能 `.diagnostics/electron/product-performance-2026-08-15T18-16-46-847Z/report.json` 为 `productPerformanceReady:true`、全部硬检查通过、交互 Long Task 最大值 0，1,661,997 B 完整 runtime bundle 仅保留趋势 advisory。SparkAI Extension 0.2.1 的工作区/源码检查与 6 项 License、管理页、任务测试通过。正式状态仍只由冻结提交后的同一次 `release:final` 报告、两套 x64 EXE 和哈希决定；未调用真实模型、未迁移真实 AppData、未部署 Extension，也不执行 tag、push 或 GitHub Release。 |
 | 2026-08-15 | 1.0.9-dev | 上下文地图 v50 登记桌面整备闭环：新增统一导出中心，将图片、图片组与 PSD 交给既有 Main owner 执行，并在项目 `.naimage/export-center.json` 原子保存命名模板、预设、内容指纹和历史；IPC 更新为 147/144/3。真实模型验收工具默认 dry-run 且必须多重显式授权才可联网，迁移审计工具只扫描用户指定来源并拒绝执行/清理。导出中心逻辑/UI、图片组/单图/PSD、迁移 41 cases、两个验收工具、IPC、UI foundation、Workspace Glass、typecheck 均通过；UI Surface 最终为 15 scenes / 0 failures，性能审计 15/15 且最新 10 张 4K 冷缓存报告保持 1.404 s、2 个 Worker、0 图片阶段 Long Task。未调用真实模型、未迁移真实 AppData、未部署 Extension；正式 `release:final` 仍须在文档冻结后执行。 |
