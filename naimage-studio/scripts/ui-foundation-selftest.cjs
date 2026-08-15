@@ -27,6 +27,8 @@ const scientificFigureDialogPath = path.join(root, "src", "scientific-figure-dia
 const socialContentDialogPath = path.join(root, "src", "social-content-dialog.tsx");
 const settingsDrawerPath = path.join(root, "src", "settings-drawer.tsx");
 const themePalettePickerPath = path.join(root, "src", "theme-palette-picker.tsx");
+const imageWorkspaceOverlaysPath = path.join(root, "src", "image-workspace-overlays.tsx");
+const projectAgentPanelPath = path.join(root, "src", "project-agent-panel.tsx");
 const baseTokenPath = path.join(root, "src", "styles", "01-base-controls.css");
 
 function readCssGraph(entryPath, seen = new Set()) {
@@ -46,6 +48,8 @@ const cssSource = readCssGraph(cssPath);
 const uiFacadeSource = fs.readFileSync(uiPath, "utf8");
 const uiSource = [uiFacadeSource, ...uiModulePaths.map((file) => fs.readFileSync(file, "utf8"))].join("\n");
 const mainSource = fs.readFileSync(mainPath, "utf8");
+const imageWorkspaceOverlaysSource = fs.readFileSync(imageWorkspaceOverlaysPath, "utf8");
+const projectAgentPanelSource = fs.readFileSync(projectAgentPanelPath, "utf8");
 const settingsDrawerSource = fs.readFileSync(settingsDrawerPath, "utf8");
 const baseTokenSource = fs.readFileSync(baseTokenPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const businessUiSource = [
@@ -56,6 +60,8 @@ const businessUiSource = [
   imageViewerPath,
   referencePickerDialogPath,
   themePalettePickerPath,
+  imageWorkspaceOverlaysPath,
+  projectAgentPanelPath,
 ].map((file) => fs.readFileSync(file, "utf8")).concat(mainSource).join("\n");
 const unsavedOwnerSource = [
   agentTextEditorDialogPath,
@@ -65,6 +71,7 @@ const unsavedOwnerSource = [
   requirementEditorDialogPath,
   scientificFigureDialogPath,
   socialContentDialogPath,
+  imageWorkspaceOverlaysPath,
 ].map((file) => fs.readFileSync(file, "utf8")).concat(mainSource, settingsDrawerSource).join("\n");
 const activeCss = cssSource.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\r\n]/g, " "));
 const failures = [];
@@ -160,6 +167,13 @@ for (const token of requiredTokens) {
 const focusBody = ruleBody(".ui-button-base:focus-visible");
 check("ButtonBase has a focus-visible rule", Boolean(focusBody));
 check("ButtonBase focus-visible uses the shared focus ring", /box-shadow\s*:\s*var\(--focus-ring\)/.test(focusBody));
+
+const referenceRemoveBody = ruleBody(".reference-slot.filled button");
+check(
+  "reference remove buttons meet the icon control size baseline",
+  /width\s*:\s*28px/.test(referenceRemoveBody) &&
+    /height\s*:\s*28px/.test(referenceRemoveBody)
+);
 
 const surfaceLayerBody = ruleBody(".ui-surface-layer.dialog-layer");
 check(
@@ -271,10 +285,10 @@ check(
 );
 check(
   "node editor preview keeps image open and save actions as sibling buttons",
-  /className="unified-node-editor-preview-open"/.test(mainSource) &&
-    /className="unified-node-editor-preview-open"[\s\S]{0,100}?data-ui-control="preview"/.test(mainSource) &&
-    /className="unified-node-editor-save-image"/.test(mainSource) &&
-    !/className="unified-node-editor-preview"[\s\S]{0,180}?role="button"/.test(mainSource)
+  /className="unified-node-editor-preview-open"/.test(imageWorkspaceOverlaysSource) &&
+    /className="unified-node-editor-preview-open"[\s\S]{0,100}?data-ui-control="preview"/.test(imageWorkspaceOverlaysSource) &&
+    /className="unified-node-editor-save-image"/.test(imageWorkspaceOverlaysSource) &&
+    !/className="unified-node-editor-preview"[\s\S]{0,180}?role="button"/.test(imageWorkspaceOverlaysSource)
 );
 check(
   "image viewer and floating dialogs use one pointer interaction path",
@@ -283,20 +297,30 @@ check(
 );
 check(
   "Agent history exposes state and controlled-region semantics",
-  /aria-expanded=\{historyOpen\}/.test(mainSource) &&
-    /aria-controls=\{PROJECT_AGENT_HISTORY_ID\}/.test(mainSource) &&
-    /event\.key !== "Escape"/.test(mainSource)
+  /aria-expanded=\{historyOpen\}/.test(projectAgentPanelSource) &&
+    /aria-controls=\{PROJECT_AGENT_HISTORY_ID\}/.test(projectAgentPanelSource) &&
+    /event\.key !== "Escape"/.test(projectAgentPanelSource)
 );
 check(
   "Agent feed follows only from the bottom or a fresh user task",
-  /followBottomRef\.current/.test(mainSource) &&
-    /latestMessage\?\.role === "user"/.test(mainSource) &&
-    /PROJECT_AGENT_FOLLOW_DISTANCE/.test(mainSource)
+  /followBottomRef\.current/.test(projectAgentPanelSource) &&
+    /latestMessage\?\.role === "user"/.test(projectAgentPanelSource) &&
+    /PROJECT_AGENT_FOLLOW_DISTANCE/.test(projectAgentPanelSource)
 );
 check(
   "floating dialogs clamp previously persisted inline sizes to the viewport",
-  /clamp\(rect\.width,\s*minimum\.width,\s*minimum\.maxWidth\)/.test(uiSource) &&
-    /rect\.height\s*>\s*minimum\.maxHeight/.test(uiSource)
+  /layoutWidth\s*=\s*dialog\.offsetWidth\s*\|\|\s*rect\.width/.test(uiSource) &&
+    /clamp\(layoutWidth,\s*minimum\.width,\s*minimum\.maxWidth\)/.test(uiSource) &&
+    /layoutHeight\s*>\s*minimum\.maxHeight/.test(uiSource)
+);
+check(
+  "floating dialog entrance transforms never become persisted inline sizes",
+  /layoutHeight\s*=\s*dialog\.offsetHeight\s*\|\|\s*rect\.height/.test(uiSource) &&
+    /Math\.abs\(layoutWidth\s*-\s*nextWidth\)/.test(uiSource)
+);
+check(
+  "maximized floating dialogs stay anchored to their viewport layer",
+  /classList\.contains\("is-maximized"\)[\s\S]{0,240}reason:\s*"dialog-maximized"/.test(uiSource)
 );
 check(
   "non-resizable floating dialogs restore CSS height after viewport clamps",

@@ -276,15 +276,23 @@
   --ui-surface-width: 920px;
 }
 
+.node-editor-layer.is-maximized {
+  --ui-surface-layer-pad: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
 /* The editor is a working surface, so its maximize action expands the whole
    dialog instead of only stretching the preview column. The surrounding
    dialog layer keeps a small safety margin for window edges and focus rings. */
-.unified-node-editor.is-maximized {
-  width: calc(100vw - 24px);
-  height: calc(100dvh - 24px);
-  max-width: none;
-  max-height: none;
-  border-radius: 6px;
+.ui-surface.unified-node-editor.is-maximized[data-ui-surface] {
+  --ui-surface-width: calc(100vw - 24px);
+  --ui-surface-max-height: calc(100dvh - 24px);
+  --ui-surface-radius: 6px;
+  width: var(--ui-surface-width);
+  height: var(--ui-surface-max-height);
+  max-width: var(--ui-surface-width);
+  max-height: var(--ui-surface-max-height);
 }
 
 .unified-node-editor.is-maximized .unified-node-editor-body {
@@ -768,6 +776,10 @@
 }
 
 @media (max-width: 820px) {
+  .node-editor-layer.is-maximized {
+    --ui-surface-layer-pad: 8px;
+  }
+
   .ui-surface .ui-surface-body.unified-node-editor-body {
     grid-template-columns: minmax(0, 1fr);
     overflow-y: auto;
@@ -780,9 +792,9 @@
     border-bottom: 1px solid var(--line);
   }
 
-  .unified-node-editor.is-maximized {
-    width: calc(100vw - 16px);
-    height: calc(100dvh - 16px);
+  .ui-surface.unified-node-editor.is-maximized[data-ui-surface] {
+    --ui-surface-width: calc(100vw - 16px);
+    --ui-surface-max-height: calc(100dvh - 16px);
   }
 
   .unified-node-editor.is-maximized .unified-node-editor-preview {

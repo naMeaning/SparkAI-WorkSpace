@@ -18,8 +18,8 @@ const path = require("node:path");
 const DEFAULT_MAX_EDGE = 512;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_EDGE_LIMIT = 4096;
-const DEFAULT_MAX_CACHE_FILES = 96;
-const DEFAULT_MAX_CACHE_BYTES = 96 * 1024 * 1024;
+const DEFAULT_MAX_CACHE_FILES = 512;
+const DEFAULT_MAX_CACHE_BYTES = 512 * 1024 * 1024;
 const DEFAULT_MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -142,15 +142,18 @@ function createThumbnailCache(options = {}) {
   const log = typeof options.log === "function" ? options.log : () => undefined;
   const inflight = new Map();
   const lastPrunedAt = new Map();
-  const activeChildren = new Set();
+  const workerSlots = new Set();
   const pendingJobs = [];
-  let activeJobCount = 0;
+  let nextRequestId = 1;
   let closed = false;
   let counters = {
     requests: 0,
     cacheHits: 0,
     inflightJoins: 0,
     workerStarts: 0,
+    workerJobs: 0,
+    workerReuses: 0,
+    workerFailures: 0,
     generated: 0,
     errors: 0,
     recentErrors: [],
@@ -243,77 +246,116 @@ function createThumbnailCache(options = {}) {
     ].slice(-8);
   }
 
-  function runWorker(request) {
-    return new Promise((resolve, reject) => {
-      let child;
-      let settled = false;
-      let timeout;
-      let workerResult;
-      let workerError;
+  function activeJobCount() {
+    return [...workerSlots].filter((slot) => slot.currentJob).length;
+  }
 
-      const finish = (error, result) => {
-        if (settled) return;
-        settled = true;
-        if (timeout) clearTimeout(timeout);
-        if (child) activeChildren.delete(child);
-        cleanupWorkerStaging(request.cacheRoot, child?.pid);
-        if (error) reject(error);
-        else resolve(result);
-      };
+  function finishWorkerJob(slot, error, result) {
+    const job = slot.currentJob;
+    if (!job) return;
+    if (slot.timeout) clearTimeout(slot.timeout);
+    slot.timeout = undefined;
+    slot.currentJob = undefined;
+    cleanupWorkerStaging(job.request.cacheRoot, slot.child?.pid);
+    if (error) job.reject(error);
+    else {
+      slot.completedJobs += 1;
+      job.resolve(result);
+    }
+    log(`thumbnail worker slot released pid=${slot.child?.pid} active=${activeJobCount()} queued=${pendingJobs.length}`);
+  }
 
-      try {
-        child = fork(workerPath, [], {
-          stdio: ["ignore", "ignore", "ignore", "ipc"],
-          windowsHide: true,
-        });
-        activeChildren.add(child);
-        counters.workerStarts += 1;
-        counters.maxActiveWorkers = Math.max(counters.maxActiveWorkers, activeChildren.size);
-        log(`thumbnail worker start key=${request.key} pid=${child.pid} active=${activeChildren.size}`);
-      } catch (error) {
-        finish(new ThumbnailCacheError("THUMBNAIL_WORKER_START_FAILED", `无法启动缩略图进程：${error instanceof Error ? error.message : String(error)}`));
-        return;
-      }
+  function retireWorker(slot, error, terminate = false) {
+    if (!slot || slot.retired) return;
+    slot.retired = true;
+    workerSlots.delete(slot);
+    if (slot.timeout) clearTimeout(slot.timeout);
+    slot.timeout = undefined;
+    const job = slot.currentJob;
+    slot.currentJob = undefined;
+    if (job) {
+      cleanupWorkerStaging(job.request.cacheRoot, slot.child?.pid);
+      job.reject(error);
+    }
+    if (!closed) {
+      counters.workerFailures += 1;
+      log(`thumbnail worker retired pid=${slot.child?.pid} code=${error?.code || "THUMBNAIL_WORKER_FAILED"} queued=${pendingJobs.length}`);
+    }
+    if (terminate && slot.child?.exitCode === null && !slot.child?.killed) slot.child.kill();
+    if (!closed) pumpQueue();
+  }
 
-      timeout = setTimeout(() => {
-        child?.kill();
-        finish(new ThumbnailCacheError("THUMBNAIL_TIMEOUT", "缩略图生成超时，已安全停止。"));
-      }, timeoutMs);
-
-      child.on("message", (message) => {
-        if (message?.type === "result") workerResult = message.result;
-        if (message?.type === "error") workerError = hydrateWorkerError(message.error);
+  function dispatchWorkerJob(slot, job) {
+    const requestId = `thumb-${process.pid}-${nextRequestId++}`;
+    slot.currentJob = { ...job, requestId };
+    counters.workerJobs += 1;
+    if (slot.completedJobs > 0) counters.workerReuses += 1;
+    log(`thumbnail worker dispatch key=${job.request.key} request=${requestId} pid=${slot.child?.pid} reused=${slot.completedJobs > 0}`);
+    slot.timeout = setTimeout(() => {
+      if (slot.currentJob?.requestId !== requestId) return;
+      retireWorker(slot, new ThumbnailCacheError("THUMBNAIL_TIMEOUT", "缩略图生成超时，已安全停止。"), true);
+    }, timeoutMs);
+    try {
+      slot.child.send({ type: "generate", requestId, request: job.request }, (error) => {
+        if (!error || slot.currentJob?.requestId !== requestId) return;
+        retireWorker(slot, new ThumbnailCacheError("THUMBNAIL_WORKER_FAILED", `缩略图任务发送失败：${error.message}`), true);
       });
-      child.on("error", (error) => {
-        finish(new ThumbnailCacheError("THUMBNAIL_WORKER_FAILED", `缩略图进程异常：${error instanceof Error ? error.message : String(error)}`));
+    } catch (error) {
+      retireWorker(slot, new ThumbnailCacheError("THUMBNAIL_WORKER_FAILED", `缩略图任务发送失败：${error instanceof Error ? error.message : String(error)}`), true);
+    }
+  }
+
+  function spawnWorker() {
+    if (closed || workerSlots.size >= maxConcurrent) return null;
+    let child;
+    try {
+      child = fork(workerPath, [], {
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        windowsHide: true,
       });
-      child.on("close", (code) => {
-        cleanupWorkerStaging(request.cacheRoot, child?.pid);
-        if (settled) return;
-        if (closed) {
-          finish(new ThumbnailCacheError("THUMBNAIL_CACHE_CLOSED", "缩略图缓存已经关闭。"));
-        } else if (workerError) {
-          finish(workerError);
-        } else if (workerResult && code === 0) {
-          finish(null, workerResult);
-        } else {
-          finish(new ThumbnailCacheError("THUMBNAIL_WORKER_EXITED", `缩略图进程异常退出（代码 ${code}）。`));
-        }
-      });
-      child.send(request);
+    } catch (error) {
+      const failure = new ThumbnailCacheError("THUMBNAIL_WORKER_START_FAILED", `无法启动缩略图进程：${error instanceof Error ? error.message : String(error)}`);
+      const job = pendingJobs.shift();
+      if (job) job.reject(failure);
+      return null;
+    }
+    const slot = { child, currentJob: undefined, timeout: undefined, completedJobs: 0, retired: false };
+    workerSlots.add(slot);
+    counters.workerStarts += 1;
+    counters.maxActiveWorkers = Math.max(counters.maxActiveWorkers, workerSlots.size);
+    log(`thumbnail worker start pid=${child.pid} active=${workerSlots.size}`);
+    child.on("message", (message) => {
+      const job = slot.currentJob;
+      if (!job || message?.requestId !== job.requestId) return;
+      if (message?.type === "error") finishWorkerJob(slot, hydrateWorkerError(message.error));
+      else if (message?.type === "result") finishWorkerJob(slot, null, message.result);
+      else return;
+      pumpQueue();
     });
+    child.on("error", (error) => {
+      retireWorker(slot, new ThumbnailCacheError("THUMBNAIL_WORKER_FAILED", `缩略图进程异常：${error instanceof Error ? error.message : String(error)}`), true);
+    });
+    child.on("close", (code) => {
+      if (slot.retired) return;
+      const error = closed
+        ? new ThumbnailCacheError("THUMBNAIL_CACHE_CLOSED", "缩略图缓存已经关闭。")
+        : new ThumbnailCacheError("THUMBNAIL_WORKER_EXITED", `缩略图进程异常退出（代码 ${code}）。`);
+      retireWorker(slot, error);
+    });
+    return slot;
   }
 
   function pumpQueue() {
     if (closed) return;
-    while (activeJobCount < maxConcurrent && pendingJobs.length > 0) {
+    while (pendingJobs.length > 0) {
+      let slot = [...workerSlots].find((candidate) => !candidate.retired && !candidate.currentJob);
+      if (!slot) {
+        if (workerSlots.size >= maxConcurrent) return;
+        slot = spawnWorker();
+        if (!slot) return;
+      }
       const job = pendingJobs.shift();
-      activeJobCount += 1;
-      runWorker(job.request).then(job.resolve, job.reject).finally(() => {
-        activeJobCount = Math.max(0, activeJobCount - 1);
-        log(`thumbnail worker slot released active=${activeJobCount} queued=${pendingJobs.length}`);
-        pumpQueue();
-      });
+      dispatchWorkerJob(slot, job);
     }
   }
 
@@ -393,8 +435,8 @@ function createThumbnailCache(options = {}) {
     return {
       ...counters,
       maxConcurrent,
-      activeWorkers: activeChildren.size,
-      activeJobs: activeJobCount,
+      activeWorkers: workerSlots.size,
+      activeJobs: activeJobCount(),
       queuedJobs: pendingJobs.length,
       inflight: inflight.size,
       closed,
@@ -407,10 +449,13 @@ function createThumbnailCache(options = {}) {
       cacheHits: 0,
       inflightJoins: 0,
       workerStarts: 0,
+      workerJobs: 0,
+      workerReuses: 0,
+      workerFailures: 0,
       generated: 0,
       errors: 0,
       recentErrors: [],
-      maxActiveWorkers: activeChildren.size,
+      maxActiveWorkers: workerSlots.size,
       pruneRuns: 0,
       prunedFiles: 0,
       prunedBytes: 0,
@@ -423,10 +468,33 @@ function createThumbnailCache(options = {}) {
     closed = true;
     const closeError = new ThumbnailCacheError("THUMBNAIL_CACHE_CLOSED", "缩略图缓存已经关闭。");
     while (pendingJobs.length > 0) pendingJobs.shift().reject(closeError);
-    const children = [...activeChildren];
-    for (const child of children) child.kill();
+    const slots = [...workerSlots];
+    const closeWaiters = slots.map((slot) => new Promise((resolve) => {
+      if (slot.child.exitCode !== null) {
+        resolve();
+        return;
+      }
+      const fallback = setTimeout(resolve, 2_000);
+      slot.child.once("close", () => {
+        clearTimeout(fallback);
+        resolve();
+      });
+    }));
+    for (const slot of slots) {
+      slot.retired = true;
+      workerSlots.delete(slot);
+      if (slot.timeout) clearTimeout(slot.timeout);
+      slot.timeout = undefined;
+      const job = slot.currentJob;
+      slot.currentJob = undefined;
+      if (job) {
+        cleanupWorkerStaging(job.request.cacheRoot, slot.child?.pid);
+        job.reject(closeError);
+      }
+      if (slot.child.exitCode === null && !slot.child.killed) slot.child.kill();
+    }
     await Promise.allSettled([...inflight.values()]);
-    activeChildren.clear();
+    await Promise.allSettled(closeWaiters);
     inflight.clear();
   }
 

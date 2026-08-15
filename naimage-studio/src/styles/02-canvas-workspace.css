@@ -645,6 +645,20 @@
   animation: edge-flow 0.8s linear infinite;
 }
 
+.edge-hit-target {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.edge.provenance:has(+ .edge-hit-target:hover) {
+  stroke: var(--accent);
+  stroke-width: 4;
+  opacity: 1;
+}
+
 .edge-draft {
   pointer-events: none;
   stroke: var(--accent);
@@ -656,9 +670,9 @@
   position: absolute;
   z-index: 3;
   top: 50%;
-  margin-top: -7px;
-  width: 14px;
-  height: 14px;
+  margin-top: -8px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 2px solid var(--surface-solid);
   border-radius: 50%;
@@ -680,21 +694,27 @@
 }
 
 .node-port.provenance-port.node-port-in {
-  left: -7px;
+  left: -8px;
 }
 
 .node-port.provenance-port.node-port-out {
-  right: -7px;
+  right: -8px;
   cursor: crosshair;
 }
 
 .flow-node:hover .node-port.provenance-port,
 .flow-node.active-build .node-port.provenance-port,
 .flow-node.resizing .node-port.provenance-port,
+.flow-node.connection-target-ready .node-port.provenance-port.node-port-in,
 .node-port.provenance-port.connecting {
   opacity: 1;
   pointer-events: auto;
   transform: scale(1.08);
+}
+
+.flow-node.connection-target-ready .node-port.provenance-port.node-port-in.connection-target {
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent), 0 6px 18px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .flow-node.selected:not(:hover):not(.active-build):not(.resizing) .node-port.provenance-port:not(.connected) {
@@ -706,6 +726,37 @@
 .node-port.provenance-port:hover,
 .node-port.provenance-port.connecting {
   transform: scale(1.18);
+}
+
+.relation-context-menu {
+  width: min(252px, calc(100vw - 16px));
+}
+
+.relation-context-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 11px 7px;
+}
+
+.relation-context-summary > span,
+.relation-context-summary > small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.relation-context-summary > strong,
+.relation-context-summary > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-context-summary > strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .flow-node {

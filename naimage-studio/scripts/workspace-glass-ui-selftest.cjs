@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "..");
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const workspaceSource = read("src", "workspace-chrome.tsx");
 const mainSource = read("src", "main.tsx");
+const imageWorkspaceOverlaysSource = read("src", "image-workspace-overlays.tsx");
 const imageViewerSource = read("src", "image-viewer.tsx");
 const stylesEntrySource = read("src", "styles.css");
 const baseControlsSource = read("src", "styles", "01-base-controls.css");
@@ -94,6 +95,16 @@ assert.match(mainSource, /visibleTabs=\{settings\.visibleWorkspaceAssetRailTabs\
 assert.match(mainSource, /保存为个人需求模板/, "Requirement context menus must expose a direct personal-template save action");
 assert.match(mainSource, /保存 Skill 到个人模板/, "Skill context menus must expose a direct personal-template save action");
 assert.match(mainSource, /canvasMenu\.kind === "canvas"[\s\S]{0,2400}setCanvasMenu\(null\);[\s\S]{0,160}openCurrentProjectFolder\(\);[\s\S]{0,180}打开当前项目文件夹/, "The blank canvas context menu must expose the real current-project-folder action");
+assert.match(mainSource, /function nodeIdAtWorldPoint[\s\S]{0,900}const inside = worldX >= bounds\.x[\s\S]{0,500}return bestId/, "Connection drops must resolve only a node whose real bounds contain the pointer instead of snapping across empty canvas space");
+assert.match(mainSource, /function beginConnection[\s\S]{0,5200}window\.addEventListener\("pointercancel", cancel\)[\s\S]{0,220}window\.addEventListener\("keydown", cancelWithEscape, true\)/, "Connection drafts must have dedicated pointer-cancel and Escape cancellation paths");
+assert.doesNotMatch(mainSource.match(/function beginConnection[\s\S]*?\n  }\n\n  function copyCanvasSelection/)?.[0] || "", /disconnectNodeOutputs\(/, "Clicking an output port must never disconnect its existing relations");
+assert.match(mainSource, /className="edge-hit-target"[\s\S]{0,1200}openRelationMenuAt/, "Each visible relation must expose a wide hit target that opens relation management");
+assert.match(mainSource, /relationSourceId:\s*input\.nodeId[\s\S]{0,220}relationTargetId:\s*node\.id/, "Projected container edges must retain the underlying graph endpoints");
+assert.match(mainSource, /data-relation-source-id=\{relationSourceId\}[\s\S]{0,1600}sourceId:\s*relationSourceId/, "One-edge relation menus must disconnect the underlying graph edge instead of the projected container IDs");
+assert.match(mainSource, /className="canvas-context-menu relation-context-menu"[\s\S]{0,1200}断开这条连线/, "Relation management must expose a one-edge disconnect command");
+assert.match(mainSource, /连接头不会直接删除关系；请点击具体连线管理/, "Clicking an input port must explain relation management without deleting anything");
+assert.match(canvasWorkspaceSource, /\.edge-hit-target\s*\{[\s\S]{0,220}stroke-width:\s*18[\s\S]{0,160}pointer-events:\s*stroke/, "Relation lines must expose a stable wide pointer target without changing their visible stroke");
+assert.match(canvasWorkspaceSource, /\.flow-node\.connection-target-ready \.node-port\.provenance-port\.node-port-in\.connection-target/, "Valid connection destinations must expose a clear input-port target state while dragging");
 assert.match(settingsDrawerSource, /visibleAssetRailTabs=\{draftSettings\.visibleWorkspaceAssetRailTabs\}[\s\S]{0,650}update\("visibleWorkspaceAssetRailTabs", visibleWorkspaceAssetRailTabs\)/, "The Tools settings page must update asset rail visibility through the normal settings draft");
 assert.match(settingsDrawerSource, /shortcuts=\{draftSettings\.canvasToolShortcuts\}[\s\S]{0,520}update\("canvasToolShortcuts", canvasToolShortcuts\)/, "The Tools settings page must update shortcut overrides through the normal settings draft");
 for (const [id, label] of [["results", "成果"], ["layers", "图层"], ["requirements", "需求"], ["templates", "模板"], ["history", "历史"]]) {
@@ -129,14 +140,17 @@ assert.match(mainSource, /const \[availableImageModels, setAvailableImageModels\
 assert.match(mainSource, /const composerImageModels = useMemo\([\s\S]{0,320}\.\.\.availableImageModels[\s\S]{0,320}\.\.\.selectedComposerImageModels/, "Composer chips must be driven by the persistent available-model catalog, not only the current selection");
 assert.match(mainSource, /function openWorkspaceLayerNode[\s\S]{0,260}node\?\.layerGroup[\s\S]{0,180}openLayerGroupViewer\(node\.id\)[\s\S]{0,220}node\?\.layerComposition[\s\S]{0,120}openNodeEditor\(node\)/, "The layer rail must open modern groups in the viewer and legacy compositions in their supported editor");
 assert.match(workspaceSource, /node\.layerComposition[\s\S]{0,220}双击打开图层编辑器/, "Legacy layer compositions must advertise the editor they actually open");
-assert.match(mainSource, /className="unified-node-editor-image-specs"[\s\S]{0,260}editorAssetRatio[\s\S]{0,160}editorAssetPixels/, "The result editor preview must expose the final image ratio and pixel dimensions beside the artwork");
-assert.match(mainSource, /className="node-editor-generation-details"[\s\S]{0,260}data-generation-source=\{generationSource\}[\s\S]{0,700}data-generation-param=\{row\.key\}/, "The result editor must render per-image generation parameters with an observable source contract");
-assert.match(mainSource, /row\.actualSource === "api" \? "响应" : row\.actualSource === "asset" \? "成图" : "本次"/, "Requested, API response, final asset and runtime values must remain visibly distinct");
-assert.match(mainSource, /data-node-editor-action="toggle-maximize"[\s\S]{0,420}setNodeEditorMaximized\(\(current\) => !current\)[\s\S]{0,220}Minimize2/, "The result editor must expose an accessible maximize and restore control in its header");
+assert.match(imageWorkspaceOverlaysSource, /className="unified-node-editor-image-specs"[\s\S]{0,260}editorAssetRatio[\s\S]{0,160}editorAssetPixels/, "The result editor preview must expose the final image ratio and pixel dimensions beside the artwork");
+assert.match(imageWorkspaceOverlaysSource, /className="node-editor-generation-details"[\s\S]{0,260}data-generation-source=\{generationSource\}[\s\S]{0,700}data-generation-param=\{row\.key\}/, "The result editor must render per-image generation parameters with an observable source contract");
+assert.match(imageWorkspaceOverlaysSource, /row\.actualSource === "api" \? "响应" : row\.actualSource === "asset" \? "成图" : "本次"/, "Requested, API response, final asset and runtime values must remain visibly distinct");
+assert.match(imageWorkspaceOverlaysSource, /data-node-editor-action="toggle-maximize"[\s\S]{0,420}setMaximized\(\(current\) => !current\)[\s\S]{0,220}Minimize2/, "The result editor must expose an accessible maximize and restore control in its header");
+assert.match(imageWorkspaceOverlaysSource, /layerClassName=\{`node-editor-layer\$\{maximized \? " is-maximized" : ""\}`\}/, "The result editor maximize state must expand its owning dialog grid as well as the inner surface");
+assert.match(mainSource, /nodeEditorFloatingStyleRef[\s\S]{0,1800}nodeEditorMaximized[\s\S]{0,420}removeProperty\(property\)[\s\S]{0,420}dialog\.style\.cssText = nodeEditorFloatingStyleRef\.current/, "Maximizing a previously moved result editor must temporarily clear and then restore its floating inline geometry");
 assert.match(imageGenerationMetadataSource, /export function sanitizeImageAssetGenerationMetadata[\s\S]{0,2400}version:\s*1/, "Persisted image-generation metadata must pass through a versioned whitelist sanitizer");
 assert.match(imageGenerationMetadataSource, /export function actualImageAspectRatio[\s\S]{0,520}greatestCommonDivisor/, "Displayed aspect ratios must derive from final pixel dimensions instead of inferred provider defaults");
 assert.match(editorDialogSource, /\.node-editor-generation-grid[\s\S]{0,220}grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, "Generation parameters must use a stable compact grid in the result editor");
-assert.match(editorDialogSource, /\.unified-node-editor\.is-maximized\s*\{[\s\S]{0,260}width:\s*calc\(100vw - 24px\);[\s\S]{0,160}height:\s*calc\(100dvh - 24px\);/, "The result editor maximize state must expand both axes to the available viewport");
+assert.match(editorDialogSource, /\.ui-surface\.unified-node-editor\.is-maximized\[data-ui-surface\]\s*\{[\s\S]{0,320}--ui-surface-width:\s*calc\(100vw - 24px\);[\s\S]{0,180}--ui-surface-max-height:\s*calc\(100dvh - 24px\);/, "The result editor maximize state must override the shared dialog size contract on both axes");
+assert.match(editorDialogSource, /\.node-editor-layer\.is-maximized\s*\{[\s\S]{0,220}grid-template-columns:\s*minmax\(0, 1fr\);[\s\S]{0,120}grid-template-rows:\s*minmax\(0, 1fr\);/, "The maximized result editor layer must allocate a viewport-sized grid track instead of retaining the normal 920 px intrinsic column");
 assert.match(editorDialogSource, /\.node-editor-generation-grid dt\s*\{[\s\S]{0,180}font-size:\s*12px;[\s\S]{0,420}\.node-editor-generation-grid dd\s*\{[\s\S]{0,220}font-size:\s*12px;/, "Generation parameter labels and values must keep a readable 12 px minimum");
 
 const renderMarker = mainSource.indexOf("MAIN 11 Main Workspace Render Tree");
@@ -187,7 +201,7 @@ assert.match(canvasWorkspaceSource, /\.ui-menu-item-shortcut[\s\S]{0,360}font-si
 assert.match(canvasWorkspaceSource, /\.canvas-context-menu \.ui-menu-item:disabled[\s\S]{0,120}opacity:\s*1;/, "Disabled canvas menu rows must not reduce the opacity of their text");
 assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar\s*\{[\s\S]{0,180}width:\s*max-content;/, "The bottom toolbar must size to its commands before falling back to horizontal overflow");
 assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar-actions\s*\{[\s\S]{0,120}flex:\s*0 1 auto;/, "Toolbar actions must not collapse into a scrollbar when their labels fit the canvas");
-assert.match(canvasWorkspaceSource, /\.node-port\.provenance-port\s*\{[\s\S]{0,160}top:\s*50%;[\s\S]{0,80}margin-top:\s*-7px;/, "Canvas connection ports must remain centered on the left and right node borders");
+assert.match(canvasWorkspaceSource, /\.node-port\.provenance-port\s*\{[\s\S]{0,180}top:\s*50%;[\s\S]{0,80}margin-top:\s*-8px;[\s\S]{0,80}width:\s*16px;[\s\S]{0,80}height:\s*16px;/, "Canvas connection ports must remain centered on the left and right node borders");
 assert.match(mainSource, /canvasToolShortcutMatchesEvent\(event, candidate\.shortcut\)/, "Canvas shortcut dispatch must use each active tool's resolved shortcut");
 assert.match(mainSource, /aria-keyshortcuts=\{canvasToolAriaShortcut\(item\.shortcut\)\}/, "Toolbar accessibility metadata must follow the resolved shortcut");
 assert.doesNotMatch(mainSource, /<kbd aria-hidden="true">\{shortcut\}<\/kbd>/, "Canvas toolbar buttons must keep shortcut text in hover metadata instead of visible button content");

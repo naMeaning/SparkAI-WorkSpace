@@ -46,6 +46,7 @@ const {
 const { createProjectCommerceExportService } = require("./desktop/project-commerce-export.cjs");
 const { createProjectSocialExportService } = require("./desktop/project-social-export.cjs");
 const { createImageCollectionExportService } = require("./desktop/image-collection-export-service.cjs");
+const { createExportCenterStateService } = require("./desktop/export-center-state-service.cjs");
 const { createScientificRunnerService } = require("./desktop/scientific-runner-service.cjs");
 const { createRequirementLibraryService } = require("./desktop/requirement-library.cjs");
 const { createCommerceTemplateLibraryService } = require("./desktop/commerce-template-library.cjs");
@@ -265,7 +266,8 @@ const localServerEntryCandidates = [
 const localServerEntry = localServerEntryCandidates.find((candidate) => existsSync(candidate)) || localServerEntryCandidates[0];
 const localServerRoot = path.dirname(localServerEntry);
 const aidebugMode = desktopEnvironment("NAIMAGE_AIDEBUG") === "1";
-if (aidebugMode) app.disableHardwareAcceleration();
+const performanceGateMode = desktopEnvironment("NAIMAGE_PERFORMANCE_GATE") === "1";
+if (aidebugMode && !performanceGateMode) app.disableHardwareAcceleration();
 const aidebugLiveImage = desktopEnvironment("NAIMAGE_AIDEBUG_LIVE_IMAGE") === "1";
 const aidebugStatefulAuth = desktopEnvironment("NAIMAGE_AIDEBUG_AUTH_SESSION") === "1";
 const aidebugMockAgent =
@@ -1344,6 +1346,10 @@ const imageCollectionExportService = createImageCollectionExportService({
   projectSessionFromDisk,
   readProjectList,
   resolveProjectRelativePath
+});
+const exportCenterStateService = createExportCenterStateService({
+  getProjectById,
+  readProjectList
 });
 const scientificRunnerService = createScientificRunnerService({
   assetUrlFor,
@@ -4581,6 +4587,7 @@ function registerIpc() {
     commerceExportService,
     socialExportService,
     imageCollectionExportService,
+    exportCenterStateService,
     projectDataMigrationService,
     videoTaskService,
     scientificRunnerService,
@@ -4739,7 +4746,7 @@ function createWindow(launch = {}) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      backgroundThrottling: desktopEnvironment("NAIMAGE_PERFORMANCE_GATE") !== "1"
+      backgroundThrottling: !performanceGateMode
     }
   });
   window.setMinimumSize(minWindowWidth, minWindowHeight);

@@ -354,6 +354,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       { kind: "ask-user", selector: ".ask-user-dialog", body: ".ask-user-body" },
       { kind: "reference-picker", selector: ".reference-picker-dialog", body: ".reference-grid" },
       { kind: "manual-image-task", selector: ".manual-image-task-dialog", body: ".manual-image-task-body" },
+      { kind: "export-center", selector: ".export-center-dialog", body: ".export-center-body" },
       { kind: "requirement-editor", selector: ".requirement-editor-dialog", body: ".requirement-editor-body" },
       { kind: "layer-viewer", selector: ".layer-group-viewer", body: ".layer-group-viewer-body" }
     ];
@@ -2710,6 +2711,31 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       manualImageTaskPrompt &&
       manualImageTaskPrompt.getBoundingClientRect().height >= 150
     );
+    const exportCenterDialog = element(".export-center-dialog");
+    const exportCenterRect = exportCenterDialog?.getBoundingClientRect() || null;
+    const exportCenterTargetLabels = Array.from(exportCenterDialog?.querySelectorAll(".export-center-targets button") || [])
+      .map((button) => String(button.textContent || "").replace(/\s+/g, "").trim());
+    const exportCenterViewLabels = Array.from(exportCenterDialog?.querySelectorAll(".export-center-view-tabs button") || [])
+      .map((button) => String(button.textContent || "").replace(/\s+/g, "").trim());
+    const exportCenterControlsOk = !exportCenterDialog || Boolean(
+      exportCenterTargetLabels.length === 3 &&
+      ["图片", "图片组", "PSD"].every((label) => exportCenterTargetLabels.some((item) => item.startsWith(label))) &&
+      ["配置", "队列", "历史"].every((label) => exportCenterViewLabels.some((item) => item.startsWith(label))) &&
+      exportCenterDialog.querySelector(".export-center-preset-row select") &&
+      exportCenterDialog.querySelector(".export-center-option-grid input") &&
+      exportCenterDialog.querySelector(".export-center-selection") &&
+      exportCenterDialog.querySelector(".export-center-preview") &&
+      Array.from(exportCenterDialog.querySelectorAll("button")).some((button) => String(button.textContent || "").includes("加入导出队列"))
+    );
+    const exportCenterLayoutOk = !exportCenterDialog || Boolean(
+      exportCenterRect &&
+      withinViewport(exportCenterRect, 2) &&
+      exportCenterDialog.querySelector(".export-center-body")?.clientHeight > 280 &&
+      Array.from(exportCenterDialog.querySelectorAll("button, input, select")).every((control) => {
+        const box = control.getBoundingClientRect();
+        return box.width <= 0 || box.height <= 0 || (box.left >= exportCenterRect.left - 1 && box.right <= exportCenterRect.right + 1 && box.top >= exportCenterRect.top - 1 && box.bottom <= exportCenterRect.bottom + 1);
+      })
+    );
     const topbarCanvasActionMetrics = Array.from(document.querySelectorAll(".project-quick-actions button")).map((node) => ({
       text: String(node.textContent || "").replace(/\s+/g, " ").trim(),
       clientWidth: node.clientWidth,
@@ -2852,6 +2878,13 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       agentTextEditorOpen: Boolean(element(".agent-text-editor-dialog")),
       agentTextEditorKind: String(element(".agent-text-editor-dialog")?.getAttribute("aria-label") || ""),
       imageTaskOpen: Boolean(element(".manual-image-task-dialog")),
+      exportCenterOpen: Boolean(exportCenterDialog),
+      exportCenterControlsOk,
+      exportCenterLayoutOk,
+      exportCenterTargetLabels,
+      exportCenterViewLabels,
+      exportCenterFlowOk: window.__naimageExportCenterProbe?.ok === true,
+      exportCenterFlowProbe: window.__naimageExportCenterProbe || null,
       modelConfigOpen: modelPickerOpen,
       requirementEditorOpen: Boolean(agentDebugState?.requirementEditorOpen),
       requirementEditorUiOk: agentDebugState?.requirementEditorOpen ? agentDebugState?.requirementEditorUi?.ok === true : true,

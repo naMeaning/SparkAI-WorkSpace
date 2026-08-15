@@ -26,7 +26,10 @@ function registerImageCollectionIpc({ ipcMain, imageCollectionExportService, she
     const result = await imageCollectionExportService.previewCollections({
       expectedProjectId: payload.expectedProjectId,
       collectionIds: payload.collectionIds,
-      format: payload.format
+      format: payload.format,
+      ...(payload.filenameTemplate !== undefined ? { filenameTemplate: payload.filenameTemplate } : {}),
+      ...(payload.conflictPolicy !== undefined ? { conflictPolicy: payload.conflictPolicy } : {}),
+      ...(payload.incremental !== undefined ? { incremental: payload.incremental === true } : {})
     });
     log(`image collection export preview project=${result.projectId} collections=${result.collectionCount || 0} images=${result.imageCount || 0}`);
     return result;
@@ -37,6 +40,9 @@ function registerImageCollectionIpc({ ipcMain, imageCollectionExportService, she
       expectedProjectId: payload.expectedProjectId,
       collectionIds: payload.collectionIds,
       format: payload.format,
+      ...(payload.filenameTemplate !== undefined ? { filenameTemplate: payload.filenameTemplate } : {}),
+      ...(payload.conflictPolicy !== undefined ? { conflictPolicy: payload.conflictPolicy } : {}),
+      ...(payload.incremental !== undefined ? { incremental: payload.incremental === true } : {}),
       previewToken: payload.previewToken,
       confirmed: payload.confirmed === true
     });

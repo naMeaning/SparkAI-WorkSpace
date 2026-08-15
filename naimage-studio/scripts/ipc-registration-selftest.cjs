@@ -10,6 +10,7 @@ const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-
 const { registerCommerceExportIpc } = require("../desktop/ipc/commerce-export-ipc.cjs");
 const { registerCommerceTemplateIpc } = require("../desktop/ipc/commerce-template-ipc.cjs");
 const { registerGlassBackgroundIpc, registerRequirementLibraryIpc, registerSettingsIpc } = require("../desktop/ipc/config-ipc.cjs");
+const { registerExportCenterIpc } = require("../desktop/ipc/export-center-ipc.cjs");
 const { registerImageCollectionIpc } = require("../desktop/ipc/image-collection-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
@@ -100,6 +101,11 @@ const expectedChannels = [
   "naimage:agent-window:status",
   "naimage:debug:window-bounds",
   "naimage:debug:capture-gui",
+  "naimage:export-center:state",
+  "naimage:export-center:save-preset",
+  "naimage:export-center:delete-preset",
+  "naimage:export-center:record-history",
+  "naimage:export-center:clear-history",
   "naimage:project:list",
   "naimage:project:migration-preview",
   "naimage:project:migrate",
@@ -136,6 +142,7 @@ const expectedChannels = [
   "naimage:asset:import-local-image",
   "naimage:asset:save-output-image",
   "naimage:asset:save-as",
+  "naimage:asset:export-managed",
   "naimage:asset:export-folder",
   "naimage:asset:export-psd",
   "naimage:asset:export-layer-psd",
@@ -643,7 +650,7 @@ async function assertImageCollectionIpcBoundary() {
           error.code = "IMAGE_COLLECTION_NOT_EXPORTED";
           throw error;
         }
-        return { projectId: payload.expectedProjectId, collectionId: payload.collectionId, directoryName: "组 A", folderPath: "D:/managed/project/exports/image-groups/组 A" };
+        return { projectId: payload.expectedProjectId, collectionId: payload.collectionId, directoryName: "组 A", folderPath: "D:/managed/project/image-groups/组 A" };
       }
     },
     shell: { openPath: async (folderPath) => { opened.push(folderPath); return ""; } }
@@ -653,13 +660,19 @@ async function assertImageCollectionIpcBoundary() {
     expectedProjectId: "project-a",
     collectionIds: ["collection-a", "collection-b"],
     format: "webp",
+    filenameTemplate: "{group}-{request}",
+    conflictPolicy: "keep-both",
+    incremental: true,
     destinationPath: "C:/renderer-path-must-be-ignored"
   });
   assert.equal(preview.previewToken, "preview-token");
   assert.deepEqual(calls[0].payload, {
     expectedProjectId: "project-a",
     collectionIds: ["collection-a", "collection-b"],
-    format: "webp"
+    format: "webp",
+    filenameTemplate: "{group}-{request}",
+    conflictPolicy: "keep-both",
+    incremental: true
   });
   const unconfirmed = await handlers.get("naimage:image-collection:export")({}, {
     expectedProjectId: "project-a",
@@ -674,6 +687,9 @@ async function assertImageCollectionIpcBoundary() {
     expectedProjectId: "project-a",
     collectionIds: ["collection-a", "collection-b"],
     format: "avif",
+    filenameTemplate: "{title}-{index}",
+    conflictPolicy: "skip",
+    incremental: true,
     previewToken: "preview-token",
     confirmed: true,
     destinationPath: "C:/renderer-path-must-be-ignored"
@@ -683,6 +699,9 @@ async function assertImageCollectionIpcBoundary() {
     expectedProjectId: "project-a",
     collectionIds: ["collection-a", "collection-b"],
     format: "avif",
+    filenameTemplate: "{title}-{index}",
+    conflictPolicy: "skip",
+    incremental: true,
     previewToken: "preview-token",
     confirmed: true
   });
@@ -700,7 +719,47 @@ async function assertImageCollectionIpcBoundary() {
   });
   assert.equal(folder.ok, true);
   assert.deepEqual(calls.at(-1).payload, { expectedProjectId: "project-a", collectionId: "collection-a" });
-  assert.deepEqual(opened, ["D:/managed/project/exports/image-groups/组 A"]);
+  assert.deepEqual(opened, ["D:/managed/project/image-groups/组 A"]);
+}
+
+async function assertExportCenterIpcBoundary() {
+  const handlers = new Map();
+  const calls = [];
+  registerExportCenterIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    exportCenterStateService: {
+      load: (payload) => { calls.push({ command: "state", payload }); return { ok: true, projectId: payload.expectedProjectId, state: { presets: [], history: [] } }; },
+      savePreset: (payload) => { calls.push({ command: "save", payload }); return { ok: true, projectId: payload.expectedProjectId, preset: payload.preset }; },
+      deletePreset: (payload) => { calls.push({ command: "delete", payload }); return { ok: true, projectId: payload.expectedProjectId, deleted: 1 }; },
+      recordHistory: (payload) => { calls.push({ command: "history", payload }); return { ok: true, projectId: payload.expectedProjectId, entry: payload.entry }; },
+      clearHistory: (payload) => { calls.push({ command: "clear", payload }); return { ok: true, projectId: payload.expectedProjectId, cleared: 1 }; }
+    },
+    log: () => {}
+  });
+  assert.deepEqual([...handlers.keys()], [
+    "naimage:export-center:state",
+    "naimage:export-center:save-preset",
+    "naimage:export-center:delete-preset",
+    "naimage:export-center:record-history",
+    "naimage:export-center:clear-history"
+  ]);
+  const forbidden = {
+    expectedProjectId: "project-a",
+    path: "C:/renderer-path-must-be-ignored",
+    destinationPath: "D:/also-forbidden"
+  };
+  assert.equal((await handlers.get("naimage:export-center:state")({}, forbidden)).ok, true);
+  assert.equal((await handlers.get("naimage:export-center:save-preset")({}, { ...forbidden, preset: { name: "PNG" } })).ok, true);
+  assert.equal((await handlers.get("naimage:export-center:delete-preset")({}, { ...forbidden, presetId: "preset-a" })).deleted, 1);
+  assert.equal((await handlers.get("naimage:export-center:record-history")({}, { ...forbidden, entry: { id: "history-a" } })).ok, true);
+  assert.equal((await handlers.get("naimage:export-center:clear-history")({}, forbidden)).cleared, 1);
+  assert.deepEqual(calls, [
+    { command: "state", payload: { expectedProjectId: "project-a" } },
+    { command: "save", payload: { expectedProjectId: "project-a", preset: { name: "PNG" } } },
+    { command: "delete", payload: { expectedProjectId: "project-a", presetId: "preset-a" } },
+    { command: "history", payload: { expectedProjectId: "project-a", entry: { id: "history-a" } } },
+    { command: "clear", payload: { expectedProjectId: "project-a" } }
+  ], "Export-center IPC must discard every Renderer-supplied path field");
 }
 
 async function assertBestEffortRemoteLogout() {
@@ -871,8 +930,8 @@ async function main() {
     videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 141, "The registration contract must contain exactly 141 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 141, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 147, "The registration contract must contain exactly 147 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 147, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -887,13 +946,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 138, "preload must expose exactly 138 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 138, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 144, "preload must expose exactly 144 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 144, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 138, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 144, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -911,6 +970,7 @@ async function main() {
   await assertCommerceCatalogIpcBoundary();
   await assertCommerceExportIpcBoundary();
   await assertImageCollectionIpcBoundary();
+  await assertExportCenterIpcBoundary();
   await assertBestEffortRemoteLogout();
   await assertSettingsSnapshotPayloads();
   await assertInvalidGoalFailsBeforeRunAdmission();

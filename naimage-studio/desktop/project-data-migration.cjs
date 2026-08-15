@@ -874,5 +874,6 @@ module.exports = {
   ProjectDataMigrationError,
   createProjectDataMigrationService,
   directoryInventory,
+  fileInventory,
   publicMigrationPreview
 };

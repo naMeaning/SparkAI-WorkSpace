@@ -13,7 +13,7 @@ import {
   repairLayerCoveragePixelBuffers,
   refineTextMaskValuesFromPreview,
   solidifySemanticMaskValues
-} from "../src/core.ts";
+} from "../src/image-processing-runtime.ts";
 import { normalizeLayerAlphaPixelBuffers } from "../src/layer-alpha-normalization.ts";
 
 const require = createRequire(import.meta.url);

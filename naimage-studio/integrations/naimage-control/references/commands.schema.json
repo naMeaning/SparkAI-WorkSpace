@@ -473,7 +473,7 @@
         {
           "name": "canvas.export-image-collections",
           "surface": "renderer",
-          "description": "Export one or more current image groups in one explicit PNG, JPEG, WebP, AVIF, or TIFF format below the active project's exports/image-groups directory. Main re-reads the project session, verifies every asset is managed by that project, calculates preview counts and estimated bytes, writes stable request-slot filenames and image-group.json manifests, then publishes atomically. confirmed=true is required; arbitrary Renderer destination paths are ignored.",
+          "description": "Export one or more current image groups in one explicit PNG, JPEG, WebP, AVIF, or TIFF format below the active project's top-level image-groups directory. Every selected group becomes one sibling folder named from that image group; Main re-reads the project session, verifies every asset is managed by that project, calculates preview counts and estimated bytes, writes stable request-slot filenames and image-group.json manifests, then publishes all selected folders atomically. confirmed=true is required; arbitrary Renderer destination paths are ignored. Previously exported manifests below exports/image-groups remain openable for compatibility.",
           "parameters": {
             "type": "object",
             "required": ["collectionIds", "expectedProjectId", "format", "confirmed"],

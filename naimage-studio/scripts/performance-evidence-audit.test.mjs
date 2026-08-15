@@ -98,8 +98,8 @@ function validReport() {
           canvasNaturalSizes: Array.from({ length: 10 }, () => ({ width: 512, height: 288 })),
           viewerMainSource: "naimage-asset://fixture-0.png",
           viewerStripSources: ["naimage-asset://fixture-0.png?preview=thumbnail&max=512"],
-          coldThumbnailStats: { requests: 10, workerStarts: 10, generated: 10, errors: 0, recentErrors: [], maxActiveWorkers: 2 },
-          warmThumbnailStats: { requests: 10, cacheHits: 10, workerStarts: 0, generated: 0, errors: 0, recentErrors: [] },
+          coldThumbnailStats: { requests: 11, workerStarts: 2, workerJobs: 11, workerReuses: 9, workerFailures: 0, generated: 11, errors: 0, recentErrors: [], maxActiveWorkers: 2 },
+          warmThumbnailStats: { requests: 10, cacheHits: 10, workerStarts: 0, workerJobs: 0, workerReuses: 0, workerFailures: 0, generated: 0, errors: 0, recentErrors: [] },
           thumbnailDiskCache: { status: "measured", sourceAssetCount: 10, sourceBytes: 10000, thumbnailCount: 10, thumbnailBytes: 1000, stagingFileCount: 0 },
         },
         imageThumbnailCold: { status: "measured" },
@@ -296,6 +296,16 @@ test("runtime bundle trend advisory does not invalidate real interaction evidenc
   assert.equal(result.audit.ok, true);
   assert.equal(result.audit.productPerformanceReady, true);
   assert(result.audit.findings.some((finding) => finding.rule === "product-runtime-bundle-advisory-exceeded"));
+});
+
+test("thumbnail disk evidence accepts the additional viewer-strip variant", () => {
+  const report = validReport();
+  report.performance.fixtures.imageContainer10.expectedThumbnailVariantCount = 11;
+  report.performance.fixtures.imageContainer10.thumbnailDiskCache.expectedThumbnailVariantCount = 11;
+  report.performance.fixtures.imageContainer10.thumbnailDiskCache.thumbnailCount = 11;
+  const result = runAudit(report);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.audit.ok, true);
 });
 
 test("diagnostic product profile cannot masquerade as an authoritative gate", () => {

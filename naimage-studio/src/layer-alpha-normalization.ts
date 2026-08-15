@@ -1,4 +1,4 @@
-import { loadImageForCanvas } from "./core.ts";
+import { loadImageForCanvas } from "./image-processing-runtime.ts";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));

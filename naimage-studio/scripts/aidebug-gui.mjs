@@ -8253,23 +8253,36 @@ async function main() {
              document.querySelector('.flow-node[data-node-id="' + derivedId + '"] .node-port.provenance-port.output.connected') &&
              document.querySelector('.flow-node[data-node-id="' + targetId + '"] .node-port.provenance-port.input.connected')
            );
-           const input = document.querySelector('.flow-node[data-node-id="' + targetId + '"] .node-port.provenance-port.input');
-           input?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-           await delay(80);
-           const inputDisconnected = !window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId)?.parentId;
-            await dragToTargetBody(75);
+            const input = document.querySelector('.flow-node[data-node-id="' + targetId + '"] .node-port.provenance-port.input');
+            input?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            await delay(80);
+            const inputClickSafe = window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId)?.parentId === derivedId;
             const output = document.querySelector('.flow-node[data-node-id="' + derivedId + '"] .node-port.provenance-port.output');
             const from = output?.getBoundingClientRect();
             if (!output || !from) return;
             const startX = from.left + from.width / 2;
-           const startY = from.top + from.height / 2;
-           output.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 76, pointerType: 'mouse', button: 0, buttons: 1, clientX: startX, clientY: startY }));
-           await delay(30);
-           window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 76, pointerType: 'mouse', button: 0, buttons: 0, clientX: startX, clientY: startY }));
-           await delay(80);
-           const outputDisconnected = !window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId)?.parentId;
-           await dragToTargetBody(77);
-           const cycleResult = window.__naimageDebugConnectNodes?.({ sourceId: targetId, targetId: derivedId });
+            const startY = from.top + from.height / 2;
+            output.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 75, pointerType: 'mouse', button: 0, buttons: 1, clientX: startX, clientY: startY }));
+            await delay(30);
+            window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: 75, pointerType: 'mouse', button: 0, buttons: 0, clientX: startX, clientY: startY }));
+            await delay(80);
+            const outputClickSafe = window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId)?.parentId === derivedId;
+            const relation = document.querySelector(
+              '.edge-hit-target[data-relation-source-id="' + derivedId + '"][data-relation-target-id="' + targetId + '"]'
+            );
+            const relationBox = relation?.getBoundingClientRect();
+            relation?.dispatchEvent(new MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              clientX: relationBox ? relationBox.left + relationBox.width / 2 : 220,
+              clientY: relationBox ? relationBox.top + relationBox.height / 2 : 180
+            }));
+            await delay(80);
+            document.querySelector('.relation-context-menu .ui-menu-item')?.click();
+            await delay(100);
+            const relationDisconnected = !window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId)?.parentId;
+            await dragToTargetBody(76);
+            const cycleResult = window.__naimageDebugConnectNodes?.({ sourceId: targetId, targetId: derivedId });
            await delay(50);
            const finalC = window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === targetId);
            const finalB = window.__naimageDebugAgentState?.().nodes?.find((node) => node.id === derivedId);
@@ -8298,13 +8311,14 @@ async function main() {
             const stackingHitOk = overlapMoved === true && hitNodeIds.includes(derivedId) && hitNodeIds.includes(targetId) && hitNodeId === expectedHitNodeId;
            if (Number.isFinite(originalCX) && Number.isFinite(originalCY)) window.__naimageDebugMoveNode?.({ id: targetId, x: originalCX, y: originalCY });
            await delay(80);
-           window.__naimageConnectionPortProbe = {
-             ok: connectedByBody && connectedVisual && inputDisconnected && outputDisconnected && finalC?.parentId === derivedId && cycleBlocked && stackingHitOk,
-             parentId: finalC?.parentId || '',
-             connectedByBody,
-             connectedVisual,
-             inputDisconnected,
-             outputDisconnected,
+            window.__naimageConnectionPortProbe = {
+              ok: connectedByBody && connectedVisual && inputClickSafe && outputClickSafe && relationDisconnected && finalC?.parentId === derivedId && cycleBlocked && stackingHitOk,
+              parentId: finalC?.parentId || '',
+              connectedByBody,
+              connectedVisual,
+              inputClickSafe,
+              outputClickSafe,
+              relationDisconnected,
              cycleBlocked,
               stackingHitOk,
               overlapInset,

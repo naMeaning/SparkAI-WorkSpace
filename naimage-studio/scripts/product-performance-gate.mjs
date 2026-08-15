@@ -26,6 +26,10 @@ const fixtureMessageCount = countArg("messages", 500, 2_000);
 const fixtureRelationCount = Math.min(countArg("relations", 199, 2_000), Math.max(0, fixtureNodeCount - 1));
 const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
+const foregroundChromiumSwitches = Object.freeze([
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding"
+]);
 
 const budgets = Object.freeze({
   workbenchReadyMs: 3_500,
@@ -243,7 +247,7 @@ const interactionExpression = `(async () => {
     ? new PerformanceObserver((list) => longTasks.push(...list.getEntries().map((entry) => ({ startTime: entry.startTime, duration: entry.duration }))))
     : null;
   observer?.observe({ type: 'longtask', buffered: true });
-  const canvas = document.querySelector('.workflow-canvas');
+  const canvas = document.querySelector('[data-canvas-surface="true"]');
   if (!canvas) throw new Error('production canvas unavailable');
   document.querySelector('.canvas-tools .zoom-button')?.click();
   await twice();
@@ -261,7 +265,7 @@ const interactionExpression = `(async () => {
   }
   const candidates = [[0.08, 0.12], [0.5, 0.12], [0.88, 0.12], [0.08, 0.88], [0.5, 0.88], [0.88, 0.88]];
   const blank = candidates.map(([x, y]) => ({ x: canvasRect.left + canvasRect.width * x, y: canvasRect.top + canvasRect.height * y }))
-    .find((point) => !document.elementsFromPoint(point.x, point.y).some((element) => element.closest?.('.flow-node'))) || { x: centerX, y: centerY };
+    .find((point) => !document.elementsFromPoint(point.x, point.y).some((element) => element.closest?.('[data-canvas-node="true"]'))) || { x: centerX, y: centerY };
   const pan = [];
   const panFrames = [];
   const panPointerId = 6001;
@@ -277,7 +281,7 @@ const interactionExpression = `(async () => {
   await twice();
   const drag = [];
   const dragFrames = [];
-  const node = [...document.querySelectorAll('.flow-node')].find((element) => {
+  const node = [...document.querySelectorAll('[data-canvas-node="true"]')].find((element) => {
     const rect = element.getBoundingClientRect();
     return rect.right > canvasRect.left + 20 && rect.left < canvasRect.right - 20 && rect.bottom > canvasRect.top + 20 && rect.top < canvasRect.bottom - 20;
   });
@@ -323,6 +327,34 @@ const interactionExpression = `(async () => {
   };
 })()`;
 
+const foregroundSchedulerExpression = `(async () => {
+  window.focus();
+  const samples = [];
+  let previous = null;
+  await new Promise((resolve) => {
+    let remaining = 13;
+    const sample = (timestamp) => {
+      if (previous !== null) samples.push(timestamp - previous);
+      previous = timestamp;
+      remaining -= 1;
+      if (remaining <= 0) resolve();
+      else requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  const sorted = [...samples].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const medianMs = sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  return {
+    visibilityState: document.visibilityState,
+    hasFocus: document.hasFocus(),
+    sampleCount: samples.length,
+    samples,
+    medianMs,
+    p95Ms: sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * 0.95) - 1))] || 0
+  };
+})()`;
+
 async function runRound(round) {
   const roundDir = join(runDir, `round-${round}`);
   const configDir = join(roundDir, "config");
@@ -332,7 +364,13 @@ async function runRound(round) {
   seedSession(configDir, round);
   const debugPort = 11_800 + ((process.pid + round * 31) % 1_000);
   const startedAt = Date.now();
-  const child = spawn(process.execPath, [electronCli, `--remote-debugging-port=${debugPort}`, `--user-data-dir=${userDataDir}`, "electron-main.cjs"], {
+  const child = spawn(process.execPath, [
+    electronCli,
+    ...foregroundChromiumSwitches,
+    `--remote-debugging-port=${debugPort}`,
+    `--user-data-dir=${userDataDir}`,
+    "electron-main.cjs"
+  ], {
     cwd: repoRoot,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -359,6 +397,7 @@ async function runRound(round) {
     await client.open();
     await client.send("Runtime.enable");
     await client.send("Page.enable");
+    await client.send("Page.bringToFront");
     if (cpuProfileEnabled) {
       await client.send("Profiler.enable");
       await client.send("Profiler.start");
@@ -367,6 +406,7 @@ async function runRound(round) {
     assert(ready, "Production-like renderer probe did not become ready.");
     await client.evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     await delay(interactiveSettleMs);
+    const foregroundScheduler = await client.evaluate(foregroundSchedulerExpression);
     const workbenchReadyMs = Date.now() - startedAt;
     const startupSnapshot = await client.evaluate(`window.__naimagePerformanceProbe.snapshot()`);
     const interactions = await client.evaluate(interactionExpression);
@@ -387,6 +427,7 @@ async function runRound(round) {
     return {
       round,
       workbenchReadyMs,
+      foregroundScheduler,
       startupSnapshot,
       finalSnapshot,
       interactions,
@@ -469,6 +510,9 @@ async function main() {
     messageCount: Number(item.startupSnapshot.messageCount) === fixtureMessageCount,
     messageWindowHealthy: Number(item.startupSnapshot.domMessageCount) === Math.min(fixtureMessageCount, 80),
     noHorizontalOverflow: item.startupSnapshot.documentOverflowX === false,
+    foregroundSchedulerHealthy: item.foregroundScheduler?.visibilityState === "visible" &&
+      Number(item.foregroundScheduler?.sampleCount) === 12 &&
+      Number(item.foregroundScheduler?.medianMs) <= budgets.visualFrameMedianMs,
     persistenceHealthy: Number(item.finalSnapshot.persistence?.failedWriteCount || 0) === 0,
     cleanExit: item.exit?.code === 0
   }));
@@ -500,6 +544,7 @@ async function main() {
     diagnosticOnly,
     fixture: { nodeCount: fixtureNodeCount, relationCount: fixtureRelationCount, messageCount: fixtureMessageCount },
     interactiveSettleMs,
+    foregroundChromiumSwitches,
     runDir,
     reportPath,
     bundle: {

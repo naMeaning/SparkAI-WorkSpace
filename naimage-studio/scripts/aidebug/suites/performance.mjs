@@ -773,12 +773,13 @@ export async function capturePerformanceSuiteProbe({
     while (performance.now() - thumbnailIdleStartedAt < 30000) {
       thumbnailIdleStatsResult = await window.naimageConfig?.thumbnailStats?.();
       const stats = thumbnailIdleStatsResult?.stats;
-      if (thumbnailIdleStatsResult?.ok && stats && Number(stats.activeWorkers) === 0 && Number(stats.activeJobs) === 0 && Number(stats.queuedJobs) === 0 && Number(stats.inflight) === 0) break;
+      if (thumbnailIdleStatsResult?.ok && stats && Number(stats.activeWorkers) >= 1 && Number(stats.activeWorkers) <= 2 && Number(stats.activeJobs) === 0 && Number(stats.queuedJobs) === 0 && Number(stats.inflight) === 0) break;
       await delay(80);
     }
     const thumbnailIdleOk = Boolean(
       thumbnailIdleStatsResult?.ok &&
-      Number(thumbnailIdleStatsResult?.stats?.activeWorkers) === 0 &&
+      Number(thumbnailIdleStatsResult?.stats?.activeWorkers) >= 1 &&
+      Number(thumbnailIdleStatsResult?.stats?.activeWorkers) <= 2 &&
       Number(thumbnailIdleStatsResult?.stats?.activeJobs) === 0 &&
       Number(thumbnailIdleStatsResult?.stats?.queuedJobs) === 0 &&
       Number(thumbnailIdleStatsResult?.stats?.inflight) === 0
@@ -788,9 +789,13 @@ export async function capturePerformanceSuiteProbe({
     const coldThumbnailOk = Boolean(
       thumbnailStatsReset?.ok && coldThumbnailStatsResult?.ok && coldThumbnailStats &&
       expectedThumbnailVariantCount === 11 &&
-      Number(coldThumbnailStats.generated) === expectedThumbnailVariantCount && Number(coldThumbnailStats.workerStarts) === expectedThumbnailVariantCount &&
+      Number(coldThumbnailStats.requests) === expectedThumbnailVariantCount &&
+      Number(coldThumbnailStats.generated) === expectedThumbnailVariantCount &&
+      Number(coldThumbnailStats.workerJobs) === expectedThumbnailVariantCount &&
+      Number(coldThumbnailStats.workerStarts) >= 0 && Number(coldThumbnailStats.workerStarts) <= 2 &&
+      Number(coldThumbnailStats.workerReuses) >= expectedThumbnailVariantCount - 2 &&
       Number(coldThumbnailStats.maxActiveWorkers) > 0 && Number(coldThumbnailStats.maxActiveWorkers) <= 2 &&
-      Number(coldThumbnailStats.errors) === 0 && thumbnailIdleOk
+      Number(coldThumbnailStats.workerFailures) === 0 && Number(coldThumbnailStats.errors) === 0 && thumbnailIdleOk
     );
     await window.naimageConfig?.thumbnailStats?.({ reset: true });
     const warmStartedAt = performance.now();
@@ -806,7 +811,8 @@ export async function capturePerformanceSuiteProbe({
     const warmThumbnailOk = Boolean(
       warmThumbnailStatsResult?.ok && warmThumbnailStats && warmResponses.every((item) => item.ok && Math.max(Number(item.width || 0), Number(item.height || 0)) <= 512) &&
       Number(warmThumbnailStats.cacheHits) === 10 && Number(warmThumbnailStats.workerStarts) === 0 &&
-      Number(warmThumbnailStats.generated) === 0 && Number(warmThumbnailStats.errors) === 0
+      Number(warmThumbnailStats.workerJobs) === 0 && Number(warmThumbnailStats.generated) === 0 &&
+      Number(warmThumbnailStats.workerFailures) === 0 && Number(warmThumbnailStats.errors) === 0
     );
     const thumbnailEvidenceOk = canvasUsesThumbnails && thumbnailDimensionsBounded && assetRailWait.ok && assetRailUsesThumbnails && assetRailDimensionsBounded && viewerUsesOriginal && viewerStripWait.ok && viewerStripUsesThumbnails && viewerCloseWait.ok && coldThumbnailOk && warmThumbnailOk;
     const imageContainer10 = {

@@ -1,5 +1,13 @@
 # SparkAI WorkSpace 进度
 
+本轮整备（候选冻结中，2026-08-16）：用户明确自行处理 SparkAI Extension 生产部署；大量图片冷缓存卡顿治理、统一导出中心、真实模型和真实 AppData 迁移的显式授权验收工具、受影响 AIDebug 稳定性均已完成实现和专项验证，当前只剩在冻结提交上执行 `1.0.9` 本地正式发布编排并核验制品。当前不调用真实模型、不迁移或清理真实用户数据、不删除旧 New API/CRM 源码、不创建或推送 tag/GitHub Release。最终状态只以本轮实际专项、GUI/性能报告和发布脚本结果为准。
+
+整备功能与专项现已完成：统一导出中心复用单图、图片组和 PSD 的既有 Main owner，提供项目预设、命名模板、冲突策略、串行队列、内容指纹增量跳过与项目历史，状态只写入当前项目 `.naimage/export-center.json`；真实模型验收工具默认 dry-run，迁移审计只读取用户显式指定的来源且拒绝执行/清理。相关导出、迁移、验收、IPC（147/144/3）、UI foundation、Workspace Glass 与 typecheck 均通过；最终 UI Surface 报告 `.diagnostics/electron/aidebug-2026-08-15T18-14-40-181Z/report.json` 为 15 scenes / 0 failures，性能审计为 15/15。三轮产品性能报告 `.diagnostics/electron/product-performance-2026-08-15T18-16-46-847Z/report.json` 为 `productPerformanceReady:true`，全部硬检查通过、交互 Long Task 最大值为 0；完整 runtime bundle 1,661,997 B 仅触发 1,200,000 B 趋势 advisory。当前仅剩冻结源码、执行 113 项本地正式发布门禁、生成候选制品并复核哈希；上线部署与真实外部验收继续排除。
+
+性能整备（已完成实现与专项）：`thumbnail-cache.cjs` 现复用最多 2 个常驻 Sharp 子进程，Worker 以 `requestId` 连续处理任务，单个崩溃只拒绝当前任务并可补充；默认缓存扩大到 512 个/512 MiB。画布长边大于 1024 的普通单图改走 1024 缩略图，多图仍按 512/1024 桶，查看器主图保持原图。`test:thumbnail-cache`、性能审计 15 cases、typecheck 和隔离 `aidebug:performance` 均通过；10 张 4K 的 11 个冷变体为 1.404 s、2 次启动/11 次任务/9 次复用，热缓存 27.2 ms，图片阶段 Long Task 0，报告 `.diagnostics/electron/aidebug-2026-08-15T11-17-07-790Z/report.json`。
+
+本轮追加（已完成）：图片组新导出目录改为 `<project>/image-groups/<图片组名>/`，一个组对应一个同名文件夹，多组选中一次原子发布多个同级文件夹；旧 `<project>/exports/image-groups/` 只保留历史 manifest 打开兼容。项目受管原图保持原位，避免破坏资产身份、Session 和 provenance。画布连接头改为只有拖动才建边，单击、空白松手、`Escape`、`pointercancel` 均不改关系；具体线提供宽命中区和单边断开菜单，节点右键提供明确的全部输入/输出断开。图片容器投影线同时保留可见端点和底层真实边身份。专项、Automation/IPC、隔离 GUI、最终 production build 与双 Windows x64 测试安装包均已核验；连接取消四种路径不改关系，成果编辑器最大化实测 `1256×796`，查看器连续切图 12 个采样无空白帧，延迟解码竞态无旧图回滚。
+
 本轮追加：后端边界改为“用户现有原生 New API + 独立 SparkAI Extension”。原生 New API 不二开，继续负责账号、Token、渠道、quota 和计费；`ai-native` 根入口只运行 Node 24 扩展服务，提供 SQLite/HMAC Pro License、管理员发码 CLI，以及把 Bearer 仅留内存并经 Docker 内网调用原生 Images 的 `/v1/image-tasks`。Compose 强制加入现有 `SPARKAI_DOCKER_NETWORK` 并使用容器 DNS，Caddy 同域只分流两个扩展路径。独立 ZIP/TAR.GZ 包含 Codex 部署 `AGENTS.md`、宿主机/Docker 代理示例、manifest 与 SHA-256，明确排除旧 New API/CRM、`.env`、数据库和诊断。旧源码退出根入口，待真实部署、备份和回滚验证后另行清理。
 
 登录与授权仍是两条独立通行条件。SparkAPI/New API 账号登录成功即可进入，不请求设备 License；自定义 Base URL 必须先由官方服务验证 `pro` 兑换码，默认最多 3 台，支持永久/限时、禁用撤销、24 小时缓存与 72 小时离线宽限。账号模式的逐模型自定义 API Key 完整保留，优先于模型绑定账户 Token 和全局账户 Token，同时忽略逐模型自定义 Base URL 以避免绕过 Pro。License 请求不发送用户 Base URL、API Key 或账号 Cookie。
@@ -47,6 +55,10 @@ Harness 治理轨道：已完成。历史对话、产品意图与双仓边界已
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复 | 已完成 | 普通消息原生选择/`Ctrl+C` 且无逐消息按钮；生成内容摘要统一节点/图片组/资产/槽位标题；preload 有界恢复 production 数字确认，Main 严格布尔校验不变。专项、最终 build/ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权 | 已完成 | 账号登录直接授权；自定义 Base URL 仅接受官方 Pro License；账号模式逐模型自定义 Key、模型 Token 和全局 Token 按优先级共存。双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
 | 当前追加：原生 New API 外置扩展 | 已完成 | `ai-native` 活跃入口只保留 SparkAI Extension；License、管理员 CLI、图片任务内存转发、SQLite、强制 Docker 内网、双 Caddy 布局、包内 Codex `AGENTS.md` 与独立 ZIP/TAR.GZ 打包器已实现并通过 bundle smoke。旧 fork 只等待真实部署/备份/回滚后的单独删除批次。 |
+| 当前追加：图片组项目目录与连线交互 | 已完成 | 新导出写入项目级 `image-groups/<组名>`，多组为同级目录且整批回滚，旧目录只读兼容；连接头非破坏、空白/取消安全、目标精确命中、具体线单边断开、节点菜单批量断开，投影容器线保留真实关系 ID。专项、隔离 GUI、最终 build 和双 EXE 均已核验。 |
+| 当前整备：性能、统一导出、验收工具与 1.0.9 发布门禁 | 进行中 | 生产部署由用户负责；先完成常驻缩略图 Worker、画布大图缩略策略和 10 张 4K 基准，再完成导出中心与只读/显式授权验收工具，最后收敛相关 AIDebug 并执行本地正式发布门禁。 |
+
+图片组项目目录与连线交互最终验证（2026-08-15）：`test:image-collection-export`、`test:requirement-graph`、图片容器/布局/组 mutation、普通图片/PSD/流预览、Automation、IPC（141/138/3）、Workspace Glass（155）、UI Foundation、AIDebug Glass 静态合同、registry generation check、`typecheck`、`git diff --check` 和 Harness 10 项均退出 0。隔离 Requirement AIDebug `.diagnostics/electron/aidebug-2026-08-15T10-17-03-869Z/report.json` 为 9 scenes / 0 failures；最终图片集合 AIDebug `.diagnostics/electron/aidebug-2026-08-15T10-47-24-790Z/report.json` 为 11 scenes / 0 failures。独立 production build 转换 1667 modules、7.70 s；`package:win:variants` 退出 0，内含两次 production build（6.17 s、6.05 s），`bundleEnforced:false`。Unrestricted 为 175,965,696 bytes、2026-08-15 19:00:17 +08:00、SHA-256 `2FFC43A1822A484C1DE783D6762538E74618CE6B1B8E0FF455485DDA14133D3B`；SparkAPI 为 175,969,280 bytes、2026-08-15 19:01:09 +08:00、SHA-256 `3249EE0BDFCF16DEDF75FA1BFFE5B3976F8BD3C53745B80B2DCB3B3C2477F7A4`。未调用真实模型，未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交。
 
 登录与 Pro 授权最终验证（2026-08-15）：New API `go test ./model ./controller ./router -count=1` 退出 0；Desktop `test:license` 9 cases、`test:access-variant`、`test:custom-api-transport` 31 cases、`test:agent-model-binding` 4 cases、`test:settings-secret-store`、`test:settings-persistence` 124 cases、`test:model-catalog`、`test:settings-lazy-load` 67 cases、`test:ipc-registration` 141/138/3、CJS 语法和 `typecheck` 均退出 0。隔离 `aidebug:auth-gate` 报告 `.diagnostics/electron/aidebug-2026-08-15T05-23-48-437Z/report.json` 为 9 scenes / 0 failures；最终 production build 为 1667 modules、8.42 s。未访问真实 License/模型服务，未打包 EXE，代码未提交。
 

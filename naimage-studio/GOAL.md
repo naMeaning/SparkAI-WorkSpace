@@ -3,9 +3,11 @@
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
 
-当前里程碑：阶段 1–13 的既有产品实现保留。当前 Goal 的项目根、旧数据迁移、导出完善、成果图片生成参数展示、顶部对话框生图规格绑定、Cloudflare 图片长请求任务化 MVP，以及 Agent 文本原生复制、图片内容摘要标题、production 迁移确认兼容均已完成实现：新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。旧数据迁移工具显式扫描 AppData 中的旧项目/全局 Session，复制到用户选择的项目目录，并在目标空间预检、完整哈希校验、原子发布、索引切换后才允许单独确认清理源数据；preload 只对 production 压缩产生的数字 `1` 做有界布尔恢复，Main 仍严格要求显式确认。Agent 普通消息允许原生选中和 `Ctrl+C`，不增加逐消息按钮。生成成果由本地纯函数从 Prompt 提炼内容摘要，统一节点、图片组、资产和槽位标题，不修改原始 Prompt、不增加模型调用。应用级设置、加密密钥、账号/模型缓存、项目索引和迁移回执继续留在系统应用数据目录，不进入项目或安装目录。每张生成图独立保留白名单请求/响应/耗时元数据，编辑成果按请求、响应、成图实测和本次运行分源展示；缺失响应字段不推测，本地导入不继承虚假请求。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格，模型提交的冲突参数不得覆盖；请求同时携带结构化画幅参数，并在上游 Prompt 中明确画幅、清晰度和最终像素。纯文生图默认向独立 SparkAI Extension 创建任务并轮询短 GET，扩展进程再通过私网同步调用用户现有的原生 New API；不再要求维护 New API fork。编辑/参考图及第三方同步接口保持兼容。全程未调用真实模型。
+当前里程碑：阶段 1–13 的既有产品实现保留。当前 Goal 的项目根、旧数据迁移、导出完善、成果图片生成参数展示、顶部对话框生图规格绑定、Cloudflare 图片长请求任务化 MVP，以及 Agent 文本原生复制、图片内容摘要标题、production 迁移确认兼容均已完成实现；本轮继续把图片组交付目录收口为项目级 `image-groups/<图片组名>/`，并将画布连线改为非破坏连接头、精确目标命中和具体边断开。新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。旧数据迁移工具显式扫描 AppData 中的旧项目/全局 Session，复制到用户选择的项目目录，并在目标空间预检、完整哈希校验、原子发布、索引切换后才允许单独确认清理源数据；preload 只对 production 压缩产生的数字 `1` 做有界布尔恢复，Main 仍严格要求显式确认。Agent 普通消息允许原生选中和 `Ctrl+C`，不增加逐消息按钮。生成成果由本地纯函数从 Prompt 提炼内容摘要，统一节点、图片组、资产和槽位标题，不修改原始 Prompt、不增加模型调用。应用级设置、加密密钥、账号/模型缓存、项目索引和迁移回执继续留在系统应用数据目录，不进入项目或安装目录。每张生成图独立保留白名单请求/响应/耗时元数据，编辑成果按请求、响应、成图实测和本次运行分源展示；缺失响应字段不推测，本地导入不继承虚假请求。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格，模型提交的冲突参数不得覆盖；请求同时携带结构化画幅参数，并在上游 Prompt 中明确画幅、清晰度和最终像素。纯文生图默认向独立 SparkAI Extension 创建任务并轮询短 GET，扩展进程再通过私网同步调用用户现有的原生 New API；不再要求维护 New API fork。编辑/参考图及第三方同步接口保持兼容。全程未调用真实模型。
 
 并行治理轨道：已完成工作区 Agent Harness。它把历史对话中的稳定用户意图、任务路由、授权边界、验证分级与完成审计固化为根目录 `AGENTS.md`、`HARNESS.md`、`harness/` 及结构校验器；该轨道不覆盖阶段 10 的产品目标，也不扩大其测试范围。
+
+当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性已完成实现和专项验证；当前在冻结提交上执行 `1.0.9` 本地正式发布门禁。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内；本地候选不能被描述为线上发布。
 
 ## 结果
 
@@ -37,18 +39,20 @@
 - 同一生成任务的同一受管落盘文件必须以 `runId + normalized managed locator` 保持幂等；不同保存窗口或归一化轮次产生的新 occurrence 不得增加资产、`outputs`、图片组槽位或容器绑定。普通导入继续以 occurrence 表达用户可见的重复选择，旧 Session 加载时只收敛可证明为同一生成文件的重复项，并保留失败/停止槽位。
 - 图片组名称是持久化的项目数据：单组和多组选中的重命名必须经过 NFKC、Windows 非法字符/保留名、长度和稳定去重处理，并同步画布标题、导出目录和 Agent 查询。
 - 图片组替换只能引用当前项目已受管节点与资产索引；原槽位、requestIndex、prompt、title、taskProvenance 和原图必须保留，替换关系进入独立 `collectionRole:"defects"` 节点，整批校验失败或重复执行不得产生部分写入/重复副本。
-- 普通图片组批量导出必须由 Electron Main 在当前项目内完成，使用 staging 与原子发布、稳定槽位文件名和 `image-group.json` manifest；Renderer、Agent、CLI、MCP 均不得提交任意绝对目标路径或非本项目资产。
+- 普通图片组批量导出必须由 Electron Main 在当前项目的 `image-groups/` 下完成；一个组对应一个由持久组名清洗得到的同名文件夹，多选一次发布多个同级文件夹，并使用 staging、备份与整批回滚、稳定槽位文件名和 `image-group.json` manifest。Renderer、Agent、CLI、MCP 均不得提交任意绝对目标路径或非本项目资产；旧 `exports/image-groups/` 仅兼容打开，不再接收新导出。
+- 连接头只有形成拖动手势后才尝试建边；单击输入/输出连接头、空白松手、`Escape` 与 `pointercancel` 只取消草稿，不得隐式删除关系。目标必须真实包含指针；具体连线提供宽命中区和单边断开菜单，节点右键菜单才提供明确的全部输入/输出断开。图片容器投影线必须携带底层真实 source/target，不能用可见宿主 ID 误删关系。
 - 普通 PNG/JPEG/WebP/AVIF/TIFF 另存、单图 PSD、分层 PSD 使用互不隐式调用的 IPC/UI 链路；普通导出不能改变 PSD 状态，PSD 不能改写普通导出配置或目标。
 - 图片查看器保留双缓冲并以 identity/token、source/identity/target 校验和 decode 完成作为换帧条件；过期 preload/decode/DOM load 不得覆盖最新选择，真实 `data-final-asset`、`data-target-asset`、`data-displayed-asset`、`data-buffering` 状态必须可验证。
 - 2026-08-11 性能审计确认：冷缩略图请求由 Main 侧最多 2 个 Sharp 子进程排队处理，而且每个 cache miss 都会重新 `fork()` 一个只处理单次请求的进程；10 张 4K fixture 共请求 11 个 256/512 变体，首次生成约 4.57 秒而 Renderer Long Task 为 0，同一批缓存命中约 83 毫秒。默认缓存仅保留 96 个变体，单张生成成果又可能在画布直接解码原图，因此图片规模上升时还会叠加缓存淘汰/重复生成与 Chromium 解码/GPU 压力。后续优化应优先考虑持久 worker/预生成、合并缩略图变体和扩大/改进缓存策略；查看器主图继续保留原图以维持清晰度，不能用缩略图替代最终查看。
+- 本轮性能整备已把冷缩略图改为最多 2 个常驻 Worker 的 `requestId` 任务池，并验证进程复用、崩溃恢复与 Main 退出清理；磁盘缓存扩大到 512 个/512 MiB，画布大图优先使用现有 1024 缩略图桶，最终图片查看器继续解码受管原图。同一 10 张 4K fixture 的 11 个冷变体由旧基线约 4.57 秒/11 次进程启动降为 1.40 秒/2 次启动，热缓存由约 83 毫秒降为 27.2 毫秒，图片阶段 Renderer Long Task 为 0。
 - 每个对话模型可独立覆盖 Base URL/API Key 或绑定账户 Token，留空继承全局对话连接；Chat Completions 与 Responses 对话按实际请求模型路由，Responses 生图继续使用图片连接。账号模式仍保留逐模型自定义 API Key，优先于模型绑定账户 Token 和全局账户 Token；逐模型自定义 Base URL 只在 `custom` 模式生效。逐模型 Key 只保存在 Windows `safeStorage` sidecar，Renderer 和普通 JSON 仅见占位符；模型缓存用单向指纹区分 URL/Key/Token 变化。SparkAPI 专用版继续强制账号地址，但不得移除账号登录后的逐模型自定义 Key。
 - 软件通行条件是“成功登录中转站账号”或“设备持有有效 Pro License 且配置自定义 Base URL”。账号登录本身授权使用且不请求 License；自定义模式只接受服务端 `pro` 兑换码，默认最多 3 台设备，沿用永久/限时、禁用撤销、24 小时在线校验和 72 小时离线宽限。License 请求不得携带用户 Base URL、API Key 或账号 Cookie。
 - 每张最终生成图片必须独立保存版本化请求快照、服务器实际返回参数和运行耗时；Images/Responses 的重复最终事件只补齐同一图片参数，不能串到其他输出。最终比例、像素尺寸和文件格式只取受管成图实测值；服务器未返回的清晰度、质量、格式等不得由请求值反推为响应。持久化严格使用白名单，不含 Key、Token、Cookie、Prompt、上游绝对 URL 或签名 URL；本地导入图不得继承节点默认生图参数。
 - 顶部 Agent 对话框每次派发时必须把当前比例和清晰度冻结到该运行快照；冻结值同时约束公开工具 Schema、顶层与 `items[*]` 工具参数、普通/批量/Goal/分层/区域执行和最终交付尺寸。模型或旧参数提交冲突值时按钮值获胜；真实上游 Prompt 必须追加画面比例、清晰度和最终像素说明，成果节点、图片组及编辑器仍保留用户原始可编辑 Prompt。该运行锁不得写回项目设置或污染后续任务。
-- 导出优化下一批优先范围：先统一“导出中心”入口、增加格式/透明度/命名冲突/文件数/预计体积预检，并提供命名模板和可保存预设；后台队列、增量导出、导出历史和跨领域统一 manifest 放到后续阶段。本轮仅完成审计和建议，不把这些建议写成已实现功能。
+- 当前导出中心整备已将图片、图片组与 PSD 的入口统一到同一表面，并提供命名模板、项目级预设、冲突策略、本地串行队列、内容指纹增量跳过和项目级历史；真正的路径解析、文件系统写入与最终冲突复核仍只由 Electron Main 持有，Renderer 不接收或提交任意绝对路径。跨领域统一 manifest 仍属于后续扩展，不影响本轮本地导出闭环。
 - 新安装不得创建 AppData 默认项目或全局画布 Session。创建项目与导入项目必须先取得用户选择的目标目录；取消选择不得创建目录、切换项目或写入索引。移除最后一个项目后进入内存空画布，自动保存、导入、生成和导出均不得伪造 `default` 项目。
 - 旧 AppData 项目只做显式迁移，不在启动时自动移动或删除。迁移必须先预检源项目、目标冲突和空间，复制到目标 staging，校验受管文件数量、大小与 SHA-256，原子发布并更新项目索引；源数据清理必须在迁移成功后由用户单独确认。安装目录不作为项目数据目标，避免更新、卸载和权限导致数据丢失。
-- 普通图片、单图 PSD、分层 PSD、图层文件夹与图片组导出均默认写入当前项目的 `exports/` 子目录，Main 在最终提交前复核目标仍在项目根内；普通图片需先明确格式，图片组需提供格式、图片数、槽位失败、预计体积和导出统计预检。
+- 普通图片、单图 PSD、分层 PSD 与图层文件夹继续写入当前项目的 `exports/` 子目录；图片组写入项目级 `image-groups/`，Main 在最终提交前复核目标仍在项目根内。普通图片需先明确格式，图片组需提供格式、图片数、槽位失败、预计体积和导出统计预检。
 - 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；该端点由独立 SparkAI Extension 提供，不修改原生 New API。扩展服务使用自己的 SQLite 状态和进程内队列，把调用者 Bearer Key 仅保留在内存，并默认加入 New API 的 user-defined Docker network、通过容器 DNS调用原生 `/v1/images/generations`；禁止把内部上游重新指向 Cloudflare 公网。不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 queued/running 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退同步兼容链路。
 - Agent 普通消息、Markdown、thinking 和工具说明必须允许浏览器原生文本选择及 `Ctrl+C`；普通消息不得增加逐条复制按钮，已有生图提示词专用复制动作保持不变。
 - 生成图片节点、图片组、资产和槽位标题必须表达图片内容摘要，不再复用完整 Prompt 或泛化成果名；摘要只由本地纯函数生成，优先提取结构化主体/场景/用途，保留已有简短人工标题，不修改原始 Prompt、不调用额外模型，同 Prompt 多图使用稳定序号。
@@ -82,6 +86,20 @@
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复（已完成） | 恢复普通消息文本选择复制；让生成成果标题表达图片内容；修复 production 安装包迁移确认被压缩为数字导致的拒绝 | 普通消息无新增按钮且真实 Selection/`Ctrl+C` 通过；标题纯函数与无网络 Electron action 通过；真实 preload VM 只提升 `true`/`1`，Main 保持严格布尔校验；专项、production build、最终 ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权（已完成） | 账号登录直接进入工作区；自定义 Base URL 先激活 Pro；账号模式完整保留逐模型自定义 API Key | 后端计划/设备/撤销合同、桌面登录门禁、官方 License 域名、凭据隔离和逐模型 Key 优先级已实现；双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
 | 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
+| 当前追加：图片组项目目录与连线交互（已完成） | 图片组名称直接映射项目级交付文件夹；多组选中导出多个同级目录；连线与取消必须非破坏且可精确断开 | Main-only 新目录、旧目录兼容、整批原子发布、真实边身份、精确目标、单边/批量断开、隔离 GUI、最终 build 与双 Windows x64 测试包均已核验。 |
+| 当前整备：大量图片、统一导出与安全验收（已完成实现） | 常驻缩略图 Worker、扩大缓存、项目级统一导出中心，以及默认拒绝真实请求/真实迁移的验收工具 | 10 张 4K 冷热缓存证据、导出逻辑/UI、迁移/模型验收专项、15 场景 UI Surface 和三轮产品性能门禁均通过；正式候选仍只以冻结提交后的 `release:final` 报告和制品为准。 |
+
+## 图片组项目目录与连线交互核验（2026-08-15）
+
+- `desktop/image-collection-export-service.cjs` 将普通图片组批量导出固定到当前项目的 `image-groups/<稳定图片组名>/`；多组导出共享 staging、备份与整批回滚，一个组选中后得到一个同名文件夹和 `image-group.json`。旧 `exports/image-groups/` 只用于历史 manifest 打开兼容，新导出不再写入旧目录；项目受管原图不移动、不覆盖。
+- 画布连接头只有超过拖动阈值才尝试建边，目标必须真实包含指针；输入/输出连接头单击、空白松手、`Escape` 与 `pointercancel` 都只取消草稿。连线使用 18 px 透明命中区，单击或右键可打开具体关系菜单并断开一条底层真实边，节点右键继续提供全部输入/输出批量断开；图片容器投影边保留真实 source/target ID。
+- 专项 `test:image-collection-export`、`test:requirement-graph`、`test:image-container`（12 cases）、`test:image-layout`（14 cases）、`test:image-collection-mutation`（4 cases）、`test:image-export`、`test:psd-export`、`test:image-stream-preview`（30 cases）、`test:automation-service`、`test:ipc-registration`（141/138/3）、`test:workspace-glass-ui`（155 cases）、`test:ui-foundation`、`test:aidebug-glass-workspace`、`automation:generate --check`、`typecheck` 与 Harness 10 项结构检查均退出 0。
+- 隔离 Requirement AIDebug [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-15T10-17-03-869Z/report.json) 为 `ok:true`、9 scenes、0 failures；`connectionCancelSafety` 明确记录输入连接头单击、输出连接头单击、空白松手和 `pointercancel` 四条路径都不修改关系，并验证具体断线与撤销恢复。
+- 最终图片集合 AIDebug [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-15T10-47-24-790Z/report.json) 为 `ok:true`、11 scenes、0 failures。成果编辑器最大化实测 `1256×796`，四周约 12 px；查看器连续切图有 12 个状态采样、0 空白帧、最大表面位移 0，A→B→C 延迟解码竞态最终 `target/displayed/final` 均为 C，`buffering:false` 且 `staleRollback:false`。
+- 最终 `corepack pnpm run typecheck`、`git diff --check` 与 Harness 10 项检查退出 0；独立 production build 转换 1667 modules、7.70 s。`corepack pnpm run package:win:variants` 退出 0，内含两次 production build（6.17 s、6.05 s）和双 Electron/NSIS/品牌封装，`bundleEnforced:false`；当前版本没有旧 `naimage-Setup/Core` 公开命名。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,965,696 bytes（167.81 MiB），2026-08-15 19:00:17 +08:00，SHA-256 `2FFC43A1822A484C1DE783D6762538E74618CE6B1B8E0FF455485DDA14133D3B`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,969,280 bytes（167.82 MiB），2026-08-15 19:01:09 +08:00，SHA-256 `3249EE0BDFCF16DEDF75FA1BFFE5B3976F8BD3C53745B80B2DCB3B3C2477F7A4`。
+- 本轮没有调用真实图片/视频模型或 Seedance；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交或推送。
 
 ## 登录与 Pro 自定义接入授权核验（2026-08-15）
 

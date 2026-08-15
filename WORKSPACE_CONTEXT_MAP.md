@@ -1,6 +1,6 @@
 # naimage 工作区上下文地图
 
-> 最近同步：2026-08-15
+> 最近同步：2026-08-16
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -221,11 +221,11 @@ corepack pnpm run package:extension
 
 ## 8. 当前发布基线
 
-- 当前桌面正式版：`v1.0.7`，冻结源码以同名 annotated tag `v1.0.7` 为准。
-- 私有发布页：[naMeaning/naimage v1.0.7](https://github.com/naMeaning/naimage/releases/tag/v1.0.7)。仓库可见性保持 `PRIVATE`。
+- 当前桌面正式版：`v1.0.8`，冻结源码以同名 annotated tag `v1.0.8`（commit `c964e87`）为准。`1.0.9` 当前只是在本地冻结和验证的候选，未创建 tag、未推送或上传 Release。
+- 私有发布页：[naMeaning/naimage v1.0.8](https://github.com/naMeaning/naimage/releases/tag/v1.0.8)。仓库可见性保持 `PRIVATE`。
 - Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
 - Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准。
-- 1.0.6 → 1.0.7 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希由同一次 `release:final` 正式编排验证。
+- 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；`1.0.9` 必须由冻结提交后的同一次 `release:final` 重新建立完整证据。
 - 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
 
-1.0.7 新增画布剪贴板/拖入、框选与批量连接、可配置图片批次、Agent 暂停/恢复/真实结束/运行中修改、节点锁及多 Renderer 项目/会话并行。项目 session 已升级为 v5 `nodeMutationJournal`：Renderer 记录 upsert/delete/restore 与顶层字段 clock，Main 分配 commitRevision；writer checkpoint、30 天 quorum 过期和 delete/restore causal barrier 支持安全压缩，显式 undo 可恢复已观察 tombstone，并行创建仍按 `persistenceOriginId` 重映射冲突 ID。steer 可在同一父运行中独立 keep/replace/merge/clear SOURCE/REFERENCE；Main 在 child phase 中断前归一化、重哈希、重算节点锁并保存权威快照。共享 automation schema 还同步提供 Graph CLI 原子连接/断开、归组/解散、位移与 Requirement 创建/更新/执行，以及 `canvas.export-image` 的 PNG/JPEG/WebP/AVIF/TIFF 本地导出。上述变化不改变 New API、线上数据或生产部署合同，但上游已接收的被中断请求仍可能计费。
+1.0.7 以来的画布、Agent、并行 Session、Graph CLI 和本地导出合同继续保留；当前 1.0.9 候选在其上增加项目目录边界、迁移、统一导出、大量图片性能、模型参数展示、登录/License 和独立图片任务扩展。上述候选不能替代生产 Extension、真实 provider、真实 AppData 或线上更新验证。

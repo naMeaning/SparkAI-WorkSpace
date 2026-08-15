@@ -21,9 +21,13 @@ const {
 } = require("./image-export-service.cjs");
 
 const IMAGE_GROUP_MANIFEST = "image-group.json";
-const IMAGE_GROUP_EXPORT_RELATIVE_ROOT = path.join("exports", "image-groups");
+const IMAGE_GROUP_EXPORT_RELATIVE_ROOT = "image-groups";
+const LEGACY_IMAGE_GROUP_EXPORT_RELATIVE_ROOT = path.join("exports", "image-groups");
 const MAX_COLLECTIONS_PER_EXPORT = 200;
 const MAX_IMAGE_BYTES = 1024 * 1024 * 1024;
+const DEFAULT_IMAGE_GROUP_FILENAME_TEMPLATE = "{index}-request-{request}";
+const IMAGE_GROUP_CONFLICT_POLICIES = new Set(["overwrite", "keep-both", "skip"]);
+const IMAGE_GROUP_FILENAME_TOKENS = new Set(["group", "title", "index", "request", "asset"]);
 
 class ImageCollectionExportError extends Error {
   constructor(code, message, details = undefined) {
@@ -64,6 +68,61 @@ function uniqueName(baseValue, occupied) {
   }
   occupied.add(nameKey(candidate));
   return candidate;
+}
+
+function safeImageCollectionFileStem(value, fallback = "图片") {
+  const source = typeof value === "string" ? value.normalize("NFKC") : "";
+  let name = source
+    .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  if (!name) name = cleanText(fallback, 120).normalize("NFKC") || "图片";
+  name = name.slice(0, 120).replace(/[. ]+$/g, "").trim() || "图片";
+  if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name)) name = `_${name}`;
+  return name.slice(0, 120);
+}
+
+function requestedFilenameTemplate(value) {
+  const template = cleanText(value, 160) || DEFAULT_IMAGE_GROUP_FILENAME_TEMPLATE;
+  for (const match of template.matchAll(/\{([^{}]+)\}/g)) {
+    if (!IMAGE_GROUP_FILENAME_TOKENS.has(String(match[1] || "").toLowerCase())) {
+      throw new ImageCollectionExportError(
+        "IMAGE_COLLECTION_EXPORT_TEMPLATE_INVALID",
+        "命名模板只支持 {group}、{title}、{index}、{request} 和 {asset}。",
+        { field: "filenameTemplate", token: cleanText(match[1], 40) }
+      );
+    }
+  }
+  return template;
+}
+
+function requestedConflictPolicy(value) {
+  return IMAGE_GROUP_CONFLICT_POLICIES.has(value) ? value : "overwrite";
+}
+
+function uniqueFileStem(baseValue, occupied) {
+  const base = safeImageCollectionFileStem(baseValue);
+  let candidate = base;
+  for (let suffix = 2; occupied.has(nameKey(candidate)); suffix += 1) {
+    const marker = ` (${suffix})`;
+    candidate = `${base.slice(0, Math.max(1, 120 - marker.length)).replace(/[. ]+$/g, "")}${marker}`;
+  }
+  occupied.add(nameKey(candidate));
+  return candidate;
+}
+
+function imageGroupFileName(template, entry, verified, format, occupied) {
+  const replacements = {
+    group: entry.name,
+    title: cleanText(verified.item?.title, 160) || cleanText(verified.asset?.title, 160) || entry.name,
+    index: String(verified.order).padStart(3, "0"),
+    request: String(verified.requestIndex).padStart(3, "0"),
+    asset: cleanText(verified.asset?.assetId || verified.item?.assetId, 160) || `asset-${verified.order}`
+  };
+  const rendered = template.replace(/\{([^{}]+)\}/g, (_match, token) => replacements[String(token || "").toLowerCase()] || "");
+  const stem = uniqueFileStem(rendered, occupied);
+  return `${stem}${IMAGE_EXPORT_FORMATS[format].extension}`;
 }
 
 function collectionForNode(node) {
@@ -153,14 +212,14 @@ function estimatedConvertedBytes(sourceBytes, sourcePath, format) {
   return Math.max(1, Math.ceil(bytes * ratio));
 }
 
-async function secureImageGroupExportRoot(project, { create = false } = {}) {
+async function secureImageGroupExportRoot(project, { create = false, relativeRoot = IMAGE_GROUP_EXPORT_RELATIVE_ROOT } = {}) {
   const declaredProjectRoot = path.resolve(project?.path || "");
   const projectStats = await lstat(declaredProjectRoot).catch(() => null);
   if (!projectStats?.isDirectory() || projectStats.isSymbolicLink()) {
     throw new ImageCollectionExportError("PROJECT_PATH_INVALID", "当前项目目录不可用，已取消导出。");
   }
   const realProjectRoot = await realpath(declaredProjectRoot);
-  const requestedRoot = path.join(realProjectRoot, IMAGE_GROUP_EXPORT_RELATIVE_ROOT);
+  const requestedRoot = path.join(realProjectRoot, relativeRoot);
   if (!isPathInside(requestedRoot, realProjectRoot)) {
     throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "图片组导出目录越过了当前项目边界。");
   }
@@ -182,11 +241,11 @@ async function secureImageGroupExportRoot(project, { create = false } = {}) {
   const parentStats = await lstat(declaredParent).catch(() => null);
   if (parentStats) {
     if (!parentStats.isDirectory() || parentStats.isSymbolicLink()) {
-      throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "项目 exports 目录不是安全的普通目录。");
+      throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "图片组目录的父目录不是安全的普通目录。");
     }
     const realParent = await realpath(declaredParent);
     if (!isPathInside(realParent, realProjectRoot)) {
-      throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "项目 exports 目录包含越界链接。");
+      throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "图片组目录的父目录包含越界链接。");
     }
   }
   return requestedRoot;
@@ -214,6 +273,67 @@ async function readExportEntries(exportRoot) {
     });
   }
   return result;
+}
+
+function planManifestMaterial(plan, format, filenameTemplate) {
+  return {
+    format,
+    filenameTemplate,
+    group: {
+      id: plan.entry.collectionId,
+      name: plan.entry.name,
+      role: plan.entry.collection.collectionRole === "defects" ? "defects" : "results",
+      kind: plan.entry.collection.kind === "series" ? "series" : "batch",
+      generationMode: plan.entry.collection.generationMode === "sequential" ? "sequential" : "parallel",
+      sourceNodeId: cleanText(plan.entry.collection.sourceNodeId, 160),
+      sourceCollectionId: cleanText(plan.entry.collection.sourceCollectionId, 120),
+      defectOfNodeId: cleanText(plan.entry.collection.defectOfNodeId, 160)
+    },
+    images: plan.items.map((verified) => ({
+      order: verified.order,
+      requestIndex: verified.requestIndex,
+      itemId: cleanText(verified.item?.id, 120),
+      status: verified.status,
+      prompt: cleanText(verified.item?.prompt, 12_000),
+      title: cleanText(verified.item?.title, 160),
+      assetId: cleanText(verified.asset?.assetId || verified.item?.assetId, 160),
+      occurrenceId: cleanText(verified.item?.occurrenceId || verified.asset?.occurrenceId, 80),
+      fileName: verified.fileName || "",
+      sourceBytes: verified.sourcePath ? verified.bytes : 0,
+      sourceSha256: verified.sourcePath ? verified.sha256 : "",
+      replacedByAssetId: cleanText(verified.item?.replacedByAssetId, 160),
+      replacesItemId: cleanText(verified.item?.replacesItemId, 120),
+      defectReason: cleanText(verified.item?.defectReason, 320),
+      error: cleanText(verified.item?.error, 320),
+      taskProvenance: publicTaskProvenance(verified.item?.taskProvenance)
+    }))
+  };
+}
+
+function planContentFingerprint(plan, format, filenameTemplate) {
+  return createHash("sha256")
+    .update("sparkai-image-group-export:v2\0")
+    .update(JSON.stringify(planManifestMaterial(plan, format, filenameTemplate)))
+    .digest("hex");
+}
+
+async function existingExportIsUnchanged(entry, plan) {
+  if (!entry?.manifest || entry.manifest?.export?.contentFingerprint !== plan.contentFingerprint) return false;
+  const manifestImages = Array.isArray(entry.manifest.images) ? entry.manifest.images : [];
+  if (manifestImages.length !== plan.items.length) return false;
+  for (const verified of plan.items) {
+    const persisted = manifestImages.find((item) => Number(item?.order) === verified.order);
+    if (!persisted || cleanText(persisted.fileName, 240) !== (verified.fileName || "")) return false;
+    if (!verified.sourcePath) continue;
+    const fileName = path.basename(verified.fileName);
+    if (!fileName || fileName !== verified.fileName || !cleanText(persisted.sha256, 64)) return false;
+    const filePath = path.join(entry.folderPath, fileName);
+    if (!isPathInside(filePath, entry.folderPath)) return false;
+    const stats = await lstat(filePath).catch(() => null);
+    if (!stats?.isFile() || stats.isSymbolicLink() || stats.size <= 0) return false;
+    if (await fileHash(filePath) !== cleanText(persisted.sha256, 64)) return false;
+  }
+  return true;
 }
 
 function createImageCollectionExportService({
@@ -343,6 +463,9 @@ function createImageCollectionExportService({
     const project = projectForId(payload.expectedProjectId ?? payload.projectId);
     const collectionIds = requestedCollectionIds(payload.collectionIds);
     const format = requestedImageExportFormat(payload.format);
+    const filenameTemplate = requestedFilenameTemplate(payload.filenameTemplate);
+    const conflictPolicy = requestedConflictPolicy(payload.conflictPolicy);
+    const incremental = payload.incremental === true;
     const selected = selectedEntries(project, collectionIds);
     const plans = [];
     for (const entry of selected) plans.push({ entry, items: await verifiedItems(project, entry) });
@@ -351,10 +474,42 @@ function createImageCollectionExportService({
     const existing = await readExportEntries(exportRoot);
     const selectedIds = new Set(collectionIds);
     const occupiedNames = new Set(
-      existing.filter((item) => !selectedIds.has(item.collectionId)).map((item) => nameKey(item.directoryName))
+      existing
+        .filter((item) => conflictPolicy !== "overwrite" || !selectedIds.has(item.collectionId))
+        .map((item) => nameKey(item.directoryName))
     );
     for (const plan of [...plans].sort((left, right) => left.entry.nodeOrder - right.entry.nodeOrder)) {
-      plan.directoryName = uniqueName(plan.entry.plannedDirectoryName, occupiedNames);
+      const occupiedFiles = new Set();
+      for (const verified of plan.items) {
+        verified.fileName = verified.sourcePath
+          ? imageGroupFileName(filenameTemplate, plan.entry, verified, format, occupiedFiles)
+          : undefined;
+      }
+      plan.contentFingerprint = planContentFingerprint(plan, format, filenameTemplate);
+      const existingForCollection = existing.filter((item) => item.collectionId === plan.entry.collectionId);
+      let unchanged = null;
+      if (incremental) {
+        for (const candidate of existingForCollection) {
+          if (await existingExportIsUnchanged(candidate, plan)) {
+            unchanged = candidate;
+            break;
+          }
+        }
+      }
+      if (unchanged) {
+        plan.action = "skip-unchanged";
+        plan.skippedReason = "unchanged";
+        plan.directoryName = unchanged.directoryName;
+        plan.existingEntry = unchanged;
+      } else if (conflictPolicy === "skip" && existingForCollection.length) {
+        plan.action = "skip-conflict";
+        plan.skippedReason = "conflict";
+        plan.directoryName = existingForCollection[0].directoryName;
+        plan.existingEntry = existingForCollection[0];
+      } else {
+        plan.action = "export";
+        plan.directoryName = uniqueName(plan.entry.plannedDirectoryName, occupiedNames);
+      }
     }
 
     const groups = plans.map((plan) => {
@@ -376,24 +531,34 @@ function createImageCollectionExportService({
         failedSlotCount: failedItems.length,
         pendingSlotCount: pendingItems.length,
         sourceBytes,
-        estimatedBytes
+        estimatedBytes,
+        action: plan.action,
+        skippedReason: plan.skippedReason,
+        contentFingerprint: plan.contentFingerprint
       };
     });
     const previewMaterial = {
       projectId: project.id,
       format,
+      filenameTemplate,
+      conflictPolicy,
+      incremental,
+      relativeRoot: IMAGE_GROUP_EXPORT_RELATIVE_ROOT.replace(/\\/g, "/"),
       groups: plans.map((plan) => ({
         collectionId: plan.entry.collectionId,
         name: plan.entry.name,
         role: plan.entry.collection.collectionRole === "defects" ? "defects" : "results",
         directoryName: plan.directoryName,
+        action: plan.action,
+        contentFingerprint: plan.contentFingerprint,
         items: plan.items.map((item) => ({
           itemId: cleanText(item.item?.id, 120),
           requestIndex: item.requestIndex,
           status: item.status,
           assetId: cleanText(item.asset?.assetId || item.item?.assetId, 160),
           sourceBytes: item.sourcePath ? item.bytes : 0,
-          sourceSha256: item.sourcePath ? item.sha256 : ""
+          sourceSha256: item.sourcePath ? item.sha256 : "",
+          fileName: item.fileName || ""
         }))
       }))
     };
@@ -404,18 +569,27 @@ function createImageCollectionExportService({
       failedSlotCount: summary.failedSlotCount + group.failedSlotCount,
       pendingSlotCount: summary.pendingSlotCount + group.pendingSlotCount,
       sourceBytes: summary.sourceBytes + group.sourceBytes,
-      estimatedBytes: summary.estimatedBytes + group.estimatedBytes
-    }), { imageCount: 0, slotCount: 0, failedSlotCount: 0, pendingSlotCount: 0, sourceBytes: 0, estimatedBytes: 0 });
+      estimatedBytes: summary.estimatedBytes + group.estimatedBytes,
+      skippedCount: summary.skippedCount + (group.action === "export" ? 0 : 1),
+      skippedImageCount: summary.skippedImageCount + (group.action === "export" ? 0 : group.imageCount)
+    }), { imageCount: 0, slotCount: 0, failedSlotCount: 0, pendingSlotCount: 0, sourceBytes: 0, estimatedBytes: 0, skippedCount: 0, skippedImageCount: 0 });
     return {
       project,
       collectionIds,
       format,
+      filenameTemplate,
+      conflictPolicy,
+      incremental,
       plans,
       exportRoot,
       preview: {
         ok: true,
         projectId: project.id,
         format,
+        filenameTemplate,
+        conflictPolicy,
+        incremental,
+        relativeRoot: IMAGE_GROUP_EXPORT_RELATIVE_ROOT.replace(/\\/g, "/"),
         previewToken,
         collectionCount: groups.length,
         ...totals,
@@ -445,28 +619,27 @@ function createImageCollectionExportService({
         { previewTokenMatched: false }
       );
     }
-    const { project, collectionIds, format, plans } = prepared;
+    const { project, collectionIds, format, filenameTemplate, conflictPolicy, incremental, plans } = prepared;
+    const activePlans = plans.filter((plan) => plan.action === "export");
     const exportRoot = await secureImageGroupExportRoot(project, { create: true });
     const existing = await readExportEntries(exportRoot);
-    const selectedIds = new Set(collectionIds);
+    const selectedIds = new Set(activePlans.map((plan) => plan.entry.collectionId));
 
     const nonce = randomBytes(8).toString("hex");
-    const stagingRoot = await mkdtemp(path.join(exportRoot, `.staging-${nonce}-`));
+    const stagingRoot = activePlans.length ? await mkdtemp(path.join(exportRoot, `.staging-${nonce}-`)) : "";
     const backupRoot = path.join(exportRoot, `.backup-${nonce}`);
     const exportedAt = now();
     const published = [];
     const backups = [];
     try {
-      for (const plan of plans) {
+      for (const plan of activePlans) {
         const groupStage = path.join(stagingRoot, plan.directoryName);
         await mkdir(groupStage, { recursive: true });
         const manifestItems = [];
         let groupImageBytes = 0;
         let groupConvertedCount = 0;
         for (const verified of plan.items) {
-          const fileName = verified.sourcePath
-            ? `${String(verified.order).padStart(3, "0")}-request-${String(verified.requestIndex).padStart(3, "0")}${IMAGE_EXPORT_FORMATS[format].extension}`
-            : undefined;
+          const fileName = verified.fileName;
           let exportedImage = null;
           let outputSha256 = "";
           if (fileName) {
@@ -500,11 +673,15 @@ function createImageCollectionExportService({
         }
         const manifest = {
           format: "naimage-image-group",
-          version: 1,
+          version: 2,
           exportedAt,
           projectId: project.id,
           export: {
             format,
+            filenameTemplate,
+            conflictPolicy,
+            incremental,
+            contentFingerprint: plan.contentFingerprint,
             extension: IMAGE_EXPORT_FORMATS[format].extension,
             mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
             imageCount: plan.items.filter((item) => item.sourcePath).length,
@@ -537,15 +714,24 @@ function createImageCollectionExportService({
         plan.convertedCount = groupConvertedCount;
       }
 
-      await mkdir(backupRoot, { recursive: true });
+      if (activePlans.length) await mkdir(backupRoot, { recursive: true });
       const targets = new Map();
-      for (const item of existing) {
-        if (selectedIds.has(item.collectionId)) targets.set(item.folderPath, item.directoryName);
+      if (conflictPolicy === "overwrite") {
+        for (const item of existing) {
+          if (selectedIds.has(item.collectionId)) targets.set(item.folderPath, item.directoryName);
+        }
       }
-      for (const plan of plans) {
+      for (const plan of activePlans) {
         const finalPath = path.join(exportRoot, plan.directoryName);
         const matching = existing.find((item) => path.resolve(item.folderPath) === path.resolve(finalPath));
-        if (matching) targets.set(matching.folderPath, matching.directoryName);
+        if (matching && conflictPolicy === "overwrite") targets.set(matching.folderPath, matching.directoryName);
+        if (matching && conflictPolicy !== "overwrite") {
+          throw new ImageCollectionExportError(
+            "IMAGE_COLLECTION_EXPORT_PREVIEW_STALE",
+            "图片组导出目录已被占用，请重新预检后再导出。",
+            { directoryName: plan.directoryName, conflictPolicy }
+          );
+        }
       }
       let backupIndex = 0;
       for (const [sourcePath, directoryName] of targets) {
@@ -553,43 +739,54 @@ function createImageCollectionExportService({
         await rename(sourcePath, backupPath);
         backups.push({ originalPath: sourcePath, backupPath });
       }
-      for (const plan of plans) {
+      for (const plan of activePlans) {
         const finalPath = path.join(exportRoot, plan.directoryName);
         await rename(path.join(stagingRoot, plan.directoryName), finalPath);
         published.push(finalPath);
       }
-      await rm(backupRoot, { recursive: true, force: true });
-      await rm(stagingRoot, { recursive: true, force: true });
+      if (activePlans.length) await rm(backupRoot, { recursive: true, force: true });
+      if (stagingRoot) await rm(stagingRoot, { recursive: true, force: true });
       return {
         ok: true,
         projectId: project.id,
         format,
+        filenameTemplate,
+        conflictPolicy,
+        incremental,
+        relativeRoot: IMAGE_GROUP_EXPORT_RELATIVE_ROOT.replace(/\\/g, "/"),
         exportedAt,
         previewToken: prepared.preview.previewToken,
-        imageCount: plans.reduce((sum, plan) => sum + plan.items.filter((item) => item.sourcePath).length, 0),
+        imageCount: activePlans.reduce((sum, plan) => sum + plan.items.filter((item) => item.sourcePath).length, 0),
+        requestedImageCount: plans.reduce((sum, plan) => sum + plan.items.filter((item) => item.sourcePath).length, 0),
+        skippedCount: plans.length - activePlans.length,
+        skippedImageCount: plans.filter((plan) => plan.action !== "export").reduce((sum, plan) => sum + plan.items.filter((item) => item.sourcePath).length, 0),
         slotCount: plans.reduce((sum, plan) => sum + plan.items.length, 0),
         failedSlotCount: plans.reduce((sum, plan) => sum + plan.items.filter((item) => item.status === "error").length, 0),
         pendingSlotCount: plans.reduce((sum, plan) => sum + plan.items.filter((item) => item.status === "pending").length, 0),
         sourceBytes: prepared.preview.sourceBytes,
         estimatedBytes: prepared.preview.estimatedBytes,
-        imageBytes: plans.reduce((sum, plan) => sum + plan.imageBytes, 0),
-        manifestBytes: plans.reduce((sum, plan) => sum + plan.manifestBytes, 0),
-        totalBytes: plans.reduce((sum, plan) => sum + plan.imageBytes + plan.manifestBytes, 0),
-        convertedCount: plans.reduce((sum, plan) => sum + plan.convertedCount, 0),
+        imageBytes: activePlans.reduce((sum, plan) => sum + plan.imageBytes, 0),
+        manifestBytes: activePlans.reduce((sum, plan) => sum + plan.manifestBytes, 0),
+        totalBytes: activePlans.reduce((sum, plan) => sum + plan.imageBytes + plan.manifestBytes, 0),
+        convertedCount: activePlans.reduce((sum, plan) => sum + plan.convertedCount, 0),
         exported: plans.map((plan) => ({
           collectionId: plan.entry.collectionId,
           name: plan.entry.name,
           role: plan.entry.collection.collectionRole === "defects" ? "defects" : "results",
           directoryName: plan.directoryName,
-          relativePath: path.posix.join("exports", "image-groups", plan.directoryName),
-          imageCount: plan.items.filter((item) => item.sourcePath).length,
+          relativePath: path.posix.join(IMAGE_GROUP_EXPORT_RELATIVE_ROOT.replace(/\\/g, "/"), plan.directoryName),
+          imageCount: plan.action === "export" ? plan.items.filter((item) => item.sourcePath).length : 0,
+          requestedImageCount: plan.items.filter((item) => item.sourcePath).length,
+          skipped: plan.action !== "export",
+          skippedReason: plan.skippedReason,
+          contentFingerprint: plan.contentFingerprint,
           itemCount: plan.items.length,
           failedSlotCount: plan.items.filter((item) => item.status === "error").length,
           pendingSlotCount: plan.items.filter((item) => item.status === "pending").length,
-          imageBytes: plan.imageBytes,
-          manifestBytes: plan.manifestBytes,
-          totalBytes: plan.imageBytes + plan.manifestBytes,
-          convertedCount: plan.convertedCount,
+          imageBytes: plan.imageBytes || 0,
+          manifestBytes: plan.manifestBytes || 0,
+          totalBytes: (plan.imageBytes || 0) + (plan.manifestBytes || 0),
+          convertedCount: plan.convertedCount || 0,
           manifest: IMAGE_GROUP_MANIFEST
         }))
       };
@@ -597,7 +794,7 @@ function createImageCollectionExportService({
       for (const finalPath of published.reverse()) await rm(finalPath, { recursive: true, force: true }).catch(() => undefined);
       for (const backup of backups.reverse()) await rename(backup.backupPath, backup.originalPath).catch(() => undefined);
       await rm(backupRoot, { recursive: true, force: true }).catch(() => undefined);
-      await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+      if (stagingRoot) await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
       throw error;
     }
   }
@@ -607,22 +804,34 @@ function createImageCollectionExportService({
     const collectionId = cleanText(payload.collectionId, 120);
     if (!collectionId) throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_INVALID_ARGUMENT", "图片组 ID 不能为空。", { field: "collectionId" });
     selectedEntries(project, [collectionId]);
-    const exportRoot = await secureImageGroupExportRoot(project);
-    const matches = (await readExportEntries(exportRoot)).filter((entry) => entry.collectionId === collectionId);
-    if (matches.length !== 1) {
+    const roots = [];
+    for (const relativeRoot of [IMAGE_GROUP_EXPORT_RELATIVE_ROOT, LEGACY_IMAGE_GROUP_EXPORT_RELATIVE_ROOT]) {
+      const exportRoot = await secureImageGroupExportRoot(project, { relativeRoot });
+      const matches = (await readExportEntries(exportRoot)).filter((entry) => entry.collectionId === collectionId);
+      if (matches.length > 1) {
+        throw new ImageCollectionExportError(
+          "IMAGE_COLLECTION_EXPORT_CONFLICT",
+          "该图片组存在多个导出目录，请重新导出后再打开。",
+          { collectionId, matchCount: matches.length }
+        );
+      }
+      if (matches.length === 1) roots.push({ exportRoot, match: matches[0], legacy: relativeRoot === LEGACY_IMAGE_GROUP_EXPORT_RELATIVE_ROOT });
+    }
+    const resolved = roots.find((entry) => !entry.legacy) || roots[0];
+    if (!resolved) {
       throw new ImageCollectionExportError(
-        matches.length ? "IMAGE_COLLECTION_EXPORT_CONFLICT" : "IMAGE_COLLECTION_NOT_EXPORTED",
-        matches.length ? "该图片组存在多个导出目录，请重新导出后再打开。" : "该图片组尚未导出，请先执行图片组导出。",
-        { collectionId, matchCount: matches.length }
+        "IMAGE_COLLECTION_NOT_EXPORTED",
+        "该图片组尚未导出，请先执行图片组导出。",
+        { collectionId, matchCount: 0 }
       );
     }
-    const stats = await lstat(matches[0].folderPath).catch(() => null);
-    const resolvedRoot = await realpath(exportRoot).catch(() => "");
-    const resolvedFolder = await realpath(matches[0].folderPath).catch(() => "");
+    const stats = await lstat(resolved.match.folderPath).catch(() => null);
+    const resolvedRoot = await realpath(resolved.exportRoot).catch(() => "");
+    const resolvedFolder = await realpath(resolved.match.folderPath).catch(() => "");
     if (!stats?.isDirectory() || stats.isSymbolicLink() || !resolvedRoot || !resolvedFolder || !isPathInside(resolvedFolder, resolvedRoot)) {
       throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_INVALID", "图片组导出目录不可用，请重新导出。", { collectionId });
     }
-    return { projectId: project.id, collectionId, directoryName: matches[0].directoryName, folderPath: resolvedFolder };
+    return { projectId: project.id, collectionId, directoryName: resolved.match.directoryName, folderPath: resolvedFolder };
   }
 
   return {
@@ -633,9 +842,13 @@ function createImageCollectionExportService({
 }
 
 module.exports = {
+  DEFAULT_IMAGE_GROUP_FILENAME_TEMPLATE,
   IMAGE_GROUP_EXPORT_RELATIVE_ROOT,
+  LEGACY_IMAGE_GROUP_EXPORT_RELATIVE_ROOT,
   IMAGE_GROUP_MANIFEST,
   ImageCollectionExportError,
   createImageCollectionExportService,
-  safeImageCollectionDirectoryName
+  requestedFilenameTemplate,
+  safeImageCollectionDirectoryName,
+  safeImageCollectionFileStem
 };

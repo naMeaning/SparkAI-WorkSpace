@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } = require("node:fs");
+const { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync } = require("node:fs");
 const { mkdtemp, rm } = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -87,6 +87,7 @@ async function main() {
     assert.equal(preview.failedSlotCount, 1);
     assert.equal(preview.pendingSlotCount, 0);
     assert.equal(preview.estimatedBytes > 0, true);
+    assert.equal(preview.relativeRoot, "image-groups");
     assert.equal(preview.groups[0].directoryName, "商品图");
     const result = await service.exportCollections({
       expectedProjectId: project.id,
@@ -99,6 +100,7 @@ async function main() {
     assert.equal(result.format, "webp");
     assert.equal(result.imageCount, 3);
     assert.equal(result.failedSlotCount, 1);
+    assert.equal(result.relativeRoot, "image-groups");
     assert.equal(result.totalBytes, result.imageBytes + result.manifestBytes);
     assert.equal(result.convertedCount, 2);
     assert.deepEqual(result.exported.map((item) => item.directoryName), ["商品图", "商品图 (2)"]);
@@ -107,8 +109,11 @@ async function main() {
     assert.deepEqual(files, ["001-request-002.webp", "002-request-008.webp", "image-group.json"]);
     const manifest = JSON.parse(readFileSync(path.join(resultsFolder, "image-group.json"), "utf8"));
     assert.equal(manifest.group.id, "results-a");
+    assert.equal(manifest.version, 2);
     assert.equal(manifest.group.name, "商品图");
     assert.equal(manifest.export.format, "webp");
+    assert.equal(manifest.export.filenameTemplate, "{index}-request-{request}");
+    assert.match(manifest.export.contentFingerprint, /^[a-f0-9]{64}$/);
     assert.equal(manifest.export.failedSlotCount, 1);
     assert.equal(manifest.export.convertedCount, 1);
     assert.deepEqual(manifest.images.map((item) => item.requestIndex), [2, 8, 10]);
@@ -127,6 +132,80 @@ async function main() {
     const opened = await service.resolveExportedCollectionFolder({ expectedProjectId: project.id, collectionId: "results-a" });
     assert.equal(opened.folderPath, resultsFolder);
 
+    const incrementalPreview = await service.previewCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a", "defects-a"],
+      format: "webp",
+      incremental: true
+    });
+    assert.equal(incrementalPreview.skippedCount, 2);
+    assert.deepEqual(incrementalPreview.groups.map((group) => group.action), ["skip-unchanged", "skip-unchanged"]);
+    const incremental = await service.exportCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a", "defects-a"],
+      format: "webp",
+      incremental: true,
+      previewToken: incrementalPreview.previewToken,
+      confirmed: true
+    });
+    assert.equal(incremental.imageCount, 0);
+    assert.equal(incremental.requestedImageCount, 3);
+    assert.equal(incremental.skippedCount, 2);
+    assert.equal(incremental.skippedImageCount, 3);
+    assert.equal(incremental.totalBytes, 0);
+    assert.equal(readdirSync(path.join(root, "image-groups")).some((name) => name.startsWith(".staging-")), false,
+      "An all-unchanged incremental export must not create staging directories");
+
+    const keepBothPreview = await service.previewCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a"],
+      format: "webp",
+      filenameTemplate: "{group}-{title}-{request}",
+      conflictPolicy: "keep-both"
+    });
+    assert.equal(keepBothPreview.groups[0].directoryName, "商品图 (3)");
+    const keepBoth = await service.exportCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a"],
+      format: "webp",
+      filenameTemplate: "{group}-{title}-{request}",
+      conflictPolicy: "keep-both",
+      previewToken: keepBothPreview.previewToken,
+      confirmed: true
+    });
+    const keepBothFolder = path.join(root, ...keepBoth.exported[0].relativePath.split("/"));
+    assert.deepEqual(readdirSync(keepBothFolder).sort(), ["image-group.json", "商品图-商品图-002.webp", "商品图-商品图-008.webp"]);
+    assert.equal(existsSync(resultsFolder), true, "Keep-both must preserve the previous app-owned group folder");
+
+    const skipPreview = await service.previewCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a"],
+      format: "png",
+      conflictPolicy: "skip"
+    });
+    assert.equal(skipPreview.groups[0].action, "skip-conflict");
+    const skipped = await service.exportCollections({
+      expectedProjectId: project.id,
+      collectionIds: ["results-a"],
+      format: "png",
+      conflictPolicy: "skip",
+      previewToken: skipPreview.previewToken,
+      confirmed: true
+    });
+    assert.equal(skipped.skippedCount, 1);
+    assert.equal(skipped.imageCount, 0);
+    assert.equal(skipped.exported[0].skippedReason, "conflict");
+
+    await assert.rejects(
+      service.previewCollections({
+        expectedProjectId: project.id,
+        collectionIds: ["results-a"],
+        format: "png",
+        filenameTemplate: "{unknown}-{index}"
+      }),
+      (error) => error instanceof ImageCollectionExportError && error.code === "IMAGE_COLLECTION_EXPORT_TEMPLATE_INVALID"
+    );
+
     session = {
       ...session,
       nodes: session.nodes.map((node) => node.imageCollection?.id === "results-a"
@@ -143,6 +222,13 @@ async function main() {
     });
     assert.equal(renamed.exported[0].directoryName, "已重命名");
     assert.equal(existsSync(resultsFolder), false, "Re-export after rename must retire the old directory for the same collection ID");
+
+    const renamedFolder = path.join(root, ...renamed.exported[0].relativePath.split("/"));
+    const legacyFolder = path.join(root, "exports", "image-groups", renamed.exported[0].directoryName);
+    mkdirSync(path.dirname(legacyFolder), { recursive: true });
+    renameSync(renamedFolder, legacyFolder);
+    const legacyOpened = await service.resolveExportedCollectionFolder({ expectedProjectId: project.id, collectionId: "results-a" });
+    assert.equal(legacyOpened.folderPath, legacyFolder, "Previously exported folders below exports/image-groups must remain openable");
 
     const stalePreview = await service.previewCollections({ expectedProjectId: project.id, collectionIds: ["results-a"], format: "png" });
     session = {
@@ -179,14 +265,14 @@ async function main() {
       service.previewCollections({ expectedProjectId: project.id, collectionIds: ["valid-batch", "unmanaged"], format: "jpeg" }),
       (error) => error instanceof ImageCollectionExportError && error.code === "IMAGE_COLLECTION_ASSET_UNMANAGED"
     );
-    assert.equal(existsSync(path.join(root, "exports", "image-groups", "valid batch")), false, "Batch validation failure must publish no selected group");
-    assert.equal(readdirSync(path.join(root, "exports", "image-groups")).some((name) => name.startsWith(".staging-")), false);
+    assert.equal(existsSync(path.join(root, "image-groups", "valid batch")), false, "Batch validation failure must publish no selected group");
+    assert.equal(readdirSync(path.join(root, "image-groups")).some((name) => name.startsWith(".staging-")), false);
 
     await assert.rejects(
       service.resolveExportedCollectionFolder({ expectedProjectId: project.id, collectionId: "valid-batch" }),
       (error) => error instanceof ImageCollectionExportError && error.code === "IMAGE_COLLECTION_NOT_EXPORTED"
     );
-    process.stdout.write("image collection export selftest passed (format conversion, preview stats/token, managed assets, manifest, ordering, rename, rollback, folder resolution)\n");
+    process.stdout.write("image collection export selftest passed (project folders, templates, conflict policies, incremental hashes, legacy lookup, conversion, manifest, ordering, rename, rollback)\n");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

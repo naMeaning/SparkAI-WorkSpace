@@ -2,15 +2,24 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
+type SymbolCompactionPlugin = Plugin & { api: { plan: unknown } };
+type PostcssCompactionPlugin = { postcssPlugin: string; Once(root: unknown): void };
+const { createPostcssSymbolCompactionPlugin, createProductionSymbolCompactionPlugin, transformCode } = require("./scripts/production-symbol-compaction.cjs") as {
+  createPostcssSymbolCompactionPlugin: (plan: unknown) => PostcssCompactionPlugin;
+  createProductionSymbolCompactionPlugin: (projectRoot: string) => SymbolCompactionPlugin;
+  transformCode: (code: string, plan: unknown, filePath?: string) => string;
+};
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 const { ACCESS_POLICY_FILENAME, buildAccessPolicy } = require("./runtime/access-variant.cjs") as {
   ACCESS_POLICY_FILENAME: string;
   buildAccessPolicy: (environment?: NodeJS.ProcessEnv) => Record<string, unknown>;
 };
 const buildAccessPolicyValue = buildAccessPolicy(process.env);
 
-const studioIconPlugin: Plugin = {
+const createStudioIconPlugin = (symbolPlan?: unknown): Plugin => ({
   name: "naimage-build-icon",
   apply: "build" as const,
   buildStart() {
@@ -22,10 +31,16 @@ const studioIconPlugin: Plugin = {
     this.emitFile({
       type: "asset",
       fileName: "glass-theme-bootstrap.js",
-      source: readFileSync(new URL("./public/glass-theme-bootstrap.js", import.meta.url))
+      source: symbolPlan
+        ? transformCode(
+          readFileSync(new URL("./public/glass-theme-bootstrap.js", import.meta.url), "utf8"),
+          symbolPlan,
+          "public/glass-theme-bootstrap.js"
+        )
+        : readFileSync(new URL("./public/glass-theme-bootstrap.js", import.meta.url))
     });
   }
-};
+});
 
 const compactBuildHtmlPlugin: Plugin = {
   name: "naimage-compact-build-html",
@@ -55,15 +70,31 @@ const accessPolicyPlugin: Plugin = {
   }
 };
 
-export default defineConfig(({ command, mode }) => ({
+export default defineConfig(({ command, mode }) => {
+  const symbolCompactionPlugin = command === "build"
+    ? createProductionSymbolCompactionPlugin(projectRoot)
+    : null;
+  return ({
   base: "./",
-  plugins: [react(), studioIconPlugin, accessPolicyPlugin, compactBuildHtmlPlugin],
+  plugins: [
+    symbolCompactionPlugin,
+    react(),
+    createStudioIconPlugin(symbolCompactionPlugin?.api.plan),
+    accessPolicyPlugin,
+    compactBuildHtmlPlugin
+  ].filter(Boolean) as Plugin[],
   define: {
     __NAIMAGE_AIDEBUG__: JSON.stringify(command === "serve"),
     __NAIMAGE_PERF_PROBE__: JSON.stringify(command === "build" && mode === "performance"),
     __SPARKAI_ACCESS_POLICY__: JSON.stringify(buildAccessPolicyValue)
   },
   build: {
+    // Packaged builds run on Electron 42's Chromium runtime. Targeting that
+    // runtime avoids shipping legacy JS transforms and CSS prefixes that the
+    // desktop/web support floor never executes.
+    target: "chrome138",
+    cssTarget: "chrome138",
+    cssMinify: "lightningcss",
     minify: "terser",
     terserOptions: {
       ecma: 2020,
@@ -88,21 +119,6 @@ export default defineConfig(({ command, mode }) => ({
           // manual chunk also captures dependencies and pushes dialogs back
           // into the initial renderer graph.
           if (normalizedId.endsWith("/src/studio-dialogs.ts")) return undefined;
-          if ([
-            "/src/core.ts",
-            "/src/ui.tsx",
-            "/src/image-container-spec.ts",
-            "/src/image-container-graph.ts",
-            "/src/image-container.ts",
-            "/src/paste-blocks.ts",
-            "/src/plugin-state.ts",
-            "/plugins/builtin-manifests.json",
-            "/src/settings-persistence.ts"
-          ].some((suffix) => normalizedId.endsWith(suffix))) return "studio-shared";
-          if (normalizedId.includes("/src/ui/")) return "studio-shared";
-          if (/\/lucide-react\/dist\/esm\/icons\/(?:check|image|rotate-ccw|send|shield|trash-2|workflow)\.js$/.test(normalizedId)) {
-            return "studio-shared";
-          }
           return undefined;
         },
         minify: {
@@ -123,6 +139,11 @@ export default defineConfig(({ command, mode }) => ({
       }
     }
   },
+  css: symbolCompactionPlugin ? {
+    postcss: {
+      plugins: [createPostcssSymbolCompactionPlugin(symbolCompactionPlugin.api.plan)]
+    }
+  } : undefined,
   server: {
     host: "127.0.0.1",
     port: 5173,
@@ -141,4 +162,5 @@ export default defineConfig(({ command, mode }) => ({
       }
     }
   }
-}));
+  });
+});

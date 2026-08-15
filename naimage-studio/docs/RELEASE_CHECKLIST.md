@@ -24,7 +24,7 @@ corepack pnpm run release:final
 编排顺序为：
 
 ```text
-97 项 release:verify
+113 项 release:verify
 → Windows NSIS 打包与品牌 UI
 → packaged smoke
 → 隔离安装/重装/卸载 smoke
@@ -46,7 +46,7 @@ corepack pnpm run release:final
 
 ## 4. 耗时基线与安全续跑
 
-当前正式发布通常需要约 25–40 分钟：97 项门禁（含多组真实 Electron GUI 与产品性能验证）通常占主要时间，Windows 打包约 2 分钟，安装/卸载约 1–2 分钟，更新、签名与哈希复核还需数分钟。机器负载、杀毒软件、NSIS 首次启动和 Electron 冷启动可能进一步增加耗时。
+当前正式发布通常需要约 25–45 分钟：113 项门禁（含多组真实 Electron GUI、UI Surface 导出闭环与产品性能验证）通常占主要时间，Windows 打包约 2 分钟，安装/卸载约 1–2 分钟，更新、签名与哈希复核还需数分钟。机器负载、杀毒软件、NSIS 首次启动和 Electron 冷启动可能进一步增加耗时。
 
 日常开发不得机械执行该流程。`release:verify` 支持从失败门禁安全续跑，但必须同时提供上一份 `.diagnostics/release/.../report.json`、失败门禁名和本次明确允许变化的仓库相对路径。例如：
 

@@ -74,7 +74,6 @@ import {
   Languages,
   Loader2,
   Maximize2,
-  Minimize2,
   Microscope,
   Minus,
   Move,
@@ -156,6 +155,19 @@ import {
 import { GlassThemeProvider } from "./glass-theme-provider";
 import type { WorkspaceAssetRailTab, WorkspaceViewMode } from "./workspace-chrome";
 import type { ActivePluginToolbarItem } from "./plugin-system";
+import type {
+  ExportCenterCollectionSource,
+  ExportCenterImageSource,
+  ExportCenterInitialSelection,
+  ExportCenterPsdSource,
+} from "./export-center-dialog";
+import type {
+  ImageCollectionDialogState,
+  ImageCollectionExportDialogState,
+  LayerViewerState,
+  NodeEditorDraft,
+  RegionRedrawDraft,
+} from "./image-workspace-overlays";
 import {
   DEFAULT_WORKSPACE_DOMAIN,
   normalizeWorkspaceDomain,
@@ -179,13 +191,7 @@ import {
 import {
   normalizeScientificFigurePlan
 } from "./plugins/scientific-figure";
-import {
-  canvasClipboardSummary,
-  clipboardImageFiles,
-  copyCanvasNodes,
-  pasteCanvasNodes,
-  type CanvasClipboardPayload
-} from "./canvas-clipboard";
+import type { CanvasClipboardPayload } from "./canvas-clipboard";
 import {
   MAX_AGENT_REFERENCE_IMAGES,
   MAX_AGENT_SOURCE_IMAGES,
@@ -201,8 +207,6 @@ import {
   cloneImageTaskDraft,
   cloneReferenceImages,
   cloneWorkflowNode,
-  compareImageSourcesVisualFidelity,
-  composeImageLayersToDataUrl,
   computedSizeFor,
   createConversationSnapshot,
   defaultImageTaskDraft,
@@ -215,16 +219,13 @@ import {
   imageAssetThumbnailSrc,
   imageModelsWithPreferredFallback,
   isAgentExecutionBusy,
-  loadImageForCanvas,
   mergeReferenceImages,
-  maskDataUrlFromPaintCanvas,
   mimeTypeFromPath,
   modelsWithPreferred,
   normalizeModelPoolSelections,
   parseImageSizeValue,
   promptForIndependentImage,
   qualityLabel,
-  removeConnectedBorderBackgroundToDataUrl,
   reconcileImageAssetIdentityClaims,
   sanitizeAgentVisibleText,
   sanitizeCanvasSkill,
@@ -245,10 +246,6 @@ import {
   yuan
 } from "./core";
 import {
-  actualImageAspectRatio,
-  imageAssetOutputFormat,
-  imageGenerationDisplayRows,
-  imageGenerationSourceLabel,
   sanitizeImageAssetGenerationMetadata
 } from "./image-generation-metadata";
 import { normalizeGeneratedImageContentPresentation } from "./image-content-title";
@@ -268,12 +265,9 @@ import {
   mergeLegacyImageLayoutGroups,
   synchronizeImageContainerSpecs
 } from "./image-container-graph";
-import {
-  ImageCollectionMutationError,
-  renameImageCollections as applyImageCollectionRenames,
-  replaceImageCollectionItems as applyImageCollectionReplacements,
-  type RenameImageCollectionRequest,
-  type ReplaceImageCollectionItemRequest,
+import type {
+  RenameImageCollectionRequest,
+  ReplaceImageCollectionItemRequest,
 } from "./image-collection-mutation";
 import type { TaskResultLayoutMutation } from "./task-result-layout";
 import {
@@ -472,29 +466,6 @@ if (NAIMAGE_AIDEBUG_RUNTIME_ENABLED) {
   installBrowserServerBridge();
 }
 
-type RegionRedrawDraft = {
-  mode: "redraw" | "cutout";
-  nodeId: string;
-  assetIndex: number;
-  prompt: string;
-  initialPrompt: string;
-  brushSize: number;
-  maskDirty: boolean;
-  sourceWidth?: number;
-  sourceHeight?: number;
-  ready: boolean;
-  busy: boolean;
-  error?: string;
-};
-
-type NodeEditorDraft = {
-  nodeId: string;
-  assetIndex: number;
-  title: string;
-  prompt: string;
-  error?: string;
-};
-
 type RequirementEditorDraft = {
   mode: "create" | "edit";
   nodeId?: string;
@@ -542,32 +513,6 @@ type AssetContextMenuState = {
   nodeId: string;
   assetIndex: number;
   source: "canvas" | "viewer";
-};
-
-type ImageCollectionDialogState = {
-  mode: "rename" | "replace";
-  collectionIds: string[];
-  names: Record<string, string>;
-  sourceCollectionId?: string;
-  itemId?: string;
-  requestIndex?: number;
-  replacementNodeId?: string;
-  replacementAssetIndex?: number;
-  defectReason?: string;
-  error?: string;
-};
-
-type ImageCollectionExportDialogState = {
-  collectionIds: string[];
-  format: ImageExportFormat;
-  preview: ImageCollectionExportPreviewResult;
-  error?: string;
-};
-
-type LayerViewerState = {
-  groupId: string;
-  selectedNodeId: string;
-  mode: "composite" | "solo" | "onion";
 };
 
 type LayerGroupViewMeta = ImageLayerNodeGroup & {
@@ -744,6 +689,15 @@ type ConnectionDraft = {
   worldY: number;
 };
 
+type RelationMenuState = {
+  x: number;
+  y: number;
+  sourceId: string;
+  targetId: string;
+  relationType: NonNullable<WorkflowNode["relationType"]>;
+  inputRole?: AssetTaskRole;
+};
+
 function provenancePortCenter(node: WorkflowNode, side: "input" | "output") {
   const { renderWidth, renderHeight, nodeMinimum } = workflowNodeRenderMetrics(node);
   const height = renderHeight ?? nodeMinimum.height ?? NODE_RESIZE_MIN_H;
@@ -872,6 +826,7 @@ const LazyCommerceTemplateDialog = React.lazy(() => import("./commerce-template-
 const LazyCommerceAbDialog = React.lazy(() => import("./commerce-ab-dialog"));
 const LazySocialContentDialog = React.lazy(() => import("./social-content-dialog"));
 const LazyScientificFigureDialog = React.lazy(() => import("./scientific-figure-dialog"));
+const LazyExportCenterDialog = React.lazy(() => import("./export-center-dialog"));
 let workspaceChromePromise: Promise<typeof import("./workspace-chrome")> | null = null;
 const loadWorkspaceChrome = () => workspaceChromePromise ??= import("./workspace-chrome");
 const LazyWorkspaceAssetRail = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceAssetRail })));
@@ -886,13 +841,23 @@ const loadAuthGate = () => authGatePromise ??= import("./auth-gate");
 const LazyAuthGate = React.lazy(() => loadAuthGate().then((module) => ({ default: module.AuthGate })));
 const LazyBootScreen = React.lazy(() => loadAuthGate().then((module) => ({ default: module.BootScreen })));
 const LazyImageViewer = React.lazy(() => import("./image-viewer").then((module) => ({ default: module.ImageViewer })));
+const loadImageWorkspaceOverlays = () => import("./image-workspace-overlays");
+const LazyImageCollectionActionDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.ImageCollectionActionDialog })));
+const LazyImageCollectionExportDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.ImageCollectionExportDialog })));
+const LazyNodeEditorDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.NodeEditorDialog })));
+const LazyRegionRedrawDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.RegionRedrawDialog })));
+const LazyLayerGroupViewerDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.LayerGroupViewerDialog })));
+const loadImageProcessingRuntime = () => import("./image-processing-runtime");
+const loadImageForCanvas = (source: string) => loadImageProcessingRuntime().then((module) => module.loadImageForCanvas(source));
+const composeImageLayersToDataUrl = (composition: ImageLayerComposition) => loadImageProcessingRuntime().then((module) => module.composeImageLayersToDataUrl(composition));
+const compareImageSourcesVisualFidelity = (leftSource: string, rightSource: string) => loadImageProcessingRuntime().then((module) => module.compareImageSourcesVisualFidelity(leftSource, rightSource));
+const removeConnectedBorderBackgroundToDataUrl = (asset: ImageAsset, options?: { width?: number; height?: number }) => loadImageProcessingRuntime().then((module) => module.removeConnectedBorderBackgroundToDataUrl(asset, options));
 const LazyHelpCenter = React.lazy(() => import("./help-center"));
 const LazyCommerceTutorial = React.lazy(() => import("./commerce-tutorial"));
 const LazyReferencePickerDialog = React.lazy(() => import("./reference-picker-dialog").then((module) => ({ default: module.ReferencePickerDialog })));
-const LazyAgentMessageContent = React.lazy(() => import("./agent-message-content"));
+const LazyProjectAgentPanel = React.lazy(() => import("./project-agent-panel"));
 let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
 const loadProjectAgentComposer = () => projectAgentComposerPromise ??= import("./project-agent-composer");
-const LazyProjectAgentComposerContent = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.default })));
 const LazyGoalConfirmationDialog = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.GoalConfirmationDialog })));
 let goalModePromise: Promise<typeof import("./goal-mode")> | null = null;
 const loadGoalMode = () => goalModePromise ??= import("./goal-mode");
@@ -952,19 +917,11 @@ function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCo
   // stacked, detached and recomposed states.
   if (node.layerGroup) return imageAssetSrc(asset);
   const sourceLongestEdge = Math.max(Number(asset.width || 0), Number(asset.height || 0));
-  const importedAsset = /^import-/i.test(String(asset.runId || "")) || /[\\/]imports[\\/]/i.test(String(asset.path || ""));
-  const generatedSingle = assetCount <= 1 && !importedAsset && Boolean(asset.runId || asset.revisedPrompt);
-  const boundedSingle = assetCount <= 1 && sourceLongestEdge > 0 && sourceLongestEdge <= 2048;
   const compactSource = sourceLongestEdge > 0 && sourceLongestEdge <= 1024;
-  // A single generated result is already close to its canvas display size.
-  // Showing it directly avoids queueing a cold thumbnail worker after the
-  // image service has completed, which otherwise makes the node appear a beat
-  // late. Large imported originals and multi-image containers still use the
-  // bounded thumbnail cache.
   // A thumbnail cannot reduce decode cost for an already-small source. Sending
   // compact assets from a multi-image container through the worker only causes
   // an avoidable blank swap while a larger 512px derivative is being created.
-  if (generatedSingle || boundedSingle || compactSource) return imageAssetSrc(asset);
+  if (compactSource) return imageAssetSrc(asset);
   const plan = imageGridPlanForCount(assetCount);
   const nodeWidth = Math.max(160, Number(node.width ?? NODE_W));
   const nodeHeight = Math.max(180, Number(node.height ?? 360));
@@ -972,10 +929,10 @@ function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCo
   const tileHeight = Math.max(96, (nodeHeight - 72) / plan.rows);
   const dpr = typeof window === "undefined" ? 1 : clamp(Number(window.devicePixelRatio || 1), 1, 3);
   const requiredEdge = Math.max(tileWidth, tileHeight) * Math.max(canvasScale, ZOOM_MIN) * dpr;
-  // Keep decoding headroom above the actual device-pixel footprint. A preview
-  // that only barely matches the displayed width still looks soft after
-  // interpolation, especially at 125–150% Windows display scaling.
-  if (requiredEdge > 900) return imageAssetSrc(asset);
+  // A large single result stays on the 1024 bucket even when zoomed in. The
+  // full managed source remains available in the viewer, while the canvas no
+  // longer asks Chromium to decode every 2K/4K original at the same time.
+  if (assetCount <= 1) return imageAssetThumbnailSrc(asset, 1024);
   return imageAssetThumbnailSrc(asset, requiredEdge > 440 ? 1024 : 512);
 }
 
@@ -3342,17 +3299,31 @@ function workflowNodeBounds(node: WorkflowNode) {
   };
 }
 
-function closestNodeIdAt(nodes: WorkflowNode[], worldX: number, worldY: number, excludeId?: string) {
-  let best: { id: string; distance: number } | null = null;
-  for (const node of nodes) {
-    if (node.id === excludeId) continue;
+function nodeIdAtWorldPoint(nodes: WorkflowNode[], worldX: number, worldY: number, excludedIds: ReadonlySet<string> = new Set()) {
+  let bestId = "";
+  let bestZOrder = Number.NEGATIVE_INFINITY;
+  let bestOrder = -1;
+  nodes.forEach((node, order) => {
+    if (excludedIds.has(node.id)) return;
     const bounds = workflowNodeBounds(node);
-    const dx = Math.max(bounds.x - worldX, 0, worldX - (bounds.x + bounds.width));
-    const dy = Math.max(bounds.y - worldY, 0, worldY - (bounds.y + bounds.height));
-    const distance = Math.hypot(dx, dy);
-    if (distance < 180 && (!best || distance < best.distance)) best = { id: node.id, distance };
-  }
-  return best?.id ?? "";
+    const inside = worldX >= bounds.x && worldX <= bounds.x + bounds.width
+      && worldY >= bounds.y && worldY <= bounds.y + bounds.height;
+    if (!inside) return;
+    const zOrder = Number.isFinite(Number(node.zOrder)) ? Number(node.zOrder) : order;
+    if (!bestId || zOrder > bestZOrder || (zOrder === bestZOrder && order > bestOrder)) {
+      bestId = node.id;
+      bestZOrder = zOrder;
+      bestOrder = order;
+    }
+  });
+  return bestId;
+}
+
+function canvasRelationLabel(relationType: WorkflowNode["relationType"], inputRole?: AssetTaskRole) {
+  if (relationType === "referenced") return inputRole === "reference" ? "参考图" : "原图";
+  if (relationType === "variant") return "变体";
+  if (relationType === "grouped") return "分组";
+  return "来源";
 }
 
 function rectOverlapArea(
@@ -3601,6 +3572,7 @@ function App() {
   const [imageCollectionDialog, setImageCollectionDialog] = useState<ImageCollectionDialogState | null>(null);
   const [imageCollectionExportDialog, setImageCollectionExportDialog] = useState<ImageCollectionExportDialogState | null>(null);
   const [imageCollectionActionBusy, setImageCollectionActionBusy] = useState(false);
+  const [exportCenterSelection, setExportCenterSelection] = useState<ExportCenterInitialSelection | null>(null);
   const [layerViewer, setLayerViewer] = useState<LayerViewerState | null>(null);
   const [regionRedrawDraft, setRegionRedrawDraft] = useState<RegionRedrawDraft | null>(null);
   const [regionRedrawClosePromptOpen, setRegionRedrawClosePromptOpen] = useState(false);
@@ -3691,6 +3663,7 @@ function App() {
   const [draggingNodeId, setDraggingNodeId] = useState("");
   const [resizingNodeId, setResizingNodeId] = useState("");
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
+  const [relationMenu, setRelationMenu] = useState<RelationMenuState | null>(null);
   const [serverUser, setServerUser] = useState<ServerUser | null>(null);
   const [serverWallet, setServerWallet] = useState<ServerWallet | null>(null);
   const [serverLogs, setServerLogs] = useState<ServerLogEntry[]>([]);
@@ -3744,10 +3717,33 @@ function App() {
   const reactNodesRef = useRef(nodes);
   const layoutGroupsRef = useRef(layoutGroups);
   const nodeEditorDraftRef = useRef(nodeEditorDraft);
+  const nodeEditorFloatingStyleRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!nodeEditorDraft) setNodeEditorMaximized(false);
   }, [nodeEditorDraft]);
+  useEffect(() => {
+    if (!nodeEditorDraft) {
+      nodeEditorFloatingStyleRef.current = null;
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = document.querySelector<HTMLElement>(".unified-node-editor");
+      if (!dialog) return;
+      if (nodeEditorMaximized) {
+        if (nodeEditorFloatingStyleRef.current === null) nodeEditorFloatingStyleRef.current = dialog.style.cssText;
+        for (const property of ["position", "left", "top", "width", "height", "margin", "transform"]) {
+          dialog.style.removeProperty(property);
+        }
+        return;
+      }
+      if (nodeEditorFloatingStyleRef.current !== null) {
+        dialog.style.cssText = nodeEditorFloatingStyleRef.current;
+        nodeEditorFloatingStyleRef.current = null;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [nodeEditorDraft, nodeEditorMaximized]);
   const activeRunRef = useRef<string | null>(null);
   const agentStopPendingRef = useRef<symbol | null>(null);
   const executionReservationRef = useRef<string | null>(null);
@@ -5691,6 +5687,7 @@ function App() {
       setFileMenuOpen(false);
       setProjectMenuOpen(false);
       setCanvasMenu(null);
+      setRelationMenu(null);
       setProjectNameDraft(null);
       setDeleteNodeDraft(null);
       setConfirmDialog(null);
@@ -6266,6 +6263,69 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
+  const exportCenterImages = useMemo<ExportCenterImageSource[]>(() => canvasNodes.flatMap((node) => {
+    if (node.type !== "image") return [];
+    const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
+    return (node.assets ?? []).flatMap((asset, assetIndex) => {
+      if (asset.status === "pending" || asset.status === "error") return [];
+      return [{
+        key: `image:${node.id}:${assetIndex}`,
+        nodeId: node.id,
+        assetIndex,
+        title: asset.title?.trim() || collection?.items[assetIndex]?.title?.trim() || node.title || `图片 ${assetIndex + 1}`,
+        groupName: collection?.name?.trim() || (collection ? node.title : undefined),
+        asset,
+      }];
+    });
+  }), [canvasNodes]);
+  const exportCenterCollections = useMemo<ExportCenterCollectionSource[]>(() => {
+    const seen = new Set<string>();
+    return canvasNodes.flatMap((node) => {
+      const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
+      if (!collection?.id || seen.has(collection.id)) return [];
+      seen.add(collection.id);
+      const imageCount = Math.max(
+        collection.items.filter((item) => item.status === "done" && Number.isInteger(item.assetIndex)).length,
+        node.assets?.filter((asset) => asset.status !== "pending" && asset.status !== "error").length ?? 0,
+      );
+      return [{
+        key: `collection:${collection.id}`,
+        nodeId: node.id,
+        collectionId: collection.id,
+        title: collection.name?.trim() || node.title || "图片组",
+        imageCount,
+        role: collection.collectionRole === "defects" ? "defects" : "results",
+      }];
+    });
+  }, [canvasNodes]);
+  const exportCenterPsdItems = useMemo<ExportCenterPsdSource[]>(() => {
+    const layerGroups = new Set<string>();
+    const items: ExportCenterPsdSource[] = [];
+    for (const node of canvasNodes) {
+      if (node.type !== "image") continue;
+      if (node.layerGroup?.id && !layerGroups.has(node.layerGroup.id)) {
+        layerGroups.add(node.layerGroup.id);
+        items.push({
+          key: `psd-layer:${node.layerGroup.id}`,
+          nodeId: node.id,
+          kind: "layer-group",
+          title: node.layerGroup.title || node.title || "分层作品",
+          layerCount: node.layerGroup.total,
+        });
+      }
+      for (const [assetIndex, asset] of (node.assets ?? []).entries()) {
+        if (asset.status === "pending" || asset.status === "error") continue;
+        items.push({
+          key: `psd-asset:${node.id}:${assetIndex}`,
+          nodeId: node.id,
+          kind: "asset",
+          assetIndex,
+          title: asset.title?.trim() || node.title || `图片 ${assetIndex + 1}`,
+        });
+      }
+    }
+    return items;
+  }, [canvasNodes]);
   const selectedComposerImageModels = useMemo(
     () => selectedImageModelsFromSettings(settings),
     [settings.imageModel, settings.imageModelPool]
@@ -6360,7 +6420,14 @@ function App() {
         const key = `${sourceId}:${targetId}:${kind}`;
         if (uniqueEdges.has(key)) return [];
         uniqueEdges.add(key);
-        return [{ source, target, kind, inputRole: node.type === "requirement" ? input.role : undefined }];
+        return [{
+          source,
+          target,
+          relationSourceId: input.nodeId,
+          relationTargetId: node.id,
+          kind,
+          inputRole: node.type === "requirement" ? input.role : undefined,
+        }];
       });
     });
     const bySource = new Map<string, typeof rawEdges>();
@@ -6753,8 +6820,14 @@ function App() {
   }
 
   function imageCollectionMutationError(error: unknown, fallback: string) {
-    if (error instanceof ImageCollectionMutationError) {
-      return automationCommandError(error.code, error.message, error.details);
+    const mutationError = error instanceof Error
+      ? error as Error & { code?: unknown; details?: unknown }
+      : null;
+    if (mutationError && typeof mutationError.code === "string") {
+      const details = mutationError.details && typeof mutationError.details === "object" && !Array.isArray(mutationError.details)
+        ? mutationError.details as Record<string, unknown>
+        : undefined;
+      return automationCommandError(mutationError.code, mutationError.message, details);
     }
     return automationCommandError("IMAGE_COLLECTION_MUTATION_FAILED", error instanceof Error ? error.message : fallback);
   }
@@ -6813,7 +6886,8 @@ function App() {
     );
     let mutation;
     try {
-      mutation = applyImageCollectionRenames(nodesRef.current, input.requests);
+      const { renameImageCollections } = await import("./image-collection-mutation");
+      mutation = renameImageCollections(nodesRef.current, input.requests);
     } catch (error) {
       throw imageCollectionMutationError(error, "图片组重命名失败，整批操作未执行。");
     }
@@ -6847,7 +6921,8 @@ function App() {
     assertAutomationCanvasMutationPreconditions(input, affectedNodeIds, "替换图片组槽位");
     let mutation;
     try {
-      mutation = applyImageCollectionReplacements(nodesRef.current, input.requests);
+      const { replaceImageCollectionItems } = await import("./image-collection-mutation");
+      mutation = replaceImageCollectionItems(nodesRef.current, input.requests);
     } catch (error) {
       throw imageCollectionMutationError(error, "图片替换失败，整批操作未执行。");
     }
@@ -6995,6 +7070,7 @@ function App() {
     const sourceNode = nodesRef.current.find((node) => node.id === sourceId);
     const targetNode = nodesRef.current.find((node) => node.id === targetId);
     if (!sourceNode || !targetNode) return false;
+    const previousSourceId = targetNode.type === "requirement" ? "" : String(targetNode.parentId || "");
     if (targetNode.type === "requirement" && sourceNode.type !== "image") {
       setServerMessage("需求节点左侧只能连接图片、图片容器或分层成果。");
       return false;
@@ -7017,13 +7093,19 @@ function App() {
       addEvent(payload.code === "GRAPH_CYCLE" ? "阻止会形成循环的连线" : `连线失败：${payload.error}`);
       return false;
     }
-    if (!mutation.changed) return false;
+    if (!mutation.changed) {
+      setServerMessage("这条关系已经存在，没有重复创建连线。");
+      return false;
+    }
     pushCanvasHistory(targetNode.type === "requirement" ? "连接需求来源" : "调整成果关系");
     nodesRef.current = mutation.nodes;
     setNodes(mutation.nodes);
     setSelectedNodeId(targetId);
     setActiveNodeId(targetId);
     window.setTimeout(() => setActiveNodeId(null), 700);
+    setServerMessage(previousSourceId && previousSourceId !== sourceId
+      ? `已将“${targetNode.title || targetNode.id}”的来源改接为“${sourceNode.title || sourceNode.id}”。`
+      : `已连接“${sourceNode.title || sourceNode.id}”到“${targetNode.title || targetNode.id}”。`);
     addEvent(`连线 ${sourceId} -> ${targetId}`);
     notifyAgentOfManualAction(
       "调整成果关系",
@@ -8827,6 +8909,43 @@ function App() {
     return true;
   }
 
+  function disconnectSingleRelation(edge: Pick<RelationMenuState, "sourceId" | "targetId" | "relationType" | "inputRole">) {
+    const source = nodesRef.current.find((node) => node.id === edge.sourceId);
+    const target = nodesRef.current.find((node) => node.id === edge.targetId);
+    setRelationMenu(null);
+    if (!source || !target) {
+      setServerMessage("这条连线已经不存在。");
+      return false;
+    }
+    if (blockLockedNodeMutation([source.id, target.id], "断开连线")) return false;
+    let mutation;
+    try {
+      mutation = disconnectCanvasRelations(nodesRef.current, [{ sourceId: source.id, targetId: target.id }]);
+    } catch (error) {
+      setServerMessage(automationErrorPayload(error).error);
+      return false;
+    }
+    if (!mutation.changed) {
+      setServerMessage("这条连线已经不存在。");
+      return false;
+    }
+    pushCanvasHistory("断开一条成果关系");
+    nodesRef.current = mutation.nodes;
+    setNodes(mutation.nodes);
+    replaceSelectedNodeId(target.id);
+    setActiveNodeId(target.id);
+    setCanvasMenu(null);
+    window.setTimeout(() => setActiveNodeId(null), 700);
+    const relationLabel = canvasRelationLabel(edge.relationType, edge.inputRole);
+    setServerMessage(`已断开“${source.title || source.id}”到“${target.title || target.id}”的${relationLabel}关系。`);
+    addEvent(`断开连线 ${source.id} -> ${target.id}`);
+    notifyAgentOfManualAction(
+      "断开成果关系",
+      `用户断开了成果 ${source.id} 到 ${target.id} 的${relationLabel}关系。`
+    );
+    return true;
+  }
+
   function disconnectNodeInput(nodeId: string) {
     const node = nodesRef.current.find((item) => item.id === nodeId);
     setSelectedNodeId(nodeId);
@@ -8849,6 +8968,7 @@ function App() {
     setNodes(mutation.nodes);
     setActiveNodeId(nodeId);
     setCanvasMenu(null);
+    setRelationMenu(null);
     window.setTimeout(() => setActiveNodeId(null), 700);
     addEvent(`断开成果 ${nodeId} 的输入关系`);
     notifyAgentOfManualAction(
@@ -8882,6 +9002,7 @@ function App() {
     setNodes(mutation.nodes);
     setActiveNodeId(nodeId);
     setCanvasMenu(null);
+    setRelationMenu(null);
     window.setTimeout(() => setActiveNodeId(null), 700);
     addEvent(`断开成果 ${nodeId} 的 ${childCount} 条输出关系`);
     notifyAgentOfManualAction("断开成果关系", `用户断开了成果 ${nodeId} 的 ${childCount} 条后续成果关系。`);
@@ -8892,7 +9013,7 @@ function App() {
     if (blockLockedNodeMutation([source.id], "调整连线")) return;
     event.preventDefault();
     event.stopPropagation();
-    const selectedSourceIds = selectedNodeIdsRef.current.includes(source.id) && selectedNodeIdsRef.current.length > 1
+    const selectedSourceIds = source.type === "image" && selectedNodeIdsRef.current.includes(source.id) && selectedNodeIdsRef.current.length > 1
       ? selectedNodeIdsRef.current.filter((id) => nodesRef.current.some((node) => node.id === id && node.type === "image"))
       : [source.id];
     if (!selectedNodeIdsRef.current.includes(source.id)) setSelectedNodeId(source.id);
@@ -8902,13 +9023,30 @@ function App() {
     const sourcePort = provenancePortCenter(source, "output");
     const sourceX = sourcePort.x;
     const sourceY = sourcePort.y;
+    setCanvasMenu(null);
+    setRelationMenu(null);
     setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: sourceX + 90, worldY: sourceY });
     const target = event.currentTarget;
+    let finished = false;
     try {
       target.setPointerCapture(event.pointerId);
     } catch {
       // Synthetic diagnostics may not expose an active native pointer.
     }
+    const cleanup = () => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", cancelWithEscape, true);
+      try {
+        target.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may already be released.
+      }
+      setConnectionDraft(null);
+    };
     const move = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
       if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 4) moved = true;
@@ -8916,27 +9054,42 @@ function App() {
       setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: point.x, worldY: point.y });
     };
     const end = (endEvent: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
-      try {
-        target.releasePointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture may already be released.
-      }
       const point = clientToWorld(endEvent.clientX, endEvent.clientY);
       const element = document.elementFromPoint(endEvent.clientX, endEvent.clientY) as HTMLElement | null;
-      const targetId = element?.closest<HTMLElement>(".flow-node")?.dataset.nodeId || closestNodeIdAt(nodesRef.current, point.x, point.y, source.id);
-      setConnectionDraft(null);
-      if (moved && targetId) connectNodeGroup(selectedSourceIds, targetId);
-      if (!moved) disconnectNodeOutputs(source.id);
+      const excludedIds = new Set(selectedSourceIds);
+      const hitNodeId = element?.closest<HTMLElement>(".flow-node")?.dataset.nodeId || "";
+      const targetId = hitNodeId && !excludedIds.has(hitNodeId)
+        ? hitNodeId
+        : nodeIdAtWorldPoint(canvasNodes, point.x, point.y, excludedIds);
+      cleanup();
+      if (!moved) {
+        setServerMessage("请按住右侧连接点并拖到目标节点；断开关系请点击具体连线或使用节点右键菜单。");
+        return;
+      }
+      if (!targetId) {
+        setServerMessage("已取消本次连线，没有修改任何成果关系。");
+        return;
+      }
+      connectNodeGroup(selectedSourceIds, targetId);
+    };
+    const cancel = () => {
+      cleanup();
+      setServerMessage("已取消本次连线，没有修改任何成果关系。");
+    };
+    const cancelWithEscape = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.preventDefault();
+      keyEvent.stopImmediatePropagation();
+      cancel();
     };
     window.addEventListener("pointermove", move, { passive: false });
     window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", cancelWithEscape, true);
   }
 
-  function copyCanvasSelection(cut = false) {
+  async function copyCanvasSelection(cut = false) {
+    const { canvasClipboardSummary, copyCanvasNodes } = await import("./canvas-clipboard");
     const payload = copyCanvasNodes(nodesRef.current, currentNodeSelection().ids);
     if (!payload) return false;
     canvasClipboardRef.current = payload;
@@ -8967,9 +9120,10 @@ function App() {
     );
   }
 
-  function pasteCopiedCanvasSelection() {
+  async function pasteCopiedCanvasSelection() {
     const payload = canvasClipboardRef.current;
     if (!payload) return false;
+    const { pasteCanvasNodes } = await import("./canvas-clipboard");
     pushCanvasHistory(`粘贴 ${payload.nodes.length} 个画布成果`);
     const result = pasteCanvasNodes(payload, nodesRef.current, (working) => allocateNodeCode(working), canvasPasteWorldPoint());
     if (!result.pastedNodeIds.length) return false;
@@ -8993,11 +9147,12 @@ function App() {
   }
 
   async function handleCanvasPaste(event: React.ClipboardEvent<HTMLDivElement>) {
+    const { clipboardImageFiles } = await import("./canvas-clipboard");
     const imageFiles = clipboardImageFiles(event.clipboardData);
     if (!imageFiles.length) {
       if (canvasClipboardRef.current) {
         event.preventDefault();
-        pasteCopiedCanvasSelection();
+        await pasteCopiedCanvasSelection();
       }
       return;
     }
@@ -9181,10 +9336,11 @@ function App() {
       setRegionRedrawDraft({ ...draft, error: isCutout ? "请描述要保留并抠出的主体。" : "请描述涂抹区域要改成什么。" });
       return;
     }
-    let mask: ReturnType<typeof maskDataUrlFromPaintCanvas>;
+    let mask: { dataUrl: string; paintedPixels: number; width: number; height: number };
     let reference: ReferenceImage;
     try {
-      mask = maskDataUrlFromPaintCanvas(maskCanvas, isCutout ? "keep" : "edit");
+      const imageProcessing = await loadImageProcessingRuntime();
+      mask = imageProcessing.maskDataUrlFromPaintCanvas(maskCanvas, isCutout ? "keep" : "edit");
       if (mask.paintedPixels < 24) throw new Error(isCutout ? "请先在图片上大致涂抹要抠出的主体区域。" : "请先在图片上涂抹需要重绘的区域。");
       if (!window.naimageAgent?.runTool) throw new Error("Agent 图片工具不可用。");
       reference = {
@@ -11223,7 +11379,7 @@ function App() {
     }
   }
 
-  async function exportLayerGroupPsd(nodeId: string) {
+  async function exportLayerGroupPsd(nodeId: string, suggestedNameOverride?: string) {
     const bridge = window.naimageConfig;
     if (!bridge?.exportLayerGroupPsd) {
       setServerMessage("当前版本尚未连接 Photoshop PSD 导出服务。");
@@ -11236,7 +11392,7 @@ function App() {
       const result = await bridge.exportLayerGroupPsd({
         assets: bundle.assets,
         projectId: activeProjectIdRef.current,
-        suggestedName: `${bundle.group.title || "分层作品"}-${String(bundle.group.groupNumber).padStart(3, "0")}.psd`,
+        suggestedName: suggestedNameOverride || `${bundle.group.title || "分层作品"}-${String(bundle.group.groupNumber).padStart(3, "0")}.psd`,
         previewAsset: bundle.group.previewAsset,
         mergedAsset: bundle.group.mergedAsset,
         group: bundle.exportGroup
@@ -11430,7 +11586,7 @@ function App() {
           operationId,
           status: "done",
           category: "image-collection",
-          summary: `已导出 ${result.exported?.length ?? payload.collectionIds?.length ?? 0} 个图片组到当前项目的 exports/image-groups。`,
+          summary: `已导出 ${result.exported?.length ?? payload.collectionIds?.length ?? 0} 个图片组到当前项目的 image-groups。`,
         };
       }
       return failed("图片组操作类型与提交数据不一致，画布未发生变更。");
@@ -14103,10 +14259,26 @@ function App() {
     addEvent(`切换 Agent 会话 ${target.title}`);
   }
 
+  function openRelationMenuAt(
+    edge: Pick<RelationMenuState, "sourceId" | "targetId" | "relationType" | "inputRole">,
+    clientX: number,
+    clientY: number,
+  ) {
+    if (connectionDraft) return;
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setRelationMenu({
+      ...edge,
+      x: Math.round(clamp(clientX, 8, Math.max(8, window.innerWidth - 260))),
+      y: Math.round(clamp(clientY, 8, Math.max(8, window.innerHeight - 150))),
+    });
+  }
+
   function openCanvasMenu(event: React.MouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
     if (target.closest(".flow-node")) return;
     event.preventDefault();
+    setRelationMenu(null);
     const selection = currentNodeSelection();
     if (nodeSelectionMode(selection) === "multiple") {
       setCanvasMenu({
@@ -14129,6 +14301,7 @@ function App() {
   }
 
   function openNodeMenuAt(node: WorkflowNode, x: number, y: number) {
+    setRelationMenu(null);
     const selection = currentNodeSelection();
     if (nodeSelectionMode(selection) === "multiple") {
       setCanvasMenu({
@@ -14177,6 +14350,7 @@ function App() {
       confirmDialog ||
       imageCollectionDialog ||
       imageCollectionExportDialog ||
+      exportCenterSelection ||
       commerceSetDialog ||
       commerceCatalogDialog ||
       commerceExportDialog ||
@@ -14202,10 +14376,11 @@ function App() {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === "Escape") {
-        if (canvasMenu || assetContextMenu) {
+        if (canvasMenu || assetContextMenu || relationMenu) {
           event.preventDefault();
           setCanvasMenu(null);
           setAssetContextMenu(null);
+          setRelationMenu(null);
           return;
         }
         if (fileMenuOpen || projectMenuOpen) {
@@ -14250,12 +14425,12 @@ function App() {
       }
       if (command && key === "c" && selectedNodeIdsRef.current.length) {
         event.preventDefault();
-        copyCanvasSelection(false);
+        void copyCanvasSelection(false);
         return;
       }
       if (command && key === "x" && selectedNodeIdsRef.current.length) {
         event.preventDefault();
-        copyCanvasSelection(true);
+        void copyCanvasSelection(true);
         return;
       }
       if (command && key === "g") {
@@ -14327,6 +14502,7 @@ function App() {
     goalConfirmation,
     imageCollectionDialog,
     imageCollectionExportDialog,
+    exportCenterSelection,
     layerViewer,
     manualImageTaskDialog,
     manualVideoTaskDialog,
@@ -14337,6 +14513,7 @@ function App() {
     promptEditorOpen,
     quotaDialog,
     referencePickerDraft,
+    relationMenu,
     regionRedrawDraft,
     settingsOpen,
     helpOpen
@@ -16430,6 +16607,10 @@ function App() {
         const layerRect = layerPanel?.getBoundingClientRect() ?? null;
         const errorRect = error?.getBoundingClientRect() ?? null;
         const footerRect = nodeEditorFooter?.getBoundingClientRect() ?? null;
+        const dialogStyle = window.getComputedStyle(nodeEditorElement);
+        const dialogLayerElement = nodeEditorElement.closest<HTMLElement>(".node-editor-layer");
+        const dialogLayerRect = dialogLayerElement?.getBoundingClientRect() ?? null;
+        const dialogLayerStyle = dialogLayerElement ? window.getComputedStyle(dialogLayerElement) : null;
         const fieldsStyle = window.getComputedStyle(fields);
         const promptStyle = window.getComputedStyle(promptField);
         const paddingBottom = Number.parseFloat(fieldsStyle.paddingBottom || "0") || 0;
@@ -16494,6 +16675,24 @@ function App() {
           fieldsOverflowY: fieldsStyle.overflowY,
           fieldsClientHeight: fields.clientHeight,
           fieldsScrollHeight: fields.scrollHeight,
+          layoutContract: {
+            maximizedSelectorMatches: nodeEditorElement.matches(".ui-surface.unified-node-editor.is-maximized[data-ui-surface]"),
+            computedWidth: dialogStyle.width,
+            computedHeight: dialogStyle.height,
+            computedMaxWidth: dialogStyle.maxWidth,
+            computedMaxHeight: dialogStyle.maxHeight,
+            surfaceWidthVariable: dialogStyle.getPropertyValue("--ui-surface-width").trim(),
+            surfaceHeightVariable: dialogStyle.getPropertyValue("--ui-surface-max-height").trim(),
+            transform: dialogStyle.transform,
+            layerClassName: dialogLayerElement?.className || "",
+            layerDisplay: dialogLayerStyle?.display || "",
+            layerGridColumns: dialogLayerStyle?.gridTemplateColumns || "",
+            layerGridRows: dialogLayerStyle?.gridTemplateRows || "",
+            layerJustifyContent: dialogLayerStyle?.justifyContent || "",
+            layerJustifyItems: dialogLayerStyle?.justifyItems || "",
+            layerPadding: dialogLayerStyle?.padding || "",
+            layerRect: debugRectSnapshot(dialogLayerRect)
+          },
           dialogRect: debugRectSnapshot(dialogRect),
           bodyRect: debugRectSnapshot(bodyRect),
           fieldsRect: debugRectSnapshot(fieldsRect),
@@ -21734,6 +21933,7 @@ function App() {
         canvas.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, cancelable: true, pointerId: 93, pointerType: "mouse", button: 0, buttons: 1, clientX: startX, clientY: endY }));
         canvas.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 93, pointerType: "mouse", button: 0, buttons: 0, clientX: startX, clientY: endY }));
         await waitForDebugSettle(120);
+        const { maskDataUrlFromPaintCanvas } = await loadImageProcessingRuntime();
         const mask = maskDataUrlFromPaintCanvas(canvas, "keep");
         return { ok: mask.paintedPixels > 24, paintedPixels: mask.paintedPixels, nodeCount: nodesRef.current.length };
       });
@@ -21993,6 +22193,7 @@ function App() {
         context.arc(canvas.width * 0.5, canvas.height * 0.54, diameter / 2, 0, Math.PI * 2);
         context.fill();
         context.restore();
+        const { maskDataUrlFromPaintCanvas } = await loadImageProcessingRuntime();
         const mask = maskDataUrlFromPaintCanvas(canvas, "edit");
         return {
           ok: mask.paintedPixels >= Math.min(24, Math.max(1, Math.floor(canvas.width * canvas.height * 0.001))),
@@ -24287,6 +24488,44 @@ function App() {
     return `${title}.${extension}`;
   }
 
+  function openExportCenter(selection: ExportCenterInitialSelection) {
+    if (!activeProjectIdRef.current) {
+      setServerMessage("请先创建或打开项目，再使用导出中心。");
+      return;
+    }
+    setFileMenuOpen(false);
+    setProjectMenuOpen(false);
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    setExportCenterSelection({ ...selection, keys: [...new Set(selection.keys)] });
+  }
+
+  function openExportCenterFromFileMenu() {
+    const selectedIds = new Set(selectedNodes.map((node) => node.id));
+    const selectedCollections = exportCenterCollections.filter((item) => selectedIds.has(item.nodeId));
+    if (selectedCollections.length && selectedCollections.length === selectedNodes.length) {
+      openExportCenter({ target: "collection", keys: selectedCollections.map((item) => item.key) });
+      return;
+    }
+    const selectedImages = exportCenterImages.filter((item) => selectedIds.has(item.nodeId));
+    openExportCenter({ target: "image", keys: selectedImages.map((item) => item.key) });
+  }
+
+  function openExportCenterForCollections(collectionIds: string[]) {
+    const ids = new Set(collectionIds);
+    openExportCenter({
+      target: "collection",
+      keys: exportCenterCollections.filter((item) => ids.has(item.collectionId)).map((item) => item.key),
+    });
+  }
+
+  function openExportCenterForAsset(nodeId: string, assetIndex: number, target: "image" | "psd" = "image") {
+    openExportCenter({
+      target,
+      keys: [target === "psd" ? `psd-asset:${nodeId}:${assetIndex}` : `image:${nodeId}:${assetIndex}`],
+    });
+  }
+
   function openAssetContextMenuAt(event: React.MouseEvent, node: WorkflowNode, assetIndex: number, source: AssetContextMenuState["source"] = "canvas") {
     event.preventDefault();
     event.stopPropagation();
@@ -24295,6 +24534,7 @@ function App() {
     const width = 210;
     const estimatedHeight = node.layerGroup ? 520 : 220;
     setCanvasMenu(null);
+    setRelationMenu(null);
     setAssetContextMenu({
       x: Math.round(clamp(event.clientX, 8, Math.max(8, window.innerWidth - width - 8))),
       y: Math.round(clamp(event.clientY, 8, Math.max(8, window.innerHeight - estimatedHeight - 8))),
@@ -24494,7 +24734,7 @@ function App() {
       });
       setImageCollectionExportDialog(null);
       setServerMessage(
-        `已导出 ${result.exported?.length ?? draft.collectionIds.length} 个图片组、${result.imageCount ?? 0} 张 ${IMAGE_EXPORT_FORMAT_LABELS[draft.format]} 图片，共 ${formatProjectMigrationBytes(result.totalBytes || 0)}。`,
+        `已导出 ${result.exported?.length ?? draft.collectionIds.length} 个图片组、${result.imageCount ?? 0} 张 ${IMAGE_EXPORT_FORMAT_LABELS[draft.format]} 图片到项目 image-groups，共 ${formatProjectMigrationBytes(result.totalBytes || 0)}。`,
       );
     } catch (error) {
       const payload = automationErrorPayload(error);
@@ -24590,7 +24830,7 @@ function App() {
     }
   }
 
-  async function exportAssetPsd(node: WorkflowNode, assetIndex: number) {
+  async function exportAssetPsd(node: WorkflowNode, assetIndex: number, suggestedNameOverride?: string) {
     const asset = node.assets?.[assetIndex];
     if (!asset) return { ok: false, error: "图片资产不存在。" };
     if (!activeProjectIdRef.current) {
@@ -24610,7 +24850,7 @@ function App() {
         assetIndex,
         nodeTitle: node.title,
         projectId: activeProjectIdRef.current,
-        suggestedName: `${asset.title || node.title || `图片-${assetIndex + 1}`}-图片-${assetIndex + 1}.psd`
+        suggestedName: suggestedNameOverride || `${asset.title || node.title || `图片-${assetIndex + 1}`}-图片-${assetIndex + 1}.psd`
       });
       if (!result.ok && !result.canceled) throw new Error(result.error || "PSD 导出失败。");
       if (result.ok && !result.canceled && result.path) {
@@ -26293,6 +26533,10 @@ function App() {
     return result;
   }
 
+  const connectionDraftSourceNode = connectionDraft
+    ? nodes.find((node) => node.id === connectionDraft.sourceId)
+    : undefined;
+
   if (!firstWorkspaceRenderMarked) {
     firstWorkspaceRenderMarked = true;
     markPerformancePhase("workspace-render");
@@ -26333,6 +26577,10 @@ function App() {
                   <ButtonBase onClick={openCurrentProjectFolder} disabled={fileActionBusy || !activeProject} title={activeProjectPath ? `在资源管理器中打开：${activeProjectPath}` : "请先创建或打开项目"}>
                     <FolderOpen size={14} />
                     <span>打开当前项目文件夹</span>
+                  </ButtonBase>
+                  <ButtonBase onClick={openExportCenterFromFileMenu} disabled={fileActionBusy || !activeProject} title="统一管理图片、图片组和 Photoshop PSD 导出">
+                    <PackageCheck size={14} />
+                    <span>导出中心</span>
                   </ButtonBase>
                   <ButtonBase onClick={openProjectPath} disabled={fileActionBusy || agentExecutionBusy} title="打开已有项目文件夹，读取图片成果和历史会话">
                     <Import size={14} />
@@ -26557,6 +26805,7 @@ function App() {
           <div
             ref={bindCanvasRef}
             className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
+            data-canvas-surface="true"
             tabIndex={0}
             aria-label="成果画布。可框选、复制、剪切、粘贴图片或拖入本地图片。"
             onContextMenu={openCanvasMenu}
@@ -26574,6 +26823,7 @@ function App() {
             onClick={(event) => {
               event.currentTarget.focus({ preventScroll: true });
               setCanvasMenu(null);
+              setRelationMenu(null);
               if (!(event.target as HTMLElement).closest(".flow-node")) return;
             }}
           >
@@ -26692,19 +26942,50 @@ function App() {
                 }}
                 aria-hidden="true"
               >
-                {renderedEdges.map(({ source, target, kind, inputRole, laneIndex, laneCount }) => {
-                  const active = activeNodeId === target.id || selectedNodeIdSet.has(target.id) || selectedNodeIdSet.has(source.id);
+                {renderedEdges.map(({ source, target, relationSourceId, relationTargetId, kind, inputRole, laneIndex, laneCount }) => {
+                  const relationSelected = relationMenu?.sourceId === relationSourceId && relationMenu.targetId === relationTargetId;
+                  const active = relationSelected || activeNodeId === target.id || selectedNodeIdSet.has(target.id) || selectedNodeIdSet.has(source.id);
+                  const pathData = provenanceEdgePath(source, target, laneIndex, laneCount);
+                  const relationType = kind as NonNullable<WorkflowNode["relationType"]>;
                   return (
-                    <path
-                      key={`${kind}-${source.id}-${target.id}`}
-                      className={`edge provenance relation-${kind} ${inputRole ? `input-${inputRole}` : ""} ${active ? "active" : ""}`}
-                      data-source-id={source.id}
-                      data-target-id={target.id}
-                      data-relation={kind}
-                      data-input-role={inputRole || undefined}
-                      vectorEffect="non-scaling-stroke"
-                      d={provenanceEdgePath(source, target, laneIndex, laneCount)}
-                    />
+                    <React.Fragment key={`${kind}-${source.id}-${target.id}`}>
+                      <path
+                        className={`edge provenance relation-${kind} ${inputRole ? `input-${inputRole}` : ""} ${active ? "active" : ""}`}
+                        data-source-id={source.id}
+                        data-target-id={target.id}
+                        data-relation-source-id={relationSourceId}
+                        data-relation-target-id={relationTargetId}
+                        data-relation={kind}
+                        data-input-role={inputRole || undefined}
+                        vectorEffect="non-scaling-stroke"
+                        d={pathData}
+                      />
+                      <path
+                        className="edge-hit-target"
+                        data-source-id={source.id}
+                        data-target-id={target.id}
+                        data-relation-source-id={relationSourceId}
+                        data-relation-target-id={relationTargetId}
+                        data-relation={kind}
+                        data-input-role={inputRole || undefined}
+                        vectorEffect="non-scaling-stroke"
+                        d={pathData}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openRelationMenuAt({ sourceId: relationSourceId, targetId: relationTargetId, relationType, inputRole }, event.clientX, event.clientY);
+                        }}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openRelationMenuAt({ sourceId: relationSourceId, targetId: relationTargetId, relationType, inputRole }, event.clientX, event.clientY);
+                        }}
+                      />
+                    </React.Fragment>
                   );
                 })}
                 {connectionDraft ? (() => {
@@ -26732,7 +27013,7 @@ function App() {
                   && activeNodeId !== node.id
                   && resizingNodeId !== node.id
                   && assetDropTargetId !== node.id
-                  && connectionDraft?.sourceId !== node.id
+                  && !connectionDraft
                   && !nodeIsGenerating;
                 if (renderAsOverview) {
                   const bounds = workflowNodeBounds(node);
@@ -26741,6 +27022,7 @@ function App() {
                     <div
                       key={node.id}
                       data-node-id={node.id}
+                      data-canvas-node="true"
                       data-node-overview="true"
                       data-node-locked={nodeLocked ? "true" : undefined}
                       data-ui-interactive="true"
@@ -26792,6 +27074,12 @@ function App() {
                 }
                 const promptPreview = "";
                 const nodeLocked = lockedNodeIdSet.has(node.id);
+                const connectionTargetEligible = Boolean(
+                  connectionDraft
+                  && !connectionDraft.sourceIds.includes(node.id)
+                  && !(node.type === "requirement" && connectionDraftSourceNode?.type !== "image")
+                  && !(node.type === "requirement" && connectionDraftSourceNode?.type === "requirement")
+                );
                 const layerGroup = node.layerGroup;
                 const stackedLayerMember = Boolean(layerGroup && !layerGroup.detached);
                 const {
@@ -26841,6 +27129,7 @@ function App() {
                   <div
                     key={node.id}
                     data-node-id={node.id}
+                    data-canvas-node="true"
                     data-ui-interactive="true"
                     role="button"
                     tabIndex={0}
@@ -26855,9 +27144,10 @@ function App() {
                     data-image-run-state={nodeIsGenerating ? "placeholder" : "settled"}
                     data-skill-name={node.requirement?.skill?.name || undefined}
                     data-node-locked={nodeLocked ? "true" : undefined}
+                    data-connection-target={connectionTargetEligible ? "true" : undefined}
                     className={`flow-node ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? `image-container ${node.imageContainerRole ? `image-container-${node.imageContainerRole}` : ""}` : ""} ${node.imageCollection ? `image-collection image-collection-${node.imageCollection.kind}` : ""} ${node.layerComposition ? "layer-stack-node" : ""} ${layerGroup ? `layer-group-member ${stackedLayerMember ? "layer-group-stacked" : "layer-group-detached"}` : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${
                       activeNodeId === node.id && !nodeIsGenerating ? "active-build" : ""
-                    } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
+                    } ${assetDropTargetId === node.id ? "asset-drop-target" : ""} ${connectionTargetEligible ? "connection-target-ready" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""} ${resizingNodeId === node.id ? "resizing" : ""}`}
                     style={{
                       left: node.x,
                       top: node.y,
@@ -27269,9 +27559,14 @@ function App() {
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.type === "video" ? node.videoAsset?.durationMs ? `${Math.max(0.1, node.videoAsset.durationMs / 1000).toFixed(1)} 秒` : Number.isFinite(node.videoProgress) ? `${node.videoProgress}%` : node.videoTaskId ? "等待视频成果" : "1 个视频" : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
                     <span
-                      className={`node-port provenance-port node-port-in node-connection-port input ${node.type === "requirement" ? requirementBindings.length ? "connected" : "" : node.parentId ? "connected" : ""}`}
+                      className={`node-port provenance-port node-port-in node-connection-port input ${node.type === "requirement" ? requirementBindings.length ? "connected" : "" : node.parentId ? "connected" : ""} ${connectionTargetEligible ? "connection-target" : ""}`}
                       data-node-id={node.id}
-                      title={node.type === "requirement" ? (requirementBindings.length ? "点击断开全部原图与参考图" : "连接原图或参考图容器") : node.parentId ? "点击断开输入关系" : "输入关系连接点"}
+                      data-connection-target={connectionTargetEligible ? "true" : undefined}
+                      title={connectionTargetEligible
+                        ? "松开鼠标连接到这个成果"
+                        : node.type === "requirement"
+                          ? (requirementBindings.length ? "已有输入关系；点击具体连线可管理" : "接收原图或参考图")
+                          : node.parentId ? "已有输入关系；点击具体连线可管理" : "输入关系连接点"}
                       aria-label={`${nodeTitle} 输入连接头`}
                       onPointerDown={(event) => {
                         event.preventDefault();
@@ -27280,13 +27575,15 @@ function App() {
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        disconnectNodeInput(node.id);
+                        setServerMessage(connectionDraft
+                          ? "请继续按住来源节点的右侧连接点，并在目标节点上松开。"
+                          : "连接头不会直接删除关系；请点击具体连线管理，或使用节点右键菜单批量断开。");
                       }}
                     />
                     <span
                       className={`node-port provenance-port node-port-out node-connection-port output ${outputConnected ? "connected" : ""} ${connectionDraft?.sourceId === node.id ? "connecting" : ""}`}
                       data-node-id={node.id}
-                      title={node.type === "requirement" ? (outputConnected ? "已有需求成果；拖动可连接其他成果" : "拖动连接需求产出的成果") : outputConnected ? "点击断开输出关系，拖动连接到后续成果" : "拖动连接到后续成果"}
+                      title={node.type === "requirement" ? "拖动连接需求产出的成果" : "拖动连接到后续成果"}
                       aria-label={`${nodeTitle} 输出连接头`}
                       onPointerDown={(event) => beginConnection(event, node)}
                     />
@@ -27334,6 +27631,39 @@ function App() {
               </ButtonBase>
             </div>
           </div>
+
+          {relationMenu ? (() => {
+            const source = nodes.find((node) => node.id === relationMenu.sourceId);
+            const target = nodes.find((node) => node.id === relationMenu.targetId);
+            if (!source || !target) return null;
+            return (
+              <MenuSurface
+                className="canvas-context-menu relation-context-menu"
+                x={relationMenu.x}
+                y={relationMenu.y}
+                ariaLabel="成果关系菜单"
+                onRequestClose={() => setRelationMenu(null)}
+              >
+                <div
+                  className="relation-context-summary"
+                  data-source-id={source.id}
+                  data-target-id={target.id}
+                >
+                  <span>{canvasRelationLabel(relationMenu.relationType, relationMenu.inputRole)}关系</span>
+                  <strong>{source.title || source.id}</strong>
+                  <small>连接到 {target.title || target.id}</small>
+                </div>
+                <MenuSeparator />
+                <MenuItem
+                  tone="danger"
+                  icon={<X size={15} />}
+                  onClick={() => disconnectSingleRelation(relationMenu)}
+                >
+                  断开这条连线
+                </MenuItem>
+              </MenuSurface>
+            );
+          })() : null}
 
           {canvasMenu ? (
             <MenuSurface
@@ -27449,6 +27779,12 @@ function App() {
                           onClick={() => void exportImageCollectionsFromUi(collectionIds)}
                         >
                           批量导出 {collectionIds.length} 个图片组
+                        </MenuItem>
+                        <MenuItem
+                          icon={<PackageCheck size={15} />}
+                          onClick={() => openExportCenterForCollections(collectionIds)}
+                        >
+                          在导出中心配置这 {collectionIds.length} 个图片组
                         </MenuItem>
                       </>
                     );
@@ -27572,6 +27908,9 @@ function App() {
                             <MenuItem icon={<Layers3 size={15} />} busy={fileActionBusy} onClick={() => void exportAssetPsd(targetNode, 0)}>
                               {targetNode.layerGroup ? "导出当前图层 PSD…" : "导出 Photoshop PSD…"}
                             </MenuItem>
+                            <MenuItem icon={<PackageCheck size={15} />} onClick={() => openExportCenterForAsset(targetNode.id, 0)}>
+                              添加到导出中心
+                            </MenuItem>
                             {imageCollectionForNode(targetNode) ? (() => {
                               const collection = imageCollectionForNode(targetNode)!;
                               const collectionItem = imageCollectionItemForAsset(targetNode, 0);
@@ -27591,6 +27930,12 @@ function App() {
                                     onClick={() => void exportImageCollectionsFromUi([collection.id])}
                                   >
                                     导出图片组
+                                  </MenuItem>
+                                  <MenuItem
+                                    icon={<PackageCheck size={15} />}
+                                    onClick={() => openExportCenterForCollections([collection.id])}
+                                  >
+                                    在导出中心配置图片组
                                   </MenuItem>
                                   <MenuItem
                                     icon={<FolderOpen size={15} />}
@@ -27687,6 +28032,23 @@ function App() {
                         ) : null}
                           </>
                         )}
+                        {(nodeInputBindingsById.get(targetNode.id)?.length ?? 0) > 0 || (nodeOutputCountById.get(targetNode.id) ?? 0) > 0 ? (
+                          <>
+                            <MenuSeparator />
+                            {(nodeInputBindingsById.get(targetNode.id)?.length ?? 0) > 0 ? (
+                              <MenuItem icon={<Workflow size={15} />} onClick={() => disconnectNodeInput(targetNode.id)}>
+                                {targetNode.type === "requirement"
+                                  ? `断开全部输入关系（${nodeInputBindingsById.get(targetNode.id)?.length ?? 0}）`
+                                  : "断开输入关系"}
+                              </MenuItem>
+                            ) : null}
+                            {(nodeOutputCountById.get(targetNode.id) ?? 0) > 0 ? (
+                              <MenuItem icon={<Workflow size={15} />} onClick={() => disconnectNodeOutputs(targetNode.id)}>
+                                断开全部输出关系（{nodeOutputCountById.get(targetNode.id) ?? 0}）
+                              </MenuItem>
+                            ) : null}
+                          </>
+                        ) : null}
                       </>
                     ) : null;
                   })()}
@@ -27748,6 +28110,9 @@ function App() {
                 <MenuItem icon={<Layers3 size={15} />} busy={fileActionBusy} onClick={() => void exportAssetPsd(targetNode, assetContextMenu.assetIndex)}>
                   {targetNode.layerGroup ? "导出当前图层 PSD…" : "导出 Photoshop PSD…"}
                 </MenuItem>
+                <MenuItem icon={<PackageCheck size={15} />} onClick={() => openExportCenterForAsset(targetNode.id, assetContextMenu.assetIndex)}>
+                  添加到导出中心
+                </MenuItem>
                 {targetAsset.path ? (
                   <MenuItem icon={<FolderOpen size={15} />} onClick={() => {
                     setAssetContextMenu(null);
@@ -27775,6 +28140,12 @@ function App() {
                         onClick={() => void exportImageCollectionsFromUi([collection.id])}
                       >
                         导出图片组
+                      </MenuItem>
+                      <MenuItem
+                        icon={<PackageCheck size={15} />}
+                        onClick={() => openExportCenterForCollections([collection.id])}
+                      >
+                        在导出中心配置图片组
                       </MenuItem>
                       <MenuItem
                         icon={<FolderOpen size={15} />}
@@ -27882,12 +28253,13 @@ function App() {
 
         </section>
 
-        <ProjectAgentPanel
+        <React.Suspense fallback={<aside className="project-agent-panel" aria-busy="true" aria-label="项目 Agent 对话栏" />}>
+        <LazyProjectAgentPanel
           projectName={activeProjectName}
           messages={messages}
           conversations={conversations}
           activeConversationId={activeConversationId}
-          selectedArtifacts={selectedNodes}
+          selectedArtifacts={selectedNodes.map((node) => ({ id: node.id, name: nodeWorkName(node) }))}
           sourceImages={agentSourceImages}
           referenceImages={agentReferenceImages}
           prompt={prompt}
@@ -27935,6 +28307,7 @@ function App() {
           commitPanelLayout={persistAgentPanelLayout}
           debugCommit={recordDebugRenderCommit}
         />
+        </React.Suspense>
 
       </main>
 
@@ -28067,6 +28440,36 @@ function App() {
             key={commerceExportDialog.projectId}
             projectId={commerceExportDialog.projectId}
             close={() => setCommerceExportDialog(null)}
+          />
+        </React.Suspense>
+      ) : null}
+
+      {exportCenterSelection && activeProjectId ? (
+        <React.Suspense fallback={null}>
+          <LazyExportCenterDialog
+            key={`${activeProjectId}:${exportCenterSelection.target}:${exportCenterSelection.keys.join("|")}`}
+            projectId={activeProjectId}
+            images={exportCenterImages}
+            collections={exportCenterCollections}
+            psdItems={exportCenterPsdItems}
+            initialSelection={exportCenterSelection}
+            close={() => setExportCenterSelection(null)}
+            prepareProject={async () => {
+              if (activeProjectIdRef.current !== activeProjectId) throw new Error("当前项目已经切换，请重新打开导出中心。");
+              const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectId });
+              if (!saved?.ok) throw new Error(saved?.error || "导出前项目尚未可靠保存。");
+            }}
+            exportPsd={async (source, suggestedName) => {
+              if (source.kind === "layer-group") return exportLayerGroupPsd(source.nodeId, suggestedName);
+              const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+              const node = projection.canvasNodeById.get(source.nodeId);
+              if (!node) return { ok: false, errorCode: "IMAGE_EXPORT_SOURCE_MISSING", error: "待导出的图片已经不存在。" };
+              return exportAssetPsd(node, source.assetIndex ?? 0, suggestedName);
+            }}
+            onCompleted={(message) => {
+              setServerMessage(message);
+              addEvent(message);
+            }}
           />
         </React.Suspense>
       ) : null}
@@ -28257,245 +28660,36 @@ function App() {
             (!imageCollectionDialog.itemId && imageCollectionDialog.requestIndex !== undefined && item.requestIndex === imageCollectionDialog.requestIndex)
           ));
           const sourceAssetIndex = sourceItem?.assetIndex ? sourceItem.assetIndex - 1 : undefined;
-          const replacementCandidates = imageCollectionReplacementCandidates(sourceEntry?.node.id, sourceAssetIndex);
-          const replacementNodes = [...new Map(replacementCandidates.map((candidate) => [candidate.node.id, candidate.node])).values()];
-          const replacementAssets = replacementCandidates.filter((candidate) => candidate.node.id === imageCollectionDialog.replacementNodeId);
-          const selectedReplacement = replacementAssets.find((candidate) => candidate.assetIndex === imageCollectionDialog.replacementAssetIndex);
-          const isRename = imageCollectionDialog.mode === "rename";
-          const canSubmit = isRename
-            ? collectionEntries.length > 0 && collectionEntries.every((entry) => Boolean(imageCollectionDialog.names[entry.collection.id]?.trim()))
-            : Boolean(sourceEntry && sourceItem && selectedReplacement && imageCollectionDialog.defectReason?.trim());
           return (
-            <DialogShell
-              surface="image-collection"
-              ariaLabel={isRename ? "重命名图片组" : "替换图片组槽位"}
-              className="image-collection-dialog"
-              busy={imageCollectionActionBusy}
-              closePolicy={{ escape: "when-idle", backdrop: "when-idle", [CLOSE_BUTTON_REASON]: "when-idle", action: "when-idle" }}
-              onRequestClose={() => setImageCollectionDialog(null)}
-              onCloseBlocked={() => setServerMessage("图片组操作正在保存，请稍候。")}
-            >
-              {({ requestClose }) => (
-                <>
-                  <SurfaceHeader
-                    title={isRename ? (collectionEntries.length > 1 ? "批量重命名图片组" : "重命名图片组") : "替换图片组槽位"}
-                    description={isRename
-                      ? "保存后会同步画布标题、项目会话、导出目录名称和 Agent 查询名称。"
-                      : "替换图必须来自当前项目；原图会保留到独立瑕疵图片组。"}
-                    onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-                    closeDisabled={imageCollectionActionBusy}
-                  />
-                  <SurfaceBody>
-                    <form
-                      id="image-collection-action-form"
-                      className="image-collection-action-form"
-                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                        event.preventDefault();
-                        void submitImageCollectionDialog();
-                      }}
-                    >
-                      {isRename ? (
-                        <div className="image-collection-rename-fields">
-                          {collectionEntries.map((entry, index) => (
-                            <Field
-                              key={entry.collection.id}
-                              label={collectionEntries.length > 1 ? `图片组 ${index + 1}` : "图片组名称"}
-                              hint={`${entry.node.displayCode || entry.node.id} · 当前：${entry.collection.name || entry.node.title || "图片组"}`}
-                            >
-                              <input
-                                data-autofocus={index === 0 ? "true" : undefined}
-                                value={imageCollectionDialog.names[entry.collection.id] ?? ""}
-                                maxLength={80}
-                                placeholder="输入图片组名称"
-                                disabled={imageCollectionActionBusy}
-                                onChange={(event) => setImageCollectionDialog((current) => current ? {
-                                  ...current,
-                                  names: { ...current.names, [entry.collection.id]: event.target.value },
-                                  error: undefined,
-                                } : current)}
-                              />
-                            </Field>
-                          ))}
-                        </div>
-                      ) : (
-                        <>
-                          <div className="image-collection-slot-summary">
-                            <strong>{sourceEntry?.collection.name || sourceEntry?.node.title || "图片组"}</strong>
-                            <span>槽位 {sourceItem?.requestIndex ?? imageCollectionDialog.requestIndex ?? "-"}</span>
-                            {sourceItem?.title ? <small>{sourceItem.title}</small> : null}
-                          </div>
-                          <Field label="替换图片所在成果">
-                            <select
-                              data-autofocus="true"
-                              value={imageCollectionDialog.replacementNodeId || ""}
-                              disabled={imageCollectionActionBusy || replacementNodes.length === 0}
-                              onChange={(event) => {
-                                const replacementNodeId = event.target.value;
-                                const firstAsset = replacementCandidates.find((candidate) => candidate.node.id === replacementNodeId);
-                                setImageCollectionDialog((current) => current ? {
-                                  ...current,
-                                  replacementNodeId,
-                                  replacementAssetIndex: firstAsset?.assetIndex,
-                                  error: undefined,
-                                } : current);
-                              }}
-                            >
-                              <option value="">选择当前项目中的成果</option>
-                              {replacementNodes.map((node) => (
-                                <option key={node.id} value={node.id}>{node.displayCode || node.id} · {node.title || "图片成果"}</option>
-                              ))}
-                            </select>
-                          </Field>
-                          <Field label="替换图片槽位">
-                            <select
-                              value={Number.isInteger(imageCollectionDialog.replacementAssetIndex) ? String(imageCollectionDialog.replacementAssetIndex) : ""}
-                              disabled={imageCollectionActionBusy || replacementAssets.length === 0}
-                              onChange={(event) => setImageCollectionDialog((current) => current ? {
-                                ...current,
-                                replacementAssetIndex: event.target.value === "" ? undefined : Number(event.target.value),
-                                error: undefined,
-                              } : current)}
-                            >
-                              <option value="">选择图片</option>
-                              {replacementAssets.map((candidate) => (
-                                <option key={`${candidate.node.id}:${candidate.assetIndex}`} value={candidate.assetIndex}>
-                                  图片 {candidate.assetIndex + 1} · {candidate.asset.title || candidate.asset.originalName || candidate.asset.displayCode || "受管图片"}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                          <Field label="瑕疵原因" hint="该说明会写入瑕疵图片组 manifest。">
-                            <textarea
-                              value={imageCollectionDialog.defectReason || ""}
-                              maxLength={320}
-                              rows={4}
-                              placeholder="说明原图需要被替换的原因"
-                              disabled={imageCollectionActionBusy}
-                              onChange={(event) => setImageCollectionDialog((current) => current ? {
-                                ...current,
-                                defectReason: event.target.value,
-                                error: undefined,
-                              } : current)}
-                            />
-                          </Field>
-                          {replacementCandidates.length === 0 ? (
-                            <InlineNotice tone="warning">当前项目没有其他已完成的受管图片可用于替换。</InlineNotice>
-                          ) : null}
-                        </>
-                      )}
-                      {imageCollectionDialog.error ? (
-                        <InlineNotice tone="danger" role="alert">{imageCollectionDialog.error}</InlineNotice>
-                      ) : null}
-                    </form>
-                  </SurfaceBody>
-                  <SurfaceFooter>
-                    <ActionButton onClick={() => requestClose("action")} disabled={imageCollectionActionBusy}>取消</ActionButton>
-                    <ActionButton
-                      variant="primary"
-                      type="submit"
-                      form="image-collection-action-form"
-                      busy={imageCollectionActionBusy}
-                      disabled={!canSubmit}
-                      icon={isRename ? <Check size={16} /> : <Images size={16} />}
-                    >
-                      {isRename ? "保存名称" : "替换并保留原图"}
-                    </ActionButton>
-                  </SurfaceFooter>
-                </>
-              )}
-            </DialogShell>
+            <React.Suspense fallback={null}>
+              <LazyImageCollectionActionDialog
+                draft={imageCollectionDialog}
+                setDraft={setImageCollectionDialog}
+                collectionEntries={collectionEntries}
+                replacementCandidates={imageCollectionReplacementCandidates(sourceEntry?.node.id, sourceAssetIndex)}
+                busy={imageCollectionActionBusy}
+                close={() => setImageCollectionDialog(null)}
+                submit={submitImageCollectionDialog}
+                notifyBlocked={() => setServerMessage("图片组操作正在保存，请稍候。")}
+              />
+            </React.Suspense>
           );
         })() : null}
 
-        {imageCollectionExportDialog ? (() => {
-          const draft = imageCollectionExportDialog;
-          const preview = draft.preview;
-          const groups = preview.groups ?? [];
-          const canSubmit = Boolean(preview.ok && preview.previewToken && preview.imageCount);
-          return (
-            <DialogShell
-              surface="image-collection"
-              ariaLabel="图片组导出预检"
-              className="image-collection-dialog image-collection-export-dialog"
+        {imageCollectionExportDialog ? (
+          <React.Suspense fallback={null}>
+            <LazyImageCollectionExportDialog
+              draft={imageCollectionExportDialog}
               busy={imageCollectionActionBusy}
-              closePolicy={{ escape: "when-idle", backdrop: "when-idle", [CLOSE_BUTTON_REASON]: "when-idle", action: "when-idle" }}
-              onRequestClose={() => setImageCollectionExportDialog(null)}
-              onCloseBlocked={() => setServerMessage("图片组导出正在校验或写入，请稍候。")}
-            >
-              {({ requestClose }) => (
-                <>
-                  <SurfaceHeader
-                    title={groups.length > 1 ? `导出 ${groups.length} 个图片组` : "导出图片组"}
-                    description="文件将写入当前项目的 exports/image-groups，每组包含独立目录和 image-group.json。"
-                    onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-                    closeDisabled={imageCollectionActionBusy}
-                  />
-                  <SurfaceBody>
-                    <form
-                      id="image-collection-export-form"
-                      className="image-collection-export-form"
-                      onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                        event.preventDefault();
-                        void confirmImageCollectionExport();
-                      }}
-                    >
-                      <Field label="输出格式" hint="JPEG 会使用白色背景展平透明像素。">
-                        <select
-                          data-autofocus="true"
-                          value={draft.format}
-                          disabled={imageCollectionActionBusy}
-                          onChange={(event) => void refreshImageCollectionExportPreview(event.target.value as ImageExportFormat)}
-                        >
-                          {(Object.keys(IMAGE_EXPORT_FORMAT_LABELS) as ImageExportFormat[]).map((format) => (
-                            <option key={format} value={format}>{IMAGE_EXPORT_FORMAT_LABELS[format]}</option>
-                          ))}
-                        </select>
-                      </Field>
-                      <div className="image-collection-export-summary" aria-label="导出预检统计">
-                        <div><span>图片组</span><strong>{preview.collectionCount ?? groups.length}</strong></div>
-                        <div><span>可导出图片</span><strong>{preview.imageCount ?? 0}</strong></div>
-                        <div><span>总槽位</span><strong>{preview.slotCount ?? 0}</strong></div>
-                        <div><span>失败槽位</span><strong>{preview.failedSlotCount ?? 0}</strong></div>
-                        <div><span>等待槽位</span><strong>{preview.pendingSlotCount ?? 0}</strong></div>
-                        <div><span>预计图片体积</span><strong>约 {formatProjectMigrationBytes(preview.estimatedBytes || 0)}</strong></div>
-                      </div>
-                      {(preview.failedSlotCount || preview.pendingSlotCount) ? (
-                        <InlineNotice tone="warning">
-                          失败或等待槽位会保留在 manifest 中，但不会伪造图片文件。
-                        </InlineNotice>
-                      ) : null}
-                      <div className="image-collection-export-groups" aria-label="导出图片组明细">
-                        {groups.map((group) => (
-                          <div key={group.collectionId} className="image-collection-export-group-row">
-                            <span>
-                              <strong>{group.name}</strong>
-                              <small>{group.role === "defects" ? "瑕疵组" : "结果组"} · {group.directoryName}</small>
-                            </span>
-                            <span>{group.imageCount} 张 / {group.slotCount} 槽</span>
-                          </div>
-                        ))}
-                      </div>
-                      {draft.error ? <InlineNotice tone="danger" role="alert">{draft.error}</InlineNotice> : null}
-                    </form>
-                  </SurfaceBody>
-                  <SurfaceFooter>
-                    <ActionButton onClick={() => requestClose("action")} disabled={imageCollectionActionBusy}>取消</ActionButton>
-                    <ActionButton
-                      variant="primary"
-                      type="submit"
-                      form="image-collection-export-form"
-                      busy={imageCollectionActionBusy}
-                      disabled={!canSubmit}
-                      icon={<Download size={16} />}
-                    >
-                      确认导出 {preview.imageCount ?? 0} 张图片
-                    </ActionButton>
-                  </SurfaceFooter>
-                </>
-              )}
-            </DialogShell>
-          );
-        })() : null}
+              close={() => setImageCollectionExportDialog(null)}
+              confirm={confirmImageCollectionExport}
+              refreshPreview={refreshImageCollectionExportPreview}
+              notifyBlocked={() => setServerMessage("图片组导出正在校验或写入，请稍候。")}
+              formatLabels={IMAGE_EXPORT_FORMAT_LABELS}
+              formatBytes={formatProjectMigrationBytes}
+            />
+          </React.Suspense>
+        ) : null}
 
         {quotaDialog ? (
           <QuotaDialog
@@ -28603,628 +28797,88 @@ function App() {
         );
       })() : null}
 
-      {nodeEditorDraft ? (() => {
-        const editorNode = nodes.find((node) => node.id === nodeEditorDraft.nodeId) ?? canvasNodeById.get(nodeEditorDraft.nodeId) ?? null;
-        const editorAssetIndex = clamp(Number(nodeEditorDraft.assetIndex || 0), 0, Math.max(0, (editorNode?.assets?.length ?? 1) - 1));
-        const editorAsset = editorNode?.type === "image" ? (editorNode.assets?.[editorAssetIndex] ?? editorNode.layerComposition?.mergedAsset) : undefined;
-        const canContinue = Boolean(editorNode?.type === "image" && editorAsset);
-        const editorCollectionItem = editorNode ? imageCollectionItemForAsset(editorNode, editorAssetIndex) : undefined;
-        const editingCollectionMember = Boolean(editorNode?.imageCollection && editorNode.assets?.[editorAssetIndex]);
-        const layerComposition = editorNode?.layerComposition;
-        const layerGroup = editorNode?.layerGroup;
-        const layerMembers = editorNode?.layerGroup ? layerGroupMembers(editorNode.id) : [];
-        const layerGroupExpanded = layerMembers.some((member) => member.layerGroup?.detached);
-        const editorSourceTitle = editingCollectionMember
-          ? (editorCollectionItem?.title || editorAsset?.title || editorNode?.title || (editorNode ? nodeWorkName(editorNode) : ""))
-          : (editorAsset?.title || editorNode?.title || (editorNode ? nodeWorkName(editorNode) : ""));
-        const editorSourcePrompt = editingCollectionMember
-          ? (editorCollectionItem?.prompt || editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "")
-          : (editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "");
-        const editorDirty = nodeEditorDraft.title !== editorSourceTitle || nodeEditorDraft.prompt !== editorSourcePrompt;
-        const editorBusy = fileActionBusy;
-        const showGenerationDetails = Boolean(editorAsset && !layerComposition && !layerGroup);
-        const editorAssetRatio = editorAsset ? actualImageAspectRatio(editorAsset.width, editorAsset.height) : undefined;
-        const editorAssetPixels = editorAsset && Number(editorAsset.width) > 0 && Number(editorAsset.height) > 0
-          ? `${Math.round(Number(editorAsset.width))}×${Math.round(Number(editorAsset.height))}`
-          : undefined;
-        const editorAssetFormat = editorAsset ? imageAssetOutputFormat(editorAsset) : undefined;
-        const generationRows = editorAsset
-          ? imageGenerationDisplayRows(editorAsset, editorNode?.imageParams, editorAssetIndex, editorNode?.assets?.length ?? 1)
-          : [];
-        const generationSource = editorAsset ? imageGenerationSourceLabel(editorAsset, editorNode?.imageParams) : "";
-        return (
-          <>
-            <DialogShell
-              surface="node-editor"
-              ariaLabel="成果编辑器"
-              layerClassName="node-editor-layer"
-              className={`node-editor-dialog unified-node-editor${nodeEditorMaximized ? " is-maximized" : ""}`}
-              busy={editorBusy}
-              dirty={editorDirty}
-              closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
-              onRequestClose={() => {
-                if (editorDirty) {
-                  setNodeEditorClosePromptOpen(true);
-                  return;
-                }
-                setNodeEditorDraft(null);
-              }}
-              onCloseBlocked={() => {
-                setNodeEditorDraft((current) => current ? { ...current, error: "正在处理图片文件，请稍候。" } : current);
-              }}
-            >
-              {({ requestClose }) => (
-              <>
-              <SurfaceHeader
-                title="编辑成果"
-                description={editorNode
-                  ? layerGroup
-                    ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")} · 第 ${layerGroup.order}/${layerGroup.total} 层`
-                    : layerComposition
-                      ? `分层 PNG #${String(layerComposition.groupNumber ?? 0).padStart(3, "0")} · ${layerComposition.layers.length} 层`
-                      : editingCollectionMember
-                        ? `图片 ${editorAssetIndex + 1} · ${editorSourceTitle || "图片成果"}`
-                        : "图片成果"
-                  : "成果已不存在"}
-                onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-                closeLabel="关闭成果编辑器"
-                closeDisabled={editorBusy}
-              >
-                <IconActionButton
-                  className="node-editor-maximize"
-                  data-node-editor-action="toggle-maximize"
-                  label={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
-                  aria-label={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
-                  title={nodeEditorMaximized ? "还原成果编辑器" : "最大化成果编辑器"}
-                  onClick={() => setNodeEditorMaximized((current) => !current)}
-                  icon={nodeEditorMaximized ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-                />
-              </SurfaceHeader>
+      {nodeEditorDraft ? (
+        <React.Suspense fallback={null}>
+          <LazyNodeEditorDialog
+            draft={nodeEditorDraft}
+            setDraft={setNodeEditorDraft}
+            nodes={nodes}
+            fallbackNodes={canvasNodeById}
+            maximized={nodeEditorMaximized}
+            setMaximized={setNodeEditorMaximized}
+            closePromptOpen={nodeEditorClosePromptOpen}
+            setClosePromptOpen={setNodeEditorClosePromptOpen}
+            fileActionBusy={fileActionBusy}
+            agentExecutionBusy={agentExecutionBusy}
+            collectionItemForAsset={imageCollectionItemForAsset}
+            groupMembers={layerGroupMembers}
+            nodeWorkName={nodeWorkName}
+            firstPromptLine={firstPromptLine}
+            openViewer={openImageViewer}
+            openAssetMenu={(event, node, assetIndex) => openAssetContextMenuAt(event, node, assetIndex, "viewer")}
+            saveStandalone={saveStandaloneAssetAs}
+            saveAsset={saveAssetAs}
+            openFolder={openAssetFolder}
+            openEditor={openNodeEditor}
+            recompose={recomposeLayerStack}
+            explode={explodeLayerStack}
+            saveDraft={saveNodeEditorDraft}
+            exportPsd={exportAssetPsd}
+            continueFromEditor={continueFromNodeEditor}
+          />
+        </React.Suspense>
+      ) : null}
 
-              <SurfaceBody className="unified-node-editor-body">
-                {editorAsset ? (
-                  <div
-                    className="unified-node-editor-preview"
-                    data-ui-interactive="true"
-                    draggable={false}
-                  >
-                    <ButtonBase
-                      className="unified-node-editor-preview-open"
-                      data-ui-control="preview"
-                      type="button"
-                      draggable={false}
-                      onClick={() => editorNode?.assets?.[editorAssetIndex] && openImageViewer(editorNode, editorAssetIndex)}
-                      onContextMenu={(event) => {
-                        if (editorNode?.assets?.[editorAssetIndex]) {
-                          openAssetContextMenuAt(event, editorNode, editorAssetIndex, "viewer");
-                          return;
-                        }
-                        event.preventDefault();
-                        void saveStandaloneAssetAs(editorAsset, `${nodeEditorDraft.title || "图片成果"}.png`, "编辑器预览");
-                      }}
-                      title={editorNode?.layerGroup ? "查看原图；分层组请使用合成、图层文件夹或 PSD 导出" : "查看原图；右键可保存图片"}
-                    >
-                      <img src={imageAssetSrc(editorAsset)} alt={nodeEditorDraft.title || "图片成果"} />
-                      {editorAssetRatio || editorAssetPixels ? (
-                        <span className="unified-node-editor-image-specs" aria-label="最终图片规格">
-                          {editorAssetRatio ? <b>{editorAssetRatio}</b> : null}
-                          {editorAssetPixels ? <b>{editorAssetPixels}</b> : null}
-                        </span>
-                      ) : null}
-                      <span className="unified-node-editor-preview-hint"><ImageIcon size={14} />单击查看原图</span>
-                    </ButtonBase>
-                    <ActionButton
-                      variant="secondary"
-                      className="unified-node-editor-save-image"
-                      draggable={false}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (editorNode?.assets?.[editorAssetIndex]) void saveAssetAs(editorNode, editorAssetIndex);
-                        else void saveStandaloneAssetAs(editorAsset, `${nodeEditorDraft.title || "图片成果"}.png`, "编辑器预览");
-                      }}
-                      disabled={fileActionBusy}
-                      title="另存为"
-                      icon={<Download size={14} />}
-                    >
-                      另存为
-                    </ActionButton>
-                  </div>
-                ) : (
-                  <div className="unified-node-editor-preview is-empty">
-                    <Workflow size={28} />
-                    <span>当前成果没有图片预览</span>
-                  </div>
-                )}
-                <div className={`unified-node-editor-fields ${layerComposition || layerGroup ? "has-layer-composition" : ""} ${showGenerationDetails ? "has-generation-details" : ""}`.trim()}>
-                  <Field label={editingCollectionMember ? "图片标题" : "成果标题"}>
-                    <input
-                      value={nodeEditorDraft.title}
-                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, title: event.target.value, error: undefined } : current)}
-                      placeholder="给这个成果一个容易识别的名称"
-                    />
-                  </Field>
-                  {showGenerationDetails ? (
-                    <section
-                      className="node-editor-generation-details"
-                      aria-label={generationSource === "本地导入" ? "图片信息" : "生成参数"}
-                      data-generation-source={generationSource}
-                    >
-                      <header>
-                        <span><SlidersHorizontal size={14} />{generationSource === "本地导入" ? "图片信息" : "生成参数"}</span>
-                        <em>{generationSource}{editorAssetFormat ? ` · ${editorAssetFormat.toUpperCase()}` : ""}</em>
-                      </header>
-                      <dl className="node-editor-generation-grid">
-                        {generationRows.map((row) => (
-                          <div key={row.key} data-generation-param={row.key}>
-                            <dt>{row.label}</dt>
-                            <dd title={[row.requested, row.actual].filter(Boolean).join(" → ")}>
-                              {row.requested ? <span className="is-request">{row.requested}</span> : null}
-                              {row.requested && row.actual ? <i aria-hidden="true">→</i> : null}
-                              {row.actual ? (
-                                <strong className={`is-${row.actualSource || "value"}`} data-param-source={row.actualSource || "value"}>
-                                  {row.actualSource ? <small>{row.actualSource === "api" ? "响应" : row.actualSource === "asset" ? "成图" : "本次"}</small> : null}
-                                  {row.actual}
-                                </strong>
-                              ) : null}
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </section>
-                  ) : null}
-                  <Field className="is-prompt" label="提示词">
-                    <textarea
-                      value={nodeEditorDraft.prompt}
-                      onChange={(event) => setNodeEditorDraft((current) => current ? { ...current, prompt: event.target.value, error: undefined } : current)}
-                      placeholder="编辑这个成果的完整提示词；继续生成时会直接使用这里的内容"
-                    />
-                  </Field>
-                  {layerGroup ? (
-                    <section className="node-editor-layer-panel" aria-label="独立分层 PNG 操作">
-                      <header>
-                        <span><Layers3 size={15} />图层列表</span>
-                        <strong>{layerGroup.compositionWidth}×{layerGroup.compositionHeight}</strong>
-                      </header>
-                      <div className="node-editor-layer-list">
-                        {[...layerMembers]
-                          .sort((left, right) => Number(right.layerGroup?.order ?? 0) - Number(left.layerGroup?.order ?? 0))
-                          .map((member) => (
-                            <ButtonBase
-                              type="button"
-                              key={member.id}
-                              className={`ui-choice-row ${member.id === editorNode?.id ? "current" : ""}`}
-                              onClick={() => editorNode && openNodeEditor(member)}
-                              title={`编辑 ${member.layerGroup?.layerTitle || member.title}`}
-                            >
-                              <i>{member.layerGroup?.order}</i>
-                              <em>{member.layerGroup?.layerTitle || member.title}</em>
-                              <small>{member.layerGroup?.role || "layer"} · {member.layerGroup?.detached ? "独立" : "叠放"}</small>
-                            </ButtonBase>
-                          ))}
-                      </div>
-                      <div className="node-editor-layer-actions">
-                        <ActionButton
-                          variant="secondary"
-                          className="node-editor-action"
-                          data-node-editor-action="open-layers"
-                          onClick={() => void openAssetFolder(editorAsset)}
-                          icon={<FolderOpen size={15} />}
-                        >
-                          打开图层文件夹
-                        </ActionButton>
-                        {layerGroupExpanded ? (
-                          <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="recompose" onClick={() => void recomposeLayerStack(editorNode!.id)} icon={<Layers3 size={15} />}>
-                            图层重组
-                          </ActionButton>
-                        ) : (
-                          <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="explode" onClick={() => explodeLayerStack(editorNode!.id)} icon={<Layers3 size={15} />}>
-                            展开图层
-                          </ActionButton>
-                        )}
-                      </div>
-                    </section>
-                  ) : null}
-                  {layerComposition ? (
-                    <section className="node-editor-layer-panel" aria-label="分层 PNG 操作">
-                      <header>
-                        <span><Layers3 size={15} />分层 PNG</span>
-                        <strong>#{String(layerComposition.groupNumber ?? 0).padStart(3, "0")} · {layerComposition.layers.length} 层</strong>
-                      </header>
-                      <div className="node-editor-layer-list">
-                        {[...layerComposition.layers]
-                          .sort((left, right) => Number(right.order ?? 0) - Number(left.order ?? 0))
-                          .map((layer) => (
-                            <span key={`${editorNode?.id}-${layer.id}`}>
-                              <i>{Number(layer.order ?? 0)}</i>
-                              <em>{layer.title || layer.id}</em>
-                              <small>{layer.role || "layer"}</small>
-                            </span>
-                          ))}
-                      </div>
-                      <div className="node-editor-layer-actions">
-                        <ActionButton
-                          variant="secondary"
-                          className="node-editor-action"
-                          data-node-editor-action="open-layers"
-                          onClick={() => void openAssetFolder(layerComposition.layers.map((layer) => layer.asset).find((asset) => asset?.path) ?? layerComposition.mergedAsset ?? layerComposition.previewAsset)}
-                          icon={<FolderOpen size={15} />}
-                        >
-                          打开图层文件夹
-                        </ActionButton>
-                        {layerComposition.layout === "exploded" ? (
-                          <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="recompose" onClick={() => void recomposeLayerStack(editorNode!.id)} icon={<Layers3 size={15} />}>
-                            图层重组
-                          </ActionButton>
-                        ) : (
-                          <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="explode" onClick={() => explodeLayerStack(editorNode!.id)} icon={<Layers3 size={15} />}>
-                            展开图层
-                          </ActionButton>
-                        )}
-                      </div>
-                    </section>
-                  ) : null}
-                  {nodeEditorDraft.error ? <InlineNotice className="node-editor-error" tone="danger">{nodeEditorDraft.error}</InlineNotice> : null}
-                </div>
-              </SurfaceBody>
+      {regionRedrawDraft ? (
+        <React.Suspense fallback={null}>
+          <LazyRegionRedrawDialog
+            draft={regionRedrawDraft}
+            setDraft={(action) => setRegionRedrawDraft((current) => {
+              const next = typeof action === "function" ? action(current) : action;
+              regionRedrawDraftRef.current = next;
+              return next;
+            })}
+            nodes={nodes}
+            imageSize={settings.imageSize}
+            closePromptOpen={regionRedrawClosePromptOpen}
+            setClosePromptOpen={setRegionRedrawClosePromptOpen}
+            sourceCanvasRef={regionRedrawSourceCanvasRef}
+            maskCanvasRef={regionRedrawMaskCanvasRef}
+            beginPaint={beginRegionRedrawPaint}
+            movePaint={moveRegionRedrawPaint}
+            endPaint={endRegionRedrawPaint}
+            clearPaintState={() => {
+              regionRedrawPaintRef.current = null;
+            }}
+            clearMask={clearRegionRedrawMask}
+            submit={submitRegionRedraw}
+            agentExecutionBusy={agentExecutionBusy}
+          />
+        </React.Suspense>
+      ) : null}
 
-              <SurfaceFooter className="unified-node-editor-footer">
-                <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="cancel" onClick={() => requestClose("action")}>
-                  取消
-                </ActionButton>
-                <ActionButton variant="secondary" className="node-editor-action" data-node-editor-action="save" onClick={() => saveNodeEditorDraft(true)} icon={<Check size={15} />} disabled={!editorDirty}>
-                  保存
-                </ActionButton>
-                {editorNode?.assets?.[editorAssetIndex] && !layerGroup && !layerComposition ? (
-                    <ActionButton
-                      variant="secondary"
-                      className="node-editor-action"
-                      data-node-editor-action="export-psd"
-                      onClick={() => editorNode && void exportAssetPsd(editorNode, editorAssetIndex)}
-                      disabled={fileActionBusy}
-                      icon={<Layers3 size={15} />}
-                    >
-                      导出 PSD
-                    </ActionButton>
-                ) : null}
-                {canContinue ? (
-                  <ActionButton variant="primary" className="node-editor-action" data-node-editor-action="continue" onClick={continueFromNodeEditor} disabled={agentExecutionBusy} icon={<WandSparkles size={15} />}>
-                    保存并继续生成
-                  </ActionButton>
-                ) : null}
-              </SurfaceFooter>
-              </>
-              )}
-            </DialogShell>
-            {nodeEditorClosePromptOpen ? (
-              <UnsavedChangesDialog
-                surface="node-editor-unsaved"
-                ariaLabel="保存成果修改"
-                title="关闭前要保存成果修改吗？"
-                description="成果标题或提示词还有未保存的修改。"
-                detail={<p>保存只更新当前成果信息，不会执行图片模型或产生费用。</p>}
-                busy={editorBusy}
-                onContinueEditing={() => setNodeEditorClosePromptOpen(false)}
-                onDiscard={() => {
-                  setNodeEditorClosePromptOpen(false);
-                  setNodeEditorDraft(null);
-                }}
-                onSave={() => {
-                  const saved = saveNodeEditorDraft(true);
-                  if (!saved) setNodeEditorClosePromptOpen(false);
-                }}
-              />
-            ) : null}
-          </>
-        );
-      })() : null}
-
-      {regionRedrawDraft ? (() => {
-        const redrawNode = nodes.find((item) => item.id === regionRedrawDraft.nodeId) ?? null;
-        const isCutout = regionRedrawDraft.mode === "cutout";
-        const editorTitle = isCutout ? "AI 抠图" : "AI 重绘";
-        const fallbackSize = parseImageSizeValue(redrawNode?.imageParams?.size || settings.imageSize || "");
-        const sourceWidth = regionRedrawDraft.sourceWidth || fallbackSize?.width || 1;
-        const sourceHeight = regionRedrawDraft.sourceHeight || fallbackSize?.height || 1;
-        const redrawDirty = regionRedrawDraft.prompt !== regionRedrawDraft.initialPrompt || regionRedrawDraft.maskDirty;
-        const closeRedraw = () => {
-          regionRedrawPaintRef.current = null;
-          regionRedrawDraftRef.current = null;
-          setRegionRedrawClosePromptOpen(false);
-          setRegionRedrawDraft(null);
-        };
-        return (
-          <>
-            <DialogShell
-              surface="region-redraw"
-              ariaLabel={editorTitle}
-              layerClassName="region-redraw-layer"
-              className={`region-redraw-dialog ${isCutout ? "is-cutout" : "is-redraw"}`}
-              busy={regionRedrawDraft.busy}
-              dirty={redrawDirty}
-              closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
-              onRequestClose={() => {
-                if (redrawDirty) {
-                  setRegionRedrawClosePromptOpen(true);
-                  return;
-                }
-                closeRedraw();
-              }}
-              onCloseBlocked={() => {
-                setRegionRedrawDraft((current) => {
-                  if (!current) return current;
-                  const next = { ...current, error: `${editorTitle}正在执行，请稍候。` };
-                  regionRedrawDraftRef.current = next;
-                  return next;
-                });
-              }}
-            >
-              {({ requestClose }) => (
-              <>
-              <SurfaceHeader
-                title={editorTitle}
-                description={redrawNode?.title || "选中的图片成果"}
-                onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-                closeLabel={`关闭${editorTitle}`}
-                closeDisabled={regionRedrawDraft.busy}
-              />
-
-              <SurfaceBody className="region-redraw-body">
-                <div className="region-redraw-stage-panel">
-                  <div className="region-redraw-stage-head">
-                    <strong>{isCutout ? "涂抹要保留的主体" : "涂抹要修改的位置"}</strong>
-                    <span>{isCutout ? "大致覆盖主体即可，AI 会结合描述识别自然边缘。" : "红色区域会交给 Image 2 重绘，其他区域保持不变。"}</span>
-                  </div>
-                  <div
-                    className={`region-redraw-canvas-shell ${regionRedrawDraft.ready ? "ready" : "loading"}`}
-                    style={{ aspectRatio: `${sourceWidth} / ${sourceHeight}` }}
-                  >
-                    <canvas ref={regionRedrawSourceCanvasRef} className="region-redraw-source-canvas" aria-label={`${editorTitle}来源图片`} />
-                    <canvas
-                      ref={regionRedrawMaskCanvasRef}
-                      className="region-redraw-mask-canvas"
-                      aria-label={`${editorTitle}选区蒙版`}
-                      onPointerDown={beginRegionRedrawPaint}
-                      onPointerMove={moveRegionRedrawPaint}
-                      onPointerUp={endRegionRedrawPaint}
-                      onPointerCancel={endRegionRedrawPaint}
-                      onLostPointerCapture={() => {
-                        regionRedrawPaintRef.current = null;
-                      }}
-                    />
-                    {!regionRedrawDraft.ready ? (
-                      <div className="region-redraw-loading">
-                        <Loader2 size={20} className="spin" aria-hidden="true" />
-                        <span>正在准备原图和蒙版…</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                <aside className="region-redraw-controls">
-                  <Field className="region-redraw-prompt-field" label={isCutout ? "主体描述" : "重绘要求"}>
-                    <textarea
-                      value={regionRedrawDraft.prompt}
-                      placeholder={isCutout ? "例如：保留人物、发丝和手持的透明雨伞，移除背景。" : "例如：把涂抹区域改成一枚银色胸针，保持人物、衣服和光线不变。"}
-                      disabled={regionRedrawDraft.busy}
-                      onChange={(event) => setRegionRedrawDraft((current) => {
-                        if (!current) return current;
-                        const next = { ...current, prompt: event.target.value, error: undefined };
-                        regionRedrawDraftRef.current = next;
-                        return next;
-                      })}
-                    />
-                  </Field>
-                  <Field
-                    className="region-redraw-brush-field"
-                    label={(
-                      <>
-                      <WandSparkles size={15} />
-                      笔刷大小
-                      <strong>{regionRedrawDraft.brushSize}px</strong>
-                      </>
-                    )}
-                  >
-                    <input
-                      type="range"
-                      min="12"
-                      max="240"
-                      step="4"
-                      value={regionRedrawDraft.brushSize}
-                      disabled={!regionRedrawDraft.ready || regionRedrawDraft.busy}
-                      onChange={(event) => setRegionRedrawDraft((current) => current ? { ...current, brushSize: Number(event.target.value) } : current)}
-                    />
-                  </Field>
-                  <InlineNotice className="region-redraw-note" tone="info" icon={<WandSparkles size={16} />}>
-                    <p>{isCutout ? "选区负责告诉 Agent 主体大致在哪里，描述负责消除歧义；提交前不会生成图片。" : "可以多次涂抹。选区决定修改范围，具体内容由描述决定。"}</p>
-                  </InlineNotice>
-                  {regionRedrawDraft.error ? <InlineNotice className="region-redraw-error" tone="danger">{regionRedrawDraft.error}</InlineNotice> : null}
-                </aside>
-              </SurfaceBody>
-
-              <SurfaceFooter
-                className="region-redraw-footer"
-                leading={(
-                  <ActionButton variant="ghost" onClick={clearRegionRedrawMask} disabled={!regionRedrawDraft.ready || regionRedrawDraft.busy || !regionRedrawDraft.maskDirty} icon={<RotateCcw size={15} />}>
-                    清空涂抹
-                  </ActionButton>
-                )}
-              >
-                <ActionButton onClick={() => requestClose("action")} disabled={regionRedrawDraft.busy}>
-                  取消
-                </ActionButton>
-                <ActionButton variant="primary" onClick={() => void submitRegionRedraw()} busy={regionRedrawDraft.busy} disabled={agentExecutionBusy || !regionRedrawDraft.ready} icon={<WandSparkles size={15} />}>
-                  {regionRedrawDraft.busy ? (isCutout ? "正在抠图…" : "正在重绘…") : `执行${editorTitle}`}
-                </ActionButton>
-              </SurfaceFooter>
-              </>
-              )}
-            </DialogShell>
-            {regionRedrawClosePromptOpen ? (
-              <UnsavedChangesDialog
-                surface="region-redraw-unsaved"
-                ariaLabel={`放弃${editorTitle}修改`}
-                title={`要放弃未提交的${editorTitle}修改吗？`}
-                description="当前描述或涂抹选区还没有提交。"
-                detail={<p>继续编辑会保留当前蒙版；放弃只关闭编辑器，不会调用图片模型或产生费用。</p>}
-                busy={regionRedrawDraft.busy}
-                onContinueEditing={() => setRegionRedrawClosePromptOpen(false)}
-                onDiscard={closeRedraw}
-                discardLabel="放弃并关闭"
-              />
-            ) : null}
-          </>
-        );
-      })() : null}
-
-      {layerViewer ? (() => {
-        const members = nodes
-          .filter((node) => node.layerGroup?.id === layerViewer.groupId)
-          .sort((left, right) => Number(left.layerGroup?.order ?? 0) - Number(right.layerGroup?.order ?? 0));
-        const selectedLayer = members.find((member) => member.id === layerViewer.selectedNodeId) ?? members[members.length - 1];
-        const group = selectedLayer?.layerGroup;
-        if (!selectedLayer || !group) return null;
-        const groupExpanded = members.some((member) => member.layerGroup?.detached);
-        return (
-          <DialogShell
-            surface="layer-group-viewer"
-            ariaLabel={`分层查看器 ${group.title || "分层 PNG"}`}
-            layerClassName="layer-group-viewer-layer"
-            className="layer-group-viewer"
-            busy={fileActionBusy}
-            closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE, action: WHEN_IDLE }}
-            onRequestClose={() => setLayerViewer(null)}
-          >
-            {({ requestClose }) => (
-            <>
-              <SurfaceHeader
-                title={group.title || "分层 PNG"}
-                description={`#${String(group.groupNumber).padStart(3, "0")} · ${members.length} 个真实 PNG 图层`}
-                onClose={() => requestClose(CLOSE_BUTTON_REASON)}
-                closeLabel="关闭分层查看器"
-                closeDisabled={fileActionBusy}
-              >
-                <SegmentedControl className="layer-viewer-mode-switch" aria-label="分层查看模式">
-                  {(["composite", "solo", "onion"] as const).map((mode) => (
-                    <SegmentButton
-                      key={mode}
-                      type="button"
-                      active={layerViewer.mode === mode}
-                      onClick={() => setLayerViewer((current) => current ? { ...current, mode } : current)}
-                    >
-                      {mode === "composite" ? "合成" : mode === "solo" ? "单层" : "透视"}
-                    </SegmentButton>
-                  ))}
-                </SegmentedControl>
-              </SurfaceHeader>
-              <SurfaceBody className="layer-group-viewer-body">
-                <div className="layer-viewer-stage-wrap">
-                  <div
-                    className="layer-viewer-stage"
-                    style={{ aspectRatio: `${group.compositionWidth} / ${group.compositionHeight}` }}
-                    aria-label={`${layerViewer.mode === "composite" ? "合成" : layerViewer.mode === "solo" ? "单层" : "透视"}预览`}
-                    onContextMenu={(event) => openAssetContextMenuAt(event, selectedLayer, 0, "viewer")}
-                  >
-                    <div className="layer-viewer-image-stack">
-                      {members.map((member, index) => {
-                        const asset = member.assets?.[0];
-                        if (!asset) return null;
-                        const visible = layerNodeIsVisible(member);
-                        const selected = member.id === selectedLayer.id;
-                        const shouldRender = layerViewer.mode === "solo" ? selected : visible;
-                        const opacity = layerViewer.mode === "onion" ? (selected ? 1 : visible ? 0.24 : 0) : shouldRender ? 1 : 0;
-                        const meta = layerGroupViewMeta(member);
-                        return (
-                          <img
-                            key={member.id}
-                            src={imageAssetSrc(asset)}
-                            alt={member.layerGroup?.layerTitle || `图层 ${index + 1}`}
-                            draggable={false}
-                            style={{
-                              zIndex: Number(member.layerGroup?.order ?? index + 1),
-                              opacity: opacity * Number(meta?.opacity ?? 1),
-                              mixBlendMode: meta?.blendMode && meta.blendMode !== "normal" && meta.blendMode !== "source-over" ? meta.blendMode : "normal"
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                    <span className="layer-viewer-selected-label">
-                      第 {group.order}/{group.total} 层 · {group.layerTitle}
-                    </span>
-                  </div>
-                </div>
-                <aside className="layer-viewer-rail" aria-label="图层列表">
-                  <header>
-                    <span>图层</span>
-                    <ButtonBase className="ui-inline-action" type="button" onClick={() => showAllLayerGroup(selectedLayer.id)}>显示全部</ButtonBase>
-                  </header>
-                  <div>
-                    {[...members].reverse().map((member) => {
-                      const memberGroup = member.layerGroup!;
-                      const visible = layerNodeIsVisible(member);
-                      return (
-                        <article
-                          key={member.id}
-                          className={`${member.id === selectedLayer.id ? "active" : ""} ${visible ? "" : "hidden"}`}
-                          draggable={false}
-                          onContextMenu={(event) => openAssetContextMenuAt(event, member, 0, "viewer")}
-                          title="右键可另存当前图层；需要作为普通图片拖动时请先合并可见图层"
-                        >
-                          <IconActionButton
-                            className="layer-viewer-eye"
-                            label={visible ? `隐藏 ${memberGroup.layerTitle}` : `显示 ${memberGroup.layerTitle}`}
-                            onClick={() => setLayerNodeVisibility(member.id, !visible)}
-                            icon={visible ? <Eye size={15} /> : <EyeOff size={15} />}
-                          />
-                          <ButtonBase
-                            type="button"
-                            className="ui-choice-row layer-viewer-row"
-                            onClick={() => {
-                              setLayerViewer((current) => current ? { ...current, selectedNodeId: member.id } : current);
-                              setSelectedNodeId(member.id);
-                            }}
-                            onDoubleClick={() => openNodeEditor(member)}
-                          >
-                            <span className="layer-viewer-thumb">
-                              {member.assets?.[0] ? <img src={imageAssetThumbnailSrc(member.assets[0])} alt="" draggable={false} loading="lazy" decoding="async" /> : null}
-                            </span>
-                            <span>
-                              <strong>{memberGroup.layerTitle}</strong>
-                              <small>{memberGroup.order}/{memberGroup.total} · {memberGroup.role}</small>
-                            </span>
-                          </ButtonBase>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </aside>
-              </SurfaceBody>
-              <SurfaceFooter
-                className="layer-group-viewer-footer"
-                leading={<p>查看不会创建新节点；合并会保留全部原图层。</p>}
-              >
-                <ActionButton variant="secondary" onClick={() => void exportLayerGroupMergedPng(selectedLayer.id)} disabled={fileActionBusy} icon={<Download size={15} />}>
-                  合成 PNG
-                </ActionButton>
-                <ActionButton variant="secondary" onClick={() => void exportLayerGroupFolder(selectedLayer.id)} disabled={fileActionBusy} icon={<FolderOpen size={15} />}>
-                  图层文件夹
-                </ActionButton>
-                <ActionButton variant="secondary" onClick={() => void exportLayerGroupPsd(selectedLayer.id)} disabled={fileActionBusy} icon={<Layers3 size={15} />}>
-                  Photoshop PSD
-                </ActionButton>
-                <ActionButton variant="secondary" onClick={() => groupExpanded ? void recomposeLayerStack(selectedLayer.id) : explodeLayerStack(selectedLayer.id)} icon={<Layers3 size={15} />}>
-                  {groupExpanded ? "图层重组" : "展开到画布"}
-                </ActionButton>
-                <ActionButton variant="primary" onClick={() => void mergeLayerGroupToNewNode(selectedLayer.id)} busy={fileActionBusy} icon={<ImageIcon size={15} />}>
-                  合并可见图层为新图片
-                </ActionButton>
-              </SurfaceFooter>
-            </>
-            )}
-          </DialogShell>
-        );
-      })() : null}
+      {layerViewer ? (
+        <React.Suspense fallback={null}>
+          <LazyLayerGroupViewerDialog
+            viewer={layerViewer}
+            setViewer={setLayerViewer}
+            nodes={nodes}
+            fileActionBusy={fileActionBusy}
+            close={() => setLayerViewer(null)}
+            openAssetMenu={(event, node, assetIndex) => openAssetContextMenuAt(event, node, assetIndex, "viewer")}
+            showAll={showAllLayerGroup}
+            setVisibility={setLayerNodeVisibility}
+            selectNode={setSelectedNodeId}
+            openEditor={openNodeEditor}
+            exportMerged={exportLayerGroupMergedPng}
+            exportFolder={exportLayerGroupFolder}
+            exportPsd={exportLayerGroupPsd}
+            recompose={recomposeLayerStack}
+            explode={explodeLayerStack}
+            mergeVisible={mergeLayerGroupToNewNode}
+          />
+        </React.Suspense>
+      ) : null}
 
       {imageViewer ? (
         <React.Suspense fallback={null}>
@@ -29272,826 +28926,6 @@ function normalizeVisibleDuplicateText(text = "") {
 // -----------------------------------------------------------------------------
 // MAIN 16 Inspector, Account Drawer, Experience, And Agent Panel
 // -----------------------------------------------------------------------------
-
-const PROJECT_AGENT_MESSAGE_PAGE_SIZE = 80;
-const PROJECT_AGENT_FOLLOW_DISTANCE = 72;
-const PROJECT_AGENT_HISTORY_ID = "project-agent-history";
-const PROJECT_AGENT_HISTORY_TOGGLE_ID = "project-agent-history-toggle";
-const PROJECT_AGENT_PLACEMENT_TOGGLE_ID = "project-agent-placement-toggle";
-
-function ProjectAgentFeedView({
-  messages,
-  agentProgressCount,
-  endRef,
-  debugCommit
-}: {
-  messages: AgentMessage[];
-  agentProgressCount: number;
-  endRef: React.MutableRefObject<HTMLDivElement | null>;
-  debugCommit: (area: DebugRenderCommitArea) => void;
-}) {
-  const messagePageSize = PROJECT_AGENT_MESSAGE_PAGE_SIZE;
-  const [visibleMessageCount, setVisibleMessageCount] = useState(messagePageSize);
-  const feedRef = useRef<HTMLDivElement | null>(null);
-  const followBottomRef = useRef(true);
-  const lastMessageIdRef = useRef("");
-  const renderedMessages = useMemo(
-    () => messages.slice(Math.max(0, messages.length - visibleMessageCount)),
-    [messages, visibleMessageCount]
-  );
-  const hiddenMessageCount = Math.max(0, messages.length - renderedMessages.length);
-
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const latestMessage = messages[messages.length - 1];
-    const userStartedTask = latestMessage?.role === "user" && latestMessage.id !== lastMessageIdRef.current;
-    lastMessageIdRef.current = latestMessage?.id || "";
-    if (!followBottomRef.current && !userStartedTask) return;
-    followBottomRef.current = true;
-    const settleBottom = () => {
-      const feed = feedRef.current;
-      if (!feed) return;
-      feed.scrollTop = feed.scrollHeight;
-    };
-    settleBottom();
-    const frame = window.requestAnimationFrame(settleBottom);
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [agentProgressCount, endRef, messages]);
-
-  function revealEarlierMessages() {
-    const feed = feedRef.current;
-    const previousScrollHeight = feed?.scrollHeight ?? 0;
-    const previousScrollTop = feed?.scrollTop ?? 0;
-    setVisibleMessageCount((current) => Math.min(messages.length, current + messagePageSize));
-    window.requestAnimationFrame(() => {
-      if (!feed) return;
-      feed.scrollTop = previousScrollTop + Math.max(0, feed.scrollHeight - previousScrollHeight);
-    });
-  }
-
-  return (
-    <>
-      {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="agentFeed" record={debugCommit} /> : null}
-      <div
-        ref={feedRef}
-        className={`project-agent-feed ${messages.length === 0 ? "is-empty" : ""}`}
-        onScroll={(event) => {
-          const feed = event.currentTarget;
-          followBottomRef.current = feed.scrollHeight - feed.clientHeight - feed.scrollTop <= PROJECT_AGENT_FOLLOW_DISTANCE;
-        }}
-      >
-        {messages.length === 0 ? (
-          <div className="project-agent-empty">
-            <Brain size={22} />
-            <strong>Agent 已接手当前项目</strong>
-            <span>{PROJECT_AGENT_WELCOME}</span>
-          </div>
-        ) : null}
-        {hiddenMessageCount > 0 ? (
-          <ButtonBase
-            className="project-agent-load-earlier"
-            type="button"
-            onClick={revealEarlierMessages}
-            aria-label={`显示更早的 ${Math.min(messagePageSize, hiddenMessageCount)} 条消息`}
-          >
-            显示更早消息
-            <small>还有 {hiddenMessageCount} 条</small>
-          </ButtonBase>
-        ) : null}
-        {renderedMessages.map((message) => (
-          <article key={message.id} className={`agent-message ${message.role} ${message.status ?? "done"}`}>
-            <span className="agent-message-node" aria-hidden="true" />
-            <React.Suspense fallback={<div className="markdown-body agent-plain-text">{message.content}</div>}>
-              <LazyAgentMessageContent message={message} />
-            </React.Suspense>
-          </article>
-        ))}
-        <div ref={endRef} />
-      </div>
-    </>
-  );
-}
-
-const ProjectAgentFeed = React.memo(ProjectAgentFeedView);
-
-function ProjectAgentComposerView({
-  selectedArtifacts,
-  sourceImages,
-  referenceImages,
-  prompt,
-  executionBusy,
-  paused,
-  stopPending,
-  goalActive,
-  goalContainerCount,
-  goalAssetCount,
-  inputRef,
-  setPrompt,
-  sendPrompt,
-  pauseAgentRun,
-  resumeAgentRun,
-  stopAgentRun,
-  clearSelection,
-  editSourceImages,
-  editReferenceImages,
-  imageModels,
-  selectedImageModels,
-  onSelectedImageModelsChange,
-  requestImageModels,
-  imageRatio,
-  imageResolution,
-  onImageFrameChange,
-  debugCommit
-}: {
-  selectedArtifacts: WorkflowNode[];
-  sourceImages: ReferenceImage[];
-  referenceImages: ReferenceImage[];
-  prompt: string;
-  executionBusy: boolean;
-  paused: boolean;
-  stopPending: boolean;
-  goalActive: boolean;
-  goalContainerCount: number;
-  goalAssetCount: number;
-  inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
-  setPrompt: (value: string) => void;
-  sendPrompt: (prompt?: string, taskScopeMode?: AgentSteerTaskScopeMode | "auto", taskMode?: AgentComposerTaskMode) => void | Promise<unknown>;
-  pauseAgentRun: () => void;
-  resumeAgentRun: () => void;
-  stopAgentRun: () => void;
-  clearSelection: () => void;
-  editSourceImages: () => void;
-  editReferenceImages: () => void;
-  imageModels: string[];
-  selectedImageModels: string[];
-  onSelectedImageModelsChange: (models: string[]) => void;
-  requestImageModels: () => void | Promise<void>;
-  imageRatio: AppSettings["imageRatio"];
-  imageResolution: AppSettings["imageResolution"];
-  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
-  debugCommit: (area: DebugRenderCommitArea) => void;
-}) {
-  return (
-    <>
-      {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="composer" record={debugCommit} /> : null}
-      <React.Suspense fallback={<div className="project-agent-composer" aria-busy="true" />}>
-        <LazyProjectAgentComposerContent
-          selectedArtifacts={selectedArtifacts.map((node) => ({ id: node.id, name: nodeWorkName(node) }))}
-          sourceImageCount={sourceImages.length}
-          referenceImageCount={referenceImages.length}
-          prompt={prompt}
-          executionBusy={executionBusy}
-          paused={paused}
-          stopPending={stopPending}
-          goalActive={goalActive}
-          goalContainerCount={goalContainerCount}
-          goalAssetCount={goalAssetCount}
-          inputRef={inputRef}
-          setPrompt={setPrompt}
-          sendPrompt={sendPrompt}
-          pauseAgentRun={pauseAgentRun}
-          resumeAgentRun={resumeAgentRun}
-          stopAgentRun={stopAgentRun}
-          clearSelection={clearSelection}
-          editSourceImages={editSourceImages}
-          editReferenceImages={editReferenceImages}
-          imageModels={imageModels}
-          selectedImageModels={selectedImageModels}
-          onSelectedImageModelsChange={onSelectedImageModelsChange}
-          requestImageModels={requestImageModels}
-          imageRatio={imageRatio}
-          imageResolution={imageResolution}
-          onImageFrameChange={onImageFrameChange}
-        />
-      </React.Suspense>
-    </>
-  );
-}
-
-function ProjectAgentPanelView({
-  projectName,
-  messages,
-  conversations,
-  activeConversationId,
-  selectedArtifacts,
-  sourceImages,
-  referenceImages,
-  prompt,
-  agentStatus,
-  executionBusy,
-  paused,
-  stopPending,
-  goalActive,
-  goalContainerCount,
-  goalAssetCount,
-  conversationBoundaryBusy,
-  agentProgress,
-  runElapsedSeconds,
-  modelName,
-  inputRef,
-  endRef,
-  setPrompt,
-  sendPrompt,
-  pauseAgentRun,
-  resumeAgentRun,
-  stopAgentRun,
-  clearSelection,
- editSourceImages,
- editReferenceImages,
-  imageModels,
-  selectedImageModels,
-  onSelectedImageModelsChange,
-  requestImageModels,
-  imageRatio,
-  imageResolution,
-  onImageFrameChange,
-  dropReferenceFiles,
- requestNewConversation,
- requestClearConversation,
-  editFastMemory,
-  switchConversation,
-  openAgentWindow,
-  collapsed,
-  toggleCollapsed,
-  panelLayout,
-  commitPanelLayout,
-  debugCommit
-}: {
-  projectName: string;
-  messages: AgentMessage[];
-  conversations: AgentConversation[];
-  activeConversationId: string;
-  selectedArtifacts: WorkflowNode[];
-  sourceImages: ReferenceImage[];
-  referenceImages: ReferenceImage[];
-  prompt: string;
-  agentStatus: AgentStatus;
-  executionBusy: boolean;
-  paused: boolean;
-  stopPending: boolean;
-  goalActive: boolean;
-  goalContainerCount: number;
-  goalAssetCount: number;
-  conversationBoundaryBusy: boolean;
-  agentProgress: AgentProgress[];
-  runElapsedSeconds: number;
-  modelName: string;
-  inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
-  endRef: React.MutableRefObject<HTMLDivElement | null>;
-  setPrompt: (value: string) => void;
-  sendPrompt: (prompt?: string, taskScopeMode?: AgentSteerTaskScopeMode | "auto", taskMode?: AgentComposerTaskMode) => void | Promise<unknown>;
-  pauseAgentRun: () => void;
-  resumeAgentRun: () => void;
-  stopAgentRun: () => void;
-  clearSelection: () => void;
- editSourceImages: () => void;
- editReferenceImages: () => void;
-  imageModels: string[];
-  selectedImageModels: string[];
-  onSelectedImageModelsChange: (models: string[]) => void;
-  requestImageModels: () => void | Promise<void>;
-  imageRatio: AppSettings["imageRatio"];
-  imageResolution: AppSettings["imageResolution"];
-  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
-  dropReferenceFiles: (files: File[]) => void | Promise<unknown>;
- requestNewConversation: () => void;
-  requestClearConversation: () => void;
-  editFastMemory: () => void;
-  switchConversation: (conversationId: string) => void;
-  openAgentWindow: () => void | Promise<void>;
-  collapsed: boolean;
-  toggleCollapsed: () => void;
-  panelLayout: AgentPanelLayout;
-  commitPanelLayout: (layout: AgentPanelLayout) => void;
-  debugCommit: (area: DebugRenderCommitArea) => void;
-}) {
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [placementOpen, setPlacementOpen] = useState(false);
-  const [referenceDropActive, setReferenceDropActive] = useState(false);
-  const historyRef = useRef<HTMLDivElement | null>(null);
-  const panelDragRef = useRef<{
-    pointerId: number;
-    mode: AgentPanelPointerMode;
-    startClientX: number;
-    startClientY: number;
-    start: AgentPanelLayout;
-    preview: AgentPanelLayout;
-    bounds: DOMRect;
-    workspace: HTMLElement;
-    frame: number;
-  } | null>(null);
-  const panelLayoutRef = useRef(panelLayout);
-  if (!panelDragRef.current) panelLayoutRef.current = panelLayout;
-  const conversationBusy = conversationBoundaryBusy;
-  const agentActivityBusy = conversationBoundaryBusy;
-  const visibleMessages = useMemo(() => messages.filter((message) => !message.hidden), [messages]);
-  const latestProgress = agentProgress[agentProgress.length - 1];
-  const latestRunningMessage = [...visibleMessages].reverse().find((message) => message.status === "running");
-  const progressPhase = String(latestProgress?.phase || "");
-  const progressActive = [
-    "runtime-request",
-    "runtime-start",
-    "model-request",
-    "model-thinking-delta",
-    "assistant-message-delta",
-    "steer-queued",
-    "steer-applied",
-    "tool-start",
-    "tool-poll",
-    "image-request",
-    "image-retry",
-    "memory-start"
-  ].includes(progressPhase);
-  const activityActive = stopPending || (!paused && (agentActivityBusy || progressActive));
-  const currentTitle = useMemo(() => {
-    const userMessage = visibleMessages.find((message) => message.role === "user" && message.content.trim());
-    return userMessage?.content.replace(/\s+/g, " ").trim().slice(0, 28) || "当前会话";
-  }, [visibleMessages]);
-  const historyItems = useMemo(() => {
-    const current = {
-      id: activeConversationId,
-      title: conversations.find((conversation) => conversation.id === activeConversationId)?.title || currentTitle,
-      updatedAt: conversations.find((conversation) => conversation.id === activeConversationId)?.updatedAt || ""
-    };
-    return [current, ...conversations.filter((conversation) => conversation.id !== activeConversationId)]
-      .filter((conversation, index, items) => items.findIndex((item) => item.id === conversation.id) === index)
-      .slice(0, 24);
-  }, [activeConversationId, conversations, currentTitle]);
-  const statusBase = stopPending
-    ? "Agent 正在确认结束"
-    : paused
-    ? "Agent 已暂停"
-    : agentStatus === "error" || /error|失败/i.test(progressPhase)
-    ? "Agent 遇到问题"
-    : latestRunningMessage?.meta === "assistant-stream"
-      ? "Agent 正在输出"
-      : latestRunningMessage?.meta === "thinking" || progressPhase === "model-request" || progressPhase === "model-thinking-delta"
-        ? "Agent 正在思考"
-        : progressActive || agentActivityBusy
-          ? "Agent 正在工作"
-          : agentProgress.length > 0
-            ? "Agent 思考完成"
-            : "等待指令";
-  const statusText = !stopPending && activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
-
-  function beginPanelPointer(
-    event: React.PointerEvent<HTMLElement>,
-    mode: AgentPanelPointerMode
-  ) {
-    if (mode === "move" && panelLayout.agentPanelPlacement !== "floating") return;
-    if (mode === "move" && (event.target as HTMLElement).closest("button, input, select, textarea, .project-agent-history, .agent-placement-menu")) return;
-    const workspace = event.currentTarget.closest<HTMLElement>(".ide-main");
-    if (!workspace) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const start = { ...panelLayoutRef.current };
-    workspace.classList.add("agent-panel-interacting");
-    panelDragRef.current = {
-      pointerId: event.pointerId,
-      mode,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      start,
-      preview: start,
-      bounds: workspace.getBoundingClientRect(),
-      workspace,
-      frame: 0
-    };
-  }
-
-  function movePanelPointer(event: React.PointerEvent<HTMLElement>) {
-    const drag = panelDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    const dx = event.clientX - drag.startClientX;
-    const dy = event.clientY - drag.startClientY;
-    const next = agentPanelLayoutFromPointer(drag.start, drag.mode, dx, dy, drag.bounds);
-    drag.preview = next;
-    panelLayoutRef.current = next;
-    if (drag.frame) return;
-    drag.frame = window.requestAnimationFrame(() => {
-      drag.frame = 0;
-      if (panelDragRef.current !== drag) return;
-      applyAgentPanelLayoutPreview(drag.workspace, drag.preview);
-    });
-  }
-
-  function endPanelPointer(event: React.PointerEvent<HTMLElement>) {
-    const drag = panelDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    if (drag.frame) window.cancelAnimationFrame(drag.frame);
-    const finalLayout = clampAgentPanelLayout(drag.preview, drag.bounds);
-    applyAgentPanelLayoutPreview(drag.workspace, finalLayout);
-    panelLayoutRef.current = finalLayout;
-    panelDragRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    commitPanelLayout(finalLayout);
-    window.requestAnimationFrame(() => clearAgentPanelLayoutPreview(drag.workspace));
-  }
-
-  function setPanelPlacement(placement: AgentPanelLayout["agentPanelPlacement"]) {
-    const workspace = document.querySelector<HTMLElement>(".ide-main");
-    const bounds = workspace?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
-    const next = agentPanelLayoutForPlacement(panelLayoutRef.current, placement, bounds);
-    setPlacementOpen(false);
-    commitPanelLayout(next);
-  }
-
-  useEffect(() => {
-    return () => {
-      const drag = panelDragRef.current;
-      if (!drag) return;
-      if (drag.frame) window.cancelAnimationFrame(drag.frame);
-      clearAgentPanelLayoutPreview(drag.workspace);
-      panelDragRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (collapsed) {
-      setHistoryOpen(false);
-      setPlacementOpen(false);
-    }
-  }, [collapsed]);
-
-  useEffect(() => {
-    if (!historyOpen) return;
-    const restoreHistoryToggleFocus = () => window.requestAnimationFrame(() => {
-      document.getElementById(PROJECT_AGENT_HISTORY_TOGGLE_ID)?.focus();
-    });
-    const closeHistory = (restoreFocus = false) => {
-      setHistoryOpen(false);
-      if (restoreFocus) restoreHistoryToggleFocus();
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      const toggle = document.getElementById(PROJECT_AGENT_HISTORY_TOGGLE_ID);
-      if (target && (historyRef.current?.contains(target) || toggle?.contains(target))) return;
-      closeHistory();
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeHistory(true);
-    };
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [historyOpen]);
-
-  useEffect(() => {
-    if (!placementOpen) return;
-    const closePlacement = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(".agent-placement-menu") || target?.closest(`#${PROJECT_AGENT_PLACEMENT_TOGGLE_ID}`)) return;
-      setPlacementOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setPlacementOpen(false);
-      window.requestAnimationFrame(() => document.getElementById(PROJECT_AGENT_PLACEMENT_TOGGLE_ID)?.focus());
-    };
-    document.addEventListener("pointerdown", closePlacement, true);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closePlacement, true);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [placementOpen]);
-
-  if (collapsed) {
-    return (
-      <aside className={`project-agent-panel is-collapsed placement-${panelLayout.agentPanelPlacement}`} aria-label="已折叠的项目 Agent 对话栏">
-        <ButtonBase className="project-agent-collapsed-rail agent-collapse-button" type="button" onClick={toggleCollapsed} aria-label="展开项目 Agent" title="展开项目 Agent">
-          {panelLayout.agentPanelPlacement === "left"
-            ? <PanelLeftOpen size={17} />
-            : panelLayout.agentPanelPlacement === "top"
-              ? <PanelTop size={17} />
-              : panelLayout.agentPanelPlacement === "bottom"
-                ? <PanelBottom size={17} />
-                : <PanelRightOpen size={17} />}
-          <span className={activityActive ? "busy" : ""}>{activityActive ? <Loader2 size={14} className="spin" /> : <Brain size={14} />}</span>
-          <strong>Agent</strong>
-          {selectedArtifacts.length > 0 ? <i aria-label="已选择成果" /> : null}
-        </ButtonBase>
-      </aside>
-    );
-  }
-
- return (
-    <aside
-      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${referenceDropActive ? "reference-drop-active" : ""}`}
-      aria-label="项目 Agent 对话栏"
-      onDragEnter={(event) => {
-        if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
-        event.preventDefault();
-        setReferenceDropActive(true);
-      }}
-      onDragOver={(event) => {
-        if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "copy";
-        setReferenceDropActive(true);
-      }}
-      onDragLeave={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setReferenceDropActive(false);
-      }}
-      onDrop={(event) => {
-        const files = Array.from(event.dataTransfer?.files ?? []);
-        if (!files.length) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setReferenceDropActive(false);
-        void dropReferenceFiles(files);
-      }}
-    >
-      <header
-        className={`project-agent-header ${panelLayout.agentPanelPlacement === "floating" ? "is-drag-handle" : ""}`}
-        onPointerDown={(event) => beginPanelPointer(event, "move")}
-        onPointerMove={movePanelPointer}
-        onPointerUp={endPanelPointer}
-        onPointerCancel={endPanelPointer}
-      >
-        <div>
-          <h2>Agent</h2>
-          <p title={projectName}>{projectName}</p>
-        </div>
-        <div className="project-agent-header-actions">
-          <IconActionButton
-            id={PROJECT_AGENT_PLACEMENT_TOGGLE_ID}
-            className={placementOpen ? "active" : ""}
-            label="调整对话框位置"
-            aria-expanded={placementOpen}
-            onClick={() => setPlacementOpen((current) => !current)}
-            icon={<Move size={16} />}
-          />
-          <IconActionButton
-            className="agent-collapse-button"
-            label="折叠项目 Agent"
-            onClick={toggleCollapsed}
-            icon={panelLayout.agentPanelPlacement === "left"
-              ? <PanelLeftClose size={16} />
-              : panelLayout.agentPanelPlacement === "top"
-                ? <PanelTop size={16} />
-                : panelLayout.agentPanelPlacement === "bottom"
-                  ? <PanelBottom size={16} />
-                  : <PanelRightClose size={16} />}
-          />
-          <IconActionButton
-            id={PROJECT_AGENT_HISTORY_TOGGLE_ID}
-            className={historyOpen ? "active" : ""}
-            onClick={() => setHistoryOpen((current) => !current)}
-            label="会话历史"
-            aria-expanded={historyOpen}
-            aria-controls={PROJECT_AGENT_HISTORY_ID}
-            icon={<ChevronDown size={16} />}
-          />
-          <IconActionButton label="编辑 Agent 记忆" title="编辑当前会话的 Agent 记忆" onClick={editFastMemory} icon={<Brain size={16} />} />
-          <IconActionButton label="清理聊天" title="清理当前聊天和绘画经验" onClick={requestClearConversation} disabled={conversationBusy} icon={<Trash2 size={16} />} />
-          <IconActionButton label={executionBusy ? "在新窗口新建并行会话" : "新建会话"} onClick={requestNewConversation} icon={<Plus size={16} />} />
-        </div>
-        {placementOpen ? (
-          <div className="agent-placement-menu" role="menu" aria-label="对话框位置">
-            <ButtonBase className={panelLayout.agentPanelPlacement === "right" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("right")}>
-              <PanelRight size={15} />
-              <span>停靠右侧</span>
-            </ButtonBase>
-            <ButtonBase className={panelLayout.agentPanelPlacement === "left" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("left")}>
-              <PanelLeft size={15} />
-              <span>停靠左侧</span>
-            </ButtonBase>
-            <ButtonBase className={panelLayout.agentPanelPlacement === "top" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("top")}>
-              <PanelTop size={15} />
-              <span>停靠上方</span>
-            </ButtonBase>
-            <ButtonBase className={panelLayout.agentPanelPlacement === "bottom" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("bottom")}>
-              <PanelBottom size={15} />
-              <span>停靠下方</span>
-            </ButtonBase>
-            <ButtonBase className={panelLayout.agentPanelPlacement === "floating" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("floating")}>
-              <PanelsTopLeft size={15} />
-              <span>应用内浮动</span>
-            </ButtonBase>
-            <ButtonBase type="button" role="menuitem" onClick={() => {
-              setPlacementOpen(false);
-              void openAgentWindow();
-            }}>
-              <PanelRightOpen size={15} />
-              <span>独立浮动窗口</span>
-            </ButtonBase>
-          </div>
-        ) : null}
-        {historyOpen ? (
-          <div ref={historyRef} id={PROJECT_AGENT_HISTORY_ID} className="project-agent-history" aria-label="Agent 会话历史">
-            <strong>会话历史</strong>
-            <div>
-              {historyItems.map((conversation) => (
-                <ButtonBase
-                  key={conversation.id}
-                  className={conversation.id === activeConversationId ? "active" : ""}
-                  type="button"
-                  onClick={() => {
-                    switchConversation(conversation.id);
-                    setHistoryOpen(false);
-                  }}
-                  disabled={conversationBusy}
-                >
-                  <span>{conversation.title || "未命名会话"}</span>
-                  <small>{conversation.id === activeConversationId ? "当前" : "历史"}</small>
-                </ButtonBase>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </header>
-
-      <div className="project-agent-status">
-        <span className={activityActive ? "busy" : ""}>
-          {activityActive ? <Loader2 size={13} className="spin" /> : <Brain size={13} />}
-          {statusText}
-        </span>
-        <em>{modelName || "未配置模型"}</em>
-      </div>
-
-      <ProjectAgentFeed
-        key={activeConversationId}
-        messages={visibleMessages}
-        agentProgressCount={agentProgress.length}
-        endRef={endRef}
-        debugCommit={debugCommit}
-      />
-
-      <ProjectAgentComposer
-        selectedArtifacts={selectedArtifacts}
-        sourceImages={sourceImages}
-        referenceImages={referenceImages}
-        prompt={prompt}
-        executionBusy={executionBusy}
-        paused={paused}
-        stopPending={stopPending}
-        goalActive={goalActive}
-        goalContainerCount={goalContainerCount}
-        goalAssetCount={goalAssetCount}
-        inputRef={inputRef}
-        setPrompt={setPrompt}
-        sendPrompt={sendPrompt}
-        pauseAgentRun={pauseAgentRun}
-        resumeAgentRun={resumeAgentRun}
-        stopAgentRun={stopAgentRun}
-        clearSelection={clearSelection}
-        editSourceImages={editSourceImages}
-        editReferenceImages={editReferenceImages}
-        imageModels={imageModels}
-        selectedImageModels={selectedImageModels}
-        onSelectedImageModelsChange={onSelectedImageModelsChange}
-        requestImageModels={requestImageModels}
-        imageRatio={imageRatio}
-        imageResolution={imageResolution}
-        onImageFrameChange={onImageFrameChange}
-        debugCommit={debugCommit}
-      />
-      {panelLayout.agentPanelPlacement === "floating" ? (
-        <>
-          <span
-            className="agent-panel-resize-handle resize-width"
-            aria-label="调整对话框宽度"
-            role="separator"
-            onPointerDown={(event) => beginPanelPointer(event, "resize-width")}
-            onPointerMove={movePanelPointer}
-            onPointerUp={endPanelPointer}
-            onPointerCancel={endPanelPointer}
-          />
-          <span
-            className="agent-panel-resize-handle resize-height"
-            aria-label="调整对话框高度"
-            role="separator"
-            onPointerDown={(event) => beginPanelPointer(event, "resize-height")}
-            onPointerMove={movePanelPointer}
-            onPointerUp={endPanelPointer}
-            onPointerCancel={endPanelPointer}
-          />
-          <span
-            className="agent-panel-resize-handle resize-corner"
-            aria-label="调整对话框大小"
-            role="separator"
-            onPointerDown={(event) => beginPanelPointer(event, "resize-corner")}
-            onPointerMove={movePanelPointer}
-            onPointerUp={endPanelPointer}
-            onPointerCancel={endPanelPointer}
-          />
-        </>
-      ) : (
-        <span
-          className={`agent-panel-resize-handle resize-dock resize-${panelLayout.agentPanelPlacement}`}
-          aria-label={panelLayout.agentPanelPlacement === "top" || panelLayout.agentPanelPlacement === "bottom" ? "调整对话框高度" : "调整对话框宽度"}
-          role="separator"
-          onPointerDown={(event) => beginPanelPointer(event, "resize-dock")}
-          onPointerMove={movePanelPointer}
-          onPointerUp={endPanelPointer}
-          onPointerCancel={endPanelPointer}
-        />
-      )}
-    </aside>
-  );
-}
-
-function sameProjectAgentSelection(left: WorkflowNode[], right: WorkflowNode[]) {
-  if (left === right) return true;
-  if (left.length !== right.length) return false;
-  return left.every((node, index) => {
-    const other = right[index];
-    return Boolean(other && node.id === other.id && nodeWorkName(node) === nodeWorkName(other));
-  });
-}
-
-const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) =>
-  sameProjectAgentSelection(left.selectedArtifacts, right.selectedArtifacts) &&
-  left.sourceImages === right.sourceImages &&
-  left.referenceImages === right.referenceImages &&
-  left.prompt === right.prompt &&
-  left.executionBusy === right.executionBusy &&
-  left.paused === right.paused &&
-  left.stopPending === right.stopPending &&
-  left.goalActive === right.goalActive &&
-  left.goalContainerCount === right.goalContainerCount &&
-  left.goalAssetCount === right.goalAssetCount &&
-  left.inputRef === right.inputRef &&
-  left.setPrompt === right.setPrompt &&
-  left.sendPrompt === right.sendPrompt &&
-  left.pauseAgentRun === right.pauseAgentRun &&
-  left.resumeAgentRun === right.resumeAgentRun &&
-  left.stopAgentRun === right.stopAgentRun &&
-  left.clearSelection === right.clearSelection &&
-  left.editSourceImages === right.editSourceImages &&
-  left.editReferenceImages === right.editReferenceImages &&
-  left.imageModels === right.imageModels &&
-  left.selectedImageModels === right.selectedImageModels &&
-  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
-  left.requestImageModels === right.requestImageModels &&
-  left.imageRatio === right.imageRatio &&
-  left.imageResolution === right.imageResolution &&
-  left.onImageFrameChange === right.onImageFrameChange &&
-  left.debugCommit === right.debugCommit
-);
-
-const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
-  left.projectName === right.projectName &&
-  left.messages === right.messages &&
-  left.conversations === right.conversations &&
-  left.activeConversationId === right.activeConversationId &&
-  sameProjectAgentSelection(left.selectedArtifacts, right.selectedArtifacts) &&
-  left.sourceImages === right.sourceImages &&
-  left.referenceImages === right.referenceImages &&
-  left.prompt === right.prompt &&
-  left.agentStatus === right.agentStatus &&
-  left.executionBusy === right.executionBusy &&
-  left.paused === right.paused &&
-  left.stopPending === right.stopPending &&
-  left.goalActive === right.goalActive &&
-  left.goalContainerCount === right.goalContainerCount &&
-  left.goalAssetCount === right.goalAssetCount &&
-  left.conversationBoundaryBusy === right.conversationBoundaryBusy &&
-  left.agentProgress === right.agentProgress &&
-  left.runElapsedSeconds === right.runElapsedSeconds &&
-  left.modelName === right.modelName &&
-  left.inputRef === right.inputRef &&
-  left.endRef === right.endRef &&
-  left.setPrompt === right.setPrompt &&
-  left.sendPrompt === right.sendPrompt &&
-  left.pauseAgentRun === right.pauseAgentRun &&
-  left.resumeAgentRun === right.resumeAgentRun &&
-  left.stopAgentRun === right.stopAgentRun &&
-  left.clearSelection === right.clearSelection &&
-  left.editSourceImages === right.editSourceImages &&
-  left.editReferenceImages === right.editReferenceImages &&
-  left.imageModels === right.imageModels &&
-  left.selectedImageModels === right.selectedImageModels &&
-  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
-  left.requestImageModels === right.requestImageModels &&
-  left.imageRatio === right.imageRatio &&
-  left.imageResolution === right.imageResolution &&
-  left.onImageFrameChange === right.onImageFrameChange &&
-  left.dropReferenceFiles === right.dropReferenceFiles &&
-  left.requestNewConversation === right.requestNewConversation &&
-  left.requestClearConversation === right.requestClearConversation &&
-  left.editFastMemory === right.editFastMemory &&
-  left.switchConversation === right.switchConversation &&
-  left.openAgentWindow === right.openAgentWindow &&
-  left.collapsed === right.collapsed &&
-  left.toggleCollapsed === right.toggleCollapsed &&
-  left.panelLayout === right.panelLayout &&
-  left.commitPanelLayout === right.commitPanelLayout &&
-  left.debugCommit === right.debugCommit
-);
-
-
 
 // -----------------------------------------------------------------------------
 // MAIN 18 React Root Mount

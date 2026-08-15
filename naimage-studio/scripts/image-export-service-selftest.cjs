@@ -4,7 +4,9 @@ const assert = require("node:assert/strict");
 const {
   constants: fsConstants,
   copyFileSync,
+  existsSync,
   linkSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -261,6 +263,116 @@ async function testConcurrentSaveAsIpc(root, sourcePath) {
   assert.deepEqual(readFileSync(destinationPath), readFileSync(sourcePath));
 }
 
+async function testManagedImageExportIpc(root, sourcePath) {
+  const projectRoot = path.join(root, "managed-project");
+  mkdirSync(projectRoot, { recursive: true });
+  const handlers = new Map();
+  const readJson = (filePath, fallback) => {
+    try { return JSON.parse(readFileSync(filePath, "utf8")); } catch { return fallback; }
+  };
+  const writeJson = (filePath, value) => {
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  };
+  const safeStem = (value, fallback) => String(value || fallback || "图片")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "图片";
+  const uniquePath = (parent, desiredName) => {
+    const parsed = path.parse(desiredName);
+    let candidate = path.join(parent, desiredName);
+    for (let index = 2; existsSync(candidate); index += 1) {
+      candidate = path.join(parent, `${parsed.name} (${index})${parsed.ext}`);
+    }
+    return candidate;
+  };
+  registerAssetIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    dialog: {},
+    shell: {},
+    BrowserWindow: { fromWebContents: () => null },
+    log: () => {},
+    createAssetExportContext: () => ({ project: { id: "project-managed-export", path: projectRoot } }),
+    materializeManagedImageAsset: async (asset) => ({
+      asset,
+      path: sourcePath,
+      extension: ".png",
+      mimeType: "image/png",
+      size: readFileSync(sourcePath).length,
+      width: 37,
+      height: 23
+    }),
+    comparablePath: (value) => path.resolve(value).toLowerCase(),
+    isComparablePathInside: (candidate, parent) => {
+      const child = path.resolve(candidate).toLowerCase();
+      const rootPath = path.resolve(parent).toLowerCase();
+      return child === rootPath || child.startsWith(`${rootPath}${path.sep}`);
+    },
+    releaseTransientExportSources: () => {},
+    safeExportStem: safeStem,
+    uniqueExportPath: uniquePath,
+    readJson,
+    writeJson
+  });
+
+  const exportManaged = handlers.get("naimage:asset:export-managed");
+  assert.equal(typeof exportManaged, "function");
+  const forbiddenPath = path.join(root, "renderer-forbidden-output.webp");
+  const first = await exportManaged({}, {
+    asset: { assetId: "asset-managed", title: "商品主图" },
+    projectId: "project-managed-export",
+    format: "webp",
+    suggestedName: "商品主图.png",
+    conflictPolicy: "overwrite",
+    incremental: true,
+    outputPath: forbiddenPath,
+    destinationPath: forbiddenPath
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.skipped, undefined);
+  assert.equal(path.dirname(first.path), path.join(projectRoot, "exports", "images"));
+  assert.equal(first.relativePath, "exports/images/商品主图.webp");
+  assert.equal(existsSync(forbiddenPath), false, "Renderer path fields must never control managed image export");
+  await assertFullyDecoded(first.path, "webp", 37, 23);
+
+  const unchanged = await exportManaged({}, {
+    asset: { assetId: "asset-managed", title: "商品主图" },
+    projectId: "project-managed-export",
+    format: "webp",
+    suggestedName: "商品主图.png",
+    conflictPolicy: "overwrite",
+    incremental: true
+  });
+  assert.equal(unchanged.ok, true);
+  assert.equal(unchanged.skipped, true);
+  assert.equal(unchanged.skippedReason, "unchanged");
+  assert.equal(unchanged.path, first.path);
+
+  const kept = await exportManaged({}, {
+    asset: { assetId: "asset-managed", title: "商品主图" },
+    projectId: "project-managed-export",
+    format: "webp",
+    suggestedName: "商品主图.png",
+    conflictPolicy: "keep-both",
+    incremental: false
+  });
+  assert.equal(kept.ok, true);
+  assert.equal(path.basename(kept.path), "商品主图 (2).webp");
+
+  const skipped = await exportManaged({}, {
+    asset: { assetId: "asset-managed", title: "商品主图" },
+    projectId: "project-managed-export",
+    format: "webp",
+    suggestedName: "商品主图.png",
+    conflictPolicy: "skip",
+    incremental: false
+  });
+  assert.equal(skipped.ok, true);
+  assert.equal(skipped.skipped, true);
+  assert.equal(skipped.skippedReason, "conflict");
+  assert.equal(existsSync(path.join(projectRoot, "exports", "images", ".sparkai-export-index.json")), true);
+}
+
 async function testPickerReturnRaceAndCleanupIsolation(root, sourcePath) {
   const handlers = new Map();
   const destinationPath = path.join(root, "exports", "images", "picker-return-race.png");
@@ -511,6 +623,7 @@ async function main() {
     await testSaveAsIpc(root, sourcePath);
     await testNormalAndPsdIpcIsolation(root, sourcePath);
     await testConcurrentSaveAsIpc(root, sourcePath);
+    await testManagedImageExportIpc(root, sourcePath);
     await testPickerReturnRaceAndCleanupIsolation(root, sourcePath);
     assert.deepEqual(readFileSync(sourcePath), sourceBefore, "IPC export must not mutate the managed source image");
 
@@ -531,6 +644,10 @@ async function main() {
       ipcPickerFormats: true,
       normalPsdIpcIsolationVerified: true,
       concurrentTargetReconfirmed: true,
+      managedProjectExportVerified: true,
+      managedConflictPoliciesVerified: true,
+      managedIncrementalVerified: true,
+      rendererManagedPathIgnored: true,
       pickerReturnRaceReconfirmed: true,
       cleanupFinalizerIsolated: true,
       sourcePreserved: true

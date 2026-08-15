@@ -217,9 +217,53 @@ export async function captureRequirementNodeSuite(context) {
   results.push(await captureState(client, targetId, "requirement-node-repeat-confirm", "undefined", { width: 884, height: 720 }, { modalOpen: true, modalWithinViewport: true }));
   const repeatConfirmDismissed = await dismissConfirmDialog();
 
+  phase("connection-cancel-safety", { requirementId, firstId });
+  const connectionCancelSafety = await evaluate(client, `(async () => {
+    const source = document.querySelector('.flow-node[data-node-id=${JSON.stringify(firstId)}] .node-port-out');
+    const input = document.querySelector('.flow-node[data-node-id=${JSON.stringify(requirementId)}] .node-port-in');
+    if (!source || !input) return { ok: false, error: "connection ports unavailable" };
+    const relationIntact = () => window.__naimageDebugAgentState?.().nodes?.find((item) => item.id === ${JSON.stringify(requirementId)})?.parentId === ${JSON.stringify(firstId)};
+    input.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const inputClickSafe = relationIntact();
+    const rect = source.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + rect.height / 2;
+    const pointer = (type, pointerId, clientX, clientY, buttons) => new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      button: 0,
+      buttons,
+      clientX,
+      clientY
+    });
+    source.dispatchEvent(pointer("pointerdown", 61, startX, startY, 1));
+    window.dispatchEvent(pointer("pointerup", 61, startX, startY, 0));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const outputClickSafe = relationIntact() && !document.querySelector(".edge-draft");
+    source.dispatchEvent(pointer("pointerdown", 62, startX, startY, 1));
+    window.dispatchEvent(pointer("pointermove", 62, 2, 2, 1));
+    window.dispatchEvent(pointer("pointerup", 62, 2, 2, 0));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const blankDropSafe = relationIntact() && !document.querySelector(".edge-draft");
+    source.dispatchEvent(pointer("pointerdown", 63, startX, startY, 1));
+    window.dispatchEvent(pointer("pointermove", 63, startX + 60, startY + 40, 1));
+    window.dispatchEvent(pointer("pointercancel", 63, startX + 60, startY + 40, 0));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const pointerCancelSafe = relationIntact() && !document.querySelector(".edge-draft");
+    return { ok: Boolean(inputClickSafe && outputClickSafe && blankDropSafe && pointerCancelSafe), inputClickSafe, outputClickSafe, blankDropSafe, pointerCancelSafe };
+  })()`);
+
   phase("disconnect-input", { requirementId });
   const disconnected = await evaluate(client, `(async () => {
-    document.querySelector('.flow-node[data-node-id=${JSON.stringify(requirementId)}] .node-port-in')?.click();
+    const edge = document.querySelector('.edge-hit-target[data-source-id=${JSON.stringify(firstId)}][data-target-id=${JSON.stringify(requirementId)}]');
+    if (!edge) return { ok: false, error: "relation hit target unavailable" };
+    edge.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: 220, clientY: 180 }));
+    const menuDeadline = performance.now() + 3000;
+    while (performance.now() < menuDeadline && !document.querySelector(".relation-context-menu")) await new Promise((resolve) => setTimeout(resolve, 50));
+    document.querySelector(".relation-context-menu .ui-menu-item")?.click();
     const deadline = performance.now() + 3000;
     while (performance.now() < deadline) {
       const node = window.__naimageDebugAgentState?.().nodes?.find((item) => item.id === ${JSON.stringify(requirementId)});
@@ -239,7 +283,12 @@ export async function captureRequirementNodeSuite(context) {
     }
     const restored = window.__naimageDebugAgentState?.().nodes?.find((item) => item.id === ${JSON.stringify(requirementId)});
     await new Promise((resolve) => setTimeout(resolve, 120));
-    document.querySelector('.flow-node[data-node-id=${JSON.stringify(requirementId)}] .node-port-in')?.click();
+    const edge = document.querySelector('.edge-hit-target[data-source-id=${JSON.stringify(firstId)}][data-target-id=${JSON.stringify(requirementId)}]');
+    if (!edge) return { ok: false, error: "restored relation hit target unavailable", restored };
+    edge.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: 220, clientY: 180 }));
+    const menuDeadline = performance.now() + 3000;
+    while (performance.now() < menuDeadline && !document.querySelector(".relation-context-menu")) await new Promise((resolve) => setTimeout(resolve, 50));
+    document.querySelector(".relation-context-menu .ui-menu-item")?.click();
     const disconnectDeadline = performance.now() + 3000;
     while (performance.now() < disconnectDeadline) {
       const node = window.__naimageDebugAgentState?.().nodes?.find((item) => item.id === ${JSON.stringify(requirementId)});
@@ -310,7 +359,12 @@ export async function captureRequirementNodeSuite(context) {
     );
   }
   const reconnectedDistinctContent = distinctSourceId ? await evaluate(client, `(async () => {
-    document.querySelector('.flow-node[data-node-id=${JSON.stringify(requirementId)}] .node-port-in')?.click();
+    const existingEdge = document.querySelector('.edge-hit-target[data-source-id=${JSON.stringify(secondId)}][data-target-id=${JSON.stringify(requirementId)}]');
+    if (!existingEdge) return { ok: false, error: "existing relation hit target unavailable" };
+    existingEdge.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: 220, clientY: 180 }));
+    const menuDeadline = performance.now() + 3000;
+    while (performance.now() < menuDeadline && !document.querySelector(".relation-context-menu")) await new Promise((resolve) => setTimeout(resolve, 50));
+    document.querySelector(".relation-context-menu .ui-menu-item")?.click();
     const disconnectDeadline = performance.now() + 3000;
     while (performance.now() < disconnectDeadline) {
       const node = window.__naimageDebugAgentState?.().nodes?.find((item) => item.id === ${JSON.stringify(requirementId)});
@@ -616,7 +670,7 @@ export async function captureRequirementNodeSuite(context) {
   const suite = {
     ok: Boolean(
       setup?.ok && openFromContextMenu?.ok && createResult?.ok && requirementId && openedByDoubleClick?.ok && edited?.ok &&
-      firstExecution?.ok && repeatConfirm?.ok && repeatConfirmDismissed?.dismissed && disconnected?.ok && disconnectUndo?.ok &&
+      firstExecution?.ok && repeatConfirm?.ok && repeatConfirmDismissed?.dismissed && connectionCancelSafety?.ok && disconnected?.ok && disconnectUndo?.ok &&
       reconnectedSameContent?.ok && sameContentReconnectConfirm?.ok && sameContentConfirmDismissed?.dismissed &&
       distinctSourceImport?.ok && reconnectedDistinctContent?.ok && secondExecution?.ok &&
       containerRequirement?.ok && layerRequirement?.ok && round2Scope?.ok && results.every(captureHealthy) && captureHealthy(finalCapture)
@@ -628,6 +682,7 @@ export async function captureRequirementNodeSuite(context) {
     edited,
     firstExecution,
     repeatConfirm,
+    connectionCancelSafety,
     disconnected,
     disconnectUndo,
     repeatConfirmDismissed,

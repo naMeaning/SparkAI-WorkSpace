@@ -171,6 +171,8 @@ test("license admin page exposes no secrets and keeps data endpoints protected",
   assert.equal(pageBody.includes(HASH_SECRET), false);
   assert.match(pageBody, /License 管理/);
   assert.match(pageBody, /autocomplete="off"/);
+  assert.match(pageBody, /id="open-create-button"/);
+  assert.match(pageBody, /id="create-dialog"/);
 
   const script = await fetch(`${harness.extensionUrl}/api/naimage/license/admin/assets/app.js`);
   assert.equal(script.status, 200);

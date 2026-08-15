@@ -79,6 +79,10 @@ async function main() {
     await inspectThumbnail(png, true);
     await inspectThumbnail(jpeg, false);
     await inspectThumbnail(webp, true);
+    const sequentialStats = cache.stats();
+    assert.equal(sequentialStats.workerStarts, 1, "Sequential cold thumbnails must reuse one persistent worker");
+    assert.equal(sequentialStats.workerJobs, 3);
+    assert.equal(sequentialStats.workerReuses, 2);
 
     const pngHit = await cache.ensure({ sourcePath: pngPath, cacheRoot, maxEdge: 512 });
     assert.equal(pngHit.cacheHit, true);
@@ -86,11 +90,14 @@ async function main() {
 
     const concurrencyPath = path.join(sourceRoot, "并发透明图.png");
     await writeFixture(concurrencyPath, "png", { r: 20, g: 190, b: 136, alpha: 0.58 });
-    const workerStartsBefore = logs.filter((entry) => entry.includes("thumbnail worker start")).length;
+    const workerStartsBefore = cache.stats().workerStarts;
+    const workerJobsBefore = cache.stats().workerJobs;
     const concurrent = await Promise.all(Array.from({ length: 10 }, () => cache.ensure({ sourcePath: concurrencyPath, cacheRoot, maxEdge: 512 })));
-    const workerStartsAfter = logs.filter((entry) => entry.includes("thumbnail worker start")).length;
+    const workerStartsAfter = cache.stats().workerStarts;
+    const workerJobsAfter = cache.stats().workerJobs;
     assert.equal(new Set(concurrent.map((entry) => entry.path)).size, 1);
-    assert.equal(workerStartsAfter - workerStartsBefore, 1, "Concurrent requests must share one worker");
+    assert.equal(workerStartsAfter - workerStartsBefore, 0, "A warm persistent worker must handle the joined request without another fork");
+    assert.equal(workerJobsAfter - workerJobsBefore, 1, "Concurrent requests for the same variant must dispatch one worker job");
     assert(logs.filter((entry) => entry.includes("thumbnail cache join")).length >= 9);
     await inspectThumbnail(concurrent[0], true);
 
@@ -109,6 +116,7 @@ async function main() {
     const maxActiveWorkers = Math.max(0, ...activeCounts);
     assert(maxActiveWorkers <= 2, `Expected at most 2 active workers, received ${maxActiveWorkers}`);
     assert(maxActiveWorkers >= 2, "Distinct source pressure should exercise both worker slots");
+    assert.equal(cache.stats().workerStarts, 2, "The persistent pool must never fork more than its two worker slots under normal load");
 
     const originalPath = png.path;
     const changedTime = new Date(Date.now() + 5_000);
@@ -122,6 +130,35 @@ async function main() {
     writeFileSync(corruptPath, Buffer.from("not-an-image"));
     await expectCode(cache.ensure({ sourcePath: corruptPath, cacheRoot, maxEdge: 512 }), "THUMBNAIL_DECODE_FAILED");
     assert.equal(readdirSync(cacheRoot).some((entry) => entry.endsWith(".tmp")), false, "Failed generation must not leave staging files");
+
+    const crashCacheRoot = path.join(root, "crash-cache");
+    const crashMarkerPath = path.join(root, "worker-crashed.marker");
+    const crashWorkerPath = path.join(root, "thumbnail-worker-crash-once.cjs");
+    mkdirSync(crashCacheRoot, { recursive: true });
+    writeFileSync(crashWorkerPath, [
+      '"use strict";',
+      'const { existsSync, writeFileSync } = require("node:fs");',
+      `const markerPath = ${JSON.stringify(crashMarkerPath)};`,
+      'if (!existsSync(markerPath)) {',
+      '  process.once("message", () => { writeFileSync(markerPath, "crashed"); process.exit(23); });',
+      '} else {',
+      `  require(${JSON.stringify(path.join(__dirname, "..", "image-thumbnail-worker.cjs"))});`,
+      '}',
+      '',
+    ].join("\n"));
+    const crashCache = createThumbnailCache({ workerPath: crashWorkerPath, maxConcurrent: 1 });
+    const crashSource = path.join(sourceRoot, "进程崩溃.png");
+    const recoverySource = path.join(sourceRoot, "崩溃恢复.png");
+    copyFileSync(concurrencyPath, crashSource);
+    copyFileSync(concurrencyPath, recoverySource);
+    await expectCode(crashCache.ensure({ sourcePath: crashSource, cacheRoot: crashCacheRoot, maxEdge: 512 }), "THUMBNAIL_WORKER_EXITED");
+    const recovered = await crashCache.ensure({ sourcePath: recoverySource, cacheRoot: crashCacheRoot, maxEdge: 512 });
+    await inspectThumbnail(recovered, true);
+    const crashStats = crashCache.stats();
+    assert.equal(crashStats.workerStarts, 2, "A failed worker must be replaced for the next queued request");
+    assert.equal(crashStats.workerFailures, 1);
+    assert.equal(crashStats.generated, 1);
+    await crashCache.close();
 
     const closeCacheRoot = path.join(root, "close-cache");
     mkdirSync(closeCacheRoot, { recursive: true });
@@ -173,8 +210,12 @@ async function main() {
       sourceChangeInvalidated: invalidated.path !== originalPath,
       concurrentRequests: concurrent.length,
       concurrentWorkerStarts: workerStartsAfter - workerStartsBefore,
+      concurrentWorkerJobs: workerJobsAfter - workerJobsBefore,
       distinctConcurrentSources: distinctPaths.length,
       maxActiveWorkers,
+      persistentWorkerStarts: runtimeStats.workerStarts,
+      persistentWorkerReuses: runtimeStats.workerReuses,
+      crashRecovery: crashStats,
       closeCanceledActiveAndQueued: true,
       cacheFiles: outputFiles.length,
       stagingClean: true,

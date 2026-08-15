@@ -37,16 +37,20 @@ function enforceFloatingDialogMinimumSize(dialog: HTMLElement) {
     delete dialog.dataset.uiClampH;
   }
   const rect = dialog.getBoundingClientRect();
-  const nextWidth = clamp(rect.width, minimum.width, minimum.maxWidth);
-  const nextHeight = Math.min(rect.height, minimum.maxHeight);
+  // Layout dimensions exclude entrance transforms. Reading the visual rect
+  // during scale-in would otherwise persist a false undersize as inline CSS.
+  const layoutWidth = dialog.offsetWidth || rect.width;
+  const layoutHeight = dialog.offsetHeight || rect.height;
+  const nextWidth = clamp(layoutWidth, minimum.width, minimum.maxWidth);
+  const nextHeight = Math.min(layoutHeight, minimum.maxHeight);
   let changed = false;
 
-  if (Math.abs(rect.width - nextWidth) > 0.5) {
+  if (Math.abs(layoutWidth - nextWidth) > 0.5) {
     dialog.style.width = `${Math.round(nextWidth)}px`;
     changed = true;
   }
 
-  if (rect.height > minimum.maxHeight + 0.5) {
+  if (layoutHeight > minimum.maxHeight + 0.5) {
     dialog.style.height = `${Math.round(nextHeight)}px`;
     if (!resizable) dialog.dataset.uiClampH = "1";
     changed = true;
@@ -176,6 +180,10 @@ export function useFloatingDialogInteractions() {
       const dialog = handle.closest(FLOATING_DIALOG_SELECTOR) as HTMLElement | null;
       if (!dialog) {
         if (__NAIMAGE_AIDEBUG__) window.__naimageLastFloatingDrag = { ...window.__naimageLastFloatingDrag, phase: "ignored", reason: "dialog-missing" };
+        return;
+      }
+      if (dialog.classList.contains("is-maximized")) {
+        if (__NAIMAGE_AIDEBUG__) window.__naimageLastFloatingDrag = { ...window.__naimageLastFloatingDrag, phase: "ignored", reason: "dialog-maximized" };
         return;
       }
       const activeDialog = dialog;

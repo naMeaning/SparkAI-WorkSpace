@@ -361,13 +361,15 @@ if (measured(imageContainerMetricV2)) {
   if (!imageContainerMetricV2.viewerMainSource || /[?&]preview=thumbnail(?:&|$)/.test(String(imageContainerMetricV2.viewerMainSource))) failures.push("viewerMainSource must use the original asset URL");
   if (!Array.isArray(imageContainerMetricV2.viewerStripSources) || imageContainerMetricV2.viewerStripSources.length < 1 || !imageContainerMetricV2.viewerStripSources.every((source) => /[?&]preview=thumbnail(?:&|$)/.test(String(source)))) failures.push("viewerStripSources must use thumbnail URLs");
   const cold = imageContainerMetricV2.coldThumbnailStats || {};
-  if (Number(cold.requests) !== 10 || Number(cold.workerStarts) !== 10 || Number(cold.generated) !== 10 || Number(cold.errors) !== 0 || Number(cold.maxActiveWorkers) < 1 || Number(cold.maxActiveWorkers) > 2) failures.push("coldThumbnailStats must prove ten successful bounded workers with zero errors");
+  if (Number(cold.requests) !== 11 || Number(cold.workerJobs) !== 11 || Number(cold.workerStarts) < 0 || Number(cold.workerStarts) > 2 || Number(cold.workerReuses) < 9 || Number(cold.generated) !== 11 || Number(cold.workerFailures) !== 0 || Number(cold.errors) !== 0 || Number(cold.maxActiveWorkers) < 1 || Number(cold.maxActiveWorkers) > 2) failures.push("coldThumbnailStats must prove eleven variants on a reused two-process worker pool with zero errors");
   if (!Array.isArray(cold.recentErrors) || cold.recentErrors.length !== 0) failures.push("coldThumbnailStats.recentErrors must be an empty array");
   const warm = imageContainerMetricV2.warmThumbnailStats || {};
-  if (Number(warm.requests) !== 10 || Number(warm.cacheHits) !== 10 || Number(warm.workerStarts) !== 0 || Number(warm.generated) !== 0 || Number(warm.errors) !== 0) failures.push("warmThumbnailStats must prove ten cache hits with no workers or errors");
+  if (Number(warm.requests) !== 10 || Number(warm.cacheHits) !== 10 || Number(warm.workerStarts) !== 0 || Number(warm.workerJobs) !== 0 || Number(warm.generated) !== 0 || Number(warm.workerFailures) !== 0 || Number(warm.errors) !== 0) failures.push("warmThumbnailStats must prove ten cache hits with no worker jobs or errors");
   if (!Array.isArray(warm.recentErrors) || warm.recentErrors.length !== 0) failures.push("warmThumbnailStats.recentErrors must be an empty array");
   const disk = imageContainerMetricV2.thumbnailDiskCache || {};
-  if (!measured(disk) || Number(disk.sourceAssetCount) !== 10 || Number(disk.thumbnailCount) !== 10 || Number(disk.stagingFileCount) !== 0 || !finite(disk.sourceBytes) || Number(disk.sourceBytes) <= 0 || !finite(disk.thumbnailBytes) || Number(disk.thumbnailBytes) <= 0) failures.push("thumbnailDiskCache must prove ten committed thumbnails, positive bytes, and no staging files");
+  const expectedThumbnailVariants = Number(imageContainerMetricV2.expectedThumbnailVariantCount || disk.expectedThumbnailVariantCount || 10);
+  if (!integer(expectedThumbnailVariants) || expectedThumbnailVariants < 10) failures.push("expectedThumbnailVariantCount must be an integer of at least 10");
+  if (!measured(disk) || Number(disk.sourceAssetCount) !== 10 || Number(disk.thumbnailCount) !== expectedThumbnailVariants || Number(disk.stagingFileCount) !== 0 || !finite(disk.sourceBytes) || Number(disk.sourceBytes) <= 0 || !finite(disk.thumbnailBytes) || Number(disk.thumbnailBytes) <= 0) failures.push("thumbnailDiskCache must prove all expected committed thumbnails, positive bytes, and no staging files");
   recordSemanticFailures("fixtures.imageContainer10", failures);
 }
 

@@ -2,12 +2,11 @@ import {
   analyzeLayerVisualContribution,
   analyzeTransparentLayerAlphaOverlap,
   extractPreviewLayerFromMaskToDataUrl,
-  imageAssetCanvasSrc,
   loadImageForCanvas,
   removeConnectedBorderBackgroundToDataUrl,
   repairLayerCoverageFromPreview,
-  type ImageLayerComposition,
-} from "./core";
+} from "./image-processing-runtime";
+import { imageAssetCanvasSrc, type ImageLayerComposition } from "./core.ts";
 import { normalizeTransparentLayerAlphaExclusivity } from "./layer-alpha-normalization";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;

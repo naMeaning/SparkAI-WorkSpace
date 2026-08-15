@@ -110,21 +110,42 @@ function send(message) {
       resolve();
       return;
     }
-    process.send(message, () => resolve());
+    try {
+      process.send(message, () => resolve());
+    } catch {
+      resolve();
+    }
   });
 }
 
-process.once("message", async (payload) => {
+let closing = false;
+let workQueue = Promise.resolve();
+
+async function handleGenerateMessage(payload) {
+  const requestId = String(payload?.requestId || "");
   try {
-    const result = await generate(payload);
-    await send({ type: "result", result });
+    if (!requestId || payload?.type !== "generate") fail("THUMBNAIL_INVALID_INPUT", "缩略图任务协议无效。");
+    const result = await generate(payload.request);
+    await send({ type: "result", requestId, result });
   } catch (error) {
     const code = String(error?.code || "").startsWith("THUMBNAIL_") ? error.code : "THUMBNAIL_DECODE_FAILED";
     const message = String(error?.code || "").startsWith("THUMBNAIL_")
       ? (error instanceof Error ? error.message : String(error))
       : "图片格式损坏或无法解码，不能生成缩略图。";
-    await send({ type: "error", error: { code, message, stack: error?.stack } });
-  } finally {
-    process.disconnect?.();
+    await send({ type: "error", requestId, error: { code, message, stack: error?.stack } });
   }
+}
+
+process.on("message", (payload) => {
+  if (payload?.type === "shutdown") {
+    closing = true;
+    void workQueue.finally(() => process.disconnect?.());
+    return;
+  }
+  if (closing) return;
+  workQueue = workQueue.then(() => handleGenerateMessage(payload));
+});
+
+process.on("disconnect", () => {
+  closing = true;
 });

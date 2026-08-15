@@ -1,0 +1,574 @@
+.export-center-dialog {
+  --ui-surface-width: min(1180px, calc(100vw - 32px));
+  --ui-surface-max-height: min(88vh, 820px);
+  width: var(--ui-surface-width);
+  height: var(--ui-surface-max-height);
+}
+
+.export-center-view-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+}
+
+.export-center-view-tabs .ui-segmented-control {
+  min-width: min(430px, 100%);
+}
+
+.export-center-view-tabs .ui-segment-action,
+.export-center-targets .ui-segment-action {
+  min-height: 30px;
+  gap: 6px;
+  letter-spacing: 0;
+}
+
+.ui-surface .ui-surface-body.export-center-body {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+
+.export-center-view-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.export-center-setup {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(310px, 0.39fr) minmax(360px, 0.42fr) minmax(220px, 0.19fr);
+  overflow: hidden;
+}
+
+.export-center-config,
+.export-center-selection,
+.export-center-preview,
+.export-center-queue-view,
+.export-center-history-view {
+  min-width: 0;
+  min-height: 0;
+}
+
+.export-center-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 62%, transparent);
+}
+
+.export-center-targets .ui-segmented-control {
+  width: 100%;
+}
+
+.export-center-preset-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px 34px;
+  align-items: end;
+  gap: 7px;
+}
+
+.export-center-preset-row .ui-icon-action {
+  width: 34px;
+  height: 34px;
+}
+
+.export-center-config .ui-field,
+.export-center-config .ui-field input,
+.export-center-config .ui-field select {
+  min-width: 0;
+  width: 100%;
+}
+
+.export-center-config .ui-field input,
+.export-center-config .ui-field select {
+  min-height: 34px;
+}
+
+.export-center-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.export-center-incremental-toggle {
+  min-width: 0;
+  min-height: 53px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--control-bg);
+  cursor: pointer;
+}
+
+.export-center-incremental-toggle input,
+.export-center-source-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.export-center-incremental-toggle span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.export-center-incremental-toggle strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.export-center-incremental-toggle small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-center-token-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.export-center-token-help code {
+  display: inline-block;
+  margin: 1px 2px 1px 0;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 4px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--control-bg) 84%, transparent);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.export-center-selection {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--canvas) 52%, transparent);
+}
+
+.export-center-selection > header,
+.export-center-queue-view > header,
+.export-center-history-view > header {
+  flex: 0 0 auto;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.export-center-selection > header > span:first-child,
+.export-center-queue-view > header > span:first-child,
+.export-center-history-view > header > span:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.export-center-selection > header strong,
+.export-center-queue-view > header strong,
+.export-center-history-view > header strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.export-center-selection > header small,
+.export-center-queue-view > header small,
+.export-center-history-view > header small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.export-center-selection > header > span:last-child {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+
+.export-center-selection > header button {
+  min-height: 34px;
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.export-center-selection > header button:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.export-center-source-list,
+.export-center-job-list,
+.export-center-history-list {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.export-center-source-row {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 16px 28px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.export-center-source-row:hover {
+  background: var(--hover-bg);
+}
+
+.export-center-source-index {
+  color: var(--muted);
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0;
+}
+
+.export-center-source-row > span:nth-child(3) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.export-center-source-row strong,
+.export-center-source-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-center-source-row strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.export-center-source-row small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.export-center-source-row > svg {
+  color: var(--success, #2f8f65);
+}
+
+.export-center-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--surface-solid) 68%, transparent);
+}
+
+.export-center-preview > header {
+  display: grid;
+  gap: 3px;
+}
+
+.export-center-preview > header strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.export-center-preview > header span,
+.export-center-preview > p {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.export-center-preview dl {
+  margin: 0;
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.export-center-preview dl > div {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.export-center-preview dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.export-center-preview dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.export-center-preview .ui-action-button {
+  margin-top: auto;
+  width: 100%;
+}
+
+.export-center-queue-view,
+.export-center-history-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--canvas) 52%, transparent);
+}
+
+.export-center-job-row,
+.export-center-history-row {
+  min-width: 0;
+  min-height: 64px;
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.export-center-job-row {
+  grid-template-columns: 24px minmax(0, 1fr) minmax(150px, auto);
+}
+
+.export-center-history-row {
+  grid-template-columns: 24px minmax(0, 1fr) minmax(170px, auto);
+}
+
+.export-center-job-icon,
+.export-center-history-row > span:first-child {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.export-center-job-row.is-running .export-center-job-icon {
+  color: var(--accent-strong);
+}
+
+.export-center-job-row.is-succeeded .export-center-job-icon,
+.export-center-history-row.is-succeeded > span:first-child {
+  color: var(--success, #2f8f65);
+}
+
+.export-center-job-row.is-failed .export-center-job-icon,
+.export-center-history-row.is-failed > span:first-child {
+  color: var(--danger);
+}
+
+.export-center-job-copy,
+.export-center-job-result,
+.export-center-history-row > span:nth-child(2),
+.export-center-history-row > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.export-center-job-copy strong,
+.export-center-job-result strong,
+.export-center-history-row strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.export-center-job-copy small,
+.export-center-job-result small,
+.export-center-history-row small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.export-center-job-result,
+.export-center-history-row > span:last-child {
+  text-align: right;
+}
+
+.export-center-job-copy em,
+.export-center-history-row em {
+  overflow: hidden;
+  color: var(--danger);
+  font-size: 10px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-center-history-row code {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-center-empty {
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.export-center-empty strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.export-center-empty small {
+  max-width: 360px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.export-center-global-notice {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  min-height: 34px;
+  box-shadow: var(--shadow-soft);
+}
+
+.export-center-footer-status {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .export-center-dialog {
+    --ui-surface-width: calc(100vw - 20px);
+    --ui-surface-max-height: calc(100vh - 20px);
+  }
+
+  .export-center-setup {
+    grid-template-columns: minmax(300px, 0.46fr) minmax(340px, 0.54fr);
+  }
+
+  .export-center-preview {
+    grid-column: 1 / -1;
+    min-height: 124px;
+    display: grid;
+    grid-template-columns: minmax(180px, 0.65fr) minmax(240px, 1fr) auto;
+    align-items: center;
+    border-top: 1px solid var(--line);
+  }
+
+  .export-center-preview dl {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    border-left: 1px solid var(--line);
+  }
+
+  .export-center-preview dl > div {
+    min-width: 0;
+    min-height: 52px;
+    display: grid;
+    justify-items: center;
+    border-right: 1px solid var(--line);
+    padding: 5px;
+  }
+
+  .export-center-preview > p {
+    display: none;
+  }
+
+  .export-center-preview .ui-action-button {
+    width: auto;
+    margin: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .export-center-setup {
+    display: block;
+    overflow: auto;
+  }
+
+  .export-center-config,
+  .export-center-selection,
+  .export-center-preview {
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .export-center-selection {
+    height: 300px;
+  }
+
+  .export-center-preview {
+    display: flex;
+  }
+
+  .export-center-preview dl {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .export-center-option-grid,
+  .export-center-preset-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .export-center-preset-row .ui-icon-action {
+    width: 100%;
+  }
+
+  .export-center-job-row,
+  .export-center-history-row {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .export-center-job-result,
+  .export-center-history-row > span:last-child {
+    grid-column: 2;
+    text-align: left;
+  }
+}

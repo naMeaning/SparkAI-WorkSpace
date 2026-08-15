@@ -492,12 +492,17 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
     const stage = surface?.querySelector('.image-viewer-stage');
     const buttons = Array.from(surface?.querySelectorAll('.image-viewer-strip button') || []);
     if (!surface || !stage || buttons.length < 3) return { ok: false, error: 'viewer switch fixture unavailable' };
+    await Promise.race([
+      Promise.all(surface.getAnimations().map((animation) => animation.finished.catch(() => null))),
+      new Promise((resolve) => setTimeout(resolve, 500))
+    ]);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const surfaceBefore = surface.getBoundingClientRect();
     const samples = [];
     let blankFrames = 0;
     let maxSurfaceDelta = 0;
     let frameHandle = 0;
-    const sample = () => {
+    const captureSample = () => {
       const surfaceRect = surface.getBoundingClientRect();
       maxSurfaceDelta = Math.max(
         maxSurfaceDelta,
@@ -520,16 +525,23 @@ async function captureCanvasImageCollectionSuiteProbe(client, targetId, options 
         imageCount: images.length,
         visibleCount: visible.length
       });
-      frameHandle = requestAnimationFrame(sample);
     };
-    frameHandle = requestAnimationFrame(sample);
+    const sampleFrame = () => {
+      captureSample();
+      frameHandle = requestAnimationFrame(sampleFrame);
+    };
+    captureSample();
+    frameHandle = requestAnimationFrame(sampleFrame);
     const clickOrder = [Math.min(7, buttons.length - 1), 1, buttons.length - 1, 2];
     for (const index of clickOrder) {
       buttons[index]?.click();
+      captureSample();
       await new Promise((resolve) => setTimeout(resolve, 24));
+      captureSample();
     }
     await new Promise((resolve) => setTimeout(resolve, 180));
     cancelAnimationFrame(frameHandle);
+    captureSample();
     const finalTarget = stage.getAttribute('data-target-src') || '';
     const finalDisplayed = stage.getAttribute('data-displayed-src') || '';
     const finalTargetAsset = stage.getAttribute('data-target-asset') || '';

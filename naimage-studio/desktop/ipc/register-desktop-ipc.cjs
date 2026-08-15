@@ -8,6 +8,7 @@ const { registerCommerceExportIpc } = require("./commerce-export-ipc.cjs");
 const { registerCommerceTemplateIpc } = require("./commerce-template-ipc.cjs");
 const { registerGlassBackgroundIpc, registerRequirementLibraryIpc, registerSettingsIpc, registerSessionIpc } = require("./config-ipc.cjs");
 const { registerDebugIpc } = require("./debug-ipc.cjs");
+const { registerExportCenterIpc } = require("./export-center-ipc.cjs");
 const { registerImageCollectionIpc } = require("./image-collection-ipc.cjs");
 const { registerProjectIpc } = require("./project-ipc.cjs");
 const { registerPluginIpc } = require("./plugin-ipc.cjs");
@@ -34,6 +35,7 @@ function registerDesktopIpc(dependencies = {}) {
   registerAgentIpc(dependencies);
   registerWindowIpc(dependencies);
   registerDebugIpc(dependencies);
+  registerExportCenterIpc(dependencies);
   registerProjectIpc(dependencies);
   registerImageCollectionIpc(dependencies);
   registerAssetIpc(dependencies);

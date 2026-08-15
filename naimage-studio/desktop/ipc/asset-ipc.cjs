@@ -2,6 +2,7 @@
 
 const { createHash } = require("node:crypto");
 const {
+  createReadStream,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -59,7 +60,8 @@ function registerAssetIpc(options = {}) {
     secureExportSourceCacheDir,
     retainTransientExportSource,
     exportLayeredPsd,
-    convertImageForExport: convertImageForExportOverride
+    convertImageForExport: convertImageForExportOverride,
+    readJson
   } = options;
   const convertImageForExportImpl = typeof convertImageForExportOverride === "function"
     ? convertImageForExportOverride
@@ -200,6 +202,31 @@ function registerAssetIpc(options = {}) {
       releaseTurn();
       if (exportTargetTurns.get(key) === current) exportTargetTurns.delete(key);
     }
+  }
+
+  function managedImageExportIndex(exportRoot) {
+    if (typeof readJson !== "function") return { format: "sparkai-managed-image-export-index", version: 1, entries: [] };
+    const index = readJson(path.join(exportRoot, ".sparkai-export-index.json"), {});
+    return {
+      format: "sparkai-managed-image-export-index",
+      version: 1,
+      entries: Array.isArray(index?.entries) ? index.entries.filter((item) => item && typeof item === "object").slice(-500) : []
+    };
+  }
+
+  function managedImageSourceHash(filePath) {
+    return new Promise((resolve, reject) => {
+      const hash = createHash("sha256");
+      const stream = createReadStream(filePath);
+      stream.on("error", reject);
+      stream.on("data", (chunk) => hash.update(chunk));
+      stream.on("end", () => resolve(hash.digest("hex")));
+    });
+  }
+
+  function managedImageExportRelativePath(exportRoot, filePath) {
+    const relative = path.relative(path.dirname(path.dirname(exportRoot)), filePath).replace(/\\/g, "/");
+    return !relative || relative.startsWith("../") || path.isAbsolute(relative) ? "" : relative;
   }
 
   function releaseExportSourcesSafely(sources, context) {
@@ -496,6 +523,133 @@ function registerAssetIpc(options = {}) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`asset save as failed ${message}`);
+      return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_FAILED", error: message };
+    } finally {
+      releaseExportSourcesSafely(transientSources, context);
+    }
+  });
+
+  ipcMain.handle("naimage:asset:export-managed", async (_event, payload = {}) => {
+    let context = null;
+    const transientSources = [];
+    try {
+      context = createAssetExportContext(payload?.projectId);
+      const format = strictImageExportFormat(payload?.format);
+      if (!format) exportFailure("IMAGE_EXPORT_FORMAT_INVALID", "请选择有效的图片导出格式。");
+      const conflictPolicy = new Set(["overwrite", "keep-both", "skip"]).has(payload?.conflictPolicy)
+        ? payload.conflictPolicy
+        : "overwrite";
+      const source = await materializeManagedImageAsset(payload?.asset, context);
+      transientSources.push(source);
+      const exportRoot = projectExportDirectory(context, "images");
+      const definition = IMAGE_EXPORT_FORMATS[format];
+      const requestedStem = safeExportStem(path.parse(String(payload?.suggestedName || source.asset?.title || "图片")).name, "图片");
+      const requestedPath = validatedProjectExportFile(path.join(exportRoot, `${requestedStem}${definition.extension}`), exportRoot);
+      const sourceSha256 = await managedImageSourceHash(source.path);
+      const fingerprint = createHash("sha256")
+        .update("sparkai-managed-image-export:v1\0")
+        .update(sourceSha256)
+        .update("\0")
+        .update(format)
+        .update("\0")
+        .update(requestedStem)
+        .digest("hex");
+      const index = managedImageExportIndex(exportRoot);
+      if (payload?.incremental === true) {
+        const existing = [...index.entries].reverse().find((item) => item.fingerprint === fingerprint);
+        const existingName = path.basename(String(existing?.fileName || ""));
+        if (existingName) {
+          const existingPath = validatedProjectExportFile(path.join(exportRoot, existingName), exportRoot);
+          const existingStats = existsSync(existingPath) ? lstatSync(existingPath) : null;
+          if (existingStats?.isFile() && !existingStats.isSymbolicLink() && existingStats.size > 0) {
+            return {
+              ok: true,
+              skipped: true,
+              skippedReason: "unchanged",
+              path: existingPath,
+              relativePath: managedImageExportRelativePath(exportRoot, existingPath),
+              format,
+              bytes: existingStats.size,
+              fingerprint
+            };
+          }
+        }
+      }
+      let destinationPath = requestedPath;
+      const requestedExists = existsSync(destinationPath);
+      if (requestedExists && conflictPolicy === "skip") {
+        const stats = lstatSync(destinationPath);
+        return {
+          ok: true,
+          skipped: true,
+          skippedReason: "conflict",
+          path: destinationPath,
+          relativePath: managedImageExportRelativePath(exportRoot, destinationPath),
+          format,
+          bytes: stats.isFile() ? stats.size : 0,
+          fingerprint
+        };
+      }
+      if (requestedExists && conflictPolicy === "keep-both") destinationPath = uniqueExportPath(exportRoot, path.basename(requestedPath));
+      return await withExportTargetLock(destinationPath, async () => {
+        const existsAtCommit = existsSync(destinationPath);
+        if (existsAtCommit && conflictPolicy === "skip") {
+          const stats = lstatSync(destinationPath);
+          return {
+            ok: true,
+            skipped: true,
+            skippedReason: "conflict",
+            path: destinationPath,
+            relativePath: managedImageExportRelativePath(exportRoot, destinationPath),
+            format,
+            bytes: stats.isFile() ? stats.size : 0,
+            fingerprint
+          };
+        }
+        if (existsAtCommit && conflictPolicy === "keep-both") {
+          exportFailure("NAIMAGE_EXPORT_TARGET_EXISTS", "导出目标刚刚被其他任务占用，请重试。");
+        }
+        const exported = await convertImageForExportImpl(source.path, destinationPath, format, { overwrite: existsAtCommit });
+        const relativePath = managedImageExportRelativePath(exportRoot, exported.path);
+        const entry = {
+          fingerprint,
+          assetId: String(source.asset?.assetId || "").slice(0, 160) || undefined,
+          sourceSha256,
+          format,
+          fileName: path.basename(exported.path),
+          relativePath,
+          bytes: exported.bytes,
+          exportedAt: new Date().toISOString()
+        };
+        let indexWarning = "";
+        if (typeof writeJson === "function") {
+          try {
+            const entries = [...index.entries.filter((item) => item.fingerprint !== fingerprint || item.fileName !== entry.fileName), entry].slice(-500);
+            writeJson(path.join(exportRoot, ".sparkai-export-index.json"), { ...index, updatedAt: entry.exportedAt, entries });
+          } catch (error) {
+            indexWarning = error instanceof Error ? error.message : String(error);
+            log(`asset managed export index warning ${indexWarning}`);
+          }
+        }
+        log(`asset managed export project=${context.project.id} format=${format} policy=${conflictPolicy} bytes=${exported.bytes}`);
+        return {
+          ok: true,
+          path: exported.path,
+          relativePath,
+          format: exported.format,
+          mimeType: exported.mimeType,
+          width: exported.width,
+          height: exported.height,
+          bytes: exported.bytes,
+          converted: exported.converted,
+          fingerprint,
+          ...(indexWarning ? { indexWarning } : {}),
+          ...(exported.cleanupWarning ? { cleanupWarning: exported.cleanupWarning } : {})
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`asset managed export failed ${message}`);
       return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_FAILED", error: message };
     } finally {
       releaseExportSourcesSafely(transientSources, context);

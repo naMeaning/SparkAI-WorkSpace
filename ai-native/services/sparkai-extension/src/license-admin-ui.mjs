@@ -11,13 +11,18 @@ const HTML = String.raw`<!doctype html>
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="product-name">SparkAI Extension</p>
-        <h1>License 管理</h1>
-      </div>
-      <div class="topbar-actions">
-        <span id="connection-state" class="connection-state" data-tone="neutral">未连接</span>
-        <button id="logout-button" class="button button-secondary" type="button" hidden>退出管理</button>
+      <div class="topbar-inner">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <div class="brand-copy">
+            <strong>SparkAI</strong>
+            <span>Extension</span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span id="connection-state" class="connection-state" data-tone="neutral">未连接</span>
+          <button id="logout-button" class="button button-secondary button-compact" type="button" hidden>退出管理</button>
+        </div>
       </div>
     </header>
 
@@ -39,149 +44,175 @@ const HTML = String.raw`<!doctype html>
       </section>
 
       <div id="dashboard" hidden>
-        <section class="summary-strip" aria-label="兑换码汇总">
-          <div class="summary-item">
-            <span>兑换码总数</span>
-            <strong id="summary-total">0</strong>
+        <section class="page-heading" aria-labelledby="dashboard-heading">
+          <div>
+            <p class="page-path">扩展服务 / License</p>
+            <h1 id="dashboard-heading">兑换码管理</h1>
+            <p class="page-description">管理 SparkAI WorkSpace Pro 设备授权、兑换次数和有效期限。</p>
           </div>
-          <div class="summary-item">
-            <span>启用中</span>
-            <strong id="summary-enabled">0</strong>
-          </div>
-          <div class="summary-item">
-            <span>已禁用</span>
-            <strong id="summary-disabled">0</strong>
-          </div>
-          <div class="summary-item">
-            <span>已兑换设备</span>
-            <strong id="summary-activations">0</strong>
-          </div>
-          <div class="summary-item">
-            <span>设备总额度</span>
-            <strong id="summary-capacity">0</strong>
+          <div class="page-actions">
+            <button id="refresh-button" class="button button-secondary" type="button">刷新</button>
+            <button id="open-create-button" class="button button-primary" type="button">+ 创建兑换码</button>
           </div>
         </section>
 
-        <div class="workspace-grid">
-          <section class="create-panel" aria-labelledby="create-heading">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">创建</p>
-                <h2 id="create-heading">生成兑换码</h2>
-              </div>
+        <section class="summary-strip" aria-label="兑换码汇总">
+          <div class="summary-item" data-tone="neutral">
+            <span>兑换码总数</span>
+            <strong id="summary-total">0</strong>
+            <small>全部历史记录</small>
+          </div>
+          <div class="summary-item" data-tone="success">
+            <span>启用中</span>
+            <strong id="summary-enabled">0</strong>
+            <small>当前可兑换</small>
+          </div>
+          <div class="summary-item" data-tone="danger">
+            <span>已禁用</span>
+            <strong id="summary-disabled">0</strong>
+            <small>已撤销授权</small>
+          </div>
+          <div class="summary-item" data-tone="info">
+            <span>已兑换设备</span>
+            <strong id="summary-activations">0</strong>
+            <small>累计激活数量</small>
+          </div>
+          <div class="summary-item" data-tone="warning">
+            <span>设备总额度</span>
+            <strong id="summary-capacity">0</strong>
+            <small>所有兑换码上限</small>
+          </div>
+        </section>
+
+        <section class="list-panel" aria-labelledby="list-heading">
+          <div class="list-heading-row">
+            <div>
+              <h2 id="list-heading">兑换码列表</h2>
+              <p>明文兑换码只在创建成功后显示一次，列表仅保留安全提示。</p>
             </div>
-            <form id="create-form" class="create-form">
-              <label class="field-block" for="batch-name">
-                <span>批次名称</span>
-                <input id="batch-name" name="name" type="text" maxlength="80" value="SparkAI Pro" required>
-              </label>
+          </div>
 
-              <div class="field-grid">
-                <label class="field-block" for="code-count">
-                  <span>生成数量</span>
-                  <input id="code-count" name="count" type="number" min="1" max="100" step="1" value="1" required>
-                </label>
-                <label class="field-block" for="max-activations">
-                  <span>每码可兑换设备数</span>
-                  <input id="max-activations" name="max_activations" type="number" min="1" max="100" step="1" value="3" required>
-                </label>
-              </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">批次 / 兑换码</th>
+                  <th scope="col">使用次数</th>
+                  <th scope="col">授权时长</th>
+                  <th scope="col">兑换截止</th>
+                  <th scope="col">创建时间</th>
+                  <th scope="col">状态</th>
+                  <th scope="col" class="action-column">操作</th>
+                </tr>
+              </thead>
+              <tbody id="codes-body">
+                <tr><td colspan="7" class="empty-state">连接后加载兑换码</td></tr>
+              </tbody>
+            </table>
+          </div>
 
-              <div class="setting-group">
-                <label class="toggle-line" for="permanent-license">
-                  <span>
-                    <strong>永久授权</strong>
-                    <small>关闭后，授权从首次激活开始计时</small>
-                  </span>
-                  <input id="permanent-license" type="checkbox" checked>
-                </label>
-                <label class="field-block" for="valid-days">
-                  <span>激活后有效天数</span>
-                  <input id="valid-days" name="valid_days" type="number" min="1" max="3650" step="1" value="30" disabled required>
-                </label>
-              </div>
-
-              <div class="setting-group">
-                <label class="toggle-line" for="no-deadline">
-                  <span>
-                    <strong>无兑换截止时间</strong>
-                    <small>关闭后，超过截止时间的新设备不能兑换</small>
-                  </span>
-                  <input id="no-deadline" type="checkbox" checked>
-                </label>
-                <label class="field-block" for="redemption-deadline">
-                  <span>兑换截止时间</span>
-                  <input id="redemption-deadline" name="redemption_deadline" type="datetime-local" disabled required>
-                </label>
-              </div>
-
-              <p class="form-note">同一设备重复激活不会重复占用次数。禁用兑换码会立即撤销该码已激活的所有设备授权。</p>
-              <p id="create-error" class="field-error" role="alert" hidden></p>
-              <button id="create-button" class="button button-primary button-full" type="submit">生成兑换码</button>
-            </form>
-          </section>
-
-          <section class="list-panel" aria-labelledby="list-heading">
-            <div class="section-heading list-heading-row">
-              <div>
-                <p class="eyebrow">管理</p>
-                <h2 id="list-heading">兑换码列表</h2>
-              </div>
-              <button id="refresh-button" class="button button-secondary" type="button">刷新</button>
+          <footer class="pagination">
+            <label for="page-size">
+              每页
+              <select id="page-size">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+            <span id="page-label">第 1 / 1 页</span>
+            <div class="pagination-actions">
+              <button id="previous-page" class="button button-secondary button-compact" type="button" disabled>上一页</button>
+              <button id="next-page" class="button button-secondary button-compact" type="button" disabled>下一页</button>
             </div>
-
-            <div class="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">批次 / 兑换码</th>
-                    <th scope="col">使用次数</th>
-                    <th scope="col">授权时长</th>
-                    <th scope="col">兑换截止</th>
-                    <th scope="col">状态</th>
-                    <th scope="col" class="action-column">操作</th>
-                  </tr>
-                </thead>
-                <tbody id="codes-body">
-                  <tr><td colspan="6" class="empty-state">连接后加载兑换码</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <footer class="pagination">
-              <label for="page-size">
-                每页
-                <select id="page-size">
-                  <option value="10">10</option>
-                  <option value="20" selected>20</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                </select>
-              </label>
-              <span id="page-label">第 1 / 1 页</span>
-              <div class="pagination-actions">
-                <button id="previous-page" class="button button-secondary" type="button" disabled>上一页</button>
-                <button id="next-page" class="button button-secondary" type="button" disabled>下一页</button>
-              </div>
-            </footer>
-          </section>
-        </div>
+          </footer>
+        </section>
       </div>
     </main>
 
-    <dialog id="codes-dialog" class="codes-dialog">
+    <dialog id="create-dialog" class="admin-dialog create-dialog">
+      <form method="dialog" class="dialog-header">
+        <div>
+          <p class="eyebrow">新建 License</p>
+          <h2 id="create-heading">创建兑换码</h2>
+          <p>设置兑换次数和时间规则，创建后规则不能修改。</p>
+        </div>
+        <button class="button button-secondary button-compact" value="close" type="submit">取消</button>
+      </form>
+      <form id="create-form" class="create-form">
+        <div class="dialog-body">
+          <label class="field-block" for="batch-name">
+            <span>批次名称</span>
+            <input id="batch-name" name="name" type="text" maxlength="80" value="SparkAI Pro" required>
+          </label>
+
+          <div class="field-grid">
+            <label class="field-block" for="code-count">
+              <span>生成数量</span>
+              <input id="code-count" name="count" type="number" min="1" max="100" step="1" value="1" required>
+            </label>
+            <label class="field-block" for="max-activations">
+              <span>每码可兑换设备数</span>
+              <input id="max-activations" name="max_activations" type="number" min="1" max="100" step="1" value="3" required>
+            </label>
+          </div>
+
+          <div class="rules-grid">
+            <div class="setting-group">
+              <label class="toggle-line" for="permanent-license">
+                <span>
+                  <strong>永久授权</strong>
+                  <small>关闭后从首次激活开始计时</small>
+                </span>
+                <input id="permanent-license" type="checkbox" checked>
+              </label>
+              <label class="field-block" for="valid-days">
+                <span>激活后有效天数</span>
+                <input id="valid-days" name="valid_days" type="number" min="1" max="3650" step="1" value="30" disabled required>
+              </label>
+            </div>
+
+            <div class="setting-group">
+              <label class="toggle-line" for="no-deadline">
+                <span>
+                  <strong>无兑换截止时间</strong>
+                  <small>关闭后可设置最后兑换时间</small>
+                </span>
+                <input id="no-deadline" type="checkbox" checked>
+              </label>
+              <label class="field-block" for="redemption-deadline">
+                <span>兑换截止时间</span>
+                <input id="redemption-deadline" name="redemption_deadline" type="datetime-local" disabled required>
+              </label>
+            </div>
+          </div>
+
+          <p class="form-note">同一设备重复激活不会重复占用次数。禁用兑换码会立即撤销该码已激活的所有设备授权。</p>
+          <p id="create-error" class="field-error" role="alert" hidden></p>
+        </div>
+        <div class="dialog-actions form-actions">
+          <button id="create-button" class="button button-primary" type="submit">创建兑换码</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="codes-dialog" class="admin-dialog codes-dialog">
       <form method="dialog" class="dialog-header">
         <div>
           <p class="eyebrow">创建成功</p>
           <h2>保存这些兑换码</h2>
+          <p>关闭后将无法再次查看完整明文。</p>
         </div>
-        <button class="button button-secondary" value="close" type="submit">关闭</button>
+        <button class="button button-secondary button-compact" value="close" type="submit">关闭</button>
       </form>
-      <p class="dialog-warning">兑换码明文只在本次创建后显示，服务端不会保存可恢复的明文。</p>
-      <pre id="generated-codes" tabindex="0"></pre>
+      <div class="dialog-body codes-result-body">
+        <p class="dialog-warning">兑换码明文只在本次创建后显示，服务端不会保存可恢复的明文。</p>
+        <pre id="generated-codes" tabindex="0"></pre>
+      </div>
       <div class="dialog-actions">
-        <button id="copy-codes" class="button button-primary" type="button">复制全部</button>
         <button id="download-codes" class="button button-secondary" type="button">下载 TXT</button>
+        <button id="copy-codes" class="button button-primary" type="button">复制全部</button>
       </div>
     </dialog>
 
@@ -193,10 +224,24 @@ const HTML = String.raw`<!doctype html>
 
 const CSS = String.raw`:root {
   color-scheme: light;
-  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: "Segoe UI", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
   font-synthesis: none;
-  color: #18201d;
-  background: #f3f5f4;
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #ffffff;
+  --muted: #f7f7f8;
+  --muted-strong: #f1f1f2;
+  --muted-foreground: #737373;
+  --border: #e7e7e9;
+  --border-strong: #d5d5d8;
+  --primary: #202020;
+  --primary-hover: #363636;
+  --destructive: #d14343;
+  --success: #18845d;
+  --warning: #a76612;
+  --info: #2563a8;
+  color: var(--foreground);
+  background: var(--muted);
 }
 
 * {
@@ -211,7 +256,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background: #f3f5f4;
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 button,
@@ -236,22 +282,65 @@ input:disabled {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 76px;
-  padding: 14px clamp(18px, 4vw, 56px);
-  border-bottom: 1px solid #d8ddda;
-  background: rgba(255, 255, 255, 0.96);
+  min-height: 54px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(12px);
 }
 
-.product-name,
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(1480px, 100%);
+  min-height: 54px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.brand-lockup,
+.page-actions {
+  display: flex;
+  align-items: center;
+}
+
+.brand-lockup {
+  gap: 10px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.brand-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.brand-copy strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.brand-copy span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
 .eyebrow {
   margin: 0 0 4px;
-  color: #527067;
-  font-size: 12px;
-  font-weight: 700;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 650;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -264,14 +353,14 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: 22px;
-  line-height: 1.25;
+  font-size: 20px;
+  line-height: 1.35;
 }
 
 h2 {
   margin-bottom: 0;
-  font-size: 18px;
-  line-height: 1.35;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .topbar-actions,
@@ -280,61 +369,74 @@ h2 {
 .pagination-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .connection-state {
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 4px 10px;
-  border: 1px solid #d1d8d4;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #f7f9f8;
-  color: #56615d;
-  font-size: 13px;
-  font-weight: 650;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
+.connection-state::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a3a3a3;
+  content: "";
+}
+
 .connection-state[data-tone="success"] {
-  border-color: #a6cdbd;
-  background: #eaf6f0;
-  color: #176344;
+  border-color: #cbe7da;
+  background: #f0faf5;
+  color: var(--success);
+}
+
+.connection-state[data-tone="success"]::before {
+  background: var(--success);
 }
 
 .connection-state[data-tone="danger"] {
-  border-color: #e3b3b0;
-  background: #fff0ef;
-  color: #9a2f2a;
+  border-color: #f0caca;
+  background: #fff5f5;
+  color: var(--destructive);
+}
+
+.connection-state[data-tone="danger"]::before {
+  background: var(--destructive);
 }
 
 .page-shell {
-  width: min(1500px, 100%);
+  width: min(1480px, 100%);
   margin: 0 auto;
-  padding: 28px clamp(18px, 4vw, 56px) 52px;
+  padding: 22px 24px 44px;
 }
 
 .auth-panel {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.75fr) minmax(360px, 1.25fr);
-  gap: 40px;
-  align-items: end;
-  max-width: 980px;
-  margin: 72px auto 0;
-  padding: 34px;
-  border: 1px solid #d5dbd8;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 16px 44px rgba(24, 32, 29, 0.08);
+  max-width: 520px;
+  margin: 88px auto 0;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.07);
 }
 
 .section-copy {
   max-width: 52ch;
-  margin: 12px 0 0;
-  color: #66716d;
-  font-size: 14px;
-  line-height: 1.7;
+  margin: 8px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .auth-form,
@@ -343,11 +445,15 @@ h2 {
   gap: 16px;
 }
 
+.auth-form {
+  margin-top: 22px;
+}
+
 label,
 .field-block > span {
-  color: #35403c;
+  color: #3f3f46;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .auth-form > label {
@@ -356,12 +462,13 @@ label,
 
 input,
 select {
-  min-height: 40px;
-  border: 1px solid #c8d0cc;
+  min-height: 36px;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #ffffff;
-  color: #18201d;
+  background: var(--background);
+  color: var(--foreground);
   outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 input {
@@ -376,8 +483,8 @@ select {
 input:focus,
 select:focus,
 button:focus-visible {
-  border-color: #277a5c;
-  box-shadow: 0 0 0 3px rgba(39, 122, 92, 0.16);
+  border-color: #8f8f96;
+  box-shadow: 0 0 0 3px rgba(32, 32, 32, 0.12);
 }
 
 .inline-field input {
@@ -386,125 +493,179 @@ button:focus-visible {
 }
 
 .button {
-  min-height: 38px;
-  padding: 8px 14px;
+  min-height: 34px;
+  padding: 7px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
-  font-weight: 700;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.button-compact {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .button-primary {
-  border-color: #176344;
-  background: #176344;
+  border-color: var(--primary);
+  background: var(--primary);
   color: #ffffff;
 }
 
 .button-primary:hover:not(:disabled) {
-  background: #104f36;
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
 }
 
 .button-secondary {
-  border-color: #cbd3cf;
-  background: #ffffff;
-  color: #35403c;
+  border-color: var(--border-strong);
+  background: var(--background);
+  color: #3f3f46;
 }
 
 .button-secondary:hover:not(:disabled) {
-  border-color: #8ea098;
-  background: #f6f8f7;
+  border-color: #b8b8bd;
+  background: var(--muted);
 }
 
 .button-danger {
-  border-color: #e0aaa6;
-  background: #fff7f6;
-  color: #9a2f2a;
+  border-color: transparent;
+  background: #fff1f1;
+  color: var(--destructive);
 }
 
 .button-danger:hover:not(:disabled) {
-  background: #ffe9e7;
-}
-
-.button-full {
-  width: 100%;
+  background: #ffe3e3;
 }
 
 .field-error {
   margin: 0;
-  color: #a02f2a;
+  color: var(--destructive);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 2px 2px 0;
+}
+
+.page-path {
+  margin: 0 0 5px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.page-description,
+.list-heading-row p,
+.dialog-header p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.page-actions {
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(110px, 1fr));
-  margin-bottom: 20px;
-  border: 1px solid #d6dcda;
-  border-radius: 8px;
-  background: #ffffff;
-  overflow: hidden;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .summary-item {
+  position: relative;
   min-width: 0;
-  padding: 16px 18px;
-  border-right: 1px solid #e2e6e4;
-}
-
-.summary-item:last-child {
-  border-right: 0;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);
 }
 
 .summary-item span {
-  display: block;
-  color: #6a7571;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-foreground);
   font-size: 12px;
+  font-weight: 550;
+}
+
+.summary-item span::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #a3a3a3;
+  content: "";
+}
+
+.summary-item[data-tone="success"] span::before {
+  background: var(--success);
+}
+
+.summary-item[data-tone="danger"] span::before {
+  background: var(--destructive);
+}
+
+.summary-item[data-tone="info"] span::before {
+  background: var(--info);
+}
+
+.summary-item[data-tone="warning"] span::before {
+  background: var(--warning);
 }
 
 .summary-item strong {
   display: block;
-  margin-top: 6px;
-  font-size: 23px;
+  margin-top: 8px;
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 22px;
+  font-weight: 650;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
-.workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(640px, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.create-panel,
-.list-panel {
-  border: 1px solid #d6dcda;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.create-panel {
-  padding: 22px;
+.summary-item small {
+  display: block;
+  margin-top: 4px;
+  color: #a0a0a6;
+  font-size: 11px;
 }
 
 .list-panel {
   min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.025);
   overflow: hidden;
-}
-
-.section-heading {
-  margin-bottom: 20px;
 }
 
 .list-heading-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  margin: 0;
-  padding: 20px 22px;
-  border-bottom: 1px solid #e2e6e4;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .field-block {
@@ -518,13 +679,19 @@ button:focus-visible {
   gap: 12px;
 }
 
+.rules-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 .setting-group {
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 1px solid #e0e5e2;
-  border-radius: 6px;
-  background: #f8faf9;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
 }
 
 .toggle-line {
@@ -545,7 +712,7 @@ button:focus-visible {
 
 .toggle-line small {
   margin-top: 3px;
-  color: #6c7773;
+  color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
@@ -558,9 +725,9 @@ button:focus-visible {
   flex: 0 0 38px;
   appearance: none;
   padding: 2px;
-  border: 1px solid #aeb9b4;
+  border: 1px solid #b8b8bd;
   border-radius: 999px;
-  background: #c6ceca;
+  background: #c8c8cc;
   transition: background 140ms ease, border-color 140ms ease;
 }
 
@@ -570,14 +737,14 @@ button:focus-visible {
   height: 15px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(24, 32, 29, 0.22);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.24);
   content: "";
   transition: transform 140ms ease;
 }
 
 .toggle-line input:checked {
-  border-color: #176344;
-  background: #176344;
+  border-color: var(--primary);
+  background: var(--primary);
 }
 
 .toggle-line input:checked::before {
@@ -586,7 +753,7 @@ button:focus-visible {
 
 .form-note {
   margin: 0;
-  color: #68736f;
+  color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.65;
 }
@@ -598,32 +765,42 @@ button:focus-visible {
 
 table {
   width: 100%;
-  min-width: 760px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
 th,
 td {
-  padding: 13px 14px;
-  border-bottom: 1px solid #e5e9e7;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: middle;
 }
 
 th {
-  background: #f8faf9;
-  color: #5f6a66;
-  font-size: 12px;
-  font-weight: 750;
+  background: #fafafa;
+  color: #68686f;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 td {
-  color: #35403c;
+  color: #414146;
   font-size: 13px;
 }
 
 tbody tr:hover {
-  background: #fbfcfc;
+  background: #fafafa;
+}
+
+tbody tr[data-state="disabled"] {
+  background: #fafafa;
+  color: #8c8c92;
+}
+
+tbody tr[data-state="disabled"] .code-name,
+tbody tr[data-state="disabled"] .code-hint {
+  color: #8c8c92;
 }
 
 .code-name,
@@ -634,54 +811,58 @@ tbody tr:hover {
 .code-name {
   max-width: 250px;
   overflow: hidden;
-  color: #1b2421;
-  font-weight: 700;
+  color: var(--foreground);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .code-hint {
   margin-top: 4px;
-  color: #74807b;
+  color: var(--muted-foreground);
   font-family: Consolas, "SFMono-Regular", monospace;
   font-size: 12px;
 }
 
 .usage-value {
+  font-family: Consolas, "SFMono-Regular", monospace;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.date-value {
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .status-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 26px;
-  padding: 3px 8px;
-  border: 1px solid #cbd3cf;
+  min-height: 22px;
+  padding: 2px 7px;
+  border: 0;
   border-radius: 999px;
-  background: #f7f9f8;
-  color: #56615d;
+  background: var(--muted);
+  color: var(--muted-foreground);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .status-badge[data-tone="success"] {
-  border-color: #add1c2;
-  background: #edf8f3;
-  color: #176344;
+  background: #eef9f4;
+  color: var(--success);
 }
 
 .status-badge[data-tone="warning"] {
-  border-color: #e4c88d;
-  background: #fff8e8;
-  color: #7b5511;
+  background: #fff8eb;
+  color: var(--warning);
 }
 
 .status-badge[data-tone="danger"] {
-  border-color: #e4b4b0;
-  background: #fff0ef;
-  color: #9a2f2a;
+  background: #fff0f0;
+  color: var(--destructive);
 }
 
 .action-column {
@@ -690,14 +871,14 @@ tbody tr:hover {
 }
 
 td.action-column .button {
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: 28px;
+  padding: 5px 9px;
   font-size: 12px;
 }
 
 .empty-state {
-  height: 140px;
-  color: #7b8581;
+  height: 180px;
+  color: var(--muted-foreground);
   text-align: center;
 }
 
@@ -706,10 +887,10 @@ td.action-column .button {
   align-items: center;
   justify-content: flex-end;
   gap: 18px;
-  min-height: 64px;
-  padding: 11px 16px;
-  color: #65706c;
-  font-size: 13px;
+  min-height: 54px;
+  padding: 9px 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
 }
 
 .pagination label {
@@ -719,22 +900,30 @@ td.action-column .button {
 }
 
 .pagination select {
-  min-height: 34px;
+  min-height: 30px;
+}
+
+.admin-dialog {
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.2);
+}
+
+.admin-dialog::backdrop {
+  background: rgba(15, 15, 16, 0.48);
+  backdrop-filter: blur(2px);
+}
+
+.create-dialog {
+  width: min(720px, calc(100vw - 32px));
 }
 
 .codes-dialog {
   width: min(620px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
-  padding: 0;
-  border: 1px solid #cad2ce;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #18201d;
-  box-shadow: 0 24px 80px rgba(24, 32, 29, 0.28);
-}
-
-.codes-dialog::backdrop {
-  background: rgba(18, 25, 22, 0.56);
 }
 
 .dialog-header {
@@ -742,26 +931,44 @@ td.action-column .button {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 20px 22px;
-  border-bottom: 1px solid #e1e6e3;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog-header > div {
+  min-width: 0;
+}
+
+.dialog-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.create-form {
+  gap: 0;
 }
 
 .dialog-warning {
-  margin: 18px 22px 12px;
-  color: #76500e;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d9ad;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #84530d;
   font-size: 13px;
   line-height: 1.55;
 }
 
 .codes-dialog pre {
   max-height: 320px;
-  margin: 0 22px;
+  margin: 0;
   padding: 14px;
   overflow: auto;
-  border: 1px solid #d9dfdc;
-  border-radius: 6px;
-  background: #f6f8f7;
-  color: #17201d;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--muted);
+  color: var(--foreground);
   font-family: Consolas, "SFMono-Regular", monospace;
   font-size: 14px;
   line-height: 1.75;
@@ -772,7 +979,13 @@ td.action-column .button {
 
 .dialog-actions {
   justify-content: flex-end;
-  padding: 16px 22px 22px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--border);
+  background: #fcfcfc;
+}
+
+.form-actions {
+  padding-top: 12px;
 }
 
 .toast {
@@ -782,11 +995,11 @@ td.action-column .button {
   z-index: 30;
   max-width: min(420px, calc(100vw - 48px));
   padding: 11px 14px;
-  border: 1px solid #accdbf;
-  border-radius: 6px;
-  background: #173f31;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  background: #202020;
   color: #ffffff;
-  box-shadow: 0 12px 32px rgba(24, 32, 29, 0.2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
   font-size: 13px;
   line-height: 1.45;
 }
@@ -798,40 +1011,32 @@ td.action-column .button {
 }
 
 @media (max-width: 1100px) {
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .create-panel {
-    max-width: none;
+  .summary-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 760px) {
-  .topbar {
-    align-items: flex-start;
-    min-height: 70px;
-    padding: 12px 16px;
+  .topbar-inner {
+    min-height: 52px;
+    padding: 0 12px;
   }
 
-  .product-name,
   .connection-state {
     display: none;
   }
 
-  h1 {
-    font-size: 19px;
+  .brand-copy span {
+    display: none;
   }
 
   .page-shell {
-    padding: 18px 12px 36px;
+    padding: 16px 12px 32px;
   }
 
   .auth-panel {
-    grid-template-columns: 1fr;
-    gap: 22px;
-    margin-top: 28px;
-    padding: 22px;
+    margin-top: 32px;
+    padding: 22px 18px;
   }
 
   .inline-field {
@@ -839,22 +1044,48 @@ td.action-column .button {
     flex-direction: column;
   }
 
+  .page-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 13px;
+  }
+
+  .page-actions {
+    width: 100%;
+  }
+
+  .page-actions .button {
+    flex: 1;
+  }
+
   .summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .summary-item {
-    border-right: 0;
-    border-bottom: 1px solid #e2e6e4;
+    padding: 12px;
   }
 
   .summary-item:last-child {
     grid-column: 1 / -1;
-    border-bottom: 0;
   }
 
-  .field-grid {
+  .field-grid,
+  .rules-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dialog-header {
+    align-items: flex-start;
+  }
+
+  .dialog-body {
+    padding: 16px;
+  }
+
+  table {
+    min-width: 920px;
   }
 
   .pagination {
@@ -870,6 +1101,12 @@ td.action-column .button {
 
   .pagination-actions .button {
     flex: 1;
+  }
+
+  .toast {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
   }
 }
 
@@ -901,6 +1138,8 @@ const SCRIPT = String.raw`(function () {
   var dashboard = document.getElementById("dashboard");
   var logoutButton = document.getElementById("logout-button");
   var connectionState = document.getElementById("connection-state");
+  var openCreateButton = document.getElementById("open-create-button");
+  var createDialog = document.getElementById("create-dialog");
   var createForm = document.getElementById("create-form");
   var createButton = document.getElementById("create-button");
   var createError = document.getElementById("create-error");
@@ -1001,13 +1240,15 @@ const SCRIPT = String.raw`(function () {
     codesBody.replaceChildren();
     if (!items.length) {
       var emptyRow = document.createElement("tr");
-      appendTextCell(emptyRow, "暂无兑换码", "empty-state").colSpan = 6;
+      appendTextCell(emptyRow, "暂无兑换码", "empty-state").colSpan = 7;
       codesBody.appendChild(emptyRow);
       return;
     }
 
     items.forEach(function (item) {
       var row = document.createElement("tr");
+      var redemptionExpired = Number(item.expired_time) > 0 && Number(item.expired_time) <= Math.floor(Date.now() / 1000);
+      if (Number(item.status) !== 1 || redemptionExpired) row.dataset.state = "disabled";
       var identity = document.createElement("td");
       var name = document.createElement("span");
       var hint = document.createElement("span");
@@ -1022,6 +1263,7 @@ const SCRIPT = String.raw`(function () {
       appendTextCell(row, String(item.activation_count) + " / " + String(item.max_activations), "usage-value");
       appendTextCell(row, Number(item.valid_days) === 0 ? "永久" : "激活后 " + item.valid_days + " 天");
       appendTextCell(row, formatDate(Number(item.expired_time)));
+      appendTextCell(row, formatDate(Number(item.created_time)), "date-value");
 
       var statusCell = document.createElement("td");
       var status = codeStatus(item);
@@ -1070,7 +1312,7 @@ const SCRIPT = String.raw`(function () {
     if (!settings.silent) {
       codesBody.replaceChildren();
       var loadingRow = document.createElement("tr");
-      appendTextCell(loadingRow, "正在加载…", "empty-state").colSpan = 6;
+      appendTextCell(loadingRow, "正在加载…", "empty-state").colSpan = 7;
       codesBody.appendChild(loadingRow);
     }
     setButtonBusy(refreshButton, true, "刷新中");
@@ -1097,7 +1339,7 @@ const SCRIPT = String.raw`(function () {
       }
       codesBody.replaceChildren();
       var errorRow = document.createElement("tr");
-      appendTextCell(errorRow, error.message, "empty-state").colSpan = 6;
+      appendTextCell(errorRow, error.message, "empty-state").colSpan = 7;
       codesBody.appendChild(errorRow);
       return false;
     } finally {
@@ -1125,10 +1367,11 @@ const SCRIPT = String.raw`(function () {
     totalItems = 0;
     adminTokenInput.value = "";
     generatedCodes.textContent = "";
+    if (createDialog.open) createDialog.close();
     if (codesDialog.open) codesDialog.close();
     codesBody.replaceChildren();
     var emptyRow = document.createElement("tr");
-    appendTextCell(emptyRow, "连接后加载兑换码", "empty-state").colSpan = 6;
+    appendTextCell(emptyRow, "连接后加载兑换码", "empty-state").colSpan = 7;
     codesBody.appendChild(emptyRow);
     renderSummary({ total: 0, enabled: 0, disabled: 0, activation_count: 0, activation_capacity: 0 });
     updatePagination();
@@ -1167,6 +1410,11 @@ const SCRIPT = String.raw`(function () {
 
   logoutButton.addEventListener("click", function () { logout(); });
   refreshButton.addEventListener("click", function () { loadCodes(); });
+  openCreateButton.addEventListener("click", function () {
+    clearError(createError);
+    createDialog.showModal();
+    document.getElementById("batch-name").focus();
+  });
 
   permanentLicense.addEventListener("change", function () {
     validDaysInput.disabled = permanentLicense.checked;
@@ -1208,6 +1456,7 @@ const SCRIPT = String.raw`(function () {
       var data = await api("/codes", { method: "POST", body: JSON.stringify(payload) });
       var codes = Array.isArray(data.codes) ? data.codes : [];
       generatedCodes.textContent = codes.join("\n");
+      createDialog.close();
       codesDialog.showModal();
       currentPage = 1;
       await loadCodes({ silent: true });
@@ -1275,6 +1524,10 @@ const SCRIPT = String.raw`(function () {
 
   codesDialog.addEventListener("close", function () {
     generatedCodes.textContent = "";
+  });
+
+  createDialog.addEventListener("close", function () {
+    clearError(createError);
   });
 })();
 `;
