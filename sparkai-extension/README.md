@@ -1,6 +1,6 @@
 # SparkAI Extension
 
-`ai-native` is now the lightweight extension service for SparkAI WorkSpace. It does not contain the active New API deployment and does not require a customized New API build.
+`sparkai-extension` is the lightweight extension service for SparkAI WorkSpace. It does not contain the active New API deployment and does not require a customized New API build.
 
 Your existing stock New API continues to own accounts, model keys, channels, quota, billing, and usage. The extension adds only:
 
@@ -38,5 +38,7 @@ corepack pnpm run package:extension
 Configuration is documented in [`services/sparkai-extension/.env.example`](services/sparkai-extension/.env.example). Deployment steps are in [`deploy/sparkai-extension/README.md`](deploy/sparkai-extension/README.md).
 
 After the reverse proxy is configured, open `/api/naimage/license/admin` on the public API hostname and enter `SPARKAI_EXTENSION_ADMIN_TOKEN`. The page can create permanent or time-limited codes, set the number of devices allowed per code, set a redemption deadline, inspect usage, and disable a code with all of its issued device licenses.
+
+To embed the page in your own admin system, set `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` to a comma-separated list of exact HTTP(S) origins, for example `https://admin.example.com`. The default is empty and keeps iframe embedding disabled. The embedded page still asks for the admin token; it is held in page memory only. Do not put the token in an iframe URL, cookie, `localStorage`, or `postMessage` payload.
 
 `package:extension` creates a standalone ZIP and TAR.GZ under `release/`. The bundle contains a deployment-specific root `AGENTS.md`, Docker-network Compose, both Caddy layouts, source checks, file manifests and SHA-256 sums. It never includes the legacy New API/CRM trees, local `.env`, databases or diagnostics.

@@ -11,13 +11,13 @@
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
 | --- | --- | --- | --- | --- |
 | `naimage-studio/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
-| `ai-native/` | SparkAI 独立扩展服务；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | Node 24 原生 HTTP、`node:sqlite`、Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
+| `sparkai-extension/` | SparkAI 独立扩展服务；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | Node 24 原生 HTTP、`node:sqlite`、Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
 
 一句话判断：
 
 - 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `naimage-studio/`。
 - 改账号、渠道、余额、计费或 New API 管理界面：修改用户独立维护的原生 New API，不进入本工作区。
-- 改 Pro License、兑换码、`/v1/image-tasks` 或其同域反向代理部署：进入 `ai-native/`。
+- 改 Pro License、兑换码、`/v1/image-tasks` 或其同域反向代理部署：进入 `sparkai-extension/`。
 - 改远端 API、模型 DTO、更新 manifest 或认证规则：通常需要两边同步。
 
 ## 2. 跨项目总体拓扑
@@ -27,7 +27,7 @@ flowchart LR
   User["用户"] --> Desktop["naimage-studio\nElectron 桌面端"]
 
   Desktop -->|"账号/session/Token/普通 /v1"| NewAPI["用户已部署的原生 New API\n保持上游版本"]
-  Desktop -->|"/api/naimage/license/*\n/v1/image-tasks/*"| Extension["ai-native / SparkAI Extension\nNode 24 + SQLite"]
+  Desktop -->|"/api/naimage/license/*\n/v1/image-tasks/*"| Extension["sparkai-extension / SparkAI Extension\nNode 24 + SQLite"]
 
   Extension -->|"Bearer 只在内存\n共享 Docker network\n/v1/images/generations"| NewAPI
   NewAPI --> Providers["上游模型与图片服务"]
@@ -116,7 +116,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 - 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
-## 4. `ai-native` 上下文
+## 4. `sparkai-extension` 上下文
 
 ### 4.1 活跃组成
 
@@ -148,7 +148,7 @@ Compose 默认强制加入 `SPARKAI_DOCKER_NETWORK` 指定的既有 user-defined
 
 | 需求 | 首要位置 | 必须联动 |
 | --- | --- | --- |
-| 兑换码、设备数、期限、撤销和管理页 | `src/license-service.mjs`, `src/license-admin-ui.mjs` | SQLite schema、管理员 HTTP/CLI、License HTTP/UI 测试、部署文档、桌面 `test:license` |
+| 兑换码、设备数、期限、撤销和管理页 | `src/license-service.mjs`, `src/license-admin-ui.mjs` | SQLite schema、管理员 HTTP/CLI、License HTTP/UI 测试、部署文档、桌面 `test:license`；新码保存 HMAC + AES-256-GCM 密文并可由管理员重复 reveal，旧 HMAC-only 记录不可恢复 |
 | 图片任务状态、并发、上游转发 | `src/image-task-service.mjs` | `/v1/image-tasks` HTTP 合同、幂等键、结果上限、桌面 transport 测试 |
 | HTTP 鉴权、限流、路由 | `src/http-server.mjs` | Caddy 路径、公开错误 DTO、安全测试 |
 | 部署/交付包 | `deploy/sparkai-extension/`, `scripts/package-extension.mjs` | 先读包根 `AGENTS.md`；现有 Docker network/DNS、稳定 HMAC secret、数据卷备份、代理位置、单副本约束、archive manifest/hash |
@@ -157,7 +157,7 @@ Compose 默认强制加入 `SPARKAI_DOCKER_NETWORK` 指定的既有 user-defined
 ### 4.4 验证
 
 ```powershell
-cd E:\019创业项目\nimage\ai-native
+cd E:\019创业项目\nimage\sparkai-extension
 corepack pnpm run verify:workspace
 corepack pnpm run build
 corepack pnpm run test
@@ -170,7 +170,7 @@ corepack pnpm run package:extension
 | 合同 | 桌面侧 | 后端侧 | 修改时检查 |
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
-| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC-only 存储、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
+| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC 激活匹配、管理员可解密的新码密文、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
@@ -185,7 +185,7 @@ corepack pnpm run package:extension
 
 正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 
-产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务只有 `/api/naimage/license/admin` 这一处管理员 Token 保护的 License 管理页；它没有账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。管理页不持久化管理员 Token，数据库仍只保存兑换码 HMAC 与展示提示。
+产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务只有 `/api/naimage/license/admin` 这一处管理员 Token 保护的 License 管理页；它没有账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。管理页不持久化管理员 Token；新兑换码同时保存用于激活匹配的 HMAC 与 AES-256-GCM 密文，`GET /api/naimage/license/admin/codes/:id/reveal` 只允许管理员重复查看，历史 HMAC-only 记录不可恢复。管理页默认拒绝 iframe；只有 `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` 中精确列出的 Origin 可嵌入，管理员 Token 仍不得进入 URL、Cookie、浏览器持久存储或跨窗消息。
 
 生图幂等键是计费安全 ABI：Studio 对外发送 `naimage-` 前缀，扩展服务按 owner + idempotency HMAC 返回同一任务，并把原键继续传给私网 New API；已收到任务 ID或创建结果不明时不得重建，以避免重复扣费。
 

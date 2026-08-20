@@ -261,7 +261,7 @@ const localServerEntryCandidates = [
     ? path.resolve(desktopEnvironment("NAIMAGE_LOCAL_SERVER_ENTRY"))
     : "",
   path.join(projectRoot, "services", "ai-gateway", "server.cjs"),
-  path.join(workspaceRoot, "ai-native", "services", "ai-gateway", "server.cjs")
+  path.join(workspaceRoot, "sparkai-extension", "services", "ai-gateway", "server.cjs")
 ].filter(Boolean);
 const localServerEntry = localServerEntryCandidates.find((candidate) => existsSync(candidate)) || localServerEntryCandidates[0];
 const localServerRoot = path.dirname(localServerEntry);

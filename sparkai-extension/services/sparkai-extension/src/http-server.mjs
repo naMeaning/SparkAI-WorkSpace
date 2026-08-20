@@ -56,18 +56,25 @@ function sendJson(response, status, payload) {
   response.end(body);
 }
 
-function sendAdminAsset(response, asset) {
-  response.writeHead(200, {
+function sendAdminAsset(response, asset, frameOrigins = []) {
+  const frameAncestors = frameOrigins.length > 0
+    ? ["'self'", ...frameOrigins].join(" ")
+    : "'none'";
+  const headers = {
     "content-type": asset.contentType,
     "content-length": Buffer.byteLength(asset.body),
     "cache-control": "no-store",
-    "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors ${frameAncestors}`,
     "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
-    "x-frame-options": "DENY",
     "x-robots-tag": "noindex, nofollow"
-  });
+  };
+  // X-Frame-Options has no interoperable allow-list syntax. Once an exact
+  // Origin is configured, CSP is the source of truth and this conflicting
+  // legacy header must be omitted; the default remains an explicit DENY.
+  if (frameOrigins.length === 0) headers["x-frame-options"] = "DENY";
+  response.writeHead(200, headers);
   response.end(asset.body);
 }
 
@@ -115,7 +122,7 @@ export function createExtensionHttpServer({ config, licenseService, imageTaskSer
 
       const adminAsset = method === "GET" ? licenseAdminUiAsset(path) : null;
       if (adminAsset) {
-        sendAdminAsset(response, adminAsset);
+        sendAdminAsset(response, adminAsset, config.adminFrameOrigins);
         return;
       }
 
@@ -156,6 +163,14 @@ export function createExtensionHttpServer({ config, licenseService, imageTaskSer
       if (disableMatch && method === "POST") {
         requireAdmin(request, config.adminToken);
         const result = licenseService.disableCode(disableMatch[1]);
+        sendJson(response, 200, { success: true, data: result });
+        return;
+      }
+
+      const revealMatch = path.match(/^\/api\/naimage\/license\/admin\/codes\/(\d+)\/reveal$/);
+      if (revealMatch && method === "GET") {
+        requireAdmin(request, config.adminToken);
+        const result = licenseService.revealCode(revealMatch[1]);
         sendJson(response, 200, { success: true, data: result });
         return;
       }

@@ -3,7 +3,7 @@
 ## Classification
 
 - Mode: `discussion | diagnose | implement | goal | build | release`
-- Owner: `naimage-studio | ai-native | cross-repository`
+- Owner: `naimage-studio | sparkai-extension | cross-repository`
 - User outcome:
 - Why now:
 

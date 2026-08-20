@@ -4,7 +4,10 @@ import {
   activationCodeHint,
   createActivationCode,
   createLicenseToken,
+  decryptActivationCode,
+  encryptActivationCode,
   normalizeActivationCode,
+  safeSecretEqual,
   secretDigest
 } from "./secrets.mjs";
 
@@ -31,9 +34,10 @@ function cleanPlan(value) {
 }
 
 export class LicenseService {
-  constructor({ database, hashSecret, now = () => Math.floor(Date.now() / 1000) }) {
+  constructor({ database, hashSecret, encryptionSecret = hashSecret, now = () => Math.floor(Date.now() / 1000) }) {
     this.database = database;
     this.hashSecret = hashSecret;
+    this.encryptionSecret = encryptionSecret;
     this.now = now;
   }
 
@@ -66,15 +70,17 @@ export class LicenseService {
     return withImmediateTransaction(this.database, () => {
       const insert = this.database.prepare(`
         INSERT INTO activation_codes
-          (name, code_hash, code_hint, plan, valid_days, max_activations, activation_count, status, expired_time, created_time)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+          (name, code_hash, code_hint, code_ciphertext, plan, valid_days, max_activations, activation_count, status, expired_time, created_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `);
       const codes = [];
       while (codes.length < count) {
         const code = createActivationCode();
-        const codeHash = secretDigest(this.hashSecret, "activation-code", normalizeActivationCode(code));
+        const normalizedCode = normalizeActivationCode(code);
+        const codeHash = secretDigest(this.hashSecret, "activation-code", normalizedCode);
+        const codeCiphertext = encryptActivationCode(normalizedCode, this.encryptionSecret);
         try {
-          insert.run(name, codeHash, activationCodeHint(code), plan, validDays, maxActivations, STATUS_ENABLED, expiredTime, now);
+          insert.run(name, codeHash, activationCodeHint(normalizedCode), codeCiphertext, plan, validDays, maxActivations, STATUS_ENABLED, expiredTime, now);
           codes.push(code);
         } catch (error) {
           if (!String(error?.message || "").includes("UNIQUE")) throw error;
@@ -105,9 +111,34 @@ export class LicenseService {
     };
     const items = this.database.prepare(`
       SELECT id, name, code_hint, plan, valid_days, max_activations, activation_count, status, expired_time, created_time
+        , CASE WHEN code_ciphertext IS NULL OR code_ciphertext = '' THEN 0 ELSE 1 END AS code_reveal_available
       FROM activation_codes ORDER BY id DESC LIMIT ? OFFSET ?
     `).all(cleanSize, (cleanPage - 1) * cleanSize);
     return { items, total: summary.total, page: cleanPage, size: cleanSize, summary };
+  }
+
+  revealCode(id) {
+    const codeId = boundedInteger(id, 0, 1, Number.MAX_SAFE_INTEGER, "兑换码 ID 无效。");
+    const row = this.database.prepare(`
+      SELECT id, code_hash, code_hint, code_ciphertext
+      FROM activation_codes WHERE id = ?
+    `).get(codeId);
+    if (!row) throw serviceError(404, "activation_code_not_found", "兑换码不存在。");
+    if (!row.code_ciphertext) {
+      throw serviceError(409, "activation_code_unrecoverable", "该兑换码创建于加密保存启用之前，服务端没有可恢复的明文。请创建新的兑换码。");
+    }
+
+    let code;
+    try {
+      code = decryptActivationCode(row.code_ciphertext, this.encryptionSecret);
+    } catch {
+      throw serviceError(500, "activation_code_unavailable", "兑换码密文无法解密，请检查稳定的扩展服务密钥。");
+    }
+    const expectedHash = secretDigest(this.hashSecret, "activation-code", code);
+    if (!safeSecretEqual(expectedHash, row.code_hash)) {
+      throw serviceError(500, "activation_code_unavailable", "兑换码密文校验失败，请检查扩展服务数据和密钥。");
+    }
+    return { id: row.id, code, code_hint: row.code_hint };
   }
 
   disableCode(id) {

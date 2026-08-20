@@ -12,6 +12,7 @@ const SCHEMA = `
     name TEXT NOT NULL,
     code_hash TEXT NOT NULL UNIQUE,
     code_hint TEXT NOT NULL,
+    code_ciphertext TEXT,
     plan TEXT NOT NULL,
     valid_days INTEGER NOT NULL,
     max_activations INTEGER NOT NULL,
@@ -60,6 +61,13 @@ export function openDatabase(databasePath) {
   mkdirSync(dirname(databasePath), { recursive: true });
   const database = new DatabaseSync(databasePath);
   database.exec(SCHEMA);
+  // Keep databases created before repeatable admin reveal usable. The old
+  // schema intentionally has no recoverable code material, so the new field
+  // remains NULL for those rows and the admin UI reports them as historical.
+  const columns = database.prepare("PRAGMA table_info(activation_codes)").all();
+  if (!columns.some((column) => column.name === "code_ciphertext")) {
+    database.exec("ALTER TABLE activation_codes ADD COLUMN code_ciphertext TEXT");
+  }
   return database;
 }
 

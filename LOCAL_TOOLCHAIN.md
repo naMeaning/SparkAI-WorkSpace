@@ -39,7 +39,7 @@ pnpm 命令统一写成 `corepack pnpm ...`，不要依赖机器上另一个全�
 & .\scripts\diagnose-local-toolchain.ps1
 ```
 
-它会验证工具版本、`naimage-studio` 的 pnpm/typecheck、`ai-native` 的 `verify:workspace` 和 `crm:check`。只检查工具时使用：
+它会验证工具版本、`naimage-studio` 的 pnpm/typecheck、`sparkai-extension` 的 `verify:workspace` 和 `check`。只检查工具时使用：
 
 ```powershell
 & .\scripts\diagnose-local-toolchain.ps1 -ToolsOnly
@@ -53,6 +53,6 @@ pnpm 命令统一写成 `corepack pnpm ...`，不要依赖机器上另一个全�
 
 ## New API Web
 
-当前工作区已使用 Bun `1.3.14` 完成依赖安装，并通过 `bun run typecheck` 与 `bun run build`。诊断脚本只检查依赖目录，不会替代这两项验证；修改 New API Web 后应在 `ai-native/services/ai-gateway/new-api/web/default` 中显式执行它们。
+当前工作区已使用 Bun `1.3.14` 完成依赖安装，并通过 `bun run typecheck` 与 `bun run build`。诊断脚本只检查依赖目录，不会替代这两项验证；历史 New API Web 源码位于 `sparkai-extension/services/ai-gateway/new-api/web/default`，不属于当前扩展服务的活跃部署入口。
 
-本机 `LongPathsEnabled=0`，且仓库物理路径较深。重新安装依赖时仍应使用工作区工具链并从 `ai-native/services/ai-gateway/new-api/web` 执行 `bun install --frozen-lockfile`；若再次出现路径相关错误，优先改用较短的物理检出路径或 WSL/Linux，不把 junction/subst 当作稳定发布方案。
+本机 `LongPathsEnabled=0`，且仓库物理路径较深。若审计历史源码，仍应使用工作区工具链并从 `sparkai-extension/services/ai-gateway/new-api/web` 执行 `bun install --frozen-lockfile`；当前 SparkAI Extension 本身只需 Node 24 与内置 `node:sqlite`，不需要安装 New API 依赖。

@@ -4,7 +4,7 @@
 
 - [上下文地图](./CONTEXT_MAP.md)：进程拓扑、入口调用链、模块所有权、跨边界契约、状态位置、修改影响和测试映射。新增或移动模块以及改变公共契约时必须同步更新。
 - [项目结构](./PROJECT_STRUCTURE.md)：源码分区、生成目录、安全清理和最低验证。
-- [工作区上下文地图](../../WORKSPACE_CONTEXT_MAP.md)：桌面仓库与 `ai-native` 后端仓库的关系、技术栈和跨仓修改导航。
+- [工作区上下文地图](../../WORKSPACE_CONTEXT_MAP.md)：桌面仓库与 `sparkai-extension` 扩展服务的关系、技术栈和跨仓修改导航。
 - [本地工具链](../../LOCAL_TOOLCHAIN.md)：当前便携 Bun/Go/.NET/pnpm 激活、诊断与 New API Web 深路径限制。
 - [安装说明](./INSTALLATION.md)：Windows 安装包、校验、安装、卸载和数据目录。
 - [品牌安装器架构](./BRANDED_INSTALLER_ARCHITECTURE.md)：自绘安装/卸载界面、静默 NSIS 内核、数据安全与自动化验证。

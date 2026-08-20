@@ -38,7 +38,7 @@
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
 - `agent-runtime.cjs` 负责 Prompt/画布上下文组装、压缩编排、模型协议循环与工具执行；SQLite/JSON memory、Prompt/FastMemory 持久化、tool schema 和 Responses/Chat 响应解析由 `runtime/` 专属模块持有，但均不直接修改 React state。
-- New API、账户/角色/quota/计费、渠道、模型、下载站和生产部署位于独立 `ai-native` 仓库。
+- 用户的原生 New API、账户/角色/quota/计费、渠道和模型服务由外部部署维护；本工作区的 `sparkai-extension` 只拥有 Pro License、兑换码管理和 Cloudflare-safe 图片任务包装。
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
@@ -817,9 +817,9 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 - `/api/naimage/license`, `/api/naimage/license/{activate,verify}`
 - `/api/desktop-update/*`, `/api/desktop-download/*`
 
-设备激活由独立 SparkAI Extension 的 `/api/naimage/license*` 校验；激活码明文只在管理员 CLI 创建时返回一次，SQLite 只保存激活码、设备、授权令牌的 HMAC；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。扩展服务不读取 New API 数据库、不验证账号、不接收用户 Base URL/API Key。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
+设备激活由独立 SparkAI Extension 的 `/api/naimage/license*` 校验；新兑换码创建时返回并以 AES-256-GCM 密文保存，管理员可通过受保护的 `/api/naimage/license/admin/codes/:id/reveal` 重复查看，旧 HMAC-only 记录不可恢复。SQLite 不保存模型 Key；客户端只保存随机安装 ID 与授权令牌，不保存兑换码，也不读取硬件指纹。扩展服务不读取 New API 数据库、不验证账号、不接收用户 Base URL/API Key。完整部署与管理员操作见 `docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md`。
 
-账号账户管理的 canonical 入口仍是用户原生 New API 的 `/api/user/*` 与 `/api/token/*`，账号模型调用使用其 `/v1/*`；只有 `/v1/image-tasks*` 和 `/api/naimage/license*` 在反向代理层抢先交给 SparkAI Extension。修改这两个扩展路径、认证 header、DTO、请求/结果上限或同域路由时，必须同步审计独立 `ai-native` 仓库。
+账号账户管理的 canonical 入口仍是用户原生 New API 的 `/api/user/*` 与 `/api/token/*`，账号模型调用使用其 `/v1/*`；只有 `/v1/image-tasks*` 和 `/api/naimage/license*` 在反向代理层抢先交给 SparkAI Extension。修改这两个扩展路径、认证 header、DTO、请求/结果上限、兑换码 reveal 或同域路由时，必须同步审计独立 `sparkai-extension` 仓库。
 
 ## 7. 镜像实现与同步规则
 
@@ -842,7 +842,7 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | 视频节点/导入/任务/模型目录 | `desktop/video-import.cjs`、`desktop/video-task-{adapter,service}.cjs`、`desktop/{model-catalog,project-session-normalizer,project-asset-repository,project-package-service}.cjs`、Asset/Agent/Server/VideoTask IPC、`electron-main.cjs`、`preload.cjs`、`src/{core,settings-persistence,settings-runtime,settings-drawer,model-config-dialog,automation-command-runtime,main}.ts*`、CLI schema/Skill、`docs/NEWAPI_INTEGRATION.md` | 本地格式/大小/受管复制与播放；生成任务先写 journal 再做单次 POST，4xx 明确拒绝，5xx/超时/无 ID 进入 `create-unknown` 且不得自动重建；有远端 ID 仅恢复 GET；下载优先 content 端点再回退经安全校验的结果 URL；journal 只留相对路径和凭证指纹，Renderer/CLI 不接收签名结果 URL；`doubao-seedance-2-0-260128` 兼容请求已开发但未真实验证，必须等用户允许后用一条最小任务确认字段与计费；图片 Base64 项目包显式拒绝视频；运行 `test:video-node`, `test:model-catalog`, `test:settings-persistence`, `test:settings-lazy-load`, `test:automation-service`, `test:ipc-registration`, `test:project-io`, `typecheck` |
 | 服务返回清洗 | `electron-main.cjs` 正式路径、`src/server.ts` 浏览器回退 | 登录、用户、模型、日志和图片 DTO 不能静默分叉；正式行为以 Electron 路径为准 |
 | Agent 文本清洗 | `agent-runtime.cjs` tool envelope、`src/core.ts` 持久化消息清洗、`src/agent.ts` 时间线 | 不泄露 entry id/FastMemory metadata，不重复最终文本；运行 `test:agent-text`, `test:timeline` |
-| 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `ai-native` release manifest | canonical 清单的 product、version、minimum version、compatibility、hash、size 与制品必须一致，并独立验签 |
+| 更新清单 | `package.json`, `update-release.cjs`, `electron-main.cjs`, `build/update-public-key.pem`, `sparkai-extension` release manifest | canonical 清单的 product、version、minimum version、compatibility、hash、size 与制品必须一致，并独立验签 |
 
 短期内不要为了去重而跨 CommonJS/TypeScript 强行共享运行时代码；优先使用共同 fixture 和契约测试保证一致。
 
@@ -871,11 +871,11 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | 自定义 API Key 安全存储 | `desktop/settings-secret-store.cjs`, `electron-main.cjs`, `desktop/ipc/config-ipc.cjs`, Renderer 设置表面 | 全局 Agent/图片 Key 与 `agentModelBindings`/`imageModelBindings` 逐模型 Key 的普通 JSON 均不含明文；Renderer 只收占位符；占位符保存/模型列表草稿合并保留旧 Key，显式清空删除 Key；损坏普通设置不删除 sidecar | `test:settings-secret-store`, `test:settings-persistence`, `test:settings-lazy-load`, `typecheck`, `build` |
 | 明暗模式/主题调色盘 | `theme-palette-picker.tsx`, `settings-persistence.ts`, `desktop/theme-preset-service.cjs`, `styles/01-theme-palettes.css`, `styles/04-settings-appearance.css` | `AppSettings.theme/themePalette/customTheme`、Electron `defaultSettings/migrateSettings` 镜像、ConfigBridge/IPC、独立 Agent 快照、Vite `studio-dialogs` 懒加载 chunk | `test:theme-preset`, `test:settings-persistence`, `test:agent-window`, `test:ui-foundation`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle`, `aidebug:gui` |
 | 插件/电商/Project Graph | `plugin-state.ts`, `plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态与快捷键覆盖清洗镜像、设置持久化、权限、动态 chunk、preload/IPC、主 Renderer handler；长 Prompt 归 Main；禁止脚本注入、扩展执行和直接 session 写入 | `test:plugin-system`, `test:project-graph`, `test:settings-persistence`, `test:workspace-glass-ui`, `test:ipc-registration`, `typecheck`, `build`, `test:bundle`, `aidebug:commerce-set` |
-| 远端 API/模型/登录 | `runtime/access-variant.cjs`, `src/access-policy.ts`, `desktop/ipc/server-ipc.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | 构建策略清单、preload/core bridge、ai-native；SparkAPI 专用版不得接受自定义 Base URL/API Key 或 Relay 覆盖 | `test:access-variant`, `test:new-api-transport`, `test:lifecycle`, `aidebug:auth-gate` |
+| 远端 API/模型/登录 | `runtime/access-variant.cjs`, `src/access-policy.ts`, `desktop/ipc/server-ipc.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts` | 构建策略清单、preload/core bridge、sparkai-extension；SparkAPI 专用版不得接受自定义 Base URL/API Key 或 Relay 覆盖 | `test:access-variant`, `test:new-api-transport`, `test:lifecycle`, `aidebug:auth-gate` |
 | 项目保存/session | `main.tsx`, `desktop/ipc/config-ipc.cjs`, `desktop/project-save-coordinator.cjs`, `desktop/project-session-{merge,normalizer}.cjs` | session v5、manifest、revision、writer baseline/sequence/checkpoint、字段事件、delete/restore barrier、节点 ID 重映射、迁移、原子写入；生成资产以 `runId + normalized managed locator` 幂等，首次持久化 occurrence/asset/display identity 保持稳定；普通导入仍按 occurrence 区分。旧 Session 只收敛可证明为同一生成文件的重复项，并同步 assets/outputs/collection/progress/bindings，保留失败槽位 | `test:node-mutation-journal`, `test:project-save-coordinator`, `test:project-session-merge`, `test:project-session-dual-renderer`, `test:project-io`, `test:image-container` |
 | 图片导入/缩略图 | `image-import.cjs`, `thumbnail-cache.cjs`, `image-thumbnail-worker.cjs`, `electron-main.cjs`, `src/core.ts`, `src/main.tsx` | 资产身份、路径限制、容器；项目私有 WebP 缓存按来源指纹和 256/512/1024 桶复用，Main 最多保留 2 个常驻 Sharp 子进程并用 `requestId` 串行派发每个槽位，默认保留 512 个变体/512 MiB；画布中长边大于 1024 的普通单图使用 1024 缩略图，多图按实际足迹使用 512/1024 桶，查看器主图始终读取原图。性能诊断必须同时报告 `workerStarts/workerJobs/workerReuses/workerFailures`、冷生成、缓存命中与 Renderer Long Task | `test:image-import`, `test:thumbnail-cache`, `aidebug:performance`, `aidebug:performance:audit:test`, AIDebug import |
 | 抠图/alpha/分层 | `layer-alpha-normalization.ts`, `core.ts`, matting/background/layer modules | 尺寸、透明度、mask replay、PSD | alpha、mask、matting、chroma-key、PSD tests |
-| 更新/安装器 | main/update/release scripts/build/tools | ai-native manifest、签名密钥、回滚；公开 Setup 名称由接入策略统一生成，内部 `naimage.exe` / App ID / 数据目录保持升级兼容；安装/卸载器灰白透明玻璃视觉与品牌文案；真实安装成功后完成反馈自动关闭，错误/取消与截图模式保持独立 | access-variant、update、release-orchestrator、installer UI smoke（含 completion auto-close probe）、installer smoke、update E2E |
+| 更新/安装器 | main/update/release scripts/build/tools | 独立 `sparkai-extension` 不参与桌面更新；桌面 manifest、签名密钥和回滚仍由发布服务维护；公开 Setup 名称由接入策略统一生成，内部 `naimage.exe` / App ID / 数据目录保持升级兼容；安装/卸载器灰白透明玻璃视觉与品牌文案；真实安装成功后完成反馈自动关闭，错误/取消与截图模式保持独立 | access-variant、update、release-orchestrator、installer UI smoke（含 completion auto-close probe）、installer smoke、update E2E |
 | Bundle 分层策略或异步边界 | `scripts/production-bundle-policy.cjs`, `scripts/production-bundle-selftest.cjs`, Vite imports/chunks | initial/plugin/CSS hard gate、core async/core/dist advisory、AIDebug marker 与插件初始图结构门禁；优先复用和自然异步，不为数字引入高风险重构或复杂拆分 | `test:bundle-policy`；只有直接影响 Bundle/chunk 边界或正式发布时再运行 `build` + `test:bundle` |
 | 模块移动/拆分 | 原模块与新模块 | public re-export、打包 files、worker/ASAR 路径、本文 | `typecheck`, `build`, `test:bundle` + 对应专项 |
 
@@ -1068,12 +1068,13 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 - Electron 关闭重启时优先使用 `serverSessionCookie + serverUserId` 返回缓存身份，随后后台校验 `/api/user/self` 并异步读取日志；这条快速恢复路径不伪造余额或模型列表。
 - Worker 根目录位置受 ASAR 解析约束。
 - `public/ui/style-library` 与 `core.ts` 的旧风格库需要先确认真实消费者，再决定删除或隔离；不得恢复为旧复杂风格向导。
-- Pro License 与 `/v1/image-tasks` 跨越 `naimage-studio` 与 `ai-native` 两仓，单仓修改不能证明交付完成；账号、计费和更新服务不属于 SparkAI Extension。
+- Pro License 与 `/v1/image-tasks` 跨越 `naimage-studio` 与 `sparkai-extension` 两仓，单仓修改不能证明交付完成；账号、计费和更新服务不属于 SparkAI Extension。
 
 ## 12. 最近同步记录
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-08-18 | 1.0.9-rc | SparkAI Extension 管理边界更新：仓库根目录改名为 `sparkai-extension`，公共 `/api/naimage/license*` 与 `/v1/image-tasks*` 路径保持不变；新兑换码以 HMAC + AES-256-GCM 密文保存，管理员可重复调用 `GET /api/naimage/license/admin/codes/:id/reveal`，旧 HMAC-only 记录明确不可恢复。License 管理页新增逐码查看/复制，并支持通过 `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` 精确 Origin 白名单受控嵌入；默认 CSP/X-Frame-Options 仍拒绝 iframe。桌面客户端调用合同未改变，扩展专项测试与打包待本轮完成后更新证据。 |
 | 2026-08-16 | 1.0.9-rc | 本地整备收口：最终 `release:verify` [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 完成 113/113 项且 `sourceStable:true`，覆盖协议/IPC、项目 Session、迁移/导出、图片性能、UI Surface、更新/回滚和 Bundle 门禁。修复后的 Commerce、Glass、Graph CLI、Skill、图片生成与 Commerce Export UI 套件均使用显式隔离项目 fixture；`project-session-merge.cjs` 保留尚未盖章的 pending mutation，selftest 覆盖图层重组与可见性连续保存。正式 `release:final` 仍因现有安装的零步骤预检阻断，未执行安装/升级/卸载或签名；不调用真实模型、不迁移真实 AppData、不部署 Extension、不清理旧源码。 |
 | 2026-08-16 | 1.0.9-rc | 上下文地图 v53 修复 AskUser 门禁的视觉证据误报：窄屏画布左边缘仅剩约 1.757px 的节点 B 无法形成 4×4 像素采样区，现明确记录为 `skippedNodeSlivers`，C/D/E/G/H 仍逐节点采样；如果全部节点都只剩残片，验证器仍以 `no-sampleable-visible-nodes` 失败。AskUser 连续报告 `.diagnostics/electron/aidebug-2026-08-15T20-21-51-512Z/report.json`、`.diagnostics/electron/aidebug-2026-08-15T20-22-42-170Z/report.json` 均为 10 项功能检查和 5 个视觉场景全通过，AIDebug catalog/workpack 与语法检查通过。正式 `release:final` 因本机现有安装在零步骤环境预检退出，未触碰安装环境，incomplete 标记保留；当前只续跑全量门禁并生成强制 Bundle 的本地双版本候选。 |
 | 2026-08-16 | 1.0.9-rc | 上下文地图 v52 收口正式门禁暴露的共享焦点竞态：`DialogShell` 正常关闭不再与卸载 cleanup 重复恢复焦点，直接卸载只在焦点仍无有效去向时兜底；Agent 会话历史在捕获阶段独占 `Escape` 并在布局提交后恢复触发按钮。AIDebug 使用显式隔离项目，不再依赖废弃的 AppData 默认项目，同时把运行中 composer 与节点有限入场动画断言对齐当前合同。`test:ui-foundation`、`test:agent-panel-ui`（52）、`typecheck` 和 Agent Text UI 连续两轮 155/155 通过；源码稳定的发布报告此前已通过前 88/113 项，当前只从 `agent text UI` 失败点续跑。未调用真实模型、未迁移真实 AppData、未部署 Extension。 |

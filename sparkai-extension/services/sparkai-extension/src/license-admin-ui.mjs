@@ -88,7 +88,7 @@ const HTML = String.raw`<!doctype html>
           <div class="list-heading-row">
             <div>
               <h2 id="list-heading">兑换码列表</h2>
-              <p>明文兑换码只在创建成功后显示一次，列表仅保留安全提示。</p>
+              <p>管理员可以随时查看并复制新建兑换码；历史码若未保存密文，会明确标记为不可恢复。</p>
             </div>
           </div>
 
@@ -200,14 +200,14 @@ const HTML = String.raw`<!doctype html>
     <dialog id="codes-dialog" class="admin-dialog codes-dialog">
       <form method="dialog" class="dialog-header">
         <div>
-          <p class="eyebrow">创建成功</p>
-          <h2>保存这些兑换码</h2>
-          <p>关闭后将无法再次查看完整明文。</p>
+          <p id="codes-dialog-eyebrow" class="eyebrow">创建成功</p>
+          <h2 id="codes-dialog-title">兑换码明文</h2>
+          <p id="codes-dialog-description">管理员可再次查看并复制，明文只在当前页面内存中展示。</p>
         </div>
         <button class="button button-secondary button-compact" value="close" type="submit">关闭</button>
       </form>
       <div class="dialog-body codes-result-body">
-        <p class="dialog-warning">兑换码明文只在本次创建后显示，服务端不会保存可恢复的明文。</p>
+        <p id="codes-dialog-warning" class="dialog-warning">服务端使用加密密文保存兑换码；明文不会写入浏览器持久存储。</p>
         <pre id="generated-codes" tabindex="0"></pre>
       </div>
       <div class="dialog-actions">
@@ -765,7 +765,7 @@ button:focus-visible {
 
 table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1080px;
   border-collapse: collapse;
 }
 
@@ -866,7 +866,7 @@ tbody tr[data-state="disabled"] .code-hint {
 }
 
 .action-column {
-  width: 84px;
+  width: 184px;
   text-align: right;
 }
 
@@ -874,6 +874,13 @@ td.action-column .button {
   min-height: 28px;
   padding: 5px 9px;
   font-size: 12px;
+}
+
+.action-stack {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .empty-state {
@@ -1085,7 +1092,7 @@ td.action-column .button {
   }
 
   table {
-    min-width: 920px;
+    min-width: 1040px;
   }
 
   .pagination {
@@ -1154,6 +1161,10 @@ const SCRIPT = String.raw`(function () {
   var pageSizeInput = document.getElementById("page-size");
   var pageLabel = document.getElementById("page-label");
   var codesDialog = document.getElementById("codes-dialog");
+  var codesDialogEyebrow = document.getElementById("codes-dialog-eyebrow");
+  var codesDialogTitle = document.getElementById("codes-dialog-title");
+  var codesDialogDescription = document.getElementById("codes-dialog-description");
+  var codesDialogWarning = document.getElementById("codes-dialog-warning");
   var generatedCodes = document.getElementById("generated-codes");
   var copyCodesButton = document.getElementById("copy-codes");
   var downloadCodesButton = document.getElementById("download-codes");
@@ -1187,6 +1198,39 @@ const SCRIPT = String.raw`(function () {
     toastTimer = window.setTimeout(function () {
       toast.hidden = true;
     }, 2600);
+  }
+
+  function showCodesDialog(options) {
+    codesDialogEyebrow.textContent = options.eyebrow;
+    codesDialogTitle.textContent = options.title;
+    codesDialogDescription.textContent = options.description;
+    codesDialogWarning.textContent = options.warning;
+    generatedCodes.textContent = options.codes.join("\n");
+    codesDialog.showModal();
+  }
+
+  async function copyText(value) {
+    var helper = null;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        helper = document.createElement("textarea");
+        helper.value = value;
+        helper.setAttribute("readonly", "");
+        helper.className = "clipboard-helper";
+        document.body.appendChild(helper);
+        helper.select();
+        if (!document.execCommand("copy")) throw new Error("copy failed");
+      }
+      showToast("兑换码已复制");
+      return true;
+    } catch {
+      showToast("自动复制失败，请手动复制");
+      return false;
+    } finally {
+      if (helper) helper.remove();
+    }
   }
 
   async function api(path, options) {
@@ -1276,6 +1320,17 @@ const SCRIPT = String.raw`(function () {
 
       var actionCell = document.createElement("td");
       actionCell.className = "action-column";
+      var actionStack = document.createElement("div");
+      actionStack.className = "action-stack";
+      var revealButton = document.createElement("button");
+      revealButton.type = "button";
+      revealButton.className = "button button-secondary";
+      revealButton.textContent = Number(item.code_reveal_available) === 1 ? "查看 / 复制" : "历史码不可恢复";
+      revealButton.disabled = Number(item.code_reveal_available) !== 1;
+      if (revealButton.disabled) revealButton.title = "该兑换码创建于加密保存启用之前，服务端无法恢复明文。";
+      revealButton.addEventListener("click", function () {
+        revealCode(item, revealButton);
+      });
       var disableButton = document.createElement("button");
       disableButton.type = "button";
       disableButton.className = "button button-danger";
@@ -1284,7 +1339,8 @@ const SCRIPT = String.raw`(function () {
       disableButton.addEventListener("click", function () {
         disableCode(item, disableButton);
       });
-      actionCell.appendChild(disableButton);
+      actionStack.append(revealButton, disableButton);
+      actionCell.appendChild(actionStack);
       row.appendChild(actionCell);
       codesBody.appendChild(row);
     });
@@ -1344,6 +1400,28 @@ const SCRIPT = String.raw`(function () {
       return false;
     } finally {
       setButtonBusy(refreshButton, false, "刷新中");
+    }
+  }
+
+  async function revealCode(item, button) {
+    setButtonBusy(button, true, "读取中");
+    try {
+      var data = await api("/codes/" + item.id + "/reveal");
+      showCodesDialog({
+        eyebrow: "管理员查看",
+        title: item.name,
+        description: "兑换码 ID " + item.id + "，可以再次查看或复制。",
+        warning: "明文仅保留在当前页面内存和弹窗 DOM 中，关闭或刷新后会清除。",
+        codes: [data.code]
+      });
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) {
+        logout("管理员 Token 无效或已更换。");
+        return;
+      }
+      showToast(error.message);
+    } finally {
+      setButtonBusy(button, false, "读取中");
     }
   }
 
@@ -1455,9 +1533,14 @@ const SCRIPT = String.raw`(function () {
     try {
       var data = await api("/codes", { method: "POST", body: JSON.stringify(payload) });
       var codes = Array.isArray(data.codes) ? data.codes : [];
-      generatedCodes.textContent = codes.join("\n");
       createDialog.close();
-      codesDialog.showModal();
+      showCodesDialog({
+        eyebrow: "创建成功",
+        title: codes.length > 1 ? "已创建 " + codes.length + " 个兑换码" : "兑换码已创建",
+        description: "现在可以复制或下载；之后仍可从兑换码列表中逐个查看。",
+        warning: "服务端使用加密密文保存兑换码；明文不会写入浏览器持久存储。",
+        codes: codes
+      });
       currentPage = 1;
       await loadCodes({ silent: true });
     } catch (error) {
@@ -1487,26 +1570,7 @@ const SCRIPT = String.raw`(function () {
   });
 
   copyCodesButton.addEventListener("click", async function () {
-    var value = generatedCodes.textContent;
-    var helper = null;
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(value);
-      } else {
-        helper = document.createElement("textarea");
-        helper.value = value;
-        helper.setAttribute("readonly", "");
-        helper.className = "clipboard-helper";
-        document.body.appendChild(helper);
-        helper.select();
-        if (!document.execCommand("copy")) throw new Error("copy failed");
-      }
-      showToast("兑换码已复制");
-    } catch {
-      showToast("自动复制失败，请在列表中手动复制");
-    } finally {
-      if (helper) helper.remove();
-    }
+    await copyText(generatedCodes.textContent);
   });
 
   downloadCodesButton.addEventListener("click", function () {
@@ -1524,6 +1588,10 @@ const SCRIPT = String.raw`(function () {
 
   codesDialog.addEventListener("close", function () {
     generatedCodes.textContent = "";
+    codesDialogEyebrow.textContent = "兑换码";
+    codesDialogTitle.textContent = "兑换码明文";
+    codesDialogDescription.textContent = "管理员可再次查看并复制，明文只在当前页面内存中展示。";
+    codesDialogWarning.textContent = "服务端使用加密密文保存兑换码；明文不会写入浏览器持久存储。";
   });
 
   createDialog.addEventListener("close", function () {

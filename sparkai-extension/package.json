@@ -1,5 +1,5 @@
 {
-  "name": "ai-native",
+  "name": "sparkai-extension",
   "version": "0.2.1",
   "private": true,
   "packageManager": "pnpm@10.12.1",
@@ -22,6 +22,7 @@
     "package:extension": "node scripts/package-extension.mjs",
     "license:create": "node services/sparkai-extension/src/license-admin.mjs create",
     "license:list": "node services/sparkai-extension/src/license-admin.mjs list",
-    "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable"
+    "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable",
+    "license:reveal": "node services/sparkai-extension/src/license-admin.mjs reveal"
   }
 }

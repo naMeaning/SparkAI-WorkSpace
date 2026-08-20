@@ -23,6 +23,7 @@ for (const file of requiredFiles) {
 }
 
 const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+if (rootPackage.name !== "sparkai-extension") throw new Error("The active extension repository package must be named sparkai-extension.");
 const expectedScripts = {
   dev: "pnpm --filter @sparkai/extension dev",
   start: "pnpm --filter @sparkai/extension start",
@@ -52,6 +53,9 @@ if (!caddy.includes("reverse_proxy sparkai-extension:17910") || !caddy.includes(
 const compose = readFileSync(join(root, "deploy/sparkai-extension/compose.yaml"), "utf8");
 if (!compose.includes("SPARKAI_DOCKER_NETWORK") || compose.includes("host.docker.internal")) {
   throw new Error("SparkAI extension Compose must require the existing New API Docker network.");
+}
+if (!compose.includes("SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS")) {
+  throw new Error("SparkAI extension Compose must forward the optional admin frame allow-list.");
 }
 
 console.log("SparkAI extension workspace structure verified. Legacy New API/CRM sources are not active root entry points.");

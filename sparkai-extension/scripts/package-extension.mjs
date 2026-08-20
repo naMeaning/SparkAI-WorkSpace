@@ -82,7 +82,8 @@ writeFileSync(join(bundleDir, "package.json"), `${JSON.stringify({
     check: "node services/sparkai-extension/scripts/check-sources.mjs && node --test services/sparkai-extension/test/*.test.mjs",
     "license:create": "node services/sparkai-extension/src/license-admin.mjs create",
     "license:list": "node services/sparkai-extension/src/license-admin.mjs list",
-    "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable"
+    "license:disable": "node services/sparkai-extension/src/license-admin.mjs disable",
+    "license:reveal": "node services/sparkai-extension/src/license-admin.mjs reveal"
   }
 }, null, 2)}\n`, "utf8");
 

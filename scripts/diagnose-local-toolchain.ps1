@@ -107,8 +107,8 @@ try {
 }
 
 $studioRoot = Join-Path $workspaceRoot "naimage-studio"
-$aiNativeRoot = Join-Path $workspaceRoot "ai-native"
-$webRoot = Join-Path $aiNativeRoot "services\ai-gateway\new-api\web"
+$extensionRoot = Join-Path $workspaceRoot "sparkai-extension"
+$webRoot = Join-Path $extensionRoot "services\ai-gateway\new-api\web"
 $webRootModules = Join-Path $webRoot "node_modules"
 $webDefaultModules = Join-Path $webRoot "default\node_modules"
 $webDependenciesReady = (Test-Path -LiteralPath $webRootModules -PathType Container) -and (Test-Path -LiteralPath $webDefaultModules -PathType Container)
@@ -117,10 +117,10 @@ if (-not $ToolsOnly) {
     if (-not (Invoke-ProjectCheck -Label "naimage-studio pnpm/typecheck" -WorkingDirectory $studioRoot -Arguments @("run", "typecheck"))) {
         $hardFailure = $true
     }
-    if (-not (Invoke-ProjectCheck -Label "ai-native verify:workspace" -WorkingDirectory $aiNativeRoot -Arguments @("run", "verify:workspace"))) {
+    if (-not (Invoke-ProjectCheck -Label "sparkai-extension verify:workspace" -WorkingDirectory $extensionRoot -Arguments @("run", "verify:workspace"))) {
         $hardFailure = $true
     }
-    if (-not (Invoke-ProjectCheck -Label "ai-native crm:check" -WorkingDirectory $aiNativeRoot -Arguments @("run", "crm:check"))) {
+    if (-not (Invoke-ProjectCheck -Label "sparkai-extension check" -WorkingDirectory $extensionRoot -Arguments @("run", "check"))) {
         $hardFailure = $true
     }
 }
@@ -132,7 +132,7 @@ if ($webDependenciesReady) {
 } else {
     Write-Host "[BLOCKED] New API Web dependencies are NOT installed."
     Write-Host "          Activate the workspace toolchain, then run 'bun install --frozen-lockfile'"
-    Write-Host "          from ai-native/services/ai-gateway/new-api/web."
+    Write-Host "          from sparkai-extension/services/ai-gateway/new-api/web."
     if ($longPathsEnabled -eq 0) {
         Write-Host "          Windows LongPathsEnabled=0 may contribute to deep-path installation failures."
     }

@@ -127,7 +127,9 @@ curl -fsS https://<API_DOMAIN>/api/status
 - 容器内 New API 状态检查成功。
 - 宿主机只监听 `127.0.0.1:17910`，公网安全组不新增 17910。
 
-浏览器访问 `https://<API_DOMAIN>/api/naimage/license/admin` 应显示扩展自带的 License 管理登录页。管理员 Token 只能在该页面的密码框中输入，不得拼入 URL、写入浏览器持久存储、截图或日志。页面可设置每码设备次数、授权有效天数、兑换截止时间，并禁用兑换码；禁用会立即撤销该码现有设备 License。
+浏览器访问 `https://<API_DOMAIN>/api/naimage/license/admin` 应显示扩展自带的 License 管理登录页。管理员 Token 只能在该页面的密码框中输入，不得拼入 URL、写入浏览器持久存储、截图或日志。页面可设置每码设备次数、授权有效天数、兑换截止时间，并禁用兑换码；禁用会立即撤销该码现有设备 License。新兑换码以服务端密文保存，管理员可在列表中反复查看/复制；启用前创建的 HMAC-only 历史码会显示为不可恢复。
+
+如需嵌入已有 Admin，设置 `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` 为精确的逗号分隔 Origin（例如 `https://admin.example.com`）。留空时 CSP 与 `X-Frame-Options: DENY` 都会拒绝 iframe；配置白名单后由 CSP `frame-ancestors` 控制，扩展不会接受通配符、路径或凭据。嵌入页仍使用管理员 Token 登录，不能把 Token 放入 iframe URL、Cookie、localStorage 或 postMessage。
 
 管理员发码属于生产数据变更，只有用户明确要求时才执行。可在容器内使用：
 

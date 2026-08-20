@@ -11,11 +11,11 @@ The harness is designed around the operating preferences established in the Nima
 | Request concerns | Work in | Read first |
 | --- | --- | --- |
 | Electron desktop UI, canvas, local project/assets/session, local Agent runtime, plugins, IPC, CLI/MCP, installer, Windows EXE | `naimage-studio/` | `naimage-studio/AGENTS.md`, `PRODUCT_INTENT.md`, relevant `docs/CONTEXT_MAP.md` sections |
-| Pro License, redemption codes, `/v1/image-tasks`, extension Docker/Caddy deployment | `ai-native/` | `ai-native/AGENTS.md`, relevant `WORKSPACE_CONTEXT_MAP.md` sections |
+| Pro License, redemption codes, `/v1/image-tasks`, extension Docker/Caddy deployment | `sparkai-extension/` | `sparkai-extension/AGENTS.md`, relevant `WORKSPACE_CONTEXT_MAP.md` sections |
 | Account/quota/channel/billing or New API web admin | External stock New API | Do not modify or copy it into this workspace; use its upstream documentation |
 | Auth/image-task/API contract crossing desktop and extension | Both repositories | `WORKSPACE_CONTEXT_MAP.md`, then each repository's local map |
 
-`ai-native/` is not a New API fork or a submodule of the desktop client. Do not copy account, channel, quota, billing, CRM, or New API management features into it or Electron, and do not treat a desktop-only test as proof of a cross-repository change.
+`sparkai-extension/` is not a New API fork or a submodule of the desktop client. Do not copy account, channel, quota, billing, CRM, or New API management features into it or Electron, and do not treat a desktop-only test as proof of a cross-repository change.
 
 ## Authority And Precedence
 

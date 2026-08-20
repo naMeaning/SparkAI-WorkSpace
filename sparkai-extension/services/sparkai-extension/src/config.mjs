@@ -24,6 +24,27 @@ function upstreamUrl(value) {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function frameOrigins(value) {
+  const rawOrigins = String(value || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const origins = [];
+  for (const rawOrigin of rawOrigins) {
+    let parsed;
+    try {
+      parsed = new URL(rawOrigin);
+    } catch {
+      throw new Error("SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS must contain valid HTTP(S) origins.");
+    }
+    if (rawOrigin.includes("*") || !['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/") {
+      throw new Error("SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS must contain exact HTTP(S) origins without paths or credentials.");
+    }
+    if (!origins.includes(parsed.origin)) origins.push(parsed.origin);
+  }
+  return origins;
+}
+
 export function loadConfig(env = process.env, cwd = process.cwd()) {
   return Object.freeze({
     host: String(env.SPARKAI_EXTENSION_HOST || "127.0.0.1").trim(),
@@ -31,6 +52,7 @@ export function loadConfig(env = process.env, cwd = process.cwd()) {
     dataDir: resolve(cwd, String(env.SPARKAI_EXTENSION_DATA_DIR || "data")),
     adminToken: requiredSecret(env.SPARKAI_EXTENSION_ADMIN_TOKEN, "SPARKAI_EXTENSION_ADMIN_TOKEN"),
     hashSecret: requiredSecret(env.SPARKAI_EXTENSION_HASH_SECRET, "SPARKAI_EXTENSION_HASH_SECRET"),
+    adminFrameOrigins: frameOrigins(env.SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS),
     newApiUpstream: upstreamUrl(env.SPARKAI_NEW_API_UPSTREAM),
     imageConcurrency: integer(env.SPARKAI_IMAGE_CONCURRENCY, 2, 1, 10, "SPARKAI_IMAGE_CONCURRENCY"),
     imageTimeoutMs: integer(env.SPARKAI_IMAGE_TIMEOUT_MS, 10 * 60_000, 30_000, 30 * 60_000, "SPARKAI_IMAGE_TIMEOUT_MS"),

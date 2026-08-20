@@ -15,7 +15,7 @@ An Agent should complete all four loops before calling a nontrivial task done. T
 
 ## Quick Start
 
-1. Read [AGENTS.md](AGENTS.md) and route the work to `naimage-studio/`, `ai-native/`, or both.
+1. Read [AGENTS.md](AGENTS.md) and route the work to `naimage-studio/`, `sparkai-extension/`, or both.
 2. Read [harness/CONVERSATION_DECISIONS.md](harness/CONVERSATION_DECISIONS.md) for stable user priorities and superseded directions.
 3. Follow [harness/TASK_PROTOCOL.md](harness/TASK_PROTOCOL.md) to classify scope, authorization and completion conditions.
 4. Select the proof burden from [harness/VERIFICATION_MATRIX.md](harness/VERIFICATION_MATRIX.md).

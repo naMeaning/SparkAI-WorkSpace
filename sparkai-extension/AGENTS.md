@@ -29,14 +29,17 @@ License administration uses `SPARKAI_EXTENSION_URL` and `SPARKAI_EXTENSION_ADMIN
 ```bash
 pnpm run license:create -- --name "Pro" --count 10 --valid-days 0 --max-devices 3
 pnpm run license:list -- --page 1 --size 20
+pnpm run license:reveal -- --id 1
 pnpm run license:disable -- --id 1
 ```
 
-The same API is available through the built-in `/api/naimage/license/admin` page. Its login shell contains no secrets; the operator enters the admin token, which remains in page memory and is sent only as a Bearer header. Never add the token to a URL, cookie, local storage, rendered HTML, or logs.
+The same API is available through the built-in `/api/naimage/license/admin` page. Its login shell contains no secrets; the operator enters the admin token, which remains in page memory and is sent only as a Bearer header. Never add the token to a URL, cookie, local storage, rendered HTML, cross-window message, or logs. New codes are encrypted at rest and may be revealed repeatedly by an authenticated administrator; historical HMAC-only rows remain unrecoverable.
+
+Iframe embedding is disabled by default. `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` may contain comma-separated exact HTTP(S) origins for the user's own admin shell. Do not accept wildcards, paths, credentials, or a caller-supplied frame origin.
 
 ## Security And Reliability
 
-- Keep `SPARKAI_EXTENSION_HASH_SECRET` stable and outside Git. Rotating it invalidates existing hashes.
+- Keep `SPARKAI_EXTENSION_HASH_SECRET` stable and outside Git. It also derives the purpose-bound redemption-code encryption key, so rotating it invalidates existing hashes and makes saved code ciphertext unreadable.
 - By default join the existing New API user-defined Docker network and use its service DNS/internal port. Never route the worker through the Cloudflare public hostname.
 - Persist only SQLite and result files under the configured data directory. Never log or persist caller Bearer keys.
 - Run one service replica. Queued/running tasks become failed after restart and are never replayed automatically.

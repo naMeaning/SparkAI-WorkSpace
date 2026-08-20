@@ -3,8 +3,10 @@ import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
+import { loadConfig } from "../src/config.mjs";
 import { openDatabase } from "../src/database.mjs";
 import { createExtensionHttpServer, closeServer, listen } from "../src/http-server.mjs";
 import { ImageTaskService } from "../src/image-task-service.mjs";
@@ -14,6 +16,15 @@ import { LicenseService } from "../src/license-service.mjs";
 const ADMIN_TOKEN = "admin-token-for-tests-1234567890abcdef";
 const HASH_SECRET = "hash-secret-for-tests-1234567890abcdef";
 const MODEL_TOKEN = "model-token-for-tests-1234567890abcdef";
+
+function configEnv(overrides = {}) {
+  return {
+    SPARKAI_EXTENSION_ADMIN_TOKEN: ADMIN_TOKEN,
+    SPARKAI_EXTENSION_HASH_SECRET: HASH_SECRET,
+    SPARKAI_NEW_API_UPSTREAM: "http://new-api:3000",
+    ...overrides
+  };
+}
 
 function deferred() {
   let resolve;
@@ -31,7 +42,7 @@ async function startServer(server) {
 async function createHarness(t, upstreamHandler = (_request, response) => {
   response.writeHead(200, { "content-type": "application/json" });
   response.end(JSON.stringify({ created: 1, data: [{ b64_json: "fixture" }] }));
-}) {
+}, configOverrides = {}) {
   const directory = await mkdtemp(join(tmpdir(), "sparkai-extension-test-"));
   const upstream = createServer(upstreamHandler);
   const upstreamUrl = await startServer(upstream);
@@ -52,7 +63,8 @@ async function createHarness(t, upstreamHandler = (_request, response) => {
   const config = {
     adminToken: ADMIN_TOKEN,
     maxRequestBytes: 128 * 1024,
-    trustProxy: false
+    trustProxy: false,
+    ...configOverrides
   };
   const extension = createExtensionHttpServer({
     config,
@@ -89,6 +101,7 @@ test("license API creates hash-only codes, limits devices, verifies, and revokes
   assert.match(code, /^NAI-[A-Z2-9]{4}(?:-[A-Z2-9]{4}){3}$/);
   const storedCode = harness.database.prepare("SELECT * FROM activation_codes").get();
   assert.notEqual(storedCode.code_hash, code);
+  assert.match(storedCode.code_ciphertext, /^v1\./);
   assert.equal(JSON.stringify(storedCode).includes(code), false);
 
   const licenses = [];
@@ -124,6 +137,7 @@ test("license API creates hash-only codes, limits devices, verifies, and revokes
   });
   assert.equal(listed.response.status, 200);
   assert.equal(listed.payload.data.items[0].activation_count, 3);
+  assert.equal(listed.payload.data.items[0].code_reveal_available, 1);
   assert.deepEqual(listed.payload.data.summary, {
     total: 1,
     enabled: 1,
@@ -132,6 +146,20 @@ test("license API creates hash-only codes, limits devices, verifies, and revokes
     activation_capacity: 3
   });
   assert.equal(JSON.stringify(listed.payload).includes("code_hash"), false);
+
+  const revealHeaders = { authorization: `Bearer ${ADMIN_TOKEN}` };
+  const revealed = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes/${storedCode.id}/reveal`, {
+    headers: revealHeaders
+  });
+  assert.equal(revealed.response.status, 200);
+  assert.equal(revealed.payload.data.code, code);
+  const revealedAgain = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes/${storedCode.id}/reveal`, {
+    headers: revealHeaders
+  });
+  assert.equal(revealedAgain.response.status, 200);
+  assert.equal(revealedAgain.payload.data.code, code);
+  const unauthorizedReveal = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes/${storedCode.id}/reveal`);
+  assert.equal(unauthorizedReveal.response.status, 401);
 
   const disabled = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes/${storedCode.id}/disable`, {
     method: "POST",
@@ -184,6 +212,73 @@ test("license admin page exposes no secrets and keeps data endpoints protected",
   const unauthorized = await jsonRequest(`${harness.extensionUrl}/api/naimage/license/admin/codes?page=1&size=20`);
   assert.equal(unauthorized.response.status, 401);
   assert.equal(unauthorized.payload.error.code, "authorization_required");
+});
+
+test("license admin page can be embedded only for configured exact origins", async (t) => {
+  const harness = await createHarness(t, undefined, {
+    adminFrameOrigins: ["https://admin.example.com"]
+  });
+  const page = await fetch(`${harness.extensionUrl}/api/naimage/license/admin`);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-security-policy"), /frame-ancestors 'self' https:\/\/admin\.example\.com/);
+  assert.equal(page.headers.get("x-frame-options"), null);
+});
+
+test("admin frame configuration accepts exact origins and rejects paths or wildcards", () => {
+  const config = loadConfig(configEnv({
+    SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS: "https://admin.example.com, http://127.0.0.1:3000,https://admin.example.com/"
+  }), "C:\\sparkai-extension-test");
+  assert.deepEqual(config.adminFrameOrigins, ["https://admin.example.com", "http://127.0.0.1:3000"]);
+  assert.throws(
+    () => loadConfig(configEnv({ SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS: "https://admin.example.com/settings" })),
+    /exact HTTP\(S\) origins/
+  );
+  assert.throws(
+    () => loadConfig(configEnv({ SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS: "https://*.example.com" })),
+    /exact HTTP\(S\) origins/
+  );
+});
+
+test("historical hash-only codes are explicitly unrecoverable", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "sparkai-extension-license-legacy-"));
+  const databasePath = join(directory, "extension.sqlite");
+  const code = ["NAI", "ABCD", "EFGH", "JKLM", "NPQR"].join("-");
+  const { secretDigest } = await import("../src/secrets.mjs");
+  const legacyDatabase = new DatabaseSync(databasePath);
+  legacyDatabase.exec(`
+    CREATE TABLE activation_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      code_hash TEXT NOT NULL UNIQUE,
+      code_hint TEXT NOT NULL,
+      plan TEXT NOT NULL,
+      valid_days INTEGER NOT NULL,
+      max_activations INTEGER NOT NULL,
+      activation_count INTEGER NOT NULL DEFAULT 0,
+      status INTEGER NOT NULL,
+      expired_time INTEGER NOT NULL DEFAULT 0,
+      created_time INTEGER NOT NULL
+    )
+  `);
+  legacyDatabase.prepare(`
+    INSERT INTO activation_codes
+      (name, code_hash, code_hint, plan, valid_days, max_activations, status, expired_time, created_time)
+    VALUES (?, ?, ?, 'pro', 0, 1, 1, 0, ?)
+  `).run("legacy", secretDigest(HASH_SECRET, "activation-code", code), "NAI-ABCD...NPQR", Math.floor(Date.now() / 1000));
+  legacyDatabase.close();
+
+  const database = openDatabase(databasePath);
+  const licenseService = new LicenseService({ database, hashSecret: HASH_SECRET });
+  t.after(async () => {
+    database.close();
+    await rm(directory, { recursive: true, force: true });
+  });
+  assert.throws(
+    () => licenseService.revealCode(1),
+    (error) => error?.code === "activation_code_unrecoverable"
+  );
+  const listed = licenseService.listCodes().items[0];
+  assert.equal(listed.code_reveal_available, 0);
 });
 
 test("time-limited licenses and redemption deadlines expire", async (t) => {

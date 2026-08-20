@@ -8,7 +8,7 @@
 
 本轮追加（已完成）：图片组新导出目录改为 `<project>/image-groups/<图片组名>/`，一个组对应一个同名文件夹，多组选中一次原子发布多个同级文件夹；旧 `<project>/exports/image-groups/` 只保留历史 manifest 打开兼容。项目受管原图保持原位，避免破坏资产身份、Session 和 provenance。画布连接头改为只有拖动才建边，单击、空白松手、`Escape`、`pointercancel` 均不改关系；具体线提供宽命中区和单边断开菜单，节点右键提供明确的全部输入/输出断开。图片容器投影线同时保留可见端点和底层真实边身份。专项、Automation/IPC、隔离 GUI、最终 production build 与双 Windows x64 测试安装包均已核验；连接取消四种路径不改关系，成果编辑器最大化实测 `1256×796`，查看器连续切图 12 个采样无空白帧，延迟解码竞态无旧图回滚。
 
-本轮追加：后端边界改为“用户现有原生 New API + 独立 SparkAI Extension”。原生 New API 不二开，继续负责账号、Token、渠道、quota 和计费；`ai-native` 根入口只运行 Node 24 扩展服务，提供 SQLite/HMAC Pro License、管理员发码 CLI，以及把 Bearer 仅留内存并经 Docker 内网调用原生 Images 的 `/v1/image-tasks`。Compose 强制加入现有 `SPARKAI_DOCKER_NETWORK` 并使用容器 DNS，Caddy 同域只分流两个扩展路径。独立 ZIP/TAR.GZ 包含 Codex 部署 `AGENTS.md`、宿主机/Docker 代理示例、manifest 与 SHA-256，明确排除旧 New API/CRM、`.env`、数据库和诊断。旧源码退出根入口，待真实部署、备份和回滚验证后另行清理。
+本轮追加：后端边界改为“用户现有原生 New API + 独立 SparkAI Extension”。原生 New API 不二开，继续负责账号、Token、渠道、quota 和计费；`sparkai-extension` 根入口只运行 Node 24 扩展服务，提供 SQLite/HMAC Pro License、管理员发码 CLI，以及把 Bearer 仅留内存并经 Docker 内网调用原生 Images 的 `/v1/image-tasks`。新建兑换码加密保存并支持管理员重复查看；管理页可由精确 Origin 白名单受控嵌入已有 Admin。Compose 强制加入现有 `SPARKAI_DOCKER_NETWORK` 并使用容器 DNS，Caddy 同域只分流两个扩展路径。独立 ZIP/TAR.GZ 包含 Codex 部署 `AGENTS.md`、宿主机/Docker 代理示例、manifest 与 SHA-256，明确排除旧 New API/CRM、`.env`、数据库和诊断。旧源码退出根入口，待真实部署、备份和回滚验证后另行清理。
 
 登录与授权仍是两条独立通行条件。SparkAPI/New API 账号登录成功即可进入，不请求设备 License；自定义 Base URL 必须先由官方服务验证 `pro` 兑换码，默认最多 3 台，支持永久/限时、禁用撤销、24 小时缓存与 72 小时离线宽限。账号模式的逐模型自定义 API Key 完整保留，优先于模型绑定账户 Token 和全局账户 Token，同时忽略逐模型自定义 Base URL 以避免绕过 Pro。License 请求不发送用户 Base URL、API Key 或账号 Cookie。
 
@@ -54,7 +54,7 @@ Harness 治理轨道：已完成。历史对话、产品意图与双仓边界已
 | 当前追加：Cloudflare 图片长请求任务化 | 已完成 | SparkAI Extension 提供短 POST/GET，后台经 Docker 内网调用原生 New API；Electron 轮询同一 task_id，创建结果不明不重建，编辑/参考图及第三方同步接口保持兼容。Extension、Compose、客户端传输、typecheck 与 production build 已通过。 |
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复 | 已完成 | 普通消息原生选择/`Ctrl+C` 且无逐消息按钮；生成内容摘要统一节点/图片组/资产/槽位标题；preload 有界恢复 production 数字确认，Main 严格布尔校验不变。专项、最终 build/ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权 | 已完成 | 账号登录直接授权；自定义 Base URL 仅接受官方 Pro License；账号模式逐模型自定义 Key、模型 Token 和全局 Token 按优先级共存。双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
-| 当前追加：原生 New API 外置扩展 | 已完成 | `ai-native` 活跃入口只保留 SparkAI Extension；License、管理员 CLI、图片任务内存转发、SQLite、强制 Docker 内网、双 Caddy 布局、包内 Codex `AGENTS.md` 与独立 ZIP/TAR.GZ 打包器已实现并通过 bundle smoke。旧 fork 只等待真实部署/备份/回滚后的单独删除批次。 |
+| 当前追加：原生 New API 外置扩展 | 已完成 | `sparkai-extension` 活跃入口只保留 SparkAI Extension；License、管理员 CLI、图片任务内存转发、SQLite、强制 Docker 内网、双 Caddy 布局、包内 Codex `AGENTS.md` 与独立 ZIP/TAR.GZ 打包器已实现并通过 bundle smoke。兑换码可由管理员重复查看，管理页支持精确 Origin iframe 白名单。旧 fork 只等待真实部署/备份/回滚后的单独删除批次。 |
 | 当前追加：图片组项目目录与连线交互 | 已完成 | 新导出写入项目级 `image-groups/<组名>`，多组为同级目录且整批回滚，旧目录只读兼容；连接头非破坏、空白/取消安全、目标精确命中、具体线单边断开、节点菜单批量断开，投影容器线保留真实关系 ID。专项、隔离 GUI、最终 build 和双 EXE 均已核验。 |
 | 当前整备：性能、统一导出、验收工具与 1.0.9 发布门禁 | 进行中 | 生产部署由用户负责；性能、导出、验收工具和 AIDebug 已完成，Agent Text UI 与 AskUser GUI 均连续两轮通过；当前从第二份源码稳定报告的 `AskUser GUI` 失败点续跑全量门禁。正式编排因本机现有安装在零步骤预检阻断，只生成 incomplete 状态下的本地双版本候选。 |
 

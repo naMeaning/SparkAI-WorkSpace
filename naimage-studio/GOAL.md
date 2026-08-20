@@ -85,7 +85,7 @@
 | 当前追加：Cloudflare 图片长请求任务化（已完成） | Extension 图片任务创建立即返回，后台经 Docker 内网调用原生同步 New API；Electron 轮询直到最终结果 | `queued/running/succeeded/failed`、HMAC owner 隔离、内存 Bearer、失败与崩溃不重放、旧同步接口兼容；Extension loopback、Compose、桌面传输专项和生产构建均已核验，不调用真实模型。 |
 | 当前追加：Agent 原生复制、内容摘要标题与迁移确认修复（已完成） | 恢复普通消息文本选择复制；让生成成果标题表达图片内容；修复 production 安装包迁移确认被压缩为数字导致的拒绝 | 普通消息无新增按钮且真实 Selection/`Ctrl+C` 通过；标题纯函数与无网络 Electron action 通过；真实 preload VM 只提升 `true`/`1`，Main 保持严格布尔校验；专项、production build、最终 ASAR 与双 Windows x64 测试包均已核验。 |
 | 当前追加：账号登录与 Pro 自定义接入授权（已完成） | 账号登录直接进入工作区；自定义 Base URL 先激活 Pro；账号模式完整保留逐模型自定义 API Key | 后端计划/设备/撤销合同、桌面登录门禁、官方 License 域名、凭据隔离和逐模型 Key 优先级已实现；双仓专项、隔离登录 GUI、typecheck 和最终 production build 均通过。 |
-| 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`ai-native` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
+| 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`sparkai-extension` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
 | 当前追加：图片组项目目录与连线交互（已完成） | 图片组名称直接映射项目级交付文件夹；多组选中导出多个同级目录；连线与取消必须非破坏且可精确断开 | Main-only 新目录、旧目录兼容、整批原子发布、真实边身份、精确目标、单边/批量断开、隔离 GUI、最终 build 与双 Windows x64 测试包均已核验。 |
 | 当前整备：大量图片、统一导出与安全验收（已完成实现） | 常驻缩略图 Worker、扩大缓存、项目级统一导出中心，以及默认拒绝真实请求/真实迁移的验收工具 | 10 张 4K 冷热缓存证据、导出逻辑/UI、迁移/模型验收专项、15 场景 UI Surface 和三轮产品性能门禁均通过；Agent Text UI 与 AskUser GUI 修复后均连续两轮通过。最终 `release:verify` 为 113/113 且源码稳定。正式发布仍只接受同一次完整 `release:final`，现有安装阻断时生成的双版本包只能称本地候选。 |
 
@@ -129,7 +129,7 @@
 
 ## SparkAI Extension 外置服务核验（2026-08-15）
 
-- `ai-native` 的活跃根入口已改为独立 Node 24 SparkAI Extension，仅提供 `/api/naimage/license*` 与 `/v1/image-tasks*`；账号、Token、渠道、quota、计费和管理后台继续完全属于用户现有的原生 New API。旧 `ai-gateway`、CRM 与 production 部署树已退出根构建/运行入口，只作为部署验证后的待清理输入保留。
+- `sparkai-extension` 的活跃根入口是独立 Node 24 SparkAI Extension，仅提供 `/api/naimage/license*` 与 `/v1/image-tasks*`；账号、Token、渠道、quota、计费和管理后台继续完全属于用户现有的原生 New API。新兑换码以 HMAC 匹配并加密保存供管理员重复查看，管理页可按精确 Origin 白名单嵌入现有 Admin。旧 `ai-gateway`、CRM 与 production 部署树已退出根构建/运行入口，只作为部署验证后的待清理输入保留。
 - Extension 使用自己的 SQLite/HMAC 保存兑换码、设备授权、任务 owner 与状态；调用者 Bearer Key 只在进程内存中存在，并通过 `SPARKAI_NEW_API_UPSTREAM` 私网调用原生 `/v1/images/generations`。创建立即返回 `task_id`，进程重启将未完成任务置为 failed 且不重放，结果按保留期启动时及每 15 分钟清理。
 - 本地管理员 CLI 已真实完成“创建 2 枚测试码 → 列表查询 → 禁用 1 枚”闭环，测试码只写入隔离 `.diagnostics` 数据库且临时服务已停止。Extension `build` 与 5 项 loopback 测试（含限时授权/兑换截止）、Compose 静态配置、桌面 `test:license`（9 cases）、`test:custom-api-transport`（31 cases）、`typecheck` 和 production `build`（1667 modules）均退出 0。
 - 本轮没有部署生产、访问真实 License/New API、调用真实图片模型或删除旧 fork。独立浏览器开发回退 `src/server.ts` 仍是历史 session-relay 适配，不作为当前 Electron + Extension 合同的验证证据；若以后发布独立 Web 版，需要另行定义不暴露账户 Key 的服务端凭据桥。

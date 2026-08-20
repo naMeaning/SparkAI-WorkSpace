@@ -1,6 +1,6 @@
 # SparkAI Extension
 
-This is the only active service owned by `ai-native`. It extends an independently deployed, unmodified New API installation without copying its account, token, channel, quota, billing, or admin implementation.
+This is the only active service owned by the `sparkai-extension` repository. It extends an independently deployed, unmodified New API installation without copying its account, token, channel, quota, billing, or admin implementation.
 
 It owns exactly two contracts:
 
@@ -36,13 +36,17 @@ Enter `SPARKAI_EXTENSION_ADMIN_TOKEN` in the page. The token stays in page memor
 - An optional redemption deadline after which new devices cannot activate.
 - Disabling a code and immediately revoking all device licenses issued by it.
 - Copying or downloading newly generated plaintext codes.
+- Viewing and copying any newly encrypted code again from its row in the admin table.
 
-Plain redemption codes are visible only once after creation. The database retains an HMAC and a short display hint, so losing the creation result requires issuing a new code.
+New codes are encrypted with a key derived from the stable `SPARKAI_EXTENSION_HASH_SECRET`; the database never stores plaintext. Codes created before encrypted storage was enabled remain marked as historical and cannot be recovered because only their HMAC was retained.
+
+The `GET /api/naimage/license/admin/codes/:id/reveal` endpoint is administrator-token protected and may be called repeatedly. The returned plaintext is intended for the current admin page session only and must not be persisted by an embedding admin application.
 
 The CLI remains available for server-side operation. Set `SPARKAI_EXTENSION_URL` and the same admin token used by the service, then run:
 
 ```powershell
 corepack pnpm run license:create -- --name "Pro permanent" --count 10 --valid-days 0 --max-devices 3
 corepack pnpm run license:list -- --page 1 --size 20
+corepack pnpm run license:reveal -- --id 12
 corepack pnpm run license:disable -- --id 12
 ```

@@ -1,6 +1,6 @@
 # 原生 New API 双接入与 SparkAI Extension 部署说明
 
-SparkAI WorkSpace 不要求二次开发 New API。用户现有的原生 New API 继续独立升级并负责账号、Token、模型、渠道、quota、计费和用量；`ai-native/services/sparkai-extension` 是单独部署的小型扩展服务，只负责 Pro License 与图片长任务包装。
+SparkAI WorkSpace 不要求二次开发 New API。用户现有的原生 New API 继续独立升级并负责账号、Token、模型、渠道、quota、计费和用量；`sparkai-extension/services/sparkai-extension` 是单独部署的小型扩展服务，只负责 Pro License 与图片长任务包装。
 
 构建期提供两个桌面发行版：`dual-access` 支持账号登录和 Pro 自定义 Base URL；`sparkapi-account` 只允许 `https://sparkapi.org` 账号登录。生产门禁写入 `sparkai-access-policy.json`，运行 EXE 时不能通过环境变量解锁。
 
@@ -42,21 +42,21 @@ SparkAI Extension
 - 只接受 `pro` 计划，默认每码最多 3 台设备。
 - `valid_days=0` 是永久授权；正数从每台设备首次激活时计时。
 - `expired_time=0` 表示兑换码没有兑换截止时间；正数为 Unix 秒。
-- 明文兑换码只在管理员创建时返回一次。
-- SQLite 仅保存兑换码、设备 ID、License token 和任务 owner 的带服务端 secret HMAC。
+- 新兑换码在创建时返回，并以 AES-256-GCM 密文保存；管理员可按 ID 重复查看和复制。
+- SQLite 使用 HMAC 匹配兑换码、设备 ID、License token 和任务 owner；兑换码明文不会直接落库。旧 HMAC-only 记录无法恢复。
 - 禁用兑换码会撤销该码的全部设备 License。
 - 客户端 24 小时在线校验缓存和 72 小时离线宽限保持不变。
 
-稳定备份扩展服务数据卷与 `SPARKAI_EXTENSION_HASH_SECRET`。更换 HMAC secret 会使已有兑换码、License 和任务 owner hash 全部失效。
+稳定备份扩展服务数据卷与 `SPARKAI_EXTENSION_HASH_SECRET`。该 secret 同时派生独立的兑换码加密密钥；更换后已有兑换码、License、任务 owner hash 和兑换码密文都会失效或无法解密。
 
 ## 4. 部署
 
 扩展服务仓库配置：
 
 ```text
-ai-native/services/sparkai-extension/.env.example
-ai-native/deploy/sparkai-extension/compose.yaml
-ai-native/deploy/sparkai-extension/Caddyfile.example
+sparkai-extension/services/sparkai-extension/.env.example
+sparkai-extension/deploy/sparkai-extension/compose.yaml
+sparkai-extension/deploy/sparkai-extension/Caddyfile.example
 ```
 
 部署顺序：
@@ -69,7 +69,7 @@ ai-native/deploy/sparkai-extension/Caddyfile.example
 6. 验证 `GET /api/naimage/license`；只有用户明确要求时再用管理员 CLI创建生产兑换码。
 7. 获得真实付费测试授权后，再验证账号登录和同一 `task_id` 的端到端轮询。
 
-详细 Docker 命令见 `ai-native/deploy/sparkai-extension/README.md`。
+详细 Docker 命令见 `sparkai-extension/deploy/sparkai-extension/README.md`。
 
 ## 5. 接口
 
@@ -85,9 +85,12 @@ POST /api/naimage/license/verify
 
 ```text
 GET  /api/naimage/license/admin/codes?page=1&size=20
+GET  /api/naimage/license/admin/codes/:id/reveal
 POST /api/naimage/license/admin/codes
 POST /api/naimage/license/admin/codes/:id/disable
 ```
+
+管理页默认禁止 iframe。若要嵌入你自己的 Admin，在扩展服务设置 `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS=https://admin.example.com`；可以用逗号配置多个精确 Origin，但不能填写路径、凭据或通配符。嵌入页面仍要求 `SPARKAI_EXTENSION_ADMIN_TOKEN`，Token 只留在当前页面内存，不通过 URL、Cookie、LocalStorage 或 `postMessage` 传递。
 
 图片任务使用调用者的原生 New API Bearer Key：
 
@@ -100,7 +103,7 @@ POST 立即返回 `task_id`；GET 返回 `queued / running / succeeded / failed`
 
 ## 6. 创建兑换码
 
-在 `ai-native` 根目录设置管理员变量：
+在 `sparkai-extension` 根目录设置管理员变量：
 
 ```powershell
 $env:SPARKAI_EXTENSION_URL = "https://sparkapi.org"
@@ -119,14 +122,15 @@ corepack pnpm run license:create -- --name "Pro permanent" --count 10 --valid-da
 corepack pnpm run license:create -- --name "Pro 365 days" --count 10 --valid-days 365 --max-devices 3
 ```
 
-查看和禁用：
+查看列表、重新显示明文和禁用：
 
 ```powershell
 corepack pnpm run license:list -- --page 1 --size 20
+corepack pnpm run license:reveal -- --id 12
 corepack pnpm run license:disable -- --id 12
 ```
 
-创建命令输出的 `codes` 只出现一次，应立即进入密码库或发码系统，不得写入 Git、聊天记录或普通日志。
+创建命令输出的 `codes` 可由管理员之后按 ID 再次查看，但仍属于敏感信息，不得写入 Git、聊天记录或普通日志。只有持有 `SPARKAI_EXTENSION_ADMIN_TOKEN` 的管理员可以创建、查看或禁用兑换码。
 
 ## 7. 排错
 
@@ -145,7 +149,7 @@ corepack pnpm run license:disable -- --id 12
 扩展服务：
 
 ```powershell
-cd E:\019创业项目\nimage\ai-native
+cd E:\019创业项目\nimage\sparkai-extension
 corepack pnpm run verify:workspace
 corepack pnpm run build
 corepack pnpm run test

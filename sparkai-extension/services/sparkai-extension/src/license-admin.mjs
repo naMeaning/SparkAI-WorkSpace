@@ -53,7 +53,12 @@ if (command === "create") {
   if (id < 1) throw new Error("disable requires --id <code id>.");
   const data = await request(`/api/naimage/license/admin/codes/${id}/disable`, { method: "POST" });
   console.log(JSON.stringify(data, null, 2));
+} else if (command === "reveal") {
+  const id = numberArgument("id", 0);
+  if (id < 1) throw new Error("reveal requires --id <code id>.");
+  const data = await request(`/api/naimage/license/admin/codes/${id}/reveal`);
+  console.log(JSON.stringify(data, null, 2));
 } else {
-  console.log("Usage: license-admin.mjs <create|list|disable> [options]");
+  console.log("Usage: license-admin.mjs <create|list|disable|reveal> [options]");
   process.exitCode = 1;
 }
