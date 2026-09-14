@@ -260,6 +260,11 @@ import {
   sanitizeImageContainerSpec
 } from "./image-container-spec";
 import {
+  canvasNodePresentsImageContainer,
+  mergeSelectionAndUploadedReferences,
+  referenceImagesFromSelectedCanvasNodes
+} from "./selection-reference-images";
+import {
   deriveImageLayoutGroupsFromContainerSpecs,
   flattenImageContainerBindings,
   mergeLegacyImageLayoutGroups,
@@ -6284,6 +6289,10 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
+  const selectionReferenceImages = useMemo(
+    () => referenceImagesFromSelectedCanvasNodes(selectedNodes, MAX_REFERENCE_IMAGES),
+    [selectedNodes]
+  );
   const exportCenterImages = useMemo<ExportCenterImageSource[]>(() => canvasNodes.flatMap((node) => {
     if (node.type !== "image") return [];
     const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
@@ -15761,7 +15770,7 @@ function App() {
       displayCode: source.displayCode || `SRC${index + 1}`,
       taskRole: "source"
     }));
-    const referenceImages = (
+    let referenceImages = (
       options.referenceImages !== undefined
         ? cloneReferenceImages(options.referenceImages)
         : useComposerAttachments ? cloneReferenceImages(agentReferenceImagesRef.current) : []
@@ -15810,6 +15819,25 @@ function App() {
       const sourceNodes = sourceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       const referenceNodes = referenceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       if (sourceContainer && !sourceNodes.some((node) => node.id === sourceContainer.id)) sourceNodes.push(sourceContainer);
+      if (!activeGoal && options.referenceImages === undefined) {
+        const implicitReferenceNodes = sourceNodes.filter((node) => canvasNodePresentsImageContainer(node));
+        if (implicitReferenceNodes.length) {
+          referenceImages = mergeSelectionAndUploadedReferences(
+            referenceImagesFromSelectedCanvasNodes(implicitReferenceNodes, MAX_REFERENCE_IMAGES),
+            referenceImages,
+            MAX_REFERENCE_IMAGES
+          ).map((reference, index) => ({
+            ...reference,
+            assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
+            displayCode: reference.displayCode || `REF${index + 1}`,
+            taskRole: "reference" as const
+          }));
+          const implicitIds = new Set(implicitReferenceNodes.map((node) => node.id));
+          for (let index = sourceNodes.length - 1; index >= 0; index -= 1) {
+            if (implicitIds.has(sourceNodes[index].id)) sourceNodes.splice(index, 1);
+          }
+        }
+      }
       const explicitNodeRoles = Object.fromEntries([
         ...sourceNodes.map((node) => [node.id, "source" as const]),
         ...referenceNodes.map((node) => [node.id, "reference" as const])
@@ -16039,6 +16067,25 @@ function App() {
       .map((nodeId) => requestProjection.canvasNodeById.get(nodeId) ?? nodesRef.current.find((node) => node.id === nodeId))
       .filter((node): node is WorkflowNode => Boolean(node));
     if (sourceContainer && !requestSourceNodes.some((node) => node.id === sourceContainer.id)) requestSourceNodes.push(sourceContainer);
+    const implicitReferenceNodes = effectiveTaskOrigin === "goal" || dispatch.referenceImages !== undefined
+      ? []
+      : requestSourceNodes.filter((node) => canvasNodePresentsImageContainer(node));
+    if (implicitReferenceNodes.length) {
+      referenceImages = mergeSelectionAndUploadedReferences(
+        referenceImagesFromSelectedCanvasNodes(implicitReferenceNodes, MAX_REFERENCE_IMAGES),
+        referenceImages,
+        MAX_REFERENCE_IMAGES
+      ).map((reference, index) => ({
+        ...reference,
+        assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
+        displayCode: reference.displayCode || `REF${index + 1}`,
+        taskRole: "reference" as const
+      }));
+      const implicitIds = new Set(implicitReferenceNodes.map((node) => node.id));
+      for (let index = requestSourceNodes.length - 1; index >= 0; index -= 1) {
+        if (implicitIds.has(requestSourceNodes[index].id)) requestSourceNodes.splice(index, 1);
+      }
+    }
     const liveTaskScope = agentTaskScopeForRequest(
       requestSourceNodes,
       referenceImages,
@@ -24218,6 +24265,47 @@ function App() {
     }
   }
 
+  function regenerateFromComposer() {
+    if (agentExecutionBusyNow() || agentStopPendingRef.current) {
+      setServerMessage("请等待当前任务结束后再重新生图。");
+      return;
+    }
+    const selectedResult = selectedNodes.find((node) => (
+      node.type === "image"
+      && !canvasNodePresentsImageContainer(node)
+      && (node.assets?.length ?? 0) > 0
+    ));
+    const promptText = String(prompt || "").trim()
+      || String(selectedResult?.imageParams?.prompt || firstPromptLine(selectedResult?.prompt || "")).trim();
+    if (!promptText) {
+      setServerMessage("请先填写提示词，或选中带提示词的成果后再重新生图。");
+      return;
+    }
+    const references = mergeSelectionAndUploadedReferences(selectionReferenceImages, agentReferenceImages, MAX_REFERENCE_IMAGES);
+    const task = cloneImageTaskDraft({
+      ...defaultImageTaskDraft(settings),
+      prompt: promptText,
+      count: 1,
+      model: settings.imageModel || selectedImageModelsFromSettings(settings)[0] || "",
+      referenceImages: references
+    });
+    const anchor = selectedNodes[0];
+    void runManualImageTask(task, {
+      forkFromNodeId: selectedResult?.id,
+      worldX: Number.isFinite(anchor?.x) ? Number(anchor?.x) + 36 : undefined,
+      worldY: Number.isFinite(anchor?.y) ? Number(anchor?.y) + Number(anchor?.height || 160) + 28 : undefined,
+      requestedCount: 1,
+      targetTotal: 1,
+      quotaChecked: false
+    });
+    notifyAgentOfManualAction(
+      "重新生图",
+      references.length
+        ? `用户按当前提示词和 ${references.length} 张参考图直接重新生成，没有发送给 Agent。`
+        : "用户按当前提示词直接重新生成，没有发送给 Agent。"
+    );
+  }
+
   async function runManualImageTask(
     task: ImageTaskDraft,
     options?: { targetNodeId?: string; forkFromNodeId?: string; worldX?: number; worldY?: number; quotaChecked?: boolean; append?: boolean; requestedCount?: number; targetTotal?: number }
@@ -28518,6 +28606,8 @@ function App() {
           selectedArtifacts={selectedNodes.map((node) => ({ id: node.id, name: nodeWorkName(node) }))}
           sourceImages={agentSourceImages}
           referenceImages={agentReferenceImages}
+          selectionReferenceCount={selectionReferenceImages.length}
+          regenerateImage={regenerateFromComposer}
           prompt={prompt}
           agentStatus={agentStatus}
           executionBusy={agentExecutionBusy}

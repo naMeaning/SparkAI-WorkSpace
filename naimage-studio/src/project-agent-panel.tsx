@@ -168,6 +168,7 @@ function ProjectAgentComposerView({
   selectedArtifacts,
   sourceImages,
   referenceImages,
+  selectionReferenceCount = 0,
   prompt,
   executionBusy,
   paused,
@@ -184,6 +185,7 @@ function ProjectAgentComposerView({
   clearSelection,
   editSourceImages,
   editReferenceImages,
+  regenerateImage,
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
@@ -196,6 +198,7 @@ function ProjectAgentComposerView({
   selectedArtifacts: ProjectAgentArtifact[];
   sourceImages: ReferenceImage[];
   referenceImages: ReferenceImage[];
+  selectionReferenceCount?: number;
   prompt: string;
   executionBusy: boolean;
   paused: boolean;
@@ -212,6 +215,7 @@ function ProjectAgentComposerView({
   clearSelection: () => void;
   editSourceImages: () => void;
   editReferenceImages: () => void;
+  regenerateImage?: () => void;
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
@@ -229,6 +233,7 @@ function ProjectAgentComposerView({
           selectedArtifacts={selectedArtifacts}
           sourceImageCount={sourceImages.length}
           referenceImageCount={referenceImages.length}
+          selectionReferenceCount={selectionReferenceCount}
           prompt={prompt}
           executionBusy={executionBusy}
           paused={paused}
@@ -245,6 +250,7 @@ function ProjectAgentComposerView({
           clearSelection={clearSelection}
           editSourceImages={editSourceImages}
           editReferenceImages={editReferenceImages}
+          regenerateImage={regenerateImage}
           imageModels={imageModels}
           selectedImageModels={selectedImageModels}
           onSelectedImageModelsChange={onSelectedImageModelsChange}
@@ -266,6 +272,7 @@ function ProjectAgentPanelView({
   selectedArtifacts,
   sourceImages,
   referenceImages,
+  selectionReferenceCount = 0,
   prompt,
   agentStatus,
   executionBusy,
@@ -288,6 +295,7 @@ function ProjectAgentPanelView({
   clearSelection,
  editSourceImages,
  editReferenceImages,
+  regenerateImage,
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
@@ -314,6 +322,7 @@ function ProjectAgentPanelView({
   selectedArtifacts: ProjectAgentArtifact[];
   sourceImages: ReferenceImage[];
   referenceImages: ReferenceImage[];
+  selectionReferenceCount?: number;
   prompt: string;
   agentStatus: AgentStatus;
   executionBusy: boolean;
@@ -336,6 +345,7 @@ function ProjectAgentPanelView({
   clearSelection: () => void;
  editSourceImages: () => void;
  editReferenceImages: () => void;
+  regenerateImage?: () => void;
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
@@ -725,6 +735,7 @@ function ProjectAgentPanelView({
         selectedArtifacts={selectedArtifacts}
         sourceImages={sourceImages}
         referenceImages={referenceImages}
+        selectionReferenceCount={selectionReferenceCount}
         prompt={prompt}
         executionBusy={executionBusy}
         paused={paused}
@@ -741,6 +752,7 @@ function ProjectAgentPanelView({
         clearSelection={clearSelection}
         editSourceImages={editSourceImages}
         editReferenceImages={editReferenceImages}
+        regenerateImage={regenerateImage}
         imageModels={imageModels}
         selectedImageModels={selectedImageModels}
         onSelectedImageModelsChange={onSelectedImageModelsChange}
@@ -808,6 +820,7 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   sameProjectAgentSelection(left.selectedArtifacts, right.selectedArtifacts) &&
   left.sourceImages === right.sourceImages &&
   left.referenceImages === right.referenceImages &&
+  left.selectionReferenceCount === right.selectionReferenceCount &&
   left.prompt === right.prompt &&
   left.executionBusy === right.executionBusy &&
   left.paused === right.paused &&
@@ -824,6 +837,7 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
+  left.regenerateImage === right.regenerateImage &&
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
@@ -842,6 +856,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   sameProjectAgentSelection(left.selectedArtifacts, right.selectedArtifacts) &&
   left.sourceImages === right.sourceImages &&
   left.referenceImages === right.referenceImages &&
+  left.selectionReferenceCount === right.selectionReferenceCount &&
   left.prompt === right.prompt &&
   left.agentStatus === right.agentStatus &&
   left.executionBusy === right.executionBusy &&
@@ -864,6 +879,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.clearSelection === right.clearSelection &&
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
+  left.regenerateImage === right.regenerateImage &&
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&

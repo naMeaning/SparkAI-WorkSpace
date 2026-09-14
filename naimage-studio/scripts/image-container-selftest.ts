@@ -13,6 +13,11 @@ import {
 } from "../src/image-container.ts";
 import { imageGridPlanForCount } from "../src/image-layout.ts";
 import { buildTaskResultLayoutMutation } from "../src/task-result-layout.ts";
+import {
+  canvasNodePresentsImageContainer,
+  mergeSelectionAndUploadedReferences,
+  referenceImagesFromSelectedCanvasNodes
+} from "../src/selection-reference-images.ts";
 
 const asset = (assetId: string, index = 1, prompt = ""): ImageAsset => ({
   assetId,
@@ -476,6 +481,36 @@ const testTaskResultMutationBuildsAndAccumulatesContainerGroups = (): void => {
   }
 };
 
+const testSelectedContainerBecomesOrderedReferences = () => {
+  const container: WorkflowNode = {
+    ...node("container-a", {
+      imageContainer: true,
+      imageContainerSpec: {
+        version: 1,
+        kind: "manual",
+        memberNodeIds: ["m1", "m2", "m3"],
+        childContainerNodeIds: [],
+        memberBindings: [
+          { bindingId: "b-3", assetId: "asset-c", nodeId: "m3", containerNodeId: "container-a", assetIndex: 2 },
+          { bindingId: "b-1", assetId: "asset-a", nodeId: "m1", containerNodeId: "container-a", assetIndex: 0 },
+          { bindingId: "b-2", assetId: "asset-b", nodeId: "m2", containerNodeId: "container-a", assetIndex: 1 }
+        ]
+      },
+      assets: [asset("asset-a", 1), asset("asset-b", 2), asset("asset-c", 3)]
+    })
+  };
+  assert.equal(canvasNodePresentsImageContainer(container), true);
+  const images = referenceImagesFromSelectedCanvasNodes([container], 9);
+  assert.equal(images.map((item) => item.assetId).join(","), "asset-c,asset-a,asset-b");
+  assert.equal(images[0]?.purpose, "选中图片容器第 1 张");
+  const merged = mergeSelectionAndUploadedReferences(images, [{
+    name: "uploaded",
+    path: "C:/naimage/uploaded.png",
+    assetId: "uploaded"
+  }]);
+  assert.equal(merged.map((item) => item.assetId).join(","), "asset-c,asset-a,asset-b,uploaded");
+};
+
 const tests: Array<[string, () => void]> = [
   ["collection slots stay compact and valid", testCollectionSlotsAreCompactAndValidated],
   ["first, middle, and last failures preserve request slots", testFirstMiddleAndLastFailuresKeepRequestSlots],
@@ -489,6 +524,7 @@ const tests: Array<[string, () => void]> = [
   ["task result planner groups by source and rejects missing provenance", testTaskResultPlannerGroupsBySourceAndRejectsMissingProvenance],
   ["task result planner keeps container partitions and requires every source", testTaskResultPlannerGroupsContainersButStillRequiresEverySource],
   ["task result mutation builds and accumulates staged container groups", testTaskResultMutationBuildsAndAccumulatesContainerGroups],
+  ["selected containers become ordered reference images", testSelectedContainerBecomesOrderedReferences],
 ];
 
 for (const [name, run] of tests) {

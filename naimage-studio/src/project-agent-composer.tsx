@@ -1,5 +1,5 @@
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Loader2, MessageSquare, Pause, Play, Search, Send, ShieldCheck, Star, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Loader2, MessageSquare, Pause, Play, RefreshCw, Search, Send, ShieldCheck, Star, X } from "lucide-react";
 
 import {
   clipboardHasImage,
@@ -37,6 +37,7 @@ export type ProjectAgentComposerProps = {
   selectedArtifacts: ProjectAgentComposerArtifact[];
   sourceImageCount: number;
   referenceImageCount: number;
+  selectionReferenceCount?: number;
   prompt: string;
   executionBusy: boolean;
   paused: boolean;
@@ -57,6 +58,7 @@ export type ProjectAgentComposerProps = {
   clearSelection: () => void;
   editSourceImages: () => void;
   editReferenceImages: () => void;
+  regenerateImage?: () => void;
   imageModels?: string[];
   selectedImageModels?: string[];
   onSelectedImageModelsChange?: (models: string[]) => void;
@@ -70,6 +72,7 @@ export default function ProjectAgentComposer({
   selectedArtifacts,
   sourceImageCount,
   referenceImageCount,
+  selectionReferenceCount = 0,
   prompt,
   executionBusy,
   paused,
@@ -86,6 +89,7 @@ export default function ProjectAgentComposer({
   clearSelection,
   editSourceImages,
   editReferenceImages,
+  regenerateImage,
   imageModels = [],
   selectedImageModels = [],
   onSelectedImageModelsChange,
@@ -173,6 +177,7 @@ export default function ProjectAgentComposer({
   const goalAvailable = goalContainerCount > 0 && goalAssetCount > 0;
   const goalSelected = !executionBusy && taskMode === "goal";
   const availableModels = uniqueImageModels([...imageModels, ...selectedImageModels]);
+  const effectiveReferenceCount = referenceImageCount + selectionReferenceCount;
   const configuredModels = uniqueImageModels(selectedImageModels);
   const activeModels = configuredModels.length ? configuredModels : availableModels.slice(0, 1);
   const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
@@ -316,12 +321,14 @@ export default function ProjectAgentComposer({
               aria-haspopup="menu"
               aria-expanded={materialsMenuOpen}
               disabled={stopPending}
-              title={`素材：${sourceImageCount} 张原图，${referenceImageCount} 张参考图`}
+              title={selectionReferenceCount
+                ? `素材：${sourceImageCount} 张原图，${referenceImageCount} 张上传参考图，选中容器 ${selectionReferenceCount} 张`
+                : `素材：${sourceImageCount} 张原图，${referenceImageCount} 张参考图`}
               onClick={() => setMaterialsMenuOpen((current) => !current)}
             >
               <ImageIcon size={14} />
               <strong>素材</strong>
-              {sourceImageCount + referenceImageCount ? <small>{sourceImageCount + referenceImageCount}</small> : null}
+              {sourceImageCount + effectiveReferenceCount ? <small>{sourceImageCount + effectiveReferenceCount}</small> : null}
               <ChevronDown size={13} aria-hidden="true" />
             </ButtonBase>
             {materialsMenuOpen ? (
@@ -332,7 +339,7 @@ export default function ProjectAgentComposer({
                 </ButtonBase>
                 <ButtonBase type="button" role="menuitem" onClick={() => { setMaterialsMenuOpen(false); editReferenceImages(); }}>
                   <ImageIcon size={14} />
-                  <span><strong>{referenceImageCount ? `${referenceImageCount} 张参考图` : "添加参考图"}</strong><small>提供风格或内容参考</small></span>
+                  <span><strong>{effectiveReferenceCount ? `${effectiveReferenceCount} 张参考图` : "添加参考图"}</strong><small>{selectionReferenceCount ? `含选中容器 ${selectionReferenceCount} 张，按槽位顺序使用，不必再上传` : "提供风格或内容参考；选中图片容器也可直接当参考图"}</small></span>
                 </ButtonBase>
               </div>
             ) : null}
@@ -588,17 +595,35 @@ export default function ProjectAgentComposer({
             </ActionButton>
           </div>
         ) : (
-          <ActionButton
-            className="project-agent-send"
-            variant="primary"
-            type="submit"
-            disabled={!prompt.trim()}
-            aria-label="发送"
-            title="发送"
-            icon={<Send size={16} />}
-          >
-            发送
-          </ActionButton>
+          <div className="project-agent-send-group">
+            {regenerateImage && !goalSelected ? (
+              <ActionButton
+                className="project-agent-regenerate"
+                variant="secondary"
+                type="button"
+                disabled={stopPending}
+                onClick={regenerateImage}
+                aria-label="重新生图"
+                title={effectiveReferenceCount
+                  ? "使用当前提示词和参考图直接生图，不经过 Agent"
+                  : "使用当前提示词直接生图；选中图片容器时会按顺序当作参考图"}
+                icon={<RefreshCw size={15} />}
+              >
+                重新生图
+              </ActionButton>
+            ) : null}
+            <ActionButton
+              className="project-agent-send"
+              variant="primary"
+              type="submit"
+              disabled={!prompt.trim()}
+              aria-label="发送"
+              title="发送"
+              icon={<Send size={16} />}
+            >
+              发送
+            </ActionButton>
+          </div>
         )}
       </footer>
     </form>

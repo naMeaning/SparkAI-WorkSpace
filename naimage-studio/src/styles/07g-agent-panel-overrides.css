@@ -731,8 +731,19 @@
   min-width: 92px;
 }
 
-.project-agent-send {
+.project-agent-send,
+.project-agent-send-group {
   justify-self: end;
+}
+
+.project-agent-send-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-agent-regenerate {
+  min-width: 92px;
 }
 
 .project-agent-run-controls {
@@ -1422,6 +1433,7 @@
 
   .project-agent-composer footer > button,
   .project-agent-send,
+  .project-agent-send-group,
   .project-agent-run-controls {
     width: 100%;
     min-width: 0;
