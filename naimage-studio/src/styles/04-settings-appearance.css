@@ -13,6 +13,8 @@
 }
 
 .ui-surface.ui-drawer.settings-drawer {
+  container-name: settings-drawer;
+  container-type: inline-size;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
@@ -791,5 +793,17 @@ label.settings-canvas-tool-row {
   .settings-canvas-tool-feedback {
     grid-column: 2;
     justify-self: start;
+  }
+}
+
+@container settings-drawer (max-width: 400px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container settings-drawer (max-width: 310px) {
+  .settings-section-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

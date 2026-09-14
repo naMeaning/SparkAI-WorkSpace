@@ -259,6 +259,23 @@ export function disconnectCanvasRelations(
   if (missingNodeIds.length) {
     throw automationCommandError("NODE_NOT_FOUND", "断线引用了不存在的节点，整批操作未执行。", { nodeIds: missingNodeIds });
   }
+  const relationMismatch = edges.filter((edge) => {
+    if (edge.relationType === undefined && edge.inputRole === undefined) return false;
+    const target = nodeById.get(edge.targetId)!;
+    if (target.type === "requirement") {
+      const binding = requirementInputBindings(target, sourceNodes).find((candidate) => candidate.nodeId === edge.sourceId);
+      if (!binding) return true;
+      if (edge.relationType !== undefined && edge.relationType !== "referenced") return true;
+      return edge.inputRole !== undefined && binding.role !== edge.inputRole;
+    }
+    const actualRelation = target.parentId === edge.sourceId ? (target.relationType ?? "derived-from") : undefined;
+    return edge.inputRole !== undefined || (edge.relationType !== undefined && actualRelation !== edge.relationType);
+  });
+  if (relationMismatch.length) {
+    throw automationCommandError("RELATION_CONFLICT", "待断开的连线已被替换，整批操作未执行。", {
+      edges: relationMismatch.map(({ sourceId, targetId, relationType, inputRole }) => ({ sourceId, targetId, relationType, inputRole })),
+    });
+  }
   const missingEdges = edges.filter((edge) => {
     const target = nodeById.get(edge.targetId)!;
     return target.type === "requirement"

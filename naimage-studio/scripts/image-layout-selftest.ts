@@ -142,6 +142,24 @@ const testMergeSelectedContainers = (): void => {
   assert.equal(layerRejected.reason, "layer-member-forbidden");
 };
 
+const testMergeSelectedImagesIntoExistingContainer = (): void => {
+  const initialNodes = nodes();
+  const expectedCausality = causalitySnapshot(initialNodes);
+  const result = mergeImageLayoutSelection(
+    { nodes: initialNodes, groups: [group("target", ["A", "D"])] },
+    {
+      groupId: "target",
+      hostNodeId: "A",
+      memberNodeIds: ["A", "D", "B", "C"],
+      replaceGroupIds: ["target"],
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.groups, [group("target", ["A", "D", "B", "C"])]);
+  assert.equal(causalitySnapshot(result.nodes), expectedCausality);
+};
+
 const testExtractMember = (): void => {
   const result = extractImageLayoutMember(
     { nodes: nodes(), groups: [group("g1", ["A", "B", "C"])] },
@@ -309,6 +327,7 @@ const tests: Array<[string, () => void]> = [
   ["same-group member reorder", testSameGroupReorder],
   ["cross-group member move", testCrossGroupMove],
   ["selected containers merge atomically", testMergeSelectedContainers],
+  ["selected ordinary images join an existing container atomically", testMergeSelectedImagesIntoExistingContainer],
   ["member extraction", testExtractMember],
   ["zero/one-member normalization", testLastMemberNormalizesGroup],
   ["layer nodes are rejected", testLayerMembersAreRejected],

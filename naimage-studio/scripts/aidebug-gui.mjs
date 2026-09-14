@@ -2489,20 +2489,24 @@ function openSurfaceExpression(surface = "main", afterExpression = "") {
       return Boolean(selector ? document.querySelector(selector) : true);
     };
     (async () => {
-      await invokeSurface("main");
-      await waitForSelector(transientSelectors, false, 1200);
-      await delay(80);
-      if (targetSurface !== "main") {
-        const preSelector = targetSurface === "model-config" || targetSurface === "prompt-entries"
-          ? readySelectors.settings
-          : readySelectors[targetSurface];
-        await invokeSurface(targetSurface, preSelector);
+      try {
+        await invokeSurface("main");
+        await waitForSelector(transientSelectors, false, 1200);
+        await delay(80);
+        if (targetSurface !== "main") {
+          const preSelector = targetSurface === "model-config" || targetSurface === "prompt-entries"
+            ? readySelectors.settings
+            : readySelectors[targetSurface];
+          await invokeSurface(targetSurface, preSelector);
+        }
+        ${afterExpression}
+        const finalSelector = readySelectors[targetSurface] || "";
+        if (finalSelector) await waitForSelector(finalSelector, true);
+        await delay(80);
+        resolve(true);
+      } catch (error) {
+        resolve({ ok: false, error: String(error?.message || error) });
       }
-      ${afterExpression}
-      const finalSelector = readySelectors[targetSurface] || "";
-      if (finalSelector) await waitForSelector(finalSelector, true);
-      await delay(80);
-      resolve(true);
     })();
   })`;
 }
@@ -9842,49 +9846,47 @@ async function main() {
         await delay(250);
         const appearanceTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "外观");
         appearanceTab?.click();
-        const paletteDeadline = Date.now() + 2400;
-        while (Date.now() < paletteDeadline && !document.querySelector('.theme-palette-option[data-palette="custom"]')) await delay(40);
-        document.querySelector('.theme-palette-option[data-palette="custom"]')?.click();
-        const editorDeadline = Date.now() + 2400;
-        while (Date.now() < editorDeadline && !document.querySelector(".theme-custom-editor")) await delay(40);
-        const customModeButtons = Array.from(document.querySelectorAll(".theme-custom-mode .ui-segment-action"));
-        const darkButton = customModeButtons.find((node) => String(node.textContent || "").includes("深色"));
-        const lightButton = customModeButtons.find((node) => String(node.textContent || "").includes("浅色"));
-        darkButton?.click();
-        await delay(100);
-        const darkSwitched = darkButton?.getAttribute("aria-pressed") === "true";
-        lightButton?.click();
-        await delay(100);
-        const canvasInput = document.querySelector('input[aria-label="画布背景颜色"]');
-        const colorSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-        colorSetter?.call(canvasInput, "#e2c18f");
-        canvasInput?.dispatchEvent(new Event("input", { bubbles: true }));
-        canvasInput?.dispatchEvent(new Event("change", { bubbles: true }));
-        await delay(180);
-        const rootCanvasColor = getComputedStyle(document.documentElement).getPropertyValue("--theme-canvas").trim().toLowerCase();
-        const renderedCanvasStyle = getComputedStyle(document.querySelector(".workflow-canvas") || document.body);
-        const renderedCanvasColor = renderedCanvasStyle.backgroundColor;
-        const renderedCanvasImage = renderedCanvasStyle.backgroundImage;
-        const activeThemePreset = document.documentElement.dataset.themePreset || "";
+        const labDeadline = Date.now() + 4000;
+        while (Date.now() < labDeadline && !document.querySelector(".glass-lab[data-glass-lab='true']")) await delay(40);
+        const lab = document.querySelector(".glass-lab[data-glass-lab='true']");
+        const initialTheme = lab?.getAttribute("data-glass-theme") || "";
+        const nextTheme = initialTheme === "light-silver" ? "dark-ember" : "light-silver";
+        const themeSelector = '[data-glass-section="themes"] [data-glass-theme="' + nextTheme + '"]';
+        document.querySelector(themeSelector)?.click();
+        const switchedDeadline = Date.now() + 2400;
+        while (Date.now() < switchedDeadline && document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") !== nextTheme) await delay(40);
+        const switchedTheme = document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") || "";
+        const switchedRootTheme = document.documentElement.getAttribute("data-glass-theme") || "";
+        const restoreSelector = '[data-glass-section="themes"] [data-glass-theme="' + (initialTheme || "dark-ember") + '"]';
+        document.querySelector(restoreSelector)?.click();
+        const restoredDeadline = Date.now() + 2400;
+        while (Date.now() < restoredDeadline && document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") !== (initialTheme || "dark-ember")) await delay(40);
+        const restoredTheme = document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") || "";
+        document.querySelector('[data-glass-section="materials"] [data-glass-material="frosted"]')?.click();
+        await delay(120);
         const settingsBody = document.querySelector(".settings-surface-body");
         if (settingsBody) settingsBody.scrollTop = settingsBody.scrollHeight;
         await delay(120);
-        window.__naimageCustomThemeProbe = {
+        const themeCards = Array.from(document.querySelectorAll(".glass-theme-card"));
+        const preview = document.querySelector("[data-glass-section='preview']");
+        window.__naimageGlassLabProbe = {
           ok: Boolean(
             appearanceTab &&
-            darkSwitched &&
-            lightButton?.getAttribute("aria-pressed") === "true" &&
-            canvasInput?.value === "#e2c18f" &&
-            rootCanvasColor === "#e2c18f" &&
-            activeThemePreset === "custom"
+            lab &&
+            themeCards.length === 7 &&
+            initialTheme &&
+            switchedTheme === nextTheme &&
+            switchedRootTheme === nextTheme &&
+            restoredTheme === (initialTheme || "dark-ember") &&
+            preview
           ),
-          darkSwitched,
-          lightRestored: lightButton?.getAttribute("aria-pressed") === "true",
-          inputValue: canvasInput?.value || "",
-          rootCanvasColor,
-          renderedCanvasColor,
-          renderedCanvasImage,
-          activeThemePreset,
+          initialTheme,
+          nextTheme,
+          switchedTheme,
+          switchedRootTheme,
+          restoredTheme,
+          themeCount: themeCards.length,
+          material: document.querySelector(".glass-lab")?.getAttribute("data-glass-material") || "",
           scrollTop: settingsBody?.scrollTop || 0,
           scrollHeight: settingsBody?.scrollHeight || 0,
           clientHeight: settingsBody?.clientHeight || 0
@@ -9905,18 +9907,23 @@ async function main() {
         settingsDrawerFlushRightOk: true,
         settingsLabelsOk: true,
         imageNodeViewportOk: true
-      }));
+      }, 60000));
       results.push(await captureState(client, target.id, "quick-settings-agent-context-min-884", openSurfaceExpression("settings", `
         await delay(250);
         const agentTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "Agent");
         agentTab?.click();
+        const tabDeadline = Date.now() + 2400;
+        while (Date.now() < tabDeadline && String(document.querySelector(".settings-section-tab[aria-pressed='true']")?.textContent || "").trim() !== "Agent") await delay(40);
         const contextDeadline = Date.now() + 2400;
-        while (Date.now() < contextDeadline && !document.querySelector(".settings-context-policy select")) await delay(40);
-        const strategySelect = document.querySelector(".settings-context-policy select");
+        while (Date.now() < contextDeadline && !document.querySelector("[data-settings-control='context-strategy']")) await delay(40);
+        const strategySelect = document.querySelector("[data-settings-control='context-strategy']");
+        strategySelect?.scrollIntoView?.({ block: "center" });
         const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
         selectSetter?.call(strategySelect, "custom");
+        strategySelect?.dispatchEvent(new Event("input", { bubbles: true }));
         strategySelect?.dispatchEvent(new Event("change", { bubbles: true }));
-        await delay(180);
+        const customFieldsDeadline = Date.now() + 2400;
+        while (Date.now() < customFieldsDeadline && document.querySelectorAll(".settings-context-custom-fields input[type='number']").length < 4) await delay(40);
         const inputs = Array.from(document.querySelectorAll(".settings-context-custom-fields input[type='number']"));
         const optionValues = Array.from(strategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
         window.__naimageContextSettingsProbe = {
@@ -9945,7 +9952,7 @@ async function main() {
         settingsDrawerFlushRightOk: true,
         settingsLabelsOk: true,
         imageNodeViewportOk: true
-      }));
+      }, 60000));
       appendNonVisualSelfChecks(results);
       finishSuiteRun({
         results,

@@ -606,6 +606,12 @@ type TransientNodeDragMember = {
   originalWillChange?: string;
 };
 
+type SelectedImageAssetDragMember = {
+  nodeId: string;
+  assetIndex: number;
+  assetKey: string;
+};
+
 // -----------------------------------------------------------------------------
 // MAIN 02 Boot Constants And Canvas Layout Rules
 // -----------------------------------------------------------------------------
@@ -2394,11 +2400,11 @@ function reconcileWorkflowSessionAssetIds(
   }
 
   function addMessageAssets(message: AgentMessage, ownerId: string) {
-    (message.attachments?.sourceAssets ?? []).forEach((asset, assetIndex) =>
-      addAsset(asset, `${ownerId}:source`, asset.assetIndex ?? assetIndex)
-    );
-    (message.attachments?.referenceAssets ?? []).forEach((asset, assetIndex) =>
-      addAsset(asset, `${ownerId}:reference`, asset.assetIndex ?? assetIndex)
+    const materials = message.attachments?.materials?.length
+      ? message.attachments.materials
+      : [...(message.attachments?.sourceAssets ?? []), ...(message.attachments?.referenceAssets ?? [])];
+    materials.forEach((asset, assetIndex) =>
+      addAsset(asset, `${ownerId}:${asset.role === "reference" ? "reference" : "source"}`, asset.assetIndex ?? assetIndex)
     );
   }
 
@@ -2460,11 +2466,12 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   if (!requestId || !projectId || !conversationId || !originalPrompt || !question || !kinds.has(source.kind as PendingAgentExecution["kind"])) return null;
   const rawScope = source.taskScope && typeof source.taskScope === "object" ? source.taskScope : null;
   if (!rawScope) return null;
-  const normalizeTaskAssets = (items: unknown, role: AssetTaskRole, limit: number): TaskAssetReference[] => (
+  const normalizeTaskAssets = (items: unknown, role: AssetTaskRole, limit: number, preserveRole = false): TaskAssetReference[] => (
     Array.isArray(items) ? items : []
   ).flatMap((item, index) => {
     if (!item || typeof item !== "object") return [];
     const candidate = item as Partial<TaskAssetReference>;
+    const effectiveRole: AssetTaskRole = preserveRole && candidate.role === "reference" ? "reference" : role;
     const assetId = clean(candidate.assetId, 160);
     const path = clean(candidate.path, 1000);
     const relativePath = clean(candidate.relativePath, 1000).replace(/\\/g, "/");
@@ -2487,10 +2494,10 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
       sourceRelativePath: safeImageSourceRelativePath(candidate.sourceRelativePath),
       sourceRootLabel: clean(candidate.sourceRootLabel, 260) || undefined,
       sourceRootKind: candidate.sourceRootKind === "directory" ? "directory" as const : candidate.sourceRootKind === "file" ? "file" as const : undefined,
-      displayCode: clean(candidate.displayCode, 40) || `${role === "source" ? "SRC" : "REF"}${index + 1}`,
+      displayCode: clean(candidate.displayCode, 40) || `${effectiveRole === "source" ? "SRC" : "REF"}${index + 1}`,
       contentHash: /^[a-f0-9]{32,128}$/i.test(clean(candidate.contentHash, 128)) ? clean(candidate.contentHash, 128).toLowerCase() : undefined,
-      role,
-      name: clean(candidate.name, 260) || `${role === "source" ? "原图" : "参考图"} ${index + 1}`,
+      role: effectiveRole,
+      name: clean(candidate.name, 260) || `${effectiveRole === "source" ? "素材" : "参考素材"} ${index + 1}`,
       assetIndex: containerSlot,
       containerSlot,
       ownerAssetIndex,
@@ -2502,18 +2509,26 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
       assetUrl: assetUrl || undefined,
       mimeType: clean(candidate.mimeType, 100) || undefined,
       purpose: clean(candidate.purpose, 400) || undefined,
-      referenceRole: role === "reference" ? clean(candidate.referenceRole, 80) || undefined : undefined
+      referenceRole: effectiveRole === "reference" ? clean(candidate.referenceRole, 80) || undefined : undefined
     }];
   }).slice(0, limit);
-  const sourceAssets = normalizeTaskAssets(rawScope.sourceAssets, "source", 200);
-  const referenceAssets = normalizeTaskAssets(rawScope.referenceAssets, "reference", 40);
-  const sourceNodeIds = [...new Set((Array.isArray(source.sourceNodeIds) ? source.sourceNodeIds : rawScope.sourceNodeIds ?? [])
-    .map((id) => clean(id, 160)).filter(Boolean))].slice(0, 200);
   const taskOrigin = origins.has(source.taskOrigin as AgentTaskScope["origin"])
     ? source.taskOrigin as AgentTaskScope["origin"]
     : origins.has(rawScope.origin as AgentTaskScope["origin"])
       ? rawScope.origin as AgentTaskScope["origin"]
       : "chat";
+  const legacySourceAssets = normalizeTaskAssets(rawScope.sourceAssets, "source", 200);
+  const legacyReferenceAssets = normalizeTaskAssets(rawScope.referenceAssets, "reference", 40);
+  const materials = normalizeTaskAssets(rawScope.materials, "source", 240, true);
+  const canonicalMaterials = materials.length ? materials : [...legacySourceAssets, ...legacyReferenceAssets];
+  // For ordinary chat/structured tasks all selected images are usable context.
+  // Keep the old projections for persisted Goal snapshots and older bridges.
+  const sourceAssets = taskOrigin === "goal" ? legacySourceAssets : canonicalMaterials;
+  const referenceAssets = taskOrigin === "goal"
+    ? legacyReferenceAssets
+    : canonicalMaterials.filter((asset) => asset.role === "reference");
+  const sourceNodeIds = [...new Set((Array.isArray(source.sourceNodeIds) ? source.sourceNodeIds : rawScope.sourceNodeIds ?? [])
+    .map((id) => clean(id, 160)).filter(Boolean))].slice(0, 200);
   const cleanIds = (value: unknown, maximum = 200) => [...new Set((Array.isArray(value) ? value : []).map((id) => clean(id, 520)).filter(Boolean))].slice(0, maximum);
   const options = sanitizeAgentAskUserOptions(source.options);
   const requirementNodeId = clean(source.requirementNodeId, 160) || clean(rawScope.requirement?.nodeId, 160) || undefined;
@@ -2590,6 +2605,7 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
     referenceContainerIds: cleanIds(rawScope.referenceContainerIds, 40),
     sourceBindingIds: cleanIds(rawScope.sourceBindingIds?.length ? rawScope.sourceBindingIds : sourceAssets.map((asset) => asset.bindingId), 200),
     referenceBindingIds: cleanIds(rawScope.referenceBindingIds?.length ? rawScope.referenceBindingIds : referenceAssets.map((asset) => asset.bindingId), 40),
+    materials: canonicalMaterials,
     sourceAssets,
     referenceAssets,
     resultPolicy: resultPolicies.has(rawScope.resultPolicy as AgentTaskResultPolicy)
@@ -3044,10 +3060,11 @@ function agentTaskScopeForRequest(
   // selected for canvas/UI semantics, but never expose it as an editable asset.
   const eligibleImageNodes = sourceNodes.filter((node) => node.type === "image");
   const explicitRoleFor = (node: WorkflowNode) => explicitNodeRoles[node.id];
-  const referenceRoleNodes = eligibleImageNodes.filter((node) => explicitRoleFor(node) === "reference" || (
+  const isGoalScope = origin === "goal";
+  const referenceRoleNodes = eligibleImageNodes.filter((node) => isGoalScope && (explicitRoleFor(node) === "reference" || (
     !explicitRoleFor(node) && taskAssetReferencesForNode(node, "reference", false).length > 0
-  ));
-  const eligibleSourceNodes = eligibleImageNodes.filter((node) => explicitRoleFor(node) === "source" || (
+  )));
+  const eligibleSourceNodes = eligibleImageNodes.filter((node) => !isGoalScope || explicitRoleFor(node) === "source" || (
     !explicitRoleFor(node) && taskAssetReferencesForNode(node, "source", true).length > 0
   ));
   const sourceNodeIds = [...new Set(eligibleSourceNodes.map((node) => node.id).filter(Boolean))];
@@ -3080,7 +3097,7 @@ function agentTaskScopeForRequest(
     node,
     "source",
     true,
-    explicitRoleFor(node) === undefined,
+    isGoalScope ? explicitRoleFor(node) === undefined : false,
   )));
   const sourceAssetCount = allSourceAssets.length;
   const sourceAssets = allSourceAssets.slice(0, 200);
@@ -3133,6 +3150,7 @@ function agentTaskScopeForRequest(
   ));
   const allReferenceAssets = uniqueTaskAssets([...stagedReferenceAssets, ...referenceNodeAssets]);
   const referenceAssets = allReferenceAssets.slice(0, 40);
+  const materials = uniqueTaskAssets([...sourceAssets, ...referenceAssets]).slice(0, 240);
   const sourceContainerIds = [...new Set([
     ...eligibleSourceNodes.filter((node) => nodeUsesImageContainer(node)).map((node) => node.id),
     ...sourceAssets.map((asset) => asset.containerId || "")
@@ -3189,6 +3207,7 @@ function agentTaskScopeForRequest(
     referenceContainerIds,
     sourceBindingIds: [...new Set(sourceAssets.map((asset) => asset.bindingId || "").filter(Boolean))],
     referenceBindingIds: [...new Set(referenceAssets.map((asset) => asset.bindingId || "").filter(Boolean))],
+    materials,
     sourceAssets,
     referenceAssets,
     resultPolicy,
@@ -3838,6 +3857,8 @@ function App() {
     moved: boolean;
     allowImageGrouping?: boolean;
     assetKey?: string;
+    assetMembers?: SelectedImageAssetDragMember[];
+    groupingSourceIds?: string[];
     dropTargetId?: string;
     layerGroupId?: string;
     layerGroupStart?: Record<string, { x: number; y: number; anchorX: number; anchorY: number; detached: boolean }>;
@@ -8920,7 +8941,12 @@ function App() {
     if (blockLockedNodeMutation([source.id, target.id], "断开连线")) return false;
     let mutation;
     try {
-      mutation = disconnectCanvasRelations(nodesRef.current, [{ sourceId: source.id, targetId: target.id }]);
+      mutation = disconnectCanvasRelations(nodesRef.current, [{
+        sourceId: source.id,
+        targetId: target.id,
+        relationType: edge.relationType,
+        inputRole: edge.inputRole,
+      }]);
     } catch (error) {
       setServerMessage(automationErrorPayload(error).error);
       return false;
@@ -12335,10 +12361,11 @@ function App() {
     layerDragRef.current = null;
   }
 
-  function imageGroupingTargetAt(clientX: number, clientY: number, sourceNodeId: string) {
+  function imageGroupingTargetAt(clientX: number, clientY: number, sourceNodeId: string, excludedSourceIds: readonly string[] = []) {
+    const excluded = new Set([sourceNodeId, ...excludedSourceIds]);
     const candidateIds = [...new Set(document.elementsFromPoint(clientX, clientY)
       .map((element) => element.closest<HTMLElement>(".flow-node.image")?.dataset.nodeId || "")
-      .filter((id) => id && id !== sourceNodeId))];
+      .filter((id) => id && !excluded.has(id)))];
     for (const candidateId of candidateIds) {
       const element = document.querySelector<HTMLElement>(`.flow-node.image[data-node-id="${candidateId}"]`);
       const preview = element?.querySelector<HTMLElement>(".node-image-preview");
@@ -12350,6 +12377,98 @@ function App() {
       return candidateId;
     }
     return "";
+  }
+
+  async function moveContainerAssets(
+    members: readonly SelectedImageAssetDragMember[],
+    clientX: number,
+    clientY: number,
+    targetContainerId = ""
+  ) {
+    const sourceIds = [...new Set(members.map((member) => String(member.nodeId || "").trim()).filter(Boolean))];
+    if (sourceIds.length < 2 || !targetContainerId || sourceIds.includes(targetContainerId)) {
+      return { ok: false, error: "至少需要两张图片和一个不同的目标容器。" };
+    }
+    if (blockLockedNodeMutation([...sourceIds, targetContainerId], "批量移动图片")) {
+      return { ok: false, error: "运行中的节点不能移动图片。" };
+    }
+
+    const beforeNodes = nodesRef.current.map(cloneWorkflowNode);
+    const beforeGroups = layoutGroupsRef.current.map((group) => ({ ...group, memberNodeIds: [...group.memberNodeIds] }));
+    const sourceNodes = sourceIds
+      .map((id) => beforeNodes.find((node) => node.id === id))
+      .filter((node): node is WorkflowNode => Boolean(node));
+    if (sourceNodes.length !== sourceIds.length || sourceNodes.some((node) => (
+      node.type !== "image" || node.layerGroup || node.layerComposition || node.imageContainer || node.imageCollection || (node.assets?.length ?? 0) !== 1
+    ))) {
+      return { ok: false, error: "批量归组仅支持已框选的普通单图成果。" };
+    }
+
+    const targetBefore = beforeNodes.find((node) => node.id === targetContainerId);
+    if (!targetBefore || targetBefore.type !== "image" || targetBefore.layerGroup || targetBefore.layerComposition || (
+      !targetBefore.imageContainer && !targetBefore.imageCollection && !canGroupImageAsset(targetBefore)
+    )) {
+      return { ok: false, error: "目标不是可用的图片或容器。" };
+    }
+
+    let workingNodes = beforeNodes;
+    let workingGroups = beforeGroups;
+    // Remove selected members from an existing presentation group first. This
+    // preserves any unselected siblings and keeps the operation atomic.
+    for (const sourceId of sourceIds) {
+      const sourceGroup = workingGroups.find((group) => group.memberNodeIds.includes(sourceId));
+      if (!sourceGroup) continue;
+      const extracted = extractImageLayoutMember(
+        { nodes: workingNodes, groups: workingGroups },
+        { groupId: sourceGroup.id, memberNodeId: sourceId }
+      );
+      if (!extracted.ok) return { ok: false, error: "无法从原图片容器中取出已选图片。" };
+      workingNodes = preserveLayoutHostPositions(workingGroups, extracted.groups, extracted.nodes as WorkflowNode[], sourceId);
+      workingGroups = extracted.groups;
+    }
+
+    const target = workingNodes.find((node) => node.id === targetContainerId);
+    if (!target) return { ok: false, error: "目标容器已不存在，请重新拖动。" };
+    const targetGroup = workingGroups.find((group) => group.memberNodeIds.includes(target.id));
+    const targetMembers = targetGroup ? targetGroup.memberNodeIds : [target.id];
+    const requestedMembers = [...new Set([...targetMembers, ...sourceIds])];
+    let mutation;
+    if (targetGroup) {
+      mutation = mergeImageLayoutSelection(
+        { nodes: workingNodes, groups: workingGroups },
+        {
+          groupId: targetGroup.id,
+          hostNodeId: targetGroup.hostNodeId,
+          memberNodeIds: requestedMembers,
+          replaceGroupIds: [targetGroup.id]
+        }
+      );
+    } else {
+      mutation = createManualImageLayoutGroup(
+        { nodes: workingNodes, groups: workingGroups },
+        { groupId: uid("image-layout"), hostNodeId: target.id, memberNodeIds: requestedMembers }
+      );
+    }
+    if (!mutation.ok || !mutation.changed) {
+      return mutation.reason === "duplicate"
+        ? { ok: true, nodeId: targetGroup?.hostNodeId || target.id, reason: mutation.reason }
+        : { ok: false, error: `图片批量归组失败：${mutation.reason}` };
+    }
+
+    const beforeCausality = new Map(beforeNodes.map((node) => [node.id, `${node.parentId || ""}|${node.relationType || ""}`]));
+    const causalityChanged = mutation.nodes.some((node) => beforeCausality.has(node.id) && beforeCausality.get(node.id) !== `${node.parentId || ""}|${node.relationType || ""}`);
+    if (causalityChanged) return { ok: false, error: "已阻止会改写成果来源关系的批量归组操作。" };
+
+    const selectedId = targetGroup?.hostNodeId || target.id;
+    pushCanvasHistory(`批量归组 ${sourceIds.length} 张图片`);
+    commitImageLayout(mutation.nodes as WorkflowNode[], mutation.groups, selectedId, { animate: false });
+    setServerMessage(`已将 ${sourceIds.length} 张选中图片一次性加入图片容器。`);
+    addEvent(`批量整理 ${sourceIds.length} 张图片 → ${selectedId}`);
+    notifyAgentOfManualAction(
+      "批量整理图片成果",
+      `用户将 ${sourceIds.length} 张框选的普通图片一次性放入图片容器 ${selectedId}；每张图片的生成来源关系保持不变。`
+    );
+    return { ok: true, nodeId: selectedId, reason: mutation.reason };
   }
 
   function applyTransientNodePosition(
@@ -12480,7 +12599,28 @@ function App() {
       selectedHostIds.includes(node.id) &&
       selectedContainerNodes.length === selectedHostIds.length &&
       selectedContainerNodes.every(isDraggableImageGroup);
-    const mutationIds = multiContainerDrag ? selectedHostIds : [node.id];
+    const selectedAssetMembers: SelectedImageAssetDragMember[] = !multiContainerDrag && imageTileMovesNode
+      ? selectedNodeIdsRef.current
+          .map((id) => nodesRef.current.find((item) => item.id === id))
+          .filter((item): item is WorkflowNode => Boolean(item && item.type === "image" && canGroupImageAsset(item) && !item.imageContainer && !item.imageCollection && (item.assets?.length ?? 0) === 1))
+          .map((item) => ({
+            nodeId: item.id,
+            assetIndex: 0,
+            assetKey: imageAssetLogicalKey(item.assets?.[0], item.id, 0)
+          }))
+          .filter((item) => Boolean(item.assetKey))
+      : [];
+    const multiAssetDrag = selectedAssetMembers.length > 1 && selectedAssetMembers.some((item) => item.nodeId === node.id);
+    const selectedAssetNodes = multiAssetDrag
+      ? selectedAssetMembers
+          .map((item) => nodesRef.current.find((candidate) => candidate.id === item.nodeId))
+          .filter((item): item is WorkflowNode => Boolean(item))
+      : [];
+    const mutationIds = multiContainerDrag
+      ? selectedHostIds
+      : multiAssetDrag
+        ? selectedAssetMembers.map((item) => item.nodeId)
+        : [node.id];
     if (blockLockedNodeMutation(mutationIds, "移动")) return;
     selectNodeFromPlainClick(node.id, "node-drag-start");
     const sourceAsset = imageTileMovesNode ? node.assets?.[0] : undefined;
@@ -12526,6 +12666,18 @@ function App() {
             originalWillChange: element?.style.willChange
           };
         })
+      : multiAssetDrag
+        ? selectedAssetNodes.map((item): TransientNodeDragMember => {
+            const element = nodeElements.get(item.id);
+            return {
+              id: item.id,
+              x: item.x,
+              y: item.y,
+              nodeElement: element,
+              originalZIndex: element?.style.zIndex,
+              originalWillChange: element?.style.willChange
+            };
+          })
       : undefined;
     const styledMembers = multiNodeStart ?? [{
       id: node.id,
@@ -12554,6 +12706,8 @@ function App() {
       moved: false,
       allowImageGrouping: !multiContainerDrag && imageTileMovesNode && Boolean(sourceAsset),
       assetKey: imageAssetLogicalKey(sourceAsset, node.id, 0),
+      assetMembers: multiAssetDrag ? selectedAssetMembers : undefined,
+      groupingSourceIds: multiAssetDrag ? selectedAssetMembers.map((item) => item.nodeId) : undefined,
       layerGroupId: layerGroupTitleDrag ? node.layerGroup?.id : undefined,
       layerGroupStart,
       multiNodeStart,
@@ -12584,7 +12738,7 @@ function App() {
     drag.moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 7;
     if (drag.allowImageGrouping) {
       const groupingTarget = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 18
-        ? imageGroupingTargetAt(event.clientX, event.clientY, node.id)
+        ? imageGroupingTargetAt(event.clientX, event.clientY, node.id, drag.groupingSourceIds)
         : "";
       if (drag.dropTargetId !== groupingTarget) {
         drag.dropTargetId = groupingTarget;
@@ -12752,7 +12906,14 @@ function App() {
       drag.pendingY = undefined;
       if (drag.nodeElement) applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
     }
-    if (drag.multiNodeStart?.length) {
+    const dropTargetId = event.type === "pointercancel" ? "" : drag.dropTargetId || "";
+    const batchAssetDrop = Boolean(drag.assetMembers?.length && drag.moved && dropTargetId);
+    if (batchAssetDrop && drag.multiNodeStart?.length) {
+      // Grouping commits a fresh atomic layout mutation. Roll back the
+      // transform-only drag preview first so no selected source keeps a stale
+      // screen position while that mutation replaces the source nodes.
+      applyTransientNodePositions(drag.multiNodeStart, 0, 0, drag.transientEdges);
+    } else if (drag.multiNodeStart?.length) {
       const commitDx = drag.moved ? (drag.pendingX ?? drag.nodeX) - drag.nodeX : 0;
       const commitDy = drag.moved ? (drag.pendingY ?? drag.nodeY) - drag.nodeY : 0;
       applyTransientNodePositions(drag.multiNodeStart, commitDx, commitDy, drag.transientEdges);
@@ -12771,8 +12932,16 @@ function App() {
       );
     }
     clearTransientNodeDragStyles(drag);
-    const dropTargetId = event.type === "pointercancel" ? "" : drag.dropTargetId || "";
-    if (drag.multiNodeStart?.length && drag.moved && drag.pendingX !== undefined && drag.pendingY !== undefined) {
+    if (batchAssetDrop && drag.assetMembers) {
+      lastNodeDragEndRef.current = { nodeId: node.id, endedAt: Date.now() };
+      void moveContainerAssets(drag.assetMembers, event.clientX, event.clientY, dropTargetId)
+        .then((result) => {
+          if (!result.ok) setServerMessage(result.error || "批量归组失败，请重新选择图片后再试。");
+        })
+        .catch((error) => {
+          setServerMessage(`批量归组失败：${error instanceof Error ? error.message : String(error)}`);
+        });
+    } else if (drag.multiNodeStart?.length && drag.moved && drag.pendingX !== undefined && drag.pendingY !== undefined) {
       const dx = drag.pendingX - drag.nodeX;
       const dy = drag.pendingY - drag.nodeY;
       const startById = new Map(drag.multiNodeStart.map((member) => [member.id, member]));
@@ -12830,12 +12999,14 @@ function App() {
           : {})
       });
     }
-    if (drag.moved && drag.multiNodeStart?.length) {
+    if (!batchAssetDrop && drag.moved && drag.multiNodeStart?.length) {
       lastNodeDragEndRef.current = { nodeId: node.id, endedAt: Date.now() };
-      addEvent(`移动 ${drag.multiNodeStart.length} 个图片容器`);
+      addEvent(`移动 ${drag.assetMembers?.length || drag.multiNodeStart.length} 个已选图片`);
       notifyAgentOfManualAction(
-        "移动图片容器",
-        `用户同步移动了 ${drag.multiNodeStart.length} 个已选图片容器；容器相对位置、图片内容和成果关系保持不变。`
+        drag.assetMembers?.length ? "移动已选图片" : "移动图片容器",
+        drag.assetMembers?.length
+          ? `用户同步移动了 ${drag.assetMembers.length} 个已选普通图片；相对位置和成果关系保持不变。`
+          : `用户同步移动了 ${drag.multiNodeStart.length} 个已选图片容器；容器相对位置、图片内容和成果关系保持不变。`
       );
     } else if (drag.moved && drag.layerGroupId) {
       addEvent(`移动分层 PNG #${String(node.layerGroup?.groupNumber ?? 0).padStart(3, "0")}`);
@@ -15682,6 +15853,8 @@ function App() {
       meta: "human / steer",
       attachments: candidateTaskScope && (candidateTaskScope.sourceAssetCount || candidateTaskScope.referenceAssetCount)
         ? {
+            materials: candidateTaskScope.materials?.slice(0, 40) ?? [...candidateTaskScope.sourceAssets, ...candidateTaskScope.referenceAssets].slice(0, 40),
+            materialCount: (candidateTaskScope.materials ?? [...candidateTaskScope.sourceAssets, ...candidateTaskScope.referenceAssets]).length,
             sourceAssets: candidateTaskScope.sourceAssets.slice(0, 40),
             referenceAssets: candidateTaskScope.referenceAssets.slice(0, 40),
             sourceCount: candidateTaskScope.sourceAssetCount,
@@ -15882,6 +16055,8 @@ function App() {
     lastDispatchedPromptRef.current = content;
     if (taskScope.sourceAssetCount || taskScope.referenceAssetCount) {
       userMessage.attachments = {
+        materials: taskScope.materials?.slice(0, 40) ?? [...taskScope.sourceAssets, ...taskScope.referenceAssets].slice(0, 40),
+        materialCount: (taskScope.materials ?? [...taskScope.sourceAssets, ...taskScope.referenceAssets]).length,
         sourceAssets: taskScope.sourceAssets.slice(0, 40),
         referenceAssets: taskScope.referenceAssets.slice(0, 40),
         sourceCount: taskScope.sourceAssetCount,
@@ -17067,6 +17242,8 @@ function App() {
           status: message.status,
            meta: message.meta,
            attachments: message.attachments ? {
+             materials: message.attachments.materials?.map((item) => ({ ...item })),
+             materialCount: message.attachments.materialCount,
              sourceAssets: message.attachments.sourceAssets?.map((item) => ({ ...item })),
              referenceAssets: message.attachments.referenceAssets?.map((item) => ({ ...item }))
            } : undefined,

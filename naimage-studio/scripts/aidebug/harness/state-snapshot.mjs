@@ -267,6 +267,15 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsThemePaletteButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-palette-option"));
     const settingsThemeModeActiveCount = settingsThemeModeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
     const settingsThemePaletteActiveCount = settingsThemePaletteButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length;
+    const settingsGlassLab = element(".settings-drawer:not(.account-drawer) .glass-lab[data-glass-lab='true']");
+    const settingsGlassThemeCards = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .glass-theme-card"));
+    const settingsGlassMaterialCards = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .glass-material-card"));
+    const settingsGlassThemeActiveCount = settingsGlassThemeCards.filter((node) => node.getAttribute("aria-pressed") === "true").length;
+    const settingsGlassMaterialActiveCount = settingsGlassMaterialCards.filter((node) => node.getAttribute("aria-pressed") === "true").length;
+    const settingsGlassParameterControls = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) [data-glass-control]"));
+    const settingsGlassResetAction = element(".settings-drawer:not(.account-drawer) [data-glass-action='reset-recommended']");
+    const settingsGlassPreview = element(".settings-drawer:not(.account-drawer) [data-glass-section='preview']");
+    const settingsGlassPreviewRect = settingsGlassPreview?.getBoundingClientRect();
     const settingsSurfaceBody = element(".settings-drawer:not(.account-drawer) .settings-surface-body");
     const settingsSurfaceBodyRect = settingsSurfaceBody?.getBoundingClientRect();
     const settingsCustomThemeEditor = element(".settings-drawer:not(.account-drawer) .theme-custom-editor");
@@ -275,7 +284,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsCustomThemeActionButtons = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .theme-custom-actions button"));
     const settingsCustomThemeActionTexts = settingsCustomThemeActionButtons.map((node) => String(node.textContent || "").replace(/\\s+/g, " ").trim());
     const settingsCustomThemeActionsRect = rect(".settings-drawer:not(.account-drawer) .theme-custom-actions");
-    const settingsContextStrategySelect = element(".settings-drawer:not(.account-drawer) .settings-context-policy select");
+    const settingsContextStrategySelect = element(".settings-drawer:not(.account-drawer) [data-settings-control='context-strategy']");
     const settingsContextStrategyValues = Array.from(settingsContextStrategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
     const settingsContextCustomInputs = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .settings-context-custom-fields input[type='number']"));
     const accountProfileCardRect = rect(".account-drawer .account-profile");
@@ -469,7 +478,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         radius: metricRound(parseFloat(style.borderTopLeftRadius || "0")),
         borderWidth: metricRound(parseFloat(style.borderTopWidth || "0")),
         borderBottomWidth: metricRound(parseFloat(style.borderBottomWidth || "0")),
-        choiceLayout: String(node.getAttribute("data-ui-choice-layout") || "")
+        choiceLayout: String(node.getAttribute("data-ui-choice-layout") || ""),
+        inGlassLab: Boolean(node.closest?.(".glass-lab"))
       };
     };
     const visibleUiSurfaces = Array.from(document.querySelectorAll("[data-ui-surface]")).filter(uiControlVisible);
@@ -481,13 +491,13 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       .filter((node) => node.classList.contains("ui-icon-action") || node.classList.contains("ui-surface-close"))
       .map(uiControlMetric);
     const uiChoiceMetrics = uiSurfaceButtons
-      .filter((node) => node.classList.contains("ui-choice-row") || node.classList.contains("ui-segment-action") || node.classList.contains("ui-inline-action"))
+      .filter((node) => node.classList.contains("ui-choice-row") || node.classList.contains("ui-segment-action") || node.classList.contains("ui-inline-action") || node.classList.contains("glass-theme-card") || node.classList.contains("glass-material-card") || node.classList.contains("glass-accent-swatch"))
       .map(uiControlMetric);
     const uiPreviewMetrics = uiSurfaceButtons
       .filter((node) => node.getAttribute("data-ui-control") === "preview")
       .map(uiControlMetric);
     const uiRawButtonMetrics = uiSurfaceButtons
-      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, [data-ui-control='preview']"))
+      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, [data-ui-control='preview']"))
       .map(uiControlMetric);
     const uiFooterMetrics = visibleUiSurfaces.flatMap((surface) => Array.from(surface.querySelectorAll(":scope > .ui-surface-footer"))).map((footer) => {
       const group = footer.querySelector(":scope > .ui-surface-footer-actions");
@@ -506,7 +516,11 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         buttons: metrics
       };
     });
-    const uiActionControlsOk = uiActionMetrics.every((item) => item.height >= 33 && item.height <= 44 && item.radius >= 4 && Boolean(item.label));
+    const uiActionControlsOk = uiActionMetrics.every((item) => {
+      const minHeight = item.inGlassLab ? 27 : 33;
+      const maxHeight = item.inGlassLab ? 36 : 44;
+      return item.height >= minHeight && item.height <= maxHeight && item.radius >= 4 && Boolean(item.label);
+    });
     const uiIconControlsOk = uiIconMetrics.every((item) => item.width >= 27 && item.height >= 27 && Math.abs(item.width - item.height) <= 1.5 && item.radius >= 4 && Boolean(item.label));
     const uiChoiceControlsOk = uiChoiceMetrics.every((item) => (
       item.height >= 27 &&
@@ -2527,41 +2541,44 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     );
     const settingsActiveSectionTitle = {
       接入: "服务接入",
-      外观: "外观主题",
+      外观: "Glass Lab",
       模型: "模型配置",
       Agent: "Agent",
       更新: "软件更新"
     }[settingsActiveTabText] || "";
     const settingsLabelsOk = !settingsOpen || (
       settingsHeaderTitleText === "设置" &&
-      settingsHeaderSubtitleText === "服务接入、外观、模型、Agent 与软件更新" &&
+      settingsHeaderSubtitleText === "服务接入、外观、模型、Agent、画布工具与软件更新" &&
       settingsSectionEyebrowText === "" &&
       settingsSectionTitleText === settingsActiveSectionTitle
     );
     const settingsAppearanceControlsOk = !settingsOpen || settingsActiveTabText !== "外观" || (
-      settingsThemeModeButtons.length === 3 &&
-      settingsThemePaletteButtons.length === 11 &&
-      settingsThemeModeActiveCount === 1 &&
-      settingsThemePaletteActiveCount === 1
+      Boolean(settingsGlassLab) &&
+      settingsGlassThemeCards.length === 7 &&
+      settingsGlassThemeActiveCount === 1 &&
+      settingsGlassMaterialCards.length === 3 &&
+      settingsGlassMaterialActiveCount === 1 &&
+      Boolean(element(".settings-drawer:not(.account-drawer) [data-glass-section='background']")) &&
+      Boolean(settingsGlassPreview)
     );
-    const settingsCustomThemeEditorOk = Boolean(
-      settingsCustomThemeEditor &&
-      settingsThemePaletteButtons.find((node) => node.getAttribute("data-palette") === "custom")?.getAttribute("aria-pressed") === "true" &&
-      settingsCustomThemeColorInputs.length === 10 &&
-      settingsCustomThemeModeButtons.length === 2 &&
-      settingsCustomThemeModeButtons.filter((node) => node.getAttribute("aria-pressed") === "true").length === 1 &&
-      ["导入 JSON", "导出 JSON", "恢复陶土模板"].every((label) => settingsCustomThemeActionTexts.includes(label))
+    const settingsCustomThemeEditorOk = !settingsOpen || settingsActiveTabText !== "外观" || Boolean(
+      settingsGlassLab &&
+      settingsGlassThemeCards.length === 7 &&
+      settingsGlassMaterialCards.length === 3 &&
+      settingsGlassParameterControls.length === 6 &&
+      settingsGlassResetAction &&
+      settingsGlassPreview
     );
-    const settingsThemeEditorScrollOk = Boolean(
+    const settingsThemeEditorScrollOk = !settingsOpen || settingsActiveTabText !== "外观" || Boolean(
       settingsSurfaceBody &&
       settingsSurfaceBodyRect &&
-      settingsCustomThemeActionsRect &&
-      settingsSurfaceBody.scrollHeight > settingsSurfaceBody.clientHeight &&
-      settingsSurfaceBody.scrollTop > 0 &&
-      settingsCustomThemeActionsRect.left >= settingsSurfaceBodyRect.left + 6 &&
-      settingsCustomThemeActionsRect.right <= settingsSurfaceBodyRect.right - 6 &&
-      settingsCustomThemeActionsRect.top >= settingsSurfaceBodyRect.top &&
-      settingsCustomThemeActionsRect.bottom <= settingsSurfaceBodyRect.bottom
+      settingsGlassPreviewRect &&
+      (
+        settingsSurfaceBody.scrollHeight <= settingsSurfaceBody.clientHeight + 1
+        || settingsSurfaceBody.scrollTop > 0
+      ) &&
+      settingsGlassPreviewRect.bottom > settingsSurfaceBodyRect.top + 8 &&
+      settingsGlassPreviewRect.top < settingsSurfaceBodyRect.bottom - 8
     );
     const settingsContextCustomControlsOk = Boolean(
       settingsContextStrategySelect?.value === "custom" &&
@@ -3099,7 +3116,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         briefOutsideAbove: Boolean(imageGenTraceBriefRect && imageGenTraceRect && imageGenTraceBriefRect.bottom <= imageGenTraceRect.top + 1)
       },
       titlebarOverlay: getComputedStyle(element(".ide-topbar") || document.body).webkitAppRegion === "drag",
-      titlebarBrandVisible: visible(".titlebar-brand") && /naimage/i.test(element(".titlebar-brand")?.textContent || ""),
+      titlebarBrandVisible: visible(".titlebar-brand") && /SparkAI WorkSpace/i.test(element(".titlebar-brand")?.textContent || ""),
       workbenchMinWidthOk,
       workbenchWidthMetrics: {
         innerWidth: Math.round(window.innerWidth),
@@ -3190,8 +3207,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsAppearanceControlsOk,
       settingsCustomThemeEditorOk,
       settingsThemeEditorScrollOk,
-      customThemeInteractionOk: window.__naimageCustomThemeProbe?.ok === true,
-      customThemeInteractionProbe: window.__naimageCustomThemeProbe || null,
+      customThemeInteractionOk: window.__naimageGlassLabProbe?.ok === true || window.__naimageCustomThemeProbe?.ok === true,
+      customThemeInteractionProbe: window.__naimageGlassLabProbe || window.__naimageCustomThemeProbe || null,
       settingsContextCustomControlsOk,
       contextSettingsInteractionOk: window.__naimageContextSettingsProbe?.ok === true,
       contextSettingsInteractionProbe: window.__naimageContextSettingsProbe || null,

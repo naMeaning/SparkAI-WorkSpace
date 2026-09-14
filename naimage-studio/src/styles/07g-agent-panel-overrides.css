@@ -1066,6 +1066,8 @@
 
 .project-agent-composer {
   min-width: 0;
+  container-name: project-agent-composer;
+  container-type: inline-size;
   display: grid;
   gap: 8px;
   padding-top: 9px;
@@ -1103,12 +1105,22 @@
   font-size: 12px;
 }
 
-.project-agent-panel:has(.project-agent-model-picker.is-open) {
+.project-agent-panel:has(:is(
+  .project-agent-mode-picker,
+  .project-agent-materials-picker,
+  .project-agent-model-picker,
+  .project-agent-frame-picker
+).is-open) {
   z-index: calc(var(--z-menu) - 1);
   overflow: visible;
 }
 
-.project-agent-panel:has(.project-agent-model-picker.is-open) .project-agent-composer {
+.project-agent-panel:has(:is(
+  .project-agent-mode-picker,
+  .project-agent-materials-picker,
+  .project-agent-model-picker,
+  .project-agent-frame-picker
+).is-open) .project-agent-composer {
   position: relative;
   z-index: var(--z-menu);
 }
@@ -1338,6 +1350,95 @@
 
 .project-agent-composer footer button {
   justify-self: end;
+}
+
+@container project-agent-composer (max-width: 370px) {
+  .project-agent-composer-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .project-agent-mode-picker,
+  .project-agent-materials-picker,
+  .project-agent-model-picker,
+  .project-agent-image-frame {
+    width: 100%;
+    max-width: none;
+  }
+
+  .project-agent-mode-trigger,
+  .project-agent-materials-trigger {
+    width: 100%;
+  }
+
+  .project-agent-materials-menu {
+    right: 0;
+    left: auto;
+  }
+
+  .project-agent-model-picker,
+  .project-agent-image-frame {
+    grid-column: 1 / -1;
+  }
+
+  .project-agent-image-frame {
+    margin-left: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: center;
+    gap: 5px 6px;
+  }
+
+  .project-agent-frame-picker {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .project-agent-frame-size {
+    grid-column: 1 / -1;
+    max-width: none;
+    text-align: right;
+  }
+
+  .project-agent-composer-meta,
+  .project-agent-composer-context {
+    width: 100%;
+    max-width: none;
+  }
+
+  .project-agent-composer-context {
+    margin-left: 0;
+  }
+
+  .project-agent-composer footer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .project-agent-composer footer > span {
+    overflow-wrap: anywhere;
+  }
+
+  .project-agent-composer footer > button,
+  .project-agent-send,
+  .project-agent-run-controls {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+  }
+
+  .project-agent-run-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .project-agent-composer footer .project-agent-run-controls button {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    padding-inline: 6px;
+  }
 }
 
 .project-agent-panel.reference-drop-active {

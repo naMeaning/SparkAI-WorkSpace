@@ -22,6 +22,7 @@ const imageGenerationMetadataSource = read("src", "image-generation-metadata.ts"
 const agentPanelSource = read("src", "styles", "07g-agent-panel-overrides.css");
 const settingsAppearanceSource = read("src", "styles", "04-settings-appearance.css");
 const settingsDrawerSource = read("src", "settings-drawer.tsx");
+const modelConfigDialogSource = read("src", "model-config-dialog.tsx");
 const canvasToolsSettingsSource = read("src", "canvas-tools-settings-panel.tsx");
 const settingsPersistenceSource = read("src", "settings-persistence.ts");
 const electronMainSource = read("electron-main.cjs");
@@ -30,6 +31,9 @@ const glassLabComponentSource = read("src", "glass-lab.tsx");
 const glassBackgroundSource = read("src", "glass-background.ts");
 const glassThemeProviderSource = read("src", "glass-theme-provider.tsx");
 const scientificDialogSource = read("src", "scientific-figure-dialog.tsx");
+const authGateSource = read("src", "auth-gate.tsx");
+const titlebarSource = read("src", "styles", "07b-titlebar-settings-normalization.css");
+const layerDialogRepairSource = read("src", "styles", "07d-layer-dialog-repair.css");
 const scientificDialogStyleSource = read("src", "styles", "04h-scientific-figure-dialog.css");
 const preloadSource = read("preload.cjs");
 const projectIpcSource = read("desktop", "ipc", "project-ipc.cjs");
@@ -98,15 +102,19 @@ assert.match(mainSource, /canvasMenu\.kind === "canvas"[\s\S]{0,2400}setCanvasMe
 assert.match(mainSource, /function nodeIdAtWorldPoint[\s\S]{0,900}const inside = worldX >= bounds\.x[\s\S]{0,500}return bestId/, "Connection drops must resolve only a node whose real bounds contain the pointer instead of snapping across empty canvas space");
 assert.match(mainSource, /function beginConnection[\s\S]{0,5200}window\.addEventListener\("pointercancel", cancel\)[\s\S]{0,220}window\.addEventListener\("keydown", cancelWithEscape, true\)/, "Connection drafts must have dedicated pointer-cancel and Escape cancellation paths");
 assert.doesNotMatch(mainSource.match(/function beginConnection[\s\S]*?\n  }\n\n  function copyCanvasSelection/)?.[0] || "", /disconnectNodeOutputs\(/, "Clicking an output port must never disconnect its existing relations");
+assert.match(mainSource, /if \(!moved\)[\s\S]{0,260}return;[\s\S]{0,220}if \(!targetId\)[\s\S]{0,260}return;[\s\S]{0,120}connectNodeGroup\(selectedSourceIds, targetId\)/, "A click or blank connection drop must return without mutating graph relations");
 assert.match(mainSource, /className="edge-hit-target"[\s\S]{0,1200}openRelationMenuAt/, "Each visible relation must expose a wide hit target that opens relation management");
 assert.match(mainSource, /relationSourceId:\s*input\.nodeId[\s\S]{0,220}relationTargetId:\s*node\.id/, "Projected container edges must retain the underlying graph endpoints");
 assert.match(mainSource, /data-relation-source-id=\{relationSourceId\}[\s\S]{0,1600}sourceId:\s*relationSourceId/, "One-edge relation menus must disconnect the underlying graph edge instead of the projected container IDs");
 assert.match(mainSource, /className="canvas-context-menu relation-context-menu"[\s\S]{0,1200}断开这条连线/, "Relation management must expose a one-edge disconnect command");
+assert.match(mainSource, /function disconnectSingleRelation[\s\S]{0,1200}relationType:\s*edge\.relationType,[\s\S]{0,120}inputRole:\s*edge\.inputRole/, "One-edge disconnects must validate the exact relation type and Requirement input role captured by the menu");
 assert.match(mainSource, /连接头不会直接删除关系；请点击具体连线管理/, "Clicking an input port must explain relation management without deleting anything");
 assert.match(canvasWorkspaceSource, /\.edge-hit-target\s*\{[\s\S]{0,220}stroke-width:\s*18[\s\S]{0,160}pointer-events:\s*stroke/, "Relation lines must expose a stable wide pointer target without changing their visible stroke");
 assert.match(canvasWorkspaceSource, /\.flow-node\.connection-target-ready \.node-port\.provenance-port\.node-port-in\.connection-target/, "Valid connection destinations must expose a clear input-port target state while dragging");
 assert.match(settingsDrawerSource, /visibleAssetRailTabs=\{draftSettings\.visibleWorkspaceAssetRailTabs\}[\s\S]{0,650}update\("visibleWorkspaceAssetRailTabs", visibleWorkspaceAssetRailTabs\)/, "The Tools settings page must update asset rail visibility through the normal settings draft");
 assert.match(settingsDrawerSource, /shortcuts=\{draftSettings\.canvasToolShortcuts\}[\s\S]{0,520}update\("canvasToolShortcuts", canvasToolShortcuts\)/, "The Tools settings page must update shortcut overrides through the normal settings draft");
+assert.match(settingsDrawerSource, /<GlassSelect[\s\S]{0,220}ariaLabel="当前使用密钥"/, "The global account token picker must use the in-document GlassSelect instead of a native Windows popup");
+assert.match(modelConfigDialogSource, /<GlassSelect[\s\S]{0,220}ariaLabel=\{`\$\{model\} 账户密钥`\}/, "Every per-model account token picker must use the same GlassSelect surface");
 for (const [id, label] of [["results", "成果"], ["layers", "图层"], ["requirements", "需求"], ["templates", "模板"], ["history", "历史"]]) {
   assert.match(canvasToolsSettingsSource, new RegExp(`\\{ id: "${id}", label: "${label}"`), `The Tools settings page must expose the ${id} visibility checkbox`);
 }
@@ -171,6 +179,10 @@ assert.match(glassTokenSource, /--glass-menu-surface:\s*color-mix\(in srgb, var\
 assert.match(glassSurfaceSource, /\.canvas-context-menu\.canvas-context-menu[\s\S]{0,220}background-color:\s*var\(--glass-menu-surface\);/, "Canvas menus must win the generic glass surface specificity and paint the opaque menu token");
 assert.match(baseControlsSource, /--font-xs:\s*12px;[\s\S]{0,80}--font-sm:\s*13px;[\s\S]{0,80}--font-ui:\s*14px;[\s\S]{0,80}--font-title:\s*15px;/, "The shared UI typography scale must remain one readable step above the former micro-text baseline");
 assert.match(baseControlsSource, /body\s*\{[\s\S]{0,260}font-size:\s*14px;/, "The application body must use the readable 14 px desktop baseline");
+assert.match(mainSource, /className="titlebar-brand"[\s\S]{0,280}<strong>SparkAI WorkSpace<\/strong>/, "The workspace titlebar must display SparkAI WorkSpace as the visible product name");
+assert.match(authGateSource, /className="titlebar-brand"[\s\S]{0,280}<strong>SparkAI WorkSpace<\/strong>/, "The login titlebar must display SparkAI WorkSpace as the visible product name");
+assert.doesNotMatch(titlebarSource, /@media \(max-width: 980px\)[\s\S]{0,280}\.titlebar-brand strong[\s\S]{0,120}max-width:\s*\d+px;/, "The compact titlebar must not ellipsize the SparkAI WorkSpace brand");
+assert.match(layerDialogRepairSource, /@media \(max-width: 740px\)[\s\S]{0,420}\.titlebar-brand[\s\S]{0,80}max-width:\s*196px;/, "The minimum titlebar brand container must keep the SparkAI WorkSpace name readable");
 assert.match(agentPanelSource, /\.project-agent-panel \.markdown-body\s*\{[\s\S]{0,220}font-size:\s*13px;/, "Agent prose must remain readable at 13 px");
 assert.match(agentPanelSource, /\.project-agent-status span\s*\{[\s\S]{0,240}font-size:\s*12px;/, "Agent status text must not fall back to micro text");
 assert.match(agentPanelSource, /\.project-agent-model-row\s*\{[\s\S]{0,300}font-size:\s*13px;/, "Agent model choices must use a readable desktop size");
@@ -191,6 +203,12 @@ assert.doesNotMatch(imageContainerRule, /animation\s*:/, "Directly manipulated i
 assert.doesNotMatch(imageCollectionRule, /animation\s*:/, "Directly manipulated image collections must not replay an entry animation after drag release");
 assert.doesNotMatch(canvasWorkspaceSource, /@keyframes image-layout-settle/, "The obsolete image-container settle animation must stay removed");
 assert.match(mainSource, /selectNodeFromPlainClick\(node\.id, "node-drag-start"\)/, "Node selection must settle before the drag release frame");
+assert.match(mainSource, /const selectedAssetMembers:[\s\S]{0,1300}selectedNodeIdsRef\.current[\s\S]{0,900}canGroupImageAsset\(item\)[\s\S]{0,500}\(item\.assets\?\.length \?\? 0\) === 1/, "Dragging one member of a multi-selection must collect every canonical selected ordinary single-image result");
+assert.ok(
+  /const batchAssetDrop = Boolean[\s\S]{0,420}applyTransientNodePositions\(drag\.multiNodeStart, 0, 0, drag\.transientEdges\)/.test(mainSource) &&
+    /if \(batchAssetDrop && drag\.assetMembers\)[\s\S]{0,260}moveContainerAssets\(drag\.assetMembers/.test(mainSource),
+  "A batch container drop must roll back transient positions before committing one atomic grouping mutation"
+);
 assert.match(mainSource, /commitImageLayout\(workingNodes, workingGroups, selectedId, \{ animate: false \}\)/, "Container image reordering must suppress completion animation");
 assert.match(mainSource, /commitImageLayout\(workingNodes, workingGroups, memberNodeId, \{ animate: false \}\)/, "Container image extraction must suppress completion animation");
 assert.match(glassSurfaceSource, /\.canvas-context-menu \.ui-menu-item:not\(:disabled\)[\s\S]{0,180}color:\s*var\(--ink\);/, "Enabled canvas menu items must use the primary readable ink color");
@@ -207,6 +225,14 @@ assert.match(mainSource, /aria-keyshortcuts=\{canvasToolAriaShortcut\(item\.shor
 assert.doesNotMatch(mainSource, /<kbd aria-hidden="true">\{shortcut\}<\/kbd>/, "Canvas toolbar buttons must keep shortcut text in hover metadata instead of visible button content");
 assert.match(settingsAppearanceSource, /\.settings-canvas-tool-shortcut-recorder\s*\{[\s\S]{0,220}min-width:\s*128px;/, "Shortcut recording controls must keep a stable width while their label changes");
 assert.match(settingsAppearanceSource, /\.settings-section-tab[\s\S]{0,220}font-size:\s*13px;/, "Settings navigation labels must remain readable");
+assert.ok(
+  /container-name:\s*settings-drawer;/.test(settingsAppearanceSource)
+    && /@container settings-drawer \(max-width: 400px\)[\s\S]{0,180}repeat\(4, minmax\(0, 1fr\)\)/.test(settingsAppearanceSource)
+    && /@container settings-drawer \(max-width: 310px\)[\s\S]{0,180}repeat\(3, minmax\(0, 1fr\)\)/.test(settingsAppearanceSource),
+  "Settings tabs must reflow by drawer width instead of squeezing seven labels into one row",
+);
+assert.match(agentPanelSource, /container-name:\s*project-agent-composer;[\s\S]{0,9000}@container project-agent-composer \(max-width: 370px\)[\s\S]{0,260}grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, "The Agent composer must switch to a stable two-column control grid from its own width");
+assert.match(glassSurfaceSource, /\.glass-select-menu\.glass-select-menu[\s\S]{0,260}background-color:\s*var\(--glass-menu-surface\);/, "GlassSelect menus must paint the readable near-opaque glass menu surface above artwork");
 assert.match(glassLabSource, /\.glass-lab \.settings-section-header h4[\s\S]{0,180}font-size:\s*14px;/, "Appearance section headings must remain readable");
 assert.match(glassLabSource, /\.glass-theme-card strong,[\s\S]{0,160}font-size:\s*12px;/, "Appearance option titles must remain readable");
 assert.match(glassLabSource, /\.glass-theme-card small,[\s\S]{0,180}font-size:\s*11px;/, "Appearance option descriptions must not use micro text");
@@ -260,4 +286,4 @@ assert.match(scientificDialogSource, /<DialogShell[\s\S]{0,160}surface="scientif
 assert.match(scientificDialogStyleSource, /\.scientific-hero,[\s\S]{0,120}\.scientific-glass-section[\s\S]{0,420}var\(--glass-surface-raised\)/, "Scientific sections must use the shared translucent Glass tokens instead of an opaque parallel theme");
 assert.match(protectionSource, /mix-blend-mode:\s*normal\s*!important;/, "Rendered images must keep normal color blending");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 155 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 164 })}\n`);

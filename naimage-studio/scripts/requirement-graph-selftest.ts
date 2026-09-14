@@ -167,6 +167,63 @@ const replaced = connectCanvasRelations(
 );
 assert.equal(replaced.nodes.find((node) => node.id === "TARGET")?.parentId, "REF");
 
+const ordinaryMismatchSnapshot = JSON.stringify([source, reference, ordinaryTarget]);
+assert.throws(
+  () => disconnectCanvasRelations(
+    [source, reference, ordinaryTarget],
+    [{ sourceId: "SRC", targetId: "TARGET", relationType: "referenced" }],
+  ),
+  (error: unknown) => (error as { code?: string }).code === "RELATION_CONFLICT",
+  "An exact ordinary-edge disconnect must reject a stale relation type",
+);
+assert.equal(
+  JSON.stringify([source, reference, ordinaryTarget]),
+  ordinaryMismatchSnapshot,
+  "A relation-type mismatch must not mutate the source snapshot",
+);
+
+const requirementMismatchSnapshot = JSON.stringify(connected.nodes);
+assert.throws(
+  () => disconnectCanvasRelations(connected.nodes, [{
+    sourceId: "REF",
+    targetId: "REQ",
+    relationType: "referenced",
+    inputRole: "source",
+  }]),
+  (error: unknown) => (error as { code?: string }).code === "RELATION_CONFLICT",
+  "A Requirement disconnect must reject a stale input role",
+);
+assert.equal(
+  JSON.stringify(connected.nodes),
+  requirementMismatchSnapshot,
+  "An input-role mismatch must not mutate the source snapshot",
+);
+
+const replacedSnapshot = JSON.stringify(replaced.nodes);
+assert.throws(
+  () => disconnectCanvasRelations(replaced.nodes, [{
+    sourceId: "SRC",
+    targetId: "TARGET",
+    relationType: "derived-from",
+  }]),
+  (error: unknown) => (error as { code?: string }).code === "RELATION_CONFLICT",
+  "A menu opened for an old edge must not delete the replacement edge",
+);
+assert.equal(JSON.stringify(replaced.nodes), replacedSnapshot, "A stale menu edge must leave the replacement snapshot untouched");
+assert.deepEqual(
+  replaced.nodes.find((node) => node.id === "TARGET"),
+  { ...ordinaryTarget, parentId: "REF", relationType: "referenced" },
+);
+
+const exactOrdinaryDisconnect = disconnectCanvasRelations(replaced.nodes, [{
+  sourceId: "REF",
+  targetId: "TARGET",
+  relationType: "referenced",
+}]);
+assert.equal(exactOrdinaryDisconnect.changed, true);
+assert.equal(exactOrdinaryDisconnect.nodes.find((node) => node.id === "TARGET")?.parentId, undefined);
+assert.equal(exactOrdinaryDisconnect.nodes.find((node) => node.id === "TARGET")?.relationType, undefined);
+
 console.log(JSON.stringify({
   ok: true,
   legacyFallback: true,
@@ -177,5 +234,7 @@ console.log(JSON.stringify({
   removalStable: true,
   relationRevisionCas: true,
   exactDisconnect: true,
+  exactDisconnectConflictProtection: true,
+  staleMenuProtection: true,
   atomicCycleRejection: true,
 }));

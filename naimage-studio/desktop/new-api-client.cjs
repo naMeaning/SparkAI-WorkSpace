@@ -23,13 +23,48 @@ function createNewApiClient(options = {}) {
     writeJson
   } = options;
 
+  const newApiRefreshInflight = new Map();
+
+  function newApiAuthProtocol(settings) {
+    const explicit = String(settings?.serverAuthProtocol || "").trim().toLowerCase();
+    if (explicit === "bundle" || explicit === "legacy") return explicit;
+    if (
+      String(settings?.serverAccessToken || "").trim()
+      || String(settings?.serverAuthSessionId || "").trim()
+      || /^new_api_refresh=/i.test(String(settings?.serverSessionCookie || "").trim())
+    ) return "bundle";
+    return settings?.serverSessionCookie && settings?.serverUserId ? "legacy" : "";
+  }
+
   function newApiUserAuthHeaders(settings) {
     const headers = {};
-    if (settings.serverSessionCookie) headers.cookie = settings.serverSessionCookie;
-    if (settings.serverUserId) headers["New-Api-User"] = String(settings.serverUserId);
+    if (newApiAuthProtocol(settings) === "bundle") {
+      if (settings.serverAccessToken) headers.authorization = `Bearer ${String(settings.serverAccessToken).trim()}`;
+    } else {
+      if (settings.serverSessionCookie) headers.cookie = settings.serverSessionCookie;
+      if (settings.serverUserId) headers["New-Api-User"] = String(settings.serverUserId);
+    }
     if (settings.licenseDeviceId) headers["X-Naimage-Device-Id"] = String(settings.licenseDeviceId);
     if (settings.licenseToken) headers["X-Naimage-License"] = String(settings.licenseToken);
     return headers;
+  }
+
+  function mergeNewApiUserAuthHeaders(headers, settings) {
+    const retained = {};
+    for (const [key, value] of Object.entries(headers || {})) {
+      if (["authorization", "cookie", "new-api-user"].includes(String(key).toLowerCase())) continue;
+      retained[key] = value;
+    }
+    return { ...retained, ...newApiUserAuthHeaders(settings) };
+  }
+
+  function relayApiHeaders(headers, apiKey) {
+    const retained = {};
+    for (const [key, value] of Object.entries(headers || {})) {
+      if (String(key).toLowerCase() === "authorization") continue;
+      retained[key] = value;
+    }
+    return { ...retained, authorization: `Bearer ${apiKey}` };
   }
 
   function isCustomApiMode(settings) {
@@ -232,25 +267,288 @@ function createNewApiClient(options = {}) {
   
   function isNewApiAuthError(error) {
     const status = Number(error?.status);
+    const code = String(error?.data?.code || error?.code || "").trim().toUpperCase();
     const message = String(error?.message || error || "");
-    return status === 401 || status === 403 || /invalid token|unauthorized|forbidden|登录已失效|401|403/i.test(message);
+    return status === 401
+      || [
+        "AUTH_TOKEN_EXPIRED",
+        "AUTH_SESSION_REVOKED",
+        "AUTH_UNAUTHORIZED",
+        "AUTH_REFRESH_INVALID",
+        "AUTH_ACCESS_TOKEN_INVALID"
+      ].includes(code)
+      || /invalid token|token expired|unauthorized|登录已失效|未登录|401/i.test(message);
   }
-  
-  function extractSessionCookie(response) {
+
+  function responseSetCookieValues(response) {
     const values = [];
-    if (typeof response.headers.getSetCookie === "function") {
+    if (typeof response?.headers?.getSetCookie === "function") {
       values.push(...response.headers.getSetCookie());
     }
-    const single = response.headers.get("set-cookie");
+    const single = response?.headers?.get?.("set-cookie");
     if (single) values.push(single);
-    for (const value of values) {
-      const match = String(value || "").match(/(?:^|,\s*)(session=[^;,\s]+)/i);
+    return [...new Set(values.map((value) => String(value || "")).filter(Boolean))];
+  }
+
+  function extractNamedCookie(response, name) {
+    const escapedName = String(name || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!escapedName) return "";
+    const pattern = new RegExp(`(?:^|,\\s*)(${escapedName}=[^;,\\s]+)`, "i");
+    for (const value of responseSetCookieValues(response)) {
+      const match = value.match(pattern);
       if (match) return match[1];
     }
     return "";
   }
+
+  function extractSessionCookie(response) {
+    return extractNamedCookie(response, "session");
+  }
+
+  function extractRefreshCookie(response) {
+    return extractNamedCookie(response, "new_api_refresh");
+  }
+
+  function objectValue(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
+  function parseNewApiLoginAuth(response, data) {
+    const payload = objectValue(data?.data);
+    if (payload.require_2fa === true) {
+      const error = new Error("该账号已启用两步验证，请先在 New API 网页完成登录验证。");
+      error.code = "NEW_API_2FA_REQUIRED";
+      error.data = data;
+      throw error;
+    }
+
+    const accessToken = String(payload.access_token || "").trim();
+    if (accessToken) {
+      const tokenType = String(payload.token_type || "Bearer").trim();
+      if (tokenType && !/^bearer$/i.test(tokenType)) {
+        const error = new Error(`New API 返回了不支持的登录令牌类型：${tokenType}。`);
+        error.code = "NEW_API_AUTH_PROTOCOL_UNSUPPORTED";
+        throw error;
+      }
+      const user = objectValue(payload.user);
+      const serverUserId = String(user.id || "").trim();
+      const serverSessionCookie = extractRefreshCookie(response);
+      const serverAuthSessionId = String(objectValue(payload.session).sid || "").trim();
+      if (!serverUserId) throw new Error("New API 登录成功但没有返回 user id。");
+      if (!serverSessionCookie) throw new Error("New API 登录成功但没有返回 refresh cookie。");
+      if (!serverAuthSessionId) throw new Error("New API 登录成功但没有返回 auth session id。");
+      return {
+        protocol: "bundle",
+        user,
+        serverUserId,
+        serverAccessToken: accessToken,
+        serverAccessExpiresAt: Math.max(0, Math.floor(Number(payload.access_expires_at) || 0)),
+        serverSessionCookie,
+        serverAuthSessionId
+      };
+    }
+
+    const user = payload;
+    const serverUserId = String(user.id || "").trim();
+    const serverSessionCookie = extractSessionCookie(response);
+    if (!serverUserId) throw new Error("New API 登录成功但没有返回 user id。");
+    if (!serverSessionCookie) throw new Error("New API 登录成功但没有返回 session cookie。");
+    return {
+      protocol: "legacy",
+      user,
+      serverUserId,
+      serverAccessToken: "",
+      serverAccessExpiresAt: 0,
+      serverSessionCookie,
+      serverAuthSessionId: ""
+    };
+  }
+
+  function newApiAuthSnapshot(settings) {
+    return {
+      serverAuthProtocol: newApiAuthProtocol(settings),
+      serverAccessToken: String(settings?.serverAccessToken || "").trim(),
+      serverAccessExpiresAt: Math.max(0, Math.floor(Number(settings?.serverAccessExpiresAt) || 0)),
+      serverSessionCookie: String(settings?.serverSessionCookie || "").trim(),
+      serverAuthSessionId: String(settings?.serverAuthSessionId || "").trim(),
+      serverUserId: String(settings?.serverUserId || "").trim()
+    };
+  }
+
+  function applyNewApiAuthSnapshot(settings, snapshot) {
+    if (!settings || typeof settings !== "object") return settings;
+    Object.assign(settings, newApiAuthSnapshot(snapshot));
+    return settings;
+  }
+
+  function newApiAccessRefreshNeeded(settings, nowSeconds = Math.floor(Date.now() / 1000)) {
+    if (newApiAuthProtocol(settings) !== "bundle") return false;
+    if (!String(settings?.serverAccessToken || "").trim()) return true;
+    const expiresAt = Math.max(0, Math.floor(Number(settings?.serverAccessExpiresAt) || 0));
+    return expiresAt > 0 && expiresAt <= nowSeconds + 30;
+  }
+
+  function newApiAuthResponseFailure(response, data) {
+    const status = Number(response?.status);
+    const code = String(data?.code || data?.error?.code || "").trim().toUpperCase();
+    const message = String(data?.message || data?.error?.message || data?.error || "");
+    return status === 401
+      || ["AUTH_TOKEN_EXPIRED", "AUTH_SESSION_REVOKED", "AUTH_UNAUTHORIZED", "AUTH_ACCESS_TOKEN_INVALID"].includes(code)
+      || /invalid token|token expired|unauthorized|登录已失效|未登录/i.test(message);
+  }
+
+  function refreshRequestHeaders(settings) {
+    const headers = {
+      cookie: String(settings.serverSessionCookie || "").trim(),
+      origin: parsedServiceBaseUrl(resolveNewApiBaseUrl(settings, "account"), "账户服务地址").origin
+    };
+    if (settings.serverAuthSessionId) headers["X-Auth-Session"] = String(settings.serverAuthSessionId);
+    return headers;
+  }
+
+  function persistNewApiAuthBundle(settings, auth, expected = {}) {
+    const accountBaseUrl = resolveNewApiBaseUrl(settings, "account");
+    const stored = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (resolveNewApiBaseUrl(stored, "account").toLowerCase() !== accountBaseUrl.toLowerCase()) {
+      const error = new Error("账户服务地址已切换，旧认证结果已丢弃。");
+      error.code = "NEW_API_SESSION_CHANGED";
+      throw error;
+    }
+    if (stored.serverUserId && String(stored.serverUserId) !== String(expected.serverUserId || auth.serverUserId)) {
+      const error = new Error("登录账户已切换，旧认证结果已丢弃。");
+      error.code = "NEW_API_SESSION_CHANGED";
+      throw error;
+    }
+    const storedSnapshot = newApiAuthSnapshot(stored);
+    const alreadyRotated = (
+      expected.serverAccessToken
+      && storedSnapshot.serverAccessToken
+      && storedSnapshot.serverAccessToken !== expected.serverAccessToken
+    ) || (
+      expected.serverSessionCookie
+      && storedSnapshot.serverSessionCookie
+      && storedSnapshot.serverSessionCookie !== expected.serverSessionCookie
+    );
+    if (alreadyRotated && storedSnapshot.serverAuthProtocol === "bundle") {
+      applyNewApiAuthSnapshot(settings, storedSnapshot);
+      return stored;
+    }
+    const next = migrateSettings({
+      ...stored,
+      serverAuthProtocol: "bundle",
+      serverAccessToken: auth.serverAccessToken,
+      serverAccessExpiresAt: auth.serverAccessExpiresAt,
+      serverSessionCookie: auth.serverSessionCookie,
+      serverAuthSessionId: auth.serverAuthSessionId,
+      serverUserId: auth.serverUserId
+    });
+    writeJson(settingsPath, next);
+    applyNewApiAuthSnapshot(settings, next);
+    return next;
+  }
+
+  async function refreshNewApiAuth(settings, options = {}) {
+    if (newApiAuthProtocol(settings) !== "bundle") return settings;
+    requireNewApiSession(settings);
+
+    const stored = migrateSettings(readJson(settingsPath, defaultSettings));
+    if (
+      resolveNewApiBaseUrl(stored, "account").toLowerCase() === resolveNewApiBaseUrl(settings, "account").toLowerCase()
+      && String(stored.serverUserId || "") === String(settings.serverUserId || "")
+    ) {
+      const storedSnapshot = newApiAuthSnapshot(stored);
+      const callerSnapshot = newApiAuthSnapshot(settings);
+      if (
+        storedSnapshot.serverAuthProtocol === "bundle"
+        && storedSnapshot.serverAccessToken
+        && (
+          storedSnapshot.serverAccessToken !== callerSnapshot.serverAccessToken
+          || storedSnapshot.serverSessionCookie !== callerSnapshot.serverSessionCookie
+        )
+      ) {
+        applyNewApiAuthSnapshot(settings, storedSnapshot);
+        if (!newApiAccessRefreshNeeded(settings)) return settings;
+      }
+    }
+    if (options.force !== true && !newApiAccessRefreshNeeded(settings)) return settings;
+
+    const expected = newApiAuthSnapshot(settings);
+    if (!expected.serverSessionCookie || !expected.serverAuthSessionId) {
+      const error = new Error("New API 刷新会话不完整，请重新登录。");
+      error.code = "NEW_API_SESSION_INVALID";
+      throw error;
+    }
+    const refreshKey = [
+      resolveNewApiBaseUrl(settings, "account").toLowerCase(),
+      expected.serverUserId,
+      expected.serverAuthSessionId
+    ].join("|");
+    if (newApiRefreshInflight.has(refreshKey)) {
+      const next = await newApiRefreshInflight.get(refreshKey);
+      applyNewApiAuthSnapshot(settings, next);
+      return settings;
+    }
+
+    const task = (async () => {
+      const { response, data } = await newApiFetch(settings, "/api/user/auth/refresh", {
+        method: "POST",
+        headers: refreshRequestHeaders(settings),
+        timeoutMs: 20_000,
+        retries: 0
+      });
+      if (!response.ok || data.parseFailed === true || data.error || data.success === false || data.ok === false) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      const auth = parseNewApiLoginAuth(response, data);
+      if (auth.protocol !== "bundle" || auth.serverUserId !== expected.serverUserId || auth.serverAuthSessionId !== expected.serverAuthSessionId) {
+        const error = new Error("New API 刷新结果与当前登录会话不一致。");
+        error.code = "NEW_API_SESSION_CHANGED";
+        throw error;
+      }
+      return persistNewApiAuthBundle(settings, auth, expected);
+    })();
+    newApiRefreshInflight.set(refreshKey, task);
+    try {
+      const next = await task;
+      applyNewApiAuthSnapshot(settings, next);
+      return settings;
+    } finally {
+      if (newApiRefreshInflight.get(refreshKey) === task) newApiRefreshInflight.delete(refreshKey);
+    }
+  }
+
+  async function logoutNewApiSession(settings) {
+    requireNewApiSession(settings);
+    if (newApiAuthProtocol(settings) !== "bundle") {
+      return newApiRequest(settings, "/api/user/logout", {
+        method: "POST",
+        userAuth: true,
+        timeoutMs: 5_000,
+        retries: 0
+      });
+    }
+    const headers = refreshRequestHeaders(settings);
+    if (settings.serverAccessToken) headers.authorization = `Bearer ${String(settings.serverAccessToken).trim()}`;
+    const { response, data } = await newApiFetch(settings, "/api/user/auth/logout", {
+      method: "POST",
+      headers,
+      timeoutMs: 5_000,
+      retries: 0
+    });
+    if (!response.ok || data.parseFailed === true || data.error || data.success === false || data.ok === false) {
+      const error = new Error(newApiErrorMessage(data, response.status));
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
   
   function persistNewApiSessionCookie(settings, response) {
+    if (newApiAuthProtocol(settings) === "bundle") return "";
     const sessionCookie = extractSessionCookie(response);
     if (!sessionCookie) return sessionCookie;
     const accountBaseUrl = resolveNewApiBaseUrl(settings, "account");
@@ -432,11 +730,27 @@ function createNewApiClient(options = {}) {
   
   async function newApiRequest(settings, endpoint, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
-    const { response, data } = await newApiFetch(settings, endpoint, {
+    const userAuth = options.userAuth === true;
+    if (userAuth && newApiAuthProtocol(settings) === "bundle" && newApiAccessRefreshNeeded(settings)) {
+      await refreshNewApiAuth(settings);
+    }
+    const request = () => newApiFetch(settings, endpoint, {
       ...options,
+      headers: userAuth ? mergeNewApiUserAuthHeaders(options.headers, settings) : options.headers,
       timeoutMs: options.timeoutMs ?? 20_000,
       retries: options.retries ?? (method === "GET" || method === "HEAD" ? 2 : 0)
     });
+    let { response, data } = await request();
+    if (
+      userAuth
+      && newApiAuthProtocol(settings) === "bundle"
+      && newApiAuthResponseFailure(response, data)
+      && endpoint !== "/api/user/auth/refresh"
+      && endpoint !== "/api/user/auth/logout"
+    ) {
+      await refreshNewApiAuth(settings, { force: true });
+      ({ response, data } = await request());
+    }
     persistNewApiSessionCookie(settings, response);
     if (!response.ok || data.parseFailed === true || data.error || data.success === false || data.ok === false) {
       const error = new Error(newApiErrorMessage(data, response.status));
@@ -448,7 +762,11 @@ function createNewApiClient(options = {}) {
   }
   
   function requireNewApiSession(settings) {
-    if (!settings.serverSessionCookie || !settings.serverUserId) {
+    const protocol = newApiAuthProtocol(settings);
+    const hasCredential = protocol === "bundle"
+      ? Boolean(settings?.serverAccessToken || settings?.serverSessionCookie)
+      : Boolean(settings?.serverSessionCookie);
+    if (!settings?.serverUserId || !hasCredential) {
       throw new Error("登录会话已失效，请重新登录。");
     }
   }
@@ -470,7 +788,7 @@ function createNewApiClient(options = {}) {
       method: "POST",
       absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
       requestBaseUrl: credentials.baseUrl,
-      headers: { authorization: `Bearer ${credentials.apiKey}`, ...(options.headers || {}) },
+      headers: relayApiHeaders(options.headers, credentials.apiKey),
       body: relayBody,
     });
     if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
@@ -516,8 +834,7 @@ function createNewApiClient(options = {}) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${credentials.apiKey}`,
-          ...(options.headers || {})
+          ...relayApiHeaders(options.headers, credentials.apiKey)
         },
         body: JSON.stringify(requestBody),
         signal: options.signal,
@@ -649,8 +966,7 @@ function createNewApiClient(options = {}) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${credentials.apiKey}`,
-        ...(options.headers || {})
+        ...relayApiHeaders(options.headers, credentials.apiKey)
       },
       body: JSON.stringify(relayBody),
       signal: options.signal,
@@ -1033,8 +1349,7 @@ function createNewApiClient(options = {}) {
         method: "POST",
         headers: {
           ...(isForm ? {} : { "content-type": "application/json" }),
-          authorization: `Bearer ${credentials.apiKey}`,
-          ...(options.headers || {})
+          ...relayApiHeaders(options.headers, credentials.apiKey)
         },
         body: isForm ? requestBody : JSON.stringify(requestBody),
         signal: options.signal,
@@ -1185,8 +1500,12 @@ function createNewApiClient(options = {}) {
 
   return {
     extractSessionCookie,
+    extractRefreshCookie,
     isNewApiAuthError,
+    logoutNewApiSession,
     managedRelayEndpoint,
+    newApiAuthProtocol,
+    newApiAccessRefreshNeeded,
     isCustomApiMode,
     customApiCredentials,
     customApiHeaders,
@@ -1202,8 +1521,10 @@ function createNewApiClient(options = {}) {
     newApiRelayStream,
     newApiRequest,
     newApiUserAuthHeaders,
+    parseNewApiLoginAuth,
     parseJsonText,
     persistNewApiSessionCookie,
+    refreshNewApiAuth,
     requireNewApiSession,
     resolveNewApiBaseUrl,
     sameNewApiOrigin,

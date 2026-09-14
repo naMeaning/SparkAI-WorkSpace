@@ -253,6 +253,7 @@ function createAccountTokenService({
     const [response, quotaPolicy] = await Promise.all([
       newApiRequest(settings, `/api/token/?p=1&size=${NEW_API_TOKEN_PAGE_SIZE}`, {
         headers: newApiUserAuthHeaders(settings),
+        userAuth: true,
         retries: 0
       }),
       loadQuotaPolicy(settings)
@@ -290,6 +291,7 @@ function createAccountTokenService({
     const id = normalizeTokenId(tokenId);
     const response = await newApiRequest(settings, `/api/token/${id}`, {
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       retries: 0
     });
     const rawToken = response?.data ?? response;
@@ -339,6 +341,7 @@ function createAccountTokenService({
     const response = await newApiRequest(settings, `/api/token/${id}/key`, {
       method: "POST",
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       retries: 0
     });
     const apiKey = String(response?.data?.key || response?.key || "").trim();
@@ -400,6 +403,7 @@ function createAccountTokenService({
     await newApiRequest(settings, "/api/token/", {
       method: "POST",
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       body: tokenPayload(input),
       retries: 0
     });
@@ -419,6 +423,7 @@ function createAccountTokenService({
       await newApiRequest(settings, "/api/token/?status_only=true", {
         method: "PUT",
         headers: newApiUserAuthHeaders(settings),
+        userAuth: true,
         body: { id, status: desiredStatus },
         retries: 0
       });
@@ -426,6 +431,7 @@ function createAccountTokenService({
     const response = await newApiRequest(settings, "/api/token/", {
       method: "PUT",
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       body: { id, ...tokenPayload(input, current) },
       retries: 0
     });
@@ -446,6 +452,7 @@ function createAccountTokenService({
     await newApiRequest(settings, `/api/token/${id}/`, {
       method: "DELETE",
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       retries: 0
     });
     clearKeyCache();

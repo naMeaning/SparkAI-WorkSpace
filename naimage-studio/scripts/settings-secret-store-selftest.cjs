@@ -27,6 +27,9 @@ try {
   const input = {
     agentApiKey: "agent-secret-value",
     imageApiKey: "image-secret-value",
+    serverAccessToken: "account-access-secret",
+    serverSessionCookie: "new_api_refresh=refresh-secret",
+    serverAuthSessionId: "auth-session-secret",
     agentModelBindings: [
       { model: "gpt-private", customBaseUrl: "https://agent.example.test", customApiKey: "agent-binding-secret-value" }
     ],
@@ -42,6 +45,9 @@ try {
   assert.equal(ordinaryJson.includes("image-secret-value"), false, "ordinary settings JSON must not contain the image API Key");
   assert.equal(ordinaryJson.includes("binding-secret-value"), false, "ordinary settings JSON must not contain model binding keys");
   assert.equal(ordinaryJson.includes("agent-binding-secret-value"), false, "ordinary settings JSON must not contain Agent model binding keys");
+  assert.equal(ordinaryJson.includes("account-access-secret"), false, "ordinary settings JSON must not contain account access tokens");
+  assert.equal(ordinaryJson.includes("refresh-secret"), false, "ordinary settings JSON must not contain account refresh cookies");
+  assert.equal(ordinaryJson.includes("auth-session-secret"), false, "ordinary settings JSON must not contain account auth session IDs");
   assert.equal(existsSync(secretsPath), true, "encrypted sidecar should be created");
 
   const sidecarText = readFileSync(secretsPath, "utf8");
@@ -49,10 +55,16 @@ try {
   assert.equal(sidecarText.includes("image-secret-value"), false, "encrypted sidecar must not expose plaintext secrets");
   assert.equal(sidecarText.includes("binding-secret-value"), false, "encrypted sidecar must not expose plaintext binding keys");
   assert.equal(sidecarText.includes("agent-binding-secret-value"), false, "encrypted sidecar must not expose plaintext Agent binding keys");
+  assert.equal(sidecarText.includes("account-access-secret"), false, "encrypted sidecar must not expose plaintext account access tokens");
+  assert.equal(sidecarText.includes("refresh-secret"), false, "encrypted sidecar must not expose plaintext refresh cookies");
+  assert.equal(sidecarText.includes("auth-session-secret"), false, "encrypted sidecar must not expose plaintext auth session IDs");
 
   const hydrated = store.hydrate(persisted);
   assert.equal(hydrated.agentApiKey, "agent-secret-value");
   assert.equal(hydrated.imageApiKey, "image-secret-value");
+  assert.equal(hydrated.serverAccessToken, "account-access-secret");
+  assert.equal(hydrated.serverSessionCookie, "new_api_refresh=refresh-secret");
+  assert.equal(hydrated.serverAuthSessionId, "auth-session-secret");
   assert.equal(hydrated.agentModelBindings[0].customApiKey, "agent-binding-secret-value");
   assert.equal(hydrated.agentModelBindings[0].customBaseUrl, "https://agent.example.test");
   assert.equal(hydrated.imageModelBindings[0].customApiKey, "binding-secret-value");
@@ -61,6 +73,9 @@ try {
   const rendererSettings = store.publicSettings(hydrated);
   assert.equal(rendererSettings.agentApiKey, SETTINGS_SECRET_PLACEHOLDER);
   assert.equal(rendererSettings.imageApiKey, SETTINGS_SECRET_PLACEHOLDER);
+  assert.equal(rendererSettings.serverAccessToken, "");
+  assert.equal(rendererSettings.serverSessionCookie, "");
+  assert.equal(rendererSettings.serverAuthSessionId, "");
   assert.equal(rendererSettings.agentModelBindings[0].customApiKey, SETTINGS_SECRET_PLACEHOLDER);
   assert.equal(rendererSettings.imageModelBindings[0].customApiKey, SETTINGS_SECRET_PLACEHOLDER);
 
@@ -69,6 +84,9 @@ try {
   const restoredAfterPlaceholderSave = store.hydrate(persisted);
   assert.equal(restoredAfterPlaceholderSave.agentApiKey, "agent-secret-value", "placeholder saves must keep the current Agent API Key");
   assert.equal(restoredAfterPlaceholderSave.imageApiKey, "image-secret-value", "placeholder saves must keep the current image API Key");
+  assert.equal(restoredAfterPlaceholderSave.serverAccessToken, "account-access-secret", "Renderer settings saves must keep the Main-owned account access token");
+  assert.equal(restoredAfterPlaceholderSave.serverSessionCookie, "new_api_refresh=refresh-secret", "Renderer settings saves must keep the Main-owned refresh cookie");
+  assert.equal(restoredAfterPlaceholderSave.serverAuthSessionId, "auth-session-secret", "Renderer settings saves must keep the Main-owned auth session ID");
   assert.equal(restoredAfterPlaceholderSave.agentModelBindings[0].customApiKey, "agent-binding-secret-value", "placeholder saves must keep Agent model binding keys");
   assert.equal(restoredAfterPlaceholderSave.imageModelBindings[0].customApiKey, "binding-secret-value", "placeholder saves must keep model binding keys");
 
@@ -83,6 +101,9 @@ try {
   writeFileSync(settingsPath, `${JSON.stringify(recovery.persisted, null, 2)}\n`, "utf8");
   assert.equal(readFileSync(secretsPath, "utf8"), sidecarBeforeRecovery, "recovering a damaged ordinary settings file must not rewrite or delete the secret sidecar");
   assert.equal(recovery.settings.agentApiKey, "agent-secret-value", "recovery should hydrate retained global secrets");
+  assert.equal(recovery.settings.serverAccessToken, "account-access-secret", "recovery should hydrate the retained account access token");
+  assert.equal(recovery.settings.serverSessionCookie, "new_api_refresh=refresh-secret", "recovery should hydrate the retained refresh cookie");
+  assert.equal(recovery.settings.serverAuthSessionId, "auth-session-secret", "recovery should hydrate the retained auth session ID");
   assert.equal(recovery.settings.agentModelBindings[0].customApiKey, "agent-binding-secret-value", "recovery should hydrate retained Agent binding secrets");
   assert.equal(recovery.settings.imageModelBindings[0].customApiKey, "binding-secret-value", "recovery should hydrate retained binding secrets");
 

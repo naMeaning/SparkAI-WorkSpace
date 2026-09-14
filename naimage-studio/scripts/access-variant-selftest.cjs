@@ -59,7 +59,11 @@ const locked = applyAccessPolicyToSettings({
   accountBaseUrl: "https://another-relay.example",
   relayBaseUrl: "https://relay.example",
   updateBaseUrl: "https://updates.example",
-  serverSessionCookie: "session=must-not-cross-origins",
+  serverAuthProtocol: "bundle",
+  serverAccessToken: "access-must-not-cross-origins",
+  serverAccessExpiresAt: 123456,
+  serverSessionCookie: "new_api_refresh=must-not-cross-origins",
+  serverAuthSessionId: "sid-must-not-cross-origins",
   serverUserId: "7",
   selectedAccountTokenId: "12",
   agentBaseUrl: "https://custom.example/v1",
@@ -69,17 +73,29 @@ assert.equal(locked.accessMode, "account");
 assert.equal(locked.accountBaseUrl, OFFICIAL_SPARKAPI_BASE_URL);
 assert.equal(locked.relayBaseUrl, "");
 assert.equal(locked.updateBaseUrl, OFFICIAL_SPARKAPI_BASE_URL);
+assert.equal(locked.serverAuthProtocol, "");
+assert.equal(locked.serverAccessToken, "");
+assert.equal(locked.serverAccessExpiresAt, 0);
 assert.equal(locked.serverSessionCookie, "");
+assert.equal(locked.serverAuthSessionId, "");
 assert.equal(locked.selectedAccountTokenId, "");
 assert.equal(locked.agentBaseUrl, "https://custom.example/v1", "Inactive custom credentials should survive switching between the two official builds");
 
 const officialSession = applyAccessPolicyToSettings({
   accessMode: "custom",
   accountBaseUrl: OFFICIAL_SPARKAPI_BASE_URL,
-  serverSessionCookie: "session=official",
+  serverAuthProtocol: "bundle",
+  serverAccessToken: "access-official",
+  serverAccessExpiresAt: 654321,
+  serverSessionCookie: "new_api_refresh=official",
+  serverAuthSessionId: "sid-official",
   serverUserId: "8"
 }, accessPolicyForVariant(ACCESS_VARIANT_SPARKAPI));
-assert.equal(officialSession.serverSessionCookie, "session=official", "An existing SparkAPI session should survive installing the account-only build");
+assert.equal(officialSession.serverAuthProtocol, "bundle");
+assert.equal(officialSession.serverAccessToken, "access-official");
+assert.equal(officialSession.serverAccessExpiresAt, 654321);
+assert.equal(officialSession.serverSessionCookie, "new_api_refresh=official", "An existing SparkAPI session should survive installing the account-only build");
+assert.equal(officialSession.serverAuthSessionId, "sid-official");
 
 const handlers = new Map();
 registerServerIpc({

@@ -6,10 +6,12 @@ const assert = require("node:assert/strict");
 const { app } = require("electron");
 const {
   agentModelUsesResponsesApi,
+  imageEditRequestHeaders,
   managedRelayEndpoint,
   responsesInputFromChatMessages,
   responsesRequestFromChatRequest,
   responsesToolsFromChatTools,
+  shouldFallbackResponsesToChat,
 } = require("../electron-main.cjs");
 const { normalizedTaskScope, taskScopeSnapshotHash, taskScopeForPrompt, validateImageOperationSourcePolicy } = require("../agent-runtime.cjs");
 
@@ -98,6 +100,30 @@ assert.equal(agentModelUsesResponsesApi("gpt-4.1"), false);
 assert.equal(managedRelayEndpoint("/v1/responses"), "/naimage/v1/responses");
 assert.equal(managedRelayEndpoint("/v1/images/generations"), "/naimage/v1/images/generations");
 assert.equal(managedRelayEndpoint("/naimage/v1/models"), "/naimage/v1/models");
+assert.equal(
+  imageEditRequestHeaders({ "Idempotency-Key": "fixture", Authorization: "Bearer stale" }, true, { apiKey: "bound-image-key" }).authorization,
+  "Bearer bound-image-key",
+  "Custom image edit fallbacks must send the resolved model API key"
+);
+assert.equal(
+  imageEditRequestHeaders({ "Idempotency-Key": "fixture" }, true, null).authorization,
+  undefined,
+  "Image edit headers must not invent credentials when none resolved"
+);
+const unsupportedResponsesError = {
+  status: 400,
+  data: { error: { message: "Responses endpoint unsupported for this tool" } }
+};
+assert.equal(
+  shouldFallbackResponsesToChat({ error: unsupportedResponsesError }),
+  true,
+  "An unsupported Responses request without native tools may use Chat Completions fallback"
+);
+assert.equal(
+  shouldFallbackResponsesToChat({ hasNativeResponsesTool: true, error: unsupportedResponsesError }),
+  false,
+  "Responses requests carrying native web_search must never replay against Chat Completions"
+);
 assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 0, "single"), {
   operation: "generate",
   sourceCount: 0,
@@ -108,14 +134,16 @@ assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "edit", 1, "sin
   sourceCount: 1,
   multiSourceResultTask: false,
 });
-assert.throws(
-  () => validateImageOperationSourcePolicy("image_gen", "generate", 1, "single"),
-  /generate 不会读取原图/,
-);
-assert.throws(
-  () => validateImageOperationSourcePolicy("image_gen", "generate", 2, "grouped-by-source"),
-  /sourceBindingId/,
-);
+assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 1, "single"), {
+  operation: "generate",
+  sourceCount: 1,
+  multiSourceResultTask: false,
+});
+assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 2, "grouped-by-source"), {
+  operation: "generate",
+  sourceCount: 2,
+  multiSourceResultTask: true,
+});
 
 const taskScope = normalizedTaskScope({
   selectedNodeId: "A",
@@ -162,18 +190,15 @@ assert.equal(taskScope.sourceAssets[0].containerSlot, 0);
 assert.equal(taskScope.sourceAssets[0].ownerNodeId, "A");
 assert.equal(taskScope.referenceAssets.length, 2);
 const taskScopePrompt = taskScopeForPrompt({ taskScope }).text;
-assert.match(taskScopePrompt, /SOURCE（需要处理）/);
 assert.match(taskScopePrompt, /scopeType=container/);
 assert.match(taskScopePrompt, /canvasRevision=17/);
 assert.match(taskScopePrompt, /resultPolicy=grouped-by-source/);
 assert.match(taskScopePrompt, /confirmationPolicy=preview-3/);
 assert.match(taskScopePrompt, /snapshotHash=scope-[a-f0-9]{32}/);
-assert.match(taskScopePrompt, /requirement=REQ@4 sourceSignature=source-signature-4/);
-assert.match(taskScopePrompt, /A1 \| bindingId=binding:A:A:0 \| assetId=asset-source \| 待修改商品图/);
-assert.match(taskScopePrompt, /containerSlot=0 \| owner=A:0/);
-assert.match(taskScopePrompt, /source=商品\/主图.png/);
-assert.match(taskScopePrompt, /REFERENCE（仅作参考，不决定输出数量）/);
-assert.match(taskScopePrompt, /B1 \| bindingId=binding:REF:1 \| assetId=asset-ref-1 \| 颜色参考/);
+assert.match(taskScopePrompt, /materialCount=3/);
+assert.match(taskScopePrompt, /materials \(model decides each role\):/);
+assert.match(taskScopePrompt, /- A1 \| assetId=asset-source \| 待修改商品图 \| node=A \| slot=0 \| purpose=context/);
+assert.match(taskScopePrompt, /- B1 \| assetId=asset-ref-1 \| 颜色参考 \| node=- \| purpose=context/);
 
 const changedRevisionScope = normalizedTaskScope({ taskScope: { ...taskScope, canvasRevision: 18 } });
 assert.notEqual(changedRevisionScope.snapshotHash, taskScope.snapshotHash, "Canvas revision changes must produce a new immutable dispatch snapshot");

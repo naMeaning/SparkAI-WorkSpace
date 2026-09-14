@@ -199,14 +199,14 @@ function toolSchemas(settings = {}) {
             },
             parentId: { type: "string", description: "来源节点 ID。通常填写来源图片节点；当前选中的是可复用需求节点时可填写该需求节点 ID，运行时会沿其左侧连线读取真正的 SOURCE，并把新成果连接到需求节点右侧。" },
             assetIndex: { type: "integer", minimum: 0, description: "parentId 指向多图容器时选择其中哪张图片；0 表示第一张。省略时使用第一张。" },
-            sourceBindingId: { type: "string", description: "Current Task Scope 中 SOURCE 的稳定 bindingId。容器内同一图片被重复引用或多个成员槽位可能共享 assetId 时，优先使用它精确绑定。" },
-            sourceAssetId: { type: "string", description: "需要处理的 SOURCE 素材 ID，必须来自 Current Task Scope。通常选中单张成果时省略，由 parentId/assetIndex 自动绑定。" },
+            sourceBindingId: { type: "string", description: "可选的精确素材 bindingId。普通任务通常省略；只有必须指定容器槽位或明确编辑目标时，才复制 Current Task Scope materials 中的 bindingId。不要自行构造。" },
+            sourceAssetId: { type: "string", description: "可选的精确素材 ID，必须来自 Current Task Scope materials。普通任务通常省略，由 parentId/assetIndex 或当前选中成果提供上下文。" },
             sourceImage: {
               type: "object",
               properties: {
-                 bindingId: { type: "string", description: "Current Task Scope 中的 SOURCE bindingId；存在时优先于 assetId。" },
-                 assetId: { type: "string", description: "Current Task Scope 中的 SOURCE assetId。" },
-                 role: { type: "string", enum: ["edit_target", "source"], description: "SOURCE 只能是需要修改的 edit_target/source。" },
+                 bindingId: { type: "string", description: "Current Task Scope materials 中的精确 bindingId；存在时优先于 assetId。普通任务通常不需要填写。" },
+                 assetId: { type: "string", description: "Current Task Scope materials 中的素材 assetId。" },
+                 role: { type: "string", enum: ["edit_target", "source"], description: "仅在需要精确声明编辑目标时使用 edit_target/source；普通任务由模型根据上下文判断。" },
                  purpose: { type: "string", description: "明确说明从这张图使用什么，以及哪些身份、几何、文字、结构或版式必须保持不变。" }
               },
               required: ["bindingId"],
@@ -215,14 +215,14 @@ function toolSchemas(settings = {}) {
             referenceImages: {
               type: "array",
               maxItems: 9,
-              description: "从 Current Task Scope 引用最多 9 张 REFERENCE。每张图必须用 role 和 purpose 明确分工；REFERENCE 永远不是编辑目标，也不决定输出数量。",
+              description: "可选地从 Current Task Scope materials 引用最多 9 张参考素材。普通任务通常省略，由模型根据用户意图判断身份、商品、风格、构图或场景用途；显式填写时用于锁定参考用途，不决定输出数量。",
               items: {
                 type: "object",
                 properties: {
-                  bindingId: { type: "string", description: "Current Task Scope 中 REFERENCE 的稳定 bindingId；同一 assetId 多次出现时必须填写。" },
-                  assetId: { type: "string", description: "Current Task Scope 中的 REFERENCE assetId。" },
+                  bindingId: { type: "string", description: "Current Task Scope materials 中的稳定 bindingId；同一 assetId 多次出现时用于精确指定对应素材。" },
+                  assetId: { type: "string", description: "Current Task Scope materials 中的素材 assetId。" },
                   displayCode: { type: "string", description: "可选的人类可读编号，用于和用户表达对账；运行时仍以 assetId 为准。" },
-                  role: { type: "string", enum: ["identity", "subject", "garment", "product", "style", "composition", "scene"], description: "REFERENCE 的用途角色；不能使用 edit_target/source。" },
+                  role: { type: "string", enum: ["identity", "subject", "garment", "product", "style", "composition", "scene"], description: "可选的参考用途角色；普通任务由模型根据上下文判断，不使用 edit_target/source。" },
                   purpose: { type: "string", description: "该图具体提供什么、不得替换什么、需要锁定哪些身份或视觉不变量。" }
                 },
                 required: ["bindingId"],
@@ -254,11 +254,11 @@ function toolSchemas(settings = {}) {
       type: "function",
       function: {
         name: "ask_user",
-        description: "向用户请求完成任务所必需的补充信息。用于缺少关键选择、必须确认高影响操作，或缺少任务要求的图片。缺少需要被修改/批处理的原图时用 source_images；缺少只提供风格、身份、商品或版式参考的图片时用 reference_images。不要用它询问可自行合理默认的审美细节，也不要把 REFERENCE 当成 SOURCE。",
+        description: "向用户请求完成任务所必需的补充信息。用于缺少关键选择、必须确认高影响操作，或缺少任务要求的图片。普通任务已有 materials 时不要为了素材角色分类调用；确实没有可用素材且用户要求修改时用 source_images，需要额外视觉参考时用 reference_images。不要用它询问可自行合理默认的审美细节。",
         parameters: {
           type: "object",
           properties: {
-            kind: { type: "string", enum: ["clarify", "confirm", "source_images", "reference_images"], description: "clarify=追问缺失信息；confirm=确认高影响操作；source_images=收集需要处理的原图；reference_images=收集仅作参考的图片。" },
+            kind: { type: "string", enum: ["clarify", "confirm", "source_images", "reference_images"], description: "clarify=追问缺失信息；confirm=确认高影响操作；source_images=在没有可用 materials 时收集待处理图片；reference_images=补充明确需要的视觉参考。" },
             title: { type: "string", description: "弹窗标题。" },
             question: { type: "string", description: "直接问用户的一句话问题。" },
             detail: { type: "string", description: "可选补充说明，说明为什么需要用户补充。" },
@@ -546,7 +546,7 @@ function agentToolSchemas(settings = {}, options = {}) {
   };
   visibleProperties.sourceImage = {
     ...visibleProperties.sourceImage,
-    description: "可选 SOURCE 绑定对象。需要精确指定容器槽位时，复制 Current Task Scope 提供的 bindingId；通常省略并使用 parentId/assetIndex 或当前选中成果。不要自行构造 bindingId。"
+    description: "可选的精确素材绑定对象。普通任务通常省略；需要指定容器槽位或明确编辑目标时，复制 Current Task Scope materials 提供的 bindingId，或使用 parentId/assetIndex。不要自行构造 bindingId。"
   };
   if (visibleProperties.items) {
     const { minItems: _discardedPublicMinItems, ...publicItems } = visibleProperties.items;

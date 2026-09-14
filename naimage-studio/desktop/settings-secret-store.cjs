@@ -73,6 +73,9 @@ function stripPlaintextSecrets(settings) {
     ...source,
     agentApiKey: "",
     imageApiKey: "",
+    serverAccessToken: "",
+    serverSessionCookie: "",
+    serverAuthSessionId: "",
     agentModelBindings: stripBindingSecrets(source.agentModelBindings),
     imageModelBindings: stripBindingSecrets(source.imageModelBindings)
   };
@@ -83,6 +86,9 @@ function secretsFromSettings(settings) {
     version: 1,
     agentApiKey: cleanSecret(settings?.agentApiKey),
     imageApiKey: cleanSecret(settings?.imageApiKey),
+    serverAccessToken: cleanSecret(settings?.serverAccessToken),
+    serverSessionCookie: cleanSecret(settings?.serverSessionCookie),
+    serverAuthSessionId: cleanSecret(settings?.serverAuthSessionId),
     agentModelBindingKeys: bindingSecretMap(settings?.agentModelBindings),
     imageModelBindingKeys: bindingSecretMap(settings?.imageModelBindings)
   };
@@ -94,6 +100,9 @@ function mergeSecrets(settings, secrets) {
     ...source,
     agentApiKey: cleanSecret(secrets?.agentApiKey) || cleanSecret(source.agentApiKey),
     imageApiKey: cleanSecret(secrets?.imageApiKey) || cleanSecret(source.imageApiKey),
+    serverAccessToken: cleanSecret(secrets?.serverAccessToken) || cleanSecret(source.serverAccessToken),
+    serverSessionCookie: cleanSecret(secrets?.serverSessionCookie) || cleanSecret(source.serverSessionCookie),
+    serverAuthSessionId: cleanSecret(secrets?.serverAuthSessionId) || cleanSecret(source.serverAuthSessionId),
     agentModelBindings: mergeBindingSecrets(source.agentModelBindings, secrets?.agentModelBindingKeys),
     imageModelBindings: mergeBindingSecrets(source.imageModelBindings, secrets?.imageModelBindingKeys)
   };
@@ -103,6 +112,9 @@ function hasSecrets(secrets) {
   return Boolean(
     cleanSecret(secrets?.agentApiKey)
     || cleanSecret(secrets?.imageApiKey)
+    || cleanSecret(secrets?.serverAccessToken)
+    || cleanSecret(secrets?.serverSessionCookie)
+    || cleanSecret(secrets?.serverAuthSessionId)
     || Object.keys(secrets?.agentModelBindingKeys || {}).length
     || Object.keys(secrets?.imageModelBindingKeys || {}).length
   );
@@ -137,6 +149,9 @@ function createSettingsSecretStore({ safeStorage, secretsPath, log = () => undef
         version: 1,
         agentApiKey: cleanSecret(parsed?.agentApiKey),
         imageApiKey: cleanSecret(parsed?.imageApiKey),
+        serverAccessToken: cleanSecret(parsed?.serverAccessToken),
+        serverSessionCookie: cleanSecret(parsed?.serverSessionCookie),
+        serverAuthSessionId: cleanSecret(parsed?.serverAuthSessionId),
         agentModelBindingKeys: bindingSecretMap(Object.entries(parsed?.agentModelBindingKeys || {}).map(([model, customApiKey]) => ({ model, customApiKey }))),
         imageModelBindingKeys: bindingSecretMap(Object.entries(parsed?.imageModelBindingKeys || {}).map(([model, customApiKey]) => ({ model, customApiKey })))
       };
@@ -191,6 +206,9 @@ function createSettingsSecretStore({ safeStorage, secretsPath, log = () => undef
       ...source,
       agentApiKey: cleanSecret(source.agentApiKey) ? SETTINGS_SECRET_PLACEHOLDER : "",
       imageApiKey: cleanSecret(source.imageApiKey) ? SETTINGS_SECRET_PLACEHOLDER : "",
+      serverAccessToken: "",
+      serverSessionCookie: "",
+      serverAuthSessionId: "",
       agentModelBindings: publicBindingSettings(source.agentModelBindings),
       imageModelBindings: publicBindingSettings(source.imageModelBindings)
     };
@@ -202,6 +220,9 @@ function createSettingsSecretStore({ safeStorage, secretsPath, log = () => undef
       ...source,
       agentApiKey: source.agentApiKey === SETTINGS_SECRET_PLACEHOLDER ? cleanSecret(current?.agentApiKey) : source.agentApiKey,
       imageApiKey: source.imageApiKey === SETTINGS_SECRET_PLACEHOLDER ? cleanSecret(current?.imageApiKey) : source.imageApiKey,
+      serverAccessToken: cleanSecret(current?.serverAccessToken),
+      serverSessionCookie: cleanSecret(current?.serverSessionCookie),
+      serverAuthSessionId: cleanSecret(current?.serverAuthSessionId),
       agentModelBindings: restoreBindingPlaceholders(source.agentModelBindings, current?.agentModelBindings),
       imageModelBindings: restoreBindingPlaceholders(source.imageModelBindings, current?.imageModelBindings)
     };

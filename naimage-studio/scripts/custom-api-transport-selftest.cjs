@@ -4,12 +4,18 @@ const assert = require("node:assert/strict");
 const { Readable } = require("node:stream");
 const { createNewApiClient } = require("../desktop/new-api-client.cjs");
 
-function response({ contentType, data, status = 200 }) {
+function response({ contentType, data, status = 200, headers = {}, setCookies = [] }) {
   const text = typeof data === "string" ? data : JSON.stringify(data);
+  const normalizedHeaders = new Map(Object.entries(headers).map(([name, value]) => [String(name).toLowerCase(), String(value)]));
+  if (contentType) normalizedHeaders.set("content-type", contentType);
+  if (setCookies.length) normalizedHeaders.set("set-cookie", setCookies.join(", "));
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: { get: (name) => String(name).toLowerCase() === "content-type" ? contentType : null },
+    headers: {
+      get: (name) => normalizedHeaders.get(String(name).toLowerCase()) ?? null,
+      getSetCookie: () => setCookies
+    },
     body: contentType.includes("text/event-stream") ? Readable.from([Buffer.from(text)]) : undefined,
     async text() { return text; }
   };
@@ -18,6 +24,7 @@ function response({ contentType, data, status = 200 }) {
 async function main() {
   let transport = async () => response({ contentType: "application/json", data: {} });
   let captured = null;
+  let storedSettings = {};
   const resolvedAccountTokenIds = [];
   const client = createNewApiClient({
     defaultSettings: {
@@ -35,7 +42,7 @@ async function main() {
     normalizeServerUrl(value, fallback = "") {
       return String(value || fallback || "").trim().replace(/\/+$/, "");
     },
-    readJson: () => ({}),
+    readJson: () => ({ ...storedSettings }),
     resolveAccountApiCredentials: async (_settings, tokenId) => {
       resolvedAccountTokenIds.push(tokenId);
       return {
@@ -46,7 +53,7 @@ async function main() {
       };
     },
     settingsPath: "memory://settings.json",
-    writeJson: () => {}
+    writeJson: (_path, value) => { storedSettings = { ...value }; }
   });
   const settings = {
     accessMode: "custom",
@@ -67,6 +74,208 @@ async function main() {
     ],
     modelGroup: "must-not-leak"
   };
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const legacyLoginResponse = response({
+    contentType: "application/json",
+    setCookies: ["session=legacy-session; Path=/; HttpOnly"],
+    data: { success: true, data: { id: 41, username: "legacy-user" } }
+  });
+  const legacyLoginAuth = client.parseNewApiLoginAuth(legacyLoginResponse, JSON.parse(await legacyLoginResponse.text()));
+  assert.deepEqual(legacyLoginAuth, {
+    protocol: "legacy",
+    user: { id: 41, username: "legacy-user" },
+    serverUserId: "41",
+    serverAccessToken: "",
+    serverAccessExpiresAt: 0,
+    serverSessionCookie: "session=legacy-session",
+    serverAuthSessionId: ""
+  });
+
+  function bundleLoginResponse(accessToken, refreshCookie, expiresAt = nowSeconds + 900) {
+    return response({
+      contentType: "application/json",
+      setCookies: [`new_api_refresh=${refreshCookie}; Path=/api/user/auth; HttpOnly; SameSite=Strict`],
+      data: {
+        success: true,
+        data: {
+          access_token: accessToken,
+          token_type: "Bearer",
+          access_expires_at: expiresAt,
+          session: {
+            sid: "sid-fixture",
+            current: true,
+            login_method: "password",
+            ip: "127.0.0.1",
+            user_agent: "fixture",
+            created_at: nowSeconds,
+            last_active_at: nowSeconds,
+            expires_at: nowSeconds + 86_400
+          },
+          user: { id: 42, username: "bundle-user", role: 1 }
+        }
+      }
+    });
+  }
+
+  const bundleLogin = bundleLoginResponse("access-one", "refresh-one");
+  const bundleLoginAuth = client.parseNewApiLoginAuth(bundleLogin, JSON.parse(await bundleLogin.text()));
+  assert.equal(bundleLoginAuth.protocol, "bundle");
+  assert.equal(bundleLoginAuth.serverUserId, "42");
+  assert.equal(bundleLoginAuth.serverAccessToken, "access-one");
+  assert.equal(bundleLoginAuth.serverSessionCookie, "new_api_refresh=refresh-one");
+  assert.equal(bundleLoginAuth.serverAuthSessionId, "sid-fixture");
+  assert.deepEqual(client.newApiUserAuthHeaders(bundleLoginAuth), { authorization: "Bearer access-one" });
+  assert.deepEqual(client.newApiUserAuthHeaders(legacyLoginAuth), {
+    cookie: "session=legacy-session",
+    "New-Api-User": "41"
+  });
+  assert.throws(
+    () => client.parseNewApiLoginAuth(response({ contentType: "application/json", data: {} }), {
+      success: true,
+      data: { require_2fa: true }
+    }),
+    (error) => error?.code === "NEW_API_2FA_REQUIRED"
+  );
+
+  const expiringBundleSettings = {
+    accessMode: "account",
+    accountBaseUrl: "https://sparkapi.org",
+    ...bundleLoginAuth,
+    serverAuthProtocol: "bundle",
+    serverAccessExpiresAt: nowSeconds - 1
+  };
+  delete expiringBundleSettings.protocol;
+  delete expiringBundleSettings.user;
+  storedSettings = { ...expiringBundleSettings };
+  const refreshCalls = [];
+  transport = async (url, options) => {
+    refreshCalls.push({ url, options });
+    if (String(url).endsWith("/api/user/auth/refresh")) {
+      assert.equal(options.headers.cookie, "new_api_refresh=refresh-one");
+      assert.equal(options.headers["X-Auth-Session"], "sid-fixture");
+      assert.equal(options.headers.origin, "https://sparkapi.org");
+      return bundleLoginResponse("access-two", "refresh-two", nowSeconds + 900);
+    }
+    assert.equal(options.headers.authorization, "Bearer access-two");
+    assert.equal(options.headers.cookie, undefined);
+    assert.equal(options.headers["New-Api-User"], undefined);
+    assert.equal(options.headers["x-fixture"], "retained");
+    return response({ contentType: "application/json", data: { success: true, data: { id: 42 } } });
+  };
+  await client.newApiRequest(expiringBundleSettings, "/api/user/self", {
+    userAuth: true,
+    retries: 0,
+    headers: {
+      authorization: "Bearer stale-token",
+      cookie: "session=stale",
+      "New-Api-User": "999",
+      "x-fixture": "retained"
+    }
+  });
+  assert.equal(refreshCalls.filter((call) => String(call.url).endsWith("/api/user/auth/refresh")).length, 1);
+  assert.equal(expiringBundleSettings.serverAccessToken, "access-two");
+  assert.equal(expiringBundleSettings.serverSessionCookie, "new_api_refresh=refresh-two");
+  assert.equal(storedSettings.serverAccessToken, "access-two");
+
+  const concurrentBase = {
+    ...storedSettings,
+    serverAccessToken: "access-expired-concurrent",
+    serverAccessExpiresAt: nowSeconds - 1,
+    serverSessionCookie: "new_api_refresh=refresh-concurrent"
+  };
+  storedSettings = { ...concurrentBase };
+  const concurrentSettingsA = { ...concurrentBase };
+  const concurrentSettingsB = { ...concurrentBase };
+  let concurrentRefreshCount = 0;
+  let concurrentProtectedCount = 0;
+  transport = async (url, options) => {
+    if (String(url).endsWith("/api/user/auth/refresh")) {
+      concurrentRefreshCount += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      return bundleLoginResponse("access-concurrent-next", "refresh-concurrent-next", nowSeconds + 900);
+    }
+    concurrentProtectedCount += 1;
+    assert.equal(options.headers.authorization, "Bearer access-concurrent-next");
+    return response({ contentType: "application/json", data: { success: true, data: { id: 42 } } });
+  };
+  await Promise.all([
+    client.newApiRequest(concurrentSettingsA, "/api/user/self", { userAuth: true, retries: 0 }),
+    client.newApiRequest(concurrentSettingsB, "/api/user/self", { userAuth: true, retries: 0 })
+  ]);
+  assert.equal(concurrentRefreshCount, 1, "Concurrent protected requests must share one refresh rotation");
+  assert.equal(concurrentProtectedCount, 2);
+  assert.equal(concurrentSettingsA.serverAccessToken, "access-concurrent-next");
+  assert.equal(concurrentSettingsB.serverAccessToken, "access-concurrent-next");
+
+  const retryBundleSettings = {
+    ...storedSettings,
+    serverAccessToken: "access-rejected",
+    serverAccessExpiresAt: nowSeconds + 900,
+    serverSessionCookie: "new_api_refresh=refresh-retry"
+  };
+  storedSettings = { ...retryBundleSettings };
+  let rejectedProtectedCount = 0;
+  let rejectedRefreshCount = 0;
+  transport = async (url, options) => {
+    if (String(url).endsWith("/api/user/auth/refresh")) {
+      rejectedRefreshCount += 1;
+      return bundleLoginResponse("access-after-401", "refresh-after-401", nowSeconds + 900);
+    }
+    rejectedProtectedCount += 1;
+    if (rejectedProtectedCount === 1) {
+      assert.equal(options.headers.authorization, "Bearer access-rejected");
+      return response({
+        contentType: "application/json",
+        status: 401,
+        data: { success: false, code: "AUTH_TOKEN_EXPIRED", message: "Unauthorized" }
+      });
+    }
+    assert.equal(options.headers.authorization, "Bearer access-after-401");
+    return response({ contentType: "application/json", data: { success: true, data: { id: 42 } } });
+  };
+  await client.newApiRequest(retryBundleSettings, "/api/user/self", { userAuth: true, retries: 0 });
+  assert.equal(rejectedProtectedCount, 2, "A protected request should be replayed once after a confirmed access-token failure");
+  assert.equal(rejectedRefreshCount, 1);
+
+  const boundedRetrySettings = {
+    ...storedSettings,
+    serverAccessToken: "access-bounded",
+    serverAccessExpiresAt: nowSeconds + 900,
+    serverSessionCookie: "new_api_refresh=refresh-bounded"
+  };
+  storedSettings = { ...boundedRetrySettings };
+  let boundedProtectedCount = 0;
+  let boundedRefreshCount = 0;
+  transport = async (url) => {
+    if (String(url).endsWith("/api/user/auth/refresh")) {
+      boundedRefreshCount += 1;
+      return bundleLoginResponse("access-bounded-next", "refresh-bounded-next", nowSeconds + 900);
+    }
+    boundedProtectedCount += 1;
+    return response({
+      contentType: "application/json",
+      status: 401,
+      data: { success: false, code: "AUTH_UNAUTHORIZED", message: "Unauthorized" }
+    });
+  };
+  await assert.rejects(
+    () => client.newApiRequest(boundedRetrySettings, "/api/user/self", { userAuth: true, retries: 0 }),
+    (error) => error?.status === 401
+  );
+  assert.equal(boundedProtectedCount, 2, "A protected request must not be replayed more than once");
+  assert.equal(boundedRefreshCount, 1, "A repeated 401 must not start a refresh loop");
+
+  let logoutCall = null;
+  transport = async (url, options) => {
+    logoutCall = { url, options };
+    return response({ contentType: "application/json", data: { success: true } });
+  };
+  await client.logoutNewApiSession(retryBundleSettings);
+  assert.equal(logoutCall.url, "https://sparkapi.org/api/user/auth/logout");
+  assert.equal(logoutCall.options.headers.authorization, "Bearer access-after-401");
+  assert.equal(logoutCall.options.headers.cookie, "new_api_refresh=refresh-after-401");
+  assert.equal(logoutCall.options.headers["X-Auth-Session"], "sid-fixture");
 
   assert.equal(client.customApiUrl(settings, "/v1/responses"), "https://gateway.example/v1/responses");
   assert.equal(client.customApiUrl(settings, "v1/chat/completions"), "https://gateway.example/v1/chat/completions");
@@ -117,15 +326,23 @@ async function main() {
     ...settings,
     accessMode: "account",
     accountBaseUrl: "https://sparkapi.org",
-    serverSessionCookie: "session=fixture",
+    serverAuthProtocol: "bundle",
+    serverAccessToken: "account-access-token",
+    serverAccessExpiresAt: nowSeconds + 900,
+    serverSessionCookie: "new_api_refresh=account-refresh",
+    serverAuthSessionId: "sid-account",
     serverUserId: "42",
     selectedAccountTokenId: "7",
     selectedAccountTokenGroup: "vision"
   };
   const accountCredentialResolutionsBeforeCustomKey = resolvedAccountTokenIds.length;
-  await client.newApiRelayJson(accountSettings, "/v1/images/generations", imageBody, { provider: "image" });
+  await client.newApiRelayJson(accountSettings, "/v1/images/generations", imageBody, {
+    provider: "image",
+    headers: { Authorization: "Bearer stale-account-auth" }
+  });
   assert.equal(captured.url, "https://sparkapi.org/v1/images/generations", "Account mode must ignore the custom-mode Base URL override");
   assert.equal(captured.options.headers.authorization, "Bearer bound-image-key", "A per-model custom API Key must remain usable after account login");
+  assert.equal(captured.options.headers.Authorization, undefined, "Caller headers must not override the resolved per-model API Key");
   assert.equal(resolvedAccountTokenIds.length, accountCredentialResolutionsBeforeCustomKey, "A custom model Key must take precedence without resolving an account Key");
 
   await client.newApiRelayJson(accountSettings, "/v1/images/generations", { ...imageBody, model: "image-account-token" }, { provider: "image" });
@@ -248,6 +465,19 @@ async function main() {
   await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-account-token", messages: [] }, { provider: "agent" });
   assert.equal(resolvedAccountTokenIds.at(-1), "24");
   assert.equal(captured.options.headers.authorization, "Bearer account-key-24");
+
+  // A Responses-to-Chat compatibility retry must retain the same model-level
+  // credential resolution; changing the endpoint cannot demote a bound key.
+  const fallbackRequest = {
+    model: "agent-bound",
+    messages: [{ role: "user", content: "fallback credential fixture" }],
+    tools: [{ type: "web_search" }]
+  };
+  await client.newApiRelayJson(settings, "/v1/responses", fallbackRequest, { provider: "agent" });
+  const responsesBindingKey = captured.options.headers.authorization;
+  await client.newApiRelayJson(settings, "/v1/chat/completions", fallbackRequest, { provider: "agent" });
+  assert.equal(captured.options.headers.authorization, responsesBindingKey, "A Chat fallback must preserve the bound Agent API Key");
+  assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key");
 
   transport = async () => response({
     contentType: "application/json; charset=utf-8",
@@ -396,7 +626,12 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 31,
+    cases: 40,
+    nativeNewApiAuthBundle: true,
+    authRefreshSingleFlight: true,
+    authRetryBounded: true,
+    authLogoutBundle: true,
+    providerAuthorizationLocked: true,
     v1BaseUrlDeduplication: true,
     jsonResponsesFallback: true,
     emptyStreamRejected: true,
@@ -407,6 +642,7 @@ async function main() {
     accountModePerModelCustomCredentials: true,
     perAgentModelCustomCredentials: true,
     perAgentModelAccountCredentials: true,
+    chatFallbackBindingPreserved: true,
     agentModelGlobalFallback: true,
     formDataModelBinding: true,
     responsesModelBindingIgnored: true,

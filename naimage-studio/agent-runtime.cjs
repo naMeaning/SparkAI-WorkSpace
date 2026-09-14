@@ -108,7 +108,7 @@ const mainWorkbenchRecentArtifacts = 24;
 const protocolHistoryMaxTurns = 36;
 const protocolHistoryPromptChars = 180000;
 const protocolHistoryStoreChars = 260000;
-const promptTextContractRevision = 13;
+const promptTextContractRevision = 14;
 const imageToolNames = new Set([primaryImageToolName]);
 const internalOnlyToolNames = new Set(["memory", "context_manage"]);
 const experiencePublicArgumentKeys = new Set(["action", "title", "text", "summary", "instruction", "rating", "brief"]);
@@ -125,13 +125,13 @@ const defaultMainAgentPromptLines = [
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
   "SparkAI WorkSpace 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
   `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 管理已有成果，并可重命名、替换或导出当前项目受管图片组；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。图片组替换只能引用当前画布节点和 zero-based 资产序号，图片组导出必须 confirmed=true，禁止提交路径、URL 或目标目录。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
-  `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。Current Task Scope 存在 SOURCE 时禁止使用 generate，因为 generate 不会读取原图；必须按意图使用 edit、replace、variants、layers、cutout 或 redraw，并在多 SOURCE 时逐项填写 sourceBindingId。缺少需要处理的 SOURCE 时使用 ask_user(kind=source_images)，缺少仅作参考的 REFERENCE 时使用 ask_user(kind=reference_images)，不要猜路径，也不要把 REFERENCE 当成 SOURCE。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
+  `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。普通任务的 Current Task Scope 只提供统一 materials 上下文，模型根据用户意图和图片内容选择 generate、edit、replace、variants、layers、cutout 或 redraw，不要求用户手工分类、逐项绑定或把某张图声明为 SOURCE/REFERENCE。仅当没有可用素材且用户要求修改时才用 ask_user 补充图片；需要精确指定容器槽位时才填写 bindingId。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
   "先理解目标，再直接执行；不要只输出计划。图片任务成功则简短汇报，失败则读取错误类别并最多修正参数重试两次。复杂任务可先用 view_image、web_search 或 shell_command 获取必要事实，再调用 image_gen。缺少来源图片时打开参考图收集，不得假装已经出图。",
   "默认交付商业级高质量图片：主体与视觉层级明确，构图有清晰意图，景别严格符合用户要求，留白和视觉动线可控，材质、光线、边缘与细节可信。特效必须克制且服务主体；除非用户明确要求，不堆砌粒子、光斑、几何碎片、廉价辉光、无意义装饰或伪文字，也不把多个独立方案画成拼贴。先服从用户给定的风格与审美，再用这些底线避免俗气、混乱和模板感。",
   "审美决策按用户当前明确要求、参考图角色与用途、当前选中成果、当前会话 FastMemory、通用质量底线的顺序执行。不得擅自把所有任务套成电影感、蓝金、高级黑、东方风、海报感或其他固定模板；用户要求宽泛时只补充有助于构图、材质、光线和可用性的细节，不虚构品牌、口号、角色设定、商品卖点或装饰元素。",
   "调用 image_gen 前，把用户目标整理成紧凑的结构化视觉提示词，优先按用途、主体及身份或商品、场景、风格与媒介、构图与景别、光线与氛围、必须逐字呈现的文字、参考图分工、保留项与禁改项、输出意图组织。复杂任务可使用这些短标签；不要把分析过程、内部说明或用户对话原文写入 prompt。",
-  "每张输入图片都要明确分工：edit_target/source 是被修改的原图，identity 提供人物身份，garment 提供服装版型与图案，product 提供商品几何、标签和材质，style 只提供视觉语言，composition 只提供取景与版式，scene 只提供环境。不得默认把所有参考图都当作编辑目标，也不得让风格参考图替换主体或商品。purpose 要说明从该图迁移什么、必须保留什么。",
-  "运行时会提供不可变的 TaskScope v2：scopeType 描述单图、容器、容器组或分层范围，SOURCE 是本轮需要处理的素材，REFERENCE 只影响视觉参考而不决定输出数量，resultPolicy 规定成果按单图、来源、容器或图层归组。snapshotHash 和 canvasRevision 用于识别这一轮冻结的画布状态；调用 ask_user 后继续任务时必须沿用同一份作用域，不得因为画布历史信息自行扩大或替换来源。confirmationPolicy=preview-3 时先向用户确认是否先做 3 版，staged 时确认分批规模，direct 仅在用户已经明确授权直接批量时使用，auto 不要添加多余确认。",
+  "每张输入图片都按用户意图确定用途：edit_target/source 可作为被修改的原图，identity 提供人物身份，garment 提供服装版型与图案，product 提供商品几何、标签和材质，style 只提供视觉语言，composition 只提供取景与版式，scene 只提供环境。普通任务不要求用户预先声明这些角色；模型不得默认把所有素材都当作编辑目标，也不得让风格或构图素材替换主体或商品。purpose 要说明从该图迁移什么，以及哪些身份、几何、文字、结构或版式需要保持。",
+  "运行时会提供不可变的 TaskScope v2：普通任务以统一 materials 列表提供当前图片上下文，模型根据用户意图决定编辑目标和参考用途；Goal 任务才使用冻结的 SOURCE/REFERENCE 投影与严格批量规则。scopeType 描述单图、容器、容器组或分层范围，resultPolicy 规定成果按单图、来源、容器或图层归组。snapshotHash 和 canvasRevision 用于识别这一轮冻结的画布状态；调用 ask_user 后继续任务时必须沿用同一份作用域，不得因为画布历史信息自行扩大或替换来源。confirmationPolicy=preview-3 时先向用户确认是否先做 3 版，staged 时确认分批规模，direct 仅在用户已经明确授权直接批量时使用，auto 不要添加多余确认。",
   "Current Task Scope 的 origin=goal 时，用户已经确认对冻结快照内的来源执行批量要求。整个 Goal 只能调用一次 image_gen，并设置 scopeExecution=all-goal-sources；只允许 edit、replace 或 variants，不填写 parentId、sourceBindingId 或其他单项 SOURCE 选择。count 必须严格等于 Current Task Scope 的 goalOperationsPerAsset，SOURCE×count 必须严格等于 goalRequestCount；count=1 时省略 items，count>1 时使用 variants，相同画面要求可省略 items 让运行时重复，逐项要求则提供与 count 等长的 items。跨境电商任务必须提供完整 items（单项时改用顶层元数据），把任务中的 PLAN_HASH 原样写入 commercePlanHash，并严格按可信计划顺序填写 slotId、slotIndex、localeCode；SOURCE×items 总请求不得超过 200。运行时会展开冻结矩阵；多个 Renderer 共享 Main 进程级 Goal 准入控制，每个 Goal 先串行探测不同容器的代表图，验证落盘和解码后才进入放量。等待中的 probe 优先于新 ramp，多个已通过 Goal 公平共享进程容量；限流、5xx 或网络重试暂停新 ramp，保护性失败打开跨 Goal circuit，Renderer 结束后仍等已启动的 provider Promise 收尾再释放容量。禁止模型枚举 binding 或发起多次 Goal image_gen。探测或熔断只能阻止未派发请求，上游已经接受的请求仍可能计费。",
   "所有编辑、替换、重绘、抠图和基于来源图的变体都遵循‘只改变目标变量，其他成功要素保持不变’：重复声明人物身份与面部、姿势、商品几何与标签、服装结构与图案、背景、版式、文字、镜头和配色中需要锁定的部分。用户只要求局部变化时不得顺带重做整张图；系列与多版的每个 items.prompt 都要重复核心不变量，只写清本项唯一变化。",
   "电商商品图优先保证商品轮廓、比例、结构、标签、Logo、材质、颜色和真实接触关系；用户要求保留位置或尺度时，质检必须比较商品中心点以及宽高占整幅画面的比例，明显超过约 10% 的偏移或缩放应视为需要修正，不能只判断商品身份相似。多角度图要保持同一商品身份，只改变镜头，并为每张明确方位角、俯仰角、应当显露的侧面或顶部结构及对应投影变化，角度差在缩略图中也必须明显，禁止仅镜像、轻微平移或继续输出近似正面图；若参考图只展示正面，未展示的背面结构只能作为推断，最终必须说明该边界。质检中若图片仍像正面或前侧，就不得声称后侧机位已经成功。换物或改文案只替换指定目标，要求文字时用引号写出逐字正文，禁止额外单词和伪文字。服装上身优先锁定模特身份、人体结构与服装版型、领口、袖型、缝线、图案、Logo、材质、颜色和垂坠关系，不能把服装参考仅当作配色灵感。",
@@ -170,7 +170,8 @@ const previousDefaultMainAgentPromptHashes = new Set([
   "b01c6266e20eda825573a44e0fe7a0acd474e7470c820284b5bc88a53e9bbf85",
   "958c11cc1e2628da78b03f7ca3a5836b6d2d940c779ee256672343dde0b140d6",
   "fa1925ab7fb0f1d41aedc0b5a9d7955e80cea19462635017cddad925c531e313",
-  "09536ba4b34f809746b7c14d2b0fbbfbd090f35d66a6239e801346f9d40e2356"
+  "09536ba4b34f809746b7c14d2b0fbbfbd090f35d66a6239e801346f9d40e2356",
+  "72363a1769fda2f0fb7723967deafeaa7eb3ee7e535e4aa697bd5940908de34b"
 ]);
 
 function textSha256(value = "") {
@@ -1043,9 +1044,11 @@ function taskScopeSnapshotHash(scope = {}) {
 
 function normalizedTaskScope(payload = {}) {
   const raw = payload.taskScope && typeof payload.taskScope === "object" ? payload.taskScope : {};
-  const normalizeItems = (items, role) => (Array.isArray(items) ? items : [])
+  const normalizeItems = (items, role, preserveRole = false) => (Array.isArray(items) ? items : [])
     .filter((item) => item && typeof item === "object")
-    .map((item, index) => ({
+    .map((item, index) => {
+      const effectiveRole = preserveRole && item.role === "reference" ? "reference" : role;
+      return ({
       bindingId: cleanOneLine(item.bindingId || "", 520),
       assetId: cleanOneLine(item.assetId || `${role}-${index + 1}`, 160),
       occurrenceId: /^occ-[a-f0-9]{16,64}$/i.test(String(item.occurrenceId || "").trim()) ? String(item.occurrenceId).trim().toLowerCase() : "",
@@ -1054,10 +1057,10 @@ function normalizedTaskScope(payload = {}) {
       sourceRelativePath: safeImageSourceRelativePath(item.sourceRelativePath),
       sourceRootLabel: cleanOneLine(item.sourceRootLabel || "", 260),
       sourceRootKind: item.sourceRootKind === "directory" ? "directory" : item.sourceRootKind === "file" ? "file" : "",
-      displayCode: cleanOneLine(item.displayCode || `${role === "source" ? "SRC" : "REF"}${index + 1}`, 40),
+      displayCode: cleanOneLine(item.displayCode || `${effectiveRole === "source" ? "SRC" : "REF"}${index + 1}`, 40),
       contentHash: /^[a-f0-9]{32,128}$/i.test(String(item.contentHash || "").trim()) ? String(item.contentHash).trim().toLowerCase() : "",
-      role,
-      name: cleanOneLine(item.name || `${role === "source" ? "原图" : "参考图"} ${index + 1}`, 220),
+      role: effectiveRole,
+      name: cleanOneLine(item.name || `${effectiveRole === "source" ? "素材" : "参考素材"} ${index + 1}`, 220),
       assetIndex: Number.isInteger(Number(item.assetIndex)) && Number(item.assetIndex) >= 0
         ? Math.floor(Number(item.assetIndex))
         : Number.isInteger(Number(item.containerSlot)) && Number(item.containerSlot) >= 0
@@ -1079,24 +1082,34 @@ function normalizedTaskScope(payload = {}) {
       assetUrl: cleanOpaqueLocator(item.assetUrl),
       mimeType: cleanOneLine(item.mimeType || "", 100),
       purpose: cleanOneLine(item.purpose || "", 400),
-      referenceRole: role === "reference"
+      referenceRole: effectiveRole === "reference"
         ? cleanOneLine(item.referenceRole || (!["source", "reference"].includes(String(item.role || "").toLowerCase()) ? item.role : ""), 80)
         : ""
-    }))
-    .slice(0, role === "source" ? 200 : 40);
+      });
+    })
+    .slice(0, preserveRole ? 240 : role === "source" ? 200 : 40);
   const sourceNodeIds = [...new Set((Array.isArray(raw.sourceNodeIds) ? raw.sourceNodeIds : selectedCanvasArtifactIds(payload)).map((value) => cleanOneLine(value, 160)).filter(Boolean))];
-  const sourceAssets = normalizeItems(raw.sourceAssets, "source");
-  const referenceAssets = normalizeItems(Array.isArray(raw.referenceAssets) ? raw.referenceAssets : payload.referenceImages, "reference");
+  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
+  const origin = origins.has(raw.origin) ? raw.origin : "chat";
+  const legacySourceAssets = normalizeItems(raw.sourceAssets, "source");
+  const legacyReferenceAssets = normalizeItems(Array.isArray(raw.referenceAssets) ? raw.referenceAssets : payload.referenceImages, "reference");
+  const materials = normalizeItems(raw.materials, "source", true);
+  const canonicalMaterials = materials.length ? materials : [...legacySourceAssets, ...legacyReferenceAssets];
+  // Goal keeps its frozen SOURCE projection. Ordinary requests expose every
+  // selected image as material context and leave role interpretation to the
+  // model; legacy projections remain only for compatibility/provenance.
+  const sourceAssets = origin === "goal" ? legacySourceAssets : canonicalMaterials;
+  const referenceAssets = origin === "goal"
+    ? legacyReferenceAssets
+    : canonicalMaterials.filter((item) => item.role === "reference");
   const sourceAssetCount = Math.max(sourceAssets.length, Math.floor(Number(raw.sourceAssetCount ?? sourceAssets.length) || sourceAssets.length));
   const referenceAssetCount = Math.max(referenceAssets.length, Math.floor(Number(raw.referenceAssetCount ?? referenceAssets.length) || referenceAssets.length));
   const cleanIds = (items, maximum) => [...new Set((Array.isArray(items) ? items : [])
     .map((value) => cleanOneLine(value, 520))
     .filter(Boolean))].slice(0, maximum);
-  const origins = new Set(["chat", "canvas", "node", "container", "layer", "requirement", "goal"]);
   const scopeTypes = new Set(["none", "single", "multi-source", "container", "container-group", "layer", "layer-group", "mixed"]);
   const resultPolicies = new Set(["single", "grouped-by-source", "grouped-by-container", "layer-variants"]);
   const confirmationPolicies = new Set(["auto", "preview-3", "staged", "direct"]);
-  const origin = origins.has(raw.origin) ? raw.origin : "chat";
   const sourceContainerIds = cleanIds(raw.sourceContainerIds, 200);
   const referenceContainerIds = cleanIds(raw.referenceContainerIds, 40);
   const sourceBindingIds = cleanIds(
@@ -1161,6 +1174,7 @@ function normalizedTaskScope(payload = {}) {
     referenceContainerIds,
     sourceBindingIds,
     referenceBindingIds,
+    materials: canonicalMaterials,
     sourceAssets,
     referenceAssets,
     resultPolicy,
@@ -1502,14 +1516,32 @@ function validateImageOperationSourcePolicy(toolName, operation, sourceCount, re
   const normalizedOperation = String(operation || "generate").trim().toLowerCase();
   const count = Math.max(0, Math.floor(Number(sourceCount) || 0));
   const multiSourceResultTask = count > 1 && (resultPolicy === "grouped-by-source" || resultPolicy === "grouped-by-container");
-  if (count > 0 && normalizedOperation === "generate") {
-    throw new Error(`${toolName} 当前任务包含 SOURCE，generate 不会读取原图；请改用 edit、replace、variants、layers、cutout 或 redraw${multiSourceResultTask ? "，并逐项填写 sourceBindingId" : ""}。`);
-  }
+  // Materials are role-agnostic at the UI boundary. The model may decide which
+  // assets are sources, edit targets, or visual references. Runtime keeps only
+  // operation-specific safety checks and never rejects a multi-material scope.
   return { operation: normalizedOperation, sourceCount: count, multiSourceResultTask };
 }
 
 function taskScopeForPrompt(payload = {}, maxChars = 9000) {
   const scope = normalizedTaskScope(payload);
+  if (scope.origin !== "goal") {
+    const materialLines = [
+      `origin=${scope.origin}`,
+      `scopeType=${scope.scopeType}`,
+      `canvasRevision=${scope.canvasRevision}`,
+      `resultPolicy=${scope.resultPolicy}`,
+      `confirmationPolicy=${scope.confirmationPolicy}`,
+      `snapshotHash=${scope.snapshotHash}`,
+      `materialCount=${scope.materials.length}`,
+      "materials (model decides each role):"
+    ];
+    for (const item of scope.materials) {
+      const roleHint = item.referenceRole || (!['source', 'reference'].includes(String(item.role || '').toLowerCase()) ? item.role : '');
+      materialLines.push(`- ${item.displayCode} | assetId=${item.assetId} | ${item.name} | node=${item.nodeId || "-"}${item.containerSlot === undefined ? "" : ` | slot=${item.containerSlot}`}${roleHint ? ` | role=${roleHint}` : ""} | purpose=${item.purpose || "context"}`);
+      if (materialLines.join("\n").length >= maxChars) break;
+    }
+    return { scope, text: materialLines.join("\n").slice(0, maxChars) };
+  }
   const lines = [
     `origin=${scope.origin}`,
     `scopeType=${scope.scopeType}`,
@@ -3338,9 +3370,9 @@ function createAgentRuntime(options) {
       taskScopePresent ? uniqueTaskSources.length : 0,
       taskScope.resultPolicy
     );
-    if (taskScopePresent && requiresTaskSource && uniqueTaskSources.length > 1 && !resolvedSourceAsset) {
-      throw new Error(`${toolName} 当前有 ${uniqueTaskSources.length} 个 SOURCE；请先明确选择一张原图，批量 SOURCE 任务需要逐项绑定后再执行。`);
-    }
+    // Unified materials are intentionally model-selected. When no explicit
+    // selector is present, use the stable first material as the edit fallback
+    // instead of requiring the user to classify or bind a SOURCE manually.
     const scopedSourceAsset = resolvedSourceAsset || uniqueTaskSources[0] || null;
     if (sourceNode?.id && scopedSourceAsset?.nodeId && scopedSourceAsset.nodeId !== sourceNode.id) {
       throw new Error(`${toolName} SOURCE ${scopedSourceAsset.displayCode || scopedSourceAsset.assetId} 不属于 parentId=${parentId}。`);
@@ -3366,19 +3398,16 @@ function createAgentRuntime(options) {
     if (taskScopePresent) {
       scopedReferenceValues = requestedReferenceValues.length
         ? requestedReferenceValues.map((requested) => {
-            const scoped = scopedAssetFor(taskScope.referenceAssets, requested);
+            const scoped = scopedAssetFor(taskScope.materials, requested);
             if (!scoped) throw new Error(`${toolName} 指定的 REFERENCE 不属于 Current Task Scope。`);
             const requestedRole = cleanOneLine(requested?.role || scoped.referenceRole || "", 80).toLowerCase();
-            if (["source", "edit_target"].includes(requestedRole)) {
-              throw new Error(`${toolName} REFERENCE 不能使用 ${requestedRole} 角色，也不能替代 SOURCE。`);
-            }
             return {
               ...scoped,
               role: requestedRole || undefined,
               purpose: cleanOneLine(requested?.purpose || scoped.purpose || "", 320) || undefined
             };
           })
-        : taskScope.referenceAssets.map((item) => ({ ...item, role: item.referenceRole || undefined }));
+        : taskScope.materials.map((item) => ({ ...item, role: item.referenceRole || item.role || undefined }));
     }
     let referenceImages = normalizeReferenceImages(scopedReferenceValues, 9);
     if (!referenceImages.length && !taskScopePresent) referenceImages = normalizeReferenceImages(context.referenceImages, 9);
@@ -6460,15 +6489,20 @@ function createAgentRuntime(options) {
     });
     const nodeSnapshot = workbenchSnapshot.text;
     const taskScopeSnapshot = taskScopeForPrompt(payload, strategy.taskScopeMaxChars);
+    const goalScopePrompt = taskScopeSnapshot.scope.origin === "goal";
     const runtimeToolContract = [
       `运行时向主 Agent 暴露 SparkAI WorkSpace 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
       "由你根据用户目标自主决定是否调用工具以及调用顺序，系统不会替你强制 tool_choice 或改写参数。需要生成或修改图片时必须通过 image_gen tool_call 表达；普通问答直接回复，不要声称执行了不存在的工具。",
       "同一用户图片任务优先合并为一次 image_gen：相同提示词多张使用 count，不同提示词多张使用 items，并显式选择 generationMode=parallel 或 sequential；分层任务使用 operation=layers。用户在同一轮要求 N 张、N 版或 N 个候选时使用 parallel，即使表达为‘基于这张继续给 N 版’；parentId 表示来源，不决定执行模式。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。不要用多次单图调用模拟批量，但工具回执明确失败时应根据错误修正参数后再自主决定。",
       "",
       "Image Task Contract:",
-      "- generate：文字生图，或仅基于 Current Task Scope 的 REFERENCE 进行参考图生图；只要 SOURCE 非空，generate 就不会读取原图，必须改用 edit、replace、variants、layers、cutout 或 redraw。",
+      goalScopePrompt
+        ? "- generate：文字生图；Goal 冻结范围只允许按 Goal 合同使用 edit、replace 或 variants。"
+        : "- generate：没有需要修改的画布素材时进行文字生图；有素材时根据用户意图自主判断哪些图是编辑目标、身份参考、风格参考或构图参考，不要求用户手工标注 SOURCE/REFERENCE。",
       "- 需要使用画布图片时，从 Current Workbench Snapshot 选择真实节点 ID 并填写 parentId；运行时只读取 Current Task Scope 已声明的项目库图片，不猜测来源节点。",
-      "- edit：只修改 Current Task Scope 的 SOURCE；REFERENCE 仅提供身份、风格、构图、材质等参考。",
+      goalScopePrompt
+        ? "- edit：只修改 Goal 冻结范围内由运行时展开的来源。"
+        : "- edit：根据用户目标和素材内容选择要修改的图片；其他素材可同时作为视觉参考，不要要求用户先区分角色。",
       "- replace：替换当前图片中的元素，非替换区域尽量保持不变。",
       "- variants：基于当前图片生成多种独立款式，count 是款式数量，禁止拼图。",
       "- layers：生成一张合成预览、2-8 个同尺寸独立 PNG 图层和重组校验图。"
@@ -6520,14 +6554,19 @@ function createAgentRuntime(options) {
           "Canvas Contract:",
           "- 右侧 Agent 是唯一智能控制中心；画布展示图片成果、来源关系，以及用户主动保存的可复用需求节点。",
           "- 不要创建、调用或描述子 Agent，也不要自行创建计划、工具或执行步骤节点。需求节点只承载用户保存的图片处理要求；选中需求节点时沿其输入连线读取 SOURCE，并让新成果连接在需求节点之后。",
-          "- 当前选择和输入区参考图会作为动态上下文提供；需要画布来源时必须自行选择并填写 parentId，不要要求用户手抄本地路径。",
-          "- replace、edit、variants 应设置 parentId 指向你选择的来源图片；运行时会校验但不会猜测、补写或改换 parentId。",
-          "- 缺少必需 SOURCE 时用 ask_user 请用户选择待修改原图；不能要求用户手抄路径，也不能把 REFERENCE 当原图。",
+          "- 当前选择和输入区图片会作为动态上下文提供；需要画布来源时使用真实节点 ID，并由模型根据用户意图选择素材角色，不要求用户手抄本地路径。",
+          goalScopePrompt
+            ? "- replace、edit、variants 应遵守 Goal 冻结范围：parentId、assetIndex 和单项素材 selector 由运行时展开。"
+            : "- replace、edit、variants 可设置 parentId 指向模型选择的来源图片；普通任务不要求用户填写或维护 SOURCE/REFERENCE 标签。",
           "",
           "Task Scope Contract:",
-          "- Current Task Scope 是本轮素材角色的权威来源：SOURCE 是需要处理的原图，REFERENCE 只提供参考。",
-          "- 绝不能根据 REFERENCE 的数量推导输出数量；输出张数只由用户明确要求和 image_gen count/items 决定。",
-          "- 用户要求修改/替换/分层/翻译但 SOURCE 为空时，先用 ask_user 要求指定原图，不能把参考图擅自当成编辑目标。",
+          goalScopePrompt
+            ? "- Current Task Scope 是 Goal 冻结范围的权威来源；严格遵守 Goal 的一次调用、矩阵数量和安全规则。"
+            : "- Current Task Scope 的 materials 是统一素材上下文；模型自行判断编辑目标与各种参考用途，不要把 SOURCE/REFERENCE 分类当成用户前置条件。",
+          "- 输出张数只由用户明确要求和 image_gen count/items 决定，不能从素材数量推导。",
+          goalScopePrompt
+            ? "- 用户要求修改/替换/分层/翻译但 Goal 范围无可执行来源时，按 Goal 校验错误停止并说明原因。"
+            : "- 用户要求修改但没有可用素材时才用 ask_user 补充图片；有 materials 时直接根据上下文执行，不要反复要求分类。",
           "- 按 resultPolicy 归组成果；confirmationPolicy=preview-3/staged 时，用结构化 ask_user options 对账批量策略，direct/auto 时不要重复确认。等待回复后沿用冻结的 snapshotHash 对应素材范围。",
           "",
           "Current Selected Node:",

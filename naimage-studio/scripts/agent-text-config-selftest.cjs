@@ -941,7 +941,7 @@ async function runSelftest(directory) {
     const migratedStore = readJson(promptPath);
     assert.equal(migratedStore.version, 2);
     assert.equal(migratedStore.format, "plain-text");
-    assert.equal(migratedStore.contractRevision, 13);
+    assert.equal(migratedStore.contractRevision, 14);
     assert.equal(migratedStore.baseDefaultPromptRevision, 0);
     assert.equal(migratedStore.baseDefaultPromptHash, "");
     assert.equal(Object.prototype.hasOwnProperty.call(migratedStore, "entries"), false, "Prompt v2 must not retain entries");
@@ -975,7 +975,7 @@ async function runSelftest(directory) {
     assert.equal(/create_agent_node|list_agents|manage_agent|子\s*Agent|母\s*Agent|context_manage|entryId/i.test(migratedLegacyV2.text), false);
     assert.equal(migratedLegacyV2.defaultUpdateAvailable, true);
     const migratedLegacyV2Store = readJson(promptPath);
-    assert.equal(migratedLegacyV2Store.contractRevision, 13);
+    assert.equal(migratedLegacyV2Store.contractRevision, 14);
     assert.equal(migratedLegacyV2Store.memoryPrompt.includes("需要 compact 的 entries"), false);
     assert(migratedLegacyV2Store.memoryPrompt.includes("当前项目当前会话的 fastmemory"));
 
@@ -1068,7 +1068,9 @@ async function runSelftest(directory) {
     assert.equal(askUserSchema.function.parameters.properties.options.maxItems, 3);
     assert.deepEqual(askUserSchema.function.parameters.properties.options.items.required, ["id", "label", "answer"]);
     assert.equal(askUserSchema.function.parameters.properties.options.items.properties.recommended.type, "boolean");
-    assert.match(askUserSchema.function.description || "", /source_images.*reference_images.*不要把 REFERENCE 当成 SOURCE/);
+    assert.match(askUserSchema.function.description || "", /普通任务已有 materials.*source_images.*reference_images/);
+    assert.match(publicImageProperties.sourceImage?.description || "", /普通任务通常省略.*Current Task Scope materials/);
+    assert.match(publicImageProperties.referenceImages?.description || "", /Current Task Scope materials.*普通任务通常省略/);
     const structuredAskUser = await runtime.runTool("ask_user", {
       kind: "confirm",
       title: "确认批量策略",
@@ -1145,7 +1147,7 @@ async function runSelftest(directory) {
       ["identity", "subject", "garment", "product", "style", "composition", "scene"],
       "Reference role schema must exclude SOURCE/edit-target roles",
     );
-    assert.match(publicImageSchema.function.parameters.properties.referenceImages?.description || "", /REFERENCE 永远不是编辑目标/);
+    assert.match(publicImageSchema.function.parameters.properties.referenceImages?.description || "", /普通任务通常省略.*参考用途.*不决定输出数量/);
     assert.match(publicImageSchema.function.parameters.properties.inputFidelity?.description || "", /人物身份.*商品结构.*服装版型.*high/);
     const publicWorkflowSchema = schemasBeforePromptSave.find((tool) => tool.function?.name === "workflow");
     assert(publicWorkflowSchema?.function?.parameters?.properties?.offset, "Public workflow schema must expose list_nodes offset");
@@ -2322,49 +2324,45 @@ async function runSelftest(directory) {
       /REFERENCE 不属于 Current Task Scope/,
       "Unknown scoped reference assetId must fail closed",
     );
-    await assert.rejects(
-      runtime.runTool("image_gen", {
-        operation: "replace",
-        prompt: "不要静默只处理多 SOURCE 中的第一张。",
-        count: 1,
-      }, {
-        ...runToolContext,
-        nodes: [],
-        selectedNodeId: "",
-        taskScope: {
-          version: 1,
-          origin: "chat",
-          sourceNodeIds: [],
-          sourceAssets: [
-            { assetId: "source-a", displayCode: "A1", role: "source", name: "原图 A", path: fixtureImagePath },
-            { assetId: "source-b", displayCode: "A2", role: "source", name: "原图 B", path: fixtureImagePathB },
-          ],
-          referenceAssets: [],
-        },
-      }),
-      /当前有 2 个 SOURCE/,
-      "Multiple SOURCE assets need an explicit per-item binding instead of first-item fallback",
-    );
-    await assert.rejects(
-      runtime.runTool("image_gen", {
-        operation: "edit",
-        prompt: "REFERENCE 不能被当作待修改原图。",
-        count: 1,
-      }, {
-        ...runToolContext,
-        nodes: [],
-        selectedNodeId: "",
-        taskScope: {
-          version: 1,
-          origin: "chat",
-          sourceNodeIds: [],
-          sourceAssets: [],
-          referenceAssets: [{ assetId: "reference-only", displayCode: "B1", role: "reference", name: "仅参考", path: fixtureImagePathB }],
-        },
-      }),
-      /REFERENCE 只能作为参考，不能替代 SOURCE/,
-      "Reference-only TaskScope must not silently become an edit source",
-    );
+    const multiMaterialResult = await runtime.runTool("image_gen", {
+      operation: "replace",
+      prompt: "根据素材内容自主判断编辑目标，不要求手工标注素材角色。",
+      count: 1,
+    }, {
+      ...runToolContext,
+      nodes: [],
+      selectedNodeId: "",
+      taskScope: {
+        version: 1,
+        origin: "chat",
+        sourceNodeIds: [],
+        sourceAssets: [
+          { assetId: "source-a", displayCode: "A1", role: "source", name: "原图 A", path: fixtureImagePath },
+          { assetId: "source-b", displayCode: "A2", role: "source", name: "原图 B", path: fixtureImagePathB },
+        ],
+        referenceAssets: [],
+      },
+    });
+    assertOk(multiMaterialResult.envelope, "Multiple materials must use a stable implicit edit target");
+    assert.equal(capturedImageRequests.at(-1)?.editImage?.path, fixtureImagePath);
+    const referenceOnlyEdit = await runtime.runTool("image_gen", {
+      operation: "edit",
+      prompt: "根据唯一素材自主判断修改目标，不要求手工标注 SOURCE/REFERENCE。",
+      count: 1,
+    }, {
+      ...runToolContext,
+      nodes: [],
+      selectedNodeId: "",
+      taskScope: {
+        version: 1,
+        origin: "chat",
+        sourceNodeIds: [],
+        sourceAssets: [],
+        referenceAssets: [{ assetId: "reference-only", displayCode: "B1", role: "reference", name: "仅参考", path: fixtureImagePathB }],
+      },
+    });
+    assertOk(referenceOnlyEdit.envelope, "A unified material may be selected as an edit target when context indicates editing");
+    assert.equal(capturedImageRequests.at(-1)?.editImage?.path, fixtureImagePathB);
 
     const referenceOnlyGenerateBefore = capturedImageRequests.length;
     const referenceOnlyGenerate = await runtime.runTool("image_gen", {

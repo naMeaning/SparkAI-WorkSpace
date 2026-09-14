@@ -24,6 +24,7 @@ import {
   ButtonBase,
   DialogShell,
   Field,
+  GlassSelect,
   SearchField,
   SurfaceBody,
   SurfaceFooter,
@@ -418,15 +419,22 @@ export default function ModelConfigDialog({
                             </Field>
                             {accountMode ? (
                               <Field label="账户密钥" hint={`自定义 API Key 留空时回退到这里，再回退到全局密钥（${globalTokenLabel}）。`}>
-                                <select value={boundTokenId} onChange={(event) => updateBinding(model, "accountTokenId", event.target.value)}>
-                                  <option value="">使用全局选中密钥</option>
-                                  {boundTokenId && !boundTokenLoaded ? <option value={boundTokenId}>密钥 #{boundTokenId} · 元数据未加载</option> : null}
-                                  {accountTokens.map((token) => (
-                                    <option key={token.id} value={token.id} disabled={token.status !== 1}>
-                                      {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
-                                    </option>
-                                  ))}
-                                </select>
+                                <GlassSelect
+                                  value={boundTokenId}
+                                  ariaLabel={`${model} 账户密钥`}
+                                  onChange={(value) => updateBinding(model, "accountTokenId", value)}
+                                  options={[
+                                    { value: "", label: "使用全局选中密钥" },
+                                    ...(boundTokenId && !boundTokenLoaded
+                                      ? [{ value: boundTokenId, label: `密钥 #${boundTokenId} · 元数据未加载` }]
+                                      : []),
+                                    ...accountTokens.map((token) => ({
+                                      value: token.id,
+                                      label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : ""}`,
+                                      disabled: token.status !== 1
+                                    }))
+                                  ]}
+                                />
                               </Field>
                             ) : null}
                           </div>

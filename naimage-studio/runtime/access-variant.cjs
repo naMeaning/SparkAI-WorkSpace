@@ -114,7 +114,11 @@ function applyAccessPolicyToSettings(settings, policy) {
   };
   if (accountChanged) {
     next.serverToken = "";
+    next.serverAuthProtocol = "";
+    next.serverAccessToken = "";
+    next.serverAccessExpiresAt = 0;
     next.serverSessionCookie = "";
+    next.serverAuthSessionId = "";
     next.serverUserId = "";
     next.selectedAccountTokenId = "";
     next.selectedAccountTokenName = "";

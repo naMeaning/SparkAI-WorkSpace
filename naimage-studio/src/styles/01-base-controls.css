@@ -424,6 +424,131 @@
     opacity var(--motion-fast) var(--motion-ease);
 }
 
+/* Controlled select surface. The native <select> popup is owned by the
+   operating system, so settings surfaces use this small listbox primitive to
+   keep sizing, focus, and the active glass treatment in the app shell. */
+.glass-select {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.glass-select-trigger {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-action-h);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--ui-action-radius);
+  color: var(--ink);
+  background: var(--control-bg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glass-select-trigger:focus-visible,
+.glass-select.is-open .glass-select-trigger {
+  border-color: var(--accent);
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+.glass-select-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.glass-select-value,
+.glass-select-option-copy,
+.glass-select-option-copy > strong,
+.glass-select-option-copy > small {
+  min-width: 0;
+}
+
+.glass-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-select-menu {
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border-radius: 10px;
+}
+
+.glass-select-options {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow: auto;
+}
+
+.glass-select-option {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.glass-select-option:hover:not(:disabled),
+.glass-select-option:focus-visible,
+.glass-select-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-raised));
+}
+
+.glass-select-option:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.glass-select-option-copy {
+  display: grid;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.glass-select-option-copy > strong,
+.glass-select-option-copy > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.glass-select-option-copy > strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.glass-select-option-copy > small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 :where(.ui-field[data-ui-field]) > :where(textarea),
 textarea.ui-control {
   min-height: 96px;

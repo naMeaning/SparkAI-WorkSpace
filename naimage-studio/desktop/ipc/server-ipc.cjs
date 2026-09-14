@@ -26,6 +26,7 @@ function registerServerIpc({
   isNewApiAuthError,
   log,
   licenseService,
+  logoutNewApiSession,
   mapNewApiLogEntry,
   migrateSettings,
   modelSettingsWithCacheMeta,
@@ -174,12 +175,7 @@ function registerServerIpc({
     let remoteLogout = false;
     try {
       if (!(aidebugMode && !aidebugLiveImage) && settings.serverSessionCookie && settings.serverUserId) {
-        await newApiRequest(settings, "/api/user/logout", {
-          method: "POST",
-          headers: newApiUserAuthHeaders(settings),
-          timeoutMs: 5_000,
-          retries: 0
-        });
+        await logoutNewApiSession(settings);
         remoteLogout = true;
       }
     } catch (error) {
@@ -246,7 +242,8 @@ function registerServerIpc({
         let userData = { id: settings.serverUserId };
         try {
           const self = await newApiRequest(settings, "/api/user/self", {
-            headers: newApiUserAuthHeaders(settings)
+            headers: newApiUserAuthHeaders(settings),
+            userAuth: true
           });
           userData = self?.data || {};
         } catch (error) {
@@ -293,7 +290,8 @@ function registerServerIpc({
     try {
       if (!settings.serverSessionCookie || !settings.serverUserId) return { ok: true, logs: [] };
       const response = await newApiRequest(settings, newApiUserLogsEndpoint, {
-        headers: newApiUserAuthHeaders(settings)
+        headers: newApiUserAuthHeaders(settings),
+        userAuth: true
       });
       return { ok: true, logs: tokenItemsFromNewApiPayload(response).map(mapNewApiLogEntry) };
     } catch (error) {

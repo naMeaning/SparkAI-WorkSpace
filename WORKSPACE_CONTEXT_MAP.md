@@ -1,6 +1,6 @@
 # naimage 工作区上下文地图
 
-> 最近同步：2026-08-16
+> 最近同步：2026-08-26
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -92,7 +92,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改项目节点多窗口持久化 | `src/main.tsx`, `desktop/project-session-merge.cjs`, config IPC | session v5、Main commitRevision、顶层字段 clock、delete/restore tombstone 与 causal barrier、writer checkpoint/30 天 quorum GC、`test:node-mutation-journal`、`test:project-session-merge`、`test:project-session-dual-renderer`、`test:project-io` |
 | 修改 Agent 暂停/结束/steer | `desktop/agent-run-control.cjs`, Agent IPC/runtime、主/独立 Renderer | parent/child AbortSignal、节点锁、协议历史补齐、TaskScope update 的 Main 归一化/重哈希/先保存不变量、`test:agent-run-control`、`test:agent-steer`、窗口与 IPC 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
-| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/license-service.cjs`, `src/auth-gate.tsx` | `account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试 |
+| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/settings-secret-store.cjs`, `desktop/license-service.cjs`, `electron-main.cjs`, `src/auth-gate.tsx` | 原生 New API rc.23 auth bundle/旧 session 双协议、登录关键路径/后台预热边界、`account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/user/auth/*`、`/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试（含 `test:new-api-login`） |
 | 修改外部 Agent 控制或可自动化产品动作 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `src/automation-command-{registry,runtime}.ts`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单；`commands.schema.json` 同时驱动 Renderer、CLI 参考和测试。Graph 命令以 `canvas.state` 提供权威 revision/锁/关系并严格校验选择；mutation 强制项目 guard、canvas revision CAS 可选、Requirement update/execute revision 必需；图 mutation 与 create/update 整批提交，execute 仅在异步派发前 fence。GUI 动作变化必须同步 CLI 命令、Skill/参考文档和 `test:automation-service` |
 | 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；长 Prompt 归 Electron，插件禁止脚本注入、扩展执行和直接写 session |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |
@@ -113,6 +113,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 - 外部拖入图片先复制到当前项目管理目录；不得覆盖用户原图。
 - `config/`、Electron `userData/data/`、项目 session、素材、output 和 FastMemory 是用户/运行数据，普通代码整理不得清理。
 - Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存。磁盘可按账户保存脱敏的密钥列表/选择/原始额度/状态/分组，以及公开的 `quota_per_unit`、`usd_exchange_rate` 快照，但不得包含完整或掩码 Key、Cookie、IP 白名单、模型限制或派生显示文案。
+- 原生 New API rc.23 的 access token、HttpOnly refresh cookie 与 auth session ID 只由 Electron Main 解密使用，并与全局/逐模型自定义 API Key 一起进入 Windows `safeStorage` sidecar；普通设置、Renderer、日志、模型缓存和项目文件不得包含明文。
 - 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
@@ -169,7 +170,7 @@ corepack pnpm run package:extension
 
 | 合同 | 桌面侧 | 后端侧 | 修改时检查 |
 | --- | --- | --- | --- |
-| 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | cookie、`New-Api-User`、快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
+| 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `desktop/settings-secret-store.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | rc.23 Bearer access token + `new_api_refresh` cookie + auth session ID、到期/401 刷新 single-flight 与单次重放、旧 `session` + `New-Api-User` 回退；登录响应只等待认证/安全持久化/本地缓存，资料、Token/额度和模型目录后台预热；快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
 | Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC 激活匹配、管理员可解密的新码密文、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
@@ -179,7 +180,7 @@ corepack pnpm run package:extension
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；session cookie + `New-Api-User` 只管理账户、余额和密钥，模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
+桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
 账号模式纯文生图使用所选账户 Key 请求同域 `POST /v1/image-tasks`；Caddy 只把该路径交给 SparkAI Extension。扩展服务立即写入自己的 SQLite 任务表并返回 `task_id`，Bearer Key 只留在单进程内存，后台通过共享 Docker network 的容器 DNS调用原生 New API `/v1/images/generations`，原生 New API 继续完成鉴权、渠道选择、计费与上游同步等待。客户端每 2.5 秒查询 `GET /v1/image-tasks/:id`；SQLite 以 HMAC owner 隔离任务，结果短期落盘，服务重启把 queued/running 标记失败且不重放。Cloudflare 只承载短 POST/GET。拿到 `task_id` 或创建结果不明后不得重新 POST；只有扩展端点明确不支持时才回退既有同步链路。自定义 Base URL 仍直接访问用户接口，若其不支持 image-task 则走原兼容回退，用户 Base URL/API Key 不上传扩展 License API。
 

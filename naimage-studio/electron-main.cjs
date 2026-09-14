@@ -463,7 +463,11 @@ const defaultSettings = {
   updateBaseUrl: "https://sparkapi.org",
   networkProxyUrl: "",
   serverToken: "",
+  serverAuthProtocol: "",
+  serverAccessToken: "",
+  serverAccessExpiresAt: 0,
   serverSessionCookie: "",
+  serverAuthSessionId: "",
   serverUserId: "",
   selectedAccountTokenId: "",
   selectedAccountTokenName: "",
@@ -577,6 +581,7 @@ function aidebugSettings() {
   return {
     ...defaultSettings,
     serverToken: "aidebug-token",
+    serverAuthProtocol: "legacy",
     serverSessionCookie: "aidebug-session",
     serverUserId: "aidebug-user",
     imageModel: aidebugPublicSettings.imageModel,
@@ -804,6 +809,19 @@ function migrateSettings(value) {
     ? "1K"
     : normalizeImagePromptResolution(storedImageResolution, defaultSettings.imageResolution);
   next.modelGroup = String(next.modelGroup || "").trim().slice(0, 120);
+  next.serverAccessToken = String(next.serverAccessToken || "").trim().slice(0, 8_192);
+  next.serverAccessExpiresAt = Math.max(0, Math.floor(Number(next.serverAccessExpiresAt) || 0));
+  next.serverSessionCookie = String(next.serverSessionCookie || "").trim().slice(0, 8_192);
+  next.serverAuthSessionId = String(next.serverAuthSessionId || "").trim().slice(0, 512);
+  next.serverUserId = String(next.serverUserId || "").trim().slice(0, 128);
+  const inferredAuthProtocol = next.serverAccessToken || next.serverAuthSessionId || /^new_api_refresh=/i.test(next.serverSessionCookie)
+    ? "bundle"
+    : next.serverSessionCookie && next.serverUserId
+      ? "legacy"
+      : "";
+  next.serverAuthProtocol = ["bundle", "legacy"].includes(String(next.serverAuthProtocol || "").toLowerCase())
+    ? String(next.serverAuthProtocol).toLowerCase()
+    : inferredAuthProtocol;
   next.selectedAccountTokenId = /^\d+$/.test(String(next.selectedAccountTokenId || "")) ? String(next.selectedAccountTokenId) : "";
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
   next.selectedAccountTokenGroup = String(next.selectedAccountTokenGroup || "").trim().slice(0, 120);
@@ -900,7 +918,11 @@ function migrateSettings(value) {
     next.accountBaseUrl = defaultSettings.accountBaseUrl;
     next.relayBaseUrl = defaultSettings.relayBaseUrl;
     next.serverToken = "";
+    next.serverAuthProtocol = "";
+    next.serverAccessToken = "";
+    next.serverAccessExpiresAt = 0;
     next.serverSessionCookie = "";
+    next.serverAuthSessionId = "";
     next.serverUserId = "";
     next.selectedAccountTokenId = "";
     next.selectedAccountTokenName = "";
@@ -918,6 +940,10 @@ function migrateSettings(value) {
 function publicSettings(settings) {
   const next = settingsSecretStore.publicSettings({ ...migrateSettings(settings) });
   delete next.serverSessionCookie;
+  delete next.serverAuthProtocol;
+  delete next.serverAccessToken;
+  delete next.serverAccessExpiresAt;
+  delete next.serverAuthSessionId;
   delete next.serverUserId;
   delete next.licenseDeviceId;
   delete next.licenseToken;
@@ -1030,12 +1056,11 @@ const newApiClient = createNewApiClient({
 });
 const {
   customApiCredentials,
-  customApiHeaders,
   customApiUrl,
   directApiUrl,
-  extractSessionCookie,
   isNewApiAuthError,
   isCustomApiMode,
+  logoutNewApiSession,
   managedRelayEndpoint,
   newApiErrorMessage,
   newApiFetch,
@@ -1046,6 +1071,7 @@ const {
   newApiRelayStream,
   newApiRequest,
   newApiUserAuthHeaders,
+  parseNewApiLoginAuth,
   parseJsonText,
   persistNewApiSessionCookie,
   requireNewApiSession,
@@ -2357,8 +2383,9 @@ async function serverChatCompletion(payload = {}) {
   delete requestBody.fastMode;
   delete requestBody.signal;
   delete requestBody.onStreamEvent;
+  delete requestBody._forceChatFallback;
   const hasNativeResponsesTool = Array.isArray(requestBody.tools) && requestBody.tools.some((tool) => String(tool?.type || "") === "web_search");
-  const useResponsesApi = hasNativeResponsesTool || agentModelUsesResponsesApi(requestBody.model);
+  const useResponsesApi = !payload._forceChatFallback && (hasNativeResponsesTool || agentModelUsesResponsesApi(requestBody.model));
   const endpoint = useResponsesApi ? "/v1/responses" : "/v1/chat/completions";
   const relayBody = useResponsesApi ? responsesRequestFromChatRequest(requestBody) : requestBody;
   const imageToolChoiceName = String(requestBody.tool_choice?.function?.name || requestBody.toolChoice?.function?.name || "");
@@ -2373,6 +2400,7 @@ async function serverChatCompletion(payload = {}) {
   else callerSignal?.addEventListener?.("abort", abortFromCaller, { once: true });
   let timeoutError = null;
   let timeoutTimer = null;
+  let streamOutputObserved = false;
   const timeoutPromise = new Promise((_resolve, reject) => {
     timeoutError = new Error(`Agent 模型请求超过 ${Math.round(timeoutMs / 1000)} 秒，已中断。`);
     timeoutTimer = setTimeout(() => {
@@ -2386,6 +2414,8 @@ async function serverChatCompletion(payload = {}) {
       await Promise.race([
         newApiRelayStream(settings, endpoint, relayBody, (event) => {
           chunks.push(event);
+          const eventType = String(event?.type || "");
+          if (/output_text|tool_call|function_call|response.completed|response.failed/i.test(eventType)) streamOutputObserved = true;
           if (typeof payload.onStreamEvent === "function") payload.onStreamEvent(event);
         }, { signal: controller.signal, headersTimeoutMs: timeoutMs, connectTimeoutMs: 30_000 }),
         timeoutPromise
@@ -2404,12 +2434,47 @@ async function serverChatCompletion(payload = {}) {
   } catch (error) {
     if (callerSignal?.aborted) throw createAbortError(callerSignal.reason);
     if (error === timeoutError || controller.signal.aborted) throw timeoutError;
+    if (shouldFallbackResponsesToChat({
+      hasNativeResponsesTool,
+      forceChatFallback: payload._forceChatFallback === true,
+      streamOutputObserved,
+      error
+    })) {
+      log(`Responses chat unsupported; retrying once with Chat Completions model=${requestBody.model || "server-selected"}`);
+      return serverChatCompletion({ ...payload, _forceChatFallback: true });
+    }
     throw error;
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
     callerSignal?.removeEventListener?.("abort", abortFromCaller);
     controller.abort();
   }
+}
+
+function responsesChatUnsupportedError(error) {
+  const status = Number(error?.status);
+  if ([404, 405, 501].includes(status)) return true;
+  if (![400, 422].includes(status)) return false;
+  const payload = error?.data;
+  const message = String(payload?.error?.message || payload?.message || error?.message || "").toLowerCase();
+  return /(responses?|endpoint|route|tool|parameter|model)/.test(message)
+    && /(unsupported|not supported|unknown|unrecognized|not found|no route|invalid|does not exist)/.test(message);
+}
+
+function shouldFallbackResponsesToChat({
+  hasNativeResponsesTool = false,
+  forceChatFallback = false,
+  streamOutputObserved = false,
+  error = null
+} = {}) {
+  // Chat Completions does not define the Responses-native web_search tool.
+  // Never replay a request containing it against the Chat endpoint.
+  return !forceChatFallback
+    && !hasNativeResponsesTool
+    && !streamOutputObserved
+    && !error?.ambiguous
+    && !error?.unsafeToRetry
+    && responsesChatUnsupportedError(error);
 }
 
 function currentAgentSettings() {
@@ -3057,6 +3122,7 @@ async function fetchNewApiModelSettings(settings) {
   try {
     const groupsResponse = await newApiRequest(settings, "/api/user/self/groups", {
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       retries: 0
     });
     groupsLoaded = true;
@@ -3072,6 +3138,7 @@ async function fetchNewApiModelSettings(settings) {
   try {
     const userModels = await newApiRequest(settings, `/api/user/models${groupQuery}`, {
       headers: newApiUserAuthHeaders(settings),
+      userAuth: true,
       retries: 0
     });
     successfulRequests += 1;
@@ -3518,6 +3585,17 @@ function normalizeCompletedProviderUsage(value, requestIndex) {
   return Object.keys(usage).length > 1 ? usage : null;
 }
 
+function imageEditRequestHeaders(requestHeaders = {}, customMode = false, credentials = null) {
+  const next = { ...(requestHeaders && typeof requestHeaders === "object" ? requestHeaders : {}) };
+  if (!customMode) return next;
+  for (const key of Object.keys(next)) {
+    if (String(key).toLowerCase() === "authorization") delete next[key];
+  }
+  const apiKey = String(credentials?.apiKey || "").trim();
+  if (apiKey) next.authorization = `Bearer ${apiKey}`;
+  return next;
+}
+
 function completedImageAccounting(responses) {
   const providerUsage = [];
   let costCents = 0;
@@ -3810,7 +3888,6 @@ async function callNewApiImage(settings, payload = {}) {
     const executeAttempt = () => withImageRequestTimeout(async (signal) => {
       const prompt = promptForIndependentImage(payload.prompt, count, index);
       const requestHeaders = {
-        ...(customMode ? customApiHeaders(settings, "image", model) : newApiUserAuthHeaders(settings)),
         "Idempotency-Key": `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`
       };
       const onPartialImage = (partial) => {
@@ -3920,7 +3997,10 @@ async function callNewApiImage(settings, payload = {}) {
             absoluteUrl: customMode ? customApiUrl(settings, "/v1/images/edits", "image", model) : undefined,
             requestBaseUrl: customImageCredentials?.baseUrl,
             method: "POST",
-            headers: { ...requestHeaders, "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}${idempotencySuffix}` },
+            headers: imageEditRequestHeaders({
+              ...requestHeaders,
+              "Idempotency-Key": `${requestHeaders["Idempotency-Key"]}${idempotencySuffix}`
+            }, customMode, customImageCredentials),
             body: buildForm(aggressive),
             signal,
             headersTimeoutMs: imageTimeoutMs,
@@ -4201,7 +4281,7 @@ async function callNewApiImage(settings, payload = {}) {
 async function completeNewApiLogin(settings, payload = {}) {
   const previousEpoch = newApiAuthEpoch;
   const authEpoch = ++newApiAuthEpoch;
-  if (settings?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch, userId: String(settings.serverUserId) });
+  if (settings?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch });
   const login = await newApiFetch(settings, "/api/user/login", {
     method: "POST",
     timeoutMs: 20_000,
@@ -4217,16 +4297,19 @@ async function completeNewApiLogin(settings, payload = {}) {
     error.data = login.data;
     throw error;
   }
-  const sessionCookie = extractSessionCookie(login.response);
-  const loginUser = login.data?.data || {};
-  const serverUserId = String(loginUser.id || "").trim();
-  if (!serverUserId) throw new Error("New API 登录成功但没有返回 user id。");
-  if (!sessionCookie) throw new Error("New API 登录成功但没有返回 session cookie。");
+  const loginAuth = parseNewApiLoginAuth(login.response, login.data);
+  const loginUser = loginAuth.user;
+  const serverUserId = loginAuth.serverUserId;
 
   let nextSettings = migrateSettings({
     ...settings,
-    serverSessionCookie: sessionCookie,
+    serverAuthProtocol: loginAuth.protocol,
+    serverAccessToken: loginAuth.serverAccessToken,
+    serverAccessExpiresAt: loginAuth.serverAccessExpiresAt,
+    serverSessionCookie: loginAuth.serverSessionCookie,
+    serverAuthSessionId: loginAuth.serverAuthSessionId,
     serverUserId,
+    serverToken: "",
     selectedAccountTokenId: "",
     selectedAccountTokenName: "",
     selectedAccountTokenGroup: ""
@@ -4243,35 +4326,16 @@ async function completeNewApiLogin(settings, payload = {}) {
     throw error;
   }
   // Commit the new account identity before follow-up profile/model requests so
-  // late responses from the previous account cannot rotate this session.
+  // late responses from the previous account cannot rotate this session. The
+  // login response must not wait for profile, token, quota, or model catalog
+  // requests; those are refreshed by the renderer after the workspace opens.
+  accountTokenService.clearKeyCache();
   writeJson(settingsPath, nextSettings);
 
-  let userData = loginUser;
-  try {
-    const self = await newApiRequest(nextSettings, "/api/user/self", {
-      headers: newApiUserAuthHeaders(nextSettings)
-    });
-    userData = { ...loginUser, ...(self?.data || {}) };
-  } catch (error) {
-    log(`new-api self after login failed ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  nextSettings = migrateSettings({
-    ...nextSettings,
-    serverToken: ""
-  });
-  try {
-    await accountTokenService.ensureSelection(nextSettings);
-  } catch (error) {
-    log(`new-api token selection after login failed ${error instanceof Error ? error.message : String(error)}`);
-  }
-  let modelSettings;
-  try {
-    modelSettings = await newApiModelSettings(nextSettings);
-  } catch (error) {
-    log(`new-api models after login failed ${error instanceof Error ? error.message : String(error)}`);
-    modelSettings = modelSettingsWithCacheMeta(splitModelSettings(nextSettings, []), "settings", Date.now());
-  }
+  // Use only local settings and an already-loaded cache entry for the first
+  // workspace paint. `refreshServerState()` performs the authoritative
+  // profile/token/model warm-up in the background after login succeeds.
+  const modelSettings = await newApiModelSettings(nextSettings, { cacheOnly: true });
   nextSettings = migrateSettings({
     ...nextSettings,
     imageModel: nextSettings.imageModel || modelSettings.imageModel || preferredImageModelFromList(modelSettings.imageModels),
@@ -4294,8 +4358,8 @@ async function completeNewApiLogin(settings, payload = {}) {
   return {
     ok: true,
     sessionId: serverUserId,
-    user: normalizeNewApiUser(userData),
-    wallet: walletFromNewApiUser(userData),
+    user: normalizeNewApiUser(loginUser),
+    wallet: walletFromNewApiUser(loginUser),
     settings: {
       ...modelSettings,
       imageModel: nextSettings.imageModel,
@@ -4308,20 +4372,28 @@ async function completeNewApiLogin(settings, payload = {}) {
 function clearNewApiAuth(settings) {
   const stored = migrateSettings(readJson(settingsPath, defaultSettings));
   const expectedUserId = String(settings?.serverUserId || "");
+  const expectedAccessToken = String(settings?.serverAccessToken || "");
   const expectedCookie = String(settings?.serverSessionCookie || "");
+  const expectedAuthSessionId = String(settings?.serverAuthSessionId || "");
   if (
     (expectedUserId && String(stored.serverUserId || "") !== expectedUserId) ||
-    (expectedCookie && String(stored.serverSessionCookie || "") !== expectedCookie)
+    (expectedAccessToken && String(stored.serverAccessToken || "") !== expectedAccessToken) ||
+    (expectedCookie && String(stored.serverSessionCookie || "") !== expectedCookie) ||
+    (expectedAuthSessionId && String(stored.serverAuthSessionId || "") !== expectedAuthSessionId)
   ) {
     return stored;
   }
   const clearingEpoch = newApiAuthEpoch;
   newApiAuthEpoch += 1;
-  if (expectedUserId) void stopActiveNewApiCurlTransports({ authEpoch: clearingEpoch, userId: expectedUserId });
+  if (expectedUserId) void stopActiveNewApiCurlTransports({ authEpoch: clearingEpoch });
   const next = migrateSettings({
     ...stored,
     serverToken: "",
+    serverAuthProtocol: "",
+    serverAccessToken: "",
+    serverAccessExpiresAt: 0,
     serverSessionCookie: "",
+    serverAuthSessionId: "",
     serverUserId: "",
     selectedAccountTokenId: "",
     selectedAccountTokenName: "",
@@ -4604,7 +4676,7 @@ function registerIpc() {
       const previousEpoch = newApiAuthEpoch;
       newApiAuthEpoch += 1;
       accountTokenService.clearKeyCache();
-      if (current?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch, userId: String(current.serverUserId) });
+      if (current?.serverUserId) void stopActiveNewApiCurlTransports({ authEpoch: previousEpoch });
     },
     onSettingsSaved(_event, next) {
       const backgroundColor = nativeWindowBackgroundColor(next);
@@ -4709,6 +4781,7 @@ function registerIpc() {
     extractServerImages,
     getNewApiAuthEpoch: () => newApiAuthEpoch,
     isNewApiAuthError,
+    logoutNewApiSession,
     mapNewApiLogEntry,
     modelSettingsWithCacheMeta,
     newApiModelSettings,
@@ -4824,11 +4897,13 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     assetUrlFor,
     decodeLocalAssetUrl,
     clearNewApiAuth,
+    completeNewApiLogin,
     createProjectSaveCoordinator,
     defaultSession,
     encodedImageDimensions,
     ensureProjectFiles,
     imageEditRequestLimiterStatus,
+    imageEditRequestHeaders,
     importProjectPackage,
     nextExternalProjectFolderPath,
     normalizeSessionRevision,
@@ -4873,6 +4948,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     responsesInputItemFromOutput,
     responsesRequestFromChatRequest,
     responsesToolsFromChatTools,
+    shouldFallbackResponsesToChat,
     tokenItemsFromNewApiPayload,
     withImageEditRequestSlot,
     sessionForProjectSave,

@@ -201,7 +201,7 @@ export function createRuntimeEvaluator({ holdAsyncIifePromises = false } = {}) {
   let holdSequence = 0;
   return async function evaluate(client, expression, timeoutMs = 30000) {
     let evaluatedExpression = expression;
-    if (holdAsyncIifePromises && /^\s*\(async\s*\(/.test(String(expression || ""))) {
+    if (holdAsyncIifePromises && /^\s*(\(async\s*\(|new\s+Promise\s*\()/.test(String(expression || ""))) {
       const holdKey = `probe-${++holdSequence}`;
       evaluatedExpression = `(() => {
         const key = ${JSON.stringify(holdKey)};

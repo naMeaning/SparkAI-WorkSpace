@@ -5,6 +5,10 @@
 
 当前里程碑：阶段 1–13 的既有产品实现保留。当前 Goal 的项目根、旧数据迁移、导出完善、成果图片生成参数展示、顶部对话框生图规格绑定、Cloudflare 图片长请求任务化 MVP，以及 Agent 文本原生复制、图片内容摘要标题、production 迁移确认兼容均已完成实现；本轮继续把图片组交付目录收口为项目级 `image-groups/<图片组名>/`，并将画布连线改为非破坏连接头、精确目标命中和具体边断开。新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。旧数据迁移工具显式扫描 AppData 中的旧项目/全局 Session，复制到用户选择的项目目录，并在目标空间预检、完整哈希校验、原子发布、索引切换后才允许单独确认清理源数据；preload 只对 production 压缩产生的数字 `1` 做有界布尔恢复，Main 仍严格要求显式确认。Agent 普通消息允许原生选中和 `Ctrl+C`，不增加逐消息按钮。生成成果由本地纯函数从 Prompt 提炼内容摘要，统一节点、图片组、资产和槽位标题，不修改原始 Prompt、不增加模型调用。应用级设置、加密密钥、账号/模型缓存、项目索引和迁移回执继续留在系统应用数据目录，不进入项目或安装目录。每张生成图独立保留白名单请求/响应/耗时元数据，编辑成果按请求、响应、成图实测和本次运行分源展示；缺失响应字段不推测，本地导入不继承虚假请求。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格，模型提交的冲突参数不得覆盖；请求同时携带结构化画幅参数，并在上游 Prompt 中明确画幅、清晰度和最终像素。纯文生图默认向独立 SparkAI Extension 创建任务并轮询短 GET，扩展进程再通过私网同步调用用户现有的原生 New API；不再要求维护 New API fork。编辑/参考图及第三方同步接口保持兼容。全程未调用真实模型。
 
+当前优先兼容轨道（2026-08-26）：桌面账号模式兼容原生 New API `v1.0.0-rc.23` 的 access token + HttpOnly refresh cookie + auth session 协议，同时保留旧版 `session` cookie + `New-Api-User` 回退。登录凭据只能由 Electron Main 持有并进入 Windows `safeStorage` sidecar；受保护账户请求在 access token 到期或明确 401 时至多刷新并重放一次，并发刷新必须合并。登录返回关键路径只等待 `/api/user/login`、认证 bundle 安全持久化和本地/缓存模型设置，用户资料、账户 Token/额度和模型目录在工作区打开后后台预热。账号登录不得改变模型连接优先级：逐模型自定义 API Key 继续优先于模型绑定账户 Token 和全局账户 Token，provider 请求的 Authorization 只能由解析后的模型连接生成。该轨道不访问真实 New API 或模型服务，以 `test:new-api-login` loopback 专项、相关纯逻辑回归和 production build 收口。
+
+当前交互质量轨道（2026-08-26，已完成实现与专项验证）：修复最小支持窗口下 Agent 对话区和设置/模型配置表面的控件挤压、换行与弹层裁切；框选多个普通图片后拖入图片容器把完整选区一次性归组，不能只迁移指针命中的单图；连接头拖线、空白取消、`Escape`/`pointercancel`、具体边选中与断开采用与 Project Graph 一致的明确选择和零副作用取消语义；账户密钥与逐模型账户密钥选择器改为应用内可键盘操作的透明玻璃菜单，避免操作系统原生白色下拉破坏主题。实现复用 canonical selection、layout group 与 relation 状态，不增加第二套画布或模型配置 authority；隔离 fixture、专项与真实 Electron 最小窗口验证已通过，未调用模型。
+
 并行治理轨道：已完成工作区 Agent Harness。它把历史对话中的稳定用户意图、任务路由、授权边界、验证分级与完成审计固化为根目录 `AGENTS.md`、`HARNESS.md`、`harness/` 及结构校验器；该轨道不覆盖阶段 10 的产品目标，也不扩大其测试范围。
 
 当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性均已完成实现和专项验证。最终源码稳定报告 [verify-2026-08-15T22-12-37-714Z/report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 为 `113/113`、`sourceStable:true`；此前暴露的共享弹层焦点竞态和 AskUser 窄屏裁剪残片误报均已修复。Commerce、Glass、Graph CLI 和导出 UI AIDebug 现在都使用显式隔离项目 fixture，不依赖废弃的 AppData 默认项目；Session mutation journal 也已补上待提交事件保留回归。正式 `release:final` 仍因本机现有安装在零步骤预检退出而保留 incomplete，强制 Bundle、本地双版本候选和针对性门禁已通过，但不冒充正式发布。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内。
@@ -88,6 +92,23 @@
 | 当前追加：原生 New API 外置扩展（已完成） | 保持用户已部署 New API 原生可升级；`sparkai-extension` 只运行 License 与 image-task 扩展 | 根入口、SQLite/HMAC License、管理员 CLI、内存凭据图片队列、强制 Docker 内网、宿主机/Docker Caddy 示例、包内 Codex `AGENTS.md`、ZIP/TAR.GZ 打包器和双仓文档已闭环；旧 fork 待真实部署/备份/回滚验证后另行删除。 |
 | 当前追加：图片组项目目录与连线交互（已完成） | 图片组名称直接映射项目级交付文件夹；多组选中导出多个同级目录；连线与取消必须非破坏且可精确断开 | Main-only 新目录、旧目录兼容、整批原子发布、真实边身份、精确目标、单边/批量断开、隔离 GUI、最终 build 与双 Windows x64 测试包均已核验。 |
 | 当前整备：大量图片、统一导出与安全验收（已完成实现） | 常驻缩略图 Worker、扩大缓存、项目级统一导出中心，以及默认拒绝真实请求/真实迁移的验收工具 | 10 张 4K 冷热缓存证据、导出逻辑/UI、迁移/模型验收专项、15 场景 UI Surface 和三轮产品性能门禁均通过；Agent Text UI 与 AskUser GUI 修复后均连续两轮通过。最终 `release:verify` 为 113/113 且源码稳定。正式发布仍只接受同一次完整 `release:final`，现有安装阻断时生成的双版本包只能称本地候选。 |
+
+## 交互质量与玻璃控件核验（2026-08-26）
+
+- Agent composer 和设置抽屉改用自身容器宽度的响应式网格；模式、素材、模型、比例、清晰度和实际尺寸在窄面板中分行/整行收纳，弹层保持在可视区内。设置账户密钥和逐模型账户密钥统一使用 `GlassSelect` Portal/listbox，支持禁用项、键盘移动、Escape/Tab 关闭和焦点返回，菜单沿用 Glass token。
+- 画布框选拖动从 canonical `selectedNodeIdsRef` 收集全部普通单图；命中图片容器后先回滚临时 transform，再以一次 layout mutation 原子归组，排除所有源节点作为目标且不改写 `parentId`/`relationType`。失败保持原布局并显示可见错误。
+- Project Graph 风格连线保留底层真实 source/target、relation type 和 Requirement input role；单击连接头、空白松手、Escape、pointercancel 只取消草稿，具体边菜单使用精确关系 CAS，旧菜单不能误删替换后的新边。
+- 通过 `test:workspace-glass-ui`（164）、`test:agent-panel-ui`（52）、`test:selection`（16）、`test:image-layout`（15）、`test:image-container`（12）、`test:requirement-graph`、`test:custom-api-transport`（39）、`test:new-api-login`、`test:ui-foundation`、`typecheck` 与 `git diff --check`；真实 Electron 窄面板/四类玻璃菜单截图已人工复核，未调用模型。文档冻结后的 production build 与双变体 Windows x64 package 已完成。
+
+## 原生 New API rc.23 登录兼容与提速核验（2026-08-26）
+
+- `completeNewApiLogin()` 登录返回关键路径只等待 `/api/user/login`、rc.23/旧 session 认证数据解析、安全持久化和 `cacheOnly` 模型设置；用户资料、账户 Token/额度和模型目录由 Renderer 进入工作区后的既有 `refreshServerState()` 后台刷新。登录时清理旧 `serverToken`、旧账户 Token 选择和 Main 完整 Key cache，认证 epoch 继续拒绝迟到的旧账户响应。
+- `test:new-api-login` 把 `/api/user/self`、Token/额度与模型目录 fixture 固定延迟 1.5 秒，最终复跑登录为 111 ms 且只请求一次 `/api/user/login`；专项同时证明 rc.23 auth bundle 进入加密 sidecar、普通设置和返回 DTO 无明文、旧账户 Token 选择被清空。
+- 本轮 `test:custom-api-transport` 39 cases、`test:account-token`、`test:settings-secret-store`、`test:settings-lazy-load` 67 cases、`test:settings-persistence` 124 cases、`test:agent-model-binding` 4 cases、`test:access-variant`、`test:ipc-registration` 147/144/3、三个 CJS 语法检查、`typecheck` 与 `git diff --check` 均退出 0。传输专项明确覆盖 refresh single-flight、401 单次重放、provider Authorization 锁定和“逐模型自定义 Key → 模型账户 Token → 全局账户 Token”。
+- 独立 production build 转换 1674 modules、15.71 s；`package:win:variants` 退出 0，内含两次 production build 和双 Electron/NSIS/品牌封装，`bundleEnforced:false`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,979,520 bytes（167.83 MiB），2026-08-26 15:30:01 +08:00，SHA-256 `7DB90B013E7341E3B7BD1D38FDA1C7755870C071F2BD0C12606E32D268CC719E`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,979,520 bytes（167.83 MiB），2026-08-26 15:31:15 +08:00，SHA-256 `4846618581E72C38E80E8F0DC9336FEE8344489BE773CA8B4B2E64E44F712662`。
+- 两个安装器的 Authenticode 状态均为 `NotSigned`。本轮未运行受既有 Electron GPU 启动限制影响的 `test:new-api-transport`，未做真实安装/卸载 smoke，未访问真实 New API、License、图片或视频模型，未执行正式 Bundle/发布验收，也未提交、推送或发布。
 
 ## 本地整备收口（2026-08-16）
 

@@ -224,7 +224,11 @@ export type ApiSettings = {
   updateBaseUrl: string;
   networkProxyUrl: string;
   serverToken: string;
+  serverAuthProtocol: "" | "legacy" | "bundle";
+  serverAccessToken: string;
+  serverAccessExpiresAt: number;
   serverSessionCookie: string;
+  serverAuthSessionId: string;
   serverUserId: string;
   selectedAccountTokenId: string;
   selectedAccountTokenName: string;
@@ -1067,6 +1071,13 @@ export type AgentTaskScope = {
   referenceContainerIds: string[];
   sourceBindingIds: string[];
   referenceBindingIds: string[];
+  /**
+   * Canonical user-provided visual context. `role` is only a provenance hint;
+   * the model may decide which material is a target, reference, or style cue.
+   * The legacy source/reference projections remain for persisted-session
+   * compatibility and are derived from this list when it is present.
+   */
+  materials?: TaskAssetReference[];
   sourceAssets: TaskAssetReference[];
   referenceAssets: TaskAssetReference[];
   resultPolicy: AgentTaskResultPolicy;
@@ -1232,12 +1243,21 @@ export function validatePendingRequirementContinuation(
 }
 
 export type AgentMessageAttachments = {
+  /** Unified user-selected material context. Roles are provenance hints, not UI gates. */
+  materials?: TaskAssetReference[];
+  materialCount?: number;
   sourceAssets?: TaskAssetReference[];
   referenceAssets?: TaskAssetReference[];
   sourceCount?: number;
   referenceCount?: number;
   truncated?: boolean;
 };
+
+export function agentTaskScopeMaterials(scope: Pick<AgentTaskScope, "materials" | "sourceAssets" | "referenceAssets">): TaskAssetReference[] {
+  const canonical = Array.isArray(scope.materials) ? scope.materials : [];
+  return (canonical.length ? canonical : [...(scope.sourceAssets || []), ...(scope.referenceAssets || [])])
+    .map((asset) => ({ ...asset }));
+}
 
 export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshotHash"> | AgentTaskScope) {
   const materialAsset = (item: TaskAssetReference) => ({
@@ -1257,6 +1277,7 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
     referenceRole: item.referenceRole || "",
     purpose: item.purpose || ""
   });
+  const canonicalMaterials = agentTaskScopeMaterials(scope);
   const material = {
     version: 2,
     origin: scope.origin,
@@ -1267,8 +1288,7 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
     referenceContainerIds: [...scope.referenceContainerIds],
     sourceBindingIds: [...scope.sourceBindingIds],
     referenceBindingIds: [...scope.referenceBindingIds],
-    sourceAssets: scope.sourceAssets.map(materialAsset),
-    referenceAssets: scope.referenceAssets.map(materialAsset),
+    materials: canonicalMaterials.map(materialAsset),
     resultPolicy: scope.resultPolicy,
     confirmationPolicy: scope.confirmationPolicy,
     requirement: scope.requirement
@@ -3914,11 +3934,12 @@ export function validMessages(value: unknown): AgentMessage[] {
             .slice(0, 8)
         : undefined;
       const role: MessageRole = message.role === "user" || message.role === "system" ? message.role : "assistant";
-      const sanitizeAttachmentItems = (items: unknown, taskRole: AssetTaskRole): TaskAssetReference[] => Array.isArray(items)
+      const sanitizeAttachmentItems = (items: unknown, taskRole: AssetTaskRole, preserveRole = false): TaskAssetReference[] => Array.isArray(items)
         ? items
             .filter((item) => item && typeof item === "object")
             .map((item, index) => {
               const candidate = item as Partial<TaskAssetReference>;
+              const effectiveRole: AssetTaskRole = preserveRole && candidate.role === "reference" ? "reference" : taskRole;
               const rawPath = typeof candidate.path === "string" ? candidate.path.trim() : "";
               const rawRelativePath = typeof candidate.relativePath === "string" ? candidate.relativePath.trim() : "";
               const rawAssetUrl = typeof candidate.assetUrl === "string" ? candidate.assetUrl.trim() : "";
@@ -3940,10 +3961,10 @@ export function validMessages(value: unknown): AgentMessage[] {
                 sourceRelativePath: safeImageSourceRelativePath(candidate.sourceRelativePath),
                 sourceRootLabel: typeof candidate.sourceRootLabel === "string" && candidate.sourceRootLabel.trim() ? candidate.sourceRootLabel.trim().slice(0, 260) : undefined,
                 sourceRootKind: candidate.sourceRootKind === "directory" ? "directory" as const : candidate.sourceRootKind === "file" ? "file" as const : undefined,
-                displayCode: typeof candidate.displayCode === "string" && candidate.displayCode.trim() ? candidate.displayCode.trim().slice(0, 32) : `${taskRole === "source" ? "SRC" : "REF"}${index + 1}`,
+                displayCode: typeof candidate.displayCode === "string" && candidate.displayCode.trim() ? candidate.displayCode.trim().slice(0, 32) : `${effectiveRole === "source" ? "SRC" : "REF"}${index + 1}`,
                 contentHash,
-                role: taskRole,
-                name: typeof candidate.name === "string" && candidate.name.trim() ? candidate.name.trim().slice(0, 260) : `${taskRole === "source" ? "原图" : "参考图"} ${index + 1}`,
+                role: effectiveRole,
+                name: typeof candidate.name === "string" && candidate.name.trim() ? candidate.name.trim().slice(0, 260) : `${effectiveRole === "source" ? "素材" : "参考素材"} ${index + 1}`,
                 assetIndex: Number.isInteger(Number(candidate.assetIndex)) && Number(candidate.assetIndex) >= 0
                   ? Math.floor(Number(candidate.assetIndex))
                   : undefined,
@@ -3963,16 +3984,20 @@ export function validMessages(value: unknown): AgentMessage[] {
                 assetUrl,
                 mimeType: typeof candidate.mimeType === "string" && candidate.mimeType.trim() ? candidate.mimeType.trim().slice(0, 120) : undefined,
                 purpose: typeof candidate.purpose === "string" && candidate.purpose.trim() ? candidate.purpose.trim().slice(0, 500) : undefined,
-                referenceRole: taskRole === "reference" && typeof candidate.referenceRole === "string" && candidate.referenceRole.trim() ? candidate.referenceRole.trim().slice(0, 80) : undefined
+                referenceRole: effectiveRole === "reference" && typeof candidate.referenceRole === "string" && candidate.referenceRole.trim() ? candidate.referenceRole.trim().slice(0, 80) : undefined
               };
             })
             .slice(0, 40)
         : [];
       const sourceAssets = sanitizeAttachmentItems(message.attachments?.sourceAssets, "source");
       const referenceAssets = sanitizeAttachmentItems(message.attachments?.referenceAssets, "reference");
+      const materials = sanitizeAttachmentItems(message.attachments?.materials, "source", true);
+      const canonicalMaterials = materials.length ? materials : [...sourceAssets, ...referenceAssets];
       const sourceCount = Math.max(sourceAssets.length, Math.floor(Number(message.attachments?.sourceCount ?? sourceAssets.length) || sourceAssets.length));
       const referenceCount = Math.max(referenceAssets.length, Math.floor(Number(message.attachments?.referenceCount ?? referenceAssets.length) || referenceAssets.length));
-      const attachments = sourceCount || referenceCount ? {
+      const attachments = canonicalMaterials.length || sourceCount || referenceCount ? {
+        materials: canonicalMaterials,
+        materialCount: Math.max(canonicalMaterials.length, Math.floor(Number(message.attachments?.materialCount ?? canonicalMaterials.length) || canonicalMaterials.length)),
         sourceAssets,
         referenceAssets,
         sourceCount,

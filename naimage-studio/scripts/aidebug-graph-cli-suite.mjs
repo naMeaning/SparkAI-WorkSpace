@@ -954,8 +954,8 @@ async function main() {
       port: debugPort,
       attempts: 120,
       intervalMs: 250,
-      findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url || "").startsWith(devUrl) || /naimage/i.test(String(item.title || "")))),
-      notFoundMessage: `No naimage Renderer target appeared on ${debugPort}.`
+      findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url || "").startsWith(devUrl) || String(item.title || "").includes("SparkAI WorkSpace"))),
+      notFoundMessage: `No SparkAI WorkSpace Renderer target appeared on ${debugPort}.`
     });
     client = new BasicCdpClient(target.webSocketDebuggerUrl);
     await client.open();

@@ -156,7 +156,11 @@ export const defaultSettings: AppSettings = {
   updateBaseUrl: DEFAULT_UPDATE_BASE_URL,
   networkProxyUrl: "",
   serverToken: "",
+  serverAuthProtocol: "",
+  serverAccessToken: "",
+  serverAccessExpiresAt: 0,
   serverSessionCookie: "",
+  serverAuthSessionId: "",
   serverUserId: "",
   selectedAccountTokenId: "",
   selectedAccountTokenName: "",
@@ -350,7 +354,11 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
     next.accountBaseUrl = defaultSettings.accountBaseUrl;
     next.relayBaseUrl = defaultSettings.relayBaseUrl;
     next.serverToken = "";
+    next.serverAuthProtocol = "";
+    next.serverAccessToken = "";
+    next.serverAccessExpiresAt = 0;
     next.serverSessionCookie = "";
+    next.serverAuthSessionId = "";
     next.serverUserId = "";
     next.selectedAccountTokenId = "";
     next.selectedAccountTokenName = "";

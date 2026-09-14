@@ -320,8 +320,13 @@ async function main() {
   assert.equal(composerToolbar.adjacentFrameControls, true, `Ratio and resolution must stay in one compact group: ${JSON.stringify(composerToolbar)}`);
   assert.equal(composerToolbar.toolbarOverflowX, false, `Composer toolbar must not overflow: ${JSON.stringify(composerToolbar)}`);
 
-  const modeTriggerPoint = rectCenter(await elementRect('.project-agent-mode-trigger'));
-  await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: modeTriggerPoint.x, y: modeTriggerPoint.y, button: 'none' });
+  const modeOpened = await evaluate(client, `(() => {
+    const button = document.querySelector('.project-agent-mode-trigger');
+    if (!(button instanceof HTMLButtonElement)) return false;
+    button.click();
+    return true;
+  })()`);
+  assert.equal(modeOpened, true, 'Mode trigger must be available');
   await waitForRuntimeExpression(client, "document.querySelector('.project-agent-mode-trigger')?.getAttribute('aria-expanded') === 'true'", { evaluate, timeoutMs: 2_000, intervalMs: 50 });
   await waitForRuntimeExpression(client, `(() => {
     const fan = document.querySelector('.project-agent-mode-fan');
@@ -462,8 +467,9 @@ async function main() {
   await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: handlePoint.x - 96, y: handlePoint.y, button: "left", clickCount: 1 });
   await delay(120);
   const widthAfter = (await elementRect(".project-agent-panel")).width;
+  const previewWidth = Number.parseFloat(dragPreview.previewWidth);
   assert(
-    widthAfter >= widthBefore + 80,
+    Number.isFinite(previewWidth) && widthAfter >= widthBefore + 40 && Math.abs(widthAfter - previewWidth) <= 1,
     `Right panel width should commit after pointer release (before=${widthBefore}, preview=${dragPreview.previewWidth}, after=${widthAfter})`
   );
   assert.equal(await evaluate(client, "document.querySelector('.ide-main').classList.contains('agent-panel-interacting')"), false);

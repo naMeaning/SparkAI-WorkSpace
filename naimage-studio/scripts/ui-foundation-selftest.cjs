@@ -10,6 +10,7 @@ const uiModulePaths = [
   "dialog-shell.tsx",
   "primitives.tsx",
   "menu-surface.tsx",
+  "glass-select.tsx",
   "unsaved-changes-dialog.tsx",
   "overflow-tooltip.tsx",
   "floating-dialog-interactions.ts",
@@ -51,6 +52,7 @@ const mainSource = fs.readFileSync(mainPath, "utf8");
 const imageWorkspaceOverlaysSource = fs.readFileSync(imageWorkspaceOverlaysPath, "utf8");
 const projectAgentPanelSource = fs.readFileSync(projectAgentPanelPath, "utf8");
 const settingsDrawerSource = fs.readFileSync(settingsDrawerPath, "utf8");
+const modelConfigDialogSource = fs.readFileSync(modelConfigDialogPath, "utf8");
 const baseTokenSource = fs.readFileSync(baseTokenPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 const businessUiSource = [
   accountDrawerPath,
@@ -234,13 +236,13 @@ const publicUiSymbols = [
   "DialogShell", "DrawerShell", "SurfaceBody", "SurfaceFooter", "SurfaceHeader", "SurfaceSection",
   "ActionButton", "ButtonBase", "CodeField", "ErrorBoundary", "Field", "IconActionButton", "InlineNotice",
   "SearchField", "SegmentButton", "SegmentedControl", "StatusLine", "MenuItem", "MenuSeparator", "MenuSummary",
-  "MenuSurface", "UnsavedChangesDialog", "OverflowTooltipLayer", "useFloatingDialogInteractions",
+  "MenuSurface", "GlassSelect", "UnsavedChangesDialog", "OverflowTooltipLayer", "useFloatingDialogInteractions",
 ];
 for (const symbol of publicUiSymbols) {
   check(`${symbol} stays on the ui.tsx compatibility facade`, new RegExp(`\\b${symbol}\\b`).test(uiFacadeSource));
 }
 
-for (const primitive of ["SurfaceSection", "Field", "CodeField", "InlineNotice", "StatusLine", "MenuSurface", "MenuItem", "MenuSeparator", "MenuSummary", "SegmentedControl", "SegmentButton", "SearchField"]) {
+for (const primitive of ["SurfaceSection", "Field", "CodeField", "InlineNotice", "StatusLine", "MenuSurface", "GlassSelect", "MenuItem", "MenuSeparator", "MenuSummary", "SegmentedControl", "SegmentButton", "SearchField"]) {
   check(`${primitive} primitive is exported`, new RegExp(`export function ${primitive}\\b`).test(uiSource));
 }
 for (const selector of [".ui-surface-section", ".ui-field[data-ui-field]", ".ui-inline-notice", ".ui-status-line", ".ui-menu-surface"]) {
@@ -254,6 +256,28 @@ check("MenuItem exposes a fixed semantic menu contract", /data-ui-menu-item="tru
 check("MenuItem uses icon, label, and shortcut columns", /grid-template-columns:\s*18px minmax\(0, 1fr\) max-content/.test(activeCss));
 check("MenuItem danger tone has a dedicated visual rule", Boolean(ruleBody(".canvas-context-menu .ui-menu-item-danger")));
 check("MenuSeparator exposes separator semantics", /role="separator"/.test(uiSource));
+check(
+  "GlassSelect renders a controlled listbox through MenuSurface",
+  /export function GlassSelect/.test(uiSource) &&
+    uiSource.includes('className="glass-select-menu"') &&
+    /role="listbox"/.test(uiSource) &&
+    /role="option"/.test(uiSource)
+);
+check(
+  "GlassSelect keeps keyboard navigation and disabled options in its contract",
+  /event\.key === "ArrowDown"/.test(uiSource) &&
+    /event\.key === "Home" \|\| event\.key === "End"/.test(uiSource) &&
+    /disabled=\{option\.disabled\}/.test(uiSource)
+);
+check(
+  "account and per-model token pickers use GlassSelect instead of native popovers",
+  /ariaLabel="当前使用密钥"/.test(settingsDrawerSource) &&
+    /<GlassSelect/.test(settingsDrawerSource) &&
+    /ariaLabel=\{`\$\{model\} 账户密钥`\}/.test(modelConfigDialogSource) &&
+    /<GlassSelect/.test(modelConfigDialogSource)
+);
+check("GlassSelect has a stable trigger style", Boolean(ruleBody(".glass-select-trigger")));
+check("GlassSelect has a stable option style", Boolean(ruleBody(".glass-select-option")));
 
 check(
   "Field child controls use a low-specificity foundation selector",

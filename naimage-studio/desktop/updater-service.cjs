@@ -668,7 +668,8 @@ function createDesktopUpdaterService(options = {}) {
     const query = new URLSearchParams(request).toString();
     const response = await newApiRequest(settings, `/api/desktop-update/check?${query}`, {
       service: "update",
-      headers: desktopUpdateRequestHeaders(settings)
+      headers: desktopUpdateRequestHeaders(settings),
+      userAuth: true
     });
     let verified = verifyDesktopReleasePayload(response?.data || response);
     const recovery = desktopUpdateRollbackRecovery(publicPendingDesktopUpdate());
@@ -926,6 +927,7 @@ function createDesktopUpdaterService(options = {}) {
         service: "update",
         method: "POST",
         headers: desktopUpdateRequestHeaders(settings),
+        userAuth: true,
         body: desktopUpdatePlatformPayload()
       });
       const data = response?.data || response;
@@ -947,7 +949,8 @@ function createDesktopUpdaterService(options = {}) {
       const response = await newApiRequest(settings, "/api/desktop-download/captcha", {
         service: "update",
         method: "POST",
-        headers: desktopUpdateRequestHeaders(settings)
+        headers: desktopUpdateRequestHeaders(settings),
+        userAuth: true
       });
       const data = response?.data || response;
       const installer = normalizeDesktopUpdateArtifact(data.installer, "installer", latestDesktopUpdate.latestVersion);
@@ -991,6 +994,7 @@ function createDesktopUpdaterService(options = {}) {
         service: "update",
         method: "POST",
         headers: desktopUpdateRequestHeaders(settings),
+        userAuth: true,
         body: {
           product: DESKTOP_UPDATE_PRODUCT,
           challenge_id: challengeId,

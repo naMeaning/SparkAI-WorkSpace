@@ -338,12 +338,6 @@ textarea {
     padding-right: 118px;
   }
 
-  .titlebar-brand strong {
-    max-width: 118px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   .project-actions {
     max-width: min(520px, calc(100vw - 360px));
   }

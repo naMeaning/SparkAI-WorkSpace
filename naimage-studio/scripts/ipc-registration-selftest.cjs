@@ -263,7 +263,11 @@ async function assertSettingsAccountBoundary() {
     relayBaseUrl: "",
     updateBaseUrl: "https://sparkapi.org",
     serverToken: "",
+    serverAuthProtocol: "",
+    serverAccessToken: "",
+    serverAccessExpiresAt: 0,
     serverSessionCookie: "",
+    serverAuthSessionId: "",
     serverUserId: "",
     selectedAccountTokenId: "",
     selectedAccountTokenName: "",
@@ -276,7 +280,11 @@ async function assertSettingsAccountBoundary() {
   };
   let stored = {
     ...defaults,
-    serverSessionCookie: "session=old",
+    serverAuthProtocol: "bundle",
+    serverAccessToken: "access-main-owned",
+    serverAccessExpiresAt: 123456,
+    serverSessionCookie: "new_api_refresh=refresh-main-owned",
+    serverAuthSessionId: "sid-main-owned",
     serverUserId: "7",
     selectedAccountTokenId: "11",
     selectedAccountTokenName: "fixture",
@@ -301,6 +309,12 @@ async function assertSettingsAccountBoundary() {
   const event = { sender: { id: 91 } };
   const relayOnly = await save(event, {
     relayBaseUrl: "https://relay.example",
+    serverAuthProtocol: "legacy",
+    serverAccessToken: "access-renderer-tampered",
+    serverAccessExpiresAt: 1,
+    serverSessionCookie: "session=renderer-tampered",
+    serverAuthSessionId: "sid-renderer-tampered",
+    serverUserId: "999",
     licenseDeviceId: "device-renderer-tampered",
     licenseToken: "license-renderer-tampered",
     licensePlan: "tampered",
@@ -308,7 +322,11 @@ async function assertSettingsAccountBoundary() {
     licenseLastVerifiedAt: 1
   });
   assert.equal(relayOnly.accountChanged, false);
-  assert.equal(stored.serverSessionCookie, "session=old");
+  assert.equal(stored.serverAuthProtocol, "bundle");
+  assert.equal(stored.serverAccessToken, "access-main-owned");
+  assert.equal(stored.serverAccessExpiresAt, 123456);
+  assert.equal(stored.serverSessionCookie, "new_api_refresh=refresh-main-owned");
+  assert.equal(stored.serverAuthSessionId, "sid-main-owned");
   assert.equal(stored.serverUserId, "7");
   assert.equal(stored.selectedAccountTokenId, "11");
   assert.equal(stored.licenseDeviceId, "device-main-owned");
@@ -319,10 +337,14 @@ async function assertSettingsAccountBoundary() {
   assert.equal(settingsSavedCalls.length, 1);
   assert.equal(settingsSavedCalls[0].event, event);
   assert.equal(settingsSavedCalls[0].next.relayBaseUrl, "https://relay.example");
-  assert.equal(settingsSavedCalls[0].previous.serverSessionCookie, "session=old");
+  assert.equal(settingsSavedCalls[0].previous.serverSessionCookie, "new_api_refresh=refresh-main-owned");
   const accountChange = await save(event, { accountBaseUrl: "https://account.example" });
   assert.equal(accountChange.accountChanged, true);
+  assert.equal(stored.serverAuthProtocol, "");
+  assert.equal(stored.serverAccessToken, "");
+  assert.equal(stored.serverAccessExpiresAt, 0);
   assert.equal(stored.serverSessionCookie, "");
+  assert.equal(stored.serverAuthSessionId, "");
   assert.equal(stored.serverUserId, "");
   assert.equal(stored.selectedAccountTokenId, "");
   assert.equal(boundaryCalls, 1);
@@ -775,10 +797,15 @@ async function assertBestEffortRemoteLogout() {
     defaultSettings: {},
     settingsPath: "fixture-settings.json",
     migrateSettings: (value) => value,
-    readJson: () => ({ serverSessionCookie: "session=fixture", serverUserId: "7" }),
-    newApiUserAuthHeaders: () => ({ cookie: "session=fixture", "New-Api-User": "7" }),
-    newApiRequest: async (_settings, endpoint, options) => {
-      remoteCalls.push({ endpoint, options });
+    readJson: () => ({
+      serverAuthProtocol: "bundle",
+      serverAccessToken: "access-fixture",
+      serverSessionCookie: "new_api_refresh=refresh-fixture",
+      serverAuthSessionId: "sid-fixture",
+      serverUserId: "7"
+    }),
+    logoutNewApiSession: async (settings) => {
+      remoteCalls.push(settings);
       if (failRemote) throw new Error("offline");
       return { success: true };
     },
@@ -788,8 +815,10 @@ async function assertBestEffortRemoteLogout() {
   const logout = handlers.get("naimage:server:logout");
   const succeeded = await logout();
   assert.equal(succeeded.remoteLogout, true);
-  assert.equal(remoteCalls[0].endpoint, "/api/user/logout");
-  assert.equal(remoteCalls[0].options.method, "POST");
+  assert.equal(remoteCalls[0].serverAuthProtocol, "bundle");
+  assert.equal(remoteCalls[0].serverAccessToken, "access-fixture");
+  assert.equal(remoteCalls[0].serverSessionCookie, "new_api_refresh=refresh-fixture");
+  assert.equal(remoteCalls[0].serverAuthSessionId, "sid-fixture");
   assert.equal(clearCalls, 1);
   failRemote = true;
   const failedRemote = await logout();

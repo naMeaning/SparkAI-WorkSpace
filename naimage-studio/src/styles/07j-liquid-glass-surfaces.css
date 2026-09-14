@@ -613,6 +613,91 @@
   background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
 }
 
+:root.glass-theme-active .glass-select-trigger,
+:root[data-glass-theme] .glass-select-trigger {
+  border-color: color-mix(in srgb, var(--glass-line-strong) 86%, transparent);
+  color: var(--ink);
+  background-color: color-mix(in srgb, var(--glass-surface-raised) 42%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.5)),
+    0 4px 12px var(--glass-shadow-soft);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root.glass-theme-active .glass-select-trigger:is(:hover, :focus-visible),
+:root.glass-theme-active .glass-select.is-open .glass-select-trigger,
+:root[data-glass-theme] .glass-select-trigger:is(:hover, :focus-visible),
+:root[data-glass-theme] .glass-select.is-open .glass-select-trigger {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--glass-line-strong));
+  outline: 0;
+  color: var(--ink);
+  background-color: color-mix(in srgb, var(--accent) 10%, var(--glass-readable-surface-fill));
+  box-shadow:
+    var(--focus-ring),
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.62)),
+    0 6px 16px var(--glass-shadow-soft);
+}
+
+:root.glass-theme-active .glass-select-trigger:disabled,
+:root[data-glass-theme] .glass-select-trigger:disabled {
+  color: var(--muted);
+  opacity: 0.58;
+  box-shadow: none;
+}
+
+:root.glass-theme-active .glass-select-trigger > svg,
+:root[data-glass-theme] .glass-select-trigger > svg {
+  color: var(--muted);
+  transition: transform var(--glass-ease), color var(--glass-ease);
+}
+
+:root.glass-theme-active .glass-select.is-open .glass-select-trigger > svg,
+:root[data-glass-theme] .glass-select.is-open .glass-select-trigger > svg {
+  color: var(--accent-strong);
+  transform: rotate(180deg);
+}
+
+:root.glass-theme-active .glass-select-menu.glass-select-menu,
+:root[data-glass-theme] .glass-select-menu.glass-select-menu {
+  border-color: var(--glass-menu-edge);
+  background-color: var(--glass-menu-surface);
+  background-image: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.7)),
+    0 18px 46px var(--glass-shadow-color);
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  backdrop-filter: var(--glass-backdrop-filter);
+}
+
+:root.glass-theme-active .glass-select-menu .glass-select-option,
+:root[data-glass-theme] .glass-select-menu .glass-select-option {
+  border-color: transparent;
+  color: var(--ink-soft);
+  background: transparent;
+}
+
+:root.glass-theme-active .glass-select-menu .glass-select-option:is(:hover, :focus-visible):not(:disabled),
+:root.glass-theme-active .glass-select-menu .glass-select-option.is-selected,
+:root[data-glass-theme] .glass-select-menu .glass-select-option:is(:hover, :focus-visible):not(:disabled),
+:root[data-glass-theme] .glass-select-menu .glass-select-option.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--glass-menu-edge));
+  outline: 0;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 12%, var(--glass-control-hover));
+}
+
+:root.glass-theme-active .glass-select-menu .glass-select-option.is-selected > svg,
+:root[data-glass-theme] .glass-select-menu .glass-select-option.is-selected > svg {
+  color: var(--accent-strong);
+}
+
+:root.glass-theme-active .glass-select-menu .glass-select-option:disabled,
+:root[data-glass-theme] .glass-select-menu .glass-select-option:disabled {
+  color: var(--muted);
+  opacity: 0.52;
+}
+
 :root.glass-theme-active .canvas-context-menu .ui-menu-item:not(:disabled),
 :root[data-glass-theme] .canvas-context-menu .ui-menu-item:not(:disabled) {
   color: var(--ink);

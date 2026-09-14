@@ -57,5 +57,8 @@ export {
 } from "./ui/menu-surface";
 export type { MenuSurfaceProps } from "./ui/menu-surface";
 
+export { GlassSelect } from "./ui/glass-select";
+export type { GlassSelectOption, GlassSelectProps } from "./ui/glass-select";
+
 export { OverflowTooltipLayer } from "./ui/overflow-tooltip";
 export { useFloatingDialogInteractions } from "./ui/floating-dialog-interactions";

@@ -260,7 +260,10 @@ export default function ProjectAgentComposer({
             ref={modePickerRef}
             className={`project-agent-mode-picker${modeMenuOpen ? " is-open" : ""}`}
             onMouseEnter={() => setModeMenuOpen(true)}
-            onMouseLeave={() => setModeMenuOpen(false)}
+            onMouseLeave={(event) => {
+              if (event.currentTarget.contains(document.activeElement)) return;
+              setModeMenuOpen(false);
+            }}
             onFocusCapture={() => setModeMenuOpen(true)}
             onBlurCapture={(event) => {
               if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;

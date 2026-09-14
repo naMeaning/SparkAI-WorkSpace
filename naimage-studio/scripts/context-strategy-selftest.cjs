@@ -64,6 +64,7 @@ assert.equal(repaired.retainedUserTokens, 50_000);
 
 const settingsDrawerSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-drawer.tsx"), "utf8");
 const persistenceSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-persistence.ts"), "utf8");
+assert.match(settingsDrawerSource, /data-settings-control="context-strategy"/);
 assert.match(settingsDrawerSource, /value=\{draftSettings\.contextStrategy\}[\s\S]*CONTEXT_STRATEGY_OPTIONS\.map/);
 assert.match(settingsDrawerSource, /draftSettings\.contextStrategy === "custom"/);
 for (const field of ["contextWindowTokens", "contextEffectiveWindowPercent", "contextAutoCompactPercent", "contextRetainedUserTokens"]) {

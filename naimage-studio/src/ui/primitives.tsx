@@ -168,13 +168,14 @@ export function StatusLine({
  * button type here prevents accidental form submission without repeating the
  * same DOM contract throughout the workspace.
  */
-export function ButtonBase({
+export const ButtonBase = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(function ButtonBase({
   type = "button",
   className,
   ...buttonProps
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...buttonProps} type={type} className={joinClassNames("ui-button-base", className)} />;
-}
+}, ref) {
+  return <button {...buttonProps} ref={ref} type={type} className={joinClassNames("ui-button-base", className)} />;
+});
+ButtonBase.displayName = "ButtonBase";
 
 export function ActionButton({
   variant = "secondary",

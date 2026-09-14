@@ -41,7 +41,7 @@ async function main() {
   const requests = [];
   const migrateSettings = (value) => ({ ...defaults, ...(value || {}) });
   const newApiRequest = async (_settings, endpoint, options = {}) => {
-    requests.push({ endpoint, method: options.method || "GET", body: options.body });
+    requests.push({ endpoint, method: options.method || "GET", body: options.body, userAuth: options.userAuth === true });
     if (endpoint === "/api/status") {
       if (!statusAvailable) throw new Error("status unavailable");
       return { data: { quota_per_unit: 500_000, usd_exchange_rate: 7.3, price: 4.8 } };
@@ -168,6 +168,11 @@ async function main() {
   await service.remove(stored, "12");
   assert.equal(tokens.some((token) => token.id === 12), false);
   assert.equal(stored.selectedAccountTokenId, "");
+  assert.equal(
+    requests.filter((request) => request.endpoint.startsWith("/api/token/")).every((request) => request.userAuth),
+    true,
+    "Every protected token request must opt into refreshable New API user authentication"
+  );
 
   const transportCalls = [];
   const responsePayload = { id: "response-fixture", output: [{ type: "output_text", text: "ok" }] };

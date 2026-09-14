@@ -29,13 +29,17 @@ function registerSettingsIpc({
   ipcMain.handle("naimage:config:save-settings", (event, settings) => {
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     const restoredSettings = restoreSettingsSecrets?.(settings, current) || settings;
-    const incomingSessionCookie = typeof restoredSettings?.serverSessionCookie === "string" ? restoredSettings.serverSessionCookie.trim() : "";
-    const incomingServerUserId = typeof restoredSettings?.serverUserId === "string" ? restoredSettings.serverUserId.trim() : "";
     let next = migrateSettings({
       ...current,
       ...(restoredSettings || {}),
-      serverSessionCookie: incomingSessionCookie || current.serverSessionCookie,
-      serverUserId: incomingServerUserId || current.serverUserId,
+      // Account credentials are Main-owned and omitted from Renderer settings.
+      // A stale settings draft must never clear, replace, or downgrade them.
+      serverAuthProtocol: current.serverAuthProtocol,
+      serverAccessToken: current.serverAccessToken,
+      serverAccessExpiresAt: current.serverAccessExpiresAt,
+      serverSessionCookie: current.serverSessionCookie,
+      serverAuthSessionId: current.serverAuthSessionId,
+      serverUserId: current.serverUserId,
       // License identity and tokens are Main-owned secrets. They are omitted
       // from load-settings and Renderer saves must never clear or replace them.
       licenseDeviceId: current.licenseDeviceId,
@@ -55,7 +59,11 @@ function registerSettingsIpc({
       next = migrateSettings({
         ...next,
         serverToken: "",
+        serverAuthProtocol: "",
+        serverAccessToken: "",
+        serverAccessExpiresAt: 0,
         serverSessionCookie: "",
+        serverAuthSessionId: "",
         serverUserId: "",
         selectedAccountTokenId: "",
         selectedAccountTokenName: "",

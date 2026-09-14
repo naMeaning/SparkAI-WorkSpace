@@ -504,6 +504,7 @@ export function buildGoalTaskScopeFromNodes(
     referenceContainerIds: [],
     sourceBindingIds: [...preflight.eligibleBindingIds],
     referenceBindingIds: [],
+    materials: preflight.sourceAssets.map((asset) => ({ ...asset })),
     sourceAssets: preflight.sourceAssets.map((asset) => ({ ...asset })),
     referenceAssets: [],
     resultPolicy: "grouped-by-container",

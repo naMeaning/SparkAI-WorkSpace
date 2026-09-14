@@ -1,4 +1,4 @@
-import { agentTaskScopeSnapshotHash } from "./core.ts";
+import { agentTaskScopeMaterials, agentTaskScopeSnapshotHash } from "./core.ts";
 import type {
   AgentTaskConfirmationPolicy,
   AgentTaskResultPolicy,
@@ -15,6 +15,7 @@ export function cloneAgentTaskScope(scope: AgentTaskScope): AgentTaskScope {
     referenceContainerIds: [...scope.referenceContainerIds],
     sourceBindingIds: [...scope.sourceBindingIds],
     referenceBindingIds: [...scope.referenceBindingIds],
+    materials: agentTaskScopeMaterials(scope),
     sourceAssets: scope.sourceAssets.map((asset) => ({ ...asset })),
     referenceAssets: scope.referenceAssets.map((asset) => ({ ...asset })),
     requirement: scope.requirement ? { ...scope.requirement } : undefined,
@@ -82,6 +83,7 @@ export function mergeAgentTaskScopes(base: AgentTaskScope | undefined, added: Ag
   };
   const sourceAssets = mergeAssets(base.sourceAssets, added.sourceAssets, 200);
   const referenceAssets = mergeAssets(base.referenceAssets, added.referenceAssets, 40);
+  const materials = mergeAssets(agentTaskScopeMaterials(base), agentTaskScopeMaterials(added), 240);
   const mergeIds = (left: string[], right: string[], limit: number) => [...new Set([...left, ...right])].slice(0, limit);
   const scopeType: AgentTaskScopeType = base.scopeType === "none"
     ? added.scopeType
@@ -111,6 +113,7 @@ export function mergeAgentTaskScopes(base: AgentTaskScope | undefined, added: Ag
     referenceContainerIds: mergeIds(base.referenceContainerIds, added.referenceContainerIds, 40),
     sourceBindingIds: mergeIds(base.sourceBindingIds, added.sourceBindingIds, 200),
     referenceBindingIds: mergeIds(base.referenceBindingIds, added.referenceBindingIds, 40),
+    materials,
     sourceAssets,
     referenceAssets,
     resultPolicy,

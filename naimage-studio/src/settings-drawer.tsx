@@ -35,6 +35,7 @@ import {
   DeferredNumberInput,
   DrawerShell,
   Field,
+  GlassSelect,
   IconActionButton,
   InlineNotice,
   SurfaceBody,
@@ -840,18 +841,25 @@ export default function SettingsDrawer({
                       ) : null}
                       {accountTokens.length ? (
                         <Field label="当前使用密钥">
-                          <select
+                          <GlassSelect
                             value={draftSettings.selectedAccountTokenId}
                             disabled={accountTokenBusy}
-                            onChange={(event) => void selectAccountToken(event.target.value)}
-                          >
-                            <option value="">请选择密钥</option>
-                            {accountTokens.map((token) => (
-                              <option key={token.id} value={token.id} disabled={token.status !== 1}>
-                                {token.name} · {token.group || "default"}{token.status !== 1 ? " · 已停用" : ""}
-                              </option>
-                            ))}
-                          </select>
+                            ariaLabel="当前使用密钥"
+                            onChange={(value) => void selectAccountToken(value)}
+                            options={[
+                              { value: "", label: "请选择密钥" },
+                              ...(
+                                draftSettings.selectedAccountTokenId && !accountTokens.some((token) => token.id === draftSettings.selectedAccountTokenId)
+                                  ? [{ value: draftSettings.selectedAccountTokenId, label: `密钥 #${draftSettings.selectedAccountTokenId} · 元数据未加载` }]
+                                  : []
+                              ),
+                              ...accountTokens.map((token) => ({
+                                value: token.id,
+                                label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : ""}`,
+                                disabled: token.status !== 1
+                              }))
+                            ]}
+                          />
                         </Field>
                       ) : !accountTokenBusy && !accountTokenError && accountTokenSnapshot.available ? <InlineNotice tone="neutral">当前账户还没有密钥，请新建一枚后使用。</InlineNotice> : null}
                       {accountTokens.find((token) => token.id === draftSettings.selectedAccountTokenId) ? (() => {
@@ -1137,7 +1145,7 @@ export default function SettingsDrawer({
                     建议先使用 2–3 路。提高批次会更快占用接口并发与额度，但任务总量仍会拆成多个有序批次。
                   </InlineNotice>
                 </div>
-                <div className="settings-context-policy">
+                <div className="settings-context-policy settings-context-strategy">
                   <div className="settings-section-header">
                     <div>
                       <strong>上下文控制</strong>
@@ -1148,7 +1156,12 @@ export default function SettingsDrawer({
                     </span>
                   </div>
                   <Field label="上下文策略">
-                    <select value={draftSettings.contextStrategy} onChange={(event) => update("contextStrategy", event.target.value as AppSettings["contextStrategy"])}>
+                    <select
+                      name="contextStrategy"
+                      data-settings-control="context-strategy"
+                      value={draftSettings.contextStrategy}
+                      onChange={(event) => update("contextStrategy", event.target.value as AppSettings["contextStrategy"])}
+                    >
                       {CONTEXT_STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
                   </Field>
