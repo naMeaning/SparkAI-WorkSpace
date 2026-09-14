@@ -3976,12 +3976,9 @@ async function callNewApiImage(settings, payload = {}) {
         return form;
       };
       let aggressive = false;
-      // A custom OpenAI-compatible image endpoint is not guaranteed to
-      // implement Images SSE. Several New API deployments acknowledge
-      // stream=true with HTTP 200 but return an empty event stream. Keep the
-      // original AIEYRA-compatible JSON transport for custom credentials;
-      // managed Session Relay remains stream-first and can provide previews.
-      let streamEnabled = !customMode;
+      // Official OpenAI / New API / sub2api image edits are synchronous
+      // multipart requests. Do not add unofficial stream=true fields.
+      let streamEnabled = false;
       for (;;) {
         const idempotencySuffix = `${aggressive ? "-aggressive" : ""}${streamEnabled ? "" : "-nonstream"}`;
         try {
@@ -4054,16 +4051,12 @@ async function callNewApiImage(settings, payload = {}) {
         if (imageControls.background) body.background = imageControls.background;
         if (imageControls.moderation) body.moderation = imageControls.moderation;
       }
-      const responsesImageModel = String(settings.agentModel || "gpt-5.6-terra").trim() || "gpt-5.6-terra";
       const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
-      const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
-      const useManagedGptImageTransports = !customMode && isGptImageModel(model);
       log(`image request metadata ${JSON.stringify({
-        endpoint: useManagedGptImageTransports ? "/v1/responses" : "/v1/images/generations",
+        endpoint: "/v1/images/generations",
         accessMode: customMode ? "custom" : "account",
-        transport: customMode ? "images-json" : useManagedGptImageTransports ? "managed-gpt-image" : "images-sse",
-        model: useManagedGptImageTransports ? responsesImageModel : model,
-        configuredImageModel: model,
+        transport: "images-json",
+        model,
         size,
         quality,
         count: 1,
@@ -4071,102 +4064,14 @@ async function callNewApiImage(settings, payload = {}) {
         promptUtf8Bytes: Buffer.byteLength(prompt, "utf8"),
         bodyKeys: Object.keys(body).sort()
       })}`);
-      const imageTool = {
-        type: "image_generation",
-        action: "generate",
-        size,
-        output_format: outputFormat,
-        moderation: String(imageControls.moderation || "auto"),
-        quality,
-        partial_images: 3
-      };
-      if (outputFormat !== "png" && imageControls.outputCompression !== undefined) {
-        imageTool.output_compression = imageControls.outputCompression;
-      }
-      const responsesBody = {
-        model: responsesImageModel,
-        input: prompt,
-        tools: [imageTool],
-        tool_choice: "required"
-      };
-      if (useManagedGptImageTransports) {
-        try {
-          return await newApiRelayImageTask(settings, body, {
-            signal,
-            headers: { "Idempotency-Key": idempotencyKey },
-            connectTimeoutMs: 30_000,
-            createHeadersTimeoutMs: 30_000,
-            pollHeadersTimeoutMs: 30_000,
-            pollIntervalMs: 2500,
-            maxResponseBytes: 96 * 1024 * 1024,
-            onAccepted: ({ taskId, status }) => {
-              requestAttempts[index].taskAccepted = true;
-              requestAttempts[index].taskId = taskId;
-              try {
-                payload.onImageTaskStatus?.({
-                  taskId,
-                  status,
-                  requestIndex: index + 1,
-                  requestCount: count
-                });
-              } catch {
-                // Task telemetry must never affect the accepted generation.
-              }
-            },
-            onStatus: ({ taskId, status }) => {
-              try {
-                payload.onImageTaskStatus?.({
-                  taskId,
-                  status,
-                  requestIndex: index + 1,
-                  requestCount: count
-                });
-              } catch {
-                // Task telemetry must never affect polling.
-              }
-            }
-          });
-        } catch (error) {
-          if (error?.code !== "NEW_API_IMAGE_TASK_UNSUPPORTED") throw error;
-          log("Image task endpoint unsupported for account access; falling back to the compatible synchronous image transports");
-        }
-        try {
-          return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
-            provider: "image",
-            signal,
-            headers: { "Idempotency-Key": idempotencyKey },
-            headersTimeoutMs: imageTimeoutMs,
-            connectTimeoutMs: 60_000,
-            idleTimeoutMs: imageTimeoutMs,
-            maxResponseBytes: 256 * 1024 * 1024,
-            partialImages: 3
-          });
-        } catch (error) {
-          if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
-          log(`Responses image generation unsupported for account access; falling back to Images API (${error?.message || "unknown"})`);
-        }
-      }
-      const imagesJsonOptions = {
+      return newApiRelayJson(settings, "/v1/images/generations", body, {
         provider: "image",
         signal,
-        headers: { "Idempotency-Key": `${idempotencyKey}${customMode ? "" : "-nonstream"}` },
+        headers: { "Idempotency-Key": idempotencyKey },
         headersTimeoutMs: imageTimeoutMs,
         connectTimeoutMs: 60_000,
         maxResponseBytes: 96 * 1024 * 1024
-      };
-      if (customMode) {
-        return newApiRelayJson(settings, "/v1/images/generations", body, imagesJsonOptions);
-      }
-      try {
-        return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
-          ...imagesJsonOptions,
-          headers: { "Idempotency-Key": idempotencyKey },
-          partialImages: 3
-        });
-      } catch (error) {
-        if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
-      }
-      return newApiRelayJson(settings, "/v1/images/generations", body, imagesJsonOptions);
+      });
     }, index);
     return editRequested ? withImageEditRequestSlot(executeAttempt) : executeAttempt();
   }

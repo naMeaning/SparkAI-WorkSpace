@@ -89,13 +89,18 @@ assert.match(persistenceSource, /\["auto", "codex", "claude", "naimage-balanced"
 const electronMainSource = fs.readFileSync(path.join(__dirname, "..", "electron-main.cjs"), "utf8");
 assert.match(
   electronMainSource,
-  /const useManagedGptImageTransports = !customMode && isGptImageModel\(model\);/,
-  "Custom OpenAI-compatible image gateways must use /v1/images/generations instead of SparkAI image-tasks or GPT Responses"
+  /return newApiRelayJson\(settings, "\/v1\/images\/generations"/,
+  "Desktop image generation must call the official OpenAI-compatible Images API"
+);
+assert.doesNotMatch(
+  electronMainSource,
+  /useManagedGptImageTransports/,
+  "Desktop image generation must not prefer SparkAI image-tasks or GPT Responses over official Images API"
 );
 assert.match(
   electronMainSource,
-  /if \(customMode\) \{\s*return newApiRelayJson\(settings, "\/v1\/images\/generations"/,
-  "Qiuqiu-style custom gateways must send JSON image generation requests"
+  /let streamEnabled = false;/,
+  "Official image edits are synchronous multipart requests without unofficial stream flags"
 );
 
 process.stdout.write(`${JSON.stringify({ ok: true, cases: 42 })}\n`);

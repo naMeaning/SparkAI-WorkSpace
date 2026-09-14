@@ -627,46 +627,6 @@ function hasReferencePayload(payload: { referenceImages?: ReferenceImage[]; edit
   return Boolean(payload.editImage || payload.maskDataUrl || (Array.isArray(payload.referenceImages) && payload.referenceImages.length));
 }
 
-function imageTaskUnsupported(error: unknown) {
-  const status = Number((error as { status?: number } | null)?.status || 0);
-  if ([404, 405, 501].includes(status)) return true;
-  if (![400, 422].includes(status)) return false;
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /image[_ -]?tasks?|图片任务/i.test(message) && /unsupported|not supported|unknown|not found|不存在|不支持|未找到/i.test(message);
-}
-
-async function waitForImageTask(settings: AppSettings, taskId: string) {
-  const deadline = Date.now() + 15 * 60_000;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    let task: JsonRecord;
-    try {
-      task = await newApiRequest(settings, `/naimage/v1/image-tasks/${encodeURIComponent(taskId)}`, {
-        service: "relay",
-        method: "GET",
-        headers: userAuthHeaders(settings)
-      });
-    } catch (error) {
-      const status = Number((error as { status?: number } | null)?.status || 0);
-      if (!status || status === 408 || status === 425 || status === 429 || status >= 500) continue;
-      throw error;
-    }
-    const status = String(task.status || "").trim().toLowerCase();
-    if (status === "queued" || status === "running") continue;
-    if (status === "succeeded" && task.result && typeof task.result === "object" && !Array.isArray(task.result)) {
-      return task.result as JsonRecord;
-    }
-    if (status === "failed") {
-      const detail = task.error && typeof task.error === "object"
-        ? String((task.error as JsonRecord).message || "")
-        : "";
-      throw new Error(detail || "图片生成任务失败。");
-    }
-    throw new Error(`图片任务返回了未知状态：${status || "empty"}。`);
-  }
-  throw new Error("图片任务等待超过 15 分钟，请稍后在桌面版中重试。");
-}
-
 async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[0]) {
   const settings = readSettings();
   if (!readAuthState(settings).serverUserId) throw new Error("登录会话已失效，请重新登录。");
@@ -688,33 +648,21 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
       quality,
       n: 1
     };
-    if (settings.modelGroup) body.group = settings.modelGroup;
     if (!isGptImageModel(model)) body.response_format = "b64_json";
-    if (payload.outputFormat) body.output_format = payload.outputFormat;
-    if (payload.outputCompression !== undefined) body.output_compression = payload.outputCompression;
-    if (payload.background) body.background = payload.background;
-    if (payload.moderation) body.moderation = payload.moderation;
-    if (payload.inputFidelity) body.input_fidelity = payload.inputFidelity;
-    let created: JsonRecord;
-    try {
-      created = await newApiRequest(settings, "/naimage/v1/image-tasks", {
-        service: "relay",
-        method: "POST",
-        headers: userAuthHeaders(settings),
-        body
-      });
-    } catch (error) {
-      if (!imageTaskUnsupported(error)) throw error;
-      return newApiRequest(settings, "/naimage/v1/images/generations", {
-        service: "relay",
-        method: "POST",
-        headers: userAuthHeaders(settings),
-        body
-      });
+    if (isGptImageModel(model)) {
+      body.output_format = outputFormat || "png";
+      if (body.output_format !== "png" && payload.outputCompression !== undefined) {
+        body.output_compression = payload.outputCompression;
+      }
+      if (payload.background) body.background = payload.background;
+      if (payload.moderation) body.moderation = payload.moderation;
     }
-    const taskId = String(created.task_id || created.id || "").trim();
-    if (!taskId) throw new Error("图片任务接口已返回成功，但缺少 task_id。");
-    return await waitForImageTask(settings, taskId);
+    return newApiRequest(settings, "/v1/images/generations", {
+      service: "relay",
+      method: "POST",
+      headers: userAuthHeaders(settings),
+      body
+    });
   };
 
   const settled = await Promise.allSettled(Array.from({ length: count }, (_item, index) => requestSingle(index)));

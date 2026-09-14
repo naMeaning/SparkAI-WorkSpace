@@ -57,7 +57,7 @@
 - 新安装不得创建 AppData 默认项目或全局画布 Session。创建项目与导入项目必须先取得用户选择的目标目录；取消选择不得创建目录、切换项目或写入索引。移除最后一个项目后进入内存空画布，自动保存、导入、生成和导出均不得伪造 `default` 项目。
 - 旧 AppData 项目只做显式迁移，不在启动时自动移动或删除。迁移必须先预检源项目、目标冲突和空间，复制到目标 staging，校验受管文件数量、大小与 SHA-256，原子发布并更新项目索引；源数据清理必须在迁移成功后由用户单独确认。安装目录不作为项目数据目标，避免更新、卸载和权限导致数据丢失。
 - 普通图片、单图 PSD、分层 PSD 与图层文件夹继续写入当前项目的 `exports/` 子目录；图片组写入项目级 `image-groups/`，Main 在最终提交前复核目标仍在项目根内。普通图片需先明确格式，图片组需提供格式、图片数、槽位失败、预计体积和导出统计预检。
-- 纯文生图默认使用 `POST /v1/image-tasks` 立即取得 `task_id`，再每 2.5 秒查询 `GET /v1/image-tasks/:id`；该端点由独立 SparkAI Extension 提供，不修改原生 New API。扩展服务使用自己的 SQLite 状态和进程内队列，把调用者 Bearer Key 仅保留在内存，并默认加入 New API 的 user-defined Docker network、通过容器 DNS调用原生 `/v1/images/generations`；禁止把内部上游重新指向 Cloudflare 公网。不引入 Redis、独立 Worker、SSE 或 WebSocket。创建成功或结果不明后不得自动重建任务，短暂查询失败只重试 GET；进程崩溃留下的 queued/running 标记失败而不重放上游。编辑/参考图继续原路径，只有创建端点明确不支持才回退同步兼容链路。
+- 桌面和网页生图默认调用官方 OpenAI 兼容 Images API：`POST /v1/images/generations`（JSON）与 `POST /v1/images/edits`（multipart/`image[]`）。该合同同时覆盖原生 New API、sub2api、球球 Token，以及 GPT Image / Grok / Gemini 等网关；请求体只使用上游公开字段，不以 SparkAI `/v1/image-tasks` 或对话模型 Responses `image_generation` 作为默认生图协议。`sparkai-extension` 的 `/v1/image-tasks*` 仍可包装原生 Images API，但不再是客户端默认路径。
 - Agent 普通消息、Markdown、thinking 和工具说明必须允许浏览器原生文本选择及 `Ctrl+C`；普通消息不得增加逐条复制按钮，已有生图提示词专用复制动作保持不变。
 - 生成图片节点、图片组、资产和槽位标题必须表达图片内容摘要，不再复用完整 Prompt 或泛化成果名；摘要只由本地纯函数生成，优先提取结构化主体/场景/用途，保留已有简短人工标题，不修改原始 Prompt、不调用额外模型，同 Prompt 多图使用稳定序号。
 - 项目迁移与清理的 Main handler 继续只接受真正布尔 `true`。preload 只允许把字面 `true` 或 production 压缩后的数字 `1` 归一化为布尔 `true`；字符串 `"1"`、数字 `2`、其他 truthy 值及缺失确认不得提升，归一化也不得修改输入对象。
