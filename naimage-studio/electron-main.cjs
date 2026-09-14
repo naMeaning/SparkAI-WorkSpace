@@ -3954,8 +3954,11 @@ async function callNewApiImage(settings, payload = {}) {
         if (!customMode && settings.modelGroup) form.set("group", settings.modelGroup);
         if (!isGptImageModel(model)) form.set("response_format", "b64_json");
         if (isGptImageModel(model)) {
-          if (imageControls.outputFormat) form.set("output_format", String(imageControls.outputFormat));
-          if (imageControls.outputCompression !== undefined) form.set("output_compression", String(imageControls.outputCompression));
+          const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
+          form.set("output_format", outputFormat);
+          if (outputFormat !== "png" && imageControls.outputCompression !== undefined) {
+            form.set("output_compression", String(imageControls.outputCompression));
+          }
           if (imageControls.background) form.set("background", String(imageControls.background));
           if (imageControls.moderation) form.set("moderation", String(imageControls.moderation));
           if (imageControls.inputFidelity) form.set("input_fidelity", String(imageControls.inputFidelity));
@@ -4043,17 +4046,23 @@ async function callNewApiImage(settings, payload = {}) {
       const body = { model, prompt, size, quality, n: 1 };
       if (!isGptImageModel(model)) body.response_format = "b64_json";
       if (isGptImageModel(model)) {
-        if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
-        if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
+        const gptOutputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
+        body.output_format = gptOutputFormat;
+        if (gptOutputFormat !== "png" && imageControls.outputCompression !== undefined) {
+          body.output_compression = imageControls.outputCompression;
+        }
         if (imageControls.background) body.background = imageControls.background;
         if (imageControls.moderation) body.moderation = imageControls.moderation;
       }
       const responsesImageModel = String(settings.agentModel || "gpt-5.6-terra").trim() || "gpt-5.6-terra";
+      const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
+      const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
+      const useManagedGptImageTransports = !customMode && isGptImageModel(model);
       log(`image request metadata ${JSON.stringify({
-        endpoint: "/v1/responses",
+        endpoint: useManagedGptImageTransports ? "/v1/responses" : "/v1/images/generations",
         accessMode: customMode ? "custom" : "account",
-        transport: "responses-sse",
-        model: responsesImageModel,
+        transport: customMode ? "images-json" : useManagedGptImageTransports ? "managed-gpt-image" : "images-sse",
+        model: useManagedGptImageTransports ? responsesImageModel : model,
         configuredImageModel: model,
         size,
         quality,
@@ -4062,8 +4071,6 @@ async function callNewApiImage(settings, payload = {}) {
         promptUtf8Bytes: Buffer.byteLength(prompt, "utf8"),
         bodyKeys: Object.keys(body).sort()
       })}`);
-      const idempotencyKey = `${managedImageIdempotencyPrefix}${idempotencyKeys[index]}`;
-      const outputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
       const imageTool = {
         type: "image_generation",
         action: "generate",
@@ -4082,47 +4089,47 @@ async function callNewApiImage(settings, payload = {}) {
         tools: [imageTool],
         tool_choice: "required"
       };
-      try {
-        return await newApiRelayImageTask(settings, body, {
-          signal,
-          headers: { "Idempotency-Key": idempotencyKey },
-          connectTimeoutMs: 30_000,
-          createHeadersTimeoutMs: 30_000,
-          pollHeadersTimeoutMs: 30_000,
-          pollIntervalMs: 2500,
-          maxResponseBytes: 96 * 1024 * 1024,
-          onAccepted: ({ taskId, status }) => {
-            requestAttempts[index].taskAccepted = true;
-            requestAttempts[index].taskId = taskId;
-            try {
-              payload.onImageTaskStatus?.({
-                taskId,
-                status,
-                requestIndex: index + 1,
-                requestCount: count
-              });
-            } catch {
-              // Task telemetry must never affect the accepted generation.
+      if (useManagedGptImageTransports) {
+        try {
+          return await newApiRelayImageTask(settings, body, {
+            signal,
+            headers: { "Idempotency-Key": idempotencyKey },
+            connectTimeoutMs: 30_000,
+            createHeadersTimeoutMs: 30_000,
+            pollHeadersTimeoutMs: 30_000,
+            pollIntervalMs: 2500,
+            maxResponseBytes: 96 * 1024 * 1024,
+            onAccepted: ({ taskId, status }) => {
+              requestAttempts[index].taskAccepted = true;
+              requestAttempts[index].taskId = taskId;
+              try {
+                payload.onImageTaskStatus?.({
+                  taskId,
+                  status,
+                  requestIndex: index + 1,
+                  requestCount: count
+                });
+              } catch {
+                // Task telemetry must never affect the accepted generation.
+              }
+            },
+            onStatus: ({ taskId, status }) => {
+              try {
+                payload.onImageTaskStatus?.({
+                  taskId,
+                  status,
+                  requestIndex: index + 1,
+                  requestCount: count
+                });
+              } catch {
+                // Task telemetry must never affect polling.
+              }
             }
-          },
-          onStatus: ({ taskId, status }) => {
-            try {
-              payload.onImageTaskStatus?.({
-                taskId,
-                status,
-                requestIndex: index + 1,
-                requestCount: count
-              });
-            } catch {
-              // Task telemetry must never affect polling.
-            }
-          }
-        });
-      } catch (error) {
-        if (error?.code !== "NEW_API_IMAGE_TASK_UNSUPPORTED") throw error;
-        log(`Image task endpoint unsupported for ${customMode ? "custom" : "account"} access; falling back to the compatible synchronous image transports`);
-      }
-      if (isGptImageModel(model) && !preferDirectImageTransport) {
+          });
+        } catch (error) {
+          if (error?.code !== "NEW_API_IMAGE_TASK_UNSUPPORTED") throw error;
+          log("Image task endpoint unsupported for account access; falling back to the compatible synchronous image transports");
+        }
         try {
           return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
             provider: "image",
@@ -4136,32 +4143,30 @@ async function callNewApiImage(settings, payload = {}) {
           });
         } catch (error) {
           if (error?.code !== "NEW_API_RESPONSES_IMAGE_UNSUPPORTED") throw error;
-          log(`Responses image generation unsupported for ${customMode ? "custom" : "account"} access; falling back to Images API (${error?.message || "unknown"})`);
+          log(`Responses image generation unsupported for account access; falling back to Images API (${error?.message || "unknown"})`);
         }
-      } else {
-        log(`image model ${model} has custom credentials; using its direct Images transport for streaming previews`);
+      }
+      const imagesJsonOptions = {
+        provider: "image",
+        signal,
+        headers: { "Idempotency-Key": `${idempotencyKey}${customMode ? "" : "-nonstream"}` },
+        headersTimeoutMs: imageTimeoutMs,
+        connectTimeoutMs: 60_000,
+        maxResponseBytes: 96 * 1024 * 1024
+      };
+      if (customMode) {
+        return newApiRelayJson(settings, "/v1/images/generations", body, imagesJsonOptions);
       }
       try {
         return await newApiRelayImage(settings, "/v1/images/generations", body, onPartialImage, {
-          provider: "image",
-          signal,
+          ...imagesJsonOptions,
           headers: { "Idempotency-Key": idempotencyKey },
-          headersTimeoutMs: imageTimeoutMs,
-          connectTimeoutMs: 60_000,
-          maxResponseBytes: 96 * 1024 * 1024,
           partialImages: 3
         });
       } catch (error) {
         if (error?.code !== "NEW_API_IMAGE_STREAM_UNSUPPORTED") throw error;
       }
-      return newApiRelayJson(settings, "/v1/images/generations", body, {
-        provider: "image",
-        signal,
-        headers: { "Idempotency-Key": `${idempotencyKey}-nonstream` },
-        headersTimeoutMs: imageTimeoutMs,
-        connectTimeoutMs: 60_000,
-        maxResponseBytes: 96 * 1024 * 1024
-      });
+      return newApiRelayJson(settings, "/v1/images/generations", body, imagesJsonOptions);
     }, index);
     return editRequested ? withImageEditRequestSlot(executeAttempt) : executeAttempt();
   }

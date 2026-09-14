@@ -89,8 +89,13 @@ assert.match(persistenceSource, /\["auto", "codex", "claude", "naimage-balanced"
 const electronMainSource = fs.readFileSync(path.join(__dirname, "..", "electron-main.cjs"), "utf8");
 assert.match(
   electronMainSource,
-  /isGptImageModel\(model\) && !preferDirectImageTransport/,
-  "Non-GPT image models such as Grok/Gemini/Imagen must not be sent through GPT Responses image_generation"
+  /const useManagedGptImageTransports = !customMode && isGptImageModel\(model\);/,
+  "Custom OpenAI-compatible image gateways must use /v1/images/generations instead of SparkAI image-tasks or GPT Responses"
+);
+assert.match(
+  electronMainSource,
+  /if \(customMode\) \{\s*return newApiRelayJson\(settings, "\/v1\/images\/generations"/,
+  "Qiuqiu-style custom gateways must send JSON image generation requests"
 );
 
 process.stdout.write(`${JSON.stringify({ ok: true, cases: 42 })}\n`);

@@ -2657,11 +2657,16 @@ function createAgentRuntime(options) {
     form.set("quality", payload.quality);
     form.set("n", String(payload.count));
     if (!isGptImageModel(payload.model)) form.set("response_format", "b64_json");
-    if (payload.outputFormat) form.set("output_format", payload.outputFormat);
-    if (payload.outputCompression !== undefined) form.set("output_compression", String(payload.outputCompression));
-    if (payload.background) form.set("background", payload.background);
-    if (payload.moderation) form.set("moderation", payload.moderation);
-    if (payload.inputFidelity) form.set("input_fidelity", payload.inputFidelity);
+    if (isGptImageModel(payload.model)) {
+      const gptOutputFormat = String(payload.outputFormat || "png").trim().toLowerCase() || "png";
+      form.set("output_format", gptOutputFormat);
+      if (gptOutputFormat !== "png" && payload.outputCompression !== undefined) {
+        form.set("output_compression", String(payload.outputCompression));
+      }
+      if (payload.background) form.set("background", payload.background);
+      if (payload.moderation) form.set("moderation", payload.moderation);
+      if (payload.inputFidelity) form.set("input_fidelity", payload.inputFidelity);
+    }
     const imageField = isGptImageModel(payload.model) ? "image[]" : "image";
 
     const imageInputs = [payload.editImage, ...(payload.referenceImages || [])].filter(Boolean);
@@ -3862,8 +3867,11 @@ function createAgentRuntime(options) {
         };
         if (!isGptImageModel(model)) body.response_format = "b64_json";
         if (isGptImageModel(model)) {
-          if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
-          if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
+          const gptOutputFormat = String(imageControls.outputFormat || "png").trim().toLowerCase() || "png";
+          body.output_format = gptOutputFormat;
+          if (gptOutputFormat !== "png" && imageControls.outputCompression !== undefined) {
+            body.output_compression = imageControls.outputCompression;
+          }
           if (imageControls.background) body.background = imageControls.background;
           if (imageControls.moderation) body.moderation = imageControls.moderation;
         }
