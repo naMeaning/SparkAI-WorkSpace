@@ -92,6 +92,7 @@ import {
   PinOff,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   Search,
   Send,
@@ -24361,9 +24362,54 @@ function App() {
     }
   }
 
+  function regenerateFromImageContainer(node: WorkflowNode) {
+    setCanvasMenu(null);
+    if (blockLockedNodeMutation([node.id], "重新生图")) return;
+    if (agentExecutionBusyNow() || agentStopPendingRef.current) {
+      setServerMessage("请等待当前任务结束后再重新生图。");
+      return;
+    }
+    const split = splitComposerMaterials(buildComposerMaterials([node], [], [], materialOverridesRef.current));
+    const firstAssetPrompt = String(node.assets?.[0]?.prompt || node.assets?.[0]?.revisedPrompt || "").trim();
+    const promptText = String(prompt || "").trim()
+      || String(node.imageParams?.prompt || firstPromptLine(node.prompt || "") || firstAssetPrompt).trim();
+    if (!promptText) {
+      setServerMessage("请先在输入框填写提示词，或在容器图片中保留提示词后再重新生图。");
+      return;
+    }
+    const references = split.referenceImages.length ? split.referenceImages : split.sourceImages;
+    if (!references.length) {
+      setServerMessage("这个图片容器里还没有可用来当参考的图片。");
+      return;
+    }
+    const task = cloneImageTaskDraft({
+      ...defaultImageTaskDraft(settings),
+      prompt: promptText,
+      count: 1,
+      model: settings.imageModel || selectedImageModelsFromSettings(settings)[0] || "",
+      referenceImages: references
+    });
+    void runManualImageTask(task, {
+      worldX: Number(node.x || 0) + 36,
+      worldY: Number(node.y || 0) + Number(node.height || 160) + 28,
+      requestedCount: 1,
+      targetTotal: 1,
+      quotaChecked: false
+    });
+    notifyAgentOfManualAction(
+      "容器重新生图",
+      `用户从图片容器 ${node.id} 按当前提示词和 ${references.length} 张参考图直接重新生成，没有发送给 Agent。`
+    );
+  }
+
   function regenerateFromComposer() {
     if (agentExecutionBusyNow() || agentStopPendingRef.current) {
       setServerMessage("请等待当前任务结束后再重新生图。");
+      return;
+    }
+    const selectedContainer = selectedNodes.find((node) => canvasNodePresentsImageContainer(node));
+    if (selectedContainer && selectedNodes.every((node) => node.id === selectedContainer.id || !canvasNodePresentsImageContainer(node))) {
+      regenerateFromImageContainer(selectedContainer);
       return;
     }
     const selectedResult = selectedNodes.find((node) => (
@@ -27706,7 +27752,24 @@ function App() {
                       <span className="node-title-block">
                         <strong title={nodeTitle}>{nodeTitle}</strong>
                       </span>
-                      <span className="node-state">{nodeLocked ? "会话锁定" : nodeStateLabel(node)}</span>
+                      <span className="node-head-actions">
+                        {canvasNodePresentsImageContainer(node) && (node.assets?.length ?? 0) > 0 ? (
+                          <IconActionButton
+                            className="node-regenerate-action"
+                            label="重新生图"
+                            title="使用当前提示词和这个容器里的图片直接生图，不经过 Agent"
+                            disabled={agentExecutionBusy || nodeLocked}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              regenerateFromImageContainer(node);
+                            }}
+                            icon={<RefreshCw size={14} />}
+                          />
+                        ) : null}
+                        <span className="node-state">{nodeLocked ? "会话锁定" : nodeStateLabel(node)}</span>
+                      </span>
                     </span>
                     {node.type === "image" ? (
                       <div
@@ -28333,6 +28396,15 @@ function App() {
                         <MenuItem icon={<Settings size={15} />} onClick={() => openNodeEditor(targetNode)}>
                           编辑成果
                         </MenuItem>
+                        {canvasNodePresentsImageContainer(targetNode) && (targetNode.assets?.length ?? 0) > 0 ? (
+                          <MenuItem
+                            icon={<RefreshCw size={15} />}
+                            disabled={agentExecutionBusy}
+                            onClick={() => regenerateFromImageContainer(targetNode)}
+                          >
+                            重新生图
+                          </MenuItem>
+                        ) : null}
                         {targetNode.imageContainer ? (
                           <>
                             <MenuSeparator />

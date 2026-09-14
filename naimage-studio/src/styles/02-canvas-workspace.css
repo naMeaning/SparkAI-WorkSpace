@@ -1114,6 +1114,23 @@
   -webkit-line-clamp: 2;
 }
 
+.node-head-actions {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.node-regenerate-action {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
 .node-state {
   justify-self: end;
   max-width: 68px;
