@@ -233,6 +233,12 @@ assert.ok(
 );
 assert.match(agentPanelSource, /container-name:\s*project-agent-composer;[\s\S]{0,9000}@container project-agent-composer \(max-width: 370px\)[\s\S]{0,260}grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/, "The Agent composer must switch to a stable two-column control grid from its own width");
 assert.match(glassSurfaceSource, /\.glass-select-menu\.glass-select-menu[\s\S]{0,260}background-color:\s*var\(--glass-menu-surface\);/, "GlassSelect menus must paint the readable near-opaque glass menu surface above artwork");
+assert.match(settingsDrawerSource, /dataSettingsControl="context-strategy"/, "Agent context strategy must use GlassSelect instead of a native Windows select");
+assert.match(settingsDrawerSource, /<GlassSelect[\s\S]{0,180}ariaLabel="图片比例"/, "Default image ratio must use GlassSelect");
+assert.match(settingsDrawerSource, /<GlassSelect[\s\S]{0,180}ariaLabel="推理强度"/, "Reasoning effort must use GlassSelect");
+assert.match(read("src", "ui", "glass-select.tsx"), /data-option-values=\{options\.map/, "GlassSelect must expose option values for tests when the menu is closed");
+assert.match(read("src", "manual-image-task-dialog.tsx"), /<GlassSelect[\s\S]{0,120}ariaLabel="比例"/, "Manual image-task ratio must use GlassSelect");
+assert.match(read("src", "project-agent-composer.tsx"), /<GlassSelect[\s\S]{0,180}ariaLabel="本次修改使用的图片"/, "Agent steer image-scope must use GlassSelect");
 assert.match(glassLabSource, /\.glass-lab \.settings-section-header h4[\s\S]{0,180}font-size:\s*14px;/, "Appearance section headings must remain readable");
 assert.match(glassLabSource, /\.glass-theme-card strong,[\s\S]{0,160}font-size:\s*12px;/, "Appearance option titles must remain readable");
 assert.match(glassLabSource, /\.glass-theme-card small,[\s\S]{0,180}font-size:\s*11px;/, "Appearance option descriptions must not use micro text");

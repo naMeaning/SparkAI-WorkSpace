@@ -29,6 +29,8 @@ function contextModelFamily(model = "") {
   const normalized = String(model || "").trim().toLowerCase();
   if (/claude|anthropic/.test(normalized)) return "claude";
   if (/(?:^|[-_.])(gpt|chatgpt|o[1-9]|codex)(?:[-_.]|$)/.test(normalized) || /openai/.test(normalized)) return "codex";
+  if (/gemini|gemma/.test(normalized)) return "gemini";
+  if (/grok|\bxai\b/.test(normalized)) return "grok";
   return "balanced";
 }
 
@@ -40,6 +42,9 @@ function claudeLongContextModel(model = "") {
 function inferredContextWindowTokens(model, family) {
   if (family === "codex") return DEFAULT_CODEX_CONTEXT_WINDOW_TOKENS;
   if (family === "claude") return claudeLongContextModel(model) ? 1_000_000 : DEFAULT_CLAUDE_CONTEXT_WINDOW_TOKENS;
+  if (family === "gemini") return /(?:^|[-_.])(1[._-]?5|2[._-]?[05]|pro|flash|ultra)(?:[-_.]|$)/.test(String(model || "").toLowerCase())
+    ? 1_000_000
+    : DEFAULT_BALANCED_CONTEXT_WINDOW_TOKENS;
   return DEFAULT_BALANCED_CONTEXT_WINDOW_TOKENS;
 }
 
@@ -133,7 +138,9 @@ function contextStrategyForSettings(settings = {}) {
 
   return Object.freeze({
     id: requestedId,
-    resolvedId: requestedId === "auto" ? family === "balanced" ? "naimage-balanced" : family : requestedId,
+    resolvedId: requestedId === "auto"
+      ? (family === "codex" || family === "claude" ? family : "naimage-balanced")
+      : requestedId,
     family,
     model,
     contextWindowTokens,

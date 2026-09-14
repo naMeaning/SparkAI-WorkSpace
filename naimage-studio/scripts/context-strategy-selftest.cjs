@@ -14,6 +14,8 @@ assert.deepEqual(CONTEXT_STRATEGY_IDS, ["auto", "codex", "claude", "naimage-bala
 assert.equal(normalizeContextStrategyId("unsupported"), "auto");
 assert.equal(contextModelFamily("gpt-5.6-sol"), "codex");
 assert.equal(contextModelFamily("claude-opus-4-7"), "claude");
+assert.equal(contextModelFamily("gemini-2.5-pro"), "gemini");
+assert.equal(contextModelFamily("grok-4"), "grok");
 assert.equal(contextModelFamily("deepseek-v3"), "balanced");
 
 const codex = contextStrategyForSettings({ contextStrategy: "auto", agentModel: "gpt-5.6-sol" });
@@ -35,6 +37,19 @@ assert.equal(claude.protocolMessageMaxChars, 12_000);
 
 const longClaude = contextStrategyForSettings({ contextStrategy: "claude", agentModel: "claude-opus-4-7" });
 assert.equal(longClaude.contextWindowTokens, 1_000_000);
+
+const gemini = contextStrategyForSettings({ contextStrategy: "auto", agentModel: "gemini-2.5-pro" });
+assert.equal(gemini.family, "gemini");
+assert.equal(gemini.resolvedId, "naimage-balanced");
+assert.equal(gemini.useResponsesProtocol, false);
+assert.equal(gemini.useNativeWebSearch, false);
+assert.equal(gemini.contextWindowTokens, 1_000_000);
+
+const grok = contextStrategyForSettings({ contextStrategy: "auto", agentModel: "grok-4" });
+assert.equal(grok.family, "grok");
+assert.equal(grok.resolvedId, "naimage-balanced");
+assert.equal(grok.useResponsesProtocol, false);
+assert.equal(grok.useNativeWebSearch, false);
 
 const custom = contextStrategyForSettings({
   contextStrategy: "custom",
@@ -64,12 +79,18 @@ assert.equal(repaired.retainedUserTokens, 50_000);
 
 const settingsDrawerSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-drawer.tsx"), "utf8");
 const persistenceSource = fs.readFileSync(path.join(__dirname, "..", "src", "settings-persistence.ts"), "utf8");
-assert.match(settingsDrawerSource, /data-settings-control="context-strategy"/);
+assert.match(settingsDrawerSource, /dataSettingsControl="context-strategy"/);
 assert.match(settingsDrawerSource, /value=\{draftSettings\.contextStrategy\}[\s\S]*CONTEXT_STRATEGY_OPTIONS\.map/);
 assert.match(settingsDrawerSource, /draftSettings\.contextStrategy === "custom"/);
 for (const field of ["contextWindowTokens", "contextEffectiveWindowPercent", "contextAutoCompactPercent", "contextRetainedUserTokens"]) {
   assert.match(settingsDrawerSource, new RegExp(`update\\("${field}"`), `Settings UI must edit ${field}`);
 }
 assert.match(persistenceSource, /\["auto", "codex", "claude", "naimage-balanced", "custom"\]/);
+const electronMainSource = fs.readFileSync(path.join(__dirname, "..", "electron-main.cjs"), "utf8");
+assert.match(
+  electronMainSource,
+  /isGptImageModel\(model\) && !preferDirectImageTransport/,
+  "Non-GPT image models such as Grok/Gemini/Imagen must not be sent through GPT Responses image_generation"
+);
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 35 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 42 })}\n`);

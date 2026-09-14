@@ -285,7 +285,16 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const settingsCustomThemeActionTexts = settingsCustomThemeActionButtons.map((node) => String(node.textContent || "").replace(/\\s+/g, " ").trim());
     const settingsCustomThemeActionsRect = rect(".settings-drawer:not(.account-drawer) .theme-custom-actions");
     const settingsContextStrategySelect = element(".settings-drawer:not(.account-drawer) [data-settings-control='context-strategy']");
-    const settingsContextStrategyValues = Array.from(settingsContextStrategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
+    const settingsContextStrategyValue = String(
+      settingsContextStrategySelect?.getAttribute("data-value")
+      || settingsContextStrategySelect?.querySelector("select")?.value
+      || ""
+    );
+    const settingsContextStrategyValues = String(settingsContextStrategySelect?.getAttribute("data-option-values") || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .concat(Array.from(settingsContextStrategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || "").trim()).filter(Boolean));
     const settingsContextCustomInputs = Array.from(document.querySelectorAll(".settings-drawer:not(.account-drawer) .settings-context-custom-fields input[type='number']"));
     const accountProfileCardRect = rect(".account-drawer .account-profile");
     const accountProfileAvatarRect = rect(".account-drawer .account-surface-avatar");
@@ -491,13 +500,13 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       .filter((node) => node.classList.contains("ui-icon-action") || node.classList.contains("ui-surface-close"))
       .map(uiControlMetric);
     const uiChoiceMetrics = uiSurfaceButtons
-      .filter((node) => node.classList.contains("ui-choice-row") || node.classList.contains("ui-segment-action") || node.classList.contains("ui-inline-action") || node.classList.contains("glass-theme-card") || node.classList.contains("glass-material-card") || node.classList.contains("glass-accent-swatch"))
+      .filter((node) => node.classList.contains("ui-choice-row") || node.classList.contains("ui-segment-action") || node.classList.contains("ui-inline-action") || node.classList.contains("glass-theme-card") || node.classList.contains("glass-material-card") || node.classList.contains("glass-accent-swatch") || node.classList.contains("glass-select-trigger") || node.classList.contains("glass-select-option"))
       .map(uiControlMetric);
     const uiPreviewMetrics = uiSurfaceButtons
       .filter((node) => node.getAttribute("data-ui-control") === "preview")
       .map(uiControlMetric);
     const uiRawButtonMetrics = uiSurfaceButtons
-      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, [data-ui-control='preview']"))
+      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, .glass-select-trigger, .glass-select-option, [data-ui-control='preview']"))
       .map(uiControlMetric);
     const uiFooterMetrics = visibleUiSurfaces.flatMap((surface) => Array.from(surface.querySelectorAll(":scope > .ui-surface-footer"))).map((footer) => {
       const group = footer.querySelector(":scope > .ui-surface-footer-actions");
@@ -2581,7 +2590,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsGlassPreviewRect.top < settingsSurfaceBodyRect.bottom - 8
     );
     const settingsContextCustomControlsOk = Boolean(
-      settingsContextStrategySelect?.value === "custom" &&
+      settingsContextStrategyValue === "custom" &&
       ["auto", "codex", "claude", "naimage-balanced", "custom"].every((value) => settingsContextStrategyValues.includes(value)) &&
       settingsContextCustomInputs.length === 4 &&
       settingsContextCustomInputs.every((node) => {

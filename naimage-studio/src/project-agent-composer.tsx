@@ -13,7 +13,7 @@ import {
   type ImageFrameRatio,
   type ImageResolutionPreset
 } from "./core";
-import { ActionButton, ButtonBase, DialogShell, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import { ActionButton, ButtonBase, DialogShell, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
 
 export type ProjectAgentComposerArtifact = {
   id: string;
@@ -526,16 +526,17 @@ export default function ProjectAgentComposer({
         <label className="project-agent-steer-mode">
           <span>本次修改使用的图片</span>
           {goalActive ? <strong>保持全部图片范围，只修改要求</strong> : (
-            <select
+            <GlassSelect
               value={taskScopeMode}
               disabled={stopPending}
-              onChange={(event) => setTaskScopeMode(event.target.value as AgentSteerTaskScopeMode | "auto")}
-              aria-label="本次修改使用的图片"
-            >
-              <option value="auto">自动处理（推荐）</option>
-              <option value="keep">只修改要求，保留现有图片</option>
-              <option value="replace-source">更换处理图片</option>
-            </select>
+              ariaLabel="本次修改使用的图片"
+              onChange={(value) => setTaskScopeMode(value as AgentSteerTaskScopeMode | "auto")}
+              options={[
+                { value: "auto", label: "自动处理（推荐）" },
+                { value: "keep", label: "只修改要求，保留现有图片" },
+                { value: "replace-source", label: "更换处理图片" }
+              ]}
+            />
           )}
           <small>{goalActive
             ? "Goal 运行中不会悄悄扩大或更换图片范围。"

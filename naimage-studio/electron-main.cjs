@@ -3953,11 +3953,13 @@ async function callNewApiImage(settings, payload = {}) {
         form.set("n", "1");
         if (!customMode && settings.modelGroup) form.set("group", settings.modelGroup);
         if (!isGptImageModel(model)) form.set("response_format", "b64_json");
-        if (imageControls.outputFormat) form.set("output_format", String(imageControls.outputFormat));
-        if (imageControls.outputCompression !== undefined) form.set("output_compression", String(imageControls.outputCompression));
-        if (imageControls.background) form.set("background", String(imageControls.background));
-        if (imageControls.moderation) form.set("moderation", String(imageControls.moderation));
-        if (imageControls.inputFidelity) form.set("input_fidelity", String(imageControls.inputFidelity));
+        if (isGptImageModel(model)) {
+          if (imageControls.outputFormat) form.set("output_format", String(imageControls.outputFormat));
+          if (imageControls.outputCompression !== undefined) form.set("output_compression", String(imageControls.outputCompression));
+          if (imageControls.background) form.set("background", String(imageControls.background));
+          if (imageControls.moderation) form.set("moderation", String(imageControls.moderation));
+          if (imageControls.inputFidelity) form.set("input_fidelity", String(imageControls.inputFidelity));
+        }
         const imageField = isGptImageModel(model) ? "image[]" : "image";
         for (const image of [editImage, ...referenceImages].filter(Boolean)) {
           const upload = preparedUpload(image, aggressive);
@@ -4040,10 +4042,12 @@ async function callNewApiImage(settings, payload = {}) {
 
       const body = { model, prompt, size, quality, n: 1 };
       if (!isGptImageModel(model)) body.response_format = "b64_json";
-      if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
-      if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
-      if (imageControls.background) body.background = imageControls.background;
-      if (imageControls.moderation) body.moderation = imageControls.moderation;
+      if (isGptImageModel(model)) {
+        if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
+        if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
+        if (imageControls.background) body.background = imageControls.background;
+        if (imageControls.moderation) body.moderation = imageControls.moderation;
+      }
       const responsesImageModel = String(settings.agentModel || "gpt-5.6-terra").trim() || "gpt-5.6-terra";
       log(`image request metadata ${JSON.stringify({
         endpoint: "/v1/responses",
@@ -4118,7 +4122,7 @@ async function callNewApiImage(settings, payload = {}) {
         if (error?.code !== "NEW_API_IMAGE_TASK_UNSUPPORTED") throw error;
         log(`Image task endpoint unsupported for ${customMode ? "custom" : "account"} access; falling back to the compatible synchronous image transports`);
       }
-      if (!preferDirectImageTransport) {
+      if (isGptImageModel(model) && !preferDirectImageTransport) {
         try {
           return await newApiRelayResponsesImage(settings, responsesBody, onPartialImage, {
             provider: "image",

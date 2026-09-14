@@ -802,10 +802,15 @@ export default function SettingsDrawer({
                 </div>
                 {appAccessPolicy.customApiAccess ? (
                   <Field label="使用方式">
-                    <select value={draftSettings.accessMode} onChange={(event) => update("accessMode", event.target.value as AppSettings["accessMode"])}>
-                      <option value="account">SparkAPI 账号登录</option>
-                      <option value="custom">自定义 Base URL / API Key</option>
-                    </select>
+                    <GlassSelect
+                      value={draftSettings.accessMode}
+                      ariaLabel="使用方式"
+                      onChange={(value) => update("accessMode", value as AppSettings["accessMode"])}
+                      options={[
+                        { value: "account", label: "SparkAPI 账号登录" },
+                        { value: "custom", label: "自定义 Base URL / API Key" }
+                      ]}
+                    />
                   </Field>
                 ) : <InlineNotice tone="neutral">当前为 SparkAPI 专用发行版，只允许官方账号登录。</InlineNotice>}
                 {draftSettings.accessMode === "account" ? (
@@ -1066,15 +1071,23 @@ export default function SettingsDrawer({
                 </div>
                 <div className="settings-runtime-fields">
                   <Field label="推理强度">
-                    <select value={draftSettings.reasoningEffort} onChange={(event) => update("reasoningEffort", event.target.value as AppSettings["reasoningEffort"])}>
-                      {REASONING_EFFORT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
+                    <GlassSelect
+                      value={draftSettings.reasoningEffort}
+                      ariaLabel="推理强度"
+                      onChange={(value) => update("reasoningEffort", value as AppSettings["reasoningEffort"])}
+                      options={REASONING_EFFORT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    />
                   </Field>
                   <Field label="模式">
-                    <select value={draftSettings.fastMode ? "fast" : "standard"} onChange={(event) => update("fastMode", event.target.value === "fast")}>
-                      <option value="standard">标准</option>
-                      <option value="fast">快速</option>
-                    </select>
+                    <GlassSelect
+                      value={draftSettings.fastMode ? "fast" : "standard"}
+                      ariaLabel="模式"
+                      onChange={(value) => update("fastMode", value === "fast")}
+                      options={[
+                        { value: "standard", label: "标准" },
+                        { value: "fast", label: "快速" }
+                      ]}
+                    />
                   </Field>
                 </div>
               </SurfaceSection>
@@ -1100,24 +1113,26 @@ export default function SettingsDrawer({
                   </div>
                   <div className="settings-runtime-fields">
                     <Field label="图片比例">
-                      <select
+                      <GlassSelect
                         value={draftSettings.imageRatio}
-                        onChange={(event) => updateImageFrame({ ratio: event.target.value as ImageFrameRatio })}
-                      >
-                        {FRAME_OPTIONS.map((option) => (
-                          <option key={option.ratio} value={option.ratio}>{option.ratio} · {option.label}</option>
-                        ))}
-                      </select>
+                        ariaLabel="图片比例"
+                        onChange={(value) => updateImageFrame({ ratio: value as ImageFrameRatio })}
+                        options={FRAME_OPTIONS.map((option) => ({
+                          value: option.ratio,
+                          label: `${option.ratio} · ${option.label}`
+                        }))}
+                      />
                     </Field>
                     <Field label="图片清晰度">
-                      <select
+                      <GlassSelect
                         value={draftSettings.imageResolution}
-                        onChange={(event) => updateImageFrame({ resolution: event.target.value as ImageResolutionPreset })}
-                      >
-                        {SIZE_PRESETS.map((option) => (
-                          <option key={option.resolution} value={option.resolution}>{option.label}</option>
-                        ))}
-                      </select>
+                        ariaLabel="图片清晰度"
+                        onChange={(value) => updateImageFrame({ resolution: value as ImageResolutionPreset })}
+                        options={SIZE_PRESETS.map((option) => ({
+                          value: option.resolution,
+                          label: option.label
+                        }))}
+                      />
                     </Field>
                   </div>
                   <InlineNotice tone="neutral">
@@ -1156,14 +1171,18 @@ export default function SettingsDrawer({
                     </span>
                   </div>
                   <Field label="上下文策略">
-                    <select
+                    <GlassSelect
                       name="contextStrategy"
-                      data-settings-control="context-strategy"
+                      dataSettingsControl="context-strategy"
                       value={draftSettings.contextStrategy}
-                      onChange={(event) => update("contextStrategy", event.target.value as AppSettings["contextStrategy"])}
-                    >
-                      {CONTEXT_STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
+                      ariaLabel="上下文策略"
+                      onChange={(value) => update("contextStrategy", value as AppSettings["contextStrategy"])}
+                      options={CONTEXT_STRATEGY_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                        description: option.detail
+                      }))}
+                    />
                   </Field>
                   <InlineNotice tone="neutral">
                     {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.detail}
@@ -1171,7 +1190,11 @@ export default function SettingsDrawer({
                       ? " 当前模型将使用 Codex 级 272K 窗口，并在约 244.8K Token 时自动 checkpoint。"
                       : draftSettings.contextStrategy === "auto" && /claude|anthropic/i.test(draftSettings.agentModel || "")
                         ? " 当前模型将使用 Claude 策略，并按具体模型选择 200K 或长上下文窗口。"
-                        : ""}
+                        : draftSettings.contextStrategy === "auto" && /gemini|gemma/i.test(draftSettings.agentModel || "")
+                          ? " 当前模型将使用 Gemini 兼容窗口，通过 Chat Completions / Gemini 渠道调用，不会启用 GPT Responses 原生 web_search。"
+                          : draftSettings.contextStrategy === "auto" && /grok|xai/i.test(draftSettings.agentModel || "")
+                            ? " 当前模型将使用 Grok 兼容的平衡策略，通过 Chat Completions 调用，不会启用 GPT Responses 原生 web_search。"
+                            : ""}
                   </InlineNotice>
                   <Field label="压缩模型（可选）">
                     <input

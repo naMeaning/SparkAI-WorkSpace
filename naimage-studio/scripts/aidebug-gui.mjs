@@ -9918,22 +9918,26 @@ async function main() {
         while (Date.now() < contextDeadline && !document.querySelector("[data-settings-control='context-strategy']")) await delay(40);
         const strategySelect = document.querySelector("[data-settings-control='context-strategy']");
         strategySelect?.scrollIntoView?.({ block: "center" });
-        const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
-        selectSetter?.call(strategySelect, "custom");
-        strategySelect?.dispatchEvent(new Event("input", { bubbles: true }));
-        strategySelect?.dispatchEvent(new Event("change", { bubbles: true }));
+        const optionValues = String(strategySelect?.getAttribute("data-option-values") || "")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+        strategySelect?.querySelector(".glass-select-trigger")?.click();
+        const optionDeadline = Date.now() + 2400;
+        while (Date.now() < optionDeadline && !document.querySelector('[data-glass-select-value="custom"]')) await delay(40);
+        document.querySelector('[data-glass-select-value="custom"]')?.click();
         const customFieldsDeadline = Date.now() + 2400;
         while (Date.now() < customFieldsDeadline && document.querySelectorAll(".settings-context-custom-fields input[type='number']").length < 4) await delay(40);
         const inputs = Array.from(document.querySelectorAll(".settings-context-custom-fields input[type='number']"));
-        const optionValues = Array.from(strategySelect?.querySelectorAll("option") || []).map((node) => String(node.value || ""));
+        const strategyValue = String(document.querySelector("[data-settings-control='context-strategy']")?.getAttribute("data-value") || "");
         window.__naimageContextSettingsProbe = {
           ok: Boolean(
             agentTab &&
-            strategySelect?.value === "custom" &&
+            strategyValue === "custom" &&
             ["auto", "codex", "claude", "naimage-balanced", "custom"].every((value) => optionValues.includes(value)) &&
             inputs.length === 4
           ),
-          strategy: strategySelect?.value || "",
+          strategy: strategyValue,
           optionValues,
           inputCount: inputs.length,
           inputValues: inputs.map((node) => node.value)

@@ -19,6 +19,8 @@ export type GlassSelectProps = {
   placeholder?: React.ReactNode;
   disabled?: boolean;
   className?: string;
+  name?: string;
+  dataSettingsControl?: string;
 };
 
 /**
@@ -35,6 +37,8 @@ export function GlassSelect({
   placeholder = "请选择",
   disabled = false,
   className,
+  name,
+  dataSettingsControl,
 }: GlassSelectProps) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const optionRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -121,7 +125,14 @@ export function GlassSelect({
 
   const rect = triggerRef.current?.getBoundingClientRect();
   return (
-    <div className={joinClassNames("glass-select", open && "is-open", className)} data-glass-select="true">
+    <div
+      className={joinClassNames("glass-select", open && "is-open", className)}
+      data-glass-select="true"
+      data-value={value}
+      data-option-values={options.map((option) => option.value).join(",")}
+      data-name={name || undefined}
+      data-settings-control={dataSettingsControl || undefined}
+    >
       <ButtonBase
         ref={triggerRef}
         className="glass-select-trigger"

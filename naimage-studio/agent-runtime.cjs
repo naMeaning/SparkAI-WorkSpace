@@ -3861,10 +3861,12 @@ function createAgentRuntime(options) {
           n: 1
         };
         if (!isGptImageModel(model)) body.response_format = "b64_json";
-        if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
-        if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
-        if (imageControls.background) body.background = imageControls.background;
-        if (imageControls.moderation) body.moderation = imageControls.moderation;
+        if (isGptImageModel(model)) {
+          if (imageControls.outputFormat) body.output_format = imageControls.outputFormat;
+          if (imageControls.outputCompression !== undefined) body.output_compression = imageControls.outputCompression;
+          if (imageControls.background) body.background = imageControls.background;
+          if (imageControls.moderation) body.moderation = imageControls.moderation;
+        }
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {

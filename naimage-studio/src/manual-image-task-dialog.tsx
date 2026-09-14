@@ -14,7 +14,7 @@ import {
   sizePresetsForModel
 } from "./core";
 import type { ImageTaskDraft } from "./core";
-import { ActionButton, DialogShell, Field, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import { ActionButton, DialogShell, Field, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
 
 export type ManualImageTaskDialogState = {
   draft: ImageTaskDraft;
@@ -82,28 +82,42 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
           <SurfaceBody className="manual-image-task-body">
             <div className="manual-image-task-controls">
               <Field label="比例">
-                <select value={draft.ratio} onChange={(event) => updateRatio(event.target.value)}>
-                  {(ratioOptions.length ? ratioOptions : FRAME_OPTIONS).map((option) => (
-                    <option key={option.ratio} value={option.ratio}>{option.label} · {option.ratio}</option>
-                  ))}
-                </select>
+                <GlassSelect
+                  value={draft.ratio}
+                  ariaLabel="比例"
+                  onChange={updateRatio}
+                  options={(ratioOptions.length ? ratioOptions : FRAME_OPTIONS).map((option) => ({
+                    value: option.ratio,
+                    label: `${option.label} · ${option.ratio}`
+                  }))}
+                />
               </Field>
               <Field label="清晰度">
-                <select value={draft.resolution} onChange={(event) => updateResolution(event.target.value)}>
-                  {(resolutionOptions.length ? resolutionOptions : SIZE_PRESETS).map((option) => (
-                    <option key={option.resolution} value={option.resolution}>{option.label}</option>
-                  ))}
-                </select>
+                <GlassSelect
+                  value={draft.resolution}
+                  ariaLabel="清晰度"
+                  onChange={updateResolution}
+                  options={(resolutionOptions.length ? resolutionOptions : SIZE_PRESETS).map((option) => ({
+                    value: option.resolution,
+                    label: option.label
+                  }))}
+                />
               </Field>
               <Field label="质量">
-                <select value={draft.quality} onChange={(event) => updateDraft({ quality: event.target.value as ImageTaskDraft["quality"] })}>
-                  {QUALITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                <GlassSelect
+                  value={draft.quality}
+                  ariaLabel="质量"
+                  onChange={(value) => updateDraft({ quality: value as ImageTaskDraft["quality"] })}
+                  options={QUALITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                />
               </Field>
               <Field label="张数">
-                <select value={String(draft.count)} onChange={(event) => updateDraft({ count: Number(event.target.value) })}>
-                  {IMAGE_COUNT_OPTIONS.map((count) => <option key={count} value={count}>{count} 张</option>)}
-                </select>
+                <GlassSelect
+                  value={String(draft.count)}
+                  ariaLabel="张数"
+                  onChange={(value) => updateDraft({ count: Number(value) })}
+                  options={IMAGE_COUNT_OPTIONS.map((count) => ({ value: String(count), label: `${count} 张` }))}
+                />
               </Field>
             </div>
 
