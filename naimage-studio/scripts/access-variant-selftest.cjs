@@ -160,6 +160,10 @@ Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
   assert.match(windowsBuildSource, /windowsInstallerArtifactName/);
   assert.match(windowsBuildSource, /windowsLegacyInstallerArtifactName/);
   assert.doesNotMatch(windowsBuildSource, /naimage-Setup-/);
+  assert.match(windowsBuildSource, /function resolveWorkspaceDotnet\(/, "Windows packaging must locate the workspace .NET SDK instead of PATH");
+  assert.match(windowsBuildSource, /join\(workspaceRoot, "\.tools"\)/, "Windows packaging must prefer the portable workspace tool root");
+  assert.match(windowsBuildSource, /join\(toolRoot, "dotnet"/, "Windows packaging must prefer the portable .tools/dotnet SDK");
+  assert.match(windowsBuildSource, /DOTNET_MULTILEVEL_LOOKUP/, "Windows packaging must disable mixed system/.NET SDK lookup");
   assert.match(installerProjectSource, /<AssemblyName>SparkAI WorkSpace Installer<\/AssemblyName>/);
   assert.match(uninstallerProjectSource, /<AssemblyName>SparkAI WorkSpace Uninstaller<\/AssemblyName>/);
   assert.equal(packageMetadata.build.win.artifactName, "naimage-Core-${version}-${arch}.${ext}");

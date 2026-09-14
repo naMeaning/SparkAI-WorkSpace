@@ -11,7 +11,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, delimiter, dirname, join, relative, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { path7za } from "7zip-bin";
@@ -134,14 +134,56 @@ async function ensureArtifact(artifact) {
   }
 }
 
-async function run(command, args, cwd = process.cwd()) {
+function resolveWorkspaceDotnet() {
+  const workspaceRoot = resolve(projectRoot, "..");
+  const toolRoot = join(workspaceRoot, ".tools");
+  const portable = join(toolRoot, "dotnet", process.platform === "win32" ? "dotnet.exe" : "dotnet");
+  const envRoot = String(process.env.DOTNET_ROOT || process.env.DOTNET_ROOT_X64 || "").trim();
+  const envDotnet = envRoot ? join(envRoot, process.platform === "win32" ? "dotnet.exe" : "dotnet") : "";
+  const selected = [portable, envDotnet].find((candidate) => candidate && existsSync(candidate));
+  if (!selected) {
+    throw new Error(`Workspace .NET SDK not found at ${portable}. Activate the local toolchain before packaging.`);
+  }
+  return { command: selected, toolRoot, dotnetRoot: dirname(selected) };
+}
+
+function workspaceDotnetEnv() {
+  const { command, toolRoot, dotnetRoot } = resolveWorkspaceDotnet();
+  return {
+    command,
+    env: {
+      ...process.env,
+      DOTNET_ROOT: dotnetRoot,
+      DOTNET_ROOT_X64: dotnetRoot,
+      DOTNET_CLI_HOME: join(toolRoot, "dotnet-cli-home"),
+      NUGET_PACKAGES: join(toolRoot, "nuget-packages"),
+      DOTNET_MULTILEVEL_LOOKUP: "0",
+      DOTNET_NOLOGO: "1",
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+      PATH: `${dotnetRoot}${delimiter}${process.env.PATH || ""}`
+    }
+  };
+}
+
+function cleanProjectBuildOutput(csprojRelativePath) {
+  const projectDir = dirname(join(projectRoot, csprojRelativePath));
+  for (const name of ["bin", "obj"]) {
+    const target = join(projectDir, name);
+    if (!existsSync(target)) continue;
+    if (!isPathInside(target, projectDir)) throw new Error(`Refusing to clean build output outside ${projectDir}.`);
+    rmSync(target, { recursive: true, force: true });
+  }
+}
+
+async function run(command, args, cwd = process.cwd(), env = process.env) {
   const exitCode = await new Promise((resolveExit, rejectExit) => {
     const child = spawn(command, args, {
       cwd,
       stdio: "inherit",
       shell: false,
       windowsHide: true,
-      env: { ...process.env }
+      env: { ...env }
     });
     child.on("error", rejectExit);
     child.on("exit", (code) => resolveExit(code ?? 1));
@@ -149,16 +191,27 @@ async function run(command, args, cwd = process.cwd()) {
   if (exitCode !== 0) throw new Error(`${basename(command)} exited with code ${exitCode}.`);
 }
 
+async function publishDotnetProject(csprojRelativePath, outputDir, extraProperties = []) {
+  const { command, env } = workspaceDotnetEnv();
+  cleanProjectBuildOutput(csprojRelativePath);
+  mkdirSync(outputDir, { recursive: true });
+  await run(command, [
+    "publish",
+    csprojRelativePath,
+    "-c", "Release",
+    "-o", outputDir,
+    `-p:ProductVersion=${productVersion}`,
+    ...extraProperties
+  ], projectRoot, env);
+}
+
 async function publishBrandedUninstaller() {
   rmSync(brandedUninstallerDir, { recursive: true, force: true });
   mkdirSync(brandedUninstallerDir, { recursive: true });
-  await run("dotnet", [
-    "publish",
+  await publishDotnetProject(
     join("tools", "windows-installer", "Uninstaller", "naimage.Studio.Uninstaller.csproj"),
-    "-c", "Release",
-    "-o", brandedUninstallerDir,
-    `-p:ProductVersion=${productVersion}`
-  ]);
+    brandedUninstallerDir
+  );
   if (!existsSync(brandedUninstaller)) throw new Error(`Branded uninstaller was not produced: ${brandedUninstaller}`);
 }
 
@@ -175,15 +228,14 @@ async function wrapCoreInstaller() {
   writeFileSync(coreHashPath, `${coreHash}\n`, "ascii");
 
   const publishDir = join(brandedInstallerDir, "publish");
-  await run("dotnet", [
-    "publish",
+  await publishDotnetProject(
     join("tools", "windows-installer", "Installer", "naimage.Studio.Installer.csproj"),
-    "-c", "Release",
-    "-o", publishDir,
-    `-p:ProductVersion=${productVersion}`,
-    `-p:CoreInstallerPath=${coreInstaller}`,
-    `-p:CoreInstallerHashPath=${coreHashPath}`
-  ]);
+    publishDir,
+    [
+      `-p:CoreInstallerPath=${coreInstaller}`,
+      `-p:CoreInstallerHashPath=${coreHashPath}`
+    ]
+  );
   const publishedInstaller = join(publishDir, "SparkAI WorkSpace Installer.exe");
   if (!existsSync(publishedInstaller)) throw new Error(`Branded setup was not produced: ${publishedInstaller}`);
   copyFileSync(publishedInstaller, finalInstaller);
