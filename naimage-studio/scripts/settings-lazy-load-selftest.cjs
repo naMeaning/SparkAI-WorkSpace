@@ -69,7 +69,7 @@ assert.match(projectAgentComposerSource, /function setDefaultImageModel\(model: 
 assert.match(projectAgentComposerSource, /className=\{`project-agent-model-default[\s\S]{0,300}设为默认生图模型/, "Every model row must expose a named default-model control");
 assert.match(mainSource, /const projectAgentChangeImageModels[\s\S]{0,260}const imageModel = imageModelPool\[0\]/, "The first selected model must persist as the default image model");
 assert.match(mainSource, /projectAgentRequestImageModels[\s\S]{0,480}naimageServer\.models\(\{[\s\S]{0,160}selectedAccountTokenGroup[\s\S]{0,520}settings\?\.imageModels/, "Opening the composer model menu must load the current key's classified upstream image catalog through the shared model cache");
-assert.match(projectAgentComposerSource, /<option value="auto">自动处理（推荐）<\/option>[\s\S]{0,180}<option value="keep">只修改要求，保留现有图片<\/option>[\s\S]{0,180}<option value="replace-source">更换处理图片<\/option>/, "The normal steer UI must expose only three plain-language image-scope choices");
+assert.match(projectAgentComposerSource, /value: "auto", label: "自动处理（推荐）"[\s\S]{0,180}value: "keep", label: "只修改要求，保留现有图片"[\s\S]{0,180}value: "replace-source", label: "更换处理图片"/, "The normal steer UI must expose only three plain-language image-scope choices");
 assert.doesNotMatch(projectAgentComposerSource, /<option value="(?:merge-source|replace-reference|merge-reference|clear)">/, "The normal steer UI must not expose internal SOURCE or REFERENCE protocol modes");
 
 assert.match(settingsDrawerSource, /function requestSettingsClose\(\)[\s\S]{0,180}if \(dirty\)[\s\S]{0,120}setClosePromptOpen\(true\)/, "Closing dirty settings must open the save-choice prompt");
@@ -86,7 +86,8 @@ assert.match(helpCenterSource, /软件制作者[\s\S]{0,80}namean/, "Help and po
 
 assert.match(electronSource, /accountTokenCachePath\s*=\s*path\.join\(configDir,\s*"account-token-cache\.json"\)/, "Token snapshots must use an application-data cache file");
 assert.match(electronSource, /const cacheOnly = options\?\.cacheOnly === true;[\s\S]*?if \(cacheOnly\) \{/, "Model settings must provide a cache-only branch");
-assert.match(electronSource, /const modelCacheTtlMs = 60_000;/, "Electron Main must cache model catalogs for at least sixty seconds");
+assert.match(electronSource, /const modelCacheTtlMs = 15 \* 60 \* 1000;/, "Electron Main must cache model catalogs for at least fifteen minutes");
+assert.match(electronSource, /now - memoryEntry\.cachedAt < modelCacheTtlMs \* 4/, "Expired model catalogs must stay serveable while a background refresh runs");
 assert.match(electronSource, /function modelCacheKey\(settings\)[\s\S]{0,1400}settings\.selectedAccountTokenId/, "Each selected NewAPI key must own an isolated model-cache entry");
 assert.match(electronSource, /function modelCacheKey\(settings\)[\s\S]{0,900}credentials\.apiKey[\s\S]{0,500}credentialIdentity/, "Changing a custom API key on the same Base URL must rotate the shared model-cache key without persisting the key");
 assert.match(electronSource, /accountTokenService\.credentials\(settings\)[\s\S]{0,260}directApiUrl\(credentials\.baseUrl, "\/v1\/models"\)[\s\S]{0,260}authorization: `Bearer \$\{credentials\.apiKey\}`/, "Account mode must query the selected NewAPI key's upstream /v1/models endpoint with its Main-only key");

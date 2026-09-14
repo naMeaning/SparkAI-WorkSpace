@@ -87,6 +87,9 @@ async function main() {
     const pngHit = await cache.ensure({ sourcePath: pngPath, cacheRoot, maxEdge: 512 });
     assert.equal(pngHit.cacheHit, true);
     assert.equal(pngHit.path, png.path);
+    const pngBucketHit = await cache.ensure({ sourcePath: pngPath, cacheRoot, maxEdge: 400 });
+    assert.equal(pngBucketHit.cacheHit, true, "Nearby thumbnail sizes must share the 512px cache bucket");
+    assert.equal(pngBucketHit.path, png.path);
 
     const concurrencyPath = path.join(sourceRoot, "并发透明图.png");
     await writeFixture(concurrencyPath, "png", { r: 20, g: 190, b: 136, alpha: 0.58 });
@@ -101,13 +104,19 @@ async function main() {
     assert(logs.filter((entry) => entry.includes("thumbnail cache join")).length >= 9);
     await inspectThumbnail(concurrent[0], true);
 
-    const distinctPaths = Array.from({ length: 6 }, (_, index) => {
+    const copyPath = path.join(sourceRoot, "内容相同副本.png");
+    copyFileSync(pngPath, copyPath);
+    utimesSync(copyPath, new Date(Date.now() + 20_000), new Date(Date.now() + 20_000));
+    const copyHit = await cache.ensure({ sourcePath: copyPath, cacheRoot, maxEdge: 512 });
+    assert.equal(copyHit.cacheHit, true, "Identical image bytes at another path must reuse the thumbnail");
+    assert.equal(copyHit.path, png.path);
+
+    const distinctPaths = [];
+    for (let index = 0; index < 6; index += 1) {
       const filePath = path.join(sourceRoot, `多源并发-${index + 1}.png`);
-      copyFileSync(concurrencyPath, filePath);
-      const changedTime = new Date(Date.now() + 10_000 + index * 1_000);
-      utimesSync(filePath, changedTime, changedTime);
-      return filePath;
-    });
+      await writeFixture(filePath, "png", { r: 20 + index * 30, g: 40, b: 80 + index * 20, alpha: 0.5 });
+      distinctPaths.push(filePath);
+    }
     const distinctResults = await Promise.all(distinctPaths.map((sourcePath) => cache.ensure({ sourcePath, cacheRoot, maxEdge: 512 })));
     assert.equal(new Set(distinctResults.map((entry) => entry.path)).size, distinctPaths.length);
     const activeCounts = logs
@@ -121,10 +130,9 @@ async function main() {
     const originalPath = png.path;
     const changedTime = new Date(Date.now() + 5_000);
     utimesSync(pngPath, changedTime, changedTime);
-    const invalidated = await cache.ensure({ sourcePath: pngPath, cacheRoot, maxEdge: 512 });
-    assert.equal(invalidated.cacheHit, false);
-    assert.notEqual(invalidated.path, originalPath, "mtime changes must invalidate the cache key");
-    await inspectThumbnail(invalidated, true);
+    const sameContentHit = await cache.ensure({ sourcePath: pngPath, cacheRoot, maxEdge: 512 });
+    assert.equal(sameContentHit.cacheHit, true, "mtime-only changes must keep the content-addressed thumbnail");
+    assert.equal(sameContentHit.path, originalPath);
 
     const corruptPath = path.join(sourceRoot, "损坏图片.png");
     writeFileSync(corruptPath, Buffer.from("not-an-image"));
@@ -207,7 +215,8 @@ async function main() {
       formats: ["png", "jpeg", "webp"],
       alphaPreserved: true,
       cacheHit: pngHit.cacheHit,
-      sourceChangeInvalidated: invalidated.path !== originalPath,
+      sourceChangeInvalidated: false,
+      contentAddressedHit: copyHit.cacheHit,
       concurrentRequests: concurrent.length,
       concurrentWorkerStarts: workerStartsAfter - workerStartsBefore,
       concurrentWorkerJobs: workerJobsAfter - workerJobsBefore,

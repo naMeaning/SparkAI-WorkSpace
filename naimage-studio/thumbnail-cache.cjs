@@ -18,8 +18,8 @@ const path = require("node:path");
 const DEFAULT_MAX_EDGE = 512;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_EDGE_LIMIT = 4096;
-const DEFAULT_MAX_CACHE_FILES = 512;
-const DEFAULT_MAX_CACHE_BYTES = 512 * 1024 * 1024;
+const DEFAULT_MAX_CACHE_FILES = 2_000;
+const DEFAULT_MAX_CACHE_BYTES = 1024 * 1024 * 1024;
 const DEFAULT_MAX_CACHE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -49,6 +49,14 @@ function normalizeMaxEdge(value) {
     throw new ThumbnailCacheError("THUMBNAIL_INVALID_MAX_EDGE", `缩略图长边必须是 64 到 ${MAX_EDGE_LIMIT} 之间的整数。`);
   }
   return number;
+}
+
+function bucketThumbnailMaxEdge(value) {
+  const number = value === undefined || value === null || value === "" ? DEFAULT_MAX_EDGE : Number(value);
+  const clamped = Number.isFinite(number) ? Math.max(64, Math.min(Math.round(number), MAX_EDGE_LIMIT)) : DEFAULT_MAX_EDGE;
+  if (clamped <= 256) return 256;
+  if (clamped <= 512) return 512;
+  return 1024;
 }
 
 function secureSourceFile(sourcePath) {
@@ -85,6 +93,34 @@ function sourceFingerprint(sourcePath, stats, maxEdge) {
       formatVersion: 1,
     }))
     .digest("hex");
+}
+
+function contentFingerprint(contentHash, maxEdge) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      contentHash: String(contentHash || "").toLowerCase(),
+      maxEdge,
+      formatVersion: 2,
+    }))
+    .digest("hex");
+}
+
+function fileContentHash(filePath) {
+  const hash = createHash("sha256");
+  const descriptor = openSync(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(1024 * 1024);
+    let position = 0;
+    for (;;) {
+      const bytes = readSync(descriptor, buffer, 0, buffer.length, position);
+      if (bytes <= 0) break;
+      hash.update(buffer.subarray(0, bytes));
+      position += bytes;
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return hash.digest("hex");
 }
 
 function looksLikeWebp(filePath, cacheRoot) {
@@ -141,6 +177,7 @@ function createThumbnailCache(options = {}) {
     : DEFAULT_TIMEOUT_MS;
   const log = typeof options.log === "function" ? options.log : () => undefined;
   const inflight = new Map();
+  const contentHashMemo = new Map();
   const lastPrunedAt = new Map();
   const workerSlots = new Set();
   const pendingJobs = [];
@@ -371,14 +408,27 @@ function createThumbnailCache(options = {}) {
     });
   }
 
+  function resolveContentHash(sourcePath, stats, provided) {
+    const explicit = String(provided || "").trim().toLowerCase();
+    if (/^[a-f0-9]{32,128}$/.test(explicit)) return explicit;
+    const memoKey = `${comparablePath(sourcePath)}|${Number(stats.size)}|${Math.round(Number(stats.mtimeMs))}`;
+    const cached = contentHashMemo.get(memoKey);
+    if (cached) return cached;
+    const hash = fileContentHash(sourcePath);
+    if (contentHashMemo.size > 4_000) contentHashMemo.clear();
+    contentHashMemo.set(memoKey, hash);
+    return hash;
+  }
+
   async function ensure(payload = {}) {
     counters.requests += 1;
     try {
       if (closed) throw new ThumbnailCacheError("THUMBNAIL_CACHE_CLOSED", "缩略图缓存已经关闭。");
-      const maxEdge = normalizeMaxEdge(payload.maxEdge);
+      const maxEdge = bucketThumbnailMaxEdge(payload.maxEdge);
       const source = secureSourceFile(payload.sourcePath);
       const cacheRoot = secureCacheRoot(payload.cacheRoot);
-      const key = sourceFingerprint(source.path, source.stats, maxEdge);
+      const contentHash = resolveContentHash(source.path, source.stats, payload.contentHash);
+      const key = contentFingerprint(contentHash, maxEdge);
       const outputPath = path.join(cacheRoot, `${key}.webp`);
       if (looksLikeWebp(outputPath, cacheRoot)) {
         const stats = lstatSync(outputPath);
@@ -504,6 +554,7 @@ function createThumbnailCache(options = {}) {
 module.exports = {
   createThumbnailCache,
   ThumbnailCacheError,
+  bucketThumbnailMaxEdge,
   DEFAULT_MAX_EDGE,
   DEFAULT_MAX_CACHE_FILES,
   DEFAULT_MAX_CACHE_BYTES,

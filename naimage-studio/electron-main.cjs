@@ -11,7 +11,7 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 const { createAgentRuntime } = require("./agent-runtime.cjs");
 const { exportLayeredPsd, preparePsdRasterSource } = require("./psd-export.cjs");
-const { createThumbnailCache } = require("./thumbnail-cache.cjs");
+const { createThumbnailCache, bucketThumbnailMaxEdge } = require("./thumbnail-cache.cjs");
 const { createImageImporter, ImageImportError, DEFAULT_MAX_FILES: maxImportedImageFiles } = require("./image-import.cjs");
 const { importVideoFiles, DEFAULT_MAX_FILES: maxImportedVideoFiles } = require("./desktop/video-import.cjs");
 const { createVideoTaskService } = require("./desktop/video-task-service.cjs");
@@ -388,7 +388,7 @@ let applicationShutdownStartedAt = 0;
 const bootStartedAt = Date.now();
 const newApiQuotaPerUnit = 500000;
 const newApiUserLogsEndpoint = "/api/log/self?p=1&page_size=20";
-const modelCacheTtlMs = 60_000;
+const modelCacheTtlMs = 15 * 60 * 1000;
 const modelCacheMemory = new Map();
 const modelCacheInflight = new Map();
 let modelCacheDiskLoaded = false;
@@ -1638,13 +1638,21 @@ function registerAssetProtocol() {
 
       if (url.searchParams.get("preview") === "thumbnail") {
         const requestedMax = Number(url.searchParams.get("max") || 512);
-        const maxEdge = Number.isFinite(requestedMax) ? Math.max(128, Math.min(Math.round(requestedMax), 1024)) : 512;
+        const maxEdge = bucketThumbnailMaxEdge(Number.isFinite(requestedMax) ? requestedMax : 512);
         const cacheRoot = thumbnailCacheRootForAsset(resolved);
         if (cacheRoot) {
           try {
             const thumbnail = await imageThumbnailCache.ensure({ sourcePath: resolved, cacheRoot, maxEdge });
             if (thumbnail?.path && existsSync(thumbnail.path)) {
-              return net.fetch(pathToFileURL(thumbnail.path).toString());
+              return new Response(readFileSync(thumbnail.path), {
+                status: 200,
+                headers: {
+                  "cache-control": "private, max-age=604800, immutable",
+                  "content-type": "image/webp",
+                  "x-content-type-options": "nosniff",
+                  "x-naimage-thumbnail-hit": thumbnail.cacheHit ? "1" : "0"
+                }
+              });
             }
           } catch (error) {
             log(`thumbnail fallback ${resolved}: ${error instanceof Error ? error.message : String(error)}`);
@@ -3267,11 +3275,16 @@ async function newApiModelSettings(settings, options = {}) {
   if (!forceRefresh && memoryEntry && now - memoryEntry.cachedAt < modelCacheTtlMs) {
     return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt);
   }
-
-  if (modelCacheInflight.has(key)) {
-    const pending = await modelCacheInflight.get(key);
-    if (!forceRefresh) return pending;
+  if (!forceRefresh && memoryEntry && now - memoryEntry.cachedAt < modelCacheTtlMs * 4) {
+    if (!modelCacheInflight.has(key)) {
+      void newApiModelSettings(settings, { forceRefresh: true }).catch((error) => {
+        log(`model cache background refresh failed ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    return modelSettingsWithCacheMeta(memoryEntry.settings, "stale", memoryEntry.cachedAt);
   }
+
+  if (modelCacheInflight.has(key)) return modelCacheInflight.get(key);
   const request = (async () => {
     try {
       const loaded = aidebugMode && !aidebugLiveImage
@@ -4450,6 +4463,15 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
     const dimensions = decoded.getSize();
     const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
     writeFileSync(filePath, buffer);
+    const contentHash = createHash("sha256").update(buffer).digest("hex");
+    const cacheRoot = thumbnailCacheRootForAsset(filePath);
+    if (cacheRoot) {
+      for (const maxEdge of [512, 1024]) {
+        void imageThumbnailCache.ensure({ sourcePath: filePath, cacheRoot, maxEdge, contentHash }).catch((error) => {
+          log(`thumbnail prefetch failed ${error instanceof Error ? error.message : String(error)}`);
+        });
+      }
+    }
     const generation = buildImageAssetGenerationMetadata({
       request: generationContext.request,
       response: image.actualParams,
@@ -4462,7 +4484,7 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
       type: "file",
       path: filePath,
       assetUrl: assetUrlFor(filePath),
-      contentHash: createHash("sha256").update(buffer).digest("hex"),
+      contentHash,
       mimeType: detected.mimeType,
       outputFormat: detected.format,
       revisedPrompt: image.revisedPrompt || "",
