@@ -1310,6 +1310,34 @@
   border-color: var(--accent);
 }
 
+.node-image-sequence {
+  position: absolute;
+  z-index: 5;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.94);
+  background: rgba(5, 12, 16, 0.78);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.node-image-sequence input {
+  width: 36px;
+  height: 18px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+}
+
 .node-asset-code {
   position: absolute;
   z-index: 4;

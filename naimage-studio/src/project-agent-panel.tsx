@@ -26,6 +26,7 @@ import type {
   ReferenceImage
 } from "./core";
 import type { AgentComposerTaskMode } from "./project-agent-composer";
+import type { ComposerMaterialItem, ComposerMaterialRole } from "./selection-reference-images";
 import {
   agentPanelLayoutForPlacement,
   agentPanelLayoutFromPointer,
@@ -186,6 +187,10 @@ function ProjectAgentComposerView({
   editSourceImages,
   editReferenceImages,
   regenerateImage,
+  materials = [],
+  onMaterialSequenceChange,
+  onMaterialRoleChange,
+  onRemoveMaterial,
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
@@ -216,6 +221,10 @@ function ProjectAgentComposerView({
   editSourceImages: () => void;
   editReferenceImages: () => void;
   regenerateImage?: () => void;
+  materials?: ComposerMaterialItem[];
+  onMaterialSequenceChange?: (key: string, sequence: number) => void;
+  onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
+  onRemoveMaterial?: (key: string) => void;
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
@@ -251,6 +260,10 @@ function ProjectAgentComposerView({
           editSourceImages={editSourceImages}
           editReferenceImages={editReferenceImages}
           regenerateImage={regenerateImage}
+          materials={materials}
+          onMaterialSequenceChange={onMaterialSequenceChange}
+          onMaterialRoleChange={onMaterialRoleChange}
+          onRemoveMaterial={onRemoveMaterial}
           imageModels={imageModels}
           selectedImageModels={selectedImageModels}
           onSelectedImageModelsChange={onSelectedImageModelsChange}
@@ -296,6 +309,10 @@ function ProjectAgentPanelView({
  editSourceImages,
  editReferenceImages,
   regenerateImage,
+  materials = [],
+  onMaterialSequenceChange,
+  onMaterialRoleChange,
+  onRemoveMaterial,
   imageModels,
   selectedImageModels,
   onSelectedImageModelsChange,
@@ -346,6 +363,10 @@ function ProjectAgentPanelView({
  editSourceImages: () => void;
  editReferenceImages: () => void;
   regenerateImage?: () => void;
+  materials?: ComposerMaterialItem[];
+  onMaterialSequenceChange?: (key: string, sequence: number) => void;
+  onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
+  onRemoveMaterial?: (key: string) => void;
   imageModels: string[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
@@ -753,6 +774,10 @@ function ProjectAgentPanelView({
         editSourceImages={editSourceImages}
         editReferenceImages={editReferenceImages}
         regenerateImage={regenerateImage}
+        materials={materials}
+        onMaterialSequenceChange={onMaterialSequenceChange}
+        onMaterialRoleChange={onMaterialRoleChange}
+        onRemoveMaterial={onRemoveMaterial}
         imageModels={imageModels}
         selectedImageModels={selectedImageModels}
         onSelectedImageModelsChange={onSelectedImageModelsChange}
@@ -838,6 +863,10 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
   left.regenerateImage === right.regenerateImage &&
+  left.materials === right.materials &&
+  left.onMaterialSequenceChange === right.onMaterialSequenceChange &&
+  left.onMaterialRoleChange === right.onMaterialRoleChange &&
+  left.onRemoveMaterial === right.onRemoveMaterial &&
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
@@ -880,6 +909,10 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
   left.regenerateImage === right.regenerateImage &&
+  left.materials === right.materials &&
+  left.onMaterialSequenceChange === right.onMaterialSequenceChange &&
+  left.onMaterialRoleChange === right.onMaterialRoleChange &&
+  left.onRemoveMaterial === right.onRemoveMaterial &&
   left.imageModels === right.imageModels &&
   left.selectedImageModels === right.selectedImageModels &&
   left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&

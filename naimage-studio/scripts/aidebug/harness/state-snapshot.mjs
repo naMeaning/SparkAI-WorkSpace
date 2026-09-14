@@ -148,7 +148,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const legacyAgentPanelMounted = Boolean(element(".agent-panel"));
     const legacyAgentCanvasNodeMounted = Array.from(document.querySelectorAll(".flow-node")).some((node) => node.classList.contains("agent"));
     const agentSurfaceRect = agentRect;
-    const projectAgentContextNode = element(".project-agent-composer-context");
+    const projectAgentContextNode = element(".project-agent-material-strip") || element(".project-agent-composer-context");
     const projectAgentContextRect = projectAgentContextNode?.getBoundingClientRect?.() || null;
     const projectAgentContextStyle = projectAgentContextNode ? getComputedStyle(projectAgentContextNode) : null;
     const projectAgentContextPrefixNode = projectAgentContextNode?.querySelector(":scope > span") || null;
@@ -806,7 +806,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       projectAgentContextTopHit &&
       (projectAgentContextTopHit === projectAgentContextNode || projectAgentContextNode.contains(projectAgentContextTopHit))
     );
-    const projectAgentContextPrefixPresent = Boolean(projectAgentContextPrefixNode && /将基于/.test(String(projectAgentContextPrefixNode.textContent || "")));
+    const projectAgentContextPrefixPresent = Boolean(projectAgentContextPrefixNode && /将基于|当前选中/.test(String(projectAgentContextPrefixNode.textContent || "")));
     const projectAgentContextPrefixSingleLineOk = !projectAgentContextPrefixPresent || Boolean(
       projectAgentContextPrefixRect &&
       projectAgentContextPrefixRect.width >= 24 &&
@@ -3011,7 +3011,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         agentRect.width <= 430,
       projectAgentContextVisible,
       projectAgentContextMetrics,
-      projectAgentContextHasArtifact: Boolean(element(".project-agent-composer-context.has-artifact button")),
+      projectAgentContextHasArtifact: Boolean(element(".project-agent-material-strip") || element(".project-agent-composer-context.has-artifact button")),
       projectAgentContextPrefixPresent,
       projectAgentContextPrefixSingleLineOk,
       projectAgentContextPrefixMetrics,

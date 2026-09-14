@@ -14,9 +14,11 @@ import {
 import { imageGridPlanForCount } from "../src/image-layout.ts";
 import { buildTaskResultLayoutMutation } from "../src/task-result-layout.ts";
 import {
+  buildComposerMaterials,
   canvasNodePresentsImageContainer,
   mergeSelectionAndUploadedReferences,
-  referenceImagesFromSelectedCanvasNodes
+  referenceImagesFromSelectedCanvasNodes,
+  splitComposerMaterials
 } from "../src/selection-reference-images.ts";
 
 const asset = (assetId: string, index = 1, prompt = ""): ImageAsset => ({
@@ -511,6 +513,38 @@ const testSelectedContainerBecomesOrderedReferences = () => {
   assert.equal(merged.map((item) => item.assetId).join(","), "asset-c,asset-a,asset-b,uploaded");
 };
 
+const testComposerMaterialsUseSequenceAndRole = () => {
+  const result = node("result-1", {
+    parentId: "parent-a",
+    imageParams: { prompt: "keep me", count: 1 },
+    assets: [asset("result-a", 1)]
+  });
+  const container = node("container-b", {
+    imageContainer: true,
+    imageContainerSpec: {
+      version: 1,
+      kind: "manual",
+      memberNodeIds: [],
+      childContainerNodeIds: [],
+      memberBindings: [
+        { bindingId: "b1", assetId: "asset-a", nodeId: "container-b", containerNodeId: "container-b", assetIndex: 0 },
+        { bindingId: "b2", assetId: "asset-b", nodeId: "container-b", containerNodeId: "container-b", assetIndex: 1 }
+      ]
+    },
+    assets: [asset("asset-a", 1), asset("asset-b", 2)]
+  });
+  const items = buildComposerMaterials([result, container], [], [], {
+    "canvas:container-b:0": { sequence: 2, role: "reference" },
+    "canvas:container-b:1": { sequence: 1, role: "reference" },
+    "canvas:result-1:0": { sequence: 3, role: "source" }
+  });
+  assert.equal(items.map((item) => `${item.sequence}:${item.role}:${item.reference.assetId}`).join("|"), "1:reference:asset-b|2:reference:asset-a|3:source:result-a");
+  const split = splitComposerMaterials(items);
+  assert.equal(split.referenceImages.map((item) => item.assetId).join(","), "asset-b,asset-a");
+  assert.equal(split.sourceImages.map((item) => item.assetId).join(","), "result-a");
+  assert.deepEqual(split.sourceNodeIds, ["result-1"]);
+};
+
 const tests: Array<[string, () => void]> = [
   ["collection slots stay compact and valid", testCollectionSlotsAreCompactAndValidated],
   ["first, middle, and last failures preserve request slots", testFirstMiddleAndLastFailuresKeepRequestSlots],
@@ -525,6 +559,7 @@ const tests: Array<[string, () => void]> = [
   ["task result planner keeps container partitions and requires every source", testTaskResultPlannerGroupsContainersButStillRequiresEverySource],
   ["task result mutation builds and accumulates staged container groups", testTaskResultMutationBuildsAndAccumulatesContainerGroups],
   ["selected containers become ordered reference images", testSelectedContainerBecomesOrderedReferences],
+  ["composer materials honor user sequence and role", testComposerMaterialsUseSequenceAndRole],
 ];
 
 for (const [name, run] of tests) {

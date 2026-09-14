@@ -14,6 +14,7 @@ import {
   type ImageResolutionPreset
 } from "./core";
 import { ActionButton, ButtonBase, DialogShell, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import type { ComposerMaterialItem, ComposerMaterialRole } from "./selection-reference-images";
 
 export type ProjectAgentComposerArtifact = {
   id: string;
@@ -58,6 +59,10 @@ export type ProjectAgentComposerProps = {
   clearSelection: () => void;
   editSourceImages: () => void;
   editReferenceImages: () => void;
+  materials?: ComposerMaterialItem[];
+  onMaterialSequenceChange?: (key: string, sequence: number) => void;
+  onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
+  onRemoveMaterial?: (key: string) => void;
   regenerateImage?: () => void;
   imageModels?: string[];
   selectedImageModels?: string[];
@@ -89,6 +94,10 @@ export default function ProjectAgentComposer({
   clearSelection,
   editSourceImages,
   editReferenceImages,
+  materials = [],
+  onMaterialSequenceChange,
+  onMaterialRoleChange,
+  onRemoveMaterial,
   regenerateImage,
   imageModels = [],
   selectedImageModels = [],
@@ -177,7 +186,10 @@ export default function ProjectAgentComposer({
   const goalAvailable = goalContainerCount > 0 && goalAssetCount > 0;
   const goalSelected = !executionBusy && taskMode === "goal";
   const availableModels = uniqueImageModels([...imageModels, ...selectedImageModels]);
-  const effectiveReferenceCount = referenceImageCount + selectionReferenceCount;
+  const materialSourceCount = materials.filter((item) => item.role === "source").length;
+  const materialReferenceCount = materials.filter((item) => item.role === "reference").length;
+  const effectiveSourceCount = materials.length ? materialSourceCount : sourceImageCount;
+  const effectiveReferenceCount = materials.length ? materialReferenceCount : referenceImageCount + selectionReferenceCount;
   const configuredModels = uniqueImageModels(selectedImageModels);
   const activeModels = configuredModels.length ? configuredModels : availableModels.slice(0, 1);
   const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
@@ -321,25 +333,23 @@ export default function ProjectAgentComposer({
               aria-haspopup="menu"
               aria-expanded={materialsMenuOpen}
               disabled={stopPending}
-              title={selectionReferenceCount
-                ? `素材：${sourceImageCount} 张原图，${referenceImageCount} 张上传参考图，选中容器 ${selectionReferenceCount} 张`
-                : `素材：${sourceImageCount} 张原图，${referenceImageCount} 张参考图`}
+              title={`当前素材：${effectiveSourceCount} 张原图，${effectiveReferenceCount} 张参考图。选中画布图片即可使用，序号可改。`}
               onClick={() => setMaterialsMenuOpen((current) => !current)}
             >
               <ImageIcon size={14} />
               <strong>素材</strong>
-              {sourceImageCount + effectiveReferenceCount ? <small>{sourceImageCount + effectiveReferenceCount}</small> : null}
+              {effectiveSourceCount + effectiveReferenceCount ? <small>{effectiveSourceCount + effectiveReferenceCount}</small> : null}
               <ChevronDown size={13} aria-hidden="true" />
             </ButtonBase>
             {materialsMenuOpen ? (
               <div className="project-agent-materials-menu" role="menu" aria-label="管理输入素材">
                 <ButtonBase type="button" role="menuitem" onClick={() => { setMaterialsMenuOpen(false); editSourceImages(); }}>
                   <Import size={14} />
-                  <span><strong>{sourceImageCount ? `${sourceImageCount} 张原图` : "添加原图"}</strong><small>作为当前任务的来源</small></span>
+                  <span><strong>添加原图</strong><small>从文件加入要处理的来源；画布上选中的图已经算素材</small></span>
                 </ButtonBase>
                 <ButtonBase type="button" role="menuitem" onClick={() => { setMaterialsMenuOpen(false); editReferenceImages(); }}>
                   <ImageIcon size={14} />
-                  <span><strong>{effectiveReferenceCount ? `${effectiveReferenceCount} 张参考图` : "添加参考图"}</strong><small>{selectionReferenceCount ? `含选中容器 ${selectionReferenceCount} 张，按槽位顺序使用，不必再上传` : "提供风格或内容参考；选中图片容器也可直接当参考图"}</small></span>
+                  <span><strong>添加参考图</strong><small>从文件补充风格/内容参考</small></span>
                 </ButtonBase>
               </div>
             ) : null}
@@ -485,7 +495,7 @@ export default function ProjectAgentComposer({
           </small>
         </div>
       </div>
-      {goalSelected || goalActive || selectedArtifacts.length ? (
+      {goalSelected || goalActive || materials.length || selectedArtifacts.length ? (
         <div className={`project-agent-composer-meta${goalSelected || goalActive ? " goal" : ""}`}>
           {goalSelected || goalActive ? (
             <div className="project-agent-goal-context" aria-label={`Goal 范围 ${goalContainerCount} 个容器 ${goalAssetCount} 张图`}>
@@ -493,17 +503,45 @@ export default function ProjectAgentComposer({
               <strong>{goalActive ? "Goal 运行中" : "全部图片容器"}</strong>
               <span>{goalContainerCount} 个容器 · {goalAssetCount} 张图</span>
             </div>
+          ) : materials.length ? (
+            <div className="project-agent-material-strip" aria-label="当前素材，可改序号和原图/参考角色">
+              {materials.map((item) => (
+                <label key={item.key} className={`project-agent-material-chip role-${item.role}`} title={`${item.sequence}. ${item.role === "source" ? "原图" : "参考"} ${item.name}`}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={item.sequence}
+                    disabled={stopPending}
+                    aria-label={`${item.name} 的序号`}
+                    onChange={(event) => onMaterialSequenceChange?.(item.key, Number(event.target.value))}
+                  />
+                  <ButtonBase
+                    type="button"
+                    className="project-agent-material-role"
+                    disabled={stopPending || !onMaterialRoleChange}
+                    onClick={() => onMaterialRoleChange?.(item.key, item.role === "source" ? "reference" : "source")}
+                  >
+                    {item.role === "source" ? "原图" : "参考"}
+                  </ButtonBase>
+                  <strong>{item.name}</strong>
+                  {onRemoveMaterial ? (
+                    <IconActionButton label={`移除 ${item.name}`} onClick={() => onRemoveMaterial(item.key)} disabled={stopPending} icon={<X size={11} />} />
+                  ) : null}
+                </label>
+              ))}
+            </div>
           ) : selectedArtifacts.length ? (
           <div
             className="project-agent-composer-context has-artifact"
             data-selection-kind={selectedArtifacts.length > 1 ? "multiple" : "single"}
             data-selection-count={selectedArtifacts.length}
             data-selection-ids={selectedArtifacts.map((artifact) => artifact.id).join(" ")}
-            title={selectedArtifacts.length > 1 ? selectedArtifacts.map((artifact) => artifact.name).join("、") : undefined}
-            aria-label={`将基于 ${selectionLabel}`}
+            title={selectedArtifacts.map((artifact) => artifact.name).join("、")}
+            aria-label={`当前选中 ${selectionLabel}`}
           >
             <ImageIcon size={13} />
-            <span>将基于</span>
+            <span>当前选中</span>
             <strong>{selectionLabel}</strong>
             <IconActionButton label="取消当前选中" onClick={clearSelection} disabled={stopPending} icon={<X size={12} />} />
           </div>
@@ -526,7 +564,10 @@ export default function ProjectAgentComposer({
         }}
         placeholder={executionBusy
           ? goalActive ? "修改 Goal 的处理要求，冻结容器范围保持不变..." : "输入修改要求，发送后 Agent 会停止旧计划并重新规划..."
-          : goalSelected ? "描述要对画布全部图片容器执行的操作..." : selectedArtifacts.length ? "描述如何继续处理选中的成果..." : "告诉 Agent 你想完成什么..."}
+          : goalSelected ? "描述要对画布全部图片容器执行的操作..."
+            : materials.some((item) => item.role === "source") ? "描述如何处理这些原图；参考图会按序号一起送出..."
+            : materials.length ? "描述要用这些参考图生成什么..."
+            : "告诉 Agent 你想完成什么..."}
         rows={4}
       />
       {executionBusy ? (

@@ -260,9 +260,11 @@ import {
   sanitizeImageContainerSpec
 } from "./image-container-spec";
 import {
+  buildComposerMaterials,
   canvasNodePresentsImageContainer,
-  mergeSelectionAndUploadedReferences,
-  referenceImagesFromSelectedCanvasNodes
+  splitComposerMaterials,
+  type ComposerMaterialOverride,
+  type ComposerMaterialRole
 } from "./selection-reference-images";
 import {
   deriveImageLayoutGroupsFromContainerSpecs,
@@ -3665,10 +3667,13 @@ function App() {
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [agentSourceImages, setAgentSourceImages] = useState<ReferenceImage[]>([]);
   const [agentReferenceImages, setAgentReferenceImages] = useState<ReferenceImage[]>([]);
+  const [materialOverrides, setMaterialOverrides] = useState<Record<string, ComposerMaterialOverride>>({});
   const agentSourceImagesRef = useRef(agentSourceImages);
   const agentReferenceImagesRef = useRef(agentReferenceImages);
+  const materialOverridesRef = useRef(materialOverrides);
   agentSourceImagesRef.current = agentSourceImages;
   agentReferenceImagesRef.current = agentReferenceImages;
+  materialOverridesRef.current = materialOverrides;
   const [agentProgress, setAgentProgress] = useState<AgentProgress[]>([]);
   const [streamingImagePreviews, setStreamingImagePreviews] = useState<Record<string, StreamingImagePreview>>({});
   const streamingPreviewClearFramesRef = useRef<Map<string, {
@@ -6289,10 +6294,24 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
-  const selectionReferenceImages = useMemo(
-    () => referenceImagesFromSelectedCanvasNodes(selectedNodes, MAX_REFERENCE_IMAGES),
-    [selectedNodes]
+  const composerMaterials = useMemo(
+    () => buildComposerMaterials(selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides),
+    [selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides]
   );
+  const selectionReferenceImages = useMemo(
+    () => composerMaterials.filter((item) => item.role === "reference").map((item) => item.reference),
+    [composerMaterials]
+  );
+  useEffect(() => {
+    const alive = new Set(composerMaterials.map((item) => item.key));
+    setMaterialOverrides((current) => {
+      const stale = Object.keys(current).filter((key) => !current[key]?.excluded && !alive.has(key));
+      if (!stale.length) return current;
+      const next = { ...current };
+      for (const key of stale) delete next[key];
+      return next;
+    });
+  }, [composerMaterials]);
   const exportCenterImages = useMemo<ExportCenterImageSource[]>(() => canvasNodes.flatMap((node) => {
     if (node.type !== "image") return [];
     const collection = node.imageCollection ?? imageContainerSpecForNode(node)?.collection;
@@ -7646,6 +7665,77 @@ function App() {
       `用户将容器 ${nodeId} ${role === "reference" ? "设为参考图" : role === "source" ? "设为需要处理的原图" : "恢复为未指定角色"}。`
     );
     return true;
+  }
+
+  function setComposerMaterialSequence(key: string, sequence: number) {
+    const nextSequence = Math.max(1, Math.min(99, Math.floor(Number(sequence) || 1)));
+    setMaterialOverrides((current) => ({ ...current, [key]: { ...current[key], sequence: nextSequence, excluded: false } }));
+    const item = composerMaterials.find((entry) => entry.key === key);
+    if (!item?.nodeId || item.origin !== "canvas") return;
+    const siblings = buildComposerMaterials(
+      selectedNodes.filter((node) => node.id === item.nodeId),
+      [],
+      [],
+      { ...materialOverrides, [key]: { ...materialOverrides[key], sequence: nextSequence } }
+    ).sort((left, right) => left.sequence - right.sequence);
+    const orderedIndexes = siblings.map((entry) => entry.assetIndex);
+    if (orderedIndexes.length < 2) return;
+    reorderImageNodeAssets(item.nodeId, orderedIndexes);
+  }
+
+  function setComposerMaterialRole(key: string, role: ComposerMaterialRole) {
+    setMaterialOverrides((current) => ({ ...current, [key]: { ...current[key], role, excluded: false } }));
+  }
+
+  function removeComposerMaterial(key: string) {
+    const item = composerMaterials.find((entry) => entry.key === key);
+    if (!item) return;
+    if (item.origin === "upload") {
+      if (item.role === "source") {
+        setAgentSourceImages((current) => current.filter((image) => (image.assetId || image.path) !== (item.reference.assetId || item.reference.path)));
+      } else {
+        setAgentReferenceImages((current) => current.filter((image) => (image.assetId || image.path) !== (item.reference.assetId || item.reference.path)));
+      }
+      return;
+    }
+    setMaterialOverrides((current) => ({ ...current, [key]: { ...current[key], excluded: true } }));
+  }
+
+  function reorderImageNodeAssets(nodeId: string, orderedAssetIndexes: number[]) {
+    const unique = [...new Set(orderedAssetIndexes.filter((index) => Number.isInteger(index) && index >= 0))];
+    const sourceNode = nodesRef.current.find((node) => node.id === nodeId && node.type === "image");
+    if (!sourceNode || unique.length < 2) return;
+    const assets = [...(sourceNode.assets ?? [])];
+    if (unique.some((index) => index >= assets.length)) return;
+    pushCanvasHistory("调整图片序号");
+    const reordered = unique.map((index) => assets[index]).filter(Boolean);
+    const leftover = assets.filter((_asset, index) => !unique.includes(index));
+    const nextAssets = [...reordered, ...leftover].map((asset, index) => ({ ...asset, index: index + 1 }));
+    const spec = imageContainerSpecForNode(sourceNode);
+    const nextNodes = nodesRef.current.map((node) => {
+      if (node.id !== nodeId) return node;
+      return applyImageContainerCompatibility({
+        ...node,
+        assets: nextAssets,
+        imageContainerSpec: spec ? {
+          ...spec,
+          memberBindings: nextAssets.map((asset, index) => {
+            const previous = spec.memberBindings.find((binding) => binding.assetId && binding.assetId === asset.assetId);
+            return {
+              bindingId: previous?.bindingId || `binding:${node.id}:${node.id}:${index}`,
+              assetId: asset.assetId || previous?.assetId || "",
+              occurrenceId: previous?.occurrenceId || asset.occurrenceId,
+              nodeId: previous?.nodeId || node.id,
+              containerNodeId: previous?.containerNodeId || node.id,
+              assetIndex: index,
+              role: previous?.role || (asset.taskRole === "source" || asset.taskRole === "reference" ? asset.taskRole : undefined)
+            };
+          })
+        } : undefined
+      });
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
   }
 
   function buildContainerGroupMutation(
@@ -15760,7 +15850,7 @@ function App() {
       ? [...options.sourceNodeIds]
       : useComposerAttachments ? [...selectedNodeIdsRef.current] : [];
     const referenceNodeIds = [...(options.referenceNodeIds ?? [])];
-    const sourceImages = (
+    let sourceImages = (
       options.sourceImages !== undefined
         ? cloneReferenceImages(options.sourceImages)
         : useComposerAttachments ? cloneReferenceImages(agentSourceImagesRef.current) : []
@@ -15819,23 +15909,21 @@ function App() {
       const sourceNodes = sourceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       const referenceNodes = referenceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       if (sourceContainer && !sourceNodes.some((node) => node.id === sourceContainer.id)) sourceNodes.push(sourceContainer);
-      if (!activeGoal && options.referenceImages === undefined) {
-        const implicitReferenceNodes = sourceNodes.filter((node) => canvasNodePresentsImageContainer(node));
-        if (implicitReferenceNodes.length) {
-          referenceImages = mergeSelectionAndUploadedReferences(
-            referenceImagesFromSelectedCanvasNodes(implicitReferenceNodes, MAX_REFERENCE_IMAGES),
-            referenceImages,
-            MAX_REFERENCE_IMAGES
-          ).map((reference, index) => ({
-            ...reference,
-            assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
-            displayCode: reference.displayCode || `REF${index + 1}`,
-            taskRole: "reference" as const
-          }));
-          const implicitIds = new Set(implicitReferenceNodes.map((node) => node.id));
-          for (let index = sourceNodes.length - 1; index >= 0; index -= 1) {
-            if (implicitIds.has(sourceNodes[index].id)) sourceNodes.splice(index, 1);
-          }
+      if (!activeGoal && options.referenceImages === undefined && options.sourceImages === undefined) {
+        const split = splitComposerMaterials(buildComposerMaterials(
+          sourceNodes,
+          sourceImages,
+          referenceImages,
+          materialOverridesRef.current
+        ));
+        sourceImages = split.sourceImages;
+        referenceImages = split.referenceImages;
+        const keepIds = new Set(split.sourceNodeIds);
+        if (sourceContainer) keepIds.add(sourceContainer.id);
+        for (let index = sourceNodes.length - 1; index >= 0; index -= 1) {
+          const node = sourceNodes[index];
+          if (keepIds.has(node.id) || node.type !== "image") continue;
+          sourceNodes.splice(index, 1);
         }
       }
       const explicitNodeRoles = Object.fromEntries([
@@ -15936,7 +16024,7 @@ function App() {
     }
     const baseContent = (nextPrompt ?? prompt).trim();
     const useComposerAttachments = dispatch.useComposerAttachments !== false;
-    const sourceImages: ReferenceImage[] = (
+    let sourceImages: ReferenceImage[] = (
       dispatch.sourceImages !== undefined
         ? cloneReferenceImages(dispatch.sourceImages)
         : useComposerAttachments ? cloneReferenceImages(agentSourceImagesRef.current) : []
@@ -16067,23 +16155,31 @@ function App() {
       .map((nodeId) => requestProjection.canvasNodeById.get(nodeId) ?? nodesRef.current.find((node) => node.id === nodeId))
       .filter((node): node is WorkflowNode => Boolean(node));
     if (sourceContainer && !requestSourceNodes.some((node) => node.id === sourceContainer.id)) requestSourceNodes.push(sourceContainer);
-    const implicitReferenceNodes = effectiveTaskOrigin === "goal" || dispatch.referenceImages !== undefined
-      ? []
-      : requestSourceNodes.filter((node) => canvasNodePresentsImageContainer(node));
-    if (implicitReferenceNodes.length) {
-      referenceImages = mergeSelectionAndUploadedReferences(
-        referenceImagesFromSelectedCanvasNodes(implicitReferenceNodes, MAX_REFERENCE_IMAGES),
+    if (effectiveTaskOrigin !== "goal" && dispatch.referenceImages === undefined && dispatch.sourceImages === undefined) {
+      const split = splitComposerMaterials(buildComposerMaterials(
+        requestSourceNodes,
+        sourceImages,
         referenceImages,
-        MAX_REFERENCE_IMAGES
-      ).map((reference, index) => ({
+        materialOverridesRef.current
+      ));
+      sourceImages = split.sourceImages.map((source, index) => ({
+        ...source,
+        assetId: source.assetId || stableImageAssetId({ contentHash: source.contentHash, path: source.path, relativePath: source.relativePath, assetUrl: source.assetUrl, originalName: source.name }, index + 1),
+        displayCode: source.displayCode || `SRC${index + 1}`,
+        taskRole: "source" as const
+      }));
+      referenceImages = split.referenceImages.map((reference, index) => ({
         ...reference,
         assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
         displayCode: reference.displayCode || `REF${index + 1}`,
         taskRole: "reference" as const
       }));
-      const implicitIds = new Set(implicitReferenceNodes.map((node) => node.id));
+      const keepIds = new Set(split.sourceNodeIds);
+      if (sourceContainer) keepIds.add(sourceContainer.id);
       for (let index = requestSourceNodes.length - 1; index >= 0; index -= 1) {
-        if (implicitIds.has(requestSourceNodes[index].id)) requestSourceNodes.splice(index, 1);
+        const node = requestSourceNodes[index];
+        if (keepIds.has(node.id) || node.type !== "image") continue;
+        requestSourceNodes.splice(index, 1);
       }
     }
     const liveTaskScope = agentTaskScopeForRequest(
@@ -24281,13 +24377,13 @@ function App() {
       setServerMessage("请先填写提示词，或选中带提示词的成果后再重新生图。");
       return;
     }
-    const references = mergeSelectionAndUploadedReferences(selectionReferenceImages, agentReferenceImages, MAX_REFERENCE_IMAGES);
+    const split = splitComposerMaterials(composerMaterials);
     const task = cloneImageTaskDraft({
       ...defaultImageTaskDraft(settings),
       prompt: promptText,
       count: 1,
       model: settings.imageModel || selectedImageModelsFromSettings(settings)[0] || "",
-      referenceImages: references
+      referenceImages: split.referenceImages
     });
     const anchor = selectedNodes[0];
     void runManualImageTask(task, {
@@ -24300,8 +24396,8 @@ function App() {
     });
     notifyAgentOfManualAction(
       "重新生图",
-      references.length
-        ? `用户按当前提示词和 ${references.length} 张参考图直接重新生成，没有发送给 Agent。`
+      split.referenceImages.length
+        ? `用户按当前提示词和 ${split.referenceImages.length} 张参考图直接重新生成，没有发送给 Agent。`
         : "用户按当前提示词直接重新生成，没有发送给 Agent。"
     );
   }
@@ -27714,6 +27810,7 @@ function App() {
                                  data-source-node-id={displayedSource.node.id}
                                  data-source-asset-index={displayedSource.assetIndex}
                                  className={`node-image-tile ${internalAssetDragEnabled ? "draggable-image-tile" : ""} ${imageTileMovesNode ? "movable-node-image-tile" : ""} ${isDraggableImageGroup(node) ? "container-image-tile" : ""} ${node.layerGroup && !layerNodeIsVisible(node) ? "layer-image-hidden" : ""}`}
+                                 data-image-sequence={composerMaterials.find((item) => item.nodeId === node.id && item.assetIndex === index)?.sequence || undefined}
                                 aria-hidden={node.layerGroup && !layerNodeIsVisible(node) ? "true" : undefined}
                                 draggable={internalAssetDragEnabled}
                                 style={node.layerGroup ? {
@@ -27768,6 +27865,24 @@ function App() {
                                  decoding="async"
                                 />
                                 <small className="node-asset-code">{asset.displayCode || `${nodeDisplayCode(node)}${index + 1}`}</small>
+                                {selectedNodes.some((item) => item.id === node.id) ? (
+                                  <label
+                                    className="node-image-sequence"
+                                    onClick={(event) => event.stopPropagation()}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onDoubleClick={(event) => event.stopPropagation()}
+                                  >
+                                    <span>序号</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={99}
+                                      value={composerMaterials.find((item) => item.nodeId === node.id && item.assetIndex === index)?.sequence ?? index + 1}
+                                      aria-label={`设置第 ${index + 1} 张图片的序号`}
+                                      onChange={(event) => setComposerMaterialSequence(`canvas:${node.id}:${index}`, Number(event.target.value))}
+                                    />
+                                  </label>
+                                ) : null}
                                 {node.imageCollection ? (
                                   <small className="collection-image-prompt">
                                     <strong>{collectionItem?.title || asset.title || `图片 ${index + 1}`}</strong>
@@ -28607,6 +28722,10 @@ function App() {
           sourceImages={agentSourceImages}
           referenceImages={agentReferenceImages}
           selectionReferenceCount={selectionReferenceImages.length}
+          materials={composerMaterials}
+          onMaterialSequenceChange={setComposerMaterialSequence}
+          onMaterialRoleChange={setComposerMaterialRole}
+          onRemoveMaterial={removeComposerMaterial}
           regenerateImage={regenerateFromComposer}
           prompt={prompt}
           agentStatus={agentStatus}
