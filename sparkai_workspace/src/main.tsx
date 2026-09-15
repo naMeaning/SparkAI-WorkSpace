@@ -114,6 +114,12 @@ import {
   timelineTextForProgress,
   toolTraceForProgress
 } from "./agent";
+import {
+  agentFailureMessageToAppend,
+  filterAgentPickerModels,
+  filterImagePickerModels,
+  runCompletedImageGen
+} from "./model-ux";
 import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
 import { automationCommandError, automationErrorPayload } from "./automation-command-errors";
 import {
@@ -5055,7 +5061,8 @@ function App() {
         setMessages((current) => finishThinkingMessages(current, payload.runId, payload.modelRound));
         return;
       }
-      const timelineText = timelineTextForProgress(timelinePayload);
+      const imageGenCompleted = runCompletedImageGen([...agentProgressRef.current, timelinePayload]);
+      const timelineText = timelineTextForProgress(timelinePayload, { imageGenCompleted });
       const toolTrace = toolTraceForProgress(timelinePayload);
       if (payload.phase === "image-response" && isImageTool && timelineOperation !== "layers" && timelineOperation !== "cutout" && operationId) {
         scheduleImageToolResultAfterCanvasCommit(operationId, timelinePayload);
@@ -16437,16 +16444,26 @@ function App() {
       if (effectiveRequirementNodeId) {
         updateRequirementNode(effectiveRequirementNodeId, (requirement) => ({ ...requirement, lastError: message.slice(0, 500) }));
       }
-      const errorMessage: AgentMessage = {
-        id: assistantId,
-        role: "assistant",
-        content: `Agent 调用失败：${message}`,
-        createdAt: nowLabel(),
-        status: "error",
-        meta: "error"
-      };
+      const imageGenCompleted = runCompletedImageGen(agentProgressRef.current);
       flushPendingAgentStreamMessages();
-      setMessages((current) => [...finishRunStreamingMessages(current, runId), errorMessage].slice(-120));
+      setMessages((current) => {
+        const settled = finishRunStreamingMessages(current, runId);
+        const content = agentFailureMessageToAppend({
+          imageGenCompleted,
+          errorMessage: message,
+          existingContents: settled.map((item) => item.content)
+        });
+        if (!content) return settled.slice(-120);
+        const errorMessage: AgentMessage = {
+          id: assistantId,
+          role: "assistant",
+          content,
+          createdAt: nowLabel(),
+          status: "error",
+          meta: "error"
+        };
+        return [...settled, errorMessage].slice(-120);
+      });
       setAgentStatus("error");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
@@ -24201,8 +24218,8 @@ function App() {
         const imageCatalog = result.settings?.imageModels?.length ? result.settings.imageModels : serverModels;
         const agentCatalog = result.settings?.agentModels?.length ? result.settings.agentModels : serverModels;
         const videoCatalog = result.settings?.videoModels?.length ? result.settings.videoModels : current.videoModelPool;
-        const imageModels = imageModelsWithPreferredFallback(imageCatalog, result.settings?.imageModel || current.imageModel, current.imageModelPool);
-        const agentModels = modelsWithPreferred(agentCatalog, current.agentModel, current.agentModelPool);
+        const imageModels = filterImagePickerModels(imageModelsWithPreferredFallback(imageCatalog, result.settings?.imageModel || current.imageModel, current.imageModelPool));
+        const agentModels = filterAgentPickerModels(modelsWithPreferred(agentCatalog, current.agentModel, current.agentModelPool));
         const videoModels = modelsWithPreferred(videoCatalog, result.settings?.videoModel || current.videoModel, current.videoModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);

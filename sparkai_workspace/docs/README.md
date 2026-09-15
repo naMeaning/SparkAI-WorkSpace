@@ -6,7 +6,7 @@
 - [项目结构](./PROJECT_STRUCTURE.md)：源码分区、生成目录、安全清理和最低验证。
 - [工作区上下文地图](../../WORKSPACE_CONTEXT_MAP.md)：桌面仓库与 `sparkai-extension` 扩展服务的关系、技术栈和跨仓修改导航。
 - [本地工具链](../../LOCAL_TOOLCHAIN.md)：当前便携 Bun/Go/.NET/pnpm 激活、诊断与 New API Web 深路径限制。
-- [安装说明](./INSTALLATION.md)：Windows 安装包、校验、安装、卸载和数据目录。
+- [安装说明](./INSTALLATION.md)：Windows 安装包、当前 1.0.9 哈希、安装、卸载和数据目录。
 - [品牌安装器架构](./BRANDED_INSTALLER_ARCHITECTURE.md)：自绘安装/卸载界面、静默 NSIS 内核、数据安全与自动化验证。
 - [Agent 与画布交互原则](./AGENT_CANVAS_INTERACTION_PRINCIPLES.md)：单 Agent、成果画布与操作因果边界。
 - [电商使用场景矩阵](./COMMERCE_USE_CASE_MATRIX.md)：商品、服装、文案、品牌与批量设计能力覆盖。
@@ -28,9 +28,16 @@
 
 发布说明是对应版本的历史证据，不自动代表当前 `package.json` 版本已经完成同样验证。
 
+当前测试安装包（2026-09-15，源码 `d88fae2`，`bundleEnforced: false`，未签名）：
+
+- `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`：175,984,640 字节，SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`
+- `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`：175,984,128 字节，SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`
+
+公开 `release/` 只保留这两个当前 1.0.9 品牌安装包。旧 `naimage-Setup-1.0.7/1.0.8` 已清理。
+
 ## 历史阶段记录
 
-文件名以 `YYYY-MM-DD_` 开头的 Markdown 是对应阶段的计划、审计或收敛记录，用于追溯设计原因，不代表需要恢复旧实现。若历史记录与当前产品边界冲突，以 `PRODUCT_INTENT.md`、`AGENTS.md`、`CONTEXT_MAP.md` 和当前代码为准。
+`docs/history/` 中以 `YYYY-MM-DD_` 开头的 Markdown 是对应阶段的计划、审计或收敛记录，用于追溯设计原因，不代表需要恢复旧实现。若历史记录与当前产品边界冲突，以 `PRODUCT_INTENT.md`、`AGENTS.md`、`CONTEXT_MAP.md` 和当前代码为准。
 
 - 2026-07-11：Agent 隔离、编辑器、时间线、容器与连接设计。
 - 2026-07-12：分层 PNG、性能、电商场景、AIDebug 契约与持续加固。
@@ -39,4 +46,4 @@
 - 2026-07-16：真实 Image 2 交付审计、状态与布局性能收敛。
 - 2026-07-20：发布后收敛、任务图和执行门禁。
 
-最初从后端仓库分离 GUI 的来源说明已归档到 [history/SOURCE_INFO_2026-07-08.md](./history/SOURCE_INFO_2026-07-08.md)。
+最初从后端仓库分离 GUI 的来源说明见 [history/SOURCE_INFO_2026-07-08.md](./history/SOURCE_INFO_2026-07-08.md)。已完成的透明玻璃迁移记录见 [history/LIQUID_GLASS_MIGRATION.md](./history/LIQUID_GLASS_MIGRATION.md)。

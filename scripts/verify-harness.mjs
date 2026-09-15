@@ -16,7 +16,7 @@ const requiredFiles = [
 ];
 
 const requiredPhrases = new Map([
-  ['AGENTS.md', ['naimage-studio/', 'sparkai-extension/', 'Authority And Precedence', 'Safety Boundaries']],
+  ['AGENTS.md', ['sparkai_workspace/', 'sparkai-extension/', 'Authority And Precedence', 'Safety Boundaries']],
   ['HARNESS.md', ['The Four Loops', 'Intent Is Not Fact', 'Evidence Discipline']],
   ['harness/CONVERSATION_DECISIONS.md', ['Active Product Decisions', 'Superseded Directions', 'Candidate Or Unverified Work']],
   ['harness/TASK_PROTOCOL.md', ['Classify Before Writing', 'Implement Along The Real Boundary', 'Verify And Handoff']],

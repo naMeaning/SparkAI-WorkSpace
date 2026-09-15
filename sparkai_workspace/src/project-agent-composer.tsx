@@ -14,6 +14,7 @@ import {
   type ImageResolutionPreset
 } from "./core";
 import { ActionButton, ButtonBase, DialogShell, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import { filterImagePickerModels, idleComposerPrimaryAction } from "./model-ux";
 import type { ComposerMaterialItem, ComposerMaterialRole } from "./selection-reference-images";
 
 export type ProjectAgentComposerArtifact = {
@@ -174,8 +175,21 @@ export default function ProjectAgentComposer({
     if (executionBusy) setTaskScopeMode("auto");
   }
 
+  function dispatchGenerate() {
+    if (stopPending || !regenerateImage) return;
+    setModelMenuOpen(false);
+    setMaterialsMenuOpen(false);
+    setFrameMenuOpen(null);
+    setModeMenuOpen(false);
+    regenerateImage();
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (primaryAction === "generate") {
+      dispatchGenerate();
+      return;
+    }
     if (!prompt.trim()) return;
     void dispatchPrompt();
   }
@@ -185,12 +199,18 @@ export default function ProjectAgentComposer({
     : `${selectedArtifacts.length} 个选中成果`;
   const goalAvailable = goalContainerCount > 0 && goalAssetCount > 0;
   const goalSelected = !executionBusy && taskMode === "goal";
-  const availableModels = uniqueImageModels([...imageModels, ...selectedImageModels]);
+  const availableModels = filterImagePickerModels(uniqueImageModels([...imageModels, ...selectedImageModels]));
+  const canGenerate = Boolean(regenerateImage) && !goalSelected;
+  const primaryAction = idleComposerPrimaryAction({
+    executionBusy,
+    goalSelected,
+    canGenerate
+  });
   const materialSourceCount = materials.filter((item) => item.role === "source").length;
   const materialReferenceCount = materials.filter((item) => item.role === "reference").length;
   const effectiveSourceCount = materials.length ? materialSourceCount : sourceImageCount;
   const effectiveReferenceCount = materials.length ? materialReferenceCount : referenceImageCount + selectionReferenceCount;
-  const configuredModels = uniqueImageModels(selectedImageModels);
+  const configuredModels = filterImagePickerModels(uniqueImageModels(selectedImageModels));
   const activeModels = configuredModels.length ? configuredModels : availableModels.slice(0, 1);
   const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
   const defaultImageModel = activeModels[0] || "";
@@ -559,7 +579,8 @@ export default function ProjectAgentComposer({
         onKeyDown={(event) => {
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
-            void dispatchPrompt();
+            if (primaryAction === "generate") dispatchGenerate();
+            else void dispatchPrompt();
           }
         }}
         placeholder={executionBusy
@@ -596,7 +617,7 @@ export default function ProjectAgentComposer({
         </label>
       ) : null}
       <footer>
-        <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : "Ctrl + Enter 发送"}</span>
+        <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : primaryAction === "generate" ? "Ctrl + Enter 生成" : "Ctrl + Enter 发送"}</span>
         {executionBusy ? (
           <div className="project-agent-run-controls">
             <ActionButton
@@ -636,33 +657,36 @@ export default function ProjectAgentComposer({
             </ActionButton>
           </div>
         ) : (
-          <div className="project-agent-send-group">
-            {regenerateImage && !goalSelected ? (
+          <div className="project-agent-send-group" data-primary-action={primaryAction}>
+            {canGenerate ? (
               <ActionButton
                 className="project-agent-regenerate"
-                variant="secondary"
-                type="button"
+                variant={primaryAction === "generate" ? "primary" : "secondary"}
+                type={primaryAction === "generate" ? "submit" : "button"}
                 disabled={stopPending}
-                onClick={regenerateImage}
-                aria-label="重新生图"
+                onClick={primaryAction === "generate" ? undefined : dispatchGenerate}
+                aria-label="生成"
+                data-composer-primary={primaryAction === "generate" ? "true" : undefined}
                 title={effectiveReferenceCount
                   ? "使用当前提示词和参考图直接生图，不经过 Agent"
                   : "使用当前提示词直接生图；选中图片容器时会按顺序当作参考图"}
                 icon={<RefreshCw size={15} />}
               >
-                重新生图
+                生成
               </ActionButton>
             ) : null}
             <ActionButton
               className="project-agent-send"
-              variant="primary"
-              type="submit"
+              variant={primaryAction === "send" ? "primary" : "secondary"}
+              type={primaryAction === "send" ? "submit" : "button"}
               disabled={!prompt.trim()}
+              onClick={primaryAction === "send" ? undefined : () => void dispatchPrompt()}
               aria-label="发送"
-              title="发送"
+              data-composer-primary={primaryAction === "send" ? "true" : undefined}
+              title="把当前要求发给项目 Agent"
               icon={<Send size={16} />}
             >
-              发送
+              发送给 Agent
             </ActionButton>
           </div>
         )}

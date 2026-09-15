@@ -13,6 +13,10 @@ const {
   modelGroupsFromResponse,
   modelIdsFromResponse,
   isExplicitVideoModelId,
+  isExplicitChatModelId,
+  isExplicitImageModelId,
+  filterAgentPickerModels,
+  filterImagePickerModels,
   preferredAgentModelFromList,
   preferredImageModelFromList,
   preferredVideoModelFromList,
@@ -350,5 +354,28 @@ assert.deepEqual(cacheDefaults.imageModels, ["settings-image"]);
 assert.equal(cacheDefaults.channelName, "New API");
 assert.equal(cacheDefaults.serviceReady, true);
 assert.equal(cacheDefaults.keyManaged, true);
+
+assert.equal(isExplicitChatModelId("gpt-6-astra"), true);
+assert.equal(isExplicitImageModelId("gpt-image-2"), true);
+assert.equal(isExplicitChatModelId("gpt-image-2"), false);
+const familySplit = splitModelSettings({}, [
+  "gpt-6-astra",
+  "gpt-image-2",
+  "claude-4.5-sonnet",
+  "flux-1.1-pro"
+]);
+assert.ok(!familySplit.imageModels.includes("gpt-6-astra"), "Explicit chat models must not remain in the image catalog");
+assert.ok(!familySplit.agentModels.includes("gpt-image-2"), "Explicit image models must not remain in the Agent catalog");
+assert.ok(familySplit.imageModels.includes("gpt-image-2"));
+assert.ok(familySplit.agentModels.includes("gpt-6-astra"));
+assert.deepEqual(filterImagePickerModels(["gpt-6-astra", "gpt-image-2", "flux-1.1-pro"]), ["gpt-image-2", "flux-1.1-pro"]);
+assert.deepEqual(filterAgentPickerModels(["gpt-6-astra", "gpt-image-2", "claude-4.5-sonnet"]), ["gpt-6-astra", "claude-4.5-sonnet"]);
+
+const leakedCache = cachedModelSettings({}, {
+  imageModels: ["gpt-6-astra", "gpt-image-2"],
+  agentModels: ["gpt-image-2", "gpt-6-astra"]
+});
+assert.deepEqual(leakedCache.imageModels, ["gpt-image-2"]);
+assert.deepEqual(leakedCache.agentModels, ["gpt-6-astra"]);
 
 process.stdout.write("model catalog selftest passed\n");

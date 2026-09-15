@@ -1,6 +1,6 @@
-# naimage 工作区上下文地图
+# SparkAI WorkSpace 工作区上下文地图
 
-> 最近同步：2026-08-26
+> 最近同步：2026-09-15
 > 工作区：`E:\019创业项目\nimage`  
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
@@ -10,12 +10,12 @@
 
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
 | --- | --- | --- | --- | --- |
-| `naimage-studio/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
+| `sparkai_workspace/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
 | `sparkai-extension/` | SparkAI 独立扩展服务；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | Node 24 原生 HTTP、`node:sqlite`、Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
 
 一句话判断：
 
-- 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `naimage-studio/`。
+- 改桌面画布、项目文件、Agent 本地工具、导入导出或安装更新客户端：进入 `sparkai_workspace/`。
 - 改账号、渠道、余额、计费或 New API 管理界面：修改用户独立维护的原生 New API，不进入本工作区。
 - 改 Pro License、兑换码、`/v1/image-tasks` 或其同域反向代理部署：进入 `sparkai-extension/`。
 - 改远端 API、模型 DTO、更新 manifest 或认证规则：通常需要两边同步。
@@ -24,10 +24,10 @@
 
 ```mermaid
 flowchart LR
-  User["用户"] --> Desktop["naimage-studio\nElectron 桌面端"]
+  User["用户"] --> Desktop["sparkai_workspace\nElectron 桌面端"]
 
   Desktop -->|"账号/session/Token/普通 /v1"| NewAPI["用户已部署的原生 New API\n保持上游版本"]
-  Desktop -->|"/api/naimage/license/*\n/v1/image-tasks/*"| Extension["sparkai-extension / SparkAI Extension\nNode 24 + SQLite"]
+  Desktop -->|"/api/naimage/license/*\n可选 /v1/image-tasks/*"| Extension["sparkai-extension / SparkAI Extension\nNode 24 + SQLite"]
 
   Extension -->|"Bearer 只在内存\n共享 Docker network\n/v1/images/generations"| NewAPI
   NewAPI --> Providers["上游模型与图片服务"]
@@ -42,7 +42,7 @@ flowchart LR
   Caddy -->|"其余路径"| NewAPI
 ```
 
-## 3. `naimage-studio` 上下文
+## 3. `sparkai_workspace` 上下文
 
 ### 3.1 进程边界
 
@@ -75,7 +75,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
 | `scripts/aidebug-gui.mjs` | 仍是 GUI 诊断总编排；通用 harness 与多个场景域已移出，Requirement 默认使用轻量六层 fixture，完整 Layer Stack 仅显式运行 | `scripts/aidebug/harness/*`, `scripts/aidebug/suites/*`, `scripts/aidebug-requirement-node-suite.mjs` |
 
-详细符号、调用链和测试映射以 `naimage-studio/docs/CONTEXT_MAP.md` 为准。
+详细符号、调用链和测试映射以 `sparkai_workspace/docs/CONTEXT_MAP.md` 为准。
 
 ### 3.3 常见修改入口
 
@@ -173,10 +173,10 @@ corepack pnpm run package:extension
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `desktop/settings-secret-store.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | rc.23 Bearer access token + `new_api_refresh` cookie + auth session ID、到期/401 刷新 single-flight 与单次重放、旧 `session` + `New-Api-User` 回退；登录响应只等待认证/安全持久化/本地缓存，资料、Token/额度和模型目录后台预热；快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
 | Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC 激活匹配、管理员可解密的新码密文、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
-| 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、60 秒运行缓存与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
+| 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、15 分钟运行缓存（过期先用旧目录）与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
 | 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | SparkAI Extension `POST /v1/image-tasks` / `GET /v1/image-tasks/:id`；用户原生 New API `/v1/images/generations` 与其他兼容接口 | Electron 纯文生图创建立即返回、2.5 秒 GET 轮询、queued/running/succeeded/failed、Bearer 仅内存、HMAC owner、创建成功/结果不明后不重建；扩展服务通过私网调用原生同步 Images，计费仍完全归 New API；任务无 partial，编辑/参考图仍走原链路 |
-| 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | 独立更新服务、签名 release manifest 与生产制品；不属于 SparkAI Extension | manifest schema 与 `naimage-studio` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
+| 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | 独立更新服务、签名 release manifest 与生产制品；不属于 SparkAI Extension | manifest schema 与 `sparkai_workspace` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
@@ -211,7 +211,7 @@ corepack pnpm run package:extension
 - 桌面：`applyRuntimeActions`, `ConfigBridge`, `createProjectSaveCoordinator`, `responsesRequestFromChatRequest`, `prepareViewImageModelPayload`。
 - 扩展服务：`LicenseService`, `ImageTaskService`, `createExtensionHttpServer`, `/api/naimage/license`, `/v1/image-tasks`。
 
-以下变化必须同步本文；若只影响桌面，还必须同步 `naimage-studio/docs/CONTEXT_MAP.md`：
+以下变化必须同步本文；若只影响桌面，还必须同步 `sparkai_workspace/docs/CONTEXT_MAP.md`：
 
 - 新增、删除、移动模块或改变模块所有权。
 - 改变公共符号、IPC、API、tool schema、runtime action 或共享 DTO。
@@ -223,7 +223,7 @@ corepack pnpm run package:extension
 ## 8. 当前发布基线
 
 - 当前桌面正式版：`v1.0.8`，冻结源码以同名 annotated tag `v1.0.8`（commit `c964e87`）为准。`1.0.9` 当前只是在本地冻结和验证的候选，未创建 tag、未推送或上传 Release。
-- 私有发布页：[naMeaning/naimage v1.0.8](https://github.com/naMeaning/naimage/releases/tag/v1.0.8)。仓库可见性保持 `PRIVATE`。
+- 私有发布页：[naMeaning/SparkAI-WorkSpace](https://github.com/naMeaning/SparkAI-WorkSpace)。仓库可见性保持 `PRIVATE`。历史 tag `v1.0.8` 仍可用。
 - Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
 - Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准。
 - 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；`1.0.9` 必须由冻结提交后的同一次 `release:final` 重新建立完整证据。

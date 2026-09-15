@@ -39,7 +39,7 @@ pnpm 命令统一写成 `corepack pnpm ...`，不要依赖机器上另一个全�
 & .\scripts\diagnose-local-toolchain.ps1
 ```
 
-它会验证工具版本、`naimage-studio` 的 pnpm/typecheck、`sparkai-extension` 的 `verify:workspace` 和 `check`。只检查工具时使用：
+它会验证工具版本、`sparkai_workspace` 的 pnpm/typecheck、`sparkai-extension` 的 `verify:workspace` 和 `check`。只检查工具时使用：
 
 ```powershell
 & .\scripts\diagnose-local-toolchain.ps1 -ToolsOnly

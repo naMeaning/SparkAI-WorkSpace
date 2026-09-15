@@ -9,7 +9,7 @@ SparkAI WorkSpace 是独立维护的 Electron + React 桌面 AI 视觉工作台�
 - 安装器支持选择当前用户可写路径，并创建带正式图标的桌面与开始菜单快捷方式。
 - 客户端支持更新清单签名校验、断点下载和重启更新；需要重新安装的大版本由软件更新中心下载完整安装包。
 - 当前构建未配置商业代码签名证书，Authenticode 状态为 `NotSigned`；只应从受信发布源获取安装包并核对发布页提供的 SHA-256。
-- 完整安装、卸载、数据迁移和源码发布说明见 [docs/INSTALLATION.md](./docs/INSTALLATION.md)。旧版本的制品名、哈希和验收事实保留在 `docs/RELEASE_*.md` 历史记录中。
+- 完整安装、卸载、数据迁移和源码发布说明见 [docs/INSTALLATION.md](./docs/INSTALLATION.md)。当前 1.0.9 测试包哈希以安装说明为准；更早版本的制品名和验收事实只保留在 `docs/RELEASE_*.md`。
 
 ## 当前入口
 

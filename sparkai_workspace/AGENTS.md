@@ -32,7 +32,7 @@
 - `electron-main.cjs` 与 `agent-runtime.cjs` 是编排 facade；已进入 `desktop/` 或 `runtime/` 的纯逻辑不得复制回入口文件。
 - 所有项目配置、输出和诊断默认留在仓库或用户明确选择的项目文件夹内。
 - 模型列表必须完整保留服务端返回值；筛选只能作为用户可见选择，不得静默丢弃模型。
-- 模型列表由 Electron 主进程统一缓存至少 60 秒；缓存有效时设置页、模型弹窗和 Agent 模型查询不得重复访问服务器。缓存文件不得包含 token、cookie 或上游 Key。
+- 模型列表由 Electron 主进程统一缓存 15 分钟；缓存有效时设置页、模型弹窗和 Agent 模型查询不得重复访问服务器。TTL 过期后先继续使用旧目录，后台刷新。缓存文件不得包含 token、cookie 或上游 Key。
 - Agent 图片工具必须真实执行。未实现的能力要明确返回边界，不得伪造进度或结果。
 - 新增或改变可由外部 Agent 操作的产品动作时，必须同步 `integrations/naimage-control` CLI 命令、Skill 说明、命令参考和 `test:automation-service` 契约；不能只更新 GUI。
 - 图片任务优先且默认使用 `gpt-image-2`；只要模型池中存在 `gpt-image-2`，不得因编辑、透明背景或抠图任务回退到旧图片模型。

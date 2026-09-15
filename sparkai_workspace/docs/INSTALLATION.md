@@ -22,6 +22,15 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 
 当前版本没有商业代码签名证书，Windows 可能显示发布者未知。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
+当前仓库测试安装包（2026-09-15，源码 `d88fae2`）：
+
+| 安装包 | 大小 | SHA-256 |
+| --- | --- | --- |
+| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 175,984,640 | `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4` |
+| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 175,984,128 | `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991` |
+
+一般自己使用 Unrestricted。这是测试开发包，`bundleEnforced: false`，没有商业代码签名，也未做真实安装/卸载 smoke。`release/` 不再保留 1.0.7/1.0.8 或旧 `naimage-Setup-*` 公开命名。
+
 ## 安装与启动
 
 1. 双击安装包，进入 SparkAI WorkSpace 自有的透明玻璃品牌安装界面；不会显示旧式 Windows 安装向导。
@@ -58,7 +67,7 @@ pnpm run package:installer-smoke
 
 上述命令只用于本地构建和分项验证。正式发布必须使用唯一事务入口：
 
-当前 `1.0.5` 是首次改名发布，升级 E2E 必须使用冻结的更名前 `1.0.4` 程序作为基线；从 `1.0.6` 起应改用上一版 `naimage.exe`。
+升级 E2E 应使用上一正式版 `naimage.exe` 作为基线。当前公开制品是 SparkAI WorkSpace 1.0.9。
 
 ```powershell
 $env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-1.0.6\win-unpacked\naimage.exe').Path

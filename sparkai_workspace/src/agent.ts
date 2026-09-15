@@ -16,6 +16,7 @@ Region Index
 */
 
 import { sanitizeAgentVisibleText } from "./core";
+import { agentRunFailureCopy } from "./model-ux";
 import type { AgentMessage, AgentProgress, AgentRuntimeResult, AgentTaskScope, AgentToolTrace, ReferenceImage, WorkflowNode, WorkspaceDomain } from "./core";
 
 // -----------------------------------------------------------------------------
@@ -195,7 +196,10 @@ export function cleanTimelineText(value?: unknown, maxChars = 220) {
   return clean.length > maxChars ? `${clean.slice(0, maxChars)}...` : clean;
 }
 
-export function timelineTextForProgress(payload: AgentProgress) {
+export function timelineTextForProgress(
+  payload: AgentProgress,
+  options?: { imageGenCompleted?: boolean }
+) {
   const phase = String(payload.phase || "");
   const tool = String(payload.tool || "");
   const summary = publicTraceText(payload.summary || payload.detail || "");
@@ -229,7 +233,13 @@ export function timelineTextForProgress(payload: AgentProgress) {
   if (phase === "image-request") return "Image Gen 正在绘图。";
   if (phase === "image-response") return "";
   if (phase === "image-dry-run") return "Image Gen 模拟执行完成。";
-  if (phase === "image-error" || phase === "runtime-error" || phase === "server-error") return `${label} 失败${summary ? `：${summary}` : ""}`;
+  if (phase === "image-error") return `${label} 失败${summary ? `：${summary}` : ""}`;
+  if (phase === "runtime-error" || phase === "server-error") {
+    return agentRunFailureCopy({
+      imageGenCompleted: Boolean(options?.imageGenCompleted),
+      errorMessage: summary
+    }).statusLine;
+  }
   if (phase === "memory-start") return summary || `正在${tool === "context_manage" ? "整理上下文" : "写日记"}。`;
   if (phase === "memory-done") return summary || "记忆整理完成。";
   if (phase === "memory-warning") return summary || "记忆整理遇到问题。";

@@ -7,7 +7,7 @@
 | 路径 | 职责 | 说明 |
 | --- | --- | --- |
 | `src/` | React 工作台、画布、Agent 对话与共享前端逻辑 | `main.tsx` 只做跨域编排；独立表面和纯数据域放入专用模块。公共符号移动时同步上下文地图和调用方。 |
-| `src/auth-gate.tsx`, `src/image-viewer.tsx`, `src/reference-picker-dialog.tsx`, `src/theme-palette-picker.tsx`, `src/window-controls.tsx` | 已抽出的 Renderer 表面 | 由 `main.tsx` 传入状态和回调；主题选择器随设置页懒加载，不反向持有 App 全局状态。 |
+| `src/auth-gate.tsx`, `src/image-viewer.tsx`, `src/reference-picker-dialog.tsx`, `src/glass-lab.tsx`, `src/window-controls.tsx` | 已抽出的 Renderer 表面 | 由 `main.tsx` 传入状态和回调；外观入口是 Glass Lab，随设置页懒加载。旧 `theme-palette-picker.tsx` 只保留自定义主题导入/导出，不再作为外观首页。 |
 | `src/studio-dialogs.ts` | Renderer 异步表面 barrel | 聚合设置、账户、编辑对话框、主题选择器与 Markdown 的命名导出；保持自然 async chunk，不承载业务状态。 |
 | `src/settings-persistence.ts`, `src/asset-identity.ts`, `src/paste-blocks.ts`, `src/canvas-clipboard.ts` | 设置/存储、资产身份、消息粘贴块与画布剪贴板纯逻辑 | 画布节点复制负责节点/容器/需求关系 ID 重映射并清理运行态；图片文件粘贴和项目入库仍由 Renderer/Electron bridge 编排。 |
 | `src/styles.css`, `src/styles/` | 样式入口与 8 个有序语义区域 | import 顺序 01→08 是级联合同；01 内含语义 token 与命名调色盘，04 内含设置外观表面；`08-motion-accessibility.css` 必须最后。 |

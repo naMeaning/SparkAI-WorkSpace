@@ -39,6 +39,7 @@ import {
   stableImageAssetId,
   stableImageOccurrenceId
 } from "./asset-identity.ts";
+import { filterAgentPickerModels, filterImagePickerModels } from "./model-ux.ts";
 import { collapseDuplicateToolTimelineMessages } from "./tool-timeline.ts";
 import type { PluginInstallationState } from "./plugin-state.ts";
 import type {
@@ -3337,15 +3338,15 @@ export function modelsWithPreferred(models: string[] = [], preferred?: string, s
 export function selectedAgentModelsFromSettings(
   settings: Pick<ApiSettings, "agentModel" | "agentModelPool"> & Partial<Pick<ApiSettings, "agentModelBindings">>
 ) {
-  return uniqueImageModels([
+  return filterAgentPickerModels(uniqueImageModels([
     settings.agentModel,
     ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
     ...(Array.isArray(settings.agentModelBindings) ? settings.agentModelBindings.map((binding) => binding.model) : [])
-  ]);
+  ]));
 }
 
 export function selectedImageModelsFromSettings(settings: Pick<ApiSettings, "imageModel" | "imageModelPool">) {
-  return uniqueImageModels([settings.imageModel, ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : [])]);
+  return filterImagePickerModels(uniqueImageModels([settings.imageModel, ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : [])]));
 }
 
 export function selectedVideoModelsFromSettings(settings: Pick<ApiSettings, "videoModel" | "videoModelPool">) {

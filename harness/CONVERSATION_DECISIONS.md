@@ -11,13 +11,13 @@ Primary conversation evidence includes:
 - `019fab72-f898-77f3-93d7-5b715eb36f43`: active product evolution, Goal operation, desktop UX, release expectations, contract synchronization and reliability constraints.
 - `019fb125-99f6-7a73-8bc8-f8e8bd638ec6`: configurable transparent-glass UI exploration and visual reference process.
 
-Older conversations are represented through the maintained product documents where their raw thread data is no longer available in the desktop history reader. The current authorities for desktop behavior are `naimage-studio/AGENTS.md`, `naimage-studio/PRODUCT_INTENT.md`, and its context map.
+Older conversations are represented through the maintained product documents where their raw thread data is no longer available in the desktop history reader. The current authorities for desktop behavior are `sparkai_workspace/AGENTS.md`, `sparkai_workspace/PRODUCT_INTENT.md`, and its context map.
 
 ## Active Product Decisions
 
 | ID | Status | Decision | Current authority |
 | --- | --- | --- | --- |
-| D-01 | active | SparkAI WorkSpace is a desktop visual-creation workspace for ordinary users and creators, not a workflow-editor clone or general Agent IDE. | `naimage-studio/PRODUCT_INTENT.md` |
+| D-01 | active | SparkAI WorkSpace is a desktop visual-creation workspace for ordinary users and creators, not a workflow-editor clone or general Agent IDE. | `sparkai_workspace/PRODUCT_INTENT.md` |
 | D-02 | active | `general`, `commerce`, `social`, and `research` are projections over one project, canvas, session, asset space, TaskScope, plugin system and Agent runtime. | Desktop `AGENTS.md` and product intent |
 | D-03 | active | The right-side project Agent is the single control center. Canvas content is managed results, groups, relations and reusable requirements, not Agent or plan nodes. | Desktop `AGENTS.md` |
 | D-04 | active | Speed and maintainability matter more than forcing a bundle number. Use natural module boundaries; do not add risky split/refactor work merely to pass an advisory size threshold. | User direction, desktop `AGENTS.md` |

@@ -94,6 +94,7 @@
     "test:project-session-dual-renderer": "electron scripts/project-session-dual-renderer-selftest.cjs",
     "test:node-mutation-journal": "node scripts/node-mutation-journal-selftest.ts",
     "test:model-catalog": "node scripts/model-catalog-selftest.cjs",
+    "test:model-ux": "node scripts/model-catalog-selftest.cjs && node scripts/model-ux-selftest.ts",
     "test:settings-persistence": "node scripts/settings-persistence-selftest.ts",
     "test:settings-secret-store": "node scripts/settings-secret-store-selftest.cjs",
     "test:settings-lazy-load": "node scripts/settings-lazy-load-selftest.cjs",

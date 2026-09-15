@@ -73,6 +73,14 @@ function configuredImageModelIds(settings = {}) {
   ]).filter((model) => !isExplicitChatModelId(model));
 }
 
+function filterImagePickerModels(models = []) {
+  return uniqueModelIds(models).filter((model) => !isExplicitVideoModelId(model) && !isExplicitChatModelId(model));
+}
+
+function filterAgentPickerModels(models = []) {
+  return uniqueModelIds(models).filter((model) => !isExplicitImageModelId(model) && !isExplicitVideoModelId(model));
+}
+
 function configuredAgentModelIds(settings = {}) {
   return uniqueModelIds([
     settings.agentModel,
@@ -597,12 +605,12 @@ function cachedModelSettings(settings = {}, value) {
     modelAccessProfiles: source.modelAccessProfiles,
     serviceStatuses: source.serviceStatuses
   });
-  const imageModels = Array.isArray(source.imageModels) && source.imageModels.length
+  const imageModels = filterImagePickerModels(Array.isArray(source.imageModels) && source.imageModels.length
     ? uniqueModelIds([...source.imageModels, ...configuredImageModelIds(settings)])
-    : normalized.imageModels;
-  const agentModels = Array.isArray(source.agentModels) && source.agentModels.length
+    : normalized.imageModels);
+  const agentModels = filterAgentPickerModels(Array.isArray(source.agentModels) && source.agentModels.length
     ? uniqueModelIds([...source.agentModels, ...configuredAgentModelIds(settings)])
-    : normalized.agentModels;
+    : normalized.agentModels);
   const videoModels = Array.isArray(source.videoModels) && source.videoModels.length
     ? uniqueModelIds([...source.videoModels, ...configuredVideoModelIds(settings)])
     : normalized.videoModels;
@@ -651,7 +659,11 @@ module.exports = {
   preferredImageModelFromList,
   preferredVideoModelFromList,
   preserveRuntimeVerifiedModelAccessProfiles,
+  isExplicitChatModelId,
+  isExplicitImageModelId,
   isExplicitVideoModelId,
+  filterAgentPickerModels,
+  filterImagePickerModels,
   splitModelSettings,
   uniqueModelIds
 };

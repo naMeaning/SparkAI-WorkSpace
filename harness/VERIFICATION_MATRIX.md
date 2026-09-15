@@ -24,7 +24,7 @@
 | Theme or readable glass UI | Targeted UI/Glass test plus relevant visual inspection; do not treat a CSS selector assertion as layout proof |
 | Build/bundle boundary | Build or bundle verification only if the request, changed boundary or release rules require it |
 
-Exact script names and formal gates belong to the current `naimage-studio/AGENTS.md`, package scripts and context map; do not invent a broad command because it sounds reassuring.
+Exact script names and formal gates belong to the current `sparkai_workspace/AGENTS.md`, package scripts and context map; do not invent a broad command because it sounds reassuring.
 
 ## Backend And Cross-Repository Routing
 

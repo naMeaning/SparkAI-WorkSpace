@@ -106,7 +106,7 @@ try {
     Write-Host "[WARN] Windows LongPathsEnabled could not be read."
 }
 
-$studioRoot = Join-Path $workspaceRoot "naimage-studio"
+$studioRoot = Join-Path $workspaceRoot "sparkai_workspace"
 $extensionRoot = Join-Path $workspaceRoot "sparkai-extension"
 $webRoot = Join-Path $extensionRoot "services\ai-gateway\new-api\web"
 $webRootModules = Join-Path $webRoot "node_modules"
@@ -114,7 +114,7 @@ $webDefaultModules = Join-Path $webRoot "default\node_modules"
 $webDependenciesReady = (Test-Path -LiteralPath $webRootModules -PathType Container) -and (Test-Path -LiteralPath $webDefaultModules -PathType Container)
 
 if (-not $ToolsOnly) {
-    if (-not (Invoke-ProjectCheck -Label "naimage-studio pnpm/typecheck" -WorkingDirectory $studioRoot -Arguments @("run", "typecheck"))) {
+    if (-not (Invoke-ProjectCheck -Label "sparkai_workspace pnpm/typecheck" -WorkingDirectory $studioRoot -Arguments @("run", "typecheck"))) {
         $hardFailure = $true
     }
     if (-not (Invoke-ProjectCheck -Label "sparkai-extension verify:workspace" -WorkingDirectory $extensionRoot -Arguments @("run", "verify:workspace"))) {

@@ -10,13 +10,13 @@ SparkAI WorkSpace 不要求二次开发 New API。用户现有的原生 New API 
 
 New API 用户名/密码登录成功就是软件使用授权，不需要兑换码。桌面使用原生接口管理账户与 Token，并用所选 Token 请求标准 `/v1/*`。每个对话/图片模型仍可单独填写自定义 API Key，优先级为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”；账号模式忽略逐模型自定义 Base URL，防止把模型 Key 变成未授权的 Base URL 入口。
 
-账号模式纯文生图请求同域 `/v1/image-tasks`。反向代理把这个路径交给 SparkAI Extension，扩展服务在后台通过私网调用原生 New API `/v1/images/generations`。原生 New API 继续完成 Token 鉴权、渠道选择和计费。
+账号模式生图默认直接调用官方兼容 Images API：`POST /v1/images/generations` 与 `POST /v1/images/edits`。原生 New API 继续完成 Token 鉴权、渠道选择和计费。同域 `/v1/image-tasks` 仍可由 SparkAI Extension 包装长任务，但桌面客户端不再把它当作默认协议。
 
 ### 自定义 Base URL 模式
 
 当前设备必须先通过官方 `/api/naimage/license/activate` 获得 Pro License，之后才能在本地配置 Base URL/API Key。License 请求只含兑换码或 License token 与随机安装 ID，不上传用户 Base URL、API Key 或账号 Cookie。
 
-自定义请求仍直连用户提供的 OpenAI-compatible 地址。若该地址没有 `/v1/image-tasks`，桌面按现有规则回退 Responses/Images 同步接口；SparkAI Extension 不代理、不保存用户的自定义 Base URL 或 Key。
+自定义请求直连用户提供的 OpenAI-compatible 地址，同样只走 `/v1/images/generations` 与 `/v1/images/edits`。SparkAI Extension 不代理、不保存用户的自定义 Base URL 或 Key。
 
 ## 2. 扩展服务边界
 

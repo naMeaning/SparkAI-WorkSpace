@@ -18,6 +18,7 @@ import {
   type ModelCapabilityEvidence,
   type ModelProvider,
 } from "./core";
+import { filterAgentPickerModels, filterImagePickerModels } from "./model-ux";
 
 import {
   ActionButton,
@@ -133,7 +134,11 @@ export default function ModelConfigDialog({
   const [modelListViewportHeight, setModelListViewportHeight] = useState(360);
   const draftSet = new Set(draftModels.map((model) => model.toLowerCase()));
   const serverModelSet = new Set(models.map((model) => model.toLowerCase()));
-  const availableModels = uniqueModels([...models, ...draftModels]);
+  const availableModels = (kind === "image"
+    ? filterImagePickerModels
+    : kind === "agent"
+      ? filterAgentPickerModels
+      : uniqueModels)([...models, ...draftModels]);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredModels = availableModels.filter((model) => model.toLowerCase().includes(normalizedQuery));
   const tabStopModel = filteredModels.find((model) => model.toLowerCase() === String(currentModel || "").toLowerCase()) ||

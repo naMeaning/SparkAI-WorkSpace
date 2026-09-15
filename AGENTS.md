@@ -1,4 +1,4 @@
-# Nimage Workspace Harness
+# SparkAI WorkSpace Harness
 
 ## Purpose
 
@@ -10,7 +10,7 @@ The harness is designed around the operating preferences established in the Nima
 
 | Request concerns | Work in | Read first |
 | --- | --- | --- |
-| Electron desktop UI, canvas, local project/assets/session, local Agent runtime, plugins, IPC, CLI/MCP, installer, Windows EXE | `naimage-studio/` | `naimage-studio/AGENTS.md`, `PRODUCT_INTENT.md`, relevant `docs/CONTEXT_MAP.md` sections |
+| Electron desktop UI, canvas, local project/assets/session, local Agent runtime, plugins, IPC, CLI/MCP, installer, Windows EXE | `sparkai_workspace/` | `sparkai_workspace/AGENTS.md`, `PRODUCT_INTENT.md`, relevant `docs/CONTEXT_MAP.md` sections |
 | Pro License, redemption codes, `/v1/image-tasks`, extension Docker/Caddy deployment | `sparkai-extension/` | `sparkai-extension/AGENTS.md`, relevant `WORKSPACE_CONTEXT_MAP.md` sections |
 | Account/quota/channel/billing or New API web admin | External stock New API | Do not modify or copy it into this workspace; use its upstream documentation |
 | Auth/image-task/API contract crossing desktop and extension | Both repositories | `WORKSPACE_CONTEXT_MAP.md`, then each repository's local map |

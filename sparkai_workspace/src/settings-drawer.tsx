@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, Download, Film, ImageIcon, Plus, RotateCcw, Settings, Shield } from "lucide-react";
 
+import { filterAgentPickerModels, filterImagePickerModels } from "./model-ux";
 import {
   CONTEXT_STRATEGY_OPTIONS,
   REASONING_EFFORT_OPTIONS,
@@ -287,8 +288,8 @@ export default function SettingsDrawer({
         const imageCatalog = serverSettings.imageModels?.length ? serverSettings.imageModels : serverModels;
         const agentCatalog = serverSettings.agentModels?.length ? serverSettings.agentModels : serverModels;
         const videoCatalog = serverSettings.videoModels?.length ? serverSettings.videoModels : selectedVideoModelsFromSettings(draftSettings);
-        const imageModels = imageModelsWithPreferredFallback(imageCatalog, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool);
-        const agentModels = modelsWithPreferred(agentCatalog, draftSettings.agentModel, draftSettings.agentModelPool);
+        const imageModels = filterImagePickerModels(imageModelsWithPreferredFallback(imageCatalog, serverSettings.imageModel || draftSettings.imageModel, draftSettings.imageModelPool));
+        const agentModels = filterAgentPickerModels(modelsWithPreferred(agentCatalog, draftSettings.agentModel, draftSettings.agentModelPool));
         const videoModels = modelsWithPreferred(videoCatalog, serverSettings.videoModel || draftSettings.videoModel, draftSettings.videoModelPool);
         const preferredImageModel = preferredImageModelFromList(imageModels);
         const preferredAgentModel = preferredAgentModelFromList(agentModels);
@@ -721,8 +722,8 @@ export default function SettingsDrawer({
   const selectedImageModels = selectedImageModelsFromSettings(draftSettings);
   const selectedAgentModels = selectedAgentModelsFromSettings(draftSettings);
   const selectedVideoModels = selectedVideoModelsFromSettings(draftSettings);
-  const visibleImageModels = imageModelsWithPreferredFallback(modelState.imageModels, draftSettings.imageModel, selectedImageModels);
-  const visibleAgentModels = modelsWithPreferred(modelState.agentModels, draftSettings.agentModel, selectedAgentModels);
+  const visibleImageModels = filterImagePickerModels(imageModelsWithPreferredFallback(modelState.imageModels, draftSettings.imageModel, selectedImageModels));
+  const visibleAgentModels = filterAgentPickerModels(modelsWithPreferred(modelState.agentModels, draftSettings.agentModel, selectedAgentModels));
   const visibleVideoModels = modelsWithPreferred(modelState.videoModels, draftSettings.videoModel, selectedVideoModels);
   const pendingMatchesLatest = Boolean(updateInfo?.pending && updateInfo.pending.version === updateInfo.latestVersion);
   const updateOperationBusy = updateBusy || Boolean(updateInfo?.busy);
