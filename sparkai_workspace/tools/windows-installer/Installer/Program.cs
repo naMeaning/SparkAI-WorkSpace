@@ -254,7 +254,7 @@ internal sealed class InstallArguments
     internal static readonly string DefaultInstallDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Programs",
-        "naimage");
+        "SparkAI WorkSpace");
 
     internal static bool IsSilent(string[] args) => args.Any(argument =>
         string.Equals(argument, "/S", StringComparison.OrdinalIgnoreCase) ||
@@ -530,7 +530,7 @@ internal sealed class ExistingInstallation
                     using var uninstallKey = baseKey.OpenSubKey(uninstallKeyPath);
                     var location = Convert.ToString(installKey?.GetValue("InstallLocation"))?.Trim();
                     if (string.IsNullOrWhiteSpace(location)) continue;
-                    var hasCurrentExecutable = File.Exists(Path.Combine(location, "naimage.exe"));
+                    var hasCurrentExecutable = BrandIdentity.HasExecutable(location);
                     var hasLegacyExecutable = File.Exists(Path.Combine(location, LegacyExecutableName));
                     if (uninstallKey is null || (!hasCurrentExecutable && !hasLegacyExecutable)) continue;
                     var version = Convert.ToString(uninstallKey?.GetValue("DisplayVersion"))?.Trim() ?? "未知版本";
@@ -707,8 +707,14 @@ internal static class InstallerEngine
                 });
             if (coreExitCode != 0) throw new InvalidOperationException($"安装内核返回错误代码 {coreExitCode}。");
 
-            var installedExe = Path.Combine(installDirectory, "naimage.exe");
-            if (!File.Exists(installedExe)) throw new InvalidOperationException("安装完成后未找到 naimage.exe。");
+            var installedExe = BrandIdentity.FindExecutable(installDirectory)
+                ?? throw new InvalidOperationException("安装完成后未找到 SparkAIWorkSpace.exe。");
+            var legacyExecutable = Path.Combine(installDirectory, BrandIdentity.LegacyExecutableFileName);
+            if (!string.Equals(installedExe, legacyExecutable, StringComparison.OrdinalIgnoreCase) && File.Exists(legacyExecutable))
+            {
+                try { File.Delete(legacyExecutable); }
+                catch { /* Old naimage.exe can remain until the next reboot if it is locked. */ }
+            }
             ApplyShortcutPreferences(desktopShortcut, startMenuShortcut);
             progress?.Report(new InstallProgress(100, "安装完成", "SparkAI WorkSpace 已准备就绪"));
             await WriteAllTextAsync(logPath, log.ToString());
@@ -895,8 +901,10 @@ internal static class InstallerEngine
 
     private static async Task RollbackFreshInstallAsync(string installDirectory, StringBuilder log)
     {
-        var brandedUninstaller = Path.Combine(installDirectory, "naimage-uninstaller.exe");
-        var coreUninstaller = Path.Combine(installDirectory, "Uninstall naimage.exe");
+        var brandedUninstaller = BrandIdentity.FindBrandedUninstaller(installDirectory)
+            ?? Path.Combine(installDirectory, BrandIdentity.UninstallerFileName);
+        var coreUninstaller = BrandIdentity.FindCoreUninstaller(installDirectory)
+            ?? Path.Combine(installDirectory, BrandIdentity.CoreUninstallerFileNames[0]);
         var uninstaller = File.Exists(brandedUninstaller) ? brandedUninstaller : coreUninstaller;
         if (File.Exists(uninstaller))
         {
@@ -1374,16 +1382,17 @@ internal sealed class InstallerWindow : BrandWindow
 
     private static async Task<bool> RunInstalledUninstallerAsync(string installDirectory)
     {
-        var installedExecutable = Path.Combine(installDirectory, "naimage.exe");
+        var installedExecutable = BrandIdentity.FindExecutable(installDirectory)
+            ?? Path.Combine(installDirectory, BrandIdentity.ExecutableFileName);
         var timeout = ProcessWatchdog.ResolveTimeout(
             "NAIMAGE_INSTALLER_DIAGNOSTIC_CANCEL_ROLLBACK_TIMEOUT_MS",
             TimeSpan.FromMinutes(5));
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var wrapper = Path.Combine(installDirectory, "naimage-uninstaller.exe");
-            var core = Path.Combine(installDirectory, "Uninstall naimage.exe");
-            var executable = File.Exists(wrapper) ? wrapper : core;
-            if (!File.Exists(executable)) break;
+            var wrapper = BrandIdentity.FindBrandedUninstaller(installDirectory);
+            var core = BrandIdentity.FindCoreUninstaller(installDirectory);
+            var executable = wrapper ?? core;
+            if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable)) break;
             var arguments = new List<string> { "/S" };
             if (string.Equals(executable, core, StringComparison.OrdinalIgnoreCase))
             {

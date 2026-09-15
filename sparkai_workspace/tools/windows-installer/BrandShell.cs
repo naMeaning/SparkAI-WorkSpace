@@ -19,6 +19,52 @@ using System.Windows.Media.Imaging;
 
 namespace Naimage.WindowsInstaller;
 
+internal static class BrandIdentity
+{
+    internal const string ExecutableFileName = "SparkAIWorkSpace.exe";
+    internal const string LegacyExecutableFileName = "naimage.exe";
+    internal const string UninstallerFileName = "SparkAIWorkSpace-uninstaller.exe";
+    internal const string LegacyUninstallerFileName = "naimage-uninstaller.exe";
+    internal static readonly string[] CoreUninstallerFileNames =
+    {
+        "Uninstall SparkAI WorkSpace.exe",
+        "Uninstall SparkAIWorkSpace.exe",
+        "Uninstall naimage.exe"
+    };
+
+    internal static string? FindExecutable(string directory)
+    {
+        foreach (var name in new[] { ExecutableFileName, LegacyExecutableFileName })
+        {
+            var path = Path.Combine(directory, name);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    internal static bool HasExecutable(string directory) => FindExecutable(directory) is not null;
+
+    internal static string? FindBrandedUninstaller(string directory)
+    {
+        foreach (var name in new[] { UninstallerFileName, LegacyUninstallerFileName })
+        {
+            var path = Path.Combine(directory, name);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    internal static string? FindCoreUninstaller(string directory)
+    {
+        foreach (var name in CoreUninstallerFileNames)
+        {
+            var path = Path.Combine(directory, name);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+}
+
 internal static class BrandPalette
 {
     internal static readonly Color Ink = Color.FromRgb(31, 34, 39);

@@ -222,7 +222,7 @@
   "build": {
     "appId": "org.sparkai.naimage",
     "productName": "SparkAI WorkSpace",
-    "executableName": "naimage",
+    "executableName": "SparkAIWorkSpace",
     "copyright": "Copyright © 2026 namean",
     "asar": true,
     "compression": "maximum",

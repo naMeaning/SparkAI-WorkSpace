@@ -10,7 +10,7 @@
 
 - Unrestricted 文件名：`SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`
 - SparkAPI 账号专用文件名：`SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`
-- 主程序：`naimage.exe`
+- 主程序：`SparkAIWorkSpace.exe`
 - Authenticode：当前构建为 `NotSigned`
 - 完整性校验：以同一发布页的 `SHA256SUMS.txt` 和安装包旁置元数据为准
 
@@ -36,7 +36,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 1. 双击安装包，进入 SparkAI WorkSpace 自有的透明玻璃品牌安装界面；不会显示旧式 Windows 安装向导。
 2. 阅读能力介绍，选择当前用户可写的安装目录，并决定是否创建桌面和开始菜单快捷方式。v1 不允许安装到 Windows、`Program Files` 或其他需要管理员权限的位置。
 3. 安装器会校验内部组件，再由隐藏的 NSIS 内核完成安全部署。已有版本会进入更新/修复流程、锁定原安装路径并保留用户数据。
-4. 完成后可立即启动，或从快捷方式、开始菜单及安装目录中的 `naimage.exe` 启动。
+4. 完成后可立即启动，或从快捷方式、开始菜单及安装目录中的 `SparkAIWorkSpace.exe` 启动。
 
 品牌界面使用 Windows 10/11 系统自带的 .NET Framework 4.8。当前仅支持保持系统更新的 Windows 10/11 x64，不支持移除了系统 .NET Framework 组件的裁剪镜像。
 
@@ -67,7 +67,7 @@ pnpm run package:installer-smoke
 
 上述命令只用于本地构建和分项验证。正式发布必须使用唯一事务入口：
 
-升级 E2E 应使用上一正式版 `naimage.exe` 作为基线。当前公开制品是 SparkAI WorkSpace 1.0.9。
+升级 E2E 应使用上一正式版安装目录中的主程序作为基线。当前公开制品是 SparkAI WorkSpace 1.0.9，主程序为 `SparkAIWorkSpace.exe`。
 
 ```powershell
 $env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-1.0.6\win-unpacked\naimage.exe').Path

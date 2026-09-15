@@ -23,7 +23,7 @@ function main() {
     const service = createAgentIntegrationService({
       appRoot,
       endpointPath: path.join(root, "endpoint.json"),
-      executablePath: path.join(root, "naimage.exe"),
+      executablePath: path.join(root, "SparkAIWorkSpace.exe"),
       log: () => {}
     });
     const installed = service.install(["codex"]);

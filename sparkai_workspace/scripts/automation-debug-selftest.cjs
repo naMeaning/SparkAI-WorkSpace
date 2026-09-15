@@ -125,7 +125,7 @@ async function main() {
     BrowserWindow: emptyBrowserWindow,
     configDir: root,
     version: "1.0.9",
-    executablePath: "naimage.exe",
+    executablePath: "SparkAIWorkSpace.exe",
     log: () => {},
     serviceCommandHandler: debug.execute,
     serviceCommandNames: debug.commands
@@ -145,7 +145,7 @@ async function main() {
     BrowserWindow: emptyBrowserWindow,
     configDir: path.join(root, "production"),
     version: "1.0.9",
-    executablePath: "naimage.exe",
+    executablePath: "SparkAIWorkSpace.exe",
     log: () => {},
     serviceCommandHandler: disabled.execute,
     serviceCommandNames: disabled.commands

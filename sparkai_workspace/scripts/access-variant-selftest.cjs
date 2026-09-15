@@ -166,6 +166,7 @@ Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
   assert.match(windowsBuildSource, /DOTNET_MULTILEVEL_LOOKUP/, "Windows packaging must disable mixed system/.NET SDK lookup");
   assert.match(installerProjectSource, /<AssemblyName>SparkAI WorkSpace Installer<\/AssemblyName>/);
   assert.match(uninstallerProjectSource, /<AssemblyName>SparkAI WorkSpace Uninstaller<\/AssemblyName>/);
+  assert.equal(packageMetadata.build.executableName, "SparkAIWorkSpace");
   assert.equal(packageMetadata.build.win.artifactName, "naimage-Core-${version}-${arch}.${ext}");
   for (const documentationPath of ["README.md", path.join("docs", "INSTALLATION.md"), path.join("docs", "BRANDED_INSTALLER_ARCHITECTURE.md")]) {
     assert.doesNotMatch(readFileSync(path.join(root, documentationPath), "utf8"), /naimage-Setup-<version>|release\/naimage-Setup/);

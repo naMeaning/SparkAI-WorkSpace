@@ -179,7 +179,7 @@ internal sealed class UninstallArguments
                     using var baseKey = RegistryKey.OpenBaseKey(hive, view);
                     using var key = baseKey.OpenSubKey(keyPath);
                     var value = Convert.ToString(key?.GetValue("InstallLocation"))?.Trim();
-                    if (!string.IsNullOrWhiteSpace(value) && File.Exists(Path.Combine(value, "naimage.exe"))) return value;
+                    if (!string.IsNullOrWhiteSpace(value) && BrandIdentity.HasExecutable(value)) return value;
                 }
                 catch { }
             }
@@ -204,7 +204,7 @@ internal static class UninstallerBootstrap
 
             tempRoot = Path.Combine(Path.GetTempPath(), "naimage-studio-uninstaller", "ui-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
-            var detachedPath = Path.Combine(tempRoot, "naimage-uninstaller.exe");
+            var detachedPath = Path.Combine(tempRoot, BrandIdentity.UninstallerFileName);
             File.Copy(currentPath, detachedPath, true);
             var forwarded = new System.Collections.Generic.List<string>(args)
             {
@@ -283,10 +283,10 @@ internal static class UninstallerEngine
                 throw new InvalidOperationException("当前安装位置需要管理员权限，v1 品牌卸载器不会切换到其他管理员账户。请联系支持人员处理此旧版安装。");
             if (options.DiagnosticFailBeforeCore)
                 throw new InvalidOperationException("Diagnostic failure requested before uninstall commit.");
-            var core = Path.Combine(options.InstallDirectory, "Uninstall naimage.exe");
-            if (!File.Exists(core))
+            var core = BrandIdentity.FindCoreUninstaller(options.InstallDirectory);
+            if (string.IsNullOrWhiteSpace(core) || !File.Exists(core))
             {
-                if (!File.Exists(Path.Combine(options.InstallDirectory, "naimage.exe")))
+                if (!BrandIdentity.HasExecutable(options.InstallDirectory))
                 {
                     if (options.DeleteUserData)
                         await DeleteManagedDataAsync(options, log);
@@ -296,7 +296,7 @@ internal static class UninstallerEngine
                 }
                 throw new InvalidOperationException("未找到安全卸载内核，请重新安装当前版本后再卸载。");
             }
-            File.Copy(core, tempCore, true);
+            File.Copy(core!, tempCore, true);
             log.AppendLine($"[{DateTimeOffset.Now:O}] install={options.InstallDirectory}");
             log.AppendLine($"deleteUserData={options.DeleteUserData}");
             progress?.Report(new UninstallProgress(34, "移除程序组件", "正在关闭应用并清理安装目录"));
@@ -327,13 +327,16 @@ internal static class UninstallerEngine
                         percent < 72 ? "正在移除应用文件" : "正在移除快捷方式和注册信息"));
                 });
             if (coreExitCode != 0) throw new InvalidOperationException($"卸载内核返回错误代码 {coreExitCode}。");
-            var installedExecutable = Path.Combine(options.InstallDirectory, "naimage.exe");
+            var installedExecutable = BrandIdentity.FindExecutable(options.InstallDirectory);
             // NSIS can return after handing its final directory/shortcut cleanup
             // to the copied uninstaller process. Observe the committed state
             // instead of racing those last filesystem operations.
-            for (var retry = 0; retry < 180 && File.Exists(installedExecutable); retry++)
+            for (var retry = 0; retry < 180 && !string.IsNullOrWhiteSpace(installedExecutable) && File.Exists(installedExecutable); retry++)
+            {
                 await Task.Delay(250);
-            if (File.Exists(installedExecutable))
+                installedExecutable = BrandIdentity.FindExecutable(options.InstallDirectory);
+            }
+            if (!string.IsNullOrWhiteSpace(installedExecutable) && File.Exists(installedExecutable))
                 throw new InvalidOperationException("程序仍在运行，未能完整移除。请关闭 SparkAI WorkSpace 后重试。");
 
             if (options.DeleteUserData)

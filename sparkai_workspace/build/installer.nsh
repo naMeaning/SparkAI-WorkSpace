@@ -32,9 +32,9 @@ LangString NAIMAGE_FINISH_TEXT 1033 "Installation is complete. Sign in to let th
 ; internal removal engine so upgrades and rollback retain electron-builder's
 ; established behavior.
 !macro customInstall
-  File /oname=naimage-uninstaller.exe "${PROJECT_DIR}\.release-tools\brand-uninstaller\SparkAI WorkSpace Uninstaller.exe"
-  WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" UninstallString '"$INSTDIR\naimage-uninstaller.exe" --install-dir="$INSTDIR"'
-  WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" QuietUninstallString '"$INSTDIR\naimage-uninstaller.exe" /S --install-dir="$INSTDIR"'
+  File /oname=SparkAIWorkSpace-uninstaller.exe "${PROJECT_DIR}\.release-tools\brand-uninstaller\SparkAI WorkSpace Uninstaller.exe"
+  WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" UninstallString '"$INSTDIR\SparkAIWorkSpace-uninstaller.exe" --install-dir="$INSTDIR"'
+  WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" QuietUninstallString '"$INSTDIR\SparkAIWorkSpace-uninstaller.exe" /S --install-dir="$INSTDIR"'
   WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" DisplayIcon "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
 !macroend
 
@@ -42,7 +42,7 @@ LangString NAIMAGE_FINISH_TEXT 1033 "Installation is complete. Sign in to let th
 ; MUI page is created. This prevents the legacy Windows wizard from flashing.
 !macro customUnInit
   ${IfNot} ${Silent}
-    Exec '"$INSTDIR\naimage-uninstaller.exe" --install-dir="$INSTDIR"'
+    Exec '"$INSTDIR\SparkAIWorkSpace-uninstaller.exe" --install-dir="$INSTDIR"'
     Quit
   ${EndIf}
 !macroend

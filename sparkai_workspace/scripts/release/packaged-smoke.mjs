@@ -12,7 +12,7 @@ const projectRoot = resolve(scriptDir, "../..");
 const exeArg = process.argv.find((item) => item.startsWith("--exe="));
 const settingsArg = process.argv.find((item) => item.startsWith("--settings="));
 const liveNetwork = process.argv.includes("--live-network");
-const executable = resolve(exeArg?.split("=").slice(1).join("=") || join(projectRoot, "release", "win-unpacked", "naimage.exe"));
+const executable = resolve(exeArg?.split("=").slice(1).join("=") || join(projectRoot, "release", "win-unpacked", "SparkAIWorkSpace.exe"));
 const sourceSettings = settingsArg ? resolve(settingsArg.split("=").slice(1).join("=")) : "";
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(projectRoot, ".diagnostics", "release", `packaged-smoke-${stamp}`);

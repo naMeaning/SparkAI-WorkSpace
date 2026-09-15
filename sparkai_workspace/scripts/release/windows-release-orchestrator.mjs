@@ -42,7 +42,7 @@ const defaultBaselineRoot = join(
   "win-unpacked"
 );
 const defaultLegacyBaselineExe = join(defaultBaselineRoot, "iiimage Studio.exe");
-const defaultCanonicalBaselineExe = join(defaultBaselineRoot, "naimage.exe");
+const defaultCanonicalBaselineExe = join(defaultBaselineRoot, "SparkAIWorkSpace.exe");
 const defaultBaselineExe = version === "1.0.5" || existsSync(defaultLegacyBaselineExe)
   ? defaultLegacyBaselineExe
   : defaultCanonicalBaselineExe;

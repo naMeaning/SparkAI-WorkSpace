@@ -33,7 +33,7 @@
 
 本仓库只维护桌面创作端和本地 Agent runtime：
 
-- 用户可见产品名称统一为 `SparkAI WorkSpace`。为保证原地升级和既有用户数据兼容，npm 包名、`naimage.exe`、App ID、协议头、Automation CLI、项目元数据目录和应用数据目录继续保留既有 `naimage` 标识。
+- 用户可见产品名称统一为 `SparkAI WorkSpace`。安装后的主程序为 `SparkAIWorkSpace.exe`。App ID、协议头、Automation CLI 和应用数据目录仍沿用既有 `naimage` 路径，避免丢失用户项目。
 
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
@@ -879,7 +879,7 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | 项目保存/session | `main.tsx`, `desktop/ipc/config-ipc.cjs`, `desktop/project-save-coordinator.cjs`, `desktop/project-session-{merge,normalizer}.cjs` | session v5、manifest、revision、writer baseline/sequence/checkpoint、字段事件、delete/restore barrier、节点 ID 重映射、迁移、原子写入；生成资产以 `runId + normalized managed locator` 幂等，首次持久化 occurrence/asset/display identity 保持稳定；普通导入仍按 occurrence 区分。旧 Session 只收敛可证明为同一生成文件的重复项，并同步 assets/outputs/collection/progress/bindings，保留失败槽位 | `test:node-mutation-journal`, `test:project-save-coordinator`, `test:project-session-merge`, `test:project-session-dual-renderer`, `test:project-io`, `test:image-container` |
 | 图片导入/缩略图 | `image-import.cjs`, `thumbnail-cache.cjs`, `image-thumbnail-worker.cjs`, `electron-main.cjs`, `src/core.ts`, `src/main.tsx` | 资产身份、路径限制、容器；项目私有 WebP 缓存按文件内容哈希和 256/512/1024 三档复用，复制或改 mtime 仍可命中；生图落盘预热 512/1024，协议响应 `Cache-Control: immutable`。Main 最多保留 2 个常驻 Sharp 子进程并用 `requestId` 串行派发每个槽位，默认保留 2000 个文件/1 GiB；画布中长边大于 1024 的普通单图使用 1024 缩略图，多图按实际足迹使用 512/1024 桶，查看器主图始终读取原图。性能诊断必须同时报告 `workerStarts/workerJobs/workerReuses/workerFailures`、冷生成、缓存命中与 Renderer Long Task | `test:image-import`, `test:thumbnail-cache`, `aidebug:performance`, `aidebug:performance:audit:test`, AIDebug import |
 | 抠图/alpha/分层 | `layer-alpha-normalization.ts`, `core.ts`, matting/background/layer modules | 尺寸、透明度、mask replay、PSD | alpha、mask、matting、chroma-key、PSD tests |
-| 更新/安装器 | main/update/release scripts/build/tools | 独立 `sparkai-extension` 不参与桌面更新；桌面 manifest、签名密钥和回滚仍由发布服务维护；公开 Setup 名称由接入策略统一生成，内部 `naimage.exe` / App ID / 数据目录保持升级兼容；安装/卸载器灰白透明玻璃视觉与品牌文案；真实安装成功后完成反馈自动关闭，错误/取消与截图模式保持独立 | access-variant、update、release-orchestrator、installer UI smoke（含 completion auto-close probe）、installer smoke、update E2E |
+| 更新/安装器 | main/update/release scripts/build/tools | 独立 `sparkai-extension` 不参与桌面更新；桌面 manifest、签名密钥和回滚仍由发布服务维护；公开 Setup 名称由接入策略统一生成，主程序为 `SparkAIWorkSpace.exe`；App ID / 数据目录保持升级兼容；安装/卸载器灰白透明玻璃视觉与品牌文案；真实安装成功后完成反馈自动关闭，错误/取消与截图模式保持独立 | access-variant、update、release-orchestrator、installer UI smoke（含 completion auto-close probe）、installer smoke、update E2E |
 | Bundle 分层策略或异步边界 | `scripts/production-bundle-policy.cjs`, `scripts/production-bundle-selftest.cjs`, Vite imports/chunks | initial/plugin/CSS hard gate、core async/core/dist advisory、AIDebug marker 与插件初始图结构门禁；优先复用和自然异步，不为数字引入高风险重构或复杂拆分 | `test:bundle-policy`；只有直接影响 Bundle/chunk 边界或正式发布时再运行 `build` + `test:bundle` |
 | 模块移动/拆分 | 原模块与新模块 | public re-export、打包 files、worker/ASAR 路径、本文 | `typecheck`, `build`, `test:bundle` + 对应专项 |
 

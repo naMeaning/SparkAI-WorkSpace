@@ -30,7 +30,7 @@
 ## 升级与兼容
 
 - 支持 Windows 10/11 x64。
-- 产品展示名变为 SparkAI WorkSpace，内部 `naimage.exe`、App ID、协议、CLI、项目格式和用户数据目录保持不变，以支持从 1.0.8 原地升级。
+- 产品展示名为 SparkAI WorkSpace，主程序为 `SparkAIWorkSpace.exe`。App ID、协议、CLI、项目格式和用户数据目录保持兼容，以支持从旧版原地升级。
 - 更新产品仍为 `naimage-studio`，runtime compatibility 保持 `windows-x64-electron-42-runtime-3`，最低受支持更新版本保持 `1.0.5`。
 - 普通图片继续写入项目 `exports/images/`，PSD 写入 `exports/psd/`，图片组新写入项目 `image-groups/`；旧 `exports/image-groups/` 仅用于打开历史导出。
 - Base URL、用户 API Key、账号 Cookie 和上游签名 URL 不会写入项目 Session、导出历史或迁移报告。

@@ -38,7 +38,7 @@ electron-builder/NSIS 继续负责成熟且高风险的系统操作：
 - 应用占用检测及失败返回；
 - 生成内部核心卸载器。
 
-公开安装包将 NSIS 安装器作为经过 SHA-256 校验的嵌入资源。品牌安装器仅用 `/S` 调用它，所以不会创建或闪现 MUI 页面。`build/installer.nsh` 将 Windows 卸载注册改为 `naimage-uninstaller.exe`；内部 `Uninstall naimage.exe` 只作为静默删除内核保留。即使用户直接双击内部卸载器，也会在页面创建前转交给品牌卸载器。
+公开安装包将 NSIS 安装器作为经过 SHA-256 校验的嵌入资源。品牌安装器仅用 `/S` 调用它，所以不会创建或闪现 MUI 页面。`build/installer.nsh` 将 Windows 卸载注册改为 `SparkAIWorkSpace-uninstaller.exe`；内部 NSIS 卸载器只作为静默删除内核保留。即使用户直接双击内部卸载器，也会在页面创建前转交给品牌卸载器。
 
 安装与卸载内核均由共享 watchdog 观察。首轮超过安全时限后会终止对应进程树并自动重试一次；安装仍失败时，全新安装进入有界回滚，卸载仍失败时保留品牌窗口和日志供用户处理后再次继续，不会无限卡住且禁止关闭。诊断环境可以缩短超时验证恢复与零残留语义，正式运行使用分钟级保守时限。
 
@@ -68,7 +68,7 @@ electron-builder/NSIS 继续负责成熟且高风险的系统操作：
 6. 删除只属于内部 NSIS 核心、与最终 EXE 不匹配的 blockmap。
 7. 清除当前版本的旧签名清单、安装包旁置元数据和旧重启 ASAR，强制 `release:manifest` 基于同一轮新产物重新生成；中断构建不会留下一个表面完整、实际哈希错位的发布目录。
 
-electron-builder 的内部核心包使用 `naimage-Core-*`，构建完成后立即移入 `.release-tools/`，不会作为公开制品。公开文件名、双版本构建、下载清单和应用内完整更新共用同一接入策略命名 authority；安装后的 `naimage.exe`、App ID、数据目录和小版本 ASAR 重启更新继续保持升级兼容。
+electron-builder 的内部核心包使用 `naimage-Core-*`，构建完成后立即移入 `.release-tools/`，不会作为公开制品。公开文件名、双版本构建、下载清单和应用内完整更新共用同一接入策略命名 authority；安装后的主程序为 `SparkAIWorkSpace.exe`。App ID、数据目录和小版本 ASAR 重启更新继续保持升级兼容。
 
 `pnpm run release:manifest` 会分别记录完整安装包和重启更新 ASAR 的大小与 SHA-256，使用项目内发布私钥签署规范化清单，并立即用随客户端打包的 `build/update-public-key.pem` 反向验签。私钥与客户端公钥不匹配时发布会直接失败，不能生成一个客户端必然拒绝的更新清单。完成后同时生成 `SHA256SUMS.txt`，覆盖安装包、重启 ASAR、签名清单和安装包旁置元数据，供 GitHub Release 下载页与人工核验统一使用。
 

@@ -23,7 +23,7 @@ const valueArg = (name, fallback = "") => {
 };
 const executable = resolve(valueArg(
   "--exe",
-  join(projectRoot, ".diagnostics", "restart-update-e2e", "baseline-build", "win-unpacked", "naimage.exe")
+  join(projectRoot, ".diagnostics", "restart-update-e2e", "baseline-build", "win-unpacked", "SparkAIWorkSpace.exe")
 ));
 const sourceSettings = resolve(valueArg("--settings", join(projectRoot, "config", "app-settings.json")));
 const expectedAsar = resolve(valueArg(

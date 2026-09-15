@@ -130,7 +130,7 @@ async function main() {
     BrowserWindow: { getAllWindows: () => windows },
     configDir: root,
     version: "1.0.6",
-    executablePath: "C:\\Program Files\\naimage\\naimage.exe",
+    executablePath: "C:\\Program Files\\SparkAI WorkSpace\\SparkAIWorkSpace.exe",
     log: () => {}
   });
   try {

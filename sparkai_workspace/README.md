@@ -5,7 +5,7 @@ SparkAI WorkSpace 是独立维护的 Electron + React 桌面 AI 视觉工作台�
 
 ## 安装与发布
 
-- Windows 10/11 x64 公开安装包使用 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe` 或 `SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`；安装后的主程序仍为兼容标识 `naimage.exe`。
+- Windows 10/11 x64 公开安装包使用 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe` 或 `SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`；安装后的主程序为 `SparkAIWorkSpace.exe`。
 - 安装器支持选择当前用户可写路径，并创建带正式图标的桌面与开始菜单快捷方式。
 - 客户端支持更新清单签名校验、断点下载和重启更新；需要重新安装的大版本由软件更新中心下载完整安装包。
 - 当前构建未配置商业代码签名证书，Authenticode 状态为 `NotSigned`；只应从受信发布源获取安装包并核对发布页提供的 SHA-256。

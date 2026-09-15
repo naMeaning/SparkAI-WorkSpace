@@ -38,18 +38,18 @@ const uninstallerSource = uninstallerSourceArg
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const runDir = join(projectRoot, ".diagnostics", "release", `installer-smoke-${stamp}`);
 const installDir = join(runDir, "中文 安装路径", "naimage");
-const installedExe = join(installDir, "naimage.exe");
-const uninstaller = join(installDir, "naimage-uninstaller.exe");
+const installedExe = join(installDir, "SparkAIWorkSpace.exe");
+const uninstaller = join(installDir, "SparkAIWorkSpace-uninstaller.exe");
 const failureRollbackDir = join(runDir, "故障回滚路径", "naimage");
 const cancelledInstallDir = join(runDir, "取消安装路径", "naimage");
 const watchdogRollbackDir = join(runDir, "Watchdog 回滚路径", "naimage");
 const noShortcutDir = join(runDir, "无快捷方式路径", "naimage");
-const noShortcutExe = join(noShortcutDir, "naimage.exe");
-const noShortcutUninstaller = join(noShortcutDir, "naimage-uninstaller.exe");
+const noShortcutExe = join(noShortcutDir, "SparkAIWorkSpace.exe");
+const noShortcutUninstaller = join(noShortcutDir, "SparkAIWorkSpace-uninstaller.exe");
 const noShortcutRepairAttemptDir = join(runDir, "无快捷方式禁止迁移路径", "naimage");
-const noShortcutRepairAttemptUninstaller = join(noShortcutRepairAttemptDir, "naimage-uninstaller.exe");
+const noShortcutRepairAttemptUninstaller = join(noShortcutRepairAttemptDir, "SparkAIWorkSpace-uninstaller.exe");
 const migrationAttemptDir = join(runDir, "禁止迁移路径", "naimage");
-const migrationUninstaller = join(migrationAttemptDir, "naimage-uninstaller.exe");
+const migrationUninstaller = join(migrationAttemptDir, "SparkAIWorkSpace-uninstaller.exe");
 const lockedOptionsCapture = join(runDir, "existing-install-path-locked.png");
 const preservedDataDir = join(runDir, "卸载保留数据", "naimage");
 const preservedDataSentinel = join(preservedDataDir, "project-library-preserved.txt");
@@ -335,6 +335,7 @@ async function runRegisteredCommand(commandLine, extraArguments, timeout = 120_0
 
 const shortcutsBefore = shortcutPaths();
 const preexistingInstallCandidates = uniqueExisting([
+  join(process.env.LOCALAPPDATA || "", "Programs", "SparkAI WorkSpace", "SparkAIWorkSpace.exe"),
   join(process.env.LOCALAPPDATA || "", "Programs", "naimage", "naimage.exe"),
   join(process.env.LOCALAPPDATA || "", "naimage", "naimage.exe")
 ]);
@@ -406,8 +407,8 @@ try {
   brandedUninstallEntry = registeredUninstallEntry();
   brandedUninstallRegistration = String(brandedUninstallEntry?.uninstallString || "");
   if (
-    !brandedUninstallRegistration.toLowerCase().includes("naimage-uninstaller.exe") ||
-    !String(brandedUninstallEntry?.quietUninstallString || "").toLowerCase().includes("naimage-uninstaller.exe") ||
+    !brandedUninstallRegistration.toLowerCase().includes("sparkaiworkspace-uninstaller.exe") ||
+    !String(brandedUninstallEntry?.quietUninstallString || "").toLowerCase().includes("sparkaiworkspace-uninstaller.exe") ||
     !sameWindowsPath(String(brandedUninstallEntry?.installLocation || ""), installDir)
   ) {
     throw new Error("Windows uninstall registration does not point to the branded uninstaller.");

@@ -40,7 +40,7 @@ function isRestartReplacedPath(relativePath) {
   // changes for every installer even when the Electron runtime is unchanged.
   // It is never replaced by the restart updater and is intentionally excluded
   // from the runtime fingerprint; all other shell files remain part of it.
-  return ["naimage.exe", "iiimage studio.exe"].includes(relativePath.toLowerCase());
+  return ["sparkaiworkspace.exe", "naimage.exe", "iiimage studio.exe"].includes(relativePath.toLowerCase());
 }
 
 export function readPackagedUpdateMetadata(appRoot) {

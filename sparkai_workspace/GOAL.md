@@ -36,8 +36,8 @@
 - 整体关键界面字号在现有紧凑 IDE 密度上提高一个可读层级，优先覆盖全局 UI token、Agent 正文/状态/输入与搜索结果；搜索下拉框使用更实的菜单底色和更清晰的文字，不得因 Glass 透底影响阅读。
 - 普通并行生图在用户并发上限内同批启动，每张完成后立即增量写入同一图片组，最终资产按实际完成顺序展示；Goal 按每个母图归为一个图片组，同时保留每张结果的槽位、语言、SKU 与幂等 provenance。
 - 设置中的工具复选框只控制底部工具栏和领域工具菜单是否显示；隐藏不得卸载或停用插件，也不得阻止快捷键、Agent 或 CLI 调用。只有插件本身停用或卸载才禁用能力。
-- 窗口、启动/登录界面、帮助与政策、安装/卸载界面和 Windows 产品元数据统一显示 `SparkAI WorkSpace`；`naimage.exe`、App ID、协议、CLI、项目元数据和数据目录继续作为兼容标识，不做破坏性迁移。
-- 同一代码库通过构建期接入开关产出两个 Windows 发行版：无限制版保留 SparkAPI 账号与自定义 Base URL/API Key，SparkAPI 专用版只允许官方账号登录；公开制品分别使用 `SparkAI-WorkSpace-Unrestricted-*` 与 `SparkAI-WorkSpace-SparkAPI-*`，`naimage` 只保留为主程序、App ID、数据目录与更新协议兼容标识；限制必须同时落在 Renderer 与 Electron Main，不能只隐藏按钮。
+- 窗口、启动/登录界面、帮助与政策、安装/卸载界面和 Windows 产品元数据统一显示 `SparkAI WorkSpace`。安装后的主程序为 `SparkAIWorkSpace.exe`，公开卸载器为 `SparkAIWorkSpace-uninstaller.exe`。旧版 `naimage.exe` 仅作为升级探测兼容名。App ID、协议、CLI 和用户数据目录仍沿用既有路径，避免丢失项目。
+- 同一代码库通过构建期接入开关产出两个 Windows 发行版：无限制版保留 SparkAPI 账号与自定义 Base URL/API Key，SparkAPI 专用版只允许官方账号登录；公开制品分别使用 `SparkAI-WorkSpace-Unrestricted-*` 与 `SparkAI-WorkSpace-SparkAPI-*`，主程序为 `SparkAIWorkSpace.exe`；限制必须同时落在 Renderer 与 Electron Main，不能只隐藏按钮。
 - 测试开发阶段以代码轻量、真实交互性能和功能可用为优先，Bundle 只记录趋势、不阻断开发 EXE；正式发布时再恢复完整 Bundle 与发布门禁。
 - AIDebug 的画布修改控制面只能在 Main 已确认临时 `user-data` 与临时 config 同时隔离后暴露；仅启动 Vite、仅设置编译期开关或遗漏 `NAIMAGE_CONFIG_DIR` 都不得读取、修改或自动保存真实项目。
 - 同一生成任务的同一受管落盘文件必须以 `runId + normalized managed locator` 保持幂等；不同保存窗口或归一化轮次产生的新 occurrence 不得增加资产、`outputs`、图片组槽位或容器绑定。普通导入继续以 occurrence 表达用户可见的重复选择，旧 Session 加载时只收敛可证明为同一生成文件的重复项，并保留失败/停止槽位。
