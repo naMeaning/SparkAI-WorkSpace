@@ -1,7 +1,7 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：58
-> 最近同步：2026-09-15
+> 地图版本：59
+> 最近同步：2026-09-20
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 
@@ -9,13 +9,14 @@
 
 ## 1. 文档权威顺序与维护规则
 
-发生冲突时按以下顺序判断：
+发生冲突时，“应该改什么”按以下顺序判断：
 
-1. `PRODUCT_INTENT.md`：当前产品意图、允许能力和明确废弃项。
-2. `AGENTS.md`：实现、安全、验证和本文档维护约束。
-3. `docs/CONTEXT_MAP.md`：当前进程、模块、契约、状态和测试导航。
-4. 当前代码与测试：实现事实。
-5. `docs/YYYY-MM-DD_*.md`、release note 和 history：历史背景，不是恢复旧实现的依据。
+1. 当前显式用户请求与当前 Goal。
+2. `PRODUCT_INTENT.md`：当前产品意图、允许能力和明确废弃项。
+3. `AGENTS.md`：实现、安全、验证和本文档维护约束。
+4. 已接受的决策记录与本地图导航。
+
+判断“现在实际上是什么”时，当前代码、契约、生成物和已观察测试优先于所有叙述文档；`docs/YYYY-MM-DD_*.md`、release note 和 history 只提供历史背景，不能单独证明功能仍存在。
 
 以下变化必须在同一批改动中更新本文：
 
@@ -39,6 +40,8 @@
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
 - `agent-runtime.cjs` 负责 Prompt/画布上下文组装、压缩编排、模型协议循环与工具执行；SQLite/JSON memory、Prompt/FastMemory 持久化、tool schema 和 Responses/Chat 响应解析由 `runtime/` 专属模块持有，但均不直接修改 React state。
 - 用户的原生 New API、账户/角色/quota/计费、渠道和模型服务由外部部署维护；本工作区的 `sparkai-extension` 只拥有 Pro License、兑换码管理和 Cloudflare-safe 图片任务包装。
+
+- 发布项目/GitHub Release 展示名已记录为 `SparkAI-WorkSpace`；应用内展示名仍由代码 `package.json.productName` 所有，为 `SparkAI WorkSpace`。`naimage-studio`、`org.sparkai.naimage`、`SparkAIWorkSpace`、`naimage-*` 更新协议和用户数据目录是升级兼容标识，不因发布展示名变化而改写。
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
@@ -557,7 +560,7 @@ Renderer UpdaterBridge
   → 健康标记与失败回滚
 ```
 
-版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链只签发和校验 `naimage-studio` 产品身份的 manifest 与制品。更新服务默认由 `https://sparkapi.org` 提供，GitHub 私有仓库的 PAT/Actions 私钥只能留在服务端或发布工作流，不能进入安装包。
+版本来自 `package.json.version`，restart 兼容标识来自 `naimageUpdateCompatibility`。签名规范化由 `update-release.cjs` 与打包公钥共同约束。客户端在检查、验证码与下载授权中都显式声明 `product: naimage-studio` 和 `X-Naimage-Desktop-Product`；发布链只签发和校验 `naimage-studio` 产品身份的 manifest 与制品。对外发布项目/GitHub Release 的展示标题使用 `SparkAI-WorkSpace v<version>`，但不能把该标题写入更新 product 或兼容 ABI。更新服务默认由 `https://sparkapi.org` 提供，GitHub 私有仓库的 PAT/Actions 私钥只能留在服务端或发布工作流，不能进入安装包。
 
 品牌迁移首版为 `1.0.5`，`naimageUpdateMinimumVersion` 也固定为 `1.0.5`。当前 `naimage` 1.0.4 客户端即使 compatibility 相同也必须走完整 installer，不能只替换 ASAR；更名前客户端不再拥有网络别名，需手工安装当前版本。
 
@@ -906,7 +909,7 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | Renderer LocalStorage `naimage.workspaceViewMode.v1` | `workbench` / `focus` / `review` 便利视图偏好 | Renderer UI；不进入项目 session，不改变画布或 Agent TaskScope |
 | Renderer LocalStorage `naimage.commerceTutorial.v1:<projectId>` | 跨境套图 AI 陪练的当前阶段、初始图片数和成果基线 | Renderer 便利进度；按项目隔离，不是 session authority，不保存 Prompt/凭据或触发执行 |
 | `session.json` | 旧版全局 Session，只读扫描并作为显式迁移来源；新版本不再创建或更新 | Electron Main 迁移服务 |
-| `model-cache.json` | 60 秒模型运行缓存的磁盘回退；设置页 `cacheOnly` 可读取过期快照 | Electron Main；不得含 token/cookie/key |
+| `model-cache.json` | 15 分钟模型目录运行缓存的磁盘回退；TTL 过期后先继续使用旧快照，设置页 `cacheOnly` 可读取过期快照 | Electron Main；不得含 token/cookie/key |
 | `account-token-cache.json` | 最多 8 个账户的密钥公开元数据、选择状态与更新时间快照 | Electron Main；按账户地址 + user ID 隔离，不得含完整/掩码 Key、Cookie、IP 白名单或模型限制 |
 | `project-list.json` | 项目登记与 activeProjectId | Electron Main |
 | `projects/<id>/session.json` 或用户选择项目的 session | `workspaceDomain`、画布、会话、容器、需求与资产引用；每张生成图片可保存白名单 `ImageAsset.generation v1` 请求/响应/耗时快照；AskUser 挂起任务可保存合法 `imageRatio/imageResolution`，旧项目缺失领域时归一为 `general` | Renderer 产生、Main 清洗并原子写入；generation 不含 Key、Token、Cookie、Prompt、绝对上游 URL 或签名 URL；运行锁本身不持久化 |
@@ -1079,6 +1082,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-09-20 | 1.0.9-dev | 以当前代码重新核对工具链与发布边界：桌面 `package.json` 为 1.0.9、Electron 42.6.1、React 18.3.1、TypeScript 5.9.3、Vite 8.1.3；Extension 为 0.2.1、Node 24 + `node:sqlite`。工作区新增可校验官方哈希的 `scripts/bootstrap-local-toolchain.ps1`，并验证便携 Go 1.25.1、Bun 1.3.14、.NET SDK 9.0.316、GitHub CLI 2.96.0；工具级发布前置已就绪，桌面 production build（1676 modules）、147/144/3 IPC registration、access-variant、release plan 与 release orchestrator selftest 均通过。诊断同时确认当前会话没有真实 Python 解释器（只有 WindowsApps alias），R 是可选未安装；未运行正式打包。诊断不再把历史 New API Web 依赖当作活跃 Extension 门槛；`LOCAL_TOOLCHAIN.md`、根工作区地图和本图记录发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`，同时保留代码中的 `SparkAI WorkSpace` 与 `naimage-studio` 更新兼容 ABI。当前文件快照无 `.git`，未创建 commit、tag、push 或 GitHub Release。 |
 | 2026-09-15 | 1.0.9-dev | 上下文地图 v58 把当前实现收口到官方 Images API、画布选中即素材、容器内重新生图和缓存命中：生图默认 `POST /v1/images/generations` 与 `POST /v1/images/edits`，不再先打 `/v1/image-tasks` 或对话模型 Responses 生图；选中图片/容器进入 Agent 素材条并可改序号与原图/参考角色；图片容器标题栏和右键可一键重新生图。缩略图按内容哈希 + 256/512/1024 三档缓存（上限 2000 文件 / 1 GiB），模型目录 TTL 15 分钟且过期先用旧数据。7 月阶段计划和玻璃迁移文档移入 `docs/history/`。当前测试安装包 Unrestricted 175,984,640 B / SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`，SparkAPI 175,984,128 B / SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`。旧 1.0.7/1.0.8 公开安装包已从 `release/` 清理。未做真实安装 smoke，不是正式发布。 |
 | 2026-08-26 | 1.0.9-dev | 上下文地图 v57 收口窄窗口/多选归组/Project Graph 连线与 GlassSelect 视觉改动，并将账号登录关键路径与后置预热解耦：`completeNewApiLogin()` 只等待 `/api/user/login`、认证 bundle 安全持久化与本地/缓存模型设置；用户资料、账户 Token/额度和模型目录由工作区打开后的既有 `refreshServerState()` 后台刷新。`test:new-api-login` loopback 专项把后置接口固定延迟 1.5 秒并断言登录只请求一次；最终复跑实测 111 ms，同时覆盖旧 Token 选择清理、rc.23 凭据加密和公开 DTO 脱敏。模型连接的逐模型自定义 Key 优先级不变；相关 UI/关系/传输回归、typecheck、production build（1674 modules、15.71 s）与双版本本地 EXE 均完成。无限制版为 175,979,520 bytes、SHA-256 `7DB90B013E7341E3B7BD1D38FDA1C7755870C071F2BD0C12606E32D268CC719E`，SparkAPI 专用版为 175,979,520 bytes、SHA-256 `4846618581E72C38E80E8F0DC9336FEE8344489BE773CA8B4B2E64E44F712662`；两者均未签名且未做安装 smoke，不是正式发布，未访问真实服务或模型。 |
 | 2026-08-25 | 1.0.9-dev | 上下文地图 v55 登记原生 New API `v1.0.0-rc.23` 登录兼容：Main 同时支持 Bearer access token + HttpOnly refresh cookie + auth session ID 与旧 `session` + `New-Api-User`，受保护请求到期前刷新、明确 401 后至多重放一次，并发刷新 single-flight；登录、刷新、登出、设置保存、账户地址/发行策略切换与旧代理请求取消按认证 epoch 收口。三项 auth bundle 凭据与全局/逐模型 API Key 统一进入 `safeStorage` sidecar，普通设置和 Renderer 无明文；provider Authorization 由模型连接唯一生成，逐模型自定义 Key 继续优先。相关专项、typecheck、CJS 语法、差异检查与 production build（1673 modules、15.56 s）均通过；`test:new-api-transport` 因沙箱内 Electron GPU 启动崩溃未进入断言，沙箱外重跑的批准请求因服务端 404 未执行。未访问真实 New API、License 或模型服务。 |

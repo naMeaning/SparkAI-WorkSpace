@@ -1,7 +1,9 @@
 # SparkAI WorkSpace 1.0.9 发布说明
 
 版本日期：2026-08-16  
-当前测试快照：2026-09-15，源码 `d88fae2`
+文档记录的测试快照：2026-09-15，源码标注为 `d88fae2`；当前工作区是无 `.git` 元数据的文件快照，不能仅凭本文件证明该提交或制品仍可复现。
+
+发布命名决策（2026-09-20）：GitHub Release/发布项目展示名使用 `SparkAI-WorkSpace`；应用内展示名继续使用代码中的 `SparkAI WorkSpace`，`naimage-studio` 更新 product、App ID、协议、CLI、数据目录和 Restart ASAR 兼容前缀不变。
 
 1.0.9 将产品名称统一为 SparkAI WorkSpace，并在保留既有 EXE、App ID、项目格式、CLI 和本地数据兼容的前提下，完成四工作台、项目数据边界、模型接入、图片交付、批量性能和 Windows 使用体验的集中升级。右侧项目 Agent 仍是唯一执行中心，通用、电商、社媒和科研工作台继续共享同一个项目、画布、Session、资产与 Agent Runtime。
 

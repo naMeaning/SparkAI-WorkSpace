@@ -849,6 +849,7 @@ function createArtifactFixture(root, targetVersion, pair) {
 }
 
 function runSelftest() {
+  mkdirSync(join(projectRoot, ".diagnostics", "release"), { recursive: true });
   const root = mkdtempSync(join(projectRoot, ".diagnostics", "release", "orchestrator-selftest-"));
   const fixtureRelease = join(root, "release");
   mkdirSync(fixtureRelease, { recursive: true });

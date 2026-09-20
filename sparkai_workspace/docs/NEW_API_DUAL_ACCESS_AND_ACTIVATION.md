@@ -10,7 +10,7 @@ SparkAI WorkSpace 不要求二次开发 New API。用户现有的原生 New API 
 
 New API 用户名/密码登录成功就是软件使用授权，不需要兑换码。桌面使用原生接口管理账户与 Token，并用所选 Token 请求标准 `/v1/*`。每个对话/图片模型仍可单独填写自定义 API Key，优先级为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”；账号模式忽略逐模型自定义 Base URL，防止把模型 Key 变成未授权的 Base URL 入口。
 
-账号模式生图默认直接调用官方兼容 Images API：`POST /v1/images/generations` 与 `POST /v1/images/edits`。原生 New API 继续完成 Token 鉴权、渠道选择和计费。同域 `/v1/image-tasks` 仍可由 SparkAI Extension 包装长任务，但桌面客户端不再把它当作默认协议。
+账号模式生图默认直接调用官方兼容 Images API：`POST /v1/images/generations` 与 `POST /v1/images/edits`。原生 New API 继续完成 Token 鉴权、渠道选择和计费。同域 `/v1/image-tasks` 仍可由 SparkAI Extension 包装长任务，但桌面客户端不再把它当作默认协议；部署 Extension 不是当前桌面直接调用 Images API 的必要条件。
 
 ### 自定义 Base URL 模式
 
@@ -142,14 +142,14 @@ corepack pnpm run license:disable -- --id 12
 | task 很快 failed 且 401 | Bearer Key 被原生 New API 拒绝 | 检查桌面所选账户 Token |
 | 后台约 2 分钟超时 | Worker 仍经 Cloudflare 请求 New API | 确认扩展与 New API 共享 user-defined network，并把 upstream 改为容器 DNS/内部端口 |
 | 服务重启后任务 failed | 按防重复策略不重放 | 用户明确重新生成；不得自动重建 |
-| 自定义 Base URL 生图仍同步 | 用户上游没有 image-task API | 这是兼容行为；扩展服务不会接收用户自定义 Key |
+| 自定义 Base URL 生图仍同步 | 当前桌面默认就是直接调用用户兼容接口；Extension 的 image-task 只包装账号/私网 New API 路径 | 这是当前合同；扩展服务不会接收用户自定义 Key |
 
 ## 8. 验证
 
 扩展服务：
 
 ```powershell
-cd E:\019创业项目\nimage\sparkai-extension
+cd ..\sparkai-extension
 corepack pnpm run verify:workspace
 corepack pnpm run build
 corepack pnpm run test
@@ -159,7 +159,7 @@ corepack pnpm run check
 桌面合同：
 
 ```powershell
-cd E:\019创业项目\nimage\naimage-studio
+cd ..\sparkai_workspace
 corepack pnpm run test:license
 corepack pnpm run test:custom-api-transport
 corepack pnpm run typecheck

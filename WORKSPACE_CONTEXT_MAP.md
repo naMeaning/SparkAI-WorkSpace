@@ -1,7 +1,7 @@
 # SparkAI WorkSpace 工作区上下文地图
 
-> 最近同步：2026-09-15
-> 工作区：`E:\019创业项目\nimage`  
+> 最近同步：2026-09-20
+> 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
 > Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
@@ -10,8 +10,8 @@
 
 | 项目 | 产品角色 | 主要运行位置 | 技术栈 | 权威数据 |
 | --- | --- | --- | --- | --- |
-| `sparkai_workspace/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42、React 18、TypeScript、Vite 8、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
-| `sparkai-extension/` | SparkAI 独立扩展服务；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | Node 24 原生 HTTP、`node:sqlite`、Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
+| `sparkai_workspace/` | Windows 桌面创作客户端；无限画布、单 Agent、本地项目/素材/会话、图片导入导出与自动更新 | 用户 Windows 电脑 | Electron 42.6.1、React 18.3.1、TypeScript 5.9.3、Vite 8.1.3、Node/CommonJS、Sharp/PNGJS/OpenCV.js、少量 .NET 工具 | 本地项目 session、项目素材、画布关系、本地 FastMemory、桌面更新状态 |
+| `sparkai-extension/` | SparkAI 独立扩展服务（当前版本 0.2.1）；不二开、不部署 New API，只提供 Pro 设备 License 与 Cloudflare-safe 图片任务代理 | 与用户现有原生 New API 同机或同私网的单实例 Node 服务 | 活跃服务 Node 24 原生 HTTP、`node:sqlite`；根脚本由 Node 22.12+ 驱动；Docker Compose、Caddy 路径分流 | 兑换码/设备授权、图片任务状态与短期结果；不拥有账号、Token、渠道、quota、计费或 New API 数据 |
 
 一句话判断：
 
@@ -49,7 +49,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   Entry["electron-main.cjs"] --> Window["主 BrowserWindow / 独立 Agent BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n95 invokes / 5 receives / 2 sends"]
+  Entry --> Ipc["desktop/ipc/*\n147 invokes / 9 receives / 2 sends"]
   Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配 / 插件 Prompt / 主题导入导出"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
@@ -69,7 +69,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 95 个 invoke（92 preload + 3 internal）/5 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 147 个 invoke（144 preload + 3 internal）/9 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
 | `agent-runtime.cjs` | 保留 Prompt、tool loop、compact、steer 协议补齐与 action 编排；运行控制器、schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `desktop/agent-run-control.cjs`, `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、session v5 journal/checkpoint/barrier 类型和图片算法；节点 mutation 采集由 Main 合并器负责，设置、资产身份、粘贴块已有独立所有者 | `desktop/project-session-merge.cjs`, `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
@@ -158,7 +158,7 @@ Compose 默认强制加入 `SPARKAI_DOCKER_NETWORK` 指定的既有 user-defined
 ### 4.4 验证
 
 ```powershell
-cd E:\019创业项目\nimage\sparkai-extension
+cd sparkai-extension
 corepack pnpm run verify:workspace
 corepack pnpm run build
 corepack pnpm run test
@@ -175,14 +175,14 @@ corepack pnpm run package:extension
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、15 分钟运行缓存（过期先用旧目录）与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
-| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | SparkAI Extension `POST /v1/image-tasks` / `GET /v1/image-tasks/:id`；用户原生 New API `/v1/images/generations` 与其他兼容接口 | Electron 纯文生图创建立即返回、2.5 秒 GET 轮询、queued/running/succeeded/failed、Bearer 仅内存、HMAC owner、创建成功/结果不明后不重建；扩展服务通过私网调用原生同步 Images，计费仍完全归 New API；任务无 partial，编辑/参考图仍走原链路 |
+| 图片生成/编辑 | runtime/core/main-process request、`runtime/image-batch-scheduler.cjs`、`desktop/new-api-client.cjs`、`desktop/new-api-transport.cjs`、`src/streaming-image-preview.ts` | 桌面当前默认直接请求用户原生 New API `/v1/images/generations` 与 `/v1/images/edits`；SparkAI Extension 仍独立提供可选 `POST /v1/image-tasks` / `GET /v1/image-tasks/:id` 包装能力 | Main 为每张图片生成稳定 `naimage-` 幂等键并使用官方兼容 Images JSON/multipart 合同；原生 New API 继续负责鉴权、渠道和计费。Extension 的 queued/running/succeeded/failed、Bearer 仅内存、HMAC owner、结果保留与重启不重放合同继续有效，但不是当前桌面的默认生图路径 |
 | 桌面更新 | updater、`update-release.cjs`、`runtime/access-variant.cjs`、公钥 | 独立更新服务、签名 release manifest 与生产制品；不属于 SparkAI Extension | manifest schema 与 `sparkai_workspace` product 不变；1.0.9 起 canonical 更新安装包固定为 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`，SparkAPI-only 安装包不进入自动更新清单；1.0.8 及以前的已签名清单继续接受历史 `naimage-Setup-*`；Restart ASAR、下载端点和内部兼容身份不变；继续校验 version、minimum version、compatibility、size、SHA-256、Ed25519 signature |
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
 桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
-账号模式纯文生图使用所选账户 Key 请求同域 `POST /v1/image-tasks`；Caddy 只把该路径交给 SparkAI Extension。扩展服务立即写入自己的 SQLite 任务表并返回 `task_id`，Bearer Key 只留在单进程内存，后台通过共享 Docker network 的容器 DNS调用原生 New API `/v1/images/generations`，原生 New API 继续完成鉴权、渠道选择、计费与上游同步等待。客户端每 2.5 秒查询 `GET /v1/image-tasks/:id`；SQLite 以 HMAC owner 隔离任务，结果短期落盘，服务重启把 queued/running 标记失败且不重放。Cloudflare 只承载短 POST/GET。拿到 `task_id` 或创建结果不明后不得重新 POST；只有扩展端点明确不支持时才回退既有同步链路。自定义 Base URL 仍直接访问用户接口，若其不支持 image-task 则走原兼容回退，用户 Base URL/API Key 不上传扩展 License API。
+账号模式和自定义 Base URL 模式的当前桌面代码都以官方兼容 Images API 为默认：纯文生图请求 `POST /v1/images/generations`，编辑/参考图请求 `POST /v1/images/edits`；账号模式使用解析后的账户/逐模型 Key 与账号地址，自定义模式使用用户本地配置的 Base URL/Key。SparkAI Extension 的 `/v1/image-tasks` 仍是可部署的长任务包装合同：创建后立即返回 `task_id`，Bearer Key 只留在单进程内存，后台经共享 Docker network 请求原生 New API，并由短 GET 轮询 queued/running/succeeded/failed；服务重启不会重放。当前桌面没有把该合同作为默认出口，因此部署 Extension 不能被描述为当前生图必需条件。若未来重新启用，拿到任务 ID 或创建结果不明后仍不得自动重建，以避免重复扣费；用户自定义 Base URL/API Key 永远不上传 License API。
 
 正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 
@@ -198,11 +198,12 @@ corepack pnpm run package:extension
 
 - `scripts/activate-local-toolchain.ps1`
 - `scripts/diagnose-local-toolchain.ps1`
+- `scripts/bootstrap-local-toolchain.ps1`
 - `LOCAL_TOOLCHAIN.md`
 
-已验证版本：Node `24.15.0`、Corepack pnpm `10.12.1`、Bun `1.3.14`/`1.2.23`、Go `1.25.1`、.NET SDK `9.0.316`。
+当前只读检查已验证：Node `24.19.0`（满足两个项目的 engines）、项目目录中的 Corepack pnpm `10.12.1`、Bun `1.3.14`、Go `1.25.1`、.NET SDK `9.0.316`、GitHub CLI `2.96.0`。这些便携工具由 `.tools/` 激活，不修改系统 PATH；`activate-local-toolchain.ps1 -RequireReleaseTools` 已能通过工具存在性门槛。Python 命令当前只解析到 WindowsApps stub，不能据此宣称科研 Runner 已就绪。
 
-当前本地依赖和工具链已可完成 Studio typecheck/build、SparkAI Extension Node 测试、Compose 静态校验与工作区验证。旧 New API Web/Go 工具链只属于待清理源码，不再是活跃服务的完成条件。
+Go 只服务于历史 New API 源码的审计/测试；活跃 `sparkai-extension/services/sparkai-extension` 是 Node 24 服务，不需要 Go。旧 New API Web/Go 目录不再是活跃服务完成条件；`diagnose-local-toolchain.ps1` 将其依赖缺失记录为信息项。当前锁定依赖已安装，桌面 `typecheck`/production `build`、Extension 工作区验证与 9 项服务测试均已通过；这不等同于正式安装包或线上发布验收。Extension 的 Docker/Compose 生产部署仍需单独准备 Docker Desktop/服务器，本机当前未验证 `docker` 命令。
 
 ## 7. Agent 检索与维护规则
 
@@ -222,11 +223,11 @@ corepack pnpm run package:extension
 
 ## 8. 当前发布基线
 
-- 当前桌面正式版：`v1.0.8`，冻结源码以同名 annotated tag `v1.0.8`（commit `c964e87`）为准。`1.0.9` 当前只是在本地冻结和验证的候选，未创建 tag、未推送或上传 Release。
-- 私有发布页：[naMeaning/SparkAI-WorkSpace](https://github.com/naMeaning/SparkAI-WorkSpace)。仓库可见性保持 `PRIVATE`。历史 tag `v1.0.8` 仍可用。
+- 当前代码版本：桌面 `1.0.9`（`sparkai_workspace/package.json`），Extension `0.2.1`；本工作区是无 `.git` 元数据的文件快照，不能证明任何 tag、commit 或远端状态。
+- 发布项目/GitHub Release 展示名决策为 **`SparkAI-WorkSpace`**；应用展示名继续是代码中的 `SparkAI WorkSpace`。仓库地址若仍为 `naMeaning/SparkAI-WorkSpace`，发布前必须在真实 checkout 用 `git remote -v` 复核，不以本地图文档代替远端事实。
 - Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
-- Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准。
-- 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；`1.0.9` 必须由冻结提交后的同一次 `release:final` 重新建立完整证据。
+- Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准；当前代码的安装包名由 `runtime/access-variant.cjs` 生成，Restart ASAR 保留 `naimage-Restart-Update-*` 兼容前缀。
+- 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；`1.0.9` 必须由冻结提交后的同一次 `corepack pnpm run release:final` 重新建立完整证据。
 - 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
 
 1.0.7 以来的画布、Agent、并行 Session、Graph CLI 和本地导出合同继续保留；当前 1.0.9 候选在其上增加项目目录边界、迁移、统一导出、大量图片性能、模型参数展示、登录/License 和独立图片任务扩展。上述候选不能替代生产 Extension、真实 provider、真实 AppData 或线上更新验证。

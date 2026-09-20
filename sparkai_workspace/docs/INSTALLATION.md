@@ -20,9 +20,9 @@
 Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe'
 ```
 
-当前版本没有商业代码签名证书，Windows 可能显示发布者未知。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
+当前版本没有商业代码签名证书，Windows 可能显示发布者未知。实际发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
-当前仓库测试安装包（2026-09-15，源码 `d88fae2`）：
+文档记录的仓库测试安装包（2026-09-15，源码标注 `d88fae2`；当前快照无 `.git` 且未重新核对文件，不能作为当前 Release 证据）：
 
 | 安装包 | 大小 | SHA-256 |
 | --- | --- | --- |
@@ -59,10 +59,10 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 ## 从源码构建
 
 ```powershell
-pnpm install
-pnpm run package:win
-pnpm run package:smoke
-pnpm run package:installer-smoke
+corepack pnpm install
+corepack pnpm run package:win
+corepack pnpm run package:smoke
+corepack pnpm run package:installer-smoke
 ```
 
 上述命令只用于本地构建和分项验证。正式发布必须使用唯一事务入口：
@@ -71,9 +71,9 @@ pnpm run package:installer-smoke
 
 ```powershell
 $env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-1.0.6\win-unpacked\naimage.exe').Path
-pnpm run release:plan
-pnpm run test:release-orchestrator
-pnpm run release:final
+corepack pnpm run release:plan
+corepack pnpm run test:release-orchestrator
+corepack pnpm run release:final
 ```
 
 任一步失败时 `release/.naimage-release-incomplete.json` 会保留，当前版本 manifest、sidecar、Restart ASAR 和 `SHA256SUMS.txt` 会被撤销；存在该标记的目录不得上传或同步到下载服务器。

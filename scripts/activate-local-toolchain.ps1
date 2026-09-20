@@ -3,6 +3,8 @@ param(
     [ValidateSet("1.3.14", "1.2.23")]
     [string]$BunVersion = "1.3.14",
 
+    [switch]$RequireReleaseTools,
+
     [switch]$Quiet
 )
 
@@ -32,17 +34,18 @@ $dotnetRoot = Join-Path $toolRoot "dotnet"
 $ghRoot = Join-Path $toolRoot "gh-2.96.0"
 $ghBin = Join-Path $ghRoot "bin"
 
-$requiredExecutables = @(
-    (Join-Path $bunHome "bun.exe"),
-    (Join-Path $goBin "go.exe"),
-    (Join-Path $dotnetRoot "dotnet.exe"),
-    (Join-Path $ghBin "gh.exe")
-)
-
-foreach ($executable in $requiredExecutables) {
-    if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
-        throw "Missing portable tool: $executable"
-    }
+$toolPaths = [ordered]@{
+    Bun = (Join-Path $bunHome "bun.exe")
+    Go = (Join-Path $goBin "go.exe")
+    Dotnet = (Join-Path $dotnetRoot "dotnet.exe")
+    GitHubCli = (Join-Path $ghBin "gh.exe")
+}
+$missingTools = @($toolPaths.GetEnumerator() | Where-Object { -not (Test-Path -LiteralPath $_.Value -PathType Leaf) })
+if ($RequireReleaseTools -and $missingTools.Count -gt 0) {
+    throw "Missing portable release tool(s): $($missingTools.Name -join ', '). Run scripts\bootstrap-local-toolchain.ps1 first."
+}
+if (-not $Quiet -and $missingTools.Count -gt 0) {
+    Write-Warning "Optional portable tool(s) missing: $($missingTools.Name -join ', '). Release packaging/publishing remains unavailable until they are installed."
 }
 
 $nodeCommand = Get-Command node -CommandType Application -ErrorAction Stop
@@ -56,7 +59,12 @@ $managedPathEntries = @(
     $dotnetRoot,
     $ghBin
 )
-$pathPrefix = @($bunHome, $goBin, $dotnetRoot, $ghBin)
+$pathPrefix = @(
+    if (Test-Path -LiteralPath $toolPaths.Bun -PathType Leaf) { $bunHome }
+    if (Test-Path -LiteralPath $toolPaths.Go -PathType Leaf) { $goBin }
+    if (Test-Path -LiteralPath $toolPaths.Dotnet -PathType Leaf) { $dotnetRoot }
+    if (Test-Path -LiteralPath $toolPaths.GitHubCli -PathType Leaf) { $ghBin }
+)
 $existingPathEntries = @($env:PATH -split [IO.Path]::PathSeparator | Where-Object { $_ })
 $newPathEntries = New-Object System.Collections.Generic.List[string]
 $seenPathEntries = @{}
@@ -94,18 +102,23 @@ $env:NAIMAGE_WORKSPACE_ROOT = $workspaceRoot
 $env:NAIMAGE_NODE_EXE = $nodeCommand.Source
 $env:NAIMAGE_COREPACK_EXE = $corepackCommand.Source
 $env:NAIMAGE_BUN_VERSION = $BunVersion
-$env:NAIMAGE_BUN_EXE = Join-Path $bunHome "bun.exe"
-$env:NAIMAGE_GH_EXE = Join-Path $ghBin "gh.exe"
+$env:NAIMAGE_BUN_EXE = if (Test-Path -LiteralPath $toolPaths.Bun -PathType Leaf) { $toolPaths.Bun } else { "" }
+$env:NAIMAGE_GO_EXE = if (Test-Path -LiteralPath $toolPaths.Go -PathType Leaf) { $toolPaths.Go } else { "" }
+$env:NAIMAGE_DOTNET_EXE = if (Test-Path -LiteralPath $toolPaths.Dotnet -PathType Leaf) { $toolPaths.Dotnet } else { "" }
+$env:NAIMAGE_GH_EXE = if (Test-Path -LiteralPath $toolPaths.GitHubCli -PathType Leaf) { $toolPaths.GitHubCli } else { "" }
+$env:NAIMAGE_RELEASE_TOOLS_READY = if ($missingTools.Count -eq 0) { "1" } else { "0" }
 
 # Keep portable tool state and caches inside this workspace where practical.
 $env:BUN_INSTALL_CACHE_DIR = Join-Path $toolRoot "bun-cache-$BunVersion"
-$env:GOROOT = $goRoot
+$env:COREPACK_HOME = Join-Path $toolRoot "corepack"
+$env:COREPACK_NPM_REGISTRY = "https://registry.npmjs.org"
+$env:GOROOT = if (Test-Path -LiteralPath $toolPaths.Go -PathType Leaf) { $goRoot } else { "" }
 $env:GOPATH = Join-Path $toolRoot "go-work"
 $env:GOMODCACHE = Join-Path $toolRoot "go-mod-cache"
 $env:GOCACHE = Join-Path $toolRoot "go-build-cache"
 $env:GOTOOLCHAIN = "local"
-$env:DOTNET_ROOT = $dotnetRoot
-$env:DOTNET_ROOT_X64 = $dotnetRoot
+$env:DOTNET_ROOT = if (Test-Path -LiteralPath $toolPaths.Dotnet -PathType Leaf) { $dotnetRoot } else { "" }
+$env:DOTNET_ROOT_X64 = $env:DOTNET_ROOT
 $env:DOTNET_CLI_HOME = Join-Path $toolRoot "dotnet-cli-home"
 $env:NUGET_PACKAGES = Join-Path $toolRoot "nuget-packages"
 $env:DOTNET_MULTILEVEL_LOOKUP = "0"
@@ -123,5 +136,6 @@ if (-not $Quiet) {
     Write-Host "Go        : $goRoot"
     Write-Host ".NET      : $dotnetRoot"
     Write-Host "GitHub CLI: 2.96.0 ($ghRoot)"
+    Write-Host "Release tools ready: $env:NAIMAGE_RELEASE_TOOLS_READY"
     Write-Host "pnpm      : use 'corepack pnpm' (project pin: 10.12.1)"
 }

@@ -38,11 +38,30 @@ corepack pnpm run release:final
 
 ## 3. GitHub Release
 
-1. 确认远端 `main` 包含构建使用的冻结提交。
-2. 创建与 `package.json` 一致的 `v<version>` tag 和 GitHub Release。
-3. 上传正式编排生成的 Setup、Restart ASAR、签名 manifest、sidecar 与校验文件；不上传私钥、用户配置或 incomplete marker。
-4. 重新读取 Release 资产列表，核对名称、大小和数量。
+发布项目和 GitHub Release 的展示名统一为 `SparkAI-WorkSpace`；应用内展示名仍是 `SparkAI WorkSpace`。该命名决策不得改写兼容性敏感的 `naimage-studio` 更新 product、Restart ASAR 前缀、App ID、协议、CLI 或用户数据目录。
+
+1. 必须在带 `.git` 的真实 checkout 中确认远端和默认分支；当前只有源码文件的快照不能发布。确认远端 `main` 包含构建使用的冻结提交。
+2. 创建与 `package.json` 一致的 annotated `v<version>` tag，先推送冻结分支，再单独推送 tag；禁止 force push。
+3. 使用标题 `SparkAI-WorkSpace v<version>` 创建 GitHub Release。上传同一次正式编排生成的 canonical Setup、Restart ASAR、内嵌 Ed25519 签名的 `desktop-release.json`、安装包 JSON sidecar 与 `SHA256SUMS.txt`；当前代码不会生成独立 `desktop-release.json.sig`，也不得上传私钥、用户配置或 incomplete marker。
+4. 重新读取 Release 资产列表，按 `release:final` 报告核对名称、大小、SHA-256 和数量；SparkAPI-only 安装包只有明确作为第二发行变体发布时才额外上传，不能替代自动更新使用的 Unrestricted 安装包。
 5. 对私有仓库明确记录：客户端更新不能内置 GitHub Token；生产更新应使用 SparkAPI 的受控下载/manifest 服务，GitHub Release 只作为受权限保护的发布存档。
+
+经发布负责人明确授权后，命令形态如下；`<owner>`、冻结分支和版本必须由当前 checkout/`package.json` 重新读取，不能照抄历史文档：
+
+```powershell
+git status --short --branch
+git remote -v
+git push origin <冻结分支>
+git tag -a v<version> -m "SparkAI-WorkSpace v<version>"
+git push origin v<version>
+gh release create v<version> --repo <owner>/SparkAI-WorkSpace `
+  --title "SparkAI-WorkSpace v<version>" `
+  release/SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe `
+  release/naimage-Restart-Update-<version>-x64.asar `
+  release/desktop-release.json `
+  release/SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe.json `
+  release/SHA256SUMS.txt
+```
 
 ## 4. 耗时基线与安全续跑
 

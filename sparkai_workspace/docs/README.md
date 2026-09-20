@@ -5,7 +5,7 @@
 - [上下文地图](./CONTEXT_MAP.md)：进程拓扑、入口调用链、模块所有权、跨边界契约、状态位置、修改影响和测试映射。新增或移动模块以及改变公共契约时必须同步更新。
 - [项目结构](./PROJECT_STRUCTURE.md)：源码分区、生成目录、安全清理和最低验证。
 - [工作区上下文地图](../../WORKSPACE_CONTEXT_MAP.md)：桌面仓库与 `sparkai-extension` 扩展服务的关系、技术栈和跨仓修改导航。
-- [本地工具链](../../LOCAL_TOOLCHAIN.md)：当前便携 Bun/Go/.NET/pnpm 激活、诊断与 New API Web 深路径限制。
+- [本地工具链](../../LOCAL_TOOLCHAIN.md)：从代码实际用途出发的 Node/pnpm、便携 Go/Bun/gh、可选 .NET/Python/R 配置、诊断与发布前置条件。
 - [安装说明](./INSTALLATION.md)：Windows 安装包、当前 1.0.9 哈希、安装、卸载和数据目录。
 - [品牌安装器架构](./BRANDED_INSTALLER_ARCHITECTURE.md)：自绘安装/卸载界面、静默 NSIS 内核、数据安全与自动化验证。
 - [Agent 与画布交互原则](./AGENT_CANVAS_INTERACTION_PRINCIPLES.md)：单 Agent、成果画布与操作因果边界。
@@ -16,6 +16,7 @@
 ## 发布基线
 
 - [正式发布清单](./RELEASE_CHECKLIST.md)：每个版本的文档冻结、完整门禁、制品验签、GitHub Release 上传与复核顺序。
+- 发布项目/GitHub Release 展示名：`SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`，`naimage-studio` 更新 product 和 `naimage-*` 兼容标识不变。
 - [1.0.0 发布说明](./RELEASE_1.0.0.md)
 - [1.0.1 发布说明](./RELEASE_1.0.1.md)
 - [1.0.2 发布说明](./RELEASE_1.0.2.md)
@@ -28,7 +29,7 @@
 
 发布说明是对应版本的历史证据，不自动代表当前 `package.json` 版本已经完成同样验证。
 
-当前测试安装包（2026-09-15，源码 `d88fae2`，`bundleEnforced: false`，未签名）：
+历史记录中的测试安装包（2026-09-15，文档标注源码 `d88fae2`，`bundleEnforced: false`，未签名；本快照无 `.git` 且未重新核对文件，不能作为当前 Release 证据）：
 
 - `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`：175,984,640 字节，SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`
 - `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`：175,984,128 字节，SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`
