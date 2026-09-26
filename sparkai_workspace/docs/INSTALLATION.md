@@ -22,14 +22,14 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 
 当前版本没有商业代码签名证书，Windows 可能显示发布者未知。实际发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
-文档记录的仓库测试安装包（2026-09-15，源码标注 `d88fae2`；当前快照无 `.git` 且未重新核对文件，不能作为当前 Release 证据）：
+当前仓库测试安装包（2026-09-27，源码版本 `1.0.9`；`bundleEnforced: false`，不是正式 Release）：
 
 | 安装包 | 大小 | SHA-256 |
 | --- | --- | --- |
-| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 175,984,640 | `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4` |
-| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 175,984,128 | `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991` |
+| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 109,803,520 | `5ACD4CB99D1F02B67865DA12D64A2A7949C41B570056AFD759FE2C7FC23046A4` |
+| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 109,803,520 | `6C390B4F84A1E97F704D9D8B0C3FE10E0E3284918EADF9EF4633907AE06ACD82` |
 
-一般自己使用 Unrestricted。这是测试开发包，`bundleEnforced: false`，没有商业代码签名，也未做真实安装/卸载 smoke。`release/` 不再保留 1.0.7/1.0.8 或旧 `naimage-Setup-*` 公开命名。
+一般自己使用 Unrestricted。这是测试开发包，没有商业代码签名，也未做真实安装/卸载 smoke；构建保留既有大 chunk、.NET nullable、NuGet 漏洞源不可访问和 Node 子进程 deprecation 警告。`release/` 不再保留 1.0.7/1.0.8 或旧 `naimage-Setup-*` 公开命名。
 
 ## 安装与启动
 

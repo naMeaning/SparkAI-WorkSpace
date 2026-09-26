@@ -2,6 +2,15 @@
 
 Date: 2026-09-27
 Status: verified
+Outcome: 按当前 `main` 源码重新编译并打包 Windows x64 EXE 安装包。
+Scope: 当前源码、Vite production build、Unrestricted 与 SparkAPI access variant、Electron/NSIS/品牌安装器封装。
+Change: 用户明确要求“编译为 exe”；开始前确认工作树干净、未创建独立工作树，沿用 `corepack pnpm run package:win:variants`。
+Evidence: `corepack pnpm run package:win:variants` 退出码 0；接入策略自测、安装器资源、两次 Vite production build（各 1676 modules）、两次 Electron/NSIS/品牌安装器封装均完成，`bundleEnforced:false`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `5ACD4CB99D1F02B67865DA12D64A2A7949C41B570056AFD759FE2C7FC23046A4`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `6C390B4F84A1E97F704D9D8B0C3FE10E0E3284918EADF9EF4633907AE06ACD82`。PowerShell `Get-FileHash` 独立复核一致，旧公开命名不存在。
+Unverified: 安装/卸载 smoke、数字签名、真实图片/视频服务与正式 `release:final` 门禁；构建保留既有大 chunk、.NET nullable、NuGet 漏洞源不可访问和 Node 子进程 deprecation 警告。
+Next: 补本地 provider mock 路由或安装 smoke。
+
+Date: 2026-09-27
+Status: verified
 Outcome: 按当前 `main` 源码重新编译并打包两个 Windows x64 EXE 安装包。
 Scope: Vite production build、Unrestricted 与 SparkAPI access variant、品牌安装器和 NSIS 封装。
 Change: 在 `HEAD 0ebb2c1`（与 `origin/main` 一致、工作树干净）执行 `corepack pnpm run package:win:variants`；两次 Vite build 各转换 1676 个模块，两个变体均完成 Electron/NSIS 打包。

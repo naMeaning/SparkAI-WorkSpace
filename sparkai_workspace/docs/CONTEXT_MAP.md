@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：62
+> 地图版本：63
 > 最近同步：2026-09-27
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -1086,6 +1086,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-09-27 | 1.0.9-dev | 用户要求按当前 `main` 重新编译 EXE；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 Vite production build（各 1676 modules）和双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,803,520 bytes / SHA-256 `5ACD4CB99D1F02B67865DA12D64A2A7949C41B570056AFD759FE2C7FC23046A4`，SparkAPI 专用版为 109,803,520 bytes / SHA-256 `6C390B4F84A1E97F704D9D8B0C3FE10E0E3284918EADF9EF4633907AE06ACD82`；公开目录无旧命名包。构建含既有大 chunk、.NET nullable、NuGet 漏洞源不可访问和 Node 子进程 deprecation 警告；未运行真实模型、安装/卸载 smoke、数字签名或正式 `release:final`。 |
 | 2026-09-20 | 1.0.9-dev | 以当前代码重新核对工具链与发布边界：桌面 `package.json` 为 1.0.9、Electron 42.6.1、React 18.3.1、TypeScript 5.9.3、Vite 8.1.3；Extension 为 0.2.1、Node 24 + `node:sqlite`。工作区新增可校验官方哈希的 `scripts/bootstrap-local-toolchain.ps1`，并验证便携 Go 1.25.1、Bun 1.3.14、.NET SDK 9.0.316、GitHub CLI 2.96.0；工具级发布前置已就绪，桌面 production build（1676 modules）、147/144/3 IPC registration、access-variant、release plan 与 release orchestrator selftest 均通过。诊断同时确认当前会话没有真实 Python 解释器（只有 WindowsApps alias），R 是可选未安装；未运行正式打包。诊断不再把历史 New API Web 依赖当作活跃 Extension 门槛；`LOCAL_TOOLCHAIN.md`、根工作区地图和本图记录发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`，同时保留代码中的 `SparkAI WorkSpace` 与 `naimage-studio` 更新兼容 ABI。当前文件快照无 `.git`，未创建 commit、tag、push 或 GitHub Release。 |
 | 2026-09-15 | 1.0.9-dev | 上下文地图 v58 把当前实现收口到官方 Images API、画布选中即素材、容器内重新生图和缓存命中：生图默认 `POST /v1/images/generations` 与 `POST /v1/images/edits`，不再先打 `/v1/image-tasks` 或对话模型 Responses 生图；选中图片/容器进入 Agent 素材条并可改序号与原图/参考角色；图片容器标题栏和右键可一键重新生图。缩略图按内容哈希 + 256/512/1024 三档缓存（上限 2000 文件 / 1 GiB），模型目录 TTL 15 分钟且过期先用旧数据。7 月阶段计划和玻璃迁移文档移入 `docs/history/`。当前测试安装包 Unrestricted 175,984,640 B / SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`，SparkAPI 175,984,128 B / SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`。旧 1.0.7/1.0.8 公开安装包已从 `release/` 清理。未做真实安装 smoke，不是正式发布。 |
 | 2026-08-26 | 1.0.9-dev | 上下文地图 v57 收口窄窗口/多选归组/Project Graph 连线与 GlassSelect 视觉改动，并将账号登录关键路径与后置预热解耦：`completeNewApiLogin()` 只等待 `/api/user/login`、认证 bundle 安全持久化与本地/缓存模型设置；用户资料、账户 Token/额度和模型目录由工作区打开后的既有 `refreshServerState()` 后台刷新。`test:new-api-login` loopback 专项把后置接口固定延迟 1.5 秒并断言登录只请求一次；最终复跑实测 111 ms，同时覆盖旧 Token 选择清理、rc.23 凭据加密和公开 DTO 脱敏。模型连接的逐模型自定义 Key 优先级不变；相关 UI/关系/传输回归、typecheck、production build（1674 modules、15.71 s）与双版本本地 EXE 均完成。无限制版为 175,979,520 bytes、SHA-256 `7DB90B013E7341E3B7BD1D38FDA1C7755870C071F2BD0C12606E32D268CC719E`，SparkAPI 专用版为 175,979,520 bytes、SHA-256 `4846618581E72C38E80E8F0DC9336FEE8344489BE773CA8B4B2E64E44F712662`；两者均未签名且未做安装 smoke，不是正式发布，未访问真实服务或模型。 |
