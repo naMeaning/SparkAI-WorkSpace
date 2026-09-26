@@ -531,8 +531,8 @@ export default function ModelConfigDialog({
                             </div>
                           ) : null}
                           <div className="model-picker-binding-fields">
-                            {(!accountMode || appAccessPolicy.customApiAccess) ? (
-                              <Field label="Base URL" hint={`留空时使用全局${providerLabel} Base URL。`}>
+                            {appAccessPolicy.customApiAccess ? (
+                              <Field label="Base URL" hint={accountMode ? "留空时使用账号地址；填写后仅此模型使用该地址。" : `留空时使用全局${providerLabel} Base URL。`}>
                                 <input
                                   type="url"
                                   value={binding?.customBaseUrl || ""}

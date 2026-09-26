@@ -121,7 +121,11 @@ function createNewApiClient(options = {}) {
 
   function isImagesApiEndpoint(endpoint) {
     const path = String(endpoint || "").split(/[?#]/, 1)[0];
-    return /(?:^|\/)images(?:\/|$)/i.test(path) || /(?:^|\/)image-tasks(?:\/|$)/i.test(path);
+    // Gemini native image generation uses /v1beta/models/:model:generateContent
+    // instead of an /images/* path, but it is still owned by the image binding.
+    return /(?:^|\/)images(?:\/|$)/i.test(path)
+      || /(?:^|\/)image-tasks(?:\/|$)/i.test(path)
+      || /:generateContent$/i.test(path);
   }
 
   function modelBindingForRequest(settings, endpoint, body, provider) {
@@ -174,16 +178,24 @@ function createNewApiClient(options = {}) {
     return { ...credentials, baseUrl, apiKey };
   }
 
-  function accountModelCustomCredentials(settings, binding) {
+  async function accountModelCustomCredentials(settings, binding) {
     const apiKey = String(binding?.customApiKey || "").trim();
-    if (!apiKey) return null;
+    const customBaseUrl = accessPolicy?.customApiAccess === false ? "" : String(binding?.customBaseUrl || "").trim();
+    if (!apiKey && !customBaseUrl) return null;
     requireNewApiSession(settings);
-    const customBaseUrl = accessPolicy?.customApiAccess === false ? "" : binding?.customBaseUrl;
-    const baseUrl = normalizeServerUrl(customBaseUrl || resolveNewApiBaseUrl(settings, "relay"), "");
+    // A model URL and model key are independent overrides. When a model URL
+    // is supplied without a key, resolve the selected account key and use it
+    // against that URL; when only a key is supplied, avoid resolving an
+    // account token and keep the account relay URL.
+    let accountCredentials = null;
+    if (!apiKey && customBaseUrl) {
+      accountCredentials = await accountApiCredentials(settings, binding?.accountTokenId);
+    }
+    const baseUrl = normalizeServerUrl(customBaseUrl || accountCredentials?.baseUrl || resolveNewApiBaseUrl(settings, "relay"), "");
     parsedServiceBaseUrl(baseUrl, "账户模型 Base URL");
     return {
       baseUrl,
-      apiKey,
+      apiKey: apiKey || accountCredentials?.apiKey || "",
       model: binding?.model || "",
       source: customBaseUrl ? "model-custom-connection" : "model-custom-key"
     };
@@ -192,7 +204,7 @@ function createNewApiClient(options = {}) {
   async function relayApiCredentials(settings, endpoint, body, provider) {
     const binding = modelBindingForRequest(settings, endpoint, body, provider);
     if (isCustomApiMode(settings)) return customApiCredentials(settings, provider, binding?.model);
-    return accountModelCustomCredentials(settings, binding)
+    return await accountModelCustomCredentials(settings, binding)
       || accountApiCredentials(settings, binding?.accountTokenId);
   }
 
@@ -1561,6 +1573,8 @@ function createNewApiClient(options = {}) {
       delete requestBody.group;
     }
     const credentials = await relayApiCredentials(settings, endpoint, requestBody, provider);
+    if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
+    if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
     const response = await newApiTransportFetch(

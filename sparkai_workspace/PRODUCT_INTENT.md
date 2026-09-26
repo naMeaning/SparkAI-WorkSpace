@@ -38,7 +38,7 @@ SparkAI WorkSpace 是面向普通用户和创作者的傻瓜式桌面 AI 图片�
 - 启动后必须满足两种通行条件之一：成功登录 SparkAPI/New API 账号，或当前设备持有有效 Pro License 且已配置自定义 OpenAI-compatible Base URL/API Key。账号登录本身就是软件使用授权，不再要求设备兑换码；未登录且未完成 Pro 自定义接口配置时不能进入工作台。
 - SparkAPI 保持为用户独立部署、可正常跟随上游升级的原生 New API，不在本项目复制或二次开发。`sparkai-extension` 只部署轻量 SparkAI Extension：同域 `/api/naimage/license*` 管理 Pro 设备授权，`/v1/image-tasks*` 以调用者 Bearer Key 在内存中包装原生同步 Images API；账号、Token、渠道、quota、计费、用量与 Web 管理仍全部属于原生 New API。扩展 Worker 默认加入 New API 的 user-defined Docker network 并使用容器 DNS/内部端口，禁止重新经过 Cloudflare 公网；SQLite 不保存模型 Key，重启不重放未完成任务。
 - Windows 发行分为 `dual-access` 与 `sparkapi-account` 两种构建期接入策略。前者允许 SparkAPI 账号登录和 Pro 授权后的用户自定义 OpenAI-compatible Base URL/API Key；后者固定 `https://sparkapi.org`、强制账号模式并由 Electron Main 拒绝全局自定义接口。策略写入构建产物，不使用运行 EXE 时可篡改的环境变量作为生产门禁；两种发行版继续共享同一产品数据和功能代码。
-- 账号模式必须继续允许每个对话/图片模型单独填写自定义 API Key，优先级为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”。账号模式不接受逐模型自定义 Base URL，模型 Key 始终请求账号/Relay 地址；逐模型 Key 继续只保存在 Windows `safeStorage` sidecar。SparkAPI 专用版禁止的是全局自定义 Base URL 模式，不得因此移除账号登录后的逐模型自定义 Key。
+- 账号模式允许每个对话/图片模型分别填写自定义 Base URL 和 API Key。两个字段独立生效：Base URL 留空时继承账号地址，API Key 留空时按“模型绑定账户 Token → 全局账户 Token”回退；只填写其中一个字段也必须保持另一个字段的继承规则。逐模型 Key 继续只保存在 Windows `safeStorage` sidecar。SparkAPI 专用版仍禁止自定义连接并固定官方账号地址，但不得因此移除无限制版或账号模式中的模型级配置入口。
 - 客户端只展示账户、余额、使用日志和可选模型，不展示上游 URL、Key 或 relay token。
 - 模型列表必须能够从服务端完整拉取，用户可自由选择对话、生图和视频模型；不得在高层偷偷限制为固定模型。模型分类只影响可见选择，不得从服务端原始目录中静默丢弃模型。主进程分别持久化脱敏的账户密钥快照和模型/分组快照；设置页打开时只读本地快照或已有选择，不得自动访问服务器。用户点击“刷新密钥与分组”或“刷新模型”时单击即真实刷新并更新快照，不使用隐藏的多击门槛。界面可以显示简洁的快照更新时间，但不得展示完整 Key、Cookie、底层缓存路径或其他敏感实现细节。
 - 无限画布保持流动、深邃、低成本的氛围背景，不使用明显网格，也不能用高开销粒子拖慢交互。

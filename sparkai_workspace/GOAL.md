@@ -3,6 +3,17 @@
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
 
+## 当前 Goal：图片协议与逐模型连接（2026-09-26）
+
+- **Outcome**：图片生成统一通过声明式协议/网关配置发送；每个图片模型可独立覆盖 Base URL、API Key，并正确作用于 JSON、multipart 和 async 任务请求。
+- **Scope**：`runtime/image-generation` 配置解析与适配器、Electron Main 图片传输、设置持久化与 safeStorage、SparkAPI 专用版门禁、相关上下文文档。
+- **Rules**：Base URL 与 API Key 独立继承；账号凭据只在 Main 解析；逐模型明文 Key 不进入普通设置、Renderer、日志或项目文件；默认生成/编辑仍分别使用官方 Images API 的 `/v1/images/generations` 与 `/v1/images/edits`。
+- **Non-goals**：不发起真实图片/视频请求，不改变 Extension 的可选 `/v1/image-tasks*` 合同，不把账号或计费管理复制到桌面端。
+- **Acceptance**：逻辑专项覆盖模型级 URL/Key 的独立覆盖和继承、三种图片传输路径的目标 URL/Authorization、专用版拒绝自定义连接；`corepack pnpm run build` 通过。
+- **Superseded**：旧文档中“账号模式忽略逐模型 Base URL”的限制由当前用户请求取代；专用版的构建级限制仍有效。
+- **Status**：实现已完成到 Main/Renderer 路由，production build 已通过；专项和真实 provider 仍未验证。
+- **Next**：按用户授权补做本地 mock 专项后提交并推送当前 `main`。
+
 当前里程碑（2026-09-15）：阶段 1–13 与 8 月整备保留。当前产品已把生图默认收口到官方 Images API，画布选中即素材（可改序号与原图/参考），图片容器可一键重新生图，缩略图按内容哈希缓存，模型目录 TTL 15 分钟。当前测试安装包为 Unrestricted `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4` 与 SparkAPI `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`（均 1.0.9，`d88fae2`）。下文 8 月哈希与 512 变体缓存数字是历史验收，不再代表当前 `release/`。新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。Agent 普通消息允许原生选中和 `Ctrl+C`。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格。纯文生图默认 `POST /v1/images/generations`，编辑 `POST /v1/images/edits`；`sparkai-extension` 的 `/v1/image-tasks*` 只作可选长任务包装。全程未调用真实模型。
 
 当前优先兼容轨道（2026-08-26）：桌面账号模式兼容原生 New API `v1.0.0-rc.23` 的 access token + HttpOnly refresh cookie + auth session 协议，同时保留旧版 `session` cookie + `New-Api-User` 回退。登录凭据只能由 Electron Main 持有并进入 Windows `safeStorage` sidecar；受保护账户请求在 access token 到期或明确 401 时至多刷新并重放一次，并发刷新必须合并。登录返回关键路径只等待 `/api/user/login`、认证 bundle 安全持久化和本地/缓存模型设置，用户资料、账户 Token/额度和模型目录在工作区打开后后台预热。账号登录不得改变模型连接优先级：逐模型自定义 API Key 继续优先于模型绑定账户 Token 和全局账户 Token，provider 请求的 Authorization 只能由解析后的模型连接生成。该轨道不访问真实 New API 或模型服务，以 `test:new-api-login` loopback 专项、相关纯逻辑回归和 production build 收口。

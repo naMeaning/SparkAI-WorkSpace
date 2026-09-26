@@ -115,7 +115,7 @@ Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,
 - 外部拖入图片先复制到当前项目管理目录；不得覆盖用户原图。
 - `config/`、Electron `userData/data/`、项目 session、素材、output 和 FastMemory 是用户/运行数据，普通代码整理不得清理。
 - Renderer 不展示账户完整 Key、上游 Key、relay token 或 session cookie；账户完整 Key 只存在 Electron Main 内存。磁盘可按账户保存脱敏的密钥列表/选择/原始额度/状态/分组，以及公开的 `quota_per_unit`、`usd_exchange_rate` 快照，但不得包含完整或掩码 Key、Cookie、IP 白名单、模型限制或派生显示文案。
-- 原生 New API rc.23 的 access token、HttpOnly refresh cookie 与 auth session ID 只由 Electron Main 解密使用，并与全局/逐模型自定义 API Key 一起进入 Windows `safeStorage` sidecar；普通设置、Renderer、日志、模型缓存和项目文件不得包含明文。
+- 原生 New API rc.23 的 access token、HttpOnly refresh cookie 与 auth session ID 只由 Electron Main 解密使用，并与全局/逐模型自定义 API Key 一起进入 Windows `safeStorage` sidecar；普通设置、Renderer、日志、模型缓存和项目文件不得包含明文。逐模型 Base URL 可进入普通设置，因为它不是秘密，但必须由 Main 按访问策略校验并与该模型的 Key/账户凭据成对解析。
 - 自动化服务只监听 `127.0.0.1` 随机端口，每次启动使用随机 Bearer Token；Agent Skill 不读取或输出 endpoint Token，也不直接编辑运行中的项目文件。
 - 本轮模块化没有访问线上服务、生产数据或用户项目数据。
 
@@ -182,7 +182,7 @@ corepack pnpm run package:extension
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。模型请求以所选账户 Key 向账户地址规范化后的 `/v1/*` 发起，默认组合是 `https://sparkapi.org/v1`。账号模式仍允许每个对话/图片模型单独填写自定义 API Key，优先于模型绑定 Token 和全局 Token，但忽略绑定中的自定义 Base URL 并继续请求账号/Relay 地址；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
+桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。每个模型的 Base URL 与 API Key 分别解析，留空字段分别继承账号地址或模型/全局账户凭据；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。SparkAPI 专用版固定官方账号地址并拒绝逐模型 Base URL，但保留账号登录后的逐模型 API Key。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
 账号模式和自定义 Base URL 模式的当前桌面代码都以官方兼容 Images API 为默认：纯文生图请求 `POST /v1/images/generations`，编辑/参考图请求 `POST /v1/images/edits`；账号模式使用解析后的账户/逐模型 Key 与账号地址，自定义模式使用用户本地配置的 Base URL/Key。SparkAI Extension 的 `/v1/image-tasks` 仍是可部署的长任务包装合同：创建后立即返回 `task_id`，Bearer Key 只留在单进程内存，后台经共享 Docker network 请求原生 New API，并由短 GET 轮询 queued/running/succeeded/failed；服务重启不会重放。当前桌面没有把该合同作为默认出口，因此部署 Extension 不能被描述为当前生图必需条件。若未来重新启用，拿到任务 ID 或创建结果不明后仍不得自动重建，以避免重复扣费；用户自定义 Base URL/API Key 永远不上传 License API。
 

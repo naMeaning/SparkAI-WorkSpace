@@ -29,6 +29,7 @@ Older conversations are represented through the maintained product documents whe
 | D-10 | active | Project/session/assets must be managed and durable. Multi-window work, cancellation, pause/stop and Goal execution need authoritative Main-process coordination rather than optimistic client-only state. | User direction, context maps |
 | D-11 | active | The workspace separates desktop client and backend ownership. Cross-repository auth, model, update and DTO changes require explicit two-sided contract evidence. | `WORKSPACE_CONTEXT_MAP.md` |
 | D-12 | active | Deliverables describe actual evidence, package paths/hashes when produced, and unverified boundaries. A previous assistant claim is not completion evidence. | Repeated user feedback, harness protocol |
+| D-13 | active | Each conversation/image model may independently override Base URL and API Key. The two fields inherit independently when blank; Main resolves account credentials and the SparkAPI-only build still rejects custom connections. | Current user request (2026-09-26), `sparkai_workspace/GOAL.md` |
 
 ## Operating Preferences From The User
 
@@ -60,6 +61,7 @@ This distinction matters: assistant design proposals can improve the harness, bu
 | Basic mode versus Agent mode, multiple canvas Agents, plan/prompt/tool/post-processing nodes | One persistent project Agent and a result-focused canvas with only reusable requirements as the executable non-image primitive |
 | Canvas links imply execution order | Links express provenance; execution requires explicit user/Agent action |
 | Generic workflow editor or revived legacy UI to satisfy old tests | Current simplified workspace and current UI evidence; legacy tests are not a product baseline |
+| Account mode ignores per-model Base URL | Per-model Base URL and API Key overrides with independent inheritance; SparkAPI-only build remains locked |
 | Local filter/post-effect workflow and click-to-cutout behavior | Current image-model workflow with real mask/alpha contracts |
 | Duplicating domain-specific canvases or runtimes | Shared project state with domain projections |
 | Treating bundle limits as a universal blocker | Product performance evidence and risk-aware natural boundaries; release-only hard gates where defined |
