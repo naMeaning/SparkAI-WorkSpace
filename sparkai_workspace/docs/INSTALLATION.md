@@ -26,8 +26,8 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 
 | 安装包 | 大小 | SHA-256 |
 | --- | --- | --- |
-| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 109,803,520 | `5ACD4CB99D1F02B67865DA12D64A2A7949C41B570056AFD759FE2C7FC23046A4` |
-| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 109,803,520 | `6C390B4F84A1E97F704D9D8B0C3FE10E0E3284918EADF9EF4633907AE06ACD82` |
+| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 109,803,520 | `A943DF08EC59670DA6F7F649BFAD9CABA4FC46C1E4115832903B107110B0C209` |
+| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 109,803,520 | `7B02B6B138F91722A97346E8740E9C2639D960E0DFFD117D322E50E9D714EC3F` |
 
 一般自己使用 Unrestricted。这是测试开发包，没有商业代码签名，也未做真实安装/卸载 smoke；构建保留既有大 chunk、.NET nullable、NuGet 漏洞源不可访问和 Node 子进程 deprecation 警告。`release/` 不再保留 1.0.7/1.0.8 或旧 `naimage-Setup-*` 公开命名。
 
