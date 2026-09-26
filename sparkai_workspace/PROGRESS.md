@@ -9,7 +9,9 @@ Evidence: `corepack pnpm run build` 通过，Vite 转换 1676 个模块并在 20
 Unverified: 未运行专项测试；真实 provider、账号服务、Extension async 合同、SparkAPI 安装版运行时行为和正式发布门禁仍未验证。
 Next: 在用户授权的本地 mock/专项验证中覆盖账号只填 URL、JSON/multipart/async/Gemini 路由，再提交并推送当前 `main`。
 
-当前整备记录（2026-09-26）：工作区 main 上正在提交统一图片生成层的协议、网关、同步/异步传输、模型能力配置和错误 DTO 改动。该批次已补充 runtime/image-generation/*、desktop/image-generation-service.cjs 及三项专项入口；当前只具备逻辑/selftest 级证据，真实图片模型、Seedance、Extension 生产部署和正式发布仍未验证。下一轮开发优先完成跨仓图片合同、async 幂等/task journal/recovery、能力 evidence 和错误脱敏。详细审查见工作区根目录 WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md。
+当前整备记录（2026-09-26）：统一图片生成层的协议、网关、同步/异步传输、模型能力配置和错误 DTO 已提交到 `main`。本次继续补齐了账号模式逐模型 Base URL 独立覆盖、流式图片传输覆盖和 Gemini `:generateContent` 路由；当前只有构建/语法/差异级证据，真实图片模型、Seedance、Extension 生产部署和正式发布仍未验证。下一轮开发优先完成跨仓图片合同、async 幂等/task journal/recovery、能力 evidence 和错误脱敏。详细审查见工作区根目录 WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md。
+
+Handoff: commit `575fba1` 已推送到 `origin/main`；工作树干净。后续继续工作时先阅读本段和当前 Goal，优先补本地 mock 专项，不恢复已 superseded 的“账号模式忽略逐模型 Base URL”规则。
 
 当前快照（2026-09-15，源码 `d88fae2`）：生图默认官方 Images API；画布选中即编号素材；图片容器一键重新生图；缩略图内容哈希缓存；模型目录 15 分钟 TTL。当前测试安装包 Unrestricted 175,984,640 B / SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`，SparkAPI 175,984,128 B / SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`。`release/` 已清理 1.0.7/1.0.8 与旧 `naimage-Setup-*`。下文 8 月哈希只作历史验收。
 
