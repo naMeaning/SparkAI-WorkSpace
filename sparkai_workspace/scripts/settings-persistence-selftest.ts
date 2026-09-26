@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import {
   agentModelBindingFor,
   imageModelBindingFor,
+  normalizeImageModelConfigs,
   normalizeAgentModelBindings,
   normalizeImageModelBindings
 } from "../src/core.ts";
@@ -80,6 +81,7 @@ assert.deepEqual(defaultSettings.visibleWorkspaceAssetRailTabs, ["results", "lay
 assert.deepEqual(WORKSPACE_ASSET_RAIL_TAB_VALUES, ["results", "layers", "requirements", "templates", "history"]);
 assert.deepEqual(defaultSettings.agentModelBindings, []);
 assert.deepEqual(defaultSettings.imageModelBindings, []);
+assert.deepEqual(defaultSettings.imageModelConfigs, []);
 assert.equal(defaultSettings.videoModel, "doubao-seedance-2-0-260128");
 assert.deepEqual(defaultSettings.videoModelPool, ["doubao-seedance-2-0-260128"]);
 assert.equal(STORAGE_SETTINGS, "naimage.settings.v1");
@@ -150,6 +152,33 @@ assert.deepEqual(normalizeImageModelBindings([
   { model: "" },
   { model: " grok-image-latest ", baseUrl: " https://grok.example/v1 ", customApiKey: " grok-key ", accountTokenId: "not-an-id" },
 ]), [{ model: "grok-image-latest", customBaseUrl: "https://grok.example/v1", customApiKey: "grok-key" }]);
+assert.deepEqual(normalizeImageModelConfigs([
+  { model: "grok-image-latest", protocol: "xai-images", gateway: "sub2api", transportMode: "async", capabilities: { generate: true, multipleOutputs: true } },
+  { model: "GROK-IMAGE-LATEST", protocol: "bad", gateway: "newapi" },
+]), [{
+  id: "grok-image-latest",
+  displayName: "grok-image-latest",
+  provider: "custom",
+  protocol: "xai-images",
+  gateway: "sub2api",
+  model: "grok-image-latest",
+  transportMode: "async",
+  pollIntervalMs: 2500,
+  maxWaitMs: 600000,
+  capabilities: {
+    generate: true,
+    edit: false,
+    referenceImages: false,
+    multiReferenceImages: false,
+    mask: false,
+    supportedAspectRatios: [],
+    supportedResolutions: [],
+    supportedQualities: [],
+    transparentBackground: false,
+    multipleOutputs: true,
+    outputFormats: [],
+  },
+}]);
 assert.deepEqual(mergeSettings({}).imageModelBindings, []);
 assert.deepEqual(mergeSettings({}).agentModelBindings, []);
 assert.deepEqual(mergeSettings({ videoModel: "", videoModelPool: ["sora-2"] }).videoModelPool, ["sora-2"]);

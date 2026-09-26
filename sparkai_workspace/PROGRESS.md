@@ -1,5 +1,7 @@
 # SparkAI WorkSpace 进度
 
+当前整备记录（2026-09-26）：工作区 main 上正在提交统一图片生成层的协议、网关、同步/异步传输、模型能力配置和错误 DTO 改动。该批次已补充 runtime/image-generation/*、desktop/image-generation-service.cjs 及三项专项入口；当前只具备逻辑/selftest 级证据，真实图片模型、Seedance、Extension 生产部署和正式发布仍未验证。下一轮开发优先完成跨仓图片合同、async 幂等/task journal/recovery、能力 evidence 和错误脱敏。详细审查见工作区根目录 WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md。
+
 当前快照（2026-09-15，源码 `d88fae2`）：生图默认官方 Images API；画布选中即编号素材；图片容器一键重新生图；缩略图内容哈希缓存；模型目录 15 分钟 TTL。当前测试安装包 Unrestricted 175,984,640 B / SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`，SparkAPI 175,984,128 B / SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`。`release/` 已清理 1.0.7/1.0.8 与旧 `naimage-Setup-*`。下文 8 月哈希只作历史验收。
 
 本轮交互质量（已完成实现与专项验证，2026-08-26）：`884×640` 最小窗口下 Agent/设置对话框选项稳定换行且不重叠；框选多个普通图片后拖入图片容器时按 canonical selection 整批原子归组；连线借鉴 Project Graph 的显式边选择/断开并保证单击、空白、`Escape` 与 `pointercancel` 取消零副作用；账户密钥和逐模型账户密钥选择改为应用内透明玻璃菜单。`test:workspace-glass-ui`（164）、`test:agent-panel-ui`（52）、`test:selection`（16）、`test:image-layout`（15）、`test:image-container`（12）、`test:requirement-graph`、`test:custom-api-transport`（39）、`test:new-api-login`、`test:ui-foundation`、`typecheck` 与 `git diff --check` 均通过；Electron 截图已人工复核，未调用真实模型。文档冻结后的 production build 与双变体 Windows x64 package 也已完成。

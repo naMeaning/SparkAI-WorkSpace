@@ -23,6 +23,7 @@ import type {
   AgentStatus,
   AgentSteerTaskScopeMode,
   AppSettings,
+  ImageModelConfig,
   ReferenceImage
 } from "./core";
 import type { AgentComposerTaskMode } from "./project-agent-composer";
@@ -192,6 +193,7 @@ function ProjectAgentComposerView({
   onMaterialRoleChange,
   onRemoveMaterial,
   imageModels,
+  imageModelConfigs,
   selectedImageModels,
   onSelectedImageModelsChange,
   requestImageModels,
@@ -226,6 +228,7 @@ function ProjectAgentComposerView({
   onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
   onRemoveMaterial?: (key: string) => void;
   imageModels: string[];
+  imageModelConfigs: ImageModelConfig[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
   requestImageModels: () => void | Promise<void>;
@@ -265,6 +268,7 @@ function ProjectAgentComposerView({
           onMaterialRoleChange={onMaterialRoleChange}
           onRemoveMaterial={onRemoveMaterial}
           imageModels={imageModels}
+          imageModelConfigs={imageModelConfigs}
           selectedImageModels={selectedImageModels}
           onSelectedImageModelsChange={onSelectedImageModelsChange}
           requestImageModels={requestImageModels}
@@ -314,6 +318,7 @@ function ProjectAgentPanelView({
   onMaterialRoleChange,
   onRemoveMaterial,
   imageModels,
+  imageModelConfigs,
   selectedImageModels,
   onSelectedImageModelsChange,
   requestImageModels,
@@ -368,6 +373,7 @@ function ProjectAgentPanelView({
   onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
   onRemoveMaterial?: (key: string) => void;
   imageModels: string[];
+  imageModelConfigs: ImageModelConfig[];
   selectedImageModels: string[];
   onSelectedImageModelsChange: (models: string[]) => void;
   requestImageModels: () => void | Promise<void>;
@@ -779,6 +785,7 @@ function ProjectAgentPanelView({
         onMaterialRoleChange={onMaterialRoleChange}
         onRemoveMaterial={onRemoveMaterial}
         imageModels={imageModels}
+        imageModelConfigs={imageModelConfigs}
         selectedImageModels={selectedImageModels}
         onSelectedImageModelsChange={onSelectedImageModelsChange}
         requestImageModels={requestImageModels}

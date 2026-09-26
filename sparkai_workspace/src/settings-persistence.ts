@@ -3,6 +3,7 @@ import {
   imageFrameRatioFromSize,
   imageResolutionPresetFromSize,
   normalizeAgentModelBindings,
+  normalizeImageModelConfigs,
   normalizeImageModelBindings,
   normalizeImageFrameRatio,
   normalizeImageResolutionPreset,
@@ -143,6 +144,7 @@ export const defaultSettings: AppSettings = {
   imageModel: "gpt-image-2",
   imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
+  imageModelConfigs: [],
   videoModel: "doubao-seedance-2-0-260128",
   videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
@@ -281,6 +283,7 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
   if (next.videoModel) next.videoModelPool = uniqueStoredModels([next.videoModel, ...next.videoModelPool]);
   next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
   const legacyImageSize = String(source.imageSize ?? next.imageSize ?? "");
   next.imageRatio = normalizeImageFrameRatio(
     source.imageRatio,

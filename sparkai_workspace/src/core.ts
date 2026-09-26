@@ -176,6 +176,10 @@ export type ModelConnectionBinding = {
   customBaseUrl?: string;
   customApiKey?: string;
   accountTokenId?: string;
+  provider?: string;
+  protocol?: ImageProtocol;
+  gateway?: ImageGateway;
+  transportMode?: ImageTransportMode;
 };
 
 export type AgentModelBinding = ModelConnectionBinding;
@@ -183,6 +187,38 @@ export type ImageModelBinding = ModelConnectionBinding;
 
 export type ImageFrameRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9" | "9:21" | "4:5";
 export type ImageResolutionPreset = "1K" | "2K" | "4K";
+export type ImageProtocol = "openai-images" | "xai-images" | "gemini-native";
+export type ImageGateway = "newapi" | "sub2api" | "direct";
+export type ImageTransportMode = "sync" | "async";
+
+export type ImageModelCapabilities = {
+  generate: boolean;
+  edit: boolean;
+  referenceImages: boolean;
+  multiReferenceImages: boolean;
+  mask: boolean;
+  maxReferenceImages?: number;
+  supportedAspectRatios: string[];
+  supportedResolutions: string[];
+  supportedQualities: string[];
+  transparentBackground: boolean;
+  multipleOutputs: boolean;
+  outputFormats: string[];
+};
+
+export type ImageModelConfig = {
+  id: string;
+  displayName: string;
+  provider: string;
+  protocol: ImageProtocol;
+  gateway: ImageGateway;
+  model: string;
+  baseUrl?: string;
+  transportMode: ImageTransportMode;
+  pollIntervalMs: number;
+  maxWaitMs: number;
+  capabilities: ImageModelCapabilities;
+};
 
 export type ApiSettings = {
   accessMode: AccessMode;
@@ -206,6 +242,7 @@ export type ApiSettings = {
   imageModel: string;
   imageModelPool: string[];
   imageModelBindings: ImageModelBinding[];
+  imageModelConfigs: ImageModelConfig[];
   /** Default video model used by the future video execution path. */
   videoModel: string;
   /** Video models selected for later multi-model dispatch. */
@@ -2857,6 +2894,15 @@ export type ServerBridge = {
     upstreamErrorType?: string;
     upstreamErrorCode?: string;
     upstreamErrorMessage?: string;
+    errorCode?: string;
+    errorCategory?: string;
+    status?: number;
+    provider?: string;
+    protocol?: ImageProtocol;
+    gateway?: ImageGateway;
+    taskId?: string;
+    ambiguous?: boolean;
+    unsafeToRetry?: boolean;
     failed?: number;
     errors?: string[];
     message?: string;
@@ -3291,11 +3337,77 @@ export function normalizeModelConnectionBindings(value: unknown): ModelConnectio
       ? source.customApiKey.trim().slice(0, 8_192)
       : "";
     const accountTokenId = String(source.accountTokenId || "").trim();
+    const provider = String(source.provider || "").trim().slice(0, 64);
+    const protocol = String(source.protocol || "").trim();
+    const gateway = String(source.gateway || "").trim();
+    const transportMode = String(source.transportMode || "").trim();
     if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
+    if (provider) binding.provider = provider;
+    if (["openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol as ImageProtocol;
+    if (["newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway as ImageGateway;
+    if (["sync", "async"].includes(transportMode)) binding.transportMode = transportMode as ImageTransportMode;
   }
   return bindings;
+}
+
+function normalizeImageCapabilityConfig(value: unknown): ImageModelCapabilities {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const list = (candidate: unknown) => Array.isArray(candidate)
+    ? [...new Set(candidate.map((item) => String(item || "").trim().slice(0, 80)).filter(Boolean))]
+    : [];
+  const maxReferenceImages = Number(source.maxReferenceImages);
+  return {
+    generate: source.generate !== false,
+    edit: source.edit === true,
+    referenceImages: source.referenceImages === true,
+    multiReferenceImages: source.multiReferenceImages === true,
+    mask: source.mask === true,
+    ...(Number.isFinite(maxReferenceImages) && maxReferenceImages > 0 ? { maxReferenceImages: Math.min(32, Math.floor(maxReferenceImages)) } : {}),
+    supportedAspectRatios: list(source.supportedAspectRatios),
+    supportedResolutions: list(source.supportedResolutions),
+    supportedQualities: list(source.supportedQualities),
+    transparentBackground: source.transparentBackground === true,
+    multipleOutputs: source.multipleOutputs === true,
+    outputFormats: list(source.outputFormats)
+  };
+}
+
+export function normalizeImageModelConfigs(value: unknown): ImageModelConfig[] {
+  if (!Array.isArray(value)) return [];
+  const configs: ImageModelConfig[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const source = item as Record<string, unknown>;
+    const model = String(source.model || source.id || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 180);
+    const key = model.toLowerCase();
+    if (!model || seen.has(key)) continue;
+    const protocol = String(source.protocol || "openai-images").trim();
+    const gateway = String(source.gateway || "newapi").trim();
+    const transportMode = String(source.transportMode || "sync").trim();
+    if (!["openai-images", "xai-images", "gemini-native"].includes(protocol)) continue;
+    if (!["newapi", "sub2api", "direct"].includes(gateway)) continue;
+    if (!["sync", "async"].includes(transportMode)) continue;
+    const pollIntervalMs = Number(source.pollIntervalMs);
+    const maxWaitMs = Number(source.maxWaitMs);
+    seen.add(key);
+    configs.push({
+      id: String(source.id || model).trim().slice(0, 180) || model,
+      displayName: String(source.displayName || source.name || model).trim().slice(0, 180) || model,
+      provider: String(source.provider || "custom").trim().slice(0, 64) || "custom",
+      protocol: protocol as ImageProtocol,
+      gateway: gateway as ImageGateway,
+      model,
+      ...(typeof source.baseUrl === "string" && source.baseUrl.trim() ? { baseUrl: source.baseUrl.trim().slice(0, 2_048) } : {}),
+      transportMode: transportMode as ImageTransportMode,
+      pollIntervalMs: Number.isFinite(pollIntervalMs) ? Math.max(100, Math.min(30_000, Math.floor(pollIntervalMs))) : 2_500,
+      maxWaitMs: Number.isFinite(maxWaitMs) ? Math.max(5_000, Math.min(1_800_000, Math.floor(maxWaitMs))) : 600_000,
+      capabilities: normalizeImageCapabilityConfig(source.capabilities)
+    });
+  }
+  return configs;
 }
 
 export function normalizeAgentModelBindings(value: unknown): AgentModelBinding[] {
@@ -3632,12 +3744,18 @@ export function isImage2DeliveryFrame(ratio: string, resolution: string) {
   return isImage2DeliverySize(computedSizeFor(ratio, resolution));
 }
 
-export function frameOptionsForModel(resolution: string, imageModel?: string) {
+export function frameOptionsForModel(resolution: string, imageModel?: string, capabilities?: Pick<ImageModelCapabilities, "supportedAspectRatios" | "supportedResolutions">) {
+  if (capabilities?.supportedAspectRatios?.length) {
+    return FRAME_OPTIONS.filter((option) => capabilities.supportedAspectRatios.includes(option.ratio));
+  }
   if (!isImage2Model(imageModel)) return FRAME_OPTIONS;
   return FRAME_OPTIONS.filter((option) => isImage2DeliveryFrame(option.ratio, resolution));
 }
 
-export function sizePresetsForModel(ratio: string, imageModel?: string) {
+export function sizePresetsForModel(ratio: string, imageModel?: string, capabilities?: Pick<ImageModelCapabilities, "supportedAspectRatios" | "supportedResolutions">) {
+  if (capabilities?.supportedResolutions?.length) {
+    return SIZE_PRESETS.filter((option) => capabilities.supportedResolutions.includes(option.resolution));
+  }
   if (!isImage2Model(imageModel)) return SIZE_PRESETS;
   return SIZE_PRESETS.filter((option) => isImage2DeliveryFrame(ratio, option.resolution));
 }

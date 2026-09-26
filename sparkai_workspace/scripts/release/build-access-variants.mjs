@@ -36,6 +36,9 @@ function resolvePnpmInvocation() {
     const cli = join(dirname(wrapper), "node_modules", "pnpm", "bin", "pnpm.cjs");
     if (existsSync(cli)) return { command: process.execPath, prefix: [cli] };
   }
+  const corepack = spawnSync("where.exe", ["corepack.cmd"], { windowsHide: true, encoding: "utf8", timeout: 10_000 });
+  const corepackWrapper = String(corepack.stdout || "").split(/\r?\n/).map((value) => value.trim()).find(Boolean);
+  if (corepackWrapper) return { command: corepackWrapper, prefix: ["pnpm"] };
   throw new Error("找不到可由 Node 直接执行的 pnpm.cjs。");
 }
 

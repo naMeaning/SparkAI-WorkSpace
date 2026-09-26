@@ -1900,6 +1900,29 @@ select.ui-control {
   gap: 8px;
 }
 
+.model-picker-dialog .image-model-transport-fields {
+  padding: 7px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-solid) 70%, transparent);
+}
+
+.model-picker-dialog .model-picker-capability-toggles {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding-top: 2px;
+}
+
+.model-picker-dialog .model-picker-capability-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 @media (max-width: 620px) {
   .model-picker-dialog .model-picker-binding-fields {
     grid-template-columns: minmax(0, 1fr);

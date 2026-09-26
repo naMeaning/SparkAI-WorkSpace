@@ -28843,6 +28843,7 @@ function App() {
           editSourceImages={projectAgentEditSources}
           editReferenceImages={projectAgentEditReferences}
           imageModels={composerImageModels}
+          imageModelConfigs={settings.imageModelConfigs}
           selectedImageModels={selectedComposerImageModels}
           onSelectedImageModelsChange={projectAgentChangeImageModels}
           requestImageModels={projectAgentRequestImageModels}
@@ -28947,6 +28948,7 @@ function App() {
             state={manualImageTaskDialog}
             setState={setManualImageTaskDialog}
             imageModel={manualImageTaskDialog.draft.model || settings.imageModel}
+            imageModelConfig={settings.imageModelConfigs.find((config) => config.model.toLowerCase() === (manualImageTaskDialog.draft.model || settings.imageModel).toLowerCase())}
             executionBusy={agentExecutionBusy}
             close={() => setManualImageTaskDialog(null)}
             openReferencePicker={() => openReferencePicker(

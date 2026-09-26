@@ -42,7 +42,7 @@ assert.match(modelConfigDialogSource, /kind === "agent" \? settings\.agentModelB
 assert.match(modelConfigDialogSource, /kind === "agent"[\s\S]{0,420}agentModelBindings[\s\S]{0,360}normalizeAgentModelPoolSelection/, "Saving the conversation model dialog must persist its per-model bindings");
 assert.match(modelConfigDialogSource, /label=\{accountMode \? "自定义 API Key（可选）" : "API Key"\}/, "Account mode must retain the per-model custom API Key field");
 assert.match(modelConfigDialogSource, /accountMode[\s\S]{0,900}customApiKey[\s\S]{0,1600}账户密钥/, "Account mode must keep custom model Keys and account-token fallback in one binding card");
-assert.match(modelConfigDialogSource, /账号登录与逐模型自定义 API Key 可以同时使用/, "The model dialog must explain custom-Key priority without hiding account-token fallback");
+assert.match(modelConfigDialogSource, /(?:账号登录与逐模型自定义 API Key 可以同时使用|无限制版账号登录也支持逐模型 Base URL 与 API Key)/, "The model dialog must explain custom connection priority without hiding account-token fallback");
 assert.match(projectAgentComposerSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/, "Composer model menu must preserve catalog order while retaining selected-model fallbacks");
 assert.match(projectAgentComposerSource, /data-primary-action=\{primaryAction\}/, "Idle composer must mark which footer action is primary");
 assert.match(projectAgentComposerSource, />\s*生成\s*</, "Idle generate-from-materials must be the visible primary generate control");

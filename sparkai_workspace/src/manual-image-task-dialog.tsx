@@ -13,7 +13,7 @@ import {
   qualityLabel,
   sizePresetsForModel
 } from "./core";
-import type { ImageTaskDraft } from "./core";
+import type { ImageModelConfig, ImageTaskDraft } from "./core";
 import { ActionButton, DialogShell, Field, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
 
 export type ManualImageTaskDialogState = {
@@ -23,18 +23,19 @@ export type ManualImageTaskDialogState = {
   projectId: string;
 };
 
-export default function ManualImageTaskDialog({ state, setState, imageModel, executionBusy, close, openReferencePicker, submit }: {
+export default function ManualImageTaskDialog({ state, setState, imageModel, imageModelConfig, executionBusy, close, openReferencePicker, submit }: {
   state: ManualImageTaskDialogState;
   setState: React.Dispatch<React.SetStateAction<ManualImageTaskDialogState | null>>;
   imageModel?: string;
+  imageModelConfig?: ImageModelConfig;
   executionBusy?: boolean;
   close: () => void;
   openReferencePicker: () => void;
   submit: () => void;
 }) {
   const draft = state.draft;
-  const ratioOptions = frameOptionsForModel(draft.resolution, imageModel);
-  const resolutionOptions = sizePresetsForModel(draft.ratio, imageModel);
+  const ratioOptions = frameOptionsForModel(draft.resolution, imageModel, imageModelConfig?.capabilities);
+  const resolutionOptions = sizePresetsForModel(draft.ratio, imageModel, imageModelConfig?.capabilities);
   const references = draft.referenceImages ?? [];
 
   function updateDraft(patch: Partial<ImageTaskDraft>) {
@@ -45,7 +46,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
   }
 
   function updateRatio(ratio: string) {
-    const availableResolutions = sizePresetsForModel(ratio, imageModel);
+    const availableResolutions = sizePresetsForModel(ratio, imageModel, imageModelConfig?.capabilities);
     const resolution = availableResolutions.some((option) => option.resolution === draft.resolution)
       ? draft.resolution
       : availableResolutions[0]?.resolution || draft.resolution;
@@ -53,7 +54,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, exe
   }
 
   function updateResolution(resolution: string) {
-    const availableRatios = frameOptionsForModel(resolution, imageModel);
+    const availableRatios = frameOptionsForModel(resolution, imageModel, imageModelConfig?.capabilities);
     const ratio = availableRatios.some((option) => option.ratio === draft.ratio)
       ? draft.ratio
       : availableRatios[0]?.ratio || draft.ratio;

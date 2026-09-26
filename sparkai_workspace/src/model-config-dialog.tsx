@@ -7,6 +7,7 @@ import {
   imageModelCapability,
   modelConnectionBindingFor,
   normalizeAgentModelBindings,
+  normalizeImageModelConfigs,
   normalizeAgentModelPoolSelection,
   normalizeModelConnectionBindings,
   normalizeImageModelBindings,
@@ -17,8 +18,14 @@ import {
   type ModelAccessProfile,
   type ModelCapabilityEvidence,
   type ModelProvider,
+  type ImageGateway,
+  type ImageModelCapabilities,
+  type ImageModelConfig,
+  type ImageProtocol,
+  type ImageTransportMode,
 } from "./core";
 import { filterAgentPickerModels, filterImagePickerModels } from "./model-ux";
+import { appAccessPolicy } from "./access-policy";
 
 import {
   ActionButton,
@@ -59,6 +66,42 @@ function uniqueModels(values: string[]) {
 function bindingSignature(value: unknown) {
   return JSON.stringify(normalizeModelConnectionBindings(value)
     .sort((left, right) => left.model.toLowerCase().localeCompare(right.model.toLowerCase())));
+}
+
+function imageConfigSignature(value: unknown) {
+  return JSON.stringify(normalizeImageModelConfigs(value)
+    .sort((left, right) => left.model.toLowerCase().localeCompare(right.model.toLowerCase())));
+}
+
+function defaultImageCapabilities(): ImageModelCapabilities {
+  return {
+    generate: true,
+    edit: false,
+    referenceImages: false,
+    multiReferenceImages: false,
+    mask: false,
+    supportedAspectRatios: [],
+    supportedResolutions: [],
+    supportedQualities: [],
+    transparentBackground: false,
+    multipleOutputs: false,
+    outputFormats: ["png", "jpeg", "webp"],
+  };
+}
+
+function defaultImageModelConfig(model: string, accessMode: AppSettings["accessMode"]): ImageModelConfig {
+  return {
+    id: model,
+    displayName: model,
+    provider: "custom",
+    protocol: "openai-images",
+    gateway: accessMode === "account" ? "newapi" : "direct",
+    model,
+    transportMode: "sync",
+    pollIntervalMs: 2_500,
+    maxWaitMs: 600_000,
+    capabilities: defaultImageCapabilities(),
+  };
 }
 
 function formatCapabilityTime(value?: string) {
@@ -126,6 +169,7 @@ export default function ModelConfigDialog({
   const storedBindings = kind === "agent" ? settings.agentModelBindings : kind === "image" ? settings.imageModelBindings : [];
   const [draftModels, setDraftModels] = useState<string[]>(() => uniqueModels(selectedModels));
   const [draftBindings, setDraftBindings] = useState(() => normalizeModelConnectionBindings(storedBindings));
+  const [draftImageConfigs, setDraftImageConfigs] = useState(() => normalizeImageModelConfigs(settings.imageModelConfigs));
   const [query, setQuery] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [closePromptOpen, setClosePromptOpen] = useState(false);
@@ -158,7 +202,8 @@ export default function ModelConfigDialog({
   const virtualTabStopVisible = tabStopIndex >= virtualStartIndex && tabStopIndex < virtualEndIndex;
   const dirty = uniqueModels(selectedModels).map((model) => model.toLowerCase()).sort().join("\n") !==
     uniqueModels(draftModels).map((model) => model.toLowerCase()).sort().join("\n") ||
-    (kind !== "video" && bindingSignature(storedBindings) !== bindingSignature(draftBindings));
+    (kind !== "video" && bindingSignature(storedBindings) !== bindingSignature(draftBindings)) ||
+    (kind === "image" && imageConfigSignature(settings.imageModelConfigs) !== imageConfigSignature(draftImageConfigs));
 
   useEffect(() => {
     const element = modelListRef.current;
@@ -187,6 +232,27 @@ export default function ModelConfigDialog({
         next,
       ]);
     });
+  }
+
+  function imageConfigFor(model: string) {
+    return draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase()) ??
+      defaultImageModelConfig(model, settings.accessMode);
+  }
+
+  function updateImageConfig(model: string, patch: Partial<ImageModelConfig>) {
+    setDraftImageConfigs((current) => {
+      const existing = current.find((config) => config.model.toLowerCase() === model.toLowerCase()) ??
+        defaultImageModelConfig(model, settings.accessMode);
+      return normalizeImageModelConfigs([
+        ...current.filter((config) => config.model.toLowerCase() !== model.toLowerCase()),
+        { ...existing, ...patch, model, id: existing.id || model },
+      ]);
+    });
+  }
+
+  function updateImageCapability(model: string, key: keyof ImageModelCapabilities, value: boolean) {
+    const config = imageConfigFor(model);
+    updateImageConfig(model, { capabilities: { ...config.capabilities, [key]: value } });
   }
 
   function toggle(model: string) {
@@ -295,7 +361,10 @@ export default function ModelConfigDialog({
       const imageModelBindings = normalizeImageModelBindings(nextPool.map((model) =>
         imageModelBindingFor({ imageModelBindings: draftBindings }, model) ?? { model }
       ));
-      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool, imageModelBindings }, normalizedAvailableModels);
+      const imageModelConfigs = normalizeImageModelConfigs(draftImageConfigs.filter((config) =>
+        nextPool.some((model) => model.toLowerCase() === config.model.toLowerCase())
+      ));
+      return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool, imageModelBindings, imageModelConfigs }, normalizedAvailableModels);
     });
     setClosePromptOpen(false);
     close();
@@ -378,6 +447,7 @@ export default function ModelConfigDialog({
                   <div className="model-picker-binding-list">
                     {draftModels.map((model) => {
                       const binding = modelConnectionBindingFor(draftBindings, model);
+                      const imageConfig = kind === "image" ? imageConfigFor(model) : null;
                       const providerLabel = kind === "agent" ? "对话" : "图片";
                       const globalBaseUrl = kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl;
                       const globalApiKey = kind === "agent" ? settings.agentApiKey : settings.imageApiKey;
@@ -392,8 +462,76 @@ export default function ModelConfigDialog({
                       return (
                         <section key={`binding-${model}`} className="model-picker-binding-card">
                           <strong title={model}>{model}</strong>
+                          {imageConfig ? (
+                            <div className="model-picker-binding-fields image-model-transport-fields">
+                              <Field label="协议" hint="请求协议由配置决定，不根据模型名称猜测。">
+                                <GlassSelect
+                                  value={imageConfig.protocol}
+                                  ariaLabel={`${model} 图片协议`}
+                                  onChange={(value) => updateImageConfig(model, { protocol: value as ImageProtocol })}
+                                  options={[
+                                    { value: "openai-images", label: "OpenAI Images" },
+                                    { value: "xai-images", label: "xAI Images" },
+                                    { value: "gemini-native", label: "Gemini Native" },
+                                  ]}
+                                />
+                              </Field>
+                              <Field label="网关" hint="网关只负责传输与鉴权，和模型厂商分离。">
+                                <GlassSelect
+                                  value={imageConfig.gateway}
+                                  ariaLabel={`${model} 图片网关`}
+                                  onChange={(value) => updateImageConfig(model, { gateway: value as ImageGateway })}
+                                  options={[
+                                    { value: "newapi", label: "NewAPI" },
+                                    { value: "sub2api", label: "Sub2API" },
+                                    { value: "direct", label: "Direct API" },
+                                  ]}
+                                />
+                              </Field>
+                              <Field label="传输模式" hint="异步模式仅在网关提供任务接口时启用。">
+                                <GlassSelect
+                                  value={imageConfig.transportMode}
+                                  ariaLabel={`${model} 图片传输模式`}
+                                  onChange={(value) => updateImageConfig(model, { transportMode: value as ImageTransportMode })}
+                                  options={[
+                                    { value: "sync", label: "同步" },
+                                    { value: "async", label: "异步任务" },
+                                  ]}
+                                />
+                              </Field>
+                              <Field label="Provider" hint="仅作模型目录标识，不决定请求协议。">
+                                <input
+                                  value={imageConfig.provider}
+                                  maxLength={64}
+                                  autoComplete="off"
+                                  placeholder="openai / xai / google / custom"
+                                  onChange={(event) => updateImageConfig(model, { provider: event.target.value })}
+                                />
+                              </Field>
+                              <div className="model-picker-capability-toggles" role="group" aria-label={`${model} 图片能力`}>
+                                {([
+                                  ["generate", "文生图"],
+                                  ["edit", "图像编辑"],
+                                  ["referenceImages", "参考图"],
+                                  ["multiReferenceImages", "多参考图"],
+                                  ["mask", "蒙版"],
+                                  ["multipleOutputs", "多张输出"],
+                                  ["transparentBackground", "透明背景"],
+                                ] as Array<[keyof ImageModelCapabilities, string]>).map(([key, label]) => (
+                                  <label key={String(key)}>
+                                    <input
+                                      type="checkbox"
+                                      checked={imageConfig.capabilities[key] === true}
+                                      onChange={(event) => updateImageCapability(model, key, event.target.checked)}
+                                    />
+                                    <span>{label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
                           <div className="model-picker-binding-fields">
-                            {!accountMode ? (
+                            {(!accountMode || appAccessPolicy.customApiAccess) ? (
                               <Field label="Base URL" hint={`留空时使用全局${providerLabel} Base URL。`}>
                                 <input
                                   type="url"
@@ -447,7 +585,11 @@ export default function ModelConfigDialog({
                       );
                     })}
                   </div>
-                  <small>{settings.accessMode === "custom" ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。` : "账号登录与逐模型自定义 API Key 可以同时使用；自定义 Key 优先，留空时使用该模型绑定或全局账户密钥。"}</small>
+                  <small>{settings.accessMode === "custom"
+                    ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。`
+                    : appAccessPolicy.customApiAccess
+                      ? "无限制版账号登录也支持逐模型 Base URL 与 API Key；填写自定义连接后优先使用该模型配置。"
+                      : "此版本固定使用官方账号服务；可为模型选择账户密钥或填写逐模型 API Key。"}</small>
                 </>
               ) : null}
             </div>

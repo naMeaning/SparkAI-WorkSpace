@@ -20,6 +20,7 @@ const { createAidebugBackend } = require("./desktop/aidebug-backend.cjs");
 const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aidebug-image-fixture.cjs");
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
+const { createImageGenerationService } = require("./desktop/image-generation-service.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
 const { createProjectAssetRepository } = require("./desktop/project-asset-repository.cjs");
 const {
@@ -450,6 +451,7 @@ const defaultSettings = {
   imageModel: "gpt-image-2",
   imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
+  imageModelConfigs: [],
   videoModel: "doubao-seedance-2-0-260128",
   videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
@@ -683,9 +685,17 @@ function normalizeModelConnectionBindings(value) {
       ? item.customApiKey.trim().slice(0, 8_192)
       : "";
     const accountTokenId = String(item.accountTokenId || "").trim();
+    const provider = String(item.provider || "").trim().slice(0, 64);
+    const protocol = String(item.protocol || "").trim();
+    const gateway = String(item.gateway || "").trim();
+    const transportMode = String(item.transportMode || "").trim();
     if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
+    if (provider) binding.provider = provider;
+    if (["openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol;
+    if (["newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway;
+    if (["sync", "async"].includes(transportMode)) binding.transportMode = transportMode;
   }
   return bindings;
 }
@@ -696,6 +706,41 @@ function normalizeAgentModelBindings(value) {
 
 function normalizeImageModelBindings(value) {
   return normalizeModelConnectionBindings(value);
+}
+
+function normalizeImageModelConfigs(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const model = String(item.model || item.id || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 180);
+    const key = model.toLowerCase();
+    if (!model || seen.has(key)) return [];
+    const protocol = String(item.protocol || "openai-images").trim();
+    const gateway = String(item.gateway || "newapi").trim();
+    const transportMode = String(item.transportMode || "sync").trim();
+    if (!["openai-images", "xai-images", "gemini-native"].includes(protocol)) return [];
+    if (!["newapi", "sub2api", "direct"].includes(gateway)) return [];
+    if (!["sync", "async"].includes(transportMode)) return [];
+    seen.add(key);
+    const pollIntervalMs = Number(item.pollIntervalMs);
+    const maxWaitMs = Number(item.maxWaitMs);
+    return [{
+      id: String(item.id || model).trim().slice(0, 180) || model,
+      displayName: String(item.displayName || item.name || model).trim().slice(0, 180) || model,
+      provider: String(item.provider || "custom").trim().slice(0, 64) || "custom",
+      protocol,
+      gateway,
+      model,
+      ...(typeof item.baseUrl === "string" && item.baseUrl.trim() ? { baseUrl: item.baseUrl.trim().slice(0, 2_048) } : {}),
+      transportMode,
+      pollIntervalMs: Number.isFinite(pollIntervalMs) ? Math.max(100, Math.min(30_000, Math.floor(pollIntervalMs))) : 2_500,
+      maxWaitMs: Number.isFinite(maxWaitMs) ? Math.max(5_000, Math.min(1_800_000, Math.floor(maxWaitMs))) : 600_000,
+      capabilities: item.capabilities && typeof item.capabilities === "object" && !Array.isArray(item.capabilities)
+        ? item.capabilities
+        : {}
+    }];
+  });
 }
 
 const defaultSession = {
@@ -781,6 +826,7 @@ function migrateSettings(value) {
   if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
   if (next.videoModel) next.videoModelPool = uniqueImageModels([next.videoModel, ...next.videoModelPool]);
   next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
   const legacyImageDimensions = parseImageSizeValue(String(source.imageSize || next.imageSize || ""));
   const inferredLegacyRatio = (() => {
     if (!legacyImageDimensions) return defaultSettings.imageRatio;
@@ -1042,6 +1088,7 @@ const {
 } = newApiTransport;
 let accountTokenService = null;
 const newApiClient = createNewApiClient({
+  accessPolicy,
   defaultSettings,
   ensureLocalServer,
   isLocalServerUrl,
@@ -1064,9 +1111,11 @@ const {
   managedRelayEndpoint,
   newApiErrorMessage,
   newApiFetch,
+  newApiRelayAsyncImage,
   newApiRelayImage,
   newApiRelayImageTask,
   newApiRelayJson,
+  newApiRelayMultipart,
   newApiRelayResponsesImage,
   newApiRelayStream,
   newApiRequest,
@@ -1090,6 +1139,13 @@ accountTokenService = createAccountTokenService({
   tokenCachePath: accountTokenCachePath,
   settingsPath,
   writeJson
+});
+const imageGenerationService = createImageGenerationService({
+  accessPolicy,
+  log,
+  newApiRelayAsyncImage,
+  newApiRelayJson,
+  newApiRelayMultipart
 });
 const licenseService = createLicenseService({
   defaultSettings,
@@ -4336,7 +4392,11 @@ function clearNewApiAuth(settings) {
 
 
 async function callNewApiImageWithSession(settings, payload = {}) {
-  const result = await callNewApiImage(settings, payload);
+  // AIDebug fixtures remain owned by the established deterministic backend.
+  // All production requests use the unified protocol/transport service.
+  const result = aidebugMockImage
+    ? await callNewApiImage(settings, payload)
+    : await imageGenerationService.generate(settings, payload);
   markModelRuntimeVerified(settings, "image", payload.model || settings.imageModel, "image-generation");
   return result;
 }

@@ -10,6 +10,7 @@ const MANAGED_RELAY_PREFIX = "/naimage";
 
 function createNewApiClient(options = {}) {
   const {
+    accessPolicy,
     defaultSettings,
     ensureLocalServer,
     isLocalServerUrl,
@@ -65,6 +66,18 @@ function createNewApiClient(options = {}) {
       retained[key] = value;
     }
     return { ...retained, authorization: `Bearer ${apiKey}` };
+  }
+
+  function relayApiCredentialHeaders(headers, apiKey, authHeader = "authorization") {
+    if (String(authHeader || "").toLowerCase() === "x-goog-api-key") {
+      const retained = {};
+      for (const [key, value] of Object.entries(headers || {})) {
+        if (["authorization", "x-goog-api-key"].includes(String(key).toLowerCase())) continue;
+        retained[key] = value;
+      }
+      return { ...retained, "x-goog-api-key": apiKey };
+    }
+    return relayApiHeaders(headers, apiKey);
   }
 
   function isCustomApiMode(settings) {
@@ -141,8 +154,11 @@ function createNewApiClient(options = {}) {
 
   function directApiUrl(baseUrl, endpoint) {
     const cleanEndpoint = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
-    if (/\/v1$/i.test(baseUrl) && /^\/v1(?:\/|$)/i.test(cleanEndpoint)) {
+    if (/\/v1$/i.test(baseUrl) && /^\/v1(?:beta)?(?:\/|$)/i.test(cleanEndpoint)) {
       return `${baseUrl}${cleanEndpoint.slice(3) || ""}`;
+    }
+    if (/\/v1beta$/i.test(baseUrl) && /^\/v1beta(?:\/|$)/i.test(cleanEndpoint)) {
+      return `${baseUrl}${cleanEndpoint.slice(6) || ""}`;
     }
     return `${baseUrl}${cleanEndpoint}`;
   }
@@ -162,9 +178,15 @@ function createNewApiClient(options = {}) {
     const apiKey = String(binding?.customApiKey || "").trim();
     if (!apiKey) return null;
     requireNewApiSession(settings);
-    const baseUrl = normalizeServerUrl(resolveNewApiBaseUrl(settings, "relay"), "");
+    const customBaseUrl = accessPolicy?.customApiAccess === false ? "" : binding?.customBaseUrl;
+    const baseUrl = normalizeServerUrl(customBaseUrl || resolveNewApiBaseUrl(settings, "relay"), "");
     parsedServiceBaseUrl(baseUrl, "账户模型 Base URL");
-    return { baseUrl, apiKey, model: binding?.model || "", source: "model-custom-key" };
+    return {
+      baseUrl,
+      apiKey,
+      model: binding?.model || "",
+      source: customBaseUrl ? "model-custom-connection" : "model-custom-key"
+    };
   }
 
   async function relayApiCredentials(settings, endpoint, body, provider) {
@@ -780,17 +802,65 @@ function createNewApiClient(options = {}) {
   
   async function newApiRelayJson(settings, endpoint, body, options = {}) {
     const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
-    const credentials = await relayApiCredentials(settings, endpoint, body, provider);
+    const routingBody = options.model
+      ? { ...(body && typeof body === "object" && !Array.isArray(body) ? body : {}), model: String(options.model) }
+      : body;
+    const credentials = await relayApiCredentials(settings, endpoint, routingBody, provider);
+    if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
+    if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
     const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
-    if (relayBody && typeof relayBody === "object") delete relayBody.group;
+    if (relayBody && typeof relayBody === "object") {
+      delete relayBody.group;
+      delete relayBody.__imageModel;
+    }
+    const {
+      provider: _provider,
+      model: _model,
+      baseUrl: _baseUrl,
+      apiKey: _apiKey,
+      ...requestOptions
+    } = options;
     const { response, data } = await newApiFetch(settings, endpoint, {
-      ...options,
+      ...requestOptions,
       method: "POST",
       absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
       requestBaseUrl: credentials.baseUrl,
-      headers: relayApiHeaders(options.headers, credentials.apiKey),
+      headers: relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader),
       body: relayBody,
     });
+    if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
+      const error = new Error(newApiErrorMessage(data, response.status));
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+    return data;
+  }
+
+  async function newApiRelayMultipart(settings, endpoint, body, options = {}) {
+    if (typeof FormData === "undefined" || !(body instanceof FormData)) {
+      throw new Error("图片 multipart 请求缺少 FormData。");
+    }
+    const provider = options.provider || "image";
+    if (options.model && !body.get("model")) body.set("model", String(options.model));
+    body.delete("group");
+    const credentials = await relayApiCredentials(settings, endpoint, body, provider);
+    if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
+    if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    const relayBaseUrl = credentials.baseUrl;
+    if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
+    const response = await newApiTransportFetch(directApiUrl(relayBaseUrl, endpoint), {
+      method: "POST",
+      headers: relayApiHeaders(options.headers, credentials.apiKey),
+      body,
+      signal: options.signal,
+      headersTimeoutMs: options.headersTimeoutMs,
+      connectTimeoutMs: options.connectTimeoutMs,
+      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+      maxRequestBytes: options.maxRequestBytes,
+      maxResponseBytes: options.maxResponseBytes
+    });
+    const data = parseJsonText(await response.text());
     if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
       const error = new Error(newApiErrorMessage(data, response.status));
       error.status = response.status;
@@ -946,6 +1016,155 @@ function createNewApiClient(options = {}) {
 
       const error = new Error(`图片任务返回了未知状态：${status || "empty"}。`);
       error.code = "NEW_API_IMAGE_TASK_STATUS_INVALID";
+      error.taskId = taskId;
+      error.unsafeToRetry = true;
+      throw error;
+    }
+  }
+
+  async function newApiRelayAsyncImage(settings, endpoint, body, options = {}) {
+    const provider = "image";
+    const cleanEndpoint = String(endpoint || "/v1/images/generations").replace(/\/+$/, "");
+    const createEndpoint = /\/async$/i.test(cleanEndpoint) ? cleanEndpoint : `${cleanEndpoint}/async`;
+    const isForm = typeof FormData !== "undefined" && body instanceof FormData;
+    let requestBody;
+    if (isForm) {
+      requestBody = body;
+      requestBody.delete("group");
+      if (options.model && !requestBody.get("model")) requestBody.set("model", String(options.model));
+    } else {
+      requestBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : {};
+      delete requestBody.group;
+      delete requestBody.stream;
+      delete requestBody.partial_images;
+      delete requestBody.__imageModel;
+    }
+    const routingBody = options.model && !isForm ? { ...requestBody, model: String(options.model) } : requestBody;
+    const credentials = await relayApiCredentials(settings, createEndpoint, routingBody, provider);
+    if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
+    if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    const relayBaseUrl = credentials.baseUrl;
+    if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
+
+    let createResponse;
+    try {
+      createResponse = await newApiTransportFetch(directApiUrl(relayBaseUrl, createEndpoint), {
+        method: "POST",
+        headers: {
+          ...(isForm ? {} : { "content-type": "application/json" }),
+          ...relayApiHeaders(options.headers, credentials.apiKey)
+        },
+        body: isForm ? requestBody : JSON.stringify(requestBody),
+        signal: options.signal,
+        headersTimeoutMs: options.createHeadersTimeoutMs || options.headersTimeoutMs || 60_000,
+        connectTimeoutMs: options.connectTimeoutMs || 30_000,
+        proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+        maxRequestBytes: options.maxRequestBytes,
+        maxResponseBytes: options.createMaxResponseBytes || 2 * 1024 * 1024
+      });
+    } catch (error) {
+      if (error && typeof error === "object") {
+        error.ambiguous = true;
+        error.unsafeToRetry = true;
+      }
+      throw error;
+    }
+    const createData = parseJsonText(await createResponse.text());
+    if (!createResponse.ok || createData.parseFailed === true || createData.error || createData.success === false || createData.ok === false) {
+      const error = imageTaskRequestError(createResponse.status, createData, "异步图片任务创建失败。");
+      if ([408, 425].includes(Number(createResponse.status)) || Number(createResponse.status) >= 500) {
+        error.ambiguous = true;
+        error.unsafeToRetry = true;
+      }
+      throw error;
+    }
+
+    const taskId = String(createData.task_id || createData.taskId || createData.id || createData.data?.task_id || "").trim();
+    if (!taskId) {
+      const immediate = createData.result || createData.data;
+      if (immediate && typeof immediate === "object" && (Array.isArray(immediate.data) || Array.isArray(immediate.images) || Array.isArray(immediate.candidates))) {
+        return immediate;
+      }
+      const error = new Error("异步图片任务创建成功，但缺少 task_id。");
+      error.code = "SUB2API_IMAGE_TASK_ID_MISSING";
+      error.ambiguous = true;
+      error.unsafeToRetry = true;
+      throw error;
+    }
+    options.onAccepted?.({ taskId, status: String(createData.status || createData.data?.status || "queued") });
+
+    const pollIntervalMs = Number.isFinite(Number(options.pollIntervalMs))
+      ? Math.max(0, Math.min(30_000, Number(options.pollIntervalMs)))
+      : 2_500;
+    const maxWaitMs = Number.isFinite(Number(options.maxWaitMs))
+      ? Math.max(5_000, Math.min(30 * 60_000, Number(options.maxWaitMs)))
+      : 10 * 60_000;
+    const startedAt = Date.now();
+    let transientFailures = 0;
+    const pollEndpoint = `/v1/images/tasks/${encodeURIComponent(taskId)}`;
+    for (;;) {
+      if (Date.now() - startedAt >= maxWaitMs) {
+        const error = new Error(`异步图片任务等待超过 ${Math.round(maxWaitMs / 1000)} 秒。`);
+        error.code = "SUB2API_IMAGE_TASK_TIMEOUT";
+        error.taskId = taskId;
+        error.unsafeToRetry = true;
+        throw error;
+      }
+      if (pollIntervalMs > 0) await delay(pollIntervalMs, undefined, options.signal ? { signal: options.signal } : undefined);
+      let response;
+      try {
+        response = await newApiTransportFetch(directApiUrl(relayBaseUrl, pollEndpoint), {
+          method: "GET",
+          headers: { authorization: `Bearer ${credentials.apiKey}` },
+          signal: options.signal,
+          headersTimeoutMs: options.pollHeadersTimeoutMs || 30_000,
+          connectTimeoutMs: options.connectTimeoutMs || 30_000,
+          proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+          maxResponseBytes: options.maxResponseBytes || 96 * 1024 * 1024
+        });
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        transientFailures += 1;
+        options.onPollRetry?.({ taskId, failures: transientFailures });
+        continue;
+      }
+      const taskData = parseJsonText(await response.text());
+      if (!response.ok || taskData.parseFailed === true || taskData.success === false || taskData.ok === false || taskData.error && !taskData.status) {
+        const status = Number(response.status);
+        if ([408, 425, 429].includes(status) || status >= 500 || taskData.parseFailed === true) {
+          transientFailures += 1;
+          options.onPollRetry?.({ taskId, failures: transientFailures, status });
+          continue;
+        }
+        const error = imageTaskRequestError(status, taskData, "异步图片任务状态查询失败。");
+        error.taskId = taskId;
+        error.unsafeToRetry = true;
+        throw error;
+      }
+      transientFailures = 0;
+      const status = String(taskData.status || taskData.data?.status || "").trim().toLowerCase();
+      options.onStatus?.({ taskId, status });
+      if (["queued", "pending", "running", "processing", "in_progress"].includes(status)) continue;
+      if (["completed", "succeeded", "success"].includes(status)) {
+        const result = taskData.result || taskData.data?.result || taskData.data || taskData.output;
+        if (!result || typeof result !== "object") {
+          const error = new Error("异步图片任务完成，但缺少最终结果。");
+          error.code = "SUB2API_IMAGE_TASK_RESULT_MISSING";
+          error.taskId = taskId;
+          error.unsafeToRetry = true;
+          throw error;
+        }
+        return result;
+      }
+      if (["failed", "error", "cancelled", "canceled"].includes(status)) {
+        const error = imageTaskRequestError(0, taskData, String(taskData?.error?.message || taskData?.message || "异步图片任务失败。"));
+        error.code = "SUB2API_IMAGE_TASK_FAILED";
+        error.taskId = taskId;
+        error.unsafeToRetry = true;
+        throw error;
+      }
+      const error = new Error(`异步图片任务返回未知状态：${status || "empty"}。`);
+      error.code = "SUB2API_IMAGE_TASK_STATUS_INVALID";
       error.taskId = taskId;
       error.unsafeToRetry = true;
       throw error;
@@ -1515,6 +1734,8 @@ function createNewApiClient(options = {}) {
     newApiFetch,
     newApiUrl,
     newApiRelayJson,
+    newApiRelayMultipart,
+    newApiRelayAsyncImage,
     newApiRelayImageTask,
     newApiRelayImage,
     newApiRelayResponsesImage,

@@ -340,7 +340,7 @@ async function main() {
     provider: "image",
     headers: { Authorization: "Bearer stale-account-auth" }
   });
-  assert.equal(captured.url, "https://sparkapi.org/v1/images/generations", "Account mode must ignore the custom-mode Base URL override");
+  assert.equal(captured.url, "https://gpt-image.example/root/v1/images/generations", "Account mode must honor an explicit per-model Base URL override");
   assert.equal(captured.options.headers.authorization, "Bearer bound-image-key", "A per-model custom API Key must remain usable after account login");
   assert.equal(captured.options.headers.Authorization, undefined, "Caller headers must not override the resolved per-model API Key");
   assert.equal(resolvedAccountTokenIds.length, accountCredentialResolutionsBeforeCustomKey, "A custom model Key must take precedence without resolving an account Key");
@@ -398,7 +398,7 @@ async function main() {
   assert.equal(resolvedAccountTokenIds.length, accountCredentialResolutionsBeforeImageTask, "Image tasks must retain the model custom-Key priority after account login");
   assert.equal(imageTaskCalls.filter((call) => call.options.method === "POST").length, 1, "Transient polling errors must not create a second image task");
   assert.equal(imageTaskCalls.filter((call) => call.options.method === "GET").length, 3);
-  assert.equal(imageTaskCalls[0].url, "https://sparkapi.org/v1/image-tasks");
+  assert.equal(imageTaskCalls[0].url, "https://gpt-image.example/root/v1/image-tasks");
   assert.equal(imageTaskCalls[0].options.headers.authorization, "Bearer bound-image-key");
   assert.equal(imageTaskCalls[0].options.headers["Idempotency-Key"], "task-fixture-key");
   const imageTaskBody = JSON.parse(imageTaskCalls[0].options.body);
@@ -459,7 +459,7 @@ async function main() {
   assert.equal(captured.options.headers.authorization, "Bearer agent-key", "Unbound Agent models must inherit the global Agent API Key");
 
   await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-bound", messages: [] }, { provider: "agent" });
-  assert.equal(captured.url, "https://sparkapi.org/v1/chat/completions");
+  assert.equal(captured.url, "https://agent-bound.example/root/v1/chat/completions");
   assert.equal(captured.options.headers.authorization, "Bearer bound-agent-key", "Account login must retain per-conversation-model custom API Keys");
 
   await client.newApiRelayJson(accountSettings, "/v1/chat/completions", { model: "agent-account-token", messages: [] }, { provider: "agent" });

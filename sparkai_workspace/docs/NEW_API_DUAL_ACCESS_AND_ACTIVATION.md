@@ -8,7 +8,7 @@ SparkAI WorkSpace 不要求二次开发 New API。用户现有的原生 New API 
 
 ### 账号模式
 
-New API 用户名/密码登录成功就是软件使用授权，不需要兑换码。桌面使用原生接口管理账户与 Token，并用所选 Token 请求标准 `/v1/*`。每个对话/图片模型仍可单独填写自定义 API Key，优先级为“模型自定义 Key → 模型绑定账户 Token → 全局账户 Token”；账号模式忽略逐模型自定义 Base URL，防止把模型 Key 变成未授权的 Base URL 入口。
+New API 用户名/密码登录成功就是软件使用授权，不需要兑换码。桌面使用原生接口管理账户与 Token，并用所选 Token 请求标准 `/v1/*`。每个对话/图片模型可单独配置自定义 Base URL 与 API Key，优先级为“模型自定义连接 → 模型绑定账户 Token → 全局账户 Token”。无限制版允许账号登录后使用逐模型自定义连接；SparkAPI 专用版仍由构建期 access policy 固定官方 Base URL，只保留账户密钥与逐模型 API Key 能力。
 
 账号模式生图默认直接调用官方兼容 Images API：`POST /v1/images/generations` 与 `POST /v1/images/edits`。原生 New API 继续完成 Token 鉴权、渠道选择和计费。同域 `/v1/image-tasks` 仍可由 SparkAI Extension 包装长任务，但桌面客户端不再把它当作默认协议；部署 Extension 不是当前桌面直接调用 Images API 的必要条件。
 

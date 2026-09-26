@@ -11,6 +11,7 @@ import {
   uniqueImageModels,
   type AgentSteerTaskScopeMode,
   type ImageFrameRatio,
+  type ImageModelConfig,
   type ImageResolutionPreset
 } from "./core";
 import { ActionButton, ButtonBase, DialogShell, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
@@ -66,6 +67,7 @@ export type ProjectAgentComposerProps = {
   onRemoveMaterial?: (key: string) => void;
   regenerateImage?: () => void;
   imageModels?: string[];
+  imageModelConfigs?: ImageModelConfig[];
   selectedImageModels?: string[];
   onSelectedImageModelsChange?: (models: string[]) => void;
   requestImageModels?: () => void | Promise<void>;
@@ -101,6 +103,7 @@ export default function ProjectAgentComposer({
   onRemoveMaterial,
   regenerateImage,
   imageModels = [],
+  imageModelConfigs = [],
   selectedImageModels = [],
   onSelectedImageModelsChange,
   requestImageModels,
@@ -215,10 +218,11 @@ export default function ProjectAgentComposer({
   const activeModelKeys = new Set(activeModels.map((model) => model.toLowerCase()));
   const defaultImageModel = activeModels[0] || "";
   const defaultImageModelKey = defaultImageModel.toLowerCase();
+  const activeImageModelConfig = imageModelConfigs.find((config) => config.model.toLowerCase() === defaultImageModelKey);
   const activeImageRatio = normalizeImageFrameRatio(imageRatio);
   const activeImageResolution = normalizeImageResolutionPreset(imageResolution);
-  const ratioOptions = frameOptionsForModel(activeImageResolution, defaultImageModel);
-  const resolutionOptions = sizePresetsForModel(activeImageRatio, defaultImageModel);
+  const ratioOptions = frameOptionsForModel(activeImageResolution, defaultImageModel, activeImageModelConfig?.capabilities);
+  const resolutionOptions = sizePresetsForModel(activeImageRatio, defaultImageModel, activeImageModelConfig?.capabilities);
   const normalizedModelQuery = modelQuery.trim().toLowerCase();
   const filteredModels = normalizedModelQuery
     ? availableModels.filter((model) => model.toLowerCase().includes(normalizedModelQuery))
@@ -245,7 +249,7 @@ export default function ProjectAgentComposer({
   function changeImageRatio(ratio: string) {
     if (!onImageFrameChange) return;
     const nextRatio = normalizeImageFrameRatio(ratio, activeImageRatio);
-    const availableResolutions = sizePresetsForModel(nextRatio, defaultImageModel);
+    const availableResolutions = sizePresetsForModel(nextRatio, defaultImageModel, activeImageModelConfig?.capabilities);
     const nextResolution = availableResolutions.some((option) => option.resolution === activeImageResolution)
       ? activeImageResolution
       : availableResolutions[0]?.resolution || activeImageResolution;
@@ -256,7 +260,7 @@ export default function ProjectAgentComposer({
   function changeImageResolution(resolution: string) {
     if (!onImageFrameChange) return;
     const nextResolution = normalizeImageResolutionPreset(resolution, activeImageResolution);
-    const availableRatios = frameOptionsForModel(nextResolution, defaultImageModel);
+    const availableRatios = frameOptionsForModel(nextResolution, defaultImageModel, activeImageModelConfig?.capabilities);
     const nextRatio = availableRatios.some((option) => option.ratio === activeImageRatio)
       ? activeImageRatio
       : availableRatios[0]?.ratio || activeImageRatio;
