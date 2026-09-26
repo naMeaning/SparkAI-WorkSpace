@@ -1,5 +1,14 @@
 # SparkAI WorkSpace 进度
 
+Date: 2026-09-27
+Status: verified
+Outcome: 按当前 `main` 源码重新编译并打包两个 Windows x64 EXE 安装包。
+Scope: Vite production build、Unrestricted 与 SparkAPI access variant、品牌安装器和 NSIS 封装。
+Change: 在 `HEAD 0ebb2c1`（与 `origin/main` 一致、工作树干净）执行 `corepack pnpm run package:win:variants`；两次 Vite build 各转换 1676 个模块，两个变体均完成 Electron/NSIS 打包。
+Evidence: 命令退出码 0。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `7C5505DA42AD3C960DACF33E543F6A2AFB46E0583E770C62DA8C7E3C3F65B574`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `DAB66585C7F7D03B53F32371460F2E53167EF95EFF9FBC93F1D090B38391513F`。
+Unverified: 未运行安装/卸载 smoke、数字签名有效性、真实图片/视频服务或正式 `release:final` 门禁；构建输出保留既有大 chunk、.NET nullable 与 Node 子进程 deprecation 警告。
+Next: 使用上述安装包进行本地安装运行验证，或按发布需求执行完整 `release:final` 门禁。
+
 Date: 2026-09-26
 Status: partially verified
 Outcome: 从当前 `main` 编译两个 Windows x64 EXE 安装包。
