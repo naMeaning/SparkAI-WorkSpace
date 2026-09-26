@@ -220,6 +220,15 @@ Next: 记录安装器 UI smoke 结果后提交并推送本轮文档；后续按�
 
 Date: 2026-09-27
 Status: partially verified
+Outcome: 按用户请求从当前 `main` 重新编译 Windows x64 双版本 EXE，并完成独立文件校验。
+Scope: 当前源码 production Vite build、Bundle 门禁、双接入策略 Electron/NSIS/品牌安装器封装。
+Change: `corepack pnpm run package:win` 的 build 通过；`test:bundle` 以 CSS `274,996 B > 270,000 B` 退出 1。按开发 EXE 规则继续运行 `corepack pnpm run package:win:variants`，两次 production build 和双变体封装均退出 0，`bundleEnforced: false`。
+Evidence: `package:win:variants` 转换 1676 modules；Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，文件头 `4D 5A`，SHA-256 `7FEA0B18FB64566AD42E015B869A175DB546792FF07420AB5E7921A728862A2D`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，文件头 `4D 5A`，SHA-256 `E8F24DAE05F2B82BBD9D3B5E73FF7CF431A31B34A3B84BCD5679DFF0BFF0FD78`。独立 `Get-FileHash` 与打包脚本摘要一致。
+Unverified: CSS Bundle 硬门禁仍超限；未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
+Next: 继续活动 Goal 的设置浅/深色可读性和本地 provider mock 路由；本次 EXE 可作为开发验证包使用。
+
+Date: 2026-09-27
+Status: partially verified
 Outcome: 当前双版本 EXE 的品牌安装器 UI 已完成隔离 smoke。
 Evidence: `corepack pnpm run package:installer-ui-smoke` 退出 0，报告为 `.diagnostics/release/branded-installer-ui-2026-09-26T18-58-52-791Z/report.json`，`ok: true`、19 captures；安装/卸载页面多 DPI 尺寸、可访问性、完成自动关闭、进程 watchdog、操作锁和现代目录选择器检查均通过。
 Unverified: 该 smoke 不等价于真实安装/卸载；Bundle CSS 仍为 274,996 B，超过 270,000 B 正式硬门禁 4,996 B；未运行数字签名校验、正式 `release:final` 或真实图片/视频服务。
