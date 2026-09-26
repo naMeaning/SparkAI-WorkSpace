@@ -2,6 +2,15 @@
 
 Date: 2026-09-26
 Status: partially verified
+Outcome: 从当前 `main` 编译两个 Windows x64 EXE 安装包。
+Scope: Unrestricted 和 SparkAPI 构建策略、Vite 产物、NSIS 核心包与品牌安装器。
+Change: 用户要求编译 EXE；当前工作树干净，HEAD 为 `c7a03dc`。按仓库既有打包链路生成双变体。
+Evidence: `corepack pnpm run release:assets`、`build:unrestricted`、`build:sparkapi` 与两次 `node scripts/release/build-windows.mjs --nsis` 均退出 0。Unrestricted 安装包 [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `76EF1F5BDA78DE9C3C75567761D6750235B3A508137B2D5A1A44A16471F1BFEB`；SparkAPI 安装包 [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `53787E2AB59B428BA9DEF4F702780A923D0AEB4843D130DA1A2D09C8D5A37E97`。未请求正式发布或完整发布门禁。
+Unverified: 安装/卸载运行、数字签名有效性、真实图片服务、`test:bundle` 与 `release:final` 正式发布门禁。构建输出包含现有 .NET nullable warning 与 electron-builder deprecation warning，但没有阻断错误。
+Next: 后续按用户需求补图片路由专项；正式发布时重新执行完整发布门禁。
+
+Date: 2026-09-26
+Status: partially verified
 Outcome: 处理图片协议/接口，并让每个图片模型独立配置 Base URL 与 API Key。
 Scope: `runtime/image-generation`, `desktop/new-api-client.cjs`, `desktop/image-generation-service.cjs`, 设置安全存储、发行策略和上下文文档。
 Change: 账号模式现在按独立字段解析模型级 Base URL 与 API Key；只填 URL 时继承所选账户 Key，只填 Key 时保留账号地址；流式图片传输应用传入覆盖；设置页在无限制版账号模式显示 Base URL；Gemini `:generateContent` 纳入图片模型路由。旧的账号模式“忽略逐模型 Base URL”决策已标记为 superseded。

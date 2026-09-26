@@ -11,8 +11,8 @@
 - **Non-goals**：不发起真实图片/视频请求，不改变 Extension 的可选 `/v1/image-tasks*` 合同，不把账号或计费管理复制到桌面端。
 - **Acceptance**：逻辑专项覆盖模型级 URL/Key 的独立覆盖和继承、三种图片传输路径的目标 URL/Authorization、专用版拒绝自定义连接；`corepack pnpm run build` 通过。
 - **Superseded**：旧文档中“账号模式忽略逐模型 Base URL”的限制由当前用户请求取代；专用版的构建级限制仍有效。
-- **Status**：实现已完成到 Main/Renderer 路由，production build 已通过；专项和真实 provider 仍未验证。
-- **Next**：按用户授权补做本地 mock 专项后提交并推送当前 `main`。
+- **Status**：实现已提交并推送到 `main`；本轮两个 Windows x64 安装包已编译并完成 SHA-256 核对。专项、安装运行和真实 provider 仍未验证。
+- **Next**：后续补图片路由专项；若要发布，再按 `release:final` 完成正式发布门禁。
 
 当前里程碑（2026-09-15）：阶段 1–13 与 8 月整备保留。当前产品已把生图默认收口到官方 Images API，画布选中即素材（可改序号与原图/参考），图片容器可一键重新生图，缩略图按内容哈希缓存，模型目录 TTL 15 分钟。当前测试安装包为 Unrestricted `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4` 与 SparkAPI `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`（均 1.0.9，`d88fae2`）。下文 8 月哈希与 512 变体缓存数字是历史验收，不再代表当前 `release/`。新建项目必须由用户选择目录，无项目时不写全局 Session；Session、受管资产、项目级 Agent 状态与导出均受当前项目根目录约束。Agent 普通消息允许原生选中和 `Ctrl+C`。顶部 Agent 对话框选择的比例和清晰度会冻结为本次任务的权威生图规格。纯文生图默认 `POST /v1/images/generations`，编辑 `POST /v1/images/edits`；`sparkai-extension` 的 `/v1/image-tasks*` 只作可选长任务包装。全程未调用真实模型。
 
