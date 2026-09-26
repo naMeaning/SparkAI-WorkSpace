@@ -170,11 +170,16 @@ export default function ProjectAgentComposer({
 
   async function dispatchPrompt() {
     if (stopPending) return;
+    const content = prompt.trim();
+    if (!content) return;
     setModelMenuOpen(false);
     setMaterialsMenuOpen(false);
     setFrameMenuOpen(null);
     setModeMenuOpen(false);
-    await sendPrompt(undefined, goalActive ? "keep" : taskScopeMode, taskMode);
+    // Pass the text captured by this Composer render explicitly. Relying on
+    // the parent closure here can lose the last keystroke during a click or
+    // Ctrl+Enter event before React has committed the next render.
+    await sendPrompt(content, goalActive ? "keep" : taskScopeMode, taskMode);
     if (executionBusy) setTaskScopeMode("auto");
   }
 
@@ -682,9 +687,9 @@ export default function ProjectAgentComposer({
             <ActionButton
               className="project-agent-send"
               variant={primaryAction === "send" ? "primary" : "secondary"}
-              type={primaryAction === "send" ? "submit" : "button"}
-              disabled={!prompt.trim()}
-              onClick={primaryAction === "send" ? undefined : () => void dispatchPrompt()}
+              type="button"
+              disabled={stopPending || !prompt.trim()}
+              onClick={() => void dispatchPrompt()}
               aria-label="发送"
               data-composer-primary={primaryAction === "send" ? "true" : undefined}
               title="把当前要求发给项目 Agent"

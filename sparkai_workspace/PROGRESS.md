@@ -2,6 +2,15 @@
 
 Date: 2026-09-27
 Status: verified
+Outcome: 基于当前 `main` 工作树（含 Agent Composer 发送修复）重新编译 Windows x64 EXE。
+Scope: `src/project-agent-composer.tsx`、`scripts/agent-send-ipc-selftest.mjs`、Vite production build、Unrestricted 与 SparkAPI access variant、Electron/NSIS 封装。
+Change: 用户要求“编译为 exe”。现有历史条目记录的是此前干净提交的制品；当前工作树有未提交改动，不能复用旧哈希作为本轮证据。
+Evidence: `node --check scripts/agent-send-ipc-selftest.mjs`、`git diff --check` 和修正 CDP Control 键序后的 `corepack pnpm run test:agent-send-ipc` 退出 0；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 Vite production build（各 1676 modules）和双 Electron/NSIS 封装完成，`bundleEnforced:false`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `5D56EBFF79F9CDE058F99ECEEBBD11199D39228458F39302C40B0210B2FAA52B`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `5329C047C36E8944168EF8D285337E1CCDF58F74453E1F0C82C5FBBD5F26889D`. 两个哈希均由 PowerShell `Get-FileHash` 独立复核。
+Unverified: 安装/卸载 smoke、数字签名、真实图片/视频服务与正式 `release:final` 门禁；构建保留既有大 chunk、.NET nullable 与 Node 子进程 deprecation 警告。
+Next: 提交并推送本轮 Composer/selftest/进度记录；后续再补本地 provider mock 或安装 smoke。
+
+Date: 2026-09-27
+Status: verified
 Outcome: 按当前 `main` 源码重新编译并打包 Windows x64 EXE 安装包。
 Scope: 当前源码、Vite production build、Unrestricted 与 SparkAPI access variant、Electron/NSIS/品牌安装器封装。
 Change: 用户明确要求“编译为 exe”；开始前确认工作树干净、未创建独立工作树，沿用 `corepack pnpm run package:win:variants`。
@@ -215,3 +224,12 @@ Outcome: 当前双版本 EXE 的品牌安装器 UI 已完成隔离 smoke。
 Evidence: `corepack pnpm run package:installer-ui-smoke` 退出 0，报告为 `.diagnostics/release/branded-installer-ui-2026-09-26T18-58-52-791Z/report.json`，`ok: true`、19 captures；安装/卸载页面多 DPI 尺寸、可访问性、完成自动关闭、进程 watchdog、操作锁和现代目录选择器检查均通过。
 Unverified: 该 smoke 不等价于真实安装/卸载；Bundle CSS 仍为 274,996 B，超过 270,000 B 正式硬门禁 4,996 B；未运行数字签名校验、正式 `release:final` 或真实图片/视频服务。
 Next: 将当前 EXE 哈希和 smoke 报告保存在安装说明与 Git 记录，继续开发从推送后的 `main` 开始。
+
+Date: 2026-09-27
+Status: superseded
+Outcome: 继续完成活动 Goal 的三个未收口边界：真实 Agent 发送、设置可读性、图片 provider 自动适配。
+Scope: Agent Composer 的真实鼠标/键盘路径；设置 drawer/输入/辅助文字的浅深主题 computed 样式；图片 profile、NewAPI/Sub2API/direct loopback 请求合同。
+Change: 该启动记录已被本轮真实 CDP 鼠标/键盘验证和当前 EXE 构建结果取代；设置可读性与图片 provider 自动适配仍保留为活动 Goal 的后续边界。
+Evidence: 已由本文件顶部本轮条目记录 `test:agent-send-ipc`、production build 和双 EXE 的实际证据。
+Unverified: 浅深主题对比度、NewAPI/Sub2API/direct 自动适配与响应特征识别。
+Next: 继续完成设置可读性和本地 provider mock 路由专项。

@@ -19,6 +19,50 @@ let viteProcess;
 let electronProcess;
 let client;
 
+async function dispatchMouseClick(rect) {
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none" });
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  return { x, y };
+}
+
+async function dispatchCtrlEnter() {
+  const control = {
+    key: "Control",
+    code: "ControlLeft",
+    windowsVirtualKeyCode: 17,
+    nativeVirtualKeyCode: 17
+  };
+  const enter = {
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13
+  };
+  await client.send("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    modifiers: 2,
+    ...control
+  });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    modifiers: 2,
+    ...enter
+  });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    modifiers: 2,
+    ...enter
+  });
+  await client.send("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    modifiers: 0,
+    ...control
+  });
+}
+
 async function main() {
   mkdirSync(configDir, { recursive: true });
   mkdirSync(projectDir, { recursive: true });
@@ -112,15 +156,48 @@ async function main() {
     if (!(button instanceof HTMLButtonElement)) return { ok: false, error: 'send button missing' };
     const rect = button.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    button.click();
-    return { ok: true, hit: hit?.className || '', rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height } };
+    const form = button.form;
+    window.__naimageAgentSendSubmitCount = 0;
+    form?.addEventListener('submit', () => { window.__naimageAgentSendSubmitCount += 1; }, { capture: true });
+    return {
+      ok: true,
+      hit: hit ? { tag: hit.tagName, className: hit.className || '', ariaLabel: hit.getAttribute?.('aria-label') || '' } : null,
+      activeBefore: document.activeElement?.tagName || '',
+      formPresent: Boolean(form),
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      disabled: button.disabled,
+      type: button.type
+    };
   })()`);
   assert.equal(clickResult?.ok, true, JSON.stringify(clickResult));
+  const mouseDispatch = await dispatchMouseClick(clickResult.rect);
   await waitForRuntimeExpression(client, `(() => {
     const state = window.__naimageDebugAgentState?.() || {};
     const promptPresent = Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)});
     const runtimeRequest = Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request');
     return promptPresent && runtimeRequest;
+  })()`, { evaluate, timeoutMs: 5_000, intervalMs: 50 });
+  const mouseAfter = await evaluate(client, `(() => ({
+    activeElement: document.activeElement?.tagName || '',
+    submitCount: Number(window.__naimageAgentSendSubmitCount || 0),
+    buttonDisabled: document.querySelector('.project-agent-composer button[aria-label="发送"]')?.disabled ?? null
+  }))()`);
+  const keyboardPrompt = `AIDEBUG_REAL_COMPOSER_CTRL_ENTER_${Date.now()}`;
+  const keyboardInput = await evaluate(client, `(() => {
+    const textarea = document.querySelector('.project-agent-composer textarea');
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(textarea, ${JSON.stringify(keyboardPrompt)});
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(keyboardPrompt)} }));
+    textarea.focus();
+    return document.activeElement === textarea;
+  })()`);
+  assert.equal(keyboardInput, true);
+  await waitForRuntimeExpression(client, `document.querySelector('.project-agent-composer button[aria-label="发送"]')?.disabled === false`, { evaluate, timeoutMs: 3_000, intervalMs: 50 });
+  await dispatchCtrlEnter();
+  await waitForRuntimeExpression(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)}) && Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request');
   })()`, { evaluate, timeoutMs: 5_000, intervalMs: 50 });
   await delay(250);
   const afterCall = await evaluate(client, `(() => {
@@ -138,7 +215,8 @@ async function main() {
       ipcEvidence: {
         promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)}),
         runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
-        electronLogHasMockModel: false
+        electronLogHasMockModel: false,
+        keyboardPromptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)})
       }
     };
   })()`);
@@ -163,7 +241,8 @@ async function main() {
       ipcEvidence: {
         promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)}),
         runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
-        electronLogHasMockModel: false
+        electronLogHasMockModel: false,
+        keyboardPromptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)})
       }
     };
   })()`);
@@ -173,7 +252,7 @@ async function main() {
   const log = existsSync(logPath) ? readFileSync(logPath, "utf8").split(/\r?\n/).slice(-80) : [];
   const electronLogHasMockModel = log.some((line) => line.includes(`aidebug model`) && line.includes(prompt));
   if (final?.ipcEvidence) final.ipcEvidence.electronLogHasMockModel = electronLogHasMockModel;
-  process.stdout.write(`${JSON.stringify({ ok: Boolean(final?.ipcEvidence?.promptPresent && final?.ipcEvidence?.runtimeRequest && electronLogHasMockModel), before, bridgeProbe, inputResult, clickResult, final, log }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ok: Boolean(final?.ipcEvidence?.promptPresent && final?.ipcEvidence?.runtimeRequest && final?.ipcEvidence?.keyboardPromptPresent && electronLogHasMockModel), before, bridgeProbe, inputResult, clickResult, mouseDispatch, mouseAfter, keyboardInput, final, log }, null, 2)}\n`);
 }
 
 try {
