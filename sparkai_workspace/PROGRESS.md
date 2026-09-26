@@ -165,3 +165,12 @@ Change: Agent Enter/Ctrl+Enter 现在进入 `sendPrompt`；缺少项目会在 Ag
 Evidence: `corepack pnpm run test:image-generation-adapters`、`test:image-generation-service`、`test:image-generation-async`、`test:model-ux`、`test:settings-lazy-load`、`typecheck`、`git diff --check` 均通过；`corepack pnpm run aidebug:gui` 返回 `failures: []`，包含 Agent 与 `quick-settings-appearance-min-884` 场景；`corepack pnpm run build` 通过（1676 modules）；`corepack pnpm run package:win:variants` 返回 0。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `C5563B780143EE80C592A6A07997A465D0B9AB507F7CEB96C618CE94BF92D117`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `134F4B89376C1B1AE026FCE9B5318BF12F21F80E4C1CCBA4E1F4442D92681FAA`。
 Unverified: 未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`；打包输出保留既有 nullable/deprecation warning。
 Next: 已提交并推送 `main`；`HEAD` 与 `origin/main` 均为 `50b72030ae7dfd1084f51adb581202b95e02ce28`，工作树已复核干净。后续只需按未验证边界继续专项。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 从当前 `main` 工作树重新编译 Windows x64 双接入 EXE，并保留可追溯的产物校验信息。
+Scope: `sparkai_workspace/` Agent Composer 发送自测入口、production build、双 access variant、Electron/NSIS/品牌安装器封装。
+Change: 修正自测入口的 workspace 根目录解析并等待懒加载 Composer；注册 `test:agent-send-ipc`；按当前代码完成两次 Vite production build 和两次 Electron/NSIS/品牌封装。
+Evidence: `corepack pnpm run test:agent-send-ipc` 退出 0；真实隔离 Electron 点击 `.project-agent-send` 后用户消息、`runtime-request`、mock model 日志和 idle 状态均成立。`corepack pnpm run package:win:variants` 退出 0，接入策略与安装器资源通过，Vite 两次均转换 1676 modules，`bundleEnforced:false`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `7AE04D8AD5EB84E5058F63FA6D33F919F1ACD26D0E3C3795CCD869E145A19495`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `6F433FC1D52E776CFE317A47D8C9C4AC01B68B0A2B060A78921C8F29BE8BC386`。
+Unverified: 测试日志仍有 Electron 开发态 `sandbox_bundle` startupData warning；未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`。
+Next: 提交并推送本轮脚本、package 命令和文档；后续再按授权补安装 smoke 或 provider mock 路由专项。

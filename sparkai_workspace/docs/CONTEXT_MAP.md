@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：61
+> 地图版本：62
 > 最近同步：2026-09-27
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -657,12 +657,12 @@ Renderer UpdaterBridge
 | `src/plugins/scientific-figure.ts`, `src/scientific-figure-dialog.tsx`, `src/styles/04h-scientific-figure-dialog.css` | 科研计划/元数据镜像、数据与 Panel 编排、任务状态/导出表面、局部可覆盖的 `--ui-surface-radius` 与原色成果预览 | 本地进程执行、项目磁盘 IO、研究结论推断、平行画布或直接调用模型 | `ScientificFigureDialog`, `normalizeScientificFigurePlan`, `SCIENTIFIC_FIGURE_*_COMMAND` | `test:scientific-runner`, `test:workspace-domain`, `test:automation-service`, `aidebug:scientific-figure`, `typecheck` |
 | `src/theme-palette-picker.tsx` | 旧 11 套配色与自定义主题导入/导出表面；设置外观入口已改为 Glass Lab，本文件只保留自定义主题编辑与文件契约 | 文件 IO、schema 权威校验、任意 CSS 解释或设置磁盘写入；不得重新作为外观首页 | `ThemePalettePicker`, `defaultCustomTheme`, `transferTheme` | `test:theme-preset`, `test:settings-persistence`, `test:ui-foundation`, `aidebug:gui`, `build`, `test:bundle` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
-| `src/project-agent-panel.tsx` | 主 Agent 面板、会话历史弹层、原生文本选择及面板内焦点返回；会话历史在捕获阶段独占 `Escape`，布局提交后恢复触发按钮焦点 | Agent runtime、项目持久化、共享 Dialog/Drawer 实现或画布全局快捷键 | `ProjectAgentPanel`, `PROJECT_AGENT_HISTORY_TOGGLE_ID` | `test:agent-panel-ui`, `test:agent-text-ui`, `typecheck`, `build` |
+| `src/project-agent-panel.tsx` | 主 Agent 面板、会话历史弹层、原生文本选择及面板内焦点返回；会话历史在捕获阶段独占 `Escape`，布局提交后恢复触发按钮焦点 | Agent runtime、项目持久化、共享 Dialog/Drawer 实现或画布全局快捷键 | `ProjectAgentPanel`, `PROJECT_AGENT_HISTORY_TOGGLE_ID` | `test:agent-panel-ui`, `test:agent-send-ipc`, `test:agent-text-ui`, `typecheck`, `build` |
 | `src/agent-window-sync.ts` | 独立窗脱敏有界快照（含领域 ID/标题）、Glass appearance projection、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、领域 authority、Agent 执行、项目持久化或独立设置 authority | `AgentWindowGlassAppearance`, `buildAgentWindowSnapshot`, `workspaceDomain`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:workspace-domain`, `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、`operationId + requestIndex` 同槽替换与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session 或最终资产列表 | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
 | `src/paste-blocks.ts` | 大文本粘贴块、可见/模型 prompt 组合、图片粘贴阻断 | Clipboard 文件导入、React 状态 | `composePromptWithPasteBlocks`, `visiblePromptWithPasteBlocks`, `blockImagePaste` | `test:paste-blocks`, `test:agent-text`, `aidebug:gui` |
-| `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:timeline`, `aidebug:gui` |
+| `src/agent.ts` | Agent 请求入口、流文本 reducer、工具时间线格式化；真实 Composer 点击自测覆盖 Renderer → preload/Main Agent IPC 与运行状态 | runtime 内部 memory 和模型请求 | `requestAgent`, `reduceAgentStreamEvent` | `test:agent-protocol`, `test:agent-send-ipc`, `test:timeline`, `aidebug:gui` |
 | `src/aidebug/agent-fixture-bridge.ts` | Renderer Agent action/message fixture 窗口钩子、32ms 流消息合并及安装清理生命周期 | 真实 runtime action 实现、React/项目状态、正式 bundle chunk | `installAgentFixtureBridge`, `__naimageDebugApplyAgentActions`, `__naimageDebugSeedAgentMessages` | `test:aidebug-agent-fixtures`, `typecheck`, `test:agent-text-ui`, `aidebug:gui`, `test:bundle` |
 | `src/ui.tsx` | 对现有调用方保持稳定的基础 UI 兼容重导出 façade | primitives 内部实现、产品业务状态 | `DialogShell`, `DrawerShell`, `ButtonBase`, `useFloatingDialogInteractions` | `test:ui-foundation`, `typecheck`, `build` |
 | `src/ui/*` | Dialog/Drawer focus 与 close policy、共享 controls、可清空后延迟规范化的数字输入、菜单 surface、overflow tooltip、浮窗拖动；`DialogShell` 正常关闭同步恢复一次焦点，只有调用方直接卸载且当前焦点仍落在 body、断开节点或旧弹层内部时才由 cleanup 兜底 | 产品业务状态、功能页数据获取、卸载后无条件异步抢回旧焦点 | `dialog-shell.tsx`, `primitives.tsx`, `DeferredNumberInput`, `menu-surface.tsx`, `overflow-tooltip.tsx`, `floating-dialog-interactions.ts` | `test:ui-foundation`, `test:commerce-set`, `test:settings-lazy-load`, `test:agent-text-ui`, `aidebug:gui` |
@@ -977,6 +977,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 科研计划/Requirement、受管数据、Python/R Runner、Panel/导出与 7 个共享命令 | `corepack pnpm run test:scientific-runner`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:workspace-glass-ui`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:scientific-figure`，该 GUI 场景不执行 Runner |
 | 跨境套图 AI 陪练的状态推进、导入/工具/Agent 引导、费用边界、项目进度与成功奖励 | `corepack pnpm run typecheck`, `corepack pnpm run test:workspace-glass-ui`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:commerce-tutorial`，不发送 Agent 或真实图片请求 |
 | Agent Prompt/FastMemory/tool contract | `corepack pnpm run test:agent-text` |
+| Agent Composer 真实发送按钮、项目/会话边界、Main IPC 运行状态和 mock Agent 往返 | `corepack pnpm run test:agent-send-ipc`；隔离报告位于 `.diagnostics/electron/agent-send-ipc-<timestamp>/`，不调用真实模型 |
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
 | New API transport / AIDebug image fixture / Images SSE / 显式代理 | `corepack pnpm run test:new-api-transport` |

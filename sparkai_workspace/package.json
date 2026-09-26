@@ -72,6 +72,7 @@
     "test:context-checkpoint": "node scripts/context-checkpoint-selftest.cjs",
     "test:agent-panel-layout": "node scripts/agent-panel-layout-selftest.ts",
     "test:agent-panel-ui": "node scripts/agent-panel-ui-selftest.mjs",
+    "test:agent-send-ipc": "node scripts/agent-send-ipc-selftest.mjs",
     "test:agent-window": "node scripts/agent-window-service-selftest.cjs && node scripts/agent-window-sync-selftest.ts",
     "test:agent-window-ui": "node scripts/agent-window-ui-selftest.mjs",
     "test:controlled-shell-command": "node scripts/controlled-shell-command-selftest.cjs",
