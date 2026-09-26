@@ -174,3 +174,10 @@ Change: 修正自测入口的 workspace 根目录解析并等待懒加载 Compos
 Evidence: `corepack pnpm run test:agent-send-ipc` 退出 0；真实隔离 Electron 点击 `.project-agent-send` 后用户消息、`runtime-request`、mock model 日志和 idle 状态均成立。`corepack pnpm run package:win:variants` 退出 0，接入策略与安装器资源通过，Vite 两次均转换 1676 modules，`bundleEnforced:false`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `7AE04D8AD5EB84E5058F63FA6D33F919F1ACD26D0E3C3795CCD869E145A19495`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `6F433FC1D52E776CFE317A47D8C9C4AC01B68B0A2B060A78921C8F29BE8BC386`。
 Unverified: 测试日志仍有 Electron 开发态 `sandbox_bundle` startupData warning；未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`。
 Next: 提交并推送本轮脚本、package 命令和文档；后续再按授权补安装 smoke 或 provider mock 路由专项。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: Windows x64 双版本 EXE 已完成构建、哈希核对并推送到远端 `main`。
+Evidence: `aea2e41` 已由 SSH over 443 推送成功，`HEAD` 与 `origin/main` 一致；Unrestricted SHA-256 为 `7AE04D8AD5EB84E5058F63FA6D33F919F1ACD26D0E3C3795CCD869E145A19495`，SparkAPI SHA-256 为 `6F433FC1D52E776CFE317A47D8C9C4AC01B68B0A2B060A78921C8F29BE8BC386`，两个文件均为 109,803,520 bytes。
+Unverified: 未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`；开发态 Electron 日志仍有 `sandbox_bundle` startupData warning。
+Next: 后续继续开发时从已推送的 `main` 继续；如需发布，再按授权补安装 smoke、provider mock 路由专项和正式发布门禁。
