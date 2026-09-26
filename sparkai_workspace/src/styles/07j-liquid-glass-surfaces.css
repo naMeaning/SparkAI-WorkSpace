@@ -761,7 +761,29 @@
 
 :root.glass-theme-active .settings-section-tabs,
 :root[data-glass-theme] .settings-section-tabs {
-  background: color-mix(in srgb, var(--glass-surface-raised) 14%, transparent);
+  background: var(--glass-surface-raised);
+  color: var(--ink);
+}
+
+/* Settings is a reading-heavy surface. Keep its shell and body opaque enough
+   that project artwork cannot compete with labels, helper text, or controls. */
+:root.glass-theme-active .ui-surface.ui-drawer.settings-drawer,
+:root[data-glass-theme] .ui-surface.ui-drawer.settings-drawer {
+  background-color: var(--glass-surface-solid);
+}
+
+:root.glass-theme-active .ui-surface.ui-drawer.settings-drawer > .ui-surface-body,
+:root[data-glass-theme] .ui-surface.ui-drawer.settings-drawer > .ui-surface-body {
+  background-color: color-mix(in srgb, var(--glass-surface-solid) 96%, var(--glass-surface-raised));
+}
+
+:root.glass-theme-active .settings-drawer .settings-account-token-section,
+:root.glass-theme-active .settings-drawer .settings-context-policy,
+:root.glass-theme-active .settings-drawer .settings-agent-integrations,
+:root[data-glass-theme] .settings-drawer .settings-account-token-section,
+:root[data-glass-theme] .settings-drawer .settings-context-policy,
+:root[data-glass-theme] .settings-drawer .settings-agent-integrations {
+  background-color: color-mix(in srgb, var(--glass-surface-raised) 94%, var(--glass-surface-solid));
 }
 
 :root.glass-theme-active .settings-section-tab.active,

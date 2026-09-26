@@ -233,8 +233,16 @@ function resolveImageModelConfig(settings = {}, model = "") {
   const preset = presetForModel(resolvedModel);
   const override = configOverrideFor(settings, resolvedModel) || {};
   const binding = bindingFor(settings, resolvedModel) || {};
-  const protocol = normalizeProtocol(override.protocol || binding.protocol, preset.protocol);
-  const provider = cleanString(override.provider || binding.provider, 64) || providerForProtocol(protocol, preset.provider);
+  const knownPreset = Boolean(IMAGE_MODEL_PRESETS[resolvedModel.toLowerCase()]);
+  // Known models own their public protocol and capabilities. Legacy JSON may
+  // still contain hand-edited values, but those values must not make a Gemini
+  // or Grok model speak the OpenAI request shape after the UI is simplified.
+  const protocol = knownPreset
+    ? preset.protocol
+    : normalizeProtocol(override.protocol || binding.protocol, preset.protocol);
+  const provider = knownPreset
+    ? preset.provider
+    : cleanString(override.provider || binding.provider, 64) || providerForProtocol(protocol, preset.provider);
   const defaultGateway = String(settings.accessMode || "account").toLowerCase() === "account" ? "newapi" : "direct";
   return {
     id: cleanString(override.id || resolvedModel, 180),
@@ -253,7 +261,7 @@ function resolveImageModelConfig(settings = {}, model = "") {
     baseUrl: normalizeBaseUrl(override.baseUrl || binding.customBaseUrl || ""),
     apiKey: cleanString(override.apiKey || binding.customApiKey, 8192),
     accountTokenId: cleanString(override.accountTokenId || binding.accountTokenId, 64),
-    capabilities: normalizeCapabilities(override.capabilities, preset.capabilities)
+    capabilities: normalizeCapabilities(knownPreset ? undefined : override.capabilities, preset.capabilities)
   };
 }
 

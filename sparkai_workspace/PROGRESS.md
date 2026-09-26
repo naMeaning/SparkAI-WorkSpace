@@ -129,3 +129,30 @@ Agent 复制、内容摘要标题与迁移确认最终验证（2026-08-15）：`
 本轮最终构建与测试安装包（2026-08-14）：独立 `pnpm.cmd build` 退出 0，Vite 1666 modules、8.77 s，仅有既有大 chunk advisory；沙箱内首次 build 因 `.vite-temp` EPERM 失败，授权后成功。`pnpm.cmd package:win:variants` 退出 0，包含接入策略专项、资源生成、两次 production build（7.94 s、7.45 s）和双 Electron/NSIS 封装，`bundleEnforced:false`。PowerShell 独立复核：Unrestricted 为 175,959,552 bytes（167.81 MiB）、2026-08-14 16:00:26 +08:00、SHA-256 `528CF5EB71F625A069574EB2F903B45EE0A32C132A82F2732DBA620B844DB404`；SparkAPI 为 175,963,136 bytes（167.81 MiB）、2026-08-14 16:01:29 +08:00、SHA-256 `67222A0BCFCF91FC52068C359CC27B15EA42B88C9D5AA7DB0E310CE21B9C414D`。公开目录无当前版本旧命名；未执行正式 Bundle/签名/真实安装卸载验收，未调用真实模型，代码未提交。
 顶部生图规格绑定验证（2026-08-14）：`test:image-frame-contract`、`test:agent-run-control`、`test:goal-runtime`（43 cases）、`test:agent-text`、`test:custom-api-transport`（24）、`test:image-generation-metadata`（13）、`test:ipc-registration`（141/138/3）、`test:image-stream-preview`（30）、`test:project-io`、`test:workspace-glass-ui`（155）、`typecheck`、相关 CJS 语法检查、`git diff --check` 与 Harness 10 项结构检查均退出 0。合同覆盖 `3:4 + 2K` 与 `16:9 + 4K`，验证按钮值冻结、顶层/子项冲突覆盖、上游 Prompt 交付规格、最终交付像素和原始 Prompt 保留；项目 IO 证明挂起任务的 `3:4 / 2K` 可跨重启恢复。隔离 Electron `.diagnostics/electron/aidebug-2026-08-14T08-59-46-927Z/report.json` 的 10 项功能 checks 全为 true，`frameContractSurvivesContinuation:true` 且 composer/pending/resumed 均为 `1:1 / 1K`；整套仍因既有概览节点 B 仅约 2 px 可见触发 `visual-area-too-small` 而退出 1，未记为整体通过。补丁后的最终 `pnpm.cmd build` 退出 0，Vite 1666 modules、7.64 s；`pnpm.cmd package:win:variants` 退出 0，包含接入策略专项、资源生成、两次 production build（7.71 s、7.88 s）与双 Electron/NSIS 封装，`bundleEnforced:false`。独立 PowerShell 复核：Unrestricted 为 175,960,576 bytes、2026-08-14 17:08:56 +08:00、SHA-256 `FEAF4D033C6E2B0BDD57B2EB0A9FE65311D3E9C6FF642039B950662B3215FC2A`；SparkAPI 为 175,964,160 bytes、2026-08-14 17:10:06 +08:00、SHA-256 `17CE9B3AB71CE3E9C3A2ECF903B0D2C23FABDE7863D92C0C70B46408CA260130`。公开目录无当前版本旧命名；未调用真实模型，代码未提交。
 已知边界：本轮没有调用真实付费上游确认各供应商对 Prompt 规格尾注的服从度。R Runner 尚未在真实 R 环境验证；AI 陪练的完成分支未通过真实付费生图触发；Seedance 仍未进行真实付费验证。开发阶段 Bundle 超限只记录趋势，不再阻断测试 EXE；未运行全量测试、正式 Release 门禁、Windows 数字签名验证或真实安装/卸载 smoke。
+# 2026-09-27
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 修复 Agent 键盘发送歧义、提高设置/模型配置可读性，并开始将图片协议细节收敛为内部自动适配。
+Scope: `src/model-ux.ts`, `src/main.tsx`, `src/model-config-dialog.tsx`, `src/styles/{01-base-controls,04-settings-appearance,07j-liquid-glass-surfaces}.css`, `runtime/image-generation/types.cjs`。
+Change: Enter/Ctrl+Enter 不再被直接生图动作拦截；缺少项目时 Agent 时间线会显示真实拒绝原因；已知图片模型忽略冲突的旧 protocol/provider/capability 覆盖并采用内置 preset；模型配置只展示自动适配说明及连接凭据字段；设置 drawer/body 和说明文字使用更实的背景与更高对比度。
+Evidence: `git diff --check` 通过；相关 selftest 和 typecheck 尚未运行；未调用真实模型。
+Unverified: Electron 中实际点击发送、浅/深主题截图、未知自定义模型的兼容配置、生产构建和 EXE。
+Next: 运行图片适配器、模型 UX、设置 lazy-load、typecheck，再按用户要求编译 Windows EXE。
+
+Status: in progress
+Outcome: 收口 Agent 发送、设置可读性和图片网关自动适配，并按用户要求编译 Windows EXE。
+Scope: `sparkai_workspace/` Renderer、Electron Main/preload、图片 runtime、设置表面、构建与发布文档。
+Change: 用户将活动优先级从已完成的逐模型图片连接扩展为三项可用性修复；旧目标保留为历史，不再作为本轮唯一交付条件。
+Evidence: 当前 `main` 工作树无未提交代码；最近提交包含逐模型图片连接和上一次 EXE 构建记录；本轮代码验证尚未开始。
+Unverified: Agent 实际发送路径、设置浅/深主题可读性、自动图片适配器 mock 合同、重新构建后的 EXE。
+Next: 先记录并修复最小可复现问题，再运行专项验证和 `corepack pnpm run build`。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 代码修复完成并生成双版本 Windows x64 EXE。
+Scope: Agent Composer/Main 提交链路、设置 Glass surface、图片 preset 适配、生产构建和 NSIS 打包。
+Change: Agent Enter/Ctrl+Enter 现在进入 `sendPrompt`；缺少项目会在 Agent 时间线显示错误；已知模型自动锁定内置图片协议/能力；模型配置隐藏协议、网关、传输和能力开关；设置 drawer/body 使用实色增强底和更高辅助文字对比度。
+Evidence: `corepack pnpm run test:image-generation-adapters`、`test:image-generation-service`、`test:image-generation-async`、`test:model-ux`、`test:settings-lazy-load`、`typecheck`、`git diff --check` 均通过；`corepack pnpm run aidebug:gui` 返回 `failures: []`，包含 Agent 与 `quick-settings-appearance-min-884` 场景；`corepack pnpm run build` 通过（1676 modules）；`corepack pnpm run package:win:variants` 返回 0。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `C5563B780143EE80C592A6A07997A465D0B9AB507F7CEB96C618CE94BF92D117`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `134F4B89376C1B1AE026FCE9B5318BF12F21F80E4C1CCBA4E1F4442D92681FAA`。
+Unverified: 未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`；打包输出保留既有 nullable/deprecation warning。
+Next: 提交并推送当前 `main`，然后复核远端 HEAD 与工作树。

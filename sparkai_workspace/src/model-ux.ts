@@ -45,9 +45,9 @@ export function idleComposerPrimaryAction(input: {
   goalSelected?: boolean;
   canGenerate?: boolean;
 } = {}): IdleComposerPrimaryAction {
-  if (input.executionBusy) return "send";
-  if (input.goalSelected) return "send";
-  if (input.canGenerate) return "generate";
+  // Agent submission is the stable keyboard action. Direct image generation is
+  // still available as an explicit button, but must not intercept Enter/Ctrl+Enter
+  // when the composer also has a regenerate callback.
   return "send";
 }
 

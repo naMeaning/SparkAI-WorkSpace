@@ -21,8 +21,8 @@ const agentSource = readFileSync(join(root, "src", "agent.ts"), "utf8");
 
 assert.equal(
   idleComposerPrimaryAction({ executionBusy: false, goalSelected: false, canGenerate: true }),
-  "generate",
-  "Idle composer must treat generate-from-materials as the primary action"
+  "send",
+  "Idle composer must keep Agent send as the keyboard primary action"
 );
 assert.equal(
   idleComposerPrimaryAction({ executionBusy: false, goalSelected: true, canGenerate: true }),
@@ -44,7 +44,7 @@ assert.match(composerSource, /data-primary-action=\{primaryAction\}/);
 assert.match(composerSource, /idleComposerPrimaryAction\(/);
 assert.match(
   composerSource,
-  /className="project-agent-regenerate"[\s\S]{0,900}variant=\{primaryAction === "generate" \? "primary" : "secondary"\}[\s\S]{0,900}aria-label="生成"[\s\S]{0,500}>\s*生成\s*</
+  /className="project-agent-regenerate"[\s\S]{0,500}aria-label="生成"[\s\S]{0,500}>\s*生成\s*</
 );
 assert.match(
   composerSource,

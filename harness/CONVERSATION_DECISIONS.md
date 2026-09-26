@@ -30,6 +30,8 @@ Older conversations are represented through the maintained product documents whe
 | D-11 | active | The workspace separates desktop client and backend ownership. Cross-repository auth, model, update and DTO changes require explicit two-sided contract evidence. | `WORKSPACE_CONTEXT_MAP.md` |
 | D-12 | active | Deliverables describe actual evidence, package paths/hashes when produced, and unverified boundaries. A previous assistant claim is not completion evidence. | Repeated user feedback, harness protocol |
 | D-13 | active | Each conversation/image model may independently override Base URL and API Key. The two fields inherit independently when blank; Main resolves account credentials and the SparkAPI-only build still rejects custom connections. | Current user request (2026-09-26), `sparkai_workspace/GOAL.md` |
+| D-14 | active | Image protocol, gateway, transport and capability details are implementation policy. The user-facing model configuration should prefer automatic adapter selection and keep only the minimum connection overrides needed for compatibility. | Current user direction (2026-09-27), `sparkai_workspace/GOAL.md` |
+| D-15 | active | Agent send, settings readability and image adapter changes are one continuation goal; update Goal/Progress/context records before implementation and preserve real evidence through EXE build. | Current user direction (2026-09-27), `goal-documentation-continuity` |
 
 ## Operating Preferences From The User
 
@@ -62,6 +64,7 @@ This distinction matters: assistant design proposals can improve the harness, bu
 | Canvas links imply execution order | Links express provenance; execution requires explicit user/Agent action |
 | Generic workflow editor or revived legacy UI to satisfy old tests | Current simplified workspace and current UI evidence; legacy tests are not a product baseline |
 | Account mode ignores per-model Base URL | Per-model Base URL and API Key overrides with independent inheritance; SparkAPI-only build remains locked |
+| Expose every image protocol/gateway/capability switch as required user configuration | Automatic internal adapter selection with backward-compatible legacy fields and minimal connection controls |
 | Local filter/post-effect workflow and click-to-cutout behavior | Current image-model workflow with real mask/alpha contracts |
 | Duplicating domain-specific canvases or runtimes | Shared project state with domain projections |
 | Treating bundle limits as a universal blocker | Product performance evidence and risk-aware natural boundaries; release-only hard gates where defined |

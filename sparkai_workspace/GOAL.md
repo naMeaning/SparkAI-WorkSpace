@@ -3,7 +3,17 @@
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
 
-## 当前 Goal：图片协议与逐模型连接（2026-09-26）
+## 当前 Goal：Agent 发送、设置可读性与图片网关简化（2026-09-27）
+
+- **Outcome**：Agent 消息明确完成本地提交并进入 Main IPC；设置面板在浅色和深色主题下保持足够不透明度与文字对比度；图片请求由软件按模型和响应特征自动选择适配器，用户不需要手动填写协议、网关、传输模式或能力开关。
+- **Scope**：`src/project-agent-composer.tsx`、`src/main.tsx`、Agent preload/Main IPC、设置表面 token、`runtime/image-generation` 解析与适配器、图片模型配置 UI、相关专项验证和 Windows EXE 构建。
+- **Rules**：不伪造 Agent 成功；没有项目、会话或桥接时给出可见错误；不泄露 Key/Token/Cookie；兼容旧图片配置字段并逐步转为内部自动派生；不调用真实图片/视频模型。
+- **Non-goals**：不复制 New API 管理后台，不删除 Extension 的 `/v1/image-tasks*` 合同，不恢复旧工作流，不发起 Seedance 或付费模型请求。
+- **Acceptance**：隔离 UI 路径能证明发送按钮进入 Agent IPC/运行状态；发送前置条件失败可见；设置关键文字和输入可读；OpenAI/Grok/Gemini 与 NewAPI/Sub2API/direct mock 请求的 URL/header/body 正确；`corepack pnpm run build` 通过并产出 EXE。
+- **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用或正式发布。
+- **Next**：先完成 Agent 发送链路和图片/设置改动，再运行针对性验证与生产构建，记录制品路径和哈希。
+
+## 已完成目标：图片协议与逐模型连接（2026-09-26）
 
 - **Outcome**：图片生成统一通过声明式协议/网关配置发送；每个图片模型可独立覆盖 Base URL、API Key，并正确作用于 JSON、multipart 和 async 任务请求。
 - **Scope**：`runtime/image-generation` 配置解析与适配器、Electron Main 图片传输、设置持久化与 safeStorage、SparkAPI 专用版门禁、相关上下文文档。

@@ -16019,7 +16019,25 @@ function App() {
 
   async function sendPrompt(nextPrompt?: string, dispatch: AgentPromptDispatchOptions = {}) {
     if (!activeProjectIdRef.current) {
-      setServerMessage("请先创建或打开项目，再使用 Agent。");
+      const errorMessage = "请先创建或打开项目，再使用 Agent。";
+      const localErrorMessage: AgentMessage = {
+        id: uid("agent-local-error"),
+        role: "assistant",
+        content: errorMessage,
+        createdAt: nowLabel(),
+        status: "error",
+        meta: "error"
+      };
+      setMessages((current) => [...current, localErrorMessage].slice(-120));
+      setAgentStatus("error");
+      setAgentProgress((current) => [...current, {
+        runId: uid("local"),
+        projectId: "",
+        conversationId: activeConversationIdRef.current,
+        phase: "runtime-request",
+        summary: errorMessage,
+        createdAt: new Date().toISOString()
+      }].slice(-48));
       return false;
     }
     if (agentExecutionBusyNow()) {

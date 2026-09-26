@@ -1893,6 +1893,24 @@ select.ui-control {
   white-space: nowrap;
 }
 
+.model-picker-dialog .model-picker-auto-adapter-note {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--surface-solid));
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.model-picker-dialog .model-picker-auto-adapter-note strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
 .model-picker-dialog .model-picker-binding-fields {
   min-width: 0;
   display: grid;

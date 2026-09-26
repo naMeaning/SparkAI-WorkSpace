@@ -463,71 +463,9 @@ export default function ModelConfigDialog({
                         <section key={`binding-${model}`} className="model-picker-binding-card">
                           <strong title={model}>{model}</strong>
                           {imageConfig ? (
-                            <div className="model-picker-binding-fields image-model-transport-fields">
-                              <Field label="协议" hint="请求协议由配置决定，不根据模型名称猜测。">
-                                <GlassSelect
-                                  value={imageConfig.protocol}
-                                  ariaLabel={`${model} 图片协议`}
-                                  onChange={(value) => updateImageConfig(model, { protocol: value as ImageProtocol })}
-                                  options={[
-                                    { value: "openai-images", label: "OpenAI Images" },
-                                    { value: "xai-images", label: "xAI Images" },
-                                    { value: "gemini-native", label: "Gemini Native" },
-                                  ]}
-                                />
-                              </Field>
-                              <Field label="网关" hint="网关只负责传输与鉴权，和模型厂商分离。">
-                                <GlassSelect
-                                  value={imageConfig.gateway}
-                                  ariaLabel={`${model} 图片网关`}
-                                  onChange={(value) => updateImageConfig(model, { gateway: value as ImageGateway })}
-                                  options={[
-                                    { value: "newapi", label: "NewAPI" },
-                                    { value: "sub2api", label: "Sub2API" },
-                                    { value: "direct", label: "Direct API" },
-                                  ]}
-                                />
-                              </Field>
-                              <Field label="传输模式" hint="异步模式仅在网关提供任务接口时启用。">
-                                <GlassSelect
-                                  value={imageConfig.transportMode}
-                                  ariaLabel={`${model} 图片传输模式`}
-                                  onChange={(value) => updateImageConfig(model, { transportMode: value as ImageTransportMode })}
-                                  options={[
-                                    { value: "sync", label: "同步" },
-                                    { value: "async", label: "异步任务" },
-                                  ]}
-                                />
-                              </Field>
-                              <Field label="Provider" hint="仅作模型目录标识，不决定请求协议。">
-                                <input
-                                  value={imageConfig.provider}
-                                  maxLength={64}
-                                  autoComplete="off"
-                                  placeholder="openai / xai / google / custom"
-                                  onChange={(event) => updateImageConfig(model, { provider: event.target.value })}
-                                />
-                              </Field>
-                              <div className="model-picker-capability-toggles" role="group" aria-label={`${model} 图片能力`}>
-                                {([
-                                  ["generate", "文生图"],
-                                  ["edit", "图像编辑"],
-                                  ["referenceImages", "参考图"],
-                                  ["multiReferenceImages", "多参考图"],
-                                  ["mask", "蒙版"],
-                                  ["multipleOutputs", "多张输出"],
-                                  ["transparentBackground", "透明背景"],
-                                ] as Array<[keyof ImageModelCapabilities, string]>).map(([key, label]) => (
-                                  <label key={String(key)}>
-                                    <input
-                                      type="checkbox"
-                                      checked={imageConfig.capabilities[key] === true}
-                                      onChange={(event) => updateImageCapability(model, key, event.target.checked)}
-                                    />
-                                    <span>{label}</span>
-                                  </label>
-                                ))}
-                              </div>
+                            <div className="model-picker-auto-adapter-note" role="status">
+                              <strong>图片接口自动适配</strong>
+                              <span>软件会按模型自动选择图片接口、传输方式和能力；无需手动设置协议、网关或能力开关。</span>
                             </div>
                           ) : null}
                           <div className="model-picker-binding-fields">

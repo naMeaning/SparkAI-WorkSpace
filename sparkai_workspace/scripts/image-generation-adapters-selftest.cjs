@@ -43,6 +43,13 @@ async function main() {
   assert.equal(xaiGenerate.body.resolution, "2k");
   assert.equal(Object.hasOwn(xaiGenerate.body, "size"), false);
 
+  const autoXaiConfig = resolveImageModelConfig({
+    accessMode: "custom",
+    imageModelConfigs: [{ model: "grok-imagine-image-2.0", protocol: "openai-images", gateway: "newapi", capabilities: { generate: true } }]
+  }, "grok-imagine-image-2.0");
+  assert.equal(autoXaiConfig.protocol, "xai-images");
+  assert.equal(autoXaiConfig.provider, "xai");
+
   const geminiConfig = resolveImageModelConfig({ accessMode: "custom" }, "gemini-3.1-flash-image");
   const geminiRequest = normalizeImageGenerationRequest({ model: geminiConfig.model, prompt: "cat", aspectRatio: "1:1", resolution: "1K", mode: "edit", editImage: { dataUrl: "data:image/png;base64,aW1hZ2U=" } }, geminiConfig);
   const gemini = await buildGeminiRequest(geminiRequest, geminiConfig, {

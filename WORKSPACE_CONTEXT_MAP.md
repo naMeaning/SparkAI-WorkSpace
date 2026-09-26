@@ -1,12 +1,14 @@
 # SparkAI WorkSpace 工作区上下文地图
 
-> 最近同步：2026-09-26
+> 最近同步：2026-09-27
 > 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
 > Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
 
 > 2026-09-26 审查记录：当前 `main` 的未提交改动正在收口统一图片生成层，新增协议/网关/同步异步传输和模型能力配置。后续开发先以 [WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md](WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md) 的 P0 合同、幂等恢复、能力证据和错误脱敏建议为准；真实模型、Seedance、Extension 生产部署和正式发布仍未验证。
+
+> 2026-09-27 当前 Goal：继续维护 Agent 发送确认、设置可读性和图片网关自动适配；完成后必须记录 `corepack pnpm run build` 与 EXE 制品证据。旧的逐模型图片连接目标保留为已完成历史。
 
 ## 1. 两个项目分别是什么
 

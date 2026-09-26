@@ -45,8 +45,8 @@ assert.match(modelConfigDialogSource, /accountMode[\s\S]{0,900}customApiKey[\s\S
 assert.match(modelConfigDialogSource, /(?:账号登录与逐模型自定义 API Key 可以同时使用|无限制版账号登录也支持逐模型 Base URL 与 API Key)/, "The model dialog must explain custom connection priority without hiding account-token fallback");
 assert.match(projectAgentComposerSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/, "Composer model menu must preserve catalog order while retaining selected-model fallbacks");
 assert.match(projectAgentComposerSource, /data-primary-action=\{primaryAction\}/, "Idle composer must mark which footer action is primary");
-assert.match(projectAgentComposerSource, />\s*生成\s*</, "Idle generate-from-materials must be the visible primary generate control");
-assert.match(projectAgentComposerSource, />\s*发送给 Agent\s*</, "Sending to Agent must remain a secondary labeled action");
+assert.match(projectAgentComposerSource, />\s*生成\s*</, "Direct generation must remain an explicit action");
+assert.match(projectAgentComposerSource, />\s*发送给 Agent\s*</, "Sending to Agent must remain the labeled keyboard action");
 assert.match(projectAgentComposerSource, /className="project-agent-model-trigger"[\s\S]{0,260}aria-haspopup="dialog"[\s\S]{0,180}aria-expanded=\{modelMenuOpen\}/, "Composer must expose the image catalog through one expandable model control");
 const composerToolbarControlOrder = ["project-agent-mode-picker", "project-agent-materials-picker", "project-agent-model-picker", "project-agent-image-frame"]
   .map((selector) => composerToolbarSource.indexOf(selector));
