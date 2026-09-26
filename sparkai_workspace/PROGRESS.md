@@ -190,3 +190,28 @@ Outcome: Windows x64 双版本 EXE 已完成构建、哈希核对并推送到远
 Evidence: `aea2e41` 已由 SSH over 443 推送成功，`HEAD` 与 `origin/main` 一致；Unrestricted SHA-256 为 `7AE04D8AD5EB84E5058F63FA6D33F919F1ACD26D0E3C3795CCD869E145A19495`，SparkAPI SHA-256 为 `6F433FC1D52E776CFE317A47D8C9C4AC01B68B0A2B060A78921C8F29BE8BC386`，两个文件均为 109,803,520 bytes。
 Unverified: 未运行真实图片/视频服务、安装/卸载 smoke、数字签名有效性和正式 `release:final`；开发态 Electron 日志仍有 `sandbox_bundle` startupData warning。
 Next: 后续继续开发时从已推送的 `main` 继续；如需发布，再按授权补安装 smoke、provider mock 路由专项和正式发布门禁。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 按用户请求从当前 `main` 重新编译 Windows x64 EXE。
+Scope: 当前源码的 production Vite build、Bundle 检查、安装器资源、双接入策略 Electron/NSIS 封装与安装器 UI smoke。
+Change: 本轮尚未改动产品代码；开始新的可追溯构建批次，旧 EXE 哈希不作为本轮结果。
+Evidence: 工作树干净，`package.json` 的 `package:win` 已确认包含 `build`、`test:bundle`、`release:assets`、NSIS 打包和安装器 UI smoke。
+Unverified: 本轮构建、产物哈希和安装器 smoke 尚未完成；不调用真实图片/视频服务。
+Next: 运行 `corepack pnpm run package:win`，记录退出码、产物路径、大小与 SHA-256。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 开发态双接入 Windows x64 EXE 已重新生成。
+Scope: 当前源码 production build、Bundle 预算记录、双接入策略 Electron/NSIS/品牌安装器封装。
+Change: `package:win` 的正式串行入口在 `test:bundle` 阶段退出 1，原因是 CSS 274,996 B 超过 270,000 B 硬门禁；随后按开发 EXE 规则运行 `package:win:variants`，以 `bundleEnforced: false` 完成两次 Vite build 和双版本封装。
+Evidence: `package:win:variants` 退出 0；两个构建均转换 1676 modules。Unrestricted 为 109,803,520 bytes，SHA-256 `407CFF0FD9DA7BCE3EBDBA8DD434168B74EC601FE3F85F93F2653D43437A8077`；SparkAPI 为 109,803,520 bytes，SHA-256 `79D8C832D3B88E6918DAC210F79626A5EAC91CC307B81C6CE9D73CDD14A48509`。PowerShell 独立复核与打包脚本摘要一致，两个文件头均为 `MZ`。
+Unverified: CSS Bundle 硬门禁仍超限；未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
+Next: 记录安装器 UI smoke 结果后提交并推送本轮文档；后续按授权补 provider mock 路由专项。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前双版本 EXE 的品牌安装器 UI 已完成隔离 smoke。
+Evidence: `corepack pnpm run package:installer-ui-smoke` 退出 0，报告为 `.diagnostics/release/branded-installer-ui-2026-09-26T18-58-52-791Z/report.json`，`ok: true`、19 captures；安装/卸载页面多 DPI 尺寸、可访问性、完成自动关闭、进程 watchdog、操作锁和现代目录选择器检查均通过。
+Unverified: 该 smoke 不等价于真实安装/卸载；Bundle CSS 仍为 274,996 B，超过 270,000 B 正式硬门禁 4,996 B；未运行数字签名校验、正式 `release:final` 或真实图片/视频服务。
+Next: 将当前 EXE 哈希和 smoke 报告保存在安装说明与 Git 记录，继续开发从推送后的 `main` 开始。

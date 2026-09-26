@@ -11,8 +11,8 @@
 - **Non-goals**：不复制 New API 管理后台，不删除 Extension 的 `/v1/image-tasks*` 合同，不恢复旧工作流，不发起 Seedance 或付费模型请求。
 - **Acceptance**：隔离 UI 路径能证明发送按钮进入 Agent IPC/运行状态；发送前置条件失败可见；设置关键文字和输入可读；OpenAI/Grok/Gemini 与 NewAPI/Sub2API/direct mock 请求的 URL/header/body 正确；`corepack pnpm run build` 通过并产出 EXE。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用或正式发布。
-- **Status**：partially verified。代码、mock/selftest、真实 Electron Composer 点击、生产 build、双版本 EXE 和远端 push 已有证据；本次按当前 `main` 的双 Windows x64 EXE 已重新生成，真实图片/视频服务、安装/卸载和正式发布门禁仍未运行。
-- **Next**：补本地 provider mock 路由或安装 smoke；不得把构建证据描述为真实模型验证。
+- **Status**：partially verified。代码、mock/selftest、真实 Electron Composer 点击、生产 build、双版本 EXE 和安装器 UI smoke 已有证据；本次按当前 `main` 的双 Windows x64 EXE 已重新生成。标准 `package:win` 在 CSS Bundle 硬门禁（274,996 B > 270,000 B）处阻断，开发变体封装以 `bundleEnforced: false` 完成；真实图片/视频服务、安装/卸载和正式发布门禁仍未运行。
+- **Next**：补本地 provider mock 路由或真实安装/卸载 smoke；不得把构建证据描述为真实模型验证。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 
