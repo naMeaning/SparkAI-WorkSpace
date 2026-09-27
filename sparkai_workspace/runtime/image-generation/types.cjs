@@ -19,8 +19,8 @@ const GENERIC_CAPABILITIES = Object.freeze({
   outputFormats: ["png", "jpeg", "webp"]
 });
 
-// Presets are explicit configuration data, not model-name heuristics. Unknown
-// models intentionally use the conservative OpenAI-compatible fallback.
+// Exact presets carry the richer capability matrix. Model-family inference below
+// keeps newly published model names usable without another settings migration.
 const IMAGE_MODEL_PRESETS = Object.freeze({
   "gpt-image-2": {
     provider: "openai",
@@ -186,12 +186,34 @@ function normalizeCapabilities(value, fallback = GENERIC_CAPABILITIES) {
 function presetForModel(model) {
   const key = cleanString(model, 180).toLowerCase();
   const preset = IMAGE_MODEL_PRESETS[key];
-  if (!preset) return { provider: "custom", protocol: "openai-images", capabilities: GENERIC_CAPABILITIES };
-  return {
+  if (preset) return {
     provider: preset.provider,
     protocol: preset.protocol,
-    capabilities: normalizeCapabilities(preset.capabilities)
+    capabilities: normalizeCapabilities(preset.capabilities),
+    inferred: false
   };
+  const family = modelFamilyFor(key);
+  if (family === "openai") {
+    const fallback = IMAGE_MODEL_PRESETS["gpt-image-2"];
+    return { provider: fallback.provider, protocol: fallback.protocol, capabilities: normalizeCapabilities(fallback.capabilities), inferred: true };
+  }
+  if (family === "xai") {
+    const fallback = IMAGE_MODEL_PRESETS["grok-imagine-image-2.0"];
+    return { provider: fallback.provider, protocol: fallback.protocol, capabilities: normalizeCapabilities(fallback.capabilities), inferred: true };
+  }
+  if (family === "gemini") {
+    const fallback = IMAGE_MODEL_PRESETS["gemini-3.1-flash-image"];
+    return { provider: fallback.provider, protocol: fallback.protocol, capabilities: normalizeCapabilities(fallback.capabilities), inferred: true };
+  }
+  return { provider: "custom", protocol: "openai-images", capabilities: GENERIC_CAPABILITIES, inferred: false };
+}
+
+function modelFamilyFor(model) {
+  const key = cleanString(model, 180).toLowerCase().replace(/[\s_]+/g, "-");
+  if (/(?:^|[-.])(?:gpt-image|dall-e|dalle|chatgpt-image)(?:[-.]|$)/.test(key) || key.includes("gpt-image")) return "openai";
+  if (/(?:^|[-.])(?:grok|xai)(?:[-.]|$)/.test(key) || key.includes("grok-imagine")) return "xai";
+  if (/(?:^|[-.])gemini(?:[-.]|$)/.test(key) || key.includes("nano-banana")) return "gemini";
+  return "unknown";
 }
 
 function normalizeProtocol(value, fallback = "openai-images") {
@@ -207,6 +229,30 @@ function normalizeGateway(value, fallback = "newapi") {
 function normalizeTransportMode(value, fallback = "sync") {
   const normalized = cleanString(value, 32).toLowerCase();
   return IMAGE_TRANSPORT_MODES.includes(normalized) ? normalized : fallback;
+}
+
+function hostTextFor(value) {
+  const text = cleanString(value, 2048).toLowerCase();
+  if (!text) return "";
+  try {
+    return `${new URL(text).hostname} ${text}`;
+  } catch {
+    return text;
+  }
+}
+
+function inferGateway(settings, baseUrl, explicitGateway = "") {
+  const connection = hostTextFor(baseUrl || settings?.imageBaseUrl || settings?.agentBaseUrl);
+  if (/(?:sub2api|sub2-api)/i.test(connection)) return "sub2api";
+  const explicit = cleanString(explicitGateway, 64).toLowerCase();
+  if (IMAGE_GATEWAYS.includes(explicit)) return explicit;
+  return String(settings?.accessMode || "account").toLowerCase() === "account" ? "newapi" : "direct";
+}
+
+function inferTransportMode(gateway, explicitTransport = "") {
+  const explicit = cleanString(explicitTransport, 32).toLowerCase();
+  if (IMAGE_TRANSPORT_MODES.includes(explicit)) return explicit;
+  return gateway === "sub2api" ? "async" : "sync";
 }
 
 function providerForProtocol(protocol, fallback = "custom") {
@@ -234,34 +280,37 @@ function resolveImageModelConfig(settings = {}, model = "") {
   const override = configOverrideFor(settings, resolvedModel) || {};
   const binding = bindingFor(settings, resolvedModel) || {};
   const knownPreset = Boolean(IMAGE_MODEL_PRESETS[resolvedModel.toLowerCase()]);
+  const inferredFamily = preset.inferred === true;
   // Known models own their public protocol and capabilities. Legacy JSON may
   // still contain hand-edited values, but those values must not make a Gemini
   // or Grok model speak the OpenAI request shape after the UI is simplified.
-  const protocol = knownPreset
+  const protocol = knownPreset || inferredFamily
     ? preset.protocol
     : normalizeProtocol(override.protocol || binding.protocol, preset.protocol);
-  const provider = knownPreset
+  const provider = knownPreset || inferredFamily
     ? preset.provider
     : cleanString(override.provider || binding.provider, 64) || providerForProtocol(protocol, preset.provider);
-  const defaultGateway = String(settings.accessMode || "account").toLowerCase() === "account" ? "newapi" : "direct";
+  const configuredBaseUrl = override.baseUrl || binding.customBaseUrl || binding.baseUrl || "";
+  const discoveryBaseUrl = configuredBaseUrl || (String(settings.accessMode || "account").toLowerCase() === "custom" ? settings.imageBaseUrl : "");
+  const gateway = inferGateway(settings, discoveryBaseUrl, override.gateway || binding.gateway);
   return {
     id: cleanString(override.id || resolvedModel, 180),
     model: resolvedModel,
     displayName: cleanString(override.displayName || override.name || resolvedModel, 180),
     provider,
     protocol,
-    gateway: normalizeGateway(override.gateway || binding.gateway, defaultGateway),
-    transportMode: normalizeTransportMode(override.transportMode || binding.transportMode, "sync"),
+    gateway,
+    transportMode: inferTransportMode(gateway, override.transportMode || binding.transportMode),
     pollIntervalMs: Number.isFinite(Number(override.pollIntervalMs))
       ? Math.max(100, Math.min(30_000, Math.floor(Number(override.pollIntervalMs))))
       : 2_500,
     maxWaitMs: Number.isFinite(Number(override.maxWaitMs))
       ? Math.max(5_000, Math.min(30 * 60_000, Math.floor(Number(override.maxWaitMs))))
       : 10 * 60_000,
-    baseUrl: normalizeBaseUrl(override.baseUrl || binding.customBaseUrl || ""),
+    baseUrl: normalizeBaseUrl(configuredBaseUrl),
     apiKey: cleanString(override.apiKey || binding.customApiKey, 8192),
     accountTokenId: cleanString(override.accountTokenId || binding.accountTokenId, 64),
-    capabilities: normalizeCapabilities(knownPreset ? undefined : override.capabilities, preset.capabilities)
+    capabilities: normalizeCapabilities(knownPreset || inferredFamily ? undefined : override.capabilities, preset.capabilities)
   };
 }
 
@@ -368,6 +417,9 @@ module.exports = {
   normalizeGateway,
   normalizeProtocol,
   normalizeTransportMode,
+  inferGateway,
+  inferTransportMode,
+  modelFamilyFor,
   providerForProtocol,
   resolveImageModelConfig,
   validateImageGenerationRequest

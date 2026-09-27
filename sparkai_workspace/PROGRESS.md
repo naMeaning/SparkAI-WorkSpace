@@ -512,3 +512,30 @@ Change: 提交 `0c4eab5`（`docs: record latest exe build`），通过 SSH 执�
 Evidence: push 退出码 0，远端更新范围 `50133af..0c4eab5`；待最终核对 `git ls-remote origin refs/heads/main` 与本地工作树。
 Unverified: 活动 Goal 的 Agent 发送、设置可读性和图片 provider 自动适配仍未完成；两个安装包仍未签名，也未运行真实安装/卸载 smoke、正式发布门禁或真实图片/视频服务。
 Next: 核对本地与远端 `main` 后，从当前 Goal 的第一个未完成边界继续产品实现。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 继续实现活动 Goal 的三个未完成边界，优先修复 Composer 显式 TaskScope/Goal 发送入口。
+Scope: `src/main.tsx` 与 `src/project-agent-composer.tsx` 的 Agent dispatch；设置抽屉 Glass 表面；`runtime/image-generation` 的模型/网关推断、响应归一化和 Sub2API async 结果。
+Change: 复核现有专项均通过，但发现 `projectAgentSendPrompt` 在 busy 状态直接调用 `steerAgentRun`，因此绕过 `sendPrompt` 的 Main `run-status` stale 检查；图片未知模型继续读取旧 `protocol/gateway/transportMode`，响应解析只覆盖浅层字段。
+Evidence: `corepack pnpm run test:agent-send-ipc`、`corepack pnpm run test:agent-run-control`、`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async` 均退出 0；当前源码静态核对已定位缺口。
+Unverified: 显式 Goal/TaskScope stale busy 的真实 IPC 发送、设置浅深主题实际对比度、未知模型和多层图片响应的请求/解析合同。
+Next: 统一 Agent dispatch 并增加可见失败消息，然后实现图片模型族/网关自动推断和递归响应归一化。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 完成活动 Goal 的 Agent 发送分流、设置可读性和图片适配实现，进入当前源码构建阶段。
+Scope: `src/main.tsx` Agent dispatch；`src/styles/04-settings-appearance.css`/`07j-liquid-glass-surfaces.css` 设置表面；`runtime/image-generation/types.cjs`、`normalize-response.cjs`、`desktop/new-api-client.cjs`；图片与 Agent 专项。
+Change: 显式 TaskScope/Goal 入口统一经过 `sendPrompt`，stale Renderer busy 在 Main 无 run 时可恢复到 `naimage:agent:chat`，拒绝原因写入 Agent system message。图片模型按族自动选择协议，Base URL 自动识别 Sub2API/NewAPI/direct 并派生同步/异步传输；响应归一化改为有限递归，支持多层 data/result/response/output、URL/base64/inlineData、元数据继承与去重；异步创建无 task id 时可识别嵌套即时图片。设置抽屉、模型配置对话框的卡片和输入改用近实色 surface，辅助文字使用 `ink-soft`。
+Evidence: `corepack pnpm run typecheck`、`corepack pnpm run test:agent-send-ipc`、`corepack pnpm run test:agent-run-control`、`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async`、`corepack pnpm run test:glass-theme`、`corepack pnpm run test:workspace-glass-ui` 均退出 0；`git diff --check` 无错误。
+Unverified: 当前源码尚未重新执行 production build/EXE；显式 Goal/TaskScope 的独立 GUI 证据、真实安装/卸载 smoke、签名和真实 provider/图片服务仍未验证。
+Next: 运行 `corepack pnpm run build`，随后按用户授权执行 `corepack pnpm run package:win:variants`，核对两个 EXE 的文件头、大小、SHA-256 和远端提交状态。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 按当前源码完成 production build，并生成双接入 Windows x64 EXE。
+Scope: Vite production bundle、Electron/NSIS 开发安装包、Unrestricted/SparkAPI access variants、构建产物核验。
+Change: `corepack pnpm run build` 通过（1676 modules，built in 21.32s）；`corepack pnpm run package:win:variants` 通过，脚本报告 `bundleEnforced:false`，生成两个 1.0.9 安装包。未调用真实图片/视频模型，EXE 未加入 Git。
+Evidence: [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109803520` bytes、MZ、SHA-256 `46D46F1637EF5C76F8AE2D0BF76D32D772DDC51D55EF5145271B9DCFCE3B28D2`；[SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109803520` bytes、MZ、SHA-256 `A67378AE53736450718849815F9B23790B005E9F8042FD275E032A9E0DF45FC3`。两者 `Authenticode: NotSigned`，`release/.naimage-release-incomplete.json` 不存在；`test:access-variant`、Installer/Uninstaller 构建均在打包流程中通过。
+Unverified: 未运行真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名验证、`release:final` 或真实 provider/图片服务；构建保留既有 chunk size、.NET nullable 和 Node child-process deprecation 警告。
+Next: 提交并推送源码与目标/进度/上下文文档；保留显式 Goal/TaskScope 独立 GUI 证据和真实安装 smoke 作为后续验证。

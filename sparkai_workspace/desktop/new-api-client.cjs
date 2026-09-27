@@ -5,6 +5,7 @@ const {
   mergeImageGenerationResponseMetadata,
   pickImageGenerationResponseMetadata
 } = require("../runtime/image-generation-metadata.cjs");
+const { normalizeImageGenerationResponse } = require("../runtime/image-generation/normalize-response.cjs");
 
 const MANAGED_RELAY_PREFIX = "/naimage";
 
@@ -282,6 +283,23 @@ function createNewApiClient(options = {}) {
       const summary = String(text || "").replace(/\s+/g, " ").trim().slice(0, 4_096);
       return { error: summary || "服务器返回了无效 JSON。", parseFailed: true };
     }
+  }
+
+  function immediateImageResult(value) {
+    if (!value || typeof value !== "object") return null;
+    const candidates = [
+      value,
+      value.result,
+      value.response,
+      value.output,
+      value.data
+    ];
+    for (const candidate of candidates) {
+      const payload = Array.isArray(candidate) ? { data: candidate } : candidate;
+      if (!payload || typeof payload !== "object") continue;
+      if (normalizeImageGenerationResponse(payload).ok) return payload;
+    }
+    return null;
   }
   
   function newApiErrorMessage(data, status) {
@@ -1093,8 +1111,8 @@ function createNewApiClient(options = {}) {
 
     const taskId = String(createData.task_id || createData.taskId || createData.id || createData.data?.task_id || "").trim();
     if (!taskId) {
-      const immediate = createData.result || createData.data;
-      if (immediate && typeof immediate === "object" && (Array.isArray(immediate.data) || Array.isArray(immediate.images) || Array.isArray(immediate.candidates))) {
+      const immediate = immediateImageResult(createData);
+      if (immediate) {
         return immediate;
       }
       const error = new Error("异步图片任务创建成功，但缺少 task_id。");

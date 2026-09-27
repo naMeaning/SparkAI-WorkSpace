@@ -9,13 +9,54 @@
   gap: 5px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 88%, var(--canvas));
+  background: var(--surface-raised);
 }
 
 .ui-surface.ui-drawer.settings-drawer {
+  --settings-surface: var(--surface-solid);
+  --settings-surface-raised: var(--surface-raised);
+  --settings-ink-muted: var(--ink-soft);
+  --settings-line: var(--line-strong);
   container-name: settings-drawer;
   container-type: inline-size;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.settings-drawer :where(
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select
+),
+.model-picker-dialog :where(
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select
+) {
+  color: var(--ink);
+  background: var(--surface-solid);
+  border-color: var(--line-strong);
+}
+
+.settings-drawer :is(input, textarea)::placeholder,
+.model-picker-dialog :is(input, textarea)::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
+.settings-drawer :is(small, .settings-section-header small, .settings-model-access-head small, .settings-model-access-time),
+.model-picker-dialog .model-picker-custom > small,
+.model-picker-dialog .model-picker-capability-toggles label {
+  color: var(--ink-soft);
+}
+
+.settings-drawer :is(.settings-model-access-block, .settings-model-access-card, .settings-model-card),
+.model-picker-dialog :is(.model-picker-binding-card, .image-model-transport-fields) {
+  background: var(--surface-solid);
+}
+
+.settings-drawer .settings-model-access-meta span,
+.model-picker-dialog .model-picker-auto-adapter-note {
+  background: var(--surface-raised);
 }
 
 .settings-unsaved-dialog {
@@ -99,7 +140,7 @@
   padding: 11px;
   border: 1px solid var(--line);
   border-radius: var(--ui-choice-radius);
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--canvas));
+  background: var(--settings-surface-raised);
 }
 
 .settings-account-token-header > div:first-child,
@@ -115,7 +156,7 @@
 .settings-agent-integrations small {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-soft);
+  color: var(--settings-ink-muted);
   font-size: 10px;
   font-style: normal;
   text-overflow: ellipsis;
@@ -256,7 +297,7 @@
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--ui-choice-radius);
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--canvas));
+  background: var(--settings-surface-raised);
 }
 
 .settings-plugin-card-header {
@@ -276,13 +317,13 @@
 
 .settings-plugin-card-header small,
 .settings-plugin-section .settings-section-header small {
-  color: var(--ink-soft);
+  color: var(--settings-ink-muted);
   font-size: 10px;
 }
 
 .settings-plugin-card p {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--settings-ink-muted);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -297,8 +338,8 @@
   padding: 5px 7px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
   border-radius: var(--ui-choice-radius);
-  color: var(--ink-soft);
-  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  color: var(--settings-ink-muted);
+  background: var(--settings-surface);
   font-size: 9px;
   line-height: 1.35;
 }
@@ -311,8 +352,8 @@
   padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: var(--ui-choice-radius);
-  color: var(--ink-soft);
-  background: var(--surface);
+  color: var(--settings-ink-muted);
+  background: var(--settings-surface);
   font-size: 10px;
 }
 

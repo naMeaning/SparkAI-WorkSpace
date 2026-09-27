@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：65
+> 地图版本：66
 > 最近同步：2026-09-27
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -69,7 +69,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/video-task-service.cjs：零重试创建、项目 journal、恢复轮询与安全下载落盘
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
-  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、rc.23 auth bundle/旧 session 登录、刷新与重试、图片任务创建/轮询、JSON/通用 SSE 与 Images SSE relay；模型接入按逐模型配置优先并锁定 Authorization
+  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、rc.23 auth bundle/旧 session 登录、刷新与重试、图片任务创建/轮询、JSON/通用 SSE 与 Images SSE relay；模型接入按逐模型配置优先并锁定 Authorization，异步图片创建无 task id 时复用 runtime 图片响应归一化判断嵌套即时结果
   ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、按账户隔离的脱敏磁盘快照与 Main-only 完整 Key 内存缓存
   ├─ desktop/settings-secret-store.cjs：自定义 API Key 与 New API auth bundle 的 safeStorage sidecar、Renderer 占位符与旧明文迁移
   ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token、Renderer 命令转发与 Main service command 分流
@@ -181,6 +181,8 @@ index.html 的静态 dark-ember + frosted fallback
 
 Glass Lab 的自然异步链路是：顶栏 `.workspace-glass-lab-button` 或素材轨设置按钮 → `LazySettingsDrawer` → 外观 section → `LazyGlassLab` → `src/glass-lab.tsx` 同 chunk 导入 `src/styles/04b-glass-lab.css`。Glass 全局 token/兼容桥由 `src/styles/01-liquid-glass-tokens.css` 持有，chrome、Agent、素材轨、工具栏、菜单/对话框/设置、输入框、浮动控件以及图片容器、成果/Requirement/科研 Panel 节点外壳由 `src/styles/07j-liquid-glass-surfaces.css` 和对应领域异步样式共同持有。节点的框架、标题区和控件可透明玻璃化；实际图片/视频 artwork 与成果预览像素层必须保持不透明、原色，并显式禁用 `filter`、`backdrop-filter` 与混合模式。共享字体 token 由 `src/styles/01-base-controls.css` 维持 12/13/14/15 px 的紧凑可读层级，Agent 正文/状态/输入和模型菜单在 `07g-agent-panel-overrides.css` 使用对应关键字号。项目搜索浮层必须以近实色 `--glass-menu-surface` 绘制并关闭 backdrop filter，避免下层 artwork 穿透；文字、菜单和选中态维持可读对比，玻璃增强不得引入高成本画布特效或拖动延迟。
 
+设置抽屉是阅读优先的 Glass 例外：`.settings-drawer` 和 `.model-picker-dialog` 的 header/body、分组、模型/插件卡、输入框、select、textarea 使用近实色 `surface-solid`/`surface-raised`，辅助文字统一使用 `ink-soft`，避免画布背景穿透导致标签和凭据输入不可读；规则由 `src/styles/04-settings-appearance.css` 与 `src/styles/07j-liquid-glass-surfaces.css` 共同持有。
+
 自定义工作区背景经 `naimage:glass-background:{pick,load,clear}` 进入 Main：原生选择授权后只读取普通文件，限制 64 MiB/1 亿输入像素，使用 Sharp 旋转校正、最长边 3840 px 并统一压缩为单帧 WebP；文件以转码字节 SHA-256 作为 `glass-bg-*` 身份存入 `<configDir>/glass-backgrounds`。Renderer 只接收有界 metadata 与按需 data URL，不接收原始路径或受管路径，AppSettings 也只保存资产 ID、显示名、WebP metadata、启用状态、遮罩强度和模糊值，不保存 base64。clear 不立即物理删除文件，而是刷新 30 天恢复保留期；GC 每次最多删除 8 个超过保留期、未被当前设置引用、文件名和内容哈希均自校验通过的本模块 WebP，未知文件、符号链接、损坏文件和仍被引用的资产一律保留。
 
 ### 4.2 窗口控制
@@ -284,6 +286,8 @@ image_gen
   → workflow action
   → Renderer 归组与溯源
 ```
+
+`runtime/image-generation/types.cjs` 是图片模型连接画像 owner：精确 preset 继续提供能力矩阵，未知模型按 `gpt-image`/`dall-e`/`chatgpt-image`、`grok`/`xai`、`gemini`/`nano-banana` 族自动派生 OpenAI Images、XAI Images 或 Gemini native；未识别模型使用 OpenAI-compatible Images。Sub2API 由 Base URL host（`sub2api`/`sub2-api`）自动识别并默认异步，账号模式默认 NewAPI，其余自定义地址默认 direct；旧 `protocol`、`gateway`、`transportMode`、`capabilities` 字段只作为兼容覆盖输入，新的设置界面无需填写它们。`runtime/image-generation/normalize-response.cjs` 以有限深度/节点数递归处理 `data/result/response/output/candidates` 等包装，识别 URL、`b64_json`、`inlineData` 和 `image_base64`，继承 `revisedPrompt`/`requestIndex` 并按 `type + value` 去重。对应最小验证为 `test:image-generation-adapters`、`test:image-generation-async` 和 `typecheck`；不调用真实图片服务。
 
 桌面默认不再先打 SparkAI `/v1/image-tasks`，也不再用对话模型走 Responses `image_generation`。`sparkai-extension` 的 `/v1/image-tasks*` 仍可包装原生 Images API，但不是客户端默认路径。GPT Image 才带 `background` / `moderation` / `input_fidelity`；Grok / Gemini / Flux 走同一 Images 路径并补 `response_format=b64_json`。`gpt-image-2` 的 `size` 只发 `1024x1024` / `1536x1024` / `1024x1536`。
 

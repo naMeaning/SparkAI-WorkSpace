@@ -50,6 +50,25 @@ async function main() {
   assert.equal(autoXaiConfig.protocol, "xai-images");
   assert.equal(autoXaiConfig.provider, "xai");
 
+  const inferredFamilies = [
+    ["gpt-image-4", "openai-images"],
+    ["dall-e-4", "openai-images"],
+    ["chatgpt-image-preview", "openai-images"],
+    ["xai-image-3", "xai-images"],
+    ["gemini-4-image", "gemini-native"],
+    ["nano-banana-pro", "gemini-native"]
+  ];
+  for (const [model, protocol] of inferredFamilies) {
+    const config = resolveImageModelConfig({ accessMode: "custom", imageBaseUrl: "https://sub2-api.example/v1" }, model);
+    assert.equal(config.protocol, protocol, `${model} protocol`);
+    assert.equal(config.gateway, "sub2api", `${model} gateway`);
+    assert.equal(config.transportMode, "async", `${model} transport`);
+  }
+  const directUnknown = resolveImageModelConfig({ accessMode: "custom", imageBaseUrl: "https://images.example/v1" }, "vendor-image-v1");
+  assert.equal(directUnknown.protocol, "openai-images");
+  assert.equal(directUnknown.gateway, "direct");
+  assert.equal(directUnknown.transportMode, "sync");
+
   const geminiConfig = resolveImageModelConfig({ accessMode: "custom" }, "gemini-3.1-flash-image");
   const geminiRequest = normalizeImageGenerationRequest({ model: geminiConfig.model, prompt: "cat", aspectRatio: "1:1", resolution: "1K", mode: "edit", editImage: { dataUrl: "data:image/png;base64,aW1hZ2U=" } }, geminiConfig);
   const gemini = await buildGeminiRequest(geminiRequest, geminiConfig, {
@@ -70,6 +89,25 @@ async function main() {
     candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aW1hZ2U=" } }] } }]
   }, { model: "gemini-3.1-flash-image", provider: "google", protocol: "gemini-native", gateway: "newapi" });
   assert.equal(geminiNormalized.images[0].type, "base64");
+  const nestedNormalized = normalizeImageGenerationResponse({
+    response: {
+      revisedPrompt: "keep the subject centered",
+      requestIndex: 3,
+      result: {
+        data: {
+          data: [
+            { url: "https://cdn.example/nested.png" },
+            { url: "https://cdn.example/nested.png" },
+            { inlineData: { mimeType: "image/webp", data: "d2VicA==" } }
+          ]
+        }
+      }
+    }
+  });
+  assert.equal(nestedNormalized.images.length, 2);
+  assert.equal(nestedNormalized.images[0].requestIndex, 3);
+  assert.equal(nestedNormalized.images[0].revisedPrompt, "keep the subject centered");
+  assert.equal(nestedNormalized.images[1].mimeType, "image/webp");
   assert.equal(normalizeImageGenerationError(Object.assign(new Error("too many requests"), { status: 429 }), { model: "x" }).category, "RATE_LIMIT");
   assert.equal(normalizeImageGenerationError(Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }), { model: "x" }).category, "TIMEOUT");
 

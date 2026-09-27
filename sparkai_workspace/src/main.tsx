@@ -493,6 +493,8 @@ type RequirementEditorDraft = {
 };
 
 type AgentPromptDispatchOptions = {
+  /** Explicit composer scope mode used only when an existing run can be steered. */
+  taskScopeMode?: AgentSteerTaskScopeMode | "auto";
   sourceNodeIds?: string[];
   focusedNodeId?: string;
   taskOrigin?: AgentTaskScope["origin"];
@@ -9502,6 +9504,24 @@ function App() {
     });
   }
 
+  function reportAgentSendFailure(message: string, markError = true) {
+    const content = String(message || "Agent 消息未发送。").trim() || "Agent 消息未发送。";
+    setServerMessage(content);
+    if (markError) {
+      agentStatusRef.current = "error";
+      setAgentStatus("error");
+    }
+    setAgentProgress((current) => [...current, {
+      runId: activeRunRef.current || uid("agent-send-error"),
+      projectId: activeProjectIdRef.current || "",
+      conversationId: activeConversationIdRef.current,
+      phase: "runtime-error",
+      summary: content,
+      createdAt: new Date().toISOString()
+    }].slice(-48));
+    pushSystemMessage("agent-send-error", content);
+  }
+
   async function submitRegionRedraw() {
     if (agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
@@ -15883,12 +15903,12 @@ function App() {
     if (!content) return false;
     const reportFailure = options.reportFailure !== false;
     if (agentStopPendingRef.current) {
-      if (reportFailure) setServerMessage("正在确认结束当前任务，请稍候；任务状态尚未改变。");
+      if (reportFailure) reportAgentSendFailure("正在确认结束当前任务，请稍候；任务状态尚未改变。", false);
       return false;
     }
     const runId = activeRunRef.current;
     if (!runId || !window.naimageAgent?.steer) {
-      if (reportFailure) setServerMessage("当前任务暂时不能接收运行中修改；可以先结束任务再发送新要求。");
+      if (reportFailure) reportAgentSendFailure("当前任务暂时不能接收运行中修改；可以先结束任务再发送新要求。", true);
       return false;
     }
     const activeGoal = lastDispatchedTaskScopeRef.current?.origin === "goal";
@@ -15900,7 +15920,7 @@ function App() {
       options.useComposerAttachments !== false
     );
     if (goalScopeMutationRequested) {
-      if (reportFailure) setServerMessage("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。");
+      if (reportFailure) reportAgentSendFailure("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。", false);
       return false;
     }
     const useComposerAttachments = options.useComposerAttachments !== false;
@@ -16015,7 +16035,7 @@ function App() {
       error: error instanceof Error ? error.message : String(error)
     }));
     if (result.ok === false || !result.accepted) {
-      if (reportFailure) setServerMessage(result.error || "当前任务没有接收这条修改要求。");
+      if (reportFailure) reportAgentSendFailure(result.error || "当前任务没有接收这条修改要求。", false);
       return false;
     }
     const steerMessage: AgentMessage = {
@@ -16092,11 +16112,15 @@ function App() {
     }
     if (agentExecutionBusyNow()) {
       const staleRunId = activeRunRef.current;
+      const activeGoal = lastDispatchedTaskScopeRef.current?.origin === "goal";
       const steered = await steerAgentRun(nextPrompt ?? prompt, {
+        taskScopeMode: activeGoal
+          ? "keep"
+          : dispatch.taskScopeMode === "auto" ? undefined : dispatch.taskScopeMode,
         sourceNodeIds: dispatch.sourceNodeIds,
         sourceImages: dispatch.sourceImages,
         referenceImages: dispatch.referenceImages,
-        useComposerAttachments: dispatch.useComposerAttachments,
+        useComposerAttachments: activeGoal ? false : dispatch.useComposerAttachments,
         reportFailure: false
       });
       if (steered) return true;
@@ -16111,7 +16135,7 @@ function App() {
         runState.other ||
         Boolean(activeRunRef.current && activeRunRef.current !== staleRunId)
       ) {
-        setServerMessage("当前 Agent 任务仍在运行，请等待完成、回答或结束后再发送新的要求。");
+        reportAgentSendFailure("当前 Agent 任务仍在运行，请等待完成、回答或结束后再发送新的要求。", false);
         return false;
       }
       if (staleRunId) clearStaleAgentRun(staleRunId);
@@ -25561,19 +25585,11 @@ function App() {
     taskMode: AgentComposerTaskMode = "standard"
   ) => {
     const content = nextPrompt ?? prompt;
-    if (agentExecutionBusyNow()) {
-      if (lastDispatchedTaskScopeRef.current?.origin === "goal") {
-        return steerAgentRun(content, { taskScopeMode: "keep", useComposerAttachments: false });
-      }
-      return taskScopeMode !== "auto"
-        ? steerAgentRun(content, { taskScopeMode })
-        : sendPrompt(nextPrompt);
-    }
-    if (taskMode === "goal") {
+    if (taskMode === "goal" && !agentExecutionBusyNow()) {
       pendingCommerceReusableNodeRef.current = null;
       return requestGoalModeConfirmation(content);
     }
-    return sendPrompt(nextPrompt);
+    return sendPrompt(nextPrompt, { taskScopeMode });
   });
   function commerceSourceItemsForNodeIds(sourceNodeIds: readonly string[]) {
     const seenBindings = new Set<string>();

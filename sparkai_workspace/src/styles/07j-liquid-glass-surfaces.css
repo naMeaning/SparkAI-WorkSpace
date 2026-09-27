@@ -307,6 +307,29 @@
   backdrop-filter: none;
 }
 
+:root.glass-theme-active :is(.settings-drawer, .model-picker-dialog) :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select
+),
+:root[data-glass-theme] :is(.settings-drawer, .model-picker-dialog) :is(
+  :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select
+) {
+  background: var(--glass-surface-solid);
+  color: var(--ink);
+  border-color: var(--glass-line-strong);
+}
+
+:root.glass-theme-active :is(.settings-drawer, .model-picker-dialog) :is(input, textarea)::placeholder,
+:root[data-glass-theme] :is(.settings-drawer, .model-picker-dialog) :is(input, textarea)::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
 .workspace-search-popover > header {
   position: relative;
   z-index: 1;

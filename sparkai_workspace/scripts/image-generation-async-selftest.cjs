@@ -60,6 +60,24 @@ async function main() {
   assert.deepEqual(accepted, [{ taskId: "task-1", status: "queued" }]);
   assert.deepEqual(statuses, ["running", "completed"]);
 
+  transport = async (_url, options) => {
+    assert.equal(options.method, "POST");
+    return response(200, {
+      data: {
+        result: {
+          data: {
+            data: [{ url: "https://cdn.example/immediate.png" }]
+          }
+        }
+      }
+    });
+  };
+  const immediate = await client.newApiRelayAsyncImage(settings, "/v1/images/generations", {
+    model: "gpt-image-2",
+    prompt: "immediate"
+  }, { model: "gpt-image-2", pollIntervalMs: 0 });
+  assert.equal(immediate.data.result.data.data[0].url, "https://cdn.example/immediate.png");
+
   let createCount = 0;
   transport = async (_url, options) => {
     if (options.method === "POST") createCount += 1;
