@@ -476,3 +476,12 @@ Change: `corepack pnpm run package:win:variants` 退出 0；两种变体均转�
 Evidence: 独立 PowerShell 核验 Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `DBFDB1A0706344683B806233A38FD3DB1EF5A371A8DD66DD039FAED6C9E44991`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `07C0F5D7B103CA145E6CF3CABE0A47F23C221AC5D70CE721CD6C95BEAFB4ED9F`。`Get-AuthenticodeSignature` 状态为 `NotSigned`。
 Unverified: 设置可读性、图片 provider 自动适配、真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名、`release:final` 和真实图片/视频服务仍未验证。
 Next: 提交并推送本轮文档与 EXE 构建证据；后续继续活动 Goal 的设置可读性与图片 provider mock 路由。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 本轮 EXE 构建和上下文文档记录已提交并推送到远端 `main`。
+Scope: `GOAL.md`、`PROGRESS.md`、`docs/INSTALLATION.md`、`docs/CONTEXT_MAP.md` 与当前开发阶段双版本安装包证据。
+Change: 提交 `a4f91fd`（`docs: record latest exe build`），通过 SSH 执行 `git push origin main`；构建产物仍保留在本地 `release/`，未将忽略的二进制制品加入 Git。
+Evidence: push 退出 0，远端 `refs/heads/main` 为 `a4f91fd91535ceca9c48088c3bb01ded1ea49d98`；本地 `main` 与远端一致，工作树干净。
+Unverified: 活动 Goal 的设置可读性和图片 provider 自动适配、真实安装/卸载、签名、正式发布门禁与真实图片/视频服务。
+Next: 后续从已推送的 `main` 继续设置表面可读性和图片 provider mock 路由。
