@@ -404,3 +404,21 @@ Change: 提交 `178bcee`（`fix: recover agent sends after stale runs`），通�
 Evidence: push 退出 0，远端更新范围 `d114574..178bcee`；`git ls-remote origin refs/heads/main` 返回 `178bcee7b4a1d49c2043ba923cca36f540c9ddde`，本地 `main` 与 `origin/main` 一致。
 Unverified: 设置可读性、图片 provider 自动适配、真实安装/卸载、EXE 数字签名、正式 Bundle/release 门禁和真实图片/视频服务；两个当前 EXE 的 Authenticode 状态为 `NotSigned`。
 Next: 后续从已推送的 `main` 继续设置面板与图片 provider Goal；本轮 EXE 产物路径和哈希见上一条记录。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 按用户要求在当前 `main` 分支重新编译 Windows x64 双版本安装包。
+Scope: 当前源码 production build、Unrestricted/SparkAPI 接入策略、Electron/NSIS 封装与产物完整性核验。
+Change: 保持工作树无源码改动，执行 `corepack pnpm run package:win:variants`；本轮只生成开发阶段安装包，不调用真实图片/视频模型，也不执行正式发布门禁。
+Evidence: 构建尚未开始；起始提交为 `faa0862`，本地 `main` 与 `origin/main` 一致。
+Unverified: 本轮 Vite build、双 EXE 封装、文件头、大小和 SHA-256。
+Next: 执行双变体打包并记录实际产物与哈希。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 `main` 已重新编译出 Unrestricted 与 SparkAPI 两个 Windows x64 安装包。
+Scope: 双接入策略自测、安装器资源、两次 Vite production build、Electron/NSIS 封装和 EXE 完整性核验。
+Change: `corepack pnpm run package:win:variants` 退出 0，`bundleEnforced:false`；每个变体均完成 1676 modules 的 Vite build、品牌安装器和 NSIS 封装。
+Evidence: Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `7F42C9C3AAE9552EC3375878A239B540AC8483D5755E087581198876945CD760`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `23FA7E2728648C49BB0ACFEB66AA6B47C1F0B25C1351541A6099190C274FF988`。两者 `Get-AuthenticodeSignature` 均为 `NotSigned`。
+Unverified: 正式 `package:win`/Bundle 门禁、真实安装/卸载、数字签名有效性、正式 `release:final` 和真实图片/视频服务仍未验证。
+Next: 提交并推送本次文档构建记录；后续继续 settings 可读性和图片 provider 自动适配 Goal。
