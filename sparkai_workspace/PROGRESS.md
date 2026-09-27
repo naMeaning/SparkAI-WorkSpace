@@ -1,6 +1,15 @@
 # SparkAI WorkSpace 进度
 
 Date: 2026-09-27
+Status: partially verified
+Outcome: 基于当前 `main` 源码重新编译两个 Windows x64 EXE 安装包。
+Scope: Vite production build、Unrestricted 与 SparkAPI access variant、Electron/NSIS 与品牌安装器封装。
+Change: 按用户要求执行 `corepack pnpm run package:win:variants`，覆盖同名 1.0.9 开发阶段安装包；未调用真实图片/视频服务。
+Evidence: 命令退出码 0；接入策略自测、安装器资源生成、两次 Vite production build（各 1676 modules）和双变体 Electron/NSIS 封装完成，脚本报告 `bundleEnforced:false`。独立 PowerShell 核验两个文件头均为 `4D-5A`：Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `C9E0592861BC5FCACE4088FE113495F4B809E5F32CC6658A7B376110A8E63D69`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `A48D2651499CD0320988192FF47318C30989B96935E5E24A970BB3B540C4E186`。构建后 `git status --short --branch` 仍为干净的 `main`。
+Unverified: 本次为开发阶段 `bundleEnforced:false` 构建；未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
+Next: 保留上述 EXE 供本地安装验证；后续继续活动 Goal 的设置可读性与图片 provider mock 路由。
+
+Date: 2026-09-27
 Status: in progress
 Outcome: 继续收口 Agent 消息无法提交、设置面板可读性和图片 provider 自动适配三个活动边界。
 Scope: `src/project-agent-composer.tsx`/`src/main.tsx` Agent 发送入口与运行控制、设置抽屉 Glass 表面、`runtime/image-generation` 与 `desktop/new-api-client.cjs` 图片请求合同。
