@@ -539,3 +539,12 @@ Change: `corepack pnpm run build` 通过（1676 modules，built in 21.32s）；`
 Evidence: [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109803520` bytes、MZ、SHA-256 `46D46F1637EF5C76F8AE2D0BF76D32D772DDC51D55EF5145271B9DCFCE3B28D2`；[SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109803520` bytes、MZ、SHA-256 `A67378AE53736450718849815F9B23790B005E9F8042FD275E032A9E0DF45FC3`。两者 `Authenticode: NotSigned`，`release/.naimage-release-incomplete.json` 不存在；`test:access-variant`、Installer/Uninstaller 构建均在打包流程中通过。
 Unverified: 未运行真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名验证、`release:final` 或真实 provider/图片服务；构建保留既有 chunk size、.NET nullable 和 Node child-process deprecation 警告。
 Next: 提交并推送源码与目标/进度/上下文文档；保留显式 Goal/TaskScope 独立 GUI 证据和真实安装 smoke 作为后续验证。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前源码、目标/进度/上下文文档和构建记录已提交并推送到 `main`。
+Scope: Git 提交、SSH push、远端分支和本地工作树。
+Change: 提交 `c1a2b59`（`feat: finish agent image routing and build variants`），通过 SSH 执行 `git push origin main`；EXE 仍保留在本地 `release/`，未加入 Git。
+Evidence: push 退出码 0，远端更新范围 `f325b43..c1a2b59`；待最后核对 `git ls-remote origin refs/heads/main` 和工作树。
+Unverified: 显式 Goal/TaskScope 独立 GUI 发送边界、真实安装/卸载 smoke、签名、正式发布门禁和真实 provider/图片服务。
+Next: 保留上述边界作为后续验证，不把当前开发包描述为正式发布制品。

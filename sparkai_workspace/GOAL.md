@@ -12,7 +12,7 @@
 - **Acceptance**：隔离 UI 路径能证明发送按钮进入 Agent IPC/运行状态；发送前置条件失败可见；设置关键文字和输入可读；OpenAI/Grok/Gemini 与 NewAPI/Sub2API/direct mock 请求的 URL/header/body 正确；`corepack pnpm run build` 通过并产出 EXE。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用或正式发布。
 - **Status**：partially verified。Agent Composer 的鼠标点击、`Ctrl+Enter`、Renderer stale busy 恢复和失败 system message 已有隔离 Electron/专项证据；`projectAgentSendPrompt` 已统一经过 `sendPrompt`，Goal 运行保留冻结范围。设置抽屉和模型配置对话框已改为近实色卡片/输入与 `ink-soft` 辅助文字。图片模型族、Sub2API host/异步默认和多层响应归一化已实现并由 mock 专项覆盖；production build 和双版本 EXE 已完成并核对哈希。
-- **Next**：提交并推送当前源码与文档；显式 Goal/TaskScope 的独立 GUI 发送边界、真实安装/卸载 smoke、签名和真实 provider/图片服务仍保留为未验证项。保留未验证的真实服务边界。
+- **Next**：后续如需发布，再运行正式 Bundle/安装 smoke/签名门禁；当前显式 Goal/TaskScope 的独立 GUI 发送边界和真实 provider/图片服务仍保留为未验证项。保留未验证的真实服务边界。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 
