@@ -1,6 +1,15 @@
 # SparkAI WorkSpace 进度
 
 Date: 2026-09-27
+Status: in progress
+Outcome: 继续收口 Agent 消息无法提交、设置面板可读性和图片 provider 自动适配三个活动边界。
+Scope: `src/project-agent-composer.tsx`/`src/main.tsx` Agent 发送入口与运行控制、设置抽屉 Glass 表面、`runtime/image-generation` 与 `desktop/new-api-client.cjs` 图片请求合同。
+Change: 重新核对当前 `main` 工作树和上一轮补丁；当前代码在发送前会把忙碌状态分流到 steer，并用项目/会话而不是精确 `runId` 判断 Main 运行是否结束。设置和图片配置已有部分收敛，但 provider 自动识别与 Sub2API 合同仍未形成完整证据。
+Evidence: 工作树干净、`HEAD` 与 `origin/main` 均为 `1b39e42`；当前上下文地图和 Goal 仍把三项列为活动目标。尚未重新运行本轮 Agent 真实 Renderer/IPC 复现或图片 loopback 合同验证。
+Unverified: 新消息是否在旧 run 结束边界可靠进入 `naimage:agent:chat`、浅深主题设置文字对比度、NewAPI/Sub2API/OpenAI/Gemini/Grok/direct 的自动 URL/header/body/响应解析。
+Next: 先运行现有 Agent 发送专项并检查 Main run-status/steer 证据，再以精确 `runId` 和明确 idle 边界修复发送分流；随后补设置 computed-style 与图片 provider loopback 专项。
+
+Date: 2026-09-27
 Status: partially verified
 Outcome: 按当前 `main` 工作树重新编译 Windows x64 双接入 EXE。
 Scope: 当前 Renderer/Main 源码、Vite production build、双接入策略、Electron/NSIS 与品牌安装器封装。
@@ -269,3 +278,39 @@ Change: 该启动记录已被本轮真实 CDP 鼠标/键盘验证和当前 EXE �
 Evidence: 已由本文件顶部本轮条目记录 `test:agent-send-ipc`、production build 和双 EXE 的实际证据。
 Unverified: 浅深主题对比度、NewAPI/Sub2API/direct 自动适配与响应特征识别。
 Next: 继续完成设置可读性和本地 provider mock 路由专项。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 按用户请求从当前 `main` 编译 Windows x64 EXE。
+Scope: 当前源码的 Vite production build、Bundle 门禁、安装器资源、Electron/NSIS 双接入封装。
+Change: 开始新的可追溯构建批次；不调用真实图片或视频服务，旧产物哈希不作为本轮结果。
+Evidence: 构建尚未运行；当前工作树仅有本文件未提交文档记录。
+Unverified: 本轮构建退出码、Bundle 门禁、产物路径、文件大小、SHA-256 和安装器 UI smoke。
+Next: 运行 `corepack pnpm run package:win`，按结果决定是否生成开发阶段双版本 EXE。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 正式 Windows 打包入口完成 production build，但被 Bundle CSS 硬门禁拦截。
+Scope: Vite production build 与 `test:bundle` 门禁。
+Change: `package:win` 的 build 通过并转换 1676 modules；`test:bundle` 报告 CSS `274,996 B > 270,000 B`，未进入 NSIS 封装。
+Evidence: `corepack pnpm run package:win` 退出码 1；`initialJsBytes=3,996`、`pluginJsBytes=86,090` 在限制内，CSS 为唯一 hard failure，其他超限均为 advisory。
+Unverified: 双版本开发 EXE、产物哈希、安装器 UI smoke。
+Next: 运行 `corepack pnpm run package:win:variants` 生成开发验证包。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 开发阶段双接入 Windows x64 安装器已封装完成。
+Scope: 双 access variant 的 Vite build、Electron/NSIS 封装和安装器资源。
+Change: `package:win:variants` 两个变体均成功；`bundleEnforced: false`，保留正式 Bundle CSS 门禁超限但不阻断开发包。
+Evidence: 命令退出码 0；两次 Vite build 均转换 1676 modules；脚本报告 Unrestricted `109,803,520` bytes、SparkAPI `109,804,032` bytes，SHA-256 分别为 `256e73a3b5064fed075c04c358efcd697098f1b8332dbf488a297463707dae7f` 与 `ff56a8cb2e54a3565358e20c9074ab61dce7e7424db8283d9ab6f762a2f08826`。
+Unverified: 独立文件校验、安装器 UI smoke、真实安装/卸载、签名有效性和正式 `release:final`。
+Next: 独立核对两个 EXE 后运行 `corepack pnpm run package:installer-ui-smoke`。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 `main` 已生成可用的 Windows x64 双版本开发 EXE，并完成安装器界面 smoke。
+Scope: 当前源码 production build、Bundle 记录、Electron/NSIS 双接入封装、文件完整性和品牌安装器 UI。
+Change: 独立复核两个 EXE 文件头与 SHA-256；品牌安装器 UI smoke 覆盖 19 个截图/探针场景。
+Evidence: `corepack pnpm run package:installer-ui-smoke` 退出码 0，报告 `.diagnostics/release/branded-installer-ui-2026-09-27T07-24-45-621Z/report.json`，`ok: true`、`captureCount: 19`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,803,520` bytes，文件头 `4D 5A`，SHA-256 `256E73A3B5064FED075C04C358EFCD697098F1B8332DBF488A297463707DAE7F`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D 5A`，SHA-256 `FF56A8CB2E54A3565358E20C9074AB61DCE7E7424DB8283D9AB6F762A2F08826`。
+Unverified: 正式 `package:win` 仍因 CSS `274,996 B > 270,000 B` 门禁失败；本轮未执行真实安装/卸载、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
+Next: 提交并推送本轮可追溯构建记录；后续继续 Goal 时从当前 `main` 处理剩余 provider mock 和设置对比度边界。
