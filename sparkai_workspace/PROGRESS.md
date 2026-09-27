@@ -548,3 +548,12 @@ Change: 提交 `c1a2b59`（`feat: finish agent image routing and build variants`
 Evidence: push 退出码 0，远端更新范围 `f325b43..c1a2b59`；待最后核对 `git ls-remote origin refs/heads/main` 和工作树。
 Unverified: 显式 Goal/TaskScope 独立 GUI 发送边界、真实安装/卸载 smoke、签名、正式发布门禁和真实 provider/图片服务。
 Next: 保留上述边界作为后续验证，不把当前开发包描述为正式发布制品。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 完成当前请求的交付收口并核对本地 Git 状态。
+Scope: 本地工作树、提交引用和远端分支读取。
+Change: `git status --short --branch` 显示工作树干净，`git log` 显示 `main` 与本地 `origin/main` 均为 `2457a06`；随后执行 `git ls-remote origin refs/heads/main` 时 GitHub SSH 连接超时。
+Evidence: 两次 `git push origin main` 均退出码 0，最后一次更新范围为 `c1a2b59..2457a06`；EXE 哈希和构建证据已在上一条记录。远端直读因网络超时未取得独立回执。
+Unverified: 独立远端 `ls-remote` 回执、正式发布门禁、真实安装/卸载 smoke、签名和真实 provider/图片服务。
+Next: 当前代码与文档已完成提交；后续网络可用时再补 `git ls-remote` 独立核对，不影响本次已成功 push 的结果。
