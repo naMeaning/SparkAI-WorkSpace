@@ -199,6 +199,47 @@ async function main() {
     const state = window.__naimageDebugAgentState?.() || {};
     return Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)}) && Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request');
   })()`, { evaluate, timeoutMs: 5_000, intervalMs: 50 });
+  await waitForRuntimeExpression(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return state.agentStatus === 'idle' || state.agentStatus === 'error';
+  })()`, { evaluate, timeoutMs: 20_000, intervalMs: 100 });
+  const normalEvidence = await evaluate(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return {
+      promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)}),
+      runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
+      keyboardPromptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)})
+    };
+  })()`);
+  const staleBusyPrompt = `AIDEBUG_REAL_COMPOSER_STALE_BUSY_${Date.now()}`;
+  const staleSurface = await evaluate(client, `window.__naimageDebugOpenSurface?.('agent-running') === true`);
+  assert.equal(staleSurface, true);
+  await waitForRuntimeExpression(client, `window.__naimageDebugAgentState?.().activeRunId === 'debug-running-ui'`, { evaluate, timeoutMs: 3_000, intervalMs: 50 });
+  const staleInput = await evaluate(client, `(() => {
+    const textarea = document.querySelector('.project-agent-composer textarea');
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(textarea, ${JSON.stringify(staleBusyPrompt)});
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(staleBusyPrompt)} }));
+    textarea.focus();
+    return document.activeElement === textarea;
+  })()`);
+  assert.equal(staleInput, true);
+  await waitForRuntimeExpression(client, `document.querySelector('.project-agent-composer button[aria-label="修改当前任务"]')?.disabled === false`, { evaluate, timeoutMs: 3_000, intervalMs: 50 });
+  await dispatchCtrlEnter();
+  await waitForRuntimeExpression(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(staleBusyPrompt)}) && Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request' && item.runId !== 'debug-running-ui');
+  })()`, { evaluate, timeoutMs: 5_000, intervalMs: 50 });
+  const staleRecovery = await evaluate(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return {
+      promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(staleBusyPrompt)}),
+      runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request' && item.runId !== 'debug-running-ui'),
+      activeRunId: state.activeRunId || '',
+      agentStatus: state.agentStatus || ''
+    };
+  })()`);
   await delay(250);
   const afterCall = await evaluate(client, `(() => {
     const state = window.__naimageDebugAgentState?.() || {};
@@ -213,10 +254,12 @@ async function main() {
         lastAssistant: state.lastAssistant || ''
       },
       ipcEvidence: {
-        promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)}),
-        runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
+        promptPresent: Boolean(${JSON.stringify(normalEvidence?.promptPresent)}),
+        runtimeRequest: Boolean(${JSON.stringify(normalEvidence?.runtimeRequest)}),
         electronLogHasMockModel: false,
-        keyboardPromptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)})
+        keyboardPromptPresent: Boolean(${JSON.stringify(normalEvidence?.keyboardPromptPresent)}),
+        staleBusyPromptPresent: Boolean(${JSON.stringify(staleRecovery?.promptPresent)}),
+        staleBusyRuntimeRequest: Boolean(${JSON.stringify(staleRecovery?.runtimeRequest)})
       }
     };
   })()`);
@@ -237,12 +280,14 @@ async function main() {
           runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
           lastProgress: Array.isArray(state.progress) ? state.progress.slice(-12) : [],
           lastAssistant: state.lastAssistant || ''
-        },
+      },
       ipcEvidence: {
-        promptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(prompt)}),
-        runtimeRequest: Array.isArray(state.progress) && state.progress.some((item) => item.phase === 'runtime-request'),
+        promptPresent: Boolean(${JSON.stringify(normalEvidence?.promptPresent)}),
+        runtimeRequest: Boolean(${JSON.stringify(normalEvidence?.runtimeRequest)}),
         electronLogHasMockModel: false,
-        keyboardPromptPresent: Array.isArray(state.messages) && state.messages.some((message) => message.role === 'user' && message.content === ${JSON.stringify(keyboardPrompt)})
+        keyboardPromptPresent: Boolean(${JSON.stringify(normalEvidence?.keyboardPromptPresent)}),
+        staleBusyPromptPresent: Boolean(${JSON.stringify(staleRecovery?.promptPresent)}),
+        staleBusyRuntimeRequest: Boolean(${JSON.stringify(staleRecovery?.runtimeRequest)})
       }
     };
   })()`);
@@ -251,8 +296,10 @@ async function main() {
   }
   const log = existsSync(logPath) ? readFileSync(logPath, "utf8").split(/\r?\n/).slice(-80) : [];
   const electronLogHasMockModel = log.some((line) => line.includes(`aidebug model`) && line.includes(prompt));
+  const electronLogHasStaleBusyModel = log.some((line) => line.includes(`aidebug model`) && line.includes(staleBusyPrompt));
   if (final?.ipcEvidence) final.ipcEvidence.electronLogHasMockModel = electronLogHasMockModel;
-  process.stdout.write(`${JSON.stringify({ ok: Boolean(final?.ipcEvidence?.promptPresent && final?.ipcEvidence?.runtimeRequest && final?.ipcEvidence?.keyboardPromptPresent && electronLogHasMockModel), before, bridgeProbe, inputResult, clickResult, mouseDispatch, mouseAfter, keyboardInput, final, log }, null, 2)}\n`);
+  if (final?.ipcEvidence) final.ipcEvidence.electronLogHasStaleBusyModel = electronLogHasStaleBusyModel;
+  process.stdout.write(`${JSON.stringify({ ok: Boolean(final?.ipcEvidence?.promptPresent && final?.ipcEvidence?.runtimeRequest && final?.ipcEvidence?.keyboardPromptPresent && final?.ipcEvidence?.staleBusyPromptPresent && final?.ipcEvidence?.staleBusyRuntimeRequest && electronLogHasMockModel && electronLogHasStaleBusyModel), before, bridgeProbe, inputResult, clickResult, mouseDispatch, mouseAfter, keyboardInput, staleRecovery, final, log }, null, 2)}\n`);
 }
 
 try {

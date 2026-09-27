@@ -323,3 +323,66 @@ Change: 提交 `adb4175`，通过 SSH 推送 `main -> origin/main`；未改动�
 Evidence: `git push origin main` 退出码 0，远端更新范围 `1b39e42..adb4175`；当前产物与 smoke 证据见上一条记录。
 Unverified: 正式 Bundle CSS 门禁、真实安装/卸载、签名有效性、正式发布门禁和真实图片/视频服务仍未验证。
 Next: 后续开发从已推送的 `main` 继续；若需要正式发布，先处理 CSS 门禁并运行 `release:final`。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 继续修复 Agent 消息在运行状态竞态下被本地错误拒绝的问题。
+Scope: `src/main.tsx` 的 Renderer run-status/steer 分流与 `scripts/agent-send-ipc-selftest.mjs` 回归。
+Change: 复核确认当前登记查询按项目/会话匹配，未精确约束 `runId`；这会把同一会话中的另一个活动 run 误当作旧 run，阻止新消息进入发送链路。
+Evidence: 当前 `test:agent-send-ipc` 可证明正常点击/键盘消息进入 IPC，但尚未覆盖“旧 run 已结束、另一个 run 已登记”和“忙碌状态无 Main run”两个边界。
+Unverified: 修复后真实 Electron 的重新发送与真正活动 run 的拒绝语义。
+Next: 让 Renderer 查询返回精确 run 状态和其他活动 run 状态，修复发送分流并补专项回归。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: Agent 在 Renderer 保留陈旧 busy 标记、Main 已无对应 run 时可以重新进入发送链路。
+Scope: `src/main.tsx` run-status/steer 分流、Agent Composer 隔离 Electron 自测。
+Change: `inspectAgentRunStatus()` 现在按项目、会话和精确 `runId` 匹配，并区分同会话的其他活动 run；只有 Main 无活动 run 且没有图片任务、待回答或 reservation 时才清理本地陈旧状态并重新发送。
+Evidence: `corepack pnpm run test:agent-send-ipc` 退出码 0；新增 stale busy 场景中 `promptPresent:true`、`runtimeRequest:true`、新 `runId` 非 `debug-running-ui`，Electron mock model 日志包含该请求；鼠标与 Ctrl+Enter 场景继续通过。
+Unverified: 同会话另一个真实活动 run 的 UI 拒绝路径仍需补更窄的回归；设置面板对比度和图片 provider 自动适配尚未处理。
+Next: 检查并强化 settings drawer 的实色背景/文字 token，然后补本地图片 provider loopback 合同。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 按用户最新要求，把当前 `main` 工作树（含未提交 Agent 发送修复）重新编译为 Windows x64 EXE。
+Scope: 当前 Renderer/Main 源码、Agent IPC 专项、TypeScript 类型检查、Vite production build、Unrestricted 与 SparkAPI access variant 的 Electron/NSIS 封装。
+Change: 保留现有未提交改动；本轮只验证和生成当前代码的开发阶段双版本安装包，不调用真实图片/视频模型，不执行正式发布门禁。
+Evidence: 尚未开始本轮命令；开始前 `main` 与 `origin/main` 均在 `d114574`，工作树有 `src/main.tsx`、`scripts/agent-send-ipc-selftest.mjs`、`PROGRESS.md` 未提交改动。
+Unverified: Agent 精确 run 状态回归、类型检查、production build、EXE 文件和哈希。
+Next: 运行直接专项和类型检查，通过后执行 `corepack pnpm run package:win:variants`，记录实际制品路径与 SHA-256。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 修正 Agent run-status 查询与现有 preload/IPC 类型契约不一致的问题。
+Scope: `src/main.tsx` 的 `inspectAgentRunStatus()` 与 `naimage:agent:run-status` 项目级快照边界。
+Change: 首次 `corepack pnpm run typecheck` 发现 Renderer 向 `runStatus` 传入未声明的 `conversationId`；核对 Main handler 后确认它只接受 `projectId` 并返回项目快照，因此改为按项目请求，再在 Renderer 按会话和精确 `runId` 过滤。
+Evidence: 首次类型检查失败为 `src/main.tsx(9454,73) TS2353`；修复已写入当前工作树，尚未重跑。
+Unverified: 修复后的类型检查、Agent 专项和 EXE 构建。
+Next: 重新运行 `typecheck` 与 `test:agent-send-ipc`，然后继续 production build/Windows 打包。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 Agent 发送修复通过直接验证，可以进入 EXE 编译。
+Scope: `src/main.tsx` Agent run-status 分流、`scripts/agent-send-ipc-selftest.mjs` Electron 回归、TypeScript 类型契约。
+Change: 按项目级 `run-status` 快照查询并在 Renderer 侧精确匹配会话/`runId`；保留 stale busy 恢复测试。
+Evidence: 修复后 `corepack pnpm run typecheck` 退出 0；`corepack pnpm run test:agent-send-ipc` 退出 0，鼠标、`Ctrl+Enter`、stale busy 新 run 和 mock model IPC 日志均有证据。
+Unverified: production build、Windows 安装包、安装/卸载 smoke、签名、正式发布门禁和真实图片/视频服务。
+Next: 执行 `corepack pnpm run build`，随后执行 `corepack pnpm run package:win:variants`。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前源码已完成 Vite production build，具备进入 Windows 封装的条件。
+Scope: `src/main.tsx` Agent 修复及完整 Renderer production bundle。
+Change: 运行 `corepack pnpm run build`，生成当前 `dist/`；构建包含 1676 modules，保留既有大 chunk advisory。
+Evidence: `corepack pnpm run build` 退出 0，Vite 报告 `✓ built in 21.46s`；未调用真实图片/视频服务。
+Unverified: 双接入 EXE 封装和最终文件哈希。
+Next: 执行 `corepack pnpm run package:win:variants` 并核验两个安装器。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 `main` 工作树已编译为两个 Windows x64 EXE 安装包。
+Scope: Vite production build、双接入策略、Electron/NSIS 与品牌安装器封装。
+Change: 执行 `corepack pnpm run package:win:variants`；生成 Unrestricted 与 SparkAPI 安装器，保留开发阶段 `bundleEnforced:false`。
+Evidence: 命令退出 0；两次 access variant selftest、安装器资源生成、两次 Vite build（各 1676 modules）和双 Electron/NSIS 封装完成。独立 PowerShell 核验均为 `MZ` (`4D-5A`)：Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,804,032 bytes，SHA-256 `69DAB1434AB2FA9B841A91A9862A189CA617D784FA60B1D4A1FFB2DCDAFE3E3B`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 109,804,032 bytes，SHA-256 `58587A9264C81132E6BD8FF366DEA3CF9B7ECEBC6B2EE9FD890AA33AA6BC351C`。
+Unverified: `Get-AuthenticodeSignature` 对两个 EXE 均为 `NotSigned`；未运行真实安装/卸载 smoke、正式 `release:final`/Bundle 门禁、真实图片/视频服务。
+Next: 提交并推送当前 `main` 改动；后续继续 settings 可读性与图片 provider 自动适配 Goal。

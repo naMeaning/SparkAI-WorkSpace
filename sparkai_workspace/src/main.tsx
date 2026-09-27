@@ -9444,27 +9444,46 @@ function App() {
     });
   }
 
-  async function agentRunStillRegistered(runId: string) {
-    if (!runId || !window.naimageAgent?.runStatus) return true;
+  async function inspectAgentRunStatus(runId?: string) {
+    const projectId = activeProjectIdRef.current;
+    const conversationId = activeConversationIdRef.current;
+    if (!window.naimageAgent?.runStatus) {
+      return { available: false, matching: true, other: true };
+    }
     try {
-      const snapshot = await window.naimageAgent.runStatus({
-        projectId: activeProjectIdRef.current,
-        conversationId: activeConversationIdRef.current
-      });
-      if (snapshot?.ok !== true || !Array.isArray(snapshot.runs)) return true;
-      return snapshot.runs.some((run) => (
-        run.projectId === activeProjectIdRef.current &&
-        run.conversationId === activeConversationIdRef.current
+      const snapshot = await window.naimageAgent.runStatus({ projectId });
+      if (snapshot?.ok !== true || !Array.isArray(snapshot.runs)) {
+        return { available: false, matching: true, other: true };
+      }
+      const runs = snapshot.runs.filter((run) => (
+        run?.projectId === projectId &&
+        run?.conversationId === conversationId
       ));
+      const matching = Boolean(runId) && runs.some((run) => run?.runId === runId);
+      return {
+        available: true,
+        matching,
+        other: runs.some((run) => !runId || run?.runId !== runId)
+      };
     } catch {
       // Do not start a second run when the authoritative Main snapshot is unavailable.
-      return true;
+      return { available: false, matching: true, other: true };
     }
   }
 
   function clearStaleAgentRun(runId: string) {
     if (!runId || activeRunRef.current !== runId) return;
     activeRunRef.current = null;
+    commitExecutionReservation(null);
+    agentStatusRef.current = "idle";
+    setAgentStatus("idle");
+    setAgentPaused(false);
+    setActiveRunStartedAt(null);
+    setRunElapsedSeconds(0);
+  }
+
+  function clearStaleAgentExecution() {
+    if (activeRunRef.current || Object.keys(imageRunStartsRef.current).length > 0) return;
     commitExecutionReservation(null);
     agentStatusRef.current = "idle";
     setAgentStatus("idle");
@@ -16081,17 +16100,22 @@ function App() {
         reportFailure: false
       });
       if (steered) return true;
+      const runState = await inspectAgentRunStatus(staleRunId || undefined);
+      const localImageWork = Object.keys(imageRunStartsRef.current).length > 0;
       if (
-        !staleRunId ||
         pendingAgentExecutionRef.current ||
         executionReservationRef.current ||
-        await agentRunStillRegistered(staleRunId) ||
+        localImageWork ||
+        !runState.available ||
+        runState.matching ||
+        runState.other ||
         Boolean(activeRunRef.current && activeRunRef.current !== staleRunId)
       ) {
         setServerMessage("当前 Agent 任务仍在运行，请等待完成、回答或结束后再发送新的要求。");
         return false;
       }
-      clearStaleAgentRun(staleRunId);
+      if (staleRunId) clearStaleAgentRun(staleRunId);
+      clearStaleAgentExecution();
       setServerMessage("");
     }
     const baseContent = (nextPrompt ?? prompt).trim();
