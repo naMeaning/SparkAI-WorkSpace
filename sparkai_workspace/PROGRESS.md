@@ -485,3 +485,21 @@ Change: 提交 `a4f91fd`（`docs: record latest exe build`），通过 SSH 执�
 Evidence: push 退出 0，远端 `refs/heads/main` 为 `a4f91fd91535ceca9c48088c3bb01ded1ea49d98`；本地 `main` 与远端一致，工作树干净。
 Unverified: 活动 Goal 的设置可读性和图片 provider 自动适配、真实安装/卸载、签名、正式发布门禁与真实图片/视频服务。
 Next: 后续从已推送的 `main` 继续设置表面可读性和图片 provider mock 路由。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 继续处理 Agent 发送前被软件拒绝、设置面板可读性和图片网关自动适配。
+Scope: Renderer Agent 发送入口与 Main run-status、设置 Glass token、`runtime/image-generation` 适配/响应归一化及其专项验证。
+Change: 从已推送的 `main` 重新核对当前实现；确认标准 `sendPrompt` 已有 stale busy 分流，但 `projectAgentSendPrompt`、Goal/Automation 相关入口仍可能在没有精确 Main 活动 run 时直接调用 `steerAgentRun`。设置分组/控件仍存在低实色覆盖，图片未知模型仍可落回旧协议/网关字段。
+Evidence: 工作树干净，`HEAD` 与 `origin/main` 均为 `50133af`；本轮尚未运行专项或修改产品源码。
+Unverified: 发送入口拒绝的实际用户可见状态、浅深主题计算颜色、NewAPI/Sub2API/direct 对 OpenAI/Gemini/Grok 请求与嵌套响应。
+Next: 运行现有 Agent 专项并读取入口/控制器合同，随后修复统一分流和可见失败，再处理设置与图片网关。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 按用户要求从当前 `main` 编译出可安装的 Windows x64 双版本 EXE。
+Scope: 当前源码 production build、Unrestricted/SparkAPI 接入策略、Electron/NSIS 与品牌安装器封装、EXE 完整性核验。
+Change: 执行 `corepack pnpm run package:win:variants`；未修改产品源码，也未调用真实图片/视频模型。构建脚本报告 `bundleEnforced:false`，二进制制品保留在本地 `release/`，不加入 Git。
+Evidence: 命令退出码 0；接入策略自测、安装器资源生成、两次 1676 modules 的 Vite production build、双 Electron/NSIS/品牌安装器均完成。独立 PowerShell 核验 Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA`。两个 EXE 文件头均为 `MZ`，Authenticode 状态均为 `NotSigned`，`release/.naimage-release-incomplete.json` 不存在。
+Unverified: 未运行真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名验证、`release:final` 或真实图片/视频服务；构建保留既有大 chunk、.NET nullable、NuGet 源不可访问和 Node 子进程 deprecation 警告。
+Next: 提交并推送本次构建记录；随后从当前 Goal 的第一个未完成边界继续 Agent 发送、设置可读性和图片 provider 自动适配。

@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：64
+> 地图版本：65
 > 最近同步：2026-09-27
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -1086,6 +1086,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
+| 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DBFDB1A0706344683B806233A38FD3DB1EF5A371A8DD66DD039FAED6C9E44991`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `07C0F5D7B103CA145E6CF3CABE0A47F23C221AC5D70CE721CD6C95BEAFB4ED9F`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求在当前 `main` 重新编译 EXE；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 Vite production build（各 1676 modules）和双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / SHA-256 `6EE0D3C62DC08232DF14516075E3C94FE3EBB327851294FB02804C5947B0B981`，SparkAPI 专用版为 109,804,032 bytes / SHA-256 `1712ACD29C42F2540D70B6BB62CEDDCB134D9BCB482B10228B369D512DF0F2AA`；两个文件头均为 `4D-5A`，Authenticode 均为 `NotSigned`。构建含既有大 chunk、.NET nullable、NuGet 源不可访问和 Node 子进程 deprecation 警告；未运行真实模型、安装/卸载 smoke、数字签名或正式 `release:final`。 |
 | 2026-09-20 | 1.0.9-dev | 以当前代码重新核对工具链与发布边界：桌面 `package.json` 为 1.0.9、Electron 42.6.1、React 18.3.1、TypeScript 5.9.3、Vite 8.1.3；Extension 为 0.2.1、Node 24 + `node:sqlite`。工作区新增可校验官方哈希的 `scripts/bootstrap-local-toolchain.ps1`，并验证便携 Go 1.25.1、Bun 1.3.14、.NET SDK 9.0.316、GitHub CLI 2.96.0；工具级发布前置已就绪，桌面 production build（1676 modules）、147/144/3 IPC registration、access-variant、release plan 与 release orchestrator selftest 均通过。诊断同时确认当前会话没有真实 Python 解释器（只有 WindowsApps alias），R 是可选未安装；未运行正式打包。诊断不再把历史 New API Web 依赖当作活跃 Extension 门槛；`LOCAL_TOOLCHAIN.md`、根工作区地图和本图记录发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`，同时保留代码中的 `SparkAI WorkSpace` 与 `naimage-studio` 更新兼容 ABI。当前文件快照无 `.git`，未创建 commit、tag、push 或 GitHub Release。 |
