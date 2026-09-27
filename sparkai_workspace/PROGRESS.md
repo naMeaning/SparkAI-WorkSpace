@@ -449,3 +449,30 @@ Change: 提交 `2020251`（`docs: record latest exe build`），通过 SSH 执�
 Evidence: push 退出码 0，远端更新范围 `4a9a22f..2020251`；本地与远端 `main` 指针已核对一致；两个安装包哈希仍为 Unrestricted `6EE0D3C62DC08232DF14516075E3C94FE3EBB327851294FB02804C5947B0B981`、SparkAPI `1712ACD29C42F2540D70B6BB62CEDDCB134D9BCB482B10228B369D512DF0F2AA`。
 Unverified: 两个安装包仍为未签名开发包；未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。
 Next: 后续从已推送的 `main` 继续设置可读性与图片 provider mock 路由；若要正式发布，先完成 `release:final` 门禁。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 继续完成 Agent 可发送、设置可读与图片网关简化的活动 Goal。
+Scope: Agent Composer/Renderer 与 Main run-status、设置抽屉 Glass 表面、图片模型连接解析、请求适配与响应归一化。
+Change: 核对 `main` 工作树干净且 HEAD 为 `d2b3708`。发现显式 TaskScope/Goal 路径直接调用 `steerAgentRun`，绕过 `sendPrompt` 的 stale run 检查；忙碌拒绝只写 `serverMessage`，Agent panel 未消费它。设置抽屉有实色外壳但局部分组/控件仍半透明；图片解析仅读取顶层数组，旧协议/网关字段仍可驱动未知模型。
+Evidence: 当前源码和文档静态核对；官方 OpenAI Images 指南确认 generation/edit 双端点、`n`、`partial_images`、base64 输出与图片编辑输入；本轮尚未执行构建或交互验证。
+Unverified: 发送入口所有拒绝路径的可见状态、浅深主题实际颜色/透明度、NewAPI/Sub2API/direct 的图片 URL/header/body 与嵌套响应。
+Next: 先修 Agent 发送分流并保证拒绝显示在对话区，再调整设置与图片适配。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 按用户最新要求从当前 `main` 重新编译 Windows x64 EXE。
+Scope: 当前工作树、Vite production build、Unrestricted/SparkAPI 接入变体、Electron/NSIS 与品牌安装器封装。
+Change: 保留活动 Goal 文档中的未完成边界；本轮只生成开发阶段双版本安装包，不调用真实图片/视频模型，不执行正式发布门禁。
+Evidence: 打包尚未开始；起始提交为 `d2b3708`，本地 `main` 与 `origin/main` 一致，工作树仅有 `GOAL.md`、`PROGRESS.md` 文档修改。
+Unverified: 本轮 production build、双 EXE 文件、SHA-256、安装/卸载 smoke、签名和正式发布门禁。
+Next: 执行 `corepack pnpm run package:win:variants`，随后独立核验两个 EXE。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 `main` 已重新编译出 Unrestricted 与 SparkAPI 两个 Windows x64 EXE 安装包。
+Scope: 接入策略自测、安装器资源、两次 Vite production build、Electron/NSIS 与品牌安装器封装、EXE 完整性核验。
+Change: `corepack pnpm run package:win:variants` 退出 0；两种变体均转换 1676 modules 并完成品牌安装器封装，脚本报告 `bundleEnforced:false`。未调用真实图片/视频模型。
+Evidence: 独立 PowerShell 核验 Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `DBFDB1A0706344683B806233A38FD3DB1EF5A371A8DD66DD039FAED6C9E44991`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `07C0F5D7B103CA145E6CF3CABE0A47F23C221AC5D70CE721CD6C95BEAFB4ED9F`。`Get-AuthenticodeSignature` 状态为 `NotSigned`。
+Unverified: 设置可读性、图片 provider 自动适配、真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名、`release:final` 和真实图片/视频服务仍未验证。
+Next: 提交并推送本轮文档与 EXE 构建证据；后续继续活动 Goal 的设置可读性与图片 provider mock 路由。
