@@ -386,3 +386,12 @@ Change: 执行 `corepack pnpm run package:win:variants`；生成 Unrestricted �
 Evidence: 命令退出 0；两次 access variant selftest、安装器资源生成、两次 Vite build（各 1676 modules）和双 Electron/NSIS 封装完成。独立 PowerShell 核验均为 `MZ` (`4D-5A`)：Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,804,032 bytes，SHA-256 `69DAB1434AB2FA9B841A91A9862A189CA617D784FA60B1D4A1FFB2DCDAFE3E3B`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 109,804,032 bytes，SHA-256 `58587A9264C81132E6BD8FF366DEA3CF9B7ECEBC6B2EE9FD890AA33AA6BC351C`。
 Unverified: `Get-AuthenticodeSignature` 对两个 EXE 均为 `NotSigned`；未运行真实安装/卸载 smoke、正式 `release:final`/Bundle 门禁、真实图片/视频服务。
 Next: 提交并推送当前 `main` 改动；后续继续 settings 可读性与图片 provider 自动适配 Goal。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 Agent 修复、回归测试与 Windows 双变体 EXE 已提交并推送到 `main`。
+Scope: `GOAL.md`、`PROGRESS.md`、`src/main.tsx`、`scripts/agent-send-ipc-selftest.mjs` 及本轮开发阶段安装包。
+Change: 提交 `178bcee`（`fix: recover agent sends after stale runs`），通过 SSH 执行 `git push origin main`。
+Evidence: push 退出 0，远端更新范围 `d114574..178bcee`；`git ls-remote origin refs/heads/main` 返回 `178bcee7b4a1d49c2043ba923cca36f540c9ddde`，本地 `main` 与 `origin/main` 一致。
+Unverified: 设置可读性、图片 provider 自动适配、真实安装/卸载、EXE 数字签名、正式 Bundle/release 门禁和真实图片/视频服务；两个当前 EXE 的 Authenticode 状态为 `NotSigned`。
+Next: 后续从已推送的 `main` 继续设置面板与图片 provider Goal；本轮 EXE 产物路径和哈希见上一条记录。
