@@ -314,3 +314,12 @@ Change: 独立复核两个 EXE 文件头与 SHA-256；品牌安装器 UI smoke �
 Evidence: `corepack pnpm run package:installer-ui-smoke` 退出码 0，报告 `.diagnostics/release/branded-installer-ui-2026-09-27T07-24-45-621Z/report.json`，`ok: true`、`captureCount: 19`。Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,803,520` bytes，文件头 `4D 5A`，SHA-256 `256E73A3B5064FED075C04C358EFCD697098F1B8332DBF488A297463707DAE7F`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D 5A`，SHA-256 `FF56A8CB2E54A3565358E20C9074AB61DCE7E7424DB8283D9AB6F762A2F08826`。
 Unverified: 正式 `package:win` 仍因 CSS `274,996 B > 270,000 B` 门禁失败；本轮未执行真实安装/卸载、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
 Next: 提交并推送本轮可追溯构建记录；后续继续 Goal 时从当前 `main` 处理剩余 provider mock 和设置对比度边界。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 本轮 EXE 构建记录已提交并推送到远端 `main`。
+Scope: 构建证据文档同步与 Git 交付。
+Change: 提交 `adb4175`，通过 SSH 推送 `main -> origin/main`；未改动产品源码或外部服务配置。
+Evidence: `git push origin main` 退出码 0，远端更新范围 `1b39e42..adb4175`；当前产物与 smoke 证据见上一条记录。
+Unverified: 正式 Bundle CSS 门禁、真实安装/卸载、签名有效性、正式发布门禁和真实图片/视频服务仍未验证。
+Next: 后续开发从已推送的 `main` 继续；若需要正式发布，先处理 CSS 门禁并运行 `release:final`。
