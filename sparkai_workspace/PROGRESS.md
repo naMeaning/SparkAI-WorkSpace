@@ -422,3 +422,12 @@ Change: `corepack pnpm run package:win:variants` 退出 0，`bundleEnforced:fals
 Evidence: Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `7F42C9C3AAE9552EC3375878A239B540AC8483D5755E087581198876945CD760`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `23FA7E2728648C49BB0ACFEB66AA6B47C1F0B25C1351541A6099190C274FF988`。两者 `Get-AuthenticodeSignature` 均为 `NotSigned`。
 Unverified: 正式 `package:win`/Bundle 门禁、真实安装/卸载、数字签名有效性、正式 `release:final` 和真实图片/视频服务仍未验证。
 Next: 提交并推送本次文档构建记录；后续继续 settings 可读性和图片 provider 自动适配 Goal。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 当前 EXE 构建证据和安装说明已提交并推送到远端 `main`。
+Scope: `PROGRESS.md`、`docs/INSTALLATION.md`、`docs/CONTEXT_MAP.md` 与当前开发阶段 Windows 安装包记录。
+Change: 提交 `781d7f0`（`docs: record current exe build`），通过 SSH 执行 `git push origin main`。
+Evidence: push 退出 0，远端更新范围 `faa0862..781d7f0`；`git ls-remote origin refs/heads/main` 返回 `781d7f07a49e3604f5e7b9777748e065218df7f2`。
+Unverified: 两个安装包仍为未签名开发包；未运行真实安装/卸载、正式 Bundle/release 门禁或真实图片/视频服务。
+Next: 后续从已推送的 `main` 继续 settings 可读性和图片 provider 自动适配 Goal。
