@@ -11,8 +11,8 @@
 - **Non-goals**：不复制 New API 管理后台，不删除 Extension 的 `/v1/image-tasks*` 合同，不恢复旧工作流，不发起 Seedance 或付费模型请求。
 - **Acceptance**：隔离 UI 路径能证明发送按钮进入 Agent IPC/运行状态；发送前置条件失败可见；设置关键文字和输入可读；OpenAI/Grok/Gemini 与 NewAPI/Sub2API/direct mock 请求的 URL/header/body 正确；`corepack pnpm run build` 通过并产出 EXE。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用或正式发布。
-- **Status**：partially verified。Agent Composer 的真实鼠标点击与 `Ctrl+Enter` 已进入 Agent IPC/runtime；本轮 `corepack pnpm run package:win` 的 production build 通过，但 `test:bundle` 以 CSS `274,996 B > 270,000 B` 阻断，随后 `corepack pnpm run package:win:variants` 以 `bundleEnforced: false` 成功生成当前工作树对应的双 Windows x64 EXE。设置可读性、图片 provider 自动适配、真实图片/视频服务、安装/卸载和正式发布门禁仍未完整验证。
-- **Next**：继续完成设置浅/深色可读性和本地 provider mock 路由；不得把构建证据描述为真实模型验证。
+- **Status**：partially verified。Agent Composer 的鼠标点击与 `Ctrl+Enter` 已由专项记录证明进入 Agent IPC/runtime；本轮 `corepack pnpm run package:win:variants` 以 `bundleEnforced:false` 成功重建当前工作树的双 Windows x64 EXE，最新产物哈希见 `PROGRESS.md`；设置可读性、图片 provider 自动适配、真实图片/视频服务、安装/卸载和正式发布门禁仍未完整验证。
+- **Next**：核对 Agent 发送竞态补丁，继续完成设置浅/深色可读性和本地 provider 路由；不得把构建证据描述为真实模型验证。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 

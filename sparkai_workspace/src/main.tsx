@@ -519,6 +519,7 @@ type AgentSteerOptions = {
   sourceImages?: ReferenceImage[];
   referenceImages?: ReferenceImage[];
   useComposerAttachments?: boolean;
+  reportFailure?: boolean;
 };
 
 type AssetContextMenuState = {
@@ -9443,6 +9444,35 @@ function App() {
     });
   }
 
+  async function agentRunStillRegistered(runId: string) {
+    if (!runId || !window.naimageAgent?.runStatus) return true;
+    try {
+      const snapshot = await window.naimageAgent.runStatus({
+        projectId: activeProjectIdRef.current,
+        conversationId: activeConversationIdRef.current
+      });
+      if (snapshot?.ok !== true || !Array.isArray(snapshot.runs)) return true;
+      return snapshot.runs.some((run) => (
+        run.projectId === activeProjectIdRef.current &&
+        run.conversationId === activeConversationIdRef.current
+      ));
+    } catch {
+      // Do not start a second run when the authoritative Main snapshot is unavailable.
+      return true;
+    }
+  }
+
+  function clearStaleAgentRun(runId: string) {
+    if (!runId || activeRunRef.current !== runId) return;
+    activeRunRef.current = null;
+    commitExecutionReservation(null);
+    agentStatusRef.current = "idle";
+    setAgentStatus("idle");
+    setAgentPaused(false);
+    setActiveRunStartedAt(null);
+    setRunElapsedSeconds(0);
+  }
+
   function agentActiveWorkNow() {
     return isAgentExecutionBusy({
       reservation: Boolean(executionReservationRef.current),
@@ -15832,13 +15862,14 @@ function App() {
   async function steerAgentRun(value: string, options: AgentSteerOptions = {}) {
     const content = String(value || "").trim();
     if (!content) return false;
+    const reportFailure = options.reportFailure !== false;
     if (agentStopPendingRef.current) {
-      setServerMessage("正在确认结束当前任务，请稍候；任务状态尚未改变。");
+      if (reportFailure) setServerMessage("正在确认结束当前任务，请稍候；任务状态尚未改变。");
       return false;
     }
     const runId = activeRunRef.current;
     if (!runId || !window.naimageAgent?.steer) {
-      setServerMessage("当前任务暂时不能接收运行中修改；可以先结束任务再发送新要求。");
+      if (reportFailure) setServerMessage("当前任务暂时不能接收运行中修改；可以先结束任务再发送新要求。");
       return false;
     }
     const activeGoal = lastDispatchedTaskScopeRef.current?.origin === "goal";
@@ -15850,7 +15881,7 @@ function App() {
       options.useComposerAttachments !== false
     );
     if (goalScopeMutationRequested) {
-      setServerMessage("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。");
+      if (reportFailure) setServerMessage("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。");
       return false;
     }
     const useComposerAttachments = options.useComposerAttachments !== false;
@@ -15965,7 +15996,7 @@ function App() {
       error: error instanceof Error ? error.message : String(error)
     }));
     if (result.ok === false || !result.accepted) {
-      setServerMessage(result.error || "当前任务没有接收这条修改要求。");
+      if (reportFailure) setServerMessage(result.error || "当前任务没有接收这条修改要求。");
       return false;
     }
     const steerMessage: AgentMessage = {
@@ -16041,12 +16072,27 @@ function App() {
       return false;
     }
     if (agentExecutionBusyNow()) {
-      return steerAgentRun(nextPrompt ?? prompt, {
+      const staleRunId = activeRunRef.current;
+      const steered = await steerAgentRun(nextPrompt ?? prompt, {
         sourceNodeIds: dispatch.sourceNodeIds,
         sourceImages: dispatch.sourceImages,
         referenceImages: dispatch.referenceImages,
-        useComposerAttachments: dispatch.useComposerAttachments
+        useComposerAttachments: dispatch.useComposerAttachments,
+        reportFailure: false
       });
+      if (steered) return true;
+      if (
+        !staleRunId ||
+        pendingAgentExecutionRef.current ||
+        executionReservationRef.current ||
+        await agentRunStillRegistered(staleRunId) ||
+        Boolean(activeRunRef.current && activeRunRef.current !== staleRunId)
+      ) {
+        setServerMessage("当前 Agent 任务仍在运行，请等待完成、回答或结束后再发送新的要求。");
+        return false;
+      }
+      clearStaleAgentRun(staleRunId);
+      setServerMessage("");
     }
     const baseContent = (nextPrompt ?? prompt).trim();
     const useComposerAttachments = dispatch.useComposerAttachments !== false;

@@ -1,6 +1,24 @@
 # SparkAI WorkSpace 进度
 
 Date: 2026-09-27
+Status: partially verified
+Outcome: 按当前 `main` 工作树重新编译 Windows x64 双接入 EXE。
+Scope: 当前 Renderer/Main 源码、Vite production build、双接入策略、Electron/NSIS 与品牌安装器封装。
+Change: 再次执行 `corepack pnpm run package:win:variants`，覆盖同名 1.0.9 开发阶段安装包；没有调用真实图片/视频服务。
+Evidence: 命令退出 0；接入策略自测、安装器资源生成、两次 Vite production build（各 1676 modules）和双 Electron/NSIS 封装均完成，脚本报告 `bundleEnforced:false`。独立 PowerShell 核验两个文件头均为 `4D-5A`：Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，SHA-256 `C1300D80EBCBFD6FB0762014D85C8511F02DE2A7F129B455AA6880F122476ECB`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，SHA-256 `19B057A679774A64C1D605E9DAA05AEFCF371B10115F4FCBE4E0DCCBF1661BAF`。
+Unverified: 本次为开发阶段 `bundleEnforced:false` 构建；未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
+Next: 提交并推送当前未提交记录；后续继续活动 Goal 的图片 provider mock 路由和设置可读性专项。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 从当前 `main` 工作树重新编译 Unrestricted 与 SparkAPI 两个 Windows x64 EXE 安装包。
+Scope: 未提交的 `src/main.tsx` Agent 发送补丁、Vite production build、接入变体策略、Electron/NSIS 与品牌安装器。
+Change: 响应用户“编译为 exe”；沿用开发阶段双变体打包入口，覆盖同名 1.0.9 安装包。现有 `PROGRESS.md` 与 `src/main.tsx` 修改保持未提交。
+Evidence: `corepack pnpm run package:win:variants` 退出 0，内含接入策略自测、安装器资源生成、两个 Vite production build（各 1676 modules）和双变体 Electron/NSIS 封装，`bundleEnforced:false`。PowerShell `Get-FileHash` 独立复核：Unrestricted `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 为 109,803,520 bytes，SHA-256 `A83DC89BAC8699EDCBB344FEDDE1B6C47158364CF42589F4DB639B8ABE3CA123`；SparkAPI `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` 为 109,804,032 bytes，SHA-256 `5653ACFA31FCFB3B8096ADC83C0215A16DC1E6C9B75AEDE31D1FE25F67157FEA`。
+Unverified: 当前 `src/main.tsx` 补丁的 Agent 第二条消息行为、安装/卸载、设置可读性、图片 provider 路由、数字签名与正式 `release:final` 门禁；本次打包跳过 Bundle 硬门禁。
+Next: 核对 Agent 发送竞态的当前代码与 Renderer 状态流，然后继续设置面板和图片网关 Goal。
+
+Date: 2026-09-27
 Status: verified
 Outcome: 基于当前 `main` 工作树（含 Agent Composer 发送修复）重新编译 Windows x64 EXE。
 Scope: `src/project-agent-composer.tsx`、`scripts/agent-send-ipc-selftest.mjs`、Vite production build、Unrestricted 与 SparkAPI access variant、Electron/NSIS 封装。
@@ -226,6 +244,15 @@ Change: `corepack pnpm run package:win` 的 build 通过；`test:bundle` 以 CSS
 Evidence: `package:win:variants` 转换 1676 modules；Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 109,804,032 bytes，文件头 `4D 5A`，SHA-256 `7FEA0B18FB64566AD42E015B869A175DB546792FF07420AB5E7921A728862A2D`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 109,803,520 bytes，文件头 `4D 5A`，SHA-256 `E8F24DAE05F2B82BBD9D3B5E73FF7CF431A31B34A3B84BCD5679DFF0BFF0FD78`。独立 `Get-FileHash` 与打包脚本摘要一致。
 Unverified: CSS Bundle 硬门禁仍超限；未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务。
 Next: 继续活动 Goal 的设置浅/深色可读性和本地 provider mock 路由；本次 EXE 可作为开发验证包使用。
+
+Date: 2026-09-27
+Status: in progress
+Outcome: 复现 Agent 第二条消息无法提交的真实 Renderer/IPC 竞态。
+Scope: `src/main.tsx` 的 Agent 发送/运行状态协调、`window.naimageAgent` run-status/steer IPC、`scripts/agent-send-ipc-selftest.mjs`。
+Change: 当前 CDP 自测第一条消息已进入 mock Agent；第二条 `Ctrl+Enter` 在第一轮 IPC 已结束但 Renderer 尚未清空 `activeRunRef` 的窗口内被误判为运行中修改，`steer` 返回无可接收任务，消息未写入会话。
+Evidence: `corepack pnpm run test:agent-send-ipc` 退出 1，超时等待 `AIDEBUG_REAL_COMPOSER_CTRL_ENTER_*`；`.diagnostics/electron/agent-send-ipc-2026-09-26T23-20-30-572Z/electron.log` 只记录第一条 prompt 的两轮 mock model 请求，没有第二条请求。
+Unverified: 修复后的新消息提交、设置浅/深色对比度、图片 provider mock 路由。
+Next: 让发送路径在确认 Main run 已结束后清理 Renderer 陈旧状态并继续新提交，同时保留真正运行中 steer 的拒绝语义；随后补专项回归。
 
 Date: 2026-09-27
 Status: partially verified
