@@ -431,3 +431,12 @@ Change: 提交 `781d7f0`（`docs: record current exe build`），通过 SSH 执�
 Evidence: push 退出 0，远端更新范围 `faa0862..781d7f0`；`git ls-remote origin refs/heads/main` 返回 `781d7f07a49e3604f5e7b9777748e065218df7f2`。
 Unverified: 两个安装包仍为未签名开发包；未运行真实安装/卸载、正式 Bundle/release 门禁或真实图片/视频服务。
 Next: 后续从已推送的 `main` 继续 settings 可读性和图片 provider 自动适配 Goal。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 按用户要求在当前 `main` 分支重新编译 Windows x64 双版本安装包。
+Scope: 当前源码 production build、Unrestricted/SparkAPI 接入策略、Electron/NSIS 封装与产物完整性核验。
+Change: 执行 `corepack pnpm run package:win:variants`；本轮只生成开发阶段安装包，不调用真实图片/视频模型，也不执行正式发布门禁。
+Evidence: 命令退出码 0；接入策略自测、安装器资源生成、两次 Vite production build（各 1676 modules）和双 Electron/NSIS 封装完成，脚本报告 `bundleEnforced:false`。独立 PowerShell 核验 Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `6EE0D3C62DC08232DF14516075E3C94FE3EBB327851294FB02804C5947B0B981`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes，文件头 `4D-5A`，SHA-256 `1712ACD29C42F2540D70B6BB62CEDDCB134D9BCB482B10228B369D512DF0F2AA`。两个 EXE 的 Authenticode 状态均为 `NotSigned`，构建后没有 `release/.naimage-release-incomplete.json`。
+Unverified: 未运行真实安装/卸载 smoke、数字签名有效性、正式 `release:final` 或真实图片/视频服务；构建保留既有大 chunk、.NET nullable、NuGet 源不可访问和 Node 子进程 deprecation 警告。
+Next: 提交并推送本次 EXE 构建证据；后续继续活动 Goal 的设置可读性与图片 provider mock 路由。
