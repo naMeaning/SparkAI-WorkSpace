@@ -503,3 +503,12 @@ Change: 执行 `corepack pnpm run package:win:variants`；未修改产品源码�
 Evidence: 命令退出码 0；接入策略自测、安装器资源生成、两次 1676 modules 的 Vite production build、双 Electron/NSIS/品牌安装器均完成。独立 PowerShell 核验 Unrestricted [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF`；SparkAPI [EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe) 为 `109,804,032` bytes、文件头 `4D-5A`、SHA-256 `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA`。两个 EXE 文件头均为 `MZ`，Authenticode 状态均为 `NotSigned`，`release/.naimage-release-incomplete.json` 不存在。
 Unverified: 未运行真实安装/卸载 smoke、正式 `package:win` Bundle 门禁、数字签名验证、`release:final` 或真实图片/视频服务；构建保留既有大 chunk、.NET nullable、NuGet 源不可访问和 Node 子进程 deprecation 警告。
 Next: 提交并推送本次构建记录；随后从当前 Goal 的第一个未完成边界继续 Agent 发送、设置可读性和图片 provider 自动适配。
+
+Date: 2026-09-27
+Status: partially verified
+Outcome: 本次 EXE 构建证据和上下文文档已提交并推送到远端 `main`。
+Scope: `PROGRESS.md`、`docs/INSTALLATION.md`、`docs/CONTEXT_MAP.md` 与当前开发阶段双版本安装包记录。
+Change: 提交 `0c4eab5`（`docs: record latest exe build`），通过 SSH 执行 `git push origin main`；未将忽略的 EXE 二进制制品加入 Git。
+Evidence: push 退出码 0，远端更新范围 `50133af..0c4eab5`；待最终核对 `git ls-remote origin refs/heads/main` 与本地工作树。
+Unverified: 活动 Goal 的 Agent 发送、设置可读性和图片 provider 自动适配仍未完成；两个安装包仍未签名，也未运行真实安装/卸载 smoke、正式发布门禁或真实图片/视频服务。
+Next: 核对本地与远端 `main` 后，从当前 Goal 的第一个未完成边界继续产品实现。
