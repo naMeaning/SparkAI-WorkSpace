@@ -388,6 +388,41 @@ export async function captureGoalModeSuite(context) {
     mutation?.ok === true && stale?.ok === true
   ));
 
+  phase("dispatch-fresh-confirmation", { refreshedScope: stale?.scope || "" });
+  const goalDispatch = await evaluate(client, `(async () => {
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const before = window.__naimageDebugAgentState() || {};
+    const confirm = Array.from(document.querySelectorAll(".goal-confirmation-dialog footer button"))
+      .find((button) => String(button.textContent || "").replace(/\\s+/g, " ").trim() === "开始执行");
+    confirm?.click();
+    const deadline = performance.now() + 20_000;
+    let state = window.__naimageDebugAgentState() || {};
+    while (performance.now() < deadline) {
+      state = window.__naimageDebugAgentState() || {};
+      const scope = state.lastDispatchedTaskScope;
+      const started = Array.isArray(state.progress) && state.progress.some((item) => item.phase === "runtime-request" && item.runId);
+      if (scope?.origin === "goal" && started) break;
+      await delay(80);
+    }
+    const scope = state.lastDispatchedTaskScope;
+    const started = Array.isArray(state.progress) && state.progress.some((item) => item.phase === "runtime-request" && item.runId);
+    return {
+      ok: Boolean(confirm && scope?.origin === "goal" && started && state.messageCount > Number(before.messageCount || 0)),
+      origin: scope?.origin || "",
+      sourceNodeCount: Array.isArray(scope?.sourceNodeIds) ? scope.sourceNodeIds.length : 0,
+      runtimeRequest: started,
+      messageCountBefore: Number(before.messageCount || 0),
+      messageCountAfter: Number(state.messageCount || 0),
+      agentStatus: state.agentStatus || ""
+    };
+  })()`, 30_000);
+  const goalLog = readFileSync(join(runDir, "electron.log"), "utf8").split(/\r?\n/);
+  const goalIpcChatCount = goalLog.filter((line) => line.includes("agent ipc chat received")).length;
+  const goalDispatchWithMainEvidence = {
+    ...goalDispatch,
+    mainIpcChatCount: goalIpcChatCount
+  };
+
   const checks = {
     fixtureCanvas: setup?.ok === true,
     segmentedModeAndCounts: selected?.ok === true,
@@ -398,6 +433,8 @@ export async function captureGoalModeSuite(context) {
     scopeMarkerPresent: Boolean(confirmation?.text?.includes("范围已确认")),
     productionMinimumViewportFit: productionMinimum?.ok === true,
     staleSnapshotRejected: stale?.ok === true,
+    confirmedGoalDispatched: goalDispatch?.ok === true,
+    confirmedGoalReachedMainIpc: goalIpcChatCount >= 1,
     capturesHealthy: results.every(captureHealthy)
   };
   const suite = {
@@ -411,6 +448,7 @@ export async function captureGoalModeSuite(context) {
     productionMinimum,
     mutation,
     stale,
+    goalDispatch: goalDispatchWithMainEvidence,
     checks,
     captures: results.map((item) => ({ label: item.label, screenshotPath: item.screenshotPath, jsonPath: item.jsonPath }))
   };

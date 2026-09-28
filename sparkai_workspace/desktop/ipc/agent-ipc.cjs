@@ -195,6 +195,9 @@ function registerAgentIpc({
     const runId = String(payload?.runId || `agent-chat-${Date.now()}`);
     const projectScope = requiredProjectScope(payload);
     if (!projectScope.ok) return { ...projectScope, content: "" };
+    // Keep AIDebug able to prove that the renderer crossed the Main boundary
+    // without logging prompts, credentials, or provider response content.
+    log("agent ipc chat received");
     let controlledRun;
     try {
       const runtime = getAgentRuntime();
@@ -255,10 +258,13 @@ function registerAgentIpc({
 
   ipcMain.handle("naimage:agent:steer", (event, payload = {}) => {
     try {
-      return agentRunControl?.steer(
+      const result = agentRunControl?.steer(
         { ...payload, ownerId: ownerIdForEvent(event) },
         (currentTaskScope, update) => getAgentRuntime().normalizeSteerTaskScopeUpdate(currentTaskScope, update)
       ) || { ok: false, accepted: 0, interrupted: 0, error: "运行控制器不可用。" };
+      const scopeUpdate = payload?.taskScopeUpdate && typeof payload.taskScopeUpdate === "object" ? payload.taskScopeUpdate : {};
+      log(`agent ipc steer ${result?.accepted ? "accepted" : "rejected"} source=${String(scopeUpdate.sourceMode || "none")} reference=${String(scopeUpdate.referenceMode || "none")}`);
+      return result;
     } catch (error) {
       return { ok: false, accepted: 0, interrupted: 0, error: error instanceof Error ? error.message : String(error) };
     }

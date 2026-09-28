@@ -3,16 +3,17 @@
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
 
-## 当前 Goal：Agent 发送、设置可读性与图片网关简化（2026-09-27）
+## 当前 Goal：Agent 发送、设置可读性与图片网关简化（2026-09-28）
 
-- **Outcome**：Agent 消息明确完成本地提交并进入 Main IPC；设置面板在浅色和深色主题下保持足够不透明度与文字对比度；图片请求由软件按模型和响应特征自动选择适配器，用户不需要手动填写协议、网关、传输模式或能力开关。
-- **Scope**：`src/project-agent-composer.tsx`、`src/main.tsx`、Agent preload/Main IPC、设置表面 token、`runtime/image-generation` 解析与适配器、图片模型配置 UI、相关专项验证和 Windows EXE 构建。
-- **Rules**：不伪造 Agent 成功；没有项目、会话或桥接时给出可见错误；不泄露 Key/Token/Cookie；兼容旧图片配置字段并逐步转为内部自动派生；不调用真实图片/视频模型。
+- **Outcome**：Agent 消息可从普通输入、快捷键、Goal、TaskScope 和独立窗口进入 Main IPC；设置面板在浅色和深色主题下可读；图片请求按模型和响应特征自动选择适配器，用户不需要填写协议、网关、传输模式或能力开关；当前源码可生成双接入 Windows x64 开发安装包。
+- **Scope**：`src/project-agent-composer.tsx`、`src/main.tsx`、Agent preload/Main IPC、设置 Glass 表面、`runtime/image-generation` 适配与响应归一化、图片模型配置 UI、专项验证和 EXE 构建。
+- **Rules**：不伪造 Agent 成功；没有项目、会话或桥接时给出可见错误；不泄露 Key/Token/Cookie；兼容旧图片字段并在内部自动派生；不调用真实图片/视频模型。
 - **Non-goals**：不复制 New API 管理后台，不删除 Extension 的 `/v1/image-tasks*` 合同，不恢复旧工作流，不发起 Seedance 或付费模型请求。
-- **Acceptance**：隔离 UI 路径能证明发送按钮进入 Agent IPC/运行状态；发送前置条件失败可见；设置关键文字和输入可读；OpenAI/Grok/Gemini 与 NewAPI/Sub2API/direct mock 请求的 URL/header/body 正确；`corepack pnpm run build` 通过并产出 EXE。
-- **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用或正式发布。
-- **Status**：partially verified。Agent Composer 的鼠标点击、`Ctrl+Enter`、Renderer stale busy 恢复和失败 system message 已有隔离 Electron/专项证据；`projectAgentSendPrompt` 已统一经过 `sendPrompt`，Goal 运行保留冻结范围。设置抽屉和模型配置对话框已改为近实色卡片/输入与 `ink-soft` 辅助文字。图片模型族、Sub2API host/异步默认和多层响应归一化已实现并由 mock 专项覆盖；本次 `corepack pnpm run build` 与 `corepack pnpm run package:win:variants` 均通过，双版本 EXE 已完成并核对哈希（Unrestricted `0ABC549C...E615`，SparkAPI `FAC0A5D2...D4A3`，均 109,803,520 bytes）。
-- **Next**：后续如需发布，再运行正式 Bundle/安装 smoke/签名门禁；当前显式 Goal/TaskScope 的独立 GUI 发送边界和真实 provider/图片服务仍保留为未验证项。保留未验证的真实服务边界。
+- **Acceptance**：隔离 Electron/专项证据覆盖发送边界、Goal 确认后实际派发、设置 computed style 和图片 mock 路由；`corepack pnpm run build` 与双变体打包通过。
+- **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用、正式发布或签名。
+- **Status**：partially verified。代码边界和开发构建已验证；真实 provider、安装/卸载、签名和正式发布门禁仍未验证。
+- **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；`corepack pnpm run build` 通过并转换 1676 modules。`package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` SHA-256 `B3892EFA029BC5CC1B782AD092253E5C0762040EF8D73D191AB1E8FE91D56504`，SparkAPI `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` SHA-256 `2AAA5052BB29A0394E819BFA6ED999B71656CEE64E476C90163BED3630E86A94`，均 109,803,520 bytes、文件头 `MZ`。
+- **Next**：本轮实现与文档完成后继续沿用 `main`；后续继续开发时先读取本节和 `PROGRESS.md`。如进入正式发布，再单独执行 `release:final`、安装/卸载 smoke 和签名检查。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 

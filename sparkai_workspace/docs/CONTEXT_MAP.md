@@ -981,7 +981,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 科研计划/Requirement、受管数据、Python/R Runner、Panel/导出与 7 个共享命令 | `corepack pnpm run test:scientific-runner`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:workspace-glass-ui`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:scientific-figure`，该 GUI 场景不执行 Runner |
 | 跨境套图 AI 陪练的状态推进、导入/工具/Agent 引导、费用边界、项目进度与成功奖励 | `corepack pnpm run typecheck`, `corepack pnpm run test:workspace-glass-ui`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:commerce-tutorial`，不发送 Agent 或真实图片请求 |
 | Agent Prompt/FastMemory/tool contract | `corepack pnpm run test:agent-text` |
-| Agent Composer 真实发送按钮、项目/会话边界、Main IPC 运行状态和 mock Agent 往返 | `corepack pnpm run test:agent-send-ipc`；隔离报告位于 `.diagnostics/electron/agent-send-ipc-<timestamp>/`，不调用真实模型 |
+| Agent Composer 真实发送按钮、项目/会话边界、Main IPC 运行状态和 mock Agent 往返 | `corepack pnpm run test:agent-send-ipc`；隔离报告位于 `.diagnostics/electron/agent-send-ipc-<timestamp>/`，覆盖普通/快捷键/stale busy/显式 `replace-source` TaskScope；AIDebug 日志只记录 `chat/steer` handler 到达计数和设置抽屉两种主题的 computed style，不记录 prompt/凭据 |
 | Agent/Responses/TaskScope protocol | `corepack pnpm run test:agent-protocol` |
 | Responses 请求转换 | `corepack pnpm run test:agent-responses-adapter` |
 | New API transport / AIDebug image fixture / Images SSE / 显式代理 | `corepack pnpm run test:new-api-transport` |
