@@ -3861,6 +3861,10 @@ function App() {
   const messagesRef = useRef(messages);
   const agentProgressRef = useRef(agentProgress);
   const agentStatusRef = useRef(agentStatus);
+  function setAgentStatusSync(next: AgentStatus) {
+    agentStatusRef.current = next;
+    setAgentStatus(next);
+  }
   const recordDebugRenderCommit = useCallback((area: DebugRenderCommitArea) => {
     if (!NAIMAGE_RUNTIME_METRICS) return;
     debugRenderCommitsRef.current[area] += 1;
@@ -5717,7 +5721,7 @@ function App() {
       const resetDebugRunningSurface = () => {
         if (activeRunRef.current !== "debug-running-ui") return;
         activeRunRef.current = null;
-        setAgentStatus("idle");
+        setAgentStatusSync("idle");
         setActiveRunStartedAt(null);
         setRunElapsedSeconds(0);
         setAgentProgress([]);
@@ -5825,7 +5829,7 @@ function App() {
               }))
             : []
         );
-        setAgentStatus("thinking");
+        setAgentStatusSync("thinking");
         setActiveRunStartedAt(Date.now() - 5200);
         setRunElapsedSeconds(5);
         setAgentProgress([
@@ -9478,7 +9482,7 @@ function App() {
     activeRunRef.current = null;
     commitExecutionReservation(null);
     agentStatusRef.current = "idle";
-    setAgentStatus("idle");
+    setAgentStatusSync("idle");
     setAgentPaused(false);
     setActiveRunStartedAt(null);
     setRunElapsedSeconds(0);
@@ -9488,7 +9492,7 @@ function App() {
     if (activeRunRef.current || Object.keys(imageRunStartsRef.current).length > 0) return;
     commitExecutionReservation(null);
     agentStatusRef.current = "idle";
-    setAgentStatus("idle");
+    setAgentStatusSync("idle");
     setAgentPaused(false);
     setActiveRunStartedAt(null);
     setRunElapsedSeconds(0);
@@ -9509,7 +9513,7 @@ function App() {
     setServerMessage(content);
     if (markError) {
       agentStatusRef.current = "error";
-      setAgentStatus("error");
+      setAgentStatusSync("error");
     }
     setAgentProgress((current) => [...current, {
       runId: activeRunRef.current || uid("agent-send-error"),
@@ -9584,7 +9588,7 @@ function App() {
     }));
     const operationTitle = isCutout ? "AI 抠图" : "AI 重绘";
     activeRunRef.current = runId;
-    setAgentStatus("editing");
+    setAgentStatusSync("editing");
     setActiveRunStartedAt(Date.now());
     setRunElapsedSeconds(0);
     regionRedrawDraftRef.current = null;
@@ -9655,7 +9659,7 @@ function App() {
       if (activeRunRef.current === runId) {
         activeRunRef.current = null;
         if (Object.keys(imageRunStartsRef.current).length === 0) {
-          setAgentStatus("idle");
+          setAgentStatusSync("idle");
           setActiveRunStartedAt(null);
         }
       }
@@ -13858,7 +13862,7 @@ function App() {
     setMessages(nextSession.messages);
     setConversations(nextSession.conversations);
     setActiveConversationId(nextSession.activeConversationId);
-    setAgentStatus("idle");
+    setAgentStatusSync("idle");
     setAgentPaused(false);
     setActiveRunStartedAt(null);
     setRunElapsedSeconds(0);
@@ -14476,7 +14480,7 @@ function App() {
     activeRunRef.current = null;
     failAllLayerExecutionPlaceholders("会话已切换，分层任务已停止，可在原需求上重新执行。");
     clearLocalToolTimelineScope();
-    setAgentStatus("idle");
+    setAgentStatusSync("idle");
     setActiveRunStartedAt(null);
     setAgentProgress([]);
     setPrompt("");
@@ -14561,7 +14565,7 @@ function App() {
       messagesRef.current = [];
       setMessages([]);
       setConversations((current) => current.filter((conversation) => conversation.id !== conversationId));
-      setAgentStatus("idle");
+      setAgentStatusSync("idle");
       setActiveRunStartedAt(null);
       setRunElapsedSeconds(0);
       setAgentProgress([]);
@@ -16099,7 +16103,7 @@ function App() {
         meta: "error"
       };
       setMessages((current) => [...current, localErrorMessage].slice(-120));
-      setAgentStatus("error");
+      setAgentStatusSync("error");
       setAgentProgress((current) => [...current, {
         runId: uid("local"),
         projectId: "",
@@ -16347,7 +16351,7 @@ function App() {
       ...(busy ? finishRunStreamingMessages(current, interruptedRunId) : current),
       userMessage
     ].slice(-120));
-    setAgentStatus("thinking");
+    setAgentStatusSync("thinking");
     setActiveRunStartedAt(Date.now());
     setRunElapsedSeconds(0);
     const runtimeRequestProgress: AgentProgress = {
@@ -16545,7 +16549,7 @@ function App() {
         );
         return streamId ? finalized.slice(-120) : [...finalized, finalMessage].slice(-120);
       });
-      setAgentStatus("idle");
+      setAgentStatusSync("idle");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
       return true;
@@ -16576,7 +16580,7 @@ function App() {
         };
         return [...settled, errorMessage].slice(-120);
       });
-      setAgentStatus("error");
+      setAgentStatusSync("error");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
       return false;
@@ -24264,7 +24268,7 @@ function App() {
           setStreamingImagePreviews({});
           Object.keys(imageRunStartsRef.current).forEach(markImageRunFinished);
           setAgentProgress([]);
-          setAgentStatus("idle");
+          setAgentStatusSync("idle");
           setAgentPaused(false);
           setActiveRunStartedAt(null);
           flushPendingAgentStreamMessages();
@@ -24743,7 +24747,7 @@ function App() {
     setActiveNodeId(id);
     agentToolNodeIdsRef.current[generationRunId] = id;
     markImageRunStarted(id, startedAt);
-    setAgentStatus("editing");
+    setAgentStatusSync("editing");
     setActiveRunStartedAt(startedAt);
     setRunElapsedSeconds(0);
     const manualReferences = taskSnapshot.referenceImages ?? [];
@@ -25070,7 +25074,7 @@ function App() {
     } finally {
       markImageRunFinished(id);
       if (Object.keys(imageRunStartsRef.current).length === 0) {
-        setAgentStatus("idle");
+        setAgentStatusSync("idle");
         setActiveRunStartedAt(null);
       }
       window.setTimeout(() => setActiveNodeId(null), 900);

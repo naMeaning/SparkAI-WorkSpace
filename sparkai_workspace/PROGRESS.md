@@ -13,6 +13,7 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 1. **Agent 发送链路**
    - 普通点击、`Ctrl+Enter`、stale busy 恢复、显式 `replace-source` TaskScope、Goal 确认后派发均已进入 Main IPC。
    - 独立 Agent 窗口消息往返已通过；Main 日志只记录 `chat/steer` 到达和 TaskScope 模式，不记录 prompt、凭据或响应内容。
+   - 根因确认：运行结束时 `activeRunRef` 已清空，但 React `setAgentStatus` 的 effect 尚未把 `agentStatusRef` 更新为 idle；在 `runStatus` bridge 不可用时，`sendPrompt` 会 fail-closed，消息因此不会进入 `naimage:agent:chat`。新增 `setAgentStatusSync()` 在每个状态切换点同步写 ref，保留真实跨窗口运行的 fail-closed 保护。
    - 修正 `scripts/agent-send-ipc-selftest.mjs` 的时序：stale chat 只在真正回到 idle 且没有 active run 后才切换 debug running fixture，避免把仍在收尾的旧 run 误判为产品发送失败。
    - 继续审计确认 `applyProjectSession()` 在同一调用内同步更新项目/会话 refs；项目或会话切换后立即发送的竞态目前未复现，没有新增代码修复。
    - `desktop/ipc/agent-ipc.cjs`、`scripts/agent-send-ipc-selftest.mjs`、`scripts/aidebug-goal-mode-suite.mjs` 与上下文映射已同步。
@@ -28,16 +29,16 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 
 ## 验证证据
 
-- 通过：`corepack pnpm run test:agent-send-ipc`（最新运行 `chat` 4 次、`steer` 2 次、显式 `replace-source` 1 次；先前一次失败已定位为专项时序竞态并修正）。
+- 通过：`corepack pnpm run test:agent-send-ipc`（最新运行 `chat` 4 次、`steer` 2 次、显式 `replace-source` 1 次；覆盖状态同步修复，先前一次失败已定位为专项时序竞态并修正）。
 - 通过：`corepack pnpm run aidebug:goal`（`confirmedGoalDispatched:true`、`confirmedGoalReachedMainIpc:true`、`origin:"goal"`、`runtimeRequest:true`）。
 - 通过：`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async`、`corepack pnpm run test:custom-api-transport`、`corepack pnpm run test:agent-window-ui`、`corepack pnpm run test:glass-theme`、`corepack pnpm run test:workspace-glass-ui`。
 - 通过：`corepack pnpm run build`（1676 modules）；`node --check` 与 `git diff --check`。
-- 通过：`corepack pnpm run package:win:variants`，双变体构建报告 `bundleEnforced:false`。
+- 通过：`corepack pnpm run package:win:variants`，当前源码双变体构建报告 `bundleEnforced:false`；Unrestricted SHA-256 `BB245D520CF8EB92FFAEE6C97ADB6DA106B8DCA3228299936D82462BF6B9AF91`，SparkAPI SHA-256 `FDAEF0E18B45C11E717A6F9B39D33CC427D5CCAE98FD695089A2ED31962EE265`。
 
 ## 当前制品
 
-- [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `B3892EFA029BC5CC1B782AD092253E5C0762040EF8D73D191AB1E8FE91D56504`。
-- [SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `2AAA5052BB29A0394E819BFA6ED999B71656CEE64E476C90163BED3630E86A94`。
+- [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `BB245D520CF8EB92FFAEE6C97ADB6DA106B8DCA3228299936D82462BF6B9AF91`。
+- [SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `FDAEF0E18B45C11E717A6F9B39D33CC427D5CCAE98FD695089A2ED31962EE265`。
 - 两个 EXE 的 `Authenticode` 状态均为 `NotSigned`；这是开发构建，不是正式发布制品。
 
 ## 未验证边界

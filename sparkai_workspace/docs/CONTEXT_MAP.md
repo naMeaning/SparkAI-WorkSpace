@@ -1,13 +1,13 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：68
+> 地图版本：69
 > 最近同步：2026-09-28
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 
 本文是面向开发者和 Agent 的当前实现导航。它回答“能力归谁所有、从哪里进入、跨越哪些边界、修改后验证什么”。产品方向仍以根目录 `PRODUCT_INTENT.md` 为准，强制编码约束以根目录 `AGENTS.md` 为准；日期开头的计划和审计文档只用于追溯历史。
 
-当前 Goal（2026-09-28）：Agent Composer 的明确发送确认、设置表面可读性和图片协议自动适配。图片模型的协议、网关、传输和能力字段继续作为兼容输入，但用户可见配置应收敛到模型、Base URL 和凭据；解析与请求构造仍由 Main/runtime 持有，Renderer 不接触秘密。当前 `main` 已完成专项验证和双接入开发 EXE 构建；Agent 发送专项已增加 stale chat 收尾等待，真实 provider、安装/卸载、签名与正式发布门禁仍未验证。
+当前 Goal（2026-09-28）：Agent Composer 的明确发送确认、设置表面可读性和图片协议自动适配。图片模型的协议、网关、传输和能力字段继续作为兼容输入，但用户可见配置应收敛到模型、Base URL 和凭据；解析与请求构造仍由 Main/runtime 持有，Renderer 不接触秘密。当前 `main` 已修复 Agent 状态 ref 的 stale 阻断并完成图片/发送专项和双接入开发 EXE 构建；真实 provider、安装/卸载、签名与正式发布门禁仍未验证。
 
 ## 1. 文档权威顺序与维护规则
 
@@ -1091,7 +1091,8 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
 | 2026-09-28 | 1.0.9-dev | `2aa2dd4` 已在 `main` 完成并推送：Agent 普通/快捷键/stale busy/显式 `replace-source`/Goal/独立窗口发送边界、设置两主题 computed style、图片模型自动适配与多层响应归一化专项均已有证据；`corepack pnpm run build` 与 `package:win:variants` 通过，生成并核对 Unrestricted/SparkAPI 双 x64 开发安装包。继续审计确认 `applyProjectSession()` 同步更新项目与会话 ref，项目切换后立即发送的竞态目前未复现；未调用真实模型或服务。详见 `GOAL.md`、`PROGRESS.md`。 |
-| 2026-09-28 | 1.0.9-dev | 修正 `test:agent-send-ipc` 的 stale chat 夹具时序：等待旧 chat 回到 idle 且清空 active run 后再切换 debug running surface，避免仍在收尾的真实 mock run 抢占显式 `replace-source` 场景。专项复跑通过（chat 4、steer 2、显式 replace 1），生产 build 通过；未改变生产发送逻辑，未调用真实 provider。 |
+| 2026-09-28 | 1.0.9-dev | 修复 Agent 发送的真实 stale 状态阻断：`setAgentStatusSync()` 在状态切换时同步更新 `agentStatusRef`，避免运行结束与 React effect 之间把新消息误挡在 `sendPrompt` 前；`runStatus` 不可用时仍保留跨窗口 fail-closed。`test:agent-send-ipc`（chat 4、steer 2、显式 replace 1）、三项图片/传输专项、production build 和当前源码双 EXE 均通过，未调用真实 provider。 |
+| 2026-09-28 | 1.0.9-dev | 修正 `test:agent-send-ipc` 的 stale chat 夹具时序：等待旧 chat 回到 idle 且清空 active run 后再切换 debug running surface，避免仍在收尾的真实 mock run 抢占显式 `replace-source` 场景。专项复跑通过；未改变生产发送逻辑，未调用真实 provider。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DBFDB1A0706344683B806233A38FD3DB1EF5A371A8DD66DD039FAED6C9E44991`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `07C0F5D7B103CA145E6CF3CABE0A47F23C221AC5D70CE721CD6C95BEAFB4ED9F`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求在当前 `main` 重新编译 EXE；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 Vite production build（各 1676 modules）和双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / SHA-256 `6EE0D3C62DC08232DF14516075E3C94FE3EBB327851294FB02804C5947B0B981`，SparkAPI 专用版为 109,804,032 bytes / SHA-256 `1712ACD29C42F2540D70B6BB62CEDDCB134D9BCB482B10228B369D512DF0F2AA`；两个文件头均为 `4D-5A`，Authenticode 均为 `NotSigned`。构建含既有大 chunk、.NET nullable、NuGet 源不可访问和 Node 子进程 deprecation 警告；未运行真实模型、安装/卸载 smoke、数字签名或正式 `release:final`。 |
