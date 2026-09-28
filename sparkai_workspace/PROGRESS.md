@@ -7,6 +7,7 @@ Status: partially verified
 Outcome: 收口 Agent 发送、设置可读性、图片网关自动适配，并从当前 `main` 源码生成双接入 Windows x64 开发安装包。
 Scope: Agent Composer/Main IPC、Goal/TaskScope/独立 Agent 窗口、设置 Glass 表面、图片 provider 适配与响应归一化、Vite/Electron/NSIS 构建。
 Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；没有授权真实图片/视频或付费模型调用。
+Method: 后续先实现用户明确功能，只运行受改动直接影响的专项和必要构建检查；同步上下文时压缩当前状态、替换过时表述，不机械追加历史或运行无关全量测试。
 
 ## 已完成
 
@@ -52,7 +53,7 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 
 - `GOAL.md` 保存当前目标、范围、授权和验收条件；`docs/CONTEXT_MAP.md` 保存模块所有权、IPC/API 边界和测试入口。
 - 先前的“图片协议与逐模型连接”目标已完成并作为本轮基础；Extension 的 `/v1/image-tasks*`、New API 管理边界、旧工作流和真实模型安全边界保持不变。
-- 后续 `continue` 先检查 `git status`、本文件和 `GOAL.md`，从未验证项开始；只运行直接受影响的专项，不机械执行全量测试。
+- 后续 `continue` 先检查 `git status`、本文件和 `GOAL.md`，从当前用户目标开始；验证只覆盖直接受影响的专项和必要构建，只有正式发布或用户明确要求时才扩大范围。
 
 ## 下一步
 

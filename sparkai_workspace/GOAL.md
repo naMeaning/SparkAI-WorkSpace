@@ -7,9 +7,9 @@
 
 - **Outcome**：Agent 消息可从普通输入、快捷键、Goal、TaskScope 和独立窗口进入 Main IPC；设置面板在浅色和深色主题下可读；图片请求按模型和响应特征自动选择适配器，用户不需要填写协议、网关、传输模式或能力开关；当前源码可生成双接入 Windows x64 开发安装包。
 - **Scope**：`src/project-agent-composer.tsx`、`src/main.tsx`、Agent preload/Main IPC、设置 Glass 表面、`runtime/image-generation` 适配与响应归一化、图片模型配置 UI、专项验证和 EXE 构建。
-- **Rules**：不伪造 Agent 成功；没有项目、会话或桥接时给出可见错误；不泄露 Key/Token/Cookie；兼容旧图片字段并在内部自动派生；不调用真实图片/视频模型。
+- **Rules**：优先实现当前用户明确提出的功能；不伪造 Agent 成功；没有项目、会话或桥接时给出可见错误；不泄露 Key/Token/Cookie；兼容旧图片字段并在内部自动派生；不调用真实图片/视频模型。验证只覆盖本次改动直接影响的专项和必要的构建检查，不机械运行无关全量测试。
 - **Non-goals**：不复制 New API 管理后台，不删除 Extension 的 `/v1/image-tasks*` 合同，不恢复旧工作流，不发起 Seedance 或付费模型请求。
-- **Acceptance**：隔离 Electron/专项证据覆盖发送边界、Goal 确认后实际派发、设置 computed style 和图片 mock 路由；`corepack pnpm run build` 与双变体打包通过。
+- **Acceptance**：隔离 Electron/专项证据覆盖发送边界、Goal 确认后实际派发、设置 computed style 和图片 mock 路由；每次功能改动完成后运行对应最小专项，交付前保留必要的 `corepack pnpm run build` 证据；仅在用户明确要求正式发布时扩大验证范围。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用、正式发布或签名。
 - **Status**：partially verified。代码边界和开发构建已验证；真实 provider、安装/卸载、签名和正式发布门禁仍未验证。
 - **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；Agent 专项已加入 stale chat 收尾等待和同步状态 ref，最新结果为 `chat=4`、`steer=2`、显式 `replace-source=1`。图片异步专项新增 Gemini `x-goog-api-key` 创建/轮询断言。`corepack pnpm run build` 最新通过并转换 1676 modules。当前源码重新执行 `package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`，SparkAPI SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`，均 109,803,520 bytes、文件头 `MZ`。
