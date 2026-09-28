@@ -13,6 +13,7 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 1. **Agent 发送链路**
    - 普通点击、`Ctrl+Enter`、stale busy 恢复、显式 `replace-source` TaskScope、Goal 确认后派发均已进入 Main IPC。
    - 独立 Agent 窗口消息往返已通过；Main 日志只记录 `chat/steer` 到达和 TaskScope 模式，不记录 prompt、凭据或响应内容。
+   - 继续审计确认 `applyProjectSession()` 在同一调用内同步更新项目/会话 refs；项目或会话切换后立即发送的竞态目前未复现，没有新增代码修复。
    - `desktop/ipc/agent-ipc.cjs`、`scripts/agent-send-ipc-selftest.mjs`、`scripts/aidebug-goal-mode-suite.mjs` 与上下文映射已同步。
 
 2. **设置面板可读性**
