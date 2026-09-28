@@ -12,8 +12,8 @@
 - **Acceptance**：隔离 Electron/专项证据覆盖发送边界、Goal 确认后实际派发、设置 computed style 和图片 mock 路由；`corepack pnpm run build` 与双变体打包通过。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用、正式发布或签名。
 - **Status**：partially verified。代码边界和开发构建已验证；真实 provider、安装/卸载、签名和正式发布门禁仍未验证。
-- **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；`corepack pnpm run build` 通过并转换 1676 modules。`package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` SHA-256 `B3892EFA029BC5CC1B782AD092253E5C0762040EF8D73D191AB1E8FE91D56504`，SparkAPI `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` SHA-256 `2AAA5052BB29A0394E819BFA6ED999B71656CEE64E476C90163BED3630E86A94`，均 109,803,520 bytes、文件头 `MZ`。
-- **Next**：本轮实现与文档完成后继续沿用 `main`；后续继续开发时先读取本节和 `PROGRESS.md`。如进入正式发布，再单独执行 `release:final`、安装/卸载 smoke 和签名检查。
+- **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；Agent 专项已加入 stale chat 收尾等待，最新结果为 `chat=4`、`steer=2`、显式 `replace-source=1`。`corepack pnpm run build` 最新通过并转换 1676 modules。`package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` SHA-256 `B3892EFA029BC5CC1B782AD092253E5C0762040EF8D73D191AB1E8FE91D56504`，SparkAPI `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` SHA-256 `2AAA5052BB29A0394E819BFA6ED999B71656CEE64E476C90163BED3630E86A94`，均 109,803,520 bytes、文件头 `MZ`。
+- **Next**：提交并 push 当前 `main` 的专项稳定性修复；后续继续开发时先读取本节和 `PROGRESS.md`。若进入正式发布，再单独执行 `release:final`、安装/卸载 smoke 和签名检查；`runStatus` bridge 不可用时的跨窗口 stale 状态仍保持 fail-closed，未做真实服务验证。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 

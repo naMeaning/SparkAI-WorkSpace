@@ -13,6 +13,7 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 1. **Agent 发送链路**
    - 普通点击、`Ctrl+Enter`、stale busy 恢复、显式 `replace-source` TaskScope、Goal 确认后派发均已进入 Main IPC。
    - 独立 Agent 窗口消息往返已通过；Main 日志只记录 `chat/steer` 到达和 TaskScope 模式，不记录 prompt、凭据或响应内容。
+   - 修正 `scripts/agent-send-ipc-selftest.mjs` 的时序：stale chat 只在真正回到 idle 且没有 active run 后才切换 debug running fixture，避免把仍在收尾的旧 run 误判为产品发送失败。
    - 继续审计确认 `applyProjectSession()` 在同一调用内同步更新项目/会话 refs；项目或会话切换后立即发送的竞态目前未复现，没有新增代码修复。
    - `desktop/ipc/agent-ipc.cjs`、`scripts/agent-send-ipc-selftest.mjs`、`scripts/aidebug-goal-mode-suite.mjs` 与上下文映射已同步。
 
@@ -27,7 +28,7 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
 
 ## 验证证据
 
-- 通过：`corepack pnpm run test:agent-send-ipc`（`chat` 4 次、`steer` 2 次、显式 `replace-source` 1 次）。
+- 通过：`corepack pnpm run test:agent-send-ipc`（最新运行 `chat` 4 次、`steer` 2 次、显式 `replace-source` 1 次；先前一次失败已定位为专项时序竞态并修正）。
 - 通过：`corepack pnpm run aidebug:goal`（`confirmedGoalDispatched:true`、`confirmedGoalReachedMainIpc:true`、`origin:"goal"`、`runtimeRequest:true`）。
 - 通过：`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async`、`corepack pnpm run test:custom-api-transport`、`corepack pnpm run test:agent-window-ui`、`corepack pnpm run test:glass-theme`、`corepack pnpm run test:workspace-glass-ui`。
 - 通过：`corepack pnpm run build`（1676 modules）；`node --check` 与 `git diff --check`。

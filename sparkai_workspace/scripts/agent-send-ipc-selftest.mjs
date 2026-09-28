@@ -312,6 +312,10 @@ async function main() {
       agentStatus: state.agentStatus || ''
     };
   })()`);
+  await waitForRuntimeExpression(client, `(() => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    return (state.agentStatus === 'idle' || state.agentStatus === 'error') && !state.activeRunId;
+  })()`, { evaluate, timeoutMs: 20_000, intervalMs: 100 });
   const explicitScopePrompt = `AIDEBUG_REAL_COMPOSER_EXPLICIT_SCOPE_${Date.now()}`;
   const explicitScopeSurface = await evaluate(client, `window.__naimageDebugOpenSurface?.('agent-running') === true`);
   assert.equal(explicitScopeSurface, true);
