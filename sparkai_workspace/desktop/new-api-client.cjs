@@ -934,7 +934,7 @@ function createNewApiClient(options = {}) {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...relayApiHeaders(options.headers, credentials.apiKey)
+          ...relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader)
         },
         body: JSON.stringify(requestBody),
         signal: options.signal,
@@ -988,7 +988,7 @@ function createNewApiClient(options = {}) {
           directApiUrl(relayBaseUrl, `${endpoint}/${encodeURIComponent(taskId)}`),
           {
             method: "GET",
-            headers: { authorization: `Bearer ${credentials.apiKey}` },
+            headers: relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader),
             signal: options.signal,
             headersTimeoutMs: options.pollHeadersTimeoutMs || 30_000,
             connectTimeoutMs: options.connectTimeoutMs || 30_000,
@@ -1082,7 +1082,7 @@ function createNewApiClient(options = {}) {
         method: "POST",
         headers: {
           ...(isForm ? {} : { "content-type": "application/json" }),
-          ...relayApiHeaders(options.headers, credentials.apiKey)
+          ...relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader)
         },
         body: isForm ? requestBody : JSON.stringify(requestBody),
         signal: options.signal,
@@ -1145,7 +1145,7 @@ function createNewApiClient(options = {}) {
       try {
         response = await newApiTransportFetch(directApiUrl(relayBaseUrl, pollEndpoint), {
           method: "GET",
-          headers: { authorization: `Bearer ${credentials.apiKey}` },
+          headers: relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader),
           signal: options.signal,
           headersTimeoutMs: options.pollHeadersTimeoutMs || 30_000,
           connectTimeoutMs: options.connectTimeoutMs || 30_000,

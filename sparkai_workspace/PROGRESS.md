@@ -26,19 +26,20 @@ Authorization: 用户已授权在 `main` 提交并 push，且要求编译 EXE；
    - 已支持每个模型自定义 Base URL/API Key，并保持 Main-only 凭据、旧配置兼容和 SparkAPI 专用版访问策略。
    - 当前自动适配覆盖 OpenAI Images、xAI/Grok Images、Gemini Native，以及 NewAPI、Sub2API、direct gateway；同步/异步请求和 URL、Base64、`inlineData` 等多层响应均有 mock 归一化。
    - 用户界面不要求手动填写 protocol、gateway、transport 或 capability。
+   - 审计发现异步创建/轮询路径原先固定发送 Bearer；现已复用统一凭据头策略，保留 NewAPI/Sub2API 默认 Bearer，并支持 Gemini 直连的 `x-goog-api-key`。
 
 ## 验证证据
 
 - 通过：`corepack pnpm run test:agent-send-ipc`（最新运行 `chat` 4 次、`steer` 2 次、显式 `replace-source` 1 次；覆盖状态同步修复，先前一次失败已定位为专项时序竞态并修正）。
 - 通过：`corepack pnpm run aidebug:goal`（`confirmedGoalDispatched:true`、`confirmedGoalReachedMainIpc:true`、`origin:"goal"`、`runtimeRequest:true`）。
-- 通过：`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async`、`corepack pnpm run test:custom-api-transport`、`corepack pnpm run test:agent-window-ui`、`corepack pnpm run test:glass-theme`、`corepack pnpm run test:workspace-glass-ui`。
+- 通过：`corepack pnpm run test:image-generation-adapters`、`corepack pnpm run test:image-generation-async`（含 Gemini 异步创建/轮询认证头回归）、`corepack pnpm run test:custom-api-transport`、`corepack pnpm run test:agent-window-ui`、`corepack pnpm run test:glass-theme`、`corepack pnpm run test:workspace-glass-ui`。
 - 通过：`corepack pnpm run build`（1676 modules）；`node --check` 与 `git diff --check`。
-- 通过：`corepack pnpm run package:win:variants`，当前源码双变体构建报告 `bundleEnforced:false`；Unrestricted SHA-256 `BB245D520CF8EB92FFAEE6C97ADB6DA106B8DCA3228299936D82462BF6B9AF91`，SparkAPI SHA-256 `FDAEF0E18B45C11E717A6F9B39D33CC427D5CCAE98FD695089A2ED31962EE265`。
+- 通过：`corepack pnpm run package:win:variants`，当前源码双变体构建报告 `bundleEnforced:false`；Unrestricted SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`，SparkAPI SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`。
 
 ## 当前制品
 
-- [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `BB245D520CF8EB92FFAEE6C97ADB6DA106B8DCA3228299936D82462BF6B9AF91`。
-- [SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `FDAEF0E18B45C11E717A6F9B39D33CC427D5CCAE98FD695089A2ED31962EE265`。
+- [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`。
+- [SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`。
 - 两个 EXE 的 `Authenticode` 状态均为 `NotSigned`；这是开发构建，不是正式发布制品。
 
 ## 未验证边界

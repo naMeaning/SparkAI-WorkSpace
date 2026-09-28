@@ -60,6 +60,32 @@ async function main() {
   assert.deepEqual(accepted, [{ taskId: "task-1", status: "queued" }]);
   assert.deepEqual(statuses, ["running", "completed"]);
 
+  calls.length = 0;
+  transport = async (url, options) => {
+    calls.push({ url: String(url), options });
+    if (options.method === "POST") return response(202, { task_id: "gemini-task", status: "queued" });
+    return response(200, { task_id: "gemini-task", status: "completed", result: { data: [{ b64_json: "aW1hZ2U=" }] } });
+  };
+  const geminiResult = await client.newApiRelayAsyncImage({
+    accessMode: "custom",
+    imageBaseUrl: "https://gemini.example/v1",
+    imageApiKey: "gemini-key",
+    imageModelBindings: []
+  }, "/v1/images/generations", {
+    model: "gemini-3.1-flash-image",
+    prompt: "native auth"
+  }, {
+    model: "gemini-3.1-flash-image",
+    authHeader: "x-goog-api-key",
+    pollIntervalMs: 0,
+    maxWaitMs: 5_000
+  });
+  assert.equal(geminiResult.data[0].b64_json, "aW1hZ2U=");
+  assert.equal(calls[0].options.headers["x-goog-api-key"], "gemini-key");
+  assert.equal(calls[0].options.headers.authorization, undefined);
+  assert.equal(calls[1].options.headers["x-goog-api-key"], "gemini-key");
+  assert.equal(calls[1].options.headers.authorization, undefined);
+
   transport = async (_url, options) => {
     assert.equal(options.method, "POST");
     return response(200, {

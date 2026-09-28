@@ -1,13 +1,13 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：69
+> 地图版本：70
 > 最近同步：2026-09-28
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 
 本文是面向开发者和 Agent 的当前实现导航。它回答“能力归谁所有、从哪里进入、跨越哪些边界、修改后验证什么”。产品方向仍以根目录 `PRODUCT_INTENT.md` 为准，强制编码约束以根目录 `AGENTS.md` 为准；日期开头的计划和审计文档只用于追溯历史。
 
-当前 Goal（2026-09-28）：Agent Composer 的明确发送确认、设置表面可读性和图片协议自动适配。图片模型的协议、网关、传输和能力字段继续作为兼容输入，但用户可见配置应收敛到模型、Base URL 和凭据；解析与请求构造仍由 Main/runtime 持有，Renderer 不接触秘密。当前 `main` 已修复 Agent 状态 ref 的 stale 阻断并完成图片/发送专项和双接入开发 EXE 构建；真实 provider、安装/卸载、签名与正式发布门禁仍未验证。
+当前 Goal（2026-09-28）：Agent Composer 的明确发送确认、设置表面可读性和图片协议自动适配。图片模型的协议、网关、传输和能力字段继续作为兼容输入，但用户可见配置应收敛到模型、Base URL 和凭据；解析与请求构造仍由 Main/runtime 持有，Renderer 不接触秘密。当前 `main` 已修复 Agent 状态 ref 的 stale 阻断、异步图片认证头兼容并完成图片/发送专项和双接入开发 EXE 构建；真实 provider、安装/卸载、签名与正式发布门禁仍未验证。
 
 ## 1. 文档权威顺序与维护规则
 
@@ -69,7 +69,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/video-task-service.cjs：零重试创建、项目 journal、恢复轮询与安全下载落盘
   ├─ desktop/agent-responses-adapter.cjs
   ├─ desktop/new-api-transport.cjs：默认 Node HTTP、显式 HTTP(S) 代理时的 Windows curl 传输与取消
-  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、rc.23 auth bundle/旧 session 登录、刷新与重试、图片任务创建/轮询、JSON/通用 SSE 与 Images SSE relay；模型接入按逐模型配置优先并锁定 Authorization，异步图片创建无 task id 时复用 runtime 图片响应归一化判断嵌套即时结果
+  ├─ desktop/new-api-client.cjs：account/relay/update 基址解析、rc.23 auth bundle/旧 session 登录、刷新与重试、图片任务创建/轮询、JSON/通用 SSE 与 Images SSE relay；模型接入按逐模型配置优先并锁定认证头，异步图片创建/轮询复用 `authHeader`（默认 Bearer、Gemini 直连可用 `x-goog-api-key`），无 task id 时复用 runtime 图片响应归一化判断嵌套即时结果
   ├─ desktop/account-token-service.cjs：New API 用户密钥 CRUD、按账户隔离的脱敏磁盘快照与 Main-only 完整 Key 内存缓存
   ├─ desktop/settings-secret-store.cjs：自定义 API Key 与 New API auth bundle 的 safeStorage sidecar、Renderer 占位符与旧明文迁移
   ├─ desktop/automation-service.cjs：127.0.0.1 随机端口、随机 Bearer Token、Renderer 命令转发与 Main service command 分流
@@ -287,7 +287,7 @@ image_gen
   → Renderer 归组与溯源
 ```
 
-`runtime/image-generation/types.cjs` 是图片模型连接画像 owner：精确 preset 继续提供能力矩阵，未知模型按 `gpt-image`/`dall-e`/`chatgpt-image`、`grok`/`xai`、`gemini`/`nano-banana` 族自动派生 OpenAI Images、XAI Images 或 Gemini native；未识别模型使用 OpenAI-compatible Images。Sub2API 由 Base URL host（`sub2api`/`sub2-api`）自动识别并默认异步，账号模式默认 NewAPI，其余自定义地址默认 direct；旧 `protocol`、`gateway`、`transportMode`、`capabilities` 字段只作为兼容覆盖输入，新的设置界面无需填写它们。`runtime/image-generation/normalize-response.cjs` 以有限深度/节点数递归处理 `data/result/response/output/candidates` 等包装，识别 URL、`b64_json`、`inlineData` 和 `image_base64`，继承 `revisedPrompt`/`requestIndex` 并按 `type + value` 去重。对应最小验证为 `test:image-generation-adapters`、`test:image-generation-async` 和 `typecheck`；不调用真实图片服务。
+`runtime/image-generation/types.cjs` 是图片模型连接画像 owner：精确 preset 继续提供能力矩阵，未知模型按 `gpt-image`/`dall-e`/`chatgpt-image`、`grok`/`xai`、`gemini`/`nano-banana` 族自动派生 OpenAI Images、XAI Images 或 Gemini native；未识别模型使用 OpenAI-compatible Images。Sub2API 由 Base URL host（`sub2api`/`sub2-api`）自动识别并默认异步，账号模式默认 NewAPI，其余自定义地址默认 direct；旧 `protocol`、`gateway`、`transportMode`、`capabilities` 字段只作为兼容覆盖输入，新的设置界面无需填写它们。`runtime/image-generation/normalize-response.cjs` 以有限深度/节点数递归处理 `data/result/response/output/candidates` 等包装，识别 URL、`b64_json`、`inlineData` 和 `image_base64`，继承 `revisedPrompt`/`requestIndex` 并按 `type + value` 去重。`desktop/new-api-client.cjs` 的同步/异步图片创建和轮询共享凭据头策略。对应最小验证为 `test:image-generation-adapters`、`test:image-generation-async` 和 `typecheck`；不调用真实图片服务。
 
 桌面默认不再先打 SparkAI `/v1/image-tasks`，也不再用对话模型走 Responses `image_generation`。`sparkai-extension` 的 `/v1/image-tasks*` 仍可包装原生 Images API，但不是客户端默认路径。GPT Image 才带 `background` / `moderation` / `input_fidelity`；Grok / Gemini / Flux 走同一 Images 路径并补 `response_format=b64_json`。`gpt-image-2` 的 `size` 只发 `1024x1024` / `1536x1024` / `1024x1536`。
 
@@ -610,7 +610,7 @@ Renderer UpdaterBridge
 | `desktop/requirement-library.cjs` | 安装级个人 Requirement 模板的懒读取/单文件 JSON 持久化、最多 200 项、可选 `CanvasSkill` 元数据、精确 revision CAS 与删除确认 | AppSettings、项目 session、画布 mutation、Requirement 执行、模型调用，或 bindings/节点 ID/坐标/运行记录/绝对路径持久化 | `createRequirementLibraryService`, `sanitizeRequirementLibraryDocument`, `RequirementLibraryError`, `reqtpl-` | `test:automation-service`, `test:ipc-registration` |
 | `desktop/ipc/update-ipc.cjs` | 桌面更新 IPC channel 注册、操作错误到公开失败 DTO/进度事件的映射 | 更新清单校验、下载、回滚或安装进程实现 | `registerUpdateIpc` | `test:ipc-registration`, `test:update`, `test:update-rollback` |
 | `desktop/new-api-transport.cjs` | 默认 Node HTTP、显式应用代理时的 Windows curl、请求/响应大小限制、流取消、活跃 curl 生命周期 | 设置持久化、登录、重试策略、Updater 状态；不得读取或修改 Git/系统全局代理 | `createNewApiTransport`, `newApiTransportFetch`, `stopActiveNewApiCurlTransports` | `test:new-api-transport`, `test:lifecycle` |
-| `desktop/new-api-client.cjs` | New API URL、rc.23 auth bundle/旧 session 解析、Bearer 刷新 single-flight 与单次 401 重放、原生登出、JSON request、图片任务单次创建与 2.5 秒状态轮询、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类；逐模型连接优先且 provider Authorization 不可被调用方覆盖 | 账户 UI、模型选择、图片落盘、raw socket/curl 实现；拿到 task_id 或创建结果不明后不得自动重发 POST | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayImageTask`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:new-api-login`, `test:custom-api-transport`, `test:image-stream-preview`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
+| `desktop/new-api-client.cjs` | New API URL、rc.23 auth bundle/旧 session 解析、Bearer 刷新 single-flight 与单次 401 重放、原生登出、JSON request、图片任务单次创建与 2.5 秒状态轮询、managed relay JSON/SSE、Images SSE、Responses image_generation partial/final 解析与受限回退分类；逐模型连接优先且 provider 认证头不可被调用方覆盖，异步图片创建/轮询可按 `authHeader` 发送 Gemini 直连 Key | 账户 UI、模型选择、图片落盘、raw socket/curl 实现；拿到 task_id 或创建结果不明后不得自动重发 POST | `createNewApiClient`, `newApiFetch`, `newApiRequest`, `newApiRelayImageTask`, `newApiRelayAsyncImage`, `newApiRelayStream`, `newApiRelayImage`, `newApiRelayResponsesImage` | `test:new-api-login`, `test:custom-api-transport`, `test:image-generation-async`, `test:image-stream-preview`, `test:new-api-transport`, `test:agent-protocol`, `test:lifecycle` |
 | `desktop/account-token-service.cjs` | New API `/api/token/*` 列表/选择/CRUD、原生 token 响应与脱敏 `/key` 扩展兼容、按账户隔离的公开元数据磁盘快照、所选 token 元数据持久化、完整 Key Main-only 内存缓存与账号 `/v1` credentials | Renderer 表单、模型请求体、项目数据、磁盘 Key/Cookie/IP 白名单/模型限制或日志 | `createAccountTokenService`, `credentials`, `ensureSelection`, `list`, `select` | `test:account-token`, `test:settings-lazy-load`, `test:ipc-registration`, `typecheck` |
 | `desktop/settings-secret-store.cjs` | 自定义 Agent/图片/逐模型 API Key 及 New API access token/refresh cookie/auth session ID 的 Electron `safeStorage` 加密 sidecar、普通设置去明文、Renderer 占位符恢复和旧明文迁移；普通设置损坏恢复不得删除 sidecar | 账户模型 Token 完整 Key、项目数据、明文日志、Renderer 解密或无加密回退写盘 | `createSettingsSecretStore`, `SETTINGS_SECRET_PLACEHOLDER`, `recover`, `restorePlaceholders` | `test:settings-secret-store`, `test:settings-persistence`, `typecheck`, `build` |
 | `desktop/automation-service.cjs` | loopback HTTP 服务、每次启动随机 Bearer Token、endpoint 文件、Renderer 请求关联/超时与 Main service command 分流 | 业务命令实现、调试命令实现、远端监听或长期 Token | `createAutomationService`, `dispatch`, `rendererReady`, `resolveRendererResponse` | `test:automation-service`, `test:automation-debug`, `test:mcp-wrapper`, `test:bundle` |
@@ -1091,7 +1091,7 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 | 日期 | 桌面版本 | 同步内容 |
 | --- | --- | --- |
 | 2026-09-28 | 1.0.9-dev | `2aa2dd4` 已在 `main` 完成并推送：Agent 普通/快捷键/stale busy/显式 `replace-source`/Goal/独立窗口发送边界、设置两主题 computed style、图片模型自动适配与多层响应归一化专项均已有证据；`corepack pnpm run build` 与 `package:win:variants` 通过，生成并核对 Unrestricted/SparkAPI 双 x64 开发安装包。继续审计确认 `applyProjectSession()` 同步更新项目与会话 ref，项目切换后立即发送的竞态目前未复现；未调用真实模型或服务。详见 `GOAL.md`、`PROGRESS.md`。 |
-| 2026-09-28 | 1.0.9-dev | 修复 Agent 发送的真实 stale 状态阻断：`setAgentStatusSync()` 在状态切换时同步更新 `agentStatusRef`，避免运行结束与 React effect 之间把新消息误挡在 `sendPrompt` 前；`runStatus` 不可用时仍保留跨窗口 fail-closed。`test:agent-send-ipc`（chat 4、steer 2、显式 replace 1）、三项图片/传输专项、production build 和当前源码双 EXE 均通过，未调用真实 provider。 |
+| 2026-09-28 | 1.0.9-dev | 修复 Agent 发送的真实 stale 状态阻断：`setAgentStatusSync()` 在状态切换时同步更新 `agentStatusRef`，避免运行结束与 React effect 之间把新消息误挡在 `sendPrompt` 前；`runStatus` 不可用时仍保留跨窗口 fail-closed。图片异步创建/轮询改为复用统一认证头策略，补 Gemini `x-goog-api-key` 回归。`test:agent-send-ipc`（chat 4、steer 2、显式 replace 1）、图片/传输专项、production build 和当前源码双 EXE 均通过，未调用真实 provider。 |
 | 2026-09-28 | 1.0.9-dev | 修正 `test:agent-send-ipc` 的 stale chat 夹具时序：等待旧 chat 回到 idle 且清空 active run 后再切换 debug running surface，避免仍在收尾的真实 mock run 抢占显式 `replace-source` 场景。专项复跑通过；未改变生产发送逻辑，未调用真实 provider。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |
 | 2026-09-27 | 1.0.9-dev | 按用户要求从当前 `main` 重新编译 Windows x64 双版本开发安装包；`corepack pnpm run package:win:variants` 退出 0，接入策略自测、安装器资源、两次 1676-module Vite production build、双 Electron/NSIS/品牌安装器均完成，`bundleEnforced:false`。独立核对的 Unrestricted 安装包为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `DBFDB1A0706344683B806233A38FD3DB1EF5A371A8DD66DD039FAED6C9E44991`，SparkAPI 专用版为 109,804,032 bytes / 文件头 `4D-5A` / SHA-256 `07C0F5D7B103CA145E6CF3CABE0A47F23C221AC5D70CE721CD6C95BEAFB4ED9F`；两个 EXE 的 Authenticode 均为 `NotSigned`。未运行真实安装/卸载 smoke、正式 Bundle/release 门禁或真实图片/视频服务。 |

@@ -12,8 +12,8 @@
 - **Acceptance**：隔离 Electron/专项证据覆盖发送边界、Goal 确认后实际派发、设置 computed style 和图片 mock 路由；`corepack pnpm run build` 与双变体打包通过。
 - **Authorization**：用户已授权在当前 `main` 分支提交未提交记录、push，并要求编译 EXE；不因此授权真实模型调用、正式发布或签名。
 - **Status**：partially verified。代码边界和开发构建已验证；真实 provider、安装/卸载、签名和正式发布门禁仍未验证。
-- **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；Agent 专项已加入 stale chat 收尾等待和同步状态 ref，最新结果为 `chat=4`、`steer=2`、显式 `replace-source=1`。`corepack pnpm run build` 最新通过并转换 1676 modules。当前源码重新执行 `package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted SHA-256 `BB245D520CF8EB92FFAEE6C97ADB6DA106B8DCA3228299936D82462BF6B9AF91`，SparkAPI SHA-256 `FDAEF0E18B45C11E717A6F9B39D33CC427D5CCAE98FD695089A2ED31962EE265`，均 109,803,520 bytes、文件头 `MZ`。
-- **Next**：提交并 push当前 Agent 状态同步修复；后续继续开发时先读取本节和 `PROGRESS.md`。若进入正式发布，再单独执行 `release:final`、安装/卸载 smoke 和签名检查；`runStatus` bridge 不可用时的跨窗口 stale 状态仍保持 fail-closed，未做真实服务验证。
+- **Evidence**：`test:agent-send-ipc`、`aidebug:goal`、`test:image-generation-adapters`、`test:image-generation-async`、`test:custom-api-transport`、`test:agent-window-ui`、`test:glass-theme`、`test:workspace-glass-ui`、`node --check`、`git diff --check` 均通过；Agent 专项已加入 stale chat 收尾等待和同步状态 ref，最新结果为 `chat=4`、`steer=2`、显式 `replace-source=1`。图片异步专项新增 Gemini `x-goog-api-key` 创建/轮询断言。`corepack pnpm run build` 最新通过并转换 1676 modules。当前源码重新执行 `package:win:variants` 通过且 `bundleEnforced:false`：Unrestricted SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`，SparkAPI SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`，均 109,803,520 bytes、文件头 `MZ`。
+- **Next**：提交并 push本轮异步图片认证头兼容修复；后续继续开发时先读取本节和 `PROGRESS.md`。若进入正式发布，再单独执行 `release:final`、安装/卸载 smoke 和签名检查；`runStatus` bridge 不可用时的跨窗口 stale 状态仍保持 fail-closed，图片真实 provider 仍未联调。
 
 ## 已完成目标：图片协议与逐模型连接（2026-09-26）
 
