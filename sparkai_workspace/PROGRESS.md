@@ -2,6 +2,8 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 第四次编排通过前 64 项，在 Goal Runtime 的“Renderer/runtime 哈希一致”实测失败。实际镜像缺陷：Renderer canonical materials 哈希与 Runtime 旧 source/reference 哈希不一致。修正 Runtime 的哈希材料字段，保留全套 Goal 执行/费用/漂移字段；这不是测试放宽。此改动属于产品 Runtime，将专项验证和 build 后从头运行正式门禁。
+- Runtime hash 修正完成：Goal Runtime 43 场景、普通 TaskScope/Goal TaskScope/执行门禁、context checkpoint 和 production build 通过。补充 source+reference canonical materials 及顺序镜像断言，顺序变化仍改变冻结 hash。前次测试账户已撤销权限并删除 Profile/账户，清理无失败；重新提交推送后创建干净账户从头验证，不复用旧门禁。
 - 第三次从头编排（fc3ea89）通过前 54 项，第 55 项 streaming selftest 的源码检查仍要求普通生图走旧 Responses→Images SSE 回退，和当前 Provider service 不一致。对齐生产入口与 service 的可选预览回调检查，保留分槽/替换/安全 data URL/下帧清理/查看器全部行为断言；底层 SSE transport 专项此前已在该次编排通过。此次不修改产品请求和 Provider 参数。
 - 修正后的 test:image-stream-preview 通过（30 cases）；窄续跑仅允许该 selftest 与 GOAL/PROGRESS 三个路径变化，旧报告 54 项证据、稳定指纹和提交祖先由编排器重新校验。当前 release 保持 incomplete，后续门禁和制品仍须完成同次正式编排。
 - 第二次正式编排（53a17c1）通过前 45 项，UI foundation 发现素材序号使用了未定义 glass-fill，以及画布序号绕过共享 Field。修正真实 owner：复用现有 glass-surface-fill 和 Field，保留尺寸/事件/序号数据链。此轮涉及产品 Renderer/CSS，因此不列入窄续跑 allowlist，完成专项/可见 GUI/build 后从头运行 124 项。

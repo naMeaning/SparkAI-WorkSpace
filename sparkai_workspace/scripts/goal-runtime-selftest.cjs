@@ -135,6 +135,12 @@ async function main() {
 
     const { agentTaskScopeSnapshotHash } = await import("../src/core.ts");
     assert.equal(fixture.scope.snapshotHash, agentTaskScopeSnapshotHash(fixture.scope), "Renderer and runtime Goal hashes must match");
+    const reference = { ...fixture.scope.sourceAssets[0], bindingId: "reference-identity", assetId: "reference-asset", role: "reference", referenceRole: "style" };
+    const mixedScope = normalizedTaskScope({ taskScope: { ...fixture.scope, materials: [...fixture.scope.materials, reference], referenceAssets: [reference] } });
+    assert.equal(mixedScope.snapshotHash, agentTaskScopeSnapshotHash(mixedScope), "Canonical source/reference materials must hash identically across processes");
+    const reorderedScope = normalizedTaskScope({ taskScope: { ...mixedScope, materials: [...mixedScope.materials].reverse() } });
+    assert.equal(reorderedScope.snapshotHash, agentTaskScopeSnapshotHash(reorderedScope), "Canonical material order must be mirrored");
+    assert.notEqual(reorderedScope.snapshotHash, mixedScope.snapshotHash, "Changing the frozen material order must change its identity");
     assert.equal(validateFrozenGoalTaskScope(fixture.scope).sources.length, 4);
     const legacyMissingFeeScope = structuredClone(fixture.scope);
     delete legacyMissingFeeScope.goal.operationsPerAsset;

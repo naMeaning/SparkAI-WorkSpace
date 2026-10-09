@@ -979,8 +979,9 @@ function taskScopeSnapshotHash(scope = {}) {
     referenceContainerIds: [...(scope.referenceContainerIds || [])],
     sourceBindingIds: [...(scope.sourceBindingIds || [])],
     referenceBindingIds: [...(scope.referenceBindingIds || [])],
-    sourceAssets: (scope.sourceAssets || []).map(materialAsset),
-    referenceAssets: (scope.referenceAssets || []).map(materialAsset),
+    materials: (Array.isArray(scope.materials) && scope.materials.length
+      ? scope.materials
+      : [...(scope.sourceAssets || []), ...(scope.referenceAssets || [])]).map(materialAsset),
     resultPolicy: scope.resultPolicy,
     confirmationPolicy: scope.confirmationPolicy,
     requirement: scope.requirement
