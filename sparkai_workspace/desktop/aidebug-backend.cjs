@@ -261,10 +261,27 @@ function createAidebugBackend({ enabled, log } = {}) {
     return line.slice(0, 260);
   }
 
-  function aidebugTaskScopeSources(messages = []) {
+  function aidebugTaskScopeSources(messages = [], taskText = "") {
     const text = messages.map(aidebugMessageText).join("\n");
     const sourceMarker = "SOURCE（需要处理）:";
     const referenceMarker = "REFERENCE（仅作参考，不决定输出数量）:";
+    const materialsMarker = "materials (model decides each role):";
+    const materialsStart = text.lastIndexOf(materialsMarker);
+    if (materialsStart >= 0 && materialsStart > text.lastIndexOf(sourceMarker)) {
+      // Ordinary tasks expose materials, not private SOURCE binding IDs. Only
+      // an explicit per-image request asks this deterministic mock to fan out.
+      if (!/分别|各|每(?:张|个)|逐(?:图|张|一)|\beach\b|\bper.image\b/i.test(taskText)) return [];
+      const rows = text.slice(materialsStart + materialsMarker.length).trimStart().split(/\r?\n/);
+      const sources = [];
+      for (const row of rows) {
+        if (!row.trim().startsWith("- ")) break;
+        const [displayCode, ...fields] = row.trim().slice(2).split("|").map((field) => field.trim());
+        const nodeId = fields.find((field) => field.startsWith("node="))?.slice(5) || "";
+        const assetId = fields.find((field) => field.startsWith("assetId="))?.slice(8) || "";
+        if (assetId && nodeId && nodeId !== "-") sources.push({ displayCode, nodeId, bindingId: "" });
+      }
+      return sources;
+    }
     const sections = [];
     let cursor = 0;
     while (cursor < text.length) {
@@ -474,14 +491,26 @@ function createAidebugBackend({ enabled, log } = {}) {
     if (commerceArgs) {
       return [aidebugFunctionCall(aidebugFunctionCallId(`${prefix}-commerce`), "image_gen", commerceArgs)];
     }
-    const sources = aidebugTaskScopeSources(messages).slice(0, 10);
+    const pendingTask = messages.flatMap((message) => {
+      if (message?.role === "user") return [aidebugMessageText(message)];
+      if (message?.role !== "responses_items" || !Array.isArray(message.items)) return [];
+      return message.items.filter((item) => item.type === "message" && item.role === "user")
+        .map((item) => typeof item.content === "string" ? item.content
+          : (Array.isArray(item.content) ? item.content : []).map((part) => part.text || "").join("\n"));
+    }).reverse()
+      .find((message) => message !== text && /AIDEBUG_ASK_CONFIRM/i.test(message)) || "";
+    const confirmedTask = aidebugAskUserArgs(pendingTask)?.options?.some((option) => option.answer === text.trim())
+      ? pendingTask : "";
+    const requestText = confirmedTask ? `${confirmedTask}\n用户确认：${text}` : text;
+    const intent = `${requestText}\n${confirmedTask ? "" : aidebugPreviousImageRequest(messages, text)}`;
+    const sources = aidebugTaskScopeSources(messages, intent).slice(0, 10);
     if (sources.length <= 1) {
-      return [aidebugFunctionCall(aidebugFunctionCallId(prefix), "image_gen", aidebugImageArgs(text, messages, sources[0] || null))];
+      return [aidebugFunctionCall(aidebugFunctionCallId(prefix), "image_gen", aidebugImageArgs(requestText, messages, sources[0] || null))];
     }
     return sources.map((source, index) => aidebugFunctionCall(
       aidebugFunctionCallId(`${prefix}-${index + 1}`),
       "image_gen",
-      aidebugImageArgs(text, messages, source)
+      aidebugImageArgs(requestText, messages, source)
     ));
   }
 

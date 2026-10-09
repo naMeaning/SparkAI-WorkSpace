@@ -3381,9 +3381,12 @@ function createAgentRuntime(options) {
       taskScope.resultPolicy
     );
     // Unified materials are intentionally model-selected. When no explicit
-    // selector is present, use the stable first material as the edit fallback
-    // instead of requiring the user to classify or bind a SOURCE manually.
-    const scopedSourceAsset = resolvedSourceAsset || uniqueTaskSources[0] || null;
+    // selector is present, prefer the material belonging to the chosen node,
+    // then the stable first material when there is no node selection.
+    const parentSourceAsset = sourceNode?.id
+      ? uniqueTaskSources.find((item) => item.nodeId === sourceNode.id)
+      : null;
+    const scopedSourceAsset = resolvedSourceAsset || parentSourceAsset || uniqueTaskSources[0] || null;
     if (sourceNode?.id && scopedSourceAsset?.nodeId && scopedSourceAsset.nodeId !== sourceNode.id) {
       throw new Error(`${toolName} SOURCE ${scopedSourceAsset.displayCode || scopedSourceAsset.assetId} 不属于 parentId=${parentId}。`);
     }

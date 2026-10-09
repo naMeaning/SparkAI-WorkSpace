@@ -69,8 +69,9 @@ export async function captureAskUserContinuationSuite(context) {
     while (performance.now() < deadline) {
       const state = window.__naimageDebugAgentState?.();
       if (state?.askUserOpen && state?.pendingAgentExecution?.kind === "clarify") {
-        const ratio = String(document.querySelector('[aria-label="默认生图比例"] strong')?.textContent || '').trim();
-        const resolution = String(document.querySelector('[aria-label="默认生图清晰度"] strong')?.textContent || '').trim();
+        const config = await window.naimageConfig.loadSettings();
+        const ratio = String(config.settings?.imageRatio || '').trim();
+        const resolution = String(config.settings?.imageResolution || '').trim();
         return {
           ok: Boolean(
             ratio && resolution &&

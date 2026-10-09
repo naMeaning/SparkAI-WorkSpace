@@ -2,16 +2,16 @@
 
 ## 当前任务：推送当前源码并发布 GitHub Release（2026-10-09）
 
-- 状态：in progress；用户明确要求将当前改动推送远端并发布 Release，替代此前“未授权 push/发布”的边界。
+- 状态：partially verified；源码发布准备继续，正式安装环境 blocked。用户明确要求将当前改动推送远端并发布 Release，替代此前“未授权 push/发布”的边界；Windows 临时账户方案已按最新指示撤销并清理。
 - 结果：当前桌面功能和相关文档提交到 origin/main；GitHub Release 对应冻结源码、真实安装包、版本说明与完整性信息。
 - 范围：当前桌面 dirty worktree、工作区上下文/决策文档、Git 提交/远端、Windows 发行和 GitHub Release；保持 Extension 与外部 New API 独立。
 - 验收：提交内容无凭据/配置/诊断/用户数据；远端提交一致；用户选择正式稳定版，需解决全部前置条件、同次 release:final 全部通过并核验远端 Release 资产。
 - 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。0 新真实模型/图片/视频请求，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
-- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,672 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项，Unrestricted 预验收包的实际程序与配置/命令 GUI 已通过；正式全量编排前 96 项通过，第 97 项夹具修正的独立 UI 155 checks/23 screenshots 与 build 已通过，待冻结后继续正式编排和发布。
+- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,672 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项。上一次冻结源码的正式编排前 102 项通过；本轮已修正 Mock 确认恢复与 Runtime 第二来源选择，AskUser 为 10/10 checks、5 scenes、0 failures，agent-text/view-image/Goal Runtime 43 cases 与修正后 production build 均通过。旧正式证据不代表本轮同次完整发布。
 - 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
-- 隔离授权：用户允许创建临时本地标准测试账户、临时读取工作区与发布密钥；验证结束撤销权限并清理该账户。日常安装、项目、登录与进程保持原状。
-- 下一步：隔离安装及 1.0.8 → 1.0.9 完整安装升级预验收已通过；冻结/推送后，在全新临时账户运行同次正式发布流程并核验 GitHub Release。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
+- 隔离授权更新（2026-10-09）：用户澄清“测试用户”指软件内测试账户，明确要求删除 SparkRel Windows 临时用户；此前系统账户方案 superseded。清理已实际核验：账户、Profile、用户目录均无 SparkRel 残留，私钥临时 ACL 已撤销，cleanup.json 全部清理项 true、failure 为空；后续不创建 Windows 用户。使用软件内隔离 Mock；正式安装验证如受环境限制，必须如实记录，不能触碰日常安装来替代。
+- 下一步：修正 AskUser 软件内 Mock 的确认恢复合同，专项/build 后冻结并推送；正式安装仍需干净环境，本机已有日常安装且 Sandbox/Hyper-V 未启用，当前完整 release:final 前置条件未满足。历史隔离安装及完整升级预验收保留为历史证据，不能替代当前同次正式编排。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。
@@ -19,6 +19,8 @@
 - 当前 checkpoint：67dd980 从头验证前 96 项通过；第 97 项 Agent 文本 UI 的初始账户未选择 Token/分组，但 Mock 账户目录固定选择 token 1/default，元数据因此改变草稿并进入未保存设置确认。隔离夹具改为匹配该 Mock 账户，保留 Escape、焦点和可视保护断言，产品代码不变；独立专项 155 checks/23 screenshots 与 build 已通过，只改变该测试及 Goal/Progress，可从该门禁按窄 allowlist 续跑。会话级持续 Goal 已实际创建并 active。
 - 当前 checkpoint：8eb7f53 续跑后正式前 98 项通过；第 99 项素材 GUI 的配置已落盘，但重载后原坐标点击未切到模型页。测试原生点击前要求目标几何稳定，再检查命中/裁切并明确等待模型页激活；产品代码不变，专项通过后只允许该测试及 Goal/Progress 的窄续跑。
 - 当前 checkpoint：58c0c1c 正式前 101 项通过，登录专项的设置接入策略检查仍读取已被 GlassSelect 取代的原生 select。改为展开当前接入控件，核验可见启用的 account/custom 选项，专用版仍要求无自定义控件且官方地址只读；真实退出/刷新/清理/登录断言保持。只改变 GUI 测试及 Goal/Progress，专项/build 后按窄 allowlist 续跑。
+- 当前 checkpoint：4af35ea 正式前 102 项通过。询问确认的比例检查仍依赖已移入配置弹窗的按钮；Mock 后台只读取旧 SOURCE Prompt，无法模拟普通材料的逐图要求。专项读 canonical 配置，Mock 只在明确逐图意图时从最新材料段派发独立请求，保留 Goal SOURCE 解析。专项、相关 Mock 合同与 build 后重新完整验证，避免发布源码与旧证据失配。
+- 最新诊断：Mock 必须读取 Responses 历史中的原确认任务；修正后两条 image_gen 均已返回，但第二条被 Runtime 的“全局首素材”回退误拒绝（parentId=M、却取 L1）。修正真实来源解析，显式 parentId 优先选取该节点的冻结素材；保留范围/槽位检查，补 Runtime 回归并复跑 AskUser，0 真实请求。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 

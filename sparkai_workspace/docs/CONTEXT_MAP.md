@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：82
+> 地图版本：84
 > 最近同步：2026-10-09
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -14,6 +14,10 @@
 > 正式 UI 基础门禁修正：画布容器的素材序号控件由 Main 复用共享 `Field`；小控件尺寸仍由 `02-canvas-workspace.css` 的 owner 规则约束。Composer 序号输入使用已有 `--glass-surface-fill`，消除未定义的 `--glass-fill`。验证入口为 `test:ui-foundation`、素材 GUI、typecheck/build 和正式全量验证。
 
 > TaskScope 镜像：`src/core.ts::agentTaskScopeSnapshotHash` 与 `agent-runtime.cjs::taskScopeSnapshotHash` 均对 canonical materials（无该字段时兼容 sourceAssets + referenceAssets）计算同一 hash；Goal 源/参考执行投影仍保留在 normalized scope，费用和批量字段仍进入 hash。`test:goal-runtime` 校验前后端一致与冻结漂移，`test:task-scope`/`test:goal-task-scope` 和 Goal GUI 证明实际执行边界。
+
+> Mock 上下文镜像：`desktop/aidebug-backend.cjs` 的隔离模拟模型与 Runtime 的普通 `materials (model decides each role)` Prompt 保持一致；只有明确逐图意图才按当前材料节点模拟独立请求，不给普通 Prompt 添加 private bindingId。Goal 仍解析冻结 SOURCE 段。`aidebug:ask-user` 校验两来源 staged 恢复、hash/来源归属与 canonical 配置比例；`test:commerce-set` 保持 Goal Mock 合同。
+
+> 普通来源解析：`agent-runtime.cjs::normalizeImageToolArgs` 在没有显式素材 selector 时，先从公开 parentId 对应节点的冻结素材中取稳定首项，再使用全局首素材；不会把第二个来源错误绑定到第一个节点。显式 selector、assetIndex、范围与槽位校验仍由 Runtime 拥有。Mock 同时读取普通历史与 Responses items 中的原确认任务；验证入口为 `test:agent-text` 和 `aidebug:ask-user` 的两来源分批成果。
 
 当前 Goal（2026-10-08）已完成：图片配置集中入口与共享 8 个斜杠命令，替代普通/Goal 按钮，继续复用既有图片和 Agent 执行链。两种最新 development EXE 的实际程序主/独立窗口、保存/reload、小视口及普通文本 Mock 测试各 9 checks/10 screenshots，0 真实模型请求；每包 129 文件匹配源码/dist，策略、MZ/SHA-256/NotSigned 已独立核验。最新汇总 .diagnostics/release/composer-command-delivery-2026-10-08.json 替代同名旧制品元数据。运行中 slash 暂停/恢复/停止完整往返、实际安装卸载、签名及正式发布未验证；正式 CSS Bundle 门槛仍未通过。
 

@@ -2371,6 +2371,38 @@ async function runSelftest(directory) {
     });
     assertOk(multiMaterialResult.envelope, "Multiple materials must use a stable implicit edit target");
     assert.equal(capturedImageRequests.at(-1)?.editImage?.path, fixtureImagePath);
+    const selectedMaterialBefore = capturedImageRequests.length;
+    const selectedMaterialResult = await runtime.runTool("image_gen", {
+      operation: "edit",
+      prompt: "只修改第二张画布素材，第一张只用作参考。",
+      parentId: "material-b",
+      count: 1,
+    }, {
+      ...runToolContext,
+      selectedNodeId: "material-a",
+      nodes: [
+        { id: "material-a", type: "image", assets: [{ assetId: "material-asset-a", path: fixtureImagePath, mimeType: "image/png" }] },
+        { id: "material-b", type: "image", assets: [{ assetId: "material-asset-b", path: fixtureImagePathB, mimeType: "image/png" }] },
+      ],
+      taskScope: {
+        version: 2,
+        origin: "chat",
+        sourceNodeIds: ["material-a", "material-b"],
+        materials: [
+          { assetId: "material-asset-a", displayCode: "A1", nodeId: "material-a", assetIndex: 0, name: "素材 A", path: fixtureImagePath },
+          { assetId: "material-asset-b", displayCode: "B1", nodeId: "material-b", assetIndex: 0, name: "素材 B", path: fixtureImagePathB },
+        ],
+        resultPolicy: "grouped-by-source",
+      },
+    });
+    assertOk(selectedMaterialResult.envelope, "A public parentId must choose its own frozen material without a private binding selector");
+    assert.equal(capturedImageRequests.length, selectedMaterialBefore + 1);
+    assert.equal(capturedImageRequests.at(-1)?.editImage?.path, fixtureImagePathB);
+    assert.deepEqual(capturedImageRequests.at(-1)?.referenceImages?.map((image) => image.path), [fixtureImagePath]);
+    const selectedMaterialNode = selectedMaterialResult.actions.find((action) => action.type === "workflow.node.create")?.node;
+    assert.equal(selectedMaterialNode?.parentId, "material-b");
+    assert.equal(selectedMaterialNode?.taskProvenance?.sourceAssetId, "material-asset-b");
+    assert.equal(selectedMaterialNode?.taskProvenance?.sourceNodeId, "material-b");
     const referenceOnlyEdit = await runtime.runTool("image_gen", {
       operation: "edit",
       prompt: "根据唯一素材自主判断修改目标，不要求手工标注 SOURCE/REFERENCE。",
@@ -3170,6 +3202,7 @@ async function runSelftest(directory) {
         containerAssetIndexPassed: true,
         requirementNodeReusePassed: true,
         selectedCanvasSourceFallback: true,
+        publicParentMaterialSelection: true,
         taskScopeSourceReferenceIsolation: true,
         referenceRolePurposePassed: true,
         cutoutRequiresPaintedRegion: true,
