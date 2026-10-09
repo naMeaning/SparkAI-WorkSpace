@@ -12,6 +12,7 @@ const PROTECTED_TEXT_EXTENSIONS = new Set([".cjs", ".css", ".html", ".js", ".jso
 const CLASS_MIN_LENGTH = 8;
 const CUSTOM_PROPERTY_MIN_LENGTH = 8;
 const KEYFRAME_MIN_LENGTH = 8;
+const MIN_PRODUCTION_VIEWPORT_WIDTH = 884;
 const CSS_IDENTIFIER = "[_a-zA-Z0-9-]";
 const SHORT_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -576,6 +577,16 @@ function transformCss(code, plan, filePath = "styles.css") {
   return root.toString();
 }
 
+function normalizeLightningCssRangeParams(params) {
+  return String(params).replace(/\(\s*(width|height|inline-size|block-size)\s*<=\s*([^()]+?)\s*\)/g, "(max-$1:$2)")
+    .replace(/\(\s*(width|height|inline-size|block-size)\s*>=\s*([^()]+?)\s*\)/g, "(min-$1:$2)");
+}
+
+function isUnsupportedNarrowMediaQuery(params, minimumWidth = MIN_PRODUCTION_VIEWPORT_WIDTH) {
+  const match = String(params).match(/(?:^|[\s(])max-width\s*:\s*(\d+(?:\.\d+)?)px(?:[\s)]|$)/i);
+  return Boolean(match && Number(match[1]) < minimumWidth);
+}
+
 function optimizeBundledCss(code, filePath = "bundle.css") {
   const root = postcss.parse(String(code), { from: filePath });
   root.walkRules((rule) => {
@@ -587,10 +598,25 @@ function optimizeBundledCss(code, filePath = "bundle.css") {
   mergeAdjacentEquivalentRules(root);
   discardExactDuplicateDeclarations(root);
   discardEmptyContainers(root);
-  // Bundling creates further opportunities to share declarations across rules.
-  // Use the standard optimizer after assembly; keep the source cascade and
-  // symbol ownership readable, and leave the development CSS untouched.
-  return minifyCss(root.toString(), { filename: filePath }).css;
+  // LightningCSS emits Media Queries Level 4 range syntax. CSSO 5.x drops
+  // those blocks, so normalize the width/height forms to their equivalent
+  // legacy min/max features before the final byte-oriented minification.
+  root.walkAtRules((atRule) => {
+    if (atRule.name === "media" || atRule.name === "container") {
+      atRule.params = normalizeLightningCssRangeParams(atRule.params);
+    }
+  });
+  // The packaged BrowserWindow cannot be narrower than 884 CSS pixels.
+  // Remove only viewport media blocks that can never execute in production;
+  // container queries, height queries and accessibility media remain intact.
+  root.walkAtRules("media", (atRule) => {
+    if (isUnsupportedNarrowMediaQuery(atRule.params)) atRule.remove();
+  });
+  return minifyCss(root.toString(), {
+    filename: filePath,
+    restructure: true,
+    forceMediaMerge: true
+  }).css;
 }
 
 function createPostcssSymbolCompactionPlugin(plan) {
@@ -692,7 +718,10 @@ module.exports = {
   buildSymbolPlan,
   createPostcssSymbolCompactionPlugin,
   createProductionSymbolCompactionPlugin,
+  isUnsupportedNarrowMediaQuery,
+  MIN_PRODUCTION_VIEWPORT_WIDTH,
   optimizeBundledCss,
+  normalizeLightningCssRangeParams,
   transformCode,
   transformCss
 };

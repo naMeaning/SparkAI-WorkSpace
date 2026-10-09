@@ -1,14 +1,15 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：89
+> 地图版本：91
 > 最近同步：2026-10-09
+> 生产候选修复 CSS 压缩链兼容性：`optimizeBundledCss` 将 Vite LightningCSS 的 Level 4 width/height range 归一为 CSSO 5.x 可处理的 min/max 形式，删除仅低于正式 BrowserWindow 最小宽度 884px 的 viewport 媒体块，并用 forceMediaMerge 保持硬 Bundle 门禁；`@container`、height 和 reduced-motion 媒体不删除。`test:production-symbol-compaction` 覆盖单边、双边、container range 与 884px 过滤，生产包需以 884×640 实际顶栏与素材入口冒烟确认响应式规则仍存在。
 > Glass GUI 隔离夹具与既有 Mock token 1/default 对齐，保留不预设 Glass 字段的默认外观验收；884×640 保存后复开增加无脏草稿断言，关闭保护、冷重启持久化和生产设置 owner 不变。拖动验收遵守最终可访问性样式的 OS reduced-motion promotion hint（auto），仍验证非零 transform、坐标基线、真实提交及松手清理。验证入口为 aidebug:glass-workspace。
 > 2026-10-09 Skill GUI 测试同步：`scripts/aidebug-skill-node-suite.mjs` 对主窗口 `.project-agent-steer-mode .glass-select-trigger` 展开真实 listbox，核验选项可见/命中并以 Home/Arrow/Enter 选择；从 owner data-value 读取当前值，reset 后重新展开复读。独立窗 `#steer-mode` 继续读取原生 select。主窗 3 模式、独立窗 7 模式、发送后 auto reset 与视口布局断言保留；UI-only run 不在 Main 中，发送按 stale-run 保护完成真实 Mock Runtime 请求后，再显示不修改 scope mode 的运行夹具复读 reset；独立窗另在复读前验证原生 value=auto。入口 `aidebug:skills`，生产控件/协议不变。
 > 2026-10-09 菜单候选修复：`src/ui/menu-surface.tsx` 的共享键盘焦点 owner 保留 `preventScroll`，只调整当前 `.ui-menu-surface` 的 `scrollTop`，确保 Arrow/Home/End 聚焦项处于菜单 client viewport 内，不滚动画布或文档；现有 `aidebug:menus` 在小窗口分层菜单验证 End 后末项可见及滚动推进。生产交互变化要求重新完整源码验证；尚未完成正式安装/发布。
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 
-> 2026-10-09 正式候选准备：`scripts/production-symbol-compaction.cjs` 在 CSS 合并后使用固定的 CSSO 构建依赖共享重复声明，源码样式和开发级联不变；验证入口为 `test:production-symbol-compaction`、`test:bundle` 和实际程序 UI。图片 service 对整个客户端遮罩合成失败标记 `image_result_processing`、`generationCompleted` 与 `unsafeToRetry`，已有下载故障分类保留，`test:image-mask-compat` 覆盖损坏内联/下载图片、批量后续失败和生成后取消。更新 selftest 等待 Electron ready，使用真实安全存储验证会话轮换，不再期待明文 cookie。正式安装/发布仍待同次完整编排。
+> 2026-10-09 正式候选准备：`scripts/production-symbol-compaction.cjs` 在 CSS 合并后保留 PostCSS 同级声明优化，生产 CSS 由 Vite LightningCSS 初次压缩、CSSO 负责安全收尾；Level 4 range 先归一，低于正式 884px 的 viewport 媒体块才会裁掉，避免顶栏/素材入口在最小窗口失效；源码样式和开发级联不变。验证入口为 `test:production-symbol-compaction`、`test:bundle` 和实际程序 UI。图片 service 对整个客户端遮罩合成失败标记 `image_result_processing`、`generationCompleted` 与 `unsafeToRetry`，已有下载故障分类保留，`test:image-mask-compat` 覆盖损坏内联/下载图片、批量后续失败和生成后取消。更新 selftest 等待 Electron ready，使用真实安全存储验证会话轮换，不再期待明文 cookie。正式安装/发布仍待同次完整编排。
 
 > 发布验证 owner `scripts/release/verify-release.mjs` 扩充为 124 项：新增账户合同、Provider/service/遮罩/成图落盘、日志、命令、成图后对话专项及素材/命令/对话 GUI；所有新增入口均使用隔离 Mock。正式代码冻结后由同一次 `release:final` 执行，不用旧报告复用这些新增门禁。
 

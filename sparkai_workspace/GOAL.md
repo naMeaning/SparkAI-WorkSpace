@@ -7,12 +7,13 @@
 - 范围：当前桌面 dirty worktree、工作区上下文/决策文档、Git 提交/远端、Windows 发行和 GitHub Release；保持 Extension 与外部 New API 独立。
 - 验收：提交内容无凭据/配置/诊断/用户数据；远端提交一致；用户选择正式稳定版，需解决全部前置条件、同次 release:final 全部通过并核验远端 Release 资产。
 - 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。用户最新指示允许用此前提供的 BaseURL/API Key 与软件 Agent 配置完成一次真实 Grok 生图验证（n=1，创建结果不明不重发）；此前本次发布的 0 新生图限制 superseded。真实调用只使用隔离项目，不刷新/修改日常登录，不执行真实视频，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
-- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,672 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项。上一次冻结源码的正式编排前 102 项通过；本轮已修正 Mock 确认恢复与 Runtime 第二来源选择，AskUser 为 10/10 checks、5 scenes、0 failures，agent-text/view-image/Goal Runtime 43 cases 与修正后 production build 均通过。旧正式证据不代表本轮同次完整发布。
-- 本轮新增证据：一次隔离真实 Grok 请求已返回有效 JPEG，Main 保留供应商原字节；未使用 Windows 测试账户、未刷新日常登录。0856252 续跑源码门禁前 108 项通过，第 109 项小窗口分层菜单不可见正在诊断；当前未满足正式发布全部验收。
+- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；生产 CSS 修复后 Bundle 为 269,827 B，仍在 270,000 B 硬门禁内。正式 BrowserWindow 最小宽度 884px，压缩链保留该宽度会命中的媒体查询，只移除低于产品最小宽度的 viewport 媒体块；容器查询、窄高度和 reduced-motion 规则保留。唯一审查的 P1 已修复并通过结果失败专项；旧正式证据不代表本轮同次完整发布。
+- 本轮新增证据：一次隔离真实 Grok 请求已返回有效 JPEG，Main 保留供应商原字节；未使用 Windows 测试账户、未刷新日常登录。当前 Unrestricted 候选 EXE 已生成：109,828,608 B，SHA-256 `00f0615c1d365b5a521d0615645166d167e6cbeecc17943244ca4b0a87c8f3ac`。正式安装/升级仍未验证。
 - 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
 - 隔离授权更新（2026-10-09）：用户澄清“测试用户”指软件内测试账户，明确要求删除 SparkRel Windows 临时用户；此前系统账户方案 superseded。清理已实际核验：账户、Profile、用户目录均无 SparkRel 残留，私钥临时 ACL 已撤销，cleanup.json 全部清理项 true、failure 为空；后续不创建 Windows 用户。使用软件内隔离 Mock；正式安装验证如受环境限制，必须如实记录，不能触碰日常安装来替代。
-- 下一步：0f22e92 源码续跑前 114 项通过，第 115 项 Glass GUI 因空账户夹具与 Mock token 1/default 不一致进入未保存确认。仅对齐隔离测试账户，增加保存后复开无脏草稿断言；专项已通过（29 checks/37 screenshots/0 failures），静态合同和 build 通过；冻结并窄续跑剩余门禁，再打包当前 EXE及签名候选，用既有真实 JPEG 无网络冒烟。真实 Grok 不再重复，不创建 Windows 用户或触碰日常安装；继续调查文件及进程/注册表隔离的真实安装方案。
+- 当前打包验证：`packaged-smoke` 默认隔离冒烟通过；针对当前 EXE 的 884×640 顶栏、主题入口、素材选择与既有 JPEG 导入/回读冒烟通过，报告为 `.diagnostics/release/packaged-smoke-2026-10-09T15-40-52-622Z/report.json`，`realProviderRequests=0`。旧诊断脚本仅放宽了 1px 的窗口边界舍入，不改产品代码。
+- 下一步：提交并推送当前源码改动；正式安装/升级、同次 `release:final`、tag 与 GitHub Release 仍以干净 Windows 环境和正式报告为前置，当前不宣称稳定版已发布。真实 Grok 不再重复，不创建 Windows 用户或触碰日常安装；发布私钥仅留本地。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。

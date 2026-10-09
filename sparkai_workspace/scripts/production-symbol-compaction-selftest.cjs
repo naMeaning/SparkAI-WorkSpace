@@ -3,6 +3,8 @@ const { resolve } = require("node:path");
 const {
   buildProductionSymbolPlan,
   buildSymbolPlan,
+  isUnsupportedNarrowMediaQuery,
+  MIN_PRODUCTION_VIEWPORT_WIDTH,
   optimizeBundledCss,
   transformCode,
   transformCss
@@ -58,6 +60,24 @@ assert.match(optimizedBundle, /\.left,.right\{margin:0\}/);
 assert.match(optimizedBundle, /background:#fff;background:color-mix/);
 assert.match(optimizedBundle, /:root\[data-glass-theme\] \.surface/);
 assert.match(optimizedBundle, /:root\[data-theme="?dark"?\] \.panel/);
+
+// LightningCSS emits CSS Media Queries Level 4 range syntax. Keep both
+// single and bounded ranges, plus container ranges, after bundle cleanup.
+const { transform: transformLightningCss } = require("node:module")
+  .createRequire(require.resolve("vite"))("lightningcss");
+const lightningCss = transformLightningCss({
+  filename: "responsive-fixture.css", minify: true, targets: { chrome: 138 << 16 },
+  code: Buffer.from(".control{display:flex}@media(max-width:1100px){.control{display:none}}@media(min-width:800px) and (max-width:1100px){.control{color:red}}@container (width<=700px){.control{padding:0}}")
+}).code.toString();
+assert.match(lightningCss, /width<=1100px/, "Exercise Vite's actual LightningCSS range output");
+const responsiveBundle = optimizeBundledCss(lightningCss);
+assert.match(responsiveBundle, /@media\s*\(max-width:1100px\)[^{]*\{[^}]*display:none/);
+assert.match(responsiveBundle, /@media\s*\(min-width:800px\)\s+and\s+\(max-width:1100px\)[^{]*\{[^}]*color:(?:red|#ff0000)/);
+assert.match(responsiveBundle, /@container\s*\(max-width:700px\)[^{]*\{[^}]*padding:0/);
+assert.equal(MIN_PRODUCTION_VIEWPORT_WIDTH, 884);
+assert.equal(isUnsupportedNarrowMediaQuery("(max-width:820px)"), true);
+assert.equal(isUnsupportedNarrowMediaQuery("(max-width:900px)"), false);
+assert.doesNotMatch(responsiveBundle, /@media\s*\(max-width:820px\)/);
 
 for (const relativePath of ["src/glass-theme.ts", "public/glass-theme-bootstrap.js"]) {
   const source = require("node:fs").readFileSync(resolve(__dirname, "..", relativePath), "utf8");
