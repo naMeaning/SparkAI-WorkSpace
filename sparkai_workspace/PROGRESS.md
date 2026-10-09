@@ -2,6 +2,9 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 会话持续 Goal 已实际创建并 active，目标为推送、正式稳定版 EXE/签名更新/Release、远端资产复核和临时账户清理；尚未发布。67dd980 从头编排前 96 项通过，第 97 项 Agent 文本 UI 在 Escape 等待处失败。
+- 初步确认现有 Drawer 正确打开 settings-unsaved，真实确认框小视口可见，保存选择也能关闭。进一步诊断精确发现仅 modelGroup 不一致：旧初始账户没有选定 Token/分组，但 Mock 目录固定选择 token 1/default。修正隔离初始夹具匹配 Mock 账户，撤销诊断用 React 内部读取和临时断言，保留原 Escape、焦点、可视/裁切检查；产品代码不变，专项尚待运行，制品继续 incomplete。
+- 最终夹具专项 `node scripts/agent-text-ui-aidebug.mjs` 通过：155 checks、23 screenshots、0 failures；报告 `.diagnostics/electron/agent-text-ui-2026-10-09T03-06-07-381Z/report.json`。`corepack pnpm run build` 通过（20.57 s），凭据扫描 3 文件/0 findings，diff check 通过。冻结并推送该窄变化后，按前次稳定源码报告复用 96 项，后续所有门禁与制品在新正式编排中真实执行；发布仍未完成。
 - 第四次编排通过前 64 项，在 Goal Runtime 的“Renderer/runtime 哈希一致”实测失败。实际镜像缺陷：Renderer canonical materials 哈希与 Runtime 旧 source/reference 哈希不一致。修正 Runtime 的哈希材料字段，保留全套 Goal 执行/费用/漂移字段；这不是测试放宽。此改动属于产品 Runtime，将专项验证和 build 后从头运行正式门禁。
 - Runtime hash 修正完成：Goal Runtime 43 场景、普通 TaskScope/Goal TaskScope/执行门禁、context checkpoint 和 production build 通过。补充 source+reference canonical materials 及顺序镜像断言，顺序变化仍改变冻结 hash。前次测试账户已撤销权限并删除 Profile/账户，清理无失败；重新提交推送后创建干净账户从头验证，不复用旧门禁。
 - 第三次从头编排（fc3ea89）通过前 54 项，第 55 项 streaming selftest 的源码检查仍要求普通生图走旧 Responses→Images SSE 回退，和当前 Provider service 不一致。对齐生产入口与 service 的可选预览回调检查，保留分槽/替换/安全 data URL/下帧清理/查看器全部行为断言；底层 SSE transport 专项此前已在该次编排通过。此次不修改产品请求和 Provider 参数。

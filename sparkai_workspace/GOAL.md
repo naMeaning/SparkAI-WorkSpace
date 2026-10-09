@@ -7,7 +7,7 @@
 - 范围：当前桌面 dirty worktree、工作区上下文/决策文档、Git 提交/远端、Windows 发行和 GitHub Release；保持 Extension 与外部 New API 独立。
 - 验收：提交内容无凭据/配置/诊断/用户数据；远端提交一致；用户选择正式稳定版，需解决全部前置条件、同次 release:final 全部通过并核验远端 Release 资产。
 - 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。0 新真实模型/图片/视频请求，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
-- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,552 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项，新 Unrestricted 包的实际程序与配置/命令 GUI 已通过，正式全量编排尚未运行。
+- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,672 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项，Unrestricted 预验收包的实际程序与配置/命令 GUI 已通过；正式全量编排前 96 项通过，第 97 项夹具修正的独立 UI 155 checks/23 screenshots 与 build 已通过，待冻结后继续正式编排和发布。
 - 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
 - 隔离授权：用户允许创建临时本地标准测试账户、临时读取工作区与发布密钥；验证结束撤销权限并清理该账户。日常安装、项目、登录与进程保持原状。
@@ -16,6 +16,7 @@
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。
 - 当前 checkpoint：第 65 项发现真实镜像合同缺陷，Renderer 哈希已使用 canonical materials，Runtime 仍使用旧 sourceAssets/referenceAssets。统一 Runtime 哈希到既有 Renderer 材料表示，保留 Goal 字段、冻结源投影与漂移校验；因改变产品 Runtime，窄续跑 superseded，专项/build 后从头验证。
+- 当前 checkpoint：67dd980 从头验证前 96 项通过；第 97 项 Agent 文本 UI 的初始账户未选择 Token/分组，但 Mock 账户目录固定选择 token 1/default，元数据因此改变草稿并进入未保存设置确认。隔离夹具改为匹配该 Mock 账户，保留 Escape、焦点和可视保护断言，产品代码不变；独立专项 155 checks/23 screenshots 与 build 已通过，只改变该测试及 Goal/Progress，可从该门禁按窄 allowlist 续跑。会话级持续 Goal 已实际创建并 active。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 

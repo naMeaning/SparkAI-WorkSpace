@@ -620,6 +620,14 @@ async function stopProcess(child) {
 async function main() {
   mkdirSync(configDir, { recursive: true });
   mkdirSync(projectDir, { recursive: true });
+  // The mock account selects token 1 in the default group. Seed a matching
+  // account fixture so metadata loads do not masquerade as user edits.
+  writeFileSync(join(configDir, "app-settings.json"), `${JSON.stringify({
+    serverToken: "aidebug-token", serverAuthProtocol: "legacy",
+    serverSessionCookie: "aidebug-session", serverUserId: "aidebug-user",
+    modelGroup: "default", selectedAccountTokenId: "1",
+    selectedAccountTokenName: "AIDebug 密钥", selectedAccountTokenGroup: "default"
+  }, null, 2)}\n`, "utf8");
   const projectTimestamp = new Date().toISOString();
   writeFileSync(join(configDir, "project-list.json"), `${JSON.stringify({
     activeProjectId: fixtureProjectId,
