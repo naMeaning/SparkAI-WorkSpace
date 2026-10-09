@@ -2,6 +2,12 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- Skill GUI 测试对齐已通过：报告 `.diagnostics/electron/aidebug-2026-10-09T07-47-34-056Z/report.json` 为 ok=true、6 主场景、0 failures；8 项验收全 true，主窗口真实键盘选 replace-source、独立窗选 clear-attachments，发送进入 Mock Runtime 并完成，复读均为 auto。主窗等待 listbox 实际焦点初始化，保留选项命中/可见和字段布局；已查看主窗截图。假运行夹具不在 Main 中，正确 stale-run 清理不再误判为忙碌失败；复读夹具不设置 scope mode。修正后 build exit0/20.61s。仅改变一个 suite 与三份文档，生产行为不变；冻结后允许从旧稳定报告 Skill node GUI 精确续跑，复用前 111 项。
+
+
+- 9c33434 从头源码验证前 111 项通过（包含菜单和图片容器/Graph CLI），第 112 项 Skill GUI 超时等待 `.project-agent-steer-mode select`；报告 `.diagnostics/release/verify-2026-10-09T07-01-40-139Z/report.json` 源码稳定。正在核实现有 GlassSelect 与 main/独立窗 TaskScope 的测试入口，保留可见键盘交互和 reset 合同，不恢复旧 UI。生产生图未改动，本轮真实请求仍仅 1 次，EXE 尚未重打。
+
+
 - 菜单生产修复已验证：共享 `src/ui/menu-surface.tsx` 保留 preventScroll，只滚动菜单自身，使键盘焦点项可见。`aidebug:menus` 报告 `.diagnostics/electron/aidebug-2026-10-09T06-56-17-031Z/report.json` 为 8 场景/0 failures；19 按钮小窗口 End 后 scrollTop 0→70、末项聚焦且完整可见，截图已查看。修正后 build exit0，未改断言、字号或画布滚动，0 新模型请求。地图 v87 和发布四份说明已在冻结前同步；本轮将重新完整验证，不复用旧源码门禁。
 
 

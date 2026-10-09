@@ -118,26 +118,54 @@ async function selectAllWithKeyboard(client) {
   await client.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...control });
 }
 
-async function selectOptionWithKeyboard(evaluate, client, selector, targetValue) {
-  const optionState = await evaluate(client, `(() => {
-    const select = document.querySelector(${JSON.stringify(selector)});
-    if (!(select instanceof HTMLSelectElement)) return null;
+async function selectControlState(evaluate, client, selector) {
+  return evaluate(client, `(() => {
+    const control = document.querySelector(${JSON.stringify(selector)});
+    if (control instanceof HTMLSelectElement) return {
+      kind: "native", value: control.value, disabled: control.disabled,
+      options: Array.from(control.options).map((option) => ({ value: option.value, text: option.textContent || "" }))
+    };
+    const glass = control?.closest('[data-glass-select]');
+    if (!(control instanceof HTMLButtonElement) || !glass) return null;
+    const listbox = document.getElementById(control.getAttribute('aria-controls') || '');
     return {
-      value: select.value,
-      options: Array.from(select.options).map((option) => ({ value: option.value, text: option.textContent || "" })),
-      disabled: select.disabled
+      kind: "glass", value: glass.dataset.value || "", disabled: control.disabled, focusInside: Boolean(listbox?.contains(document.activeElement)),
+      options: Array.from(listbox?.querySelectorAll('[role="option"]') || []).map((option) => {
+        const rect = option.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return { value: option.dataset.glassSelectValue, text: String(option.querySelector('strong')?.textContent || option.textContent || '').trim(),
+          disabled: Boolean(option.disabled), visible: rect.width >= 8 && rect.height >= 24 && rect.left >= 0 && rect.top >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight,
+          hit: Boolean(hit && option.contains(hit)) };
+      })
     };
   })()`);
-  const targetIndex = optionState?.options?.findIndex((item) => item.value === targetValue) ?? -1;
-  if (targetIndex < 0 || optionState?.disabled) return { ok: false, targetValue, before: optionState };
+}
+
+async function openedSelectState(evaluate, client, selector) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const state = await selectControlState(evaluate, client, selector);
+    if (state?.options?.length && (state.kind !== "glass" || state.focusInside)) return state;
+    await delay(50);
+  }
+  return null;
+}
+
+async function selectOptionWithKeyboard(evaluate, client, selector, targetValue) {
+  let optionState = await selectControlState(evaluate, client, selector);
+  if (!optionState || optionState.disabled) return { ok: false, targetValue, before: optionState };
   const clicked = await clickSelector(evaluate, client, selector);
   if (!clicked) return { ok: false, targetValue, before: optionState, clicked: false };
+  if (optionState.kind === "glass") optionState = await openedSelectState(evaluate, client, selector);
+  const targetIndex = optionState?.options?.findIndex((item) => item.value === targetValue) ?? -1;
+  const optionsVisible = optionState?.kind !== "glass" || optionState.options.every((option) => option.visible && option.hit && !option.disabled);
+  if (targetIndex < 0 || !optionsVisible) return { ok: false, targetValue, before: optionState, clicked, optionsVisible };
   await pressKey(client, "Home", "Home");
   for (let index = 0; index < targetIndex; index += 1) await pressKey(client, "ArrowDown", "ArrowDown");
+  const targetFocused = optionState.kind !== "glass" || await evaluate(client, `document.activeElement?.dataset.glassSelectValue === ${JSON.stringify(targetValue)}`);
   await pressKey(client, "Enter", "Enter");
   await delay(120);
-  const after = await evaluate(client, `document.querySelector(${JSON.stringify(selector)})?.value || ""`);
-  return { ok: after === targetValue, targetValue, before: optionState, after, clicked: true };
+  const after = (await selectControlState(evaluate, client, selector))?.value || "";
+  return { ok: after === targetValue && targetFocused && optionsVisible, targetValue, before: optionState, after, clicked: true, targetFocused, optionsVisible };
 }
 
 async function replaceTextWithKeyboard(evaluate, client, selector, value) {
@@ -249,6 +277,13 @@ function mergeCaptureDetail(capture, key, detail, ok) {
 }
 
 async function taskScopeMetrics(evaluate, client, selector, expectedValue, expectedValues = TASK_SCOPE_VALUES) {
+  let optionState = await selectControlState(evaluate, client, selector);
+  if (optionState?.kind === "glass") {
+    if (!await clickSelector(evaluate, client, selector)) return { ok: false, error: "scope-control-not-clickable" };
+    optionState = await openedSelectState(evaluate, client, selector);
+    await pressKey(client, "Escape", "Escape");
+    await delay(120);
+  }
   return evaluate(client, `(() => {
     const select = document.querySelector(${JSON.stringify(selector)});
     const field = select?.closest('label');
@@ -264,19 +299,22 @@ async function taskScopeMetrics(evaluate, client, selector, expectedValue, expec
     const fieldRect = rect(field);
     const textareaRect = rect(textarea);
     const submitRect = rect(submit);
-    const options = select instanceof HTMLSelectElement
-      ? Array.from(select.options).map((option) => ({ value: option.value, text: String(option.textContent || '').trim() }))
-      : [];
+    const glass = select?.closest('[data-glass-select]');
+    const value = select instanceof HTMLSelectElement ? select.value : glass?.dataset.value || '';
+    const options = ${JSON.stringify(optionState?.options || [])};
+    const declaredValues = glass ? String(glass.dataset.optionValues || '').split(',') : options.map((option) => option.value);
     const values = options.map((option) => option.value);
     const expectedValues = ${JSON.stringify(expectedValues)};
-    const optionsOk = JSON.stringify(values) === JSON.stringify(expectedValues) && options.every((option) => option.text.length > 0);
+    const optionsOk = JSON.stringify(values) === JSON.stringify(expectedValues) &&
+      JSON.stringify(declaredValues) === JSON.stringify(expectedValues) &&
+      options.every((option) => option.text.length > 0 && (!glass || (option.visible && option.hit && !option.disabled)));
     const layoutOk = [selectRect, fieldRect, textareaRect, submitRect].every(inside) &&
       selectRect?.width >= 140 && selectRect?.height >= 24 &&
       textareaRect?.width >= 180 && textareaRect?.height >= 56 &&
       submitRect?.width >= 54 && submitRect?.height >= 28;
     return {
-      ok: Boolean(select && !select.disabled && select.value === ${JSON.stringify(expectedValue)} && optionsOk && layoutOk),
-      value: select?.value || '',
+      ok: Boolean(select && !select.disabled && value === ${JSON.stringify(expectedValue)} && optionsOk && layoutOk),
+      value,
       disabled: Boolean(select?.disabled),
       options,
       optionsOk,
@@ -447,11 +485,21 @@ export async function captureSkillNodeSuite(context) {
     nodeCountAfter: invalidCount
   }, invalidRejected));
 
+  async function completedScopeDispatch(promptText) {
+    await waitForExpression(client, `(() => {
+      const state = window.__naimageDebugAgentState?.() || {};
+      return state.agentStatus === "idle" && !state.activeRunId &&
+        state.messages?.some((message) => message.role === "user" && message.content === ${JSON.stringify(promptText)}) &&
+        state.progress?.some((item) => item.phase === "runtime-request" && item.runId !== "debug-running-ui");
+    })()`, 15_000);
+    return { ok: true, promptPresent: true, runtimeRequest: true, settled: true };
+  }
+
   phase("main-task-scope-stage");
   await evaluate(client, `window.__naimageDebugOpenSurface?.("agent-running")`);
-  await waitForExpression(client, "Boolean(document.querySelector('.project-agent-steer-mode select:not(:disabled)'))", 5_000);
-  const mainModeSelection = await selectOptionWithKeyboard(evaluate, client, ".project-agent-steer-mode select", "replace-source");
-  const mainSelectedMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "replace-source", MAIN_TASK_SCOPE_VALUES);
+  await waitForExpression(client, "Boolean(document.querySelector('.project-agent-steer-mode .glass-select-trigger:not(:disabled)'))", 5_000);
+  const mainModeSelection = await selectOptionWithKeyboard(evaluate, client, ".project-agent-steer-mode .glass-select-trigger", "replace-source");
+  const mainSelectedMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode .glass-select-trigger", "replace-source", MAIN_TASK_SCOPE_VALUES);
   const mainSelectedCapture = await captureState(client, targetId, "task-scope-main-replace-source", "undefined", { width: 1280, height: 820 }, {
     agentBusy: true
   });
@@ -463,16 +511,21 @@ export async function captureSkillNodeSuite(context) {
   phase("main-task-scope-reset");
   const mainPrompt = await replaceTextWithKeyboard(evaluate, client, ".project-agent-composer textarea", "AIDEBUG_TASK_SCOPE_MAIN_RESET");
   const mainSent = await clickSelector(evaluate, client, ".project-agent-steer");
-  await delay(300);
-  const mainResetMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode select", "auto", MAIN_TASK_SCOPE_VALUES);
+  const mainDispatch = await completedScopeDispatch("AIDEBUG_TASK_SCOPE_MAIN_RESET");
+  // The UI-only run is stale in Main, so submission correctly completes a new Mock run.
+  // Reopen the running surface without changing its local scope mode before inspecting the reset.
+  await evaluate(client, `window.__naimageDebugOpenSurface?.("agent-running")`);
+  await waitForExpression(client, "Boolean(document.querySelector('.project-agent-steer-mode .glass-select-trigger:not(:disabled)'))", 5_000);
+  const mainResetMetrics = await taskScopeMetrics(evaluate, client, ".project-agent-steer-mode .glass-select-trigger", "auto", MAIN_TASK_SCOPE_VALUES);
   const mainResetCapture = await captureState(client, targetId, "task-scope-main-reset-auto", "undefined", { width: 1280, height: 820 }, {
     agentBusy: true
   });
   results.push(mergeCaptureDetail(mainResetCapture, "mainTaskScopeReset", {
     prompt: mainPrompt,
     sent: mainSent,
+    dispatch: mainDispatch,
     metrics: mainResetMetrics
-  }, mainPrompt.ok && mainSent && mainResetMetrics?.ok === true));
+  }, mainPrompt.ok && mainSent && mainDispatch.ok && mainResetMetrics?.ok === true));
 
   phase("open-agent-window");
   const placementOpened = await clickSelector(evaluate, client, "#project-agent-placement-toggle");
@@ -500,19 +553,24 @@ export async function captureSkillNodeSuite(context) {
     phase("agent-window-task-scope-reset");
     const agentPrompt = await replaceTextWithKeyboard(evaluateRuntime, agentClient, "#agent-prompt", "AIDEBUG_TASK_SCOPE_AGENT_WINDOW_RESET");
     const agentSent = await clickSelector(evaluateRuntime, agentClient, "#send-button");
-    await delay(300);
+    const agentDispatch = await completedScopeDispatch("AIDEBUG_TASK_SCOPE_AGENT_WINDOW_RESET");
+    const resetValueBeforeRestage = await evaluateRuntime(agentClient, "document.querySelector('#steer-mode')?.value");
+    await evaluate(client, `window.__naimageDebugOpenSurface?.("agent-running")`);
+    await waitForExpression(agentClient, "Boolean(document.querySelector('#steer-mode:not(:disabled)') && !document.querySelector('#steer-mode-field').hidden)", 6_000);
     const agentResetMetrics = await taskScopeMetrics(evaluateRuntime, agentClient, "#steer-mode", "auto");
     const resetScreenshot = await captureStandaloneWindow(agentClient, runDir, "task-scope-agent-window-reset-auto");
     agentWindowEvidence = {
       ok: Boolean(
         placementOpened && independentWindowClicked && agentModeSelection.ok && agentSelectedMetrics?.ok &&
-        agentPrompt.ok && agentSent && agentResetMetrics?.ok && selectedScreenshot.ok && resetScreenshot.ok
+        agentPrompt.ok && agentSent && agentDispatch.ok && resetValueBeforeRestage === "auto" && agentResetMetrics?.ok && selectedScreenshot.ok && resetScreenshot.ok
       ),
       openedByMainWindowGesture: Boolean(placementOpened && independentWindowClicked),
       modeSelection: agentModeSelection,
       selectedMetrics: agentSelectedMetrics,
       prompt: agentPrompt,
       sent: agentSent,
+      dispatch: agentDispatch,
+      resetValueBeforeRestage,
       resetMetrics: agentResetMetrics,
       selectedScreenshot,
       resetScreenshot
