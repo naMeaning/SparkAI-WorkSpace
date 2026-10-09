@@ -24,13 +24,13 @@ corepack pnpm run release:final
 编排顺序为：
 
 ```text
-113 项 release:verify
+124 项 release:verify（包含图片供应商、遮罩结果、日志、素材和命令专项）
 → Windows NSIS 打包与品牌 UI
 → packaged smoke
 → 隔离安装/重装/卸载 smoke
 → updater 与 helper 自测
 → 签名 manifest / Restart ASAR
-→ 上一版本到当前版本的重启更新 E2E
+→ 上一版本到当前版本的升级 E2E（低于 minimum_version 时真实完整 EXE 安装升级，否则 Restart 更新）
 → Setup、ASAR、manifest、sidecar 与 SHA256SUMS 交叉校验
 ```
 
@@ -65,7 +65,7 @@ gh release create v<version> --repo <owner>/SparkAI-WorkSpace `
 
 ## 4. 耗时基线与安全续跑
 
-当前正式发布通常需要约 25–45 分钟：113 项门禁（含多组真实 Electron GUI、UI Surface 导出闭环与产品性能验证）通常占主要时间，Windows 打包约 2 分钟，安装/卸载约 1–2 分钟，更新、签名与哈希复核还需数分钟。机器负载、杀毒软件、NSIS 首次启动和 Electron 冷启动可能进一步增加耗时。
+历史 113 项正式发布通常需要约 25–45 分钟；当前扩充为 124 项，实际耗时以运行报告为准。门禁包含多组真实 Electron GUI、UI Surface 导出闭环与产品性能验证，Windows 打包约 2 分钟，安装/卸载约 1–2 分钟，更新、签名与哈希复核还需数分钟。机器负载、杀毒软件、NSIS 首次启动和 Electron 冷启动可能进一步增加耗时。
 
 日常开发不得机械执行该流程。`release:verify` 支持从失败门禁安全续跑，但必须同时提供上一份 `.diagnostics/release/.../report.json`、失败门禁名和本次明确允许变化的仓库相对路径。例如：
 

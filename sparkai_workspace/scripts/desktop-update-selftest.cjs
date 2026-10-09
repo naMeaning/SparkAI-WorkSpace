@@ -5,7 +5,8 @@ const { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync 
 const originalFs = require("original-fs");
 const os = require("node:os");
 const path = require("node:path");
-const { app } = require("electron");
+const { app, safeStorage } = require("electron");
+const { createSettingsSecretStore } = require("../desktop/settings-secret-store.cjs");
 const { canonicalDesktopRelease } = require("../update-release.cjs");
 const packageMetadata = require("../package.json");
 const { ACCESS_VARIANT_DUAL, windowsInstallerArtifactName } = require("../runtime/access-variant.cjs");
@@ -33,6 +34,17 @@ writeFileSync(settingsPath, `${JSON.stringify({
 
 const main = require("../electron-main.cjs");
 
+const secretStore = createSettingsSecretStore({
+  safeStorage,
+  secretsPath: path.join(temporaryRoot, "app-settings.secrets.json")
+});
+function persistedTestCookie() {
+  const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.equal(settings.serverSessionCookie, "", "The ordinary settings file must never persist the session cookie");
+  return secretStore.hydrate(settings).serverSessionCookie;
+}
+
+app.whenReady().then(() => {
 let failure = null;
 try {
   const release = {
@@ -160,7 +172,7 @@ try {
   });
   assert.equal(rotated, "session=rotated-value");
   assert.equal(sessionSettings.serverSessionCookie, "session=rotated-value");
-  assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).serverSessionCookie, "session=rotated-value");
+  assert.equal(persistedTestCookie(), "session=rotated-value");
 
   const staleSettings = {
     accountBaseUrl: "https://sparkapi.org",
@@ -175,7 +187,7 @@ try {
   });
   assert.equal(retained, "session=rotated-value");
   assert.equal(staleSettings.serverSessionCookie, "session=rotated-value");
-  assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).serverSessionCookie, "session=rotated-value");
+  assert.equal(persistedTestCookie(), "session=rotated-value");
 
   const retainedAfterStaleClear = main.clearNewApiAuth({
     accountBaseUrl: "https://sparkapi.org",
@@ -185,7 +197,7 @@ try {
     serverUserId: "7"
   });
   assert.equal(retainedAfterStaleClear.serverSessionCookie, "session=rotated-value");
-  assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).serverSessionCookie, "session=rotated-value");
+  assert.equal(persistedTestCookie(), "session=rotated-value");
 
   const futureUpdateVersion = "99.0.2";
   const updateAssetDir = path.join(temporaryRoot, "updates", futureUpdateVersion);
@@ -248,8 +260,11 @@ try {
   console.error(error instanceof Error ? error.stack || error.message : String(error));
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
-  // This process never enters the normal Electron lifecycle. `app.quit()` can
-  // be ignored before `ready`, so exit explicitly after stdio has had one turn
-  // to flush and preserve assertion failures as a non-zero result.
+  // Exit explicitly after stdio flush; this fixture does not open app windows.
   setTimeout(() => app.exit(failure ? 1 : 0), 20);
 }
+}).catch(error => {
+  console.error(error instanceof Error ? error.stack || error.message : String(error));
+  rmSync(temporaryRoot, { recursive: true, force: true });
+  app.exit(1);
+});

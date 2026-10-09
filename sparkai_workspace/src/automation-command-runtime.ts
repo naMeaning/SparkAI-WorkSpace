@@ -35,6 +35,7 @@ import {
   workspaceDomainDefinitions,
 } from "./workspace-domain.ts";
 import { imageContainerSpecForNode } from "./image-container-spec.ts";
+import { canvasImagesForMaterialTargets, type CanvasMaterialTarget, type ComposerMaterialRole } from "./selection-reference-images.ts";
 import type { ImageLayoutGroup } from "./image-layout.ts";
 import { flattenImageContainerBindings } from "./image-container-graph.ts";
 import { commerceSetRequestCounts, normalizeCommerceSetPlan, type CommerceSetPlan } from "./plugins/commerce-set.ts";
@@ -140,6 +141,7 @@ export type AutomationCommandContext = {
   mutationLocks(nodeIds: string[]): string[];
   projects(): Project[];
   nodes(): WorkflowNode[];
+  canvasMaterialNodes?(): WorkflowNode[];
   layoutGroups(): ImageLayoutGroup[];
   messages(): MessageSummarySource[];
   switchProject(id: string): Promise<unknown>;
@@ -150,6 +152,7 @@ export type AutomationCommandContext = {
   removeFailedNodes(ids: string[]): void;
   clearCanvas(): Promise<unknown>;
   deleteSelectedNodes(): boolean;
+  addCanvasMaterials(targets: CanvasMaterialTarget[], role: ComposerMaterialRole): unknown;
   createContainer(role: "source" | "reference" | undefined, x: number, y: number): string;
   importPaths(paths: string[], targetContainerId: string, x: number, y: number): Promise<unknown>;
   importVideoPaths(paths: string[], x: number, y: number): Promise<unknown>;
@@ -401,6 +404,7 @@ export type AutomationCommandContext = {
   resumeAgent(): Promise<boolean>;
   stopAgent(): Promise<boolean>;
   newConversation(): void;
+  openImageConfig(): void;
   agentBusy(): boolean;
   wait?(milliseconds: number): Promise<unknown>;
 };
@@ -1203,6 +1207,8 @@ type Handler = (args: JsonObject) => unknown | Promise<unknown>;
 export async function executeAutomationCommand(command: string, args: JsonObject, context: AutomationCommandContext) {
   const handlers: Record<AutomationRendererCommandName, Handler> = {
     "app.state": () => appState(context),
+    "app.diagnostics": async () => window.naimageConfig?.readDiagnostics?.() || { ok: false, error: "诊断日志不可用。" },
+    "app.export-diagnostics": async () => window.naimageConfig?.exportDiagnostics?.() || { ok: false, error: "诊断日志不可用。" },
     "canvas.state": () => canvasState(context),
     "workspace.domain.list": () => ({
       defaultDomain: DEFAULT_WORKSPACE_DOMAIN,
@@ -1756,6 +1762,15 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return socialWorkflowStatus(node, context);
     },
     "social.douyin.export": (value) => exportSocialRequirement(value, "douyin", context),
+    "agent.add-canvas-materials": (value) => {
+      assertExpectedProject(value, context);
+      assertExpectedCanvasRevision(value, context);
+      const targets = value.targets as CanvasMaterialTarget[];
+      const role = value.role as ComposerMaterialRole;
+      // Validate the whole list before changing either material role.
+      canvasImagesForMaterialTargets(context.canvasMaterialNodes?.() ?? context.nodes(), targets, role);
+      return context.addCanvasMaterials(targets, role);
+    },
     "agent.chat": async (value) => {
       const basePrompt = String(value.prompt || "").trim();
       if (!basePrompt) throw new Error("Agent 任务不能为空。");
@@ -1873,6 +1888,10 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       if (!context.agentBusy() && !context.agentPaused()) throw new Error("当前没有可结束的 Agent 任务。");
       if (!await context.stopAgent()) throw new Error("当前 Agent 任务的底层取消失败。");
       return appState(context);
+    },
+    "agent.image-config": () => {
+      context.openImageConfig();
+      return { opened: true };
     },
     "agent.new-conversation": () => {
       context.newConversation();

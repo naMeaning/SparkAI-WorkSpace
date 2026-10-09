@@ -1601,6 +1601,29 @@ select.ui-control {
   white-space: nowrap;
 }
 
+.account-log-filters {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.account-log-filters input,
+.account-log-filters select {
+  min-width: 0;
+  width: 100%;
+}
+
+.account-log-filter-actions {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.account-balance-grid em {
+  overflow-wrap: anywhere;
+}
+
 .account-usage-list {
   min-width: 0;
   display: grid;
@@ -1656,6 +1679,27 @@ select.ui-control {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+}
+
+.account-log-detail {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.account-log-detail summary {
+  cursor: pointer;
+  width: fit-content;
+  min-height: 26px;
+  padding: 3px 0;
+}
+
+.account-log-detail p {
+  margin: 6px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
 }
 
 .account-log-pager > span {

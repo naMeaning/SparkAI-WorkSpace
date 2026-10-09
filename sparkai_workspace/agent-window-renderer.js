@@ -1,4 +1,4 @@
-"use strict";
+import { composerCommands, composerCommandSuggestions, composerCommandError, parseComposerInput } from "./runtime/composer-commands.mjs";
 
 const bridge = window.naimageAgentWindowSurface;
 const feed = document.getElementById("agent-feed");
@@ -11,9 +11,6 @@ const steerModeField = document.getElementById("steer-mode-field");
 const steerMode = document.getElementById("steer-mode");
 const goalSteerLock = document.getElementById("goal-steer-lock");
 const goalControls = document.getElementById("agent-goal-controls");
-const taskModeRow = document.getElementById("task-mode-row");
-const standardModeButton = document.getElementById("standard-mode");
-const goalModeButton = document.getElementById("goal-mode");
 const goalSummary = document.getElementById("goal-summary");
 const editSourcesButton = document.getElementById("edit-sources");
 const editReferencesButton = document.getElementById("edit-references");
@@ -23,15 +20,22 @@ const statusSurface = document.querySelector(".agent-status");
 let currentState = null;
 let renderFrame = 0;
 let promptTimer = 0;
-let selectedTaskMode = "standard";
-let wasBusy = false;
+let helpOpen = false;
+let commandsDismissed = false;
+let commandIndex = 0;
+const commandMenu = document.getElementById("composer-commands");
+const commandNotice = document.createElement("p");
+commandNotice.className = "command-notice";
+commandNotice.setAttribute("role", "status");
+commandNotice.hidden = true;
+promptInput.after(commandNotice);
 
 const taskScopeSnapshotHashPattern = /^scope-[a-f0-9]{32}$/;
 const goalConfirmationHashPattern = /^goal-[a-f0-9]{32}$/;
-const glassThemeIds = new Set(["dark-rose", "dark-ember", "dark-emerald", "light-lemon", "light-sky", "light-blush"]);
+const glassThemeIds = new Set(["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush", "light-classic", "dark-classic"]);
 const glassMaterialIds = new Set(["clear", "frosted", "dense", "custom"]);
 const glassAccentIds = new Set(["theme", "rose", "mint", "coral", "amber", "ice"]);
-const glassVariableNamePattern = /^--(?:glass-(?:rgb|opacity|alpha|blur|saturation|highlight|shadow|radius|noise-opacity|motion-duration|accent-(?:rose|mint|coral|amber|ice)|swatch-(?:dark-rose|dark-ember|dark-emerald|light-lemon|light-sky|light-blush)-(?:canvas|accent|surface))|noise-opacity|accent|accent-rgb|accent-ink|secondary|secondary-rgb|canvas-tint|node-bg|solid-control|solid-control-hover|success|danger|theme-(?:bg|canvas|surface|surface-solid|surface-raised|ink|ink-soft|muted|line|line-strong|accent|accent-strong|blue|rose|amber|green|control-bg|hover-bg|active-bg))$/;
+const glassVariableNamePattern = /^--(?:glass-(?:rgb|opacity|alpha|blur|saturation|highlight|shadow|radius|noise-opacity|motion-duration|accent-(?:rose|mint|coral|amber|ice)|swatch-(?:dark-rose|dark-ember|dark-emerald|light-silver|light-lemon|light-sky|light-blush|light-classic|dark-classic)-(?:canvas|accent|surface))|noise-opacity|accent|accent-rgb|accent-ink|secondary|secondary-rgb|canvas-tint|node-bg|solid-control|solid-control-hover|success|danger|theme-(?:bg|canvas|surface|surface-solid|surface-raised|ink|ink-soft|muted|line|line-strong|accent|accent-strong|blue|rose|amber|green|control-bg|hover-bg|active-bg))$/;
 
 function command(payload) {
   bridge?.command?.(payload);
@@ -72,6 +76,7 @@ function applyGlassAppearance(state) {
     return;
   }
   const root = document.documentElement;
+  const solid = appearance.glassTheme === "light-classic" || appearance.glassTheme === "dark-classic";
   const mode = appearance.mode === "dark" || appearance.mode === "light"
     ? appearance.mode
     : appearance.glassTheme.startsWith("dark-") ? "dark" : "light";
@@ -85,10 +90,11 @@ function applyGlassAppearance(state) {
 
   root.dataset.glassTheme = appearance.glassTheme;
   root.dataset.glassMode = mode;
+  root.dataset.glassStyle = solid ? "solid" : "glass";
   root.dataset.glassMaterial = appearance.glassMaterial;
   root.dataset.glassAccent = accent;
   root.dataset.glassAccentResolved = glassAccentIds.has(appearance.resolvedAccent) ? appearance.resolvedAccent : accent;
-  root.dataset.glassNoise = parameters.noise === false ? "off" : "on";
+  root.dataset.glassNoise = solid || parameters.noise === false ? "off" : "on";
   root.dataset.glassReduceMotion = parameters.reduceMotion === true ? "true" : "false";
   root.dataset.theme = mode;
   root.dataset.palette = "glass";
@@ -96,7 +102,7 @@ function applyGlassAppearance(state) {
   root.classList.toggle("glass-theme-active", true);
   root.classList.toggle("theme-dark", mode === "dark");
   root.classList.toggle("theme-light", mode === "light");
-  root.classList.toggle("glass-no-noise", parameters.noise === false);
+  root.classList.toggle("glass-no-noise", solid || parameters.noise === false);
   root.classList.toggle("glass-reduce-motion", parameters.reduceMotion === true);
   for (const [name, rawValue] of Object.entries(variables)) {
     const value = safeGlassCssValue(rawValue);
@@ -219,22 +225,10 @@ function renderGoalState(state) {
   const goal = state.goal || {};
   const activeGoal = Boolean(state.busy && goal.active);
   const available = goalAvailable(goal);
-  if (state.busy && !wasBusy) selectedTaskMode = "standard";
-  if (!state.busy && selectedTaskMode === "goal" && !available) selectedTaskMode = "standard";
-  wasBusy = Boolean(state.busy);
-
-  const goalSelected = !state.busy && selectedTaskMode === "goal";
-  goalControls.hidden = Boolean(state.busy && !activeGoal);
-  taskModeRow.hidden = Boolean(state.busy);
+  const input = parseComposerInput(promptInput.value);
+  const goalSelected = !state.busy && input.kind === "command" && input.name === "goal";
+  goalControls.hidden = !(goalSelected || activeGoal);
   goalSummary.hidden = !(goalSelected || activeGoal);
-  standardModeButton.classList.toggle("active", selectedTaskMode === "standard");
-  standardModeButton.setAttribute("aria-pressed", String(selectedTaskMode === "standard"));
-  goalModeButton.classList.toggle("active", goalSelected || activeGoal);
-  goalModeButton.setAttribute("aria-pressed", String(goalSelected || activeGoal));
-  goalModeButton.disabled = !state.ready || !available || state.busy;
-  document.getElementById("goal-availability").textContent = available
-    ? `${goal.containerCount} 个容器 · ${goal.assetCount} 张图 · 最多 ${goal.requestCount} 次请求`
-    : "画布暂无可执行图片容器";
   document.getElementById("goal-summary-title").textContent = activeGoal ? "Goal 运行中" : "全部图片容器";
   document.getElementById("goal-counts").textContent = `${Number(goal.containerCount) || 0} 个容器 · ${Number(goal.assetCount) || 0} 张图 · 每图 ${Number(goal.operationsPerAsset) || 0} 项 · 最多 ${Number(goal.requestCount) || 0} 次请求${goal.skippedContainerCount ? ` · 跳过 ${goal.skippedContainerCount}` : ""}`;
   const hash = String(goal.snapshotHash || "");
@@ -273,15 +267,15 @@ function render() {
   statusSurface.classList.toggle("paused", Boolean(state.paused));
   statusSurface.classList.toggle("stop-pending", stopPending);
   statusSurface.classList.toggle("error", /问题|失败|error/i.test(state.statusText || ""));
-  const { activeGoal, available: goalIsAvailable, goalSelected } = renderGoalState(state);
 
   const activeElement = document.activeElement;
   if (activeElement !== promptInput || promptInput.value === promptInput.dataset.lastPublished) {
     promptInput.value = state.prompt || "";
     promptInput.dataset.lastPublished = state.prompt || "";
   }
+  const { activeGoal, goalSelected } = renderGoalState(state);
   promptInput.disabled = !state.ready || stopPending;
-  sendButton.disabled = !state.ready || stopPending || !promptInput.value.trim() || (!state.busy && goalSelected && !goalIsAvailable);
+  sendButton.disabled = !state.ready || stopPending || !promptInput.value.trim();
   sendButton.textContent = state.busy ? "修改" : "发送";
   sendButton.classList.toggle("steer", Boolean(state.busy));
   pauseButton.hidden = !state.busy;
@@ -296,7 +290,9 @@ function render() {
   if (!state.busy) steerMode.value = "auto";
   promptInput.placeholder = state.busy
     ? activeGoal ? "修改 Goal 的处理要求，当前来源范围保持不变…" : "输入修改要求，Agent 会停止旧计划并重新规划…"
-    : goalSelected ? "描述要对画布全部图片容器执行的操作…" : "告诉 Agent 你想完成什么…";
+    : goalSelected ? "描述要对画布全部图片容器执行的操作…" : "告诉 Agent 你想完成什么，输入 / 使用命令…";
+  document.getElementById("edit-image-config").disabled = stopPending || !state.ready;
+  renderCommands();
   editSourcesButton.disabled = activeGoal || goalSelected || stopPending;
   editReferencesButton.disabled = activeGoal || goalSelected || stopPending;
 
@@ -324,38 +320,106 @@ function scheduleRender(state) {
   renderFrame = requestAnimationFrame(render);
 }
 
-composer.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (!currentState?.ready || currentState.stopPending) return;
-  const prompt = promptInput.value.trim();
-  if (!prompt) return;
-  if (promptTimer) {
-    window.clearTimeout(promptTimer);
-    promptTimer = 0;
-  }
+function showCommandNotice(text) {
+  commandNotice.textContent = text;
+  commandNotice.hidden = !text;
+}
+
+function visibleCommands() {
+  return helpOpen ? composerCommands : commandsDismissed ? [] : composerCommandSuggestions(promptInput.value);
+}
+
+function publishPrompt() {
+  if (promptTimer) window.clearTimeout(promptTimer);
+  promptTimer = 0;
   promptInput.dataset.lastPublished = promptInput.value;
-  const activeGoal = Boolean(currentState.busy && currentState.goal?.active);
-  if (!currentState.busy && selectedTaskMode === "goal") {
-    const goal = currentState.goal;
-    if (!goalAvailable(goal)) {
-      window.alert("Goal 范围已失效，请等待主窗口重新同步后再试。");
-      return;
-    }
-    if (!window.confirm(goalConfirmationText(goal))) return;
-    command({
-      type: "send",
-      prompt,
-      taskScopeMode: "auto",
-      taskMode: "goal",
-      goalConfirmed: true,
-      expectedSnapshotHash: goal.snapshotHash
+  command({ type: "set-prompt", prompt: promptInput.value });
+}
+
+function chooseCommand(item) {
+  helpOpen = false;
+  if (item.takesArgument) {
+    promptInput.value = `/${item.name} `;
+    promptInput.dispatchEvent(new Event("input", { bubbles: true }));
+    promptInput.focus();
+  } else executeInput(`/${item.name}`);
+}
+
+function renderCommands() {
+  const items = visibleCommands();
+  commandMenu.hidden = !items.length;
+  commandMenu.replaceChildren();
+  promptInput.setAttribute("aria-expanded", String(items.length > 0));
+  promptInput.removeAttribute("aria-activedescendant");
+  if (items.length) {
+    promptInput.setAttribute("aria-controls", "composer-commands");
+    const heading = document.createElement("div");
+    heading.className = "command-heading";
+    heading.textContent = "命令 · ↑↓ 选择 · Enter 执行 · Esc 收起";
+    commandMenu.append(heading);
+    items.forEach((item, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.id = `composer-command-${item.name}`;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", String(index === commandIndex));
+      button.classList.toggle("active", index === commandIndex);
+      const code = document.createElement("code");
+      code.textContent = item.usage;
+      const small = document.createElement("small");
+      small.textContent = item.description;
+      button.append(code, small);
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", () => chooseCommand(item));
+      commandMenu.append(button);
+      if (index === commandIndex) promptInput.setAttribute("aria-activedescendant", button.id);
     });
+    commandMenu.querySelector(".active")?.scrollIntoView({ block: "nearest" });
+  } else promptInput.removeAttribute("aria-controls");
+}
+
+function executeInput(value = promptInput.value) {
+  if (!currentState?.ready || currentState.stopPending) return;
+  const parsed = parseComposerInput(value);
+  const activeGoal = Boolean(currentState.busy && currentState.goal?.active);
+  const error = composerCommandError(parsed, { busy: currentState.busy, paused: currentState.paused, stopPending: currentState.stopPending, goalActive: activeGoal, goalAvailable: goalAvailable(currentState.goal) });
+  if (error) { showCommandNotice(error); commandsDismissed = true; renderCommands(); return; }
+  showCommandNotice("");
+  if (parsed.kind === "unknown") return;
+  if (parsed.kind === "command" && parsed.name !== "goal") {
+    if (!["help", "status"].includes(parsed.name)) { promptInput.value = ""; publishPrompt(); }
+    commandsDismissed = true;
+    switch (parsed.name) {
+      case "config": command({ type: "edit-image-config" }); break;
+      case "help": helpOpen = true; commandIndex = 0; break;
+      case "status": showCommandNotice(`${currentState.stopPending ? "正在结束" : currentState.paused ? "已暂停" : currentState.busy ? "任务运行中" : "当前空闲"}${activeGoal ? ` · Goal 范围 ${currentState.goal.containerCount} 个容器 / ${currentState.goal.assetCount} 张图` : ` · ${currentState.sourceImageCount} 张原图 / ${currentState.referenceImageCount} 张参考图`}`); break;
+      case "new": document.getElementById("new-conversation").click(); break;
+      case "pause": case "resume": pauseButton.click(); break;
+      case "stop": stopButton.click(); break;
+    }
+    renderCommands();
+    return;
+  }
+  const prompt = parsed.kind === "command" ? parsed.argument : parsed.text;
+  if (!prompt) return;
+  if (promptTimer) window.clearTimeout(promptTimer);
+  promptTimer = 0;
+  promptInput.dataset.lastPublished = promptInput.value;
+  if (parsed.kind === "command" && !activeGoal) {
+    const goal = currentState.goal;
+    if (!window.confirm(goalConfirmationText(goal))) return;
+    command({ type: "send", prompt, taskScopeMode: "auto", taskMode: "goal", goalConfirmed: true, expectedSnapshotHash: goal.snapshotHash });
   } else if (activeGoal) {
     command({ type: "send", prompt, taskScopeMode: "keep" });
   } else {
     command({ type: "send", prompt, taskScopeMode: currentState.busy ? steerMode.value : "auto" });
   }
   if (currentState.busy) steerMode.value = "auto";
+}
+
+composer.addEventListener("submit", (event) => {
+  event.preventDefault();
+  executeInput();
 });
 
 pauseButton.addEventListener("click", () => {
@@ -377,6 +441,22 @@ stopButton.addEventListener("click", () => {
 });
 
 promptInput.addEventListener("keydown", (event) => {
+  if (event.isComposing) return;
+  const items = visibleCommands();
+  if (items.length && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      commandIndex = (commandIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      renderCommands();
+      return;
+    }
+    if (["Enter", "Tab"].includes(event.key)) {
+      event.preventDefault();
+      chooseCommand(items[commandIndex] || items[0]);
+      return;
+    }
+  }
+  if (event.key === "Escape") { commandsDismissed = true; helpOpen = false; renderCommands(); return; }
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     composer.requestSubmit();
@@ -384,14 +464,15 @@ promptInput.addEventListener("keydown", (event) => {
 });
 
 promptInput.addEventListener("input", () => {
-  sendButton.disabled = !currentState?.ready || currentState?.stopPending || !promptInput.value.trim() || (
-    !currentState?.busy && selectedTaskMode === "goal" && !goalAvailable(currentState?.goal)
-  );
+  commandIndex = 0;
+  helpOpen = false;
+  commandsDismissed = false;
+  showCommandNotice("");
+  renderCommands();
+  sendButton.disabled = !currentState?.ready || currentState?.stopPending || !promptInput.value.trim();
+  if (currentState) renderGoalState(currentState);
   if (promptTimer) window.clearTimeout(promptTimer);
-  promptTimer = window.setTimeout(() => {
-    promptInput.dataset.lastPublished = promptInput.value;
-    command({ type: "set-prompt", prompt: promptInput.value });
-  }, 120);
+  promptTimer = window.setTimeout(publishPrompt, 120);
 });
 
 conversationSelect.addEventListener("change", () => {
@@ -413,16 +494,7 @@ document.getElementById("clear-conversation").addEventListener("click", () => {
 document.getElementById("edit-sources").addEventListener("click", () => command({ type: "edit-sources" }));
 document.getElementById("edit-references").addEventListener("click", () => command({ type: "edit-references" }));
 document.getElementById("edit-memory").addEventListener("click", () => command({ type: "edit-memory" }));
-standardModeButton.addEventListener("click", () => {
-  if (currentState?.busy) return;
-  selectedTaskMode = "standard";
-  scheduleRender(currentState);
-});
-goalModeButton.addEventListener("click", () => {
-  if (currentState?.busy || !goalAvailable(currentState?.goal)) return;
-  selectedTaskMode = "goal";
-  scheduleRender(currentState);
-});
+document.getElementById("edit-image-config").addEventListener("click", () => command({ type: "edit-image-config" }));
 
 bridge?.onState?.((state) => scheduleRender(state));
 bridge?.ready?.();

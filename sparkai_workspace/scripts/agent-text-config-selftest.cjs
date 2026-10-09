@@ -15,6 +15,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createAgentRuntime, defaultPromptText, normalizeImageToolFrame, toolSchemas } = require("../agent-runtime.cjs");
+const { normalizeImageResultDownloadError } = require("../runtime/image-generation/errors.cjs");
 const { agentToolSchemas: ownedAgentToolSchemas, toolSchemas: ownedToolSchemas } = require("../runtime/tool-schemas.cjs");
 const { createMemoryStore: ownedCreateMemoryStore } = require("../runtime/memory-store.cjs");
 const { createImageBatchNormalization: ownedCreateImageBatchNormalization } = require("../runtime/image-batch-normalization.cjs");
@@ -866,6 +867,20 @@ async function runSelftest(directory) {
             ? streamedText("工具失败隔离自测完成。")
             : streamedToolCall("view_image", { path: "missing-selftest-image.png", detail: "high" });
         }
+        if (["SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR", "SELFTEST_COMPLETED_IMAGE_PROCESSING_ERROR"].includes(currentIntent)) {
+          // Deliberately ask to recreate it once: the runtime must prevent the
+          // second provider call even when the model ignores the failure advice.
+          return toolResultCount("image_gen") > 1
+            ? streamedText("上游已返回图片，下载失败，不应再次生图。")
+            : streamedToolCall("image_gen", {
+                operation: "generate",
+                prompt: currentIntent,
+                ratio: "1:1",
+                resolution: "720P",
+                quality: toolResultCount("image_gen") > 0 ? "high" : "auto",
+                count: 1,
+              });
+        }
         if (currentIntent === "SELFTEST_TERMINATED_IMAGE_ERROR") {
           return toolResultCount("image_gen") > 0
             ? streamedText("已识别为可恢复的上游连接中断。")
@@ -902,6 +917,17 @@ async function runSelftest(directory) {
             parallelImageCompletionOrder.push(parallelRequestIndex);
           }
           if (requestPromptBase === "SELFTEST_TERMINATED_IMAGE_ERROR") throw new Error("terminated");
+          if (requestPromptBase === "SELFTEST_COMPLETED_IMAGE_PROCESSING_ERROR") {
+            throw Object.assign(new Error("Generated image could not be fully decoded."), {
+              code: "NAIMAGE_IMAGE_OUTPUT_DECODE_FAILED", errorCategory: "image_result_processing", generationCompleted: true, unsafeToRetry: true
+            });
+          }
+          if (requestPromptBase === "SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR") {
+            throw normalizeImageResultDownloadError(new AggregateError([
+              Object.assign(new Error("https://cdn.example/image?token=private-signature"), { code: "ETIMEDOUT" }),
+              Object.assign(new Error("private local socket"), { code: "ENETUNREACH" })
+            ]));
+          }
           if (request.layerRole === "subject" && typeof request.onRetry === "function") {
             request.onRetry({ category: "transient", retryCount: 1, maxRetries: 5, index: 0, count: 1 });
           }
@@ -2857,6 +2883,52 @@ async function runSelftest(directory) {
     assertOk(terminatedResult, "terminated image error classification");
     assert.match(JSON.stringify(terminatedResult.toolResults || []), /upstream_5xx/);
     assert(terminatedProgress.some((event) => event?.phase === "tool-error" && event?.tool === "image_gen" && event?.errorCategory === "upstream_5xx"));
+    const downloadProgress = [];
+    const downloadRequestsBefore = capturedImageRequests.length;
+    const downloadResult = await runtime.chat({
+      ...scopeA,
+      prompt: "SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR 验证已生成结果的下载失败。",
+      settings: schemaSettings,
+      messages: [],
+      nodes: [],
+      referenceImages: [],
+      progress: (event) => downloadProgress.push(event),
+    });
+    assertOk(downloadResult, "completed image download failure");
+    assert.equal(capturedImageRequests.length, downloadRequestsBefore + 1, "Result download failure must not recreate the image request");
+    assert.equal(downloadResult.toolResults.filter((result) => result.tool === "image_gen").length, 2, "The model's attempted regeneration must receive a failure without sending another request");
+    const downloadEnvelope = downloadResult.toolResults.find((result) => result.tool === "image_gen");
+    assert.equal(downloadEnvelope.errorCategory, "image_result_download");
+    assert.equal(downloadEnvelope.retriable, false);
+    assert.match(downloadEnvelope.error, /ETIMEDOUT.*ENETUNREACH/);
+    assert.match(downloadEnvelope.advice, /不要重新调用 image_gen/);
+    assert.doesNotMatch(JSON.stringify(downloadResult.toolResults), /private-signature|private local socket|https:\/\/cdn/);
+    assert(downloadProgress.some((event) => event?.phase === "tool-error" && event?.errorCategory === "image_result_download" && event?.retriable === false));
+    const batchDownloadFailure = await runtime.runTool("image_gen", {
+      operation: "generate",
+      prompt: "SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR",
+      items: [
+        { prompt: "SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR", title: "first" },
+        { prompt: "SELFTEST_COMPLETED_IMAGE_DOWNLOAD_ERROR", title: "second" },
+      ],
+      ratio: "1:1",
+      resolution: "720P",
+      count: 2,
+    }, { settings: schemaSettings, nodes: [], referenceImages: [], ...scopeA }).catch((error) => error);
+    assert.equal(batchDownloadFailure.errorCategory, "image_result_download", `Nested batch errors must keep the original download classification: ${batchDownloadFailure.message || batchDownloadFailure.envelope?.error || "missing failure"}`);
+    assert.equal(batchDownloadFailure.unsafeToRetry, true);
+    const processingRequestsBefore = capturedImageRequests.length;
+    const processingResult = await runtime.chat({
+      ...scopeA, prompt: "SELFTEST_COMPLETED_IMAGE_PROCESSING_ERROR 验证已生成图片的本地解码失败。",
+      settings: schemaSettings, messages: [], nodes: [], referenceImages: []
+    });
+    assertOk(processingResult, "completed image processing failure");
+    assert.equal(capturedImageRequests.length, processingRequestsBefore + 1);
+    assert.equal(processingResult.toolResults.filter((result) => result.tool === "image_gen").length, 2);
+    const processingEnvelope = processingResult.toolResults.find((result) => result.tool === "image_gen");
+    assert.equal(processingEnvelope.errorCategory, "image_result_processing");
+    assert.equal(processingEnvelope.retriable, false);
+    assert.match(processingEnvelope.advice, /不要重新调用 image_gen/);
     const addedExperience = await runtime.runTool(
       "experience",
       { action: "add", text: "SECOND_VISIBLE_EXPERIENCE", rating: "good" },

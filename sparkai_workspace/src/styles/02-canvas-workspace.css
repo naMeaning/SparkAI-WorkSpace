@@ -161,7 +161,7 @@
 
 .workflow-canvas::before,
 .workflow-canvas::after {
-  content: "";
+  content: var(--canvas-ambient-content, "");
   position: absolute;
   pointer-events: none;
   z-index: 0;
@@ -203,6 +203,7 @@
 }
 
 .canvas-particle-field {
+  display: var(--canvas-particle-display, block);
   position: absolute;
   inset: 0;
   z-index: 1;

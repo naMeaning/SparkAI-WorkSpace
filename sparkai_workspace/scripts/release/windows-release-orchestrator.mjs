@@ -333,6 +333,7 @@ function verifyFormalInputs(inputs) {
     "package:win",
     "package:smoke",
     "package:installer-smoke",
+    "package:installer-upgrade-e2e",
     "package:update-e2e",
     "test:update",
     "test:update-rollback",
@@ -347,6 +348,7 @@ function verifyFormalInputs(inputs) {
     join(scriptDir, "create-update-release.mjs"),
     join(scriptDir, "restart-update-e2e.mjs"),
     join(scriptDir, "installer-smoke.mjs"),
+    join(scriptDir, "full-installer-upgrade-e2e.mjs"),
     join(scriptDir, "packaged-smoke.mjs")
   ]) {
     if (!existsSync(filePath)) throw new Error(`发布脚本缺失：${filePath}`);
@@ -372,6 +374,14 @@ function verifyFormalInputs(inputs) {
     baselineVersion,
     baselineProductName: String(baselineMetadata.productName || "")
   });
+  let baselineInstaller = "";
+  if (upgradeContract.requiresFullInstaller) {
+    baselineInstaller = resolve(process.env.NAIMAGE_RELEASE_BASELINE_INSTALLER || "");
+    if (!process.env.NAIMAGE_RELEASE_BASELINE_INSTALLER || !isInside(baselineInstaller, projectRoot)) {
+      throw new Error("完整安装升级需要显式的项目内 NAIMAGE_RELEASE_BASELINE_INSTALLER 基线安装包。");
+    }
+    assertWindowsExecutable(baselineInstaller, "上一版完整安装包");
+  }
 
   if (!isInside(inputs.settingsPath, projectRoot)) {
     throw new Error("更新 E2E 设置夹具必须位于项目目录内，禁止读取用户真实配置目录。");
@@ -395,6 +405,7 @@ function verifyFormalInputs(inputs) {
     baselineExe: inputs.baselineExe,
     baselineVersion,
     baselineProductName: String(baselineMetadata.productName || ""),
+    baselineInstaller,
     upgradeContract,
     settingsPath: inputs.settingsPath,
     settingsCredentialValuesRedacted: true,
@@ -729,16 +740,9 @@ async function runFormalRelease() {
         `--seed-pending=${artifacts.restartPath}`
       ), report);
     } else {
-      const now = new Date().toISOString();
-      report.steps.push({
-        name: "package:update-e2e",
-        startedAt: now,
-        finishedAt: now,
-        durationMs: 0,
-        status: "skipped",
-        exitCode: 0,
-        reason: "full-installer-required-by-minimum-version"
-      });
+      await runStep("package:update-e2e", pnpmInvocation.command, pnpmArgs(
+        "run", "package:installer-upgrade-e2e"
+      ), report);
     }
 
     const shaStarted = Date.now();

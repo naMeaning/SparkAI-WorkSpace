@@ -2,7 +2,8 @@
 
 const {
   accountTokenQuotaFields,
-  normalizeAccountQuotaPolicy
+  normalizeAccountQuotaPolicy,
+  quotaFromInputAmount
 } = require("./account-token-quota.cjs");
 
 const NEW_API_TOKEN_PAGE_SIZE = 100;
@@ -10,6 +11,15 @@ const TOKEN_STATUS_ENABLED = 1;
 const TOKEN_SNAPSHOT_VERSION = 2;
 const LEGACY_TOKEN_SNAPSHOT_VERSION = 1;
 const TOKEN_SNAPSHOT_MAX_ENTRIES = 8;
+
+function tokenExpired(token, nowSeconds = Math.floor(Date.now() / 1000)) {
+  const expiredTime = Number(token?.expiredTime);
+  return Number.isFinite(expiredTime) && expiredTime > 0 && expiredTime <= nowSeconds;
+}
+
+function tokenUsable(token) {
+  return Number(token?.status) === TOKEN_STATUS_ENABLED && !tokenExpired(token);
+}
 
 function tokenItemsFromPayload(payload) {
   const source = payload?.data ?? payload;
@@ -221,8 +231,13 @@ function createAccountTokenService({
     ].join("|");
   }
 
-  function clearKeyCache() {
-    keyCache.clear();
+  function clearKeyCache(settings = null, tokenId = "") {
+    const id = String(tokenId || "").trim();
+    if (!settings || !id) {
+      keyCache.clear();
+      return;
+    }
+    keyCache.delete(cacheKey(settings, id));
   }
 
   function persistSelection(settings, token = null) {
@@ -303,8 +318,23 @@ function createAccountTokenService({
   }
 
   async function select(settings, tokenId) {
+    if (!String(tokenId || "").trim()) {
+      clearKeyCache();
+      persistSelection(settings, null);
+      return {
+        ok: true,
+        token: null,
+        selectedTokenId: "",
+        baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account"))
+      };
+    }
     const token = await tokenById(settings, tokenId);
     if (token.status !== TOKEN_STATUS_ENABLED) throw new Error("该密钥当前未启用，请先启用后再选择。");
+    if (tokenExpired(token)) throw new Error("该密钥已过期，请选择其他密钥。");
+    // Resolve the complete key while the user is selecting it. This keeps a
+    // bad token from looking selected in the UI and failing only on the next
+    // chat/image request, while the full value remains Main-only in keyCache.
+    await fullKey(settings, token.id);
     persistSelection(settings, token);
     return {
       ok: true,
@@ -319,7 +349,7 @@ function createAccountTokenService({
     if (selectedId) {
       try {
         const token = await tokenById(settings, selectedId);
-        if (token.status === TOKEN_STATUS_ENABLED) return token;
+        if (tokenUsable(token)) return token;
       } catch (error) {
         log(`account token selection invalid ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -327,7 +357,7 @@ function createAccountTokenService({
       persistSelection(settings, null);
     }
     const result = await list(settings);
-    const token = result.tokens.find((item) => item.status === TOKEN_STATUS_ENABLED && (item.expiredTime < 0 || item.expiredTime > Math.floor(Date.now() / 1000)));
+    const token = result.tokens.find(tokenUsable);
     if (!token) throw new Error("当前账户没有可用密钥，请在设置中创建或启用一枚密钥。");
     persistSelection(settings, token);
     return token;
@@ -353,6 +383,7 @@ function createAccountTokenService({
   async function credentialsForToken(settings, tokenId) {
     const token = await tokenById(settings, tokenId);
     if (token.status !== TOKEN_STATUS_ENABLED) throw new Error("该密钥当前未启用，请先启用后再使用。");
+    if (tokenExpired(token)) throw new Error("该密钥已过期，请选择其他密钥。");
     const apiKey = await fullKey(settings, token.id);
     return {
       baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")),
@@ -376,13 +407,16 @@ function createAccountTokenService({
     };
   }
 
-  function tokenPayload(input = {}, current = {}) {
+  function tokenPayload(input = {}, current = {}, quotaPolicy = {}) {
     const name = String(input.name ?? current.name ?? "").trim().slice(0, 50);
     if (!name) throw new Error("请输入密钥名称。");
     const unlimitedQuota = input.unlimitedQuota === undefined
       ? current.unlimitedQuota === true
       : input.unlimitedQuota === true;
-    const remainQuota = Math.max(0, Math.floor(Number(input.remainQuota ?? current.remainQuota) || 0));
+    const remainQuota = !unlimitedQuota && input.remainAmount !== undefined
+      ? quotaFromInputAmount(input.remainAmount, input.quotaInput, quotaPolicy)
+      : Math.max(0, Math.floor(Number(input.remainQuota ?? current.remainQuota) || 0));
+    if (!unlimitedQuota && !Number.isSafeInteger(remainQuota)) throw new Error("额度超出可安全编辑的范围。");
     const expiredTime = Math.floor(Number(input.expiredTime ?? current.expiredTime ?? -1) || -1);
     const modelLimits = String(input.modelLimits ?? current.modelLimits ?? "").trim().slice(0, 20_000);
     return {
@@ -404,13 +438,17 @@ function createAccountTokenService({
       method: "POST",
       headers: newApiUserAuthHeaders(settings),
       userAuth: true,
-      body: tokenPayload(input),
+      body: tokenPayload(input, {}, quotaPolicyFromSnapshot(settings)),
       retries: 0
     });
     const result = await list(settings);
     const created = result.tokens
       .filter((token) => token.name === String(input.name || "").trim())
       .sort((left, right) => Number(right.id) - Number(left.id))[0] || result.tokens.sort((left, right) => Number(right.id) - Number(left.id))[0];
+    if (created && Number(input.status) === 2) {
+      const updated = await update(settings, { id: created.id, status: 2 });
+      return { ...updated, createdTokenId: created.id };
+    }
     if (created && input.select !== false && created.status === TOKEN_STATUS_ENABLED) await select(settings, created.id);
     return { ...await list(settings), createdTokenId: created?.id || "" };
   }
@@ -418,6 +456,7 @@ function createAccountTokenService({
   async function update(settings, input = {}) {
     const id = normalizeTokenId(input.id);
     const current = await tokenById(settings, id);
+    const body = { id, ...tokenPayload(input, current, quotaPolicyFromSnapshot(settings)) };
     const desiredStatus = input.status === undefined ? current.status : Math.floor(Number(input.status) || 0);
     if (desiredStatus !== current.status) {
       await newApiRequest(settings, "/api/token/?status_only=true", {
@@ -432,7 +471,7 @@ function createAccountTokenService({
       method: "PUT",
       headers: newApiUserAuthHeaders(settings),
       userAuth: true,
-      body: { id, ...tokenPayload(input, current) },
+      body,
       retries: 0
     });
     clearKeyCache();

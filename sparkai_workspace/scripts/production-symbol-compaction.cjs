@@ -2,6 +2,7 @@ const { readFileSync, readdirSync, statSync } = require("node:fs");
 const { createRequire } = require("node:module");
 const { extname, join, relative, resolve } = require("node:path");
 const ts = require("typescript");
+const { minify: minifyCss } = require("csso");
 
 const requireFromVite = createRequire(require.resolve("vite"));
 const postcss = requireFromVite("postcss");
@@ -586,7 +587,10 @@ function optimizeBundledCss(code, filePath = "bundle.css") {
   mergeAdjacentEquivalentRules(root);
   discardExactDuplicateDeclarations(root);
   discardEmptyContainers(root);
-  return root.toString();
+  // Bundling creates further opportunities to share declarations across rules.
+  // Use the standard optimizer after assembly; keep the source cascade and
+  // symbol ownership readable, and leave the development CSS untouched.
+  return minifyCss(root.toString(), { filename: filePath }).css;
 }
 
 function createPostcssSymbolCompactionPlugin(plan) {
@@ -632,6 +636,10 @@ function buildProductionSymbolPlan(projectRoot) {
     join(root, "electron-main.cjs"),
     join(root, "preload.cjs"),
     join(root, "agent-runtime.cjs"),
+    // The detached window consumes the renderer's appearance snapshot without
+    // passing through Vite. Its CSS variables are a cross-window contract.
+    join(root, "agent-window-renderer.js"),
+    join(root, "agent-window.css"),
     join(root, "scripts", "product-performance-gate.mjs"),
     ...filesRecursively(join(root, "scripts", "release"))
   ].filter((filePath) => statSync(filePath, { throwIfNoEntry: false })?.isFile());

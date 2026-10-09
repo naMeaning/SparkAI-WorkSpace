@@ -1,7 +1,7 @@
-import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { CreditCard, Loader2, LogOut, RotateCcw, Shield } from "lucide-react";
+import { useEffect, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { KeyRound, Loader2, LogOut, RotateCcw, Shield } from "lucide-react";
 
-import { formatDuration, yuan, type AuthDraft, type ServerLogEntry, type ServerUser, type ServerWallet } from "./core";
+import { formatDuration, yuan, type AuthDraft, type ServerLogEntry, type ServerLogQuery, type ServerLogResult, type ServerUser, type ServerWallet } from "./core";
 import { ActionButton, DrawerShell, Field, IconActionButton, InlineNotice, SegmentButton, SegmentedControl, SurfaceBody, SurfaceHeader, SurfaceSection } from "./ui";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
@@ -12,20 +12,15 @@ const WHEN_IDLE = "when-idle" as const;
 export type AccountDrawerProps = {
   user: ServerUser | null;
   wallet: ServerWallet | null;
-  logs: ServerLogEntry[];
   message: string;
   authDraft: AuthDraft;
   setAuthDraft: Dispatch<SetStateAction<AuthDraft>>;
   submitAuth: () => void | Promise<void>;
   logout: () => void | Promise<void>;
-  recharge: () => void | Promise<void>;
+  manageTokens: () => void;
   refresh: () => void | Promise<void>;
   close: () => void;
 };
-
-function clamp(value: number, minimum: number, maximum: number) {
-  return Math.min(maximum, Math.max(minimum, value));
-}
 
 function formatLogTime(createdAt?: string) {
   const raw = String(createdAt || "").trim();
@@ -52,7 +47,7 @@ function safeUsageLogText(value: unknown) {
 
 function logActionLabel(log: ServerLogEntry) {
   const detail = log.detail ?? {};
-  if (log.type === "error" || detail.success === false || detail.status === "failed") return "生成失败";
+  if (log.type === "error" || detail.success === false || detail.status === "failed") return "调用失败";
   if (typeof detail.amountCents === "number" && detail.amountCents > 0) return "额度入账";
   if (/recharge|topup|credit/i.test(log.type)) return "额度变动";
   if (/register/i.test(log.type)) return "账户注册";
@@ -60,13 +55,17 @@ function logActionLabel(log: ServerLogEntry) {
   if (typeof detail.trialImagesUsed === "number" && detail.trialImagesUsed > 0 && !(typeof detail.chargedCents === "number" && detail.chargedCents > 0)) return "试用抵扣";
   if (typeof detail.chargedCents === "number" && detail.chargedCents > 0) return "额度损耗";
   if (typeof detail.costCents === "number" && detail.costCents > 0) return "额度预估";
-  if (log.type === "consume") return "图像生成";
+  if (log.type === "consume") return "模型调用";
+  if (log.type === "refund") return "额度退款";
+  if (log.type === "manage") return "账户管理";
+  if (log.type === "system") return "系统记录";
   return "使用记录";
 }
 
 function formatLogDetail(log: ServerLogEntry) {
   const detail = log.detail ?? {};
   const parts = [
+    typeof detail.quotaDisplay === "string" ? `额度 ${detail.quotaDisplay}` : "",
     typeof detail.count === "number" ? `${detail.count} 张` : "",
     typeof detail.returned === "number" ? `返回 ${detail.returned} 张` : "",
     typeof detail.trialImagesUsed === "number" && detail.trialImagesUsed > 0 ? `试用抵扣 ${detail.trialImagesUsed} 张` : "",
@@ -78,7 +77,10 @@ function formatLogDetail(log: ServerLogEntry) {
     typeof detail.completionTokens === "number" && detail.completionTokens > 0 ? `输出 ${detail.completionTokens} tokens` : "",
     typeof detail.responseTimeMs === "number" ? `耗时 ${formatDuration(detail.responseTimeMs / 1000)}` : "",
     typeof detail.message === "string" ? safeUsageLogText(detail.message) : "",
-    typeof detail.model === "string" ? detail.model : ""
+    typeof detail.model === "string" ? safeUsageLogText(detail.model) : "",
+    typeof detail.tokenName === "string" && detail.tokenName ? `密钥 ${safeUsageLogText(detail.tokenName)}` : "",
+    typeof detail.group === "string" && detail.group ? `分组 ${safeUsageLogText(detail.group)}` : "",
+    typeof detail.requestId === "string" && detail.requestId ? `请求 ${safeUsageLogText(detail.requestId)}` : ""
   ].filter(Boolean);
   return parts.join(" · ") || "已记录";
 }
@@ -86,21 +88,67 @@ function formatLogDetail(log: ServerLogEntry) {
 export default function AccountDrawer({
   user,
   wallet,
-  logs,
   message,
   authDraft,
   setAuthDraft,
   submitAuth,
   logout,
-  recharge,
+  manageTokens,
   refresh,
   close
 }: AccountDrawerProps) {
   const [authBusy, setAuthBusy] = useState(false);
   const [refreshBusy, setRefreshBusy] = useState(false);
-  const [rechargeBusy, setRechargeBusy] = useState(false);
   const [logoutBusy, setLogoutBusy] = useState(false);
-  const [logPage, setLogPage] = useState(1);
+  const [logResult, setLogResult] = useState<ServerLogResult>({ ok: true, logs: [], page: 1, pageSize: 20, total: 0 });
+  const [logBusy, setLogBusy] = useState(false);
+  const [logError, setLogError] = useState("");
+  const [logQuery, setLogQuery] = useState<ServerLogQuery>({});
+  const [logFilters, setLogFilters] = useState({ type: "0", model: "", tokenName: "", start: "", end: "" });
+  const logRequestRef = useRef(0);
+  const accountIdRef = useRef(user?.id);
+  accountIdRef.current = user?.id;
+
+  async function loadLogs(query: ServerLogQuery = logQuery, page = 1) {
+    const request = ++logRequestRef.current;
+    const accountId = user?.id;
+    if (!accountId || accountId === "custom-api") { setLogBusy(false); setLogError(""); return; }
+    setLogBusy(true);
+    setLogError("");
+    try {
+      const result = await window.naimageServer?.logs({ ...query, page, pageSize: 20 });
+      if (request !== logRequestRef.current || accountId !== accountIdRef.current) return;
+      if (!result?.ok || result.stale) throw new Error(result?.error || "无法加载账户日志。");
+      setLogResult(result);
+    } catch (error) {
+      if (request === logRequestRef.current && accountId === accountIdRef.current) setLogError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (request === logRequestRef.current) setLogBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    setLogResult({ ok: true, logs: [], page: 1, pageSize: 20, total: 0 });
+    setLogQuery({});
+    setLogFilters({ type: "0", model: "", tokenName: "", start: "", end: "" });
+    void loadLogs({}, 1);
+    return () => { logRequestRef.current += 1; };
+  }, [user?.id]);
+
+  function filterLogs(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const query: ServerLogQuery = {
+      type: Number(logFilters.type), model: logFilters.model.trim(), tokenName: logFilters.tokenName.trim(),
+      startTime: logFilters.start ? Math.floor(new Date(logFilters.start).getTime() / 1000) : undefined,
+      endTime: logFilters.end ? Math.floor(new Date(logFilters.end).getTime() / 1000) : undefined
+    };
+    if (query.startTime && query.endTime && query.startTime > query.endTime) {
+      setLogError("日志开始时间不能晚于结束时间。");
+      return;
+    }
+    setLogQuery(query);
+    void loadLogs(query, 1);
+  }
 
   async function waitForDebugActionDelay() {
     if (!__NAIMAGE_AIDEBUG__) return;
@@ -130,19 +178,9 @@ export default function AccountDrawer({
     try {
       await waitForDebugActionDelay();
       await refresh();
+      await loadLogs(logQuery, logResult.page || 1);
     } finally {
       setRefreshBusy(false);
-    }
-  }
-
-  async function rechargeForDev() {
-    if (rechargeBusy) return;
-    setRechargeBusy(true);
-    try {
-      await waitForDebugActionDelay();
-      await recharge();
-    } finally {
-      setRechargeBusy(false);
     }
   }
 
@@ -157,24 +195,15 @@ export default function AccountDrawer({
     }
   }
 
-  const usageLogs = logs;
-  const logPageSize = 6;
-  const logPageCount = Math.max(1, Math.ceil(usageLogs.length / logPageSize));
-  const currentLogPage = clamp(logPage, 1, logPageCount);
-  const pagedLogs = usageLogs.slice((currentLogPage - 1) * logPageSize, currentLogPage * logPageSize);
-  const balanceText = yuan(wallet?.balanceCents ?? user?.balanceCents ?? 0);
-  const costText = typeof wallet?.imageCostCents === "number" ? yuan(wallet.imageCostCents) : "同步中";
-  const costMetaText = typeof wallet?.imageCostCents === "number" ? "每张生成" : "等待服务端";
-  const trialText = `${Math.max(0, Number(user?.trialImagesRemaining ?? 0) || 0)} 张`;
+  const usageLogs = logResult.logs || [];
+  const currentLogPage = logResult.page || 1;
+  const logPageCount = Math.max(1, Math.ceil((logResult.total ?? usageLogs.length) / (logResult.pageSize || 20)));
+  const balanceText = wallet?.balanceDisplay || (wallet?.nativeQuota ? "待同步" : yuan(wallet?.balanceCents ?? user?.balanceCents ?? 0));
   const accountName = user?.name?.trim() || user?.username || user?.account || user?.email || "已登录账户";
   const accountDetail = user?.email && user.email !== accountName ? user.email : user?.username || user?.account || "服务端账户已连接";
   const accountInitial = accountName.trim().slice(0, 1).toUpperCase() || "A";
-  const drawerBusy = authBusy || refreshBusy || rechargeBusy || logoutBusy;
+  const drawerBusy = authBusy || refreshBusy || logoutBusy;
   const messageIsError = /(?:错误|失败|失效|不可用|未连接|请重新登录|请输入)/i.test(message);
-
-  useEffect(() => {
-    setLogPage((current) => clamp(current, 1, logPageCount));
-  }, [logPageCount]);
 
   return (
     <DrawerShell
@@ -240,13 +269,13 @@ export default function AccountDrawer({
                     <span className="account-status">已连接</span>
                   </div>
                   <div className="account-balance-grid" aria-label="钱包余额">
-                    <div><span>额度</span><strong>{balanceText}</strong><em>可用余额</em></div>
-                    <div><span>单张损耗</span><strong>{costText}</strong><em>{costMetaText}</em></div>
-                    <div><span>试用额度</span><strong>{trialText}</strong><em>免费张数</em></div>
+                    <div><span>可用额度</span><strong title={balanceText}>{balanceText}</strong><em>{wallet?.balanceQuota === undefined ? "等待服务端同步" : `原始 ${wallet.balanceQuota.toLocaleString("zh-CN")} quota`}</em></div>
+                    <div><span>累计使用</span><strong title={wallet?.usedDisplay}>{wallet?.usedDisplay || "待同步"}</strong><em>{wallet?.group ? `分组 ${wallet.group}` : "服务端累计额度"}</em></div>
+                    <div><span>请求次数</span><strong>{wallet?.requestCount === undefined ? "待同步" : wallet.requestCount.toLocaleString("zh-CN")}</strong><em>账户累计调用</em></div>
                     <small>{user.username || user.account || user.email}</small>
                   </div>
                   <div className="account-primary-actions" aria-label="账户操作">
-                    <ActionButton variant="primary" onClick={rechargeForDev} busy={rechargeBusy} icon={<CreditCard size={15} />}>充值额度</ActionButton>
+                    <ActionButton variant="primary" onClick={manageTokens} icon={<KeyRound size={15} />}>管理密钥</ActionButton>
                     <ActionButton variant="danger" className="account-logout-button" onClick={() => void logoutFromDrawer()} busy={logoutBusy} icon={<LogOut size={15} />}>退出登录</ActionButton>
                   </div>
                 </SurfaceSection>
@@ -254,24 +283,40 @@ export default function AccountDrawer({
                 <SurfaceSection className="account-surface-section account-usage-section" aria-labelledby="account-usage-heading">
                   <div className="account-section-header">
                     <h3 id="account-usage-heading">使用日志</h3>
-                    <span className="account-usage-count">{usageLogs.length} 条</span>
+                    <IconActionButton label="刷新日志" icon={<RotateCcw size={15} />} onClick={() => void loadLogs(logQuery, currentLogPage)} disabled={logBusy} />
                   </div>
+                  <form className="account-log-filters" onSubmit={filterLogs} aria-label="日志筛选">
+                    <Field label="记录类型"><select aria-label="日志类型" value={logFilters.type} onChange={(event) => setLogFilters((current) => ({ ...current, type: event.target.value }))}>
+                      <option value="0">全部记录</option><option value="2">模型调用</option><option value="5">调用失败</option><option value="1">额度入账</option><option value="6">退款</option><option value="3">账户管理</option><option value="4">系统记录</option>
+                    </select></Field>
+                    <Field label="模型"><input aria-label="日志模型" value={logFilters.model} maxLength={160} placeholder="全部模型" onChange={(event) => setLogFilters((current) => ({ ...current, model: event.target.value }))} /></Field>
+                    <Field label="密钥名称"><input aria-label="日志密钥名称" value={logFilters.tokenName} maxLength={50} placeholder="全部密钥" onChange={(event) => setLogFilters((current) => ({ ...current, tokenName: event.target.value }))} /></Field>
+                    <Field label="开始时间"><input type="datetime-local" aria-label="日志开始时间" value={logFilters.start} onChange={(event) => setLogFilters((current) => ({ ...current, start: event.target.value }))} /></Field>
+                    <Field label="结束时间"><input type="datetime-local" aria-label="日志结束时间" value={logFilters.end} onChange={(event) => setLogFilters((current) => ({ ...current, end: event.target.value }))} /></Field>
+                    <div className="account-log-filter-actions">
+                      <ActionButton type="submit" variant="primary" disabled={logBusy}>筛选</ActionButton>
+                      <ActionButton disabled={logBusy} onClick={() => { setLogFilters({ type: "0", model: "", tokenName: "", start: "", end: "" }); setLogQuery({}); void loadLogs({}, 1); }}>重置</ActionButton>
+                    </div>
+                  </form>
+                  {logError ? <InlineNotice tone="danger">{logError}</InlineNotice> : null}
+                  <span className="account-usage-count" aria-live="polite">{logBusy ? "正在加载日志…" : `共 ${logResult.total ?? usageLogs.length} 条${logError && usageLogs.length ? " · 显示上次加载结果" : ""}`}</span>
                   {usageLogs.length > 0 ? (
                     <div className="account-usage-list">
-                      {pagedLogs.map((log) => (
+                      {usageLogs.map((log) => (
                         <article key={log.id}>
                           <span>{formatLogTime(log.createdAt)}</span>
                           <strong>{logActionLabel(log)}</strong>
-                          <p>{formatLogDetail(log)}</p>
+                          <p title={formatLogDetail(log)}>{formatLogDetail(log)}</p>
+                          <details className="account-log-detail"><summary>查看详情</summary><p>{formatLogDetail(log)}</p></details>
                         </article>
                       ))}
                     </div>
-                  ) : <p className="account-empty">还没有使用记录。</p>}
-                  {usageLogs.length > logPageSize ? (
+                  ) : !logBusy && !logError ? <p className="account-empty">没有符合条件的使用记录。</p> : null}
+                  {(logPageCount > 1 || currentLogPage > 1 || logResult.hasMore) ? (
                     <div className="account-log-pager">
-                      <ActionButton variant="ghost" className="account-page-action" onClick={() => setLogPage((current) => Math.max(1, current - 1))} disabled={currentLogPage <= 1}>上一页</ActionButton>
+                      <ActionButton variant="ghost" className="account-page-action" onClick={() => void loadLogs(logQuery, currentLogPage - 1)} disabled={logBusy || currentLogPage <= 1}>上一页</ActionButton>
                       <span>{currentLogPage} / {logPageCount}</span>
-                      <ActionButton variant="ghost" className="account-page-action" onClick={() => setLogPage((current) => Math.min(logPageCount, current + 1))} disabled={currentLogPage >= logPageCount}>下一页</ActionButton>
+                      <ActionButton variant="ghost" className="account-page-action" onClick={() => void loadLogs(logQuery, currentLogPage + 1)} disabled={logBusy || !(logResult.hasMore ?? currentLogPage < logPageCount)}>下一页</ActionButton>
                     </div>
                   ) : null}
                 </SurfaceSection>

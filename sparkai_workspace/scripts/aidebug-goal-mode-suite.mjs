@@ -111,42 +111,20 @@ export async function captureGoalModeSuite(context) {
 
   await waitForExpression(
     client,
-    "Boolean(document.querySelector('.project-agent-mode-picker') && document.querySelector('.project-agent-mode-option.goal:not(:disabled)'))",
+    "Boolean(document.querySelector('.project-agent-composer textarea') && document.querySelector('.project-agent-config-trigger'))",
     10_000
   );
 
   phase("select-goal-mode", { setupOk: Boolean(setup?.ok) });
   const selected = await evaluate(client, `(async () => {
     const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const trigger = document.querySelector(".project-agent-mode-trigger");
-    trigger?.click();
-    await delay(80);
-    const buttons = Array.from(document.querySelectorAll(".project-agent-mode-option"));
-    const goal = document.querySelector(".project-agent-mode-option.goal");
-    goal?.click();
+    const input = document.querySelector(".project-agent-composer textarea");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(input, "/goal ");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     await delay(180);
-    const context = document.querySelector(".project-agent-goal-context");
-    const modeTexts = buttons.map((button) => String(button.textContent || "").replace(/\\s+/g, " ").trim());
-    const triggerText = String(document.querySelector(".project-agent-mode-trigger")?.textContent || "").replace(/\\s+/g, " ").trim();
-    const scopeTitle = String(goal?.getAttribute("title") || "");
-    const contextText = String(context?.textContent || "").replace(/\\s+/g, " ").trim();
-    return {
-      ok: Boolean(
-        buttons.length === 2 &&
-        modeTexts.some((text) => text === "普通") &&
-        modeTexts.some((text) => text === "Goal") &&
-        goal && !goal.disabled && goal.getAttribute("aria-checked") === "true" &&
-        triggerText.includes("Goal") &&
-        scopeTitle.includes("5 个容器") && scopeTitle.includes("10 张图") &&
-        contextText.includes("全部图片容器") && contextText.includes("5 个容器") && contextText.includes("10 张图")
-      ),
-      modeTexts,
-      goalDisabled: Boolean(goal?.disabled),
-      goalChecked: goal?.getAttribute("aria-checked") || "",
-      triggerText,
-      scopeTitle,
-      contextText
-    };
+    const contextText = String(document.querySelector(".project-agent-goal-context")?.textContent || "");
+    return { ok: !document.querySelector(".project-agent-mode-trigger") && contextText.includes("5 个容器") && contextText.includes("10 张图"), contextText };
+
   })()`);
   const selectedCapture = await captureState(
     client,
@@ -167,7 +145,7 @@ export async function captureGoalModeSuite(context) {
     if (!(textarea instanceof HTMLTextAreaElement)) return { ok: false, error: "composer textarea unavailable" };
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
       textarea,
-      "统一优化全部图片容器的构图、光线和商品主体清晰度。"
+      "/goal 统一优化全部图片容器的构图、光线和商品主体清晰度。"
     );
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.dispatchEvent(new Event("change", { bubbles: true }));

@@ -915,7 +915,7 @@ export function WorkspaceAssetRail({
       </div>
 
       <footer className="workspace-asset-rail-footer">
-        <ButtonBase type="button" onClick={onOpenSettings} aria-label="打开设置" title="设置与 Glass Lab">
+        <ButtonBase type="button" onClick={onOpenSettings} aria-label="打开设置" title="设置与界面主题">
           <Settings size={16} />
           <span>设置</span>
         </ButtonBase>

@@ -220,6 +220,7 @@ export function timelineTextForProgress(
   if (phase === "model-request") return "";
   if (phase === "model-force" || phase === "model-tool-choice" || phase === "model-arg-correct") return "";
   if (phase === "model-response") return "";
+  if (phase === "runtime-partial") return ""; // The final structured receipt owns the explanation.
   if (phase === "model-retry") return summary || "Agent 协议返回异常。";
   if (phase === "tool-start" && tool === "image_gen") return "Image Gen 正在绘图。";
   if (phase === "tool-poll" && tool === "image_gen") return "Image Gen 正在绘图。";

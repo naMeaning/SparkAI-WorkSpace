@@ -46,12 +46,14 @@ const expectedThemes = [
   "light-silver",
   "light-lemon",
   "light-sky",
-  "light-blush"
+  "light-blush",
+  "light-classic",
+  "dark-classic"
 ];
 const expectedMaterials = ["clear", "frosted", "dense"];
 
-assert.deepEqual(registry.themeOrder, expectedThemes, "The glass registry must expose exactly the seven supported themes in UI order");
-assert.deepEqual(Object.keys(registry.themes), expectedThemes, "Every ordered glass theme must have one authored token record");
+assert.deepEqual(registry.themeOrder, expectedThemes, "The appearance registry must expose all supported themes in UI order");
+assert.deepEqual(Object.keys(registry.themes).sort(), [...expectedThemes].sort(), "Every ordered theme must have one authored token record");
 assert.deepEqual(registry.materialOrder, expectedMaterials, "The glass registry must expose Clear, Frosted and Dense presets");
 assert.deepEqual(Object.keys(registry.materialPresets.dark), expectedMaterials, "Dark themes must define all three material presets");
 assert.deepEqual(Object.keys(registry.materialPresets.light), expectedMaterials, "Light themes must define all three material presets");

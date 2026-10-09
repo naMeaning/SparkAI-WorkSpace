@@ -796,6 +796,17 @@ function createAidebugBackend({ enabled, log } = {}) {
       toolNames.has("image_gen") &&
       /(?:先|先去|先看看|看看|读取|读回|读一下|读|参考).{0,48}(?:经验|绘画经验|FastMemory|fastmemory)|(?:经验|绘画经验|FastMemory|fastmemory).{0,32}(?:读取|读回|读一下|读|看看|参考|用上|按)/i.test(userText);
     const hasImageToolResult = aidebugHasToolResult(turnMessages, "image_gen");
+    if (/AIDEBUG_POST_IMAGE_502/.test(userText) && hasImageToolResult) {
+      if (!turnMessages.some((message) => message.role === "tool" && message.name === "view_image")) {
+        const imageMessage = [...turnMessages].reverse().find((message) => message.name === "image_gen");
+        let output = String(imageMessage?.content || "");
+        try { const parsed = JSON.parse(output); output = typeof parsed === "string" ? parsed : parsed.visibleOutput || output; } catch {}
+        const imagePath = output.match(/output_paths ready for view_image:\s*\n-\s*([^\r\n]+)/)?.[1]?.trim();
+        if (!imagePath) throw new Error("Post-image fixture did not receive an output path.");
+        return aidebugResponseFromOutput([aidebugFunctionCall(aidebugFunctionCallId("post-image-review"), "view_image", { path: imagePath, detail: "high" })], model, Boolean(payload.stream), payload.onStreamEvent);
+      }
+      throw Object.assign(new Error("error code: 502"), { status: 502 });
+    }
     const hasContextReadResult = aidebugHasContextReadResult(turnMessages);
     const hasExperienceResult = aidebugHasToolResult(turnMessages, "experience");
     const forcedToolName = aidebugToolChoiceFunctionName(payload);

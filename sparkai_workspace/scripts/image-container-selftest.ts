@@ -14,10 +14,13 @@ import {
 import { imageGridPlanForCount } from "../src/image-layout.ts";
 import { buildTaskResultLayoutMutation } from "../src/task-result-layout.ts";
 import {
+  assignComposerImages,
   buildComposerMaterials,
+  canvasImagesForMaterialTargets,
   canvasNodePresentsImageContainer,
   mergeSelectionAndUploadedReferences,
   referenceImagesFromSelectedCanvasNodes,
+  resolveCanvasMaterialImages,
   splitComposerMaterials
 } from "../src/selection-reference-images.ts";
 
@@ -546,6 +549,63 @@ const testComposerMaterialsUseSequenceAndRole = () => {
 };
 
 const tests: Array<[string, () => void]> = [
+  ["composer preserves the Agent reference capacity when sending", () => {
+    const images = Array.from({ length: 41 }, (_unused, index) => ({
+      name: `reference-${index + 1}`, path: `C:/naimage/reference-${index + 1}.png`, mimeType: "image/png"
+    }));
+    const split = splitComposerMaterials(buildComposerMaterials([], [], images));
+    assert.equal(split.referenceImages.length, 40);
+    assert.equal(split.referenceImages[39].path, images[39].path);
+  }],
+  ["explicit canvas materials survive deselection, role changes and reorder", () => {
+    const container = node("container", { imageContainer: true, assets: [asset("first", 1), asset("second", 2)] });
+    const selected = canvasImagesForMaterialTargets([container], [{ nodeId: "container", assetIndex: 1 }], "source");
+    assert.equal(selected.length, 1);
+    assert.equal(selected[0].canvasNodeId, "container");
+    assert.equal(selected[0].canvasAssetIndex, 1);
+    const assigned = assignComposerImages([], [], "source", selected, 200);
+    const pinned = splitComposerMaterials(buildComposerMaterials([], assigned.sources, assigned.references));
+    assert.equal(pinned.sourceImages.length, 1);
+    assert.deepEqual(pinned.sourceNodeIds, ["container"]);
+    const withSelection = buildComposerMaterials([container], assigned.sources, assigned.references);
+    assert.equal(withSelection.length, 2, "Explicit member and automatic selection deduplicate");
+    assert.equal(withSelection.find((item) => item.assetIndex === 1)?.role, "source");
+    const swapped = assignComposerImages(assigned.sources, [], "reference", selected, 9);
+    assert.equal(swapped.sources.length, 0);
+    assert.equal(swapped.references.length, 1);
+    const reordered = { ...container, assets: [...container.assets!].reverse() };
+    assert.equal(resolveCanvasMaterialImages(selected, [reordered])[0].canvasAssetIndex, 0);
+    assert.throws(() => resolveCanvasMaterialImages(selected, []), /已移除或改变/);
+    assert.throws(() => canvasImagesForMaterialTargets([container], [{ nodeId: "container" }, { nodeId: "stale" }], "source"), /已不存在/);
+    assert.throws(() => canvasImagesForMaterialTargets([container], [{ nodeId: "container", assetIndex: 8 }], "reference"), /没有可用/);
+    const all = canvasImagesForMaterialTargets([container], [{ nodeId: "container" }, { nodeId: "container", assetIndex: 1 }], "reference");
+    assert.equal(all.length, 2, "Repeated member does not consume another slot");
+    assert.equal(assignComposerImages([], [], "reference", all, 1).references.length, 1);
+  }],
+  ["canvas reference members preserve their canonical owner and binding", () => {
+    const container = node("host", {
+      imageContainer: true,
+      assets: [{ ...asset("same-blob", 1), occurrenceId: "occ-11111111111111111111111111111111" }, { ...asset("same-blob", 1), occurrenceId: "occ-22222222222222222222222222222222" }],
+      imageContainerSpec: {
+        version: 1, kind: "manual", memberNodeIds: ["member-a", "member-b"], childContainerNodeIds: [],
+        memberBindings: [
+          { bindingId: "first-binding", nodeId: "member-a", containerNodeId: "host", assetId: "same-blob", occurrenceId: "occ-11111111111111111111111111111111", assetIndex: 0 },
+          { bindingId: "second-binding", nodeId: "member-b", containerNodeId: "host", assetId: "same-blob", occurrenceId: "occ-22222222222222222222222222222222", assetIndex: 0 }
+        ]
+      }
+    });
+    const [reference] = canvasImagesForMaterialTargets([container], [{ nodeId: "host", assetIndex: 1 }], "reference");
+    assert.equal(reference.ownerNodeId, "member-b");
+    assert.equal(reference.ownerAssetIndex, 0);
+    assert.equal(reference.bindingId, "second-binding");
+    assert.equal(reference.containerId, "host");
+    assert.equal(reference.canvasAssetIndex, 1);
+    const reordered = { ...container, assets: [...container.assets!].reverse() };
+    const resolved = resolveCanvasMaterialImages([reference], [reordered])[0];
+    assert.equal(resolved.canvasAssetIndex, 0);
+    assert.equal(resolved.ownerNodeId, "member-b");
+    assert.equal(resolved.bindingId, "second-binding");
+  }],
   ["collection slots stay compact and valid", testCollectionSlotsAreCompactAndValidated],
   ["first, middle, and last failures preserve request slots", testFirstMiddleAndLastFailuresKeepRequestSlots],
   ["mixed legacy migration keeps every container", testMixedLegacyMigrationKeepsEveryContainer],

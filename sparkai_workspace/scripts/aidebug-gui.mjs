@@ -9873,7 +9873,7 @@ async function main() {
           ok: Boolean(
             appearanceTab &&
             lab &&
-            themeCards.length === 7 &&
+            themeCards.length === 9 &&
             initialTheme &&
             switchedTheme === nextTheme &&
             switchedRootTheme === nextTheme &&

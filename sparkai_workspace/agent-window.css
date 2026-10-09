@@ -111,6 +111,7 @@ button:disabled {
 }
 
 .agent-header {
+  grid-row: 1;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -152,6 +153,7 @@ button:disabled {
 }
 
 .agent-status {
+  grid-row: 2;
   min-width: 0;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
@@ -192,6 +194,7 @@ button:disabled {
 }
 
 .agent-goal-controls {
+  grid-row: 3;
   min-width: 0;
   display: grid;
   gap: 7px;
@@ -201,49 +204,8 @@ button:disabled {
 }
 
 .agent-goal-controls[hidden],
-.task-mode-row[hidden],
 .goal-summary[hidden] {
   display: none;
-}
-
-.task-mode-row {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.task-mode-switch {
-  display: grid;
-  grid-template-columns: repeat(2, 64px);
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface-soft);
-}
-
-.task-mode-switch button {
-  min-height: 27px;
-  border-color: transparent;
-  background: transparent;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.task-mode-switch button.active {
-  border-color: var(--line);
-  color: var(--accent-strong);
-  background: var(--surface);
-}
-
-#goal-availability {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .goal-summary {
@@ -300,6 +262,7 @@ button:disabled {
 }
 
 .agent-feed {
+  grid-row: 4;
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -439,6 +402,7 @@ button:disabled {
 }
 
 .agent-context {
+  grid-row: 5;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -463,11 +427,37 @@ button:disabled {
 }
 
 .agent-composer {
+  grid-row: 6;
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 0 12px 12px;
   background: var(--surface);
 }
+
+.command-menu {
+  position: absolute;
+  z-index: 30;
+  right: 12px;
+  left: 12px;
+  bottom: calc(100% + 6px);
+  max-height: min(360px, 45vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+}
+
+.command-menu[hidden], .command-notice[hidden] { display: none; }
+.command-heading { padding: 5px 8px; font-size: 11px; color: var(--muted); }
+.command-menu > button { display: grid; gap: 3px; width: 100%; padding: 8px; border: 0; text-align: left; }
+.command-menu > button.active { background: var(--surface-soft); color: var(--accent-strong); }
+.command-menu small { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.command-notice { margin: 0; font-size: 12px; color: var(--muted); }
+:root.glass-theme-active .command-menu { background: var(--glass-menu-surface); backdrop-filter: var(--glass-backdrop-filter); }
 
 .agent-composer textarea {
   width: 100%;
@@ -586,6 +576,20 @@ button:disabled {
     var(--bg);
 }
 
+:root.glass-theme-active {
+  --glass-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  --glass-message-backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
+}
+
+:root[data-glass-style="solid"] {
+  --glass-backdrop-filter: none;
+  --glass-message-backdrop-filter: none;
+}
+
+:root[data-glass-style="solid"] body {
+  background: var(--bg);
+}
+
 :root.glass-theme-active .agent-shell {
   position: relative;
   isolation: isolate;
@@ -608,37 +612,35 @@ button:disabled {
 :root.glass-theme-active .agent-context,
 :root.glass-theme-active .agent-composer {
   background: rgba(var(--glass-rgb), var(--glass-alpha));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  backdrop-filter: var(--glass-backdrop-filter);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight));
 }
 
 :root.glass-theme-active .agent-status {
   background: color-mix(in srgb, rgba(var(--glass-rgb), var(--glass-alpha)) 82%, transparent);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: var(--glass-backdrop-filter);
+  backdrop-filter: var(--glass-backdrop-filter);
 }
 
 :root.glass-theme-active button,
 :root.glass-theme-active select,
 :root.glass-theme-active .agent-composer textarea,
-:root.glass-theme-active .prompt-text,
-:root.glass-theme-active .task-mode-switch {
+:root.glass-theme-active .prompt-text {
   border-radius: min(10px, var(--glass-radius));
   background: var(--solid-control);
 }
 
 :root.glass-theme-active button:hover,
-:root.glass-theme-active select:hover,
-:root.glass-theme-active .task-mode-switch button.active {
+:root.glass-theme-active select:hover {
   background: var(--solid-control-hover);
 }
 
 :root.glass-theme-active .message {
   border-radius: var(--glass-radius);
   background: color-mix(in srgb, var(--surface) 74%, transparent);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: var(--glass-message-backdrop-filter);
+  backdrop-filter: var(--glass-message-backdrop-filter);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
     0 9px 24px rgba(0, 0, 0, calc(var(--glass-shadow) * 0.42));
@@ -651,6 +653,15 @@ button:disabled {
 :root.glass-theme-active .tool-card {
   border-radius: min(12px, var(--glass-radius));
   background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+}
+
+:root.glass-theme-active .agent-composer .send-button {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+:root.glass-theme-active .agent-composer .send-button:hover {
+  background: var(--accent-strong);
 }
 
 :root.glass-reduce-motion *,

@@ -75,11 +75,12 @@ const IMAGE_MODEL_PRESETS = Object.freeze({
       edit: true,
       referenceImages: true,
       multiReferenceImages: true,
+      maxReferenceImages: 5,
       mask: false,
       multipleOutputs: true,
-      supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+      supportedAspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "19.5:9", "9:19.5", "20:9", "9:20", "21:9", "5:2", "auto"],
       supportedResolutions: ["1K", "2K"],
-      supportedQualities: ["auto", "standard", "high"],
+      supportedQualities: ["auto", "low", "medium"],
       outputFormats: ["png", "jpeg", "webp"]
     }
   },
@@ -145,11 +146,8 @@ function joinApiUrl(baseUrl, endpoint) {
   if (!base) throw new Error("图片服务 Base URL 尚未配置。");
   // A gateway configured as https://host/v1 must not become /v1/v1/…;
   // the same rule applies to Gemini's /v1beta path.
-  if (/\/v1$/i.test(base) && /^\/v1(?:beta)?(?:\/|$)/i.test(path)) {
-    return `${base}${path.slice(3)}`;
-  }
-  if (/\/v1beta$/i.test(base) && /^\/v1beta(?:\/|$)/i.test(path)) {
-    return `${base}${path.slice(6)}`;
+  if (/\/v1(?:beta)?$/i.test(base) && /^\/v1(?:beta)?(?:\/|$)/i.test(path)) {
+    return `${base.replace(/\/v1(?:beta)?$/i, "")}${path}`;
   }
   return `${base}${path}`;
 }
@@ -243,9 +241,13 @@ function hostTextFor(value) {
 
 function inferGateway(settings, baseUrl, explicitGateway = "") {
   const connection = hostTextFor(baseUrl || settings?.imageBaseUrl || settings?.agentBaseUrl);
-  if (/(?:sub2api|sub2-api)/i.test(connection)) return "sub2api";
   const explicit = cleanString(explicitGateway, 64).toLowerCase();
   if (IMAGE_GATEWAYS.includes(explicit)) return explicit;
+  if (/(?:sub2api|sub2-api)/i.test(connection)) return "sub2api";
+  try {
+    const host = new URL(baseUrl || settings?.imageBaseUrl || "").hostname.toLowerCase();
+    if (["api.x.ai", "generativelanguage.googleapis.com", "api.openai.com"].includes(host)) return "direct";
+  } catch { /* Non-URL legacy settings keep the existing access-mode default. */ }
   return String(settings?.accessMode || "account").toLowerCase() === "account" ? "newapi" : "direct";
 }
 
@@ -281,18 +283,15 @@ function resolveImageModelConfig(settings = {}, model = "") {
   const binding = bindingFor(settings, resolvedModel) || {};
   const knownPreset = Boolean(IMAGE_MODEL_PRESETS[resolvedModel.toLowerCase()]);
   const inferredFamily = preset.inferred === true;
-  // Known models own their public protocol and capabilities. Legacy JSON may
-  // still contain hand-edited values, but those values must not make a Gemini
-  // or Grok model speak the OpenAI request shape after the UI is simplified.
-  const protocol = knownPreset || inferredFamily
-    ? preset.protocol
-    : normalizeProtocol(override.protocol || binding.protocol, preset.protocol);
-  const provider = knownPreset || inferredFamily
-    ? preset.provider
-    : cleanString(override.provider || binding.provider, 64) || providerForProtocol(protocol, preset.provider);
-  const configuredBaseUrl = override.baseUrl || binding.customBaseUrl || binding.baseUrl || "";
+  // A model ID can be served through any configured channel. The connection's
+  // adapter choice wins; model presets only supply defaults for old/auto setups.
+  const protocol = normalizeProtocol(binding.protocol || override.protocol, preset.protocol);
+  const provider = cleanString(binding.provider || override.provider, 64) || providerForProtocol(protocol, preset.provider);
+  const configuredBaseUrl = binding.customBaseUrl || binding.baseUrl || override.baseUrl || "";
   const discoveryBaseUrl = configuredBaseUrl || (String(settings.accessMode || "account").toLowerCase() === "custom" ? settings.imageBaseUrl : "");
-  const gateway = inferGateway(settings, discoveryBaseUrl, override.gateway || binding.gateway);
+  const gateway = inferGateway(settings, discoveryBaseUrl, binding.gateway || override.gateway);
+  const protocolPreset = IMAGE_MODEL_PRESETS[protocol === "gemini-native" ? "gemini-3.1-flash-image" : protocol === "xai-images" ? "grok-imagine-image-2.0" : "gpt-image-2"];
+  const capabilities = protocol === preset.protocol && (knownPreset || inferredFamily) ? preset.capabilities : protocolPreset.capabilities;
   return {
     id: cleanString(override.id || resolvedModel, 180),
     model: resolvedModel,
@@ -300,7 +299,7 @@ function resolveImageModelConfig(settings = {}, model = "") {
     provider,
     protocol,
     gateway,
-    transportMode: inferTransportMode(gateway, override.transportMode || binding.transportMode),
+    transportMode: inferTransportMode(gateway, binding.transportMode || override.transportMode),
     pollIntervalMs: Number.isFinite(Number(override.pollIntervalMs))
       ? Math.max(100, Math.min(30_000, Math.floor(Number(override.pollIntervalMs))))
       : 2_500,
@@ -308,9 +307,9 @@ function resolveImageModelConfig(settings = {}, model = "") {
       ? Math.max(5_000, Math.min(30 * 60_000, Math.floor(Number(override.maxWaitMs))))
       : 10 * 60_000,
     baseUrl: normalizeBaseUrl(configuredBaseUrl),
-    apiKey: cleanString(override.apiKey || binding.customApiKey, 8192),
-    accountTokenId: cleanString(override.accountTokenId || binding.accountTokenId, 64),
-    capabilities: normalizeCapabilities(knownPreset || inferredFamily ? undefined : override.capabilities, preset.capabilities)
+    apiKey: cleanString(binding.customApiKey || override.apiKey, 8192),
+    accountTokenId: cleanString(binding.accountTokenId || override.accountTokenId, 64),
+    capabilities: normalizeCapabilities(knownPreset || inferredFamily ? undefined : override.capabilities, capabilities)
   };
 }
 
@@ -334,14 +333,14 @@ function normalizeImageInput(value, fallbackName = "image.png") {
 }
 
 function normalizeImageGenerationRequest(payload = {}, config = resolveImageModelConfig({}, payload.model)) {
-  const mode = IMAGE_MODES.includes(String(payload.mode || "generate").toLowerCase())
-    ? String(payload.mode || "generate").toLowerCase()
-    : "generate";
   const references = (Array.isArray(payload.referenceImages) ? payload.referenceImages : [])
     .map((item, index) => normalizeImageInput(item, `reference-${index + 1}.png`))
     .filter(Boolean);
   const editImage = normalizeImageInput(payload.editImage, "source.png");
   const mask = normalizeImageInput(payload.mask || payload.maskImage, "mask.png");
+  // Images API references, redraw and cutout all use the edit endpoint.
+  // Never silently drop attached inputs because the UI omitted `mode`.
+  const mode = editImage || references.length || mask || ["edit", "replace", "variants", "redraw", "cutout"].includes(String(payload.mode || "").toLowerCase()) ? "edit" : "generate";
   const requestedCount = Number(payload.n ?? payload.count ?? 1);
   return {
     model: config.model,
@@ -357,6 +356,8 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
     size: cleanString(payload.size, 32) || undefined,
     resolution: cleanString(payload.resolution, 32) || undefined,
     quality: cleanString(payload.quality, 64) || undefined,
+    moderation: ["auto", "low"].includes(payload.moderation) ? payload.moderation : undefined,
+    inputFidelity: ["high", "low"].includes(payload.inputFidelity ?? payload.input_fidelity) ? payload.inputFidelity ?? payload.input_fidelity : undefined,
     background: cleanString(payload.background, 64) || undefined,
     outputFormat: cleanString(payload.outputFormat || payload.output_format, 16).toLowerCase() || undefined,
     responseFormat: cleanString(payload.responseFormat || payload.response_format, 32).toLowerCase() || undefined,
@@ -374,6 +375,9 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
 function validateImageGenerationRequest(request, config) {
   if (!request.prompt) throw Object.assign(new Error("生图提示词不能为空。"), { code: "IMAGE_INVALID_INPUT", errorCategory: "invalid_input" });
   const capabilities = config.capabilities;
+  if (request.mode === "edit" && !request.editImage && !request.images.length) {
+    throw Object.assign(new Error("图像编辑需要至少一张来源图片。"), { code: "IMAGE_INVALID_INPUT", errorCategory: "invalid_input" });
+  }
   if (request.mode === "generate" && !capabilities.generate) {
     throw Object.assign(new Error("当前模型不支持文生图。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
@@ -385,6 +389,10 @@ function validateImageGenerationRequest(request, config) {
   }
   if (request.images.length > 1 && !capabilities.multiReferenceImages) {
     throw Object.assign(new Error("当前模型不支持多张参考图。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
+  }
+  const inputCount = request.images.length + (request.editImage ? 1 : 0);
+  if (capabilities.maxReferenceImages && inputCount > capabilities.maxReferenceImages) {
+    throw Object.assign(new Error(`当前接口最多支持 ${capabilities.maxReferenceImages} 张输入图片。`), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
   if (request.mask && !capabilities.mask) {
     throw Object.assign(new Error("当前模型不支持蒙版编辑。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });

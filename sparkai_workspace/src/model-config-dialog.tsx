@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type Se
 import { Check, Plus, Search } from "lucide-react";
 
 import {
+  accountApiTokenExpired,
+  accountApiTokenUsable,
   agentModelBindingFor,
   imageModelBindingFor,
   imageModelCapability,
@@ -221,10 +223,10 @@ export default function ModelConfigDialog({
     setModelListScrollTop(0);
   }, [query]);
 
-  function updateBinding(model: string, field: "customBaseUrl" | "customApiKey" | "accountTokenId", value: string) {
+  function updateBinding(model: string, field: "customBaseUrl" | "customApiKey" | "accountTokenId" | "protocol" | "gateway" | "transportMode", value: string) {
     setDraftBindings((current) => {
       const existing = modelConnectionBindingFor(current, model) ?? { model };
-      const next = { ...existing };
+      const next: Record<string, unknown> = { ...existing };
       if (value) next[field] = value;
       else delete next[field];
       return normalizeModelConnectionBindings([
@@ -464,11 +466,53 @@ export default function ModelConfigDialog({
                           <strong title={model}>{model}</strong>
                           {imageConfig ? (
                             <div className="model-picker-auto-adapter-note" role="status">
-                              <strong>图片接口自动适配</strong>
-                              <span>软件会按模型自动选择图片接口、传输方式和能力；无需手动设置协议、网关或能力开关。</span>
+                              <strong>图片服务连接</strong>
+                              <span>按当前渠道选择接口格式；同一模型可以通过官方服务或不同中转站调用。自动选项沿用默认适配。</span>
                             </div>
                           ) : null}
                           <div className="model-picker-binding-fields">
+                            {imageConfig ? (
+                              <>
+                                <Field label="接口格式" hint="以渠道支持的接口为准，独立于模型名称。">
+                                  <GlassSelect
+                                    value={binding?.protocol || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.protocol || "auto"}
+                                    ariaLabel={`${model} 接口格式`}
+                                    onChange={(value) => updateBinding(model, "protocol", value)}
+                                    options={[
+                                      { value: "auto", label: "自动（沿用默认）" },
+                                      { value: "openai-images", label: "OpenAI Compatible" },
+                                      { value: "xai-images", label: "xAI / Grok 原生" },
+                                      { value: "gemini-native", label: "Google Gemini 原生" }
+                                    ]}
+                                  />
+                                </Field>
+                                <Field label="服务渠道" hint="渠道与接口格式分别设置，Base URL 和密钥沿用下方配置。">
+                                  <GlassSelect
+                                    value={binding?.gateway || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.gateway || "auto"}
+                                    ariaLabel={`${model} 服务渠道`}
+                                    onChange={(value) => updateBinding(model, "gateway", value)}
+                                    options={[
+                                      { value: "auto", label: "自动（沿用当前连接）" },
+                                      { value: "direct", label: "官方 / 其他中转站" },
+                                      { value: "newapi", label: "NewAPI" },
+                                      { value: "sub2api", label: "Sub2API" }
+                                    ]}
+                                  />
+                                </Field>
+                                <Field label="结果获取" hint="同步直接返回图片；异步创建任务后查询结果，适用于支持该流程的渠道。">
+                                  <GlassSelect
+                                    value={binding?.transportMode || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.transportMode || "auto"}
+                                    ariaLabel={`${model} 结果获取`}
+                                    onChange={(value) => updateBinding(model, "transportMode", value)}
+                                    options={[
+                                      { value: "auto", label: "自动（沿用渠道默认）" },
+                                      { value: "sync", label: "同步返回" },
+                                      { value: "async", label: "异步任务" }
+                                    ]}
+                                  />
+                                </Field>
+                              </>
+                            ) : null}
                             {appAccessPolicy.customApiAccess ? (
                               <Field label="Base URL" hint={accountMode ? "留空时使用账号地址；填写后仅此模型使用该地址。" : `留空时使用全局${providerLabel} Base URL。`}>
                                 <input
@@ -511,8 +555,8 @@ export default function ModelConfigDialog({
                                       : []),
                                     ...accountTokens.map((token) => ({
                                       value: token.id,
-                                      label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : ""}`,
-                                      disabled: token.status !== 1
+                                      label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : accountApiTokenExpired(token) ? " · 已过期" : ""}`,
+                                      disabled: !accountApiTokenUsable(token)
                                     }))
                                   ]}
                                 />

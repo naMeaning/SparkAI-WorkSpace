@@ -9,6 +9,8 @@ import {
   mergeSettings,
 } from "./settings-persistence";
 import {
+  accountApiTokenExpired,
+  accountApiTokenUsable,
   FRAME_OPTIONS,
   SIZE_PRESETS,
   computedSizeFor,
@@ -19,6 +21,8 @@ import {
   selectedImageModelsFromSettings,
   selectedVideoModelsFromSettings,
   type AccountApiToken,
+  type AccountApiTokenListResult,
+  type AccountQuotaInput,
   type AgentIntegrationTarget,
   type AppSettings,
   type DesktopInstallerCaptcha,
@@ -138,6 +142,26 @@ export default function SettingsDrawer({
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsMessageError, setSettingsMessageError] = useState(false);
+  const [diagnosticText, setDiagnosticText] = useState<string | null>(null);
+  async function readDiagnosticLog() {
+    const result = await window.naimageConfig?.readDiagnostics?.();
+    if (!result?.ok) { setDiagnosticText("日志暂时不可用。"); return; }
+    const kindNames = { agent: "Agent", model: "对话模型", image: "生图", view_image: "读图" };
+    const phaseNames = { request: "请求", response: "返回", retry: "重试", failure: "失败", partial: "后续未完成", done: "完成" };
+    const stageNames = { input: "输入", generation: "上游生成", result: "成果保存", conversation: "模型对话", tool: "工具" };
+    setDiagnosticText((result.events || []).slice(-100).reverse().map((entry) => [
+      new Date(entry.time).toLocaleString(), kindNames[entry.kind], phaseNames[entry.phase], entry.model, entry.protocol,
+      entry.stage ? stageNames[entry.stage] : "", entry.category,
+      entry.status ? `HTTP ${entry.status}` : "", entry.durationMs !== undefined ? `${entry.durationMs}ms` : "",
+      entry.count !== undefined ? `${entry.count} 张` : "", entry.round ? `第 ${entry.round} 轮` : "", entry.run ? `#${entry.run}` : ""
+    ].filter(Boolean).join(" · ")).join("\n") || "暂无日志。后续生图和对话会自动记录。");
+  }
+  async function exportDiagnosticLog() {
+    const result = await window.naimageConfig?.exportDiagnostics?.();
+    if (result?.canceled) return;
+    setSettingsMessage(result?.ok ? "诊断日志已导出。" : result?.error || "日志导出失败。");
+    setSettingsMessageError(!result?.ok);
+  }
   const [resetArmed, setResetArmed] = useState(false);
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<DesktopUpdateInfo | null>(initialUpdateInfo || null);
@@ -149,6 +173,7 @@ export default function SettingsDrawer({
   const [captchaCode, setCaptchaCode] = useState("");
   const [accountTokens, setAccountTokens] = useState<AccountApiToken[]>([]);
   const [accountTokenBaseUrl, setAccountTokenBaseUrl] = useState("");
+  const [accountQuotaInput, setAccountQuotaInput] = useState<AccountQuotaInput>({ unit: "quota", quotaPerAmount: 1 });
   const [accountTokenBusy, setAccountTokenBusy] = useState(false);
   const [accountTokenError, setAccountTokenError] = useState("");
   const [accountTokenSnapshot, setAccountTokenSnapshot] = useState({
@@ -164,7 +189,14 @@ export default function SettingsDrawer({
     group: string;
     status: number;
     unlimitedQuota: boolean;
-    remainQuota: string;
+    quotaAmount: string;
+    initialQuotaAmount: string;
+    quotaInput: AccountQuotaInput;
+    expiredAt: string;
+    allowIps: string;
+    modelLimitsEnabled: boolean;
+    modelLimits: string;
+    crossGroupRetry: boolean;
   } | null>(null);
   const [accountTokenDeleteArmed, setAccountTokenDeleteArmed] = useState("");
   const [integrationTargets, setIntegrationTargets] = useState<AgentIntegrationTarget[]>([]);
@@ -334,7 +366,7 @@ export default function SettingsDrawer({
     return request;
   }
 
-  async function refreshAccountTokens(options: { preferCached?: boolean } = {}): Promise<AccountApiToken | undefined> {
+  async function refreshAccountTokens(options: { preferCached?: boolean } = {}): Promise<AccountApiTokenListResult | undefined> {
     if (draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
     setAccountTokenBusy(true);
     setAccountTokenError("");
@@ -343,6 +375,7 @@ export default function SettingsDrawer({
       if (!result.ok) throw new Error(result.error || "无法获取账户密钥。");
       const tokens = result.tokens ?? [];
       setAccountTokens(tokens);
+      setAccountQuotaInput(result.quotaPolicy?.inputUnit || { unit: "quota", quotaPerAmount: 1 });
       setAccountTokenBaseUrl(result.baseUrl || `${draftSettings.accountBaseUrl.replace(/\/+$/, "")}/v1`);
       setAccountTokenSnapshot({
         loaded: true,
@@ -352,7 +385,7 @@ export default function SettingsDrawer({
       });
       const selected = tokens.find((token) => token.id === result.selectedTokenId);
       if (selected) syncSelectedAccountToken(selected);
-      return selected;
+      return result;
     } catch (error) {
       setAccountTokens([]);
       setAccountTokenSnapshot((current) => ({ ...current, loaded: true }));
@@ -363,7 +396,8 @@ export default function SettingsDrawer({
   }
 
   async function refreshAccountAccess() {
-    const selected = await refreshAccountTokens();
+    const result = await refreshAccountTokens();
+    const selected = result?.tokens?.find((token) => token.id === result.selectedTokenId);
     await refreshModels(true, selected?.group || draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup);
   }
 
@@ -372,7 +406,7 @@ export default function SettingsDrawer({
       await refreshModels(false, draftSettings.modelGroup, true);
       await refreshModels(false, draftSettings.modelGroup, false);
     })();
-    if (draftSettings.accessMode === "account" && draftSettings.serverUserId) {
+    if (draftSettings.accessMode === "account") {
       void refreshAccountTokens({ preferCached: true });
     }
   }, []);
@@ -406,8 +440,21 @@ export default function SettingsDrawer({
     }
   }
 
-  function openAccountTokenEditor(token?: AccountApiToken) {
+  async function openAccountTokenEditor(token?: AccountApiToken) {
+    if (accountTokenBusy) return;
     setAccountTokenDeleteArmed("");
+    let inputUnit = token?.inputUnit || accountQuotaInput;
+    if (accountTokenSnapshot.cached || !accountTokenSnapshot.loaded) {
+      const result = await refreshAccountTokens();
+      if (!result?.ok) return;
+      inputUnit = result.quotaPolicy?.inputUnit || { unit: "quota", quotaPerAmount: 1 };
+      if (token) {
+        const editingId = token.id;
+        token = result.tokens?.find((item) => item.id === editingId);
+        if (!token) { setAccountTokenError("密钥已变化，请刷新列表后重新编辑。"); return; }
+      }
+    }
+    const initialQuotaAmount = String(token?.remainAmount ?? token?.remainQuota ?? 0);
     setAccountTokenEditor(token ? {
       mode: "edit",
       id: token.id,
@@ -415,7 +462,14 @@ export default function SettingsDrawer({
       group: token.group || "default",
       status: token.status,
       unlimitedQuota: token.unlimitedQuota,
-      remainQuota: String(token.remainQuota)
+      quotaAmount: initialQuotaAmount,
+      initialQuotaAmount,
+      quotaInput: inputUnit,
+      expiredAt: token.expiredTime > 0 ? new Date(token.expiredTime * 1000 - new Date(token.expiredTime * 1000).getTimezoneOffset() * 60_000).toISOString().slice(0, 19) : "",
+      allowIps: token.allowIps,
+      modelLimitsEnabled: token.modelLimitsEnabled,
+      modelLimits: token.modelLimits,
+      crossGroupRetry: token.crossGroupRetry
     } : {
       mode: "create",
       id: "",
@@ -423,24 +477,42 @@ export default function SettingsDrawer({
       group: draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup || "default",
       status: 1,
       unlimitedQuota: true,
-      remainQuota: "0"
+      quotaAmount: "0",
+      initialQuotaAmount: "0",
+      quotaInput: inputUnit,
+      expiredAt: "",
+      allowIps: "",
+      modelLimitsEnabled: false,
+      modelLimits: "",
+      crossGroupRetry: true
     });
   }
 
   async function saveAccountTokenEditor() {
-    if (!accountTokenEditor || !accountTokenEditor.name.trim()) return;
+    if (!accountTokenEditor) return;
+    if (!accountTokenEditor.name.trim()) { setAccountTokenError("请输入密钥名称。"); return; }
     const bridge = window.naimageServer;
     if (!bridge) return;
     setAccountTokenBusy(true);
     setAccountTokenError("");
     try {
+      const expiredTime = accountTokenEditor.expiredAt ? Math.floor(new Date(accountTokenEditor.expiredAt).getTime() / 1000) : -1;
+      if (!Number.isFinite(expiredTime) || (accountTokenEditor.mode === "create" && expiredTime > 0 && expiredTime <= Date.now() / 1000)) throw new Error("新密钥的到期时间必须晚于当前时间。");
+      if (accountTokenEditor.modelLimitsEnabled && !accountTokenEditor.modelLimits.trim()) throw new Error("请填写允许的模型，或关闭模型限制。");
+      const amount = Number(accountTokenEditor.quotaAmount);
+      if (!accountTokenEditor.unlimitedQuota && (!accountTokenEditor.quotaAmount.trim() || !Number.isFinite(amount) || amount < 0)) throw new Error("额度必须是非负数。");
       const payload = {
         name: accountTokenEditor.name.trim(),
         group: accountTokenEditor.group.trim() || "default",
         status: accountTokenEditor.status,
         unlimitedQuota: accountTokenEditor.unlimitedQuota,
-        remainQuota: Math.max(0, Math.floor(Number(accountTokenEditor.remainQuota) || 0)),
-        crossGroupRetry: true
+        ...(!accountTokenEditor.unlimitedQuota && (accountTokenEditor.mode === "create" || accountTokenEditor.quotaAmount !== accountTokenEditor.initialQuotaAmount)
+          ? { remainAmount: amount, quotaInput: accountTokenEditor.quotaInput } : {}),
+        expiredTime,
+        allowIps: accountTokenEditor.allowIps,
+        modelLimitsEnabled: accountTokenEditor.modelLimitsEnabled,
+        modelLimits: accountTokenEditor.modelLimits,
+        crossGroupRetry: accountTokenEditor.crossGroupRetry
       };
       const result = accountTokenEditor.mode === "create"
         ? await bridge.createToken?.({ ...payload, select: true })
@@ -787,6 +859,7 @@ export default function SettingsDrawer({
                   key={section}
                   type="button"
                   className={`ui-segment-action settings-section-tab ${activeSection === section ? "active" : ""}`}
+                  data-settings-section={section}
                   aria-pressed={activeSection === section}
                   onClick={() => setActiveSection(section)}
                 >
@@ -794,7 +867,7 @@ export default function SettingsDrawer({
                 </ButtonBase>
               ))}
             </nav>
-            <SurfaceBody className="settings-surface-body">
+            <SurfaceBody key={activeSection} className="settings-surface-body">
               {activeSection === "access" ? (
               <SurfaceSection className="settings-surface-section settings-access-section" aria-labelledby="settings-access-heading">
                 <div className="settings-section-header">
@@ -834,7 +907,7 @@ export default function SettingsDrawer({
                         </div>
                         <div className="settings-inline-actions">
                           <IconActionButton label="刷新密钥与分组" icon={<RotateCcw size={14} />} onClick={() => void refreshAccountAccess()} disabled={accountTokenBusy || modelState.loading} />
-                          <ActionButton variant="secondary" icon={<Plus size={14} />} onClick={() => openAccountTokenEditor()}>新建密钥</ActionButton>
+                          <ActionButton variant="secondary" icon={<Plus size={14} />} disabled={accountTokenBusy} onClick={() => void openAccountTokenEditor()}>新建密钥</ActionButton>
                         </div>
                       </div>
                       {accountTokenError ? <InlineNotice tone="danger">{accountTokenError}</InlineNotice> : null}
@@ -861,8 +934,8 @@ export default function SettingsDrawer({
                               ),
                               ...accountTokens.map((token) => ({
                                 value: token.id,
-                                label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : ""}`,
-                                disabled: token.status !== 1
+                                label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : accountApiTokenExpired(token) ? " · 已过期" : ""}`,
+                                disabled: !accountApiTokenUsable(token)
                               }))
                             ]}
                           />
@@ -873,16 +946,28 @@ export default function SettingsDrawer({
                         return (
                           <div className="settings-account-token-summary">
                             <span>分组 <strong>{token.group || "default"}</strong></span>
-                            <span>状态 <strong>{token.status === 1 ? "启用" : "停用"}</strong></span>
+                            <span>状态 <strong>{token.status !== 1 ? "停用" : accountApiTokenExpired(token) ? "已过期" : "启用"}</strong></span>
                             <span className="settings-account-token-quota">
                               额度
-                              <strong title={token.quotaAuditLabel}>{token.unlimitedQuota ? "不限" : token.remainCnyDisplay}</strong>
-                              {!token.unlimitedQuota ? <small>{token.remainRDisplay} R · 原始 {token.remainQuota.toLocaleString("zh-CN")}</small> : null}
+                              <strong title={token.quotaAuditLabel}>{token.unlimitedQuota ? "不限" : token.remainDisplay || token.remainCnyDisplay}</strong>
+                              {!token.unlimitedQuota ? <small>原始额度 {token.remainQuota.toLocaleString("zh-CN")}</small> : null}
                             </span>
-                            <IconActionButton label="编辑当前密钥" icon={<Settings size={14} />} onClick={() => openAccountTokenEditor(token)} />
+                            <IconActionButton label="编辑当前密钥" icon={<Settings size={14} />} disabled={accountTokenBusy} onClick={() => void openAccountTokenEditor(token)} />
                           </div>
                         );
                       })() : null}
+                      {accountTokens.length ? (
+                        <details className="settings-account-token-list">
+                          <summary>全部密钥 · {accountTokens.length} 枚</summary>
+                          {accountTokens.map((token) => (
+                            <div className="settings-account-token-list-row" key={token.id}>
+                              <div><strong>{token.name}</strong><small>{token.group} · {token.status !== 1 ? "已停用" : accountApiTokenExpired(token) ? "已过期" : "启用"} · {token.unlimitedQuota ? "不限额度" : token.remainDisplay || token.remainCnyDisplay}</small></div>
+                              <ActionButton disabled={accountTokenBusy || !accountApiTokenUsable(token) || token.id === draftSettings.selectedAccountTokenId} onClick={() => void selectAccountToken(token.id)}>{token.id === draftSettings.selectedAccountTokenId ? "使用中" : "使用"}</ActionButton>
+                              <ActionButton disabled={accountTokenBusy} onClick={() => void openAccountTokenEditor(token)}>编辑</ActionButton>
+                            </div>
+                          ))}
+                        </details>
+                      ) : null}
                       {accountTokenEditor ? (
                         <div className="settings-account-token-editor">
                           <Field label="密钥名称">
@@ -902,9 +987,18 @@ export default function SettingsDrawer({
                             <input type="checkbox" checked={accountTokenEditor.unlimitedQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, unlimitedQuota: event.target.checked } : current)} />
                             <span>不限额度</span>
                           </label>
-                          {!accountTokenEditor.unlimitedQuota ? <Field label="原始额度（New API quota）">
-                            <input type="number" min="0" step="1" value={accountTokenEditor.remainQuota} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, remainQuota: event.target.value } : current)} />
+                          {!accountTokenEditor.unlimitedQuota ? <Field label={`额度（${accountTokenEditor.quotaInput.unit}）`}>
+                            <input type="number" aria-label="密钥额度" min="0" step={accountTokenEditor.quotaInput.unit === "quota" ? "1" : "any"} value={accountTokenEditor.quotaAmount} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, quotaAmount: event.target.value } : current)} />
                           </Field> : null}
+                          <Field label="到期时间（留空为永久）">
+                            <input type="datetime-local" step="1" aria-label="密钥到期时间" value={accountTokenEditor.expiredAt} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, expiredAt: event.target.value } : current)} />
+                          </Field>
+                          <Field label="IP 白名单（留空不限制）" className="settings-account-token-wide">
+                            <textarea aria-label="密钥 IP 白名单" value={accountTokenEditor.allowIps} rows={2} maxLength={4096} placeholder="每行一个 IP" onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, allowIps: event.target.value } : current)} />
+                          </Field>
+                          <label className="settings-checkbox-row"><input type="checkbox" checked={accountTokenEditor.modelLimitsEnabled} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, modelLimitsEnabled: event.target.checked } : current)} /><span>限制可用模型</span></label>
+                          {accountTokenEditor.modelLimitsEnabled ? <Field label="允许的模型（逗号分隔）" className="settings-account-token-wide"><textarea aria-label="密钥允许的模型" value={accountTokenEditor.modelLimits} maxLength={20000} rows={2} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, modelLimits: event.target.value } : current)} /></Field> : null}
+                          <label className="settings-checkbox-row"><input type="checkbox" checked={accountTokenEditor.crossGroupRetry} onChange={(event) => setAccountTokenEditor((current) => current ? { ...current, crossGroupRetry: event.target.checked } : current)} /><span>允许跨分组重试</span></label>
                           <div className="settings-inline-actions">
                             <ActionButton variant="primary" onClick={() => void saveAccountTokenEditor()} busy={accountTokenBusy}>保存密钥</ActionButton>
                             <ActionButton onClick={() => setAccountTokenEditor(null)}>取消</ActionButton>
@@ -917,7 +1011,7 @@ export default function SettingsDrawer({
                         </div>
                       ) : null}
                     </div>
-                    <InlineNotice tone="neutral">Cookie 只用于账户与密钥管理；Agent 和生图使用所选密钥直连上方 `/v1` 地址。完整 Key 仅保留在 Electron 主进程内存中。</InlineNotice>
+                    <InlineNotice tone="neutral">对话和生图使用所选密钥的额度、分组及限制；逐模型配置的连接优先。完整密钥不会显示或写入项目文件。</InlineNotice>
                   </>
                 ) : (
                   <>
@@ -947,8 +1041,8 @@ export default function SettingsDrawer({
               <SurfaceSection className="settings-surface-section settings-appearance-section" aria-labelledby="settings-appearance-heading">
                 <div className="settings-section-header">
                   <div>
-                    <h3 id="settings-appearance-heading" className="settings-appearance-title">Glass Lab</h3>
-                    <small>配置项目界面的透明玻璃主题、材质与辅助效果。</small>
+                    <h3 id="settings-appearance-heading" className="settings-appearance-title">界面主题</h3>
+                    <small>选择简洁黑白或彩色玻璃，调整界面外观。</small>
                   </div>
                   <span className="settings-update-status available">项目外观</span>
                 </div>
@@ -1345,6 +1439,12 @@ export default function SettingsDrawer({
 
               {activeSection === "tools" ? (
               <SurfaceSection className="settings-surface-section settings-canvas-tools-section" aria-labelledby="settings-canvas-tools-heading">
+                <div className="settings-section-header">
+                  <div><h3>诊断日志</h3><small>自动保留最近 300 条生图、读图和对话记录，方便定位失败阶段。</small></div>
+                  <div><ActionButton onClick={() => void readDiagnosticLog()}>查看日志</ActionButton>{" "}<ActionButton onClick={() => void exportDiagnosticLog()}>导出日志</ActionButton></div>
+                </div>
+                <small>日志包含模型、状态码和耗时；不包含密钥、提示词或图片内容。</small>
+                {diagnosticText !== null ? <textarea aria-label="诊断日志" value={diagnosticText} readOnly rows={9} style={{ width: "100%", resize: "vertical" }} /> : null}
                 <div className="settings-section-header">
                   <div>
                     <h3 id="settings-canvas-tools-heading">画布工具</h3>

@@ -72,6 +72,31 @@
   gap: 7px;
 }
 
+.glass-theme-group {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.glass-theme-group-label,
+.glass-theme-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.glass-theme-note {
+  margin: 0;
+}
+
+.glass-theme-card[data-glass-theme="light-classic"] .glass-theme-swatch {
+  background: linear-gradient(135deg, #ffffff 50%, #dddddd 50%);
+}
+
+.glass-theme-card[data-glass-theme="dark-classic"] .glass-theme-swatch {
+  background: linear-gradient(135deg, #1e1e1e 50%, #555555 50%);
+}
+
 .glass-theme-card,
 .glass-material-card {
   min-width: 0;

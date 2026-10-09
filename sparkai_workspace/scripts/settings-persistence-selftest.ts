@@ -152,6 +152,16 @@ assert.deepEqual(normalizeImageModelBindings([
   { model: "" },
   { model: " grok-image-latest ", baseUrl: " https://grok.example/v1 ", customApiKey: " grok-key ", accountTokenId: "not-an-id" },
 ]), [{ model: "grok-image-latest", customBaseUrl: "https://grok.example/v1", customApiKey: "grok-key" }]);
+const adapterBindings = [
+  { model: "grok-image-latest", provider: "xai", protocol: "openai-images", gateway: "newapi", transportMode: "sync" },
+  { model: "gemini-image-alias", protocol: "auto", gateway: "auto", transportMode: "auto" }
+];
+assert.deepEqual(normalizeImageModelBindings(adapterBindings), adapterBindings);
+assert.deepEqual(mergeSettings({ imageModelBindings: adapterBindings } as never).imageModelBindings, adapterBindings);
+assert.deepEqual(normalizeImageModelBindings([
+  { model: "grok-image-latest", protocol: "xai-images", gateway: "direct", transportMode: "sync" },
+  { model: "GROK-IMAGE-LATEST", protocol: "auto", gateway: "auto", transportMode: "auto" }
+]), [{ model: "grok-image-latest", protocol: "auto", gateway: "auto", transportMode: "auto" }]);
 assert.deepEqual(normalizeImageModelConfigs([
   { model: "grok-image-latest", protocol: "xai-images", gateway: "sub2api", transportMode: "async", capabilities: { generate: true, multipleOutputs: true } },
   { model: "GROK-IMAGE-LATEST", protocol: "bad", gateway: "newapi" },
@@ -478,4 +488,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 124 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 127 })}\n`);

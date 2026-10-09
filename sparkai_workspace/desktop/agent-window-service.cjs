@@ -94,7 +94,7 @@ function createAgentWindowService({
     if (!windowAvailable() || sender !== agentWindow.webContents) return { ok: false, error: "Agent 浮窗来源无效。" };
     const normalized = serializablePayload(payload, maximumCommandBytes);
     if (!normalized || typeof normalized !== "object") return { ok: false, error: "Agent 浮窗命令无效。" };
-    if (["edit-sources", "edit-references", "edit-memory"].includes(String(normalized.type || ""))) focusOwner();
+    if (["edit-sources", "edit-references", "edit-memory", "edit-image-config"].includes(String(normalized.type || ""))) focusOwner();
     return sendOwnerCommand(normalized)
       ? { ok: true }
       : { ok: false, error: "Agent 主窗口不可用。" };

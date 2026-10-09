@@ -59,6 +59,33 @@ async function main() {
   assert.equal(calls[2].endpoint, "/v1/images/generations");
   assert.equal(calls[2].body.aspect_ratio, "16:9");
   assert.equal(calls[2].body.resolution, "2k");
+  assert.equal(calls[2].body.response_format, "b64_json");
+
+  const source = { dataUrl: "data:image/png;base64,aW1hZ2U=", name: "source.png" };
+  await service.generate({ accessMode: "custom", imageModelBindings: [{ model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "direct", customBaseUrl: "https://api.x.ai/v1", customApiKey: "test-key" }] }, { model: "grok-imagine-image-2.0", prompt: "native edit", editImage: source, referenceImages: [source], ratio: "16:9", resolution: "2K" });
+  assert.equal(calls[3].kind, "json");
+  assert.equal(calls[3].body.images.length, 2);
+  assert.equal(calls[3].body.aspect_ratio, "16:9");
+  assert.equal(calls[3].body.response_format, "b64_json");
+  assert.equal(calls[3].options.authHeader, undefined);
+
+  await service.generate({ accessMode: "account", imageModelBindings: [{ model: "gemini-3.1-flash-image", protocol: "gemini-native", gateway: "direct", customBaseUrl: "https://generativelanguage.googleapis.com/v1beta", customApiKey: "test-key" }] }, { model: "gemini-3.1-flash-image", prompt: "native edit", editImage: source, ratio: "16:9", resolution: "2K" });
+  assert.equal(calls[4].endpoint, "/v1beta/models/gemini-3.1-flash-image:generateContent");
+  assert.equal(calls[4].options.authHeader, "x-goog-api-key");
+  assert.equal(calls[4].body.contents[0].parts[1].inlineData.data, "aW1hZ2U=");
+  assert.equal(calls[4].body.generationConfig.imageConfig.imageSize, "2K");
+
+  await service.generate({ accessMode: "custom", imageModelBindings: [{ model: "grok-imagine-image-2.0", protocol: "openai-images", gateway: "newapi" }] }, { model: "grok-imagine-image-2.0", prompt: "edit this", editImage: source });
+  assert.equal(calls[5].kind, "multipart", "The same Grok ID can use OpenAI Compatible edits");
+  const remoteCalls = [];
+  const remoteService = createImageGenerationService({
+    downloadImage: async (url) => { remoteCalls.push(url); return Buffer.from("image"); },
+    newApiRelayJson: async (_settings, _endpoint, body) => { assert.equal(body.contents[0].parts[1].inlineData.data, "aW1hZ2U="); return { candidates: [{ content: { parts: [{ inlineData: { data: "aW1hZ2U=", mimeType: "image/jpeg" } }] } }] }; }
+  });
+  const remoteResult = await remoteService.generate({ imageModelBindings: [{ model: "channel-alias", protocol: "gemini-native", gateway: "newapi" }] }, { model: "channel-alias", prompt: "remote edit", editImage: { url: "https://cdn.example/source.png" } });
+  assert.equal(remoteCalls.length, 1);
+  assert.equal(remoteResult.data[0].mime_type, "image/jpeg");
+  assert.equal(remoteResult.images[0].type, "base64");
 
   process.stdout.write(`${JSON.stringify({ ok: true, generate: true, edit: true, modelProtocolOverride: true, async: true })}\n`);
 }

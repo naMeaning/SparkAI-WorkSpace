@@ -6,6 +6,7 @@ const http = require("node:http");
 const https = require("node:https");
 const { createServer: createNetServer } = require("node:net");
 const path = require("node:path");
+const { createRuntimeDiagnostics } = require("./desktop/runtime-diagnostics.cjs");
 const { PassThrough } = require("node:stream");
 const { setTimeout: delay } = require("node:timers/promises");
 const { fileURLToPath, pathToFileURL } = require("node:url");
@@ -21,6 +22,7 @@ const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aideb
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
 const { createImageGenerationService } = require("./desktop/image-generation-service.cjs");
+const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
 const { createProjectAssetRepository } = require("./desktop/project-asset-repository.cjs");
 const {
@@ -85,6 +87,7 @@ const {
   normalizeGlassThemeSettings: normalizeElectronGlassThemeSettings
 } = require("./runtime/glass-theme-settings.cjs");
 const { createAccountTokenService } = require("./desktop/account-token-service.cjs");
+const { createNewApiAccountService, mapNewApiLogEntry, normalizeNewApiUser, walletFromNewApiUser } = require("./desktop/new-api-account.cjs");
 const {
   defaultWorkspacePluginStates,
   normalizeCanvasToolShortcuts,
@@ -114,6 +117,7 @@ const {
   splitModelSettings
 } = require("./desktop/model-catalog.cjs");
 const {
+  chatRequestFromRuntimeRequest,
   agentModelUsesResponsesApi,
   responsesContentPartFromChat,
   responsesInputFromChatMessages,
@@ -270,6 +274,10 @@ const aidebugMode = desktopEnvironment("NAIMAGE_AIDEBUG") === "1";
 const performanceGateMode = desktopEnvironment("NAIMAGE_PERFORMANCE_GATE") === "1";
 if (aidebugMode && !performanceGateMode) app.disableHardwareAcceleration();
 const aidebugLiveImage = desktopEnvironment("NAIMAGE_AIDEBUG_LIVE_IMAGE") === "1";
+// Keep the fixture switch available to both the image implementation and the
+// session wrapper. The wrapper selects the deterministic AIDebug backend before
+// entering callNewApiImage, so this flag must live at module scope.
+const aidebugMockImage = aidebugMode && !aidebugLiveImage;
 const aidebugStatefulAuth = desktopEnvironment("NAIMAGE_AIDEBUG_AUTH_SESSION") === "1";
 const aidebugMockAgent =
   desktopEnvironment("NAIMAGE_AIDEBUG_MOCK_AGENT") === "1" ||
@@ -353,6 +361,7 @@ const electronLogOverride = desktopEnvironment("NAIMAGE_ELECTRON_LOG");
 const electronLog = electronLogOverride
   ? path.resolve(electronLogOverride)
   : path.join(debugDir, "latest.log");
+const runtimeDiagnostics = createRuntimeDiagnostics({ filePath: path.join(debugDir, "diagnostics.json"), version: app.getVersion() });
 const settingsPath = path.join(configDir, "app-settings.json");
 const settingsSecretsPath = path.join(configDir, "app-settings.secrets.json");
 const requirementLibraryPath = path.join(configDir, "requirement-library.json");
@@ -387,7 +396,6 @@ let applicationShutdownPromise = null;
 let applicationShutdownComplete = false;
 let applicationShutdownStartedAt = 0;
 const bootStartedAt = Date.now();
-const newApiQuotaPerUnit = 500000;
 const newApiUserLogsEndpoint = "/api/log/self?p=1&page_size=20";
 const modelCacheTtlMs = 15 * 60 * 1000;
 const modelCacheMemory = new Map();
@@ -610,6 +618,13 @@ function aidebugUser() {
 
 function aidebugWallet() {
   return {
+    nativeQuota: true,
+    balanceQuota: 1_000_000,
+    usedQuota: 500_000,
+    requestCount: 42,
+    balanceDisplay: "$2.00",
+    usedDisplay: "$1.00",
+    group: "default",
     balanceCents: 1200,
     balanceYuan: 12,
     imageCostCents: aidebugPublicSettings.imageCostCents,
@@ -646,7 +661,13 @@ function aidebugLogs() {
         rmbCost: 0.02,
         message: "AIDebug 上游失败 token=aidebug-sensitive-token sk-aidebug12345678"
       }
-    }
+    },
+    ...Array.from({ length: 23 }, (_, index) => ({
+      id: `aidebug-consume-page-${index}`,
+      type: "consume",
+      createdAt: new Date(Date.parse("2026-07-09T16:00:00.000Z") - index * 60_000).toISOString(),
+      detail: { model: "gpt-image-2", quota: 1000, quotaDisplay: "$0.002", tokenName: "AIDebug 密钥", group: "default", message: `AIDebug 分页记录 ${index + 1}` }
+    }))
   ];
 }
 
@@ -693,9 +714,9 @@ function normalizeModelConnectionBindings(value) {
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
     if (provider) binding.provider = provider;
-    if (["openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol;
-    if (["newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway;
-    if (["sync", "async"].includes(transportMode)) binding.transportMode = transportMode;
+    if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol;
+    if (["auto", "newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway;
+    if (["auto", "sync", "async"].includes(transportMode)) binding.transportMode = transportMode;
   }
   return bindings;
 }
@@ -1140,12 +1161,22 @@ accountTokenService = createAccountTokenService({
   settingsPath,
   writeJson
 });
+const newApiAccountService = createNewApiAccountService({
+  newApiRequest, newApiUserAuthHeaders, requireNewApiSession, resolveNewApiBaseUrl,
+  getNewApiAuthEpoch: () => newApiAuthEpoch
+});
 const imageGenerationService = createImageGenerationService({
   accessPolicy,
   log,
+  recordDiagnostic: runtimeDiagnostics.record,
   newApiRelayAsyncImage,
   newApiRelayJson,
-  newApiRelayMultipart
+  newApiRelayMultipart,
+  downloadImage: (url) => remoteImageDownloads.download(url, {
+    maxBytes: maxExportImageBytes,
+    timeoutMs: 60_000,
+    maxRedirects: 5
+  })
 });
 const licenseService = createLicenseService({
   defaultSettings,
@@ -2423,6 +2454,7 @@ async function serverGenerateImage(payload = {}) {
 }
 
 async function serverChatCompletion(payload = {}) {
+  const modelStartedAt = Date.now();
   if (aidebugBackend) {
     const startedAt = Date.now();
     log(`aidebug model start messages=${Array.isArray(payload.messages) ? payload.messages.length : 0} tools=${Array.isArray(payload.tools) ? payload.tools.length : 0} stream=${Boolean(payload.stream)}`);
@@ -2448,10 +2480,16 @@ async function serverChatCompletion(payload = {}) {
   delete requestBody.signal;
   delete requestBody.onStreamEvent;
   delete requestBody._forceChatFallback;
+  delete requestBody._agentModelRetryAttempt;
+  delete requestBody._diagnostic;
   const hasNativeResponsesTool = Array.isArray(requestBody.tools) && requestBody.tools.some((tool) => String(tool?.type || "") === "web_search");
   const useResponsesApi = !payload._forceChatFallback && (hasNativeResponsesTool || agentModelUsesResponsesApi(requestBody.model));
   const endpoint = useResponsesApi ? "/v1/responses" : "/v1/chat/completions";
-  const relayBody = useResponsesApi ? responsesRequestFromChatRequest(requestBody) : requestBody;
+  const relayBody = useResponsesApi ? responsesRequestFromChatRequest(requestBody) : chatRequestFromRuntimeRequest(requestBody);
+  const diagnosticsMeta = { kind: "model", model: requestBody.model, protocol: useResponsesApi ? "responses" : "chat-completions",
+    stage: "conversation", runId: payload._diagnostic?.runId, round: payload._diagnostic?.round,
+    attempt: Number(payload._agentModelRetryAttempt || 0) + 1 };
+  runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "request" });
   const imageToolChoiceName = String(requestBody.tool_choice?.function?.name || requestBody.toolChoice?.function?.name || "");
   const configuredTimeoutMs = Math.max(15, Number(settings.timeoutSeconds ?? 180)) * 1000;
   const reasoningModelFloorMs = useResponsesApi ? 180_000 : 0;
@@ -2478,14 +2516,14 @@ async function serverChatCompletion(payload = {}) {
       await Promise.race([
         newApiRelayStream(settings, endpoint, relayBody, (event) => {
           chunks.push(event);
-          const eventType = String(event?.type || "");
-          if (/output_text|tool_call|function_call|response.completed|response.failed/i.test(eventType)) streamOutputObserved = true;
+          if (agentModelStreamEventHasOutput(event)) streamOutputObserved = true;
           if (typeof payload.onStreamEvent === "function") payload.onStreamEvent(event);
         }, { signal: controller.signal, headersTimeoutMs: timeoutMs, connectTimeoutMs: 30_000 }),
         timeoutPromise
       ]);
       markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
       log(`agent new-api ${useResponsesApi ? "responses" : "chat"} stream chunks=${chunks.length} model=${payload.model || settings.agentModel || "server-selected"}`);
+      runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "response", durationMs: Date.now() - modelStartedAt, status: 200 });
       return { stream: true, chunks, model: payload.model || settings.agentModel };
     }
     const data = await Promise.race([
@@ -2494,10 +2532,38 @@ async function serverChatCompletion(payload = {}) {
     ]);
     markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
     log(`agent new-api ${useResponsesApi ? "responses" : "chat"} model=${data.model || payload.model || settings.agentModel || "server-selected"}`);
+    runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "response", durationMs: Date.now() - modelStartedAt, status: 200 });
     return data;
   } catch (error) {
+    runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "failure", durationMs: Date.now() - modelStartedAt, status: error?.status || 0 });
     if (callerSignal?.aborted) throw createAbortError(callerSignal.reason);
     if (error === timeoutError || controller.signal.aborted) throw timeoutError;
+    const retryAttempt = Math.max(0, Math.floor(Number(payload._agentModelRetryAttempt) || 0));
+    const retryReason = agentModelRequestRetryReason({
+      settings,
+      model: requestBody.model,
+      error,
+      streamOutputObserved,
+      retryAttempt
+    });
+    if (retryReason) {
+      runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "retry", status: error?.status || 0 });
+      if (retryReason === "credentials") {
+        accountTokenService.clearKeyCache(settings, accountTokenIdForModel(settings, requestBody.model));
+      } else {
+        try {
+          await delay(250, undefined, callerSignal ? { signal: callerSignal } : undefined);
+        } catch (waitError) {
+          if (callerSignal?.aborted) throw createAbortError(callerSignal.reason);
+          throw waitError;
+        }
+      }
+      log(`agent new-api retry reason=${retryReason} model=${requestBody.model || "server-selected"}`);
+      return serverChatCompletion({
+        ...payload,
+        _agentModelRetryAttempt: retryAttempt + 1
+      });
+    }
     if (shouldFallbackResponsesToChat({
       hasNativeResponsesTool,
       forceChatFallback: payload._forceChatFallback === true,
@@ -2539,6 +2605,74 @@ function shouldFallbackResponsesToChat({
     && !error?.ambiguous
     && !error?.unsafeToRetry
     && responsesChatUnsupportedError(error);
+}
+
+function agentModelStreamEventHasOutput(event = {}) {
+  const eventType = String(event?.type || "");
+  if (/output_text|tool_call|function_call|response\.completed|response\.failed|response\.incomplete/i.test(eventType)) return true;
+  if (Array.isArray(event?.choices)) {
+    return event.choices.some((choice) => {
+      const delta = choice?.delta && typeof choice.delta === "object" ? choice.delta : {};
+      const message = choice?.message && typeof choice.message === "object" ? choice.message : {};
+      return Boolean(
+        (typeof delta.content === "string" && delta.content.length)
+        || (typeof delta.text === "string" && delta.text.length)
+        || (Array.isArray(delta.tool_calls) && delta.tool_calls.length)
+        || delta.function_call
+        || (typeof message.content === "string" && message.content.length)
+        || (Array.isArray(message.tool_calls) && message.tool_calls.length)
+        || (typeof choice.text === "string" && choice.text.length)
+      );
+    });
+  }
+  if (Array.isArray(event?.output)) {
+    return event.output.some((item) => /message|function_call|computer_call|web_search_call/i.test(String(item?.type || "")));
+  }
+  return false;
+}
+
+function agentModelBindingForRetry(settings = {}, model = "") {
+  const target = String(model || "").trim().toLowerCase();
+  if (!target || !Array.isArray(settings?.agentModelBindings)) return null;
+  return settings.agentModelBindings.find((binding) => String(binding?.model || "").trim().toLowerCase() === target) || null;
+}
+
+function accountModelUsesManagedCredentials(settings = {}, model = "") {
+  if (String(settings?.accessMode || "account").toLowerCase() === "custom") return false;
+  const binding = agentModelBindingForRetry(settings, model);
+  return !String(binding?.customApiKey || "").trim();
+}
+
+function accountTokenIdForModel(settings = {}, model = "") {
+  const binding = agentModelBindingForRetry(settings, model);
+  return String(binding?.accountTokenId || settings?.selectedAccountTokenId || "").trim();
+}
+
+function agentModelRequestRetryReason({
+  settings = {},
+  model = "",
+  error = null,
+  streamOutputObserved = false,
+  retryAttempt = 0
+} = {}) {
+  if (retryAttempt > 0 || streamOutputObserved || error?.ambiguous || error?.unsafeToRetry) return "";
+  const status = Number(error?.status || 0);
+  const message = String(error?.data?.error?.message || error?.data?.message || error?.message || "").toLowerCase();
+  if (
+    accountModelUsesManagedCredentials(settings, model)
+    && (status === 401 || (status === 403 && /(api key|unauthorized|authentication|credential|密钥|认证)/.test(message)))
+  ) {
+    return "credentials";
+  }
+  if ([500, 502, 503, 504].includes(status)) return "transient";
+  const code = String(error?.code || error?.cause?.code || "").toUpperCase();
+  if (
+    !status
+    && /^(EAI_AGAIN|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ERR_SOCKET_CLOSED|ERR_STREAM_PREMATURE_CLOSE)$/.test(code)
+  ) {
+    return "transient";
+  }
+  return "";
 }
 
 function currentAgentSettings() {
@@ -2605,6 +2739,12 @@ function getAgentRuntime() {
 }
 
 function emitAgentProgress(sender, runId, payload = {}, scope = {}) {
+  const phase = { "image-request": "request", "image-response": "response", "image-error": "failure",
+    "runtime-error": "failure", "runtime-partial": "partial", "tool-done": "done", "tool-error": "failure" }[payload.phase];
+  if (phase && ["image_gen", "view_image", undefined].includes(payload.tool)) {
+    runtimeDiagnostics.record({ kind: payload.tool === "image_gen" ? "image" : payload.tool === "view_image" ? "view_image" : "agent",
+      phase, runId: payload.runId || runId, round: payload.modelRound, status: payload.detail?.status });
+  }
   try {
     if (!sender || sender.isDestroyed?.()) return;
     sender.send("naimage:agent:progress", {
@@ -2934,36 +3074,6 @@ function cancelQueuedImageEditRequests() {
 
 
 
-
-function normalizeNewApiUser(userData = {}) {
-  const username = String(userData.username || userData.email || userData.id || "").trim();
-  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "SparkAI WorkSpace User").trim();
-  const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
-  const balanceCents = Number.isFinite(quota)
-    ? Math.max(0, Math.round((quota / newApiQuotaPerUnit) * 100))
-    : 0;
-  return {
-    id: String(userData.id || ""),
-    email: String(userData.email || username || ""),
-    username,
-    account: username,
-    name: displayName,
-    balanceCents,
-    trialImagesRemaining: 0,
-    trialUsed: true,
-    createdAt: userData.createdAt || (userData.created_time ? new Date(Number(userData.created_time) * 1000).toISOString() : undefined)
-  };
-}
-
-function walletFromNewApiUser(userData = {}) {
-  const user = normalizeNewApiUser(userData);
-  return {
-    balanceCents: user.balanceCents,
-    balanceYuan: user.balanceCents / 100,
-    imageCostCents: 0,
-    imageCostYuan: 0
-  };
-}
 
 function tokenItemsFromNewApiPayload(payload) {
   const source = payload?.data ?? payload;
@@ -3759,7 +3869,6 @@ async function callNewApiImage(settings, payload = {}) {
     return preparedUploadCache.get(cacheKey);
   }
 
-  const aidebugMockImage = aidebugMode && !aidebugLiveImage;
   if (aidebugMockImage) {
     const fixtureHint = aidebugLayerFixtureHint(payload);
     if (desktopEnvironment("NAIMAGE_AIDEBUG_ASSERT_EXPLICIT_LAYER_HINT") === "1" && fixtureHint.isLayerPrompt) {
@@ -4337,12 +4446,13 @@ async function completeNewApiLogin(settings, payload = {}) {
     error.code = "NEW_API_SESSION_CHANGED";
     throw error;
   }
+  const accountSummary = await newApiAccountService.summary(nextSettings, loginUser, { preferCached: true });
+  if (authEpoch !== newApiAuthEpoch) throw Object.assign(new Error("登录账户已切换，请重新登录。"), { code: "NEW_API_SESSION_CHANGED" });
   writeJson(settingsPath, nextSettings);
   return {
     ok: true,
     sessionId: serverUserId,
-    user: normalizeNewApiUser(loginUser),
-    wallet: walletFromNewApiUser(loginUser),
+    ...accountSummary,
     settings: {
       ...modelSettings,
       imageModel: nextSettings.imageModel,
@@ -4401,48 +4511,6 @@ async function callNewApiImageWithSession(settings, payload = {}) {
   return result;
 }
 
-function mapNewApiLogType(type) {
-  const value = Number(type);
-  if (value === 1) return "topup";
-  if (value === 2) return "consume";
-  if (value === 3) return "manage";
-  if (value === 4) return "system";
-  if (value === 5) return "error";
-  if (value === 6) return "refund";
-  if (value === 7) return "login";
-  return "log";
-}
-
-function mapNewApiLogEntry(logEntry) {
-  let detail = {};
-  try {
-    detail = logEntry?.other ? JSON.parse(logEntry.other) : {};
-  } catch {
-    detail = {};
-  }
-  const createdAtRaw = logEntry?.createdAt || logEntry?.created_at;
-  const createdAtNumber = Number(createdAtRaw);
-  const createdAt = typeof createdAtRaw === "string" && Number.isNaN(createdAtNumber)
-    ? new Date(createdAtRaw).toISOString()
-    : createdAtRaw
-      ? new Date(createdAtNumber * 1000).toISOString()
-      : new Date().toISOString();
-  return {
-    id: String(logEntry?.id ?? `${logEntry?.created_at ?? Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
-    type: logEntry?.rmbCost !== undefined || logEntry?.modelName ? "consume" : mapNewApiLogType(logEntry?.type),
-    createdAt,
-    detail: {
-      ...detail,
-      message: logEntry?.content || detail.message,
-      model: logEntry?.modelName || logEntry?.model_name || detail.model,
-      quota: logEntry?.quota,
-      rmbCost: logEntry?.rmbCost,
-      promptTokens: logEntry?.prompt_tokens,
-      completionTokens: logEntry?.completion_tokens
-    }
-  };
-}
-
 function extractServerImages(data) {
   const images = [];
   const parentActualParams = Array.isArray(data?.images)
@@ -4498,61 +4566,95 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
   const outputDir = outputDirForProjectId(projectId);
   mkdirSync(outputDir, { recursive: true });
   return Promise.all(images.map(async (image, index) => {
-    const buffer = image.type === "url"
-      ? await remoteImageDownloads.download(image.value, {
-          maxBytes: maxExportImageBytes,
-          timeoutMs: 30_000,
-          maxRedirects: 5
-        })
-      : Buffer.from(image.value.replace(/^data:image\/\w+;base64,/, ""), "base64");
-    if (buffer.length <= 0 || buffer.length > maxExportImageBytes) {
-      const error = new Error(`Generated image ${index + 1} exceeds the managed asset byte limit.`);
-      error.code = "NAIMAGE_IMAGE_OUTPUT_SIZE_INVALID";
-      error.failureKind = "validation";
-      throw error;
-    }
-    const detected = requireEncodedImageFormat(buffer, outputFormat);
-    assertSafeEncodedImageDimensions(buffer, `generated image ${index + 1}`);
-    const decoded = nativeImage.createFromBuffer(buffer);
-    if (decoded.isEmpty()) {
-      const error = new Error(`Generated image ${index + 1} could not be fully decoded.`);
-      error.code = "NAIMAGE_IMAGE_OUTPUT_DECODE_FAILED";
-      error.failureKind = "validation";
-      throw error;
-    }
-    const dimensions = decoded.getSize();
-    const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
-    writeFileSync(filePath, buffer);
-    const contentHash = createHash("sha256").update(buffer).digest("hex");
-    const cacheRoot = thumbnailCacheRootForAsset(filePath);
-    if (cacheRoot) {
-      for (const maxEdge of [512, 1024]) {
-        void imageThumbnailCache.ensure({ sourcePath: filePath, cacheRoot, maxEdge, contentHash }).catch((error) => {
-          log(`thumbnail prefetch failed ${error instanceof Error ? error.message : String(error)}`);
-        });
+    const startedAt = Date.now();
+    const diagnostic = { kind: "image", stage: "result", runId, model: generationContext.request?.model };
+    try {
+      let buffer;
+      if (image.type === "url") {
+        try {
+          buffer = await remoteImageDownloads.download(image.value, {
+            maxBytes: maxExportImageBytes,
+            timeoutMs: 30_000,
+            maxRedirects: 5
+          });
+        } catch (error) {
+          const failure = normalizeImageResultDownloadError(error);
+          log(`image result download failed code=${failure.code} generationCompleted=true unsafeToRetry=true detail=${failure.message}`);
+          throw failure;
+        }
+      } else {
+        buffer = Buffer.from(image.value.replace(/^data:image\/\w+;base64,/, ""), "base64");
       }
+      if (buffer.length <= 0 || buffer.length > maxExportImageBytes) {
+        const error = new Error(`Generated image ${index + 1} exceeds the managed asset byte limit.`);
+        error.code = "NAIMAGE_IMAGE_OUTPUT_SIZE_INVALID";
+        error.failureKind = "validation";
+        throw error;
+      }
+      const detected = requireEncodedImageFormat(buffer);
+      assertSafeEncodedImageDimensions(buffer, `generated image ${index + 1}`);
+      // Preserve the provider's original bytes, even when its actual encoding
+      // differs from the requested format. Explicit export owns conversion.
+      // Electron's nativeImage does not decode every valid WebP encoding. Sharp
+      // fully decodes it to raw pixels for validation without re-encoding it.
+      let dimensions;
+      if (detected.format === "webp") {
+        const { info } = await require("sharp")(buffer, { failOn: "error", limitInputPixels: 64_000_000 }).raw().toBuffer({ resolveWithObject: true });
+        dimensions = { width: info.width, height: info.height };
+      } else {
+        const decoded = nativeImage.createFromBuffer(buffer);
+        if (!decoded.isEmpty()) dimensions = decoded.getSize();
+      }
+      if (!dimensions?.width || !dimensions?.height) {
+        const error = new Error(`Generated image ${index + 1} could not be fully decoded.`);
+        error.code = "NAIMAGE_IMAGE_OUTPUT_DECODE_FAILED";
+        error.failureKind = "validation";
+        throw error;
+      }
+      const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
+      writeFileSync(filePath, buffer);
+      const contentHash = createHash("sha256").update(buffer).digest("hex");
+      const cacheRoot = thumbnailCacheRootForAsset(filePath);
+      if (cacheRoot) {
+        for (const maxEdge of [512, 1024]) {
+          void imageThumbnailCache.ensure({ sourcePath: filePath, cacheRoot, maxEdge, contentHash }).catch((error) => {
+            log(`thumbnail prefetch failed ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
+      }
+      const generation = buildImageAssetGenerationMetadata({
+        request: generationContext.request,
+        response: { ...image.actualParams, outputFormat: detected.format },
+        startedAt: image.startedAt || generationContext.startedAt,
+        completedAt: image.completedAt || generationContext.completedAt,
+        durationMs: image.durationMs ?? generationContext.durationMs
+      });
+      runtimeDiagnostics.record({ ...diagnostic, phase: "done", count: 1, durationMs: Date.now() - startedAt });
+      return {
+        index: Number.isFinite(Number(image.requestIndex)) ? Math.max(1, Math.round(Number(image.requestIndex))) : index + 1,
+        type: "file",
+        path: filePath,
+        assetUrl: assetUrlFor(filePath),
+        contentHash,
+        mimeType: detected.mimeType,
+        outputFormat: detected.format,
+        revisedPrompt: image.revisedPrompt || "",
+        runId,
+        width: dimensions.width > 0 ? dimensions.width : undefined,
+        height: dimensions.height > 0 ? dimensions.height : undefined,
+        ...(generation ? { generation } : {})
+      };
+    } catch (error) {
+      // The provider has already returned this image. Validation/decode/disk
+      // failures must never cause the Agent to create it again.
+      error.generationCompleted = true;
+      error.unsafeToRetry = true;
+      error.errorCategory ||= "image_result_processing";
+      error.failureKind ||= "persistence";
+      runtimeDiagnostics.record({ ...diagnostic, phase: "failure", category: error.errorCategory,
+        status: error.status || error.statusCode, durationMs: Date.now() - startedAt });
+      throw error;
     }
-    const generation = buildImageAssetGenerationMetadata({
-      request: generationContext.request,
-      response: image.actualParams,
-      startedAt: image.startedAt || generationContext.startedAt,
-      completedAt: image.completedAt || generationContext.completedAt,
-      durationMs: image.durationMs ?? generationContext.durationMs
-    });
-    return {
-      index: Number.isFinite(Number(image.requestIndex)) ? Math.max(1, Math.round(Number(image.requestIndex))) : index + 1,
-      type: "file",
-      path: filePath,
-      assetUrl: assetUrlFor(filePath),
-      contentHash,
-      mimeType: detected.mimeType,
-      outputFormat: detected.format,
-      revisedPrompt: image.revisedPrompt || "",
-      runId,
-      width: dimensions.width > 0 ? dimensions.width : undefined,
-      height: dimensions.height > 0 ? dimensions.height : undefined,
-      ...(generation ? { generation } : {})
-    };
   }));
 }
 
@@ -4637,6 +4739,7 @@ const projectSessionSaveCoordinator = createProjectSaveCoordinator({
 
 function registerIpc() {
   registerDesktopIpc({
+    runtimeDiagnostics,
     ipcMain,
     accessPolicy,
     automationService,
@@ -4771,6 +4874,7 @@ function registerIpc() {
     aidebugUser,
     aidebugWallet,
     accountTokenService,
+    newApiAccountService,
     callNewApiImageWithSession,
     clearNewApiAuth,
     completeNewApiLogin,
@@ -4897,6 +5001,8 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     createProjectSaveCoordinator,
     defaultSession,
     encodedImageDimensions,
+    extractServerImages,
+    imageGenerationContext,
     ensureProjectFiles,
     imageEditRequestLimiterStatus,
     imageEditRequestHeaders,
@@ -4944,8 +5050,11 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     responsesInputItemFromOutput,
     responsesRequestFromChatRequest,
     responsesToolsFromChatTools,
+    agentModelStreamEventHasOutput,
+    agentModelRequestRetryReason,
     shouldFallbackResponsesToChat,
     tokenItemsFromNewApiPayload,
+    writeServerImageOutputs,
     withImageEditRequestSlot,
     sessionForProjectSave,
     sessionFromPackage,

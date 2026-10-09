@@ -27,14 +27,7 @@
         <small id="model-name"></small>
       </section>
 
-      <section id="agent-goal-controls" class="agent-goal-controls" aria-label="Agent 任务模式">
-        <div id="task-mode-row" class="task-mode-row">
-          <div class="task-mode-switch" role="group" aria-label="Agent 任务模式">
-            <button id="standard-mode" class="active" type="button" aria-pressed="true">普通</button>
-            <button id="goal-mode" type="button" aria-pressed="false">Goal</button>
-          </div>
-          <span id="goal-availability">正在读取画布 Goal 范围</span>
-        </div>
+      <section id="agent-goal-controls" class="agent-goal-controls" aria-label="Goal 范围">
         <div id="goal-summary" class="goal-summary" hidden>
           <div class="goal-summary-heading">
             <strong id="goal-summary-title">全部图片容器</strong>
@@ -54,12 +47,14 @@
       <section class="agent-context" aria-label="当前图片上下文">
         <button id="edit-sources" type="button">原图 <span id="source-count">0</span></button>
         <button id="edit-references" type="button">参考图 <span id="reference-count">0</span></button>
+        <button id="edit-image-config" type="button">图片配置</button>
         <button id="edit-memory" type="button">记忆</button>
         <span class="selected-count">画布已选 <b id="selected-count">0</b></span>
       </section>
 
       <form id="agent-composer" class="agent-composer">
-        <textarea id="agent-prompt" rows="5" placeholder="告诉 Agent 你想完成什么…" aria-label="Agent 指令"></textarea>
+        <div id="composer-commands" class="command-menu" role="listbox" aria-label="斜杠命令" hidden></div>
+        <textarea id="agent-prompt" rows="5" placeholder="告诉 Agent 你想完成什么，输入 / 使用命令…" aria-label="Agent 指令"></textarea>
         <label id="steer-mode-field" class="steer-mode-field" hidden>
           <span>本次 TaskScope</span>
           <select id="steer-mode" aria-label="运行中素材修改方式">
@@ -88,13 +83,13 @@
               <option value="floating">应用内浮动</option>
             </select>
           </div>
-          <span class="shortcut">Ctrl + Enter</span>
+          <span class="shortcut">Ctrl + Enter · / 命令</span>
           <button id="pause-button" class="pause-button" type="button" hidden>暂停</button>
           <button id="stop-button" class="stop-button" type="button" hidden>结束</button>
           <button id="send-button" class="send-button" type="submit">发送</button>
         </footer>
       </form>
     </div>
-    <script src="./agent-window-renderer.js"></script>
+    <script type="module" src="./agent-window-renderer.js"></script>
   </body>
 </html>

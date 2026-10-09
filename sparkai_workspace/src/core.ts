@@ -187,9 +187,9 @@ export type ImageModelBinding = ModelConnectionBinding;
 
 export type ImageFrameRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "21:9" | "9:21" | "4:5";
 export type ImageResolutionPreset = "1K" | "2K" | "4K";
-export type ImageProtocol = "openai-images" | "xai-images" | "gemini-native";
-export type ImageGateway = "newapi" | "sub2api" | "direct";
-export type ImageTransportMode = "sync" | "async";
+export type ImageProtocol = "auto" | "openai-images" | "xai-images" | "gemini-native";
+export type ImageGateway = "auto" | "newapi" | "sub2api" | "direct";
+export type ImageTransportMode = "auto" | "sync" | "async";
 
 export type ImageModelCapabilities = {
   generate: boolean;
@@ -1786,6 +1786,12 @@ export type ImageLayerNodeGroup = {
 };
 
 export type ReferenceImage = {
+  canvasNodeId?: string;
+  canvasAssetIndex?: number;
+  bindingId?: string;
+  ownerNodeId?: string;
+  ownerAssetIndex?: number;
+  containerId?: string;
   assetId?: string;
   occurrenceId?: string;
   importBatchId?: string;
@@ -2114,6 +2120,14 @@ export type ServerWallet = {
   balanceYuan: number;
   imageCostCents: number;
   imageCostYuan: number;
+  nativeQuota?: boolean;
+  balanceQuota?: number;
+  usedQuota?: number;
+  requestCount?: number;
+  balanceDisplay?: string;
+  usedDisplay?: string;
+  group?: string;
+  quotaPolicy?: { quotaPerUnit?: number; displayType?: string; exchangeRate?: number; usdToCnyRate?: number; symbol?: string };
 };
 
 export type ModelCapabilityEvidence = "name-inferred" | "upstream-declared" | "runtime-verified";
@@ -2180,6 +2194,29 @@ export type ServerLogEntry = {
   detail?: Record<string, unknown>;
 };
 
+export type ServerLogQuery = {
+  page?: number;
+  pageSize?: number;
+  type?: number;
+  model?: string;
+  tokenName?: string;
+  group?: string;
+  requestId?: string;
+  startTime?: number;
+  endTime?: number;
+};
+
+export type ServerLogResult = {
+  ok: boolean;
+  stale?: boolean;
+  logs?: ServerLogEntry[];
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  hasMore?: boolean;
+  error?: string;
+};
+
 export type AccountApiToken = {
   id: string;
   name: string;
@@ -2202,12 +2239,28 @@ export type AccountApiToken = {
   remainCnyCents: number;
   remainRDisplay: string;
   remainCnyDisplay: string;
+  remainDisplay?: string;
+  remainAmount?: number;
+  inputUnit?: AccountQuotaInput;
   quotaAuditLabel: string;
 };
+
+export function accountApiTokenExpired(token: Pick<AccountApiToken, "expiredTime">, nowSeconds = Math.floor(Date.now() / 1000)): boolean {
+  const expiredTime = Number(token?.expiredTime);
+  return Number.isFinite(expiredTime) && expiredTime > 0 && expiredTime <= nowSeconds;
+}
+
+export function accountApiTokenUsable(token: Pick<AccountApiToken, "status" | "expiredTime">): boolean {
+  return Number(token?.status) === 1 && !accountApiTokenExpired(token);
+}
+
+export type AccountQuotaInput = { unit: string; quotaPerAmount: number };
 
 export type AccountQuotaPolicy = {
   quotaPerR: number;
   usdToCnyRate: number;
+  displayPolicy?: ServerWallet["quotaPolicy"];
+  inputUnit?: AccountQuotaInput;
 };
 
 export type AccountApiTokenListResult = {
@@ -2369,7 +2422,19 @@ export type ProjectGraphDocument = {
   stats: { nodeCount: number; edgeCount: number; sectionCount: number };
 };
 
+export type RuntimeDiagnosticEvent = {
+  time: string;
+  kind: "agent" | "model" | "image" | "view_image";
+  phase: "request" | "response" | "retry" | "failure" | "partial" | "done";
+  model?: string; protocol?: string; status?: number; durationMs?: number;
+  count?: number; round?: number; attempt?: number; run?: string;
+  stage?: "input" | "generation" | "result" | "conversation" | "tool";
+  category?: string;
+};
+
 export type ConfigBridge = {
+  readDiagnostics?(): Promise<{ ok: boolean; events?: RuntimeDiagnosticEvent[]; appVersion?: string; error?: string }>;
+  exportDiagnostics?(): Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
   listRequirementLibrary?(payload?: { includeText?: boolean }): Promise<RequirementLibraryResult>;
@@ -2609,6 +2674,10 @@ export type ConfigBridge = {
 
 export type AgentRuntimeResult = {
   ok: boolean;
+  /** Images/actions are delivered, but a later model request did not complete. */
+  completion?: "partial";
+  modelFailure?: { phase: "model"; status?: number };
+  executionFailed?: boolean;
   content?: string;
   actions?: AgentRuntimeAction[];
   toolResults?: {
@@ -2808,15 +2877,18 @@ export type ServerBridge = {
   login(payload: { username: string; email?: string; password: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   logout(): Promise<{ ok: boolean; remoteLogout?: boolean }>;
   me(payload?: { preferCached?: boolean }): Promise<{ ok: boolean; stale?: boolean; cached?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
-  logs(): Promise<{ ok: boolean; logs?: ServerLogEntry[]; error?: string }>;
+  logs(payload?: ServerLogQuery): Promise<ServerLogResult>;
   models?(payload?: { forceRefresh?: boolean; cacheOnly?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
   tokens?(payload?: { preferCached?: boolean }): Promise<AccountApiTokenListResult>;
   selectToken?(payload: { id: string }): Promise<AccountApiTokenListResult & { token?: AccountApiToken }>;
   createToken?(payload: {
     name: string;
+    status?: number;
     group?: string;
     unlimitedQuota?: boolean;
     remainQuota?: number;
+    remainAmount?: number;
+    quotaInput?: AccountQuotaInput;
     expiredTime?: number;
     modelLimitsEnabled?: boolean;
     modelLimits?: string;
@@ -2824,7 +2896,7 @@ export type ServerBridge = {
     crossGroupRetry?: boolean;
     select?: boolean;
   }): Promise<AccountApiTokenListResult>;
-  updateToken?(payload: Partial<AccountApiToken> & { id: string }): Promise<AccountApiTokenListResult>;
+  updateToken?(payload: Partial<AccountApiToken> & { id: string; quotaInput?: AccountQuotaInput }): Promise<AccountApiTokenListResult>;
   deleteToken?(payload: { id: string }): Promise<AccountApiTokenListResult>;
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
@@ -2864,6 +2936,7 @@ export type ServerBridge = {
     editImageDescriptor?: Pick<ReferenceImage, "name" | "role" | "purpose">;
     editImage?: boolean;
     maskImage?: boolean;
+    maskStrategy?: "client-composite";
     outputFormat?: string;
     outputCompression?: number;
     background?: string;
@@ -3345,9 +3418,9 @@ export function normalizeModelConnectionBindings(value: unknown): ModelConnectio
     if (customApiKey) binding.customApiKey = customApiKey;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
     if (provider) binding.provider = provider;
-    if (["openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol as ImageProtocol;
-    if (["newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway as ImageGateway;
-    if (["sync", "async"].includes(transportMode)) binding.transportMode = transportMode as ImageTransportMode;
+    if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol as ImageProtocol;
+    if (["auto", "newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway as ImageGateway;
+    if (["auto", "sync", "async"].includes(transportMode)) binding.transportMode = transportMode as ImageTransportMode;
   }
   return bindings;
 }

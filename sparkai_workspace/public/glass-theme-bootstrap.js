@@ -8,6 +8,7 @@
   // the TypeScript projection so drift fails before packaging.
   var registry = {
     defaults: { theme: "dark-ember", material: "frosted", accent: "theme", noise: true, reduceMotion: false },
+    solidParameters: { opacity: 100, blur: 0, saturation: 100, highlight: 0, shadow: 8, radius: 8 },
     ranges: {
       opacity: { min: 8, max: 72 },
       blur: { min: 0, max: 48 },
@@ -54,6 +55,20 @@
       }
     },
     themes: {
+      "light-classic": {
+        mode: "light", appearance: "solid", accent: "ice",
+        glassRgb: "255, 255, 255", accentColor: "#262626", accentRgb: "38, 38, 38", accentInk: "#ffffff",
+        secondary: "#666666", secondaryRgb: "102, 102, 102", canvas: "#f3f3f3", canvasTint: "rgba(0, 0, 0, 0)",
+        surfaceSolid: "#ffffff", surfaceRaised: "#f5f5f5", nodeBg: "#ffffff",
+        ink: "#202020", inkSoft: "#454545", muted: "#666666"
+      },
+      "dark-classic": {
+        mode: "dark", appearance: "solid", accent: "ice",
+        glassRgb: "30, 30, 30", accentColor: "#ededed", accentRgb: "237, 237, 237", accentInk: "#171717",
+        secondary: "#aaaaaa", secondaryRgb: "170, 170, 170", canvas: "#141414", canvasTint: "rgba(0, 0, 0, 0)",
+        surfaceSolid: "#1e1e1e", surfaceRaised: "#2b2b2b", nodeBg: "#1e1e1e",
+        ink: "#f5f5f5", inkSoft: "#d0d0d0", muted: "#aaaaaa"
+      },
       "dark-rose": {
         mode: "dark", accent: "rose",
         glassRgb: "48, 30, 40", accentColor: "#ff8eb8", accentRgb: "255, 142, 184", accentInk: "#3c1022",
@@ -183,8 +198,13 @@
     var settings = normalizeAppearance(value);
     var theme = registry.themes[settings.glassTheme];
     var mode = registry.modes[theme.mode];
-    var parameters = settings.glassParameters;
-    var accent = parameters.accent === "theme"
+    var solid = theme.appearance === "solid";
+    var parameters = solid
+      ? Object.assign({}, settings.glassParameters, registry.solidParameters, { noise: false })
+      : settings.glassParameters;
+    var control = solid ? theme.surfaceRaised : mode.solidControl;
+    var controlHover = solid ? mixHexColors(theme.ink, 0.08, control) : mode.solidControlHover;
+    var accent = solid || parameters.accent === "theme"
       ? { id: theme.accent, color: theme.accentColor, rgb: theme.accentRgb, ink: theme.accentInk }
       : Object.assign({ id: parameters.accent }, registry.accents[parameters.accent]);
     var variables = {
@@ -206,8 +226,8 @@
       "--secondary-rgb": theme.secondaryRgb,
       "--canvas-tint": theme.canvasTint,
       "--node-bg": theme.nodeBg,
-      "--solid-control": mode.solidControl,
-      "--solid-control-hover": mode.solidControlHover,
+      "--solid-control": control,
+      "--solid-control-hover": controlHover,
       "--success": mode.success,
       "--danger": mode.danger,
       "--theme-bg": theme.surfaceSolid,
@@ -218,16 +238,16 @@
       "--theme-ink": theme.ink,
       "--theme-ink-soft": theme.inkSoft,
       "--theme-muted": theme.muted,
-      "--theme-line": mode.line,
-      "--theme-line-strong": mode.lineStrong,
+      "--theme-line": solid ? "rgba(" + accent.rgb + ", 0.14)" : mode.line,
+      "--theme-line-strong": solid ? "rgba(" + accent.rgb + ", 0.24)" : mode.lineStrong,
       "--theme-accent": accent.color,
       "--theme-accent-strong": mixHexColors(accent.color, 0.72, theme.ink),
       "--theme-blue": theme.secondary,
       "--theme-rose": mode.danger,
-      "--theme-amber": registry.accents.amber.color,
+      "--theme-amber": solid ? theme.secondary : registry.accents.amber.color,
       "--theme-green": mode.success,
-      "--theme-control-bg": mode.solidControl,
-      "--theme-hover-bg": mode.solidControlHover,
+      "--theme-control-bg": control,
+      "--theme-hover-bg": controlHover,
       "--theme-active-bg": "rgba(" + accent.rgb + ", 0.16)"
     };
     Object.keys(registry.accents).forEach(function accentVariable(id) {
@@ -263,17 +283,20 @@
 
   root.dataset.glassTheme = settings.glassTheme;
   root.dataset.glassMode = projection.mode;
+  var solid = registry.themes[settings.glassTheme].appearance === "solid";
+  var noise = parameters.noise && !solid;
+  root.dataset.glassStyle = solid ? "solid" : "glass";
   root.dataset.glassMaterial = settings.glassMaterial;
   root.dataset.glassAccent = parameters.accent;
   root.dataset.glassAccentResolved = projection.resolvedAccent;
-  root.dataset.glassNoise = parameters.noise ? "on" : "off";
+  root.dataset.glassNoise = noise ? "on" : "off";
   root.dataset.glassReduceMotion = parameters.reduceMotion ? "true" : "false";
   root.dataset.theme = projection.mode;
   root.dataset.uiTheme = settings.glassTheme;
   root.classList.toggle("glass-theme-active", true);
   root.classList.toggle("theme-dark", projection.mode === "dark");
   root.classList.toggle("theme-light", projection.mode === "light");
-  root.classList.toggle("glass-no-noise", !parameters.noise);
+  root.classList.toggle("glass-no-noise", !noise);
   root.classList.toggle("glass-reduce-motion", parameters.reduceMotion);
   Object.keys(projection.variables).forEach(function applyVariable(name) {
     root.style.setProperty(name, projection.variables[name]);

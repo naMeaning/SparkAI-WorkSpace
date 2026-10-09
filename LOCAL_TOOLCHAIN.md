@@ -12,7 +12,7 @@
 | Go | 仅用于历史 New API 源码的 Go 测试/审计；当前活跃 Extension 是 Node 服务，不依赖 Go | 便携 `go1.25.1 windows/amd64` 已安装并验证 |
 | Bun | 仅用于历史 New API Web 审计；当前活跃 Extension 不依赖 Bun | 便携 `1.3.14` 已安装并验证 |
 | .NET SDK | Windows 品牌安装器、开发启动器和正式桌面发布 | 便携 `9.0.316` 已安装并验证 |
-| GitHub CLI (`gh`) | 在已有 Git checkout 中创建/上传 GitHub Release | 便携 `2.96.0` 已安装；`gh auth status` 显示当前未登录，没有在本次任务中登录或推送 |
+| GitHub CLI (`gh`) | 在已有 Git checkout 中创建/上传 GitHub Release | 便携 `2.96.0` 已安装；2026-10-09 用户设备授权完成，实际登录 naMeaning，网络使用本机现有代理 |
 | Docker Desktop / Compose | 仅用于 `sparkai-extension/deploy/sparkai-extension` 的容器部署和 Caddy/网络联调；本地 Node 测试不依赖它 | 当前会话未发现 `docker` 命令，未安装/未验证；不能把本地静态检查当成部署证据 |
 | Python | 科研绘图 Runner 在用户明确选择 Python 时通过 `python` 或 `NAIMAGE_SCIENTIFIC_PYTHON` 启动 | 当前会话只解析到 WindowsApps stub，未把可执行 Python 解释器作为已验证事实；需用真实路径复核 |
 | R/Rscript | 科研绘图 Runner 的可选 R 后端 | 未验证；缺失时只能报告运行时不可用，不能静默切换 Python |
@@ -113,6 +113,6 @@ python --version
 
    实际资产清单以 `release:final` 报告和 manifest 为准；不要上传私钥、`.env`、用户数据、incomplete marker 或旧命名制品。
 
-本工作区当前只是文件快照，根目录和两个项目目录都没有 `.git`，因此本次没有创建 commit、tag、远端 push 或 GitHub Release；上述流程是可执行的发布说明，不是已完成的发布证据。工具链诊断已通过；项目依赖安装、正式 `release:final` 和发布制品仍未在本次任务中执行。
+历史工具链配置阶段只有文件快照，没有 `.git`；当时未创建 commit、tag、push 或 Release。2026-10-09 当前工作区已经是实际 Git checkout，用户授权将 main 推送并发布正式稳定版；原更新私钥丢失，已授权轮换和完整安装升级。新私钥默认在桌面 `config/release-signing-private.pem`，需受控备份，不能上传。具体边界见 `sparkai_workspace/docs/INSTALLATION.md`。正式状态须由当前冻结源码和同次 `release:final` 报告确认，工具存在或历史测试通过不构成发布证据。
 
-本次已实际验证：`diagnose-local-toolchain.ps1 -RequireReleaseTools` 通过；桌面 `corepack pnpm run typecheck`、`corepack pnpm run build`（1676 modules）、Extension `verify:workspace`/`check`（9 tests）、`test:release-orchestrator` 和 `release:plan` 通过。`release:final`、NSIS/安装卸载 smoke、签名制品、真实模型/License/生产部署和 GitHub push 仍未执行。
+历史工具链阶段曾验证 `diagnose-local-toolchain.ps1 -RequireReleaseTools`、桌面 typecheck/build、Extension verify/check 和发布编排 selftest/plan；这些历史证据不替代当前版本的正式安装、签名、全量编排和 GitHub 发布核验。当前进度见桌面 GOAL/PROGRESS。

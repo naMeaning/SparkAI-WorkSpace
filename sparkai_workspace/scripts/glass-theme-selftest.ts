@@ -24,6 +24,7 @@ import {
   writeGlassThemeBootstrapSnapshot
 } from "../src/settings-persistence.ts";
 import { applyGlassAppearance } from "../src/settings-runtime.ts";
+import { applyGlassBackgroundToRoot } from "../src/glass-background.ts";
 
 class MemoryStorage {
   readonly values = new Map<string, string>();
@@ -65,7 +66,7 @@ class FakeStyle {
   }
 }
 
-const expectedThemes = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"];
+const expectedThemes = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush", "light-classic", "dark-classic"];
 assert.deepEqual([...GLASS_THEME_IDS], expectedThemes);
 assert.deepEqual(glassThemeRegistry.themeOrder, expectedThemes);
 assert.deepEqual([...GLASS_MATERIAL_PRESET_IDS], ["clear", "frosted", "dense"]);
@@ -81,7 +82,9 @@ assert.deepEqual(
     "light-silver": "雾银玻璃",
     "light-lemon": "柠檬晶糖",
     "light-sky": "天青冰璃",
-    "light-blush": "蜜桃珍珠"
+    "light-blush": "蜜桃珍珠",
+    "light-classic": "简洁白色",
+    "dark-classic": "简洁黑色"
   }
 );
 
@@ -112,7 +115,7 @@ const liquidGlassCss = readFileSync(new URL("../src/styles/01-liquid-glass-token
 const indexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const agentWindowCss = readFileSync(new URL("../agent-window.css", import.meta.url), "utf8");
 
-for (const themeId of ["light-silver", "light-lemon", "light-sky", "light-blush"] as const) {
+for (const themeId of ["light-silver", "light-lemon", "light-sky", "light-blush", "light-classic"] as const) {
   const tokens = glassThemeRegistry.themes[themeId].tokens;
   assert(
     contrastRatio(tokens.muted, tokens.surfaceSolid) >= 4.5,
@@ -364,9 +367,10 @@ for (const glassTheme of GLASS_THEME_IDS) {
   }
 }
 
+for (const glassTheme of ["light-blush", "light-classic", "dark-classic"] as const) {
 for (const accent of GLASS_ACCENT_IDS) {
   const settings = normalizeGlassThemeSettings({
-    glassTheme: "light-blush",
+    glassTheme,
     glassMaterial: "custom",
     glassParameters: {
       opacity: 37,
@@ -396,6 +400,38 @@ for (const accent of GLASS_ACCENT_IDS) {
   assert.equal(accentBoot.style.getPropertyValue("--theme-accent"), expected.variables["--theme-accent"]);
   assert.equal(accentBoot.style.getPropertyValue("--theme-accent-strong"), expected.variables["--theme-accent-strong"]);
   assert.deepEqual(Object.fromEntries(accentBoot.style.values), expected.variables);
+}
+}
+
+// A colored custom material and saved background must survive a solid-theme
+// round trip, while none of those effects leak into its visible projection.
+const customizedGlass = withGlassParameters(withGlassTheme(defaults, "dark-ember"), {
+  opacity: 31, blur: 17, saturation: 151, highlight: 41, shadow: 27, radius: 21,
+  accent: "coral", noise: true
+});
+for (const glassTheme of ["light-classic", "dark-classic"] as const) {
+  const solid = withGlassTheme(customizedGlass, glassTheme);
+  const projection = glassAppearanceProjection(solid);
+  assert.deepEqual(solid.glassParameters, customizedGlass.glassParameters);
+  assert.equal(projection.variables["--glass-alpha"], "1");
+  assert.equal(projection.variables["--glass-blur"], "0px");
+  assert.equal(projection.variables["--noise-opacity"], "0");
+  assert.equal(projection.variables["--accent"], glassThemeRegistry.themes[glassTheme].tokens.accent);
+  assert(contrastRatio(projection.variables["--accent"], projection.variables["--accent-ink"]) >= 4.5);
+  assert(contrastRatio(glassThemeRegistry.themes[glassTheme].tokens.muted, projection.variables["--theme-canvas"]) >= 4.5);
+  const background = {
+    ...solid,
+    glassBackgroundEnabled: true,
+    glassBackgroundAssetId: `glass-bg-${"a".repeat(64)}`
+  };
+  const backgroundRoot = { dataset: {}, style: new FakeStyle() };
+  const applied = await applyGlassBackgroundToRoot(background, backgroundRoot as unknown as HTMLElement);
+  assert.equal(applied.status, "off", "Solid themes must not load an enabled glass background");
+  assert.equal(applied.glassBackgroundEnabled, true, "Stored background settings remain intact");
+  assert.equal(backgroundRoot.style.getPropertyValue("--glass-workspace-background-image"), "none");
+  const roundTrip = withGlassTheme(solid, "dark-ember");
+  assert.deepEqual(roundTrip, customizedGlass);
+  assert.equal(glassAppearanceProjection(roundTrip).variables["--glass-blur"], "17px");
 }
 
 const poisonedStorage = new MemoryStorage();

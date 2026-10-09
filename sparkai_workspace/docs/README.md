@@ -29,12 +29,9 @@
 
 发布说明是对应版本的历史证据，不自动代表当前 `package.json` 版本已经完成同样验证。
 
-历史记录中的测试安装包（2026-09-15，文档标注源码 `d88fae2`，`bundleEnforced: false`，未签名；本快照无 `.git` 且未重新核对文件，不能作为当前 Release 证据）：
+2026-10-09 正在准备 1.0.9 正式候选：包含图片 Provider Adapter、画布素材选取、原格式成果、脱敏日志、集中图片配置和共享斜杠命令。原更新私钥丢失，新完整安装包使用新公钥，1.0.8 及更早版本必须手动完整安装；最低更新版本为 1.0.9。配置与备份方法见 [安装说明](./INSTALLATION.md)。
 
-- `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`：175,984,640 字节，SHA-256 `F186275E90428C70A7A54950EDFDDE8E6AD06F9A3D85C64AA6A2A197D0B1B9F4`
-- `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe`：175,984,128 字节，SHA-256 `C374370FAE03262B632DFA194EB7BD3BEA99FB6C61E8BF86EE0E874DBA835991`
-
-公开 `release/` 只保留这两个当前 1.0.9 品牌安装包。旧 `naimage-Setup-1.0.7/1.0.8` 已清理。
+本仓库有 Git 元数据。此前同名开发 EXE、历史哈希和局部分项验证不能充当本次正式 Release 证据；新制品的大小、哈希和发布状态以同一次 `release:final` 报告及远端核验为准。
 
 ## 历史阶段记录
 

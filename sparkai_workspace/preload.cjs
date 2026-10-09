@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("naimageRuntime", Object.freeze({
 }));
 
 contextBridge.exposeInMainWorld("naimageConfig", {
+  readDiagnostics: () => ipcRenderer.invoke("naimage:diagnostics:read"),
+  exportDiagnostics: () => ipcRenderer.invoke("naimage:diagnostics:export"),
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
   listRequirementLibrary: (payload) => ipcRenderer.invoke("naimage:requirement-library:list", payload),
@@ -176,7 +178,7 @@ contextBridge.exposeInMainWorld("naimageServer", {
   login: (payload) => ipcRenderer.invoke("naimage:server:login", payload),
   logout: () => ipcRenderer.invoke("naimage:server:logout"),
   me: (payload) => ipcRenderer.invoke("naimage:server:me", payload),
-  logs: () => ipcRenderer.invoke("naimage:server:logs"),
+  logs: (payload) => ipcRenderer.invoke("naimage:server:logs", payload),
   models: (payload) => ipcRenderer.invoke("naimage:server:models", payload),
   tokens: (payload) => ipcRenderer.invoke("naimage:server:tokens", payload),
   selectToken: (payload) => ipcRenderer.invoke("naimage:server:select-token", payload),

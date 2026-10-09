@@ -68,6 +68,12 @@
   --glass-swatch-light-blush-canvas: #f8ebee;
   --glass-swatch-light-blush-accent: #e76f99;
   --glass-swatch-light-blush-surface: #ffe6ed;
+  --glass-swatch-light-classic-canvas: #f3f3f3;
+  --glass-swatch-light-classic-accent: #262626;
+  --glass-swatch-light-classic-surface: #ffffff;
+  --glass-swatch-dark-classic-canvas: #141414;
+  --glass-swatch-dark-classic-accent: #ededed;
+  --glass-swatch-dark-classic-surface: #1e1e1e;
 
   --glass-ease: 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
   --glass-surface-fill: rgba(var(--glass-rgb), var(--glass-alpha));
@@ -80,6 +86,9 @@
   --glass-shadow-color: rgba(var(--glass-shadow-rgb), var(--glass-shadow));
   --glass-shadow-soft: rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.54));
   --glass-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  --glass-canvas-decoration:
+    linear-gradient(var(--glass-canvas-tint), var(--glass-canvas-tint)),
+    radial-gradient(ellipse 96% 78% at 18% 22%, rgba(var(--accent-rgb), 0.08), transparent 64%);
   --glass-workspace-background-image: none;
   --glass-background-mask: rgba(250, 252, 255, 0.36);
   --glass-background-blur: 0px;
@@ -252,6 +261,42 @@
   --glass-muted: #836773;
 }
 
+:root[data-glass-theme="light-classic"] {
+  color-scheme: light;
+  --glass-rgb: 255, 255, 255;
+  --accent: #262626;
+  --accent-rgb: 38, 38, 38;
+  --accent-ink: #ffffff;
+  --secondary: #666666;
+  --secondary-rgb: 102, 102, 102;
+  --glass-canvas: #f3f3f3;
+  --glass-canvas-tint: rgba(0, 0, 0, 0);
+  --glass-surface-solid: #ffffff;
+  --glass-surface-raised: #f5f5f5;
+  --glass-node-bg: #ffffff;
+  --glass-ink: #202020;
+  --glass-ink-soft: #454545;
+  --glass-muted: #666666;
+}
+
+:root[data-glass-theme="dark-classic"] {
+  color-scheme: dark;
+  --glass-rgb: 30, 30, 30;
+  --accent: #ededed;
+  --accent-rgb: 237, 237, 237;
+  --accent-ink: #171717;
+  --secondary: #aaaaaa;
+  --secondary-rgb: 170, 170, 170;
+  --glass-canvas: #141414;
+  --glass-canvas-tint: rgba(0, 0, 0, 0);
+  --glass-surface-solid: #1e1e1e;
+  --glass-surface-raised: #2b2b2b;
+  --glass-node-bg: #1e1e1e;
+  --glass-ink: #f5f5f5;
+  --glass-ink-soft: #d0d0d0;
+  --glass-muted: #aaaaaa;
+}
+
 :root:is([data-glass-mode="dark"], [data-glass-theme^="dark-"]) {
   color-scheme: dark;
   --glass-alpha: 0.22;
@@ -339,6 +384,28 @@
   --glass-highlight: 0.76;
   --glass-shadow: 0.24;
   --glass-radius: 12px;
+}
+
+/* Solid presentation uses the same tokens without glass effects. Saved glass
+   material values remain intact and are restored when the theme changes. */
+:root[data-glass-style="solid"] {
+  --glass-alpha: 1;
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --glass-highlight: 0;
+  --glass-shadow: 0.08;
+  --glass-radius: 8px;
+  --glass-noise-opacity: 0;
+  --glass-backdrop-filter: none;
+  --glass-canvas-decoration: none;
+  --canvas-ambient-content: none;
+  --canvas-particle-display: none;
+  --glass-fallback-bg: var(--glass-surface-solid);
+  --glass-menu-surface: var(--glass-surface-solid);
+  --glass-edge-color: var(--theme-line-strong);
+  --glass-edge-color-soft: var(--theme-line);
+  --glass-shadow-rgb: 0, 0, 0;
+  --glass-control-bg: var(--glass-surface-raised);
 }
 
 /* Optional accent mixing mirrors the prototype's five explicit swatches. */

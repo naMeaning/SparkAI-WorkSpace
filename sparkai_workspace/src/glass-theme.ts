@@ -7,7 +7,9 @@ export const GLASS_THEME_IDS = [
   "light-silver",
   "light-lemon",
   "light-sky",
-  "light-blush"
+  "light-blush",
+  "light-classic",
+  "dark-classic"
 ] as const;
 
 export const GLASS_MATERIAL_PRESET_IDS = ["clear", "frosted", "dense"] as const;
@@ -94,6 +96,7 @@ export type GlassThemeRegistry = {
   };
   themeOrder: GlassThemeId[];
   materialOrder: GlassMaterialPresetId[];
+  solidParameters: GlassNumericParameters;
   accentOrder: GlassAccentId[];
   ranges: Record<GlassNumericParameterKey, { min: number; max: number; step: number; unit: "%" | "px" }>;
   accents: Record<Exclude<GlassAccentId, "theme">, GlassAccentToken>;
@@ -102,6 +105,7 @@ export type GlassThemeRegistry = {
   themes: Record<GlassThemeId, {
     name: string;
     mode: GlassThemeMode;
+    appearance?: "solid";
     accent: Exclude<GlassAccentId, "theme">;
     tokens: GlassThemeTokens;
   }>;
@@ -159,6 +163,10 @@ function behaviorFrom(value: unknown): Pick<GlassParameters, "accent" | "noise" 
 
 export function glassThemeMode(theme: GlassThemeId): GlassThemeMode {
   return glassThemeRegistry.themes[normalizedTheme(theme)].mode;
+}
+
+export function isSolidTheme(theme: GlassThemeId) {
+  return glassThemeRegistry.themes[normalizedTheme(theme)].appearance === "solid";
 }
 
 export function glassMaterialParameters(
@@ -253,7 +261,7 @@ function mixHexColors(left: string, leftWeight: number, right: string) {
 
 function resolvedAccentTokens(settings: GlassThemeSettings) {
   const theme = glassThemeRegistry.themes[settings.glassTheme];
-  if (settings.glassParameters.accent === "theme") {
+  if (settings.glassParameters.accent === "theme" || theme.appearance === "solid") {
     return {
       id: theme.accent,
       color: theme.tokens.accent,
@@ -270,7 +278,14 @@ export function glassAppearanceProjection(value: GlassThemeSettings | unknown): 
   const settings = normalizeGlassThemeSettings(value);
   const theme = glassThemeRegistry.themes[settings.glassTheme];
   const mode = glassThemeRegistry.modeTokens[theme.mode];
-  const parameters = settings.glassParameters;
+  const solid = theme.appearance === "solid";
+  // Solid themes change only the projection; the saved glass configuration
+  // survives switching back, including custom material and accent choices.
+  const parameters = solid
+    ? { ...settings.glassParameters, ...glassThemeRegistry.solidParameters, noise: false }
+    : settings.glassParameters;
+  const control = solid ? theme.tokens.surfaceRaised : mode.solidControl;
+  const controlHover = solid ? mixHexColors(theme.tokens.ink, 0.08, control) : mode.solidControlHover;
   const accent = resolvedAccentTokens(settings);
   const variables: Record<string, string> = {
     "--glass-rgb": theme.tokens.glassRgb,
@@ -291,8 +306,8 @@ export function glassAppearanceProjection(value: GlassThemeSettings | unknown): 
     "--secondary-rgb": theme.tokens.secondaryRgb,
     "--canvas-tint": theme.tokens.canvasTint,
     "--node-bg": theme.tokens.nodeBg,
-    "--solid-control": mode.solidControl,
-    "--solid-control-hover": mode.solidControlHover,
+    "--solid-control": control,
+    "--solid-control-hover": controlHover,
     "--success": mode.success,
     "--danger": mode.danger,
     "--theme-bg": theme.tokens.surfaceSolid,
@@ -303,16 +318,16 @@ export function glassAppearanceProjection(value: GlassThemeSettings | unknown): 
     "--theme-ink": theme.tokens.ink,
     "--theme-ink-soft": theme.tokens.inkSoft,
     "--theme-muted": theme.tokens.muted,
-    "--theme-line": mode.line,
-    "--theme-line-strong": mode.lineStrong,
+    "--theme-line": solid ? `rgba(${accent.rgb}, 0.14)` : mode.line,
+    "--theme-line-strong": solid ? `rgba(${accent.rgb}, 0.24)` : mode.lineStrong,
     "--theme-accent": accent.color,
     "--theme-accent-strong": mixHexColors(accent.color, 0.72, theme.tokens.ink),
     "--theme-blue": theme.tokens.secondary,
     "--theme-rose": mode.danger,
-    "--theme-amber": glassThemeRegistry.accents.amber.color,
+    "--theme-amber": solid ? theme.tokens.secondary : glassThemeRegistry.accents.amber.color,
     "--theme-green": mode.success,
-    "--theme-control-bg": mode.solidControl,
-    "--theme-hover-bg": mode.solidControlHover,
+    "--theme-control-bg": control,
+    "--theme-hover-bg": controlHover,
     "--theme-active-bg": `rgba(${accent.rgb}, 0.16)`
   };
   for (const accentId of GLASS_ACCENT_IDS) {
@@ -349,10 +364,13 @@ export function applyGlassAppearanceToRoot(
 
   root.dataset.glassTheme = settings.glassTheme;
   root.dataset.glassMode = theme.mode;
+  root.dataset.glassStyle = theme.appearance || "glass";
+  if (theme.appearance === "solid") root.dataset.glassBackground = "off";
   root.dataset.glassMaterial = settings.glassMaterial;
   root.dataset.glassAccent = parameters.accent;
   root.dataset.glassAccentResolved = projection.resolvedAccent;
-  root.dataset.glassNoise = parameters.noise ? "on" : "off";
+  const noise = parameters.noise && theme.appearance !== "solid";
+  root.dataset.glassNoise = noise ? "on" : "off";
   root.dataset.glassReduceMotion = parameters.reduceMotion ? "true" : "false";
   root.dataset.theme = theme.mode;
   root.dataset.uiTheme = settings.glassTheme;
@@ -360,7 +378,7 @@ export function applyGlassAppearanceToRoot(
   root.classList.toggle("glass-theme-active", true);
   root.classList.toggle("theme-dark", theme.mode === "dark");
   root.classList.toggle("theme-light", theme.mode === "light");
-  root.classList.toggle("glass-no-noise", !parameters.noise);
+  root.classList.toggle("glass-no-noise", !noise);
   root.classList.toggle("glass-reduce-motion", parameters.reduceMotion);
 
   for (const [name, cssValue] of Object.entries(projection.variables)) {

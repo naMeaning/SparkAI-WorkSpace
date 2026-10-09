@@ -592,6 +592,38 @@ async function main() {
     assert.deepEqual([...registryModule.AUTOMATION_COMMAND_ENUMS["agent.steer"].taskScopeMode], steerSchema.parameters.properties.taskScopeMode.enum,
       "Renderer steer-mode validation must be generated from the shared command schema");
     const runtimeModule = await import(`${pathToFileURL(path.resolve(__dirname, "..", "src", "automation-command-runtime.ts")).href}?automation-selftest=${Date.now()}`);
+    const priorWindow = globalThis.window;
+    let diagnosticReads = 0;
+    let diagnosticExports = 0;
+    globalThis.window = { naimageConfig: {
+      readDiagnostics: async () => { diagnosticReads++; return { ok: true, events: [{ kind: "model", phase: "failure", status: 502 }] }; },
+      exportDiagnostics: async () => { diagnosticExports++; return { ok: false, canceled: true }; }
+    } };
+    try {
+      assert.equal((await runtimeModule.executeAutomationCommand("app.diagnostics", {}, {})).events[0].status, 502);
+      assert.equal((await runtimeModule.executeAutomationCommand("app.export-diagnostics", {}, {})).canceled, true);
+      assert.equal(diagnosticReads, 1);
+      assert.equal(diagnosticExports, 1, "CLI export must use the same native save authorization as the GUI");
+    } finally { globalThis.window = priorWindow; }
+    const materialCalls = [];
+    const materialContext = {
+      activeProjectId: () => "PROJECT",
+      canvasRevision: () => 7,
+      nodes: () => [{ id: "image", type: "image", assets: [{ path: "fixture.png", status: "done" }] }, { id: "video", type: "video" }],
+      addCanvasMaterials: (targets, role) => { materialCalls.push({ targets, role }); return { role, added: 1 }; }
+    };
+    const materialArgs = { expectedProjectId: "PROJECT", expectedCanvasRevision: 7, role: "reference", targets: [{ nodeId: "image", assetIndex: 0 }] };
+    assert.equal((await runtimeModule.executeAutomationCommand("agent.add-canvas-materials", materialArgs, materialContext)).added, 1);
+    for (const args of [
+      { ...materialArgs, expectedProjectId: "stale" },
+      { ...materialArgs, expectedCanvasRevision: 6 },
+      { ...materialArgs, targets: [{ nodeId: "image" }, { nodeId: "stale" }] },
+      { ...materialArgs, targets: [{ nodeId: "video" }] },
+      { ...materialArgs, targets: [{ nodeId: "image", assetIndex: 4 }] },
+      { ...materialArgs, role: "invalid" },
+      { ...materialArgs, targets: [{ nodeId: "image", path: "external.png" }] }
+    ]) await assert.rejects(runtimeModule.executeAutomationCommand("agent.add-canvas-materials", args, materialContext));
+    assert.equal(materialCalls.length, 1, "Invalid targets must not partly mutate either list");
     const exportCalls = [];
     const exportResult = await runtimeModule.executeAutomationCommand("canvas.export-image", {
       nodeId: "image-a",
@@ -838,6 +870,12 @@ async function main() {
       },
       agentBusy: () => false
     };
+    let imageConfigOpenCount = 0;
+    const imageConfigResult = await runtimeModule.executeAutomationCommand("agent.image-config", {}, {
+      ...canvasRuntimeContext, openImageConfig: () => { imageConfigOpenCount++; }
+    });
+    assert.deepEqual(imageConfigResult, { opened: true });
+    assert.equal(imageConfigOpenCount, 1);
     const listedDomains = await runtimeModule.executeAutomationCommand("workspace.domain.list", {}, canvasRuntimeContext);
     assert.equal(listedDomains.defaultDomain, "general");
     assert.deepEqual(listedDomains.domains.map((domain) => domain.id), ["general", "commerce", "social", "research"]);
@@ -2057,10 +2095,13 @@ async function main() {
       "Re-importing a locally edited Skill must report a conflict instead of an exact duplicate");
     assert.match(rendererSource, /locallyModifiedAt: new Date\(\)\.toISOString\(\)/,
       "Editing imported Skill instructions must preserve source identity and mark the local modification");
-    assert.match(composerSource, /<option value="auto">自动处理（推荐）<\/option>/);
-    assert.match(composerSource, /<option value="keep">只修改要求，保留现有图片<\/option>/);
-    assert.match(composerSource, /<option value="replace-source">更换处理图片<\/option>/);
-    assert.doesNotMatch(composerSource, /<option value="merge-source">/,
+    assert.match(composerSource, /<GlassSelect\s+value=\{taskScopeMode\}/,
+      "The steer selector must use the canonical task scope value");
+    assert.match(composerSource, /onChange=\{\(value\) => setTaskScopeMode\(value as AgentSteerTaskScopeMode \| "auto"\)\}/);
+    assert.match(composerSource, /\{ value: "auto", label: "自动处理（推荐）" \}/);
+    assert.match(composerSource, /\{ value: "keep", label: "只修改要求，保留现有图片" \}/);
+    assert.match(composerSource, /\{ value: "replace-source", label: "更换处理图片" \}/);
+    assert.doesNotMatch(composerSource, /\{ value: "merge-source", label:/,
       "The normal steer UI must not expose protocol-level SOURCE merge terminology");
     assert.match(composerSource, /if \(!executionBusy\) setTaskScopeMode\("auto"\)/,
       "The visible steer mode must reset between runs");

@@ -812,6 +812,73 @@
   align-content: start;
 }
 
+.reference-picker-sources {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reference-canvas-hint,
+.reference-picker-message,
+.reference-canvas-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.reference-canvas-grid {
+  min-height: 304px;
+}
+
+.reference-canvas-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  text-align: center;
+}
+
+.canvas-material-option {
+  padding: 0;
+  cursor: pointer;
+}
+
+.canvas-material-option img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.canvas-material-option[aria-pressed="true"] {
+  border: 2px solid var(--accent);
+}
+
+.canvas-material-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 6px;
+  overflow: hidden;
+  color: white;
+  background: rgba(15, 23, 42, 0.78);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-material-check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: white;
+  background: var(--accent);
+}
+
 .ui-surface .ui-surface-body.ask-user-body {
   grid-template-rows: auto auto;
 }

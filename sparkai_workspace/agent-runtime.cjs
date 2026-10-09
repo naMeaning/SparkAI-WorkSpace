@@ -22,6 +22,7 @@ Region Index
 const { createHash } = require("node:crypto");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
+const { chatRequestFromRuntimeRequest } = require("./desktop/agent-responses-adapter.cjs");
 const {
   appendImageDeliverySpecification,
   imagePromptQualities,
@@ -1734,6 +1735,8 @@ function toolErrorAdvice(category) {
     invalid_tool_arguments: "这是模型工具参数的内部契约问题。请静默修正 schema 参数并重新调用，不要向用户复述校验错误。",
     invalid_input: "参数问题，应修正参数后重试，不要原样重复。",
     missing_reference: "缺少参考图或源图，应调用 ask_user 请求补充。",
+    image_result_download: "上游已返回图片，失败发生在结果下载；不要重新调用 image_gen，以免重复计费。请提示用户检查图片下载网络或联系中转获取已有结果。",
+    image_result_processing: "上游已返回图片，失败发生在本地图片校验、格式转换或保存；不要重新调用 image_gen，以免重复计费。请说明具体保存错误。",
     policy: "策略/安全拒绝，应改写 prompt 或向用户说明限制。",
     unknown: "未知错误，可尝试一次保守重试；若重复失败则说明原因。"
   };
@@ -1743,7 +1746,7 @@ function toolErrorAdvice(category) {
 function makeToolErrorEnvelope(toolName, callInput, error) {
   const message = cleanOneLine(errorMessage(error), 500);
   const category = classifyToolError(toolName, error);
-  const retriable = isRetriableToolError(category);
+  const retriable = error?.unsafeToRetry !== true && error?.generationCompleted !== true && isRetriableToolError(category);
   const resultText = [
     "TOOL ERROR",
     `ok: false`,
@@ -2250,7 +2253,8 @@ function writeImageOutputs(projectRoot, images, stem, outputFormat = "png", gene
 
     const clean = image.value.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(clean, "base64");
-    const detected = requireEncodedImageFormat(buffer, outputFormat);
+    const detected = requireEncodedImageFormat(buffer);
+    if (generation) generation.response = { ...generation.response, outputFormat: detected.format };
     const filePath = path.join(outputDir, `${stem}-${String(index + 1).padStart(2, "0")}${detected.extension}`);
     writeFileSync(filePath, buffer);
     const relativePath = path.relative(projectRoot, filePath).split(path.sep).map(encodeURIComponent).join("/");
@@ -3582,7 +3586,10 @@ function createAgentRuntime(options) {
           error
         };
       });
-      if (!outputs.length) throw new Error(items.find((item) => item.error)?.error || "批量图片生成失败。");
+      if (!outputs.length) {
+        const originalError = settled.find((entry) => entry.status === "rejected")?.reason;
+        throw originalError instanceof Error ? originalError : new Error(items.find((item) => item.error)?.error || "批量图片生成失败。");
+      }
       const firstSuccess = settled.find((entry) => entry.status === "fulfilled")?.value || {};
       const accounting = optionalGenerationAccounting(settled.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []));
       return {
@@ -3757,7 +3764,10 @@ function createAgentRuntime(options) {
           error: item?.ok && compactIndex >= 0 ? undefined : cleanOneLine(item?.error || "没有返回图片。", 260)
         };
       });
-      if (!successResults.length) throw new Error(failedResults[0]?.item?.error || "用户服务生图失败。");
+      if (!successResults.length) {
+        const originalError = settled[failedResults[0]?.index]?.reason;
+        throw originalError instanceof Error ? originalError : new Error(failedResults[0]?.item?.error || "用户服务生图失败。");
+      }
       if (serverResult && serverResult.ok) {
         const accounting = optionalGenerationAccounting(successResults);
         return {
@@ -3922,6 +3932,7 @@ function createAgentRuntime(options) {
       .filter(({ item }) => item.status === "rejected");
     if (!responses.length) {
       const firstError = failed[0]?.item;
+      if (firstError?.reason instanceof Error) throw firstError.reason;
       throw new Error(firstError && firstError.status === "rejected" ? firstError.reason?.message || String(firstError.reason) : "Image API 生图失败。");
     }
     const imageEntries = successfulResponses.flatMap(({ response, index, startedAt, completedAt, durationMs }) =>
@@ -6654,6 +6665,7 @@ function createAgentRuntime(options) {
       if (requestBody.stream) {
         const streamed = await runtimeOptions.serverChatCompletion({
           ...requestBody,
+          _diagnostic: { runId: requestOptions.runId, round: requestOptions.round },
           signal: requestOptions.signal,
           onStreamEvent: (chunk) => {
             emitNativeWebSearchProgress(chunk, progress, nativeWebSearchState);
@@ -6675,7 +6687,8 @@ function createAgentRuntime(options) {
         if (sawThinking) progress({ phase: "model-thinking-done" });
         return responseFromStreamChunks(streamed.chunks ?? []);
       }
-      const response = await runtimeOptions.serverChatCompletion({ ...requestBody, signal: requestOptions.signal });
+      const response = await runtimeOptions.serverChatCompletion({ ...requestBody,
+        _diagnostic: { runId: requestOptions.runId, round: requestOptions.round }, signal: requestOptions.signal });
       emitNativeWebSearchProgress({ response }, progress, nativeWebSearchState);
       return response;
     }
@@ -6695,13 +6708,13 @@ function createAgentRuntime(options) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`
         },
-        body: JSON.stringify({ ...requestBody, stream: false }),
+        body: JSON.stringify(chatRequestFromRuntimeRequest({ ...requestBody, stream: false })),
         signal: controller.signal
       });
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`API ${response.status}: ${text.slice(0, 320)}`);
+        throw Object.assign(new Error(`API ${response.status}: ${text.slice(0, 320)}`), { status: response.status });
       }
 
       return response.json();
@@ -6897,6 +6910,8 @@ function createAgentRuntime(options) {
     let assistantMessage = null;
     let modelRound = 0;
     let goalImageToolCallAccepted = false;
+    let unsafeImageGenerationError = null;
+    let incompleteModelReply = null;
     // Complex native tool sequences can legitimately include reference review,
     // generation, result review and one corrective pass. Keep a generous safety
     // ceiling while relying on the tool schema, duplicate-call guard and bounded
@@ -7166,6 +7181,7 @@ function createAgentRuntime(options) {
           toolResults.push(envelope);
           return { envelope, actions: [], name, ok: true, steered: true };
         }
+        if (name === primaryImageToolName && unsafeImageGenerationError) throw unsafeImageGenerationError;
         const result = await runTool(name, input, {
           settings,
           nodes: payload.nodes ?? [],
@@ -7231,6 +7247,9 @@ function createAgentRuntime(options) {
           };
           toolResults.push(envelope);
           return { envelope, actions: [], name, ok: true, steered: true };
+        }
+        if (name === primaryImageToolName && (error?.unsafeToRetry === true || error?.generationCompleted === true)) {
+          unsafeImageGenerationError = error;
         }
         const failure = makeToolErrorEnvelope(name, parsedInput, error);
         const envelope = storeToolResult(name, parsedInput, failure.resultText, {
@@ -7310,6 +7329,8 @@ function createAgentRuntime(options) {
           compactRuntimeMessagesForModel(messages),
           {
             progress: (event) => progress({ ...event, modelRound }),
+            runId: payload.runId,
+            round: modelRound,
             tools: exposedTools,
             toolChoice: "auto",
             signal: modelPhase.signal
@@ -7319,6 +7340,34 @@ function createAgentRuntime(options) {
         if (phaseWasSteered(modelPhase, error)) {
           consumeSteers("model-interrupted");
           continue;
+        }
+        // Stop/cancel is not a partial delivery. A model outage after actual
+        // image output must still settle actions and persist the tool history.
+        const hasImageOutput = toolResults.some((result) => result?.tool === primaryImageToolName)
+          && actions.some((action) => (action?.node?.assets || []).some((asset) => asset?.path || asset?.url || asset?.dataUrl));
+        if (hasImageOutput && !payload.signal?.aborted && !modelPhase.signal?.aborted
+          && error?.name !== "AbortError" && error?.code !== "NAIMAGE_RUN_CANCELLED") {
+          const status = Number(error?.status);
+          incompleteModelReply = {
+            phase: "model",
+            ...(status >= 400 && status <= 599 ? { status } : {})
+          };
+          const executionFailed = toolResults.some((result) => result?.ok === false)
+            || actions.some((action) => Number(action?.node?.imageProgress?.failed) > 0);
+          // Do not reuse the previous model's plan or claim visual approval:
+          // view_image success proves reading, not a completed model review.
+          assistantMessage = { role: "assistant", content: [
+            "图片成果已保留。",
+            executionFailed
+              ? "部分工具未完成，请查看对应工具的失败信息。"
+              : "图片已生成。",
+            `后续对话模型请求失败${incompleteModelReply.status ? `（HTTP ${incompleteModelReply.status}）` : ""}，视觉质检或最终回复未完成。`,
+            "本次未重新生成图片。"
+          ].join("\n") };
+          turnProtocolItems.push({ type: "message", role: "assistant", content: [{ type: "output_text", text: assistantMessage.content }] });
+          incompleteModelReply.executionFailed = executionFailed;
+          progress({ phase: "runtime-partial", summary: "图片成果已保留，后续对话未完成。", detail: incompleteModelReply });
+          break;
         }
         throw error;
       } finally {
@@ -7473,7 +7522,9 @@ function createAgentRuntime(options) {
       fallbackToolSummary;
     if (!content) throw new Error("API 返回成功，但没有文本内容。");
     appendConversationProtocolTurn(payload, turnProtocolItems, protocolLimitsForStrategy(strategy));
-    return { ok: true, content, actions, toolResults: publicToolResults };
+    return { ok: true, content, actions, toolResults: publicToolResults,
+      ...(incompleteModelReply ? { completion: "partial", modelFailure: { phase: "model", status: incompleteModelReply.status },
+        executionFailed: incompleteModelReply.executionFailed } : {}) };
   }
 
   async function composeImagePrompt(payload = {}) {

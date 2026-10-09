@@ -65,6 +65,11 @@ export function runCompletedImageGen(
   });
 }
 
+export function runHasIncompleteModelReply(progress: Array<{ runId?: string; phase?: string }> = []): boolean {
+  const runId = progress[progress.length - 1]?.runId;
+  return progress.some((item) => item.phase === "runtime-partial" && item.runId === runId);
+}
+
 function cleanFailureDetail(errorMessage: string): string {
   return String(errorMessage || "")
     .replace(/^\s*(?:Agent 调用失败|Agent 失败|对话模型调用失败|对话模型暂时不可用)\s*[:：]?\s*/i, "")

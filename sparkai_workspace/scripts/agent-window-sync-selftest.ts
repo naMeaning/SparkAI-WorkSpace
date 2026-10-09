@@ -116,6 +116,8 @@ assert.equal(snapshot.glassAppearance.variables["--theme-canvas"], "#07100d");
 assert.equal(snapshot.glassAppearance.variables["--theme-accent"], "#ff8b78");
 assert.equal(JSON.stringify(snapshot.glassAppearance).includes("agentApiKey"), false);
 assert.equal(agentWindowStatusText({ ...base, busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "error" }] }), "Agent 遇到问题");
+assert.equal(agentWindowStatusText({ ...base, messages: [], busy: false, runElapsedSeconds: 0, agentStatus: "idle", agentProgress: [{ phase: "runtime-partial" }] }), "图片成果已保留，后续对话未完成");
+assert.equal(agentWindowStatusText({ ...base, messages: [], busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "runtime-partial" }] }), "Agent 遇到问题", "Tool failures must remain failures");
 assert.equal(agentWindowStatusText({ ...base, stopPending: true }), "Agent 正在确认结束");
 
 const stopPendingSnapshot = buildAgentWindowSnapshot({ ...base, stopPending: true });
@@ -219,8 +221,10 @@ assert(Buffer.byteLength(JSON.stringify(boundedSnapshot), "utf8") < 16 * 1024 * 
 const surfaceHtml = readFileSync(new URL("../agent-window.html", import.meta.url), "utf8");
 const surfaceRenderer = readFileSync(new URL("../agent-window-renderer.js", import.meta.url), "utf8");
 const surfaceCss = readFileSync(new URL("../agent-window.css", import.meta.url), "utf8");
-assert.match(surfaceHtml, /id="standard-mode"/);
-assert.match(surfaceHtml, /id="goal-mode"/);
+assert.doesNotMatch(surfaceHtml, /id="(?:standard-mode|goal-mode)"/);
+assert.match(surfaceHtml, /id="composer-commands"/);
+assert.match(surfaceHtml, /type="module"/);
+assert.deepEqual(normalizeAgentWindowCommand({ type: "edit-image-config" }), { type: "edit-image-config" });
 assert.match(surfaceHtml, /id="goal-summary"/);
 assert.match(surfaceHtml, /id="goal-steer-lock"/);
 assert.match(surfaceRenderer, /window\.confirm\(goalConfirmationText\(goal\)\)/);
@@ -239,6 +243,12 @@ assert.match(surfaceRenderer, /root\.dataset\.glassTheme = appearance\.glassThem
 assert.match(surfaceRenderer, /glassVariableNamePattern\.test\(name\)/);
 assert.match(surfaceCss, /grid-template-rows: auto auto auto minmax\(0, 1fr\) auto auto/);
 assert.match(surfaceCss, /:root\.glass-theme-active \.agent-header/);
-assert.match(surfaceCss, /backdrop-filter: blur\(var\(--glass-blur\)\)/);
+assert.match(surfaceCss, /--glass-backdrop-filter: blur\(var\(--glass-blur\)\)/);
+assert.match(surfaceCss, /backdrop-filter: var\(--glass-backdrop-filter\)/);
+for (const glassTheme of ["light-silver", "light-classic", "dark-classic"] as const) {
+  const themeSnapshot = buildAgentWindowSnapshot({ ...base, glassTheme });
+  assert.equal(themeSnapshot.glassAppearance.glassTheme, glassTheme);
+  assert(surfaceRenderer.includes(`"${glassTheme}"`), `Independent Agent must accept ${glassTheme}`);
+}
 
 process.stdout.write(`${JSON.stringify({ ok: true, cases: 68 })}\n`);

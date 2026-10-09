@@ -1,7 +1,157 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：推送当前源码并发布 GitHub Release（2026-10-09）
+
+- 状态：in progress；用户明确要求将当前改动推送远端并发布 Release，替代此前“未授权 push/发布”的边界。
+- 结果：当前桌面功能和相关文档提交到 origin/main；GitHub Release 对应冻结源码、真实安装包、版本说明与完整性信息。
+- 范围：当前桌面 dirty worktree、工作区上下文/决策文档、Git 提交/远端、Windows 发行和 GitHub Release；保持 Extension 与外部 New API 独立。
+- 验收：提交内容无凭据/配置/诊断/用户数据；远端提交一致；用户选择正式稳定版，需解决全部前置条件、同次 release:final 全部通过并核验远端 Release 资产。
+- 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。0 新真实模型/图片/视频请求，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
+- 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,552 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项，新 Unrestricted 包的实际程序与配置/命令 GUI 已通过，正式全量编排尚未运行。
+- 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
+- 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
+- 隔离授权：用户允许创建临时本地标准测试账户、临时读取工作区与发布密钥；验证结束撤销权限并清理该账户。日常安装、项目、登录与进程保持原状。
+- 下一步：隔离安装及 1.0.8 → 1.0.9 完整安装升级预验收已通过；冻结/推送后，在全新临时账户运行同次正式发布流程并核验 GitHub Release。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
+
+## 当前任务：图片配置入口与斜杠命令（2026-10-08）
+
+- 状态：complete（2026-10-08）；图片配置、共享斜杠命令及两种更新开发 EXE 已完成本地验收，保留此前已验证的生图、素材与对话修复。
+- 结果：Agent 输入区只保留素材和图片配置；模型、比例、清晰度、数量与质量通过同一配置弹窗修改；输入 `/` 提供候选和键盘选择，`/goal 要求` 复用原批量 Goal 确认，另支持 /config、/help、/new、/pause、/resume、/stop。
+- 范围：主 Composer、独立 Agent 表面、主 Renderer 设置 owner、独立窗命令合同、CLI/MCP 对应动作说明与相关验证；不重建生图工作台，不更改 Adapter、凭据或外部服务。
+- 验收：配置修改持久化及 reload；斜杠/普通文本/未知命令/缺参/运行中命令；Goal 预览取消与冻结范围；主和独立窗口可见交互及小窗口截图；专项、quick GUI、build、两种开发 EXE 实际程序冒烟。
+- 授权：本地改造、隔离 Mock 与延续用户的开发 EXE 交付；0 新真实模型、图片、视频或账户请求，不重复上一轮已执行的 Grok 授权，不推送、部署或正式发布。
+- 完成证据：源码专项、quick GUI、Goal 四场景及配置保存/reload 通过；两种开发 EXE 的实际程序 GUI 各 9 checks/10 screenshots/0 真实模型请求，884×640 视口配置弹窗可见且无横向溢出。每包 129 文件与源码/dist 一致，策略、MZ、大小、SHA-256/NotSigned 独立复核通过；汇总 .diagnostics/release/composer-command-delivery-2026-10-08.json 替代同名旧 EXE 元数据。
+- 交付与边界：两种 1.0.9 x64 EXE 均为 109,827,584 B，用户自定义中转使用 Unrestricted。本轮未重复真实生成、安装/卸载或签名；运行中 /pause→/resume→/stop 完整 slash 往返未专项端到端演练，共享状态约束与原 owner 合同已验证。正式 Bundle 仍因 CSS 288,546 > 270,000 B 失败，按仓库规则交付开发包，未正式发布。
+- 下一步：本轮目标完成，从新的用户要求继续；不自动重复已执行的真实 Grok 授权或扩大正式发布。
+- 用户追加方向：参考 DeepSeek harness、Codex、Claude Code 的命令发现、集中配置和可恢复任务交互；在本轮界面边界内增加 /status 本地状态查询，保留显式 Goal/停止确认与单一 Runtime，不扩展供应商或重建 harness。
+
+## 当前任务：成图后的对话 502 恢复与成果交付（2026-10-08）
+
+- 状态：complete（2026-10-08）；10 个精确 runtime 场景、主/独立窗口及日志 GUI、实际 EXE 使用本地真实用户登录的 Grok → 读图 → 回复和两种开发 EXE 均已验证。
+- 结果：生成成功后对话服务故障不得丢失已有成果或误报生图失败；按真实完成步骤提示尚未完成的视觉质检/最终回复，保留正常错误、取消与修改需求语义。
+- 范围：既有 Agent 模型调用、runtime 回执/协议保存、Main IPC 与主/独立窗口状态；复用图片服务与 Adapter，不重建生图流程，不改外部 New API。
+- 验收：Mock 精确覆盖 image_gen → view_image → 502、持续故障、首轮故障、工具失败/部分失败、取消/steer；已有成果和协议保留，恢复只重试当前对话请求，图片工具不重放；Electron 可见场景/截图、相关专项、build 与两种开发 EXE 的实际程序冒烟。
+- 授权：本地实现、隔离 Mock 与沿用用户要求的 EXE 交付；本轮 0 新真实图片/视频/对话请求，不刷新账户、不更改凭据、不 push/部署/正式发布。延后的真实账户复验仍 deferred。
+- 授权更新（用户 2026-10-08 新指示）：允许使用现有本地登录会话验证本故障；限定为已有成图的后续对话/读图验证，0 新图片/视频请求，不把旧会话复制到报告、不记录或公开凭据。上述 0 对话请求限制由此 superseded；其他真实供应商与账号管理范围不恢复。
+- 最新范围/授权（2026-10-08）：用户明确要求在软件中真实生图并添加日志功能。允许使用当前本地登录会话执行一次 n=1 Grok 生图和同一主模型的读图/最终回复，创建不明或结果处理失败不重发图片请求；添加本地脱敏诊断日志查看/导出，记录真实调用阶段、协议、模型、状态码、数量及耗时。此前 0 新生图限制 superseded；不记录凭据、Prompt/图片 Base64、原始上游响应、签名 URL 或私有绝对路径，不修改外部服务或正式发布。
+- 当前事实：Main 保留无流输出时的一次对话重试；Chat 图片内容协议已修正，成图后的模型故障返回已有 actions/toolResults 和 partial 并保存协议，主/独立窗口准确区分成果与后续未完成。设置→工具可查看/导出最近 300 条脱敏日志。
+- 完成证据：实际 EXE /me 校验现有真实账户，唯一一次 n=1 Grok 返回 JPEG 1024×1024/171,985 B，view_image 完成，三轮 gpt-6.1-sol 均 HTTP 200、0 重生。报告 .diagnostics/electron/grok-software-live-2026-10-08T06-12-35-404Z/report.json；两包实际程序的 partial/日志 GUI、production build、MZ/SHA-256/NotSigned 核验完成，汇总 .diagnostics/release/post-image-delivery-2026-10-08.json。
+- 交付与边界：两种 1.0.9 x64 开发 EXE 和真实图片副本 release/Grok-Login-Verified-2026-10-08.jpg；其他真实供应商/编辑、实际安装卸载、签名和正式发布未验证。正式 Bundle 仍因既有 CSS 超限失败，不属于本次开发 EXE 验收。
+- 下一步：本次目标完成；从新的用户要求继续，不自动重复真实生成或扩展正式发布。
+- 用户澄清：真实验证必须使用本地桌面软件的真实登录状态；采用实际打包 EXE、原始用户数据目录和受管凭据，所有 Mock 开关关闭，0 复制登录到隔离配置。源码窗口此前尝试发送未进入模型/图片请求链路，0 实际创建；下一次仅执行原授权的一张图。
+
+## 当前任务：保留供应商原格式，真实生成哆啦A梦并更新 EXE（2026-10-08）
+
+- 状态：complete；用户最新要求已实现，一张真实哆啦A梦及两种修订开发 EXE 已验证（2026-10-08）。
+- 结果：在既有统一生图链路直接保存、展示供应商返回的 PNG/JPEG/WebP，以实际字节确定扩展名、MIME、尺寸和 outputFormat，不因默认请求 PNG 拒绝有效的其他格式。
+- 范围：Main 受管落盘、移除仅服务转码的 Adapter/上下文字段、受影响专项与现有打包冒烟；保留已有生图页面、配置、素材功能和其他未提交工作。不重建工作台、不扩大重构。
+- 验收：各 Adapter 下原始字节完全保留、正确 MIME/扩展名/尺寸、无效图片与下载失败不可重生成；用 grok-imagine-image-2.0 经用户指定中转实际生成一张哆啦A梦，核对原图与受管结果哈希；build、两种开发 EXE、各包真实图片显示与素材操作冒烟。
+- 授权：最新用户请求明确授权本次一张哆啦A梦的真实 Grok 请求（n=1、0 自动创建重试）及本地修订/EXE 交付。密钥仅在测试进程内存使用，不写源码/配置/报告；不读写日常账户/项目、不刷新登录、不修改外部 New API、不推送/部署/正式发布。真实账户复验继续 deferred。
+- 当前事实：Main 与 Agent 旧 direct fallback 已保存真实格式；三 Adapter × 三格式原字节专项、下载/无效图片保护和 Agent 禁重生通过。本次唯一真实请求 HTTP 200，JPEG 1024×1024/172,830 B，原图与 Main 文件逐字节相同，已查看哆啦A梦内容。在线证据 .diagnostics/electron/grok-live-2026-10-08T04-59-15-321Z/report.json，交付原图 release/Grok-Doraemon-2026-10-08.jpg；初次显式 build 已通过。
+- 完成证据：最终 Agent/view_image 专项、两次 production build/NSIS 与两个实际程序使用本次 JPEG 的冒烟通过（各 16 截图、0 新模型请求）；每包 6 个图片链文件匹配当前源码，保存与导入字节一致，MZ/大小/SHA-256/NotSigned 独立复核。权威汇总 .diagnostics/release/grok-doraemon-delivery-2026-10-08.json；该记录替代同名旧 EXE 元数据。
+- 交付：release/Grok-Doraemon-2026-10-08.jpg；两种 1.0.9 x64 EXE 均为 109,817,856 B，Unrestricted SHA-256 de94e93aea74ed0d725976db6959ff6e0f27a1bdc95041fc85db64e7872a7d01，SparkAPI SHA-256 6d739478e6e2892000f7349540c3f73ca24eb6a5fe67287f842191c12fa2e970。用户自定义中转使用 Unrestricted。
+- 后续：本次目标完成；从新的用户请求继续，其他真实供应商/Grok 编辑、延后的真实账户、实际安装卸载/签名/正式发布仍未验证，不自动恢复这些范围。
+
+## 当前任务：真实 Grok 中转复验与修订交付（2026-10-07）
+
+- 状态：complete（2026-10-08，真实 Grok 文生图与两种修订开发 EXE 已验证）。用户反馈上一修订仍失败，并明确提供 https://supeai.top 的测试凭据、授权真实生图；本任务替代上一诊断任务的“0 新真实模型请求”限制。旧本地证据保留为历史，不能作为真实服务可用性证明。
+- 结果：查实 grok-imagine-image-2.0 已消费但客户端失败的原因，沿现有 service → Adapter → transport → Main 受管图片链修复，取得真实可解码图片并交付修订 EXE。
+- 范围：既有生图后端、返回归一化/下载/落盘及必要专项；保留既有前端、素材功能、其他 Adapter 和未提交工作。
+- 验收：隔离真实请求（单次 n=1、无自动创建重试），脱敏响应结构证据、真实图片解码/尺寸/哈希与 Main 落盘验证；受影响专项、build、修订 Windows EXE 和实际程序冒烟。
+- 授权：本次 Grok 真实测试及其图片读取、本地实现/打包已获用户授权；创建状态不明不重发，已有结果优先继续下载。密钥只在测试进程内存中使用，不写文件/日志/报告；不读写真实账户、项目或设置，不刷新登录、不推送/部署/正式发布。真实账户复验仍 deferred。
+- 真实复现：首个授权请求 HTTP 200、19,365 ms，返回有效 JPEG Base64；现有 Main 按默认 PNG 校验，失败为 NAIMAGE_IMAGE_OUTPUT_FORMAT_MISMATCH。首个探针未保存图片字节，脱敏结构和失败证据已保存；格式问题修复后再发起一张明确验证请求，分别记录次数，不把该次生成称为下载重试。
+- 历史实现（superseded，2026-10-08）：Adapter.outputFormatControl 与 Main 本地转换曾按请求编码交付；用户现要求直接保存真实格式。保留已返回图片的处理失败禁止再次生成。
+- 完成证据：真实第二请求 HTTP 200、21,984 ms；受管 PNG 1024×1024/803,210 B，解码像素与供应商 JPEG 完全相同。相关 Adapter/service/Main/Agent/IPC/格式/view_image/mask 专项和显式 build 通过；两种 NSIS 开发 EXE 各自实际程序使用该真图的完整冒烟通过（各 17 截图），每包 6 个图片链文件匹配当前源码。两 EXE 为 109,818,368 B、MZ、NotSigned，当前权威哈希/证据汇总 .diagnostics/release/grok-live-delivery-2026-10-08.json，替代同名旧制品记录。
+- 交付：release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe（用户自定义中转使用此版）、release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe，以及 release/Grok-Real-Image-2026-10-08.png。
+- 后续边界：本任务完成；Grok 编辑/参考图、其他真实供应商/渠道、deferred 真实账户、完整安装/卸载、签名及正式发布仍未由本轮验证，不在本次授权目标中恢复。
+
+## 当前任务：Grok 已消费但 AggregateError 的诊断与局部修复（2026-10-07）
+
+- 状态：complete（本地诊断、修复与修订开发 EXE 已验证）；用户反馈交付版 Grok 失败且中转已有图片消费，继续原供应商适配的可用性目标。真实中转是否遵守 Base64 仍未在线复验。
+- 结果：区分上游生成与结果下载失败；Grok 默认请求内联图片，结果下载失败不能建议再次付费生成。
+- 故障诊断证据：实际安装版日志在 14:14:29、14:16:38（Asia/Shanghai）记录 Grok generations HTTP 200、xai-images/newapi 各识别 1 张图片；项目会话随后只有 AggregateError，没有记录底层网络原因。当时 xAI Adapter 没有默认 response_format，Main 使用直连公网下载并把下载异常交给 Agent，后者重建 Error 时丢失属性；本轮已修复该链。
+- 范围：既有 xAI 请求格式、Main 结果落盘错误、Agent 错误传播与对应专项；保留其他 Adapter、素材及已有未提交改动。
+- 验收：离线复现原 AggregateError；验证默认 Base64 与显式 URL、嵌套网络错误脱敏、已生成结果下载失败的不可重生成标记、实际 Agent 工具回执；build 与本地修订 EXE。
+- 授权：延续已授权的本地适配与 EXE 交付；0 新真实模型请求，不修改真实配置/项目，不推送/部署/正式发布。
+- 证据：离线 before.json、实际 Electron service→Main 解码/落盘报告 `image-result-download-2026-10-07T06-32-13-822Z`、Agent 改 quality 再生成被阻止与多 items 分类专项、mask/public-http/IPC/view_image、build 全通过。两种 1.0.9 修订 EXE 已生成，各自实际程序 smoke 与 5 个包内修订文件比对通过；MZ/大小/SHA-256/NotSigned 独立复核。当前权威汇总 `.diagnostics/release/grok-result-download-delivery-2026-10-07.json`，替代同名旧制品元数据。
+- 下一步：本地修订安装包交付；真实供应商/中转、真实账户、完整安装/卸载和正式发布仍未验证。历史日志没有内层网络错误，不能宣称两次真实失败的具体连接代码已还原。
+
+## 当前任务：交付包含画布素材与供应商适配的开发 EXE（2026-10-07）
+
+- 状态：complete（开发 EXE 已生成并验证）；用户明确追加“要打包好 exe”，源码验收之后继续交付安装包。
+- 结果：从当前工作树生成 Unrestricted 双接入版与 SparkAPI 专用版 1.0.9 Windows x64 EXE，包含本轮画布选取/右键素材和显式供应商配置。
+- 范围：现有接入变体构建、Electron/NSIS/品牌安装器及实际打包程序冒烟；保留原有未提交改动。
+- 验收：两次 production build、两种 EXE、各变体实际程序的启动/相关 UI 检查、安装器 UI 检查；独立复核文件头、大小、SHA-256、接入策略与签名状态，并记录报告。
+- 授权：本地编译、打包和隔离验证；不调用真实模型/账户、不安装到日常目录、不推送/部署/签名或正式发布。按仓库规则使用开发打包，不强制正式 Bundle 门禁。
+- 证据：两次 production build/NSIS/品牌壳退出 0；双接入实际程序报告 `.diagnostics/release/packaged-smoke-2026-10-07T05-07-43-579Z/report.json`、SparkAPI `05-12-34-021Z/report.json` 均通过，每轮 18 截图。本轮素材/供应商保存与 reload、主题/账户/独立窗口通过，0 真实 provider 请求；两个安装器 UI 报告 `branded-installer-ui-2026-10-07T05-08-46-057Z`、`05-13-17-876Z` 均通过，每轮 19 截图。已查看素材/配置及两安装器欢迎页截图。
+- 制品：`release/SparkAI-WorkSpace-{Unrestricted,SparkAPI}-Setup-1.0.9-x64.exe`；MZ/大小/SHA-256/NotSigned 独立复核，两种 ASAR 中 12 文件分别匹配当时源码/dist，接入策略正确。汇总 `.diagnostics/release/image-adaptation-delivery-2026-10-07.json`。
+- 后续边界：真实 provider/各中转站、deferred 真实账户、完整实际安装/卸载、签名和正式发布未验证。开发打包为 bundleEnforced=false，没有把旧 Bundle 结果说成本次正式门禁。
+- 下一步：开发 EXE 交付完成；从用户新的任务继续。
+
+## 当前 Goal：画布素材与现有生图供应商适配（2026-10-07）
+
+- 状态：complete（本地实现与验收）。此前图片/账户 Goal 的本地交付已完成，真实账户复验继续 deferred；本节的新功能已完成源码交付。
+- 结果：素材菜单的“添加原图 / 添加参考图”可从本地文件或画布图库添加；单图、图片容器成员、容器和多选图片右键可加入对应本轮列表，取消选择画布后仍保留。
+- 供应商结果：原统一图片服务按显式连接配置选择 OpenAI Compatible、xAI JSON 或 Gemini generateContent Adapter；协议、渠道、传输、模型 ID、BaseURL 与 Key 保持独立，原 OpenAI Compatible 与前端成果链保留。
+- 范围：桌面参考图弹窗、素材归一化、Composer/右键编排和发送 TaskScope；同步共享 CLI/MCP 命令与契约。复用 agentSourceImages/agentReferenceImages；供应商部分改造既有 Main 图片服务、Adapter/传输和逐模型连接，不另建素材 authority 或生图工作台。
+- 不变量：显式添加的角色优先于自动画布选择，重复添加不重复计数；保留 occurrence/asset 身份及节点来源，容器成员按具体资产发送，不因添加或发送重复创建已有画布素材；保存/取消及既有容量限制有效。
+- 验收：相关纯逻辑/automation 与供应商请求响应合同；真实隔离 Electron 中两类素材入口、右键单图/容器成员、去重、取消、容量、精确发送来源与附件断言/截图、接口配置保存与 reload；一次 quick GUI 和 corepack pnpm run build。
+- 授权：本地实现与隔离 Mock 验证；不增加真实模型请求、账户写入、部署、推送、签名或正式发布。源码交付后用户明确追加本地开发 EXE，结果见上方任务。
+- 任务说明：docs/TASK_CANVAS_COMPOSER_MATERIALS_2026-10-07.md。
+- 当前证据：素材/容器 17 cases、设置归一化 127、automation/shared schema、Adapter/service/transport 与密钥存储专项、typecheck 均通过。Electron 素材/配置报告 `.diagnostics/electron/canvas-materials-2026-10-07T04-41-50-994Z/report.json` 为 12 checks/9 screenshots/0 真实模型请求；两次素材发送到达 Main/runtime，显式与 auto 配置保存/reload 通过。已查看小窗口图库、容量及供应商配置截图。quick GUI `.diagnostics/electron/aidebug-2026-10-07T04-43-35-350Z/report.json` 通过；生产 build 退出 0（1676 modules、22.07s）。
+- 后续边界：真实供应商/各中转站联调未验证；Google 新 Interactions API 未接入。源码交付时未打包，之后已按用户追加要求生成包含本轮功能的两种开发 EXE。
+- 下一步：本轮本地 Goal 已完成；从用户新的任务继续，真实供应商联调另按授权开展。
+- 用户追加（2026-10-07）：核对 Grok / Gemini 官方生成与编辑接口，验收增加 provider 请求/响应专项和配置路由证据；不发起真实付费请求。最初自动路由表述已由下条明确配置优先替代。
+- 供应商要求更新（2026-10-07）：上条“按模型供应商自动路由”仅作为默认/迁移策略；显式渠道 Adapter 配置优先，模型与供应商/协议不得强绑定。先完整核查页面→统一 IPC/API→服务/传输→输入/响应/落盘，告知保留点、OpenAI 耦合、Adapter 插入位置和具体文件，再小范围实现。参考 Open WebUI 抽象；保留现有 OpenAI Compatible、NewAPI/Sub2API 和全部前端成果链，不另建工作台或大规模重写。
+
+## 当前完整 Goal：图片接口、有效 UI 与 SparkAPI 原生账户体验（2026-10-07 本地交付完成）
+
+- 状态：complete（用户接受的本地交付范围）；用户于 2026-10-07 选择“暂时无法登录，先交付本地结果”，重新登录后的真实账户复验为 deferred 后续项。静态按钮审计与受影响 UI 验证不等于全部按钮逐个实测，开发 EXE 不等于正式发布。
+- 用户目标：下载 GPT Image Playground、New API、Sub2API，核对图片修改/编辑接口并用软件已有 Base URL/API Key 测试；完善对应接口与 UI，核查全部按钮并移除无功能入口；优化登录账户的 API Key、额度管理与使用日志，依据原生 New API 接口提供 SparkAPI 站点账户体验。
+- 范围：上游只读源码快照与接口映射；桌面图片适配/来源/蒙版/重试合同、相应 UI 与按钮清单；Main-only 账户凭据、原生用户密钥与额度、日志请求/过滤/分页及客户端展示。复用现有 owner，不复制外部 New API 管理后端，不修改 Extension 或线上站点。
+- 验收 1：三个项目已下载并固定 commit；逐项对照生成、编辑、遮罩和异步接口；当前配置的真实图片调用有脱敏结果与受管文件证据，控制图片数和费用，不重复未知已接受请求。
+- 验收 2：接口/UI/IPC/公开命令保持一致；全部产品按钮有功能归属清单，无未绑定占位按钮；受影响路径有真实 Electron 可见状态与截图，必须运行 production build。
+- 验收 3：登录后的密钥选择/创建/编辑/停用/删除与额度来源、用户日志筛选/分页/刷新有 New API 原生合同和针对性测试；凭据始终留在 Main，金额遵守服务端单位，不编造价格或免费张数；实际账户接口证据与 mock 验证明确区分。
+- 授权：当前完整 Goal 授权下载三个公开项目、使用现有配置进行必要且少量的真实图片接口测试和本地实现；保留“注意用量”。不发起视频/Seedance、批量生图、线上账户破坏性测试、服务部署、推送、签名或正式发布。
+- 当前证据：三个上游快照 commit 与三张真实生成/普通编辑/遮罩兼容图的文件哈希已复核，遮罩外 965,601 像素全部保持。账户/日志/密钥与额度专项、typecheck、账户 GUI 7 checks/8 screenshots、quick GUI、441 按钮静态审计、两种 production build/开发 EXE 及实际程序的主题/账户/独立窗 smoke 均通过，安装器 UI 19 截图通过。生成阶段所在整轮探针报告因后续 mask 400 拒绝而 ok=false，不将其冒充整体成功。
+- 持续任务 brief：`docs/TASK_NATIVE_ACCOUNT_IMAGE_2026-10-07.md`；按钮清单现覆盖 React 与独立窗共 441 项。原生账户专项已扩到 38 cases，缺失展示单位与负余额已补齐；遮罩结果改用现有公网下载 owner。
+- 后续验证（deferred）：首次账户探针刷新凭据后未落盘使旧凭据失效，探针已禁止主动轮换；用户暂缓重新登录，真实只读账户复验留待后续，不重复使用失效凭据。真实密钥破坏性写入、其他服务异步路径、完整安装卸载与正式发布未验证。
+- 验收补项已完成：两种实际程序的账户背景 alpha=1；Main 派生原生额度输入单位并转换，未知单位保留 raw quota；缓存编辑前取得完整 IP/模型限制。设置快照加载由 Main 校验会话，不再依赖公开 DTO 已删除的身份字段。生产缓存编辑实测 USD 10、原 IP 白名单和模型限制保持。
+- 交付：`release/SparkAI-WorkSpace-{Unrestricted,SparkAPI}-Setup-1.0.9-x64.exe`；当前大小、SHA-256、签名与测试报告汇总在 `.diagnostics/release/local-delivery-01a11418-2026-10-07.json`、`PROGRESS.md` 首节。两包均 NotSigned；正式 Bundle 仍仅 CSS 291,659 > 270,000 B 失败，本轮未正式发布。
+- 下一步：当前本地交付完成；用户具备有效登录后再恢复 deferred 真实只读账户复验，不重复三张图片测试，不新增视频请求。
+
+## 当前任务：简洁主题入口可见性修复（2026-10-07）
+
+- 类型：桌面 UI 修复与开发 EXE；状态：完成（两种生产程序的按钮已实测）。
+- 验收：小窗口仍能辨认“主题”入口；从滚动过的其他设置分类进入外观页，无需再次滚动即可看见并点击“简洁白色 / 简洁黑色”；两种接入变体的实际生产程序均通过该路径。
+- 边界：主题注册表、已有草稿保存/放弃逻辑、玻璃参数与画布保持；不实现此前评估中的其他功能，不调用真实模型。
+- 验证：复现设置分类间滚动位置、真实 Electron 的按钮可见/裁切/命中与点击、对应专项及 GUI 快速冒烟、production build 和两种开发安装包。
+- 结果：关闭生产布尔值转整数的压缩选项，修复两组主题卡片被全部过滤的根因；设置切页滚动归零，小窗口保留“主题”文字。真实生产程序的双接入 / SparkAPI 版均验证首屏黑白按钮和鼠标切换，最终 EXE 元数据见 `PROGRESS.md` 首节。
+- 发布边界：两种安装包为未签名开发测试版；本轮正式 Bundle CSS 门槛仍未通过（双接入测量 289,409 > 270,000 bytes），未执行完整实际安装/卸载或正式发布。
+- 沿用用户此前打包授权；不安装到用户日常目录、不签名、不正式发布。
+
+## 当前任务：普通黑白主题与生图工作台评估（2026-10-07）
+
+- 类型：桌面外观实现 + 只读产品评估 + 开发 EXE；状态：历史交付（后续生产按钮缺失由上方当前任务修复）。
+- 验收：新增“简洁白色 / 简洁黑色”纯色主题；设置切换、首帧恢复、独立 Agent 窗口保持一致，切换保留画布和已有玻璃配置。
+- 边界：沿用外观注册表与语义变量，不改远端接口或图片执行链路；评估已有生图流程，按优先级记录改进建议，不自动实现建议中的新增功能。
+- 验证：外观镜像与持久化专项、真实 Electron 主题切换及冷启动、小窗口截图、生产构建、实际打包程序的黑白主题与独立 Agent 窗口、安装器 UI 均通过。使用隔离的本地素材，未发起真实模型请求。
+- 交付：简洁白色 / 简洁黑色、`docs/WORKSPACE_UX_REVIEW_2026-10-07.md` 与更新的 Unrestricted 1.0.9 x64 开发 EXE；当前大小、哈希和报告见 `PROGRESS.md` 首节。
+- 限制：开发安装包未签名；正式 Bundle CSS 门槛未通过（288,844 > 270,000 bytes），未执行完整实际安装/卸载或正式发布。评估中的后续功能建议尚未实现。
+- 原有账号密钥、Agent 请求修复及窄屏按钮改动保留；此前 EXE 哈希是历史证据，不代表当前 `release/` 中的 Unrestricted EXE。
+
 版本：3.0
 规格来源：`docs/sparkaiworkspace.txt`
+
+## 当前 Goal：账号密钥选用与图片工具调用（2026-10-03）
+
+- **Outcome**：登录账号选中的密钥和逐模型指定的账户密钥都能稳定进入对话与图片请求；选择结果按账户隔离、可持久化、失效时给出可操作错误；`image_gen` 在 AIDebug 与生产图片服务分支都能完成执行并返回受管成果。
+- **Scope**：`desktop/account-token-service.cjs`、`desktop/new-api-client.cjs`、`electron-main.cjs` 图片入口、设置/模型密钥选择器、相关 IPC 与专项测试。
+- **Rules**：凭据只由 Electron Main/runtime 解析，Renderer 不接触完整 Key；不调用真实图片、视频或付费模型；不复制 New API 管理后台；保留全局密钥作为默认值，逐模型密钥只对对应模型生效。
+- **Acceptance**：AIDebug 图片请求不再出现 `aidebugMockImage is not defined`；账号模式的对话 JSON、图片 JSON/multipart/异步请求均使用当前选用或逐模型绑定的账户 Key；停用、过期、账户切换和缺少可用密钥均有明确错误或自动选择逻辑；专项测试与 `corepack pnpm run build` 通过。
+- **Authorization**：沿用当前用户已授权的本地代码修改、专项验证和开发构建；不因此授权真实模型请求、发布、签名或远端写操作。
+- **Status**：complete（生产构建与账号/图片专项已通过；AIDebug 图片场景功能通过，完整 GUI 套件另有既存证据门槛未通过）。
+- **Next**：如需交付安装包，再按发布流程执行打包；本 Goal 不发起真实模型请求。
 
 ## 当前 Goal：Agent 发送、设置可读性与图片网关简化（2026-09-28）
 

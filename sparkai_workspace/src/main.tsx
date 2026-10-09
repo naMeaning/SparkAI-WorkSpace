@@ -160,6 +160,7 @@ import {
   preferredVideoModelFromList,
 } from "./settings-runtime";
 import { GlassThemeProvider } from "./glass-theme-provider";
+import { isSolidTheme } from "./glass-theme";
 import type { WorkspaceAssetRailTab, WorkspaceViewMode } from "./workspace-chrome";
 import type { ActivePluginToolbarItem } from "./plugin-system";
 import type {
@@ -267,9 +268,15 @@ import {
   sanitizeImageContainerSpec
 } from "./image-container-spec";
 import {
+  assignComposerImages,
   buildComposerMaterials,
+  canvasImagesForMaterialTargets,
   canvasNodePresentsImageContainer,
+  flattenSelectedCanvasMaterials,
+  resolveCanvasMaterialImages,
+  sameComposerImage,
   splitComposerMaterials,
+  type CanvasMaterialTarget,
   type ComposerMaterialOverride,
   type ComposerMaterialRole
 } from "./selection-reference-images";
@@ -420,7 +427,6 @@ import type {
   ServerWallet,
   ServerPublicSettings,
   ModelProvider,
-  ServerLogEntry,
   AccountApiToken,
   AgentIntegrationTarget,
   AuthDraft,
@@ -881,6 +887,7 @@ const LazyReferencePickerDialog = React.lazy(() => import("./reference-picker-di
 const LazyProjectAgentPanel = React.lazy(() => import("./project-agent-panel"));
 let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
 const loadProjectAgentComposer = () => projectAgentComposerPromise ??= import("./project-agent-composer");
+const LazyProjectAgentImageConfig = React.lazy(() => import("./project-agent-image-config"));
 const LazyGoalConfirmationDialog = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.GoalConfirmationDialog })));
 let goalModePromise: Promise<typeof import("./goal-mode")> | null = null;
 const loadGoalMode = () => goalModePromise ??= import("./goal-mode");
@@ -3072,6 +3079,7 @@ function agentTaskScopeForRequest(
   requirementNode?: WorkflowNode | null,
   requirementSourceSignature?: string,
   explicitNodeRoles: Readonly<Record<string, AssetTaskRole>> = {},
+  composerSourceImages?: ReferenceImage[],
 ): AgentTaskScope {
   // A reusable requirement is executable context, not an image SOURCE. Keep it
   // selected for canvas/UI semantics, but never expose it as an editable asset.
@@ -3084,7 +3092,6 @@ function agentTaskScopeForRequest(
   const eligibleSourceNodes = eligibleImageNodes.filter((node) => !isGoalScope || explicitRoleFor(node) === "source" || (
     !explicitRoleFor(node) && taskAssetReferencesForNode(node, "source", true).length > 0
   ));
-  const sourceNodeIds = [...new Set(eligibleSourceNodes.map((node) => node.id).filter(Boolean))];
   const uniqueTaskAssets = (items: TaskAssetReference[]) => {
     const seen = new Set<string>();
     return items.filter((item, index) => {
@@ -3115,17 +3122,17 @@ function agentTaskScopeForRequest(
     "source",
     true,
     isGoalScope ? explicitRoleFor(node) === undefined : false,
-  )));
+  ))).filter((asset) => !composerSourceImages || composerSourceImages.some((image) => sameComposerImage(asset, image)));
+  const sourceNodeIds = [...new Set((composerSourceImages
+    ? allSourceAssets.map((asset) => asset.nodeId || "")
+    : eligibleSourceNodes.map((node) => node.id)).filter(Boolean))];
   const sourceAssetCount = allSourceAssets.length;
   const sourceAssets = allSourceAssets.slice(0, 200);
-  const stagedReferenceAssets = (referenceContainer ? taskAssetReferencesForNode(referenceContainer, "reference", true) : references).map((reference, index): TaskAssetReference => {
-    const stagedMetadata = references.find((candidate) =>
-      Boolean(candidate.occurrenceId && reference.occurrenceId && candidate.occurrenceId === reference.occurrenceId) ||
-      Boolean(candidate.contentHash && reference.contentHash && candidate.contentHash === reference.contentHash) ||
-      Boolean(candidate.assetId && reference.assetId && candidate.assetId === reference.assetId) ||
-      Boolean(candidate.relativePath && reference.relativePath && candidate.relativePath === reference.relativePath) ||
-      Boolean(candidate.path && reference.path && candidate.path === reference.path)
-    ) ?? references[index];
+  const materializedReferences = referenceContainer ? taskAssetReferencesForNode(referenceContainer, "reference", true) : [];
+  const stagedReferenceAssets = references.map((stagedMetadata, index): TaskAssetReference => {
+    const reference = stagedMetadata.canvasNodeId ? stagedMetadata : (
+      materializedReferences.find((candidate) => sameComposerImage(candidate, stagedMetadata)) ?? stagedMetadata
+    );
     const requestedRole = String(stagedMetadata?.role || "").trim();
     const referenceRole = requestedRole && !["source", "reference", "edit_target"].includes(requestedRole.toLowerCase())
       ? requestedRole
@@ -3133,7 +3140,7 @@ function agentTaskScopeForRequest(
     return {
       bindingId: "bindingId" in reference && reference.bindingId
         ? reference.bindingId
-        : `binding:${referenceContainer?.id || "chat-reference"}:${referenceContainer?.id || "attachment"}:${reference.occurrenceId || index}:${reference.assetId || index + 1}`,
+        : `binding:${stagedMetadata.canvasNodeId || referenceContainer?.id || "chat-reference"}:${reference.occurrenceId || index}:${reference.assetId || index + 1}`,
       assetId: reference.assetId || stableImageAssetId({ contentHash: reference.contentHash, path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, originalName: reference.name }, index + 1),
       occurrenceId: reference.occurrenceId,
       importBatchId: reference.importBatchId,
@@ -3145,12 +3152,12 @@ function agentTaskScopeForRequest(
       contentHash: reference.contentHash,
       role: "reference",
       name: reference.name || `参考图 ${index + 1}`,
-      assetIndex: "assetIndex" in reference ? reference.assetIndex : index,
-      containerSlot: "containerSlot" in reference ? reference.containerSlot : ("assetIndex" in reference ? reference.assetIndex : index),
-      ownerAssetIndex: "ownerAssetIndex" in reference ? reference.ownerAssetIndex : ("assetIndex" in reference ? reference.assetIndex : index),
-      ownerNodeId: "ownerNodeId" in reference ? reference.ownerNodeId : referenceContainer?.id,
-      nodeId: referenceContainer?.id || ("nodeId" in reference ? reference.nodeId : undefined),
-      containerId: referenceContainer?.id,
+      assetIndex: stagedMetadata.canvasAssetIndex ?? ("assetIndex" in reference ? reference.assetIndex : index),
+      containerSlot: stagedMetadata.canvasAssetIndex ?? ("containerSlot" in reference ? reference.containerSlot : index),
+      ownerAssetIndex: reference.ownerAssetIndex ?? stagedMetadata.canvasAssetIndex ?? index,
+      ownerNodeId: reference.ownerNodeId || stagedMetadata.canvasNodeId || referenceContainer?.id,
+      nodeId: stagedMetadata.canvasNodeId || ("nodeId" in reference ? reference.nodeId : referenceContainer?.id),
+      containerId: reference.containerId || (stagedMetadata.canvasNodeId ? undefined : referenceContainer?.id),
       path: reference.path,
       relativePath: reference.relativePath,
       assetUrl: reference.assetUrl,
@@ -3575,6 +3582,7 @@ function App() {
   const zoom = viewport.scale;
   const [prompt, setPrompt] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentImageConfigOpen, setAgentImageConfigOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("access");
   const [helpOpen, setHelpOpen] = useState<HelpCenterSection | null>(null);
   const [commerceTutorialOpen, setCommerceTutorialOpen] = useState(false);
@@ -3705,7 +3713,6 @@ function App() {
   const [relationMenu, setRelationMenu] = useState<RelationMenuState | null>(null);
   const [serverUser, setServerUser] = useState<ServerUser | null>(null);
   const [serverWallet, setServerWallet] = useState<ServerWallet | null>(null);
-  const [serverLogs, setServerLogs] = useState<ServerLogEntry[]>([]);
   const [desktopUpdateNotice, setDesktopUpdateNotice] = useState<DesktopUpdateInfo | null>(null);
   const [serverMessage, setServerMessage] = useState("");
   const [authDraft, setAuthDraft] = useState<AuthDraft>({
@@ -4407,7 +4414,7 @@ function App() {
       if (!target) return;
       if (fileMenuOpen && !target.closest(".file-command-menu")) setFileMenuOpen(false);
       if (projectMenuOpen && !target.closest(".project-menu:not(.file-command-menu)")) setProjectMenuOpen(false);
-      if (settingsOpen && !target.closest(".settings-drawer, .model-config-dialog, .agent-text-editor-dialog, .app-settings-button, [data-ui-surface-layer]")) setSettingsOpen(false);
+      if (settingsOpen && !target.closest(".settings-drawer, .model-picker-dialog, .agent-text-editor-dialog, .app-settings-button, [data-ui-surface-layer], [data-ui-menu-surface]")) setSettingsOpen(false);
       if (accountOpen && !target.closest(".account-drawer, .account-avatar-button, [data-ui-surface-layer]")) setAccountOpen(false);
     }
 
@@ -4637,17 +4644,15 @@ function App() {
       authCheckedTokenRef.current = "";
       setServerUser(null);
       setServerWallet(null);
-      setServerLogs([]);
       setServerMessage("账户服务地址已更新，请重新登录。");
     } else if (accessModeChanged) {
       serverRefreshEpochRef.current += 1;
       authCheckedTokenRef.current = "";
       setServerUser(null);
       setServerWallet(null);
-      setServerLogs([]);
       setServerMessage(normalized.accessMode === "custom" ? "已切换到自定义接口。" : "已切换到 SparkAPI 账号模式。");
       window.setTimeout(() => {
-        void refreshServerState({ preferCached: true, loadLogs: false }).finally(() => void refreshLicenseState(false));
+        void refreshServerState({ preferCached: true }).finally(() => void refreshLicenseState(false));
       }, 0);
     }
   }
@@ -5208,7 +5213,7 @@ function App() {
 // MAIN 10C Server, Auth, Wallet, And Model Synchronization
 // -----------------------------------------------------------------------------
 
-  async function refreshServerState(options: { preferCached?: boolean; loadLogs?: boolean } = {}) {
+  async function refreshServerState(options: { preferCached?: boolean } = {}) {
     if (!window.naimageServer?.me) return false;
     const refreshEpoch = ++serverRefreshEpochRef.current;
     const isCurrentRefresh = () => serverRefreshEpochRef.current === refreshEpoch;
@@ -5220,7 +5225,6 @@ function App() {
         await cancelPendingAgentExecutionForAuthBoundary();
         setServerUser(null);
         setServerWallet(null);
-        setServerLogs([]);
         if (me.error) setServerMessage(me.error);
         return false;
       }
@@ -5232,11 +5236,7 @@ function App() {
         me.settings?.imageModel,
         ...(me.settings?.imageModels ?? []),
       ]));
-      if (options.loadLogs !== false) {
-        void window.naimageServer.logs?.().then((logs) => {
-          if (isCurrentRefresh() && logs?.ok) setServerLogs(logs.logs ?? []);
-        }).catch(() => undefined);
-      }
+
       return true;
     } catch (error) {
       if (!isCurrentRefresh()) return false;
@@ -5244,7 +5244,6 @@ function App() {
       await cancelPendingAgentExecutionForAuthBoundary();
       setServerUser(null);
       setServerWallet(null);
-      setServerLogs([]);
       setServerMessage(error instanceof Error ? error.message : String(error));
       return false;
     }
@@ -5300,7 +5299,7 @@ function App() {
 
       setAuthReady(false);
       bootLog("auth restore start");
-      const ok = await refreshServerState({ preferCached: true, loadLogs: false });
+      const ok = await refreshServerState({ preferCached: true });
       if (cancelled) return;
       if (!ok) {
         authCheckedTokenRef.current = "";
@@ -5311,7 +5310,7 @@ function App() {
       bootLog(`auth restore done ok=${ok}`);
       if (ok) {
         window.setTimeout(() => {
-          if (!cancelled) void refreshServerState({ preferCached: false, loadLogs: true });
+          if (!cancelled) void refreshServerState({ preferCached: false });
         }, 250);
       }
     }
@@ -6015,6 +6014,7 @@ function App() {
     const host = canvasRef.current;
     const particleCanvas = canvasParticleRef.current;
     if (!host || !particleCanvas) return;
+    if (isSolidTheme(settings.glassTheme) || settings.glassParameters.reduceMotion) return;
 
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     if (reducedMotion?.matches) return;
@@ -6260,7 +6260,7 @@ function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       ctx.clearRect(0, 0, width, height);
     };
-  }, [canvasMountTick]);
+  }, [canvasMountTick, settings.glassTheme, settings.glassParameters.reduceMotion]);
 
 // -----------------------------------------------------------------------------
 // MAIN 10D Derived State And Canvas Projections
@@ -6313,6 +6313,7 @@ function App() {
     () => buildComposerMaterials(selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides),
     [selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides]
   );
+  const referencePickerCanvasMaterials = useMemo(() => flattenSelectedCanvasMaterials(canvasNodes, true), [canvasNodes]);
   const selectionReferenceImages = useMemo(
     () => composerMaterials.filter((item) => item.role === "reference").map((item) => item.reference),
     [composerMaterials]
@@ -7705,15 +7706,13 @@ function App() {
   function removeComposerMaterial(key: string) {
     const item = composerMaterials.find((entry) => entry.key === key);
     if (!item) return;
-    if (item.origin === "upload") {
-      if (item.role === "source") {
-        setAgentSourceImages((current) => current.filter((image) => (image.assetId || image.path) !== (item.reference.assetId || item.reference.path)));
-      } else {
-        setAgentReferenceImages((current) => current.filter((image) => (image.assetId || image.path) !== (item.reference.assetId || item.reference.path)));
-      }
-      return;
-    }
-    setMaterialOverrides((current) => ({ ...current, [key]: { ...current[key], excluded: true } }));
+    const sources = agentSourceImagesRef.current.filter((image) => !sameComposerImage(image, item.reference));
+    const references = agentReferenceImagesRef.current.filter((image) => !sameComposerImage(image, item.reference));
+    agentSourceImagesRef.current = sources;
+    agentReferenceImagesRef.current = references;
+    setAgentSourceImages(sources);
+    setAgentReferenceImages(references);
+    if (item.origin === "canvas") setMaterialOverrides((current) => ({ ...current, [key]: { ...current[key], excluded: true } }));
   }
 
   function reorderImageNodeAssets(nodeId: string, orderedAssetIndexes: number[]) {
@@ -7919,8 +7918,9 @@ function App() {
   }
 
   function materializeAgentTaskImages(images: ReferenceImage[], taskRole: "source" | "reference") {
-    if (!images.length) return null;
-    const assets = images.map((image, index): ImageAsset => ({
+    const uploads = images.filter((image) => !image.canvasNodeId);
+    if (!uploads.length) return null;
+    const assets = uploads.map((image, index): ImageAsset => ({
       assetId: image.assetId || stableImageAssetId({ contentHash: image.contentHash, path: image.path, relativePath: image.relativePath, assetUrl: image.assetUrl, originalName: image.name }, index + 1),
       occurrenceId: image.occurrenceId,
       importBatchId: image.importBatchId,
@@ -8483,8 +8483,8 @@ function App() {
         mimeType: mimeTypeFromPath(asset.path),
         assetUrl: asset.assetUrl
       })).filter((image) => image.path);
-      if (taskRole === "source") setAgentSourceImages((current) => mergeReferenceImages(current, incoming, maximum));
-      else setAgentReferenceImages((current) => mergeReferenceImages(current, incoming, maximum));
+      const latest = taskRole === "source" ? agentSourceImagesRef.current : agentReferenceImagesRef.current;
+      setAgentMaterialImages(taskRole, mergeReferenceImages(latest, incoming, maximum));
       setServerMessage(`${incoming.length} 张${label}已加入。`);
       addEvent(`Agent ${label} +${incoming.length}`);
       return { ok: true, images: incoming };
@@ -13305,6 +13305,66 @@ function App() {
     });
   }
 
+  function setAgentMaterialImages(role: ComposerMaterialRole, images: ReferenceImage[]) {
+    const max = role === "source" ? MAX_AGENT_SOURCE_IMAGES : MAX_AGENT_REFERENCE_IMAGES;
+    const previous = role === "source" ? agentSourceImagesRef.current : agentReferenceImagesRef.current;
+    const assigned = assignComposerImages(agentSourceImagesRef.current, agentReferenceImagesRef.current, role, images, max);
+    const next = role === "source" ? assigned.sources : assigned.references;
+    const overrides = { ...materialOverridesRef.current };
+    for (const image of previous.filter((item) => item.canvasNodeId && !next.some((candidate) => sameComposerImage(item, candidate)))) {
+      const key = `canvas:${image.canvasNodeId}:${image.canvasAssetIndex ?? 0}`;
+      overrides[key] = { ...overrides[key], excluded: true };
+    }
+    for (const image of next.filter((item) => item.canvasNodeId)) {
+      const key = `canvas:${image.canvasNodeId}:${image.canvasAssetIndex ?? 0}`;
+      overrides[key] = { ...overrides[key], role, excluded: false };
+    }
+    agentSourceImagesRef.current = assigned.sources;
+    agentReferenceImagesRef.current = assigned.references;
+    materialOverridesRef.current = overrides;
+    setAgentSourceImages(assigned.sources);
+    setAgentReferenceImages(assigned.references);
+    setMaterialOverrides(overrides);
+    return assigned;
+  }
+
+  function addCanvasAgentMaterials(targets: CanvasMaterialTarget[], role: ComposerMaterialRole) {
+    const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const images = canvasImagesForMaterialTargets(projection.canvasNodes, targets, role);
+    const current = role === "source" ? agentSourceImagesRef.current : agentReferenceImagesRef.current;
+    const max = role === "source" ? MAX_AGENT_SOURCE_IMAGES : MAX_AGENT_REFERENCE_IMAGES;
+    const merged = mergeReferenceImages(current, images, max);
+    const assigned = setAgentMaterialImages(role, merged);
+    const omitted = images.filter((image) => !merged.some((item) => sameComposerImage(image, item))).length;
+    const label = role === "source" ? "原图" : "参考图";
+    setServerMessage(omitted ? `已加入 ${assigned.added} 张${label}；已达 ${max} 张上限，另有 ${omitted} 张未加入。` : assigned.added ? `已加入 ${assigned.added} 张${label}。` : `所选图片已在${label}中。`);
+    setCanvasMenu(null);
+    setAssetContextMenu(null);
+    return { role, added: assigned.added, total: merged.length, omitted, sourceCount: assigned.sources.length, referenceCount: assigned.references.length };
+  }
+
+  function addCanvasAgentMaterialsFromMenu(targets: CanvasMaterialTarget[], role: ComposerMaterialRole) {
+    try {
+      const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+      const mappedTargets = targets.map((target) => {
+        const hostId = projection.groupByMember.get(target.nodeId)?.hostNodeId;
+        if (!hostId || target.assetIndex === undefined) return target;
+        const assetIndex = projection.assetSourcesByHost.get(hostId)?.findIndex((source) => (
+          source.nodeId === target.nodeId && source.assetIndex === target.assetIndex
+        )) ?? -1;
+        return assetIndex >= 0 ? { nodeId: hostId, assetIndex } : target;
+      }).filter((target) => {
+        const node = projection.canvasNodeById.get(target.nodeId);
+        return node && flattenSelectedCanvasMaterials([node], true).some((item) => (
+          target.assetIndex === undefined || item.assetIndex === target.assetIndex
+        ));
+      });
+      if (!mappedTargets.length) throw new Error("所选节点没有可用图片，请等待图片完成或重新选择。");
+      addCanvasAgentMaterials(mappedTargets, role);
+    }
+    catch (error) { setServerMessage(error instanceof Error ? error.message : String(error)); }
+  }
+
   function resumePendingAgentExecution(
     requestId: string,
     answer: string,
@@ -13399,11 +13459,11 @@ function App() {
     }
     setReferencePickerDraft(null);
     if (draft.target.kind === "agent-source") {
-      setAgentSourceImages(images.map((image) => ({ ...image, taskRole: "source" })));
+      setAgentMaterialImages("source", images);
       return;
     }
     if (draft.target.kind === "agent") {
-      setAgentReferenceImages(images.map((image) => ({ ...image, taskRole: "reference" })));
+      setAgentMaterialImages("reference", images);
       return;
     }
     if (draft.target.kind === "image-task") {
@@ -15820,7 +15880,11 @@ function App() {
       }
       setGoalConfirmationNotice("");
       setGoalConfirmation(null);
-      setPrompt((value) => value.trim() === preview.prompt ? "" : value);
+      const { parseComposerInput } = await import("../runtime/composer-commands.mjs");
+      setPrompt((value) => {
+        const input = parseComposerInput(value);
+        return value.trim() === preview.prompt || (input.kind === "command" && input.name === "goal" && input.argument === preview.prompt) ? "" : value;
+      });
       void dispatchConfirmedGoal(preview).then(() => {
         const pending = pendingCommerceReusableNodeRef.current;
         if (pending && preview.prompt.includes(pending.planHash)) {
@@ -15974,6 +16038,14 @@ function App() {
     const needsCandidate = ["replace", "merge"].includes(taskScopeUpdate.sourceMode) || ["replace", "merge"].includes(taskScopeUpdate.referenceMode);
     let candidateTaskScope: AgentTaskScope | undefined;
     if (needsCandidate) {
+      try {
+        const canvas = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current).canvasNodes;
+        sourceImages = resolveCanvasMaterialImages(sourceImages, canvas);
+        referenceImages = resolveCanvasMaterialImages(referenceImages, canvas);
+      } catch (error) {
+        if (reportFailure) reportAgentSendFailure(error instanceof Error ? error.message : String(error), false);
+        return false;
+      }
       const sourceContainer = ["replace", "merge"].includes(taskScopeUpdate.sourceMode) && sourceImages.length
         ? materializeAgentTaskImages(sourceImages, "source")
         : null;
@@ -15991,6 +16063,7 @@ function App() {
       const sourceNodes = sourceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       const referenceNodes = referenceNodeIds.map(projectedNode).filter((node): node is WorkflowNode => Boolean(node));
       if (sourceContainer && !sourceNodes.some((node) => node.id === sourceContainer.id)) sourceNodes.push(sourceContainer);
+      let composerSourceImages: ReferenceImage[] | undefined;
       if (!activeGoal && options.referenceImages === undefined && options.sourceImages === undefined) {
         const split = splitComposerMaterials(buildComposerMaterials(
           sourceNodes,
@@ -16000,6 +16073,7 @@ function App() {
         ));
         sourceImages = split.sourceImages;
         referenceImages = split.referenceImages;
+        composerSourceImages = sourceImages;
         const keepIds = new Set(split.sourceNodeIds);
         if (sourceContainer) keepIds.add(sourceContainer.id);
         for (let index = sourceNodes.length - 1; index >= 0; index -= 1) {
@@ -16007,6 +16081,10 @@ function App() {
           if (keepIds.has(node.id) || node.type !== "image") continue;
           sourceNodes.splice(index, 1);
         }
+      }
+      for (const image of sourceImages) {
+        const node = image.canvasNodeId ? projectedNode(image.canvasNodeId) : undefined;
+        if (node && !sourceNodes.some((item) => item.id === node.id)) sourceNodes.push(node);
       }
       const explicitNodeRoles = Object.fromEntries([
         ...sourceNodes.map((node) => [node.id, "source" as const]),
@@ -16020,7 +16098,8 @@ function App() {
         canvasRevisionRef.current,
         null,
         undefined,
-        explicitNodeRoles
+        explicitNodeRoles,
+        composerSourceImages
       );
       taskScopeUpdate.taskScope = candidateTaskScope;
       taskScopeUpdate.nodes = projection.canvasNodes;
@@ -16171,6 +16250,14 @@ function App() {
     const content = baseContent;
     const visibleContent = String(dispatch.visibleContent ?? baseContent).trim() || baseContent;
     if (!content) return false;
+    try {
+      const canvas = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current).canvasNodes;
+      sourceImages = resolveCanvasMaterialImages(sourceImages, canvas);
+      referenceImages = resolveCanvasMaterialImages(referenceImages, canvas);
+    } catch (error) {
+      reportAgentSendFailure(error instanceof Error ? error.message : String(error), false);
+      return false;
+    }
     const cancelledRequest = cancelledAgentRequestRef.current;
     const cancellationApplies = Boolean(
       cancelledRequest &&
@@ -16279,6 +16366,7 @@ function App() {
       .map((nodeId) => requestProjection.canvasNodeById.get(nodeId) ?? nodesRef.current.find((node) => node.id === nodeId))
       .filter((node): node is WorkflowNode => Boolean(node));
     if (sourceContainer && !requestSourceNodes.some((node) => node.id === sourceContainer.id)) requestSourceNodes.push(sourceContainer);
+    let composerSourceImages: ReferenceImage[] | undefined;
     if (effectiveTaskOrigin !== "goal" && dispatch.referenceImages === undefined && dispatch.sourceImages === undefined) {
       const split = splitComposerMaterials(buildComposerMaterials(
         requestSourceNodes,
@@ -16298,6 +16386,7 @@ function App() {
         displayCode: reference.displayCode || `REF${index + 1}`,
         taskRole: "reference" as const
       }));
+      composerSourceImages = sourceImages;
       const keepIds = new Set(split.sourceNodeIds);
       if (sourceContainer) keepIds.add(sourceContainer.id);
       for (let index = requestSourceNodes.length - 1; index >= 0; index -= 1) {
@@ -16305,6 +16394,10 @@ function App() {
         if (keepIds.has(node.id) || node.type !== "image") continue;
         requestSourceNodes.splice(index, 1);
       }
+    }
+    for (const image of sourceImages) {
+      const node = image.canvasNodeId ? requestProjection.canvasNodeById.get(image.canvasNodeId) : undefined;
+      if (node && !requestSourceNodes.some((item) => item.id === node.id)) requestSourceNodes.push(node);
     }
     const liveTaskScope = agentTaskScopeForRequest(
       requestSourceNodes,
@@ -16315,6 +16408,7 @@ function App() {
       effectiveRequirementNode,
       effectiveRequirementSourceSignature,
       effectiveRequirementNodeRoles,
+      composerSourceImages,
     );
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
     const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
@@ -16489,13 +16583,15 @@ function App() {
                 : `${rawAnswer}\n\n${completedCommitAnswer}`
             : rawAnswer;
       const answer = layoutWarning ? `${baseAnswer}\n\n${layoutWarning}` : baseAnswer;
+      const incompleteReply = runtimeResult.completion === "partial";
+      const executionFailed = Boolean(failedCommit || (incompleteReply && runtimeResult.executionFailed));
       const finalMessage: AgentMessage = {
         id: assistantId,
         role: "assistant",
         content: answer,
         createdAt: nowLabel(),
-        status: "done",
-        meta: settings.agentModel ? `${settings.agentModel} / ${settings.reasoningEffort}` : "agent"
+        status: executionFailed ? "error" : "done",
+        meta: incompleteReply ? "partial" : settings.agentModel ? `${settings.agentModel} / ${settings.reasoningEffort}` : "agent"
       };
 
       flushPendingAgentStreamMessages();
@@ -16520,7 +16616,7 @@ function App() {
               return {
                 ...message,
                 content: answer && answer !== "已完成。" ? answer : streamContent || answer,
-                status: "done" as const,
+                status: finalMessage.status,
                 meta: finalMessage.meta
               };
             });
@@ -16541,7 +16637,7 @@ function App() {
                 return {
                   ...message,
                   content: answer && answer !== "已完成。" ? answer : streamContent || answer,
-                  status: "done" as const,
+                  status: finalMessage.status,
                   meta: finalMessage.meta
                 };
               })()
@@ -16549,10 +16645,10 @@ function App() {
         );
         return streamId ? finalized.slice(-120) : [...finalized, finalMessage].slice(-120);
       });
-      setAgentStatusSync("idle");
+      setAgentStatusSync(executionFailed ? "error" : "idle");
       setActiveRunStartedAt(null);
       activeRunRef.current = null;
-      return true;
+      return !incompleteReply && !executionFailed;
     } catch (error) {
       pendingLayerNarrationRunIdsRef.current.delete(runId);
       if (!runScopeIsCurrent()) return false;
@@ -18193,7 +18289,8 @@ function App() {
       return canvas.toDataURL("image/png");
     };
     const seedDebugCanvas = async (payload?: { count?: number; fileBacked?: boolean; duplicateContent?: boolean }) => {
-      const count = clamp(Number(payload?.count ?? 2), 1, 5);
+      const count = clamp(Number(payload?.count ?? 2), 1, 64);
+      const seedNodeId = (index: number) => index < 26 ? String.fromCharCode(65 + index) : `N${index + 1}`;
       const seedAssets = await Promise.all(Array.from({ length: count }, async (_item, index) => {
         const dataUrl = debugProbeImageDataUrl(
           payload?.duplicateContent ? 0 : index,
@@ -18235,11 +18332,11 @@ function App() {
             type: "workflow.node.create" as const,
             toolRunId: `aidebug-seed-${index + 1}`,
             node: {
-              id: String.fromCharCode(65 + index),
+              id: seedNodeId(index),
               title: `AIDebug 图片成果 ${index + 1}`,
               prompt: "用于低成本验证 Agent 工具调用、图片成果读取和清理能力。",
               nodeType: "image" as const,
-              parentId: index > 0 ? String.fromCharCode(64 + index) : undefined,
+              parentId: index > 0 ? seedNodeId(index - 1) : undefined,
               relationType: index > 0 ? "derived-from" as const : undefined,
               status: "done" as const,
               x: 180 + (index % 3) * 440,
@@ -23816,6 +23913,7 @@ function App() {
       mutationLocks: (nodeIds) => lockedMutationNodeIds(nodeIds),
       projects: () => projects,
       nodes: () => nodesRef.current,
+      canvasMaterialNodes: () => projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current).canvasNodes,
       layoutGroups: () => layoutGroupsRef.current,
       messages: () => messagesRef.current,
       switchProject,
@@ -23830,6 +23928,7 @@ function App() {
       }),
       clearCanvas: () => runtimeActionHandlerRef.current([{ type: "workflow.canvas.clear", mode: "all" }]),
       deleteSelectedNodes: deleteSelectedCanvasNodes,
+      addCanvasMaterials: addCanvasAgentMaterials,
       createContainer: (role, x, y) => role ? createTaskImageContainerAt(x, y, role) : createImageContainerAt(x, y),
       parseSkill: async (markdown, sourceName) => {
         const result = await window.naimageConfig?.parseSkill?.({ markdown, sourceName });
@@ -24133,6 +24232,7 @@ function App() {
       resumeAgent: resumeAgentRun,
       stopAgent: stopAgentRun,
       newConversation: confirmCreateConversation,
+      openImageConfig: () => setAgentImageConfigOpen(true),
       agentBusy: agentExecutionBusyNow
     });
   });
@@ -24407,7 +24507,6 @@ function App() {
       ]));
       setServerUser(result.user);
       setServerWallet(null);
-      setServerLogs([]);
       const status = result.license || await refreshLicenseState(true, "custom");
       setLicenseStatus(status);
       setLicenseReady(true);
@@ -24456,7 +24555,6 @@ function App() {
     setSettings((current) => ({ ...current, serverToken: "" }));
     setServerUser(null);
     setServerWallet(null);
-    setServerLogs([]);
     setAccountOpen(false);
     setSettingsOpen(false);
     setProjectMenuOpen(false);
@@ -24482,17 +24580,6 @@ function App() {
     setAuthDraft((current) => ({ ...current, mode: "login", password: "" }));
     setAuthReady(true);
     setServerMessage(logoutWarning ? `已退出本地登录。服务端会话清理失败：${logoutWarning}` : "已退出登录。");
-  }
-
-  async function rechargeAccount() {
-    try {
-      if (!window.naimageServer?.recharge) throw new Error("本地账户服务正在启动或连接失败。");
-      await window.naimageServer.recharge({ amountCents: 1000 });
-      setServerMessage("充值已提交。");
-      await refreshServerState();
-    } catch (error) {
-      setServerMessage(error instanceof Error ? error.message : String(error));
-    }
   }
 
   function regenerateFromImageContainer(node: WorkflowNode) {
@@ -26417,12 +26504,12 @@ function App() {
   const projectAgentEditSources = useStableEvent(() => openReferencePicker(
     { kind: "agent-source" },
     agentSourceImages,
-    { title: "本轮原图", detail: "发送后加入画布，Agent 将直接处理。", max: MAX_AGENT_SOURCE_IMAGES }
+    { title: "本轮原图", detail: "从文件或画布选取要处理的图片，保存后用于本轮任务。", max: MAX_AGENT_SOURCE_IMAGES }
   ));
   const projectAgentEditReferences = useStableEvent(() => openReferencePicker(
     { kind: "agent" },
     agentReferenceImages,
-    { title: "参考图", detail: "仅作参考，不决定输出数量。", max: MAX_AGENT_REFERENCE_IMAGES }
+    { title: "参考图", detail: "从文件或画布选取风格/内容参考，不决定输出数量。", max: MAX_AGENT_REFERENCE_IMAGES }
   ));
   const projectAgentDropReferences = useStableEvent((files: File[]) => importPathsAsAgentImages(droppedPathsFromFiles(files), "reference"));
   const projectAgentRequestNewConversation = useStableEvent(() => requestNewConversation());
@@ -26440,31 +26527,24 @@ function App() {
   const projectAgentEditFastMemory = useStableEvent(() => setFastMemoryEditorOpen(true));
   const projectAgentSwitchConversation = useStableEvent((conversationId: string) => switchProjectConversation(conversationId));
   const projectAgentToggleCollapsed = useStableEvent(() => setAgentCollapsed((current) => !current));
-  const projectAgentChangeImageModels = useStableEvent((models: string[]) => {
+  const projectAgentEditImageConfig = useStableEvent(() => setAgentImageConfigOpen(true));
+  const persistAgentImageConfig = useStableEvent(async (patch: Partial<AppSettings>) => {
+    if (agentExecutionBusyNow() || agentStopPendingRef.current) throw new Error("任务运行中，图片配置暂不可修改。");
+    const nextSettings = mergeSettings({ ...settingsRef.current, ...patch });
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    await saveSettingsToStore(nextSettings);
+  });
+  const projectAgentChangeImageModels = useStableEvent(async (models: string[]) => {
     const imageModelPool = uniqueImageModels(models);
     if (!imageModelPool.length) return;
-    const current = settingsRef.current;
-    const imageModel = imageModelPool[0];
-    const nextSettings = mergeSettings({ ...current, imageModel, imageModelPool });
-    settingsRef.current = nextSettings;
-    setSettings(nextSettings);
-    void saveSettingsToStore(nextSettings).catch((error) => {
-      setServerMessage(`生图模型选择保存失败：${error instanceof Error ? error.message : String(error)}`);
-    });
+    await persistAgentImageConfig({ imageModel: imageModelPool[0], imageModelPool });
   });
-  const projectAgentChangeImageFrame = useStableEvent((imageRatio: AppSettings["imageRatio"], imageResolution: AppSettings["imageResolution"]) => {
-    const current = settingsRef.current;
-    const nextSettings = mergeSettings({
-      ...current,
-      imageRatio,
-      imageResolution,
-      imageSize: computedSizeFor(imageRatio, imageResolution)
-    });
-    settingsRef.current = nextSettings;
-    setSettings(nextSettings);
-    void saveSettingsToStore(nextSettings).catch((error) => {
-      setServerMessage(`默认出图规格保存失败：${error instanceof Error ? error.message : String(error)}`);
-    });
+  const projectAgentChangeImageFrame = useStableEvent(async (imageRatio: AppSettings["imageRatio"], imageResolution: AppSettings["imageResolution"]) => {
+    await persistAgentImageConfig({ imageRatio, imageResolution, imageSize: computedSizeFor(imageRatio, imageResolution) });
+  });
+  const projectAgentChangeImageOutput = useStableEvent(async (imageCount: number, imageQuality: AppSettings["imageQuality"]) => {
+    await persistAgentImageConfig({ imageCount: Math.max(1, Math.min(10, Math.round(imageCount))), imageQuality });
   });
   const projectAgentRequestImageModels = useStableEvent(async () => {
     if (!window.naimageServer?.models) throw new Error("当前桌面后端不支持读取上游模型。");
@@ -26647,6 +26727,10 @@ function App() {
     }
     if (command.type === "edit-references") {
       projectAgentEditReferences();
+      return;
+    }
+    if (command.type === "edit-image-config") {
+      projectAgentEditImageConfig();
       return;
     }
     if (command.type === "edit-memory") {
@@ -27273,10 +27357,11 @@ function App() {
             type="button"
             className="workspace-glass-lab-button"
             onClick={() => openSettingsSection("appearance")}
-            title="打开 Glass Lab 外观实验室"
+            aria-label="切换界面主题"
+            title="简洁黑白与彩色玻璃主题"
           >
             <SlidersHorizontal size={14} />
-            <span>Glass Lab</span>
+            <span>主题</span>
           </ButtonBase>
         </div>
         <div className="ide-actions">
@@ -28370,6 +28455,13 @@ function App() {
                       {menuSelectionCapabilities.layerVisibleCount ? ` · PNG 图层 ${menuSelectionCapabilities.layerVisibleCount}` : ""}
                       {menuSelectionCapabilities.groupExcluded.length ? ` · 自动排除 ${menuSelectionCapabilities.groupExcluded.length}` : ""}
                   </MenuSummary>
+                  {flattenSelectedCanvasMaterials(canvasMenu.nodeIds.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node)), true).length ? (
+                    <>
+                      <MenuItem icon={<ImageIcon size={15} />} onClick={() => addCanvasAgentMaterialsFromMenu(canvasMenu.nodeIds.map((nodeId) => ({ nodeId })), "source")}>添加到原图</MenuItem>
+                      <MenuItem icon={<Images size={15} />} onClick={() => addCanvasAgentMaterialsFromMenu(canvasMenu.nodeIds.map((nodeId) => ({ nodeId })), "reference")}>添加到参考图</MenuItem>
+                      <MenuSeparator />
+                    </>
+                  ) : null}
                   <MenuItem
                     icon={<Workflow size={15} />}
                     disabled={menuSelectionCapabilities.groupableNodeIds.length === 0}
@@ -28515,6 +28607,12 @@ function App() {
                         }}>
                           引用到 Agent
                         </MenuItem>
+                        {(targetNode.assets?.some((asset) => asset.status !== "pending" && asset.status !== "error")) ? (
+                          <>
+                            <MenuItem icon={<ImageIcon size={15} />} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id }], "source")}>添加到原图</MenuItem>
+                            <MenuItem icon={<Images size={15} />} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id }], "reference")}>添加到参考图</MenuItem>
+                          </>
+                        ) : null}
                         <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorForSource(targetNode)}>
                           基于此成果提要求
                         </MenuItem>
@@ -28756,6 +28854,8 @@ function App() {
                 }}>
                   引用到 Agent
                 </MenuItem>
+                <MenuItem icon={<ImageIcon size={15} />} disabled={targetAsset.status === "pending" || targetAsset.status === "error"} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "source")}>添加到原图</MenuItem>
+                <MenuItem icon={<Images size={15} />} disabled={targetAsset.status === "pending" || targetAsset.status === "error"} onClick={() => addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "reference")}>添加到参考图</MenuItem>
                 <MenuItem icon={<Workflow size={15} />} onClick={() => openRequirementEditorForSource(targetNode)}>
                   基于此成果提要求
                 </MenuItem>
@@ -28950,14 +29050,7 @@ function App() {
           clearSelection={projectAgentClearSelection}
           editSourceImages={projectAgentEditSources}
           editReferenceImages={projectAgentEditReferences}
-          imageModels={composerImageModels}
-          imageModelConfigs={settings.imageModelConfigs}
-          selectedImageModels={selectedComposerImageModels}
-          onSelectedImageModelsChange={projectAgentChangeImageModels}
-          requestImageModels={projectAgentRequestImageModels}
-          imageRatio={settings.imageRatio}
-          imageResolution={settings.imageResolution}
-          onImageFrameChange={projectAgentChangeImageFrame}
+          editImageConfig={projectAgentEditImageConfig}
           dropReferenceFiles={projectAgentDropReferences}
           requestNewConversation={projectAgentRequestNewConversation}
           requestClearConversation={projectAgentRequestClearConversation}
@@ -28979,13 +29072,12 @@ function App() {
           <AccountDrawer
             user={serverUser}
             wallet={serverWallet}
-            logs={serverLogs}
             message={serverMessage}
             authDraft={authDraft}
             setAuthDraft={setAuthDraft}
             submitAuth={submitAuth}
             logout={logoutServer}
-            recharge={rechargeAccount}
+            manageTokens={() => { setAccountOpen(false); setSettingsInitialSection("access"); setSettingsOpen(true); }}
             refresh={async () => {
               await refreshServerState();
             }}
@@ -29280,6 +29372,7 @@ function App() {
             draft={referencePickerDraft}
             setDraft={setReferencePickerDraft}
             projectId={activeProjectId}
+            canvasMaterials={referencePickerCanvasMaterials}
             close={() => referencePickerDraft.target.kind === "agent-request"
               ? closePendingAgentExecution(referencePickerDraft.target.requestId)
               : setReferencePickerDraft(null)}
@@ -29384,6 +29477,22 @@ function App() {
             submit={submitConfirmDialog}
           />
         ) : null}
+
+        {agentImageConfigOpen ? <LazyProjectAgentImageConfig
+          imageModels={composerImageModels}
+          imageModelConfigs={settings.imageModelConfigs}
+          selectedImageModels={selectedComposerImageModels}
+          imageRatio={settings.imageRatio}
+          imageResolution={settings.imageResolution}
+          imageCount={settings.imageCount}
+          imageQuality={settings.imageQuality}
+          locked={agentExecutionBusy || agentStopPending}
+          onModelsChange={projectAgentChangeImageModels}
+          onFrameChange={projectAgentChangeImageFrame}
+          onOutputChange={projectAgentChangeImageOutput}
+          requestImageModels={projectAgentRequestImageModels}
+          close={() => setAgentImageConfigOpen(false)}
+        /> : null}
 
         {goalConfirmation ? (
           <LazyGoalConfirmationDialog

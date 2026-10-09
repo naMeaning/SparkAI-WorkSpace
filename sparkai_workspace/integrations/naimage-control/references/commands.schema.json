@@ -6,6 +6,8 @@
       "commands": [
         { "name": "status", "surface": "service", "args": "", "description": "Check the local authenticated bridge and renderer readiness." },
         { "name": "app.state", "surface": "renderer", "args": "", "description": "Return active project, conversation, Agent status, active run ID, pause state, selection, viewport, node summaries, and recent messages." },
+        { "name": "app.diagnostics", "surface": "renderer", "description": "Read the last 300 sanitized image/model diagnostic events. No credentials, prompts, media or private paths are returned.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
+        { "name": "app.export-diagnostics", "surface": "renderer", "description": "Open the native save dialog to export sanitized diagnostic events; the user selects the destination. No destination path is returned.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
         {
           "name": "canvas.state",
           "surface": "renderer",
@@ -1311,6 +1313,32 @@
       "title": "Agent",
       "commands": [
         {
+          "name": "agent.add-canvas-materials",
+          "surface": "renderer",
+          "description": "Add existing canvas images to the current composer SOURCE or REFERENCE list without calling the Agent or generating images. Omit assetIndex to add all completed images of a node/container, or provide a zero-based member index. Explicit role replaces the other role for the same occurrence; duplicates do not add slots. Project and optional canvas revision guards validate the entire target list before mutation. Existing canvas identity and provenance are reused, and capacity omissions are reported.",
+          "parameters": {
+            "type": "object",
+            "required": ["expectedProjectId", "role", "targets"],
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": { "type": "string", "minLength": 1 },
+              "expectedCanvasRevision": { "type": "integer", "minimum": 0 },
+              "role": { "type": "string", "enum": ["source", "reference"] },
+              "targets": {
+                "type": "array", "minItems": 1, "maxItems": 200,
+                "items": {
+                  "type": "object", "required": ["nodeId"], "additionalProperties": false,
+                  "properties": {
+                    "nodeId": { "type": "string", "minLength": 1 },
+                    "assetIndex": { "type": "integer", "minimum": 0 }
+                  }
+                }
+              }
+            }
+          },
+          "examples": [{ "expectedProjectId": "PROJECT_ID", "role": "source", "targets": [{ "nodeId": "IMAGE_A", "assetIndex": 0 }] }]
+        },
+        {
           "name": "agent.chat",
           "surface": "renderer",
           "description": "Start an idle task and wait for its current Agent turn to settle. Optional ratio/resolution fields add an explicit image output specification to the instruction. While a task is already running, this command performs a text-only steer with the frozen TaskScope kept unchanged and returns after acceptance; sourceNodeIds are then rejected and explicit attachment changes must use agent.steer. Every supplied sourceNodeId must still exist; a mixed valid/stale list fails before any Agent call.",
@@ -1474,11 +1502,13 @@
         { "name": "agent.pause", "surface": "renderer", "description": "Pause dispatch at the next runtime boundary; an accepted upstream request may still finish.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
         { "name": "agent.resume", "surface": "renderer", "description": "Resume a paused task and fail the command if the runtime does not accept the resume.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
         { "name": "agent.stop", "surface": "renderer", "description": "Stop the active task while preserving completed results. Missing active work or a failed backend cancellation is a top-level command failure, never a successful idle response.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
+        { "name": "agent.image-config", "surface": "renderer", "description": "Open the shared image configuration dialog; does not dispatch any model or image request. Edit and persist model pool/default, ratio, resolution, count and quality through the same GUI owner.", "parameters": { "type": "object", "additionalProperties": false, "properties": {} } },
         { "name": "agent.new-conversation", "surface": "renderer", "args": "", "description": "Start a conversation without clearing canvas results." }
       ]
     }
   ],
   "notes": [
+    { "title": "Composer slash commands", "body": "GUI and detached Agent share /goal <prompt>, /config, /status, /help, /new, /pause, /resume and /stop. They execute locally; unknown or incomplete commands never reach a model. /goal retains scope and fee confirmation, and active Goals only permit text steering. CLI/MCP should use structured agent.goal, agent.image-config, app.state, agent.new-conversation, agent.pause, agent.resume and agent.stop actions instead of passing slash commands to agent.chat." },
     {
       "title": "Images and containers",
       "body": "For generation, editing, variants, cutout, redraw, and layer work, select the intended sources and use `agent.chat`. The Agent preserves provenance and creates results through the same runtime as the GUI."

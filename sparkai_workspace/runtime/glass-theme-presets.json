@@ -15,9 +15,12 @@
     "light-silver",
     "light-lemon",
     "light-sky",
-    "light-blush"
+    "light-blush",
+    "light-classic",
+    "dark-classic"
   ],
   "materialOrder": ["clear", "frosted", "dense"],
+  "solidParameters": { "opacity": 100, "blur": 0, "saturation": 100, "highlight": 0, "shadow": 8, "radius": 8 },
   "accentOrder": ["theme", "rose", "mint", "coral", "amber", "ice"],
   "ranges": {
     "opacity": { "min": 8, "max": 72, "step": 1, "unit": "%" },
@@ -189,6 +192,50 @@
         "ink": "#203039",
         "inkSoft": "#455d69",
         "muted": "#5d7480"
+      }
+    },
+    "light-classic": {
+      "name": "简洁白色",
+      "mode": "light",
+      "appearance": "solid",
+      "accent": "ice",
+      "tokens": {
+        "glassRgb": "255, 255, 255",
+        "accent": "#262626",
+        "accentRgb": "38, 38, 38",
+        "accentInk": "#ffffff",
+        "secondary": "#666666",
+        "secondaryRgb": "102, 102, 102",
+        "canvas": "#f3f3f3",
+        "canvasTint": "rgba(0, 0, 0, 0)",
+        "surfaceSolid": "#ffffff",
+        "surfaceRaised": "#f5f5f5",
+        "nodeBg": "#ffffff",
+        "ink": "#202020",
+        "inkSoft": "#454545",
+        "muted": "#666666"
+      }
+    },
+    "dark-classic": {
+      "name": "简洁黑色",
+      "mode": "dark",
+      "appearance": "solid",
+      "accent": "ice",
+      "tokens": {
+        "glassRgb": "30, 30, 30",
+        "accent": "#ededed",
+        "accentRgb": "237, 237, 237",
+        "accentInk": "#171717",
+        "secondary": "#aaaaaa",
+        "secondaryRgb": "170, 170, 170",
+        "canvas": "#141414",
+        "canvasTint": "rgba(0, 0, 0, 0)",
+        "surfaceSolid": "#1e1e1e",
+        "surfaceRaised": "#2b2b2b",
+        "nodeBg": "#1e1e1e",
+        "ink": "#f5f5f5",
+        "inkSoft": "#d0d0d0",
+        "muted": "#aaaaaa"
       }
     },
     "light-blush": {

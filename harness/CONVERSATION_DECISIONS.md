@@ -30,8 +30,9 @@ Older conversations are represented through the maintained product documents whe
 | D-11 | active | The workspace separates desktop client and backend ownership. Cross-repository auth, model, update and DTO changes require explicit two-sided contract evidence. | `WORKSPACE_CONTEXT_MAP.md` |
 | D-12 | active | Deliverables describe actual evidence, package paths/hashes when produced, and unverified boundaries. A previous assistant claim is not completion evidence. | Repeated user feedback, harness protocol |
 | D-13 | active | Each conversation/image model may independently override Base URL and API Key. The two fields inherit independently when blank; Main resolves account credentials and the SparkAPI-only build still rejects custom connections. | Current user request (2026-09-26), `sparkai_workspace/GOAL.md` |
-| D-14 | active | Image protocol, gateway, transport and capability details are implementation policy. The user-facing model configuration should prefer automatic adapter selection and keep only the minimum connection overrides needed for compatibility. | Current user direction (2026-09-27), `sparkai_workspace/GOAL.md` |
+| D-14 | active | Keep image models, provider labels, adapters, channels, Base URL and credentials independent. The existing per-model connection may explicitly select adapter/channel/transport; explicit configuration wins over model-name defaults. Reuse the current image service and frontend. | Current user direction (2026-10-07), `sparkai_workspace/GOAL.md` |
 | D-15 | active | Agent send, settings readability and image adapter changes are one continuation goal; update Goal/Progress/context records before implementation and preserve real evidence through EXE build. | Current user direction (2026-09-27), `goal-documentation-continuity` |
+| D-16 | active | Save and display generated images in the provider's actual PNG/JPEG/WebP format; determine MIME/extension from bytes and retain the original bytes. This supersedes local conversion to the requested format and rejecting a valid result merely because its encoding differs from the request. Explicit user export remains separate. | Current user direction (2026-10-08), desktop `GOAL.md` |
 
 ## Operating Preferences From The User
 
@@ -65,6 +66,7 @@ This distinction matters: assistant design proposals can improve the harness, bu
 | Generic workflow editor or revived legacy UI to satisfy old tests | Current simplified workspace and current UI evidence; legacy tests are not a product baseline |
 | Account mode ignores per-model Base URL | Per-model Base URL and API Key overrides with independent inheritance; SparkAPI-only build remains locked |
 | Expose every image protocol/gateway/capability switch as required user configuration | Automatic internal adapter selection with backward-compatible legacy fields and minimal connection controls |
+| Force known image models to use the protocol inferred from their name | Since 2026-10-07, optional explicit connection adapter/channel/transport overrides take precedence; automatic inference remains a default |
 | Local filter/post-effect workflow and click-to-cutout behavior | Current image-model workflow with real mask/alpha contracts |
 | Duplicating domain-specific canvases or runtimes | Shared project state with domain projections |
 | Treating bundle limits as a universal blocker | Product performance evidence and risk-aware natural boundaries; release-only hard gates where defined |
@@ -82,3 +84,11 @@ These are not promises of completion. They require an explicit current task and 
 ## How To Add A Decision
 
 Add a row only after recording the user statement or approved proposal that supports it. State the current authority and status. When a newer decision changes it, update this ledger in the same task and preserve a one-line supersession record. Never record credentials, user data, raw private paths, or upstream signed URLs.
+
+## 2026-10-08 Agent 配置与命令交互（active）
+
+用户要求把比例、生图模型等收进“图片配置”，删除目标按钮，使用 `/goal` 设置目标；旧普通/Goal 单触发器/双瓣菜单方向 superseded。参考 DeepSeek harness、Codex、Claude Code 的命令发现、集中配置与可恢复任务交互，在既有主/独立 Agent 表面实现共享候选和解析；本地 /status、/help 不调用模型，/config 复用原设置，/goal 和 /stop 保留原确认，/pause /resume 使用原 runtime。此方向不授权新付费请求或重建工作台。
+
+## 2026-10-09 正式发布与更新信任轮换（active）
+
+用户要求推送当前源码并发布正式稳定版，先解决全部正式发布前置条件；确认原更新签名私钥丢失，授权更换密钥并通过完整安装包升级。1.0.9 安装器携带新公钥，最低更新版本提高到 1.0.9；旧版须手动完整安装，不承诺旧公钥接受新清单。保留项目、用户数据和应用兼容身份，新私钥仅存本地忽略目录。唯一只读审查发现客户端遮罩合成失败可能导致重复计费，用户明确要求修复后再发布。未授权新的真实模型请求或触碰日常安装来绕过门禁。

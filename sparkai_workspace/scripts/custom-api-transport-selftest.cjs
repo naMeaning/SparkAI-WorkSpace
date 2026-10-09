@@ -307,6 +307,17 @@ async function main() {
   assert.equal(forwardedImageBody.quality, "high");
   assert.equal(forwardedImageBody.n, 1);
 
+  const nativeBody = { __imageModel: "relay-alias", contents: [{ parts: [{ text: "test" }] }] };
+  for (const baseUrl of ["https://generativelanguage.googleapis.com", "https://generativelanguage.googleapis.com/v1beta", "https://generativelanguage.googleapis.com/v1"]) {
+    await client.newApiRelayJson(settings, "/v1beta/models/relay-alias:generateContent", nativeBody, { provider: "image", model: "relay-alias", baseUrl, apiKey: "fixture-key", authHeader: "x-goog-api-key" });
+    assert.equal(captured.url, "https://generativelanguage.googleapis.com/v1beta/models/relay-alias:generateContent");
+    assert.equal(captured.options.headers["x-goog-api-key"], "fixture-key");
+    assert.equal(captured.options.headers.authorization, undefined);
+    assert.equal(JSON.parse(captured.options.body).__imageModel, undefined);
+  }
+  await client.newApiRelayJson(settings, "/v1beta/models/relay-alias:generateContent", nativeBody, { provider: "image", model: "relay-alias", baseUrl: "https://newapi.example/v1", apiKey: "fixture-key" });
+  assert.equal(captured.options.headers.authorization, "Bearer fixture-key");
+
   await client.newApiRelayJson({ ...settings, imageApiKey: "" }, "/v1/images/generations", { ...imageBody, model: "grok-image-1" }, { provider: "image" });
   assert.equal(captured.url, "https://images.example/v1/images/generations", "Bindings without a Base URL override must use the global image Base URL");
   assert.equal(captured.options.headers.authorization, "Bearer grok-bound-key");
@@ -514,6 +525,21 @@ async function main() {
   await client.newApiRelayStream(settings, "/v1/responses", { model: "gpt-fixture" }, (event) => streamEvents.push(event));
   assert.equal(streamEvents.length, 1);
   assert.equal(streamEvents[0].response.output_text, "stream fixture");
+
+  for (const event of [{ error: { code: 502, message: "gateway unavailable" } },
+    { type: "response.failed", response: { error: { status: 503, message: "unavailable" } } }]) {
+    transport = async () => response({ contentType: "text/event-stream", data: `data: ${JSON.stringify(event)}\n\n` });
+    const observed = [];
+    await assert.rejects(() => client.newApiRelayStream(settings, "/v1/chat/completions", { model: "agent-bound" }, (value) => observed.push(value)),
+      (error) => [502, 503].includes(error.status) && error.code === "NEW_API_MODEL_STREAM_FAILED");
+    assert.equal(observed.length, 0, "An SSE error is not successful stream output");
+  }
+  transport = async () => response({ contentType: "text/event-stream", data:
+    'data: {"choices":[{"delta":{"content":"partial"}}]}\n\ndata: {"error":{"code":502,"message":"failed after output"}}\n\n' });
+  const partialModelEvents = [];
+  await assert.rejects(() => client.newApiRelayStream(settings, "/v1/chat/completions", { model: "agent-bound" }, (value) => partialModelEvents.push(value)),
+    (error) => error.status === 502);
+  assert.equal(partialModelEvents[0].choices[0].delta.content, "partial", "Earlier output must remain observed so Main will not retry");
 
   transport = async () => response({
     contentType: "text/event-stream; charset=utf-8",

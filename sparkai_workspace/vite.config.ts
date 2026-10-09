@@ -103,7 +103,9 @@ export default defineConfig(({ command, mode }) => {
         passes: 4,
         toplevel: true,
         keep_fargs: false,
-        booleans_as_integers: true,
+        // Boolean values cross lazy chunks and IPC boundaries. Converting
+        // literals to 0/1 breaks strict comparisons and type validation.
+        booleans_as_integers: false,
         drop_console: true,
         drop_debugger: true
       },

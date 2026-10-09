@@ -23,7 +23,6 @@ import type {
   AgentStatus,
   AgentSteerTaskScopeMode,
   AppSettings,
-  ImageModelConfig,
   ReferenceImage
 } from "./core";
 import type { AgentComposerTaskMode } from "./project-agent-composer";
@@ -38,6 +37,7 @@ import {
   type AgentPanelPointerMode
 } from "./agent-panel-layout";
 import { ButtonBase, IconActionButton } from "./ui";
+import { runHasIncompleteModelReply } from "./model-ux";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 declare const __NAIMAGE_PERF_PROBE__: boolean;
@@ -188,18 +188,12 @@ function ProjectAgentComposerView({
   editSourceImages,
   editReferenceImages,
   regenerateImage,
+  editImageConfig,
+  requestNewConversation,
   materials = [],
   onMaterialSequenceChange,
   onMaterialRoleChange,
   onRemoveMaterial,
-  imageModels,
-  imageModelConfigs,
-  selectedImageModels,
-  onSelectedImageModelsChange,
-  requestImageModels,
-  imageRatio,
-  imageResolution,
-  onImageFrameChange,
   debugCommit
 }: {
   selectedArtifacts: ProjectAgentArtifact[];
@@ -223,18 +217,12 @@ function ProjectAgentComposerView({
   editSourceImages: () => void;
   editReferenceImages: () => void;
   regenerateImage?: () => void;
+  editImageConfig: () => void;
+  requestNewConversation: () => void;
   materials?: ComposerMaterialItem[];
   onMaterialSequenceChange?: (key: string, sequence: number) => void;
   onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
   onRemoveMaterial?: (key: string) => void;
-  imageModels: string[];
-  imageModelConfigs: ImageModelConfig[];
-  selectedImageModels: string[];
-  onSelectedImageModelsChange: (models: string[]) => void;
-  requestImageModels: () => void | Promise<void>;
-  imageRatio: AppSettings["imageRatio"];
-  imageResolution: AppSettings["imageResolution"];
-  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
   debugCommit: (area: DebugRenderCommitArea) => void;
 }) {
   return (
@@ -263,18 +251,12 @@ function ProjectAgentComposerView({
           editSourceImages={editSourceImages}
           editReferenceImages={editReferenceImages}
           regenerateImage={regenerateImage}
+          editImageConfig={editImageConfig}
+          requestNewConversation={requestNewConversation}
           materials={materials}
           onMaterialSequenceChange={onMaterialSequenceChange}
           onMaterialRoleChange={onMaterialRoleChange}
           onRemoveMaterial={onRemoveMaterial}
-          imageModels={imageModels}
-          imageModelConfigs={imageModelConfigs}
-          selectedImageModels={selectedImageModels}
-          onSelectedImageModelsChange={onSelectedImageModelsChange}
-          requestImageModels={requestImageModels}
-          imageRatio={imageRatio}
-          imageResolution={imageResolution}
-          onImageFrameChange={onImageFrameChange}
         />
       </React.Suspense>
     </>
@@ -313,18 +295,11 @@ function ProjectAgentPanelView({
  editSourceImages,
  editReferenceImages,
   regenerateImage,
+  editImageConfig,
   materials = [],
   onMaterialSequenceChange,
   onMaterialRoleChange,
   onRemoveMaterial,
-  imageModels,
-  imageModelConfigs,
-  selectedImageModels,
-  onSelectedImageModelsChange,
-  requestImageModels,
-  imageRatio,
-  imageResolution,
-  onImageFrameChange,
   dropReferenceFiles,
  requestNewConversation,
  requestClearConversation,
@@ -368,18 +343,11 @@ function ProjectAgentPanelView({
  editSourceImages: () => void;
  editReferenceImages: () => void;
   regenerateImage?: () => void;
+  editImageConfig: () => void;
   materials?: ComposerMaterialItem[];
   onMaterialSequenceChange?: (key: string, sequence: number) => void;
   onMaterialRoleChange?: (key: string, role: ComposerMaterialRole) => void;
   onRemoveMaterial?: (key: string) => void;
-  imageModels: string[];
-  imageModelConfigs: ImageModelConfig[];
-  selectedImageModels: string[];
-  onSelectedImageModelsChange: (models: string[]) => void;
-  requestImageModels: () => void | Promise<void>;
-  imageRatio: AppSettings["imageRatio"];
-  imageResolution: AppSettings["imageResolution"];
-  onImageFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => void;
   dropReferenceFiles: (files: File[]) => void | Promise<unknown>;
  requestNewConversation: () => void;
   requestClearConversation: () => void;
@@ -451,6 +419,8 @@ function ProjectAgentPanelView({
     ? "Agent 已暂停"
     : agentStatus === "error" || /error|失败/i.test(progressPhase)
     ? "Agent 遇到问题"
+    : !agentActivityBusy && runHasIncompleteModelReply(agentProgress)
+    ? "图片成果已保留，后续对话未完成"
     : latestRunningMessage?.meta === "assistant-stream"
       ? "Agent 正在输出"
       : latestRunningMessage?.meta === "thinking" || progressPhase === "model-request" || progressPhase === "model-thinking-delta"
@@ -780,18 +750,12 @@ function ProjectAgentPanelView({
         editSourceImages={editSourceImages}
         editReferenceImages={editReferenceImages}
         regenerateImage={regenerateImage}
+        editImageConfig={editImageConfig}
+        requestNewConversation={requestNewConversation}
         materials={materials}
         onMaterialSequenceChange={onMaterialSequenceChange}
         onMaterialRoleChange={onMaterialRoleChange}
         onRemoveMaterial={onRemoveMaterial}
-        imageModels={imageModels}
-        imageModelConfigs={imageModelConfigs}
-        selectedImageModels={selectedImageModels}
-        onSelectedImageModelsChange={onSelectedImageModelsChange}
-        requestImageModels={requestImageModels}
-        imageRatio={imageRatio}
-        imageResolution={imageResolution}
-        onImageFrameChange={onImageFrameChange}
         debugCommit={debugCommit}
       />
       {panelLayout.agentPanelPlacement === "floating" ? (
@@ -870,17 +834,12 @@ const ProjectAgentComposer = React.memo(ProjectAgentComposerView, (left, right) 
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
   left.regenerateImage === right.regenerateImage &&
+  left.editImageConfig === right.editImageConfig &&
+  left.requestNewConversation === right.requestNewConversation &&
   left.materials === right.materials &&
   left.onMaterialSequenceChange === right.onMaterialSequenceChange &&
   left.onMaterialRoleChange === right.onMaterialRoleChange &&
   left.onRemoveMaterial === right.onRemoveMaterial &&
-  left.imageModels === right.imageModels &&
-  left.selectedImageModels === right.selectedImageModels &&
-  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
-  left.requestImageModels === right.requestImageModels &&
-  left.imageRatio === right.imageRatio &&
-  left.imageResolution === right.imageResolution &&
-  left.onImageFrameChange === right.onImageFrameChange &&
   left.debugCommit === right.debugCommit
 );
 
@@ -916,17 +875,11 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.editSourceImages === right.editSourceImages &&
   left.editReferenceImages === right.editReferenceImages &&
   left.regenerateImage === right.regenerateImage &&
+  left.editImageConfig === right.editImageConfig &&
   left.materials === right.materials &&
   left.onMaterialSequenceChange === right.onMaterialSequenceChange &&
   left.onMaterialRoleChange === right.onMaterialRoleChange &&
   left.onRemoveMaterial === right.onRemoveMaterial &&
-  left.imageModels === right.imageModels &&
-  left.selectedImageModels === right.selectedImageModels &&
-  left.onSelectedImageModelsChange === right.onSelectedImageModelsChange &&
-  left.requestImageModels === right.requestImageModels &&
-  left.imageRatio === right.imageRatio &&
-  left.imageResolution === right.imageResolution &&
-  left.onImageFrameChange === right.onImageFrameChange &&
   left.dropReferenceFiles === right.dropReferenceFiles &&
   left.requestNewConversation === right.requestNewConversation &&
   left.requestClearConversation === right.requestClearConversation &&

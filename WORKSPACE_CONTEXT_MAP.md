@@ -1,14 +1,20 @@
 # SparkAI WorkSpace 工作区上下文地图
 
-> 最近同步：2026-09-27
+> 最近同步：2026-10-09
 > 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
+> 2026-10-09 正式发布准备：用户授权当前 main 推送、正式 Release、原 Ed25519 私钥丢失后的更新信任轮换与完整安装升级。1.0.9 内嵌新公钥，最低更新版本为 1.0.9；旧版必须手动完整安装，不能验证新签名或使用 Restart ASAR。私钥仅存本地忽略目录。当前正在解决门禁与隔离安装环境，尚未宣称正式发布；Extension 和生产服务不在本次范围。
+
 > Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
 
-> 2026-09-26 审查记录：当前 `main` 的未提交改动正在收口统一图片生成层，新增协议/网关/同步异步传输和模型能力配置。后续开发先以 [WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md](WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md) 的 P0 合同、幂等恢复、能力证据和错误脱敏建议为准；真实模型、Seedance、Extension 生产部署和正式发布仍未验证。
+> 2026-09-26 历史审查记录：当时的统一图片生成层审查与候选优化见 [WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md](WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md)。当前实现、验收及用户方向以桌面 GOAL/PROGRESS 和最新显式请求为准；审查建议本身不是完成证据。
 
-> 2026-09-27 当前 Goal：继续维护 Agent 发送确认、设置可读性和图片网关自动适配；完成后必须记录 `corepack pnpm run build` 与 EXE 制品证据。旧的逐模型图片连接目标保留为已完成历史。
+> 2026-10-08 最新桌面交付完成：图片参数收进集中配置表面，普通/Goal 按钮由共享 8 个 slash 命令替代；主/独立窗口复用既有 Runtime、配置保存链和两阶段 Goal 确认，CLI/MCP 新增 `agent.image-config`。两种 1.0.9 x64 开发 EXE 的实际程序各 9 checks/10 screenshots，0 真实模型请求；每包 129 文件匹配、接入策略及 MZ/SHA-256/NotSigned 核验通过。最新汇总 `sparkai_workspace/.diagnostics/release/composer-command-delivery-2026-10-08.json` 替代以下历史同名制品元数据。本轮仅修改桌面；Extension 与外部 New API 合同未改变，实际安装/卸载、签名和正式发布未验证。
+
+> 2026-10-07 当前任务已完成：画布原图/参考图选取和右键添加、既有生图服务内显式供应商 Adapter 配置及两种 1.0.9 x64 开发 EXE 已交付。模型、协议、渠道、BaseURL/Key 分离，显式连接配置优先于模型默认推断，保留原 OpenAI Compatible 与成果链。两种实际程序已通过素材/供应商保存与 reload、主题/账户/独立窗口 smoke（各 18 截图），两安装器 UI 各 19 截图通过。最终制品大小/MZ/SHA-256/NotSigned、接入策略和包内文件匹配见 `sparkai_workspace/.diagnostics/release/image-adaptation-delivery-2026-10-07.json`；详细状态见桌面 GOAL/PROGRESS。本次只改桌面，未更改 Extension 或外部 New API；真实 provider 联调及真实账户复验尚未完成。
+
+> 2026-10-07 后续回归本地已验证：用户反馈 Grok 已消费但 AggregateError。实际安装版日志证明两次 HTTP 200 与各 1 张结果；桌面 xAI 默认内联返回、结果下载异常脱敏分类和 Agent 禁止重复生成已修复。真实 Electron 落盘、Agent 故意改参数再生成被阻止、专项/build 与两种修订 EXE 的实际启动及包内 5 文件核查均通过，0 新真实模型请求。当前同名 EXE 的权威元数据在 `sparkai_workspace/.diagnostics/release/grok-result-download-delivery-2026-10-07.json`；旧交付 hash 保留为历史。既有 Extension/外部 New API 不变；真实中转 Base64 行为、历史具体网络错误与真实账户复验未验证。
 
 ## 1. 两个项目分别是什么
 
@@ -96,7 +102,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改项目节点多窗口持久化 | `src/main.tsx`, `desktop/project-session-merge.cjs`, config IPC | session v5、Main commitRevision、顶层字段 clock、delete/restore tombstone 与 causal barrier、writer checkpoint/30 天 quorum GC、`test:node-mutation-journal`、`test:project-session-merge`、`test:project-session-dual-renderer`、`test:project-io` |
 | 修改 Agent 暂停/结束/steer | `desktop/agent-run-control.cjs`, Agent IPC/runtime、主/独立 Renderer | parent/child AbortSignal、节点锁、协议历史补齐、TaskScope update 的 Main 归一化/重哈希/先保存不变量、`test:agent-run-control`、`test:agent-steer`、窗口与 IPC 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
-| 修改账号/自定义接入、账户密钥或设备授权 | `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/settings-secret-store.cjs`, `desktop/license-service.cjs`, `electron-main.cjs`, `src/auth-gate.tsx` | 原生 New API rc.23 auth bundle/旧 session 双协议、登录关键路径/后台预热边界、`account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/user/auth/*`、`/api/token/*`、`/v1/*`、`/api/naimage/license*` 与凭据隔离测试（含 `test:new-api-login`） |
+| 修改账号/自定义接入、账户密钥、用户额度/日志或设备授权 | `desktop/new-api-client.cjs`, `desktop/new-api-account.cjs`, `desktop/account-token-{service,quota}.cjs`, `desktop/settings-secret-store.cjs`, `desktop/license-service.cjs`, `electron-main.cjs`, `src/auth-gate.tsx`, `src/account-drawer.tsx`, `src/settings-drawer.tsx` | 原生 New API rc.23 auth bundle/旧 session 双协议、登录关键路径/后台预热边界、`account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/user/auth/*`、`/api/token/*`、`/api/status`、`/api/log/self`、`/v1/*`、`/api/naimage/license*`。额度展示/输入来自服务端单位，日志服务端筛选/分页与凭据脱敏；设置读取本地快照由 Main 校验会话，不依赖公开设置已移除的身份字段。验证见桌面地图 6.1.1（`test:new-api-account`、token/quota、`test:new-api-login`、`aidebug:account` 和生产账户 smoke）；外部 New API/Extension 未修改 |
 | 修改外部 Agent 控制或可自动化产品动作 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `src/automation-command-{registry,runtime}.ts`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单；`commands.schema.json` 同时驱动 Renderer、CLI 参考和测试。Graph 命令以 `canvas.state` 提供权威 revision/锁/关系并严格校验选择；mutation 强制项目 guard、canvas revision CAS 可选、Requirement update/execute revision 必需；图 mutation 与 create/update 整批提交，execute 仅在异步派发前 fence。GUI 动作变化必须同步 CLI 命令、Skill/参考文档和 `test:automation-service` |
 | 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；长 Prompt 归 Electron，插件禁止脚本注入、扩展执行和直接写 session |
 | 修改 Responses 请求 | `desktop/agent-responses-adapter.cjs` | 流协议、tool schema、`test:agent-protocol` |

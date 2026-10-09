@@ -2,6 +2,8 @@
 // Run `corepack pnpm run automation:generate` after editing the schema.
 export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "app.state",
+  "app.diagnostics",
+  "app.export-diagnostics",
   "canvas.state",
   "workspace.domain.list",
   "workspace.domain.get",
@@ -64,6 +66,7 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "research.figure.status",
   "research.figure.export",
   "research.figure.cancel",
+  "agent.add-canvas-materials",
   "agent.chat",
   "agent.goal",
   "commerce.compose-set",
@@ -71,6 +74,7 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "agent.pause",
   "agent.resume",
   "agent.stop",
+  "agent.image-config",
   "agent.new-conversation"
 ] as const;
 
@@ -88,6 +92,8 @@ export const AUTOMATION_SERVICE_COMMAND_NAMES = [
 export const AUTOMATION_COMMAND_NAMES = [
   "status",
   "app.state",
+  "app.diagnostics",
+  "app.export-diagnostics",
   "canvas.state",
   "debug.runtime-state",
   "debug.renderer-logs",
@@ -157,6 +163,7 @@ export const AUTOMATION_COMMAND_NAMES = [
   "research.figure.status",
   "research.figure.export",
   "research.figure.cancel",
+  "agent.add-canvas-materials",
   "agent.chat",
   "agent.goal",
   "commerce.compose-set",
@@ -164,12 +171,27 @@ export const AUTOMATION_COMMAND_NAMES = [
   "agent.pause",
   "agent.resume",
   "agent.stop",
+  "agent.image-config",
   "agent.new-conversation"
 ] as const;
 
 export const AUTOMATION_COMMAND_DEFINITIONS = {
   "status": {},
   "app.state": {},
+  "app.diagnostics": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
+  "app.export-diagnostics": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
   "canvas.state": {
     "parameters": {
       "type": "object",
@@ -2707,6 +2729,56 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
     },
     "destructive": true
   },
+  "agent.add-canvas-materials": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId",
+        "role",
+        "targets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expectedCanvasRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "source",
+            "reference"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": [
+              "nodeId"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "assetIndex": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "agent.chat": {
     "parameters": {
       "type": "object",
@@ -3099,12 +3171,21 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
       "properties": {}
     }
   },
+  "agent.image-config": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
   "agent.new-conversation": {}
 } as const;
 
 export const AUTOMATION_COMMAND_SURFACES = {
   "status": "service",
   "app.state": "renderer",
+  "app.diagnostics": "renderer",
+  "app.export-diagnostics": "renderer",
   "canvas.state": "renderer",
   "debug.runtime-state": "service",
   "debug.renderer-logs": "service",
@@ -3174,6 +3255,7 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "research.figure.status": "renderer",
   "research.figure.export": "renderer",
   "research.figure.cancel": "renderer",
+  "agent.add-canvas-materials": "renderer",
   "agent.chat": "renderer",
   "agent.goal": "renderer",
   "commerce.compose-set": "renderer",
@@ -3181,6 +3263,7 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "agent.pause": "renderer",
   "agent.resume": "renderer",
   "agent.stop": "renderer",
+  "agent.image-config": "renderer",
   "agent.new-conversation": "renderer"
 } as const;
 
@@ -3348,6 +3431,12 @@ export const AUTOMATION_COMMAND_ENUMS = {
       "nature",
       "nmi-pastel",
       "grayscale"
+    ]
+  },
+  "agent.add-canvas-materials": {
+    "role": [
+      "source",
+      "reference"
     ]
   },
   "agent.chat": {

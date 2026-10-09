@@ -148,13 +148,13 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const legacyAgentPanelMounted = Boolean(element(".agent-panel"));
     const legacyAgentCanvasNodeMounted = Array.from(document.querySelectorAll(".flow-node")).some((node) => node.classList.contains("agent"));
     const agentSurfaceRect = agentRect;
-    const projectAgentContextNode = element(".project-agent-material-strip") || element(".project-agent-composer-context");
+    const projectAgentContextNode = element('.project-agent-material-strip[data-selection-kind="single"], .project-agent-material-strip[data-selection-kind="multiple"]') || element(".project-agent-composer-context");
     const projectAgentContextRect = projectAgentContextNode?.getBoundingClientRect?.() || null;
     const projectAgentContextStyle = projectAgentContextNode ? getComputedStyle(projectAgentContextNode) : null;
     const projectAgentContextPrefixNode = projectAgentContextNode?.querySelector(":scope > span") || null;
     const projectAgentContextPrefixRect = projectAgentContextPrefixNode?.getBoundingClientRect?.() || null;
     const projectAgentContextPrefixStyle = projectAgentContextPrefixNode ? getComputedStyle(projectAgentContextPrefixNode) : null;
-    const projectAgentContextValueNode = projectAgentContextNode?.querySelector(":scope > strong") || null;
+    const projectAgentContextValueNode = projectAgentContextNode?.querySelector(":scope > strong, .project-agent-material-chip > strong") || null;
     const projectAgentContextValueRect = projectAgentContextValueNode?.getBoundingClientRect?.() || null;
     const projectAgentContextValueStyle = projectAgentContextValueNode ? getComputedStyle(projectAgentContextValueNode) : null;
     const projectAgentContextClearNode = projectAgentContextNode?.querySelector(":scope > button") || null;
@@ -761,7 +761,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       item.outlineColor !== "transparent" &&
       item.boxShadow !== "none"
     );
-    const normalizeContextText = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const normalizeContextText = (value) => String(value || "").replace(/\\s+/g, " ").trim();
     const currentSelectionText = normalizeContextText(projectAgentContextNode?.textContent);
     const projectAgentContextAriaLabel = normalizeContextText(projectAgentContextNode?.getAttribute("aria-label"));
     const projectAgentContextOpacityValue = Number.parseFloat(projectAgentContextStyle?.opacity || "1");
@@ -1004,11 +1004,12 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       ? !canvasSelectionIndicatorNode
       : canvasSelectionIndicatorActuallyVisible;
     const expectedSelectionKind = selectedNodeIds.length > 1 ? "multiple" : selectedNodeIds.length === 1 ? "single" : "none";
+    const selectionContextText = currentSelectionText + " " + projectAgentContextAriaLabel;
     const selectionSummaryTextOk = selectedNodeIds.length === 0
       ? !canvasSelectionIndicatorNode && !projectAgentContextNode
       : selectedNodeIds.length === 1
-        ? Boolean(canvasSelectionIndicatorTitle && currentSelectionText.includes(canvasSelectionIndicatorTitle))
-        : canvasSelectionIndicatorTitle === String(selectedNodeIds.length) + " 个成果" && currentSelectionText.includes(String(selectedNodeIds.length) + " 个选中成果");
+        ? Boolean(canvasSelectionIndicatorTitle && selectionContextText.includes(canvasSelectionIndicatorTitle))
+        : canvasSelectionIndicatorTitle === String(selectedNodeIds.length) + " 个成果" && selectionContextText.includes(String(selectedNodeIds.length) + " 个选中成果");
     const selectionSurfacesConsistentOk = Boolean(
       (selectedNodeIds.length === 0
         ? !canvasSelectionIndicatorNode && !projectAgentContextNode && selectedCanvasNodeIds.length === 0
@@ -2550,7 +2551,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     );
     const settingsActiveSectionTitle = {
       接入: "服务接入",
-      外观: "Glass Lab",
+      外观: "界面主题",
       模型: "模型配置",
       Agent: "Agent",
       更新: "软件更新"
@@ -2561,21 +2562,22 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsSectionEyebrowText === "" &&
       settingsSectionTitleText === settingsActiveSectionTitle
     );
+    const settingsSolidTheme = document.documentElement.dataset.glassStyle === "solid";
     const settingsAppearanceControlsOk = !settingsOpen || settingsActiveTabText !== "外观" || (
       Boolean(settingsGlassLab) &&
-      settingsGlassThemeCards.length === 7 &&
+      settingsGlassThemeCards.length === 9 &&
       settingsGlassThemeActiveCount === 1 &&
-      settingsGlassMaterialCards.length === 3 &&
-      settingsGlassMaterialActiveCount === 1 &&
-      Boolean(element(".settings-drawer:not(.account-drawer) [data-glass-section='background']")) &&
+      (settingsSolidTheme
+        ? settingsGlassMaterialCards.length === 0 && !element(".settings-drawer:not(.account-drawer) [data-glass-section='background']")
+        : settingsGlassMaterialCards.length === 3 && settingsGlassMaterialActiveCount === 1 && Boolean(element(".settings-drawer:not(.account-drawer) [data-glass-section='background']"))) &&
       Boolean(settingsGlassPreview)
     );
     const settingsCustomThemeEditorOk = !settingsOpen || settingsActiveTabText !== "外观" || Boolean(
       settingsGlassLab &&
-      settingsGlassThemeCards.length === 7 &&
-      settingsGlassMaterialCards.length === 3 &&
-      settingsGlassParameterControls.length === 6 &&
-      settingsGlassResetAction &&
+      settingsGlassThemeCards.length === 9 &&
+      (settingsSolidTheme
+        ? settingsGlassMaterialCards.length === 0 && settingsGlassParameterControls.length === 0 && !settingsGlassResetAction
+        : settingsGlassMaterialCards.length === 3 && settingsGlassParameterControls.length === 6 && settingsGlassResetAction) &&
       settingsGlassPreview
     );
     const settingsThemeEditorScrollOk = !settingsOpen || settingsActiveTabText !== "外观" || Boolean(
@@ -2654,7 +2656,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     );
     const accountActionButtonsDesignedOk = !accountOpen || Boolean(
       accountActionButtonMetrics.length === 2 &&
-      accountActionButtonMetrics[0].text.includes("充值") &&
+      accountActionButtonMetrics[0].text.includes("密钥") &&
       accountActionButtonMetrics[1].text.includes("退出") &&
       accountActionButtonMetrics.every((item) => item.iconCount >= 1 && item.height >= 30 && item.radius >= 3 && item.width >= 72) &&
       accountActionButtonMetrics[0].left < accountActionButtonMetrics[1].left &&
@@ -2721,7 +2723,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const modalOpen = Boolean(element(".ui-surface[data-ui-surface]:not(.ui-drawer)"));
     const manualImageTaskDialog = element(".manual-image-task-dialog");
     const manualImageTaskRect = rect(".manual-image-task-dialog");
-    const manualImageTaskSelects = manualImageTaskDialog ? Array.from(manualImageTaskDialog.querySelectorAll(".manual-image-task-controls select")) : [];
+    const manualImageTaskSelects = manualImageTaskDialog ? Array.from(manualImageTaskDialog.querySelectorAll(".manual-image-task-controls [data-glass-select]")) : [];
     const manualImageTaskPrompt = manualImageTaskDialog?.querySelector(".manual-image-task-prompt textarea") || null;
     const manualImageTaskReferenceButton = manualImageTaskDialog?.querySelector(".manual-image-reference-button") || null;
     const manualImageTaskSubmit = Array.from(manualImageTaskDialog?.querySelectorAll("button") || []).find((button) => String(button.textContent || "").trim() === "生成图片") || null;
@@ -3375,7 +3377,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       settingsChannelHidden: !bodyText.includes("当前渠道"),
       settingsThemeCopyRemovedOk: !settingsOpen || !bodyText.includes("主题与模型"),
       accountUsageLogLabel: bodyText.includes("使用日志") && !bodyText.includes("损耗日志"),
-      accountUsageLogFailureVisibleOk: !accountOpen || usageLogTexts.some((value) => /生成失败/.test(value) && /输入 120 tokens/.test(value) && /输出 18 tokens/.test(value) && /耗时/.test(value)),
+      accountUsageLogFailureVisibleOk: !accountOpen || usageLogTexts.some((value) => /调用失败/.test(value) && /输入 120 tokens/.test(value) && /输出 18 tokens/.test(value) && /耗时/.test(value)),
       accountUsageLogTimeOk: !accountOpen || usageLogTexts.every((value) => /20\\d{2}/.test(value) && !/1970|时间未知/.test(value)),
       accountSensitiveLogTextHiddenOk: !accountOpen || (!bodyContent.includes("aidebug-sensitive-token") && !bodyContent.includes("sk-aidebug12345678") && bodyContent.includes("敏感信息已隐藏")),
       accountUsageLogTexts: usageLogTexts,

@@ -7,6 +7,8 @@ const {
 
 function registerSettingsIpc({
   ipcMain,
+  runtimeDiagnostics,
+  dialog,
   migrateSettings,
   readJson,
   settingsPath,
@@ -20,6 +22,16 @@ function registerSettingsIpc({
   validateNewApiServiceSettings,
   writeJson
 }) {
+  ipcMain.handle("naimage:diagnostics:read", () => ({ ok: true, ...runtimeDiagnostics?.snapshot() }));
+  ipcMain.handle("naimage:diagnostics:export", async () => {
+    try {
+      const result = await dialog.showSaveDialog({ title: "导出诊断日志", defaultPath: "SparkAI-diagnostics.json",
+        filters: [{ name: "诊断日志", extensions: ["json"] }] });
+      if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+      runtimeDiagnostics.exportTo(result.filePath);
+      return { ok: true };
+    } catch { return { ok: false, error: "诊断日志导出失败，请选择可写入的目录。" }; }
+  });
   ipcMain.handle("naimage:config:load-settings", () => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     log("config load settings");

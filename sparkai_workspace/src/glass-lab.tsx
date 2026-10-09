@@ -19,6 +19,7 @@ import {
   GLASS_THEME_IDS,
   DEFAULT_GLASS_MATERIAL,
   glassThemeRegistry,
+  isSolidTheme,
   withGlassMaterial,
   withGlassParameters,
   withGlassTheme,
@@ -38,6 +39,8 @@ const THEME_DETAILS: Record<GlassThemeId, string> = {
   "light-lemon": "浅色 · 黄",
   "light-sky": "浅色 · 蓝",
   "light-blush": "浅色 · 粉橙",
+  "light-classic": "白底 · 纯色",
+  "dark-classic": "黑底 · 纯色",
 };
 
 const THEME_OPTIONS = GLASS_THEME_IDS.map((id) => ({
@@ -102,6 +105,7 @@ export default function GlassLab({
   onChange: (settings: AppSettings) => void;
 }) {
   const { glassTheme, glassMaterial, glassParameters } = settings;
+  const solid = isSolidTheme(glassTheme);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [backgroundError, setBackgroundError] = useState("");
   const hasBackground = Boolean(settings.glassBackgroundAssetId);
@@ -174,13 +178,16 @@ export default function GlassLab({
       <section className="glass-lab-section" aria-labelledby="glass-theme-heading" data-glass-section="themes">
         <div className="settings-section-header">
           <div>
-            <h4 id="glass-theme-heading">彩色玻璃主题</h4>
-            <small>七套主题共享同一组语义设计变量，切换不会重建画布。</small>
+            <h4 id="glass-theme-heading">外观主题</h4>
+            <small>简洁黑白或彩色玻璃，切换时保留当前作品和对话。</small>
           </div>
           <span className="settings-update-status available">实时预览</span>
         </div>
-        <div className="glass-theme-grid" role="group" aria-label="彩色玻璃主题">
-          {THEME_OPTIONS.map((option) => {
+        {[{ label: "简洁主题", solid: true }, { label: "彩色玻璃主题", solid: false }].map((group) => (
+          <div className="glass-theme-group" key={group.label}>
+            <strong className="glass-theme-group-label">{group.label}</strong>
+            <div className="glass-theme-grid" role="group" aria-label={group.label}>
+          {THEME_OPTIONS.filter((option) => isSolidTheme(option.id) === group.solid).map((option) => {
             const active = glassTheme === option.id;
             return (
               <ButtonBase
@@ -199,9 +206,13 @@ export default function GlassLab({
               </ButtonBase>
             );
           })}
-        </div>
+            </div>
+          </div>
+        ))}
+        {solid ? <p className="glass-theme-note">纯色界面不使用模糊、噪点或背景图片。切回玻璃主题后恢复原来的外观设置。</p> : null}
       </section>
 
+      {!solid ? <>
       <section className="glass-lab-section" aria-labelledby="glass-background-heading" data-glass-section="background">
         <div className="settings-section-header">
           <div>
@@ -413,9 +424,10 @@ export default function GlassLab({
           })}
         </div>
       </section>
+      </> : null}
 
       <section className="glass-lab-section glass-toggle-row" aria-label="材质辅助选项" data-glass-section="behavior">
-        <label data-glass-toggle="noise">
+        {!solid ? <label data-glass-toggle="noise">
           <span>
             <strong>微噪点</strong>
             <small>增加玻璃的实体质感</small>
@@ -426,11 +438,11 @@ export default function GlassLab({
             onChange={(event) => updateParameters({ noise: event.currentTarget.checked })}
           />
           <i aria-hidden="true" />
-        </label>
+        </label> : null}
         <label data-glass-toggle="reduce-motion">
           <span>
             <strong>减少动态</strong>
-            <small>关闭材质切换与悬浮过渡</small>
+            <small>减少界面切换与悬浮过渡</small>
           </span>
           <input
             type="checkbox"
@@ -445,7 +457,7 @@ export default function GlassLab({
         <div className="settings-section-header">
           <div>
             <h4 id="glass-preview-heading">实时预览</h4>
-            <small>玻璃只覆盖界面控制面；作品区域保持不透明、清晰和锐利。</small>
+            <small>主题只作用于界面；图片作品保持原色与清晰度。</small>
           </div>
         </div>
         <div
@@ -454,8 +466,8 @@ export default function GlassLab({
           data-glass-theme={glassTheme}
           data-glass-material={glassMaterial}
           data-glass-accent={glassParameters.accent}
-          data-glass-background={settings.glassBackgroundEnabled && hasBackground ? "on" : "off"}
-          aria-label="当前玻璃外观预览"
+          data-glass-background={!solid && settings.glassBackgroundEnabled && hasBackground ? "on" : "off"}
+          aria-label="当前外观预览"
         >
           <div className="glass-preview-topbar" aria-hidden="true"><span /><span /><span /></div>
           <div className="glass-preview-assets" aria-hidden="true"><span /><span /><span /></div>

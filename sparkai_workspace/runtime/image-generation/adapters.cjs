@@ -1,6 +1,7 @@
 "use strict";
 
 const { cleanString } = require("./types.cjs");
+const { normalizeImageGenerationResponse } = require("./normalize-response.cjs");
 
 function outputFormatFor(request) {
   const value = String(request.outputFormat || "png").toLowerCase();
@@ -37,6 +38,7 @@ function commonOpenAiBody(request, config) {
     body.output_compression = request.outputCompression;
   }
   if (request.responseFormat) body.response_format = request.responseFormat;
+  if (request.moderation && /^(?:gpt-image|chatgpt-image)/i.test(config.model)) body.moderation = request.moderation;
   return body;
 }
 
@@ -53,6 +55,7 @@ function multipartParts(request, config, preparedInputs) {
 async function buildOpenAiRequest(request, config, preparedInputs) {
   if (request.mode === "edit") {
     const fields = commonOpenAiBody(request, config);
+    if (request.inputFidelity && /^gpt-image-(?:1|1\.5)(?:$|-)/i.test(config.model) && !/^gpt-image-1-mini/i.test(config.model)) fields.input_fidelity = request.inputFidelity;
     fields.n = request.n;
     if (!config.capabilities.multipleOutputs) fields.n = 1;
     if (!config.capabilities.outputFormats?.includes(outputFormatFor(request))) delete fields.output_format;
@@ -101,28 +104,39 @@ async function buildXaiRequest(request, config, preparedInputs) {
     prompt: request.prompt,
     n: request.n,
     aspect_ratio: xaiAspectRatio(request),
-    resolution: xaiResolution(request),
-    quality: qualityFor(request)
+    resolution: xaiResolution(request)
   };
-  if (request.responseFormat) body.response_format = request.responseFormat;
+  const quality = qualityFor(request);
+  if (["low", "medium"].includes(quality)) body.quality = quality;
+  else if (["standard", "high"].includes(quality)) body.quality = "medium";
+  // xAI defaults to a temporary CDN URL. Inline output avoids a second network
+  // dependency after the provider has already generated (and may have billed) it.
+  body.response_format = request.responseFormat || "b64_json";
   if (request.mode === "edit") {
+    const images = (preparedInputs.editImages || []).map((input) => ({
+      type: "image_url",
+      url: input.url || `data:${input.mimeType || "image/png"};base64,${input.base64 || input.buffer?.toString("base64") || ""}`
+    }));
+    if (images.length === 1) body.image = images[0];
+    else body.images = images;
     return {
       protocol: "xai-images",
       method: "POST",
       endpoint: "/v1/images/edits",
-      kind: "multipart",
-      fields: body,
-      parts: multipartParts(request, config, preparedInputs)
+      kind: "json",
+      body
     };
   }
   return { protocol: "xai-images", method: "POST", endpoint: "/v1/images/generations", kind: "json", body };
 }
 
-function geminiImageConfig(request) {
-  const config = {};
-  if (request.aspectRatio) config.aspectRatio = request.aspectRatio;
-  if (request.resolution) config.imageSize = String(request.resolution).toUpperCase();
-  return config;
+function geminiImageConfig(request, modelConfig) {
+  const imageConfig = {};
+  if (request.aspectRatio) imageConfig.aspectRatio = request.aspectRatio;
+  if (request.resolution && !(modelConfig.capabilities.supportedResolutions.length === 1 && modelConfig.capabilities.supportedResolutions[0] === "1K")) {
+    imageConfig.imageSize = String(request.resolution).toUpperCase();
+  }
+  return imageConfig;
 }
 
 async function buildGeminiRequest(request, config, preparedInputs) {
@@ -140,21 +154,21 @@ async function buildGeminiRequest(request, config, preparedInputs) {
       responseModalities: ["TEXT", "IMAGE"]
     }
   };
-  const imageConfig = geminiImageConfig(request);
+  const imageConfig = geminiImageConfig(request, config);
   if (Object.keys(imageConfig).length) body.generationConfig.imageConfig = imageConfig;
   return {
     protocol: "gemini-native",
     method: "POST",
-    endpoint: `/v1beta/models/${encodeURIComponent(config.model)}:generateContent`,
+    endpoint: `/v1beta/models/${encodeURIComponent(config.model.replace(/^models\//, ""))}:generateContent`,
     kind: "json",
     body
   };
 }
 
 const ADAPTERS = Object.freeze({
-  "openai-images": { buildRequest: buildOpenAiRequest },
-  "xai-images": { buildRequest: buildXaiRequest },
-  "gemini-native": { buildRequest: buildGeminiRequest }
+  "openai-images": { buildRequest: buildOpenAiRequest, normalizeResponse: normalizeImageGenerationResponse },
+  "xai-images": { buildRequest: buildXaiRequest, normalizeResponse: normalizeImageGenerationResponse },
+  "gemini-native": { buildRequest: buildGeminiRequest, normalizeResponse: normalizeImageGenerationResponse }
 });
 
 function adapterFor(protocol) {

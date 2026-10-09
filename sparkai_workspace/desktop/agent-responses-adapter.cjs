@@ -191,7 +191,58 @@ function responsesRequestFromChatRequest(requestBody = {}) {
   return responseBody;
 }
 
+// Runtime history uses Responses content parts even when the relay only offers
+// Chat Completions. Tool messages there accept text, so attach observations as
+// user image content after every tool output in the batch has been paired.
+function chatRequestFromRuntimeRequest(requestBody = {}) {
+  const messages = [];
+  let pendingImages = [];
+  const contentParts = (content) => (Array.isArray(content) ? content : [])
+    .map(responsesContentPartFromChat).filter(Boolean).map((part) => part.type === "input_image"
+      ? { type: "image_url", image_url: { url: part.image_url, ...(part.detail ? { detail: part.detail } : {}) } }
+      : { type: "text", text: String(part.text || "") });
+  const flushImages = () => {
+    if (!pendingImages.length) return;
+    messages.push({ role: "user", content: [
+      { type: "text", text: "Local images returned by the tools for visual review:" },
+      ...pendingImages
+    ] });
+    pendingImages = [];
+  };
+  for (const item of responsesInputFromChatMessages(requestBody.messages)) {
+    if (item.type === "function_call_output") {
+      const parts = contentParts(item.output);
+      pendingImages.push(...parts.filter((part) => part.type === "image_url"));
+      const text = typeof item.output === "string" ? item.output : parts
+        .filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      messages.push({ role: "tool", tool_call_id: item.call_id,
+        content: text || "Local image read successfully; the observation is attached below." });
+      continue;
+    }
+    if (item.type === "function_call") {
+      flushImages();
+      let assistant = messages[messages.length - 1];
+      if (assistant?.role !== "assistant") {
+        assistant = { role: "assistant", content: null };
+        messages.push(assistant);
+      }
+      assistant.tool_calls ??= [];
+      assistant.tool_calls.push({ id: item.call_id, type: "function",
+        function: { name: item.name, arguments: item.arguments } });
+      continue;
+    }
+    if (!item.role) continue; // Encrypted reasoning/native Responses items have no Chat equivalent.
+    flushImages();
+    const parts = contentParts(item.content);
+    messages.push({ role: item.role === "developer" ? "system" : item.role,
+      content: typeof item.content === "string" ? item.content : parts });
+  }
+  flushImages();
+  return { ...requestBody, messages };
+}
+
 module.exports = {
+  chatRequestFromRuntimeRequest,
   agentModelUsesResponsesApi,
   responsesContentPartFromChat,
   responsesInputFromChatMessages,

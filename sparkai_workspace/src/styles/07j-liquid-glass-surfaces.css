@@ -210,6 +210,7 @@
 
 .workspace-glass-lab-button {
   min-width: 0;
+  flex-shrink: 0;
   height: 31px;
   display: inline-flex;
   align-items: center;
@@ -220,8 +221,9 @@
   border-radius: 8px;
   color: var(--ink-soft);
   background: color-mix(in srgb, var(--glass-surface-raised) 24%, transparent);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 680;
+  white-space: nowrap;
   cursor: pointer;
   -webkit-app-region: no-drag;
 }
@@ -307,13 +309,13 @@
   backdrop-filter: none;
 }
 
-:root.glass-theme-active :is(.settings-drawer, .model-picker-dialog) :is(
+:root.glass-theme-active :is(.settings-drawer, .account-drawer, .model-picker-dialog) :is(
   :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
   textarea,
   select
 ),
-:root[data-glass-theme] :is(.settings-drawer, .model-picker-dialog) :is(
+:root[data-glass-theme] :is(.settings-drawer, .account-drawer, .model-picker-dialog) :is(
   :where(.ui-field[data-ui-field]) > :where(input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, select),
   input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
   textarea,
@@ -324,8 +326,8 @@
   border-color: var(--glass-line-strong);
 }
 
-:root.glass-theme-active :is(.settings-drawer, .model-picker-dialog) :is(input, textarea)::placeholder,
-:root[data-glass-theme] :is(.settings-drawer, .model-picker-dialog) :is(input, textarea)::placeholder {
+:root.glass-theme-active :is(.settings-drawer, .account-drawer, .model-picker-dialog) :is(input, textarea)::placeholder,
+:root[data-glass-theme] :is(.settings-drawer, .account-drawer, .model-picker-dialog) :is(input, textarea)::placeholder {
   color: var(--ink-soft);
   opacity: 1;
 }
@@ -788,15 +790,15 @@
   color: var(--ink);
 }
 
-/* Settings is a reading-heavy surface. Keep its shell and body opaque enough
-   that project artwork cannot compete with labels, helper text, or controls. */
-:root.glass-theme-active .ui-surface.ui-drawer.settings-drawer,
-:root[data-glass-theme] .ui-surface.ui-drawer.settings-drawer {
+/* Settings and account logs are reading-heavy surfaces. Their shell and body
+   must cover the workspace text beneath labels, helper text, and controls. */
+:root.glass-theme-active .ui-surface.ui-drawer:is(.settings-drawer, .account-drawer),
+:root[data-glass-theme] .ui-surface.ui-drawer:is(.settings-drawer, .account-drawer) {
   background-color: var(--glass-surface-solid);
 }
 
-:root.glass-theme-active .ui-surface.ui-drawer.settings-drawer > .ui-surface-body,
-:root[data-glass-theme] .ui-surface.ui-drawer.settings-drawer > .ui-surface-body {
+:root.glass-theme-active .ui-surface.ui-drawer:is(.settings-drawer, .account-drawer) > .ui-surface-body,
+:root[data-glass-theme] .ui-surface.ui-drawer:is(.settings-drawer, .account-drawer) > .ui-surface-body {
   background-color: color-mix(in srgb, var(--glass-surface-solid) 96%, var(--glass-surface-raised));
 }
 
@@ -818,6 +820,10 @@
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, var(--glass-edge-color-soft)),
     0 3px 10px var(--glass-shadow-soft);
+}
+
+:root[data-glass-style="solid"] .settings-section-tab[aria-pressed="true"] {
+  background: var(--accent);
 }
 
 /* Input glass uses translucent paint but deliberately does not stack blur. */
@@ -2320,10 +2326,8 @@
 
 :root.glass-theme-active .workflow-canvas,
 :root[data-glass-theme] .workflow-canvas {
-  background:
-    linear-gradient(var(--glass-canvas-tint), var(--glass-canvas-tint)),
-    radial-gradient(ellipse 96% 78% at 18% 22%, rgba(var(--accent-rgb), 0.08), transparent 64%),
-    var(--glass-canvas);
+  background-color: var(--glass-canvas);
+  background-image: var(--glass-canvas-decoration);
 }
 
 :root.glass-theme-active :is(
@@ -2421,6 +2425,10 @@
   background-image:
     linear-gradient(145deg, rgba(255, 255, 255, calc(var(--glass-highlight) * 0.12)), transparent 38%),
     radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--node-glass-accent) 8%, transparent), transparent 48%);
+}
+
+:root[data-glass-style="solid"] .flow-node {
+  background-image: none;
 }
 
 :root.glass-theme-active .flow-node.scientific-figure-node .node-image-preview,
@@ -2590,19 +2598,6 @@
 @media (max-width: 1100px) {
   .project-quick-actions {
     display: none;
-  }
-
-  .workspace-glass-lab-button {
-    width: 31px;
-    padding: 0;
-  }
-
-  .workspace-glass-lab-button > span {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
   }
 
   .workspace-search-loading,

@@ -14,6 +14,7 @@ import {
 import { allocateDebugPort, forceKillProcessTree, waitForChildExit, waitForHttpServer } from "./aidebug/harness/process.mjs";
 import { createAidebugReporting } from "./aidebug/harness/reporting.mjs";
 import { captureStableCdpScene, createObservationLog } from "./aidebug/harness/standalone-gui-evidence.mjs";
+import { capturePngScreenshotToFile } from "./aidebug/harness/screenshot.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const runDir = join(repoRoot, ".diagnostics", "electron", `glass-workspace-${new Date().toISOString().replace(/[:.]/g, "-")}`);
@@ -25,7 +26,7 @@ const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const fallbackPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 
-const THEME_IDS = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"];
+const THEME_IDS = ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush", "light-classic", "dark-classic"];
 const MATERIAL_IDS = ["clear", "frosted", "dense"];
 const RAIL_TAB_IDS = ["results", "layers", "requirements", "templates", "history"];
 const VIEW_MODE_IDS = ["workbench", "focus", "review"];
@@ -45,7 +46,7 @@ const CUSTOM_APPEARANCE = Object.freeze({
 
 const qaInventory = [
   { id: "default", claim: "A fresh workspace starts with dark-ember and Frosted glass.", evidence: "00-default-workbench.png" },
-  { id: "themes", claim: "All seven registered themes update the live root without rebuilding canvas state.", evidence: "01-theme-*.png" },
+  { id: "themes", claim: "All nine registered themes update the live root without rebuilding canvas state.", evidence: "01-theme-*.png" },
   { id: "materials", claim: "Clear, Frosted and Dense are live material presets.", evidence: "02-material-*.png" },
   { id: "custom-controls", claim: "Every numeric range, accent, noise and reduced-motion control updates live root tokens and can restore the recommended preset.", evidence: "03-custom-all-controls.png + 03-reset-recommended.png" },
   { id: "rapid-theme-switch", claim: "Rapid light/dark switching preserves the same canonical canvas and node DOM objects and geometry.", evidence: "report.json rapidThemeSwitch + canvasDomIdentity" },
@@ -1310,6 +1311,345 @@ async function runCommerceTutorialSmoke() {
   process.stdout.write(`${JSON.stringify({ ok: true, suite: "commerce-tutorial-gui", report: join(runDir, "report.json"), screenshots: Object.keys(screenshots).length, modelCalls: 0 })}\n`);
 }
 
+async function runClassicThemeSmoke({ debugPort, vitePort }) {
+  await setWindowSize(1280, 800);
+  const seeded = await evaluate(client, "window.__naimageAIDebug.seedSelectionCanvas()", 30_000);
+  assert.equal(seeded?.ok, true);
+  await evaluate(client, "window.__naimageAIDebug.fitCanvas()");
+  await setWindowSize(884, 640);
+  const triggerProof = await evaluate(client, `(() => {
+    const button = document.querySelector('button[aria-label="切换界面主题"]');
+    const label = button?.querySelector('span');
+    const box = button?.getBoundingClientRect();
+    const labelBox = label?.getBoundingClientRect();
+    const x = box ? box.left + box.width / 2 : 0;
+    const y = box ? box.top + box.height / 2 : 0;
+    return { text: label?.textContent?.trim(), x, y,
+      visible: Boolean(labelBox && labelBox.width > 10 && labelBox.height > 10 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight),
+      hit: Boolean(button && document.elementFromPoint(x, y)?.closest('button') === button)
+    };
+  })()`);
+  checks.themeEntryTrigger = triggerProof;
+  await capture("classic-theme-entry-884x640");
+  assert.equal(triggerProof.text, "主题");
+  assert(triggerProof.visible && triggerProof.hit, "The small-window theme entry must be legible and reachable");
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: triggerProof.x, y: triggerProof.y, button: "left", clickCount: 1 });
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: triggerProof.x, y: triggerProof.y, button: "left", clickCount: 1 });
+  await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
+  // Follow the same settings navigation as a user who has already scrolled
+  // another category. Do not scroll a missing theme button into view for them.
+  await evaluate(client, "document.querySelector('.settings-surface-body').scrollTop = document.querySelector('.settings-surface-body').scrollHeight");
+  await clickSelector(".settings-section-tab", 3);
+  await waitFor("document.querySelector('.settings-section-tab[aria-pressed=true]')?.textContent?.trim() === 'Agent'");
+  const previousScroll = await evaluate(client, `(() => {
+    const body = document.querySelector('.settings-surface-body');
+    body.scrollTop = body.scrollHeight;
+    return body.scrollTop;
+  })()`);
+  assert(previousScroll > 40, "Settings navigation must start from a genuinely scrolled category");
+  await clickSelector(".settings-section-tab", 1);
+  await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
+  await delay(200);
+  const themeEntry = await evaluate(client, `(() => {
+    const body = document.querySelector('.settings-surface-body');
+    const viewport = body.getBoundingClientRect();
+    const trigger = document.querySelector('.workspace-glass-lab-button');
+    const label = trigger.querySelector('span');
+    const labelBox = label.getBoundingClientRect();
+    return {
+      scrollTop: body.scrollTop,
+      triggerText: label.textContent.trim(),
+      labelVisible: labelBox.width > 10 && labelBox.height > 10 && getComputedStyle(label).position !== 'absolute',
+      buttons: ['light-classic', 'dark-classic'].map((id) => {
+        const button = document.querySelector('[data-glass-section="themes"] button[data-glass-theme="' + id + '"]');
+        const box = button.getBoundingClientRect();
+        const x = box.left + box.width / 2;
+        const y = box.top + box.height / 2;
+        return { id, text: button.textContent.trim(), x, y,
+          visible: box.width > 0 && box.height > 0 && box.top >= viewport.top && box.bottom <= viewport.bottom && box.left >= viewport.left && box.right <= viewport.right,
+          hit: document.elementFromPoint(x, y)?.closest('button') === button
+        };
+      })
+    };
+  })()`);
+  checks.themeEntryNavigation = { previousScroll, ...themeEntry };
+  await capture("classic-theme-buttons-after-settings-navigation");
+  assert.equal(themeEntry.scrollTop, 0, "Entering appearance must reset the old category scroll position");
+  assert.equal(themeEntry.triggerText, "主题");
+  assert.equal(themeEntry.labelVisible, true, "The theme entry label must remain visible in a small window");
+  for (const button of themeEntry.buttons) {
+    assert(button.visible && button.hit, `The ${button.id} button must be visible and clickable without scrolling`);
+    await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: button.x, y: button.y, button: "left", clickCount: 1 });
+    await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: button.x, y: button.y, button: "left", clickCount: 1 });
+    await waitFor(`document.documentElement.dataset.glassTheme === ${JSON.stringify(button.id)}`);
+  }
+  checks.themeEntryNavigation.ok = true;
+  checks.themeEntryTrigger.ok = true;
+  await setWindowSize(1280, 800);
+  await applyCustomAppearanceControls();
+  await setRangeValue("#glass-blur", 17);
+  await setCheckboxValue('[data-glass-toggle="noise"] input', true);
+  await waitFor("getComputedStyle(document.documentElement).getPropertyValue('--glass-blur').trim() === '17px' && document.documentElement.dataset.glassNoise === 'on'");
+  const savedParameters = await evaluate(client, `(() => ({
+    ...Object.fromEntries(['opacity', 'blur', 'saturation', 'highlight', 'shadow', 'radius'].map((key) => [key, Number(document.querySelector('#glass-' + key).value)])),
+    accent: document.querySelector('[data-glass-section="accent"] [aria-pressed="true"]').dataset.glassAccent,
+    noise: document.querySelector('[data-glass-toggle="noise"] input').checked,
+    reduceMotion: document.querySelector('[data-glass-toggle="reduce-motion"] input').checked
+  }))()`);
+
+  async function readSolidSurface(probeClient, selectors) {
+    return evaluate(probeClient, `(() => {
+      const root = document.documentElement;
+      const style = getComputedStyle(root);
+      return {
+        theme: root.dataset.glassTheme,
+        style: root.dataset.glassStyle,
+        alpha: style.getPropertyValue('--glass-alpha').trim(),
+        blur: style.getPropertyValue('--glass-blur').trim(),
+        noise: root.dataset.glassNoise,
+        noiseOpacity: style.getPropertyValue('--glass-noise-opacity').trim(),
+        backgroundImage: getComputedStyle(document.body).backgroundImage,
+        horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+        surfaces: ${JSON.stringify(selectors)}.map((selector) => {
+          const element = document.querySelector(selector);
+          const box = element?.getBoundingClientRect();
+          const css = element ? getComputedStyle(element) : null;
+          return {
+            selector,
+            visible: Boolean(box && box.width > 0 && box.height > 0),
+            inside: Boolean(box && box.left >= -1 && box.top >= -1 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1),
+            backdrop: css?.backdropFilter || css?.webkitBackdropFilter || 'none',
+            background: css?.backgroundColor,
+            color: css?.color
+          };
+        })
+      };
+    })()`);
+  }
+
+  function assertSolid(proof, themeId) {
+    assert.equal(proof.theme, themeId);
+    assert.equal(proof.style, "solid");
+    assert.equal(proof.alpha, "1");
+    assert.equal(proof.blur, "0px");
+    assert.equal(proof.noise, "off");
+    assert.equal(proof.noiseOpacity, "0");
+    assert.equal(proof.horizontalOverflow, false);
+    for (const surface of proof.surfaces) {
+      assert(surface.visible && surface.inside, `${themeId} surface is clipped: ${JSON.stringify(surface)}`);
+      assert.equal(surface.backdrop, "none", `${themeId} surface still blurs: ${surface.selector}`);
+    }
+  }
+
+  for (const themeId of ["light-classic", "dark-classic"]) {
+    const invariant = await readCanvasInvariant();
+    const domBaseline = await installCanvasDomProbe();
+    await clickTheme(themeId);
+    await assertCanvasInvariant(`${themeId} theme switch`, invariant);
+    await assertCanvasDomProbe(`${themeId} theme switch`, domBaseline);
+    assert.equal(await evaluate(client, "document.querySelectorAll('[data-glass-section=materials], [data-glass-section=parameters], [data-glass-section=accent], [data-glass-section=background], [data-glass-toggle=noise]').length"), 0);
+    const settingsProof = await readSolidSurface(client, [".settings-drawer", ".settings-surface-footer .ui-action-primary"]);
+    assertSolid(settingsProof, themeId);
+    await capture(`${themeId}-settings`);
+    await clickSelector(".settings-drawer .settings-surface-footer .ui-action-primary");
+    await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
+    await clickSelector(".settings-drawer .ui-surface-close");
+    await waitFor("!document.querySelector('.settings-drawer')");
+    const workspaceProof = await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer", ".workflow-canvas"]);
+    assertSolid(workspaceProof, themeId);
+    assert.equal(await evaluate(client, "getComputedStyle(document.querySelector('.workflow-canvas')).backgroundImage"), "none");
+    assert.equal(await evaluate(client, "getComputedStyle(document.querySelector('.workflow-canvas'), '::before').content"), "none");
+    assert.equal(await evaluate(client, "getComputedStyle(document.querySelector('.workflow-canvas'), '::after').content"), "none");
+    assert.equal(await evaluate(client, "getComputedStyle(document.querySelector('.canvas-particle-field')).display"), "none");
+    await capture(`${themeId}-workspace`);
+    await setWindowSize(884, 640);
+    const minimumProof = await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer", ".project-agent-send-group"]);
+    assertSolid(minimumProof, themeId);
+    await capture(`${themeId}-minimum-884x640`);
+    await clickSelector(".workspace-glass-lab-button");
+    await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
+    assertSolid(await readSolidSurface(client, [".settings-drawer", ".settings-surface-footer"]), themeId);
+    await capture(`${themeId}-minimum-settings`);
+    await clickSelector(".settings-drawer .ui-surface-close");
+    await waitFor("!document.querySelector('.settings-drawer')");
+
+    // Exercise the actual placement menu and snapshot bridge, rather than
+    // injecting styles or a hand-authored appearance into the detached window.
+    await clickSelector('.project-agent-panel button[aria-label="调整对话框位置"]');
+    await waitFor("Boolean(document.querySelector('.agent-placement-menu'))");
+    const opened = await evaluate(client, `(() => {
+      const button = Array.from(document.querySelectorAll('.agent-placement-menu button')).find((item) => item.textContent?.includes('独立浮动窗口'));
+      button?.click();
+      return Boolean(button);
+    })()`);
+    assert.equal(opened, true);
+    const agentTarget = await pollForDebugTarget({ port: debugPort, attempts: 100, intervalMs: 100, findTarget: (targets) => targets.find((item) => item.type === "page" && /agent-window\.html(?:$|[?#])/.test(String(item.url))), notFoundMessage: "Classic theme independent Agent was not found." });
+    const agentClient = new BasicCdpClient(agentTarget.webSocketDebuggerUrl);
+    let agentProof;
+    try {
+      await agentClient.open();
+      await agentClient.send("Runtime.enable");
+      await agentClient.send("Page.enable");
+      await agentClient.send("Page.bringToFront");
+      await waitForRuntimeExpression(agentClient, `document.documentElement?.dataset.glassTheme === ${JSON.stringify(themeId)}`, { evaluate, timeoutMs: 8_000, intervalMs: 80 });
+      agentProof = await readSolidSurface(agentClient, [".agent-header", ".agent-composer", ".send-button"]);
+      assertSolid(agentProof, themeId);
+      assert.equal(agentProof.backgroundImage, "none");
+      const send = agentProof.surfaces.find((surface) => surface.selector === ".send-button");
+      assert.notEqual(send.background, send.color);
+      const screenshotPath = join(runDir, `${themeId}-independent-agent.png`);
+      await capturePngScreenshotToFile(agentClient, screenshotPath, { captureBeyondViewport: false }, 15_000);
+      screenshots[`${themeId}-independent-agent`] = { path: screenshotPath };
+      await evaluate(agentClient, `(() => { const select = document.querySelector('#dock-select'); select.value = 'right'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await waitFor("document.querySelector('.ide-main')?.classList.contains('agent-collapsed') === false");
+    } finally {
+      agentClient.close();
+    }
+
+    const closed = await closeElectronRenderer();
+    assert(closed.closeRequested && closed.graceful, "Cold-start verification must close Electron cleanly");
+    debugPort = await allocateDebugPort();
+    await startElectronRenderer({ debugPort, vitePort, logName: `${themeId}-restart.log` });
+    const restarted = await evaluate(client, `(async () => {
+      const settings = (await window.naimageConfig.loadSettings()).settings;
+      const boot = window.__naimageGlassBootState;
+      return { theme: settings.glassTheme, parameters: settings.glassParameters, restored: boot?.restored, firstTheme: boot?.appearanceTrace?.[0]?.glassTheme, traceThemes: boot?.appearanceTrace?.map((entry) => entry.glassTheme) };
+    })()`);
+    assert.equal(restarted.theme, themeId);
+    assert.equal(restarted.restored, true);
+    assert.equal(restarted.firstTheme, themeId);
+    assert(restarted.traceThemes.every((theme) => theme === themeId));
+    assert.deepEqual(restarted.parameters, savedParameters);
+    assertSolid(await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer"]), themeId);
+    await capture(`${themeId}-cold-restart`);
+    checks[themeId] = { ok: true, settingsProof, workspaceProof, minimumProof, agentProof, restarted };
+    await setWindowSize(1280, 800);
+    await clickSelector(".workspace-glass-lab-button");
+    await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
+  }
+  await clickTheme("light-sky");
+  const restored = await readAppearance();
+  assert.equal(restored.blur, "17px");
+  assert.equal(restored.noise, "on");
+  assert.equal(restored.accent, "coral");
+  assert.deepEqual(await evaluate(client, "JSON.parse(localStorage.getItem('naimage.glassTheme.bootstrap.v1')).glassParameters"), savedParameters);
+  checks.glassRoundTrip = { ok: true, restored };
+  await capture("classic-glass-settings-restored");
+  assert.deepEqual(consoleErrors, []);
+  checks.consoleHealth = { ok: true, consoleErrors: [], ignoredConsoleErrors };
+  const report = reporting.finishSuiteRun({ results: evidenceResults, reportMetadata: { mode: "classic-themes-smoke", suite: "classic-themes-gui", agentMode: "mock-agent", liveImageProvider: false, realElectronRestart: true }, reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors }, consoleAfterSummary: { checks: Object.keys(checks).length, screenshots: Object.keys(screenshots).length } });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: "classic-themes-gui", report: join(runDir, "report.json"), screenshots: Object.keys(screenshots).length, modelCalls: 0 })}\n`);
+}
+
+async function runNativeAccountSmoke() {
+  async function pointer(selector) {
+    const hit = await evaluate(client, `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      element?.scrollIntoView({ block: 'center' });
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      return { x, y, width: r.width, height: r.height, enabled: !element.disabled,
+        visible: x > 0 && y > 0 && x < innerWidth && y < innerHeight && element.contains(document.elementFromPoint(x, y)) };
+    })()`);
+    assert(hit?.visible && hit.enabled && hit.width > 20 && hit.height > 20, `Account control cannot be clicked: ${selector}`);
+    await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
+    await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: hit.x, y: hit.y, button: "left", clickCount: 1 });
+    return hit;
+  }
+  await setWindowSize(884, 640);
+  const entry = await pointer('.account-avatar-button');
+  await waitFor("document.querySelector('.account-usage-count')?.textContent?.includes('共 25 条')");
+  const overview = await evaluate(client, `(() => {
+    const drawer = document.querySelector('.account-drawer'), body = drawer.querySelector('.account-surface-body');
+    const r = drawer.getBoundingClientRect();
+    return { cards: Array.from(drawer.querySelectorAll('.account-balance-grid > div')).map(el => el.textContent),
+      filters: Array.from(drawer.querySelectorAll('.account-log-filters input, .account-log-filters select')).map(el => {
+        const box = el.getBoundingClientRect(); return { label: el.getAttribute('aria-label'), width: box.width, left: box.left, right: box.right };
+      }), width: r.width, withinViewport: r.left >= 0 && r.right <= innerWidth + 1,
+      overflow: body.scrollWidth > body.clientWidth + 1,
+      fakePricing: /单张损耗|免费张数|充值额度/.test(drawer.textContent) };
+  })()`);
+  assert(overview.withinViewport && !overview.overflow && !overview.fakePricing);
+  assert(overview.cards[0].includes('$2.00') && overview.cards[1].includes('$1.00') && overview.cards[2].includes('42'));
+  assert(overview.filters.every(item => item.width >= 100 && item.left >= 0 && item.right <= 884));
+  checks.nativeAccountOverview = { ok: true, entry, ...overview };
+  await capture('native-account-884-overview');
+
+  await evaluate(client, `(() => { const select=document.querySelector('[aria-label="日志类型"]'); select.value='5'; select.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+  await pointer('.account-log-filters button[type="submit"]');
+  await waitFor("document.querySelector('.account-usage-count')?.textContent?.includes('共 1 条')");
+  const errorRow = await evaluate(client, "document.querySelector('.account-usage-list')?.textContent || ''");
+  assert(errorRow.includes('调用失败') && errorRow.includes('输入 120 tokens') && !/aidebug-sensitive-token|sk-aidebug/.test(errorRow));
+  checks.nativeAccountErrorFilter = { ok: true, row: errorRow };
+  await capture('native-account-error-filter');
+  await pointer('.account-log-detail summary');
+  await waitFor("document.querySelector('.account-log-detail')?.open === true");
+  await capture('native-account-expanded-log');
+
+  await pointer('.account-log-filter-actions button:last-child');
+  await waitFor("document.querySelector('.account-usage-count')?.textContent?.includes('共 25 条')");
+  const next = await pointer('.account-log-pager button:last-child');
+  await waitFor("document.querySelector('.account-log-pager > span')?.textContent?.trim() === '2 / 2'");
+  const pageTwo = await evaluate(client, `({ count: document.querySelectorAll('.account-usage-list article').length, text: document.querySelector('.account-usage-list')?.textContent })`);
+  assert.equal(pageTwo.count, 5);
+  assert(!pageTwo.text.includes('调用失败') && pageTwo.text.includes('分页记录 23'));
+  checks.nativeAccountServerPaging = { ok: true, next, pageTwo };
+  await capture('native-account-server-page-2');
+
+  await pointer('[aria-label="刷新日志"]');
+  await waitFor("document.querySelector('.account-usage-count')?.textContent?.includes('共 25 条') && document.querySelectorAll('.account-usage-list article').length === 5");
+  await setTextValue('[aria-label="日志模型"]', 'no-such-model');
+  await pointer('.account-log-filters button[type="submit"]');
+  await waitFor("document.querySelector('.account-empty')?.textContent?.includes('没有符合条件')");
+  checks.nativeAccountEmptyFilter = { ok: true, rows: await evaluate(client, "document.querySelectorAll('.account-usage-list article').length") };
+  assert.equal(checks.nativeAccountEmptyFilter.rows, 0);
+  await capture('native-account-empty-filter');
+
+  const management = await pointer('.account-primary-actions button:first-child');
+  await waitFor("Boolean(document.querySelector('.settings-account-token-section')) && !document.querySelector('.account-drawer')");
+  const manager = await evaluate(client, `({ selected: document.querySelector('[data-settings-section="access"]')?.getAttribute('aria-pressed'), text: document.querySelector('.settings-account-token-section')?.textContent })`);
+  assert.equal(manager.selected, 'true');
+  assert(manager.text.includes('新建密钥'));
+  await waitFor("document.querySelector('[aria-label=\"刷新密钥与分组\"]')?.disabled === false");
+  await waitFor("document.querySelector('.settings-account-token-section')?.textContent?.includes('本地快照') && document.querySelector('[aria-label=\"编辑当前密钥\"]')?.disabled === false");
+  checks.nativeAccountKeyManagementEntry = { ok: true, management, ...manager };
+  await capture('native-account-key-management');
+  await waitFor("document.querySelector('[aria-label=\"编辑当前密钥\"]')?.disabled === false");
+  await pointer('[aria-label="编辑当前密钥"]');
+  await waitFor("Boolean(document.querySelector('[aria-label=\"密钥额度\"]'))");
+  const quotaInput = await evaluate(client, `(() => {
+    const form = document.querySelector('.settings-account-token-editor');
+    return { amount: form.querySelector('[aria-label="密钥额度"]').value, unit: form.textContent.includes('额度（USD）'),
+      ips: form.querySelector('[aria-label="密钥 IP 白名单"]').value, models: form.querySelector('[aria-label="密钥允许的模型"]')?.value };
+  })()`);
+  assert.equal(quotaInput.amount, '10');
+  assert.equal(quotaInput.unit, true);
+  assert.equal(quotaInput.ips, '203.0.113.7');
+  assert.equal(quotaInput.models, 'gpt-image-2');
+  checks.nativeTokenQuotaInput = { ok: true, ...quotaInput };
+  await capture('native-token-quota-input');
+  await pointer('.settings-account-token-editor .settings-inline-actions button:nth-child(2)');
+  await pointer('.settings-account-token-list summary');
+  await pointer('.settings-account-token-list-row button:last-child');
+  await waitFor("Boolean(document.querySelector('[aria-label=\"密钥到期时间\"]'))");
+  const editor = await evaluate(client, `(() => {
+    const el = document.querySelector('.settings-account-token-editor');
+    const controls = Array.from(el.querySelectorAll('input,textarea,button')).map(control => { const r=control.getBoundingClientRect(); return { width:r.width, left:r.left, right:r.right }; });
+    return { text:el.textContent, controls, inputs:el.querySelectorAll('input,textarea').length, bodyOverflow:el.scrollWidth > el.clientWidth + 1 };
+  })()`);
+  assert(editor.text.includes('到期时间') && editor.text.includes('IP 白名单') && editor.text.includes('跨分组重试'));
+  assert(!editor.bodyOverflow && editor.controls.every(item => item.width >= 16 && item.left >= 0 && item.right <= 884), JSON.stringify(editor.controls));
+  checks.nativeAccountTokenEditor = { ok: true, ...editor };
+  await pointer('[aria-label="密钥 IP 白名单"]');
+  await capture('native-account-token-editor');
+  assert.deepEqual(consoleErrors, []);
+  const report = reporting.finishSuiteRun({ results: evidenceResults, reportMetadata: { mode: 'native-account-smoke', suite: 'native-account-gui', agentMode: 'mock-agent', liveImageProvider: false }, reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors }, consoleAfterSummary: { checks: Object.keys(checks).length, screenshots: Object.keys(screenshots).length } });
+  assert.equal(report.ok, true);
+  process.stdout.write(`${JSON.stringify({ ok: true, suite: 'native-account-gui', report: join(runDir, 'report.json'), screenshots: Object.keys(screenshots).length, modelCalls: 0 })}\n`);
+}
+
 async function runStaticSelfTest() {
   const packageJson = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
   const workspaceSource = readFileSync(join(repoRoot, "src", "workspace-chrome.tsx"), "utf8");
@@ -1317,7 +1657,7 @@ async function runStaticSelfTest() {
   const commerceTutorialSource = readFileSync(join(repoRoot, "src", "commerce-tutorial.tsx"), "utf8");
   const commerceTutorialStyle = readFileSync(join(repoRoot, "src", "styles", "04i-commerce-tutorial.css"), "utf8");
   const suiteSource = readFileSync(fileURLToPath(import.meta.url), "utf8");
-  assert.deepEqual(THEME_IDS, ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush"]);
+  assert.deepEqual(THEME_IDS, ["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush", "light-classic", "dark-classic"]);
   assert.deepEqual(MATERIAL_IDS, ["clear", "frosted", "dense"]);
   assert.deepEqual(RAIL_TAB_IDS, ["results", "layers", "requirements", "templates", "history"]);
   assert.deepEqual(VIEW_MODE_IDS, ["workbench", "focus", "review"]);
@@ -1399,6 +1739,15 @@ async function runGuiSuite() {
   viteProcess.stderr?.pipe(viteLog);
   await waitForHttpServer(devUrl, { attempts: 160, intervalMs: 100, errorMessage: "Glass workspace AIDebug Vite server did not start." });
   await startElectronRenderer({ debugPort, vitePort, logName: "electron-process.log" });
+
+  if (process.argv.includes("--native-account-smoke")) {
+    await runNativeAccountSmoke();
+    return;
+  }
+  if (process.argv.includes("--classic-themes-smoke")) {
+    await runClassicThemeSmoke({ debugPort, vitePort });
+    return;
+  }
 
   if (process.argv.includes("--workspace-domain-smoke")) {
     await runWorkspaceDomainSmoke();
@@ -1504,7 +1853,7 @@ async function runGuiSuite() {
     themeChecks.push({ themeId, appearance, cardPressed });
     await capture(`01-theme-${themeId}`);
   }
-  checks.sevenThemes = { ok: true, themes: themeChecks };
+  checks.nineThemes = { ok: true, themes: themeChecks };
 
   const rapidThemeSequence = ["dark-rose", "light-silver", "dark-emerald", "light-lemon", "dark-ember", "light-blush", "dark-rose", "light-sky"];
   for (const themeId of rapidThemeSequence) await clickTheme(themeId, 35);
@@ -2360,10 +2709,10 @@ async function runGuiSuite() {
       body: Number.parseFloat(getComputedStyle(document.body).fontSize) || 0,
       agentStatus: size('.project-agent-status span'),
       composer: size('.project-agent-composer textarea'),
-      modelTrigger: size('.project-agent-model-trigger strong')
+      configTrigger: size('.project-agent-config-trigger strong')
     };
   })()`);
-  assert(typographyProof.body >= 14 && typographyProof.agentStatus >= 12 && typographyProof.composer >= 14 && typographyProof.modelTrigger >= 13, `Critical UI typography is too small: ${JSON.stringify(typographyProof)}`);
+  assert(typographyProof.body >= 14 && typographyProof.agentStatus >= 12 && typographyProof.composer >= 14 && typographyProof.configTrigger >= 12, `Critical UI typography is too small: ${JSON.stringify(typographyProof)}`);
   checks.criticalTypography = { ok: true, ...typographyProof };
   await capture("11-image-container-after-compositor-drag");
 

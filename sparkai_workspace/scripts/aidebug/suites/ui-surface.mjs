@@ -63,28 +63,45 @@ export async function captureUiSurfaceSuite({ client, targetId, captureState, op
       node.dispatchEvent(new Event(node instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
       return true;
     };
+    const setGlassValue = async (node, value) => {
+      const trigger = node?.querySelector('button[aria-haspopup="listbox"]');
+      if (!trigger) return false;
+      trigger.click();
+      const deadline = Date.now() + 1800;
+      let option;
+      while (Date.now() < deadline && !option) {
+        const listbox = document.getElementById(trigger.getAttribute('aria-controls'));
+        option = Array.from(listbox?.querySelectorAll('[role="option"]') || []).find(item => item.dataset.glassSelectValue === value);
+        if (!option) await delay(40);
+      }
+      if (!option || option.disabled) return false;
+      option.click();
+      while (Date.now() < deadline && node.dataset.value !== value) await delay(40);
+      return node.dataset.value === value;
+    };
     (async () => {
       window.__naimageDebugOpenSurface?.("main");
       await delay(120);
       const beforeState = window.__naimageDebugAgentState?.() || {};
       const beforeIds = new Set((beforeState.nodes || []).map((node) => node.id));
-      const beforeMessageIds = new Set((beforeState.messages || []).map((message) => message.id));
       window.__naimageDebugOpenSurface?.("image-task");
       const openDeadline = Date.now() + 2400;
       while (Date.now() < openDeadline && !document.querySelector(".manual-image-task-dialog")) await delay(40);
       const dialog = document.querySelector(".manual-image-task-dialog");
       const prompt = dialog?.querySelector("textarea");
-      const selects = Array.from(dialog?.querySelectorAll("select") || []);
+      const selects = Array.from(dialog?.querySelectorAll(".manual-image-task-controls [data-glass-select]") || []);
       const ratio = selects[0];
       const resolution = selects[1];
       const quality = selects[2];
       const count = selects[3];
       const promptText = "AIDebug 手动生图闭环：生成两张简洁的东方配色商品视觉测试图。";
       const promptSet = setNativeValue(prompt, promptText);
-      const ratioSet = setNativeValue(ratio, "3:4");
-      const qualitySet = setNativeValue(quality, "high");
-      const countSet = setNativeValue(count, "2");
+      const ratioSet = await setGlassValue(ratio, "3:4");
+      const qualitySet = await setGlassValue(quality, "high");
+      const countSet = await setGlassValue(count, "2");
       await delay(120);
+      // The safe debug DTO omits message IDs; compare the visible append range.
+      const beforeMessageCount = (window.__naimageDebugAgentState?.()?.messages || []).length;
       const submit = Array.from(dialog?.querySelectorAll("button") || []).find((button) => String(button.textContent || "").replace(/\s+/g, "").includes("生成图片"));
       submit?.click();
       submit?.click();
@@ -102,7 +119,7 @@ export async function captureUiSurfaceSuite({ client, targetId, captureState, op
         await delay(80);
       }
       const timelineMessages = (Array.isArray(afterState.messages) ? afterState.messages : [])
-        .filter((message) => !beforeMessageIds.has(message.id));
+        .slice(beforeMessageCount);
       const timelineUsers = timelineMessages.filter((message) => message.role === "user" && String(message.content || "").includes(promptText));
       const startCards = timelineMessages.filter((message) => message.toolTrace?.name === "image_gen" && message.toolTrace?.stage === "start" &&
         message.toolTrace?.prompts?.some((item) => String(item.prompt || "").includes(promptText)));
@@ -114,10 +131,9 @@ export async function captureUiSurfaceSuite({ client, targetId, captureState, op
       const timelineParams = String(startCards[0]?.toolTrace?.params || "");
       const timelineParamsOk = /3:4/.test(timelineParams) && /720P|1K|2K|4K/.test(timelineParams) && /精细/.test(timelineParams) && /2 张/.test(timelineParams);
       window.__naimageManualTaskProbe = {
-        // Manual image tasks are intentionally independent of the Agent
-        // timeline. Keep the observable task/result checks here and let the
-        // Agent timeline contract cover Agent-originated image runs.
-        ok: Boolean(dialog && promptSet && ratioSet && qualitySet && countSet && submit && !document.querySelector(".manual-image-task-dialog") && newNodes.length === 1 && producedAssets >= 2 && collectionNodes.length === 1 && collectionNodes[0]?.imageCollection.items.length >= 2),
+        // Direct image requests still share the canonical Image Gen timeline.
+        // A double click must create one user entry and one start/result pair.
+        ok: Boolean(dialog && promptSet && ratioSet && qualitySet && countSet && submit && !document.querySelector(".manual-image-task-dialog") && newNodes.length === 1 && producedAssets >= 2 && collectionNodes.length === 1 && collectionNodes[0]?.imageCollection.items.length >= 2 && timelineUsers.length === 1 && timelineIdentityOk && timelineParamsOk),
         promptSet,
         ratioSet,
         qualitySet,
@@ -135,7 +151,7 @@ export async function captureUiSurfaceSuite({ client, targetId, captureState, op
         timelineParams,
         timelineParamsOk,
         timelineToolCardCount: operationCards.length,
-        resolution: String(resolution?.value || "")
+        resolution: String(resolution?.dataset.value || "")
       };
       resolve(true);
     })();

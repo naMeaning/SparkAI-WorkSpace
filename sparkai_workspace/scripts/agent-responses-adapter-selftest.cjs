@@ -2,12 +2,42 @@
 
 const assert = require("node:assert/strict");
 const {
+  chatRequestFromRuntimeRequest,
   responsesInputFromChatMessages,
   responsesRequestFromChatRequest,
   responsesToolsFromChatTools
 } = require("../desktop/agent-responses-adapter.cjs");
 
 const imageUrl = "data:image/png;base64,AAAA";
+const chatInput = {
+  model: "gpt-6.1-sol", stream: true,
+  messages: [
+    { role: "system", content: "Keep existing system instructions" },
+    { role: "responses_items", items: [
+      { type: "reasoning", encrypted_content: "private-reasoning" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "Reviewing" }] },
+      { type: "function_call", call_id: "view-a", name: "view_image", arguments: "{}" },
+      { type: "function_call", call_id: "view-b", name: "view_image", arguments: "{}" },
+      { type: "function_call_output", call_id: "view-a", output: [{ type: "input_image", image_url: imageUrl, detail: "high" }] },
+      { type: "function_call_output", call_id: "view-b", output: [{ type: "input_text", text: "read" }, { type: "input_image", image_url: imageUrl, detail: "original" }] }
+    ] },
+    { role: "user", content: [{ type: "input_text", text: "Continue" }, { type: "input_image", image_url: imageUrl }] }
+  ]
+};
+const chat = chatRequestFromRuntimeRequest(chatInput);
+assert.equal(chat.model, chatInput.model);
+assert.equal(chat.stream, true);
+assert.equal(chat.messages[0].role, "system");
+assert.equal(chat.messages[1].tool_calls.length, 2);
+assert.deepEqual(chat.messages.slice(2, 4).map((message) => message.tool_call_id), ["view-a", "view-b"]);
+assert.ok(chat.messages.slice(2, 4).every((message) => typeof message.content === "string"));
+assert.equal(chat.messages[4].role, "user", "Tool images must follow all paired tool outputs");
+assert.deepEqual(chat.messages[4].content.slice(1).map((part) => part.image_url.detail), ["high", "original"]);
+assert.equal(chat.messages[5].content[0].type, "text");
+assert.equal(chat.messages[5].content[1].image_url.url, imageUrl);
+assert.doesNotMatch(JSON.stringify(chat), /input_image|input_text|responses_items|private-reasoning/);
+assert.equal(chatInput.messages[1].items[4].output[0].type, "input_image", "Adapter must not mutate runtime history");
+assert.deepEqual(chatRequestFromRuntimeRequest(chat), chat, "A second pass must preserve the normalized request");
 const input = responsesInputFromChatMessages([
   { role: "system", content: "SYSTEM_TO_DEVELOPER" },
   {

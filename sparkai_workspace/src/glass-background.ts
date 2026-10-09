@@ -1,6 +1,7 @@
 import {
   glassThemeMode,
   glassThemeRegistry,
+  isSolidTheme,
   normalizeGlassThemeSettings,
   type GlassThemeSettings,
 } from "./glass-theme.ts";
@@ -180,7 +181,7 @@ export async function applyGlassBackgroundToRoot(
   rootRequestIds.set(root, requestId);
   applyReadableBackgroundTokens(value, background, root);
 
-  if (!background.glassBackgroundEnabled || !background.glassBackgroundAssetId) {
+  if (isSolidTheme(value.glassTheme) || !background.glassBackgroundEnabled || !background.glassBackgroundAssetId) {
     root.dataset.glassBackground = "off";
     root.style.setProperty("--glass-workspace-background-image", "none");
     return { ...background, status: "off" as const };
@@ -192,12 +193,12 @@ export async function applyGlassBackgroundToRoot(
       background.glassBackgroundAssetId,
       background.glassBackgroundAssetName,
     );
-    if (rootRequestIds.get(root) !== requestId) return { ...background, status: "stale" as const };
+    if (rootRequestIds.get(root) !== requestId || root.dataset.glassStyle === "solid") return { ...background, status: "stale" as const };
     root.style.setProperty("--glass-workspace-background-image", `url(${JSON.stringify(dataUrl)})`);
     root.dataset.glassBackground = "ready";
     return { ...background, status: "ready" as const };
   } catch (error) {
-    if (rootRequestIds.get(root) !== requestId) return { ...background, status: "stale" as const };
+    if (rootRequestIds.get(root) !== requestId || root.dataset.glassStyle === "solid") return { ...background, status: "stale" as const };
     root.style.setProperty("--glass-workspace-background-image", "none");
     root.dataset.glassBackground = "error";
     return {

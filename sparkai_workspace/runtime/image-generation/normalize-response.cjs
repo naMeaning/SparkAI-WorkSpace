@@ -73,6 +73,7 @@ function normalizeImageGenerationResponse(payload, context = {}) {
       return;
     }
     if (typeof value !== "object") return;
+    if (value.thought === true) return;
     const next = inheritedMetadata(value, inherited);
     pushImage(images, seen, value, inherited);
     for (const [key, child] of Object.entries(value)) {

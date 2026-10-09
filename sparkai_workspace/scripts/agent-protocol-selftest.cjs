@@ -11,6 +11,8 @@ const {
   responsesInputFromChatMessages,
   responsesRequestFromChatRequest,
   responsesToolsFromChatTools,
+  agentModelStreamEventHasOutput,
+  agentModelRequestRetryReason,
   shouldFallbackResponsesToChat,
 } = require("../electron-main.cjs");
 const { normalizedTaskScope, taskScopeSnapshotHash, taskScopeForPrompt, validateImageOperationSourcePolicy } = require("../agent-runtime.cjs");
@@ -97,6 +99,21 @@ assert.equal(request.reasoning.effort, "medium");
 assert.equal(agentModelUsesResponsesApi("gpt-5.5"), true);
 assert.equal(agentModelUsesResponsesApi("gpt-5.6-sol"), true);
 assert.equal(agentModelUsesResponsesApi("gpt-4.1"), false);
+assert.equal(
+  agentModelStreamEventHasOutput({ choices: [{ delta: { role: "assistant" } }] }),
+  false,
+  "A role-only Chat Completions chunk must not make a replay unsafe"
+);
+assert.equal(
+  agentModelStreamEventHasOutput({ choices: [{ delta: { content: "ok" } }] }),
+  true,
+  "Chat Completions content must block a replay after partial output"
+);
+assert.equal(
+  agentModelStreamEventHasOutput({ type: "response.output_text.delta", delta: "ok" }),
+  true,
+  "Responses output events must block a replay after partial output"
+);
 assert.equal(managedRelayEndpoint("/v1/responses"), "/naimage/v1/responses");
 assert.equal(managedRelayEndpoint("/v1/images/generations"), "/naimage/v1/images/generations");
 assert.equal(managedRelayEndpoint("/naimage/v1/models"), "/naimage/v1/models");
@@ -123,6 +140,44 @@ assert.equal(
   shouldFallbackResponsesToChat({ hasNativeResponsesTool: true, error: unsupportedResponsesError }),
   false,
   "Responses requests carrying native web_search must never replay against Chat Completions"
+);
+const managedRetrySettings = {
+  accessMode: "account",
+  selectedAccountTokenId: "89",
+  agentModelBindings: [{ model: "gpt-6.1-sol", customBaseUrl: "https://sub2.sparkapi.org" }]
+};
+assert.equal(
+  agentModelRequestRetryReason({
+    settings: managedRetrySettings,
+    model: "gpt-6.1-sol",
+    error: { status: 401, data: { error: { message: "Invalid API key" } } }
+  }),
+  "credentials",
+  "Managed account credentials may be refreshed once after an authentication failure"
+);
+assert.equal(
+  agentModelRequestRetryReason({
+    settings: { accessMode: "custom", agentModelBindings: [] },
+    model: "gpt-6.1-sol",
+    error: { status: 401, data: { error: { message: "Invalid API key" } } }
+  }),
+  "",
+  "Custom API credentials must not be silently replaced"
+);
+assert.equal(
+  agentModelRequestRetryReason({ settings: managedRetrySettings, model: "gpt-6.1-sol", error: { status: 502 } }),
+  "transient",
+  "A pre-output gateway failure may be retried once"
+);
+assert.equal(
+  agentModelRequestRetryReason({ settings: managedRetrySettings, model: "gpt-6.1-sol", error: { status: 502 }, retryAttempt: 1 }),
+  "",
+  "Transient retries must be bounded to one replay"
+);
+assert.equal(
+  agentModelRequestRetryReason({ settings: managedRetrySettings, model: "gpt-6.1-sol", error: { status: 502, ambiguous: true } }),
+  "",
+  "Ambiguous requests must never be replayed"
 );
 assert.deepEqual(validateImageOperationSourcePolicy("image_gen", "generate", 0, "single"), {
   operation: "generate",

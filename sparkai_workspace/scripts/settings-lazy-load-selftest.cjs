@@ -9,6 +9,7 @@ const mainSource = fs.readFileSync(path.join(root, "src", "main.tsx"), "utf8");
 const settingsDrawerSource = fs.readFileSync(path.join(root, "src", "settings-drawer.tsx"), "utf8");
 const modelConfigDialogSource = fs.readFileSync(path.join(root, "src", "model-config-dialog.tsx"), "utf8");
 const projectAgentComposerSource = fs.readFileSync(path.join(root, "src", "project-agent-composer.tsx"), "utf8");
+const imageConfigSource = fs.readFileSync(path.join(root, "src", "project-agent-image-config.tsx"), "utf8");
 const agentPanelStyleSource = fs.readFileSync(path.join(root, "src", "styles", "07g-agent-panel-overrides.css"), "utf8");
 const helpCenterSource = fs.readFileSync(path.join(root, "src", "help-center.tsx"), "utf8");
 const electronSource = fs.readFileSync(path.join(root, "electron-main.cjs"), "utf8");
@@ -43,34 +44,21 @@ assert.match(modelConfigDialogSource, /kind === "agent"[\s\S]{0,420}agentModelBi
 assert.match(modelConfigDialogSource, /label=\{accountMode \? "自定义 API Key（可选）" : "API Key"\}/, "Account mode must retain the per-model custom API Key field");
 assert.match(modelConfigDialogSource, /accountMode[\s\S]{0,900}customApiKey[\s\S]{0,1600}账户密钥/, "Account mode must keep custom model Keys and account-token fallback in one binding card");
 assert.match(modelConfigDialogSource, /(?:账号登录与逐模型自定义 API Key 可以同时使用|无限制版账号登录也支持逐模型 Base URL 与 API Key)/, "The model dialog must explain custom connection priority without hiding account-token fallback");
-assert.match(projectAgentComposerSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/, "Composer model menu must preserve catalog order while retaining selected-model fallbacks");
-assert.match(projectAgentComposerSource, /data-primary-action=\{primaryAction\}/, "Idle composer must mark which footer action is primary");
-assert.match(projectAgentComposerSource, />\s*生成\s*</, "Direct generation must remain an explicit action");
-assert.match(projectAgentComposerSource, />\s*发送给 Agent\s*</, "Sending to Agent must remain the labeled keyboard action");
-assert.match(projectAgentComposerSource, /className="project-agent-model-trigger"[\s\S]{0,260}aria-haspopup="dialog"[\s\S]{0,180}aria-expanded=\{modelMenuOpen\}/, "Composer must expose the image catalog through one expandable model control");
-const composerToolbarControlOrder = ["project-agent-mode-picker", "project-agent-materials-picker", "project-agent-model-picker", "project-agent-image-frame"]
-  .map((selector) => composerToolbarSource.indexOf(selector));
-assert(
-  composerToolbarSource && composerToolbarControlOrder.every((index) => index >= 0) && composerToolbarControlOrder.every((index, position) => position === 0 || index > composerToolbarControlOrder[position - 1]),
-  "Mode, materials, model, ratio, and resolution controls must share one compact toolbar"
-);
-assert.match(agentPanelStyleSource, /\.project-agent-model-picker\s*\{[\s\S]{0,220}max-width:\s*210px;/, "The image-model trigger must remain compact instead of expanding into a full-width model-name row");
-assert.match(projectAgentComposerSource, /project-agent-mode-trigger[\s\S]{0,900}project-agent-mode-fan[\s\S]{0,1000}project-agent-mode-option goal/, "Normal and Goal modes must share one trigger with a fan menu");
-assert.match(agentPanelStyleSource, /\.project-agent-mode-picker:hover \.project-agent-mode-fan[\s\S]{0,180}pointer-events:\s*auto;[\s\S]{0,120}opacity:\s*1;/, "The task-mode fan must be discoverable on hover");
-assert.match(projectAgentComposerSource, /project-agent-materials-trigger[\s\S]{0,900}project-agent-materials-menu[\s\S]{0,600}添加原图[\s\S]{0,600}添加参考图/, "Original and reference image actions must collapse into one materials menu");
-assert.match(projectAgentComposerSource, /project-agent-frame-picker ratio[\s\S]{0,500}aria-haspopup="listbox"[\s\S]{0,900}project-agent-frame-menu[\s\S]{0,1800}project-agent-frame-picker resolution/, "Ratio and resolution must use custom listboxes instead of native selects");
-assert.doesNotMatch(projectAgentComposerSource.match(/<div ref=\{framePickerRef\}[\s\S]*?<\/div>\s*<\/div>/)?.[0] || "", /<select\b/, "The compact frame controls must not fall back to native white select menus");
-assert.match(agentPanelStyleSource, /\.project-agent-materials-menu,\s*\.project-agent-frame-menu\s*\{[\s\S]{0,520}backdrop-filter:\s*var\(--glass-backdrop-filter\)/, "Frame menus must inherit the shared glass surface");
-assert.match(agentPanelStyleSource, /\.project-agent-frame-menu\s*\{[\s\S]{0,120}min-width:\s*max\(100%,\s*160px\)/, "Frame menus must be wide enough to avoid a thin native-dropdown appearance");
-assert.match(projectAgentComposerSource, /className="project-agent-model-search"[\s\S]{0,260}placeholder="搜索上游模型"/, "Large upstream model catalogs must be searchable");
-assert.match(projectAgentComposerSource, /className="project-agent-model-option"[\s\S]{0,420}type="checkbox"[\s\S]{0,160}checked=\{selected\}/, "Every image model option must use a directly checkable checkbox");
-assert.match(projectAgentComposerSource, /lastSelected = selected && activeModels\.length === 1[\s\S]{0,900}disabled=\{lastSelected\}/, "The model menu must keep at least one image model selected");
-assert.match(projectAgentComposerSource, /const defaultImageModel = activeModels\[0\] \|\| "";/, "The composer default image model must come from the first selected model");
-assert.match(projectAgentComposerSource, /const selectedModelSummary = defaultImageModel \|\| "选择模型";/, "The composer model summary must use the default image model instead of only a model count");
-assert.match(projectAgentComposerSource, /project-agent-model-trigger[\s\S]{0,520}<strong>\{selectedModelSummary\}<\/strong>/, "The composer trigger must render the default image model summary");
-assert.match(projectAgentComposerSource, /function setDefaultImageModel\(model: string\)[\s\S]{0,260}onSelectedImageModelsChange\(\[model,/, "Setting the default image model must move it to the front of the selected pool");
-assert.match(projectAgentComposerSource, /className=\{`project-agent-model-default[\s\S]{0,300}设为默认生图模型/, "Every model row must expose a named default-model control");
-assert.match(mainSource, /const projectAgentChangeImageModels[\s\S]{0,260}const imageModel = imageModelPool\[0\]/, "The first selected model must persist as the default image model");
+assert.match(mainSource, /React\.lazy\(\(\) => import\("\.\/project-agent-image-config"\)\)/, "Image configuration must remain naturally async");
+assert.match(imageConfigSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/);
+assert.match(projectAgentComposerSource, /data-primary-action=\{primaryAction\}/);
+assert.match(projectAgentComposerSource, />\s*生成\s*</);
+assert.match(projectAgentComposerSource, /发送给 Agent/);
+assert.doesNotMatch(composerToolbarSource, /project-agent-(?:mode-|frame-|model-trigger)/);
+assert(composerToolbarSource.indexOf("project-agent-materials-picker") < composerToolbarSource.indexOf("project-agent-config-trigger"));
+assert.match(projectAgentComposerSource, /composerCommandSuggestions\(prompt\)/);
+assert.match(projectAgentComposerSource, /project-agent-materials-trigger[\s\S]{0,900}project-agent-materials-menu[\s\S]{0,600}添加原图[\s\S]{0,600}添加参考图/);
+assert.match(imageConfigSource, /ariaLabel="默认生图比例"/);
+assert.match(imageConfigSource, /ariaLabel="默认生图清晰度"/);
+assert.match(imageConfigSource, /aria-label="搜索生图模型"/);
+assert.match(imageConfigSource, /disabled=\{locked \|\| lastSelected\}/);
+assert.match(imageConfigSource, /onModelsChange\(\[model, \.\.\.activeModels/);
+assert.match(mainSource, /persistAgentImageConfig\(\{ imageModel: imageModelPool\[0\], imageModelPool \}\)/);
 assert.match(mainSource, /projectAgentRequestImageModels[\s\S]{0,480}naimageServer\.models\(\{[\s\S]{0,160}selectedAccountTokenGroup[\s\S]{0,520}settings\?\.imageModels/, "Opening the composer model menu must load the current key's classified upstream image catalog through the shared model cache");
 assert.match(projectAgentComposerSource, /value: "auto", label: "自动处理（推荐）"[\s\S]{0,180}value: "keep", label: "只修改要求，保留现有图片"[\s\S]{0,180}value: "replace-source", label: "更换处理图片"/, "The normal steer UI must expose only three plain-language image-scope choices");
 assert.doesNotMatch(projectAgentComposerSource, /<option value="(?:merge-source|replace-reference|merge-reference|clear)">/, "The normal steer UI must not expose internal SOURCE or REFERENCE protocol modes");

@@ -15,6 +15,7 @@ import {
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const composerSource = readFileSync(join(root, "src", "project-agent-composer.tsx"), "utf8");
+const imageConfigSource = readFileSync(join(root, "src", "project-agent-image-config.tsx"), "utf8");
 const mainSource = readFileSync(join(root, "src", "main.tsx"), "utf8");
 const settingsSource = readFileSync(join(root, "src", "settings-drawer.tsx"), "utf8");
 const agentSource = readFileSync(join(root, "src", "agent.ts"), "utf8");
@@ -48,9 +49,9 @@ assert.match(
 );
 assert.match(
   composerSource,
-  /className="project-agent-send"[\s\S]{0,900}variant=\{primaryAction === "send" \? "primary" : "secondary"\}[\s\S]{0,900}>\s*发送给 Agent\s*</
+  /className="project-agent-send"[\s\S]{0,900}variant=\{primaryAction === "send" \? "primary" : "secondary"\}[\s\S]{0,900}发送给 Agent/
 );
-assert.match(composerSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/);
+assert.match(imageConfigSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/);
 assert.doesNotMatch(
   composerSource,
   /className="project-agent-send"[\s\S]{0,180}variant="primary"[\s\S]{0,220}className="project-agent-regenerate"/

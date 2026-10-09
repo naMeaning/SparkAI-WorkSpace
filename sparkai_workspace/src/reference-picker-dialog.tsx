@@ -1,11 +1,12 @@
 import { useRef, useState, type Dispatch, type SetStateAction } from "react";
-import { Plus, X } from "lucide-react";
+import { Check, ImageIcon, Import, Plus, X } from "lucide-react";
 
 import {
   imageAssetSrc,
   mergeReferenceImages,
   type ReferencePickerDraft
 } from "./core";
+import { sameComposerImage, type ComposerMaterialItem } from "./selection-reference-images";
 import {
   ActionButton,
   ButtonBase,
@@ -19,17 +20,23 @@ import {
 
 const CLOSE_BUTTON_REASON = "close-button" as const;
 
-export function ReferencePickerDialog({ draft, setDraft, projectId, close, save }: {
+export function ReferencePickerDialog({ draft, setDraft, projectId, canvasMaterials, close, save }: {
   draft: ReferencePickerDraft;
   setDraft: Dispatch<SetStateAction<ReferencePickerDraft | null>>;
   projectId: string;
+  canvasMaterials: ComposerMaterialItem[];
   close: () => void;
   save: () => void;
 }) {
   const [message, setMessage] = useState("");
   const [page, setPage] = useState(0);
+  const [canvasOpen, setCanvasOpen] = useState(false);
+  const [canvasPage, setCanvasPage] = useState(0);
   const [closePromptOpen, setClosePromptOpen] = useState(false);
-  const initialImagesRef = useRef(draft.images.map((image) => image.occurrenceId || image.assetId || image.path).join("\n"));
+  const imageSignature = (images: ReferencePickerDraft["images"]) => images.map((image) => (
+    `${image.occurrenceId || image.assetId || image.path}|${image.canvasNodeId || ""}|${image.canvasAssetIndex ?? ""}`
+  )).join("\n");
+  const initialImagesRef = useRef(imageSignature(draft.images));
   const pageSize = 9;
   const pageCount = Math.max(1, Math.ceil(draft.max / pageSize));
   const visiblePage = Math.min(page, pageCount - 1);
@@ -39,7 +46,24 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
     draft.target.kind === "agent-request" && draft.target.role === "source"
   ) ? "原图" : "参考图";
   const remaining = Math.max(0, draft.max - draft.images.length);
-  const dirty = draft.images.map((image) => image.occurrenceId || image.assetId || image.path).join("\n") !== initialImagesRef.current;
+  const dirty = imageSignature(draft.images) !== initialImagesRef.current;
+  const canvasPageCount = Math.max(1, Math.ceil(canvasMaterials.length / pageSize));
+  const visibleCanvasPage = Math.min(canvasPage, canvasPageCount - 1);
+
+  function toggleCanvasImage(item: ComposerMaterialItem) {
+    const selected = draft.images.some((image) => sameComposerImage(image, item.reference));
+    if (!selected && remaining <= 0) {
+      setMessage(`最多添加 ${draft.max} 张${itemLabel}。`);
+      return;
+    }
+    setDraft((current) => current ? {
+      ...current,
+      images: selected
+        ? current.images.filter((image) => !sameComposerImage(image, item.reference))
+        : mergeReferenceImages(current.images, [{ ...item.reference, taskRole: itemLabel === "原图" ? "source" : "reference", role: itemLabel === "原图" ? "source" : "reference" }], current.max)
+    } : current);
+    setMessage(selected ? "已取消选取。" : `已加入${itemLabel}，保存后生效。`);
+  }
 
   async function addImages() {
     if (remaining <= 0) return;
@@ -82,6 +106,41 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
           <>
           <SurfaceHeader title={draft.title} description={draft.detail} onClose={() => requestClose(CLOSE_BUTTON_REASON)} />
           <SurfaceBody className="reference-picker-body">
+            <div className="reference-picker-sources" role="group" aria-label="素材来源">
+              <ActionButton icon={<Import size={14} />} onClick={() => void addImages()} disabled={remaining <= 0}>本地文件</ActionButton>
+              <ActionButton icon={<ImageIcon size={14} />} aria-pressed={canvasOpen} onClick={() => { setCanvasOpen((current) => !current); setMessage(""); }}>
+                {canvasOpen ? "返回素材列表" : "从画布选取"}
+              </ActionButton>
+            </div>
+            {canvasOpen ? (
+              <>
+                <p className="reference-canvas-hint">点击图片加入{itemLabel}，再次点击取消选取。</p>
+                <div className="reference-grid reference-canvas-grid" aria-label="画布图片">
+                  {canvasMaterials.slice(visibleCanvasPage * pageSize, (visibleCanvasPage + 1) * pageSize).map((item) => {
+                    const selected = draft.images.some((image) => sameComposerImage(image, item.reference));
+                    return (
+                      <ButtonBase
+                        key={item.key}
+                        type="button"
+                        className="reference-slot canvas-material-option"
+                        aria-label={`选取 ${item.name}`}
+                        aria-pressed={selected}
+                        data-canvas-node-id={item.nodeId}
+                        data-canvas-asset-index={item.assetIndex}
+                        disabled={!selected && remaining <= 0}
+                        title={item.name}
+                        onClick={() => toggleCanvasImage(item)}
+                      >
+                        <img src={item.reference.assetUrl || imageAssetSrc({ type: "file", path: item.reference.path })} alt={item.name} loading="lazy" decoding="async" />
+                        <span className="canvas-material-name">{item.name}</span>
+                        {selected ? <span className="canvas-material-check"><Check size={16} /></span> : null}
+                      </ButtonBase>
+                    );
+                  })}
+                  {!canvasMaterials.length ? <p className="reference-canvas-empty">当前画布没有可用图片。</p> : null}
+                </div>
+              </>
+            ) : (
             <div className="reference-grid">
               {Array.from({ length: pageSlots }, (_item, offset) => {
                 const index = pageStart + offset;
@@ -97,17 +156,18 @@ export function ReferencePickerDialog({ draft, setDraft, projectId, close, save 
                 );
               })}
             </div>
+            )}
             <div className="reference-picker-status">
               <span>{draft.images.length}/{draft.max} 张{itemLabel}</span>
-              {pageCount > 1 ? (
+              {(canvasOpen ? canvasPageCount : pageCount) > 1 ? (
                 <span className="reference-picker-pages">
-                  <IconActionButton label="上一页" onClick={() => setPage((current) => Math.max(0, current - 1))} disabled={visiblePage === 0} icon={<span aria-hidden="true">‹</span>} />
-                  <strong>{visiblePage + 1}/{pageCount}</strong>
-                  <IconActionButton label="下一页" onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={visiblePage >= pageCount - 1} icon={<span aria-hidden="true">›</span>} />
+                  <IconActionButton label="上一页" onClick={() => canvasOpen ? setCanvasPage((current) => Math.max(0, current - 1)) : setPage((current) => Math.max(0, current - 1))} disabled={(canvasOpen ? visibleCanvasPage : visiblePage) === 0} icon={<span aria-hidden="true">‹</span>} />
+                  <strong>{(canvasOpen ? visibleCanvasPage : visiblePage) + 1}/{canvasOpen ? canvasPageCount : pageCount}</strong>
+                  <IconActionButton label="下一页" onClick={() => canvasOpen ? setCanvasPage((current) => Math.min(canvasPageCount - 1, current + 1)) : setPage((current) => Math.min(pageCount - 1, current + 1))} disabled={canvasOpen ? visibleCanvasPage >= canvasPageCount - 1 : visiblePage >= pageCount - 1} icon={<span aria-hidden="true">›</span>} />
                 </span>
               ) : null}
-              {message ? <em>{message}</em> : null}
             </div>
+            {message ? <p className="reference-picker-message" role="status">{message}</p> : null}
           </SurfaceBody>
           <SurfaceFooter>
             <ActionButton onClick={() => requestClose("action")}>取消</ActionButton>

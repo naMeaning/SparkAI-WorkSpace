@@ -14,6 +14,7 @@ import {
   type GlassThemeSettings
 } from "./glass-theme.ts";
 import { workspaceDomainDefinition } from "./workspace-domain.ts";
+import { runHasIncompleteModelReply } from "./model-ux.ts";
 
 const maximumPromptChars = 200_000;
 const maximumMessageChars = 16_000;
@@ -87,7 +88,7 @@ export type AgentWindowSnapshot = {
 };
 
 export type AgentWindowCommand =
-  | { type: "request-state" | "closed" | "pause-confirmed" | "resume" | "stop-confirmed" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-memory" }
+  | { type: "request-state" | "closed" | "pause-confirmed" | "resume" | "stop-confirmed" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-image-config" | "edit-memory" }
   | { type: "set-prompt"; prompt: string }
   | { type: "send"; prompt: string; taskScopeMode: AgentSteerTaskScopeMode | "auto"; taskMode: "standard" }
   | { type: "send"; prompt: string; taskScopeMode: "auto"; taskMode: "goal"; goalConfirmed: true; expectedSnapshotHash: string }
@@ -229,6 +230,8 @@ export function agentWindowStatusText({
     ? "Agent 已暂停"
     : agentStatus === "error" || /error|失败/i.test(progressPhase)
     ? "Agent 遇到问题"
+    : !busy && runHasIncompleteModelReply(agentProgress)
+    ? "图片成果已保留，后续对话未完成"
     : latestRunningMessage?.meta === "assistant-stream"
       ? "Agent 正在输出"
       : latestRunningMessage?.meta === "thinking" || progressPhase === "model-request" || progressPhase === "model-thinking-delta"
@@ -310,7 +313,8 @@ export function normalizeAgentWindowCommand(value: unknown): AgentWindowCommand 
     "clear-conversation-confirmed",
     "edit-sources",
     "edit-references",
-    "edit-memory"
+    "edit-memory",
+    "edit-image-config"
   ].includes(type)) return { type } as AgentWindowCommand;
   if (type === "set-prompt") {
     return { type, prompt: boundedText(payload.prompt, maximumPromptChars) };

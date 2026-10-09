@@ -14,6 +14,7 @@ function registerServerIpc({
   aidebugUser,
   aidebugWallet,
   accountTokenService,
+  newApiAccountService,
   agentRunControl,
   callNewApiImageWithSession,
   clearNewApiAuth,
@@ -27,13 +28,11 @@ function registerServerIpc({
   log,
   licenseService,
   logoutNewApiSession,
-  mapNewApiLogEntry,
   migrateSettings,
   modelSettingsWithCacheMeta,
   newApiModelSettings,
   newApiRequest,
   newApiUserAuthHeaders,
-  newApiUserLogsEndpoint,
   normalizeNewApiUser,
   readProjectList,
   getProjectById,
@@ -41,7 +40,6 @@ function registerServerIpc({
   removeOwnedDataUrlTemp,
   settingsPath,
   splitModelSettings,
-  tokenItemsFromNewApiPayload,
   walletFromNewApiUser,
   writeDataUrlTemp,
   writeJson,
@@ -257,13 +255,13 @@ function registerServerIpc({
           log(`new-api models in me failed ${error instanceof Error ? error.message : String(error)}`);
           modelSettings = modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now());
         }
+        const accountSummary = await newApiAccountService.summary(settings, userData);
         if (authEpoch !== getNewApiAuthEpoch()) {
           return { ok: false, stale: true, error: "登录账户已切换，旧请求结果已丢弃。" };
         }
         return {
           ok: true,
-          user: normalizeNewApiUser(userData),
-          wallet: walletFromNewApiUser(userData),
+          ...accountSummary,
           settings: modelSettings
         };
       } catch (error) {
@@ -282,20 +280,26 @@ function registerServerIpc({
     return wrapped;
   });
 
-  ipcMain.handle("naimage:server:logs", async () => {
+  ipcMain.handle("naimage:server:logs", async (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     log("new-api logs");
     if (settings.accessMode === "custom") return { ok: true, logs: [] };
-    if (aidebugMode && !aidebugLiveImage) return { ok: true, logs: aidebugLogs() };
+    if (aidebugMode && !aidebugLiveImage) {
+      const { normalizeLogQuery } = require("../new-api-account.cjs");
+      const query = normalizeLogQuery(payload);
+      const types = { 1: "topup", 2: "consume", 3: "manage", 4: "system", 5: "error", 6: "refund", 7: "login" };
+      const logs = aidebugLogs().filter((entry) => (!query.type || entry.type === types[query.type])
+        && (!query.model || String(entry.detail?.model || "").includes(query.model))
+        && (!query.tokenName || String(entry.detail?.tokenName || "").includes(query.tokenName))
+        && (!query.startTime || Date.parse(entry.createdAt) / 1000 >= query.startTime)
+        && (!query.endTime || Date.parse(entry.createdAt) / 1000 <= query.endTime));
+      return { ok: true, logs: logs.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), page: query.page, pageSize: query.pageSize, total: logs.length, hasMore: query.page * query.pageSize < logs.length };
+    }
     try {
-      if (!settings.serverSessionCookie || !settings.serverUserId) return { ok: true, logs: [] };
-      const response = await newApiRequest(settings, newApiUserLogsEndpoint, {
-        headers: newApiUserAuthHeaders(settings),
-        userAuth: true
-      });
-      return { ok: true, logs: tokenItemsFromNewApiPayload(response).map(mapNewApiLogEntry) };
+      return await newApiAccountService.logs(settings, payload);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const { safeAccountText } = require("../new-api-account.cjs");
+      const message = safeAccountText(error instanceof Error ? error.message : String(error));
       log(`new-api logs failed ${message}`);
       return { ok: false, error: message, logs: [] };
     }
@@ -322,6 +326,8 @@ function registerServerIpc({
     try {
       if (settings.accessMode === "custom") throw new Error("自定义接口模式不使用 SparkAPI 账户密钥。");
       if (aidebugMode && !aidebugLiveImage) {
+        const { normalizeAccountQuotaPolicy, accountTokenQuotaFields } = require("../account-token-quota.cjs");
+        const quotaPolicy = normalizeAccountQuotaPolicy({ quota_per_unit: 500_000, usd_exchange_rate: 7.3, quota_display_type: "USD" });
         return {
           ok: true,
           cached: payload?.preferCached === true,
@@ -329,7 +335,7 @@ function registerServerIpc({
           cacheUpdatedAt: Date.now(),
           selectedTokenId: "1",
           baseUrl: "https://sparkapi.org/v1",
-          quotaPolicy: { quotaPerR: 500_000, usdToCnyRate: 7.3 },
+          quotaPolicy,
           tokens: [{
             id: "1",
             name: "AIDebug 密钥",
@@ -341,18 +347,11 @@ function registerServerIpc({
             createdTime: 0,
             accessedTime: 0,
             group: "default",
-            modelLimitsEnabled: false,
-            modelLimits: "",
-            allowIps: "",
+            modelLimitsEnabled: payload?.preferCached !== true,
+            modelLimits: payload?.preferCached === true ? "" : "gpt-image-2",
+            allowIps: payload?.preferCached === true ? "" : "203.0.113.7",
             crossGroupRetry: true,
-            quotaPerR: 500_000,
-            usdToCnyRate: 7.3,
-            remainR: 10,
-            remainUsd: 10,
-            remainCnyCents: 7_300,
-            remainRDisplay: "10",
-            remainCnyDisplay: "￥73.00",
-            quotaAuditLabel: "10 R · 原始额度 5,000,000 · 1 R = 1 USD · $1 = ￥7.30"
+            ...accountTokenQuotaFields(5_000_000, false, quotaPolicy)
           }]
         };
       }
@@ -444,6 +443,8 @@ function registerServerIpc({
         prompt: (payload ?? {}).prompt,
         model: (payload ?? {}).model,
         size: (payload ?? {}).size || settings.imageSize,
+        ratio: (payload ?? {}).ratio || (payload ?? {}).aspectRatio,
+        resolution: (payload ?? {}).resolution,
         quality: (payload ?? {}).quality || settings.imageQuality,
         count: (payload ?? {}).count || settings.imageCount,
         referenceImages: Array.isArray((payload ?? {}).referenceImages) ? (payload ?? {}).referenceImages : [],

@@ -1,5 +1,6 @@
 import {
   MAX_AGENT_SOURCE_IMAGES,
+  MAX_AGENT_REFERENCE_IMAGES,
   MAX_REFERENCE_IMAGES,
   imageAssetName,
   mergeReferenceImages,
@@ -29,7 +30,8 @@ export type ComposerMaterialItem = {
   reference: ReferenceImage;
 };
 
-function assetMatchesBinding(asset: NonNullable<WorkflowNode["assets"]>[number], index: number, binding: { assetId?: string; assetIndex?: number }) {
+function assetMatchesBinding(asset: NonNullable<WorkflowNode["assets"]>[number], index: number, binding: { assetId?: string; occurrenceId?: string; assetIndex?: number }) {
+  if (binding.occurrenceId) return binding.occurrenceId === asset.occurrenceId;
   if (binding.assetId && asset.assetId === binding.assetId) return true;
   return Number.isInteger(binding.assetIndex) && binding.assetIndex === index;
 }
@@ -71,9 +73,16 @@ function referenceFromAsset(
   const relativePath = String(asset.relativePath || "").trim();
   const assetUrl = String(asset.assetUrl || asset.url || "").trim();
   if (!path && !relativePath && !assetUrl) return null;
+  const binding = imageContainerSpecForNode(node)?.memberBindings?.[slot];
   return {
+    canvasNodeId: node.id,
+    canvasAssetIndex: assetIndex,
+    bindingId: binding?.bindingId,
+    ownerNodeId: binding?.nodeId || node.id,
+    ownerAssetIndex: binding?.assetIndex ?? assetIndex,
+    containerId: binding?.containerNodeId || (canvasNodePresentsImageContainer(node) ? node.id : undefined),
     assetId: asset.assetId,
-    occurrenceId: asset.occurrenceId,
+    occurrenceId: binding?.occurrenceId || asset.occurrenceId,
     importBatchId: asset.importBatchId,
     importRootId: asset.importRootId,
     sourceRelativePath: asset.sourceRelativePath,
@@ -114,13 +123,14 @@ function orderedAssetsForNode(node: WorkflowNode): Array<{ asset: NonNullable<Wo
   return ordered;
 }
 
-export function flattenSelectedCanvasMaterials(nodes: WorkflowNode[]): ComposerMaterialItem[] {
+export function flattenSelectedCanvasMaterials(nodes: WorkflowNode[], includeLayers = false): ComposerMaterialItem[] {
   const items: ComposerMaterialItem[] = [];
   for (const node of nodes) {
-    if (node.type !== "image" || node.layerGroup) continue;
+    if (node.type !== "image" || (node.layerGroup && !includeLayers)) continue;
     const ordered = orderedAssetsForNode(node);
     if (!ordered.length) continue;
     for (const [slot, { asset, assetIndex }] of ordered.entries()) {
+      if (asset.status === "pending" || asset.status === "error") continue;
       const role = defaultComposerMaterialRole(node, asset, assetIndex);
       const reference = referenceFromAsset(node, asset, assetIndex, role, slot);
       if (!reference) continue;
@@ -142,9 +152,12 @@ export function flattenSelectedCanvasMaterials(nodes: WorkflowNode[]): ComposerM
 function uploadMaterial(image: ReferenceImage, role: ComposerMaterialRole, index: number): ComposerMaterialItem {
   const fallbackId = String(image.assetId || image.occurrenceId || image.path || image.assetUrl || index);
   return {
-    key: composerMaterialKey("upload", undefined, index, `${role}:${fallbackId}`),
-    origin: "upload",
-    assetIndex: index,
+    key: image.canvasNodeId
+      ? composerMaterialKey("canvas", image.canvasNodeId, image.canvasAssetIndex ?? 0)
+      : composerMaterialKey("upload", undefined, index, `${role}:${fallbackId}`),
+    origin: image.canvasNodeId ? "canvas" : "upload",
+    nodeId: image.canvasNodeId,
+    assetIndex: image.canvasAssetIndex ?? index,
     role,
     sequence: index + 1,
     name: image.name || `${role === "source" ? "原图" : "参考图"} ${index + 1}`,
@@ -187,22 +200,77 @@ export function buildComposerMaterials(
   overrides: Record<string, ComposerMaterialOverride> = {}
 ): ComposerMaterialItem[] {
   const canvasItems = flattenSelectedCanvasMaterials(selectedNodes);
-  const canvasKeys = new Set(canvasItems.map((item) => `${item.reference.assetId || ""}|${item.reference.path || ""}|${item.reference.assetUrl || ""}`));
-  const unusedUpload = (image: ReferenceImage) => {
-    const key = `${image.assetId || ""}|${image.path || ""}|${image.assetUrl || ""}`;
-    return !canvasKeys.has(key);
-  };
-  const uploads = [
-    ...uploadedSources.filter(unusedUpload).map((image, index) => uploadMaterial(image, "source", index)),
-    ...uploadedReferences.filter(unusedUpload).map((image, index) => uploadMaterial(image, "reference", index + uploadedSources.length))
+  const explicitItems = [
+    ...uploadedSources.map((image, index) => uploadMaterial(image, "source", index)),
+    ...uploadedReferences.map((image, index) => uploadMaterial(image, "reference", index + uploadedSources.length))
   ];
-  return applyComposerMaterialOverrides([...canvasItems, ...uploads], overrides);
+  const remaining = [...explicitItems];
+  const combined = canvasItems.map((item) => {
+    const index = remaining.findIndex((explicit) => sameComposerImage(item.reference, explicit.reference));
+    if (index < 0) return item;
+    const [explicit] = remaining.splice(index, 1);
+    // An explicit role wins over the role inferred from the highlighted node.
+    return { ...item, role: explicit.role, reference: { ...item.reference, ...explicit.reference, taskRole: explicit.role, role: explicit.role } };
+  });
+  return applyComposerMaterialOverrides([...combined, ...remaining], overrides);
+}
+
+export type CanvasMaterialTarget = { nodeId: string; assetIndex?: number };
+
+export function sameComposerImage(left: Partial<ReferenceImage>, right: Partial<ReferenceImage>): boolean {
+  if (left.occurrenceId && right.occurrenceId) return left.occurrenceId === right.occurrenceId;
+  if (left.assetId && right.assetId && left.assetId === right.assetId) return true;
+  const normalizePath = (value: string) => value.replace(/\\/g, "/").toLowerCase();
+  return Boolean(
+    (left.relativePath && right.relativePath && normalizePath(left.relativePath) === normalizePath(right.relativePath)) ||
+    (left.path && right.path && normalizePath(left.path) === normalizePath(right.path)) ||
+    (left.assetUrl && right.assetUrl && left.assetUrl === right.assetUrl)
+  );
+}
+
+export function canvasImagesForMaterialTargets(
+  nodes: WorkflowNode[], targets: CanvasMaterialTarget[], role: ComposerMaterialRole
+): ReferenceImage[] {
+  const images: ReferenceImage[] = [];
+  for (const target of targets) {
+    const node = nodes.find((item) => item.id === target.nodeId);
+    if (!node || node.type !== "image") throw new Error("所选图片节点已不存在或不是图片，请重新选择。");
+    const items = flattenSelectedCanvasMaterials([node], true).filter((item) => (
+      target.assetIndex === undefined || item.assetIndex === target.assetIndex
+    ));
+    if (!items.length) throw new Error("所选节点没有可用图片，请等待图片完成或重新选择。");
+    images.push(...items.map((item) => ({ ...item.reference, taskRole: role, role })));
+  }
+  return mergeReferenceImages([], images, images.length);
+}
+
+export function resolveCanvasMaterialImages(images: ReferenceImage[], nodes: WorkflowNode[]): ReferenceImage[] {
+  return images.map((image) => {
+    if (!image.canvasNodeId) return image;
+    const node = nodes.find((item) => item.id === image.canvasNodeId);
+    const item = node && flattenSelectedCanvasMaterials([node], true).find((candidate) => sameComposerImage(candidate.reference, image));
+    if (!item) throw new Error(`画布素材“${image.name}”已移除或改变，请从素材列表移除后重新添加。`);
+    return { ...image, ...item.reference, taskRole: image.taskRole, role: image.role, displayCode: image.displayCode };
+  });
+}
+
+export function assignComposerImages(
+  sources: ReferenceImage[], references: ReferenceImage[], role: ComposerMaterialRole, images: ReferenceImage[], max: number
+) {
+  const current = role === "source" ? sources : references;
+  const next = mergeReferenceImages([], images, max).map((image) => ({ ...image, taskRole: role, role }));
+  const other = (role === "source" ? references : sources).filter((image) => !next.some((item) => sameComposerImage(item, image)));
+  return {
+    sources: role === "source" ? next : other,
+    references: role === "reference" ? next : other,
+    added: next.filter((image) => !current.some((item) => sameComposerImage(item, image))).length
+  };
 }
 
 export function splitComposerMaterials(items: ComposerMaterialItem[]) {
   const ordered = applyComposerMaterialOverrides(items);
   const sourceItems = ordered.filter((item) => item.role === "source").slice(0, MAX_AGENT_SOURCE_IMAGES);
-  const referenceItems = ordered.filter((item) => item.role === "reference").slice(0, MAX_REFERENCE_IMAGES);
+  const referenceItems = ordered.filter((item) => item.role === "reference").slice(0, MAX_AGENT_REFERENCE_IMAGES);
   return {
     sourceImages: sourceItems.map((item, index) => ({
       ...item.reference,

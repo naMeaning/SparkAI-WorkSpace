@@ -22,14 +22,20 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 
 当前版本没有商业代码签名证书，Windows 可能显示发布者未知。实际发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
-当前仓库测试安装包（2026-09-27，源码版本 `1.0.9`；`bundleEnforced: false`，不是正式 Release）：
+一般自己使用 Unrestricted，自定义中转需要此变体。1.0.9 正式候选正在准备；同名开发包和旧哈希不代表本次 Release。只使用正式发布页的制品与同页完整性清单，发布状态以同次正式编排和远端资产核验为准。
 
-| 安装包 | 大小 | SHA-256 |
-| --- | --- | --- |
-| `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` | 109,804,032 | `3FBA4CA68CF64DFC331A7BD3BA317FB2E6B8430196E3085A2359A54B60BC67CF` |
-| `release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe` | 109,804,032 | `DB424FAE98B20F4434A3B914B0255BBC8941B03550CCD87226D100526D5E0FDA` |
+## 1.0.9 完整安装升级与签名配置
 
-一般自己使用 Unrestricted。这是测试开发包，没有商业代码签名，也未做真实安装/卸载 smoke；构建保留既有大 chunk、.NET nullable、NuGet 漏洞源不可访问和 Node 子进程 deprecation 警告。`release/` 不再保留 1.0.7/1.0.8 或旧 `naimage-Setup-*` 公开命名。
+原更新签名私钥丢失，1.0.9 更换更新公钥并将最低更新版本提高到 1.0.9。1.0.8 及以前的客户端不能验证新清单；请手动从受信 Release 下载完整 EXE、核对 SHA-256，保存工作并正常退出旧软件后安装到原目录。不要用新的 Restart ASAR 替换旧版资源。更新/修复安装保留项目和设置，保持原发行变体；完整安装后的客户端使用新公钥验证后续更新。
+
+发布维护者的新私钥默认保存在被 Git 忽略的 `config/release-signing-private.pem`，公钥在 `build/update-public-key.pem` 并随应用打包。生成后应将私钥另行备份到受控存储；不要提交、上传 Release、发送到聊天或记录到日志。只重新配置现有私钥时，使用默认位置或设置文件路径：
+
+```powershell
+$env:NAIMAGE_RELEASE_PRIVATE_KEY = 'D:\受控备份\release-signing-private.pem'
+corepack pnpm run release:plan
+```
+
+这里的路径需替换为实际文件。编排器会通过签名配对确认它与客户端公钥相符。已有有效私钥时不要运行 `release:update-key -- --force`；重新生成会改变信任，必须再次确定完整安装升级边界。Ed25519 更新签名与 Windows Authenticode 代码签名是不同机制。
 
 ## 安装与启动
 
@@ -67,10 +73,11 @@ corepack pnpm run package:installer-smoke
 
 上述命令只用于本地构建和分项验证。正式发布必须使用唯一事务入口：
 
-升级 E2E 应使用上一正式版安装目录中的主程序作为基线。当前公开制品是 SparkAI WorkSpace 1.0.9，主程序为 `SparkAIWorkSpace.exe`。
+升级基线应来自上一正式版的受管副本，禁止指向用户日常安装。1.0.9 的旧版基线为 1.0.8，因签名轮换需要完整安装；正式安装 smoke 须在没有日常应用安装登记和快捷方式的隔离 Windows 环境执行，不得绕过保护或卸载日常应用以通过测试。
 
 ```powershell
-$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\restart-update-e2e\baseline-1.0.6\win-unpacked\naimage.exe').Path
+$env:NAIMAGE_RELEASE_BASELINE_EXE = (Resolve-Path '.diagnostics\release\baseline-1.0.8\win-unpacked\naimage.exe').Path
+$env:NAIMAGE_RELEASE_BASELINE_INSTALLER = (Resolve-Path '.diagnostics\release\baseline-1.0.8\naimage-Setup-1.0.8-x64.exe').Path
 corepack pnpm run release:plan
 corepack pnpm run test:release-orchestrator
 corepack pnpm run release:final

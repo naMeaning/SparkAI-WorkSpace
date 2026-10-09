@@ -105,6 +105,8 @@ assert.equal(service.forwardCommand(foreignWebContents, { type: "stop" }).ok, fa
 assert.equal(service.forwardCommand(surfaceWindow.webContents, { type: "stop" }).ok, true);
 assert.deepEqual(ownerWebContents.sent.at(-1).payload, { type: "stop" });
 assert.equal(service.forwardCommand(surfaceWindow.webContents, { type: "edit-memory" }).ok, true);
+assert.equal(service.forwardCommand(surfaceWindow.webContents, { type: "edit-image-config" }).ok, true);
+assert.deepEqual(ownerWebContents.sent.at(-1).payload, { type: "edit-image-config" });
 assert.equal(ownerWindow.visible, true);
 assert.equal(ownerWindow.focused, true);
 

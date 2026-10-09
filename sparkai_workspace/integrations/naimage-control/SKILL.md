@@ -5,6 +5,8 @@ description: Control the local SparkAI WorkSpace desktop app through its authent
 
 # SparkAI WorkSpace Control
 
+Read `app.diagnostics` for the last 300 sanitized production image/model events. `app.export-diagnostics` opens the user's native save dialog; it does not accept or return private file paths. Both commands are also available through Settings → Tools → Diagnostic logs. Logs omit credentials, prompts and media.
+
 Use the bundled PowerShell CLI. Resolve paths relative to this Skill directory.
 
 ## Workflow
@@ -37,6 +39,8 @@ Use the bundled PowerShell CLI. Resolve paths relative to this Skill directory.
 25. Use `canvas.export-image-collections` only after the user explicitly confirms the selected collection IDs and output format (`png`, `jpeg`, `webp`, `avif`, or `tiff`). Main re-reads the active project session, checks that every completed asset is project-managed, computes image/slot/failure counts and an estimated byte total, and publishes each group as one sibling folder below the project-level `image-groups/` directory. The sanitized image-group name is the folder name; stable request-slot files and an `image-group.json` manifest preserve group, prompt, asset, replacement, defect, format, and actual-byte metadata. Export uses a content-bound preview token, local conversion, staging, and atomic publication; command JSON never accepts a destination path. Use the GUI “打开图片组文件夹” entry to open a previously exported group. Main prefers the new project-level directory but can still open legacy `exports/image-groups/` manifests and returns a clear not-exported error when neither location exists.
 
 Pass command arguments as compact JSON:
+
+`agent.add-canvas-materials` uses the same current composer lists as the GUI “添加到原图 / 添加到参考图” actions. Supply `expectedProjectId`, `role` (`source` or `reference`), and `targets` (`nodeId`, optional zero-based `assetIndex`); omitting the index adds completed node/container members. It pins existing canvas images without generating or copying them, preserves their provenance, deduplicates occurrences, and reports capacity omissions. Adding an occurrence to one role removes it from the other role. A mixed valid/stale or non-image list fails before mutation. Read `canvas.state` for project and optional revision guards; command JSON cannot provide local paths.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/naimage.ps1 canvas.state
@@ -216,3 +220,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/naimage.ps1 debug.ru
 - A bounded transport retry pauses every new ramp wave until the request settles. Closing a Renderer does not release its reservation until the real provider Promise drains. Process-wide admission is not a cost guarantee; requests already accepted upstream may still be charged.
 - A pending CLI command belongs to the Renderer that accepted it. If that Renderer closes or crashes, the command fails immediately and its undispatched Agent work is canceled; wait for a ready Renderer before retrying instead of leaving duplicate commands running.
 - Retry a `renderer not ready` response briefly; do not start duplicate app processes repeatedly.
+
+## Composer commands
+
+The GUI and detached Agent accept `/goal <prompt>`, `/config`, `/status`, `/help`, `/new`, `/pause`, `/resume`, and `/stop`. These are local input commands, not model prompts. `/goal` retains the GUI scope/fee confirmation; unknown or incomplete commands never dispatch. CLI/MCP uses the structured `agent.goal`, `agent.image-config`, `app.state`, `agent.new-conversation`, `agent.pause`, `agent.resume`, and `agent.stop` actions instead of sending slash text through `agent.chat`. `agent.image-config` opens the shared configuration dialog without generating an image.

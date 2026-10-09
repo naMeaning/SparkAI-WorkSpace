@@ -159,11 +159,8 @@ function createNewApiClient(options = {}) {
 
   function directApiUrl(baseUrl, endpoint) {
     const cleanEndpoint = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
-    if (/\/v1$/i.test(baseUrl) && /^\/v1(?:beta)?(?:\/|$)/i.test(cleanEndpoint)) {
-      return `${baseUrl}${cleanEndpoint.slice(3) || ""}`;
-    }
-    if (/\/v1beta$/i.test(baseUrl) && /^\/v1beta(?:\/|$)/i.test(cleanEndpoint)) {
-      return `${baseUrl}${cleanEndpoint.slice(6) || ""}`;
+    if (/\/v1(?:beta)?$/i.test(baseUrl) && /^\/v1(?:beta)?(?:\/|$)/i.test(cleanEndpoint)) {
+      return `${baseUrl.replace(/\/v1(?:beta)?$/i, "")}${cleanEndpoint}`;
     }
     return `${baseUrl}${cleanEndpoint}`;
   }
@@ -1307,6 +1304,17 @@ function createNewApiClient(options = {}) {
       const event = parseJsonText(dataText);
       if (event.parseFailed === true) {
         failStream("New API 返回了无效的流式 JSON。", "NEW_API_INVALID_SSE");
+      }
+      // Relays can report an upstream 502 inside an HTTP-200 SSE stream.
+      // Surface it before treating the response as successful, while keeping
+      // prior output visible to the caller's existing no-output retry guard.
+      if (event.error || event.type === "error" || event.type === "response.failed") {
+        const detail = event.error || event.response?.error || event;
+        const upstreamStatus = Number(detail.status || detail.status_code || detail.code);
+        const error = new Error(newApiErrorMessage({ error: detail }, response.status));
+        error.status = upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 0;
+        error.code = "NEW_API_MODEL_STREAM_FAILED";
+        throw error;
       }
       meaningfulEventCount += 1;
       onEvent?.(event);

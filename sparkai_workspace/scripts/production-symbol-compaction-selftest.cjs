@@ -53,11 +53,11 @@ const optimizedBundle = optimizeBundledCss(
 );
 assert.equal(optimizedBundle.includes(".same{color:red"), false);
 assert.match(optimizedBundle, /\.same\{padding:1px\}/);
-assert.match(optimizedBundle, /\.same\{color:blue\}/);
+assert.match(optimizedBundle, /\.same\{color:(?:blue|#00f)\}/);
 assert.match(optimizedBundle, /\.left,.right\{margin:0\}/);
 assert.match(optimizedBundle, /background:#fff;background:color-mix/);
 assert.match(optimizedBundle, /:root\[data-glass-theme\] \.surface/);
-assert.match(optimizedBundle, /:root\[data-theme="dark"\] \.panel/);
+assert.match(optimizedBundle, /:root\[data-theme="?dark"?\] \.panel/);
 
 for (const relativePath of ["src/glass-theme.ts", "public/glass-theme-bootstrap.js"]) {
   const source = require("node:fs").readFileSync(resolve(__dirname, "..", relativePath), "utf8");
@@ -88,7 +88,9 @@ assert.ok(projectPlan.inventory.compactedCustomProperties >= 80, "Too few intern
 assert.ok(projectPlan.inventory.compactedKeyframes >= 10, "Too few statically safe production keyframes were compacted.");
 assert.ok(projectPlan.inventory.retiredKeyframes >= 5, "Expected unused production keyframes to be retired.");
 assert.equal(projectPlan.classes.has("product-performance-probe"), false);
-assert.equal(projectPlan.customProperties.has("--theme-accent"), true);
+for (const variable of ["--theme-accent", "--theme-canvas", "--glass-rgb", "--glass-alpha", "--glass-radius", "--solid-control", "--accent-ink"]) {
+  assert.equal(projectPlan.customProperties.has(variable), false, `${variable} must remain stable for the detached Agent appearance snapshot`);
+}
 assert.ok(projectPlan.classes.has("flow-node"), "The product probe must use stable data attributes so production can compact the high-frequency node class.");
 assert.ok(projectPlan.classes.has("workflow-canvas"), "The product probe must use a stable canvas data attribute instead of freezing the visual class name.");
 
