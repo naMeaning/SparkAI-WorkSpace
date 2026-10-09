@@ -21,6 +21,7 @@
 - 当前 checkpoint：58c0c1c 正式前 101 项通过，登录专项的设置接入策略检查仍读取已被 GlassSelect 取代的原生 select。改为展开当前接入控件，核验可见启用的 account/custom 选项，专用版仍要求无自定义控件且官方地址只读；真实退出/刷新/清理/登录断言保持。只改变 GUI 测试及 Goal/Progress，专项/build 后按窄 allowlist 续跑。
 - 当前 checkpoint：4af35ea 正式前 102 项通过。询问确认的比例检查仍依赖已移入配置弹窗的按钮；Mock 后台只读取旧 SOURCE Prompt，无法模拟普通材料的逐图要求。专项读 canonical 配置，Mock 只在明确逐图意图时从最新材料段派发独立请求，保留 Goal SOURCE 解析。专项、相关 Mock 合同与 build 后重新完整验证，避免发布源码与旧证据失配。
 - 最新诊断：Mock 必须读取 Responses 历史中的原确认任务；修正后两条 image_gen 均已返回，但第二条被 Runtime 的“全局首素材”回退误拒绝（parentId=M、却取 L1）。修正真实来源解析，显式 parentId 优先选取该节点的冻结素材；保留范围/槽位检查，补 Runtime 回归并复跑 AskUser，0 真实请求。
+- 当前验证诊断（2026-10-09）：正式源码门禁第 52 项 `image collection export` 首次续跑因 Windows 临时目录的 8.3 用户路径与完整用户路径直接比较而失败；修正 selftest 使用 `realpathSync.native` 规范化已存在目录，生产导出逻辑不变。专项已通过，需在新冻结提交上从该门禁续跑。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 

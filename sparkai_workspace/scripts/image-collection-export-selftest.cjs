@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync } = require("node:fs");
+const { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync } = require("node:fs");
 const { mkdtemp, rm } = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -11,6 +11,15 @@ const {
   ImageCollectionExportError,
   createImageCollectionExportService
 } = require("../desktop/image-collection-export-service.cjs");
+
+function canonicalPath(value) {
+  const resolved = path.resolve(String(value || ""));
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
 
 function collectionNode(id, name, assets, items, options = {}) {
   const collection = {
@@ -130,7 +139,7 @@ async function main() {
     assert.ok(manifest.images[0].sha256 && manifest.images[0].sourceSha256 && !JSON.stringify(manifest).includes(firstPath), "Manifest must have output/source hashes but no absolute source path");
 
     const opened = await service.resolveExportedCollectionFolder({ expectedProjectId: project.id, collectionId: "results-a" });
-    assert.equal(opened.folderPath, resultsFolder);
+    assert.equal(canonicalPath(opened.folderPath), canonicalPath(resultsFolder));
 
     const incrementalPreview = await service.previewCollections({
       expectedProjectId: project.id,
@@ -228,7 +237,7 @@ async function main() {
     mkdirSync(path.dirname(legacyFolder), { recursive: true });
     renameSync(renamedFolder, legacyFolder);
     const legacyOpened = await service.resolveExportedCollectionFolder({ expectedProjectId: project.id, collectionId: "results-a" });
-    assert.equal(legacyOpened.folderPath, legacyFolder, "Previously exported folders below exports/image-groups must remain openable");
+    assert.equal(canonicalPath(legacyOpened.folderPath), canonicalPath(legacyFolder), "Previously exported folders below exports/image-groups must remain openable");
 
     const stalePreview = await service.previewCollections({ expectedProjectId: project.id, collectionIds: ["results-a"], format: "png" });
     session = {
