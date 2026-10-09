@@ -2,6 +2,8 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 正式编排第一次运行在第 10 项 context checkpoint 停止，前 9 项通过，源码指纹前后一致；当前制品保持 incomplete。失败来自旧断言要求普通任务公开 bindingId，而现有普通 TaskScope Prompt 已按材料列表提供 assetId，Goal 才使用绑定投影。测试改为检查压缩后当前素材身份和 materialCount；不改 Runtime、不恢复旧 SOURCE/REFERENCE 普通任务分类。冻结提交 46b734c 已推送 origin/main；此测试修正需再次提交/推送后重新编排。
+- checkpoint 专项修正后通过（16 cases、244,800 Token 自动阈值和新窗口）；本次续跑只允许该 selftest 与 GOAL/PROGRESS 三个路径变化，按正式清单复用前 9 项，其余门禁、打包、安装与升级仍实际运行。运行结果继续写入冻结状态入口的生成报告。
 - 续跑 checkpoint：CLI 使用本机现有代理完成设备授权，实际登录 naMeaning；此前无代理的授权在 token 兑换时超时，未误报成功。用户已允许临时标准 Windows 测试账户及短暂读取发布密钥，结束后撤销权限并清理账户；未触碰日常安装/进程。
 - 已修复唯一审查 P1：整个遮罩客户端合成阶段的失败都标记已生成且禁止重生；坏 Base64、坏下载字节、批量局部失败、结果返回后取消四场景通过，0 真实请求。image service/adapters/result-download、typecheck、更新自测、发布编排专项通过。
 - 新 Ed25519 公私钥配对验证通过，私钥忽略且 ACL 仅本人与 SYSTEM；minimum_version=1.0.9，旧客户端手动完整 EXE 安装升级。CSSO 5.0.5 使用现有生产 CSS owner 压缩，production build 与 Bundle 通过：CSS 264,552 < 270,000 B，没有抬高门限。正式验证目录扩充到 124 项，包含本版供应商/素材/命令/日志专项。

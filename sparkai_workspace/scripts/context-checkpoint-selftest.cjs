@@ -173,7 +173,8 @@ async function main() {
     assert(resumedJson.includes("CHECKPOINT_HANDOFF_SUMMARY"), "The checkpoint summary must be injected into the new window");
     assert(resumedJson.includes(retainedIntent), "Recent user intent must survive checkpoint compaction");
     assert(resumedJson.includes("canvas-product-42"), "Current canvas state must be re-injected after checkpoint");
-    assert(resumedJson.includes("binding-product-42"), "Current TaskScope bindings must be re-injected after checkpoint");
+    assert(resumedJson.includes("assetId=asset-product-42"), "Current TaskScope material identity must be re-injected after checkpoint");
+    assert(resumedJson.includes("materialCount=1"), "The resumed ordinary task must retain its material scope");
     assert.equal(resumedJson.includes("reasoning-before-checkpoint"), false, "Old encrypted reasoning/protocol history must be removed at the checkpoint boundary");
     const resumedProtocol = resumedRequest.messages.find((item) => item.role === "responses_items");
     assert(resumedProtocol, "The new Codex window should retain a bounded Responses foundation");
