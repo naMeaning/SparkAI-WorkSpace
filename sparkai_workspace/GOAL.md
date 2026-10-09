@@ -18,6 +18,7 @@
 - 当前 checkpoint：第 65 项发现真实镜像合同缺陷，Renderer 哈希已使用 canonical materials，Runtime 仍使用旧 sourceAssets/referenceAssets。统一 Runtime 哈希到既有 Renderer 材料表示，保留 Goal 字段、冻结源投影与漂移校验；因改变产品 Runtime，窄续跑 superseded，专项/build 后从头验证。
 - 当前 checkpoint：67dd980 从头验证前 96 项通过；第 97 项 Agent 文本 UI 的初始账户未选择 Token/分组，但 Mock 账户目录固定选择 token 1/default，元数据因此改变草稿并进入未保存设置确认。隔离夹具改为匹配该 Mock 账户，保留 Escape、焦点和可视保护断言，产品代码不变；独立专项 155 checks/23 screenshots 与 build 已通过，只改变该测试及 Goal/Progress，可从该门禁按窄 allowlist 续跑。会话级持续 Goal 已实际创建并 active。
 - 当前 checkpoint：8eb7f53 续跑后正式前 98 项通过；第 99 项素材 GUI 的配置已落盘，但重载后原坐标点击未切到模型页。测试原生点击前要求目标几何稳定，再检查命中/裁切并明确等待模型页激活；产品代码不变，专项通过后只允许该测试及 Goal/Progress 的窄续跑。
+- 当前 checkpoint：58c0c1c 正式前 101 项通过，登录专项的设置接入策略检查仍读取已被 GlassSelect 取代的原生 select。改为展开当前接入控件，核验可见启用的 account/custom 选项，专用版仍要求无自定义控件且官方地址只读；真实退出/刷新/清理/登录断言保持。只改变 GUI 测试及 Goal/Progress，专项/build 后按窄 allowlist 续跑。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 

@@ -2,6 +2,9 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 58c0c1c 正式前 101 项通过（包含素材、成图后对话、UI surface）。登录专项的退出、pending 清理、唯一登录 gate、刷新隔离、注册切换、错误和重新登录已通过；聚合失败仅因 settingsAccessPolicyOk 仍查原生 select option。接入 owner 已为 GlassSelect，修正 GUI 读取真实展开 listbox 的可见/启用 account/custom 选项，SparkAPI-only 分支保留无自定义控件与只读官方地址约束。产品代码不变，专项待跑；Release 保持 incomplete。
+- 修正后的 `aidebug:auth-gate` 完整通过：9 scenes、0 failures，报告 `.diagnostics/electron/aidebug-2026-10-09T03-26-11-465Z/report.json`。展开后才读取动态 aria-controls，关闭选单不改变接入模式；退出/刷新隔离和重新登录仍真实演练。build 后冻结此测试变化，从 authentication gate GUI 续跑，复用前 101 项稳定证据。
+- 登录断言修正后 production build 退出 0，3 文件凭据扫描 0 findings、diff check 通过；已查看 884px 退出登录截图，无工作台/弹窗残留。最新正式冻结和发布状态由忽略目录报告承接，尚未上传 Release。
 - 8eb7f53 的正式续跑前 98 项通过；素材 GUI 的 11 个操作/落盘检查通过，最后重载复读时仍停在接入页，未点击到生图模型配置。调整原生点击 helper：滚动立即执行、目标几何连续稳定后再检查裁切/命中并发送鼠标事件，点击模型分类后明确等待激活；不重试点击、不绕过可视断言，不改变产品。专项待运行。
 - 修改后的素材专项通过：12 checks、9 screenshots、0 real model requests，含 providerReload；报告 `.diagnostics/electron/canvas-materials-2026-10-09T03-14-46-949Z/report.json`。下一步完成 build 和冻结提交，以稳定的 `.diagnostics/release/verify-2026-10-09T03-09-37-423Z/report.json` 为来源复用 98 项，从 canvas materials UI 续跑，制品仍不可发布。
 - 素材修正后的 production build 退出 0，3 文件凭据扫描/差异检查通过；已人工查看生图模型配置截图。冻结后的运行结果继续只写忽略目录的正式状态报告，直到所有门禁、打包、安装升级、签名和远端资产核验完成。

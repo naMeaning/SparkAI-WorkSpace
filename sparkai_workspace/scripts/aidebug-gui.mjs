@@ -6964,12 +6964,27 @@ async function captureAuthGateSuiteProbe(client, targetId) {
       .find((button) => String(button.textContent || '').trim() === '接入');
     accessSettingsTab?.click();
     await waitFor(() => Boolean(document.querySelector('.settings-access-section')));
-    const accessModeOptions = Array.from(document.querySelectorAll('.settings-access-section select option'))
-      .map((option) => String(option.textContent || '').trim());
+    const accessModeTrigger = document.querySelector('.settings-access-section button[aria-label="使用方式"]');
+    if (accessModeTrigger) {
+      accessModeTrigger.click();
+      await waitFor(() => accessModeTrigger.getAttribute('aria-expanded') === 'true' && Boolean(document.getElementById(accessModeTrigger.getAttribute('aria-controls'))));
+    }
+    const accessModeListId = accessModeTrigger?.getAttribute('aria-controls');
+    const accessModeOptions = Array.from(document.getElementById(accessModeListId)?.querySelectorAll('[role="option"]') || [])
+      .map((option) => ({
+        value: option.getAttribute('data-glass-select-value'),
+        label: String(option.textContent || '').trim(),
+        visible: option.getBoundingClientRect().width > 0 && option.getBoundingClientRect().height > 0 && getComputedStyle(option).visibility !== 'hidden',
+        disabled: option.disabled
+      }));
+    if (accessModeTrigger) {
+      accessModeTrigger.click();
+      await waitFor(() => accessModeTrigger.getAttribute('aria-expanded') === 'false');
+    }
     const accountBaseUrlInput = document.querySelector('.settings-access-section input[type="url"]');
     const settingsAccessPolicyOk = sparkApiOnly
-      ? Boolean(!accessModeOptions.some((text) => text.includes('自定义 Base URL')) && accountBaseUrlInput?.readOnly && accountBaseUrlInput?.value === 'https://sparkapi.org')
-      : accessModeOptions.some((text) => text.includes('自定义 Base URL'));
+      ? Boolean(!accessModeTrigger && accountBaseUrlInput?.readOnly && accountBaseUrlInput?.value === 'https://sparkapi.org')
+      : ['account', 'custom'].every((value) => accessModeOptions.some((option) => option.value === value && option.visible && !option.disabled));
     const agentSettingsTab = Array.from(document.querySelectorAll('.settings-drawer .settings-section-tab'))
       .find((button) => String(button.textContent || '').trim() === 'Agent');
     agentSettingsTab?.click();
