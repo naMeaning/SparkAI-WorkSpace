@@ -1328,7 +1328,7 @@
   border-color: var(--accent);
 }
 
-.node-image-sequence {
+.node-image-sequence[data-ui-field] {
   position: absolute;
   z-index: 5;
   top: 6px;
@@ -1345,9 +1345,16 @@
   font-weight: 700;
 }
 
-.node-image-sequence input {
+.node-image-sequence > .ui-field-label {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.node-image-sequence[data-ui-field] input {
   width: 36px;
   height: 18px;
+  min-height: 18px;
   padding: 0 3px;
   border: 0;
   border-radius: 4px;

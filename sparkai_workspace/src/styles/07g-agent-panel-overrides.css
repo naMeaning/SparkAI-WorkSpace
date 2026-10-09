@@ -665,7 +665,7 @@
   border: 0;
   border-radius: 5px;
   color: var(--ink);
-  background: color-mix(in srgb, var(--glass-fill) 70%, transparent);
+  background: color-mix(in srgb, var(--glass-surface-fill) 70%, transparent);
   font-size: 11px;
 }
 

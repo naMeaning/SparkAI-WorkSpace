@@ -28139,13 +28139,13 @@ function App() {
                                 />
                                 <small className="node-asset-code">{asset.displayCode || `${nodeDisplayCode(node)}${index + 1}`}</small>
                                 {selectedNodes.some((item) => item.id === node.id) ? (
-                                  <label
+                                  <Field
+                                    label="序号"
                                     className="node-image-sequence"
                                     onClick={(event) => event.stopPropagation()}
                                     onPointerDown={(event) => event.stopPropagation()}
                                     onDoubleClick={(event) => event.stopPropagation()}
                                   >
-                                    <span>序号</span>
                                     <input
                                       type="number"
                                       min={1}
@@ -28154,7 +28154,7 @@ function App() {
                                       aria-label={`设置第 ${index + 1} 张图片的序号`}
                                       onChange={(event) => setComposerMaterialSequence(`canvas:${node.id}:${index}`, Number(event.target.value))}
                                     />
-                                  </label>
+                                  </Field>
                                 ) : null}
                                 {node.imageCollection ? (
                                   <small className="collection-image-prompt">

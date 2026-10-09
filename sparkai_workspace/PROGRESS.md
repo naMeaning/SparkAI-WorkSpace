@@ -2,6 +2,9 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 第二次正式编排（53a17c1）通过前 45 项，UI foundation 发现素材序号使用了未定义 glass-fill，以及画布序号绕过共享 Field。修正真实 owner：复用现有 glass-surface-fill 和 Field，保留尺寸/事件/序号数据链。此轮涉及产品 Renderer/CSS，因此不列入窄续跑 allowlist，完成专项/可见 GUI/build 后从头运行 124 项。
+- UI foundation 和 typecheck 修正后通过；production build 与 Bundle 通过（CSS 264,672 B）。素材 GUI 发现旧夹具只有自定义 Key、没有 Base URL，被正确停在授权入口；改用与命令 GUI 一致的隔离 Mock 账户快照，不绕过产品授权、不使用真实登录或服务。正在验证序号与素材完整可见路径。
+- 素材可见 GUI 完成：`.diagnostics/electron/canvas-materials-2026-10-09T02-20-53-620Z/report.json` 12 项检查通过、9 张截图、0 真实请求；已查看容器成员/序号控件截图。UI foundation/typecheck/build/Bundle 均通过；本次 7 个源码/文档/夹具路径重新冻结，下一编排不复用前两次门禁。
 - 正式编排第一次运行在第 10 项 context checkpoint 停止，前 9 项通过，源码指纹前后一致；当前制品保持 incomplete。失败来自旧断言要求普通任务公开 bindingId，而现有普通 TaskScope Prompt 已按材料列表提供 assetId，Goal 才使用绑定投影。测试改为检查压缩后当前素材身份和 materialCount；不改 Runtime、不恢复旧 SOURCE/REFERENCE 普通任务分类。冻结提交 46b734c 已推送 origin/main；此测试修正需再次提交/推送后重新编排。
 - checkpoint 专项修正后通过（16 cases、244,800 Token 自动阈值和新窗口）；本次续跑只允许该 selftest 与 GOAL/PROGRESS 三个路径变化，按正式清单复用前 9 项，其余门禁、打包、安装与升级仍实际运行。运行结果继续写入冻结状态入口的生成报告。
 - 续跑 checkpoint：CLI 使用本机现有代理完成设备授权，实际登录 naMeaning；此前无代理的授权在 token 兑换时超时，未误报成功。用户已允许临时标准 Windows 测试账户及短暂读取发布密钥，结束后撤销权限并清理账户；未触碰日常安装/进程。

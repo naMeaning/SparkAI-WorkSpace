@@ -74,7 +74,7 @@ async function main() {
   mkdirSync(join(projectDir, "output/image"), { recursive: true });
   writeFileSync(join(projectDir, "session.json"), JSON.stringify({ version: 5, nodes: [], messages: [], selectedNodeId: "", selectedNodeIds: [] }));
   writeFileSync(join(configDir, "project-list.json"), JSON.stringify({ activeProjectId: projectId, projects: [{ id: projectId, name: "素材专项", path: projectDir, sessionPath: join(projectDir, "session.json"), external: true }] }));
-  writeFileSync(join(configDir, "app-settings.json"), JSON.stringify({ accessMode: "custom", agentApiKey: "fixture-key", imageApiKey: "fixture-key", imageModel: models[0], imageModelPool: models, themeMode: "dark", themePalette: "classic-black", reduceMotion: true }));
+  writeFileSync(join(configDir, "app-settings.json"), JSON.stringify({ accessMode: "account", serverToken: "fixture-token", serverAuthProtocol: "legacy", serverSessionCookie: "fixture-session", serverUserId: "fixture-user", imageModel: models[0], imageModelPool: models, themeMode: "dark", themePalette: "classic-black", reduceMotion: true }));
   const [vitePort, debugPort] = await Promise.all([allocateDebugPort(), allocateDebugPort()]);
   const url = `http://127.0.0.1:${vitePort}`;
   vite = spawn(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(vitePort)], { cwd: root, stdio: "ignore" });
