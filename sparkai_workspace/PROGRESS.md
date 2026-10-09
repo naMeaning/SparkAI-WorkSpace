@@ -2,6 +2,10 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- Glass GUI 修正专项已通过：.diagnostics/electron/glass-workspace-2026-10-09T08-32-21-412Z/report.json ok=true，29 checks、37 screenshots、0 failures、0 应用 console error；884×640 保存后复开 saveDisabled=true、关闭正常、无横向溢出，冷重启和真实拖动提交/清理均通过，已查看设置截图。静态 Glass selftest 通过，生产 build exit0/22.91s。仅变更一个测试与三份文档，四路径凭据扫描无命中；提交推送后从 Glass workspace GUI 精确续跑，复用前 114 项并实际执行后 10 项，随后打包当前 EXE。
+
+- 本次续跑报告 verify-2026-10-09T08-17-00-330Z 源码稳定，前 114 项通过，Skill/Goal/commerce GUI 均通过；第 115 项 Glass GUI 在 884×640 复开外观后关闭进入未保存设置确认。已查看 failure-state.png，原因是无登录的空账户夹具与 Mock 目录固定 token 1/default 不一致，重新加载元数据改变草稿。仅对齐测试假账户字段并新增复开后保存按钮 disabled 断言，不跳过关闭保护、不改生产设置；第一次专项已通过关闭和冷重启，后在 compositor 提示旧断言失败：系统 prefers-reduced-motion=true，现有最终可访问性样式将 will-change 设为 auto，而真实 transform 位移 133/78、按下和松手漂移 0、保存位移及结束清理均正确。测试按系统策略核验 promotion hint，仍要求所有真实位移、状态和清理；再次专项待运行。build exit0/22.91s。本轮付费图片请求仍为已完成的 1 次。
+
 - Skill GUI 测试对齐已通过：报告 `.diagnostics/electron/aidebug-2026-10-09T07-47-34-056Z/report.json` 为 ok=true、6 主场景、0 failures；8 项验收全 true，主窗口真实键盘选 replace-source、独立窗选 clear-attachments，发送进入 Mock Runtime 并完成，复读均为 auto。主窗等待 listbox 实际焦点初始化，保留选项命中/可见和字段布局；已查看主窗截图。假运行夹具不在 Main 中，正确 stale-run 清理不再误判为忙碌失败；复读夹具不设置 scope mode。修正后 build exit0/20.61s。仅改变一个 suite 与三份文档，生产行为不变；冻结后允许从旧稳定报告 Skill node GUI 精确续跑，复用前 111 项。
 
 

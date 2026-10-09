@@ -1,7 +1,8 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：88
+> 地图版本：89
 > 最近同步：2026-10-09
+> Glass GUI 隔离夹具与既有 Mock token 1/default 对齐，保留不预设 Glass 字段的默认外观验收；884×640 保存后复开增加无脏草稿断言，关闭保护、冷重启持久化和生产设置 owner 不变。拖动验收遵守最终可访问性样式的 OS reduced-motion promotion hint（auto），仍验证非零 transform、坐标基线、真实提交及松手清理。验证入口为 aidebug:glass-workspace。
 > 2026-10-09 Skill GUI 测试同步：`scripts/aidebug-skill-node-suite.mjs` 对主窗口 `.project-agent-steer-mode .glass-select-trigger` 展开真实 listbox，核验选项可见/命中并以 Home/Arrow/Enter 选择；从 owner data-value 读取当前值，reset 后重新展开复读。独立窗 `#steer-mode` 继续读取原生 select。主窗 3 模式、独立窗 7 模式、发送后 auto reset 与视口布局断言保留；UI-only run 不在 Main 中，发送按 stale-run 保护完成真实 Mock Runtime 请求后，再显示不修改 scope mode 的运行夹具复读 reset；独立窗另在复读前验证原生 value=auto。入口 `aidebug:skills`，生产控件/协议不变。
 > 2026-10-09 菜单候选修复：`src/ui/menu-surface.tsx` 的共享键盘焦点 owner 保留 `preventScroll`，只调整当前 `.ui-menu-surface` 的 `scrollTop`，确保 Arrow/Home/End 聚焦项处于菜单 client viewport 内，不滚动画布或文档；现有 `aidebug:menus` 在小窗口分层菜单验证 End 后末项可见及滚动推进。生产交互变化要求重新完整源码验证；尚未完成正式安装/发布。
 > 对应桌面版本：1.0.9

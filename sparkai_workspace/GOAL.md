@@ -12,7 +12,7 @@
 - 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
 - 隔离授权更新（2026-10-09）：用户澄清“测试用户”指软件内测试账户，明确要求删除 SparkRel Windows 临时用户；此前系统账户方案 superseded。清理已实际核验：账户、Profile、用户目录均无 SparkRel 残留，私钥临时 ACL 已撤销，cleanup.json 全部清理项 true、failure 为空；后续不创建 Windows 用户。使用软件内隔离 Mock；正式安装验证如受环境限制，必须如实记录，不能触碰日常安装来替代。
-- 下一步：Skill GUI 对齐当前 GlassSelect/独立窗 native select 和 stale-run 夹具，8 项验收、可见截图与 production build 已通过；冻结推送四个测试/文档路径后，从第 112 项按精确 allowlist 续跑剩余源码门禁，再打包当前 EXE及签名候选，用既有真实JPEG无网络冒烟。真实 Grok 不再重复；正式安装仍需独立干净环境，不创建 Windows 用户或触碰日常安装。
+- 下一步：0f22e92 源码续跑前 114 项通过，第 115 项 Glass GUI 因空账户夹具与 Mock token 1/default 不一致进入未保存确认。仅对齐隔离测试账户，增加保存后复开无脏草稿断言；专项已通过（29 checks/37 screenshots/0 failures），静态合同和 build 通过；冻结并窄续跑剩余门禁，再打包当前 EXE及签名候选，用既有真实 JPEG 无网络冒烟。真实 Grok 不再重复，不创建 Windows 用户或触碰日常安装；继续调查文件及进程/注册表隔离的真实安装方案。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。

@@ -1715,7 +1715,12 @@ async function runGuiSuite() {
     theme: "light",
     agentPanelPlacement: "right",
     agentPanelWidth: 344,
-    imageBatchSize: 2
+    imageBatchSize: 2,
+    // Match the mock account catalog; appearance still uses fresh defaults.
+    serverToken: "aidebug-token", serverAuthProtocol: "legacy",
+    serverSessionCookie: "aidebug-session", serverUserId: "aidebug-user",
+    modelGroup: "default", selectedAccountTokenId: "1",
+    selectedAccountTokenName: "AIDebug 密钥", selectedAccountTokenGroup: "default"
   }, null, 2)}\n`, "utf8");
 
   const [debugPort, vitePort] = await Promise.all([allocateDebugPort(), allocateDebugPort()]);
@@ -2269,6 +2274,7 @@ async function runGuiSuite() {
     return {
       drawerInside: inside(drawer),
       footerInside: inside(footer),
+      saveDisabled: drawer?.querySelector('.settings-surface-footer .ui-action-primary')?.disabled === true,
       bodyClientHeight: body?.clientHeight || 0,
       bodyScrollHeight: body?.scrollHeight || 0,
       bodyOverflowY: bodyStyle?.overflowY || '',
@@ -2279,6 +2285,7 @@ async function runGuiSuite() {
       bodyOverflowX: document.body.scrollWidth > document.body.clientWidth + 1
     };
   })()`);
+  assert.equal(minimumSettings.saveDisabled, true, "Reopening saved appearance must not introduce unsaved account metadata");
   assert.equal(minimumSettings.drawerInside, true);
   assert.equal(minimumSettings.footerInside, true);
   assert.equal(minimumSettings.bodyScrollSafe, true);
@@ -2636,7 +2643,12 @@ async function runGuiSuite() {
   const cleared = dragSettled.cleared;
   const pointerDownStable = dragStart.pointerDown.shiftPx <= 0.5;
   const releaseStable = dragActive.release.shiftPx <= 1;
-  const compositorActive = Math.abs(active.translateX) + Math.abs(active.translateY) > 1 && active.transform !== "none" && active.willChange.includes("transform") && active.leftStable && active.topStable;
+  // The final accessibility stylesheet disables promotion hints under the OS
+  // reduced-motion preference; direct pointer movement still uses transform.
+  const promotionHintMatchesMotion = active.prefersReducedMotion
+    ? active.willChange === "auto"
+    : active.willChange.includes("transform");
+  const compositorActive = Math.abs(active.translateX) + Math.abs(active.translateY) > 1 && active.transform !== "none" && promotionHintMatchesMotion && active.leftStable && active.topStable;
   const committed = Boolean(dragStart.before && dragSettled.after && Math.abs(dragSettled.after.x - dragStart.before.x) > 40 && Math.abs(dragSettled.after.y - dragStart.before.y) > 20);
   const compositorCleared = !cleared.dragging && !cleared.translateX && !cleared.translateY && !cleared.willChange.includes("transform");
   const selectedBeforeRelease = active.selected && dragActive.release.selected && cleared.selected;
