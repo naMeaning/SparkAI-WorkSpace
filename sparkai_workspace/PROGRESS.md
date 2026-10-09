@@ -2,6 +2,9 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 8eb7f53 的正式续跑前 98 项通过；素材 GUI 的 11 个操作/落盘检查通过，最后重载复读时仍停在接入页，未点击到生图模型配置。调整原生点击 helper：滚动立即执行、目标几何连续稳定后再检查裁切/命中并发送鼠标事件，点击模型分类后明确等待激活；不重试点击、不绕过可视断言，不改变产品。专项待运行。
+- 修改后的素材专项通过：12 checks、9 screenshots、0 real model requests，含 providerReload；报告 `.diagnostics/electron/canvas-materials-2026-10-09T03-14-46-949Z/report.json`。下一步完成 build 和冻结提交，以稳定的 `.diagnostics/release/verify-2026-10-09T03-09-37-423Z/report.json` 为来源复用 98 项，从 canvas materials UI 续跑，制品仍不可发布。
+- 素材修正后的 production build 退出 0，3 文件凭据扫描/差异检查通过；已人工查看生图模型配置截图。冻结后的运行结果继续只写忽略目录的正式状态报告，直到所有门禁、打包、安装升级、签名和远端资产核验完成。
 - 会话持续 Goal 已实际创建并 active，目标为推送、正式稳定版 EXE/签名更新/Release、远端资产复核和临时账户清理；尚未发布。67dd980 从头编排前 96 项通过，第 97 项 Agent 文本 UI 在 Escape 等待处失败。
 - 初步确认现有 Drawer 正确打开 settings-unsaved，真实确认框小视口可见，保存选择也能关闭。进一步诊断精确发现仅 modelGroup 不一致：旧初始账户没有选定 Token/分组，但 Mock 目录固定选择 token 1/default。修正隔离初始夹具匹配 Mock 账户，撤销诊断用 React 内部读取和临时断言，保留原 Escape、焦点、可视/裁切检查；产品代码不变，专项尚待运行，制品继续 incomplete。
 - 最终夹具专项 `node scripts/agent-text-ui-aidebug.mjs` 通过：155 checks、23 screenshots、0 failures；报告 `.diagnostics/electron/agent-text-ui-2026-10-09T03-06-07-381Z/report.json`。`corepack pnpm run build` 通过（20.57 s），凭据扫描 3 文件/0 findings，diff check 通过。冻结并推送该窄变化后，按前次稳定源码报告复用 96 项，后续所有门禁与制品在新正式编排中真实执行；发布仍未完成。

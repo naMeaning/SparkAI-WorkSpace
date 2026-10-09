@@ -23,11 +23,21 @@ const state = () => evaluate(client, "(() => {const s=window.__naimageDebugAgent
 
 async function click(selector, label, right = false) {
   await wait(`Boolean([...document.querySelectorAll(${JSON.stringify(selector)})]${label === undefined ? "[0]" : `.find(el => (el.textContent || '').trim() === ${JSON.stringify(label)})`})`);
-  const expression = `(() => {
+  const expression = `(async () => {
     const all = [...document.querySelectorAll(${JSON.stringify(selector)})];
     const element = ${label === undefined ? "all[0]" : `all.find(el => (el.textContent || '').trim() === ${JSON.stringify(label)})`};
     if (!element) return {error:'Missing control: ' + ${JSON.stringify(label || selector)}};
-    element.scrollIntoView({block:'nearest'});
+    element.scrollIntoView({block:'nearest',behavior:'instant'});
+    // Entry motion can move a control between measuring and dispatching the
+    // native click. Require a stable target before hit-testing its coordinates.
+    let previous = element.getBoundingClientRect(), stable = 0;
+    for (let attempt = 0; attempt < 40 && stable < 3; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      const current = element.getBoundingClientRect();
+      stable = ['left','top','width','height'].every(key => Math.abs(current[key]-previous[key]) < 0.1) ? stable+1 : 0;
+      previous = current;
+    }
+    if (!element.isConnected || stable < 3) return {error:'Control did not settle: ' + ${JSON.stringify(label || selector)}};
     const r = element.getBoundingClientRect();
     const s = getComputedStyle(element);
     const x = r.left+r.width/2, y = r.top+r.height/2;
@@ -219,6 +229,7 @@ async function main() {
 
   await evaluate(client, "window.__naimageDebugOpenSurface('settings')");
   await click('.settings-section-tab[data-settings-section="models"]');
+  await wait("document.querySelector('.settings-section-tab[data-settings-section=\"models\"]')?.getAttribute('aria-pressed') === 'true' && Boolean(document.querySelector('.settings-model-section'))");
   await click('button[aria-label="配置生图模型"]');
   const model = models[1];
   await click(`button[aria-label="${model} 接口格式"]`);
@@ -252,6 +263,7 @@ async function main() {
   await wait(`!window.__canvasMaterialsReloadPending && window.__naimageDebugAgentState?.().activeProjectId === '${projectId}' && Boolean(window.__naimageAIDebug?.selectNodes) && typeof window.__naimageDebugOpenSurface === 'function'`);
   await evaluate(client, "window.__naimageDebugOpenSurface('settings')");
   await click('.settings-section-tab[data-settings-section="models"]');
+  await wait("document.querySelector('.settings-section-tab[data-settings-section=\"models\"]')?.getAttribute('aria-pressed') === 'true' && Boolean(document.querySelector('.settings-model-section'))");
   await click('button[aria-label="配置生图模型"]');
   await wait(`Boolean(document.querySelector('button[aria-label="${model} 接口格式"]'))`);
   const persistedValues = await evaluate(client, `(() => {
