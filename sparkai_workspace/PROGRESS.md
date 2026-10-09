@@ -6,6 +6,8 @@
 
 - 当前候选已重新打包：`build-access-variants.mjs --variant=dual-access --package --enforce-bundle` 通过，Unrestricted EXE 为 109,828,608 B，SHA-256 `00f0615c1d365b5a521d0615645166d167e6cbeecc17943244ca4b0a87c8f3ac`。默认 packaged smoke 与 884×640 主题/素材/JPEG 冒烟均通过，报告 `.diagnostics/release/packaged-smoke-2026-10-09T15-40-52-622Z/report.json`，结果 `realProviderRequests=0`。诊断脚本只放宽 1px 的窗口边界舍入以吸收 Chromium 几何取整，不改产品代码；正式安装/升级仍未验证。
 
+- 提交 `7a9e6ae` 已推送 `origin/main`，`git rev-parse HEAD` 与 `git ls-remote origin refs/heads/main` 一致。正式安装/升级、同次 `release:final`、tag 与 GitHub Release 仍未执行，原因是当前环境没有可用的干净 Windows 安装隔离面；不触碰日常安装来伪造该证据。
+
 - 2429ea1 的 124 项源码门禁、签名候选和 223 个源码/dist 对应文件完整性复核通过，Unrestricted EXE 109,827,584 B，安装器 UI 19 captures 通过。包内程序真实 JPEG 导入/回读、画布原图/参考图选择通过，后在 884×640 主题按钮命中检查失败。只读诊断确认 LightningCSS 将宽度媒体查询改为 range，CSSO 5.x 再压缩会删除这些块，生产 dist 只剩 reduced-motion 媒体块，截图显示顶栏标签重叠；“移除二次优化调用”的初步方案已 superseded，实际修复见上方 CSS 记录。完整发布目标不缩减，旧候选不能发布；本轮 0 新付费请求。
 
 - Glass GUI 修正专项已通过：.diagnostics/electron/glass-workspace-2026-10-09T08-32-21-412Z/report.json ok=true，29 checks、37 screenshots、0 failures、0 应用 console error；884×640 保存后复开 saveDisabled=true、关闭正常、无横向溢出，冷重启和真实拖动提交/清理均通过，已查看设置截图。静态 Glass selftest 通过，生产 build exit0/22.91s。仅变更一个测试与三份文档，四路径凭据扫描无命中；提交推送后从 Glass workspace GUI 精确续跑，复用前 114 项并实际执行后 10 项，随后打包当前 EXE。

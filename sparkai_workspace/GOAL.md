@@ -13,7 +13,7 @@
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
 - 隔离授权更新（2026-10-09）：用户澄清“测试用户”指软件内测试账户，明确要求删除 SparkRel Windows 临时用户；此前系统账户方案 superseded。清理已实际核验：账户、Profile、用户目录均无 SparkRel 残留，私钥临时 ACL 已撤销，cleanup.json 全部清理项 true、failure 为空；后续不创建 Windows 用户。使用软件内隔离 Mock；正式安装验证如受环境限制，必须如实记录，不能触碰日常安装来替代。
 - 当前打包验证：`packaged-smoke` 默认隔离冒烟通过；针对当前 EXE 的 884×640 顶栏、主题入口、素材选择与既有 JPEG 导入/回读冒烟通过，报告为 `.diagnostics/release/packaged-smoke-2026-10-09T15-40-52-622Z/report.json`，`realProviderRequests=0`。旧诊断脚本仅放宽了 1px 的窗口边界舍入，不改产品代码。
-- 下一步：提交并推送当前源码改动；正式安装/升级、同次 `release:final`、tag 与 GitHub Release 仍以干净 Windows 环境和正式报告为前置，当前不宣称稳定版已发布。真实 Grok 不再重复，不创建 Windows 用户或触碰日常安装；发布私钥仅留本地。
+- 当前提交：`7a9e6ae` 已推送 `origin/main`，本地与远端分支一致。正式安装/升级、同次 `release:final`、tag 与 GitHub Release 仍以干净 Windows 环境和正式报告为前置，当前不宣称稳定版已发布。真实 Grok 不再重复，不创建 Windows 用户或触碰日常安装；发布私钥仅留本地。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。
