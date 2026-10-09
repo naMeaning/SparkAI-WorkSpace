@@ -31,7 +31,7 @@ function pathInside(filePath, rootPath) {
   return file === root || file.startsWith(`${root}${path.sep}`);
 }
 
-async function assertPathHasNoSymbolicComponent(filePath, code, message) {
+async function pathHasSymbolicComponent(filePath) {
   const resolved = path.resolve(filePath);
   const root = path.parse(resolved).root;
   const relative = path.relative(root, resolved);
@@ -42,10 +42,17 @@ async function assertPathHasNoSymbolicComponent(filePath, code, message) {
     try {
       stats = await lstat(current);
     } catch (error) {
-      if (error?.code === "ENOENT") return;
+      if (error?.code === "ENOENT") return false;
       throw error;
     }
-    if (stats.isSymbolicLink()) fail(code, message, { path: current });
+    if (stats.isSymbolicLink()) return true;
+  }
+  return false;
+}
+
+async function assertPathHasNoSymbolicComponent(filePath, code, message) {
+  if (await pathHasSymbolicComponent(filePath)) {
+    fail(code, message, { path: path.resolve(filePath) });
   }
 }
 
@@ -209,11 +216,12 @@ async function secureOutputDirectory(outputDir) {
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     fail("IMAGE_IMPORT_UNSAFE_OUTPUT", "图片导入输出位置必须是安全的普通目录。");
   }
-  const canonical = await realpath(outputDir);
-  if (comparablePath(canonical) !== comparablePath(outputDir)) {
-    fail("IMAGE_IMPORT_UNSAFE_OUTPUT", "图片导入输出路径不能经过符号链接或目录联接。");
-  }
-  return canonical;
+  // `realpath` expands Windows 8.3 aliases (for example `ADMINI~1`), so a
+  // lexical comparison with the request path would reject an ordinary
+  // directory even though every component passed the reparse-point check.
+  // Return the canonical path for stable results; the component checks above
+  // remain the authority for rejecting symlinks and junctions.
+  return realpath(outputDir);
 }
 
 async function collectInputFiles(inputPaths, outputRoot, maxFiles, maxFileBytes, maxTotalBytes, ledger, importBatchId) {
@@ -244,7 +252,7 @@ async function collectInputFiles(inputPaths, outputRoot, maxFiles, maxFileBytes,
         ledger.add("missing-or-unreadable", candidate, error?.message);
         return;
       }
-      if (comparablePath(realDirectory) !== comparablePath(candidate)) {
+      if (await pathHasSymbolicComponent(candidate)) {
         ledger.add("symbolic-link", candidate, "经过符号链接或目录联接的路径不会被导入。");
         return;
       }
@@ -295,7 +303,7 @@ async function collectInputFiles(inputPaths, outputRoot, maxFiles, maxFileBytes,
       ledger.add("missing-or-unreadable", candidate, error?.message);
       return;
     }
-    if (comparablePath(realFile) !== comparablePath(candidate)) {
+    if (await pathHasSymbolicComponent(candidate)) {
       ledger.add("symbolic-link", candidate, "经过符号链接或目录联接的路径不会被导入。");
       return;
     }
@@ -387,7 +395,7 @@ async function processFile(sourcePath, outputRoot, requestId, index, maxFileByte
   }
   if (before.size <= 0 || before.size > maxFileBytes) throw sizeLimitError(maxFileBytes);
   const canonicalSource = await realpath(sourcePath);
-  if (comparablePath(canonicalSource) !== comparablePath(sourcePath)) {
+  if (await pathHasSymbolicComponent(sourcePath)) {
     fail("IMAGE_IMPORT_UNSAFE_SOURCE", "图片来源路径不能经过符号链接或目录联接。");
   }
   const format = await readMagic(sourcePath);

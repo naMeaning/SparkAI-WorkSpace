@@ -2,6 +2,7 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 正式源码门禁的 `image import` 暴露 Windows 8.3 临时路径误判：`C:\Users\ADMINI~1` 经 `realpath` 展开后被当作符号链接，主进程又把规范化后的输出路径判成越界。修正 `image-import-worker.cjs` 的逐级 `lstat` 链接检测和 `image-import.cjs` 的已存在路径规范比较；真实联接/路径逃逸仍拒绝。隔离 selftest 已通过：506 个入口、502 个唯一资产、来源/输出联接保护、16 次快速导入及超时/关闭清理均通过。因涉及产品代码，后续正式验证必须从头运行；Release 仍保持 incomplete。
 - 本轮软件内隔离验证通过：`test:agent-text` 验证公开 parentId 指向第二素材、上游 editImage/参考图和最终来源 provenance；`test:view-image`、`test:goal-runtime`（43 cases）通过。`aidebug:ask-user` 报告 `.diagnostics/electron/aidebug-2026-10-09T04-22-32-477Z/report.json` 为 10/10 checks、5 scenes、0 failures；L/M 各有独立 N/O batch-result，冻结 hash 一致且来源 binding 正确，最终截图已人工查看。修正后 production build 退出 0（21.01s）。0 真实模型请求，0 新 Windows 账户。
 - 发布准备文档已补充多素材来源修复与软件测试边界，地图 v84；10 文件凭据扫描 0 findings、diff check 通过。修正后 `test:bundle` 退出 0，CSS 264,672 B、plugin JS 86,177 B 均在硬门槛内，无 AIDebug 泄漏；core/dist 仅保留既有 advisory。待冻结提交并推送；完整正式发布仍受干净 Windows 安装环境限制，不使用旧 EXE/旧报告替代，下一次 release:final 需从头验证。冻结后的实际提交/编排状态只写忽略目录 `.diagnostics/release/formal-publish-status.json`。
 - 续跑第 52 项失败原因已确认是测试路径表示差异；`corepack pnpm run test:image-collection-export` 在修正后通过。变更仅为 `scripts/image-collection-export-selftest.cjs` 的实际路径 canonicalization；提交后允许从旧稳定报告的 `image collection export` 门禁续跑，后续门禁仍全部真实执行。

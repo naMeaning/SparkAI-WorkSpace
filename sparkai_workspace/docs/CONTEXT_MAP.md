@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：84
+> 地图版本：85
 > 最近同步：2026-10-09
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -18,6 +18,8 @@
 > Mock 上下文镜像：`desktop/aidebug-backend.cjs` 的隔离模拟模型与 Runtime 的普通 `materials (model decides each role)` Prompt 保持一致；只有明确逐图意图才按当前材料节点模拟独立请求，不给普通 Prompt 添加 private bindingId。Goal 仍解析冻结 SOURCE 段。`aidebug:ask-user` 校验两来源 staged 恢复、hash/来源归属与 canonical 配置比例；`test:commerce-set` 保持 Goal Mock 合同。
 
 > 普通来源解析：`agent-runtime.cjs::normalizeImageToolArgs` 在没有显式素材 selector 时，先从公开 parentId 对应节点的冻结素材中取稳定首项，再使用全局首素材；不会把第二个来源错误绑定到第一个节点。显式 selector、assetIndex、范围与槽位校验仍由 Runtime 拥有。Mock 同时读取普通历史与 Responses items 中的原确认任务；验证入口为 `test:agent-text` 和 `aidebug:ask-user` 的两来源分批成果。
+
+> 图片导入路径校验：Windows 8.3 短路径（例如 `ADMINI~1`）在 `realpath` 后可能展开为长路径，不能仅用规范路径字符串差异判定为联接。`image-import-worker.cjs` 逐级 `lstat` 仍拒绝符号链接/目录联接；主进程结果目录校验对已存在路径使用系统规范路径比较，保留路径越界和外部联接拒绝。`test:image-import` 覆盖短路径环境、来源/输出联接、流式复制与清理。
 
 当前 Goal（2026-10-08）已完成：图片配置集中入口与共享 8 个斜杠命令，替代普通/Goal 按钮，继续复用既有图片和 Agent 执行链。两种最新 development EXE 的实际程序主/独立窗口、保存/reload、小视口及普通文本 Mock 测试各 9 checks/10 screenshots，0 真实模型请求；每包 129 文件匹配源码/dist，策略、MZ/SHA-256/NotSigned 已独立核验。最新汇总 .diagnostics/release/composer-command-delivery-2026-10-08.json 替代同名旧制品元数据。运行中 slash 暂停/恢复/停止完整往返、实际安装卸载、签名及正式发布未验证；正式 CSS Bundle 门槛仍未通过。
 

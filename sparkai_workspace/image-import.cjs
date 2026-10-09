@@ -3,6 +3,7 @@
 const { randomBytes } = require("node:crypto");
 const { fork } = require("node:child_process");
 const { lstat, readdir, rm } = require("node:fs/promises");
+const { realpathSync } = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_MAX_FILES = 2_000;
@@ -27,7 +28,13 @@ class ImageImportError extends Error {
 
 function comparablePath(filePath) {
   const resolved = path.resolve(filePath);
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  let canonical = resolved;
+  try {
+    canonical = (realpathSync.native || realpathSync)(resolved);
+  } catch {
+    // The caller may be validating a path that has not been created yet.
+  }
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
 }
 
 function pathInside(filePath, rootPath) {
