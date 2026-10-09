@@ -7320,7 +7320,7 @@ async function captureImageImportSuiteProbe(client, targetId) {
       : { ok: false, error: "folder-group-missing" };
     const folderScopeState = window.__naimageDebugAgentState?.();
     const folderScopeMessage = [...(folderScopeState?.messages || [])].reverse().find((message) => message.role === "user" && message.content === folderScopePrompt);
-    const folderScopeAssets = Array.isArray(folderScopeMessage?.attachments?.sourceAssets) ? folderScopeMessage.attachments.sourceAssets : [];
+    const folderScopeMaterials = Array.isArray(folderScopeMessage?.attachments?.materials) ? folderScopeMessage.attachments.materials : [];
     const targetFolderImport = await window.__naimageDebugImportPathsToCanvas({
       paths: [${JSON.stringify(occurrenceFixtureDirs[0])}],
       targetContainerId: canvasImport?.containerId,
@@ -7431,11 +7431,11 @@ async function captureImageImportSuiteProbe(client, targetId) {
       folderChildren.every((node) => node.imageContainerSpec?.memberBindings?.length === 1 && node.imageContainerSpec.memberBindings[0]?.occurrenceId === node.assets?.[0]?.occurrenceId)
     );
     const folderTaskScopeOk = Boolean(
-      folderScopeChat?.ok && folderScopeAssets.length === 2 &&
-      folderScopeAssets.every((asset) => asset.role === "source" && asset.nodeId === folderGroup.id && asset.bindingId && asset.occurrenceId) &&
-      new Set(folderScopeAssets.map((asset) => asset.assetId)).size === 1 &&
-      new Set(folderScopeAssets.map((asset) => asset.bindingId)).size === 2 &&
-      new Set(folderScopeAssets.map((asset) => asset.occurrenceId)).size === 2
+      folderScopeChat?.ok && folderScopeMaterials.length === 2 &&
+      folderScopeMaterials.every((asset) => asset.nodeId === folderGroup.id && asset.bindingId && asset.occurrenceId) &&
+      new Set(folderScopeMaterials.map((asset) => asset.assetId)).size === 1 &&
+      new Set(folderScopeMaterials.map((asset) => asset.bindingId)).size === 2 &&
+      new Set(folderScopeMaterials.map((asset) => asset.occurrenceId)).size === 2
     );
     const targetFolderCombineOk = Boolean(
       targetFolderImport?.ok && targetFolderGroup && targetFolderChildIds.includes(canvasImport?.containerId) &&
@@ -7527,7 +7527,7 @@ async function captureImageImportSuiteProbe(client, targetId) {
         overlayCleared: blankDropOverlayCleared
       },
       canvas: { ok: canvasOk, result: canvasImport, node: canvasNode },
-      folderOccurrences: { ok: folderOccurrenceOk && folderTaskScopeOk && targetFolderCombineOk && folderCleanupOk, identityOk: folderOccurrenceOk, taskScopeOk: folderTaskScopeOk, targetCombineOk: targetFolderCombineOk, cleanupOk: folderCleanupOk, cleanupResults: folderCleanupResults, result: folderImport, host: folderGroup, children: folderChildren, chat: folderScopeChat, userMessage: folderScopeMessage, sourceAssets: folderScopeAssets, targetImport: targetFolderImport, targetHost: targetFolderGroup, targetChildren: targetImportedChildren },
+      folderOccurrences: { ok: folderOccurrenceOk && folderTaskScopeOk && targetFolderCombineOk && folderCleanupOk, identityOk: folderOccurrenceOk, taskScopeOk: folderTaskScopeOk, targetCombineOk: targetFolderCombineOk, cleanupOk: folderCleanupOk, cleanupResults: folderCleanupResults, result: folderImport, host: folderGroup, children: folderChildren, chat: folderScopeChat, userMessage: folderScopeMessage, materials: folderScopeMaterials, targetImport: targetFolderImport, targetHost: targetFolderGroup, targetChildren: targetImportedChildren },
       attachments: {
         ok: attachmentsOk,
         staged: { sourcesBefore, referencesBefore, state: stagedAttachmentState, sourceImport, referenceImport },

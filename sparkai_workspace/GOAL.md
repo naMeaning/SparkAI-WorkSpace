@@ -6,12 +6,12 @@
 - 结果：当前桌面功能和相关文档提交到 origin/main；GitHub Release 对应冻结源码、真实安装包、版本说明与完整性信息。
 - 范围：当前桌面 dirty worktree、工作区上下文/决策文档、Git 提交/远端、Windows 发行和 GitHub Release；保持 Extension 与外部 New API 独立。
 - 验收：提交内容无凭据/配置/诊断/用户数据；远端提交一致；用户选择正式稳定版，需解决全部前置条件、同次 release:final 全部通过并核验远端 Release 资产。
-- 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。0 新真实模型/图片/视频请求，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
+- 授权：用户已授权本次 commit、push、tag 与 GitHub Release；用户确认原发布私钥丢失，明确允许更换更新签名密钥并通过完整安装包升级旧版。用户最新指示允许用此前提供的 BaseURL/API Key 与软件 Agent 配置完成一次真实 Grok 生图验证（n=1，创建结果不明不重发）；此前本次发布的 0 新生图限制 superseded。真实调用只使用隔离项目，不刷新/修改日常登录，不执行真实视频，不卸载/关闭日常应用或修改生产服务；新私钥只保存本地忽略目录，不提交或上传。
 - 当前事实：远端最新 tag v1.0.8，package 为 1.0.9；GitHub CLI 已实际登录 naMeaning，SSH 可访问。新 Ed25519 密钥配对已验证，私钥只在忽略目录并受本机 ACL 保护；CSS 264,672 B 已通过正式 Bundle 门禁。唯一审查的 P1 已修复并通过结果失败专项。上一次冻结源码的正式编排前 102 项通过；本轮已修正 Mock 确认恢复与 Runtime 第二来源选择，AskUser 为 10/10 checks、5 scenes、0 failures，agent-text/view-image/Goal Runtime 43 cases 与修正后 production build 均通过。旧正式证据不代表本轮同次完整发布。
 - 更新边界：新完整安装包内嵌新公钥；minimum_version 将提高到本次版本，旧客户端须手动下载并安装完整 EXE，不承诺其使用旧公钥接受新清单或 Restart ASAR。保留应用/项目身份、受管数据及现有生图能力。
 - 审查结论与授权：唯一只读审查完成，发现遮罩兼容请求已返回图片后，本地合成失败仍可能被重试的 P1；用户明确选择“修复后再发布”。先在图片 service 的结果处理边界补齐禁止重复生图标志，使用 Mock 验证，不执行真实付费请求。
 - 隔离授权更新（2026-10-09）：用户澄清“测试用户”指软件内测试账户，明确要求删除 SparkRel Windows 临时用户；此前系统账户方案 superseded。清理已实际核验：账户、Profile、用户目录均无 SparkRel 残留，私钥临时 ACL 已撤销，cleanup.json 全部清理项 true、failure 为空；后续不创建 Windows 用户。使用软件内隔离 Mock；正式安装验证如受环境限制，必须如实记录，不能触碰日常安装来替代。
-- 下一步：修正 AskUser 软件内 Mock 的确认恢复合同，专项/build 后冻结并推送；正式安装仍需干净环境，本机已有日常安装且 Sandbox/Hyper-V 未启用，当前完整 release:final 前置条件未满足。历史隔离安装及完整升级预验收保留为历史证据，不能替代当前同次正式编排。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
+- 下一步：image import GUI 统一 materials 与低动效诊断断言的最终专项/build/Bundle 已通过，生产样式与运行逻辑无变化；冻结推送后仅对 5 个诊断/文档路径使用窄 allowlist，从第 104 项续跑剩余源码门禁，同时按最新授权准备一次隔离真实 Grok 测试；正式安装仍需干净环境，本机已有日常安装且 Sandbox/Hyper-V 未启用，当前完整 release:final 前置条件未满足。历史隔离安装及完整升级预验收保留为历史证据，不能替代当前同次正式编排。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
 - 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。

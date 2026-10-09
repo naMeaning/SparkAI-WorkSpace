@@ -22262,10 +22262,15 @@ function App() {
           const dragComputedZIndex = Number.parseInt(dragStyle.zIndex || "0", 10) || 0;
           const dragTranslateX = Number.parseFloat(mergedElement.style.getPropertyValue("--node-drag-x")) || 0;
           const dragTranslateY = Number.parseFloat(mergedElement.style.getPropertyValue("--node-drag-y")) || 0;
+          const dragComputedTransform = dragStyle.transform;
+          const dragComputedWillChange = dragStyle.willChange;
+          const dragComputedAnimationName = dragStyle.animationName;
+          const dragReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const dragInlinePosition = { baseLeft: dragBaseInlineLeft, baseTop: dragBaseInlineTop, left: mergedElement.style.left, top: mergedElement.style.top };
           const compositorPreviewActive = Boolean(
             Math.abs(dragTranslateX) + Math.abs(dragTranslateY) > 1 &&
             dragStyle.transform !== "none" &&
-            dragStyle.willChange.includes("transform") &&
+            (dragReducedMotion ? dragComputedWillChange === "auto" : dragComputedWillChange.includes("transform")) &&
             mergedElement.style.left === dragBaseInlineLeft &&
             mergedElement.style.top === dragBaseInlineTop
           );
@@ -22297,7 +22302,11 @@ function App() {
             dragComputedZIndex,
             dragTranslateX,
             dragTranslateY,
-            dragComputedTransform: dragStyle.transform,
+            dragComputedTransform,
+            dragComputedWillChange,
+            dragComputedAnimationName,
+            dragReducedMotion,
+            dragInlinePosition,
             compositorPreviewActive,
             compositorPreviewCleared,
             armedDropTargetId,

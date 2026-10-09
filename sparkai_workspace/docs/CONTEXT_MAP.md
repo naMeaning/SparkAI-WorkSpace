@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：85
+> 地图版本：86
 > 最近同步：2026-10-09
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
@@ -591,6 +591,8 @@ Renderer 自动保存 / 显式保存
 旧 AppData 数据只允许通过用户显式触发的 `desktop/project-data-migration.cjs` 迁移：预检受管旧项目、未索引目录和非空全局 Session，拒绝敏感文件、链接、AppData/源目录/安装目录目标，并在复制前检查目标可用空间；随后复制到同级 staging，逐文件校验大小与 SHA-256，写入项目级 FastMemory/conversation 状态和迁移标记，再原子发布、更新项目索引并保存 Main-only 回执。源数据在迁移成功后仍保留，只有用户第二次确认清理且源/目标/回执重新校验一致时才移入清理暂存区；任一失败会回滚索引和已发布目录。Main 继续只接受真正的布尔确认；由于 Terser 会把 Renderer 字面量 `true` 压成数字 `1`，`preload.cjs` 仅在迁移/清理 IPC 边界把 `true` 或数字 `1` 归一化为布尔 `true`，字符串 `"1"`、数字 `2` 和其他 truthy 值均不得提升。最低验证为 `test:project-data-migration`、`test:project-root-policy`、`test:ipc-registration` 和隔离 `aidebug:isolation`。
 
 ### 4.8 图片导入与输出
+
+导入 GUI 的文件夹 TaskScope 验证读取 canonical materials，保留共用 assetId、独立 bindingId/occurrenceId 与 host nodeId 的身份约束，不要求普通选中素材进入旧 SOURCE 投影。分层合并拖拽 AIDebug 在松开鼠标前快照 transform/will-change/内联位置：遵守 08-motion-accessibility.css 的系统低动效 will-change:auto 策略，普通动效仍要求 transform 提示；两者均要求真实位移矩阵、left/top 未变化、清理、来源与原文件不变。
 
 画布素材添加轨道（2026-10-07）：`src/reference-picker-dialog.tsx` 共用文件/画布图库入口、分页与保存/取消草稿；`src/selection-reference-images.ts` 拥有图片展开、具体成员身份、显式素材与自动选择合并；`ReferenceImage.canvasNodeId/canvasAssetIndex` 绑定当前画布成员，`bindingId/ownerNodeId/ownerAssetIndex/containerId` 保留 canonical 来源，只属于当前本轮素材，不改变图片或项目资产格式。`src/main.tsx` 将原图/参考图本轮列表、单图/容器/成员/多选右键、发送 TaskScope 与 `agent.add-canvas-materials` 接到同一 owner；成员右键借现有 `assetSourcesByHost` 从 canonical 原节点映射到画布容器槽位，GUI 多选跳过无完成图片的节点，CLI 仍严格整批验证。发送重新解析绑定，筛选具体 source 成员、source/reference 均保留原 owner/binding provenance，已有画布素材不重复 materialize；上传继续使用既有项目库与附件容器。上限沿用 Agent 原图 200/参考图 40，普通参考图弹窗 9。共享 schema → Renderer registry / CLI 文档 / MCP 保持一致；验证入口为 `test:image-container`、`test:automation-service`、`aidebug:canvas-materials`（隔离 Electron、鼠标/可见/裁切/截图和精确发送）、quick GUI 与 build。
 
