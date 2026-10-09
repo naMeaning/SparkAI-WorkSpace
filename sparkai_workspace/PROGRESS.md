@@ -2,6 +2,13 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 菜单生产修复已验证：共享 `src/ui/menu-surface.tsx` 保留 preventScroll，只滚动菜单自身，使键盘焦点项可见。`aidebug:menus` 报告 `.diagnostics/electron/aidebug-2026-10-09T06-56-17-031Z/report.json` 为 8 场景/0 failures；19 按钮小窗口 End 后 scrollTop 0→70、末项聚焦且完整可见，截图已查看。修正后 build exit0，未改断言、字号或画布滚动，0 新模型请求。地图 v87 和发布四份说明已在冻结前同步；本轮将重新完整验证，不复用旧源码门禁。
+
+
+- 本轮真实 Grok 隔离验证已完成：`.diagnostics/electron/grok-live-2026-10-09T06-38-41-634Z/report.json` ok=true，唯一 POST HTTP 200/18239ms；原始 JPEG 1024×1024/152995 B，Main 原字节保存一致，SHA-256 86ffd6f49ebe9a7763a59b6963cccc03d09b62a990c47ced9fdc4b7b259854a2，创建重试为 0，已人工查看内容。仅证明真实供应商→service→Main 落盘；未把它表述为本轮真实主 Agent 工具调用。凭据只在内存，日常登录未改动。
+- 0856252 已提交推送。源码续跑复用前 103 项稳定证据，image import/selection/requirement/recovery/clarity GUI 均通过，第 109 项 context menus GUI 失败：小窗口分层菜单 End 聚焦删除成果，但末项不可见且滚动位置不推进。报告 `.diagnostics/release/verify-2026-10-09T06-37-50-373Z/report.json`；正在定位菜单 owner 与测试滚动断言，不将失败报告描述为通过，EXE 尚未重打。
+
+
 - 用户最新澄清：真实生图验证使用软件 Agent 配置和已提供 BaseURL/API Key，不需要 Windows 测试账户。允许一次隔离 Grok 文生图（n=1、0 自动创建重试），保留软件配置/项目隔离；不刷新或改动日常账户。生图功能验证与 EXE 安装/升级事务分别记录，仍不创建 Windows 用户。
 - 第 104 项最终诊断修正已验证：`.diagnostics/electron/aidebug-2026-10-09T06-21-04-855Z/report.json` 与 `image-import-suite.json` 均 ok=true，failures=[]；生产 build 20.85s 通过，Bundle CSS 264672 B、plugin JS 86177 B、无诊断泄漏。变更只在 AIDebug 编译移除块、GUI 测试和三份文档，生产 CSS/行为无净变化；将冻结推送 5 文件，以旧稳定报告从 image import GUI 窄续跑，前 103 项证据由编排器复核，后续全部真实执行。正式安装环境仍未满足，Release 未发布。
 

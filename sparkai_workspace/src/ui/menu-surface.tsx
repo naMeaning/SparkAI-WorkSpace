@@ -136,10 +136,22 @@ export function MenuSurface({
   }, [onRequestClose]);
 
   function focusMenuItem(targetIndex: number) {
-    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)') ?? [])];
+    const menu = menuRef.current;
+    if (!menu) return;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')];
     if (!items.length) return;
     const index = (targetIndex + items.length) % items.length;
-    items[index]?.focus({ preventScroll: true });
+    const item = items[index];
+    item.focus({ preventScroll: true });
+    const menuRect = menu.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const visibleTop = menuRect.top + menu.clientTop;
+    const visibleBottom = visibleTop + menu.clientHeight;
+    if (itemRect.top < visibleTop) {
+      menu.scrollTop += itemRect.top - visibleTop;
+    } else if (itemRect.bottom > visibleBottom) {
+      menu.scrollTop += itemRect.bottom - visibleBottom;
+    }
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {

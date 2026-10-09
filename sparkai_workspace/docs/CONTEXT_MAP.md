@@ -1,7 +1,8 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：86
+> 地图版本：87
 > 最近同步：2026-10-09
+> 2026-10-09 菜单候选修复：`src/ui/menu-surface.tsx` 的共享键盘焦点 owner 保留 `preventScroll`，只调整当前 `.ui-menu-surface` 的 `scrollTop`，确保 Arrow/Home/End 聚焦项处于菜单 client viewport 内，不滚动画布或文档；现有 `aidebug:menus` 在小窗口分层菜单验证 End 后末项可见及滚动推进。生产交互变化要求重新完整源码验证；尚未完成正式安装/发布。
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 

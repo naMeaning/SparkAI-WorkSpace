@@ -15,6 +15,8 @@
 
 ## 发布基线
 
+2026-10-09：1.0.9 候选追加长菜单键盘可见滚动修复，真实 Grok 单图原格式交付已验证；当前正式发布仍以完整 `release:final` 和远端资产核验为准。
+
 - [正式发布清单](./RELEASE_CHECKLIST.md)：每个版本的文档冻结、完整门禁、制品验签、GitHub Release 上传与复核顺序。
 - 发布项目/GitHub Release 展示名：`SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`，`naimage-studio` 更新 product 和 `naimage-*` 兼容标识不变。
 - [1.0.0 发布说明](./RELEASE_1.0.0.md)
