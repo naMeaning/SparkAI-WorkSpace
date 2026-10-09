@@ -14,6 +14,7 @@
 - 下一步：隔离安装及 1.0.8 → 1.0.9 完整安装升级预验收已通过；冻结/推送后，在全新临时账户运行同次正式发布流程并核验 GitHub Release。构建期间本文件保持冻结，运行结果以 `.diagnostics/release/formal-publish-status.json` 与正式编排报告记录，不能由源码中的准备状态推断发布成功。
 - 首次正式验证 checkpoint：第 10 项旧 context 测试错误地要求普通材料 Prompt 暴露 bindingId；按现有 assetId/materialCount 合同修正测试后重新冻结，Runtime 不变。前 9 项的报告可按发布清单的窄 allowlist 安全续跑，后续所有门禁和所有制品必须在新编排中实际完成。
 - 当前 checkpoint：第二次编排通过前 45 项，修正 UI foundation 报告的素材序号 token/Field owner 问题；本次改变产品 Renderer/CSS，前述窄续跑方向 superseded，验证后从头运行完整正式编排。
+- 当前 checkpoint：从头编排已通过前 54 项，第 55 项仍要求所有图片生成使用旧 Responses→Images SSE 路径；按已有生产 Provider service 与可选预览回调修正检查，保留真实分槽/替换/清理与底层 SSE transport 验证。产品代码和请求参数不变；此次可用窄 allowlist 从该项续跑。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 

@@ -2,6 +2,8 @@
 
 ## 2026-10-09 推送与 GitHub Release：in progress
 
+- 第三次从头编排（fc3ea89）通过前 54 项，第 55 项 streaming selftest 的源码检查仍要求普通生图走旧 Responses→Images SSE 回退，和当前 Provider service 不一致。对齐生产入口与 service 的可选预览回调检查，保留分槽/替换/安全 data URL/下帧清理/查看器全部行为断言；底层 SSE transport 专项此前已在该次编排通过。此次不修改产品请求和 Provider 参数。
+- 修正后的 test:image-stream-preview 通过（30 cases）；窄续跑仅允许该 selftest 与 GOAL/PROGRESS 三个路径变化，旧报告 54 项证据、稳定指纹和提交祖先由编排器重新校验。当前 release 保持 incomplete，后续门禁和制品仍须完成同次正式编排。
 - 第二次正式编排（53a17c1）通过前 45 项，UI foundation 发现素材序号使用了未定义 glass-fill，以及画布序号绕过共享 Field。修正真实 owner：复用现有 glass-surface-fill 和 Field，保留尺寸/事件/序号数据链。此轮涉及产品 Renderer/CSS，因此不列入窄续跑 allowlist，完成专项/可见 GUI/build 后从头运行 124 项。
 - UI foundation 和 typecheck 修正后通过；production build 与 Bundle 通过（CSS 264,672 B）。素材 GUI 发现旧夹具只有自定义 Key、没有 Base URL，被正确停在授权入口；改用与命令 GUI 一致的隔离 Mock 账户快照，不绕过产品授权、不使用真实登录或服务。正在验证序号与素材完整可见路径。
 - 素材可见 GUI 完成：`.diagnostics/electron/canvas-materials-2026-10-09T02-20-53-620Z/report.json` 12 项检查通过、9 张截图、0 真实请求；已查看容器成员/序号控件截图。UI foundation/typecheck/build/Bundle 均通过；本次 7 个源码/文档/夹具路径重新冻结，下一编排不复用前两次门禁。
