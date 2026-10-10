@@ -64,4 +64,4 @@
 
 ## 成果归档
 
-桌面 `C:\Users\29488\Desktop\IMAGE` 与 `manifest.json` 一致，共 280 张：`final-posters` 33 张、`historical` 174 张、`layered` 73 张；源文件只复制、不移动，并按 SHA-256 去重。
+桌面 `用户选定的本地图片目录` 与 `manifest.json` 一致，共 280 张：`final-posters` 33 张、`historical` 174 张、`layered` 73 张；源文件只复制、不移动，并按 SHA-256 去重。

@@ -2,6 +2,16 @@
 
 当前正式版本为 1.0.9，包含生产 CSS 宽度媒体查询保留修复，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留；正式包窄窗口顶栏与素材入口已通过实际程序冒烟验收。
 
+## 面向用户的使用文档
+
+这些教程对应 1.0.9 的公开使用路径，适合随 GitHub Release 一起分享：
+
+- [第一次让 Agent 完成一张图](./tutorials/01-first-agent-image.md)：从导入图片、设置原图/参考图到查看和导出成果。
+- [编辑、批量、多款与可复用需求](./tutorials/02-edit-and-reuse-results.md)：理解编辑、替换、多款、分层、抠图、重绘和需求节点。
+- [用本地 CLI/MCP 控制 Agent](./tutorials/03-automation-cli.md)：读取状态、发送自然语言任务和处理版本冲突。
+- [电商、社媒与科研工作台示例](./tutorials/04-workspace-recipes.md)：按工作台选择可复用的任务路径。
+- [隐私与发布前检查清单](./PRIVACY_AND_PUBLISHING.md)：发布源码、文档和 Release 资产前排除凭据、用户数据和本机路径。
+
 ## 当前入口
 
 - [上下文地图](./CONTEXT_MAP.md)：进程拓扑、入口调用链、模块所有权、跨边界契约、状态位置、修改影响和测试映射。新增或移动模块以及改变公共契约时必须同步更新。

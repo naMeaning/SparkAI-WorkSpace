@@ -90,7 +90,7 @@
 
 - 新增 `pnpm run archive:images`，只收录正式项目图片输出、`showcase`，以及报告明确标记 `liveImage=true` 的真实诊断运行。
 - 导入参考图与 mock 夹具不进入归档；源文件只复制、不移动，按 SHA-256 去重并记录全部来源路径。
-- 桌面 `C:\Users\29488\Desktop\IMAGE` 已于 2026-07-17 最终重建，当前归档 280 张、435,224,808 字节：`final-posters` 33 张、`historical` 174 张、`layered` 73 张；清单与实际图片数量一致。
+- 桌面 `用户选定的本地图片目录` 已于 2026-07-17 最终重建，当前归档 280 张、435,224,808 字节：`final-posters` 33 张、`historical` 174 张、`layered` 73 张；清单与实际图片数量一致。
 - `manifest.json` 提供完整机器可读映射，`manifest.md` 提供用户可读清单。
 
 ## 2026-07-17 最终交付门禁

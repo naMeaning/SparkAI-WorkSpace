@@ -51,7 +51,7 @@
 - 当前 checkpoint：4af35ea 正式前 102 项通过。询问确认的比例检查仍依赖已移入配置弹窗的按钮；Mock 后台只读取旧 SOURCE Prompt，无法模拟普通材料的逐图要求。专项读 canonical 配置，Mock 只在明确逐图意图时从最新材料段派发独立请求，保留 Goal SOURCE 解析。专项、相关 Mock 合同与 build 后重新完整验证，避免发布源码与旧证据失配。
 - 最新诊断：Mock 必须读取 Responses 历史中的原确认任务；修正后两条 image_gen 均已返回，但第二条被 Runtime 的“全局首素材”回退误拒绝（parentId=M、却取 L1）。修正真实来源解析，显式 parentId 优先选取该节点的冻结素材；保留范围/槽位检查，补 Runtime 回归并复跑 AskUser，0 真实请求。
 - 当前验证诊断（2026-10-09）：正式源码门禁第 52 项 `image collection export` 首次续跑因 Windows 临时目录的 8.3 用户路径与完整用户路径直接比较而失败；修正 selftest 使用 `realpathSync.native` 规范化已存在目录，生产导出逻辑不变。专项已通过，需在新冻结提交上从该门禁续跑。
-- 当前验证诊断（2026-10-09）：正式源码门禁的 `image import` 在本机 Windows 临时目录使用 `C:\Users\ADMINI~1` 短路径时，将合法 8.3 路径误判为符号链接并阻断导入。修正 worker 的逐级 `lstat` 链接检查与主进程结果目录比较：只以 `lstat` 发现的实际链接/联接拒绝路径，规范化比较接受普通短路径；`test:image-import` 已通过（506 入口、502 唯一资产、来源/输出联接拒绝、16 次并发导入、超时/关闭清理）。该产品代码变化会使正式门禁从头重新验证，Release 仍未发布。
+- 当前验证诊断（2026-10-09）：正式源码门禁的 `image import` 在本机 Windows 临时目录使用 `Windows 8.3 临时路径` 短路径时，将合法 8.3 路径误判为符号链接并阻断导入。修正 worker 的逐级 `lstat` 链接检查与主进程结果目录比较：只以 `lstat` 发现的实际链接/联接拒绝路径，规范化比较接受普通短路径；`test:image-import` 已通过（506 入口、502 唯一资产、来源/输出联接拒绝、16 次并发导入、超时/关闭清理）。该产品代码变化会使正式门禁从头重新验证，Release 仍未发布。
 
 ## 当前任务：图片配置入口与斜杠命令（2026-10-08）
 
@@ -224,7 +224,7 @@
 
 并行治理轨道：已完成工作区 Agent Harness。它把历史对话中的稳定用户意图、任务路由、授权边界、验证分级与完成审计固化为根目录 `AGENTS.md`、`HARNESS.md`、`harness/` 及结构校验器；该轨道不覆盖阶段 10 的产品目标，也不扩大其测试范围。
 
-当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性均已完成实现和专项验证。最终源码稳定报告 [verify-2026-08-15T22-12-37-714Z/report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 为 `113/113`、`sourceStable:true`；此前暴露的共享弹层焦点竞态和 AskUser 窄屏裁剪残片误报均已修复。Commerce、Glass、Graph CLI 和导出 UI AIDebug 现在都使用显式隔离项目 fixture，不依赖废弃的 AppData 默认项目；Session mutation journal 也已补上待提交事件保留回归。正式 `release:final` 仍因本机现有安装在零步骤预检退出而保留 incomplete，强制 Bundle、本地双版本候选和针对性门禁已通过，但不冒充正式发布。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内。
+当前整备轨道（2026-08-16）：大量图片卡顿治理、统一导出中心、真实模型与真实 C 盘迁移的显式授权验收工具，以及受影响 AIDebug 稳定性均已完成实现和专项验证。最终源码稳定报告 [verify-2026-08-15T22-12-37-714Z/report.json] 为 `113/113`、`sourceStable:true`；此前暴露的共享弹层焦点竞态和 AskUser 窄屏裁剪残片误报均已修复。Commerce、Glass、Graph CLI 和导出 UI AIDebug 现在都使用显式隔离项目 fixture，不依赖废弃的 AppData 默认项目；Session mutation journal 也已补上待提交事件保留回归。正式 `release:final` 仍因本机现有安装在零步骤预检退出而保留 incomplete，强制 Bundle、本地双版本候选和针对性门禁已通过，但不冒充正式发布。SparkAI Extension 生产部署、真实图片/视频模型调用、真实 AppData 迁移或清理、旧 New API/CRM 源码删除、Git tag、远端推送与 GitHub Release 均不在当前授权范围内。
 
 ## 结果
 
@@ -319,13 +319,13 @@
 - `test:new-api-login` 把 `/api/user/self`、Token/额度与模型目录 fixture 固定延迟 1.5 秒，最终复跑登录为 111 ms 且只请求一次 `/api/user/login`；专项同时证明 rc.23 auth bundle 进入加密 sidecar、普通设置和返回 DTO 无明文、旧账户 Token 选择被清空。
 - 本轮 `test:custom-api-transport` 39 cases、`test:account-token`、`test:settings-secret-store`、`test:settings-lazy-load` 67 cases、`test:settings-persistence` 124 cases、`test:agent-model-binding` 4 cases、`test:access-variant`、`test:ipc-registration` 147/144/3、三个 CJS 语法检查、`typecheck` 与 `git diff --check` 均退出 0。传输专项明确覆盖 refresh single-flight、401 单次重放、provider Authorization 锁定和“逐模型自定义 Key → 模型账户 Token → 全局账户 Token”。
 - 独立 production build 转换 1674 modules、15.71 s；`package:win:variants` 退出 0，内含两次 production build 和双 Electron/NSIS/品牌封装，`bundleEnforced:false`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,979,520 bytes（167.83 MiB），2026-08-26 15:30:01 +08:00，SHA-256 `7DB90B013E7341E3B7BD1D38FDA1C7755870C071F2BD0C12606E32D268CC719E`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,979,520 bytes（167.83 MiB），2026-08-26 15:31:15 +08:00，SHA-256 `4846618581E72C38E80E8F0DC9336FEE8344489BE773CA8B4B2E64E44F712662`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,979,520 bytes（167.83 MiB），2026-08-26 15:30:01 +08:00，SHA-256 `7DB90B013E7341E3B7BD1D38FDA1C7755870C071F2BD0C12606E32D268CC719E`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,979,520 bytes（167.83 MiB），2026-08-26 15:31:15 +08:00，SHA-256 `4846618581E72C38E80E8F0DC9336FEE8344489BE773CA8B4B2E64E44F712662`。
 - 两个安装器的 Authenticode 状态均为 `NotSigned`。本轮未运行受既有 Electron GPU 启动限制影响的 `test:new-api-transport`，未做真实安装/卸载 smoke，未访问真实 New API、License、图片或视频模型，未执行正式 Bundle/发布验收，也未提交、推送或发布。
 
 ## 本地整备收口（2026-08-16）
 
-- 最终本地发布门禁 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/release/verify-2026-08-15T22-12-37-714Z/report.json) 完成 113/113 项，`sourceStable:true`；覆盖 typecheck、协议/IPC、项目 Session、迁移/导出、图片性能、UI Surface、更新/回滚和 Bundle hard gate。
+- 最终本地发布门禁 [report.json] 完成 113/113 项，`sourceStable:true`；覆盖 typecheck、协议/IPC、项目 Session、迁移/导出、图片性能、UI Surface、更新/回滚和 Bundle hard gate。
 - AIDebug/导出 UI 已改为每次运行创建隔离项目列表和项目目录，Commerce、Glass、Graph CLI、Skill、图片生成与 Commerce Export UI 不再依赖测试机上的默认项目；这只影响测试夹具，不改变用户项目路径策略。
 - `project-session-merge.cjs` 保留尚未获得 `commitRevision` 的新 mutation，避免旧已提交事件在保存协调器盖章前把图层状态丢掉；对应 selftest 覆盖重组与可见性连续保存。
 - 本地验证不等于外部验收：正式安装/升级/卸载、Windows 签名、真实模型供应商服从度、真实 C 盘迁移清理和 SparkAI Extension 生产部署仍需在用户明确授权和实际环境中完成。
@@ -335,18 +335,18 @@
 - `desktop/image-collection-export-service.cjs` 将普通图片组批量导出固定到当前项目的 `image-groups/<稳定图片组名>/`；多组导出共享 staging、备份与整批回滚，一个组选中后得到一个同名文件夹和 `image-group.json`。旧 `exports/image-groups/` 只用于历史 manifest 打开兼容，新导出不再写入旧目录；项目受管原图不移动、不覆盖。
 - 画布连接头只有超过拖动阈值才尝试建边，目标必须真实包含指针；输入/输出连接头单击、空白松手、`Escape` 与 `pointercancel` 都只取消草稿。连线使用 18 px 透明命中区，单击或右键可打开具体关系菜单并断开一条底层真实边，节点右键继续提供全部输入/输出批量断开；图片容器投影边保留真实 source/target ID。
 - 专项 `test:image-collection-export`、`test:requirement-graph`、`test:image-container`（12 cases）、`test:image-layout`（14 cases）、`test:image-collection-mutation`（4 cases）、`test:image-export`、`test:psd-export`、`test:image-stream-preview`（30 cases）、`test:automation-service`、`test:ipc-registration`（141/138/3）、`test:workspace-glass-ui`（155 cases）、`test:ui-foundation`、`test:aidebug-glass-workspace`、`automation:generate --check`、`typecheck` 与 Harness 10 项结构检查均退出 0。
-- 隔离 Requirement AIDebug [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-15T10-17-03-869Z/report.json) 为 `ok:true`、9 scenes、0 failures；`connectionCancelSafety` 明确记录输入连接头单击、输出连接头单击、空白松手和 `pointercancel` 四条路径都不修改关系，并验证具体断线与撤销恢复。
-- 最终图片集合 AIDebug [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-15T10-47-24-790Z/report.json) 为 `ok:true`、11 scenes、0 failures。成果编辑器最大化实测 `1256×796`，四周约 12 px；查看器连续切图有 12 个状态采样、0 空白帧、最大表面位移 0，A→B→C 延迟解码竞态最终 `target/displayed/final` 均为 C，`buffering:false` 且 `staleRollback:false`。
+- 隔离 Requirement AIDebug [report.json] 为 `ok:true`、9 scenes、0 failures；`connectionCancelSafety` 明确记录输入连接头单击、输出连接头单击、空白松手和 `pointercancel` 四条路径都不修改关系，并验证具体断线与撤销恢复。
+- 最终图片集合 AIDebug [report.json] 为 `ok:true`、11 scenes、0 failures。成果编辑器最大化实测 `1256×796`，四周约 12 px；查看器连续切图有 12 个状态采样、0 空白帧、最大表面位移 0，A→B→C 延迟解码竞态最终 `target/displayed/final` 均为 C，`buffering:false` 且 `staleRollback:false`。
 - 最终 `corepack pnpm run typecheck`、`git diff --check` 与 Harness 10 项检查退出 0；独立 production build 转换 1667 modules、7.70 s。`corepack pnpm run package:win:variants` 退出 0，内含两次 production build（6.17 s、6.05 s）和双 Electron/NSIS/品牌封装，`bundleEnforced:false`；当前版本没有旧 `naimage-Setup/Core` 公开命名。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,965,696 bytes（167.81 MiB），2026-08-15 19:00:17 +08:00，SHA-256 `2FFC43A1822A484C1DE783D6762538E74618CE6B1B8E0FF455485DDA14133D3B`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,969,280 bytes（167.82 MiB），2026-08-15 19:01:09 +08:00，SHA-256 `3249EE0BDFCF16DEDF75FA1BFFE5B3976F8BD3C53745B80B2DCB3B3C2477F7A4`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,965,696 bytes（167.81 MiB），2026-08-15 19:00:17 +08:00，SHA-256 `2FFC43A1822A484C1DE783D6762538E74618CE6B1B8E0FF455485DDA14133D3B`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,969,280 bytes（167.82 MiB），2026-08-15 19:01:09 +08:00，SHA-256 `3249EE0BDFCF16DEDF75FA1BFFE5B3976F8BD3C53745B80B2DCB3B3C2477F7A4`。
 - 本轮没有调用真实图片/视频模型或 Seedance；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交或推送。
 
 ## 登录与 Pro 自定义接入授权核验（2026-08-15）
 
 - New API `go test ./model ./controller ./router -count=1` 退出 0，覆盖账号 Managed Relay 不再依赖 License、设备端点只接受 `pro`、默认 3 台、永久授权、设备上限、非 Pro 不消费激活数和禁用后撤销。
 - Desktop `test:license`（9 cases）、`test:access-variant`、`test:custom-api-transport`（31 cases）、`test:agent-model-binding`（4 cases）、`test:settings-secret-store`、`test:settings-persistence`（124 cases）、`test:model-catalog`、`test:settings-lazy-load`（67 cases）、`test:ipc-registration`（141/138/3）、相关 CJS 语法检查和 `typecheck` 均退出 0。
-- 隔离 `aidebug:auth-gate` 报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-15T05-23-48-437Z/report.json) 为 9 scenes、0 failures；账号退出、错误态、注册切换、重新登录和 `884×720` 窄窗口均无状态、裁切或横向溢出问题，使用 mock 账号且未访问真实 License/模型服务。
+- 隔离 `aidebug:auth-gate` 报告 [report.json] 为 9 scenes、0 failures；账号退出、错误态、注册切换、重新登录和 `884×720` 窄窗口均无状态、裁切或横向溢出问题，使用 mock 账号且未访问真实 License/模型服务。
 - 最终 `corepack pnpm run build` 退出 0，Vite 转换 1667 modules、8.42 s，仅有既有大 chunk advisory。本轮未调用真实兑换码、模型或生产服务，未打包 EXE、未提交或推送代码。
 
 ## Agent 复制、内容摘要标题与迁移确认核验（2026-08-15）
@@ -357,8 +357,8 @@
 - `test:image-container`（12）、`test:image-layout`（14）、`test:image-collection-mutation`（4）、`test:image-stream-preview`（30）、`test:workspace-glass-ui`（155）、`test:project-io`、`test:image-export`、`test:psd-export`、`test:image-collection-export`、`test:automation-service`、`typecheck` 与 `git diff --check` 均退出 0。普通图片导出仅有既有 libvips `tiffSubifd` warning，断言成功。
 - 文档后的最终 `corepack pnpm run build` 退出 0，Vite 转换 1667 modules、9.00 s，仅有既有大 chunk advisory。`corepack pnpm run package:win:variants` 退出 0，包含接入策略专项、两次 1667-module production build（8.87 s、9.35 s）与双 Electron/NSIS/品牌封装，`bundleEnforced:false`。
 - 最终 SparkAPI `app.asar` 只读核验同时发现 Renderer `confirmed:1`/`confirmedCleanup:1` 与 preload `normalizeExplicitConfirmation` 的 `value !== true && value !== 1` 边界，证明安装包覆盖真实压缩形态。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,967,232 bytes，2026-08-15 12:34:31 +08:00，SHA-256 `928A6F73C1F30EA2DCDAFB94EE03B430DEFDCEDF9F9C0001799F1678DD299DD4`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,967,232 bytes，2026-08-15 12:35:53 +08:00，SHA-256 `380E22389355812DED477013A94B051E238D77B44A8A82C73D44098B446FCF5A`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,967,232 bytes，2026-08-15 12:34:31 +08:00，SHA-256 `928A6F73C1F30EA2DCDAFB94EE03B430DEFDCEDF9F9C0001799F1678DD299DD4`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,967,232 bytes，2026-08-15 12:35:53 +08:00，SHA-256 `380E22389355812DED477013A94B051E238D77B44A8A82C73D44098B446FCF5A`。
 - 未调用真实图片/视频模型，未直接迁移或删除用户真实 AppData 数据；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交或推送。
 
 ## SparkAI Extension 外置服务核验（2026-08-15）
@@ -375,31 +375,31 @@
 - 当时 Desktop 与浏览器使用同一 `task_id` 轮询并通过对应专项；这些历史证据只用于审计，不能证明当前原生 New API + Extension 部署已经在线联调。
 - New API `go test ./controller ./router ./model ./service -count=1` 退出 0；Desktop `test:custom-api-transport` 29 cases、两个 CJS 语法检查、`typecheck`、OpenAPI JSON 解析和 `git diff --check` 均退出 0。独立 `corepack pnpm run build` 退出 0，Vite 转换 1666 modules、10.61 s，仅有既有大 chunk advisory。
 - `corepack pnpm run package:win:variants` 退出 0，包含 `test:access-variant`、安装器资源、两次 production build、两个 Electron/NSIS 内核与品牌安装器封装，`bundleEnforced:false`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,965,696 bytes（167.81 MiB），2026-08-15 11:26:41 +08:00，SHA-256 `E9638C6DFC7AA519E132218299FC66ABC3099397ED24663A5FD277B7C0409F4C`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,965,184 bytes（167.81 MiB），2026-08-15 11:27:58 +08:00，SHA-256 `F60E19A1A39271FF52CC1ED2CCC144AE613D2DED9DFB52F2754A6D200680F718`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,965,696 bytes（167.81 MiB），2026-08-15 11:26:41 +08:00，SHA-256 `E9638C6DFC7AA519E132218299FC66ABC3099397ED24663A5FD277B7C0409F4C`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,965,184 bytes（167.81 MiB），2026-08-15 11:27:58 +08:00，SHA-256 `F60E19A1A39271FF52CC1ED2CCC144AE613D2DED9DFB52F2754A6D200680F718`。
 - 未调用真实图片/视频模型或 Seedance，未在真实 Cloudflare 域名和线上 provider 验证 3-5 分钟生成；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke，代码未提交或推送。
 
 ## 顶部对话框生图规格绑定核验（2026-08-14）
 
 - `desktop/ipc/agent-ipc.cjs` 在 `agent:chat` 派发时把 Renderer 的 `imageDefaults` 冻结为仅属于本次运行的 `imageFrameLocked` 快照；`runtime/tool-schemas.cjs` 将公开比例/清晰度枚举缩为按钮值，`agent-runtime.cjs` 再覆盖顶层和 `items[*]` 冲突值，并在真实上游 Prompt 追加画幅、清晰度、最终像素与禁止拉伸说明。成果资产、图片组和编辑器继续保存追加前的原始 Prompt。AskUser 中途补充信息时，`PendingAgentExecution` 只保存同一任务的合法 `imageRatio/imageResolution`，恢复后重新生成运行锁，避免读取变化后的全局默认值。
 - 本轮 `test:image-frame-contract`、`test:agent-run-control`、`test:goal-runtime`（43 cases）、`test:agent-text`、`test:custom-api-transport`（24）、`test:image-generation-metadata`（13）、`test:ipc-registration`（141/138/3）、`test:image-stream-preview`（30）、`test:project-io`、`test:workspace-glass-ui`（155）、`typecheck`、相关 CJS 语法检查、`git diff --check` 与 Harness 10 项结构检查均退出 0。规格合同实际覆盖 `3:4 + 2K → request 1024x1536 / delivery 1536x2048` 和 `16:9 + 4K → request 1536x1024 / delivery 3840x2160`，并验证模型冲突参数被覆盖、上游 Prompt 含交付规格、成果保留原始 Prompt；项目 IO 证明挂起任务的 `3:4 / 2K` 经保存和重启仍保持。
-- 隔离 `aidebug:ask-user` 报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-14T08-59-46-927Z/report.json) 中全部 10 项功能 checks 为 true，新增 `frameContractSurvivesContinuation:true`；实际观察到 composer、pending 与 resumed frame 均为 `1:1 / 1K`，提示词中的 `3:4` 未覆盖按钮值。整套命令仍退出 1，未描述为整体通过：既有 `ask-user-structured-options` 概览把节点 B 缩到约 2 px 可见宽度，触发 `visual-area-too-small`，最终场景因此记录聚合 suite failure；其余目标场景状态、溢出和功能断言通过。
+- 隔离 `aidebug:ask-user` 报告 [report.json] 中全部 10 项功能 checks 为 true，新增 `frameContractSurvivesContinuation:true`；实际观察到 composer、pending 与 resumed frame 均为 `1:1 / 1K`，提示词中的 `3:4` 未覆盖按钮值。整套命令仍退出 1，未描述为整体通过：既有 `ask-user-structured-options` 概览把节点 B 缩到约 2 px 可见宽度，触发 `visual-area-too-small`，最终场景因此记录聚合 suite failure；其余目标场景状态、溢出和功能断言通过。
 - 补丁后的最终 `pnpm.cmd build` 退出 0，Vite 转换 1666 modules、7.64 s，仅有既有大 chunk advisory。
 - 获得授权后，固定命令 `pnpm.cmd package:win:variants` 退出 0，包含 `test:access-variant`、安装器资源生成、两次 production build（7.71 s、7.88 s）和双 Electron/NSIS/品牌安装器封装，`bundleEnforced:false`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,960,576 bytes（167.81 MiB），2026-08-14 17:08:56 +08:00，SHA-256 `FEAF4D033C6E2B0BDD57B2EB0A9FE65311D3E9C6FF642039B950662B3215FC2A`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,964,160 bytes（167.81 MiB），2026-08-14 17:10:06 +08:00，SHA-256 `17CE9B3AB71CE3E9C3A2ECF903B0D2C23FABDE7863D92C0C70B46408CA260130`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,960,576 bytes（167.81 MiB），2026-08-14 17:08:56 +08:00，SHA-256 `FEAF4D033C6E2B0BDD57B2EB0A9FE65311D3E9C6FF642039B950662B3215FC2A`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,964,160 bytes（167.81 MiB），2026-08-14 17:10:06 +08:00，SHA-256 `17CE9B3AB71CE3E9C3A2ECF903B0D2C23FABDE7863D92C0C70B46408CA260130`。
 - 未调用真实图片/视频模型或 Seedance，代码未提交或推送；未执行正式 Bundle/发布验收、Windows 数字签名验证或真实安装/卸载 smoke。
 
 ## 成果图片生成参数展示核验（2026-08-14）
 
 - `runtime/image-generation-metadata.cjs` 与 `src/image-generation-metadata.ts` 分别持有 Main/Runtime 白名单元数据和 Renderer 展示逻辑；Images/Responses 每个最终图片保留独立 `actualParams`，Electron Main/Agent 落盘 `ImageAsset.generation v1`。最终宽高、比例和文件格式来自受管文件解码；旧生成图可使用节点请求快照，本地导入不继承默认生图参数。
 - 本轮复跑 `test:image-generation-metadata`（13 cases）、`test:custom-api-transport`（24）、`test:workspace-glass-ui`（155）、`test:image-stream-preview`（30）、`test:ipc-registration`（141/138/3）与 `typecheck` 均退出 0。此前同一工作树的图片容器、布局、普通/PSD 导出、Automation 等 Goal 必需专项也均已通过；未调用真实模型。
-- 参数面板的隔离 Electron 截图 [1280](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-14T07-27-05-879Z/standard-node-editor-space-1280.png) 与 [884](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-14T07-27-05-879Z/standard-node-editor-space-min-884.png) 人工复核无重叠、裁切或溢出，目标探针均为 `generationPanelOk:true`，同时观察到响应与成图来源。
-- 完整 `aidebug:image-collection` 最新报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-14T07-37-55-904Z/report.json) 仍退出 1，未描述为整套通过：9 个可见场景均为 `stateIssues=0`、`overflow=0`、`captureIssues=0`，19 个图片组操作步骤通过；唯一产品场景失败是既有首图 A 在 3 秒探针窗口内 `visibility-timeout`，最终节点和截图实际可见，后续 B/C/D/F 顺序通过。该失败不属于参数面板，但仍作为未收口边界保留。
+- 参数面板的隔离 Electron 截图 [1280] 与 [884] 人工复核无重叠、裁切或溢出，目标探针均为 `generationPanelOk:true`，同时观察到响应与成图来源。
+- 完整 `aidebug:image-collection` 最新报告 [report.json] 仍退出 1，未描述为整套通过：9 个可见场景均为 `stateIssues=0`、`overflow=0`、`captureIssues=0`，19 个图片组操作步骤通过；唯一产品场景失败是既有首图 A 在 3 秒探针窗口内 `visibility-timeout`，最终节点和截图实际可见，后续 B/C/D/F 顺序通过。该失败不属于参数面板，但仍作为未收口边界保留。
 - 独立 `pnpm.cmd build` 退出 0，Vite 转换 1666 modules、8.77 s，仅有既有大 chunk advisory；沙箱内首次 `corepack pnpm run build` 因无权写 `node_modules/.vite-temp` 返回 EPERM，获批后在沙箱外同一生产构建成功。
 - `pnpm.cmd package:win:variants` 退出 0，包含 `test:access-variant`、安装器资源、两次 production build（7.94 s、7.45 s）、两个 Electron/NSIS 内核与品牌安装器，`bundleEnforced:false`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,959,552 bytes（167.81 MiB），2026-08-14 16:00:26 +08:00，SHA-256 `528CF5EB71F625A069574EB2F903B45EE0A32C132A82F2732DBA620B844DB404`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,963,136 bytes（167.81 MiB），2026-08-14 16:01:29 +08:00，SHA-256 `67222A0BCFCF91FC52068C359CC27B15EA42B88C9D5AA7DB0E310CE21B9C414D`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,959,552 bytes（167.81 MiB），2026-08-14 16:00:26 +08:00，SHA-256 `528CF5EB71F625A069574EB2F903B45EE0A32C132A82F2732DBA620B844DB404`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,963,136 bytes（167.81 MiB），2026-08-14 16:01:29 +08:00，SHA-256 `67222A0BCFCF91FC52068C359CC27B15EA42B88C9D5AA7DB0E310CE21B9C414D`。
 - 本轮未执行正式 Bundle/签名/真实安装卸载验收，未调用真实图片/视频模型或 Seedance，代码未提交或推送。
 
 ## 项目迁移与导出核验（2026-08-14）
@@ -407,18 +407,18 @@
 - 项目根与迁移专项通过：`test:project-data-migration`（41 cases，包含空间预检、SHA-256、索引回滚、项目 Agent 状态迁移与二次确认清理）、`test:project-root-policy`（19）、`test:project-save-coordinator`（21）、`test:agent-run-control`、`test:goal-task-scope`、`test:aidebug-isolation` 和 `typecheck`。`test:aidebug-isolation` 首次因沙箱拒绝写 `.diagnostics` 失败，获得授权后按同一命令通过；这次失败不属于产品逻辑。
 - 图片与导出专项通过：`test:image-container`（12）、`test:image-layout`（14）、`test:image-collection-mutation`（4）、`test:image-export`、`test:psd-export`、`test:image-collection-export`、`test:image-stream-preview`（30）、`test:workspace-glass-ui`（149）、`test:automation-service` 和 `test:ipc-registration`（141/138/3）。
 - 对话模型独立密钥专项通过：`test:agent-model-binding`（4）、`test:settings-secret-store`、`test:settings-persistence`（124）、`test:settings-lazy-load`（67）、`test:model-catalog`、`test:custom-api-transport`（23）和 `test:agent-text`。
-- 隔离 `aidebug:image-collection` 最终报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-14T03-54-29-294Z/report.json) 为 9 scenes、0 failures；其中首次 CDP 探针超时但产品仍响应，第二次发现并修复 884 px 项目操作区 4 px 横向溢出，最终复跑通过。
-- 隔离 `aidebug:isolation` 报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-isolation-gui-2026-08-14T03-59-42-933Z/report.json) 证明临时 Session 只写隔离项目、仓库配置不变。
+- 隔离 `aidebug:image-collection` 最终报告 [report.json] 为 9 scenes、0 failures；其中首次 CDP 探针超时但产品仍响应，第二次发现并修复 884 px 项目操作区 4 px 横向溢出，最终复跑通过。
+- 隔离 `aidebug:isolation` 报告 [report.json] 证明临时 Session 只写隔离项目、仓库配置不变。
 - 最终 `typecheck` 退出 0；独立 production build 退出 0，Vite 转换 1665 modules、12.29 s 完成，仅有既有大 chunk advisory。首次沙箱内 build 因 Vite 无权写 `node_modules/.vite-temp` 返回 EPERM，获批后同一命令通过。
 - `package:win:variants` 退出 0，内含 `test:access-variant`、安装器资源、两次 production build（8.65 s、8.27 s）、两个 Electron/NSIS 内核与品牌安装器，`bundleEnforced: false`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,955,456 bytes，2026-08-14 12:26:52 +08:00，SHA-256 `063039857E54C5ABFBEC677C25F74F9551A11906A860E20C4884C8E8BFCD8CE0`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,955,456 bytes，2026-08-14 12:28:01 +08:00，SHA-256 `C2AFEC28A55B9C9AE4763D5697E96F363700B1E03C2E77670FF860B766CBBEF0`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,955,456 bytes，2026-08-14 12:26:52 +08:00，SHA-256 `063039857E54C5ABFBEC677C25F74F9551A11906A860E20C4884C8E8BFCD8CE0`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,955,456 bytes，2026-08-14 12:28:01 +08:00，SHA-256 `C2AFEC28A55B9C9AE4763D5697E96F363700B1E03C2E77670FF860B766CBBEF0`。公开 `release/` 中不存在当前版本旧命名 `naimage-Setup/Core-1.0.9`。
 
 ## 当前 Goal 核验（2026-08-12）
 
 - 本地 mock 专项通过：`test:agent-model-binding`（4 cases）、`test:settings-persistence`（124 cases）、`test:settings-secret-store`、`test:custom-api-transport`（23 cases）、`test:model-catalog`、`test:settings-lazy-load`（67 cases）、`test:access-variant`、`test:ipc-registration`（137/134/3）、`test:agent-text`、`typecheck` 和相关 Node 语法检查。
-- 隔离 Glass GUI [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/glass-workspace-2026-08-12T03-54-44-185Z/report.json) 为 `ok: true`、29 checks、35 screenshots、0 应用级 console error、0 生成网络请求，并完成真实 Electron 重启。
-- Agent 文本 UI [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/agent-text-ui-2026-08-12T04-03-40-595Z/report.json) 中，逐模型弹窗在 `884×720` 的容纳、焦点陷阱和 Arrow/Home/End roving Tab 均通过；整套命令仍退出 1，只剩两个与本 Goal 无关的既有动效断言。通用 `aidebug:gui` 也因已知 CDP `Promise was collected` / Renderer `Illegal invocation` 退出 1，失败记录保留在 `.diagnostics/electron/aidebug-2026-08-12T03-48-59-238Z`。
+- 隔离 Glass GUI [report.json] 为 `ok: true`、29 checks、35 screenshots、0 应用级 console error、0 生成网络请求，并完成真实 Electron 重启。
+- Agent 文本 UI [report.json] 中，逐模型弹窗在 `884×720` 的容纳、焦点陷阱和 Arrow/Home/End roving Tab 均通过；整套命令仍退出 1，只剩两个与本 Goal 无关的既有动效断言。通用 `aidebug:gui` 也因已知 CDP `Promise was collected` / Renderer `Illegal invocation` 退出 1，失败记录保留在 `.diagnostics/electron/aidebug-2026-08-12T03-48-59-238Z`。
 - 最终 `corepack pnpm run build` 退出 0：Vite 转换 1665 modules，7.89 s 完成，仅有既有大 chunk advisory。本轮未打包 EXE、未调用真实模型、未运行全量或正式发布验收，代码未提交。
 
 ## 多选图片容器拖动核验（2026-08-12）
@@ -433,18 +433,18 @@
 - 真实“项目 4”只读验证确认，节点 C 的 42 条重复资产/41 个 collection item 可收敛为 1/1；节点 D 的 26 条重复资产可收敛为 1 个成功资产，同时保留第 2 个真实失败槽位。连续两次归一化结果一致，源 `session.json` 的内容、大小和修改时间未变化。
 - `test:project-session-merge`（87 cases）、`test:project-save-coordinator`（18）、`test:project-session-dual-renderer`（5 个双窗口场景）、`test:node-mutation-journal`（22）、`test:project-io`、`test:image-container`（12）、`test:image-layout`（14）、`test:image-collection-mutation`（4）、`test:aidebug-isolation` 与 `typecheck` 均退出 0；隔离报告为 `.diagnostics/electron/aidebug-isolation-2026-08-12T07-45-04-110Z/report.json`。
 - 独立 `corepack pnpm run build` 退出 0，Vite 转换 1665 modules、7.08 s 完成；文档收口后的最终复跑同样退出 0，1665 modules、6.99 s。两次均仅有既有大 chunk advisory；`corepack pnpm run package:win:variants` 退出 0，内含两次 production build（7.92 s、15.02 s）及两个 Electron/NSIS 变体，`bundleEnforced: false`。
-- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,943,680 bytes，2026-08-12 16:09:44 +08:00，SHA-256 `7012D3F6A3D9C339824724DA25E7CE9065399711FE1BB9D76229CFB11906896E`。
-- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,943,680 bytes，2026-08-12 16:11:00 +08:00，SHA-256 `6B1926F1CE82CC8A50DEFCF3C55C1AF7DF13D9C17D9E146302616347907006C0`。
+- [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,943,680 bytes，2026-08-12 16:09:44 +08:00，SHA-256 `7012D3F6A3D9C339824724DA25E7CE9065399711FE1BB9D76229CFB11906896E`。
+- [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,943,680 bytes，2026-08-12 16:11:00 +08:00，SHA-256 `6B1926F1CE82CC8A50DEFCF3C55C1AF7DF13D9C17D9E146302616347907006C0`。
 - 未直接清理真实项目，未调用真实图片/视频模型或 Seedance，未执行正式 Bundle/签名/真实安装卸载验收，代码未提交。
 
 ## 阶段 13 本轮核验（2026-08-11）
 
 - 图片组 mutation/export、普通图片导出、PSD、流式查看器、automation、IPC、Glass UI、Agent 文本与类型检查均通过：`test:image-collection-mutation`（4 cases）、`test:image-collection-export`、`test:image-container`（12）、`test:image-layout`（14）、`test:image-export`（PNG/JPEG/WebP/AVIF/TIFF，普通/PSD 隔离为 true）、`test:psd-export`、`test:image-stream-preview`（30）、`test:automation-service`、`test:ipc-registration`（137/134/3）、`test:workspace-glass-ui`（142）、`test:agent-text`、`typecheck`。
-- 真实隔离 AIDebug：`aidebug:image-collection` 报告 [summary.md](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/aidebug-2026-08-11T06-06-17-278Z/summary.md) 为 `ok: true`、9 scenes、0 failures；`aidebug:glass-workspace` 报告 [report.json](/E:/019创业项目/nimage/naimage-studio/.diagnostics/electron/glass-workspace-2026-08-11T06-08-40-560Z/report.json) 为 `ok: true`、29 checks、35 screenshots、0 console errors，最小窗口 `884×640`，真实重启通过，未使用生图网络。
+- 真实隔离 AIDebug：`aidebug:image-collection` 报告 [summary.md] 为 `ok: true`、9 scenes、0 failures；`aidebug:glass-workspace` 报告 [report.json] 为 `ok: true`、29 checks、35 screenshots、0 console errors，最小窗口 `884×640`，真实重启通过，未使用生图网络。
 - 最终 `corepack pnpm run build` 及 `corepack pnpm run package:win:variants` 均退出 0；Vite 转换 1665 modules，构建仅有大 chunk advisory。打包脚本报告 `bundleEnforced: false`，公开目录中当前版本旧命名 `naimage-Setup-1.0.9*`/`naimage-Core-1.0.9*` 均不存在。
 - 最终测试安装包（PowerShell 独立 `Get-FileHash` 核验）：
-  - [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：175,941,120 bytes，2026-08-11 18:04:34 +08:00，SHA-256 `753F135BE1EB8756CF3C584CAF6E0BE67016A9E140E9ACDB0A022B1EA41B1BB6`。
-  - [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe](/E:/019创业项目/nimage/naimage-studio/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：175,942,144 bytes，2026-08-11 18:05:36 +08:00，SHA-256 `559A71F0E14AA53B6949D55AA98E78C08926608266B6D89B0C12F1BF4DB5A083`。
+  - [SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe]：175,941,120 bytes，2026-08-11 18:04:34 +08:00，SHA-256 `753F135BE1EB8756CF3C584CAF6E0BE67016A9E140E9ACDB0A022B1EA41B1BB6`。
+  - [SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe]：175,942,144 bytes，2026-08-11 18:05:36 +08:00，SHA-256 `559A71F0E14AA53B6949D55AA98E78C08926608266B6D89B0C12F1BF4DB5A083`。
 - 本轮未做正式 Bundle/发布验收、Windows 数字签名验证、真实安装/卸载 smoke；未调用真实图片/视频模型、Seedance 或付费生图。代码未提交。
 
 ## 完成标准

@@ -3,6 +3,22 @@
 SparkAI WorkSpace 是独立维护的 Electron + React 桌面 AI 视觉工作台，在同一项目、无限画布和单一 Agent Runtime 中提供通用、电商、社媒与科研四种工作台。项目 Agent 是唯一智能操作入口，可停靠或打开为独立窗口；画布只展示图片、视频、图片组、科研成果、需求节点及其来源关系，不把内部计划和工具步骤暴露成工作流节点。`image_gen` 是唯一图片执行工具，默认使用 `gpt-image-2`，支持文字/参考图生图、批量生成、元素替换、多款、分层 PNG、AI 抠图和蒙版重绘。
 外部图片和文件夹可直接拖入：拖到聊天区域会加入参考图容器，拖到画布会复制进当前项目图片库并归入可视图片容器；用户原始文件不会被修改。
 
+## 给第一次使用的人
+
+最短路径是：新建项目 → 导入或拖入图片 → 选中要处理的图片 → 在右侧 Agent 用自然语言描述结果 → 检查生成图片组和来源关系 → 从查看器或右键菜单导出。选中图片会自动成为当前 Agent 上下文；需要控制角色时，在素材栏把图片标成“原图”或“参考图”。
+
+Agent 会根据请求决定是否读取本地图片、检索公开资料或调用 `image_gen`。工具时间线会显示正在执行的动作，生成结果会作为新的画布成果保存，原图不会被覆盖。发送请求可能产生你配置的 Base URL、中转站或模型提供商费用，正式发送前请确认素材、提示词和账户额度。
+
+面向用户的完整教程：
+
+- [第一次让 Agent 完成一张图](./docs/tutorials/01-first-agent-image.md)
+- [编辑、批量、多款与可复用需求](./docs/tutorials/02-edit-and-reuse-results.md)
+- [用本地 CLI/MCP 控制 Agent](./docs/tutorials/03-automation-cli.md)
+- [电商、社媒与科研工作台示例](./docs/tutorials/04-workspace-recipes.md)
+- [隐私与发布前检查清单](./docs/PRIVACY_AND_PUBLISHING.md)
+
+如果只想在软件里查看说明，打开“帮助与政策”即可；其中的“快速开始”“AI 示例教学”“使用帮助”和“隐私政策”与这些文档保持同一套边界。
+
 ## 安装与发布
 
 - 发布项目/GitHub Release 展示名固定为 `SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`。`naimage-studio`、App ID、协议、CLI、用户数据目录和 Restart ASAR 的 `naimage-*` 前缀是升级兼容标识，不随展示名改变。

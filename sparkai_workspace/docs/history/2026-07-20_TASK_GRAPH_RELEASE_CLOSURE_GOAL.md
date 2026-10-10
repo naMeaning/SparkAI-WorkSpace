@@ -455,7 +455,7 @@ Agent 收到可行动的工具返回后自行决定继续调用、调整提示�
   - Setup：`E:\项目\iiimage-studio\release\iiimage-Studio-Setup-1.0.3-x64.exe`，`113,210,880 bytes`，SHA-256 `f98407a4f6607da35851977cdb2d4466992b34d85267768d294f773d0d46d5c2`；
   - Restart ASAR：`E:\项目\iiimage-studio\release\iiimage-Studio-Restart-Update-1.0.3-x64.asar`，`45,892,810 bytes`，SHA-256 `aa136758104bb8c7c433d16022e08b49e66e17d4ae2215237a99b8744fb81de5`；
   - Manifest：`E:\项目\iiimage-studio\release\desktop-release.json`，SHA-256 `8c83b2e9716f247b91e00389b5be0ed2424bfa19ba64916181ff37f3f89ff597`，签名验证通过；
-  - 桌面交付副本：`C:\Users\29488\Desktop\iiimage-Studio-Setup-1.0.3-x64.exe`，哈希与正式 Setup 完全一致。
+  - 桌面交付副本：`受控 Windows 交付副本`，哈希与正式 Setup 完全一致。
 - 客户端本地冻结已经完成，但总 Goal 尚未结束：Studio 与 CRM 仍需提交/推送到可信 Forge，服务器需部署 1.0.3 制品与 Manifest，并完成官网登录下载、验证码、防打、Telemetry、在线更新和真实客户端升级的生产 E2E。
 
 ## 14. 客户端冻结后的发布任务图

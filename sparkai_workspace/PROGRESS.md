@@ -38,7 +38,7 @@
 - 已完成：修复模型池归一化、模型目录分类和缓存指纹对 `imageModelConfigs` 的遗漏；配置弹窗增加显式“获取模型”；Main 的自定义和账号模式均按全局/逐模型连接聚合 `/v1/models`，错误时保留旧目录并写入脱敏状态，缓存不含 Key/Cookie。临时 Electron 自检导出的 `newApiModelSettings` 已移除，运行时 IPC 依赖仍保持 Main 内部注入。
 - 影响边界：设置 persistence/migration、Main 模型目录缓存与 IPC、图片配置、Agent 对话模型配置；保持外部 New API 和 Extension 独立。
 - 证据：`test:model-ux`（含 model catalog）、`test:settings-persistence`（127 cases）、`test:settings-lazy-load`（67 cases）、`typecheck`、`node --check` 和 `corepack pnpm run build`（1678 modules）通过；隔离 Mock 验证对话与 Grok 图片模型进入正确目录。本轮从 CCS 的 Grokbuild Sub2API 配置只读 `/v1/models` 返回 HTTP 200/14 个模型并含 `grok-imagine-image-2.0`，同一 CCS 的 Codex Sub2API 配置返回 27 个对话模型；未调用生图/视频。
-- 清理：已删除本机 Mock 目录 `C:\Users\Administrator\AppData\Local\Temp\sparkai-model-config-22124`，未留下工作树未跟踪文件。
+- 清理：已删除本机 Mock 目录 `本机临时 Mock 目录`，未留下工作树未跟踪文件。
 - 状态：partially verified；真实 NewAPI `/v1/models`、正式安装和发布仍未验证。
 
 ## 2026-10-09 推送与 GitHub Release：in progress
@@ -74,7 +74,7 @@
 
 - 5c0b3f8 从头源码验证前 103 项通过，第 104 项 image import GUI 失败；报告 verify-2026-10-09T05-43-25-522Z 源码稳定。导入/取消/响应性/资产身份/附件与混合角色均通过；文件夹断言仍只读旧 sourceAssets，而实际 canonical materials 完整保留两 occurrence。初步动画归因被松开前样式快照否定，动画改动已撤回；实际 transform 为有效位移矩阵、left/top 未变化，系统减少动态效果按现有最终样式将 will-change 设为 auto。AIDebug 断言遵守该策略，保留 transform 位移和结束后清理断言；专项与 build 待验证，0 真实请求。
 
-- 正式源码门禁的 `image import` 暴露 Windows 8.3 临时路径误判：`C:\Users\ADMINI~1` 经 `realpath` 展开后被当作符号链接，主进程又把规范化后的输出路径判成越界。修正 `image-import-worker.cjs` 的逐级 `lstat` 链接检测和 `image-import.cjs` 的已存在路径规范比较；真实联接/路径逃逸仍拒绝。隔离 selftest 已通过：506 个入口、502 个唯一资产、来源/输出联接保护、16 次快速导入及超时/关闭清理均通过。因涉及产品代码，后续正式验证必须从头运行；Release 仍保持 incomplete。
+- 正式源码门禁的 `image import` 暴露 Windows 8.3 临时路径误判：`Windows 8.3 临时路径` 经 `realpath` 展开后被当作符号链接，主进程又把规范化后的输出路径判成越界。修正 `image-import-worker.cjs` 的逐级 `lstat` 链接检测和 `image-import.cjs` 的已存在路径规范比较；真实联接/路径逃逸仍拒绝。隔离 selftest 已通过：506 个入口、502 个唯一资产、来源/输出联接保护、16 次快速导入及超时/关闭清理均通过。因涉及产品代码，后续正式验证必须从头运行；Release 仍保持 incomplete。
 - 本轮软件内隔离验证通过：`test:agent-text` 验证公开 parentId 指向第二素材、上游 editImage/参考图和最终来源 provenance；`test:view-image`、`test:goal-runtime`（43 cases）通过。`aidebug:ask-user` 报告 `.diagnostics/electron/aidebug-2026-10-09T04-22-32-477Z/report.json` 为 10/10 checks、5 scenes、0 failures；L/M 各有独立 N/O batch-result，冻结 hash 一致且来源 binding 正确，最终截图已人工查看。修正后 production build 退出 0（21.01s）。0 真实模型请求，0 新 Windows 账户。
 - 发布准备文档已补充多素材来源修复与软件测试边界，地图 v84；10 文件凭据扫描 0 findings、diff check 通过。修正后 `test:bundle` 退出 0，CSS 264,672 B、plugin JS 86,177 B 均在硬门槛内，无 AIDebug 泄漏；core/dist 仅保留既有 advisory。待冻结提交并推送；完整正式发布仍受干净 Windows 安装环境限制，不使用旧 EXE/旧报告替代，下一次 release:final 需从头验证。冻结后的实际提交/编排状态只写忽略目录 `.diagnostics/release/formal-publish-status.json`。
 - 续跑第 52 项失败原因已确认是测试路径表示差异；`corepack pnpm run test:image-collection-export` 在修正后通过。变更仅为 `scripts/image-collection-export-selftest.cjs` 的实际路径 canonicalization；提交后允许从旧稳定报告的 `image collection export` 门禁续跑，后续门禁仍全部真实执行。
@@ -452,8 +452,8 @@ Method: 后续先实现用户明确功能，只运行受改动直接影响的专
 
 ## 历史制品（2026-09-28）
 
-- [Unrestricted EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`。
-- [SparkAPI EXE](/E:/003Projects/SparkAI-WorkSpace/sparkai_workspace/release/SparkAI-WorkSpace-SparkAPI-Setup-1.0.9-x64.exe)：109,803,520 bytes，`MZ`，SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`。
+- [Unrestricted EXE]：109,803,520 bytes，`MZ`，SHA-256 `BA86020B96C12CA0632DD14D9881EC63B87B6993CE453EA9A3066210F8B1BA64`。
+- [SparkAPI EXE]：109,803,520 bytes，`MZ`，SHA-256 `3E13961DE6A6E754693516049455BD0DF1DAA718F1BD1C7B9FD17FD572D3EE22`。
 - 两个 EXE 的 `Authenticode` 状态均为 `NotSigned`；这是开发构建，不是正式发布制品。
 
 ## 未验证边界

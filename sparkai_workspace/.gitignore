@@ -17,3 +17,12 @@ showcase/**/*.png
 *.tmp
 *.local
 *.tsbuildinfo
+
+# Local credentials, environment files and signing material.
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+config/*.pem
