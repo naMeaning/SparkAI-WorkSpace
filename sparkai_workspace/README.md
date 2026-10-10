@@ -1,77 +1,140 @@
 # SparkAI WorkSpace
 
-SparkAI WorkSpace 是独立维护的 Electron + React 桌面 AI 视觉工作台，在同一项目、无限画布和单一 Agent Runtime 中提供通用、电商、社媒与科研四种工作台。项目 Agent 是唯一智能操作入口，可停靠或打开为独立窗口；画布只展示图片、视频、图片组、科研成果、需求节点及其来源关系，不把内部计划和工具步骤暴露成工作流节点。`image_gen` 是唯一图片执行工具，默认使用 `gpt-image-2`，支持文字/参考图生图、批量生成、元素替换、多款、分层 PNG、AI 抠图和蒙版重绘。
-外部图片和文件夹可直接拖入：拖到聊天区域会加入参考图容器，拖到画布会复制进当前项目图片库并归入可视图片容器；用户原始文件不会被修改。
+SparkAI WorkSpace 是一个以 Agent 为入口的桌面 AI 视觉工作台。它把项目文件、无限画布、图片成果和对话放在同一个工作空间里，让你用自然语言完成生图、编辑、批量出图、分层、抠图和重绘，并且保留每个成果的来源关系。
 
-## 给第一次使用的人
+它适合需要反复看图、改图和复用素材的人：电商套图、社媒内容、科研配图、品牌视觉和日常创意都可以从同一个项目继续推进。
 
-最短路径是：新建项目 → 导入或拖入图片 → 选中要处理的图片 → 在右侧 Agent 用自然语言描述结果 → 检查生成图片组和来源关系 → 从查看器或右键菜单导出。选中图片会自动成为当前 Agent 上下文；需要控制角色时，在素材栏把图片标成“原图”或“参考图”。
+## 先看这几个入口
 
-Agent 会根据请求决定是否读取本地图片、检索公开资料或调用 `image_gen`。工具时间线会显示正在执行的动作，生成结果会作为新的画布成果保存，原图不会被覆盖。发送请求可能产生你配置的 Base URL、中转站或模型提供商费用，正式发送前请确认素材、提示词和账户额度。
+- [下载 1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)
+- [第一次使用教程](./docs/tutorials/01-first-agent-image.md)
+- [全部 tutorials](./docs/tutorials/README.md)
+- [隐私与发布前检查](./docs/PRIVACY_AND_PUBLISHING.md)
+- [完整文档索引](./docs/README.md)
 
-面向用户的完整教程：
+当前公开安装目标是 Windows 10/11 x64。应用内名称为 `SparkAI WorkSpace`，GitHub 项目和 Release 名称为 `SparkAI-WorkSpace`。
 
-- [第一次让 Agent 完成一张图](./docs/tutorials/01-first-agent-image.md)
-- [编辑、批量、多款与可复用需求](./docs/tutorials/02-edit-and-reuse-results.md)
-- [用本地 CLI/MCP 控制 Agent](./docs/tutorials/03-automation-cli.md)
-- [电商、社媒与科研工作台示例](./docs/tutorials/04-workspace-recipes.md)
-- [隐私与发布前检查清单](./docs/PRIVACY_AND_PUBLISHING.md)
+## 它是怎么工作的
 
-如果只想在软件里查看说明，打开“帮助与政策”即可；其中的“快速开始”“AI 示例教学”“使用帮助”和“隐私政策”与这些文档保持同一套边界。
+SparkAI WorkSpace 只有一个项目 Agent 作为智能操作入口。画布负责保存和呈现素材、图片组、视频、需求和成果的关系；它不是需要用户手动连接的工作流节点编辑器。
 
-## 安装与发布
+一次任务通常只有四步：
 
-- 发布项目/GitHub Release 展示名固定为 `SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`。`naimage-studio`、App ID、协议、CLI、用户数据目录和 Restart ASAR 的 `naimage-*` 前缀是升级兼容标识，不随展示名改变。
-- Windows 10/11 x64 公开安装包使用 `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe` 或 `SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`；安装后的主程序为 `SparkAIWorkSpace.exe`。
-- 安装器支持选择当前用户可写路径，并创建带正式图标的桌面与开始菜单快捷方式。
-- 客户端支持更新清单签名校验、断点下载和重启更新；需要重新安装的大版本由软件更新中心下载完整安装包。
-- 当前构建未配置商业代码签名证书，Authenticode 状态为 `NotSigned`；只应从受信发布源获取安装包并核对发布页提供的 SHA-256。
-- 完整安装、卸载、数据迁移和源码发布说明见 [docs/INSTALLATION.md](./docs/INSTALLATION.md)。当前 1.0.9 测试包哈希以安装说明为准；更早版本的制品名和验收事实只保留在 `docs/RELEASE_*.md`。
+1. **准备来源**：新建项目，把图片拖到画布或素材栏。拖入的文件会复制进项目，原始文件不会被改写。
+2. **说明角色**：在素材栏把图片标成“原图”或“参考图”。原图表示要编辑的对象，参考图表示只借鉴风格、颜色、构图或内容。
+3. **描述结果**：在右侧 Agent 说明主体、场景、比例、必须保留的内容和输出数量。选中的图片会自动成为当前上下文。
+4. **检查并导出**：查看 Agent 时间线、图片组和来源关系，确认结果后再从查看器或导出中心保存。
 
-## 当前入口
+Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_gen`。默认图片模型为 `gpt-image-2`；可用模型、质量和费用取决于你配置的服务商。发送前请确认素材、提示词、Base URL 和账户额度。
 
-| 命令 | 作用 |
-| --- | --- |
-| `pnpm run dev` | 启动 Vite 与 Electron 桌面端。 |
-| `pnpm run dev:web` | 仅启动渲染端，地址为 `127.0.0.1:5173`。 |
-| `pnpm run build` | 构建渲染端到 `dist/`。 |
-| `pnpm run package:win` | 构建 dual-access 的正式 Windows x64 NSIS 安装包。 |
-| `pnpm run package:win:variants` | 生成 Unrestricted 与 SparkAPI 两个品牌测试安装包。 |
-| `pnpm run package:smoke` | 验证解压后的正式程序、Preload 桥接、项目 IO、图片、PSD 与语义抠图。 |
-| `pnpm run package:installer-smoke` | 隔离安装、启动验证、检查快捷方式并卸载，确认无安装文件残留。 |
-| `pnpm run aidebug:gui` | 日常快速 GUI 冒烟，仅覆盖主画布宽/窄、Agent 面板和设置抽屉 4 个关键画面。 |
-| `pnpm run aidebug:gui:surface` | 运行较完整的 UI surface 基线；仅在跨页面、全局布局或发布收口时使用。 |
-| `pnpm run aidebug:evidence -- --report=<report.json>` | 独立复核截图哈希、窗口/DPR/缩放、遮挡、素材差异和五层证据，防止断言全绿但视觉不可交付。 |
-| `pnpm run aidebug:gui -- --image-collection-persistence` | 跨两个 Electron 进程验证单图、连续系列、10 图并行、不同提示词图片组、拖出与继续生成。 |
-| `pnpm run aidebug:gui -- --region-redraw-suite` | 验证区域重绘蒙版、Image 2 结果、来源关系和 884px 布局。 |
-| `pnpm run aidebug:gui -- --real-agent-suite --real-agent-tools-only --live-config` | 使用真实 Agent 配置验证主工具边界。 |
-| `pnpm run test:agent-text` | 验证纯文本 Prompt、独立工具 Schema、会话级 FastMemory 与清理隔离。 |
-| `pnpm run test:view-image` | 验证大图观察副本的尺寸/请求体上限，以及 `original` 分辨率语义。 |
-| `pnpm run test:agent-text-ui` | 启动真实 Electron 窗口验证 Prompt/FastMemory 编辑器与窄屏布局。 |
-| `pnpm run test:image-layout` | 验证图片视觉编组不改写成果因果、跨组移动和自动解组。 |
-| `pnpm run test:psd-export` | 验证分层 PNG 导出 PSD 的图层、透明度和合成像素。 |
-| `pnpm run aidebug:human:list` | 列出可连接真实 Agent 的人类化测试套件。 |
-| `pnpm run aidebug:human -- --port=9370 --suite=tool-natural` | 连接已启动的 AIDebug Electron，验证自然语言工具路由和画布闭环。 |
-| `pnpm run maintenance:clean` | 预览可安全清理的历史诊断、旧发布物和开发日志。 |
-| `pnpm run maintenance:clean:apply` | 执行经过路径边界和文档证据保护的工作区清理。 |
+## 五分钟完成第一次任务
 
-## 目录
+### 1. 安装并打开应用
 
-| 路径 | 说明 |
-| --- | --- |
-| `electron-main.cjs` | Electron 主进程、项目文件、远端服务会话和 Agent IPC。 |
-| `agent-runtime.cjs` | Agent Prompt、工具、FastMemory、上下文压缩和运行时。 |
-| `src/` | React 工作台、共享数据、服务端浏览器回退与样式。 |
-| `config/` | 本地设置、登录会话、项目列表和项目缓存。 |
-| `output/` | 生图与本地资产输出。 |
-| `.diagnostics/` | AIDebug 报告、截图和 Electron 日志。 |
+从 [v1.0.9 Release](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 下载与你的账户匹配的安装包：
 
-详细源码职责、生成目录和安全清理规则见 [docs/PROJECT_STRUCTURE.md](./docs/PROJECT_STRUCTURE.md)，全部文档入口见 [docs/README.md](./docs/README.md)。
+- `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`：通用版本，适合自定义 Base URL 或中转服务。
+- `SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`：SparkAPI 账号专用版本。
 
-## 能力边界
+当前公开构建没有商业代码签名证书，Windows 可能显示发布者未知。请只从受信发布页下载，并按同一页面提供的 SHA-256 清单核对文件。完整安装、卸载和升级边界见 [安装说明](./docs/INSTALLATION.md)；1.0.8 及更早版本因为更新签名轮换必须手动安装 1.0.9 完整包。
 
-- 单张正面商品参考图只能支持可见结构范围内的多角度推断，不能证明真实背面结构；需要高保真背面或侧面时必须补充对应参考图。
-- PSD 已通过图层、透明度、合成像素与回读自测，但当前测试机没有安装 Adobe Photoshop，因此不把内部解析验证表述为 Photoshop GUI 实机验证。
-- 图片服务与 Agent 依赖远端模型渠道；本地失败恢复可以处理瞬时错误，但无法消除上游账号池或服务不可用。
+### 2. 创建项目并导入素材
 
-产品意图、历史方向和明确废弃项见 [PRODUCT_INTENT.md](./PRODUCT_INTENT.md)。后续编码约束见 [AGENTS.md](./AGENTS.md)。最终测试矩阵见 [docs/TEST_MATRIX_1.0.0.md](./docs/TEST_MATRIX_1.0.0.md)。
+新建项目时选择一个你有权限管理的目录。把图片拖到画布，或者从素材栏选择文件。需要文字生图时可以跳过导入。
+
+### 3. 发送一条清楚的请求
+
+选中图片，在右侧 Agent 输入：
+
+```text
+保留原图中的白色陶瓷杯、杯口形状和印刷文字，放到明亮的早餐桌面上；
+画面干净，右侧留出文案空间，不添加新的品牌标志，输出 1 张 1:1 商品主图。
+```
+
+没有原图时可以直接写：
+
+```text
+生成一张 1:1 的极简黑色耳机产品海报，深灰背景，柔和侧光，主体居中；
+不要出现品牌名称、二维码或多张拼贴。
+```
+
+点击“发送给 Agent”，或按 `Ctrl/Cmd + Enter`。输入 `/help`、`/status`、`/config` 可以查看本地帮助、运行状态和图片配置。
+
+### 4. 复核结果
+
+生成结果会作为新的画布成果保存，原图仍然保留。先确认主体、文字和来源关系，再导出或继续编辑。一次请求可能把提示词、选定图片和参数发送到你配置的上游服务，也可能产生费用；失败后先看时间线和脱敏状态，不要连续重复发送。
+
+## 你可以让 Agent 做什么
+
+| 目标 | 可以这样说 | 需要检查 |
+| --- | --- | --- |
+| 文字生图 | “生成一张 1:1 的极简产品主图……” | 主体、比例、文字和品牌元素 |
+| 继续编辑 | “保留主体结构，只把背景换成……” | 原图是否选对，未要求改变的内容是否保留 |
+| 替换元素 | “把杯子换成黑色，其他保持不变” | 替换范围和来源关系 |
+| 多款方案 | “基于当前原图生成 4 张独立风格方案” | 是否得到 4 张独立图片，而不是一张拼贴 |
+| 分层 PNG | “拆成背景、主体、文字和阴影图层” | 图层透明度、合成预览和输出尺寸 |
+| AI 抠图 | “提取杯子主体，背景透明” | 选区、透明边缘和导出格式 |
+| AI 重绘 | “把选区里的天空改成日落” | 蒙版范围和原图保留情况 |
+
+底部的直接生图入口适合已经确定提示词和参数的单次请求；需要读取画布、连续修改或复用上下文时，使用右侧 Agent。
+
+## Tutorials
+
+按这个顺序阅读，能从一次简单生图走到可复用工作流：
+
+| 教程 | 适合谁 | 你会完成什么 |
+| --- | --- | --- |
+| [01 · 第一次让 Agent 完成一张图](./docs/tutorials/01-first-agent-image.md) | 第一次使用 | 导入素材、区分原图/参考图、生成并导出 |
+| [02 · 编辑、批量、多款与可复用需求](./docs/tutorials/02-edit-and-reuse-results.md) | 已完成第一次生成 | 继续编辑、批量 Goal、保存需求节点 |
+| [03 · 用本地 CLI/MCP 控制 Agent](./docs/tutorials/03-automation-cli.md) | 需要脚本或 MCP | 读取状态、提交任务、处理版本冲突 |
+| [04 · 电商、社媒与科研工作台示例](./docs/tutorials/04-workspace-recipes.md) | 有明确业务场景 | 从计划到执行，复用四种工作台 |
+
+教程示例都使用虚构提示词和占位符。请不要把真实 API Key、Cookie、License 码、客户资料、私人图片或本机绝对路径替换进公开文档、Issue、截图和日志。
+
+## 四种工作台
+
+- **通用创作**：从空白画布开始探索、改图和整理成果。
+- **电商创作**：管理商品、变体和 SKU，按平台规格制作套图并导出。
+- **社媒创作**：先生成结构化卡片/镜头计划，再确认执行图片或视频任务。
+- **科研绘图**：导入受管数据，创建图形计划，执行项目内脚本并导出可复核图形。
+
+四个工作台共享同一个项目、画布、会话和 Agent。切换工作台不会复制画布，也不会因为创建计划或连线就自动调用模型。
+
+## 隐私、费用与发布安全
+
+项目图片、画布、会话和导出结果保存在你选择的项目目录。拖入外部文件时应用复制文件，不修改源文件。Agent 请求中的提示词、选定图片和参数会按你的配置发送到对应服务商；请在使用前确认对方的数据处理政策和费用。
+
+公开仓库不应包含以下内容：
+
+- API Key、Bearer Token、Cookie、License 码、更新私钥和签名 URL；
+- `config/`、`.diagnostics/`、`output/`、`release/`、`dist/`、`.dev-logs/`、`node_modules/` 中的本地数据；
+- 客户资料、私人图片、完整提示词、绝对路径和未脱敏截图。
+
+提交前先看 [隐私与发布前检查](./docs/PRIVACY_AND_PUBLISHING.md)，再执行 `git status`、`git diff --cached --check` 和敏感信息扫描。自动化 CLI/MCP 也只应记录脱敏状态，不要把 `ArgsJson` 原文、连接文件或桥接 Token 写进日志。
+
+## 已知边界
+
+- 单张正面商品图只能支持可见结构范围内的角度推断，不能证明真实背面结构；需要高保真背面或侧面时请补充对应参考图。
+- 计划、需求节点和画布连线用于组织上下文，不会替用户自动执行；批量、视频和平台导出都需要明确确认。
+- PSD 已通过图层、透明度、合成像素和回读自测；当前验证不等同于安装 Photoshop 后的 GUI 实机验证。
+- 图片服务和 Agent 依赖远端模型渠道；模型能力、可用性、费用和内容政策由服务商决定。
+
+## 开发者入口
+
+桌面端源码位于 `sparkai_workspace/`。Windows 开发环境需要 Node.js `>=22.12.0`、pnpm `>=10.12.1` 和可用的 Electron 构建依赖：
+
+```powershell
+cd sparkai_workspace
+corepack pnpm install
+corepack pnpm run dev
+```
+
+常用检查：
+
+```powershell
+corepack pnpm run typecheck
+corepack pnpm run build
+corepack pnpm run aidebug:gui
+```
+
+发布、安装烟测、上下文地图和源码职责见 [docs/README.md](./docs/README.md)。编码与验证约束见 [AGENTS.md](./AGENTS.md)；产品意图见 [PRODUCT_INTENT.md](./PRODUCT_INTENT.md)。
