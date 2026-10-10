@@ -1,6 +1,10 @@
 # SparkAI WorkSpace 1.0.9 发布说明
 
-候选准备日期：2026-10-09。当前为有 Git 元数据的真实 checkout；正式发布状态以同次 `release:final` 报告和 GitHub 资产核验为准，尚未宣称本候选通过正式门禁。
+正式发布日期：2026-10-10。1.0.9 已由同一次 `release:final` 编排生成并发布；正式状态以报告和远端资产核验为准。
+
+正式证据：`.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json`（`ok:true`，`release:verify` 124/124，production build 1678 modules，Bundle CSS 269,827 B，打包/安装/卸载/完整升级/清单签名门禁通过）；远端核验记录为 `.diagnostics/release/publish-v1.0.9-2026-10-10/remote-assets-verification.json`。
+
+GitHub Release：[v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)（latest、非 draft、非 prerelease），冻结源码 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`。Unrestricted 安装包为 `109,829,632` B，SHA-256 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`；远端 5 个资产的大小和 SHA-256 已逐一核对。
 
 发布命名决策（2026-09-20）：GitHub Release/发布项目展示名使用 `SparkAI-WorkSpace`；应用内展示名继续使用代码中的 `SparkAI WorkSpace`，`naimage-studio` 更新 product、App ID、协议、CLI、数据目录和 Restart ASAR 兼容前缀不变。
 

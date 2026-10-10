@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 文档索引
 
-本次 1.0.9 候选包含生产 CSS 宽度媒体查询保留修复，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留；正式包窄窗口顶栏与素材入口以实际程序冒烟验收。
+当前正式版本为 1.0.9，包含生产 CSS 宽度媒体查询保留修复，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留；正式包窄窗口顶栏与素材入口已通过实际程序冒烟验收。
 
 ## 当前入口
 
@@ -17,7 +17,7 @@
 
 ## 发布基线
 
-2026-10-10：1.0.9 候选追加图片/对话模型目录获取和 Grok 配置保留修复；当前正式发布仍以完整 `release:final` 和远端资产核验为准。
+2026-10-10：1.0.9 已正式发布。完整 `release:final` 报告为 `.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json`，远端资产核验为 `.diagnostics/release/publish-v1.0.9-2026-10-10/remote-assets-verification.json`；Release 位于 [GitHub v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。
 
 - [正式发布清单](./RELEASE_CHECKLIST.md)：每个版本的文档冻结、完整门禁、制品验签、GitHub Release 上传与复核顺序。
 - 发布项目/GitHub Release 展示名：`SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`，`naimage-studio` 更新 product 和 `naimage-*` 兼容标识不变。
@@ -33,11 +33,11 @@
 
 发布说明是对应版本的历史证据，不自动代表当前 `package.json` 版本已经完成同样验证。
 
-2026-10-10 正在准备 1.0.9 正式候选：包含图片 Provider Adapter、画布素材选取、原格式成果、脱敏日志、集中图片配置、共享斜杠命令，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留。原更新私钥丢失，新完整安装包使用新公钥，1.0.8 及更早版本必须手动完整安装；最低更新版本为 1.0.9。配置与备份方法见 [安装说明](./INSTALLATION.md)。
+1.0.9 正式版本包含图片 Provider Adapter、画布素材选取、原格式成果、脱敏日志、集中图片配置、共享斜杠命令，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留。原更新私钥丢失，新完整安装包使用新公钥，1.0.8 及更早版本必须手动完整安装；最低更新版本为 1.0.9。配置与备份方法见 [安装说明](./INSTALLATION.md)。
 
-本仓库有 Git 元数据。此前同名开发 EXE、历史哈希和局部分项验证不能充当本次正式 Release 证据；新制品的大小、哈希和发布状态以同一次 `release:final` 报告及远端核验为准。
+本仓库有 Git 元数据。此前同名开发 EXE、历史哈希和局部分项验证不能充当本次正式 Release 证据；1.0.9 新制品的大小、哈希和发布状态以同一次 `release:final` 报告及远端核验为准。
 
-软件验证使用隔离测试账户与项目数据。根据用户最新边界，不创建本机 Windows 测试账户；正式安装、升级与卸载仍须在干净的 Windows 环境验证，不能改动日常安装来绕过发布保护。
+软件验证使用隔离测试账户与项目数据。根据用户最新边界，不创建本机 Windows 测试账户；1.0.9 正式编排已在隔离 Windows 安装面完成安装、升级与卸载验证，不能用日常安装替代后续版本的发布保护。
 
 ## 历史阶段记录
 

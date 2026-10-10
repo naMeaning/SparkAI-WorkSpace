@@ -1,14 +1,15 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：冻结并发布 SparkAI WorkSpace 1.0.9（2026-10-10，in progress）
+## 当前任务：冻结并发布 SparkAI WorkSpace 1.0.9（2026-10-10，verified）
 
-- 状态：in progress；用户已授权提交、推送、创建 `v1.0.9` tag 和 GitHub Release。目标是用当前源码生成同一次正式编排的 Windows x64 EXE、更新包与完整性清单，并核验远端 Release 资产。
-- 范围：模型目录获取/Grok 配置保留修复、异步画布定位菜单竞态修复、正式 `release:final`、1.0.8→1.0.9 完整安装升级、Unrestricted 正式安装包和 GitHub Release。SparkAPI-only 包只有在明确需要时再发布。
+- 状态：verified/completed；正式制品、完整安装升级、远端 Release 和资产哈希均已由同一次编排核验，后续文档收口不改变冻结 tag 或制品。
+- 范围：模型目录获取/Grok 配置保留修复、异步画布定位菜单竞态修复、正式 `release:final`、1.0.8→1.0.9 完整安装升级、Unrestricted 正式安装包和 GitHub Release。未发布 SparkAPI-only 包。
 - 非目标：不调用真实生图、视频、Seedance 或付费接口；不修改外部 New API/Extension、不触碰日常安装、不提交密钥、用户数据或诊断制品。
-- 授权边界：本轮继续使用隔离 Mock 和只读模型目录证据；Git commit/push/tag/release 已获用户明确授权。新签名私钥仅由正式编排从本地忽略目录读取，不上传。
-- 已验证：`test:agent-text-ui` 155 checks/23 screenshots/0 failures、`typecheck`、`build`（1678 modules）和 `git diff --check` 通过；修复 `focusWorkflowNode` 的异步重定位回调在菜单打开后清除菜单的竞态。
-- 未完成：修复尚未提交；修复后的同次 `release:final`、远端 tag、GitHub Release 和资产哈希尚未验证。
-- 下一步：更新进度记录并提交/推送冻结源码，从头运行 `corepack pnpm run release:final`；只有编排清除 incomplete marker 且源码指纹稳定后才创建 tag/release。
+- 授权边界：Git commit/push/tag/release 已获用户明确授权；新签名私钥仅由正式编排从本地忽略目录读取，不上传。
+- 证据：`.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json` 的 `ok:true`，`release:verify` 124/124 门禁通过，production build 1678 modules，Bundle CSS 269,827 B；打包 smoke、品牌安装/卸载 smoke、1.0.8→1.0.9 完整安装升级、更新清单/签名/helper/SHA-256 均通过。
+- 远端：GitHub Release [v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 为 latest、非 draft、非 prerelease；5 个资产的大小和 SHA-256 与本地报告一致。冻结源码为 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`，`v1.0.9^{}` 指向该提交。
+- 正式 Unrestricted EXE：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，109,829,632 B，SHA-256 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`。
+- 下一步：保持 `v1.0.9` 指向冻结提交；后续功能从新的 Goal 开始，不重新打包本次已发布版本。
 
 ## 已完成实现：保留 Grok 配置并补齐 NewAPI/Sub2API 模型获取（2026-10-10，partially verified）
 

@@ -1,12 +1,13 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：93
+> 地图版本：94
 > 最近同步：2026-10-10
 > 当前模型配置工作已实现：设置恢复/模型池归一化把 `imageModelConfigs` 与 `imageModelBindings` 中的模型一起视为用户已配置模型，避免刷新目录或保存选择时丢失 Grok 图片配置；`naimage:server:models` 是图片/对话目录获取 owner，配置弹窗通过该 IPC 显式刷新；自定义和账号模式对全局/逐模型连接的 NewAPI/Sub2API `/v1/models` 聚合模型与能力。缓存只保存无凭证模型目录与能力信息；临时 Electron 自检导出的 `newApiModelSettings` 已移除，正常 IPC 仍由 Main 内部注入。验证为模型目录/UX、设置持久化/懒加载、typecheck、Node 语法和 production build；CCS Grokbuild Sub2API 只读 `/v1/models` 返回 14 个模型并包含 Grok 图片模型，Codex Sub2API 返回 27 个对话模型，真实 NewAPI 目录仍未验证。
+> 2026-10-10 1.0.9 已正式发布：冻结源码 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`，同一次 `release:final` 的 `release:verify` 124/124、production build 1678 modules、Bundle CSS 269,827 B、打包/安装/卸载/1.0.8→1.0.9 完整升级和签名清单均通过。正式 Unrestricted EXE 为 109,829,632 B，SHA-256 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`；远端 5 个资产已复核，见 `.diagnostics/release/publish-v1.0.9-2026-10-10/remote-assets-verification.json`。
 > 生产候选修复 CSS 压缩链兼容性：`optimizeBundledCss` 将 Vite LightningCSS 的 Level 4 width/height range 归一为 CSSO 5.x 可处理的 min/max 形式，删除仅低于正式 BrowserWindow 最小宽度 884px 的 viewport 媒体块，并用 forceMediaMerge 保持硬 Bundle 门禁；`@container`、height 和 reduced-motion 媒体不删除。`test:production-symbol-compaction` 覆盖单边、双边、container range 与 884px 过滤，生产包需以 884×640 实际顶栏与素材入口冒烟确认响应式规则仍存在。
 > Glass GUI 隔离夹具与既有 Mock token 1/default 对齐，保留不预设 Glass 字段的默认外观验收；884×640 保存后复开增加无脏草稿断言，关闭保护、冷重启持久化和生产设置 owner 不变。拖动验收遵守最终可访问性样式的 OS reduced-motion promotion hint（auto），仍验证非零 transform、坐标基线、真实提交及松手清理。验证入口为 aidebug:glass-workspace。
 > 2026-10-09 Skill GUI 测试同步：`scripts/aidebug-skill-node-suite.mjs` 对主窗口 `.project-agent-steer-mode .glass-select-trigger` 展开真实 listbox，核验选项可见/命中并以 Home/Arrow/Enter 选择；从 owner data-value 读取当前值，reset 后重新展开复读。独立窗 `#steer-mode` 继续读取原生 select。主窗 3 模式、独立窗 7 模式、发送后 auto reset 与视口布局断言保留；UI-only run 不在 Main 中，发送按 stale-run 保护完成真实 Mock Runtime 请求后，再显示不修改 scope mode 的运行夹具复读 reset；独立窗另在复读前验证原生 value=auto。入口 `aidebug:skills`，生产控件/协议不变。
-> 2026-10-09 菜单候选修复：`src/ui/menu-surface.tsx` 的共享键盘焦点 owner 保留 `preventScroll`，只调整当前 `.ui-menu-surface` 的 `scrollTop`，确保 Arrow/Home/End 聚焦项处于菜单 client viewport 内，不滚动画布或文档；现有 `aidebug:menus` 在小窗口分层菜单验证 End 后末项可见及滚动推进。生产交互变化要求重新完整源码验证；尚未完成正式安装/发布。
+> 2026-10-09 菜单候选修复：`src/ui/menu-surface.tsx` 的共享键盘焦点 owner 保留 `preventScroll`，只调整当前 `.ui-menu-surface` 的 `scrollTop`，确保 Arrow/Home/End 聚焦项处于菜单 client viewport 内，不滚动画布或文档；现有 `aidebug:menus` 在小窗口分层菜单验证 End 后末项可见及滚动推进。该变化已包含在 1.0.9 正式源码门禁和发布制品中。
 > 对应桌面版本：1.0.9
 > 适用范围：Windows Electron 客户端、四工作台共享的本地单 Agent runtime、项目文件与发布链路
 

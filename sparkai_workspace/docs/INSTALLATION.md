@@ -22,7 +22,7 @@ Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Se
 
 当前版本没有商业代码签名证书，Windows 可能显示发布者未知。实际发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
-一般自己使用 Unrestricted，自定义中转需要此变体。1.0.9 正式候选正在准备；同名开发包和旧哈希不代表本次 Release。只使用正式发布页的制品与同页完整性清单，发布状态以同次正式编排和远端资产核验为准。
+一般自己使用 Unrestricted，自定义中转需要此变体。1.0.9 已正式发布；同名开发包和旧哈希不代表本次 Release。请只使用 [GitHub v1.0.9 发布页](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)的制品与同页完整性清单。正式 Unrestricted 安装包为 109,829,632 bytes，SHA-256 为 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`。
 
 ## 1.0.9 完整安装升级与签名配置
 

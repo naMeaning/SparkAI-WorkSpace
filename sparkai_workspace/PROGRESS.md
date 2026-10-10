@@ -1,20 +1,28 @@
 # SparkAI WorkSpace 进度
 
-## 2026-10-10 1.0.9 正式发布收口：in progress
+## 2026-10-10 1.0.9 正式发布完成：verified
 
-- 用户已授权 commit、push、annotated tag 和 GitHub Release；发布范围聚焦当前模型配置功能及其必要的异步菜单竞态修复。继续禁止真实生图、视频、Seedance 和付费请求。
+- 状态：verified；用户授权的 Windows x64 打包、正式门禁、完整安装升级、推送 tag 和 GitHub Release 已完成。后续只同步发布状态文档，不重新生成或移动正式制品。
+- 冻结源码：`33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`；`v1.0.9^{}` 与 `origin/main` 冻结提交一致，正式编排前后源码指纹一致，`release/.naimage-release-incomplete.json` 已清除。
+- 正式报告：`.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json`，`ok:true`；`release:verify` 124/124 门禁通过，production build 1678 modules，Bundle CSS 269,827 B，package:smoke、installer smoke、1.0.8→1.0.9 完整安装升级、update manifest、签名、helper 和 SHA-256 复核均通过。
+- 正式资产：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`（109,829,632 B，SHA-256 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`）、`naimage-Restart-Update-1.0.9-x64.asar`（51,933,346 B，SHA-256 `62eb5eb8cf179a71b046110461b41d53325c3d2236b2a41ad941912e9b291417`），另有 `desktop-release.json`、EXE sidecar 和 `SHA256SUMS.txt`。
+- 远端证据：`.diagnostics/release/publish-v1.0.9-2026-10-10/remote-assets-verification.json`，GitHub [v1.0.9 Release](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 为 latest、非 draft、非 prerelease，5/5 资产大小、远端 digest 和本地 SHA-256 全部一致。
+- 未验证/边界：正式编排使用隔离 Mock，不代表其他供应商、真实视频或 Seedance 协议已在线验证；未发布 SparkAPI-only 变体。下一步为提交并推送本次文档状态收口，保留 `v1.0.9` tag 不动。
+
+## 2026-10-10 1.0.9 正式发布收口：superseded by verified release entry above
+
+- 状态：superseded；用户已授权 commit、push、annotated tag 和 GitHub Release；发布范围聚焦当前模型配置功能及其必要的异步菜单竞态修复。继续禁止真实生图、视频、Seedance 和付费请求。
 - 修复 `src/main.tsx`：`focusWorkflowNode`/`focusWorkflowNodes` 增加 `closeCanvasMenu` 选项，后台布局重定位回调传入 `false`，避免延迟定位在上下文菜单已打开后把菜单清除；用户主动定位仍保持关闭菜单的原行为。
 - 专项证据：`corepack pnpm run test:agent-text-ui` 通过，`155 checks`、`23 screenshots`、`0 failures`、`networkUsed:false`；报告 `.diagnostics/electron/agent-text-ui-2026-10-10T04-16-28-739Z/report.json`。`corepack pnpm run typecheck`、`corepack pnpm run build`（1678 modules）和 `git diff --check` 通过。
-- 当前工作树仅含上述 `src/main.tsx` 未提交改动；正式 `release:final` 必须从本次冻结提交从头运行，不能复用旧发布报告。尚未创建 tag 或 Release。
-- 下一步：提交并推送冻结源码，运行完整 `corepack pnpm run release:final`，确认同次生成的 Setup/Restart ASAR/manifest/sidecar/SHA256SUMS 和安装升级结果，然后创建 `v1.0.9` Release 并用 `gh release view` 复核远端资产。
+- 以上“尚未创建 tag 或 Release”的状态已由同日正式编排和远端核验取代；保留本段作为发布前决策记录。
 
-## 2026-10-10 1.0.9 模型配置功能发布准备：in progress
+## 2026-10-10 1.0.9 模型配置功能发布准备：superseded by verified release entry above
 
-- 状态：in progress；用户授权打包新的 Windows EXE、推送冻结提交、创建 v1.0.9 GitHub Release，并要求验证聚焦本次模型配置功能。
+- 状态：superseded；用户授权打包新的 Windows EXE、推送冻结提交、创建 v1.0.9 GitHub Release，并要求验证聚焦本次模型配置功能。
 - 范围：当前 1.0.9 工作树中的 NewAPI/Sub2API 模型获取、Grok 图片配置保留、发布说明、Windows 制品、签名清单和远端 Release；不重复真实生图、视频或付费请求。
 - 已有证据：模型 UX、设置持久化（127 cases）、懒加载（67 cases）、typecheck、production build（1678 modules）和 `git diff --check` 均通过；本地 CCS 只读目录联调已在上一条记录完成。首次 `release:final` 已完成源码、打包、安装/卸载、完整安装升级和清单生成，但最终 Windows 元数据门禁发现编排器残留旧 `naimage`/`SparkAI` 断言；实际品牌安装器元数据为 `SparkAI WorkSpace`/`namean`，已修正断言，待重新冻结编排。
 - 计划证据：按发布编排生成同一批 Setup、Restart ASAR、manifest、sidecar、SHA256SUMS；远端推送只使用冻结提交和该批制品。
-- 未完成：发布门禁修复尚未提交/推送；修复后的同次 `release:final` 尚未通过，尚未创建 v1.0.9 Release。
+- 当时未完成的发布门禁已由同日冻结提交、`release:final` 和远端 Release 核验完成；本段保留发布前状态记录。
 
 ## 2026-10-10 继续审计与 CCS 只读联调：partially verified
 
