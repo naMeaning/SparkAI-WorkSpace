@@ -1767,6 +1767,7 @@ function createNewApiClient(options = {}) {
     newApiAccessRefreshNeeded,
     isCustomApiMode,
     customApiCredentials,
+    accountModelCustomCredentials,
     customApiHeaders,
     customApiUrl,
     directApiUrl,

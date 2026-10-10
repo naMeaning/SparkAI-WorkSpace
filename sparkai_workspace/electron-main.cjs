@@ -1124,6 +1124,7 @@ const newApiClient = createNewApiClient({
 });
 const {
   customApiCredentials,
+  accountModelCustomCredentials,
   customApiUrl,
   directApiUrl,
   isNewApiAuthError,
@@ -3189,6 +3190,114 @@ function serviceStatus(state, profileIds, error, lastCheckedAt) {
   };
 }
 
+async function fetchAccountModelBindingCatalog(settings, lastCheckedAt) {
+  const grouped = new Map();
+  const providerErrors = {};
+  const providerPayloads = {};
+  const profiles = [];
+  const providerLabel = (provider) => provider === "agent" ? "对话" : "生图";
+  const appendProviderPayload = (provider, payload) => {
+    const current = providerPayloads[provider] || { modelIds: [], modelCapabilities: {} };
+    current.modelIds = uniqueImageModels([...current.modelIds, ...(payload.modelIds || [])]);
+    current.modelCapabilities = mergeModelCapabilities(current.modelCapabilities, payload.modelCapabilities);
+    providerPayloads[provider] = current;
+  };
+  const addCredentialGroup = (provider, model, credentials) => {
+    const credentialFingerprint = createHash("sha256")
+      .update(`${credentials.baseUrl.toLowerCase()}\n${credentials.apiKey}`)
+      .digest("hex");
+    const existing = grouped.get(credentialFingerprint) || {
+      credentialFingerprint,
+      credentials,
+      providers: [],
+      models: []
+    };
+    if (!existing.providers.includes(provider)) existing.providers.push(provider);
+    if (model && !existing.models.some((item) => item.toLowerCase() === model.toLowerCase())) existing.models.push(model);
+    grouped.set(credentialFingerprint, existing);
+  };
+  const imageBindings = Array.isArray(settings.imageModelBindings) ? settings.imageModelBindings : [];
+  for (const provider of ["agent", "image"]) {
+    const bindings = provider === "agent"
+      ? (Array.isArray(settings.agentModelBindings) ? settings.agentModelBindings : [])
+      : imageBindings;
+    const candidates = bindings
+      .filter((binding) => binding && typeof binding === "object" && String(binding.model || "").trim())
+      .map((binding) => ({ ...binding, model: String(binding.model).trim() }));
+    if (provider === "image" && Array.isArray(settings.imageModelConfigs)) {
+      for (const config of settings.imageModelConfigs) {
+        const model = String(config?.model || "").trim();
+        const baseUrl = String(config?.baseUrl || "").trim();
+          const existing = candidates.find((binding) => String(binding.model || "").toLowerCase() === model.toLowerCase());
+          if (!model || !baseUrl || String(existing?.customBaseUrl || existing?.baseUrl || "").trim()) continue;
+          if (existing) {
+            Object.assign(existing, { customBaseUrl: baseUrl });
+          } else {
+            candidates.push({ model, customBaseUrl: baseUrl });
+          }
+      }
+    }
+    for (const binding of candidates) {
+      try {
+        const credentials = await accountModelCustomCredentials(settings, binding);
+        if (credentials) addCredentialGroup(provider, binding.model, credentials);
+      } catch (error) {
+        providerErrors[provider] = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
+
+  let successfulRequests = 0;
+  for (const group of grouped.values()) {
+    const profileId = modelAccessProfileId(group.credentials.baseUrl, group.credentialFingerprint);
+    const sourceLabel = /sub2api/i.test(group.credentials.baseUrl)
+      ? "Sub2API"
+      : /(?:newapi|sparkapi)/i.test(group.credentials.baseUrl)
+        ? "NewAPI"
+        : "自定义 API";
+    try {
+      const request = await newApiFetch(settings, "/v1/models", {
+        method: "GET",
+        absoluteUrl: directApiUrl(group.credentials.baseUrl, "/v1/models"),
+        requestBaseUrl: group.credentials.baseUrl,
+        headers: { authorization: `Bearer ${group.credentials.apiKey}` },
+        timeoutMs: 20_000,
+        retries: 1
+      });
+      if (!request.response.ok || request.data?.error || request.data?.parseFailed) {
+        throw new Error(newApiErrorMessage(request.data, request.response.status));
+      }
+      const modelIds = modelIdsFromResponse(request.data);
+      const modelCapabilities = modelCapabilitiesFromResponse(request.data);
+      successfulRequests += 1;
+      for (const provider of group.providers) appendProviderPayload(provider, { modelIds, modelCapabilities });
+      profiles.push(createModelAccessProfile({
+        id: profileId,
+        label: `${sourceLabel}${group.providers.length > 1 ? "统一接入" : `${group.providers.map(providerLabel).join(" / ")}接入`}`,
+        baseUrl: group.credentials.baseUrl,
+        credentialLabel: "逐模型账户连接",
+        providers: group.providers,
+        modelIds,
+        modelCapabilities,
+        lastCheckedAt
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      for (const provider of group.providers) providerErrors[provider] = message;
+      profiles.push(createModelAccessProfile({
+        id: profileId,
+        label: `${sourceLabel}${group.providers.length > 1 ? "统一接入" : `${group.providers.map(providerLabel).join(" / ")}接入`}`,
+        baseUrl: group.credentials.baseUrl,
+        credentialLabel: "逐模型账户连接",
+        providers: group.providers,
+        lastCheckedAt,
+        error: message
+      }));
+    }
+  }
+  return { providerErrors, providerPayloads, profiles, successfulRequests };
+}
+
 async function fetchNewApiModelSettings(settings) {
   const lastCheckedAt = new Date().toISOString();
   if (isCustomApiMode(settings)) {
@@ -3196,25 +3305,67 @@ async function fetchNewApiModelSettings(settings) {
     const providerErrors = {};
     const providerPayloads = {};
     const profiles = [];
+    const providerLabel = (provider) => provider === "agent" ? "对话" : provider === "image" ? "生图" : "视频";
+    const appendProviderPayload = (provider, payload, profileId) => {
+      const current = providerPayloads[provider] || {
+        modelIds: [],
+        modelCapabilities: {},
+        profileIds: []
+      };
+      current.modelIds = uniqueImageModels([...current.modelIds, ...(payload.modelIds || [])]);
+      current.modelCapabilities = mergeModelCapabilities(current.modelCapabilities, payload.modelCapabilities);
+      if (profileId) current.profileIds = [...new Set([...current.profileIds, profileId])];
+      providerPayloads[provider] = current;
+    };
+    const addCredentialGroup = (provider, model, credentials) => {
+      const credentialFingerprint = createHash("sha256")
+        .update(`${credentials.baseUrl.toLowerCase()}\n${credentials.apiKey}`)
+        .digest("hex");
+      const existing = grouped.get(credentialFingerprint) || {
+        credentialFingerprint,
+        credentials,
+        providers: [],
+        models: []
+      };
+      if (!existing.providers.includes(provider)) existing.providers.push(provider);
+      if (model && !existing.models.some((item) => item.toLowerCase() === model.toLowerCase())) existing.models.push(model);
+      grouped.set(credentialFingerprint, existing);
+    };
     for (const provider of ["agent", "image", "video"]) {
-      try {
-        const credentialProvider = provider === "agent" ? "agent" : "image";
-        const credentials = customApiCredentials(settings, credentialProvider);
-        const credentialFingerprint = createHash("sha256")
-          .update(`${credentials.baseUrl.toLowerCase()}\n${credentials.apiKey}`)
-          .digest("hex");
-        const existing = grouped.get(credentialFingerprint) || {
-          credentialFingerprint,
-          credentials,
-          providers: []
-        };
-        existing.providers.push(provider);
-        grouped.set(credentialFingerprint, existing);
-      } catch (error) {
-        providerErrors[provider] = error instanceof Error ? error.message : String(error);
+      const credentialProvider = provider === "agent" ? "agent" : "image";
+      const bindings = provider === "agent"
+        ? (Array.isArray(settings.agentModelBindings) ? settings.agentModelBindings : [])
+        : provider === "image"
+          ? (Array.isArray(settings.imageModelBindings) ? settings.imageModelBindings : [])
+          : [];
+      const candidates = [{ settings, model: "" }, ...bindings
+        .filter((binding) => binding && typeof binding === "object" && String(binding.model || "").trim())
+        .map((binding) => ({ settings, model: String(binding.model).trim() }))];
+      if (provider === "image" && Array.isArray(settings.imageModelConfigs)) {
+        for (const config of settings.imageModelConfigs) {
+          const model = String(config?.model || "").trim();
+          const baseUrl = String(config?.baseUrl || "").trim();
+          const existing = bindings.find((binding) => String(binding?.model || "").trim().toLowerCase() === model.toLowerCase());
+          const existingBaseUrl = String(existing?.customBaseUrl || existing?.baseUrl || "").trim();
+          if (!model || !baseUrl || existingBaseUrl) continue;
+          const imageModelBindings = existing
+            ? bindings.map((binding) => String(binding?.model || "").trim().toLowerCase() === model.toLowerCase()
+              ? { ...binding, customBaseUrl: baseUrl }
+              : binding)
+            : [...bindings, { model, customBaseUrl: baseUrl }];
+          candidates.push({ settings: { ...settings, imageModelBindings }, model });
+        }
+      }
+      for (const candidate of candidates) {
+        try {
+          addCredentialGroup(provider, candidate.model, customApiCredentials(candidate.settings, credentialProvider, candidate.model));
+        } catch (error) {
+          if (!providerErrors[provider]) providerErrors[provider] = error instanceof Error ? error.message : String(error);
+        }
       }
     }
 
+    let successfulRequests = 0;
     for (const group of grouped.values()) {
       const profileId = modelAccessProfileId(group.credentials.baseUrl, group.credentialFingerprint);
       try {
@@ -3231,15 +3382,17 @@ async function fetchNewApiModelSettings(settings) {
         }
         const modelIds = modelIdsFromResponse(request.data);
         const modelCapabilities = modelCapabilitiesFromResponse(request.data);
-        const payload = { modelIds, modelCapabilities, profileId };
-        for (const provider of group.providers) providerPayloads[provider] = payload;
+        successfulRequests += 1;
+        const payload = { modelIds, modelCapabilities };
+        for (const provider of group.providers) appendProviderPayload(provider, payload, profileId);
+        const sourceLabel = /sub2api/i.test(group.credentials.baseUrl)
+          ? "Sub2API"
+          : /(?:newapi|sparkapi)/i.test(group.credentials.baseUrl)
+            ? "NewAPI"
+            : "自定义 API";
         profiles.push(createModelAccessProfile({
           id: profileId,
-          label: group.providers.includes("agent") && group.providers.some((provider) => provider !== "agent")
-            ? "自定义统一接入"
-            : group.providers.includes("agent")
-              ? "自定义 Agent 接入"
-              : "自定义图片 / 视频接入",
+          label: `${sourceLabel}${group.providers.length > 1 ? "统一接入" : `${group.providers.map(providerLabel).join(" / ")}接入`}`,
           baseUrl: group.credentials.baseUrl,
           credentialLabel: "自定义 API Key",
           providers: group.providers,
@@ -3250,13 +3403,14 @@ async function fetchNewApiModelSettings(settings) {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         for (const provider of group.providers) providerErrors[provider] = message;
+        const sourceLabel = /sub2api/i.test(group.credentials.baseUrl)
+          ? "Sub2API"
+          : /(?:newapi|sparkapi)/i.test(group.credentials.baseUrl)
+            ? "NewAPI"
+            : "自定义 API";
         profiles.push(createModelAccessProfile({
           id: profileId,
-          label: group.providers.includes("agent") && group.providers.some((provider) => provider !== "agent")
-            ? "自定义统一接入"
-            : group.providers.includes("agent")
-              ? "自定义 Agent 接入"
-              : "自定义图片 / 视频接入",
+          label: `${sourceLabel}${group.providers.length > 1 ? "统一接入" : `${group.providers.map(providerLabel).join(" / ")}接入`}`,
           baseUrl: group.credentials.baseUrl,
           credentialLabel: "自定义 API Key",
           providers: group.providers,
@@ -3279,6 +3433,7 @@ async function fetchNewApiModelSettings(settings) {
     });
     return {
       ...split,
+      modelCatalogUnavailable: successfulRequests === 0,
       agentModels: providerPayloads.agent ? providerModelSettings(settings, providerPayloads.agent, "agent") : splitModelSettings(settings, []).agentModels,
       imageModels: providerPayloads.image ? providerModelSettings(settings, providerPayloads.image, "image") : splitModelSettings(settings, []).imageModels,
       videoModels: providerPayloads.video ? providerModelSettings(settings, providerPayloads.video, "video") : splitModelSettings(settings, []).videoModels
@@ -3398,12 +3553,26 @@ async function fetchNewApiModelSettings(settings) {
     }));
     log(`managed relay models failed ${message}`);
   }
+  const bindingCatalog = await fetchAccountModelBindingCatalog(settings, lastCheckedAt);
+  for (const provider of ["agent", "image"]) {
+    const payload = bindingCatalog.providerPayloads[provider];
+    if (!payload) continue;
+    collected.push(...payload.modelIds);
+    modelCapabilities = mergeModelCapabilities(modelCapabilities, payload.modelCapabilities);
+  }
+  profiles.push(...bindingCatalog.profiles);
+  successfulRequests += bindingCatalog.successfulRequests;
   const relayError = relayPayload ? "" : lastError instanceof Error ? lastError.message : lastError ? String(lastError) : "";
-  const state = relayPayload ? "ready" : directoryPayload ? "catalog-only" : "unavailable";
+  const state = relayPayload || bindingCatalog.successfulRequests > 0 ? "ready" : directoryPayload ? "catalog-only" : "unavailable";
   const profileIds = profiles.map((profile) => profile?.id).filter(Boolean);
   const serviceStatuses = Object.fromEntries(["agent", "image", "video"].map((provider) => [
     provider,
-    serviceStatus(state, profileIds, relayError, lastCheckedAt)
+    serviceStatus(
+      state,
+      profileIds,
+      relayError || (!relayPayload && bindingCatalog.providerErrors[provider]),
+      lastCheckedAt
+    )
   ]));
   const split = splitModelSettings({ ...settings, modelGroup: selectedGroup }, collected, modelGroups, modelCapabilities, {
     modelAccessProfiles: profiles,

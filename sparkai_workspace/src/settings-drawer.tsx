@@ -1551,6 +1551,7 @@ export default function SettingsDrawer({
             models={modelConfigTarget === "agent" ? visibleAgentModels : modelConfigTarget === "video" ? visibleVideoModels : visibleImageModels}
             accountTokens={accountTokens}
             accessProfiles={modelState.accessProfiles}
+            refreshModels={() => refreshModels(true, draftSettings.modelGroup)}
             close={() => setModelConfigTarget(null)}
           />
         </React.Suspense>

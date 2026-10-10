@@ -252,6 +252,14 @@ assert.equal(split.channelName, "SparkAPI");
 assert.equal(split.serviceReady, true);
 assert.equal(split.keyManaged, true);
 
+const configOnlyImage = splitModelSettings({
+  imageModel: "gpt-image-2",
+  imageModelPool: ["gpt-image-2"],
+  imageModelConfigs: [{ model: "grok-imagine-image-2.0", gateway: "sub2api", protocol: "xai-images" }]
+}, ["gpt-image-2"]);
+assert.deepEqual(configOnlyImage.imageModels, ["gpt-image-2", "grok-imagine-image-2.0"], "Saved image configs must stay in the fetched image catalog");
+assert.equal(configOnlyImage.imageModel, "gpt-image-2");
+
 assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol-pro", "gpt-5.6-terra"]), "gpt-5.6-terra");
 assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol-pro"]), "gpt-5.6-sol-pro");
 assert.equal(preferredAgentModelFromList(["claude-4", "gpt-5.5-latest"]), "gpt-5.5-latest");
@@ -297,6 +305,12 @@ assert.notEqual(
 const agentBindingFingerprint = modelBindingCacheFingerprint({
   agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-a.example/v1", customApiKey: "secret-a", accountTokenId: "7" }]
 });
+const imageConfigFingerprint = modelBindingCacheFingerprint({
+  imageModelConfigs: [{ model: "grok-imagine-image-2.0", baseUrl: "https://sub2api-a.example/v1" }]
+});
+assert.notEqual(imageConfigFingerprint, modelBindingCacheFingerprint({
+  imageModelConfigs: [{ model: "grok-imagine-image-2.0", baseUrl: "https://sub2api-b.example/v1" }]
+}), "Changing an image model config Base URL must rotate the model cache identity");
 assert.notEqual(agentBindingFingerprint, modelBindingCacheFingerprint({
   agentModelBindings: [{ model: "private-chat", customBaseUrl: "https://chat-b.example/v1", customApiKey: "secret-a", accountTokenId: "7" }]
 }), "Changing an Agent model Base URL must rotate the model cache identity");

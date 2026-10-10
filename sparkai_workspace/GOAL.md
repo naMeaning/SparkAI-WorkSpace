@@ -1,6 +1,20 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：推送当前源码并发布 GitHub Release（2026-10-09）
+## 当前任务：保留 Grok 配置并补齐 NewAPI/Sub2API 模型获取（2026-10-10，partially verified）
+
+- 状态：partially verified；本地实现、隔离 Mock、读目录联调和 production build 已完成，真实 NewAPI 目录与正式安装/发布仍未验证。
+- 结果：设置迁移、保存、重载和模型目录刷新都会保留 `imageModelBindings`/`imageModelConfigs` 中的 Grok 图片模型；图片/对话模型配置弹窗提供显式“获取模型”，Main 按全局连接和逐模型连接读取 NewAPI/Sub2API `/v1/models`，合并分类结果并安全缓存。
+- 根因：模型池归一化和目录分类只读取 `imageModelPool`/绑定，遗漏 `imageModelConfigs`，刷新后把仅保存在配置对象中的 Grok 模型误判为未选中；缓存指纹也没有包含逐模型图片 Base URL。
+- 范围：Electron 设置持久化、Main 模型目录/缓存与 IPC、图片和对话模型配置表面、必要的专项与上下文文档。保持 Extension 与外部 New API 管理后台独立。
+- 非目标：不复制服务端账户/渠道/配额管理到桌面端，不删除或重命名现有供应商配置，不发起真实生图/视频/付费模型请求；联网模型目录只做只读 `/v1/models` 验证。
+- 证据：`test:model-ux`、`test:settings-persistence`（127 cases）、`test:settings-lazy-load`（67 cases）、`typecheck`、Node 语法检查和 `corepack pnpm run build`（1678 modules）通过；补齐 `main.tsx` 对 `imageModelBindings`/`imageModelConfigs` 的派生依赖，并为配置弹窗“获取模型”入口增加静态断言。隔离 Mock 聚合同时得到对话与 Grok 图片目录。本轮从 CCS 的 Grokbuild Sub2API 配置只读请求返回 HTTP 200/14 个模型并包含 `grok-imagine-image-2.0`，同一 CCS 的 Codex Sub2API 配置返回 HTTP 200/27 个对话模型并包含 `gpt-6.1-sol`。未保存凭据或原始响应。
+- 下一步：若要把本目标升级为完全 verified，在独立环境用实际 NewAPI `/v1/models` 做一次只读目录检查；不重复生图/视频或付费调用。
+
+## 上一任务：推送当前源码并发布 GitHub Release（2026-10-09）
+
+- 状态：partially verified；源码修复已推送到 `origin/main`，正式安装、tag 和 GitHub Release 仍等待干净 Windows 环境；本次模型配置任务完成后再恢复。
+
+## 历史任务详情：推送当前源码并发布 GitHub Release（2026-10-09）
 
 - 状态：partially verified；源码发布准备继续，正式安装环境 blocked。用户明确要求将当前改动推送远端并发布 Release，替代此前“未授权 push/发布”的边界；Windows 临时账户方案已按最新指示撤销并清理。
 - 结果：当前桌面功能和相关文档提交到 origin/main；GitHub Release 对应冻结源码、真实安装包、版本说明与完整性信息。

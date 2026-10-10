@@ -6,7 +6,9 @@ import {
   imageModelBindingFor,
   normalizeImageModelConfigs,
   normalizeAgentModelBindings,
-  normalizeImageModelBindings
+  normalizeImageModelBindings,
+  normalizeImageModelPoolSelection,
+  selectedImageModelsFromSettings
 } from "../src/core.ts";
 
 import {
@@ -189,6 +191,17 @@ assert.deepEqual(normalizeImageModelConfigs([
     outputFormats: [],
   },
 }]);
+const grokConfigOnly = mergeSettings({
+  imageModel: "gpt-image-2",
+  imageModelPool: ["gpt-image-2"],
+  imageModelConfigs: [{ model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "sub2api" }]
+});
+assert.deepEqual(selectedImageModelsFromSettings(grokConfigOnly), ["gpt-image-2", "grok-imagine-image-2.0"], "Image configs must remain selectable even when an old model pool omitted them");
+assert.deepEqual(
+  normalizeImageModelPoolSelection(grokConfigOnly, ["gpt-image-2"]).imageModelPool,
+  ["gpt-image-2", "grok-imagine-image-2.0"],
+  "Refreshing a model directory must not discard a saved Grok image configuration"
+);
 assert.deepEqual(mergeSettings({}).imageModelBindings, []);
 assert.deepEqual(mergeSettings({}).agentModelBindings, []);
 assert.deepEqual(mergeSettings({ videoModel: "", videoModelPool: ["sora-2"] }).videoModelPool, ["sora-2"]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
-import { Check, Plus, Search } from "lucide-react";
+import { Check, Plus, RefreshCw, Search } from "lucide-react";
 
 import {
   accountApiTokenExpired,
@@ -155,6 +155,7 @@ export default function ModelConfigDialog({
   models,
   accountTokens = [],
   accessProfiles = [],
+  refreshModels,
   close,
 }: {
   kind: ModelProvider;
@@ -164,6 +165,7 @@ export default function ModelConfigDialog({
   models: string[];
   accountTokens?: AccountApiToken[];
   accessProfiles?: ModelAccessProfile[];
+  refreshModels?: () => void | Promise<void>;
   close: () => void;
 }) {
   const title = kind === "agent" ? "配置对话模型" : kind === "video" ? "配置视频模型" : "配置生图模型";
@@ -175,6 +177,7 @@ export default function ModelConfigDialog({
   const [query, setQuery] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [closePromptOpen, setClosePromptOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const modelListRef = useRef<HTMLDivElement>(null);
   const [modelListScrollTop, setModelListScrollTop] = useState(0);
   const [modelListViewportHeight, setModelListViewportHeight] = useState(360);
@@ -380,6 +383,16 @@ export default function ModelConfigDialog({
     close();
   }
 
+  async function requestModelRefresh() {
+    if (!refreshModels || refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshModels();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
     <>
       <DialogShell
@@ -424,6 +437,18 @@ export default function ModelConfigDialog({
                 <strong>{draftModels.length}</strong>
                 <span>个已选 · 共 {availableModels.length} 个</span>
               </div>
+              {refreshModels ? (
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  busy={refreshing}
+                  disabled={refreshing}
+                  icon={<RefreshCw size={14} />}
+                  onClick={() => void requestModelRefresh()}
+                >
+                  获取模型
+                </ActionButton>
+              ) : null}
             </div>
             <div className="model-picker-custom">
               <label htmlFor={`custom-${kind}-model`}>自定义模型</label>

@@ -69,6 +69,9 @@ function configuredImageModelIds(settings = {}) {
     ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
     ...(Array.isArray(settings.imageModelBindings)
       ? settings.imageModelBindings.map((binding) => binding && typeof binding === "object" ? binding.model : "")
+      : []),
+    ...(Array.isArray(settings.imageModelConfigs)
+      ? settings.imageModelConfigs.map((config) => config && typeof config === "object" ? config.model : "")
       : [])
   ]).filter((model) => !isExplicitChatModelId(model));
 }
@@ -562,7 +565,8 @@ function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId, modelGr
 function modelBindingCacheFingerprint(settings = {}) {
   const entries = [
     ["agent", settings.agentModelBindings],
-    ["image", settings.imageModelBindings]
+    ["image", settings.imageModelBindings],
+    ["image-config", settings.imageModelConfigs]
   ].flatMap(([provider, bindings]) => Array.isArray(bindings)
     ? bindings.flatMap((binding) => {
         if (!binding || typeof binding !== "object" || Array.isArray(binding)) return [];
@@ -572,7 +576,7 @@ function modelBindingCacheFingerprint(settings = {}) {
           provider,
           model,
           String(binding.customBaseUrl || binding.baseUrl || "").trim(),
-          String(binding.customApiKey || "").trim(),
+          provider === "image-config" ? "" : String(binding.customApiKey || "").trim(),
           String(binding.accountTokenId || "").trim()
         ]];
       })

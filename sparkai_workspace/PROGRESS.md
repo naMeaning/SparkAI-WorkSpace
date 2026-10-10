@@ -1,5 +1,30 @@
 # SparkAI WorkSpace 进度
 
+## 2026-10-10 1.0.9 模型配置功能发布准备：in progress
+
+- 状态：in progress；用户授权打包新的 Windows EXE、推送冻结提交、创建 v1.0.9 GitHub Release，并要求验证聚焦本次模型配置功能。
+- 范围：当前 1.0.9 工作树中的 NewAPI/Sub2API 模型获取、Grok 图片配置保留、发布说明、Windows 制品、签名清单和远端 Release；不重复真实生图、视频或付费请求。
+- 已有证据：模型 UX、设置持久化（127 cases）、懒加载（67 cases）、typecheck、production build（1678 modules）和 `git diff --check` 均通过；本地 CCS 只读目录联调已在上一条记录完成。
+- 计划证据：按发布编排生成同一批 Setup、Restart ASAR、manifest、sidecar、SHA256SUMS；远端推送只使用冻结提交和该批制品。
+- 未完成：尚未提交/推送本轮源码，尚未运行 `release:final`，尚未创建 v1.0.9 Release。
+
+## 2026-10-10 继续审计与 CCS 只读联调：partially verified
+
+- 状态：partially verified；本轮完成最后的 Renderer 依赖审计和 CCS 目录请求，真实 NewAPI 目录、正式安装和发布仍未验证。
+- 变更：`main.tsx` 的图片模型可用列表和 Composer 派生值现在同时依赖 `imageModelBindings` 与 `imageModelConfigs`；懒加载专项增加配置弹窗回调及“获取模型”按钮的最小静态断言。模型配置弹窗保存时继续按 `nextPool` 清理被取消的图片配置，未发现需要改动的取消路径。
+- 证据：`corepack pnpm run test:model-ux`、`corepack pnpm run test:settings-persistence`（127 cases）、`corepack pnpm run test:settings-lazy-load`（67 cases）、`corepack pnpm run typecheck`、`corepack pnpm run build`（1678 modules）和 `git diff --check` 均通过。
+- CCS 证据：只读读取 Grokbuild/Codex 的 Sub2API 配置并请求 `/v1/models`，分别得到 HTTP 200/14 个模型（含 `grok-imagine-image-2.0`）和 HTTP 200/27 个模型（含 `gpt-6.1-sol`）；凭据只在内存中使用，未输出或保存 Key、Cookie、原始响应，也未调用生图、视频或付费接口。
+- 下一步：如需升级为完全 verified，使用独立 NewAPI 配置再做一次只读 `/v1/models` 检查；否则可按当前部分验证结果交付实现。
+
+## 2026-10-10 保留 Grok 配置并补齐模型获取：partially verified
+
+- 用户把当前优先级切换为配置持久化与模型目录获取：图片模型和对话模型都需要支持 NewAPI/Sub2API 获取，并且更新或迁移后不能清理已有 Grok 图片模型配置。
+- 已完成：修复模型池归一化、模型目录分类和缓存指纹对 `imageModelConfigs` 的遗漏；配置弹窗增加显式“获取模型”；Main 的自定义和账号模式均按全局/逐模型连接聚合 `/v1/models`，错误时保留旧目录并写入脱敏状态，缓存不含 Key/Cookie。临时 Electron 自检导出的 `newApiModelSettings` 已移除，运行时 IPC 依赖仍保持 Main 内部注入。
+- 影响边界：设置 persistence/migration、Main 模型目录缓存与 IPC、图片配置、Agent 对话模型配置；保持外部 New API 和 Extension 独立。
+- 证据：`test:model-ux`（含 model catalog）、`test:settings-persistence`（127 cases）、`test:settings-lazy-load`（67 cases）、`typecheck`、`node --check` 和 `corepack pnpm run build`（1678 modules）通过；隔离 Mock 验证对话与 Grok 图片模型进入正确目录。本轮从 CCS 的 Grokbuild Sub2API 配置只读 `/v1/models` 返回 HTTP 200/14 个模型并含 `grok-imagine-image-2.0`，同一 CCS 的 Codex Sub2API 配置返回 27 个对话模型；未调用生图/视频。
+- 清理：已删除本机 Mock 目录 `C:\Users\Administrator\AppData\Local\Temp\sparkai-model-config-22124`，未留下工作树未跟踪文件。
+- 状态：partially verified；真实 NewAPI `/v1/models`、正式安装和发布仍未验证。
+
 ## 2026-10-09 推送与 GitHub Release：in progress
 
 - CSS 修复已完成并通过最小验证：`test:production-symbol-compaction` 通过；`corepack pnpm run build` 通过（1,678 modules、20.61 s）；`test:bundle` 通过，CSS 269,827 B、plugin JS 86,177 B、无 AIDebug 泄漏。生产压缩器把 LightningCSS range 归一为 CSSO 可处理的 min/max 形式，保留 884px 最小 BrowserWindow 会命中的 `max-width:900/980/1000/1100/1280/1320` 规则，移除低于 884px 的 viewport 媒体块，并启用 forceMediaMerge；容器/高度/无障碍媒体仍保留。dist 静态核对确认 `max-width:820px` 与原始 `width<=` 不存在，884px 相关规则存在。未重复源码全量门禁、真实模型请求或安装操作；下一步只打包当前候选并做隔离 884×640 冒烟。

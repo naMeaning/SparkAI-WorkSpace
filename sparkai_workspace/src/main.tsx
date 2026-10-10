@@ -4769,7 +4769,7 @@ function App() {
       ...selectedImageModelsFromSettings(settings),
       ...settings.imageModelBindings.map((binding) => binding.model),
     ]));
-  }, [settings.imageModel, settings.imageModelPool, settings.imageModelBindings]);
+  }, [settings.imageModel, settings.imageModelPool, settings.imageModelBindings, settings.imageModelConfigs]);
 
   useEffect(() => {
     if (!configReady || !window.naimageServer?.models) return;
@@ -6393,7 +6393,7 @@ function App() {
   }, [canvasNodes]);
   const selectedComposerImageModels = useMemo(
     () => selectedImageModelsFromSettings(settings),
-    [settings.imageModel, settings.imageModelPool]
+    [settings.imageModel, settings.imageModelPool, settings.imageModelBindings, settings.imageModelConfigs]
   );
   const composerImageModels = useMemo(
     () => uniqueImageModels([
