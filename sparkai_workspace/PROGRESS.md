@@ -1,5 +1,13 @@
 # SparkAI WorkSpace 进度
 
+## 2026-10-10 1.0.9 正式发布收口：in progress
+
+- 用户已授权 commit、push、annotated tag 和 GitHub Release；发布范围聚焦当前模型配置功能及其必要的异步菜单竞态修复。继续禁止真实生图、视频、Seedance 和付费请求。
+- 修复 `src/main.tsx`：`focusWorkflowNode`/`focusWorkflowNodes` 增加 `closeCanvasMenu` 选项，后台布局重定位回调传入 `false`，避免延迟定位在上下文菜单已打开后把菜单清除；用户主动定位仍保持关闭菜单的原行为。
+- 专项证据：`corepack pnpm run test:agent-text-ui` 通过，`155 checks`、`23 screenshots`、`0 failures`、`networkUsed:false`；报告 `.diagnostics/electron/agent-text-ui-2026-10-10T04-16-28-739Z/report.json`。`corepack pnpm run typecheck`、`corepack pnpm run build`（1678 modules）和 `git diff --check` 通过。
+- 当前工作树仅含上述 `src/main.tsx` 未提交改动；正式 `release:final` 必须从本次冻结提交从头运行，不能复用旧发布报告。尚未创建 tag 或 Release。
+- 下一步：提交并推送冻结源码，运行完整 `corepack pnpm run release:final`，确认同次生成的 Setup/Restart ASAR/manifest/sidecar/SHA256SUMS 和安装升级结果，然后创建 `v1.0.9` Release 并用 `gh release view` 复核远端资产。
+
 ## 2026-10-10 1.0.9 模型配置功能发布准备：in progress
 
 - 状态：in progress；用户授权打包新的 Windows EXE、推送冻结提交、创建 v1.0.9 GitHub Release，并要求验证聚焦本次模型配置功能。

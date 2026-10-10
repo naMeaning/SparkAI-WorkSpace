@@ -1,6 +1,16 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：保留 Grok 配置并补齐 NewAPI/Sub2API 模型获取（2026-10-10，partially verified）
+## 当前任务：冻结并发布 SparkAI WorkSpace 1.0.9（2026-10-10，in progress）
+
+- 状态：in progress；用户已授权提交、推送、创建 `v1.0.9` tag 和 GitHub Release。目标是用当前源码生成同一次正式编排的 Windows x64 EXE、更新包与完整性清单，并核验远端 Release 资产。
+- 范围：模型目录获取/Grok 配置保留修复、异步画布定位菜单竞态修复、正式 `release:final`、1.0.8→1.0.9 完整安装升级、Unrestricted 正式安装包和 GitHub Release。SparkAPI-only 包只有在明确需要时再发布。
+- 非目标：不调用真实生图、视频、Seedance 或付费接口；不修改外部 New API/Extension、不触碰日常安装、不提交密钥、用户数据或诊断制品。
+- 授权边界：本轮继续使用隔离 Mock 和只读模型目录证据；Git commit/push/tag/release 已获用户明确授权。新签名私钥仅由正式编排从本地忽略目录读取，不上传。
+- 已验证：`test:agent-text-ui` 155 checks/23 screenshots/0 failures、`typecheck`、`build`（1678 modules）和 `git diff --check` 通过；修复 `focusWorkflowNode` 的异步重定位回调在菜单打开后清除菜单的竞态。
+- 未完成：修复尚未提交；修复后的同次 `release:final`、远端 tag、GitHub Release 和资产哈希尚未验证。
+- 下一步：更新进度记录并提交/推送冻结源码，从头运行 `corepack pnpm run release:final`；只有编排清除 incomplete marker 且源码指纹稳定后才创建 tag/release。
+
+## 已完成实现：保留 Grok 配置并补齐 NewAPI/Sub2API 模型获取（2026-10-10，partially verified）
 
 - 状态：partially verified；本地实现、隔离 Mock、读目录联调和 production build 已完成，真实 NewAPI 目录与正式安装/发布仍未验证。
 - 结果：设置迁移、保存、重载和模型目录刷新都会保留 `imageModelBindings`/`imageModelConfigs` 中的 Grok 图片模型；图片/对话模型配置弹窗提供显式“获取模型”，Main 按全局连接和逐模型连接读取 NewAPI/Sub2API `/v1/models`，合并分类结果并安全缓存。

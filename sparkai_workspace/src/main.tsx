@@ -13729,7 +13729,12 @@ function App() {
     return true;
   }
 
-  function focusWorkflowNode(node: WorkflowNode, options?: { revealInspector?: boolean; recordEvent?: boolean; selectNode?: boolean }) {
+  function focusWorkflowNode(node: WorkflowNode, options?: {
+    revealInspector?: boolean;
+    recordEvent?: boolean;
+    selectNode?: boolean;
+    closeCanvasMenu?: boolean;
+  }) {
     const liveProjection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
     const hostId = liveProjection.groupByMember.get(node.id)?.hostNodeId ?? node.id;
     const visibleNode = liveProjection.canvasNodeById.get(hostId) ?? node;
@@ -13738,7 +13743,7 @@ function App() {
     viewportRef.current = next;
     setViewport(next);
     if (options?.selectNode !== false) setSelectedNodeId(visibleNode.id);
-    setCanvasMenu(null);
+    if (options?.closeCanvasMenu !== false) setCanvasMenu(null);
     if (options?.recordEvent !== false) addEvent(`定位节点 ${visibleNode.id}`);
     // Wait for the viewport and node DOM to commit, then perform one bounded
     // correction. Repeated delayed nudges made the canvas visibly jump after
@@ -13748,17 +13753,22 @@ function App() {
     });
   }
 
-  function focusWorkflowNodes(targetNodes: WorkflowNode[], options?: { recordEvent?: boolean }) {
+  function focusWorkflowNodes(targetNodes: WorkflowNode[], options?: { recordEvent?: boolean; closeCanvasMenu?: boolean }) {
     if (!targetNodes.length) return;
     if (targetNodes.length === 1) {
-      focusWorkflowNode(targetNodes[0], { revealInspector: false, recordEvent: options?.recordEvent, selectNode: false });
+      focusWorkflowNode(targetNodes[0], {
+        revealInspector: false,
+        recordEvent: options?.recordEvent,
+        selectNode: false,
+        closeCanvasMenu: options?.closeCanvasMenu
+      });
       return;
     }
     const rect = canvasRef.current?.getBoundingClientRect();
     const next = viewportForNodes(targetNodes, viewportRef.current, rect);
     viewportRef.current = next;
     setViewport(next);
-    setCanvasMenu(null);
+    if (options?.closeCanvasMenu !== false) setCanvasMenu(null);
     if (options?.recordEvent !== false) addEvent(`定位 ${targetNodes.length} 个相关成果`);
   }
 
@@ -13773,7 +13783,12 @@ function App() {
       const shouldSelect = Boolean(target && selectedId);
       if (!target) target = [...currentNodes].reverse().find((node) => node.type === "image") ?? currentNodes[currentNodes.length - 1] ?? null;
       if (!target) return;
-      focusWorkflowNode(target, { revealInspector: false, recordEvent: false, selectNode: shouldSelect });
+      focusWorkflowNode(target, {
+        revealInspector: false,
+        recordEvent: false,
+        selectNode: shouldSelect,
+        closeCanvasMenu: false
+      });
     }, 160);
   }
 
@@ -13790,7 +13805,7 @@ function App() {
       const selectedTargets = selectedNodeIdsRef.current
         .map((id) => nodesRef.current.find((node) => node.id === id))
         .filter((node): node is WorkflowNode => Boolean(node && node.id !== target.id));
-      focusWorkflowNodes([...selectedTargets, target], { recordEvent: false });
+      focusWorkflowNodes([...selectedTargets, target], { recordEvent: false, closeCanvasMenu: false });
     };
     // A single post-commit focus is enough because image nodes already carry
     // their display dimensions. The previous three-pass refit caused a newly
