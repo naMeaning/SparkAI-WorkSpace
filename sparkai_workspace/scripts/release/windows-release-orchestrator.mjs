@@ -50,6 +50,11 @@ const defaultSettingsPath = join(projectRoot, "config", "app-settings.json");
 const { canonicalDesktopRelease } = require(join(projectRoot, "update-release.cjs"));
 const { ACCESS_VARIANT_DUAL, windowsInstallerArtifactName } = require(join(projectRoot, "runtime", "access-variant.cjs"));
 const canonicalDesktopReleaseProduct = "naimage-studio";
+// The public installer is the branded SparkAI WorkSpace wrapper.  The legacy
+// naimage identifiers remain compatibility values for the app/update protocol,
+// but they are not the Windows file metadata of the wrapper itself.
+const brandedInstallerProductName = "SparkAI WorkSpace";
+const brandedInstallerCompanyName = "namean";
 let activeReleaseChild = null;
 
 function resolvePnpmInvocation() {
@@ -623,8 +628,8 @@ export function verifyReleaseArtifactsAt(root = releaseDir, targetVersion = vers
     metadata = executableMetadata(artifacts.installerPath);
     if (
       metadata.productVersion !== targetVersion ||
-      metadata.productName !== "naimage" ||
-      metadata.companyName !== "SparkAI" ||
+      metadata.productName !== brandedInstallerProductName ||
+      metadata.companyName !== brandedInstallerCompanyName ||
       String(metadata.productVersion).includes("+")
     ) throw new Error("品牌安装包 Windows 元数据不符合发布规范。");
     if (!new Set(["Valid", "NotSigned"]).has(String(metadata.signature || ""))) {

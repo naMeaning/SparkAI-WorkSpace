@@ -4,9 +4,9 @@
 
 - 状态：in progress；用户授权打包新的 Windows EXE、推送冻结提交、创建 v1.0.9 GitHub Release，并要求验证聚焦本次模型配置功能。
 - 范围：当前 1.0.9 工作树中的 NewAPI/Sub2API 模型获取、Grok 图片配置保留、发布说明、Windows 制品、签名清单和远端 Release；不重复真实生图、视频或付费请求。
-- 已有证据：模型 UX、设置持久化（127 cases）、懒加载（67 cases）、typecheck、production build（1678 modules）和 `git diff --check` 均通过；本地 CCS 只读目录联调已在上一条记录完成。
+- 已有证据：模型 UX、设置持久化（127 cases）、懒加载（67 cases）、typecheck、production build（1678 modules）和 `git diff --check` 均通过；本地 CCS 只读目录联调已在上一条记录完成。首次 `release:final` 已完成源码、打包、安装/卸载、完整安装升级和清单生成，但最终 Windows 元数据门禁发现编排器残留旧 `naimage`/`SparkAI` 断言；实际品牌安装器元数据为 `SparkAI WorkSpace`/`namean`，已修正断言，待重新冻结编排。
 - 计划证据：按发布编排生成同一批 Setup、Restart ASAR、manifest、sidecar、SHA256SUMS；远端推送只使用冻结提交和该批制品。
-- 未完成：尚未提交/推送本轮源码，尚未运行 `release:final`，尚未创建 v1.0.9 Release。
+- 未完成：发布门禁修复尚未提交/推送；修复后的同次 `release:final` 尚未通过，尚未创建 v1.0.9 Release。
 
 ## 2026-10-10 继续审计与 CCS 只读联调：partially verified
 

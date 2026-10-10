@@ -10,6 +10,8 @@
 - 证据：`test:model-ux`、`test:settings-persistence`（127 cases）、`test:settings-lazy-load`（67 cases）、`typecheck`、Node 语法检查和 `corepack pnpm run build`（1678 modules）通过；补齐 `main.tsx` 对 `imageModelBindings`/`imageModelConfigs` 的派生依赖，并为配置弹窗“获取模型”入口增加静态断言。隔离 Mock 聚合同时得到对话与 Grok 图片目录。本轮从 CCS 的 Grokbuild Sub2API 配置只读请求返回 HTTP 200/14 个模型并包含 `grok-imagine-image-2.0`，同一 CCS 的 Codex Sub2API 配置返回 HTTP 200/27 个对话模型并包含 `gpt-6.1-sol`。未保存凭据或原始响应。
 - 下一步：若要把本目标升级为完全 verified，在独立环境用实际 NewAPI `/v1/models` 做一次只读目录检查；不重复生图/视频或付费调用。
 
+- 发布 checkpoint（2026-10-10）：首次正式编排已通过源码、打包、隔离安装/卸载、1.0.8→1.0.9 完整安装升级和清单生成，最终门禁因发布编排器残留旧 Windows 元数据断言失败；品牌安装器实际元数据为 `SparkAI WorkSpace`/`namean`，已修正门禁，待重新冻结后继续发布。
+
 ## 上一任务：推送当前源码并发布 GitHub Release（2026-10-09）
 
 - 状态：partially verified；源码修复已推送到 `origin/main`，正式安装、tag 和 GitHub Release 仍等待干净 Windows 环境；本次模型配置任务完成后再恢复。
