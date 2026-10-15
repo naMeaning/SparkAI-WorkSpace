@@ -20,10 +20,14 @@ const FLOATING_DIALOG_MIN_SIZES = [
 
 function floatingDialogMinimumSize(dialog: HTMLElement) {
   const rule = FLOATING_DIALOG_MIN_SIZES.find((item) => dialog.matches(item.selector)) ?? FLOATING_DIALOG_MIN_SIZES[FLOATING_DIALOG_MIN_SIZES.length - 1];
-  const maxWidth = Math.max(1, window.innerWidth - 16);
-  const maxHeight = Math.max(1, window.innerHeight - 16);
+  const style = window.getComputedStyle(dialog);
+  // Shared surfaces own their CSS bounds; header dragging must not impose a
+  // second, conflicting minimum after the user resizes them.
+  const sharedResizable = dialog.dataset.uiResizable === "true";
+  const maxWidth = Math.min(Math.max(1, window.innerWidth - 16), sharedResizable ? parseFloat(style.maxWidth) || Infinity : Infinity);
+  const maxHeight = Math.min(Math.max(1, window.innerHeight - 16), sharedResizable ? parseFloat(style.maxHeight) || Infinity : Infinity);
   return {
-    width: Math.min(rule.width, maxWidth),
+    width: Math.min(sharedResizable ? parseFloat(style.minWidth) || 1 : rule.width, maxWidth),
     maxWidth,
     maxHeight
   };

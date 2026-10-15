@@ -263,7 +263,6 @@
   max-width: calc(100vw - 36px);
   max-height: calc(100dvh - 36px);
   overflow: hidden;
-  resize: none;
 }
 
 .image-create-dialog .image-control-row {
@@ -278,6 +277,8 @@
 
 .ui-surface.manual-image-task-dialog {
   --ui-surface-width: 680px;
+  --ui-surface-min-width: 540px;
+  --ui-surface-min-height: 420px;
   --ii-dialog-width: 680px;
   width: min(680px, calc(100vw - 36px));
   height: min(540px, calc(100dvh - 36px));
@@ -403,6 +404,8 @@
 
 .ui-surface.manual-video-task-dialog {
   --ui-surface-width: 700px;
+  --ui-surface-min-width: 620px;
+  --ui-surface-min-height: 440px;
   width: min(700px, calc(100vw - 36px));
   height: min(540px, calc(100dvh - 36px));
 }

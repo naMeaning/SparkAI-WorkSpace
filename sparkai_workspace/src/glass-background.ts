@@ -1,6 +1,5 @@
 import {
   glassThemeMode,
-  glassThemeRegistry,
   isSolidTheme,
   normalizeGlassThemeSettings,
   type GlassThemeSettings,
@@ -146,25 +145,23 @@ async function loadBackgroundDataUrl(assetId: string, name: string) {
   return request;
 }
 
-function applyReadableBackgroundTokens(
+function applyBackgroundTokens(
   value: BackgroundAppearance,
   background: GlassBackgroundSettings,
   root: BackgroundRoot,
 ) {
   const appearance = normalizeGlassThemeSettings(value);
   const mode = glassThemeMode(appearance.glassTheme);
-  const theme = glassThemeRegistry.themes[appearance.glassTheme];
-  const requestedSurfaceAlpha = appearance.glassParameters.opacity / 100;
-  const readableSurfaceAlpha = Math.max(requestedSurfaceAlpha, mode === "dark" ? 0.46 : 0.5);
-  const readableStrongAlpha = Math.min(0.86, readableSurfaceAlpha + 0.1);
   const maskAlpha = background.glassBackgroundOverlay / 100;
 
   root.style.setProperty("--glass-background-mask", mode === "dark"
     ? `rgba(3, 7, 9, ${maskAlpha})`
     : `rgba(250, 252, 255, ${maskAlpha})`);
   root.style.setProperty("--glass-background-blur", `${background.glassBackgroundBlur}px`);
-  root.style.setProperty("--glass-readable-surface-fill", `rgba(${theme.tokens.glassRgb}, ${readableSurfaceAlpha})`);
-  root.style.setProperty("--glass-readable-surface-fill-strong", `rgba(${theme.tokens.glassRgb}, ${readableStrongAlpha})`);
+  // Theme CSS owns the stable reading surfaces. Clear the older translucent
+  // overrides so background opacity cannot weaken text contrast.
+  root.style.setProperty("--glass-readable-surface-fill", "");
+  root.style.setProperty("--glass-readable-surface-fill-strong", "");
 }
 
 /**
@@ -179,7 +176,7 @@ export async function applyGlassBackgroundToRoot(
   const background = normalizeGlassBackgroundSettings(value);
   const requestId = (rootRequestIds.get(root) || 0) + 1;
   rootRequestIds.set(root, requestId);
-  applyReadableBackgroundTokens(value, background, root);
+  applyBackgroundTokens(value, background, root);
 
   if (isSolidTheme(value.glassTheme) || !background.glassBackgroundEnabled || !background.glassBackgroundAssetId) {
     root.dataset.glassBackground = "off";

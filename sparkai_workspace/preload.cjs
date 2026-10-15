@@ -180,6 +180,7 @@ contextBridge.exposeInMainWorld("naimageServer", {
   me: (payload) => ipcRenderer.invoke("naimage:server:me", payload),
   logs: (payload) => ipcRenderer.invoke("naimage:server:logs", payload),
   models: (payload) => ipcRenderer.invoke("naimage:server:models", payload),
+  probeModels: (payload) => ipcRenderer.invoke("naimage:server:probe-models", payload),
   tokens: (payload) => ipcRenderer.invoke("naimage:server:tokens", payload),
   selectToken: (payload) => ipcRenderer.invoke("naimage:server:select-token", payload),
   createToken: (payload) => ipcRenderer.invoke("naimage:server:create-token", payload),

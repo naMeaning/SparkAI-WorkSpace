@@ -122,7 +122,7 @@ export function QuotaDialog({
   openAccount: () => void;
 }) {
   return (
-    <DialogShell surface="quota" ariaLabel="余额不足" className="quota-dialog" onRequestClose={close}>
+    <DialogShell surface="quota" ariaLabel="余额不足" className="quota-dialog" resizable={false} onRequestClose={close}>
       {({ requestClose }) => (
         <>
           <SurfaceHeader title="余额不足" onClose={() => requestClose(CLOSE_BUTTON_REASON)} />
@@ -162,7 +162,7 @@ export function DeleteNodeDialog({
   deleteBranch: () => void;
 }) {
   return (
-    <DialogShell surface="delete-node" ariaLabel="删除成果确认" className="delete-node-dialog" onRequestClose={close}>
+    <DialogShell surface="delete-node" ariaLabel="删除成果确认" className="delete-node-dialog" resizable={false} onRequestClose={close}>
       {({ requestClose }) => (
         <>
           <SurfaceHeader title="删除成果" onClose={() => requestClose(CLOSE_BUTTON_REASON)} />
@@ -204,6 +204,7 @@ export function ConfirmDialog({
       surface="confirm"
       ariaLabel={draft.title}
       className={`confirm-dialog ${draft.tone === "danger" ? "danger" : ""}`}
+      resizable={false}
       busy={busy}
       closePolicy={{ escape: WHEN_IDLE, backdrop: WHEN_IDLE, [CLOSE_BUTTON_REASON]: WHEN_IDLE }}
       onRequestClose={close}

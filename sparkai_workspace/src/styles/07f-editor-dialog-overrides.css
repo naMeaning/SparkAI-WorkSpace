@@ -1,5 +1,7 @@
 .region-redraw-dialog {
   --ui-surface-width: 1080px;
+  --ui-surface-min-width: 760px;
+  --ui-surface-min-height: 560px;
   --ui-surface-max-height: calc(100dvh - 48px);
   height: min(820px, calc(100dvh - 48px));
   min-height: 560px;
@@ -190,6 +192,8 @@
 }
 
 .requirement-editor-dialog {
+  --ui-surface-min-width: 520px;
+  --ui-surface-min-height: 360px;
   width: min(620px, calc(100vw - 28px));
   max-height: min(720px, calc(100vh - 28px));
 }
@@ -274,6 +278,8 @@
 
 .unified-node-editor {
   --ui-surface-width: 920px;
+  --ui-surface-min-width: 760px;
+  --ui-surface-min-height: 460px;
 }
 
 .node-editor-layer.is-maximized {
@@ -353,7 +359,7 @@
 
 .unified-node-editor-preview {
   min-width: 0;
-  min-height: 430px;
+  min-height: 0;
   position: relative;
   display: grid;
   place-items: center;
@@ -468,7 +474,9 @@
   grid-auto-rows: max-content;
   align-content: stretch;
   gap: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 18px;
 }
 

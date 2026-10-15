@@ -157,6 +157,7 @@ const expectedChannels = [
   "naimage:server:me",
   "naimage:server:logs",
   "naimage:server:models",
+  "naimage:server:probe-models",
   "naimage:server:tokens",
   "naimage:server:select-token",
   "naimage:server:create-token",
@@ -893,6 +894,7 @@ async function assertSettingsSnapshotPayloads() {
   const handlers = new Map();
   const modelCalls = [];
   const tokenCalls = [];
+  const probeCalls = [];
   registerServerIpc({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
     aidebugMode: false,
@@ -911,13 +913,20 @@ async function assertSettingsSnapshotPayloads() {
       modelCalls.push(options);
       return { models: [] };
     },
+    probeModelChannel: async (_settings, payload) => {
+      probeCalls.push(payload);
+      return { models: ["gpt-image-2"] };
+    },
     splitModelSettings: () => ({ models: [] }),
     log: () => {}
   });
   const models = await handlers.get("naimage:server:models")(null, { cacheOnly: true, forceRefresh: false, group: "image" });
+  const probed = await handlers.get("naimage:server:probe-models")(null, { provider: "image", baseUrl: "https://sub2api.example/v1", apiKey: "probe-key" });
   const tokens = await handlers.get("naimage:server:tokens")(null, { preferCached: true });
   assert.equal(models.ok, true);
   assert.equal(tokens.ok, true);
+  assert.deepEqual(probed.models, ["gpt-image-2"]);
+  assert.deepEqual(probeCalls, [{ provider: "image", baseUrl: "https://sub2api.example/v1", apiKey: "probe-key" }]);
   assert.deepEqual(modelCalls, [{ forceRefresh: false, cacheOnly: true }]);
   assert.deepEqual(tokenCalls, [{ preferCached: true }]);
 }
@@ -961,8 +970,8 @@ async function main() {
     videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 149, "The registration contract must contain exactly 149 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 149, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 150, "The registration contract must contain exactly 150 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 150, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -977,13 +986,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 146, "preload must expose exactly 146 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 146, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 147, "preload must expose exactly 147 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 147, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 146, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 147, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),

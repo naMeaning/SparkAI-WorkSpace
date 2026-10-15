@@ -555,9 +555,29 @@ function preferredVideoModelFromList(models = []) {
     models[0] || "";
 }
 
+function canonicalModelCacheUrl(value) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  try {
+    const parsed = new URL(source);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    if (/\/v1$/i.test(parsed.pathname)) parsed.pathname = parsed.pathname.slice(0, -3);
+    return parsed.toString().replace(/\/$/, "").toLowerCase();
+  } catch {
+    return source
+      .replace(/[?#].*$/, "")
+      .replace(/\/v1$/i, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+  }
+}
+
 function createModelCacheKey(accountBaseUrl, relayBaseUrl, serverUserId, modelGroup = "") {
   return [accountBaseUrl, relayBaseUrl]
-    .map((value) => String(value || "").trim().toLowerCase())
+    .map(canonicalModelCacheUrl)
     .concat(String(serverUserId || "anonymous").trim() || "anonymous", String(modelGroup || "account-default").trim().toLowerCase() || "account-default")
     .join("::");
 }

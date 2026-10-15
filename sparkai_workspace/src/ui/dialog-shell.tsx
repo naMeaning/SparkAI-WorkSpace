@@ -29,6 +29,8 @@ export type DialogShellProps = {
   backdropClassName?: string;
   busy?: boolean;
   dirty?: boolean;
+  /** Allow content-heavy dialogs to be resized from the lower-right corner. */
+  resizable?: boolean;
   layerLevel?: DialogLayerLevel;
   closePolicy?: Partial<Record<DialogCloseReason, DialogClosePolicy>>;
   onRequestClose: (reason: DialogCloseReason) => void;
@@ -83,6 +85,7 @@ export function DialogShell({
   backdropClassName,
   busy = false,
   dirty = false,
+  resizable = true,
   layerLevel = "dialog",
   closePolicy,
   onRequestClose,
@@ -208,13 +211,14 @@ export function DialogShell({
       />
       <section
         ref={dialogRef}
-        className={joinClassNames("ui-surface", className)}
+        className={joinClassNames("ui-surface", resizable && "ui-surface-resizable", className)}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
         aria-labelledby={ariaLabelledBy}
         aria-busy={busy || undefined}
         data-ui-surface={surface}
+        data-ui-resizable={resizable ? "true" : undefined}
         data-ui-busy={busy ? "true" : "false"}
         data-ui-dirty={dirty ? "true" : "false"}
         tabIndex={-1}
@@ -231,15 +235,64 @@ export function DrawerShell({
   className,
   layerClassName,
   backdropClassName,
+  resizable = true,
+  children,
   ...props
 }: DrawerShellProps) {
+  const dragRef = useRef<{ pointerId: number; x: number; width: number } | null>(null);
+  function setDrawerWidth(handle: HTMLElement, width: number) {
+    const drawer = handle.closest<HTMLElement>(".ui-drawer");
+    if (!drawer) return;
+    const style = window.getComputedStyle(drawer);
+    const min = Math.min(parseFloat(style.getPropertyValue("--ui-drawer-min-width")) || 320, window.innerWidth);
+    const max = Math.min(900, window.innerWidth);
+    drawer.style.setProperty("--ui-drawer-width", `${Math.round(Math.max(min, Math.min(max, width)))}px`);
+  }
   return (
     <DialogShell
       {...props}
-      className={joinClassNames("ui-drawer", className)}
+      resizable={false}
+      className={joinClassNames("ui-drawer", resizable && "ui-drawer-resizable", className)}
       layerClassName={joinClassNames("ui-drawer-layer", layerClassName)}
       backdropClassName={joinClassNames("ui-drawer-backdrop", backdropClassName)}
-    />
+    >
+      {(controls) => <>
+        {typeof children === "function" ? children(controls) : children}
+        {resizable ? <ButtonBase
+          type="button"
+          className="ui-drawer-resize-handle"
+          aria-label={`调整${props.ariaLabel || "侧栏"}宽度`}
+          title="拖动调整宽度；← / → 调整，Home 还原"
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const drawer = event.currentTarget.closest<HTMLElement>(".ui-drawer");
+            if (!drawer) return;
+            event.preventDefault();
+            event.stopPropagation();
+            dragRef.current = { pointerId: event.pointerId, x: event.clientX, width: drawer.getBoundingClientRect().width };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            setDrawerWidth(event.currentTarget, drag.width + drag.x - event.clientX);
+          }}
+          onPointerUp={(event) => {
+            dragRef.current = null;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onLostPointerCapture={() => { dragRef.current = null; }}
+          onKeyDown={(event) => {
+            const drawer = event.currentTarget.closest<HTMLElement>(".ui-drawer");
+            if (!drawer || !["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === "Home") drawer.style.removeProperty("--ui-drawer-width");
+            else setDrawerWidth(event.currentTarget, drawer.getBoundingClientRect().width + (event.key === "ArrowLeft" ? 24 : -24));
+          }}
+        /> : null}
+      </>}
+    </DialogShell>
   );
 }
 

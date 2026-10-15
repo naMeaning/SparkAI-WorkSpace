@@ -705,6 +705,12 @@ function normalizeModelConnectionBindings(value) {
     const customApiKey = typeof item.customApiKey === "string"
       ? item.customApiKey.trim().slice(0, 8_192)
       : "";
+    const channelId = typeof item.channelId === "string"
+      ? item.channelId.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+      : "";
+    const channelLabel = typeof item.channelLabel === "string"
+      ? item.channelLabel.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+      : "";
     const accountTokenId = String(item.accountTokenId || "").trim();
     const provider = String(item.provider || "").trim().slice(0, 64);
     const protocol = String(item.protocol || "").trim();
@@ -712,6 +718,8 @@ function normalizeModelConnectionBindings(value) {
     const transportMode = String(item.transportMode || "").trim();
     if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
+    if (channelId) binding.channelId = channelId;
+    if (channelLabel) binding.channelLabel = channelLabel;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
     if (provider) binding.provider = provider;
     if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol;
@@ -3298,6 +3306,68 @@ async function fetchAccountModelBindingCatalog(settings, lastCheckedAt) {
   return { providerErrors, providerPayloads, profiles, successfulRequests };
 }
 
+async function probeModelChannel(settings, payload = {}) {
+  if (accessPolicy?.customApiAccess === false) {
+    const error = new Error("此发行版不允许读取自定义渠道模型目录。");
+    error.code = "CUSTOM_API_ACCESS_DISABLED";
+    throw error;
+  }
+  const baseUrl = normalizeServerUrl(payload?.baseUrl, "");
+  const apiKey = String(payload?.apiKey || "").trim();
+  const provider = payload?.provider === "image" ? "image" : payload?.provider === "video" ? "video" : "agent";
+  if (!/^https?:\/\//i.test(baseUrl)) throw new Error("渠道 Base URL 必须是 HTTP 或 HTTPS 地址。");
+  if (!apiKey) throw new Error("渠道 API Key 不能为空。");
+  // Reuse the same catalog/cache path as settings and Agent model lookup. The
+  // temporary credentials stay in Main and are never written to settings or
+  // returned to the renderer. `models` remains the complete upstream list;
+  // the picker applies its provider filter visibly.
+  const probeSettings = migrateSettings({
+    ...settings,
+    accessMode: "custom",
+    agentBaseUrl: baseUrl,
+    imageBaseUrl: baseUrl,
+    agentApiKey: apiKey,
+    imageApiKey: apiKey,
+    agentModel: "",
+    imageModel: "",
+    videoModel: "",
+    agentModelPool: [],
+    imageModelPool: [],
+    videoModelPool: [],
+    agentModelBindings: [],
+    imageModelBindings: [],
+    imageModelConfigs: [],
+    modelGroup: ""
+  });
+  const catalog = await newApiModelSettings(probeSettings, {
+    forceRefresh: payload?.forceRefresh === true,
+    bypassAidebugMock: true
+  });
+  const status = catalog?.serviceStatuses?.[provider];
+  if (!catalog?.models?.length && status?.state === "unavailable") {
+    throw new Error(status?.error || "渠道模型目录暂时不可用。");
+  }
+  const models = uniqueImageModels(catalog.models || []);
+  const profile = (Array.isArray(catalog?.modelAccessProfiles) ? catalog.modelAccessProfiles : [])
+    .find((item) => item?.providers?.includes(provider));
+  const sourceLabel = String(profile?.label || "").trim()
+    || (/sub2api/i.test(baseUrl)
+      ? "Sub2API"
+      : /(?:newapi|sparkapi)/i.test(baseUrl)
+        ? "NewAPI"
+        : "自定义 API");
+  return {
+    models,
+    source: {
+      ...(profile?.id ? { id: String(profile.id).slice(0, 160) } : {}),
+      label: sourceLabel,
+      ...(profile?.baseUrl || baseUrl ? { baseUrl: String(profile?.baseUrl || baseUrl).slice(0, 2_048) } : {}),
+      ...(catalog?.cacheSource ? { cacheSource: catalog.cacheSource } : {}),
+      ...(Number.isFinite(Number(catalog?.cacheAgeMs)) ? { cacheAgeMs: Math.max(0, Number(catalog.cacheAgeMs)) } : {})
+    }
+  };
+}
+
 async function fetchNewApiModelSettings(settings) {
   const lastCheckedAt = new Date().toISOString();
   if (isCustomApiMode(settings)) {
@@ -3622,7 +3692,7 @@ async function newApiModelSettings(settings, options = {}) {
   if (modelCacheInflight.has(key)) return modelCacheInflight.get(key);
   const request = (async () => {
     try {
-      const loaded = aidebugMode && !aidebugLiveImage
+      const loaded = aidebugMode && !aidebugLiveImage && options?.bypassAidebugMock !== true
         ? cachedModelSettings(settings, aidebugPublicSettings)
         : await fetchNewApiModelSettings(settings);
       if (loaded.modelCatalogUnavailable === true) {
@@ -5054,6 +5124,7 @@ function registerIpc() {
     mapNewApiLogEntry,
     modelSettingsWithCacheMeta,
     newApiModelSettings,
+    probeModelChannel,
     newApiRequest,
     newApiUserAuthHeaders,
     newApiUserLogsEndpoint,

@@ -1513,6 +1513,7 @@ export default function SettingsDrawer({
           ariaLabel="保存设置修改"
           layerLevel="nested"
           className="settings-unsaved-dialog"
+          resizable={false}
           busy={saving}
           closePolicy={{ escape: "when-idle", backdrop: "when-idle", [CLOSE_BUTTON_REASON]: "when-idle" }}
           onRequestClose={() => setClosePromptOpen(false)}
@@ -1551,7 +1552,8 @@ export default function SettingsDrawer({
             models={modelConfigTarget === "agent" ? visibleAgentModels : modelConfigTarget === "video" ? visibleVideoModels : visibleImageModels}
             accountTokens={accountTokens}
             accessProfiles={modelState.accessProfiles}
-            refreshModels={() => refreshModels(true, draftSettings.modelGroup)}
+            refreshModels={(forceRefresh = false) => refreshModels(forceRefresh, draftSettings.modelGroup)}
+            discoverModels={appAccessPolicy.customApiAccess ? window.naimageServer?.probeModels : undefined}
             close={() => setModelConfigTarget(null)}
           />
         </React.Suspense>

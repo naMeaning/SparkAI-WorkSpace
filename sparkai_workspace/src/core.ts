@@ -173,6 +173,10 @@ export type GlassBackgroundResult = {
 
 export type ModelConnectionBinding = {
   model: string;
+  /** Stable, credential-free identity for the channel that supplied this model. */
+  channelId?: string;
+  /** User-visible channel/source label; never contains an API key. */
+  channelLabel?: string;
   customBaseUrl?: string;
   customApiKey?: string;
   accountTokenId?: string;
@@ -2185,6 +2189,19 @@ export type ServerPublicSettings = {
   cacheTtlMs?: number;
 };
 
+export type ServerModelProbeResult = {
+  ok: boolean;
+  models?: string[];
+  source?: {
+    id?: string;
+    label?: string;
+    baseUrl?: string;
+    cacheSource?: "network" | "memory" | "disk" | "stale" | "settings";
+    cacheAgeMs?: number;
+  };
+  error?: string;
+};
+
 export type ModelProvider = "agent" | "image" | "video";
 
 export type ServerLogEntry = {
@@ -2879,6 +2896,7 @@ export type ServerBridge = {
   me(payload?: { preferCached?: boolean }): Promise<{ ok: boolean; stale?: boolean; cached?: boolean; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; error?: string }>;
   logs(payload?: ServerLogQuery): Promise<ServerLogResult>;
   models?(payload?: { forceRefresh?: boolean; cacheOnly?: boolean; group?: string }): Promise<{ ok: boolean; settings?: ServerPublicSettings; error?: string }>;
+  probeModels?(payload: { provider: ModelProvider; baseUrl: string; apiKey: string; forceRefresh?: boolean }): Promise<ServerModelProbeResult>;
   tokens?(payload?: { preferCached?: boolean }): Promise<AccountApiTokenListResult>;
   selectToken?(payload: { id: string }): Promise<AccountApiTokenListResult & { token?: AccountApiToken }>;
   createToken?(payload: {
@@ -3409,6 +3427,12 @@ export function normalizeModelConnectionBindings(value: unknown): ModelConnectio
     const customApiKey = typeof source.customApiKey === "string"
       ? source.customApiKey.trim().slice(0, 8_192)
       : "";
+    const channelId = typeof source.channelId === "string"
+      ? source.channelId.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+      : "";
+    const channelLabel = typeof source.channelLabel === "string"
+      ? source.channelLabel.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 160)
+      : "";
     const accountTokenId = String(source.accountTokenId || "").trim();
     const provider = String(source.provider || "").trim().slice(0, 64);
     const protocol = String(source.protocol || "").trim();
@@ -3416,6 +3440,8 @@ export function normalizeModelConnectionBindings(value: unknown): ModelConnectio
     const transportMode = String(source.transportMode || "").trim();
     if (customBaseUrl) binding.customBaseUrl = customBaseUrl;
     if (customApiKey) binding.customApiKey = customApiKey;
+    if (channelId) binding.channelId = channelId;
+    if (channelLabel) binding.channelLabel = channelLabel;
     if (/^[1-9]\d{0,31}$/.test(accountTokenId)) binding.accountTokenId = accountTokenId;
     if (provider) binding.provider = provider;
     if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol as ImageProtocol;

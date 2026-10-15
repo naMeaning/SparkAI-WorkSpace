@@ -20,6 +20,7 @@ import {
   type ModelAccessProfile,
   type ModelCapabilityEvidence,
   type ModelProvider,
+  type ServerModelProbeResult,
   type ImageGateway,
   type ImageModelCapabilities,
   type ImageModelConfig,
@@ -47,6 +48,14 @@ const WHEN_IDLE = "when-idle" as const;
 const MODEL_OPTION_HEIGHT = 58;
 const MODEL_LIST_OVERSCAN = 5;
 const MODEL_LIST_VIRTUAL_THRESHOLD = 80;
+
+type DiscoverModels = (payload: {
+  provider: ModelProvider;
+  baseUrl: string;
+  apiKey: string;
+}) => Promise<ServerModelProbeResult>;
+
+type ChannelCacheSource = NonNullable<ServerModelProbeResult["source"]>["cacheSource"];
 
 const EVIDENCE_PRIORITY: Record<ModelCapabilityEvidence, number> = {
   "name-inferred": 1,
@@ -117,6 +126,16 @@ function formatCapabilityTime(value?: string) {
   }).format(new Date(timestamp));
 }
 
+function formatChannelCache(source?: ChannelCacheSource, ageMs?: number) {
+  if (source === "network") return "刚刚读取";
+  if (source === "memory" || source === "disk" || source === "stale") {
+    const age = Number(ageMs);
+    if (Number.isFinite(age) && age >= 60_000) return `缓存 ${Math.floor(age / 60_000)} 分钟`;
+    return "缓存已命中";
+  }
+  return "";
+}
+
 function modelAccessSummary(accessProfiles: ModelAccessProfile[], kind: ModelProvider, model: string) {
   const key = model.toLowerCase();
   const candidates = accessProfiles.flatMap((profile) => {
@@ -143,6 +162,7 @@ function modelAccessSummary(accessProfiles: ModelAccessProfile[], kind: ModelPro
       : "名称推断";
   return {
     label: checkedAt ? `${label} · ${checkedAt}` : label,
+    sourceLabel: selected.profile.label,
     title: `${selected.profile.label}${selected.profile.baseUrl ? ` · ${selected.profile.baseUrl}` : ""} · ${label}`,
   };
 }
@@ -156,6 +176,7 @@ export default function ModelConfigDialog({
   accountTokens = [],
   accessProfiles = [],
   refreshModels,
+  discoverModels,
   close,
 }: {
   kind: ModelProvider;
@@ -165,7 +186,8 @@ export default function ModelConfigDialog({
   models: string[];
   accountTokens?: AccountApiToken[];
   accessProfiles?: ModelAccessProfile[];
-  refreshModels?: () => void | Promise<void>;
+  refreshModels?: (forceRefresh?: boolean) => void | Promise<void>;
+  discoverModels?: DiscoverModels;
   close: () => void;
 }) {
   const title = kind === "agent" ? "配置对话模型" : kind === "video" ? "配置视频模型" : "配置生图模型";
@@ -178,18 +200,36 @@ export default function ModelConfigDialog({
   const [customModel, setCustomModel] = useState("");
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [channelBaseUrl, setChannelBaseUrl] = useState(() => kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl);
+  const [channelApiKey, setChannelApiKey] = useState("");
+  const [channelModels, setChannelModels] = useState<string[]>([]);
+  const [channelConnection, setChannelConnection] = useState<{
+    baseUrl: string;
+    apiKey: string;
+    models: string[];
+    sourceId?: string;
+    sourceLabel?: string;
+    cacheSource?: ChannelCacheSource;
+    cacheAgeMs?: number;
+  } | null>(null);
+  const [channelLoading, setChannelLoading] = useState(false);
+  const [channelError, setChannelError] = useState("");
+  const [showAllChannelModels, setShowAllChannelModels] = useState(false);
   const modelListRef = useRef<HTMLDivElement>(null);
   const [modelListScrollTop, setModelListScrollTop] = useState(0);
   const [modelListViewportHeight, setModelListViewportHeight] = useState(360);
   const draftSet = new Set(draftModels.map((model) => model.toLowerCase()));
-  const serverModelSet = new Set(models.map((model) => model.toLowerCase()));
+  const serverModelSet = new Set([...models, ...channelModels].map((model) => model.toLowerCase()));
+  const allPickerModels = uniqueModels([...models, ...draftModels, ...channelModels]);
   const availableModels = (kind === "image"
     ? filterImagePickerModels
     : kind === "agent"
       ? filterAgentPickerModels
-      : uniqueModels)([...models, ...draftModels]);
+      : uniqueModels)(allPickerModels);
+  const pickerModels = showAllChannelModels ? allPickerModels : availableModels;
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredModels = availableModels.filter((model) => model.toLowerCase().includes(normalizedQuery));
+  const filteredModels = pickerModels.filter((model) => model.toLowerCase().includes(normalizedQuery));
+  const visibleSelectedCount = filteredModels.filter((model) => draftSet.has(model.toLowerCase())).length;
   const tabStopModel = filteredModels.find((model) => model.toLowerCase() === String(currentModel || "").toLowerCase()) ||
     filteredModels.find((model) => draftSet.has(model.toLowerCase())) ||
     filteredModels[0] || "";
@@ -263,9 +303,74 @@ export default function ModelConfigDialog({
   function toggle(model: string) {
     const clean = String(model || "").trim();
     if (!clean) return;
-    setDraftModels((current) => current.some((item) => item.toLowerCase() === clean.toLowerCase())
+    const selected = draftSet.has(clean.toLowerCase());
+    const channelMatch = channelConnection?.models.some((item) => item.toLowerCase() === clean.toLowerCase())
+      ? channelConnection
+      : null;
+    const currentBinding = modelConnectionBindingFor(draftBindings, clean);
+    const bindingAlreadyUsesChannel = Boolean(channelMatch &&
+      currentBinding?.customBaseUrl === channelMatch.baseUrl &&
+      currentBinding?.customApiKey === channelMatch.apiKey);
+    if (selected && channelMatch && !bindingAlreadyUsesChannel) {
+      setDraftBindings((current) => normalizeModelConnectionBindings([
+        ...current.filter((binding) => binding.model.toLowerCase() !== clean.toLowerCase()),
+        {
+          ...(modelConnectionBindingFor(current, clean) ?? { model: clean }),
+          model: clean,
+          customBaseUrl: channelMatch.baseUrl,
+          customApiKey: channelMatch.apiKey,
+          ...(channelMatch.sourceId ? { channelId: channelMatch.sourceId } : {}),
+          ...(channelMatch.sourceLabel ? { channelLabel: channelMatch.sourceLabel } : {})
+        }
+      ]));
+      return;
+    }
+    setDraftModels((current) => selected
       ? current.filter((item) => item.toLowerCase() !== clean.toLowerCase())
       : uniqueModels([...current, clean]));
+    // Selecting a model returned by this channel is the explicit user action
+    // that assigns its transient connection to the draft. Existing bindings
+    // remain untouched until that action happens.
+    if (channelMatch) {
+      setDraftBindings((current) => {
+        const existing = modelConnectionBindingFor(current, clean) ?? { model: clean };
+        return normalizeModelConnectionBindings([
+          ...current.filter((binding) => binding.model.toLowerCase() !== clean.toLowerCase()),
+          {
+            ...existing,
+            model: clean,
+            customBaseUrl: channelMatch.baseUrl,
+            customApiKey: channelMatch.apiKey,
+            ...(channelMatch.sourceId ? { channelId: channelMatch.sourceId } : {}),
+            ...(channelMatch.sourceLabel ? { channelLabel: channelMatch.sourceLabel } : {})
+          },
+        ]);
+      });
+    }
+  }
+
+  function setVisibleSelection(checked: boolean) {
+    const visible = filteredModels;
+    if (!visible.length) return;
+    const visibleKeys = new Set(visible.map((model) => model.toLowerCase()));
+    setDraftModels((current) => checked
+      ? uniqueModels([...current, ...visible])
+      : current.filter((model) => !visibleKeys.has(model.toLowerCase())));
+    if (!checked || !channelConnection) return;
+    const channelKeys = new Set(channelConnection.models.map((model) => model.toLowerCase()));
+    const fetchedVisible = visible.filter((model) => channelKeys.has(model.toLowerCase()));
+    if (!fetchedVisible.length) return;
+    setDraftBindings((current) => normalizeModelConnectionBindings([
+      ...current.filter((binding) => !fetchedVisible.some((model) => binding.model.toLowerCase() === model.toLowerCase())),
+      ...fetchedVisible.map((model) => ({
+        ...(modelConnectionBindingFor(current, model) ?? { model }),
+        model,
+        customBaseUrl: channelConnection.baseUrl,
+        customApiKey: channelConnection.apiKey,
+        ...(channelConnection.sourceId ? { channelId: channelConnection.sourceId } : {}),
+        ...(channelConnection.sourceLabel ? { channelLabel: channelConnection.sourceLabel } : {})
+      }))
+    ]));
   }
 
   function addCustomModel() {
@@ -317,6 +422,11 @@ export default function ModelConfigDialog({
     const selected = draftSet.has(model.toLowerCase());
     const primary = model.toLowerCase() === String(currentModel || "").toLowerCase();
     const access = modelAccessSummary(accessProfiles, kind, model);
+    const binding = modelConnectionBindingFor(draftBindings, model);
+    const discoveredFromChannel = channelConnection?.models.some((item) => item.toLowerCase() === model.toLowerCase());
+    const sourceLabel = discoveredFromChannel
+      ? channelConnection?.sourceLabel || "本次读取渠道"
+      : binding?.channelLabel || access?.sourceLabel;
     const typeLabel = serverModelSet.has(model.toLowerCase())
       ? (kind === "image" ? imageModelCapability(model).label : kind === "video" ? "视频模型" : "对话模型")
       : "自定义模型";
@@ -339,7 +449,7 @@ export default function ModelConfigDialog({
         <span className="model-picker-checkbox" aria-hidden="true">{selected ? <Check size={14} /> : null}</span>
         <span className="model-picker-option-copy">
           <strong>{model}</strong>
-          <small>{typeLabel}{access ? ` · ${access.label}` : ""}</small>
+          <small>{typeLabel}{access ? ` · ${access.label}` : ""}{sourceLabel ? ` · ${sourceLabel}` : ""}</small>
         </span>
         {primary ? <em>当前</em> : selected ? <em>已选</em> : null}
       </ButtonBase>
@@ -383,15 +493,58 @@ export default function ModelConfigDialog({
     close();
   }
 
-  async function requestModelRefresh() {
+  async function requestModelRefresh(forceRefresh = false) {
     if (!refreshModels || refreshing) return;
     setRefreshing(true);
     try {
-      await refreshModels();
+      await refreshModels(forceRefresh);
     } finally {
       setRefreshing(false);
     }
   }
+
+  async function requestChannelModels() {
+    if (!discoverModels || kind === "video" || channelLoading) return;
+    const baseUrl = channelBaseUrl.trim();
+    const apiKey = channelApiKey.trim();
+    if (!baseUrl || !apiKey) {
+      setChannelError("请输入渠道 Base URL 和 API Key。已配置的全局渠道可直接点击上方“获取模型”。");
+      return;
+    }
+    setChannelLoading(true);
+    setChannelError("");
+    try {
+      const result = await discoverModels({ provider: kind, baseUrl, apiKey });
+      if (!result.ok) throw new Error(result.error || "渠道模型目录暂时不可用。");
+      const nextModels = uniqueModels(result.models || []);
+      setChannelModels(nextModels);
+      setChannelConnection({
+        baseUrl,
+        apiKey,
+        models: nextModels,
+        sourceId: result.source?.id,
+        sourceLabel: result.source?.label,
+        cacheSource: result.source?.cacheSource,
+        cacheAgeMs: result.source?.cacheAgeMs
+      });
+      setShowAllChannelModels(false);
+      setQuery("");
+      if (!nextModels.length) setChannelError("渠道返回了空模型目录，请检查地址、权限或接口兼容性。");
+    } catch (error) {
+      setChannelModels([]);
+      setChannelConnection(null);
+      setChannelError(error instanceof Error ? error.message : "读取渠道模型失败。");
+    } finally {
+      setChannelLoading(false);
+    }
+  }
+
+  // Hydrate the cached catalog when opening the picker. The toolbar action is
+  // the explicit path that asks Main for a fresh directory.
+  useEffect(() => {
+    if (!refreshModels) return;
+    void requestModelRefresh(false);
+  }, []);
 
   return (
     <>
@@ -415,7 +568,7 @@ export default function ModelConfigDialog({
             closeLabel="关闭模型配置"
             closeClassName="model-picker-close"
           />
-          <SurfaceBody className="model-picker-body">
+          <SurfaceBody className={`model-picker-body ${discoverModels && kind !== "video" ? "has-channel-discovery" : ""}`}>
             <div className="model-picker-toolbar">
               <SearchField
                 className="model-picker-search"
@@ -435,7 +588,7 @@ export default function ModelConfigDialog({
               />
               <div className="model-picker-count" aria-live="polite">
                 <strong>{draftModels.length}</strong>
-                <span>个已选 · 共 {availableModels.length} 个</span>
+                <span>个已选 · 共 {pickerModels.length} 个</span>
               </div>
               {refreshModels ? (
                 <ActionButton
@@ -444,14 +597,96 @@ export default function ModelConfigDialog({
                   busy={refreshing}
                   disabled={refreshing}
                   icon={<RefreshCw size={14} />}
-                  onClick={() => void requestModelRefresh()}
+                  onClick={() => void requestModelRefresh(true)}
                 >
                   获取模型
                 </ActionButton>
               ) : null}
+              <div className="model-picker-bulk-actions">
+                <span aria-live="polite">当前结果已选 {visibleSelectedCount} / {filteredModels.length}</span>
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  disabled={!filteredModels.length || visibleSelectedCount === filteredModels.length}
+                  onClick={() => setVisibleSelection(true)}
+                >
+                  全选当前结果
+                </ActionButton>
+                <ActionButton
+                  type="button"
+                  variant="secondary"
+                  disabled={!visibleSelectedCount}
+                  onClick={() => setVisibleSelection(false)}
+                >
+                  清除当前结果
+                </ActionButton>
+              </div>
             </div>
+            {discoverModels && kind !== "video" ? (
+              <div className="model-picker-channel-discovery">
+                <div className="model-picker-channel-heading">
+                  <strong>从渠道读取模型</strong>
+                  <span>兼容 NewAPI、Sub2API 和 OpenAI Compatible</span>
+                </div>
+                {channelModels.length ? (
+                  <Field className="model-picker-channel-all" label="显示渠道返回的全部模型（当前按用途筛选）">
+                    <input
+                      type="checkbox"
+                      checked={showAllChannelModels}
+                      onChange={(event) => setShowAllChannelModels(event.target.checked)}
+                    />
+                  </Field>
+                ) : null}
+                <div className="model-picker-channel-fields">
+                  <input
+                    type="url"
+                    value={channelBaseUrl}
+                    disabled={channelLoading}
+                    maxLength={2_048}
+                    autoComplete="url"
+                    placeholder="https://你的渠道/v1"
+                    aria-label="渠道 Base URL"
+                    onChange={(event) => {
+                      setChannelBaseUrl(event.target.value);
+                      setChannelModels([]);
+                      setChannelConnection(null);
+                      setChannelError("");
+                    }}
+                  />
+                  <input
+                    type="password"
+                    value={channelApiKey}
+                    disabled={channelLoading}
+                    maxLength={8_192}
+                    autoComplete="off"
+                    placeholder="渠道 API Key"
+                    aria-label="渠道 API Key"
+                    onChange={(event) => {
+                      setChannelApiKey(event.target.value);
+                      setChannelModels([]);
+                      setChannelConnection(null);
+                      setChannelError("");
+                    }}
+                  />
+                  <ActionButton
+                    type="button"
+                    variant="secondary"
+                    busy={channelLoading}
+                    disabled={channelLoading || !channelBaseUrl.trim() || !channelApiKey.trim()}
+                    onClick={() => void requestChannelModels()}
+                  >
+                    读取 /v1/models
+                  </ActionButton>
+                </div>
+                <small>
+                  读取成功后勾选模型并保存，连接会随所选模型保存；手动补充仍可用于没有目录接口的渠道。
+                  {channelConnection ? ` 已读取 ${channelConnection.sourceLabel || "自定义渠道"} · ${channelModels.length} 个模型${formatChannelCache(channelConnection.cacheSource, channelConnection.cacheAgeMs) ? ` · ${formatChannelCache(channelConnection.cacheSource, channelConnection.cacheAgeMs)}` : ""}。` : ""}
+                </small>
+                {channelError ? <small className="model-picker-channel-error" role="alert">{channelError}</small> : null}
+              </div>
+            ) : null}
             <div className="model-picker-custom">
-              <label htmlFor={`custom-${kind}-model`}>自定义模型</label>
+              <label htmlFor={`custom-${kind}-model`}>手动补充模型（可选）</label>
               <div>
                 <input
                   id={`custom-${kind}-model`}
@@ -467,7 +702,7 @@ export default function ModelConfigDialog({
                 />
                 <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
               </div>
-              <small>适用于中转站尚未返回、但实际可请求的模型名称；添加后会自动选中并随设置保存。</small>
+              <small>已配置的 NewAPI、Sub2API 或 OpenAI Compatible 渠道会自动读取 `/v1/models` 并列出模型；这里只用于渠道暂未返回时手动补充，添加后会自动选中并随设置保存。</small>
               {kind !== "video" ? (
                 <>
                   <span className="model-picker-binding-title">逐模型连接</span>
@@ -489,6 +724,7 @@ export default function ModelConfigDialog({
                       return (
                         <section key={`binding-${model}`} className="model-picker-binding-card">
                           <strong title={model}>{model}</strong>
+                          {binding?.channelLabel ? <small className="model-picker-binding-source">来源：{binding.channelLabel}</small> : null}
                           {imageConfig ? (
                             <div className="model-picker-auto-adapter-note" role="status">
                               <strong>图片服务连接</strong>

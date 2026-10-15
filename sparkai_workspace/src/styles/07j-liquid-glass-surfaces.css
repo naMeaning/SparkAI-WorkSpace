@@ -19,7 +19,9 @@
 }
 
 /* The surface base paints an opaque fallback first. Backdrop support replaces
-   only that paint, keeping the shell usable on reduced/unsupported GPUs. */
+   only that paint, keeping the shell usable on reduced/unsupported GPUs.
+   Match DialogShell attributes with :where so grouped defaults keep the same
+   specificity as the component rules that own stable reading surfaces. */
 :root.glass-theme-active :is(
   .ide-topbar,
   .workspace-asset-rail,
@@ -34,7 +36,7 @@
   .canvas-context-menu,
   .agent-placement-menu,
   .project-agent-history,
-  .ui-surface[data-ui-surface],
+  :where(.ui-surface[data-ui-surface]),
   .overflow-tooltip
 ),
 :root[data-glass-theme] :is(
@@ -51,7 +53,7 @@
   .canvas-context-menu,
   .agent-placement-menu,
   .project-agent-history,
-  .ui-surface[data-ui-surface],
+  :where(.ui-surface[data-ui-surface]),
   .overflow-tooltip
 ) {
   border-color: var(--glass-edge-color-soft);
@@ -79,7 +81,7 @@
     .canvas-context-menu,
     .agent-placement-menu,
     .project-agent-history,
-    .ui-surface[data-ui-surface],
+    :where(.ui-surface[data-ui-surface]),
     .overflow-tooltip
   ),
   :root[data-glass-theme] :is(
@@ -96,7 +98,7 @@
     .canvas-context-menu,
     .agent-placement-menu,
     .project-agent-history,
-    .ui-surface[data-ui-surface],
+    :where(.ui-surface[data-ui-surface]),
     .overflow-tooltip
   ) {
     background-color: var(--glass-surface-fill);
@@ -120,7 +122,7 @@
     .canvas-context-menu,
     .agent-placement-menu,
     .project-agent-history,
-    .ui-surface[data-ui-surface],
+    :where(.ui-surface[data-ui-surface]),
     .overflow-tooltip
   ),
   :root[data-glass-theme] :is(
@@ -137,7 +139,7 @@
     .canvas-context-menu,
     .agent-placement-menu,
     .project-agent-history,
-    .ui-surface[data-ui-surface],
+    :where(.ui-surface[data-ui-surface]),
     .overflow-tooltip
   ) {
     background-color: var(--glass-fallback-bg);
@@ -146,38 +148,29 @@
   }
 }
 
-/* Micro-noise is a single non-interactive paint layer per glass surface. */
+/* Keep decorative grain on the shell, away from dense reading surfaces. */
 :root.glass-theme-active :is(
   .ide-topbar,
   .workspace-asset-rail,
-  .project-agent-panel,
-  .canvas-plugin-toolbar,
   .workspace-task-context,
   .workspace-focus-filmstrip,
-  .workspace-search-popover,
-  .ui-surface[data-ui-surface]
+  .workspace-search-popover
 )::before,
 :root[data-glass-theme] :is(
   .ide-topbar,
   .workspace-asset-rail,
-  .project-agent-panel,
-  .canvas-plugin-toolbar,
   .workspace-task-context,
   .workspace-focus-filmstrip,
-  .workspace-search-popover,
-  .ui-surface[data-ui-surface]
+  .workspace-search-popover
 )::before {
   content: "";
   position: absolute;
   z-index: 0;
   inset: 0;
   border-radius: inherit;
-  opacity: var(--noise-opacity);
-  background-image: repeating-linear-gradient(
-    112deg,
-    rgba(255, 255, 255, 0.82) 0 1px,
-    transparent 1px 4px
-  );
+  opacity: calc(var(--noise-opacity) * 0.4);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.4) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
   mix-blend-mode: soft-light;
   pointer-events: none;
 }
@@ -507,7 +500,7 @@
 :root[data-glass-theme] .project-agent-panel {
   isolation: isolate;
   border-radius: 0;
-  background-color: var(--glass-fallback-bg);
+  background-color: var(--glass-readable-surface-fill);
   box-shadow:
     inset 1px 0 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.36)),
     -8px 0 28px var(--glass-shadow-soft);
@@ -516,7 +509,7 @@
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root.glass-theme-active .project-agent-panel,
   :root[data-glass-theme] .project-agent-panel {
-    background-color: var(--glass-surface-fill-strong);
+    background-color: var(--glass-readable-surface-fill);
   }
 }
 
@@ -588,7 +581,7 @@
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root.glass-theme-active .canvas-plugin-toolbar,
   :root[data-glass-theme] .canvas-plugin-toolbar {
-    background-color: var(--glass-surface-fill-strong);
+    background-color: var(--glass-readable-surface-fill-strong);
   }
 }
 
@@ -765,7 +758,7 @@
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root.glass-theme-active .ui-surface[data-ui-surface],
   :root[data-glass-theme] .ui-surface[data-ui-surface] {
-    background-color: var(--glass-surface-fill-strong);
+    background-color: var(--glass-readable-surface-fill-strong);
   }
 }
 
@@ -853,7 +846,7 @@
 
 :root.glass-theme-active :is(input, textarea)::placeholder,
 :root[data-glass-theme] :is(input, textarea)::placeholder {
-  color: color-mix(in srgb, var(--muted) 84%, transparent);
+  color: var(--muted);
   opacity: 1;
 }
 
@@ -2388,7 +2381,7 @@
   --node-glass-accent: var(--accent);
   border-color: color-mix(in srgb, var(--node-glass-accent) 30%, var(--glass-edge-color-soft));
   border-radius: clamp(10px, var(--glass-radius), 18px);
-  background-color: var(--glass-surface-fill-strong);
+  background-color: var(--glass-node-bg);
   background-image:
     linear-gradient(145deg, rgba(255, 255, 255, calc(var(--glass-highlight) * 0.22)), transparent 42%),
     radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--node-glass-accent) 12%, transparent), transparent 54%);
@@ -2396,7 +2389,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
     inset 0 -1px 0 rgba(var(--glass-shadow-rgb), 0.1),
-    0 10px 28px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.58));
+    0 4px 14px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.4));
 }
 
 :root.glass-theme-active .flow-node.image,
@@ -2451,7 +2444,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.82)),
     inset 0 -1px 0 rgba(var(--glass-shadow-rgb), 0.12),
-    0 14px 34px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.72));
+    0 6px 18px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.48));
 }
 
 :root.glass-theme-active .flow-node.selected,
@@ -2460,7 +2453,7 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.9)),
     0 0 0 1px color-mix(in srgb, var(--node-glass-accent) 42%, transparent),
-    0 16px 38px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.78));
+    0 6px 18px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.48));
 }
 
 :root.glass-theme-active .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile),
@@ -2699,7 +2692,4 @@
     max-width: calc(100% - 16px);
   }
 
-  .canvas-plugin-toolbar-actions {
-    max-width: min(520px, 58vw);
-  }
 }

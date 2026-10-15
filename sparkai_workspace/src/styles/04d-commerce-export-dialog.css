@@ -1,5 +1,7 @@
 .commerce-export-dialog {
   --ui-surface-width: min(1040px, calc(100vw - 36px));
+  --ui-surface-min-width: 720px;
+  --ui-surface-min-height: 460px;
   --ui-surface-max-height: min(84vh, 760px);
   height: min(84vh, 760px);
 }

@@ -31,6 +31,7 @@ function registerServerIpc({
   migrateSettings,
   modelSettingsWithCacheMeta,
   newApiModelSettings,
+  probeModelChannel,
   newApiRequest,
   newApiUserAuthHeaders,
   normalizeNewApiUser,
@@ -318,6 +319,34 @@ function registerServerIpc({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return { ok: false, error: message, settings: splitModelSettings(settings, []) };
+    }
+  });
+
+  ipcMain.handle("naimage:server:probe-models", async (_event, payload = {}) => {
+    if (accessPolicy?.customApiAccess === false) {
+      return { ok: false, error: "此发行版不允许读取自定义渠道模型目录。", models: [] };
+    }
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    try {
+      const result = await probeModelChannel(settings, payload);
+      return {
+        ok: true,
+        models: result.models || [],
+        ...(result.source && typeof result.source === "object" ? {
+          source: {
+            ...(result.source.id ? { id: String(result.source.id).slice(0, 160) } : {}),
+            ...(result.source.label ? { label: String(result.source.label).slice(0, 160) } : {}),
+            ...(result.source.baseUrl ? { baseUrl: String(result.source.baseUrl).slice(0, 2_048) } : {}),
+            ...(result.source.cacheSource ? { cacheSource: result.source.cacheSource } : {}),
+            ...(Number.isFinite(Number(result.source.cacheAgeMs)) ? { cacheAgeMs: Math.max(0, Number(result.source.cacheAgeMs)) } : {})
+          }
+        } : {})
+      };
+    } catch (error) {
+      const { safeAccountText } = require("../new-api-account.cjs");
+      const message = safeAccountText(error instanceof Error ? error.message : String(error));
+      log(`model channel probe failed ${message}`);
+      return { ok: false, error: message, models: [] };
     }
   });
 

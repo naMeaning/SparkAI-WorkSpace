@@ -1,5 +1,221 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-15）
+
+- 最新用户请求：“每次打包都自动push到远程仓库并且更新上下文文档”；持续规则已写入根/桌面 AGENTS 与 Harness，正在补齐当前包对应源码与上下文的提交和 `origin/main` 推送，`in progress`，契约见 GOAL 顶部。
+- 当前现场：`main` 的既有渠道、画布与 resize 未提交工作保留；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；本次重新 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。静态核验不代替安装或包内 GUI 运行测试。
+
+| 最近开发内容 | 当前结果与证据 |
+| --- | --- |
+| 打包后自动更新上下文并 push | 已更新持续规则和上下文入口；推送前 HEAD/缓存 upstream/实际远端 main 均实查为 `f156b3e`。53 个候选文件范围审查、Harness 10 项、75 处新增本地链接、12 个源码哈希、EXE 身份与差异检查通过，提交与推送待执行；EXE 仍为下方已审计本地开发包。 |
+| 最新 EXE 打包 | `package:win:unrestricted` 退出 0，production build 1681 modules / 23.76s；无限制版 1.0.9 安装 EXE 109,839,872 B。包内 121 个 dist 文件与 8 个源码 owner 一致，含分页标记，静态 [审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`；未安装/启动或发布。 |
+| 功能修改交付 EXE 的持续规则 | 根/桌面 `AGENTS.md` 已要求每轮功能新增/修改/修复及 UI/交互调整在交付前生成当前源码对应的本地 Windows EXE，默认无限制版，报告真实路径/大小/SHA-256；无需逐轮再确认本地打包，正式发布仍独立授权。纯文档不触发打包；Harness 10 项、链接/命令与差异核对通过。 |
+| 画布工具栏分页 | 全部 17 工具在 1280×820 的 4 页、884×640 的 17 页可达，无裁切/横向滚动，滚轮不改页码/视口；最终 Enter/Space、悬停连续翻页/焦点、Escape、固定与安全工具入口 19 checks/5 截图通过。最终 quick GUI 6 scenes、自检/typecheck 与 build（1681 modules / 26.54s）通过；分段证据及原失败边界见下方完成记录与 [交付索引](.diagnostics/canvas-toolbar-pagination-delivery.json)。 |
+| 字体与画布可读性 | 九主题 GUI 132 checks/63 截图、最终 125% DPR 127/41、最终 150% DPR 强反差背景 127/41、最小窗口长标题/需求补充 27/12 全部通过；采样最低 4.99:1，操作条全局设备像素坐标检查通过。selftest/typecheck、最终 quick GUI 6 results、canvas clarity 5 results 及 production build（23.90s）通过，报告见下方完成记录。 |
+| 渠道模型自动发现 | NewAPI / Sub2API / OpenAI Compatible 经 Main `/v1/models` 读取目录，共享 15 分钟缓存；弹窗按勾选模型保留连接，手动补充作为兼容入口。隔离模型 UI 通过；两个已授权真实测试渠道均返回目录且各仅创建一次 `n=1` 图片。见 [模型 UI 报告](.diagnostics/electron/model-discovery-ui-2026-10-11T07-47-56-428Z/report.json) 与 [真实渠道报告](.diagnostics/real-channel-image-2026-10-11T13-42-05-735Z/report.json)。 |
+| Infinite Canvas 交互适配 | 参考提交 `3a6b64b602ad062b29fac66902ed18a7ef5fd9dc` 的导航、小地图、选中/悬停快捷操作，复用现有画布、选择和动作 owner。实际画布专项及小窗口状态通过，见 [画布报告](.diagnostics/electron/aidebug-2026-10-11T10-25-27-813Z/report.json)。 |
+| 相关弹窗和抽屉可调尺寸 | 内容型弹窗通过 `DialogShell.resizable` 调整宽高；设置/账户抽屉左边缘与方向键调宽、Home 还原；内容在最小尺寸下滚动，尺寸不写入项目/设置。隔离 UI 9 个代表表面/23 截图通过，包内查看器和最终成果编辑器追加专项通过；见下方 2026-10-13 功能记录。短确认提示沿用内容尺寸。 |
+| 此前 Windows 开发包 | 2026-10-13 的 `package:win:unrestricted` 与当时 `typecheck`/`test:ui-foundation` 记录保留为历史；同名文件已由 2026-10-15 新包替换，最新状态见上方。 |
+
+最新本地 EXE（2026-10-15 开发包）：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，**109,839,872 bytes**，SHA-256 `aed98423e66d921be0bcb45d5085d8f7a475bda8ad3d3d7cb49f5033412dd3d2`。[制品审计](.diagnostics/canvas-toolbar-exe-audit.json) 为 `ok:true`：121 个 dist 文件集/逐文件哈希与当前构建匹配，8 个 Main/preload/Agent/access owner 与打包前源码哈希一致，包含本轮分页编译标记，dual-access 策略正确；ASAR/解包资源无 `.env`，ASAR 无诊断目录。包含当前字体/画布优化与工具栏分页；未执行安装或包内启动测试，未上传或发布。
+
+历史正式版本：2026-10-10 的 [v1.0.9 发布](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 冻结在 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`，同次发布编排已通过；见 [正式编排报告](.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json) 和本文件 2026-10-10 记录。当前同名本地 EXE 已由后续开发打包替换，不能用它代表已发布资产；本次没有更新远端发布状态。
+
+仍需明确的验证边界：
+
+- 最新分页源码构建的 `test:bundle` 仍失败：CSS **279,001 B > 270,000 B**；唯一硬失败为 CSS，initial JS 4,100 B 和 plugin JS 86,177 B 在门槛内，无诊断标记泄漏，其他 advisory 超限保留在 [Bundle 日志](.diagnostics/canvas-toolbar-pagination-bundle.log)。此前字体任务的 CSS 278,748 B、EXE 的 CSS 277,505 B 与 `bundleEnforced:false` 各属当时记录；当前源码尚不满足正式发布门禁。
+- 100%/125%/150% DPR 是隔离 Electron 的模拟显示密度；实际多显示器切换、各设备 GPU/ClearType 与安装包内本轮优化尚未验证。强反差背景覆盖了受管 WebP、0 遮罩/0 背景模糊、最低透明度 10% 与开启纹理的代表配置，不等于穷举所有自定义组合。
+- [首轮包内 resize 报告](.diagnostics/release/dialog-resize-ui-2026-10-13T04-23-25-804Z/report.json) 为 `ok:false`：5 个代表检查完成，后续查看器入口超时；其后的 [查看器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-28-05-365Z/report.json) 和 [最终编辑器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-32-32-769Z/report.json) 各 `ok:true` / 1 check / 3 截图。保留各自证据范围，未把首轮整套改写为通过。
+- 最新开发包未验证实际安装/卸载、正式发布或逐个插件业务；此前 Agent Text UI 的“放弃后恢复焦点”断言仍未修复/整套复跑。已有正式版本的安装升级证据属于其冻结制品。
+- 真实渠道证据仅覆盖已授权的两个目录和各一次图片请求；其他渠道、视频/Seedance及历史领域的未验证项仍需按各自记录处理，不因本快照自动追加请求。
+
+下一步：提交并推送当前包对应的源码与上下文，核对远端结果后交付。之后每次成功打包都执行上下文更新和 Git 同步；正式发布门禁仍独立。
+
+## 2026-10-15 打包后更新上下文及自动 push / in progress
+
+- 用户持续授权每次打包完成后同步源码与上下文到远程仓库。本轮将刚完成 EXE 对应的渠道模型发现、画布/字体/分页、resize 与 Harness/上下文改动归档到 `origin/main`；生成的 EXE/dist/诊断与私有配置保持忽略。
+- 根/桌面 AGENTS、Harness 决策/协议/授权矩阵与两层上下文入口已更新，明确打包结果、文档和 push 状态分别记录，正式二进制上传/Release 仍独立授权。
+- 推送前只读实查：本地 HEAD、origin/main 缓存、远端 `refs/heads/main` 都是 `f156b3e5a5ac22d6a562df8f3e69ce2f0a287ac2`，upstream 为 origin/main。
+- 提交前核对：独立只读审查确认 49 个 tracked 修改与 4 个新增文件均属当前包的功能、验证脚本和上下文；2,795 行新增内容未发现实际凭据，无 Extension 修改或二进制/诊断/私有配置候选。根 `node scripts/verify-harness.mjs` 10 项通过，75 处新增本地链接、12 个包内源码哈希和 EXE 大小/SHA-256 均与当前现场一致，`git diff --check` 退出 0。范围与制品复核见 [.diagnostics/package-push-preflight-2026-10-15.json](.diagnostics/package-push-preflight-2026-10-15.json)；尚未 commit/push。
+- 暂存补充：首次 `git add` 被 2026-10-14 遗留的零字节 `.git/index.lock` 阻塞；两次确认没有 Git/SSH 进程后，将该锁移为同目录带日期备份并恢复暂存。`git diff --cached --check` 检出了原未跟踪 `canvas-interaction-toolbar.tsx` 的一个末尾空行，现已删除；TypeScript 修正前后输出逐字节相同，未改变功能或包内行为，格式证据为 `.diagnostics/package-push-formatting-2026-10-15.json`。
+
+## 2026-10-15 最新源码本地 EXE 打包 / completed, verified
+
+- 用户明确要求立即打包，执行默认 `corepack pnpm run package:win:unrestricted`，不改版本；当前 main 未提交功能源码全部保留并作为本次输入。
+- 只做本地开发打包及制品核验，不上传/发布、不运行真实模型、不安装覆盖现有用户环境。既有 CSS 279,001 B > 270,000 B 是正式发布门禁边界，按开发包规则不阻断本轮 NSIS 打包。
+- 结果：[打包结果](.diagnostics/canvas-toolbar-exe-package-result.json) 退出 0，`test:access-variant` 通过、production build 1681 modules / 23.76s，NSIS 和品牌包装完成，`bundleEnforced:false`。日志见 [.diagnostics/canvas-toolbar-exe-package.log](.diagnostics/canvas-toolbar-exe-package.log)；本轮未修改产品源码或版本号。
+- 新制品：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，109,839,872 B，SHA-256 `aed98423e66d921be0bcb45d5085d8f7a475bda8ad3d3d7cb49f5033412dd3d2`。同名 2026-10-13 本地包被本轮新包替换，旧哈希及旧审计仍保留在当时记录中，不能混用。
+- [本轮静态审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`：121 个 dist 文件精确集合与逐文件 SHA-256 匹配，8 个 Main/preload/独立 Agent/access owner 匹配本轮准备阶段的源码哈希，分页编译标记存在，dual-access/custom API 策略正确；ASAR/解包资源无 `.env`，ASAR 无诊断目录，未读取凭据。审计脚本为 `.diagnostics/canvas-toolbar-exe-audit.mjs`，记录本轮源码哈希与制品身份。
+- 边界：本轮仅完成本地构建、打包和静态一致性核验，没有安装/启动应用、请求模型、上传或发布。当前 dist CSS 实测仍为 279,001 B，既有正式发布门禁超限边界保持。
+
+## 2026-10-15 每次功能修改交付 EXE 的持续规则 / completed, verified
+
+- 用户要求已写入根/桌面 `AGENTS.md`：功能新增、修改、修复及 UI/交互调整交付前必须打包最终源码对应的本地 Windows EXE；默认 `package:win:unrestricted`，指定变体时遵循用户选择，报告路径、大小、SHA-256 和打包结果。打包流程内的成功 build 满足构建要求，无需重复构建或逐轮询问本地打包授权。
+- 同批替换 `harness/CONVERSATION_DECISIONS.md` 中旧的逐次授权偏好，保留独立正式发布授权与既有开发/正式门禁区别；失败必须报告 EXE 未生成/未更新。纯文档修改、规划和只读诊断不触发打包。
+- 本轮仅修改开发规则和任务记录，保留全部产品未提交工作；`node scripts/verify-harness.mjs` 通过 10 项结构检查，根→桌面规则链接、实际打包命令和 `git diff --check` 均通过。未执行产品构建、打包或发布。
+
+## 2026-10-15 画布工具栏分页 / completed, verified
+
+- 结果：底部工具栏用上一页/下一页与页码浏览，按真实按钮宽度保持完整工具，窗口变化保留当前浏览锚点；原命令、禁用条件、快捷键与固定/悬停设置仍由现有 owner 提供。点击不会让画布抢焦点，Enter/空格使用按钮原生激活，Escape 收起并返回入口焦点。新增 owner 见 `docs/CONTEXT_MAP.md`。
+- 双尺寸证据：[布局/遍历报告](.diagnostics/electron/canvas-toolbar-pagination-2026-10-15T01-55-16-823Z/report.json) 有 44 项通过，包含全部 17 工具逐页可达（1280×820：4 页；884×640：17 页）、首末禁用、无裁切/横向溢出、滚轮不改页码/画布、末页 resize 到合法页。该报告随后在 Enter 检查失败，整体 `ok:false` 原样保留；后续唯一产品改动为工具栏 Enter/空格停止冒泡。
+- 修复后的 [最终补充专项](.diagnostics/electron/canvas-toolbar-pagination-2026-10-15T02-01-51-708Z/report.json) 为 `ok:true` / 19 checks / 5 screenshots，真实验证 Enter 下一页、Space 上一页、SKU 安全弹窗、悬停收起/展开、悬停连续两次翻页与按钮焦点、Escape 收起/入口焦点、重新固定后移出仍展开，模型请求 0。没有把原失败报告改写为整套通过。诊断脚本 `.diagnostics/canvas-toolbar-pagination-check.mjs --tail-only` 保留该补充路径。
+- 最终 `corepack pnpm run aidebug:gui` [quick GUI 报告](.diagnostics/electron/aidebug-2026-10-15T02-02-19-302Z/report.json) `ok:true` / 6 scenes；最终 `typecheck`、`test:workspace-glass-ui` 164 cases、`test:plugin-system` 115 cases 全部退出 0；[production build](.diagnostics/canvas-toolbar-pagination-build-result.json) 退出 0 / 1681 modules / 26.54s。[Bundle](.diagnostics/canvas-toolbar-pagination-bundle-result.json) 唯一硬失败仍为 CSS 279,001 B > 270,000 B，无诊断标记泄漏。
+- [交付索引](.diagnostics/canvas-toolbar-pagination-delivery.json) 保存最终源码哈希、分段验收范围与报告、构建和 Bundle 结果；[工具栏截图](.diagnostics/canvas-toolbar-pagination-preview.png) 来自最终固定模式原始截图裁切。未打包新 EXE、未请求真实模型、未提交或发布；隔离测试进程已清理。
+- 最后文档与现场核对：当前任务 19 处本地链接存在，5 个源码哈希仍与交付索引一致，`git diff --check` 退出 0；既有未提交工作保留。
+
+以下为本轮接受与诊断过程的当时状态，后续已由上述记录完成：
+
+- UI 里程碑：`.diagnostics/electron/canvas-toolbar-pagination-2026-10-15T01-55-16-823Z/report.json` 已实际通过双尺寸完整工具遍历（1280：4 页；884：17 页）、完整按钮/首末边界、滚轮惰性及末页 resize，随后在键盘 Enter 检查真实失败：全局画布快捷键打开了编辑成果。该报告仍为 `ok:false`，不当作完整通过。工具栏现在对 Enter/空格只停止冒泡，保留按钮原生激活；等待修正后的最终专项。此前生产构建通过（1681 modules / 40.58s），最终源码构建和检查正在重跑。
+- 启动诊断：首次受限环境的 quick GUI 因 Windows 安全存储不可用未创建 Renderer，外部隔离启动也曾在工作台出现前超时；专项延长启动等待并使用隔离 Mock 配置后已进入实际 UI。启动失败报告保留，不视为分页断言或通过证据；未更改产品安全配置或请求真实模型。
+- 实现里程碑：新增 `src/canvas-toolbar-pages.tsx`，使用实际按钮宽度和 `ResizeObserver` 分页；当前工具作为 resize 锚点，工具集合变化回第一页；隐藏测量按钮不可交互/不可聚焦。样式 owner 移除横向滚动与旧窄屏宽度覆盖，`main.tsx` 保留原工具命令与展开设置。
+- 复核修正：工具栏 `data-canvas-no-zoom` 复用既有画布点击/滚轮/平移隔离，避免翻页时画布抢焦点；内部转焦不重新展开 Escape 收起的工具栏。`test:workspace-glass-ui` 164 cases、`test:plugin-system` 115 cases 通过；首次 typecheck 因 ES2020 不支持 `findLastIndex` 失败，替换为兼容迭代后退出 0。真实 UI 专项和 quick GUI 进行中，production build 待运行。
+- 用户明确要求将横向滚动改为翻页；保留工具顺序、动作与展开设置，只改变 Renderer 临时展示逻辑。已有 main 分支 dirty changes 全部保留，本轮相关文件基线见 `.diagnostics/canvas-toolbar-pagination-baseline/`。
+- 计划验证：1280×820/884×640 的完整按钮分页、全部工具可达、首末边界、滚轮与视口隔离、键盘翻页、resize、固定/悬停/Escape 和安全工具入口；随后运行相关 selftest/typecheck、quick GUI 与 production build。本轮未运行验证、未请求真实模型、未打包或发布。
+
+## 2026-10-15 最终 DPR 复测与交付 / completed, verified
+
+- 已修正操作条局部对齐遗漏画布原点的问题。最终 [125% DPR](.diagnostics/electron/canvas-readability-2026-10-14T16-15-15-043Z/report.json) 与 [150% DPR 强反差背景](.diagnostics/electron/canvas-readability-2026-10-14T16-18-49-771Z/report.json) 各 `ok:true` / 127 checks / 41 screenshots；新增检查证明实际操作条 left/top × DPR 在 0.02 设备像素容差内接近整数，四角/多选/长标题/需求/独立窗与原交互检查均保留。最低文字采样仍为 5.20:1 / 4.99:1。
+- 最后 `typecheck` 退出 0；[production build](.diagnostics/canvas-readability-build-result.json) 退出 0 / 1680 modules / 23.90s。最后 [Bundle](.diagnostics/canvas-readability-bundle-result.json) 退出 1，仍仅 CSS 278,748 B > 270,000 B，无诊断标记泄漏。最后 quick GUI 与 canvas clarity 的其他 owner 此后未变。
+- 交付证据索引为 [.diagnostics/canvas-readability-delivery.json](.diagnostics/canvas-readability-delivery.json)，包含当前源码 SHA-256、报告与构建结果、实际验证边界。本轮没有生成新 EXE 或发布。
+- 文档本地链接与 `git diff --check` 在写入最终记录后核对；下方各 checkpoint 保留当时证据，续接以本快照和该最终记录为准。
+
+## 2026-10-15 最终差异核对补充：全局设备像素对齐 / 当时 in progress，已由上方完成记录验证
+
+- 125% 旧报告中操作条 y×DPR 为 162.5 / 464.5 等半整数；原因是 `ActionBar` 仅对局部坐标取整，遗漏画布原点（82 CSS px）。现已同时纳入 canvas left/top，并在实际 GUI 中追加操作条全局坐标乘 DPR 接近整数的检查。
+- 该问题只证明位置对齐遗漏，不单独证明所有字体模糊的原因。之前文字对比、交互、主题和强反差背景证据保留；当时等待 DPR 复测与最终 build，现见上方完成记录。
+
+## 2026-10-15 字体与画布执行完成：verified（本地源码与构建）
+
+- 结果：统一主/独立 Agent 的 Windows 字体回退和常用辅助字号，恢复浏览器原生文字渲染；保留既有 DPR 对齐/交互后 2D settle。主题 muted/warning、占位文字与稳定阅读面同步；修正背景模块 inline 覆盖及通用 Glass 样式 specificity，移除阅读区斜纹。画布导航分组/100%、插件分行、固定字号标题与操作条实测夹紧/底部避让完成，节点阴影减轻。
+- [九主题报告](.diagnostics/electron/canvas-readability-2026-10-14T15-54-04-404Z/report.json)：`ok:true` / 132 checks / 63 screenshots / 142 文本样本，最低 5.09:1；含六缩放、两窗口尺寸、四边/多选、100%/小地图/Esc 焦点、查看/编辑/引用、容器归组、需求仅保存及独立 Agent 明暗同步。
+- [125% DPR](.diagnostics/electron/canvas-readability-2026-10-14T15-57-23-384Z/report.json)：96 checks / 39 screenshots / 58 样本，最低 5.20:1；[150% DPR 与强反差背景](.diagnostics/electron/canvas-readability-2026-10-14T15-59-49-752Z/report.json)：96/39/58，最低 4.99:1。实际 `devicePixelRatio` 分别为 1.25 / 1.5，背景经真实 Main 加载受管 WebP，0 遮罩/0 背景模糊，透明度实际归一至最低 10%。
+- [长标题/需求最小窗口补充](.diagnostics/electron/canvas-readability-2026-10-14T16-05-53-479Z/report.json)：`ok:true` / 27 checks / 12 screenshots，884×640 的工具条仍在画布内且按钮可命中，长标题截断并保留完整 title；需求保存/取消不执行模型。实际查看了最小窗口长标题、需求节点、独立浅色窗及 150% 强反差背景截图。
+- 最终 [quick GUI](.diagnostics/electron/aidebug-2026-10-14T16-03-31-015Z/report.json)：`ok:true` / 6 results；[canvas clarity](.diagnostics/electron/aidebug-2026-10-14T00-47-00-585Z/report.json)：`ok:true` / 5 results。`test:glass-theme`（38 settings cases）、`test:workspace-glass-ui`（164 cases）、`test:ui-foundation`、`test:agent-window`（44+68 cases）及 typecheck 通过；没有以旧 EXE 或撤回实验代替本轮 UI 证据。
+- 最终 [production build](.diagnostics/canvas-readability-build-result.json) 退出 0 / 1680 modules / 21.93s；[构建日志](.diagnostics/canvas-readability-build.log) 保留。`test:bundle` 退出 1，唯一硬失败 CSS 278,748 B > 270,000 B；未为开发 UI 优化扩大到发布或高风险 Bundle 重构。0 真实模型请求，无新 EXE、提交、推送或发布；实际多显示器切换与新包内优化仍未验证。
+- 差异复核：与保存基线核对字体/主题/画布 owner，保留此前渠道、画布与 resize 工作；背景与 Agent header 两个原干净 owner 是本轮新增改动，旧固定 alpha 样式断言和调宽手柄诊断分类同步修正。GOAL/PROGRESS/上下文地图同步，完成后的本地链接与 whitespace 核对记录见下方诊断交付摘要。
+
+## 2026-10-14 字体与画布执行：九主题及操作链 verified
+
+- 最新完整 [GUI 报告](.diagnostics/electron/canvas-readability-2026-10-14T15-54-04-404Z/report.json) 为 `ok:true` / 132 checks / 63 screenshots；九主题、六缩放、两窗口尺寸、四边/多选、100%/小地图/Esc 焦点、长标题完整提示、查看/编辑/引用、容器归组、需求仅保存和独立 Agent 明暗同步均通过。实际可见文字背景采样含设置、画布/主 Agent 和独立窗，最低 5.09:1，包含危险操作标签。
+- 新采样曾发现 Agent 浅色占位文字 4.39:1，以及 silver/sky/blush 辅助文字 4.04–4.25:1；已分别修正占位透明度、`glass-background.ts` 旧 inline 阅读底色、通用 Glass 分组规则的过高 specificity。修正后真实截图采样通过；背景加载/资产/IPC 不变，阅读底色 owner 与地图同步。
+- 探针等待布局稳定后再采样；旧失败包含采样 DOM 序列化、resize 过渡、查看器选择器、标题 trim 与悬停状态误判，相关历史报告保留。固定 alpha 的旧样式断言已更新到稳定阅读面；`test:glass-theme`（38 cases）、`test:workspace-glass-ui`（164 cases）和 typecheck 通过。
+- 第一轮可确认 production build 退出 0 / 1680 modules / 35.95s；随后继续修正背景/CSS owner，因此该日志将由最终构建替代。该轮 `test:bundle` 唯一硬失败为 CSS 278,722 B > 270,000 B；正式发布门禁不作为本轮开发打包授权。125%/150% DPR 和最终构建仍待收尾，0 真实模型请求。
+
+## 2026-10-14 字体与画布执行：通用冒烟与清晰度 milestone
+
+- 修正诊断分类后的 [quick GUI](.diagnostics/electron/aidebug-2026-10-14T00-45-13-385Z/report.json) 为 `ok:true` / 6 results；[canvas clarity](.diagnostics/electron/aidebug-2026-10-14T00-47-00-585Z/report.json) 为 `ok:true` / 5 results。原手柄分类失败保留在下方历史记录。
+- 续接检查发现独立 Agent 仍保留全窗斜纹和旧透明阅读底色；已在 `agent-window.css` owner 中同步近实色底和 14px 基线，模型辅助信息 12px；`test:agent-window` 44+68 cases 再次通过。
+- 当前仍在验证长标题/容器/需求、主/独立窗口的合成文字对比与模拟 DPR；最终构建尚未收集可确认的退出码。0 真实模型请求，无新 EXE/提交/发布。
+
+## 2026-10-14 字体与画布执行：实现 / partially verified
+
+- 已实现：主/独立窗统一 Segoe UI + 微软雅黑回退与字号；可读 muted 投影与 bootstrap 同步，浅色 warning 调深；阅读面使用稳定近实色底，纹理避开 Agent/弹窗；画布导航分组/100%、插件工具行、固定字号选中/悬停标题、按实际工具条矩形/DPR 夹紧并避让底部控件，减轻节点阴影。
+- 工程验证：`typecheck`、`test:glass-theme`（38 settings cases）、`test:ui-foundation`、`test:workspace-glass-ui`（164 cases）、`test:agent-window`（44+68 cases）通过；样式专项更新了过时的固定 10px/半透明节点断言。
+- 实窗：`.diagnostics/electron/canvas-readability-2026-10-14T00-42-09-617Z/report.json` 为 `ok:true`，79 checks / 36 screenshots，9 主题、6 缩放、1280×820/884×640 与四边/多选、100%、小地图、Esc 焦点通过；设置文字截图背景采样最低 5.22:1。第一轮 `00-36-16` 报告失败在采样没有有效点，不能计为完整通过；截图发现的底部操作条避让已修复并复核。
+- quick GUI 首轮 `.diagnostics/electron/aidebug-2026-10-14T00-40-50-103Z/report.json` 失败在既有 `.ui-drawer-resize-handle` 被当成非 primitive 按钮；诊断 owner 已新增专门宽度/标签检查并保留其他断言，待复跑。
+- 下一步：补画布文字/长标题/需求/容器及独立 Agent、模拟 DPR，完成 quick/canvas clarity/build。0 真实模型请求，无新 EXE/发布。
+
+## 2026-10-14 执行已交付字体与画布计划：任务接受 / in progress
+
+- 新授权：用户明确要求按计划执行，本轮实现字体/字号、文字对比和画布导航、节点层级、浮动操作条边界。
+- 现场：main dirty worktree 保留；15 个相关文件与 SHA-256 保存于 `.diagnostics/canvas-readability-implementation-baseline/`，用于区分本轮改动与此前工作。
+- 验证：主题 owner selftest、UI foundation/typecheck；实际 Mock Electron 中检查默认/明暗/代表玻璃主题、50%–240% 缩放、四角操作条、1280×820 和 884×640；quick GUI/canvas clarity 与 production build。
+- 边界：0 真实模型请求，无 EXE 打包、提交、推送或发布；旧撤回实验检查不作为本轮证据。
+
+## 2026-10-14 用户澄清：仅提供计划 / verified（规划与撤回核对）
+
+- 用户明确只要求计划；先前将“先列计划”当成持续实施授权的解释已 superseded。
+- 已停止产品实现，选择性撤回仅由本轮引入的改动、保留原有 dirty worktree 和两个未跟踪的画布组件，并关闭本轮隔离预览进程树。
+- 曾进行的主题、UI foundation、typecheck 与清晰度实验检查属于撤回过程前的历史记录，不能证明当前代码已完成优化；没有生产构建、新 EXE、真实模型请求或发布。
+- 撤回证据：5 个原本无改动的文件与 HEAD 归一换行后内容相同；画布 CSS 恢复此前 286 行新增、0 行删除的差异，两个画布组件恢复原有结构与行为；其余相关差异核对为此前的渠道/画布/resize 工作。14 处相关本地文档链接存在，`git diff --check` 退出 0。
+- 当前交付是计划和状态纠正；未将未来实现、GUI 验收或构建列为本轮待办。
+
+## 2026-10-14 文字与画布优化：具体计划 / 历史记录，持续实施解释已 superseded
+
+- 用户补充要求：先列出具体改进计划。已写入 [计划](docs/CANVAS_READABILITY_PLAN_2026-10-14.md)，按字体、渲染、对比度、工具布局、节点层级、浮动边界、验证分成 7 步；这是拟实施项，不是已完成实现。
+- 新证据：隔离基线 [.diagnostics/electron/canvas-readability-2026-10-13T14-20-24-760Z/before-default.png](.diagnostics/electron/canvas-readability-2026-10-13T14-20-24-760Z/before-default.png) 已实际查看，导航条覆盖底部插件操作、55% 画布标题很小、密集文字区域存在斜纹。未量化对比度，未断言强制文字渲染属性就是模糊根因。
+- 代码/参考：确认画布多处 9–10px、小字 760 字重、工具条只夹紧中心点；既有视口已具备设备像素对齐和交互后 2D settle。用户指定仓库 API 返回 main `3a6b64b602ad062b29fac66902ed18a7ef5fd9dc`，与本地参考一致。
+- 续接审计：上一轮为 progress，产生了任务文档与基线证据；原预览进程句柄已不存在，记录端口也未响应，不把旧连接文件当作运行中的应用。本轮未重启或修改用户应用。
+- 完成边界：计划整理完成，整体 Goal 未完成；本轮产品代码尚未修改，0 新真实模型请求，无新 EXE/发布。后续需实际实现、截图/状态证据和构建。
+
+## 2026-10-13 文字清晰度与画布 UI：任务接受 / 历史记录，实施解释已 superseded
+
+- 结果 / 范围：改善中文、小字号、对比度与画布视觉层级；在桌面字体/主题/画布 owner 中修改，参考用户指定的公开 Infinite Canvas 仓库。
+- 现场：main 已有多项未提交实现，包括 canvas-interaction-toolbar、canvas-navigation-controls 与相关 CSS；不重置或覆盖其他任务修改。
+- 验证计划：隔离 Mock Electron 中检查明暗主题、分数缩放、画布操作及 884×640 小窗口，保留截图与真实状态；针对性 selftest、typecheck、production build。
+- 边界：0 新真实模型请求；未提交、推送、打包或发布。旧 EXE/旧 UI 报告不证明本轮改动。
+- 下一步：比对实时源码、主题投影、现有画布截图与参考项目，先确定模糊和低对比的具体原因。
+
+## 2026-10-13 新会话上下文入口同步：verified
+
+- 范围：根/桌面 AGENTS 增加必读顺序，PROGRESS 顶部作为动态状态入口，GOAL 保留当前任务契约，两层地图与 Harness 同步导航和历史 checkpoint 语义。
+- 已核对：当前分支/dirty worktree、共享 resize/probe-models 源码入口、现有 UI/包内/正式发布报告的真实状态、当前 EXE 大小/SHA-256 与审计一致；没有运行新的软件构建、UI 或真实模型请求。
+- 文档验证：工作区根 `node scripts/verify-harness.mjs` 10 项结构检查通过；一次性 Node 只读核对 9 份相关文档的本地链接、当前快照的制品元数据/未通过门禁/报告范围，并从 preload 源码确认 147 个公开 invoke，退出 0；`git diff --check` 退出 0。同步时还修正了根地图的过期发布准备、无 Git 描述、旧 Bundle 规则和两层地图的当前 IPC 数量。
+- 完成边界：本轮改动仅 9 份上下文文档；没有新增软件功能验证、重建 EXE、重复真实请求、提交/推送或发布。后续任务按入口恢复最新状态，再选择尚未完成的验收项。
+
+## 阶段记录
+
+下列记录保留任务当时的计划、失败和后续 checkpoint；其中“待构建”“待发布”“未验证”等字样应按日期读取，并查找更新的完成证据。最新状态从本文件顶部进入，历史哈希不得用于识别当前同名制品。
+
+## 2026-10-13 全部相关弹窗可调尺寸：verified
+
+- 用户将最初的模型配置 resize 范围扩展到所有相关弹窗；已检查 dirty worktree 并保留渠道、画布等先前改动。配置/编辑/选择/导出通过共享 `DialogShell` 接入，设置/账户抽屉保持停靠并允许拉动左边缘调整宽度，短确认保持内容尺寸；只改 Renderer 交互与布局。
+- 原局部 CSS（模型初始 760×720、右下角 resize）尚不代表最终完成。`aidebug:agent-text-ui` 报告 `agent-text-ui-2026-10-11T14-33-28-761Z` 在提示词编辑器显式放弃后的旧焦点断言超时，63 个前置检查通过，尚未执行到模型表面；未为本目标扩大提示词业务修复范围。`aidebug:gui:surface` 的 `aidebug-2026-10-11T14-37-21-881Z/report.json` 为 ok:true/15 scenes，但没有实际拖拽 resize，保留作为原布局 evidence。
+- 计划验证：共享尺寸属性与各布局最小边界、真实鼠标拉大/缩小和视口缩小时的按钮/滚动状态；不重复其他画布/渠道专项或真实模型请求。最终 build 与本地开发 EXE 待执行。
+- 实现 checkpoint：`DialogShell.resizable` 默认开启，共享 CSS 原生调整宽高与视口边界、owner 最小尺寸、右下角提示；模型 body 可收缩/滚动，导出和科研布局跟随弹窗容器宽度；浮动表面的尺寸约束读取 CSS，避免 header 移动重新套用旧硬编码下限。`DrawerShell` 用捕获指针的左边缘调整宽度，箭头键 ±24px、Home 还原，不保存尺寸到项目/设置；账户 360px 以下的概览/筛选单列排列。
+- 真实 UI 证据：`node .diagnostics/dialog-resize-probe.mjs` 最新报告 `.diagnostics/electron/dialog-resize-ui-2026-10-13T03-48-28-078Z/report.json` 为 `ok:true` / 9 checks / 23 screenshots / 0 真实模型请求。7 个内容表面覆盖实际拉大、拉到最小值、再放大后收窄应用到 884×640，草稿状态保持、header/footer 可见、body 在表面内且无横向溢出；设置抽屉 420→540→360→384→420，账户 390→510→320→344→390，最窄 body 无横向溢出。
+- 探针修正：导出中心初次断言把 `minmax(300px, 0.46fr)` 内的空格错误拆为多列，截图与 computed CSS 证明实际已经切换窄布局；Home 初次断言错误要求重置一定缩小，已按恢复默认初始宽度校验。仅修正忽略目录中的探针，没有为这些失败改业务逻辑。
+- 编译证据：`corepack pnpm run test:ui-foundation`（10 required tokens / 5 layer contracts）、`corepack pnpm run typecheck`、`git diff --check` 退出 0；`corepack pnpm run build` 1680 modules、23.91s、退出 0。随后账户窄栏 CSS 已由上述真实 UI 验证，将在本地 EXE 打包时再次 production build；制品与包内 smoke 尚未完成。
+- 包内 checkpoint：首个开发 EXE 已生成，模型/导出/设置/账户/成果编辑器尺寸路径通过，查看器独立 probe 也通过；`.env` 与 2 组测试 Key 均不在 ASAR，121 个 dist 文件与 4 个 Main/preload owner 字节一致。探针旧 close selector 误选最大化、画布查看入口 selector 未覆盖压缩 class，仅调整忽略目录脚本。检查成果编辑器 compact 截图发现提示词行在 460px 高度被表单 hidden overflow 裁切，改为表单内部纵向滚动，重新构建制品后只复查此表面。
+- 开发体积记录：首次 `test:bundle` 退出 1，CSS 277,513 B 超过正式 270,000 B 门槛；无 AIDebug 标记泄漏，plugin JS 86,177 B 在限额内，`bundleEnforced:false` 开发打包不因此阻断，不为本次弹窗改动扩大到发布体积重构。最终值待最新构建更新。
+- 最终收口：成果编辑器表单纵向滚动已纳入最新 EXE，`node .diagnostics/dialog-resize-probe.mjs --exe=<包内 SparkAIWorkSpace.exe> --only=node-editor` 报告 `.diagnostics/release/dialog-resize-ui-2026-10-13T04-32-32-769Z/report.json` 为 `ok:true` / 1 check / 3 screenshots；提示词在最小高度下可滚动到完整可见且可命中，header 拖动保留缩小宽度，最大化/还原保留原尺寸，884×640 不越出表面边界。查看器独立报告 `04-28-05-365Z` 为 `ok:true` / 1 check / 3 screenshots；前一个包内 `04-23-25-804Z` 完成模型/导出/设置/账户/编辑器 5 个 checks，但后续查看器探针入口超时，未把整套报告宣称通过，相关入口选择器修正后只追加查看器验证。
+- 最终构建：`corepack pnpm run package:win:unrestricted` 退出 0，含接入变体专项、production build 1680 modules / 22.09s、Electron/NSIS/品牌封装；`test:ui-foundation` 最终复核通过，TypeScript 没有后续变化，之前 `typecheck` 退出 0 保留有效。最终 Bundle 的 CSS 277,505 B 超过正式门槛，其他硬尺寸项通过、无 AIDebug 标记泄漏，core async/core JS/dist advisory 仍超限；不以该开发包宣称正式 Release。
+- 最新制品：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，109,836,288 B，SHA-256 `a4c78c35fc328ce72e437c176fa7840ad9d69966fb54d8347a2bd1f2ff46b8e4`。`.diagnostics/dialog-resize-artifact-audit.json` 为 `ok:true`：MZ、121 个 dist 文件与 4 个 Main/preload owner 字节匹配、无 incomplete marker；`.env` 被忽略且未跟踪，ASAR/包外资源无 dotenv、ASAR 无两组真实 Key。
+- 未验证：实际安装/卸载、正式发布与所有插件业务逐个复跑；原 Agent Text UI 焦点断言仍按前述边界保留。此轮实际请求只使用隔离 Mock，0 真实模型/图片/视频/Seedance 请求，没有提交、推送、发布或触碰日常配置。
+
+## 2026-10-11 Unrestricted Windows EXE 开发打包：verified
+
+- 用户要求将当前自定义渠道与 Infinite Canvas 交互改动打包成 EXE；执行 `corepack pnpm run package:win:unrestricted` 成功，包含接入策略专项、安装器资源生成、production build（1680 modules）和 NSIS 封装。
+- 制品：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,835,264 bytes，SHA-256 `f7c27e16a619568dce6f9fd438aff1c9559fe98032c6da7c496b18f023e3256a`。
+- 隔离核验：`release/.naimage-release-incomplete.json` 不存在；`release/win-unpacked` 没有 `.env` 文件；`app.asar` 不含两组真实 Base URL 或 API Key。`.env` 仍由 `.gitignore` 忽略，未被 Git 跟踪。
+- 这是当前 dirty worktree 的开发包，`bundleEnforced:false`；本轮未执行安装/卸载 smoke、提交、推送或正式发布。
+
+## 2026-10-11 真实渠道目录与图片验证：verified
+
+- 用户提供两组可撤销测试凭据，并授权逐个读取 `/v1/models`、每个渠道最多一次 `n=1` 图片请求；本轮未测试视频或 Seedance。
+- 已写入本机 `sparkai_workspace/.env`：qiuqiu `https://api2.qiuqiutoken.net` 与 supeai `https://supeai.top`，只保存本地测试变量；`sparkai_workspace/.gitignore:22` 忽略 `.env`，`git ls-files` 确认为未跟踪。
+- 只读目录结果：qiuqiu HTTP 200、14 个模型并包含 `gpt-image-2`；supeai HTTP 200、11 个模型并包含 `grok-imagine-image-2.0`。
+- 真实图片结果：`.diagnostics/real-channel-image-2026-10-11T13-42-05-735Z/report.json` 为 `ok:true`；两个渠道各返回 1 张图片，POST 计数均为 1，未发生重试。报告只保存渠道、模型、协议、结果类型/长度等脱敏信息，不含 API Key 或 Authorization。
+- 本轮未提交、推送或发布；未访问其他渠道、未测试视频/Seedance，也未把 `.env` 或真实响应复制到代码、普通设置或 GitHub。
+
+## 2026-10-11 参考范围扩展到 UI 和画布交互：verified
+
+- 用户追加 UI、交互和画布优化范围；原渠道模型发现保持，本轮已完成对照 Infinite Canvas 的适用产品交互。
+- 当前工作区保留本轮未提交改动，没有提交、推送或发布；固定参考提交与本仓库导航/选择/工具栏 owner 已核对，未引入旧工作流或第二套画布状态。
+- 验证增量已完成：画布专项实际覆盖新导航、选中和悬停 UI，并保留截图证据；真实模型、Seedance、外部服务部署和安装包不在本轮范围。
+
+## 2026-10-11 Infinite Canvas 交互适配：verified
+
+- 对照固定提交 `3a6b64b602ad062b29fac66902ed18a7ef5fd9dc` 的 `canvas-selection-toolbar`、`canvas-node-hover-toolbar`、`canvas-toolbar`、`canvas-mini-map` 和 `canvas-zoom-controls`，确认 SparkAI 已有缩放/小地图/框选/空格平移和右键菜单，但选中后的高频动作仍集中在菜单里。
+- 采用范围：新增轻量选中快捷栏和节点悬停快捷栏，所有动作回调现有 `main.tsx` owner；不复制参考项目的任意节点注册表、文本/音频节点、第二套 viewport/session 或供应商选择编码。
+- 证据：Electron 画布专项 `.diagnostics/electron/aidebug-2026-10-11T10-25-27-813Z/report.json` 实际覆盖小地图、缩放滑杆、选择/平移、撤销、选中快捷栏、节点悬停快捷栏和“引用到 Agent”焦点转移，所有 navigation proof 为 true；`smallWindowProof.ok:true`、`documentOverflowX:false`，截图为 `canvas-interaction-toolbar.png`。`corepack pnpm run aidebug:canvas-clarity`、`corepack pnpm run typecheck`、`corepack pnpm run build`（1680 modules）和 `git diff --check` 通过。真实模型与外部渠道保持不访问。
+
+## 2026-10-11 开源画布对照并扩展渠道入口：verified
+
+- 状态：verified；用户希望模型列表像开源画布一样从渠道自动读取，而不是先手动填模型名。调研了 Infinite Canvas、其 NewAPI/Sub2API 变体、Jaaz 和 Open Canvas。
+- 设计决定：采用“渠道连接 → `/v1/models` 读取 → 勾选模型 → 选中模型携带连接”的最小路径；已有自动刷新和手动补充保留。探测凭据只经 Main IPC 使用，不进入缓存或返回 DTO。
+- 当前事实：Infinite Canvas 的 `ModelSelectModal` 已验证这种交互；本仓库现已补齐 Main 只读探测桥、弹窗渠道输入/模型合并，以及只给明确勾选模型写入的连接绑定。目录查询复用 Main 15 分钟缓存，凭据不进入模型缓存或返回 DTO。
+- 验证：本地 loopback `/v1/models` UI 专项通过：1 次真实本地目录请求、第二次点击缓存命中、返回模型全部可见筛选、Grok 模型勾选保存、普通设置 JSON/密文文件均未出现明文 Key；截图与报告在 `.diagnostics/electron/model-discovery-ui-2026-10-11T07-47-56-428Z/`。另通过 `test:ipc-registration`、`test:settings-lazy-load`、`typecheck` 和 production build。
+- 未验证：真实 NewAPI/Sub2API 目录、真实生图/视频/Seedance、正式安装包和发布边界均不在本轮范围。
+
+## 2026-10-11 渠道模型自动发现：verified
+
+- 状态：verified；用户明确要求自定义模型列表自动从 NewAPI、Sub2API 或其他兼容渠道读取模型，不再依赖手动输入模型名。
+- 当前事实：Main 已有按全局连接、账户 Token 和逐模型连接聚合 `/v1/models` 的目录 owner；本轮把模型配置弹窗改为打开即调用既有刷新回调，并让图片配置的显式刷新传 `forceRefresh`，同时把“自定义模型”改成可选的手动补充说明。
+- 验证：从桌面仓库执行 `corepack pnpm run test:settings-lazy-load`（67 cases）、`corepack pnpm run test:model-ux`、`corepack pnpm run test:model-catalog`、`corepack pnpm run typecheck` 和 `corepack pnpm run build`（1678 modules）均通过；既有 Electron `test:agent-text-ui` 中的模型 picker 可见性/键盘交互检查通过，报告 `.diagnostics/electron/agent-text-ui-2026-10-11T01-26-56-181Z/report.json` 为 155 checks、0 failures、networkUsed=false。
+- 未验证：真实 NewAPI 目录、真实生图/视频/Seedance、正式安装包和发布边界均不在本轮范围。
+- 下一步：如果需要验证某个具体部署，只做一次只读 `/v1/models` 目录检查；真实生图、视频与正式发布不属于本轮。
+
 ## 2026-10-10 1.0.9 正式发布完成：verified
 
 - 状态：verified；用户授权的 Windows x64 打包、正式门禁、完整安装升级、推送 tag 和 GitHub Release 已完成。后续只同步发布状态文档，不重新生成或移动正式制品。

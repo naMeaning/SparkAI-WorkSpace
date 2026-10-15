@@ -505,8 +505,11 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const uiPreviewMetrics = uiSurfaceButtons
       .filter((node) => node.getAttribute("data-ui-control") === "preview")
       .map(uiControlMetric);
+    const uiResizeMetrics = uiSurfaceButtons
+      .filter((node) => node.classList.contains("ui-drawer-resize-handle"))
+      .map(uiControlMetric);
     const uiRawButtonMetrics = uiSurfaceButtons
-      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, .glass-select-trigger, .glass-select-option, [data-ui-control='preview']"))
+      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, .glass-select-trigger, .glass-select-option, .ui-drawer-resize-handle, [data-ui-control='preview']"))
       .map(uiControlMetric);
     const uiFooterMetrics = visibleUiSurfaces.flatMap((surface) => Array.from(surface.querySelectorAll(":scope > .ui-surface-footer"))).map((footer) => {
       const group = footer.querySelector(":scope > .ui-surface-footer-actions");
@@ -540,13 +543,15 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const uiFooterControlsOk = uiFooterMetrics.every((item) => item.nonPrimitiveCount === 0 && item.nestedActionWrapperCount === 0 && item.overlaps === 0 && (item.minHorizontalGap == null || item.minHorizontalGap >= 10));
     const uiPrimitiveCoverageOk = uiRawButtonMetrics.length === 0;
     const uiBaseCoverageOk = uiBaseMissingMetrics.length === 0;
-    const uiControlFoundationOk = uiActionControlsOk && uiIconControlsOk && uiChoiceControlsOk && uiPreviewControlsOk && uiFooterControlsOk && uiPrimitiveCoverageOk && uiBaseCoverageOk;
+    const uiResizeControlsOk = uiResizeMetrics.every((item) => item.width >= 6 && item.height >= 24 && Boolean(item.label));
+    const uiControlFoundationOk = uiActionControlsOk && uiIconControlsOk && uiChoiceControlsOk && uiPreviewControlsOk && uiFooterControlsOk && uiPrimitiveCoverageOk && uiBaseCoverageOk && uiResizeControlsOk;
     const uiControlFoundationMetrics = {
       surfaceCount: visibleUiSurfaces.length,
       actionControlsOk: uiActionControlsOk,
       iconControlsOk: uiIconControlsOk,
       choiceControlsOk: uiChoiceControlsOk,
       previewControlsOk: uiPreviewControlsOk,
+      resizeControlsOk: uiResizeControlsOk,
       footerControlsOk: uiFooterControlsOk,
       primitiveCoverageOk: uiPrimitiveCoverageOk,
       baseCoverageOk: uiBaseCoverageOk,
@@ -556,6 +561,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       icons: uiIconMetrics,
       choices: uiChoiceMetrics,
       previews: uiPreviewMetrics,
+      resizeHandles: uiResizeMetrics,
       rawButtons: uiRawButtonMetrics,
       footers: uiFooterMetrics
     };

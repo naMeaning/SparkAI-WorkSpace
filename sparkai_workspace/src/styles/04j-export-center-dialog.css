@@ -1,5 +1,7 @@
 .export-center-dialog {
   --ui-surface-width: min(1180px, calc(100vw - 32px));
+  --ui-surface-min-width: 760px;
+  --ui-surface-min-height: 500px;
   --ui-surface-max-height: min(88vh, 820px);
   width: var(--ui-surface-width);
   height: var(--ui-surface-max-height);
@@ -487,7 +489,10 @@
     --ui-surface-width: calc(100vw - 20px);
     --ui-surface-max-height: calc(100vh - 20px);
   }
+}
 
+/* Resize follows the dialog width as well as the application window width. */
+@container ui-resizable-dialog (max-width: 980px) {
   .export-center-setup {
     grid-template-columns: minmax(300px, 0.46fr) minmax(340px, 0.54fr);
   }
@@ -525,7 +530,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@container ui-resizable-dialog (max-width: 760px) {
   .export-center-setup {
     display: block;
     overflow: auto;

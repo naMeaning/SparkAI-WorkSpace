@@ -45,6 +45,7 @@ export function UnsavedChangesDialog({
       ariaLabel={ariaLabel}
       layerLevel="nested"
       className="unsaved-changes-dialog"
+      resizable={false}
       busy={busy}
       closePolicy={{ escape: "when-idle", backdrop: "when-idle", "close-button": "when-idle", action: "when-idle" }}
       onRequestClose={onContinueEditing}

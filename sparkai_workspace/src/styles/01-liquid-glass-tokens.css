@@ -92,8 +92,8 @@
   --glass-workspace-background-image: none;
   --glass-background-mask: rgba(250, 252, 255, 0.36);
   --glass-background-blur: 0px;
-  --glass-readable-surface-fill: rgba(var(--glass-rgb), 0.5);
-  --glass-readable-surface-fill-strong: rgba(var(--glass-rgb), 0.6);
+  --glass-readable-surface-fill: color-mix(in srgb, var(--glass-surface-solid) 94%, rgb(var(--glass-rgb)));
+  --glass-readable-surface-fill-strong: color-mix(in srgb, var(--glass-surface-solid) 98%, rgb(var(--glass-rgb)));
 }
 
 /* Activate the bridge only for the new system. Existing stored themes remain
@@ -107,7 +107,7 @@
   --theme-surface-raised: var(--glass-surface-raised);
   --theme-ink: var(--glass-ink);
   --theme-ink-soft: var(--glass-ink-soft);
-  --theme-muted: var(--glass-muted);
+  --theme-muted: color-mix(in srgb, var(--glass-muted) 70%, var(--glass-ink-soft));
   --theme-line: var(--glass-line);
   --theme-line-strong: var(--glass-line-strong);
   --theme-accent: var(--accent);

@@ -1,5 +1,7 @@
 .social-content-dialog {
   --ui-surface-width: 840px;
+  --ui-surface-min-width: 720px;
+  --ui-surface-min-height: 420px;
   height: min(760px, calc(100dvh - 40px));
   grid-template-rows: auto minmax(0, 1fr) auto;
 }

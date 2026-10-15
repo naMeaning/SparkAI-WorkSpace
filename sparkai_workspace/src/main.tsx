@@ -346,6 +346,14 @@ import {
   type StreamingImagePreview
 } from "./streaming-image-preview";
 import { WindowControls } from "./window-controls";
+import { CanvasNavigationControls } from "./canvas-navigation-controls";
+import { CanvasToolbarPages } from "./canvas-toolbar-pages";
+import {
+  CanvasNodeHoverToolbar,
+  CanvasSelectionToolbar,
+  type CanvasInteractionAction,
+  type CanvasInteractionBounds,
+} from "./canvas-interaction-toolbar";
 import { useStableEvent } from "./use-stable-event";
 import { stableRequirementInputSignature } from "./requirement-signature";
 import { stableIdentityHash } from "./asset-identity";
@@ -3579,6 +3587,9 @@ function App() {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const projectDataMigrationPreviewRef = useRef<ProjectDataMigrationPreviewResult | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>(initialViewport);
+  const [canvasTool, setCanvasTool] = useState<"select" | "pan">("select");
+  const canvasToolRef = useRef(canvasTool);
+  canvasToolRef.current = canvasTool;
   const zoom = viewport.scale;
   const [prompt, setPrompt] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -3683,6 +3694,8 @@ function App() {
   const [agentStopPending, setAgentStopPending] = useState(false);
   const [lockedNodeIds, setLockedNodeIds] = useState<string[]>([]);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [hoveredCanvasNodeId, setHoveredCanvasNodeId] = useState<string | null>(null);
+  const canvasHoverClearTimerRef = useRef<number | null>(null);
   const [agentSourceImages, setAgentSourceImages] = useState<ReferenceImage[]>([]);
   const [agentReferenceImages, setAgentReferenceImages] = useState<ReferenceImage[]>([]);
   const [materialOverrides, setMaterialOverrides] = useState<Record<string, ComposerMaterialOverride>>({});
@@ -3764,6 +3777,10 @@ function App() {
   const layoutGroupsRef = useRef(layoutGroups);
   const nodeEditorDraftRef = useRef(nodeEditorDraft);
   const nodeEditorFloatingStyleRef = useRef<string | null>(null);
+
+  useEffect(() => () => {
+    if (canvasHoverClearTimerRef.current) window.clearTimeout(canvasHoverClearTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!nodeEditorDraft) setNodeEditorMaximized(false);
@@ -5422,6 +5439,7 @@ function App() {
     };
 
     const handleWheel = (event: WheelEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-canvas-no-zoom], .canvas-plugin-toolbar")) return;
       if (Math.abs(event.deltaY) <= 0) return;
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
@@ -5621,12 +5639,13 @@ function App() {
     }
 
     const canStartCanvasPan = (target: EventTarget | null) =>
-      target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator, .canvas-plugin-toolbar");
+      target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator, .canvas-plugin-toolbar, [data-canvas-no-zoom]");
 
     const handlePointerDown = (event: PointerEvent) => {
       if (event.button === 1 && canStartCanvasPan(event.target)) startPan(event);
       if (event.button === 0 && canStartCanvasPan(event.target)) {
-        if (spacePressed || event.altKey) startPan(event);
+        const panTool = canvasToolRef.current === "pan";
+        if ((spacePressed ? !panTool : panTool) || event.altKey) startPan(event);
         else startSelection(event);
       }
     };
@@ -5639,6 +5658,7 @@ function App() {
     const handleSpaceUp = (event: KeyboardEvent) => {
       if (event.code === "Space") spacePressed = false;
     };
+    const handleCanvasBlur = () => { spacePressed = false; };
 
     const handleAuxClick = (event: MouseEvent) => {
       if (event.button === 1) event.preventDefault();
@@ -5990,6 +6010,7 @@ function App() {
     canvas.addEventListener("auxclick", handleAuxClick);
     window.addEventListener("keydown", handleSpaceDown);
     window.addEventListener("keyup", handleSpaceUp);
+    window.addEventListener("blur", handleCanvasBlur);
     return () => {
       if (wheelCommitTimer) window.clearTimeout(wheelCommitTimer);
       flushWheelViewport();
@@ -6006,6 +6027,7 @@ function App() {
       canvas.removeEventListener("auxclick", handleAuxClick);
       window.removeEventListener("keydown", handleSpaceDown);
       window.removeEventListener("keyup", handleSpaceUp);
+      window.removeEventListener("blur", handleCanvasBlur);
       cleanupCanvasDebug();
     };
   }, [serverUser?.id, authReady, canvasMountTick, selectedNodeId, nodes, settings]);
@@ -6309,6 +6331,12 @@ function App() {
     const ids = [...new Set(selectedNodeIds.map((id) => layoutProjection.groupByMember.get(id)?.hostNodeId ?? id))];
     return ids.map((id) => canvasNodeById.get(id)).filter((node): node is WorkflowNode => Boolean(node));
   }, [canvasNodeById, layoutProjection.groupByMember, selectedNodeIds]);
+  const hoveredCanvasNode = useMemo(
+    () => hoveredCanvasNodeId
+      ? canvasNodeById.get(layoutProjection.groupByMember.get(hoveredCanvasNodeId)?.hostNodeId ?? hoveredCanvasNodeId) ?? null
+      : null,
+    [canvasNodeById, hoveredCanvasNodeId, layoutProjection.groupByMember]
+  );
   const composerMaterials = useMemo(
     () => buildComposerMaterials(selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides),
     [selectedNodes, agentSourceImages, agentReferenceImages, materialOverrides]
@@ -13568,6 +13596,26 @@ function App() {
     });
   }
 
+  function zoomCanvasTo(nextScale: number) {
+    const canvas = canvasRef.current;
+    const rect = canvas?.getBoundingClientRect();
+    const pointerX = rect ? rect.width / 2 : 0;
+    const pointerY = rect ? rect.height / 2 : 0;
+    setViewport((current) => {
+      const scale = clamp(Number(nextScale) || current.scale, ZOOM_MIN, ZOOM_MAX);
+      if (scale === current.scale) return current;
+      const worldX = (pointerX - current.x) / current.scale;
+      const worldY = (pointerY - current.y) / current.scale;
+      const next = {
+        x: pointerX - worldX * scale,
+        y: pointerY - worldY * scale,
+        scale
+      };
+      viewportRef.current = next;
+      return next;
+    });
+  }
+
   function viewportForNode(node: WorkflowNode, current: CanvasViewport, rect?: DOMRect | null): CanvasViewport {
     let scale = clamp(current.scale, ZOOM_MIN, ZOOM_MAX);
     const canvasWidth = Math.max(320, rect?.width ?? 900);
@@ -14047,6 +14095,209 @@ function App() {
       fullText: `${selectedNodes.length} 个成果 · ${titles.join("、")}`
     };
   }, [selectedCanvasCapabilities, selectedNodes]);
+
+  function canvasInteractionBoundsForNodes(targetNodes: WorkflowNode[]): CanvasInteractionBounds | null {
+    const liveProjection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
+    const visibleNodes = [...new Map(targetNodes.map((node) => {
+      const hostId = liveProjection.groupByMember.get(node.id)?.hostNodeId ?? node.id;
+      return [hostId, liveProjection.canvasNodeById.get(hostId) ?? node] as const;
+    })).values()];
+    if (!visibleNodes.length) return null;
+    const worldBounds = visibleNodes.reduce((current, node) => {
+      const bounds = workflowNodeBounds(node);
+      return {
+        left: Math.min(current.left, bounds.x),
+        top: Math.min(current.top, bounds.y),
+        right: Math.max(current.right, bounds.x + bounds.width),
+        bottom: Math.max(current.bottom, bounds.y + bounds.height),
+      };
+    }, { left: Number.POSITIVE_INFINITY, top: Number.POSITIVE_INFINITY, right: Number.NEGATIVE_INFINITY, bottom: Number.NEGATIVE_INFINITY });
+    const scale = Math.max(ZOOM_MIN, Number(viewport.scale) || 1);
+    return {
+      left: viewport.x + worldBounds.left * scale,
+      top: viewport.y + worldBounds.top * scale,
+      width: Math.max(1, (worldBounds.right - worldBounds.left) * scale),
+      height: Math.max(1, (worldBounds.bottom - worldBounds.top) * scale),
+    };
+  }
+
+  const selectedCanvasInteractionBounds = useMemo(
+    () => selectedNodes.length > 1 ? canvasInteractionBoundsForNodes(selectedNodes) : null,
+    [layoutGroups, nodes, selectedNodes, viewport.scale, viewport.x, viewport.y]
+  );
+  const activeCanvasToolbarNode = hoveredCanvasNode || (selectedNodes.length === 1 ? selectedNodes[0] : null);
+  const activeCanvasInteractionBounds = useMemo(
+    () => activeCanvasToolbarNode ? canvasInteractionBoundsForNodes([activeCanvasToolbarNode]) : null,
+    [activeCanvasToolbarNode, layoutGroups, nodes, viewport.scale, viewport.x, viewport.y]
+  );
+
+  const selectedCanvasInteractionActions = useMemo<CanvasInteractionAction[]>(() => {
+    const actions: CanvasInteractionAction[] = [
+      {
+        id: "focus",
+        label: "定位",
+        title: "定位当前选中",
+        icon: <Maximize2 size={14} />,
+        onClick: () => focusWorkflowNodes(selectedNodes),
+      },
+      {
+        id: "requirement",
+        label: "提要求",
+        title: "基于选中的图片成果创建需求",
+        icon: <Workflow size={14} />,
+        disabled: selectedCanvasCapabilities.groupableNodeIds.length === 0,
+        onClick: () => openRequirementEditorForSelection(selectedCanvasCapabilities),
+      },
+      {
+        id: "group",
+        label: "合并容器",
+        title: "把选中的图片成果合并到图片容器",
+        icon: <FolderPlus size={14} />,
+        disabled: !selectedCanvasCapabilities.canGroupIntoContainer,
+        onClick: () => mergeSelectedIntoImageContainer(selectedCanvasCapabilities),
+      },
+      ...(selectedCanvasCapabilities.selectedLayoutGroupIds.length ? [{
+        id: "ungroup",
+        label: "解散容器",
+        title: "解散选中的图片容器",
+        icon: <Layers3 size={14} />,
+        onClick: () => dissolveSelectedImageContainers(selectedCanvasCapabilities),
+      }] : []),
+      {
+        id: "delete",
+        label: "删除",
+        title: `删除 ${selectedCanvasCapabilities.deleteNodeIds.length} 个选中成果`,
+        icon: <Trash2 size={14} />,
+        danger: true,
+        disabled: !selectedCanvasCapabilities.canDelete,
+        onClick: () => deleteSelectedCanvasNodes(selectedCanvasCapabilities),
+      },
+    ];
+    return actions;
+  }, [selectedCanvasCapabilities, selectedNodes]);
+
+  function scheduleCanvasHoverClear() {
+    if (canvasHoverClearTimerRef.current) window.clearTimeout(canvasHoverClearTimerRef.current);
+    canvasHoverClearTimerRef.current = window.setTimeout(() => {
+      canvasHoverClearTimerRef.current = null;
+      setHoveredCanvasNodeId(null);
+    }, 100);
+  }
+
+  function keepCanvasHover(nodeId: string) {
+    if (canvasHoverClearTimerRef.current) {
+      window.clearTimeout(canvasHoverClearTimerRef.current);
+      canvasHoverClearTimerRef.current = null;
+    }
+    setHoveredCanvasNodeId(nodeId);
+  }
+
+  function clearCanvasHover() {
+    scheduleCanvasHoverClear();
+  }
+
+  function deleteSingleCanvasNode(node: WorkflowNode) {
+    const capabilities = analyzeCanvasSelection(nodesRef.current, layoutGroupsRef.current, [node.id], node.id);
+    deleteSelectedCanvasNodes(capabilities);
+  }
+
+  function canvasNodeHoverActions(node: WorkflowNode): CanvasInteractionAction[] {
+    const hasImageAsset = node.type === "image" && Boolean(node.assets?.some((asset) => asset.status !== "pending" && asset.status !== "error"));
+    const nodeLocked = lockedNodeIdSet.has(node.id);
+    const actions: CanvasInteractionAction[] = [
+      {
+        id: "reference",
+        label: "引用",
+        title: "引用到 Agent",
+        icon: <Brain size={14} />,
+        onClick: () => {
+          setSelectedNodeId(node.id);
+          agentInputRef.current?.focus();
+        },
+      },
+    ];
+    if (node.type === "requirement") {
+      actions.push({
+        id: "execute",
+        label: node.requirement?.skill ? "执行 Skill" : "执行",
+        title: node.requirement?.skill ? "执行该 Skill" : "基于该需求继续工作",
+        icon: <Send size={14} />,
+        disabled: nodeLocked,
+        onClick: () => executeRequirementNode(node.id),
+      });
+      actions.push({
+        id: "edit",
+        label: "编辑",
+        title: node.requirement?.skill ? "编辑 Skill 指令" : "编辑需求",
+        icon: <Settings size={14} />,
+        onClick: () => openRequirementEditor(node),
+      });
+    } else if (node.type === "image") {
+      if (hasImageAsset) {
+        actions.push({
+          id: "view",
+          label: "查看",
+          title: "查看成果",
+          icon: <Eye size={14} />,
+          onClick: () => openImageViewer(node, 0),
+        });
+        actions.push({
+          id: "edit",
+          label: "编辑",
+          title: "编辑成果标题和提示词",
+          icon: <Settings size={14} />,
+          disabled: nodeLocked,
+          onClick: () => openNodeEditor(node),
+        });
+        if (node.imageContainer && (node.assets?.length ?? 0) > 0) {
+          actions.push({
+            id: "regenerate",
+            label: "重试",
+            title: "使用这个容器里的图片重新生图",
+            icon: <RefreshCw size={14} />,
+            disabled: nodeLocked || agentExecutionBusyNow(),
+            onClick: () => regenerateFromImageContainer(node),
+          });
+        }
+        actions.push({
+          id: "download",
+          label: "导出",
+          title: "另存为图片",
+          icon: <Download size={14} />,
+          disabled: fileActionBusy,
+          onClick: () => { void saveAssetAs(node, 0); },
+        });
+      } else {
+        actions.push({
+          id: "edit",
+          label: "编辑",
+          title: "编辑成果",
+          icon: <Settings size={14} />,
+          disabled: nodeLocked,
+          onClick: () => openNodeEditor(node),
+        });
+      }
+    } else if (node.type === "video") {
+      actions.push({
+        id: "folder",
+        label: "打开文件",
+        title: "打开视频所在文件夹",
+        icon: <FolderOpen size={14} />,
+        disabled: !node.videoAsset?.path,
+        onClick: () => { void openAssetFolder(node.videoAsset); },
+      });
+    }
+    actions.push({
+      id: "delete",
+      label: "删除",
+      title: "删除这个成果",
+      icon: <Trash2 size={14} />,
+      danger: true,
+      disabled: !analyzeCanvasSelection(nodesRef.current, layoutGroupsRef.current, [node.id], node.id).canDelete,
+      onClick: () => deleteSingleCanvasNode(node),
+    });
+    return actions;
+  }
 
   async function flushActiveProjectSession(options: { live?: boolean; projectId?: string } = {}) {
     if (!configReady) return;
@@ -26574,6 +26825,7 @@ function App() {
     if (!window.naimageServer?.models) throw new Error("当前桌面后端不支持读取上游模型。");
     const currentSettings = settingsRef.current;
     const result = await window.naimageServer.models({
+      forceRefresh: true,
       group: currentSettings.selectedAccountTokenGroup || currentSettings.modelGroup,
     });
     if (!result?.ok) throw new Error(result?.error || "当前密钥的上游模型目录暂时不可用。");
@@ -27524,7 +27776,8 @@ function App() {
           </div>
           <div
             ref={bindCanvasRef}
-            className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
+            className={`workflow-canvas ${pluginToolbarItems.length ? "has-plugin-toolbar" : ""} ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
+            data-canvas-tool={canvasTool}
             data-canvas-surface="true"
             tabIndex={0}
             aria-label="成果画布。可框选、复制、剪切、粘贴图片或拖入本地图片。"
@@ -27541,6 +27794,7 @@ function App() {
             }}
             onDrop={handleCanvasDrop}
             onClick={(event) => {
+              if ((event.target as Element).closest("[data-canvas-no-zoom]")) return;
               event.currentTarget.focus({ preventScroll: true });
               setCanvasMenu(null);
               setRelationMenu(null);
@@ -27557,17 +27811,18 @@ function App() {
             {pluginToolbarItems.length ? (
               <nav
                 className={`canvas-plugin-toolbar ${pluginToolbarExpanded ? "is-expanded" : "is-collapsed"}`}
+                data-canvas-no-zoom="true"
                 data-toolbar-mode={settings.canvasToolDockMode}
                 data-expanded={pluginToolbarExpanded ? "true" : "false"}
                 aria-label="画布工具栏"
                 onPointerEnter={() => {
                   if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
                 }}
-                onPointerLeave={() => {
-                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(false);
+                onPointerLeave={(event) => {
+                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(document.activeElement)) setPluginToolbarPeekOpen(false);
                 }}
-                onFocusCapture={() => {
-                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
+                onFocusCapture={(event) => {
+                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) setPluginToolbarPeekOpen(true);
                 }}
                 onBlurCapture={(event) => {
                   if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -27575,6 +27830,10 @@ function App() {
                   }
                 }}
                 onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.stopPropagation();
+                    return;
+                  }
                   if (event.key !== "Escape" || settings.canvasToolDockMode !== "hover") return;
                   event.preventDefault();
                   event.stopPropagation();
@@ -27603,11 +27862,7 @@ function App() {
                     <small>{pluginToolbarItems.length}</small>
                   </span>
                 )}
-                <div
-                  id="canvas-plugin-toolbar-actions"
-                  className="canvas-plugin-toolbar-actions"
-                  aria-hidden={!pluginToolbarExpanded}
-                >
+                <CanvasToolbarPages expanded={pluginToolbarExpanded}>
                   {pluginToolbarItems.map((item) => {
                     const needsSelection = item.when === "canvas.has-image-selection";
                     const disabled = (agentExecutionBusy && !item.availableDuringAgentRun)
@@ -27629,7 +27884,7 @@ function App() {
                       </ButtonBase>
                     );
                   })}
-                </div>
+                </CanvasToolbarPages>
                 <ButtonBase
                   type="button"
                   className="canvas-plugin-toolbar-pin"
@@ -27641,6 +27896,24 @@ function App() {
                 </ButtonBase>
               </nav>
             ) : null}
+            <CanvasNavigationControls
+              nodes={canvasNodes}
+              viewport={viewport}
+              viewportSize={canvasViewportSize}
+              selectedCount={selectedNodes.length}
+              selectedNodeIds={selectedNodes.map((node) => node.id)}
+              canvasTool={canvasTool}
+              onCanvasToolChange={setCanvasTool}
+              canUndo={Boolean(canvasUndoRef.current)}
+              onUndo={undoCanvasCommand}
+              onViewportChange={(next) => {
+                viewportRef.current = next;
+                setViewport(next);
+              }}
+              onScaleChange={zoomCanvasTo}
+              onFit={fitCanvas}
+              onFocusSelection={() => focusWorkflowNodes(selectedNodes)}
+            />
             <canvas ref={canvasParticleRef} className="canvas-particle-field" aria-hidden="true" />
             <div
               ref={canvasStageRef}
@@ -27768,6 +28041,8 @@ function App() {
                       onPointerMove={(event) => moveNode(event, node)}
                       onPointerUp={(event) => endNodeDrag(event, node)}
                       onPointerCancel={(event) => endNodeDrag(event, node)}
+                      onPointerEnter={() => keepCanvasHover(node.id)}
+                      onPointerLeave={clearCanvasHover}
                       onClick={(event) => {
                         event.stopPropagation();
                         if (event.ctrlKey || event.metaKey) {
@@ -27891,6 +28166,8 @@ function App() {
                     onPointerMove={(event) => moveNode(event, node)}
                     onPointerUp={(event) => endNodeDrag(event, node)}
                     onPointerCancel={(event) => endNodeDrag(event, node)}
+                    onPointerEnter={() => keepCanvasHover(node.id)}
+                    onPointerLeave={clearCanvasHover}
                     onClick={(event) => {
                       event.stopPropagation();
                       if (event.ctrlKey || event.metaKey) {
@@ -28363,6 +28640,31 @@ function App() {
                   width: canvasSelectionBox.width,
                   height: canvasSelectionBox.height
                 }}
+              />
+            ) : null}
+
+            {selectedNodes.length > 1 ? (
+              <CanvasSelectionToolbar
+                bounds={selectedCanvasInteractionBounds}
+                canvasSize={canvasViewportSize}
+                actions={selectedCanvasInteractionActions}
+                ariaLabel="选中成果快捷操作"
+                title={`已选中 ${selectedNodes.length} 个成果`}
+                onPointerEnter={() => {
+                  if (hoveredCanvasNodeId) keepCanvasHover(hoveredCanvasNodeId);
+                }}
+                onPointerLeave={clearCanvasHover}
+              />
+            ) : null}
+            {selectedNodes.length <= 1 && activeCanvasToolbarNode ? (
+              <CanvasNodeHoverToolbar
+                bounds={activeCanvasInteractionBounds}
+                canvasSize={canvasViewportSize}
+                actions={canvasNodeHoverActions(activeCanvasToolbarNode)}
+                ariaLabel={`${nodeWorkName(activeCanvasToolbarNode)}快捷操作`}
+                title={activeCanvasToolbarNode.title || nodeWorkName(activeCanvasToolbarNode)}
+                onPointerEnter={() => keepCanvasHover(activeCanvasToolbarNode.id)}
+                onPointerLeave={clearCanvasHover}
               />
             ) : null}
 

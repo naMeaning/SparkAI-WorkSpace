@@ -33,6 +33,7 @@ Older conversations are represented through the maintained product documents whe
 | D-14 | active | Keep image models, provider labels, adapters, channels, Base URL and credentials independent. The existing per-model connection may explicitly select adapter/channel/transport; explicit configuration wins over model-name defaults. Reuse the current image service and frontend. | Current user direction (2026-10-07), `sparkai_workspace/GOAL.md` |
 | D-15 | active | Agent send, settings readability and image adapter changes are one continuation goal; update Goal/Progress/context records before implementation and preserve real evidence through EXE build. | Current user direction (2026-09-27), `goal-documentation-continuity` |
 | D-16 | active | Save and display generated images in the provider's actual PNG/JPEG/WebP format; determine MIME/extension from bytes and retain the original bytes. This supersedes local conversion to the requested format and rejecting a valid result merely because its encoding differs from the request. Explicit user export remains separate. | Current user direction (2026-10-08), desktop `GOAL.md` |
+| D-17 | active | Every new session or continuation checks the live worktree and recovers the owner repository's current goal, progress snapshot and latest evidence before choosing work. Keep AGENTS entry points, progress and context navigation synchronized so historical checkpoints or same-version development packages cannot be mistaken for current work or a formal release. | Current user request (2026-10-13), root/desktop `AGENTS.md`, desktop `PROGRESS.md` |
 
 ## Operating Preferences From The User
 
@@ -40,7 +41,7 @@ Older conversations are represented through the maintained product documents whe
 - Start from a clear goal and keep goal/progress current as priorities change; a user may steer during execution.
 - Prefer concrete UI behavior and realistic scenario evidence over static-only audits when the request concerns user experience, performance, or interaction.
 - Do not introduce surprise cost confirmation screens merely because upstream billing metadata is incomplete; distinguish user-authorized execution from optional post-run usage recording.
-- Compile Windows EXEs only when requested; report their actual location and integrity data. Publishing or network use is not implied by a build request.
+- Since the user's 2026-10-15 standing instructions, every desktop feature addition/change, bug fix and UI/interaction adjustment includes local Windows EXE packaging before handoff. Every successful package also includes updating Goal/Progress/relevant context maps and committing/pushing its corresponding source and documentation to the configured upstream, without asking again per task. Report the actual package path, size, SHA-256, verification and Git synchronization result. Documentation-only edits, planning and read-only diagnosis do not require packaging; binary uploads and formal releases remain separately authorized. This supersedes the earlier per-request-only EXE and Git-push preferences.
 - Keep visual controls discoverable and readable. A user repeatedly flags small type, transparent menus, unclear concepts and hidden affordances as product defects, not cosmetic polish.
 
 ## What The Codex Responses Contributed

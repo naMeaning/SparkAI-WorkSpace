@@ -1,6 +1,102 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：冻结并发布 SparkAI WorkSpace 1.0.9（2026-10-10，verified）
+## 当前任务：固化打包后更新上下文及自动 push，并同步当前包（2026-10-15，in progress）
+
+- 最新授权：用户要求“每次打包都自动push到远程仓库并且更新上下文文档”，构成成功打包后的源码/文档提交与普通 push 的持续授权。
+- 范围：根/桌面 AGENTS、Harness 决策/交付协议/授权矩阵及上下文地图同步该流程；补齐刚完成无限制版 EXE 对应的当前桌面源码、功能与验证文档提交并推送 `origin/main`。
+- 验收：规则一致、Harness/差异核对通过，提交内容不含忽略的二进制、诊断或私有配置，核对远端实际提交与本地一致；分别记录包、文档和 Git 状态。
+- 当前事实：推送前本地 HEAD、origin/main 缓存与已实查远端 main 均为 `f156b3e5a5ac22d6a562df8f3e69ce2f0a287ac2`；53 个候选文件经独立只读审查属于当前包及上下文，75 处新增本地链接、12 个包内源码哈希与 EXE 身份核对通过，Harness 10 项通过。暂存新增组件时发现一个末尾空行，已作纯格式修正并核对 TypeScript 输出逐字节相同；产品行为未变，提交/推送待执行。
+- 边界：保留无关工作；本轮提交现有打包输入对应的桌面改动与上下文规则，不 force push、不上传 EXE、不发布 Release、不运行真实模型或再次打包文档修改。
+- 下一步：核对提交范围、提交源码与文档，再普通推送并验证远端。
+
+## 已完成任务：打包最新 Windows EXE（2026-10-15，completed / verified）
+
+- 最新授权：用户要求“现在打包程exe”，按默认无限制版执行 `corepack pnpm run package:win:unrestricted`。
+- 结果与范围：将当前 main 工作树（包含字体/画布可读性、工具栏分页及既有已验证功能）构建为本地 Windows 安装 EXE；保留全部未提交工作，不改版本或业务源码。
+- 验收：打包命令退出 0，核对新 EXE 的路径、大小、SHA-256 与包内当前 dist/Main/preload/接入策略，记录对应源码及已知开发 Bundle 边界。
+- 边界：只生成本地开发包，不上传、不发布、不运行真实模型请求、不安装覆盖用户环境；正式 CSS 体积门禁仍按既有记录保留。
+- 当前状态：`package:win:unrestricted` 退出 0，access-variant selftest 与 production build（1681 modules / 23.76s）通过，NSIS/品牌安装包生成成功；默认无限制版 1.0.9 已更新。
+- 制品：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，109,839,872 B，SHA-256 `aed98423e66d921be0bcb45d5085d8f7a475bda8ad3d3d7cb49f5033412dd3d2`。
+- 核验：[制品审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`：ASAR 的 121 个 dist 文件集/逐文件哈希与当前构建一致，8 个 Main/preload/Agent/access owner 与当前源码一致，包含分页编译标记，接入策略为 dual-access；未打入 `.env` 或诊断目录。未执行安装/启动测试，未发布，真实模型请求为 0。
+- 下一步：本轮本地 EXE 已交付，后续按新需求继续；正式发布仍需 CSS 门禁及同次候选验证。
+
+## 已完成任务：固化每次功能修改必须打包 EXE（2026-10-15，completed / verified）
+
+- 最新授权：用户要求“把每次功能修改都要打包为exe写进agents.md里面”。
+- 结果与范围：根/桌面 `AGENTS.md` 明确每轮功能新增、修改、修复及 UI/交互调整交付前都生成最终源码对应的本地 Windows EXE；默认无限制版，用户指定变体时按指定执行，报告路径/大小/SHA-256，无需每轮重新询问本地打包授权。
+- 同步：替换决策记录中旧的“仅单次要求才编译 EXE”偏好；保留正式发布的独立授权和门禁。纯文档修改、仅规划及只读诊断不触发打包。
+- 验收与边界：本轮只更新规则与任务记录，检查 Harness 结构、链接和差异；不改产品源码、不运行产品构建或生成 EXE。
+- 验证：根 `node scripts/verify-harness.mjs` 通过 10 项结构检查；根→桌面规则链接、打包命令存在性和 `git diff --check` 通过。既有未提交产品改动保留。
+- 下一步：本轮规则更新已完成；以后功能交付执行新增的本地 EXE 打包要求。
+
+## 已完成任务：画布工具栏改为分页（2026-10-15，completed / verified）
+
+- 最新授权：用户要求“把画布的工具栏改为翻页的逻辑，而不是滚轮”。
+- 结果与范围：底部画布工具栏用上一页、下一页和页码浏览工具，按实际可用宽度容纳完整按钮；保留原工具命令、禁用条件、快捷键、固定/悬停展开与 Escape 行为。分页只属于 Renderer 临时展示状态。
+- 验收：真实隔离 Mock Electron 检查 1280×820 与 884×640 下的逐页可达性、边界禁用、按钮裁切、滚轮不切页/不缩放画布、键盘翻页、resize 和原工具入口；相关 selftest、typecheck、quick GUI 与 production build。
+- 边界：保留 main 分支全部既有未提交工作；不调用真实模型、不改 IPC/CLI/持久化、不打包 EXE、不提交或发布。
+- 当前状态：`CanvasToolbarPages` 按实测按钮宽度分页并提供页码/首末禁用，resize 保留浏览锚点；移除横向滚动与旧窄屏 max-width 规则。工具栏隔离画布抢焦点/全局 Enter 与空格，Escape 收起后焦点返回入口。
+- 验证：真实 Electron 双尺寸通过全部 17 工具遍历（1280：4 页；884：17 页）、首末边界、无裁切、滚轮隔离和末页 resize，原报告 44 项通过但整体仍保留 `ok:false` 的 Enter 失败；最终修正后补充专项 `ok:true` / 19 checks / 5 截图，覆盖 Enter/Space、悬停连续翻页/焦点、Escape、固定与安全工具入口。最终 quick GUI 6 scenes、typecheck、`test:workspace-glass-ui` 164 cases、`test:plugin-system` 115 cases、production build（1681 modules / 26.54s）通过。证据见 [.diagnostics/canvas-toolbar-pagination-delivery.json](.diagnostics/canvas-toolbar-pagination-delivery.json)。
+- 交付边界：本地源码与 dist 已更新；真实模型请求为 0，未打包 EXE 或发布。Bundle 仍唯一硬失败于既有 CSS 门禁：279,001 B > 270,000 B。
+- 最后核对：19 处当前任务文档本地链接、5 个最终源码哈希与 `git diff --check` 均通过。
+- 下一步：本轮本地实现已完成，后续按新需求继续；正式发布仍需 CSS 体积处理和同次候选验证。
+
+## 已完成任务：执行文字清晰度与画布 UI 改进计划（2026-10-14 接受，2026-10-15 completed / verified）
+
+- 最新授权：用户明确“按照计划进行执行”，执行 [已交付计划](docs/CANVAS_READABILITY_PLAN_2026-10-14.md)。此前仅规划任务已完成，本轮新授权本地实现与验证。
+- 结果：统一主/独立 Agent 字体与可读字号，改善主题文字对比和玻璃文字表面；画布导航分组、100% 还原、节点信息层级和浮动操作条边界可用。
+- 范围：桌面字体/主题/画布 owner；保留 main 分支既有渠道、画布与 resize 未提交工作。已保存本轮改动前的 15 个相关文件基线。
+- 验收：真实隔离 Mock Electron 截图与状态检查覆盖主题、分数缩放、四边工具条及 884×640；运行相关 selftest、typecheck、quick GUI、canvas clarity 与 production build。
+- 边界：复用现有画布、选择、视口与动作；不改模型/远端协议，不调用真实模型、不打包 EXE、不提交/推送/发布。
+- 当前状态：字体/字号、主题文字投影与稳定阅读面、导航/插件分行、100% 还原、固定标题及工具条实际边界/底部避让已完成；独立 Agent 字体/底色同步，背景 inline 与 Glass 级联覆盖已修正。完整九主题 132 checks / 63 截图、最终 125% DPR 127/41、最终 150% DPR 强反差背景 127/41、最小窗口长标题/需求补充 27/12 均通过；可见文字合成背景采样最低 4.99:1，操作条全局坐标对齐设备像素。相关 selftest/typecheck、最终 quick GUI 6 results、canvas clarity 5 results 和 production build（退出 0 / 1680 modules / 23.90s）通过。
+- 验证边界：DPR 使用隔离 Electron 参数模拟，未验证实际多显示器切换；真实模型请求为 0。最新 `test:bundle` 唯一硬失败为 CSS 278,748 B > 270,000 B，正式发布门禁仍不满足；本轮重建 dist，旧 EXE 不包含本轮优化。
+- 最后核对：补齐原局部取整遗漏的画布原点后，125%/150% 实际操作条 x/y 乘 DPR 接近整数、四边和小窗口边界通过；最后 production build 退出 0。实际报告见 PROGRESS 顶部。
+- 下一步：本轮本地优化已完成。后续从新需求继续；正式发布前需处理 CSS 体积门禁并完成同次候选验证。
+
+## 已完成任务：文字清晰度与画布 UI 改进计划（2026-10-14，仅规划，已完成）
+
+- 最新用户澄清：“我是让你给计划就好了”。此前将规划误读为实施的任务契约已 superseded；本轮只交付计划。
+- 模式 / 结果：根据当前源码、上下文和 basketikun/infinite-canvas 参考，列出字体清晰度、对比度和画布 UI 的具体改进建议、优先级与未来验收办法。
+- 范围：[详细计划](docs/CANVAS_READABILITY_PLAN_2026-10-14.md) 与任务状态记录；保留原有渠道、画布工具和弹窗 resize 未提交工作。
+- 验收：计划区分已观察问题、待验证原因与拟实施项；撤回本轮越过范围的产品改动，仅核对差异与文档，不继续实现或构建。
+- 当前状态：计划已整理；误实施的产品改动已选择性撤回，本轮隔离预览已关闭，原有 dirty worktree 和两个画布组件保留。已有实验测试不作为当前产品的优化证据。
+- 核对证据：5 个本轮开始时无改动的文件与 HEAD 内容一致；画布 CSS 恢复此前 286 行新增、0 行删除的差异；14 处相关本地文档链接与 `git diff --check` 通过。
+- 下一步：本轮规划任务结束；未来实现需用户另行提出，不能从旧 Goal 自动续做。
+
+## 已完成任务：新会话开发上下文同步（2026-10-13，verified）
+
+- 结果：从根目录或桌面目录开始的新会话都能定位最新软件实现、验证证据、开发 EXE 和下一步，避免沿用过期发布准备或旧任务状态。
+- 范围：根/桌面 `AGENTS.md`、两层上下文地图、Harness 读取协议与决策、现有 `GOAL.md`/`PROGRESS.md`；动态软件状态集中放在 [PROGRESS.md](PROGRESS.md) 顶部的“当前开发状态”。
+- 验收：入口明确必读顺序；当前快照与现有源码/报告及 EXE 大小、SHA-256 一致；区分 2026-10-10 正式发布和 2026-10-13 本地开发包；Harness、文档链接与 `git diff --check` 通过。
+- 证据：`node scripts/verify-harness.mjs` 10 项结构检查通过；9 份相关文档的本地链接和快照元数据核对通过，当前 preload 源码 147 个 invoke 与地图一致；`git diff --check` 退出 0。既有应用验证与未通过门禁完整保留在进度中。
+- 边界：本次只同步开发文档；不改变软件行为、重建制品、重复 GUI/付费模型测试或发布；保留渠道、画布和弹窗的既有未提交实现。
+- 下一步：本次文档同步已完成；后续软件开发按最新用户请求或明确选定的未验证项继续，并在新任务开始时刷新顶部状态。
+
+以下任务块保留各日期的原始方向与验收过程；历史“当前任务”标题不代表仍在执行。最新软件状态和制品元数据以进度顶部快照及其对应证据为入口，事实仍需与当前源码和制品核对。
+
+## 已完成任务：所有相关配置与编辑弹窗可调尺寸（2026-10-13，verified）
+
+- 结果：模型配置、Agent 提示词/记忆、图片配置、手动图片/视频、素材选择、需求/成果编辑及插件配置/导出等内容型弹窗统一支持右下角拖拽调整宽高，尺寸受到视口边界和各表面最小可用尺寸约束。
+- 范围：`src/ui/dialog-shell.tsx` 与对应样式 owner；复用现有 focus、close policy、草稿和滚动链，不改变 Main/IPC/模型请求或项目持久化。
+- 范围变更：最初仅调整模型 picker 的方案被用户“所有相关弹窗”扩展取代；设置/账户侧栏通过左边缘调整宽度，短确认/未保存提示仍使用内容尺寸，浮窗定位保持当前 owner。
+- 验收：实际鼠标拖动后尺寸改变，扩大/缩小后的内容可访问、关闭/保存按钮可见，884×640 小窗口不溢出；覆盖共享路径与不同布局的代表弹窗，只运行直接相关专项、typecheck 和 production build；随后按现有 EXE 授权生成本地开发包。
+- 授权：本地实现、隔离 Mock UI 与 Windows 开发 EXE；0 新真实图片/视频/Seedance 请求，不提交/推送/发布，不回显真实密钥，`.env` 仅用于本机打包隔离核验。
+- 完成证据：隔离 resize 探针 `.diagnostics/electron/dialog-resize-ui-2026-10-13T03-48-28-078Z/report.json` 为 `ok:true` / 9 个代表表面 / 23 张截图；7 个内容表面实际拉大/缩小与 884×640 边界通过，设置/账户左边缘、方向键/Home 和最小宽度布局通过。包内模型、导出及双抽屉的已完成 checks 见 `release/dialog-resize-ui-2026-10-13T04-23-25-804Z/report.json`（该运行在后续查看器探针入口超时，整套未记通过）；查看器专项 `04-28-05-365Z` 和最终成果编辑器专项 `04-32-32-769Z` 均为 `ok:true`，后者验证收缩后提示词可完整访问、header 移动不撑大、最大化/还原保留尺寸。上述包内报告均位于 `.diagnostics/release/`。
+- 构建/制品：`test:ui-foundation`、`typecheck`、production build（1680 modules，最终打包 build 22.09s）和差异检查通过；`package:win:unrestricted` 退出 0。最新 `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 为 109,836,288 B，SHA-256 `a4c78c35fc328ce72e437c176fa7840ad9d69966fb54d8347a2bd1f2ff46b8e4`；121 个 dist 文件与 4 个 Main/preload owner 和 ASAR 字节一致，`.env`/两组测试 Key 不在包内，见 `.diagnostics/dialog-resize-artifact-audit.json`。
+- 边界：这是未发布的本地开发包，未验证真实安装/卸载或逐个插件业务流程；`test:bundle` 的 CSS 277,505 B 超过正式 270,000 B 门槛，按开发打包规则记录，未为此扩大重构。此前 Agent Text UI 的无关放弃后焦点断言未在本轮修复或整套复跑。
+
+## 已完成任务：参考 Infinite Canvas 优化渠道模型、UI 和画布交互（2026-10-11，verified）
+
+- 状态：verified；渠道模型发现、配置 UI、画布导航和局部交互均已按用户追加要求落地，适合现有单画布/项目 Agent 产品结构的优化已完成。
+- 当前优先级：固定参考提交 `3a6b64b602ad062b29fac66902ed18a7ef5fd9dc` 已完成对照；导航、选择、工具栏和模型 UI 的适用优化已接到现有 owner，没有复制参考项目的节点体系或第二套画布状态。
+- 范围：`src/model-config-dialog.tsx` 的渠道入口与批量模型选择、`src/main.tsx`/preload/IPC 的只读探测桥、既有 Main 模型目录聚合/缓存链路，以及画布导航与局部 UI/交互 owner。
+- 非目标：不新增服务端管理后台，不复制渠道/账户管理，不发送视频或 Seedance 请求，不上传或打印凭据；本轮真实图片验证仅限用户授权的每个测试渠道一次 `n=1`；手动补充模型仍作为渠道目录缺失时的兼容入口。
+- 验收：打开图片/对话模型配置弹窗会自动使用缓存或触发 Main 读取已配置渠道目录；独立渠道输入后可从 `/v1/models` 得到可勾选模型并把连接绑定到所选模型；显式刷新绕过旧缓存；已有模型和逐模型连接仍保留；画布提供可拖动小地图、选中对象快捷操作、节点悬停快捷操作，动作复用现有归组/解散/删除/查看/编辑/导出/重试 owner，且不引入第二套画布状态；新增画布交互须有真实可见状态和截图证据，保留项目、选择与运行状态；只运行相关专项、typecheck 和 production build。
+- 授权边界：用户提供两组可撤销测试凭据，并明确授权逐渠道读取 `/v1/models`、每渠道最多一次 `n=1` 图片请求；不测试视频或 Seedance。
+- 证据：已完成开源画布实现调研；本地 loopback `/v1/models` UI 专项成功验证渠道读取、15 分钟缓存命中、全部模型可见筛选、模型勾选、设置保存和凭据未进入普通 JSON/密文文件；截图见 `.diagnostics/electron/model-discovery-ui-2026-10-11T07-47-56-428Z/`。真实探针 `.diagnostics/real-channel-image-2026-10-11T13-42-05-735Z/report.json` 显示 qiuqiu `HTTP 200/14`、`gpt-image-2` 图片 1 张，supeai `HTTP 200/11`、`grok-imagine-image-2.0` 图片 1 张，两个渠道 POST 均严格为 1；`.env` 被忽略且未被 Git 跟踪，报告未包含凭据标记。画布专项 `.diagnostics/electron/aidebug-2026-10-11T10-25-27-813Z/report.json` 的导航 proof 覆盖小地图、缩放、选择/平移、撤销、选中快捷栏、悬停快捷栏和“引用到 Agent”焦点转移；`smallWindowProof.ok:true` 且 `documentOverflowX:false`。`test:ipc-registration`、`test:settings-lazy-load`、`typecheck`、production build 和 `git diff --check` 通过。
+- 边界：真实测试仅覆盖上述两个渠道的模型目录和各一次图片请求；未测试视频、Seedance、其他渠道或正式发布。
+
+## 已完成任务：冻结并发布 SparkAI WorkSpace 1.0.9（2026-10-10，verified）
 
 - 状态：verified/completed；正式制品、完整安装升级、远端 Release 和资产哈希均已由同一次编排核验，后续文档收口不改变冻结 tag 或制品。
 - 范围：模型目录获取/Grok 配置保留修复、异步画布定位菜单竞态修复、正式 `release:final`、1.0.8→1.0.9 完整安装升级、Unrestricted 正式安装包和 GitHub Release。未发布 SparkAPI-only 包。

@@ -62,6 +62,7 @@
   --font-sm: 13px;
   --font-ui: 14px;
   --font-title: 15px;
+  --font-family-ui: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --radius: 2px;
   --node-w: 260px;
   --ii-workbench-min-width: 884px;
@@ -91,12 +92,9 @@
   --motion-slow: 220ms;
   --motion-ease: cubic-bezier(0.2, 0.78, 0.28, 1);
   --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "Microsoft YaHei", sans-serif;
+  font-family: var(--font-family-ui);
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
+  text-rendering: auto;
 }
 
 :root[data-theme="dark"],
@@ -232,6 +230,39 @@
   box-shadow: var(--focus-ring), 0 24px 72px rgba(0, 0, 0, 0.25), var(--shadow);
 }
 
+.ui-surface.ui-surface-resizable[data-ui-surface] {
+  container-name: ui-resizable-dialog;
+  container-type: inline-size;
+  min-width: min(var(--ui-surface-min-width, 360px), calc(100vw - 2 * var(--ui-surface-layer-pad)));
+  min-height: min(var(--ui-surface-min-height, 260px), calc(100dvh - 2 * var(--ui-surface-layer-pad)));
+  max-width: calc(100vw - 2 * var(--ui-surface-layer-pad));
+  max-height: calc(100dvh - 2 * var(--ui-surface-layer-pad));
+  resize: both;
+}
+
+.ui-surface-resizable::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  right: 4px;
+  bottom: 4px;
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+  opacity: 0.65;
+  background: repeating-linear-gradient(135deg, transparent 0 3px, var(--ink-soft) 3px 4px, transparent 4px 6px);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+.ui-surface.ui-surface-resizable > .ui-surface-body {
+  min-width: 0;
+  min-height: 0;
+}
+
+.ui-surface-resizable .ui-surface-footer-actions {
+  padding-inline-end: 12px;
+}
+
 .ui-surface-layer.dialog-layer.ui-drawer-layer {
   display: flex;
   align-items: stretch;
@@ -253,6 +284,36 @@
   border-radius: 0;
   box-shadow: -18px 0 46px rgba(0, 0, 0, 0.16);
   animation: ui-drawer-in var(--motion-standard) var(--motion-ease-out) both;
+}
+
+.ui-drawer-resize-handle {
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 0;
+  width: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.ui-drawer-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 20px);
+  left: 2px;
+  width: 3px;
+  height: 40px;
+  border-radius: 2px;
+  background: var(--ink-soft);
+  opacity: 0.4;
+}
+
+.ui-drawer-resize-handle:is(:hover, :focus-visible)::after {
+  opacity: 1;
+  background: var(--accent);
 }
 
 .ui-surface .ui-surface-header {
@@ -399,7 +460,7 @@
 .ui-field-label {
   min-width: 0;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-sm);
   font-weight: 720;
   line-height: 1.35;
 }
@@ -422,6 +483,12 @@
     background var(--motion-fast) var(--motion-ease),
     box-shadow var(--motion-fast) var(--motion-ease),
     opacity var(--motion-fast) var(--motion-ease);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 /* Controlled select surface. The native <select> popup is owned by the
@@ -973,6 +1040,7 @@ select.ui-control {
 
 .ui-surface.ui-drawer.settings-drawer {
   --ui-drawer-width: 420px;
+  --ui-drawer-min-width: 360px;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
@@ -1397,7 +1465,7 @@ select.ui-control {
   min-width: 0;
   overflow: hidden;
   color: var(--ui-feedback-color);
-  font-size: 10px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1432,6 +1500,9 @@ select.ui-control {
 
 .ui-surface.ui-drawer.account-drawer {
   --ui-drawer-width: 390px;
+  --ui-drawer-min-width: 320px;
+  container-name: account-drawer;
+  container-type: inline-size;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
@@ -1727,6 +1798,36 @@ select.ui-control {
   line-height: 1.45;
 }
 
+@container account-drawer (max-width: 360px) {
+  .account-profile {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .account-status {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .account-balance-grid,
+  .account-primary-actions,
+  .account-log-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .account-balance-grid > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .account-balance-grid > div:nth-child(3) {
+    border-bottom: 0;
+  }
+
+  .account-log-filter-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .ui-surface.confirm-dialog {
   --ui-surface-width: 480px;
   height: auto;
@@ -1739,6 +1840,8 @@ select.ui-control {
 
 .ui-surface.agent-text-editor-dialog {
   --ui-surface-width: 760px;
+  --ui-surface-min-width: 520px;
+  --ui-surface-min-height: 360px;
   width: min(var(--ui-surface-width), calc(100vw - 32px));
   height: min(680px, calc(100dvh - 36px));
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -1754,9 +1857,11 @@ select.ui-control {
 }
 
 .ui-surface.model-picker-dialog {
-  --ui-surface-width: 680px;
-  width: min(var(--ui-surface-width), 100%);
-  height: min(680px, calc(100dvh - 36px));
+  --ui-surface-width: 760px;
+  --ui-surface-min-width: 560px;
+  --ui-surface-min-height: 460px;
+  width: min(var(--ui-surface-width), calc(100vw - 36px));
+  height: min(720px, calc(100dvh - 36px));
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
@@ -1765,6 +1870,23 @@ select.ui-control {
   grid-template-rows: auto auto minmax(0, 1fr);
   padding: 0;
   overflow: hidden;
+}
+
+.ui-surface.model-picker-dialog .model-picker-body.has-channel-discovery {
+  grid-template-rows: auto auto minmax(150px, 1fr) minmax(120px, 0.7fr);
+  overflow-y: auto;
+}
+
+.ui-surface.model-picker-dialog .model-picker-body.has-channel-discovery .model-picker-list {
+  grid-row: 3;
+  min-height: 150px;
+}
+
+.ui-surface.model-picker-dialog .model-picker-body.has-channel-discovery .model-picker-custom {
+  grid-row: 4;
+  min-height: 120px;
+  max-height: 210px;
+  overflow: auto;
 }
 
 .ui-surface.model-picker-dialog .ui-surface-footer.model-picker-actions {
@@ -1799,6 +1921,10 @@ select.ui-control {
   .ui-surface.model-picker-dialog {
     width: calc(100vw - 16px);
     height: calc(100dvh - 16px);
+    min-width: 0;
+    min-height: 0;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
   }
 
   .ui-surface .ui-surface-footer {
@@ -1859,9 +1985,103 @@ select.ui-control {
 }
 
 .model-picker-dialog .model-picker-count span,
-.model-picker-dialog .model-picker-option-copy small {
+.model-picker-dialog .model-picker-option-copy small,
+.model-picker-dialog .model-picker-binding-source {
   color: var(--muted);
   font-size: 11px;
+}
+
+.model-picker-dialog .model-picker-bulk-actions {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.model-picker-dialog .model-picker-bulk-actions > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.model-picker-dialog .model-picker-bulk-actions .ui-action-button {
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: 10px;
+}
+
+.model-picker-dialog .model-picker-channel-discovery {
+  display: grid;
+  gap: 7px;
+  padding: 10px 20px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-raised) 42%, transparent);
+}
+
+.model-picker-dialog .model-picker-channel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.model-picker-dialog .model-picker-channel-heading strong {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.model-picker-dialog .model-picker-channel-heading span,
+.model-picker-dialog .model-picker-channel-discovery > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.model-picker-dialog .model-picker-channel-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.model-picker-dialog .model-picker-channel-all input {
+  order: -1;
+  margin: 0;
+  accent-color: var(--accent, #4f46e5);
+}
+
+.model-picker-dialog .model-picker-channel-all .ui-field-label {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.model-picker-dialog .model-picker-channel-fields {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.model-picker-dialog .model-picker-channel-fields input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--control-bg);
+}
+
+.model-picker-dialog .model-picker-channel-error {
+  color: var(--danger, #b42318);
 }
 
 .model-picker-dialog .model-picker-custom {
@@ -1933,6 +2153,12 @@ select.ui-control {
   overflow: hidden;
   color: var(--ink);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker-dialog .model-picker-binding-source {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

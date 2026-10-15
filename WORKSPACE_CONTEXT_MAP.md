@@ -1,20 +1,29 @@
 # SparkAI WorkSpace 工作区上下文地图
 
-> 最近同步：2026-10-09
+> 最近同步：2026-10-13
 > 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
-> 2026-10-09 正式发布准备：用户授权当前 main 推送、正式 Release、原 Ed25519 私钥丢失后的更新信任轮换与完整安装升级。1.0.9 内嵌新公钥，最低更新版本为 1.0.9；旧版必须手动完整安装，不能验证新签名或使用 Restart ASAR。私钥仅存本地忽略目录。当前正在解决门禁与隔离安装环境，尚未宣称正式发布；Extension 和生产服务不在本次范围。
+> 新会话必读：[根 AGENTS](AGENTS.md) → [桌面 AGENTS](sparkai_workspace/AGENTS.md) → [当前任务](sparkai_workspace/GOAL.md) → [当前开发状态与最新证据](sparkai_workspace/PROGRESS.md) → 本次边界的地图章节。动态软件进度、当前开发 EXE、正式门禁与未验证项集中维护在桌面 PROGRESS 顶部。
+> 2026-10-15 持续交付规则：桌面每轮功能修改生成本地 EXE；每次打包成功后更新 Goal/Progress/相关上下文地图，提交对应源码与文档并普通推送到配置的 upstream，无需逐轮重复确认。当前推送目标及结果从 PROGRESS 恢复；二进制上传和正式 Release 仍按独立授权与门禁执行。
+
+> 最近桌面实现：渠道 `/v1/models` 自动发现、Infinite Canvas 导航/快捷操作适配、内容型弹窗与设置/账户抽屉可调尺寸均已本地交付。当前本地 1.0.9 开发包与 2026-10-10 已发布的冻结 1.0.9 是不同制品；按进度记录的哈希和证据识别。此次上下文同步没有重建或发布制品。
 
 > Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
 
+## 历史 checkpoint
+
+以下日期段落保留当时范围和验证边界，不能替代进度顶部的当前状态；历史“最新制品”指当时制品。
+
+> 2026-10-09 历史正式发布准备：用户授权当时 main 推送、正式 Release、原 Ed25519 私钥丢失后的更新信任轮换与完整安装升级。1.0.9 内嵌新公钥，最低更新版本为 1.0.9；旧版必须手动完整安装，不能验证新签名或使用 Restart ASAR。私钥仅存本地忽略目录。当时待解决的门禁与隔离安装环境已由 2026-10-10 正式编排完成记录更新；Extension 和生产服务不在该次范围。
+
 > 2026-09-26 历史审查记录：当时的统一图片生成层审查与候选优化见 [WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md](WORKSPACE_OPTIMIZATION_REVIEW_2026-09-26.md)。当前实现、验收及用户方向以桌面 GOAL/PROGRESS 和最新显式请求为准；审查建议本身不是完成证据。
 
-> 2026-10-08 最新桌面交付完成：图片参数收进集中配置表面，普通/Goal 按钮由共享 8 个 slash 命令替代；主/独立窗口复用既有 Runtime、配置保存链和两阶段 Goal 确认，CLI/MCP 新增 `agent.image-config`。两种 1.0.9 x64 开发 EXE 的实际程序各 9 checks/10 screenshots，0 真实模型请求；每包 129 文件匹配、接入策略及 MZ/SHA-256/NotSigned 核验通过。最新汇总 `sparkai_workspace/.diagnostics/release/composer-command-delivery-2026-10-08.json` 替代以下历史同名制品元数据。本轮仅修改桌面；Extension 与外部 New API 合同未改变，实际安装/卸载、签名和正式发布未验证。
+> 2026-10-08 历史桌面交付：图片参数收进集中配置表面，普通/Goal 按钮由共享 8 个 slash 命令替代；主/独立窗口复用既有 Runtime、配置保存链和两阶段 Goal 确认，CLI/MCP 新增 `agent.image-config`。两种 1.0.9 x64 开发 EXE 的实际程序各 9 checks/10 screenshots，0 真实模型请求；每包 129 文件匹配、接入策略及 MZ/SHA-256/NotSigned 核验通过。当时汇总为 `sparkai_workspace/.diagnostics/release/composer-command-delivery-2026-10-08.json`。该轮仅修改桌面；Extension 与外部 New API 合同未改变，当时未验证实际安装/卸载、签名和正式发布。
 
-> 2026-10-07 当前任务已完成：画布原图/参考图选取和右键添加、既有生图服务内显式供应商 Adapter 配置及两种 1.0.9 x64 开发 EXE 已交付。模型、协议、渠道、BaseURL/Key 分离，显式连接配置优先于模型默认推断，保留原 OpenAI Compatible 与成果链。两种实际程序已通过素材/供应商保存与 reload、主题/账户/独立窗口 smoke（各 18 截图），两安装器 UI 各 19 截图通过。最终制品大小/MZ/SHA-256/NotSigned、接入策略和包内文件匹配见 `sparkai_workspace/.diagnostics/release/image-adaptation-delivery-2026-10-07.json`；详细状态见桌面 GOAL/PROGRESS。本次只改桌面，未更改 Extension 或外部 New API；真实 provider 联调及真实账户复验尚未完成。
+> 2026-10-07 历史任务已完成：画布原图/参考图选取和右键添加、既有生图服务内显式供应商 Adapter 配置及两种 1.0.9 x64 开发 EXE 已交付。模型、协议、渠道、BaseURL/Key 分离，显式连接配置优先于模型默认推断，保留原 OpenAI Compatible 与成果链。两种实际程序已通过素材/供应商保存与 reload、主题/账户/独立窗口 smoke（各 18 截图），两安装器 UI 各 19 截图通过。当时制品大小/MZ/SHA-256/NotSigned、接入策略和包内文件匹配见 `sparkai_workspace/.diagnostics/release/image-adaptation-delivery-2026-10-07.json`；该轮只改桌面，未更改 Extension 或外部 New API，当时真实 provider 联调及真实账户复验尚未完成。
 
-> 2026-10-07 后续回归本地已验证：用户反馈 Grok 已消费但 AggregateError。实际安装版日志证明两次 HTTP 200 与各 1 张结果；桌面 xAI 默认内联返回、结果下载异常脱敏分类和 Agent 禁止重复生成已修复。真实 Electron 落盘、Agent 故意改参数再生成被阻止、专项/build 与两种修订 EXE 的实际启动及包内 5 文件核查均通过，0 新真实模型请求。当前同名 EXE 的权威元数据在 `sparkai_workspace/.diagnostics/release/grok-result-download-delivery-2026-10-07.json`；旧交付 hash 保留为历史。既有 Extension/外部 New API 不变；真实中转 Base64 行为、历史具体网络错误与真实账户复验未验证。
+> 2026-10-07 历史回归本地已验证：用户反馈 Grok 已消费但 AggregateError。实际安装版日志证明两次 HTTP 200 与各 1 张结果；桌面 xAI 默认内联返回、结果下载异常脱敏分类和 Agent 禁止重复生成已修复。真实 Electron 落盘、Agent 故意改参数再生成被阻止、专项/build 与两种修订 EXE 的实际启动及包内 5 文件核查均通过，0 新真实模型请求。当时同名 EXE 的元数据在 `sparkai_workspace/.diagnostics/release/grok-result-download-delivery-2026-10-07.json`；该轮 Extension/外部 New API 不变，当时真实中转 Base64 行为、历史具体网络错误与真实账户复验未验证。
 
 ## 1. 两个项目分别是什么
 
@@ -59,7 +68,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   Entry["electron-main.cjs"] --> Window["主 BrowserWindow / 独立 Agent BrowserWindow / native dialog"]
-  Entry --> Ipc["desktop/ipc/*\n147 invokes / 9 receives / 2 sends"]
+  Entry --> Ipc["desktop/ipc/*\n150 invokes / 9 receives / 2 sends"]
   Entry --> DesktopModules["desktop/*\nNew API transport / 账户密钥 / 自动化 / Agent 集成 / Agent 窗口 / 授权 / 保存协调 / 模型目录 / Responses 适配 / 插件 Prompt / 主题导入导出"]
   Entry --> Runtime["agent-runtime.cjs"]
   Runtime --> RuntimeModules["runtime/*\nschema / Responses parser / memory / Image 2 / view_image / controlled shell"]
@@ -79,7 +88,7 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 原热点 | 当前状态 | 新边界 |
 | --- | --- | --- |
 | `src/main.tsx` | 仍是跨域编排热点，但认证、图片查看、参考图选择、窗口控制、设置持久化和多个画布纯域已移出 | `auth-gate.tsx`, `image-viewer.tsx`, `reference-picker-dialog.tsx`, `window-controls.tsx`, `settings-persistence.ts` 与画布域模块 |
-| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 147 个 invoke（144 preload + 3 internal）/9 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
+| `electron-main.cjs` | 仍是主进程 facade；模型/Responses/项目持久化/New API transport/client、账户密钥、自动化、Agent 集成、独立 Agent 窗口、设备授权、插件 Prompt、主题文件和 150 个 invoke（147 preload + 3 internal）/9 receive/2 send channel 已有独立 owner | `desktop/ipc/*`, `desktop/model-catalog.cjs`, `desktop/agent-responses-adapter.cjs`, `desktop/project-*`, `desktop/project-graph-adapter.cjs`, `desktop/plugin-task-prompts.cjs`, `desktop/theme-preset-service.cjs`, `desktop/new-api-transport.cjs`, `desktop/new-api-client.cjs`, `desktop/account-token-service.cjs`, `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `desktop/agent-window-service.cjs`, `desktop/license-service.cjs` |
 | `agent-runtime.cjs` | 保留 Prompt、tool loop、compact、steer 协议补齐与 action 编排；运行控制器、schema、Responses/Chat parser、memory、图片帧、观察副本和受控 shell 已移出 | `desktop/agent-run-control.cjs`, `runtime/tool-schemas.cjs`, `runtime/responses-parser.cjs`, `runtime/memory-store.cjs`, `runtime/image-frame.cjs`, `runtime/image-batch-normalization.cjs`, `runtime/view-image-payload.cjs`, `runtime/controlled-shell-command.cjs` |
 | `src/core.ts` | 仍包含 bridge/type、session v5 journal/checkpoint/barrier 类型和图片算法；节点 mutation 采集由 Main 合并器负责，设置、资产身份、粘贴块已有独立所有者 | `desktop/project-session-merge.cjs`, `settings-persistence.ts`, `asset-identity.ts`, `paste-blocks.ts` |
 | `src/styles.css` | 已从约 1 万行变为 28 行有序入口 | `src/styles/01-base-controls.css` 至 `08-motion-accessibility.css` |
@@ -98,10 +107,12 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 | 修改设置或旧配置迁移 | `src/settings-persistence.ts` | `AppSettings` 类型、Electron 设置 bridge、`test:settings-persistence` |
 | 修改外观或玻璃主题 | `src/glass-lab.tsx`, `src/glass-theme.ts`, `src/ui/glass-select.tsx` | 设置外观 section、Glass token/surface、`test:glass-theme`、`test:workspace-glass-ui`、`aidebug:glass-workspace` |
 | 修改资产 ID/路径清洗 | `src/asset-identity.ts` | Electron session 清洗、导入 worker、项目迁移 |
-| 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain | 当前选择、TaskScope、容器/关系、AIDebug 专项 |
+| 修改画布/任务编排 | `src/main.tsx` 与对应 canvas domain；导航/快捷操作在 `src/canvas-navigation-controls.tsx`、`src/canvas-interaction-toolbar.tsx` | 当前选择、TaskScope、容器/关系、canonical viewport 与既有动作 owner；`aidebug:canvas-clarity` |
+| 修改内容弹窗或设置/账户抽屉尺寸 | `src/ui/dialog-shell.tsx`、`src/ui/floating-dialog-interactions.ts`、对应 `src/styles/` owner | `DialogShell.resizable`、共享 CSS 最小/视口边界、Drawer 指针/键盘调整、内容滚动和草稿；代表 UI 与包内 evidence 见桌面 PROGRESS，尺寸不进入项目/设置 |
 | 修改项目节点多窗口持久化 | `src/main.tsx`, `desktop/project-session-merge.cjs`, config IPC | session v5、Main commitRevision、顶层字段 clock、delete/restore tombstone 与 causal barrier、writer checkpoint/30 天 quorum GC、`test:node-mutation-journal`、`test:project-session-merge`、`test:project-session-dual-renderer`、`test:project-io` |
 | 修改 Agent 暂停/结束/steer | `desktop/agent-run-control.cjs`, Agent IPC/runtime、主/独立 Renderer | parent/child AbortSignal、节点锁、协议历史补齐、TaskScope update 的 Main 归一化/重哈希/先保存不变量、`test:agent-run-control`、`test:agent-steer`、窗口与 IPC 专项 |
 | 修改模型目录缓存 | `desktop/model-catalog.cjs` + `electron-main.cjs` | `model-cache.json`、`cacheOnly` IPC、服务端模型 DTO、设置页和 Agent 模型查询 |
+| 修改渠道模型自动发现 | `src/model-config-dialog.tsx`、`desktop/model-catalog.cjs`、`desktop/ipc/server-ipc.cjs` | `naimage:server:models` / `naimage:server:probe-models`、`preload.cjs` / `ConfigBridge`、15 分钟 Main 缓存、完整目录与明确勾选模型的连接绑定；`test:model-catalog`、`test:ipc-registration`、`test:settings-lazy-load` 和模型 UI 专项 |
 | 修改账号/自定义接入、账户密钥、用户额度/日志或设备授权 | `desktop/new-api-client.cjs`, `desktop/new-api-account.cjs`, `desktop/account-token-{service,quota}.cjs`, `desktop/settings-secret-store.cjs`, `desktop/license-service.cjs`, `electron-main.cjs`, `src/auth-gate.tsx`, `src/account-drawer.tsx`, `src/settings-drawer.tsx` | 原生 New API rc.23 auth bundle/旧 session 双协议、登录关键路径/后台预热边界、`account-token-cache.json` 脱敏边界、preload/server IPC、New API `/api/user/auth/*`、`/api/token/*`、`/api/status`、`/api/log/self`、`/v1/*`、`/api/naimage/license*`。额度展示/输入来自服务端单位，日志服务端筛选/分页与凭据脱敏；设置读取本地快照由 Main 校验会话，不依赖公开设置已移除的身份字段。验证见桌面地图 6.1.1（`test:new-api-account`、token/quota、`test:new-api-login`、`aidebug:account` 和生产账户 smoke）；外部 New API/Extension 未修改 |
 | 修改外部 Agent 控制或可自动化产品动作 | `desktop/automation-service.cjs`, `desktop/agent-integration-service.cjs`, `src/automation-command-{registry,runtime}.ts`, `integrations/naimage-control/`, Renderer automation commands | loopback 鉴权、endpoint 文件、preload/IPC、Skill 安装路径与 bundle 白名单；`commands.schema.json` 同时驱动 Renderer、CLI 参考和测试。Graph 命令以 `canvas.state` 提供权威 revision/锁/关系并严格校验选择；mutation 强制项目 guard、canvas revision CAS 可选、Requirement update/execute revision 必需；图 mutation 与 create/update 整批提交，execute 仅在异步派发前 fence。GUI 动作变化必须同步 CLI 命令、Skill/参考文档和 `test:automation-service` |
 | 修改插件、电商工具栏或 Project Graph | `src/plugin-state.ts`, `src/plugin-system.ts`, `plugins/builtin-manifests.json`, `src/plugins/*`, `desktop/plugin-task-prompts.cjs`, `desktop/project-graph-adapter.cjs` | Electron/Renderer 状态镜像、设置持久化、权限复核、动态 chunk、preload/IPC、`test:plugin-system`、`test:project-graph`；长 Prompt 归 Electron，插件禁止脚本注入、扩展执行和直接写 session |
@@ -112,9 +123,9 @@ Renderer 没有 Node integration。文件系统、窗口原语、远端会话和
 
 ### 3.4 变更范围内验证
 
-测试开发阶段只运行本次改动直接相关的专项，以及确有跨类型/IPC 合同时需要的 `typecheck` 或 `test:ipc-registration`；可见 UI 改动运行对应的 AIDebug 专项并人工检查截图。不要把账户、插件、主题、Project Graph、完整 AIDebug、`build` 或 `test:bundle` 机械附加到无关改动。正式 `build`、分层 Bundle、产品性能和 `release:final` 只在用户明确要求正式发布/全量验证，或本次改动直接触及对应边界时运行。具体命令按仓库 `AGENTS.md`、`docs/CONTEXT_MAP.md` 的影响矩阵选择。
+测试开发阶段只运行本次改动直接相关的专项，以及确有跨类型/IPC 合同时需要的 `typecheck` 或 `test:ipc-registration`；可见 UI 改动运行对应的 AIDebug 专项并人工检查截图。不要把账户、插件、主题、Project Graph、完整 AIDebug 或 `test:bundle` 机械附加到无关改动。代码修复交付前按桌面 AGENTS 运行一次 production build；纯文档同步核对链接与 Harness，不要求软件构建。分层 Bundle、产品性能和 `release:final` 在正式发布/全量验证或改动直接触及对应边界时运行；开发 EXE 规则与验证命令按仓库 `AGENTS.md`、`docs/CONTEXT_MAP.md` 的影响矩阵选择。
 
-当前 Renderer Bundle 采用 hard/advisory 分层：initial JS 目标 670,000 B 并允许额外 1,024 B 测量容差，core async 180,000 B、plugin JS 120,000 B、CSS 220,000 B 与首屏依赖/诊断泄漏为硬门禁；core JS 740,000 B 和完整 dist 1,000,000 B 为 advisory。真实启动、内存、缩放、平移、拖动与 long task 由 `aidebug:performance:product` 独立硬门禁负责，Bundle advisory 不能替代产品性能证据。最新构建证据为 initial 670,944 B、core async 88,609 B、plugin 9,258 B、CSS 199,454 B，hard gate 全部通过；core 759,553 B、dist 1,016,274 B 仅告警。
+Renderer Bundle 的开发/正式 hard/advisory 规则和当前限额统一按 [桌面 AGENTS 验证规则](sparkai_workspace/AGENTS.md)，入口为 `test:bundle`；本地图不再沿用历史限额或把旧构建通过当作当前结果。最新 Bundle 结果、开发包状态与未通过项见 [PROGRESS 当前开发状态](sparkai_workspace/PROGRESS.md)。真实启动、内存、缩放、平移、拖动与 long task 由 `aidebug:performance:product` 独立证明，Bundle advisory 不能替代产品性能证据。
 
 Project Graph 插件批次的 initial 646,764 B、total JS 719,964 B、dist 968,264 B 仅是历史基线；当时“只剩 36 B”的旧总量余量不再作为重构指令。后续 Renderer 功能仍优先复用或进入自然异步模块，但不得仅为跨越任何 Bundle 硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分。
 
@@ -231,13 +242,15 @@ Go 只服务于历史 New API 源码的审计/测试；活跃 `sparkai-extension
 - 改变两个仓库之间的镜像规则或权威数据归属。
 - 准备正式版本且变更跨仓 API、登录、授权、模型、更新或部署契约。版本说明、桌面上下文地图与本工作区地图必须在 `release:final` 之前进入同一冻结提交，避免发布后补文档导致源码指纹变化和整批重跑。
 
-## 8. 当前发布基线
+## 8. 发布基线与本地制品识别
 
-- 当前代码版本：桌面 `1.0.9`（`sparkai_workspace/package.json`），Extension `0.2.1`；本工作区是无 `.git` 元数据的文件快照，不能证明任何 tag、commit 或远端状态。
+- 当前代码版本：桌面 `1.0.9`（`sparkai_workspace/package.json`），Extension `0.2.1`；本工作区有 Git 元数据，恢复进度时检查实际分支与 dirty worktree。不能凭本地图推断远端状态。
+- 历史正式基线：2026-10-10 的 `v1.0.9` 冻结源码为 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`；同次正式编排、安装升级和远端资产核验见桌面 PROGRESS 的发布记录。本次仅复核本地 tag/已有报告，没有重新查询或更新远端 Release。
+- 后续渠道、画布和 resize 改动已生成同版本号的本地开发 EXE；当前文件路径/大小/哈希、包内检查及未验证项以 [PROGRESS 顶部](sparkai_workspace/PROGRESS.md) 为入口，不能用本地同名文件替代已发布资产。
 - 发布项目/GitHub Release 展示名决策为 **`SparkAI-WorkSpace`**；应用展示名继续是代码中的 `SparkAI WorkSpace`。仓库地址若仍为 `naMeaning/SparkAI-WorkSpace`，发布前必须在真实 checkout 用 `git remote -v` 复核，不以本地图文档代替远端事实。
 - Release 资产：Windows x64 Setup、Restart ASAR、签名 `desktop-release.json`、安装包 sidecar 和 `SHA256SUMS.txt`。
 - Setup 与 Restart ASAR 的 SHA-256 以同一 Release 中的 `SHA256SUMS.txt` 和签名 manifest 为准；当前代码的安装包名由 `runtime/access-variant.cjs` 生成，Restart ASAR 保留 `naimage-Restart-Update-*` 兼容前缀。
-- 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；`1.0.9` 必须由冻结提交后的同一次 `corepack pnpm run release:final` 重新建立完整证据。
+- 既有正式版本的 Restart 更新、安装/重装/卸载、数据保留/清理、外部项目保护、失败回滚、Ed25519 签名和制品哈希以对应冻结标签和 Release 归档为准；新的正式发布须在文档同步和源码冻结后由同一次 `corepack pnpm run release:final` 建立完整证据。文档更新不要求重跑已发布的冻结版本。
 - 客户端在线更新仍应通过 SparkAPI 受控更新服务分发；不得把私有 GitHub Token 内置进桌面程序。
 
-1.0.7 以来的画布、Agent、并行 Session、Graph CLI 和本地导出合同继续保留；当前 1.0.9 候选在其上增加项目目录边界、迁移、统一导出、大量图片性能、模型参数展示、登录/License 和独立图片任务扩展。上述候选不能替代生产 Extension、真实 provider、真实 AppData 或线上更新验证。
+1.0.7 以来的画布、Agent、并行 Session、Graph CLI 和本地导出合同继续保留。历史版本和当前桌面开发证据各有冻结制品及验证范围，不能替代生产 Extension、其他真实 provider、真实 AppData 或线上更新的独立验证。

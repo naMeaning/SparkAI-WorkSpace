@@ -317,14 +317,16 @@ export function glassAppearanceProjection(value: GlassThemeSettings | unknown): 
     "--theme-surface-raised": theme.tokens.surfaceRaised,
     "--theme-ink": theme.tokens.ink,
     "--theme-ink-soft": theme.tokens.inkSoft,
-    "--theme-muted": theme.tokens.muted,
+    "--theme-muted": mixHexColors(theme.tokens.muted, 0.7, theme.tokens.inkSoft),
     "--theme-line": solid ? `rgba(${accent.rgb}, 0.14)` : mode.line,
     "--theme-line-strong": solid ? `rgba(${accent.rgb}, 0.24)` : mode.lineStrong,
     "--theme-accent": accent.color,
     "--theme-accent-strong": mixHexColors(accent.color, 0.72, theme.tokens.ink),
     "--theme-blue": theme.tokens.secondary,
     "--theme-rose": mode.danger,
-    "--theme-amber": solid ? theme.tokens.secondary : glassThemeRegistry.accents.amber.color,
+    "--theme-amber": solid ? theme.tokens.secondary : theme.mode === "light"
+      ? mixHexColors(glassThemeRegistry.accents.amber.color, 0.4, theme.tokens.ink)
+      : glassThemeRegistry.accents.amber.color,
     "--theme-green": mode.success,
     "--theme-control-bg": control,
     "--theme-hover-bg": controlHover,

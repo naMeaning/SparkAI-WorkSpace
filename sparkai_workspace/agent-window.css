@@ -19,7 +19,15 @@
   --glass-shadow: 0.4;
   --glass-radius: 14px;
   --glass-noise-opacity: 0.025;
-  font-family: Inter, "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-ui: 14px;
+  --font-title: 15px;
+  --font-family-ui: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-ui);
+  font-synthesis: none;
+  text-rendering: auto;
 }
 
 :root[data-palette="sunflower"] {
@@ -135,7 +143,7 @@ button:disabled {
 .agent-title span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -162,7 +170,7 @@ button:disabled {
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 78%, var(--surface-soft));
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .agent-status > span {
@@ -191,6 +199,7 @@ button:disabled {
 .agent-status small {
   max-width: 140px;
   color: var(--muted);
+  font-size: var(--font-xs);
 }
 
 .agent-goal-controls {
@@ -222,7 +231,7 @@ button:disabled {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .goal-summary-heading strong {
@@ -251,13 +260,13 @@ button:disabled {
   flex-wrap: wrap;
   gap: 5px 12px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 #goal-warning {
   margin: 0;
   color: var(--danger);
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1.45;
 }
 
@@ -305,7 +314,7 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .message-content,
@@ -323,7 +332,7 @@ button:disabled {
 
 .attachment-summary {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .tool-card {
@@ -340,7 +349,7 @@ button:disabled {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .tool-title strong {
@@ -353,7 +362,7 @@ button:disabled {
 
 .tool-brief {
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--font-sm);
   line-height: 1.5;
 }
 
@@ -365,8 +374,8 @@ button:disabled {
 .prompt-details summary {
   cursor: pointer;
   color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--font-xs);
+  font-weight: 600;
 }
 
 .prompt-entry {
@@ -381,13 +390,13 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .prompt-entry button {
   min-height: 26px;
   padding: 0 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .prompt-text {
@@ -423,7 +432,7 @@ button:disabled {
 .selected-count {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .agent-composer {
@@ -452,11 +461,11 @@ button:disabled {
 }
 
 .command-menu[hidden], .command-notice[hidden] { display: none; }
-.command-heading { padding: 5px 8px; font-size: 11px; color: var(--muted); }
+.command-heading { padding: 5px 8px; font-size: var(--font-xs); color: var(--muted); }
 .command-menu > button { display: grid; gap: 3px; width: 100%; padding: 8px; border: 0; text-align: left; }
 .command-menu > button.active { background: var(--surface-soft); color: var(--accent-strong); }
-.command-menu small { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
-.command-notice { margin: 0; font-size: 12px; color: var(--muted); }
+.command-menu small { font-size: var(--font-xs); color: var(--muted); overflow-wrap: anywhere; }
+.command-notice { margin: 0; font-size: var(--font-sm); color: var(--muted); }
 :root.glass-theme-active .command-menu { background: var(--glass-menu-surface); backdrop-filter: var(--glass-backdrop-filter); }
 
 .agent-composer textarea {
@@ -472,6 +481,11 @@ button:disabled {
   line-height: 1.5;
 }
 
+.agent-composer textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
 .steer-mode-field {
   min-width: 0;
   display: grid;
@@ -479,7 +493,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .steer-mode-field[hidden] {
@@ -498,7 +512,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .goal-steer-lock[hidden] {
@@ -520,7 +534,7 @@ button:disabled {
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .dock-controls select {
@@ -530,7 +544,7 @@ button:disabled {
 .shortcut {
   margin-left: auto;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .send-button {
@@ -579,6 +593,9 @@ button:disabled {
 :root.glass-theme-active {
   --glass-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
   --glass-message-backdrop-filter: blur(calc(var(--glass-blur) * 0.64)) saturate(var(--glass-saturation));
+  --glass-readable-surface-fill: color-mix(in srgb, var(--surface) 94%, rgb(var(--glass-rgb)));
+  --glass-readable-surface-fill-strong: color-mix(in srgb, var(--surface) 98%, rgb(var(--glass-rgb)));
+  --glass-menu-surface: var(--glass-readable-surface-fill-strong);
 }
 
 :root[data-glass-style="solid"] {
@@ -593,32 +610,21 @@ button:disabled {
 :root.glass-theme-active .agent-shell {
   position: relative;
   isolation: isolate;
-}
-
-:root.glass-theme-active .agent-shell::before {
-  content: "";
-  position: fixed;
-  z-index: -1;
-  inset: 0;
-  pointer-events: none;
-  opacity: var(--glass-noise-opacity);
-  background-image:
-    repeating-linear-gradient(37deg, rgba(255, 255, 255, 0.5) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(127deg, rgba(0, 0, 0, 0.24) 0 1px, transparent 1px 5px);
+  background: var(--glass-readable-surface-fill);
 }
 
 :root.glass-theme-active .agent-header,
 :root.glass-theme-active .agent-goal-controls,
 :root.glass-theme-active .agent-context,
 :root.glass-theme-active .agent-composer {
-  background: rgba(var(--glass-rgb), var(--glass-alpha));
+  background: var(--glass-readable-surface-fill);
   -webkit-backdrop-filter: var(--glass-backdrop-filter);
   backdrop-filter: var(--glass-backdrop-filter);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight));
 }
 
 :root.glass-theme-active .agent-status {
-  background: color-mix(in srgb, rgba(var(--glass-rgb), var(--glass-alpha)) 82%, transparent);
+  background: var(--glass-readable-surface-fill-strong);
   -webkit-backdrop-filter: var(--glass-backdrop-filter);
   backdrop-filter: var(--glass-backdrop-filter);
 }
@@ -638,7 +644,7 @@ button:disabled {
 
 :root.glass-theme-active .message {
   border-radius: var(--glass-radius);
-  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  background: var(--glass-readable-surface-fill-strong);
   -webkit-backdrop-filter: var(--glass-message-backdrop-filter);
   backdrop-filter: var(--glass-message-backdrop-filter);
   box-shadow:
@@ -647,12 +653,12 @@ button:disabled {
 }
 
 :root.glass-theme-active .message.user {
-  background: rgba(var(--accent-rgb), 0.1);
+  background: color-mix(in srgb, var(--accent) 9%, var(--glass-readable-surface-fill-strong));
 }
 
 :root.glass-theme-active .tool-card {
   border-radius: min(12px, var(--glass-radius));
-  background: color-mix(in srgb, var(--surface-soft) 68%, transparent);
+  background: color-mix(in srgb, var(--surface-soft) 94%, var(--glass-readable-surface-fill-strong));
 }
 
 :root.glass-theme-active .agent-composer .send-button {

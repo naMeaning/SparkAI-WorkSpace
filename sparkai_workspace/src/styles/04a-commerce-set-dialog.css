@@ -1,5 +1,7 @@
 .commerce-set-dialog {
   --ui-surface-width: 860px;
+  --ui-surface-min-width: 720px;
+  --ui-surface-min-height: 420px;
   height: min(780px, calc(100dvh - 36px));
   grid-template-rows: auto minmax(0, 1fr) auto;
 }

@@ -1,5 +1,20 @@
 # SparkAI WorkSpace 开发约束
 
+## 新会话与续接必读
+
+每次新会话、上下文压缩后续接或用户要求 `continue` 时，在汇报开发状态、选择实现任务之前按以下顺序恢复现场：
+
+1. 检查 `git status --short` 和当前分支，保留已有未提交改动。
+2. 读取 [GOAL.md](GOAL.md) 顶部的当前任务：最新用户方向、范围、验收和下一步。
+3. 读取 [PROGRESS.md](PROGRESS.md) 顶部的 **当前开发状态** 及最近相关记录：已经实现什么、实际验证了什么、最新制品和仍未验证的边界。
+4. 读取 [PRODUCT_INTENT.md](PRODUCT_INTENT.md)、[已接受决策](../harness/CONVERSATION_DECISIONS.md) 和 [docs/CONTEXT_MAP.md](docs/CONTEXT_MAP.md) 中覆盖本次改动的 owner、调用链与验证入口。
+5. 用当前源码、现有报告和实际制品复核与本次任务有关的事实，再从最新验收条件中尚未完成的一项继续。
+
+- 动态开发状态集中维护在 `PROGRESS.md` 顶部；本文件只保存稳定规则。`GOAL.md` 维护当前任务契约，地图维护定位信息，入口文档链接到进度而不复制多份易过期的制品摘要。
+- 带日期的任务/计划/报告保留当时状态；旧正文里的“当前”“待执行”“未验证”须结合后续 checkpoint 判断，不能自动恢复历史任务。相同版本号或 EXE 文件名也不能证明是同一制品，正式发布与本地开发包须按冻结源码、哈希和发布记录区分。
+- 接受任务、用户改变范围、获得关键验证结果和交付时，同步 `GOAL.md`、`PROGRESS.md` 顶部状态及相关地图；写清下一步和未验证项，保留既有产品工作与历史证据。
+- 文档同步只核对内容、链接和差异；涉及根 Harness 时在工作区根运行 `node scripts/verify-harness.mjs`。后文的 production build 要求适用于代码修复。
+
 ## 产品边界
 
 - 本仓库只维护 Electron 桌面 GUI 和本地 Agent runtime。远端后端位于独立仓库，不要把服务端管理后台复制回来。
@@ -42,7 +57,9 @@
 
 ## 验证
 
-- 每次代码修复完成后、交付前都必须至少运行一次 `corepack pnpm run build`；如果构建失败，必须报告真实失败项，不得把仅通过专项测试描述为已完成编译。
+- 每次功能新增、功能修改、缺陷修复或 UI/交互调整完成后，交付前都必须完成 production build，并将最终源码打包为本地 Windows EXE；不能只更新源码或 `dist`，也不能用旧 EXE 代替本轮制品。用户已持续授权这类本地开发打包，无需每次另行询问；纯文档修改、仅规划和只读诊断不触发打包。
+- 默认执行 `corepack pnpm run package:win:unrestricted`；用户指定发行变体时使用对应命令。打包流程内成功执行的 production build 满足 `corepack pnpm run build` 要求，无需机械重复。交付时核对并提供真实 EXE 路径、文件大小和 SHA-256，在 `PROGRESS.md` 同步对应源码、打包结果及未验证项。构建或打包失败时必须明确报告失败和“EXE 未生成/未更新”，不得把仅通过专项测试描述为完成交付。
+- 每次打包成功后，自动更新 `GOAL.md`、`PROGRESS.md` 的当前状态、功能范围、源码对应关系、实际验证、EXE 路径/大小/SHA-256 和剩余边界，并核对/同步 `docs/CONTEXT_MAP.md`；涉及工作区边界时同步根 `WORKSPACE_CONTEXT_MAP.md`。随后将本轮对应源码和上下文文档提交并推送到当前配置的 upstream（当前为 `origin/main`），核对实际远端提交。用户已于 2026-10-15 持续授权该流程，无需每次重新询问提交或 push；保留无关未提交工作，普通推送，失败时分别报告打包、文档、Git 同步状态并记录真实错误。本地开发包的 Git 同步不代替正式发布；EXE 二进制上传、Release 和标签发布仍需单独授权，生成物与私有配置继续遵循现有 ignore 规则。
 - 当前测试开发阶段只运行改动直接影响的专项测试；不机械运行无关测试。开发 EXE 可以记录 Bundle 结果，但超限暂不阻断构建或 NSIS 打包；只有准备候选制品或用户明确要求正式发布时才扩大门禁，正式发布按 `release:final` 全量验证。
 - 正式发布候选必须运行并通过 `corepack pnpm run test:bundle`；正式 JS 不得包含 `__naimageAIDebug`、`runLayerStackSuite`、`runMixedStressSuite` 等诊断控制面，废弃风格库资源不得被复制进 `dist`。
 - 正式发布时，`test:bundle` 的 initial JS 目标为 685,000 B，并允许额外 1,024 B 测量容差；超过 686,024 B 才触发硬失败。plugin JS 120,000 B 与 CSS 270,000 B 为硬门禁；core async JS 190,000 B、core JS 870,000 B 与完整 dist 1,200,000 B 只作增量趋势 advisory，不单独阻断。开发阶段保留这些数字作为趋势记录。插件运行时、设置表面、Glass Lab、workspace chrome 与插件专属对话框应保留在自然异步 chunk，插件进入首屏依赖图即失败。后续大块 Renderer 功能仍应优先进入自然异步边界，但不得仅为跨越硬门禁或 advisory 数字牺牲可维护性、引入高风险重构或复杂拆分；产品速度由独立性能门禁证明。

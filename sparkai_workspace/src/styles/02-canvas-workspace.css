@@ -2,11 +2,227 @@
    02 Canvas Workspace And Node System
 -------------------------------------------------------------------------- */
 
+.canvas-navigation-dock {
+  position: absolute;
+  z-index: 26;
+  left: 12px;
+  bottom: 12px;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+
+.canvas-navigation-bar,
+.canvas-mini-map,
+.canvas-shortcuts-popover {
+  pointer-events: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface-solid);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 16%);
+}
+
+.canvas-navigation-bar {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.canvas-navigation-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.canvas-navigation-group + .canvas-navigation-group {
+  margin-left: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.canvas-navigation-bar button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: transparent;
+}
+
+.canvas-navigation-bar button:hover,
+.canvas-navigation-bar button:focus-visible,
+.canvas-navigation-bar button.is-active {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-raised));
+}
+
+.canvas-navigation-range {
+  width: 72px;
+  accent-color: var(--accent);
+}
+
+.canvas-navigation-bar .canvas-navigation-zoom {
+  width: 52px;
+  color: var(--ink);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.canvas-navigation-bar button:focus-visible,
+.canvas-interaction-action:focus-visible {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: -2px;
+}
+
+.canvas-navigation-bar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.canvas-navigation-dock.is-compact .canvas-navigation-range {
+  display: none;
+}
+
+.canvas-navigation-dock.is-compact .canvas-navigation-bar button:not(.canvas-navigation-zoom) {
+  width: 28px;
+}
+
+.canvas-mini-map {
+  width: 244px;
+  padding: 9px;
+}
+
+.canvas-mini-map-heading {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.canvas-mini-map-heading strong {
+  font-size: var(--font-sm);
+}
+
+.canvas-mini-map-heading span {
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+
+.canvas-mini-map-stage {
+  position: relative;
+  width: 220px;
+  height: 144px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+    color-mix(in srgb, var(--surface) 76%, transparent);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas-mini-map-stage.empty {
+  cursor: default;
+}
+
+.canvas-mini-map-node,
+.canvas-mini-map-viewport {
+  position: absolute;
+  display: block;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.canvas-mini-map-node {
+  min-width: 3px;
+  min-height: 3px;
+  opacity: 0.72;
+}
+
+.canvas-mini-map-node.is-selected {
+  opacity: 1;
+  outline: 1px solid color-mix(in srgb, #fff 86%, var(--accent));
+  box-shadow: 0 0 0 1px var(--accent-strong);
+}
+
+.canvas-mini-map-viewport {
+  border: 1px solid var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 26%, transparent) inset;
+}
+
+.canvas-mini-map-empty-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  text-align: center;
+}
+
+.canvas-shortcuts-popover {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 7px;
+  padding: 11px 13px;
+  color: var(--ink-soft);
+  font-size: var(--font-xs);
+  line-height: 1.7;
+}
+
+.canvas-shortcuts-popover strong {
+  color: var(--ink);
+  font-size: var(--font-sm);
+}
+
+.canvas-shortcuts-popover kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink-soft);
+  background: var(--surface-raised);
+  font: inherit;
+  font-size: var(--font-xs);
+}
+
+@media (max-width: 780px) {
+  .canvas-navigation-dock {
+    left: 8px;
+    bottom: 8px;
+  }
+
+  .canvas-navigation-range {
+    width: 58px;
+  }
+
+  .canvas-navigation-bar {
+    max-width: calc(100vw - 24px);
+  }
+}
+
 .canvas-plugin-toolbar {
   z-index: 20;
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  bottom: 68px;
   min-width: 0;
   width: max-content;
   max-width: min(860px, calc(100% - 24px));
@@ -33,6 +249,10 @@
   align-items: center;
 }
 
+.canvas-plugin-toolbar.is-expanded {
+  width: min(860px, calc(100% - 24px));
+}
+
 .canvas-plugin-toolbar-title,
 .canvas-plugin-toolbar-trigger {
   flex: 0 0 auto;
@@ -43,8 +263,8 @@
   border-radius: 8px;
   color: var(--ink-soft);
   background: transparent;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--font-sm);
+  font-weight: 600;
 }
 
 .canvas-plugin-toolbar-title small,
@@ -54,9 +274,9 @@
   display: inline-grid;
   place-items: center;
   border-radius: 8px;
-  color: var(--accent-strong);
+  color: var(--ink-soft);
   background: color-mix(in srgb, var(--accent) 11%, var(--surface-raised));
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .canvas-plugin-toolbar-trigger:hover,
@@ -74,28 +294,62 @@
   transform: rotate(180deg);
 }
 
-.canvas-plugin-toolbar-actions {
-  flex: 0 1 auto;
-  max-width: min(680px, 70vw);
-  justify-content: center;
-  gap: 5px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  transition: max-width var(--motion-standard) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease), transform var(--motion-standard) var(--motion-ease);
+.canvas-plugin-toolbar-pages {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.canvas-plugin-toolbar.is-collapsed .canvas-plugin-toolbar-actions {
-  flex-basis: 0;
-  max-width: 0;
-  gap: 0;
+.canvas-plugin-toolbar.is-collapsed .canvas-plugin-toolbar-pages {
+  display: none;
+}
+
+.canvas-plugin-toolbar-actions {
+  flex: 1 1 0;
+  justify-content: flex-start;
+  gap: 5px;
   overflow: hidden;
-  opacity: 0;
+}
+
+.canvas-plugin-toolbar-actions.canvas-plugin-toolbar-measure {
+  position: absolute;
+  width: max-content;
+  max-width: none;
   visibility: hidden;
-  transform: translateY(4px);
+  pointer-events: none;
+}
+
+.canvas-plugin-toolbar-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.canvas-plugin-toolbar-pagination button {
+  width: 28px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: var(--surface-raised);
+}
+
+.canvas-plugin-toolbar-pagination button:disabled {
+  opacity: 0.4;
+}
+
+.canvas-plugin-toolbar-page {
+  min-width: 36px;
+  text-align: center;
+  color: var(--ink-soft);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .canvas-plugin-toolbar-actions button {
@@ -107,8 +361,8 @@
   border-radius: 8px;
   color: var(--accent-strong);
   background: color-mix(in srgb, var(--accent) 7%, var(--surface-raised));
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--font-sm);
+  font-weight: 600;
 }
 
 .canvas-plugin-toolbar-actions button:hover:not(:disabled),
@@ -272,6 +526,11 @@
   cursor: grabbing;
 }
 
+.workflow-canvas[data-canvas-tool="pan"]:not(.is-panning),
+.workflow-canvas[data-canvas-tool="pan"]:not(.is-panning) .flow-node {
+  cursor: grab;
+}
+
 .workflow-canvas.is-selecting,
 .workflow-canvas.is-selecting .flow-node {
   cursor: crosshair;
@@ -284,6 +543,121 @@
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, #fff 12%, transparent) inset;
   pointer-events: none;
+}
+
+.canvas-interaction-toolbar-anchor {
+  position: absolute;
+  z-index: 34;
+  width: max-content;
+  overflow: auto;
+  pointer-events: auto;
+}
+
+.canvas-selection-frame {
+  position: absolute;
+  z-index: 18;
+  border: 1px dashed color-mix(in srgb, var(--accent) 78%, #fff);
+  border-radius: 14px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.canvas-interaction-toolbar {
+  min-height: 38px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--ink);
+  background: var(--surface-solid);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 16%);
+  pointer-events: auto;
+  scrollbar-width: thin;
+}
+
+.canvas-interaction-title {
+  max-width: 420px;
+  padding: 4px 8px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--line);
+}
+
+.canvas-interaction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.canvas-interaction-toolbar.is-selection {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line-strong));
+}
+
+.canvas-interaction-toolbar.is-node-hover {
+  min-height: 34px;
+  border-radius: 10px;
+}
+
+.canvas-interaction-action {
+  min-width: 0;
+  min-height: 32px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.canvas-interaction-action:hover,
+.canvas-interaction-action:focus-visible {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface-raised));
+}
+
+.canvas-interaction-action:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.canvas-interaction-action.is-danger {
+  color: color-mix(in srgb, var(--rose) 82%, var(--ink-soft));
+}
+
+.canvas-interaction-action.is-danger:hover,
+.canvas-interaction-action.is-danger:focus-visible {
+  color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 12%, transparent);
+}
+
+.canvas-interaction-action-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 780px) {
+  .canvas-interaction-action {
+    padding-inline: 6px;
+  }
 }
 
 .canvas-selection-indicator {
@@ -333,7 +707,7 @@
 
 .canvas-selection-indicator-copy > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 760;
   letter-spacing: 0.08em;
 }
@@ -354,7 +728,7 @@
 
 .canvas-selection-indicator-copy small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.2;
 }
 
@@ -450,7 +824,7 @@
   transform-style: flat;
   overflow: visible;
   will-change: auto;
-  text-rendering: optimizeLegibility;
+  text-rendering: auto;
 }
 
 .workflow-canvas.is-viewport-interacting .canvas-stage {
@@ -554,7 +928,7 @@
   color: var(--muted);
   background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
@@ -614,7 +988,7 @@
 
 .ui-menu-summary span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1.35;
 }
 
@@ -743,7 +1117,7 @@
 .relation-context-summary > span,
 .relation-context-summary > small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.35;
 }
 
@@ -781,7 +1155,7 @@
   cursor: pointer;
   touch-action: none;
   user-select: none;
-  text-rendering: geometricPrecision;
+  text-rendering: auto;
   animation: none;
   transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), opacity var(--motion-standard) var(--motion-ease);
 }
@@ -957,7 +1331,7 @@
   position: absolute;
   right: 5px;
   bottom: 3px;
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1;
   font-style: normal;
   font-weight: 840;
@@ -1036,7 +1410,7 @@
   align-items: center;
   gap: 5px;
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 760;
   letter-spacing: 0.08em;
 }
@@ -1059,7 +1433,7 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .requirement-node-meta span {
@@ -1079,7 +1453,7 @@
 
 .requirement-node-error {
   overflow: hidden;
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1136,6 +1510,7 @@
   justify-self: end;
   max-width: 68px;
   min-height: 22px;
+  font-size: var(--font-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1152,7 +1527,8 @@
   min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: var(--font-title);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1162,7 +1538,7 @@
   grid-column: 1 / -1;
   margin: 0;
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: var(--font-xs);
   line-height: 1.42;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1247,7 +1623,7 @@
 
 .node-video-empty > small {
   color: color-mix(in srgb, white 62%, var(--muted));
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .node-video-progress {
@@ -1277,7 +1653,7 @@
   border-radius: 8px;
   color: #fff;
   background: color-mix(in srgb, #6f1725 86%, transparent);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1341,7 +1717,7 @@
   border-radius: 7px;
   color: rgba(255, 255, 255, 0.94);
   background: rgba(5, 12, 16, 0.78);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 700;
 }
 
@@ -1360,7 +1736,7 @@
   border-radius: 4px;
   color: #fff;
   background: rgba(255, 255, 255, 0.12);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .node-asset-code {
@@ -1376,7 +1752,7 @@
   color: rgba(255, 255, 255, 0.94);
   background: rgba(5, 12, 16, 0.72);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-  font-size: 9px;
+  font-size: var(--font-xs);
   font-weight: 780;
   line-height: 1;
   text-overflow: ellipsis;
@@ -1404,7 +1780,7 @@
 
 .node-image-overflow-tile small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .flow-node.image-container {
@@ -1588,14 +1964,14 @@
 }
 
 .collection-image-prompt strong {
-  font-size: 10px;
+  font-size: var(--font-xs);
   white-space: nowrap;
 }
 
 .collection-image-prompt span {
   display: -webkit-box;
   color: rgba(255, 255, 255, 0.78);
-  font-size: 9px;
+  font-size: var(--font-xs);
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -1664,7 +2040,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.32;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -1758,21 +2134,21 @@
   border-radius: 999px;
   color: var(--accent-strong);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-style: normal;
   font-weight: 820;
 }
 
 .node-layer-stack em {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-style: normal;
 }
 
 .node-layer-stack small {
   justify-self: end;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 .flow-node.layer-stack-node {
@@ -1866,7 +2242,7 @@
   gap: 7px;
   color: var(--muted);
   background: color-mix(in srgb, var(--canvas) 58%, transparent);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 760;
 }
 
@@ -1881,7 +2257,7 @@
   border-radius: 999px;
   color: #f1efff;
   background: rgba(28, 24, 52, 0.78);
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1.2;
   text-align: center;
   pointer-events: none;
@@ -1944,20 +2320,20 @@
   border-radius: 5px;
   color: #c8c2ff;
   background: color-mix(in srgb, #8b7cff 18%, transparent);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-style: normal;
   font-weight: 820;
 }
 
 .node-layer-handle em {
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-style: normal;
 }
 
 .node-layer-handle small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 /* Independent layered PNG nodes: stacked nodes share one transparent artboard;
@@ -2152,13 +2528,13 @@
 }
 
 .node-layer-tab-copy strong {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 760;
 }
 
 .node-layer-tab-copy small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .node-layer-group-titlebar {
@@ -2198,13 +2574,13 @@
 
 .node-layer-group-titlebar strong {
   color: var(--ink);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 780;
 }
 
 .node-layer-group-titlebar small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--font-xs);
 }
 
 .node-layer-group-titlebar:hover {
@@ -2233,7 +2609,7 @@
   border-radius: 999px;
   color: #f4f1ff;
   background: rgba(35, 30, 64, 0.8);
-  font-size: 10px;
+  font-size: var(--font-xs);
   line-height: 1;
   pointer-events: none;
   backdrop-filter: blur(8px);
@@ -2332,7 +2708,7 @@
   border-radius: 8px;
   color: var(--ink-soft);
   background: color-mix(in srgb, var(--surface) 76%, transparent);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.36;
 }
 
@@ -2371,7 +2747,7 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.2;
   pointer-events: none;
 }
@@ -2403,7 +2779,7 @@
 
 :root[data-theme="dark"] .flow-node footer,
 :root[data-theme="dark"] .node-state {
-  color: #a7b8b2;
+  color: var(--ink-soft);
 }
 
 .canvas-info-body {
@@ -2489,7 +2865,7 @@
 
 .canvas-node-row-main small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .canvas-node-row em {
@@ -2499,7 +2875,7 @@
   border-radius: 999px;
   color: var(--muted);
   background: var(--surface);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-style: normal;
 }
 

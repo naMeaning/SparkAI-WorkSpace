@@ -7738,13 +7738,105 @@ async function captureCanvasClaritySuiteProbe(client, targetId) {
       twoDimensionalTransform: String(stage?.style.transform || '').includes('translate(') && !String(stage?.style.transform || '').includes('translate3d('),
       willChange: stage ? getComputedStyle(stage).willChange : ''
     };
+    const navigation = document.querySelector('.canvas-navigation-dock');
+    const navigationBar = navigation?.querySelector('.canvas-navigation-bar');
+    const miniMapToggle = navigation?.querySelector('button[aria-label="打开画布导航"]');
+    miniMapToggle?.click();
+    await delay(120);
+    const miniMap = document.querySelector('.canvas-mini-map');
+    const miniMapStage = document.querySelector('.canvas-mini-map-stage');
+    const miniMapViewport = document.querySelector('.canvas-mini-map-viewport');
+    const zoomRange = navigation?.querySelector('.canvas-navigation-range');
+    const zoomBeforeButton = Number(window.__naimageDebugAgentState?.().viewport?.scale || 0);
+    navigation?.querySelector('button[aria-label="放大画布"]')?.click();
+    await delay(180);
+    const zoomAfterButton = Number(window.__naimageDebugAgentState?.().viewport?.scale || 0);
+    await window.__naimageAIDebug.selectNodes({ ids: [${JSON.stringify(setup.firstId)}, ${JSON.stringify(setup.secondId)}], primaryId: ${JSON.stringify(setup.firstId)} });
+    await delay(180);
+    const selectionToolbar = document.querySelector('.canvas-interaction-toolbar.is-selection');
+    const selectionFrame = document.querySelector('.canvas-selection-frame');
+    const selectionFocusAction = selectionToolbar?.querySelector('button[aria-label="定位当前选中"]');
+    selectionFocusAction?.click();
+    await delay(180);
+    const selectionToolbarRect = selectionToolbar?.getBoundingClientRect();
+    const canvasRect = canvas?.getBoundingClientRect();
+    const selectionToolbarVisible = Boolean(selectionToolbar && selectionToolbarRect && selectionToolbarRect.width > 0 && selectionToolbarRect.height > 0 && selectionToolbarRect.left >= canvasRect?.left - 1 && selectionToolbarRect.right <= (canvasRect?.right || 0) + 1);
+    await window.__naimageAIDebug.selectNode({ id: ${JSON.stringify(setup.firstId)} });
+    await delay(120);
+    const hoverNode = document.querySelector('.flow-node[data-node-id="' + ${JSON.stringify(setup.firstId)} + '"]');
+    hoverNode?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+    await delay(180);
+    const hoverToolbar = document.querySelector('.canvas-interaction-toolbar.is-node-hover');
+    const hoverReferenceAction = hoverToolbar?.querySelector('button[aria-label="引用到 Agent"]');
+    hoverReferenceAction?.click();
+    await delay(120);
+    const navigationProof = {
+      dockVisible: Boolean(navigation && navigationBar),
+      miniMapVisible: Boolean(miniMap && miniMapStage && miniMapViewport),
+      miniMapHasNodes: Boolean(miniMapStage?.classList.contains('has-nodes')),
+      zoomRangeVisible: Boolean(zoomRange && zoomRange.getBoundingClientRect().width > 20),
+      plusButtonChangesViewport: zoomAfterButton > zoomBeforeButton,
+      shortcutButtonVisible: Boolean(navigation?.querySelector('button[aria-label="查看画布快捷键"]')),
+      panToolButtonVisible: Boolean(navigation?.querySelector('button[aria-label="切换到平移工具"]')),
+      undoButtonVisible: Boolean(navigation?.querySelector('button[aria-label="撤销画布操作"]')),
+      selectedMiniMapNodeVisible: Boolean(miniMapStage?.querySelector('.canvas-mini-map-node.is-selected')),
+      selectionToolbarVisible,
+      selectionFrameVisible: Boolean(selectionFrame),
+      selectionFocusActionVisible: Boolean(selectionFocusAction),
+      hoverToolbarVisible: Boolean(hoverToolbar && hoverToolbar.getBoundingClientRect().width > 0),
+      hoverReferenceActionVisible: Boolean(hoverReferenceAction),
+      hoverReferenceActionWorks: document.activeElement instanceof HTMLTextAreaElement || document.activeElement instanceof HTMLInputElement
+    };
+    return {
+      ok: Boolean(active.classApplied && active.acceleratedTransform && active.willChange.includes('transform') && settled.classCleared && settled.twoDimensionalTransform && settled.willChange === 'auto' && Object.values(navigationProof).every(Boolean)),
+      active,
+      settled,
+      navigationProof
+    };
+  })()`);
+
+  const toolbarCapture = await captureState(client, targetId, "canvas-interaction-toolbar", null, null, {
+    settingsOpen: false,
+    historyOpen: false,
+    accountOpen: false,
+    canvasVisible: true,
+    agentDebugReady: true,
+    agentIdle: true
+  });
+  interaction.toolbarScreenshotPath = toolbarCapture.screenshotPath;
+  interaction.toolbarScreenshotSource = toolbarCapture.screenshotSource;
+  await setWindowSize(client, targetId, 884, 640);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  interaction.smallWindowProof = await evaluate(client, `(() => {
+    const canvas = document.querySelector('.workflow-canvas');
+    const canvasRect = canvas?.getBoundingClientRect();
+    const surfaces = [
+      document.querySelector('.canvas-navigation-bar'),
+      document.querySelector('.canvas-mini-map'),
+      document.querySelector('.canvas-interaction-toolbar')
+    ].filter(Boolean).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    });
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      surfaces,
+      withinCanvas: Boolean(canvasRect && surfaces.every((rect) => rect.left >= canvasRect.left - 1 && rect.right <= canvasRect.right + 1)),
+      documentOverflowX: document.documentElement.scrollWidth > window.innerWidth + 1
+    };
+  })()`);
+  interaction.smallWindowProof.ok = Boolean(interaction.smallWindowProof.withinCanvas && !interaction.smallWindowProof.documentOverflowX);
+  interaction.ok = Boolean(interaction.ok && interaction.smallWindowProof.ok);
+  await setWindowSize(client, targetId, 1280, 820);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  await evaluate(client, `(async () => {
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    document.querySelector('.canvas-navigation-dock button[aria-label="关闭画布导航"]')?.click();
+    await window.__naimageAIDebug.selectNodes({ ids: [] });
+    document.querySelector('.flow-node[data-node-id="' + ${JSON.stringify(setup.firstId)} + '"]')?.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, cancelable: true, pointerType: 'mouse' }));
+    await delay(180);
     window.__naimageDebugSetViewport({ scale: 1, nodeId: ${JSON.stringify(setup.firstId)} });
     await delay(180);
-    return {
-      ok: Boolean(active.classApplied && active.acceleratedTransform && active.willChange.includes('transform') && settled.classCleared && settled.twoDimensionalTransform && settled.willChange === 'auto'),
-      active,
-      settled
-    };
   })()`);
 
   const captures = [];

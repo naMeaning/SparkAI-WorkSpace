@@ -293,6 +293,16 @@ assert.equal(
   createModelCacheKey("http://127.0.0.1:3000", "http://127.0.0.1:3000", ""),
   "http://127.0.0.1:3000::http://127.0.0.1:3000::anonymous::account-default"
 );
+assert.equal(
+  createModelCacheKey("https://channel.example/v1", "https://channel.example/v1", ""),
+  createModelCacheKey("https://channel.example", "https://channel.example", ""),
+  "Equivalent OpenAI-compatible roots with and without a trailing /v1 must share a model-cache entry"
+);
+assert.equal(
+  createModelCacheKey("https://user:secret@channel.example/v1?token=hidden#fragment", "", ""),
+  "https://channel.example::::anonymous::account-default",
+  "Model-cache keys must remove URL credentials, query strings and fragments"
+);
 assert.notEqual(
   createModelCacheKey("https://account.example", "https://relay-a.example", "7"),
   createModelCacheKey("https://account.example", "https://relay-b.example", "7")

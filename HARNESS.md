@@ -16,7 +16,7 @@ An Agent should complete all four loops before calling a nontrivial task done. T
 ## Quick Start
 
 1. Read [AGENTS.md](AGENTS.md) and route the work to `sparkai_workspace/`, `sparkai-extension/`, or both.
-2. Read [harness/CONVERSATION_DECISIONS.md](harness/CONVERSATION_DECISIONS.md) for stable user priorities and superseded directions.
+2. Recover the owner's current task and progress before choosing work. For desktop, read the top of [GOAL.md](sparkai_workspace/GOAL.md) and the **当前开发状态** snapshot plus newest relevant evidence in [PROGRESS.md](sparkai_workspace/PROGRESS.md); compare with the live worktree. Then read [harness/CONVERSATION_DECISIONS.md](harness/CONVERSATION_DECISIONS.md) for stable user priorities and superseded directions.
 3. Follow [harness/TASK_PROTOCOL.md](harness/TASK_PROTOCOL.md) to classify scope, authorization and completion conditions.
 4. Select the proof burden from [harness/VERIFICATION_MATRIX.md](harness/VERIFICATION_MATRIX.md).
 5. Use [harness/TASK_BRIEF_TEMPLATE.md](harness/TASK_BRIEF_TEMPLATE.md) for a durable task, then update goal/progress/context only where the change requires it.

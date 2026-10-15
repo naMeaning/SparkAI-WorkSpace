@@ -1,4 +1,6 @@
 .scientific-figure-dialog.ui-surface {
+  --ui-surface-min-width: 820px;
+  --ui-surface-min-height: 500px;
   --ui-surface-radius: clamp(16px, var(--glass-radius), 24px);
   width: min(1180px, calc(100vw - 44px));
   height: min(850px, calc(100vh - 34px));
@@ -173,7 +175,7 @@
 .scientific-figure-dialog :is(input, select, textarea):focus { border-color: color-mix(in srgb, var(--accent) 58%, var(--glass-line)); outline: 2px solid color-mix(in srgb, var(--accent) 15%, transparent); }
 .scientific-figure-dialog textarea { resize: vertical; }
 
-@media (max-width: 980px) {
+@container ui-resizable-dialog (max-width: 980px) {
   .scientific-workspace-grid { grid-template-columns: 1fr; }
   .scientific-status-column { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scientific-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

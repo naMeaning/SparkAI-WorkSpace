@@ -324,7 +324,13 @@
 
 .project-create-dialog {
   --ui-surface-width: 430px;
+  --ui-surface-min-width: 400px;
   height: auto;
+}
+
+.image-collection-dialog {
+  --ui-surface-min-width: 520px;
+  --ui-surface-min-height: 360px;
 }
 
 .project-create-dialog.has-workspace-domains {
@@ -543,6 +549,8 @@
 
 .layer-group-viewer {
   --ui-surface-width: 1080px;
+  --ui-surface-min-width: 680px;
+  --ui-surface-min-height: 480px;
   --ui-surface-max-height: min(86vh, 790px);
   height: min(86vh, 790px);
   min-height: min(480px, calc(100vh - 24px));
@@ -785,6 +793,8 @@
 
 .image-viewer {
   --ui-surface-width: 980px;
+  --ui-surface-min-width: 640px;
+  --ui-surface-min-height: 420px;
   --ui-surface-max-height: min(86vh, 780px);
   height: min(86vh, 780px);
   min-height: min(420px, calc(100vh - 42px));
@@ -793,11 +803,14 @@
 
 .reference-picker-dialog {
   --ui-surface-width: 400px;
+  --ui-surface-min-width: 400px;
+  --ui-surface-min-height: 360px;
   height: auto;
 }
 
 .ask-user-dialog {
   --ui-surface-width: 560px;
+  --ui-surface-min-width: 480px;
   height: auto;
   max-height: min(620px, calc(100dvh - 36px));
 }
@@ -1612,6 +1625,8 @@ body.floating-dialog-dragging * {
 }
 
 .help-center-dialog {
+  --ui-surface-min-width: 680px;
+  --ui-surface-min-height: 420px;
   width: min(920px, calc(100vw - 34px));
   height: min(720px, calc(100vh - 34px));
   grid-template-rows: auto minmax(0, 1fr) auto;

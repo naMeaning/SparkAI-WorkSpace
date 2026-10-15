@@ -219,10 +219,10 @@ assert.match(glassSurfaceSource, /\.canvas-context-menu \.ui-menu-item:not\(:dis
 assert.match(glassSurfaceSource, /\.canvas-context-menu \.ui-menu-item:disabled[\s\S]{0,220}color:\s*var\(--muted\);[\s\S]{0,80}opacity:\s*1;/, "Disabled canvas menu items must remain readable without whole-row transparency");
 assert.match(glassSurfaceSource, /\.canvas-context-menu \.ui-menu-item-danger:not\(:disabled\)[\s\S]{0,420}color:\s*var\(--danger\);/, "Danger menu actions must retain their semantic color under glass themes");
 assert.match(canvasWorkspaceSource, /\.ui-menu-item-label[\s\S]{0,180}font-size:\s*13px;/, "Canvas menu labels must remain at a readable desktop size");
-assert.match(canvasWorkspaceSource, /\.ui-menu-item-shortcut[\s\S]{0,360}font-size:\s*10px;/, "Canvas menu shortcuts must remain legible");
+assert.match(canvasWorkspaceSource, /\.ui-menu-item-shortcut[\s\S]{0,360}font-size:\s*var\(--font-xs\);/, "Canvas menu shortcuts must use the shared readable auxiliary size");
 assert.match(canvasWorkspaceSource, /\.canvas-context-menu \.ui-menu-item:disabled[\s\S]{0,120}opacity:\s*1;/, "Disabled canvas menu rows must not reduce the opacity of their text");
-assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar\s*\{[\s\S]{0,180}width:\s*max-content;/, "The bottom toolbar must size to its commands before falling back to horizontal overflow");
-assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar-actions\s*\{[\s\S]{0,120}flex:\s*0 1 auto;/, "Toolbar actions must not collapse into a scrollbar when their labels fit the canvas");
+assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar\.is-expanded\s*\{\s*width:\s*min\(860px, calc\(100% - 24px\)\);/, "Expanded canvas tools must reserve a stable width for pages");
+assert.match(canvasWorkspaceSource, /\.canvas-plugin-toolbar-actions\s*\{[^}]*overflow:\s*hidden;/, "Tool pages must not expose horizontal scrolling");
 assert.match(canvasWorkspaceSource, /\.node-port\.provenance-port\s*\{[\s\S]{0,180}top:\s*50%;[\s\S]{0,80}margin-top:\s*-8px;[\s\S]{0,80}width:\s*16px;[\s\S]{0,80}height:\s*16px;/, "Canvas connection ports must remain centered on the left and right node borders");
 assert.match(mainSource, /canvasToolShortcutMatchesEvent\(event, candidate\.shortcut\)/, "Canvas shortcut dispatch must use each active tool's resolved shortcut");
 assert.match(mainSource, /aria-keyshortcuts=\{canvasToolAriaShortcut\(item\.shortcut\)\}/, "Toolbar accessibility metadata must follow the resolved shortcut");
@@ -261,7 +261,7 @@ assert.match(settingsPersistenceSource, /Object\.assign\(next, normalizeGlassBac
 assert.doesNotMatch(settingsPersistenceSource, /glassBackground(?:DataUrl|Path)/, "Persistent settings must not own Base64 data or filesystem paths");
 assert.match(glassBackgroundSource, /while \(dataUrlCache\.size > 2\)/, "The temporary decoded background cache must stay bounded");
 assert.match(glassBackgroundSource, /const requestId = \(rootRequestIds\.get\(root\) \|\| 0\) \+ 1[\s\S]{0,900}rootRequestIds\.get\(root\) !== requestId/, "Slow background loads must not overwrite a newer setting");
-assert.match(glassBackgroundSource, /Math\.max\(requestedSurfaceAlpha, mode === "dark" \? 0\.46 : 0\.5\)/, "Custom backgrounds must retain a minimum readable glass surface alpha");
+assert.match(glassTokenSource, /--glass-readable-surface-fill:\s*color-mix\(in srgb, var\(--glass-surface-solid\) 94%, rgb\(var\(--glass-rgb\)\)\)/, "Reading surfaces must retain a stable themed paint over custom backgrounds");
 assert.match(glassBackgroundSource, /--glass-background-mask[\s\S]{0,180}rgba\(3, 7, 9,[\s\S]{0,180}rgba\(250, 252, 255,/, "Dark and light themes must use mode-aware readability masks");
 assert.match(glassBackgroundSource, /--glass-workspace-background-image", "none"/, "Disabled or failed backgrounds must clear the CSS image token");
 assert.match(glassThemeProviderSource, /void applyGlassBackgroundToRoot\(settings, target\)/, "The theme provider must project the background independently of the synchronous glass appearance");
@@ -287,7 +287,7 @@ assert.match(protectionSource, /opacity:\s*1\s*!important;/, "Rendered images mu
 assert.match(protectionSource, /filter:\s*none\s*!important;/, "Rendered images must not inherit visual filters");
 assert.match(protectionSource, /-webkit-backdrop-filter:\s*none\s*!important;/, "Rendered images must disable WebKit backdrop filtering");
 assert.match(protectionSource, /backdrop-filter:\s*none\s*!important;/, "Rendered images must disable backdrop filtering");
-assert.match(glassSurfaceSource, /\.flow-node\s*\{[\s\S]{0,900}background-color:\s*var\(--glass-surface-fill-strong\);/, "Canvas node shells must use the shared translucent Glass fill");
+assert.match(glassSurfaceSource, /\.flow-node\s*\{[\s\S]{0,900}background-color:\s*var\(--glass-node-bg\);/, "Canvas node shells must use the readable node surface without changing artwork opacity");
 assert.match(glassSurfaceSource, /\.flow-node\s*\{[\s\S]{0,900}border-radius:\s*clamp\(10px,\s*var\(--glass-radius\),\s*18px\);/, "Canvas node shells must follow the shared rounded Glass radius");
 assert.match(glassSurfaceSource, /\.flow-node\s*\{[\s\S]{0,1200}box-shadow:[\s\S]{0,260}var\(--glass-highlight\)/, "Canvas node shells must retain a readable Glass edge highlight");
 assert.match(glassSurfaceSource, /\.flow-node:is\(\.image-container, \.image-collection\)[\s\S]{0,180}--node-glass-accent:\s*var\(--accent\);/, "Image containers and image collections must retain an explicit Glass shell treatment");
