@@ -41,6 +41,7 @@ Exact script names and formal gates belong to the current `sparkai_workspace/AGE
 | --- | --- |
 | Real image/video/model request | Explicit user authorization for the request; Seedance needs distinct explicit authorization |
 | Ambiguous create/poll/download state | Do not auto-recreate; inspect state or request direction |
+| Local installation after a desktop package | Standing user authorization from 2026-10-15; verify EXE, use the branded installer's normal current-user/in-place upgrade path, preserve data/preferences, respect safe shutdown and verify the installed identity |
 | Desktop package source/context Git commit and push | Standing user authorization from 2026-10-15; update context docs, verify configured upstream and actual pushed commit, preserve unrelated work, use a normal push |
 | Binary upload, GitHub release, other network publish | User asks for that external action; use the documented local proxy only when applicable |
 | Dependency installation or toolchain modification | Required by the scoped task and within user permission; report it |

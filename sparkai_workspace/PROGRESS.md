@@ -2,13 +2,14 @@
 
 ## 当前开发状态（2026-10-15）
 
-- 最新用户请求：“每次打包都自动push到远程仓库并且更新上下文文档”；持续规则已写入根/桌面 AGENTS 与 Harness。当前包的 53 个源码/文档文件已随 `b45ca17` 推送到 `origin/main` 并实查远端一致，`completed / verified`，本条完成记录另随文档收尾提交归档，契约见 GOAL 顶部。
-- 当前现场：`main` 的既有渠道、画布与 resize 工作一并归档，源码提交后工作树干净；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；最近 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。静态核验不代替安装或包内 GUI 运行测试。
+- 最新用户请求：“你可以每次都帮我自动安装好不”；已固化打包后本机自动安装/原位升级，当前开发包已原位安装、身份/配置保留核验及已安装 EXE 的隔离启动冒烟通过，`completed / verified`，契约见 GOAL 顶部。此前源码与上下文推送收尾为 `000a560`，本次安装规则与完成记录另随对应普通提交/push 归档。
+- 当前现场：`main` 的既有渠道、画布与 resize 工作已归档，产品源码保持此前推送状态，本轮仅修改交付文档并安装已审计 EXE；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；最近 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。本机安装和隔离启动证据见本轮记录。
 
 | 最近开发内容 | 当前结果与证据 |
 | --- | --- |
+| 打包后自动安装 | 品牌 EXE `/S` 退出 0 / 25.526s，原注册目录保留，已安装 EXE/ASAR 与当前构建一致；3 个已有配置表面保留，secrets 内容未读。已安装 EXE 的隔离 Mock 启动报告 `ok:true`，工作区截图已检查，冒烟后日常配置仍不变；持续规则已同步根/桌面 AGENTS、Harness 与地图。 |
 | 打包后自动更新上下文并 push | 规则与上下文已更新，53 个源码/文档文件提交 `b45ca17` 并普通 push 成功；实际远端 main、本地 HEAD 与缓存 upstream 已核对一致。独立范围/凭据审查、Harness 10 项、75 处新增本地链接、12 个源码哈希、EXE 身份和最终暂存差异检查通过；本地 EXE 身份不变。 |
-| 最新 EXE 打包 | `package:win:unrestricted` 退出 0，production build 1681 modules / 23.76s；无限制版 1.0.9 安装 EXE 109,839,872 B。包内 121 个 dist 文件与 8 个源码 owner 一致，含分页标记，静态 [审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`；未安装/启动或发布。 |
+| 最新 EXE 打包 | `package:win:unrestricted` 退出 0，production build 1681 modules / 23.76s；无限制版 1.0.9 安装 EXE 109,839,872 B。包内 121 个 dist 文件与 8 个源码 owner 一致，含分页标记，静态 [审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`；随后实际原位安装与隔离启动通过，未上传/发布。 |
 | 功能修改交付 EXE 的持续规则 | 根/桌面 `AGENTS.md` 已要求每轮功能新增/修改/修复及 UI/交互调整在交付前生成当前源码对应的本地 Windows EXE，默认无限制版，报告真实路径/大小/SHA-256；无需逐轮再确认本地打包，正式发布仍独立授权。纯文档不触发打包；Harness 10 项、链接/命令与差异核对通过。 |
 | 画布工具栏分页 | 全部 17 工具在 1280×820 的 4 页、884×640 的 17 页可达，无裁切/横向滚动，滚轮不改页码/视口；最终 Enter/Space、悬停连续翻页/焦点、Escape、固定与安全工具入口 19 checks/5 截图通过。最终 quick GUI 6 scenes、自检/typecheck 与 build（1681 modules / 26.54s）通过；分段证据及原失败边界见下方完成记录与 [交付索引](.diagnostics/canvas-toolbar-pagination-delivery.json)。 |
 | 字体与画布可读性 | 九主题 GUI 132 checks/63 截图、最终 125% DPR 127/41、最终 150% DPR 强反差背景 127/41、最小窗口长标题/需求补充 27/12 全部通过；采样最低 4.99:1，操作条全局设备像素坐标检查通过。selftest/typecheck、最终 quick GUI 6 results、canvas clarity 5 results 及 production build（23.90s）通过，报告见下方完成记录。 |
@@ -17,19 +18,30 @@
 | 相关弹窗和抽屉可调尺寸 | 内容型弹窗通过 `DialogShell.resizable` 调整宽高；设置/账户抽屉左边缘与方向键调宽、Home 还原；内容在最小尺寸下滚动，尺寸不写入项目/设置。隔离 UI 9 个代表表面/23 截图通过，包内查看器和最终成果编辑器追加专项通过；见下方 2026-10-13 功能记录。短确认提示沿用内容尺寸。 |
 | 此前 Windows 开发包 | 2026-10-13 的 `package:win:unrestricted` 与当时 `typecheck`/`test:ui-foundation` 记录保留为历史；同名文件已由 2026-10-15 新包替换，最新状态见上方。 |
 
-最新本地 EXE（2026-10-15 开发包）：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，**109,839,872 bytes**，SHA-256 `aed98423e66d921be0bcb45d5085d8f7a475bda8ad3d3d7cb49f5033412dd3d2`。[制品审计](.diagnostics/canvas-toolbar-exe-audit.json) 为 `ok:true`：121 个 dist 文件集/逐文件哈希与当前构建匹配，8 个 Main/preload/Agent/access owner 与打包前源码哈希一致，包含本轮分页编译标记，dual-access 策略正确；ASAR/解包资源无 `.env`，ASAR 无诊断目录。包含当前字体/画布优化与工具栏分页；未执行安装或包内启动测试，未上传或发布。
+最新本地 EXE（2026-10-15 开发包）：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，**109,839,872 bytes**，SHA-256 `aed98423e66d921be0bcb45d5085d8f7a475bda8ad3d3d7cb49f5033412dd3d2`。[制品审计](.diagnostics/canvas-toolbar-exe-audit.json) 为 `ok:true`：121 个 dist 文件集/逐文件哈希与当前构建匹配，8 个 Main/preload/Agent/access owner 与打包前源码哈希一致，包含本轮分页编译标记，dual-access 策略正确；ASAR/解包资源无 `.env`，ASAR 无诊断目录。包含当前字体/画布优化与工具栏分页；已完成本机原位安装及已安装 EXE 隔离启动冒烟，证据见下方自动安装记录，未上传或发布。
 
 历史正式版本：2026-10-10 的 [v1.0.9 发布](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 冻结在 `33e3ba12aaeaf142e38865c8bd5b60a0bd7e14d6`，同次发布编排已通过；见 [正式编排报告](.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json) 和本文件 2026-10-10 记录。当前同名本地 EXE 已由后续开发打包替换，不能用它代表已发布资产；本次没有更新远端发布状态。
 
 仍需明确的验证边界：
 
 - 最新分页源码构建的 `test:bundle` 仍失败：CSS **279,001 B > 270,000 B**；唯一硬失败为 CSS，initial JS 4,100 B 和 plugin JS 86,177 B 在门槛内，无诊断标记泄漏，其他 advisory 超限保留在 [Bundle 日志](.diagnostics/canvas-toolbar-pagination-bundle.log)。此前字体任务的 CSS 278,748 B、EXE 的 CSS 277,505 B 与 `bundleEnforced:false` 各属当时记录；当前源码尚不满足正式发布门禁。
-- 100%/125%/150% DPR 是隔离 Electron 的模拟显示密度；实际多显示器切换、各设备 GPU/ClearType 与安装包内本轮优化尚未验证。强反差背景覆盖了受管 WebP、0 遮罩/0 背景模糊、最低透明度 10% 与开启纹理的代表配置，不等于穷举所有自定义组合。
+- 100%/125%/150% DPR 是隔离 Electron 的模拟显示密度；实际多显示器切换、各设备 GPU/ClearType 尚未验证。本轮已安装并隔离启动，不代表日常用户数据下的全部字体/分页/DPR 组合已复测。强反差背景覆盖了受管 WebP、0 遮罩/0 背景模糊、最低透明度 10% 与开启纹理的代表配置，不等于穷举所有自定义组合。
 - [首轮包内 resize 报告](.diagnostics/release/dialog-resize-ui-2026-10-13T04-23-25-804Z/report.json) 为 `ok:false`：5 个代表检查完成，后续查看器入口超时；其后的 [查看器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-28-05-365Z/report.json) 和 [最终编辑器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-32-32-769Z/report.json) 各 `ok:true` / 1 check / 3 截图。保留各自证据范围，未把首轮整套改写为通过。
-- 最新开发包未验证实际安装/卸载、正式发布或逐个插件业务；此前 Agent Text UI 的“放弃后恢复焦点”断言仍未修复/整套复跑。已有正式版本的安装升级证据属于其冻结制品。
+- 最新开发包已验证本机同版本原位安装、配置保留和已安装 EXE 隔离启动；卸载、完整跨版本升级矩阵、正式发布或逐个插件业务未复验；此前 Agent Text UI 的“放弃后恢复焦点”断言仍未修复/整套复跑。已有正式版本的安装升级证据属于其冻结制品。
 - 真实渠道证据仅覆盖已授权的两个目录和各一次图片请求；其他渠道、视频/Seedance及历史领域的未验证项仍需按各自记录处理，不因本快照自动追加请求。
 
-下一步：本轮规则与当前包源码同步已完成。之后每次成功打包都执行上下文更新、对应源码/文档提交、普通 push 与远端核对；正式发布门禁仍独立。
+下一步：本轮自动安装规则与当前包安装已完成。后续每次成功打包按“核验 → 自动安装 → 安装核验 → 上下文 → 提交/push”执行；正式发布门禁仍独立。
+
+## 2026-10-15 打包后自动安装 / completed, verified
+
+- 用户追加持续本机安装授权；本轮复用现有 `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，不改产品或安装器源码、不重复打包。
+- 现场：main / `000a560` 干净；检测到 HKCU 注册 1.0.9，无 SparkAI 进程。品牌安装器 `/S` 采用正常当前用户升级路径，已有安装位置优先，默认保留快捷方式偏好；不启用诊断绕过、强制降级或清除数据。
+- 根/桌面 AGENTS、决策/交付协议/授权矩阵与两层地图已同步打包→核验→自动安装→核验→上下文/Git 流程。安装前保留现场，若未保存内容/活动任务不能安全退出则待安装，不强杀。
+- [安装证据](.diagnostics/automatic-install-2026-10-15.json)：品牌 EXE `/S` 退出 0 / 25.526s；注册版本 1.0.9 和原目录保留，已安装 EXE SHA-256 与 `release/win-unpacked` 一致，ASAR SHA-256 为 `1e440f9d574e53f82246ab7485bdd118e4c72d3ed280d7f32c23cfb0ec367ea2`，与本次打包审计一致。3 个已有配置表面保留：设置/项目列表文件哈希及 mtime 不变，secrets 只核对文件大小/mtime，未读取内容。安装位置和具体基线仅保存在本地忽略诊断。
+- 独立安装器审阅发现 NSIS 会处理当前用户所有同名进程，桌面 AGENTS 已明确必须先确认全部同名安装/开发实例安全退出，不能依赖内核关闭。本次前置检查无任何同名实例，不涉及强杀。
+- 已安装程序启动：`node scripts/release/packaged-smoke.mjs --exe=<registered installed EXE>` 退出 0，[实际报告](.diagnostics/release/packaged-smoke-2026-10-15T10-44-01-798Z/report.json) `ok:true`；设置/项目/Agent 均使用本地隔离 Mock，网络检查跳过，无真实模型请求。runtime/IPC、SQLite、保存/读回/导入、局部分层与 PSD 检查通过；已查看 [实际工作区截图](.diagnostics/release/packaged-smoke-2026-10-15T10-44-01-798Z/packaged-workspace.png)，品牌/右侧 Agent/画布导航/工具栏 1/4 页可见。冒烟结束后无 SparkAI 进程，日常配置仍与安装前基线一致。
+- 规则/文档交付：本轮只改 9 个交付文档，不更改产品/安装器源码，无需重打包。根 `node scripts/verify-harness.mjs` 10 项、6 处新增本地链接、`git diff --check` 及无新增未跟踪候选核对均通过，文档未写入用户安装绝对路径；本记录随规则提交普通推送，最终 Git 结果保存在本地 `.diagnostics/automatic-install-git-sync-2026-10-15.json`，不把用户安装路径、配置基线、EXE 或诊断上传仓库。
+- 本轮验证了现有同版本开发包原位安装和隔离启动，未重新执行卸载/完整升级矩阵、日常用户数据业务、真实模型或正式发布；旧快照的“未安装/启动”由本完成记录补齐相应边界，不改写历史原始报告。
 
 ## 2026-10-15 打包后更新上下文及自动 push / completed, verified
 

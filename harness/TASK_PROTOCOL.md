@@ -8,7 +8,7 @@
 | Check why, diagnose, investigate | diagnose | Establish cause and evidence; do not silently expand into implementation |
 | Fix, implement, add, change, optimize | implement | Make the scoped change and validate the affected boundary |
 | `/goal`, maintain goal, long-running milestone | goal | Maintain goal/progress alongside implementation |
-| Build EXE/package | build | Run requested packaging and relevant smoke checks; for desktop packages update context documents, commit corresponding source/docs and push to the configured upstream under the standing authorization |
+| Build EXE/package | build | Package and verify; automatically install locally using the branded installer's in-place upgrade flow, then update context and commit/push corresponding source/docs under the standing authorization |
 | Release, publish, full acceptance | release | Follow owner release checklist and obtain required network/publishing authority |
 
 If wording contains both a question and an implementation request, honor both. If a material design choice cannot be inferred safely, stop for direction; otherwise make the smallest documented assumption that preserves user intent.
@@ -57,7 +57,7 @@ When the user changes a running goal:
 
 Use the verification matrix to choose the narrowest sufficient proof. Then perform the completion audit before saying the task is done.
 
-Desktop package handoff includes the user's standing 2026-10-15 authorization to update Goal/Progress/relevant context maps and commit/push the corresponding source and documentation. Verify the upstream and actual remote commit, preserve unrelated dirty work, and report a failed push separately from a successful package. Binary upload and formal release remain separate actions.
+Desktop package handoff includes the user's standing 2026-10-15 authorization to install the verified EXE locally, update Goal/Progress/relevant context maps, and commit/push the corresponding source and documentation. Preserve the registered installation, user data and shortcut preferences; normal shutdown must respect unsaved work and active tasks. Verify the actual installation and remote commit, preserve unrelated dirty work, and report package, installation and push outcomes separately. Binary upload and formal release remain separate actions.
 
 Final handoff contains only facts:
 
