@@ -2,12 +2,12 @@
 
 ## 当前开发状态（2026-10-15）
 
-- 最新用户请求：“每次打包都自动push到远程仓库并且更新上下文文档”；持续规则已写入根/桌面 AGENTS 与 Harness，正在补齐当前包对应源码与上下文的提交和 `origin/main` 推送，`in progress`，契约见 GOAL 顶部。
-- 当前现场：`main` 的既有渠道、画布与 resize 未提交工作保留；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；本次重新 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。静态核验不代替安装或包内 GUI 运行测试。
+- 最新用户请求：“每次打包都自动push到远程仓库并且更新上下文文档”；持续规则已写入根/桌面 AGENTS 与 Harness。当前包的 53 个源码/文档文件已随 `b45ca17` 推送到 `origin/main` 并实查远端一致，`completed / verified`，本条完成记录另随文档收尾提交归档，契约见 GOAL 顶部。
+- 当前现场：`main` 的既有渠道、画布与 resize 工作一并归档，源码提交后工作树干净；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；最近 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。静态核验不代替安装或包内 GUI 运行测试。
 
 | 最近开发内容 | 当前结果与证据 |
 | --- | --- |
-| 打包后自动更新上下文并 push | 已更新持续规则和上下文入口；推送前 HEAD/缓存 upstream/实际远端 main 均实查为 `f156b3e`。53 个候选文件范围审查、Harness 10 项、75 处新增本地链接、12 个源码哈希、EXE 身份与差异检查通过，提交与推送待执行；EXE 仍为下方已审计本地开发包。 |
+| 打包后自动更新上下文并 push | 规则与上下文已更新，53 个源码/文档文件提交 `b45ca17` 并普通 push 成功；实际远端 main、本地 HEAD 与缓存 upstream 已核对一致。独立范围/凭据审查、Harness 10 项、75 处新增本地链接、12 个源码哈希、EXE 身份和最终暂存差异检查通过；本地 EXE 身份不变。 |
 | 最新 EXE 打包 | `package:win:unrestricted` 退出 0，production build 1681 modules / 23.76s；无限制版 1.0.9 安装 EXE 109,839,872 B。包内 121 个 dist 文件与 8 个源码 owner 一致，含分页标记，静态 [审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`；未安装/启动或发布。 |
 | 功能修改交付 EXE 的持续规则 | 根/桌面 `AGENTS.md` 已要求每轮功能新增/修改/修复及 UI/交互调整在交付前生成当前源码对应的本地 Windows EXE，默认无限制版，报告真实路径/大小/SHA-256；无需逐轮再确认本地打包，正式发布仍独立授权。纯文档不触发打包；Harness 10 项、链接/命令与差异核对通过。 |
 | 画布工具栏分页 | 全部 17 工具在 1280×820 的 4 页、884×640 的 17 页可达，无裁切/横向滚动，滚轮不改页码/视口；最终 Enter/Space、悬停连续翻页/焦点、Escape、固定与安全工具入口 19 checks/5 截图通过。最终 quick GUI 6 scenes、自检/typecheck 与 build（1681 modules / 26.54s）通过；分段证据及原失败边界见下方完成记录与 [交付索引](.diagnostics/canvas-toolbar-pagination-delivery.json)。 |
@@ -29,15 +29,17 @@
 - 最新开发包未验证实际安装/卸载、正式发布或逐个插件业务；此前 Agent Text UI 的“放弃后恢复焦点”断言仍未修复/整套复跑。已有正式版本的安装升级证据属于其冻结制品。
 - 真实渠道证据仅覆盖已授权的两个目录和各一次图片请求；其他渠道、视频/Seedance及历史领域的未验证项仍需按各自记录处理，不因本快照自动追加请求。
 
-下一步：提交并推送当前包对应的源码与上下文，核对远端结果后交付。之后每次成功打包都执行上下文更新和 Git 同步；正式发布门禁仍独立。
+下一步：本轮规则与当前包源码同步已完成。之后每次成功打包都执行上下文更新、对应源码/文档提交、普通 push 与远端核对；正式发布门禁仍独立。
 
-## 2026-10-15 打包后更新上下文及自动 push / in progress
+## 2026-10-15 打包后更新上下文及自动 push / completed, verified
 
 - 用户持续授权每次打包完成后同步源码与上下文到远程仓库。本轮将刚完成 EXE 对应的渠道模型发现、画布/字体/分页、resize 与 Harness/上下文改动归档到 `origin/main`；生成的 EXE/dist/诊断与私有配置保持忽略。
 - 根/桌面 AGENTS、Harness 决策/协议/授权矩阵与两层上下文入口已更新，明确打包结果、文档和 push 状态分别记录，正式二进制上传/Release 仍独立授权。
 - 推送前只读实查：本地 HEAD、origin/main 缓存、远端 `refs/heads/main` 都是 `f156b3e5a5ac22d6a562df8f3e69ce2f0a287ac2`，upstream 为 origin/main。
-- 提交前核对：独立只读审查确认 49 个 tracked 修改与 4 个新增文件均属当前包的功能、验证脚本和上下文；2,795 行新增内容未发现实际凭据，无 Extension 修改或二进制/诊断/私有配置候选。根 `node scripts/verify-harness.mjs` 10 项通过，75 处新增本地链接、12 个包内源码哈希和 EXE 大小/SHA-256 均与当前现场一致，`git diff --check` 退出 0。范围与制品复核见 [.diagnostics/package-push-preflight-2026-10-15.json](.diagnostics/package-push-preflight-2026-10-15.json)；尚未 commit/push。
+- 提交前核对：独立只读审查确认 49 个 tracked 修改与 4 个新增文件均属当前包的功能、验证脚本和上下文；2,795 行新增内容未发现实际凭据，无 Extension 修改或二进制/诊断/私有配置候选。根 `node scripts/verify-harness.mjs` 10 项通过，75 处新增本地链接、12 个包内源码哈希和 EXE 大小/SHA-256 均与当前现场一致，`git diff --check` 退出 0。范围与制品复核见 [.diagnostics/package-push-preflight-2026-10-15.json](.diagnostics/package-push-preflight-2026-10-15.json)。
 - 暂存补充：首次 `git add` 被 2026-10-14 遗留的零字节 `.git/index.lock` 阻塞；两次确认没有 Git/SSH 进程后，将该锁移为同目录带日期备份并恢复暂存。`git diff --cached --check` 检出了原未跟踪 `canvas-interaction-toolbar.tsx` 的一个末尾空行，现已删除；TypeScript 修正前后输出逐字节相同，未改变功能或包内行为，格式证据为 `.diagnostics/package-push-formatting-2026-10-15.json`。
+- 实际提交与推送：最终 `git diff --cached --check`、无未暂存差异及 Harness 10 项均通过；提交 `b45ca17fd68539130faa5a458e0e53724e99e3bc`（`feat: improve canvas readability and desktop workflows`），53 files / 2,792 insertions / 291 deletions。`git push origin HEAD:refs/heads/main` 退出 0，远端从 `f156b3e` 前进到 `b45ca17`；随后独立 `ls-remote` 实查远端 main、本地 HEAD 和 origin/main 三者均为完整提交 `b45ca17fd68539130faa5a458e0e53724e99e3bc`，工作树干净。本完成记录随单独文档提交归档，最终分支 HEAD 与 `.diagnostics/package-push-delivery-2026-10-15.json` 保存收尾核对结果。
+- 交付边界：此次 Git 同步只包含对应源码、测试及上下文；EXE/ASAR/dist、诊断和私有配置保持忽略，未上传二进制、发布 Release/标签或调用模型。EXE 沿用上方实查制品，纯规则与完成记录不重复打包；既有正式 CSS 门禁和包内未安装/启动边界不变。
 
 ## 2026-10-15 最新源码本地 EXE 打包 / completed, verified
 
