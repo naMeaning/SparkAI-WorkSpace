@@ -7,6 +7,7 @@ import {
   normalizeImageModelBindings,
   normalizeImageFrameRatio,
   normalizeImageResolutionPreset,
+  selectedImageModelsFromSettings,
   type AgentProviderChoice,
   type AppSettings,
   type ContextStrategyId,
@@ -276,14 +277,21 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueStoredModels([next.agentModel, ...next.agentModelPool]);
   next.agentModelBindings = normalizeAgentModelBindings(source.agentModelBindings ?? next.agentModelBindings);
-  next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
+  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
+  const legacyImageModels = Array.isArray(source.imageModelPool) ? [] : selectedImageModelsFromSettings({
+    imageModel: next.imageModel,
+    imageModelBindings: next.imageModelBindings,
+    imageModelConfigs: next.imageModelConfigs
+  });
+  next.imageModelPool = uniqueStoredModels(Array.isArray(source.imageModelPool)
+    ? source.imageModelPool
+    : legacyImageModels.length ? legacyImageModels : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueStoredModels([next.imageModel, ...next.imageModelPool]);
   next.videoModelPool = uniqueStoredModels(Array.isArray(source.videoModelPool) ? source.videoModelPool : next.videoModelPool);
   if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
   if (next.videoModel) next.videoModelPool = uniqueStoredModels([next.videoModel, ...next.videoModelPool]);
-  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
-  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
   const legacyImageSize = String(source.imageSize ?? next.imageSize ?? "");
   next.imageRatio = normalizeImageFrameRatio(
     source.imageRatio,

@@ -501,12 +501,13 @@
 .project-agent-image-config {
   --ui-surface-width: 580px;
   --ui-surface-min-width: 480px;
-  --ui-surface-min-height: 360px;
+  --ui-surface-min-height: 560px;
 }
 
 .project-agent-image-config-body {
   display: grid;
   gap: 10px;
+  overflow-y: auto;
 }
 
 .project-agent-image-config-fields {
@@ -538,7 +539,21 @@
   font-size: 13px;
 }
 
+.project-agent-image-config-heading strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+}
+
+.project-agent-image-config-heading small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .project-agent-image-config .project-agent-model-options {
+  min-height: 120px;
   max-height: min(220px, 30vh);
 }
 
@@ -1110,7 +1125,7 @@
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: 5px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -1118,13 +1133,13 @@
 
 .project-agent-model-row {
   min-width: 0;
-  min-height: 34px;
+  min-height: 44px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 2px;
-  padding: 0 3px 0 0;
-  border: 1px solid transparent;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink-soft);
   font-size: 13px;
@@ -1133,23 +1148,31 @@
 .project-agent-model-row:hover,
 .project-agent-model-row:focus-within {
   border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
-  background: var(--hover-bg);
 }
 
 .project-agent-model-row.active {
   color: var(--ink);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface-raised));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface-raised));
+}
+
+.project-agent-model-row.is-default {
+  border-color: color-mix(in srgb, var(--accent-strong) 58%, var(--line));
 }
 
 .project-agent-model-option {
   min-width: 0;
-  min-height: 32px;
+  min-height: 36px;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  padding: 0 5px 0 8px;
+  gap: 8px;
+  padding: 4px 7px;
+  border-radius: 4px;
   cursor: pointer;
+}
+
+.project-agent-model-option:has(input:not(:disabled)):hover {
+  background: var(--hover-bg);
 }
 
 .project-agent-model-row.is-required .project-agent-model-option {
@@ -1157,38 +1180,83 @@
 }
 
 .project-agent-model-option input {
-  width: 15px;
-  height: 15px;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-content: center;
   margin: 0;
-  accent-color: var(--accent);
+  padding: 0;
+  border: 1.5px solid var(--ink-soft);
+  border-radius: 4px;
+  color: var(--surface-solid);
+  background: var(--control-bg);
+  cursor: inherit;
+}
+
+.project-agent-model-option input::after {
+  content: "";
+  width: 5px;
+  height: 10px;
+  margin-top: -2px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+}
+
+.project-agent-model-option input:checked {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.project-agent-model-option input:checked::after {
+  opacity: 1;
+}
+
+.project-agent-model-option input:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 3px;
 }
 
 .project-agent-model-option span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+.project-agent-model-option small {
+  color: var(--ink-soft);
+  font-size: 11px;
   white-space: nowrap;
 }
 
+.project-agent-model-row.active .project-agent-model-option small {
+  color: var(--ink);
+}
+
 .project-agent-model-default {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
+  min-width: 76px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  color: var(--muted);
-  background: transparent;
+  color: var(--ink-soft);
+  background: var(--control-bg);
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .project-agent-model-default:hover,
 .project-agent-model-default:focus-visible,
 .project-agent-model-default.is-default {
-  outline: 0;
   color: var(--accent-strong);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent-strong) 58%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--control-bg));
 }
 
 .project-agent-model-options > p,

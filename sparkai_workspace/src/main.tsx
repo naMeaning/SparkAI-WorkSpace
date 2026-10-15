@@ -6428,8 +6428,9 @@ function App() {
       ...availableImageModels,
       ...selectedComposerImageModels,
       ...settings.imageModelBindings.map((binding) => binding.model),
+      ...settings.imageModelConfigs.map((config) => config.model),
     ]),
-    [availableImageModels, selectedComposerImageModels, settings.imageModelBindings]
+    [availableImageModels, selectedComposerImageModels, settings.imageModelBindings, settings.imageModelConfigs]
   );
   const goalCanvasSummary = useMemo(() => goalCanvasTargets(canvasNodes), [canvasNodes]);
   const selectedCanvasCapabilities = useMemo(

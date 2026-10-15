@@ -7,7 +7,7 @@
 > 新会话必读：[根 AGENTS](AGENTS.md) → [桌面 AGENTS](sparkai_workspace/AGENTS.md) → [当前任务](sparkai_workspace/GOAL.md) → [当前开发状态与最新证据](sparkai_workspace/PROGRESS.md) → 本次边界的地图章节。动态软件进度、当前开发 EXE、正式门禁与未验证项集中维护在桌面 PROGRESS 顶部。
 > 2026-10-15 持续交付规则：桌面每轮功能修改生成本地 EXE；每次打包成功并核对后，通过品牌安装器自动在本机安装/原位升级，保留数据与快捷方式偏好并尊重未保存内容/活动任务；核对安装结果后更新 Goal/Progress/相关上下文地图，提交对应源码与文档并普通推送到配置的 upstream，无需逐轮重复确认。当前制品、安装与 Git 结果从 PROGRESS 恢复；二进制上传和正式 Release 仍按独立授权与门禁执行。
 
-> 最近桌面实现：渠道 `/v1/models` 自动发现、Infinite Canvas 导航/快捷操作适配、内容型弹窗与设置/账户抽屉可调尺寸均已本地交付。当前本地 1.0.9 开发包与 2026-10-10 已发布的冻结 1.0.9 是不同制品；按进度记录的哈希和证据识别。此次上下文同步没有重建或发布制品。
+> 最近桌面实现：模型目录/单模型连接详情分栏、图片显式启用池/独立默认按钮及四边四角弹窗resize已本地验收并重新生成1.0.9开发EXE，自动原位安装及已安装隔离启动通过。图片启用以显式pool为准，无pool旧数据由Main/Renderer镜像一次迁移，配置候选不反向启用；IPC/外部API/存储格式不变。当前开发包与2026-10-10已发布冻结1.0.9按PROGRESS哈希区分，正式发布门禁仍独立。
 
 > Workspace Agent Harness：根目录 `AGENTS.md` 与 `HARNESS.md` 负责意图优先级、任务路由、证据和协作协议；详细规则位于 `harness/`。它不替代本地图或两个子仓库的 `AGENTS.md`。改动 Harness 后运行 `node scripts/verify-harness.mjs`。
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, RefreshCw, Search, Star } from "lucide-react";
+import { Loader2, RefreshCw, Search, Star } from "lucide-react";
 import { computedSizeFor, frameOptionsForModel, normalizeImageFrameRatio, normalizeImageResolutionPreset, sizePresetsForModel, uniqueImageModels, IMAGE_COUNT_OPTIONS, QUALITY_OPTIONS, type AppSettings, type ImageModelConfig } from "./core";
 import { filterImagePickerModels } from "./model-ux";
 import { ActionButton, ButtonBase, DialogShell, GlassSelect, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
@@ -30,13 +30,15 @@ export default function ProjectAgentImageConfig({
   const saveRevision = useRef(0);
   const availableModels = filterImagePickerModels(uniqueImageModels([...imageModels, ...selectedImageModels]));
   const activeModels = filterImagePickerModels(uniqueImageModels(selectedImageModels));
-  const defaultModel = activeModels[0] || availableModels[0] || "";
+  const defaultModel = activeModels[0] || "";
   const capabilities = imageModelConfigs.find((config) => config.model.toLowerCase() === defaultModel.toLowerCase())?.capabilities;
   const ratio = normalizeImageFrameRatio(imageRatio);
   const resolution = normalizeImageResolutionPreset(imageResolution);
   const ratioOptions = frameOptionsForModel(resolution, defaultModel, capabilities);
   const resolutionOptions = sizePresetsForModel(ratio, defaultModel, capabilities);
-  const filteredModels = availableModels.filter((model) => model.toLowerCase().includes(query.trim().toLowerCase()));
+  const filteredModels = availableModels
+    .filter((model) => model.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((left, right) => Number(right.toLowerCase() === defaultModel.toLowerCase()) - Number(left.toLowerCase() === defaultModel.toLowerCase()));
 
   async function refreshModels() {
     setLoading(true);
@@ -63,9 +65,15 @@ export default function ProjectAgentImageConfig({
   }
 
   function toggleModel(model: string) {
+    if (locked) return;
     const selected = activeModels.some((item) => item.toLowerCase() === model.toLowerCase());
     if (selected && activeModels.length <= 1) return;
     void save(() => onModelsChange(selected ? activeModels.filter((item) => item.toLowerCase() !== model.toLowerCase()) : [...activeModels, model]));
+  }
+
+  function makeDefault(model: string) {
+    if (locked || model.toLowerCase() === defaultModel.toLowerCase()) return;
+    void save(() => onModelsChange([model, ...activeModels.filter((item) => item.toLowerCase() !== model.toLowerCase())]));
   }
 
   function changeRatio(value: string) {
@@ -95,21 +103,21 @@ export default function ProjectAgentImageConfig({
             <label><span>质量</span><GlassSelect ariaLabel="生图质量" value={imageQuality} disabled={locked} onChange={(value) => void save(() => onOutputChange(imageCount, value as AppSettings["imageQuality"]))} options={QUALITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} /></label>
           </div>
           <p className="project-agent-image-config-summary">交付尺寸 {computedSizeFor(ratio, resolution)} · 默认模型 {defaultModel || "尚未选择"}</p>
-          <div className="project-agent-image-config-heading"><strong>生图模型</strong><ActionButton type="button" variant="secondary" disabled={loading} icon={loading ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} onClick={() => void refreshModels()}>刷新列表</ActionButton></div>
+          <div className="project-agent-image-config-heading"><strong>生图模型 <small>已启用 {activeModels.length} / {availableModels.length}</small></strong><ActionButton type="button" variant="secondary" disabled={loading} icon={loading ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} onClick={() => void refreshModels()}>刷新列表</ActionButton></div>
           <label className="project-agent-model-search"><Search size={13} /><input type="search" aria-label="搜索生图模型" placeholder="搜索模型" value={query} onChange={(event) => setQuery(event.target.value.slice(0, 160))} /></label>
-          <div className="project-agent-model-options" role="listbox" aria-label="上游生图模型" aria-multiselectable="true">
+          <div className="project-agent-model-options" role="group" aria-label="上游生图模型">
             {filteredModels.map((model) => {
               const selected = activeModels.some((item) => item.toLowerCase() === model.toLowerCase());
               const isDefault = model.toLowerCase() === defaultModel.toLowerCase();
               const lastSelected = selected && activeModels.length === 1;
-              return <div key={model.toLowerCase()} className={`project-agent-model-row${selected ? " active" : ""}${lastSelected ? " is-required" : ""}`} role="option" aria-selected={selected}>
-                <label className="project-agent-model-option" title={lastSelected ? "至少保留一个生图模型" : model}><input type="checkbox" checked={selected} disabled={locked || lastSelected} onChange={() => toggleModel(model)} /><span>{model}</span>{selected ? <Check size={13} /> : null}</label>
-                <ButtonBase type="button" className={`project-agent-model-default${isDefault ? " is-default" : ""}`} disabled={locked} aria-label={isDefault ? `默认生图模型：${model}` : `设为默认生图模型：${model}`} title="设为默认生图模型" onClick={() => void save(() => onModelsChange([model, ...activeModels.filter((item) => item.toLowerCase() !== model.toLowerCase())]))}><Star size={14} fill={isDefault ? "currentColor" : "none"} /></ButtonBase>
+              return <div key={model.toLowerCase()} className={`project-agent-model-row${selected ? " active" : ""}${isDefault ? " is-default" : ""}${lastSelected ? " is-required" : ""}`}>
+                <label className="project-agent-model-option" title={lastSelected ? "至少保留一个生图模型" : model}><input type="checkbox" aria-label={`启用生图模型：${model}`} checked={selected} disabled={locked || lastSelected} onChange={() => toggleModel(model)} /><span>{model}</span><small>{selected ? "已启用" : "未启用"}</small></label>
+                <ButtonBase type="button" className={`project-agent-model-default${isDefault ? " is-default" : ""}`} disabled={locked} aria-pressed={isDefault} aria-label={isDefault ? `默认生图模型：${model}` : `设为默认生图模型：${model}`} title={isDefault ? "当前默认生图模型" : "设为默认并启用此模型"} onClick={(event) => { event.stopPropagation(); makeDefault(model); }}><Star size={14} aria-hidden="true" fill={isDefault ? "currentColor" : "none"} />{isDefault ? "默认" : "设默认"}</ButtonBase>
               </div>;
             })}
             {!filteredModels.length ? <p>没有匹配的模型</p> : null}
           </div>
-          <small>勾选可用模型，星标设为默认；至少保留一个。</small>
+          <small>勾选启用模型；星标设为默认并自动启用，默认模型置顶。至少保留一个。</small>
           {refreshError ? <p className="project-agent-model-error" role="status">刷新失败，已保留当前模型：{refreshError}</p> : null}
           <p className={saveError ? "project-agent-model-error" : "project-agent-image-config-summary"} role="status">{saveNotice}</p>
         </SurfaceBody>

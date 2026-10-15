@@ -54,6 +54,7 @@ The detailed protocol, decision ledger and verification matrix live in [HARNESS.
 
 ## Default Working Rules
 
+- When delegating to subagents, use `gpt-6.1-sol` with `max` reasoning effort, as explicitly requested by the user on 2026-10-15. Do not substitute another model or effort unless the user changes this preference.
 - A request to discuss, explain, audit or plan is read-only unless it also explicitly asks for a change.
 - A request to diagnose establishes cause and evidence; implement a fix only when asked or when the wording clearly includes it.
 - `continue` resumes the currently accepted scope after checking the live worktree and progress documents. It does not revive superseded requirements.

@@ -3556,12 +3556,18 @@ export function selectedAgentModelsFromSettings(
   ]));
 }
 
-export function selectedImageModelsFromSettings(settings: Pick<ApiSettings, "imageModel" | "imageModelPool"> & Partial<Pick<ApiSettings, "imageModelBindings" | "imageModelConfigs">>) {
+export function selectedImageModelsFromSettings(settings: Pick<ApiSettings, "imageModel"> & Partial<Pick<ApiSettings, "imageModelPool" | "imageModelBindings" | "imageModelConfigs">>) {
+  // Saved connection/capability entries are catalog candidates. Only legacy
+  // settings without an explicit pool may use them to recover a selection.
+  const modelPool = Array.isArray(settings.imageModelPool)
+    ? settings.imageModelPool
+    : [
+      ...(Array.isArray(settings.imageModelBindings) ? settings.imageModelBindings.map((binding) => binding.model) : []),
+      ...(Array.isArray(settings.imageModelConfigs) ? settings.imageModelConfigs.map((config) => config.model) : [])
+    ];
   return filterImagePickerModels(uniqueImageModels([
     settings.imageModel,
-    ...(Array.isArray(settings.imageModelPool) ? settings.imageModelPool : []),
-    ...(Array.isArray(settings.imageModelBindings) ? settings.imageModelBindings.map((binding) => binding.model) : []),
-    ...(Array.isArray(settings.imageModelConfigs) ? settings.imageModelConfigs.map((config) => config.model) : [])
+    ...modelPool
   ]));
 }
 

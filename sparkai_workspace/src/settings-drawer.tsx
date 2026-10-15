@@ -794,7 +794,11 @@ export default function SettingsDrawer({
   const selectedImageModels = selectedImageModelsFromSettings(draftSettings);
   const selectedAgentModels = selectedAgentModelsFromSettings(draftSettings);
   const selectedVideoModels = selectedVideoModelsFromSettings(draftSettings);
-  const visibleImageModels = filterImagePickerModels(imageModelsWithPreferredFallback(modelState.imageModels, draftSettings.imageModel, selectedImageModels));
+  const visibleImageModels = filterImagePickerModels(imageModelsWithPreferredFallback([
+    ...modelState.imageModels,
+    ...draftSettings.imageModelBindings.map((binding) => binding.model),
+    ...draftSettings.imageModelConfigs.map((config) => config.model)
+  ], draftSettings.imageModel, selectedImageModels));
   const visibleAgentModels = filterAgentPickerModels(modelsWithPreferred(modelState.agentModels, draftSettings.agentModel, selectedAgentModels));
   const visibleVideoModels = modelsWithPreferred(modelState.videoModels, draftSettings.videoModel, selectedVideoModels);
   const pendingMatchesLatest = Boolean(updateInfo?.pending && updateInfo.pending.version === updateInfo.latestVersion);

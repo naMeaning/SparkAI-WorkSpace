@@ -37,6 +37,7 @@ Older conversations are represented through the maintained product documents whe
 
 ## Operating Preferences From The User
 
+- Subagent work uses `gpt-6.1-sol` with `max` reasoning effort; the user's 2026-10-15 instruction excludes other models/efforts unless they change this preference.
 - Move product functionality forward quickly, but do not let shortcuts create heavy, tangled code or misleading completion claims.
 - Start from a clear goal and keep goal/progress current as priorities change; a user may steer during execution.
 - Prefer concrete UI behavior and realistic scenario evidence over static-only audits when the request concerns user experience, performance, or interaction.

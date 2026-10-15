@@ -103,6 +103,7 @@ const {
   cachedModelSettings,
   createModelAccessProfile,
   createModelCacheKey,
+  filterImagePickerModels,
   modelBindingCacheFingerprint,
   markModelAccessProfilesVerified,
   mergeModelCapabilities,
@@ -848,14 +849,21 @@ function migrateSettings(value) {
   if (!next.agentModel && next.agentModelPool.length) next.agentModel = next.agentModelPool[0];
   if (next.agentModel) next.agentModelPool = uniqueImageModels([next.agentModel, ...next.agentModelPool]);
   next.agentModelBindings = normalizeAgentModelBindings(source.agentModelBindings ?? next.agentModelBindings);
-  next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool) ? source.imageModelPool : next.imageModelPool);
+  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
+  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
+  const legacyImageModels = Array.isArray(source.imageModelPool) ? [] : filterImagePickerModels(uniqueImageModels([
+    next.imageModel,
+    ...next.imageModelBindings.map((binding) => binding.model),
+    ...next.imageModelConfigs.map((config) => config.model)
+  ]));
+  next.imageModelPool = uniqueImageModels(Array.isArray(source.imageModelPool)
+    ? source.imageModelPool
+    : legacyImageModels.length ? legacyImageModels : next.imageModelPool);
   if (!next.imageModel && next.imageModelPool.length) next.imageModel = next.imageModelPool[0];
   if (next.imageModel) next.imageModelPool = uniqueImageModels([next.imageModel, ...next.imageModelPool]);
   next.videoModelPool = uniqueImageModels(Array.isArray(source.videoModelPool) ? source.videoModelPool : next.videoModelPool);
   if (!next.videoModel && next.videoModelPool.length) next.videoModel = next.videoModelPool[0];
   if (next.videoModel) next.videoModelPool = uniqueImageModels([next.videoModel, ...next.videoModelPool]);
-  next.imageModelBindings = normalizeImageModelBindings(source.imageModelBindings ?? next.imageModelBindings);
-  next.imageModelConfigs = normalizeImageModelConfigs(source.imageModelConfigs ?? next.imageModelConfigs);
   const legacyImageDimensions = parseImageSizeValue(String(source.imageSize || next.imageSize || ""));
   const inferredLegacyRatio = (() => {
     if (!legacyImageDimensions) return defaultSettings.imageRatio;
@@ -5251,6 +5259,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     normalizeSessionRevision,
     outputBucketDirForProjectId,
     packageProject,
+    publicSettings,
     projectAssetRepository,
     projectAssetRepositoryOwner: projectAssetRepository.owner,
     projectPackageService,

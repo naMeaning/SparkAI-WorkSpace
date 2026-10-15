@@ -8,6 +8,7 @@ const cssPath = path.join(root, "src", "styles.css");
 const uiPath = path.join(root, "src", "ui.tsx");
 const uiModulePaths = [
   "dialog-shell.tsx",
+  "dialog-resize.ts",
   "primitives.tsx",
   "menu-surface.tsx",
   "glass-select.tsx",
@@ -352,8 +353,8 @@ check(
     /style\.removeProperty\("height"\)/.test(uiSource)
 );
 check(
-  "moving a non-resizable dialog does not freeze its content height",
-  /getComputedStyle\(activeDialog\)\.resize !== "none"/.test(uiSource)
+  "moving a dialog preserves shared or native resize height without freezing content-sized dialogs",
+  /activeDialog\.dataset\.uiResizable === "true" \|\| window\.getComputedStyle\(activeDialog\)\.resize !== "none"/.test(uiSource)
 );
 check(
   "floating dialogs do not write a hard-coded z-index",

@@ -8,7 +8,7 @@ function clamp(value: number, min: number, max: number) {
 
 const FLOATING_DIALOG_SELECTOR = ".image-viewer, .reference-picker-dialog:not([data-ui-surface]), .ask-user-dialog:not([data-ui-surface]), .node-editor-dialog, .region-redraw-dialog, .layer-group-viewer";
 const FLOATING_DIALOG_HANDLE_SELECTOR = ".image-viewer > header, .reference-picker-dialog > header, .ask-user-dialog > header, .node-editor-dialog > header, .region-redraw-dialog > header, .layer-group-viewer > header";
-const FLOATING_DIALOG_INTERACTIVE_SELECTOR = "button, input, textarea, select, a, [role='button']";
+const FLOATING_DIALOG_INTERACTIVE_SELECTOR = "button, input, textarea, select, a, [role='button'], [data-ui-resize-handle]";
 const FLOATING_DIALOG_MIN_SIZES = [
   { selector: ".node-editor-dialog", width: 920 },
   { selector: ".region-redraw-dialog", width: 760 },
@@ -35,7 +35,7 @@ function floatingDialogMinimumSize(dialog: HTMLElement) {
 
 function enforceFloatingDialogMinimumSize(dialog: HTMLElement) {
   const minimum = floatingDialogMinimumSize(dialog);
-  const resizable = window.getComputedStyle(dialog).resize !== "none";
+  const resizable = dialog.dataset.uiResizable === "true" || window.getComputedStyle(dialog).resize !== "none";
   if (!resizable && dialog.dataset.uiClampH === "1") {
     dialog.style.removeProperty("height");
     delete dialog.dataset.uiClampH;
@@ -207,7 +207,7 @@ export function useFloatingDialogInteractions() {
       activeDialog.style.left = `${Math.round(clampLeft(rect.left))}px`;
       activeDialog.style.top = `${Math.round(clampTop(rect.top))}px`;
       activeDialog.style.width = `${Math.round(rect.width)}px`;
-      if (window.getComputedStyle(activeDialog).resize !== "none") {
+      if (activeDialog.dataset.uiResizable === "true" || window.getComputedStyle(activeDialog).resize !== "none") {
         activeDialog.style.height = `${Math.round(rect.height)}px`;
       }
       activeDialog.style.margin = "0";

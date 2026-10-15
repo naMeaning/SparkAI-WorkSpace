@@ -2,14 +2,15 @@
 
 ## 当前开发状态（2026-10-15）
 
-- 最新用户请求：“你可以每次都帮我自动安装好不”；已固化打包后本机自动安装/原位升级，当前开发包已原位安装、身份/配置保留核验及已安装 EXE 的隔离启动冒烟通过，`completed / verified`，契约见 GOAL 顶部。此前源码与上下文推送收尾为 `000a560`，本次安装规则与完成记录另随对应普通提交/push 归档。
-- 当前现场：`main` 的既有渠道、画布与 resize 工作已归档，产品源码保持此前推送状态，本轮仅修改交付文档并安装已审计 EXE；当前字体/画布优化与响应式工具分页已进入最新 EXE。此前双尺寸遍历、最终键盘/悬停专项、quick GUI 与自检/typecheck 证据保留；最近 production build（1681 modules / 23.76s）并打包成功，包内构建与源码一致。本机安装和隔离启动证据见本轮记录。
+- 最新用户请求：优化逐模型连接/密钥布局、图片配置勾选与默认操作，窗口从四边四角均可调整；所有子代理统一 `gpt-6.1-sol` / `max`。UI、EXE、安装及已安装启动已 verified，Git同步待完成；契约见GOAL顶部。
+- 当前现场：main / `9926f7d` 之上的本轮模型配置、图片池状态与8向resize源码已完成验证及新开发包。本轮EXE、原位安装和隔离已安装启动均通过；尚待提交/普通push。此前字体/画布功能仍在本轮包中，正式发布与同版本历史制品按哈希区分。
 
 | 最近开发内容 | 当前结果与证据 |
 | --- | --- |
-| 打包后自动安装 | 品牌 EXE `/S` 退出 0 / 25.526s，原注册目录保留，已安装 EXE/ASAR 与当前构建一致；3 个已有配置表面保留，secrets 内容未读。已安装 EXE 的隔离 Mock 启动报告 `ok:true`，工作区截图已检查，冒烟后日常配置仍不变；持续规则已同步根/桌面 AGENTS、Harness 与地图。 |
-| 打包后自动更新上下文并 push | 规则与上下文已更新，53 个源码/文档文件提交 `b45ca17` 并普通 push 成功；实际远端 main、本地 HEAD 与缓存 upstream 已核对一致。独立范围/凭据审查、Harness 10 项、75 处新增本地链接、12 个源码哈希、EXE 身份和最终暂存差异检查通过；本地 EXE 身份不变。 |
-| 最新 EXE 打包 | `package:win:unrestricted` 退出 0，production build 1681 modules / 23.76s；无限制版 1.0.9 安装 EXE 109,839,872 B。包内 121 个 dist 文件与 8 个源码 owner 一致，含分页标记，静态 [审计](.diagnostics/canvas-toolbar-exe-audit.json) `ok:true`；随后实际原位安装与隔离启动通过，未上传/发布。 |
+| 模型配置布局与全方向 resize | 14场景/27截图，双尺寸/明暗、最小尺寸列表、草稿保存取消、渠道/手动模型、图片取消→设置刷新保存→reload、停用连接恢复、8向/键盘/视口全部通过。[最终UI](.diagnostics/model-connection-layout-2026-10-15T11-43-30-439Z/report.json)；相关自检/typecheck通过，Main→public→Renderer迁移155项通过。 |
+| 打包后自动安装 | 本轮品牌EXE /S退出0 /27.383s，原目录与注册1.0.9保留；EXE/ASAR匹配，3个配置表面保留，secrets内容未读。已安装EXE[隔离启动](.diagnostics/release/packaged-smoke-2026-10-15T12-14-12-464Z/report.json) ok:true，退出后日常配置仍不变；[安装证据](.diagnostics/model-ui-install-2026-10-15.json)。 |
+| 打包后自动更新上下文并 push | 本轮Goal/Progress/两层地图已同步源码owner、状态语义与实际制品；源码/文档待提交并普通push，最终核验写入本轮交付记录。生成物和私有配置仍忽略。 |
+| 最新 EXE 打包 | package:win:unrestricted退出0，production build 1682 modules /28.28s；无限制版1.0.9为 109,842,432 B，SHA-256 f492636ba7378733626cdca6c5a04482a6914ffc489f3a0d01303919c6e38636。包内122个dist文件与8个Main等源码owner精确匹配，11个UI/状态源码冻结哈希未变；[审计](.diagnostics/model-ui-exe-audit.json) ok:true，已安装/启动，未上传或发布。 |
 | 功能修改交付 EXE 的持续规则 | 根/桌面 `AGENTS.md` 已要求每轮功能新增/修改/修复及 UI/交互调整在交付前生成当前源码对应的本地 Windows EXE，默认无限制版，报告真实路径/大小/SHA-256；无需逐轮再确认本地打包，正式发布仍独立授权。纯文档不触发打包；Harness 10 项、链接/命令与差异核对通过。 |
 | 画布工具栏分页 | 全部 17 工具在 1280×820 的 4 页、884×640 的 17 页可达，无裁切/横向滚动，滚轮不改页码/视口；最终 Enter/Space、悬停连续翻页/焦点、Escape、固定与安全工具入口 19 checks/5 截图通过。最终 quick GUI 6 scenes、自检/typecheck 与 build（1681 modules / 26.54s）通过；分段证据及原失败边界见下方完成记录与 [交付索引](.diagnostics/canvas-toolbar-pagination-delivery.json)。 |
 | 字体与画布可读性 | 九主题 GUI 132 checks/63 截图、最终 125% DPR 127/41、最终 150% DPR 强反差背景 127/41、最小窗口长标题/需求补充 27/12 全部通过；采样最低 4.99:1，操作条全局设备像素坐标检查通过。selftest/typecheck、最终 quick GUI 6 results、canvas clarity 5 results 及 production build（23.90s）通过，报告见下方完成记录。 |
@@ -24,13 +25,32 @@
 
 仍需明确的验证边界：
 
-- 最新分页源码构建的 `test:bundle` 仍失败：CSS **279,001 B > 270,000 B**；唯一硬失败为 CSS，initial JS 4,100 B 和 plugin JS 86,177 B 在门槛内，无诊断标记泄漏，其他 advisory 超限保留在 [Bundle 日志](.diagnostics/canvas-toolbar-pagination-bundle.log)。此前字体任务的 CSS 278,748 B、EXE 的 CSS 277,505 B 与 `bundleEnforced:false` 各属当时记录；当前源码尚不满足正式发布门禁。
+- 最新分页源码构建的 `test:bundle` 本轮仍失败：CSS **281,539 B > 270,000 B**；唯一硬失败为CSS，initial JS 4,133 B 和plugin JS 86,177 B在门槛内，无诊断标记泄漏；其他advisory超限保留在 [Bundle日志](.diagnostics/model-ui-bundle.log)。此前字体任务的 CSS 278,748 B、EXE 的 CSS 277,505 B 与 `bundleEnforced:false` 各属当时记录；当前源码尚不满足正式发布门禁。
 - 100%/125%/150% DPR 是隔离 Electron 的模拟显示密度；实际多显示器切换、各设备 GPU/ClearType 尚未验证。本轮已安装并隔离启动，不代表日常用户数据下的全部字体/分页/DPR 组合已复测。强反差背景覆盖了受管 WebP、0 遮罩/0 背景模糊、最低透明度 10% 与开启纹理的代表配置，不等于穷举所有自定义组合。
 - [首轮包内 resize 报告](.diagnostics/release/dialog-resize-ui-2026-10-13T04-23-25-804Z/report.json) 为 `ok:false`：5 个代表检查完成，后续查看器入口超时；其后的 [查看器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-28-05-365Z/report.json) 和 [最终编辑器专项](.diagnostics/release/dialog-resize-ui-2026-10-13T04-32-32-769Z/report.json) 各 `ok:true` / 1 check / 3 截图。保留各自证据范围，未把首轮整套改写为通过。
 - 最新开发包已验证本机同版本原位安装、配置保留和已安装 EXE 隔离启动；卸载、完整跨版本升级矩阵、正式发布或逐个插件业务未复验；此前 Agent Text UI 的“放弃后恢复焦点”断言仍未修复/整套复跑。已有正式版本的安装升级证据属于其冻结制品。
 - 真实渠道证据仅覆盖已授权的两个目录和各一次图片请求；其他渠道、视频/Seedance及历史领域的未验证项仍需按各自记录处理，不因本快照自动追加请求。
 
-下一步：本轮自动安装规则与当前包安装已完成。后续每次成功打包按“核验 → 自动安装 → 安装核验 → 上下文 → 提交/push”执行；正式发布门禁仍独立。
+下一步：提交并普通push本轮源码与上下文，核对远端；本地包与安装已完成，正式发布门禁仍独立。
+
+## 2026-10-15 模型配置布局、图片勾选与全方向 resize / verified, Git sync pending
+
+- 用户两张截图分别指向逐模型连接被嵌套短滚动区挤压、图片配置的勾选/默认状态不清晰及只有右下角可以调整弹窗。范围合并为一次本地 UI 功能交付；不改模型费用或协议。
+- 已检查原组件：模型目录与逐模型多卡表单共用固定高度分区并叠加两层高度限制；DialogShell 当前依赖浏览器原生右下角 resize。先调整实际组件结构和交互 owner，再替换对应样式。
+- 用户明确指定子代理模型后，已中断之前代理并用 `gpt-6.1-sol` / `max` 重新派发共享 resize、图片选择和隔离 UI 验证；主代理统一维护文档及模型连接布局。该模型偏好同步根 AGENTS 与决策记录。
+- 中途验收发现与修正：首轮自动 UI 10/11场景通过，但最小720×460的目录只有29px；已提升模型弹窗最小高度并为渠道展开保留工作区。独立审查又复现设置刷新归一化会将带连接/能力的已取消模型并回池，范围补到 core/加载兼容 owner；Main/Renderer镜像与真实Electron155项已补齐，UI刷新→保存→reload回归仍验收中。首轮脚本还需修正背景设置遮挡和loopback元数据分类，原失败报告保留，尚不宣称最终通过。
+- 实现里程碑：模型目录和单个连接详情分栏，勾选与查看分开，主要地址/密码字段优先展示；图片勾选源只读显式 imageModel/pool，连接/能力保留为候选，取消后不再被配置重新勾回；默认按钮独立并带文字。共享 `useDialogResize` 拥有8向、捕获清理、键盘和视口夹紧，尺寸不持久化。相关自检如顶部表格，实际 UI/包/安装尚待验证。
+- 第二轮发现：图片弹窗原最小480×360同样将模型目录压为0，已将最小高度调560并保留120px模型列表/正文滚动；键盘summary与新回归由UI代理继续定位/复验。最终相关自检/typecheck和 quick GUI（6 scenes，报告 `.diagnostics/electron/aidebug-2026-10-15T11-30-23-243Z/report.json`）通过，尚待UI最终证据后冻结打包。
+- 验证计划：1280×820/884×640、明暗主题的目录/详情可达、草稿/保存/取消、独立模型密钥与全局/账号继承、目录发现和手动模型、图片选择/默认、8方向及键盘resize；之后相关自检/typecheck、最终 EXE/安装/已安装启动和 Git 同步。尚未收集本轮验证，0 真实模型请求。
+
+- 最终实现：目录与单模型详情分栏，主要地址/密码字段优先展示，接口/结果设置可折叠；模型勾选与查看详情分开，视频主体保留启用动作。共享DialogShell提供四边四角、方向键/Shift/Home和捕获清理，原生summary纳入focus trap。模型窗与图片窗最小高度560，目录分别保留可用工作区/120px列表，展开渠道或短视口可滚动正文，footer可达。
+- 真实状态修复：core的显式imageModel/pool决定启用状态；Main migrateSettings与Renderer mergeSettings只在缺池旧数据时一次迁入连接/能力模型，设置候选独立保留。小窗及图片大窗停用后均保留连接/能力，设置刷新保存/重启不反向勾回，再启用恢复原连接；不改IPC/运行时gpt-image-2优先或存储格式。
+- 最终[UI报告](.diagnostics/model-connection-layout-2026-10-15T11-43-30-439Z/report.json) ok:true：14场景、27截图，light/dark classic的1280×820/884×640布局、最小尺寸目录可用、8方向真实拖拽与min/max/viewport、SE键盘/Home、Tab/Enter折叠表单与roving、草稿Key/URL/Token/adapter切换及保存/取消、停用再启用恢复、图片默认/Space/最后一项保护、刷新保存reload均通过。已查看最终最小模型窗与暗色图片窗截图；只访问1次loopback目录+1次元数据，0真实模型请求。
+- 前两轮失败报告保持原样：11:30首轮最小目录29px及fixture分类/遮挡，11:38新增检查抓到图片最小目录0px、CDP原生summary Enter帧缺keypress；已修最小布局与测试Enter输入，11:42键盘专项与11:43最终整套真实复验通过，未把早期失败改成通过。
+- 专项：typecheck、settings persistence155项（真实隔离Electron Main→public DTO→Renderer，显式池roundtrip/旧数据迁移/Key脱敏）、model UX、settings lazy73、UI foundation、workspace glass164、Agent binding4与quick GUI6 scenes通过。[检查索引](.diagnostics/model-ui-checks.json)。独立审查发现的池反弹、Main迁移镜像和视频主体问题已修；最后预提交审查代理服务503中断，由主代理接手源码/差异/凭据范围核对。
+- [打包结果](.diagnostics/model-ui-exe-package-result.json)：默认unrestricted退出0 /180.234s，build1682 modules /28.28s，bundleEnforced:false；[日志](.diagnostics/model-ui-exe-package.log)。本轮[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,842,432 B / SHA-256 f492636ba7378733626cdca6c5a04482a6914ffc489f3a0d01303919c6e38636；ASAR SHA-256 b0857b46f4e46c92c3f232f2edbd7c1f43ad58c55c2234486c8ba11eb7e2dd7b。[审计](.diagnostics/model-ui-exe-audit.json) ok:true，19源码指纹冻结、122 dist集合和逐文件匹配、8打包owner匹配、功能编译标记/dual-access策略/无.env或诊断成立。
+- [安装](.diagnostics/model-ui-install-2026-10-15.json)：安装前无任何同名应用进程，正常品牌/S退出0 /27.383s，沿用注册目录/1.0.9，EXE与ASAR匹配，3个既有配置表面保留；secrets只stat不读。已安装程序[隔离Mock冒烟](.diagnostics/release/packaged-smoke-2026-10-15T12-14-12-464Z/report.json)退出0 /ok:true，runtime/IPC/SQLite/保存读回/导入/局部分层/PSD通过、网络跳过，工作区截图已查看，结束后日常配置仍与安装前一致。用户安装绝对目录只保留在本地忽略报告。
+- 交付边界：本轮本地开发包，不上传EXE/Release/tag，不发送真实模型请求；本轮Bundle唯一硬失败CSS281,539 B >270,000 B，保持原开发包例外，不宣称正式发布门禁通过。未复验卸载/完整跨版本升级/全部插件或用户日常真实服务。Git源码/文档提交与普通push待下一步核对。
 
 ## 2026-10-15 打包后自动安装 / completed, verified
 

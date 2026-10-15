@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
-import { Check, Plus, RefreshCw, Search } from "lucide-react";
+import { ChevronRight, Plus, RefreshCw, Search } from "lucide-react";
 
 import {
   accountApiTokenExpired,
   accountApiTokenUsable,
   agentModelBindingFor,
-  imageModelBindingFor,
   imageModelCapability,
   modelConnectionBindingFor,
   normalizeAgentModelBindings,
@@ -194,6 +193,7 @@ export default function ModelConfigDialog({
   const currentModel = kind === "agent" ? settings.agentModel : kind === "video" ? settings.videoModel : settings.imageModel;
   const storedBindings = kind === "agent" ? settings.agentModelBindings : kind === "image" ? settings.imageModelBindings : [];
   const [draftModels, setDraftModels] = useState<string[]>(() => uniqueModels(selectedModels));
+  const [activeModel, setActiveModel] = useState(() => currentModel || selectedModels[0] || models[0] || "");
   const [draftBindings, setDraftBindings] = useState(() => normalizeModelConnectionBindings(storedBindings));
   const [draftImageConfigs, setDraftImageConfigs] = useState(() => normalizeImageModelConfigs(settings.imageModelConfigs));
   const [query, setQuery] = useState("");
@@ -220,7 +220,11 @@ export default function ModelConfigDialog({
   const [modelListViewportHeight, setModelListViewportHeight] = useState(360);
   const draftSet = new Set(draftModels.map((model) => model.toLowerCase()));
   const serverModelSet = new Set([...models, ...channelModels].map((model) => model.toLowerCase()));
-  const allPickerModels = uniqueModels([...models, ...draftModels, ...channelModels]);
+  const allPickerModels = uniqueModels([
+    ...models, ...draftModels, ...draftBindings.map((binding) => binding.model),
+    ...(kind === "image" ? draftImageConfigs.map((config) => config.model) : []), ...channelModels
+  ]);
+  const detailModel = allPickerModels.find((model) => model.toLowerCase() === activeModel.toLowerCase()) || allPickerModels[0] || "";
   const availableModels = (kind === "image"
     ? filterImagePickerModels
     : kind === "agent"
@@ -307,31 +311,14 @@ export default function ModelConfigDialog({
     const channelMatch = channelConnection?.models.some((item) => item.toLowerCase() === clean.toLowerCase())
       ? channelConnection
       : null;
-    const currentBinding = modelConnectionBindingFor(draftBindings, clean);
-    const bindingAlreadyUsesChannel = Boolean(channelMatch &&
-      currentBinding?.customBaseUrl === channelMatch.baseUrl &&
-      currentBinding?.customApiKey === channelMatch.apiKey);
-    if (selected && channelMatch && !bindingAlreadyUsesChannel) {
-      setDraftBindings((current) => normalizeModelConnectionBindings([
-        ...current.filter((binding) => binding.model.toLowerCase() !== clean.toLowerCase()),
-        {
-          ...(modelConnectionBindingFor(current, clean) ?? { model: clean }),
-          model: clean,
-          customBaseUrl: channelMatch.baseUrl,
-          customApiKey: channelMatch.apiKey,
-          ...(channelMatch.sourceId ? { channelId: channelMatch.sourceId } : {}),
-          ...(channelMatch.sourceLabel ? { channelLabel: channelMatch.sourceLabel } : {})
-        }
-      ]));
-      return;
-    }
     setDraftModels((current) => selected
       ? current.filter((item) => item.toLowerCase() !== clean.toLowerCase())
       : uniqueModels([...current, clean]));
     // Selecting a model returned by this channel is the explicit user action
     // that assigns its transient connection to the draft. Existing bindings
     // remain untouched until that action happens.
-    if (channelMatch) {
+    if (!selected) setActiveModel(clean);
+    if (!selected && channelMatch) {
       setDraftBindings((current) => {
         const existing = modelConnectionBindingFor(current, clean) ?? { model: clean };
         return normalizeModelConnectionBindings([
@@ -377,6 +364,7 @@ export default function ModelConfigDialog({
     const clean = String(customModel || "").trim();
     if (!clean) return;
     setDraftModels((current) => uniqueModels([...current, clean]));
+    setActiveModel(clean);
     setCustomModel("");
     setQuery("");
   }
@@ -432,27 +420,173 @@ export default function ModelConfigDialog({
       : "自定义模型";
     const canTab = index === tabStopIndex || (!virtualTabStopVisible && index === virtualStartIndex);
     return (
-      <ButtonBase
+      <div
         key={`${kind}-${model}`}
-        className={`ui-choice-row model-picker-option ${selected ? "selected" : ""} ${primary ? "current" : ""}`}
+        className={`model-picker-option ${selected ? "selected" : ""} ${detailModel === model ? "is-active" : ""}`}
         style={virtualized ? { position: "absolute", top: index * MODEL_OPTION_HEIGHT + 2, left: 0, right: 0, height: MODEL_OPTION_HEIGHT - 4 } : undefined}
-        type="button"
-        role="option"
-        data-ui-choice-layout="list"
-        data-model-index={index}
-        aria-selected={selected}
-        tabIndex={canTab ? 0 : -1}
-        onKeyDown={(event) => handleOptionKeyDown(event, index)}
-        onClick={() => toggle(model)}
-        title={access?.title || (kind === "image" ? imageModelCapability(model).label : model)}
+        role="listitem"
       >
-        <span className="model-picker-checkbox" aria-hidden="true">{selected ? <Check size={14} /> : null}</span>
-        <span className="model-picker-option-copy">
-          <strong>{model}</strong>
-          <small>{typeLabel}{access ? ` · ${access.label}` : ""}{sourceLabel ? ` · ${sourceLabel}` : ""}</small>
-        </span>
-        {primary ? <em>当前</em> : selected ? <em>已选</em> : null}
-      </ButtonBase>
+        <Field className="model-picker-checkbox-hit" label={`启用 ${model}`}>
+          <input type="checkbox" checked={selected} aria-label={`启用 ${model}`} onChange={() => toggle(model)} />
+        </Field>
+        <ButtonBase
+          className="model-picker-option-open"
+          type="button"
+          data-model-index={index}
+          aria-label={kind === "video" ? `${selected ? "停用" : "启用"} ${model}` : `查看 ${model} 连接`}
+          aria-pressed={kind === "video" ? selected : detailModel === model}
+          tabIndex={canTab ? 0 : -1}
+          onKeyDown={(event) => handleOptionKeyDown(event, index)}
+          onClick={() => kind === "video" ? toggle(model) : setActiveModel(model)}
+          title={access?.title || model}
+        >
+          <span className="model-picker-option-copy">
+            <strong>{model}</strong>
+            <small>{typeLabel}{sourceLabel ? ` · ${sourceLabel}` : ""}{access ? ` · ${access.label}` : ""}</small>
+          </span>
+          {primary ? <em>当前</em> : null}
+          {kind !== "video" ? <ChevronRight size={14} aria-hidden="true" /> : null}
+        </ButtonBase>
+      </div>
+    );
+  }
+
+  function renderBindingDetails(model: string) {
+    const binding = modelConnectionBindingFor(draftBindings, model);
+    const imageConfig = kind === "image" ? imageConfigFor(model) : null;
+    const providerLabel = kind === "agent" ? "对话" : "图片";
+    const globalBaseUrl = kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl;
+    const globalApiKey = kind === "agent" ? settings.agentApiKey : settings.imageApiKey;
+    const accountMode = settings.accessMode === "account";
+    const boundTokenId = binding?.accountTokenId || "";
+    const boundTokenLoaded = accountTokens.some((token) => token.id === boundTokenId);
+    const globalTokenLabel = settings.selectedAccountTokenName
+      ? `${settings.selectedAccountTokenName}${settings.selectedAccountTokenGroup ? ` · ${settings.selectedAccountTokenGroup}` : ""}`
+      : settings.selectedAccountTokenId
+        ? `密钥 #${settings.selectedAccountTokenId}`
+        : "尚未选择";
+    return (
+      <section className="model-picker-binding-card" aria-label={model + " 连接配置"}>
+        <div className="model-picker-binding-status">
+          <span>{binding?.customBaseUrl || binding?.customApiKey || binding?.accountTokenId ? "使用独立连接" : "继承全局连接"}</span>
+          {binding?.channelLabel ? <small className="model-picker-binding-source">来源：{binding.channelLabel}</small> : null}
+        </div>
+        <div className="model-picker-binding-fields">
+          {appAccessPolicy.customApiAccess ? (
+            <Field label="Base URL" hint={accountMode ? "留空时使用账号地址；填写后仅此模型使用该地址。" : `留空时使用全局${providerLabel} Base URL。`}>
+              <input
+                type="url"
+                aria-label={`${model} Base URL`}
+                value={binding?.customBaseUrl || ""}
+                maxLength={2_048}
+                autoComplete="url"
+                placeholder={globalBaseUrl || `使用全局${providerLabel} Base URL`}
+                onChange={(event) => updateBinding(model, "customBaseUrl", event.target.value)}
+              />
+            </Field>
+          ) : null}
+          <Field
+            label={accountMode ? "自定义 API Key（可选）" : "API Key"}
+            hint={accountMode
+              ? `填写后仅此模型优先使用该 Key；留空时使用账户密钥（${globalTokenLabel}）。`
+              : `留空时使用全局${providerLabel} API Key。`}
+          >
+            <input
+              type="password"
+              aria-label={`${model} API Key`}
+              value={binding?.customApiKey || ""}
+              maxLength={8_192}
+              autoComplete="off"
+              placeholder={accountMode
+                ? "留空时使用账户密钥"
+                : globalApiKey ? `使用全局${providerLabel} API Key` : `全局${providerLabel} API Key 尚未设置`}
+              onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
+            />
+          </Field>
+          {accountMode ? (
+            <Field label="账户密钥" hint={`自定义 API Key 留空时回退到这里，再回退到全局密钥（${globalTokenLabel}）。`}>
+              <GlassSelect
+                value={boundTokenId}
+                ariaLabel={`${model} 账户密钥`}
+                onChange={(value) => updateBinding(model, "accountTokenId", value)}
+                options={[
+                  { value: "", label: "使用全局选中密钥" },
+                  ...(boundTokenId && !boundTokenLoaded
+                    ? [{ value: boundTokenId, label: `密钥 #${boundTokenId} · 元数据未加载` }]
+                    : []),
+                  ...accountTokens.map((token) => ({
+                    value: token.id,
+                    label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : accountApiTokenExpired(token) ? " · 已过期" : ""}`,
+                    disabled: !accountApiTokenUsable(token)
+                  }))
+                ]}
+              />
+            </Field>
+          ) : null}
+        </div>
+        {imageConfig ? (
+          <details className="model-picker-advanced" key={model}>
+            <summary>接口与结果设置</summary>
+            <div className="model-picker-binding-fields">
+              <Field label="接口格式" hint="以渠道支持的接口为准，独立于模型名称。">
+                <GlassSelect
+                  value={binding?.protocol || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.protocol || "auto"}
+                  ariaLabel={`${model} 接口格式`}
+                  onChange={(value) => updateBinding(model, "protocol", value)}
+                  options={[
+                    { value: "auto", label: "自动（沿用默认）" },
+                    { value: "openai-images", label: "OpenAI Compatible" },
+                    { value: "xai-images", label: "xAI / Grok 原生" },
+                    { value: "gemini-native", label: "Google Gemini 原生" }
+                  ]}
+                />
+              </Field>
+              <Field label="服务渠道" hint="渠道与接口格式分别设置，Base URL 和密钥沿用下方配置。">
+                <GlassSelect
+                  value={binding?.gateway || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.gateway || "auto"}
+                  ariaLabel={`${model} 服务渠道`}
+                  onChange={(value) => updateBinding(model, "gateway", value)}
+                  options={[
+                    { value: "auto", label: "自动（沿用当前连接）" },
+                    { value: "direct", label: "官方 / 其他中转站" },
+                    { value: "newapi", label: "NewAPI" },
+                    { value: "sub2api", label: "Sub2API" }
+                  ]}
+                />
+              </Field>
+              <Field label="结果获取" hint="同步直接返回图片；异步创建任务后查询结果，适用于支持该流程的渠道。">
+                <GlassSelect
+                  value={binding?.transportMode || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.transportMode || "auto"}
+                  ariaLabel={`${model} 结果获取`}
+                  onChange={(value) => updateBinding(model, "transportMode", value)}
+                  options={[
+                    { value: "auto", label: "自动（沿用渠道默认）" },
+                    { value: "sync", label: "同步返回" },
+                    { value: "async", label: "异步任务" }
+                  ]}
+                />
+              </Field>
+            </div>
+          </details>
+        ) : null}
+        {channelConnection?.models.some((item) => item.toLowerCase() === model.toLowerCase()) ? (
+          <ActionButton variant="secondary" onClick={() => setDraftBindings((current) => normalizeModelConnectionBindings([
+            ...current.filter((item) => item.model.toLowerCase() !== model.toLowerCase()),
+            {
+              ...(modelConnectionBindingFor(current, model) ?? { model }),
+              customBaseUrl: channelConnection.baseUrl,
+              customApiKey: channelConnection.apiKey,
+              ...(channelConnection.sourceId ? { channelId: channelConnection.sourceId } : {}),
+              ...(channelConnection.sourceLabel ? { channelLabel: channelConnection.sourceLabel } : {})
+            }
+          ]))}>应用读取的渠道</ActionButton>
+        ) : null}
+        <small className="model-picker-connection-hint">{settings.accessMode === "custom"
+          ? "留空即可继承全局连接。此处修改只对当前模型生效，密钥由系统安全存储加密。"
+          : appAccessPolicy.customApiAccess
+            ? "无限制版账号登录也支持逐模型 Base URL 与 API Key；自定义 Key 优先，其次账户密钥，再回退全局密钥。"
+            : "可为此模型选择账户密钥或填写专用 API Key。"}</small>
+      </section>
     );
   }
 
@@ -473,12 +607,8 @@ export default function ModelConfigDialog({
         return normalizeVideoModelPoolSelection({ ...current, videoModel, videoModelPool: nextPool }, normalizedAvailableModels);
       }
       const imageModel = nextPool.some((model) => model.toLowerCase() === current.imageModel.toLowerCase()) ? current.imageModel : nextPool[0];
-      const imageModelBindings = normalizeImageModelBindings(nextPool.map((model) =>
-        imageModelBindingFor({ imageModelBindings: draftBindings }, model) ?? { model }
-      ));
-      const imageModelConfigs = normalizeImageModelConfigs(draftImageConfigs.filter((config) =>
-        nextPool.some((model) => model.toLowerCase() === config.model.toLowerCase())
-      ));
+      const imageModelBindings = normalizeImageModelBindings(draftBindings);
+      const imageModelConfigs = normalizeImageModelConfigs(draftImageConfigs);
       return normalizeImageModelPoolSelection({ ...current, imageModel, imageModelPool: nextPool, imageModelBindings, imageModelConfigs }, normalizedAvailableModels);
     });
     setClosePromptOpen(false);
@@ -569,65 +699,13 @@ export default function ModelConfigDialog({
             closeClassName="model-picker-close"
           />
           <SurfaceBody className={`model-picker-body ${discoverModels && kind !== "video" ? "has-channel-discovery" : ""}`}>
-            <div className="model-picker-toolbar">
-              <SearchField
-                className="model-picker-search"
-                label="搜索模型"
-                icon={<Search size={15} />}
-                inputProps={{
-                  value: query,
-                  onChange: (event) => setQuery(event.target.value),
-                  onKeyDown: (event) => {
-                    if (event.key !== "ArrowDown" || !filteredModels.length) return;
-                    event.preventDefault();
-                    focusModelAt(tabStopIndex >= 0 ? tabStopIndex : 0);
-                  },
-                  placeholder: "搜索完整模型名称",
-                  autoFocus: true,
-                }}
-              />
-              <div className="model-picker-count" aria-live="polite">
-                <strong>{draftModels.length}</strong>
-                <span>个已选 · 共 {pickerModels.length} 个</span>
-              </div>
-              {refreshModels ? (
-                <ActionButton
-                  type="button"
-                  variant="secondary"
-                  busy={refreshing}
-                  disabled={refreshing}
-                  icon={<RefreshCw size={14} />}
-                  onClick={() => void requestModelRefresh(true)}
-                >
-                  获取模型
-                </ActionButton>
-              ) : null}
-              <div className="model-picker-bulk-actions">
-                <span aria-live="polite">当前结果已选 {visibleSelectedCount} / {filteredModels.length}</span>
-                <ActionButton
-                  type="button"
-                  variant="secondary"
-                  disabled={!filteredModels.length || visibleSelectedCount === filteredModels.length}
-                  onClick={() => setVisibleSelection(true)}
-                >
-                  全选当前结果
-                </ActionButton>
-                <ActionButton
-                  type="button"
-                  variant="secondary"
-                  disabled={!visibleSelectedCount}
-                  onClick={() => setVisibleSelection(false)}
-                >
-                  清除当前结果
-                </ActionButton>
-              </div>
-            </div>
             {discoverModels && kind !== "video" ? (
-              <div className="model-picker-channel-discovery">
-                <div className="model-picker-channel-heading">
+              <details className="model-picker-channel-discovery">
+                <summary className="model-picker-channel-heading">
                   <strong>从渠道读取模型</strong>
                   <span>兼容 NewAPI、Sub2API 和 OpenAI Compatible</span>
-                </div>
+                </summary>
+                <div className="model-picker-channel-content">
                 {channelModels.length ? (
                   <Field className="model-picker-channel-all" label="显示渠道返回的全部模型（当前按用途筛选）">
                     <input
@@ -683,173 +761,117 @@ export default function ModelConfigDialog({
                   {channelConnection ? ` 已读取 ${channelConnection.sourceLabel || "自定义渠道"} · ${channelModels.length} 个模型${formatChannelCache(channelConnection.cacheSource, channelConnection.cacheAgeMs) ? ` · ${formatChannelCache(channelConnection.cacheSource, channelConnection.cacheAgeMs)}` : ""}。` : ""}
                 </small>
                 {channelError ? <small className="model-picker-channel-error" role="alert">{channelError}</small> : null}
-              </div>
-            ) : null}
-            <div className="model-picker-custom">
-              <label htmlFor={`custom-${kind}-model`}>手动补充模型（可选）</label>
-              <div>
-                <input
-                  id={`custom-${kind}-model`}
-                  value={customModel}
-                  onChange={(event) => setCustomModel(event.target.value.slice(0, 180))}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
-                    event.preventDefault();
-                    addCustomModel();
-                  }}
-                  placeholder={kind === "agent" ? "例如 gpt-5.6-custom" : kind === "video" ? "例如 doubao-seedance-2-0-260128" : "例如 gpt-image-custom"}
-                  autoComplete="off"
-                />
-                <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
-              </div>
-              <small>已配置的 NewAPI、Sub2API 或 OpenAI Compatible 渠道会自动读取 `/v1/models` 并列出模型；这里只用于渠道暂未返回时手动补充，添加后会自动选中并随设置保存。</small>
-              {kind !== "video" ? (
-                <>
-                  <span className="model-picker-binding-title">逐模型连接</span>
-                  <div className="model-picker-binding-list">
-                    {draftModels.map((model) => {
-                      const binding = modelConnectionBindingFor(draftBindings, model);
-                      const imageConfig = kind === "image" ? imageConfigFor(model) : null;
-                      const providerLabel = kind === "agent" ? "对话" : "图片";
-                      const globalBaseUrl = kind === "agent" ? settings.agentBaseUrl : settings.imageBaseUrl;
-                      const globalApiKey = kind === "agent" ? settings.agentApiKey : settings.imageApiKey;
-                      const accountMode = settings.accessMode === "account";
-                      const boundTokenId = binding?.accountTokenId || "";
-                      const boundTokenLoaded = accountTokens.some((token) => token.id === boundTokenId);
-                      const globalTokenLabel = settings.selectedAccountTokenName
-                        ? `${settings.selectedAccountTokenName}${settings.selectedAccountTokenGroup ? ` · ${settings.selectedAccountTokenGroup}` : ""}`
-                        : settings.selectedAccountTokenId
-                          ? `密钥 #${settings.selectedAccountTokenId}`
-                          : "尚未选择";
-                      return (
-                        <section key={`binding-${model}`} className="model-picker-binding-card">
-                          <strong title={model}>{model}</strong>
-                          {binding?.channelLabel ? <small className="model-picker-binding-source">来源：{binding.channelLabel}</small> : null}
-                          {imageConfig ? (
-                            <div className="model-picker-auto-adapter-note" role="status">
-                              <strong>图片服务连接</strong>
-                              <span>按当前渠道选择接口格式；同一模型可以通过官方服务或不同中转站调用。自动选项沿用默认适配。</span>
-                            </div>
-                          ) : null}
-                          <div className="model-picker-binding-fields">
-                            {imageConfig ? (
-                              <>
-                                <Field label="接口格式" hint="以渠道支持的接口为准，独立于模型名称。">
-                                  <GlassSelect
-                                    value={binding?.protocol || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.protocol || "auto"}
-                                    ariaLabel={`${model} 接口格式`}
-                                    onChange={(value) => updateBinding(model, "protocol", value)}
-                                    options={[
-                                      { value: "auto", label: "自动（沿用默认）" },
-                                      { value: "openai-images", label: "OpenAI Compatible" },
-                                      { value: "xai-images", label: "xAI / Grok 原生" },
-                                      { value: "gemini-native", label: "Google Gemini 原生" }
-                                    ]}
-                                  />
-                                </Field>
-                                <Field label="服务渠道" hint="渠道与接口格式分别设置，Base URL 和密钥沿用下方配置。">
-                                  <GlassSelect
-                                    value={binding?.gateway || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.gateway || "auto"}
-                                    ariaLabel={`${model} 服务渠道`}
-                                    onChange={(value) => updateBinding(model, "gateway", value)}
-                                    options={[
-                                      { value: "auto", label: "自动（沿用当前连接）" },
-                                      { value: "direct", label: "官方 / 其他中转站" },
-                                      { value: "newapi", label: "NewAPI" },
-                                      { value: "sub2api", label: "Sub2API" }
-                                    ]}
-                                  />
-                                </Field>
-                                <Field label="结果获取" hint="同步直接返回图片；异步创建任务后查询结果，适用于支持该流程的渠道。">
-                                  <GlassSelect
-                                    value={binding?.transportMode || draftImageConfigs.find((config) => config.model.toLowerCase() === model.toLowerCase())?.transportMode || "auto"}
-                                    ariaLabel={`${model} 结果获取`}
-                                    onChange={(value) => updateBinding(model, "transportMode", value)}
-                                    options={[
-                                      { value: "auto", label: "自动（沿用渠道默认）" },
-                                      { value: "sync", label: "同步返回" },
-                                      { value: "async", label: "异步任务" }
-                                    ]}
-                                  />
-                                </Field>
-                              </>
-                            ) : null}
-                            {appAccessPolicy.customApiAccess ? (
-                              <Field label="Base URL" hint={accountMode ? "留空时使用账号地址；填写后仅此模型使用该地址。" : `留空时使用全局${providerLabel} Base URL。`}>
-                                <input
-                                  type="url"
-                                  value={binding?.customBaseUrl || ""}
-                                  maxLength={2_048}
-                                  autoComplete="url"
-                                  placeholder={globalBaseUrl || `使用全局${providerLabel} Base URL`}
-                                  onChange={(event) => updateBinding(model, "customBaseUrl", event.target.value)}
-                                />
-                              </Field>
-                            ) : null}
-                            <Field
-                              label={accountMode ? "自定义 API Key（可选）" : "API Key"}
-                              hint={accountMode
-                                ? `填写后仅此模型优先使用该 Key；留空时使用账户密钥（${globalTokenLabel}）。`
-                                : `留空时使用全局${providerLabel} API Key。`}
-                            >
-                              <input
-                                type="password"
-                                value={binding?.customApiKey || ""}
-                                maxLength={8_192}
-                                autoComplete="off"
-                                placeholder={accountMode
-                                  ? "留空时使用账户密钥"
-                                  : globalApiKey ? `使用全局${providerLabel} API Key` : `全局${providerLabel} API Key 尚未设置`}
-                                onChange={(event) => updateBinding(model, "customApiKey", event.target.value)}
-                              />
-                            </Field>
-                            {accountMode ? (
-                              <Field label="账户密钥" hint={`自定义 API Key 留空时回退到这里，再回退到全局密钥（${globalTokenLabel}）。`}>
-                                <GlassSelect
-                                  value={boundTokenId}
-                                  ariaLabel={`${model} 账户密钥`}
-                                  onChange={(value) => updateBinding(model, "accountTokenId", value)}
-                                  options={[
-                                    { value: "", label: "使用全局选中密钥" },
-                                    ...(boundTokenId && !boundTokenLoaded
-                                      ? [{ value: boundTokenId, label: `密钥 #${boundTokenId} · 元数据未加载` }]
-                                      : []),
-                                    ...accountTokens.map((token) => ({
-                                      value: token.id,
-                                      label: `${token.name} · ${token.group || "default"}${token.status !== 1 ? " · 已停用" : accountApiTokenExpired(token) ? " · 已过期" : ""}`,
-                                      disabled: !accountApiTokenUsable(token)
-                                    }))
-                                  ]}
-                                />
-                              </Field>
-                            ) : null}
-                          </div>
-                        </section>
-                      );
-                    })}
-                  </div>
-                  <small>{settings.accessMode === "custom"
-                    ? `每个${kind === "agent" ? "对话" : "图片"}模型可覆盖全局 Base URL 与 API Key；API Key 仍由操作系统安全存储加密。`
-                    : appAccessPolicy.customApiAccess
-                      ? "无限制版账号登录也支持逐模型 Base URL 与 API Key；填写自定义连接后优先使用该模型配置。"
-                      : "此版本固定使用官方账号服务；可为模型选择账户密钥或填写逐模型 API Key。"}</small>
-                </>
-              ) : null}
-            </div>
-            <div
-              ref={modelListRef}
-              className={`model-picker-list ${virtualized ? "is-virtualized" : ""}`}
-              role="listbox"
-              aria-multiselectable="true"
-              onScroll={(event) => setModelListScrollTop(event.currentTarget.scrollTop)}
-            >
-              {filteredModels.length ? virtualized ? (
-                <div className="model-picker-virtual-spacer" style={{ height: filteredModels.length * MODEL_OPTION_HEIGHT }}>
-                  {filteredModels.slice(virtualStartIndex, virtualEndIndex).map((model, offset) => renderModelOption(model, virtualStartIndex + offset))}
                 </div>
-              ) : filteredModels.map((model, index) => renderModelOption(model, index)) : (
-                <div className="model-picker-empty">{availableModels.length ? "没有匹配的模型。" : "暂无可用模型，可在上方填写自定义模型名称。"}</div>
-              )}
+              </details>
+            ) : null}
+            <div className={kind === "video" ? "model-picker-workbench catalog-only" : "model-picker-workbench"}>
+              <section className="model-picker-catalog" aria-label="模型目录">
+                <div className="model-picker-toolbar">
+                  <SearchField
+                    className="model-picker-search"
+                    label="搜索模型"
+                    icon={<Search size={15} />}
+                    inputProps={{
+                      value: query,
+                      onChange: (event) => setQuery(event.target.value),
+                      onKeyDown: (event) => {
+                        if (event.key !== "ArrowDown" || !filteredModels.length) return;
+                        event.preventDefault();
+                        focusModelAt(tabStopIndex >= 0 ? tabStopIndex : 0);
+                      },
+                      placeholder: "搜索完整模型名称",
+                      autoFocus: true,
+                    }}
+                  />
+                  <div className="model-picker-count" aria-live="polite">
+                    <strong>{draftModels.length}</strong>
+                    <span>个已选 · 共 {pickerModels.length} 个</span>
+                  </div>
+                  {refreshModels ? (
+                    <ActionButton
+                      type="button"
+                      variant="secondary"
+                      busy={refreshing}
+                      disabled={refreshing}
+                      icon={<RefreshCw size={14} />}
+                      onClick={() => void requestModelRefresh(true)}
+                    >
+                      获取模型
+                    </ActionButton>
+                  ) : null}
+                  <div className="model-picker-bulk-actions">
+                    <span aria-live="polite">当前结果已选 {visibleSelectedCount} / {filteredModels.length}</span>
+                    <ActionButton
+                      type="button"
+                      variant="secondary"
+                      disabled={!filteredModels.length || visibleSelectedCount === filteredModels.length}
+                      onClick={() => setVisibleSelection(true)}
+                    >
+                      全选当前结果
+                    </ActionButton>
+                    <ActionButton
+                      type="button"
+                      variant="secondary"
+                      disabled={!visibleSelectedCount}
+                      onClick={() => setVisibleSelection(false)}
+                    >
+                      清除当前结果
+                    </ActionButton>
+                  </div>
+                </div>
+                <div
+                  ref={modelListRef}
+                  className={`model-picker-list ${virtualized ? "is-virtualized" : ""}`}
+                  role="list"
+                  aria-label="可用模型目录"
+                  onScroll={(event) => setModelListScrollTop(event.currentTarget.scrollTop)}
+                >
+                  {filteredModels.length ? virtualized ? (
+                    <div className="model-picker-virtual-spacer" style={{ height: filteredModels.length * MODEL_OPTION_HEIGHT }}>
+                      {filteredModels.slice(virtualStartIndex, virtualEndIndex).map((model, offset) => renderModelOption(model, virtualStartIndex + offset))}
+                    </div>
+                  ) : filteredModels.map((model, index) => renderModelOption(model, index)) : (
+                    <div className="model-picker-empty">{availableModels.length ? "没有匹配的模型。" : "暂无可用模型，可在上方填写自定义模型名称。"}</div>
+                  )}
+                </div>
+                <div className="model-picker-custom">
+                  <label htmlFor={`custom-${kind}-model`}>手动补充模型（可选）</label>
+                  <div>
+                    <input
+                      id={`custom-${kind}-model`}
+                      value={customModel}
+                      onChange={(event) => setCustomModel(event.target.value.slice(0, 180))}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        addCustomModel();
+                      }}
+                      placeholder={kind === "agent" ? "例如 gpt-5.6-custom" : kind === "video" ? "例如 doubao-seedance-2-0-260128" : "例如 gpt-image-custom"}
+                      autoComplete="off"
+                    />
+                    <ActionButton onClick={addCustomModel} disabled={!customModel.trim()} icon={<Plus size={14} />}>添加</ActionButton>
+                  </div>
+                  <small>目录未返回的模型可在这里添加，添加后自动启用。</small>
+                </div>
+              </section>
+              {kind !== "video" ? (
+                <section className="model-picker-detail" aria-label="逐模型连接">
+                  <header className="model-picker-detail-head">
+                    <span>逐模型连接</span>
+                    <strong title={detailModel}>{detailModel || "选择一个模型"}</strong>
+                    <small>勾选框控制启用，点击模型名称查看连接。</small>
+                  </header>
+                  <div className="model-picker-detail-scroll" key={detailModel}>
+                    {detailModel && draftSet.has(detailModel.toLowerCase()) ? renderBindingDetails(detailModel) : (
+                      <div className="model-picker-detail-empty">
+                        <strong>{detailModel ? "此模型尚未启用" : "暂无模型"}</strong>
+                        <p>{detailModel ? "加入可用模型后，即可配置专用地址与密钥。" : "获取模型目录或手动添加一个模型。"}</p>
+                        {detailModel ? <ActionButton variant="primary" onClick={() => toggle(detailModel)}>加入可用模型</ActionButton> : null}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
           </SurfaceBody>
           <SurfaceFooter className="model-picker-actions" leading={<span>保存后，第一个已选模型会在当前模型不可用时接替。</span>}>

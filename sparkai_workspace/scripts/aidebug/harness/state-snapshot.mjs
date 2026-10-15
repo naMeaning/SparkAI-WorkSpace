@@ -506,10 +506,10 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       .filter((node) => node.getAttribute("data-ui-control") === "preview")
       .map(uiControlMetric);
     const uiResizeMetrics = uiSurfaceButtons
-      .filter((node) => node.classList.contains("ui-drawer-resize-handle"))
+      .filter((node) => node.matches(".ui-drawer-resize-handle, .ui-dialog-resize-handle"))
       .map(uiControlMetric);
     const uiRawButtonMetrics = uiSurfaceButtons
-      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, .glass-select-trigger, .glass-select-option, .ui-drawer-resize-handle, [data-ui-control='preview']"))
+      .filter((node) => !node.matches(".ui-action-button, .ui-icon-action, .ui-surface-close, .ui-choice-row, .ui-segment-action, .ui-inline-action, .glass-theme-card, .glass-material-card, .glass-accent-swatch, .glass-select-trigger, .glass-select-option, .ui-drawer-resize-handle, .ui-dialog-resize-handle, [data-ui-control='preview']"))
       .map(uiControlMetric);
     const uiFooterMetrics = visibleUiSurfaces.flatMap((surface) => Array.from(surface.querySelectorAll(":scope > .ui-surface-footer"))).map((footer) => {
       const group = footer.querySelector(":scope > .ui-surface-footer-actions");

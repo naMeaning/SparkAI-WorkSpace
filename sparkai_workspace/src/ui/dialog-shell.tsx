@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { ButtonBase, joinClassNames } from "./primitives";
+import { DIALOG_RESIZE_DIRECTIONS, useDialogResize } from "./dialog-resize";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 
@@ -29,7 +30,7 @@ export type DialogShellProps = {
   backdropClassName?: string;
   busy?: boolean;
   dirty?: boolean;
-  /** Allow content-heavy dialogs to be resized from the lower-right corner. */
+  /** Allow content-heavy dialogs to be resized from every edge and corner. */
   resizable?: boolean;
   layerLevel?: DialogLayerLevel;
   closePolicy?: Partial<Record<DialogCloseReason, DialogClosePolicy>>;
@@ -58,6 +59,7 @@ const FOCUSABLE_SELECTOR = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "summary",
   "[tabindex]:not([tabindex='-1'])"
 ].join(",");
 
@@ -94,6 +96,7 @@ export function DialogShell({
   children
 }: DialogShellProps) {
   const dialogRef = useRef<HTMLElement | null>(null);
+  const resize = useDialogResize(dialogRef, resizable);
   const stackTokenRef = useRef(Symbol(surface));
   const openedAtRef = useRef(Date.now());
   // Capture the opener during render, before a nested surface's autoFocus
@@ -224,6 +227,28 @@ export function DialogShell({
         tabIndex={-1}
       >
         {typeof children === "function" ? children({ requestClose }) : children}
+        {resizable ? DIALOG_RESIZE_DIRECTIONS.map((direction) => {
+          const handleProps = {
+            className: "ui-dialog-resize-handle",
+            "data-ui-resize-handle": direction,
+            onPointerDown: (event: React.PointerEvent<HTMLElement>) => resize.onPointerDown(event, direction),
+            onPointerMove: resize.onPointerMove,
+            onPointerUp: resize.onPointerEnd,
+            onPointerCancel: resize.onPointerEnd,
+            onLostPointerCapture: resize.onPointerEnd,
+            onClick: (event: React.MouseEvent<HTMLElement>) => { event.preventDefault(); event.stopPropagation(); }
+          };
+          return direction === "se"
+            ? <ButtonBase
+                key={direction}
+                {...handleProps}
+                aria-label={`调整${ariaLabel || "弹窗"}尺寸`}
+                aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home"
+                title="拖动边缘或角落调整大小；方向键调整，Shift 加快，Home 还原"
+                onKeyDown={resize.onKeyDown}
+              />
+            : <span key={direction} {...handleProps} aria-hidden="true" />;
+        }) : null}
       </section>
     </div>
   );

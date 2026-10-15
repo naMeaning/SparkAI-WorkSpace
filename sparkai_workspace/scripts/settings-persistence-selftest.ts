@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   agentModelBindingFor,
@@ -8,7 +12,10 @@ import {
   normalizeAgentModelBindings,
   normalizeImageModelBindings,
   normalizeImageModelPoolSelection,
-  selectedImageModelsFromSettings
+  normalizeModelPoolSelections,
+  selectedImageModelsFromSettings,
+  setPrimaryImageModelSelection,
+  toggleImageModelSelection
 } from "../src/core.ts";
 
 import {
@@ -191,17 +198,104 @@ assert.deepEqual(normalizeImageModelConfigs([
     outputFormats: [],
   },
 }]);
-const grokConfigOnly = mergeSettings({
+const legacyImageSettings = {
   imageModel: "gpt-image-2",
-  imageModelPool: ["gpt-image-2"],
-  imageModelConfigs: [{ model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "sub2api" }]
-});
-assert.deepEqual(selectedImageModelsFromSettings(grokConfigOnly), ["gpt-image-2", "grok-imagine-image-2.0"], "Image configs must remain selectable even when an old model pool omitted them");
+  imageModelBindings: normalizeImageModelBindings([{ model: "grok-imagine-image-2.0", customBaseUrl: "https://images.example/v1", customApiKey: "fixture-image-key" }]),
+  imageModelConfigs: normalizeImageModelConfigs([
+    { model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "sub2api" },
+    { model: "gemini-3.1-flash-image", protocol: "gemini-native", gateway: "direct" }
+  ])
+};
+const legacyImagePool = ["gpt-image-2", "grok-imagine-image-2.0", "gemini-3.1-flash-image"];
+assert.deepEqual(selectedImageModelsFromSettings(legacyImageSettings), legacyImagePool, "Only legacy settings without a pool may recover selections from bindings and capabilities");
+const migratedImageSettings = mergeSettings(legacyImageSettings);
+assert.deepEqual(migratedImageSettings.imageModelPool, legacyImagePool, "Loading legacy image settings must migrate the recovered models into an explicit pool once");
 assert.deepEqual(
-  normalizeImageModelPoolSelection(grokConfigOnly, ["gpt-image-2"]).imageModelPool,
-  ["gpt-image-2", "grok-imagine-image-2.0"],
-  "Refreshing a model directory must not discard a saved Grok image configuration"
+  normalizeImageModelPoolSelection(migratedImageSettings, ["gpt-image-2"]).imageModelPool,
+  legacyImagePool,
+  "A partial upstream catalog must preserve the explicitly migrated pool"
 );
+const deselectedConfiguredModel = toggleImageModelSelection(migratedImageSettings, "grok-imagine-image-2.0");
+assert.deepEqual(deselectedConfiguredModel.imageModelPool, ["gpt-image-2", "gemini-3.1-flash-image"], "Disabling a configured model must remove it from the actual pool");
+assert.deepEqual(deselectedConfiguredModel.imageModelBindings, migratedImageSettings.imageModelBindings, "Disabling a model must preserve its connection for reuse");
+assert.deepEqual(deselectedConfiguredModel.imageModelConfigs, migratedImageSettings.imageModelConfigs, "Disabling a model must preserve its capabilities for reuse");
+assert.deepEqual(selectedImageModelsFromSettings(deselectedConfiguredModel), deselectedConfiguredModel.imageModelPool, "Retained configuration must not count as an enabled checkbox");
+const refreshedImageSettings = normalizeModelPoolSelections(deselectedConfiguredModel, [], [...legacyImagePool, "flux-1.1-pro"], []);
+assert.deepEqual(refreshedImageSettings.imageModelPool, deselectedConfiguredModel.imageModelPool, "Refreshing the settings directory must not re-enable disabled or newly discovered models");
+const reloadedImageSettings = mergeSettings(JSON.parse(JSON.stringify(refreshedImageSettings)));
+assert.deepEqual(reloadedImageSettings.imageModelPool, deselectedConfiguredModel.imageModelPool, "Saving and reloading a refreshed pool must preserve disabled models");
+assert.equal(reloadedImageSettings.imageModel, "gpt-image-2");
+assert.deepEqual(reloadedImageSettings.imageModelBindings, migratedImageSettings.imageModelBindings);
+assert.deepEqual(reloadedImageSettings.imageModelConfigs, migratedImageSettings.imageModelConfigs);
+const { imageModelContractForSettings } = require("../runtime/tool-schemas.cjs");
+assert.deepEqual(imageModelContractForSettings(reloadedImageSettings).pool, selectedImageModelsFromSettings(reloadedImageSettings), "Renderer checkboxes and the runtime tool enum must use the same enabled pool");
+const explicitPrimaryOnly = mergeSettings({ ...legacyImageSettings, imageModelPool: [] });
+assert.deepEqual(selectedImageModelsFromSettings(explicitPrimaryOnly), ["gpt-image-2"], "An explicitly empty pool must retain its primary without migrating configured candidates");
+assert.deepEqual(explicitPrimaryOnly.imageModelConfigs, migratedImageSettings.imageModelConfigs);
+const defaultConfiguredModel = setPrimaryImageModelSelection(explicitPrimaryOnly, "grok-imagine-image-2.0");
+assert.equal(defaultConfiguredModel.imageModel, "grok-imagine-image-2.0");
+assert.deepEqual(defaultConfiguredModel.imageModelPool, ["grok-imagine-image-2.0", "gpt-image-2"], "Setting an unselected candidate as default must enable only that candidate");
+const removedDefaultModel = toggleImageModelSelection(defaultConfiguredModel, "grok-imagine-image-2.0");
+assert.equal(removedDefaultModel.imageModel, "gpt-image-2", "Removing the default must select a remaining enabled model");
+assert.deepEqual(removedDefaultModel.imageModelPool, ["gpt-image-2"]);
+assert.deepEqual(toggleImageModelSelection(removedDefaultModel, "gpt-image-2").imageModelPool, ["gpt-image-2"], "The final enabled model must remain selected");
+assert.deepEqual(mergeSettings(JSON.parse(JSON.stringify(explicitPrimaryOnly))).imageModelPool, ["gpt-image-2"], "Once an explicit pool is saved, legacy migration must not run again");
+
+// Exercise the real Electron migration/public DTO before the Renderer merge;
+// Main eagerly migrates the settings file before the Renderer receives it.
+const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const diagnosticsRoot = join(repositoryRoot, ".diagnostics");
+mkdirSync(diagnosticsRoot, { recursive: true });
+const migrationProbeDir = mkdtempSync(join(diagnosticsRoot, "settings-pool-migration-"));
+try {
+  const inputPath = join(migrationProbeDir, "input.json");
+  const outputPath = join(migrationProbeDir, "output.json");
+  const probePath = join(migrationProbeDir, "main-probe.cjs");
+  writeFileSync(inputPath, JSON.stringify({ legacy: legacyImageSettings, disabled: reloadedImageSettings, primaryOnly: explicitPrimaryOnly }));
+  writeFileSync(probePath, `
+    const { readFileSync, writeFileSync } = require("node:fs");
+    const { app } = require("electron");
+    const { migrateSettings, publicSettings } = require(${JSON.stringify(join(repositoryRoot, "electron-main.cjs"))});
+    try {
+      const inputs = JSON.parse(readFileSync(process.argv[2], "utf8"));
+      const outputs = Object.fromEntries(Object.entries(inputs).map(([name, settings]) => [name, publicSettings(migrateSettings(settings))]));
+      writeFileSync(process.argv[3], JSON.stringify(outputs));
+      app.exit(0);
+    } catch (error) {
+      process.stderr.write(String(error && error.stack || error));
+      app.exit(1);
+    }
+  `);
+  const probeEnvironment = {
+    ...process.env,
+    NAIMAGE_AGENT_PROTOCOL_SELFTEST: "1",
+    NAIMAGE_CONFIG_DIR: join(migrationProbeDir, "config"),
+    NAIMAGE_DEBUG_DIR: join(migrationProbeDir, "debug"),
+    NAIMAGE_ELECTRON_LOG: join(migrationProbeDir, "electron.log")
+  };
+  delete probeEnvironment.ELECTRON_RUN_AS_NODE;
+  const result = spawnSync(require("electron"), [probePath, inputPath, outputPath], {
+    cwd: repositoryRoot,
+    env: probeEnvironment,
+    encoding: "utf8",
+    timeout: 20_000,
+    windowsHide: true
+  });
+  assert.equal(result.status, 0, `Isolated Main settings migration failed: ${result.error?.message || result.stderr}`);
+  const mainPublicSettings = JSON.parse(readFileSync(outputPath, "utf8"));
+  assert.deepEqual(mainPublicSettings.legacy.imageModelPool, legacyImagePool, "Main must migrate legacy configured models before the first public settings DTO");
+  assert.deepEqual(mergeSettings(mainPublicSettings.legacy).imageModelPool, legacyImagePool, "Main → public DTO → Renderer must preserve the one-time legacy migration");
+  assert.deepEqual(mainPublicSettings.disabled.imageModelPool, reloadedImageSettings.imageModelPool, "Repeated Main/public migration must preserve an explicit disabled selection");
+  assert.deepEqual(mergeSettings(mainPublicSettings.disabled).imageModelPool, reloadedImageSettings.imageModelPool, "Main → public DTO → Renderer must not resurrect disabled configured models");
+  assert.deepEqual(mainPublicSettings.primaryOnly.imageModelPool, ["gpt-image-2"], "Main must distinguish an explicit primary-only pool from absent legacy data");
+  assert.deepEqual(mainPublicSettings.disabled.imageModelConfigs, reloadedImageSettings.imageModelConfigs, "Main/public migration must preserve capabilities of disabled candidates");
+  assert.equal(mainPublicSettings.disabled.imageModelBindings[0].customBaseUrl, reloadedImageSettings.imageModelBindings[0].customBaseUrl);
+  assert.equal(JSON.stringify(mainPublicSettings).includes("fixture-image-key"), false, "The migration contract test must still receive sanitized public credentials");
+} finally {
+  const relativeProbeDir = relative(diagnosticsRoot, migrationProbeDir);
+  if (!relativeProbeDir || relativeProbeDir.startsWith("..") || isAbsolute(relativeProbeDir)) throw new Error("Unexpected settings migration probe path");
+  rmSync(migrationProbeDir, { recursive: true, force: true });
+}
 assert.deepEqual(mergeSettings({}).imageModelBindings, []);
 assert.deepEqual(mergeSettings({}).agentModelBindings, []);
 assert.deepEqual(mergeSettings({ videoModel: "", videoModelPool: ["sora-2"] }).videoModelPool, ["sora-2"]);
@@ -501,4 +595,4 @@ try {
   }
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 127 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 155 })}\n`);
