@@ -2,10 +2,11 @@
 
 ## 当前开发状态（2026-10-16）
 
-- 当前任务：Grok 502 定位及客户端防重复生图修复，客户端/EXE/安装verified，Git同步待完成。真实单张测试各一次（现有连接4.649s，用户新增连接1.159s）均返回HTTP502，没有图片且均无重试；用户表示渠道端若无法修复就到此为止，已停止真实请求。28项模拟回归及开发/已安装程序的主Agent隔离UI通过：错误可见、无敏感上游文本、一次图片POST、模型试图再次生图被阻止。渠道端故障未恢复。
+- 当前任务：Grok 502 定位及客户端防重复生图修复已完成，客户端/EXE/安装/Git同步verified。真实单张测试各一次（现有连接4.649s，用户新增连接1.159s）均返回HTTP502，没有图片且均无重试；用户表示渠道端若无法修复就到此为止，已停止真实请求。28项模拟回归及开发/已安装程序的主Agent隔离UI通过：错误可见、无敏感上游文本、一次图片POST、模型试图再次生图被阻止。渠道端故障未恢复。
 - 最新本地EXE（2026-10-16开发包）：[无限制版1.0.9安装包](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,842,944 B，SHA-256 `8a8d06f5fe1cb6fba86ab4cbbbe90fc57021f3a65a76c95d62419232d3191427`。production build/打包退出0，122个dist文件及8个Main/runtime源码与包内精确匹配；[制品审计](.diagnostics/grok-fix-2026-10-16/package-audit.json)。未上传二进制或发布Release，正式CSS门禁沿用下方历史未通过边界。
 - 安装与包内验证：[原位安装](.diagnostics/grok-fix-2026-10-16/install.json)退出0 /25.146s，注册目录/版本/3个配置表面保留，EXE及ASAR匹配；[已安装UI](.diagnostics/image-generation-failure-ui-2026-10-15T23-56-41-348Z/report.json)ok:true，截图已核验，一次图片POST/三轮对话均为本地模拟、无新真实请求。[测试后核对](.diagnostics/grok-fix-2026-10-16/installed-ui-verification.json)确认日常配置、安装身份及8个源码owner未变，无残留同名程序；未读取secrets内容。
-- 当前下一步：更新完成记录，普通提交/push并实查origin/main。下面2026-10-15状态为上一轮历史证据；卸载、跨版本升级与其他业务未重复验收。
+- Git同步：源码/测试/上下文11个文件提交`5a270e649530fa6821ef871949b7e2ec16f371e8`已普通push到origin/main，[实查记录](.diagnostics/grok-fix-2026-10-16/git-source-push.json)确认远端/本地/缓存upstream一致且当时工作树干净；本完成记录单独随纯文档提交归档，最终分支/制品/安装身份汇总见[交付索引](.diagnostics/grok-fix-2026-10-16/delivery.json)。
+- 下一步：本轮客户端修复已交付，渠道端交由渠道商排查，停止真实请求。下面2026-10-15状态为上一轮历史证据；卸载、跨版本升级与其他业务未重复验收。
 
 ### 上一轮状态快照（2026-10-15，历史）
 
@@ -40,8 +41,9 @@
 
 下一步：本轮UI、打包、安装和源码同步已完成；后续按最新用户需求继续，正式发布门禁仍独立。
 
-## 2026-10-16 Grok 生图失败定位与修复 / in progress
+## 2026-10-16 Grok 生图失败定位与客户端防重试修复 / completed, verified；渠道未恢复
 
+- 完成交付：本轮11个源码/测试/上下文文件普通提交`5a270e649530fa6821ef871949b7e2ec16f371e8`并push，远端main从`8d5db36`前进到`5a270e6`；ls-remote、本地HEAD和origin/main一致。[源码同步证据](.diagnostics/grok-fix-2026-10-16/git-source-push.json)。Harness10项、13处新增本地链接、暂存差异/凭据与私有路径检查通过。以下checkpoint保留各阶段事实；本条为最终状态，后续纯文档收尾的实际Git身份记入[本地交付索引](.diagnostics/grok-fix-2026-10-16/delivery.json)。未上传EXE、未发布Release/tag、无新增真实模型请求。
 - 安装及包内验证 checkpoint：品牌安装器`/S`原位升级退出0 /25.146s，无运行中应用，安装目录/注册1.0.9/3个配置表面均保留，安装EXE/ASAR与新包一致；[安装报告](.diagnostics/grok-fix-2026-10-16/install.json)。对已安装EXE运行`test:image-generation-failure-ui --exe=<registered installed EXE>`通过，一次图片POST、三轮Agent请求均为本地HTTP模拟；可见中文错误、无敏感上游文本、无伪成功，已查看[截图](.diagnostics/image-generation-failure-ui-2026-10-15T23-56-41-348Z/main-error.png)。[测试后核对](.diagnostics/grok-fix-2026-10-16/installed-ui-verification.json)确认日常配置及源码/安装身份未变、同名程序全部退出。0新真实请求，Git同步待执行。
 - 打包 checkpoint：`corepack pnpm run package:win:unrestricted`（会话62784）退出0，production build1682 modules /27.40s，NSIS与品牌安装器成功。最终[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,842,944 B，SHA-256 `8a8d06f5fe1cb6fba86ab4cbbbe90fc57021f3a65a76c95d62419232d3191427`；[包内审计](.diagnostics/grok-fix-2026-10-16/package-audit.json)ok:true，122个dist文件集合/哈希与8个Main/runtime owner源码匹配，dual-access策略正确，无.env或诊断目录。审计脚本初次写错service路径导致零修改退出，修正为实际desktop owner后通过；产品源码未改。安装及Git同步尚待执行，本轮仍为本地开发包，bundleEnforced:false，未发布。
 - 请求：检查并修复截图中的 Grok Image Gen 失败。范围先落在桌面图片 Adapter、连接解析、参考图请求与错误传播；外部 New API 保持独立。
