@@ -8,7 +8,7 @@ const kinds = new Set(["agent", "model", "image", "view_image"]);
 const phases = new Set(["request", "response", "retry", "failure", "partial", "done"]);
 const protocols = new Set(["chat-completions", "responses", "openai-images", "xai-images", "gemini-native"]);
 const stages = new Set(["input", "generation", "result", "conversation", "tool"]);
-const categories = new Set(["AUTH_ERROR", "INSUFFICIENT_BALANCE", "MODEL_NOT_FOUND", "UNSUPPORTED_PARAMETER", "CONTENT_POLICY", "RATE_LIMIT", "UPSTREAM_ERROR", "NETWORK_ERROR", "TIMEOUT", "TASK_FAILED", "RESULT_DOWNLOAD_FAILED", "INVALID_RESPONSE", "image_result_download", "image_result_processing"]);
+const categories = new Set(["AUTH_ERROR", "INSUFFICIENT_BALANCE", "MODEL_NOT_FOUND", "UNSUPPORTED_PARAMETER", "CONTENT_POLICY", "RATE_LIMIT", "UPSTREAM_ERROR", "NETWORK_ERROR", "TIMEOUT", "TASK_FAILED", "RESULT_DOWNLOAD_FAILED", "INVALID_RESPONSE", "image_result_download", "image_result_processing", "image_generation_uncertain"]);
 
 // Only explicit metadata fields enter this store. Never redact-and-copy an
 // upstream body, error message, prompt, credential, file path or image URL.

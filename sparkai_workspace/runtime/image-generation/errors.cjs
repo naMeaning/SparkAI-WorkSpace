@@ -68,6 +68,33 @@ function categoryFor(status, message, code = "") {
   return "UPSTREAM_ERROR";
 }
 
+function protectImageCreationError(error) {
+  // Called only after entering the image POST transport, never for local input
+  // validation or credential lookup. A gateway failure is not proof that the
+  // provider rejected creation; retrying it can create and bill another image.
+  if (error?.unsafeToRetry === true || error?.generationCompleted === true) return error;
+  const status = Number(error?.status || error?.statusCode) || undefined;
+  if (status >= 400 && status < 500 && status !== 408) return error;
+  const category = categoryFor(status, error?.message, error?.code);
+  const networkCode = String(error?.code || error?.cause?.code || "");
+  const uncertain = (status >= 500 && status <= 599) || status === 408
+    || ["NETWORK_ERROR", "TIMEOUT"].includes(category)
+    || /^(?:E(?:CONNRESET|TIMEDOUT|PIPE)|UND_ERR_(?:CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET))$/.test(networkCode);
+  if (!uncertain) return error;
+  const reason = status ? `图片渠道暂时不可用（HTTP ${status}）` : "图片请求连接中断或超时";
+  const protectedError = new Error(`${reason}，未收到成图，无法确认上游是否已生成。已停止自动重试；请先在渠道查询结果，再决定是否重新生成。`);
+  protectedError.name = "ImageGenerationError";
+  protectedError.code = "IMAGE_GENERATION_UNCERTAIN";
+  protectedError.category = category;
+  protectedError.errorCategory = "image_generation_uncertain";
+  protectedError.status = status;
+  protectedError.ambiguous = true;
+  protectedError.unsafeToRetry = true;
+  protectedError.generationCompleted = false;
+  protectedError.cause = error;
+  return protectedError;
+}
+
 function normalizeImageGenerationError(error, context = {}) {
   const source = error instanceof Error ? error : new Error(String(error || "图片生成失败。"));
   const status = Number(source.status || source.statusCode || 0) || undefined;
@@ -91,4 +118,4 @@ function normalizeImageGenerationError(error, context = {}) {
   return normalized;
 }
 
-module.exports = { ERROR_CATEGORIES, categoryFor, normalizeImageGenerationError, normalizeImageResultDownloadError };
+module.exports = { ERROR_CATEGORIES, categoryFor, normalizeImageGenerationError, normalizeImageResultDownloadError, protectImageCreationError };

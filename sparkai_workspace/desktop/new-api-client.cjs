@@ -6,6 +6,7 @@ const {
   pickImageGenerationResponseMetadata
 } = require("../runtime/image-generation-metadata.cjs");
 const { normalizeImageGenerationResponse } = require("../runtime/image-generation/normalize-response.cjs");
+const { protectImageCreationError } = require("../runtime/image-generation/errors.cjs");
 
 const MANAGED_RELAY_PREFIX = "/naimage";
 
@@ -847,21 +848,26 @@ function createNewApiClient(options = {}) {
       apiKey: _apiKey,
       ...requestOptions
     } = options;
-    const { response, data } = await newApiFetch(settings, endpoint, {
-      ...requestOptions,
-      method: "POST",
-      absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
-      requestBaseUrl: credentials.baseUrl,
-      headers: relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader),
-      body: relayBody,
-    });
-    if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
-      const error = new Error(newApiErrorMessage(data, response.status));
-      error.status = response.status;
-      error.data = data;
-      throw error;
+    try {
+      const { response, data } = await newApiFetch(settings, endpoint, {
+        ...requestOptions,
+        method: "POST",
+        absoluteUrl: directApiUrl(credentials.baseUrl, endpoint),
+        requestBaseUrl: credentials.baseUrl,
+        headers: relayApiCredentialHeaders(options.headers, credentials.apiKey, options.authHeader),
+        body: relayBody,
+      });
+      if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (provider !== "image" || !isImagesApiEndpoint(endpoint) || options.signal?.aborted) throw error;
+      throw protectImageCreationError(error);
     }
-    return data;
   }
 
   async function newApiRelayMultipart(settings, endpoint, body, options = {}) {
@@ -876,25 +882,30 @@ function createNewApiClient(options = {}) {
     if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
-    const response = await newApiTransportFetch(directApiUrl(relayBaseUrl, endpoint), {
-      method: "POST",
-      headers: relayApiHeaders(options.headers, credentials.apiKey),
-      body,
-      signal: options.signal,
-      headersTimeoutMs: options.headersTimeoutMs,
-      connectTimeoutMs: options.connectTimeoutMs,
-      proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
-      maxRequestBytes: options.maxRequestBytes,
-      maxResponseBytes: options.maxResponseBytes
-    });
-    const data = parseJsonText(await response.text());
-    if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
-      const error = new Error(newApiErrorMessage(data, response.status));
-      error.status = response.status;
-      error.data = data;
-      throw error;
+    try {
+      const response = await newApiTransportFetch(directApiUrl(relayBaseUrl, endpoint), {
+        method: "POST",
+        headers: relayApiHeaders(options.headers, credentials.apiKey),
+        body,
+        signal: options.signal,
+        headersTimeoutMs: options.headersTimeoutMs,
+        connectTimeoutMs: options.connectTimeoutMs,
+        proxyUrl: options.proxyUrl ?? settings?.networkProxyUrl,
+        maxRequestBytes: options.maxRequestBytes,
+        maxResponseBytes: options.maxResponseBytes
+      });
+      const data = parseJsonText(await response.text());
+      if (!response.ok || data.parseFailed === true || data.success === false || data.ok === false || data.error) {
+        const error = new Error(newApiErrorMessage(data, response.status));
+        error.status = response.status;
+        error.data = data;
+        throw error;
+      }
+      return data;
+    } catch (error) {
+      if (provider !== "image" || !isImagesApiEndpoint(endpoint) || options.signal?.aborted) throw error;
+      throw protectImageCreationError(error);
     }
-    return data;
   }
 
   function imageTaskUnsupportedError(status, data) {

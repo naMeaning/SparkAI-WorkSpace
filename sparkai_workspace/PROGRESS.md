@@ -1,6 +1,13 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-15）
+## 当前开发状态（2026-10-16）
+
+- 当前任务：Grok 502 定位及客户端防重复生图修复，客户端/EXE/安装verified，Git同步待完成。真实单张测试各一次（现有连接4.649s，用户新增连接1.159s）均返回HTTP502，没有图片且均无重试；用户表示渠道端若无法修复就到此为止，已停止真实请求。28项模拟回归及开发/已安装程序的主Agent隔离UI通过：错误可见、无敏感上游文本、一次图片POST、模型试图再次生图被阻止。渠道端故障未恢复。
+- 最新本地EXE（2026-10-16开发包）：[无限制版1.0.9安装包](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,842,944 B，SHA-256 `8a8d06f5fe1cb6fba86ab4cbbbe90fc57021f3a65a76c95d62419232d3191427`。production build/打包退出0，122个dist文件及8个Main/runtime源码与包内精确匹配；[制品审计](.diagnostics/grok-fix-2026-10-16/package-audit.json)。未上传二进制或发布Release，正式CSS门禁沿用下方历史未通过边界。
+- 安装与包内验证：[原位安装](.diagnostics/grok-fix-2026-10-16/install.json)退出0 /25.146s，注册目录/版本/3个配置表面保留，EXE及ASAR匹配；[已安装UI](.diagnostics/image-generation-failure-ui-2026-10-15T23-56-41-348Z/report.json)ok:true，截图已核验，一次图片POST/三轮对话均为本地模拟、无新真实请求。[测试后核对](.diagnostics/grok-fix-2026-10-16/installed-ui-verification.json)确认日常配置、安装身份及8个源码owner未变，无残留同名程序；未读取secrets内容。
+- 当前下一步：更新完成记录，普通提交/push并实查origin/main。下面2026-10-15状态为上一轮历史证据；卸载、跨版本升级与其他业务未重复验收。
+
+### 上一轮状态快照（2026-10-15，历史）
 
 - 最新用户请求：优化逐模型连接/密钥布局、图片配置勾选与默认操作，窗口从四边四角均可调整；所有子代理统一 `gpt-6.1-sol` / `max`。UI、EXE、安装及已安装启动已 verified，Git同步已verified；契约见GOAL顶部。
 - 当前现场：main / `9926f7d` 之上的本轮模型配置、图片池状态与8向resize源码已完成验证及新开发包。本轮EXE、原位安装和隔离已安装启动均通过；源码/文档已普通push并核对远端。此前字体/画布功能仍在本轮包中，正式发布与同版本历史制品按哈希区分。
@@ -32,6 +39,18 @@
 - 真实渠道证据仅覆盖已授权的两个目录和各一次图片请求；其他渠道、视频/Seedance及历史领域的未验证项仍需按各自记录处理，不因本快照自动追加请求。
 
 下一步：本轮UI、打包、安装和源码同步已完成；后续按最新用户需求继续，正式发布门禁仍独立。
+
+## 2026-10-16 Grok 生图失败定位与修复 / in progress
+
+- 安装及包内验证 checkpoint：品牌安装器`/S`原位升级退出0 /25.146s，无运行中应用，安装目录/注册1.0.9/3个配置表面均保留，安装EXE/ASAR与新包一致；[安装报告](.diagnostics/grok-fix-2026-10-16/install.json)。对已安装EXE运行`test:image-generation-failure-ui --exe=<registered installed EXE>`通过，一次图片POST、三轮Agent请求均为本地HTTP模拟；可见中文错误、无敏感上游文本、无伪成功，已查看[截图](.diagnostics/image-generation-failure-ui-2026-10-15T23-56-41-348Z/main-error.png)。[测试后核对](.diagnostics/grok-fix-2026-10-16/installed-ui-verification.json)确认日常配置及源码/安装身份未变、同名程序全部退出。0新真实请求，Git同步待执行。
+- 打包 checkpoint：`corepack pnpm run package:win:unrestricted`（会话62784）退出0，production build1682 modules /27.40s，NSIS与品牌安装器成功。最终[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,842,944 B，SHA-256 `8a8d06f5fe1cb6fba86ab4cbbbe90fc57021f3a65a76c95d62419232d3191427`；[包内审计](.diagnostics/grok-fix-2026-10-16/package-audit.json)ok:true，122个dist文件集合/哈希与8个Main/runtime owner源码匹配，dual-access策略正确，无.env或诊断目录。审计脚本初次写错service路径导致零修改退出，修正为实际desktop owner后通过；产品源码未改。安装及Git同步尚待执行，本轮仍为本地开发包，bundleEnforced:false，未发布。
+- 请求：检查并修复截图中的 Grok Image Gen 失败。范围先落在桌面图片 Adapter、连接解析、参考图请求与错误传播；外部 New API 保持独立。
+- 现场：main / `8d5db36` 干净。截图仅证明两次快速返回相同错误，不能据此判断服务故障、模型/接口错误或生成请求已经被接受。
+- 验证计划：本地诊断与脱敏连接画像、模拟上游回归及受影响专项，必要的隔离 UI 路径；最终 EXE、原位安装、身份/配置保留核对及源码文档推送。当前尚未执行新验证，未发送真实模型请求。
+- 定位/授权 checkpoint：安装版诊断确认截图两次请求为 xai-images / sync，HTTP 502 / UPSTREAM_ERROR，耗时 1285ms、900ms；没有图片响应或落盘。当前设置选择 Grok，连接未显式覆盖图片协议。Agent 的 upstream_5xx 建议允许重试；用户已明确允许一次简单风景 n=1、无参考图、无重试的真实验证，除此之外无新付费请求授权。
+- 实测 checkpoint：现有连接仅派发1次 `/v1/images/generations`，n=1、1:1、1k、b64_json、无参考图，4.649s收到HTTP502及相同泛化上游错误；[脱敏报告](.diagnostics/grok-fix-2026-10-16/live-probe.json)。首次测试启动因隔离安全存储尚未就绪而零派发退出，修正隔离读取后仅派发上述1次。用户随后提供连接并明确要求再测试，新增1次相同范围授权；凭据不得写入配置或报告。
+- 实现 checkpoint：JSON/multipart 的图片 POST 5xx/断连/超时由 `protectImageCreationError` 标记 `image_generation_uncertain` / ambiguous / unsafeToRetry；凭据解析在保护外，明确4xx、取消和普通对话保持原行为；中文提示不复制上游敏感正文。Agent沿用既有运行内保护阻止改Prompt再生成，诊断白名单接受新分类。27项边界/Agent回归通过，UI与最终交付进行中。
+- 2026-10-16 验证 checkpoint：新提供的 `supeai.top` 连接只派发一次 n=1 风景请求，无参考图/无自动重试，1.159s返回 HTTP502、无图片；[脱敏报告](.diagnostics/grok-fix-2026-10-16/supplied-connection-probe.json)。用户随后表示外部渠道故障若无法修复就停止，已停止真实请求。最终28项模拟回归 `test:image-generation-failure` ok:true；`test:image-generation-failure-ui` ok:true，真实隔离Electron经本地HTTP模拟 1 次图片POST、3轮Agent对话、主面板可见中文错误且不泄漏上游敏感文本，[UI报告与截图](.diagnostics/image-generation-failure-ui-2026-10-15T23-46-31-466Z/report.json)。相关 `test:custom-api-transport` 40项、`test:image-generation-service`、`test:image-generation-async`、`test:image-mask-compat` 66像素断言、`test:runtime-diagnostics`、`test:view-image`、`test:agent-post-image` 10场景和 typecheck 均通过；Harness 10项及 git diff --check 通过。当前剩余最终EXE、安装和push。
 
 ## 2026-10-15 模型配置布局、图片勾选与全方向 resize / completed, verified
 

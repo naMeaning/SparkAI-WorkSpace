@@ -1,7 +1,9 @@
 # SparkAI WorkSpace 上下文地图
 
-> 地图版本：104
-> 最近同步：2026-10-15
+2026-10-16 Grok 同步生图故障边界：`desktop/new-api-client.cjs` 的 JSON/multipart 图片 POST 在凭据解析之后调用 `runtime/image-generation/errors.cjs::protectImageCreationError`，把 5xx、408、断连/超时归为 `image_generation_uncertain` 并保留 HTTP 状态、`ambiguous/unsafeToRetry`；不把未收到图片描述成已生成。`desktop/image-generation-service.cjs` 归一化后保留标记，`agent-runtime.cjs` 的既有运行内保护阻止 Agent 改参数重发，中文 advice 要求先查询渠道结果；新用户轮次解除运行内保护。明确4xx、输入/凭据预检、取消与普通对话沿用原行为。`desktop/runtime-diagnostics.cjs` 白名单同步新分类，公开 DTO 结构不变。验证入口 `test:image-generation-failure`（协议/状态/传输/Agent边界）与 `test:image-generation-failure-ui`（本地HTTP上游，主Agent面板、一次POST、脱敏与截图，支持 --exe）。外部 New API、Extension、模型配置与请求格式不改；真实渠道结果及制品以 GOAL/PROGRESS 最新证据为准。
+
+> 地图版本：105
+> 最近同步：2026-10-16
 > 2026-10-15 UI本地验收：模型目录/单模型连接分栏，图片显式池/默认独立操作，共享DialogShell四边四角/键盘尺寸调整；owner与14场景UI、EXE、安装/启动及Git结果以 [PROGRESS](../PROGRESS.md) 本轮记录为准，未改 IPC/模型协议/设置格式。
 > 新会话入口：[AGENTS 必读顺序](../AGENTS.md) → [GOAL 当前任务](../GOAL.md) → [PROGRESS 当前开发状态及最新证据](../PROGRESS.md) → 本次边界的地图章节。实现、实际验证、当前制品、正式门禁与下一步统一从进度顶部恢复。
 > 2026-10-15 打包后交付规则：本地 EXE 成功并核对后，经 `tools/windows-installer/Installer/Program.cs` 的 `/S` 正常安装流程自动本机安装/原位升级，沿用注册目录和快捷方式偏好、保留用户数据；先正常退出应用，遇未保存内容或活动任务不能安全退出则保留现场待安装。核对退出码、注册信息及已安装 EXE/ASAR 后更新 Goal/Progress 和相关地图，提交对应源码与上下文并推送 upstream；打包、安装与该 Git 同步已有持续授权。源码、EXE 身份、实际验证、安装与推送结果由 PROGRESS 统一记录，生成物/私有配置继续遵循 ignore，正式 Release 与二进制上传单独授权。

@@ -1736,6 +1736,7 @@ function toolErrorAdvice(category) {
     invalid_tool_arguments: "这是模型工具参数的内部契约问题。请静默修正 schema 参数并重新调用，不要向用户复述校验错误。",
     invalid_input: "参数问题，应修正参数后重试，不要原样重复。",
     missing_reference: "缺少参考图或源图，应调用 ask_user 请求补充。",
+    image_generation_uncertain: "图片渠道返回故障或连接中断，尚未收到成图，无法确认上游是否已生成。不要再次调用 image_gen，不要改写提示词、降低规格或换模型自动重试；请提示用户先查询渠道结果。",
     image_result_download: "上游已返回图片，失败发生在结果下载；不要重新调用 image_gen，以免重复计费。请提示用户检查图片下载网络或联系中转获取已有结果。",
     image_result_processing: "上游已返回图片，失败发生在本地图片校验、格式转换或保存；不要重新调用 image_gen，以免重复计费。请说明具体保存错误。",
     policy: "策略/安全拒绝，应改写 prompt 或向用户说明限制。",

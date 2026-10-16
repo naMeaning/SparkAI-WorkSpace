@@ -91,6 +91,8 @@
     "test:image-generation-metadata": "node scripts/image-generation-metadata-selftest.cjs",
     "test:image-generation-adapters": "node scripts/image-generation-adapters-selftest.cjs",
     "test:image-generation-service": "node scripts/image-generation-service-selftest.cjs",
+    "test:image-generation-failure": "node scripts/image-generation-failure-selftest.cjs",
+    "test:image-generation-failure-ui": "node scripts/image-generation-failure-ui-selftest.mjs",
     "test:image-result-download": "electron scripts/image-result-download-selftest.cjs",
     "test:image-mask-compat": "node scripts/image-mask-compat-selftest.cjs",
     "test:image-generation-async": "node scripts/image-generation-async-selftest.cjs",
