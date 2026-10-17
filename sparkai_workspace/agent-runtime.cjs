@@ -88,6 +88,7 @@ const { createMemoryStore } = require("./runtime/memory-store.cjs");
 const { contextStrategyForSettings } = require("./runtime/context-strategy.cjs");
 const { executeControlledCommand, isExploreCommand } = require("./runtime/controlled-shell-command.cjs");
 const { workspaceDomainDefinition, workspaceDomainPrompt } = require("./runtime/workspace-domain.cjs");
+const { preferredImageTaskModel } = require("./runtime/image-model-policy.mjs");
 
 let sharpImage = null;
 
@@ -2135,14 +2136,7 @@ function imageModelForTaskPreference(args = {}, settings = {}, layerHint = {}) {
   const pool = imageModelPoolFromSettings(settings);
   const primary = String(settings.imageModel || pool[0] || "").trim();
   const explicitModel = String(args.model || "").trim();
-  const pooledExplicitModel = pool.find((model) => model.toLowerCase() === explicitModel.toLowerCase());
-  const image2Model = pool.find((model) => /(?:^|[/_.:-])gpt-image-2(?:$|[/_.:-])/i.test(model)) ||
-    pool.find((model) => /gpt-image-2/i.test(model));
-  if (explicitModel) {
-    if (pooledExplicitModel) return pooledExplicitModel;
-    return primary || image2Model || pool[0] || undefined;
-  }
-  return image2Model || primary || pool[0] || undefined;
+  return preferredImageTaskModel(pool, primary, explicitModel) || undefined;
 }
 
 function normalizeLayerBlendMode(value) {

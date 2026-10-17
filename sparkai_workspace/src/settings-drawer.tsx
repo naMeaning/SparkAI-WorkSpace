@@ -216,6 +216,7 @@ export default function SettingsDrawer({
     videoModels: string[];
     groups: NonNullable<ServerPublicSettings["modelGroups"]>;
     accessProfiles: NonNullable<ServerPublicSettings["modelAccessProfiles"]>;
+    connectionSummaries: NonNullable<ServerPublicSettings["connectionSummaries"]>;
     serviceStatuses: NonNullable<ServerPublicSettings["serviceStatuses"]>;
     error: string;
     cacheSource?: ServerPublicSettings["cacheSource"];
@@ -228,6 +229,7 @@ export default function SettingsDrawer({
     videoModels: modelsWithPreferred([], draftSettings.videoModel, selectedVideoModelsFromSettings(draftSettings)),
     groups: [],
     accessProfiles: [],
+    connectionSummaries: {},
     serviceStatuses: {},
     error: "",
     cacheSource: undefined,
@@ -334,6 +336,7 @@ export default function SettingsDrawer({
           videoModels,
           groups: serverSettings.modelGroups ?? [],
           accessProfiles: serverSettings.modelAccessProfiles ?? [],
+          connectionSummaries: serverSettings.connectionSummaries ?? {},
           serviceStatuses: serverSettings.serviceStatuses ?? {},
           error: "",
           cacheSource: serverSettings.cacheSource,
@@ -1460,6 +1463,8 @@ export default function SettingsDrawer({
                   <LazyCanvasToolsSettingsPanel
                     states={draftSettings.pluginStates}
                     mode={draftSettings.canvasToolDockMode}
+                      wheelMode={draftSettings.canvasWheelMode}
+                      onWheelModeChange={(canvasWheelMode) => update("canvasWheelMode", canvasWheelMode)}
                     hiddenCommands={draftSettings.disabledCanvasToolCommands}
                     shortcuts={draftSettings.canvasToolShortcuts}
                     visibleAssetRailTabs={draftSettings.visibleWorkspaceAssetRailTabs}
@@ -1556,6 +1561,11 @@ export default function SettingsDrawer({
             models={modelConfigTarget === "agent" ? visibleAgentModels : modelConfigTarget === "video" ? visibleVideoModels : visibleImageModels}
             accountTokens={accountTokens}
             accessProfiles={modelState.accessProfiles}
+            connectionSummaries={Object.fromEntries(Object.entries(modelState.connectionSummaries).map(([key, summary]) => {
+              const fields = ["accessMode", "accountBaseUrl", "relayBaseUrl", "selectedAccountTokenId", "agentBaseUrl", "imageBaseUrl", "agentApiKey", "imageApiKey"] as const;
+              const changed = fields.some(field => draftSettings[field] !== settings[field]);
+              return [key, changed ? { ...summary, connectionId: "" } : summary];
+            }))}
             refreshModels={(forceRefresh = false) => refreshModels(forceRefresh, draftSettings.modelGroup)}
             discoverModels={appAccessPolicy.customApiAccess ? window.naimageServer?.probeModels : undefined}
             close={() => setModelConfigTarget(null)}

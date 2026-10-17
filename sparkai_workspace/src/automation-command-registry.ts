@@ -5,6 +5,8 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "app.diagnostics",
   "app.export-diagnostics",
   "canvas.state",
+  "image.operations",
+  "image.recover",
   "workspace.domain.list",
   "workspace.domain.get",
   "workspace.domain.set",
@@ -95,6 +97,8 @@ export const AUTOMATION_COMMAND_NAMES = [
   "app.diagnostics",
   "app.export-diagnostics",
   "canvas.state",
+  "image.operations",
+  "image.recover",
   "debug.runtime-state",
   "debug.renderer-logs",
   "debug.main-logs",
@@ -197,6 +201,34 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
       "type": "object",
       "additionalProperties": false,
       "properties": {}
+    }
+  },
+  "image.operations": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    }
+  },
+  "image.recover": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "key",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        },
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        }
+      }
     }
   },
   "debug.runtime-state": {
@@ -3187,6 +3219,8 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "app.diagnostics": "renderer",
   "app.export-diagnostics": "renderer",
   "canvas.state": "renderer",
+  "image.operations": "renderer",
+  "image.recover": "renderer",
   "debug.runtime-state": "service",
   "debug.renderer-logs": "service",
   "debug.main-logs": "service",

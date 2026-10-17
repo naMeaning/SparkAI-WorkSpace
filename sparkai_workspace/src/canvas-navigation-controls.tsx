@@ -263,9 +263,10 @@ export function CanvasNavigationControls({
       {shortcutsOpen ? (
         <div className="canvas-shortcuts-popover" role="dialog" aria-label="画布快捷键">
           <strong>画布快捷键</strong>
-          <span><kbd>滚轮</kbd> 缩放，<kbd>空格</kbd> + 拖动平移</span>
-          <span><kbd>Ctrl / Cmd</kbd> + 拖动框选，<kbd>Shift</kbd> + 点击追加选择</span>
-          <span><kbd>0</kbd> 适配全部，<kbd>Esc</kbd> 清除选择/关闭菜单</span>
+          <span>滚轮按设置缩放/平移；<kbd>Ctrl</kbd> + 滚轮缩放，<kbd>空格</kbd> + 拖动平移</span>
+          <span>选择工具：左键拖空白框选；中键拖动平移</span>
+          <span><kbd>Ctrl / Cmd</kbd> + 点击增减选择；空白轻点保留选择</span>
+          <span><kbd>0</kbd> 适配全部，<kbd>Esc</kbd> 取消手势/关闭菜单</span>
           <span><kbd>Ctrl / Cmd + C/V</kbd> 复制/粘贴，<kbd>Delete</kbd> 删除</span>
         </div>
       ) : null}

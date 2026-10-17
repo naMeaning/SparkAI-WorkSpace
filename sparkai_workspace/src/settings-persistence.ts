@@ -146,6 +146,7 @@ export const defaultSettings: AppSettings = {
   imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
   imageModelConfigs: [],
+  imageConnectionVersion: 1,
   videoModel: "doubao-seedance-2-0-260128",
   videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
@@ -188,6 +189,8 @@ export const defaultSettings: AppSettings = {
   workspacePluginDefaultsVersion: WORKSPACE_PLUGIN_DEFAULTS_VERSION,
   pluginStates: defaultWorkspacePluginStates(),
   canvasToolDockMode: "expanded",
+  canvasWheelMode: "zoom",
+  recentCanvasToolCommands: [],
   disabledCanvasToolCommands: [],
   canvasToolShortcuts: {},
   visibleWorkspaceAssetRailTabs: [...WORKSPACE_ASSET_RAIL_TAB_VALUES],
@@ -307,6 +310,22 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.selectedAccountTokenName = String(next.selectedAccountTokenName || "").trim().slice(0, 50);
   next.selectedAccountTokenGroup = String(next.selectedAccountTokenGroup || "").trim().slice(0, 120);
   next.accessMode = next.accessMode === "custom" ? "custom" : "account";
+  if (Number(source.imageConnectionVersion || 0) < 1) {
+    const models = uniqueStoredModels([next.imageModel, ...next.imageModelPool, ...next.imageModelBindings.map(item => item.model), ...next.imageModelConfigs.map(item => item.model)]);
+    for (const model of models) {
+      let binding = next.imageModelBindings.find(item => item.model.toLowerCase() === model.toLowerCase());
+      const config = next.imageModelConfigs.find(item => item.model.toLowerCase() === model.toLowerCase());
+      const gateway = binding?.gateway || config?.gateway;
+      const baseUrl = binding?.customBaseUrl || config?.baseUrl || next.imageBaseUrl;
+      const legacySub2api = gateway === "sub2api" || (!gateway || gateway === "auto") && /sub2-?api/i.test(baseUrl);
+      if (!legacySub2api) continue;
+      if (!binding) { binding = { model }; next.imageModelBindings.push(binding); }
+      if (!gateway || gateway === "auto") binding.gateway = "sub2api";
+      if (!["sync", "async"].includes(binding.transportMode || config?.transportMode || "")) binding.transportMode = "async";
+      binding.connectionSource = "legacy-migration";
+    }
+  }
+  next.imageConnectionVersion = 1;
   next.licenseDeviceId = String(next.licenseDeviceId || "").trim().slice(0, 128);
   next.licenseToken = String(next.licenseToken || "").trim().slice(0, 256);
   next.licensePlan = String(next.licensePlan || "").trim().slice(0, 40);
@@ -339,6 +358,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
     ? defaultWorkspacePluginStates(source.pluginStates)
     : normalizePluginStates(source.pluginStates);
   next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
+  next.canvasWheelMode = source.canvasWheelMode === "pan" ? "pan" : "zoom";
+  next.recentCanvasToolCommands = [...new Set(Array.isArray(source.recentCanvasToolCommands) ? source.recentCanvasToolCommands.filter((id): id is string => typeof id === "string") : [])].filter(id => /^sparkai\.[a-z0-9.-]+$/.test(id)).slice(0, 8);
   next.disabledCanvasToolCommands = normalizeDisabledCanvasToolCommands(source.disabledCanvasToolCommands);
   next.canvasToolShortcuts = normalizeCanvasToolShortcuts(source.canvasToolShortcuts);
   next.visibleWorkspaceAssetRailTabs = normalizeVisibleWorkspaceAssetRailTabs(source.visibleWorkspaceAssetRailTabs);

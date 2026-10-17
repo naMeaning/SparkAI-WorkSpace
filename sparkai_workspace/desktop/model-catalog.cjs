@@ -268,8 +268,42 @@ function normalizedCompatibilityCapability(value, fallbackModel = "") {
     endpointTypes,
     evidence,
     ...(lastCheckedAt ? { lastCheckedAt } : {}),
-    ...(lastVerifiedAt ? { lastVerifiedAt } : {})
+    ...(lastVerifiedAt ? { lastVerifiedAt } : {}),
+    observations: (Array.isArray(source.observations) ? source.observations : []).filter(item => item && typeof item === "object").slice(-24).map(item => ({
+      protocol: String(item.protocol || "").slice(0, 64), transport: String(item.transport || "sync").slice(0, 32),
+      operation: String(item.operation || "").slice(0, 64), stage: String(item.stage || "response").slice(0, 32),
+      outcome: item.outcome === "failure" ? "failure" : "success", observedAt: String(item.observedAt || "").slice(0, 40),
+      ...(item.category ? { category: String(item.category).replace(/[^a-z0-9_-]/gi, "").slice(0, 80) } : {}),
+      scope: Object.fromEntries(Object.entries(item.scope || {}).filter(([key, value]) => {
+        if (key === "n" || key === "referenceCount") return Number.isInteger(value) && value >= 0 && value <= 32;
+        if (["mask", "background"].includes(key)) return typeof value === "boolean" || ["auto", "transparent", "opaque"].includes(value);
+        if (["quality", "resolution"].includes(key)) return ["auto", "low", "medium", "high", "1k", "2k", "4k"].includes(String(value).toLowerCase());
+        if (key === "size") return typeof value === "string" && /^\d{1,5}x\d{1,5}$/i.test(value);
+        if (key === "outputFormat") return ["png", "jpeg", "webp", "avif", "tiff"].includes(String(value).toLowerCase());
+        return false;
+      }).map(([key, value]) => [key, typeof value === "string" ? value.slice(0, 16) : value]))
+    })),
+    ...(source.historicalVerifiedAt ? { historicalVerifiedAt: String(source.historicalVerifiedAt).slice(0, 40) } : {})
   };
+}
+
+// Key material stays in Main. The opaque identity rotates on a credential change;
+// URL path case is significant, while a trailing /v1 and slash are equivalent.
+function modelConnectionIdentity(baseUrl, apiKey) {
+  let normalizedUrl = String(baseUrl || "").trim();
+  try {
+    const parsed = new URL(normalizedUrl);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "").replace(/\/v1$/i, "");
+    normalizedUrl = `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${parsed.pathname}`;
+  } catch {
+    normalizedUrl = normalizedUrl.replace(/[?#].*$/, "").replace(/\/v1$/i, "").replace(/\/+$/, "");
+  }
+  const credentialFingerprint = createHash("sha256").update(`${normalizedUrl}\n${String(apiKey || "").trim()}`).digest("hex");
+  return `model-access-${createHash("sha256").update(`${normalizedUrl}\n${credentialFingerprint}`).digest("hex").slice(0, 32)}`;
 }
 
 function normalizeModelAccessProfile(value) {
@@ -282,11 +316,17 @@ function normalizeModelAccessProfile(value) {
   for (const [key, raw] of Object.entries(inputCapabilities)) {
     const capability = normalizedCompatibilityCapability(raw, key);
     if (!capability) continue;
+    if (capability.evidence === "runtime-verified" && (source.schemaVersion !== 2 || !capability.observations.some(item => item.outcome === "success"))) {
+      capability.historicalVerifiedAt = capability.lastVerifiedAt;
+      delete capability.lastVerifiedAt;
+      capability.evidence = capability.endpointTypes.length ? "upstream-declared" : "name-inferred";
+    }
     capabilities[capability.model.toLowerCase()] = capability;
   }
   const lastCheckedAt = String(source.lastCheckedAt || "").trim();
   const error = String(source.error || "").trim().slice(0, 1_000);
   return {
+    schemaVersion: 2,
     id,
     label: String(source.label || "模型接入").trim().slice(0, 160) || "模型接入",
     baseUrl: sanitizedAccessBaseUrl(source.baseUrl),
@@ -294,7 +334,8 @@ function normalizeModelAccessProfile(value) {
     providers,
     capabilities,
     ...(lastCheckedAt ? { lastCheckedAt } : {}),
-    ...(error ? { error } : {})
+    ...(error ? { error } : {}),
+    ...(source.catalogReadAt ? { catalogReadAt: String(source.catalogReadAt).slice(0, 40) } : {})
   };
 }
 
@@ -307,7 +348,8 @@ function createModelAccessProfile({
   modelIds = [],
   modelCapabilities = {},
   lastCheckedAt = new Date().toISOString(),
-  error = ""
+  error = "",
+  catalogRead = true
 } = {}) {
   const declared = mergeModelCapabilities(modelCapabilities);
   const capabilities = {};
@@ -332,6 +374,7 @@ function createModelAccessProfile({
     providers,
     capabilities,
     lastCheckedAt,
+    ...(catalogRead && !error ? { catalogReadAt: lastCheckedAt } : {}),
     error
   });
 }
@@ -350,7 +393,8 @@ function mergeCompatibilityCapability(leftValue, rightValue) {
     ...preferred,
     endpointTypes: uniqueModelIds([...(left.endpointTypes || []), ...(right.endpointTypes || [])]),
     ...(lastCheckedAt ? { lastCheckedAt } : {}),
-    ...(lastVerifiedAt ? { lastVerifiedAt } : {})
+    ...(lastVerifiedAt ? { lastVerifiedAt } : {}),
+    observations: [...new Map([...(left.observations || []), ...(right.observations || [])].map(item => [JSON.stringify(item), item])).values()].sort((a, b) => a.observedAt.localeCompare(b.observedAt)).slice(-24)
   };
 }
 
@@ -387,19 +431,19 @@ function preserveRuntimeVerifiedModelAccessProfiles(freshValue, cachedValue) {
   const cached = mergeModelAccessProfiles(cachedValue);
   const verifiedOnly = cached.map((profile) => ({
     ...profile,
-    capabilities: Object.fromEntries(Object.entries(profile.capabilities).filter(([, capability]) => capability.evidence === "runtime-verified" || capability.lastVerifiedAt))
+    capabilities: Object.fromEntries(Object.entries(profile.capabilities).filter(([, capability]) => capability.evidence === "runtime-verified" || capability.lastVerifiedAt || capability.observations?.length))
   })).filter((profile) => Object.keys(profile.capabilities).length > 0);
   return mergeModelAccessProfiles(fresh, verifiedOnly);
 }
 
-function markModelAccessProfilesVerified(profilesValue, { provider, model, endpointType, verifiedAt = new Date().toISOString() } = {}) {
+function markModelAccessProfilesVerified(profilesValue, { profileId, provider, model, endpointType, protocol = endpointType, transport = "sync", operation = endpointType, stage = "response", outcome = "success", category, scope = {}, verifiedAt = new Date().toISOString() } = {}) {
   const targetProvider = String(provider || "").trim().toLowerCase();
   const targetModel = String(model || "").trim();
   const targetEndpoint = String(endpointType || "").trim().toLowerCase();
-  if (!MODEL_PROVIDER_VALUES.has(targetProvider) || !targetModel || !targetEndpoint) return mergeModelAccessProfiles(profilesValue);
+  if (!profileId || !MODEL_PROVIDER_VALUES.has(targetProvider) || !targetModel || !targetEndpoint) return mergeModelAccessProfiles(profilesValue);
   let changed = false;
   const profiles = mergeModelAccessProfiles(profilesValue).map((profile) => {
-    if (!profile.providers.includes(targetProvider)) return profile;
+    if (profile.id !== profileId || !profile.providers.includes(targetProvider)) return profile;
     const key = targetModel.toLowerCase();
     const current = profile.capabilities[key] || {
       model: targetModel,
@@ -415,13 +459,13 @@ function markModelAccessProfilesVerified(profilesValue, { provider, model, endpo
         [key]: {
           ...current,
           endpointTypes: uniqueModelIds([...(current.endpointTypes || []), targetEndpoint]),
-          evidence: "runtime-verified",
-          lastVerifiedAt: verifiedAt
+          ...(outcome === "success" ? { evidence: "runtime-verified", lastVerifiedAt: verifiedAt } : {}),
+          observations: [...(current.observations || []), { protocol, transport, operation, stage, outcome, observedAt: verifiedAt, scope, ...(category ? { category } : {}) }].slice(-24)
         }
       }
     };
   });
-  return changed ? profiles : mergeModelAccessProfiles(profilesValue);
+  return mergeModelAccessProfiles(changed ? profiles : profilesValue);
 }
 
 function normalizedModelServiceStatuses(value) {
@@ -669,6 +713,7 @@ function cachedModelSettings(settings = {}, value) {
 }
 
 module.exports = {
+  modelConnectionIdentity,
   cachedModelSettings,
   createModelAccessProfile,
   modelBindingCacheFingerprint,

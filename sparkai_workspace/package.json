@@ -23,6 +23,7 @@
     ]
   },
   "scripts": {
+    "test:workspace-layout-config-ui": "node scripts/workspace-layout-config-ui-selftest.mjs",
     "test:runtime-diagnostics": "node scripts/runtime-diagnostics-selftest.cjs",
     "test:composer-commands": "node scripts/composer-commands-selftest.mjs",
     "test:composer-command-ui": "node scripts/composer-command-ui-selftest.mjs",
@@ -96,6 +97,9 @@
     "test:image-result-download": "electron scripts/image-result-download-selftest.cjs",
     "test:image-mask-compat": "node scripts/image-mask-compat-selftest.cjs",
     "test:image-generation-async": "node scripts/image-generation-async-selftest.cjs",
+    "test:image-recovery": "node scripts/image-recovery-selftest.cjs",
+    "test:image-recovery-ui": "node scripts/image-recovery-ui-selftest.mjs",
+    "test:workspace-optimization-ui": "node scripts/workspace-optimization-ui-selftest.mjs",
     "test:real-model-validation": "node scripts/real-model-validation-selftest.mjs",
     "test:image-content-title": "node scripts/image-content-title-selftest.ts",
     "test:license": "node scripts/license-service-selftest.cjs",
@@ -110,6 +114,7 @@
     "test:project-session-dual-renderer": "electron scripts/project-session-dual-renderer-selftest.cjs",
     "test:node-mutation-journal": "node scripts/node-mutation-journal-selftest.ts",
     "test:model-catalog": "node scripts/model-catalog-selftest.cjs",
+    "test:model-runtime-evidence": "node scripts/model-runtime-evidence-selftest.cjs",
     "test:model-ux": "node scripts/model-catalog-selftest.cjs && node scripts/model-ux-selftest.ts",
     "test:settings-persistence": "node scripts/settings-persistence-selftest.ts",
     "test:settings-secret-store": "node scripts/settings-secret-store-selftest.cjs",
@@ -149,6 +154,7 @@
     "test:layer-alpha": "node scripts/layer-alpha-selftest.ts",
     "test:layer-mask-replay": "node scripts/layer-mask-replay-selftest.ts",
     "test:semantic-matting": "node scripts/semantic-matting-selftest.cjs",
+    "test:canvas-wheel": "node scripts/canvas-wheel-selftest.ts",
     "test:selection": "node scripts/selection-state-selftest.ts",
     "test:canvas-commands": "node scripts/canvas-command-selftest.ts",
     "test:canvas-clipboard": "node scripts/canvas-clipboard-selftest.ts",

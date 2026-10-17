@@ -117,7 +117,7 @@ function createImageGenerationService(options = {}) {
     return { editImages, mask };
   }
 
-  async function send(settings, config, request, providerRequest, options = {}) {
+  function transportSettings(settings, config) {
     const configuredBinding = {
       model: config.model,
       ...(config.apiKey ? { customApiKey: config.apiKey } : {}),
@@ -125,7 +125,7 @@ function createImageGenerationService(options = {}) {
       ...(config.accountTokenId ? { accountTokenId: config.accountTokenId } : {})
     };
     const hasConfiguredBinding = Object.keys(configuredBinding).length > 1;
-    const settingsForTransport = hasConfiguredBinding
+    return hasConfiguredBinding
       ? {
           ...settings,
           imageModelBindings: [
@@ -136,6 +136,10 @@ function createImageGenerationService(options = {}) {
           ]
         }
       : settings;
+  }
+
+  async function send(settings, config, request, providerRequest, options = {}) {
+    const settingsForTransport = transportSettings(settings, config);
     const transportOptions = {
       provider: "image",
       model: config.model,
@@ -149,6 +153,10 @@ function createImageGenerationService(options = {}) {
       ...(config.apiKey && accessPolicy?.customApiAccess !== false ? { apiKey: config.apiKey } : {}),
       ...(config.protocol === "gemini-native" && config.gateway === "direct" ? { authHeader: "x-goog-api-key" } : {}),
       onPartialImage: request.onPartialImage,
+      onAccepted: request.onAccepted,
+      onStatus: request.onStatus,
+      onPollRetry: request.onPollRetry,
+      onConnectionResolved: request.onConnectionResolved,
       pollIntervalMs: config.pollIntervalMs,
       maxWaitMs: config.maxWaitMs
     };
@@ -223,6 +231,7 @@ function createImageGenerationService(options = {}) {
       }
       diagnostic({ phase: "response", count: normalized.images.length, durationMs: Date.now() - startedAt });
       stage = "result";
+      request.onResultReceived?.(legacyResponse(normalized), { clientMask, inputs: preparedInputs, sourcePath: request.editImage?.path || request.images[0]?.path });
       if (clientMask) {
         try {
           normalized = await applyClientMask(normalized, preparedInputs, async (url) => {
@@ -267,7 +276,7 @@ function createImageGenerationService(options = {}) {
     }
   }
 
-  return { generate, resolveModelConfig: (settings, model) => resolveImageModelConfig(settings, model) };
+  return { generate, transportSettings, resolveModelConfig: (settings, model) => resolveImageModelConfig(settings, model) };
 }
 
 module.exports = { createImageGenerationService };

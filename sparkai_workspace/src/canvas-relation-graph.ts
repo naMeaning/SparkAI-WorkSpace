@@ -34,6 +34,58 @@ const RELATION_TYPES = new Set<NonNullable<WorkflowNode["relationType"]>>([
 
 const cleanId = (value: unknown): string => String(value ?? "").trim().slice(0, 160);
 
+type Point = { x: number; y: number };
+type Rect = Point & { width: number; height: number };
+
+export function canvasRelationCurvePath(source: Point, target: Point, lane = 0): string {
+  const mid = (source.x + target.x) / 2;
+  return `M ${source.x} ${source.y} C ${mid} ${source.y + lane}, ${mid} ${target.y + lane}, ${target.x} ${target.y}`;
+}
+
+/** Matches canvasRelationCurvePath, including curves with both endpoints offscreen. */
+export function canvasRelationCurveIntersectsRect(source: Point, target: Point, lane: number, rect: Rect): boolean {
+  const right = rect.x + rect.width, bottom = rect.y + rect.height;
+  if (Math.max(source.x, target.x) < rect.x || Math.min(source.x, target.x) > right
+    || Math.max(source.y, target.y, source.y + lane, target.y + lane) < rect.y
+    || Math.min(source.y, target.y, source.y + lane, target.y + lane) > bottom) return false;
+  const dx = target.x - source.x;
+  let first = 0, last = 1;
+  if (dx !== 0) {
+    const a = (rect.x - source.x) / dx, b = (right - source.x) / dx;
+    // x(t) is monotonic: normalized x = 1.5t - 1.5t² + t³.
+    // Outward bisection bounds keep this conservative at floating-point edges.
+    const parameter = (x: number, upper: boolean) => {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 24; i++) {
+        const t = (lo + hi) / 2;
+        if (t * (1.5 + t * (t - 1.5)) < x) lo = t;
+        else hi = t;
+      }
+      return upper ? hi : lo;
+    };
+    first = parameter(Math.max(0, Math.min(a, b)), false);
+    last = parameter(Math.min(1, Math.max(a, b)), true);
+  }
+  const dy = target.y - source.y;
+  const yAt = (t: number) => source.y + t * t * (3 - 2 * t) * dy + 3 * lane * t * (1 - t);
+  let low = Math.min(yAt(first), yAt(last)), high = Math.max(yAt(first), yAt(last));
+  const include = (t: number) => {
+    if (t < first || t > last) return;
+    const y = yAt(t); low = Math.min(low, y); high = Math.max(high, y);
+  };
+  const a = -6 * dy, b = 6 * dy - 6 * lane, c = 3 * lane;
+  if (Math.abs(a) < 1e-12) {
+    if (Math.abs(b) > 1e-12) include(-c / b);
+  } else {
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant >= 0) {
+      const root = Math.sqrt(discriminant);
+      include((-b - root) / (2 * a)); include((-b + root) / (2 * a));
+    }
+  }
+  return low <= bottom + 1e-6 && high >= rect.y - 1e-6;
+}
+
 function relationEdges(nodes: readonly WorkflowNode[]): Array<{ sourceId: string; targetId: string }> {
   const result: Array<{ sourceId: string; targetId: string }> = [];
   const seen = new Set<string>();

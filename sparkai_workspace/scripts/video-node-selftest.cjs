@@ -8,7 +8,9 @@ const {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  rmdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } = require("node:fs");
 const os = require("node:os");
@@ -196,6 +198,23 @@ async function main() {
     assert.match(restoredAsset.assetUrl, /^naimage-asset:/);
     assert.equal(restored.nodes[0].videoState, "ready");
     assert.equal(restored.nodes[0].status, "done");
+
+    const junction = path.join(projectPath, ".naimage", "assets");
+    mkdirSync(path.dirname(junction), { recursive: true });
+    symlinkSync(path.dirname(imported.assets[0].path), junction, "junction");
+    const junctionSession = structuredClone(saved);
+    const linkedName = path.basename(imported.assets[0].path);
+    junctionSession.nodes[0].videoAsset = {
+      ...savedAsset, path: path.join(junction, linkedName), relativePath: `.naimage/assets/${linkedName}`
+    };
+    assert.equal(repository.sessionWithProjectAssets(junctionSession, project).nodes[0].videoState, "ready");
+    // A later operation must not trust a root resolved by the previous pass.
+    rmdirSync(junction);
+    writeFileSync(path.join(sourceRoot, linkedName), mp4Fixture());
+    symlinkSync(sourceRoot, junction, "junction");
+    assert.equal(repository.sessionWithProjectAssets(junctionSession, project).nodes[0].videoState, "error", "Retargeted managed root cannot authorize an external file");
+    assert.equal(repository.sessionForProjectSave(junctionSession, project).nodes[0].videoAsset, undefined, "Save revalidates the root independently");
+    rmdirSync(junction);
 
     assert.equal(repository.videoAssetForProjectSave({
       type: "file",
@@ -517,7 +536,7 @@ async function main() {
     assert.equal(missing.videoState, "error");
     assert.match(missing.videoError, /不存在|受管目录/);
 
-    process.stdout.write(`${JSON.stringify({ ok: true, imported: imported.importedCount, skipped: imported.skippedCount, reused: imported.reusedCount, persistedRelativeOnly: true, restartRecovery: true })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: true, imported: imported.importedCount, skipped: imported.skippedCount, reused: imported.reusedCount, persistedRelativeOnly: true, restartRecovery: true, assetRootRevalidation: true })}\n`);
   } finally {
     rmSync(testRoot, { recursive: true, force: true });
   }

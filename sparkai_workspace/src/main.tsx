@@ -62,6 +62,7 @@ import {
   Copy,
   Download,
   Eye,
+  MousePointer2,
   EyeOff,
   Film,
   FolderOpen,
@@ -124,6 +125,8 @@ import { installAgentFixtureBridge } from "./aidebug/agent-fixture-bridge";
 import { automationCommandError, automationErrorPayload } from "./automation-command-errors";
 import {
   assertCanvasRelationGraphAcyclic,
+  canvasRelationCurvePath,
+  canvasRelationCurveIntersectsRect,
   connectCanvasRelations,
   disconnectCanvasRelations,
   type CanvasRelationEdge,
@@ -348,6 +351,7 @@ import {
 import { WindowControls } from "./window-controls";
 import { CanvasNavigationControls } from "./canvas-navigation-controls";
 import { CanvasToolbarPages } from "./canvas-toolbar-pages";
+import { canvasWheelViewport } from "./canvas-wheel";
 import {
   CanvasNodeHoverToolbar,
   CanvasSelectionToolbar,
@@ -428,6 +432,7 @@ import type {
   DeleteNodeDraft,
   CanvasMenuState,
   ImageTaskDraft,
+  ImageModelConfig,
   ReferencePickerTarget,
   ReferencePickerDraft,
   AskUserDraft,
@@ -539,6 +544,9 @@ type AgentSteerOptions = {
 };
 
 type AssetContextMenuState = {
+  projectId: string;
+  revision: number;
+  assetKey: string;
   x: number;
   y: number;
   nodeId: string;
@@ -727,6 +735,8 @@ type ConnectionDraft = {
 };
 
 type RelationMenuState = {
+  projectId: string;
+  revision: number;
   x: number;
   y: number;
   sourceId: string;
@@ -757,8 +767,7 @@ function provenanceEdgePath(
   const x2 = targetPort.x;
   const y2 = targetPort.y;
   const lane = (laneIndex - (laneCount - 1) / 2) * 34;
-  const mid = (x1 + x2) / 2;
-  return `M ${x1} ${y1} C ${mid} ${y1 + lane}, ${mid} ${y2 + lane}, ${x2} ${y2}`;
+  return canvasRelationCurvePath({ x: x1, y: y1 }, { x: x2, y: y2 }, lane);
 }
 
 function parentImageActionToRequirement(action: AgentRuntimeAction, requirementNodeId: string): AgentRuntimeAction {
@@ -856,6 +865,7 @@ const AgentTextEditorDialog = lazyStudioDialog("AgentTextEditorDialog");
 const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
 const LazySettingsDrawer = React.lazy(() => import("./settings-drawer"));
+const LazyImageRecoveryDialog = React.lazy(() => import("./image-recovery-dialog"));
 const LazyCommerceSetDialog = React.lazy(() => import("./commerce-set-dialog"));
 const LazyCommerceCatalogDialog = React.lazy(() => import("./commerce-catalog-dialog"));
 const LazyCommerceExportDialog = React.lazy(() => import("./commerce-export-dialog"));
@@ -2010,7 +2020,9 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     ? source.persistenceOriginId.trim().slice(0, 200)
     : fallbackOriginId
       ? `${fallbackOriginId}:${id}`
-      : `legacy:${id}:${createdAt}:${type}`;
+      // Match Main's legacy origin before adding a display-only timestamp.
+      // Otherwise an undated legacy node looks like a second writer's new node.
+      : `legacy:${id}:${typeof source.createdAt === "string" ? source.createdAt.trim() : ""}:${type}`;
 
   return applyImageContainerCompatibility({
     id,
@@ -2827,7 +2839,13 @@ async function loadSettingsFromStore(): Promise<AppSettings> {
   return enforceRendererAccessPolicy(mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings)));
 }
 
-async function saveSettingsToStore(settings: AppSettings) {
+let settingsSaveQueue: Promise<unknown> = Promise.resolve();
+function saveSettingsToStore(settings: AppSettings) {
+  const task = settingsSaveQueue.catch(() => undefined).then(() => writeSettingsToStore(settings));
+  settingsSaveQueue = task;
+  return task;
+}
+async function writeSettingsToStore(settings: AppSettings) {
   const protectedSettings = enforceRendererAccessPolicy(settings);
   if (window.naimageConfig) {
     const result = await window.naimageConfig.saveSettings(protectedSettings);
@@ -3568,11 +3586,14 @@ function App() {
     ? settingsWithGlassBootstrap(defaultSettings)
     : mergeSettings(readJson<Partial<AppSettings> & Record<string, unknown>>(STORAGE_SETTINGS, defaultSettings))
   );
+  const [resolvedImageModelConfigs, setResolvedImageModelConfigs] = useState<ImageModelConfig[]>([]);
   const [availableImageModels, setAvailableImageModels] = useState<string[]>(() => uniqueImageModels([
     ...selectedImageModelsFromSettings(settings),
     ...settings.imageModelBindings.map((binding) => binding.model),
   ]));
   const [agentPanelLayout, setAgentPanelLayout] = useState<AgentPanelLayout>(() => agentPanelLayoutFromSettings(settings));
+  const [workspaceBounds, setWorkspaceBounds] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const effectiveAgentPanelLayout = clampAgentPanelLayout(agentPanelLayout, workspaceBounds);
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState(() => uid("conv"));
@@ -3583,6 +3604,15 @@ function App() {
   const [canvasSelectionBox, setCanvasSelectionBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
+  const [playingVideoNodes, setPlayingVideoNodes] = useState<ReadonlyMap<string, string>>(() => new Map());
+  useEffect(() => {
+    setPlayingVideoNodes((previous) => {
+      const next = new Map([...previous].filter(([nodeId, projectId]) =>
+        projectId === activeProjectId && nodes.some((node) => node.id === nodeId && node.type === "video")
+      ));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [activeProjectId, nodes]);
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const projectDataMigrationPreviewRef = useRef<ProjectDataMigrationPreviewResult | null>(null);
@@ -3594,6 +3624,7 @@ function App() {
   const [prompt, setPrompt] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentImageConfigOpen, setAgentImageConfigOpen] = useState(false);
+  const [imageRecoveryOpen, setImageRecoveryOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("access");
   const [helpOpen, setHelpOpen] = useState<HelpCenterSection | null>(null);
   const [commerceTutorialOpen, setCommerceTutorialOpen] = useState(false);
@@ -3728,6 +3759,7 @@ function App() {
   const [serverWallet, setServerWallet] = useState<ServerWallet | null>(null);
   const [desktopUpdateNotice, setDesktopUpdateNotice] = useState<DesktopUpdateInfo | null>(null);
   const [serverMessage, setServerMessage] = useState("");
+  const [canvasMenuNotice, setCanvasMenuNotice] = useState("");
   const [authDraft, setAuthDraft] = useState<AuthDraft>({
     email: "",
     password: "",
@@ -3952,6 +3984,7 @@ function App() {
   const regionRedrawPaintRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
   const regionRedrawDraftRef = useRef<RegionRedrawDraft | null>(null);
   const imageTileClickTimerRef = useRef<number | null>(null);
+  const canvasGestureCancelRef = useRef<(() => void) | null>(null);
   const imageViewerAssetSourcesRef = useRef<Array<{ nodeId: string; assetIndex: number }>>([]);
   const lastNodeDragEndRef = useRef<{ nodeId: string; endedAt: number } | null>(null);
   const internalAssetDragRef = useRef<{ dragId: string; nodeId: string; assetIndex: number; assetKey: string; startedAt: number; diagnosticId?: string } | null>(null);
@@ -4729,6 +4762,8 @@ function App() {
     const commitCanvasLayout = () => {
       layoutFrame = 0;
       const canvasRect = canvasRef.current?.getBoundingClientRect();
+      const bounds = workspaceRef.current?.getBoundingClientRect();
+      if (bounds) setWorkspaceBounds(current => current.width === bounds.width && current.height === bounds.height ? current : { width: bounds.width, height: bounds.height });
       if (canvasRect) {
         const width = Math.max(1, Math.round(canvasRect.width));
         const height = Math.max(1, Math.round(canvasRect.height));
@@ -4793,6 +4828,7 @@ function App() {
     let cancelled = false;
     void window.naimageServer.models({ cacheOnly: true }).then((result) => {
       if (cancelled || !result?.ok) return;
+      setResolvedImageModelConfigs(result.settings?.resolvedImageModelConfigs ?? []);
       setAvailableImageModels((current) => uniqueImageModels([
         ...current,
         result.settings?.imageModel,
@@ -4802,7 +4838,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [configReady]);
+  }, [configReady, settings.imageModelBindings, settings.imageModelConfigs, settings.imageModelPool, settings.imageBaseUrl, settings.imageApiKey]);
 
   useEffect(() => {
     const next = agentPanelLayoutFromSettings(settings);
@@ -4935,6 +4971,29 @@ function App() {
     cancelAgentStreamFlush();
     pendingAgentStreamMessagesRef.current.clear();
   }, []);
+
+  function clearImageTileClick() {
+    if (imageTileClickTimerRef.current !== null) window.clearTimeout(imageTileClickTimerRef.current);
+    imageTileClickTimerRef.current = null;
+  }
+
+  useEffect(() => {
+    const cancel = () => {
+      clearImageTileClick();
+      canvasGestureCancelRef.current?.();
+      internalAssetDragRef.current = null;
+      setAssetDropTargetId("");
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const active = Boolean(canvasGestureCancelRef.current || internalAssetDragRef.current);
+      cancel();
+      if (active) { event.preventDefault(); event.stopImmediatePropagation(); }
+    };
+    window.addEventListener("blur", cancel);
+    window.addEventListener("keydown", escape, true);
+    return () => { cancel(); window.removeEventListener("blur", cancel); window.removeEventListener("keydown", escape, true); };
+  }, [activeProjectId]);
 
   useEffect(() => {
     const nodeId = regionRedrawDraft?.nodeId;
@@ -5440,23 +5499,17 @@ function App() {
 
     const handleWheel = (event: WheelEvent) => {
       if (event.target instanceof Element && event.target.closest("[data-canvas-no-zoom], .canvas-plugin-toolbar")) return;
-      if (Math.abs(event.deltaY) <= 0) return;
+      if (!event.deltaY && !event.deltaX) return;
       event.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const pointerX = event.clientX - rect.left;
       const pointerY = event.clientY - rect.top;
 
       const current = viewportRef.current;
-      const nextScale = clamp(current.scale + (event.deltaY > 0 ? -0.055 : 0.055), ZOOM_MIN, ZOOM_MAX);
-      if (nextScale === current.scale) return;
+      const next = canvasWheelViewport(current, event, { x: pointerX, y: pointerY }, rect.height, settingsRef.current.canvasWheelMode, ZOOM_MIN, ZOOM_MAX);
+      if (next.scale === current.scale && next.x === current.x && next.y === current.y) return;
       beginViewportInteraction();
-      const worldX = (pointerX - current.x) / current.scale;
-      const worldY = (pointerY - current.y) / current.scale;
-      queueWheelViewport({
-        x: pointerX - worldX * nextScale,
-        y: pointerY - worldY * nextScale,
-        scale: nextScale
-      });
+      queueWheelViewport(next);
       scheduleViewportCommit();
     };
 
@@ -5481,10 +5534,13 @@ function App() {
         }
       | null = null;
 
-    const stopPan = () => {
+    const stopPan = (event?: Event) => {
       if (!pan) return;
       if (pan.frame) window.cancelAnimationFrame(pan.frame);
-      if (pan.next) {
+      const cancelled = event?.type === "pointercancel" || event?.type === "blur" || event?.type === "keydown";
+      if (cancelled) {
+        applyTransientViewport(pan.startViewport);
+      } else if (pan.next) {
         applyTransientViewport(pan.next);
         setViewport({ ...pan.next });
       }
@@ -5506,6 +5562,7 @@ function App() {
       event.preventDefault();
       event.stopPropagation();
       setCanvasMenu(null);
+      clearImageTileClick();
       if (pan) return;
       if (wheelCommitTimer) {
         window.clearTimeout(wheelCommitTimer);
@@ -5534,6 +5591,7 @@ function App() {
     function handlePanMove(moveEvent: PointerEvent) {
       if (!pan) return;
       moveEvent.preventDefault();
+      if (Math.hypot(moveEvent.clientX - pan.startX, moveEvent.clientY - pan.startY) < 5 && !pan.next) return;
       pan.next = {
         ...pan.startViewport,
         x: pan.startViewport.x + moveEvent.clientX - pan.startX,
@@ -5547,7 +5605,9 @@ function App() {
       });
     }
 
+    let selectionFrame = 0;
     const updateSelectionBox = () => {
+      selectionFrame = 0;
       if (!selection) return;
       const rect = canvas.getBoundingClientRect();
       const left = Math.min(selection.startX, selection.currentX);
@@ -5572,35 +5632,38 @@ function App() {
       }
       window.removeEventListener("pointermove", handleSelectionMove);
       window.removeEventListener("pointerup", stopSelection);
-      window.removeEventListener("pointercancel", stopSelection);
-      window.removeEventListener("blur", stopSelection);
+      window.removeEventListener("pointercancel", cancelSelection);
+      window.removeEventListener("blur", cancelSelection);
+      if (selectionFrame) window.cancelAnimationFrame(selectionFrame);
+      selectionFrame = 0;
       setCanvasSelectionBox(null);
 
       const left = Math.min(finished.startX, finished.currentX);
       const right = Math.max(finished.startX, finished.currentX);
       const top = Math.min(finished.startY, finished.currentY);
       const bottom = Math.max(finished.startY, finished.currentY);
-      if (right - left < 4 && bottom - top < 4) {
-        applyNodeSelection({ type: "clear" }, "canvas-blank-click");
-        return;
-      }
-      const ids = Array.from(canvas.querySelectorAll<HTMLElement>(".flow-node[data-node-id]"))
-        .filter((node) => {
-          const rect = node.getBoundingClientRect();
-          return rect.right >= left && rect.left <= right && rect.bottom >= top && rect.top <= bottom;
-        })
-        .map((node) => String(node.dataset.nodeId || ""))
-        .filter(Boolean);
+      if (Math.hypot(right - left, bottom - top) < 5) return;
+      const rect = canvas.getBoundingClientRect();
+      const view = viewportRef.current;
+      const world = { left: (left - rect.left - view.x) / view.scale, right: (right - rect.left - view.x) / view.scale,
+        top: (top - rect.top - view.y) / view.scale, bottom: (bottom - rect.top - view.y) / view.scale };
+      const ids = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current).canvasNodes.filter(node => {
+        const bounds = workflowNodeBounds(node);
+        return bounds.x + bounds.width >= world.left && bounds.x <= world.right && bounds.y + bounds.height >= world.top && bounds.y <= world.bottom;
+      }).map(node => node.id);
       applyNodeSelection({ type: "replace-group", ids, preserveOnEmpty: true }, "marquee", true);
     };
 
     const cancelSelection = () => {
+      if (selection) try { canvas.releasePointerCapture?.(selection.pointerId); } catch { /* Already released. */ }
       selection = null;
       canvas.classList.remove("is-selecting");
       window.removeEventListener("pointermove", handleSelectionMove);
       window.removeEventListener("pointerup", stopSelection);
-      window.removeEventListener("pointercancel", stopSelection);
-      window.removeEventListener("blur", stopSelection);
+      window.removeEventListener("pointercancel", cancelSelection);
+      window.removeEventListener("blur", cancelSelection);
+      if (selectionFrame) window.cancelAnimationFrame(selectionFrame);
+      selectionFrame = 0;
       setCanvasSelectionBox(null);
     };
 
@@ -5626,8 +5689,8 @@ function App() {
       }
       window.addEventListener("pointermove", handleSelectionMove, { passive: false });
       window.addEventListener("pointerup", stopSelection);
-      window.addEventListener("pointercancel", stopSelection);
-      window.addEventListener("blur", stopSelection);
+      window.addEventListener("pointercancel", cancelSelection);
+      window.addEventListener("blur", cancelSelection);
     };
 
     function handleSelectionMove(moveEvent: PointerEvent) {
@@ -5635,17 +5698,18 @@ function App() {
       moveEvent.preventDefault();
       selection.currentX = moveEvent.clientX;
       selection.currentY = moveEvent.clientY;
-      updateSelectionBox();
+      if (!selectionFrame) selectionFrame = window.requestAnimationFrame(updateSelectionBox);
     }
 
     const canStartCanvasPan = (target: EventTarget | null) =>
       target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator, .canvas-plugin-toolbar, [data-canvas-no-zoom]");
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.button === 1 && canStartCanvasPan(event.target)) startPan(event);
+      const surfacePan = event.target instanceof Element && !event.target.closest("input, textarea, select, button, [contenteditable='true'], .node-port, .node-resize-handle, [role='menu'], [data-canvas-no-zoom], .canvas-plugin-toolbar");
+      if ((event.button === 1 || event.button === 0 && spacePressed) && surfacePan) { startPan(event); return; }
       if (event.button === 0 && canStartCanvasPan(event.target)) {
         const panTool = canvasToolRef.current === "pan";
-        if ((spacePressed ? !panTool : panTool) || event.altKey) startPan(event);
+        if (spacePressed || panTool || event.altKey) startPan(event);
         else startSelection(event);
       }
     };
@@ -5658,7 +5722,14 @@ function App() {
     const handleSpaceUp = (event: KeyboardEvent) => {
       if (event.code === "Space") spacePressed = false;
     };
-    const handleCanvasBlur = () => { spacePressed = false; };
+    const handleCanvasBlur = () => { spacePressed = false; clearImageTileClick(); };
+    const handleGestureEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      clearImageTileClick();
+      if (!pan && !selection) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      stopPan(event); cancelSelection();
+    };
 
     const handleAuxClick = (event: MouseEvent) => {
       if (event.button === 1) event.preventDefault();
@@ -6006,15 +6077,16 @@ function App() {
     }
 
     canvas.addEventListener("wheel", handleWheel, { passive: false });
-    canvas.addEventListener("pointerdown", handlePointerDown);
+    canvas.addEventListener("pointerdown", handlePointerDown, true);
     canvas.addEventListener("auxclick", handleAuxClick);
     window.addEventListener("keydown", handleSpaceDown);
     window.addEventListener("keyup", handleSpaceUp);
     window.addEventListener("blur", handleCanvasBlur);
+    window.addEventListener("keydown", handleGestureEscape, true);
     return () => {
       if (wheelCommitTimer) window.clearTimeout(wheelCommitTimer);
       flushWheelViewport();
-      stopPan();
+      stopPan(new Event("pointercancel"));
       if (viewportQualityTimer) {
         window.clearTimeout(viewportQualityTimer);
         viewportQualityTimer = 0;
@@ -6023,11 +6095,12 @@ function App() {
       canvas.classList.remove("is-viewport-interacting", "is-viewport-detail-reduced");
       if (canvasStageRef.current) canvasStageRef.current.style.transform = canvasViewportTransform(viewportRef.current);
       canvas.removeEventListener("wheel", handleWheel);
-      canvas.removeEventListener("pointerdown", handlePointerDown);
+      canvas.removeEventListener("pointerdown", handlePointerDown, true);
       canvas.removeEventListener("auxclick", handleAuxClick);
       window.removeEventListener("keydown", handleSpaceDown);
       window.removeEventListener("keyup", handleSpaceUp);
       window.removeEventListener("blur", handleCanvasBlur);
+      window.removeEventListener("keydown", handleGestureEscape, true);
       cleanupCanvasDebug();
     };
   }, [serverUser?.id, authReady, canvasMountTick, selectedNodeId, nodes, settings]);
@@ -6545,10 +6618,15 @@ function App() {
 
   const renderedNodes = useMemo(() => {
     const importantIds = new Set<string>();
-    [...selectedNodeIds, selectedNodeId, activeNodeId ?? "", draggingNodeId, resizingNodeId]
+    // Selection is canonical project state; offscreen secondary selections do
+    // not need full image components. Keep the primary/active gesture mounted.
+    [selectedNodeId, activeNodeId ?? "", draggingNodeId, resizingNodeId]
       .filter(Boolean)
       .forEach((id) => importantIds.add(layoutProjection.groupByMember.get(id)?.hostNodeId ?? id));
     Object.keys(imageRunStarts).forEach((id) => importantIds.add(layoutProjection.groupByMember.get(id)?.hostNodeId ?? id));
+    playingVideoNodes.forEach((projectId, id) => {
+      if (projectId === activeProjectId) importantIds.add(id);
+    });
 
     // The canvas starts at a 1x1 sentinel until its first ResizeObserver/rAF
     // measurement. Mounting every project node for that single frame made a
@@ -6573,18 +6651,8 @@ function App() {
 
     if (renderedIds.size === canvasNodes.length) return canvasNodes;
 
-    const baseRenderedIds = new Set(renderedIds);
-    for (const node of canvasNodes) {
-      const inputs = nodeInputBindingsById.get(node.id) ?? [];
-      inputs.forEach((input) => {
-        const inputId = input.nodeId;
-        if (baseRenderedIds.has(node.id)) renderedIds.add(inputId);
-        if (baseRenderedIds.has(inputId)) renderedIds.add(node.id);
-      });
-    }
-
     return canvasNodes.filter((node) => renderedIds.has(node.id));
-  }, [activeNodeId, canvasNodes, canvasViewportSize.height, canvasViewportSize.width, draggingNodeId, imageRunStarts, layoutProjection.groupByMember, nodeInputBindingsById, resizingNodeId, selectedNodeId, selectedNodeIds, viewport.scale, viewport.x, viewport.y]);
+  }, [activeNodeId, activeProjectId, canvasNodes, canvasViewportSize.height, canvasViewportSize.width, draggingNodeId, imageRunStarts, layoutProjection.groupByMember, playingVideoNodes, resizingNodeId, selectedNodeId, viewport.scale, viewport.x, viewport.y]);
   const renderedNodesRef = useRef(renderedNodes);
   renderedNodesRef.current = renderedNodes;
   const renderedImageTileCount = useMemo(
@@ -6593,14 +6661,32 @@ function App() {
     ), 0),
     [renderedNodes]
   );
-  canvasVisualComplexityRef.current.imageTiles = renderedImageTileCount;
   const canvasNodeOverviewMode = viewport.scale <= NODE_OVERVIEW_MAX_SCALE && (
     renderedNodes.length >= NODE_OVERVIEW_MIN_COUNT || renderedImageTileCount >= NODE_OVERVIEW_MIN_IMAGE_TILES
   );
-  const renderedNodeIdSet = useMemo(() => new Set(renderedNodes.map((node) => node.id)), [renderedNodes]);
+  const overviewNodeIdSet = useMemo(() => new Set(
+    canvasNodeOverviewMode && !connectionDraft ? renderedNodes.filter((node) =>
+      selectedNodeId !== node.id && activeNodeId !== node.id && resizingNodeId !== node.id
+      && assetDropTargetId !== node.id && playingVideoNodes.get(node.id) !== activeProjectId && !imageRunStarts[node.id]
+    ).map((node) => node.id) : []
+  ), [canvasNodeOverviewMode, connectionDraft, renderedNodes, selectedNodeId, activeNodeId, resizingNodeId, assetDropTargetId, playingVideoNodes, activeProjectId, imageRunStarts]);
+  // Overview cards have no image surfaces. Counting their latent assets caused
+  // needless whole-layer hiding/restoration during otherwise light navigation.
+  canvasVisualComplexityRef.current.imageTiles = renderedNodes.reduce((count, node) =>
+    count + (node.type === "image" && !overviewNodeIdSet.has(node.id) ? Math.max(1, node.assets?.length ?? 0) : 0), 0
+  );
   const renderedEdges = useMemo(
-    () => edges.filter((edge) => renderedNodeIdSet.has(edge.source.id) || renderedNodeIdSet.has(edge.target.id)),
-    [edges, renderedNodeIdSet]
+    () => {
+      const scale = Math.max(viewport.scale || 1, ZOOM_MIN);
+      const visibleRect = { x: -viewport.x / scale - NODE_RENDER_BUFFER, y: -viewport.y / scale - NODE_RENDER_BUFFER,
+        width: canvasViewportSize.width / scale + NODE_RENDER_BUFFER * 2, height: canvasViewportSize.height / scale + NODE_RENDER_BUFFER * 2 };
+      return edges.filter((edge) => {
+        const a = provenancePortCenter(edge.source, "output"), b = provenancePortCenter(edge.target, "input");
+        const lane = (edge.laneIndex - (edge.laneCount - 1) / 2) * 34;
+        return canvasRelationCurveIntersectsRect(a, b, lane, visibleRect);
+      });
+    },
+    [edges, viewport.x, viewport.y, viewport.scale, canvasViewportSize.width, canvasViewportSize.height]
   );
 
   useEffect(() => {
@@ -6639,9 +6725,13 @@ function App() {
           canvasNodeCount: canvasNodesRef.current.length,
           renderedNodeCount: renderedNodesRef.current.length,
           domNodeCount: document.querySelectorAll(".flow-node").length,
+          domEdgeCount: document.querySelectorAll('path[data-relation-line="true"]').length,
           messageCount: visibleMessages.length,
           domMessageCount: document.querySelectorAll(".agent-message").length,
           selectedNodeId: selectedId,
+          selectedNodeCount: selectedNodeIdsRef.current.length,
+          overviewNodeCount: document.querySelectorAll('[data-node-overview="true"]').length,
+          selectedOverviewNodeCount: document.querySelectorAll('[data-node-overview="true"][aria-pressed="true"]').length,
           selectedNodeMounted: Boolean(selectedElement),
           selectedNodeRect: rectSnapshot(selectedElement?.getBoundingClientRect()),
           viewport: { ...viewportRef.current },
@@ -9182,6 +9272,7 @@ function App() {
     if (blockLockedNodeMutation([source.id], "调整连线")) return;
     event.preventDefault();
     event.stopPropagation();
+    clearImageTileClick();
     const selectedSourceIds = source.type === "image" && selectedNodeIdsRef.current.includes(source.id) && selectedNodeIdsRef.current.length > 1
       ? selectedNodeIdsRef.current.filter((id) => nodesRef.current.some((node) => node.id === id && node.type === "image"))
       : [source.id];
@@ -9209,6 +9300,8 @@ function App() {
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("keydown", cancelWithEscape, true);
+      window.removeEventListener("blur", cancel);
+      canvasGestureCancelRef.current = null;
       try {
         target.releasePointerCapture(event.pointerId);
       } catch {
@@ -9255,6 +9348,8 @@ function App() {
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", cancel);
     window.addEventListener("keydown", cancelWithEscape, true);
+    window.addEventListener("blur", cancel);
+    canvasGestureCancelRef.current = cancel;
   }
 
   async function copyCanvasSelection(cut = false) {
@@ -12831,6 +12926,7 @@ function App() {
         ? selectedAssetMembers.map((item) => item.nodeId)
         : [node.id];
     if (blockLockedNodeMutation(mutationIds, "移动")) return;
+    clearImageTileClick();
     selectNodeFromPlainClick(node.id, "node-drag-start");
     const sourceAsset = imageTileMovesNode ? node.assets?.[0] : undefined;
     const layerGroupStart = layerGroupTitleDrag && node.layerGroup
@@ -12930,6 +13026,7 @@ function App() {
       startedAt: Date.now(),
       transientEdges
     };
+    canvasGestureCancelRef.current = () => nodeElement.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: event.pointerId }));
     draggingNodeIdsRef.current = new Set(styledMembers.map((member) => member.id));
     setDraggingNodeId(node.id);
     try {
@@ -12944,7 +13041,7 @@ function App() {
     if (!drag || drag.id !== node.id || drag.pointerId !== event.pointerId) return;
     const dx = (event.clientX - drag.startX) / zoom;
     const dy = (event.clientY - drag.startY) / zoom;
-    drag.moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 7;
+    drag.moved ||= Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 5;
     if (drag.allowImageGrouping) {
       const groupingTarget = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 18
         ? imageGroupingTargetAt(event.clientX, event.clientY, node.id, drag.groupingSourceIds)
@@ -13000,23 +13097,9 @@ function App() {
       if (current.layerGroupId && current.layerGroupStart) {
         const dx = current.moved ? (current.pendingX ?? current.nodeX) - current.nodeX : 0;
         const dy = current.moved ? (current.pendingY ?? current.nodeY) - current.nodeY : 0;
-        setNodes((source) => {
-          const next = source.map((item) => {
-            const start = current.layerGroupStart?.[item.id];
-            if (!start || item.layerGroup?.id !== current.layerGroupId) return item;
-            return {
-              ...item,
-              ...(!start.detached ? { x: Math.round(start.x + dx), y: Math.round(start.y + dy) } : {}),
-              layerGroup: {
-                ...cloneImageLayerNodeGroup(item.layerGroup)!,
-                anchorX: Math.round(start.anchorX + dx),
-                anchorY: Math.round(start.anchorY + dy)
-              }
-            };
-          });
-          nodesRef.current = next;
-          return next;
-        });
+        for (const [id, start] of Object.entries(current.layerGroupStart)) {
+          if (!start.detached) applyTransientNodePosition(id, Math.round(start.x + dx), Math.round(start.y + dy));
+        }
         current.frame = undefined;
         return;
       }
@@ -13035,6 +13118,7 @@ function App() {
   function endNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
     const drag = dragRef.current;
     if (!drag || drag.id !== node.id || drag.pointerId !== event.pointerId) return;
+    canvasGestureCancelRef.current = null;
     try {
       event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {
@@ -13048,38 +13132,12 @@ function App() {
         Object.entries(drag.layerGroupStart).forEach(([id, start]) => {
           applyTransientNodePosition(id, start.x, start.y);
         });
-        setNodes((source) => {
-          const next = source.map((item) => {
-            const start = drag.layerGroupStart?.[item.id];
-            if (!start || item.layerGroup?.id !== drag.layerGroupId) return item;
-            return {
-              ...item,
-              x: start.x,
-              y: start.y,
-              layerGroup: {
-                ...cloneImageLayerNodeGroup(item.layerGroup)!,
-                anchorX: start.anchorX,
-                anchorY: start.anchorY,
-                detached: start.detached
-              }
-            };
-          });
-          nodesRef.current = next;
-          return next;
-        });
       } else if (drag.originalLayerGroup) {
         // A member drag is rendered imperatively while React state remains at
         // the original coordinates. Re-applying the same state cannot make
         // React rewrite an already-mutated DOM style, so reset the live node
         // before committing the rollback snapshot.
         applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
-        updateNode(drag.id, {
-          x: drag.nodeX,
-          y: drag.nodeY,
-          width: drag.originalWidth,
-          height: drag.originalHeight,
-          layerGroup: cloneImageLayerNodeGroup(drag.originalLayerGroup)
-        });
       } else if (drag.nodeElement) {
         applyTransientNodePosition(drag.id, drag.nodeX, drag.nodeY, drag.nodeElement, drag.transientEdges);
       }
@@ -13103,7 +13161,7 @@ function App() {
     }
     const dx = (event.clientX - drag.startX) / zoom;
     const dy = (event.clientY - drag.startY) / zoom;
-    drag.moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 7;
+    drag.moved ||= Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 5;
     if (drag.moved) {
       drag.pendingX = Math.round(drag.nodeX + dx);
       drag.pendingY = Math.round(drag.nodeY + dy);
@@ -13117,6 +13175,7 @@ function App() {
     }
     const dropTargetId = event.type === "pointercancel" ? "" : drag.dropTargetId || "";
     const batchAssetDrop = Boolean(drag.assetMembers?.length && drag.moved && dropTargetId);
+    if (drag.moved && !dropTargetId) pushCanvasHistory("移动画布成果");
     if (batchAssetDrop && drag.multiNodeStart?.length) {
       // Grouping commits a fresh atomic layout mutation. Roll back the
       // transform-only drag preview first so no selected source keeps a stale
@@ -13160,7 +13219,7 @@ function App() {
       });
       nodesRef.current = next;
       setNodes(next);
-    } else if (drag.layerGroupId && drag.layerGroupStart && drag.pendingX !== undefined && drag.pendingY !== undefined) {
+    } else if (drag.moved && drag.layerGroupId && drag.layerGroupStart && drag.pendingX !== undefined && drag.pendingY !== undefined) {
       const dx = drag.pendingX - drag.nodeX;
       const dy = drag.pendingY - drag.nodeY;
       setNodes((source) => {
@@ -13245,7 +13304,7 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
     setSelectedNodeId(node.id);
-    markImageLayoutSizeManual(node.id);
+    clearImageTileClick();
     setResizingNodeId(node.id);
     const startX = event.clientX;
     const startY = event.clientY;
@@ -13253,6 +13312,8 @@ function App() {
     const startHeight = node.height ?? NODE_RESIZE_MIN_H;
     const minimum = minimumNodeSize(node);
     const target = event.currentTarget;
+    const nodeElement = target.closest<HTMLElement>(".flow-node");
+    const originalStyle = nodeElement ? { width: nodeElement.style.width, height: nodeElement.style.height } : null;
     target.setPointerCapture(event.pointerId);
     let frame = 0;
     let hasPendingSize = false;
@@ -13263,10 +13324,7 @@ function App() {
       frame = 0;
       if (!hasPendingSize) return;
       hasPendingSize = false;
-      updateNode(node.id, {
-        width: pendingWidth,
-        height: pendingHeight
-      });
+      if (nodeElement) { nodeElement.style.width = `${pendingWidth}px`; nodeElement.style.height = `${pendingHeight}px`; }
     };
 
     const move = (moveEvent: PointerEvent) => {
@@ -13278,12 +13336,16 @@ function App() {
       hasPendingSize = true;
       if (!frame) frame = window.requestAnimationFrame(flushResize);
     };
-    const end = () => {
+    const end = (endEvent?: Event) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      canvasGestureCancelRef.current = null;
       if (frame) window.cancelAnimationFrame(frame);
-      if (hasPendingSize) {
+      if (nodeElement && originalStyle) { nodeElement.style.width = originalStyle.width; nodeElement.style.height = originalStyle.height; }
+      if (endEvent?.type !== "pointercancel" && (pendingWidth !== startWidth || pendingHeight !== startHeight)) {
+        pushCanvasHistory("调整成果大小");
+        markImageLayoutSizeManual(node.id);
         updateNode(node.id, {
           width: pendingWidth,
           height: pendingHeight
@@ -13299,6 +13361,7 @@ function App() {
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
+    canvasGestureCancelRef.current = () => end(new Event("pointercancel"));
   }
 
   function selectedImageDraft(node: WorkflowNode): ImageTaskDraft {
@@ -13307,6 +13370,41 @@ function App() {
       ...(node.imageParams ?? {}),
       prompt: node.imageParams?.prompt ?? firstPromptLine(node.prompt)
     });
+  }
+
+  async function listImageOperations() {
+    const result = await window.naimageServer?.imageOperations({ projectId: activeProjectIdRef.current });
+    if (!result?.ok) throw new Error(result?.error || "图片恢复记录读取失败。");
+    return result.operations;
+  }
+
+  async function recoverImageOperation(key: string) {
+    const projectId = activeProjectIdRef.current;
+    if (agentExecutionBusyNow()) throw new Error("请先等待当前任务完成，再恢复原结果。");
+    const result = await window.naimageServer?.recoverImage({ projectId, key });
+    if (!result?.ok || !result.operation) throw new Error(result?.error || "图片恢复失败。");
+    if (projectId !== activeProjectIdRef.current) throw new Error("项目已切换，原结果已保留，请回原项目恢复。");
+    const assets = cloneImageAssets(result.assets).filter(asset => !nodesRef.current.some(node => node.assets?.some(existing =>
+      existing.assetId === asset.assetId || existing.occurrenceId === asset.occurrenceId || existing.path && existing.path === asset.path)));
+    const target = nodesRef.current.find(node => node.id === result.operation?.targetNodeId);
+    if (target && blockLockedNodeMutation([target.id], "恢复图片")) throw new Error("目标仍被任务占用。");
+    if (assets.length) {
+      let next: WorkflowNode[];
+      if (target) next = nodesRef.current.map(node => node.id === target.id ? { ...node, assets: [...(node.assets || []), ...assets], outputs: (node.assets?.length || 0) + assets.length,
+        status: result.operation?.state === "partial" ? "review" : "done", imageState: result.operation?.state === "partial" ? "error" : "done",
+        imageError: result.operation?.state === "partial" ? "部分成果已恢复，其余槽位请继续恢复原结果。" : undefined, generationRunId: undefined } : node);
+      else {
+        const parentId = result.operation.sourceNodeIds.find(id => nodesRef.current.some(node => node.id === id && node.type === "image"));
+        const node: WorkflowNode = { id: allocateNodeCode(nodesRef.current), title: "恢复的图片成果", branch: "image", createdAt: nowLabel(), type: "image", prompt: "从原操作恢复的图片成果。", status: "done", imageState: "done", outputs: assets.length,
+          assets, x: 180, y: 140, width: 320, height: 320, ...(parentId ? { parentId, relationType: "derived-from" } : {}) };
+        next = [...nodesRef.current, node];
+      }
+      commitAutomationCanvasMutation(next, layoutGroupsRef.current, "恢复原图片结果");
+    }
+    const saved = await flushActiveProjectSession({ live: true, projectId });
+    if (!saved?.ok) throw new Error(saved?.error || "图片已保留，但项目保存失败。可再次恢复，不会重复生图。");
+    setServerMessage(`已恢复 ${assets.length} 张图片；原操作没有重新派发。`);
+    return { ok: true, added: assets.length, canvasRevision: canvasRevisionRef.current };
   }
 
   function continueImageNodeRun(node: WorkflowNode) {
@@ -14943,9 +15041,12 @@ function App() {
     clientY: number,
   ) {
     if (connectionDraft) return;
+    setCanvasMenuNotice("");
     setCanvasMenu(null);
     setAssetContextMenu(null);
+    clearImageTileClick();
     setRelationMenu({
+      projectId: activeProjectIdRef.current, revision: canvasRevisionRef.current,
       ...edge,
       x: Math.round(clamp(clientX, 8, Math.max(8, window.innerWidth - 260))),
       y: Math.round(clamp(clientY, 8, Math.max(8, window.innerHeight - 150))),
@@ -14955,22 +15056,16 @@ function App() {
   function openCanvasMenu(event: React.MouseEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement;
     if (target.closest(".flow-node")) return;
+    setCanvasMenuNotice("");
     event.preventDefault();
     setRelationMenu(null);
+    clearImageTileClick();
     const selection = currentNodeSelection();
-    if (nodeSelectionMode(selection) === "multiple") {
-      setCanvasMenu({
-        kind: "selection",
-        x: Math.round(clamp(event.clientX, 8, Math.max(8, window.innerWidth - 276))),
-        y: Math.round(clamp(event.clientY, 8, Math.max(8, window.innerHeight - 390))),
-        nodeIds: [...selection.ids],
-        primaryId: selection.primaryId
-      });
-      return;
-    }
     const point = clientToWorld(event.clientX, event.clientY);
     setCanvasMenu({
       kind: "canvas",
+      projectId: activeProjectIdRef.current, revision: canvasRevisionRef.current,
+      selectionIds: [...selection.ids], primaryId: selection.primaryId,
       x: Math.round(clamp(event.clientX, 8, Math.max(8, window.innerWidth - 248))),
       y: Math.round(clamp(event.clientY, 8, Math.max(8, window.innerHeight - 132))),
       worldX: Math.round(point.x),
@@ -14978,12 +15073,28 @@ function App() {
     });
   }
 
+  function validateMenuScope(event: React.MouseEvent, scope: { projectId: string; revision: number; nodeId?: string; assetIndex?: number; assetKey?: string; nodeIds?: string[] }) {
+    const targetIds = scope.nodeIds || (scope.nodeId ? [scope.nodeId] : []);
+    const asset = scope.nodeId && scope.assetIndex !== undefined ? nodesRef.current.find(node => node.id === scope.nodeId)?.assets?.[scope.assetIndex] : null;
+    const stale = scope.projectId !== activeProjectIdRef.current || scope.revision !== canvasRevisionRef.current
+      || targetIds.some(id => !nodesRef.current.some(node => node.id === id))
+      || scope.assetKey && imageAssetLogicalKey(asset || undefined, scope.nodeId || "", scope.assetIndex || 0) !== scope.assetKey;
+    if (!stale) return;
+    event.preventDefault(); event.stopPropagation();
+    setCanvasMenu(null); setAssetContextMenu(null); setRelationMenu(null);
+    setServerMessage("菜单目标已变化，请重新右键后操作。");
+    setCanvasMenuNotice("菜单目标已变化，请重新右键后操作。");
+  }
+
   function openNodeMenuAt(node: WorkflowNode, x: number, y: number) {
+    setCanvasMenuNotice("");
     setRelationMenu(null);
+    clearImageTileClick();
     const selection = currentNodeSelection();
-    if (nodeSelectionMode(selection) === "multiple") {
+    if (nodeSelectionMode(selection) === "multiple" && selection.ids.includes(node.id)) {
       setCanvasMenu({
         kind: "selection",
+        projectId: activeProjectIdRef.current, revision: canvasRevisionRef.current,
         x: Math.round(clamp(x, 8, Math.max(8, window.innerWidth - 276))),
         y: Math.round(clamp(y, 8, Math.max(8, window.innerHeight - 390))),
         nodeIds: [...selection.ids],
@@ -14991,10 +15102,10 @@ function App() {
       });
       return;
     }
-    replaceSelectedNodeId(node.id);
     const estimatedHeight = node.layerGroup ? 560 : 330;
     setCanvasMenu({
       kind: "node",
+      projectId: activeProjectIdRef.current, revision: canvasRevisionRef.current,
       x: Math.round(clamp(x, 8, Math.max(8, window.innerWidth - 248))),
       y: Math.round(clamp(y, 8, Math.max(8, window.innerHeight - estimatedHeight - 8))),
       nodeId: node.id
@@ -17304,20 +17415,12 @@ function App() {
           height: canvasDebugRect.height / scale + NODE_RENDER_BUFFER * 2
         };
         const importantIds = new Set<string>();
-        [...selectedNodeIdsRef.current, selectedNodeIdRef.current]
+        [selectedNodeIdRef.current]
           .filter(Boolean)
           .forEach((id) => importantIds.add(currentProjection.groupByMember.get(id)?.hostNodeId ?? id));
         const visibleIds = new Set<string>();
         for (const node of currentProjection.canvasNodes) {
           if (importantIds.has(node.id) || rectOverlapArea(workflowNodeBounds(node), visibleRect) > 0) visibleIds.add(node.id);
-        }
-        if (visibleIds.size !== currentProjection.canvasNodes.length) {
-          const baseIds = new Set(visibleIds);
-          for (const node of currentProjection.canvasNodes) {
-            const parentId = node.parentId ? (currentProjection.groupByMember.get(node.parentId)?.hostNodeId ?? node.parentId) : "";
-            if (baseIds.has(node.id) && parentId) visibleIds.add(parentId);
-            if (parentId && baseIds.has(parentId)) visibleIds.add(node.id);
-          }
         }
         return currentProjection.canvasNodes.filter((node) => visibleIds.has(node.id)).map((node) => node.id);
       })();
@@ -24197,6 +24300,7 @@ function App() {
       renameProject,
       selectNodes: (ids, primaryId) => commitNodeSelection({ primaryId, ids }, "automation"),
       fitCanvas,
+      listImageOperations, recoverImageOperation,
       removeFailedNodes: (ids) => commitNodeRemoval(ids, {
         historyLabel: "清理失败成果",
         eventText: `清理 ${ids.length} 个失败成果`,
@@ -25191,6 +25295,7 @@ function App() {
           const result = await imageServer.generateImage({
             runId: attemptRunId,
             operationId: generationRunId,
+            targetNodeId: id,
             requestIndex: index + 1,
             projectId: requestProjectId,
             conversationId: requestConversationId,
@@ -25511,6 +25616,7 @@ function App() {
   function openAssetContextMenuAt(event: React.MouseEvent, node: WorkflowNode, assetIndex: number, source: AssetContextMenuState["source"] = "canvas") {
     event.preventDefault();
     event.stopPropagation();
+    clearImageTileClick();
     const asset = node.assets?.[assetIndex];
     if (!asset) return;
     const width = 210;
@@ -25518,6 +25624,8 @@ function App() {
     setCanvasMenu(null);
     setRelationMenu(null);
     setAssetContextMenu({
+      projectId: activeProjectIdRef.current, revision: canvasRevisionRef.current,
+      assetKey: imageAssetLogicalKey(asset, node.id, assetIndex),
       x: Math.round(clamp(event.clientX, 8, Math.max(8, window.innerWidth - width - 8))),
       y: Math.round(clamp(event.clientY, 8, Math.max(8, window.innerHeight - estimatedHeight - 8))),
       nodeId: node.id,
@@ -25879,6 +25987,7 @@ function App() {
   }
 
   function beginInternalAssetDrag(event: React.DragEvent<HTMLElement>, node: WorkflowNode, assetIndex: number) {
+    clearImageTileClick();
     if (dragRef.current) {
       // Moving a node can expose a draggable image tile below the original
       // press point. Chromium may try to start that tile's native HTML drag,
@@ -25917,6 +26026,17 @@ function App() {
     window.setTimeout(() => {
       if (internalAssetDragRef.current === drag) internalAssetDragRef.current = null;
     }, 0);
+  }
+
+  function recordVideoPlayback(projectId: string, nodeId: string, playing: boolean) {
+    if (projectId !== activeProjectIdRef.current) return;
+    setPlayingVideoNodes((previous) => {
+      if (playing ? previous.get(nodeId) === projectId : previous.get(nodeId) !== projectId) return previous;
+      const next = new Map(previous);
+      if (playing) next.set(nodeId, projectId);
+      else next.delete(nodeId);
+      return next;
+    });
   }
 
   function recordVideoMetadata(nodeId: string, player: HTMLVideoElement) {
@@ -26757,6 +26877,9 @@ function App() {
       const runtime = pluginCommandRegistryRef.current;
       if (!runtime) throw new Error("插件正在加载，请稍后重试。");
       await runtime.execute(commandId, settingsRef.current.pluginStates);
+      const nextSettings = mergeSettings({ ...settingsRef.current, recentCanvasToolCommands: [commandId, ...settingsRef.current.recentCanvasToolCommands.filter(id => id !== commandId)].slice(0, 8) });
+      settingsRef.current = nextSettings; setSettings(nextSettings);
+      void saveSettingsToStore(nextSettings).catch(error => setServerMessage(`最近工具保存失败：${error instanceof Error ? error.message : String(error)}`));
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
     }
@@ -26822,14 +26945,16 @@ function App() {
   const projectAgentChangeImageOutput = useStableEvent(async (imageCount: number, imageQuality: AppSettings["imageQuality"]) => {
     await persistAgentImageConfig({ imageCount: Math.max(1, Math.min(10, Math.round(imageCount))), imageQuality });
   });
-  const projectAgentRequestImageModels = useStableEvent(async () => {
+  const projectAgentRequestImageModels = useStableEvent(async (forceRefresh = true) => {
     if (!window.naimageServer?.models) throw new Error("当前桌面后端不支持读取上游模型。");
     const currentSettings = settingsRef.current;
     const result = await window.naimageServer.models({
-      forceRefresh: true,
+      forceRefresh,
+      cacheOnly: !forceRefresh,
       group: currentSettings.selectedAccountTokenGroup || currentSettings.modelGroup,
     });
     if (!result?.ok) throw new Error(result?.error || "当前密钥的上游模型目录暂时不可用。");
+    setResolvedImageModelConfigs(result.settings?.resolvedImageModelConfigs ?? []);
     const upstreamModels = result.settings?.imageModels?.length
       ? result.settings.imageModels
       : result.settings?.models ?? [];
@@ -27691,10 +27816,10 @@ function App() {
         ref={workspaceRef}
         className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-${workspaceViewMode} agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
         style={{
-          "--agent-panel-width": `${agentPanelLayout.agentPanelWidth}px`,
-          "--agent-panel-height": `${agentPanelLayout.agentPanelHeight}px`,
-          "--agent-panel-x": `${agentPanelLayout.agentPanelX}px`,
-          "--agent-panel-y": `${agentPanelLayout.agentPanelY}px`
+          "--agent-panel-width": `${effectiveAgentPanelLayout.agentPanelWidth}px`,
+          "--agent-panel-height": `${effectiveAgentPanelLayout.agentPanelHeight}px`,
+          "--agent-panel-x": `${effectiveAgentPanelLayout.agentPanelX}px`,
+          "--agent-panel-y": `${effectiveAgentPanelLayout.agentPanelY}px`
         } as React.CSSProperties & Record<string, string>}
       >
         <React.Suspense fallback={<aside className="workspace-asset-rail is-loading" aria-label="正在载入项目素材" aria-busy="true" />}>
@@ -27820,13 +27945,13 @@ function App() {
                   if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
                 }}
                 onPointerLeave={(event) => {
-                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(document.activeElement)) setPluginToolbarPeekOpen(false);
+                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(document.activeElement) && !document.activeElement?.closest(".canvas-tools-menu")) setPluginToolbarPeekOpen(false);
                 }}
                 onFocusCapture={(event) => {
                   if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) setPluginToolbarPeekOpen(true);
                 }}
                 onBlurCapture={(event) => {
-                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null) && !(event.relatedTarget instanceof Element && event.relatedTarget.closest(".canvas-tools-menu"))) {
                     setPluginToolbarPeekOpen(false);
                   }
                 }}
@@ -27863,7 +27988,9 @@ function App() {
                     <small>{pluginToolbarItems.length}</small>
                   </span>
                 )}
-                <CanvasToolbarPages expanded={pluginToolbarExpanded}>
+                <CanvasToolbarPages expanded={pluginToolbarExpanded} recentCommands={settings.recentCanvasToolCommands}
+                  details={Object.fromEntries(pluginToolbarItems.map(item => [item.command, { label: item.label, description: item.description, shortcut: canvasToolShortcutLabel(item.shortcut),
+                    group: item.pluginId.includes("commerce") ? "电商创作" : item.pluginId.includes("social") ? "社交内容" : item.pluginId.includes("scientific") ? "科研表达" : "通用创作" }]))}>
                   {pluginToolbarItems.map((item) => {
                     const needsSelection = item.when === "canvas.has-image-selection";
                     const disabled = (agentExecutionBusy && !item.availableDuringAgentRun)
@@ -27945,6 +28072,7 @@ function App() {
                     <React.Fragment key={`${kind}-${source.id}-${target.id}`}>
                       <path
                         className={`edge provenance relation-${kind} ${inputRole ? `input-${inputRole}` : ""} ${active ? "active" : ""}`}
+                        data-relation-line="true"
                         data-source-id={source.id}
                         data-target-id={target.id}
                         data-relation-source-id={relationSourceId}
@@ -28001,14 +28129,7 @@ function App() {
 
               {renderedNodes.map((node) => {
                 const nodeIsGenerating = Boolean(imageRunStarts[node.id]);
-                const renderAsOverview = canvasNodeOverviewMode
-                  && !selectedNodeIdSet.has(node.id)
-                  && selectedNodeId !== node.id
-                  && activeNodeId !== node.id
-                  && resizingNodeId !== node.id
-                  && assetDropTargetId !== node.id
-                  && !connectionDraft
-                  && !nodeIsGenerating;
+                const renderAsOverview = overviewNodeIdSet.has(node.id);
                 if (renderAsOverview) {
                   const bounds = workflowNodeBounds(node);
                   const nodeLocked = lockedNodeIdSet.has(node.id);
@@ -28025,10 +28146,11 @@ function App() {
                       data-image-collection={node.imageCollection?.kind || undefined}
                       data-layer-group={node.layerGroup?.id || node.layerComposition?.id || undefined}
                       role="button"
+                      aria-pressed={selectedNodeIdSet.has(node.id)}
                       tabIndex={0}
                       aria-label={node.title?.trim() || node.id}
                       title={`${node.title?.trim() || node.id} · 单击查看完整节点`}
-                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${nodeLocked ? "node-locked" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""}`}
+                      className={`flow-node canvas-node-overview ${node.type} ${node.type === "requirement" ? "requirement-node" : ""} ${node.requirement?.skill ? "skill-node" : ""} ${node.scientificFigure ? "scientific-figure-node" : ""} ${node.imageContainer ? "image-container" : ""} ${node.imageCollection ? "image-collection" : ""} ${node.layerComposition || node.layerGroup ? "layer-overview" : ""} ${node.status} ${selectedNodeIdSet.has(node.id) ? "selected" : ""} ${nodeLocked ? "node-locked" : ""} ${draggingNodeIdsRef.current.has(node.id) ? "dragging" : ""}`}
                       style={{
                         left: bounds.x,
                         top: bounds.y,
@@ -28138,6 +28260,7 @@ function App() {
                     data-layer-order={layerGroup?.order || undefined}
                     data-layer-detached={layerGroup ? String(Boolean(layerGroup.detached)) : undefined}
                     data-image-run-state={nodeIsGenerating ? "placeholder" : "settled"}
+                    data-video-playing={playingVideoNodes.get(node.id) === activeProjectId ? "true" : undefined}
                     data-skill-name={node.requirement?.skill?.name || undefined}
                     data-node-locked={nodeLocked ? "true" : undefined}
                     data-connection-target={connectionTargetEligible ? "true" : undefined}
@@ -28406,6 +28529,7 @@ function App() {
                                 onClick={(event) => {
                                    event.stopPropagation();
                                    if (event.ctrlKey || event.metaKey) {
+                                     clearImageTileClick();
                                      event.preventDefault();
                                      toggleNodeSelection(node.id);
                                      return;
@@ -28417,7 +28541,7 @@ function App() {
                                   imageTileClickTimerRef.current = window.setTimeout(() => {
                                     imageTileClickTimerRef.current = null;
                                     openImageViewer(node, index);
-                                  }, 220);
+                                  }, 500);
                                 }}
                                 onDoubleClick={(event) => {
                                   event.preventDefault();
@@ -28520,6 +28644,9 @@ function App() {
                             playsInline
                             aria-label={node.videoAsset?.originalName || node.title || "视频成果"}
                             onLoadedMetadata={(event) => recordVideoMetadata(node.id, event.currentTarget)}
+                            onPlay={() => recordVideoPlayback(activeProjectId, node.id, true)}
+                            onPause={() => recordVideoPlayback(activeProjectId, node.id, false)}
+                            onEnded={() => recordVideoPlayback(activeProjectId, node.id, false)}
                             onPointerDown={(event) => event.stopPropagation()}
                             onPointerMove={(event) => event.stopPropagation()}
                             onPointerUp={(event) => event.stopPropagation()}
@@ -28675,7 +28802,7 @@ function App() {
             <div className="canvas-status-line canvas-live-progress" aria-label="画布信息">
               <ImageIcon size={15} aria-hidden="true" />
               <strong>{canvasImageStatus.title}</strong>
-              <span>{canvasImageStatus.meta}</span>
+              <span role={canvasMenuNotice ? "status" : undefined}>{canvasMenuNotice || canvasImageStatus.meta}</span>
             </div>
             <div className="canvas-tools" aria-label="画布缩放">
               <ButtonBase type="button" onClick={() => zoomCanvas(-0.08)}>
@@ -28702,6 +28829,7 @@ function App() {
                 y={relationMenu.y}
                 ariaLabel="成果关系菜单"
                 onRequestClose={() => setRelationMenu(null)}
+                onClickCapture={(event) => validateMenuScope(event, relationMenu)}
               >
                 <div
                   className="relation-context-summary"
@@ -28731,6 +28859,7 @@ function App() {
               y={canvasMenu.y}
               ariaLabel={canvasMenu.kind === "canvas" ? "画布菜单" : canvasMenu.kind === "selection" ? "多选成果菜单" : "成果菜单"}
               onRequestClose={() => setCanvasMenu(null)}
+              onClickCapture={(event) => validateMenuScope(event, canvasMenu)}
             >
               {canvasMenu.kind === "canvas" ? (
                 <>
@@ -28746,7 +28875,16 @@ function App() {
                   <MenuItem icon={<Film size={15} />} disabled={videoTaskBusy} onClick={() => openManualVideoTaskAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     创建视频工作
                   </MenuItem>
+                  <MenuItem icon={<RotateCcw size={15} />} onClick={() => { setCanvasMenu(null); setImageRecoveryOpen(true); }}>恢复图片结果</MenuItem>
                   <MenuSeparator />
+                  {canvasMenu.selectionIds.length ? <>
+                    <MenuItem icon={<Layers3 size={15} />} onClick={() => setCanvasMenu({ kind: "selection", x: canvasMenu.x, y: canvasMenu.y,
+                      projectId: canvasMenu.projectId, revision: canvasMenu.revision, nodeIds: canvasMenu.selectionIds, primaryId: canvasMenu.primaryId })}>
+                      已选 {canvasMenu.selectionIds.length} 项操作…
+                    </MenuItem>
+                    <MenuItem icon={<X size={15} />} onClick={() => { selectCanvas(); setCanvasMenu(null); }}>取消选择</MenuItem>
+                    <MenuSeparator />
+                  </> : null}
                   <MenuItem icon={<Import size={15} />} onClick={() => void importPickedImagesToCanvasAt(canvasMenu.worldX, canvasMenu.worldY)}>
                     导入图片
                   </MenuItem>
@@ -28878,6 +29016,8 @@ function App() {
               ) : null}
               {canvasMenu.kind === "node" ? (
                 <>
+                  <MenuSummary title={canvasNodeById.get(canvasMenu.nodeId)?.title || canvasMenu.nodeId}>本次操作仅作用于此成果</MenuSummary>
+                  <MenuItem icon={<MousePointer2 size={15} />} onClick={() => { replaceSelectedNodeId(canvasMenu.nodeId); setCanvasMenu(null); }}>只选此项</MenuItem>
                   {(() => {
                     const targetNode = canvasNodeById.get(canvasMenu.nodeId);
                     return targetNode ? (
@@ -29161,6 +29301,7 @@ function App() {
                 y={assetContextMenu.y}
                 ariaLabel={`${targetAsset.displayCode || targetNode.displayCode || targetNode.id} 图片菜单`}
                 onRequestClose={() => setAssetContextMenu(null)}
+                onClickCapture={(event) => validateMenuScope(event, assetContextMenu)}
               >
                 <MenuItem icon={<ImageIcon size={15} />} onClick={() => {
                   setAssetContextMenu(null);
@@ -29175,7 +29316,7 @@ function App() {
                   编辑成果
                 </MenuItem>
                 <MenuItem icon={<Brain size={15} />} onClick={() => {
-                  setSelectedNodeId(targetNode.id);
+                  addCanvasAgentMaterialsFromMenu([{ nodeId: targetNode.id, assetIndex: assetContextMenu.assetIndex }], "source");
                   setAssetContextMenu(null);
                   agentInputRef.current?.focus();
                 }}>
@@ -29386,7 +29527,7 @@ function App() {
           openAgentWindow={projectAgentOpenWindow}
           collapsed={agentCollapsed}
           toggleCollapsed={projectAgentToggleCollapsed}
-          panelLayout={agentPanelLayout}
+          panelLayout={effectiveAgentPanelLayout}
           commitPanelLayout={persistAgentPanelLayout}
           debugCommit={recordDebugRenderCommit}
         />
@@ -29475,7 +29616,7 @@ function App() {
             state={manualImageTaskDialog}
             setState={setManualImageTaskDialog}
             imageModel={manualImageTaskDialog.draft.model || settings.imageModel}
-            imageModelConfig={settings.imageModelConfigs.find((config) => config.model.toLowerCase() === (manualImageTaskDialog.draft.model || settings.imageModel).toLowerCase())}
+            imageModelConfig={resolvedImageModelConfigs.find((config) => config.model.toLowerCase() === (manualImageTaskDialog.draft.model || settings.imageModel).toLowerCase())}
             executionBusy={agentExecutionBusy}
             close={() => setManualImageTaskDialog(null)}
             openReferencePicker={() => openReferencePicker(
@@ -29805,9 +29946,10 @@ function App() {
           />
         ) : null}
 
+        {imageRecoveryOpen ? <LazyImageRecoveryDialog load={listImageOperations} recover={recoverImageOperation} close={() => setImageRecoveryOpen(false)} /> : null}
         {agentImageConfigOpen ? <LazyProjectAgentImageConfig
           imageModels={composerImageModels}
-          imageModelConfigs={settings.imageModelConfigs}
+          imageModelConfigs={resolvedImageModelConfigs}
           selectedImageModels={selectedComposerImageModels}
           imageRatio={settings.imageRatio}
           imageResolution={settings.imageResolution}

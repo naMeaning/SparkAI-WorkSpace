@@ -394,7 +394,13 @@ function createAccountTokenService({
     };
   }
 
-  async function credentials(settings, tokenId) {
+  async function credentials(settings, tokenId, options = {}) {
+    if (options.cacheOnly === true) {
+      const id = String(tokenId || settings.selectedAccountTokenId || "").trim();
+      const apiKey = id ? keyCache.get(cacheKey(settings, id)) : "";
+      if (!apiKey) throw new Error("当前账户凭据尚未在本次进程解析。");
+      return { baseUrl: normalizeAccountApiBaseUrl(resolveNewApiBaseUrl(settings, "account")), apiKey, tokenId: id };
+    }
     if (String(tokenId || "").trim()) return credentialsForToken(settings, tokenId);
     const token = await ensureSelection(settings);
     const apiKey = await fullKey(settings, token.id);

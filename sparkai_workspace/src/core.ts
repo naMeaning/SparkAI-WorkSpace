@@ -184,6 +184,7 @@ export type ModelConnectionBinding = {
   protocol?: ImageProtocol;
   gateway?: ImageGateway;
   transportMode?: ImageTransportMode;
+  connectionSource?: "legacy-migration";
 };
 
 export type AgentModelBinding = ModelConnectionBinding;
@@ -283,6 +284,7 @@ export type ApiSettings = {
 };
 
 export type AppSettings = ApiSettings & {
+  imageConnectionVersion: number;
   modelGroup: string;
   /** Legacy light/dark and palette fields remain readable for project compatibility. */
   theme: ThemeChoice;
@@ -306,6 +308,8 @@ export type AppSettings = ApiSettings & {
   workspacePluginDefaultsVersion: number;
   pluginStates: PluginInstallationState[];
   canvasToolDockMode: "expanded" | "hover";
+  canvasWheelMode: "zoom" | "pan";
+  recentCanvasToolCommands: string[];
   /** Commands hidden from visual tool surfaces; plugin execution and shortcuts stay enabled. */
   disabledCanvasToolCommands: string[];
   canvasToolShortcuts: Record<string, string>;
@@ -2002,10 +2006,11 @@ export type EdgeDraft = {
   worldY: number;
 };
 
-export type CanvasMenuState =
-  | { kind: "canvas"; x: number; y: number; worldX: number; worldY: number }
+export type CanvasMenuScope = { projectId: string; revision: number };
+export type CanvasMenuState = CanvasMenuScope & (
+  | { kind: "canvas"; x: number; y: number; worldX: number; worldY: number; selectionIds: string[]; primaryId: string }
   | { kind: "node"; x: number; y: number; nodeId: string }
-  | { kind: "selection"; x: number; y: number; nodeIds: string[]; primaryId: string };
+  | { kind: "selection"; x: number; y: number; nodeIds: string[]; primaryId: string });
 
 export type ImageBatchMode = "parallel";
 
@@ -2136,12 +2141,25 @@ export type ServerWallet = {
 
 export type ModelCapabilityEvidence = "name-inferred" | "upstream-declared" | "runtime-verified";
 
+export type ModelAccessObservation = {
+  protocol: string;
+  transport: string;
+  operation: string;
+  stage: string;
+  outcome: "success" | "failure";
+  observedAt: string;
+  category?: string;
+  scope: Record<string, string | number | boolean>;
+};
+
 export type ModelAccessCapability = {
   model: string;
   endpointTypes: string[];
   evidence: ModelCapabilityEvidence;
   lastCheckedAt?: string;
   lastVerifiedAt?: string;
+  historicalVerifiedAt?: string;
+  observations?: ModelAccessObservation[];
 };
 
 export type ModelAccessProfile = {
@@ -2152,7 +2170,18 @@ export type ModelAccessProfile = {
   providers: ModelProvider[];
   capabilities: Record<string, ModelAccessCapability>;
   lastCheckedAt?: string;
+  catalogReadAt?: string;
   error?: string;
+};
+
+export type ModelConnectionSummary = {
+  model: string;
+  provider: ModelProvider;
+  connectionId: string;
+  protocol: string;
+  transport: string;
+  addressSource: "model" | "global";
+  credentialSource: "model-key" | "model-token" | "global-key" | "global-token";
 };
 
 export type ModelServiceStatus = {
@@ -2163,6 +2192,8 @@ export type ModelServiceStatus = {
 };
 
 export type ServerPublicSettings = {
+  resolvedImageModelConfigs?: ImageModelConfig[];
+  connectionSummaries?: Record<string, ModelConnectionSummary>;
   imageCostCents?: number;
   imageCostYuan?: number;
   trialImages?: number;
@@ -2889,7 +2920,15 @@ export type AgentRunControlSnapshot = {
   error?: string;
 };
 
+export type ImageOperationSummary = {
+  key: string; operationId: string; requestIndex: number; model: string; createdAt: string; updatedAt: string;
+  taskIdPresent: boolean; state: string; stage: string; savedCount: number; canRecover: boolean; errorCategory?: string;
+  slots: { index: number; state: string }[];
+};
+
 export type ServerBridge = {
+  imageOperations(payload: { projectId: string }): Promise<{ ok: boolean; operations: ImageOperationSummary[]; error?: string }>;
+  recoverImage(payload: { projectId: string; key: string }): Promise<{ ok: boolean; assets: ImageAsset[]; operation?: { key: string; targetNodeId?: string; sourceNodeIds: string[]; operationId: string; requestIndex: number; state: string; resultCount?: number }; error?: string; errorCode?: string }>;
   register(payload: { username: string; email?: string; password: string; name?: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   login(payload: { username: string; email?: string; password: string }): Promise<{ ok: boolean; sessionId?: string; token?: string; user?: ServerUser; wallet?: ServerWallet; settings?: ServerPublicSettings; imageCostCents?: number; error?: string }>;
   logout(): Promise<{ ok: boolean; remoteLogout?: boolean }>;
@@ -2918,6 +2957,7 @@ export type ServerBridge = {
   deleteToken?(payload: { id: string }): Promise<AccountApiTokenListResult>;
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
+    targetNodeId?: string;
     runId?: string;
     operationId?: string;
     requestIndex?: number;
@@ -3447,6 +3487,7 @@ export function normalizeModelConnectionBindings(value: unknown): ModelConnectio
     if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol as ImageProtocol;
     if (["auto", "newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway as ImageGateway;
     if (["auto", "sync", "async"].includes(transportMode)) binding.transportMode = transportMode as ImageTransportMode;
+    if (source.connectionSource === "legacy-migration") binding.connectionSource = "legacy-migration";
   }
   return bindings;
 }

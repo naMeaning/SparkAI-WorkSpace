@@ -223,4 +223,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/naimage.ps1 debug.ru
 
 ## Composer commands
 
+Use `image.operations` to inspect the current project's image recovery records. Use `image.recover` with the returned `key` and `expectedProjectId` to query the original task or save its existing result. This action never creates another model request. Changed connection credentials block task queries; synchronous requests without a retained result or task handle cannot be recovered after restart. Saved outputs and repeated recovery use stable asset identities and are not duplicated on the canvas. A partial result preserves successful slots while the remaining slots stay recoverable. The GUI exposes the same action through the canvas menu's “恢复图片结果”.
+
 The GUI and detached Agent accept `/goal <prompt>`, `/config`, `/status`, `/help`, `/new`, `/pause`, `/resume`, and `/stop`. These are local input commands, not model prompts. `/goal` retains the GUI scope/fee confirmation; unknown or incomplete commands never dispatch. CLI/MCP uses the structured `agent.goal`, `agent.image-config`, `app.state`, `agent.new-conversation`, `agent.pause`, `agent.resume`, and `agent.stop` actions instead of sending slash text through `agent.chat`. `agent.image-config` opens the shared configuration dialog without generating an image.

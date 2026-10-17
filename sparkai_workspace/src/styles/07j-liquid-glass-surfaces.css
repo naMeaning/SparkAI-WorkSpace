@@ -902,7 +902,7 @@
 -------------------------------------------------------------------------- */
 
 .ide-main.canvas-only.has-asset-rail {
-  --workspace-asset-rail-width: 68px;
+  --workspace-asset-rail-width: 64px;
 }
 
 .ide-main.canvas-only.has-asset-rail.agent-placement-right:not(.agent-collapsed) {

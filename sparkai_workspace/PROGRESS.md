@@ -1,12 +1,123 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-16）
+## 当前开发状态（2026-10-17）
 
-- 当前任务：Grok 502 定位及客户端防重复生图修复已完成，客户端/EXE/安装/Git同步verified。真实单张测试各一次（现有连接4.649s，用户新增连接1.159s）均返回HTTP502，没有图片且均无重试；用户表示渠道端若无法修复就到此为止，已停止真实请求。28项模拟回归及开发/已安装程序的主Agent隔离UI通过：错误可见、无敏感上游文本、一次图片POST、模型试图再次生图被阻止。渠道端故障未恢复。
+- 当前任务：实施优化设计§12；阶段0/1接口证据隔离、阶段2三档DPI画布、阶段3跨进程/应用重启恢复、阶段4布局/工具/配置均有验收证据；阶段5完成同条件前后测并收敛部分指标，500/1000拖动回归和33.4ms目标未达。首次安装版发现的884px窄屏布局缺陷已修复，最终EXE已安装并完成安装版复测。
+- 现场与授权：main / `15a126b`，保留接受时全部工作树改动；无新真实模型请求、依赖安装、生产变更或正式发布。最终EXE与本地配置保留、ASAR一致；持续授权覆盖提交与普通push。
+- 下一步：提交对应源码/文档，普通push并核对`origin/main`的实际commit；随后归档任务状态，性能未达与服务未验证边界保留为后续事项。
+
+### 2026-10-17 续接最终交付 / in progress
+
+- 首次最终候选EXE已完成审计并原位安装：安装器退出码0、配置3项保留，身份见[安装报告](.diagnostics/workspace-optimization-install.json)。随后真实安装程序在884×640下复测发现画布与Agent高度约18,081px；失败证据为[150% DPI](.diagnostics/workspace-layout-config-2026-10-17T06-28-25-328Z/report.json)和[100% DPI](.diagnostics/workspace-layout-config-2026-10-17T06-35-34-399Z/report.json)，根因为`src/styles/06-responsive.css`的`max-width:900px`把正式最小窗口884px切成纵向布局。该候选EXE `109,858,304 B` / SHA-256 `7c2dc05a45d204bb097354f794816fdfe1c504ca50b115a94c5c474501b39657`不作为本轮交付结果。
+- 修复已将窄屏断点改为883px；`test:production-symbol-compaction`验证883px媒体块从生产CSS移除、884px块保留。修复后[真实Electron布局/配置专项](.diagnostics/workspace-layout-config-2026-10-17T06-49-35-476Z/report.json)通过：884/1280/1920×640/820/1080边界布局、画布472px与Agent348px、工具搜索/键盘命中、保存失败重试和重启读回均通过，0模型POST/目录GET。
+- 最终包由[包内审计](.diagnostics/workspace-optimization-exe-audit.json)验证：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`为109,854,720 B，SHA-256 `b9f42418f252f8a02235b772d685b40e64f17ca3508ee0b31aedb0c7546634b0`；123个dist文件和17个Main/runtime owner与候选ASAR/源码一致。品牌安装器`/S`退出码0、耗时24,009ms，沿用`E:\sparkai-workspace\naimage`、注册版本1.0.9；安装EXE 232,754,176 B / SHA-256 `606264f3f14eaf409f997a9cbd8db5d8c02d687164b08f2e9c8e6fb4a6e22343`，安装ASAR SHA-256 `3f0309145dc245f1afb0ac378fc9dceb92062e1f8fdf0e378e4df8a5d95722b`与候选相同。`app-settings.json`与`project-list.json`哈希不变，secret sidecar大小/时间戳不变且未读取内容；摘要见[最终安装记录](.diagnostics/workspace-optimization-install-final.json)。
+- 安装版[布局与配置](.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json)在150% DPI通过两次应用启动、12项、7截图；884×640画布472px/Agent348px、无溢出，工具搜索/保存失败恢复/重启读回通过，0模型POST/目录GET。[双连接故障隔离](.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json)使用本地HTTP模拟通过：1次图片POST、3轮模拟Agent、A连接502失败不传播到B、0真实请求/无敏感信息泄漏。
+- 状态：最终候选已安全原位安装并验收，未上传/未发布Release。阶段5的500/1000拖动视觉P95回归、33.4ms建议目标未达；正式`test:bundle` CSS为281,539 B，超270,000 B硬门槛11,539 B；真实供应商协议/生图仍未验证，150% DPI最大窗口只能达到1708×934，1920×1080未覆盖。下一步为本轮源码/文档普通提交/push和远端commit核对。
+
+- [06:10画布复验](.diagnostics/workspace-optimization-ui-2026-10-17T06-10-19-345Z/report.json)ok:true，150% DPI/28项/8截图；精确坐标与恢复断言通过，已人工核对双端屏外关系截图。最终typecheck、view-image、IPC152/149和automation契约通过。quick GUI六场景仅最小窗旧`projectAgentFixedOk`失败（要求350–430，实际348，截图/溢出均通过）；按现有320–720偏好边界并额外要求画布≥463修正测试，06:13 quick GUI [通过](.diagnostics/electron/aidebug-2026-10-17T06-13-13-434Z/report.json)，未改产品尺寸。
+- 同一canvas专项100% [.diagnostics/workspace-optimization-ui-2026-10-17T06-15-15-494Z/report.json]、125% [.diagnostics/workspace-optimization-ui-2026-10-17T06-16-11-433Z/report.json]均28项/8截图通过；连同150%共3档。`test:bundle`已按开发规则运行：initial JS 4,133B、plugin JS 86,177B通过硬限；CSS281,539B超正式270,000B硬限11,539B；core async1,327,603B/core JS1,331,736B/dist1,763,981B为advisory超限。命令退出1，正式release不满足；开发包按AGENTS可继续，保留数值，不为门槛机械拆分。
+- 已复核main / 15a126b和全部未提交改动，保留接受时文档与此前实现。06:04恢复UI报告ok:true（5次启动、8次本地POST/6 polls）；保存失败列表已刷新并保留本地恢复入口。
+- 06:05画布报告前27项通过；新增双端屏外关系断言失败。实际坐标A1298/C2025均在复位视口右侧，原因是公开nudge沿用视口夹紧，未构成穿视口夹具。仅修测试：跟随目标切换viewport、断言精确坐标、恢复原位置，再运行真实Electron；不据此改产品几何。
+
+### 2026-10-17 最终本地验收收口 / verification in progress
+
+- 当前源码最终候选bundle `020daad12aa2ea8d32bd17ce65be90cb326aef092465ec6cf4a494f9a8880499`。100/500/1000及标准前后数据汇总在[性能比较](.diagnostics/workspace-optimization-performance-comparison.json)，排除注入CSS/强制合成层试验。标准三轮原门禁通过；100小场景平移109.8→16.6ms、拖动130.1→45.6ms；500/1000加载与平移改善，但拖动P95分别397.6→499.5ms、477→816.1ms回归，明确未达，不以事件回调耗时或平均帧掩盖。33.4ms建议目标未达。
+- [12轮内存循环](.diagnostics/electron/product-performance-2026-10-17T06-02-18-194Z/report.json)实际切项目/打开原图查看器/交互：GC后JS6.92→7.69MiB，第7–12轮7.45–7.69MiB；8进程树私有内存第7–12轮933.16–983.54MiB、末轮936.36MiB，Working Set约834–853MiB，有限循环内波动趋于平台，不能据此承诺无限运行无泄漏。匹配前后比较仍使用6轮100节点报告。
+- [混合100节点本地视频](.diagnostics/electron/product-performance-2026-10-17T06-00-54-049Z/report.json)：有效640×360/2秒WebM，播放帧5→59，时间0→0.11669s后继续至1.430818s；画布缩放/平移/拖动与21条Mock进度共存，暂停/切项目后播放数0，0真实模型请求。播放与交互后两张截图已核对，播放器保持可见。恢复UI补充复验和最终交付继续。
+
+### 2026-10-17 性能收敛后续 / verification in progress
+
+- 当前源码bundle `020daad12aa2ea8d32bd17ce65be90cb326aef092465ec6cf4a494f9a8880499`：[标准三轮](.diagnostics/electron/product-performance-2026-10-17T05-55-21-221Z/report.json)，ready2889ms/boot1969.3ms/heap15,126,276B，视觉P95 zoom78/pan40/drag92.9ms、long task0，原门禁通过。[1000混合三轮](.diagnostics/electron/product-performance-2026-10-17T05-51-34-093Z/report.json)ready26,071ms、zoom353/pan66.5/drag816.1ms，选择1000/初始挂载9、最终关系285；加载/缩放/平移改善，拖动P95回归保留为未达项，不能称全部性能通过。[500混合](.diagnostics/electron/product-performance-2026-10-17T05-56-22-870Z/report.json)ready12,651ms、zoom226/pan62.3/drag499.5ms，仍有起始拖动长帧。持续强制合成层的忽略目录对照出现14,962.3ms拖动长帧，明确排除，不进入产品；最终汇总必须排除带compositorProbe/edgeMotionProbe的试验报告。100节点内存、视频与交付验证继续。
+- 曲线几何纯测试通过3000组采样/356组有可见点，双端屏外曲线保留；[候选三轮](.diagnostics/electron/product-performance-2026-10-17T05-48-29-025Z/report.json)关系挂载285、ready23,387ms、zoom338.8/pan74.4/drag863.8ms，拖动仍有起始长帧。候选还额外强制拖动次选从概览升级为完整图片表面，引入手势时才加载图片；撤回该额外升级，保持原概览级别的可拖组件，后续作为最终测量候选。
+- [实际表面复杂度候选](.diagnostics/electron/product-performance-2026-10-17T05-40-49-175Z/report.json)单轮zoom491.3/pan92.3/drag741.4ms；尚未回到拖动基线，不算阶段5达标。进一步在既有关系owner加入与实际path同源的曲线相交计算，收敛控制点外框的误保留，同时保护播放视频的可见性；纯几何与最终本地场景待验证。
+- ea03f4b[1000三轮](.diagnostics/electron/product-performance-2026-10-17T05-30-38-928Z/report.json)ready24,282ms、zoom80.1/pan77.3/drag996.5ms，canonical1000/overview196，拖动仍回归。[正确暂停动画的对照](.diagnostics/electron/product-performance-2026-10-17T05-38-20-304Z/report.json)明确以稳定data属性验证动画为none，仍drag969.9ms；不把该假设当优化成果，不改产品动画。渲染轨迹显示较长GPU栅格化；检查发现概览未挂载的图片仍计入复杂度，使视口操作隐藏关系层并96ms后整体恢复，拖动长帧集中于恢复时。下一候选统一概览集合/实际完整表面计数，同时保留拖动节点完整显示；最终测量待执行。
+- 最新源码[标准三轮](.diagnostics/electron/product-performance-2026-10-17T05-29-50-659Z/report.json)ok:true/everyRoundHealthy:true，bundle `ea03f4bc995b3a841a38351eb5a0bce4cf9a0c623289419497e94455e2944276`：ready3009ms/boot2115.9ms/heap12,073,924B，视觉P95 zoom70.2/pan43.2/drag86.4ms，慢帧率12.5%、操作long task58ms；33.4ms建议仍未达到。05:27运行只有首轮截图，无完整报告，发现即使awaitPromise:false也会与同步关闭Renderer竞争；测试改为先确认CDP求值后100ms触发正常关闭，并在断连时拒绝未决请求，不把退出0算成功。重跑复用同bundle，三轮全部正常退出，有截图。
+- 混合100节点/本地视频发现实际功能回归：缩放后非主选播放器被概览/视口虚拟化卸载（`perf-delivery-video.log`中paused为undefined）。下一步在原Renderer渲染集合加入项目隔离的临时播放状态，暂停/结束/删除/切项目释放；随后重新测量当前源码，不沿用旧bundle的成功结论。
+- 有界SVG[1000节点三轮](.diagnostics/electron/product-performance-2026-10-17T05-17-53-754Z/report.json)拖动P95仍845.3ms，无改善，已撤回绘制面改动。继续定位发现全选会绕过既有低缩放概览，197个可见次选仍挂完整图片表面。现让次选使用原概览、保留selected/aria-pressed，主项/活动项/运行任务完整；probe及真实交互增加canonical数量和概览高亮断言，尚待新测量决定是否成立。
+- 有界关系SVG后[标准三轮](.diagnostics/electron/product-performance-2026-10-17T05-16-12-958Z/report.json)全部原门禁通过：ready2799ms/boot1900.9ms/heap12,186,144B，视觉P95 zoom71.5/pan39.5/drag79.2ms、慢帧率8.33%、操作long task 0。仍未达到33.4ms建议目标；100/500/1000最终混合后测继续运行。
+- [本地视频基础验证](.diagnostics/electron/product-performance-2026-10-17T05-17-36-453Z/report.json)ok:true：640×360/2秒WebM实际解码播放，时间0→0.088s，画布交互与21条本地Mock进度共存，0真实模型请求。混合100节点视频及持续帧断言继续验证。
+- MediaRecorder在当前远程桌面仅产生110字节EBML头，即使挂载/显式帧请求也无轨道；以本地Sharp编码VP8关键帧和有界WebM容器替换夹具，不安装依赖、不修改产品视频协议。先前error4只证明无效素材不能播放，协议stream权限试验已撤销；原失败报告保留。
+- 工具栏稳定尺寸订阅后标准门禁通过，但密集hub拖动回归仍在首轮后测中；暂停动画的旧CSS实验未适配生产类名，不能用其结果判断动画成本。后续使用稳定data属性的隐藏关系诊断仅用于定位绘制成本，实验副本留在忽略目录，正式测量脚本已移除隐藏开关；产品不隐藏关系。当前仅收敛关系SVG绘制面，世界坐标、端口与原路径不变，最终前后测及UI验收尚待收口。
+
+### 2026-10-17 真实资产性能前测 / measured, not within budget
+
+- 首轮[1000节点后测](.diagnostics/electron/product-performance-2026-10-17T04-54-01-669Z/report.json)真实选择1000项/挂载9组件，ready23,873ms、heap27,901,244B；zoom258.5/pan247.1ms改善，drag830.9ms较前测477ms恶化。保留失败结果并补[CPU profile](.diagnostics/electron/product-performance-2026-10-17T04-59-02-112Z/round-1/renderer-interactions.cpuprofile)：主要JS热点为工具栏useLayoutEffect的getBoundingClientRect（两处原生调用208/342 samples）。children每次父渲染重建导致重复强制layout。修为稳定command身份、容器与各按钮真实ResizeObserver触发，重跑最终后测；不以响应事件返回快替代视觉帧结论。
+- 额外[Main hydration剖析](.diagnostics/hydration-profile-before.json)：旧Renderer退出后已持久化为2000节点的诊断项目，独立hydrate19,346.8ms/save13,283.6ms；27,465次realpath合计24,918.2ms、27,450次exists约4,975ms。它定位重复根目录解析热点，不作为1000节点启动数字。计划只在同步单次hydrate/save复用项目根解析，保留逐文件校验与操作间重新检查；随后以同一2000节点项目复测和路径安全回归。
+- [1000节点三轮](.diagnostics/electron/product-performance-2026-10-17T04-37-55-554Z/report.json)每轮运行健康，但预算失败。1000节点/999条hub关系/500消息、2K/4K PNG/JPEG/WebP、真实Ctrl+A；就绪中位72,687ms、boot71,744.8ms，选中1000项后实际挂载1000组件；视觉帧P95 zoom1026.9/pan1706.3/drag477ms，操作long task最大2080ms，heap54,131,792B。
+- 旧Renderer冻结bundle SHA-256 `8dcc08d3abc479e3483e0393bbfaf4f7a1e152b375ec194697f273d29a9e2b01`；同机器/1280×720/DPR1/暗色/每轮隔离冷应用缓存、共享系统磁盘缓存。100/500早期有效前测使用文件复制，1000用同卷hard link；为严格比较，100/500以hard link夹具补测，后测保持同一脚本与素材字节。未改预算，不把运行健康当成性能通过。
+- 当前源码只针对测到的屏外次选及一跳关系强挂移除完整组件，保留canonical选择和关系几何。标准及混合后测、视频和内存循环尚在执行，不能提前宣称提速。
+
+### 2026-10-17 画布与恢复扩展通过 / verified locally
+
+- 布局配置[125%](.diagnostics/workspace-layout-config-2026-10-17T04-18-55-790Z/report.json)与[150%](.diagnostics/workspace-layout-config-2026-10-17T04-19-38-054Z/report.json)均ok:true，各12项/7截图/2次启动；修正后的搜索标签实际截图可读。实际884最小窗画布472px/Agent348px，恢复650px偏好；150%最大窗受屏幕约束实际1708×934，未声称该DPI下达到1920。自动保存失败/重试/重启与主独立Agent同源均通过，0模型POST/0目录GET。
+- 阶段5内存夹具首次真实查看器断言失败，最终定位到图片原放output根目录，被既有受管资产规则排除；须位于output/imagegen或assets。旧03:57/04:02及04:20—04:25的失败记录保留，不能作为完整2K/4K解码验收。更新受管目录、assetUrl、独立路径/合法occurrence与实际解码/查看器断言后重新测量；后续用同卷hard link减少重复夹具字节复制，不改解码字节。标准无图片基线不受此夹具问题影响。
+
+- [150%画布](.diagnostics/workspace-optimization-ui-2026-10-17T04-17-22-798Z/report.json) ok:true /28项/8截图。真实CDP指针覆盖连接头轻点、Escape/pointercancel/空白取消、实际建边及单undo；框选跨Agent捕获未挂载D，回视口高亮且Agent SOURCE一致。Computer Use正常激活隔离Electron再切Chrome，收到isTrusted blur，拖动坐标与选择均回滚。
+- 重载验收发现无createdAt的旧节点会重复：Renderer sanitizeNode曾先补展示时间再生成legacy origin，与Main原始空日期不一致。现两侧统一以原始字段生成origin，展示日期独立；实际重载断言严格5节点、资产与关系保留。
+- [恢复扩展UI](.diagnostics/image-recovery-ui-2026-10-17T04-18-15-377Z/report.json) ok:true，5次Electron启动、8个本地创建POST/6次poll，0真实请求。真实session原子写失败显示脱敏错误，重试只做本地保存、不增加POST/poll/节点；取消accepted任务本地等待后重启恢复原task。CLI、4xx/429/502/断连/缺taskId不重放、部分成功、二次重启稳定身份均通过。服务10进程蒙版证据仍保留。
+- 下一步：布局125/150%复验与性能同条件后测；尚无本轮EXE/安装/Git交付。
+
+### 2026-10-17 布局配置首轮通过、遮罩恢复补齐 / partially verified
+
+- [布局配置GUI](.diagnostics/workspace-layout-config-2026-10-17T03-45-17-007Z/report.json) ok:true，100% DPI、2次Electron正常启动/退出、7截图，0图片POST/0目录GET；884×640画布472px/Agent348px/输入323px，无横溢；1280/1920恢复650px偏好。搜索/键盘/菜单滚轮、实际registry模板动作、最近使用落盘通过。真实原子保存失败阻止完成/Escape静默关闭，重试和快速数量修改后重启读回5张/3:2；独立Agent /config同源。修复菜单行样式与DialogShell抢占portalled下拉Escape的真实UI问题。
+- [遮罩恢复](.diagnostics/image-recovery-x6Rh9i/report.json) ok:true，10个子进程，1POST/3poll/2download；原结果合成连续失败仍保留processed:false，第三进程恢复蒙版内绿/外蓝，源realpath/hash与已保存资产缺失校验补齐。
+- 画布扩展首20条通过的[中间报告](.diagnostics/workspace-optimization-ui-2026-10-17T03-46-10-964Z/report.json)整体仍ok:false，关系线中点被节点遮挡导致夹具右键命中错误，正在修正可见hit-target采样。新增Ctrl SOURCE、空框、不同zoom的CSS阈值/提交/单undo、resize和pointercancel、容器槽位；不能计完整阶段通过。
+- 性能测量发现原脚本左键拖空白现为框选，阶段5先修正为中键平移并建立新基线；旧pan数字仅作历史，不与新合同混算。尚未实施性能优化，无EXE/安装/push。
+
+### 2026-10-17 扩展画布与性能前测 / in progress
+
+- [125%画布](.diagnostics/workspace-optimization-ui-2026-10-17T04-01-07-217Z/report.json) ok:true /25条/6截图；新增真实滚轮、Space在pan工具中不反转、关系线菜单、过期菜单拒绝及项目重载。检查发现过期提示只写设置页消息，已补画布状态栏；后续150%扩展连接/世界框选仍在运行，中间失败报告保留。
+- 人工复核布局配置截图发现快捷键的双平台ARIA字符串挤没了首项标签；改为同一registry的人类可读快捷键、ARIA保留语义，工具搜索宽度提高选择器精度，并新增标签可读宽度断言。待新GUI验证。
+- 修正输入合同后的[标准三轮前测](.diagnostics/electron/product-performance-2026-10-17T03-55-44-537Z/report.json) ok:true：ready3353ms/boot2076.8ms/heap12,245,780B；视觉zoom71.5/pan37/drag82ms，建议33.4未达。旧1000混合初测03:57保留；当时select-all session字段未被产品读取，不能据此声称多选。
+- [1000混合+999 hub关系+实际Ctrl+A前测](.diagnostics/electron/product-performance-2026-10-17T04-02-16-480Z/report.json)三轮完整、ok:false：ready17370ms/boot16471.3ms/heap69,460,500B，视觉zoom976.9/pan1944.5/drag385ms，long task2261ms；预算原样保留。实际多选会强挂全部屏外组件，关系也会在初始可见区扩展屏外节点。按测量仅去掉次选/关系强挂，保留主项/活动任务与独立几何绘线；后测待运行。
+- 恢复补充夹具加入真实session原子写盘失败、可见错误、重复本地保存无POST/poll，以及取消本地等待后重启查询原任务。Main session写失败返回脱敏中文并不推进已应用revision；这些最新场景待运行。
+
+### 2026-10-17 恢复首轮通过，布局配置在制 / partially verified
+
+- Main应用链审查修正：`operation`原为generate/edit语义，曾被误当journal记录，已拆为`operationRecord`，真正提交前和accepted事件现在落盘。服务恢复测试7个Node子进程通过：[报告](.diagnostics/image-recovery-o0thHP/report.json)，1 POST/3 polls/2 downloads，含换凭据拒绝、429查询、503下载、ENOSPC、缓存重启、不确定不重发、部分成功与敏感扫描。
+- [应用级恢复报告](.diagnostics/image-recovery-ui-2026-10-17T03-19-59-214Z/report.json) ok:true，4次Electron启动，7个独立模拟场景各1 POST/合计4 polls；受理后崩溃、重启GUI原任务恢复、重复恢复和项目再重启保持1份资产/节点，实际隔离PowerShell CLI成功。4xx/429/502/断连/缺taskId均不重放，两图一坏保留成功项；0真实请求。03:13/03:16/03:18夹具失败报告保留，不能计通过。
+- 新合同：Main项目journal、原结果二进制暂存、`image.operations`/`image.recover` GUI/共享命令/CLI/MCP、2个IPC同步，注册152 invoke/149 preload；图片成功DTO不再透传provider URL/base64。遮罩原结果与处理描述已接入，续接审查修正失败slot处理标记丢失、已保存文件缺失检查和恢复请求元数据；这些最新补充待验证。
+- 阶段4在制：工具条使用常用入口+全部工具搜索/领域分组/最近使用，沿用command registry和MenuSurface；小窗临时夹紧与用户宽度偏好分开；图片配置cacheOnly打开、保存串行/失败重试/关闭保护；共享模型默认/quality政策。首轮续接typecheck发现设置归一化引用遗漏已修正，随后typecheck、layout16项、settings155项、image service和view-image通过；最新扩展改动仍待编译/UI。
+- 新增设置`canvasWheelMode`、`recentCanvasToolCommands`和共享纯策略`canvas-wheel`；轮滚按明确模式和deltaMode处理，默认鼠标锚点缩放、可选双指平移、Ctrl/Meta捏合缩放，不猜设备。
+
+### 2026-10-17 接口收口与画布首轮 / partially verified
+
+- 接口补充：Main复用真实凭据解析生成脱敏connectionSummaries；账户Key摘要仅使用内存缓存，不联网取Key。Renderer按当前connectionId/协议/传输过滤证据，逐模型与全局草稿更改均失效。一次旧连接迁移冻结原Sub2API出口并记录legacy-migration；新连接不按域名字符串推断异步；不支持的协议/参数派发前拒绝。
+- 新失败与修正：摘要异步化后，server-ipc缓存登录分支未await DTO导致启动等待；已修正全部调用方。中间失败报告02:44/02:49原样保留，不计通过。最终[本地HTTP Electron](.diagnostics/image-generation-failure-ui-2026-10-17T02-51-57-607Z/report.json) ok:true，双Key目录/失败归属隔离，1图片POST/3Agent轮次，错误可见且脱敏；0真实请求。model-ux/runtime-evidence/typecheck与selection/canvas-commands通过。
+- 画布实现：轻点/空框保留；中键与Space覆盖作品平移；pan/marquee/node/resize/connect取消分离；框选使用canonical projection世界几何与rAF预览；节点移动阈值5px，resize临时DOM预览/最终一次提交；右键未选B只操作B且保留集合，空白保留创建与集合动作分组，菜单记录项目revision/槽位身份并拒绝过期；图片计时器清理，慢双击窗口500ms。旧产品文字/快捷键提示已同步。
+- 首轮[真实Electron指针报告](.diagnostics/workspace-optimization-ui-2026-10-17T02-59-36-965Z/report.json) ok:true /12条/4截图：空白、A/B多选右键C、只选C、中键作品平移、Escape回滚/集合保留、Space作品平移、节点取消坐标不变、blur框选取消、340ms慢双击编辑。尚未覆盖全部DPI、菜单过期/锁、重载和resize/连线边界，不把这12条当完整阶段2验收。
+- 阶段3在制：新增Main项目`.naimage/image-operations/journal.json`，提交前记录operationId/requestIndex/连接身份，accepted立即持久化taskId，结果只在内存或二进制暂存，不落Key/URL/base64；恢复只查询原任务或处理已有字节，禁止新POST。GUI/IPC/共享image.operations、image.recover命令同步中，重启/失败矩阵尚未运行。
+
+### 2026-10-17 阶段0基线与阶段1归属修复 / partially verified, in progress
+
+- 修复：`modelConnectionIdentity` 使用归一化真实URL与Key内部指纹；Main请求在凭据实际解析后冻结身份，只回写精确profile，不给同provider其他连接补模型。画像schema v2追加协议/传输/操作/参数范围/阶段/时间/脱敏类别；缺身份证明的旧成功降为历史。图片上游响应和受管资产交付分开观察；摘要纯策略移至既有`src/model-ux.ts`，较新失败优先于旧成功，显示失败时间，落盘失败单列。
+- 专项：`test:model-runtime-evidence`、`test:model-catalog`、`test:custom-api-transport`（40项）、`test:image-generation-service`、`test:image-generation-async`、`test:model-ux`、`typecheck`通过。服务自测原新增断言未提供回调，已用传入回调补齐同步/异步透传验证。
+- 本地HTTP Electron：[报告](.diagnostics/image-generation-failure-ui-2026-10-17T02-33-28-651Z/report.json) ok:true；A/B两个Key身份不同，各自目录模型隔离，A失败只记A，B无新模型/运行观察；1次图片POST、3轮Agent模拟请求，中文错误可见、无敏感正文，截图`main-error.png`。0真实模型请求。
+- 阶段0：[三轮性能报告](.diagnostics/electron/product-performance-2026-10-17T02-19-46-552Z/report.json) ok:true / everyRoundHealthy:true，1000节点/199关系/500消息；工作区就绪中位2783ms、Renderer1854.5ms、heap11,367,888B、交互Long Task最大0ms；视觉缩放P95 73ms/拖动99.2ms仍未达到新增33.4ms建议目标。运行时Bundle1,766,837B超1.2MB advisory，未改阈值。全部轮次正常退出0并有截图。
+- 测量限制：先前两次运行（01:55与02:16）仅有第一轮截图，无最终报告，不能计基线。根因为关闭IPC销毁Renderer导致CDP等待未决；运行器改为不等待关闭Promise后生成完整报告。尚未覆盖100/500、真实2K/4K混合素材和内存循环；后续阶段5扩展。
+- 尚未完成：当前配置身份/协议变化的完整摘要与迁移、其余阶段验收、最终EXE、安装和Git同步。真实OpenAI/xAI/Gemini/Sub2API/Extension/Seedance服务均未新增验证。
+
+### 2026-10-17 优化实施 / accepted, in progress
+
+- 契约见Goal顶部。设计§5的中键平移/左键框选/Space临时平移替代旧产品文字；其他已接受产品工作与历史证据保持。
+- 尚未运行本轮测试/基线、生成EXE、安装或push；不会把源码检查当交互/恢复/性能验收。
+
+### 上一轮状态快照（2026-10-16，历史）
+
+- 当前任务：按用户要求固化[工作台优化设计与执行交接](docs/WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)，documentation completed / verified；产品实施待启动。已核对 main / 15a126b、当前源码和已有截图/报告；设计覆盖六个工作包，含第 12 节执行 Prompt，本轮不改变产品行为。
+- 评审证据：本地纯函数复现确认运行验证标记会传播到其他同 provider 连接；源码显示空白点击/中键契约与产品文档不一致、框选取消与提交共用处理，以及 Sub2API 传输依赖地址推断。已有截图与工具栏记录用于布局设计；性能项属于待测量候选，没有新性能达标结论。
+- 最近功能交付：Grok 502 定位及客户端防重复生图修复已完成，客户端/EXE/安装/Git同步verified。真实单张测试各一次（现有连接4.649s，用户新增连接1.159s）均返回HTTP502，没有图片且均无重试；用户表示渠道端若无法修复就到此为止，已停止真实请求。28项模拟回归及开发/已安装程序的主Agent隔离UI通过：错误可见、无敏感上游文本、一次图片POST、模型试图再次生图被阻止。渠道端故障未恢复。
 - 最新本地EXE（2026-10-16开发包）：[无限制版1.0.9安装包](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,842,944 B，SHA-256 `8a8d06f5fe1cb6fba86ab4cbbbe90fc57021f3a65a76c95d62419232d3191427`。production build/打包退出0，122个dist文件及8个Main/runtime源码与包内精确匹配；[制品审计](.diagnostics/grok-fix-2026-10-16/package-audit.json)。未上传二进制或发布Release，正式CSS门禁沿用下方历史未通过边界。
 - 安装与包内验证：[原位安装](.diagnostics/grok-fix-2026-10-16/install.json)退出0 /25.146s，注册目录/版本/3个配置表面保留，EXE及ASAR匹配；[已安装UI](.diagnostics/image-generation-failure-ui-2026-10-15T23-56-41-348Z/report.json)ok:true，截图已核验，一次图片POST/三轮对话均为本地模拟、无新真实请求。[测试后核对](.diagnostics/grok-fix-2026-10-16/installed-ui-verification.json)确认日常配置、安装身份及8个源码owner未变，无残留同名程序；未读取secrets内容。
 - Git同步：源码/测试/上下文11个文件提交`5a270e649530fa6821ef871949b7e2ec16f371e8`已普通push到origin/main，[实查记录](.diagnostics/grok-fix-2026-10-16/git-source-push.json)确认远端/本地/缓存upstream一致且当时工作树干净；本完成记录单独随纯文档提交归档，最终分支/制品/安装身份汇总见[交付索引](.diagnostics/grok-fix-2026-10-16/delivery.json)。
-- 下一步：本轮客户端修复已交付，渠道端交由渠道商排查，停止真实请求。下面2026-10-15状态为上一轮历史证据；卸载、跨版本升级与其他业务未重复验收。
+- 下一步：用户将 Prompt 交给 gpt-6.1-sol 后，从设计阶段 0、1 开始持续实施；Grok 渠道仍停止真实请求。快照中的 EXE/Git 与2026-10-15记录均是已有功能交付证据，不是本次设计已实施的证明。
+
+### 2026-10-16 优化设计文档交付 / documentation completed, verified
+
+- 变更：新增 470 行设计与执行交接文档，记录当前证据、候选交互合同、六个工作包/实施阶段、owner、专项验收、性能基线、交付流程与完整 Prompt；Goal/Progress、docs 索引与上下文地图只补设计导航，不将候选合同登记为已实施。
+- 验证：Node 本地只读检查 5 个文档、61 处链接、13 个 package.json 命令、13 节编号与代码围栏全部通过；git diff --check 通过。工作树仅包含本轮 5 个文档变更，未修改业务源码。
+- 边界：本轮文档不触发产品构建/EXE/安装或打包后的 Git 提交推送；没有新 GUI、性能基准、真实服务请求或发布。此前本地纯函数复现和历史截图/报告的证据范围见设计第 2 节。
+- 后续：用户明确执行后，先登记实施 Goal，从基线和接口验证归属修复开始，按阶段验收；不能把这次文档验证当作产品功能验证。
 
 ### 上一轮状态快照（2026-10-15，历史）
 

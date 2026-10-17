@@ -321,36 +321,22 @@
   pointer-events: none;
 }
 
-.canvas-plugin-toolbar-pagination {
+.canvas-all-tools-trigger {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.canvas-plugin-toolbar-pagination button {
-  width: 28px;
   height: 32px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   color: var(--ink-soft);
   background: var(--surface-raised);
 }
 
-.canvas-plugin-toolbar-pagination button:disabled {
-  opacity: 0.4;
-}
-
-.canvas-plugin-toolbar-page {
-  min-width: 36px;
-  text-align: center;
-  color: var(--ink-soft);
-  font-size: var(--font-xs);
-  font-variant-numeric: tabular-nums;
-}
+.canvas-context-menu.canvas-tools-menu { width: min(350px, calc(100vw - 24px)); }
+.canvas-tools-search { display: flex; align-items: center; gap: 8px; padding: 8px; }
+.canvas-tools-search input { min-width: 0; width: 100%; height: 36px; }
 
 .canvas-plugin-toolbar-actions button {
   flex: 0 0 auto;
@@ -832,7 +818,8 @@
 }
 
 .workflow-canvas.is-viewport-detail-reduced .edge-layer,
-.workflow-canvas.is-viewport-detail-reduced .flow-node :is(img, video, canvas) {
+.workflow-canvas.is-viewport-detail-reduced .flow-node :is(img, canvas),
+.workflow-canvas.is-viewport-detail-reduced .flow-node:not([data-video-playing="true"]) video {
   visibility: hidden !important;
 }
 

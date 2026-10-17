@@ -48,6 +48,9 @@ assert.equal(agentPanelLayoutForPlacement(right, "floating", bounds).agentPanelH
 
 const clampedTop = clampAgentPanelLayout({ ...top, agentPanelHeight: 1_400 }, { width: 1_200, height: 800 });
 assert.equal(clampedTop.agentPanelHeight, 640);
-assert.equal(clampAgentPanelLayout({ ...right, agentPanelWidth: 2_000 }, { width: 800, height: 900 }).agentPanelWidth, 640);
+assert.equal(clampAgentPanelLayout({ ...right, agentPanelWidth: 2_000 }, { width: 800, height: 900 }).agentPanelWidth, 320);
+const preferred = { ...right, agentPanelWidth: 650 };
+assert.equal(clampAgentPanelLayout(preferred, { width: 884, height: 640 }).agentPanelWidth, 348);
+assert.equal(clampAgentPanelLayout(preferred, { width: 1920, height: 1080 }).agentPanelWidth, 650);
 
 process.stdout.write(`${JSON.stringify({ ok: true, cases: 16 })}\n`);

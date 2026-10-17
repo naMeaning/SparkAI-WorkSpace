@@ -1,92 +1,75 @@
-import { cloneElement, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactElement } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { cloneElement, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactElement } from "react";
+import { Search } from "lucide-react";
+import { ButtonBase, MenuItem, MenuSeparator, MenuSummary, MenuSurface } from "./ui";
 
-import { ButtonBase } from "./ui";
+type ToolButton = ReactElement<ButtonHTMLAttributes<HTMLButtonElement> & { "data-plugin-command"?: string }>;
+type ToolDetail = { label: string; description: string; group: string; shortcut?: string };
 
-type CanvasToolbarPagesProps = {
-  expanded: boolean;
-  children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement> & { "data-plugin-command"?: string }>[];
-};
-
-/** Keeps each command intact while the canvas and Agent panel change width. */
-export function CanvasToolbarPages({ expanded, children }: CanvasToolbarPagesProps) {
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const [pageStarts, setPageStarts] = useState([0]);
-  const [anchor, setAnchor] = useState(0);
-  const commandKeys = children.map((child) => child.key).join("|");
-
-  useLayoutEffect(() => setAnchor(0), [commandKeys]);
-
+/** Common commands plus searchable access to the existing command buttons. */
+export function CanvasToolbarPages({ expanded, children, details, recentCommands }: {
+  expanded: boolean; children: ToolButton[]; details: Record<string, ToolDetail>; recentCommands: string[];
+}) {
+  const actionsRef = useRef<HTMLDivElement>(null), measureRef = useRef<HTMLDivElement>(null), searchRef = useRef<HTMLInputElement>(null);
+  const [commonCount, setCommonCount] = useState(3), [query, setQuery] = useState("");
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const keyOf = (child: ToolButton) => child.props["data-plugin-command"] || String(child.key);
+  const common = children.slice(0, 5);
+  const commonKeys = common.map(keyOf).join("\u0000");
   useLayoutEffect(() => {
-    const actions = actionsRef.current;
-    const measurement = measureRef.current;
+    const actions = actionsRef.current, measurement = measureRef.current;
     if (!expanded || !actions || !measurement) return;
     const measure = () => {
-      const available = actions.getBoundingClientRect().width;
-      if (available <= 0) return;
-      const gap = parseFloat(getComputedStyle(actions).columnGap) || 0;
-      const starts = [0];
-      let used = 0;
-      Array.from(measurement.children).forEach((child, index) => {
-        const width = child.getBoundingClientRect().width;
-        if (used > 0 && used + gap + width > available + 0.5) {
-          starts.push(index);
-          used = width;
-        } else {
-          used += (used > 0 ? gap : 0) + width;
-        }
-      });
-      setPageStarts((previous) => previous.length === starts.length && previous.every((start, index) => start === starts[index]) ? previous : starts);
+      const availableWidth = actions.getBoundingClientRect().width;
+      let used = 0, count = 0;
+      for (const child of Array.from(measurement.children)) {
+        used += child.getBoundingClientRect().width + (count ? 5 : 0);
+        if (used > availableWidth + 0.5) break;
+        count++;
+      }
+      setCommonCount(count);
     };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(actions);
-    Array.from(measurement.children).forEach((child) => observer.observe(child));
+    measure(); const observer = new ResizeObserver(measure); observer.observe(actions); observer.observe(measurement);
+    for (const child of Array.from(measurement.children)) observer.observe(child);
     return () => observer.disconnect();
-  }, [children, expanded]);
-
-  // Preserve the viewed command on resize; a changed/filtered tool list starts at page one.
-  const safeAnchor = Math.min(anchor, Math.max(0, children.length - 1));
-  const page = pageStarts.reduce((current, start, index) => start <= safeAnchor ? index : current, 0);
-  const start = pageStarts[page];
-  const end = pageStarts[page + 1] ?? children.length;
-
-  return (
-    <div className="canvas-plugin-toolbar-pages" aria-hidden={!expanded}>
-      <div id="canvas-plugin-toolbar-actions" className="canvas-plugin-toolbar-actions" ref={actionsRef}>
-        {children.slice(start, end)}
-      </div>
-      <div className="canvas-plugin-toolbar-pagination" aria-label="画布工具分页">
-        <ButtonBase
-          className="canvas-plugin-toolbar-previous"
-          aria-label="上一页画布工具"
-          aria-controls="canvas-plugin-toolbar-actions"
-          title="上一页"
-          disabled={page === 0}
-          tabIndex={expanded ? 0 : -1}
-          onClick={() => setAnchor(pageStarts[page - 1])}
-        >
-          <ChevronLeft size={14} aria-hidden="true" />
-        </ButtonBase>
-        <span className="canvas-plugin-toolbar-page" aria-live="polite" aria-atomic="true" aria-label={`第 ${page + 1} 页，共 ${pageStarts.length} 页`}>
-          {page + 1}/{pageStarts.length}
-        </span>
-        <ButtonBase
-          className="canvas-plugin-toolbar-next"
-          aria-label="下一页画布工具"
-          aria-controls="canvas-plugin-toolbar-actions"
-          title="下一页"
-          disabled={page === pageStarts.length - 1}
-          tabIndex={expanded ? 0 : -1}
-          onClick={() => setAnchor(pageStarts[page + 1])}
-        >
-          <ChevronRight size={14} aria-hidden="true" />
-        </ButtonBase>
-      </div>
-      <div className="canvas-plugin-toolbar-actions canvas-plugin-toolbar-measure" aria-hidden="true" ref={measureRef}>
-        {children.map((child) => cloneElement(child, { disabled: true, tabIndex: -1, "data-plugin-command": undefined }))}
-      </div>
-    </div>
-  );
+    // Parent renders replace React elements during every canvas interaction.
+    // Measure when command identity or actual dimensions change instead.
+  }, [commonKeys, expanded]);
+  useEffect(() => { if (!expanded) setMenu(null); }, [expanded]);
+  useEffect(() => {
+    if (!menu) return;
+    const timer = window.setTimeout(() => searchRef.current?.focus(), 60);
+    return () => window.clearTimeout(timer);
+  }, [menu]);
+  const filtered = children.filter(child => {
+    const id = keyOf(child), detail = details[id];
+    return `${detail?.label} ${detail?.description} ${detail?.group} ${id}`.toLowerCase().includes(query.trim().toLowerCase());
+  });
+  const groups = [...new Set(filtered.map(child => details[keyOf(child)]?.group || "通用创作"))];
+  const recent = query.trim() ? [] : recentCommands.flatMap(id => { const child = children.find(c => keyOf(c) === id); return child ? [child] : []; }).slice(0, 5);
+  const item = (child: ToolButton, prefix: string) => {
+    const id = keyOf(child);
+    return <MenuItem key={`${prefix}-${id}`} data-plugin-command={id} disabled={child.props.disabled} title={child.props.title}
+      aria-keyshortcuts={child.props["aria-keyshortcuts"]} shortcut={details[id]?.shortcut} onClick={event => { setMenu(null); child.props.onClick?.(event); }}>{details[id]?.label || child.props.children}</MenuItem>;
+  };
+  return <div className="canvas-plugin-toolbar-pages" aria-hidden={!expanded}>
+    <div id="canvas-plugin-toolbar-actions" className="canvas-plugin-toolbar-actions" ref={actionsRef}>{common.slice(0, commonCount)}</div>
+    <ButtonBase type="button" className="canvas-all-tools-trigger" aria-label="全部画布工具" aria-haspopup="menu" aria-expanded={Boolean(menu)} tabIndex={expanded ? 0 : -1}
+      onClick={event => { const r = event.currentTarget.getBoundingClientRect(); setQuery(""); setMenu(menu ? null : { x: r.left, y: Math.max(12, r.top - 450) }); }}><Search size={14} />全部工具</ButtonBase>
+    <div className="canvas-plugin-toolbar-actions canvas-plugin-toolbar-measure" aria-hidden="true" ref={measureRef}>{common.map(child => cloneElement(child, { disabled: true, tabIndex: -1, "data-plugin-command": undefined }))}</div>
+    {menu ? <MenuSurface {...menu} ariaLabel="全部画布工具" className="canvas-context-menu canvas-tools-menu" data-canvas-no-zoom="true" onRequestClose={() => setMenu(null)}
+      onKeyDown={event => {
+        event.stopPropagation();
+        if (event.target === searchRef.current && event.key === "ArrowDown") {
+          event.preventDefault(); event.currentTarget.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus();
+        }
+        if ((event.key === "Enter" || event.key === " ") && event.target instanceof HTMLButtonElement && event.target.getAttribute("role") === "menuitem") {
+          event.preventDefault(); event.target.click();
+        }
+      }}>
+      <label className="canvas-tools-search"><Search size={14} /><input ref={searchRef} type="search" value={query} placeholder="搜索工具或领域" aria-label="搜索画布工具" onChange={e => setQuery(e.target.value.slice(0, 160))} onKeyDown={event => { if (["Home", "End"].includes(event.key)) event.stopPropagation(); }} /></label>
+      {recent.length ? <><MenuSummary title="最近使用" />{recent.map(child => item(child, "recent"))}<MenuSeparator /></> : null}
+      {groups.map(group => <div key={group}><MenuSummary title={group} />{filtered.filter(child => (details[keyOf(child)]?.group || "通用创作") === group).map(child => item(child, group))}</div>)}
+      {!filtered.length ? <MenuSummary title="没有匹配工具" /> : null}
+    </MenuSurface> : null}
+  </div>;
 }

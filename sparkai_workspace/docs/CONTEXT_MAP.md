@@ -1,9 +1,33 @@
 # SparkAI WorkSpace 上下文地图
 
+> 优化实施（2026-10-17）：[工作台优化设计与执行交接](WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)第12节已接受，按阶段0—5执行；实际完成/未验证边界从Goal/Progress顶部恢复，设计本身不作为实现证据。
+
+2026-10-17 最小窗口布局修正：正式BrowserWindow最低宽度为884px，因此`src/styles/06-responsive.css`的纵向窄屏媒体规则限定为883px及以下；`test:production-symbol-compaction`同时验证生产CSS剔除883px规则、保留可作用于884px的规则。最终安装版布局/配置与双连接故障复验分别见`.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json`及`.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json`；包内身份与原位安装见Progress。
+
+2026-10-17 连接证据owner：`desktop/model-catalog.cjs::modelConnectionIdentity`按真实归一URL/凭据内部指纹生成脱敏身份；`markModelAccessProfilesVerified`要求精确profile ID，不按provider广播。画像schemaVersion2的capability observations保留协议/transport/操作/范围/阶段/时间/脱敏类别，旧无身份证明的runtime-verified迁移为historicalVerifiedAt。`desktop/new-api-client.cjs`在实际凭据解析后调用仅Main可用的`onConnectionResolved`，不传入HTTP options；图片统一service/types透传accepted/status，Main `callNewApiImageWithSession`捕获响应与失败，以WeakMap临时关联`recordImageAssetDelivery`的受管落盘阶段。公开DTO由`src/core.ts`镜像，摘要选择由`src/model-ux.ts::modelAccessSummary`拥有，弹窗只格式化呈现。测试入口`test:model-runtime-evidence`、`test:model-ux`与扩展后的双连接`test:image-generation-failure-ui`。当前请求/目录缓存仍为既有owner，未引入平行连接系统。
+
+2026-10-17 图片恢复owner：`desktop/image-operation-journal.cjs`由Main持有项目`.naimage/image-operations/journal.json`（schema1/revision/最多500条），提交前写operationId+requestIndex/来源/参数/精确连接；accepted立即持久化taskId。provider结果仅内存，已有结果处理失败按槽位二进制暂存；蒙版暂存独立mask字节并引用项目受管源哈希，原结果/已处理状态明确区分。Main `operationRecord`与generate/edit语义分开，恢复只走原task GET或原字节处理；不创建新图片POST，未知创建不重放，稳定assetId/occurrenceId供Renderer项目对账。`desktop/image-generation-service.cjs::transportSettings`统一生成实际凭据引用供派发/摘要/恢复，防config.accountTokenId丢失。`naimage:server:image-operations` / `recover-image`经preload/core/server桥镜像；`src/image-recovery-dialog.tsx`为自然异步GUI，`main.recoverImageOperation`复用revision队列及项目flush，稳定身份去重。公开共享`image.operations`、`image.recover`同步registry/runtime、CLI/MCP schema和参考；生成成功DTO仅受管assets，不透传provider URL/base64。验证`test:image-recovery`（子进程重启/失败/遮罩）、`test:image-recovery-ui`（实际Electron重启、GUI/CLI、POST计数）、IPC152/149与automation合同。
+
+2026-10-17 画布/布局配置owner：`src/canvas-wheel.ts`定义deltaMode/锚点/显式zoom或pan模式；`canvasWheelMode`与`recentCanvasToolCommands`由Renderer settings-persistence及Main默认/迁移镜像。`src/main.tsx`使用原selection reducer、canonical projection世界框选、rAF临时预览与单次commit；Escape/pointercancel/blur取消不提交，菜单冻结项目revision/目标/槽位身份。`src/agent-panel-layout.ts`按素材轨64+最低画布464+间距8夹紧侧栏，用户偏好与当前bounds分开，缩窗不覆写偏好。`src/canvas-toolbar-pages.tsx`保留模块名但替代分页：最多5个现有常用command按钮、MenuSurface搜索/领域/最近使用，隐藏/快捷键仍由原插件registry拥有。`runtime/image-model-policy.mjs`统一Agent模型优先政策和Main/Renderer质量候选，`.d.mts`为类型镜像；Main models的`resolvedImageModelConfigs`只含脱敏实际能力，不含地址/凭据，图片配置及手动表单读取该结果。图片偏好自动保存走串行settings队列，DialogShell阻止在途/失败关闭，失败重试；普通打开cacheOnly，显式刷新目录。验证新增`test:canvas-wheel`、`test:workspace-optimization-ui`，布局/设置/图片服务及实际UI；最新完成证据见Progress。
+
+阶段0/5测量工具：`scripts/product-performance-gate.mjs`关闭窗口的CDP调用使用awaitPromise:false；输入合同canvas-v2-middle-pan，旧左键框选数据不混作pan对比。支持`--nodes=100/500/1000 --mixed-assets --hub --relations=N --select-all --memory-cycles=N --bundle=已有同源码测量bundle`：确定性2K/4K PNG/JPEG/WebP、混合容器/需求、实际Ctrl+A、隔离双项目/查看器/缩放循环及GC前后heap和进程树Private/WorkingSet。复用bundle须记录身份且只比较同环境。预算不变，失败原始轮次见Progress。
+
+阶段5可见集合：`src/main.tsx::renderedNodes`保留主选/活动手势与运行任务，次选的屏外节点由canonical selection持有；不再为关系扩展完整节点组件。`renderedEdges`独立使用既有port几何和三次曲线control hull覆盖可视区，屏外两端连线也不能丢；AIDebug期望投影同步。`scripts/workspace-optimization-ui-selftest.mjs`覆盖未挂载节点世界框选/高亮/Agent SOURCE及连接取消/重载；`test:workspace-layout-config-ui`登记小窗/工具/配置/重启入口，DPI结果见Progress。
+
+低缩放密集画布的现有概览模式同样适用于选中的次要节点；主项/活动项/任务仍保留完整表面。概览节点用同一canonical选择添加selected高亮及aria-pressed，缩放恢复后仍展示原资产；性能probe记录selectedNodeCount/overviewNodeCount/selectedOverviewNodeCount用于证明没有通过丢弃选择减少组件。最终测量与截图见Progress。
+
+视频播放活动由`src/main.tsx`的项目隔离临时状态拥有：onPlay保留完整播放器，onPause/onEnded释放；切项目/删除节点清理，不进入Session或CLI。视口挂载与概览策略共用此状态；`product-performance-gate.mjs --local-video --mixed-assets`使用本地VP8/WebM检验缩放/平移/Mock Agent进度期间帧持续增长。
+
+`overviewNodeIdSet`统一概览渲染与实际完整图片表面的复杂度计数，避免把概览内未挂载图片当重表面反复隐藏/恢复关系层；拖动组件持续挂载并保持原概览级别，避免手势开始才加载图片表面；主项与播放视频保持完整。概览触发阈值仍使用原始可见节点/资产数，资源与选择不变。
+
+关系可见性纯策略复用`src/canvas-relation-graph.ts::canvasRelationCurvePath/canvasRelationCurveIntersectsRect`：Main.tsx端口几何生成相同mid-X三次曲线，单调X区间二分和Y导数极值裁剪真正穿过视口的关系，不能依赖完整端点组件或控制点外框。`test:requirement-graph`覆盖正反向/竖线/大扇出及密集采样的无漏线校验；实际关系拖动/取消与截图仍由优化UI专项验证。
+
 2026-10-16 Grok 同步生图故障边界：`desktop/new-api-client.cjs` 的 JSON/multipart 图片 POST 在凭据解析之后调用 `runtime/image-generation/errors.cjs::protectImageCreationError`，把 5xx、408、断连/超时归为 `image_generation_uncertain` 并保留 HTTP 状态、`ambiguous/unsafeToRetry`；不把未收到图片描述成已生成。`desktop/image-generation-service.cjs` 归一化后保留标记，`agent-runtime.cjs` 的既有运行内保护阻止 Agent 改参数重发，中文 advice 要求先查询渠道结果；新用户轮次解除运行内保护。明确4xx、输入/凭据预检、取消与普通对话沿用原行为。`desktop/runtime-diagnostics.cjs` 白名单同步新分类，公开 DTO 结构不变。验证入口 `test:image-generation-failure`（协议/状态/传输/Agent边界）与 `test:image-generation-failure-ui`（本地HTTP上游，主Agent面板、一次POST、脱敏与截图，支持 --exe）。外部 New API、Extension、模型配置与请求格式不改；真实渠道结果及制品以 GOAL/PROGRESS 最新证据为准。
 
-> 地图版本：105
-> 最近同步：2026-10-16
+旧节点身份镜像：`src/main.tsx::sanitizeNode`与`desktop/project-session-merge.cjs::nodeOrigin`必须按原始createdAt（缺失为空串）生成`legacy:id:createdAt:type`；Renderer展示用补日期不得进入持久身份，否则跨Main保存合并会复制旧节点。`test:workspace-optimization-ui`用真实Page.reload验证节点总数、资产与关系；session保存写失败由`desktop/ipc/config-ipc.cjs`返回PROJECT_SAVE_FAILED，不推进已应用revision，`test:image-recovery-ui`验证可见错误与无网络本地重试。
+
+> 地图版本：110
+> 最近同步：2026-10-17
 > 2026-10-15 UI本地验收：模型目录/单模型连接分栏，图片显式池/默认独立操作，共享DialogShell四边四角/键盘尺寸调整；owner与14场景UI、EXE、安装/启动及Git结果以 [PROGRESS](../PROGRESS.md) 本轮记录为准，未改 IPC/模型协议/设置格式。
 > 新会话入口：[AGENTS 必读顺序](../AGENTS.md) → [GOAL 当前任务](../GOAL.md) → [PROGRESS 当前开发状态及最新证据](../PROGRESS.md) → 本次边界的地图章节。实现、实际验证、当前制品、正式门禁与下一步统一从进度顶部恢复。
 > 2026-10-15 打包后交付规则：本地 EXE 成功并核对后，经 `tools/windows-installer/Installer/Program.cs` 的 `/S` 正常安装流程自动本机安装/原位升级，沿用注册目录和快捷方式偏好、保留用户数据；先正常退出应用，遇未保存内容或活动任务不能安全退出则保留现场待安装。核对退出码、注册信息及已安装 EXE/ASAR 后更新 Goal/Progress 和相关地图，提交对应源码与上下文并推送 upstream；打包、安装与该 Git 同步已有持续授权。源码、EXE 身份、实际验证、安装与推送结果由 PROGRESS 统一记录，生成物/私有配置继续遵循 ignore，正式 Release 与二进制上传单独授权。
@@ -101,7 +125,7 @@ Grok 消费后报 AggregateError 的桌面回归本地修复与修订 EXE 已验
   ▼
 Electron Main: electron-main.cjs
   ├─ BrowserWindow / native dialog / shell / desktopCapturer
-  ├─ desktop/ipc/register-desktop-ipc.cjs：150 个 invoke handler（147 preload + 3 internal）/9 receive/2 send channel 的唯一注册顺序
+  ├─ desktop/ipc/register-desktop-ipc.cjs：152 个 invoke handler（149 preload + 3 internal）/9 receive/2 send channel 的唯一注册顺序
   │    └─ settings / glass background / requirement library / commerce / plugin / automation / updater / session / agent / window / debug / export center / project / asset / server / video task registrar
   ├─ 项目、session、账户密钥脱敏快照、模型缓存、更新状态
   ├─ desktop/project-save-coordinator.cjs
@@ -323,7 +347,7 @@ src/main.tsx sendPrompt()
 
 `desktop/runtime-diagnostics.cjs` 是唯一日志 owner，`createRuntimeDiagnostics`、`publicEvent` 和 `MAX_EVENTS` 管理最近 300 条有界事件。Main 在 `<debugDir>/diagnostics.json` 原子保存并重启恢复；只允许类型、阶段、模型、协议、枚举错误分类、状态、耗时、数量、轮次和 run ID 哈希，不复制请求/响应、错误消息、密钥、Prompt、图片、URL 或原始路径。图片 service 通过可选 `recordDiagnostic` 回调记录 Adapter 请求/返回，Main 落盘记录 result 完成/失败，对话记录请求/返回/失败/有限重试，Agent progress 补充读图/partial。日志故障不得阻塞生图。
 
-`desktop/ipc/config-ipc.cjs` 注册 `naimage:diagnostics:{read,export}`，`preload.cjs`/`src/core.ts.ConfigBridge` 镜像 `readDiagnostics`/`exportDiagnostics` 与 `RuntimeDiagnosticEvent`；导出只通过原生保存对话框授权目标，不向 Renderer 返回路径。`src/settings-drawer.tsx` 设置→工具提供查看最近记录和导出 JSON。共享 schema/registry/runtime/CLI Skill 增加 `app.diagnostics` 与 `app.export-diagnostics`，导出同样走原生对话框。IPC 合同现为 150 invoke / 147 preload / 3 internal；验证 `test:runtime-diagnostics`（脱敏、容量、重启、导出成功/取消/失败、Adapter 记录）、`test:ipc-registration`、`test:automation-service` 与相关 GUI。
+`desktop/ipc/config-ipc.cjs` 注册 `naimage:diagnostics:{read,export}`，`preload.cjs`/`src/core.ts.ConfigBridge` 镜像 `readDiagnostics`/`exportDiagnostics` 与 `RuntimeDiagnosticEvent`；导出只通过原生保存对话框授权目标，不向 Renderer 返回路径。`src/settings-drawer.tsx` 设置→工具提供查看最近记录和导出 JSON。共享 schema/registry/runtime/CLI Skill 增加 `app.diagnostics` 与 `app.export-diagnostics`，导出同样走原生对话框。IPC 合同现为 152 invoke / 149 preload / 3 internal；验证 `test:runtime-diagnostics`（脱敏、容量、重启、导出成功/取消/失败、Adapter 记录）、`test:ipc-registration`、`test:automation-service` 与相关 GUI。
 
 运行中的任务由 `desktop/agent-run-control.cjs` 按 `projectId + conversationId + runId` 管理。暂停只在模型/工具派发边界等待，结束以 `NAIMAGE_RUN_CANCELLED` 中断父运行；修改需求（steer）则把文本和显式 TaskScope update 写入有界队列，以 `NAIMAGE_RUN_STEERED` 只中断当前模型或工具 phase，再向同一协议历史补齐被跳过的工具输出、追加新的 user intent 并重新规划。queued steer 会让边界后创建的新 phase 立即以 steer 结束，避免旧工具从检查与启动之间的竞态缝隙漏出。TaskScope update 以独立的 `sourceMode=keep|replace|merge|clear` 与 `referenceMode=keep|replace|merge|clear` 表达保留、替换、追加和清空；Main 必须先归一化候选 scope、重新计算 `snapshotHash`、重算 SOURCE 节点锁并复核跨会话冲突，保存到 run record 后才能中断 child phase。主窗口、独立窗口和 CLI 均暴露显式模式；单条 steer 最多 36,000 字符，超限明确拒绝而不静默截断。模型或图片上游已接收的请求即使客户端中断等待，仍可能产生费用。逻辑专项入口为 `test:agent-run-control` 与 `test:agent-steer`，主/独立窗口可见模式和发送后重置由 `aidebug:skills` 做真实 GUI 验证。
 
@@ -353,7 +377,7 @@ image_gen
   → Renderer 归组与溯源
 ```
 
-`runtime/image-generation/types.cjs` 是图片模型连接画像 owner：精确 preset 继续提供能力矩阵，未知模型按 `gpt-image`/`dall-e`/`chatgpt-image`、`grok`/`xai`、`gemini`/`nano-banana` 族自动派生 OpenAI Images、XAI Images 或 Gemini native；未识别模型使用 OpenAI-compatible Images。Sub2API 由 Base URL host（`sub2api`/`sub2-api`）自动识别并默认异步，账号模式默认 NewAPI，其余自定义地址默认 direct；旧 `protocol`、`gateway`、`transportMode`、`capabilities` 字段只作为兼容覆盖输入，新的设置界面无需填写它们。`runtime/image-generation/normalize-response.cjs` 以有限深度/节点数递归处理 `data/result/response/output/candidates` 等包装，识别 URL、`b64_json`、`inlineData` 和 `image_base64`，继承 `revisedPrompt`/`requestIndex` 并按 `type + value` 去重。`desktop/new-api-client.cjs` 的同步/异步图片创建和轮询共享凭据头策略。对应最小验证为 `test:image-generation-adapters`、`test:image-generation-async` 和 `typecheck`；不调用真实图片服务。
+`runtime/image-generation/types.cjs` 是图片模型连接画像 owner：精确 preset 继续提供能力矩阵，未知模型按 `gpt-image`/`dall-e`/`chatgpt-image`、`grok`/`xai`、`gemini`/`nano-banana` 族自动派生 OpenAI Images、XAI Images 或 Gemini native；未识别模型使用 OpenAI-compatible Images。新连接的渠道标签不决定传输，默认同步；异步只开放显式Sub2API + OpenAI Images合同，不支持组合预检拒绝。Main/Renderer的imageConnectionVersion一次迁移冻结旧连接出口并标legacy-migration，不迁移运行证据；binding协议优先于config/preset。`runtime/image-generation/normalize-response.cjs` 以有限深度/节点数递归处理 `data/result/response/output/candidates` 等包装，识别 URL、`b64_json`、`inlineData` 和 `image_base64`，继承 `revisedPrompt`/`requestIndex` 并按 `type + value` 去重。`desktop/new-api-client.cjs` 的同步/异步图片创建和轮询共享凭据头策略。对应最小验证为 `test:image-generation-adapters`、`test:image-generation-async` 和 `typecheck`；不调用真实图片服务。
 
 桌面默认不再先打 SparkAI `/v1/image-tasks`，也不再用对话模型走 Responses `image_generation`。`sparkai-extension` 的 `/v1/image-tasks*` 仍可包装原生 Images API，但不是客户端默认路径。实际端点与 Body 由连接 Adapter 决定，显式配置优先于模型默认。xAI/Gemini 不支持请求指定文件编码，受管落盘可本地转换为请求交付格式；OpenAI Compatible 继续校验请求与真实字节编码一致，不能仅信任 MIME 或扩展名。
 
@@ -1318,3 +1342,15 @@ Project Graph 插件批次后的历史证据为：initial JS 646,764 B、async J
 | 2026-07-27 | 1.0.6 | 私有 GitHub 正式版 `v1.0.6` 已发布，tag 指向 `9f1d290`；Setup、Restart ASAR、签名 manifest、sidecar 与 SHA 清单共 5 项资产上传并复核，1.0.5 → 1.0.6 Restart 更新和隔离安装全链路通过。 |
 | 2026-07-27 | 1.0.6 | 对照 archive 中原版 AIEYRA 后恢复自定义 Images 为非流式 JSON，修复 custom `newApiRelayJson` 构造请求体后未传给 transport 导致的 `invalid JSON request body`；账号 Session Relay 继续保留三阶段 SSE 预览。新增请求体转发回归断言、脱敏生图 metadata 和可指定只读源设置的隔离 AIDebug，当前真实 `gpt-5.6-sol + gpt-image-2` 单图闭环通过。 |
 | 2026-07-27 | 1.0.6 | 账号模式改为登录 session 管理账户与 `/api/token/*`，所选密钥直连账户 `/v1/*`；新增密钥列表、选择、创建、分组/额度/状态编辑与删除，完整 Key 仅在 Main 内存并兼容原生 New API 直接返回 Key。新增 loopback 自动化桥、正式 naimage CLI 及 Codex/Claude Code/OpenCode/OpenClaw Skill 检测安装；设置页同步加入账户密钥与 Agent 集成管理。 |
+
+### 2026-10-17 优化实施合同增量（在制，证据见Progress）
+
+- `desktop/project-asset-repository.cjs`在同步单次`sessionWithProjectAssets`/`sessionForProjectSave`内复用受管根目录realpath；每个文件仍新做lstat/realpath，finally释放解析范围，下次操作重新验证root/junction。仅优化重复目录元数据，不缓存文件授权或跨操作结果；性能与路径安全验证见Progress。
+- `modelSettingsWithCacheMeta` 变为异步；`desktop/ipc/server-ipc.cjs` 所有DTO分支须await。Main `new-api-client.resolveRequestConnection` 与请求共用resolver，账户token service `cacheOnly`只读Key内存缓存。公开`connectionSummaries`不含Key；Renderer仅认证当前connectionId/protocol/transport匹配的观察。
+- Main `migrateSettings` ↔ Renderer `settings-persistence.mergeSettings` 镜像`imageConnectionVersion=1`、binding.connectionSource=legacy-migration；只对旧连接保留原地址推断行为。新配置async仅Sub2API/openai-images合同；types预检，transport只接受固定Images create/poll路径。
+- `CanvasMenuScope` 与槽位菜单冻结projectId/revision/asset logical key；MenuSurface click capture拒绝过期。选择仍由selection-state唯一拥有，marquee使用projectCanvasImageLayouts世界几何，临时gesture refs取消不提交；导航提示/PRODUCT_INTENT同步设计§5。
+- `desktop/image-operation-journal.cjs` Main轻量项目恢复记录，路径`.naimage/image-operations/journal.json`及失败结果二进制暂存；`new-api-client.pollSub2apiImageTask`只GET原任务。`deliverGeneratedImageResult`统一Agent/手动交付。preload/ServerBridge增加imageOperations/recoverImage，Browser fallback明确桌面边界；`image.operations`/`image.recover`共享schema→registry/reference→CLI/MCP，Renderer复用canvas mutation和项目flush幂等发布。重启、蒙版处理、项目保存失败及不重建合同由`test:image-recovery`/`test:image-recovery-ui`实际验证，证据见Progress。
+- 新验证入口：`scripts/workspace-optimization-ui-selftest.mjs`真实Electron/CDP指针；`scripts/image-recovery-selftest.cjs`跨子进程服务恢复，`scripts/image-recovery-ui-selftest.mjs`应用重启/取消/保存失败/CLI；`scripts/workspace-layout-config-ui-selftest.mjs`窗口/DPI/工具/配置持久化并支持`--exe`。历史制品不包含本轮改动。
+- 工具栏尺寸由稳定command身份与容器/各按钮ResizeObserver触发，不依赖每帧重建的React children引用，避免画布操作强制同步layout；对应性能CPU profile与前后数据见Progress。受管根目录解析的复用只在同步单次hydrate/save有效；`test:video-node`补充junction从项目内重定向到项目外后读取/保存必须拒绝的回归。
+- `product-performance-gate --local-video`用本地Sharp编码的VP8关键帧和有界WebM容器生成确定性视频，无依赖安装或外部素材；经真实`canvas.import-video`验证解码、时间推进、交互与本地Mock进度。远程桌面MediaRecorder曾仅产生110字节头，旧失败记录保留，不能以导入成功或仅有EBML头代替播放验收。
+- `scripts/aidebug/harness/state-snapshot.mjs`的右停靠检查同步Agent可调320–720px合同并验证画布≥463px，不再以旧350–430区间误拒小窗临时夹紧；偏好恢复、主/独立窗和输入可用性仍由布局配置UI专项实测。

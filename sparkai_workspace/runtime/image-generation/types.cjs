@@ -1,6 +1,7 @@
 "use strict";
 
 const IMAGE_PROTOCOLS = Object.freeze(["openai-images", "xai-images", "gemini-native"]);
+const { imageQualityValues } = require("../image-model-policy.mjs");
 const IMAGE_GATEWAYS = Object.freeze(["newapi", "sub2api", "direct"]);
 const IMAGE_MODES = Object.freeze(["generate", "edit"]);
 const IMAGE_TRANSPORT_MODES = Object.freeze(["sync", "async"]);
@@ -240,10 +241,8 @@ function hostTextFor(value) {
 }
 
 function inferGateway(settings, baseUrl, explicitGateway = "") {
-  const connection = hostTextFor(baseUrl || settings?.imageBaseUrl || settings?.agentBaseUrl);
   const explicit = cleanString(explicitGateway, 64).toLowerCase();
   if (IMAGE_GATEWAYS.includes(explicit)) return explicit;
-  if (/(?:sub2api|sub2-api)/i.test(connection)) return "sub2api";
   try {
     const host = new URL(baseUrl || settings?.imageBaseUrl || "").hostname.toLowerCase();
     if (["api.x.ai", "generativelanguage.googleapis.com", "api.openai.com"].includes(host)) return "direct";
@@ -254,7 +253,7 @@ function inferGateway(settings, baseUrl, explicitGateway = "") {
 function inferTransportMode(gateway, explicitTransport = "") {
   const explicit = cleanString(explicitTransport, 32).toLowerCase();
   if (IMAGE_TRANSPORT_MODES.includes(explicit)) return explicit;
-  return gateway === "sub2api" ? "async" : "sync";
+  return "sync";
 }
 
 function providerForProtocol(protocol, fallback = "custom") {
@@ -368,12 +367,17 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
     onPartialImage: payload.onPartialImage,
     onRetry: payload.onRetry,
     onStatus: payload.onStatus,
-    onAccepted: payload.onAccepted
+    onAccepted: payload.onAccepted,
+    onResultReceived: payload.onResultReceived,
+    onConnectionResolved: payload.onConnectionResolved
   };
 }
 
 function validateImageGenerationRequest(request, config) {
   if (!request.prompt) throw Object.assign(new Error("生图提示词不能为空。"), { code: "IMAGE_INVALID_INPUT", errorCategory: "invalid_input" });
+  if (config.transportMode === "async" && (config.gateway !== "sub2api" || config.protocol !== "openai-images")) {
+    throw Object.assign(new Error("当前异步合同仅支持 Sub2API 的 OpenAI Images 适配；请明确选择该协议或使用同步结果。"), { code: "IMAGE_ASYNC_UNSUPPORTED", errorCategory: "unsupported_parameter" });
+  }
   const capabilities = config.capabilities;
   if (request.mode === "edit" && !request.editImage && !request.images.length) {
     throw Object.assign(new Error("图像编辑需要至少一张来源图片。"), { code: "IMAGE_INVALID_INPUT", errorCategory: "invalid_input" });
@@ -398,13 +402,22 @@ function validateImageGenerationRequest(request, config) {
     throw Object.assign(new Error("当前模型不支持蒙版编辑。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
   if (request.n > 1 && !capabilities.multipleOutputs) {
-    request.n = 1;
+    throw Object.assign(new Error("当前模型不支持一次请求多张图片。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
   if (request.aspectRatio && capabilities.supportedAspectRatios.length && !capabilities.supportedAspectRatios.includes(request.aspectRatio)) {
     throw Object.assign(new Error(`当前模型不支持画幅 ${request.aspectRatio}。`), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
   if (request.resolution && capabilities.supportedResolutions.length && !capabilities.supportedResolutions.includes(request.resolution)) {
     throw Object.assign(new Error(`当前模型不支持分辨率 ${request.resolution}。`), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
+  }
+  if (request.quality && !imageQualityValues(config.model, capabilities, config.protocol).includes(request.quality)) {
+    throw Object.assign(new Error(`当前模型不支持质量 ${request.quality}。`), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
+  }
+  if (request.background === "transparent" && !capabilities.transparentBackground) {
+    throw Object.assign(new Error("当前模型不支持透明背景。"), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
+  }
+  if (request.outputFormat && capabilities.outputFormats.length && !capabilities.outputFormats.includes(request.outputFormat)) {
+    throw Object.assign(new Error(`当前模型不支持输出格式 ${request.outputFormat}。`), { code: "IMAGE_UNSUPPORTED_PARAMETER", errorCategory: "unsupported_parameter" });
   }
   return request;
 }

@@ -135,6 +135,7 @@ assert.equal(declaredProfile.baseUrl, "https://example.com/v1", "Access profiles
 assert.equal(declaredProfile.capabilities["opaque-image-v2"].evidence, "upstream-declared");
 assert.equal(declaredProfile.capabilities["doubao-seedance-2-0-260128"].evidence, "upstream-declared");
 const verifiedProfiles = markModelAccessProfilesVerified([declaredProfile], {
+  profileId: declaredProfile.id,
   provider: "video",
   model: "doubao-seedance-2-0-260128",
   endpointType: "openai-video",

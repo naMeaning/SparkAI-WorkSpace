@@ -33,7 +33,7 @@ export function agentPanelLayoutFromSettings(settings: AppSettings): AgentPanelL
 export function clampAgentPanelLayout(layout: AgentPanelLayout, bounds: AgentPanelBounds): AgentPanelLayout {
   const sideDocked = layout.agentPanelPlacement === "left" || layout.agentPanelPlacement === "right";
   const horizontalDocked = layout.agentPanelPlacement === "top" || layout.agentPanelPlacement === "bottom";
-  const widthReserve = sideDocked ? 160 : 24;
+  const widthReserve = sideDocked ? 64 + 464 + 8 : 24;
   const heightReserve = horizontalDocked ? 160 : 24;
   const width = clamp(Math.round(layout.agentPanelWidth), 320, Math.min(720, Math.max(320, bounds.width - widthReserve)));
   const height = clamp(Math.round(layout.agentPanelHeight), 420, Math.min(1_400, Math.max(420, bounds.height - heightReserve)));

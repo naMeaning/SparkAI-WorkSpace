@@ -3015,8 +3015,9 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         agentRect.bottom <= mainRect.bottom + 1 &&
         Math.abs(agentRect.right - mainRect.right) <= 1 &&
         Math.abs(canvasPanelRect.right - agentRect.left) <= 2 &&
-        agentRect.width >= 350 &&
-        agentRect.width <= 430,
+        agentRect.width >= 320 &&
+        agentRect.width <= 720 &&
+        canvasPanelRect.width >= 463,
       projectAgentContextVisible,
       projectAgentContextMetrics,
       projectAgentContextHasArtifact: Boolean(element(".project-agent-material-strip") || element(".project-agent-composer-context.has-artifact button")),

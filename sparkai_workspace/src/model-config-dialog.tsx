@@ -17,7 +17,7 @@ import {
   type AccountApiToken,
   type AppSettings,
   type ModelAccessProfile,
-  type ModelCapabilityEvidence,
+  type ModelConnectionSummary,
   type ModelProvider,
   type ServerModelProbeResult,
   type ImageGateway,
@@ -26,7 +26,7 @@ import {
   type ImageProtocol,
   type ImageTransportMode,
 } from "./core";
-import { filterAgentPickerModels, filterImagePickerModels } from "./model-ux";
+import { filterAgentPickerModels, filterImagePickerModels, modelAccessSummary } from "./model-ux";
 import { appAccessPolicy } from "./access-policy";
 
 import {
@@ -55,12 +55,6 @@ type DiscoverModels = (payload: {
 }) => Promise<ServerModelProbeResult>;
 
 type ChannelCacheSource = NonNullable<ServerModelProbeResult["source"]>["cacheSource"];
-
-const EVIDENCE_PRIORITY: Record<ModelCapabilityEvidence, number> = {
-  "name-inferred": 1,
-  "upstream-declared": 2,
-  "runtime-verified": 3,
-};
 
 function uniqueModels(values: string[]) {
   const seen = new Set<string>();
@@ -135,37 +129,6 @@ function formatChannelCache(source?: ChannelCacheSource, ageMs?: number) {
   return "";
 }
 
-function modelAccessSummary(accessProfiles: ModelAccessProfile[], kind: ModelProvider, model: string) {
-  const key = model.toLowerCase();
-  const candidates = accessProfiles.flatMap((profile) => {
-    if (!profile.providers.includes(kind)) return [];
-    const capability = profile.capabilities[key];
-    return capability ? [{ profile, capability }] : [];
-  }).sort((left, right) => {
-    const evidenceDelta = EVIDENCE_PRIORITY[right.capability.evidence] - EVIDENCE_PRIORITY[left.capability.evidence];
-    if (evidenceDelta) return evidenceDelta;
-    const rightTime = Date.parse(right.capability.lastVerifiedAt || right.capability.lastCheckedAt || "") || 0;
-    const leftTime = Date.parse(left.capability.lastVerifiedAt || left.capability.lastCheckedAt || "") || 0;
-    return rightTime - leftTime;
-  });
-  const selected = candidates[0];
-  if (!selected) return null;
-  const evidence = selected.capability.evidence;
-  const checkedAt = formatCapabilityTime(
-    evidence === "runtime-verified" ? selected.capability.lastVerifiedAt : selected.capability.lastCheckedAt
-  );
-  const label = evidence === "runtime-verified"
-    ? "真实验证"
-    : evidence === "upstream-declared"
-      ? "上游声明"
-      : "名称推断";
-  return {
-    label: checkedAt ? `${label} · ${checkedAt}` : label,
-    sourceLabel: selected.profile.label,
-    title: `${selected.profile.label}${selected.profile.baseUrl ? ` · ${selected.profile.baseUrl}` : ""} · ${label}`,
-  };
-}
-
 export default function ModelConfigDialog({
   kind,
   settings,
@@ -174,6 +137,7 @@ export default function ModelConfigDialog({
   models,
   accountTokens = [],
   accessProfiles = [],
+  connectionSummaries = {},
   refreshModels,
   discoverModels,
   close,
@@ -185,6 +149,7 @@ export default function ModelConfigDialog({
   models: string[];
   accountTokens?: AccountApiToken[];
   accessProfiles?: ModelAccessProfile[];
+  connectionSummaries?: Record<string, ModelConnectionSummary>;
   refreshModels?: (forceRefresh?: boolean) => void | Promise<void>;
   discoverModels?: DiscoverModels;
   close: () => void;
@@ -409,12 +374,24 @@ export default function ModelConfigDialog({
   function renderModelOption(model: string, index: number) {
     const selected = draftSet.has(model.toLowerCase());
     const primary = model.toLowerCase() === String(currentModel || "").toLowerCase();
-    const access = modelAccessSummary(accessProfiles, kind, model);
     const binding = modelConnectionBindingFor(draftBindings, model);
+    const savedBinding = modelConnectionBindingFor(storedBindings, model);
+    const activeConnection = connectionSummaries[`${kind}:${model.toLowerCase()}`] || {
+      model, provider: kind, connectionId: "", protocol: "", transport: "", addressSource: "global", credentialSource: "global-token"
+    } as ModelConnectionSummary;
+    const draftChanged = bindingSignature(binding ? [binding] : []) !== bindingSignature(savedBinding ? [savedBinding] : [])
+      || kind === "image" && imageConfigSignature(draftImageConfigs.filter(config => config.model.toLowerCase() === model.toLowerCase())) !== imageConfigSignature(settings.imageModelConfigs.filter(config => config.model.toLowerCase() === model.toLowerCase()));
+    const access = modelAccessSummary(accessProfiles, kind, model, draftChanged ? { ...activeConnection, connectionId: "" } : activeConnection);
     const discoveredFromChannel = channelConnection?.models.some((item) => item.toLowerCase() === model.toLowerCase());
     const sourceLabel = discoveredFromChannel
       ? channelConnection?.sourceLabel || "本次读取渠道"
       : binding?.channelLabel || access?.sourceLabel;
+    const accessLabel = access
+      ? `${access.status}${access.observedAt ? ` · ${formatCapabilityTime(access.observedAt)}` : ""}`
+      : "";
+    const accessTitle = access
+      ? [access.sourceLabel, access.baseUrl, accessLabel, access.detail].filter(Boolean).join(" · ")
+      : model;
     const typeLabel = serverModelSet.has(model.toLowerCase())
       ? (kind === "image" ? imageModelCapability(model).label : kind === "video" ? "视频模型" : "对话模型")
       : "自定义模型";
@@ -438,11 +415,11 @@ export default function ModelConfigDialog({
           tabIndex={canTab ? 0 : -1}
           onKeyDown={(event) => handleOptionKeyDown(event, index)}
           onClick={() => kind === "video" ? toggle(model) : setActiveModel(model)}
-          title={access?.title || model}
+          title={accessTitle}
         >
           <span className="model-picker-option-copy">
             <strong>{model}</strong>
-            <small>{typeLabel}{sourceLabel ? ` · ${sourceLabel}` : ""}{access ? ` · ${access.label}` : ""}</small>
+            <small>{typeLabel}{sourceLabel ? ` · ${sourceLabel}` : ""}{access ? ` · ${accessLabel}` : ""}</small>
           </span>
           {primary ? <em>当前</em> : null}
           {kind !== "video" ? <ChevronRight size={14} aria-hidden="true" /> : null}
@@ -465,11 +442,24 @@ export default function ModelConfigDialog({
       : settings.selectedAccountTokenId
         ? `密钥 #${settings.selectedAccountTokenId}`
         : "尚未选择";
+    const summary = connectionSummaries[`${kind}:${model.toLowerCase()}`];
+    const changed = bindingSignature(draftBindings) !== bindingSignature(storedBindings)
+      || kind === "image" && imageConfigSignature(draftImageConfigs) !== imageConfigSignature(settings.imageModelConfigs);
+    const access = summary ? modelAccessSummary(accessProfiles, kind, model, changed ? { ...summary, connectionId: "" } : summary) : null;
     return (
       <section className="model-picker-binding-card" aria-label={model + " 连接配置"}>
         <div className="model-picker-binding-status">
-          <span>{binding?.customBaseUrl || binding?.customApiKey || binding?.accountTokenId ? "使用独立连接" : "继承全局连接"}</span>
+          <span>{changed ? "连接草稿 · 保存后确认有效连接" : "当前有效连接"}</span>
           {binding?.channelLabel ? <small className="model-picker-binding-source">来源：{binding.channelLabel}</small> : null}
+        </div>
+        <div className="model-picker-binding-summary" aria-label="当前有效连接摘要">
+          {summary && !changed ? <>
+            <p>地址：{summary.addressSource === "model" ? "逐模型覆盖" : "全局继承"} · 凭据：{{ "model-key": "独立 Key", "model-token": "模型账户 Token", "global-key": "全局 Key", "global-token": "全局账户 Token" }[summary.credentialSource]}</p>
+            <p>协议：{summary.protocol} · 结果：{summary.transport === "async" ? "Sub2API Images 任务合同" : summary.transport === "sse" ? "流式" : "同步"}</p>
+          </> : <p>连接保存后从 Main 解析实际地址、凭据来源与协议。</p>}
+          <p>{access?.operationSummary || "目录与当前操作待验证"}</p>
+          {access ? <small title={access.detail}>{access.status}{access.observedAt ? ` · ${formatCapabilityTime(access.observedAt)}` : ""}</small> : null}
+          {binding?.connectionSource === "legacy-migration" ? <small>已保留旧连接出口；原地址推断不作为协议验证证据。</small> : null}
         </div>
         <div className="model-picker-binding-fields">
           {appAccessPolicy.customApiAccess ? (

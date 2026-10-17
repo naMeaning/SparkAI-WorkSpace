@@ -2255,6 +2255,18 @@ select.ui-control {
   color: var(--ink-soft);
   font-size: 12px;
 }
+.model-picker-dialog .model-picker-binding-summary {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.model-picker-dialog .model-picker-binding-summary p { margin: 0; }
+.model-picker-dialog .model-picker-binding-summary small { font-size: 12px; }
 .model-picker-dialog .model-picker-binding-status > span {
   justify-self: start;
   padding: 4px 8px;

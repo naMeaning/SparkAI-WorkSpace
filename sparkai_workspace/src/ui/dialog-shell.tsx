@@ -149,6 +149,8 @@ export function DialogShell({
       if (topDialogToken() !== token) return;
       const dialog = dialogRef.current;
       if (!dialog) return;
+      // Portalled select/tool menus own their Escape/Tab before the dialog.
+      if ((event.key === "Escape" || event.key === "Tab") && event.target instanceof Element && event.target.closest("[data-ui-menu-surface]")) return;
       if (event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
         event.stopImmediatePropagation();

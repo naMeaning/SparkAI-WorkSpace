@@ -148,6 +148,8 @@ export type AutomationCommandContext = {
   createProject(name: string, workspaceDomain?: WorkspaceDomain): Promise<unknown>;
   renameProject(name: string): Promise<unknown>;
   selectNodes(ids: string[], primaryId: string): void;
+  listImageOperations?(): Promise<unknown>;
+  recoverImageOperation?(key: string): Promise<unknown>;
   fitCanvas(): void;
   removeFailedNodes(ids: string[]): void;
   clearCanvas(): Promise<unknown>;
@@ -1245,6 +1247,11 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     "project.rename": async (value) => {
       await context.renameProject(String(value.name || "").trim());
       return appState(context);
+    },
+    "image.operations": () => context.listImageOperations?.(),
+    "image.recover": async (value) => {
+      assertExpectedProject(value, context);
+      return context.recoverImageOperation?.(String(value.key));
     },
     "canvas.select": (value) => {
       assertExpectedProject(value, context);

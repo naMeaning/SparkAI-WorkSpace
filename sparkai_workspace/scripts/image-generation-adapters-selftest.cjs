@@ -97,8 +97,8 @@ async function main() {
   for (const [model, protocol] of inferredFamilies) {
     const config = resolveImageModelConfig({ accessMode: "custom", imageBaseUrl: "https://sub2-api.example/v1" }, model);
     assert.equal(config.protocol, protocol, `${model} protocol`);
-    assert.equal(config.gateway, "sub2api", `${model} gateway`);
-    assert.equal(config.transportMode, "async", `${model} transport`);
+    assert.equal(config.gateway, "direct", `${model} gateway must not be chosen from a hostname`);
+    assert.equal(config.transportMode, "sync", `${model} transport must not be chosen from a hostname`);
   }
   const directUnknown = resolveImageModelConfig({ accessMode: "custom", imageBaseUrl: "https://images.example/v1" }, "vendor-image-v1");
   assert.equal(directUnknown.protocol, "openai-images");

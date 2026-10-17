@@ -11,6 +11,8 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 - `app.diagnostics`: `{}`. Read the last 300 sanitized image/model diagnostic events. No credentials, prompts, media or private paths are returned.
 - `app.export-diagnostics`: `{}`. Open the native save dialog to export sanitized diagnostic events; the user selects the destination. No destination path is returned.
 - `canvas.state`: `{}`. Return the active project and local canvas revision, selection, canonical relations, Requirement input bindings and revision/signature, canonical container membership, presentation layout membership, and per-node lock/busy details. Managed asset paths and automation credentials are never returned.
+- `image.operations`: `{}`. List sanitized image operation stages in the active project. This reads local records and never creates a model request.
+- `image.recover`: `{"key":"key","expectedProjectId":"expectedProjectId"}`. Recover an existing image operation by key. Poll only its original task or save its original result; never POST a new generation. Current connection must match. Publishes assets idempotently through the project save owner.
 
 ## Development debugging
 

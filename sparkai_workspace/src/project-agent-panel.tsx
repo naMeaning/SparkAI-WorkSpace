@@ -367,6 +367,7 @@ function ProjectAgentPanelView({
   const restoreHistoryToggleFocusRef = useRef(false);
   const panelDragRef = useRef<{
     pointerId: number;
+    captureTarget: HTMLElement;
     mode: AgentPanelPointerMode;
     startClientX: number;
     startClientY: number;
@@ -447,6 +448,7 @@ function ProjectAgentPanelView({
     workspace.classList.add("agent-panel-interacting");
     panelDragRef.current = {
       pointerId: event.pointerId,
+      captureTarget: event.currentTarget,
       mode,
       startClientX: event.clientX,
       startClientY: event.clientY,
@@ -479,6 +481,7 @@ function ProjectAgentPanelView({
     const drag = panelDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
+    if (event.type === "pointercancel") { cancelPanelPointer(); return; }
     if (drag.frame) window.cancelAnimationFrame(drag.frame);
     const finalLayout = clampAgentPanelLayout(drag.preview, drag.bounds);
     applyAgentPanelLayoutPreview(drag.workspace, finalLayout);
@@ -487,6 +490,16 @@ function ProjectAgentPanelView({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     commitPanelLayout(finalLayout);
     window.requestAnimationFrame(() => clearAgentPanelLayoutPreview(drag.workspace));
+  }
+
+  function cancelPanelPointer() {
+    const drag = panelDragRef.current;
+    if (!drag) return;
+    panelDragRef.current = null;
+    if (drag.frame) window.cancelAnimationFrame(drag.frame);
+    panelLayoutRef.current = drag.start;
+    if (drag.captureTarget.hasPointerCapture(drag.pointerId)) drag.captureTarget.releasePointerCapture(drag.pointerId);
+    clearAgentPanelLayoutPreview(drag.workspace);
   }
 
   function setPanelPlacement(placement: AgentPanelLayout["agentPanelPlacement"]) {
@@ -498,12 +511,15 @@ function ProjectAgentPanelView({
   }
 
   useEffect(() => {
+    const cancelKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && panelDragRef.current) { event.preventDefault(); event.stopImmediatePropagation(); cancelPanelPointer(); }
+    };
+    window.addEventListener("blur", cancelPanelPointer);
+    window.addEventListener("keydown", cancelKey, true);
     return () => {
-      const drag = panelDragRef.current;
-      if (!drag) return;
-      if (drag.frame) window.cancelAnimationFrame(drag.frame);
-      clearAgentPanelLayoutPreview(drag.workspace);
-      panelDragRef.current = null;
+      window.removeEventListener("blur", cancelPanelPointer);
+      window.removeEventListener("keydown", cancelKey, true);
+      cancelPanelPointer();
     };
   }, []);
 

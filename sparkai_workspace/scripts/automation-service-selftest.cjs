@@ -876,6 +876,15 @@ async function main() {
     });
     assert.deepEqual(imageConfigResult, { opened: true });
     assert.equal(imageConfigOpenCount, 1);
+    const recoveryCalls = [];
+    const recoveryContext = { ...canvasRuntimeContext,
+      listImageOperations: async () => [{ key: "a".repeat(32), state: "accepted", savedCount: 0 }],
+      recoverImageOperation: async key => { recoveryCalls.push(key); return { ok: true, added: 1 }; }
+    };
+    assert.equal((await runtimeModule.executeAutomationCommand("image.operations", {}, recoveryContext))[0].state, "accepted");
+    assert.deepEqual(await runtimeModule.executeAutomationCommand("image.recover", { key: "a".repeat(32), expectedProjectId: "PROJECT" }, recoveryContext), { ok: true, added: 1 });
+    await assert.rejects(runtimeModule.executeAutomationCommand("image.recover", { key: "a".repeat(32), expectedProjectId: "STALE" }, recoveryContext), error => error.code === "PROJECT_MISMATCH");
+    assert.equal(recoveryCalls.length, 1, "stale project must not query or deliver the original operation");
     const listedDomains = await runtimeModule.executeAutomationCommand("workspace.domain.list", {}, canvasRuntimeContext);
     assert.equal(listedDomains.defaultDomain, "general");
     assert.deepEqual(listedDomains.domains.map((domain) => domain.id), ["general", "commerce", "social", "research"]);

@@ -83,7 +83,11 @@ function registerSettingsIpc({
       });
       onNewApiAccountBaseUrlChanged?.(current, next);
     }
-    writeJson(settingsPath, next);
+    try { writeJson(settingsPath, next); }
+    catch {
+      log("config save settings failed: local persistence");
+      return { ok: false, error: "设置保存失败，请检查本地存储空间与权限后重试。" };
+    }
     try {
       onSettingsSaved?.(event, next, current);
     } catch (error) {
@@ -239,11 +243,15 @@ function registerSessionIpc({
         log(`config save session skipped empty overwrite ${targetProject.id}`);
         return { ok: true, path: activeSessionPath, skipped: true, applied: false, reason: "empty-session-overwrite" };
       }
-      writeJson(activeSessionPath, next);
-      writeProjectManifest(targetProject, next);
-      targetProject.updatedAt = new Date().toISOString();
-      const latestList = readProjectList();
-      writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
+      try {
+        writeJson(activeSessionPath, next);
+        writeProjectManifest(targetProject, next);
+        targetProject.updatedAt = new Date().toISOString();
+        const latestList = readProjectList();
+        writeProjectList({ ...latestList, projects: latestList.projects.map((item) => (item.id === targetProject.id ? targetProject : item)) });
+      } catch {
+        return { ok: false, applied: false, errorCode: "PROJECT_SAVE_FAILED", error: "项目保存失败，请检查磁盘空间或目录权限后重试。" };
+      }
       log(`config save session project=${targetProject.id} revision=${appliedRevision}${mergedStale ? " merged-stale" : ""}`);
       return {
         ok: true,

@@ -10,6 +10,8 @@ import {
 } from "../src/requirement-graph.ts";
 import { stableRequirementInputSignature } from "../src/requirement-signature.ts";
 import {
+  canvasRelationCurvePath,
+  canvasRelationCurveIntersectsRect,
   connectCanvasRelations,
   disconnectCanvasRelations,
 } from "../src/canvas-relation-graph.ts";
@@ -224,6 +226,33 @@ assert.equal(exactOrdinaryDisconnect.changed, true);
 assert.equal(exactOrdinaryDisconnect.nodes.find((node) => node.id === "TARGET")?.parentId, undefined);
 assert.equal(exactOrdinaryDisconnect.nodes.find((node) => node.id === "TARGET")?.relationType, undefined);
 
+assert.equal(canvasRelationCurvePath({ x: 0, y: 10 }, { x: 100, y: 30 }, 20), "M 0 10 C 50 30, 50 50, 100 30");
+const curveHits = canvasRelationCurveIntersectsRect;
+assert.equal(curveHits({ x: 0, y: 0 }, { x: 100, y: 0 }, 100, { x: 40, y: 95, width: 20, height: 5 }), false, "control hull intersection alone does not imply a visible curve");
+assert.equal(curveHits({ x: 0, y: 0 }, { x: 100, y: 0 }, 100, { x: 40, y: 70, width: 20, height: 10 }), true, "curve enters the viewport with both endpoints offscreen");
+assert.equal(curveHits({ x: 100, y: 0 }, { x: 0, y: 0 }, -100, { x: 40, y: -76, width: 20, height: 6 }), true, "reverse-X and negative lane");
+assert.equal(curveHits({ x: 50, y: -100 }, { x: 50, y: 100 }, 200, { x: 49, y: 150, width: 2, height: 1 }), true, "vertical curve includes its Y extrema");
+assert.equal(curveHits({ x: 50, y: -100 }, { x: 50, y: 100 }, 200, { x: 51, y: 150, width: 2, height: 1 }), false, "vertical curve outside viewport X");
+let randomState = 17, sampledVisibleCurves = 0;
+const random = () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState / 2 ** 32; };
+for (let caseIndex = 0; caseIndex < 3000; caseIndex++) {
+  const source = { x: random() * 20000 - 10000, y: random() * 20000 - 10000 };
+  const target = { x: caseIndex % 13 ? random() * 20000 - 10000 : source.x, y: random() * 20000 - 10000 };
+  const lane = random() * 34000 - 17000;
+  const rect = { x: random() * 16000 - 8000, y: random() * 16000 - 8000, width: 20 + random() * 4000, height: 20 + random() * 4000 };
+  // Independent Bernstein sampling checks that visible points are never culled.
+  for (let index = 0; index <= 512; index++) {
+    const t = index / 512, u = 1 - t, mid = (source.x + target.x) / 2;
+    const x = u ** 3 * source.x + 3 * u * u * t * mid + 3 * u * t * t * mid + t ** 3 * target.x;
+    const y = u ** 3 * source.y + 3 * u * u * t * (source.y + lane) + 3 * u * t * t * (target.y + lane) + t ** 3 * target.y;
+    if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
+      assert.equal(curveHits(source, target, lane, rect), true, `visible curve ${caseIndex} must remain rendered`);
+      sampledVisibleCurves++; break;
+    }
+  }
+}
+assert.ok(sampledVisibleCurves > 200);
+
 console.log(JSON.stringify({
   ok: true,
   legacyFallback: true,
@@ -237,4 +266,6 @@ console.log(JSON.stringify({
   exactDisconnectConflictProtection: true,
   staleMenuProtection: true,
   atomicCycleRejection: true,
+  curveVisibility: true,
+  sampledVisibleCurves,
 }));

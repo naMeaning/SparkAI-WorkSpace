@@ -27,12 +27,20 @@ async function main() {
     imageModel: "gpt-image-2",
     imageModelBindings: [{ model: "gpt-image-2", customBaseUrl: "https://model.example/v1", customApiKey: "model-key" }]
   };
-  const generated = await service.generate(settings, { model: "gpt-image-2", prompt: "a chair", size: "1024x1024" });
+  const runtimeCallbacks = {
+    onConnectionResolved: () => {},
+    onAccepted: () => {},
+    onStatus: () => {}
+  };
+  const generated = await service.generate(settings, { model: "gpt-image-2", prompt: "a chair", size: "1024x1024", ...runtimeCallbacks });
   assert.equal(generated.ok, true);
   assert.equal(generated.images.length, 1);
   assert.equal(calls[0].kind, "json");
   assert.equal(calls[0].settings.imageModelBindings[0].customBaseUrl, "https://model.example/v1");
   assert.equal(calls[0].options.model, "gpt-image-2");
+  assert.equal(typeof calls[0].options.onConnectionResolved, "function");
+  assert.equal(typeof calls[0].options.onAccepted, "function");
+  assert.equal(typeof calls[0].options.onStatus, "function");
 
   await service.generate(settings, {
     model: "gpt-image-2",
@@ -45,7 +53,7 @@ async function main() {
 
   await service.generate({ ...settings, imageModelConfigs: [{
     model: "grok-imagine-image-2.0",
-    protocol: "xai-images",
+    protocol: "openai-images",
     gateway: "sub2api",
     transportMode: "async",
     capabilities: { generate: true, multipleOutputs: true }
@@ -53,13 +61,18 @@ async function main() {
     model: "grok-imagine-image-2.0",
     prompt: "wide landscape",
     aspectRatio: "16:9",
-    resolution: "2K"
+    resolution: "2K",
+    ...runtimeCallbacks
   });
   assert.equal(calls[2].kind, "async");
   assert.equal(calls[2].endpoint, "/v1/images/generations");
-  assert.equal(calls[2].body.aspect_ratio, "16:9");
-  assert.equal(calls[2].body.resolution, "2k");
-  assert.equal(calls[2].body.response_format, "b64_json");
+  assert.equal(calls[2].body.size, "1536x864");
+  assert.equal(typeof calls[2].options.onConnectionResolved, "function");
+  assert.equal(typeof calls[2].options.onAccepted, "function");
+  assert.equal(typeof calls[2].options.onStatus, "function");
+  const beforeUnsupported = calls.length;
+  await assert.rejects(() => service.generate({ ...settings, imageModelBindings: [{ model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "sub2api", transportMode: "async" }] }, { model: "grok-imagine-image-2.0", prompt: "unsupported contract" }), error => error.code === "IMAGE_ASYNC_UNSUPPORTED");
+  assert.equal(calls.length, beforeUnsupported, "Unsupported asynchronous adapters must fail before any transport call");
 
   const source = { dataUrl: "data:image/png;base64,aW1hZ2U=", name: "source.png" };
   await service.generate({ accessMode: "custom", imageModelBindings: [{ model: "grok-imagine-image-2.0", protocol: "xai-images", gateway: "direct", customBaseUrl: "https://api.x.ai/v1", customApiKey: "test-key" }] }, { model: "grok-imagine-image-2.0", prompt: "native edit", editImage: source, referenceImages: [source], ratio: "16:9", resolution: "2K" });

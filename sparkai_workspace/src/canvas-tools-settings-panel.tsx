@@ -25,6 +25,8 @@ const assetRailOptions: Array<{ id: WorkspaceAssetRailTabId; label: string; desc
 export default function CanvasToolsSettingsPanel({
   states,
   mode,
+  wheelMode,
+  onWheelModeChange,
   hiddenCommands,
   shortcuts,
   visibleAssetRailTabs,
@@ -35,6 +37,8 @@ export default function CanvasToolsSettingsPanel({
 }: {
   states: Parameters<typeof normalizePluginStates>[0];
   mode: CanvasToolDockMode;
+  wheelMode: "zoom" | "pan";
+  onWheelModeChange: (mode: "zoom" | "pan") => void;
   hiddenCommands: string[];
   shortcuts: Record<string, string>;
   visibleAssetRailTabs: WorkspaceAssetRailTabId[];
@@ -125,6 +129,14 @@ export default function CanvasToolsSettingsPanel({
 
   return (
     <div className="settings-canvas-tools">
+      <div className="settings-canvas-tool-mode">
+        <strong>滚轮与触控板</strong>
+        <div className="ui-segment-control" role="group" aria-label="画布滚动方式">
+          <ButtonBase type="button" className="ui-segment-action" aria-pressed={wheelMode === "zoom"} onClick={() => onWheelModeChange("zoom")}>滚轮缩放</ButtonBase>
+          <ButtonBase type="button" className="ui-segment-action" aria-pressed={wheelMode === "pan"} onClick={() => onWheelModeChange("pan")}>双指平移</ButtonBase>
+        </div>
+        <small>捏合或 Ctrl / Cmd + 滚轮始终围绕光标缩放；Shift + 滚轮横向平移。画布缩放不改变图片像素。</small>
+      </div>
       <div className="settings-canvas-tool-mode" aria-labelledby="settings-canvas-tool-mode-label">
         <strong id="settings-canvas-tool-mode-label">工具栏展开方式</strong>
         <div className="ui-segment-control" role="group" aria-label="工具栏展开方式">

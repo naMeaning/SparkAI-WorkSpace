@@ -22,6 +22,7 @@ const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aideb
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
 const { createImageGenerationService } = require("./desktop/image-generation-service.cjs");
+const { createImageOperationJournal } = require("./desktop/image-operation-journal.cjs");
 const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
 const { createProjectAssetRepository } = require("./desktop/project-asset-repository.cjs");
@@ -105,6 +106,7 @@ const {
   createModelCacheKey,
   filterImagePickerModels,
   modelBindingCacheFingerprint,
+  modelConnectionIdentity,
   markModelAccessProfilesVerified,
   mergeModelCapabilities,
   mergeModelAccessProfiles,
@@ -401,6 +403,7 @@ const newApiUserLogsEndpoint = "/api/log/self?p=1&page_size=20";
 const modelCacheTtlMs = 15 * 60 * 1000;
 const modelCacheMemory = new Map();
 const modelCacheInflight = new Map();
+const imageRuntimeObservationContexts = new WeakMap();
 let modelCacheDiskLoaded = false;
 let newApiAuthEpoch = 0;
 const managedImageIdempotencyPrefix = "naimage-";
@@ -461,6 +464,7 @@ const defaultSettings = {
   imageModelPool: ["gpt-image-2"],
   imageModelBindings: [],
   imageModelConfigs: [],
+  imageConnectionVersion: 1,
   videoModel: "doubao-seedance-2-0-260128",
   videoModelPool: ["doubao-seedance-2-0-260128"],
   imageCount: 1,
@@ -503,6 +507,8 @@ const defaultSettings = {
   workspacePluginDefaultsVersion: WORKSPACE_PLUGIN_DEFAULTS_VERSION,
   pluginStates: defaultWorkspacePluginStates(),
   canvasToolDockMode: "expanded",
+  canvasWheelMode: "zoom",
+  recentCanvasToolCommands: [],
   disabledCanvasToolCommands: [],
   canvasToolShortcuts: {},
   visibleWorkspaceAssetRailTabs: ["results", "layers", "requirements", "templates", "history"],
@@ -726,6 +732,7 @@ function normalizeModelConnectionBindings(value) {
     if (["auto", "openai-images", "xai-images", "gemini-native"].includes(protocol)) binding.protocol = protocol;
     if (["auto", "newapi", "sub2api", "direct"].includes(gateway)) binding.gateway = gateway;
     if (["auto", "sync", "async"].includes(transportMode)) binding.transportMode = transportMode;
+    if (item.connectionSource === "legacy-migration") binding.connectionSource = "legacy-migration";
   }
   return bindings;
 }
@@ -944,6 +951,8 @@ function migrateSettings(value) {
     ? defaultWorkspacePluginStates(source.pluginStates)
     : normalizePluginStates(source.pluginStates);
   next.canvasToolDockMode = source.canvasToolDockMode === "hover" ? "hover" : "expanded";
+  next.canvasWheelMode = source.canvasWheelMode === "pan" ? "pan" : "zoom";
+  next.recentCanvasToolCommands = [...new Set((Array.isArray(source.recentCanvasToolCommands) ? source.recentCanvasToolCommands : []).map(id => String(id)))].filter(id => /^sparkai\.[a-z0-9.-]+$/.test(id)).slice(0, 8);
   next.workflowOnboarding = {};
   if (source.workflowOnboarding && typeof source.workflowOnboarding === "object" && !Array.isArray(source.workflowOnboarding)) {
     for (const key of ["social", "xiaohongshu", "douyin", "research", "commerce"]) {
@@ -1012,6 +1021,23 @@ function migrateSettings(value) {
     next.selectedAccountTokenGroup = "";
   }
   Object.assign(next, applyAccessPolicyToSettings(next, accessPolicy));
+
+  if (Number(source.imageConnectionVersion || 0) < 1) {
+    const models = uniqueImageModels([next.imageModel, ...next.imageModelPool, ...next.imageModelBindings.map(item => item.model), ...next.imageModelConfigs.map(item => item.model)]);
+    for (const model of models) {
+      let binding = next.imageModelBindings.find(item => item.model.toLowerCase() === model.toLowerCase());
+      const config = next.imageModelConfigs.find(item => item.model.toLowerCase() === model.toLowerCase());
+      const gateway = binding?.gateway || config?.gateway;
+      const baseUrl = binding?.customBaseUrl || config?.baseUrl || next.imageBaseUrl;
+      const legacySub2api = gateway === "sub2api" || (!gateway || gateway === "auto") && /sub2-?api/i.test(baseUrl);
+      if (!legacySub2api) continue;
+      if (!binding) { binding = { model }; next.imageModelBindings.push(binding); }
+      if (!gateway || gateway === "auto") binding.gateway = "sub2api";
+      if (!["sync", "async"].includes(binding.transportMode || config?.transportMode)) binding.transportMode = "async";
+      binding.connectionSource = "legacy-migration";
+    }
+  }
+  next.imageConnectionVersion = 1;
 
   delete next.baseUrl;
   delete next.apiKey;
@@ -1134,7 +1160,7 @@ const newApiClient = createNewApiClient({
   newApiTransportFetch,
   normalizeServerUrl,
   readJson,
-  resolveAccountApiCredentials: (settings, tokenId) => accountTokenService.credentials(settings, tokenId),
+  resolveAccountApiCredentials: (settings, tokenId, options) => accountTokenService.credentials(settings, tokenId, options),
   settingsPath,
   writeJson
 });
@@ -2451,18 +2477,10 @@ async function serverGenerateImage(payload = {}) {
       inputFidelity: payload.inputFidelity ?? payload.input_fidelity,
       mode: payload.mode,
       runId,
-      projectId
-    });
-    const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
-    const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
-    const assets = await writeServerImageOutputs(
-      extractServerImages(data),
-      stem,
-      runId,
       projectId,
-      outputFormat,
-      imageGenerationContext(payload, data, outputFormat)
-    );
+      operationId: payload.operationId || runId, requestIndex: payload.requestIndex || 1, nodeIds: payload.nodeIds
+    });
+    const assets = await deliverGeneratedImageResult(settings, data, { ...payload, runId, projectId });
     log(`agent server generate image returned=${assets.length}`);
     return { ...data, assets, runId, returned: assets.length };
   } finally {
@@ -2506,6 +2524,17 @@ async function serverChatCompletion(payload = {}) {
   const diagnosticsMeta = { kind: "model", model: requestBody.model, protocol: useResponsesApi ? "responses" : "chat-completions",
     stage: "conversation", runId: payload._diagnostic?.runId, round: payload._diagnostic?.round,
     attempt: Number(payload._agentModelRetryAttempt || 0) + 1 };
+  const agentObservation = {
+    provider: "agent", model: requestBody.model, endpointType: useResponsesApi ? "openai-response" : "openai",
+    protocol: useResponsesApi ? "openai-response" : "openai", transport: requestBody.stream ? "sse" : "sync",
+    operation: useResponsesApi ? "responses" : "chat-completions", stage: "response",
+    scope: { stream: requestBody.stream, toolCount: Array.isArray(requestBody.tools) ? requestBody.tools.length : 0 },
+    connectionId: "", baseUrl: ""
+  };
+  const onConnectionResolved = ({ baseUrl, apiKey }) => {
+    agentObservation.baseUrl = baseUrl;
+    agentObservation.connectionId = modelConnectionIdentity(baseUrl, apiKey);
+  };
   runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "request" });
   const imageToolChoiceName = String(requestBody.tool_choice?.function?.name || requestBody.toolChoice?.function?.name || "");
   const configuredTimeoutMs = Math.max(15, Number(settings.timeoutSeconds ?? 180)) * 1000;
@@ -2535,24 +2564,28 @@ async function serverChatCompletion(payload = {}) {
           chunks.push(event);
           if (agentModelStreamEventHasOutput(event)) streamOutputObserved = true;
           if (typeof payload.onStreamEvent === "function") payload.onStreamEvent(event);
-        }, { signal: controller.signal, headersTimeoutMs: timeoutMs, connectTimeoutMs: 30_000 }),
+        }, { signal: controller.signal, headersTimeoutMs: timeoutMs, connectTimeoutMs: 30_000, onConnectionResolved }),
         timeoutPromise
       ]);
-      markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
+      if (chunks.some(agentModelStreamEventHasOutput) && agentObservation.connectionId) markModelRuntimeVerified(settings, "agent", requestBody.model, agentObservation.endpointType, agentObservation);
       log(`agent new-api ${useResponsesApi ? "responses" : "chat"} stream chunks=${chunks.length} model=${payload.model || settings.agentModel || "server-selected"}`);
       runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "response", durationMs: Date.now() - modelStartedAt, status: 200 });
       return { stream: true, chunks, model: payload.model || settings.agentModel };
     }
     const data = await Promise.race([
-      newApiRelayJson(settings, endpoint, relayBody, { signal: controller.signal }),
+      newApiRelayJson(settings, endpoint, relayBody, { signal: controller.signal, onConnectionResolved }),
       timeoutPromise
     ]);
-    markModelRuntimeVerified(settings, "agent", requestBody.model, useResponsesApi ? "openai-response" : "openai");
+    if (agentObservation.connectionId) markModelRuntimeVerified(settings, "agent", requestBody.model, agentObservation.endpointType, agentObservation);
     log(`agent new-api ${useResponsesApi ? "responses" : "chat"} model=${data.model || payload.model || settings.agentModel || "server-selected"}`);
     runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "response", durationMs: Date.now() - modelStartedAt, status: 200 });
     return data;
   } catch (error) {
     runtimeDiagnostics.record({ ...diagnosticsMeta, phase: "failure", durationMs: Date.now() - modelStartedAt, status: error?.status || 0 });
+    if (agentObservation.connectionId) markModelRuntimeVerified(settings, "agent", requestBody.model, agentObservation.endpointType, {
+      ...agentObservation, outcome: "failure",
+      category: String(error?.errorCategory || error?.code || (Number(error?.status) ? `HTTP_${Number(error.status)}` : "request_failed"))
+    });
     if (callerSignal?.aborted) throw createAbortError(callerSignal.reason);
     if (error === timeoutError || controller.signal.aborted) throw timeoutError;
     const retryAttempt = Math.max(0, Math.floor(Number(payload._agentModelRetryAttempt) || 0));
@@ -2729,16 +2762,7 @@ function getAgentRuntime() {
             maskDataUrl: undefined,
             runId
           });
-          const outputFormat = payload.outputFormat ?? payload.output_format ?? data.outputFormat ?? data.output_format ?? "png";
-          const stem = `agent-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
-          const assets = await writeServerImageOutputs(
-            extractServerImages(data),
-            stem,
-            runId,
-            projectId,
-            outputFormat,
-            imageGenerationContext(payload, data, outputFormat)
-          );
+          const assets = await deliverGeneratedImageResult(settings, data, { ...payload, runId, projectId });
           return {
             ...data,
             ok: data.ok !== false,
@@ -3154,29 +3178,80 @@ function persistModelCache() {
   writeJson(modelCachePath, { version: 1, ttlMs: modelCacheTtlMs, entries });
 }
 
-function modelSettingsWithCacheMeta(settings, cacheSource, cachedAt) {
+async function modelSettingsWithCacheMeta(settings, cacheSource, cachedAt, requestSettings) {
+  const connectionSummaries = {};
+  if (requestSettings) {
+    for (const provider of ["agent", "image"]) {
+      const models = uniqueImageModels([...(settings[provider === "image" ? "imageModels" : "agentModels"] || []), requestSettings[`${provider}Model`]]);
+      for (const model of models) {
+        const binding = (requestSettings[`${provider}ModelBindings`] || []).find(item => String(item.model || "").toLowerCase() === model.toLowerCase());
+        const config = provider === "image" ? imageGenerationService.resolveModelConfig(requestSettings, model) : null;
+        const summary = {
+          model, provider, connectionId: "",
+          protocol: config?.protocol || (agentModelUsesResponsesApi(model) ? "openai-response" : "openai"),
+          transport: config?.transportMode || "sse",
+          addressSource: binding?.customBaseUrl || config?.baseUrl ? "model" : "global",
+          credentialSource: binding?.customApiKey || config?.apiKey ? "model-key"
+            : binding?.accountTokenId ? "model-token" : isCustomApiMode(requestSettings) ? "global-key" : "global-token"
+        };
+        try {
+          const credentials = await newApiClient.resolveRequestConnection(config ? imageGenerationService.transportSettings(requestSettings, config) : requestSettings,
+            provider === "image" ? "/v1/images/generations" : "/v1/responses", { model }, provider,
+            { cacheOnly: true, ...(config?.baseUrl ? { baseUrl: config.baseUrl } : {}), ...(config?.apiKey ? { apiKey: config.apiKey } : {}) });
+          summary.connectionId = modelConnectionIdentity(credentials.baseUrl, credentials.apiKey);
+        } catch { /* Cached settings remain offline. A request/explicit refresh can resolve account credentials. */ }
+        connectionSummaries[`${provider}:${model.toLowerCase()}`] = summary;
+      }
+    }
+  }
   return {
     ...settings,
+    connectionSummaries,
+    resolvedImageModelConfigs: requestSettings ? uniqueImageModels([...(settings.imageModels || []), requestSettings.imageModel, ...requestSettings.imageModelPool]).map(model => {
+      const { apiKey, accountTokenId, baseUrl, ...config } = imageGenerationService.resolveModelConfig(requestSettings, model);
+      return config;
+    }) : [],
     cacheSource,
     cacheAgeMs: Math.max(0, Date.now() - Number(cachedAt || Date.now())),
     cacheTtlMs: modelCacheTtlMs
   };
 }
 
-function markModelRuntimeVerified(settings, provider, model, endpointType) {
+function markModelRuntimeVerified(settings, provider, model, endpointType, observation = {}) {
   const targetModel = String(model || "").trim();
-  if (!targetModel) return false;
+  const profileId = String(observation.connectionId || "").trim();
+  if (!targetModel || !profileId) return false;
   loadModelCacheFromDisk(settings);
   const key = modelCacheKey(settings);
-  const entry = modelCacheMemory.get(key);
-  if (!entry?.settings) return false;
-  const profiles = markModelAccessProfilesVerified(entry.settings.modelAccessProfiles, {
+  const entry = modelCacheMemory.get(key) || { cachedAt: Date.now(), settings: cachedModelSettings(settings, {}) };
+  const currentProfiles = Array.isArray(entry.settings?.modelAccessProfiles) ? entry.settings.modelAccessProfiles : [];
+  const baseProfiles = currentProfiles.some((profile) => profile.id === profileId)
+    ? currentProfiles
+    : mergeModelAccessProfiles(currentProfiles, [createModelAccessProfile({
+      id: profileId,
+      label: observation.label || (provider === "image" ? "当前生图连接" : "当前模型连接"),
+      baseUrl: observation.baseUrl,
+      credentialLabel: "当前已解析连接",
+      providers: [provider],
+      modelIds: [targetModel],
+      catalogRead: false,
+      lastCheckedAt: new Date().toISOString()
+    })]);
+  const profiles = markModelAccessProfilesVerified(baseProfiles, {
+    profileId,
     provider,
     model: targetModel,
     endpointType,
+    protocol: observation.protocol || endpointType,
+    transport: observation.transport || "sync",
+    operation: observation.operation || endpointType,
+    stage: observation.stage || "response",
+    outcome: observation.outcome || "success",
+    category: observation.category,
+    scope: observation.scope,
     verifiedAt: new Date().toISOString()
   });
-  if (JSON.stringify(profiles) === JSON.stringify(entry.settings.modelAccessProfiles || [])) return false;
+  if (JSON.stringify(profiles) === JSON.stringify(currentProfiles)) return false;
   entry.settings = cachedModelSettings(settings, { ...entry.settings, modelAccessProfiles: profiles });
   modelCacheMemory.set(key, entry);
   persistModelCache();
@@ -3265,7 +3340,7 @@ async function fetchAccountModelBindingCatalog(settings, lastCheckedAt) {
 
   let successfulRequests = 0;
   for (const group of grouped.values()) {
-    const profileId = modelAccessProfileId(group.credentials.baseUrl, group.credentialFingerprint);
+    const profileId = modelConnectionIdentity(group.credentials.baseUrl, group.credentials.apiKey);
     const sourceLabel = /sub2api/i.test(group.credentials.baseUrl)
       ? "Sub2API"
       : /(?:newapi|sparkapi)/i.test(group.credentials.baseUrl)
@@ -3445,7 +3520,7 @@ async function fetchNewApiModelSettings(settings) {
 
     let successfulRequests = 0;
     for (const group of grouped.values()) {
-      const profileId = modelAccessProfileId(group.credentials.baseUrl, group.credentialFingerprint);
+      const profileId = modelConnectionIdentity(group.credentials.baseUrl, group.credentials.apiKey);
       try {
         const request = await newApiFetch(settings, "/v1/models", {
           method: "GET",
@@ -3586,7 +3661,7 @@ async function fetchNewApiModelSettings(settings) {
         collected.push(...modelIds);
         modelCapabilities = mergeModelCapabilities(modelCapabilities, capabilities);
         profiles.push(createModelAccessProfile({
-          id: modelAccessProfileId(credentials.baseUrl, `token:${settings.selectedAccountTokenId || credentials.id || "selected"}`),
+          id: modelConnectionIdentity(credentials.baseUrl, credentials.apiKey),
           label: "所选账户 Token",
           baseUrl: credentials.baseUrl,
           credentialLabel: settings.selectedAccountTokenName
@@ -3602,7 +3677,7 @@ async function fetchNewApiModelSettings(settings) {
       } else {
         lastError = new Error(newApiErrorMessage(data, response.status));
         profiles.push(createModelAccessProfile({
-          id: modelAccessProfileId(credentials.baseUrl, `token:${settings.selectedAccountTokenId || credentials.id || "selected"}`),
+          id: modelConnectionIdentity(credentials.baseUrl, credentials.apiKey),
           label: "所选账户 Token",
           baseUrl: credentials.baseUrl,
           credentialLabel: settings.selectedAccountTokenName || (settings.selectedAccountTokenId ? `Token #${settings.selectedAccountTokenId}` : "账户 Token"),
@@ -3669,7 +3744,7 @@ async function newApiModelSettings(settings, options = {}) {
   const memoryEntry = modelCacheMemory.get(key);
   if (cacheOnly) {
     if (memoryEntry) {
-      return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt);
+      return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt, settings);
     }
     const fallbackModels = [
       ...(Array.isArray(settings.agentModelPool) ? settings.agentModelPool : []),
@@ -3682,11 +3757,11 @@ async function newApiModelSettings(settings, options = {}) {
     return modelSettingsWithCacheMeta(
       cachedModelSettings(settings, { models: fallbackModels }),
       "settings",
-      now
+      now, settings
     );
   }
   if (!forceRefresh && memoryEntry && now - memoryEntry.cachedAt < modelCacheTtlMs) {
-    return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt);
+    return modelSettingsWithCacheMeta(memoryEntry.settings, cacheWasAlreadyLoaded ? "memory" : "disk", memoryEntry.cachedAt, settings);
   }
   if (!forceRefresh && memoryEntry && now - memoryEntry.cachedAt < modelCacheTtlMs * 4) {
     if (!modelCacheInflight.has(key)) {
@@ -3694,7 +3769,7 @@ async function newApiModelSettings(settings, options = {}) {
         log(`model cache background refresh failed ${error instanceof Error ? error.message : String(error)}`);
       });
     }
-    return modelSettingsWithCacheMeta(memoryEntry.settings, "stale", memoryEntry.cachedAt);
+    return modelSettingsWithCacheMeta(memoryEntry.settings, "stale", memoryEntry.cachedAt, settings);
   }
 
   if (modelCacheInflight.has(key)) return modelCacheInflight.get(key);
@@ -3715,7 +3790,7 @@ async function newApiModelSettings(settings, options = {}) {
         };
         modelCacheMemory.set(key, entry);
         persistModelCache();
-        return modelSettingsWithCacheMeta(entry.settings, memoryEntry ? "stale" : "network", entry.cachedAt);
+        return modelSettingsWithCacheMeta(entry.settings, memoryEntry ? "stale" : "network", entry.cachedAt, settings);
       }
       const preservedProfiles = preserveRuntimeVerifiedModelAccessProfiles(
         loaded.modelAccessProfiles,
@@ -3727,11 +3802,11 @@ async function newApiModelSettings(settings, options = {}) {
       };
       modelCacheMemory.set(key, entry);
       persistModelCache();
-      return modelSettingsWithCacheMeta(entry.settings, "network", entry.cachedAt);
+      return modelSettingsWithCacheMeta(entry.settings, "network", entry.cachedAt, settings);
     } catch (error) {
       if (memoryEntry) {
         log(`model cache stale fallback ${error instanceof Error ? error.message : String(error)}`);
-        return modelSettingsWithCacheMeta(memoryEntry.settings, "stale", memoryEntry.cachedAt);
+        return modelSettingsWithCacheMeta(memoryEntry.settings, "stale", memoryEntry.cachedAt, settings);
       }
       throw error;
     } finally {
@@ -4751,11 +4826,101 @@ function clearNewApiAuth(settings) {
 async function callNewApiImageWithSession(settings, payload = {}) {
   // AIDebug fixtures remain owned by the established deterministic backend.
   // All production requests use the unified protocol/transport service.
-  const result = aidebugMockImage
-    ? await callNewApiImage(settings, payload)
-    : await imageGenerationService.generate(settings, payload);
-  markModelRuntimeVerified(settings, "image", payload.model || settings.imageModel, "image-generation");
-  return result;
+  const model = String(payload.model || settings.imageModel || "").trim();
+  const config = imageGenerationService.resolveModelConfig(settings, model);
+  const mode = String(payload.mode || (payload.editImage || payload.maskImage || payload.maskDataUrl || payload.referenceImages?.length ? "edit" : "generate"));
+  const context = {
+    provider: "image", model, endpointType: "image-generation", protocol: config.protocol,
+    transport: config.transportMode, operation: mode, stage: "generation", connectionId: "", baseUrl: "",
+    accepted: false, polled: false,
+    scope: {
+      n: Number(payload.n ?? payload.count ?? settings.imageCount ?? 1),
+      quality: payload.quality || settings.imageQuality || "auto",
+      resolution: payload.resolution || settings.imageResolution,
+      size: payload.size || settings.imageSize,
+      ratio: payload.ratio || settings.imageRatio,
+      referenceCount: Array.isArray(payload.referenceImages) ? payload.referenceImages.length : payload.editImage ? 1 : 0,
+      mask: Boolean(payload.maskImage || payload.maskDataUrl),
+      background: payload.background,
+      outputFormat: payload.outputFormat || payload.output_format || settings.imageOutputFormat,
+      outputCompression: payload.outputCompression ?? payload.output_compression,
+      moderation: payload.moderation,
+      inputFidelity: payload.inputFidelity || payload.input_fidelity
+    }
+  };
+  const requestPayload = {
+    ...payload,
+    onConnectionResolved: ({ baseUrl, apiKey }) => {
+      context.baseUrl = baseUrl;
+      context.connectionId = modelConnectionIdentity(baseUrl, apiKey);
+      if (!context.operationRecord && payload.projectId) context.operationRecord = imageOperationJournal.start({
+        projectId: payload.projectId, operationId: payload.operationId || payload.runId, requestIndex: payload.requestIndex || 1, runId: payload.runId,
+        model, protocol: config.protocol, transport: config.transportMode, connectionId: context.connectionId,
+        parameters: context.scope, sourceNodeIds: payload.nodeIds || (payload.referenceImages || []).map(image => image.canvasNodeId).filter(Boolean),
+        sources: [payload.editImage, ...(payload.referenceImages || [])].filter(Boolean),
+        targetNodeId: payload.targetNodeId
+      });
+    },
+    onAccepted: (event) => { context.accepted = true; context.taskIdPresent = Boolean(event?.taskId); imageOperationJournal.accepted(context.operationRecord, event); payload.onAccepted?.(event); },
+    onResultReceived: (result, processing) => {
+      context.stage = "response";
+      imageOperationJournal.received(context.operationRecord, result, processing);
+      if (context.connectionId) markModelRuntimeVerified(settings, "image", model, "image-generation", { ...context, outcome: "success" });
+    },
+    onStatus: (event) => { context.polled = true; payload.onStatus?.(event); }
+  };
+  try {
+    const result = aidebugMockImage
+      ? await callNewApiImage(settings, requestPayload)
+      : await imageGenerationService.generate(settings, requestPayload);
+    const hasImage = extractServerImages(result).length > 0;
+    imageOperationJournal.received(context.operationRecord, result);
+    context.stage = "response";
+    context.outcome = hasImage ? "success" : "failure";
+    context.category = hasImage ? undefined : "IMAGE_EMPTY_RESULT";
+    if (context.connectionId) markModelRuntimeVerified(settings, "image", model, "image-generation", context);
+    if (result && typeof result === "object") imageRuntimeObservationContexts.set(result, { ...context });
+    return result;
+  } catch (error) {
+    imageOperationJournal.failed(context.operationRecord, error);
+    if (context.connectionId) markModelRuntimeVerified(settings, "image", model, "image-generation", {
+      ...context,
+      stage: context.stage === "response" ? "asset-delivery" : context.polled ? "poll" : context.accepted ? "accepted" : "generation",
+      outcome: "failure",
+      category: String(error?.errorCategory || error?.code || (Number(error?.status) ? `HTTP_${Number(error.status)}` : "request_failed"))
+    });
+    throw error;
+  }
+}
+
+function recordImageAssetDelivery(settings, result, assets, error) {
+  const context = result && typeof result === "object" ? imageRuntimeObservationContexts.get(result) : null;
+  if (!context?.connectionId) return;
+  const delivered = !error && Array.isArray(assets) && assets.length > 0;
+  markModelRuntimeVerified(settings, "image", context.model, context.endpointType, {
+    ...context,
+    stage: "asset-delivery",
+    outcome: delivered ? "success" : "failure",
+    category: delivered ? undefined : String(error?.code || (assets?.length === 0 ? "IMAGE_ASSET_EMPTY" : "asset_delivery_failed"))
+  });
+}
+
+async function deliverGeneratedImageResult(settings, result, payload = {}) {
+  const context = imageRuntimeObservationContexts.get(result);
+  try {
+    const format = payload.outputFormat || payload.output_format || "png";
+    const generation = imageGenerationContext(payload, result, format);
+    const assets = context?.operationRecord
+      ? await imageOperationJournal.deliver(context.operationRecord, result, generation)
+      : await writeServerImageOutputs(extractServerImages(result), `image-${sanitizeFileStem(payload.runId || Date.now())}`, payload.runId, payload.projectId, format, generation);
+    const incomplete = context?.operationRecord && imageOperationJournal.get(context.operationRecord.projectId, context.operationRecord.key)?.state !== "saved";
+    recordImageAssetDelivery(settings, result, assets, incomplete ? { code: "IMAGE_PARTIAL_DELIVERY" } : undefined);
+    return assets;
+  } catch (error) {
+    imageOperationJournal.failed(context?.operationRecord, error);
+    recordImageAssetDelivery(settings, result, [], error);
+    throw error;
+  }
 }
 
 function extractServerImages(data) {
@@ -4984,6 +5149,25 @@ const projectSessionSaveCoordinator = createProjectSaveCoordinator({
   }
 });
 
+const imageOperationJournal = createImageOperationJournal({
+  projectFor: projectId => getProjectById(projectId, readProjectList()), metaDir: projectMetaDirName,
+  extractImages: extractServerImages,
+  download: url => remoteImageDownloads.download(url, { maxBytes: maxExportImageBytes, timeoutMs: 30_000, maxRedirects: 5 }),
+  materialize: writeServerImageOutputs,
+  async processImage(buffer, inputs) {
+    const { applyClientMask } = require("./desktop/image-mask-compat.cjs");
+    const result = await applyClientMask({ images: [{ type: "base64", value: buffer.toString("base64") }] }, inputs);
+    return Buffer.from(result.images[0].value, "base64");
+  },
+  async resolveConnection(item) {
+    const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    const config = imageGenerationService.resolveModelConfig(settings, item.model);
+    const credentials = await newApiClient.resolveRequestConnection(imageGenerationService.transportSettings(settings, config), "/v1/images/generations", { model: item.model }, "image", { ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}), ...(config.apiKey ? { apiKey: config.apiKey } : {}) });
+    return { settings, credentials, connectionId: modelConnectionIdentity(credentials.baseUrl, credentials.apiKey), protocol: config.protocol, transport: config.transportMode };
+  },
+  pollTask: (item, connection) => newApiClient.pollSub2apiImageTask(connection.settings, item.taskId, { model: item.model, credentials: connection.credentials })
+});
+
 function registerIpc() {
   registerDesktopIpc({
     runtimeDiagnostics,
@@ -5123,6 +5307,8 @@ function registerIpc() {
     accountTokenService,
     newApiAccountService,
     callNewApiImageWithSession,
+    deliverGeneratedImageResult,
+    imageOperationJournal,
     clearNewApiAuth,
     completeNewApiLogin,
     extractServerImages,

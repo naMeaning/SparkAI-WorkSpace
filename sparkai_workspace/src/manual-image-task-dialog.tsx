@@ -1,4 +1,5 @@
 import React from "react";
+import { imageQualityValues } from "../runtime/image-model-policy.mjs";
 import { ImageIcon, Send, X } from "lucide-react";
 import {
   FRAME_OPTIONS,
@@ -34,6 +35,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
   submit: () => void;
 }) {
   const draft = state.draft;
+  const [adjustment, setAdjustment] = React.useState("");
   const ratioOptions = frameOptionsForModel(draft.resolution, imageModel, imageModelConfig?.capabilities);
   const resolutionOptions = sizePresetsForModel(draft.ratio, imageModel, imageModelConfig?.capabilities);
   const references = draft.referenceImages ?? [];
@@ -50,6 +52,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
     const resolution = availableResolutions.some((option) => option.resolution === draft.resolution)
       ? draft.resolution
       : availableResolutions[0]?.resolution || draft.resolution;
+    setAdjustment(resolution !== draft.resolution ? `此比例不支持 ${draft.resolution}，清晰度已调整为 ${resolution}。` : "");
     updateDraft({ ratio, resolution });
   }
 
@@ -58,6 +61,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
     const ratio = availableRatios.some((option) => option.ratio === draft.ratio)
       ? draft.ratio
       : availableRatios[0]?.ratio || draft.ratio;
+    setAdjustment(ratio !== draft.ratio ? `此清晰度不支持 ${draft.ratio}，比例已调整为 ${ratio}。` : "");
     updateDraft({ resolution, ratio });
   }
 
@@ -81,6 +85,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
             onClose={() => requestClose("close-button")}
           />
           <SurfaceBody className="manual-image-task-body">
+            {adjustment ? <p role="status">{adjustment}</p> : null}
             <div className="manual-image-task-controls">
               <Field label="比例">
                 <GlassSelect
@@ -109,7 +114,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
                   value={draft.quality}
                   ariaLabel="质量"
                   onChange={(value) => updateDraft({ quality: value as ImageTaskDraft["quality"] })}
-                  options={QUALITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                  options={QUALITY_OPTIONS.filter(option => imageQualityValues(imageModel, imageModelConfig?.capabilities, imageModelConfig?.protocol === "auto" ? "" : imageModelConfig?.protocol).includes(option.value)).map((option) => ({ value: option.value, label: option.label }))}
                 />
               </Field>
               <Field label="张数">

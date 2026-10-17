@@ -10,6 +10,7 @@ import {
   filterAgentPickerModels,
   filterImagePickerModels,
   idleComposerPrimaryAction,
+  modelAccessSummary,
   runCompletedImageGen
 } from "../src/model-ux.ts";
 
@@ -19,6 +20,61 @@ const imageConfigSource = readFileSync(join(root, "src", "project-agent-image-co
 const mainSource = readFileSync(join(root, "src", "main.tsx"), "utf8");
 const settingsSource = readFileSync(join(root, "src", "settings-drawer.tsx"), "utf8");
 const agentSource = readFileSync(join(root, "src", "agent.ts"), "utf8");
+
+const observedModel = "grok-imagine-image-2.0";
+const previousSuccessAt = "2026-10-16T10:00:00.000Z";
+const latestFailureAt = "2026-10-17T10:00:00.000Z";
+const capability = {
+  model: observedModel,
+  endpointTypes: ["image-generation"],
+  evidence: "runtime-verified" as const,
+  lastCheckedAt: previousSuccessAt,
+  lastVerifiedAt: previousSuccessAt,
+  observations: [{ protocol: "xai-images", transport: "async", operation: "generate", stage: "response", outcome: "success" as const, observedAt: previousSuccessAt }]
+};
+const previousConnection = {
+  id: "connection-a",
+  label: "Connection A",
+  baseUrl: "https://a.example/v1",
+  credentialLabel: "独立连接",
+  providers: ["image" as const],
+  capabilities: { [observedModel.toLowerCase()]: capability }
+};
+const failedConnection = {
+  id: "connection-b",
+  label: "Connection B",
+  baseUrl: "https://b.example/v1",
+  credentialLabel: "独立连接",
+  providers: ["image" as const],
+  capabilities: {
+    [observedModel.toLowerCase()]: {
+      ...capability,
+      evidence: "upstream-declared" as const,
+      lastVerifiedAt: undefined,
+      observations: [{ protocol: "xai-images", transport: "async", operation: "generate", stage: "poll", outcome: "failure" as const, observedAt: latestFailureAt, category: "HTTP_502", scope: { n: 1, resolution: "2k" } }]
+    }
+  }
+};
+const latestModelAccess = modelAccessSummary([previousConnection, failedConnection], "image", observedModel);
+assert.equal(latestModelAccess?.sourceLabel, "Connection B", "Newest operation evidence must outrank an older runtime success");
+assert.equal(latestModelAccess?.status, "最近文生图失败");
+assert.equal(latestModelAccess?.observedAt, latestFailureAt, "Failure summaries must use the failure timestamp");
+assert.match(latestModelAccess?.detail || "", /resolution=2k/);
+const deliveryFailure = modelAccessSummary([{
+  ...failedConnection,
+  capabilities: {
+    [observedModel.toLowerCase()]: {
+      ...failedConnection.capabilities[observedModel.toLowerCase()],
+      observations: [{ ...failedConnection.capabilities[observedModel.toLowerCase()].observations[0], stage: "asset-delivery" }]
+    }
+  }
+}], "image", observedModel);
+assert.equal(deliveryFailure?.status, "最近成果保存失败", "Local asset delivery errors must not look like upstream generation failures");
+const active = { model: observedModel, provider: "image" as const, connectionId: "connection-a", protocol: "xai-images", transport: "async", addressSource: "model" as const, credentialSource: "model-key" as const };
+assert.equal(modelAccessSummary([previousConnection, failedConnection], "image", observedModel, active)?.sourceLabel, "Connection A", "Current identity must select only its own evidence");
+assert.equal(modelAccessSummary([previousConnection], "image", observedModel, { ...active, connectionId: "rotated-key" })?.status, "当前配置待验证");
+assert.doesNotMatch(modelAccessSummary([previousConnection], "image", observedModel, { ...active, protocol: "openai-images" })?.status || "", /曾成功|真实验证/);
+assert.doesNotMatch(modelAccessSummary([previousConnection], "image", observedModel, { ...active, transport: "sync" })?.status || "", /曾成功|真实验证/);
 
 assert.equal(
   idleComposerPrimaryAction({ executionBusy: false, goalSelected: false, canGenerate: true }),

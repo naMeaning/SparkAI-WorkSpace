@@ -13,6 +13,40 @@
           "surface": "renderer",
           "description": "Return the active project and local canvas revision, selection, canonical relations, Requirement input bindings and revision/signature, canonical container membership, presentation layout membership, and per-node lock/busy details. Managed asset paths and automation credentials are never returned.",
           "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "image.operations",
+          "surface": "renderer",
+          "description": "List sanitized image operation stages in the active project. This reads local records and never creates a model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+          }
+        },
+        {
+          "name": "image.recover",
+          "surface": "renderer",
+          "description": "Recover an existing image operation by key. Poll only its original task or save its original result; never POST a new generation. Current connection must match. Publishes assets idempotently through the project save owner.",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "key",
+              "expectedProjectId"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              }
+            }
+          }
         }
       ]
     },

@@ -206,6 +206,14 @@ const legacyImageSettings = {
     { model: "gemini-3.1-flash-image", protocol: "gemini-native", gateway: "direct" }
   ])
 };
+const legacySub2apiSettings = { accessMode: "custom" as const, imageModel: "gpt-image-2", imageBaseUrl: "https://sub2api.example/v1" };
+const migratedSub2api = mergeSettings(legacySub2apiSettings);
+assert.equal(migratedSub2api.imageConnectionVersion, 1);
+assert.equal(migratedSub2api.imageModelBindings[0].gateway, "sub2api");
+assert.equal(migratedSub2api.imageModelBindings[0].transportMode, "async");
+assert.equal(migratedSub2api.imageModelBindings[0].connectionSource, "legacy-migration");
+assert.deepEqual(mergeSettings(migratedSub2api).imageModelBindings, migratedSub2api.imageModelBindings, "Contract migration must run once and survive restart");
+assert.deepEqual(mergeSettings({ ...legacySub2apiSettings, imageConnectionVersion: 1 }).imageModelBindings, [], "New configurations must not infer async from the hostname");
 const legacyImagePool = ["gpt-image-2", "grok-imagine-image-2.0", "gemini-3.1-flash-image"];
 assert.deepEqual(selectedImageModelsFromSettings(legacyImageSettings), legacyImagePool, "Only legacy settings without a pool may recover selections from bindings and capabilities");
 const migratedImageSettings = mergeSettings(legacyImageSettings);
@@ -251,7 +259,7 @@ try {
   const inputPath = join(migrationProbeDir, "input.json");
   const outputPath = join(migrationProbeDir, "output.json");
   const probePath = join(migrationProbeDir, "main-probe.cjs");
-  writeFileSync(inputPath, JSON.stringify({ legacy: legacyImageSettings, disabled: reloadedImageSettings, primaryOnly: explicitPrimaryOnly }));
+  writeFileSync(inputPath, JSON.stringify({ legacy: legacyImageSettings, disabled: reloadedImageSettings, primaryOnly: explicitPrimaryOnly, sub2api: legacySub2apiSettings }));
   writeFileSync(probePath, `
     const { readFileSync, writeFileSync } = require("node:fs");
     const { app } = require("electron");
@@ -290,6 +298,7 @@ try {
   assert.deepEqual(mainPublicSettings.primaryOnly.imageModelPool, ["gpt-image-2"], "Main must distinguish an explicit primary-only pool from absent legacy data");
   assert.deepEqual(mainPublicSettings.disabled.imageModelConfigs, reloadedImageSettings.imageModelConfigs, "Main/public migration must preserve capabilities of disabled candidates");
   assert.equal(mainPublicSettings.disabled.imageModelBindings[0].customBaseUrl, reloadedImageSettings.imageModelBindings[0].customBaseUrl);
+  assert.deepEqual(mainPublicSettings.sub2api.imageModelBindings, migratedSub2api.imageModelBindings, "Main and Renderer must freeze the same legacy transport");
   assert.equal(JSON.stringify(mainPublicSettings).includes("fixture-image-key"), false, "The migration contract test must still receive sanitized public credentials");
 } finally {
   const relativeProbeDir = relative(diagnosticsRoot, migrationProbeDir);

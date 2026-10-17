@@ -187,6 +187,8 @@ contextBridge.exposeInMainWorld("naimageServer", {
   updateToken: (payload) => ipcRenderer.invoke("naimage:server:update-token", payload),
   deleteToken: (payload) => ipcRenderer.invoke("naimage:server:delete-token", payload),
   recharge: (payload) => ipcRenderer.invoke("naimage:server:recharge", payload),
+  imageOperations: (payload) => ipcRenderer.invoke("naimage:server:image-operations", payload),
+  recoverImage: (payload) => ipcRenderer.invoke("naimage:server:recover-image", payload),
   generateImage: (payload) => ipcRenderer.invoke("naimage:server:generate-image", payload),
   licenseStatus: (payload) => ipcRenderer.invoke("naimage:server:license-status", payload),
   activateLicense: (payload) => ipcRenderer.invoke("naimage:server:activate-license", payload),

@@ -100,7 +100,7 @@ assert.match(mainSource, /node\.scientificFigure \? "scientific-figure-node" : "
 assert.match(mainSource, /visibleTabs=\{settings\.visibleWorkspaceAssetRailTabs\}/, "The live asset rail must consume the persisted visibility preference");
 assert.match(mainSource, /保存为个人需求模板/, "Requirement context menus must expose a direct personal-template save action");
 assert.match(mainSource, /保存 Skill 到个人模板/, "Skill context menus must expose a direct personal-template save action");
-assert.match(mainSource, /canvasMenu\.kind === "canvas"[\s\S]{0,2400}setCanvasMenu\(null\);[\s\S]{0,160}openCurrentProjectFolder\(\);[\s\S]{0,180}打开当前项目文件夹/, "The blank canvas context menu must expose the real current-project-folder action");
+assert.match(mainSource, /canvasMenu\.kind === "canvas"[\s\S]{0,5000}setCanvasMenu\(null\);[\s\S]{0,160}openCurrentProjectFolder\(\);[\s\S]{0,180}打开当前项目文件夹/, "The blank canvas context menu must expose the real current-project-folder action");
 assert.match(mainSource, /function nodeIdAtWorldPoint[\s\S]{0,900}const inside = worldX >= bounds\.x[\s\S]{0,500}return bestId/, "Connection drops must resolve only a node whose real bounds contain the pointer instead of snapping across empty canvas space");
 assert.match(mainSource, /function beginConnection[\s\S]{0,5200}window\.addEventListener\("pointercancel", cancel\)[\s\S]{0,220}window\.addEventListener\("keydown", cancelWithEscape, true\)/, "Connection drafts must have dedicated pointer-cancel and Escape cancellation paths");
 assert.doesNotMatch(mainSource.match(/function beginConnection[\s\S]*?\n  }\n\n  function copyCanvasSelection/)?.[0] || "", /disconnectNodeOutputs\(/, "Clicking an output port must never disconnect its existing relations");

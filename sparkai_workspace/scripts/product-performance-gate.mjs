@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const diagnosticsRoot = join(repoRoot, ".diagnostics", "electron");
 const runDir = join(diagnosticsRoot, `product-performance-${new Date().toISOString().replace(/[:.]/g, "-")}`);
-const bundleDir = join(runDir, "renderer-bundle");
+const reuseBundle = process.argv.find(value => value.startsWith("--bundle="))?.slice(9);
+const bundleDir = reuseBundle ? resolve(reuseBundle) : join(runDir, "renderer-bundle");
 const reportPath = join(runDir, "report.json");
 const roundsArg = process.argv.find((value) => value.startsWith("--rounds="));
 const rounds = Math.max(1, Math.min(5, Number(roundsArg?.split("=")[1] || 3)));
@@ -24,6 +26,12 @@ function countArg(name, fallback, maximum) {
 const fixtureNodeCount = countArg("nodes", 1_000, 5_000);
 const fixtureMessageCount = countArg("messages", 500, 2_000);
 const fixtureRelationCount = Math.min(countArg("relations", 199, 2_000), Math.max(0, fixtureNodeCount - 1));
+const mixedAssets = process.argv.includes("--mixed-assets");
+const hubRelations = process.argv.includes("--hub");
+const selectAll = process.argv.includes("--select-all");
+const memoryCycles = countArg("memory-cycles", 0, 20);
+const localVideo = process.argv.includes("--local-video");
+const mediaFixtures = [];
 const electronCli = join(repoRoot, "node_modules", "electron", "cli.js");
 const viteCli = join(repoRoot, "node_modules", "vite", "bin", "vite.js");
 const foregroundChromiumSwitches = Object.freeze([
@@ -77,6 +85,57 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+// Deterministic local VP8 frames in a WebM container. Canvas capture can return
+// header-only recordings on remote Windows desktops; valid WebP VP8 keyframes
+// avoid depending on compositor capture or an external encoder installation.
+async function prepareLocalVideo() {
+  const size = value => {
+    let length = 1;
+    while (value >= 2 ** (7 * length) - 1) length++;
+    const bytes = Buffer.alloc(length);
+    for (let i = length - 1; i >= 0; i--) { bytes[i] = value % 256; value = Math.floor(value / 256); }
+    bytes[0] |= 1 << (8 - length);
+    return bytes;
+  };
+  const element = (id, data) => Buffer.concat([Buffer.from(id, "hex"), size(data.length), data]);
+  const integer = value => { const bytes = Buffer.alloc(4); bytes.writeUInt32BE(value); let start = 0; while (start < 3 && !bytes[start]) start++; return bytes.subarray(start); };
+  const uint = (id, value) => element(id, integer(value));
+  const text = (id, value) => element(id, Buffer.from(value));
+  const master = (id, children) => element(id, Buffer.concat(children));
+  const duration = Buffer.alloc(8); duration.writeDoubleBE(2000);
+  const blocks = [];
+  for (let frame = 0; frame < 20; frame++) {
+    const webp = await sharp({ create: { width: 640, height: 360, channels: 3, background: frame % 2 ? "#387fac" : "#e3b42d" } })
+      .composite([{ input: Buffer.from(`<svg width="640" height="360"><rect x="${frame * 24}" y="100" width="80" height="140" fill="white"/></svg>`) }]).removeAlpha().webp({ quality: 75 }).toBuffer();
+    let vp8;
+    for (let offset = 12; offset + 8 <= webp.length;) {
+      const bytes = webp.readUInt32LE(offset + 4);
+      if (webp.toString("ascii", offset, offset + 4) === "VP8 ") { vp8 = webp.subarray(offset + 8, offset + 8 + bytes); break; }
+      offset += 8 + bytes + (bytes % 2);
+    }
+    assert.ok(vp8, "local encoder must produce a VP8 keyframe");
+    const header = Buffer.alloc(4); header[0] = 0x81; header.writeInt16BE(frame * 100, 1); header[3] = 0x80;
+    blocks.push(element("a3", Buffer.concat([header, vp8])));
+  }
+  const header = master("1a45dfa3", [uint("4286", 1), uint("42f7", 1), uint("42f2", 4), uint("42f3", 8), text("4282", "webm"), uint("4287", 2), uint("4285", 2)]);
+  const info = master("1549a966", [uint("2ad7b1", 1000000), element("4489", duration), text("4d80", "SparkAI local fixture"), text("5741", "SparkAI local fixture")]);
+  const tracks = master("1654ae6b", [master("ae", [uint("d7", 1), uint("73c5", 1), uint("83", 1), uint("9c", 0), text("86", "V_VP8"), uint("23e383", 100000000), master("e0", [uint("b0", 640), uint("ba", 360)])])]);
+  const file = join(runDir, "local-playback.webm");
+  writeFileSync(file, Buffer.concat([header, master("18538067", [info, tracks, master("1f43b675", [uint("e7", 0), ...blocks])])]));
+  return file;
+}
+
+async function prepareMediaFixtures() {
+  if (!mixedAssets) return;
+  const pixels = Buffer.alloc(64 * 64 * 3);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 37 + Math.floor(i / 192) * 17) % 256;
+  for (const width of [2048, 4096]) for (const format of ["png", "jpeg", "webp"]) {
+    const path = join(runDir, `fixture-${width}.${format}`);
+    await sharp(pixels, { raw: { width: 64, height: 64, channels: 3 } }).resize(width, width).toFormat(format).toFile(path);
+    mediaFixtures.push({ path, width, height: width, mimeType: `image/${format}` });
+  }
+}
+
 function seedSession(configDir, round) {
   const projectDir = join(configDir, "projects", "default");
   const sessionPath = join(projectDir, "session.json");
@@ -106,9 +165,26 @@ function seedSession(configDir, round) {
       width: 320,
       height: 260,
       zOrder: index + 1,
-      ...(index > 0 && index <= fixtureRelationCount ? { parentId: `P${String(index).padStart(4, "0")}`, relationType: "derived-from" } : {})
+      ...(memoryCycles ? { createdAt: "2026-01-01T00:00:00.000Z", persistenceOriginId: `perf-origin-${id}` } : {}),
+      ...(index > 0 && index <= fixtureRelationCount ? { parentId: hubRelations ? "P0001" : `P${String(index).padStart(4, "0")}`, relationType: "derived-from" } : {})
     };
   });
+  if (mixedAssets) for (const [index, node] of nodes.entries()) {
+    if (index % 5 === 4) {
+      Object.assign(node, { type: "requirement", requirement: { version: 1, revision: 1, text: "本地性能夹具，不执行模型。", inputBindings: [] } });
+    } else {
+      const source = mediaFixtures[index % mediaFixtures.length];
+      const outputPath = join(projectDir, "output", "imagegen", `fixture-${index}-${source.width}.${source.mimeType.split('/')[1]}`);
+      mkdirSync(dirname(outputPath), { recursive: true });
+      // Distinct managed paths preserve node identities; hard links keep the
+      // deterministic fixture from copying gigabytes of identical source bytes.
+      if (!existsSync(outputPath)) linkSync(source.path, outputPath);
+      const occurrenceId = `occ-${createHash("sha256").update(`perf-${index}`).digest("hex").slice(0, 32)}`;
+      const asset = { ...source, path: outputPath, assetUrl: `naimage-asset://local/abs/${encodeURIComponent(outputPath)}`, type: "file", assetId: `perf-asset-${index}`, occurrenceId, index: 1 };
+      node.assets = [asset]; node.outputs = 1; node.status = "done"; node.imageState = "done";
+      if (index % 7 === 3) Object.assign(node, { imageContainer: true, outputs: 2, assets: [asset, { ...asset, assetId: `${asset.assetId}-2`, occurrenceId: `occ-${createHash("sha256").update(`perf-${index}-2`).digest("hex").slice(0, 32)}`, index: 2 }] });
+    }
+  }
   const conversationId = `perf-conversation-${round}`;
   const session = {
     schemaVersion: 2,
@@ -135,8 +211,10 @@ function seedSession(configDir, round) {
   writeJson(sessionPath, session);
   writeJson(join(configDir, "project-list.json"), {
     activeProjectId: "default",
-    projects: [{ id: "default", name: "生产性能基线", path: projectDir, sessionPath, createdAt: now, updatedAt: now, external: false }]
+    projects: [{ id: "default", name: "生产性能基线", path: projectDir, sessionPath, createdAt: now, updatedAt: now, external: false },
+      ...(memoryCycles || localVideo ? [{ id: "secondary", name: "内存循环空项目", path: join(configDir, "projects/secondary"), sessionPath: join(configDir, "projects/secondary/session.json"), createdAt: now, updatedAt: now, external: false }] : [])]
   });
+  if (memoryCycles || localVideo) writeJson(join(configDir, "projects/secondary/session.json"), { schemaVersion: 5, sessionRevision: 1, nodes: [], messages: [] });
 }
 
 class CdpClient {
@@ -144,6 +222,7 @@ class CdpClient {
     this.url = url;
     this.nextId = 1;
     this.pending = new Map();
+    this.networkEvents = [];
   }
 
   async open() {
@@ -154,11 +233,16 @@ class CdpClient {
     });
     this.socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data));
+      if (["Network.responseReceived", "Network.loadingFailed"].includes(message.method)) this.networkEvents.push(message);
       if (!message.id || !this.pending.has(message.id)) return;
       const pending = this.pending.get(message.id);
       this.pending.delete(message.id);
       if (message.error) pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
       else pending.resolve(message.result);
+    });
+    this.socket.addEventListener("close", () => {
+      for (const pending of this.pending.values()) pending.reject(new Error("Renderer CDP connection closed before responding."));
+      this.pending.clear();
     });
   }
 
@@ -172,7 +256,7 @@ class CdpClient {
 
   async evaluate(expression, awaitPromise = true) {
     const result = await this.send("Runtime.evaluate", { expression, awaitPromise, returnByValue: true });
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || "Runtime evaluation failed.");
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || "Runtime evaluation failed.");
     return result.result?.value;
   }
 
@@ -269,15 +353,15 @@ const interactionExpression = `(async () => {
   const pan = [];
   const panFrames = [];
   const panPointerId = 6001;
-  canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: blank.x, clientY: blank.y }));
+  canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 4, clientX: blank.x, clientY: blank.y }));
   for (let index = 1; index <= 18; index += 1) {
     const started = performance.now();
-    canvas.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: blank.x + index * 4, clientY: blank.y + index * 3 }));
+    canvas.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 4, clientX: blank.x + index * 4, clientY: blank.y + index * 3 }));
     pan.push(performance.now() - started);
     await frame();
     panFrames.push(performance.now() - started);
   }
-  canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0, clientX: blank.x + 72, clientY: blank.y + 54 }));
+  canvas.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, pointerId: panPointerId, pointerType: 'mouse', isPrimary: true, button: 1, buttons: 0, clientX: blank.x + 72, clientY: blank.y + 54 }));
   await twice();
   const drag = [];
   const dragFrames = [];
@@ -402,23 +486,121 @@ async function runRound(round) {
       await client.send("Profiler.enable");
       await client.send("Profiler.start");
     }
-    const ready = await waitForExpression(client, `window.__naimagePerformanceProbe?.profile === 'production-like' && window.__naimagePerformanceProbe.snapshot().rendererReady === true`);
+    const ready = await waitForExpression(client, `window.__naimagePerformanceProbe?.profile === 'production-like' && window.__naimagePerformanceProbe.snapshot().rendererReady === true`, 120000);
     assert(ready, "Production-like renderer probe did not become ready.");
     await client.evaluate(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     await delay(interactiveSettleMs);
     const foregroundScheduler = await client.evaluate(foregroundSchedulerExpression);
     const workbenchReadyMs = Date.now() - startedAt;
     const startupSnapshot = await client.evaluate(`window.__naimagePerformanceProbe.snapshot()`);
+    let imageLoadSnapshot = null;
+    if (mixedAssets) {
+      assert.equal(await waitForExpression(client, `Array.from(document.querySelectorAll('[data-canvas-node="true"] img')).some(i=>i.complete && i.naturalWidth>0)`, 20000), true, "mixed fixture actually decodes managed image bytes");
+      imageLoadSnapshot = await client.evaluate(`({mounted:document.querySelectorAll('[data-canvas-node="true"] img').length,decoded:Array.from(document.querySelectorAll('[data-canvas-node="true"] img')).filter(i=>i.complete && i.naturalWidth>0).length})`);
+    }
+    let selectionSnapshot = null;
+    if (selectAll) {
+      await client.evaluate(`document.querySelector('[data-canvas-surface="true"]').dispatchEvent(new KeyboardEvent('keydown',{key:'a',code:'KeyA',ctrlKey:true,bubbles:true,cancelable:true}))`);
+      await delay(500);
+      selectionSnapshot = await client.evaluate(`window.__naimagePerformanceProbe.snapshot()`);
+      selectionSnapshot.selectionCount = await client.evaluate(`document.querySelector('[data-selection-ids]')?.dataset.selectionIds.split(' ').filter(Boolean).length || 0`);
+      assert.equal(selectionSnapshot.selectionCount, fixtureNodeCount, "Ctrl+A uses the canonical selection owner");
+    }
     const interactions = await client.evaluate(interactionExpression);
     const cpuProfile = cpuProfileEnabled ? (await client.send("Profiler.stop")).profile : null;
     const cpuProfilePath = cpuProfile ? join(roundDir, "renderer-interactions.cpuprofile") : null;
     if (cpuProfile && cpuProfilePath) writeJson(cpuProfilePath, cpuProfile);
     await delay(520);
     const finalSnapshot = await client.evaluate(`window.__naimagePerformanceProbe.snapshot()`);
+    if (selectAll && typeof finalSnapshot.selectedNodeCount === "number") {
+      assert.equal(finalSnapshot.selectedNodeCount, fixtureNodeCount, "interaction preserves every canonical selection");
+      if (mixedAssets && finalSnapshot.viewport.scale <= 0.3 && fixtureNodeCount >= 100) {
+        assert.ok(finalSnapshot.overviewNodeCount > 0, "dense secondary selections use the existing overview mode");
+        assert.equal(finalSnapshot.selectedOverviewNodeCount, finalSnapshot.overviewNodeCount, "overview components retain selected state");
+      }
+    }
     const heap = await client.send("Runtime.getHeapUsage");
+    const memory = [];
+    let videoPlayback = null;
+    if (memoryCycles || localVideo) {
+      const endpoint = JSON.parse(readFileSync(join(configDir, "automation/endpoint.json"), "utf8"));
+      const command = async (command, args = {}) => {
+        const response = await fetch(`http://127.0.0.1:${endpoint.port}/v1/execute`, { method: "POST", headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" }, body: JSON.stringify({ command, args }) });
+        const result = await response.json(); assert.equal(result.ok, true, command); return result.result ?? result.data;
+      };
+      const alternate = "secondary";
+      if (localVideo) {
+        await client.send("Network.enable");
+        const path = await prepareLocalVideo(), encoded = readFileSync(path).toString("base64");
+        const view = finalSnapshot.viewport;
+        await command("canvas.import-video", { paths: [path], x: (100 - view.x) / view.scale, y: (100 - view.y) / view.scale });
+        assert.equal(await waitForExpression(client, "document.querySelector('video')", 10000), true);
+        const playable = await waitForExpression(client, "document.querySelector('video')?.readyState >= 2", 15000);
+        if (!playable) {
+          const media = await client.evaluate(`(async()=>{const v=document.querySelector('video'),probe=document.createElement('video');probe.muted=true;probe.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(${JSON.stringify(encoded)}),c=>c.charCodeAt(0))],{type:'video/webm'}));probe.load();await new Promise(r=>setTimeout(r,3000));const result={src:v?.currentSrc,canPlay:v?.canPlayType('video/webm;codecs=vp8'),blobReady:probe.readyState,blobError:probe.error?.code};URL.revokeObjectURL(probe.src);return result})()`);
+          writeJson(join(roundDir, "media-failure.json"), { media, network: client.networkEvents });
+        }
+        assert.equal(playable, true, `local video decode: ${JSON.stringify(await client.evaluate(`(()=>{const v=document.querySelector('video');return{readyState:v?.readyState,error:v?.error?.message,code:v?.error?.code,networkState:v?.networkState}})()`))}`);
+        videoPlayback = await client.evaluate(`(async()=>{const video=document.querySelector('video');video.muted=true;video.loop=true;await video.play();const before=video.currentTime;let waited=0;while(video.currentTime<=before+0.05 && waited<5000){await new Promise(r=>setTimeout(r,100));waited+=100;}return{before,after:video.currentTime,paused:video.paused,width:video.videoWidth,height:video.videoHeight,duration:video.duration,readyState:video.readyState,frames:video.getVideoPlaybackQuality().totalVideoFrames,waited}})()`);
+        assert.ok(!videoPlayback.paused && videoPlayback.after > videoPlayback.before && videoPlayback.width === 640, `local managed video is actually playing: ${JSON.stringify(videoPlayback)}`);
+        const visibleVideo = await client.evaluate(`(()=>{const r=document.querySelector('video').getBoundingClientRect(),c=document.querySelector('[data-canvas-surface="true"]').getBoundingClientRect();return r.right>c.left && r.left<c.right && r.bottom>c.top && r.top<c.bottom})()`);
+        assert.equal(visibleVideo, true, "playing video intersects the actual canvas viewport");
+        const videoShot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        writeFileSync(join(roundDir, "local-video-playback.png"), Buffer.from(videoShot.data, "base64"));
+        await command("canvas.select", { ids: [], expectedProjectId: "default" });
+        await client.evaluate(`window.__perfLocalProgressEvents=0;window.__perfProgressUnsubscribe=window.naimageAgent.onProgress(()=>window.__perfLocalProgressEvents++)`);
+        const progressWork = (async () => {
+          for (let step = 0; step < 3; step++) {
+            await command("agent.chat", { prompt: `本地性能文字进度 ${step + 1}，只回复文字，不要生成图片或调用工具。`, sourceNodeIds: [] });
+            await delay(400);
+          }
+        })();
+        videoPlayback.interactions = await client.evaluate(interactionExpression);
+        await progressWork;
+        videoPlayback.localProgressEvents = await client.evaluate(`window.__perfProgressUnsubscribe?.();window.__perfLocalProgressEvents`);
+        assert.ok(videoPlayback.localProgressEvents > 0, "local mock Agent progress reaches Renderer during playback");
+        videoPlayback.afterInteractions = await client.evaluate(`({time:document.querySelector('video')?.currentTime,paused:document.querySelector('video')?.paused,frames:document.querySelector('video')?.getVideoPlaybackQuality().totalVideoFrames})`);
+        assert.equal(videoPlayback.afterInteractions.paused, false, "canvas interactions coexist with playback");
+        assert.ok(videoPlayback.afterInteractions.frames > videoPlayback.frames, "video frames continue while canvas interaction and local mock progress run");
+        const continuingShot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        writeFileSync(join(roundDir, "local-video-after-interactions.png"), Buffer.from(continuingShot.data, "base64"));
+        await client.evaluate(`document.querySelector('video')?.pause()`);
+        await delay(300);
+        videoPlayback.afterPause = await client.evaluate(`({playing:Array.from(document.querySelectorAll('video')).filter(v=>!v.paused).length})`);
+        assert.equal(videoPlayback.afterPause.playing, 0, "pause stops playback before virtualization releases its activity");
+        await command("project.switch", { id: alternate });
+        await delay(300);
+        assert.equal(await client.evaluate(`document.querySelectorAll('video').length`), 0, "project switch releases old players");
+        await command("project.switch", { id: "default" });
+        await delay(300);
+        videoPlayback.afterProjectReturn = await client.evaluate(`({playing:Array.from(document.querySelectorAll('video')).filter(v=>!v.paused).length})`);
+        assert.equal(videoPlayback.afterProjectReturn.playing, 0, "playback activity is not persisted or restored across projects");
+      }
+      for (let cycle = 0; cycle < memoryCycles; cycle++) {
+        await command("project.switch", { id: "default" });
+        await command("canvas.select", { ids: ["P0001"], expectedProjectId: "default" });
+        await delay(350);
+        await client.evaluate(`document.querySelector('[data-canvas-node="true"][data-node-id="P0001"] [data-asset-index="0"]')?.click()`);
+        const viewerOpen = await waitForExpression(client, `document.querySelector('[role="dialog"][aria-label="图片查看"]')`, 5000);
+        assert.equal(viewerOpen, true, `each memory cycle opens the real image viewer: ${JSON.stringify(await client.evaluate(`({cycle:${cycle},tiles:document.querySelector('[data-canvas-node="true"][data-node-id="P0001"]')?.outerHTML.slice(0,3000),dialogs:Array.from(document.querySelectorAll('[role="dialog"]')).map(e=>e.getAttribute('aria-label'))})`))}`);
+        await client.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+        await client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape" });
+        await client.evaluate(interactionExpression);
+        await command("project.switch", { id: alternate });
+        await delay(350);
+        const beforeGc = await client.send("Runtime.getHeapUsage");
+        await client.send("HeapProfiler.collectGarbage");
+        const afterGc = await client.send("Runtime.getHeapUsage");
+        const native = spawnSync("powershell.exe", ["-NoProfile", "-Command", `$items=Get-CimInstance Win32_Process; $ids=[System.Collections.Generic.HashSet[int]]::new(); [void]$ids.Add(${child.pid}); do { $added=0; foreach($item in $items) { if($ids.Contains([int]$item.ParentProcessId) -and $ids.Add([int]$item.ProcessId)) { $added++ } } } while($added); $p=Get-Process -Id @($ids) -ErrorAction SilentlyContinue; [pscustomobject]@{count=$p.Count;privateBytes=($p|Measure-Object PrivateMemorySize64 -Sum).Sum;workingSetBytes=($p|Measure-Object WorkingSet64 -Sum).Sum}|ConvertTo-Json -Compress`], { encoding: "utf8", windowsHide: true });
+        memory.push({ cycle: cycle + 1, viewerOpen, heapBeforeGc: beforeGc.usedSize, heapAfterGc: afterGc.usedSize, native: native.status === 0 ? JSON.parse(native.stdout.trim()) : { error: "native memory sample failed" } });
+      }
+      await command("project.switch", { id: "default" });
+    }
     const screenshot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
     writeFileSync(screenshotPath, Buffer.from(screenshot.data, "base64"));
-    await client.evaluate(`window.naimageConfig?.windowControl?.({ action: 'close' })`);
+    // Allow CDP to acknowledge evaluation before the normal close IPC destroys
+    // the renderer. Even awaitPromise:false can race a synchronous window close.
+    await client.evaluate(`void setTimeout(() => window.naimageConfig?.windowControl?.({ action: 'close' }), 100)`, false);
     let exit = await waitForChildExit(child, 8_000);
     if (!exit) {
       await forceKillProcessTree(child.pid);
@@ -429,9 +611,13 @@ async function runRound(round) {
       workbenchReadyMs,
       foregroundScheduler,
       startupSnapshot,
+      selectionSnapshot,
       finalSnapshot,
       interactions,
       heap,
+      memory,
+      videoPlayback,
+      imageLoadSnapshot,
       screenshotPath,
       cpuProfilePath,
       screenshotBytes: statSync(screenshotPath).size,
@@ -450,9 +636,10 @@ async function main() {
   assert(existsSync(electronCli), "Electron CLI missing.");
   assert(existsSync(viteCli), "Vite CLI missing.");
   mkdirSync(runDir, { recursive: true });
+  await prepareMediaFixtures();
   const buildArgs = [viteCli, "build", "--mode", "performance", "--outDir", bundleDir, "--emptyOutDir"];
   if (cpuProfileEnabled) buildArgs.push("--sourcemap");
-  const build = spawnSync(process.execPath, buildArgs, {
+  const build = reuseBundle ? { status: 0 } : spawnSync(process.execPath, buildArgs, {
     cwd: repoRoot,
     stdio: "inherit",
     env: process.env
@@ -542,7 +729,8 @@ async function main() {
     evidenceScope: "product-gate",
     generatedAt: new Date().toISOString(),
     diagnosticOnly,
-    fixture: { nodeCount: fixtureNodeCount, relationCount: fixtureRelationCount, messageCount: fixtureMessageCount },
+    fixture: { nodeCount: fixtureNodeCount, relationCount: fixtureRelationCount, messageCount: fixtureMessageCount, mixedAssets, hubRelations, selectAll, media: mediaFixtures.map(({ width, mimeType }) => ({ width, mimeType })), memoryCycles, localVideo, managedAssetStorage: "distinct paths, hard links to deterministic source bytes" },
+    environment: { node: process.version, electron: JSON.parse(readFileSync(join(repoRoot, "node_modules/electron/package.json"), "utf8")).version, inputContract: "canvas-v2-middle-pan", cache: "fresh isolated user-data per round; shared machine disk cache", theme: "dark", sourceBundleReused: Boolean(reuseBundle) },
     interactiveSettleMs,
     foregroundChromiumSwitches,
     runDir,
@@ -580,6 +768,7 @@ async function main() {
 }
 
 main().catch((error) => {
+  if (!existsSync(reportPath)) writeJson(reportPath, { ok: false, incomplete: true, error: String(error.stack || error) });
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exitCode = 1;
 });

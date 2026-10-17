@@ -28,6 +28,14 @@ function createProjectAssetRepository(options = {}) {
     .map((value) => String(value || "").trim())
     .filter((value, index, values) => value && values.indexOf(value) === index);
 
+  let validationRoots = null;
+  function withAssetValidation(callback) {
+    const previous = validationRoots;
+    validationRoots = new Map();
+    try { return callback(); }
+    finally { validationRoots = previous; }
+  }
+
   function collectAssetFiles(rootDir, maxFiles = 5000) {
     const files = [];
     const imageExts = new Set([".png", ".jpg", ".jpeg", ".webp"]);
@@ -79,12 +87,18 @@ function createProjectAssetRepository(options = {}) {
     try {
       const stats = lstatSync(filePath);
       if (!stats.isFile() || stats.isSymbolicLink()) return "";
-      const realProject = realPathIfPresent(projectPath);
       const realFile = realpathSync(filePath);
-      const controlled = projectAssetRoots(projectPath).some((root) => {
-        const realRoot = realPathIfPresent(root);
-        return isComparablePathInside(realRoot, realProject) && isComparablePathInside(realFile, realRoot);
-      });
+      let roots = validationRoots?.get(projectPath);
+      if (!roots) {
+        const realProject = realPathIfPresent(projectPath);
+        roots = projectAssetRoots(projectPath).map((root) => realPathIfPresent(root))
+          .filter((root) => isComparablePathInside(root, realProject));
+        validationRoots?.set(projectPath, roots);
+      }
+      // Share only root resolution during this synchronous session pass. Every
+      // file still gets fresh lstat/realpath checks, and the next pass resolves
+      // roots again so replaced files or junctions never reuse old validation.
+      const controlled = roots.some((root) => isComparablePathInside(realFile, root));
       return controlled ? realFile : "";
     } catch {
       return "";
@@ -310,7 +324,7 @@ function createProjectAssetRepository(options = {}) {
     return references.filter((reference) => reference && typeof reference === "object");
   }
 
-  function sessionWithProjectAssets(session, project, options = {}) {
+  function hydrateProjectSession(session, project, options) {
     const source = sanitizeSession(session);
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
     const normalizedProject = { ...project, path: projectPath };
@@ -378,6 +392,10 @@ function createProjectAssetRepository(options = {}) {
     return sanitizeSession({ ...source, nodes, messages, conversations });
   }
 
+  function sessionWithProjectAssets(session, project, options = {}) {
+    return withAssetValidation(() => hydrateProjectSession(session, project, options));
+  }
+
   function assetForProjectSave(asset, projectPath) {
     if (!asset || typeof asset !== "object") return asset;
     const next = { ...asset };
@@ -431,7 +449,7 @@ function createProjectAssetRepository(options = {}) {
     return undefined;
   }
 
-  function sessionForProjectSave(session, project) {
+  function serializeProjectSession(session, project) {
     const source = sanitizeSession(session);
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
     const normalizeAsset = (asset) => assetForProjectSave(asset, projectPath);
@@ -450,6 +468,10 @@ function createProjectAssetRepository(options = {}) {
           }))
         : []
     };
+  }
+
+  function sessionForProjectSave(session, project) {
+    return withAssetValidation(() => serializeProjectSession(session, project));
   }
 
   return {

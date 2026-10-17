@@ -28,6 +28,11 @@ function createNewApiClient(options = {}) {
 
   const newApiRefreshInflight = new Map();
 
+  function reportResolvedConnection(options, credentials) {
+    if (typeof options?.onConnectionResolved !== "function") return;
+    options.onConnectionResolved({ baseUrl: credentials.baseUrl, apiKey: credentials.apiKey });
+  }
+
   function newApiAuthProtocol(settings) {
     const explicit = String(settings?.serverAuthProtocol || "").trim().toLowerCase();
     if (explicit === "bundle" || explicit === "legacy") return explicit;
@@ -166,10 +171,10 @@ function createNewApiClient(options = {}) {
     return `${baseUrl}${cleanEndpoint}`;
   }
 
-  async function accountApiCredentials(settings, tokenId = "") {
+  async function accountApiCredentials(settings, tokenId = "", options = {}) {
     requireNewApiSession(settings);
     if (typeof resolveAccountApiCredentials !== "function") throw new Error("账户密钥服务尚未就绪。");
-    const credentials = await resolveAccountApiCredentials(settings, String(tokenId || "").trim() || undefined);
+    const credentials = await resolveAccountApiCredentials(settings, String(tokenId || "").trim() || undefined, options);
     const baseUrl = normalizeServerUrl(credentials?.baseUrl, "");
     const apiKey = String(credentials?.apiKey || "").trim();
     if (!baseUrl || !apiKey) throw new Error("所选账户密钥不可用，请在设置中重新选择。");
@@ -177,7 +182,7 @@ function createNewApiClient(options = {}) {
     return { ...credentials, baseUrl, apiKey };
   }
 
-  async function accountModelCustomCredentials(settings, binding) {
+  async function accountModelCustomCredentials(settings, binding, options = {}) {
     const apiKey = String(binding?.customApiKey || "").trim();
     const customBaseUrl = accessPolicy?.customApiAccess === false ? "" : String(binding?.customBaseUrl || "").trim();
     if (!apiKey && !customBaseUrl) return null;
@@ -188,7 +193,7 @@ function createNewApiClient(options = {}) {
     // account token and keep the account relay URL.
     let accountCredentials = null;
     if (!apiKey && customBaseUrl) {
-      accountCredentials = await accountApiCredentials(settings, binding?.accountTokenId);
+      accountCredentials = await accountApiCredentials(settings, binding?.accountTokenId, options);
     }
     const baseUrl = normalizeServerUrl(customBaseUrl || accountCredentials?.baseUrl || resolveNewApiBaseUrl(settings, "relay"), "");
     parsedServiceBaseUrl(baseUrl, "账户模型 Base URL");
@@ -200,11 +205,18 @@ function createNewApiClient(options = {}) {
     };
   }
 
-  async function relayApiCredentials(settings, endpoint, body, provider) {
+  async function relayApiCredentials(settings, endpoint, body, provider, options = {}) {
     const binding = modelBindingForRequest(settings, endpoint, body, provider);
     if (isCustomApiMode(settings)) return customApiCredentials(settings, provider, binding?.model);
-    return await accountModelCustomCredentials(settings, binding)
-      || accountApiCredentials(settings, binding?.accountTokenId);
+    return await accountModelCustomCredentials(settings, binding, options)
+      || accountApiCredentials(settings, binding?.accountTokenId, options);
+  }
+
+  async function resolveRequestConnection(settings, endpoint, body, provider, options = {}) {
+    const credentials = await relayApiCredentials(settings, endpoint, body, provider, options);
+    if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
+    if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    return credentials;
   }
 
   function customApiHeaders(settings, provider = "agent", model = "") {
@@ -836,6 +848,7 @@ function createNewApiClient(options = {}) {
     const credentials = await relayApiCredentials(settings, endpoint, routingBody, provider);
     if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
     if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    reportResolvedConnection(options, credentials);
     const relayBody = body && typeof body === "object" && !Array.isArray(body) ? { ...body } : body;
     if (relayBody && typeof relayBody === "object") {
       delete relayBody.group;
@@ -846,6 +859,7 @@ function createNewApiClient(options = {}) {
       model: _model,
       baseUrl: _baseUrl,
       apiKey: _apiKey,
+      onConnectionResolved: _onConnectionResolved,
       ...requestOptions
     } = options;
     try {
@@ -880,6 +894,7 @@ function createNewApiClient(options = {}) {
     const credentials = await relayApiCredentials(settings, endpoint, body, provider);
     if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
     if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    reportResolvedConnection(options, credentials);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
     try {
@@ -933,6 +948,7 @@ function createNewApiClient(options = {}) {
     delete requestBody.partial_images;
 
     const credentials = await relayApiCredentials(settings, endpoint, requestBody, provider);
+    reportResolvedConnection(options, credentials);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
 
@@ -1063,7 +1079,10 @@ function createNewApiClient(options = {}) {
   async function newApiRelayAsyncImage(settings, endpoint, body, options = {}) {
     const provider = "image";
     const cleanEndpoint = String(endpoint || "/v1/images/generations").replace(/\/+$/, "");
-    const createEndpoint = /\/async$/i.test(cleanEndpoint) ? cleanEndpoint : `${cleanEndpoint}/async`;
+    if (!/^\/v1\/images\/(?:generations|edits)(?:\/async)?$/.test(cleanEndpoint)) {
+      throw Object.assign(new Error("异步图片仅支持已配置的 Sub2API Images 创建/轮询合同。"), { code: "IMAGE_ASYNC_UNSUPPORTED" });
+    }
+    const createEndpoint = cleanEndpoint.endsWith("/async") ? cleanEndpoint : `${cleanEndpoint}/async`;
     const isForm = typeof FormData !== "undefined" && body instanceof FormData;
     let requestBody;
     if (isForm) {
@@ -1081,6 +1100,7 @@ function createNewApiClient(options = {}) {
     const credentials = await relayApiCredentials(settings, createEndpoint, routingBody, provider);
     if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
     if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    reportResolvedConnection(options, credentials);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
 
@@ -1131,6 +1151,13 @@ function createNewApiClient(options = {}) {
     }
     options.onAccepted?.({ taskId, status: String(createData.status || createData.data?.status || "queued") });
 
+    return pollSub2apiImageTask(settings, taskId, { ...options, credentials });
+  }
+
+  async function pollSub2apiImageTask(settings, taskId, options = {}) {
+    const credentials = options.credentials || await resolveRequestConnection(settings, "/v1/images/generations", { model: options.model }, "image", options);
+    const relayBaseUrl = credentials.baseUrl;
+    reportResolvedConnection(options, credentials);
     const pollIntervalMs = Number.isFinite(Number(options.pollIntervalMs))
       ? Math.max(0, Math.min(30_000, Number(options.pollIntervalMs)))
       : 2_500;
@@ -1214,6 +1241,7 @@ function createNewApiClient(options = {}) {
     delete relayBody.group;
     const provider = options.provider || (String(endpoint).includes("/images/") ? "image" : "agent");
     const credentials = await relayApiCredentials(settings, endpoint, relayBody, provider);
+    reportResolvedConnection(options, credentials);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) {
       await ensureLocalServer(relayBaseUrl);
@@ -1612,6 +1640,7 @@ function createNewApiClient(options = {}) {
     const credentials = await relayApiCredentials(settings, endpoint, requestBody, provider);
     if (options.baseUrl) credentials.baseUrl = normalizeServerUrl(options.baseUrl, credentials.baseUrl);
     if (options.apiKey) credentials.apiKey = String(options.apiKey).trim();
+    reportResolvedConnection(options, credentials);
     const relayBaseUrl = credentials.baseUrl;
     if (isLocalServerUrl(relayBaseUrl)) await ensureLocalServer(relayBaseUrl);
     const response = await newApiTransportFetch(
@@ -1779,6 +1808,7 @@ function createNewApiClient(options = {}) {
     isCustomApiMode,
     customApiCredentials,
     accountModelCustomCredentials,
+    resolveRequestConnection,
     customApiHeaders,
     customApiUrl,
     directApiUrl,
@@ -1788,6 +1818,7 @@ function createNewApiClient(options = {}) {
     newApiRelayJson,
     newApiRelayMultipart,
     newApiRelayAsyncImage,
+    pollSub2apiImageTask,
     newApiRelayImageTask,
     newApiRelayImage,
     newApiRelayResponsesImage,

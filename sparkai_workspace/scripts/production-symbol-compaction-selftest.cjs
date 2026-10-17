@@ -67,15 +67,21 @@ const { transform: transformLightningCss } = require("node:module")
   .createRequire(require.resolve("vite"))("lightningcss");
 const lightningCss = transformLightningCss({
   filename: "responsive-fixture.css", minify: true, targets: { chrome: 138 << 16 },
-  code: Buffer.from(".control{display:flex}@media(max-width:1100px){.control{display:none}}@media(min-width:800px) and (max-width:1100px){.control{color:red}}@container (width<=700px){.control{padding:0}}")
+  code: Buffer.from(".control{display:flex}@media(max-width:1100px){.control{display:none}}@media(min-width:800px) and (max-width:1100px){.control{color:red}}@media(max-width:883px){.narrow-layout{display:grid}}@media(max-width:884px){.minimum-width-layout{display:grid}}@container (width<=700px){.control{padding:0}}")
 }).code.toString();
 assert.match(lightningCss, /width<=1100px/, "Exercise Vite's actual LightningCSS range output");
+assert.match(lightningCss, /width<=883px/, "Exercise the last unsupported viewport width");
+assert.match(lightningCss, /width<=884px/, "Exercise the supported minimum viewport width");
 const responsiveBundle = optimizeBundledCss(lightningCss);
 assert.match(responsiveBundle, /@media\s*\(max-width:1100px\)[^{]*\{[^}]*display:none/);
 assert.match(responsiveBundle, /@media\s*\(min-width:800px\)\s+and\s+\(max-width:1100px\)[^{]*\{[^}]*color:(?:red|#ff0000)/);
+assert.doesNotMatch(responsiveBundle, /@media\s*\(max-width:883px\)/, "Production CSS must remove layout rules below the supported window width");
+assert.match(responsiveBundle, /@media\s*\(max-width:884px\)[^{]*\{[^}]*display:grid/, "Production CSS must retain rules that can apply at the minimum supported width");
 assert.match(responsiveBundle, /@container\s*\(max-width:700px\)[^{]*\{[^}]*padding:0/);
 assert.equal(MIN_PRODUCTION_VIEWPORT_WIDTH, 884);
 assert.equal(isUnsupportedNarrowMediaQuery("(max-width:820px)"), true);
+assert.equal(isUnsupportedNarrowMediaQuery("(max-width:883px)"), true);
+assert.equal(isUnsupportedNarrowMediaQuery("(max-width:884px)"), false);
 assert.equal(isUnsupportedNarrowMediaQuery("(max-width:900px)"), false);
 assert.doesNotMatch(responsiveBundle, /@media\s*\(max-width:820px\)/);
 

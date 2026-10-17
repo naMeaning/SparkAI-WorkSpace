@@ -296,7 +296,13 @@ async function main() {
     n: 1,
     group: "must-not-leak"
   };
-  await client.newApiRelayJson(settings, "/v1/images/generations", imageBody, { provider: "image" });
+  let resolvedImageConnection = null;
+  await client.newApiRelayJson(settings, "/v1/images/generations", imageBody, {
+    provider: "image",
+    onConnectionResolved: (connection) => { resolvedImageConnection = connection; }
+  });
+  assert.deepEqual(resolvedImageConnection, { baseUrl: "https://gpt-image.example/root", apiKey: "bound-image-key" });
+  assert.equal(Object.hasOwn(captured.options, "onConnectionResolved"), false, "Connection callbacks must remain in Main and never reach the transport options");
   assert.equal(captured.url, "https://gpt-image.example/root/v1/images/generations");
   assert.equal(captured.options.headers.authorization, "Bearer bound-image-key");
   const forwardedImageBody = JSON.parse(captured.options.body);

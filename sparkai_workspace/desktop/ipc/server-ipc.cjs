@@ -17,6 +17,8 @@ function registerServerIpc({
   newApiAccountService,
   agentRunControl,
   callNewApiImageWithSession,
+  deliverGeneratedImageResult,
+  imageOperationJournal,
   clearNewApiAuth,
   completeNewApiLogin,
   customApiCredentials,
@@ -91,7 +93,7 @@ function registerServerIpc({
       } catch (error) {
         warning = error instanceof Error ? error.message : String(error);
         if (!next.agentModel && !next.imageModel) throw error;
-        modelSettings = modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool, ...next.videoModelPool]), "settings", Date.now());
+        modelSettings = await modelSettingsWithCacheMeta(splitModelSettings(next, [...next.agentModelPool, ...next.imageModelPool, ...next.videoModelPool]), "settings", Date.now());
       }
       return {
         ok: true,
@@ -186,7 +188,7 @@ function registerServerIpc({
     return { ok: true, remoteLogout };
   });
 
-  ipcMain.handle("naimage:server:me", (_event, payload = {}) => {
+  ipcMain.handle("naimage:server:me", async (_event, payload = {}) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     if (settings.accessMode === "custom") {
       if (!settings.agentBaseUrl || !settings.agentApiKey) return { ok: false, error: "请先配置自定义 Base URL 和 API Key。" };
@@ -196,13 +198,13 @@ function registerServerIpc({
           ok: true,
           cached: true,
           user,
-          settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
+          settings: await modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
         };
       }
-      return newApiModelSettings(settings).then((modelSettings) => ({ ok: true, user, settings: modelSettings })).catch((error) => ({
+      return newApiModelSettings(settings).then((modelSettings) => ({ ok: true, user, settings: modelSettings })).catch(async (error) => ({
         ok: true,
         user,
-        settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now()),
+        settings: await modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now()),
         warning: error instanceof Error ? error.message : String(error)
       }));
     }
@@ -217,7 +219,7 @@ function registerServerIpc({
         cached: true,
         user: cachedUser,
         wallet: walletFromNewApiUser(cachedUser),
-        settings: modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
+        settings: await modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now())
       };
     }
     const authEpoch = getNewApiAuthEpoch();
@@ -254,7 +256,7 @@ function registerServerIpc({
           modelSettings = await newApiModelSettings(settings);
         } catch (error) {
           log(`new-api models in me failed ${error instanceof Error ? error.message : String(error)}`);
-          modelSettings = modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now());
+          modelSettings = await modelSettingsWithCacheMeta(splitModelSettings(settings, []), "settings", Date.now());
         }
         const accountSummary = await newApiAccountService.summary(settings, userData);
         if (authEpoch !== getNewApiAuthEpoch()) {
@@ -440,6 +442,22 @@ function registerServerIpc({
     };
   });
 
+  ipcMain.handle("naimage:server:image-operations", (_event, payload = {}) => {
+    try { return { ok: true, operations: imageOperationJournal.list(String(payload.projectId || "")) }; }
+    catch { return { ok: false, operations: [], error: "图片恢复记录读取失败。" }; }
+  });
+  ipcMain.handle("naimage:server:recover-image", async (_event, payload = {}) => {
+    try {
+      const result = await imageOperationJournal.recover(String(payload.projectId || ""), String(payload.key || ""));
+      return { ok: true, assets: result.assets, operation: { key: result.operation.key, targetNodeId: result.operation.targetNodeId,
+        sourceNodeIds: result.operation.sourceNodeIds, operationId: result.operation.operationId, requestIndex: result.operation.requestIndex,
+        state: result.operation.state, resultCount: result.operation.resultCount } };
+    } catch (error) {
+      const known = String(error.code || "").startsWith("IMAGE_");
+      return { ok: false, assets: [], errorCode: known ? error.code : "IMAGE_RECOVERY_FAILED", error: known ? error.message : "原结果获取或本地保存未完成，请稍后恢复原操作；不会重新生图。" };
+    }
+  });
+
   ipcMain.handle("naimage:server:generate-image", async (event, payload) => {
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     const runId = String((payload ?? {}).runId || `run-${Date.now()}`);
@@ -485,7 +503,7 @@ function registerServerIpc({
         moderation: (payload ?? {}).moderation,
         inputFidelity: (payload ?? {}).inputFidelity ?? (payload ?? {}).input_fidelity,
         mode: (payload ?? {}).mode,
-        runId,
+        runId, operationId, requestIndex, nodeIds: payload?.nodeIds, targetNodeId: payload?.targetNodeId,
         projectId,
         signal: controlledRun?.signal,
         onPartialImage: (partial) => emitAgentProgress(event.sender, runId, {
@@ -517,31 +535,9 @@ function registerServerIpc({
           projectId
         })
       });
-      const stem = `basic-${runId.replace(/[^a-z0-9_-]/gi, "-")}`;
-      const outputFormat = (payload ?? {}).outputFormat ?? (payload ?? {}).output_format ?? data.outputFormat ?? data.output_format ?? "png";
-      const assets = await writeServerImageOutputs(
-        extractServerImages(data),
-        stem,
-        runId,
-        projectId,
-        outputFormat,
-        {
-          request: {
-            model: (payload ?? {}).model || data.model,
-            ratio: (payload ?? {}).ratio,
-            resolution: (payload ?? {}).resolution,
-            size: (payload ?? {}).size || data.size,
-            quality: (payload ?? {}).quality || data.quality,
-            outputFormat,
-            outputCompression: (payload ?? {}).outputCompression ?? (payload ?? {}).output_compression ?? data.outputCompression ?? data.output_compression,
-            background: (payload ?? {}).background ?? data.background,
-            moderation: (payload ?? {}).moderation ?? data.moderation,
-            inputFidelity: (payload ?? {}).inputFidelity ?? (payload ?? {}).input_fidelity ?? data.inputFidelity ?? data.input_fidelity
-          }
-        }
-      );
+      const assets = await deliverGeneratedImageResult(settings, data, { ...payload, runId, projectId });
       log(`new-api generate image returned=${assets.length}`);
-      return { ...data, assets, runId, returned: assets.length };
+      return { ok: true, model: data.model, protocol: data.protocol, gateway: data.gateway, assets, runId, returned: assets.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/invalid token|unauthorized|401/i.test(message)) {

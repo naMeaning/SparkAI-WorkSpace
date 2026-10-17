@@ -15,6 +15,7 @@ const runDir = join(root, ".diagnostics", `image-generation-failure-ui-${new Dat
 const configDir = join(runDir, "config");
 const projectDir = join(runDir, "project");
 const model = "grok-imagine-image-2.0";
+const secondModel = "fixture-image-model-b";
 const report = { ok: false, packaged: Boolean(exe), realModelRequests: 0, imagePosts: 0, modelPosts: 0, screenshots: [] };
 let vite, electron, client;
 const require = createRequire(import.meta.url);
@@ -44,7 +45,13 @@ const server = createServer(async (req, res) => {
         : { role: "assistant", content: done };
       res.end(`data: ${JSON.stringify({ id: `chat-${round}`, choices: [{ index: 0, delta }] })}\n\ndata: [DONE]\n\n`);
     }
-  } else if (req.url === "/v1/models") res.end(JSON.stringify({ data: [model, "gpt-6.1-sol"].map(id => ({ id })) }));
+  } else if (req.url === "/v1/models") {
+    const credential = String(req.headers.authorization || "");
+    const ids = credential.endsWith("fixture-image-b") ? [secondModel]
+      : credential.endsWith("fixture-image-a") ? [model]
+        : ["gpt-6.1-sol"];
+    res.end(JSON.stringify({ data: ids.map(id => ({ id })) }));
+  }
   else res.end(JSON.stringify({ success: true, data: { id: 1, username: "fixture", quota: 1000000, items: [] } }));
 });
 try {
@@ -55,7 +62,10 @@ try {
   writeFileSync(join(configDir, "app-settings.json"), JSON.stringify({ accessMode: "account", accountBaseUrl: base, serverUrl: base, relayBaseUrl: base, updateBaseUrl: base,
     agentBaseUrl: base, imageBaseUrl: base, serverAuthProtocol: "legacy", serverSessionCookie: "fixture-session", serverUserId: "1", serverToken: "fixture-key",
     agentModel: "gpt-6.1-sol", agentModelPool: ["gpt-6.1-sol"], contextStrategy: "codex", agentModelBindings: [{ model: "gpt-6.1-sol", customBaseUrl: base, customApiKey: "fixture-key" }],
-    imageModel: model, imageModelPool: [model], imageModelBindings: [{ model, customBaseUrl: base, customApiKey: "fixture-key" }], glassTheme: "light-classic", imageRatio: "1:1", imageResolution: "1K" }));
+    imageModel: model, imageModelPool: [model], imageModelBindings: [
+      { model, customBaseUrl: base, customApiKey: "fixture-image-a" },
+      { model: secondModel, customBaseUrl: base, customApiKey: "fixture-image-b" }
+    ], glassTheme: "light-classic", imageRatio: "1:1", imageResolution: "1K" }));
   const debugPort = await allocateDebugPort();
   let devUrl = "";
   if (!exe) {
@@ -67,11 +77,30 @@ try {
   electron = spawn(exe || process.execPath, exe ? args : [join(root, "node_modules/electron/cli.js"), ...args, "electron-main.cjs"], {
     cwd: exe ? dirname(exe) : root, windowsHide: true, stdio: "ignore", env: { ...process.env, NAIMAGE_DEV_URL: devUrl,
       NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "0", NAIMAGE_AIDEBUG_REAL_AGENT: "1", NAIMAGE_AIDEBUG_LIVE_IMAGE: "1",
-      NAIMAGE_CONFIG_DIR: configDir, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log") }
+      NAIMAGE_CONFIG_DIR: configDir, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"),
+      NAIMAGE_LOCAL_SERVER_ENTRY: join(runDir, "mock-service-owned-by-test.cjs") }
   });
   const target = await pollForDebugTarget({ port: debugPort, attempts: 180, intervalMs: 100, findTarget: ts => ts.find(t => t.type === "page" && !/agent-window\.html/.test(t.url)) });
   client = new BasicCdpClient(target.webSocketDebuggerUrl); await client.open(); await client.send("Runtime.enable"); await client.send("Page.enable");
-  await waitForRuntimeExpression(client, "Boolean(document.querySelector('.project-agent-composer textarea'))", { evaluate, timeoutMs: 20000, intervalMs: 100 });
+  await waitForRuntimeExpression(client, "Boolean(document.querySelector('.project-agent-composer textarea'))", { evaluate, timeoutMs: 60000, intervalMs: 100 });
+  const catalog = await evaluate(client, `(async () => {
+    const result = await window.naimageServer.models({ forceRefresh: true });
+    const profiles = result?.settings?.modelAccessProfiles || [];
+    const findProfile = (id) => profiles.find((profile) => profile.providers.includes('image') && profile.capabilities?.[id.toLowerCase()]);
+    const profileA = findProfile(${JSON.stringify(model)});
+    const profileB = findProfile(${JSON.stringify(secondModel)});
+    return {
+      ok: result?.ok === true,
+      distinctConnections: Boolean(profileA && profileB && profileA.id !== profileB.id),
+      aHasRequestedModel: Boolean(profileA?.capabilities?.[${JSON.stringify(model.toLowerCase())}]),
+      bHasOnlyItsModel: Boolean(profileB?.capabilities?.[${JSON.stringify(secondModel.toLowerCase())}] && !profileB?.capabilities?.[${JSON.stringify(model.toLowerCase())}])
+    };
+  })()`);
+  report.catalog = catalog;
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.distinctConnections, true);
+  assert.equal(catalog.aHasRequestedModel, true);
+  assert.equal(catalog.bHasOnlyItsModel, true);
   await evaluate(client, `(() => { const t=document.querySelector('.project-agent-composer textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t,'用 Grok 生成一张风景测试图'); t.dispatchEvent(new Event('input',{bubbles:true})); })()`);
   await waitForRuntimeExpression(client, "Boolean(document.querySelector('.project-agent-send:not(:disabled)'))", { evaluate, timeoutMs: 5000, intervalMs: 50 });
   const button = await evaluate(client, "(() => {const r=document.querySelector('.project-agent-send').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
@@ -82,6 +111,24 @@ try {
   report.main = await evaluate(client, `(() => {const panel=document.querySelector('.project-agent-panel');const matches=Array.from(panel.querySelectorAll('*')).filter(e=>e.textContent.includes('图片渠道暂时不可用')).sort((a,b)=>a.textContent.length-b.textContent.length);const error=matches[0];error?.scrollIntoView({block:'center'});const r=error?.getBoundingClientRect();return {error:error?.textContent,visible:!!r&&r.width>20&&r.height>10&&r.top>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,bounds:r?{width:r.width,height:r.height,top:r.top,bottom:r.bottom}:null,leaked:panel.textContent.includes('private-sentinel'),completed:panel.textContent.includes('图片生成完成')};})()`);
   assert.equal(report.main.visible, true); assert.equal(report.main.leaked, false); assert.equal(report.main.completed, false);
   await capturePngScreenshotToFile(client, join(runDir, "main-error.png"), { captureBeyondViewport: false }); report.screenshots.push("main-error.png");
+  const evidence = await evaluate(client, `(async () => {
+    const result = await window.naimageServer.models({ cacheOnly: true });
+    const profiles = result?.settings?.modelAccessProfiles || [];
+    const failureProfile = profiles.find((profile) => profile.providers.includes('image') && profile.capabilities?.[${JSON.stringify(model.toLowerCase())}]?.observations?.some((item) => item.outcome === 'failure'));
+    const otherProfile = profiles.find((profile) => profile.providers.includes('image') && profile.capabilities?.[${JSON.stringify(secondModel.toLowerCase())}]);
+    const failure = failureProfile?.capabilities?.[${JSON.stringify(model.toLowerCase())}]?.observations?.filter((item) => item.outcome === 'failure').at(-1);
+    return {
+      cacheAvailable: result?.ok === true,
+      failureRecordedOnA: Boolean(failureProfile && failure?.stage === 'generation' && failure?.category === 'image_generation_uncertain'),
+      bDidNotReceiveFailedModel: Boolean(otherProfile && !otherProfile.capabilities?.[${JSON.stringify(model.toLowerCase())}]),
+      bHasNoRuntimeObservation: Boolean(otherProfile && Object.values(otherProfile.capabilities).every((capability) => !capability.observations?.length))
+    };
+  })()`);
+  report.evidence = evidence;
+  assert.equal(evidence.cacheAvailable, true);
+  assert.equal(evidence.failureRecordedOnA, true);
+  assert.equal(evidence.bDidNotReceiveFailedModel, true);
+  assert.equal(evidence.bHasNoRuntimeObservation, true);
   const diagnostics = JSON.parse(readFileSync(join(runDir, "runtime/diagnostics.json"), "utf8"));
   assert.ok(diagnostics.events.some(e => e.kind === "image" && e.status === 502 && e.category === "image_generation_uncertain"));
   assert.equal(report.imagePosts, 1);
