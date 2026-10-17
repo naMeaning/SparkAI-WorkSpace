@@ -2,17 +2,17 @@
 
 ## 当前开发状态（2026-10-17）
 
-- 当前任务：实施优化设计§12；阶段0/1接口证据隔离、阶段2三档DPI画布、阶段3跨进程/应用重启恢复、阶段4布局/工具/配置均有验收证据；阶段5完成同条件前后测并收敛部分指标，500/1000拖动回归和33.4ms目标未达。首次安装版发现的884px窄屏布局缺陷已修复，最终EXE已安装并完成安装版复测。
-- 现场与授权：main / `15a126b`，保留接受时全部工作树改动；无新真实模型请求、依赖安装、生产变更或正式发布。最终EXE与本地配置保留、ASAR一致；持续授权覆盖提交与普通push。
-- 下一步：提交对应源码/文档，普通push并核对`origin/main`的实际commit；随后归档任务状态，性能未达与服务未验证边界保留为后续事项。
+- 当前任务：工作台优化设计§12范围已交付并同步至`origin/main`；阶段0/1接口证据隔离、阶段2三档DPI画布、阶段3跨进程/应用重启恢复、阶段4布局/工具/配置均有验收证据；阶段5完成同条件前后测并收敛部分指标，500/1000拖动回归和33.4ms目标未达。最终EXE已安装并通过安装版复测。
+- 交付与边界：源码/文档commit `9c8967f5ed069c71d8d1565721827ff762b98989`已普通push，远端分支实测相同，工作树干净。无新真实模型请求、生产变更或正式发布；真实服务仍待单独授权。性能残项作为后续优化，不改写成本次已达标。
+- 下一步：本次授权范围没有未完成的打包/安装/文档/Git步骤；后续若继续，独立处理500/1000节点拖动性能回归与正式Bundle CSS门槛，再按届时授权开展真实供应商验证。
 
-### 2026-10-17 续接最终交付 / in progress
+### 2026-10-17 最终交付 / delivered; performance partially verified
 
 - 首次最终候选EXE已完成审计并原位安装：安装器退出码0、配置3项保留，身份见[安装报告](.diagnostics/workspace-optimization-install.json)。随后真实安装程序在884×640下复测发现画布与Agent高度约18,081px；失败证据为[150% DPI](.diagnostics/workspace-layout-config-2026-10-17T06-28-25-328Z/report.json)和[100% DPI](.diagnostics/workspace-layout-config-2026-10-17T06-35-34-399Z/report.json)，根因为`src/styles/06-responsive.css`的`max-width:900px`把正式最小窗口884px切成纵向布局。该候选EXE `109,858,304 B` / SHA-256 `7c2dc05a45d204bb097354f794816fdfe1c504ca50b115a94c5c474501b39657`不作为本轮交付结果。
 - 修复已将窄屏断点改为883px；`test:production-symbol-compaction`验证883px媒体块从生产CSS移除、884px块保留。修复后[真实Electron布局/配置专项](.diagnostics/workspace-layout-config-2026-10-17T06-49-35-476Z/report.json)通过：884/1280/1920×640/820/1080边界布局、画布472px与Agent348px、工具搜索/键盘命中、保存失败重试和重启读回均通过，0模型POST/目录GET。
 - 最终包由[包内审计](.diagnostics/workspace-optimization-exe-audit.json)验证：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`为109,854,720 B，SHA-256 `b9f42418f252f8a02235b772d685b40e64f17ca3508ee0b31aedb0c7546634b0`；123个dist文件和17个Main/runtime owner与候选ASAR/源码一致。品牌安装器`/S`退出码0、耗时24,009ms，沿用`E:\sparkai-workspace\naimage`、注册版本1.0.9；安装EXE 232,754,176 B / SHA-256 `606264f3f14eaf409f997a9cbd8db5d8c02d687164b08f2e9c8e6fb4a6e22343`，安装ASAR SHA-256 `3f0309145dc245f1afb0ac378fc9dceb92062e1f8fdf0e378e4df8a5d95722b`与候选相同。`app-settings.json`与`project-list.json`哈希不变，secret sidecar大小/时间戳不变且未读取内容；摘要见[最终安装记录](.diagnostics/workspace-optimization-install-final.json)。
 - 安装版[布局与配置](.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json)在150% DPI通过两次应用启动、12项、7截图；884×640画布472px/Agent348px、无溢出，工具搜索/保存失败恢复/重启读回通过，0模型POST/目录GET。[双连接故障隔离](.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json)使用本地HTTP模拟通过：1次图片POST、3轮模拟Agent、A连接502失败不传播到B、0真实请求/无敏感信息泄漏。
-- 状态：最终候选已安全原位安装并验收，未上传/未发布Release。阶段5的500/1000拖动视觉P95回归、33.4ms建议目标未达；正式`test:bundle` CSS为281,539 B，超270,000 B硬门槛11,539 B；真实供应商协议/生图仍未验证，150% DPI最大窗口只能达到1708×934，1920×1080未覆盖。下一步为本轮源码/文档普通提交/push和远端commit核对。
+- 状态：最终候选已安全原位安装并验收，未上传/未发布Release。阶段5的500/1000拖动视觉P95回归、33.4ms建议目标未达；正式`test:bundle` CSS为281,539 B，超270,000 B硬门槛11,539 B；真实供应商协议/生图仍未验证，150% DPI最大窗口只能达到1708×934，1920×1080未覆盖。源码与文档commit `9c8967f5ed069c71d8d1565721827ff762b98989`已push，`origin/main`实测指向同一commit，工作树干净。
 
 - [06:10画布复验](.diagnostics/workspace-optimization-ui-2026-10-17T06-10-19-345Z/report.json)ok:true，150% DPI/28项/8截图；精确坐标与恢复断言通过，已人工核对双端屏外关系截图。最终typecheck、view-image、IPC152/149和automation契约通过。quick GUI六场景仅最小窗旧`projectAgentFixedOk`失败（要求350–430，实际348，截图/溢出均通过）；按现有320–720偏好边界并额外要求画布≥463修正测试，06:13 quick GUI [通过](.diagnostics/electron/aidebug-2026-10-17T06-13-13-434Z/report.json)，未改产品尺寸。
 - 同一canvas专项100% [.diagnostics/workspace-optimization-ui-2026-10-17T06-15-15-494Z/report.json]、125% [.diagnostics/workspace-optimization-ui-2026-10-17T06-16-11-433Z/report.json]均28项/8截图通过；连同150%共3档。`test:bundle`已按开发规则运行：initial JS 4,133B、plugin JS 86,177B通过硬限；CSS281,539B超正式270,000B硬限11,539B；core async1,327,603B/core JS1,331,736B/dist1,763,981B为advisory超限。命令退出1，正式release不满足；开发包按AGENTS可继续，保留数值，不为门槛机械拆分。

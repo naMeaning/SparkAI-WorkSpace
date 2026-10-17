@@ -2,7 +2,7 @@
 
 > 优化实施（2026-10-17）：[工作台优化设计与执行交接](WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)第12节已接受，按阶段0—5执行；实际完成/未验证边界从Goal/Progress顶部恢复，设计本身不作为实现证据。
 
-2026-10-17 最小窗口布局修正：正式BrowserWindow最低宽度为884px，因此`src/styles/06-responsive.css`的纵向窄屏媒体规则限定为883px及以下；`test:production-symbol-compaction`同时验证生产CSS剔除883px规则、保留可作用于884px的规则。最终安装版布局/配置与双连接故障复验分别见`.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json`及`.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json`；包内身份与原位安装见Progress。
+2026-10-17 最小窗口布局修正：正式BrowserWindow最低宽度为884px，因此`src/styles/06-responsive.css`的纵向窄屏媒体规则限定为883px及以下；`test:production-symbol-compaction`同时验证生产CSS剔除883px规则、保留可作用于884px的规则。最终安装版布局/配置与双连接故障复验分别见`.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json`及`.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json`；包内身份与原位安装见Progress。该批代码/文档commit `9c8967f5ed069c71d8d1565721827ff762b98989`已同步至`origin/main`。
 
 2026-10-17 连接证据owner：`desktop/model-catalog.cjs::modelConnectionIdentity`按真实归一URL/凭据内部指纹生成脱敏身份；`markModelAccessProfilesVerified`要求精确profile ID，不按provider广播。画像schemaVersion2的capability observations保留协议/transport/操作/范围/阶段/时间/脱敏类别，旧无身份证明的runtime-verified迁移为historicalVerifiedAt。`desktop/new-api-client.cjs`在实际凭据解析后调用仅Main可用的`onConnectionResolved`，不传入HTTP options；图片统一service/types透传accepted/status，Main `callNewApiImageWithSession`捕获响应与失败，以WeakMap临时关联`recordImageAssetDelivery`的受管落盘阶段。公开DTO由`src/core.ts`镜像，摘要选择由`src/model-ux.ts::modelAccessSummary`拥有，弹窗只格式化呈现。测试入口`test:model-runtime-evidence`、`test:model-ux`与扩展后的双连接`test:image-generation-failure-ui`。当前请求/目录缓存仍为既有owner，未引入平行连接系统。
 

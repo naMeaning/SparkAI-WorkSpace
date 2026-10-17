@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：工作台优化实施（2026-10-17，in progress）
+## 当前任务：工作台优化实施（2026-10-17，delivered；阶段5部分验证）
 
 - 模式 / 结果：实施[优化设计](docs/WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)第12节，按阶段0→1→2→3→4→5交付可验证的本地产品增量。
 - 范围：基线；连接/凭据/协议/操作级证据与脱敏摘要；画布点击、拖动、取消、右键冻结目标；图片原任务/本地成果恢复；小窗口布局、工具搜索与有效配置；同条件性能收敛。复用既有画像、统一图片服务、凭据解析、selection reducer、项目保存及共享命令。
@@ -14,7 +14,7 @@
 - 候选纠正：首次1.0.9 EXE `7c2dc05a45d204bb097354f794816fdfe1c504ca50b115a94c5c474501b39657`曾安装成功但已安装UI在884×640时画布/Agent高度约18,081px，已由本轮最终包替换；原因是`06-responsive.css`的900px窄屏规则覆盖正式最小窗口。源码已收至883px，生产压缩自检及开发/安装版Electron布局均通过。
 - 最终制品：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，109,854,720 B，SHA-256 `b9f42418f252f8a02235b772d685b40e64f17ca3508ee0b31aedb0c7546634b0`；ASAR审计123个dist/17个Main与Runtime owner通过。已用品牌安装器`/S`原位升级，退出码0，注册版本1.0.9，安装EXE 232,754,176 B / `606264f3f14eaf409f997a9cbd8db5d8c02d687164b08f2e9c8e6fb4a6e22343`，ASAR匹配候选；设置、项目列表及密钥sidecar保留。
 - 安装版UI：[150% DPI布局/配置报告](.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json)与[本地双连接故障报告](.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json)通过，0真实模型请求。性能500/1000节点拖动回归及33.4ms目标未达、CSS正式Bundle门槛超11,539 B、真实服务未验证、150%最大窗1920×1080未覆盖，均作为剩余限制；未上传EXE或发布Release。
-- 下一步：完成对应源码与文档的普通提交/push并核对`origin/main`实际commit；其后将本任务标为已交付，同时把未达性能目标留作独立后续工作。
+- 交付同步：源码与文档提交`9c8967f5ed069c71d8d1565721827ff762b98989`已普通push；`origin/main`与本地HEAD一致，工作树干净。当前授权范围已交付；500/1000拖动性能回归作为独立后续优化项，真实服务仍需单独授权验证。
 
 
 ## 已完成任务：优化设计文档与执行交接（2026-10-16，documentation completed / verified；产品实施待启动）
