@@ -2,9 +2,12 @@
 
 ## 当前开发状态（2026-10-17）
 
-- 当前任务：工作台优化设计§12范围已交付并同步至`origin/main`；阶段0/1接口证据隔离、阶段2三档DPI画布、阶段3跨进程/应用重启恢复、阶段4布局/工具/配置均有验收证据；阶段5完成同条件前后测并收敛部分指标，500/1000拖动回归和33.4ms目标未达。最终EXE已安装并通过安装版复测。
-- 交付与边界：源码/文档commit `9c8967f5ed069c71d8d1565721827ff762b98989`已普通push，远端分支实测相同，工作树干净。无新真实模型请求、生产变更或正式发布；真实服务仍待单独授权。性能残项作为后续优化，不改写成本次已达标。
-- 下一步：本次授权范围没有未完成的打包/安装/文档/Git步骤；后续若继续，独立处理500/1000节点拖动性能回归与正式Bundle CSS门槛，再按届时授权开展真实供应商验证。
+- 当前任务：整理公开 README、第三方参考与许可证说明，并补充主分支新增能力的教程；本轮只改文档，不改软件、制品或服务。
+- 接受现场：根仓库 `main` / `dd1d170f5077c372cec026fd2669ad71bcc5b85b`，工作树干净；`origin/main` 实测与 HEAD 一致。上游许可证已查询固定 commit：New API AGPL-3.0、Sub2API LGPL-3.0、GPT Image Playground 与 Infinite Canvas MIT。
+- 既有产品状态：工作台优化实施已完成本地交付，阶段5部分验证；性能回归、正式 Bundle CSS 门槛及真实服务未验证情况见下方 2026-10-17 交付记录。该主分支开发包不是新的正式 Release。
+- 完成：新增 [第三方参考项目与许可证](docs/THIRD_PARTY_REFERENCES.md)，固定列出 New API `973cf8e`（AGPL-3.0）、Sub2API `b8dece9`（LGPL-3.0）、GPT Image Playground `cdc171d`（MIT）和 Infinite Canvas `3a6b64b`（MIT），并说明它们是兼容/交互参考而非桌面运行时依赖；README、文档索引和教程索引已区分公开 v1.0.9 与主分支开发版。
+- 新增教程：[模型连接与运行状态](docs/tutorials/05-model-connections-and-status.md)和[安全恢复图片结果](docs/tutorials/06-recover-image-results.md)，均明确开发版适用范围。根 `node scripts/verify-harness.mjs` 10 项通过，改动文档 `git diff --check` 通过，本地 Markdown 链接检查通过。
+- 交付边界：本轮为文档整理，不重打包、不新增真实模型请求；提交和推送状态以本轮 Git 实际结果为准。
 
 ### 2026-10-17 最终交付 / delivered; performance partially verified
 

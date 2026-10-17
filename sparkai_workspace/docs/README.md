@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 文档索引
 
-当前正式版本为 1.0.9，包含生产 CSS 宽度媒体查询保留修复，以及 NewAPI/Sub2API 模型获取和 Grok 图片配置保留；正式包窄窗口顶栏与素材入口已通过实际程序冒烟验收。
+当前公开正式版本为 1.0.9。仓库 `main` 的后续本地开发改进不代表已进入该 Release；下载版本与正式发布状态以 [GitHub Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。当前开发版的本地验证状态见 [Progress](../PROGRESS.md)。
 
 ## 面向用户的使用文档
 
@@ -11,6 +11,9 @@
 - [用本地 CLI/MCP 控制 Agent](./tutorials/03-automation-cli.md)：读取状态、发送自然语言任务和处理版本冲突。
 - [电商、社媒与科研工作台示例](./tutorials/04-workspace-recipes.md)：按工作台选择可复用的任务路径。
 - [隐私与发布前检查清单](./PRIVACY_AND_PUBLISHING.md)：发布源码、文档和 Release 资产前排除凭据、用户数据和本机路径。
+- [第三方参考项目与许可证](./THIRD_PARTY_REFERENCES.md)：列明 New API、Sub2API、GPT Image Playground 与 Infinite Canvas 的固定源码版本、许可证和参考范围。
+
+教程版本分层：01–04 对应公开 v1.0.9 的既有工作路径；05–06 是 1.0.9 之后的主分支开发版预览，尚未进入公开安装包。
 
 ## 当前入口
 

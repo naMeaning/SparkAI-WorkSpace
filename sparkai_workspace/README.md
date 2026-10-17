@@ -1,14 +1,17 @@
 # SparkAI WorkSpace
 
-SparkAI WorkSpace 是一个以 Agent 为入口的桌面 AI 视觉工作台。它把项目文件、无限画布、图片成果和对话放在同一个工作空间里，让你用自然语言完成生图、编辑、批量出图、分层、抠图和重绘，并且保留每个成果的来源关系。
+SparkAI WorkSpace 是一个 Windows AI 视觉创作工作台：在同一个项目中管理图片素材、用自然语言发起生图和编辑，并在无限画布上比较、整理和追溯成果。
 
-它适合需要反复看图、改图和复用素材的人：电商套图、社媒内容、科研配图、品牌视觉和日常创意都可以从同一个项目继续推进。
+适合需要反复看图、改图和复用素材的创作者。一个项目 Agent 负责理解任务，画布保留原图、参考图和新成果之间的关系；电商、社媒、科研和日常创作共用同一套项目与素材。
+
+> 当前公开安装包为 [v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。`main` 分支还有尚未进入该安装包的开发改进；下载和稳定版功能以 Releases 页面为准。
 
 ## 先看这几个入口
 
 - [下载 1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)
 - [第一次使用教程](./docs/tutorials/01-first-agent-image.md)
 - [全部 tutorials](./docs/tutorials/README.md)
+- [第三方参考项目与许可证](./docs/THIRD_PARTY_REFERENCES.md)
 - [隐私与发布前检查](./docs/PRIVACY_AND_PUBLISHING.md)
 - [完整文档索引](./docs/README.md)
 
@@ -80,7 +83,7 @@ Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_
 
 ## Tutorials
 
-按这个顺序阅读，能从一次简单生图走到可复用工作流：
+先从已发布版教程开始：
 
 | 教程 | 适合谁 | 你会完成什么 |
 | --- | --- | --- |
@@ -88,6 +91,13 @@ Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_
 | [02 · 编辑、批量、多款与可复用需求](./docs/tutorials/02-edit-and-reuse-results.md) | 已完成第一次生成 | 继续编辑、批量 Goal、保存需求节点 |
 | [03 · 用本地 CLI/MCP 控制 Agent](./docs/tutorials/03-automation-cli.md) | 需要脚本或 MCP | 读取状态、提交任务、处理版本冲突 |
 | [04 · 电商、社媒与科研工作台示例](./docs/tutorials/04-workspace-recipes.md) | 有明确业务场景 | 从计划到执行，复用四种工作台 |
+
+主分支还补充了两篇开发版预览教程，所述界面尚未进入公开 v1.0.9 安装包：
+
+| 教程 | 适用版本 | 主题 |
+| --- | --- | --- |
+| [05 · 模型连接与运行状态](./docs/tutorials/05-model-connections-and-status.md) | 主分支开发版 | 区分模型目录、文生图和编辑的实际运行证据 |
+| [06 · 安全恢复图片结果](./docs/tutorials/06-recover-image-results.md) | 主分支开发版 | 查询原任务或保存已有结果，避免不确定时重复提交 |
 
 教程示例都使用虚构提示词和占位符。请不要把真实 API Key、Cookie、License 码、客户资料、私人图片或本机绝对路径替换进公开文档、Issue、截图和日志。
 
@@ -137,4 +147,4 @@ corepack pnpm run build
 corepack pnpm run aidebug:gui
 ```
 
-发布、安装烟测、上下文地图和源码职责见 [docs/README.md](./docs/README.md)。编码与验证约束见 [AGENTS.md](./AGENTS.md)；产品意图见 [PRODUCT_INTENT.md](./PRODUCT_INTENT.md)。
+发布、安装烟测、教程、第三方参考与上下文地图见 [docs/README.md](./docs/README.md)。编码与验证约束见 [AGENTS.md](./AGENTS.md)；产品意图见 [PRODUCT_INTENT.md](./PRODUCT_INTENT.md)。
