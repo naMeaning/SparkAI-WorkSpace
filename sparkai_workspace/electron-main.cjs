@@ -2498,7 +2498,6 @@ async function serverChatCompletion(payload = {}) {
     return result;
   }
   const settings = migrateSettings(readJson(settingsPath, defaultSettings));
-  await licenseService.requireActive();
   const callerSignal = payload.signal;
   const requestBody = {
     ...payload,
@@ -4127,7 +4126,6 @@ async function callNewApiImage(settings, payload = {}) {
     error.failureKind = "validation";
     throw error;
   }
-  if (!aidebugMode) await licenseService.requireActive();
   const customMode = isCustomApiMode(settings);
   if (!customMode) requireNewApiSession(settings);
   const model = String(payload.model || settings.imageModel || "gpt-image-2").trim();

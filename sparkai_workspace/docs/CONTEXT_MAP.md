@@ -1,5 +1,7 @@
 # SparkAI WorkSpace 上下文地图
 
+> 2026-10-17 免费接入合同（代码、制品与安装证据见 Progress）：Renderer `auth-gate.tsx` / `main.tsx` 移除兑换码及 License 启动依赖；Main `server-ipc.cjs::configure-custom` 仅验证发行策略和连接，Agent/图片请求不再调用 License。`desktop/license-service.cjs` 和旧 Electron License IPC 保留原 verify/activate 行为供显式兼容调用，当前产品入口不调用它们；`src/server.ts` 的浏览器开发回退状态查询本地返回免费状态。账号认证及模型凭据解析仍由原 owner 负责；SparkAPI 专用版限制保留。验证入口为 `test:license`、`test:access-variant`、`test:custom-api-transport`、`test:new-api-login`、IPC、typecheck 及实际免费接入/登录 UI。Sub2API 账号登录尚未实现为通用协议；公开 v1.0.9 尚未包含免费改动。
+
 > 优化实施（2026-10-17）：[工作台优化设计与执行交接](WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)第12节已接受，按阶段0—5执行；实际完成/未验证边界从Goal/Progress顶部恢复，设计本身不作为实现证据。
 
 2026-10-17 最小窗口布局修正：正式BrowserWindow最低宽度为884px，因此`src/styles/06-responsive.css`的纵向窄屏媒体规则限定为883px及以下；`test:production-symbol-compaction`同时验证生产CSS剔除883px规则、保留可作用于884px的规则。最终安装版布局/配置与双连接故障复验分别见`.diagnostics/workspace-layout-config-2026-10-17T07-06-19-398Z/report.json`及`.diagnostics/image-generation-failure-ui-2026-10-17T07-08-08-080Z/report.json`；包内身份与原位安装见Progress。该批代码/文档commit `9c8967f5ed069c71d8d1565721827ff762b98989`已同步至`origin/main`。
@@ -152,7 +154,7 @@ Electron Main: electron-main.cjs
   ├─ desktop/glass-background-service.cjs：用户授权背景图的 WebP 受管转码、内容寻址加载与保留式 GC
   ├─ runtime/glass-theme-settings.cjs：共享 Glass registry 的 Electron 设置归一化与原生窗口底色
   ├─ desktop/agent-window-service.cjs：独立 Agent BrowserWindow 生命周期、主 Renderer 权威状态与命令中继
-  ├─ desktop/license-service.cjs：自定义 Base URL 的 Pro 设备激活、24 小时校验缓存与 72 小时离线宽限；账号模式直接授权
+  ├─ desktop/license-service.cjs：旧客户端/扩展的 Pro 设备激活与历史校验兼容；新版桌面不调用 `requireActive`
   ├─ desktop/aidebug-image-fixture.cjs：本地 mock 生图的确定性 PNG 与图层提示
   ├─ 图片导入、缩略图、抠图、PSD workers
   ├─ 远端 New API 账户、模型缓存与图片服务编排
@@ -391,9 +393,9 @@ image_gen
 无限制版的两种模式为：
 
 - `account`：用户名/密码登录 SparkAPI/New API 后即可进入工作区，不请求设备 License。原生 New API `v1.0.0-rc.23` 返回 Bearer access token、HttpOnly `new_api_refresh` cookie 与 auth session ID；Electron Main 在到期前或受保护请求明确返回 401 时合并并发刷新，并只重放一次。旧部署继续兼容 `session` cookie + `New-Api-User`。`completeNewApiLogin()` 的关键路径只等待 `/api/user/login`、认证 bundle 安全持久化和 `cacheOnly` 模型设置，用户资料、账户 Token/额度与模型目录由 Renderer 打开工作区后的 `refreshServerState()` 后台预热；不得重新把这些后置请求串行放回登录响应。用户认证凭据只用于 `/api/user/*`、`/api/token/*` 和更新；模型 `/v1/*` 始终使用模型连接解析出的 Key。桌面列出、创建、编辑、分组、启停和删除用户密钥，并用用户选择的完整 Key 直连 `accountBaseUrl/v1`。完整 Key 优先兼容原生 New API 在 token 列表/详情中的返回值，脱敏部署则通过 `POST /api/token/:id/key` 按需取回；两者都只缓存在 Electron Main 内存，不进入 Renderer、设置文件、模型缓存或日志。`account-token-cache.json` 只按账户地址 + user ID 保存最多 8 份公开元数据快照，不保存任何 Key、Cookie、IP 白名单或模型限制。
-- `custom`：当前设备必须先通过官方 License 服务激活或校验 `pro` 授权，之后用户才能配置 Base URL、API Key、Agent 模型和生图模型；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。License 请求只含兑换码或 License token 与随机设备 ID，不上传 Base URL、API Key 或账号 Cookie。兑换码支持永久/限时、最大设备数和禁用撤销，管理员创建时默认 `pro`、3 台设备。
+- `custom`：通用版直接配置 Base URL、API Key、Agent 模型和生图模型即可进入工作区，不请求或校验 Pro License；桌面直接请求标准 `/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/images/generations` 与 `/v1/images/edits`，不发送 SparkAPI `group`。旧 License 字段、IPC 和 Extension 规则只为历史客户端兼容保留，不能作为新版桌面门槛。
 
-安装级 `licenseDeviceId` 与 Pro token 只授权自定义模式；账号模式不消费、不校验也不依赖该授权。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
+安装级 `licenseDeviceId` 与 Pro token 仅为旧设置迁移保留，不决定新版桌面访问。切换到自定义模式不会删除账号 session，切回账号模式可以快速恢复；自定义 Base URL 已含 `/v1` 时，client 必须去重路径而不能产生 `/v1/v1/*`。Responses 请求允许标准 SSE，也允许 HTTP 200 JSON 回退；空 JSON、空 SSE 和只有 `[DONE]` 的 SSE 都必须作为空输出失败，不能伪装为 Agent 成功。
 
 设置页数据加载是显式的离线优先边界：挂载时 `tokens({ preferCached: true })` 与 `models({ cacheOnly: true })` 只读 Main 本地快照；没有模型快照时回退到设置内模型池。切换设置分区不会联网；只有“刷新密钥与分组”“刷新模型”、密钥 CRUD 或切换密钥等明确用户动作可以请求 New API。模型目录运行缓存 TTL 为 15 分钟；过期后先继续展示旧目录，后台刷新。`cacheOnly` 磁盘快照即使超过 TTL 也可离线显示，并标记来源/更新时间。
 
@@ -715,7 +717,7 @@ Renderer UpdaterBridge
 | `desktop/debug-command-service.cjs` | 开发/AIDebug 的 7 个 service command：有界脱敏状态/日志、诊断目录截图、IPC/command 检查和无 shell 测试白名单；生产默认拒绝 | 任意命令/路径/窗口控制、代码或项目资产修改、依赖安装、模型调用、生产启用或业务动作复制 | `createDebugCommandService`, `TARGETED_TEST_SCRIPTS`, `DEBUG_COMMAND_DISABLED` | `test:automation-debug` |
 | `desktop/agent-integration-service.cjs`, `integrations/naimage-control/` | Agent 配置目录检测、内置 Skill/PowerShell CLI/MCP stdio 包装的安装更新和受控移除；CLI/MCP 均读取共享 command schema 并转发 loopback bridge | 修改 Agent 全局设置、读取/输出 endpoint Token、直接编辑项目文件、复制 Renderer/Main 业务逻辑 | `createAgentIntegrationService`, `naimage.ps1`, `naimage-mcp.mjs`, `SKILL.md` | `test:agent-integration`, `test:automation-service`, `test:mcp-wrapper`, Skill `quick_validate.py`, `test:bundle` |
 | `desktop/agent-window-service.cjs`, `agent-window-*` | 独立 Agent BrowserWindow 生命周期、已保存主题原生底色、主 Renderer owner 绑定、有界状态/命令中继、allowlist 外观镜像与隔离表面 | Agent Runtime、模型请求、项目写入、凭据、画布 reducer 或第二个设置 authority | `createAgentWindowService`, `getBackgroundColor`, `publishState`, `forwardCommand`, `applyGlassAppearance`, `naimageAgentWindowSurface` | `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `test:ipc-registration`, `test:lifecycle` |
-| `desktop/license-service.cjs` | 固定官方授权域名、自定义模式 `pro` 计划校验、安装设备 ID、24 小时缓存与 72 小时离线宽限；账号 scope 直接授权且不联网 | 激活码生成、数据库、账户计费、模型 Base URL/API Key 或 Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:access-variant`, `test:ipc-registration`, `aidebug:auth-gate` |
+| `desktop/license-service.cjs` | 旧客户端/扩展的 Pro 计划校验与设备字段兼容，旧 Electron IPC 保留 verify/activate；新版正常入口与模型请求不调用该服务或 `requireActive` | 激活码生成、数据库、账户计费、模型 Base URL/API Key 或 Renderer 表单 | `createLicenseService`, `verify`, `activate`, `requireActive` | `test:license`, `test:access-variant`, `test:ipc-registration`, `aidebug:auth-gate` |
 | `runtime/context-strategy.cjs` | 模型族识别、上下文窗口、有效窗口、自动 checkpoint、保留用户意图及 Prompt/协议/画布/记忆预算 | 模型调用、消息持久化、设置 UI 或画布读取 | `contextStrategyForSettings`, `contextModelFamily`, `autoCompactTokenLimit`, `protocolMessageMaxChars` | `test:context-strategy`, `test:context-checkpoint` |
 | `runtime/memory-store.cjs` | App 级 Prompt/context/tool/date memory 与 SQLite 元数据，以及项目内 `.naimage/agent/fastmemory.json`、`.naimage/agent/conversations.json` 的会话状态持久化和按会话清理 | 模型调用、compact 决策、画布状态、工具执行、把项目 FastMemory/summary/protocol 新写回 AppData | `createMemoryStore`, `getFastMemory`, `writeConversationSummary`, `appendConversationProtocolTurn`, `replaceConversationProtocolItems` | `test:project-data-migration`, `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol` |
 | `runtime/tool-schemas.cjs` | 公开/内部 Agent tool schema、图片模型工具契约、运行级画幅锁定枚举与 schema 选择 | 模型请求发送、工具执行、Prompt 或 runtime 状态 | `agentToolSchemas`, `toolSchemas`, `imageModelContractForSettings` | `test:image-frame-contract`, `test:agent-text`, `test:agent-protocol` |

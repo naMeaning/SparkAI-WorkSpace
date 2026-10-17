@@ -3772,15 +3772,11 @@ function App() {
     imageModel: "",
     activationCode: ""
   });
-  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [licenseReady, setLicenseReady] = useState(false);
   const accountWorkspaceAuthorized = settings.accessMode === "account"
     && Boolean(serverUser && serverUser.id !== "custom-api");
   const customWorkspaceAuthorized = settings.accessMode === "custom"
-    && serverUser?.id === "custom-api"
-    && licenseStatus?.scope === "custom"
-    && licenseStatus.active === true
-    && String(licenseStatus.plan || "").toLowerCase() === "pro";
+    && serverUser?.id === "custom-api";
   const workspaceAccessAuthorized = accountWorkspaceAuthorized || customWorkspaceAuthorized;
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState<ProjectNameDraft | null>(null);
@@ -5325,40 +5321,23 @@ function App() {
     }
   }
 
-  async function refreshLicenseState(force = false, scope?: "account" | "custom"): Promise<LicenseStatus> {
+  async function refreshLicenseState(_force = false, scope?: "account" | "custom"): Promise<LicenseStatus> {
     const requestedScope = scope || settingsRef.current.accessMode;
-    if (!window.naimageServer?.licenseStatus) {
-      const fallback = requestedScope === "account"
-        ? { ok: true, active: true, required: false, supported: false, scope: "account" } satisfies LicenseStatus
-        : { ok: false, active: false, required: true, supported: false, scope: "custom", requiredPlan: "pro", error: "当前客户端不支持 Pro License 校验。" } satisfies LicenseStatus;
-      setLicenseStatus(fallback);
-      setLicenseReady(true);
-      return fallback;
-    }
-    try {
-      const status = await window.naimageServer.licenseStatus({ force, scope: requestedScope });
-      setLicenseStatus(status);
-      return status;
-    } catch (error) {
-      const status = {
-        ok: false,
-        active: requestedScope === "account",
-        required: requestedScope === "custom",
-        scope: requestedScope,
-        ...(requestedScope === "custom" ? { requiredPlan: "pro" } : {}),
-        error: error instanceof Error ? error.message : String(error)
-      } satisfies LicenseStatus;
-      setLicenseStatus(status);
-      return status;
-    } finally {
-      setLicenseReady(true);
-    }
+    const status = {
+      ok: true,
+      active: true,
+      required: false,
+      supported: true,
+      scope: requestedScope,
+      plan: "free"
+    } satisfies LicenseStatus;
+    setLicenseReady(true);
+    return status;
   }
 
   async function selectAuthAccessMode(accessMode: "account" | "custom") {
     setAuthDraft((current) => ({ ...current, accessMode }));
     setServerMessage("");
-    setLicenseReady(false);
     await refreshLicenseState(true, accessMode);
   }
 
@@ -24862,12 +24841,6 @@ function App() {
       return;
     }
     try {
-      const currentLicense = licenseStatus?.scope === "custom" && licenseStatus.active
-        ? licenseStatus
-        : await refreshLicenseState(true, "custom");
-      if (!currentLicense.active || String(currentLicense.plan || "").toLowerCase() !== "pro") {
-        throw new Error(currentLicense.error || "请先使用 Pro 兑换码解锁自定义 Base URL。");
-      }
       if (!window.naimageServer?.configureCustom) throw new Error("当前桌面后端不支持自定义接口模式。");
       const result = await window.naimageServer.configureCustom({
         baseUrl: authDraft.baseUrl.trim(),
@@ -24887,35 +24860,13 @@ function App() {
       ]));
       setServerUser(result.user);
       setServerWallet(null);
-      const status = result.license || await refreshLicenseState(true, "custom");
-      setLicenseStatus(status);
-      setLicenseReady(true);
-      if (!status.active) throw new Error(status.error || "请输入有效激活码后继续。");
+      await refreshLicenseState(false, "custom");
       setServerMessage("自定义接口已连接。");
       setAuthDraft((current) => ({ ...current, apiKey: "" }));
       setAuthReady(true);
     } catch (error) {
       setServerMessage(error instanceof Error ? error.message : String(error));
       setAuthReady(true);
-    }
-  }
-
-  async function activateCurrentLicense() {
-    const code = authDraft.activationCode.trim();
-    if (!code) {
-      setServerMessage("请输入激活码。");
-      return;
-    }
-    try {
-      if (!window.naimageServer?.activateLicense) throw new Error("授权服务暂不可用。");
-      const status = await window.naimageServer.activateLicense({ code });
-      setLicenseStatus(status);
-      setLicenseReady(true);
-      if (!status.active) throw new Error(status.error || "激活失败。");
-      setAuthDraft((current) => ({ ...current, activationCode: "" }));
-      setServerMessage("Pro License 已激活，请继续配置 Base URL 与 API Key。");
-    } catch (error) {
-      setServerMessage(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -27191,7 +27142,7 @@ function App() {
     return (
       <GlassThemeProvider settings={settings}>
       <React.Suspense fallback={<main className="auth-shell" aria-busy="true" />}>
-        <LazyBootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在校验软件授权..."} />
+        <LazyBootScreen message={!configReady ? "正在加载本地配置..." : !authReady ? "正在校验访问方式..." : "正在准备工作台..."} />
       </React.Suspense>
       </GlassThemeProvider>
     );
@@ -27208,9 +27159,7 @@ function App() {
             setAuthDraft={setAuthDraft}
             submitAccount={submitAuth}
             submitCustom={submitCustomAccess}
-            activateLicense={activateCurrentLicense}
             selectAccessMode={selectAuthAccessMode}
-            license={licenseStatus}
             message={serverMessage}
           />
         </React.Suspense>

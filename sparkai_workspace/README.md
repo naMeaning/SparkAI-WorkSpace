@@ -1,17 +1,21 @@
 # SparkAI WorkSpace
 
-SparkAI WorkSpace 是一个 Windows AI 视觉创作工作台：在同一个项目中管理图片素材、用自然语言发起生图和编辑，并在无限画布上比较、整理和追溯成果。
+SparkAI WorkSpace 是一个免费的 Windows Agent 生图工作台：在同一个项目中管理图片素材、用自然语言发起生图和编辑，并在无限画布上比较、整理和追溯成果。
 
 适合需要反复看图、改图和复用素材的创作者。一个项目 Agent 负责理解任务，画布保留原图、参考图和新成果之间的关系；电商、社媒、科研和日常创作共用同一套项目与素材。
 
-> 当前公开安装包为 [v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。`main` 分支还有尚未进入该安装包的开发改进；下载和稳定版功能以 Releases 页面为准。
+> 当前公开安装包为 [v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。取消自定义接口 Pro 门槛的免费双接入改动已进入 `main` 和本地开发包，尚未更新该公开安装包；旧包仍可能显示 Pro 提示。体验免费双接入请使用包含 2026-10-17 改动的开发构建，后续公开下载以 Releases 页面为准。
+
+软件本身免费。当前开发版保留 SparkAPI 及已有 New API 协议的账号登录，通用版也可直接填写你有权使用的 Base URL + API Key；两种方式共用同一项目、无限画布和 Agent。模型调用费用由你选择的上游服务商收取。SparkAPI 专用版仍只接受官方账号登录；更广泛的 New API/Sub2API 站点账号适配属于后续目标，不能保证任意站点的登录协议均兼容。
 
 ## 先看这几个入口
 
 - [下载 1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)
 - [第一次使用教程](./docs/tutorials/01-first-agent-image.md)
+- [账号登录与 Base URL + API Key 双接入](./docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md)
 - [全部 tutorials](./docs/tutorials/README.md)
 - [第三方参考项目与许可证](./docs/THIRD_PARTY_REFERENCES.md)
+- [可直接转发的推广文案](./docs/PROMOTION_COPY.md)
 - [隐私与发布前检查](./docs/PRIVACY_AND_PUBLISHING.md)
 - [完整文档索引](./docs/README.md)
 
@@ -34,10 +38,12 @@ Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_
 
 ### 1. 安装并打开应用
 
-从 [v1.0.9 Release](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 下载与你的账户匹配的安装包：
+从 [v1.0.9 Release](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 下载对应的安装包：
 
 - `SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe`：通用版本，适合自定义 Base URL 或中转服务。
 - `SparkAI-WorkSpace-SparkAPI-Setup-<version>-x64.exe`：SparkAPI 账号专用版本。
+
+包含免费双接入改动的通用开发包不需要 Pro 兑换码或设备授权。安装后在登录页选择“账号登录”或“自定义接口”，按[双接入教程](./docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md)完成一种配置即可。公开 v1.0.9 保留旧自定义授权流程，可先使用其账号登录；不要把同名、同版本号的本地开发包与公开资产混用。
 
 当前公开构建没有商业代码签名证书，Windows 可能显示发布者未知。请只从受信发布页下载，并按同一页面提供的 SHA-256 清单核对文件。完整安装、卸载和升级边界见 [安装说明](./docs/INSTALLATION.md)；1.0.8 及更早版本因为更新签名轮换必须手动安装 1.0.9 完整包。
 
@@ -99,7 +105,7 @@ Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_
 | [05 · 模型连接与运行状态](./docs/tutorials/05-model-connections-and-status.md) | 主分支开发版 | 区分模型目录、文生图和编辑的实际运行证据 |
 | [06 · 安全恢复图片结果](./docs/tutorials/06-recover-image-results.md) | 主分支开发版 | 查询原任务或保存已有结果，避免不确定时重复提交 |
 
-教程示例都使用虚构提示词和占位符。请不要把真实 API Key、Cookie、License 码、客户资料、私人图片或本机绝对路径替换进公开文档、Issue、截图和日志。
+教程示例都使用虚构提示词和占位符。请不要把真实 API Key、Cookie、License 码、客户资料、私人图片或本机绝对路径替换进公开文档、Issue、截图和日志。旧 License 字段只为历史配置和扩展兼容保留，不是通用版当前使用条件。
 
 ## 四种工作台
 
@@ -128,6 +134,10 @@ Agent 会根据请求读取当前项目上下文，并在需要时调用 `image_
 - 计划、需求节点和画布连线用于组织上下文，不会替用户自动执行；批量、视频和平台导出都需要明确确认。
 - PSD 已通过图层、透明度、合成像素和回读自测；当前验证不等同于安装 Photoshop 后的 GUI 实机验证。
 - 图片服务和 Agent 依赖远端模型渠道；模型能力、可用性、费用和内容政策由服务商决定。
+
+## 参考与致谢
+
+感谢 [New API](https://github.com/QuantumNous/new-api)（AGPL-3.0）、[Sub2API](https://github.com/Wei-Shaw/sub2api)（LGPL-3.0）、[GPT Image Playground](https://github.com/CookSleep/gpt_image_playground)（MIT）和 [Infinite Canvas](https://github.com/basketikun/infinite-canvas)（MIT）的开源工作。本项目参考了它们的接口合同和画布交互设计；固定源码版本、许可证链接、具体范围及代码纳入边界见[第三方参考项目与许可证](./docs/THIRD_PARTY_REFERENCES.md)。上游版权归各自贡献者所有。
 
 ## 开发者入口
 

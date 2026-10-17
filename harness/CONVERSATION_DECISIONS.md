@@ -17,7 +17,7 @@ Older conversations are represented through the maintained product documents whe
 
 | ID | Status | Decision | Current authority |
 | --- | --- | --- | --- |
-| D-01 | active | SparkAI WorkSpace is a desktop visual-creation workspace for ordinary users and creators, not a workflow-editor clone or general Agent IDE. | `sparkai_workspace/PRODUCT_INTENT.md` |
+| D-01 | active | SparkAI WorkSpace is a free Agent image-generation workspace (Agent 生图工作台), with one project Agent and an infinite result canvas. | User direction (2026-10-17), `sparkai_workspace/PRODUCT_INTENT.md` |
 | D-02 | active | `general`, `commerce`, `social`, and `research` are projections over one project, canvas, session, asset space, TaskScope, plugin system and Agent runtime. | Desktop `AGENTS.md` and product intent |
 | D-03 | active | The right-side project Agent is the single control center. Canvas content is managed results, groups, relations and reusable requirements, not Agent or plan nodes. | Desktop `AGENTS.md` |
 | D-04 | active | Speed and maintainability matter more than forcing a bundle number. Use natural module boundaries; do not add risky split/refactor work merely to pass an advisory size threshold. | User direction, desktop `AGENTS.md` |
@@ -36,6 +36,8 @@ Older conversations are represented through the maintained product documents whe
 | D-17 | active | Every new session or continuation checks the live worktree and recovers the owner repository's current goal, progress snapshot and latest evidence before choosing work. Keep AGENTS entry points, progress and context navigation synchronized so historical checkpoints or same-version development packages cannot be mistaken for current work or a formal release. | Current user request (2026-10-13), root/desktop `AGENTS.md`, desktop `PROGRESS.md` |
 
 ## Operating Preferences From The User
+
+- 2026-10-17: software access is free; retain account login and remove the Pro requirement for Base URL + API Key in the general build. Broader New API/Sub2API account compatibility is a future goal, not evidence that every deployment is supported. Upstream model charges remain separate.
 
 - Subagent work uses `gpt-6.1-sol` with `max` reasoning effort; the user's 2026-10-15 instruction excludes other models/efforts unless they change this preference.
 - Move product functionality forward quickly, but do not let shortcuts create heavy, tangled code or misleading completion claims.
@@ -64,6 +66,7 @@ This distinction matters: assistant design proposals can improve the harness, bu
 
 | Legacy direction | Current replacement |
 | --- | --- |
+| Pro License required for custom Base URL + API Key | Since 2026-10-17, free desktop access with account login retained; legacy license data/IPC remain compatible without remote activation or verification |
 | Basic mode versus Agent mode, multiple canvas Agents, plan/prompt/tool/post-processing nodes | One persistent project Agent and a result-focused canvas with only reusable requirements as the executable non-image primitive |
 | Canvas links imply execution order | Links express provenance; execution requires explicit user/Agent action |
 | Generic workflow editor or revived legacy UI to satisfy old tests | Current simplified workspace and current UI evidence; legacy tests are not a product baseline |

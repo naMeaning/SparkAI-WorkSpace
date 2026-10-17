@@ -411,6 +411,23 @@ function preferredImageModelFromList(models: string[] = []) {
   return models.find((model) => /^gpt-image-2\b/i.test(model)) ?? models[0] ?? "";
 }
 
+function directApiUrl(baseUrl: string, endpoint: string) {
+  const cleanBase = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const cleanEndpoint = String(endpoint || "").startsWith("/") ? String(endpoint || "") : `/${endpoint || ""}`;
+  if (/\/v1(?:beta)?$/i.test(cleanBase) && /^\/v1(?:beta)?(?:\/|$)/i.test(cleanEndpoint)) {
+    return `${cleanBase.replace(/\/v1(?:beta)?$/i, "")}${cleanEndpoint}`;
+  }
+  return `${cleanBase}${cleanEndpoint}`;
+}
+
+function customImageCredentials(settings: AppSettings) {
+  const baseUrl = String(settings.imageBaseUrl || settings.agentBaseUrl || "").trim();
+  const apiKey = String(settings.imageApiKey || settings.agentApiKey || "").trim();
+  if (!baseUrl || !apiKey) throw new Error("生图 Base URL 或 API Key 尚未配置。");
+  parsedServiceUrl(baseUrl, "生图 Base URL");
+  return { baseUrl, apiKey };
+}
+
 async function modelSettings(settings: AppSettings, requestedGroup = settings.modelGroup): Promise<ServerPublicSettings> {
   const collected: string[] = [];
   let modelGroups: NonNullable<ServerPublicSettings["modelGroups"]> = [];
@@ -639,6 +656,8 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
   const size = String(payload.size || settings.imageSize || "1024x1024").trim();
   const quality = String(payload.quality || settings.imageQuality || "auto").trim();
   const outputFormat = payload.outputFormat || "png";
+  const customMode = settings.accessMode === "custom";
+  const customCredentials = customMode ? customImageCredentials(settings) : null;
 
   const requestSingle = async (index: number) => {
     const body: JsonRecord = {
@@ -656,6 +675,21 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
       }
       if (payload.background) body.background = payload.background;
       if (payload.moderation) body.moderation = payload.moderation;
+    }
+    if (customCredentials) {
+      const response = await fetch(directApiUrl(customCredentials.baseUrl, "/v1/images/generations"), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${customCredentials.apiKey}`,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      const data = parseJsonText(await response.text());
+      if (!response.ok || data.success === false || data.ok === false) {
+        throw new Error(errorText(data, response.status));
+      }
+      return data;
     }
     return newApiRequest(settings, "/v1/images/generations", {
       service: "relay",
@@ -727,7 +761,7 @@ function createBrowserServerBridge(): ServerBridge {
       const settings = readSettings();
       let remoteLogout = false;
       try {
-        if (readAuthState(settings).serverUserId) {
+        if (settings.accessMode !== "custom" && readAuthState(settings).serverUserId) {
           await newApiRequest(settings, "/api/user/logout", { method: "POST", headers: userAuthHeaders(settings) });
           remoteLogout = true;
         }
@@ -743,6 +777,19 @@ function createBrowserServerBridge(): ServerBridge {
       const settings = readSettings();
       try {
         const authState = readAuthState(settings);
+        if (settings.accessMode === "custom" && authState.serverUserId === "custom-api") {
+          return {
+            ok: true,
+            cached: payload.preferCached === true,
+            user: { id: "custom-api", email: "", username: "自定义接口", account: "自定义接口", name: "自定义 API", balanceCents: 0, trialImagesRemaining: 0, trialUsed: true },
+            settings: splitModelSettings(settings, uniqueModelIds([
+              settings.agentModel,
+              settings.imageModel,
+              ...(settings.agentModelPool || []),
+              ...(settings.imageModelPool || [])
+            ]))
+          };
+        }
         if (payload.preferCached === true && authState.serverUserId) {
           return {
             ok: true,
@@ -808,23 +855,46 @@ function createBrowserServerBridge(): ServerBridge {
     async licenseStatus(payload = {}) {
       const settings = readSettings();
       const scope = payload.scope === "custom" ? "custom" : payload.scope === "account" ? "account" : settings.accessMode;
-      if (scope === "account") {
-        return { ok: true, active: true, required: false, supported: true, scope: "account" as const };
-      }
-      try {
-        const response = await newApiRequest(settings, "/api/naimage/license");
-        const supported = (response as { data?: { supports_custom_api_mode?: boolean } })?.data?.supports_custom_api_mode !== false;
-        const active = supported && Boolean(settings.licenseToken) && String(settings.licensePlan || "").toLowerCase() === "pro";
-        return { ok: true, active, required: true, supported, scope: "custom" as const, plan: settings.licensePlan, requiredPlan: "pro" };
-      } catch (error) {
-        return { ok: false, active: false, required: true, supported: false, scope: "custom" as const, requiredPlan: "pro", error: error instanceof Error ? error.message : String(error) };
-      }
+      return { ok: true, active: true, required: false, supported: true, scope, plan: "free" };
     },
     async activateLicense() {
       return { ok: false, active: false, required: true, error: "激活码核销仅支持 SparkAI WorkSpace 桌面版。" };
     },
-    async configureCustom() {
-      return { ok: false, error: "自定义 API Key 模式仅支持 SparkAI WorkSpace 桌面版。" };
+    async configureCustom(payload) {
+      try {
+        const baseUrl = String(payload.baseUrl || "").trim();
+        const apiKey = String(payload.apiKey || "").trim();
+        if (!baseUrl || !apiKey) throw new Error("请输入 Base URL 和 API Key。");
+        parsedServiceUrl(baseUrl, "Base URL");
+        const next = saveSettingsPatch({
+          accessMode: "custom",
+          agentBaseUrl: baseUrl,
+          agentApiKey: apiKey,
+          imageBaseUrl: baseUrl,
+          imageApiKey: apiKey,
+          agentModel: String(payload.agentModel || "").trim(),
+          imageModel: String(payload.imageModel || "").trim(),
+          agentModelPool: String(payload.agentModel || "").trim() ? [String(payload.agentModel).trim()] : [],
+          imageModelPool: String(payload.imageModel || "").trim() ? [String(payload.imageModel).trim()] : [],
+          modelGroup: "",
+          serverToken: ""
+        });
+        saveAuthState(next, "custom-api");
+        const settings = splitModelSettings(next, uniqueModelIds([
+          next.agentModel,
+          next.imageModel,
+          ...(next.agentModelPool || []),
+          ...(next.imageModelPool || [])
+        ]));
+        return {
+          ok: true,
+          user: { id: "custom-api", email: "", username: "自定义接口", account: "自定义接口", name: "自定义 API", balanceCents: 0, trialImagesRemaining: 0, trialUsed: true },
+          settings,
+          license: { ok: true, active: true, required: false, supported: true, scope: "custom" as const, plan: "free" }
+        };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
     }
   };
 }

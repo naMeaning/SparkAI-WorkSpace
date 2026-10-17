@@ -4,7 +4,7 @@
 
 ## 面向用户的使用文档
 
-这些教程对应 1.0.9 的公开使用路径，适合随 GitHub Release 一起分享：
+这些教程覆盖公开版的创作路径及明确标注的开发版功能，分享时请附上适用版本。无需 Pro 的自定义接入属于 2026-10-17 主分支改动，公开 v1.0.9 安装包尚未更新：
 
 - [第一次让 Agent 完成一张图](./tutorials/01-first-agent-image.md)：从导入图片、设置原图/参考图到查看和导出成果。
 - [编辑、批量、多款与可复用需求](./tutorials/02-edit-and-reuse-results.md)：理解编辑、替换、多款、分层、抠图、重绘和需求节点。
@@ -12,8 +12,10 @@
 - [电商、社媒与科研工作台示例](./tutorials/04-workspace-recipes.md)：按工作台选择可复用的任务路径。
 - [隐私与发布前检查清单](./PRIVACY_AND_PUBLISHING.md)：发布源码、文档和 Release 资产前排除凭据、用户数据和本机路径。
 - [第三方参考项目与许可证](./THIRD_PARTY_REFERENCES.md)：列明 New API、Sub2API、GPT Image Playground 与 Infinite Canvas 的固定源码版本、许可证和参考范围。
+- [原生 New API 双接入说明](./NEW_API_DUAL_ACCESS_AND_ACTIVATION.md)：说明账号登录、Base URL + API Key、自定义接口和可选扩展服务的边界。
+- [推广文案](./PROMOTION_COPY.md)：面向朋友和社群分享的简短介绍，可直接复制后替换链接。
 
-教程版本分层：01–04 对应公开 v1.0.9 的既有工作路径；05–06 是 1.0.9 之后的主分支开发版预览，尚未进入公开安装包。
+教程版本分层：01–04 的创作路径适用于公开 v1.0.9，01 的免费双接入步骤另标开发版范围；05–06 是主分支开发版预览，尚未进入公开安装包。
 
 ## 当前入口
 

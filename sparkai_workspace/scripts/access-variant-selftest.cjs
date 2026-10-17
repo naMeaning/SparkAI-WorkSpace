@@ -120,22 +120,20 @@ Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
     writeJson: () => { customSettingsWrites += 1; },
     settingsPath: "memory://settings.json",
     log: () => {},
-    licenseService: {
-      async requireActive(options) {
-        assert.deepEqual(options, { scope: "custom" });
-        const error = new Error("Pro License required");
-        error.code = "NAIMAGE_PRO_LICENSE_REQUIRED";
-        throw error;
-      }
-    }
+    customApiCredentials: () => ({ baseUrl: "https://private.example/v1", apiKey: "sk-private" }),
+    newApiModelSettings: async () => ({ models: ["gpt-image-2"], imageModels: ["gpt-image-2"], agentModels: ["gpt-5.6-terra"] }),
+    modelSettingsWithCacheMeta: (settings) => settings,
+    splitModelSettings: (_settings, models) => ({ models })
   });
-  const unlicensedCustom = await unrestrictedHandlers.get("naimage:server:configure-custom")({}, {
+  const freeCustom = await unrestrictedHandlers.get("naimage:server:configure-custom")({}, {
     baseUrl: "https://private.example/v1",
     apiKey: "sk-private"
   });
-  assert.equal(unlicensedCustom.ok, false);
-  assert.equal(unlicensedCustom.errorCode, "NAIMAGE_PRO_LICENSE_REQUIRED");
-  assert.equal(customSettingsWrites, 0, "Unlicensed custom credentials must not be persisted before server-side License verification");
+  assert.equal(freeCustom.ok, true);
+  assert.equal(freeCustom.user.id, "custom-api");
+  assert.equal(freeCustom.license.active, true);
+  assert.equal(freeCustom.license.required, false);
+  assert.equal(customSettingsWrites, 1, "Free custom credentials should be persisted after configuration");
 
   const viteSource = readFileSync(path.join(root, "vite.config.ts"), "utf8");
   const mainSource = readFileSync(path.join(root, "electron-main.cjs"), "utf8");
@@ -150,7 +148,9 @@ Promise.resolve(handlers.get("naimage:server:configure-custom")({}, {
   assert.match(viteSource, /ACCESS_POLICY_FILENAME/);
   assert.match(mainSource, /applyAccessPolicyToSettings\(next, accessPolicy\)/);
   assert.match(authSource, /appAccessPolicy\.customApiAccess/);
-  assert.match(authSource, /customNeedsActivation/);
+  assert.doesNotMatch(authSource, /customNeedsActivation/);
+  assert.match(authSource, /软件免费/);
+  assert.doesNotMatch(mainSource, /licenseService\.requireActive/);
   assert.doesNotMatch(authSource, /accountNeedsActivation/, "Account login must not be coupled to device License activation");
   assert.match(settingsSource, /accountBaseUrlLocked/);
   assert.match(readFileSync(path.join(root, "src", "model-config-dialog.tsx"), "utf8"), /自定义 API Key（可选）/, "The account-only build must retain per-model custom API Keys after login");

@@ -1,5 +1,7 @@
 # SparkAI WorkSpace 工作区上下文地图
 
+> 2026-10-17 免费 Agent 生图工作台方向：新版桌面通用版移除 Pro 设备授权依赖，保留现有账号登录与 Base URL/API Key；正常启动、配置和模型请求不再调用 License 服务。旧 Electron License IPC 与服务仍保留原兼容行为，浏览器开发回退的状态查询直接返回免费状态。Extension 服务、数据、生产部署未修改，仍可服务旧客户端。全面 New API/Sub2API 账号适配属于后续工作，不能由本轮免费接入测试推断。制品、安装和推送证据统一见桌面 Progress；公开 v1.0.9 尚未包含本次改动。
+
 > 最近同步：2026-10-17
 > 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
@@ -194,7 +196,7 @@ corepack pnpm run package:extension
 | 合同 | 桌面侧 | 后端侧 | 修改时检查 |
 | --- | --- | --- | --- |
 | 登录/session/用户 DTO | `desktop/new-api-client.cjs`, `desktop/settings-secret-store.cjs`, `electron-main.cjs`, `src/server.ts`, bridge types | 用户现有原生 New API user/session API | rc.23 Bearer access token + `new_api_refresh` cookie + auth session ID、到期/401 刷新 single-flight 与单次重放、旧 `session` + `New-Api-User` 回退；登录响应只等待认证/安全持久化/本地缓存，资料、Token/额度和模型目录后台预热；快速本地恢复、后台校验、错误清洗、禁用用户行为；扩展服务不参与登录 |
-| Pro 设备授权 | `desktop/license-service.cjs`, server IPC, `auth-gate.tsx` | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 只约束自定义 Base URL 模式；随机安装 ID、Pro 计划、默认 3 台、永久/限时、HMAC 激活匹配、管理员可解密的新码密文、禁用撤销、24 小时校验缓存与 72 小时离线宽限；账号登录不请求 License |
+| 旧 Pro 设备授权兼容 | `desktop/license-service.cjs`, server IPC, 旧设置字段 | `services/sparkai-extension/src/license-service.mjs`, `http-server.mjs` | 当前启动/配置/模型请求不调用 License；Electron 旧 IPC 仍可显式调用原 verify/activate，服务保留历史在线/离线规则。浏览器回退状态查询本地返回免费状态；账号和自定义接入均不以 License 作为当前门槛 |
 | 账户密钥 | `desktop/account-token-quota.cjs`, `desktop/account-token-service.cjs`, server IPC, 设置接入页 | New API `/api/status`, `/api/token/*` | 列表/选择/创建/分组/额度/状态/删除；打开设置只读按账户隔离的脱敏快照，显式刷新才联网；原始 quota ÷ `quota_per_unit` = R/USD，再乘 `usd_exchange_rate` 显示人民币，充值 `price` 不得作为汇率；Renderer 只接收脱敏 DTO，完整 Key 仅 Main 内存；兼容原生 New API 直接返回 Key 与扩展 `/key` 端点 |
 | 模型目录/分组 | `desktop/model-catalog.cjs`, `desktop/account-token-service.cjs`, 设置/Agent UI | New API models/user groups/token group | 完整列表、默认模型、15 分钟运行缓存（过期先用旧目录）与离线磁盘快照；设置页 `cacheOnly` 不联网，显式刷新才更新；账号模型调用由所选 token 自身决定 group，模型请求体禁止额外 group |
 | Chat/Responses | Responses adapter、agent runtime、`desktop/new-api-client.cjs` | 所选账户 Key 直连 `/v1/chat/completions`、`/v1/responses`；自定义模式直连用户 Base URL | Bearer Key、tool schema、流事件、reasoning、错误协议，禁止 session cookie 与 group 进入模型请求 |
@@ -203,11 +205,11 @@ corepack pnpm run package:extension
 
 跨仓改动不能只凭单仓测试宣布完成；至少在上下文地图中写明另一侧位置和未验证项。
 
-桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区，不请求设备 License；原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。每个模型的 Base URL 与 API Key 分别解析，留空字段分别继承账号地址或模型/全局账户凭据；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。SparkAPI 专用版固定官方账号地址并拒绝逐模型 Base URL，但保留账号登录后的逐模型 API Key。自定义模式必须先以设备 ID 向官方 License 服务激活或校验 `pro` 授权，再只向用户填写的 OpenAI-compatible `/v1/*` 发送本地 API Key；Base URL 与 API Key 不上传 License 服务。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
+桌面支持两种互斥出口：账号模式只要成功登录即可进入工作区；通用版自定义模式填写 Base URL + API Key 即可进入，不请求设备 License。原生 New API `v1.0.0-rc.23` 的 Bearer access token + refresh cookie + auth session ID（以及旧部署的 session cookie + `New-Api-User` 回退）只管理账户、余额和密钥。登录返回只等待认证、安全持久化与本地/缓存模型设置，用户资料、账户 Token/额度和模型目录由工作区打开后的 Renderer 后台刷新；`test:new-api-login` 必须防止后置请求重新串行阻塞登录。每个模型的 Base URL 与 API Key 分别解析，留空字段分别继承账号地址或模型/全局账户凭据；provider Authorization 只能由该模型连接解析结果生成，账户 access token 或调用方 header 不得覆盖。SparkAPI 专用版固定官方账号地址并拒绝逐模型 Base URL，但保留账号登录后的逐模型 API Key。旧 License 字段和 IPC 只为兼容保留，不参与新版桌面访问。两种模型出口都不携带 SparkAPI session、用户 ID 或客户端 `group`；账号分组由 token 自身决定。
 
 账号模式和自定义 Base URL 模式的当前桌面代码都以官方兼容 Images API 为默认：纯文生图请求 `POST /v1/images/generations`，编辑/参考图请求 `POST /v1/images/edits`；账号模式使用解析后的账户/逐模型 Key 与账号地址，自定义模式使用用户本地配置的 Base URL/Key。SparkAI Extension 的 `/v1/image-tasks` 仍是可部署的长任务包装合同：创建后立即返回 `task_id`，Bearer Key 只留在单进程内存，后台经共享 Docker network 请求原生 New API，并由短 GET 轮询 queued/running/succeeded/failed；服务重启不会重放。当前桌面没有把该合同作为默认出口，因此部署 Extension 不能被描述为当前生图必需条件。若未来重新启用，拿到任务 ID 或创建结果不明后仍不得自动重建，以避免重复扣费；用户自定义 Base URL/API Key 永远不上传 License API。
 
-正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退仍引用历史 `/naimage/v1` session-relay，只用于旧开发环境，不属于原生 New API + Extension 的已验证路径；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
+正式产品合同当前以 Electron Main 为准。`src/server.ts` 的独立浏览器开发回退同时支持本地自定义 Base URL + API Key 的直接 Images 请求，但仍不等同于正式 Electron 安全存储和跨站部署合同；发布独立 Web 版前必须单独设计服务端凭据桥，不能把账户完整 Key 暴露到浏览器 Renderer。
 
 产品的 canonical 对外身份是 `naimage`。桌面账号与模型入口继续使用原生 New API 的标准 `/api/*`、`/v1/*`；同一公开域名仅由反向代理抢先分流 `/api/naimage/license*` 与 `/v1/image-tasks*` 到 SparkAI Extension。扩展服务只有 `/api/naimage/license/admin` 这一处管理员 Token 保护的 License 管理页；它没有账户 session、渠道、quota、计费、更新清单或 New API 数据库权限。管理页不持久化管理员 Token；新兑换码同时保存用于激活匹配的 HMAC 与 AES-256-GCM 密文，`GET /api/naimage/license/admin/codes/:id/reveal` 只允许管理员重复查看，历史 HMAC-only 记录不可恢复。管理页默认拒绝 iframe；只有 `SPARKAI_EXTENSION_ADMIN_FRAME_ORIGINS` 中精确列出的 Origin 可嵌入，管理员 Token 仍不得进入 URL、Cookie、浏览器持久存储或跨窗消息。
 

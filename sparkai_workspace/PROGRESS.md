@@ -2,6 +2,37 @@
 
 ## 当前开发状态（2026-10-17）
 
+- 当前任务：免费 Agent 生图工作台与双接入；取消通用版 Pro 门槛、保留账号登录，更新 README/教程与推广文案。广泛 New API/Sub2API 账号适配属于后续目标。
+- 接受现场：main / 211307c83fea1324ff05e826c987ef436d8d309d；本轮已有 Goal/Progress/Product Intent/地图草稿，随后完成免费双接入代码、专项回归、最终 EXE 和原位安装。
+- 既有交付：第三方署名与教程已推送；工作台优化已本地交付。公开 Release 仍为冻结 v1.0.9，密集拖动性能与正式 CSS 门槛问题继续保留，详见历史交付记录。
+- 当前证据：production build、包内审计、原位安装和已安装程序的免费接入/重启专项均通过；根 README、桌面 README、教程、第三方参考入口与推广文案已同步。真实模型、全面 New API/Sub2API 账号兼容和完整登录专项仍未验证。
+- 下一步：最终文档/差异核对后提交并普通推送。本轮免费改动尚未进入公开 v1.0.9，文档已明确区分开发包与公开资产。
+
+### 2026-10-17 免费双接入制品与安装验证 / verified; Git pending
+
+- 打包：`package:win:unrestricted` 完成 NSIS 和品牌安装器；production build 1685 modules 通过。当前[通用版 EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,853,696 B，SHA-256 `8dd49ccf4a0dfab85919bcf3ed9d295f435beb9f83e5449d9157c60e8124cab3`；ASAR 52,050,396 B / `1b7c4d9f9526fcd83f64292e14703d93c9f0f18accf4dc300d34b92a09061c5c`。[包内审计](.diagnostics/free-access-2026-10-17/package-audit.json)逐字节核对 122 个 dist 文件与 8 个 Main/runtime owner，确认 dual-access 策略、免费文案和模型入口无 `requireActive`，无 `.env`/诊断目录。
+- 安装：[品牌安装器原位升级](.diagnostics/free-access-2026-10-17/install.json) `/S` 退出 0 / 24,920ms；安装前无运行中 SparkAI 实例，注册目录/1.0.9 保留，安装 EXE/ASAR 匹配当前候选。设置与项目列表哈希/时间戳、密钥 sidecar 大小/时间戳不变；密钥内容未读取。未使用诊断绕过、强制退出或清除数据参数。
+- 已安装程序实际 UI：[免费接入报告](.diagnostics/free-access-2026-10-17/auth-ui-1792229509852/report.json) `ok:true`，2 次启动、6 项检查、4 张截图。普通运行模式经真实 Main IPC 和 loopback HTTP 验证账号表单保留、过期旧 License 不阻止自定义配置、包含 `/v1` 的地址正确请求 `/v1/models`、真实点击进入项目、普通设置不含测试 Key、重启恢复工作台；0 模型 POST、0 License 请求。已查看免费接入及重启工作台截图。
+- 失败证据保留：此前两次 `aidebug:auth-gate` 在 CDP `Runtime.evaluate` 超时，没有形成完整专项通过报告；原始记录在 `.diagnostics/electron/aidebug-2026-10-17T09-14-31-700Z/` 和 `09-17-23-978Z/`。安装版首轮输入脚本没有全选原地址，拼接出的无效 URL 被表单拦截；[首轮报告](.diagnostics/free-access-2026-10-17/auth-ui-1792229425233/report.json)保持失败，修正测试输入后上条复验通过，产品源码未再修改。
+- 文档：补充仓库根 README、桌面 README 的四个参考项目署名入口，保留固定上游版本/许可证说明；更新教程、双接入说明和[推广文案](docs/PROMOTION_COPY.md)。免费指软件使用，模型费用由所接服务商收取；免费自定义接入属于本轮开发包，公开 v1.0.9 未替换。未上传 EXE、未创建 Release/tag，原正式 CSS 与密集拖动性能限制仍属历史待解决边界。
+- 收尾核对：[本地 preflight](.diagnostics/free-access-2026-10-17/preflight.json)通过，UI 测试后 3 个日常配置表面与安装 EXE/ASAR 身份均未变；本轮新增 27 处本地文档链接、Harness 10 项及差异检查通过。时间戳由 .NET 原精度比较，避免 Node 毫秒取整差异；密钥内容未读取。只验证了 Electron 免费接入实际路径，浏览器开发回退没有新增 UI 实测，完整账号登录/登出套件仍保留前述未完成边界。
+
+### 2026-10-17 免费双接入运行时实现 / partially verified
+
+- 已修改桌面 Renderer、Electron Main、Server IPC 和浏览器回退桥：通用版通过账号登录或 Base URL + API Key 进入工作台；Agent 对话和图片请求不再调用 `licenseService.requireActive()`；自定义配置返回本地免费状态。SparkAPI 专用版的构建期 `customApiAccess=false` 限制仍保留。
+- 旧 `LicenseStatus` 类型、IPC、设备字段和 `desktop/license-service.cjs` 未删除，用于旧设置/旧扩展兼容；新版正常产品入口不访问远端 License 服务，也不显示兑换码。旧 Electron License IPC 仍保留显式 verify/activate 能力，浏览器开发回退状态查询本地返回免费状态。全面 New API/Sub2API 账号协议兼容仍是后续目标。
+- 实际验证：`test:access-variant`、`test:custom-api-transport`（40 cases）、`test:ipc-registration`（152/149/3）、`test:license`（9 cases）、`test:agent-protocol`、`test:image-generation-service` 和 `typecheck` 均退出 0；未发起真实模型请求。此 checkpoint 当时尚待 build/EXE/安装，后续结果见上方记录；commit/push 待执行。
+
+### 2026-10-17 免费双接入方向变更 / in progress
+
+- 用户把产品定位收敛为免费的“Agent 生图工作台”：保留 New API/SparkAPI 账号登录，同时让无限制版的 Base URL + API Key 直接可用；后续接入 New API、Sub2API 等兼容服务时沿用同一双接入模型。
+- 影响边界：旧 src/auth-gate.tsx、src/main.tsx、desktop/ipc/server-ipc.cjs、electron-main.cjs 仍把自定义模式绑定到 Pro License；本轮将移除这些运行时门槛，保留旧 License IPC、设备字段和 Extension 文档作为兼容能力，不修改外部 New API 或 Extension。
+- 文档边界：README、教程、PRODUCT_INTENT.md、双接入说明、桌面/工作区上下文地图需要同步“软件免费；模型调用费用由用户自己的账号或 API Key 对应上游承担”，不能继续把 Pro 兑换码写成当前必需步骤。
+- 计划验证：test:access-variant、test:custom-api-transport、test:ipc-registration、test:license（兼容回归）、typecheck、production build；随后按桌面规则生成并核对 Windows EXE、品牌安装器原位升级、安装身份和 Git push。真实模型、真实 New API/Sub2API 和正式 Release 仍不验证。
+- 当前工作树：main，接受方向前工作树干净，远端与本地同步；本条记录建立后开始实现，后续每个测试/打包里程碑追加实际证据。
+
+### 2026-10-17 第三方署名与教程交付 / completed
+
 - 当前任务：整理公开 README、第三方参考与许可证说明，并补充主分支新增能力的教程；本轮只改文档，不改软件、制品或服务。
 - 接受现场：根仓库 `main` / `dd1d170f5077c372cec026fd2669ad71bcc5b85b`，工作树干净；`origin/main` 实测与 HEAD 一致。上游许可证已查询固定 commit：New API AGPL-3.0、Sub2API LGPL-3.0、GPT Image Playground 与 Infinite Canvas MIT。
 - 既有产品状态：工作台优化实施已完成本地交付，阶段5部分验证；性能回归、正式 Bundle CSS 门槛及真实服务未验证情况见下方 2026-10-17 交付记录。该主分支开发包不是新的正式 Release。

@@ -1,7 +1,7 @@
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
-import { KeyRound, Loader2, LogIn, Server, Shield } from "lucide-react";
+import { Loader2, LogIn, Server, Shield } from "lucide-react";
 
-import { blockImagePaste, type AuthDraft, type LicenseStatus } from "./core";
+import { blockImagePaste, type AuthDraft } from "./core";
 import {
   ActionButton,
   Field,
@@ -51,27 +51,18 @@ export function AuthGate({
   setAuthDraft,
   submitAccount,
   submitCustom,
-  activateLicense,
   selectAccessMode,
-  license,
   message
 }: {
   authDraft: AuthDraft;
   setAuthDraft: Dispatch<SetStateAction<AuthDraft>>;
   submitAccount: () => void | Promise<void>;
   submitCustom: () => void | Promise<void>;
-  activateLicense: () => void | Promise<void>;
   selectAccessMode: (mode: AuthDraft["accessMode"]) => void | Promise<void>;
-  license: LicenseStatus | null;
   message: string;
 }) {
   const [busy, setBusy] = useState(false);
   const customMode = appAccessPolicy.customApiAccess && authDraft.accessMode === "custom";
-  const customLicenseActive = customMode
-    && license?.scope === "custom"
-    && license.active === true
-    && String(license.plan || "").toLowerCase() === "pro";
-  const customNeedsActivation = customMode && !customLicenseActive;
   const messageIsError = /(?:错误|失败|失效|不可用|未连接|请重新|无效|拒绝|过期)/i.test(message);
 
   function updateAuth<K extends keyof AuthDraft>(key: K, value: AuthDraft[K]) {
@@ -83,15 +74,14 @@ export function AuthGate({
     if (busy) return;
     setBusy(true);
     try {
-      if (customNeedsActivation) await activateLicense();
-      else if (customMode) await submitCustom();
+      if (customMode) await submitCustom();
       else await submitAccount();
     } finally {
       setBusy(false);
     }
   }
 
-  const status = customNeedsActivation ? "Pro 授权" : customMode ? "自定义接口" : authDraft.mode === "register" ? "账户注册" : "账户登录";
+  const status = customMode ? "自定义接口" : authDraft.mode === "register" ? "账户注册" : "账户登录";
 
   return (
     <main className="auth-shell" onPasteCapture={blockImagePaste}>
@@ -104,7 +94,7 @@ export function AuthGate({
           </div>
           <span className="eyebrow">SparkAI WorkSpace</span>
           <h1>{appAccessPolicy.customApiAccess ? "选择使用方式" : "登录 SparkAPI"}</h1>
-          <p>{appAccessPolicy.customApiAccess ? "登录 SparkAPI 使用账户额度，或连接你自己的 OpenAI 兼容接口。" : "此版本使用 SparkAPI 账号、模型与账户额度。"}</p>
+          <p>{appAccessPolicy.customApiAccess ? "软件免费：可登录 SparkAPI，或直接连接你自己的 New API、Sub2API 或其他 OpenAI 兼容接口。上游服务费用由你的账号或 API Key 决定。" : "软件免费，此版本使用 SparkAPI 账号、模型与账户额度。"}</p>
 
           <form className="auth-form auth-gate-form" onSubmit={submit}>
             {appAccessPolicy.customApiAccess ? (
@@ -138,7 +128,7 @@ export function AuthGate({
               </>
             ) : null}
 
-            {customMode && !customNeedsActivation ? (
+            {customMode ? (
               <>
                 <Field label="Base URL">
                   <input value={authDraft.baseUrl} onChange={(event) => updateAuth("baseUrl", event.target.value)} type="url" placeholder="https://example.com/v1" autoComplete="url" required />
@@ -157,24 +147,10 @@ export function AuthGate({
               </>
             ) : null}
 
-            {customNeedsActivation ? (
-              <Field label="Pro 兑换码">
-                <input
-                  value={authDraft.activationCode}
-                  onChange={(event) => updateAuth("activationCode", event.target.value.toUpperCase())}
-                  placeholder="NAI-XXXX-XXXX-XXXX-XXXX"
-                  autoComplete="off"
-                  required
-                />
-              </Field>
-            ) : null}
+            {customMode ? <InlineNotice tone="neutral">软件免费，直接使用你有权访问的 Base URL 与 API Key。上游服务的模型费用由对应账号或服务商承担。</InlineNotice> : null}
 
-            {license?.grace ? <InlineNotice tone="warning">授权服务器暂时不可用，当前处于离线宽限期。</InlineNotice> : null}
-            {customNeedsActivation ? <InlineNotice tone="neutral">自定义 Base URL 需要当前设备的 Pro License；账号登录不需要兑换码。</InlineNotice> : null}
-            {customMode && !customNeedsActivation ? <InlineNotice tone="neutral">当前设备已获得 Pro 授权，可以配置本地 Base URL 与 API Key。</InlineNotice> : null}
-
-            <ActionButton className="basic-auth-submit" variant="primary" type="submit" busy={busy} icon={customNeedsActivation ? <KeyRound size={16} /> : <Shield size={16} />}>
-              {customNeedsActivation ? "验证并解锁" : customMode ? "连接并进入" : authDraft.mode === "register" ? "注册并继续" : "登录"}
+            <ActionButton className="basic-auth-submit" variant="primary" type="submit" busy={busy} icon={customMode ? <Server size={16} /> : <Shield size={16} />}>
+              {customMode ? "连接并进入" : authDraft.mode === "register" ? "注册并继续" : "登录"}
             </ActionButton>
           </form>
 

@@ -69,7 +69,6 @@ function registerServerIpc({
     }
     const current = migrateSettings(readJson(settingsPath, defaultSettings));
     try {
-      const license = await licenseService.requireActive({ scope: "custom" });
       const next = migrateSettings({
         ...current,
         accessMode: "custom",
@@ -99,7 +98,7 @@ function registerServerIpc({
         ok: true,
         user: { id: "custom-api", username: "自定义接口", account: "自定义接口", name: "自定义 API" },
         settings: modelSettings,
-        license,
+        license: { ok: true, active: true, required: false, supported: true, scope: "custom", plan: "free" },
         warning
       };
     } catch (error) {

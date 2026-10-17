@@ -1,6 +1,20 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：参考项目署名与公开教程整理（2026-10-17，completed）
+## 当前任务：免费 Agent 生图工作台与双接入（2026-10-17，in progress）
+
+- 结果：把产品统一定位为免费的“Agent 生图工作台”，保留现有账号登录，通用版 Base URL + API Key 不再需要 Pro 授权。更广泛的 New API/Sub2API 账号登录适配是后续目标，不把接口兼容当成所有站点账号均已兼容。
+- 范围：桌面免费双接入行为、登录/启动门槛、图片与 Agent 请求授权、README/教程/双接入说明、产品意图、上下文地图和推广文案；账号、渠道、quota、计费和 New API 管理仍由用户自己的服务负责。
+- 非目标：不修改外部原生 New API 或 sparkai-extension 生产部署；不发起真实图片/视频/对话请求；不上传 EXE 或创建正式 Release；不删除旧 License IPC/数据字段，以便旧设置和旧扩展继续可读。
+- 验收：双发行策略仍保留（SparkAPI 专用版拒绝自定义接口）；无限制版自定义连接不再显示或要求 Pro 兑换码，配置后可进入工作台；Agent/图片请求不再调用 Pro License 门槛；README、教程和双接入说明准确写明“软件免费、上游服务费用由用户自己的账号/Key承担”；专项测试、production build、Windows EXE、原位安装、提交和 push 均记录真实结果。
+- 当前状态：Renderer、Electron Main、Server IPC 和浏览器回退已移除自定义模式的 Pro 门槛；旧 Electron License IPC/存储保留原兼容行为，正常入口不调用。专项、typecheck、production build、122 个 dist 文件/8 个 Main owner 包内核对及原位安装均完成。已安装程序免费接入专项 6 项/4 截图/2 次启动通过，覆盖过期旧 License、自定义配置和重启恢复，0 真实模型请求。根/桌面 README、教程、第三方署名和推广文案已同步，提交与 push 待执行。
+- 制品与安装：本地无限制版 1.0.9 EXE，109,853,696 B，SHA-256 `8dd49ccf4a0dfab85919bcf3ed9d295f435beb9f83e5449d9157c60e8124cab3`；品牌安装器 `/S` 退出 0 / 24,920ms，注册目录与配置保留、安装 EXE/ASAR 匹配。完整证据见 Progress。
+- 下一步：完成最终文档/差异检查并提交、普通 push，核对远端。公开 v1.0.9 尚未包含本次免费改动；真实模型、全面 New API/Sub2API 账号联调及正式发布不在本轮范围。
+
+### 旧方向已被替代
+
+2026-10-17 用户明确将“自定义 Base URL 需要 Pro License”的旧商业门槛替换为免费双接入。旧文档和历史发布说明保留当时事实，但不再作为当前产品行为或宣传依据；旧 License IPC、扩展和设置字段只做向后兼容，不再决定工作区访问或模型请求。
+
+## 已完成任务：参考项目署名与公开教程整理（2026-10-17，completed）
 
 - 结果：按固定上游版本和实际许可证补全 New API、Sub2API、GPT Image Playground 与 Infinite Canvas 的参考说明；整理 README、教程索引及面向用户的教程。
 - 范围：桌面 README、docs 导航、第三方参考说明、已发布版教程与主分支开发版预览教程；不改软件行为、应用版本、安装包或远端服务。

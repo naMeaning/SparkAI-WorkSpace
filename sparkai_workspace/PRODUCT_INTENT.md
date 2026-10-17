@@ -1,6 +1,10 @@
 # SparkAI WorkSpace 产品意图
 
-更新时间：2026-09-15
+## 当前产品定位（2026-10-17）
+
+SparkAI WorkSpace 是免费的 Agent 生图工作台。用户可以用 New API/SparkAPI 账号登录，也可以在支持自定义连接的免费发行版中直接填写 Base URL + API Key；两条路径共享同一项目、无限画布和本地 Agent。软件本身不收取 Pro 兑换费用，图片/对话请求是否产生费用由用户选择的账号、API Key 和上游服务商决定。旧 Pro License 字段与 IPC 仅为历史设置和旧扩展兼容保留，不再作为工作区进入、Agent 对话或图片请求的运行时门槛。
+
+更新时间：2026-10-17
 
 ## 我们最终想做什么
 
@@ -35,9 +39,9 @@ SparkAI WorkSpace 是面向普通用户和创作者的傻瓜式桌面 AI 图片�
 - 普通 `parallel` 多图在配置并发上限内直接同批派发；任一请求完成后必须立即以同一 operation 更新画布上的同一个图片组，资产按实际完成顺序追加，不能等最后一张结束才整体显示。Goal 仍先 probe 再渐进放量，但每个母图只对应一个结果图片组，组内每张成果保留自身槽位、语言、SKU 和幂等 provenance。
 - 帮助中心已提供首个基于真实画布状态的“跨境电商套图”AI 陪练。它引导用户导入/粘贴母图、选择图片、切换电商工作台，再选择套图工具或 Agent 示例话术；Agent 路径只填入输入框，不自动发送。教学自身零费用，仅用户亲自执行套图或发送 Agent 请求才可能扣费；只有检测到教学开始后新增的 Commerce 受管成果才判定成功。进度按项目保留，完成后提供低成本庆祝动效、徽章、专注查看与平台导出入口。
 - GUI、CLI 与 MCP 由同一个 76 项 command schema 驱动；MCP 只把这些命令包装为 stdio tools 并转发 authenticated loopback bridge，不创建第二套业务实现。7 个 `debug.*` 命令只服务本地开发/AIDebug，输出有界脱敏、截图固定诊断目录、测试固定白名单且无任意 shell；生产安装包默认拒绝，调试能力不能修改用户项目资产、安装依赖或越过模型/计费授权。
-- 启动后必须满足两种通行条件之一：成功登录 SparkAPI/New API 账号，或当前设备持有有效 Pro License 且已配置自定义 OpenAI-compatible Base URL/API Key。账号登录本身就是软件使用授权，不再要求设备兑换码；未登录且未完成 Pro 自定义接口配置时不能进入工作台。
+- 软件免费。通用版启动后可通过现有 SparkAPI/New API 账号登录，或配置 OpenAI-compatible Base URL/API Key 进入工作台；不再要求 Pro License、兑换码或在线设备验证。仍须完成一种服务接入，模型请求仍遵守上游认证、权限和计费。全面 New API/Sub2API 账号适配是后续方向，当前不得承诺所有站点的登录、验证码、二次验证或 Token 管理均兼容。
 - SparkAPI 保持为用户独立部署、可正常跟随上游升级的原生 New API，不在本项目复制或二次开发。`sparkai-extension` 只部署轻量 SparkAI Extension：同域 `/api/naimage/license*` 管理 Pro 设备授权，`/v1/image-tasks*` 以调用者 Bearer Key 在内存中包装原生同步 Images API；账号、Token、渠道、quota、计费、用量与 Web 管理仍全部属于原生 New API。扩展 Worker 默认加入 New API 的 user-defined Docker network 并使用容器 DNS/内部端口，禁止重新经过 Cloudflare 公网；SQLite 不保存模型 Key，重启不重放未完成任务。
-- Windows 发行分为 `dual-access` 与 `sparkapi-account` 两种构建期接入策略。前者允许 SparkAPI 账号登录和 Pro 授权后的用户自定义 OpenAI-compatible Base URL/API Key；后者固定 `https://sparkapi.org`、强制账号模式并由 Electron Main 拒绝全局自定义接口。策略写入构建产物，不使用运行 EXE 时可篡改的环境变量作为生产门禁；两种发行版继续共享同一产品数据和功能代码。
+- Windows 保留 `dual-access` 与 `sparkapi-account` 两种构建期接入策略。前者免费提供现有账号登录和自定义 OpenAI-compatible Base URL/API Key；后者固定 `https://sparkapi.org` 并由 Main 拒绝全局自定义接口。两种发行版共享产品数据和功能代码，构建期策略不由运行时环境变量覆盖。旧 License 字段保留迁移，兼容 IPC 本地返回免费状态、不兑换或校验远端授权；Extension 的旧 License 服务不影响新版桌面访问。
 - 账号模式允许每个对话/图片模型分别填写自定义 Base URL 和 API Key。两个字段独立生效：Base URL 留空时继承账号地址，API Key 留空时按“模型绑定账户 Token → 全局账户 Token”回退；只填写其中一个字段也必须保持另一个字段的继承规则。逐模型 Key 继续只保存在 Windows `safeStorage` sidecar。SparkAPI 专用版仍禁止自定义连接并固定官方账号地址，但不得因此移除无限制版或账号模式中的模型级配置入口。
 - 2026-10-07 用户更新了此前仅自动适配的要求：图片模型的逐模型连接可选择接口格式、服务渠道与结果获取，均可保留自动默认；模型 ID、供应商标签、Adapter、Base URL、Key 独立。同一模型可以经不同渠道使用不同 Adapter，前端仍只提交原统一生图请求，新增供应商扩充原 Adapter 注册表，不另建生图工作台。
 - 2026-10-08 用户要求生成图片按供应商返回的真实 PNG/JPEG/WebP 原格式保存和显示，不强制转换或因与请求编码不同而拒绝有效图片。Main 根据图片字节确定 MIME、扩展名和实际 outputFormat，完整验证图片且保留原始字节；用户主动导出格式仍沿现有导出功能。
