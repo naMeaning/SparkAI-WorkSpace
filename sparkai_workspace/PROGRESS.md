@@ -2,13 +2,14 @@
 
 ## 当前开发状态（2026-10-17）
 
-- 当前任务：免费 Agent 生图工作台与双接入；取消通用版 Pro 门槛、保留账号登录，更新 README/教程与推广文案。广泛 New API/Sub2API 账号适配属于后续目标。
+- 当前任务：免费 Agent 生图工作台与双接入已交付；取消通用版 Pro 门槛、保留账号登录，更新 README/教程与推广文案。广泛 New API/Sub2API 账号适配属于后续目标。
 - 接受现场：main / 211307c83fea1324ff05e826c987ef436d8d309d；本轮已有 Goal/Progress/Product Intent/地图草稿，随后完成免费双接入代码、专项回归、最终 EXE 和原位安装。
 - 既有交付：第三方署名与教程已推送；工作台优化已本地交付。公开 Release 仍为冻结 v1.0.9，密集拖动性能与正式 CSS 门槛问题继续保留，详见历史交付记录。
 - 当前证据：production build、包内审计、原位安装和已安装程序的免费接入/重启专项均通过；根 README、桌面 README、教程、第三方参考入口与推广文案已同步。真实模型、全面 New API/Sub2API 账号兼容和完整登录专项仍未验证。
-- 下一步：最终文档/差异核对后提交并普通推送。本轮免费改动尚未进入公开 v1.0.9，文档已明确区分开发包与公开资产。
+- Git 交付：源码与文档提交 `0909be79d9620f4430d410844b3b31fa3b5d2c83`（19 files）已普通 push 到 `origin/main`，`ls-remote` 实查远端与本地 HEAD/upstream 一致。本完成记录随纯文档提交归档，最终身份保存在[本地交付索引](.diagnostics/free-access-2026-10-17/delivery.json)。另一任务的 Agent 工作流交接草稿及其三处索引记录保留在工作树，未混入本次提交。
+- 下一步：本轮免费接入及文档范围已交付，后续按新需求推进。本轮改动尚未进入公开 v1.0.9，文档已明确区分开发包与公开资产；不把源码 push 视作 EXE 发布。
 
-### 2026-10-17 免费双接入制品与安装验证 / verified; Git pending
+### 2026-10-17 免费双接入制品、安装与源码交付 / delivered; scoped verification passed
 
 - 打包：`package:win:unrestricted` 完成 NSIS 和品牌安装器；production build 1685 modules 通过。当前[通用版 EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,853,696 B，SHA-256 `8dd49ccf4a0dfab85919bcf3ed9d295f435beb9f83e5449d9157c60e8124cab3`；ASAR 52,050,396 B / `1b7c4d9f9526fcd83f64292e14703d93c9f0f18accf4dc300d34b92a09061c5c`。[包内审计](.diagnostics/free-access-2026-10-17/package-audit.json)逐字节核对 122 个 dist 文件与 8 个 Main/runtime owner，确认 dual-access 策略、免费文案和模型入口无 `requireActive`，无 `.env`/诊断目录。
 - 安装：[品牌安装器原位升级](.diagnostics/free-access-2026-10-17/install.json) `/S` 退出 0 / 24,920ms；安装前无运行中 SparkAI 实例，注册目录/1.0.9 保留，安装 EXE/ASAR 匹配当前候选。设置与项目列表哈希/时间戳、密钥 sidecar 大小/时间戳不变；密钥内容未读取。未使用诊断绕过、强制退出或清除数据参数。
@@ -21,7 +22,7 @@
 
 - 已修改桌面 Renderer、Electron Main、Server IPC 和浏览器回退桥：通用版通过账号登录或 Base URL + API Key 进入工作台；Agent 对话和图片请求不再调用 `licenseService.requireActive()`；自定义配置返回本地免费状态。SparkAPI 专用版的构建期 `customApiAccess=false` 限制仍保留。
 - 旧 `LicenseStatus` 类型、IPC、设备字段和 `desktop/license-service.cjs` 未删除，用于旧设置/旧扩展兼容；新版正常产品入口不访问远端 License 服务，也不显示兑换码。旧 Electron License IPC 仍保留显式 verify/activate 能力，浏览器开发回退状态查询本地返回免费状态。全面 New API/Sub2API 账号协议兼容仍是后续目标。
-- 实际验证：`test:access-variant`、`test:custom-api-transport`（40 cases）、`test:ipc-registration`（152/149/3）、`test:license`（9 cases）、`test:agent-protocol`、`test:image-generation-service` 和 `typecheck` 均退出 0；未发起真实模型请求。此 checkpoint 当时尚待 build/EXE/安装，后续结果见上方记录；commit/push 待执行。
+- 实际验证：`test:access-variant`、`test:custom-api-transport`（40 cases）、`test:ipc-registration`（152/149/3）、`test:license`（9 cases）、`test:agent-protocol`、`test:image-generation-service` 和 `typecheck` 均退出 0；未发起真实模型请求。此 checkpoint 当时尚待 build/EXE/安装/Git，后续结果见上方交付记录。
 
 ### 2026-10-17 免费双接入方向变更 / in progress
 
