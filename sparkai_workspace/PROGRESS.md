@@ -7,7 +7,7 @@
 - 既有产品状态：工作台优化实施已完成本地交付，阶段5部分验证；性能回归、正式 Bundle CSS 门槛及真实服务未验证情况见下方 2026-10-17 交付记录。该主分支开发包不是新的正式 Release。
 - 完成：新增 [第三方参考项目与许可证](docs/THIRD_PARTY_REFERENCES.md)，固定列出 New API `973cf8e`（AGPL-3.0）、Sub2API `b8dece9`（LGPL-3.0）、GPT Image Playground `cdc171d`（MIT）和 Infinite Canvas `3a6b64b`（MIT），并说明它们是兼容/交互参考而非桌面运行时依赖；README、文档索引和教程索引已区分公开 v1.0.9 与主分支开发版。
 - 新增教程：[模型连接与运行状态](docs/tutorials/05-model-connections-and-status.md)和[安全恢复图片结果](docs/tutorials/06-recover-image-results.md)，均明确开发版适用范围。根 `node scripts/verify-harness.mjs` 10 项通过，改动文档 `git diff --check` 通过，本地 Markdown 链接检查通过。
-- 交付边界：本轮为文档整理，不重打包、不新增真实模型请求；提交和推送状态以本轮 Git 实际结果为准。
+- 交付边界：本轮为文档整理，不重打包、不新增真实模型请求。提交 `935eb61` 已普通推送到 `origin/main`，随后以远端 `ls-remote` 核对；工作树在收尾后保持干净。
 
 ### 2026-10-17 最终交付 / delivered; performance partially verified
 
