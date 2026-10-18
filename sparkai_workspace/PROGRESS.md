@@ -2,7 +2,7 @@
 
 ## 当前开发状态（2026-10-18）
 
-- 状态：八项桌面修复及本地交付验证完成，Git 收口中。免费 Agent 生图工作台与双接入保留；[逐项验证/限制](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)、[长期合同](docs/AGENT_WORKFLOW_CONTRACT.md)与地图已同步。
+- 状态：八项桌面修复及本地交付完成，源码与文档已普通push。免费 Agent 生图工作台与双接入保留；[逐项验证/限制](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)、[长期合同](docs/AGENT_WORKFLOW_CONTRACT.md)与地图已同步。
 - 实现：结构化Ask恢复冻结快照；view_image同轮像素与独立生成字节清单；更新地址/传输/路由/响应/签名分层；原TaskScope紧凑范围菜单；同轮观察短名/manual保护/稳定消歧；完整启用模型池与有效参数冻结；Grok能力归一；四侧端口、实际命中、路径及取消手势。
 - 现场：main / 8889db1db5f002226d10634f3c066b24f69cff8a开始，预存相关文档及免费双接入均保留；所有子代理gpt-6.1-sol/max。0真实模型请求，未改外部New API/Extension/生产地址。
 - 最终完整UI：[59项/18截图](.diagnostics/agent-workflow-ui-2026-10-18T08-39-52-010Z/report.json)，mode=full/ok=true，19owner前后稳定；图片↔容器32侧向组合、键盘、取消、0.5/1.2缩放、移动/撤销/保存重载、平移/框选/resize、普通点击/拖动阈值/尾随事件、实际手动命名与884×640菜单全部通过。38条端点最大误差0.0005603px。主/子代理已看[截图总览](.diagnostics/agent-workflow-ui-2026-10-18T08-39-52-010Z/review-montage.png)及小窗/重载原图。
@@ -14,7 +14,9 @@
 - 免费双接入复验：[最终安装版6项/4截图/两次启动](.diagnostics/agent-workflow-delivery-2026-10-18/auth-ui-1792312696078/report.json)通过，账号表单、过期旧License不阻custom、实际提交与重启恢复、普通设置无fixture key；0模型POST/0License请求。已看重启工作台截图，未读取/覆盖日常凭据。
 - 交付后preflight：[最终核对](.diagnostics/agent-workflow-delivery-2026-10-18/preflight.json)通过，安装器/安装EXE/ASAR身份未变，日常配置与项目列表及凭据sidecar metadata保持，未读secret内容；同名进程为空。
 - 未验证：本地Mock不能证明主模型自主ask/view、真实主体识别/参考遵从或具体Grok渠道能力；真实测试清单已提出，等待范围对应凭据，实际请求0。生产更新路由仍缺失；历史500/1000节点拖动性能、正式CSS门槛保留，未扩大正式门禁。不上传EXE、不创建Release/tag。
-- Git：源码/文档待本轮普通commit/push后实查远端；下一步只做文档链接/差异/制品稳定性收尾与Git同步。
+- Git交付：57个源码/测试/文档文件提交 `c7787f2b90e4c2c0cf2e585da8f5ca4a4d81e36b` 已普通push到origin/main；ls-remote实查远端、本地HEAD、upstream三者一致，工作树干净。提交范围仅桌面源码/合同/测试/文档，无EXE/诊断/私有配置；凭据样式扫描未发现疑似secret。
+- 文档收尾：Goal/Progress、Product Intent、地图v112、共享schema/CLI/MCP、合同/验证/索引已同步；39处新增链接与差异检查通过，源码421文件再次核对零漂移。本完成记录随纯文档提交归档，最终Git与证据哈希集中于[本地交付索引](.diagnostics/agent-workflow-delivery-2026-10-18/delivery.json)。
+- 下一步：本轮授权的本地交付已完成；真实模型、生产更新路由、历史性能/正式门禁与正式发布均按上方限制保留，不重复已完成的付费历史请求。
 
 ### 2026-10-18 八项实施过程（历史checkpoint，按上方最终快照判断当前状态）
 

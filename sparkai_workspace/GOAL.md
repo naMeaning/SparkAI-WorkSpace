@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：Agent 工作流、图片上下文、更新与四向连线（2026-10-18，本地验证与安装完成；Git 收口中）
+## 当前任务：Agent 工作流、图片上下文、更新与四向连线（2026-10-18，本地交付完成；真实模型能力另行验证）
 
 - 结果：八项桌面修复已实施，受影响专项、隔离 Electron 交互、typecheck、production build、最终 EXE 和原位安装已完成。逐项证据与限制见[本轮验证](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)，长期 owner 见[合同](docs/AGENT_WORKFLOW_CONTRACT.md)。
 - 依据：[交接文档](docs/AGENT_WORKFLOW_UPDATE_HANDOFF_2026-10-17.md)作为实施起点；通过实际代码/运行复现确认根因。旧 imageParams 仅作历史信息，不能覆盖本轮冻结设置。
@@ -11,7 +11,8 @@
 - 验收：Ask/Goal 14项/8截图；最终完整交互 59项/18截图（32侧向组合、小窗884×640、命名实际编辑/重载）；安装版 Main 5项/3截图（唯一1次Mock图片POST、1成果、像素续轮、重载、正常退出）；更新 HTTP22项及UI7项/11截图；免费双接入6项/4截图/两次启动；资产merge94项、真实projectIO及双Renderer5例；其余专项/typecheck通过。
 - 最终制品：421个产品/公开契约文件冻结，sourceHash `33b9b0d524a88e2f0858f997ef76323f68d4c294808cda7b3c968c13e23e8592`；production build1688 modules/22.39s，品牌Windows EXE109,866,496 B / SHA256 `c94cfb0132b6738c7d12ad66723b837460d89d4bd36510bf2cf3fbed1f52a3ba`。品牌/S原位安装exit0/17,431ms，原注册目录/配置保留，安装EXE/ASAR核验一致；完整身份在[Progress](PROGRESS.md)。
 - 未验证：真实模型请求0；自主工具选择、真实主体识别/参考遵从与具体Grok渠道能力未测。具体联调清单已提出，等待对应范围凭据回复；默认n=1、创建不明不重发。生产更新地址合法但HTTP404缺路由，客户端无法补齐外部接口。历史密集拖动性能与正式CSS门槛仍保留。
-- 下一步：完成本轮源码/文档commit、普通push与远端身份核对；真实服务和正式发布另按明确授权推进。
+- Git交付：57个源码/测试/文档文件已提交为 `c7787f2b90e4c2c0cf2e585da8f5ca4a4d81e36b` 并普通push到origin/main，实查远端/HEAD/upstream一致，提交后工作树干净。本完成记录随纯文档收尾提交归档，最终分支身份见Progress的本地交付索引。
+- 下一步：本轮桌面本地交付完成；可选真实联调等待已提出范围的凭据回复，生产更新接口及正式发布另行处理。
 
 ## 已完成任务：免费 Agent 生图工作台与双接入（2026-10-17，delivered；公开发布另行安排）
 
