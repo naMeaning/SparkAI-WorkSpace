@@ -14,6 +14,13 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 - `image.operations`: `{}`. List sanitized image operation stages in the active project. This reads local records and never creates a model request.
 - `image.recover`: `{"key":"key","expectedProjectId":"expectedProjectId"}`. Recover an existing image operation by key. Poll only its original task or save its original result; never POST a new generation. Current connection must match. Publishes assets idempotently through the project save owner.
 
+## Stable Agent tasks
+
+- `agent.task.start`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId","submissionId":"submissionId","prompt":"prompt"}`. Start one asynchronous Agent task in an explicit open project/conversation. Persist the frozen receipt before accepted. Reuse submissionId for retry/reconnect: the same normalized request returns the original task, different content conflicts. Busy tasks are never steered. This can call configured upstream models.
+- `agent.task.get`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId"}`. Read a durable sanitized task receipt, question/options, original image-operation keys and saved asset identities. Supply taskId or submissionId; omitting both returns the latest task in this project/conversation. Works after renderer reload/app restart, never creates a model request.
+- `agent.task.wait`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId","taskId":"taskId","afterVersion":0,"timeoutMs":25000}`. Wait at most 30000ms for a receipt version change. afterVersion is the last cursor; an older cursor returns the latest snapshot, an ahead/invalidated cursor returns TASK_CURSOR_EXPIRED and requires get. Timeout only ends this wait, returns timedOut plus the original task/cursor, and never stops or restarts work. Receipts/idempotency are retained together without automatic expiry; capacity is fail-closed.
+- `agent.task.answer`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId","taskId":"taskId","questionId":"questionId","expectedVersion":1}`. Answer exactly one current structured question using questionId and expectedVersion from get/wait. Choose optionId or supply a custom answer. GUI/CLI compete through the same durable one-use claim. Continues the original frozen TaskScope/configuration and never interprets the answer as an independent image task; source/reference uploads remain the GUI material picker action.
+
 ## Development debugging
 
 - `debug.runtime-state`: `{}`. Return a bounded, redacted Main/Renderer runtime snapshot. Available only in local development or AIDebug mode; it never includes API keys, cookies, endpoint tokens, or absolute user asset paths.

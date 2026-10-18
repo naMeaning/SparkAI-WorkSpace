@@ -2451,6 +2451,9 @@ async function normalizeGeneratedAssetsToDeliveryFrame(assets = [], deliverySize
   if (!target || !sharpImage) return source.map(imageAssetWithDimensions);
   return Promise.all(source.map(async (input) => {
     const asset = imageAssetWithDimensions(input);
+    // Main's image journal already owns these durable bytes and their hash.
+    // Rewriting them here would invalidate both recovery and the next TaskScope.
+    if (asset.recoveryOperationId) return asset;
     const assetPath = String(asset?.path || "").trim();
     if (!assetPath || !existsSync(assetPath)) return asset;
     try {
@@ -3499,7 +3502,7 @@ function createAgentRuntime(options) {
     };
   }
 
-  async function callImageGeneration(args, settings, progress) {
+  async function callImageGeneration(args, settings, progress, agentRunId = "") {
     const mode = args.mode || "generate";
     const prompt = stripPastedBlockMarkers(args.prompt ?? "");
     const count = Math.max(1, Math.min(Number(args.count ?? 1), 200));
@@ -3542,7 +3545,7 @@ function createAgentRuntime(options) {
           count: 1,
           onRequestSettled: undefined,
           runId: `${args.runId || `agent-${Date.now()}`}-item-${index + 1}`
-        }, settings, progress),
+        }, settings, progress, agentRunId),
         validateResult: (result) => validatePersistedImageBatchResult(result, "outputs"),
         onItemSettled: async (entry, item, index) => {
           completionOrder.push(index);
@@ -3672,6 +3675,7 @@ function createAgentRuntime(options) {
             mode: editRequested ? mode : "generate",
             projectId: args.projectId,
             conversationId: args.conversationId,
+            agentRunId,
             runId,
             signal: args.signal,
             onPartialImage: (partial) => progress?.({
@@ -4395,7 +4399,7 @@ function createAgentRuntime(options) {
           onTransportPromise: dispatch.trackProviderPromise,
           onTransportRetry: dispatch.reportRetry,
           batchSize: 1
-        }, context.settings || {}, context.progress);
+        }, context.settings || {}, context.progress, context.runId);
       },
       validateResult: (generation) => validateGoalPersistedImageResult(generation, generation?.size || toolArgs.size),
       onItemSettled: (entry, job) => {
@@ -4742,7 +4746,7 @@ function createAgentRuntime(options) {
           toolRunId: context.operationId || context.toolRunId,
           partialRequestIndex: 1,
           runId: `${groupId}-preview`
-        }, settings, context.progress);
+        }, settings, context.progress, context.runId);
     const previewAsset = preview.outputs?.[0] || null;
     if (!previewAsset) throw new Error("分层任务没有生成合成预览，已停止创建不完整图层组。");
     const previewReference = previewAsset ? normalizeReferenceImage(previewAsset, `${groupId}-preview.png`) : null;
@@ -4814,7 +4818,7 @@ function createAgentRuntime(options) {
         toolRunId: context.operationId || context.toolRunId,
         partialRequestIndex: index + 1,
         runId: `${groupId}-${index + 1}-${layer.id}`
-      }, settings, context.progress);
+      }, settings, context.progress, context.runId);
       const asset = generation.outputs?.[0] || null;
       if (!asset) throw new Error(`图层「${layer.title}」没有返回 PNG 资产。`);
       return { layer, generation, asset, index };
@@ -5401,7 +5405,7 @@ function createAgentRuntime(options) {
           waitUntilRunnable: context.waitUntilRunnable,
           batchSize: context.settings?.imageBatchSize,
           onRequestSettled: handleLiveImageResult
-        }, context.settings ?? {}, context.progress);
+        }, context.settings ?? {}, context.progress, context.runId);
       } catch (error) {
         const message = cleanOneLine(error instanceof Error ? error.message : String(error), 260);
         context?.progress?.({

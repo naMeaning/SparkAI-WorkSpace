@@ -68,6 +68,8 @@ const { loadRecordedRemoteAssetProxy } = require("./desktop/remote-asset-proxy.c
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
 const { createAutomationService } = require("./desktop/automation-service.cjs");
+const { createAgentTaskService } = require("./desktop/agent-task-service.cjs");
+let agentTaskService;
 const { createDebugCommandService } = require("./desktop/debug-command-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
@@ -1094,8 +1096,8 @@ automationService = createAutomationService({
   version: getDesktopVersion(),
   executablePath: process.execPath,
   log,
-  serviceCommandHandler: debugCommandService.execute,
-  serviceCommandNames: debugCommandService.commands
+  serviceCommandHandler: (command, args) => command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
+  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer"]
 });
 const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
@@ -2780,6 +2782,7 @@ function getAgentRuntime() {
 }
 
 function emitAgentProgress(sender, runId, payload = {}, scope = {}) {
+  if (scope.projectId) agentTaskService?.progress(scope.projectId, runId, payload);
   const phase = { "image-request": "request", "image-response": "response", "image-error": "failure",
     "runtime-error": "failure", "runtime-partial": "partial", "tool-done": "done", "tool-error": "failure" }[payload.phase];
   if (phase && ["image_gen", "view_image", undefined].includes(payload.tool)) {
@@ -4861,6 +4864,7 @@ async function callNewApiImageWithSession(settings, payload = {}) {
       context.connectionId = modelConnectionIdentity(baseUrl, apiKey);
       if (!context.operationRecord && payload.projectId) context.operationRecord = imageOperationJournal.start({
         projectId: payload.projectId, operationId: payload.operationId || payload.runId, requestIndex: payload.requestIndex || 1, runId: payload.runId,
+        agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId),
         model, protocol: config.protocol, transport: config.transportMode, connectionId: context.connectionId,
         parameters: context.scope, sourceNodeIds: payload.nodeIds || (payload.referenceImages || []).map(image => image.canvasNodeId).filter(Boolean),
         sources: [payload.editImage, ...(payload.referenceImages || [])].filter(Boolean),
@@ -5174,6 +5178,27 @@ const imageOperationJournal = createImageOperationJournal({
   pollTask: (item, connection) => newApiClient.pollSub2apiImageTask(connection.settings, item.taskId, { model: item.model, credentials: connection.credentials })
 });
 
+agentTaskService = createAgentTaskService({
+  projectFor: projectId => getProjectById(projectId, readProjectList()), metaDir: projectMetaDirName,
+  readSession(projectId) {
+    const project = getProjectById(projectId, readProjectList());
+    if (!project?.sessionPath || !existsSync(project.sessionPath)) return null;
+    return JSON.parse(readFileSync(project.sessionPath, "utf8"));
+  },
+  runSnapshot: () => agentRunControl.snapshot(),
+  operations: projectId => imageOperationJournal.list(projectId).map(item => imageOperationJournal.get(projectId, item.key)),
+  async locateOwner({ projectId, conversationId }) {
+    for (const owner of automationService.rendererOwners()) {
+      try {
+        const state = await automationService.dispatchRenderer("app.state", {}, 3000, owner);
+        if (state.activeProjectId === projectId && state.activeConversationId === conversationId) return owner;
+      } catch { /* Another renderer may be reloading; never dispatch into a different scope. */ }
+    }
+    throw Object.assign(new Error("请在主窗口打开目标项目和会话后重试查询或回答。"), { code: "TASK_TARGET_UNAVAILABLE" });
+  },
+  dispatch: (command, args, owner) => automationService.dispatchRenderer(command, args, 15_000, owner)
+});
+
 function registerIpc() {
   registerDesktopIpc({
     runtimeDiagnostics,
@@ -5244,6 +5269,7 @@ function registerIpc() {
     listAgentModels,
     emitAgentProgress,
     agentRunControl,
+    agentTaskService,
     aidebugMode,
     aidebugAgentStopFixture,
     createWindow,
@@ -5365,6 +5391,8 @@ function createWindow(launch = {}) {
   window.setMinimumSize(minWindowWidth, minWindowHeight);
   const rendererOwnerId = String(window.webContents.id);
   const stopRendererOwnedWork = (reason) => {
+    try { agentTaskService?.ownerGone(rendererOwnerId); }
+    catch { log("agent task receipt persistence unavailable during owner shutdown"); }
     const runs = agentRunControl.stopOwner({ ownerId: rendererOwnerId, reason });
     const automation = automationService.rendererGone(rendererOwnerId, reason);
     if (runs.stopped || automation.rejected) {
@@ -5389,11 +5417,14 @@ function createWindow(launch = {}) {
     if (!window.isVisible()) window.show();
   });
   window.webContents.once("dom-ready", () => logBoot("renderer dom-ready"));
+  let rendererHasLoaded = false;
   window.webContents.on("did-start-loading", () => {
+    if (rendererHasLoaded) stopRendererOwnedWork("SparkAI WorkSpace 界面正在重载，原 Agent 执行已中断；在途图片保留原恢复链路。");
     logBoot(`load start ${devUrl || rendererIndex}`);
     log(`load start ${devUrl || rendererIndex}`);
   });
   window.webContents.on("did-finish-load", () => {
+    rendererHasLoaded = true;
     logBoot(`load finish ${window.webContents.getURL()}`);
     log(`load finish ${window.webContents.getURL()}`);
     if (!window.isVisible()) window.show();

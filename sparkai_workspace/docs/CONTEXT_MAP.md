@@ -453,6 +453,16 @@ AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、�
 
 ### 4.5 本机 Agent 自动化
 
+`desktop/agent-task-service.cjs` 拥有项目级稳定回执与幂等索引（同一 fsync/原子 ledger），公开 `agent.task.start/get/wait/answer` 经 authenticated automation service / preload 进入 Main。`start`指定项目/会话/submissionId与有序sourceNodeIds；Main定向找到原生产Renderer，校验/保存/冻结后先持久化accepted，再经一次性claimRun进入原chat。`answer`先Main按任务/问题/版本/owner原子claim，再定向`resumePendingAgentExecution`；GUI也走同一claim。内部`agent.task.dispatch/answer-dispatch`只用于Main到原Renderer，不注册为公开schema动作。`agent.chat`兼容原wait/steer。
+
+首次GUI发送前`flushActiveProjectSession(ensureConversation:true)`显式保存当前空白会话身份；受理失败及时记录interrupted而不悬留preparing，原提交标识继续保留。GUI回答领取后本地保存/准备失败经原taskSettle结算interrupted，旧session pending不能复活终结回执；未关联回执的legacy pending仍阻止新执行。`src/agent-task.ts`仅轮询已确认回执并生成中文任务卡，断线保留最后快照；普通UI不显示协议身份。历史session/journal字段在Main公开投影中清洗，不把路径或连接链接透传任务DTO。
+
+Renderer继续持有生产执行、冻结TaskScope、pending execution与画布动作；session保存完整续接及taskId。Runtime `callImageGeneration`通过独立内部参数传父agentRunId（不使用模型额外字段），Main按父run关联图片journal的agentTaskId；图片子run/operation身份保持原样。`get/wait`从journal、文件及权威session投影保存成果，按asset/occurrence去重，版本覆盖阶段/问题/成果/保存变化。无法安全续接的活动运行在重启或Renderer重载后标interrupted，原accepted图片仍只沿原taskId/缓存字节恢复，不新建Runtime或create重试。save-failed在权威保存确认后投影回原执行结果，失败但已有成果为partial。详见[长期合同](AGENT_WORKFLOW_CONTRACT.md)。
+
+`normalizeGeneratedAssetsToDeliveryFrame`不得改写带`recoveryOperationId`的Main journal资产：原文件、哈希及实际尺寸由Main拥有，避免后续冻结素材与恢复读到不同字节；旧direct fallback继续原画幅规则。`test:agent-task-ui`用不同显式画幅、原字节/hash及下一任务续接验证，另保留`test:image-format`与`test:view-image`门禁。
+
+回执/幂等标识首期不自动清理，2000任务容量满后拒绝；关联图片journal不得独立淘汰。wait最长30000ms，旧cursor返回最新，超前cursor明确过期并要求get。验证：`test:agent-task`、`test:agent-task-ui`（支持安装EXE，正式bridge/真实PowerShell CLI、loopback唯一POST、GUI/CLI竞争、冻结、重载/重启、双窗口卡及脱敏）、automation/MCP/IPC与既有run-control/image-recovery。
+
 `project.create.parentDirectory` 为可选的显式绝对父目录：schema/生成 registry/MCP → `automation-command-runtime.ts` → `main.tsx:createProject` → preload `createProject` → `desktop/ipc/project-ipc.cjs`。Main 校验真实现有目录并仅创建新的、同名自动编号的项目子目录；省略参数保留 GUI 原生目录选择。取消返回 canceled，忙碌/路径/写入失败必须成为 CLI 错误，不以旧 activeProject 伪装成功。验证：`test:project-root-policy`、`test:automation-service`、`typecheck` 与安装版真实 CLI 创建。
 
 PowerShell CLI stdout 使用无 BOM UTF-8，供 Node/MCP 等调用者稳定解析含中文或 emoji 的 JSON；不依赖 Windows 当前控制台的 ANSI/GBK 代码页。真实 pipe 文字往返由 `test:automation-service` 覆盖。
@@ -703,6 +713,7 @@ Renderer UpdaterBridge
 | `desktop/ipc/register-desktop-ipc.cjs`, `desktop/ipc/*-ipc.cjs` | Settings → GlassBackground → RequirementLibrary → CommerceTemplate → CommerceCatalog → CommerceExport → SocialExport → Scientific → Plugin → Automation → Updater → Session → Agent → Window → Debug → ExportCenter → Project → ImageCollection → Asset → Server → VideoTask 的固定注册顺序和各域 handler | 桌面服务实现、React 状态、跨域业务复制；依赖必须由 Main 显式注入 | `registerDesktopIpc`, `registerSettingsIpc`, `registerGlassBackgroundIpc`, `registerRequirementLibraryIpc`, `registerCommerceTemplateIpc`, `registerCommerceCatalogIpc`, `registerCommerceExportIpc`, `registerSocialExportIpc`, `registerScientificIpc`, `registerPluginIpc`, `registerAutomationIpc`, `registerAgentIpc`, `registerExportCenterIpc`, `registerImageCollectionIpc`, `registerAssetIpc`, `registerServerIpc`, `registerVideoTaskIpc` | `test:ipc-registration`, `test:lifecycle`, `aidebug:gui` |
 | `agent-runtime.cjs` | Prompt/画布上下文组装、当前 `workspaceDomain` 的一句领域提示、模型感知 checkpoint/model/tool 协议循环、工具执行、runtime action 编排 | React state、窗口原语、直接画布 mutation、四套 Agent Runtime、SQLite/JSON memory CRUD、重复实现已抽出的策略/schema/响应解析/图片帧/观察副本规则 | `createAgentRuntime`, `chat`, `workspaceDomainPrompt`, `runTool`, `buildPromptMessages`, `compactConversationIfNeeded` | `test:workspace-domain`, `test:context-checkpoint`, `test:agent-text`, `test:agent-protocol`, `test:view-image` |
 | `desktop/agent-run-control.cjs` | 按项目/会话/Renderer owner 持有父运行取消、暂停、节点锁、有界 steer 队列与可中断 child phase；owner/global 停止和空闲 scope 回收 | 模型/工具执行、协议历史、React UI 或项目持久化 | `createAgentRunControl`, `beginPhase`, `consumeSteers`, `steer`, `stopOwner`, `stopAll`, `isRunnable` | `test:agent-run-control`, `test:agent-steer`, `test:lifecycle`, `test:ipc-registration` |
+| `desktop/agent-task-service.cjs` | 持久回执/幂等摘要、版本/问题、一次性run/answer领取、原图片journal与权威保存投影 | Agent执行、完整pending、凭据、素材路径、图片POST/轮询或另一套运行引擎 | `createAgentTaskService`, `execute`, `admit`, `claimRun`, `claimAnswer`, `settle`, `ownerGone`, `stopScope`, `taskIdForRun` | `test:agent-task`, `test:agent-task-ui`, `test:automation-service`, `test:mcp-wrapper` |
 | `desktop/project-store.cjs` | 显式项目列表与 active 项目、用户选择的项目目录/session/manifest v2、空项目状态和当前元数据路径 | 虚拟 `default` 项目、全局 Session 新写入、用户项目目录删除、session 字段清洗、资产扫描/hydration、保存队列或 IPC | `createProjectStore`, `projectSessionFromDisk`, `writeProjectManifest`, `ensureProjectFiles` | `test:project-root-policy`, `test:project-io`, `test:project-save-coordinator` |
 | `desktop/project-data-migration.cjs` | 旧 AppData 项目/全局 Session 与项目级 Agent 状态预检、目标空间/冲突检查、SHA-256 复制验证、staging/原子发布、索引回滚和二次确认清理回执 | 启动时自动迁移、安装目录/AppData 目标、敏感文件复制、Renderer 私有路径、未经复核删除源数据 | `createProjectDataMigrationService`, `previewLegacyData`, `migrateLegacyProjects`, `cleanupMigratedSource` | `test:project-data-migration`, `test:project-root-policy`, `test:ipc-registration`, `aidebug:isolation` |
 | `desktop/export-center-state-service.cjs`, `desktop/ipc/export-center-ipc.cjs` | 当前项目的导出预设、内容指纹与最多 200 条历史；项目根复核、严格 schema、临时文件后原子替换，以及 5 个有界 IPC | 任意目标路径、图片/PSD 转码、导出队列执行、Renderer 状态或跨项目共享配置 | `createExportCenterStateService`, `EXPORT_CENTER_STATE_RELATIVE_PATH`, `registerExportCenterIpc` | `test:export-center`, `test:export-center-ui`, `test:ipc-registration` |
@@ -784,6 +795,7 @@ Renderer UpdaterBridge
 | `src/theme-palette-picker.tsx` | 旧 11 套配色与自定义主题导入/导出表面；设置外观入口已改为 Glass Lab，本文件只保留自定义主题编辑与文件契约 | 文件 IO、schema 权威校验、任意 CSS 解释或设置磁盘写入；不得重新作为外观首页 | `ThemePalettePicker`, `defaultCustomTheme`, `transferTheme` | `test:theme-preset`, `test:settings-persistence`, `test:ui-foundation`, `aidebug:gui`, `build`, `test:bundle` |
 | `src/agent-panel-layout.ts` | Agent 面板设置读取、四向停靠/应用内浮动转换、边界限制、pointer delta 与 CSS preview variables | React 状态、Electron 独立窗口、设置磁盘 IO | `agentPanelLayoutFromSettings`, `agentPanelLayoutForPlacement`, `agentPanelLayoutFromPointer`, `applyAgentPanelLayoutPreview` | `test:agent-panel-layout`, `test:agent-panel-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/project-agent-panel.tsx` | 主 Agent 面板、会话历史弹层、原生文本选择及面板内焦点返回；会话历史在捕获阶段独占 `Escape`，布局提交后恢复触发按钮焦点 | Agent runtime、项目持久化、共享 Dialog/Drawer 实现或画布全局快捷键 | `ProjectAgentPanel`, `PROJECT_AGENT_HISTORY_TOGGLE_ID` | `test:agent-panel-ui`, `test:agent-send-ipc`, `test:agent-text-ui`, `typecheck`, `build` |
+| `src/agent-task.ts` | Main回执查询hook及主/独立窗中文任务卡投影，断线保留最后确认快照 | 执行引擎、任务持久化、图片恢复或独立会话owner | `AgentTaskReceipt`, `AgentTaskCard`, `useAgentTaskReceipt`, `agentTaskCard` | `test:agent-task`, `test:agent-task-ui`, `typecheck` |
 | `src/agent-window-sync.ts` | 独立窗脱敏有界快照（含领域 ID/标题）、Glass appearance projection、状态文案与命令 allowlist；只在打开独立窗时动态加载 | IPC、BrowserWindow、领域 authority、Agent 执行、项目持久化或独立设置 authority | `AgentWindowGlassAppearance`, `buildAgentWindowSnapshot`, `workspaceDomain`, `normalizeAgentWindowCommand`, `agentWindowStatusText` | `test:workspace-domain`, `test:glass-theme`, `test:agent-window`, `test:agent-window-ui`, `typecheck`, `build`, `test:bundle` |
 | `src/streaming-image-preview.ts` | 生图 partial 的运行时状态归一化、`operationId + requestIndex` 同槽替换与目标图片节点归属 | 网络流解析、图片落盘、Agent 时间线消息、项目 session 或最终资产列表 | `upsertStreamingImagePreviewState`, `groupStreamingImagePreviewsByNode` | `test:image-stream-preview`, `test:image-container`, `typecheck`, `build`, `test:bundle` |
 | `src/asset-identity.ts` | 稳定 asset/occurrence ID、身份 claim 协调、安全 locator/relative path | 文件复制、项目 manifest IO | `stableImageAssetId`, `stableImageOccurrenceId`, `reconcileImageAssetIdentityClaims` | `test:asset-identity`, `test:project-io`, `test:image-import` |
@@ -898,7 +910,7 @@ AIDebug 的 Commerce、Glass、Graph CLI、Skill、图片生成和 Commerce Expo
 | `window.naimageConfig` | 设置、显式项目/session、旧数据迁移预检/执行/清理、导出中心状态/预设/历史、图片组预检/导出/目录、图片另存、受管工作区背景、Project Graph 只读导入、社媒发布包预检/导出、窗口控制 | 本地文件、原生 Open/Save 授权、项目目录、迁移回执、导出中心原子状态、BrowserWindow、原子保存、受限 `.prg` 解析、背景 WebP 转码与社媒原生目录授权 |
 | `window.naimageServer` | 登录、自定义 API 配置、激活、用户、余额、日志、模型、账户密钥 CRUD/选择、生图 | New API session、公开脱敏 token DTO、Main-only 完整 Key、授权状态与结果落盘 |
 | `window.naimageUpdater` | 检查、下载、应用更新、进度订阅 | 签名、hash、ticket、helper、回滚 |
-| `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory | Agent runtime 生命周期、memory、模型与工具循环 |
+| `window.naimageAgent` | chat、停止、模型、Prompt、FastMemory；taskCommand、taskAdmit、taskSettle、taskClaimAnswer | 原runtime生命周期；四个`naimage:agent:task-command/task-admit/task-settle/task-claim-answer` IPC连接持久回执与原生产执行，校验sender owner；task-command仅开放四个公开动作 |
 | `window.naimageAutomation` | Renderer ready、生产命令接收与结果回传 | loopback HTTP 请求关联、随机 Token 与超时 |
 | `window.naimageAgentIntegrations` | Agent 目录检测、安装/更新/移除 Skill | 目标路径验证、复制和 `.naimage-connection.json` 生成 |
 | `window.naimageVideo` | 单任务创建、列表/查询、显式刷新、重试下载与状态订阅 | 独立视频任务适配器、项目 journal、凭证绑定、恢复轮询与受管落盘；不公开 Key、绝对持久化路径或上游签名结果 URL |
@@ -1067,6 +1079,8 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 | `<project>/.naimage/project.json` | `naimage-project` manifest v2、revision 和统计 | Electron Main |
 | `<project>/.naimage/agent/fastmemory.json` | 按 `projectId + conversationId` 隔离的项目 FastMemory | Agent runtime；不得新写入 AppData memory |
 | `<project>/.naimage/agent/conversations.json` | 项目 conversation summary 与 protocol turns | Agent runtime；清理会话只影响当前项目/会话 |
+| `<project>/.naimage/agent/tasks.json` | schemaVersion1；稳定任务、规范请求摘要/幂等key、冻结范围脱敏投影、版本/阶段/问题、runIds/claimedRunIds、保存投影指纹 | Main agent-task-service；同文件fsync/原子替换，无自动淘汰，2000上限fail closed；不存完整prompt/凭据/URL/素材路径 |
+| `<project>/.naimage/image-operations/journal.json` | 原图片operation/子run/taskId、缓存槽位/受管成果与agentTaskId关联 | 原image-operation-journal；关联任务记录不独立淘汰，accepted/原字节仅恢复、uncertain不重发 |
 | `<project>/.naimage/export-center.json` | 项目级导出预设、最近内容指纹和最多 200 条导出历史 | Electron Main；严格 schema 与原子替换，不保存绝对路径、凭据或图片字节 |
 | `<project>/.naimage/commerce-catalog.json` | 独立目录 revision、商品/变体/SKU 与母图、品牌素材、生成结果关联 | Electron Main；项目路径是持久化范围，Renderer 只提交 `nodeId + assetIndex` |
 | `<project>/.naimage/video-task-journal.json` | 视频任务 ID、状态、兼容端点族、请求参数、相对输出路径与凭证单向指纹 | Electron Main；不得保存 Key、绝对路径、`naimage-asset:` 或向 Renderer 公开的签名结果 URL |
@@ -1102,6 +1116,8 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 - `naimage-memory.db`：App 级 runtime meta、context、toolmemory、date memory 等 SQLite 数据；项目 summary/protocol 的新写入位于 `<project>/.naimage/agent/conversations.json`。当前库不存在时可从更名前数据库只读迁移，失败时不覆盖或删除来源。
 
 Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不能重新合并为旧 Prompt entries。
+
+稳定任务回执不是memory或协议历史；会话清理/compact/FastMemory编辑不得清除幂等索引。完整pending仍在session，主/独立窗口通过`src/agent-task.ts`与`src/agent-window-sync.ts`共享任务卡/问题投影，不持有第二Runtime。
 
 ### 9.4 仅内存状态
 
@@ -1140,6 +1156,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 | 图片 edit 推断、遮罩拒绝兼容、像素保留与未知请求不重建 | `corepack pnpm run test:image-mask-compat`、`test:image-generation-service`、`test:image-generation-adapters`、`test:image-generation-async`、`test:remote-asset-security`；少量真实请求报告见 `docs/UPSTREAM_ACCOUNT_IMAGE_CONTRACT_2026-10-07.md` |
 | 设置页账户/模型离线快照与显式刷新 | `corepack pnpm run test:settings-lazy-load` |
 | 本机 loopback 自动化鉴权与正式 CLI | `corepack pnpm run test:automation-service` |
+| 稳定回执/回答CAS、持久化失败/容量/损坏、原图片关联、重启/重载/保存状态及双窗口任务卡 | `test:agent-task`、`test:agent-task-ui`；后者支持`--exe`，隔离真实Electron/PowerShell CLI/本地HTTP，无真实模型请求，保存截图/可见状态 |
 | MCP 同注册表包装、stdio JSON-RPC、loopback 转发和 Token 不回显 | `corepack pnpm run test:mcp-wrapper` |
 | 开发调试 service command、schema 参数、日志/状态脱敏、固定截图目录、生产拒绝和无 Renderer 分流 | `corepack pnpm run test:automation-debug` |
 | 个人需求模板库的 JSON/CAS、IPC/preload 与 CLI list/save/delete/use | `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration` |

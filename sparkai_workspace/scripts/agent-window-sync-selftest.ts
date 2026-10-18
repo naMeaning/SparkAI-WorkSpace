@@ -241,7 +241,14 @@ assert.match(surfaceRenderer, /if \(!currentState\?\.busy \|\| currentState\.sto
 assert.match(surfaceRenderer, /applyGlassAppearance\(state\)/);
 assert.match(surfaceRenderer, /root\.dataset\.glassTheme = appearance\.glassTheme/);
 assert.match(surfaceRenderer, /glassVariableNamePattern\.test\(name\)/);
-assert.match(surfaceCss, /grid-template-rows: auto auto auto minmax\(0, 1fr\) auto auto/);
+assert.match(surfaceCss, /grid-template-rows: auto auto auto auto minmax\(0, 1fr\) auto auto/);
+assert.match(surfaceHtml, /id="agent-task-card"/);
+const taskAnswer = { type: "task-answer", taskId: "task-1", projectId: "project-1", conversationId: "conv-1", questionId: "question-1", expectedVersion: 7, answer: "红色" };
+assert.deepEqual(normalizeAgentWindowCommand(taskAnswer), taskAnswer);
+assert.equal(normalizeAgentWindowCommand({ ...taskAnswer, expectedVersion: -1 }), null);
+assert.equal(normalizeAgentWindowCommand({ ...taskAnswer, questionId: "" }), null);
+const taskCard = { title: "确认颜色", phase: "等待回答", savedCount: 0, question: "请选择", error: "", action: "answer" as const };
+assert.deepEqual(buildAgentWindowSnapshot({ ...base, taskCard }).taskCard, taskCard);
 assert.match(surfaceCss, /:root\.glass-theme-active \.agent-header/);
 assert.match(surfaceCss, /--glass-backdrop-filter: blur\(var\(--glass-blur\)\)/);
 assert.match(surfaceCss, /backdrop-filter: var\(--glass-backdrop-filter\)/);

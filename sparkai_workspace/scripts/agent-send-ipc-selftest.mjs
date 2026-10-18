@@ -317,6 +317,14 @@ async function main() {
     return (state.agentStatus === 'idle' || state.agentStatus === 'error') && !state.activeRunId;
   })()`, { evaluate, timeoutMs: 20_000, intervalMs: 100 });
   const explicitScopePrompt = `AIDEBUG_REAL_COMPOSER_EXPLICIT_SCOPE_${Date.now()}`;
+  // The current product intentionally disables SOURCE replacement without a
+  // selected image. Exercise that contract with a real managed local fixture.
+  const sourcePath = join(runDir, "source.png");
+  writeFileSync(sourcePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGP8z8Dwn4GBgYGJAQkwMaACDAwAFwICBXS9U/8AAAAASUVORK5CYII=", "base64"));
+  await evaluate(client, `window.__naimageDebugImportPathsToCanvas({paths:[${JSON.stringify(sourcePath)}]})`);
+  const selectedSource = await evaluate(client, `window.__naimageAIDebug.selectNode({latestImage:true})`);
+  assert.equal(selectedSource.ok, true, 'Imported SOURCE must be explicitly selected and visible.');
+  await waitForRuntimeExpression(client, `(()=>{const image=document.querySelector('.flow-node.selected img');return image?.complete && image.naturalWidth > 0})()`, { evaluate, timeoutMs: 5_000, intervalMs: 50 });
   const explicitScopeSurface = await evaluate(client, `window.__naimageDebugOpenSurface?.('agent-running') === true`);
   assert.equal(explicitScopeSurface, true);
   await waitForRuntimeExpression(client, `Boolean(document.querySelector('.project-agent-steer-mode .glass-select-trigger'))`, { evaluate, timeoutMs: 3_000, intervalMs: 50 });
@@ -330,7 +338,7 @@ async function main() {
     if (!(option instanceof HTMLButtonElement)) return false;
     option.click();
     await delay(80);
-    return document.querySelector('.project-agent-steer-mode .glass-select-value')?.textContent?.includes('更换处理图片') === true;
+    return document.querySelector('.project-agent-steer-mode .glass-select-value')?.textContent?.includes('改用当前选中') === true;
   })()`);
   assert.equal(explicitScopeMode, true, 'Explicit TaskScope mode must be selectable while steering a run.');
   const explicitScopeInput = await evaluate(client, `(() => {

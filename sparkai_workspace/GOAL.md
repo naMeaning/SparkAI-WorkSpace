@@ -1,5 +1,20 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：AI-Native 第一期——稳定任务回执与人机共同续接（2026-10-19，in progress）
+
+- 模式/结果：直接实施桌面与本地 Runtime 的稳定异步任务，GUI、内置 Agent、CLI/MCP 共用原执行链；超时、重复提交、重载与重启不得重建图片请求。
+- 范围：`agent.task.start/get/wait/answer`；Main 原子持久化回执/幂等索引与 run/image-operation 关联；Renderer 冻结 TaskScope、pending execution、原恢复/保存入口；主/独立 Agent 紧凑任务卡。保留 `agent.chat` 兼容语义。
+- 一致性：Main 回执只投影原生产状态，不另建 Runtime；accepted 必须已落盘并冻结目标/范围；同项目/会话/提交标识同规范请求复用、异内容冲突；结构化回答校验任务/问题/版本并一次消费。首期不自动清理回执及幂等标识，达到容量上限拒绝新任务，旧提交不得因淘汰静默重发。
+- 验收：先记录失败 Mock 场景，再验证并发去重/唯一图片 POST、冲突零派发、有界等待/游标、GUI/CLI 回答竞争与冻结配置、重启/原图片恢复、uncertain/interrupted、隔离/停止/部分成功/保存失败、脱敏；真实隔离 Electron 覆盖正式最小窗和独立 Agent 窗、回答及重载并保留截图。运行受影响专项、typecheck、Runtime 的 view-image 门禁。
+- 授权：0 真实图片/视频/对话模型请求；历史九图授权不复用。不改外部 New API/Extension、生产服务、后续视觉验收/项目知识/语义检索。按持续授权最终 `package:win:unrestricted`、核对包内源码/EXE身份、安全正常退出后品牌安装器原位升级、文档同步、仅本期提交及普通 push/远端核对；不上传 EXE、不创建正式 Release/tag。用户追加提醒远端 GitHub、release 目录打包和敏感信息检索。
+- 接受现场：根仓库 main，工作树干净；以当前源码为准，92afbc4 仅历史设计基线；保留下方已完成工作及历史证据。
+- 实现里程碑：Main 回执/幂等持久化、Renderer 原生产链受理/续接、图片 journal 关联、公开四命令和双窗口紧凑卡已接入。Mock先记录缺失模块失败，再通过并发/冲突/游标/回答CAS/重启隔离；现有受影响专项通过情况见Progress，不把Mock计数当HTTP唯一POST证据。
+- 当前验证：真实隔离Electron九组检查通过，唯一单图POST、CLI超时、GUI/CLI竞争、冻结配置/选择、问题重载、双窗口回答、活动运行重载interrupted及正常重启，8截图/2本地图片POST/0真实模型请求；保存失败后权威状态回投、部分成功、幂等丢回执/容量/损坏和原图片关联恢复异常测试通过。具体报告/历史失败保留于Progress。
+- 收尾验证：首条GUI消息受理前显式保存空白会话，发送/键盘/陈旧busy与显式素材替换实跑通过；新增3:2/2K实际POST与落盘哈希断言。Main journal已保存字节不再被Runtime画幅归一化改写；恶意历史节点/operation字段进入回执前脱敏；GUI受理失败及时interrupted且同标识不重发。quick GUI通过，详见Progress。
+- 最终故障补充：GUI回答领取后真实session写失败先复现resuming悬留，再修为interrupted、旧回答零派发；旧session待回答快照不能复活已终结回执。最终源码十组UI/9截图/9本地模型POST/2图片POST/2次正常退出通过，0真实请求；敏感信息扫描只命中已核实的合成测试值。首包为intermediate，重新冻结最终源码打包。
+- 本地交付：最终unrestricted EXE109,879,808 B / SHA256 `9e60c32dc0cd51d446be7f3bd9db87b1fcf7864fedf631cce08899c8e901aecb`；620源文件冻结为`198d4d72…820057`，122dist/140owner与生产包核对通过。最终品牌/S原位安装exit0/16,997ms，原注册目录/1.0.9与配置保留；安装EXE/ASAR与已通过十组/9截图/2次正常退出的安装版逐字节相同。完整身份、失败记录及限制见Progress和[本轮验证](docs/AI_NATIVE_TASKS_VALIDATION_2026-10-19.md)。
+- 下一步：完成最终隐私/文档核对，提交本期源码文档并普通push/远端核对。
+
 ## 当前素材任务：真实 AI Native 九图展示（2026-10-18，已完成）
 
 - 用户方向：制作供朋友圈和 GitHub 使用的 9 张图片，以实际生成作品及宣传展示为主，辅以简短教学；使用已安装最新版和用户现有真实生图配置。用户明确要求不使用 Computer Use，改由软件自带 AI Native CLI 操作。

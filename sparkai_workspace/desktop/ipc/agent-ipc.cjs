@@ -18,6 +18,7 @@ function registerAgentIpc({
   listAgentModels,
   emitAgentProgress,
   agentRunControl,
+  agentTaskService,
   aidebugMode,
   aidebugAgentStopFixture,
   readProjectList,
@@ -25,6 +26,17 @@ function registerAgentIpc({
 }) {
   const boundRunOwners = new WeakSet();
   const ownerIdForEvent = (event) => String(event?.sender?.id ?? "").trim();
+  const taskResponse = async (action) => {
+    try { return { ok: true, ...await action() }; }
+    catch (error) { return { ok: false, errorCode: error?.code || "TASK_FAILED", error: agentTaskService.sanitizeError(error) }; }
+  };
+  ipcMain.handle("naimage:agent:task-command", (_event, payload = {}) => taskResponse(() => {
+    if (!["agent.task.get", "agent.task.wait", "agent.task.start", "agent.task.answer"].includes(payload.command)) throw new Error("不支持的任务动作。");
+    return agentTaskService.execute(payload.command, payload.args || {});
+  }));
+  ipcMain.handle("naimage:agent:task-admit", (event, payload = {}) => taskResponse(() => agentTaskService.admit(payload, ownerIdForEvent(event))));
+  ipcMain.handle("naimage:agent:task-settle", (event, payload = {}) => taskResponse(() => agentTaskService.settle(payload, ownerIdForEvent(event))));
+  ipcMain.handle("naimage:agent:task-claim-answer", (event, payload = {}) => taskResponse(() => agentTaskService.claimAnswer(payload, ownerIdForEvent(event))));
   const runScope = (event, payload = {}, runId = "", steerable = false) => ({
     runId,
     ownerId: ownerIdForEvent(event),
@@ -206,6 +218,7 @@ function registerAgentIpc({
         ...(payload || {}),
         taskScope: normalizedRunnableTaskScope(runtime, payload)
       };
+      if (payload.taskId) agentTaskService.claimRun({ ...runtimePayload, runId }, ownerIdForEvent(event));
       controlledRun = beginRun(event, runtimePayload, runId, true);
       bindRunOwnerToSender(event);
       const result = await runtime.chat({
@@ -247,7 +260,11 @@ function registerAgentIpc({
 
   ipcMain.handle("naimage:agent:stop", (event, payload = {}) => {
     try {
-      const invokeStop = () => agentRunControl?.stop({ ...payload, ownerId: ownerIdForEvent(event) }) || { ok: false, error: "运行控制器不可用。" };
+      const invokeStop = () => {
+        const result = agentRunControl?.stop({ ...payload, ownerId: ownerIdForEvent(event) }) || { ok: false, error: "运行控制器不可用。" };
+        if (result.ok && agentTaskService) agentTaskService.stopScope(payload, ownerIdForEvent(event));
+        return result;
+      };
       if (aidebugMode && typeof aidebugAgentStopFixture === "function") {
         return aidebugAgentStopFixture({ payload, invokeStop });
       }

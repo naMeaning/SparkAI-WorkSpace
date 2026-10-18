@@ -1,6 +1,7 @@
 import { imageConfigSnapshot, normalizeImageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
 import { canApplyContentName, contentNamePatch, normalizeStoredContentName } from "../runtime/image-content-name.mjs";
 import { coalesceImageAssets } from "../runtime/image-asset-identity.mjs";
+import { agentTaskCard, useAgentTaskReceipt, type TaskResponse } from "./agent-task";
 /*
 naimage Frontend Main Map
 
@@ -519,6 +520,11 @@ type RequirementEditorDraft = {
 };
 
 type AgentPromptDispatchOptions = {
+  taskId?: string;
+  taskSubmission?: Record<string, unknown>;
+  taskRunId?: string;
+  strictTask?: boolean;
+  onTaskAccepted?: (result: TaskResponse) => void;
   /** Explicit composer scope mode used only when an existing run can be steered. */
   taskScopeMode?: AgentSteerTaskScopeMode | "auto";
   sourceNodeIds?: string[];
@@ -2689,6 +2695,7 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   return {
     version: 2,
     requestId,
+    taskId: clean(source.taskId, 180) || undefined,
     projectId,
     conversationId,
     originalPrompt,
@@ -3809,6 +3816,8 @@ function App() {
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState<ProjectNameDraft | null>(null);
   const [configReady, setConfigReady] = useState(false);
+  const currentAgentTask = useAgentTaskReceipt(activeProjectId, activeConversationId, configReady);
+  const currentAgentTaskCard = agentTaskCard(currentAgentTask);
   const [authReady, setAuthReady] = useState(false);
   const [canvasMountTick, setCanvasMountTick] = useState(0);
   const [canvasViewportSize, setCanvasViewportSize] = useState({ width: 1, height: 1 });
@@ -3867,6 +3876,7 @@ function App() {
   const agentStopPendingRef = useRef<symbol | null>(null);
   const executionReservationRef = useRef<string | null>(null);
   const pendingAgentExecutionRef = useRef<PendingAgentExecution | null>(pendingAgentExecution);
+  const taskAdmissionRef = useRef(false);
   const cancelledAgentRequestRef = useRef<{ projectId: string; conversationId: string; requestId: string } | null>(null);
   const lastDispatchedTaskScopeRef = useRef<AgentTaskScope | null>(null);
   const lastDispatchedPromptRef = useRef("");
@@ -9584,7 +9594,7 @@ function App() {
 
   function agentExecutionBusyNow() {
     return isAgentExecutionBusy({
-      reservation: Boolean(executionReservationRef.current),
+      reservation: Boolean(executionReservationRef.current) || taskAdmissionRef.current,
       activeRun: Boolean(activeRunRef.current),
       activeImageRunCount: Object.keys(imageRunStartsRef.current).length,
       status: agentStatusRef.current,
@@ -13543,12 +13553,13 @@ function App() {
     catch (error) { setServerMessage(error instanceof Error ? error.message : String(error)); }
   }
 
-  function resumePendingAgentExecution(
+  async function resumePendingAgentExecution(
     requestId: string,
     answer: string,
     images: ReferenceImage[] = [],
     role?: AssetTaskRole,
-    selectedOptionId?: string
+    selectedOptionId?: string,
+    claimed?: { runId: string; onTaskAccepted?: (result: TaskResponse) => void }
   ) {
     const pending = pendingAgentExecutionRef.current;
     if (!pending || pending.requestId !== requestId) {
@@ -13602,8 +13613,35 @@ function App() {
       ? selectedOptionId
       : undefined;
     const continuationTaskScope = withAgentTaskScopeConfirmationPolicy(pending.taskScope, selectedConfirmationPolicy);
+    let continuationRunId = claimed?.runId;
+    const interruptClaimedContinuation = async () => {
+      if (pending.taskId && continuationRunId) await window.naimageAgent?.taskSettle({ expectedProjectId: pending.projectId,
+        conversationId: pending.conversationId, taskId: pending.taskId, runId: continuationRunId, outcome: "interrupted",
+        error: "回答已消费，但续接准备未完成。请查询原任务及成果，不会重新提交。" }).catch(() => null);
+    };
+    if (pending.taskId && !continuationRunId) {
+      const receipt = await window.naimageAgent?.taskCommand("agent.task.get", { expectedProjectId: pending.projectId, conversationId: pending.conversationId, taskId: pending.taskId });
+      const result = await window.naimageAgent?.taskClaimAnswer({ expectedProjectId: pending.projectId, conversationId: pending.conversationId,
+        taskId: pending.taskId, questionId: pending.requestId, expectedVersion: receipt?.task?.version,
+        answer: answer.trim() || pending.suggestedAnswer || "请继续原任务。", ...(selectedOptionId ? { optionId: selectedOptionId } : {}) });
+      if (!result?.ok || !result.runId) {
+        setServerMessage(result?.error || "问题已被回答或已失效。");
+        if (result?.errorCode === "TASK_ANSWER_STALE") setAskUserDraft(current => current?.requestId === requestId ? null : current);
+        return false;
+      }
+      continuationRunId = result.runId;
+      if (pendingAgentExecutionRef.current?.requestId !== requestId || activeProjectIdRef.current !== pending.projectId || activeConversationIdRef.current !== pending.conversationId) {
+        await interruptClaimedContinuation();
+        return false;
+      }
+    }
     closePendingAgentExecution(requestId, false);
-    void sendPrompt(answer.trim() || pending.suggestedAnswer || "已补充所需信息，请继续原任务。", {
+    try {
+      const resumed = await sendPrompt(answer.trim() || pending.suggestedAnswer || "已补充所需信息，请继续原任务。", {
+      taskId: pending.taskId,
+      taskRunId: continuationRunId,
+      strictTask: true,
+      onTaskAccepted: claimed?.onTaskAccepted,
       sourceNodeIds: [...pending.sourceNodeIds],
       focusedNodeId: pending.focusedNodeId,
       taskOrigin: pending.taskOrigin,
@@ -13618,8 +13656,15 @@ function App() {
       referenceImages: role === "reference" ? normalizedImages : [],
       continuationRequestId: pending.requestId,
       originalPrompt: pending.originalPrompt
-    });
-    return true;
+      });
+      if (!resumed) await interruptClaimedContinuation();
+      return resumed;
+    } catch (error) {
+      await interruptClaimedContinuation();
+      if (claimed) throw error;
+      setServerMessage(error instanceof Error ? error.message : "任务续接准备失败，请查询原任务。");
+      return false;
+    }
   }
 
   function saveReferencePicker(draft: ReferencePickerDraft) {
@@ -14040,6 +14085,11 @@ function App() {
     const pending = pendingAgentExecutionRef.current;
     if (requestId && pending?.requestId !== requestId) return;
     if (pending && notifyProtocol) {
+      if (pending.taskId) {
+        void window.naimageAgent?.taskCommand("agent.task.get", { expectedProjectId: pending.projectId, conversationId: pending.conversationId, taskId: pending.taskId })
+          .then(result => result.task && window.naimageAgent?.taskSettle({ expectedProjectId: pending.projectId, conversationId: pending.conversationId,
+            taskId: pending.taskId, runId: result.task.currentRunId, outcome: "stopped" }));
+      }
       cancelledAgentRequestRef.current = {
         projectId: pending.projectId,
         conversationId: pending.conversationId,
@@ -14449,7 +14499,7 @@ function App() {
     return actions;
   }
 
-  async function flushActiveProjectSession(options: { live?: boolean; projectId?: string } = {}) {
+  async function flushActiveProjectSession(options: { live?: boolean; projectId?: string; ensureConversation?: boolean } = {}) {
     if (!configReady) return;
     const projectId = options.projectId || activeProjectIdRef.current || activeProjectId;
     if (!projectId) return;
@@ -14464,7 +14514,9 @@ function App() {
       canvasRevision: canvasRevisionRef.current,
       layoutGroups: live ? layoutGroupsRef.current : layoutGroups,
       messages: live ? messagesRef.current : messages,
-      conversations,
+      conversations: options.ensureConversation
+        ? upsertConversation(conversations, createPersistedConversationSnapshot(live ? messagesRef.current : messages, activeConversationIdRef.current, conversations))
+        : conversations,
       activeConversationId: live ? activeConversationIdRef.current : activeConversationId,
       nodes: live ? nodesRef.current : nodes,
       selectedNodeId: live ? selectedNodeIdRef.current : selectedNodeId,
@@ -16616,6 +16668,12 @@ function App() {
   }
 
   async function sendPrompt(nextPrompt?: string, dispatch: AgentPromptDispatchOptions = {}) {
+    if (taskAdmissionRef.current || (dispatch.strictTask && agentExecutionBusyNow())) {
+      const error = automationCommandError("TASK_BUSY", "当前会话正在执行或受理任务，未启动新任务。");
+      if (dispatch.strictTask) throw error;
+      setServerMessage(error.message);
+      return false;
+    }
     if (!activeProjectIdRef.current) {
       const errorMessage = "请先创建或打开项目，再使用 Agent。";
       const localErrorMessage: AgentMessage = {
@@ -16709,13 +16767,15 @@ function App() {
       cancelledRequest.projectId === activeProjectIdRef.current &&
       cancelledRequest.conversationId === activeConversationIdRef.current
     );
-    const modelContent = cancellationApplies
+    const modelContent = dispatch.continuationRequestId
+      ? `[原任务续接] 这次回答只补充原任务，不是新的独立生图请求。复用原素材与图片配置，保留已完成成果。\n原要求：${dispatch.originalPrompt || ""}\n问题：${dispatch.continuationRequestId}\n用户回答：${content}`
+      : cancellationApplies
       ? `[任务状态] 用户已取消补充请求 ${cancelledRequest!.requestId}，不要继续旧任务。以下内容是一条新的独立请求：\n\n${content}`
       : content;
 
     const now = Date.now();
     const lastSubmit = lastSubmitRef.current;
-    if (lastSubmit && lastSubmit.text === content && now - lastSubmit.time < 900) {
+    if (!dispatch.continuationRequestId && lastSubmit && lastSubmit.text === content && now - lastSubmit.time < 900) {
       addEvent("忽略重复提交");
       return false;
     }
@@ -16744,7 +16804,7 @@ function App() {
       dispatch.frozenTaskScope
     );
     const suppressImplicitCancelledTaskSelection = cancellationApplies && !cancelledTaskHasExplicitCanvasBinding;
-    const selectedRequirementNode = !suppressImplicitCancelledTaskSelection && !dispatch.requirementNodeId && selectedNodeIdsRef.current.length === 1
+    const selectedRequirementNode = !dispatch.strictTask && !suppressImplicitCancelledTaskSelection && !dispatch.requirementNodeId && selectedNodeIdsRef.current.length === 1
       ? nodesRef.current.find((node) => node.id === selectedNodeIdsRef.current[0] && node.type === "requirement" && node.requirement)
       : undefined;
     const effectiveRequirementNodeId = dispatch.requirementNodeId || selectedRequirementNode?.id;
@@ -16771,7 +16831,7 @@ function App() {
 
     const busy = agentStatus === "thinking" || agentStatus === "editing";
     const interruptedRunId = busy ? activeRunRef.current ?? undefined : undefined;
-    const runId = uid("run");
+    const runId = dispatch.taskRunId || uid("run");
     const requirementOutputIdsBefore = effectiveRequirementNodeId
       ? new Set(
           nodesRef.current
@@ -16884,6 +16944,32 @@ function App() {
     const runScopeIsCurrent = () => activeRunRef.current === runId && executionScopeIsCurrent(executionScope);
     const taskResultNodeIdsBefore = new Set(nodesRef.current.map((node) => node.id));
 
+    let receiptTaskId = dispatch.taskId;
+    if (window.naimageAgent?.taskAdmit) {
+      taskAdmissionRef.current = true;
+      try {
+        const preparedSave = await flushActiveProjectSession({ live: true, projectId: requestProjectId, ensureConversation: true });
+        if (!preparedSave?.ok) throw automationCommandError("TASK_PREPARE_SAVE_FAILED", "项目保存失败，未启动 Agent。");
+        const admitted = await window.naimageAgent.taskAdmit({
+          ...(dispatch.taskSubmission || { submissionId: uid("gui"), prompt: content }),
+          expectedProjectId: requestProjectId, conversationId: requestConversationId,
+          ...(dispatch.taskId ? { taskId: dispatch.taskId } : {}), runId, taskScope
+        });
+        if (!admitted.ok || !admitted.task) throw automationCommandError(admitted.errorCode || "TASK_NOT_ACCEPTED", admitted.error || "任务回执保存失败，未启动 Agent。");
+        receiptTaskId = admitted.task.taskId;
+        dispatch.onTaskAccepted?.(admitted);
+      } catch (error) {
+        if (dispatch.strictTask) throw error;
+        reportAgentSendFailure(error instanceof Error ? error.message : "任务回执保存失败，未启动 Agent。", false);
+        return false;
+      } finally { taskAdmissionRef.current = false; }
+      if (requestProjectId !== activeProjectIdRef.current || requestConversationId !== activeConversationIdRef.current) {
+        await window.naimageAgent.taskSettle({ expectedProjectId: requestProjectId, conversationId: requestConversationId, taskId: receiptTaskId, runId, outcome: "interrupted" });
+        return false;
+      }
+    }
+    let taskOutcome = "interrupted", taskError = "";
+
     flushPendingAgentStreamMessages();
     setPrompt("");
     if (useComposerAttachments) {
@@ -16922,7 +17008,8 @@ function App() {
         taskScope,
         requestImageDefaults,
         workspaceDomainRef.current,
-        canvasRevisionRef.current
+        canvasRevisionRef.current,
+        receiptTaskId
       );
       if (!runScopeIsCurrent()) return false;
       const rawAnswer = sanitizeAgentVisibleText(runtimeResult.content?.trim() || "已完成。") || "已完成。";
@@ -16940,6 +17027,7 @@ function App() {
         askAction.request.requestId = requestId;
         commitPendingAgentExecution({
           version: 2,
+          taskId: receiptTaskId,
           requestId,
           projectId: requestProjectId,
           conversationId: requestConversationId,
@@ -17034,6 +17122,8 @@ function App() {
       const answer = layoutWarning ? `${baseAnswer}\n\n${layoutWarning}` : baseAnswer;
       const incompleteReply = runtimeResult.completion === "partial";
       const executionFailed = Boolean(failedCommit || (incompleteReply && runtimeResult.executionFailed));
+      const toolFailed = (runtimeResult.toolResults || []).some(result => result.ok === false);
+      taskOutcome = askAction ? "waiting" : incompleteReply ? "partial" : executionFailed || toolFailed ? "failed" : "completed";
       const finalMessage: AgentMessage = {
         id: assistantId,
         role: "assistant",
@@ -17099,6 +17189,8 @@ function App() {
       activeRunRef.current = null;
       return !incompleteReply && !executionFailed;
     } catch (error) {
+      taskOutcome = "failed";
+      taskError = error instanceof Error ? error.message : String(error);
       pendingLayerNarrationRunIdsRef.current.delete(runId);
       if (!runScopeIsCurrent()) return false;
       const message = error instanceof Error ? error.message : String(error);
@@ -17131,6 +17223,20 @@ function App() {
       return false;
     } finally {
       requirementRunParentsRef.current.delete(runId);
+      if (receiptTaskId && window.naimageAgent?.taskSettle) {
+        const executionOutcome = taskOutcome;
+        if (requestProjectId === activeProjectIdRef.current && requestConversationId === activeConversationIdRef.current) {
+          try {
+            const saved = await flushActiveProjectSession({ live: true, projectId: requestProjectId });
+            if (!saved?.ok) throw new Error("项目保存没有确认成功。");
+          } catch {
+            taskOutcome = "save-failed";
+            taskError = "项目保存失败；原图片结果已保留，请保存项目或恢复原结果，不要重新生图。";
+          }
+        } else taskOutcome = "interrupted";
+        await window.naimageAgent.taskSettle({ expectedProjectId: requestProjectId, conversationId: requestConversationId,
+          taskId: receiptTaskId, runId, outcome: taskOutcome, executionOutcome, error: taskError });
+      }
     }
   }
 
@@ -24349,6 +24455,34 @@ function App() {
 
   const executeAutomationCommand = useStableEvent(async (command: string, args: Record<string, unknown> = {}) => {
     const runtime = await loadAutomationCommandRuntime();
+    if (command === "agent.task.dispatch" || command === "agent.task.answer-dispatch") {
+      if (args.expectedProjectId !== activeProjectIdRef.current || args.conversationId !== activeConversationIdRef.current) {
+        throw automationCommandError("TASK_TARGET_MISMATCH", "任务项目或会话与当前窗口不一致。");
+      }
+      if (agentExecutionBusyNow() && command === "agent.task.dispatch" || taskAdmissionRef.current) throw automationCommandError("TASK_BUSY", "当前任务未结束，不能启动新任务。");
+      return new Promise<TaskResponse>((resolve, reject) => {
+        let accepted = false;
+        const onTaskAccepted = (result: TaskResponse) => { accepted = true; resolve(result); };
+        let work: Promise<boolean>;
+        if (command === "agent.task.answer-dispatch") {
+          const pending = pendingAgentExecutionRef.current;
+          if (!pending || pending.taskId !== args.taskId || pending.requestId !== args.questionId) throw automationCommandError("TASK_ANSWER_STALE", "原问题已失效，未派发续接。");
+          work = resumePendingAgentExecution(pending.requestId, String(args.answer || ""), [], undefined, args.optionId ? String(args.optionId) : undefined,
+            { runId: String(args.runId), onTaskAccepted });
+        } else {
+          const sourceNodeIds = Array.isArray(args.sourceNodeIds) ? args.sourceNodeIds.map(String) : [];
+          const canvas = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current).canvasNodes;
+          if (sourceNodeIds.some(id => !canvas.some(node => node.id === id && node.type === "image" && node.assets?.length))) {
+            throw automationCommandError("TASK_SOURCE_INVALID", "素材范围包含不存在或不可用的图片；任务未派发。");
+          }
+          work = sendPrompt(String(args.prompt || ""), { taskId: String(args.taskId), taskSubmission: args, strictTask: true,
+            sourceNodeIds, focusedNodeId: sourceNodeIds[0], useComposerAttachments: false,
+            sourceImages: [], referenceImages: [],
+            imageRatio: args.ratio as AppSettings["imageRatio"], imageResolution: args.resolution as AppSettings["imageResolution"], onTaskAccepted });
+        }
+        void work.then(() => { if (!accepted) reject(automationCommandError("TASK_NOT_ACCEPTED", "任务未受理。")); }, reject);
+      });
+    }
     return runtime.executeAutomationCommand(command, args, {
       activeProjectId: () => activeProjectIdRef.current,
       workspaceDomain: () => workspaceDomainRef.current,
@@ -24689,6 +24823,28 @@ function App() {
     });
   });
 
+  const currentTaskAction = useStableEvent(async () => {
+    if (currentAgentTaskCard?.action === "recover") { setImageRecoveryOpen(true); return; }
+    if (currentAgentTaskCard?.action === "save") {
+      const saved = await flushActiveProjectSession({ live: true });
+      setServerMessage(saved?.ok ? "项目已保存，可查询原任务成果。" : "项目保存失败，原结果仍保留。");
+      return;
+    }
+    const pending = pendingAgentExecutionRef.current;
+    if (!pending) return;
+    if (pending.kind === "source_images" || pending.kind === "reference_images") {
+      const role = pending.kind === "source_images" ? "source" : "reference";
+      openReferencePicker({ kind: "agent-request", requestId: pending.requestId, role, question: pending.question, suggestedAnswer: pending.suggestedAnswer }, [], { title: pending.title, detail: pending.detail, max: pending.maxImages });
+    } else setAskUserDraft({ ...pending, kind: pending.kind === "confirm" ? "confirm" : "clarify" });
+  });
+
+  useEffect(() => {
+    const pending = pendingAgentExecutionRef.current;
+    if (pending?.taskId && currentAgentTask?.taskId === pending.taskId && ["completed", "partial", "failed", "stopped", "interrupted"].includes(currentAgentTask.phase)) {
+      closePendingAgentExecution(pending.requestId, false);
+    }
+  }, [currentAgentTask]);
+
   useEffect(() => {
     const bridge = window.naimageAutomation;
     if (!bridge) return;
@@ -24836,6 +24992,11 @@ function App() {
       if (!result.ok) {
         pushSystemMessage("interrupt-error", `结束失败，当前任务仍保持原状态，可以重试：${result.error}`);
         return false;
+      }
+      if (runId) {
+        const receipt = await window.naimageAgent?.taskCommand("agent.task.get", { expectedProjectId: activeProjectIdRef.current, conversationId: activeConversationIdRef.current });
+        if (receipt?.task?.runIds.includes(runId)) await window.naimageAgent?.taskSettle({ expectedProjectId: activeProjectIdRef.current,
+          conversationId: activeConversationIdRef.current, taskId: receipt.task.taskId, runId, outcome: "stopped" });
       }
       return true;
     } catch (error) {
@@ -27079,6 +27240,9 @@ function App() {
       }
     }
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
+      taskCard: currentAgentTaskCard,
+      taskQuestion: currentAgentTask?.question ? { taskId: currentAgentTask.taskId, projectId: currentAgentTask.projectId,
+        conversationId: currentAgentTask.conversationId, version: currentAgentTask.version, question: currentAgentTask.question } : null,
       ready: configReady && authReady && licenseReady && workspaceAccessAuthorized,
       projectName: activeProjectName,
       workspaceDomain: workspaceDomainRef.current,
@@ -27120,6 +27284,14 @@ function App() {
     const { normalizeAgentWindowCommand } = await loadAgentWindowSync();
     const command = normalizeAgentWindowCommand(payload);
     if (!command) return;
+    if (command.type === "task-action") { await currentTaskAction(); return; }
+    if (command.type === "task-answer") {
+      const result = await window.naimageAgent?.taskCommand("agent.task.answer", { expectedProjectId: command.projectId,
+        conversationId: command.conversationId, taskId: command.taskId, questionId: command.questionId, expectedVersion: command.expectedVersion,
+        ...(command.optionId ? { optionId: command.optionId } : {}), ...(command.answer ? { answer: command.answer } : {}) });
+      if (!result?.ok) setServerMessage(result?.error || "问题回答失败。");
+      return;
+    }
     if (command.type === "request-state") {
       publishAgentWindowState();
       return;
@@ -27201,6 +27373,7 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [
     activeConversationId,
+    currentAgentTask,
     activeProjectName,
     agentProgress,
     agentReferenceImages,
@@ -29530,6 +29703,8 @@ function App() {
           paused={agentPaused}
           stopPending={agentStopPending}
           goalActive={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.origin === "goal"}
+          taskCard={currentAgentTaskCard}
+          taskAction={() => void currentTaskAction()}
           goalContainerCount={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.goal
             ? lastDispatchedTaskScopeRef.current.goal.containerCount
             : goalCanvasSummary.containerCount}

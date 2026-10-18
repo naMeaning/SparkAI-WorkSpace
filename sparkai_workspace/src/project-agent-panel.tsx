@@ -38,6 +38,7 @@ import {
 } from "./agent-panel-layout";
 import { ButtonBase, IconActionButton } from "./ui";
 import { runHasIncompleteModelReply } from "./model-ux";
+import type { AgentTaskCard } from "./agent-task";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 declare const __NAIMAGE_PERF_PROBE__: boolean;
@@ -281,6 +282,8 @@ function ProjectAgentPanelView({
   goalContainerCount,
   goalAssetCount,
   conversationBoundaryBusy,
+  taskCard,
+  taskAction,
   agentProgress,
   runElapsedSeconds,
   modelName,
@@ -329,6 +332,8 @@ function ProjectAgentPanelView({
   goalContainerCount: number;
   goalAssetCount: number;
   conversationBoundaryBusy: boolean;
+  taskCard?: AgentTaskCard | null;
+  taskAction?: () => void;
   agentProgress: AgentProgress[];
   runElapsedSeconds: number;
   modelName: string;
@@ -603,7 +608,7 @@ function ProjectAgentPanelView({
 
  return (
     <aside
-      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${referenceDropActive ? "reference-drop-active" : ""}`}
+      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${taskCard ? "has-task" : ""} ${referenceDropActive ? "reference-drop-active" : ""}`}
       aria-label="项目 Agent 对话栏"
       onDragEnter={(event) => {
         if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
@@ -735,6 +740,14 @@ function ProjectAgentPanelView({
         </span>
         <em>{modelName || "未配置模型"}</em>
       </div>
+
+      {taskCard ? (
+        <section className="agent-task-card" aria-label="当前任务">
+          <div><strong title={taskCard.title}>{taskCard.title}</strong><span>{taskCard.phase} · 已保存 {taskCard.savedCount} 项成果</span></div>
+          {taskCard.question || taskCard.error ? <p>{taskCard.question || taskCard.error}</p> : null}
+          {taskCard.action !== "none" ? <ButtonBase type="button" onClick={taskAction}>{taskCard.action === "answer" ? "回答问题" : taskCard.action === "recover" ? "恢复原结果" : "保存项目"}</ButtonBase> : null}
+        </section>
+      ) : null}
 
       <ProjectAgentFeed
         key={activeConversationId}

@@ -231,6 +231,10 @@ contextBridge.exposeInMainWorld("naimageAgent", {
   stop: (payload) => ipcRenderer.invoke("naimage:agent:stop", payload),
   steer: (payload) => ipcRenderer.invoke("naimage:agent:steer", payload),
   runStatus: (payload) => ipcRenderer.invoke("naimage:agent:run-status", payload),
+  taskCommand: (command, args) => ipcRenderer.invoke("naimage:agent:task-command", { command, args }),
+  taskAdmit: (payload) => ipcRenderer.invoke("naimage:agent:task-admit", payload),
+  taskSettle: (payload) => ipcRenderer.invoke("naimage:agent:task-settle", payload),
+  taskClaimAnswer: (payload) => ipcRenderer.invoke("naimage:agent:task-claim-answer", payload),
   smoke: () => ipcRenderer.invoke("naimage:agent:smoke"),
   onRunState: (handler) => {
     if (typeof handler !== "function") return () => {};

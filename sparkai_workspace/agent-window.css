@@ -115,7 +115,7 @@ button:disabled {
 .agent-shell {
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
 }
 
 .agent-header {
@@ -129,6 +129,23 @@ button:disabled {
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
+
+.agent-task-card {
+  grid-row: 4;
+  min-width: 0;
+  max-height: 235px;
+  overflow: auto;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px;
+}
+.agent-task-card[hidden] { display: none; }
+.agent-task-card strong, .agent-task-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-task-card span { margin-top: 3px; color: var(--muted); }
+.agent-task-card p { margin: 6px 0; overflow-wrap: anywhere; }
+.agent-task-card button { padding: 5px 9px; margin: 4px 5px 0 0; }
+.agent-task-card textarea { width: 100%; min-height: 48px; resize: vertical; }
 
 .agent-title {
   min-width: 90px;
@@ -271,7 +288,7 @@ button:disabled {
 }
 
 .agent-feed {
-  grid-row: 4;
+  grid-row: 5;
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
@@ -411,7 +428,7 @@ button:disabled {
 }
 
 .agent-context {
-  grid-row: 5;
+  grid-row: 6;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -436,7 +453,7 @@ button:disabled {
 }
 
 .agent-composer {
-  grid-row: 6;
+  grid-row: 7;
   position: relative;
   display: grid;
   gap: 8px;

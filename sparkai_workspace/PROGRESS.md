@@ -1,5 +1,30 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-19）
+
+- 最新任务：AI-Native 第一期稳定任务回执与人机共同续接，in progress；范围/验收/授权见 [Goal](GOAL.md)。接受时main、工作树干净；当前工作树为本期源码/文档改动，尚未提交。历史交付快照保留如下。
+- 已确认：现有 `agent.chat` 忙时 steer、闲时长等待；run control 属 Main 内存协调，Renderer 持有 TaskScope/pending/画布动作，image-operation journal 已支持原 taskId/结果字节恢复且禁止 uncertain 重发。
+- 设计边界：新增 Main 回执模块仅保存稳定身份、规范请求摘要、冻结范围投影、版本、问题及 run/operation 关联；session 继续持有完整续接快照，图片 journal 继续拥有图片恢复/保存。任务与幂等索引同文件原子提交、首期不自动淘汰；不增加第二引擎或独立规划调用。
+- 实现：新增`desktop/agent-task-service.cjs`，任务/幂等摘要同原子ledger，Main claimRun/claimAnswer一次消费；Renderer沿用sendPrompt/pending/保存，图片journal按taskId/runId关联；共享schema四命令、preload/IPC、双窗口卡已接入。回执不保存完整prompt/凭据/素材路径，不另建执行引擎。
+- 已验证：先记录缺失模块失败，再通过`test:agent-task`的并发去重、内容冲突、有界等待/游标、回答CAS、重启interrupted/隔离；该Mock计数不等于HTTP图片POST证据。typecheck、automation-service、mcp-wrapper(89 tools)、IPC(156/153)、task-scope、agent-workflow、view-image、agent-run-control、image-recovery(10子进程，1本地POST/3 polls/2 downloads)通过。
+- 最新验证：真实隔离Electron[九组检查](.diagnostics/agent-task-ui-2026-10-18T17-31-26-910Z/report.json)通过，8次本地模型POST/2次图片POST/8截图/2次正常退出；并发仅1run，CLI超时查回原任务、GUI/CLI竞争仅续跑一次、当前选择/配置变化仍原SOURCE与1:1/1K/high/n1、主窗口884×640/独立窗口回答、pending重载和活动运行重载interrupted、进程重启无新POST。已看最小窗问题及独立窗任务卡截图。此前模型路由、journal父子run关联和CDP重载瞬时断连失败报告保留；均已修复后实跑通过。
+- 异常验证：`test:agent-task`新增accepted写入失败零执行、丢回执重试、wait变化/旧游标、容量/损坏fail closed、错误owner/停止迟到结果、保存失败后权威状态回投/部分成功、waiting重启CAS、关联accepted/uncertain图片恢复及恶意配置字符串脱敏；先复现保存成功仍save-failed，再修复通过。MCP写操作hint、resuming及竞争失败方不能清pending已修；agent-window44+sync合同、mcp89及typecheck通过，最终受影响专项/quick GUI继续。真实模型请求授权仍为0。
+- 最新收口：[最终十组UI](.diagnostics/agent-task-ui-2026-10-18T18-04-51-531Z/report.json)通过，9截图/9本地模型POST/2图片POST/2次正常退出，0真实请求。真实session保存失败发生在GUI回答领取后时，先复现resuming悬留，再修为interrupted，旧回答零派发；未落盘的pending清除不能用旧session复活已终结回执。task服务及typecheck通过，敏感信息扫描14处合成测试值已核对、0疑似真实凭据。
+- 本地交付：最终`package:win:unrestricted`exit0，production build1689 modules/22.22s；620个产品/测试/公开契约源文件冻结hash `198d4d72f219ef43739cbc3a055623e080140de06e1605d3fd75bbf20e820057`。包内122dist/140owner逐字节及生产元数据、dual-access策略、无env/diagnostics核对通过；[审计](.diagnostics/agent-task-delivery-2026-10-19/package-audit.json)。最终[Windows EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,879,808 B / SHA256 `9e60c32dc0cd51d446be7f3bd9db87b1fcf7864fedf631cce08899c8e901aecb`；ASAR52,161,926 B / `6e6ee6df18bbd2b15df17e98c14a6aaf80ca7067e261fabf491f1799cff9b11a`。此前c91722a0为未安装intermediate，3f39653f为测试适配前安装包，均由最终包替代。
+- 安装：已确认无同名应用进程后，品牌/S原位安装exit0/19,237ms，原注册目录和1.0.9保留、配置身份不变，secret sidecar仅metadata核对未读内容；安装EXE232,754,176 B / SHA256 `d45228206440db83b7b426d18922a5009eda692179e38c89f6203134faff9d74`，安装ASAR与候选相同。[安装报告](.diagnostics/agent-task-delivery-2026-10-19/install-before-test-adapter.json)。未强杀日常应用。
+- 安装版[十组UI](.diagnostics/agent-task-ui-2026-10-18T18-13-10-328Z/report.json)通过：9本地模型POST/2图片POST/9截图/两次正常退出；实际inner884×640、outer900×648、独立窗共同回答/重载/保存失败均通过，已看最小窗和独立窗截图。首次安装版Browser窗口CDP域不可用及resizeTo尺寸假设失败均保留；测试改用原生`window.resizeTo(884,640)`并严格实测，不用视口模拟。仅测试脚本变化后重新冻结/打包，最终品牌/S安装exit0/16,997ms，[最终安装报告](.diagnostics/agent-task-delivery-2026-10-19/install.json)确认配置/原目录/版本保留，EXE及ASAR与上述实测安装版hash完全一致，0强杀。
+- Git：当前main/upstream为origin/main，远端与接受基线92afbc4实查一致；本期源码/文档尚未提交。最终隐私/文档检查、安装版复验后仅提交本期文件并普通push，EXE上传与正式Release排除。
+
+### 2026-10-19 最终源码收口 / verified locally; delivery pending
+
+- `test:agent-send-ipc`先实际复现空白会话首消息CONVERSATION_NOT_FOUND；受理前`flushActiveProjectSession(ensureConversation:true)`保存会话身份后，首次点击、Ctrl+Enter、陈旧busy回退及显式SOURCE替换均通过。旧夹具改为真实导入并显式选择图片，沿用当前“改用当前选中”动作；保留失败日志，不恢复禁用的无来源替换。
+- [最终源码任务UI](.diagnostics/agent-task-ui-2026-10-18T17-50-58-518Z/report.json)九组/8截图/2次正常退出通过，8本地模型POST、2图片POST、0真实模型请求；首任务显式3:2/2K到实际wire，第二任务冻结1:1/1K/high/n1，改选择/设置后回答仍原范围。已人工看最小窗口结构化问题和独立窗口卡。
+- 扩展画幅夹具先暴露Main已保存图片被Runtime交付归一化覆写，导致session哈希与磁盘不符、后续冻结素材拒绝派发；修复为Main journal资产保持原字节与实际尺寸，Runtime只归一原direct fallback。最终UI核对文件SHA与session及原provider字节一致，再以它完成续接；`test:image-format`、`test:agent-workflow`11项及`test:view-image`通过。
+- 恶意历史nodeId/operation key/id/stage先复现回执路径/URL泄漏，再于公开投影清洗；`test:agent-task`通过。另先复现GUI受理失败卡在preparing，再及时持久化interrupted，同提交仅查回旧任务、零执行。瞬时查询失败保留最后已确认卡，普通GUI快速重复受理显示忙碌而不抛未处理异常。
+- [quick GUI](.diagnostics/electron/aidebug-2026-10-18T17-52-03-957Z/report.json)ok:true、failures=[]；共享automation、MCP89工具、IPC156/153复验通过，最终typecheck继续收取。本期EXE、安装版验证和Git尚未完成。
+
+### 2026-10-18 已完成交付快照（历史）
+
 ## 当前开发状态（2026-10-18）
 
 - 最新任务：真实 AI Native 九图素材、本地打包安装、文档及源码push均完成；用户要求作品宣传为主、简短教学为辅，真实生图已授权、Computer Use明确禁用。全程通过正式CLI执行图片任务，证据见[本轮记录](docs/AI_NATIVE_SHOWCASE_2026-10-18.md)。

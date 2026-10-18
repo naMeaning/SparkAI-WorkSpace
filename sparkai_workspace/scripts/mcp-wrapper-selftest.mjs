@@ -51,6 +51,8 @@ async function main() {
   assert.equal(registry.byName.get("canvas.state").surface, "renderer");
   assert.equal(registry.byName.get("debug.runtime-state").surface, "service");
   assert.equal(registry.tools.length, registry.commands.length);
+  for (const name of ["agent.task.start", "agent.task.answer"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, false);
+  for (const name of ["agent.task.get", "agent.task.wait"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, true);
   assert.equal(registry.tools.find((tool) => tool.name === "debug.inspect-command").inputSchema.required[0], "name");
 
   const token = "fixture-automation-token";

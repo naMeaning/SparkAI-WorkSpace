@@ -418,5 +418,6 @@ module.exports = {
   TARGETED_TEST_SCRIPTS,
   createDebugCommandService,
   redactText,
-  sanitizeValue
+  sanitizeValue,
+  validateSchemaValue
 };

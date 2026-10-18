@@ -54,6 +54,34 @@
   background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
 }
 
+.project-agent-panel.has-task {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.agent-task-card {
+  min-width: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-solid);
+  font-size: 13px;
+}
+.agent-task-card strong, .agent-task-card span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-task-card span { margin-top: 3px; color: var(--muted); }
+.agent-task-card p {
+  margin: 6px 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.agent-task-card button { margin-top: 5px; padding: 5px 10px; }
+
 .project-agent-panel.placement-top .project-agent-collapsed-rail,
 .project-agent-panel.placement-bottom .project-agent-collapsed-rail {
   flex-direction: row;

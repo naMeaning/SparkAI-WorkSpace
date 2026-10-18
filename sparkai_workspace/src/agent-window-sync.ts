@@ -15,6 +15,7 @@ import {
 } from "./glass-theme.ts";
 import { workspaceDomainDefinition } from "./workspace-domain.ts";
 import { runHasIncompleteModelReply } from "./model-ux.ts";
+import type { AgentTaskCard, AgentTaskReceipt } from "./agent-task";
 
 const maximumPromptChars = 200_000;
 const maximumMessageChars = 16_000;
@@ -63,6 +64,8 @@ export type AgentWindowGlassAppearance = GlassThemeSettings & {
 };
 
 export type AgentWindowSnapshot = {
+  taskCard?: AgentTaskCard | null;
+  taskQuestion?: { taskId: string; projectId: string; conversationId: string; version: number; question: NonNullable<AgentTaskReceipt["question"]> } | null;
   version: 1;
   ready: boolean;
   projectName: string;
@@ -88,6 +91,8 @@ export type AgentWindowSnapshot = {
 };
 
 export type AgentWindowCommand =
+  | { type: "task-action" }
+  | { type: "task-answer"; taskId: string; projectId: string; conversationId: string; questionId: string; expectedVersion: number; answer?: string; optionId?: string }
   | { type: "request-state" | "closed" | "pause-confirmed" | "resume" | "stop-confirmed" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-image-config" | "edit-memory" }
   | { type: "set-prompt"; prompt: string }
   | { type: "send"; prompt: string; taskScopeMode: AgentSteerTaskScopeMode | "auto"; taskMode: "standard" }
@@ -96,6 +101,8 @@ export type AgentWindowCommand =
   | { type: "dock"; placement: "right" | "left" | "top" | "bottom" | "floating" };
 
 export type AgentWindowSnapshotInput = {
+  taskCard?: AgentTaskCard | null;
+  taskQuestion?: AgentWindowSnapshot["taskQuestion"];
   ready: boolean;
   projectName: string;
   workspaceDomain: WorkspaceDomain;
@@ -265,6 +272,8 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
   const domain = workspaceDomainDefinition(input.workspaceDomain);
   return {
     version: 1,
+    taskCard: input.taskCard || null,
+    taskQuestion: input.taskQuestion || null,
     ready: Boolean(input.ready),
     projectName: boundedText(input.projectName || "项目", 256),
     workspaceDomain: { id: domain.id, title: boundedText(domain.title, 64) },
@@ -314,8 +323,16 @@ export function normalizeAgentWindowCommand(value: unknown): AgentWindowCommand 
     "edit-sources",
     "edit-references",
     "edit-memory",
-    "edit-image-config"
+    "edit-image-config",
+    "task-action"
   ].includes(type)) return { type } as AgentWindowCommand;
+  if (type === "task-answer") {
+    if (!["taskId", "projectId", "conversationId", "questionId"].every(key => typeof payload[key] === "string" && String(payload[key]).trim().length > 0 && String(payload[key]).length <= 180)
+      || !Number.isSafeInteger(payload.expectedVersion) || Number(payload.expectedVersion) < 1) return null;
+    return { type, taskId: String(payload.taskId), projectId: String(payload.projectId), conversationId: String(payload.conversationId),
+      questionId: String(payload.questionId), expectedVersion: Number(payload.expectedVersion),
+      ...(payload.optionId ? { optionId: boundedText(payload.optionId, 80) } : {}), ...(payload.answer ? { answer: boundedText(payload.answer, 4000) } : {}) };
+  }
   if (type === "set-prompt") {
     return { type, prompt: boundedText(payload.prompt, maximumPromptChars) };
   }

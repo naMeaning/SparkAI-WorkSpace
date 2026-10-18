@@ -104,7 +104,11 @@ function createAutomationService({
       }
       return Promise.resolve().then(() => serviceCommandHandler(cleanCommand, cleanArgs, { timeoutMs }));
     }
-    const window = activeRenderer();
+    return dispatchRenderer(cleanCommand, cleanArgs, timeoutMs);
+  }
+
+  function dispatchRenderer(cleanCommand, cleanArgs = {}, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS, ownerId) {
+    const window = ownerId ? rendererWindow(Number(ownerId)) : activeRenderer();
     if (!window) return Promise.reject(new Error("SparkAI WorkSpace 界面尚未就绪，请稍后重试。"));
     const requestId = `automation-${Date.now().toString(36)}-${randomBytes(6).toString("hex")}`;
     return new Promise((resolve, reject) => {
@@ -264,7 +268,9 @@ function createAutomationService({
     status,
     rendererReady,
     rendererGone,
-    resolveRendererResponse
+    resolveRendererResponse,
+    dispatchRenderer,
+    rendererOwners: () => [...rendererIds].filter(id => rendererWindow(id)).map(String)
   };
 }
 

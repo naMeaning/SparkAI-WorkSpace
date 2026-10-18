@@ -17,6 +17,7 @@ const editReferencesButton = document.getElementById("edit-references");
 const conversationSelect = document.getElementById("conversation-select");
 const dockSelect = document.getElementById("dock-select");
 const statusSurface = document.querySelector(".agent-status");
+const taskSurface = document.getElementById("agent-task-card");
 let currentState = null;
 let renderFrame = 0;
 let promptTimer = 0;
@@ -251,10 +252,41 @@ function goalConfirmationText(goal) {
   ].join("\n\n");
 }
 
+function renderTask(state) {
+  const task = state.taskCard, question = state.taskQuestion;
+  taskSurface.hidden = !task;
+  if (!task) { taskSurface.replaceChildren(); taskSurface.dataset.projection = ""; return; }
+  const projection = JSON.stringify([task, question]);
+  if (taskSurface.dataset.projection === projection) return;
+  taskSurface.dataset.projection = projection;
+  const title = element("strong", "", task.title), status = element("span", "", `${task.phase} · 已保存 ${task.savedCount} 项成果`);
+  taskSurface.replaceChildren(title, status);
+  if (task.question || task.error) taskSurface.append(element("p", "", task.question || task.error));
+  if (question && !["source_images", "reference_images"].includes(question.question.kind)) {
+    const answer = (value, optionId) => {
+      command({ type: "task-answer", taskId: question.taskId, projectId: question.projectId, conversationId: question.conversationId,
+        questionId: question.question.requestId, expectedVersion: question.version, ...(value ? { answer: value } : {}), ...(optionId ? { optionId } : {}) });
+    };
+    for (const option of question.question.options) {
+      const button = element("button", "", option.label); button.type = "button"; button.title = option.description || "";
+      button.addEventListener("click", () => answer(null, option.id)); taskSurface.append(button);
+    }
+    if (question.question.allowCustomAnswer) {
+      const custom = element("textarea", ""); custom.placeholder = "补充回答"; custom.setAttribute("aria-label", "补充回答"); custom.maxLength = 4000;
+      const submit = element("button", "", "提交回答"); submit.type = "button";
+      submit.addEventListener("click", () => { if (custom.value.trim()) answer(custom.value.trim()); }); taskSurface.append(custom, submit);
+    }
+  } else if (task.action !== "none") {
+    const button = element("button", "", task.action === "answer" ? "补充素材" : task.action === "recover" ? "恢复原结果" : "保存项目");
+    button.type = "button"; button.addEventListener("click", () => command({ type: "task-action" })); taskSurface.append(button);
+  }
+}
+
 function render() {
   renderFrame = 0;
   const state = currentState;
   if (!state) return;
+  renderTask(state);
   applyGlassAppearance(state);
   document.getElementById("project-name").textContent = [state.projectName || "项目", state.workspaceDomain?.title].filter(Boolean).join(" · ");
   document.getElementById("status-text").textContent = state.ready ? state.statusText : "主窗口尚未就绪";

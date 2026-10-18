@@ -1164,6 +1164,7 @@ export type AgentSteerTaskScopeMode =
 
 export type PendingAgentExecution = {
   version: 2;
+  taskId?: string;
   requestId: string;
   projectId: string;
   conversationId: string;
@@ -2878,7 +2879,11 @@ export type AgentBridge = {
     currentCount: number;
     currentQuality: AppSettings["imageQuality"];
   }): Promise<{ ok: boolean; draft?: Partial<ImageTaskDraft>; envelope?: { visibleOutput?: string; summary?: string }; error?: string }>;
-  chat(payload: { runId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[]; canvasRevision?: number; workspaceDomain?: WorkspaceDomain; imageDefaults?: { ratio?: string; resolution?: string } }): Promise<AgentRuntimeResult>;
+  chat(payload: { runId?: string; taskId?: string; prompt: string; messages: AgentMessage[]; nodes: WorkflowNode[]; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string; selectedNodeId?: string; selectedNodeIds?: string[]; canvasRevision?: number; workspaceDomain?: WorkspaceDomain; imageDefaults?: { ratio?: string; resolution?: string } }): Promise<AgentRuntimeResult>;
+  taskCommand(command: string, args: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
+  taskAdmit(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
+  taskSettle(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
+  taskClaimAnswer(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
   onProgress?(handler: (payload: AgentProgress) => void): () => void;
   getMainPrompt(): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
   saveMainPrompt(payload: { text: string }): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;

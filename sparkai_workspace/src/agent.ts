@@ -312,13 +312,14 @@ export async function requestAgent(
   taskScope?: AgentTaskScope,
   imageDefaults?: { ratio?: string; resolution?: string },
   workspaceDomain?: WorkspaceDomain,
-  canvasRevision?: number
+  canvasRevision?: number,
+  taskId?: string
 ) {
   if (!window.naimageAgent) {
     throw new Error("Agent 桥接不可用，请重启桌面端。");
   }
 
-  const result = await window.naimageAgent.chat({ runId, prompt, messages, nodes, referenceImages, taskScope, projectId, conversationId, selectedNodeId, selectedNodeIds, canvasRevision, imageDefaults, workspaceDomain });
+  const result = await window.naimageAgent.chat({ runId, taskId, prompt, messages, nodes, referenceImages, taskScope, projectId, conversationId, selectedNodeId, selectedNodeIds, canvasRevision, imageDefaults, workspaceDomain });
   if (!result.ok) {
     throw new Error(result.error ?? "Agent runtime 请求失败。");
   }

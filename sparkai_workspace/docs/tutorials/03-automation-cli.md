@@ -47,6 +47,32 @@ $payload = '{"prompt":"基于当前选中的原图生成一张 1:1 的干净商�
 
 `agent.chat` 使用当前 Agent 会话和素材上下文。空闲时会等待本轮任务结束；任务运行中再次发送会变成文字 steer，不能在同一条 steer 中偷偷替换 SOURCE/REFERENCE。需要改素材时，用应用界面或 `agent.steer` 明确声明 `keep`、`replace`、`merge` 或 `clear`。
 
+### 需要稳定回执、超时重连或共同回答时
+
+2026-10-19 开发版推荐使用四个 `agent.task.*` 命令。先从 `app.state` 取项目与会话身份，并在主窗口打开该目标：
+
+```powershell
+$target = @{ expectedProjectId = "PROJECT_ID"; conversationId = "CONVERSATION_ID" }
+$start = $target + @{ submissionId = "product-hero-001"; prompt = "基于原图制作一张方形商品主图"; sourceNodeIds = @("SOURCE_A"); ratio = "1:1" }
+$receipt = (& $cli agent.task.start -ArgsJson ($start | ConvertTo-Json -Compress)) | ConvertFrom-Json
+$task = $receipt.result.task
+$query = $target + @{ taskId = $task.taskId }
+& $cli agent.task.get -ArgsJson ($query | ConvertTo-Json -Compress)
+$wait = $query + @{ afterVersion = $task.cursor; timeoutMs = 25000 }
+& $cli agent.task.wait -ArgsJson ($wait | ConvertTo-Json -Compress) -TimeoutSeconds 40
+```
+
+`sourceNodeIds` 是明确素材范围，省略表示空范围。受理后冻结素材与图片配置，当前选择或设置变化不会改写它。`accepted:true` 表示回执已保存；它不表示图片完成或视觉验收通过。相同提交标识和相同请求返回原任务，换内容明确冲突；已有任务返回忙碌。调用超时后按原 submissionId 或 taskId 查询，不能换提交标识重发。
+
+`wait` 最长30秒，超时只结束本次等待并返回可继续使用的任务与cursor。旧cursor返回最新快照；`TASK_CURSOR_EXPIRED` 时先 get。问题出现在 `task.question`，用其requestId和最新version回答：
+
+```powershell
+$answer = $query + @{ questionId = "QUESTION_ID"; expectedVersion = 7; answer = "保留主体，背景使用暖灰色" }
+& $cli agent.task.answer -ArgsJson ($answer | ConvertTo-Json -Compress)
+```
+
+也可用 `optionId` 选择问题提供的选项。GUI与CLI竞争时仅一个回答成功，旧回答不能续跑新问题。文字是原任务的补充；素材上传仍用原GUI选择器。重启后可查原回执与已保存成果；无法安全续接的运行显示中断。图片按原操作恢复，创建不明的请求不能重发。完整字段和保留策略见[工作流合同](../AGENT_WORKFLOW_CONTRACT.md)及[共享命令参考](../../integrations/naimage-control/references/commands.md)。
+
 ## 4. 什么时候使用其他命令
 
 - `agent.new-conversation`：新建会话但保留当前画布成果。

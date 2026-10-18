@@ -82,6 +82,10 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
 
 export const AUTOMATION_SERVICE_COMMAND_NAMES = [
   "status",
+  "agent.task.start",
+  "agent.task.get",
+  "agent.task.wait",
+  "agent.task.answer",
   "debug.runtime-state",
   "debug.renderer-logs",
   "debug.main-logs",
@@ -99,6 +103,10 @@ export const AUTOMATION_COMMAND_NAMES = [
   "canvas.state",
   "image.operations",
   "image.recover",
+  "agent.task.start",
+  "agent.task.get",
+  "agent.task.wait",
+  "agent.task.answer",
   "debug.runtime-state",
   "debug.renderer-logs",
   "debug.main-logs",
@@ -227,6 +235,197 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
           "type": "string",
           "minLength": 1,
           "maxLength": 180
+        }
+      }
+    }
+  },
+  "agent.task.start": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedProjectId",
+        "conversationId",
+        "submissionId",
+        "prompt"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "submissionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "pattern": "^[a-zA-Z0-9_.:@-]+$"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "sourceNodeIds": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          }
+        },
+        "ratio": {
+          "type": "string",
+          "enum": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "3:2",
+            "2:3",
+            "21:9",
+            "9:21",
+            "4:5"
+          ]
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "1K",
+            "2K",
+            "4K"
+          ]
+        }
+      }
+    }
+  },
+  "agent.task.get": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedProjectId",
+        "conversationId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "submissionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        }
+      }
+    }
+  },
+  "agent.task.wait": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedProjectId",
+        "conversationId",
+        "taskId",
+        "afterVersion"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "afterVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000,
+          "default": 25000
+        }
+      }
+    }
+  },
+  "agent.task.answer": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expectedProjectId",
+        "conversationId",
+        "taskId",
+        "questionId",
+        "expectedVersion"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "questionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "optionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         }
       }
     }
@@ -3226,6 +3425,10 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "canvas.state": "renderer",
   "image.operations": "renderer",
   "image.recover": "renderer",
+  "agent.task.start": "service",
+  "agent.task.get": "service",
+  "agent.task.wait": "service",
+  "agent.task.answer": "service",
   "debug.runtime-state": "service",
   "debug.renderer-logs": "service",
   "debug.main-logs": "service",
@@ -3307,6 +3510,25 @@ export const AUTOMATION_COMMAND_SURFACES = {
 } as const;
 
 export const AUTOMATION_COMMAND_ENUMS = {
+  "agent.task.start": {
+    "ratio": [
+      "1:1",
+      "16:9",
+      "9:16",
+      "4:3",
+      "3:4",
+      "3:2",
+      "2:3",
+      "21:9",
+      "9:21",
+      "4:5"
+    ],
+    "resolution": [
+      "1K",
+      "2K",
+      "4K"
+    ]
+  },
   "debug.run-targeted-test": {
     "testName": [
       "typecheck",

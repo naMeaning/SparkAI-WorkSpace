@@ -340,6 +340,20 @@ async function main() {
     const rendererCommands = new Set(commandSchema.sections.flatMap((section) =>
       section.commands.filter((command) => command.surface === "renderer").map((command) => command.name)
     ));
+    const taskCommands = ["agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer"];
+    const mainSource = readFileSync(path.resolve(__dirname, "..", "electron-main.cjs"), "utf8");
+    const taskIpcSource = readFileSync(path.resolve(__dirname, "..", "desktop/ipc/agent-ipc.cjs"), "utf8");
+    const skillText = readFileSync(path.join(skillRoot, "SKILL.md"), "utf8");
+    for (const name of taskCommands) {
+      const definition = commandSchema.sections.flatMap(section => section.commands).find(command => command.name === name);
+      assert.equal(definition.surface, "service"); assert.equal(definition.parameters.additionalProperties, false);
+      assert.ok(mainSource.includes(`"${name}"`)); assert.ok(taskIpcSource.includes(`"${name}"`));
+      assert.ok(skillText.includes(name)); assert.ok(readFileSync(path.join(skillRoot, "references/commands.md"), "utf8").includes(name));
+    }
+    assert.ok(rendererSource.includes('command === "agent.task.dispatch"'));
+    assert.ok(rendererSource.includes('command === "agent.task.answer-dispatch"'));
+    assert.doesNotMatch(rendererSource, /errorCode === "TASK_ANSWER_STALE"\) closePendingAgentExecution/,
+      "A losing GUI answer must preserve pending for the winning CLI dispatch");
     const commandReference = readFileSync(path.join(skillRoot, "references", "commands.md"), "utf8");
     const generatedExample = (commandName) => {
       const line = commandReference.split(/\r?\n/).find((candidate) => candidate.startsWith(`- \`${commandName}\`:`));

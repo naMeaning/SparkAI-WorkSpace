@@ -42,7 +42,7 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
     const journal = read(projectId);
     if (journal.operations.some(item => item.key === key)) throw failure("IMAGE_OPERATION_EXISTS", "该图片操作已派发，请恢复原操作；不会重新生图。");
     if (journal.operations.length >= 500) {
-      const completed = journal.operations.findIndex(item => item.state === "saved" || item.state === "rejected");
+      const completed = journal.operations.findIndex(item => !item.agentTaskId && (item.state === "saved" || item.state === "rejected"));
       if (completed < 0) throw failure("IMAGE_JOURNAL_FULL", "图片恢复记录已满，请先处理未完成操作。");
       journal.operations.splice(completed, 1);
     }
@@ -52,7 +52,7 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
       const value = input.parameters?.[name];
       if (["string", "number", "boolean"].includes(typeof value)) parameters[name] = typeof value === "string" ? clean(value, 80) : value;
     }
-    const item = { schemaVersion: 1, projectId, key, operationId, requestIndex, runId: clean(input.runId), model: clean(input.model),
+    const item = { schemaVersion: 1, projectId, key, operationId, requestIndex, runId: clean(input.runId), agentTaskId: clean(input.agentTaskId), model: clean(input.model),
       protocol: clean(input.protocol, 50), transport: clean(input.transport, 30), connectionId: clean(input.connectionId),
       sourceNodeIds: (input.sourceNodeIds || []).map(id => clean(id)).slice(0, 240), parameters,
       sources: (input.sources || []).map(source => ({ nodeId: clean(source.canvasNodeId), assetId: clean(source.assetId), occurrenceId: clean(source.occurrenceId), slot: Math.max(0, Number(source.canvasAssetIndex) || 0) })).slice(0, 32),

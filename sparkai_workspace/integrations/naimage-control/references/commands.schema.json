@@ -51,6 +51,59 @@
       ]
     },
     {
+      "title": "Stable Agent tasks",
+      "commands": [
+        {
+          "name": "agent.task.start", "surface": "service",
+          "description": "Start one asynchronous Agent task in an explicit open project/conversation. Persist the frozen receipt before accepted. Reuse submissionId for retry/reconnect: the same normalized request returns the original task, different content conflicts. Busy tasks are never steered. This can call configured upstream models.",
+          "parameters": { "type": "object", "additionalProperties": false, "required": ["expectedProjectId", "conversationId", "submissionId", "prompt"], "properties": {
+            "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "submissionId": { "type": "string", "minLength": 1, "maxLength": 180, "pattern": "^[a-zA-Z0-9_.:@-]+$" },
+            "prompt": { "type": "string", "minLength": 1, "maxLength": 200000 },
+            "title": { "type": "string", "maxLength": 80 },
+            "sourceNodeIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 1, "maxLength": 180 } },
+            "ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
+            "resolution": { "type": "string", "enum": ["1K", "2K", "4K"] }
+          } }
+        },
+        {
+          "name": "agent.task.get", "surface": "service",
+          "description": "Read a durable sanitized task receipt, question/options, original image-operation keys and saved asset identities. Supply taskId or submissionId; omitting both returns the latest task in this project/conversation. Works after renderer reload/app restart, never creates a model request.",
+          "parameters": { "type": "object", "additionalProperties": false, "required": ["expectedProjectId", "conversationId"], "properties": {
+            "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "taskId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "submissionId": { "type": "string", "minLength": 1, "maxLength": 180 }
+          } }
+        },
+        {
+          "name": "agent.task.wait", "surface": "service",
+          "description": "Wait at most 30000ms for a receipt version change. afterVersion is the last cursor; an older cursor returns the latest snapshot, an ahead/invalidated cursor returns TASK_CURSOR_EXPIRED and requires get. Timeout only ends this wait, returns timedOut plus the original task/cursor, and never stops or restarts work. Receipts/idempotency are retained together without automatic expiry; capacity is fail-closed.",
+          "parameters": { "type": "object", "additionalProperties": false, "required": ["expectedProjectId", "conversationId", "taskId", "afterVersion"], "properties": {
+            "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "taskId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "afterVersion": { "type": "integer", "minimum": 0 },
+            "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 30000, "default": 25000 }
+          } }
+        },
+        {
+          "name": "agent.task.answer", "surface": "service",
+          "description": "Answer exactly one current structured question using questionId and expectedVersion from get/wait. Choose optionId or supply a custom answer. GUI/CLI compete through the same durable one-use claim. Continues the original frozen TaskScope/configuration and never interprets the answer as an independent image task; source/reference uploads remain the GUI material picker action.",
+          "parameters": { "type": "object", "additionalProperties": false, "required": ["expectedProjectId", "conversationId", "taskId", "questionId", "expectedVersion"], "properties": {
+            "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "taskId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "questionId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "expectedVersion": { "type": "integer", "minimum": 1 },
+            "optionId": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "answer": { "type": "string", "minLength": 1, "maxLength": 4000 }
+          } }
+        }
+      ]
+    },
+    {
       "title": "Development debugging",
       "commands": [
         {

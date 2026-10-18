@@ -165,6 +165,8 @@
     "test:canvas-clipboard": "node scripts/canvas-clipboard-selftest.ts",
     "test:image-batch-scheduler": "node scripts/image-batch-scheduler-selftest.cjs",
     "test:agent-run-control": "node scripts/agent-run-control-selftest.cjs",
+    "test:agent-task": "node scripts/agent-task-selftest.cjs",
+    "test:agent-task-ui": "node scripts/agent-task-ui-selftest.mjs",
     "test:agent-steer": "node scripts/agent-steer-runtime-selftest.cjs",
     "test:asset-identity": "node scripts/asset-identity-selftest.ts",
     "test:timeline": "node scripts/tool-timeline-selftest.ts",

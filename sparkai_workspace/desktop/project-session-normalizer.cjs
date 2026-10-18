@@ -1090,6 +1090,7 @@ function sanitizePersistedPendingAgentExecution(value) {
   return {
     version: 2,
     requestId,
+    ...(clean(value.taskId, 180) ? { taskId: clean(value.taskId, 180) } : {}),
     projectId,
     conversationId,
     originalPrompt,
