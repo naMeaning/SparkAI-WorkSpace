@@ -1,6 +1,49 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-17）
+## 当前开发状态（2026-10-18）
+
+- 状态：八项桌面修复及本地交付验证完成，Git 收口中。免费 Agent 生图工作台与双接入保留；[逐项验证/限制](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)、[长期合同](docs/AGENT_WORKFLOW_CONTRACT.md)与地图已同步。
+- 实现：结构化Ask恢复冻结快照；view_image同轮像素与独立生成字节清单；更新地址/传输/路由/响应/签名分层；原TaskScope紧凑范围菜单；同轮观察短名/manual保护/稳定消歧；完整启用模型池与有效参数冻结；Grok能力归一；四侧端口、实际命中、路径及取消手势。
+- 现场：main / 8889db1db5f002226d10634f3c066b24f69cff8a开始，预存相关文档及免费双接入均保留；所有子代理gpt-6.1-sol/max。0真实模型请求，未改外部New API/Extension/生产地址。
+- 最终完整UI：[59项/18截图](.diagnostics/agent-workflow-ui-2026-10-18T08-39-52-010Z/report.json)，mode=full/ok=true，19owner前后稳定；图片↔容器32侧向组合、键盘、取消、0.5/1.2缩放、移动/撤销/保存重载、平移/框选/resize、普通点击/拖动阈值/尾随事件、实际手动命名与884×640菜单全部通过。38条端点最大误差0.0005603px。主/子代理已看[截图总览](.diagnostics/agent-workflow-ui-2026-10-18T08-39-52-010Z/review-montage.png)及小窗/重载原图。
+- Ask/更新：Ask/Goal真实Electron14项/8截图；更新HTTP/IPC22项、生产Renderer7项/11截图/两次启动，保留验签/回滚/续传/失败恢复。匿名探针实证生产合法URL却HTTP404（New API status200），缺少桌面更新路由仍未恢复；无害EXE交接仅证明更新状态链，不能当真实新版本安装。
+- 最终安装版Main：[5项/3截图](.diagnostics/agent-workflow-main-2026-10-18T08-36-34-460Z/report.json)，13owner与最终ASAR匹配，真实preload修改live设置后，3次loopback Responses/唯一1次图片POST仍按冻结xAI/direct/high/1:1/1K/n1；生成PNG1024²/hash与磁盘一致，同主模型后续回合收到像素。保存、实际重载、正常退出后三处均1node/1asset/outputs1且身份不变；revision4终态done、无running、malformedProgress=[]，4条trace均internalOnly。正常exit0/441ms、forced=false、进程树为空；截图已看。
+- 资产/配置专项：Runtime最终11项、merge94项、projectIO单/多资产实际保存重开与322资产、双Renderer5例（edit/edit、edit/delete、delete/undo、连续保存、ack周围关闭）、命名13项、容器事务5项、selection16、图356曲线采样、协议/Adapter/IPC/CLI/MCP等受影响专项与typecheck通过。失败复现保留，见下方历史和验证文档。
+- 最终EXE：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,866,496 B，SHA-256 `c94cfb0132b6738c7d12ad66723b837460d89d4bd36510bf2cf3fbed1f52a3ba`。package:win:unrestricted退出0，production build1688 modules/22.39s；421源/公开契约文件冻结hash `33b9b0d524a88e2f0858f997ef76323f68d4c294808cda7b3c968c13e23e8592`，main.tsx为`e5d1ffe933e1d806ffecd3264ae934765467706332916fbdf523520acbd035a3`。包内122dist/139owner/生产package元数据逐字节核对，无env/diagnostics，双接入策略保留；[审计](.diagnostics/agent-workflow-delivery-2026-10-18/package-audit.json)。ASAR52,105,899 B / `6e143954c3ee861e35a523bcab10635e18e654a8306bb9850f21c0ca8608bd24`。此前同名EXE均已替换，不能按版本号混淆。
+- 原位安装：[品牌/S安装](.diagnostics/agent-workflow-delivery-2026-10-18/install.json)exit0/17,431ms，安装前无同名进程、无强杀；原注册目录/1.0.9、项目/设置保留，凭据sidecar只核对metadata、未读内容。安装EXE232,754,176 B / Product1.0.9.0 / SHA256 `d972ef5665e04df8d7c7afb3369c59e2600d40e072f6140966f4052dbaf3090f`，ASAR匹配。脚本首次被本机执行策略拦截，随后仅进程级Bypass，未改系统策略。
+- 免费双接入复验：[最终安装版6项/4截图/两次启动](.diagnostics/agent-workflow-delivery-2026-10-18/auth-ui-1792312696078/report.json)通过，账号表单、过期旧License不阻custom、实际提交与重启恢复、普通设置无fixture key；0模型POST/0License请求。已看重启工作台截图，未读取/覆盖日常凭据。
+- 交付后preflight：[最终核对](.diagnostics/agent-workflow-delivery-2026-10-18/preflight.json)通过，安装器/安装EXE/ASAR身份未变，日常配置与项目列表及凭据sidecar metadata保持，未读secret内容；同名进程为空。
+- 未验证：本地Mock不能证明主模型自主ask/view、真实主体识别/参考遵从或具体Grok渠道能力；真实测试清单已提出，等待范围对应凭据，实际请求0。生产更新路由仍缺失；历史500/1000节点拖动性能、正式CSS门槛保留，未扩大正式门禁。不上传EXE、不创建Release/tag。
+- Git：源码/文档待本轮普通commit/push后实查远端；下一步只做文档链接/差异/制品稳定性收尾与Git同步。
+
+### 2026-10-18 八项实施过程（历史checkpoint，按上方最终快照判断当前状态）
+
+以下记录保留当时失败、候选包与修复顺序；其中“待/下一步/in progress”是历史状态，已由上方最终证据替代。
+
+- 当前任务（最新）：八项 Agent 工作流/图片上下文/更新/范围入口/内容命名/有效配置/参数兼容/四向连线直接实施，状态 in progress。保留下方免费双接入交付，不把历史制品计为本轮完成。
+- 接受现场（本轮）：main / 8889db1db5f002226d10634f3c066b24f69cff8a；预存 Goal、Progress、docs/README 和交接文档草稿保留。代码、运行证据是事实来源，交接假设待验证。
+- 本轮实现：TaskScope 白名单冻结模型池/能力/本轮配置，历史参数分开；view_image/ask_user 脱敏协议 trace；图片请求按真实上传字节核对原图/参考/用途顺序；同轮观察后命名并保护手动名称；Grok 质量按显式连接能力处理；独立更新地址解析/分层诊断；紧凑范围入口与四侧连接几何已落到 owner。
+- 本轮证据：Runtime [11项合同](.diagnostics/agent-workflow/2026-10-18T07-10-08-324Z/report.json)通过，包含同轮像素实际续跑、multipart字节顺序、冻结SHA变化零派发、Main bridge冻结配置及手动后缀保护；[本地更新 HTTP](.diagnostics/update-http-2026-10-18T06-50-27-453Z/report.json)22项通过，含迁移/URL/HTTP/响应/签名/下载续传/失败恢复与无害EXE安全交接。均为本地 Mock，0真实模型请求。
+- 新增里程碑：[八项验证记录](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)。Ask/Goal真实Electron14项/8截图通过；扩展重载测试发现并修复Main丢imageConfig、Renderer丢imageRatio/imageResolution，改变当前选择/16:9/2K/high/count3后仍从原1:1/1K/auto/count1和M/N绑定续跑；Goal确认hash与派发配置一致。
+- 更新结论：匿名脱敏探针确认地址合法、HTTP404且status路由200，实际为生产服务没有桌面更新接口，未替换地址或修改外部服务。HTTP/IPC22项、生产RendererUI7项/11截图/两次启动通过；修复live进度误报中断及check成功残留busy，验签/回滚保留。无害EXE仅证明安全交接，不是实际安装。
+- 能力/命名：native xAI已消费归一quality，prepared/wire/画像一致；默认high→medium与显式连接high隔离。自动标题/手动保护/稳定批次suffix及Main保存往返专项通过。真实模型/主体识别仍未测，0付费请求。
+- 中间制品（待替换）：production build与品牌EXE曾成功，122个dist/18个Main与Runtime owner审计、原位安装退出0/18,928ms且配置保留；该EXE 109,864,448 B / `1084d26fdef17efe9d82a51727d4cf662057c4928931e1431295d7ce537687b0`。后续真实四向UI发现容器悬浮工具条挡住目标端口，已修为连线时暂隐单选/多选快捷条，故该包不能作为最终交付。原始包/安装报告归档为`.diagnostics/agent-workflow-delivery-2026-10-18/intermediate-*`，必须重建与安装最终源码。
+- 最新 Main 证据：[真实 Electron Main loopback](.diagnostics/agent-workflow-main-2026-10-18T07-25-43-958Z/report.json)4项/2截图通过，3轮 Responses、1次图片POST；首轮暂停时用真实preload保存另一套live配置，实际native xAI/direct/high/1:1/1K/n1仍来自冻结快照，PNG哈希/尺寸和实际session持久化匹配。此前helper/static证据不再代替Main实际执行；均为本地Mock。
+- 最新缺口：只读 Main JSON 往返复现手动“红色圆形 · 2”及“图片成果”仍可被后续自动命名覆盖；补`contentName.source=manual`与真实编辑入口所有权，避免数字suffix/通用名推断覆盖用户。四向UI第四轮已过32组合和取消/撤销，其余交互仍在运行，不计完整通过。
+- 收口修复：manual所有权已落到normalizer、presentation、编辑器node/asset目标及GUI/CLI容器事务；13项命名、5项容器事务与typecheck通过，正在补实际编辑UI。另通过恶意额外tool imageConfig复现冻结策略可被覆盖，派发已改为只取冻结settings；[最新Runtime11合同](.diagnostics/agent-workflow/2026-10-18T07-35-06-434Z/report.json)通过，明确`extraToolConfigurationIgnored:true`，0真实请求。
+- 质量边界收口：真实设置清洗的空quality列表曾使兼容Grok发high，13组adapters回归先失败后修复通过；空列表继承家族/协议默认，非空显式能力仍优先。adapters、service及[最终Runtime11合同](.diagnostics/agent-workflow/2026-10-18T07-43-04-664Z/report.json)通过，源码冻结待最终UI/打包。
+- UI后半阻断：[remaining-ui第六轮](.diagnostics/agent-workflow-ui-2026-10-18T07-44-38-905Z/report.json)仅partial，17owner稳定；真实平移+Escape取消后延迟触发图片查看器，挡住下一框选。截图确认是产品误触发，修复原pan/click抑制owner并补释放后650ms（超过实际500ms图片点击定时器）no-viewer断言，不能清除浮层掩盖。该轮不计完整UI通过。
+- 平移修复已冻结：原canvas手势捕获记录pan消费点击，start/stop/总取消清延迟图片timer，click/dblclick捕获拒绝尾随事件，下一次真实pointerdown即恢复普通点击，无任意冷却时间。typecheck、selection-state16项和canvas-wheel通过；419个产品/公开契约源文件冻结，开始最终候选package，实际UI仍待后半及完整复验，不计安装/最终交付。
+- 第二候选已生成/安装但待替换：EXE109,867,008 B / `49a80a3f0944157453dcd328fa7112dabcc79708c26f16bbeb1a5dad41852e3a`，122dist/137owner/生产package元数据核对通过；品牌`/S`退出0/16,467ms，配置/注册目录保留、EXE/ASAR匹配。安装版双接入6项/4截图/2启动通过（`.diagnostics/agent-workflow-delivery-2026-10-18/auth-ui-1792310053501/report.json`）。UI第7/8轮确认普通A单图tap被beginNodeDrag立即setPointerCapture重定向到flow-node，tile点击未收到；这是产品故障，继续修复后重建重装，该候选归档为`candidate-49a80-*`，不能代替最终交付。
+- 单图tap修复：真实pointer轨迹确认按下即capture使up/click落在flow-node，tile handler未收到；现沿原5px阈值延后capture，window统一监听/清理，active pointer guard防覆盖。typecheck、selection16及diff检查通过，main冻结SHA256 `e40c8000ce350e59cfa2d4b4d68e5dd3173a49551517e9948c42d3d3f5e46a34`，完整UI仍待。
+- 安装版Main失败：[正常模式候选报告](.diagnostics/agent-workflow-main-2026-10-18T08-00-06-907Z/report.json)3前置断言通过，3轮Responses/唯一图片POST，冻结xAI/direct/high/1:1/1K/n1及同轮像素正确；实际session两个相同assetId/occurrenceId/path成果，严格单成果断言失败。另测试退出超时后forced，不能记正常退出。保留报告，继续定位合并与退出边界；之前开发态绿色不代替安装版结果。
+- 成果身份修复：`runtime/image-asset-identity.mjs`统一Main merge/normalizer/Renderer图片组，所有已知locator作为同run别名，保留独立导入occurrence、不同run/不同文件与manual。merge92项、真实project-io写盘重开和typecheck通过，421源文件冻结hash `273e02afe7d049c11d5e437b29770edcd21713ee23d196e8d10d18964dd516a1`，开始最终候选打包。单独零生成关闭探针exit0/1383ms/子进程[]，只证明重开图片可关闭，不代替完整生成生命周期。
+- d7历史候选制品/安装（已被最终c94制品替换）：production build1688 modules/22.54s与NSIS品牌EXE通过；[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,866,496 B，SHA256 `d7e829c06cf811b8779ed937dc89207d5a3480c2f949c1d319f90468ac128bcf`；ASAR52,103,212 B / `f9c9c42bcd1501ca2826dfb5da509c35f4f2c2128eabbad5e4287cf7887a2015`。[历史包内审计](.diagnostics/agent-workflow-delivery-2026-10-18/candidate-d7e829-package-audit.json)122dist/139owner与生产package元数据匹配，421源码前后稳定。品牌`/S`[历史原位安装](.diagnostics/agent-workflow-delivery-2026-10-18/candidate-d7e829-install.json)exit0/17,783ms，注册`E:\\sparkai-workspace\\naimage`/1.0.9不变、配置保留；已安装EXE232,754,176 B / `67c8ec2ecf3779625f2aaec5c744940724b8505b6c5a6e065553ad30016739f7`、ASAR与候选相符。安装前无同名进程；脚本首次受本机执行策略拦截未启动安装器，随后仅进程级Bypass执行，未更改系统策略。
+- d7候选复验与新增修复：`.diagnostics/agent-workflow-main-2026-10-18T08-23-51-994Z/report.json`13owner匹配，3Responses/唯一图片POST，保存/真实重载/正常关闭后三处1node/1asset/outputs1，exit0/430ms/forced:false/进程树[]。前轮reload抢在320ms autosave前，已修测试等待实际终态；另真实发现protocol-trace对象被timeline显示并持久为[object Object]。Runtime三个诊断事件已加既有internalOnly，最新Runtime11（08:25:45）及view-image通过；最终安装版需严格malformedProgress=0。
+- 多资产槽映射失败：`.diagnostics/agent-workflow/asset-merge-repro-2026-10-18/slot-map/report.json`真实merge→serialize→写盘→reopen将[A,replayA,B]去重为2assets却留3items，第二项从occ-A错绑occ-B，直接save控制正确。不是静态假设，继续修Main merge的writer槽映射；候选d7不计最终，原package/install/freeze报告归档为candidate-d7e829-*。
+- 下一步（本轮）：收口槽映射及完整命名/四侧/范围Electron，重建并安装最终包、Main无对象诊断/唯一成果/重载/正常退出复验后更新文档、commit/push。真实能力待已提出用例的凭据回复，外部服务变更、EXE上传及正式Release不在范围。
+
+### 2026-10-17 免费双接入交付快照（历史，行为在本轮保留并复验）
 
 - 当前任务：免费 Agent 生图工作台与双接入已交付；取消通用版 Pro 门槛、保留账号登录，更新 README/教程与推广文案。广泛 New API/Sub2API 账号适配属于后续目标。
 - 接受现场：main / 211307c83fea1324ff05e826c987ef436d8d309d；本轮已有 Goal/Progress/Product Intent/地图草稿，随后完成免费双接入代码、专项回归、最终 EXE 和原位安装。
@@ -23,6 +66,14 @@
 - 已修改桌面 Renderer、Electron Main、Server IPC 和浏览器回退桥：通用版通过账号登录或 Base URL + API Key 进入工作台；Agent 对话和图片请求不再调用 `licenseService.requireActive()`；自定义配置返回本地免费状态。SparkAPI 专用版的构建期 `customApiAccess=false` 限制仍保留。
 - 旧 `LicenseStatus` 类型、IPC、设备字段和 `desktop/license-service.cjs` 未删除，用于旧设置/旧扩展兼容；新版正常产品入口不访问远端 License 服务，也不显示兑换码。旧 Electron License IPC 仍保留显式 verify/activate 能力，浏览器开发回退状态查询本地返回免费状态。全面 New API/Sub2API 账号协议兼容仍是后续目标。
 - 实际验证：`test:access-variant`、`test:custom-api-transport`（40 cases）、`test:ipc-registration`（152/149/3）、`test:license`（9 cases）、`test:agent-protocol`、`test:image-generation-service` 和 `typecheck` 均退出 0；未发起真实模型请求。此 checkpoint 当时尚待 build/EXE/安装/Git，后续结果见上方交付记录。
+
+### 2026-10-17 Agent 工作流、图片上下文与更新功能交接 / documentation completed; implementation pending
+
+- 用户追加范围：诊断 `ask_user` 选项不弹出、`view_image` 未可靠进入模型 continuation、参考图可能未进入 generation request、更新检查 `Invalid URL`、运行中图片范围入口冗余；并增加图片容器基于内容命名、Agent 读取勾选图片及有效配置、真实生图参数学习/脱敏记录、上下左右四向连线。
+- 已确认 owner：`src/ask-user-dialog.tsx`、`src/main.tsx`、`agent-runtime.cjs`、`runtime/tool-schemas.cjs`、`desktop/agent-responses-adapter.cjs`、`desktop/new-api-client.cjs`、`desktop/updater-service.cjs`、`src/project-agent-composer.tsx`、`src/image-content-title.ts`、`src/styles/02-canvas-workspace.css` 及现有 AIDebug/更新专项。现有 TaskScope、selection、imageParams 和 graph 语义必须复用。
+- 交接文档：[Agent 工作流、图片上下文与更新功能交接](docs/AGENT_WORKFLOW_UPDATE_HANDOFF_2026-10-17.md)，包含截图证据与代码事实区分、诊断 trace、local Mock、八个工作包、验收矩阵、安全边界和交给 `gpt-6.1-sol max` 的完整 Prompt。
+- 本轮状态：只新增交接/索引和 Goal/Progress 记录，未改产品代码；未进行真实图片/视频/对话/更新请求，未索取或保存 Base URL/API Key，未生成/安装 EXE，未 commit/push。本文件不宣称上述功能已完成。
+- 后续验收：执行 Agent 需先用 deterministic model/HTTP Mock 分层定位，再做真实 Electron 交互、typecheck/build；产品代码改动后按桌面规则生成并安装 EXE，分别记录制品、安装、文档和 Git 结果。真实联调仍需用户明确授权具体次数、模型和素材。
 
 ### 2026-10-17 免费双接入方向变更 / in progress
 

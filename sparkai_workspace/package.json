@@ -23,6 +23,11 @@
     ]
   },
   "scripts": {
+    "test:agent-workflow": "node scripts/agent-workflow-selftest.cjs",
+    "test:agent-workflow-ui": "node scripts/agent-workflow-ui-selftest.mjs",
+    "test:agent-workflow-main": "node scripts/agent-workflow-main-selftest.mjs",
+    "test:update-http": "electron scripts/desktop-update-http-selftest.cjs",
+    "test:update-ui": "node scripts/desktop-update-ui-selftest.mjs",
     "test:workspace-layout-config-ui": "node scripts/workspace-layout-config-ui-selftest.mjs",
     "test:runtime-diagnostics": "node scripts/runtime-diagnostics-selftest.cjs",
     "test:composer-commands": "node scripts/composer-commands-selftest.mjs",

@@ -107,8 +107,9 @@ async function buildXaiRequest(request, config, preparedInputs) {
     resolution: xaiResolution(request)
   };
   const quality = qualityFor(request);
-  if (["low", "medium"].includes(quality)) body.quality = quality;
-  else if (["standard", "high"].includes(quality)) body.quality = "medium";
+  // Capability normalization owns compatibility. Keep this wire value equal to
+  // the prepared request and connection evidence, including explicit overrides.
+  if (quality && quality !== "auto") body.quality = quality;
   // xAI defaults to a temporary CDN URL. Inline output avoids a second network
   // dependency after the provider has already generated (and may have billed) it.
   body.response_format = request.responseFormat || "b64_json";

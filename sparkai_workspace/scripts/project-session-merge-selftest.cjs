@@ -135,6 +135,54 @@ assert.equal(replayedGenerated.assets.length, 1);
 assert.equal(replayedGenerated.outputs, 1, "A stale inflated output count must converge to the actual asset count");
 assert.equal(replayedGenerated.assets[0].occurrenceId, `occ-${"1".repeat(32)}`);
 
+const stableGeneratedOccurrence = `occ-${"c".repeat(32)}`;
+const storedGeneratedAsset = generatedAsset(stableGeneratedOccurrence, {
+  displayCode: "A1", title: "用户命名", contentName: { source: "manual", displayName: "用户命名" }, width: 512
+});
+const runtimeGeneratedAsset = generatedAsset(stableGeneratedOccurrence, {
+  relativePath: undefined, width: 1024, title: "自动名称", contentName: { source: "fallback", displayName: "自动名称" }
+});
+let locatorReplaySession = { nodes: [node("A", "shared:locator-drift", { assets: [storedGeneratedAsset], outputs: 1, imageState: "done" })] };
+for (const replayAsset of [
+  runtimeGeneratedAsset,
+  { ...runtimeGeneratedAsset, occurrenceId: `occ-${"d".repeat(32)}` },
+  { ...runtimeGeneratedAsset, path: undefined, relativePath: generatedPath },
+  runtimeGeneratedAsset
+]) {
+  locatorReplaySession = mergeProjectSessions(locatorReplaySession, {
+    nodes: [node("A", "shared:locator-drift", { assets: [replayAsset], outputs: 1, imageState: "done" })]
+  }, { nextRevision: 10 }).session;
+  const replayNode = locatorReplaySession.nodes[0];
+  assert.equal(replayNode.assets.length, 1, "Progress/result replay must bridge stored relative and runtime absolute locators");
+  assert.equal(replayNode.outputs, 1);
+  assert.equal(replayNode.assets[0].occurrenceId, stableGeneratedOccurrence);
+  assert.equal(replayNode.assets[0].displayCode, "A1");
+  assert.equal(replayNode.assets[0].width, 1024, "Repeated delivery still enriches metadata");
+  assert.equal(replayNode.assets[0].title, "用户命名", "Automatic replay must preserve explicit title ownership");
+}
+const normalizedLocatorDrift = sanitizeSession({
+  nodes: [node("A", "shared:locator-drift", { assets: [storedGeneratedAsset, runtimeGeneratedAsset], outputs: 2, imageState: "done" })]
+}).nodes[0];
+assert.equal(normalizedLocatorDrift.assets.length, 1, "Historical collapse must use the same generated locator aliases as live merging");
+assert.equal(normalizedLocatorDrift.outputs, 1);
+
+const bridgedGeneratedAliases = mergeProjectSessions({
+  nodes: [node("A", "shared:bridged-locators", { assets: [
+    generatedAsset(`occ-${"e".repeat(32)}`, { path: undefined }),
+    generatedAsset(`occ-${"f".repeat(32)}`, { relativePath: undefined })
+  ] })]
+}, { nodes: [node("A", "shared:bridged-locators", { assets: [runtimeGeneratedAsset, storedGeneratedAsset] })] }).session.nodes[0];
+assert.equal(bridgedGeneratedAliases.assets.length, 1, "A later complete locator record must reconcile both previously separated aliases");
+
+const distinctGeneratedFiles = mergeProjectSessions({
+  nodes: [node("A", "shared:distinct-generated", { assets: [storedGeneratedAsset] })]
+}, { nodes: [node("A", "shared:distinct-generated", { assets: [
+  generatedAsset(`occ-${"a1".repeat(16)}`, { path: "C:/project/output/imagegen/second.png", relativePath: "output/imagegen/second.png", contentHash: "a".repeat(64) }),
+  generatedAsset(`occ-${"a2".repeat(16)}`, { runId: "another-run", contentHash: "a".repeat(64) }),
+  generatedAsset(stableGeneratedOccurrence, { path: "C:/project/output/imagegen/third.png", relativePath: "output/imagegen/third.png" })
+] })] }).session.nodes[0];
+assert.equal(distinctGeneratedFiles.assets.length, 4, "Different generated files or runs remain distinct even with matching pixels or reused occurrence metadata");
+
 const repeatedImports = mergeProjectSessions(
   { ...existing, nodes: [node("A", "shared:imports", { assets: [{ assetId: "imported", occurrenceId: `occ-${"3".repeat(32)}`, type: "file", path: "C:/project/assets/shared.png", importBatchId: "batch-a", importRootId: "root-a", sourceRelativePath: "shared.png", runId: "preserved-old-run" }] })] },
   { ...incoming, nodes: [node("A", "shared:imports", { assets: [{ assetId: "imported", occurrenceId: `occ-${"4".repeat(32)}`, type: "file", path: "C:/project/assets/shared.png", importBatchId: "batch-b", importRootId: "root-a", sourceRelativePath: "shared.png", runId: "preserved-old-run" }] })] },
@@ -176,6 +224,57 @@ assert.deepEqual(
   normalizedHistoricalDuplicates,
   "Historical duplicate repair must itself be idempotent"
 );
+
+const secondGeneratedAsset = generatedAsset(`occ-${"b2".repeat(16)}`, {
+  assetId: "generated-second", path: "C:/project/output/imagegen/second.png", relativePath: "output/imagegen/second.png",
+  title: "用户B", contentName: { source: "manual", displayName: "用户B" }
+});
+const corruptGeneratedAssets = [storedGeneratedAsset, runtimeGeneratedAsset, { ...secondGeneratedAsset, index: 3 }];
+const corruptGeneratedCollection = {
+  id: "corrupt-generated", kind: "batch", generationMode: "parallel",
+  items: corruptGeneratedAssets.map((asset, index) => ({
+    id: `corrupt-item-${index + 1}`, requestIndex: index + 1, assetIndex: index + 1,
+    assetId: asset.assetId, occurrenceId: asset.occurrenceId, title: asset.title, prompt: "prompt", status: "done"
+  }))
+};
+const corruptGeneratedNode = node("A", "shared:corrupt-slot-map", {
+  assets: corruptGeneratedAssets, outputs: 3, imageState: "done", imageProgress: { total: 3, completed: 3, failed: 0, failedSlots: [] },
+  imageCollection: corruptGeneratedCollection,
+  imageContainerSpec: {
+    version: 1, kind: "batch-result", memberNodeIds: [], childContainerNodeIds: [], layoutOrigin: "generation", autoFit: true,
+    collection: corruptGeneratedCollection,
+    memberBindings: corruptGeneratedAssets.map((asset, index) => ({ bindingId: `corrupt-binding-${index}`, nodeId: "A", containerNodeId: "A", assetIndex: index, assetId: asset.assetId, occurrenceId: asset.occurrenceId }))
+  }
+});
+const normalizedCorruptMerge = sanitizeSession(mergeProjectSessions({ nodes: [corruptGeneratedNode] }, {
+  nodes: [node("A", "shared:corrupt-slot-map", { assets: [runtimeGeneratedAsset, secondGeneratedAsset], outputs: 2, imageState: "done" })]
+}).session).nodes[0];
+assert.equal(normalizedCorruptMerge.assets.length, 2);
+assert.deepEqual(normalizedCorruptMerge.imageCollection.items.map(item => [item.id, item.assetIndex, item.occurrenceId]), [
+  ["corrupt-item-1", 1, stableGeneratedOccurrence], ["corrupt-item-3", 2, secondGeneratedAsset.occurrenceId]
+], "Main asset collapse must remap the selected writer's collection before old in-range slots can bind another image");
+assert.deepEqual(normalizedCorruptMerge.imageContainerSpec.collection, normalizedCorruptMerge.imageCollection);
+assert.equal(normalizedCorruptMerge.imageContainerSpec.memberBindings.length, 2);
+assert.equal(normalizedCorruptMerge.imageProgress.completed, 2);
+assert.equal(normalizedCorruptMerge.imageProgress.total, 2);
+assert.deepEqual(normalizedCorruptMerge.assets.map(asset => asset.title), ["用户命名", "用户B"]);
+
+const reorderedIncomingCollection = {
+  id: "reordered", kind: "batch", generationMode: "parallel", items: [
+    { id: "writer-B", requestIndex: 1, assetIndex: 1, assetId: secondGeneratedAsset.assetId, occurrenceId: secondGeneratedAsset.occurrenceId, title: "B slot", status: "done" },
+    { id: "writer-A", requestIndex: 2, assetIndex: 2, assetId: storedGeneratedAsset.assetId, occurrenceId: storedGeneratedAsset.occurrenceId, title: "A slot", status: "done" }
+  ]
+};
+const reorderedMerge = mergeProjectSessions({ nodes: [node("A", "shared:reordered-slots", { assets: [storedGeneratedAsset, secondGeneratedAsset] })] }, {
+  nodes: [node("A", "shared:reordered-slots", {
+    assets: [secondGeneratedAsset, runtimeGeneratedAsset], imageCollection: reorderedIncomingCollection,
+    imageContainerSpec: { version: 1, kind: "batch-result", memberNodeIds: [], childContainerNodeIds: [], memberBindings: [], collection: reorderedIncomingCollection, layoutOrigin: "generation", autoFit: true }
+  })]
+}).session.nodes[0];
+assert.deepEqual(reorderedMerge.imageCollection.items.map(item => [item.id, item.assetIndex, item.occurrenceId]), [
+  ["writer-B", 2, secondGeneratedAsset.occurrenceId], ["writer-A", 1, stableGeneratedOccurrence]
+], "A winning writer's item order and intent must survive a different canonical asset order");
+assert.deepEqual(reorderedMerge.imageContainerSpec.collection, reorderedMerge.imageCollection);
 
 const mixedCollection = sanitizeSession({
   ...existing,
@@ -890,4 +989,4 @@ const ordinaryPendingWithGoalMetadata = invalidGoalPending((pending) => {
 assert.ok(ordinaryPendingWithGoalMetadata);
 assert.equal(ordinaryPendingWithGoalMetadata.taskScope.goal, undefined, "Non-Goal pending tasks must not retain Goal-only metadata");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 87 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 94 })}\n`);

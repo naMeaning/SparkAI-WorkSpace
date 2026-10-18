@@ -23,6 +23,8 @@ const {
 const { imagePromptRatios, imagePromptResolutions } = require("../runtime/image-frame.cjs");
 const { normalizeWorkspaceDomain } = require("../runtime/workspace-domain.cjs");
 const { normalizeImageAssetGenerationMetadata } = require("../runtime/image-generation-metadata.cjs");
+const { normalizeImageConfigSnapshot } = require("../runtime/image-config-snapshot.mjs");
+const { coalesceImageAssets, remapImageAssetSlots } = require("../runtime/image-asset-identity.mjs");
 
 function sanitizePersistedImageAssetGeneration(asset) {
   if (!asset || typeof asset !== "object" || Array.isArray(asset)) return asset;
@@ -176,107 +178,13 @@ function sessionAssetAliasFingerprints(asset, fallbackIndex = 1, ownerId = "", s
   return [...new Set([primary, ...locators.map((locator) => createHash("sha256").update(locator).digest("hex").slice(0, 32))])];
 }
 
-function sessionGeneratedAssetKey(asset) {
-  const source = asset && typeof asset === "object" ? asset : {};
-  const importBatchId = String(source.importBatchId || "").trim();
-  const importRootId = String(source.importRootId || "").trim();
-  const sourceRelativePath = safeImageSourceRelativePath(source.sourceRelativePath);
-  if (importBatchId && importRootId && sourceRelativePath) return "";
-  const runId = String(source.runId || "").trim().toLowerCase();
-  if (runId.startsWith("import-")) return "";
-  const locator = sessionAssetIdentityLocators(source)[0] || "";
-  return runId && locator ? `generated:${runId}:${locator}` : "";
-}
-
 function collapseRepeatedGeneratedAssets(node) {
   const rawAssets = Array.isArray(node?.assets) ? node.assets : [];
   if (rawAssets.length < 2) return;
-  const assets = [];
-  const firstSlotByKey = new Map();
-  const oldToNewSlot = new Map();
-  for (const [slot, asset] of rawAssets.entries()) {
-    const key = sessionGeneratedAssetKey(asset);
-    const repeatedSlot = key ? firstSlotByKey.get(key) : undefined;
-    if (repeatedSlot === undefined) {
-      oldToNewSlot.set(slot, assets.length);
-      if (key) firstSlotByKey.set(key, assets.length);
-      assets.push({ ...asset });
-      continue;
-    }
-    oldToNewSlot.set(slot, repeatedSlot);
-    const previous = assets[repeatedSlot];
-    assets[repeatedSlot] = {
-      ...previous,
-      ...asset,
-      ...(previous.occurrenceId ? { occurrenceId: previous.occurrenceId } : {}),
-      ...(previous.assetId ? { assetId: previous.assetId } : {}),
-      ...(previous.displayCode ? { displayCode: previous.displayCode } : {})
-    };
-  }
+  const { assets, slotMap } = coalesceImageAssets(rawAssets, { generatedOnly: true });
   if (assets.length === rawAssets.length) return;
   node.assets = assets.map((asset, index) => ({ ...asset, index: index + 1 }));
-
-  const rawCollection = node.imageCollection && typeof node.imageCollection === "object"
-    ? node.imageCollection
-    : node.imageContainerSpec?.collection && typeof node.imageContainerSpec.collection === "object"
-      ? node.imageContainerSpec.collection
-      : null;
-  if (rawCollection) {
-    const items = [];
-    const seenDoneSlots = new Set();
-    for (const item of Array.isArray(rawCollection.items) ? rawCollection.items : []) {
-      if (!item || typeof item !== "object") continue;
-      const oldSlot = Number(item.assetIndex) - 1;
-      const newSlot = Number.isInteger(oldSlot) ? oldToNewSlot.get(oldSlot) : undefined;
-      if (item.status !== "pending" && item.status !== "error" && newSlot !== undefined) {
-        if (seenDoneSlots.has(newSlot)) continue;
-        seenDoneSlots.add(newSlot);
-        items.push({ ...item, assetIndex: newSlot + 1 });
-      } else {
-        items.push({ ...item });
-      }
-    }
-    const collection = { ...rawCollection, items };
-    node.imageCollection = collection;
-    if (node.imageContainerSpec?.collection) {
-      node.imageContainerSpec = { ...node.imageContainerSpec, collection };
-    }
-  }
-
-  if (node.type === "image") {
-    node.outputs = node.assets.length;
-    const progress = node.imageProgress && typeof node.imageProgress === "object" ? node.imageProgress : null;
-    if (progress) {
-      const collectionItems = Array.isArray(node.imageCollection?.items) ? node.imageCollection.items : [];
-      const completed = collectionItems.length
-        ? collectionItems.filter((item) => item?.status !== "pending" && item?.status !== "error").length
-        : node.assets.length;
-      const failed = collectionItems.length
-        ? collectionItems.filter((item) => item?.status === "error").length
-        : Math.max(0, Number(progress.failed) || 0);
-      const preservedFailedSlots = Array.isArray(progress.failedSlots)
-        ? [...new Set(progress.failedSlots
-            .map((slot) => Math.max(1, Math.floor(Number(slot) || 0)))
-            .filter(Boolean))]
-        : [];
-      const failedSlots = collectionItems.length
-        ? collectionItems
-            .filter((item) => item?.status === "error")
-            .map((item, index) => Math.max(1, Math.floor(Number(item.requestIndex || index + 1) || index + 1)))
-        : preservedFailedSlots;
-      const configuredTotal = Math.max(0, Math.floor(Number(node.imageParams?.count) || 0));
-      const total = Math.max(1, completed + failed, collectionItems.length, configuredTotal);
-      node.imageProgress = {
-        ...progress,
-        total,
-        completed,
-        failed,
-        failedSlots,
-        activeIndex: undefined,
-        message: failed ? `已完成 ${completed}/${total} 张，失败 ${failed} 张` : `已完成 ${completed}/${total} 张`
-      };
-    }
-  }
+  remapImageAssetSlots(node, rawAssets, node.assets, slotMap);
 }
 
 function repairSessionAssetIdentities(nodes) {
@@ -942,8 +850,9 @@ function sanitizePersistedPendingAgentExecution(value) {
   if (!requestId || !projectId || !conversationId || !originalPrompt || !question || !kinds.has(value.kind)) return null;
   const rawScope = value.taskScope && typeof value.taskScope === "object" ? value.taskScope : null;
   if (!rawScope) return null;
-  const normalizeAssets = (items, role, limit) => (Array.isArray(items) ? items : []).slice(0, limit).flatMap((item, index) => {
+  const normalizeAssets = (items, role, limit, preserveRole = false) => (Array.isArray(items) ? items : []).slice(0, limit).flatMap((item, index) => {
     if (!item || typeof item !== "object") return [];
+    const effectiveRole = preserveRole && item.role === "reference" ? "reference" : role;
     const assetId = clean(item.assetId, 160);
     const localPath = cleanPath(item.path);
     const relativePath = cleanPath(item.relativePath).replace(/\\/g, "/");
@@ -968,10 +877,10 @@ function sanitizePersistedPendingAgentExecution(value) {
       ...(sourceRelativePath ? { sourceRelativePath } : {}),
       ...(clean(item.sourceRootLabel, 260) ? { sourceRootLabel: clean(item.sourceRootLabel, 260) } : {}),
       ...(item.sourceRootKind === "directory" || item.sourceRootKind === "file" ? { sourceRootKind: item.sourceRootKind } : {}),
-      displayCode: clean(item.displayCode, 40) || `${role === "source" ? "SRC" : "REF"}${index + 1}`,
+      displayCode: clean(item.displayCode, 40) || `${effectiveRole === "source" ? "SRC" : "REF"}${index + 1}`,
       ...(/^[a-f0-9]{32,128}$/i.test(clean(item.contentHash, 128)) ? { contentHash: clean(item.contentHash, 128).toLowerCase() } : {}),
-      role,
-      name: clean(item.name, 260) || `${role === "source" ? "原图" : "参考图"} ${index + 1}`,
+      role: effectiveRole,
+      name: clean(item.name, 260) || `${effectiveRole === "source" ? "原图" : "参考图"} ${index + 1}`,
       ...(assetIndex === undefined ? {} : { assetIndex }),
       ...(containerSlot === undefined ? {} : { containerSlot }),
       ...(ownerAssetIndex === undefined ? {} : { ownerAssetIndex }),
@@ -983,11 +892,12 @@ function sanitizePersistedPendingAgentExecution(value) {
       ...(assetUrl ? { assetUrl } : {}),
       ...(clean(item.mimeType, 100) ? { mimeType: clean(item.mimeType, 100) } : {}),
       ...(clean(item.purpose, 400) ? { purpose: clean(item.purpose, 400) } : {}),
-      ...(role === "reference" && clean(item.referenceRole, 80) ? { referenceRole: clean(item.referenceRole, 80) } : {})
+      ...(effectiveRole === "reference" && clean(item.referenceRole, 80) ? { referenceRole: clean(item.referenceRole, 80) } : {})
     }];
   });
   const sourceAssets = normalizeAssets(rawScope.sourceAssets, "source", 200);
   const referenceAssets = normalizeAssets(rawScope.referenceAssets, "reference", 40);
+  const materials = normalizeAssets(rawScope.materials, "source", 240, true);
   const normalizeOptions = (items) => {
     if (!Array.isArray(items)) return [];
     const usedIds = new Set();
@@ -1189,6 +1099,7 @@ function sanitizePersistedPendingAgentExecution(value) {
     ...(clean(value.focusedNodeId, 160) ? { focusedNodeId: clean(value.focusedNodeId, 160) } : {}),
     taskOrigin: origin,
     taskScope: {
+      ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
       version: 2,
       origin,
       scopeType,
@@ -1198,6 +1109,7 @@ function sanitizePersistedPendingAgentExecution(value) {
       referenceContainerIds,
       sourceBindingIds,
       referenceBindingIds,
+      ...(materials.length ? { materials } : {}),
       sourceAssets,
       referenceAssets,
       resultPolicy,

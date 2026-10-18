@@ -189,11 +189,13 @@ export function renameImageCollections(
   }));
   const namesByNodeId = new Map(planned.map((entry) => [entry.node.id, entry.name]));
   const collectionsByNodeId = new Map(planned.map((entry) => [entry.node.id, { ...entry.collection, name: entry.name }]));
-  const changed = planned.some((entry) => entry.collection.name !== entry.name || entry.node.title !== entry.name);
+  const changed = planned.some((entry) => entry.collection.name !== entry.name || entry.node.title !== entry.name
+    || entry.node.contentName?.source !== "manual" || entry.node.contentName.displayName !== entry.name);
   const nextNodes = changed
     ? nodes.map((node) => {
         const collection = collectionsByNodeId.get(node.id);
-        return collection ? withSynchronizedCollection(node, collection, undefined, namesByNodeId.get(node.id) || node.title) : node;
+        const title = namesByNodeId.get(node.id) || node.title;
+        return collection ? withSynchronizedCollection({ ...node, contentName: { displayName: title, source: "manual" } }, collection, undefined, title) : node;
       })
     : nodes.slice();
   return {

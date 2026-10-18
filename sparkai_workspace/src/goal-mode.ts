@@ -1,4 +1,5 @@
-import type { ImageAsset, TaskAssetReference, WorkflowNode } from "./core.ts";
+import { agentTaskScopeSnapshotHash, type ImageAsset, type TaskAssetReference, type WorkflowNode } from "./core.ts";
+import { normalizeImageConfigSnapshot, type FrozenImageConfig } from "../runtime/image-config-snapshot.mjs";
 import { stableIdentityHash } from "./asset-identity.ts";
 import {
   buildGoalTaskScopeFromNodes,
@@ -17,7 +18,7 @@ import {
 
 export type GoalModePreview = {
   prompt: string;
-  /** Minimal TaskScope identity used to detect source drift before dispatch. */
+  /** TaskScope identity used to detect material or image-configuration drift before dispatch. */
   snapshotHash: string;
   /** Random, one-time bearer populated only after the ledger issues it. */
   confirmationHash: string;
@@ -66,6 +67,8 @@ export type GoalModePreviewInput = {
   nodes: WorkflowNode[];
   canvasRevision: number;
   configuredConcurrency: number;
+  /** Credential-free request configuration frozen before issuing confirmation. */
+  imageConfig?: FrozenImageConfig;
   /** Optional explicit image/container boundaries. Omit for the canvas-wide Goal. */
   targetNodeIds?: string[];
   /** Commerce and other matrix plans may request more than one output per SOURCE. */
@@ -266,9 +269,12 @@ export function createGoalModePreview(input: GoalModePreviewInput): GoalModePrev
   const catalogTargets = commercePlan && input.commerceCatalog
     ? commerceCatalogGoalTargetsForSources(input.commerceCatalog, built.scope.sourceAssets)
     : [];
-  const scope = catalogTargets.length
+  const materialScope = catalogTargets.length
     ? withGoalCommerceCatalogTargets(built.scope, catalogTargets)
     : built.scope;
+  const imageConfig = normalizeImageConfigSnapshot(input.imageConfig);
+  const scope = imageConfig ? { ...materialScope, imageConfig } : materialScope;
+  if (imageConfig) scope.snapshotHash = agentTaskScopeSnapshotHash(scope);
   const requestCount = scope.goal?.requestCount ?? 0;
   if (commercePlan) {
     const targetNodeIds = [...new Set((input.targetNodeIds ?? []).map(String).filter(Boolean))];

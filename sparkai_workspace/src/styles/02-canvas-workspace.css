@@ -1064,22 +1064,38 @@
   cursor: crosshair;
 }
 
+.node-port.provenance-port.port-top,
+.node-port.provenance-port.port-bottom {
+  left: calc(50% - 8px);
+  right: auto;
+  margin-top: 0;
+}
+.node-port.provenance-port.port-top { top: -8px; }
+.node-port.provenance-port.port-bottom { top: auto; bottom: -8px; }
+.node-port.provenance-port:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 3px;
+}
+.node-port.provenance-port::before { content: ""; position: absolute; inset: -7px; }
+
 .flow-node:hover .node-port.provenance-port,
 .flow-node.active-build .node-port.provenance-port,
 .flow-node.resizing .node-port.provenance-port,
-.flow-node.connection-target-ready .node-port.provenance-port.node-port-in,
+.flow-node.connection-target-ready .node-port.provenance-port,
 .node-port.provenance-port.connecting {
   opacity: 1;
   pointer-events: auto;
   transform: scale(1.08);
 }
 
-.flow-node.connection-target-ready .node-port.provenance-port.node-port-in.connection-target {
+.flow-node.connection-target-ready .node-port.provenance-port.connection-target {
   background: var(--accent);
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent), 0 6px 18px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
-.flow-node.selected:not(:hover):not(.active-build):not(.resizing) .node-port.provenance-port:not(.connected) {
+.flow-node.selected:not(:hover):not(.active-build):not(.resizing):not(.connection-target-ready) .node-port.provenance-port:not(.connected):not(:focus-visible):not(.connecting) {
   opacity: 0;
   pointer-events: none;
   transform: scale(0.92);

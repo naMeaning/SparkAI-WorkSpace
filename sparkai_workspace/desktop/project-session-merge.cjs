@@ -1,5 +1,7 @@
 "use strict";
 
+const { coalesceImageAssets, remapImageAssetSlots } = require("../runtime/image-asset-identity.mjs");
+
 function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
@@ -513,63 +515,10 @@ function mergeNodeMutationJournals(existingValue, incomingValue, barrierValues, 
   };
 }
 
-function normalizedAssetLocator(asset) {
-  const value = cleanString(asset?.relativePath || asset?.path || asset?.assetUrl || asset?.url);
-  if (!value || /^(?:data|blob):/i.test(value)) return "";
-  return value.replace(/\\/g, "/").toLowerCase();
-}
-
-function generatedAssetKey(asset) {
-  const importBatchId = cleanString(asset?.importBatchId);
-  const importRootId = cleanString(asset?.importRootId);
-  const sourceRelativePath = cleanString(asset?.sourceRelativePath);
-  if (importBatchId && importRootId && sourceRelativePath) return "";
-  const runId = cleanString(asset?.runId).toLowerCase();
-  if (runId.startsWith("import-")) return "";
-  const locator = normalizedAssetLocator(asset);
-  // Imported assets intentionally use occurrence identity: selecting the same
-  // file twice is a valid canvas operation. Generated files are idempotent by
-  // their run and managed locator even if a stale renderer minted a new
-  // occurrence while replaying the same result.
-  if (!runId || !locator) return "";
-  return `generated:${runId}:${locator}`;
-}
-
-function assetKey(asset, index) {
-  const generatedKey = generatedAssetKey(asset);
-  if (generatedKey) return generatedKey;
-  const occurrenceId = cleanString(asset?.occurrenceId);
-  if (occurrenceId) return `occurrence:${occurrenceId}`;
-  const assetId = cleanString(asset?.assetId);
-  if (assetId) return `asset:${assetId}`;
-  const path = normalizedAssetLocator(asset);
-  return path ? `path:${path}` : `slot:${index}:${cleanString(asset?.runId)}`;
-}
-
 function mergeAssets(existingAssets, incomingAssets) {
-  const result = [];
-  const indexByKey = new Map();
-  for (const source of [Array.isArray(existingAssets) ? existingAssets : [], Array.isArray(incomingAssets) ? incomingAssets : []]) {
-    source.forEach((asset, index) => {
-      if (!asset || typeof asset !== "object") return;
-      const key = assetKey(asset, index);
-      const existingIndex = indexByKey.get(key);
-      if (existingIndex === undefined) {
-        indexByKey.set(key, result.length);
-        result.push(clone(asset));
-      } else {
-        const previous = result[existingIndex];
-        result[existingIndex] = {
-          ...previous,
-          ...clone(asset),
-          ...(previous.occurrenceId ? { occurrenceId: previous.occurrenceId } : {}),
-          ...(previous.assetId ? { assetId: previous.assetId } : {}),
-          ...(previous.displayCode ? { displayCode: previous.displayCode } : {})
-        };
-      }
-    });
-  }
-  return result.map((asset, index) => ({ ...asset, index: index + 1 }));
+  const assets = [...(Array.isArray(existingAssets) ? existingAssets : []), ...(Array.isArray(incomingAssets) ? incomingAssets : [])];
+  const merged = coalesceImageAssets(assets);
+  return { ...merged, assets: merged.assets.map((asset, index) => ({ ...asset, index: index + 1 })) };
 }
 
 function nodeProgressScore(node) {
@@ -593,8 +542,14 @@ function latestNodeFieldMutation(journal, origin, field) {
 function mergeLogicalNode(existingNode, incomingNode, mutationState = {}) {
   const existing = clone(existingNode);
   const incoming = clone(incomingNode);
-  const mergedAssets = mergeAssets(existing.assets, incoming.assets);
+  const existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
+  const incomingAssets = Array.isArray(incoming.assets) ? incoming.assets : [];
+  const { assets: mergedAssets, slotMap } = mergeAssets(existingAssets, incomingAssets);
   const existingRicher = nodeProgressScore(existing) > nodeProgressScore(incoming);
+  remapImageAssetSlots(existing, existingAssets, mergedAssets, slotMap);
+  remapImageAssetSlots(incoming, incomingAssets, mergedAssets, new Map(
+    incomingAssets.map((_asset, slot) => [slot, slotMap.get(existingAssets.length + slot)])
+  ));
   const richer = existingRicher ? existing : incoming;
   const merged = { ...existing, ...incoming };
   const origin = nodeOrigin(existing);

@@ -309,6 +309,19 @@ export default function ProjectAgentComposer({
           <div className="project-agent-command-heading"><span>命令 · ↑↓ 选择 · Enter 执行</span><IconActionButton label="收起命令" onClick={() => { setHelpOpen(false); setCommandsDismissed(true); }} icon={<X size={12} />} /></div>
           {visibleCommands.map((command, index) => <ButtonBase type="button" role="option" id={`composer-command-${command.name}`} key={command.name} className={index === commandIndex ? "active" : ""} aria-selected={index === commandIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => chooseCommand(command)}><code>{command.usage}</code><small>{command.description}</small></ButtonBase>)}
         </div> : null}
+      {executionBusy ? (
+        <div className="project-agent-steer-mode" title={goalActive ? "Goal 运行中沿用冻结图片范围" : "控制这次修改如何使用图片"}>
+          <ImageIcon size={13} aria-hidden="true" /><span>图片范围：</span>
+          {goalActive ? <strong aria-label="图片范围已锁定">已锁定</strong> : <GlassSelect
+            value={taskScopeMode} disabled={stopPending} ariaLabel="本次修改使用的图片"
+            onChange={(value) => setTaskScopeMode(value as AgentSteerTaskScopeMode | "auto")}
+            options={[
+              { value: "auto", label: "自动跟随", description: "有新选中时跟随，否则沿用现有范围" },
+              { value: "keep", label: "保留现有范围", description: "只修改要求，保持本轮图片" },
+              { value: "replace-source", label: "改用当前选中", description: selectedArtifacts.length ? "以当前选中替换处理图片" : "请先在画布选中图片", disabled: !selectedArtifacts.length }
+            ]} />}
+        </div>
+      ) : null}
       <textarea
         ref={inputRef}
         value={prompt}
@@ -356,31 +369,6 @@ export default function ProjectAgentComposer({
       />
       </div>
       {commandNotice ? <p className="project-agent-command-notice" role="status">{commandNotice}</p> : null}
-      {executionBusy ? (
-        <label className="project-agent-steer-mode">
-          <span>本次修改使用的图片</span>
-          {goalActive ? <strong>保持全部图片范围，只修改要求</strong> : (
-            <GlassSelect
-              value={taskScopeMode}
-              disabled={stopPending}
-              ariaLabel="本次修改使用的图片"
-              onChange={(value) => setTaskScopeMode(value as AgentSteerTaskScopeMode | "auto")}
-              options={[
-                { value: "auto", label: "自动处理（推荐）" },
-                { value: "keep", label: "只修改要求，保留现有图片" },
-                { value: "replace-source", label: "更换处理图片" }
-              ]}
-            />
-          )}
-          <small>{goalActive
-            ? "Goal 运行中不会悄悄扩大或更换图片范围。"
-            : taskScopeMode === "keep"
-              ? "只调整文字要求，不替换当前处理图片。"
-              : taskScopeMode === "replace-source"
-                ? "用当前选中的图片替换原处理图片。"
-                : "有新选中图片时用于处理；没有时沿用当前图片。"}</small>
-        </label>
-      ) : null}
       <footer>
         <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : primaryAction === "generate" ? "Ctrl + Enter 生成 · / 命令" : "Ctrl + Enter 发送 · / 命令"}</span>
         {executionBusy ? (

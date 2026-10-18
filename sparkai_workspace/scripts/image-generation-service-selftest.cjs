@@ -14,7 +14,7 @@ async function main() {
     },
     newApiRelayMultipart: async (settings, endpoint, form, options) => {
       calls.push({ kind: "multipart", settings, endpoint, form, options });
-      assert.equal(form.get("prompt"), "edit this");
+      assert.match(form.get("prompt"), /^edit this\n\n输入图片用途（严格按上传顺序）：\n1\. source$/);
       return imagePayload;
     },
     newApiRelayAsyncImage: async (settings, endpoint, body, options) => {

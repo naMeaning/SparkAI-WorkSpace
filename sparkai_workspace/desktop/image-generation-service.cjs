@@ -15,6 +15,7 @@ const { normalizeImageGenerationError, normalizeImageResultDownloadError } = req
 const { applyClientMask, maskCapabilityKey, unsupportedMaskError, validateMaskInputs } = require("./image-mask-compat.cjs");
 const { downloadPublicHttpBuffer } = require("./public-http-resource.cjs");
 const { detectEncodedImageFormat } = require("../runtime/encoded-image-format.cjs");
+const { imageInputManifest } = require("../runtime/image-input-manifest.cjs");
 
 const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -112,7 +113,7 @@ function createImageGenerationService(options = {}) {
       return readInputBuffer(input);
     };
     const editImages = [];
-    for (const input of all) editImages.push(await prepare(input));
+    for (const input of all) editImages.push({ ...await prepare(input), role: input.role, purpose: input.purpose });
     const mask = request.mask ? await prepare(request.mask) : null;
     return { editImages, mask };
   }
@@ -190,6 +191,13 @@ function createImageGenerationService(options = {}) {
       validateImageGenerationRequest(request, config);
       const adapter = adapterFor(config.protocol);
       const preparedInputs = await prepareInputs(request);
+      const inputManifest = imageInputManifest(request.editImage, request.images, request.inputManifest?.snapshotHash,
+        preparedInputs.editImages.map(input => input.buffer || Buffer.from(input.base64 || "", "base64")));
+      if (request.inputManifest && request.inputManifest.hash !== inputManifest.hash) {
+        throw Object.assign(new Error("冻结素材与本次实际上传不一致，尚未发送生图请求。"), { code: "IMAGE_INPUT_CHANGED", errorCategory: "invalid_input" });
+      }
+      if (inputManifest.entries.length) request.prompt += "\n\n输入图片用途（严格按上传顺序）：\n" + inputManifest.entries.map(input =>
+        `${input.order + 1}. ${input.role}${input.referenceRole ? ` / ${input.referenceRole}` : ""}${input.purpose ? `：${input.purpose}` : ""}`).join("\n");
       const canCompositeMask = config.protocol === "openai-images" && request.mode === "edit" && Boolean(preparedInputs.mask);
       if (canCompositeMask) await validateMaskInputs(preparedInputs);
       const capabilityKey = maskCapabilityKey(settings, config);
@@ -208,6 +216,12 @@ function createImageGenerationService(options = {}) {
       try {
         stage = "generation";
         diagnostic({ phase: "request", count: request.n, attempt: 1 });
+        // Local observers receive only the effective policy and input identities.
+        // Credentials, paths, pixels and provider URLs are intentionally absent.
+        payload.onRequestPrepared?.({ model: config.model, protocol: config.protocol, gateway: config.gateway,
+          mode: request.mode, quality: request.quality, size: request.size, ratio: request.aspectRatio,
+          resolution: request.resolution, count: request.n, parameterDecisions: request.parameterDecisions,
+          inputManifest });
         raw = await send(settings, config, request, providerRequest, { headers: payload.headers });
       } catch (error) {
         if (!canCompositeMask || clientMask || !unsupportedMaskError(error) || request.signal?.aborted) throw error;
@@ -262,7 +276,7 @@ function createImageGenerationService(options = {}) {
         outputFormat: request.outputFormat
       };
       log(`image generation protocol=${config.protocol} gateway=${config.gateway} model=${config.model} images=${normalized.images.length}`);
-      return legacyResponse(normalized);
+      return { ...legacyResponse(normalized), inputManifest, parameterDecisions: request.parameterDecisions, quality: request.quality };
     } catch (error) {
       const normalizedError = normalizeImageGenerationError(error, {
         model: config.model,

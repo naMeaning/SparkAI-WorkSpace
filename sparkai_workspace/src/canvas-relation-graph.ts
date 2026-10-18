@@ -37,6 +37,28 @@ const cleanId = (value: unknown): string => String(value ?? "").trim().slice(0, 
 type Point = { x: number; y: number };
 type Rect = Point & { width: number; height: number };
 
+export type CanvasPortSide = "top" | "right" | "bottom" | "left";
+export function canvasPortPoint(rect: Rect, side: CanvasPortSide): Point {
+  return { x: rect.x + (side === "left" ? 0 : side === "right" ? rect.width : rect.width / 2),
+    y: rect.y + (side === "top" ? 0 : side === "bottom" ? rect.height : rect.height / 2) };
+}
+
+/** Geometry never changes the source → target graph direction or persistence. */
+export function canvasRelationPorts(source: Rect, target: Rect) {
+  const dx = target.x + target.width / 2 - source.x - source.width / 2;
+  const dy = target.y + target.height / 2 - source.y - source.height / 2;
+  const vertical = Math.abs(dy) > Math.abs(dx);
+  const sourceSide: CanvasPortSide = vertical ? dy >= 0 ? "bottom" : "top" : dx >= 0 ? "right" : "left";
+  const targetSide: CanvasPortSide = vertical ? dy >= 0 ? "top" : "bottom" : dx >= 0 ? "left" : "right";
+  return { source: canvasPortPoint(source, sourceSide), target: canvasPortPoint(target, targetSide), sourceSide, targetSide, vertical };
+}
+
+export function canvasPortCurvePath(source: Point, target: Point, vertical = false, lane = 0): string {
+  if (!vertical) return canvasRelationCurvePath(source, target, lane);
+  const mid = (source.y + target.y) / 2;
+  return `M ${source.x} ${source.y} C ${source.x + lane} ${mid}, ${target.x + lane} ${mid}, ${target.x} ${target.y}`;
+}
+
 export function canvasRelationCurvePath(source: Point, target: Point, lane = 0): string {
   const mid = (source.x + target.x) / 2;
   return `M ${source.x} ${source.y} C ${mid} ${source.y + lane}, ${mid} ${target.y + lane}, ${target.x} ${target.y}`;

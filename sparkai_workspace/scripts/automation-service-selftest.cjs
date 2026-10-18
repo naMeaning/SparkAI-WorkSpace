@@ -2107,9 +2107,13 @@ async function main() {
     assert.match(composerSource, /<GlassSelect\s+value=\{taskScopeMode\}/,
       "The steer selector must use the canonical task scope value");
     assert.match(composerSource, /onChange=\{\(value\) => setTaskScopeMode\(value as AgentSteerTaskScopeMode \| "auto"\)\}/);
-    assert.match(composerSource, /\{ value: "auto", label: "自动处理（推荐）" \}/);
-    assert.match(composerSource, /\{ value: "keep", label: "只修改要求，保留现有图片" \}/);
-    assert.match(composerSource, /\{ value: "replace-source", label: "更换处理图片" \}/);
+    for (const scopeMode of ["auto", "keep", "replace-source"]) {
+      assert.match(composerSource, new RegExp(`\\{ value: "${scopeMode}", label: "[^"]+"`),
+        `The compact scope selector keeps a readable label for ${scopeMode}`);
+    }
+    assert.match(composerSource, /图片范围：/);
+    assert.match(composerSource, /goalActive \? <strong aria-label="图片范围已锁定">/,
+      "A running Goal exposes its locked scope instead of attachment controls");
     assert.doesNotMatch(composerSource, /\{ value: "merge-source", label:/,
       "The normal steer UI must not expose protocol-level SOURCE merge terminology");
     assert.match(composerSource, /if \(!executionBusy\) setTaskScopeMode\("auto"\)/,

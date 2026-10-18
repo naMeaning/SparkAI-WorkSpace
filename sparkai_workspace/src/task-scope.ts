@@ -1,3 +1,4 @@
+import { normalizeImageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
 import { agentTaskScopeMaterials, agentTaskScopeSnapshotHash } from "./core.ts";
 import type {
   AgentTaskConfirmationPolicy,
@@ -10,6 +11,7 @@ import type {
 export function cloneAgentTaskScope(scope: AgentTaskScope): AgentTaskScope {
   return {
     ...scope,
+    ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     sourceNodeIds: [...scope.sourceNodeIds],
     sourceContainerIds: [...scope.sourceContainerIds],
     referenceContainerIds: [...scope.referenceContainerIds],
@@ -104,6 +106,7 @@ export function mergeAgentTaskScopes(base: AgentTaskScope | undefined, added: Ag
         ? "grouped-by-source"
         : "single";
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
+    ...(base.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(base.imageConfig) } : {}),
     version: 2,
     origin: base.origin,
     scopeType,

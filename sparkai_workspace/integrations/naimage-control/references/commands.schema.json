@@ -449,7 +449,7 @@
         {
           "name": "canvas.rename-image-collections",
           "surface": "renderer",
-          "description": "Rename one or more current image groups through the shared transactional mutation. Names are NFKC-normalized, Windows-safe, length-limited, and deterministically de-duplicated; node titles, legacy imageCollection, and imageContainerSpec.collection stay synchronized.",
+          "description": "Rename one or more current image groups through the shared transactional mutation. Names are NFKC-normalized, Windows-safe, length-limited, and deterministically de-duplicated; node titles, legacy imageCollection, and imageContainerSpec.collection stay synchronized. An explicit rename records manual ownership, including an unchanged name, so later visual naming preserves it after reload.",
           "parameters": {
             "type": "object",
             "required": ["requests", "expectedProjectId"],
@@ -1546,6 +1546,14 @@
     {
       "title": "Images and containers",
       "body": "For generation, editing, variants, cutout, redraw, and layer work, select the intended sources and use `agent.chat`. The Agent preserves provenance and creates results through the same runtime as the GUI."
+    },
+    {
+      "title": "Frozen image configuration",
+      "body": "A newly dispatched task internally freezes the selected image model pool, model capabilities, ratio, resolution, quality, count and output format in its TaskScope. Ask User replies, reloads and attachment steering preserve that configuration; settings edits apply to a new task. An explicit attachment change re-hashes the material scope without adopting a new image configuration. A Goal also binds this configuration before issuing its one-time confirmation and permits only text steering. Historical node imageParams describe earlier images and never override the current request configuration. Credentials and connection addresses are resolved by Main and are excluded from the frozen snapshot; CLI/MCP callers cannot inject a TaskScope or credentials."
+    },
+    {
+      "title": "Visual content names",
+      "body": "Use agent.chat with the intended canvas node IDs when the user requests content inspection or naming. The internal Agent may submit workflow.update_node.visualName only after a subsequent successful model round consumes the view_image pixels in the same turn; this managed path is an internal runtime argument, not a public CLI/MCP field. Explicit manual node and asset titles retain ownership after reload, including generic titles and numeric suffixes. Use canvas.rename-image-collections for an explicit manual collection name. Neither naming path starts an image generation request."
     },
     {
       "title": "Responses and errors",

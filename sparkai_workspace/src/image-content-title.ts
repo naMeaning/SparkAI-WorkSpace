@@ -1,4 +1,5 @@
 import type { ImageAsset, ImageCollection } from "./core";
+import type { ImageContentName } from "../runtime/image-content-name.mjs";
 
 const IMAGE_CONTENT_TITLE_MAX_LENGTH = 48;
 const GENERIC_IMAGE_TITLE = /^(?:(?:[A-Z]\d*|N\d+)\s*[·•]\s*)?(?:(?:Goal\s*)?(?:生图|生成图片|图片成果|Agent\s*成果|图像编辑|元素替换|多款设计|AI\s*抠图|AI\s*重绘|批量图片组|连续系列|图片组|分层\s*PNG|图层\s*[^：:]+|generated\s*image|image\s*result|image\s*group|batch\s*images?)|方案\s*\d+|图片\s*\d+|成果)(?:失败|failed)?(?:\s*[：:].*)?$/i;
@@ -39,6 +40,8 @@ const PURPOSE_LABELS = [
 type GeneratedImageContentPresentationInput = {
   title?: string;
   existingTitle?: string;
+  contentName?: ImageContentName;
+  existingContentName?: ImageContentName;
   prompt?: string;
   assets?: readonly ImageAsset[];
   existingAssets?: readonly ImageAsset[];
@@ -48,6 +51,7 @@ type GeneratedImageContentPresentationInput = {
 
 export type GeneratedImageContentPresentation = {
   title: string;
+  contentName?: ImageContentName;
   assets: ImageAsset[];
   collection?: ImageCollection;
 };
@@ -180,39 +184,67 @@ function existingCollectionItem(collection: ImageCollection | undefined, item: I
     ?? collection.items[index];
 }
 
-function disambiguateTitles(titles: string[], indexes: number[]) {
+function disambiguateTitles(titles: string[], indexes: number[], manual: boolean[] = []) {
   const totals = new Map<string, number>();
   for (const title of titles) {
     const key = comparableText(title);
     totals.set(key, (totals.get(key) || 0) + 1);
   }
   return titles.map((title, index) => {
+    if (manual[index]) return title;
     if ((totals.get(comparableText(title)) || 0) <= 1) return title;
     const suffix = ` · ${indexes[index] || index + 1}`;
     return `${clipTitle(title, IMAGE_CONTENT_TITLE_MAX_LENGTH - suffix.length)}${suffix}`;
   });
 }
 
+function matchingExistingAsset(asset: ImageAsset, index: number, existing: readonly ImageAsset[] = []) {
+  if (asset.occurrenceId) {
+    const match = existing.find((candidate) => candidate.occurrenceId === asset.occurrenceId);
+    if (match || existing.some((candidate) => candidate.occurrenceId)) return match;
+  }
+  for (const key of ["assetId", "path", "relativePath"] as const) {
+    if (!asset[key]) continue;
+    const matches = existing.filter((candidate) => candidate[key] === asset[key]);
+    if (matches.length === 1) return matches[0];
+  }
+  return !asset.occurrenceId && !asset.assetId && !asset.path && !asset.relativePath ? existing[index] : undefined;
+}
+
 export function normalizeGeneratedImageContentPresentation(
   input: GeneratedImageContentPresentationInput,
 ): GeneratedImageContentPresentation {
   const prompt = String(input.prompt || "").trim();
+  const manualContentName = input.existingContentName?.source === "manual"
+    ? input.existingContentName
+    : input.contentName?.source === "manual" ? input.contentName : undefined;
+  const manualTitle = input.existingContentName?.source === "manual"
+    ? input.existingTitle || input.existingCollection?.name || manualContentName?.displayName
+    : manualContentName ? input.title || input.collection?.name || manualContentName.displayName : undefined;
   const existingCollectionTitle = usefulExistingTitle(input.existingCollection?.name, prompt);
   const existingNodeTitle = usefulExistingTitle(input.existingTitle, prompt);
   const incomingCollectionTitle = usefulExistingTitle(input.collection?.name, prompt);
   const incomingNodeTitle = usefulExistingTitle(input.title, prompt);
-  const title = existingCollectionTitle || existingNodeTitle || incomingCollectionTitle || incomingNodeTitle || derivedImageContentTitle(prompt);
-  const sourceAssets = (input.assets || []).map((asset) => ({ ...asset }));
+  const title = manualTitle || existingCollectionTitle || existingNodeTitle || incomingCollectionTitle || incomingNodeTitle || derivedImageContentTitle(prompt);
+  const previousAssets = (input.assets || []).map((asset, index) => matchingExistingAsset(asset, index, input.existingAssets));
+  const sourceAssets = (input.assets || []).map((asset, index) => {
+    const previous = previousAssets[index];
+    const manual = previous?.contentName?.source === "manual" ? previous : asset.contentName?.source === "manual" ? asset : undefined;
+    return manual ? { ...asset, title: manual.title || manual.contentName!.displayName, contentName: { ...manual.contentName! } } : { ...asset };
+  });
 
   if (!input.collection) {
     const titles = sourceAssets.map((asset, index) => {
+      if (asset.contentName?.source === "manual") return asset.title || asset.contentName.displayName;
       const assetPrompt = asset.prompt || asset.revisedPrompt || prompt;
-      const existingAssetTitle = usefulExistingTitle(input.existingAssets?.[index]?.title, assetPrompt);
+      const existingAssetTitle = usefulExistingTitle(previousAssets[index]?.title, assetPrompt);
       return existingAssetTitle || imageContentSummaryTitle(asset.title, assetPrompt);
     });
-    const disambiguated = disambiguateTitles(titles, sourceAssets.map((asset, index) => Number(asset.index || index + 1)));
+    const disambiguated = disambiguateTitles(titles, sourceAssets.map((asset, index) => Number(asset.index || index + 1)),
+      sourceAssets.map((asset) => asset.contentName?.source === "manual"));
     return {
       title,
+      ...(manualContentName ? { contentName: { ...manualContentName } } : {}),
       assets: sourceAssets.map((asset, index) => ({ ...asset, title: disambiguated[index] })),
     };
   }
@@ -223,9 +255,10 @@ export function normalizeGeneratedImageContentPresentation(
       : -1;
     const asset = assetIndex >= 0 ? sourceAssets[assetIndex] : undefined;
     const existingItem = existingCollectionItem(input.existingCollection, item, index);
-    const existingAsset = assetIndex >= 0 ? input.existingAssets?.[assetIndex] : undefined;
+    const existingAsset = assetIndex >= 0 ? previousAssets[assetIndex] : undefined;
     const itemPrompt = item.prompt || asset?.prompt || asset?.revisedPrompt || prompt;
-    const itemTitle = usefulExistingTitle(existingItem?.title, itemPrompt)
+    const itemTitle = (asset?.contentName?.source === "manual" ? asset.title || asset.contentName.displayName : "")
+      || usefulExistingTitle(existingItem?.title, itemPrompt)
       || usefulExistingTitle(existingAsset?.title, itemPrompt)
       || usefulExistingTitle(item.title, itemPrompt)
       || usefulExistingTitle(asset?.title, itemPrompt)
@@ -235,9 +268,11 @@ export function normalizeGeneratedImageContentPresentation(
   const itemTitles = disambiguateTitles(
     items.map((item) => item.title || "图片成果"),
     items.map((item, index) => Number(item.requestIndex || index + 1)),
+    items.map((item) => sourceAssets[Number(item.assetIndex) - 1]?.contentName?.source === "manual"),
   );
   const normalizedItems = items.map((item, index) => ({ ...item, title: itemTitles[index] }));
   const assets = sourceAssets.map((asset, assetIndex) => {
+    if (asset.contentName?.source === "manual") return asset;
     const item = normalizedItems.find((candidate) => Number(candidate.assetIndex) === assetIndex + 1);
     if (item?.title) return { ...asset, title: item.title };
     const assetPrompt = asset.prompt || asset.revisedPrompt || prompt;
@@ -246,6 +281,7 @@ export function normalizeGeneratedImageContentPresentation(
 
   return {
     title,
+    ...(manualContentName ? { contentName: { ...manualContentName } } : {}),
     assets,
     collection: {
       ...input.collection,

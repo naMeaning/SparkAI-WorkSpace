@@ -102,6 +102,20 @@ const testSafeBatchRename = (): void => {
   assert.equal(sanitizeImageCollectionName(" ..\\/:*?\"<>| "), "图片组");
 };
 
+const testSameTitleClaimsManualOwnership = (): void => {
+  const assets = [asset("same-name", 1)];
+  const sourceNode = node("SAME-NAME", collection("collection-same-name", "图片成果", assets), assets);
+  sourceNode.contentName = { displayName: "图片成果", source: "visual", confidence: "high" };
+  const source = deepFreeze([sourceNode]);
+  const result = renameImageCollections(source, [{ collectionId: "collection-same-name", name: "图片成果" }]);
+  assert.equal(result.changed, true, "An explicit same-title rename changes ownership even when display text is unchanged");
+  assert.deepEqual(result.nodes[0].contentName, { displayName: "图片成果", source: "manual" });
+  assert.equal(result.nodes[0].title, result.nodes[0].imageCollection?.name);
+  assert.equal(result.nodes[0].title, result.nodes[0].imageContainerSpec?.collection?.name);
+  assert.equal(source[0].contentName?.source, "visual");
+  assert.equal(renameImageCollections(result.nodes, [{ collectionId: "collection-same-name", name: "图片成果" }]).changed, false);
+};
+
 const testReplacementCreatesDefectGroup = (): void => {
   const originals = [asset("original-a", 1), asset("original-b", 2)];
   const replacement = asset("replacement-a", 9, { occurrenceId: `occ-${"9".repeat(32)}` });
@@ -189,6 +203,7 @@ const testDuplicateTargetIsRejected = (): void => {
 
 const tests: Array<[string, () => void]> = [
   ["safe batch rename stays synchronized", testSafeBatchRename],
+  ["same-title rename claims explicit manual ownership", testSameTitleClaimsManualOwnership],
   ["replacement creates one independent defect group", testReplacementCreatesDefectGroup],
   ["batch validation rolls back every mutation", testBatchValidationRollsBack],
   ["duplicate replacement targets are rejected", testDuplicateTargetIsRejected],

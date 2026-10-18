@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { imageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
 
 import {
   agentTaskScopeSnapshotHash,
@@ -537,6 +538,31 @@ const changedPromptPreview = createGoalModePreview({
 });
 assert.equal(authorizedPreview.snapshotHash, changedPromptPreview.snapshotHash, "The frozen canvas scope is unchanged in this fixture");
 assert.notEqual(goalModeAuthorizationFingerprint(authorizedPreview), goalModeAuthorizationFingerprint(changedPromptPreview), "Goal authorization must bind the normalized prompt");
+const goalImageConfig = imageConfigSnapshot({
+  imageModel: "gpt-image-2", imageModelPool: ["gpt-image-2"], imageRatio: "3:4", imageResolution: "2K", imageQuality: "medium", imageCount: 1,
+  imageModelConfigs: [{ model: "gpt-image-2", protocol: "openai-images", transportMode: "async", capabilities: { supportedQualities: ["medium", "high"] }, apiKey: "never-persist-goal-secret" }],
+});
+const configuredPreview = createGoalModePreview({
+  prompt: authorizedPreview.prompt, nodes: projectedNodes, canvasRevision: 41, configuredConcurrency: 8, imageConfig: goalImageConfig,
+});
+const changedConfigurationPreview = createGoalModePreview({
+  prompt: authorizedPreview.prompt, nodes: projectedNodes, canvasRevision: 41, configuredConcurrency: 8,
+  imageConfig: { ...goalImageConfig, quality: "high" },
+});
+assert.notEqual(configuredPreview.snapshotHash, authorizedPreview.snapshotHash, "Goal scope identity includes its initial image configuration");
+assert.notEqual(configuredPreview.snapshotHash, changedConfigurationPreview.snapshotHash, "A changed effective image setting invalidates Goal scope identity");
+assert.notEqual(goalModeAuthorizationFingerprint(configuredPreview), goalModeAuthorizationFingerprint(changedConfigurationPreview),
+  "The Goal confirmation fingerprint binds frozen image configuration before dispatch");
+assert.equal(configuredPreview.snapshotHash, agentTaskScopeSnapshotHash(configuredPreview.taskScope));
+goalImageConfig.models.push("later-model");
+assert.deepEqual(configuredPreview.taskScope.imageConfig?.models, ["gpt-image-2"], "Goal preview owns a deep configuration clone");
+const configLedger = createGoalConfirmationLedger();
+const configContext = { projectId: "goal-config", conversationId: "goal-config-conversation" };
+const configConfirmation = configLedger.issue(configuredPreview, configContext);
+assert.throws(() => configLedger.consume(changedConfigurationPreview, configConfirmation, configContext), /变化|重新预览/,
+  "Changing image settings after confirmation cannot dispatch under the earlier Goal receipt");
+assert.equal(configLedger.isActive(configConfirmation, configContext), false, "A rejected Goal configuration consumes its receipt");
+assert.doesNotMatch(JSON.stringify(configuredPreview.taskScope.imageConfig), /never-persist-goal-secret|apiKey/);
 let tokenSequence = 1;
 const nextToken = () => `goal-${(tokenSequence++).toString(16).padStart(32, "0")}`;
 const ledger = createGoalConfirmationLedger(4, { tokenFactory: nextToken });
@@ -699,6 +725,8 @@ process.stdout.write(`${JSON.stringify({
   bindingSlotsPreserved: true,
   goalHashMaterial: true,
   promptBoundOneTimeConfirmation: true,
+  frozenImageConfigBeforeConfirmation: true,
+  imageConfigDriftConsumesReceipt: true,
   frozenMergeGuard: true,
   hardLimitRejected: true,
   missingIdentityAndLocatorRejected: true,

@@ -1,12 +1,26 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：免费 Agent 生图工作台与双接入（2026-10-17，delivered；公开发布另行安排）
+## 当前任务：Agent 工作流、图片上下文、更新与四向连线（2026-10-18，本地验证与安装完成；Git 收口中）
+
+- 结果：八项桌面修复已实施，受影响专项、隔离 Electron 交互、typecheck、production build、最终 EXE 和原位安装已完成。逐项证据与限制见[本轮验证](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)，长期 owner 见[合同](docs/AGENT_WORKFLOW_CONTRACT.md)。
+- 依据：[交接文档](docs/AGENT_WORKFLOW_UPDATE_HANDOFF_2026-10-17.md)作为实施起点；通过实际代码/运行复现确认根因。旧 imageParams 仅作历史信息，不能覆盖本轮冻结设置。
+- 范围：真实结构化 ask_user 与恢复链；view_image 同轮像素及生图原图/参考字节清单；更新分层诊断；原 TaskScope 紧凑范围入口；同轮内容命名与手动所有权；统一冻结选择/模型池/有效配置；Grok 能力归一；四侧关系端口与手势取消。
+- 边界：仅桌面及本地 Runtime；保留免费双接入、取消/重载/续跑、Goal 画幅锁定、签名/回滚、来源关系/循环/需求规则。未修改外部 New API、Extension 或生产更新服务，未上传 EXE/创建 Release。
+- 接受现场：main / 8889db1db5f002226d10634f3c066b24f69cff8a；预存 Goal、Progress、docs/README 和交接草稿均保留。所有子代理使用 gpt-6.1-sol / max。
+- 关键修复：Main/Renderer pending 原本丢失配置/画幅；额外 tool imageConfig 可覆盖冻结策略；空 quality 列表抹掉 Grok 默认能力；手动通用名/数字后缀所有权丢失；pointer capture 吞单击与取消尾随点击；成果绝对/相对路径别名造成重复及容器旧槽错绑。均有失败复现与修后证据，未降低断言。
+- 验收：Ask/Goal 14项/8截图；最终完整交互 59项/18截图（32侧向组合、小窗884×640、命名实际编辑/重载）；安装版 Main 5项/3截图（唯一1次Mock图片POST、1成果、像素续轮、重载、正常退出）；更新 HTTP22项及UI7项/11截图；免费双接入6项/4截图/两次启动；资产merge94项、真实projectIO及双Renderer5例；其余专项/typecheck通过。
+- 最终制品：421个产品/公开契约文件冻结，sourceHash `33b9b0d524a88e2f0858f997ef76323f68d4c294808cda7b3c968c13e23e8592`；production build1688 modules/22.39s，品牌Windows EXE109,866,496 B / SHA256 `c94cfb0132b6738c7d12ad66723b837460d89d4bd36510bf2cf3fbed1f52a3ba`。品牌/S原位安装exit0/17,431ms，原注册目录/配置保留，安装EXE/ASAR核验一致；完整身份在[Progress](PROGRESS.md)。
+- 未验证：真实模型请求0；自主工具选择、真实主体识别/参考遵从与具体Grok渠道能力未测。具体联调清单已提出，等待对应范围凭据回复；默认n=1、创建不明不重发。生产更新地址合法但HTTP404缺路由，客户端无法补齐外部接口。历史密集拖动性能与正式CSS门槛仍保留。
+- 下一步：完成本轮源码/文档commit、普通push与远端身份核对；真实服务和正式发布另按明确授权推进。
+
+## 已完成任务：免费 Agent 生图工作台与双接入（2026-10-17，delivered；公开发布另行安排）
 
 - 结果：把产品统一定位为免费的“Agent 生图工作台”，保留现有账号登录，通用版 Base URL + API Key 不再需要 Pro 授权。更广泛的 New API/Sub2API 账号登录适配是后续目标，不把接口兼容当成所有站点账号均已兼容。
 - 范围：桌面免费双接入行为、登录/启动门槛、图片与 Agent 请求授权、README/教程/双接入说明、产品意图、上下文地图和推广文案；账号、渠道、quota、计费和 New API 管理仍由用户自己的服务负责。
 - 非目标：不修改外部原生 New API 或 sparkai-extension 生产部署；不发起真实图片/视频/对话请求；不上传 EXE 或创建正式 Release；不删除旧 License IPC/数据字段，以便旧设置和旧扩展继续可读。
 - 验收：双发行策略仍保留（SparkAPI 专用版拒绝自定义接口）；无限制版自定义连接不再显示或要求 Pro 兑换码，配置后可进入工作台；Agent/图片请求不再调用 Pro License 门槛；README、教程和双接入说明准确写明“软件免费、上游服务费用由用户自己的账号/Key承担”；专项测试、production build、Windows EXE、原位安装、提交和 push 均记录真实结果。
 - 当前状态：Renderer、Electron Main、Server IPC 和浏览器回退已移除自定义模式的 Pro 门槛；旧 Electron License IPC/存储保留原兼容行为，正常入口不调用。专项、typecheck、production build、122 个 dist 文件/8 个 Main owner 包内核对及原位安装均完成。已安装程序免费接入专项 6 项/4 截图/2 次启动通过，覆盖过期旧 License、自定义配置和重启恢复，0 真实模型请求。根/桌面 README、教程、第三方署名和推广文案已同步，源码/文档提交 `0909be79d9620f4430d410844b3b31fa3b5d2c83` 已普通 push，并实查远端 main 一致。
+- 新增待交接范围（2026-10-17）：用户追加 `ask_user` 选项弹窗、`view_image`/参考图闭环、软件更新、运行中图片范围入口、图片容器内容命名、选中图片与有效生图配置上下文、真实生图参数联调、四向连线；方案与执行 Prompt 见 [Agent 工作流、图片上下文与更新功能交接](docs/AGENT_WORKFLOW_UPDATE_HANDOFF_2026-10-17.md)。这些是待实施工作，不改变本 Goal 的免费双接入结果和授权边界。
 - 制品与安装：本地无限制版 1.0.9 EXE，109,853,696 B，SHA-256 `8dd49ccf4a0dfab85919bcf3ed9d295f435beb9f83e5449d9157c60e8124cab3`；品牌安装器 `/S` 退出 0 / 24,920ms，注册目录与配置保留、安装 EXE/ASAR 匹配。完整证据见 Progress。
 - 下一步：本轮范围已交付。本完成记录随纯文档提交归档，最终分支身份见 Progress 的本地交付索引。公开 v1.0.9 尚未包含本次免费改动；真实模型、全面 New API/Sub2API 账号联调及正式发布不在本轮范围。
 

@@ -10,6 +10,7 @@ const {
 } = require("./image-frame.cjs");
 
 const primaryImageToolName = "image_gen";
+const { resolveImageModelConfig } = require("./image-generation/types.cjs");
 const imagePromptRatioValues = [...imagePromptRatios];
 const imagePromptResolutionValues = [...imagePromptResolutions];
 
@@ -40,6 +41,11 @@ function imageModelContractForSettings(settings = {}) {
     text: [
       `主生图模型：${primary || "未配置"}`,
       `用户勾选的生图模型池：${pool.length ? pool.join(", ") : "未配置"}`,
+      ...pool.map(model => {
+        const config = resolveImageModelConfig(settings, model);
+        return JSON.stringify({ model, protocol: config.protocol, gateway: config.gateway, capabilities: config.capabilities });
+      }),
+      "以上仅为已配置能力，未标注真实渠道实测；历史图片参数不能覆盖本次请求配置。",
       "选择策略：显式指定模型时，只要该模型在用户勾选池中就必须优先采用；未勾选的显式模型会安全回退到主生图模型。未显式指定时保持单模型执行，并可优先使用池中的 gpt-image-2。"
     ].join("\n")
   };
@@ -109,7 +115,7 @@ function toolSchemas(settings = {}) {
             ratio: { type: "string", enum: imageRatioValues, description: ratioDescription },
             resolution: { type: "string", enum: imageResolutionValues, description: resolutionDescription },
             size: imageSizeProperty,
-            quality: { type: "string", enum: ["low", "medium", "high", "auto"] },
+            quality: { type: "string", enum: [...new Set(imageModelPoolFromSettings(settings).flatMap(model => resolveImageModelConfig(settings, model).capabilities.supportedQualities.length ? resolveImageModelConfig(settings, model).capabilities.supportedQualities : ["auto"]))], description: "具体模型以 Image Model Contract 为准；运行时在发送前按该连接能力归一化，不通过失败重试探测。" },
             count: { type: "integer", minimum: 1, maximum: 200, description: "独立输出图片总张数，只能来自用户明确要求。运行时按设置中的每批数量顺序派发，不会一次发出全部请求；绝不能因为上传了 N 张参考图就把 count 设为 N。" },
             generationMode: { type: "string", enum: ["parallel", "sequential"], description: "count>1 时的执行与画布组织方式。parallel=同一轮要求 N 张、N 版、N 个候选或 N 个方案，并收纳为批量图片组；即使用户说‘基于这张继续给 N 版’，也应使用 parallel 并另设 parentId。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。" },
             scopeExecution: { type: "string", enum: ["all-goal-sources"], description: "仅用于 Current Task Scope 明确标记 frozen=true 且完整、未截断的 Goal TaskScope。all-goal-sources=由运行时按冻结快照中的每个 SOURCE bindingId 逐绑定展开，并在探测批次与并发上限保护下执行；模型对整个 Goal 只调用一次 image_gen，不得自行按 SOURCE 重复调用。count 必须严格等于冻结的 goalOperationsPerAsset，SOURCE×count 必须严格等于 goalRequestCount；count=1 省略 items，count>1 使用 variants，相同要求可省略 items，逐项要求提供与 count 等长的 items。跨境电商矩阵还必须严格匹配冻结计划的 hash 与槽位/语言顺序。总请求不得超过 200。普通或不完整 TaskScope 必须省略。" },
@@ -327,6 +333,9 @@ function toolSchemas(settings = {}) {
             direction: { type: "string", enum: ["input", "output", "both"], description: "disconnect_node 的断开方向。input=移除当前成果的来源；output=移除以当前成果为来源的关系；both=两者都移除。不确定时用 input。" },
             deleteMode: { type: "string", enum: ["only", "branch"], description: "delete_node 的删除范围。only=默认，只删当前成果并保留衍生成果；branch=删除当前成果和所有衍生成果，只有用户明确要求时使用。" },
             title: { type: "string", description: "update_node 更新成果时使用的新标题。" },
+            visualName: { type: "object", description: "同一轮 view_image 成功看到像素后，用 update_node 为图片及容器提交内容短名。path 原样使用已查看路径；不猜文件名，不覆盖用户手动名，失败不阻塞保存。",
+              properties: { path: { type: "string" }, displayName: { type: "string", minLength: 1, maxLength: 48 }, confidence: { type: "string", enum: ["high", "medium"] } },
+              required: ["path", "displayName", "confidence"], additionalProperties: false },
             prompt: { type: "string", description: "更新成果说明，或 continue_node 的后续生成要求。真正生成或修改图片请用 image_gen(prompt=...)。" },
             socialPlan: {
               type: "object",
@@ -503,6 +512,7 @@ function agentToolSchemas(settings = {}, options = {}) {
   const sourceProperties = sourceParameters.properties || {};
   const visiblePropertyNames = [
     "operation",
+    "model",
     "prompt",
     "ratio",
     "resolution",

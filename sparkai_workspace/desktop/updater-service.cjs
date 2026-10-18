@@ -73,6 +73,7 @@ function createDesktopUpdaterService(options = {}) {
   let persistedDesktopUpdateRollback = null;
   let desktopUpdateHandoffAccepted = false;
   let installerCaptchaInflight = null;
+  let updateDiagnostic = null;
 
   function currentDesktopVersion() {
     return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
@@ -508,6 +509,10 @@ function createDesktopUpdaterService(options = {}) {
           percent: 100
         });
       }
+      // Only a restored snapshot without a live operation represents an
+      // interrupted update. Status polling during a download or an accepted
+      // installer handoff must preserve its actual progress.
+      if (updateCheckPromise || updateDownloadOperation || updateApplyOperation || desktopUpdateHandoffAccepted) return progress;
       return normalizeDesktopUpdateProgress({
         ...progress,
         stage: "error",
@@ -583,13 +588,14 @@ function createDesktopUpdaterService(options = {}) {
       failedPending,
       canApplyPending: Boolean(pending),
       busy: Boolean(updateCheckPromise || updateDownloadOperation || updateApplyOperation),
-      progress: effectiveDesktopUpdateProgress(pending)
+      progress: effectiveDesktopUpdateProgress(pending),
+      diagnostic: updateDiagnostic
     };
   }
 
   function desktopUpdaterFailure(error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { ...desktopUpdaterStatus(), ok: false, error: message };
+    return { ...desktopUpdaterStatus(), ok: false, error: message, errorCode: updateDiagnostic?.errorCode || error?.code };
   }
 
   function publishDesktopUpdateProgress(payload) {
@@ -661,17 +667,24 @@ function createDesktopUpdaterService(options = {}) {
       };
       return desktopUpdaterStatus();
     }
+    updateDiagnostic = { phase: "settings" };
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    const resolved = new URL(resolveNewApiBaseUrl(settings, "update"));
+    updateDiagnostic = { phase: "auth", absoluteUrl: true,
+      originHash: createHash("sha256").update(resolved.origin).digest("hex").slice(0, 16), endpointPath: "/api/desktop-update/check" };
     requireNewApiSession(settings);
     publishDesktopUpdateProgress({ stage: "checking", message: "正在安全检查新版本…" });
     const request = desktopUpdatePlatformPayload();
     const query = new URLSearchParams(request).toString();
+    updateDiagnostic.phase = "transport";
     const response = await newApiRequest(settings, `/api/desktop-update/check?${query}`, {
       service: "update",
       headers: desktopUpdateRequestHeaders(settings),
       userAuth: true
     });
+    updateDiagnostic.phase = "manifest";
     let verified = verifyDesktopReleasePayload(response?.data || response);
+    updateDiagnostic = { ...updateDiagnostic, phase: "verified", signatureVerified: true };
     const recovery = desktopUpdateRollbackRecovery(publicPendingDesktopUpdate());
     if (recovery && verified.updateAvailable && verified.installer) {
       verified = {
@@ -702,8 +715,28 @@ function createDesktopUpdaterService(options = {}) {
   async function checkDesktopUpdate() {
     if (updateCheckPromise) return updateCheckPromise;
     const task = performDesktopUpdateCheck();
-    const wrapped = task.finally(() => {
+    const wrapped = task.catch((cause) => {
+      const phase = cause?.phase || updateDiagnostic?.phase || "settings";
+      const status = Number(cause?.status || 0);
+      const signature = /签名|公钥/.test(String(cause?.message || ""));
+      const errorCode = signature ? "UPDATE_SIGNATURE" : phase === "settings" || phase === "url" ? "UPDATE_URL"
+        : phase === "auth" ? "UPDATE_AUTH" : phase === "http" ? "UPDATE_HTTP"
+        : phase === "response" ? "UPDATE_RESPONSE" : phase === "manifest" ? "UPDATE_MANIFEST" : "UPDATE_TRANSPORT";
+      updateDiagnostic = { ...updateDiagnostic, phase, errorCode, ...(status ? { status } : {}) };
+      const messages = { UPDATE_URL: "更新服务地址无效，请检查地址设置。", UPDATE_AUTH: "请先登录账号再检查更新。",
+        UPDATE_HTTP: [404, 405].includes(status) ? `当前服务未提供可用的桌面更新接口（HTTP ${status}，GET /api/desktop-update/check），请检查更新服务配置或使用完整安装包升级。` : `更新服务 HTTP ${status}（GET /api/desktop-update/check），请稍后重试。`, UPDATE_RESPONSE: "更新服务未返回有效 JSON 或报告了服务错误。",
+        UPDATE_SIGNATURE: "更新清单签名校验失败，已拒绝更新。", UPDATE_MANIFEST: "更新清单格式或版本不兼容，已拒绝更新。",
+        UPDATE_TRANSPORT: "更新服务连接失败，请检查网络或代理后重试。" };
+      const error = Object.assign(new Error(messages[errorCode]), { code: errorCode, phase, status, cause });
+      log(`desktop update check failed ${JSON.stringify(updateDiagnostic)}`);
+      publishDesktopUpdateProgress({ stage: "error", message: error.message });
+      throw error;
+    }).finally(() => {
       if (updateCheckPromise === wrapped) updateCheckPromise = null;
+    }).then(() => {
+      // Settings retains this DTO. Sample it after releasing the check so its
+      // action does not stay disabled by a completed operation's busy flag.
+      return desktopUpdaterStatus();
     });
     updateCheckPromise = wrapped;
     return wrapped;

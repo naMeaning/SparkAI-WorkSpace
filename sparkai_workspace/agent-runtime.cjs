@@ -1,3 +1,6 @@
+const { imageConfigSnapshot, normalizeImageConfigSnapshot, settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
+const { contentNamePatch, normalizeContentName } = require("./runtime/image-content-name.mjs");
+const { imageInputManifest } = require("./runtime/image-input-manifest.cjs");
 /*
 SparkAI WorkSpace Agent Runtime Map
 
@@ -850,9 +853,9 @@ function workflowNodeSummary(node = {}, options = {}) {
     node.requirement?.socialPlan ? `social=${node.requirement.socialPlan.platform}:${node.requirement.socialPlan.workflowId}:${node.requirement.socialPlan.planHash}` : "",
     `outputs=${node.outputs ?? 0}`,
     params.prompt ? `prompt=${cleanOneLine(params.prompt, 120)}` : node.prompt ? `prompt=${cleanOneLine(node.prompt, 120)}` : "",
-    params.size ? `size=${params.size}` : "",
-    params.ratio ? `ratio=${params.ratio}` : "",
-    params.count ? `count=${params.count}` : "",
+    params.size ? `historicalSize=${params.size}` : "",
+    params.ratio ? `historicalRatio=${params.ratio}` : "",
+    params.count ? `historicalCount=${params.count}` : "",
     node.layerGroup ? `layerGroup=${node.layerGroup.id}:${node.layerGroup.layerId}:${node.layerGroup.order}/${node.layerGroup.total}` : "",
     layerRecovery ? `layerRecovery=${layerRecovery.status}:${layerRecovery.stage}:failed=${(layerRecovery.failedLayerIds || []).join(",") || "none"}:successful=${(layerRecovery.successfulLayerIds || []).join(",") || "none"}` : "",
     node.assets?.length ? `assets=${nodeAssetSummary(node)}` : ""
@@ -971,6 +974,7 @@ function taskScopeSnapshotHash(scope = {}) {
     purpose: item.purpose || ""
   });
   const material = {
+    ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     version: 2,
     origin: scope.origin,
     scopeType: scope.scopeType,
@@ -1168,6 +1172,7 @@ function normalizedTaskScope(payload = {}) {
       }
     : undefined;
   const scope = {
+    ...(raw.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(raw.imageConfig) } : {}),
     version: 2,
     origin,
     scopeType,
@@ -1344,6 +1349,7 @@ function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
         : sourceBase.confirmationPolicy;
   const scope = {
     version: 2,
+    ...(current.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(current.imageConfig) } : {}),
     origin: sourceMode === "clear" ? "chat" : sourceBase.origin,
     scopeType,
     canvasRevision: Math.max(current.canvasRevision, candidate?.canvasRevision || 0),
@@ -1964,6 +1970,9 @@ function normalizeReferenceImage(value, fallbackName = "image.png") {
   if (!imagePath || !existsSync(imagePath)) return null;
   return {
     assetId: value.assetId ? cleanOneLine(value.assetId, 160) : undefined,
+    nodeId: value.nodeId ? cleanOneLine(value.nodeId, 160) : undefined,
+    assetIndex: Number.isInteger(value.assetIndex) ? value.assetIndex : undefined,
+    referenceRole: value.referenceRole ? cleanOneLine(value.referenceRole, 80) : undefined,
     occurrenceId: /^occ-[a-f0-9]{16,64}$/i.test(String(value.occurrenceId || "").trim()) ? String(value.occurrenceId).trim().toLowerCase() : undefined,
     importBatchId: value.importBatchId ? cleanOneLine(value.importBatchId, 160) : undefined,
     importRootId: value.importRootId ? cleanOneLine(value.importRootId, 80) : undefined,
@@ -3472,6 +3481,7 @@ function createAgentRuntime(options) {
       quality,
       referenceImages,
       editImage,
+      taskScopeSnapshotHash: taskScope.snapshotHash,
       maskImage,
       maskDataUrl,
       relationType: requestedOperation === "variants" ? "variant" : "derived-from",
@@ -3640,9 +3650,13 @@ function createAgentRuntime(options) {
             resolution: frame.resolution,
             size: requestSize,
             quality,
+            // Internal execution policy comes from the frozen settings, never
+            // from extra model tool arguments outside the public schema.
+            imageConfig: imageConfigSnapshot(settings),
             count: 1,
             referenceImages,
             editImage,
+            inputManifest: imageInputManifest(editImage, referenceImages, args.taskScopeSnapshotHash),
             maskImage,
             maskDataUrl,
             outputFormat: imageControls.outputFormat,
@@ -5727,6 +5741,8 @@ function createAgentRuntime(options) {
           }
         }
       ];
+      context.progress?.({ phase: "protocol-trace", internalOnly: true, detail: { tool: "ask_user", continuationId: context.runId,
+        requestId, actionType: actions[0].type, optionCount: options.length, snapshotHash: context.taskScope?.snapshotHash } });
       result = [
         "ASK USER 已请求前端弹窗。",
         `kind: ${kind}`,
@@ -5780,6 +5796,9 @@ function createAgentRuntime(options) {
         detail,
         context?.viewImagePayloadMaxBytes ?? viewImageModelPayloadMaxBytes
       );
+      context.pendingInspectedImagePaths?.set(resolvedPath, modelImage.dataUrl);
+      context.progress?.({ phase: "protocol-trace", internalOnly: true, detail: { tool: "view_image", continuationId: context.runId,
+        inputImageCount: 1, detail, contentHash: require("node:crypto").createHash("sha256").update(readFileSync(resolvedPath)).digest("hex") } });
       result = [
         "VIEW IMAGE 已把本地图片附加到当前模型上下文。",
         `path: ${resolvedPath}`,
@@ -5787,7 +5806,8 @@ function createAgentRuntime(options) {
         `size: ${info.width ?? "unknown"}x${info.height ?? "unknown"}`,
         `modelSize: ${modelImage.width ?? "unknown"}x${modelImage.height ?? "unknown"}`,
         `modelPayload: ${Math.max(1, Math.round(modelImage.payloadBytes / 1024))}KB`,
-        `detail: ${detail}`
+        `detail: ${detail}`,
+        "根据真实像素为待命名图片/容器提交 workflow(operation=update_node, visualName={path,displayName,confidence})；已有手动名会保留。"
       ].join("\n");
       return {
         envelope: storeToolResult(name, args, result, {
@@ -5981,6 +6001,26 @@ function createAgentRuntime(options) {
         actions = [{ type: "workflow.canvas.clear", mode: "all" }];
         result = "WORKBENCH 清理当前画布。";
       } else if (operation === "update_node") {
+        if (args.visualName) {
+          const observedPath = path.resolve(projectRoot, String(args.visualName.path || ""));
+          if (!normalizeContentName(args.visualName) || !context.inspectedImagePaths?.has(observedPath)) {
+            throw new Error("内容命名需要本轮成功 view_image 的像素及有效短名。请勿从文件名猜测。");
+          }
+          const generated = (context.pendingActions || []).find(action => action.type === "workflow.node.create" && action.node?.assets?.some(asset => asset.path === observedPath));
+          const target = targetNode?.assets?.some(asset => asset.path === observedPath) ? targetNode : nodes.find(node => node.assets?.some(asset => asset.path === observedPath));
+          if (generated) {
+            const candidate = { ...generated.node, contentName: generated.node.contentName || { displayName: generated.node.title, source: "fallback" },
+              assets: generated.node.assets.map(asset => ({ ...asset, contentName: asset.contentName || { displayName: asset.title || asset.originalName, source: "fallback" } })) };
+            const patch = contentNamePatch(candidate, args.visualName, observedPath);
+            if (patch) Object.assign(generated.node, patch);
+            result = patch ? "已按看到的图片内容命名生成成果。" : "已保留成果手动名称。";
+          } else if (target) {
+            const patch = contentNamePatch(target, args.visualName, observedPath);
+            actions = patch ? [{ type: "workflow.node.update", patch: { id: target.id, ...patch } }] : [];
+            result = patch ? "已按看到的图片内容命名素材。" : "已保留用户手动名称。";
+          } else { result = "图片已读取，尚无可命名画布成果；保留原文件。"; }
+          return { envelope: storeToolResult(name, args, result), actions };
+        }
         actions = [
           {
             type: "workflow.node.update",
@@ -6515,6 +6555,8 @@ function createAgentRuntime(options) {
       "由你根据用户目标自主决定是否调用工具以及调用顺序，系统不会替你强制 tool_choice 或改写参数。需要生成或修改图片时必须通过 image_gen tool_call 表达；普通问答直接回复，不要声称执行了不存在的工具。",
       "同一用户图片任务优先合并为一次 image_gen：相同提示词多张使用 count，不同提示词多张使用 items，并显式选择 generationMode=parallel 或 sequential；分层任务使用 operation=layers。用户在同一轮要求 N 张、N 版或 N 个候选时使用 parallel，即使表达为‘基于这张继续给 N 版’；parentId 表示来源，不决定执行模式。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。不要用多次单图调用模拟批量，但工具回执明确失败时应根据错误修正参数后再自主决定。",
       "",
+      "关键选择缺少信息时，必须调用结构化 ask_user，给出 2–3 个 options 和自定义回复入口；普通回复中的问句或列表不会打开弹窗。",
+      "涉及图片主体、风格、文字或内容判断时，先调用 view_image 获得像素，不能从文件名推断。成功读取后在本轮用 workflow.update_node 给尚未手动命名的素材和成果提交 1–48 字符内容短名；不要为命名单独请求付费模型。",
       "Image Task Contract:",
       goalScopePrompt
         ? "- generate：文字生图；Goal 冻结范围只允许按 Goal 合同使用 edit、replace 或 variants。"
@@ -6570,6 +6612,8 @@ function createAgentRuntime(options) {
           "",
           "Image Model Contract:",
           modelContract.text,
+          "Current Request Configuration (historical node imageParams are descriptive only):",
+          JSON.stringify({ ...normalizeImageConfigSnapshot(payload.taskScope?.imageConfig), ratio: payload.settings?.imageRatio, resolution: payload.settings?.imageResolution, quality: payload.settings?.imageQuality, count: payload.settings?.imageCount }),
           "",
           "Canvas Contract:",
           "- 右侧 Agent 是唯一智能控制中心；画布展示图片成果、来源关系，以及用户主动保存的可复用需求节点。",
@@ -6660,6 +6704,11 @@ function createAgentRuntime(options) {
       log(`agent model request detail ${safeJson(detail)}`);
     }
 
+    const pixelParts = messages.flatMap(message => Array.isArray(message?.content) ? message.content : [])
+      .filter(part => part?.type === "input_image" || part?.type === "image_url");
+    progress({ phase: "protocol-trace", internalOnly: true, detail: { continuationId: requestOptions.runId, modelRound: requestOptions.round,
+      stage: "model-input", inputImageCount: pixelParts.length,
+      imageHashes: pixelParts.map(part => require("node:crypto").createHash("sha256").update(String(part.image_url?.url || part.image_url || "")).digest("hex")) } });
     if (typeof runtimeOptions.serverChatCompletion === "function") {
       if (requestBody.stream) {
         const streamed = await runtimeOptions.serverChatCompletion({
@@ -6886,7 +6935,8 @@ function createAgentRuntime(options) {
 
   async function chat(payload = {}) {
     ensureMemory();
-    const settings = payload.settings ?? {};
+    const settings = settingsWithImageConfig(payload.settings ?? {}, payload.taskScope?.imageConfig);
+    payload = { ...payload, settings };
     payload.canvasRevision = Math.max(
       0,
       Math.floor(Number(payload.canvasRevision ?? payload.taskScope?.canvasRevision ?? 0) || 0)
@@ -6896,6 +6946,8 @@ function createAgentRuntime(options) {
 
     const actions = [];
     const toolResults = [];
+    const inspectedImagePaths = new Set();
+    const pendingInspectedImagePaths = new Map();
     const turnProtocolItems = [
       { type: "message", role: "user", content: [{ type: "input_text", text: String(payload.prompt || "") }] }
     ];
@@ -7199,7 +7251,8 @@ function createAgentRuntime(options) {
           referenceImages: payload.referenceImages ?? [],
           signal: toolPhase.signal,
           waitUntilRunnable: payload.waitUntilRunnable,
-          viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes
+          viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes,
+          inspectedImagePaths, pendingInspectedImagePaths, pendingActions: actions
         });
         stopPolling();
         actions.push(...(result.actions ?? []));
@@ -7323,9 +7376,10 @@ function createAgentRuntime(options) {
           consumeSteers("before-model-phase");
           continue;
         }
+        const preparedModelMessages = compactRuntimeMessagesForModel(messages);
         response = await callModel(
           settings,
-          compactRuntimeMessagesForModel(messages),
+          preparedModelMessages,
           {
             progress: (event) => progress({ ...event, modelRound }),
             runId: payload.runId,
@@ -7335,6 +7389,11 @@ function createAgentRuntime(options) {
             signal: modelPhase.signal
           }
         );
+        const consumedPixels = new Set(preparedModelMessages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+          .filter(part => part?.type === "input_image").map(part => part.image_url));
+        for (const [observedPath, pixels] of pendingInspectedImagePaths) {
+          if (consumedPixels.has(pixels)) { inspectedImagePaths.add(observedPath); pendingInspectedImagePaths.delete(observedPath); }
+        }
       } catch (error) {
         if (phaseWasSteered(modelPhase, error)) {
           consumeSteers("model-interrupted");

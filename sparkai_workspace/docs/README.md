@@ -19,8 +19,11 @@
 
 ## 当前入口
 
+- [Agent 工作流与图片上下文合同](./AGENT_WORKFLOW_CONTRACT.md)：结构化询问、冻结素材/配置、观察与生成证据分离、内容命名及共享 CLI/MCP；实际验证和本地交付见 Progress。
+- [Agent 工作流本地验证与交付（2026-10-18）](./AGENT_WORKFLOW_VALIDATION_2026-10-18.md)：逐项证据、真实模型未测边界，以及本轮开发包交付入口。
 - [工作台优化设计与执行交接（2026-10-16）](./WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)：接口真实性、画布交互、失败恢复、布局、配置与性能六个工作包，含实施顺序、验收和执行 Prompt；设计文档交付不代表功能已实施。
 - [工作台优化实施与本地验收（2026-10-17）](./WORKSPACE_OPTIMIZATION_VALIDATION_2026-10-17.md)：逐阶段实现、Electron/重启/性能证据、密集拖动回归及本地制品/安装/Git交付状态。
+- [Agent 工作流、图片上下文与更新功能交接（2026-10-17）](./AGENT_WORKFLOW_UPDATE_HANDOFF_2026-10-17.md)：`ask_user`、`view_image`/参考图、软件更新、运行中图片范围、内容命名、选中图片配置、真实参数联调和四向连线的诊断、方案、验收与 `gpt-6.1-sol max` 执行 Prompt；本文保留实施起点，最新本地完成与未验证边界见本轮验证和 Progress。
 - [上下文地图](./CONTEXT_MAP.md)：进程拓扑、入口调用链、模块所有权、跨边界契约、状态位置、修改影响和测试映射。新增或移动模块以及改变公共契约时必须同步更新。
 - [项目结构](./PROJECT_STRUCTURE.md)：源码分区、生成目录、安全清理和最低验证。
 - [工作区上下文地图](../../WORKSPACE_CONTEXT_MAP.md)：桌面仓库与 `sparkai-extension` 扩展服务的关系、技术栈和跨仓修改导航。

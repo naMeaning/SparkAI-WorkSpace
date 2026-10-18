@@ -543,7 +543,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const uiFooterControlsOk = uiFooterMetrics.every((item) => item.nonPrimitiveCount === 0 && item.nestedActionWrapperCount === 0 && item.overlaps === 0 && (item.minHorizontalGap == null || item.minHorizontalGap >= 10));
     const uiPrimitiveCoverageOk = uiRawButtonMetrics.length === 0;
     const uiBaseCoverageOk = uiBaseMissingMetrics.length === 0;
-    const uiResizeControlsOk = uiResizeMetrics.every((item) => item.width >= 6 && item.height >= 24 && Boolean(item.label));
+    const uiResizeControlsOk = uiResizeMetrics.every((item) => item.width >= 6 && item.height >= (item.className.includes("ui-dialog-resize-handle") ? 18 : 24) && Boolean(item.label));
     const uiControlFoundationOk = uiActionControlsOk && uiIconControlsOk && uiChoiceControlsOk && uiPreviewControlsOk && uiFooterControlsOk && uiPrimitiveCoverageOk && uiBaseCoverageOk && uiResizeControlsOk;
     const uiControlFoundationMetrics = {
       surfaceCount: visibleUiSurfaces.length,

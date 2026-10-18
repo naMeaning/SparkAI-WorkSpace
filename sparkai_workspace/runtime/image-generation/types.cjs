@@ -290,7 +290,15 @@ function resolveImageModelConfig(settings = {}, model = "") {
   const discoveryBaseUrl = configuredBaseUrl || (String(settings.accessMode || "account").toLowerCase() === "custom" ? settings.imageBaseUrl : "");
   const gateway = inferGateway(settings, discoveryBaseUrl, binding.gateway || override.gateway);
   const protocolPreset = IMAGE_MODEL_PRESETS[protocol === "gemini-native" ? "gemini-3.1-flash-image" : protocol === "xai-images" ? "grok-imagine-image-2.0" : "gpt-image-2"];
-  const capabilities = protocol === preset.protocol && (knownPreset || inferredFamily) ? preset.capabilities : protocolPreset.capabilities;
+  // Selecting a wire format must not turn Grok into a GPT Image capability
+  // profile. Explicit per-connection capabilities can override this default.
+  const capabilities = knownPreset || inferredFamily ? preset.capabilities : protocolPreset.capabilities;
+  const resolvedCapabilities = normalizeCapabilities(override.capabilities, capabilities);
+  // Settings/UI normalization materializes [] when no quality policy was set.
+  // Only a nonempty list overrides the family/protocol quality default.
+  if (!resolvedCapabilities.supportedQualities.length && capabilities.supportedQualities?.length) {
+    resolvedCapabilities.supportedQualities = [...capabilities.supportedQualities];
+  }
   return {
     id: cleanString(override.id || resolvedModel, 180),
     model: resolvedModel,
@@ -308,7 +316,7 @@ function resolveImageModelConfig(settings = {}, model = "") {
     baseUrl: normalizeBaseUrl(configuredBaseUrl),
     apiKey: cleanString(binding.customApiKey || override.apiKey, 8192),
     accountTokenId: cleanString(binding.accountTokenId || override.accountTokenId, 64),
-    capabilities: normalizeCapabilities(knownPreset || inferredFamily ? undefined : override.capabilities, capabilities)
+    capabilities: resolvedCapabilities
   };
 }
 
@@ -327,7 +335,9 @@ function normalizeImageInput(value, fallbackName = "image.png") {
     name: cleanString(value.name || value.originalName || fallbackName, 180) || fallbackName,
     mimeType: cleanString(value.mimeType || "image/png", 120) || "image/png",
     role: cleanString(value.role, 80) || undefined,
-    purpose: cleanString(value.purpose, 320) || undefined
+    purpose: cleanString(value.purpose, 320) || undefined,
+    assetId: cleanString(value.assetId, 160), displayCode: cleanString(value.displayCode, 40), nodeId: cleanString(value.nodeId, 160),
+    assetIndex: Number.isInteger(value.assetIndex) ? value.assetIndex : undefined, referenceRole: cleanString(value.referenceRole, 80)
   };
 }
 
@@ -341,6 +351,10 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
   // Never silently drop attached inputs because the UI omitted `mode`.
   const mode = editImage || references.length || mask || ["edit", "replace", "variants", "redraw", "cutout"].includes(String(payload.mode || "").toLowerCase()) ? "edit" : "generate";
   const requestedCount = Number(payload.n ?? payload.count ?? 1);
+  const requestedQuality = cleanString(payload.quality, 64) || "auto";
+  const qualities = imageQualityValues(config.model, config.capabilities, config.protocol);
+  const quality = qualities.includes(requestedQuality) ? requestedQuality
+    : qualities.includes("medium") ? "medium" : qualities.includes("auto") ? "auto" : qualities[0];
   return {
     model: config.model,
     prompt: cleanString(payload.prompt, 100_000),
@@ -354,7 +368,8 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
     height: Number.isFinite(Number(payload.height)) ? Math.max(1, Math.floor(Number(payload.height))) : undefined,
     size: cleanString(payload.size, 32) || undefined,
     resolution: cleanString(payload.resolution, 32) || undefined,
-    quality: cleanString(payload.quality, 64) || undefined,
+    quality,
+    parameterDecisions: requestedQuality === quality ? [] : [{ parameter: "quality", requested: requestedQuality, effective: quality, reason: "configured-capability" }],
     moderation: ["auto", "low"].includes(payload.moderation) ? payload.moderation : undefined,
     inputFidelity: ["high", "low"].includes(payload.inputFidelity ?? payload.input_fidelity) ? payload.inputFidelity ?? payload.input_fidelity : undefined,
     background: cleanString(payload.background, 64) || undefined,
@@ -369,7 +384,8 @@ function normalizeImageGenerationRequest(payload = {}, config = resolveImageMode
     onStatus: payload.onStatus,
     onAccepted: payload.onAccepted,
     onResultReceived: payload.onResultReceived,
-    onConnectionResolved: payload.onConnectionResolved
+    onConnectionResolved: payload.onConnectionResolved,
+    inputManifest: payload.inputManifest
   };
 }
 

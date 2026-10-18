@@ -77,6 +77,8 @@ export type NodeEditorDraft = {
   nodeId: string;
   assetIndex: number;
   title: string;
+  titleTarget?: "node" | "asset";
+  titleTouched?: boolean;
   prompt: string;
   error?: string;
 };
@@ -446,18 +448,18 @@ export function NodeEditorDialog({
   const editorAsset = editorNode?.type === "image" ? (editorNode.assets?.[editorAssetIndex] ?? editorNode.layerComposition?.mergedAsset) : undefined;
   const canContinue = Boolean(editorNode?.type === "image" && editorAsset);
   const editorCollectionItem = editorNode ? collectionItemForAsset(editorNode, editorAssetIndex) : undefined;
-  const editingCollectionMember = Boolean(editorNode?.imageCollection && editorNode.assets?.[editorAssetIndex]);
+  const editingCollectionMember = draft.titleTarget === "asset";
   const layerComposition = editorNode?.layerComposition;
   const layerGroup = editorNode?.layerGroup;
   const layerMembers = editorNode?.layerGroup ? groupMembers(editorNode.id) : [];
   const layerGroupExpanded = layerMembers.some((member) => member.layerGroup?.detached);
   const editorSourceTitle = editingCollectionMember
     ? (editorCollectionItem?.title || editorAsset?.title || editorNode?.title || (editorNode ? nodeWorkName(editorNode) : ""))
-    : (editorAsset?.title || editorNode?.title || (editorNode ? nodeWorkName(editorNode) : ""));
+    : (editorNode?.title || editorAsset?.title || (editorNode ? nodeWorkName(editorNode) : ""));
   const editorSourcePrompt = editingCollectionMember
     ? (editorCollectionItem?.prompt || editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "")
     : (editorAsset?.prompt || editorAsset?.revisedPrompt || editorNode?.imageParams?.prompt || firstPromptLine(editorNode?.prompt || "") || editorNode?.prompt || "");
-  const editorDirty = draft.title !== editorSourceTitle || draft.prompt !== editorSourcePrompt;
+  const editorDirty = Boolean(draft.titleTouched) || draft.title !== editorSourceTitle || draft.prompt !== editorSourcePrompt;
   const showGenerationDetails = Boolean(editorAsset && !layerComposition && !layerGroup);
   const editorAssetRatio = editorAsset ? actualImageAspectRatio(editorAsset.width, editorAsset.height) : undefined;
   const editorAssetPixels = editorAsset && Number(editorAsset.width) > 0 && Number(editorAsset.height) > 0
@@ -570,7 +572,7 @@ export function NodeEditorDialog({
                 <Field label={editingCollectionMember ? "图片标题" : "成果标题"}>
                   <input
                     value={draft.title}
-                    onChange={(event) => setDraft((current) => current ? { ...current, title: event.target.value, error: undefined } : current)}
+                    onChange={(event) => setDraft((current) => current ? { ...current, title: event.target.value, titleTouched: true, error: undefined } : current)}
                     placeholder="给这个成果一个容易识别的名称"
                   />
                 </Field>

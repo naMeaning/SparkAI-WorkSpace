@@ -15,6 +15,7 @@ const {
 } = require("../runtime/image-generation/types.cjs");
 const { normalizeImageGenerationResponse } = require("../runtime/image-generation/normalize-response.cjs");
 const { normalizeImageGenerationError, normalizeImageResultDownloadError } = require("../runtime/image-generation/errors.cjs");
+const { normalizeImageModelConfigs } = require("../src/core.ts");
 
 async function main() {
   for (const prefix of ["", "/v1", "/v1beta", "/relay/v1beta"]) {
@@ -52,8 +53,13 @@ async function main() {
   const xaiUrl = await buildXaiRequest({ ...xaiRequest, responseFormat: "url" }, xaiConfig, { editImages: [], mask: null });
   assert.equal(xaiUrl.body.response_format, "url", "Preserve an explicit caller response format");
   assert.equal(Object.hasOwn(xaiGenerate.body, "size"), false);
-  const xaiHigh = await buildXaiRequest({ ...xaiRequest, quality: "high" }, xaiConfig, { editImages: [], mask: null });
+  const xaiHigh = await buildXaiRequest(normalizeImageGenerationRequest({ ...xaiRequest, quality: "high" }, xaiConfig), xaiConfig, { editImages: [], mask: null });
   assert.equal(xaiHigh.body.quality, "medium", "Map the shared high-quality option to xAI's highest supported quality");
+  const explicitXai = resolveImageModelConfig({ accessMode: "custom", imageModelConfigs: [{ model: xaiConfig.model, capabilities: { supportedQualities: ["auto", "high"] } }] }, xaiConfig.model);
+  const explicitXaiRequest = normalizeImageGenerationRequest({ ...xaiRequest, quality: "high" }, explicitXai);
+  const explicitXaiWire = await buildXaiRequest(explicitXaiRequest, explicitXai, { editImages: [], mask: null });
+  assert.equal(explicitXaiWire.body.quality, explicitXaiRequest.quality, "Wire quality must match prepared/evidence quality for this connection override");
+  assert.equal(explicitXaiWire.body.quality, "high");
 
   const autoXaiConfig = resolveImageModelConfig({
     accessMode: "custom",
@@ -61,6 +67,42 @@ async function main() {
   }, "grok-imagine-image-2.0");
   assert.equal(autoXaiConfig.protocol, "openai-images", "Explicit channel adapter must win over a known model name");
   assert.equal(autoXaiConfig.provider, "openai");
+  const qualityCases = [
+    ["grok-imagine-image-2.0", "openai-images", [], "medium"],
+    ["xai-image-3", "openai-images", [], "medium"],
+    ["grok-imagine-image-2.0", "xai-images", [], "medium"],
+    ["grok-imagine-image-2.0", "openai-images", ["auto", "high"], "high"],
+    ["grok-imagine-image-2.0", "xai-images", ["auto", "high"], "high"],
+    ["grok-imagine-image-2.0", "openai-images", ["auto"], "auto"],
+    ["relay-alias", "openai-images", [], "high"],
+    ["relay-alias", "xai-images", [], "medium"],
+    ["relay-alias", "gemini-native", [], "auto"],
+    ["relay-alias", "openai-images", ["medium"], "medium"],
+    ["relay-alias", "openai-images", ["auto"], "auto"],
+    ["relay-alias", "xai-images", ["auto", "high"], "high"],
+    ["relay-alias", "xai-images", ["auto"], "auto"]
+  ];
+  for (const [model, protocol, supportedQualities, expectedQuality] of qualityCases) {
+    // Use the real settings normalizer: its default capability object includes
+    // supportedQualities: [], unlike an incomplete hand-built override.
+    const imageModelConfigs = normalizeImageModelConfigs([{ model, protocol, gateway: "newapi", capabilities: { supportedQualities } }]);
+    assert.deepEqual(imageModelConfigs[0].capabilities.supportedQualities, supportedQualities);
+    const config = resolveImageModelConfig({ accessMode: "custom", imageModelConfigs }, model);
+    const request = validateImageGenerationRequest(normalizeImageGenerationRequest({ prompt: "quality regression", quality: "high" }, config), config);
+    const wire = await adapterFor(protocol).buildRequest(request, config, { editImages: [], mask: null });
+    const label = `${model}/${protocol}/${supportedQualities.join(",") || "default"}`;
+    assert.equal(request.quality, expectedQuality, `${label} prepared quality`);
+    assert.deepEqual(request.parameterDecisions, expectedQuality === "high" ? [] : [
+      { parameter: "quality", requested: "high", effective: expectedQuality, reason: "configured-capability" }
+    ], `${label} normalization evidence`);
+    assert.equal(wire.body?.quality ?? wire.fields?.quality,
+      protocol === "gemini-native" || protocol === "xai-images" && expectedQuality === "auto" ? undefined : expectedQuality,
+      `${label} wire quality`);
+    if (!supportedQualities.length) {
+      const defaultRequest = normalizeImageGenerationRequest({ prompt: "quality default" }, config);
+      assert.equal(defaultRequest.quality, "auto", `${label} omitted quality remains automatic`);
+    }
+  }
   for (const model of ["grok-imagine-image-2.0", "gemini-3.1-flash-image", "relay-alias"]) {
     for (const protocol of ["openai-images", "xai-images", "gemini-native"]) {
       const config = resolveImageModelConfig({ accessMode: "custom", imageModelBindings: [{ model, protocol, gateway: "newapi", transportMode: "sync" }] }, model);

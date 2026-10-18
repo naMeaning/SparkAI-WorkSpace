@@ -368,58 +368,21 @@
 }
 
 .project-agent-steer-mode {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-raised) 46%, transparent);
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 5px 6px 0;
   color: var(--muted);
   font-size: var(--font-xs);
 }
-
-.project-agent-steer-mode > span {
-  color: var(--ink-soft);
-  font-size: 12px;
-  font-weight: 680;
+.project-agent-steer-mode .glass-select-trigger {
+  min-height: 26px;
+  padding: 2px 6px;
+  border-radius: 7px;
 }
-
-.project-agent-steer-mode select {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--ink);
-  background: var(--surface-solid);
-  font: inherit;
-}
-
-.project-agent-steer-mode select:focus-visible {
-  border-color: var(--accent);
-  outline: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
-  outline-offset: 1px;
-}
-
-.project-agent-steer-mode > strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--accent-strong);
-  font-size: var(--font-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-agent-steer-mode > small {
-  min-width: 0;
-  color: var(--muted);
-  font-size: var(--font-xs);
-  line-height: 1.4;
-}
+.project-agent-steer-mode > strong { color: var(--accent-strong); }
 
 .project-agent-config-trigger {
   display: inline-flex;
@@ -620,13 +583,13 @@
 
 .project-agent-composer-context > span {
   flex: 0 0 auto;
-  line-height: 1;
+  line-height: 16px;
   white-space: nowrap;
 }
 
 .project-agent-composer-context strong {
   min-width: 0;
-  line-height: 1;
+  line-height: 16px;
   overflow: hidden;
   color: var(--accent-strong);
   text-overflow: ellipsis;

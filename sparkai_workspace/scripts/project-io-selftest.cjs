@@ -13,6 +13,7 @@ const {
 const os = require("node:os");
 const path = require("node:path");
 const { PROJECT_ASSET_REPOSITORY_OWNER } = require("../desktop/project-asset-repository.cjs");
+const { mergeProjectSessions } = require("../desktop/project-session-merge.cjs");
 const {
   PROJECT_PACKAGE_SERVICE_OWNER,
   projectPackageMaximumAssetBytes,
@@ -270,6 +271,65 @@ async function run() {
   }, validProject);
   assert.equal(hydratedLegacyAssetUrl.nodes[0].assets[0].path, path.resolve(validAssets[0].path));
   assert.match(hydratedLegacyAssetUrl.nodes[0].assets[0].assetUrl, /^naimage-asset:/);
+
+  const generatedReplayAsset = {
+    ...validAssets[0], assetId: "generated-replay-asset", occurrenceId: `occ-${"c".repeat(32)}`,
+    runId: "generated-replay-run", title: "用户标题", contentName: { source: "manual", displayName: "用户标题" }
+  };
+  const generatedReplayNode = imageNode("generated-replay", [generatedReplayAsset], {
+    persistenceOriginId: "renderer:generated-replay", imageProgress: { total: 1, completed: 1, failed: 0 }
+  });
+  let generatedReplaySession = projectIo.sessionForProjectSave({ nodes: [generatedReplayNode], messages: [] }, validProject);
+  assert.ok(generatedReplaySession.nodes[0].assets[0].relativePath);
+  for (let replay = 0; replay < 3; replay += 1) {
+    const runtimeReplayNode = { ...generatedReplayNode, assets: [{
+      ...generatedReplayAsset, title: "旧自动标题", contentName: { source: "fallback", displayName: "旧自动标题" }
+    }] };
+    const mergedReplay = mergeProjectSessions(generatedReplaySession, { nodes: [runtimeReplayNode], messages: [] }).session;
+    generatedReplaySession = projectIo.sessionForProjectSave(mergedReplay, validProject);
+    writeJson(validProject.sessionPath, generatedReplaySession);
+    const reopenedReplay = projectIo.sessionWithProjectAssets(readJson(validProject.sessionPath), validProject);
+    assert.equal(reopenedReplay.nodes.length, 1);
+    assert.equal(reopenedReplay.nodes[0].assets.length, 1, "Native result replays stay singular through Main merge, serialization, disk and reopen");
+    assert.equal(reopenedReplay.nodes[0].outputs, 1);
+    assert.equal(reopenedReplay.nodes[0].assets[0].occurrenceId, generatedReplayAsset.occurrenceId);
+    assert.equal(reopenedReplay.nodes[0].assets[0].title, "用户标题");
+    assert.equal(reopenedReplay.nodes[0].assets[0].path, path.resolve(generatedReplayAsset.path));
+  }
+
+  const groupedReplaySecond = {
+    ...validAssets[1], assetId: "generated-replay-second", occurrenceId: `occ-${"d".repeat(32)}`,
+    runId: generatedReplayAsset.runId, title: "第二张用户标题", contentName: { source: "manual", displayName: "第二张用户标题" }
+  };
+  const groupedReplayAssets = [generatedReplaySession.nodes[0].assets[0], generatedReplayAsset, groupedReplaySecond];
+  const groupedReplayCollection = {
+    id: "generated-replay-group", kind: "batch", generationMode: "parallel",
+    items: groupedReplayAssets.map((asset, index) => ({ id: `group-item-${index + 1}`, requestIndex: index + 1, assetIndex: index + 1, assetId: asset.assetId, occurrenceId: asset.occurrenceId, title: asset.title, prompt: "prompt", status: "done" }))
+  };
+  let groupedReplaySession = { nodes: [imageNode("generated-group", groupedReplayAssets, {
+    persistenceOriginId: "renderer:generated-group", imageProgress: { total: 3, completed: 3, failed: 0 },
+    imageCollection: groupedReplayCollection,
+    imageContainerSpec: {
+      version: 1, kind: "batch-result", memberNodeIds: [], childContainerNodeIds: [], layoutOrigin: "generation", autoFit: true,
+      collection: groupedReplayCollection,
+      memberBindings: groupedReplayAssets.map((asset, index) => ({ bindingId: `group-binding-${index}`, nodeId: "generated-group", containerNodeId: "generated-group", assetIndex: index, assetId: asset.assetId, occurrenceId: asset.occurrenceId }))
+    }
+  })], messages: [] };
+  for (let replay = 0; replay < 3; replay += 1) {
+    const mergedGroup = mergeProjectSessions(groupedReplaySession, { nodes: [imageNode("generated-group", [groupedReplaySecond, generatedReplayAsset], { persistenceOriginId: "renderer:generated-group" })], messages: [] }).session;
+    writeJson(validProject.sessionPath, projectIo.sessionForProjectSave(mergedGroup, validProject));
+    groupedReplaySession = projectIo.sessionWithProjectAssets(readJson(validProject.sessionPath), validProject);
+    const group = groupedReplaySession.nodes[0];
+    assert.equal(group.assets.length, 2);
+    assert.equal(group.outputs, 2);
+    assert.deepEqual(group.imageCollection.items.map(item => [item.id, item.assetIndex, item.occurrenceId, item.title]), [
+      ["group-item-1", 1, generatedReplayAsset.occurrenceId, "用户标题"],
+      ["group-item-3", 2, groupedReplaySecond.occurrenceId, "第二张用户标题"]
+    ], "Duplicate removal must keep collection names and occurrences on their own images through real disk reopen");
+    assert.deepEqual(group.imageContainerSpec.collection, group.imageCollection);
+    assert.deepEqual(group.imageContainerSpec.memberBindings.map(binding => binding.assetIndex), [0, 1]);
+    assert.equal(group.imageProgress.completed, 2);
+  }
 
   const emptySelectionProject = projectRecord("empty-selection");
   const emptySelectionSession = projectIo.sessionForProjectSave({

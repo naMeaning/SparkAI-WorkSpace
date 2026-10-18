@@ -1,3 +1,5 @@
+import { normalizeImageConfigSnapshot, type FrozenImageConfig } from "../runtime/image-config-snapshot.mjs";
+import type { ImageContentName } from "../runtime/image-content-name.mjs";
 /*
 naimage Core Map
 
@@ -742,6 +744,7 @@ export type AgentAskUserOption = {
 };
 
 export type WorkflowNode = {
+  contentName?: ImageContentName;
   id: string;
   /** Stable writer identity used to merge same-project saves from multiple Renderer windows. */
   persistenceOriginId?: string;
@@ -879,6 +882,7 @@ export type ImageAssetGenerationMetadata = {
 };
 
 export type ImageAsset = {
+  contentName?: ImageContentName;
   assetId?: string;
   /** Logical user-visible occurrence. Multiple occurrences may share one assetId/blob. */
   occurrenceId?: string;
@@ -1107,6 +1111,7 @@ export type TaskAssetReference = {
 };
 
 export type AgentTaskScope = {
+  imageConfig?: FrozenImageConfig;
   version: 2;
   origin: "chat" | "canvas" | "node" | "container" | "layer" | "requirement" | "goal";
   scopeType: AgentTaskScopeType;
@@ -1325,6 +1330,7 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
   });
   const canonicalMaterials = agentTaskScopeMaterials(scope);
   const material = {
+    ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     version: 2,
     origin: scope.origin,
     scopeType: scope.scopeType,
@@ -2797,6 +2803,7 @@ export type AgentRuntimeAction = {
   /** Failed layer identities retried by this action. Successful layers are reused. */
   retryLayerIds?: string[];
   node?: {
+    contentName?: ImageContentName;
     id?: string;
     displayCode?: string;
     title?: string;
@@ -3053,6 +3060,8 @@ export type DesktopUpdateArtifact = {
 };
 
 export type DesktopUpdateInfo = {
+  diagnostic?: { phase: string; absoluteUrl?: boolean; originHash?: string; endpointPath?: string; signatureVerified?: boolean; errorCode?: string; status?: number };
+  errorCode?: string;
   ok: boolean;
   currentVersion?: string;
   latestVersion?: string;

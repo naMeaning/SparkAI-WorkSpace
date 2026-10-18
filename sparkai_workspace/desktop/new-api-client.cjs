@@ -243,17 +243,18 @@ function createNewApiClient(options = {}) {
   }
 
   function resolveNewApiBaseUrl(settings, service = "account") {
+    // Update routing is independent of account/relay settings and credentials.
+    if (service === "update") {
+      const updateBaseUrl = normalizeServerUrl(settings?.updateBaseUrl, defaultSettings.updateBaseUrl);
+      parsedServiceBaseUrl(updateBaseUrl, "更新服务地址");
+      return updateBaseUrl;
+    }
     const accountBaseUrl = normalizeServerUrl(
       settings?.accountBaseUrl || settings?.serverUrl,
       defaultSettings.accountBaseUrl
     );
     const account = parsedServiceBaseUrl(accountBaseUrl, "账户服务地址");
     if (service === "account") return accountBaseUrl;
-    if (service === "update") {
-      const updateBaseUrl = normalizeServerUrl(settings?.updateBaseUrl, defaultSettings.updateBaseUrl);
-      parsedServiceBaseUrl(updateBaseUrl, "更新服务地址");
-      return updateBaseUrl;
-    }
     if (service !== "relay") throw new Error(`未知的 New API 服务类型：${service}`);
     const explicitRelayBaseUrl = normalizeServerUrl(settings?.relayBaseUrl, "");
     if (!explicitRelayBaseUrl) return accountBaseUrl;
@@ -727,7 +728,9 @@ function createNewApiClient(options = {}) {
       ...(isForm ? {} : { "content-type": "application/json" }),
       ...(options.headers || {})
     };
-    const url = options.absoluteUrl || newApiUrl(settings, endpoint, service);
+    const url = options.absoluteUrl || `${String(baseUrl).replace(/\/+$/, "")}/${String(endpoint || "").replace(/^\/+/, "")}`;
+    try { parsedServiceBaseUrl(url, "请求地址"); }
+    catch (cause) { throw Object.assign(new Error("请求地址无效，请检查服务地址设置。"), { code: "NEW_API_INVALID_URL", phase: "url", cause }); }
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const attemptStartedAt = Date.now();
@@ -818,6 +821,8 @@ function createNewApiClient(options = {}) {
       const error = new Error(newApiErrorMessage(data, response.status));
       error.status = response.status;
       error.data = data;
+      error.code = !response.ok ? "NEW_API_HTTP" : data.parseFailed ? "NEW_API_RESPONSE_JSON" : "NEW_API_SERVER_ERROR";
+      error.phase = !response.ok ? "http" : "response";
       throw error;
     }
     return data;

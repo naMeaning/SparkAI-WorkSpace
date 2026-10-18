@@ -288,6 +288,30 @@ export async function captureAskUserContinuationSuite(context) {
   })()`, 70000);
   checks.newConversationIsolation = Boolean(conversationIsolation?.ok);
 
+  phase("plain-question-without-tool");
+  const plainQuestion = await evaluate(client, `(async () => {
+    const content = "这张商品图更适合蓝色背景还是白色背景？\\n- 蓝色背景\\n- 白色背景";
+    const seeded = window.__naimageDebugSeedAgentMessages?.({
+      append: true,
+      messages: [{ role: "assistant", content, status: "done" }]
+    });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const state = window.__naimageDebugAgentState?.() || {};
+    return {
+      ok: Boolean(seeded && document.body.innerText.includes(content.split("\\n")[0]) &&
+        !state.pendingAgentExecution && !state.askUserOpen && !document.querySelector(".ask-user-dialog")),
+      content,
+      state
+    };
+  })()`);
+  checks.plainQuestionDoesNotOpenDialog = Boolean(plainQuestion?.ok);
+  results.push(await captureState(client, targetId, "ask-user-plain-question", "undefined", { width: 884, height: 720 }, {
+    modalOpen: false,
+    askUserOpen: false,
+    agentIdle: true,
+    verticalOverflowFree: true
+  }));
+
   phase("persist-pending-before-reload");
   const persistenceStarted = await evaluate(client, `window.__naimageAIDebug.chat("AIDEBUG_ASK_SOURCE ${marker} 请保存并在界面重载后恢复这个 SOURCE 请求。", { timeoutMs: 30000 })`, 40000);
   await waitForExpression(client, "Boolean(window.__naimageDebugAgentState?.().pendingAgentExecution?.kind === 'source_images' && window.__naimageDebugAgentState?.().referencePickerOpen)", 6000);
@@ -329,13 +353,14 @@ export async function captureAskUserContinuationSuite(context) {
   await waitForExpression(client, "!window.__naimageDebugAgentState?.().pendingAgentExecution && !window.__naimageDebugAgentState?.().referencePickerOpen", 5000);
 
   phase("staged-multi-source-result-layout");
-  const stagedTaskResult = await evaluate(client, `(async () => {
+  const stagedTaskStarted = await evaluate(client, `(async () => {
     await window.__naimageAIDebug.newConversation();
-    const seeded = await window.__naimageAIDebug.seedCanvas({ count: 2, fileBacked: true });
-    const sourceIds = (seeded?.state?.nodes || []).filter((node) => node.type === "image").map((node) => node.id).slice(-2);
+    const seeded = await window.__naimageAIDebug.seedCanvas({ count: 3, fileBacked: true });
+    const fixtureIds = (seeded?.state?.nodes || []).filter((node) => node.type === "image").map((node) => node.id).slice(-3);
+    const sourceIds = fixtureIds.slice(0, 2);
+    const excludedId = fixtureIds[2];
     await window.__naimageAIDebug.selectNodes({ ids: sourceIds, primaryId: sourceIds[0] });
     const before = window.__naimageDebugAgentState?.() || {};
-    const beforeIds = new Set((before.nodes || []).map((node) => node.id));
     const ask = await window.__naimageAIDebug.chat(
       "AIDEBUG_ASK_CONFIRM ${marker} 请基于当前两个 SOURCE 分别生成一张 1:1 蓝金商品测试图。",
       { timeoutMs: 30000 }
@@ -343,6 +368,81 @@ export async function captureAskUserContinuationSuite(context) {
     const openDeadline = performance.now() + 5000;
     while (performance.now() < openDeadline && !document.querySelector(".ask-user-dialog")) await new Promise((resolve) => setTimeout(resolve, 50));
     const pending = window.__naimageDebugAgentState?.().pendingAgentExecution;
+    const config = await window.naimageConfig.loadSettings();
+    const previousSettings = config.settings || {};
+    const changedSettings = {
+      ...previousSettings,
+      imageRatio: pending?.imageRatio === "16:9" ? "1:1" : "16:9",
+      imageResolution: pending?.imageResolution === "2K" ? "1K" : "2K",
+      imageQuality: pending?.taskScope?.imageConfig?.quality === "high" ? "auto" : "high",
+      imageCount: 3
+    };
+    const changed = await window.naimageConfig.saveSettings(changedSettings);
+    const selection = await window.__naimageAIDebug.selectNodes({ ids: [excludedId], primaryId: excludedId });
+    const state = window.__naimageDebugAgentState?.() || {};
+    return {
+      ok: Boolean(seeded?.ok && sourceIds.length === 2 && excludedId && ask?.ok &&
+        pending?.taskScope?.sourceAssetCount === 2 && pending.taskScope.imageConfig &&
+        changed?.ok === true && selection?.ok && state.selectedNodeId === excludedId),
+      sourceIds,
+      excludedId,
+      beforeIds: (before.nodes || []).map((node) => node.id),
+      pending,
+      previousConfig: {
+        imageRatio: previousSettings.imageRatio,
+        imageResolution: previousSettings.imageResolution,
+        imageQuality: previousSettings.imageQuality,
+        imageCount: previousSettings.imageCount
+      },
+      changedConfig: {
+        ratio: changedSettings.imageRatio,
+        resolution: changedSettings.imageResolution,
+        quality: changedSettings.imageQuality,
+        count: changedSettings.imageCount
+      }
+    };
+  })()`, 45000);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  phase("reload-frozen-confirmation");
+  await client.send("Page.reload", { ignoreCache: true });
+  await waitForExpression(client, "Boolean(window.__naimageAIDebug?.chat && window.__naimageDebugAgentState && document.querySelector('.ask-user-dialog'))", 15000);
+  const stagedTaskRestored = await evaluate(client, `(async () => {
+    const state = window.__naimageDebugAgentState?.() || {};
+    const pending = state.pendingAgentExecution;
+    const original = ${JSON.stringify(stagedTaskStarted?.pending || null)};
+    const changedConfig = ${JSON.stringify(stagedTaskStarted?.changedConfig || null)};
+    const config = await window.naimageConfig.loadSettings();
+    const current = config.settings || {};
+    return {
+      ok: Boolean(pending && original && original.requestId && pending.requestId === original.requestId &&
+        pending.conversationId === original.conversationId && pending.kind === "confirm" &&
+        pending.taskScope?.snapshotHash === original.taskScope?.snapshotHash &&
+        JSON.stringify(pending.taskScope?.sourceBindingIds) === JSON.stringify(original.taskScope?.sourceBindingIds) &&
+        JSON.stringify(pending.taskScope?.imageConfig) === JSON.stringify(original.taskScope?.imageConfig) &&
+        JSON.stringify(pending.options) === JSON.stringify(original.options) &&
+        pending.imageRatio === original.imageRatio && pending.imageResolution === original.imageResolution &&
+        current.imageRatio === changedConfig?.ratio && current.imageResolution === changedConfig?.resolution &&
+        current.imageQuality === changedConfig?.quality && current.imageCount === changedConfig?.count &&
+        state.selectedNodeId === ${JSON.stringify(stagedTaskStarted?.excludedId || "")} &&
+        document.querySelectorAll(".ask-user-dialog .ask-user-option").length === 3),
+      pending,
+      currentConfig: { ratio: current.imageRatio, resolution: current.imageResolution,
+        quality: current.imageQuality, count: current.imageCount },
+      selectedNodeId: state.selectedNodeId
+    };
+  })()`);
+  checks.pendingScopeAndConfigSurviveReload = Boolean(stagedTaskStarted?.ok && stagedTaskRestored?.ok);
+  results.push(await captureState(client, targetId, "ask-user-frozen-confirmation-restored", "undefined", { width: 884, height: 720 }, {
+    modalOpen: true,
+    askUserOpen: true,
+    modalWithinViewport: true,
+    verticalOverflowFree: true
+  }));
+  phase("resume-frozen-staged-confirmation");
+  const stagedTaskResult = await evaluate(client, `(async () => {
+    const pending = window.__naimageDebugAgentState?.().pendingAgentExecution;
+    const original = ${JSON.stringify(stagedTaskStarted?.pending || null)};
+    const beforeIds = new Set(${JSON.stringify(stagedTaskStarted?.beforeIds || [])});
     const staged = Array.from(document.querySelectorAll(".ask-user-dialog .ask-user-option"))
       .find((item) => String(item.textContent || "").includes("阶段性批量"));
     staged?.click();
@@ -365,15 +465,19 @@ export async function captureAskUserContinuationSuite(context) {
         const containerKinds = outputs.map((node) => node.imageContainerSpec?.kind || "");
         return {
           ok: Boolean(
-            seeded?.ok && sourceIds.length === 2 && ask?.ok && pending?.taskScope?.sourceAssetCount === 2 && staged && submit &&
+            pending?.taskScope?.sourceAssetCount === 2 && staged && submit &&
             dispatched.confirmationPolicy === "staged" && dispatched.sourceAssetCount === 2 &&
             hashes.length === 1 && hashes[0] === dispatched.snapshotHash &&
             bindings.length === 2 && JSON.stringify(bindings) === JSON.stringify(expectedBindings) &&
-            containerKinds.every((kind) => kind === "batch-result")
+            containerKinds.every((kind) => kind === "batch-result") &&
+            JSON.stringify(dispatched.imageConfig) === JSON.stringify(original?.taskScope?.imageConfig) &&
+            JSON.stringify(dispatched.sourceBindingIds) === JSON.stringify(original?.taskScope?.sourceBindingIds) &&
+            outputs.every((node) => node.imageParams?.ratio === original?.imageRatio &&
+              node.imageParams?.resolution === original?.imageResolution)
           ),
           pendingHash: pending?.taskScope?.snapshotHash,
           pendingPolicy: pending?.taskScope?.confirmationPolicy,
-          sourceIds,
+          sourceIds: ${JSON.stringify(stagedTaskStarted?.sourceIds || [])},
           dispatched,
           hashes,
           bindings,
@@ -385,9 +489,82 @@ export async function captureAskUserContinuationSuite(context) {
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    return { ok: false, ask, pending, state: window.__naimageDebugAgentState?.() };
+    return { ok: false, pending, state: window.__naimageDebugAgentState?.() };
   })()`, 110000);
   checks.stagedMultiSourceResultLayout = Boolean(stagedTaskResult?.ok);
+  checks.frozenSourcesAndConfigSurviveContinuation = Boolean(stagedTaskRestored?.ok && stagedTaskResult?.ok);
+  await evaluate(client, `(async () => {
+    const config = await window.naimageConfig.loadSettings();
+    return window.naimageConfig.saveSettings({ ...config.settings, ...${JSON.stringify(stagedTaskStarted?.previousConfig || {})} });
+  })()`);
+
+  phase("goal-command-frozen-scope");
+  const goalScopeLocked = await evaluate(client, `(async () => {
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    await window.__naimageAIDebug.newConversation();
+    await window.__naimageAIDebug.runTool({ name: "workflow", input: { operation: "clear_canvas", brief: "准备单来源 Goal 锁定验证。" } });
+    const created = await window.__naimageDebugCreateImageContainer({ worldX: 140, worldY: 160, role: "source" });
+    await window.__naimageDebugImportPathsToCanvas({ paths: [${JSON.stringify(fixturePaths[0])}], targetContainerId: created.id });
+    await window.__naimageAIDebug.selectNodes({ ids: [] });
+    const input = document.querySelector(".project-agent-composer textarea");
+    if (!(input instanceof HTMLTextAreaElement)) return { ok: false, error: "Goal composer unavailable" };
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(
+      input, " /goal AIDEBUG_ASK_CONFIRM ${marker} 请逐张优化当前图片容器的商品构图。".trim()
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await delay(120);
+    const send = document.querySelector(".project-agent-send");
+    send?.click();
+    const previewDeadline = performance.now() + 6000;
+    while (performance.now() < previewDeadline && !document.querySelector(".goal-confirmation-dialog")) await delay(50);
+    const preview = window.__naimageDebugAgentState?.().goalConfirmation;
+    const confirm = Array.from(document.querySelectorAll(".goal-confirmation-dialog footer button"))
+      .find((item) => String(item.textContent || "").trim() === "开始执行");
+    confirm?.click();
+    const askDeadline = performance.now() + 20000;
+    while (performance.now() < askDeadline) {
+      const state = window.__naimageDebugAgentState?.() || {};
+      const pending = state.pendingAgentExecution;
+      const locked = document.querySelector('.project-agent-steer-mode [aria-label="图片范围已锁定"]');
+      if (pending?.taskOrigin === "goal" && state.askUserOpen && locked) {
+        const box = locked.getBoundingClientRect();
+        const style = getComputedStyle(locked);
+        const dispatched = state.lastDispatchedTaskScope;
+        return {
+          ok: Boolean(created?.ok && send && preview?.taskScope?.origin === "goal" && confirm &&
+            preview.taskScope.imageConfig && pending.taskScope?.goal?.frozen === true &&
+            pending.taskScope.snapshotHash === preview.taskScope.snapshotHash &&
+            JSON.stringify(pending.taskScope.imageConfig) === JSON.stringify(preview.taskScope.imageConfig) &&
+            JSON.stringify(dispatched?.imageConfig) === JSON.stringify(preview.taskScope.imageConfig) &&
+            JSON.stringify(pending.taskScope.sourceBindingIds) === JSON.stringify(preview.taskScope.sourceBindingIds) &&
+            box.width > 0 && box.height > 0 && style.display !== "none" && style.visibility !== "hidden" &&
+            !document.querySelector(".project-agent-steer-mode .glass-select-trigger")),
+          preview,
+          pending,
+          dispatched,
+          lockedLabel: String(locked.textContent || ""),
+          lockRect: { width: box.width, height: box.height },
+          state
+        };
+      }
+      await delay(80);
+    }
+    return { ok: false, preview, state: window.__naimageDebugAgentState?.() };
+  })()`, 40000);
+  checks.goalCommandKeepsFrozenScopeLocked = Boolean(goalScopeLocked?.ok);
+  results.push(await captureState(client, targetId, "ask-user-goal-scope-locked", "undefined", { width: 884, height: 720 }, {
+    modalOpen: true,
+    askUserOpen: true,
+    modalWithinViewport: true,
+    verticalOverflowFree: true
+  }));
+  await evaluate(client, `(() => {
+    const cancel = Array.from(document.querySelectorAll(".ask-user-dialog footer button"))
+      .find((item) => String(item.textContent || "").trim() === "取消");
+    cancel?.click();
+    return Boolean(cancel);
+  })()`);
+  await waitForExpression(client, "!window.__naimageDebugAgentState?.().pendingAgentExecution && !window.__naimageDebugAgentState?.().askUserOpen", 5000);
 
   phase("capture-final");
   const finalCapture = await captureState(client, targetId, "ask-user-continuation-final", "window.__naimageAIDebug?.fitCanvas?.()", { width: 1280, height: 820 }, {
@@ -412,12 +589,19 @@ export async function captureAskUserContinuationSuite(context) {
     structuredConfirmClosed,
     cancellation,
     conversationIsolation,
+    plainQuestion,
     persistenceStarted,
     restoredAfterReload,
-    stagedTaskResult
+    stagedTaskStarted,
+    stagedTaskRestored,
+    stagedTaskResult,
+    goalScopeLocked
   };
   finalCapture.suite = suite;
-  if (!suite.ok) finalCapture.stateIssues.push({ key: "askUserContinuationSuite", expected: true, actual: suite });
+  if (!suite.ok) finalCapture.stateIssues.push({
+    key: "askUserContinuationSuite", expected: true,
+    actual: { checks, unhealthyCaptures: results.filter((capture) => !captureHealthy(capture)).map((capture) => capture.label) }
+  });
   results.push(finalCapture);
   const suitePath = join(runDir, "ask-user-continuation-suite.json");
   writeFileSync(suitePath, JSON.stringify(suite, null, 2));

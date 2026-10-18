@@ -1,12 +1,13 @@
 "use strict";
 
+const { settingsWithImageConfig } = require("../../runtime/image-config-snapshot.mjs");
 const { freezeImageFrameSettings } = require("../../runtime/image-frame.cjs");
 const { validateFrozenGoalTaskScope } = require("../../runtime/goal-image-execution.cjs");
 const { normalizeWorkspaceDomain } = require("../../runtime/workspace-domain.cjs");
 
 function settingsWithRequestedImageDefaults(settings = {}, payload = {}) {
   const requested = payload?.imageDefaults && typeof payload.imageDefaults === "object" ? payload.imageDefaults : {};
-  return freezeImageFrameSettings(settings, requested);
+  return freezeImageFrameSettings(settingsWithImageConfig(settings, payload.taskScope?.imageConfig), requested);
 }
 
 function registerAgentIpc({

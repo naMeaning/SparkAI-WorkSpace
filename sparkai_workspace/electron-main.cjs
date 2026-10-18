@@ -2748,7 +2748,8 @@ function getAgentRuntime() {
       allowToolArgCorrection: agentToolArgCorrectionEnabled,
       serverChatCompletion,
       serverGenerateImage: async (payload = {}) => {
-        const settings = currentAgentSettings();
+        const { settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
+        const settings = settingsWithImageConfig(currentAgentSettings(), payload.imageConfig);
         const runId = String(payload.runId || `agent-${Date.now()}`);
         const projectId = payload.projectId;
         const ownedMaskImage = payload.maskDataUrl
@@ -4848,6 +4849,13 @@ async function callNewApiImageWithSession(settings, payload = {}) {
   };
   const requestPayload = {
     ...payload,
+    onRequestPrepared: (prepared) => {
+      context.scope = { ...context.scope, quality: prepared.quality, size: prepared.size, ratio: prepared.ratio,
+        resolution: prepared.resolution, n: prepared.count, referenceCount: prepared.inputManifest?.entries.length || 0 };
+      context.inputManifest = prepared.inputManifest;
+      context.parameterDecisions = prepared.parameterDecisions;
+      payload.onRequestPrepared?.(prepared);
+    },
     onConnectionResolved: ({ baseUrl, apiKey }) => {
       context.baseUrl = baseUrl;
       context.connectionId = modelConnectionIdentity(baseUrl, apiKey);

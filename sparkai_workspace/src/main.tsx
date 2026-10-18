@@ -1,3 +1,6 @@
+import { imageConfigSnapshot, normalizeImageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
+import { canApplyContentName, contentNamePatch, normalizeStoredContentName } from "../runtime/image-content-name.mjs";
+import { coalesceImageAssets } from "../runtime/image-asset-identity.mjs";
 /*
 naimage Frontend Main Map
 
@@ -126,6 +129,10 @@ import { automationCommandError, automationErrorPayload } from "./automation-com
 import {
   assertCanvasRelationGraphAcyclic,
   canvasRelationCurvePath,
+  canvasPortPoint,
+  canvasRelationPorts,
+  canvasPortCurvePath,
+  type CanvasPortSide,
   canvasRelationCurveIntersectsRect,
   connectCanvasRelations,
   disconnectCanvasRelations,
@@ -636,6 +643,8 @@ type TransientNodeDragEdge = {
   laneCount: number;
 };
 
+type CanvasNodeDragPointer = Pick<PointerEvent, "pointerId" | "clientX" | "clientY" | "type">;
+
 type TransientNodeDragMember = {
   id: string;
   x: number;
@@ -732,6 +741,8 @@ type ConnectionDraft = {
   sourceIds: string[];
   worldX: number;
   worldY: number;
+  side?: CanvasPortSide;
+  keyboard?: boolean;
 };
 
 type RelationMenuState = {
@@ -745,13 +756,16 @@ type RelationMenuState = {
   inputRole?: AssetTaskRole;
 };
 
-function provenancePortCenter(node: WorkflowNode, side: "input" | "output") {
+function provenancePortCenter(node: WorkflowNode, side: "input" | "output" | CanvasPortSide) {
   const { renderWidth, renderHeight, nodeMinimum } = workflowNodeRenderMetrics(node);
   const height = renderHeight ?? nodeMinimum.height ?? NODE_RESIZE_MIN_H;
-  return {
-    x: side === "output" ? node.x + renderWidth : node.x,
-    y: node.y + height / 2
-  };
+  return canvasPortPoint({ x: node.x, y: node.y, width: renderWidth, height }, side === "input" ? "left" : side === "output" ? "right" : side);
+}
+
+function provenancePorts(source: WorkflowNode, target: WorkflowNode) {
+  const rect = (node: WorkflowNode) => { const m = workflowNodeRenderMetrics(node); return { x: node.x, y: node.y,
+    width: m.renderWidth, height: m.renderHeight ?? m.nodeMinimum.height ?? NODE_RESIZE_MIN_H }; };
+  return canvasRelationPorts(rect(source), rect(target));
 }
 
 function provenanceEdgePath(
@@ -760,14 +774,13 @@ function provenanceEdgePath(
   laneIndex = 0,
   laneCount = 1
 ) {
-  const sourcePort = provenancePortCenter(source, "output");
-  const targetPort = provenancePortCenter(target, "input");
+  const { source: sourcePort, target: targetPort, vertical } = provenancePorts(source, target);
   const x1 = sourcePort.x;
   const y1 = sourcePort.y;
   const x2 = targetPort.x;
   const y2 = targetPort.y;
   const lane = (laneIndex - (laneCount - 1) / 2) * 34;
-  return canvasRelationCurvePath({ x: x1, y: y1 }, { x: x2, y: y2 }, lane);
+  return canvasPortCurvePath({ x: x1, y: y1 }, { x: x2, y: y2 }, vertical, lane);
 }
 
 function parentImageActionToRequirement(action: AgentRuntimeAction, requirementNodeId: string): AgentRuntimeAction {
@@ -1416,6 +1429,7 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
     revisedPrompt: typeof source.revisedPrompt === "string" && source.revisedPrompt.trim() ? source.revisedPrompt.trim().slice(0, 12000) : undefined,
     prompt: typeof source.prompt === "string" && source.prompt.trim() ? source.prompt.trim().slice(0, 12000) : undefined,
     title: typeof source.title === "string" && source.title.trim() ? source.title.trim().slice(0, 160) : undefined,
+    contentName: normalizeStoredContentName(source.contentName),
     status: source.status === "pending" || source.status === "error" ? source.status : "done",
     error: typeof source.error === "string" && source.error.trim() ? friendlyImageError(source.error).slice(0, 320) : undefined,
     runId: typeof source.runId === "string" && source.runId.trim() ? source.runId.trim().slice(0, 180) : undefined,
@@ -1424,15 +1438,6 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
   };
   normalized.assetId = stableImageAssetId({ ...normalized, assetId: typeof source.assetId === "string" ? source.assetId : undefined }, fallbackIndex);
   return normalized;
-}
-
-function generatedImageAssetKey(asset: Partial<ImageAsset>) {
-  if (asset.importBatchId && asset.importRootId && safeImageSourceRelativePath(asset.sourceRelativePath)) return "";
-  const runId = String(asset.runId ?? "").trim().toLowerCase();
-  if (runId.startsWith("import-")) return "";
-  const locator = String(asset.relativePath || asset.path || asset.assetUrl || asset.url || "").trim();
-  if (!runId || !locator || /^(?:data|blob):/i.test(locator)) return "";
-  return `generated:${runId}:${locator.replace(/\\/g, "/").toLowerCase()}`;
 }
 
 function sanitizeStoredVideoAsset(value: unknown): VideoAsset | null {
@@ -1701,17 +1706,25 @@ function withGeneratedImageContentPresentation(
   const promptAsset = node.assets?.find((asset) => asset.prompt || asset.revisedPrompt);
   const presentation = normalizeGeneratedImageContentPresentation({
     title: node.title,
-    existingTitle: existingNode?.title,
+    contentName: node.contentName,
+    existingContentName: existingNode?.contentName,
+    existingTitle: node.contentName?.source === "visual" && (!existingNode || canApplyContentName(existingNode)) ? undefined : existingNode?.title,
     prompt: node.imageParams?.prompt || promptAsset?.prompt || promptAsset?.revisedPrompt || node.prompt,
     assets: node.assets,
-    existingAssets: existingNode?.assets,
+    existingAssets: node.contentName?.source === "visual"
+      ? existingNode?.assets?.map(asset => asset.contentName?.source === "manual" ? asset : { ...asset, title: undefined })
+      : existingNode?.assets,
     collection,
-    existingCollection: existingNode?.imageCollection ?? (existingNode ? imageContainerSpecForNode(existingNode)?.collection : undefined),
+    existingCollection: node.contentName?.source === "visual" && (!existingNode || canApplyContentName(existingNode)) ? undefined : existingNode?.imageCollection ?? (existingNode ? imageContainerSpecForNode(existingNode)?.collection : undefined),
   });
   const normalizedNode = {
     ...node,
+    contentName: presentation.contentName || node.contentName || { displayName: presentation.title, source: "fallback" as const },
     title: presentation.title,
-    assets: presentation.assets,
+    assets: presentation.assets.map(asset => {
+      const existing = existingNode?.assets?.find(item => item.path === asset.path);
+      return { ...asset, contentName: asset.contentName || existing?.contentName || (!existing?.title ? { displayName: asset.title || "图片成果", source: "fallback" as const } : undefined) };
+    }),
     imageCollection: presentation.collection,
   };
   return presentation.collection
@@ -2033,6 +2046,7 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
       imageAssetSequence(assets, displayCode)
     ),
     title: typeof source.title === "string" && source.title.trim() ? source.title : "未命名成果",
+    contentName: normalizeStoredContentName(source.contentName),
     prompt: promptParts.prompt,
     type,
     status,
@@ -2640,6 +2654,7 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
     : undefined;
   if (taskOrigin === "goal" && !goal) return null;
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
+    ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
     version: 2,
     origin: taskOrigin,
     scopeType: scopeTypes.has(rawScope.scopeType as AgentTaskScopeType) ? rawScope.scopeType as AgentTaskScopeType : sourceAssets.length > 1 ? "multi-source" : sourceAssets.length === 1 ? "single" : "none",
@@ -2681,6 +2696,8 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
     focusedNodeId: clean(source.focusedNodeId, 160) || undefined,
     taskOrigin,
     taskScope,
+    imageRatio: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"].includes(String(source.imageRatio)) ? source.imageRatio as AppSettings["imageRatio"] : undefined,
+    imageResolution: ["1K", "2K", "4K"].includes(String(source.imageResolution)) ? source.imageResolution as AppSettings["imageResolution"] : undefined,
     requirementNodeId,
     requirementRevision,
     requirementInputNodeIds: requirementInputNodeIds.length ? requirementInputNodeIds : undefined,
@@ -3754,6 +3771,17 @@ function App() {
   const [draggingNodeId, setDraggingNodeId] = useState("");
   const [resizingNodeId, setResizingNodeId] = useState("");
   const [connectionDraft, setConnectionDraft] = useState<ConnectionDraft | null>(null);
+  useEffect(() => {
+    if (!connectionDraft?.keyboard) return;
+    const cancel = () => setConnectionDraft(null);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault(); event.stopImmediatePropagation(); cancel();
+    };
+    window.addEventListener("keydown", escape, true);
+    window.addEventListener("blur", cancel);
+    return () => { window.removeEventListener("keydown", escape, true); window.removeEventListener("blur", cancel); };
+  }, [connectionDraft?.keyboard]);
   const [relationMenu, setRelationMenu] = useState<RelationMenuState | null>(null);
   const [serverUser, setServerUser] = useState<ServerUser | null>(null);
   const [serverWallet, setServerWallet] = useState<ServerWallet | null>(null);
@@ -3944,6 +3972,7 @@ function App() {
     previewApplied?: boolean;
     frame?: number;
     nodeElement?: HTMLDivElement;
+    cleanupPointerListeners?: () => void;
     originalZIndex?: string;
     originalWillChange?: string;
     originalWidth?: number;
@@ -3980,6 +4009,7 @@ function App() {
   const regionRedrawPaintRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
   const regionRedrawDraftRef = useRef<RegionRedrawDraft | null>(null);
   const imageTileClickTimerRef = useRef<number | null>(null);
+  const canvasGestureClickSuppressedRef = useRef(false);
   const canvasGestureCancelRef = useRef<(() => void) | null>(null);
   const imageViewerAssetSourcesRef = useRef<Array<{ nodeId: string; assetIndex: number }>>([]);
   const lastNodeDragEndRef = useRef<{ nodeId: string; endedAt: number } | null>(null);
@@ -4105,6 +4135,7 @@ function App() {
   }
 
   function undoCanvasCommand() {
+    cancelTransientCanvasInteractions();
     const snapshot = canvasUndoRef.current;
     if (!snapshot) return false;
     canvasUndoRef.current = null;
@@ -5515,6 +5546,7 @@ function App() {
 
     const stopPan = (event?: Event) => {
       if (!pan) return;
+      clearImageTileClick();
       if (pan.frame) window.cancelAnimationFrame(pan.frame);
       const cancelled = event?.type === "pointercancel" || event?.type === "blur" || event?.type === "keydown";
       if (cancelled) {
@@ -5542,6 +5574,7 @@ function App() {
       event.stopPropagation();
       setCanvasMenu(null);
       clearImageTileClick();
+      canvasGestureClickSuppressedRef.current = true;
       if (pan) return;
       if (wheelCommitTimer) {
         window.clearTimeout(wheelCommitTimer);
@@ -5684,6 +5717,9 @@ function App() {
       target instanceof Element && !target.closest(".flow-node, .canvas-context-menu, .canvas-selection-indicator, .canvas-plugin-toolbar, [data-canvas-no-zoom]");
 
     const handlePointerDown = (event: PointerEvent) => {
+      // A new physical press starts a new click sequence. A cancelled gesture
+      // consumes its trailing click/dblclick even after capture is released.
+      canvasGestureClickSuppressedRef.current = false;
       const surfacePan = event.target instanceof Element && !event.target.closest("input, textarea, select, button, [contenteditable='true'], .node-port, .node-resize-handle, [role='menu'], [data-canvas-no-zoom], .canvas-plugin-toolbar");
       if ((event.button === 1 || event.button === 0 && spacePressed) && surfacePan) { startPan(event); return; }
       if (event.button === 0 && canStartCanvasPan(event.target)) {
@@ -5712,6 +5748,12 @@ function App() {
 
     const handleAuxClick = (event: MouseEvent) => {
       if (event.button === 1) event.preventDefault();
+    };
+    const handleGestureClick = (event: MouseEvent) => {
+      if (!canvasGestureClickSuppressedRef.current) return;
+      clearImageTileClick();
+      event.preventDefault();
+      event.stopImmediatePropagation();
     };
 
     let cleanupCanvasDebug = () => {};
@@ -6057,6 +6099,8 @@ function App() {
 
     canvas.addEventListener("wheel", handleWheel, { passive: false });
     canvas.addEventListener("pointerdown", handlePointerDown, true);
+    canvas.addEventListener("click", handleGestureClick, true);
+    canvas.addEventListener("dblclick", handleGestureClick, true);
     canvas.addEventListener("auxclick", handleAuxClick);
     window.addEventListener("keydown", handleSpaceDown);
     window.addEventListener("keyup", handleSpaceUp);
@@ -6075,6 +6119,8 @@ function App() {
       if (canvasStageRef.current) canvasStageRef.current.style.transform = canvasViewportTransform(viewportRef.current);
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("pointerdown", handlePointerDown, true);
+      canvas.removeEventListener("click", handleGestureClick, true);
+      canvas.removeEventListener("dblclick", handleGestureClick, true);
       canvas.removeEventListener("auxclick", handleAuxClick);
       window.removeEventListener("keydown", handleSpaceDown);
       window.removeEventListener("keyup", handleSpaceUp);
@@ -6536,11 +6582,6 @@ function App() {
     }
     return result;
   }, [layoutProjection.sourceNodeById, nodes]);
-  const nodesWithOutputs = useMemo(() => {
-    const result = new Set<string>();
-    nodeInputBindingsById.forEach((bindings) => bindings.forEach((binding) => result.add(binding.nodeId)));
-    return result;
-  }, [nodeInputBindingsById]);
   const nodeOutputCountById = useMemo(() => {
     const counts = new Map<string, number>();
     nodeInputBindingsById.forEach((bindings) => bindings.forEach((binding) => {
@@ -6660,13 +6701,24 @@ function App() {
       const visibleRect = { x: -viewport.x / scale - NODE_RENDER_BUFFER, y: -viewport.y / scale - NODE_RENDER_BUFFER,
         width: canvasViewportSize.width / scale + NODE_RENDER_BUFFER * 2, height: canvasViewportSize.height / scale + NODE_RENDER_BUFFER * 2 };
       return edges.filter((edge) => {
-        const a = provenancePortCenter(edge.source, "output"), b = provenancePortCenter(edge.target, "input");
+        const { source: a, target: b, vertical } = provenancePorts(edge.source, edge.target);
         const lane = (edge.laneIndex - (edge.laneCount - 1) / 2) * 34;
-        return canvasRelationCurveIntersectsRect(a, b, lane, visibleRect);
+        return vertical
+          ? canvasRelationCurveIntersectsRect({ x: a.y, y: a.x }, { x: b.y, y: b.x }, lane, { x: visibleRect.y, y: visibleRect.x, width: visibleRect.height, height: visibleRect.width })
+          : canvasRelationCurveIntersectsRect(a, b, lane, visibleRect);
       });
     },
     [edges, viewport.x, viewport.y, viewport.scale, canvasViewportSize.width, canvasViewportSize.height]
   );
+  const connectedPortSides = useMemo(() => {
+    const result = new Set<string>();
+    for (const edge of edges) {
+      const ports = provenancePorts(edge.source, edge.target);
+      result.add(`${edge.source.id}:${ports.sourceSide}`);
+      result.add(`${edge.target.id}:${ports.targetSide}`);
+    }
+    return result;
+  }, [edges]);
 
   useEffect(() => {
     if (!__NAIMAGE_PERF_PROBE__) return;
@@ -7311,22 +7363,8 @@ function App() {
   }
 
   function mergeContainerAssets(currentAssets: ImageAsset[] = [], incomingAssets: ImageAsset[] = [], displayPrefix = "I", minimumSequence = 0) {
-    const merged = new Map<string, ImageAsset>();
-    for (const asset of [...currentAssets, ...incomingAssets]) {
-      const generatedKey = generatedImageAssetKey(asset);
-      const key = generatedKey || (asset.occurrenceId
-        ? `occurrence:${asset.occurrenceId}`
-        : asset.path || asset.assetUrl || asset.url || `${asset.runId || "asset"}-${asset.index || merged.size + 1}`);
-      const existing = merged.get(key);
-      merged.set(key, existing ? {
-        ...existing,
-        ...asset,
-        occurrenceId: existing.occurrenceId || asset.occurrenceId,
-        assetId: existing.assetId || asset.assetId,
-        displayCode: existing.displayCode || asset.displayCode
-      } : { ...asset });
-    }
-    return imageAssetsWithIdentity(Array.from(merged.values()), displayPrefix, minimumSequence);
+    const { assets } = coalesceImageAssets([...currentAssets, ...incomingAssets]);
+    return imageAssetsWithIdentity(assets, displayPrefix, minimumSequence);
   }
 
   async function importExternalImagePaths(paths: string[], maxFiles = 2000) {
@@ -7666,6 +7704,7 @@ function App() {
       displayCode: id,
       assetSequence: imageAssetSequence(assets, id),
       title: options.title || (role === "source" ? "本轮原图" : role === "reference" ? "本轮参考图" : kind === "folder" ? "文件夹容器" : "图片容器"),
+      contentName: !options.title || options.layoutOrigin === "auto" ? { displayName: options.title || (role === "source" ? "本轮原图" : role === "reference" ? "本轮参考图" : kind === "folder" ? "文件夹容器" : "图片容器"), source: "fallback" } : undefined,
       prompt: options.prompt || (role ? "本轮消息素材。" : kind === "folder" ? "用户导入的文件夹；保留源目录内的逻辑图片边界。" : "项目图片库；图片可拖出为独立成果。"),
       type: "image",
       status: "done",
@@ -8744,6 +8783,7 @@ function App() {
       id,
       displayCode: id,
       title,
+      contentName: asset.contentName ? { ...asset.contentName, displayName: title === asset.title && (title === asset.contentName.displayName || (title.startsWith(`${asset.contentName.displayName} · `) && /^[1-9]\d*$/.test(title.slice(`${asset.contentName.displayName} · `.length)))) ? title : asset.contentName.displayName } : undefined,
       prompt: visualPrompt,
       type: "image",
       status: "done",
@@ -9246,7 +9286,7 @@ function App() {
     notifyAgentOfManualAction("断开成果关系", `用户断开了成果 ${nodeId} 的 ${childCount} 条后续成果关系。`);
   }
 
-  function beginConnection(event: React.PointerEvent<HTMLSpanElement>, source: WorkflowNode) {
+  function beginConnection(event: React.PointerEvent<HTMLSpanElement>, source: WorkflowNode, side: CanvasPortSide = "right") {
     if (event.button !== 0) return;
     if (blockLockedNodeMutation([source.id], "调整连线")) return;
     event.preventDefault();
@@ -9259,12 +9299,12 @@ function App() {
     const startX = event.clientX;
     const startY = event.clientY;
     let moved = false;
-    const sourcePort = provenancePortCenter(source, "output");
+    const sourcePort = provenancePortCenter(source, side);
     const sourceX = sourcePort.x;
     const sourceY = sourcePort.y;
     setCanvasMenu(null);
     setRelationMenu(null);
-    setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: sourceX + 90, worldY: sourceY });
+    setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, side, worldX: sourceX, worldY: sourceY });
     const target = event.currentTarget;
     let finished = false;
     try {
@@ -9292,19 +9332,18 @@ function App() {
       moveEvent.preventDefault();
       if (Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY) > 4) moved = true;
       const point = clientToWorld(moveEvent.clientX, moveEvent.clientY);
-      setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, worldX: point.x, worldY: point.y });
+      setConnectionDraft({ sourceId: source.id, sourceIds: selectedSourceIds, side, worldX: point.x, worldY: point.y });
     };
     const end = (endEvent: PointerEvent) => {
-      const point = clientToWorld(endEvent.clientX, endEvent.clientY);
       const element = document.elementFromPoint(endEvent.clientX, endEvent.clientY) as HTMLElement | null;
       const excludedIds = new Set(selectedSourceIds);
       const hitNodeId = element?.closest<HTMLElement>(".flow-node")?.dataset.nodeId || "";
       const targetId = hitNodeId && !excludedIds.has(hitNodeId)
         ? hitNodeId
-        : nodeIdAtWorldPoint(canvasNodes, point.x, point.y, excludedIds);
+        : "";
       cleanup();
       if (!moved) {
-        setServerMessage("请按住右侧连接点并拖到目标节点；断开关系请点击具体连线或使用节点右键菜单。");
+        setServerMessage("请按住任一侧连接点拖到目标；连线只表示来源关系。键盘可用 Enter 选择来源和目标，Escape 取消。");
         return;
       }
       if (!targetId) {
@@ -12209,6 +12248,7 @@ function App() {
             displayCode,
             assetSequence: imageAssetSequence(assets, displayCode),
             title: action.node.title?.trim() || "Agent 成果",
+            contentName: normalizeStoredContentName(action.node.contentName) || existingNode?.contentName,
             prompt: action.node.prompt?.trim() || "项目 Agent 生成的成果。",
             type: nodeType,
             status: action.node.status ?? (imageState === "done" ? "done" : imageState === "generating" ? "working" : "review"),
@@ -12290,7 +12330,18 @@ function App() {
         if (action.type === "workflow.node.update" && action.patch?.id) {
           next = next.map((node) => {
             if (node.id !== action.patch?.id) return node;
-            const updated = { ...node, ...action.patch };
+            let updated = { ...node, ...action.patch };
+            if (action.patch.assets?.some(asset => asset.contentName?.source === "visual")) {
+              updated = node;
+              for (const asset of action.patch.assets) {
+                if (asset.contentName?.source !== "visual" || !asset.path) continue;
+                const patch = contentNamePatch(updated, asset.contentName, asset.path);
+                if (patch) updated = { ...updated, ...patch } as WorkflowNode;
+              }
+            }
+            if (node.contentName?.source === "manual" && action.patch.contentName?.source === "visual") {
+              updated = { ...updated, title: node.title, contentName: node.contentName };
+            }
             return updated.imageCollection
               ? withNodeImageCollection(updated, updated.imageCollection)
               : applyImageContainerCompatibility(updated);
@@ -12530,6 +12581,8 @@ function App() {
   }, []);
 
   function cancelTransientCanvasInteractions() {
+    clearImageTileClick();
+    canvasGestureCancelRef.current?.();
     const drag = dragRef.current;
     if (drag?.frame) window.cancelAnimationFrame(drag.frame);
     if (drag?.multiNodeStart?.length) {
@@ -12853,7 +12906,7 @@ function App() {
   }
 
   function beginNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || dragRef.current) return;
     if (event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement;
     const imageTile = target.closest<HTMLElement>(".node-image-tile");
@@ -13005,22 +13058,38 @@ function App() {
       startedAt: Date.now(),
       transientEdges
     };
-    canvasGestureCancelRef.current = () => nodeElement.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: event.pointerId }));
+    const handlePointerMove = (moveEvent: PointerEvent) => moveNode(moveEvent, node);
+    const handlePointerEnd = (endEvent: PointerEvent) => endNodeDrag(endEvent, node);
+    window.addEventListener("pointermove", handlePointerMove, true);
+    window.addEventListener("pointerup", handlePointerEnd, true);
+    window.addEventListener("pointercancel", handlePointerEnd, true);
+    dragRef.current.cleanupPointerListeners = () => {
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerup", handlePointerEnd, true);
+      window.removeEventListener("pointercancel", handlePointerEnd, true);
+    };
+    canvasGestureCancelRef.current = () => endNodeDrag({
+      type: "pointercancel", pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY
+    }, node);
     draggingNodeIdsRef.current = new Set(styledMembers.map((member) => member.id));
     setDraggingNodeId(node.id);
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Synthetic AIDebug pointer events are not registered by Chromium's native pointer tracker.
-    }
   }
 
-  function moveNode(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
+  function moveNode(event: CanvasNodeDragPointer, node: WorkflowNode) {
     const drag = dragRef.current;
     if (!drag || drag.id !== node.id || drag.pointerId !== event.pointerId) return;
     const dx = (event.clientX - drag.startX) / zoom;
     const dy = (event.clientY - drag.startY) / zoom;
-    drag.moved ||= Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 5;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 5) {
+      drag.moved = true;
+      // Capturing on pointerdown retargets an ordinary image click to its node.
+      // Wait for a real drag; window listeners cover movement before capture.
+      try {
+        drag.nodeElement?.setPointerCapture(event.pointerId);
+      } catch {
+        // Synthetic AIDebug pointers are not registered by Chromium.
+      }
+    }
     if (drag.allowImageGrouping) {
       const groupingTarget = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 18
         ? imageGroupingTargetAt(event.clientX, event.clientY, node.id, drag.groupingSourceIds)
@@ -13094,17 +13163,20 @@ function App() {
     });
   }
 
-  function endNodeDrag(event: React.PointerEvent<HTMLDivElement>, node: WorkflowNode) {
+  function endNodeDrag(event: CanvasNodeDragPointer, node: WorkflowNode) {
     const drag = dragRef.current;
     if (!drag || drag.id !== node.id || drag.pointerId !== event.pointerId) return;
     canvasGestureCancelRef.current = null;
+    drag.cleanupPointerListeners?.();
     try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      drag.nodeElement?.releasePointerCapture(event.pointerId);
     } catch {
       // Pointer capture can be released by the browser before pointerup.
     }
     if (drag.frame) window.cancelAnimationFrame(drag.frame);
     if (event.type === "pointercancel") {
+      clearImageTileClick();
+      canvasGestureClickSuppressedRef.current = true;
       if (drag.multiNodeStart?.length) {
         applyTransientNodePositions(drag.multiNodeStart, 0, 0, drag.transientEdges);
       } else if (drag.layerGroupId && drag.layerGroupStart) {
@@ -15287,7 +15359,7 @@ function App() {
     helpOpen
   ]);
 
-  function openNodeEditor(node: WorkflowNode, requestedAssetIndex = 0) {
+  function openNodeEditor(node: WorkflowNode, requestedAssetIndex?: number) {
     if (blockLockedNodeMutation([node.id], "编辑")) return;
     if (!nodeEditorDraft) setNodeEditorMaximized(false);
     setSelectedNodeId(node.id);
@@ -15295,11 +15367,13 @@ function App() {
     const assetIndex = clamp(Number(requestedAssetIndex || 0), 0, Math.max(0, (node.assets?.length ?? 1) - 1));
     const asset = node.assets?.[assetIndex];
     const collectionItem = imageCollectionItemForAsset(node, assetIndex) ?? node.imageCollection?.items[assetIndex];
+    const titleTarget = imageContainerSpecForNode(node) && requestedAssetIndex !== undefined ? "asset" : "node";
     setNodeEditorClosePromptOpen(false);
     setNodeEditorDraft({
       nodeId: node.id,
       assetIndex,
-      title: collectionItem?.title || asset?.title || node.title || nodeWorkName(node),
+      titleTarget,
+      title: titleTarget === "asset" ? collectionItem?.title || asset?.title || node.title || nodeWorkName(node) : node.title || asset?.title || nodeWorkName(node),
       prompt: collectionItem?.prompt || asset?.prompt || asset?.revisedPrompt || node.imageParams?.prompt || firstPromptLine(node.prompt) || node.prompt || ""
     });
     addEvent(`打开成果编辑器 ${node.id}`);
@@ -15316,32 +15390,40 @@ function App() {
     const title = draft.title.trim() || node.title || nodeWorkName(node);
     const visualPrompt = draft.prompt.trim();
     const assetIndex = clamp(Number(draft.assetIndex || 0), 0, Math.max(0, (node.assets?.length ?? 1) - 1));
+    const manualName = draft.titleTouched ? { displayName: title, source: "manual" as const } : undefined;
     setNodes((current) => current.map((item) => {
       if (item.id !== node.id) return item;
-      if (item.imageCollection && item.assets?.[assetIndex]) {
+      if (draft.titleTarget === "asset" && item.assets?.[assetIndex]) {
         const editedAsset = item.assets[assetIndex];
         const editedOccurrenceId = stableImageOccurrenceId(editedAsset, item.id, assetIndex);
         const assets = item.assets.map((asset, index) => index === assetIndex
-          ? { ...asset, title, ...(visualPrompt ? { prompt: visualPrompt } : {}) }
+          ? { ...asset, ...(manualName ? { title, contentName: manualName } : {}), ...(visualPrompt ? { prompt: visualPrompt } : {}) }
           : asset);
+        const collection = item.imageCollection ?? imageContainerSpecForNode(item)?.collection;
+        if (!collection) return applyImageContainerCompatibility({ ...item, assets });
         const imageCollection = {
-          ...cloneImageCollection(item.imageCollection)!,
-          items: item.imageCollection.items.map((collectionItem) =>
+          ...cloneImageCollection(collection)!,
+          items: collection.items.map((collectionItem) =>
             collectionItem.occurrenceId === editedOccurrenceId ||
             collectionItem.assetIndex === assetIndex + 1
-              ? { ...collectionItem, title, ...(visualPrompt ? { prompt: visualPrompt } : {}) }
+              ? { ...collectionItem, ...(manualName ? { title } : {}), ...(visualPrompt ? { prompt: visualPrompt } : {}) }
               : collectionItem
           )
         };
         return withNodeImageCollection({ ...item, assets }, imageCollection);
       }
-      return {
+      const updated = {
         ...item,
-        title,
-        ...(item.layerGroup ? { layerGroup: { ...cloneImageLayerNodeGroup(item.layerGroup)!, layerTitle: title } } : {}),
+        ...(manualName ? { title, contentName: manualName } : {}),
+        ...(manualName && !imageContainerSpecForNode(item) ? { assets: item.assets?.map((asset, index) => index === assetIndex ? { ...asset, title, contentName: manualName } : asset) } : {}),
+        ...(item.layerGroup && manualName ? { layerGroup: { ...cloneImageLayerNodeGroup(item.layerGroup)!, layerTitle: title } } : {}),
         ...(visualPrompt ? { prompt: visualPrompt } : {}),
         ...(item.imageParams && visualPrompt ? { imageParams: cloneImageTaskDraft({ ...item.imageParams, prompt: visualPrompt }) } : {})
       };
+      const collection = item.imageCollection ?? imageContainerSpecForNode(item)?.collection;
+      return manualName && collection
+        ? withNodeImageCollection(updated, { ...cloneImageCollection(collection)!, name: title })
+        : applyImageContainerCompatibility(updated);
     }));
     addEvent(`保存成果编辑 ${node.id}`);
     if (closeAfterSave) {
@@ -16099,7 +16181,7 @@ function App() {
     };
   }
 
-  async function buildGoalModePreview(promptText: string, options: { targetNodeIds?: string[]; operationsPerAsset?: number } = {}) {
+  async function buildGoalModePreview(promptText: string, options: { targetNodeIds?: string[]; operationsPerAsset?: number; imageRatio?: AppSettings["imageRatio"]; imageResolution?: AppSettings["imageResolution"] } = {}) {
     const projectId = activeProjectIdRef.current;
     const catalogBridge = window.naimageConfig?.listCommerceCatalog;
     const shouldResolveCatalog = Boolean(
@@ -16114,6 +16196,7 @@ function App() {
     const commerceCatalog: CommerceCatalogDocument | undefined = catalogResult?.ok ? catalogResult.catalog : undefined;
     return goalMode.createGoalModePreview({
       prompt: promptText,
+      imageConfig: imageConfigSnapshot({ ...settingsRef.current, imageRatio: options.imageRatio || settingsRef.current.imageRatio, imageResolution: options.imageResolution || settingsRef.current.imageResolution }),
       nodes: nodesRef.current,
       canvasRevision: canvasRevisionRef.current,
       configuredConcurrency: settingsRef.current.imageBatchSize,
@@ -16164,6 +16247,8 @@ function App() {
       buildGoalModePreview(preview.prompt, {
         targetNodeIds: preview.targetNodeIds,
         operationsPerAsset: preview.operationsPerAsset,
+        imageRatio: imageDefaults.ratio,
+        imageResolution: imageDefaults.resolution,
       }),
       loadGoalMode()
     ]);
@@ -16769,6 +16854,10 @@ function App() {
     );
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
     const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
+    if (!taskScope.imageConfig) {
+      taskScope.imageConfig = imageConfigSnapshot({ ...settings, imageRatio: dispatch.imageRatio || settings.imageRatio, imageResolution: dispatch.imageResolution || settings.imageResolution });
+      taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+    }
     lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
     lastDispatchedPromptRef.current = content;
     if (taskScope.sourceAssetCount || taskScope.referenceAssetCount) {
@@ -16785,8 +16874,8 @@ function App() {
     const requestProjectId = activeProjectIdRef.current;
     const requestConversationId = activeConversationIdRef.current;
     const requestImageDefaults = {
-      ratio: dispatch.imageRatio ?? settingsRef.current.imageRatio,
-      resolution: dispatch.imageResolution ?? settingsRef.current.imageResolution
+      ratio: (taskScope.imageConfig?.ratio as AppSettings["imageRatio"]) ?? dispatch.imageRatio ?? settingsRef.current.imageRatio,
+      resolution: (taskScope.imageConfig?.resolution as AppSettings["imageResolution"]) ?? dispatch.imageResolution ?? settingsRef.current.imageResolution
     };
     const executionScope = currentExecutionScope(taskScope.snapshotHash);
     const runScopeIsCurrent = () => activeRunRef.current === runId && executionScopeIsCurrent(executionScope);
@@ -17856,6 +17945,7 @@ function App() {
            id: node.id,
            displayCode: node.displayCode,
            title: node.title,
+           contentName: node.contentName,
           prompt: node.prompt,
           type: node.type,
           status: node.status,
@@ -28062,15 +28152,15 @@ function App() {
                 {connectionDraft ? (() => {
                   const source = nodes.find((node) => node.id === connectionDraft.sourceId);
                   if (!source) return null;
-                  const sourcePort = provenancePortCenter(source, "output");
+                  const sourcePort = provenancePortCenter(source, connectionDraft.side || "right");
                   const x1 = sourcePort.x;
                   const y1 = sourcePort.y;
-                  const mid = (x1 + connectionDraft.worldX) / 2;
+                  const vertical = connectionDraft.side === "top" || connectionDraft.side === "bottom";
                   return (
                     <path
                       className="edge edge-draft active"
                       vectorEffect="non-scaling-stroke"
-                      d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${connectionDraft.worldY}, ${connectionDraft.worldX} ${connectionDraft.worldY}`}
+                      d={canvasPortCurvePath({ x: x1, y: y1 }, { x: connectionDraft.worldX, y: connectionDraft.worldY }, vertical)}
                     />
                   );
                 })() : null}
@@ -28110,9 +28200,6 @@ function App() {
                         minHeight: bounds.height
                       }}
                       onPointerDown={(event) => beginNodeDrag(event, node)}
-                      onPointerMove={(event) => moveNode(event, node)}
-                      onPointerUp={(event) => endNodeDrag(event, node)}
-                      onPointerCancel={(event) => endNodeDrag(event, node)}
                       onPointerEnter={() => keepCanvasHover(node.id)}
                       onPointerLeave={clearCanvasHover}
                       onClick={(event) => {
@@ -28180,7 +28267,6 @@ function App() {
                   return { width: maxHeight * ratio, height: maxHeight };
                 })() : null;
                 const nodeTitle = nodeWorkName(node);
-                const outputConnected = nodesWithOutputs.has(node.id);
                 const requirementBindings = node.type === "requirement" ? nodeInputBindingsById.get(node.id) ?? [] : [];
                 const requirementSourceCount = requirementBindings.filter((binding) => binding.role === "source").length;
                 const requirementReferenceCount = requirementBindings.filter((binding) => binding.role === "reference").length;
@@ -28236,9 +28322,6 @@ function App() {
                       "--layer-tab-offset": layerGroup ? `${Math.max(0, layerGroup.total - layerGroup.order) * 46}px` : undefined
                     } as React.CSSProperties & Record<string, string | number | undefined>}
                     onPointerDown={(event) => beginNodeDrag(event, node)}
-                    onPointerMove={(event) => moveNode(event, node)}
-                    onPointerUp={(event) => endNodeDrag(event, node)}
-                    onPointerCancel={(event) => endNodeDrag(event, node)}
                     onPointerEnter={() => keepCanvasHover(node.id)}
                     onPointerLeave={clearCanvasHover}
                     onClick={(event) => {
@@ -28668,35 +28751,32 @@ function App() {
                       <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.type === "video" ? node.videoAsset?.width && node.videoAsset?.height ? `${node.videoAsset.width} × ${node.videoAsset.height}` : node.videoTaskId ? `${node.videoModel || "生成"}视频任务` : "本地视频成果" : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? nodeImageSize.replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.type === "video" ? node.videoAsset?.durationMs ? `${Math.max(0.1, node.videoAsset.durationMs / 1000).toFixed(1)} 秒` : Number.isFinite(node.videoProgress) ? `${node.videoProgress}%` : node.videoTaskId ? "等待视频成果" : "1 个视频" : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
-                    <span
-                      className={`node-port provenance-port node-port-in node-connection-port input ${node.type === "requirement" ? requirementBindings.length ? "connected" : "" : node.parentId ? "connected" : ""} ${connectionTargetEligible ? "connection-target" : ""}`}
-                      data-node-id={node.id}
-                      data-connection-target={connectionTargetEligible ? "true" : undefined}
-                      title={connectionTargetEligible
-                        ? "松开鼠标连接到这个成果"
-                        : node.type === "requirement"
-                          ? (requirementBindings.length ? "已有输入关系；点击具体连线可管理" : "接收原图或参考图")
-                          : node.parentId ? "已有输入关系；点击具体连线可管理" : "输入关系连接点"}
-                      aria-label={`${nodeTitle} 输入连接头`}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setServerMessage(connectionDraft
-                          ? "请继续按住来源节点的右侧连接点，并在目标节点上松开。"
-                          : "连接头不会直接删除关系；请点击具体连线管理，或使用节点右键菜单批量断开。");
-                      }}
-                    />
-                    <span
-                      className={`node-port provenance-port node-port-out node-connection-port output ${outputConnected ? "connected" : ""} ${connectionDraft?.sourceId === node.id ? "connecting" : ""}`}
-                      data-node-id={node.id}
-                      title={node.type === "requirement" ? "拖动连接需求产出的成果" : "拖动连接到后续成果"}
-                      aria-label={`${nodeTitle} 输出连接头`}
-                      onPointerDown={(event) => beginConnection(event, node)}
-                    />
+                    {(["left", "right", "top", "bottom"] as const).map((side) => (
+                      <span key={side}
+                        className={`node-port provenance-port node-connection-port port-${side} ${side === "left" ? "node-port-in input" : "node-port-out output"} ${connectedPortSides.has(`${node.id}:${side}`) ? "connected" : ""} ${connectionTargetEligible ? "connection-target" : ""} ${connectionDraft?.sourceId === node.id ? "connecting" : ""}`}
+                        data-node-id={node.id} data-port-side={side}
+                        data-connection-target={connectionTargetEligible ? "true" : undefined}
+                        role="button" tabIndex={nodeLocked ? -1 : 0} aria-disabled={nodeLocked || undefined}
+                        title="从此处拖出：此成果作为来源 → 目标；Enter 选择来源，再到目标按 Enter，Escape 取消"
+                        aria-label={`${nodeTitle} ${side === "left" ? "左侧连接头" : side === "right" ? "右侧连接头" : side === "top" ? "上侧连接头" : "下侧连接头"}`}
+                        onPointerDown={(event) => beginConnection(event, node, side)}
+                        onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setConnectionDraft(null); return; }
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault(); event.stopPropagation();
+                          if (nodeLocked) return;
+                          if (connectionDraft?.keyboard) {
+                            const sourceIds = connectionDraft.sourceIds;
+                            setConnectionDraft(null);
+                            connectNodeGroup(sourceIds, node.id);
+                          } else {
+                            const point = provenancePortCenter(node, side);
+                            setConnectionDraft({ sourceId: node.id, sourceIds: [node.id], side, keyboard: true, worldX: point.x, worldY: point.y });
+                            setServerMessage("已选择来源；移动到目标任一连接点按 Enter 连接，Escape 取消。连线不会生图。");
+                          }
+                        }} />
+                    ))}
                     <span
                       className="node-resize-handle"
                       onPointerDown={(event) => beginNodeResize(event, node)}
@@ -28720,7 +28800,7 @@ function App() {
               />
             ) : null}
 
-            {selectedNodes.length > 1 ? (
+            {!connectionDraft && selectedNodes.length > 1 ? (
               <CanvasSelectionToolbar
                 bounds={selectedCanvasInteractionBounds}
                 canvasSize={canvasViewportSize}
@@ -28733,7 +28813,7 @@ function App() {
                 onPointerLeave={clearCanvasHover}
               />
             ) : null}
-            {selectedNodes.length <= 1 && activeCanvasToolbarNode ? (
+            {!connectionDraft && selectedNodes.length <= 1 && activeCanvasToolbarNode ? (
               <CanvasNodeHoverToolbar
                 bounds={activeCanvasInteractionBounds}
                 canvasSize={canvasViewportSize}
