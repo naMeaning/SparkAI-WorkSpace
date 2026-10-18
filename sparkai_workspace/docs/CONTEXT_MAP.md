@@ -453,6 +453,10 @@ AIDebug mock 图片路径由 `electron-main.cjs` 编排，但尺寸归一化、�
 
 ### 4.5 本机 Agent 自动化
 
+`project.create.parentDirectory` 为可选的显式绝对父目录：schema/生成 registry/MCP → `automation-command-runtime.ts` → `main.tsx:createProject` → preload `createProject` → `desktop/ipc/project-ipc.cjs`。Main 校验真实现有目录并仅创建新的、同名自动编号的项目子目录；省略参数保留 GUI 原生目录选择。取消返回 canceled，忙碌/路径/写入失败必须成为 CLI 错误，不以旧 activeProject 伪装成功。验证：`test:project-root-policy`、`test:automation-service`、`typecheck` 与安装版真实 CLI 创建。
+
+PowerShell CLI stdout 使用无 BOM UTF-8，供 Node/MCP 等调用者稳定解析含中文或 emoji 的 JSON；不依赖 Windows 当前控制台的 ANSI/GBK 代码页。真实 pipe 文字往返由 `test:automation-service` 覆盖。
+
 ```text
 Codex / Claude Code / OpenCode / OpenClaw
   ├─ integrations/naimage-control/scripts/naimage.ps1（CLI）

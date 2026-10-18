@@ -19,6 +19,7 @@
 
 ## 当前入口
 
+- [真实 AI Native 九图展示与 CLI 完善（2026-10-18）](./AI_NATIVE_SHOWCASE_2026-10-18.md)：无对话框建项目、UTF-8 CLI、真实图片制作与本地交付证据。
 - [Agent 工作流与图片上下文合同](./AGENT_WORKFLOW_CONTRACT.md)：结构化询问、冻结素材/配置、观察与生成证据分离、内容命名及共享 CLI/MCP；实际验证和本地交付见 Progress。
 - [Agent 工作流本地验证与交付（2026-10-18）](./AGENT_WORKFLOW_VALIDATION_2026-10-18.md)：逐项证据、真实模型未测边界，以及本轮开发包交付入口。
 - [工作台优化设计与执行交接（2026-10-16）](./WORKSPACE_OPTIMIZATION_DESIGN_2026-10-16.md)：接口真实性、画布交互、失败恢复、布局、配置与性能六个工作包，含实施顺序、验收和执行 Prompt；设计文档交付不代表功能已实施。

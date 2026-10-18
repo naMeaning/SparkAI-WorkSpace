@@ -34,7 +34,7 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
 - `project.list`. List projects and the active project ID.
 - `project.switch`: `{ "id": "project-id" }`. Switch to an existing project.
-- `project.create`: `{"name":"Amazon launch","workspaceDomain":"commerce"}`. Create and activate a project in the requested workspace domain; omitted workspaceDomain inherits the current domain.
+- `project.create`: `{"name":"Amazon launch","workspaceDomain":"commerce"}`. Create and activate a project in the requested workspace domain. Optional parentDirectory must be an existing absolute directory; it creates a new uniquely named child folder without a dialog or overwriting existing work. Omit parentDirectory to use the native directory picker. Omitted workspaceDomain inherits the current domain. Cancellation returns canceled=true; creation failures are command errors.
 - `project.rename`: `{ "name": "New name" }`. Rename the active project.
 
 ## Canvas

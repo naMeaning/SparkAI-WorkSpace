@@ -12,6 +12,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $OutputEncoding
 $skillRoot = Split-Path -Parent $PSScriptRoot
 $connectionPath = Join-Path $skillRoot ".naimage-connection.json"
 

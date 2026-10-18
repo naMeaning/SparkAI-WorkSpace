@@ -79,15 +79,17 @@ async function run() {
   mkdirSync(selectedParent, { recursive: true });
   let projectList = store.defaultProjectList();
   let dialogCanceled = true;
+  let dialogCalls = 0;
   let ensureCount = 0;
   let listWriteCount = 0;
   const projectHandlers = new Map();
   registerProjectIpc({
     ipcMain: { handle: (channel, handler) => projectHandlers.set(channel, handler) },
     dialog: {
-      showOpenDialog: async () => dialogCanceled
-        ? { canceled: true, filePaths: [] }
-        : { canceled: false, filePaths: [selectedParent] }
+      showOpenDialog: async () => {
+        dialogCalls += 1;
+        return dialogCanceled ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [selectedParent] };
+      }
     },
     shell: { openPath: async () => "" },
     log: () => undefined,
@@ -123,6 +125,31 @@ async function run() {
   assert.equal(isPathInside(created.project.sessionPath, created.project.path), true);
   assert.equal(isPathInside(created.project.path, configDir), false);
   assert.equal(created.project.external, true);
+
+  const dialogsBefore = dialogCalls;
+  const listBeforeInvalid = JSON.stringify(projectList);
+  const parentFile = path.join(selectedParent, "not-a-directory.txt");
+  writeFileSync(parentFile, "preserve me", "utf8");
+  for (const parentDirectory of ["", "relative", "../escape", path.join(testRoot, "missing"), parentFile, 123, `${selectedParent}\0`]) {
+    const invalid = await projectHandlers.get("naimage:project:create")(undefined, { name: "Rejected", parentDirectory });
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.errorCode, "PROJECT_PARENT_INVALID");
+    assert.equal(JSON.stringify(projectList), listBeforeInvalid);
+    assert.equal(invalid.error.includes(testRoot), false, "Do not expose private paths in errors");
+  }
+  assert.equal(dialogCalls, dialogsBefore, "Explicit invalid paths must fail without opening a picker");
+  const sentinel = path.join(created.project.path, "keep.txt");
+  writeFileSync(sentinel, "existing project", "utf8");
+  const nativeCreated = await projectHandlers.get("naimage:project:create")(undefined, {
+    name: "Root policy", parentDirectory: selectedParent, workspaceDomain: "social"
+  });
+  assert.equal(nativeCreated.ok, true);
+  assert.notEqual(nativeCreated.project.path, created.project.path);
+  assert.equal(existsSync(nativeCreated.project.path), true);
+  assert.equal(isPathInside(nativeCreated.project.path, selectedParent), true);
+  assert.equal(readFileSync(sentinel, "utf8"), "existing project");
+  assert.equal(readFileSync(parentFile, "utf8"), "preserve me");
+  assert.equal(dialogCalls, dialogsBefore, "Explicit valid path must never open a picker");
 
   projectList = { activeProjectId: created.project.id, projects: [created.project] };
   const removed = projectHandlers.get("naimage:project:delete")(undefined, { id: created.project.id });
@@ -218,7 +245,10 @@ async function run() {
 
   return {
     ok: true,
-    cases: 19,
+    cases: 27,
+    nativeProjectCreationWithoutDialog: true,
+    invalidParentRejectedWithoutMutation: true,
+    existingProjectPreserved: true,
     emptyProjectState: true,
     explicitProjectRootRequired: true,
     legacyAppDataProjectReadable: true,

@@ -233,6 +233,12 @@ async function main() {
     const cliResult = JSON.parse(cli.stdout.trim());
     assert.equal(cliResult.ok, true);
     assert.equal(cliResult.result.command, "canvas.state");
+    const unicodeArgs = { name: "九图创作展 🦋", parentDirectory: path.join(root, "展示素材") };
+    const unicodeCli = await runCli(skillRoot, "project.create", JSON.stringify(unicodeArgs));
+    assert.equal(unicodeCli.status, 0, unicodeCli.stderr || unicodeCli.stdout);
+    assert.deepEqual(JSON.parse(unicodeCli.stdout.trim()).result.args, unicodeArgs,
+      "CLI pipe JSON must preserve Unicode project names and paths as UTF-8");
+    assert.equal(unicodeCli.stdout.includes("\ufffd"), false);
     const steerCli = await new Promise((resolve) => {
       execFile("powershell.exe", [
         "-NoProfile",
@@ -719,8 +725,8 @@ async function main() {
       lockedNodeIds: () => ["B"],
       mutationLocks: (ids) => ids.includes("B") ? ["B"] : [],
       projects: () => [{ id: "PROJECT", name: "Project" }],
-      createProject: async (name, workspaceDomain) => {
-        projectCreateCalls.push({ name, workspaceDomain });
+      createProject: async (name, workspaceDomain, parentDirectory) => {
+        projectCreateCalls.push({ name, workspaceDomain, ...(parentDirectory !== undefined ? { parentDirectory } : {}) });
         return { ok: true };
       },
       nodes: () => canvasNodes,
@@ -927,6 +933,17 @@ async function main() {
       { name: "Inherited", workspaceDomain: "commerce" },
       { name: "Research", workspaceDomain: "research" }
     ]);
+    await runtimeModule.executeAutomationCommand("project.create", {
+      name: "Native", parentDirectory: root, workspaceDomain: "social"
+    }, canvasRuntimeContext);
+    assert.deepEqual(projectCreateCalls.at(-1), { name: "Native", workspaceDomain: "social", parentDirectory: root });
+    await assert.rejects(runtimeModule.executeAutomationCommand("project.create", { name: "Failed", parentDirectory: root }, {
+      ...canvasRuntimeContext, createProject: async () => ({ ok: false, error: "Cannot create project" })
+    }), /Cannot create project/);
+    const canceledCreate = await runtimeModule.executeAutomationCommand("project.create", { name: "Canceled" }, {
+      ...canvasRuntimeContext, createProject: async () => ({ ok: true, canceled: true })
+    });
+    assert.equal(canceledCreate.canceled, true);
     const authoritativeState = await runtimeModule.executeAutomationCommand("canvas.state", {}, canvasRuntimeContext);
     assert.equal(authoritativeState.canvasRevision, 17);
     assert.equal(authoritativeState.workspaceDomain, "commerce");

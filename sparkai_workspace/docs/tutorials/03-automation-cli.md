@@ -30,6 +30,16 @@ $cli = ".\integrations\naimage-control\scripts\naimage.ps1"
 
 ## 3. 发送一条自然语言任务
 
+主分支开发版（2026-10-18）支持直接指定项目父目录，适合不使用鼠标操作的 AI Native 任务。父目录必须是用户选定的、已存在的绝对路径；软件在其下创建新的项目文件夹，同名时自动编号，不覆盖已有项目：
+
+```powershell
+$create = @{ name = "九图创作展"; workspaceDomain = "general"; parentDirectory = "D:\\MyCreativeProjects" } | ConvertTo-Json -Compress
+& $cli project.create -ArgsJson $create
+& $cli canvas.state -ArgsJson '{}'
+```
+
+省略 `parentDirectory` 时继续使用原生目录选择框。取消返回 `canceled:true`；目录无效或创建失败会返回命令错误，不能把原项目当成新项目继续执行。CLI 输出统一为无 BOM UTF-8，Node/MCP 调用方按 UTF-8 解码即可保留中文和 emoji。
+
 ```powershell
 $payload = '{"prompt":"基于当前选中的原图生成一张 1:1 的干净商品主图，保留主体结构和文字。","ratio":"1:1","resolution":"2K"}'
 & $cli agent.chat -ArgsJson $payload

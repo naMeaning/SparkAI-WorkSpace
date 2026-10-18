@@ -9,7 +9,11 @@ Read `app.diagnostics` for the last 300 sanitized production image/model events.
 
 Use the bundled PowerShell CLI. Resolve paths relative to this Skill directory.
 
+CLI JSON output is UTF-8 without a BOM, including non-ASCII project names and error messages. Decode stdout as UTF-8 when invoking from Node or other tools.
+
 ## Workflow
+
+For unattended project creation, pass `parentDirectory` to `project.create`: an explicitly selected, existing absolute directory. Main creates a uniquely named child folder and never overwrites an existing project. Omit it to keep the native directory picker. Treat `canceled:true` as cancellation and any command error as failure; verify the new project with `canvas.state` before generating images.
 
 1. Run `scripts/naimage.ps1 status` before issuing a command. The script starts SparkAI WorkSpace when necessary.
 2. Run `canvas.state` or `project.list` before changing existing work.

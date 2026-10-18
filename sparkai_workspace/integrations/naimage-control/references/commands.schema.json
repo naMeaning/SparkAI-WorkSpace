@@ -174,12 +174,13 @@
         {
           "name": "project.create",
           "surface": "renderer",
-          "description": "Create and activate a project in the requested workspace domain; omitted workspaceDomain inherits the current domain.",
+          "description": "Create and activate a project in the requested workspace domain. Optional parentDirectory must be an existing absolute directory; it creates a new uniquely named child folder without a dialog or overwriting existing work. Omit parentDirectory to use the native directory picker. Omitted workspaceDomain inherits the current domain. Cancellation returns canceled=true; creation failures are command errors.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
               "name": { "type": "string", "maxLength": 60 },
+              "parentDirectory": { "type": "string", "minLength": 1, "maxLength": 4096 },
               "workspaceDomain": { "type": "string", "enum": ["general", "commerce", "social", "research"] }
             }
           },

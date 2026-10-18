@@ -145,7 +145,7 @@ export type AutomationCommandContext = {
   layoutGroups(): ImageLayoutGroup[];
   messages(): MessageSummarySource[];
   switchProject(id: string): Promise<unknown>;
-  createProject(name: string, workspaceDomain?: WorkspaceDomain): Promise<unknown>;
+  createProject(name: string, workspaceDomain?: WorkspaceDomain, parentDirectory?: string): Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
   renameProject(name: string): Promise<unknown>;
   selectNodes(ids: string[], primaryId: string): void;
   listImageOperations?(): Promise<unknown>;
@@ -1238,10 +1238,13 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return appState(context);
     },
     "project.create": async (value) => {
-      await context.createProject(
+      const result = await context.createProject(
         String(value.name || "").trim(),
-        value.workspaceDomain === undefined ? context.workspaceDomain() : normalizeWorkspaceDomain(value.workspaceDomain)
+        value.workspaceDomain === undefined ? context.workspaceDomain() : normalizeWorkspaceDomain(value.workspaceDomain),
+        value.parentDirectory === undefined ? undefined : String(value.parentDirectory)
       );
+      if (!result?.ok) throw new Error(result?.error || "创建项目失败。");
+      if (result.canceled) return { canceled: true, state: appState(context) };
       return appState(context);
     },
     "project.rename": async (value) => {

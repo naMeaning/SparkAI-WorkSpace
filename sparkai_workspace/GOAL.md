@@ -1,5 +1,17 @@
 # SparkAI WorkSpace 目标
 
+## 当前素材任务：真实 AI Native 九图展示（2026-10-18，素材与本地交付完成，Git收尾）
+
+- 用户方向：制作供朋友圈和 GitHub 使用的 9 张图片，以实际生成作品及宣传展示为主，辅以简短教学；使用已安装最新版和用户现有真实生图配置。用户明确要求不使用 Computer Use，改由软件自带 AI Native CLI 操作。
+- 范围：创建独立展示项目，通过正式 authenticated automation bridge / `naimage-control` 执行真实生图，保留成果、提示词、模型与实际参数；整理九张统一视觉的发布图、九宫格预览与使用说明。原项目和私人配置保留。
+- 授权：本任务真实图片请求已明确授权；默认每个构图一张，创建结果不明不重复提交。若已有 CLI 无法完成必要步骤，用户已允许补齐功能；仅在确有缺口时修改产品并执行打包、安装和 Git 交付流程。
+- 验收：9 张实际可解码图片、逐图视觉检查、真实项目资产及模型证据、可直接分享的本地文件。仅制作素材时不触发 EXE 打包；发布到朋友圈/GitHub、视频请求和外部服务修改不在本次执行范围。
+- 实现：`project.create.parentDirectory` 支持无对话框建项目，Main验证现有绝对父目录、同名不覆盖；取消/忙碌/失败如实返回。Windows PowerShell CLI stdout 统一无 BOM UTF-8，实际中文/emoji子进程往返通过。GUI、preload类型、schema/registry、CLI/MCP和文档同源。
+- 成果：真实默认 `grok-imagine-image-2.0` / 1:1 / 1K / auto，共9个operation、9张JPEG1024²，全部saved；第03张以第02张为SOURCE编辑并保留来源关系。另制作9张1440²宣传JPG、9张GitHub WebP、九宫格与提示词/发布文案；逐原图与最终总览已看，18张原图/宣传图解码/hash/尺寸及9处README图片链接通过。
+- 软件现场：原生CLI创建独立“SparkAI 九图创作展”项目，9原图排3×3，9宣传图导入同一图片组；正常退出、最终升级与重启后实查仍10节点/18图片、9operation均saved、Agent idle、B→C关系保留。旧项目8节点保持。
+- 本地交付：目录策略27项、automation专项/typecheck、production build和122dist/139owner包内核对通过。最终EXE109,867,520 B / SHA256 `f129ae192aec54a72de1feeeb4941814d1eb2907d509915f0db61312bc6589c5`；品牌/S原位安装exit0/17,374ms，配置/注册目录保留，安装EXE/ASAR一致。完整路径与证据见[本轮记录](docs/AI_NATIVE_SHOWCASE_2026-10-18.md)和Progress。
+- 素材：`artifacts/showcase-2026-10-18/SparkAI-九图展示包.zip`，9,907,688 B / SHA256 `530ebf2089b5d098a2dc26f360af5370b3c3f28c042cea97dbf548489a4d7647`；不含凭据/自动化连接/项目内部记录。朋友圈、GitHub素材和EXE未发布；现在仅完成授权的源码/文档普通push收尾。
+
 ## 当前任务：Agent 工作流、图片上下文、更新与四向连线（2026-10-18，本地交付完成；真实模型能力另行验证）
 
 - 结果：八项桌面修复已实施，受影响专项、隔离 Electron 交互、typecheck、production build、最终 EXE 和原位安装已完成。逐项证据与限制见[本轮验证](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)，长期 owner 见[合同](docs/AGENT_WORKFLOW_CONTRACT.md)。

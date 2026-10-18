@@ -2617,7 +2617,7 @@ export type ConfigBridge = {
   previewProjectDataMigration?(): Promise<ProjectDataMigrationPreviewResult>;
   migrateProjectData?(payload: { previewToken: string; candidateIds: string[]; confirmed: true }): Promise<ProjectDataMigrationResult>;
   cleanupMigratedProjectData?(payload: { migrationId: string; confirmedCleanup: true }): Promise<ProjectDataMigrationCleanupResult>;
-  createProject?(payload: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
+  createProject?(payload: { name?: string; workspaceDomain?: WorkspaceDomain; parentDirectory?: string }): Promise<{ ok: boolean; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string; errorCode?: string }>;
   createProjectFolder?(payload?: { name?: string; workspaceDomain?: WorkspaceDomain }): Promise<{ ok: boolean; canceled?: boolean; path?: string; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   switchProject?(payload: { id: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   renameProject?(payload: { id: string; name: string }): Promise<{ ok: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;

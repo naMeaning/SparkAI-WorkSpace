@@ -14506,21 +14506,24 @@ function App() {
     setFileMenuOpen(false);
   }
 
-  async function createProject(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current) {
-    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+  async function createProject(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current, parentDirectory?: string) {
+    if (fileActionBusy || executionScopeBoundaryBlocked()) return { ok: false, error: "当前任务或文件操作尚未结束，无法创建项目。" };
     const fallbackName = `项目 ${projects.length + 1}`;
     const projectName = name.trim() || fallbackName;
     const projectWorkspaceDomain = normalizeWorkspaceDomain(initialDomain);
     setFileActionBusy(true);
     try {
       await flushActiveProjectSession();
-      const result = await window.naimageConfig?.createProject?.({ name: projectName, workspaceDomain: projectWorkspaceDomain });
+      const result = await window.naimageConfig?.createProject?.({ name: projectName, workspaceDomain: projectWorkspaceDomain, ...(parentDirectory !== undefined ? { parentDirectory } : {}) });
       if (!result?.ok) throw new Error(result?.error ?? "创建画布失败。");
+      if (result.canceled) return { ok: true, canceled: true };
       setProjectNameDraft(null);
       applyProjectSession(result);
       addEvent(`创建${workspaceDomainDefinition(projectWorkspaceDomain).title}画布 ${result.project?.name ?? projectName}`);
+      return { ok: true };
     } catch (error) {
       pushSystemMessage("project", `创建画布失败：${error instanceof Error ? error.message : String(error)}`);
+      return { ok: false, error: error instanceof Error ? error.message : "创建画布失败。" };
     } finally {
       setFileActionBusy(false);
     }
@@ -29897,11 +29900,11 @@ function App() {
             draft={projectNameDraft}
             setDraft={setProjectNameDraft}
             close={() => setProjectNameDraft(null)}
-            submit={() => projectNameDraft.mode === "rename"
+            submit={async () => { await (projectNameDraft.mode === "rename"
               ? renameProject(projectNameDraft.name)
               : projectNameDraft.mode === "create-folder"
                 ? createProjectFolder(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))
-                : createProject(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))}
+                : createProject(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))); }}
             busy={fileActionBusy}
           />
         ) : null}

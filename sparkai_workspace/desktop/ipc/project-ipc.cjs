@@ -1,6 +1,6 @@
 "use strict";
 
-const { existsSync, mkdirSync } = require("node:fs");
+const { existsSync, mkdirSync, realpathSync, statSync } = require("node:fs");
 const path = require("node:path");
 const {
   MAX_SKILL_MARKDOWN_BYTES,
@@ -131,23 +131,41 @@ function registerProjectIpc(options = {}) {
   });
 
   async function createProjectInSelectedParent(payload) {
-    const result = await dialog.showOpenDialog({
-      title: "选择新项目保存位置",
-      buttonLabel: "在这里创建",
-      properties: ["openDirectory", "createDirectory"]
-    });
-    if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true };
-    const list = readProjectList();
-    const projectName = safeName(payload?.name, `项目 ${list.projects.length + 1}`);
-    const selectedPath = nextExternalProjectFolderPath(result.filePaths[0], projectName, list);
-    const record = createProjectRecord(projectName, selectedPath);
-    list.projects.unshift(record);
-    const initialSession = { ...defaultSession, workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain) };
-    ensureProjectFiles(record, initialSession);
-    const next = writeProjectList({ ...list, activeProjectId: record.id });
-    const session = projectSessionFromDisk(record);
-    log(`project create folder ${selectedPath}`);
-    return { ok: true, path: selectedPath, project: record, projects: next.projects, activeProjectId: record.id, session };
+    let parentDirectory;
+    if (payload?.parentDirectory !== undefined) {
+      try {
+        if (typeof payload.parentDirectory !== "string" || !payload.parentDirectory.trim() ||
+            payload.parentDirectory.includes("\0") || !path.isAbsolute(payload.parentDirectory)) throw new Error();
+        parentDirectory = realpathSync(payload.parentDirectory);
+        if (!statSync(parentDirectory).isDirectory()) throw new Error();
+      } catch {
+        return { ok: false, errorCode: "PROJECT_PARENT_INVALID", error: "项目父目录必须是已存在的绝对目录路径。" };
+      }
+    } else {
+      const result = await dialog.showOpenDialog({
+        title: "选择新项目保存位置",
+        buttonLabel: "在这里创建",
+        properties: ["openDirectory", "createDirectory"]
+      });
+      if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true };
+      parentDirectory = result.filePaths[0];
+    }
+    try {
+      const list = readProjectList();
+      const projectName = safeName(payload?.name, `项目 ${list.projects.length + 1}`);
+      const selectedPath = nextExternalProjectFolderPath(parentDirectory, projectName, list);
+      mkdirSync(selectedPath);
+      const record = createProjectRecord(projectName, selectedPath);
+      const initialSession = { ...defaultSession, workspaceDomain: normalizeWorkspaceDomain(payload?.workspaceDomain) };
+      ensureProjectFiles(record, initialSession);
+      const next = writeProjectList({ ...list, projects: [record, ...list.projects], activeProjectId: record.id });
+      const session = projectSessionFromDisk(record);
+      log(`project create folder ${selectedPath}`);
+      return { ok: true, path: selectedPath, project: record, projects: next.projects, activeProjectId: record.id, session };
+    } catch {
+      log("project create failed code=PROJECT_CREATE_FAILED");
+      return { ok: false, errorCode: "PROJECT_CREATE_FAILED", error: "创建项目失败，请检查目录权限和可用空间后重试。" };
+    }
   }
 
   ipcMain.handle("naimage:project:create", (_event, payload) => createProjectInSelectedParent(payload));

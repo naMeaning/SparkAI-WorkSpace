@@ -391,6 +391,11 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
           "type": "string",
           "maxLength": 60
         },
+        "parentDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "workspaceDomain": {
           "type": "string",
           "enum": [
