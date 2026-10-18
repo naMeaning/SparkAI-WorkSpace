@@ -30,3 +30,5 @@
 可分享的 `artifacts/showcase-2026-10-18/SparkAI-九图展示包.zip` 为 9,907,688 B，SHA-256 `530ebf2089b5d098a2dc26f360af5370b3c3f28c042cea97dbf548489a4d7647`，只包含原图、分享图、GitHub素材、预览、提示词与发布说明，不包含项目内部记录、自动化连接或凭据。
 
 朋友圈/GitHub 素材尚未发布；本次不是正式 Release。源码与文档的普通push结果见 Progress；生成素材与 EXE 按原规则忽略，不随源码提交。
+
+源码/测试/文档17文件已提交 `e664f992bbf5e878ea69c60b0a1f1ce239b207e1` 并推送origin/main；实查远端、HEAD和upstream一致。本完成记录随后以纯文档提交收尾，最终实查Git身份保存在本地交付索引。

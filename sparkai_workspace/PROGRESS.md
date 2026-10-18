@@ -2,7 +2,7 @@
 
 ## 当前开发状态（2026-10-18）
 
-- 最新任务：真实 AI Native 九图素材及本地交付完成，正进行源码/文档Git收尾；用户要求作品宣传为主、简短教学为辅，真实生图已授权、Computer Use明确禁用。全程通过正式CLI执行图片任务，证据见[本轮记录](docs/AI_NATIVE_SHOWCASE_2026-10-18.md)。
+- 最新任务：真实 AI Native 九图素材、本地打包安装、文档及源码push均完成；用户要求作品宣传为主、简短教学为辅，真实生图已授权、Computer Use明确禁用。全程通过正式CLI执行图片任务，证据见[本轮记录](docs/AI_NATIVE_SHOWCASE_2026-10-18.md)。
 - CLI补齐：实测原`project.create`无条件依赖目录弹框，新增可选`parentDirectory`沿共享schema→Renderer→preload→Main创建；绝对现有目录校验、唯一新子目录、同名不覆盖，取消/忙碌/失败不再伪装成功。另实测Windows PowerShell stdout GBK使Node解析中文乱码，统一无BOM UTF-8。目录策略27项、automation专项（真实中文/emoji pipe）、typecheck通过；安装版拒绝非法路径并保持原项目8节点，成功无对话框创建新项目。
 - 真实作品：9个`grok-imagine-image-2.0` operation全部saved，各1张JPEG1024×1024；第03张以第02张音箱为SOURCE编辑，保留外形/织物/旋钮/提带和B→C derived-from/provenance。其余8张独立生成；无重发创建、无视频请求。逐原图和最终九宫格已检查，宣传文字为独立本地排版。
 - 素材交付：[九图展示包](artifacts/showcase-2026-10-18/SparkAI-九图展示包.zip)，9,907,688 B / SHA256 `530ebf2089b5d098a2dc26f360af5370b3c3f28c042cea97dbf548489a4d7647`；9张1440²分享JPG、9张GitHub WebP/README、9原图、九宫格、提示词/文案/清单。18原图/分享图完整解码及hash/尺寸、9个README图片链接通过。包中没有连接元数据、凭据或项目内部文件。
@@ -10,6 +10,7 @@
 - 最终EXE：[SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)，109,867,520 B / SHA256 `f129ae192aec54a72de1feeeb4941814d1eb2907d509915f0db61312bc6589c5`；package:win:unrestricted exit0，production build完成，122dist/139owner与生产元数据核对通过。[包内审计](.diagnostics/native-showcase-delivery-2026-10-18/package-audit.json)；ASAR52,108,695 B / `18f7bd4d1497ab22ffe0ade3bfc5556549644f6d2f2858819cef0291fb578180`。
 - 最终安装：[品牌/S原位安装](.diagnostics/native-showcase-delivery-2026-10-18/install.json)exit0/17,374ms，注册目录/配置保留，安装EXE/ASAR与制品一致。首轮目录参数包`f7bf97d3...`及17,399ms安装作为intermediate报告保留，已由包含UTF-8修复的最终包替代。
 - 边界：朋友圈/GitHub素材、EXE、Release/tag均未发布。实际验证仅为现有Grok连接的九张生成/编辑及CLI任务，不扩展为其他模型/视频/生产更新的能力结论。Git收尾不上传生成物或私有配置。
+- Git交付：17个源码/测试/文档文件提交 `e664f992bbf5e878ea69c60b0a1f1ce239b207e1` 已普通push到origin/main，`ls-remote`、HEAD和upstream实查一致，提交后工作树干净。链接检查0缺失，分享zip33条目排除私有记录。本完成状态随纯文档收尾提交；最终Git身份与制品/安装/重启证据统一记录于[本地交付索引](.diagnostics/native-showcase-delivery-2026-10-18/delivery.json)。
 
 - 状态：八项桌面修复及本地交付完成，源码与文档已普通push。免费 Agent 生图工作台与双接入保留；[逐项验证/限制](docs/AGENT_WORKFLOW_VALIDATION_2026-10-18.md)、[长期合同](docs/AGENT_WORKFLOW_CONTRACT.md)与地图已同步。
 - 实现：结构化Ask恢复冻结快照；view_image同轮像素与独立生成字节清单；更新地址/传输/路由/响应/签名分层；原TaskScope紧凑范围菜单；同轮观察短名/manual保护/稳定消歧；完整启用模型池与有效参数冻结；Grok能力归一；四侧端口、实际命中、路径及取消手势。
