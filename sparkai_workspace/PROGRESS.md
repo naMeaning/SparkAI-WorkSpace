@@ -2,7 +2,7 @@
 
 ## 当前开发状态（2026-10-19）
 
-- 最新任务：AI-Native 第一期稳定任务回执与人机共同续接，in progress；范围/验收/授权见 [Goal](GOAL.md)。接受时main、工作树干净；当前工作树为本期源码/文档改动，尚未提交。历史交付快照保留如下。
+- 最新任务：AI-Native 第一期稳定任务回执与人机共同续接，本地交付完成；范围/验收/授权见 [Goal](GOAL.md)。接受时main、工作树干净；本期源码与文档已提交并普通push。历史交付快照保留如下。
 - 已确认：现有 `agent.chat` 忙时 steer、闲时长等待；run control 属 Main 内存协调，Renderer 持有 TaskScope/pending/画布动作，image-operation journal 已支持原 taskId/结果字节恢复且禁止 uncertain 重发。
 - 设计边界：新增 Main 回执模块仅保存稳定身份、规范请求摘要、冻结范围投影、版本、问题及 run/operation 关联；session 继续持有完整续接快照，图片 journal 继续拥有图片恢复/保存。任务与幂等索引同文件原子提交、首期不自动淘汰；不增加第二引擎或独立规划调用。
 - 实现：新增`desktop/agent-task-service.cjs`，任务/幂等摘要同原子ledger，Main claimRun/claimAnswer一次消费；Renderer沿用sendPrompt/pending/保存，图片journal按taskId/runId关联；共享schema四命令、preload/IPC、双窗口卡已接入。回执不保存完整prompt/凭据/素材路径，不另建执行引擎。
@@ -13,7 +13,9 @@
 - 本地交付：最终`package:win:unrestricted`exit0，production build1689 modules/22.22s；620个产品/测试/公开契约源文件冻结hash `198d4d72f219ef43739cbc3a055623e080140de06e1605d3fd75bbf20e820057`。包内122dist/140owner逐字节及生产元数据、dual-access策略、无env/diagnostics核对通过；[审计](.diagnostics/agent-task-delivery-2026-10-19/package-audit.json)。最终[Windows EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,879,808 B / SHA256 `9e60c32dc0cd51d446be7f3bd9db87b1fcf7864fedf631cce08899c8e901aecb`；ASAR52,161,926 B / `6e6ee6df18bbd2b15df17e98c14a6aaf80ca7067e261fabf491f1799cff9b11a`。此前c91722a0为未安装intermediate，3f39653f为测试适配前安装包，均由最终包替代。
 - 安装：已确认无同名应用进程后，品牌/S原位安装exit0/19,237ms，原注册目录和1.0.9保留、配置身份不变，secret sidecar仅metadata核对未读内容；安装EXE232,754,176 B / SHA256 `d45228206440db83b7b426d18922a5009eda692179e38c89f6203134faff9d74`，安装ASAR与候选相同。[安装报告](.diagnostics/agent-task-delivery-2026-10-19/install-before-test-adapter.json)。未强杀日常应用。
 - 安装版[十组UI](.diagnostics/agent-task-ui-2026-10-18T18-13-10-328Z/report.json)通过：9本地模型POST/2图片POST/9截图/两次正常退出；实际inner884×640、outer900×648、独立窗共同回答/重载/保存失败均通过，已看最小窗和独立窗截图。首次安装版Browser窗口CDP域不可用及resizeTo尺寸假设失败均保留；测试改用原生`window.resizeTo(884,640)`并严格实测，不用视口模拟。仅测试脚本变化后重新冻结/打包，最终品牌/S安装exit0/16,997ms，[最终安装报告](.diagnostics/agent-task-delivery-2026-10-19/install.json)确认配置/原目录/版本保留，EXE及ASAR与上述实测安装版hash完全一致，0强杀。
-- Git：当前main/upstream为origin/main，远端与接受基线92afbc4实查一致；本期源码/文档尚未提交。最终隐私/文档检查、安装版复验后仅提交本期文件并普通push，EXE上传与正式Release排除。
+- Git：41个对应源码/测试/公开契约/文档文件提交 `3285f9153bb4de0a9277077088f9a0a1301c1035` 已普通push至origin/main；`ls-remote`、HEAD和upstream实查一致，提交后工作树干净。未提交EXE、诊断生成物或私有配置，未上传EXE、创建正式Release/tag。
+- 文档收尾：Goal/Progress、Product Intent、上下文地图、公开schema/CLI/MCP/Skill与长期合同已同步；[隐私报告](.diagnostics/agent-task-delivery-2026-10-19/privacy.json)扫描41文件、0疑似真实凭据，14处合成测试值已核对，不输出原值或读取secret sidecar。新增链接/差异检查通过；[最终复核](.diagnostics/agent-task-delivery-2026-10-19/preflight.json)再次确认620冻结源文件无漂移、最终EXE及安装内容与实测安装版一致、配置保留、应用进程0。本完成记录随纯文档收尾提交，最终Git身份与证据哈希集中于[本地交付索引](.diagnostics/agent-task-delivery-2026-10-19/delivery.json)。
+- 下一步：本轮授权的本地交付完成；真实模型自主工具选择/内容识别/参考遵从、供应商协议及实际计费仍未验证，执行成功不表示视觉验收通过。既有密集画布性能与正式CSS门槛保留，本轮未执行正式Release门禁。
 
 ### 2026-10-19 最终源码收口 / verified locally; delivery pending
 

@@ -35,7 +35,9 @@ Main 的 `agent-task-service` 将任务与幂等摘要写在同一原子 ledger�
 
 无同名进程后品牌安装器`/S`原位安装exit0/19,237ms；原注册目录/1.0.9与配置保留，安装EXE/ASAR匹配。凭据sidecar仅核对metadata，未读取内容。[安装版十组UI](../.diagnostics/agent-task-ui-2026-10-18T18-13-10-328Z/report.json)通过，9本地模型POST/2图片POST/9截图/两次正常退出；实际inner884×640/outer900×648，已看主/独立窗截图。测试尺寸控制改用真实`window.resizeTo`，保留失败证据，不使用Emulation模拟视口。
 
-测试脚本适配后重新冻结/打包，最终品牌`/S`原位安装exit0/16,997ms；安装EXE SHA256 `d45228206440db83b7b426d18922a5009eda692179e38c89f6203134faff9d74`、ASAR SHA256 `6e6ee6df18bbd2b15df17e98c14a6aaf80ca7067e261fabf491f1799cff9b11a`与上述实测安装版完全相同，配置/注册目录/版本再次确认保留。Git提交待完成；准确身份与本地审计入口见[Progress](../PROGRESS.md)。此前候选均保留记录，由最终EXE替代。
+测试脚本适配后重新冻结/打包，最终品牌`/S`原位安装exit0/16,997ms；安装EXE SHA256 `d45228206440db83b7b426d18922a5009eda692179e38c89f6203134faff9d74`、ASAR SHA256 `6e6ee6df18bbd2b15df17e98c14a6aaf80ca7067e261fabf491f1799cff9b11a`与上述实测安装版完全相同，配置/注册目录/版本再次确认保留。[最终复核](../.diagnostics/agent-task-delivery-2026-10-19/preflight.json)确认620冻结源文件无漂移，安装器及安装内容匹配、应用进程0。此前候选均保留记录，由最终EXE替代。
+
+41个对应源码/测试/文档文件已提交为 `3285f9153bb4de0a9277077088f9a0a1301c1035` 并普通push到origin/main；远端、HEAD及upstream实查一致，提交后工作树干净。敏感信息扫描41文件、0疑似真实凭据，14处均为已核实合成测试值；新增文档链接/差异检查通过。本完成记录随纯文档收尾提交，最终Git身份及制品/安装/验证证据哈希见[本地交付索引](../.diagnostics/agent-task-delivery-2026-10-19/delivery.json)，准确身份与历史审计入口见[Progress](../PROGRESS.md)。未提交生成物或私有配置，未上传EXE或创建正式Release/tag。
 
 ## 未验证边界
 
