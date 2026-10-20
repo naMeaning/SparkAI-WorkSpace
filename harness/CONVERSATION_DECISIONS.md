@@ -15,7 +15,7 @@ Older conversations are represented through the maintained product documents whe
 
 ## Active Product Decisions
 
-2026-10-20 第三期（active）：用户新授权直接实施项目知识、成果本地检索和可复用需求模板，复用前两期权威owner；项目/商品/会话/临时要求边界分明，只有明确使用才绑定检索素材。0真实模型请求，完成本期最终EXE、安全安装、文档和upstream Git同步；不改外部服务、不安装检索/模型依赖、不上传EXE或Release/tag。
+2026-10-20 第三期（本地交付完成）：用户新授权直接实施项目知识、成果本地检索和可复用需求模板，复用前两期权威owner；项目/商品/会话/临时要求边界分明，只有明确使用才绑定检索素材。0真实模型请求，本期最终EXE、安全安装、安装版7组UI、文档与upstream源码push已完成；不改外部服务、不安装检索/模型依赖、不上传EXE或Release/tag，完成后停止。真实视觉/语义能力和已记录性能边界仍未验证。
 
 2026-10-20 第二期（本地交付完成）：结构化创作要求、证据分层验收和稳定资产定向修改已实施；复用第一期任务/TaskScope/image_gen及catalog采用状态，0真实模型请求。最终EXE、安全原位安装、安装版UI和upstream源码Git同步已完成，按授权停止，不启动第三期。真实视觉质量和正式发布未验证；详见桌面Goal、Progress与工作流合同。
 

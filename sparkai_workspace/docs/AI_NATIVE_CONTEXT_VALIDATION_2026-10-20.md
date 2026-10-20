@@ -1,6 +1,6 @@
 # AI-Native 第三期验证记录（2026-10-20）
 
-本记录覆盖项目知识、本地成果检索与既有需求模板库 v2。本地owner/Runtime、完整源码与安装版Electron交互、性能实测及最终EXE/原位安装均已通过；对应源码与文档普通Git同步由Progress记录。动态结果和最终身份以 [Goal](../GOAL.md) 与 [Progress](../PROGRESS.md) 顶部为准，不能将第二期同名 EXE 计为本期制品。
+本记录覆盖项目知识、本地成果检索与既有需求模板库 v2。本地owner/Runtime、完整源码与安装版Electron交互、性能实测及最终EXE/原位安装均已通过；对应源码与文档已普通push到origin/main。动态结果和最终身份以 [Goal](../GOAL.md)、[Progress](../PROGRESS.md) 及[本地交付索引](../.diagnostics/project-context-delivery-2026-10-20/delivery.json)为准，不能将第二期同名 EXE 计为本期制品。
 
 仅修改桌面与本地 Runtime，复用 TaskScope、第一期任务回执、第二期 creation、catalog、原 requirement-library 与唯一 image_gen。0 真实模型/图片/视频请求；loopback 中的模型和图片 POST 均由本机夹具响应，不涉及外部 New API、Extension、生产服务或计费。长期边界见 [工作流合同](AGENT_WORKFLOW_CONTRACT.md)，owner、镜像规则和存储位置见 [上下文地图](CONTEXT_MAP.md)。
 
