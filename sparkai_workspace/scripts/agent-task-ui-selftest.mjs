@@ -202,14 +202,22 @@ try {
     const stale = await command("agent.task.answer", answer, true); assert.equal(stale.code, "TASK_ANSWER_STALE");
     const finished = (await command("agent.task.get", askTarget)).task; assert.equal(finished.runIds.length, 2); assert.equal(finished.savedCount, 1);
     assert.equal(report.imagePosts, 2); assert.equal(report.modelPosts, 5); assert.equal(report.wire[1].inputImage, true); assert.equal(report.continuationHasOriginalIntent, true);
-    assert.deepEqual(finished.scope, report.frozenScope); await screenshot("answered-task");
+    assert.deepEqual(finished.scope, report.frozenScope);
+    await until(async () => { const card = await visibleCard(client, ".agent-task-card"); return card.text?.includes("执行完成") && card.text.includes("已保存 1"); }, "answered card shows the confirmed saved receipt");
+    await screenshot("answered-task");
   });
   await check("independent Agent window shares receipt and answers custom text through the original owner", async () => {
     await wait("!document.querySelector('.ask-user-dialog')");
     await click(client, '[aria-label="调整对话框位置"]');
     await ev("[...document.querySelectorAll('.agent-placement-menu button')].find(b=>b.textContent.includes('独立浮动窗口')).click()");
     const target = await pollForDebugTarget({ port: debugPort, attempts: 100, intervalMs: 100, findTarget: targets => targets.find(item => item.type === "page" && /agent-window\.html/.test(item.url)) });
-    agentClient = new BasicCdpClient(target.webSocketDebuggerUrl); await agentClient.open(); await agentClient.send("Runtime.enable"); await agentClient.send("Page.enable");
+    agentClient = new BasicCdpClient(target.webSocketDebuggerUrl); await agentClient.open();
+    agentClient.socket.addEventListener("message", event => {
+      const value = JSON.parse(String(event.data)); if (value.method !== "Runtime.exceptionThrown") return;
+      report.independentExceptions ||= []; report.independentExceptions.push({ text: value.params?.exceptionDetails?.text,
+        description: String(value.params?.exceptionDetails?.exception?.description || "").split("\n")[0].replace(/(?:file|https?):\/\/\S+/g, "[script]") });
+    });
+    await agentClient.send("Runtime.enable"); await agentClient.send("Page.enable");
     const started = await command("agent.task.start", { ...scope, submissionId: "independent", prompt: "请先询问颜色，只需文字记录回答", title: "共同确认下一步", sourceNodeIds: [] });
     const targetTask = { ...scope, taskId: started.task.taskId };
     await until(async () => (await command("agent.task.get", targetTask)).task.phase === "waiting", "independent question");
@@ -277,5 +285,10 @@ try {
   await stop(); report.ok = true; checkpoint(); console.log(JSON.stringify({ ok: true, checks: report.checks.length, modelPosts: report.modelPosts, imagePosts: report.imagePosts, screenshots: report.screenshots.length, report: join(runDir, "report.json") }));
 } catch (error) {
   report.error = error.message; checkpoint(); console.error(error); process.exitCode = 1;
-  releaseFirst(); releaseInterrupted(); if (client) { await screenshot("failure").catch(() => {}); await stop().catch(error => { report.shutdownError = error.message; checkpoint(); }); }
+  if (agentClient) {
+    report.independentFailure = await evaluateRuntime(agentClient, "(()=>{const e=document.getElementById('agent-task-card');return{readyState:document.readyState,project:document.getElementById('project-name')?.textContent,status:document.getElementById('status-text')?.textContent,taskHidden:e?.hidden,taskText:e?.innerText,projection:e?.dataset.projection||null,textareas:document.querySelectorAll('#agent-task-card textarea').length,modules:performance.getEntriesByType('resource').map(item=>item.name.split('/').at(-1))}})()").catch(() => null);
+    await screenshot("failure-agent", agentClient).catch(() => {});
+  }
+  releaseFirst(); releaseInterrupted(); if (client) { await screenshot("failure").catch(() => {}); await stop().catch(error => { report.shutdownError = error.message; }); }
+  checkpoint();
 } finally { if (vite) vite.kill(); server.closeAllConnections(); server.close(); }

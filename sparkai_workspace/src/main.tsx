@@ -2,6 +2,10 @@ import { imageConfigSnapshot, normalizeImageConfigSnapshot } from "../runtime/im
 import { canApplyContentName, contentNamePatch, normalizeStoredContentName } from "../runtime/image-content-name.mjs";
 import { coalesceImageAssets } from "../runtime/image-asset-identity.mjs";
 import { agentTaskCard, useAgentTaskReceipt, type TaskResponse } from "./agent-task";
+import { normalizeCreationTaskContract, normalizeCreationMaskAssets } from "../runtime/creation-task-contract.mjs";
+import { useCreationSession } from "./use-creation-session";
+import type { CreationSessionSnapshot, CreationRegionRevisionInput } from "./creation-session";
+import { locateCreationTarget, submitCreationRegionRevision, type CreationRegionRevisionDraft } from "./creation-region-revision";
 /*
 naimage Frontend Main Map
 
@@ -458,6 +462,7 @@ import type {
   AgentProgress,
   AgentRunControlSnapshot,
   AgentRuntimeAction,
+  AgentRuntimeResult,
   AgentToolTrace,
   ServerBridge,
   DesktopUpdateInfo,
@@ -520,6 +525,9 @@ type RequirementEditorDraft = {
 };
 
 type AgentPromptDispatchOptions = {
+  creation?: AgentTaskScope["creation"];
+  maskAssets?: AgentTaskScope["maskAssets"];
+  imageConfig?: AgentTaskScope["imageConfig"];
   taskId?: string;
   taskSubmission?: Record<string, unknown>;
   taskRunId?: string;
@@ -1896,6 +1904,13 @@ function sanitizeImageTaskProvenance(value: unknown): ImageTaskProvenance | unde
     sourceNodeId: clean(source.sourceNodeId, 160),
     sourceContainerId: clean(source.sourceContainerId, 160),
     sourceDisplayCode: clean(source.sourceDisplayCode, 40),
+    ...(source.creation ? { creation: normalizeCreationTaskContract(source.creation) } : {}),
+    sourceContentHash: clean(source.sourceContentHash, 64),
+    creationSlotId: clean(source.creationSlotId, 160),
+    creationRevisionId: clean(source.creationRevisionId, 160),
+    creationBaselineReviewIds: Array.isArray(source.creationBaselineReviewIds) ? source.creationBaselineReviewIds.map(value => clean(value, 160)).filter(Boolean) as string[] : undefined,
+    creationPreserve: Array.isArray(source.creationPreserve) ? source.creationPreserve.map(value => clean(value, 2000)).filter(Boolean) as string[] : undefined,
+    creationChanges: Array.isArray(source.creationChanges) ? source.creationChanges.map(value => clean(value, 2000)).filter(Boolean) as string[] : undefined,
     requirementNodeId: clean(source.requirementNodeId, 160),
     requirementRevision: Number.isInteger(revision) && revision >= 1 ? Math.floor(revision) : undefined,
     commercePlanHash: commercePlanHash && /^commerce-[a-f0-9]{32}$/.test(commercePlanHash) ? commercePlanHash : undefined,
@@ -2661,6 +2676,8 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   if (taskOrigin === "goal" && !goal) return null;
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
     ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
+    ...(rawScope.creation ? { creation: normalizeCreationTaskContract(rawScope.creation) } : {}),
+    ...(normalizeCreationMaskAssets(rawScope.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(rawScope.maskAssets) } : {}),
     version: 2,
     origin: taskOrigin,
     scopeType: scopeTypes.has(rawScope.scopeType as AgentTaskScopeType) ? rawScope.scopeType as AgentTaskScopeType : sourceAssets.length > 1 ? "multi-source" : sourceAssets.length === 1 ? "single" : "none",
@@ -3818,6 +3835,20 @@ function App() {
   const [configReady, setConfigReady] = useState(false);
   const currentAgentTask = useAgentTaskReceipt(activeProjectId, activeConversationId, configReady);
   const currentAgentTaskCard = agentTaskCard(currentAgentTask);
+  const creationState = useCreationSession(activeProjectId, activeConversationId, configReady);
+  const creationSessionView = useMemo<CreationSessionSnapshot | null>(() => {
+    if (!creationState.snapshot) return null;
+    const entries = nodes.flatMap(node => (node.assets || []).map(asset => ({ node, asset })));
+    return { ...creationState.snapshot, results: creationState.snapshot.results.map(result => {
+      const found = entries.find(({ asset }) => asset.assetId === result.target.assetId && (asset.occurrenceId || "") === result.target.occurrenceId && asset.contentHash === result.target.contentHash);
+      const provenance = found?.node.imageCollection?.items.find(item => item.assetId === result.target.assetId && (item.occurrenceId || "") === result.target.occurrenceId)?.taskProvenance || found?.node.taskProvenance;
+      const original = provenance?.sourceAssetId && entries.find(({ asset }) => asset.assetId === provenance.sourceAssetId && (asset.occurrenceId || "") === (provenance.sourceOccurrenceId || "") && (!provenance.sourceContentHash || asset.contentHash === provenance.sourceContentHash));
+      return { ...result, ...(found ? { previewUrl: imageAssetSrc(found.asset) } : {}), ...(original ? { baseline: {
+        target: { assetId: original.asset.assetId!, occurrenceId: original.asset.occurrenceId || "", contentHash: original.asset.contentHash! },
+        label: nodeWorkName(original.node), previewUrl: imageAssetSrc(original.asset)
+      } } : {}) };
+    }) };
+  }, [creationState.snapshot, nodes]);
   const [authReady, setAuthReady] = useState(false);
   const [canvasMountTick, setCanvasMountTick] = useState(0);
   const [canvasViewportSize, setCanvasViewportSize] = useState({ width: 1, height: 1 });
@@ -4018,6 +4049,7 @@ function App() {
   }, []);
   const regionRedrawPaintRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
   const regionRedrawDraftRef = useRef<RegionRedrawDraft | null>(null);
+  const creationRegionRevisionRef = useRef<CreationRegionRevisionDraft | null>(null);
   const imageTileClickTimerRef = useRef<number | null>(null);
   const canvasGestureClickSuppressedRef = useRef(false);
   const canvasGestureCancelRef = useRef<(() => void) | null>(null);
@@ -5039,8 +5071,10 @@ function App() {
     let cancelled = false;
     const load = async () => {
       try {
-        const node = nodesRef.current.find((item) => item.id === nodeId);
-        const asset = node?.assets?.[assetIndex];
+        const target = regionRedrawDraft?.sourceTarget;
+        const located = target ? locateCreationTarget(nodesRef.current, target) : null;
+        const node = target ? located?.node : nodesRef.current.find((item) => item.id === nodeId);
+        const asset = target ? located?.asset : node?.assets?.[assetIndex];
         if (!asset) throw new Error("AI 图片编辑来源图片不存在。");
         const source = await imageAssetCanvasSrc(asset);
         const image = await loadImageForCanvas(source);
@@ -5074,7 +5108,7 @@ function App() {
       cancelled = true;
       regionRedrawPaintRef.current = null;
     };
-  }, [regionRedrawDraft?.nodeId, regionRedrawDraft?.assetIndex]);
+  }, [regionRedrawDraft?.editorId, regionRedrawDraft?.nodeId, regionRedrawDraft?.assetIndex]);
 
   useEffect(() => {
     if (!window.naimageAgent?.onProgress) return;
@@ -9172,11 +9206,25 @@ function App() {
       setServerMessage("请先选择一张有效图片再进行 AI 重绘。");
       return false;
     }
+    creationRegionRevisionRef.current = null;
+    const asset = node.assets[assetIndex];
+    const session = creationState.snapshot;
+    const result = session?.results.find(result => result.saved && result.target.assetId === asset.assetId &&
+      result.target.occurrenceId === asset.occurrenceId && result.target.contentHash === asset.contentHash);
+    if (session?.requirements && result) {
+      creationRegionRevisionRef.current = { submissionId: uid("creation-region"), input: {
+        expectedProjectId: session.projectId, conversationId: session.conversationId,
+        requirementId: session.requirements.requirementId, expectedRevision: session.requirements.revision,
+        target: { ...result.target }, preserve: [], changes: []
+      } };
+    }
     setCanvasMenu(null);
     selectNodeFromPlainClick(node.id, "node-pointer-down");
     const initialPrompt = redrawPrompt.trim();
     const draft: RegionRedrawDraft = {
       mode: "redraw",
+      editorId: uid("region-editor"),
+      ...(creationRegionRevisionRef.current ? { sourceTarget: { ...creationRegionRevisionRef.current.input.target } } : {}),
       nodeId: node.id,
       assetIndex,
       prompt: initialPrompt,
@@ -9189,6 +9237,19 @@ function App() {
     regionRedrawDraftRef.current = draft;
     setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(draft);
+    return true;
+  }
+
+  function openCreationRegionRevision(input: CreationRegionRevisionInput) {
+    const requirements = creationState.snapshot?.requirements;
+    const located = locateCreationTarget(nodesRef.current, input.target);
+    if (input.expectedProjectId !== activeProjectIdRef.current || input.conversationId !== activeConversationIdRef.current ||
+      !requirements || requirements.requirementId !== input.requirementId || requirements.revision !== input.expectedRevision || !located) {
+      setServerMessage("要求或成果已变化，请刷新后重新选择修改目标。");
+      return false;
+    }
+    if (!openRegionRedraw(located.node, located.assetIndex, [...input.changes, ...(input.target.changes || [])].join("\n"))) return false;
+    creationRegionRevisionRef.current = { input: structuredClone(input), submissionId: uid("creation-region") };
     return true;
   }
 
@@ -9493,11 +9554,13 @@ function App() {
       setServerMessage("请先选择一张有效图片再进行 AI 抠图。");
       return false;
     }
+    creationRegionRevisionRef.current = null;
     setCanvasMenu(null);
     setSelectedNodeId(node.id);
     const initialPrompt = "完整保留涂抹区域内的主体、轮廓和内部细节";
     const draft: RegionRedrawDraft = {
       mode: "cutout",
+      editorId: uid("region-editor"),
       nodeId: node.id,
       assetIndex,
       prompt: initialPrompt,
@@ -9684,16 +9747,25 @@ function App() {
       return;
     }
     const draft = regionRedrawDraftRef.current;
+    if (draft?.busy) return;
+    const revision = creationRegionRevisionRef.current;
     const maskCanvas = regionRedrawMaskCanvasRef.current;
-    const node = draft ? nodesRef.current.find((item) => item.id === draft.nodeId) : null;
-    const asset = draft && node ? node.assets?.[draft.assetIndex] : null;
+    const located = revision ? locateCreationTarget(nodesRef.current, revision.input.target) : null;
+    const node = revision ? located?.node : draft ? nodesRef.current.find((item) => item.id === draft.nodeId) : null;
+    const asset = revision ? located?.asset : draft && node ? node.assets?.[draft.assetIndex] : null;
     const prompt = draft?.prompt.trim() || "";
-    if (!draft || !maskCanvas || !node || !asset) return;
+    if (!draft || !maskCanvas) return;
+    if (!node || !asset) {
+      setRegionRedrawDraft({ ...draft, error: "原成果已被删除或替换，请重新选择修改目标。" });
+      return;
+    }
     const isCutout = draft?.mode === "cutout";
     if (!prompt) {
       setRegionRedrawDraft({ ...draft, error: isCutout ? "请描述要保留并抠出的主体。" : "请描述涂抹区域要改成什么。" });
       return;
     }
+    regionRedrawDraftRef.current = { ...draft, busy: true, error: undefined };
+    setRegionRedrawDraft(regionRedrawDraftRef.current);
     let mask: { dataUrl: string; paintedPixels: number; width: number; height: number };
     let reference: ReferenceImage;
     try {
@@ -9727,6 +9799,32 @@ function App() {
       return;
     }
 
+    if (revision && !isCutout) {
+      regionRedrawDraftRef.current = { ...draft, busy: true, error: undefined };
+      setRegionRedrawDraft(regionRedrawDraftRef.current);
+      try {
+        if (!window.naimageAgent?.creationSaveMask) throw new Error("当前运行时未提供项目蒙版保存能力。");
+        await submitCreationRegionRevision(revision, {
+          projectId: activeProjectIdRef.current, conversationId: activeConversationIdRef.current, prompt, dataUrl: mask.dataUrl,
+          saveMask: input => window.naimageAgent!.creationSaveMask(input),
+          execute: input => creationState.execute("creation.revision.start", input)
+        });
+        if (creationRegionRevisionRef.current === revision) {
+          creationRegionRevisionRef.current = null;
+          regionRedrawDraftRef.current = null;
+          setRegionRedrawDraft(null);
+          setRegionRedrawClosePromptOpen(false);
+          setServerMessage("所选成果的区域修改任务已受理，原图保留。");
+        }
+      } catch (error) {
+        if (creationRegionRevisionRef.current === revision) {
+          regionRedrawDraftRef.current = { ...draft, busy: false, error: friendlyImageError(error) };
+          setRegionRedrawDraft(regionRedrawDraftRef.current);
+        }
+      }
+      return;
+    }
+
     const runId = uid(isCutout ? "ai-cutout" : "ai-redraw");
     const requestProjectId = activeProjectIdRef.current;
     const requestConversationId = activeConversationIdRef.current;
@@ -9744,6 +9842,7 @@ function App() {
     setActiveRunStartedAt(Date.now());
     setRunElapsedSeconds(0);
     regionRedrawDraftRef.current = null;
+    creationRegionRevisionRef.current = null;
     setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(null);
     setServerMessage(`${operationTitle}已提交，可继续操作画布。`);
@@ -14214,6 +14313,7 @@ function App() {
     setRegionRedrawDraft(null);
     setRegionRedrawClosePromptOpen(false);
     regionRedrawDraftRef.current = null;
+    creationRegionRevisionRef.current = null;
     setNodeEditorDraft(null);
     setNodeEditorClosePromptOpen(false);
     setRequirementEditorDraft(null);
@@ -16477,6 +16577,16 @@ function App() {
       return false;
     }
     const activeGoal = lastDispatchedTaskScopeRef.current?.origin === "goal";
+    const activeCreation = Boolean(lastDispatchedTaskScopeRef.current?.creation);
+    if (activeCreation && (
+      Boolean(options.taskScopeMode && options.taskScopeMode !== "keep") ||
+      Boolean(options.sourceMode && options.sourceMode !== "keep") ||
+      Boolean(options.referenceMode && options.referenceMode !== "keep") ||
+      Boolean(options.sourceNodeIds?.length || options.referenceNodeIds?.length || options.sourceImages?.length || options.referenceImages?.length)
+    )) {
+      if (reportFailure) reportAgentSendFailure("本任务的素材与授权范围已冻结；请保留范围修改要求，或建立关联的新修订。", false);
+      return false;
+    }
     const goalScopeMutationRequested = activeGoal && (
       options.taskScopeMode !== "keep" ||
       Boolean(options.sourceMode && options.sourceMode !== "keep") ||
@@ -16488,7 +16598,7 @@ function App() {
       if (reportFailure) reportAgentSendFailure("Goal 运行中的来源范围保持不变；请只修改处理要求，或结束后重新选择范围。", false);
       return false;
     }
-    const useComposerAttachments = options.useComposerAttachments !== false;
+    const useComposerAttachments = !activeCreation && options.useComposerAttachments !== false;
     const sourceNodeIds = options.sourceNodeIds !== undefined
       ? [...options.sourceNodeIds]
       : useComposerAttachments ? [...selectedNodeIdsRef.current] : [];
@@ -16513,7 +16623,7 @@ function App() {
       displayCode: reference.displayCode || `REF${index + 1}`,
       taskRole: "reference"
     }));
-    const explicitMode = options.taskScopeMode;
+    const explicitMode = activeCreation ? "keep" : options.taskScopeMode;
     const taskScopeUpdate: AgentSteerTaskScopeUpdate = options.sourceMode || options.referenceMode
       ? { sourceMode: options.sourceMode ?? "keep", referenceMode: options.referenceMode ?? "keep" }
       : explicitMode === "clear-attachments"
@@ -16917,6 +17027,14 @@ function App() {
     );
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
     const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
+    if (dispatch.maskAssets?.length && !dispatch.frozenTaskScope) {
+      taskScope.maskAssets = normalizeCreationMaskAssets(dispatch.maskAssets);
+      taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+    }
+    if (dispatch.imageConfig && !dispatch.frozenTaskScope) {
+      taskScope.imageConfig = normalizeImageConfigSnapshot(dispatch.imageConfig);
+      taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+    }
     if (!taskScope.imageConfig) {
       taskScope.imageConfig = imageConfigSnapshot({ ...settings, imageRatio: dispatch.imageRatio || settings.imageRatio, imageResolution: dispatch.imageResolution || settings.imageResolution });
       taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
@@ -16950,6 +17068,18 @@ function App() {
       try {
         const preparedSave = await flushActiveProjectSession({ live: true, projectId: requestProjectId, ensureConversation: true });
         if (!preparedSave?.ok) throw automationCommandError("TASK_PREPARE_SAVE_FAILED", "项目保存失败，未启动 Agent。");
+        if (window.naimageAgent.creationPrepare) {
+          const prepared = await window.naimageAgent.creationPrepare({ expectedProjectId: requestProjectId, conversationId: requestConversationId,
+            taskId: dispatch.taskId, prompt: content, ...(dispatch.creation ? { requirementId: dispatch.creation.requirementId } : {}) });
+          if (!prepared.ok) throw automationCommandError(prepared.errorCode || "CREATION_PREPARE_FAILED", prepared.error || "创作要求冻结失败。");
+          if (prepared.requirementRef) {
+            const revisionPlan = dispatch.creation?.revisionPlan || taskScope.creation?.revisionPlan;
+            taskScope.creation = normalizeCreationTaskContract({ ...prepared.requirementRef, ...(revisionPlan ? { revisionPlan } : {}) });
+            taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+            lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
+            executionScope.taskSignature = taskScope.snapshotHash;
+          }
+        }
         const admitted = await window.naimageAgent.taskAdmit({
           ...(dispatch.taskSubmission || { submissionId: uid("gui"), prompt: content }),
           expectedProjectId: requestProjectId, conversationId: requestConversationId,
@@ -16969,6 +17099,7 @@ function App() {
       }
     }
     let taskOutcome = "interrupted", taskError = "";
+    let deferredCreationRevision: AgentRuntimeResult["deferredCreationRevision"];
 
     flushPendingAgentStreamMessages();
     setPrompt("");
@@ -17012,6 +17143,12 @@ function App() {
         receiptTaskId
       );
       if (!runScopeIsCurrent()) return false;
+      if (runtimeResult.effectiveTaskScope?.creation) {
+        taskScope.creation = normalizeCreationTaskContract(runtimeResult.effectiveTaskScope.creation);
+        taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+        executionScope.taskSignature = taskScope.snapshotHash;
+        lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
+      }
       const rawAnswer = sanitizeAgentVisibleText(runtimeResult.content?.trim() || "已完成。") || "已完成。";
       const runtimeActions = effectiveRequirementNodeId
         ? (runtimeResult.actions ?? []).map((action) => parentImageActionToRequirement(action, effectiveRequirementNodeId))
@@ -17124,6 +17261,7 @@ function App() {
       const executionFailed = Boolean(failedCommit || (incompleteReply && runtimeResult.executionFailed));
       const toolFailed = (runtimeResult.toolResults || []).some(result => result.ok === false);
       taskOutcome = askAction ? "waiting" : incompleteReply ? "partial" : executionFailed || toolFailed ? "failed" : "completed";
+      if (taskOutcome === "completed") deferredCreationRevision = runtimeResult.deferredCreationRevision;
       const finalMessage: AgentMessage = {
         id: assistantId,
         role: "assistant",
@@ -17234,8 +17372,16 @@ function App() {
             taskError = "项目保存失败；原图片结果已保留，请保存项目或恢复原结果，不要重新生图。";
           }
         } else taskOutcome = "interrupted";
-        await window.naimageAgent.taskSettle({ expectedProjectId: requestProjectId, conversationId: requestConversationId,
+        const settled = await window.naimageAgent.taskSettle({ expectedProjectId: requestProjectId, conversationId: requestConversationId,
           taskId: receiptTaskId, runId, outcome: taskOutcome, executionOutcome, error: taskError });
+        if (deferredCreationRevision && taskOutcome === "completed" && settled.ok && deferredCreationRevision.parentTaskId === receiptTaskId &&
+          deferredCreationRevision.input.expectedProjectId === requestProjectId && deferredCreationRevision.input.conversationId === requestConversationId) {
+          const revision = await window.naimageAgent.creationCommand("creation.revision.start", deferredCreationRevision.input);
+          if (!revision.ok) {
+            setServerMessage(revision.error || "定向修改没有受理；原成果已保留。");
+            pushSystemMessage("creation", revision.error || "定向修改没有受理；请查询原提交，不会自动重发。");
+          }
+        }
       }
     }
   }
@@ -24475,9 +24621,19 @@ function App() {
           if (sourceNodeIds.some(id => !canvas.some(node => node.id === id && node.type === "image" && node.assets?.length))) {
             throw automationCommandError("TASK_SOURCE_INVALID", "素材范围包含不存在或不可用的图片；任务未派发。");
           }
+          const frozenReferences: ReferenceImage[] = (Array.isArray(args.referenceAssets) ? args.referenceAssets : []).map((target: TaskAssetReference) => {
+            const node = canvas.find(candidate => candidate.id === target.nodeId);
+            const index = node?.assets?.findIndex(asset => asset.assetId === target.assetId && asset.occurrenceId === target.occurrenceId && asset.contentHash === target.contentHash) ?? -1;
+            const asset = node?.assets?.[index];
+            if (!node || !asset?.path) throw automationCommandError("CREATION_REVISION_REFERENCE_STALE", "原任务参考图已变化，未派发修改。");
+            return { ...asset, path: asset.path, name: asset.title || node.title || "参考图", canvasNodeId: node.id, canvasAssetIndex: index, taskRole: "reference" as const };
+          });
           work = sendPrompt(String(args.prompt || ""), { taskId: String(args.taskId), taskSubmission: args, strictTask: true,
+            creation: normalizeCreationTaskContract(args.creation),
+            maskAssets: normalizeCreationMaskAssets(args.maskAssets),
+            imageConfig: normalizeImageConfigSnapshot(args.imageConfig),
             sourceNodeIds, focusedNodeId: sourceNodeIds[0], useComposerAttachments: false,
-            sourceImages: [], referenceImages: [],
+            sourceImages: [], referenceImages: frozenReferences,
             imageRatio: args.ratio as AppSettings["imageRatio"], imageResolution: args.resolution as AppSettings["imageResolution"], onTaskAccepted });
         }
         void work.then(() => { if (!accepted) reject(automationCommandError("TASK_NOT_ACCEPTED", "任务未受理。")); }, reject);
@@ -27240,6 +27396,7 @@ function App() {
       }
     }
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
+      creationSession: creationSessionView, creationBusy: creationState.busy, creationError: creationState.error,
       taskCard: currentAgentTaskCard,
       taskQuestion: currentAgentTask?.question ? { taskId: currentAgentTask.taskId, projectId: currentAgentTask.projectId,
         conversationId: currentAgentTask.conversationId, version: currentAgentTask.version, question: currentAgentTask.question } : null,
@@ -27284,6 +27441,11 @@ function App() {
     const { normalizeAgentWindowCommand } = await loadAgentWindowSync();
     const command = normalizeAgentWindowCommand(payload);
     if (!command) return;
+    if (command.type === "creation-requirements-update") { await creationState.execute("creation.requirements.update", command.input); return; }
+    if (command.type === "creation-decision") { await creationState.execute("creation.acceptance.decide", command.input); return; }
+    if (command.type === "creation-revision") { await creationState.execute("creation.revision.start", command.input); return; }
+    if (command.type === "creation-region-revision") { openCreationRegionRevision(command.input); return; }
+    if (command.type === "creation-check") { await creationState.execute("creation.acceptance.check", command.input); return; }
     if (command.type === "task-action") { await currentTaskAction(); return; }
     if (command.type === "task-answer") {
       const result = await window.naimageAgent?.taskCommand("agent.task.answer", { expectedProjectId: command.projectId,
@@ -27374,6 +27536,9 @@ function App() {
   }, [
     activeConversationId,
     currentAgentTask,
+    creationSessionView,
+    creationState.busy,
+    creationState.error,
     activeProjectName,
     agentProgress,
     agentReferenceImages,
@@ -29704,6 +29869,14 @@ function App() {
           stopPending={agentStopPending}
           goalActive={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.origin === "goal"}
           taskCard={currentAgentTaskCard}
+          creationSession={creationSessionView}
+          creationBusy={creationState.busy}
+          creationError={creationState.error}
+          onUpdateCreationRequirements={input => creationState.execute("creation.requirements.update", input)}
+          onCreationDecision={input => creationState.execute("creation.acceptance.decide", input)}
+          onStartCreationRevision={input => creationState.execute("creation.revision.start", input)}
+          onRegionRevision={input => { openCreationRegionRevision(input); }}
+          onCheckCreationAcceptance={input => creationState.execute("creation.acceptance.check", input)}
           taskAction={() => void currentTaskAction()}
           goalContainerCount={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.goal
             ? lastDispatchedTaskScopeRef.current.goal.containerCount
@@ -30285,6 +30458,7 @@ function App() {
             setDraft={(action) => setRegionRedrawDraft((current) => {
               const next = typeof action === "function" ? action(current) : action;
               regionRedrawDraftRef.current = next;
+              if (!next) creationRegionRevisionRef.current = null;
               return next;
             })}
             nodes={nodes}

@@ -8,6 +8,13 @@ const {
 const { sanitizeSession } = require("../desktop/project-session-normalizer.cjs");
 const { composeCommerceSetTask } = require("../runtime/commerce-set-plan.cjs");
 
+const identicalGeneratedAssets = [0, 1, 2].map(index => ({ assetId: `image-independent-${index}`, occurrenceId: `occ-${String(index + 1).repeat(32)}`,
+  contentHash: "a".repeat(64), index: 1, type: "file", path: `output/imagegen/independent-${index}.png`, runId: `independent-run-${Math.min(index, 1)}` }));
+const identicalGenerated = sanitizeSession({ nodes: identicalGeneratedAssets.map((asset, index) => node(`independent-${index}`, `origin-independent-${index}`, { assets: [asset] })),
+  messages: [{ id: "identical-source-selection", role: "user", content: "keep both generated identities", attachments: { sourceAssets: identicalGeneratedAssets.map(asset => ({ ...asset })) } }] });
+assert.deepEqual(identicalGenerated.nodes.map(item => item.assets[0].assetId), identicalGeneratedAssets.map(asset => asset.assetId), "Equal output bytes must not rewrite the stable asset IDs of independent generation runs");
+assert.deepEqual(identicalGenerated.messages[0].attachments.sourceAssets.map(asset => asset.assetId), identicalGeneratedAssets.map(asset => asset.assetId), "Message references must retain the exact independent generated identity");
+
 function node(id, origin, extra = {}) {
   return {
     id,
@@ -989,4 +996,4 @@ const ordinaryPendingWithGoalMetadata = invalidGoalPending((pending) => {
 assert.ok(ordinaryPendingWithGoalMetadata);
 assert.equal(ordinaryPendingWithGoalMetadata.taskScope.goal, undefined, "Non-Goal pending tasks must not retain Goal-only metadata");
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 94 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 96 })}\n`);

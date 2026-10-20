@@ -24,7 +24,9 @@ const { imagePromptRatios, imagePromptResolutions } = require("../runtime/image-
 const { normalizeWorkspaceDomain } = require("../runtime/workspace-domain.cjs");
 const { normalizeImageAssetGenerationMetadata } = require("../runtime/image-generation-metadata.cjs");
 const { normalizeImageConfigSnapshot } = require("../runtime/image-config-snapshot.mjs");
-const { coalesceImageAssets, remapImageAssetSlots } = require("../runtime/image-asset-identity.mjs");
+const { coalesceImageAssets, remapImageAssetSlots, imageAssetContentHash: sessionAssetContentHash,
+  imageAssetIdentityLocators: sessionAssetIdentityLocators, imageAssetIdentitySources } = require("../runtime/image-asset-identity.mjs");
+const { normalizeCreationTaskContract, normalizeCreationMaskAssets } = require("../runtime/creation-task-contract.mjs");
 
 function sanitizePersistedImageAssetGeneration(asset) {
   if (!asset || typeof asset !== "object" || Array.isArray(asset)) return asset;
@@ -47,12 +49,6 @@ function persistedNodeSequenceFromCode(value) {
   if (/^[A-Z]$/.test(code)) return code.charCodeAt(0) - 64;
   const numbered = code.match(/^N(\d+)$/);
   return numbered ? Math.max(0, Number(numbered[1]) || 0) : 0;
-}
-
-function sessionAssetContentHash(asset) {
-  const source = asset && typeof asset === "object" ? asset : {};
-  const value = String(source.contentHash || source.sha256 || "").trim().toLowerCase();
-  return /^[a-f0-9]{32,128}$/.test(value) ? value : "";
 }
 
 function sanitizePersistedVideoAsset(value) {
@@ -117,65 +113,14 @@ function sessionAssetOccurrenceId(asset, ownerId = "asset", assetIndex = 0) {
   return `occ-${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
 }
 
-function sessionAssetIdentityLocators(asset) {
-  const source = asset && typeof asset === "object" ? asset : {};
-  const relativePath = String(source.relativePath || "").trim().replace(/\\/g, "/").toLowerCase();
-  const localPath = String(source.path || "").trim().replace(/\\/g, "/").toLowerCase();
-  const assetUrl = String(source.assetUrl || "").trim();
-  const url = String(source.url || "").trim();
-  const stableAssetUrl = /^(?:data|blob):/i.test(assetUrl) ? "" : assetUrl;
-  const stableUrl = /^(?:data|blob):/i.test(url) ? "" : url;
-  return [...new Set([
-    relativePath ? `relative-path:${relativePath}` : "",
-    localPath ? `path:${localPath}` : "",
-    stableAssetUrl ? `asset-url:${stableAssetUrl}` : "",
-    stableUrl ? `url:${stableUrl}` : ""
-  ].filter(Boolean))];
-}
-
 function sessionAssetFingerprint(asset, fallbackIndex = 1, ownerId = "", slot = 0, contentHashesByLocator = null) {
-  const source = asset && typeof asset === "object" ? asset : {};
-  const contentHash = sessionAssetContentHash(source);
-  const locators = sessionAssetIdentityLocators(source);
-  const bridgedHashes = new Set();
-  if (!contentHash && contentHashesByLocator) {
-    for (const locator of locators) {
-      const hashes = contentHashesByLocator.get(locator);
-      if (hashes?.size === 1) bridgedHashes.add([...hashes][0]);
-    }
-  }
-  const effectiveContentHash = contentHash || (bridgedHashes.size === 1 ? [...bridgedHashes][0] : "");
-  const runId = String(source.runId || "").trim();
-  const originalName = String(source.originalName || source.fileName || source.name || "").trim().toLowerCase();
-  const index = Math.max(1, Number(source.index || fallbackIndex) || 1);
-  let identity = effectiveContentHash
-    ? `content:${effectiveContentHash}`
-    : locators.length
-      ? locators[0]
-        : runId
-          ? `run:${runId}|index:${index}`
-          : originalName
-            ? `name:${originalName}|index:${index}`
-            : `index:${index}`;
-  if (!effectiveContentHash && locators.length === 0 && !runId) {
-    identity = `${identity}|owner:${String(ownerId || "")}|slot:${Math.max(0, Number(slot) || 0)}`;
-  }
-  return createHash("sha256").update(identity).digest("hex").slice(0, 32);
+  const { primarySource } = imageAssetIdentitySources(asset, { fallbackIndex, ownerId, slot, contentHashesByLocator });
+  return createHash("sha256").update(primarySource).digest("hex").slice(0, 32);
 }
 
 function sessionAssetAliasFingerprints(asset, fallbackIndex = 1, ownerId = "", slot = 0, contentHashesByLocator = null) {
-  const primary = sessionAssetFingerprint(asset, fallbackIndex, ownerId, slot, contentHashesByLocator);
-  const contentHash = sessionAssetContentHash(asset);
-  const locators = sessionAssetIdentityLocators(asset);
-  const bridgedHashes = new Set();
-  if (!contentHash && contentHashesByLocator) {
-    for (const locator of locators) {
-      const hashes = contentHashesByLocator.get(locator);
-      if (hashes?.size === 1) bridgedHashes.add([...hashes][0]);
-    }
-  }
-  if (contentHash || bridgedHashes.size === 1 || locators.length === 0) return [primary];
-  return [...new Set([primary, ...locators.map((locator) => createHash("sha256").update(locator).digest("hex").slice(0, 32))])];
+  const { aliasSources } = imageAssetIdentitySources(asset, { fallbackIndex, ownerId, slot, contentHashesByLocator });
+  return aliasSources.map(value => createHash("sha256").update(value).digest("hex").slice(0, 32));
 }
 
 function collapseRepeatedGeneratedAssets(node) {
@@ -331,6 +276,11 @@ function repairSessionAssetIdentities(nodes) {
     const oldId = String(reference.assetId || "").trim();
     const nodeId = String(reference.nodeId || "").trim();
     const assetIndex = Number(reference.assetIndex);
+    const candidates = oldId ? recordsByOldId.get(oldId) || [] : [];
+    const occurrenceId = String(reference.occurrenceId || "").trim().toLowerCase();
+    const exactOccurrence = occurrenceId && candidates.find(record => record.asset.occurrenceId === occurrenceId &&
+      (!sessionAssetContentHash(reference) || sessionAssetContentHash(record.asset) === sessionAssetContentHash(reference)));
+    if (exactOccurrence) return { ...reference, assetId: exactOccurrence.asset.assetId };
     const fingerprint = sessionAssetFingerprint(
       reference,
       fallbackIndex,
@@ -349,7 +299,6 @@ function repairSessionAssetIdentities(nodes) {
     if (canonical) return { ...reference, assetId: canonical };
     const exact = oldId ? allocations.get(`${oldId}\n${fingerprint}`) : "";
     if (exact) return { ...reference, assetId: exact };
-    const candidates = oldId ? recordsByOldId.get(oldId) || [] : [];
     const matched = candidates.find((record) => nodeId && record.nodeId === nodeId && Number.isInteger(assetIndex) && record.slot === assetIndex) ||
       candidates.find((record) => reference.displayCode && record.displayCode === reference.displayCode) ||
       (candidates.length === 1 ? candidates[0] : null);
@@ -507,6 +456,7 @@ function sanitizePersistedImageTaskProvenance(value) {
   const commerceResultKey = clean(value.commerceResultKey, 64)?.toLowerCase();
   const socialContent = normalizeSocialContentMetadata(value.socialContent);
   const scientificFigure = normalizeScientificFigureMetadata(value.scientificFigure);
+  const creation = normalizeCreationTaskContract(value.creation);
   return {
     version: 1,
     taskScopeSnapshotHash: snapshotHash,
@@ -529,6 +479,13 @@ function sanitizePersistedImageTaskProvenance(value) {
     ...(commerceResultKey && /^commerce-result-[a-f0-9]{32}$/.test(commerceResultKey) ? { commerceResultKey } : {}),
     ...(socialContent ? { socialContent } : {}),
     ...(scientificFigure ? { scientificFigure } : {})
+    , ...(creation ? { creation } : {}),
+    ...(/^[a-f0-9]{64}$/.test(String(value.sourceContentHash || "")) ? { sourceContentHash: value.sourceContentHash } : {}),
+    ...(clean(value.creationSlotId, 180) ? { creationSlotId: clean(value.creationSlotId, 180) } : {}),
+    ...(clean(value.creationRevisionId, 180) ? { creationRevisionId: clean(value.creationRevisionId, 180) } : {}),
+    ...(Array.isArray(value.creationBaselineReviewIds) ? { creationBaselineReviewIds: value.creationBaselineReviewIds.map(id => clean(id, 180)).filter(Boolean).slice(0, 200) } : {}),
+    ...(Array.isArray(value.creationPreserve) ? { creationPreserve: value.creationPreserve.map(item => clean(item, 2000)).filter(Boolean).slice(0, 200) } : {}),
+    ...(Array.isArray(value.creationChanges) ? { creationChanges: value.creationChanges.map(item => clean(item, 2000)).filter(Boolean).slice(0, 200) } : {})
   };
 }
 
@@ -1101,6 +1058,8 @@ function sanitizePersistedPendingAgentExecution(value) {
     taskOrigin: origin,
     taskScope: {
       ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
+      ...(normalizeCreationTaskContract(rawScope.creation) ? { creation: normalizeCreationTaskContract(rawScope.creation) } : {}),
+      ...(normalizeCreationMaskAssets(rawScope.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(rawScope.maskAssets) } : {}),
       version: 2,
       origin,
       scopeType,

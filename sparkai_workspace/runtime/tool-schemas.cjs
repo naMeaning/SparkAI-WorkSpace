@@ -10,6 +10,7 @@ const {
 } = require("./image-frame.cjs");
 
 const primaryImageToolName = "image_gen";
+const { creationToolSchema } = require("./creation-tools.cjs");
 const { resolveImageModelConfig } = require("./image-generation/types.cjs");
 const imagePromptRatioValues = [...imagePromptRatios];
 const imagePromptResolutionValues = [...imagePromptResolutions];
@@ -82,6 +83,7 @@ function toolSchemas(settings = {}) {
     ? `本次输出清晰度已由对话框按钮锁定为 ${defaultImageResolution}，模型和批量子项都不能覆盖。清晰度与 quality（草稿/标准/精细）是两个不同参数。`
     : `输出清晰度档位。当前默认值为 ${defaultImageResolution}；用户未明确其他清晰度时使用该值。清晰度与 quality（草稿/标准/精细）是两个不同参数。`;
   return normalizeToolSchemas([
+    creationToolSchema(),
     {
       type: "function",
       function: {
@@ -120,6 +122,7 @@ function toolSchemas(settings = {}) {
             generationMode: { type: "string", enum: ["parallel", "sequential"], description: "count>1 时的执行与画布组织方式。parallel=同一轮要求 N 张、N 版、N 个候选或 N 个方案，并收纳为批量图片组；即使用户说‘基于这张继续给 N 版’，也应使用 parallel 并另设 parentId。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。" },
             scopeExecution: { type: "string", enum: ["all-goal-sources"], description: "仅用于 Current Task Scope 明确标记 frozen=true 且完整、未截断的 Goal TaskScope。all-goal-sources=由运行时按冻结快照中的每个 SOURCE bindingId 逐绑定展开，并在探测批次与并发上限保护下执行；模型对整个 Goal 只调用一次 image_gen，不得自行按 SOURCE 重复调用。count 必须严格等于冻结的 goalOperationsPerAsset，SOURCE×count 必须严格等于 goalRequestCount；count=1 省略 items，count>1 使用 variants，相同要求可省略 items，逐项要求提供与 count 等长的 items。跨境电商矩阵还必须严格匹配冻结计划的 hash 与槽位/语言顺序。总请求不得超过 200。普通或不完整 TaskScope 必须省略。" },
             commercePlanHash: { type: "string", pattern: "^commerce-[a-f0-9]{32}$", description: "可选。只用于已确认的跨境电商结构化套图计划，原样复制任务中的 PLAN_HASH，用于成果溯源。" },
+            creationSlotId: { type: "string", description: "当前版本化创作要求的稳定输出槽位；多图不同槽位放在各items。只作溯源，不写入画面。定向修订由冻结目标固定。" },
             slotId: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录该成品的结构化槽位 ID。" },
             slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 0-11 的套图槽位零基序号。" },
             localeCode: { type: "string", description: "可选。仅当已确认的跨境电商 Goal 对每个 SOURCE 只生成一张时使用，记录 BCP-47 目标语言代码。" },
@@ -134,6 +137,7 @@ function toolSchemas(settings = {}) {
                 type: "object",
                 properties: {
                   title: { type: "string", description: "该图片在批量组中的短标题。" },
+                  creationSlotId: { type: "string", description: "当前版本化创作要求的稳定输出槽位。" },
                   prompt: { type: "string", description: "这一张图片自己的完整纯视觉提示词；必须重复系列身份、商品、服装、版式、文字等核心不变量，并清楚写出本项唯一变化。多角度商品图逐项写明方位角、俯仰角和必须显露的侧面/顶部结构，不能只写左侧、右侧等模糊方向。省略任务 nonce、测试标记、文件路径、节点/调用/记忆 ID 和实现说明，不能把这些内容写成负面约束。" },
                   slotId: { type: "string", description: "可选的结构化套图槽位 ID；仅作成果溯源，不得写入画面。" },
                   slotIndex: { type: "integer", minimum: 0, maximum: 11, description: "可选的结构化套图槽位零基序号；同一槽位跨语言复用相同序号，仅作成果溯源。" },
@@ -521,6 +525,7 @@ function agentToolSchemas(settings = {}, options = {}) {
     "generationMode",
     "scopeExecution",
     "commercePlanHash",
+    "creationSlotId",
     "slotId",
     "slotIndex",
     "localeCode",
@@ -630,7 +635,7 @@ function agentToolSchemas(settings = {}, options = {}) {
         }
       }
     : null;
-  const publicNames = ["shell_command", "view_image", "ask_user"];
+  const publicNames = ["shell_command", "view_image", "ask_user", "creation"];
   const includeNativeWebSearch = options.includeNativeWebSearch !== false;
   const publicTools = [
     publicImageTool,
@@ -643,7 +648,7 @@ function agentToolSchemas(settings = {}, options = {}) {
     if (String(tool?.type || "") !== "function" || !tool?.function) return tool;
     const parameters = tool.function?.parameters || { type: "object", properties: {} };
     const name = String(tool.function?.name || "");
-    const supportsBrief = [primaryImageToolName, "experience", "workflow", "ask_user"].includes(name);
+    const supportsBrief = [primaryImageToolName, "experience", "workflow", "ask_user", "creation"].includes(name);
     return {
       ...tool,
       function: {

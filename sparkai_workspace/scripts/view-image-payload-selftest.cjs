@@ -1,11 +1,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync } = require("node:fs");
+const { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, readFileSync, writeFileSync } = require("node:fs");
+const { createHash } = require("node:crypto");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const sharp = require("sharp");
 const { createAgentRuntime, prepareViewImageModelPayload, runtimeImageSourceMaxBytes, viewImagePayloadBudgetForBatch } = require("../agent-runtime.cjs");
+const { createImageObservationLedger, verifyObservationEvidence } = require("../runtime/image-observation-evidence.cjs");
 
 async function main() {
   const root = mkdtempSync(path.join(tmpdir(), "naimage-view-image-"));
@@ -49,6 +51,38 @@ async function main() {
     assert.equal(original.height, 32);
     assert.equal(original.resized, false);
     assert.ok(original.payloadBytes <= 900 * 1024);
+    const contentHash = file => createHash("sha256").update(readFileSync(file)).digest("hex");
+    assert.equal(original.sourceContentHash, contentHash(smallPath), "Observation hash describes the exact source buffer, including original detail");
+    assert.equal(high.sourceContentHash, contentHash(largePath), "A resized observation retains its original source hash");
+    const target = { assetId: "observed-result", occurrenceId: "occ-1111111111111111", contentHash: contentHash(smallPath) };
+    const source = { assetId: "observed-source", occurrenceId: "occ-2222222222222222", contentHash: contentHash(largePath) };
+    const requirementRef = { requirementId: "requirements-view", revision: 1, fingerprint: "creation-fixture" };
+    const scope = { projectId: "view-project", conversationId: "view-conversation", taskId: "view-task", runId: "view-run", projectRoot: root };
+    const ledger = createImageObservationLedger(scope);
+    ledger.stage({ imagePath: smallPath, modelImage: original, assets: [{ ...target, path: smallPath }], requirementRef });
+    const review = { ...scope, target, requirementId: requirementRef.requirementId, expectedRequirementsRevision: 1 };
+    assert.throws(() => ledger.proofFor(review), /成功消费/, "Reading pixels cannot prove a later model consumed them");
+    const messages = [{ role: "tool", content: [{ type: "input_image", image_url: original.dataUrl }] }];
+    ledger.consume(messages, { status: "incomplete", output: [] }, "failed-model");
+    assert.throws(() => ledger.proofFor(review), /成功消费/, "An incomplete model round cannot issue proof");
+    ledger.consume(messages, { status: "completed", output: [] }, "view-run:model:2");
+    const proof = ledger.proofFor(review);
+    assert.equal(verifyObservationEvidence(proof, review), true);
+    assert.equal(verifyObservationEvidence(JSON.parse(JSON.stringify(proof)), review), false, "CLI JSON cannot forge Runtime proof");
+    assert.equal(verifyObservationEvidence(proof, { ...review, target: source }), false, "Proof cannot be borrowed for another asset/hash");
+    assert.equal(verifyObservationEvidence(proof, { ...review, runId: "other-run" }), false, "Proof cannot cross runs");
+    assert.equal(verifyObservationEvidence(proof, { ...review, expectedRequirementsRevision: 2 }), false, "Old proof cannot satisfy updated requirements");
+    assert.throws(() => ledger.proofFor({ ...review, sourceTargets: [source] }), /来源图片像素/, "Source consistency requires consumed source pixels");
+    ledger.stage({ imagePath: largePath, modelImage: high, assets: [{ ...source, path: largePath }], requirementRef });
+    ledger.consume([{ content: [{ type: "input_image", image_url: high.dataUrl }] }], { status: "completed", output: [] }, "view-run:model:3");
+    const comparedProof = ledger.proofFor({ ...review, sourceTargets: [source] });
+    assert.equal(verifyObservationEvidence(comparedProof, { ...review, sourceTargets: [source] }), true);
+    writeFileSync(smallPath, readFileSync(largePath));
+    assert.throws(() => ledger.proofFor(review), /字节已经改变/, "Changing bytes invalidates an otherwise genuine consumed observation");
+    writeFileSync(smallPath, Buffer.from(original.dataUrl.split(",")[1], "base64"));
+    writeFileSync(largePath, readFileSync(smallPath));
+    assert.throws(() => ledger.proofFor({ ...review, sourceTargets: [source] }), /字节已经改变/, "Changing a required source invalidates the comparison evidence");
+    ledger.close();
 
     const oversizedPath = path.join(root, "oversized-source.png");
     const oversizedDescriptor = openSync(oversizedPath, "w");
@@ -114,7 +148,8 @@ async function main() {
       crossProjectViewRejected: true,
       workspaceImageRootDisabled: true,
       oversizedSourceRejectedBeforeRead: true,
-      askUserLimitsFinite: true
+      askUserLimitsFinite: true,
+      consumedPixelProofRequired: true, forgedProofRejected: true, crossAssetRunAndRequirementsProofRejected: true, sourceComparisonPixelsRequired: true, changedObservedBytesRejected: true
     })}\n`);
   } finally {
     runtime?.dispose?.();

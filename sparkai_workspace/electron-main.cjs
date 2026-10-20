@@ -70,6 +70,11 @@ const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs")
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentTaskService } = require("./desktop/agent-task-service.cjs");
 let agentTaskService;
+const { createProjectCreationService } = require("./desktop/project-creation-service.cjs");
+const { createCreationMaskService } = require("./desktop/creation-mask-service.cjs");
+const { createCreationCommandService, CREATION_COMMANDS } = require("./desktop/creation-command-service.cjs");
+const { verifyObservationEvidence } = require("./runtime/image-observation-evidence.cjs");
+let creationCommandService;
 const { createDebugCommandService } = require("./desktop/debug-command-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
@@ -1096,8 +1101,8 @@ automationService = createAutomationService({
   version: getDesktopVersion(),
   executablePath: process.execPath,
   log,
-  serviceCommandHandler: (command, args) => command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
-  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer"]
+  serviceCommandHandler: (command, args) => command.startsWith("creation.") ? creationCommandService.execute(command, args) : command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
+  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer", ...CREATION_COMMANDS]
 });
 const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
@@ -1486,6 +1491,28 @@ const commerceCatalogService = createProjectCommerceCatalogService({
   projectSessionFromDisk,
   readProjectList
 });
+const creationMaskService = createCreationMaskService({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  readSession: projectId => projectSessionFromDisk(getProjectById(projectId, readProjectList())),
+  projectRelativePath, resolveProjectRelativePath, sharp, metaDir: projectMetaDirName
+});
+const creationService = createProjectCreationService({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  readSession: projectId => projectSessionFromDisk(getProjectById(projectId, readProjectList())),
+  catalogService: commerceCatalogService, projectRelativePath, resolveProjectRelativePath,
+  verifyObservationEvidence, metaDir: projectMetaDirName,
+  resolveSavedResult({ projectId, taskId, target }) {
+    if (!taskId) return null;
+    for (const summary of imageOperationJournal.list(projectId)) {
+      const operation = imageOperationJournal.get(projectId, summary.key);
+      if (operation.agentTaskId !== taskId) continue;
+      const asset = (operation.assets || []).find(asset => asset.assetId === target.assetId && asset.occurrenceId === target.occurrenceId && asset.contentHash === target.contentHash);
+      if (asset) return { asset, node: { id: "", title: "已生成成果", type: "image", assets: [asset] } };
+    }
+    return null;
+  }
+});
+creationService.setMaskResolver(args => creationMaskService.resolve(args));
 const commerceExportService = createProjectCommerceExportService({
   getProjectById,
   readProjectList,
@@ -1823,7 +1850,8 @@ function isPathInside(resolvedPath, rootPath) {
 function isAllowedAssetPath(filePath) {
   const resolved = path.resolve(filePath);
   if (isPathInside(resolved, referencesDir)) return true;
-  return outputRoots().some((root) => isPathInside(resolved, root));
+  if (outputRoots().some((root) => isPathInside(resolved, root))) return true;
+  return readProjectList().projects.some(project => Boolean(project.path && controlledProjectAssetFile(resolved, project.path)));
 }
 
 function isAllowedOutputPath(filePath) {
@@ -2741,6 +2769,14 @@ function getAgentRuntime() {
         return project?.path || "";
       },
       goalProbeAdmission,
+      creationService,
+      beforeCreationRequirements: payload => agentTaskService.assertRequirementsMutable(payload),
+      onCreationRequirements: payload => {
+        const previousHash = agentRunControl.snapshot().runs.find(run => run.runId === payload.runId)?.taskScopeSnapshotHash;
+        const result = agentTaskService.advanceRequirements(payload);
+        agentRunControl.updateTaskScope({ ...payload, previousHash });
+        return result;
+      },
       imageRoots: [referencesDir],
       includeProjectRootImageRoot: false,
       resolveImageRoots: agentImageRootsForContext,
@@ -5180,6 +5216,8 @@ const imageOperationJournal = createImageOperationJournal({
 
 agentTaskService = createAgentTaskService({
   projectFor: projectId => getProjectById(projectId, readProjectList()), metaDir: projectMetaDirName,
+  creationRequirements: input => creationService.requirementRefForTask(input),
+  validateCreationScope: ({ projectId, conversationId, taskScope }) => creationService.validateTaskContract({ projectId, conversationId, creation: taskScope.creation }),
   readSession(projectId) {
     const project = getProjectById(projectId, readProjectList());
     if (!project?.sessionPath || !existsSync(project.sessionPath)) return null;
@@ -5198,6 +5236,8 @@ agentTaskService = createAgentTaskService({
   },
   dispatch: (command, args, owner) => automationService.dispatchRenderer(command, args, 15_000, owner)
 });
+creationService.setTaskResolver((projectId, taskId, conversationId) => agentTaskService.get({ expectedProjectId: projectId, taskId, conversationId }).task);
+creationCommandService = createCreationCommandService({ creationService, taskService: agentTaskService, maskService: creationMaskService });
 
 function registerIpc() {
   registerDesktopIpc({
@@ -5270,6 +5310,9 @@ function registerIpc() {
     emitAgentProgress,
     agentRunControl,
     agentTaskService,
+    creationService,
+    creationCommandService,
+    creationMaskService,
     aidebugMode,
     aidebugAgentStopFixture,
     createWindow,

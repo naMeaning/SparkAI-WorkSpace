@@ -229,6 +229,21 @@ function createAgentRunControl(options = {}) {
     );
   }
 
+  function updateTaskScope({ runId, projectId, conversationId, previousHash, taskScope } = {}) {
+    const record = runs.get(clean(runId));
+    if (!record || record.projectId !== clean(projectId) || record.conversationId !== clean(conversationId) ||
+      clean(record.taskScope?.snapshotHash) !== clean(previousHash) || !taskScope?.snapshotHash) {
+      throw Object.assign(new Error("运行范围已经变化，不能更新创作要求。"), { code: "TASK_SCOPE_STALE" });
+    }
+    const nextLocks = taskScopeLockedNodeIds(taskScope);
+    if (JSON.stringify([...nextLocks].sort()) !== JSON.stringify([...record.taskScopeNodeIds].sort())) {
+      throw Object.assign(new Error("创作要求更新不能改变锁定素材。"), { code: "TASK_SCOPE_CHANGED" });
+    }
+    record.taskScope = taskScope;
+    onChange(snapshot());
+    return { ok: true, taskScopeSnapshotHash: taskScope.snapshotHash };
+  }
+
   function pause(value = {}) {
     const targets = matching(value);
     for (const record of targets) stateFor(record).paused = true;
@@ -470,6 +485,7 @@ function createAgentRunControl(options = {}) {
     beginPhase,
     consumeSteers,
     snapshot,
+    updateTaskScope,
     waitUntilRunnable,
     createAbortError,
     createSteerError

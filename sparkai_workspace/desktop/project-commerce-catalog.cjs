@@ -191,6 +191,7 @@ function sanitizeStoredAsset(value, ownerIds) {
     ownerId,
     role: cleanText(value?.role, 60) || (kind === "brand" ? "logo" : kind === "result" ? "listing" : "primary"),
     assetId,
+    ...(cleanText(value?.occurrenceId, 180) ? { occurrenceId: cleanText(value.occurrenceId, 180) } : {}),
     contentHash,
     relativePath,
     fileName,
@@ -255,6 +256,7 @@ function sanitizeStoredProduct(value) {
   return {
     productId,
     title,
+    ...(value?.creationResultOwner === true ? { creationResultOwner: true } : {}),
     ...(cleanText(value?.productCode, 120) ? { productCode: cleanText(value.productCode, 120) } : {}),
     ...(cleanText(value?.brand, 120) ? { brand: cleanText(value.brand, 120) } : {}),
     ...(brandStyle ? { brandStyle } : {}),
@@ -332,6 +334,7 @@ function comparisonGroupsForDocument(document, productId = "") {
       current.candidates.push({
         linkId: asset.linkId,
         assetId: asset.assetId,
+        ...(asset.occurrenceId ? { occurrenceId: asset.occurrenceId } : {}),
         contentHash: asset.contentHash,
         fileName: asset.fileName,
         relativePath: asset.relativePath,
@@ -482,6 +485,8 @@ function createProjectCommerceCatalogService({
   if (![getProjectById, projectCommerceCatalogPath, projectRelativePath, resolveProjectRelativePath, projectSessionFromDisk, readProjectList].every((item) => typeof item === "function")) {
     throw new TypeError("commerce catalog project services are required");
   }
+  let resultApprovalGuard = () => {};
+  const setResultApprovalGuard = guard => { resultApprovalGuard = typeof guard === "function" ? guard : () => {}; };
 
   function projectForId(projectIdValue) {
     const projectId = cleanText(projectIdValue, 160);
@@ -726,6 +731,7 @@ function createProjectCommerceCatalogService({
     }
     return {
       assetId,
+      ...(cleanText(asset.occurrenceId, 180) ? { occurrenceId: cleanText(asset.occurrenceId, 180) } : {}),
       contentHash,
       relativePath,
       fileName: cleanText(asset.fileName || path.basename(asset.path || relativePath), 240),
@@ -1027,6 +1033,7 @@ function createProjectCommerceCatalogService({
     if (!RESULT_STATES.has(state)) throw new CommerceCatalogError("INVALID_RESULT_STATE", "生成结果状态无效。", { state });
     const assetIndex = product.assets.findIndex((item) => item.linkId === linkId && item.kind === "result");
     if (assetIndex < 0) throw new CommerceCatalogError("ASSET_LINK_NOT_FOUND", "生成结果不存在或已被移除。", { linkId });
+    if (state === "approved") resultApprovalGuard({ project, product, asset: product.assets[assetIndex] });
     if (product.assets[assetIndex].state === state) return { ok: true, changed: false, projectId: project.id, catalogRevision: document.revision, product };
     const timestamp = now();
     const assets = [...product.assets];
@@ -1068,6 +1075,7 @@ function createProjectCommerceCatalogService({
     if (!group.candidates.some((candidate) => candidate.linkId === winnerLinkId)) {
       throw new CommerceCatalogError("COMPARISON_WINNER_INVALID", "选定结果不属于当前 A/B 比较组。", { groupKey, winnerLinkId });
     }
+    resultApprovalGuard({ project, product, asset: product.assets.find(asset => asset.linkId === winnerLinkId) });
     const memberIds = new Set(group.candidates.map((candidate) => candidate.linkId));
     let changed = false;
     const assets = product.assets.map((asset) => {
@@ -1103,8 +1111,45 @@ function createProjectCommerceCatalogService({
     return writeDocument(project, document);
   }
 
+  // Generic creation results share the catalog's existing adoption/A-B/export
+  // states. The creation owner never persists a second approval boolean.
+  function ensureCreationResult(payload = {}) {
+    const project = projectForId(payload.expectedProjectId), document = readDocument(project);
+    const asset = authoritativeAsset(project, payload.nodeId, payload.assetIndex);
+    if (payload.target && (asset.assetId !== payload.target.assetId || asset.contentHash !== payload.target.contentHash || asset.occurrenceId !== payload.target.occurrenceId)) {
+      throw new CommerceCatalogError("ASSET_HASH_MISMATCH", "定向成果身份已变化，未关联旧槽位。");
+    }
+    for (const product of document.products) {
+      const existing = product.assets.find(item => item.kind === "result" && item.assetId === asset.assetId && item.contentHash === asset.contentHash && (!item.occurrenceId || item.occurrenceId === asset.occurrenceId));
+      if (existing?.occurrenceId) return { ok: true, catalogRevision: document.revision, product, asset: existing };
+      if (existing) {
+        const linked = { ...existing, occurrenceId: asset.occurrenceId }, timestamp = now();
+        const next = { ...product, assets: product.assets.map(item => item.linkId === existing.linkId ? linked : item), revision: product.revision + 1, updatedAt: timestamp };
+        const saved = writeDocument(project, { ...document, products: document.products.map(item => item.productId === product.productId ? next : item), revision: document.revision + 1, updatedAt: timestamp });
+        return { ok: true, catalogRevision: saved.revision, product: next, asset: linked };
+      }
+    }
+    const timestamp = now();
+    let product = document.products.find(item => item.creationResultOwner === true && item.status === "active");
+    if (!product) {
+      if (document.products.length >= COMMERCE_CATALOG_MAX_PRODUCTS) throw new CommerceCatalogError("CATALOG_LIMIT_REACHED", "成果库已满，未创建第二套采用状态。");
+      product = { productId: allocateId("product"), title: "项目创作成果", creationResultOwner: true, platforms: [], status: "active", revision: 1,
+        createdAt: timestamp, updatedAt: timestamp, variants: [], skus: [], assets: [] };
+    }
+    if (product.assets.length >= COMMERCE_CATALOG_MAX_ASSETS) throw new CommerceCatalogError("PRODUCT_LIMIT_REACHED", "创作成果关联已达上限。");
+    const link = { linkId: allocateId("result"), kind: "result", ownerType: "product", ownerId: product.productId,
+      role: cleanText(payload.role, 60) || "creation", ...asset, state: "candidate", createdAt: timestamp };
+    const next = { ...product, assets: [...product.assets, link], revision: product.revision + 1, updatedAt: timestamp };
+    const products = document.products.some(item => item.productId === product.productId)
+      ? document.products.map(item => item.productId === product.productId ? next : item) : [...document.products, next];
+    const saved = writeDocument(project, { ...document, products, revision: document.revision + 1, updatedAt: timestamp });
+    return { ok: true, catalogRevision: saved.revision, product: next, asset: link };
+  }
+
   return {
     archiveProduct,
+    ensureCreationResult,
+    setResultApprovalGuard,
     assignAssets,
     list,
     listComparisons,

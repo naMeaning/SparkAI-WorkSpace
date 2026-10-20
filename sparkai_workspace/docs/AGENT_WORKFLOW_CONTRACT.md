@@ -2,6 +2,30 @@
 
 本文描述桌面 GUI、主 Agent Runtime 和本机 CLI/MCP 共用的边界。验证与制品状态以 [PROGRESS.md](../PROGRESS.md) 为准。
 
+## 版本化要求、验收与定向修改
+
+完整创作合同位于 Main 项目 owner 的 `.naimage/creation.json`。合同含目标/用途、稳定槽位、保留/可变/可验收条件、文件约束和 user/assumption 来源；TaskScope.creation 仅引用要求版本及冻结修订计划，不另建素材或配置 authority。旧项目没有此字段时保持可读，不补造历史验收。新任务可直接以明确用户原文建立轻量要求，主 Agent 通过公开 `creation` 工具细化，tool_choice 保持 auto，不增加独立规划模型请求。
+
+精确区域修改复用原涂抹编辑器及 `creation.revision.start`，一次绑定一个稳定成果身份。Main `desktop/creation-mask-service.cjs` 完整解码并保存同尺寸、有透明选区的 PNG，私有项目目录 `.naimage/creation-masks/` 及 manifest 记录其会话/目标/字节身份；保存失败不启动任务。修订计划只保存 `targets[].mask` 三元身份，TaskScope.maskAssets 是完整冻结蒙版材料的唯一执行来源；它不混入 source/reference，不生成画布节点。公开 CLI/MCP 不接受路径、URL、dataURL 或额外蒙版字段。首次受理前校验身份/目标绑定、项目路径及真实字节；Runtime 再校验源图与蒙版 hash、尺寸、解码和选区后，从验证过的相同 bytes 执行唯一 image_gen redraw。模型不得覆盖蒙版。已有 durable 回执重复查询不依赖蒙版当前存在，也不重新派发。
+
+要求更新使用 expectedRevision CAS；定向提交使用调用方 submissionId，重复查询原计划，异内容冲突。任务 ledger 保存 initial/current 引用、摘要及必要关联，不保存完整合同、Prompt、路径或任意工具参数。主 Agent 在首个图片请求前细化本次要求时，由 Main 校验当前 run、旧引用及冻结素材/配置后关联新版本；Renderer 使用 effectiveTaskScope 保存追问和恢复。已生成成果的要求版本不被后续编辑改写，Goal 的素材、数量和授权不扩展。
+
+验收分三类：A 是文件存在、实际完整解码、尺寸/格式/透明像素等本地检测；B 是主模型基于已消费像素提交的有限观察；C 是用户决定。完成或 saved 不自动取得 B/C。每条证据绑定项目、asset/occurrence、内容 hash、要求版本、检查项和时间。view_image 成功后，只有实际带对应像素的后续成功模型回合可以签发进程内 proof；record_review 必须通过 Runtime 验证，来源一致性还需来源图相同证明。公开 CLI 不接收 proof 或模型观察字段。内容、要求或依赖来源漂移使旧证据失效，移动和改名不使像素验收失效；历史记录保留。
+
+图片工具返回已落盘成果后自动调用同一 Main 本地检查，初次生成、定向修改和蒙版修改均按冻结要求版本记录 A；每目标/ref 只检查一次。视觉保留和修改要求仍须由后续实际看图消费后提交 B，不能用尺寸或格式通过替代。文件规则失败显示本地未通过；验收记录写入失败单独显示，已保存图片及执行成功保留，不重调图片模型。用户可在原成果上重新执行无模型费用的本地检查。
+
+验收持久化失败包括序列化、8MiB容量拒绝和文件系统写失败。显式检查失败与图片保存后自动检查未能记入的结果均进入Runtime本run的不可重生保护；后续主模型即使再次提出image_gen也在派发前拒绝，已成功的图片actions和回执保持。该内部保护不进入公开DTO或持久化参数，不以Prompt文字指引代替。
+
+主窗与独立 Agent 窗使用相同的要求草稿转换；交付项改名、条件改写保留原 slotId/criterionId 与来源图绑定，未编辑的 Agent 假设仍为 assumption。成果选择使用 asset/occurrence/hash，不以当前列表顺序或名称代替身份。两个表面从同一 owner 的 invalidReasons 映射证据：要求版本或目标资产变化时，旧 A 显示“本地检查已过期”，不能继续显示当前通过/失败；仅 B 依赖的来源变化时，A 的独立文件检测可保留，B 显示过期。失效不改写历史 C，也不重新生成图片。
+
+折叠汇总中的目标数量取当前要求 slots 数，已保存数量取 owner 的 saved，待检查数量取缺少或过期 A/B 的成果；有疑问数量只取有效 A 失败或当前 B 建议修改/无法确定，历史通过和历史失败均不能冒充当前结论。A 失败且 B 未检查的成果可同时计入有疑问与待检查；已采用仍展示 catalog 的实际用户决定。主窗和独立窗使用同一计算，不因展开或列表重排改变数量。
+
+创作操作的失败与记录读取失败分别反馈。成功刷新 Main 记录不能清除保存冲突、修订拒绝或丢失回执的操作错误；该错误在主窗与独立窗保留到用户再次操作或切换项目/会话，读取故障恢复则只清除读取错误。过期窗口命令在 IPC 派发前拒绝并显示原因，不自动重发。
+
+用户采用通过原 commerce catalog candidate/approved/rejected 状态及 A/B 原子终选，导出仍读取这个唯一 owner。AI观察不修改用户终选，硬文件检查失败不能被采用覆盖。保存/观察/验收写失败分别报告，已保存图片保留，不重调图片模型。
+
+`creation.requirements.get/update`、`creation.acceptance.get/check/decide` 与 `creation.revision.start` 共用共享 schema、registry、preload/IPC、CLI/MCP 和 Skill。定向计划冻结 asset/occurrence/hash、要求版本和每目标 delta；模型只调用原 image_gen，Runtime 每目标执行一张，并保留原配置/来源/槽位与修改基准。改动产生新要求修订和关联原成果的新任务。保留主体属于生成/验收约束，不承诺区域像素绝对不变。创建不明、超时/5xx、停止、下载或保存失败均沿用原错误恢复合同，不能自动改 Prompt、模型或 submission 重发。
+
 ## 配置与素材的冻结
 
 `runtime/image-config-snapshot.mjs` 是图片请求配置快照的共享 owner。它只保存已勾选模型池、默认模型、画幅、质量、数量、格式，以及对应模型的协议、网关、传输方式、轮询限制和能力白名单。已保存但未勾选的模型连接不能进入模型池。模型匹配和去重不区分大小写，与图片服务解析规则一致。

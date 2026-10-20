@@ -4,6 +4,51 @@ const locator = value => {
   return /^(?:data|blob):/i.test(normalized) ? "" : normalized;
 };
 
+export function imageAssetContentHash(asset = {}) {
+  const value = String(asset.contentHash || asset.sha256 || "").trim().toLowerCase();
+  return /^[a-f0-9]{32,128}$/.test(value) ? value : "";
+}
+
+export function imageAssetIdentityLocators(asset = {}) {
+  const relativePath = String(asset.relativePath || "").trim().replace(/\\/g, "/").toLowerCase();
+  const localPath = String(asset.path || "").trim().replace(/\\/g, "/").toLowerCase();
+  const assetUrl = String(asset.assetUrl || "").trim();
+  const url = String(asset.url || "").trim();
+  return [...new Set([
+    relativePath ? `relative-path:${relativePath}` : "",
+    localPath ? `path:${localPath}` : "",
+    assetUrl && !/^(?:data|blob):/i.test(assetUrl) ? `asset-url:${assetUrl}` : "",
+    url && !/^(?:data|blob):/i.test(url) ? `url:${url}` : ""
+  ].filter(Boolean))];
+}
+
+// Renderer and Main keep their historical digest algorithms, but must agree
+// about which claims describe the same generated output or managed file.
+export function imageAssetIdentitySources(asset = {}, { fallbackIndex = 1, ownerId = "", slot = 0, contentHashesByLocator = null } = {}) {
+  const contentHash = imageAssetContentHash(asset), locators = imageAssetIdentityLocators(asset), bridgedHashes = new Set();
+  if (!contentHash && contentHashesByLocator) for (const key of locators) {
+    const hashes = contentHashesByLocator.get(key);
+    if (hashes?.size === 1) bridgedHashes.add([...hashes][0]);
+  }
+  const effectiveContentHash = contentHash || (bridgedHashes.size === 1 ? [...bridgedHashes][0] : "");
+  const runId = String(asset.runId || "").trim(), normalizedRunId = runId.toLowerCase();
+  const originalName = String(asset.originalName || asset.fileName || asset.name || "").trim().toLowerCase();
+  const index = Math.max(1, Number(asset.index || fallbackIndex) || 1);
+  let primarySource = effectiveContentHash ? `content:${effectiveContentHash}` : locators[0] ||
+    (runId ? `run:${runId}|index:${index}` : originalName ? `name:${originalName}|index:${index}` : `index:${index}`);
+  if (!effectiveContentHash && !locators.length && !runId) primarySource += `|owner:${ownerId}|slot:${Math.max(0, Number(slot) || 0)}`;
+  const imported = normalizedRunId.startsWith("import-") || Boolean(asset.importBatchId && asset.importRootId && asset.sourceRelativePath);
+  if (normalizedRunId && !imported) {
+    const occurrence = String(asset.occurrenceId || "").trim().toLowerCase() || String(asset.assetId || asset.index || "").trim();
+    primarySource = `generated:${normalizedRunId}|occurrence:${occurrence}|${primarySource}`;
+  }
+  // Legacy previews/attachments may use different run metadata for one real
+  // managed file. Byte-qualified physical aliases bridge only that file;
+  // equal bytes written by other requests retain their generation identities.
+  const physical = locators.map(key => effectiveContentHash ? `${key}|content:${effectiveContentHash}` : key);
+  return { primarySource, aliasSources: [...new Set([primarySource, ...physical])] };
+}
+
 function assetKeys(asset, slot, generatedOnly) {
   const runId = text(asset.runId).toLowerCase();
   const imported = runId.startsWith("import-") || Boolean(text(asset.importBatchId) && text(asset.importRootId) && text(asset.sourceRelativePath));

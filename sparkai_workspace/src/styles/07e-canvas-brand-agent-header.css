@@ -1,3 +1,5 @@
+@import "../../public/creation-session.css";
+
 /* 2026-07 infinite canvas first pass: brand, canvas-first layout, Agent core node, settings/account cleanup. */
 .titlebar-brand-icon {
   width: 24px;
@@ -57,6 +59,8 @@
 .project-agent-panel.has-task {
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
+
+.agent-task-area { min-width: 0; max-height: min(42vh, 310px); overflow: auto; overscroll-behavior: contain; }
 
 .agent-task-card {
   min-width: 0;

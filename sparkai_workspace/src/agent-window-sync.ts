@@ -16,6 +16,7 @@ import {
 import { workspaceDomainDefinition } from "./workspace-domain.ts";
 import { runHasIncompleteModelReply } from "./model-ux.ts";
 import type { AgentTaskCard, AgentTaskReceipt } from "./agent-task";
+import type { CreationCheckInput, CreationDecisionInput, CreationRegionRevisionInput, CreationRequirementsUpdate, CreationRevisionInput, CreationSessionSnapshot } from "./creation-session";
 
 const maximumPromptChars = 200_000;
 const maximumMessageChars = 16_000;
@@ -64,6 +65,9 @@ export type AgentWindowGlassAppearance = GlassThemeSettings & {
 };
 
 export type AgentWindowSnapshot = {
+  creationSession?: CreationSessionSnapshot | null;
+  creationBusy?: boolean;
+  creationError?: string;
   taskCard?: AgentTaskCard | null;
   taskQuestion?: { taskId: string; projectId: string; conversationId: string; version: number; question: NonNullable<AgentTaskReceipt["question"]> } | null;
   version: 1;
@@ -91,6 +95,11 @@ export type AgentWindowSnapshot = {
 };
 
 export type AgentWindowCommand =
+  | { type: "creation-requirements-update"; input: CreationRequirementsUpdate }
+  | { type: "creation-decision"; input: CreationDecisionInput }
+  | { type: "creation-revision"; input: CreationRevisionInput }
+  | { type: "creation-region-revision"; input: CreationRegionRevisionInput }
+  | { type: "creation-check"; input: CreationCheckInput }
   | { type: "task-action" }
   | { type: "task-answer"; taskId: string; projectId: string; conversationId: string; questionId: string; expectedVersion: number; answer?: string; optionId?: string }
   | { type: "request-state" | "closed" | "pause-confirmed" | "resume" | "stop-confirmed" | "new-conversation-confirmed" | "clear-conversation-confirmed" | "edit-sources" | "edit-references" | "edit-image-config" | "edit-memory" }
@@ -101,6 +110,9 @@ export type AgentWindowCommand =
   | { type: "dock"; placement: "right" | "left" | "top" | "bottom" | "floating" };
 
 export type AgentWindowSnapshotInput = {
+  creationSession?: CreationSessionSnapshot | null;
+  creationBusy?: boolean;
+  creationError?: string;
   taskCard?: AgentTaskCard | null;
   taskQuestion?: AgentWindowSnapshot["taskQuestion"];
   ready: boolean;
@@ -137,6 +149,37 @@ function boundedText(value: unknown, maximumChars: number) {
 
 function boundedCount(value: unknown, maximum = 999) {
   return Math.max(0, Math.min(maximum, Math.floor(Number(value) || 0)));
+}
+
+function creationWindowProjection(session?: CreationSessionSnapshot | null): CreationSessionSnapshot | null {
+  if (!session) return null;
+  const target = (value: import("./creation-session").CreationTarget) => ({ assetId: boundedText(value.assetId, 180), occurrenceId: boundedText(value.occurrenceId, 180), contentHash: boundedText(value.contentHash, 64) });
+  const preview = (value?: string) => typeof value === "string" && value.startsWith("naimage-asset:") && value.length <= 2048 && !/[\u0000-\u0020]/.test(value) ? value : undefined;
+  const sourceText = (value: import("./creation-session").CreationText) => ({ text: boundedText(value.text, 200000), source: value.source === "user" ? "user" as const : "assumption" as const });
+  const criteria = (values: import("./creation-session").CreationCriterion[]) => values.slice(0, 200).map(value => ({ ...sourceText(value), text: boundedText(value.text, 4000), criterionId: boundedText(value.criterionId, 180),
+    ...(value.slotIds ? { slotIds: value.slotIds.slice(0, 200).map(value => boundedText(value, 180)) } : {}),
+    ...(value.kind ? { kind: value.kind === "source_consistency" ? "source_consistency" as const : "visual" as const } : {}),
+    ...(value.sourceTargets ? { sourceTargets: value.sourceTargets.slice(0, 200).map(target) } : {}) }));
+  const requirements = session.requirements;
+  return {
+    projectId: boundedText(session.projectId, 180), conversationId: boundedText(session.conversationId, 180),
+    requirementRef: session.requirementRef ? { requirementId: boundedText(session.requirementRef.requirementId, 180), revision: boundedCount(session.requirementRef.revision, Number.MAX_SAFE_INTEGER), fingerprint: boundedText(session.requirementRef.fingerprint, 100) } : null,
+    requirements: requirements ? { requirementId: boundedText(requirements.requirementId, 180), conversationId: boundedText(requirements.conversationId, 180), revision: boundedCount(requirements.revision, Number.MAX_SAFE_INTEGER), fingerprint: boundedText(requirements.fingerprint, 100),
+      goal: sourceText(requirements.goal), usage: sourceText(requirements.usage), slots: requirements.slots.slice(0, 200).map(value => ({ slotId: boundedText(value.slotId, 180), label: boundedText(value.label, 120), source: value.source === "user" ? "user" : "assumption" })),
+      preserve: criteria(requirements.preserve), adjustable: criteria(requirements.adjustable), conditions: criteria(requirements.conditions),
+      ...(requirements.fileRules ? { fileRules: { formats: requirements.fileRules.formats?.filter(value => ["png", "jpeg", "webp", "avif", "tiff"].includes(value)).slice(0, 5),
+        width: requirements.fileRules.width, height: requirements.fileRules.height, minWidth: requirements.fileRules.minWidth, minHeight: requirements.fileRules.minHeight,
+        alpha: requirements.fileRules.alpha } } : {}) } : null,
+    results: session.results.slice(0, 200).map(value => ({ target: target(value.target), label: boundedText(value.label, 200), generated: Boolean(value.generated), saved: Boolean(value.saved), inProject: Boolean(value.inProject), fileSaved: Boolean(value.fileSaved),
+      ...(value.slotId ? { slotId: boundedText(value.slotId, 180) } : {}), ...(preview(value.previewUrl) ? { previewUrl: preview(value.previewUrl) } : {}),
+      ...(value.baseline ? { baseline: { target: target(value.baseline.target), label: boundedText(value.baseline.label, 200), previewUrl: preview(value.baseline.previewUrl) } } : {}),
+      ...(value.fileCheck ? { fileCheck: { status: value.fileCheck.status, checkedAt: boundedText(value.fileCheck.checkedAt, 80), contentHash: boundedText(value.fileCheck.contentHash, 64), width: value.fileCheck.width, height: value.fileCheck.height, format: boundedText(value.fileCheck.format, 12), hasAlpha: value.fileCheck.hasAlpha,
+        issues: value.fileCheck.issues.slice(0, 40).map(issue => ({ code: boundedText(issue.code, 80), message: boundedText(issue.message, 1000), hard: true as const })) } } : {}),
+      ...(value.visualReview ? { visualReview: { reviewId: boundedText(value.visualReview.reviewId, 180), verdict: value.visualReview.verdict, reviewedAt: boundedText(value.visualReview.reviewedAt, 80), summary: boundedText(value.visualReview.summary, 4000),
+        findings: value.visualReview.findings.slice(0, 400).map(finding => ({ criterionId: boundedText(finding.criterionId, 180), status: finding.status, note: boundedText(finding.note, 2000) })),
+        modelRoundId: boundedText(value.visualReview.modelRoundId, 180), runId: boundedText(value.visualReview.runId, 180) } } : {}),
+      decision: { state: value.decision.state, ...(value.decision.reason ? { reason: boundedText(value.decision.reason, 2000) } : {}) }, current: Boolean(value.current), invalidReasons: value.invalidReasons.slice(0, 40).map(reason => boundedText(reason, 1000)) }))
+  };
 }
 
 function agentWindowGoalState(value: AgentWindowGoalState): AgentWindowGoalState {
@@ -272,6 +315,9 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
   const domain = workspaceDomainDefinition(input.workspaceDomain);
   return {
     version: 1,
+    creationSession: creationWindowProjection(input.creationSession),
+    creationBusy: Boolean(input.creationBusy),
+    creationError: boundedText(input.creationError, 2000),
     taskCard: input.taskCard || null,
     taskQuestion: input.taskQuestion || null,
     ready: Boolean(input.ready),
@@ -312,6 +358,28 @@ export function normalizeAgentWindowCommand(value: unknown): AgentWindowCommand 
   if (!value || typeof value !== "object") return null;
   const payload = value as Record<string, unknown>;
   const type = String(payload.type || "");
+  if (["creation-requirements-update", "creation-decision", "creation-revision", "creation-region-revision", "creation-check"].includes(type)) {
+    const input = payload.input as Record<string, unknown> | undefined;
+    if (!input || typeof input !== "object" || Array.isArray(input) || JSON.stringify(input).length > 2_000_000) return null;
+    const validId = (value: unknown) => typeof value === "string" && value.trim().length > 0 && value.length <= 180 && !/[\\/\u0000-\u001f]/.test(value);
+    if (!validId(input.expectedProjectId) || !validId(input.conversationId) || (input.requirementId !== undefined && !validId(input.requirementId))
+      || !Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 0) return null;
+    const changesValid = (list: unknown) => Array.isArray(list) && list.length <= 200 && list.every(item => typeof item === "string" && item.trim().length > 0 && item.length <= 2000);
+    const identityValid = (value: unknown) => { const target = value as Record<string, unknown>; return target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).every(key => ["assetId", "occurrenceId", "contentHash"].includes(key))
+      && validId(target.assetId) && validId(target.occurrenceId) && typeof target.contentHash === "string" && /^[a-f0-9]{64}$/.test(target.contentHash); };
+    const targetValid = (value: unknown) => { const target = value as Record<string, unknown>; return target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).every(key => ["assetId", "occurrenceId", "contentHash", ...(["creation-revision", "creation-region-revision"].includes(type) ? ["preserve", "changes"] : []), ...(type === "creation-revision" ? ["mask"] : [])].includes(key))
+      && validId(target.assetId) && validId(target.occurrenceId) && typeof target.contentHash === "string" && /^[a-f0-9]{64}$/.test(target.contentHash)
+      && (target.preserve === undefined || changesValid(target.preserve)) && (target.changes === undefined || changesValid(target.changes)) && (target.mask === undefined || identityValid(target.mask)); };
+    if (type === "creation-decision" && (!targetValid(input.target) || !["adopt", "reject", "candidate"].includes(String(input.decision)) || (input.reason !== undefined && (typeof input.reason !== "string" || input.reason.length > 2000)))) return null;
+    if (["creation-revision", "creation-check"].includes(type) && (!Array.isArray(input.targets) || !input.targets.length || input.targets.length > 200 || !input.targets.every(targetValid))) return null;
+    if (type === "creation-revision" && (!validId(input.requirementId) || !validId(input.submissionId) || !/^[a-zA-Z0-9_.:@-]+$/.test(String(input.submissionId))
+      || ![input.preserve, input.changes].every(changesValid) || (!(input.changes as unknown[]).length && !(input.targets as Record<string, unknown>[]).every(target => (target.changes as unknown[] | undefined)?.length)))) return null;
+    if (type === "creation-revision" && (input.targets as Record<string, unknown>[]).some(target => target.mask !== undefined) && (input.targets as unknown[]).length !== 1) return null;
+    if (type === "creation-region-revision" && (!validId(input.requirementId) || !targetValid(input.target) || ![input.preserve, input.changes].every(changesValid)
+      || Object.keys(input).some(key => !["expectedProjectId", "conversationId", "requirementId", "expectedRevision", "target", "preserve", "changes"].includes(key)))) return null;
+    if (type === "creation-requirements-update" && (!input.requirements || typeof input.requirements !== "object" || Array.isArray(input.requirements))) return null;
+    return { type, input } as AgentWindowCommand;
+  }
   if ([
     "request-state",
     "closed",

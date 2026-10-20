@@ -195,6 +195,9 @@ function responseFromStreamChunks(chunks = []) {
     const finalToolCalls = Array.isArray(finalMessage.tool_calls) && finalMessage.tool_calls.length ? finalMessage.tool_calls : toolCalls;
     return {
       model: finalResponse.model || model,
+      ...(finalResponse.status && finalResponse.status !== "completed" ? { status: finalResponse.status } : {}),
+      ...(finalResponse.error ? { error: finalResponse.error } : {}),
+      ...(finalResponse.incomplete_details ? { incomplete_details: finalResponse.incomplete_details } : {}),
       choices: [
         {
           finish_reason: finishReason || finalResponse.status || undefined,

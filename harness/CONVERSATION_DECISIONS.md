@@ -15,6 +15,8 @@ Older conversations are represented through the maintained product documents whe
 
 ## Active Product Decisions
 
+2026-10-20 第二期（active）：用户授权直接实施结构化创作要求、证据分层验收和稳定资产定向修改；复用第一期任务/TaskScope/image_gen及catalog采用状态，0真实模型请求。每目标修改只生成相应新版本，原图保留；完成本期最终EXE、安全原位安装和upstream Git同步后停止，不启动第三期。详见桌面Goal与工作流合同。
+
 | ID | Status | Decision | Current authority |
 | --- | --- | --- | --- |
 | D-01 | active | SparkAI WorkSpace is a free Agent image-generation workspace (Agent 生图工作台), with one project Agent and an infinite result canvas. | User direction (2026-10-17), `sparkai_workspace/PRODUCT_INTENT.md` |

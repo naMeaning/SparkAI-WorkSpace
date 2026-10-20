@@ -3,6 +3,7 @@ import type {
   ImageAssetIdentityClaim,
   ImageAssetIdentityResolution
 } from "./core.ts";
+import { imageAssetContentHash as normalizedImageContentHash, imageAssetIdentityLocators, imageAssetIdentitySources } from "../runtime/image-asset-identity.mjs";
 
 export function stableIdentityHash(value: string) {
   const hashes = [2166136261, 2246822507, 3266489909, 668265263];
@@ -14,26 +15,6 @@ export function stableIdentityHash(value: string) {
     hashes[3] = Math.imul(hashes[3] ^ (code + hashes[1]), 668265263);
   }
   return hashes.map((hash) => (hash >>> 0).toString(16).padStart(8, "0")).join("");
-}
-
-function normalizedImageContentHash(asset: Partial<ImageAsset> = {}) {
-  const value = String(asset.contentHash ?? (asset as Partial<ImageAsset> & { sha256?: string }).sha256 ?? "").trim().toLowerCase();
-  return /^[a-f0-9]{32,128}$/.test(value) ? value : "";
-}
-
-function imageAssetIdentityLocators(asset: Partial<ImageAsset> = {}) {
-  const relativePath = String(asset.relativePath ?? "").trim().replace(/\\/g, "/").toLowerCase();
-  const localPath = String(asset.path ?? "").trim().replace(/\\/g, "/").toLowerCase();
-  const assetUrl = String(asset.assetUrl ?? "").trim();
-  const url = String(asset.url ?? "").trim();
-  const stableAssetUrl = /^(?:data|blob):/i.test(assetUrl) ? "" : assetUrl;
-  const stableUrl = /^(?:data|blob):/i.test(url) ? "" : url;
-  return [...new Set([
-    relativePath ? `relative-path:${relativePath}` : "",
-    localPath ? `path:${localPath}` : "",
-    stableAssetUrl ? `asset-url:${stableAssetUrl}` : "",
-    stableUrl ? `url:${stableUrl}` : ""
-  ].filter(Boolean))];
 }
 
 function imageAssetIdentitySource(asset: Partial<ImageAsset> = {}, fallbackIndex = 1) {
@@ -87,25 +68,11 @@ export function reconcileImageAssetIdentityClaims(claims: ImageAssetIdentityClai
   return claims.map((claim, claimIndex) => {
     const fallbackIndex = Math.max(1, Number(claim.index ?? claim.assetIndex + 1) || claimIndex + 1);
     const legacyAssetId = typeof claim.assetId === "string" ? claim.assetId.trim().slice(0, 160) : "";
-    const contentHash = normalizedImageContentHash(claim);
-    const locators = imageAssetIdentityLocators(claim);
-    const bridgedHashes = new Set(
-      locators.flatMap((locator) => {
-        const hashes = contentHashesByLocator.get(locator);
-        return hashes?.size === 1 ? [...hashes] : [];
-      })
-    );
-    const effectiveContentHash = contentHash || (bridgedHashes.size === 1 ? [...bridgedHashes][0] : "");
-    const baseSource = effectiveContentHash ? `content:${effectiveContentHash}` : imageAssetIdentitySource(claim, fallbackIndex);
-    const weakIdentity = !effectiveContentHash && locators.length === 0 && !String(claim.runId ?? "").trim();
-    const primarySource = weakIdentity
-      ? `${baseSource}|owner:${claim.ownerId}|slot:${claim.assetIndex}`
-      : baseSource;
+    const { primarySource, aliasSources } = imageAssetIdentitySources(claim, {
+      fallbackIndex, ownerId: claim.ownerId, slot: claim.assetIndex, contentHashesByLocator
+    });
     const fingerprint = stableIdentityHash(primarySource);
-    const aliasFingerprints = [...new Set(
-      (effectiveContentHash || locators.length === 0 ? [primarySource] : [primarySource, ...locators])
-        .map((source) => stableIdentityHash(source))
-    )];
+    const aliasFingerprints = aliasSources.map(source => stableIdentityHash(source));
     const knownCanonical = aliasFingerprints.map((alias) => canonicalByFingerprint.get(alias)).find(Boolean);
     if (knownCanonical) {
       aliasFingerprints.forEach((alias) => canonicalByFingerprint.set(alias, knownCanonical));

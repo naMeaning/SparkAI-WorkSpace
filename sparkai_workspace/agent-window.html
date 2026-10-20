@@ -6,6 +6,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: naimage-asset:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" />
     <title>SparkAI WorkSpace Agent</title>
     <link rel="stylesheet" href="./agent-window.css" />
+    <link rel="stylesheet" href="./public/creation-session.css" />
   </head>
   <body>
     <div class="agent-shell">
@@ -42,7 +43,10 @@
         </div>
       </section>
 
-      <section id="agent-task-card" class="agent-task-card" aria-label="当前任务" hidden></section>
+      <div class="agent-task-area">
+        <section id="agent-task-card" class="agent-task-card" aria-label="当前任务" hidden></section>
+        <details id="agent-creation-session" class="creation-session" hidden></details>
+      </div>
       <section id="agent-feed" class="agent-feed" aria-label="Agent 对话"></section>
 
       <section class="agent-context" aria-label="当前图片上下文">

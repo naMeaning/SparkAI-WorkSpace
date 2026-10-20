@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { creationResultStatus } from "../src/creation-session.ts";
+import type { CreationSessionSnapshot } from "../src/creation-session.ts";
+import { creationRequirementsDraft, creationRequirementsFromDraft } from "../runtime/creation-requirements-form.mjs";
 
 import {
   agentWindowStatusText,
@@ -258,4 +261,65 @@ for (const glassTheme of ["light-silver", "light-classic", "dark-classic"] as co
   assert(surfaceRenderer.includes(`"${glassTheme}"`), `Independent Agent must accept ${glassTheme}`);
 }
 
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 68 })}\n`);
+const creation: CreationSessionSnapshot = {
+  projectId: "project-1", conversationId: "conv-1",
+  requirements: { requirementId: "requirement-1", conversationId: "conv-1", revision: 2, fingerprint: "a".repeat(64),
+    goal: { text: "七张商品图", source: "user" }, usage: { text: "商品页面", source: "assumption" },
+    slots: [{ slotId: "slot-2", label: "细节图", source: "user" }], preserve: [], adjustable: [], conditions: [] },
+  results: Array.from({ length: 7 }, (_, index) => ({ target: { assetId: `asset-${index + 1}`, occurrenceId: `occurrence-${index + 1}`, contentHash: String(index + 1).repeat(64) },
+    label: `成果 ${index + 1}`, generated: true, saved: true, current: true, invalidReasons: [], decision: { state: "candidate" as const },
+    previewUrl: index === 0 ? "https://untrusted.invalid/result?token=synthetic" : `naimage-asset://managed/${index + 1}`,
+    fileCheck: { status: "passed" as const, checkedAt: "2026-10-20", contentHash: String(index + 1).repeat(64), issues: [] } }))
+};
+creation.results[1].visualReview = { reviewId: "review-2", verdict: "revise", reviewedAt: "2026-10-20", summary: "背景需调整", findings: [], modelRoundId: "round-2", runId: "run-2" };
+creation.results[1].decision.state = "approved";
+const injectedCreation = structuredClone(creation) as CreationSessionSnapshot & { privatePath?: string };
+injectedCreation.privatePath = "synthetic-private-path";
+const creationProjection = buildAgentWindowSnapshot({ ...base, creationSession: injectedCreation });
+assert.equal(creationProjection.creationSession?.results.length, 7);
+assert.equal(creationProjection.creationSession?.results[0].previewUrl, undefined, "Detached snapshots cannot expose upstream/signed image URLs");
+assert.equal(creationProjection.creationSession?.results[1].previewUrl, "naimage-asset://managed/2");
+assert.equal(JSON.stringify(creationProjection).includes("synthetic-private-path"), false);
+assert.equal(creationResultStatus(creation.results[1]).ai, "AI 建议修改");
+assert.equal(creationResultStatus(creation.results[1]).decision, "用户已采用", "User adoption never changes the AI verdict");
+const requirementsWithSource = structuredClone(creation.requirements!);
+requirementsWithSource.conditions.push({ criterionId: "identity-rule", text: "保留原商品", source: "assumption", kind: "source_consistency", sourceTargets: [creation.results[1].target], slotIds: ["slot-2"] });
+requirementsWithSource.fileRules = { minWidth: 768, minHeight: 768, alpha: "any" };
+const editedDraft = creationRequirementsDraft(requirementsWithSource);
+editedDraft.slots[0].label = "新的细节图名称";
+editedDraft.slots[0].source = "user";
+editedDraft.conditions[0].text = "完整保留原商品的形状与品牌";
+editedDraft.conditions[0].source = "user";
+const editedRequirements = creationRequirementsFromDraft(editedDraft);
+assert.equal(editedRequirements.slots[0].slotId, "slot-2", "Renaming a deliverable preserves its stable identity");
+assert.equal(editedRequirements.conditions[0].criterionId, "identity-rule");
+assert.equal(editedRequirements.conditions[0].kind, "source_consistency");
+assert.deepEqual(editedRequirements.conditions[0].sourceTargets, [creation.results[1].target], "Editing requirement text preserves its exact source baseline");
+assert.equal(editedRequirements.usage.source, "assumption", "Editing one field does not convert other Agent assumptions into user requirements");
+assert.equal(editedRequirements.fileRules?.minWidth, 768);
+assert.equal(requirementsWithSource.conditions[0].text, "保留原商品", "Form edits do not mutate the authoritative snapshot");
+assert.equal(requirementsWithSource.slots[0].label, "细节图");
+const emptySlotDraft = creationRequirementsDraft(requirementsWithSource); emptySlotDraft.slots[0].label = "";
+assert.throws(() => creationRequirementsFromDraft(emptySlotDraft), /明确移除/, "An empty label cannot silently remove a stable deliverable");
+const creationRevision = { type: "creation-revision", input: { expectedProjectId: creation.projectId, conversationId: creation.conversationId,
+  requirementId: "requirement-1", expectedRevision: 2, submissionId: "revise-2-5", preserve: ["保留主体"], changes: [],
+  targets: [ { ...creation.results[1].target, changes: ["改浅色背景"] }, { ...creation.results[4].target, changes: ["减少文字密度"] } ] } };
+assert.deepEqual(normalizeAgentWindowCommand(creationRevision), creationRevision);
+assert.equal(normalizeAgentWindowCommand({ ...creationRevision, input: { ...creationRevision.input, targets: [{ ...creation.results[1].target, assetId: "../private" }] } }), null);
+assert.equal(normalizeAgentWindowCommand({ ...creationRevision, input: { ...creationRevision.input, targets: [creation.results[1].target] } }), null, "Every target needs common or individual changes");
+assert.equal(normalizeAgentWindowCommand({ type: "creation-check", input: creationRevision.input }), null, "File-check targets cannot contain edit instructions");
+assert.deepEqual(normalizeAgentWindowCommand({ type: "creation-decision", input: { expectedProjectId: "project-1", conversationId: "conv-1", expectedRevision: 2, target: creation.results[1].target, decision: "adopt" } }),
+  { type: "creation-decision", input: { expectedProjectId: "project-1", conversationId: "conv-1", expectedRevision: 2, target: creation.results[1].target, decision: "adopt" } });
+assert.equal(normalizeAgentWindowCommand({ type: "creation-decision", input: { expectedProjectId: "project-1", conversationId: "conv-1", expectedRevision: 2, target: creation.results[1].target, decision: "pass" } }), null);
+const regionRevision = { type: "creation-region-revision", input: { expectedProjectId: creation.projectId, conversationId: creation.conversationId,
+  requirementId: "requirement-1", expectedRevision: 2, target: { ...creation.results[1].target, changes: ["改浅色背景"] }, preserve: ["保留主体"], changes: [] } };
+assert.deepEqual(normalizeAgentWindowCommand(regionRevision), regionRevision, "A single stable target can open the existing paint editor");
+assert.equal(normalizeAgentWindowCommand({ ...regionRevision, input: { ...regionRevision.input, target: { ...regionRevision.input.target, path: "private.png" } } }), null);
+assert.equal(normalizeAgentWindowCommand({ ...regionRevision, input: { ...regionRevision.input, targets: [regionRevision.input.target] } }), null, "Region transport cannot add a second target list");
+const maskedRevision = { ...creationRevision, input: { ...creationRevision.input, targets: [{ ...creationRevision.input.targets[0], mask: creation.results[4].target }] } };
+assert.deepEqual(normalizeAgentWindowCommand(maskedRevision), maskedRevision);
+assert.equal(normalizeAgentWindowCommand({ ...maskedRevision, input: { ...maskedRevision.input, targets: [{ ...maskedRevision.input.targets[0], mask: { ...creation.results[4].target, path: "private.png" } }] } }), null);
+assert.equal(normalizeAgentWindowCommand({ ...maskedRevision, input: { ...maskedRevision.input, targets: [...maskedRevision.input.targets, creationRevision.input.targets[1]] } }), null, "Masked revisions cannot include more than one target");
+assert.match(surfaceHtml, /id="agent-creation-session"/);
+assert.match(surfaceRenderer, /creationView\.render\(state\)/);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 97 })}\n`);

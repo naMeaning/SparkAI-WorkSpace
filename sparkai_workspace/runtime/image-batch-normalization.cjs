@@ -105,7 +105,7 @@ function createImageBatchNormalization(options = {}) {
       }
     }
     const hasValue = (value) => value !== undefined && value !== null && value !== "";
-    for (const field of ["slotId", "slotIndex", "localeCode"]) {
+    for (const field of ["slotId", "slotIndex", "localeCode", "creationSlotId"]) {
       const topValue = args[field];
       const itemValue = item[field];
       if (!hasValue(topValue) && hasValue(itemValue)) {
@@ -138,6 +138,7 @@ function createImageBatchNormalization(options = {}) {
           title: rawTitle && !isImageBatchPlaceholder(rawTitle) ? rawTitle : "",
           prompt,
           slotId: cleanOneLine(item.slotId || "", 80) || undefined,
+          creationSlotId: cleanOneLine(item.creationSlotId || "", 160) || undefined,
           slotIndex: Number.isInteger(rawSlotIndex) && rawSlotIndex >= 0 && rawSlotIndex <= 11
             ? rawSlotIndex
             : undefined,

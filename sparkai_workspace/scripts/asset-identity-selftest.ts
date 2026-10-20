@@ -119,6 +119,39 @@ const repeatedContainerAssets = reconcileImageAssetIdentityClaims([
 assert.equal(repeatedContainerAssets[0].assetId, repeatedContainerAssets[1].assetId);
 assert.notEqual(repeatedContainerAssets[1].assetId, repeatedContainerAssets[2].assetId);
 
+// Identities captured from the two exercised GUI failures. Both requests
+// returned the same PNG, but each journal assigned an independent output ID.
+const exercisedEqualByteResults: ImageAssetIdentityClaim[][] = [
+  [
+    { assetId: "image-7fcc7b7466814d6e14d72bcad3e9130e-1", occurrenceId: "occ-7fcc7b7466814d6e14d72bcad3e9130e01", runId: "agent-1792470151287-1", ownerId: "A", assetIndex: 0 },
+    { assetId: "image-31081a96b35465f987310b4b23b5b510-1", occurrenceId: "occ-31081a96b35465f987310b4b23b5b51001", runId: "agent-1792470154875-1", ownerId: "B", assetIndex: 0 },
+  ],
+  [
+    { assetId: "image-bbdd8270065861db69f9d4fccb2ac02b-1", occurrenceId: "occ-bbdd8270065861db69f9d4fccb2ac02b01", runId: "run-mvg6i8hn-bt4mao-revision-c126ea4b-967f-4aeb-86a4-b355d492ea2a-1-1", ownerId: "H", assetIndex: 0 },
+    { assetId: "image-5afb45ca7a60c2a4d34254b8c08f6430-1", occurrenceId: "occ-5afb45ca7a60c2a4d34254b8c08f643001", runId: "run-mvg6i8hn-bt4mao-revision-c126ea4b-967f-4aeb-86a4-b355d492ea2a-2-1", ownerId: "I", assetIndex: 0 },
+  ],
+].map(pair => pair.map(asset => ({ ...asset, index: 1,
+  contentHash: "927ffef75abb497d93cdc3143207a520b6a8c032e86d4cb9b4fd122970523b55",
+  relativePath: `output/imagegen/${asset.assetId}-01.png`,
+  path: `E:/IdentityRegression/output/imagegen/${asset.assetId}-01.png`,
+})));
+for (const pair of exercisedEqualByteResults) {
+  const ids = pair.map(asset => asset.assetId);
+  const reconciled = reconcileImageAssetIdentityClaims(pair);
+  assert.deepEqual(reconciled.map(asset => asset.assetId), ids, "Renderer must keep the journal IDs of equal-byte outputs from separate requests");
+  assert.deepEqual(reconcileImageAssetIdentityClaims(pair.map((asset, index) => ({ ...asset, ...reconciled[index] }))).map(asset => asset.assetId), ids,
+    "Equal-byte generation IDs must remain stable on a second Renderer pass");
+  assert.deepEqual(reconcileImageAssetIdentityClaims([...pair].reverse()).map(asset => asset.assetId), [...ids].reverse(),
+    "Canvas order cannot determine which independent generated result keeps its ID");
+}
+assert.deepEqual(reconcileImageAssetIdentityClaims(exercisedEqualByteResults[0].map(asset => ({ ...asset, runId: "shared-image-batch" }))).map(asset => asset.assetId),
+  exercisedEqualByteResults[0].map(asset => asset.assetId), "Distinct generated occurrences in one batch must retain their own output IDs");
+const samePhysicalGeneratedFile = reconcileImageAssetIdentityClaims([
+  exercisedEqualByteResults[0][0],
+  { ...exercisedEqualByteResults[0][0], assetId: "legacy-preview", runId: "legacy-preview-run", ownerId: "preview" },
+]);
+assert.equal(samePhysicalGeneratedFile[1].assetId, samePhysicalGeneratedFile[0].assetId, "A node and a legacy preview of the exact same managed file retain one physical ID");
+
 const mergedReferences = mergeReferenceImages(
   [{ contentHash: sharedContentHash, name: "before.png", path: firstPath }],
   [{ contentHash: sharedContentHash, name: "after.png", path: secondPath }],
@@ -167,4 +200,4 @@ const [messageWithLongPaths] = validMessages([{
 assert.equal(messageWithLongPaths.attachments?.sourceAssets[0]?.path, exactMessagePath, "Message attachment paths must preserve repeated spaces");
 assert.equal(messageWithLongPaths.attachments?.referenceAssets[0]?.path, longMessagePath, "Message attachment paths must not be truncated");
 
-console.log(JSON.stringify({ ok: true, cases: 28 }));
+console.log(JSON.stringify({ ok: true, cases: 36 }));

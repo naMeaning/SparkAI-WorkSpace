@@ -51,11 +51,863 @@
       ]
     },
     {
+      "title": "Creation requirements and acceptance",
+      "commands": [
+        {
+          "name": "creation.requirements.get",
+          "surface": "service",
+          "description": "Read versioned structured goals, usage, deliverable slots, preserve/adjustable rules and acceptance conditions. Sources distinguish user requirements from Agent assumptions. Read-only local operation; no model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID"
+            }
+          ]
+        },
+        {
+          "name": "creation.requirements.update",
+          "surface": "service",
+          "description": "Save a complete structured requirements revision with expectedRevision (0 for first creation). Mark every text/slot/criterion source explicitly as user or assumption. At most 400 criteria across the three lists. A stale revision fails before mutation; re-read instead of overwriting. No model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "expectedRevision",
+              "requirements"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "requirements": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "goal",
+                  "usage",
+                  "slots",
+                  "preserve",
+                  "adjustable",
+                  "conditions"
+                ],
+                "properties": {
+                  "goal": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "text",
+                      "source"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "maxLength": 200000
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "assumption"
+                        ]
+                      }
+                    }
+                  },
+                  "usage": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "text",
+                      "source"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "maxLength": 200000
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "user",
+                          "assumption"
+                        ]
+                      }
+                    }
+                  },
+                  "slots": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "slotId",
+                        "label",
+                        "source"
+                      ],
+                      "properties": {
+                        "slotId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assumption"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "preserve": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterionId",
+                        "text",
+                        "source"
+                      ],
+                      "properties": {
+                        "criterionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assumption"
+                          ]
+                        },
+                        "slotIds": {
+                          "type": "array",
+                          "maxItems": 200,
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 180
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "visual",
+                            "source_consistency"
+                          ]
+                        },
+                        "sourceTargets": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 200,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "assetId",
+                              "occurrenceId",
+                              "contentHash"
+                            ],
+                            "properties": {
+                              "assetId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "occurrenceId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "contentHash": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "adjustable": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterionId",
+                        "text",
+                        "source"
+                      ],
+                      "properties": {
+                        "criterionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assumption"
+                          ]
+                        },
+                        "slotIds": {
+                          "type": "array",
+                          "maxItems": 200,
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 180
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "visual",
+                            "source_consistency"
+                          ]
+                        },
+                        "sourceTargets": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 200,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "assetId",
+                              "occurrenceId",
+                              "contentHash"
+                            ],
+                            "properties": {
+                              "assetId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "occurrenceId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "contentHash": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "conditions": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "criterionId",
+                        "text",
+                        "source"
+                      ],
+                      "properties": {
+                        "criterionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assumption"
+                          ]
+                        },
+                        "slotIds": {
+                          "type": "array",
+                          "maxItems": 200,
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 180
+                          }
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "visual",
+                            "source_consistency"
+                          ]
+                        },
+                        "sourceTargets": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 200,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "assetId",
+                              "occurrenceId",
+                              "contentHash"
+                            ],
+                            "properties": {
+                              "assetId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "occurrenceId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 180
+                              },
+                              "contentHash": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "fileRules": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "formats": {
+                        "type": "array",
+                        "maxItems": 5,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "png",
+                            "jpeg",
+                            "webp",
+                            "avif",
+                            "tiff"
+                          ]
+                        }
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "minWidth": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "minHeight": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "alpha": {
+                        "type": "string",
+                        "enum": [
+                          "any",
+                          "required",
+                          "forbidden"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID",
+              "expectedRevision": 0,
+              "requirements": {
+                "goal": {
+                  "text": "Prepare seven product images",
+                  "source": "user"
+                },
+                "usage": {
+                  "text": "Product listing",
+                  "source": "user"
+                },
+                "slots": [],
+                "preserve": [],
+                "adjustable": [],
+                "conditions": []
+              }
+            }
+          ]
+        },
+        {
+          "name": "creation.acceptance.get",
+          "surface": "service",
+          "description": "Read generated, saved, local-file-check, AI-visual-review and user-decision states separately. Stable asset/occurrence/content identities bind evidence to the current requirements revision. Missing or stale evidence never means accepted. No model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID"
+            }
+          ]
+        },
+        {
+          "name": "creation.acceptance.check",
+          "surface": "service",
+          "description": "Run deterministic local file/decode/dimension/format/alpha checks for exact existing managed targets and current requirements. This does not perform an AI visual review, create an image or make a model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "expectedRevision",
+              "targets"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "assetId",
+                    "occurrenceId",
+                    "contentHash"
+                  ],
+                  "properties": {
+                    "assetId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "occurrenceId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "contentHash": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID",
+              "expectedRevision": 1,
+              "targets": [
+                {
+                  "assetId": "ASSET_ID",
+                  "occurrenceId": "OCCURRENCE_ID",
+                  "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "creation.acceptance.decide",
+          "surface": "service",
+          "description": "Record the user's adopt/reject/candidate decision for one exact target and current requirements. Adoption requires current saved files and no hard local-check failure; it does not alter or claim an AI review verdict. Re-read stale requirements/evidence before deciding. No model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "expectedRevision",
+              "target",
+              "decision"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "target": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "assetId",
+                  "occurrenceId",
+                  "contentHash"
+                ],
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "occurrenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "contentHash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "adopt",
+                  "reject",
+                  "candidate"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID",
+              "expectedRevision": 1,
+              "target": {
+                "assetId": "ASSET_ID",
+                "occurrenceId": "OCCURRENCE_ID",
+                "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "decision": "adopt"
+            }
+          ]
+        },
+        {
+          "name": "creation.revision.start",
+          "surface": "service",
+          "description": "Revise only the exact selected asset/occurrence/content targets using explicit preserve and changes lists. Bind the current requirements revision, retain original files and provenance, and dispatch through the existing durable agent.task.start production chain. Same submissionId/request reuses the receipt; conflicting reuse fails. This can call configured upstream models and requires the user's revision request. Per-target preserve/changes apply only to that identity; top-level lists apply to every selected target. If common changes is empty, each target must provide its own non-empty changes list. For a precise region revision, select exactly one target and optionally provide targets[0].mask as the asset/occurrence/content identity of its saved managed PNG mask. Main verifies project, conversation, target binding and actual bytes, then freezes the mask as a TaskScope material. Arbitrary mask paths, URLs and data URLs are never accepted by this command.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "submissionId",
+              "requirementId",
+              "expectedRevision",
+              "targets",
+              "preserve",
+              "changes"
+            ],
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "requirementId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "taskId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "submissionId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180,
+                "pattern": "^[a-zA-Z0-9_.:@-]+$"
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 200,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "assetId",
+                    "occurrenceId",
+                    "contentHash"
+                  ],
+                  "properties": {
+                    "assetId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "occurrenceId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "contentHash": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "mask": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["assetId", "occurrenceId", "contentHash"],
+                      "properties": {
+                        "assetId": { "type": "string", "minLength": 1, "maxLength": 180 },
+                        "occurrenceId": { "type": "string", "minLength": 1, "maxLength": 180 },
+                        "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                      }
+                    },
+                    "preserve": {
+                      "type": "array",
+                      "maxItems": 200,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
+                    },
+                    "changes": {
+                      "type": "array",
+                      "maxItems": 200,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000
+                      }
+                    }
+                  }
+                }
+              },
+              "preserve": {
+                "type": "array",
+                "maxItems": 200,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              },
+              "changes": {
+                "type": "array",
+                "minItems": 0,
+                "maxItems": 200,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                }
+              }
+            }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "conversationId": "CONVERSATION_ID",
+              "submissionId": "revise-selected-2-and-5",
+              "requirementId": "REQUIREMENT_ID",
+              "expectedRevision": 1,
+              "targets": [
+                {
+                  "assetId": "ASSET_ID",
+                  "occurrenceId": "OCCURRENCE_ID",
+                  "contentHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }
+              ],
+              "preserve": [
+                "Keep the product shape"
+              ],
+              "changes": [
+                "Use a lighter background"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
       "title": "Stable Agent tasks",
       "commands": [
         {
           "name": "agent.task.start", "surface": "service",
-          "description": "Start one asynchronous Agent task in an explicit open project/conversation. Persist the frozen receipt before accepted. Reuse submissionId for retry/reconnect: the same normalized request returns the original task, different content conflicts. Busy tasks are never steered. This can call configured upstream models.",
+          "description": "Start one asynchronous Agent task in an explicit open project/conversation. Persist the frozen receipt before accepted. Reuse submissionId for retry/reconnect: the same normalized request returns the original task, different content conflicts. Optional requirementId plus expectedRequirementsRevision binds an exact structured requirements revision; pass them together. Omission freezes the current revision on first acceptance and reuses the original revision on reconnect. Busy tasks are never steered. This can call configured upstream models.",
           "parameters": { "type": "object", "additionalProperties": false, "required": ["expectedProjectId", "conversationId", "submissionId", "prompt"], "properties": {
             "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 180 },
             "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
@@ -64,7 +916,9 @@
             "title": { "type": "string", "maxLength": 80 },
             "sourceNodeIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "minLength": 1, "maxLength": 180 } },
             "ratio": { "type": "string", "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9", "9:21", "4:5"] },
-            "resolution": { "type": "string", "enum": ["1K", "2K", "4K"] }
+            "resolution": { "type": "string", "enum": ["1K", "2K", "4K"] },
+            "requirementId": { "type": "string", "minLength": 1, "maxLength": 180 },
+            "expectedRequirementsRevision": { "type": "integer", "minimum": 1 }
           } }
         },
         {

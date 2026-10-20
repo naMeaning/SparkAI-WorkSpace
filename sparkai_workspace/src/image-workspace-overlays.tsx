@@ -59,6 +59,8 @@ const CLOSE_BUTTON_REASON = "close-button" as const;
 const WHEN_IDLE = "when-idle" as const;
 
 export type RegionRedrawDraft = {
+  editorId?: string;
+  sourceTarget?: { assetId: string; occurrenceId: string; contentHash: string };
   mode: "redraw" | "cutout";
   nodeId: string;
   assetIndex: number;

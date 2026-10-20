@@ -167,6 +167,9 @@
     "test:agent-run-control": "node scripts/agent-run-control-selftest.cjs",
     "test:agent-task": "node scripts/agent-task-selftest.cjs",
     "test:agent-task-ui": "node scripts/agent-task-ui-selftest.mjs",
+    "test:creation": "node scripts/creation-selftest.cjs",
+    "test:creation-runtime": "node scripts/creation-runtime-selftest.cjs",
+    "test:creation-ui": "node scripts/creation-ui-selftest.mjs",
     "test:agent-steer": "node scripts/agent-steer-runtime-selftest.cjs",
     "test:asset-identity": "node scripts/asset-identity-selftest.ts",
     "test:timeline": "node scripts/tool-timeline-selftest.ts",
@@ -293,6 +296,7 @@
       "update-release.cjs",
       "build/update-public-key.pem",
       "public/naimage.png",
+      "public/creation-session.css",
       "package.json",
       "!**/.v8-cache/**"
     ],

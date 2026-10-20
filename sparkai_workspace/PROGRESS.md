@@ -1,5 +1,41 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-20，AI-Native 第二期本地交付完成，Git同步中）
+
+- 范围/结果：见[Goal](GOAL.md)；仅桌面和本地Runtime。结构化要求、证据分层验收、稳定目标修订和原蒙版编辑器共用Main业务owner；保留第一期任务/恢复、成果画布、需求节点与免费双接入。0真实请求，未启动第三期。
+- 最终合同验证：creation16、Runtime29组/14本地图片POST；无消费像素/冒用证据拒绝，内容/要求/参考失效与移动改名保留、乱序/重排、原配置继承、catalog终选一致、真实8MiB和自动A-EACCES后主动再生图零额外派发通过。失败复现保留于下方检查点。
+- 相关回归：[12专项](.diagnostics/creation-delivery-2026-10-20/final-regression.json)全部exit0；最终typecheck/view-image、资产36/merge96、真实Renderer→Main保存重开、双Renderer6、恢复、agent-window同步等受影响专项通过。[第一期UI10组/9截图](.diagnostics/agent-task-ui-2026-10-20T04-44-19-768Z/report.json)通过。
+- UI：[源码6组/13截图](.diagnostics/creation-ui-2026-10-20T04-45-17-383Z/report.json)及[最终安装版6组/13截图](.diagnostics/creation-ui-2026-10-20T05-05-36-980Z/report.json)通过；七选二仅2POST，实际涂抹再1POST，总4本地模型回合/3图片POST，0真实。正式最小窗、前后基准、采用撤销、独立窗、重载/正常重启10成果/第4版和重复提交零重派发均实跑；两次退出0/未强杀，关键截图已人工检查。
+- 打包：`corepack pnpm run package:win:unrestricted` exit0，production build1696 modules/23.28s。最终[Windows EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,925,376 B / SHA-256 `3e8a84ffdc4bb169c7b6c817118a65cc325dcc05b4292679852b11cb9226788e`；ASAR 52,414,483 B / `78e58fe36313c5cf28bcff2a56a975ca0afadd9f1b7ca150bc46558b303374b5`。647个产品/测试/公开契约文件冻结hash `237c19bf48d4d7853f643ca5174340511492b2702e4be0ee0db26e2800b0d43c`，124dist/156必需owner存在及逐字节核对通过。 [包审计](.diagnostics/creation-delivery-2026-10-20/package-audit.json)同时核对生产元数据、免费dual-access及无env/diagnostics。`38f9a0e6…e9fccb92`为容量修复前intermediate，不能代替最终包。
+- 安装：品牌`/S`原位安装exit0/17,463ms，原注册目录/1.0.9、配置及快捷方式偏好保留；安装EXE/ASAR匹配，安装前无同名进程，未强杀。 [安装报告](.diagnostics/creation-delivery-2026-10-20/install.json)。凭据sidecar只核对metadata，未读内容；安装版隔离夹具未操作用户真实项目/连接。
+- 文档：Goal/Progress/产品意图/工作流合同/地图v113/公共能力文档已同步，具体[验证与交付](docs/AI_NATIVE_CREATION_VALIDATION_2026-10-20.md)。隐私扫描79文件/0疑似真实秘密，26处合成夹具匹配；文档链接/diff及Harness10检查通过。
+- Git：本期对应源码与文档待commit/普通push至origin/main；生成物、诊断和私有配置保持忽略，不上传EXE、不创建Release/tag。
+- 未验证/停止条件：Mock不能证明真实视觉识别、Logo保持、文字准确率、参考遵从、审美或实际计费；真实服务与正式发布门禁未运行。完成本期Git同步即停止，不启动第三期。
+
+### 第二期实施与失败记录（历史检查点）
+
+以下保留各时点的实际状态；其中的“待执行/下一步”已由上方最终状态取代。
+
+- 最新范围、验收与授权见 [Goal](GOAL.md) 顶部；仅桌面与本地 Runtime，完成本期后停止。接受现场 main / 0148b60，工作树干净，第一期 owner 直接复用。
+- 实施边界：Main 项目 owner 管理完整版本要求和验收历史，任务 ledger 仅冻结引用/摘要；TaskScope 唯一拥有素材/模型配置。Runtime 通过同轮 view_image 后续成功模型消费证明接受结构化观察；用户采用归现有 catalog 权威状态。定向修改冻结 asset/occurrence/hash/revision，原图保留。
+- 验证计划：只用本地 Mock/loopback/受管图片；覆盖七张选两张、版本/幂等、像素证据、失效规则、保存重开/双 Renderer、最小窗口/双窗口真实 Electron 交互截图，并运行受影响专项、typecheck 和 view-image。
+- 实现：Main `.naimage/creation.json`拥有完整要求修订/检查历史/指定修订计划；ledger只存ref和摘要，TaskScope继续拥有素材与配置。公开六命令、内置creation工具、preload/IPC、CLI/MCP和主/独立窗共用owner；自然语言定向修改在父任务成功保存后交接新任务，原图与非目标保留。AI观察只能使用Runtime对实际后续成功模型回合消费像素签发的内部证明，用户采用仍归catalog。
+- 已验证：creation owner14组、Runtime19组（[报告](.diagnostics/creation-runtime/2026-10-20T03-52-30-926Z/report.json)，11次本地图片POST/0真实，含七图倒序且3/6失败后五成果精确槽位）；真实project-io保存重开、双Renderer6场景、merge94；view-image/task-scope/workflow、run-control、automation/MCP95工具/IPC158注册155preload、image-recovery通过。最终回归仍继续，不把中间绿色当成交付。
+- 真实UI中间证据：[隔离Electron](.diagnostics/creation-ui-2026-10-20T03-49-58-748Z/report.json)完成最小窗与GUI要求编辑，原2/5精确两POST且修改要求互不串用；随后同字节两衍生成果被旧normalizer统一assetId，回执误报save-failed，已保留失败并修owner，待重跑。此前GUI空可选值与HTTP JSON差异也已复现修复。完整UI、最终打包、安装和Git尚未完成。
+- 收口里程碑：normalizer按run/occurrence保留不同文件的独立生成ID，实际相同文件别名保持兼容；merge96、asset-identity28及真实Main project-io全套通过，新增两同字节独立成果保存/manifest/重开原ID保持、回执completed/savedCount2。creation15组通过，含原配置/参考继承、GUI JSON边界、mask与持久幂等；Runtime[24组](.diagnostics/creation-runtime/2026-10-20T04-18-32-804Z/report.json)通过，12本地图片POST/0真实，蒙版按同一PNG字节校验后唯一redraw，错误绑定/尺寸/文件/多目标/重复及改字节零额外派发。view-image/task-scope/steer24通过，文字steer保留原要求和素材授权；新增素材要求建立关联新修订。
+- UI编排：原涂抹编辑器保存受管mask身份后调用同一creation.revision.start；冻结原图三元、要求revision和submission，失败重试保留同一mask与提交内容，不重新生成图片。主/独立窗精确区域入口、共享错误/状态/计数与公开schema已接齐；typecheck通过，真实UI正在复验。已检查quick最小884px工作台截图，无裁切；该quick报告不是最终完整第二期/安装版证据。
+- 最终身份修复：后续GUI仍发现Renderer旧contentHash全局归并（[phase1真实复现](.diagnostics/agent-task-ui-2026-10-20T04-22-19-389Z/asset-identity-repro.json)），不是HMR或Main单边问题；现Renderer/Main共享`runtime/image-asset-identity.mjs`身份来源，asset36/merge96及实际Renderer→Main保存重开/receipt completed+savedCount2通过。原区域编辑器同时补首次await前busy与helper并发Promise，region4组验证同mask/同提交重试、变更拒绝及重排定位。素材chip名称owner保留用户/内容标题，生成内部stem不再作为普通名称显示，内容标题15项/typecheck通过。
+- 自动A收口：[Runtime27组](.diagnostics/creation-runtime/2026-10-20T04-38-12-973Z/report.json)通过，13本地图片POST/0真实；首图/定向两图/蒙版均自动A通过且B未检查，真实EACCES验收写失败仍1POST/1已保存成果，旧验收文件不变、后续模型收到不可重生指引。新增`runtime/creation-local-check.cjs`复用Main检查，不造视觉结论；GUI正在从冻结产品源码完整复跑。
+- 最终源码UI：[第二期6组/13截图](.diagnostics/creation-ui-2026-10-20T04-45-17-383Z/report.json)通过，4本地模型回合/3图片POST/0真实；七选二只传source2/background与source5/text，随后真实pointer涂抹的单目标任务准确上传同源图和受管mask。自动A与B缺省分开，基准对比、采用/撤销、独立窗、重载/重启10成果/要求第4版及两个原提交幂等均通过，两次正常退出0/未强杀。已人工检查最小窗、前后图、蒙版、独立窗和重启截图。此前detached脚本错用不存在的data selector，已只修测试为实际id/visible/10行断言。
+- 最终第一期回归：[10组/9截图](.diagnostics/agent-task-ui-2026-10-20T04-44-19-768Z/report.json)通过，9本地模型回合/2图片POST/0真实，双窗回答、重载、保存失败和两次正常退出通过。04:39独立窗textarea超时原因未证实；后续只补可见保存状态等待和失败诊断，产品未再改动。最终typecheck与[12专项回归](.diagnostics/creation-delivery-2026-10-20/final-regression.json)exit0；隐私扫描79文件/0疑似真实秘密，26处合成夹具匹配已过滤。文档链接/diff及Harness10结构检查通过。
+- 中间打包：`corepack pnpm run package:win:unrestricted` exit0，production build1696 modules/24.23s。647个产品/测试/公开契约文件冻结hash `ccf3f8f6468067e3ff53a0155b00bb44720dae7feacd8763f2e36e0bc018bd5d`；124dist/156必需source owner存在且逐字节一致、生产元数据、dual-access免费双接入及无env/diagnostics通过。中间EXE109,924,864 B / SHA256 `38f9a0e6d6ccb1c3fa87523fc09bff074685383da67bc675ef3e2f93e9fccb92`；ASAR52,413,939 B / `46d746f5c1c8332c1bbfcd58e34683f05de86eb54792f68f36f7f2d6a75e8613`。品牌/S原位安装exit0/23,123ms，原注册目录/1.0.9与配置保留、安装EXE/ASAR匹配；该包随后因容量边界修复而降为intermediate。
+- 容量末检：[实际8MiB审核](.diagnostics/creation-capacity-audit-1792471852653/report.json)先复现`CREATION_STORE_FULL`在write的try外抛出，缺少creationPersistenceFailed，使下一模拟模型回合仍到serverGenerateImage一次；0真实/0HTTP，旧记录字节未变。现将容量拒绝归入原creation_save错误边界，并增加真实容量满后的零派发Runtime回归，不掩盖此中间失败。
+- 容量owner修复：[16组报告](.diagnostics/creation-delivery-2026-10-20/owner-capacity-selftest.json)exit0，JSON序列化及容量检查进入同一creation_save边界，保留真实code；合法8,388,508B记录的checkResults/updateRequirements/revision.start均带creationPersistenceFailed拒绝、旧bytes/currentRef不变、无tmp/无任务派发。Runtime同时核对自动A的失败不能仅靠模型文字指引阻止重生，继续增加主动重复请求的故障验证。
+- 中间安装版UI：[6组/13截图](.diagnostics/creation-ui-2026-10-20T04-51-38-166Z/report.json)通过，3图片POST/4模型回合/0真实，两次正常退出0/未强杀，当前无同名进程。该运行先于容量修复，仅作intermediate证据。
+- 最终故障收口：[Runtime29组](.diagnostics/creation-runtime/2026-10-20T05-00-18-171Z/report.json)通过，14本地图片POST/0真实。容量8,388,508B/8MiB失败后模型明确再调用image_gen，server/POST均0、旧记录/七原图bytes不变；普通scope自动A真实EACCES后3模型回合仍仅1POST/1成功成果，后续工具被不可重试guard拦截。此前自动A仅文字指引确实曾2POST，[失败复现](.diagnostics/creation-runtime/2026-10-20T04-57-48-295Z/automatic-check-guard.json)保留；现checker私有Symbol接原unsafe guard，不throw成功图片、不丢actions/不入JSON/DTO。蒙版自动A失败+重复续轮同样1POST/1成果。最终view-image/语法/diff及Harness10通过。
+- 最终打包/安装：修复后重新冻结647文件hash `237c19bf48d4d7853f643ca5174340511492b2702e4be0ee0db26e2800b0d43c`，package:win:unrestricted exit0；[审计](.diagnostics/creation-delivery-2026-10-20/package-audit.json)124dist/156必需owner存在且字节一致。最终[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)109,925,376 B / SHA256 `3e8a84ffdc4bb169c7b6c817118a65cc325dcc05b4292679852b11cb9226788e`，ASAR52,414,483 B / `78e58fe36313c5cf28bcff2a56a975ca0afadd9f1b7ca150bc46558b303374b5`。[品牌/S安装](.diagnostics/creation-delivery-2026-10-20/install.json)exit0/17,463ms，运行前无同名进程，原注册目录/1.0.9/配置/快捷方式偏好保留；安装EXE/ASAR与审计包相同。最终typecheck再次exit0。
+- 下一步：最终安装版UI与文档/Git；中间包及历史制品不代表最终身份。
+
 ## 当前开发状态（2026-10-19）
 
 - 最新任务：AI-Native 第一期稳定任务回执与人机共同续接，本地交付完成；范围/验收/授权见 [Goal](GOAL.md)。接受时main、工作树干净；本期源码与文档已提交并普通push。历史交付快照保留如下。

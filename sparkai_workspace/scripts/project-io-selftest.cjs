@@ -14,6 +14,8 @@ const os = require("node:os");
 const path = require("node:path");
 const { PROJECT_ASSET_REPOSITORY_OWNER } = require("../desktop/project-asset-repository.cjs");
 const { mergeProjectSessions } = require("../desktop/project-session-merge.cjs");
+const { createProjectCreationService } = require("../desktop/project-creation-service.cjs");
+const { createAgentTaskService } = require("../desktop/agent-task-service.cjs");
 const {
   PROJECT_PACKAGE_SERVICE_OWNER,
   projectPackageMaximumAssetBytes,
@@ -79,6 +81,37 @@ function imageNode(id, assets, extra = {}) {
 async function run() {
   assert.equal(projectIo.applicationName, "SparkAI WorkSpace");
   assert.equal(projectIo.applicationId, "org.sparkai.naimage");
+  const creationProject = projectRecord("creation-contract");
+  projectIo.ensureProjectFiles(creationProject, projectIo.defaultSession);
+  const creationServiceOptions = { projectFor: id => id === creationProject.id ? creationProject : null,
+    readSession: () => projectIo.projectSessionFromDisk(creationProject),
+    projectRelativePath: (base, file) => path.relative(base, file || "").replace(/\\/g, "/"),
+    resolveProjectRelativePath: (base, file) => path.resolve(base, file) };
+  const creationService = createProjectCreationService(creationServiceOptions);
+  const creationSaved = creationService.updateRequirements({ projectId: creationProject.id, conversationId: "creation-conversation", expectedRevision: 0,
+    requirements: { goal: { text: "真实项目往返", source: "user" }, usage: { text: "项目持久化验收", source: "assumption" },
+      slots: [{ slotId: "stable-hero", label: "主图", source: "user" }], preserve: [], adjustable: [], conditions: [] } });
+  const creationFile = path.join(creationProject.path, "assets", "creation.png");
+  mkdirSync(path.dirname(creationFile), { recursive: true }); writeFileSync(creationFile, PNG_1X1);
+  const creationAsset = { assetId: "creation-asset", occurrenceId: `occ-${"c".repeat(32)}`, contentHash: createHash("sha256").update(PNG_1X1).digest("hex"),
+    type: "file", path: creationFile, relativePath: "assets/creation.png", width: 1, height: 1 };
+  const creationProvenance = { version: 1, taskScopeSnapshotHash: `scope-${"c".repeat(32)}`, resultPolicy: "single", creation: creationSaved.requirementRef,
+    creationSlotId: "stable-hero", creationRevisionId: "revision-roundtrip", creationBaselineReviewIds: ["review-original"],
+    creationPreserve: ["保留主体"], creationChanges: ["修改背景"], sourceAssetId: creationAsset.assetId,
+    sourceOccurrenceId: creationAsset.occurrenceId, sourceContentHash: creationAsset.contentHash };
+  const creationStored = projectIo.sessionForProjectSave({ ...projectIo.defaultSession, schemaVersion: 5,
+    nodes: [imageNode("CREATION", [creationAsset], { taskProvenance: creationProvenance })] }, creationProject);
+  writeJson(creationProject.sessionPath, creationStored); projectIo.writeProjectManifest(creationProject, creationStored);
+  const creationReloaded = projectIo.projectSessionFromDisk(creationProject);
+  assert.deepEqual(creationReloaded.nodes[0].taskProvenance.creation, creationSaved.requirementRef);
+  assert.equal(creationReloaded.nodes[0].taskProvenance.creationSlotId, "stable-hero");
+  assert.deepEqual(creationReloaded.nodes[0].taskProvenance.creationChanges, ["修改背景"]);
+  assert.equal(creationReloaded.nodes[0].taskProvenance.sourceContentHash, creationAsset.contentHash);
+  const creationRestarted = createProjectCreationService(creationServiceOptions);
+  assert.equal(creationRestarted.getRequirements({ projectId: creationProject.id, conversationId: "creation-conversation" }).requirements.goal.text, "真实项目往返");
+  const creationChecked = await creationRestarted.checkResults({ projectId: creationProject.id, conversationId: "creation-conversation", expectedRevision: 1, targets: [creationAsset] });
+  assert.equal(creationChecked.results[0].fileCheck.status, "passed");
+  assert.equal(creationChecked.results[0].saved, true);
   const legacyUserDataRoot = path.join(testRoot, "legacy-user-data");
   const canonicalUserDataRoot = path.join(testRoot, "canonical-user-data");
   mkdirSync(path.join(legacyUserDataRoot, "data"), { recursive: true });
@@ -330,6 +363,56 @@ async function run() {
     assert.deepEqual(group.imageContainerSpec.memberBindings.map(binding => binding.assetIndex), [0, 1]);
     assert.equal(group.imageProgress.completed, 2);
   }
+
+  const independentProject = projectRecord("identical-generated-results");
+  projectIo.ensureProjectFiles(independentProject, projectIo.defaultSession);
+  const independentConversation = "independent-results";
+  writeJson(independentProject.sessionPath, projectIo.sessionForProjectSave({ ...projectIo.defaultSession, activeConversationId: independentConversation,
+    conversations: [{ id: independentConversation, messages: [] }], nodes: [] }, independentProject));
+  const { reconcileImageAssetIdentityClaims: reconcileRendererAssetClaims } = await import("../src/asset-identity.ts");
+  const independentPng = await require("sharp")(Buffer.from('<svg width="1024" height="1024"><rect width="1024" height="1024" fill="#f7e9da"/><circle cx="512" cy="512" r="240" fill="#d44761"/></svg>')).png().toBuffer();
+  // Real journal identities from the failed first-phase GUI run. Exercise the
+  // Renderer owner before Main, which the earlier persistence-only test missed.
+  const independentAssets = [
+    { assetId: "image-7fcc7b7466814d6e14d72bcad3e9130e-1", occurrenceId: "occ-7fcc7b7466814d6e14d72bcad3e9130e01", runId: "agent-1792470151287-1" },
+    { assetId: "image-31081a96b35465f987310b4b23b5b510-1", occurrenceId: "occ-31081a96b35465f987310b4b23b5b51001", runId: "agent-1792470154875-1" }
+  ].map(identity => {
+    const relativePath = `output/imagegen/${identity.assetId}-01.png`, file = path.join(independentProject.path, relativePath);
+    mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, independentPng);
+    return { ...identity, type: "file", path: file, relativePath,
+      contentHash: createHash("sha256").update(independentPng).digest("hex"), index: 1 };
+  });
+  const independentOperations = [];
+  let independentTasks;
+  independentTasks = createAgentTaskService({ projectFor: () => independentProject,
+    readSession: () => projectIo.projectSessionFromDisk(independentProject), operations: () => independentOperations,
+    locateOwner: async () => "independent-owner", dispatch: async (command, args) => {
+      independentTasks.admit({ ...args, runId: "independent-parent-run", taskScope: { snapshotHash: "scope-independent", sourceNodeIds: [], sourceAssets: [], referenceAssets: [], imageConfig: { model: "mock" } } }, "independent-owner");
+      independentTasks.claimRun({ ...args, runId: "independent-parent-run" }, "independent-owner");
+    } });
+  const independentInput = { expectedProjectId: independentProject.id, conversationId: independentConversation, submissionId: "independent-submission", prompt: "two independent results" };
+  const independentTask = (await independentTasks.execute("agent.task.start", independentInput)).task;
+  for (const [index, asset] of independentAssets.entries()) {
+    independentOperations.push({ agentTaskId: independentTask.taskId, runId: asset.runId, key: `independent-op-${index}`, state: "saved", assets: [asset] });
+    const stored = projectIo.projectSessionFromDisk(independentProject);
+    const incoming = { ...stored, nodes: [...stored.nodes, imageNode(`independent-${index}`, [asset], { persistenceOriginId: `independent-origin-${index}` })] };
+    const rendererRecords = incoming.nodes.flatMap(node => (node.assets || []).map((candidate, assetIndex) => ({ candidate, claim: { ...candidate, ownerId: node.id, assetIndex } })));
+    reconcileRendererAssetClaims(rendererRecords.map(record => record.claim)).forEach((resolution, claimIndex) => {
+      rendererRecords[claimIndex].candidate.assetId = resolution.assetId;
+    });
+    assert.deepEqual(incoming.nodes.map(node => node.assets[0].assetId), independentAssets.slice(0, index + 1).map(candidate => candidate.assetId),
+      "Renderer reconciliation must preserve each journal identity before Main receives the session");
+    const merged = mergeProjectSessions(stored, incoming).session;
+    const saved = projectIo.sessionForProjectSave(merged, independentProject);
+    writeJson(independentProject.sessionPath, saved); projectIo.writeProjectManifest(independentProject, saved);
+  }
+  const reopenedIndependent = projectIo.projectSessionFromDisk(independentProject);
+  assert.deepEqual(reopenedIndependent.nodes.map(node => node.assets[0].assetId), independentAssets.map(asset => asset.assetId), "Actual Main merge/save/manifest/reopen must retain IDs for equal bytes from separate requests");
+  assert.deepEqual(reopenedIndependent.nodes.map(node => node.assets[0].occurrenceId), independentAssets.map(asset => asset.occurrenceId));
+  independentTasks.settle({ ...independentInput, taskId: independentTask.taskId, runId: independentTask.currentRunId, outcome: "completed" }, "independent-owner");
+  const independentReceipt = independentTasks.get({ ...independentInput, taskId: independentTask.taskId }).task;
+  assert.equal(independentReceipt.phase, "completed"); assert.equal(independentReceipt.savedCount, 2);
+  assert.deepEqual(independentReceipt.results.map(asset => asset.assetId), independentAssets.map(asset => asset.assetId), "The original journal receipts must reconcile to both actual saved outputs");
 
   const emptySelectionProject = projectRecord("empty-selection");
   const emptySelectionSession = projectIo.sessionForProjectSave({
@@ -1449,6 +1532,10 @@ async function run() {
     movedProjectNestedReferencesHydrated: true,
     weakNestedIdentityIsolated: true,
     messageOnlyLocatorAliasesConverged: true,
+    independentGeneratedIdsPreserved: true,
+    independentGeneratedRendererIdsPreserved: true,
+    independentGeneratedReceiptSavedCount: independentReceipt.savedCount,
+    independentGeneratedReceiptPhase: independentReceipt.phase,
     duplicateNodeIdentityMigrated: true,
     occurrenceRoundTripPreserved: true,
     occurrencePortablePackagePreserved: true,

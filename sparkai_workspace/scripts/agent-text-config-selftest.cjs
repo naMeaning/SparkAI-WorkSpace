@@ -967,7 +967,7 @@ async function runSelftest(directory) {
     const migratedStore = readJson(promptPath);
     assert.equal(migratedStore.version, 2);
     assert.equal(migratedStore.format, "plain-text");
-    assert.equal(migratedStore.contractRevision, 14);
+    assert.equal(migratedStore.contractRevision, 15);
     assert.equal(migratedStore.baseDefaultPromptRevision, 0);
     assert.equal(migratedStore.baseDefaultPromptHash, "");
     assert.equal(Object.prototype.hasOwnProperty.call(migratedStore, "entries"), false, "Prompt v2 must not retain entries");
@@ -1001,7 +1001,7 @@ async function runSelftest(directory) {
     assert.equal(/create_agent_node|list_agents|manage_agent|子\s*Agent|母\s*Agent|context_manage|entryId/i.test(migratedLegacyV2.text), false);
     assert.equal(migratedLegacyV2.defaultUpdateAvailable, true);
     const migratedLegacyV2Store = readJson(promptPath);
-    assert.equal(migratedLegacyV2Store.contractRevision, 14);
+    assert.equal(migratedLegacyV2Store.contractRevision, 15);
     assert.equal(migratedLegacyV2Store.memoryPrompt.includes("需要 compact 的 entries"), false);
     assert(migratedLegacyV2Store.memoryPrompt.includes("当前项目当前会话的 fastmemory"));
 

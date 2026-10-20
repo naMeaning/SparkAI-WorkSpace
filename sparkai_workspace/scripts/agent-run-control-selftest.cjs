@@ -35,6 +35,16 @@ const { normalizedTaskScope, normalizedSteerTaskScopeUpdate } = require("../agen
   } });
   const normalizeScopeUpdate = (current, update) => normalizedSteerTaskScopeUpdate(current, update);
   const first = control.begin({ runId: "run-a", projectId: "P", conversationId: "C1", nodeIds: ["N1"], steerable: true, taskScope: initialTaskScope });
+  const requirementScope = normalizedTaskScope({ taskScope: { ...initialTaskScope, creation: {
+    requirementId: "requirements-runtime", revision: 1, fingerprint: `creation-${"a".repeat(64)}`
+  } } });
+  assert.throws(() => control.updateTaskScope({ runId: "run-a", projectId: "OTHER", conversationId: "C1", previousHash: initialTaskScope.snapshotHash, taskScope: requirementScope }), error => error.code === "TASK_SCOPE_STALE");
+  assert.throws(() => control.updateTaskScope({ runId: "run-a", projectId: "P", conversationId: "C1", previousHash: "old", taskScope: requirementScope }), error => error.code === "TASK_SCOPE_STALE");
+  assert.throws(() => control.updateTaskScope({ runId: "run-a", projectId: "P", conversationId: "C1", previousHash: initialTaskScope.snapshotHash, taskScope: replacementTaskScope }), error => error.code === "TASK_SCOPE_CHANGED");
+  control.updateTaskScope({ runId: "run-a", projectId: "P", conversationId: "C1", previousHash: initialTaskScope.snapshotHash, taskScope: requirementScope });
+  assert.equal(control.snapshot("P").runs[0].taskScopeSnapshotHash, requirementScope.snapshotHash);
+  assert.equal(control.snapshot("P").lockedNodeIds.includes("OLD-SOURCE"), true);
+  control.updateTaskScope({ runId: "run-a", projectId: "P", conversationId: "C1", previousHash: requirementScope.snapshotHash, taskScope: initialTaskScope });
   control.begin({ runId: "run-b", projectId: "P", conversationId: "C1", nodeIds: ["N1", "N2"] });
   assert.throws(
     () => control.begin({ runId: "run-c", projectId: "P", conversationId: "C2", nodeIds: ["N1"] }),

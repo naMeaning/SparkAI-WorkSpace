@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { createAutomationService } = require("../desktop/automation-service.cjs");
+const { validateSchemaValue } = require("../desktop/debug-command-service.cjs");
 const { composePluginTask } = require("../desktop/plugin-task-prompts.cjs");
 const { createRequirementLibraryService } = require("../desktop/requirement-library.cjs");
 
@@ -350,6 +351,50 @@ async function main() {
       assert.ok(mainSource.includes(`"${name}"`)); assert.ok(taskIpcSource.includes(`"${name}"`));
       assert.ok(skillText.includes(name)); assert.ok(readFileSync(path.join(skillRoot, "references/commands.md"), "utf8").includes(name));
     }
+    const publicCommands = new Map(commandSchema.sections.flatMap(section => section.commands).map(command => [command.name, command]));
+    const creationCommands = ["creation.requirements.get", "creation.requirements.update", "creation.acceptance.get", "creation.acceptance.check", "creation.acceptance.decide", "creation.revision.start"];
+    const creationCalls = [];
+    const creationService = createAutomationService({ BrowserWindow: { getAllWindows: () => [] }, configDir: root,
+      version: "fixture", executablePath: "fixture.exe", log: () => {}, serviceCommandNames: creationCommands,
+      serviceCommandHandler: (command, args) => { creationCalls.push({ command, args }); return { ok: true, command, args }; } });
+    for (const name of creationCommands) {
+      const definition = publicCommands.get(name);
+      assert.equal(definition.surface, "service", `${name} must share the Main project owner`);
+      assert.equal(definition.parameters.additionalProperties, false);
+      assert.ok(skillText.includes(name));
+      assert.ok(readFileSync(path.join(skillRoot, "references/commands.md"), "utf8").includes(name));
+      const routed = await creationService.dispatch(name, definition.examples[0]);
+      assert.deepEqual(routed.args, definition.examples[0], `${name} must preserve the caller's exact project/revision/target scope`);
+    }
+    assert.deepEqual(creationCalls.map(call => call.command), creationCommands);
+    const requirementProperties = publicCommands.get("creation.requirements.update").parameters.properties.requirements.properties;
+    assert.deepEqual(requirementProperties.goal.required, ["text", "source"]);
+    assert.deepEqual(requirementProperties.goal.properties.source.enum, ["user", "assumption"]);
+    assert.deepEqual(requirementProperties.slots.items.required, ["slotId", "label", "source"]);
+    assert.deepEqual(requirementProperties.conditions.items.properties.kind.enum, ["visual", "source_consistency"]);
+    const revisionProperties = publicCommands.get("creation.revision.start").parameters.properties;
+    assert.equal(revisionProperties.targets.items.additionalProperties, false);
+    assert.deepEqual(revisionProperties.targets.items.required, ["assetId", "occurrenceId", "contentHash"]);
+    assert.equal(revisionProperties.targets.items.properties.changes.items.maxLength, 2000);
+    assert.equal(revisionProperties.changes.minItems, 0, "Per-target edits can replace common changes");
+    const maskSchema = revisionProperties.targets.items.properties.mask;
+    assert.deepEqual(maskSchema.required, ["assetId", "occurrenceId", "contentHash"]);
+    assert.equal(maskSchema.additionalProperties, false);
+    assert.deepEqual(Object.keys(maskSchema.properties), ["assetId", "occurrenceId", "contentHash"], "Masked revisions accept managed identities only");
+    const maskedExample = structuredClone(publicCommands.get("creation.revision.start").examples[0]);
+    maskedExample.targets[0].mask = { assetId: "managed-mask", occurrenceId: "mask-occurrence", contentHash: "b".repeat(64) };
+    const maskedRoute = await creationService.dispatch("creation.revision.start", maskedExample);
+    assert.deepEqual(maskedRoute.args.targets[0].mask, maskedExample.targets[0].mask);
+    for (const unsafeKey of ["path", "relativePath", "url", "dataUrl"]) {
+      assert.throws(() => validateSchemaValue("creation.revision.start", publicCommands.get("creation.revision.start").parameters, { ...maskedExample,
+        targets: [{ ...maskedExample.targets[0], mask: { ...maskedExample.targets[0].mask, [unsafeKey]: "untrusted" } }] }), /undeclared|not allowed|不允许|未知|未声明|unexpected/i);
+    }
+    const acceptanceTarget = publicCommands.get("creation.acceptance.decide").parameters.properties.target;
+    assert.deepEqual(Object.keys(acceptanceTarget.properties), ["assetId", "occurrenceId", "contentHash"], "Acceptance never accepts caller paths, indices or revision edits");
+    assert.deepEqual(publicCommands.get("creation.acceptance.decide").parameters.properties.decision.enum, ["adopt", "reject", "candidate"]);
+    const taskStartProperties = publicCommands.get("agent.task.start").parameters.properties;
+    assert.equal(taskStartProperties.requirementId.minLength, 1);
+    assert.equal(taskStartProperties.expectedRequirementsRevision.minimum, 1);
     assert.ok(rendererSource.includes('command === "agent.task.dispatch"'));
     assert.ok(rendererSource.includes('command === "agent.task.answer-dispatch"'));
     assert.doesNotMatch(rendererSource, /errorCode === "TASK_ANSWER_STALE"\) closePendingAgentExecution/,

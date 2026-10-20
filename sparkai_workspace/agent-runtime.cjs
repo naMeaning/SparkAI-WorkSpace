@@ -1,6 +1,11 @@
 const { imageConfigSnapshot, normalizeImageConfigSnapshot, settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
 const { contentNamePatch, normalizeContentName } = require("./runtime/image-content-name.mjs");
 const { imageInputManifest } = require("./runtime/image-input-manifest.cjs");
+const { normalizeCreationTaskContract, normalizeCreationMaskAssets } = require("./runtime/creation-task-contract.mjs");
+const { createImageObservationLedger, successfulModelResponse } = require("./runtime/image-observation-evidence.cjs");
+const { callCreationService, refFromResult, requirementsFromResult, runCreationTool, creationSlotsForImage } = require("./runtime/creation-tools.cjs");
+const { runCreationRevision } = require("./runtime/creation-revision.cjs");
+const { createSavedCreationActionChecker, creationCheckUnrecorded } = require("./runtime/creation-local-check.cjs");
 /*
 SparkAI WorkSpace Agent Runtime Map
 
@@ -113,7 +118,7 @@ const mainWorkbenchRecentArtifacts = 24;
 const protocolHistoryMaxTurns = 36;
 const protocolHistoryPromptChars = 180000;
 const protocolHistoryStoreChars = 260000;
-const promptTextContractRevision = 14;
+const promptTextContractRevision = 15;
 const imageToolNames = new Set([primaryImageToolName]);
 const internalOnlyToolNames = new Set(["memory", "context_manage"]);
 const experiencePublicArgumentKeys = new Set(["action", "title", "text", "summary", "instruction", "rating", "brief"]);
@@ -128,6 +133,7 @@ function isImageToolName(name = "") {
 const defaultMainAgentPromptLines = [
   "你是 SparkAI WorkSpace 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
+  "创作任务用公开 creation 工具自然提炼、查询和修改版本化要求：目标、用途、输出槽位、保留项、可改项和验收条件。明确用户要求标 user，未说明的推断标 assumption；读取当前版本后精确更新，不从关键词强制调用。图片执行仍只用 image_gen。验收使用 creation(record_review)，逐条件给简短 pass/fail/uncertain；必须先 view_image 并让后续成功主模型回合实际消费当前成果像素，来源一致性条件还须同时消费绑定来源像素。读取图片本身不代表验收通过，文件检查也不代表视觉通过。要求或图片字节改变后旧观察失效，需要重新观察。用户仅改指定成果时调用 creation(revise_results)，复制精确目标身份并分别填写保留项和改动；当前run成功保存后Main启动关联修订，不在同一run另外调用image_gen。定向修订只处理冻结目标，并保持保留项与原图片配置，不自行增加候选或改其他图片。",
   "SparkAI WorkSpace 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
   `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 管理已有成果，并可重命名、替换或导出当前项目受管图片组；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。图片组替换只能引用当前画布节点和 zero-based 资产序号，图片组导出必须 confirmed=true，禁止提交路径、URL 或目标目录。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
   `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。普通任务的 Current Task Scope 只提供统一 materials 上下文，模型根据用户意图和图片内容选择 generate、edit、replace、variants、layers、cutout 或 redraw，不要求用户手工分类、逐项绑定或把某张图声明为 SOURCE/REFERENCE。仅当没有可用素材且用户要求修改时才用 ask_user 补充图片；需要精确指定容器槽位时才填写 bindingId。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
@@ -683,6 +689,7 @@ function toolDisplayName(name = "") {
     context_manage: "Context Manage",
     memory: "Memory",
     workflow: "Canvas",
+    creation: "创作要求",
     view_image: "View Image",
     ask_user: "Ask User",
     web_search: "Web Search",
@@ -713,6 +720,7 @@ function toolBriefFromArgs(name, args = {}) {
   if (name === "workflow") return workbenchBrief(args);
   if (name === "memory") return `Memory ${args.operation || "check"}。`;
   if (name === "experience") return "管理绘画经验。";
+  if (name === "creation") return args.operation === "record_review" ? "记录图片验收意见。" : args.operation === "update_requirements" ? "整理本次创作要求。" : args.operation === "revise_results" ? "准备指定成果的定向修改。" : "查看创作要求与验收状态。";
   if (name === "context_manage") return "整理外置上下文。";
   if (name === "ask_user") return "向用户请求必要信息。";
   if (name === "web_search") return "执行原生联网搜索。";
@@ -956,6 +964,7 @@ function stableTaskScopeIdentityHash(value = "") {
 }
 
 function taskScopeSnapshotHash(scope = {}) {
+  const maskAssets = normalizeCreationMaskAssets(scope.maskAssets);
   const materialAsset = (item = {}) => ({
     bindingId: item.bindingId || "",
     assetId: item.assetId || "",
@@ -975,6 +984,12 @@ function taskScopeSnapshotHash(scope = {}) {
   });
   const material = {
     ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
+    ...(scope.creation ? { creation: normalizeCreationTaskContract(scope.creation) } : {}),
+    ...(maskAssets.length ? { maskAssets: maskAssets.map(mask => ({
+      assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash,
+      target: { assetId: mask.target.assetId, occurrenceId: mask.target.occurrenceId, contentHash: mask.target.contentHash },
+      width: mask.width, height: mask.height
+    })) } : {}),
     version: 2,
     origin: scope.origin,
     scopeType: scope.scopeType,
@@ -1173,6 +1188,8 @@ function normalizedTaskScope(payload = {}) {
     : undefined;
   const scope = {
     ...(raw.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(raw.imageConfig) } : {}),
+    ...(raw.creation ? { creation: normalizeCreationTaskContract(raw.creation) } : {}),
+    ...(normalizeCreationMaskAssets(raw.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(raw.maskAssets) } : {}),
     version: 2,
     origin,
     scopeType,
@@ -1207,6 +1224,9 @@ function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
   if (!referenceModes.has(referenceMode)) throw new Error(`TaskScope referenceMode=${referenceMode || "<missing>"} 无效。`);
   if (current.origin === "goal" && (sourceMode !== "keep" || referenceMode !== "keep")) {
     throw new Error("Goal 运行中只能修改文字，冻结的 SOURCE / REFERENCE 不允许替换、追加或清空。");
+  }
+  if (current.creation && (sourceMode !== "keep" || referenceMode !== "keep")) {
+    throw new Error("创作任务的素材范围已经冻结；运行中只能修改文字，换素材请建立新的关联修订任务。");
   }
 
   const needsCandidate = sourceMode === "replace" || sourceMode === "merge" || referenceMode === "replace" || referenceMode === "merge";
@@ -1350,6 +1370,8 @@ function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
   const scope = {
     version: 2,
     ...(current.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(current.imageConfig) } : {}),
+    ...(current.creation ? { creation: normalizeCreationTaskContract(current.creation) } : {}),
+    ...(normalizeCreationMaskAssets(current.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(current.maskAssets) } : {}),
     origin: sourceMode === "clear" ? "chat" : sourceBase.origin,
     scopeType,
     canvasRevision: Math.max(current.canvasRevision, candidate?.canvasRevision || 0),
@@ -1417,6 +1439,8 @@ function imageTaskProvenance(taskScope, sourceAsset = null) {
     sourceBindingId,
     sourceAssetId: cleanOneLine(source.assetId || "", 160) || undefined,
     sourceOccurrenceId: cleanOneLine(source.occurrenceId || "", 80) || undefined,
+    sourceContentHash: cleanOneLine(source.contentHash || "", 128) || undefined,
+    ...(taskScope.creation ? { creation: { requirementId: taskScope.creation.requirementId, revision: taskScope.creation.revision, fingerprint: taskScope.creation.fingerprint } } : {}),
     sourceNodeId: cleanOneLine(source.nodeId || "", 160) || undefined,
     sourceContainerId: cleanOneLine(source.containerId || "", 160) || undefined,
     sourceDisplayCode: cleanOneLine(source.displayCode || "", 40) || undefined,
@@ -2530,6 +2554,7 @@ function compactModelForSettings(settings = {}) {
 
 function createAgentRuntime(options) {
   const runtimeOptions = options || {};
+  const checkSavedCreationActions = createSavedCreationActionChecker(runtimeOptions.creationService);
   const projectRoot = runtimeOptions.projectRoot;
   const log = typeof runtimeOptions.log === "function" ? runtimeOptions.log : () => {};
   const goalProbeAdmission = runtimeOptions.goalProbeAdmission && typeof runtimeOptions.goalProbeAdmission.acquire === "function"
@@ -3427,7 +3452,7 @@ function createAgentRuntime(options) {
               purpose: cleanOneLine(requested?.purpose || scoped.purpose || "", 320) || undefined
             };
           })
-        : taskScope.materials.map((item) => ({ ...item, role: item.referenceRole || item.role || undefined }));
+        : (context.creationRevisionChild ? taskScope.referenceAssets : taskScope.materials).map((item) => ({ ...item, role: item.referenceRole || item.role || undefined }));
     }
     let referenceImages = normalizeReferenceImages(scopedReferenceValues, 9);
     if (!referenceImages.length && !taskScopePresent) referenceImages = normalizeReferenceImages(context.referenceImages, 9);
@@ -3490,7 +3515,8 @@ function createAgentRuntime(options) {
       relationType: requestedOperation === "variants" ? "variant" : "derived-from",
       taskProvenance: (() => {
         const provenance = imageTaskProvenance(taskScopePresent ? taskScope : null, scopedSourceAsset);
-        return provenance && socialContent ? { ...provenance, socialContent } : provenance;
+        return provenance ? { ...provenance, ...(socialContent ? { socialContent } : {}),
+          ...(cleanOneLine(args.creationSlotId || "", 160) ? { creationSlotId: cleanOneLine(args.creationSlotId, 160) } : {}) } : provenance;
       })(),
       ...imageControls,
       ...layerHint,
@@ -5044,6 +5070,11 @@ function createAgentRuntime(options) {
   }
 
   async function runTool(name, input, context) {
+    const result = await runToolOperation(name, input, context);
+    return isImageToolName(name) ? checkSavedCreationActions(result, context) : result;
+  }
+
+  async function runToolOperation(name, input, context) {
     const args = parseJsonObject(input);
     if (!args.projectId && context?.projectId) args.projectId = context.projectId;
     if (!args.conversationId && context?.conversationId) args.conversationId = context.conversationId;
@@ -5064,7 +5095,21 @@ function createAgentRuntime(options) {
       };
     }
 
-    if (name === "shell_command" || name === "command") {
+    if (name === "creation") {
+      const value = await runCreationTool(args, context || {}, { service: runtimeOptions.creationService,
+        beforeRequirements: runtimeOptions.beforeCreationRequirements, onRequirements: context?.onCreationRequirements, onRevision: context?.onCreationRevision });
+      return { envelope: storeToolResult(name, args, safeJson(value), { summary: args.operation === "record_review" ? "已记录图片验收意见。" : args.operation === "update_requirements" ? "已保存本次创作要求。" : args.operation === "revise_results" ? value.summary : "已读取创作要求与验收状态。" }), actions };
+    } else if (isImageToolName(name) && context?.taskScope?.creation?.revisionPlan && !context.creationRevisionChild) {
+      return runCreationRevision(args, context, {
+        creationService: runtimeOptions.creationService,
+        projectRoot: typeof runtimeOptions.resolveProjectRoot === "function" ? runtimeOptions.resolveProjectRoot(context.projectId) || projectRoot : projectRoot,
+        normalizeImageArgs: (value, currentContext) => {
+          const normalized = normalizeImageToolArgs(name, value, currentContext.settings || {}, { ...currentContext, creationRevisionChild: true });
+          Object.defineProperty(normalized, normalizedImageToolArgsMarker, { value: true });
+          return normalized;
+        }, runImageTool: (value, currentContext) => runTool(name, value, currentContext)
+      });
+    } else if (name === "shell_command" || name === "command") {
       const commandResult = await executeControlledCommand(args, projectRoot);
       return { envelope: storeToolResult(name, args, commandResult.text, commandResult), actions };
     } else if (name === primaryImageToolName && operation === "compose") {
@@ -5185,6 +5230,14 @@ function createAgentRuntime(options) {
         ? args
         : normalizeImageToolArgs(name, args, context.settings ?? {}, context);
       if (!toolArgs.projectId && context.projectId) toolArgs.projectId = context.projectId;
+      if (context.taskScope?.creation && runtimeOptions.creationService && !context.creationRevisionChild) {
+        const current = await callCreationService(runtimeOptions.creationService, "get_requirements", { projectId: context.projectId, conversationId: context.conversationId, taskId: context.taskId, runId: context.runId,
+          requirementId: context.taskScope.creation.requirementId });
+        const requirementRef = refFromResult(current);
+        if (!requirementRef || requirementRef.requirementId !== context.taskScope.creation.requirementId || requirementRef.revision !== context.taskScope.creation.revision || requirementRef.fingerprint !== context.taskScope.creation.fingerprint) throw new Error("当前创作要求与冻结执行合同不一致，图片未派发。");
+        toolArgs.creationSlots = creationSlotsForImage(toolArgs, requirementsFromResult(current));
+        if (toolArgs.creationSlots.length === 1) toolArgs.taskProvenance = { ...toolArgs.taskProvenance, creationSlotId: toolArgs.creationSlots[0] };
+      }
       const isGenerate = toolArgs.mode === "generate";
       const actionParentId = String(toolArgs.parentId || "").trim();
       const currentToolRunId = String(toolArgs.toolRunId || context.toolRunId || toolArgs.runId || toolRunId(context, "image-gen"));
@@ -5238,6 +5291,9 @@ function createAgentRuntime(options) {
                 title: `方案 ${index + 1}`
               })))
         : [];
+      const provenanceForRequest = index => toolArgs.taskProvenance && ({ ...toolArgs.taskProvenance,
+        ...(toolArgs.creationSlots?.[index] ? { creationSlotId: toolArgs.creationSlots[index] } : {}) });
+      for (const [index, item] of collectionSeedItems.entries()) if (provenanceForRequest(index)) item.taskProvenance = provenanceForRequest(index);
       const liveCreatedAt = new Date().toISOString();
       const liveAssets = [];
       const liveItems = collectionSeedItems.map((item) => ({ ...item, status: "pending" }));
@@ -5517,6 +5573,7 @@ function createAgentRuntime(options) {
             title: asset.title || (completedOutputs.length > 1 ? `方案 ${index + 1}` : undefined),
             status: "done"
           }));
+      for (const [index, item] of collectionItems.entries()) if (provenanceForRequest(Number(item.requestIndex || index + 1) - 1)) item.taskProvenance = provenanceForRequest(Number(item.requestIndex || index + 1) - 1);
       const completedNode = (asset, index, total) => ({
         title: `${nodeTitlePrefix}：${shortTitle(asset?.prompt || generation.prompt, 18)}${total > 1 ? ` · ${index + 1}/${total}` : ""}`,
         prompt: [
@@ -5648,10 +5705,13 @@ function createAgentRuntime(options) {
                   id: String(item.id || `item-${index + 1}`),
                   requestIndex: clampNumber(item.requestIndex, 1, 200, index + 1),
                   assetIndex: compactAssetIndex,
+                  ...(boundAsset?.assetId ? { assetId: boundAsset.assetId } : {}),
+                  ...(boundAsset?.occurrenceId ? { occurrenceId: boundAsset.occurrenceId } : {}),
                   prompt: String(item.prompt || boundAsset?.prompt || generation.prompt),
                   title: item.title ? String(item.title) : boundAsset?.title,
                   status: item.status === "error" || item.status === "pending" ? item.status : "done",
-                  error: item.error ? String(item.error) : undefined
+                  error: item.error ? String(item.error) : undefined,
+                  ...(item.taskProvenance ? { taskProvenance: item.taskProvenance } : {})
                 };
               })
             }
@@ -5801,8 +5861,11 @@ function createAgentRuntime(options) {
         context?.viewImagePayloadMaxBytes ?? viewImageModelPayloadMaxBytes
       );
       context.pendingInspectedImagePaths?.set(resolvedPath, modelImage.dataUrl);
+      const knownAssets = [...(context.taskScope?.materials || []), ...(context.taskScope?.sourceAssets || []), ...(context.taskScope?.referenceAssets || []),
+        ...(context.nodes || []).flatMap(node => node.assets || []), ...(context.pendingActions || []).flatMap(action => action.node?.assets || [])];
+      context.observationLedger?.stage({ imagePath: resolvedPath, modelImage, assets: knownAssets, requirementRef: context.taskScope?.creation });
       context.progress?.({ phase: "protocol-trace", internalOnly: true, detail: { tool: "view_image", continuationId: context.runId,
-        inputImageCount: 1, detail, contentHash: require("node:crypto").createHash("sha256").update(readFileSync(resolvedPath)).digest("hex") } });
+        inputImageCount: 1, detail, contentHash: modelImage.sourceContentHash } });
       result = [
         "VIEW IMAGE 已把本地图片附加到当前模型上下文。",
         `path: ${resolvedPath}`,
@@ -6179,7 +6242,7 @@ function createAgentRuntime(options) {
       result = `未知工具：${name}`;
     }
 
-    return { envelope: storeToolResult(name, args, result, modelOutput ? { modelOutput } : {}), actions };
+    return { envelope: storeToolResult(name, context?.creationRevisionChild && args.maskDataUrl ? { ...args, maskDataUrl: undefined } : args, result, modelOutput ? { modelOutput } : {}), actions };
   }
 
   function memoryAgentMessages(task, payloadText, extra = {}) {
@@ -6952,12 +7015,22 @@ function createAgentRuntime(options) {
     const toolResults = [];
     const inspectedImagePaths = new Set();
     const pendingInspectedImagePaths = new Map();
+    const observationLedger = createImageObservationLedger({ projectRoot: typeof runtimeOptions.resolveProjectRoot === "function" ? runtimeOptions.resolveProjectRoot(payload.projectId) || projectRoot : projectRoot,
+      projectId: payload.projectId, conversationId: payload.conversationId, taskId: payload.taskId, runId: payload.runId });
+    const creationRevisionExecution = { accepted: false };
+    let creationContractError = null;
+    let deferredCreationRevision = null;
     const turnProtocolItems = [
       { type: "message", role: "user", content: [{ type: "input_text", text: String(payload.prompt || "") }] }
     ];
     const compactState = await compactConversationIfNeeded(settings, payload, progress, strategy);
     ensureResponsesProtocolFoundation(payload, compactState, strategy);
     const messages = buildPromptMessages(payload, compactState, strategy);
+    if (payload.taskScope?.creation && runtimeOptions.creationService) {
+      const requirementState = await callCreationService(runtimeOptions.creationService, "get_requirements", { projectId: payload.projectId, conversationId: payload.conversationId, taskId: payload.taskId, runId: payload.runId,
+        requirementId: payload.taskScope.creation.requirementId });
+      messages.push({ role: "system", content: `Current Creation Requirements (versioned; use creation tool to query/update):\n${safeJson(requirementState)}\n${payload.taskScope.creation.revisionPlan ? `Frozen targeted revision: call image_gen once, operation=edit/replace, count=${payload.taskScope.creation.revisionPlan.targets.length}; runtime resolves each exact target and preserves original settings. Do not provide source selectors, items or extra image settings.\n${safeJson(payload.taskScope.creation.revisionPlan)}` : ""}` });
+    }
     const exposedTools = agentToolSchemas(settings, { includeNativeWebSearch: strategy.useNativeWebSearch });
     const exposedToolNames = new Set(exposedTools.map(toolSchemaName).filter(Boolean));
 
@@ -6967,6 +7040,10 @@ function createAgentRuntime(options) {
     let goalImageToolCallAccepted = false;
     let unsafeImageGenerationError = null;
     let incompleteModelReply = null;
+    function blockImageRetryAfterCreationSaveFailure() {
+      unsafeImageGenerationError = Object.assign(new Error("图片成果仍保留，但创作记录保存失败；本run不能通过重新生图恢复，请查询或恢复已有任务。"),
+        { unsafeToRetry: true, errorCategory: "image_result_processing" });
+    }
     // Complex native tool sequences can legitimately include reference review,
     // generation, result review and one corrective pass. Keep a generous safety
     // ceiling while relying on the tool schema, duplicate-call guard and bounded
@@ -6978,7 +7055,7 @@ function createAgentRuntime(options) {
       const scopeSteer = [...queued].reverse().find((item) => item?.taskScope && typeof item.taskScope === "object");
       let appliedTaskScope = null;
       if (scopeSteer) {
-        appliedTaskScope = normalizedTaskScope({ taskScope: scopeSteer.taskScope });
+        appliedTaskScope = normalizedTaskScope({ taskScope: { ...scopeSteer.taskScope, ...(payload.taskScope?.creation ? { creation: payload.taskScope.creation } : {}) } });
         payload.taskScope = appliedTaskScope;
         if (Array.isArray(scopeSteer.nodes)) payload.nodes = scopeSteer.nodes;
         payload.selectedNodeIds = [...appliedTaskScope.sourceNodeIds];
@@ -7131,8 +7208,9 @@ function createAgentRuntime(options) {
       }
       if (isImageToolName(name)) {
         try {
+          if (creationContractError) throw creationContractError;
           const submittedImageToolShape = rawImageToolShape(parsedInput);
-          parsedInput = normalizeSingleImageItemCompatibility(parsedInput);
+          if (!payload.taskScope?.creation?.revisionPlan) parsedInput = normalizeSingleImageItemCompatibility(parsedInput);
           Object.defineProperty(parsedInput, rawImageToolShapeMarker, { value: submittedImageToolShape });
           const imageOperation = String(parsedInput.operation ?? parsedInput.mode ?? "").trim().toLowerCase();
           const activeTaskScope = normalizedTaskScope({ taskScope: payload.taskScope });
@@ -7164,7 +7242,10 @@ function createAgentRuntime(options) {
             taskScope: payload.taskScope,
             referenceImages: payload.referenceImages ?? []
           };
-          if (imageOperation === "layers") {
+          if (activeTaskScope.creation?.revisionPlan) {
+            // The existing image_gen handler expands the trusted revision plan.
+            // Model-supplied sources/count/options never select its targets.
+          } else if (imageOperation === "layers") {
             parsedInput = normalizeLayeredImageToolArgs(name, parsedInput, settings, imageContext);
           } else if (isRegionOperation) {
             parsedInput = normalizeRegionEditorOpenArgs(name, parsedInput, settings, imageContext);
@@ -7244,6 +7325,7 @@ function createAgentRuntime(options) {
           runId: payload.runId,
           projectId: payload.projectId,
           conversationId: payload.conversationId,
+          taskId: payload.taskId,
           operationId: currentToolRunId,
           toolRunId: currentToolRunId,
           prompt: payload.prompt,
@@ -7256,9 +7338,22 @@ function createAgentRuntime(options) {
           signal: toolPhase.signal,
           waitUntilRunnable: payload.waitUntilRunnable,
           viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes,
-          inspectedImagePaths, pendingInspectedImagePaths, pendingActions: actions
+          inspectedImagePaths, pendingInspectedImagePaths, pendingActions: actions, observationLedger, creationRevisionExecution,
+          onCreationRequirements: async ({ previousRef, requirementRef, ...identities }) => {
+            const taskScope = normalizedTaskScope({ taskScope: { ...payload.taskScope, creation: requirementRef } });
+            try {
+              await runtimeOptions.onCreationRequirements?.({ ...identities, previousRef, requirementRef, taskScope });
+            } catch (error) { creationContractError = error; throw error; }
+            payload.taskScope = taskScope;
+          },
+          onCreationRevision: request => {
+            if (deferredCreationRevision) throw new Error("当前任务已提交定向修改，请查询关联修订任务。");
+            deferredCreationRevision = request;
+            creationContractError = new Error("当前任务已准备关联定向修改，禁止再次派发图片。");
+          }
         });
         stopPolling();
+        if (result[creationCheckUnrecorded]) blockImageRetryAfterCreationSaveFailure();
         actions.push(...(result.actions ?? []));
         toolResults.push(result.envelope);
         if (result.envelope?.ok === false) {
@@ -7306,6 +7401,9 @@ function createAgentRuntime(options) {
         }
         if (name === primaryImageToolName && (error?.unsafeToRetry === true || error?.generationCompleted === true)) {
           unsafeImageGenerationError = error;
+        }
+        if (name === "creation" && error?.creationPersistenceFailed === true) {
+          blockImageRetryAfterCreationSaveFailure();
         }
         const failure = makeToolErrorEnvelope(name, parsedInput, error);
         const envelope = storeToolResult(name, parsedInput, failure.resultText, {
@@ -7393,10 +7491,15 @@ function createAgentRuntime(options) {
             signal: modelPhase.signal
           }
         );
+        if (phaseWasSteered(modelPhase) || modelPhase.signal?.aborted) {
+          consumeSteers("model-superseded");
+          continue;
+        }
+        observationLedger.consume(preparedModelMessages, response, `${payload.runId || "agent"}:model:${modelRound}`);
         const consumedPixels = new Set(preparedModelMessages.flatMap(message => Array.isArray(message.content) ? message.content : [])
           .filter(part => part?.type === "input_image").map(part => part.image_url));
         for (const [observedPath, pixels] of pendingInspectedImagePaths) {
-          if (consumedPixels.has(pixels)) { inspectedImagePaths.add(observedPath); pendingInspectedImagePaths.delete(observedPath); }
+          if (successfulModelResponse(response) && consumedPixels.has(pixels)) { inspectedImagePaths.add(observedPath); pendingInspectedImagePaths.delete(observedPath); }
         }
       } catch (error) {
         if (phaseWasSteered(modelPhase, error)) {
@@ -7544,6 +7647,10 @@ function createAgentRuntime(options) {
           });
           break;
         }
+        if (deferredCreationRevision) {
+          appendPendingToolSkips(toolCalls, callIndex + 1, "定向修改已交接；当前任务成功保存后启动关联修订，本轮不再执行工具。");
+          break;
+        }
         if (name === "ask_user") {
           waitingForUserAction = (result.actions ?? [])[0] ?? waitingForUserAction;
         }
@@ -7557,10 +7664,14 @@ function createAgentRuntime(options) {
         }
       }
 
-      if (!failedTool && !waitingForUserAction) {
+      if (!failedTool && !waitingForUserAction && !deferredCreationRevision) {
         await flushPendingParallelCalls(toolCalls.length);
       }
       if (steeredRound) continue;
+      if (deferredCreationRevision) {
+        assistantMessage = { role: "assistant", content: "已准备指定成果的修改，原任务成功保存后将启动关联修订。" };
+        break;
+      }
       if (waitingForUserAction) {
         const request = waitingForUserAction.request ?? {};
         assistantMessage = {
@@ -7584,7 +7695,10 @@ function createAgentRuntime(options) {
       fallbackToolSummary;
     if (!content) throw new Error("API 返回成功，但没有文本内容。");
     appendConversationProtocolTurn(payload, turnProtocolItems, protocolLimitsForStrategy(strategy));
+    observationLedger.close();
     return { ok: true, content, actions, toolResults: publicToolResults,
+      ...(payload.taskScope?.creation ? { effectiveTaskScope: normalizedTaskScope({ taskScope: payload.taskScope }) } : {}),
+      ...(deferredCreationRevision ? { deferredCreationRevision } : {}),
       ...(incompleteModelReply ? { completion: "partial", modelFailure: { phase: "model", status: incompleteModelReply.status },
         executionFailed: incompleteModelReply.executionFailed } : {}) };
   }

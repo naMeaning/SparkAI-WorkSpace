@@ -15,6 +15,7 @@ const path = require("node:path");
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { registerSessionIpc } = require("../desktop/ipc/config-ipc.cjs");
 const { createProjectSaveCoordinator } = require("../desktop/project-save-coordinator.cjs");
+const { createProjectCreationService } = require("../desktop/project-creation-service.cjs");
 const {
   hydrateSessionAssets,
   sanitizeSession,
@@ -401,13 +402,37 @@ async function testDestroyedAroundAcknowledgement(rendererA, rendererB) {
   assert.equal(targetNode(onDiskAfterAcknowledgement).y, 888, "Destroying after acknowledgement must leave the acknowledged save durable.");
 }
 
+async function testCreationOwner(rendererA, rendererB) {
+  const projectId = "creation-owner", project = projectById(projectId);
+  const service = createProjectCreationService({ projectFor: id => projectById(id), readSession: id => readJson(projectById(id).sessionPath),
+    projectRelativePath: (base, file) => path.relative(base, file || "").replace(/\\/g, "/"), resolveProjectRelativePath: (base, file) => path.resolve(base, file) });
+  const locator = { projectId, conversationId: "creation-conversation" }, requirements = {
+    goal: { text: "共享创作要求", source: "user" }, usage: { text: "测试双窗口保存", source: "user" },
+    slots: [{ slotId: "hero", label: "主图", source: "user" }], preserve: [], adjustable: [], conditions: [] };
+  service.updateRequirements({ ...locator, expectedRevision: 0, requirements });
+  const [snapshotA, snapshotB] = await Promise.all([loadSession(rendererA, projectId), loadSession(rendererB, projectId)]);
+  service.updateRequirements({ ...locator, expectedRevision: 1, requirements: { ...requirements, goal: { text: "Main 权威第二版", source: "user" } } });
+  const contractPath = path.join(project.path, ".naimage", "creation.json"), authoritative = readFileSync(contractPath);
+  const draftA = { ...sessionDraft(snapshotA, { projectId, nodes: replaceTarget(snapshotA.nodes, { x: 777 }) }), creation: { requirements: [requirements] } };
+  const draftB = { ...sessionDraft(snapshotB, { projectId, nodes: replaceTarget(snapshotB.nodes, { y: 888 }) }), creation: { requirements: [] } };
+  const results = await Promise.all([saveSession(rendererA, draftA, 2, "creation-a", snapshotA.nodes), saveSession(rendererB, draftB, 2, "creation-b", snapshotB.nodes)]);
+  assertConcurrentRevisions(results, [2, 3]);
+  const loaded = await loadSession(rendererA, projectId);
+  assert.equal(targetNode(loaded).x, 777); assert.equal(targetNode(loaded).y, 888);
+  assert.equal("creation" in loaded, false, "Renderer must not become the full creation contract owner.");
+  assert.deepEqual(readFileSync(contractPath), authoritative, "Stale Renderer writes must not roll back Main's creation contract.");
+  assert.equal(service.getRequirements(locator).requirements.revision, 2);
+  assert.throws(() => service.updateRequirements({ ...locator, expectedRevision: 1, requirements }), { code: "CREATION_REQUIREMENTS_CONFLICT" });
+}
+
 async function run() {
   for (const projectId of [
     "edit-edit",
     "edit-delete",
     "delete-undo",
     "rapid-saves",
-    "destroyed-around-ack"
+    "destroyed-around-ack",
+    "creation-owner"
   ]) addProject(projectId);
 
   const baseCoordinator = createProjectSaveCoordinator({
@@ -467,6 +492,7 @@ async function run() {
   await testEditDelete(rendererA, rendererB);
   await testDeleteUndo(rendererA, rendererB);
   await testRapidConsecutiveSaves(rendererA, rendererB);
+  await testCreationOwner(rendererA, rendererB);
   await testDestroyedAroundAcknowledgement(rendererA, rendererB);
   assert.equal(projectSessionSaveCoordinator.pendingProjectCount(), 0, "No save queue may remain after Renderer destruction.");
 
@@ -479,6 +505,7 @@ async function run() {
       "edit/delete",
       "delete/undo",
       "rapid consecutive saves",
+      "Main creation owner survives stale Renderer saves",
       "destroyed around save acknowledgement"
     ]
   };

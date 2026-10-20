@@ -130,17 +130,23 @@ button:disabled {
   background: var(--surface);
 }
 
-.agent-task-card {
+.agent-task-area {
   grid-row: 4;
   min-width: 0;
-  max-height: 235px;
+  max-height: min(42vh, 310px);
   overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.agent-task-card {
+  min-width: 0;
   padding: 9px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   font-size: 13px;
 }
 .agent-task-card[hidden] { display: none; }
+.creation-session[hidden] { display: none; }
 .agent-task-card strong, .agent-task-card span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-task-card span { margin-top: 3px; color: var(--muted); }
 .agent-task-card p { margin: 6px 0; overflow-wrap: anywhere; }

@@ -1,5 +1,6 @@
 import { normalizeImageConfigSnapshot, type FrozenImageConfig } from "../runtime/image-config-snapshot.mjs";
 import type { ImageContentName } from "../runtime/image-content-name.mjs";
+import { normalizeCreationTaskContract, normalizeCreationMaskAssets, type CreationTaskContract, type FrozenCreationMask } from "../runtime/creation-task-contract.mjs";
 /*
 naimage Core Map
 
@@ -720,6 +721,13 @@ export type ImageTaskProvenance = {
   sourceBindingId?: string;
   sourceAssetId?: string;
   sourceOccurrenceId?: string;
+  sourceContentHash?: string;
+  creation?: Pick<CreationTaskContract, "requirementId" | "revision" | "fingerprint">;
+  creationSlotId?: string;
+  creationRevisionId?: string;
+  creationBaselineReviewIds?: string[];
+  creationPreserve?: string[];
+  creationChanges?: string[];
   sourceNodeId?: string;
   sourceContainerId?: string;
   sourceDisplayCode?: string;
@@ -1112,6 +1120,8 @@ export type TaskAssetReference = {
 
 export type AgentTaskScope = {
   imageConfig?: FrozenImageConfig;
+  creation?: CreationTaskContract;
+  maskAssets?: FrozenCreationMask[];
   version: 2;
   origin: "chat" | "canvas" | "node" | "container" | "layer" | "requirement" | "goal";
   scopeType: AgentTaskScopeType;
@@ -1330,8 +1340,15 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
     purpose: item.purpose || ""
   });
   const canonicalMaterials = agentTaskScopeMaterials(scope);
+  const masks = normalizeCreationMaskAssets(scope.maskAssets);
   const material = {
     ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
+    ...(scope.creation ? { creation: normalizeCreationTaskContract(scope.creation) } : {}),
+    ...(masks.length ? { maskAssets: masks.map(mask => ({
+      assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash,
+      target: { assetId: mask.target.assetId, occurrenceId: mask.target.occurrenceId, contentHash: mask.target.contentHash },
+      width: mask.width, height: mask.height
+    })) } : {}),
     version: 2,
     origin: scope.origin,
     scopeType: scope.scopeType,
@@ -2729,6 +2746,20 @@ export type ConfigBridge = {
 
 export type AgentRuntimeResult = {
   ok: boolean;
+  effectiveTaskScope?: AgentTaskScope;
+  deferredCreationRevision?: {
+    parentTaskId: string;
+    input: {
+      expectedProjectId: string;
+      conversationId: string;
+      submissionId: string;
+      requirementId: string;
+      expectedRevision: number;
+      targets: { assetId: string; occurrenceId: string; contentHash: string; preserve?: string[]; changes?: string[] }[];
+      preserve: string[];
+      changes: string[];
+    };
+  };
   /** Images/actions are delivered, but a later model request did not complete. */
   completion?: "partial";
   modelFailure?: { phase: "model"; status?: number };
@@ -2884,6 +2915,9 @@ export type AgentBridge = {
   taskAdmit(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
   taskSettle(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
   taskClaimAnswer(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
+  creationCommand(command: import("./creation-session").CreationCommand, args: Record<string, unknown>): Promise<import("./creation-session").CreationResponse>;
+  creationPrepare(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string; errorCode?: string; requirementRef?: import("./creation-session").CreationRequirementRef | null }>;
+  creationSaveMask(payload: { expectedProjectId: string; conversationId: string; target: import("./creation-session").CreationTarget; dataUrl: string }): Promise<{ ok: boolean; error?: string; mask?: import("./creation-session").CreationTarget }>;
   onProgress?(handler: (payload: AgentProgress) => void): () => void;
   getMainPrompt(): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
   saveMainPrompt(payload: { text: string }): Promise<{ ok: boolean; text?: string; defaultText?: string; isDefault?: boolean; currentPromptHash?: string; defaultPromptRevision?: number; defaultPromptHash?: string; baseDefaultPromptRevision?: number; baseDefaultPromptHash?: string; defaultUpdateAvailable?: boolean; maxChars?: number; updatedAt?: string; error?: string }>;
@@ -4417,11 +4451,23 @@ export function layerCompositionSummary(composition?: ImageLayerComposition) {
 }
 
 export function imageAssetName(asset: ImageAsset) {
+  const generated = Boolean(asset.runId || asset.generation || /(?:^|[\\/])output[\\/]imagegen[\\/]/i.test(asset.path || asset.relativePath || ""));
+  const generatedStem = (value: string) => /^(?:(?:image|asset|output|mask|run)[-_])?(?:[a-f0-9]{16,}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})(?:[-_]\d+)*(?:\.(?:png|jpe?g|webp|avif|tiff?))?$/i.test(value);
+  if (asset.contentName?.source === "manual") {
+    const manual = asset.title?.trim() || asset.contentName.displayName.trim();
+    if (manual) return manual;
+  }
+  const title = asset.title?.trim() || asset.contentName?.displayName?.trim();
+  if (title && (!generated || !generatedStem(title))) return title;
   if (asset.originalName?.trim()) return asset.originalName.trim();
-  if (asset.path) return asset.path.split(/[\\/]/).pop() || `image-${asset.index ?? 1}.png`;
+  if (asset.path) {
+    const filename = asset.path.split(/[\\/]/).pop() || "";
+    return generated && generatedStem(filename) ? "图片成果" : filename || `image-${asset.index ?? 1}.png`;
+  }
   const source = asset.url || asset.assetUrl || "";
   if (/^data:image\//i.test(source)) return `image-${asset.index ?? 1}.png`;
-  return source.split("/").pop()?.split("?")[0] || `image-${asset.index ?? 1}.png`;
+  const filename = source.split("/").pop()?.split("?")[0] || "";
+  return generated && generatedStem(filename) ? "图片成果" : filename || `image-${asset.index ?? 1}.png`;
 }
 
 export function mimeTypeFromPath(filePath?: string) {

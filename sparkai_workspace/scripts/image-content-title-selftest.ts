@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { canApplyContentName, contentNamePatch, normalizeStoredContentName } from "../runtime/image-content-name.mjs";
 
 import type { ImageAsset, ImageCollection } from "../src/core.ts";
+import { imageAssetName } from "../src/core.ts";
 import {
   imageContentSummaryTitle,
   normalizeGeneratedImageContentPresentation,
@@ -185,6 +186,23 @@ const tests: Array<[string, () => void]> = [
     const result = normalizeGeneratedImageContentPresentation({ title: "新的成果", assets: [fresh], existingAssets: [old] });
     assert.equal(result.assets[0].title, "新的成果");
     assert.equal(result.assets[0].contentName, undefined);
+  }],
+  ["generated material labels use friendly content names instead of physical hash stems", () => {
+    const generated: ImageAsset = { type: "file", runId: "run-generated", path: "C:/project/output/imagegen/image-aabbccddeeff00112233445566778899-1-01.png" };
+    assert.equal(imageAssetName(generated), "图片成果");
+    assert.equal(imageAssetName({ ...generated, title: "红色圆形" }), "红色圆形");
+    assert.equal(imageAssetName({ ...generated, contentName: { displayName: "商品主图", source: "fallback" } }), "商品主图");
+    assert.equal(imageAssetName({ ...generated, title: "image-aabbccddeeff00112233445566778899-1.png" }), "图片成果");
+    assert.equal(imageAssetName({ ...generated, path: "C:/project/output/imagegen/83e5c3c7-7ef8-4f59-b51e-32e950c105a9.png" }), "图片成果");
+    assert.equal(imageAssetName({ type: "file", path: generated.path }), "图片成果", "Older generated assets still have their managed generation directory");
+  }],
+  ["explicit user names and ordinary imported filenames remain intact", () => {
+    const originalName = "image-aabbccddeeff00112233445566778899.png";
+    assert.equal(imageAssetName({ type: "file", originalName, path: `C:/project/assets/${originalName}` }), originalName);
+    assert.equal(imageAssetName({ type: "file", runId: "run-generated", originalName, path: "C:/project/output/imagegen/file.png" }), originalName);
+    assert.equal(imageAssetName({ type: "file", path: "C:/project/assets/春日封面.png" }), "春日封面.png");
+    assert.equal(imageAssetName({ type: "file", path: `C:/project/assets/${originalName}` }), originalName, "An imported filename is not inferred to be a generated ID");
+    assert.equal(imageAssetName({ type: "file", runId: "run-generated", title: originalName, contentName: { displayName: originalName, source: "manual" } }), originalName);
   }],
 ];
 

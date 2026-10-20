@@ -39,6 +39,7 @@ import {
 import { ButtonBase, IconActionButton } from "./ui";
 import { runHasIncompleteModelReply } from "./model-ux";
 import type { AgentTaskCard } from "./agent-task";
+import type { CreationSessionPanelProps } from "./creation-session";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 declare const __NAIMAGE_PERF_PROBE__: boolean;
@@ -50,6 +51,7 @@ const NAIMAGE_RUNTIME_METRICS = (
 ) || __NAIMAGE_PERF_PROBE__;
 const PROJECT_AGENT_WELCOME = "描述想要的画面即可直接生图；也可以添加参考图，或选中画布图片后替换元素、设计多款和制作分层 PNG。";
 const LazyAgentMessageContent = React.lazy(() => import("./agent-message-content"));
+const LazyCreationSessionPanel = React.lazy(() => import("./creation-session-panel"));
 let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
 const loadProjectAgentComposer = () => projectAgentComposerPromise ??= import("./project-agent-composer");
 const LazyProjectAgentComposerContent = React.lazy(() => loadProjectAgentComposer().then((module) => ({ default: module.default })));
@@ -284,6 +286,14 @@ function ProjectAgentPanelView({
   conversationBoundaryBusy,
   taskCard,
   taskAction,
+  creationSession,
+  creationBusy,
+  creationError,
+  onUpdateCreationRequirements,
+  onCreationDecision,
+  onStartCreationRevision,
+  onRegionRevision,
+  onCheckCreationAcceptance,
   agentProgress,
   runElapsedSeconds,
   modelName,
@@ -314,7 +324,7 @@ function ProjectAgentPanelView({
   panelLayout,
   commitPanelLayout,
   debugCommit
-}: {
+}: CreationSessionPanelProps & {
   projectName: string;
   messages: AgentMessage[];
   conversations: AgentConversation[];
@@ -608,7 +618,7 @@ function ProjectAgentPanelView({
 
  return (
     <aside
-      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${taskCard ? "has-task" : ""} ${referenceDropActive ? "reference-drop-active" : ""}`}
+      className={`project-agent-panel placement-${panelLayout.agentPanelPlacement} ${taskCard || creationSession ? "has-task" : ""} ${referenceDropActive ? "reference-drop-active" : ""}`}
       aria-label="项目 Agent 对话栏"
       onDragEnter={(event) => {
         if (!Array.from(event.dataTransfer?.items ?? []).some((item) => item.kind === "file")) return;
@@ -741,13 +751,20 @@ function ProjectAgentPanelView({
         <em>{modelName || "未配置模型"}</em>
       </div>
 
+      {taskCard || creationSession ? <div className="agent-task-area">
       {taskCard ? (
         <section className="agent-task-card" aria-label="当前任务">
-          <div><strong title={taskCard.title}>{taskCard.title}</strong><span>{taskCard.phase} · 已保存 {taskCard.savedCount} 项成果</span></div>
+          <div><strong title={taskCard.title}>{taskCard.title}</strong><span>{taskCard.phase}{taskCard.generatedCount !== undefined ? ` · 已生成 ${taskCard.generatedCount}` : ""} · 已保存 {taskCard.savedCount} 项成果</span></div>
           {taskCard.question || taskCard.error ? <p>{taskCard.question || taskCard.error}</p> : null}
           {taskCard.action !== "none" ? <ButtonBase type="button" onClick={taskAction}>{taskCard.action === "answer" ? "回答问题" : taskCard.action === "recover" ? "恢复原结果" : "保存项目"}</ButtonBase> : null}
         </section>
       ) : null}
+      {creationSession ? <React.Suspense fallback={<div className="creation-session-loading">正在读取创作要求…</div>}><LazyCreationSessionPanel
+        creationSession={creationSession} creationBusy={creationBusy} creationError={creationError} executionBusy={executionBusy}
+        onUpdateCreationRequirements={onUpdateCreationRequirements} onCreationDecision={onCreationDecision}
+        onStartCreationRevision={onStartCreationRevision} onRegionRevision={onRegionRevision} onCheckCreationAcceptance={onCheckCreationAcceptance}
+      /></React.Suspense> : null}
+      </div> : null}
 
       <ProjectAgentFeed
         key={activeConversationId}

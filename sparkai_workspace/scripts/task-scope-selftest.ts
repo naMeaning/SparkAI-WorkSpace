@@ -142,6 +142,50 @@ for (const change of [
 assert.equal(agentTaskScopeSnapshotHash({ ...base, imageConfig: { ...imageConfig, apiKey: "injected-secret" } as typeof imageConfig }), hash,
   "Unknown fields are excluded from the image configuration hash");
 
+const creationScope: AgentTaskScope = { ...base, snapshotHash: hash, creation: { requirementId: "requirement-creation", revision: 1, fingerprint: `creation-${"a".repeat(64)}`,
+  revisionPlan: { revisionId: "revision-targets", baselineReviewIds: ["review-one"], preserve: ["保留主体"], changes: [], targets: [
+    { assetId: "asset-one", occurrenceId: "occ-1111111111111111", contentHash: "b".repeat(64), nodeId: "one", changes: ["白色背景"] },
+    { assetId: "asset-two", occurrenceId: "occ-2222222222222222", contentHash: "c".repeat(64), nodeId: "two", changes: ["精简文字"] }
+  ] } } };
+creationScope.snapshotHash = agentTaskScopeSnapshotHash(creationScope);
+assert.equal(creationScope.snapshotHash, taskScopeSnapshotHash(creationScope), "Creation refs and exact revision targets share one hash projection");
+const clonedCreation = cloneAgentTaskScope(creationScope);
+clonedCreation.creation!.revisionPlan!.targets[0].changes!.push("增加留白");
+assert.deepEqual(creationScope.creation!.revisionPlan!.targets[0].changes, ["白色背景"], "Cloning never aliases per-target revision deltas");
+assert.notEqual(agentTaskScopeSnapshotHash(clonedCreation), creationScope.snapshotHash);
+const revisedRequirements = { ...creationScope, creation: { ...creationScope.creation!, revision: 2 } };
+assert.notEqual(agentTaskScopeSnapshotHash(revisedRequirements), creationScope.snapshotHash, "Requirements revision changes invalidate the frozen hash");
+assert.equal(agentTaskScopeSnapshotHash(revisedRequirements), taskScopeSnapshotHash(revisedRequirements));
+assert.throws(() => normalizedSteerTaskScopeUpdate(creationScope, { sourceMode: "clear", referenceMode: "clear" }), /素材范围已经冻结/, "Creation steer cannot replace the original frozen material scope");
+const creationSteer = normalizedSteerTaskScopeUpdate(creationScope, { sourceMode: "keep", referenceMode: "keep" }).taskScope;
+assert.deepEqual(creationSteer.creation, creationScope.creation, "Text-only steer retains the complete creation contract association");
+
+const frozenMaskIdentity = { assetId: "mask-one", occurrenceId: "occ-3333333333333333", contentHash: "d".repeat(64) };
+const maskedCreationScope: AgentTaskScope = { ...creationScope,
+  creation: { ...creationScope.creation!, revisionPlan: { ...creationScope.creation!.revisionPlan!, targets: [{ ...creationScope.creation!.revisionPlan!.targets[0], mask: frozenMaskIdentity }] } },
+  maskAssets: [{ ...frozenMaskIdentity, target: { assetId: "asset-one", occurrenceId: "occ-1111111111111111", contentHash: "b".repeat(64) },
+    path: "C:/fixture/.naimage/creation-masks/mask-one.png", relativePath: ".naimage/creation-masks/mask-one.png", mimeType: "image/png", name: "区域修改蒙版", width: 1024, height: 768 }]
+};
+maskedCreationScope.snapshotHash = agentTaskScopeSnapshotHash(maskedCreationScope);
+assert.equal(maskedCreationScope.snapshotHash, taskScopeSnapshotHash(maskedCreationScope), "Runtime and Renderer hash the same mask identity, target binding and dimensions");
+const maskedSteer = normalizedSteerTaskScopeUpdate(maskedCreationScope, { sourceMode: "keep", referenceMode: "keep" }).taskScope;
+assert.deepEqual(maskedSteer.maskAssets, maskedCreationScope.maskAssets, "Text-only steer preserves the complete frozen mask material");
+assert.deepEqual(maskedSteer.creation.revisionPlan.targets[0].mask, frozenMaskIdentity);
+const clonedMaskScope = cloneAgentTaskScope(maskedCreationScope);
+clonedMaskScope.maskAssets![0].target.assetId = "changed-target";
+clonedMaskScope.creation!.revisionPlan!.targets[0].mask!.assetId = "changed-mask";
+assert.equal(maskedCreationScope.maskAssets![0].target.assetId, "asset-one", "Mask clones never alias the original target binding");
+assert.equal(maskedCreationScope.creation!.revisionPlan!.targets[0].mask!.assetId, frozenMaskIdentity.assetId);
+assert.notEqual(agentTaskScopeSnapshotHash(clonedMaskScope), maskedCreationScope.snapshotHash);
+assert.equal(agentTaskScopeSnapshotHash(clonedMaskScope), taskScopeSnapshotHash(clonedMaskScope));
+const relocatedMaskScope = cloneAgentTaskScope(maskedCreationScope);
+relocatedMaskScope.maskAssets![0].path = "D:/moved-project/.naimage/creation-masks/mask-one.png";
+assert.equal(agentTaskScopeSnapshotHash(relocatedMaskScope), maskedCreationScope.snapshotHash, "Absolute mask paths are excluded from the logical scope hash");
+const resizedMaskScope = cloneAgentTaskScope(maskedCreationScope);
+resizedMaskScope.maskAssets![0].width = 512;
+assert.notEqual(agentTaskScopeSnapshotHash(resizedMaskScope), maskedCreationScope.snapshotHash, "Mask pixel dimensions participate in the frozen hash");
+assert.equal(agentTaskScopeSnapshotHash(resizedMaskScope), taskScopeSnapshotHash(resizedMaskScope));
+
 const movedOnly: ScopeInput = {
   ...structuredClone(base),
   diagnosticCanvasPosition: { x: 1200, y: -850 }

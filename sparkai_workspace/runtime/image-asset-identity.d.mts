@@ -12,7 +12,20 @@ type ImageAssetIdentity = {
   sourceRelativePath?: string;
   title?: string;
   contentName?: { source: string };
+  contentHash?: string;
+  sha256?: string;
+  index?: number;
+  originalName?: string;
+  fileName?: string;
+  name?: string;
 };
+
+export function imageAssetContentHash(asset?: ImageAssetIdentity): string;
+export function imageAssetIdentityLocators(asset?: ImageAssetIdentity): string[];
+export function imageAssetIdentitySources(
+  asset?: ImageAssetIdentity,
+  options?: { fallbackIndex?: number; ownerId?: string; slot?: number; contentHashesByLocator?: ReadonlyMap<string, ReadonlySet<string>> | null }
+): { primarySource: string; aliasSources: string[] };
 
 export function coalesceImageAssets<T extends ImageAssetIdentity>(
   assets?: readonly T[],

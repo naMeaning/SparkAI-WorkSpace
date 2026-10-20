@@ -1,0 +1,42 @@
+.creation-session { min-width: 0; border-bottom: 1px solid var(--line); background: var(--surface-solid, var(--surface)); font-size: 12px; }
+.creation-session summary { min-width: 0; cursor: pointer; padding: 9px 12px; overflow-wrap: anywhere; }
+.creation-session > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; }
+.creation-session > summary > span { color: var(--muted); font-size: 11px; }
+.creation-session-content { min-width: 0; padding: 0 12px 12px; }
+.creation-session-content details > summary { padding: 8px 0; }
+.creation-session button { padding: 5px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--control-bg, var(--surface)); color: var(--ink); font-size: 11px; cursor: pointer; }
+.creation-session button:disabled { opacity: .48; cursor: not-allowed; }
+.creation-field { min-width: 0; display: grid; gap: 4px; margin-bottom: 9px; }
+.creation-field > span { color: var(--ink-soft, var(--muted)); font-size: 11px; }
+.creation-field textarea, .creation-field input, .creation-field select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--control-bg, var(--surface)); color: var(--ink); font: inherit; }
+.creation-field textarea { min-height: 44px; resize: vertical; line-height: 1.5; }
+.creation-file-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 8px; }
+.creation-slots { margin: 0 0 10px; }
+.creation-slots > p { margin: 6px 0; color: var(--muted); font-size: 11px; }
+.creation-slot-row { display: flex; gap: 5px; margin-bottom: 5px; }
+.creation-source { flex: 0 0 auto; align-self: center; color: var(--muted); font-size: 10px; }
+.creation-slot-row input { flex: 1; min-width: 0; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--control-bg, var(--surface)); color: var(--ink); font: inherit; }
+.creation-criteria { margin-bottom: 10px; }
+.creation-criteria > p { margin: 6px 0; color: var(--muted); font-size: 11px; }
+.creation-criterion-row { margin-bottom: 8px; padding: 7px; border: 1px solid var(--line); border-radius: 6px; }
+.creation-notice, .creation-issue { margin: 7px 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.creation-issue { color: var(--danger); }
+.creation-results { display: grid; min-width: 0; gap: 8px; margin-top: 9px; }
+.creation-results-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 5px; }
+.creation-result { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.creation-result p { margin: 6px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.creation-result-select { display: flex; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; }
+.creation-result-select input { flex: 0 0 14px; width: 14px; height: 14px; margin: 1px 0 0; accent-color: var(--accent); }
+.creation-result-select strong { min-width: 0; font-size: 12px; }
+.creation-result-states { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; }
+.creation-result-states > span { padding: 2px 5px; border-radius: 4px; background: var(--hover-bg, var(--surface-soft)); color: var(--muted); font-size: 10px; }
+.creation-result-states > [data-status="passed"], .creation-result-states > [data-status="pass"], .creation-result-states > [data-status="approved"] { color: var(--success, var(--accent)); }
+.creation-result-states > [data-status="failed"], .creation-result-states > [data-status="revise"], .creation-result-states > [data-status="rejected"] { color: var(--danger); }
+.creation-result-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.creation-comparison { display: flex; align-items: flex-start; gap: 7px; margin-top: 8px; }
+.creation-comparison figure { flex: 1 1 0; min-width: 0; margin: 0; }
+.creation-comparison img { display: block; width: 100%; max-height: 170px; object-fit: contain; border-radius: 5px; background: #fff; filter: none; backdrop-filter: none; }
+.creation-comparison figcaption { margin-top: 4px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.creation-baseline { margin: 6px 0 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.creation-revision { border-top: 1px solid var(--line); }
+.creation-session-loading { padding: 9px 12px; font-size: 12px; color: var(--muted); }

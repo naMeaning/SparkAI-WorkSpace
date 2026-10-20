@@ -1,5 +1,6 @@
 const { closeSync, existsSync, fstatSync, openSync, readSync, realpathSync } = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 
 let sharpImage = null;
 
@@ -144,6 +145,7 @@ async function prepareViewImageModelPayload(imagePath, requestedDetail = "high",
     ? Math.max(viewImageModelPayloadMinBytes, Math.min(viewImageModelPayloadMaxBytes, Math.floor(numericPayloadMaxBytes)))
     : viewImageModelPayloadMaxBytes;
   const source = readRuntimeImageFile(imagePath);
+  const sourceContentHash = createHash("sha256").update(source).digest("hex");
   const sourceInfo = imageInfo(imagePath, source);
   const sourceMimeType = mimeTypeForPath(imagePath);
   const sourceWithinHighDimensions =
@@ -158,6 +160,7 @@ async function prepareViewImageModelPayload(imagePath, requestedDetail = "high",
   if (canUseSourceDirectly) {
     return {
       dataUrl: `data:${sourceMimeType};base64,${source.toString("base64")}`,
+      sourceContentHash,
       detail,
       mimeType: sourceMimeType,
       payloadBytes: source.length,
@@ -200,7 +203,7 @@ async function prepareViewImageModelPayload(imagePath, requestedDetail = "high",
   let smallest = null;
 
   for (const attempt of attempts) {
-    let pipeline = sharpImage(imagePath, { failOn: "none", limitInputPixels: 268402689 }).rotate();
+    let pipeline = sharpImage(source, { failOn: "none", limitInputPixels: 268402689 }).rotate();
     if (attempt.maxEdge) {
       pipeline = pipeline.resize({
         width: attempt.maxEdge,
@@ -214,6 +217,7 @@ async function prepareViewImageModelPayload(imagePath, requestedDetail = "high",
       .toBuffer({ resolveWithObject: true });
     const candidate = {
       dataUrl: `data:image/webp;base64,${encoded.data.toString("base64")}`,
+      sourceContentHash,
       detail,
       mimeType: "image/webp",
       payloadBytes: encoded.data.length,
