@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：AI-Native 第二期——结构化创作要求、成果验收与定向修改（2026-10-20，本地交付完成，Git同步中）
+## 当前任务：AI-Native 第二期——结构化创作要求、成果验收与定向修改（2026-10-20，本地交付完成）
 
 - 结果：用户可查看/修订创作要求，区分生成、保存、本地检测、AI观察和用户采用；按稳定身份只修改指定成果，原图/非目标保留，主窗、独立Agent、CLI/MCP和重启共用权威数据。
 - 范围/授权：仅桌面和本地Runtime，复用第一期任务/幂等/恢复、TaskScope、唯一image_gen、图片journal与catalog；0真实图片/视频/对话请求，不复用付费授权。不改New API/Extension/生产，不实施第三期；最终本地EXE、安全安装及commit/普通upstream push已授权，不上传EXE/Release/tag。
@@ -8,8 +8,8 @@
 - 实际验收：owner16组、Runtime29组（14本地图片POST）、相关12专项、typecheck/view-image通过；真实Electron七选二仅2POST、实际涂抹另1POST、自动A/B分离、比较/采用撤销、双窗口与保存重开/重启均通过。最终安装版6组/13截图、两次正常退出；第一期任务卡10组/9截图回归通过。具体报告和失败历史见[第二期验证](docs/AI_NATIVE_CREATION_VALIDATION_2026-10-20.md)。
 - 制品：最终[Windows EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,925,376 B / SHA-256 `3e8a84ffdc4bb169c7b6c817118a65cc325dcc05b4292679852b11cb9226788e`；ASAR 52,414,483 B / `78e58fe36313c5cf28bcff2a56a975ca0afadd9f1b7ca150bc46558b303374b5`。647个产品/测试/公开契约文件冻结hash `237c19bf48d4d7853f643ca5174340511492b2702e4be0ee0db26e2800b0d43c`，124dist/156必需owner存在及逐字节核对通过。
 - 安装：品牌`/S`原位安装exit0/17,463ms，原注册目录/1.0.9、配置及快捷方式偏好保留；安装EXE/ASAR匹配，安装前无同名进程，未强杀。
-- 文档/Git：产品合同、地图、公开schema/registry、CLI/MCP/Skill及本期验证记录已同步；对应源码/文档待提交并普通push，最终Git身份由Progress记录。
-- 限制/下一步：Mock仅证明合同、身份、持久化及控制流程，不能证明真实识别、Logo保持、文字准确率、参考遵从、审美或实际计费；正式发布门禁另行授权。完成本期Git同步后停止，不启动第三期。
+- 文档/Git：产品合同、地图、公开schema/registry、CLI/MCP/Skill及本期验证记录已同步；79个对应文件提交为 `cb3b774d9813382f8f02f24a663bb9ca4e83b06b`，普通push到origin/main，HEAD/upstream/远端实查一致、工作树干净。本完成记录随纯文档收尾同步，最终分支身份见Progress的本地交付索引。
+- 限制/停止：Mock仅证明合同、身份、持久化及控制流程，不能证明真实识别、Logo保持、文字准确率、参考遵从、审美或实际计费；正式发布门禁未运行。本期交付完成，停止，不启动第三期。
 
 ## 当前任务：AI-Native 第一期——稳定任务回执与人机共同续接（2026-10-19，本地交付完成）
 

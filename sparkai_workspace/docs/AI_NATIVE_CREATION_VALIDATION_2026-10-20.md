@@ -50,4 +50,4 @@ owner[16组修复报告](../.diagnostics/creation-delivery-2026-10-20/owner-capa
 
 品牌`/S`原位安装exit0/17,463ms，原注册目录/1.0.9、配置及快捷方式偏好保留；安装EXE/ASAR匹配，安装前无同名进程，未强杀。 [安装报告](../.diagnostics/creation-delivery-2026-10-20/install.json)。[最终安装版UI](../.diagnostics/creation-ui-2026-10-20T05-05-36-980Z/report.json)6组/13截图通过，4本地模型回合/3图片POST/0真实，七选二2POST和实际pointer蒙版第3POST准确；最小窗/双窗、比较/采用撤销、重载/重启及原提交零重派发通过，2次正常退出exit0/forced=false。
 
-对应源码/文档待commit并普通push，最终Git记录见Progress。EXE未上传，未创建Release/tag；本期完成后停止，不启动第三期。
+79个对应源码/测试/文档文件提交为 `cb3b774d9813382f8f02f24a663bb9ca4e83b06b` 并普通push到origin/main，HEAD/upstream/远端实查一致、工作树干净。本完成记录随纯文档收尾同步，最终分支身份见[本地交付索引](../.diagnostics/creation-delivery-2026-10-20/delivery.json)。EXE未上传，未创建Release/tag；本期已完成并停止，不启动第三期。

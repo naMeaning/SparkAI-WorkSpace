@@ -15,7 +15,7 @@ Older conversations are represented through the maintained product documents whe
 
 ## Active Product Decisions
 
-2026-10-20 第二期（active）：用户授权直接实施结构化创作要求、证据分层验收和稳定资产定向修改；复用第一期任务/TaskScope/image_gen及catalog采用状态，0真实模型请求。每目标修改只生成相应新版本，原图保留；完成本期最终EXE、安全原位安装和upstream Git同步后停止，不启动第三期。详见桌面Goal与工作流合同。
+2026-10-20 第二期（本地交付完成）：结构化创作要求、证据分层验收和稳定资产定向修改已实施；复用第一期任务/TaskScope/image_gen及catalog采用状态，0真实模型请求。最终EXE、安全原位安装、安装版UI和upstream源码Git同步已完成，按授权停止，不启动第三期。真实视觉质量和正式发布未验证；详见桌面Goal、Progress与工作流合同。
 
 | ID | Status | Decision | Current authority |
 | --- | --- | --- | --- |
