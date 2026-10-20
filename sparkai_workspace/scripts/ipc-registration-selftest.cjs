@@ -2,10 +2,12 @@
 
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
+const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
 const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
+const { registerProjectContextIpc } = require("../desktop/ipc/project-context-ipc.cjs");
 const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-ipc.cjs");
 const { registerCommerceExportIpc } = require("../desktop/ipc/commerce-export-ipc.cjs");
 const { registerCommerceTemplateIpc } = require("../desktop/ipc/commerce-template-ipc.cjs");
@@ -14,6 +16,7 @@ const { registerExportCenterIpc } = require("../desktop/ipc/export-center-ipc.cj
 const { registerImageCollectionIpc } = require("../desktop/ipc/image-collection-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
+const { createRequirementLibraryService, RequirementLibraryError } = require("../desktop/requirement-library.cjs");
 
 const expectedUpdaterChannels = [
   "naimage:update:status",
@@ -40,6 +43,9 @@ const expectedChannels = [
   "naimage:requirement-library:get",
   "naimage:requirement-library:save",
   "naimage:requirement-library:delete",
+  "naimage:requirement-library:apply",
+  "naimage:requirement-library:import",
+  "naimage:requirement-library:export",
   "naimage:commerce-template:list",
   "naimage:commerce-template:get",
   "naimage:commerce-template:save",
@@ -103,6 +109,8 @@ const expectedChannels = [
   "naimage:creation:command",
   "naimage:creation:mask-save",
   "naimage:creation:prepare",
+  "naimage:project-context:command",
+  "naimage:project-context:prepare",
   "naimage:window:new",
   "naimage:window:control",
   "naimage:agent-window:open",
@@ -437,8 +445,11 @@ async function assertGlassBackgroundIpcBoundary() {
 async function assertRequirementLibraryIpcBoundary() {
   const handlers = new Map();
   const calls = [];
+  const owner = { id: "requirement-library-owner" };
+  const sender = { id: "requirement-library-sender" };
   registerRequirementLibraryIpc({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    BrowserWindow: { fromWebContents: value => { assert.equal(value, sender); return owner; } },
     requirementLibraryService: {
       list: (payload) => { calls.push({ command: "list", payload }); return { ok: true, items: [] }; },
       get: (payload) => { calls.push({ command: "get", payload }); return { ok: true, entry: { id: payload.id } }; },
@@ -446,11 +457,15 @@ async function assertRequirementLibraryIpcBoundary() {
       remove: (payload) => {
         calls.push({ command: "delete", payload });
         if (payload.expectedRevision === 9) {
-          const error = new Error("模板已更新。");
-          error.code = "TEMPLATE_REVISION_CONFLICT";
-          error.details = { currentRevision: 10 };
-          throw error;
+          throw new RequirementLibraryError("TEMPLATE_REVISION_CONFLICT", "模板已更新。", { currentRevision: 10 });
         }
+        return { ok: true, id: payload.id };
+      },
+      apply: payload => { calls.push({ command: "apply", payload }); return { ok: true, application: { text: "Portable requirement draft" } }; },
+      importTemplate: async window => { calls.push({ command: "import", window }); return { ok: true, entry: { id: "reqtpl-imported" } }; },
+      exportTemplate: async (payload, window) => {
+        calls.push({ command: "export", payload, window });
+        if (payload.id === "reqtpl-blocked") throw Object.assign(Error("private diagnostic fixture"), { code: "EACCES" });
         return { ok: true, id: payload.id };
       }
     }
@@ -463,7 +478,84 @@ async function assertRequirementLibraryIpcBoundary() {
   assert.equal(conflict.ok, false);
   assert.equal(conflict.errorCode, "TEMPLATE_REVISION_CONFLICT");
   assert.deepEqual(conflict.details, { currentRevision: 10 });
-  assert.deepEqual(calls.map((call) => call.command), ["list", "get", "save", "delete", "delete"]);
+  const application = { id: "reqtpl-a", expectedTemplateRevision: 1, variableValues: { headline: "Current project" } };
+  assert.equal((await handlers.get("naimage:requirement-library:apply")({}, application)).application.text, "Portable requirement draft");
+  assert.equal((await handlers.get("naimage:requirement-library:import")({ sender }, { confirmed: true })).entry.id, "reqtpl-imported");
+  assert.equal((await handlers.get("naimage:requirement-library:export")({ sender }, { id: "reqtpl-a" })).id, "reqtpl-a");
+  const exportFailure = await handlers.get("naimage:requirement-library:export")({ sender }, { id: "reqtpl-blocked" });
+  assert.equal(exportFailure.ok, false); assert.equal(exportFailure.errorCode, "EACCES");
+  assert.equal(exportFailure.error.includes("private diagnostic fixture"), false);
+  assert.deepEqual(calls.map((call) => call.command), ["list", "get", "save", "delete", "delete", "apply", "import", "export", "export"]);
+  assert.equal(calls[5].payload, application, "Applying templates forwards the unchanged draft request to the existing library owner");
+  assert.ok(calls.slice(6).every(call => call.window === owner), "Import/export use the initiating window's native dialog owner");
+
+  const directory = fs.mkdtempSync(path.resolve(__dirname, "../.diagnostics/requirement-ipc-"));
+  const libraryPath = path.join(directory, "library.json"), exported = path.join(directory, "portable.json");
+  let chosenExport = exported, chosenImport = exported;
+  const dialogs = [], actualHandlers = new Map();
+  const actualService = createRequirementLibraryService({ libraryPath,
+    readJson: (file, fallback) => fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : fallback,
+    writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)), readFileSync: fs.readFileSync, writeFileSync: fs.writeFileSync, statSync: fs.statSync,
+    dialog: {
+      showOpenDialog: async (window, options) => { dialogs.push({ method: "open", window, options }); return { canceled: false, filePaths: [chosenImport] }; },
+      showSaveDialog: async (window, options) => { dialogs.push({ method: "save", window, options }); return { canceled: false, filePath: chosenExport }; }
+    } });
+  registerRequirementLibraryIpc({ ipcMain: { handle: (name, handler) => actualHandlers.set(name, handler) }, requirementLibraryService: actualService,
+    BrowserWindow: { fromWebContents: value => { assert.equal(value, sender); return owner; } } });
+  const saved = await actualHandlers.get("naimage:requirement-library:save")({}, { title: "Portable IPC method", text: "Keep the current product clear" });
+  const exact = { id: saved.entry.id, expectedRevision: saved.entry.revision };
+  assert.equal((await actualHandlers.get("naimage:requirement-library:export")({ sender }, exact)).ok, true);
+  const imported = await actualHandlers.get("naimage:requirement-library:import")({ sender }, { owner: "untrusted renderer value" });
+  assert.equal(imported.ok, true); assert.equal(imported.imported, true); assert.notEqual(imported.entry.id, saved.entry.id);
+  assert.deepEqual(dialogs.map(value => value.method), ["save", "open"]);
+  assert.ok(dialogs.every(value => value.window === owner && value.options.title), "Real library export/import receives BrowserWindow before native dialog options");
+  assert.equal((await actualHandlers.get("naimage:requirement-library:apply")({}, { id: imported.entry.id, expectedTemplateRevision: imported.entry.revision })).application.text, saved.entry.text);
+
+  chosenExport = path.join(directory, "private-export-target");
+  fs.mkdirSync(chosenExport);
+  const actualExportFailure = await actualHandlers.get("naimage:requirement-library:export")({ sender }, exact);
+  assert.equal(actualExportFailure.ok, false); assert.ok(["EACCES", "EPERM", "EISDIR"].includes(actualExportFailure.errorCode));
+  chosenImport = path.join(directory, "private-missing-import.json");
+  const actualImportFailure = await actualHandlers.get("naimage:requirement-library:import")({ sender });
+  assert.equal(actualImportFailure.ok, false); assert.equal(actualImportFailure.errorCode, "ENOENT");
+  const blockedLibraryPath = path.join(directory, "private-library-target"); fs.mkdirSync(blockedLibraryPath);
+  const blockedHandlers = new Map(), blockedService = createRequirementLibraryService({ libraryPath: blockedLibraryPath,
+    readJson: (_file, fallback) => fallback, writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)) });
+  registerRequirementLibraryIpc({ ipcMain: { handle: (name, handler) => blockedHandlers.set(name, handler) }, requirementLibraryService: blockedService });
+  const actualSaveFailure = await blockedHandlers.get("naimage:requirement-library:save")({}, { title: "Portable failure", text: "Keep the current product" });
+  assert.equal(actualSaveFailure.ok, false); assert.ok(["EACCES", "EPERM", "EISDIR"].includes(actualSaveFailure.errorCode));
+  for (const result of [actualExportFailure, actualImportFailure, actualSaveFailure]) {
+    assert.doesNotMatch(JSON.stringify(result), /private-(?:export|missing|library)|requirement-ipc-|[A-Z]:\\|EISDIR:|ENOENT:/,
+      "Real filesystem errors from save/import/export must not expose local paths or raw IO messages through IPC.");
+    assert.equal(result.details, undefined);
+  }
+  assert.equal(actualService.list().items.length, 2, "Failed IO must preserve the original library records.");
+}
+
+async function assertProjectContextIpcBoundary() {
+  const handlers = new Map(), calls = [];
+  const failure = { ok: false, errorCode: "KNOWLEDGE_SCOPE_INVALID", error: "项目知识冻结失败。" };
+  registerProjectContextIpc({
+    ipcMain: { handle: (channel, handler) => handlers.set(channel, handler) },
+    projectContextCommandService: {
+      invoke: async (command, args) => { calls.push({ method: "invoke", command, args }); return { ok: true, projectId: args.expectedProjectId }; },
+      prepare: async payload => {
+        calls.push({ method: "prepare", payload });
+        if (payload.invalid) throw Object.assign(Error("private preparation fixture"), { code: failure.errorCode });
+        return { ok: true, projectKnowledge: { fingerprint: "frozen-fixture" }, knowledgeMaterials: [] };
+      },
+      failure: error => { calls.push({ method: "failure", code: error.code }); return failure; }
+    }
+  });
+  const args = { expectedProjectId: "project-a", conversationId: "conversation-a", expectedRevision: 0, entry: { content: "Keep the brand mark" } };
+  const result = await handlers.get("naimage:project-context:command")({}, { command: "project.knowledge.save", args });
+  assert.equal(result.projectId, "project-a");
+  assert.equal(calls[0].command, "project.knowledge.save"); assert.equal(calls[0].args, args);
+  const payload = { expectedProjectId: "project-a", conversationId: "conversation-a", taskScope: { origin: "chat" } };
+  assert.equal((await handlers.get("naimage:project-context:prepare")({}, payload)).projectKnowledge.fingerprint, "frozen-fixture");
+  assert.equal(calls[1].payload, payload, "Task preparation calls the single Main context owner before task admission");
+  assert.deepEqual(await handlers.get("naimage:project-context:prepare")({}, { ...payload, invalid: true }), failure);
+  assert.deepEqual(calls.map(call => call.method), ["invoke", "prepare", "prepare", "failure"]);
 }
 
 async function assertCommerceTemplateIpcBoundary() {
@@ -979,8 +1071,8 @@ async function main() {
     videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 159, "The registration contract must contain exactly 159 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 159, "The expected registration contract must be unique.");
+  assert.equal(expectedChannels.length, 164, "The registration contract must contain exactly 164 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 164, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -995,13 +1087,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 156, "preload must expose exactly 156 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 156, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 161, "preload must expose exactly 161 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 161, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 156, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 161, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),
@@ -1015,6 +1107,7 @@ async function main() {
   await assertSettingsAccountBoundary();
   await assertGlassBackgroundIpcBoundary();
   await assertRequirementLibraryIpcBoundary();
+  await assertProjectContextIpcBoundary();
   await assertCommerceTemplateIpcBoundary();
   await assertCommerceCatalogIpcBoundary();
   await assertCommerceExportIpcBoundary();

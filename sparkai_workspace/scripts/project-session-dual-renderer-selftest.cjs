@@ -16,6 +16,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const { registerSessionIpc } = require("../desktop/ipc/config-ipc.cjs");
 const { createProjectSaveCoordinator } = require("../desktop/project-save-coordinator.cjs");
 const { createProjectCreationService } = require("../desktop/project-creation-service.cjs");
+const { projectKnowledgeEntryFingerprint, projectKnowledgeSnapshotFingerprint } = require("../runtime/project-knowledge-contract.mjs");
 const {
   hydrateSessionAssets,
   sanitizeSession,
@@ -425,6 +426,45 @@ async function testCreationOwner(rendererA, rendererB) {
   assert.throws(() => service.updateRequirements({ ...locator, expectedRevision: 1, requirements }), { code: "CREATION_REQUIREMENTS_CONFLICT" });
 }
 
+function frozenProjectContext(projectId, taskId, { revision = 1, content = "固定暖色规范", createdAt = "2026-10-20T05:00:00.000Z" } = {}) {
+  const entry = { knowledgeId: "shared-brand", revision, type: "brand_rule", title: "品牌规范", content, scope: { type: "project" }, source: "user", status: "active", authority: "project_knowledge", assetRefs: [] };
+  entry.fingerprint = projectKnowledgeEntryFingerprint(entry);
+  const projectKnowledge = { version: 1, projectId, revision, objects: [], entries: [entry], budget: { maxEntries: 24, maxCharacters: 12000, usedCharacters: entry.title.length + entry.content.length, omittedEntries: 0 }, summary: entry.title };
+  projectKnowledge.fingerprint = projectKnowledgeSnapshotFingerprint(projectKnowledge);
+  return { version: 1, projectId, conversationId: "context-conversation", taskId, createdAt, fingerprint: projectKnowledge.fingerprint, projectKnowledge,
+    requirementTemplate: { templateId: `reqtpl-${"a".repeat(32)}`, revision, fingerprint: `template-${"b".repeat(32)}`, variableValues: { headline: `标题第${revision}版` } } };
+}
+
+async function testProjectTaskContexts(rendererA, rendererB) {
+  const projectId = "project-contexts", project = projectById(projectId);
+  const [snapshotA, snapshotB] = await Promise.all([loadSession(rendererA, projectId), loadSession(rendererB, projectId)]);
+  const contextA = frozenProjectContext(projectId, "task-a"), contextB = frozenProjectContext(projectId, "task-b", { revision: 2, content: "第二任务独立蓝色规范", createdAt: "2026-10-20T05:00:01.000Z" });
+  const draftA = { ...sessionDraft(snapshotA, { projectId, nodes: replaceTarget(snapshotA.nodes, { x: 123 }) }), projectTaskContexts: [contextA] };
+  const draftB = { ...sessionDraft(snapshotB, { projectId, nodes: replaceTarget(snapshotB.nodes, { y: 456 }) }), projectTaskContexts: [contextB] };
+  const results = await Promise.all([saveSession(rendererA, draftA, 2, "context-a", snapshotA.nodes), saveSession(rendererB, draftB, 2, "context-b", snapshotB.nodes)]);
+  assertConcurrentRevisions(results, [2, 3]);
+  const merged = await loadSession(rendererA, projectId);
+  assert.deepEqual(merged.projectTaskContexts, [contextA, contextB], "Concurrent tasks must preserve both exact frozen knowledge and template versions.");
+  assert.equal(targetNode(merged).x, 123); assert.equal(targetNode(merged).y, 456);
+  const stale = { ...sessionDraft(snapshotA, { projectId, nodes: snapshotA.nodes }) };
+  delete stale.projectTaskContexts;
+  const staleResult = await saveSession(rendererB, stale, 4, "context-stale", snapshotA.nodes, 1);
+  assert.equal(staleResult.ok, true);
+  const retained = await loadSession(rendererB, projectId);
+  assert.deepEqual(retained.projectTaskContexts, [contextA, contextB], "An older Renderer lacking the new field must not erase another task's frozen context.");
+  const beforeConflict = readFileSync(project.sessionPath);
+  const changedContext = frozenProjectContext(projectId, "task-a", { revision: 2, content: "不允许替换原任务规范" });
+  const conflict = { ...sessionDraft(retained, { projectId, nodes: retained.nodes }), projectTaskContexts: [changedContext, contextB] };
+  const conflictResult = await Promise.allSettled([saveSession(rendererA, conflict, 5, "context-conflict", retained.nodes)]);
+  assert.ok(conflictResult[0].status === "rejected" || conflictResult[0].value?.ok === false, "Rewriting an admitted task's full context must fail visibly.");
+  assert.deepEqual(readFileSync(project.sessionPath), beforeConflict, "Conflicting context cannot partially overwrite the saved session.");
+  const foreign = { ...sessionDraft(retained, { projectId, nodes: retained.nodes }), projectTaskContexts: [...retained.projectTaskContexts, frozenProjectContext("another-project", "foreign-task")] };
+  const foreignResult = await Promise.allSettled([saveSession(rendererB, foreign, 6, "context-foreign", retained.nodes)]);
+  assert.ok(foreignResult[0].status === "rejected" || foreignResult[0].value?.ok === false, "A Renderer cannot inject another project's knowledge context into this session.");
+  assert.deepEqual(readFileSync(project.sessionPath), beforeConflict, "A foreign project context must leave the target project's saved bytes unchanged.");
+  assert.deepEqual((await loadSession(rendererA, projectId)).projectTaskContexts, [contextA, contextB], "Real write/reopen after rejected stale/foreign writes preserves exact contexts.");
+}
+
 async function run() {
   for (const projectId of [
     "edit-edit",
@@ -432,7 +472,8 @@ async function run() {
     "delete-undo",
     "rapid-saves",
     "destroyed-around-ack",
-    "creation-owner"
+    "creation-owner",
+    "project-contexts"
   ]) addProject(projectId);
 
   const baseCoordinator = createProjectSaveCoordinator({
@@ -493,6 +534,7 @@ async function run() {
   await testDeleteUndo(rendererA, rendererB);
   await testRapidConsecutiveSaves(rendererA, rendererB);
   await testCreationOwner(rendererA, rendererB);
+  await testProjectTaskContexts(rendererA, rendererB);
   await testDestroyedAroundAcknowledgement(rendererA, rendererB);
   assert.equal(projectSessionSaveCoordinator.pendingProjectCount(), 0, "No save queue may remain after Renderer destruction.");
 
@@ -506,6 +548,7 @@ async function run() {
       "delete/undo",
       "rapid consecutive saves",
       "Main creation owner survives stale Renderer saves",
+      "frozen knowledge/template contexts survive concurrent and stale saves and reject rewrites/foreign projects",
       "destroyed around save acknowledgement"
     ]
   };

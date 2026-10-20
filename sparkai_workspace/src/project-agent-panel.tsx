@@ -1,3 +1,5 @@
+import ProjectContextPanel from "./project-context-panel";
+import type { ProjectContextPanelProps } from "./project-context";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
@@ -286,6 +288,7 @@ function ProjectAgentPanelView({
   conversationBoundaryBusy,
   taskCard,
   taskAction,
+  projectContext, contextBusy, contextError, onContextCommand, onLocateResult, onUseResults, onCompareResults,
   creationSession,
   creationBusy,
   creationError,
@@ -324,7 +327,7 @@ function ProjectAgentPanelView({
   panelLayout,
   commitPanelLayout,
   debugCommit
-}: CreationSessionPanelProps & {
+}: CreationSessionPanelProps & ProjectContextPanelProps & {
   projectName: string;
   messages: AgentMessage[];
   conversations: AgentConversation[];
@@ -597,6 +600,12 @@ function ProjectAgentPanelView({
     };
   }, [placementOpen]);
 
+  // Keep unsaved project drafts mounted when opening the detached window.
+  // Both layouts share this keyed child so incoming CAS updates preserve edits.
+  const projectContextSurface = <div key="project-context-surface" style={{ display: collapsed ? "none" : "contents" }}>
+    <ProjectContextPanel projectContext={projectContext} contextBusy={contextBusy} contextError={contextError} onContextCommand={onContextCommand} onLocateResult={onLocateResult} onUseResults={onUseResults} onCompareResults={onCompareResults} />
+  </div>;
+
   if (collapsed) {
     return (
       <aside className={`project-agent-panel is-collapsed placement-${panelLayout.agentPanelPlacement}`} aria-label="已折叠的项目 Agent 对话栏">
@@ -612,6 +621,7 @@ function ProjectAgentPanelView({
           <strong>Agent</strong>
           {selectedArtifacts.length > 0 ? <i aria-label="已选择成果" /> : null}
         </ButtonBase>
+        {projectContextSurface}
       </aside>
     );
   }
@@ -751,6 +761,7 @@ function ProjectAgentPanelView({
         <em>{modelName || "未配置模型"}</em>
       </div>
 
+      {projectContextSurface}
       {taskCard || creationSession ? <div className="agent-task-area">
       {taskCard ? (
         <section className="agent-task-card" aria-label="当前任务">

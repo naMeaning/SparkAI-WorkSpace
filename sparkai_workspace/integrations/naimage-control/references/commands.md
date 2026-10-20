@@ -4,6 +4,17 @@
 
 Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
+## Project knowledge and local result retrieval
+
+- `project.knowledge.list`: `{"expectedProjectId":"expectedProjectId"}`. List explicit project knowledge and suggestions, with Commerce facts remaining owned by the catalog. Reads local records only.
+- `project.knowledge.save`: `{"expectedProjectId":"expectedProjectId","expectedRevision":0,"entry":{"type":"brand_rule","title":"title","content":"content","scope":{"type":"project"},"source":"user"}}`. Save explicitly authorized long-term project knowledge with store and entry CAS. Agent assumptions remain suggestions; this never changes a running task.
+- `project.knowledge.status`: `{"expectedProjectId":"expectedProjectId","expectedRevision":0,"knowledgeId":"knowledgeId","expectedEntryRevision":1,"status":"active"}`. Activate, deactivate or tombstone explicit knowledge using exact revisions. Deleted knowledge cannot be revived by stale saves.
+- `project.knowledge.promote`: `{"expectedProjectId":"expectedProjectId","expectedRevision":0,"knowledgeId":"knowledgeId","expectedEntryRevision":1}`. Explicitly promote an Agent suggestion to a user project rule; never automatic.
+- `project.knowledge.history`: `{"expectedProjectId":"expectedProjectId","knowledgeId":"knowledgeId"}`. Read immutable versions of one project rule.
+- `project.results.search`: `{"expectedProjectId":"expectedProjectId"}`. Search rebuildable local result metadata with combined filters and stable pagination. Prompt intent and user labels are separate from evidence-backed pixel observations. No model request or material/selection mutation.
+- `project.results.use`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId","targets":[{"assetId":"assetId","occurrenceId":"occurrenceId","contentHash":"contentHash"}],"role":"source"}`. Explicitly bind exact current project results into the active composer after authoritative byte and identity validation. Does not generate or expand a running Goal.
+- `project.context.get`: `{"expectedProjectId":"expectedProjectId","conversationId":"conversationId"}`. Read this project and conversation knowledge plus the exact historical knowledge used by its last saved task. No model request.
+
 ## Status and inspection
 
 - `status`. Check the local authenticated bridge and renderer readiness.
@@ -80,9 +91,11 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 ## Requirement library
 
 - `requirement-library.list`: `{"includeText":false}`. List the installation-local personal Requirement template library across projects. By default the response contains bounded summaries; includeText=true returns the complete stored instructions. Every library item still instantiates as a normal Requirement node, including items carrying Skill metadata.
-- `requirement-library.save`: `{"nodeId":"REQ_A","expectedRequirementRevision":3,"expectedProjectId":"PROJECT_ID"}`. Save one current canvas Requirement into the installation-local personal template library. expectedRequirementRevision and expectedProjectId guard the source node. Omit templateId to create a new item; when overwriting, pass templateId and its exact expectedTemplateRevision. The complete operation validates before one local CAS write.
+- `requirement-library.save`: `{"nodeId":"REQ_A","expectedRequirementRevision":3,"expectedProjectId":"PROJECT_ID"}`. Explicitly save one current Requirement or one completed saved task as a reusable personal template. Choose nodeId + expectedRequirementRevision, or taskId + conversationId + expectedRequirementsRevision; expectedProjectId guards the current project. Template v2 contains finite declarative variables and reusable checks, never source assets, task receipts or credentials. Omit templateId for a new item; overwrite requires its exact expectedTemplateRevision. This local operation makes no model request.
 - `requirement-library.delete`: `{"templateId":"reqtpl-0123456789abcdef0123456789abcdef","expectedTemplateRevision":1,"confirmed":true}`. Delete one personal Requirement template only when its exact revision is still current and confirmed=true. This does not delete any Requirement nodes already instantiated on project canvases.
-- `requirement-library.use`: `{"templateId":"reqtpl-0123456789abcdef0123456789abcdef","expectedTemplateRevision":1,"inputBindings":[{"nodeId":"IMAGE_A","role":"source"}],"expectedProjectId":"PROJECT_ID","expectedCanvasRevision":44}`. Instantiate one exact personal template revision on the active canvas as a normal Requirement node. Optional ordered SOURCE/REFERENCE bindings and position use the same graph validation and project/canvas compare-and-set guards as direct Requirement creation. This command never executes the Requirement, never calls an image model, and never spends image quota.
+- `requirement-library.use`: `{"templateId":"reqtpl-0123456789abcdef0123456789abcdef","expectedTemplateRevision":1,"inputBindings":[{"nodeId":"IMAGE_A","role":"source"}],"expectedProjectId":"PROJECT_ID","expectedCanvasRevision":44}`. Instantiate one exact personal template revision on the active canvas as a normal Requirement node. variableValues expand finite text/enum/number placeholders; imageBindings bind declared image keys only to current-project node IDs. Missing image declarations remain a draft and block execution until bound. Current image settings remain authoritative. Optional SOURCE/REFERENCE bindings and position use the existing graph/project/canvas guards. This command never executes the Requirement, never calls an image model, and never spends image quota.
+- `requirement-library.import`: `{}`. Import a strict portable v1/v2 Requirement template through the existing native file picker. No arbitrary file path is accepted and no model request occurs.
+- `requirement-library.export`: `{"templateId":"templateId","expectedTemplateRevision":1}`. Export one exact personal template revision through the native Save picker. The portable document omits instance identities, paths, credentials and bound sources. No destination path is accepted.
 
 ## Commerce templates
 

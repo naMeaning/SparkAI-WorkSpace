@@ -82,27 +82,39 @@ function createProjectAssetRepository(options = {}) {
     ];
   }
 
-  function controlledProjectAssetFile(filePath, projectPath) {
+  function resolvedValidationRoots(projectPath) {
+    const realProject = realPathIfPresent(projectPath);
+    return projectAssetRoots(projectPath).map((root) => realPathIfPresent(root))
+      .filter((root) => isComparablePathInside(root, realProject));
+  }
+
+  function validateProjectAssetFile(filePath, rootsFor) {
     if (!filePath || !existsSync(filePath)) return "";
     try {
       const stats = lstatSync(filePath);
       if (!stats.isFile() || stats.isSymbolicLink()) return "";
       const realFile = realpathSync(filePath);
-      let roots = validationRoots?.get(projectPath);
-      if (!roots) {
-        const realProject = realPathIfPresent(projectPath);
-        roots = projectAssetRoots(projectPath).map((root) => realPathIfPresent(root))
-          .filter((root) => isComparablePathInside(root, realProject));
-        validationRoots?.set(projectPath, roots);
-      }
-      // Share only root resolution during this synchronous session pass. Every
-      // file still gets fresh lstat/realpath checks, and the next pass resolves
-      // roots again so replaced files or junctions never reuse old validation.
+      const roots = rootsFor();
       const controlled = roots.some((root) => isComparablePathInside(realFile, root));
       return controlled ? realFile : "";
     } catch {
       return "";
     }
+  }
+
+  function controlledProjectAssetFile(filePath, projectPath) {
+    return validateProjectAssetFile(filePath, () => {
+      let roots = validationRoots?.get(projectPath);
+      if (!roots) { roots = resolvedValidationRoots(projectPath); validationRoots?.set(projectPath, roots); }
+      return roots;
+    });
+  }
+
+  // One asynchronous index refresh owns this closure. Never share it across
+  // queries: each file still gets fresh lstat/realpath, including junctions.
+  function createProjectAssetFileValidator(projectPath) {
+    let roots;
+    return filePath => validateProjectAssetFile(filePath, () => roots ??= resolvedValidationRoots(projectPath));
   }
 
   function controlledRecordedAssetUrl(asset = {}) {
@@ -325,7 +337,7 @@ function createProjectAssetRepository(options = {}) {
   }
 
   function hydrateProjectSession(session, project, options) {
-    const source = sanitizeSession(session);
+    const source = sanitizeSession(session, { expectedProjectId: project?.id });
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
     const normalizedProject = { ...project, path: projectPath };
     const validatedNodes = source.nodes.map((node) => {
@@ -450,7 +462,7 @@ function createProjectAssetRepository(options = {}) {
   }
 
   function serializeProjectSession(session, project) {
-    const source = sanitizeSession(session);
+    const source = sanitizeSession(session, { expectedProjectId: project?.id });
     const projectPath = path.resolve(project?.path || path.dirname(project?.sessionPath || sessionPath));
     const normalizeAsset = (asset) => assetForProjectSave(asset, projectPath);
     return {
@@ -480,6 +492,7 @@ function createProjectAssetRepository(options = {}) {
     buildProjectAssetIndex,
     collectAssetFiles,
     controlledProjectAssetFile,
+    createProjectAssetFileValidator,
     controlledRecordedAssetUrl,
     hydrateAssetForProject,
     hydrateVideoAssetForProject,

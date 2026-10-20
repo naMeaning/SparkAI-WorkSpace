@@ -1,3 +1,5 @@
+import type { ProjectContextSnapshot, ProjectContextCommand } from "./project-context";
+import { projectContextWindowProjection } from "../runtime/project-context-presentation.mjs";
 import type {
   AgentConversation,
   AgentMessage,
@@ -65,6 +67,9 @@ export type AgentWindowGlassAppearance = GlassThemeSettings & {
 };
 
 export type AgentWindowSnapshot = {
+  projectContext?: ProjectContextSnapshot | null;
+  contextBusy?: boolean;
+  contextError?: string;
   creationSession?: CreationSessionSnapshot | null;
   creationBusy?: boolean;
   creationError?: string;
@@ -95,6 +100,9 @@ export type AgentWindowSnapshot = {
 };
 
 export type AgentWindowCommand =
+  | { type: "project-context-command"; command: ProjectContextCommand; input: Record<string, unknown> }
+  | { type: "project-result-locate" | "project-results-use" | "project-results-compare"; targets: import("./creation-session").CreationTarget[]; role?: "source" | "reference"; expectedProjectId: string; conversationId: string }
+
   | { type: "creation-requirements-update"; input: CreationRequirementsUpdate }
   | { type: "creation-decision"; input: CreationDecisionInput }
   | { type: "creation-revision"; input: CreationRevisionInput }
@@ -110,6 +118,9 @@ export type AgentWindowCommand =
   | { type: "dock"; placement: "right" | "left" | "top" | "bottom" | "floating" };
 
 export type AgentWindowSnapshotInput = {
+  projectContext?: ProjectContextSnapshot | null;
+  contextBusy?: boolean;
+  contextError?: string;
   creationSession?: CreationSessionSnapshot | null;
   creationBusy?: boolean;
   creationError?: string;
@@ -315,6 +326,7 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
   const domain = workspaceDomainDefinition(input.workspaceDomain);
   return {
     version: 1,
+    projectContext: projectContextWindowProjection(input.projectContext) as ProjectContextSnapshot | null, contextBusy: Boolean(input.contextBusy), contextError: boundedText(input.contextError, 2000),
     creationSession: creationWindowProjection(input.creationSession),
     creationBusy: Boolean(input.creationBusy),
     creationError: boundedText(input.creationError, 2000),
@@ -358,6 +370,16 @@ export function normalizeAgentWindowCommand(value: unknown): AgentWindowCommand 
   if (!value || typeof value !== "object") return null;
   const payload = value as Record<string, unknown>;
   const type = String(payload.type || "");
+  if (type === "project-context-command") {
+    const commands = ["project.context.get", "project.knowledge.list", "project.knowledge.save", "project.knowledge.status", "project.knowledge.promote", "project.knowledge.history", "project.results.search", "project.results.use"];
+    if (!commands.includes(String(payload.command)) || !payload.input || typeof payload.input !== "object" || JSON.stringify(payload.input).length > 100000) return null;
+    return { type, command: String(payload.command) as ProjectContextCommand, input: payload.input as Record<string, unknown> };
+  }
+  if (["project-result-locate", "project-results-use", "project-results-compare"].includes(type)) {
+    const targets = payload.targets;
+    if (!Array.isArray(targets) || !targets.length || targets.length > 40 || !payload.expectedProjectId || !payload.conversationId || targets.some(target => !target || !target.assetId || !target.occurrenceId || !/^[a-f0-9]{64}$/.test(target.contentHash))) return null;
+    return { type, targets: targets.map(({assetId,occurrenceId,contentHash})=>({assetId,occurrenceId,contentHash})), expectedProjectId: boundedText(payload.expectedProjectId,180), conversationId: boundedText(payload.conversationId,180), ...(payload.role === "source" || payload.role === "reference" ? { role: payload.role } : {}) } as AgentWindowCommand;
+  }
   if (["creation-requirements-update", "creation-decision", "creation-revision", "creation-region-revision", "creation-check"].includes(type)) {
     const input = payload.input as Record<string, unknown> | undefined;
     if (!input || typeof input !== "object" || Array.isArray(input) || JSON.stringify(input).length > 2_000_000) return null;

@@ -1,3 +1,12 @@
+import { useProjectContext } from "./use-project-context";
+import ProjectContextPanel from "./project-context-panel";
+import type { ProjectComparisonItem } from "./project-result-comparison";
+import "./project-context.css";
+import { normalizeProjectTaskContexts, appendProjectTaskContext, type ProjectTaskContext } from "../runtime/project-task-contexts.mjs";
+import { bindProjectContextMaterials } from "../runtime/project-context-scope.mjs";
+import { templateTaskRequirements } from "../runtime/template-task-requirements.mjs";
+import { normalizeProjectKnowledgeSnapshot, type ProjectKnowledgeSnapshot } from "../runtime/project-knowledge-contract.mjs";
+import { normalizeRequirementTemplateSnapshot, normalizeRequirementTemplateDraft, reusableRequirementTemplateFromTask, type RequirementTemplateSnapshot, type RequirementTemplate, type RequirementTemplateDraft, type RequirementTemplateImageBinding } from "../runtime/requirement-template-contract.mjs";
 import { imageConfigSnapshot, normalizeImageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
 import { canApplyContentName, contentNamePatch, normalizeStoredContentName } from "../runtime/image-content-name.mjs";
 import { coalesceImageAssets } from "../runtime/image-asset-identity.mjs";
@@ -490,13 +499,14 @@ type StudioWorkflowSession = Required<Omit<WorkflowSession, "pendingAgentExecuti
   pendingAgentExecution: PendingAgentExecution | null;
 };
 
-type StudioWorkflowSessionInput = Omit<StudioWorkflowSession, "sessionRevision" | "nodeSequence" | "canvasRevision" | "nodeMutationJournal" | "nodeMutationWriterCheckpoints" | "nodeMutationBarriers" | "pendingAgentExecution"> & {
+type StudioWorkflowSessionInput = Omit<StudioWorkflowSession, "sessionRevision" | "nodeSequence" | "canvasRevision" | "nodeMutationJournal" | "nodeMutationWriterCheckpoints" | "nodeMutationBarriers" | "pendingAgentExecution" | "projectTaskContexts"> & {
   sessionRevision?: number;
   nodeSequence?: number;
   canvasRevision?: number;
   nodeMutationJournal?: NodeMutationEvent[];
   nodeMutationWriterCheckpoints?: NodeMutationWriterCheckpoint[];
   nodeMutationBarriers?: NodeMutationBarrier[];
+  projectTaskContexts?: ProjectTaskContext[];
   pendingAgentExecution?: PendingAgentExecution | null;
 };
 
@@ -521,10 +531,12 @@ type RequirementEditorDraft = {
   title: string;
   text: string;
   runAfterSave: boolean;
+  templateImages?: { key: string; label: string; role: "source" | "reference"; required?: boolean; nodeId?: string }[];
   error?: string;
 };
 
 type AgentPromptDispatchOptions = {
+  projectKnowledge?: AgentTaskScope["projectKnowledge"];
   creation?: AgentTaskScope["creation"];
   maskAssets?: AgentTaskScope["maskAssets"];
   imageConfig?: AgentTaskScope["imageConfig"];
@@ -908,6 +920,7 @@ const LazyWorkspaceDomainSwitcher = React.lazy(() => loadWorkspaceChrome().then(
 const LazyWorkspaceDirectionSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDirectionSwitcher })));
 const LazyWorkspaceFocusStage = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceFocusStage })));
 const LazyWorkspaceReviewGrid = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceReviewGrid })));
+const LazyProjectResultComparison = React.lazy(() => import("./project-result-comparison"));
 const LazyWorkspaceSearch = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceSearch })));
 const LazyWorkspaceTaskContext = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceTaskContext })));
 let authGatePromise: Promise<typeof import("./auth-gate")> | null = null;
@@ -1877,7 +1890,10 @@ function sanitizeCanvasRequirement(value: unknown, fallbackText = ""): CanvasReq
     lastRunCount: Number.isFinite(Number(source.lastRunCount)) ? Math.max(0, Math.floor(Number(source.lastRunCount))) : undefined,
     lastError: typeof source.lastError === "string" && source.lastError.trim() ? source.lastError.trim().slice(0, 500) : undefined,
     skill: sanitizeCanvasSkill(source.skill),
-    socialPlan: socialPlan?.brief ? socialPlan : undefined
+    socialPlan: socialPlan?.brief ? socialPlan : undefined,
+    ...(source.scientificPlan ? { scientificPlan: normalizeScientificFigurePlan(source.scientificPlan) } : {}),
+    ...(normalizeRequirementTemplateSnapshot(source.template) ? { template: normalizeRequirementTemplateSnapshot(source.template) } : {}),
+    ...(normalizeRequirementTemplateSnapshot(source.template) && normalizeRequirementTemplateDraft(source.templateDraft) ? { templateDraft: normalizeRequirementTemplateDraft(source.templateDraft) } : {})
   };
 }
 
@@ -2677,6 +2693,8 @@ function sanitizePendingAgentExecution(value: unknown): PendingAgentExecution | 
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
     ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
     ...(rawScope.creation ? { creation: normalizeCreationTaskContract(rawScope.creation) } : {}),
+    ...(rawScope.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(rawScope.projectKnowledge) } : {}),
+    ...(rawScope.template ? { template: normalizeRequirementTemplateSnapshot(rawScope.template) } : {}),
     ...(normalizeCreationMaskAssets(rawScope.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(rawScope.maskAssets) } : {}),
     version: 2,
     origin: taskOrigin,
@@ -2825,6 +2843,7 @@ function normalizeWorkflowSession(session?: WorkflowSession | Partial<StudioWork
       ? [...((session as Partial<StudioWorkflowSession>).nodeMutationBarriers ?? [])]
       : [],
     selectedNodeId,
+    projectTaskContexts: (() => { const contexts = normalizeProjectTaskContexts(session?.projectTaskContexts); if (!contexts) throw new Error("冻结项目上下文无效，未清除历史记录。"); return contexts; })(),
     pendingAgentExecution
   };
 }
@@ -2864,6 +2883,7 @@ function buildWorkflowSessionSnapshot(session: StudioWorkflowSessionInput): Stud
     nodeMutationWriterCheckpoints: [...(session.nodeMutationWriterCheckpoints ?? [])],
     nodeMutationBarriers: [...(session.nodeMutationBarriers ?? [])],
     selectedNodeId,
+    projectTaskContexts: (() => { const contexts = normalizeProjectTaskContexts(session.projectTaskContexts); if (!contexts) throw new Error("冻结项目上下文无效，未清除历史记录。"); return contexts; })(),
     pendingAgentExecution: sanitizePendingAgentExecution(session.pendingAgentExecution)
   };
 }
@@ -3153,10 +3173,11 @@ function agentTaskScopeForRequest(
   const eligibleImageNodes = sourceNodes.filter((node) => node.type === "image");
   const explicitRoleFor = (node: WorkflowNode) => explicitNodeRoles[node.id];
   const isGoalScope = origin === "goal";
-  const referenceRoleNodes = eligibleImageNodes.filter((node) => isGoalScope && (explicitRoleFor(node) === "reference" || (
+  const hasBindingRoles = isGoalScope || origin === "requirement";
+  const referenceRoleNodes = eligibleImageNodes.filter((node) => hasBindingRoles && (explicitRoleFor(node) === "reference" || (
     !explicitRoleFor(node) && taskAssetReferencesForNode(node, "reference", false).length > 0
   )));
-  const eligibleSourceNodes = eligibleImageNodes.filter((node) => !isGoalScope || explicitRoleFor(node) === "source" || (
+  const eligibleSourceNodes = eligibleImageNodes.filter((node) => !hasBindingRoles || explicitRoleFor(node) === "source" || (
     !explicitRoleFor(node) && taskAssetReferencesForNode(node, "source", true).length > 0
   ));
   const uniqueTaskAssets = (items: TaskAssetReference[]) => {
@@ -3835,6 +3856,8 @@ function App() {
   const [configReady, setConfigReady] = useState(false);
   const currentAgentTask = useAgentTaskReceipt(activeProjectId, activeConversationId, configReady);
   const currentAgentTaskCard = agentTaskCard(currentAgentTask);
+  const projectContextState = useProjectContext(activeProjectId, activeConversationId, configReady);
+  const [projectComparison, setProjectComparison] = useState<ProjectComparisonItem[] | null>(null);
   const creationState = useCreationSession(activeProjectId, activeConversationId, configReady);
   const creationSessionView = useMemo<CreationSessionSnapshot | null>(() => {
     if (!creationState.snapshot) return null;
@@ -3909,6 +3932,7 @@ function App() {
   const pendingAgentExecutionRef = useRef<PendingAgentExecution | null>(pendingAgentExecution);
   const taskAdmissionRef = useRef(false);
   const cancelledAgentRequestRef = useRef<{ projectId: string; conversationId: string; requestId: string } | null>(null);
+  const projectTaskContextsRef = useRef<ProjectTaskContext[]>([]);
   const lastDispatchedTaskScopeRef = useRef<AgentTaskScope | null>(null);
   const lastDispatchedPromptRef = useRef("");
   const requirementRunParentsRef = useRef<Map<string, string>>(new Map());
@@ -4815,7 +4839,7 @@ function App() {
     }
     const timer = window.setTimeout(() => {
       flushStarted = true;
-      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, workspaceDomain, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution });
+      const snapshot = buildWorkflowSessionSnapshot({ schemaVersion: 5, workspaceDomain, nodeSequence: nodeSequenceRef.current, canvasRevision: canvasRevisionRef.current, layoutGroups, messages, conversations, activeConversationId, nodes, selectedNodeId, pendingAgentExecution, projectTaskContexts: projectTaskContextsRef.current });
       persistProjectSession(projectId, snapshot).catch((error) =>
         console.error("save session failed", error)
       );
@@ -13630,6 +13654,28 @@ function App() {
     return { role, added: assigned.added, total: merged.length, omitted, sourceCount: assigned.sources.length, referenceCount: assigned.references.length };
   }
 
+  function locateProjectResult(target: import("./creation-session").CreationTarget) {
+    const found = locateCreationTarget(nodesRef.current, target);
+    if (!found) throw new Error("成果已被替换或移除，请重新搜索。");
+    selectWorkspaceNavigatorNode(found.node.id);
+    return { ok: true };
+  }
+  function compareProjectResults(targets: import("./creation-session").CreationTarget[]) {
+    if (targets.length !== 2) throw new Error("请选择两个成果进行对比。");
+    const items = targets.map(target => {
+      const found = locateCreationTarget(nodesRef.current, target);
+      if (!found) throw new Error("对比成果已变化，请重新搜索。");
+      return { target: { ...target }, label: found.asset.title || found.node.title || "所选成果", src: imageAssetSrc(found.asset) };
+    });
+    setProjectComparison(items); return { ok: true };
+  }
+  const projectContextProps = {
+    projectContext: projectContextState.snapshot, contextBusy: projectContextState.busy, contextError: projectContextState.error,
+    onContextCommand: projectContextState.execute, onLocateResult: locateProjectResult,
+    onUseResults: (targets: import("./creation-session").CreationTarget[], role: "source" | "reference") => projectContextState.execute("project.results.use", { targets, role }),
+    onCompareResults: compareProjectResults
+  };
+
   function addCanvasAgentMaterialsFromMenu(targets: CanvasMaterialTarget[], role: ComposerMaterialRole) {
     try {
       const projection = projectCanvasImageLayouts(nodesRef.current, layoutGroupsRef.current);
@@ -14271,6 +14317,8 @@ function App() {
     canvasRevisionRef.current = nextSession.canvasRevision;
     nodeSequenceRef.current = nextSession.nodeSequence;
     activeConversationIdRef.current = nextSession.activeConversationId;
+    projectTaskContextsRef.current = nextSession.projectTaskContexts;
+    lastDispatchedTaskScopeRef.current = restoredPending?.taskScope || null;
     messagesRef.current = nextSession.messages;
     nodesRef.current = nextSession.nodes;
     layoutGroupsRef.current = nextSession.layoutGroups;
@@ -14308,6 +14356,7 @@ function App() {
     setAssetContextMenu(null);
     setImageCollectionDialog(null);
     setImageCollectionExportDialog(null);
+    setProjectComparison(null);
     setImageViewer(null);
     setLayerViewer(null);
     setRegionRedrawDraft(null);
@@ -14620,6 +14669,7 @@ function App() {
       activeConversationId: live ? activeConversationIdRef.current : activeConversationId,
       nodes: live ? nodesRef.current : nodes,
       selectedNodeId: live ? selectedNodeIdRef.current : selectedNodeId,
+      projectTaskContexts: projectTaskContextsRef.current,
       pendingAgentExecution: live ? pendingAgentExecutionRef.current : pendingAgentExecution,
     });
     return persistProjectSession(projectId, snapshot);
@@ -15780,6 +15830,10 @@ function App() {
       sourceNodeId: node.parentId,
       title: node.title || requirementTitleFromText(node.requirement.text),
       text: node.requirement.text,
+      ...(node.requirement.templateDraft ? { templateImages: [
+        ...node.requirement.templateDraft.imageBindings.map(binding => ({ ...binding, label: binding.key, required: true })),
+        ...node.requirement.templateDraft.unboundImages.flatMap(variable => variable.type === "image" ? [{ key: variable.key, label: variable.label, role: variable.role || "source", required: variable.required }] : [])
+      ] } : {}),
       runAfterSave: false
     });
   }
@@ -15795,7 +15849,7 @@ function App() {
   function saveRequirementEditor(runAfterSave = requirementEditorDraft?.runAfterSave === true) {
     const draft = requirementEditorDraft;
     if (!draft) return null;
-    const text = draft.text.trim();
+    let text = draft.text.trim();
     if (!text) {
       setRequirementEditorDraft({ ...draft, error: "请先描述希望 Agent 基于来源图片完成什么工作。" });
       return null;
@@ -15868,10 +15922,39 @@ function App() {
         setRequirementEditorDraft({ ...draft, error: "需求节点已不存在。" });
         return null;
       }
+      let templateDraft = existing.requirement.templateDraft;
+      let inputBindings = requirementInputBindings(existing, nodesRef.current);
+      if (templateDraft && draft.templateImages) {
+        const previousNodes = new Set(templateDraft.imageBindings.map(binding => binding.nodeId));
+        const imageBindings = draft.templateImages.filter(variable => variable.nodeId).map(variable => ({ key: variable.key, nodeId: variable.nodeId!, role: variable.role }));
+        try {
+          automationRequirementBindings(imageBindings, nodesRef.current);
+          if (blockLockedNodeMutation(imageBindings.map(binding => binding.nodeId), "绑定模板素材")) return null;
+          inputBindings = inputBindings.filter(binding => !previousNodes.has(binding.nodeId));
+          for (const binding of imageBindings) {
+            const previous = inputBindings.find(item => item.nodeId === binding.nodeId);
+            if (previous && previous.role !== binding.role) throw new Error("同一素材不能同时绑定不同用途。");
+            if (!previous) inputBindings.push({ nodeId: binding.nodeId, role: binding.role });
+          }
+          templateDraft = normalizeRequirementTemplateDraft({ ...templateDraft, imageBindings,
+            unboundImages: draft.templateImages.filter(variable => !variable.nodeId).map(variable => ({ key: variable.key, label: variable.label, type: "image", role: variable.role, required: variable.required !== false })) });
+          if (!templateDraft) throw new Error("模板图片绑定无效，原需求保留。");
+          // Refresh only our unchanged placeholder text. User edits and the
+          // original instantiated template revision remain authoritative.
+          if (text === existing.requirement.text) {
+            for (const variable of existing.requirement.templateDraft?.unboundImages || []) {
+              if (imageBindings.some(binding => binding.key === variable.key)) {
+                text = text.split(`待绑定图片：${variable.label}`).join(`当前素材：${variable.label}`);
+              }
+            }
+          }
+        } catch (error) { setRequirementEditorDraft({ ...draft, error: error instanceof Error ? error.message : "模板图片绑定失败。" }); return null; }
+      }
       const nextRequirement: CanvasRequirement = {
         ...existing.requirement,
         version: 2,
-        inputBindings: requirementInputBindings(existing, nodesRef.current),
+        inputBindings,
+        ...(templateDraft ? { templateDraft } : {}),
         text,
         revision: existing.requirement.revision + 1,
         lastError: undefined,
@@ -15884,10 +15967,14 @@ function App() {
         ...existing,
         title: draft.title.trim() || requirementTitleFromText(text),
         prompt: text,
+        parentId: primaryRequirementInputNodeId(inputBindings) || undefined,
+        relationType: inputBindings.length ? "referenced" : undefined,
         requirement: nextRequirement
       };
-      pushCanvasHistory("编辑可复用需求");
       const nextNodes = nodesRef.current.map((node) => node.id === existing.id ? requirementNode! : node);
+      try { assertCanvasRelationGraphAcyclic(nextNodes); }
+      catch { setRequirementEditorDraft({ ...draft, error: "该素材与本需求构成循环，请选择其他成果。" }); return null; }
+      pushCanvasHistory("编辑可复用需求");
       nodesRef.current = nextNodes;
       setNodes(nextNodes);
       addEvent(`更新可复用需求 ${existing.id}`);
@@ -16106,6 +16193,8 @@ function App() {
     skill?: CanvasSkill;
     socialPlan?: SocialContentPlan;
     scientificPlan?: ScientificFigurePlan;
+    template?: RequirementTemplateSnapshot;
+    templateDraft?: RequirementTemplateDraft;
     historyLabel?: string;
     eventLabel?: string;
   }) {
@@ -16162,6 +16251,8 @@ function App() {
         ...(input.skill ? { skill: { ...input.skill } } : {}),
         ...(input.socialPlan ? { socialPlan: structuredClone(input.socialPlan) } : {}),
         ...(input.scientificPlan ? { scientificPlan: structuredClone(input.scientificPlan) } : {}),
+        ...(input.template ? { template: normalizeRequirementTemplateSnapshot(input.template) } : {}),
+        ...(input.template && input.templateDraft ? { templateDraft: normalizeRequirementTemplateDraft(input.templateDraft) } : {}),
       },
       ...(input.scientificPlan ? {
         scientificFigure: {
@@ -16982,7 +17073,7 @@ function App() {
       .filter((node): node is WorkflowNode => Boolean(node));
     if (sourceContainer && !requestSourceNodes.some((node) => node.id === sourceContainer.id)) requestSourceNodes.push(sourceContainer);
     let composerSourceImages: ReferenceImage[] | undefined;
-    if (effectiveTaskOrigin !== "goal" && dispatch.referenceImages === undefined && dispatch.sourceImages === undefined) {
+    if (effectiveTaskOrigin !== "goal" && effectiveTaskOrigin !== "requirement" && dispatch.referenceImages === undefined && dispatch.sourceImages === undefined) {
       const split = splitComposerMaterials(buildComposerMaterials(
         requestSourceNodes,
         sourceImages,
@@ -17026,7 +17117,9 @@ function App() {
       composerSourceImages,
     );
     const continuationAddsImages = Boolean(dispatch.sourceImages?.length || dispatch.referenceImages?.length);
-    const taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
+    let taskScope = resolveAgentTaskScopeContinuation(dispatch.frozenTaskScope, liveTaskScope, continuationAddsImages);
+    if (dispatch.projectKnowledge && !dispatch.frozenTaskScope) taskScope.projectKnowledge = normalizeProjectKnowledgeSnapshot(dispatch.projectKnowledge);
+    if (effectiveRequirementNode?.requirement?.template && !dispatch.frozenTaskScope) taskScope.template = normalizeRequirementTemplateSnapshot(effectiveRequirementNode.requirement.template);
     if (dispatch.maskAssets?.length && !dispatch.frozenTaskScope) {
       taskScope.maskAssets = normalizeCreationMaskAssets(dispatch.maskAssets);
       taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
@@ -17068,6 +17161,16 @@ function App() {
       try {
         const preparedSave = await flushActiveProjectSession({ live: true, projectId: requestProjectId, ensureConversation: true });
         if (!preparedSave?.ok) throw automationCommandError("TASK_PREPARE_SAVE_FAILED", "项目保存失败，未启动 Agent。");
+        if (!dispatch.frozenTaskScope && !dispatch.taskId && effectiveRequirementNode?.requirement?.templateDraft) {
+          const requirements = templateTaskRequirements(effectiveRequirementNode.requirement.templateDraft, taskScope);
+          if (requirements) {
+            const current = await window.naimageAgent.creationCommand("creation.requirements.get", { expectedProjectId: requestProjectId, conversationId: requestConversationId });
+            if (!current.ok) throw new Error(current.error || "模板要求无法读取。");
+            const saved = await window.naimageAgent.creationCommand("creation.requirements.update", { expectedProjectId: requestProjectId, conversationId: requestConversationId,
+              ...(current.requirements ? { requirementId: current.requirements.requirementId } : {}), expectedRevision: current.requirements?.revision || 0, requirements });
+            if (!saved.ok) throw new Error(saved.error || "模板要求无法保存。");
+          }
+        }
         if (window.naimageAgent.creationPrepare) {
           const prepared = await window.naimageAgent.creationPrepare({ expectedProjectId: requestProjectId, conversationId: requestConversationId,
             taskId: dispatch.taskId, prompt: content, ...(dispatch.creation ? { requirementId: dispatch.creation.requirementId } : {}) });
@@ -17080,6 +17183,17 @@ function App() {
             executionScope.taskSignature = taskScope.snapshotHash;
           }
         }
+        if (window.naimageAgent.projectContextPrepare) {
+          const prepared = await window.naimageAgent.projectContextPrepare({ expectedProjectId: requestProjectId, conversationId: requestConversationId, taskId: dispatch.taskId, taskScope });
+          if (!prepared.ok) throw new Error(prepared.error || "项目知识无法冻结，任务未派发。");
+          if (prepared.projectKnowledge) {
+            taskScope = bindProjectContextMaterials(taskScope, prepared.knowledgeMaterials || [], "reference");
+            taskScope.projectKnowledge = prepared.projectKnowledge;
+            taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
+            lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
+            executionScope.taskSignature = taskScope.snapshotHash;
+          }
+        }
         const admitted = await window.naimageAgent.taskAdmit({
           ...(dispatch.taskSubmission || { submissionId: uid("gui"), prompt: content }),
           expectedProjectId: requestProjectId, conversationId: requestConversationId,
@@ -17087,6 +17201,17 @@ function App() {
         });
         if (!admitted.ok || !admitted.task) throw automationCommandError(admitted.errorCode || "TASK_NOT_ACCEPTED", admitted.error || "任务回执保存失败，未启动 Agent。");
         receiptTaskId = admitted.task.taskId;
+        if (taskScope.projectKnowledge) {
+          projectTaskContextsRef.current = appendProjectTaskContext(projectTaskContextsRef.current, { version: 1, projectId: requestProjectId, conversationId: requestConversationId,
+            taskId: receiptTaskId, createdAt: admitted.task.createdAt, fingerprint: taskScope.projectKnowledge.fingerprint, projectKnowledge: taskScope.projectKnowledge,
+            ...(taskScope.template ? { requirementTemplate: taskScope.template } : {}) }, { expectedProjectId: requestProjectId });
+          const frozenSave = await flushActiveProjectSession({ live: true, projectId: requestProjectId, ensureConversation: true });
+          if (!frozenSave?.ok) {
+            await window.naimageAgent.taskSettle({ expectedProjectId: requestProjectId, conversationId: requestConversationId, taskId: receiptTaskId, runId, outcome: "save-failed" });
+            throw new Error("冻结项目上下文保存失败，尚未请求模型。");
+          }
+        }
+
         dispatch.onTaskAccepted?.(admitted);
       } catch (error) {
         if (dispatch.strictTask) throw error;
@@ -17143,8 +17268,8 @@ function App() {
         receiptTaskId
       );
       if (!runScopeIsCurrent()) return false;
-      if (runtimeResult.effectiveTaskScope?.creation) {
-        taskScope.creation = normalizeCreationTaskContract(runtimeResult.effectiveTaskScope.creation);
+      if (runtimeResult.effectiveTaskScope) {
+        taskScope = cloneAgentTaskScope(runtimeResult.effectiveTaskScope);
         taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
         executionScope.taskSignature = taskScope.snapshotHash;
         lastDispatchedTaskScopeRef.current = cloneAgentTaskScope(taskScope);
@@ -24600,6 +24725,18 @@ function App() {
   }, [activeConversationId, activeProjectId, agentProgress, agentStatus, configReady, goalConfirmation, messages, nodeEditorDraft, nodes, regionRedrawDraft, requirementEditorDraft, sendPrompt, settings]);
 
   const executeAutomationCommand = useStableEvent(async (command: string, args: Record<string, unknown> = {}) => {
+    if (command === "project.results.bind") {
+      if (args.expectedProjectId !== activeProjectIdRef.current || args.conversationId !== activeConversationIdRef.current || agentExecutionBusyNow()) throw new Error("项目、会话或任务状态已变化，素材未绑定。");
+      const targets = Array.isArray(args.targets) ? args.targets : [];
+      const bindings = targets.map(target => {
+        for (const node of nodesRef.current) {
+          const index = node.assets?.findIndex(asset => asset.assetId === target.assetId && asset.occurrenceId === target.occurrenceId && asset.contentHash === target.contentHash) ?? -1;
+          if (index >= 0) return { nodeId: node.id, assetIndex: index };
+        }
+        throw new Error("成果身份已变化，请重新搜索。");
+      });
+      return { ok: true, ...addCanvasAgentMaterials(bindings, args.role === "source" ? "source" : "reference"), targets };
+    }
     const runtime = await loadAutomationCommandRuntime();
     if (command === "agent.task.dispatch" || command === "agent.task.answer-dispatch") {
       if (args.expectedProjectId !== activeProjectIdRef.current || args.conversationId !== activeConversationIdRef.current) {
@@ -24629,6 +24766,7 @@ function App() {
             return { ...asset, path: asset.path, name: asset.title || node.title || "参考图", canvasNodeId: node.id, canvasAssetIndex: index, taskRole: "reference" as const };
           });
           work = sendPrompt(String(args.prompt || ""), { taskId: String(args.taskId), taskSubmission: args, strictTask: true,
+            projectKnowledge: normalizeProjectKnowledgeSnapshot(args.projectKnowledge),
             creation: normalizeCreationTaskContract(args.creation),
             maskAssets: normalizeCreationMaskAssets(args.maskAssets),
             imageConfig: normalizeImageConfigSnapshot(args.imageConfig),
@@ -24750,7 +24888,19 @@ function App() {
         y: input.y,
         expectedProjectId: input.expectedProjectId,
         expectedCanvasRevision: input.expectedCanvasRevision,
+        variableValues: input.variableValues,
+        imageBindings: input.imageBindings,
       }),
+      importRequirementLibrary: async () => {
+        const result = await window.naimageConfig?.importRequirementLibraryEntry?.();
+        if (!result?.ok) throw automationCommandError(result?.errorCode || "TEMPLATE_IMPORT_FAILED", result?.error || "导入需求模板失败。");
+        await loadRequirementTemplates(true); return result;
+      },
+      exportRequirementLibrary: async input => {
+        const result = await window.naimageConfig?.exportRequirementLibraryEntry?.({ id: input.templateId, expectedRevision: input.expectedTemplateRevision });
+        if (!result?.ok) throw automationCommandError(result?.errorCode || "TEMPLATE_EXPORT_FAILED", result?.error || "导出需求模板失败。");
+        return result;
+      },
       listCommerceTemplates: async () => {
         const bridge = window.naimageConfig?.listCommerceTemplates;
         if (!bridge) throw automationCommandError("COMMERCE_TEMPLATE_UNAVAILABLE", "当前桌面运行时未提供套图模板市场。");
@@ -27396,6 +27546,7 @@ function App() {
       }
     }
     window.naimageAgentWindow.publishState(buildAgentWindowSnapshot({
+      projectContext: projectContextState.snapshot, contextBusy: projectContextState.busy, contextError: projectContextState.error,
       creationSession: creationSessionView, creationBusy: creationState.busy, creationError: creationState.error,
       taskCard: currentAgentTaskCard,
       taskQuestion: currentAgentTask?.question ? { taskId: currentAgentTask.taskId, projectId: currentAgentTask.projectId,
@@ -27441,6 +27592,14 @@ function App() {
     const { normalizeAgentWindowCommand } = await loadAgentWindowSync();
     const command = normalizeAgentWindowCommand(payload);
     if (!command) return;
+    if (command.type === "project-context-command") { await projectContextState.execute(command.command, command.input); return; }
+    if (["project-result-locate", "project-results-use", "project-results-compare"].includes(command.type)) {
+      if (!("targets" in command) || command.expectedProjectId !== activeProjectIdRef.current || command.conversationId !== activeConversationIdRef.current) throw new Error("项目或会话已切换，原操作已取消。");
+      if (command.type === "project-result-locate") locateProjectResult(command.targets[0]);
+      if (command.type === "project-results-compare") compareProjectResults(command.targets);
+      if (command.type === "project-results-use") await projectContextState.execute("project.results.use", { targets: command.targets, role: command.role });
+      return;
+    }
     if (command.type === "creation-requirements-update") { await creationState.execute("creation.requirements.update", command.input); return; }
     if (command.type === "creation-decision") { await creationState.execute("creation.acceptance.decide", command.input); return; }
     if (command.type === "creation-revision") { await creationState.execute("creation.revision.start", command.input); return; }
@@ -27536,6 +27695,7 @@ function App() {
   }, [
     activeConversationId,
     currentAgentTask,
+    projectContextState.snapshot, projectContextState.busy, projectContextState.error,
     creationSessionView,
     creationState.busy,
     creationState.error,
@@ -27790,8 +27950,16 @@ function App() {
     const selectedId = String(requestedNodeId || "");
     const node = nodesRef.current.find((candidate) => candidate.id === selectedId && candidate.type === "requirement" && candidate.requirement);
     if (!node?.requirement) {
-      setServerMessage("请先在画布中选择一个需求节点，再保存到个人模板库。");
-      return false;
+      if (currentAgentTask?.phase === "completed" && currentAgentTask.savedCount > 0 && currentAgentTask.requirementRef) {
+        try {
+          const result = await saveRequirementLibraryForAutomation({ expectedProjectId: activeProjectIdRef.current,
+            taskId: currentAgentTask.taskId, conversationId: currentAgentTask.conversationId,
+            expectedRequirementsRevision: currentAgentTask.requirementRef.revision });
+          setServerMessage(`已将成功任务保存为方法模板：${result.entry!.title}`);
+          return true;
+        } catch (error) { setServerMessage(`保存方法失败：${error instanceof Error ? error.message : String(error)}`); return false; }
+      }
+      setServerMessage("请选择需求节点，或在成功保存的创作任务后保存当前方法。"); return false;
     }
     const bridge = requirementLibraryBridge();
     if (!bridge?.saveRequirementLibraryEntry) {
@@ -27855,16 +28023,17 @@ function App() {
     y?: number;
     expectedProjectId?: string;
     expectedCanvasRevision?: number;
+    variableValues?: Record<string, string | number>;
+    imageBindings?: RequirementTemplateImageBinding[];
   } = {}) {
     const bridge = requirementLibraryBridge();
-    if (!bridge?.getRequirementLibraryEntry) {
+    if (!bridge?.getRequirementLibraryEntry || !bridge.applyRequirementLibraryEntry) {
       throw new Error("当前桌面运行时未提供个人需求模板库，请重启应用后再试。");
     }
     const detail = await bridge.getRequirementLibraryEntry({ id: templateId });
     if (!detail?.ok || !detail.entry) throw new Error(detail?.error || "需求模板不存在或正文为空。");
     const entry = detail.entry;
-    const templateText = typeof entry.text === "string" ? entry.text : "";
-    if (!templateText) throw new Error("需求模板不存在或正文为空。");
+    if (!entry.text) throw new Error("需求模板不存在或正文为空。");
     if (options.expectedTemplateRevision !== undefined && entry.revision !== options.expectedTemplateRevision) {
       throw automationCommandError("TEMPLATE_REVISION_CONFLICT", "需求模板已发生变化，请读取最新模板 revision 后重试。", {
         templateId: entry.id,
@@ -27882,12 +28051,30 @@ function App() {
       const node = projection.canvasNodeById.get(id) ?? nodesRef.current.find((candidate) => candidate.id === id);
       return node?.type === "image" ? [{ nodeId: node.id, role: requirementInputRoleForNode(node) }] : [];
     });
-    const inputBindings = options.inputBindings ?? selectedBindings;
+    const inputBindings = [...(options.inputBindings ?? selectedBindings)];
+    const availableBindings = [...inputBindings];
+    const imageBindings = options.imageBindings ?? (entry.template?.variables || []).flatMap(variable => {
+      if (variable.type !== "image") return [];
+      const index = availableBindings.findIndex(binding => binding.role === (variable.role || "source"));
+      if (index < 0) return [];
+      const [binding] = availableBindings.splice(index, 1);
+      return [{ key: variable.key, nodeId: binding.nodeId, role: binding.role }];
+    });
+    for (const binding of imageBindings) {
+      const existing = inputBindings.find(item => item.nodeId === binding.nodeId);
+      if (existing && existing.role !== binding.role) throw automationCommandError("INVALID_ARGUMENT", "同一素材的模板用途与本次来源设置不一致。");
+      if (!existing) inputBindings.push({ nodeId: binding.nodeId, role: binding.role });
+    }
+    automationRequirementBindings(inputBindings, nodesRef.current);
+    const applied = await bridge.applyRequirementLibraryEntry({ id: entry.id, expectedTemplateRevision: entry.revision,
+      variableValues: options.variableValues, imageBindings });
+    if (!applied.ok || !applied.application) throw automationCommandError(applied.errorCode || "TEMPLATE_APPLY_FAILED", applied.error || "模板变量应用失败。");
+    const application = applied.application;
     const rect = canvasRef.current?.getBoundingClientRect();
     const fallbackPoint = rect ? clientToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2) : { x: 180, y: 160 };
     const result = createRequirementForAutomation({
       title: entry.skill ? `Skill · ${entry.skill.name}` : entry.title,
-      text: templateText,
+      text: application.text,
       inputBindings,
       x: options.x ?? (inputBindings.length ? undefined : fallbackPoint.x),
       y: options.y ?? (inputBindings.length ? undefined : fallbackPoint.y),
@@ -27896,11 +28083,13 @@ function App() {
       ...(entry.skill ? { skill: sanitizeCanvasSkill(entry.skill) } : {}),
       ...(entry.socialPlan ? { socialPlan: normalizeSocialContentPlan(entry.socialPlan) } : {}),
       ...(entry.scientificPlan ? { scientificPlan: normalizeScientificFigurePlan(entry.scientificPlan) } : {}),
+      template: application.templateSnapshot,
+      templateDraft: { ...(application.creationRequirements ? { creationRequirements: application.creationRequirements } : {}), imageBindings: application.imageBindings, unboundImages: application.unboundImages },
       historyLabel: "从个人需求模板库创建需求",
       eventLabel: "使用需求模板",
     });
-    setServerMessage(`已插入需求模板“${entry.skill?.name || entry.title}”${inputBindings.length ? `，并连接 ${inputBindings.length} 个当前图片来源` : "；连接图片后即可执行"}。`);
-    return { ...result, templateId: entry.id, templateRevision: entry.revision };
+    setServerMessage(`已插入需求模板“${entry.skill?.name || entry.title}”${application.unboundImages.some(variable => variable.required) ? "；请绑定所需图片后再执行" : inputBindings.length ? `，并连接 ${inputBindings.length} 个当前图片来源` : "；明确执行时才开始任务"}。`);
+    return { ...result, templateId: entry.id, templateRevision: entry.revision, unboundImages: application.unboundImages.map(variable => ({ key: variable.key, label: variable.label, required: variable.required })) };
   }
 
   async function listRequirementLibraryForAutomation(includeText: boolean) {
@@ -27916,8 +28105,14 @@ function App() {
   }
 
   async function saveRequirementLibraryForAutomation(input: {
-    nodeId: string;
-    expectedRequirementRevision: number;
+    nodeId?: string;
+    expectedRequirementRevision?: number;
+    taskId?: string;
+    conversationId?: string;
+    expectedRequirementsRevision?: number;
+    title?: string;
+    text?: string;
+    template?: RequirementTemplate;
     templateId?: string;
     expectedTemplateRevision?: number;
     expectedProjectId: string;
@@ -27929,8 +28124,9 @@ function App() {
       });
     }
     const node = nodesRef.current.find((candidate) => candidate.id === input.nodeId && candidate.type === "requirement" && candidate.requirement);
-    if (!node?.requirement) throw automationCommandError("UNSUPPORTED_NODE", "只能将当前存在的需求节点保存到个人模板库。", { nodeId: input.nodeId });
-    if (node.requirement.revision !== input.expectedRequirementRevision) {
+    if (input.nodeId && input.taskId) throw automationCommandError("INVALID_ARGUMENT", "每次只能保存一个需求节点或成功任务。");
+    if (!input.taskId && !node?.requirement) throw automationCommandError("UNSUPPORTED_NODE", "请选择当前需求节点或成功保存的任务。", { nodeId: input.nodeId });
+    if (node?.requirement && node.requirement.revision !== input.expectedRequirementRevision) {
       throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
         nodeId: node.id,
         expectedRevision: input.expectedRequirementRevision,
@@ -27939,19 +28135,32 @@ function App() {
     }
     const bridge = requirementLibraryBridge();
     if (!bridge?.saveRequirementLibraryEntry) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时未提供个人需求模板库。");
+    let reusable;
+    if (input.taskId) {
+      if (!input.conversationId || !window.naimageAgent?.taskCommand || !window.naimageAgent.creationCommand) throw automationCommandError("INVALID_ARGUMENT", "保存成功任务需要所属会话和创作要求。");
+      const receipt = await window.naimageAgent.taskCommand("agent.task.get", { expectedProjectId: input.expectedProjectId, conversationId: input.conversationId, taskId: input.taskId });
+      if (!receipt.ok || receipt.task?.phase !== "completed" || receipt.task.savedCount < 1 || !receipt.task.requirementRef) throw automationCommandError("TASK_NOT_COMPLETED", "仅可把已成功保存成果的任务保存为方法模板。");
+      if (input.expectedRequirementsRevision !== receipt.task.requirementRef.revision) throw automationCommandError("CREATION_REQUIREMENTS_CONFLICT", "任务要求版本与预期不一致，未保存模板。");
+      const creation = await window.naimageAgent.creationCommand("creation.requirements.get", { expectedProjectId: input.expectedProjectId, conversationId: input.conversationId, taskId: input.taskId });
+      if (!creation.ok || !creation.requirements || creation.requirements.revision !== receipt.task.requirementRef.revision) throw automationCommandError("CREATION_REQUIREMENTS_NOT_FOUND", "任务冻结的创作要求不可用，未保存模板。");
+      reusable = reusableRequirementTemplateFromTask({ title: input.title || receipt.task.title, text: input.text || creation.requirements.goal.text,
+        requirements: creation.requirements, ...(input.template ? { template: input.template } : {}) });
+    }
+    if (input.expectedProjectId !== activeProjectIdRef.current) throw automationCommandError("PROJECT_MISMATCH", "保存时当前项目已变化。");
     const result = await bridge.saveRequirementLibraryEntry({
       ...(input.templateId ? { id: input.templateId, expectedRevision: input.expectedTemplateRevision } : {}),
-      title: node.title || requirementTitleFromText(node.requirement.text),
-      text: node.requirement.text,
-      ...(node.requirement.skill ? { skill: { ...node.requirement.skill } } : {}),
-      ...(node.requirement.socialPlan ? { socialPlan: structuredClone(node.requirement.socialPlan) } : {}),
-      ...(node.requirement.scientificPlan ? { scientificPlan: structuredClone(node.requirement.scientificPlan) } : {}),
+      title: reusable?.title || input.title || node!.title || requirementTitleFromText(node!.requirement!.text),
+      text: reusable?.text || input.text || node!.requirement!.text,
+      ...(node?.requirement?.skill ? { skill: { ...node.requirement.skill } } : {}),
+      ...(node?.requirement?.socialPlan ? { socialPlan: structuredClone(node.requirement.socialPlan) } : {}),
+      ...(node?.requirement?.scientificPlan ? { scientificPlan: structuredClone(node.requirement.scientificPlan) } : {}),
+      ...(reusable?.template || input.template ? { template: reusable?.template || input.template } : {}),
     });
     if (!result?.ok || !result.entry) {
       throw automationCommandError(result?.errorCode || "REQUIREMENT_LIBRARY_FAILED", result?.error || "保存个人需求模板失败。");
     }
     cacheRequirementTemplate(result.entry);
-    addEvent(`CLI 保存需求模板 ${result.entry.id} · 来源 ${node.id}`);
+    addEvent(`保存需求模板 ${result.entry.id}`);
     return result;
   }
 
@@ -28149,6 +28358,7 @@ function App() {
         <div className="ide-actions">
           <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
             <LazyWorkspaceSearch
+              projectContextView={<ProjectContextPanel {...projectContextProps} />}
               nodes={canvasNodes}
               conversations={conversations}
               activeConversationId={activeConversationId}
@@ -28204,22 +28414,19 @@ function App() {
       >
         <React.Suspense fallback={<aside className="workspace-asset-rail is-loading" aria-label="正在载入项目素材" aria-busy="true" />}>
           <LazyWorkspaceAssetRail
+            projectId={activeProjectId}
             nodes={canvasNodes}
             conversations={conversations}
             activeConversationId={activeConversationId}
             selectedNodeId={selectedNode?.id ?? selectedNodeId}
             requirementTemplates={requirementTemplates}
             requirementTemplatesLoading={requirementTemplatesLoading}
-            canSaveRequirementTemplate={selectedNode?.type === "requirement" && Boolean(selectedNode.requirement)}
+            canSaveRequirementTemplate={(selectedNode?.type === "requirement" && Boolean(selectedNode.requirement)) || (currentAgentTask?.phase === "completed" && currentAgentTask.savedCount > 0 && Boolean(currentAgentTask.requirementRef))}
             onSelectNode={selectWorkspaceNavigatorNode}
             onOpenLayer={openWorkspaceLayerNode}
             onSelectConversation={switchProjectConversation}
-            onLoadRequirementTemplates={() => { void loadRequirementTemplates(); }}
-            onUseRequirementTemplate={(templateId) => {
-              void useRequirementTemplate(templateId).catch((error) => {
-                setServerMessage(`使用需求模板失败：${error instanceof Error ? error.message : String(error)}`);
-              });
-            }}
+            onLoadRequirementTemplates={(force) => { void loadRequirementTemplates(force); }}
+            onUseRequirementTemplate={(templateId, options) => useRequirementTemplate(templateId, options)}
             onSaveRequirementTemplate={() => { void saveSelectedRequirementTemplate(); }}
             onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
@@ -29869,6 +30076,7 @@ function App() {
           stopPending={agentStopPending}
           goalActive={agentExecutionBusy && lastDispatchedTaskScopeRef.current?.origin === "goal"}
           taskCard={currentAgentTaskCard}
+          {...projectContextProps}
           creationSession={creationSessionView}
           creationBusy={creationState.busy}
           creationError={creationState.error}
@@ -30383,7 +30591,7 @@ function App() {
         const editingNode = requirementEditorDraft.nodeId
           ? nodes.find((node) => node.id === requirementEditorDraft.nodeId && node.type === "requirement") ?? null
           : null;
-        const editorBindings = editingNode
+        let editorBindings = editingNode
           ? requirementInputBindings(editingNode, nodes)
           : requirementEditorDraft.sourceNodeId
             ? [{
@@ -30391,13 +30599,23 @@ function App() {
                 role: requirementInputRoleForNode(canvasNodeById.get(requirementEditorDraft.sourceNodeId) ?? nodes.find((node) => node.id === requirementEditorDraft.sourceNodeId)),
               } satisfies CanvasRequirementInputBinding]
             : [];
+        if (requirementEditorDraft.templateImages) {
+          const previousTemplateNodes = new Set(editingNode?.requirement?.templateDraft?.imageBindings.map(binding => binding.nodeId) || []);
+          editorBindings = editorBindings.filter(binding => !previousTemplateNodes.has(binding.nodeId));
+          for (const variable of requirementEditorDraft.templateImages) {
+            if (variable.nodeId && !editorBindings.some(binding => binding.nodeId === variable.nodeId)) {
+              editorBindings.push({ nodeId: variable.nodeId, role: variable.role });
+            }
+          }
+        }
         const editorSourceCount = editorBindings.filter((binding) => binding.role === "source").length;
         const editorReferenceCount = editorBindings.filter((binding) => binding.role === "reference").length;
         const originalText = editingNode?.requirement?.text || "";
         const originalTitle = editingNode?.title || "图片处理需求";
         const dirty = requirementEditorDraft.mode === "create"
           ? Boolean(requirementEditorDraft.text.trim() || requirementEditorDraft.title.trim() !== "图片处理需求")
-          : requirementEditorDraft.text !== originalText || requirementEditorDraft.title !== originalTitle;
+          : requirementEditorDraft.text !== originalText || requirementEditorDraft.title !== originalTitle || Boolean(requirementEditorDraft.templateImages?.some(variable =>
+            (variable.nodeId || "") !== (editingNode?.requirement?.templateDraft?.imageBindings.find(binding => binding.key === variable.key)?.nodeId || "")));
         return (
           <React.Suspense fallback={null}>
             <RequirementEditorDialog
@@ -30410,6 +30628,10 @@ function App() {
               requirementCode={editingNode ? nodeDisplayCode(editingNode) : "新节点"}
               sourceCount={editorSourceCount}
               referenceCount={editorReferenceCount}
+              templateImages={requirementEditorDraft.templateImages}
+              templateImageChoices={nodes.filter(node => node.type === "image" && node.assets?.length).map(node => ({ nodeId: node.id, label: node.title || nodeDisplayCode(node) }))}
+              changeTemplateImage={(key, nodeId) => setRequirementEditorDraft(current => current ? { ...current, error: undefined,
+                templateImages: current.templateImages?.map(variable => variable.key === key ? { ...variable, nodeId: nodeId || undefined } : variable) } : current)}
               close={() => setRequirementEditorDraft(null)}
               changeTitle={(title) => setRequirementEditorDraft((current) => current ? { ...current, title, error: undefined } : current)}
               changeText={(text) => setRequirementEditorDraft((current) => current ? { ...current, text, error: undefined } : current)}
@@ -30503,6 +30725,7 @@ function App() {
         </React.Suspense>
       ) : null}
 
+      {projectComparison ? <React.Suspense fallback={null}><LazyProjectResultComparison items={projectComparison} close={() => setProjectComparison(null)} /></React.Suspense> : null}
       {imageViewer ? (
         <React.Suspense fallback={null}>
           <LazyImageViewer

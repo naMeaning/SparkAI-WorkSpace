@@ -11,11 +11,13 @@ import {
   History,
   ImageIcon,
   Images,
+  Import,
   Languages,
   Layers3,
   Loader2,
   Microscope,
   PackageCheck,
+  Pencil,
   Plus,
   Search,
   Save,
@@ -37,6 +39,10 @@ import {
 } from "./core";
 import { ButtonBase } from "./ui";
 import { workspaceDomainDefinition, workspaceDomainDefinitions } from "./workspace-domain.ts";
+import type { RequirementTemplate } from "../runtime/requirement-template-contract.mjs";
+import type { RequirementTemplateUseOptions } from "./requirement-template-dialog";
+
+const LazyRequirementTemplateDialog = React.lazy(() => import("./requirement-template-dialog"));
 
 export type WorkspaceViewMode = "workbench" | "focus" | "review";
 export type WorkspaceAssetRailTab = "results" | "layers" | "requirements" | "templates" | "history";
@@ -58,6 +64,7 @@ export type WorkspaceRequirementTemplate = {
   updatedAt: string;
   skill?: { name?: string; description?: string };
   socialPlan?: { platform?: "xiaohongshu" | "douyin" };
+  template?: RequirementTemplate;
 };
 
 const workspaceViewModes: Array<{
@@ -344,12 +351,14 @@ function workspaceSearchRank(label: string, searchText: string, query: string) {
 }
 
 export function WorkspaceSearch({
+  projectContextView,
   nodes,
   conversations,
   activeConversationId,
   onSelectNode,
   onSelectConversation,
 }: {
+  projectContextView?: React.ReactNode;
   nodes: WorkflowNode[];
   conversations: AgentConversation[];
   activeConversationId: string;
@@ -496,6 +505,7 @@ export function WorkspaceSearch({
             })}
             {results.length === 0 ? <p>没有匹配的图片、需求或会话</p> : null}
           </div>
+          {projectContextView}
         </section>
       ) : null}
     </div>
@@ -503,6 +513,7 @@ export function WorkspaceSearch({
 }
 
 export function WorkspaceAssetRail({
+  projectId = "",
   nodes,
   conversations,
   activeConversationId,
@@ -529,6 +540,7 @@ export function WorkspaceAssetRail({
   visibleTabs = defaultVisibleRailTabs,
   requestedTab,
 }: {
+  projectId?: string;
   nodes: WorkflowNode[];
   conversations: AgentConversation[];
   activeConversationId: string;
@@ -539,8 +551,8 @@ export function WorkspaceAssetRail({
   onSelectNode: (nodeId: string) => void;
   onOpenLayer?: (nodeId: string) => void;
   onSelectConversation: (conversationId: string) => void;
-  onLoadRequirementTemplates?: () => void;
-  onUseRequirementTemplate?: (templateId: string) => void;
+  onLoadRequirementTemplates?: (force?: boolean) => void;
+  onUseRequirementTemplate?: (templateId: string, options?: RequirementTemplateUseOptions) => Promise<unknown>;
   onSaveRequirementTemplate?: () => void;
   onDeleteRequirementTemplate?: (templateId: string) => void;
   onImport: () => void;
@@ -557,6 +569,9 @@ export function WorkspaceAssetRail({
 }) {
   const [selectedTab, setSelectedTab] = useState<WorkspaceAssetRailTab>("results");
   const [deleteArmedTemplateId, setDeleteArmedTemplateId] = useState("");
+  const [templateDialog, setTemplateDialog] = useState<{ id: string; mode: "use" | "edit" } | null>(null);
+  const [templateActionError, setTemplateActionError] = useState("");
+  const [templateImportBusy, setTemplateImportBusy] = useState(false);
   const [domainToolsAnchor, setDomainToolsAnchor] = useState<WorkspacePopoverAnchor | null>(null);
   const [assetGroupPreview, setAssetGroupPreview] = useState<{
     nodeId: string;
@@ -582,6 +597,19 @@ export function WorkspaceAssetRail({
     : workspaceDomain === "social" || workspaceDomain === "research" ? [...domainTools] : [];
   const domainToolsVisible = workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research";
   const domainToolsName = workspaceDomain === "research" ? "科研" : workspaceDomain === "social" ? "社媒" : "电商";
+
+  useEffect(() => { setTemplateDialog(null); setTemplateActionError(""); }, [projectId]);
+
+  async function importTemplate() {
+    if (templateImportBusy) return;
+    setTemplateImportBusy(true); setTemplateActionError("");
+    try {
+      const result = await window.naimageConfig?.importRequirementLibraryEntry?.();
+      if (!result?.ok) throw new Error(result?.error || "无法导入模板。");
+      if (!result.canceled) onLoadRequirementTemplates?.(true);
+    } catch (error) { setTemplateActionError(error instanceof Error ? error.message : String(error)); }
+    finally { setTemplateImportBusy(false); }
+  }
 
   useEffect(() => {
     setDomainToolsAnchor(null);
@@ -726,7 +754,7 @@ export function WorkspaceAssetRail({
           disabled={tab === "templates" && !canSaveRequirementTemplate}
           aria-label={tab === "templates" ? "保存当前需求到模板库" : "导入图片素材"}
           title={tab === "templates"
-            ? canSaveRequirementTemplate ? "保存当前选中的需求节点到本机模板库" : "请先在画布中选择一个需求节点"
+            ? canSaveRequirementTemplate ? "保存选中的需求，或保存当前成功任务的方法" : "请选择需求节点，或完成并保存一次创作任务"
             : "导入图片素材"}
         >
           {tab === "templates" ? <Save size={16} /> : <Plus size={17} />}
@@ -789,14 +817,20 @@ export function WorkspaceAssetRail({
           <div
             className="workspace-asset-rail-note"
             title={canSaveRequirementTemplate
-              ? "当前已选中需求或 Skill 节点。点击顶部“保存”，或右键画布节点选择“保存为个人模板”。"
-              : "先在画布中选中需求或 Skill 节点，再点击顶部“保存”；也可以直接右键该节点保存。"}
+              ? "点击顶部“保存”，保存选中的需求或当前成功任务的方法；使用模板时重新选择本项目素材。"
+              : "先选择需求或完成一次创作任务，再点击顶部“保存”；已有模板可编辑变量并跨项目复用。"}
           >
             <BookMarked size={13} />
             <strong>{canSaveRequirementTemplate ? "可以保存" : "保存方法"}</strong>
-            <small>{canSaveRequirementTemplate ? "点顶部保存" : "先选需求节点"}</small>
+            <small>{canSaveRequirementTemplate ? "点顶部保存" : "需求或成功任务"}</small>
           </div>
         ) : null}
+        {tab === "templates" ? <>
+          <ButtonBase type="button" className="workspace-asset-rail-template-import" aria-label="导入创作模板" title="从本机文件导入可复用创作模板" disabled={templateImportBusy} onClick={() => { void importTemplate(); }}>
+            {templateImportBusy ? <Loader2 className="spin" size={14} /> : <Import size={14} />}<span>导入</span>
+          </ButtonBase>
+          {templateActionError ? <p className="workspace-asset-rail-template-error" role="alert" title={templateActionError}>{templateActionError}</p> : null}
+        </> : null}
         {tab === "templates" ? (
           requirementTemplatesLoading ? (
             <span className="workspace-asset-rail-template-loading" title="正在读取本机需求模板库"><Loader2 className="spin" size={16} /></span>
@@ -811,10 +845,17 @@ export function WorkspaceAssetRail({
                   data-template-id={template.id}
                   aria-label={`使用需求模板：${label}`}
                   title={`${label} · 点击插入当前画布，不会自动执行或扣费`}
-                  onClick={() => onUseRequirementTemplate?.(template.id)}
+                  onClick={() => {
+                    setTemplateActionError("");
+                    if (template.template?.variables.length) { setTemplateDialog({ id: template.id, mode: "use" }); return; }
+                    void onUseRequirementTemplate?.(template.id).catch(error => setTemplateActionError(error instanceof Error ? error.message : String(error)));
+                  }}
                 >
                   {template.skill ? <BookMarked size={16} /> : <WandSparkles size={16} />}
                   <span className="workspace-asset-rail-template-mark">{label.trim().slice(0, 1) || "需"}</span>
+                </ButtonBase>
+                <ButtonBase type="button" className="workspace-asset-rail-template-edit" data-template-edit={template.id} aria-label={`编辑需求模板：${label}`} title="编辑要求和变量；导出模板" onClick={() => setTemplateDialog({ id: template.id, mode: "edit" })}>
+                  <Pencil size={9} />
                 </ButtonBase>
                 <ButtonBase
                   type="button"
@@ -835,10 +876,10 @@ export function WorkspaceAssetRail({
               </div>
             );
           }) : (
-            <div className="workspace-asset-rail-empty is-explained" title="先选中需求或 Skill 节点，再点击顶部“保存”；点击已有模板只会插入需求，不会自动执行或扣费">
+            <div className="workspace-asset-rail-empty is-explained" title="选需求或完成创作任务后点顶部“保存”，也可以导入模板文件；使用模板只插入需求">
               <BookMarked size={15} />
               <strong>暂无模板</strong>
-              <small>选需求后点保存</small>
+              <small>保存或导入模板</small>
             </div>
           )
         ) : tab === "history" ? historyItems.map((conversation) => (
@@ -921,6 +962,10 @@ export function WorkspaceAssetRail({
         </ButtonBase>
       </footer>
     </aside>
+    {templateDialog && onUseRequirementTemplate ? <React.Suspense fallback={null}>
+      <LazyRequirementTemplateDialog templateId={templateDialog.id} mode={templateDialog.mode} projectId={projectId} nodes={nodes} selectedNodeId={selectedNodeId}
+        onClose={() => setTemplateDialog(null)} onChanged={() => onLoadRequirementTemplates?.(true)} onUse={onUseRequirementTemplate} />
+    </React.Suspense> : null}
     {domainToolsAnchor && typeof document !== "undefined" ? createPortal((
       <section
         id="workspace-domain-tools-menu"

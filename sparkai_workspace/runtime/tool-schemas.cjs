@@ -11,6 +11,7 @@ const {
 
 const primaryImageToolName = "image_gen";
 const { creationToolSchema } = require("./creation-tools.cjs");
+const { projectContextToolSchema } = require("./project-context-tools.cjs");
 const { resolveImageModelConfig } = require("./image-generation/types.cjs");
 const imagePromptRatioValues = [...imagePromptRatios];
 const imagePromptResolutionValues = [...imagePromptResolutions];
@@ -84,6 +85,7 @@ function toolSchemas(settings = {}) {
     : `输出清晰度档位。当前默认值为 ${defaultImageResolution}；用户未明确其他清晰度时使用该值。清晰度与 quality（草稿/标准/精细）是两个不同参数。`;
   return normalizeToolSchemas([
     creationToolSchema(),
+    projectContextToolSchema(),
     {
       type: "function",
       function: {
@@ -635,7 +637,7 @@ function agentToolSchemas(settings = {}, options = {}) {
         }
       }
     : null;
-  const publicNames = ["shell_command", "view_image", "ask_user", "creation"];
+  const publicNames = ["shell_command", "view_image", "ask_user", "creation", "project_context"];
   const includeNativeWebSearch = options.includeNativeWebSearch !== false;
   const publicTools = [
     publicImageTool,
@@ -648,7 +650,7 @@ function agentToolSchemas(settings = {}, options = {}) {
     if (String(tool?.type || "") !== "function" || !tool?.function) return tool;
     const parameters = tool.function?.parameters || { type: "object", properties: {} };
     const name = String(tool.function?.name || "");
-    const supportsBrief = [primaryImageToolName, "experience", "workflow", "ask_user", "creation"].includes(name);
+    const supportsBrief = [primaryImageToolName, "experience", "workflow", "ask_user", "creation", "project_context"].includes(name);
     return {
       ...tool,
       function: {

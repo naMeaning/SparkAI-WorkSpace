@@ -235,8 +235,8 @@ function createProjectCreationService({ projectFor, readSession, catalogService,
     if (slotId) record.slotId = slotId;
     return record;
   }
-  function discoverResults(project, document, requirementId) {
-    for (const node of readSession(project.id)?.nodes || []) if (node.type === "image") for (const asset of node.assets || []) {
+  function discoverResults(project, document, requirementId, indexSession) {
+    for (const node of (indexSession ?? readSession(project.id))?.nodes || []) if (node.type === "image") for (const asset of node.assets || []) {
       if (!asset.assetId || !asset.occurrenceId || !asset.contentHash) continue;
       const collection = node.imageCollection?.items || node.imageContainerSpec?.collection?.items || [];
       const member = collection.find(value => value.assetId === asset.assetId && value.occurrenceId === asset.occurrenceId);
@@ -387,6 +387,13 @@ function createProjectCreationService({ projectFor, readSession, catalogService,
     });
     return { ok: true, projectId: project.id, conversationId: requirement.conversationId, requirements: requirement, requirementRef: refOf(requirement), results };
   }
+  // Internal derived-index input. Reading does not create or rewrite any
+  // acceptance record, and the index retains responsibility for invalidation.
+  function searchSnapshot(input = {}, indexSession) {
+    const project = projectOf(input), document = read(project);
+    discoverResults(project, document, undefined, indexSession);
+    return { requirements: document.requirements, results: document.results };
+  }
   function resolveRevision(input = {}) {
     const project = projectOf(input), document = read(project);
     const submissionId = identifier(input.submissionId), conversationId = identifier(input.conversationId);
@@ -437,7 +444,7 @@ function createProjectCreationService({ projectFor, readSession, catalogService,
     return result;
   }
   if (catalogService?.setResultApprovalGuard) catalogService.setResultApprovalGuard(validateResultApproval);
-  return { getRequirements, updateRequirements, requirementsByRef, requirementRefForTask, getAcceptance, checkResults, recordReview, decideResult,
+  return { getRequirements, updateRequirements, requirementsByRef, requirementRefForTask, getAcceptance, searchSnapshot, checkResults, recordReview, decideResult,
     resolveRevision, validateTaskContract, validateResultApproval, setTaskResolver, setMaskResolver };
 }
 

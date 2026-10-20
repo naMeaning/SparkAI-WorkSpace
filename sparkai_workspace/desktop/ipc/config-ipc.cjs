@@ -4,6 +4,7 @@ const {
   mergeProjectSessions,
   prepareIncomingNodeMutationSession
 } = require("../project-session-merge.cjs");
+const { RequirementLibraryError } = require("../requirement-library.cjs");
 
 function registerSettingsIpc({
   ipcMain,
@@ -139,7 +140,7 @@ function registerGlassBackgroundIpc({
   });
 }
 
-function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService }) {
+function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService, BrowserWindow }) {
   const invoke = (operation) => {
     if (!requirementLibraryService) {
       return { ok: false, errorCode: "REQUIREMENT_LIBRARY_UNAVAILABLE", error: "当前桌面运行时未提供个人需求模板库。" };
@@ -150,8 +151,8 @@ function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService }) {
       return {
         ok: false,
         errorCode: typeof error?.code === "string" ? error.code : "REQUIREMENT_LIBRARY_FAILED",
-        error: error instanceof Error ? error.message : String(error),
-        ...(error?.details && typeof error.details === "object" ? { details: error.details } : {})
+        error: error instanceof RequirementLibraryError ? error.message : "需求模板操作失败，原记录保留，请检查本地存储后重试。",
+        ...(error instanceof RequirementLibraryError && error.details && typeof error.details === "object" ? { details: error.details } : {})
       };
     }
   };
@@ -160,6 +161,17 @@ function registerRequirementLibraryIpc({ ipcMain, requirementLibraryService }) {
   ipcMain.handle("naimage:requirement-library:get", (_event, payload = {}) => invoke(() => requirementLibraryService.get(payload)));
   ipcMain.handle("naimage:requirement-library:save", (_event, payload = {}) => invoke(() => requirementLibraryService.save(payload)));
   ipcMain.handle("naimage:requirement-library:delete", (_event, payload = {}) => invoke(() => requirementLibraryService.remove(payload)));
+  ipcMain.handle("naimage:requirement-library:apply", (_event, payload = {}) => invoke(() => requirementLibraryService.apply(payload)));
+  for (const [channel, method] of [["import", "importTemplate"], ["export", "exportTemplate"]]) {
+    ipcMain.handle(`naimage:requirement-library:${channel}`, async (event, payload = {}) => {
+      try {
+        const owner = BrowserWindow?.fromWebContents?.(event.sender);
+        return channel === "import" ? await requirementLibraryService.importTemplate(owner) : await requirementLibraryService.exportTemplate(payload, owner);
+      }
+      catch (error) { return { ok: false, errorCode: error?.code || "REQUIREMENT_LIBRARY_FAILED", error: "需求模板导入或导出失败，原记录保留。" }; }
+    });
+  }
+
 }
 
 function registerSessionIpc({
@@ -220,6 +232,11 @@ function registerSessionIpc({
     }
     if (!targetProject) {
       return { ok: false, errorCode: "PROJECT_REQUIRED", error: "请先创建或打开项目，再保存画布。", appliedRevision: 0, skippedStale: false };
+    }
+    try {
+      sanitizeSession(session, { expectedProjectId: targetProject.id });
+    } catch {
+      return { ok: false, errorCode: "PROJECT_TASK_CONTEXT_INVALID", error: "冻结项目上下文无效或属于其他项目，原保存内容保留。", applied: false, appliedRevision: 0, skippedStale: false };
     }
     const activeSessionPath = targetProject.sessionPath;
     const requestedRevision = saveOptions?.revision ?? session?.revision ?? session?.sessionRevision;

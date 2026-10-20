@@ -1,5 +1,6 @@
 # SparkAI WorkSpace 文档索引
 
+- [AI-Native 第三期本地验证与交付](AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)：项目知识、成果检索与便携需求模板；本地合同证据与模型能力边界。
 - [AI-Native 第二期本地验证与交付](AI_NATIVE_CREATION_VALIDATION_2026-10-20.md)：结构化创作要求、成果验收与定向修改；当前开发证据与未验证边界。
 
 当前公开正式版本为 1.0.9。仓库 `main` 的后续本地开发改进不代表已进入该 Release；下载版本与正式发布状态以 [GitHub Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。当前开发版的本地验证状态见 [Progress](../PROGRESS.md)。

@@ -244,6 +244,24 @@ function createAgentRunControl(options = {}) {
     return { ok: true, taskScopeSnapshotHash: taskScope.snapshotHash };
   }
 
+  /** Main-only explicit result binding; reserve locks before the durable commit. */
+  function bindProjectMaterials({ runId, projectId, conversationId, previousHash, taskScope, commit } = {}) {
+    const record = runs.get(clean(runId));
+    if (!record || record.projectId !== clean(projectId) || record.conversationId !== clean(conversationId) ||
+      record.taskScope?.origin === "goal" || clean(record.taskScope?.snapshotHash) !== clean(previousHash) || !taskScope?.snapshotHash || typeof commit !== "function") {
+      throw Object.assign(new Error("运行范围已经变化，不能绑定检索成果。"), { code: "TASK_SCOPE_STALE" });
+    }
+    const scopeLocks = taskScopeLockedNodeIds(taskScope);
+    const retained = new Set([...record.retainedNodeIds, ...(taskScope.materials || []).map(item => clean(item.nodeId || item.ownerNodeId)).filter(Boolean)]);
+    const nextLocks = new Set([...retained, ...scopeLocks]);
+    if ([...runs.values()].some(other => other !== record && other.projectId === record.projectId && [...nextLocks].some(nodeId => other.nodeIds.has(nodeId)))) {
+      throw Object.assign(new Error("所选成果正在被另一任务使用，尚未绑定。"), { code: "TASK_SCOPE_BUSY" });
+    }
+    const result = commit();
+    record.taskScope = taskScope; record.taskScopeNodeIds = scopeLocks; record.retainedNodeIds = retained; record.nodeIds = nextLocks;
+    changed(); return result;
+  }
+
   function pause(value = {}) {
     const targets = matching(value);
     for (const record of targets) stateFor(record).paused = true;
@@ -485,7 +503,7 @@ function createAgentRunControl(options = {}) {
     beginPhase,
     consumeSteers,
     snapshot,
-    updateTaskScope,
+    updateTaskScope, bindProjectMaterials,
     waitUntilRunnable,
     createAbortError,
     createSteerError

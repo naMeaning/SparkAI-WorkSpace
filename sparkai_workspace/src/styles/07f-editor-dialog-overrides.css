@@ -198,6 +198,20 @@
   max-height: min(720px, calc(100vh - 28px));
 }
 
+.requirement-template-rebindings {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.requirement-template-rebindings select {
+  width: 100%;
+  min-width: 0;
+}
+
 .ui-surface .ui-surface-body.requirement-editor-body {
   display: grid;
   gap: 14px;

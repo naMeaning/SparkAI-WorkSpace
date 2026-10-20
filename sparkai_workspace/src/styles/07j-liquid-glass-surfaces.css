@@ -1540,6 +1540,7 @@
   white-space: nowrap;
 }
 
+.workspace-asset-rail-template-edit,
 .workspace-asset-rail-template-delete {
   position: absolute;
   z-index: 2;
@@ -1559,6 +1560,12 @@
   opacity: 0;
 }
 
+.workspace-asset-rail-template-edit {
+  left: -4px;
+  right: auto;
+}
+
+.workspace-asset-rail-template:is(:hover, :focus-within) .workspace-asset-rail-template-edit,
 .workspace-asset-rail-template:is(:hover, :focus-within) .workspace-asset-rail-template-delete,
 .workspace-asset-rail-template-delete.is-armed {
   opacity: 1;
@@ -1568,6 +1575,34 @@
   outline: 0;
   color: var(--danger-ink, #fff);
   background: var(--danger, #cf3f51);
+}
+
+.workspace-asset-rail-template-edit:is(:hover, :focus-visible) {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.workspace-asset-rail-template-import {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 46px;
+  padding: 7px 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.workspace-asset-rail-template-error {
+  width: 46px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .workspace-asset-rail-template-loading {

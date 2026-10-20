@@ -2,11 +2,12 @@
 
 > 2026-10-17 免费 Agent 生图工作台方向：新版桌面通用版移除 Pro 设备授权依赖，保留现有账号登录与 Base URL/API Key；正常启动、配置和模型请求不再调用 License 服务。旧 Electron License IPC 与服务仍保留原兼容行为，浏览器开发回退的状态查询直接返回免费状态。Extension 服务、数据、生产部署未修改，仍可服务旧客户端。全面 New API/Sub2API 账号适配属于后续工作，不能由本轮免费接入测试推断。制品、安装和推送证据统一见桌面 Progress；公开 v1.0.9 尚未包含本次改动。
 
-> 最近同步：2026-10-17
+> 最近同步：2026-10-20
 > 工作区：当前 checkout 根目录（文档不依赖固定绝对路径）
 > 目的：让开发者和 Agent 快速判断两个项目分别负责什么、修改从哪里进入、需要同步哪些契约和测试。
 
 > 新会话必读：[根 AGENTS](AGENTS.md) → [桌面 AGENTS](sparkai_workspace/AGENTS.md) → [当前任务](sparkai_workspace/GOAL.md) → [当前开发状态与最新证据](sparkai_workspace/PROGRESS.md) → 本次边界的地图章节。动态软件进度、当前开发 EXE、正式门禁与未验证项集中维护在桌面 PROGRESS 顶部。
+> 2026-10-20 AI-Native 第三期只涉及桌面：Main 项目知识文件、session 的不可变 task 知识/模板上下文、原 creation/catalog 派生的本地成果索引及原 requirement-library 的有限变量模板；GUI/独立窗/CLI/MCP/Runtime 共用 owner 和显式素材绑定，检索与模板应用不触发模型。新字段、IPC、公开工具及验证入口见[桌面地图第三期](sparkai_workspace/docs/CONTEXT_MAP.md)与[验证记录](sparkai_workspace/docs/AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)。Extension、原生 New API、账号/计费与外部协议未改；桌面 Mock/loopback 不能证明真实视觉或生产状态，当前 EXE/安装/Git结果仍从 Progress 读取。
 > 2026-10-17 优化实施仅修改桌面：连接运行证据绑定实际地址/凭据内部身份与协议，公开摘要脱敏；Main项目图片恢复记录与`image.operations`/`image.recover`贯通GUI、CLI/MCP，恢复只查询原任务/已有结果。画布交互、工具配置和性能owner见桌面地图。未修改Extension或原生New API合同，0新真实模型请求；本地模拟不能证明外部渠道恢复，交付身份与剩余性能限制从PROGRESS恢复。
 > Grok 故障修复边界（2026-10-16）：桌面同步图片 POST 的5xx/断连/超时在客户端标记结果不确定并阻止同一Agent运行内重发；凭据/输入预检、普通对话和明确4xx保留原行为。协议/模型/地址配置与外部New API、Extension不变。新回归入口与错误owner见桌面地图；当前渠道真实结果、EXE及安装/push从PROGRESS恢复，桌面修复不能证明外部渠道已经恢复。
 > 2026-10-15 持续交付规则：桌面每轮功能修改生成本地 EXE；每次打包成功并核对后，通过品牌安装器自动在本机安装/原位升级，保留数据与快捷方式偏好并尊重未保存内容/活动任务；核对安装结果后更新 Goal/Progress/相关上下文地图，提交对应源码与文档并普通推送到配置的 upstream，无需逐轮重复确认。当前制品、安装与 Git 结果从 PROGRESS 恢复；二进制上传和正式 Release 仍按独立授权与门禁执行。

@@ -75,6 +75,10 @@ const { createCreationMaskService } = require("./desktop/creation-mask-service.c
 const { createCreationCommandService, CREATION_COMMANDS } = require("./desktop/creation-command-service.cjs");
 const { verifyObservationEvidence } = require("./runtime/image-observation-evidence.cjs");
 let creationCommandService;
+const { createProjectKnowledgeService } = require("./desktop/project-knowledge-service.cjs");
+const { createProjectResultIndex } = require("./desktop/project-result-index.cjs");
+const { createProjectContextCommandService, PROJECT_CONTEXT_COMMANDS } = require("./desktop/project-context-command-service.cjs");
+let projectContextCommandService;
 const { createDebugCommandService } = require("./desktop/debug-command-service.cjs");
 const { createAgentIntegrationService } = require("./desktop/agent-integration-service.cjs");
 const { createAgentWindowService } = require("./desktop/agent-window-service.cjs");
@@ -1101,8 +1105,8 @@ automationService = createAutomationService({
   version: getDesktopVersion(),
   executablePath: process.execPath,
   log,
-  serviceCommandHandler: (command, args) => command.startsWith("creation.") ? creationCommandService.execute(command, args) : command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
-  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer", ...CREATION_COMMANDS]
+  serviceCommandHandler: (command, args) => PROJECT_CONTEXT_COMMANDS.includes(command) ? projectContextCommandService.execute(command, args) : command.startsWith("creation.") ? creationCommandService.execute(command, args) : command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
+  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer", ...CREATION_COMMANDS, ...PROJECT_CONTEXT_COMMANDS]
 });
 const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
@@ -1129,7 +1133,7 @@ const glassBackgroundService = createGlassBackgroundService({
 const requirementLibraryService = createRequirementLibraryService({
   libraryPath: requirementLibraryPath,
   readJson,
-  writeJson
+  writeJson, dialog, readFileSync, writeFileSync, statSync
 });
 const commerceTemplateLibraryService = createCommerceTemplateLibraryService({
   libraryPath: commerceTemplateLibraryPath,
@@ -1436,6 +1440,7 @@ const {
   projectManifestPath,
   projectRelativePath,
   projectSessionFromDisk,
+  projectSessionMetadataFromDisk,
   projectSessionRevisionFromDisk,
   readProjectList,
   readProjectManifest,
@@ -1476,6 +1481,7 @@ projectAssetRepository = createProjectAssetRepository({
 const {
   buildProjectAssetIndex,
   controlledProjectAssetFile,
+  createProjectAssetFileValidator,
   hydrateAssetForProject,
   projectAssetRoots,
   projectWritableAssetRoots,
@@ -1513,6 +1519,22 @@ const creationService = createProjectCreationService({
   }
 });
 creationService.setMaskResolver(args => creationMaskService.resolve(args));
+const projectKnowledgeService = createProjectKnowledgeService({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  readSession: project => readProjectContextSession(project), catalogService: commerceCatalogService,
+  projectRelativePath, resolveProjectRelativePath, metaDir: projectMetaDirName
+});
+const projectResultIndex = createProjectResultIndex({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  readSession: projectId => readProjectContextSession(getProjectById(projectId, readProjectList())),
+  catalogService: commerceCatalogService, creationService, resolveProjectRelativePath, controlledProjectAssetFile, createProjectAssetFileValidator, metaDir: projectMetaDirName
+});
+
+function readProjectContextSession(project) {
+  if (!project) throw new Error("当前项目不存在。");
+  return sanitizeSession(projectSessionMetadataFromDisk(project), { expectedProjectId: project.id });
+}
+
 const commerceExportService = createProjectCommerceExportService({
   getProjectById,
   readProjectList,
@@ -2770,6 +2792,17 @@ function getAgentRuntime() {
       },
       goalProbeAdmission,
       creationService,
+      projectContextService: { execute: (command, args) => projectContextCommandService.execute(command, args), applyTemplate: args => projectContextCommandService.applyTemplate(args) },
+      resultIndex: projectResultIndex, requirementLibraryService,
+      onProjectMaterials: async payload => {
+        const resolved = await projectResultIndex.resolveUse({ expectedProjectId: payload.expectedProjectId, targets: payload.targets });
+        const previousHash = agentRunControl.snapshot().runs.find(run => run.runId === payload.runId)?.taskScopeSnapshotHash;
+        return agentRunControl.bindProjectMaterials({ ...payload, previousHash, commit: () => agentTaskService.advanceMaterials({ ...payload, validate: () => {
+          const key = value => JSON.stringify([value.assetId, value.occurrenceId, value.contentHash]);
+          const materials = new Set((payload.taskScope.materials || []).map(key));
+          if (resolved.materials.some(value => !materials.has(key(value)))) throw new Error("搜索成果没有按校验身份冻结。");
+        } }) });
+      },
       beforeCreationRequirements: payload => agentTaskService.assertRequirementsMutable(payload),
       onCreationRequirements: payload => {
         const previousHash = agentRunControl.snapshot().runs.find(run => run.runId === payload.runId)?.taskScopeSnapshotHash;
@@ -5216,6 +5249,8 @@ const imageOperationJournal = createImageOperationJournal({
 
 agentTaskService = createAgentTaskService({
   projectFor: projectId => getProjectById(projectId, readProjectList()), metaDir: projectMetaDirName,
+  freezeProjectKnowledge: input => projectKnowledgeService.freezeForTask(input),
+  validateProjectKnowledge: input => projectKnowledgeService.validateFrozen(input),
   creationRequirements: input => creationService.requirementRefForTask(input),
   validateCreationScope: ({ projectId, conversationId, taskScope }) => creationService.validateTaskContract({ projectId, conversationId, creation: taskScope.creation }),
   readSession(projectId) {
@@ -5238,6 +5273,19 @@ agentTaskService = createAgentTaskService({
 });
 creationService.setTaskResolver((projectId, taskId, conversationId) => agentTaskService.get({ expectedProjectId: projectId, taskId, conversationId }).task);
 creationCommandService = createCreationCommandService({ creationService, taskService: agentTaskService, maskService: creationMaskService });
+projectKnowledgeService.setTaskResolver((projectId, taskId, conversationId) => agentTaskService.get({ expectedProjectId: projectId, taskId, conversationId }).task);
+projectContextCommandService = createProjectContextCommandService({ knowledgeService: projectKnowledgeService, resultIndex: projectResultIndex,
+  readSession: projectId => readProjectContextSession(getProjectById(projectId, readProjectList())),
+  async locateOwner({ projectId, conversationId }) {
+    for (const owner of automationService.rendererOwners()) {
+      try { const state = await automationService.dispatchRenderer("app.state", {}, 3000, owner);
+        if (state.activeProjectId === projectId && state.activeConversationId === conversationId) return owner;
+      } catch {}
+    }
+    throw new Error("请在主窗口打开目标项目与会话。");
+  }, dispatch: (command, args, owner) => automationService.dispatchRenderer(command, args, 15000, owner)
+});
+
 
 function registerIpc() {
   registerDesktopIpc({
@@ -5313,6 +5361,7 @@ function registerIpc() {
     creationService,
     creationCommandService,
     creationMaskService,
+    projectContextCommandService,
     aidebugMode,
     aidebugAgentStopFixture,
     createWindow,
@@ -5539,6 +5588,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     projectExportSessionPath,
     projectForFolderOpen,
     projectSessionFromDisk,
+    projectSessionMetadataFromDisk,
     readProjectManifest,
     agentModelUsesResponsesApi,
     managedRelayEndpoint,

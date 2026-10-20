@@ -1,3 +1,4 @@
+import { createProjectContextWindowView } from "./runtime/project-context-window.mjs";
 import { composerCommands, composerCommandSuggestions, composerCommandError, parseComposerInput } from "./runtime/composer-commands.mjs";
 import { createCreationWindowView } from "./runtime/creation-session-window.mjs";
 
@@ -19,6 +20,7 @@ const conversationSelect = document.getElementById("conversation-select");
 const dockSelect = document.getElementById("dock-select");
 const statusSurface = document.querySelector(".agent-status");
 const taskSurface = document.getElementById("agent-task-card");
+const projectContextView = createProjectContextWindowView(document.getElementById("agent-project-context"), command);
 const creationView = createCreationWindowView(document.getElementById("agent-creation-session"), command);
 let currentState = null;
 let renderFrame = 0;
@@ -289,6 +291,7 @@ function render() {
   const state = currentState;
   if (!state) return;
   renderTask(state);
+  projectContextView.render(state);
   creationView.render(state);
   applyGlassAppearance(state);
   document.getElementById("project-name").textContent = [state.projectName || "项目", state.workspaceDomain?.title].filter(Boolean).join(" · ");

@@ -1,3 +1,5 @@
+import { normalizeProjectKnowledgeSnapshot, type ProjectKnowledgeSnapshot } from "../runtime/project-knowledge-contract.mjs";
+import { normalizeRequirementTemplateSnapshot, type RequirementTemplateSnapshot } from "../runtime/requirement-template-contract.mjs";
 import { normalizeImageConfigSnapshot } from "../runtime/image-config-snapshot.mjs";
 import { normalizeCreationTaskContract, normalizeCreationMaskAssets } from "../runtime/creation-task-contract.mjs";
 import { agentTaskScopeMaterials, agentTaskScopeSnapshotHash } from "./core.ts";
@@ -14,6 +16,8 @@ export function cloneAgentTaskScope(scope: AgentTaskScope): AgentTaskScope {
     ...scope,
     ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     ...(scope.creation ? { creation: normalizeCreationTaskContract(scope.creation) } : {}),
+    ...(scope.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(scope.projectKnowledge) } : {}),
+    ...(scope.template ? { template: normalizeRequirementTemplateSnapshot(scope.template) } : {}),
     ...(scope.maskAssets?.length ? { maskAssets: normalizeCreationMaskAssets(scope.maskAssets) } : {}),
     sourceNodeIds: [...scope.sourceNodeIds],
     sourceContainerIds: [...scope.sourceContainerIds],
@@ -111,6 +115,8 @@ export function mergeAgentTaskScopes(base: AgentTaskScope | undefined, added: Ag
   const scopeWithoutHash: Omit<AgentTaskScope, "snapshotHash"> = {
     ...(base.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(base.imageConfig) } : {}),
     ...(base.creation ? { creation: normalizeCreationTaskContract(base.creation) } : {}),
+    ...(base.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(base.projectKnowledge) } : {}),
+    ...(base.template ? { template: normalizeRequirementTemplateSnapshot(base.template) } : {}),
     ...(base.maskAssets?.length ? { maskAssets: normalizeCreationMaskAssets(base.maskAssets) } : {}),
     version: 2,
     origin: base.origin,

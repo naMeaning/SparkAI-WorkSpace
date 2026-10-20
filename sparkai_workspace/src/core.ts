@@ -1,3 +1,5 @@
+import { normalizeProjectKnowledgeSnapshot, type ProjectKnowledgeSnapshot } from "../runtime/project-knowledge-contract.mjs";
+import { normalizeRequirementTemplateSnapshot, type RequirementTemplateSnapshot, type RequirementTemplate, type RequirementTemplateDraft, type RequirementTemplateApplication, type RequirementTemplateImageBinding } from "../runtime/requirement-template-contract.mjs";
 import { normalizeImageConfigSnapshot, type FrozenImageConfig } from "../runtime/image-config-snapshot.mjs";
 import type { ImageContentName } from "../runtime/image-content-name.mjs";
 import { normalizeCreationTaskContract, normalizeCreationMaskAssets, type CreationTaskContract, type FrozenCreationMask } from "../runtime/creation-task-contract.mjs";
@@ -614,7 +616,7 @@ export type SocialExportResult = {
 };
 
 export type RequirementLibraryEntry = {
-  version: 1;
+  version: 1 | 2;
   id: string;
   title: string;
   revision: number;
@@ -625,11 +627,12 @@ export type RequirementLibraryEntry = {
   skill?: CanvasSkill;
   socialPlan?: SocialContentPlan;
   scientificPlan?: ScientificFigurePlan;
+  template?: RequirementTemplate;
 };
 
 export type RequirementLibraryResult = {
   ok: boolean;
-  schemaVersion?: 1;
+  schemaVersion?: 1 | 2;
   libraryRevision?: number;
   items?: RequirementLibraryEntry[];
   entry?: RequirementLibraryEntry;
@@ -639,6 +642,10 @@ export type RequirementLibraryResult = {
   errorCode?: string;
   error?: string;
   details?: Record<string, unknown>;
+  application?: RequirementTemplateApplication;
+  canceled?: boolean;
+  imported?: boolean;
+  fileName?: string;
 };
 
 export function sanitizeCanvasSkill(value: unknown): CanvasSkill | undefined {
@@ -682,6 +689,10 @@ export type CanvasRequirement = {
   socialPlan?: SocialContentPlan;
   /** Structured claim/evidence/Panel plan; persisted on the existing Requirement primitive. */
   scientificPlan?: ScientificFigurePlan;
+  /** Immutable application; library updates never mutate this instance. */
+  template?: RequirementTemplateSnapshot;
+  /** Pending reusable checks and current-project bindings, validated again on execution. */
+  templateDraft?: RequirementTemplateDraft;
 };
 
 export type AgentTaskScopeType = "none" | "single" | "multi-source" | "container" | "container-group" | "layer" | "layer-group" | "mixed";
@@ -1121,6 +1132,8 @@ export type TaskAssetReference = {
 export type AgentTaskScope = {
   imageConfig?: FrozenImageConfig;
   creation?: CreationTaskContract;
+  projectKnowledge?: ProjectKnowledgeSnapshot;
+  template?: RequirementTemplateSnapshot;
   maskAssets?: FrozenCreationMask[];
   version: 2;
   origin: "chat" | "canvas" | "node" | "container" | "layer" | "requirement" | "goal";
@@ -1344,6 +1357,8 @@ export function agentTaskScopeSnapshotHash(scope: Omit<AgentTaskScope, "snapshot
   const material = {
     ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     ...(scope.creation ? { creation: normalizeCreationTaskContract(scope.creation) } : {}),
+    ...(scope.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(scope.projectKnowledge) } : {}),
+    ...(scope.template ? { template: normalizeRequirementTemplateSnapshot(scope.template) } : {}),
     ...(masks.length ? { maskAssets: masks.map(mask => ({
       assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash,
       target: { assetId: mask.target.assetId, occurrenceId: mask.target.occurrenceId, contentHash: mask.target.contentHash },
@@ -1993,6 +2008,7 @@ export type ConfirmDialogDraft = {
 };
 
 export type WorkflowSession = {
+  projectTaskContexts?: import("../runtime/project-task-contexts.mjs").ProjectTaskContext[];
   schemaVersion?: number;
   workspaceDomain?: WorkspaceDomain;
   nodeSequence?: number;
@@ -2511,6 +2527,9 @@ export type ConfigBridge = {
   saveSettings(settings: AppSettings): Promise<{ ok: boolean; path?: string; accountChanged?: boolean; error?: string }>;
   listRequirementLibrary?(payload?: { includeText?: boolean }): Promise<RequirementLibraryResult>;
   getRequirementLibraryEntry?(payload: { id: string }): Promise<RequirementLibraryResult>;
+  applyRequirementLibraryEntry?(payload: { id: string; expectedTemplateRevision: number; variableValues?: Record<string, string | number>; imageBindings?: RequirementTemplateImageBinding[] }): Promise<RequirementLibraryResult>;
+  importRequirementLibraryEntry?(): Promise<RequirementLibraryResult>;
+  exportRequirementLibraryEntry?(payload: { id: string; expectedRevision: number }): Promise<RequirementLibraryResult>;
   saveRequirementLibraryEntry?(payload: {
     id?: string;
     expectedRevision?: number;
@@ -2519,6 +2538,7 @@ export type ConfigBridge = {
     skill?: CanvasSkill;
     socialPlan?: SocialContentPlan;
     scientificPlan?: ScientificFigurePlan;
+    template?: RequirementTemplate;
   }): Promise<RequirementLibraryResult>;
   deleteRequirementLibraryEntry?(payload: {
     id: string;
@@ -2915,6 +2935,8 @@ export type AgentBridge = {
   taskAdmit(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
   taskSettle(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
   taskClaimAnswer(payload: Record<string, unknown>): Promise<import("./agent-task").TaskResponse>;
+  projectContextCommand(command: string, args: Record<string, unknown>): Promise<Record<string, any> & { ok: boolean; error?: string; errorCode?: string }>;
+  projectContextPrepare(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string; errorCode?: string; projectKnowledge?: ProjectKnowledgeSnapshot; knowledgeMaterials?: TaskAssetReference[] }>;
   creationCommand(command: import("./creation-session").CreationCommand, args: Record<string, unknown>): Promise<import("./creation-session").CreationResponse>;
   creationPrepare(payload: Record<string, unknown>): Promise<{ ok: boolean; error?: string; errorCode?: string; requirementRef?: import("./creation-session").CreationRequirementRef | null }>;
   creationSaveMask(payload: { expectedProjectId: string; conversationId: string; target: import("./creation-session").CreationTarget; dataUrl: string }): Promise<{ ok: boolean; error?: string; mask?: import("./creation-session").CreationTarget }>;

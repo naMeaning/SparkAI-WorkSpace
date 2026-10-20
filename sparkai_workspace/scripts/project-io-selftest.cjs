@@ -16,6 +16,7 @@ const { PROJECT_ASSET_REPOSITORY_OWNER } = require("../desktop/project-asset-rep
 const { mergeProjectSessions } = require("../desktop/project-session-merge.cjs");
 const { createProjectCreationService } = require("../desktop/project-creation-service.cjs");
 const { createAgentTaskService } = require("../desktop/agent-task-service.cjs");
+const { projectKnowledgeEntryFingerprint, projectKnowledgeSnapshotFingerprint } = require("../runtime/project-knowledge-contract.mjs");
 const {
   PROJECT_PACKAGE_SERVICE_OWNER,
   projectPackageMaximumAssetBytes,
@@ -81,6 +82,34 @@ function imageNode(id, assets, extra = {}) {
 async function run() {
   assert.equal(projectIo.applicationName, "SparkAI WorkSpace");
   assert.equal(projectIo.applicationId, "org.sparkai.naimage");
+  const metadataProject = projectRecord("metadata-read-only");
+  const missingMetadata = projectIo.projectSessionMetadataFromDisk(metadataProject);
+  assert.deepEqual(missingMetadata.nodes, []);
+  assert.equal(existsSync(metadataProject.path), false, "Metadata search must not create or migrate a missing project");
+  mkdirSync(metadataProject.path, { recursive: true });
+  writeFileSync(metadataProject.sessionPath, "{corrupt", "utf8");
+  assert.throws(() => projectIo.projectSessionMetadataFromDisk(metadataProject), error => error.code === "PROJECT_CONTEXT_SESSION_UNREADABLE");
+  assert.equal(readFileSync(metadataProject.sessionPath, "utf8"), "{corrupt", "Metadata read failure must preserve corrupt authoritative bytes");
+  writeJson(metadataProject.sessionPath, { ...projectIo.defaultSession, sessionRevision: 9,
+    nodes: [imageNode("META", [{ type: "file", path: "missing.png", relativePath: "assets/missing.png" }])] });
+  const metadataBefore = readFileSync(metadataProject.sessionPath, "utf8");
+  const metadataOnly = projectIo.projectSessionMetadataFromDisk(metadataProject);
+  assert.equal(metadataOnly.sessionRevision, 9);
+  assert.equal(metadataOnly.nodes[0].assets[0].path, "missing.png", "Metadata reads must not hydrate or replace asset locators");
+  assert.equal(readFileSync(metadataProject.sessionPath, "utf8"), metadataBefore);
+  for (const format of ["export", "manifest"]) for (const [index, invalid] of ["{corrupt", "[]", '{"version":1,"session":[]}', '{"version":1,"session":42}'].entries()) {
+    const legacyMetadataProject = projectRecord(`metadata-legacy-${format}-${index}`);
+    const legacyMetadataFile = path.join(legacyMetadataProject.path, format === "export" ? "start.iiimage" : ".iiimage/project.json");
+    mkdirSync(path.dirname(legacyMetadataFile), { recursive: true }); writeFileSync(legacyMetadataFile, invalid, "utf8");
+    assert.throws(() => projectIo.projectSessionMetadataFromDisk(legacyMetadataProject), error => {
+      assert.equal(error.code, "PROJECT_CONTEXT_SESSION_UNREADABLE");
+      assert.equal(error.message.includes(legacyMetadataProject.path), false, "Legacy metadata errors must not expose local paths");
+      return true;
+    }, `A malformed selected legacy ${format} must fail closed rather than masquerade as an empty project`);
+    assert.equal(readFileSync(legacyMetadataFile, "utf8"), invalid, "Metadata failure must preserve the selected legacy source bytes");
+    assert.equal(existsSync(legacyMetadataProject.sessionPath), false, "Metadata failure must not migrate a legacy project into session.json");
+    assert.equal(existsSync(path.join(legacyMetadataProject.path, ".naimage")), false, "Metadata failure must not create canonical project metadata");
+  }
   const creationProject = projectRecord("creation-contract");
   projectIo.ensureProjectFiles(creationProject, projectIo.defaultSession);
   const creationServiceOptions = { projectFor: id => id === creationProject.id ? creationProject : null,
@@ -839,6 +868,15 @@ async function run() {
   assert.equal(pendingSession.pendingAgentExecution?.taskScope?.referenceAssets?.[0]?.path, pendingLongPath, "Pending REFERENCE paths must not be truncated");
   assert.equal(pendingSession.pendingAgentExecution?.taskScope?.sourceAssets?.[0]?.sourceRelativePath, undefined, "Pending SOURCE metadata must reject absolute source paths");
   assert.equal(pendingSession.pendingAgentExecution?.taskScope?.referenceAssets?.[0]?.sourceRelativePath, undefined, "Pending REFERENCE metadata must reject traversal paths");
+  const contextEntry = { knowledgeId: "portable-knowledge", revision: 1, type: "preference", title: "本项目长期偏好", content: "固定暖色与清晰标题", scope: { type: "project" }, source: "user", status: "active", authority: "project_knowledge", assetRefs: [] };
+  contextEntry.fingerprint = projectKnowledgeEntryFingerprint(contextEntry);
+  const contextSnapshot = { version: 1, projectId: pendingProject.id, revision: 1, objects: [], entries: [contextEntry], budget: { maxEntries: 24, maxCharacters: 12000, usedCharacters: contextEntry.title.length + contextEntry.content.length, omittedEntries: 0 }, summary: contextEntry.title };
+  contextSnapshot.fingerprint = projectKnowledgeSnapshotFingerprint(contextSnapshot);
+  const templateSnapshot = { templateId: `reqtpl-${"c".repeat(32)}`, revision: 3, fingerprint: `template-${"d".repeat(32)}`, variableValues: { headline: "本任务标题" } };
+  const frozenContext = { version: 1, projectId: pendingProject.id, conversationId: pendingConversationId, taskId: "portable-local-task", createdAt: "2026-10-20T05:00:00.000Z", fingerprint: contextSnapshot.fingerprint, projectKnowledge: contextSnapshot, requirementTemplate: templateSnapshot };
+  pendingSession.projectTaskContexts = [frozenContext];
+  pendingSession.pendingAgentExecution.taskScope.projectKnowledge = contextSnapshot;
+  pendingSession.pendingAgentExecution.taskScope.template = templateSnapshot;
   writeJson(pendingProject.sessionPath, pendingSession);
   const restoredPendingSession = projectIo.projectSessionFromDisk(pendingProject);
   assert.equal(restoredPendingSession.pendingAgentExecution?.conversationId, pendingConversationId, "Pending Agent execution must survive restart");
@@ -851,10 +889,19 @@ async function run() {
   assert.equal(restoredPendingSession.pendingAgentExecution?.taskScope?.sourceAssets?.[0]?.path, pendingScopedPath);
   assert.equal(restoredPendingSession.pendingAgentExecution?.taskScope?.referenceAssets?.[0]?.path, pendingLongPath);
   assert.equal(restoredPendingSession.pendingAgentExecution?.taskScope?.snapshotHash, `scope-${"1".repeat(32)}`);
+  assert.deepEqual(restoredPendingSession.projectTaskContexts, [frozenContext], "Local save/reopen must preserve the task's complete knowledge and template versions.");
+  assert.deepEqual(restoredPendingSession.pendingAgentExecution.taskScope.projectKnowledge, contextSnapshot, "A local AskUser continuation retains the original knowledge.");
+  assert.deepEqual(restoredPendingSession.pendingAgentExecution.taskScope.template, templateSnapshot, "A local AskUser continuation retains the original template expansion.");
   assert.equal(restoredPendingSession.pendingAgentExecution?.options?.[2]?.id, "direct");
   const portablePendingProject = projectIo.packageProject(pendingProject);
   assert.equal(portablePendingProject.session.pendingAgentExecution, null, "Portable projects must not export a local pending continuation");
+  assert.deepEqual(portablePendingProject.session.projectTaskContexts, [], "Portable projects cannot carry local task receipts into another project identity.");
   assert.equal(JSON.stringify(portablePendingProject.session).includes(pendingAssetPath), false, "Portable pending state must not leak absolute local paths");
+  const importedContextTarget = projectRecord("portable-local-context-target");
+  const importedContextSession = projectIo.sessionFromPackage({ ...portablePendingProject, session: { ...portablePendingProject.session, projectTaskContexts: [frozenContext] } }, importedContextTarget);
+  assert.deepEqual(importedContextSession.projectTaskContexts, [], "Import must reject inherited local task authority even if a package supplies it.");
+  assert.equal(importedContextSession.pendingAgentExecution, null);
+  assert.deepEqual(projectIo.projectSessionFromDisk(pendingProject).projectTaskContexts, [frozenContext], "Export/import must not erase local source context history.");
   const mismatchedPending = projectIo.sessionForProjectSave({
     ...pendingSession,
     activeConversationId: pendingConversationId,
@@ -1504,6 +1551,8 @@ async function run() {
 
   return {
     ok: true,
+    contextMetadataReadOnly: true,
+    contextMetadataLegacyCorruptionRejected: true,
     validAssetCount: validAssets.length,
     validAssetScans: validScanCount,
     missingAssetScans: missingScanCount,
@@ -1539,6 +1588,8 @@ async function run() {
     duplicateNodeIdentityMigrated: true,
     occurrenceRoundTripPreserved: true,
     occurrencePortablePackagePreserved: true,
+    frozenKnowledgeTemplateLocalReopen: true,
+    portableLocalTaskContextIsolation: true,
     unsafeSourceRelativePathsRejected: true,
     emptySelectionPreserved: true,
     videoRelativePersistencePreserved: true,

@@ -1,4 +1,6 @@
 "use strict";
+const { projectKnowledgeReceipt, normalizeProjectKnowledgeReceipt } = require("../runtime/project-knowledge-contract.mjs");
+const { normalizeRequirementTemplateSnapshot } = require("../runtime/requirement-template-contract.mjs");
 
 const path = require("node:path");
 const fs = require("node:fs");
@@ -33,6 +35,8 @@ function canonicalRequest(input) {
   const ids = input.sourceNodeIds ?? [];
   if (!Array.isArray(ids) || ids.length > 200) throw fail("TASK_ARGUMENT_INVALID", "sourceNodeIds 必须为最多 200 个明确素材身份。");
   return { prompt, sourceNodeIds: [...new Set(ids.map(value => requiredId(value, "sourceNodeId")))],
+    ...(input.projectKnowledge ? { projectKnowledge: projectKnowledgeReceipt(input.projectKnowledge) || normalizeProjectKnowledgeReceipt(input.projectKnowledge) } : {}),
+    ...(input.template ? { template: normalizeRequirementTemplateSnapshot(input.template) } : {}),
     ratio: id(input.ratio) || null, resolution: id(input.resolution).toUpperCase() || null, title: String(input.title || "").trim(),
     ...(input.creation ? { creation: { ...normalizeCreationReference(input.creation),
       ...(input.creation.revisionPlan ? { revisionId: input.creation.revisionPlan.revisionId,
@@ -54,12 +58,14 @@ function scopeProjection(scope) {
     sourceAssets: assets(scope.sourceAssets), referenceAssets: assets(scope.referenceAssets),
     ...(scope.maskAssets?.length ? { maskAssets: scope.maskAssets.map(item => ({ ...normalizeCreationTarget(item), target: normalizeCreationTarget(item.target) })) } : {}),
     imageConfig: safeProjection(normalizeImageConfigSnapshot(scope.imageConfig)),
+    ...(projectKnowledgeReceipt(scope.projectKnowledge) ? { projectKnowledge: projectKnowledgeReceipt(scope.projectKnowledge) } : {}),
+    ...(scope.template ? { template: normalizeRequirementTemplateSnapshot(scope.template) } : {}),
     ...(normalizeCreationReference(scope.creation) ? { creation: normalizeCreationReference(scope.creation) } : {}) };
 }
 
 /** Durable receipts only. Renderer executes; run control cancels; image journal recovers. */
 function createAgentTaskService({ projectFor, readSession, runSnapshot = () => ({ runs: [] }), locateOwner, dispatch,
-  operations = () => [], creationRequirements = () => null, validateCreationScope = () => {}, metaDir = ".naimage", onChange = () => {}, maxTasks = 2000 }) {
+  operations = () => [], freezeProjectKnowledge = () => undefined, validateProjectKnowledge = () => {}, creationRequirements = () => null, validateCreationScope = () => {}, metaDir = ".naimage", onChange = () => {}, maxTasks = 2000 }) {
   const instance = randomUUID(), inflight = new Map(), knownProjects = new Set();
   function location(projectId) {
     const project = projectFor(projectId);
@@ -191,10 +197,13 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
     const explicitRequirements = input.creation || input.requirementId || input.expectedRequirementsRevision !== undefined;
     const frozenRequirements = () => normalizeCreationReference(input.creation) || normalizeCreationReference(creationRequirements({ ...input, projectId: scope.projectId, conversationId: scope.conversationId }));
     let requirementRef, request, hash;
+    let projectKnowledge = input.projectKnowledge || input.taskScope?.projectKnowledge;
+    const template = input.template || input.taskScope?.template;
     if (previous) {
       requirementRef = explicitRequirements ? frozenRequirements() : previous.initialRequirementRef || previous.requirementRef;
       const creation = input.creation || requirementRef;
-      request = canonicalRequest({ ...input, ...(creation ? { creation } : {}) }); hash = digest(request);
+      projectKnowledge = projectKnowledge || previous.projectKnowledge;
+      request = canonicalRequest({ ...input, projectKnowledge, template: template || previous.template, ...(creation ? { creation } : {}) }); hash = digest(request);
       if (previous.requestHash !== hash) throw fail("TASK_SUBMISSION_CONFLICT", "同一提交标识已用于不同请求；没有新增派发。", { taskId: previous.taskId });
       return { task: previous, duplicate: true };
     }
@@ -208,12 +217,16 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
     busy(scope, ledger);
     if (ledger.tasks.length >= maxTasks) throw fail("TASK_LEDGER_FULL", "任务记录已满；保留旧提交标识以避免重复执行，未启动新任务。");
     requirementRef = frozenRequirements();
-    request = canonicalRequest({ ...input, ...(input.creation || requirementRef ? { creation: input.creation || requirementRef } : {}) }); hash = digest(request);
+    projectKnowledge = projectKnowledge || freezeProjectKnowledge({ ...input, expectedProjectId: scope.projectId });
+    if (projectKnowledge) validateProjectKnowledge({ ...input, expectedProjectId: scope.projectId, snapshot: projectKnowledge });
+    request = canonicalRequest({ ...input, projectKnowledge, template, ...(input.creation || requirementRef ? { creation: input.creation || requirementRef } : {}) }); hash = digest(request);
     const now = new Date().toISOString();
     const task = { taskId: `task-${randomUUID()}`, ...scope, submissionKey: key, requestHash: hash,
       title: text(request.title || request.prompt.split("\n")[0], 80), phase: "preparing", accepted: false,
       version: 1, instance, runIds: [], claimedRunIds: [], ownerId: "", scope: null, question: null, error: null,
       createdAt: now, updatedAt: now };
+    if (projectKnowledge) task.projectKnowledge = projectKnowledgeReceipt(projectKnowledge);
+    if (template) task.template = normalizeRequirementTemplateSnapshot(template);
     if (requirementRef) { task.requirementRef = requirementRef; task.initialRequirementRef = requirementRef; }
     if (input.creation?.revisionPlan?.revisionId) task.revisionId = requiredId(input.creation.revisionPlan.revisionId, "revisionId");
     if (input.parentTaskIds !== undefined) {
@@ -221,7 +234,7 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
       task.parentTaskIds = [...new Set(input.parentTaskIds.map(value => requiredId(value, "parentTaskId")))];
     }
     ledger.tasks.push(task); save(scope.projectId, ledger);
-    return { task, duplicate: false };
+    return { task, duplicate: false, projectKnowledge };
   }
   function publicTask(task, projection = {}) {
     const session = projection.session || readSession(task.projectId), nodes = session?.nodes || [];
@@ -246,6 +259,7 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
       accepted: task.accepted, phase: task.phase, stage: task.stage || null, version: task.version, cursor: task.version,
       paused: Boolean(run?.paused),
       scope: task.scope, runIds: [...task.runIds], currentRunId: task.runIds.at(-1) || null,
+      projectKnowledge: task.projectKnowledge || null, ...(task.template ? { template: task.template } : {}),
       requirementRef: task.requirementRef || null, ...(task.revisionId ? { revisionId: task.revisionId } : {}),
       ...(task.parentTaskIds?.length ? { parentTaskIds: [...task.parentTaskIds] } : {}),
       question: task.question, results: result, savedCount: result.filter(asset => asset.inProject).length,
@@ -281,6 +295,9 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
       // Check the producer again after asynchronous IPC/preparation.
       if (!continuation) busy(target(input), ledger, task.taskId);
       const frozen = scopeProjection(input.taskScope);
+      if (digest(task.projectKnowledge || null) !== digest(frozen.projectKnowledge || null)) throw fail("TASK_KNOWLEDGE_CONFLICT", "任务知识与受理时冻结版本不同，未启动执行。");
+      if (input.taskScope.projectKnowledge) validateProjectKnowledge({ expectedProjectId: task.projectId, conversationId: task.conversationId, taskId: task.taskId, snapshot: input.taskScope.projectKnowledge, taskScope: input.taskScope });
+      if (digest(task.template || null) !== digest(frozen.template || null)) throw fail("TASK_TEMPLATE_CONFLICT", "模板展开与受理版本不同，未启动执行。");
       if (task.requirementRef && digest(task.requirementRef) !== digest(frozen.creation)) throw fail("TASK_CREATION_CONFLICT", "任务创作要求未按权威版本冻结，未启动执行。");
       if (task.requirementRef) validateCreationScope({ projectId: task.projectId, conversationId: task.conversationId, taskId: task.taskId, taskScope: input.taskScope });
       if (task.revisionId && input.taskScope.creation?.revisionPlan?.revisionId !== task.revisionId) throw fail("TASK_CREATION_CONFLICT", "定向修改没有冻结对应的权威修订计划。");
@@ -361,7 +378,7 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
     const promise = (async () => {
       try {
         const owner = await locateOwner(target(input));
-        await dispatch("agent.task.dispatch", { ...input, taskId: task.taskId }, owner);
+        await dispatch("agent.task.dispatch", { ...input, ...(reserved.projectKnowledge ? { projectKnowledge: reserved.projectKnowledge } : {}), taskId: task.taskId }, owner);
       } catch (error) {
         const ledger = read(task.projectId), current = lookup({ ...input, taskId: task.taskId }, ledger);
         if (!current.accepted && current.phase === "preparing") change(current, ledger, { phase: "interrupted", error: { code: text(error?.code || "TASK_NOT_ACCEPTED", 100), message: text(error?.message || "任务未受理。") } });
@@ -444,6 +461,20 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
     change(task, ledger, { requirementRef: nextRef, requirementRefHistory: [...(task.requirementRefHistory || []), task.requirementRef], scope: frozen });
     return { ok: true, task: publicTask(task) };
   }
+  function advanceMaterials(input) {
+    const ledger = read(input.projectId || input.expectedProjectId), task = lookup(input, ledger);
+    if (task.runIds.at(-1) !== input.runId || !task.claimedRunIds.includes(input.runId) || !["accepted", "running", "resuming"].includes(task.phase) || task.imageDispatchLocked || operations(task.projectId).some(operation => operation.agentTaskId === task.taskId || task.runIds.includes(operation.runId))) throw fail("TASK_SCOPE_LOCKED", "已开始图片派发，不能扩展素材；请新建任务。");
+    const frozen = scopeProjection(input.taskScope), prior = task.scope;
+    if (prior.origin === "goal" || digest(prior.creation) !== digest(frozen.creation) || digest(prior.imageConfig) !== digest(frozen.imageConfig) || digest(prior.projectKnowledge) !== digest(frozen.projectKnowledge) || digest(prior.template) !== digest(frozen.template)) throw fail("TASK_SCOPE_CONFLICT", "明确使用搜索成果不能改变Goal、要求、知识或图片配置。");
+    if (typeof input.validate !== "function") throw fail("TASK_SCOPE_CONFLICT", "素材使用必须经权威资产校验。");
+    const identity = value => JSON.stringify([value.assetId, value.occurrenceId, value.contentHash, value.role]);
+    const originals = [...prior.sourceAssets, ...prior.referenceAssets];
+    const next = [...frozen.sourceAssets, ...frozen.referenceAssets];
+    const allowed = new Set((input.targets || []).map(value => JSON.stringify([value.assetId, value.occurrenceId, value.contentHash])));
+    if (originals.some(value => !next.some(item => identity(item) === identity(value))) || next.some(value => !originals.some(item => identity(item) === identity(value)) && !allowed.has(JSON.stringify([value.assetId, value.occurrenceId, value.contentHash])))) throw fail("TASK_SCOPE_CONFLICT", "搜索素材绑定不能移除原素材或夹带其他成果。");
+    input.validate();
+    change(task, ledger, { scope: frozen }); return { ok: true, task: publicTask(task) };
+  }
   function ownerGone(ownerId) {
     for (const projectId of knownProjects) {
       const ledger = read(projectId);
@@ -459,7 +490,7 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
       change(task, ledger, { phase: "stopped", question: null, error: { code: "TASK_STOPPED", message: "任务已结束；原图片结果和在途任务保留恢复记录。" } });
     }
   }
-  return { commands: COMMANDS, execute, startInternal: start, assertStartAvailable, revisionContext, get, admit, claimRun, settle, claimAnswer, assertRequirementsMutable, advanceRequirements, taskIdForRun, progress, ownerGone, stopScope,
+  return { commands: COMMANDS, execute, startInternal: start, assertStartAvailable, revisionContext, get, admit, claimRun, settle, claimAnswer, assertRequirementsMutable, advanceRequirements, advanceMaterials, taskIdForRun, progress, ownerGone, stopScope,
     sanitizeError: error => text(error?.message || "任务操作失败。") };
 }
 

@@ -1,3 +1,6 @@
+const { runProjectContextTool } = require("./runtime/project-context-tools.cjs");
+const { normalizeProjectKnowledgeSnapshot, projectKnowledgePromptText } = require("./runtime/project-knowledge-contract.mjs");
+const { normalizeRequirementTemplateSnapshot } = require("./runtime/requirement-template-contract.mjs");
 const { imageConfigSnapshot, normalizeImageConfigSnapshot, settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
 const { contentNamePatch, normalizeContentName } = require("./runtime/image-content-name.mjs");
 const { imageInputManifest } = require("./runtime/image-input-manifest.cjs");
@@ -689,6 +692,7 @@ function toolDisplayName(name = "") {
     context_manage: "Context Manage",
     memory: "Memory",
     workflow: "Canvas",
+    project_context: "项目知识与成果",
     creation: "创作要求",
     view_image: "View Image",
     ask_user: "Ask User",
@@ -720,6 +724,7 @@ function toolBriefFromArgs(name, args = {}) {
   if (name === "workflow") return workbenchBrief(args);
   if (name === "memory") return `Memory ${args.operation || "check"}。`;
   if (name === "experience") return "管理绘画经验。";
+  if (name === "project_context") return "读取或更新项目知识、检索成果和需求模板。";
   if (name === "creation") return args.operation === "record_review" ? "记录图片验收意见。" : args.operation === "update_requirements" ? "整理本次创作要求。" : args.operation === "revise_results" ? "准备指定成果的定向修改。" : "查看创作要求与验收状态。";
   if (name === "context_manage") return "整理外置上下文。";
   if (name === "ask_user") return "向用户请求必要信息。";
@@ -985,6 +990,8 @@ function taskScopeSnapshotHash(scope = {}) {
   const material = {
     ...(scope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(scope.imageConfig) } : {}),
     ...(scope.creation ? { creation: normalizeCreationTaskContract(scope.creation) } : {}),
+    ...(scope.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(scope.projectKnowledge) } : {}),
+    ...(scope.template ? { template: normalizeRequirementTemplateSnapshot(scope.template) } : {}),
     ...(maskAssets.length ? { maskAssets: maskAssets.map(mask => ({
       assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash,
       target: { assetId: mask.target.assetId, occurrenceId: mask.target.occurrenceId, contentHash: mask.target.contentHash },
@@ -1189,6 +1196,8 @@ function normalizedTaskScope(payload = {}) {
   const scope = {
     ...(raw.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(raw.imageConfig) } : {}),
     ...(raw.creation ? { creation: normalizeCreationTaskContract(raw.creation) } : {}),
+    ...(raw.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(raw.projectKnowledge) } : {}),
+    ...(raw.template ? { template: normalizeRequirementTemplateSnapshot(raw.template) } : {}),
     ...(normalizeCreationMaskAssets(raw.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(raw.maskAssets) } : {}),
     version: 2,
     origin,
@@ -1371,6 +1380,8 @@ function normalizedSteerTaskScopeUpdate(currentTaskScope, update = {}) {
     version: 2,
     ...(current.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(current.imageConfig) } : {}),
     ...(current.creation ? { creation: normalizeCreationTaskContract(current.creation) } : {}),
+    ...(current.projectKnowledge ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(current.projectKnowledge) } : {}),
+    ...(current.template ? { template: normalizeRequirementTemplateSnapshot(current.template) } : {}),
     ...(normalizeCreationMaskAssets(current.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(current.maskAssets) } : {}),
     origin: sourceMode === "clear" ? "chat" : sourceBase.origin,
     scopeType,
@@ -5095,7 +5106,13 @@ function createAgentRuntime(options) {
       };
     }
 
-    if (name === "creation") {
+    if (name === "project_context") {
+      const response = await runProjectContextTool(args, { ...context, creationService: runtimeOptions.creationService }, {
+        service: runtimeOptions.projectContextService, resultIndex: runtimeOptions.resultIndex, requirementLibrary: runtimeOptions.requirementLibraryService,
+        normalizeScope: taskScope => normalizedTaskScope({ taskScope }), onMaterials: context?.onProjectMaterials
+      });
+      return { envelope: storeToolResult(name, args, safeJson(response.value), { summary: response.value.summary || "已读取或更新项目上下文。" }), actions: response.actions };
+    } else if (name === "creation") {
       const value = await runCreationTool(args, context || {}, { service: runtimeOptions.creationService,
         beforeRequirements: runtimeOptions.beforeCreationRequirements, onRequirements: context?.onCreationRequirements, onRevision: context?.onCreationRevision });
       return { envelope: storeToolResult(name, args, safeJson(value), { summary: args.operation === "record_review" ? "已记录图片验收意见。" : args.operation === "update_requirements" ? "已保存本次创作要求。" : args.operation === "revise_results" ? value.summary : "已读取创作要求与验收状态。" }), actions };
@@ -6438,7 +6455,7 @@ function createAgentRuntime(options) {
     const fastMemoryText = fastMemoryForPrompt(payload, { maxChars: strategy.fastMemoryPromptMaxChars });
     const toolSchemaText = safeJson(agentToolSchemas(payload.settings ?? {}, { includeNativeWebSearch: strategy.useNativeWebSearch }));
     const domainText = workspaceDomainPrompt(payload.workspaceDomain);
-    return estimateTokens(`${externalPromptFor("main")}\n${domainText}\n${fastMemoryText}\n${state.summary || ""}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${referenceText}\n${toolSchemaText}\n${payload.prompt || ""}`);
+    return estimateTokens(`${externalPromptFor("main")}\n${domainText}\n${fastMemoryText}\n${state.summary || ""}\n${conversationText}\n${nodeText}\n${taskScopeText}\n${projectKnowledgePromptText(payload.taskScope?.projectKnowledge)}\n${safeJson(payload.taskScope?.template || {})}\n${referenceText}\n${toolSchemaText}\n${payload.prompt || ""}`);
   }
 
   function compactAidebugMarkers(existingSummary = "", messages = [], prompt = "") {
@@ -6710,7 +6727,10 @@ function createAgentRuntime(options) {
           nodeSnapshot || "暂无节点。",
           "",
           "Current Task Scope:",
-          taskScopeSnapshot.text
+          taskScopeSnapshot.text,
+          "",
+          projectKnowledgePromptText(payload.taskScope?.projectKnowledge),
+          payload.taskScope?.template ? `Applied Requirement Template: ${safeJson(payload.taskScope.template)}` : ""
         ].join("\n")
       },
       ...(strategy.useResponsesProtocol && protocolItems.length ? [{ role: "responses_items", items: protocolItems }] : []),
@@ -7055,7 +7075,7 @@ function createAgentRuntime(options) {
       const scopeSteer = [...queued].reverse().find((item) => item?.taskScope && typeof item.taskScope === "object");
       let appliedTaskScope = null;
       if (scopeSteer) {
-        appliedTaskScope = normalizedTaskScope({ taskScope: { ...scopeSteer.taskScope, ...(payload.taskScope?.creation ? { creation: payload.taskScope.creation } : {}) } });
+        appliedTaskScope = normalizedTaskScope({ taskScope: { ...scopeSteer.taskScope, ...(payload.taskScope?.creation ? { creation: payload.taskScope.creation } : {}), ...(payload.taskScope?.projectKnowledge ? { projectKnowledge: payload.taskScope.projectKnowledge } : {}), ...(payload.taskScope?.template ? { template: payload.taskScope.template } : {}) } });
         payload.taskScope = appliedTaskScope;
         if (Array.isArray(scopeSteer.nodes)) payload.nodes = scopeSteer.nodes;
         payload.selectedNodeIds = [...appliedTaskScope.sourceNodeIds];
@@ -7339,6 +7359,10 @@ function createAgentRuntime(options) {
           waitUntilRunnable: payload.waitUntilRunnable,
           viewImagePayloadMaxBytes: executionContext.viewImagePayloadMaxBytes,
           inspectedImagePaths, pendingInspectedImagePaths, pendingActions: actions, observationLedger, creationRevisionExecution,
+          onProjectMaterials: async input => {
+            await runtimeOptions.onProjectMaterials?.(input);
+            payload.taskScope = input.taskScope;
+          },
           onCreationRequirements: async ({ previousRef, requirementRef, ...identities }) => {
             const taskScope = normalizedTaskScope({ taskScope: { ...payload.taskScope, creation: requirementRef } });
             try {
@@ -7697,7 +7721,7 @@ function createAgentRuntime(options) {
     appendConversationProtocolTurn(payload, turnProtocolItems, protocolLimitsForStrategy(strategy));
     observationLedger.close();
     return { ok: true, content, actions, toolResults: publicToolResults,
-      ...(payload.taskScope?.creation ? { effectiveTaskScope: normalizedTaskScope({ taskScope: payload.taskScope }) } : {}),
+      ...(payload.taskScope?.creation || payload.taskScope?.projectKnowledge ? { effectiveTaskScope: normalizedTaskScope({ taskScope: payload.taskScope }) } : {}),
       ...(deferredCreationRevision ? { deferredCreationRevision } : {}),
       ...(incompleteModelReply ? { completion: "partial", modelFailure: { phase: "model", status: incompleteModelReply.status },
         executionFailed: incompleteModelReply.executionFailed } : {}) };

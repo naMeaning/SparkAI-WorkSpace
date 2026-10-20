@@ -1,5 +1,37 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-20，AI-Native 第三期本地交付验证完成）
+
+- 功能：Main唯一项目知识owner支持项目/商品范围、用户事实/建议分源、CAS历史与停用删除；TaskScope冻结实际知识和模板，完整session历史恢复。成果本地派生检索区分观察/原要求/标签，精确身份显式使用；原需求模板库扩展有限变量、便携导入导出与命名图片重绑，跨项目重新绑定素材。主窗/独立窗/Agent/CLI/MCP同源。
+- 专项：知识13、索引10及90样本、模板8、Runtime10、legacy3、投影7；project-io322资产、双Renderer7、IPC164/161/3及相关task/creation/view-image/FastMemory/context/automation/MCP105/Commerce回归通过；最新typecheck通过，quick GUI [报告](.diagnostics/electron/aidebug-2026-10-20T06-25-03-522Z/report.json)ok:true/failures=[]。详见[第三期验证](docs/AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)。
+- 真实UI：[源码7组/15截图](.diagnostics/project-context-ui-2026-10-20T06-23-01-259Z/report.json)与[最终安装版UI](.diagnostics/project-context-ui-2026-10-20T06-30-51-276Z/report.json)7组/15截图通过，4本地模型POST/2图片POST、两次正常退出0/未强杀；关键截图已检查。A知识实际入任务、四类模板变量、A→B精确素材/当前配置、重绑/用户改文保留、检索定位比较/显式使用、双窗草稿/CAS、正式884×640、停用不改历史、保存重载/正常重启和重复提交零重发均实际验证。
+- 打包：`package:win:unrestricted` exit0，production build1709 modules/27.76s。最终[Windows EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 109,981,696 B / SHA-256 `adfa00602cbc2f2bc0fa8d67e287be256540f99b572cf9371f0cc87e343b6604`；ASAR 52,736,636 B / `72a19260ed610072f0104c3d8517533011a9a74969ca60e66901d6985b9054a5`。681个产品/测试/公开契约源冻结hash `ff8f8719af3cf1b81c3034d5b58e6cd2c8131ef0b60b357b3abe1c609eeed4a4`，130dist/175必需owner存在及逐字节核对通过。[包审计](.diagnostics/project-context-delivery-2026-10-20/package-audit.json)还核对生产元数据、免费dual-access与无env/diagnostics。
+- 安装：品牌`/S`原位安装exit0/21,706ms，注册目录E:\sparkai-workspace\naimage/1.0.9保留，配置与快捷方式偏好不变；安装EXE/ASAR与候选包相同。安装前所有同名实例为空，未强杀；凭据sidecar仅核对metadata，未读内容。[安装报告](.diagnostics/project-context-delivery-2026-10-20/install.json)。
+- 文档/Git：产品合同、地图、公开schema/registry、CLI/MCP/Skill与第三期验证记录已同步；仅本期源码/文档普通提交push收尾中，最终远端身份在本地交付索引生成。
+- 未验证与停止：0真实模型/图片/视频请求；本地Mock不证明通用语义、真实视觉识别、Logo/文字/风格保持、审美或计费。1000项热检索3751ms离群及原项目打开耗时限制保留；1000独立文件冷/热2408.70/1095.42ms。未改外部New API/Extension/生产，未上传EXE、创建Release/tag；不自行启动后续阶段。
+
+### 第三期实施检查点（历史，已由以上交付快照更新）
+
+- 构建阶段：quick GUI [报告](.diagnostics/electron/aidebug-2026-10-20T06-25-03-522Z/report.json)ok:true/failures=[]；681个产品/测试/公开契约源冻结hash `ff8f8719af3cf1b81c3034d5b58e6cd2c8131ef0b60b357b3abe1c609eeed4a4`，正在执行最终`package:win:unrestricted`，尚未将旧同名EXE记为本期制品。
+- 完整源码UI：[7组/15截图](.diagnostics/project-context-ui-2026-10-20T06-23-01-259Z/report.json)通过，4本地模型POST/2图片POST、两次正常退出exit0/未强杀、0真实请求。A知识实际入任务；成功任务模板四类变量、缺图按命名重绑/884×640/用户改文保留；B按当前素材字节与模板v3执行；检索/定位/比较/显式使用；双窗草稿保留与CAS拒旧保存；停用不改历史已用版本；真实保存重载/正常重启/同submission零重发均实跑。主/子代理已看最小窗、比较、双窗和重启截图。快速GUI与最终本地制品收口继续。
+- metadata最终专项：project-io322资产及canonical只读/8类legacy损坏拒绝通过；[严格读取复验](.diagnostics/project-metadata-review/2026-10-20T06-17-39-287Z/report.json)写入/log/hydrate均0、原字节保留。Runtime最新[10组](.diagnostics/project-context-runtime/2026-10-20T06-11-55-332Z/report.json)、IPC164/161/3通过。
+- 双窗实测修复：真实UI前5组通过（A知识入真实loopback任务、模板4类型变量、命名重绑/884×640/用户改文保留、B执行4模型POST/2图片POST、检索定位比较及显式使用）；第6组发现独立窗打开时主窗折叠卸载编辑区导致草稿丢失。[失败报告](.diagnostics/project-context-ui-2026-10-20T06-16-25-103Z/report.json)保留。现project-agent-panel两布局共享同key知识表面、折叠仅隐藏该表面；最新typecheck及[投影7组](.diagnostics/project-context-projection/2026-10-20T06-20-15-463Z/report.json)通过，真实UI复验进行中。
+- 最新验证/修复：Runtime公开模板应用已沿原Requirement owner实跑10组；真实Electron暴露需求SOURCE被composer默认reference覆盖，现保持Requirement显式绑定角色。新增原需求编辑器按命名图片变量重绑、必填缺失禁执行；保存只更新未被用户编辑的已知占位文字，预览计数反映草稿绑定。完整UI复验进行中，尚未打包/安装/推送。
+- 真实性能：[UI报告](.diagnostics/project-context-ui-2026-10-20T06-07-54-154Z/report.json)100/500/1000首查43/70/131ms、GUI573/179/222ms、输入双rAF30/15/20ms；各仅20行。热查1000为121/3751/215ms，保留离群，不宣称普遍低延迟。项目打开1585/6397/12986ms属于原hydrate路径未优化。此前1000检索超时报告保留。
+- 索引owner修复：Main改用project-store只读metadata并由creation私有复用该session；不hydrate/迁移/修复写回，损坏会话fail closed。受管路径每refresh闭包缓存roots、逐文件fresh lstat/realpath，单refresh同locator共用check/hash但每occurrence校验期望hash。[Main实测](.diagnostics/project-result-performance/2026-10-20T06-10-56-143Z/report.json)100/500/1000共享文件cold75.05/94.98/119.58ms、hot21.63/66.50/105.10ms；1000不同文件cold2408.70/hot1095.42ms。same-size替换/还原mtime、删除恢复、junction外逸与legacy只读通过；Windows/OS缓存未清，0真实请求。
+- 实施里程碑：`project-knowledge-service`原子历史/CAS/停用删除，`project-result-index`派生检索与精确使用，既有`requirement-library`v2变量/便携草稿已落；TaskScope冻结知识及模板、ledger仅摘要、session不可变上下文并集合并、Main/Runtime/GUI/CLI/MCP统一入口和主/独立窗已接。第三期真实Electron仍在进行，尚未打包/安装/推送。
+- 实际证据：知识13组[报告](.diagnostics/project-knowledge/2026-10-20T05-31-53-972Z/report.json)、索引10组及90性能样本[报告](.diagnostics/project-result-index/2026-10-20T05-24-39-101Z/report.json)、模板8组[报告](.diagnostics/requirement-template-wyJQjy/report.json)、投影7组[报告](.diagnostics/project-context-projection/2026-10-20T05-39-46-434Z/report.json)。全部本地fixture，0真实请求。
+- 集成证据：Runtime9组[报告](.diagnostics/project-context-runtime/2026-10-20T05-48-31-601Z/report.json)通过，9本地模型POST/1本地图片POST/0真实请求；要求与知识冻结、追问保存重开、search零HTTP、use精确上传及原配置、Goal/迟到/失效拒绝、跨任务reference锁及commit失败保留均实跑。知识最新13组[报告](.diagnostics/project-knowledge/2026-10-20T05-48-31-386Z/report.json)通过，修复reference不可推成商品SOURCE。
+- 兼容与保存：旧二期waiting任务升级曾注入新知识导致TASK_KNOWLEDGE_CONFLICT，现prepare保留旧任务无知识状态，admit仍拒绝新任务省略；[3组](.diagnostics/project-context-legacy/2026-10-20T05-49-06-575Z/report.json)通过。真实双Renderer扩至7例：不可变并集、同task篡改及foreign项目拒绝/旧磁盘不变；project-io322资产含完整knowledge/template本地重开、portable导入清本地回执上下文及源项目不变通过。Renderer损坏上下文不再静默清空。
+- 回归：agent-task、task-scope、creation16、creation-runtime29（14本地图片POST）、view-image、run-control、steer24、agent-text/FastMemory隔离、context42/checkpoint16、merge96及typecheck通过；统一生成后automation-service、MCP105工具、IPC164/161（含真实模板native dialog桥接）、agent-window44+97、Commerce模板30/catalog、requirement-signature/graph通过。
+- 性能条件：Windows本地24×24 PNG、8并发、OS缓存未清；100/500/1000资产各5查询×(1冷＋5热)。冷46.78–55.38/151.97–216.14/302.22–340.57ms，热15.63–26.57/65.54–85.87/128.99–150.00ms，热字节重读0；不是通用语义检索或真实视觉识别证明。
+
+- 最新请求见[Goal](GOAL.md)顶部；当前main / 55ea6cd、工作树接受时干净，前两期源码/安装/UI报告保留。第三期是本次新授权，不由旧“停止”记录自行推导。
+- 范围：Main项目知识原子持久化与CAS，按项目/对象生效并冻结实际知识；本地可重建成果检索，观察/Prompt/标签分源；扩展既有需求模板，不复制资产/品牌/采用/执行owner。
+- 计划证据：本地fixture/loopback的隔离、版本/恢复、失效/重建、100/500/1000查询测量、跨项目模板与零额外POST；真实Electron最小窗/双窗/重启及保存重开；受影响专项/typecheck/view-image。0真实模型请求，最终EXE/安全原位安装/Git同步授权已登记。
+- 当前状态：第三期owner与执行链已实现并完成上述专项；真实Electron交互/截图及最终交付仍在进行，不将计划计为完成。
+- 下一步：完成第三期真实UI/测量后冻结源码、打包、原位安装与Git同步。
+
 ## 当前开发状态（2026-10-20，AI-Native 第二期本地交付完成）
 
 - 范围/结果：见[Goal](GOAL.md)；仅桌面和本地Runtime。结构化要求、证据分层验收、稳定目标修订和原蒙版编辑器共用Main业务owner；保留第一期任务/恢复、成果画布、需求节点与免费双接入。0真实请求，未启动第三期。

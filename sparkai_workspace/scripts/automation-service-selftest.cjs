@@ -30,7 +30,7 @@ function assertRequirementLibraryStorageContract() {
     createId: () => "reqtpl-0123456789abcdef0123456789abcdef"
   });
   assert.equal(reads, 0, "The personal library must remain lazy until first use");
-  assert.deepEqual(service.list(), { ok: true, schemaVersion: 1, libraryRevision: 0, items: [] });
+  assert.deepEqual(service.list(), { ok: true, schemaVersion: 2, libraryRevision: 0, items: [] });
   assert.equal(reads, 1);
   const created = service.save({
     title: " Product hero\u0000 ",
@@ -567,7 +567,12 @@ async function main() {
     const libraryDeleteSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.delete");
     const libraryUseSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.use");
     assert.equal(libraryListSchema.parameters.properties.includeText.default, false);
-    assert.deepEqual(librarySaveSchema.parameters.required, ["nodeId", "expectedRequirementRevision", "expectedProjectId"]);
+    assert.deepEqual(librarySaveSchema.parameters.required, ["expectedProjectId"]);
+    assert.equal(librarySaveSchema.parameters.properties.template.properties.variables.maxItems, 24);
+    const libraryImportSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.import");
+    const libraryExportSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "requirement-library.export");
+    assert.equal(libraryImportSchema.parameters.additionalProperties, false);
+    assert.deepEqual(libraryExportSchema.parameters.required, ["templateId", "expectedTemplateRevision"]);
     assert.equal(librarySaveSchema.parameters.properties.templateId.pattern, "^reqtpl-[a-f0-9]{32}$");
     assert.equal(libraryDeleteSchema.destructive, true);
     assert.deepEqual(generatedExample("requirement-library.delete"), {
@@ -1165,6 +1170,34 @@ async function main() {
     assert.deepEqual(libraryCalls.map((call) => call.command), ["list", "save", "delete", "use"]);
     assert.equal(libraryCalls[0].includeText, false);
     assert.equal(libraryCalls.at(-1).input.expectedTemplateRevision, 1);
+    await runtimeModule.executeAutomationCommand("requirement-library.use", {
+      templateId: "reqtpl-0123456789abcdef0123456789abcdef", expectedTemplateRevision: 1,
+      variableValues: { product: "Mug", count: 2 }, imageBindings: [{ key: "source", nodeId: "A", role: "source" }],
+      expectedProjectId: "PROJECT"
+    }, canvasRuntimeContext);
+    assert.deepEqual(libraryCalls.at(-1).input.variableValues, { product: "Mug", count: 2 });
+    assert.deepEqual(libraryCalls.at(-1).input.imageBindings, [{ key: "source", nodeId: "A", role: "source" }]);
+    await assert.rejects(runtimeModule.executeAutomationCommand("requirement-library.save", {
+      nodeId: "REQ", taskId: "task-fixture", expectedProjectId: "PROJECT"
+    }, canvasRuntimeContext), error => error.code === "INVALID_ARGUMENT");
+    await assert.rejects(runtimeModule.executeAutomationCommand("requirement-library.save", {
+      taskId: "task-fixture", expectedProjectId: "PROJECT"
+    }, canvasRuntimeContext), error => error.code === "INVALID_ARGUMENT");
+    await runtimeModule.executeAutomationCommand("requirement-library.save", {
+      taskId: "task-fixture", conversationId: "conversation-fixture", expectedRequirementsRevision: 3,
+      expectedProjectId: "PROJECT", text: "Create {{count}} images", template: { version: 2, variables: [{ key: "count", label: "Count", type: "number", min: 1, max: 5, default: 2 }] }
+    }, canvasRuntimeContext);
+    assert.equal(libraryCalls.at(-1).input.taskId, "task-fixture");
+    assert.equal(libraryCalls.at(-1).input.expectedRequirementsRevision, 3);
+    assert.equal(libraryCalls.at(-1).input.template.variables[0].type, "number");
+    const nativeLibraryCalls = [];
+    const nativeLibraryContext = { ...canvasRuntimeContext,
+      importRequirementLibrary: async () => { nativeLibraryCalls.push("import"); return { ok: true, canceled: true }; },
+      exportRequirementLibrary: async input => { nativeLibraryCalls.push(input); return { ok: true, fileName: "template.json" }; }
+    };
+    assert.equal((await runtimeModule.executeAutomationCommand("requirement-library.import", {}, nativeLibraryContext)).canceled, true);
+    assert.equal((await runtimeModule.executeAutomationCommand("requirement-library.export", { templateId: "reqtpl-0123456789abcdef0123456789abcdef", expectedTemplateRevision: 2 }, nativeLibraryContext)).fileName, "template.json");
+    assert.deepEqual(nativeLibraryCalls, ["import", { templateId: "reqtpl-0123456789abcdef0123456789abcdef", expectedTemplateRevision: 2 }]);
 
     let socialCanvasRevision = 1;
     const socialNodes = canvasNodes.slice(0, 2).map((node) => structuredClone(node));

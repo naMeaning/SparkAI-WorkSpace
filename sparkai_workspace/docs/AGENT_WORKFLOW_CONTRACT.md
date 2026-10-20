@@ -2,6 +2,36 @@
 
 本文描述桌面 GUI、主 Agent Runtime 和本机 CLI/MCP 共用的边界。验证与制品状态以 [PROGRESS.md](../PROGRESS.md) 为准。
 
+## 项目知识、成果检索与创作模板
+
+项目长期知识由 Main `desktop/project-knowledge-service.cjs` 拥有，独立保存在项目 `.naimage/project-knowledge.json`。只有明确保存的 user 内容参与后续任务；Agent 推测先保存为 suggested，必须显式 promote 才能变为长期规则。临时反馈、FastMemory、旧会话摘要和搜索本身不自动升级为知识。保存、停用、删除与提升使用 store/entry revision CAS，历史版本不可变，删除保留 tombstone；写盘先 fsync 再原子替换，失败保留真实错误与原记录。
+
+同一项目/会话内折叠、展开或分离Agent窗口不丢弃主窗尚未保存的知识草稿。另一窗口保存后，陈旧编辑器保留用户输入并显示版本冲突、禁止用旧revision提交，不能静默覆盖新记录或用轮询结果清空草稿。
+
+知识作用于项目、商品、变体或 SKU。项目规则在项目内跨会话共享，对象规则只随精确的已选来源身份和 Catalog 归属生效，模糊或多归属不猜商品。商品事实和品牌规范仍以 commerce catalog 为唯一可编辑 owner，知识只生成带 catalog 修订引用的只读投影；不复制一份商品库。优先级为用户本次明确要求、项目长期偏好、当前会话经验；事实冲突需解释并结构化 ask_user，不把缺失参数补成事实。风格基准保存 asset/occurrence/contentHash，必须是实际采用且仍有效的受管成果，撤销采用、内容变化或删除使其不再进入新任务。
+
+`runtime/project-knowledge-contract.mjs` 归一化有界完整快照及 refs/summary 回执。新任务 prepare 固定实际知识、对象与可用风格材料；TaskScope.projectKnowledge 保存完整内容，TaskScope.template 保存模板版本、展开指纹与有限变量值，两者都进入 Renderer/Runtime 的同一 scope hash。任务 ledger 只保存引用和摘要；项目 session 的 `projectTaskContexts` 保存每个 task 的完整不可变知识快照及模板引用，必须绑定 project/conversation/task、原回执 createdAt，按时间排序，陈旧窗口合并取不可变并集，不淘汰旧任务。
+
+reserve/admit 比对冻结回执与完整 TaskScope；历史内容只有对应 durable task receipt 和仍在知识历史中的引用才能恢复。校验和只用于确定内容身份，不能授权自编快照。追问、重载、重启和文字 steer 复用原冻结知识及配置；编辑知识只影响新任务，同一 submission 携带不同有效知识或模板时拒绝，不另开请求。已用知识与当前知识分别显示，不能把今天的规则冒充昨天执行时采用的版本。
+
+升级前没有知识快照的旧 waiting 任务，领取原问题回答后仍按原 TaskScope 续接，不向原任务补入升级后规则；新任务必须冻结当前知识，不能通过省略字段或借用其他已受理 task 绕过校验。
+
+Main 保存 session 时按实际目标项目验证上下文身份，跨项目或损坏内容在合并/写盘前拒绝并保留原记录。项目便携包导出与导入均清空本机 pending 和 task contexts；导入拥有新项目身份，不继承旧本机任务的已用知识或续跑权限。
+
+本地成果检索由 `desktop/project-result-index.cjs` 从原 session/受管文件、creation 验收及 catalog 采用状态派生。文件 hash 缓存可删除、损坏后重建，不拥有资产或验收事实，不调用 embedding、模型或远端搜索。结果区分已消费像素形成的 observed、生成 Prompt 的 intended 和用户标签，命中原因保留来源；Prompt 描述和名称不能冒充视觉观察。内容、要求、来源或采用变化使相应证据失效，实际 occurrence 不因同字节被合并。查询支持用途、对象、来源、采用状态、描述来源及确定性分页。
+
+知识与检索读取由原 project-store 的 `projectSessionMetadataFromDisk` 选择权威 session 与旧 manifest/export 来源，和正常项目打开共享选择规则；它只读元数据，不 hydrate 所有图片、不迁移或回写项目。Main 随后按实际 project ID 清洗快照，索引将同一份快照传给 creation 的私有 `searchSnapshot`，避免重复打开项目。canonical session 或已选中的旧 manifest/export 无法解析、顶层或内嵌session类型错误时明确拒绝，不写回原文件、不新建canonical文件、不记录私有路径；普通项目打开保留原迁移行为。元数据中的文件引用不等于文件授权：每次检索刷新或明确使用仍重新验证实际路径、stat 和内容hash；同轮可共用物理文件检查和受管根解析，根解析闭包不跨查询复用，SOURCE/REFERENCE 的每个 occurrence 仍单独比对目标hash。
+
+搜索和定位不改变 TaskScope，也不派发图片。用户明确沿用成果后，`project.results.use` 或主 Agent `project_context(operation="use_results")` 按稳定三元身份重新校验实际文件。Runtime 使用既有材料绑定器；Main 在首次图片派发前校验 task/run、保留原素材、要求、知识、模板和配置，通过 run-control 原子预检跨任务锁，再提交 ledger 和活动 scope。新 reference 也必须锁定实际节点；锁冲突或持久化失败不提交新范围。同一稳定身份的原 source/reference 用途不能原地改变，同用途重复绑定保持幂等。Goal 不能借检索扩展冻结材料，已开始图片派发的任务不能迟到绑定。
+
+可复用方法继续保存在既有安装级 `requirement-library.json`，不新建模板库。v2 模板仅声明 text/enum/number/image 有限变量、场景、普通需求正文及验收要求；图片变量必须重新绑定当前项目稳定素材。保存方法剥离旧项目路径、资产/任务/要求实例、凭据、signed URL、已采用/已验收状态。应用只展开普通需求草稿并列出未绑定图片，零模型请求，不自动执行；明确执行仍经过原 requirement/TaskScope/agent.task/image_gen 链。模板更新不改写已冻结任务，导入不覆盖现有同 ID，导出只包含便携字段。
+
+当前项目素材重绑复用原需求编辑器，按模板图片变量名称和SOURCE/REFERENCE用途选择当前画布图片，来源计数即时预览。缺少required图片可以保存草稿，不能执行。保存由原 `saveRequirementEditor` 同时更新普通inputBindings与templateDraft，只有用户没有改动原正文时才把系统的“待绑定图片”占位文字替换为“当前素材”；用户编辑过的正文保留，不重新套用新版模板或改写已冻结任务。
+
+主 Agent 的 `apply_template` 携带有限变量和 `imageBindings` 进入 Main `applyTemplate`，校验公开 `requirement-library.use` 合同后定位当前会话 Renderer，再派发原需求模板命令；不经只接收图片的 workflow action 过滤器。原 Renderer 仍校验当前项目和素材节点、原 library 校验模板版本与变量。模板 IPC 的本地读写错误仅保留错误码和安全提示，只有显式 `RequirementLibraryError` 的业务提示及安全 details 可以公开。
+
+公开业务入口为 `project.context.get`、`project.knowledge.list/save/status/promote/history`、`project.results.search/use` 及既有 `requirement-library.*` 扩展。GUI、独立 Agent 窗、CLI/MCP 与 `project_context` 复用相同 Main owner；公开返回值不包含私有文件路径、连接凭据或上游签名地址。专项、实际报告与剩余验证见 [第三期验证记录](AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)，本地 Mock 不能证明真实识图、审美、风格遵从或计费行为。
+
 ## 版本化要求、验收与定向修改
 
 完整创作合同位于 Main 项目 owner 的 `.naimage/creation.json`。合同含目标/用途、稳定槽位、保留/可变/可验收条件、文件约束和 user/assumption 来源；TaskScope.creation 仅引用要求版本及冻结修订计划，不另建素材或配置 authority。旧项目没有此字段时保持可读，不补造历史验收。新任务可直接以明确用户原文建立轻量要求，主 Agent 通过公开 `creation` 工具细化，tool_choice 保持 auto，不增加独立规划模型请求。

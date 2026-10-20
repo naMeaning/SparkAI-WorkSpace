@@ -2,6 +2,521 @@
   "version": 2,
   "sections": [
     {
+      "title": "Project knowledge and local result retrieval",
+      "commands": [
+        {
+          "name": "project.knowledge.list",
+          "surface": "service",
+          "description": "List explicit project knowledge and suggestions, with Commerce facts remaining owned by the catalog. Reads local records only.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "objects": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "project",
+                        "product",
+                        "variant",
+                        "sku"
+                      ]
+                    },
+                    "productId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "variantId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "skuId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                }
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "includeCommerce": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "expectedProjectId"
+            ]
+          }
+        },
+        {
+          "name": "project.knowledge.save",
+          "surface": "service",
+          "description": "Save explicitly authorized long-term project knowledge with store and entry CAS. Agent assumptions remain suggestions; this never changes a running task.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "knowledgeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedEntryRevision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "entry": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "brand_rule",
+                      "product_fact",
+                      "prohibited_expression",
+                      "style_reference",
+                      "preference"
+                    ]
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "project",
+                          "product",
+                          "variant",
+                          "sku"
+                        ]
+                      },
+                      "productId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "variantId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "skuId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "assumption"
+                    ]
+                  },
+                  "assetRefs": {
+                    "type": "array",
+                    "maxItems": 8,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "assetId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "occurrenceId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "contentHash": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "required": [
+                        "assetId",
+                        "occurrenceId",
+                        "contentHash"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "title",
+                  "content",
+                  "scope",
+                  "source"
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "expectedRevision",
+              "entry"
+            ]
+          }
+        },
+        {
+          "name": "project.knowledge.status",
+          "surface": "service",
+          "description": "Activate, deactivate or tombstone explicit knowledge using exact revisions. Deleted knowledge cannot be revived by stale saves.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "knowledgeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedEntryRevision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "inactive",
+                  "deleted"
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "expectedRevision",
+              "knowledgeId",
+              "expectedEntryRevision",
+              "status"
+            ]
+          }
+        },
+        {
+          "name": "project.knowledge.promote",
+          "surface": "service",
+          "description": "Explicitly promote an Agent suggestion to a user project rule; never automatic.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "knowledgeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "expectedEntryRevision": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "expectedRevision",
+              "knowledgeId",
+              "expectedEntryRevision"
+            ]
+          }
+        },
+        {
+          "name": "project.knowledge.history",
+          "surface": "service",
+          "description": "Read immutable versions of one project rule.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "knowledgeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "knowledgeId"
+            ]
+          }
+        },
+        {
+          "name": "project.results.search",
+          "surface": "service",
+          "description": "Search rebuildable local result metadata with combined filters and stable pagination. Prompt intent and user labels are separate from evidence-backed pixel observations. No model request or material/selection mutation.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "query": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "usage": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 240
+                  },
+                  "objectId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "source": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "occurrenceId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "contentHash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "nodeId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      }
+                    }
+                  },
+                  "adoption": {
+                    "type": "string",
+                    "enum": [
+                      "any",
+                      "approved",
+                      "candidate",
+                      "rejected"
+                    ]
+                  },
+                  "description": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "source": {
+                        "type": "string",
+                        "enum": [
+                          "any",
+                          "observed",
+                          "intended"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ]
+                  }
+                }
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "relevance",
+                  "name",
+                  "newest"
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId"
+            ]
+          }
+        },
+        {
+          "name": "project.results.use",
+          "surface": "service",
+          "description": "Explicitly bind exact current project results into the active composer after authoritative byte and identity validation. Does not generate or expand a running Goal.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 40,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "assetId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "occurrenceId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 180
+                    },
+                    "contentHash": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "assetId",
+                    "occurrenceId",
+                    "contentHash"
+                  ]
+                }
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "source",
+                  "reference"
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "targets",
+              "role"
+            ]
+          }
+        },
+        {
+          "name": "project.context.get",
+          "surface": "service",
+          "description": "Read this project and conversation knowledge plus the exact historical knowledge used by its last saved task. No model request.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "conversationId"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "title": "Status and inspection",
       "commands": [
         { "name": "status", "surface": "service", "args": "", "description": "Check the local authenticated bridge and renderer readiness." },
@@ -1478,14 +1993,60 @@
         {
           "name": "requirement-library.save",
           "surface": "renderer",
-          "description": "Save one current canvas Requirement into the installation-local personal template library. expectedRequirementRevision and expectedProjectId guard the source node. Omit templateId to create a new item; when overwriting, pass templateId and its exact expectedTemplateRevision. The complete operation validates before one local CAS write.",
+          "description": "Explicitly save one current Requirement or one completed saved task as a reusable personal template. Choose nodeId + expectedRequirementRevision, or taskId + conversationId + expectedRequirementsRevision; expectedProjectId guards the current project. Template v2 contains finite declarative variables and reusable checks, never source assets, task receipts or credentials. Omit templateId for a new item; overwrite requires its exact expectedTemplateRevision. This local operation makes no model request.",
           "parameters": {
             "type": "object",
-            "required": ["nodeId", "expectedRequirementRevision", "expectedProjectId"],
+            "required": ["expectedProjectId"],
             "additionalProperties": false,
             "properties": {
               "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 },
               "expectedRequirementRevision": { "type": "integer", "minimum": 1 },
+              "taskId": { "type": "string", "minLength": 1, "maxLength": 180 },
+              "conversationId": { "type": "string", "minLength": 1, "maxLength": 180 },
+              "expectedRequirementsRevision": { "type": "integer", "minimum": 1 },
+              "title": { "type": "string", "maxLength": 120 },
+              "text": { "type": "string", "minLength": 1, "maxLength": 24000 },
+              "template": {
+                "type": "object", "required": ["version"], "additionalProperties": false,
+                "properties": {
+                  "version": { "type": "integer", "enum": [2] },
+                  "scenario": { "type": "string", "maxLength": 2000 },
+                  "materialNotes": { "type": "string", "maxLength": 2000 },
+                  "styleNotes": { "type": "string", "maxLength": 2000 },
+                  "variables": {
+                    "type": "array", "maxItems": 24,
+                    "items": {
+                      "type": "object", "required": ["key", "type"], "additionalProperties": false,
+                      "properties": {
+                        "key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+                        "label": { "type": "string", "maxLength": 120 },
+                        "type": { "type": "string", "enum": ["text", "enum", "number", "image"] },
+                        "required": { "type": "boolean" },
+                        "default": { "description": "A bounded string or finite number matching the variable type; image variables cannot have defaults." },
+                        "maxLength": { "type": "integer", "minimum": 1, "maximum": 2000 },
+                        "options": { "type": "array", "minItems": 1, "maxItems": 24, "items": { "type": "string", "minLength": 1, "maxLength": 2000 } },
+                        "min": { "type": "number", "minimum": -1000000000, "maximum": 1000000000 },
+                        "max": { "type": "number", "minimum": -1000000000, "maximum": 1000000000 },
+                        "step": { "type": "number", "minimum": 0.000000001, "maximum": 1000000000 },
+                        "role": { "type": "string", "enum": ["source", "reference"] }
+                      }
+                    }
+                  },
+                  "acceptance": {
+                    "type": "object", "additionalProperties": false,
+                    "description": "Reusable phase-two requirements draft. Source-consistency conditions refer to declared image variable names through sourceVariables. Instance identities are never portable.",
+                    "properties": {
+                      "goal": { "type": "object", "required": ["text", "source"], "additionalProperties": false, "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "source": { "type": "string", "enum": ["user", "assumption"] } } },
+                      "usage": { "type": "object", "required": ["text", "source"], "additionalProperties": false, "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "source": { "type": "string", "enum": ["user", "assumption"] } } },
+                      "slots": { "type": "array", "maxItems": 200, "items": { "type": "object", "required": ["label"], "additionalProperties": false, "properties": { "slotId": { "type": "string", "maxLength": 180 }, "label": { "type": "string", "minLength": 1, "maxLength": 120 }, "source": { "type": "string", "enum": ["user", "assumption"] } } } },
+                      "preserve": { "type": "array", "maxItems": 200, "items": { "type": "object", "required": ["text"], "additionalProperties": false, "properties": { "criterionId": { "type": "string", "maxLength": 180 }, "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "source": { "type": "string", "enum": ["user", "assumption"] }, "kind": { "type": "string", "enum": ["visual", "source_consistency"] }, "slotIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 180 } }, "sourceVariables": { "type": "array", "maxItems": 24, "items": { "type": "string", "maxLength": 40 } } } } },
+                      "adjustable": { "type": "array", "maxItems": 200, "items": { "type": "object", "required": ["text"], "additionalProperties": false, "properties": { "criterionId": { "type": "string", "maxLength": 180 }, "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "source": { "type": "string", "enum": ["user", "assumption"] }, "kind": { "type": "string", "enum": ["visual", "source_consistency"] }, "slotIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 180 } }, "sourceVariables": { "type": "array", "maxItems": 24, "items": { "type": "string", "maxLength": 40 } } } } },
+                      "conditions": { "type": "array", "maxItems": 200, "items": { "type": "object", "required": ["text"], "additionalProperties": false, "properties": { "criterionId": { "type": "string", "maxLength": 180 }, "text": { "type": "string", "minLength": 1, "maxLength": 4000 }, "source": { "type": "string", "enum": ["user", "assumption"] }, "kind": { "type": "string", "enum": ["visual", "source_consistency"] }, "slotIds": { "type": "array", "maxItems": 200, "items": { "type": "string", "maxLength": 180 } }, "sourceVariables": { "type": "array", "maxItems": 24, "items": { "type": "string", "maxLength": 40 } } } } },
+                      "fileRules": { "type": "object", "additionalProperties": false, "properties": { "formats": { "type": "array", "maxItems": 5, "items": { "type": "string", "enum": ["png", "jpeg", "webp", "avif", "tiff"] } }, "width": { "type": "integer", "minimum": 1, "maximum": 65535 }, "height": { "type": "integer", "minimum": 1, "maximum": 65535 }, "minWidth": { "type": "integer", "minimum": 1, "maximum": 65535 }, "minHeight": { "type": "integer", "minimum": 1, "maximum": 65535 }, "alpha": { "type": "string", "enum": ["any", "required", "forbidden"] } } }
+                    }
+                  }
+                }
+              },
               "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" },
               "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
               "expectedProjectId": { "type": "string", "minLength": 1, "maxLength": 160 }
@@ -1517,7 +2078,7 @@
         {
           "name": "requirement-library.use",
           "surface": "renderer",
-          "description": "Instantiate one exact personal template revision on the active canvas as a normal Requirement node. Optional ordered SOURCE/REFERENCE bindings and position use the same graph validation and project/canvas compare-and-set guards as direct Requirement creation. This command never executes the Requirement, never calls an image model, and never spends image quota.",
+          "description": "Instantiate one exact personal template revision on the active canvas as a normal Requirement node. variableValues expand finite text/enum/number placeholders; imageBindings bind declared image keys only to current-project node IDs. Missing image declarations remain a draft and block execution until bound. Current image settings remain authoritative. Optional SOURCE/REFERENCE bindings and position use the existing graph/project/canvas guards. This command never executes the Requirement, never calls an image model, and never spends image quota.",
           "parameters": {
             "type": "object",
             "required": ["templateId", "expectedTemplateRevision", "expectedProjectId"],
@@ -1525,6 +2086,8 @@
             "properties": {
               "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" },
               "expectedTemplateRevision": { "type": "integer", "minimum": 1 },
+              "variableValues": { "type": "object", "description": "At most 24 declared keys with bounded string or finite number values, validated by the template owner." },
+              "imageBindings": { "type": "array", "maxItems": 24, "items": { "type": "object", "required": ["key", "nodeId", "role"], "additionalProperties": false, "properties": { "key": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" }, "nodeId": { "type": "string", "minLength": 1, "maxLength": 160 }, "role": { "type": "string", "enum": ["source", "reference"] } } } },
               "inputBindings": {
                 "type": "array",
                 "maxItems": 240,
@@ -1554,6 +2117,16 @@
               "expectedCanvasRevision": 44
             }
           ]
+        },
+        {
+          "name": "requirement-library.import", "surface": "renderer",
+          "description": "Import a strict portable v1/v2 Requirement template through the existing native file picker. No arbitrary file path is accepted and no model request occurs.",
+          "parameters": { "type": "object", "additionalProperties": false, "properties": {} }
+        },
+        {
+          "name": "requirement-library.export", "surface": "renderer",
+          "description": "Export one exact personal template revision through the native Save picker. The portable document omits instance identities, paths, credentials and bound sources. No destination path is accepted.",
+          "parameters": { "type": "object", "required": ["templateId", "expectedTemplateRevision"], "additionalProperties": false, "properties": { "templateId": { "type": "string", "pattern": "^reqtpl-[a-f0-9]{32}$" }, "expectedTemplateRevision": { "type": "integer", "minimum": 1 } } }
         }
       ]
     },

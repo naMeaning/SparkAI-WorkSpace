@@ -53,6 +53,7 @@ import {
   scientificFigurePlanIssues,
 } from "./plugins/scientific-figure.ts";
 import { requirementInputBindings } from "./requirement-graph.ts";
+import { normalizeRequirementTemplate, type RequirementTemplate, type RequirementTemplateImageBinding } from "../runtime/requirement-template-contract.mjs";
 import { stableRequirementInputSignature } from "./requirement-signature.ts";
 import type {
   CommerceCatalogAssetKind,
@@ -254,8 +255,14 @@ export type AutomationCommandContext = {
   }): Promise<unknown>;
   listRequirementLibrary(includeText: boolean): Promise<unknown>;
   saveRequirementLibrary(input: {
-    nodeId: string;
-    expectedRequirementRevision: number;
+    nodeId?: string;
+    expectedRequirementRevision?: number;
+    taskId?: string;
+    conversationId?: string;
+    expectedRequirementsRevision?: number;
+    title?: string;
+    text?: string;
+    template?: RequirementTemplate;
     templateId?: string;
     expectedTemplateRevision?: number;
     expectedProjectId: string;
@@ -273,7 +280,11 @@ export type AutomationCommandContext = {
     y?: number;
     expectedProjectId: string;
     expectedCanvasRevision?: number;
+    variableValues?: Record<string, string | number>;
+    imageBindings?: RequirementTemplateImageBinding[];
   }): Promise<unknown>;
+  importRequirementLibrary?(): Promise<unknown>;
+  exportRequirementLibrary?(input: { templateId: string; expectedTemplateRevision: number }): Promise<unknown>;
   listCommerceTemplates(): Promise<unknown>;
   saveCommerceTemplate(input: {
     id?: string;
@@ -1106,6 +1117,8 @@ function canvasState(context: AutomationCommandContext) {
           revision: node.requirement.revision,
           text: node.requirement.text,
           createdFrom: node.requirement.createdFrom,
+          ...(node.requirement.template ? { template: node.requirement.template } : {}),
+          ...(node.requirement.templateDraft ? { templateDraft: node.requirement.templateDraft } : {}),
           inputBindings,
           inputSignature: stableRequirementInputSignature(node, nodes),
           lastRunAt: node.requirement.lastRunAt,
@@ -1381,13 +1394,16 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     "requirement-library.list": (value) => context.listRequirementLibrary(value.includeText === true),
     "requirement-library.save": async (value) => {
       assertExpectedProject(value, context);
-      const nodeId = String(value.nodeId);
-      const node = context.nodes().find((candidate) => candidate.id === nodeId);
-      if (node?.type !== "requirement" || !node.requirement) {
+      const nodeId = value.nodeId === undefined ? undefined : String(value.nodeId);
+      const taskId = value.taskId === undefined ? undefined : String(value.taskId);
+      if (Boolean(nodeId) === Boolean(taskId)) throw automationCommandError("INVALID_ARGUMENT", "请指定一个需求节点或一个成功任务。", { fields: ["nodeId", "taskId"] });
+      if (taskId && (!value.conversationId || !Number.isSafeInteger(value.expectedRequirementsRevision))) throw automationCommandError("INVALID_ARGUMENT", "任务模板需要 conversationId 和 expectedRequirementsRevision。");
+      const node = nodeId ? context.nodes().find((candidate) => candidate.id === nodeId) : undefined;
+      if (nodeId && (node?.type !== "requirement" || !node.requirement)) {
         throw automationCommandError("UNSUPPORTED_NODE", "只能将当前存在的需求节点保存到个人模板库。", { nodeId });
       }
       const expectedRequirementRevision = value.expectedRequirementRevision as number;
-      if (node.requirement.revision !== expectedRequirementRevision) {
+      if (node?.requirement && node.requirement.revision !== expectedRequirementRevision) {
         throw automationCommandError("REQUIREMENT_REVISION_CONFLICT", "需求已发生变化，请读取最新 revision 后重试。", {
           nodeId,
           expectedRevision: expectedRequirementRevision,
@@ -1407,6 +1423,10 @@ export async function executeAutomationCommand(command: string, args: JsonObject
         templateId,
         expectedTemplateRevision,
         expectedProjectId: String(value.expectedProjectId),
+        ...(taskId ? { taskId, conversationId: String(value.conversationId), expectedRequirementsRevision: value.expectedRequirementsRevision as number } : {}),
+        ...(value.title !== undefined ? { title: String(value.title) } : {}),
+        ...(value.text !== undefined ? { text: String(value.text) } : {}),
+        ...(value.template !== undefined ? { template: normalizeRequirementTemplate(value.template, String(value.text || node?.requirement?.text || "")) } : {}),
       });
     },
     "requirement-library.delete": (value) => {
@@ -1434,8 +1454,18 @@ export async function executeAutomationCommand(command: string, args: JsonObject
         y: value.y as number | undefined,
         expectedProjectId: String(value.expectedProjectId),
         expectedCanvasRevision: value.expectedCanvasRevision as number | undefined,
+        ...(value.variableValues !== undefined ? { variableValues: value.variableValues as Record<string, string | number> } : {}),
+        ...(value.imageBindings !== undefined ? { imageBindings: value.imageBindings as unknown as RequirementTemplateImageBinding[] } : {}),
       });
       return canvasMutationResponse(result, context);
+    },
+    "requirement-library.import": () => {
+      if (!context.importRequirementLibrary) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时不支持导入需求模板。");
+      return context.importRequirementLibrary();
+    },
+    "requirement-library.export": value => {
+      if (!context.exportRequirementLibrary) throw automationCommandError("REQUIREMENT_LIBRARY_UNAVAILABLE", "当前桌面运行时不支持导出需求模板。");
+      return context.exportRequirementLibrary({ templateId: String(value.templateId), expectedTemplateRevision: value.expectedTemplateRevision as number });
     },
     "commerce.template.list": () => context.listCommerceTemplates(),
     "commerce.template.save": (value) => {

@@ -1,3 +1,4 @@
+const { mergeProjectTaskContexts } = require("../runtime/project-task-contexts.mjs");
 "use strict";
 
 const { coalesceImageAssets, remapImageAssetSlots } = require("../runtime/image-asset-identity.mjs");
@@ -856,6 +857,7 @@ function mergeProjectSessions(existingSession, incomingSession, options = {}) {
     layoutGroups: incomingOwnsNonNodeState
       ? clone(Array.isArray(remappedIncoming.layoutGroups) ? remappedIncoming.layoutGroups : [])
       : mergeLayoutGroups(existing.layoutGroups, remappedIncoming.layoutGroups),
+    projectTaskContexts: mergeProjectTaskContexts(existing.projectTaskContexts, remappedIncoming.projectTaskContexts),
     conversations,
     activeConversationId,
     messages: incomingOwnsNonNodeState

@@ -353,6 +353,9 @@ function createProjectPackageService(options = {}) {
       // project identity. Exporting it would leak local paths and cannot resume
       // safely after import, so portable projects always start without it.
       pendingAgentExecution: null,
+      // Local task receipts and their immutable knowledge history are not
+      // portable: an imported package receives a new project identity.
+      projectTaskContexts: [],
       nodes: session.nodes.map((node) => ({
         ...node,
         assets: (node.assets || []).map((asset, index) => portableFileReference(asset, node.id, `assets-${index}`, index + 1)),
@@ -560,6 +563,7 @@ function createProjectPackageService(options = {}) {
     const preparedSession = {
       ...portableSession,
       pendingAgentExecution: null,
+      projectTaskContexts: [],
       nodes: (Array.isArray(portableSession.nodes) ? portableSession.nodes : []).map((node) => ({
         ...node,
         assets: (Array.isArray(node?.assets) ? node.assets : []).map((asset) => {

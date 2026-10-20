@@ -23,6 +23,9 @@ export default function RequirementEditorDialog({
   requirementCode,
   sourceCount,
   referenceCount,
+  templateImages = [],
+  templateImageChoices = [],
+  changeTemplateImage,
   close,
   changeTitle,
   changeText,
@@ -37,6 +40,9 @@ export default function RequirementEditorDialog({
   requirementCode: string;
   sourceCount: number;
   referenceCount: number;
+  templateImages?: { key: string; label: string; role: "source" | "reference"; required?: boolean; nodeId?: string }[];
+  templateImageChoices?: { nodeId: string; label: string }[];
+  changeTemplateImage?: (key: string, nodeId: string) => void;
   close: () => void;
   changeTitle: (value: string) => void;
   changeText: (value: string) => void;
@@ -44,6 +50,7 @@ export default function RequirementEditorDialog({
 }) {
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const hasInputs = sourceCount + referenceCount > 0;
+  const missingTemplateImages = templateImages.filter(image => image.required !== false && !image.nodeId);
 
   function requestEditorClose() {
     if (dirty) {
@@ -100,6 +107,16 @@ export default function RequirementEditorDialog({
                 placeholder="描述要修改什么、哪些内容必须保持不变、希望得到多少方案；Agent 会自行理解并调用合适的图片工具。"
               />
             </Field>
+            {templateImages.length ? <section className="requirement-template-rebindings" aria-label="模板图片变量">
+              <strong>本次模板素材</strong>
+              {templateImages.map(image => <Field key={image.key} label={`${image.label || image.key}${image.required !== false ? " *" : ""}`} hint={image.role === "source" ? "要修改的原图" : "风格或内容参考"}>
+                <select data-requirement-template-rebind={image.key} value={image.nodeId || ""} disabled={!changeTemplateImage} onChange={event => changeTemplateImage?.(image.key, event.target.value)}>
+                  <option value="">尚未绑定</option>
+                  {templateImageChoices.map(choice => <option key={choice.nodeId} value={choice.nodeId}>{choice.label}</option>)}
+                </select>
+              </Field>)}
+              {missingTemplateImages.length ? <InlineNotice tone="warning">还需绑定 {missingTemplateImages.length} 个必需图片变量；可以先保存草稿。</InlineNotice> : null}
+            </section> : null}
             {error ? <InlineNotice className="requirement-editor-error" tone="danger">{error}</InlineNotice> : null}
           </SurfaceBody>
           <SurfaceFooter>
@@ -107,7 +124,7 @@ export default function RequirementEditorDialog({
             <ActionButton variant="secondary" onClick={() => { save(false); }}>
               {mode === "create" ? "仅创建" : "保存"}
             </ActionButton>
-            <ActionButton variant="primary" onClick={() => { save(true); }} disabled={agentExecutionBusy} icon={<Send size={14} />}>
+            <ActionButton variant="primary" onClick={() => { save(true); }} disabled={agentExecutionBusy || missingTemplateImages.length > 0} icon={<Send size={14} />}>
               {mode === "create" ? "创建并执行" : "保存并执行"}
             </ActionButton>
           </SurfaceFooter>

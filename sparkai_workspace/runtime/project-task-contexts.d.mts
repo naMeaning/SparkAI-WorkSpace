@@ -1,0 +1,10 @@
+import type { ProjectKnowledgeSnapshot } from "./project-knowledge-contract.mjs";
+import type { RequirementTemplateSnapshot } from "./requirement-template-contract.mjs";
+export type ProjectTaskContext = { version: 1; projectId: string; conversationId: string; taskId: string; createdAt: string; fingerprint: string;
+  projectKnowledge: ProjectKnowledgeSnapshot; requirementTemplate?: RequirementTemplateSnapshot };
+export const PROJECT_TASK_CONTEXT_LIMITS: Readonly<{ entries: number; characters: number }>;
+export function normalizeProjectTaskContext(value: unknown, options?: { expectedProjectId?: string }): ProjectTaskContext | undefined;
+export function normalizeProjectTaskContexts(value: unknown, options?: { expectedProjectId?: string }): ProjectTaskContext[] | undefined;
+export function appendProjectTaskContext(value: unknown, candidate: unknown, options?: { expectedProjectId?: string }): ProjectTaskContext[];
+export function mergeProjectTaskContexts(left: unknown, right: unknown, options?: { expectedProjectId?: string }): ProjectTaskContext[];
+export function findProjectTaskContext(value: unknown, options: { projectId: string; conversationId?: string; taskId: string; fingerprint?: string }): ProjectTaskContext | undefined;

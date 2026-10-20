@@ -187,20 +187,30 @@ function createProjectStore(options = {}) {
     return readableExportSessionFileNames.map((fileName) => path.join(resolvedProject, fileName));
   }
 
-  function readProjectExportSession(projectOrPath) {
+  function contextSessionUnreadable() {
+    const error = new Error("项目会话无法读取，请重新打开项目后重试。");
+    error.code = "PROJECT_CONTEXT_SESSION_UNREADABLE";
+    return error;
+  }
+
+  function readProjectExportSession(projectOrPath, { strict = false } = {}) {
     const exportPath = projectExportSessionCandidates(projectOrPath).find((candidate) => existsSync(candidate));
     if (!exportPath) return null;
     try {
       const parsed = JSON.parse(readFileSync(exportPath, "utf8"));
+      if (strict && parsed && Object.prototype.hasOwnProperty.call(parsed, "session") &&
+          (!parsed.session || typeof parsed.session !== "object" || Array.isArray(parsed.session))) throw contextSessionUnreadable();
       const session = parsed?.session && typeof parsed.session === "object" ? parsed.session : parsed;
+      if (strict && (!session || typeof session !== "object" || Array.isArray(session))) throw contextSessionUnreadable();
       return session && typeof session === "object" ? session : null;
     } catch (error) {
+      if (strict) throw contextSessionUnreadable();
       log(`project export session read failed ${exportPath}: ${error.message}`);
       return null;
     }
   }
 
-  function readProjectManifest(projectOrPath) {
+  function readProjectManifest(projectOrPath, { strict = false } = {}) {
     const projectPath = typeof projectOrPath === "string" ? projectOrPath : projectOrPath?.path;
     const resolvedProject = path.resolve(projectPath || projectRoot);
     const manifestPath = readableProjectMetaDirNames
@@ -209,8 +219,12 @@ function createProjectStore(options = {}) {
     if (!manifestPath) return null;
     try {
       const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (strict && (!parsed || typeof parsed !== "object" || Array.isArray(parsed))) throw contextSessionUnreadable();
+      if (strict && Object.prototype.hasOwnProperty.call(parsed, "session") &&
+          (!parsed.session || typeof parsed.session !== "object" || Array.isArray(parsed.session))) throw contextSessionUnreadable();
       return parsed && typeof parsed === "object" ? parsed : null;
     } catch (error) {
+      if (strict) throw contextSessionUnreadable();
       log(`project manifest read failed ${manifestPath}: ${error.message}`);
       return null;
     }
@@ -285,11 +299,24 @@ function createProjectStore(options = {}) {
     writeJson(projectManifestPath(projectPath), manifest);
   }
 
-  function projectSessionFromDisk(project) {
+  function readProjectSessionSource(project, { readOnly = false } = {}) {
     const hasSessionFile = existsSync(project.sessionPath);
-    const exportSession = hasSessionFile ? null : readProjectExportSession(project);
-    const rawSession = hasSessionFile ? readJson(project.sessionPath, defaultSession) : exportSession || defaultSession;
-    const manifest = readProjectManifest(project);
+    const exportSession = hasSessionFile ? null : readProjectExportSession(project, { strict: readOnly });
+    let rawSession = exportSession || defaultSession;
+    if (hasSessionFile) {
+      if (readOnly) {
+        // Search must not repair or overwrite a corrupt authoritative session.
+        // Keep the existing migration reader for normal project open/save.
+        try {
+          const value = JSON.parse(readFileSync(project.sessionPath, "utf8"));
+          if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid session");
+          rawSession = { ...defaultSession, ...value };
+        } catch {
+          throw contextSessionUnreadable();
+        }
+      } else rawSession = readJson(project.sessionPath, defaultSession);
+    }
+    const manifest = readProjectManifest(project, { strict: readOnly });
     const legacyManifestSession = Number(manifest?.version || 1) < 2 && manifest?.session && typeof manifest.session === "object"
       ? manifest.session
       : null;
@@ -305,7 +332,18 @@ function createProjectStore(options = {}) {
         ? sourceSession?.sessionRevision ?? manifest?.sessionRevision
         : manifest?.sessionRevision;
     const sessionRevision = Math.max(0, Math.floor(Number(sourceRevision ?? 0) || 0));
-    const hydratedSession = sessionWithProjectAssets({ ...sourceSession, sessionRevision }, project);
+    return { session: { ...sourceSession, sessionRevision }, shouldMigrateLegacySession, exportSession, hasSessionFile };
+  }
+
+  // Read-only metadata consumers validate the specific files they use. They
+  // share legacy source selection without hydrating every project image.
+  function projectSessionMetadataFromDisk(project) {
+    return readProjectSessionSource(project, { readOnly: true }).session;
+  }
+
+  function projectSessionFromDisk(project) {
+    const { session, shouldMigrateLegacySession, exportSession, hasSessionFile } = readProjectSessionSource(project);
+    const hydratedSession = sessionWithProjectAssets(session, project);
     const normalizedSession = sessionForProjectSave(hydratedSession, project);
     if (shouldMigrateLegacySession || exportSession || !hasSessionFile) {
       writeJson(project.sessionPath, normalizedSession);
@@ -367,6 +405,7 @@ function createProjectStore(options = {}) {
     projectManifestPath,
     projectRelativePath,
     projectSessionFromDisk,
+    projectSessionMetadataFromDisk,
     projectSessionRevisionFromDisk,
     readProjectList,
     readProjectExportSession,

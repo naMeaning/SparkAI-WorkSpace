@@ -1,3 +1,6 @@
+const { normalizeProjectTaskContexts } = require("../runtime/project-task-contexts.mjs");
+const { normalizeProjectKnowledgeSnapshot, projectKnowledgePromptText } = require("../runtime/project-knowledge-contract.mjs");
+const { normalizeRequirementTemplateSnapshot, normalizeRequirementTemplateDraft } = require("../runtime/requirement-template-contract.mjs");
 "use strict";
 
 const { createHash } = require("node:crypto");
@@ -379,6 +382,8 @@ function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
   const scientificPlan = value.scientificPlan && typeof value.scientificPlan === "object" && value.scientificPlan.schemaVersion === 1
     ? normalizeScientificFigurePlan(value.scientificPlan)
     : null;
+  const template = normalizeRequirementTemplateSnapshot(value.template);
+  const templateDraft = template ? normalizeRequirementTemplateDraft(value.templateDraft) : undefined;
   const requirement = {
     version: value.version === 2 || inputBindings.length || skill || socialPlan || scientificPlan ? 2 : 1,
     text,
@@ -387,7 +392,9 @@ function sanitizePersistedCanvasRequirement(value, fallbackText = "") {
     ...(inputBindings.length ? { inputBindings } : {}),
     ...(skill ? { skill } : {}),
     ...(socialPlan?.brief ? { socialPlan } : {}),
-    ...(scientificPlan?.researchClaim ? { scientificPlan } : {})
+    ...(scientificPlan?.researchClaim ? { scientificPlan } : {}),
+    ...(template ? { template } : {}),
+    ...(templateDraft ? { templateDraft } : {})
   };
   if (typeof value.lastSourceSignature === "string" && value.lastSourceSignature.trim()) {
     requirement.lastSourceSignature = value.lastSourceSignature.trim().slice(0, 160);
@@ -1059,6 +1066,8 @@ function sanitizePersistedPendingAgentExecution(value) {
     taskScope: {
       ...(rawScope.imageConfig ? { imageConfig: normalizeImageConfigSnapshot(rawScope.imageConfig) } : {}),
       ...(normalizeCreationTaskContract(rawScope.creation) ? { creation: normalizeCreationTaskContract(rawScope.creation) } : {}),
+      ...(normalizeProjectKnowledgeSnapshot(rawScope.projectKnowledge) ? { projectKnowledge: normalizeProjectKnowledgeSnapshot(rawScope.projectKnowledge) } : {}),
+      ...(normalizeRequirementTemplateSnapshot(rawScope.template) ? { template: normalizeRequirementTemplateSnapshot(rawScope.template) } : {}),
       ...(normalizeCreationMaskAssets(rawScope.maskAssets).length ? { maskAssets: normalizeCreationMaskAssets(rawScope.maskAssets) } : {}),
       version: 2,
       origin,
@@ -1098,7 +1107,7 @@ function sanitizePersistedPendingAgentExecution(value) {
   };
 }
 
-function sanitizeSession(session) {
+function sanitizeSession(session, options = {}) {
   const source = session && typeof session === "object" ? session : {};
   const usedIds = new Set();
   const usedDisplayCodes = new Set();
@@ -1347,6 +1356,7 @@ function sanitizeSession(session) {
     nodeMutationBarriers: normalizeNodeMutationBarriers(source.nodeMutationBarriers),
     layoutGroups,
     selectedNodeId,
+    projectTaskContexts: (() => { const contexts = normalizeProjectTaskContexts(source.projectTaskContexts, options); if (!contexts) throw Object.assign(new Error("任务的冻结项目上下文无效。"), { code: "PROJECT_TASK_CONTEXT_INVALID" }); return contexts; })(),
     pendingAgentExecution: validPendingAgentExecution
   };
 }

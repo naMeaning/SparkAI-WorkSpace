@@ -1,6 +1,7 @@
 "use strict";
 
 const { registerAgentIpc } = require("./agent-ipc.cjs");
+const { registerProjectContextIpc } = require("./project-context-ipc.cjs");
 const { registerCreationIpc } = require("./creation-ipc.cjs");
 const { registerAutomationIpc } = require("./automation-ipc.cjs");
 const { registerAssetIpc } = require("./asset-ipc.cjs");
@@ -35,6 +36,7 @@ function registerDesktopIpc(dependencies = {}) {
   registerSessionIpc(dependencies);
   registerAgentIpc(dependencies);
   registerCreationIpc(dependencies);
+  registerProjectContextIpc(dependencies);
   registerWindowIpc(dependencies);
   registerDebugIpc(dependencies);
   registerExportCenterIpc(dependencies);
