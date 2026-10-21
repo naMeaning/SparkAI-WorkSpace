@@ -1,8 +1,8 @@
 # SparkAI WorkSpace
 
-免费的 Windows **Agent 生图工作台**。把图片素材放进项目，用自然语言告诉 Agent 想生成或修改什么，再在无限画布上比较方案、整理成果和继续创作。
+一个免费的 Windows 图片创作工作台。把素材放进项目，用自然语言告诉 Agent 要生成或修改什么，再在画布上比较、整理和继续编辑。
 
-一个项目、一张画布、一个持续工作的 Agent，适合商品图、社媒配图、灵感探索与日常图片编辑。项目素材、会话和成果保存在本地；模型请求发送到你选择的服务商。
+每个项目都有自己的画布、素材和会话记录，适合做商品图、社媒配图、灵感探索和日常图片编辑。项目数据保存在本地，图片请求会发送到你选择的服务商。
 
 ![真实九图项目、图片来源关系与 Agent 时间线](sparkai_workspace/docs/assets/github/hero-canvas.webp)
 
@@ -17,15 +17,15 @@
 
 > 免费双接入已进入 `main` 和 2026-10-17 本地开发包，尚未更新公开 v1.0.9 安装包。旧包可能仍显示 Pro 提示；本次邀请体验请使用包含该改动的开发包。公开下载和版本变化以 [Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。
 
-## 真实作品：同一音箱，换个场景
+## 一个实际例子：同一只音箱，换个场景
 
 | 商品母图 | 以母图编辑的海岸场景 |
 | --- | --- |
 | ![真实模型生成的焦橙音箱商品母图](sparkai_workspace/docs/assets/github/02-product.jpg) | ![使用同一音箱母图完成的真实换背景结果](sparkai_workspace/docs/assets/github/03-reference-edit.jpg) |
 
-两张作品实际使用 `grok-imagine-image-2.0`，原始图片均为 1024×1024 JPEG，项目保留母图到编辑结果的来源关系。[更多原作、使用示例与逐图 SHA-256](sparkai_workspace/docs/GITHUB_SHOWCASE.md)。
+这两张图使用 `grok-imagine-image-2.0` 生成，原始文件都是 1024×1024 JPEG。项目里保留了从母图到编辑结果的来源关系。[更多原作、使用示例与逐图 SHA-256](sparkai_workspace/docs/GITHUB_SHOWCASE.md)。
 
-## 开始使用
+## 试着做一张图
 
 1. 安装适用版本，完成账号登录或自定义接口配置。
 2. 创建项目，导入原图或参考图；文字生图也可以从空白画布开始。

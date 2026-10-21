@@ -1,33 +1,33 @@
 # SparkAI WorkSpace
 
-SparkAI WorkSpace 是 Windows 桌面端的 Agent 生图工作台：把图片素材、自然语言任务、生成结果和来源关系放在同一个项目画布里，适合反复创作、编辑、比较和复用。
+SparkAI WorkSpace 是一个 Windows 桌面应用。你可以把素材、文字要求和生成结果放在同一个项目画布里，边看边改，也能回头找到每张图的来源。
 
 ![真实九图项目、图片来源关系与 Agent 时间线](./docs/assets/github/hero-canvas.webp)
 
 > 公开下载是 [GitHub Release v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。界面截图来自 `main` 对应的本地开发构建；后续能力尚未进入该公开安装包。
 
-## 先看展示
+## 先看几个例子
 
 - [GitHub 产品展示：真实作品、界面截图和使用示例](./docs/GITHUB_SHOWCASE.md)
 - [下载 v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)
 - [完整文档索引](./docs/README.md)
 
-## 它解决什么问题
+## 你可以用它做什么
 
-- **一个项目 Agent**：用自然语言说明主体、场景、比例和要保留的内容；选中的图片会成为当前上下文。
-- **成果画布**：原图、参考图、图片容器、需求和生成结果留在同一张画布中，来源关系可回看。
-- **持续编辑**：继续修改、生成多款、分层、抠图、重绘，结果以新的图片成果保存，原图仍然保留。
-- **本地项目管理**：拖入外部文件时应用复制到项目图片库，不改写原文件；会话、素材和导出结果保存在你选择的项目目录。
+- **直接说需求**：说明主体、场景、比例和需要保留的细节；选中的图片会自动作为当前上下文。
+- **在一张画布里工作**：原图、参考图、需求和生成结果放在一起，来源关系随时可查。
+- **继续修改**：可以换背景、生成多款、分层、抠图或重绘；每次结果都会另存，原图不会被覆盖。
+- **项目文件在本地**：导入文件时会复制到项目图片库，不会改写原文件；会话、素材和导出结果都保存在你选择的目录。
 
-## 从商品母图到新场景
+## 一个实际例子：从商品母图到新场景
 
 | 商品母图 | 以母图编辑的海岸场景 |
 | --- | --- |
 | ![真实模型生成的焦橙音箱商品母图](./docs/assets/github/02-product.jpg) | ![使用同一音箱母图完成的真实换背景结果](./docs/assets/github/03-reference-edit.jpg) |
 
-选中母图，告诉 Agent：“保留音箱外形、网罩、旋钮和提带，只把背景换成清晨海岸，输出 1 张 1:1 图片。”两张作品实际使用 `grok-imagine-image-2.0`，项目保留母图到结果的来源关系。[查看真实截图、九张原作和来源记录](./docs/GITHUB_SHOWCASE.md)。
+选中母图后，可以这样告诉 Agent：“保留音箱外形、网罩、旋钮和提带，只把背景换成清晨海岸，输出 1 张 1:1 图片。”这两张作品使用 `grok-imagine-image-2.0` 生成，项目里保留了母图到结果的来源关系。[查看真实截图、九张原作和来源记录](./docs/GITHUB_SHOWCASE.md)。
 
-## 开始使用
+## 试着做一张图
 
 1. 从 [v1.0.9 Release](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9) 下载 Windows x64 安装包。
 2. 按[接入说明](./docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md)配置模型服务。公开 v1.0.9 仍保留旧自定义接入授权流程；免费双接入属于主分支开发版。
