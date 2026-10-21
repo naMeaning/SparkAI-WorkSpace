@@ -4,6 +4,10 @@
 
 一个项目、一张画布、一个持续工作的 Agent，适合商品图、社媒配图、灵感探索与日常图片编辑。项目素材、会话和成果保存在本地；模型请求发送到你选择的服务商。
 
+![真实九图项目、图片来源关系与 Agent 时间线](sparkai_workspace/docs/assets/github/hero-canvas.webp)
+
+截图来自 `main` 对应的本地开发构建；公开安装包为 [v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)，后续开发能力尚未进入该 Release。[查看真实作品、七种界面视角和来源记录](sparkai_workspace/docs/GITHUB_SHOWCASE.md)。
+
 ## 接入方式
 
 - **账号登录**：保留现有 SparkAPI / New API 协议登录；更广泛的 New API、Sub2API 站点账号兼容是后续适配方向。
@@ -13,6 +17,14 @@
 
 > 免费双接入已进入 `main` 和 2026-10-17 本地开发包，尚未更新公开 v1.0.9 安装包。旧包可能仍显示 Pro 提示；本次邀请体验请使用包含该改动的开发包。公开下载和版本变化以 [Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。
 
+## 真实作品：同一音箱，换个场景
+
+| 商品母图 | 以母图编辑的海岸场景 |
+| --- | --- |
+| ![真实模型生成的焦橙音箱商品母图](sparkai_workspace/docs/assets/github/02-product.jpg) | ![使用同一音箱母图完成的真实换背景结果](sparkai_workspace/docs/assets/github/03-reference-edit.jpg) |
+
+两张作品实际使用 `grok-imagine-image-2.0`，原始图片均为 1024×1024 JPEG，项目保留母图到编辑结果的来源关系。[更多原作、使用示例与逐图 SHA-256](sparkai_workspace/docs/GITHUB_SHOWCASE.md)。
+
 ## 开始使用
 
 1. 安装适用版本，完成账号登录或自定义接口配置。
@@ -21,6 +33,7 @@
 4. 检查生成成果，继续编辑或导出。
 
 - [详细介绍与安装入口](sparkai_workspace/README.md)
+- [真实作品与界面展示](sparkai_workspace/docs/GITHUB_SHOWCASE.md)
 - [第一次让 Agent 完成一张图](sparkai_workspace/docs/tutorials/01-first-agent-image.md)
 - [全部教程](sparkai_workspace/docs/tutorials/README.md)
 - [账号与自定义接口接入说明](sparkai_workspace/docs/NEW_API_DUAL_ACCESS_AND_ACTIVATION.md)

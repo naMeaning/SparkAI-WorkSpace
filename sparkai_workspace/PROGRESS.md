@@ -1,6 +1,17 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-20，AI-Native 第三期本地交付完成）
+## 当前开发状态（2026-10-21，GitHub 仓库展示层公开推送中）
+
+- 首页/入口：重写 `README.md`，展示真实九图画布、商品母图到海岸场景的实际编辑示例及精简使用路径；新增 `docs/GITHUB_SHOWCASE.md`，`docs/README.md` 加入入口。保留既有教程与技术文档，未复制整篇教程。
+- 公开素材：`docs/assets/github/` 仅含 9 张历史 JPEG 原图和 7 张真实 Electron 截图，合计 16 文件 / 3,991,713 B。原图从 `artifacts/showcase-2026-10-18/originals/` 同名逐字节复制，实际模型 `grok-imagine-image-2.0`、1024×1024；截图为1584×992 WebP，逐张来源/尺寸/格式/SHA-256 集中在展示页。
+- 截图证据：原生 AI Native CLI 选择/定位真实九图成果，CDP `Page.captureScreenshot` 捕获安装版 Electron；覆盖九图与 Agent、商品原图、真实 B→C 编辑、Agent 时间线、可复用需求、评审比较和“音箱”检索两项成果。隔离公开示例仅导入作品02、03；需求保持“尚未执行”，未伪造执行时间线。画布作品均来自真实模型，无颜色方块、Mock、fixture、placeholder 或测试报告截图；9 张独立作品无本地文字覆盖，原项目边缘宣传容器的旧排版已在图注说明。
+- 版本实查：`package.json` 为1.0.9，GitHub Release 页面及 Releases 索引仍以2026-10-10的公开v1.0.9为准；安装 ASAR SHA-256 `72a19260ed610072f0104c3d8517533011a9a74969ca60e66901d6985b9054a5` 与第三期本地开发包一致。页面明确区分公开版与同版本号的main开发构建、旧自定义授权与免费双接入边界；软件免费不代表上游模型调用免费，未添加许可证/开源徽章。
+- 验证：16 图经 `sharp(...).raw().toBuffer()` 完整解码与尺寸/格式/哈希检查，9 原图匹配旧manifest，7 WebP人工复核，全部无EXIF/XMP；77处相对链接（含页内锚点）、两个GitHub Release入口、添加行/新文档/图片来源敏感模式扫描0命中、`git diff --check`通过。本地核验记录：`artifacts/github-showcase-2026-10-21/verification.json`、`capture-review.json`。
+- 请求/退出：隔离项目0图片operation，原项目仍为9个历史operation且全部saved、10节点；未调用真实图片/对话/视频生成或Seedance。截图后应用经正常关闭流程退出，同名进程0，未强杀。
+- 最新授权/入口：用户明确要求提交并推送到远程，用于正式开源项目展示。Git 根位于桌面目录的上一级，GitHub 首页读取根 README；同步加入同一张真实画布主图、商品前后对比及桌面展示页入口，让仓库首页直接显示公开素材。未发现项目级 LICENSE，仅有第三方/插件许可证，本轮不擅自指定许可证或修改业务包元数据。
+- 当前交付/边界：仅根/桌面README、docs、公开素材及Goal/Progress改动，无业务代码或包变化，不打包/安装EXE、不上传安装包或创建Release。继续暂存审阅、普通提交/推送origin/main与远端文件实查；未扩大为所有模型、站点、视频或计费验证。此前第三期功能/制品/安装/Git证据保留在下面的快照。
+
+## AI-Native 第三期本地交付快照（2026-10-20）
 
 - 功能：Main唯一项目知识owner支持项目/商品范围、用户事实/建议分源、CAS历史与停用删除；TaskScope冻结实际知识和模板，完整session历史恢复。成果本地派生检索区分观察/原要求/标签，精确身份显式使用；原需求模板库扩展有限变量、便携导入导出与命名图片重绑，跨项目重新绑定素材。主窗/独立窗/Agent/CLI/MCP同源。
 - 专项：知识13、索引10及90样本、模板8、Runtime10、legacy3、投影7；project-io322资产、双Renderer7、IPC164/161/3及相关task/creation/view-image/FastMemory/context/automation/MCP105/Commerce回归通过；最新typecheck通过，quick GUI [报告](.diagnostics/electron/aidebug-2026-10-20T06-25-03-522Z/report.json)ok:true/failures=[]。详见[第三期验证](docs/AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)。
