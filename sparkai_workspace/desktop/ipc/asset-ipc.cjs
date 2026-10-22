@@ -1,6 +1,6 @@
 "use strict";
 
-const { createHash } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const {
   createReadStream,
   copyFileSync,
@@ -17,6 +17,10 @@ const {
   imageExportFilters,
   matchingImageExportExtension
 } = require("../image-export-service.cjs");
+const { createExportQueueService } = require("../export-queue-service.cjs");
+const { writeStreamingZip } = require("../project-package-service.cjs");
+const { redactText } = require("../debug-command-service.cjs");
+const fsAsync = require("node:fs/promises");
 
 function registerAssetIpc(options = {}) {
   const {
@@ -61,7 +65,10 @@ function registerAssetIpc(options = {}) {
     retainTransientExportSource,
     exportLayeredPsd,
     convertImageForExport: convertImageForExportOverride,
-    readJson
+    readJson,
+    exportCenterStateService,
+    imageCollectionExportService,
+    projectSessionFromDisk
   } = options;
   const convertImageForExportImpl = typeof convertImageForExportOverride === "function"
     ? convertImageForExportOverride
@@ -77,11 +84,24 @@ function registerAssetIpc(options = {}) {
         return candidatePath === rootPath || candidatePath.startsWith(`${rootPath}${path.sep}`);
       };
   const exportTargetTurns = new Map();
+  const exportDirectoryAuthorizations = new Map();
 
   function exportFailure(code, message) {
     const error = new Error(message);
     error.code = code;
     throw error;
+  }
+  function publicExportMessage(value) {
+    return redactText(value instanceof Error ? value.message : String(value || "导出失败。"))
+      .replace(/https?:\/\/[^\s<>"')]+/gi, "[链接已隐藏]")
+      .replace(/(?:[a-z]:[\\/]|\\\\)[^\r\n'"]+/gi, "[路径已隐藏]")
+      .slice(0, 500);
+  }
+  function publicQueueResult(result = {}) {
+    if (!result || typeof result !== "object" || Array.isArray(result)) return { ok: false, errorCode: "EXPORT_RECEIPT_INVALID", error: "导出记录不完整。" };
+    const { path: _path, ...safe } = result;
+    for (const key of ["error", "indexWarning", "cleanupWarning"]) if (safe[key]) safe[key] = publicExportMessage(safe[key]);
+    return safe;
   }
 
   function projectExportDirectory(context, category) {
@@ -137,6 +157,28 @@ function registerAssetIpc(options = {}) {
     return target;
   }
 
+  function validatedAuthorizedExportDirectory(selectedPath) {
+    const resolved = path.resolve(selectedPath || "");
+    if (!existsSync(resolved)) exportFailure("IMAGE_EXPORT_PATH_INVALID", "所选导出目录不存在。");
+    const stats = lstatSync(resolved);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) exportFailure("IMAGE_EXPORT_PATH_INVALID", "所选导出位置不是安全的普通目录。");
+    return realpathSync(resolved);
+  }
+
+  function authorizedExportRoot(authorizationId, projectId) {
+    const entry = exportDirectoryAuthorizations.get(String(authorizationId || ""));
+    if (!entry) exportFailure("IMAGE_EXPORT_AUTHORIZATION_INVALID", "导出目录授权已失效，请重新选择目录。");
+    if (entry.projectId !== projectId) exportFailure("IMAGE_EXPORT_AUTHORIZATION_INVALID", "导出目录授权不属于当前项目。");
+    if (Date.now() - entry.createdAt > 30 * 60 * 1000) {
+      exportDirectoryAuthorizations.delete(String(authorizationId));
+      exportFailure("IMAGE_EXPORT_AUTHORIZATION_EXPIRED", "导出目录授权已过期，请重新选择目录。");
+    }
+    const root = validatedAuthorizedExportDirectory(entry.path);
+    const stats = lstatSync(root);
+    if (comparablePathImpl(root) !== entry.realPath || String(stats.dev) !== entry.dev || String(stats.ino) !== entry.ino) exportFailure("IMAGE_EXPORT_AUTHORIZATION_INVALID", "授权目录已经改变，请重新选择目录。");
+    return root;
+  }
+
   function strictImageExportFormat(value) {
     const normalized = String(value || "").trim().toLowerCase().replace(/^\./, "");
     const alias = normalized === "jpg" ? "jpeg" : normalized === "tif" ? "tiff" : normalized;
@@ -150,19 +192,8 @@ function registerAssetIpc(options = {}) {
       return format;
     }
     if (aidebugMode && payload.aidebugName) return "png";
-    const formats = Object.keys(IMAGE_EXPORT_FORMATS);
-    const options = {
-      type: "question",
-      title: "选择图片导出格式",
-      message: "请先选择格式，再选择项目内的文件名。",
-      detail: "JPEG 会使用白色背景展平透明像素；其他格式保留透明通道。",
-      buttons: [...formats.map((format) => IMAGE_EXPORT_FORMATS[format].label.replace(/\s*图片$/, "")), "取消"],
-      defaultId: 0,
-      cancelId: formats.length,
-      noLink: true
-    };
-    const selected = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
-    return selected.response >= 0 && selected.response < formats.length ? formats[selected.response] : "";
+    return "original";
+
   }
 
   async function confirmExportOverwrite(owner, destinationPath, kind) {
@@ -206,7 +237,9 @@ function registerAssetIpc(options = {}) {
 
   function managedImageExportIndex(exportRoot) {
     if (typeof readJson !== "function") return { format: "sparkai-managed-image-export-index", version: 1, entries: [] };
-    const index = readJson(path.join(exportRoot, ".sparkai-export-index.json"), {});
+    const indexFile = path.join(exportRoot, ".sparkai-export-index.json");
+    if (existsSync(indexFile) && (lstatSync(indexFile).isSymbolicLink() || !lstatSync(indexFile).isFile())) exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出索引不是安全的普通文件。");
+    const index = readJson(indexFile, {});
     return {
       format: "sparkai-managed-image-export-index",
       version: 1,
@@ -217,10 +250,11 @@ function registerAssetIpc(options = {}) {
   function managedImageSourceHash(filePath) {
     return new Promise((resolve, reject) => {
       const hash = createHash("sha256");
-      const stream = createReadStream(filePath);
+      const stream = createReadStream(filePath); let ended = false;
       stream.on("error", reject);
       stream.on("data", (chunk) => hash.update(chunk));
-      stream.on("end", () => resolve(hash.digest("hex")));
+      stream.on("end", () => { ended = true; });
+      stream.on("close", () => ended ? resolve(hash.digest("hex")) : reject(new Error("图片校验读取未完成。")));
     });
   }
 
@@ -463,17 +497,36 @@ function registerAssetIpc(options = {}) {
     }
   });
 
+  ipcMain.handle("naimage:asset:authorize-export-directory", async (event, payload = {}) => {
+    try {
+      const context = createAssetExportContext(payload.projectId);
+      const owner = BrowserWindow.fromWebContents(event.sender);
+      const selected = owner
+        ? await dialog.showOpenDialog(owner, { title: "授权图片导出目录", properties: ["openDirectory", "createDirectory"] })
+        : await dialog.showOpenDialog({ title: "授权图片导出目录", properties: ["openDirectory", "createDirectory"] });
+      if (selected.canceled || !selected.filePaths[0]) return { ok: true, canceled: true };
+      const directory = validatedAuthorizedExportDirectory(selected.filePaths[0]);
+      const authorizationId = `export-dir-${randomUUID()}`;
+      const stats = lstatSync(directory);
+      exportDirectoryAuthorizations.set(authorizationId, { path: directory, realPath: comparablePathImpl(directory), projectId: context.project.id, dev: String(stats.dev), ino: String(stats.ino), createdAt: Date.now() });
+      return { ok: true, authorizationId, label: path.basename(directory) || directory };
+    } catch (error) {
+      return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_AUTHORIZATION_FAILED", error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle("naimage:asset:save-as", async (event, payload = {}) => {
     let context = null;
     const transientSources = [];
     try {
       context = createAssetExportContext(payload?.projectId);
       const owner = BrowserWindow.fromWebContents(event.sender);
-      const requestedFormat = await chooseImageExportFormat(owner, payload);
+      let requestedFormat = await chooseImageExportFormat(owner, payload);
       if (!requestedFormat) return { ok: true, canceled: true };
-      const requestedDefinition = IMAGE_EXPORT_FORMATS[requestedFormat];
       const source = await materializeManagedImageAsset(payload?.asset, context);
       transientSources.push(source);
+      if (requestedFormat === "original") requestedFormat = strictImageExportFormat(source.extension);
+      const requestedDefinition = IMAGE_EXPORT_FORMATS[requestedFormat];
       const defaultName = exportFileName(source, payload?.suggestedName);
       let selectedPath = "";
       let projectImageExportRoot = "";
@@ -490,6 +543,7 @@ function registerAssetIpc(options = {}) {
         };
         const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
         if (result.canceled || !result.filePath) return { ok: true, canceled: true };
+        projectImageExportRoot = validatedAuthorizedExportDirectory(path.dirname(result.filePath));
         selectedPath = validatedProjectExportFile(result.filePath, projectImageExportRoot);
       }
       const matchedPath = matchingImageExportExtension(selectedPath, requestedFormat);
@@ -529,23 +583,28 @@ function registerAssetIpc(options = {}) {
     }
   });
 
-  ipcMain.handle("naimage:asset:export-managed", async (_event, payload = {}) => {
+  async function exportManagedAssetOperation(payload = {}, frozenContext) {
     let context = null;
     const transientSources = [];
     try {
-      context = createAssetExportContext(payload?.projectId);
-      const format = strictImageExportFormat(payload?.format);
+      context = frozenContext || createAssetExportContext(payload?.projectId);
+      let format = strictImageExportFormat(payload?.format || "original");
       if (!format) exportFailure("IMAGE_EXPORT_FORMAT_INVALID", "请选择有效的图片导出格式。");
       const conflictPolicy = new Set(["overwrite", "keep-both", "skip"]).has(payload?.conflictPolicy)
         ? payload.conflictPolicy
         : "overwrite";
-      const source = await materializeManagedImageAsset(payload?.asset, context);
-      transientSources.push(source);
-      const exportRoot = projectExportDirectory(context, "images");
+      const frozenSource = frozenContext && payload.frozenSource;
+      const source = frozenSource || await materializeManagedImageAsset(payload?.asset, context);
+      if (!frozenSource) transientSources.push(source);
+      if (format === "original") format = strictImageExportFormat(source.extension);
+      const externalRoot = payload?.authorizationId ? authorizedExportRoot(payload.authorizationId, context.project.id) : "";
+      const exportRoot = externalRoot || projectExportDirectory(context, "images");
       const definition = IMAGE_EXPORT_FORMATS[format];
       const requestedStem = safeExportStem(path.parse(String(payload?.suggestedName || source.asset?.title || "图片")).name, "图片");
       const requestedPath = validatedProjectExportFile(path.join(exportRoot, `${requestedStem}${definition.extension}`), exportRoot);
       const sourceSha256 = await managedImageSourceHash(source.path);
+      if (payload.expectedSourceHash && sourceSha256 !== payload.expectedSourceHash) exportFailure("IMAGE_EXPORT_SOURCE_CHANGED", "图片字节已改变，冻结的导出任务不会改用新来源。");
+      if (payload.signal?.aborted) exportFailure("EXPORT_CANCELLED", "导出已取消。");
       const fingerprint = createHash("sha256")
         .update("sparkai-managed-image-export:v1\0")
         .update(sourceSha256)
@@ -561,13 +620,13 @@ function registerAssetIpc(options = {}) {
         if (existingName) {
           const existingPath = validatedProjectExportFile(path.join(exportRoot, existingName), exportRoot);
           const existingStats = existsSync(existingPath) ? lstatSync(existingPath) : null;
-          if (existingStats?.isFile() && !existingStats.isSymbolicLink() && existingStats.size > 0) {
+          if (existingStats?.isFile() && !existingStats.isSymbolicLink() && existingStats.size > 0 && existing.outputSha256 && await managedImageSourceHash(existingPath) === existing.outputSha256) {
             return {
               ok: true,
               skipped: true,
               skippedReason: "unchanged",
               path: existingPath,
-              relativePath: managedImageExportRelativePath(exportRoot, existingPath),
+              relativePath: externalRoot ? undefined : managedImageExportRelativePath(exportRoot, existingPath),
               format,
               bytes: existingStats.size,
               fingerprint
@@ -584,7 +643,7 @@ function registerAssetIpc(options = {}) {
           skipped: true,
           skippedReason: "conflict",
           path: destinationPath,
-          relativePath: managedImageExportRelativePath(exportRoot, destinationPath),
+          relativePath: externalRoot ? undefined : managedImageExportRelativePath(exportRoot, destinationPath),
           format,
           bytes: stats.isFile() ? stats.size : 0,
           fingerprint
@@ -600,7 +659,7 @@ function registerAssetIpc(options = {}) {
             skipped: true,
             skippedReason: "conflict",
             path: destinationPath,
-            relativePath: managedImageExportRelativePath(exportRoot, destinationPath),
+            relativePath: externalRoot ? undefined : managedImageExportRelativePath(exportRoot, destinationPath),
             format,
             bytes: stats.isFile() ? stats.size : 0,
             fingerprint
@@ -609,8 +668,8 @@ function registerAssetIpc(options = {}) {
         if (existsAtCommit && conflictPolicy === "keep-both") {
           exportFailure("NAIMAGE_EXPORT_TARGET_EXISTS", "导出目标刚刚被其他任务占用，请重试。");
         }
-        const exported = await convertImageForExportImpl(source.path, destinationPath, format, { overwrite: existsAtCommit });
-        const relativePath = managedImageExportRelativePath(exportRoot, exported.path);
+        const exported = await convertImageForExportImpl(source.path, destinationPath, format, { overwrite: existsAtCommit, expectedSourceHash: payload.expectedSourceHash, signal: payload.signal });
+        const relativePath = externalRoot ? undefined : managedImageExportRelativePath(exportRoot, exported.path);
         const entry = {
           fingerprint,
           assetId: String(source.asset?.assetId || "").slice(0, 160) || undefined,
@@ -619,6 +678,7 @@ function registerAssetIpc(options = {}) {
           fileName: path.basename(exported.path),
           relativePath,
           bytes: exported.bytes,
+          outputSha256: await managedImageSourceHash(exported.path),
           exportedAt: new Date().toISOString()
         };
         let indexWarning = "";
@@ -649,11 +709,285 @@ function registerAssetIpc(options = {}) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log(`asset managed export failed ${message}`);
-      return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_FAILED", error: message };
+      log(`asset managed export failed ${publicExportMessage(message)}`);
+      return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_FAILED", error: publicExportMessage(message) };
     } finally {
       releaseExportSourcesSafely(transientSources, context);
     }
+  }
+
+  const checkExportCancelled = signal => { if (signal?.aborted) exportFailure("EXPORT_CANCELLED", "导出已取消。"); };
+  const exportRelative = (context, file) => {
+    const value = path.relative(context.project.path, file).replace(/\\/g, "/");
+    return value && !value.startsWith("../") && !path.isAbsolute(value) ? value : undefined;
+  };
+  function queuedTargetRoot(snapshot, context) {
+    return snapshot.target.authorizationId ? authorizedExportRoot(snapshot.target.authorizationId, context.project.id)
+      : projectExportDirectory(context, snapshot.params.container === "zip" ? "archives" : snapshot.params.target === "psd" ? "psd" : "images");
+  }
+  async function queueTargetPath(snapshot, context, name, execute) {
+    const root = queuedTargetRoot(snapshot, context), requested = validatedProjectExportFile(path.join(root, name), root);
+    const policy = snapshot.params.conflictPolicy || "keep-both";
+    return withExportTargetLock(requested, async () => {
+      checkExportCancelled(snapshot.signal);
+      if (existsSync(requested) && policy === "skip") return { ok: true, skipped: true, skippedCount: snapshot.params.container === "zip" ? snapshot.params.itemCount : 1, skippedReason: "conflict", relativePath: exportRelative(context, requested) };
+      const destination = existsSync(requested) && policy === "keep-both" ? uniqueExportPath(root, name) : requested;
+      const result = await execute(destination, existsSync(destination) && policy === "overwrite", root);
+      return { ok: true, ...result, relativePath: exportRelative(context, destination) };
+    });
+  }
+  async function freezePsdSource(item, context, transientSources) {
+    const session = projectSessionFromDisk(context.project), node = (session.nodes || []).find(candidate => candidate.id === item.nodeId);
+    if (!node) exportFailure("PSD_EXPORT_NODE_MISSING", "选择的 PSD 来源节点不在当前项目。");
+    let layers, width, height;
+    if (item.kind === "layer-group") {
+      if (node.layerGroup) {
+        const group = node.layerGroup;
+        const members = session.nodes.filter(candidate => candidate.layerGroup?.id === group.id).sort((left, right) => Number(left.layerGroup.order) - Number(right.layerGroup.order));
+        if (members.length !== Number(group.total) || members.some((member, index) => Number(member.layerGroup.order) !== index + 1)) exportFailure("PSD_EXPORT_LAYER_GROUP_INVALID", "图层组层序不完整，无法导出 PSD。");
+        layers = members.map(member => ({ asset: member.assets?.[0], title: member.layerGroup.layerTitle || member.title,
+          order: member.layerGroup.order, opacity: member.layerGroup.opacity ?? 1, visible: member.layerGroup.visible !== false, blendMode: member.layerGroup.blendMode || "normal" })).reverse();
+        width = group.compositionWidth; height = group.compositionHeight;
+      } else if (node.layerComposition) {
+        layers = (node.layerComposition.layers || []).map(layer => ({ ...layer, title: layer.title || "图层" })).sort((left, right) => Number(right.order) - Number(left.order));
+        width = node.layerComposition.width; height = node.layerComposition.height;
+      } else exportFailure("PSD_EXPORT_LAYER_GROUP_INVALID", "选择的图层组不存在。");
+    } else {
+      const index = Math.max(0, Math.floor(Number(item.assetIndex || 0))), asset = node.assets?.[index];
+      if (!asset) exportFailure("PSD_EXPORT_ASSET_MISSING", "选择的 PSD 图片已经移除。");
+      if (item.asset?.assetId && item.asset.assetId !== asset.assetId || item.asset?.occurrenceId && item.asset.occurrenceId !== asset.occurrenceId || item.asset?.contentHash && item.asset.contentHash !== asset.contentHash) exportFailure("IMAGE_EXPORT_SOURCE_CHANGED", "选择的 PSD 图片身份已经变化。");
+      layers = [{ asset, title: `${node.title || "图片成果"}｜图片 ${index + 1}`, visible: true, opacity: 1 }]; width = asset.width; height = asset.height;
+    }
+    if (!layers.length || layers.length > 64) exportFailure("PSD_EXPORT_LAYER_GROUP_INVALID", "PSD 需要 1–64 个完整图层。");
+    const frozenLayers = [];
+    for (const layer of layers) {
+      if (layer.blendMode && !["normal", "source-over"].includes(layer.blendMode)) exportFailure("PSD_EXPORT_BLEND_UNSUPPORTED", "PSD 包含不支持的混合模式，无法导出。");
+      const source = await materializeManagedImageAsset(layer.asset, context); transientSources.push(source);
+      if (item.kind === "layer-group" && source.extension !== ".png") exportFailure("PSD_EXPORT_SOURCE_NOT_PNG", "分层 PSD 只接受真实 PNG 图层。");
+      const hash = await managedImageSourceHash(source.path);
+      if (layer.asset.contentHash && hash !== layer.asset.contentHash) exportFailure("IMAGE_EXPORT_SOURCE_CHANGED", "PSD 来源字节已经改变。");
+      frozenLayers.push({ source, contentHash: hash, name: String(layer.title || "图层").slice(0, 255), visible: layer.visible !== false, opacity: Number(layer.opacity ?? 1) });
+    }
+    return { layers: frozenLayers, width, height, nodeId: node.id, title: node.title || "图片成果" };
+  }
+  async function exportQueuedPsd(snapshot, context, payload, signal) {
+    const prepared = [], transient = [];
+    try {
+      for (const layer of payload.psd.layers) {
+        checkExportCancelled(signal);
+        if (await managedImageSourceHash(layer.source.path) !== layer.contentHash) exportFailure("IMAGE_EXPORT_SOURCE_CHANGED", "PSD 来源字节已经改变，冻结任务不会使用新来源。");
+        let source = layer.source;
+        if (source.extension !== ".png") {
+          source = { ...source, ...await preparePsdRasterSource({ sourcePath: source.path, cacheDir: secureExportSourceCacheDir(context), ownerPid: process.pid, signal }), transient: true };
+          retainTransientExportSource(source.path); transient.push(source);
+        }
+        prepared.push({ name: layer.name, path: source.path, opacity: layer.opacity, visible: layer.visible });
+      }
+      const name = `${safeExportStem(path.parse(payload.suggestedName || payload.psd.title).name, "图片成果")}.psd`;
+      return await queueTargetPath({ ...snapshot, signal }, context, name, async (outputPath, overwrite) => {
+        checkExportCancelled(signal);
+        const result = await exportLayeredPsd({ outputPath, width: Number(payload.psd.width) || undefined, height: Number(payload.psd.height) || undefined, overwrite, layers: prepared, signal });
+        return { path: outputPath, count: 1, bytes: result.bytes || lstatSync(outputPath).size, format: "psd", width: result.width, height: result.height };
+      });
+    } finally { releaseExportSourcesSafely(transient, context); }
+  }
+  async function zipDirectoryEntries(root, prefix = "") {
+    const result = [];
+    for (const item of await fsAsync.readdir(root, { withFileTypes: true })) {
+      if (item.isSymbolicLink()) exportFailure("EXPORT_ZIP_UNSAFE_SOURCE", "ZIP 暂存目录含链接。");
+      const name = prefix ? `${prefix}/${item.name}` : item.name, file = path.join(root, item.name);
+      if (item.isDirectory()) result.push(...await zipDirectoryEntries(file, name));
+      else if (item.isFile()) result.push({ name, filePath: file });
+    }
+    return result;
+  }
+  async function exportQueuedArchive(snapshot, context, payload, signal) {
+    const root = queuedTargetRoot(snapshot, context), staging = await fsAsync.mkdtemp(path.join(root, ".naimage-export-zip-"));
+    try {
+      if (payload.operation === "collection") {
+        const frozen = { ...context.collectionPrepared, destinationRoot: staging, exportRoot: staging,
+          plans: context.collectionPrepared.plans.map(plan => ({ ...plan, action: "export", skippedReason: undefined, existingEntry: undefined })) };
+        await imageCollectionExportService.executeFrozen(frozen, { signal });
+      } else {
+        const manifest = [];
+        for (const item of payload.images) {
+          checkExportCancelled(signal);
+          const source = item.frozenSource, requested = item.format === "original" ? strictImageExportFormat(source.extension) : strictImageExportFormat(item.format || "original");
+          const extension = IMAGE_EXPORT_FORMATS[requested]?.extension;
+          if (!extension) exportFailure("IMAGE_EXPORT_FORMAT_INVALID", "ZIP 图片格式无效。");
+          const target = uniqueExportPath(staging, `${safeExportStem(item.suggestedName, "图片")}${extension}`);
+          const exported = await convertImageForExportImpl(source.path, target, requested, { expectedSourceHash: item.expectedSourceHash, signal, overwrite: false });
+          manifest.push({ assetId: item.asset.assetId, occurrenceId: item.asset.occurrenceId, sourceSha256: item.expectedSourceHash, fileName: path.basename(target), format: exported.format });
+        }
+        writeJson(path.join(staging, "images.json"), { format: "sparkai-image-export", version: 1, images: manifest });
+      }
+      const entries = await zipDirectoryEntries(staging), name = `${safeExportStem(payload.suggestedName || "图片交付", "图片交付")}.zip`;
+      return await queueTargetPath({ ...snapshot, signal }, context, name, async (outputPath, overwrite) => ({
+        ...await writeStreamingZip(outputPath, entries, { signal, overwrite }), count: snapshot.params.itemCount,
+        exportedCount: snapshot.params.itemCount
+      }));
+    } finally { await fsAsync.rm(staging, { recursive: true, force: true }); }
+  }
+
+  const queueContexts = new Map();
+  const managedExportQueue = createExportQueueService({
+    persist: async (job) => {
+      const context = queueContexts.get(job.snapshot?.params?.contextId);
+      if (!context || typeof writeJson !== "function") return;
+      const root = realpathSync(context.project.path);
+      const meta = path.join(root, ".naimage");
+      mkdirSync(meta, { recursive: true });
+      if (lstatSync(meta).isSymbolicLink() || !isPathInside(realpathSync(meta), root)) exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出队列目录包含越界链接。");
+      const file = path.join(meta, "export-jobs.json");
+      if (existsSync(file) && lstatSync(file).isSymbolicLink()) exportFailure("IMAGE_EXPORT_PATH_INVALID", "导出队列记录不是普通文件。");
+      const previous = typeof readJson === "function" ? readJson(file, { jobs: [] }) : { jobs: [] };
+      const receipt = { ...job, snapshot: { ...job.snapshot, target: { ...job.snapshot.target, authorizationId: undefined }, params: { ...job.snapshot.params, contextId: undefined, projectRoot: undefined } }, results: job.results.map(publicQueueResult) };
+      writeJson(file, { format: "sparkai-export-jobs", version: 1, jobs: [...(Array.isArray(previous?.jobs) ? previous.jobs : []).filter((item) => item.id !== job.id), receipt].slice(-100) });
+      if (["succeeded", "failed", "cancelled"].includes(job.status) && exportCenterStateService) {
+        const results = job.results;
+        await exportCenterStateService.recordHistory({ expectedProjectId: context.project.id, entry: {
+          id: job.id, jobId: job.id, target: job.snapshot.params.target || "image", format: job.snapshot.params.target === "psd" ? "psd" : job.snapshot.params.format || "original",
+          label: `${{ image: "图片", collection: "图片组", psd: "PSD" }[job.snapshot.params.target || "image"]}导出 · ${job.snapshot.params.itemCount || job.snapshot.items.length} 项`, status: job.status === "cancelled" ? "skipped" : job.status,
+          itemCount: job.snapshot.params.itemCount || job.snapshot.items.length, exportedCount: results.reduce((sum, item) => sum + (item?.ok && !item.skipped ? Number(item.exportedCount ?? 1) : 0), 0),
+          skippedCount: results.reduce((sum, item) => sum + Number(item?.skippedCount ?? (item?.skipped ? 1 : 0)), 0),
+          totalBytes: results.reduce((sum, item) => sum + Number(item?.bytes || 0), 0),
+          relativePaths: results.flatMap((item) => item?.relativePaths || (item?.relativePath ? [item.relativePath] : [])),
+          errorCode: results.find((item) => item?.ok === false)?.errorCode,
+          error: job.status === "cancelled" ? "用户取消；已完成文件保留。" : results.find((item) => item?.ok === false)?.error ? publicExportMessage(results.find((item) => item?.ok === false).error) : undefined,
+          startedAt: job.startedAt, finishedAt: job.finishedAt
+        } }, { allowInactive: true });
+      }
+      if (["succeeded", "cancelled"].includes(job.status) && !context.sourcesReleased) {
+        releaseExportSourcesSafely(context.frozenSources || [], context);
+        context.sourcesReleased = true;
+      }
+    },
+    execute: async (snapshot, { signal, item }) => {
+      if (signal.aborted) throw Object.assign(new Error("导出已取消。"), { code: "EXPORT_CANCELLED" });
+      const context = queueContexts.get(snapshot.params.contextId);
+      if (!context || comparablePathImpl(realpathSync(context.project.path)) !== snapshot.params.projectRoot) exportFailure("PROJECT_CHANGED", "冻结项目目录已经改变。");
+      let result;
+      if (item.payload?.operation === "psd") result = await exportQueuedPsd(snapshot, context, item.payload, signal);
+      else if (snapshot.params.container === "zip") result = await exportQueuedArchive(snapshot, context, item.payload, signal);
+      else if (item.payload?.operation === "collection") {
+        if (snapshot.target.authorizationId) authorizedExportRoot(snapshot.target.authorizationId, context.project.id);
+        const exported = await imageCollectionExportService.executeFrozen(context.collectionPrepared, { signal });
+        result = { ok: true, bytes: exported.totalBytes, exportedCount: exported.exported.filter(group => !group.skipped).length,
+          skippedCount: exported.skippedCount, relativePaths: snapshot.target.authorizationId ? [] : exported.exported.map(group => group.relativePath) };
+      } else result = await exportManagedAssetOperation({ ...(item.payload || {}), projectId: snapshot.projectId, authorizationId: snapshot.target.authorizationId, expectedSourceHash: item.contentHash, signal }, context);
+      if (!result?.ok) throw Object.assign(new Error(result?.error || "图片导出失败。"), { code: result?.errorCode || "IMAGE_EXPORT_FAILED" });
+      return result;
+    }
+  });
+  const queueSnapshot = (job) => ({
+    queueId: job?.id,
+    projectId: job?.snapshot?.projectId,
+    status: job?.status,
+    total: job?.snapshot?.params?.itemCount || job?.snapshot?.items?.length || 0,
+    completed: job?.completed === job?.snapshot?.items?.length ? (job?.snapshot?.params?.itemCount || job?.completed || 0) : job?.completed || 0,
+    canceled: job?.status === "cancelled",
+    results: Array.isArray(job?.results) ? job.results.map(publicQueueResult) : [],
+    createdAt: job?.snapshot?.createdAt,
+    startedAt: job?.startedAt,
+    finishedAt: job?.finishedAt,
+    snapshotHash: job?.snapshot?.snapshotHash,
+    config: { target: job?.snapshot?.params?.target || "image", container: job?.snapshot?.params?.container || "folder", format: job?.snapshot?.params?.format, conflictPolicy: job?.snapshot?.params?.conflictPolicy },
+    items: (job?.snapshot?.items || []).map(({ assetId, occurrenceId, contentHash, name }) => ({ assetId, occurrenceId, contentHash, name }))
+  });
+  function exportQueueProjectId(payload) {
+    const projectId = typeof payload?.projectId === "string" ? payload.projectId.trim() : "";
+    if (!projectId) exportFailure("PROJECT_REQUIRED", "导出队列操作必须指定项目。");
+    return projectId;
+  }
+  function exportQueueJobForProject(payload, projectId) {
+    const queueId = String(payload?.queueId || "").trim(), job = managedExportQueue.get(queueId);
+    if (!job) exportFailure("IMAGE_EXPORT_QUEUE_NOT_FOUND", "导出队列不存在。");
+    if (job.snapshot.projectId !== projectId) exportFailure("PROJECT_CHANGED", "导出队列不属于指定项目。");
+    return job;
+  }
+
+  ipcMain.handle("naimage:asset:export-managed", (_event, payload = {}) => exportManagedAssetOperation(payload));
+  ipcMain.handle("naimage:asset:export-managed-queue:start", async (_event, payload = {}) => {
+    let queueContext = null, contextId = "", accepted = false;
+    const frozenSources = [];
+    try {
+      const projectId = String(payload.projectId || "").trim(), target = payload.target || "image", container = payload.container || "folder";
+      if (!projectId) exportFailure("PROJECT_REQUIRED", "当前项目不能为空。");
+      if (!["image", "collection", "psd"].includes(target) || !["folder", "zip"].includes(container) || target === "psd" && container === "zip") exportFailure("EXPORT_QUEUE_TARGET_INVALID", "导出类型或容器无效。");
+      if (["path", "targetPath", "destinationPath", "outputPath", "absolutePath", "directory"].some(key => payload[key] !== undefined)) exportFailure("EXPORT_TARGET_INVALID", "导出任务只接受 Main 授权引用，不能指定写入路径。");
+      queueContext = createAssetExportContext(projectId);
+      const destinationRoot = payload.authorizationId ? authorizedExportRoot(payload.authorizationId, projectId) : "";
+      const conflictPolicy = payload.conflictPolicy || payload.items?.[0]?.conflictPolicy || "keep-both";
+      if (!["keep-both", "overwrite", "skip"].includes(conflictPolicy)) exportFailure("IMAGE_EXPORT_CONFLICT_POLICY_INVALID", "重名处理方式无效。");
+      const items = []; let itemCount = 0;
+      if (target === "collection") {
+        if (!imageCollectionExportService?.freezeExport) exportFailure("IMAGE_COLLECTION_EXPORT_UNAVAILABLE", "图片组导出服务不可用。");
+        const request = { expectedProjectId: projectId, collectionIds: payload.collectionIds, format: payload.format || "original",
+          filenameTemplate: payload.filenameTemplate, conflictPolicy, incremental: payload.incremental === true, previewToken: payload.previewToken };
+        const prepared = destinationRoot ? await imageCollectionExportService.freezeExportToDirectory(request, destinationRoot) : await imageCollectionExportService.freezeExport(request);
+        queueContext.collectionPrepared = prepared; itemCount = prepared.collectionIds.length;
+        const contentHash = createHash("sha256").update(JSON.stringify(prepared.preview)).digest("hex");
+        items.push({ assetId: `collection-batch-${contentHash.slice(0, 24)}`, occurrenceId: "collection-transaction", contentHash, name: "图片组整批事务",
+          payload: { operation: "collection", suggestedName: payload.suggestedName || "图片组交付" } });
+      } else {
+        const rawItems = Array.isArray(payload.items) ? payload.items : [];
+        if (!rawItems.length || rawItems.length > 500) exportFailure("IMAGE_EXPORT_QUEUE_INVALID", "导出队列必须包含 1–500 个项目。");
+        itemCount = rawItems.length;
+        for (const [index, item] of rawItems.entries()) {
+          if (["path", "targetPath", "destinationPath", "outputPath", "absolutePath", "directory"].some(key => item[key] !== undefined)) exportFailure("EXPORT_TARGET_INVALID", "导出项不能指定写入路径。");
+          if (target === "psd") {
+            const psd = await freezePsdSource(item, queueContext, frozenSources), contentHash = createHash("sha256").update(JSON.stringify(psd.layers.map(layer => ({ hash: layer.contentHash, name: layer.name, opacity: layer.opacity, visible: layer.visible })))).digest("hex");
+            items.push({ assetId: `psd-${psd.nodeId}`, occurrenceId: `psd-${psd.nodeId}-${item.assetIndex || 0}`, contentHash, name: String(item.suggestedName || psd.title), payload: { operation: "psd", psd, suggestedName: item.suggestedName } });
+          } else {
+            const asset = item.asset || {}, frozenSource = await materializeManagedImageAsset(asset, queueContext); frozenSources.push(frozenSource);
+            const contentHash = await managedImageSourceHash(frozenSource.path);
+            if (asset.contentHash && String(asset.contentHash).toLowerCase() !== contentHash) exportFailure("IMAGE_EXPORT_SOURCE_CHANGED", "选择的图片已经改变，请重新选择来源。");
+            items.push({ assetId: String(asset.assetId || `asset-${index + 1}`), occurrenceId: String(asset.occurrenceId || asset.assetId || `occurrence-${index + 1}`), contentHash,
+              name: String(item.suggestedName || asset.name || "图片"), payload: { asset, frozenSource, expectedSourceHash: contentHash, suggestedName: String(item.suggestedName || "图片"), format: item.format || payload.format || "original", conflictPolicy,
+                incremental: item.incremental === true || payload.incremental === true } });
+          }
+        }
+        if (container === "zip") {
+          const images = items.map(item => item.payload), contentHash = createHash("sha256").update(items.map(item => item.contentHash).join("|")).digest("hex");
+          items.splice(0, items.length, { assetId: `zip-${contentHash.slice(0, 24)}`, occurrenceId: "image-zip-transaction", contentHash, name: "图片 ZIP 事务", payload: { operation: "image-zip", images, suggestedName: payload.suggestedName || "图片交付" } });
+        }
+      }
+      contextId = randomUUID(); queueContext.frozenSources = frozenSources; queueContexts.set(contextId, queueContext);
+      const job = await managedExportQueue.enqueue({ projectId, selectionRevision: Number(payload.selectionRevision || 0),
+        target: payload.authorizationId ? { kind: "authorized-directory", authorizationId: payload.authorizationId } : { kind: "project", projectId, relativePath: target === "collection" && container !== "zip" ? "image-groups" : `exports/${container === "zip" ? "archives" : target === "psd" ? "psd" : "images"}` },
+        params: { contextId, projectRoot: comparablePathImpl(realpathSync(queueContext.project.path)), target, container, itemCount, format: target === "psd" ? "psd" : payload.format || payload.items?.[0]?.format || "original", conflictPolicy }, items });
+      accepted = true; return { ok: true, ...queueSnapshot(job) };
+    } catch (error) { return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_QUEUE_FAILED", error: publicExportMessage(error) }; }
+    finally { if (!accepted) { if (contextId) queueContexts.delete(contextId); releaseExportSourcesSafely(frozenSources, queueContext); } }
+  });
+  ipcMain.handle("naimage:asset:export-managed-queue:status", async (_event, payload = {}) => {
+    try {
+      const projectId = exportQueueProjectId(payload);
+      if (!payload.queueId) {
+        const context = createAssetExportContext(projectId);
+        const file = path.join(context.project.path, ".naimage", "export-jobs.json");
+        const stored = typeof readJson === "function" ? readJson(file, { jobs: [] }) : { jobs: [] };
+        const live = managedExportQueue.list().filter((job) => job.snapshot.projectId === projectId);
+        return { ok: true, jobs: live.map(queueSnapshot), history: (Array.isArray(stored?.jobs) ? stored.jobs : []).filter((job) => job?.snapshot?.projectId === projectId && !live.some((item) => item.id === job.id)).map((job) => ({ ...queueSnapshot(job), status: ["queued", "running"].includes(job.status) ? "interrupted" : job.status })) };
+      }
+      return { ok: true, ...queueSnapshot(exportQueueJobForProject(payload, projectId)) };
+    } catch (error) { return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_QUEUE_FAILED", error: publicExportMessage(error) }; }
+  });
+  ipcMain.handle("naimage:asset:export-managed-queue:cancel", async (_event, payload = {}) => {
+    try {
+      const projectId = exportQueueProjectId(payload), job = exportQueueJobForProject(payload, projectId);
+      const result = await managedExportQueue.cancel(job.id);
+      if (!result.ok) exportFailure("IMAGE_EXPORT_QUEUE_NOT_FOUND", "导出队列不存在。");
+      return { ok: true, ...queueSnapshot(result) };
+    } catch (error) { return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_QUEUE_FAILED", error: publicExportMessage(error) }; }
+  });
+  ipcMain.handle("naimage:asset:export-managed-queue:retry-failed", async (_event, payload = {}) => {
+    try {
+      const projectId = exportQueueProjectId(payload), job = exportQueueJobForProject(payload, projectId);
+      const retried = await managedExportQueue.retryFailed(job.id);
+      if (!retried.length) exportFailure("IMAGE_EXPORT_QUEUE_NOT_RETRYABLE", "没有可重试的失败导出项。");
+      return { ok: true, ...queueSnapshot(retried[0]) };
+    } catch (error) { return { ok: false, errorCode: error?.code || "IMAGE_EXPORT_QUEUE_FAILED", error: publicExportMessage(error) }; }
   });
 
   ipcMain.handle("naimage:asset:export-folder", async (event, payload = {}) => {

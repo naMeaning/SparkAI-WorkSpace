@@ -11,7 +11,7 @@ const MAX_PRESETS = 24;
 const MAX_HISTORY = 100;
 const MAX_STATE_BYTES = 512 * 1024;
 const TARGETS = new Set(["image", "collection", "psd"]);
-const FORMATS = new Set(["png", "jpeg", "webp", "avif", "tiff", "psd"]);
+const FORMATS = new Set(["original", "png", "jpeg", "webp", "avif", "tiff", "psd"]);
 const CONFLICT_POLICIES = new Set(["overwrite", "keep-both", "skip"]);
 const HISTORY_STATUSES = new Set(["succeeded", "failed", "skipped"]);
 
@@ -60,6 +60,7 @@ function normalizePreset(value = {}, existing, touch = true) {
     name,
     target,
     format,
+    container: value.container === "zip" ? "zip" : "folder",
     filenameTemplate: cleanText(value.filenameTemplate, 160) || "{title}-{index}",
     conflictPolicy,
     incremental: value.incremental === true,
@@ -143,10 +144,10 @@ function createExportCenterStateService({ getProjectById, readProjectList } = {}
   }
   let writeQueue = Promise.resolve();
 
-  function projectForId(value) {
+  function projectForId(value, allowInactive = false) {
     const projectId = cleanText(value, 160);
     const list = readProjectList();
-    if (!projectId || projectId !== cleanText(list?.activeProjectId, 160)) {
+    if (!projectId || (!allowInactive && projectId !== cleanText(list?.activeProjectId, 160))) {
       throw new ExportCenterStateError("PROJECT_CHANGED", "当前项目已切换，请重新打开导出中心。", { projectId });
     }
     const project = getProjectById(projectId, list);
@@ -246,9 +247,9 @@ function createExportCenterStateService({ getProjectById, readProjectList } = {}
     });
   }
 
-  async function recordHistory(payload = {}) {
+  async function recordHistory(payload = {}, internal = {}) {
     return serialized(async () => {
-      const project = projectForId(payload.expectedProjectId ?? payload.projectId);
+      const project = projectForId(payload.expectedProjectId ?? payload.projectId, internal.allowInactive === true);
       const state = await loadForProject(project);
       const entry = normalizeHistoryEntry(payload.entry);
       state.history = [...state.history.filter((item) => item.id !== entry.id), entry].slice(-MAX_HISTORY);

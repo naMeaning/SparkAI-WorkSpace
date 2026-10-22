@@ -885,7 +885,7 @@ export type ImageGenerationParameterSnapshot = {
   background?: string;
   moderation?: string;
   inputFidelity?: string;
-};
+} & import("../runtime/comfyui-options.mjs").ComfyUiGenerationMetadata;
 
 export type ImageGenerationResponseSnapshot = ImageGenerationParameterSnapshot & {
   createdAt?: string;
@@ -899,6 +899,8 @@ export type ImageAssetGenerationMetadata = {
   completedAt?: string;
   durationMs?: number;
 };
+
+export type ImageLocalProcessing = import("../runtime/image-local-processing.mjs").ImageLocalProcessing;
 
 export type ImageAsset = {
   contentName?: ImageContentName;
@@ -934,6 +936,8 @@ export type ImageAsset = {
   error?: string;
   runId?: string;
   generation?: ImageAssetGenerationMetadata;
+  /** Local pixel processing evidence, separate from provider-reported generation parameters. */
+  localProcessing?: ImageLocalProcessing;
 };
 
 export type VideoAsset = {
@@ -1479,6 +1483,9 @@ export type ImageAssetExportResult = {
   indexWarning?: string;
   files?: string[];
   count?: number;
+  exportedCount?: number;
+  skippedCount?: number;
+  relativePaths?: string[];
   width?: number;
   height?: number;
   layerNames?: string[];
@@ -1487,16 +1494,24 @@ export type ImageAssetExportResult = {
   error?: string;
 };
 
-export type ImageExportFormat = "png" | "jpeg" | "webp" | "avif" | "tiff";
+export type ImageExportFormat = "original" | "png" | "jpeg" | "webp" | "avif" | "tiff";
 export type ExportCenterTarget = "image" | "collection" | "psd";
 export type ExportCenterFormat = ImageExportFormat | "psd";
 export type ExportConflictPolicy = "overwrite" | "keep-both" | "skip";
+
+export type ManagedExportQueueSnapshot = {
+  queueId: string; projectId: string; status: string; total: number; completed: number;
+  results: ImageAssetExportResult[]; startedAt?: string; finishedAt?: string;
+  config?: { target?: ExportCenterTarget; container?: "folder" | "zip"; format?: ExportCenterFormat; conflictPolicy?: ExportConflictPolicy };
+  items?: { assetId: string; occurrenceId: string; contentHash: string; name: string }[];
+};
 
 export type ExportCenterPreset = {
   id: string;
   name: string;
   target: ExportCenterTarget;
   format: ExportCenterFormat;
+  container?: "folder" | "zip";
   filenameTemplate: string;
   conflictPolicy: ExportConflictPolicy;
   incremental: boolean;
@@ -1584,6 +1599,8 @@ export type ImageCollectionExportPreviewResult = {
 };
 
 export type ImageCollectionExportResult = ImageCollectionExportPreviewResult & {
+  accepted?: boolean;
+  queueId?: string;
   exportedAt?: string;
   requestedImageCount?: number;
   imageBytes?: number;
@@ -1616,7 +1633,7 @@ export type SaveAssetAsPayload = {
   asset: ImageAsset;
   projectId?: string;
   suggestedName?: string;
-  /** Preferred local export format. When omitted, Main asks for a format before opening a single-format Save dialog. */
+  /** Preferred local export format; omitted preserves the source file bytes. */
   format?: ImageExportFormat;
   /** AIDebug only: bypasses the native picker and writes below .diagnostics. */
   aidebugName?: string;
@@ -2054,6 +2071,20 @@ export type CanvasMenuState = CanvasMenuScope & (
 
 export type ImageBatchMode = "parallel";
 
+export type ComfyUiTaskOptions = import("../runtime/comfyui-options.mjs").ComfyUiTaskOptions;
+
+export type ComfyUiTemplate = {
+  id: string;
+  label: string;
+  version: number;
+  templateHash: string;
+  builtIn: boolean;
+  operation: "generate" | "img2img";
+  imageInputs: number;
+  outputNodeId: string;
+  inputMappings: Array<{ nodeId: string; inputName: string; kind: string; index?: number; value?: unknown }>;
+};
+
 export type ImageTaskDraft = {
   prompt: string;
   ratio: string;
@@ -2073,6 +2104,9 @@ export type ImageTaskDraft = {
   layerRole?: string;
   layerGroupId?: string;
   transparentPreferred?: boolean;
+  provider?: "comfyui";
+  comfyui?: ComfyUiTaskOptions;
+  submissionId?: string;
 };
 
 export type ReferencePickerTarget =
@@ -2691,7 +2725,7 @@ export type ConfigBridge = {
     error?: string;
     details?: Record<string, unknown>;
   }>;
-  exportProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
+  exportProject?(payload?: { expectedProjectId: string; preset: "share" | "archive"; includeHistory?: boolean }): Promise<{ ok: boolean; path?: string; canceled?: boolean; error?: string }>;
   importProject?(): Promise<{ ok: boolean; path?: string; canceled?: boolean; project?: ProjectRecord; projects?: ProjectRecord[]; activeProjectId?: string; session?: PersistedWorkflowSession; error?: string }>;
   importProjectGraph?(): Promise<{ ok: boolean; canceled?: boolean; graph?: ProjectGraphDocument; task?: { prompt: string; visibleContent: string }; errorCode?: string; error?: string }>;
   importSkill?(): Promise<{ ok: boolean; canceled?: boolean; skill?: ImportedCanvasSkill; errorCode?: string; error?: string }>;
@@ -2750,8 +2784,15 @@ export type ConfigBridge = {
   importLocalImages?(payload: { paths: string[]; projectId?: string; maxFiles?: number }): Promise<ImageImportResult>;
   importLocalVideos?(payload: { paths: string[]; projectId?: string; maxFiles?: number }): Promise<VideoImportResult>;
   saveOutputImage?(payload: { dataUrl: string; stem?: string; runId?: string; projectId?: string; bucket?: "imagegen" | "post"; subdir?: string }): Promise<{ ok: boolean; asset?: ImageAsset; error?: string }>;
+  authorizeExportDirectory?(payload: { projectId: string }): Promise<{ ok: boolean; canceled?: boolean; authorizationId?: string; label?: string; errorCode?: string; error?: string }>;
   saveAssetAs?(payload: SaveAssetAsPayload): Promise<ImageAssetExportResult>;
   exportManagedAsset?(payload: ExportManagedAssetPayload): Promise<ImageAssetExportResult>;
+  exportManagedAssetQueue?: {
+    start(payload: { projectId: string; authorizationId?: string; selectionRevision?: number; target?: "image" | "collection" | "psd"; container?: "folder" | "zip"; collectionIds?: string[]; format?: ExportCenterFormat; filenameTemplate?: string; conflictPolicy?: ExportConflictPolicy; incremental?: boolean; previewToken?: string; items?: Array<{ asset?: ImageAsset; nodeId?: string; kind?: "asset" | "layer-group"; assetIndex?: number; suggestedName: string; format?: ImageExportFormat; conflictPolicy?: ExportConflictPolicy; incremental?: boolean }> }): Promise<{ ok: boolean; queueId?: string; status?: string; error?: string; errorCode?: string }>;
+    status(payload: { queueId?: string; projectId: string }): Promise<{ ok: boolean; status?: string; completed?: number; total?: number; results?: ImageAssetExportResult[]; jobs?: ManagedExportQueueSnapshot[]; history?: ManagedExportQueueSnapshot[]; error?: string }>;
+    cancel(payload: { queueId: string; projectId: string }): Promise<{ ok: boolean; status?: string; error?: string }>;
+    retryFailed?(payload: { queueId: string; projectId: string }): Promise<{ ok: boolean; status?: string; error?: string }>;
+  };
   exportAssetPsd?(payload: ExportAssetPsdPayload): Promise<ImageAssetExportResult>;
   exportAssetsToFolder?(payload: ExportAssetsToFolderPayload): Promise<ImageAssetExportResult>;
   exportLayerGroupPsd?(payload: ExportLayerGroupPsdPayload): Promise<ImageAssetExportResult>;
@@ -2992,6 +3033,7 @@ export type ImageOperationSummary = {
   key: string; operationId: string; requestIndex: number; model: string; createdAt: string; updatedAt: string;
   taskIdPresent: boolean; state: string; stage: string; savedCount: number; canRecover: boolean; errorCategory?: string;
   slots: { index: number; state: string }[];
+  provider?: string; providerState?: string; canCancel?: boolean;
 };
 
 export type ServerBridge = {
@@ -3025,6 +3067,8 @@ export type ServerBridge = {
   deleteToken?(payload: { id: string }): Promise<AccountApiTokenListResult>;
   recharge(payload: { amountCents: number }): Promise<{ ok: boolean; user?: ServerUser; wallet?: ServerWallet; balanceCents?: number; error?: string }>;
   generateImage(payload: {
+    provider?: "comfyui";
+    comfyui?: ComfyUiTaskOptions;
     targetNodeId?: string;
     runId?: string;
     operationId?: string;
@@ -3097,7 +3141,7 @@ export type ServerBridge = {
     errorCategory?: string;
     status?: number;
     provider?: string;
-    protocol?: ImageProtocol;
+    protocol?: ImageProtocol | "comfyui";
     gateway?: ImageGateway;
     taskId?: string;
     ambiguous?: boolean;
@@ -3107,6 +3151,15 @@ export type ServerBridge = {
     message?: string;
     error?: string;
   }>;
+  comfyui(payload: {
+    action: "list" | "inspect" | "import" | "cancel";
+    baseUrl?: string;
+    label?: string;
+    outputNodeId?: string;
+    inputMappings?: ComfyUiTemplate["inputMappings"];
+    projectId?: string;
+    key?: string;
+  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; baseUrl?: string; checkpoints?: string[]; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
   licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;
@@ -4114,6 +4167,7 @@ export function mergeReferenceImages(current: ReferenceImage[], incoming: Refere
 export function cloneImageTaskDraft(draft: ImageTaskDraft): ImageTaskDraft {
   return {
     ...draft,
+    comfyui: draft.comfyui ? { ...draft.comfyui } : undefined,
     referenceImages: cloneReferenceImages(draft.referenceImages)
   };
 }
@@ -4125,10 +4179,11 @@ export function cloneImageAssets(assets?: ImageAsset[]) {
 function cloneImageAsset(asset: ImageAsset): ImageAsset {
   return {
     ...asset,
+    localProcessing: asset.localProcessing ? { ...asset.localProcessing, maskComposite: asset.localProcessing.maskComposite ? { ...asset.localProcessing.maskComposite } : undefined, alpha: asset.localProcessing.alpha ? { ...asset.localProcessing.alpha } : undefined } : undefined,
     generation: asset.generation ? {
       ...asset.generation,
-      request: asset.generation.request ? { ...asset.generation.request } : undefined,
-      response: asset.generation.response ? { ...asset.generation.response } : undefined
+      request: asset.generation.request ? { ...asset.generation.request, ...(asset.generation.request.sourceHashes ? { sourceHashes: [...asset.generation.request.sourceHashes] } : {}) } : undefined,
+      response: asset.generation.response ? { ...asset.generation.response, ...(asset.generation.response.sourceHashes ? { sourceHashes: [...asset.generation.response.sourceHashes] } : {}) } : undefined
     } : undefined
   };
 }

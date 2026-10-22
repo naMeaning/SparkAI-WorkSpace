@@ -337,7 +337,50 @@ function createProjectKnowledgeService({ projectFor, readSession, catalogService
     if (fresh.fingerprint !== snapshot.fingerprint) throw fail("KNOWLEDGE_SNAPSHOT_STALE", "项目知识已变化，请为新任务刷新；已有任务请使用原冻结版本。");
     return snapshot;
   }
-  return { list, save, setStatus, promote, history, freezeForTask, resolveFrozen, validateFrozen: resolveFrozen, setTaskResolver };
+  // Portable knowledge contains current authored facts/suggestions, never local
+  // task receipts or authority to resolve a historical frozen task snapshot.
+  function validatePortable(document) {
+    if (!document || document.schemaVersion !== 1 || !Array.isArray(document.entries) || document.entries.length > MAX_ENTRIES ||
+      Buffer.byteLength(JSON.stringify(document)) > MAX_STORE_BYTES) throw fail("KNOWLEDGE_PORTABLE_INVALID", "项目包中的知识格式无效或超过容量上限。");
+    const ids = new Set();
+    const entries = document.entries.map(value => {
+      const entry = normalizeProjectKnowledgeEntry(value);
+      if (!entry || entry.authority !== "project_knowledge" || entry.status === "deleted" || ids.has(entry.knowledgeId))
+        throw fail("KNOWLEDGE_PORTABLE_INVALID", "项目包中的知识内容、来源或关系无效。");
+      ids.add(entry.knowledgeId);
+      return { ...entry, assetRefs: entry.assetRefs.map((asset, index) => ({ ...asset,
+        ...(value.assetRefs[index]?.packageAssetKey ? { packageAssetKey: String(value.assetRefs[index].packageAssetKey) } : {}) })) };
+    });
+    return { schemaVersion: 1, entries };
+  }
+  function exportPortable(project) {
+    return validatePortable({ schemaVersion: 1, entries: latest(read(project)).filter(entry => entry.status !== "deleted").map(entry => normalizeProjectKnowledgeEntry(entry)) });
+  }
+  function importPortable(project, value, { resolveAsset, session, commerceCatalog } = {}) {
+    const incoming = validatePortable(value);
+    if (read(project).revision) throw fail("KNOWLEDGE_PORTABLE_TARGET_EXISTS", "导入项目的知识记录已存在，原记录已保留。");
+    const document = empty(project), at = now(), catalog = commerceCatalog || catalogFor(project);
+    for (const original of incoming.entries) {
+      const scope = checkObject(catalog, original.scope);
+      const assetRefs = original.assetRefs.map(reference => {
+        const restored = typeof resolveAsset === "function" ? normalizeProjectKnowledgeAsset(resolveAsset(reference)) : undefined;
+        if (!restored || restored.contentHash !== reference.contentHash || restored.occurrenceId !== reference.occurrenceId)
+          throw fail("KNOWLEDGE_PORTABLE_ASSET_MISSING", "项目知识的基准素材没有得到完整验证，导入已取消。");
+        return restored;
+      });
+      const entry = { ...original, knowledgeId: `knowledge-${randomUUID()}`, revision: 1, scope, assetRefs,
+        title: clean(original.title), content: clean(original.content) };
+      const available = assetAvailability(project, entry, catalog, session || readSession(project) || {});
+      if (!available.usable) throw fail("KNOWLEDGE_PORTABLE_ASSET_MISSING", "项目知识的对象或采用素材关系无效，导入已取消。");
+      entry.fingerprint = projectKnowledgeEntryFingerprint(entry);
+      if (!entry.fingerprint) throw fail("KNOWLEDGE_PORTABLE_INVALID", "项目知识无法建立新的版本身份。");
+      document.history.push({ ...entry, storeRevision: ++document.revision, createdAt: at, updatedAt: at });
+    }
+    if (document.history.length) write(project, document);
+    return { ok: true, projectId: project.id, revision: document.revision, imported: document.history.length };
+  }
+  return { list, save, setStatus, promote, history, freezeForTask, resolveFrozen, validateFrozen: resolveFrozen, setTaskResolver,
+    validatePortable, exportPortable, importPortable };
 }
 
 module.exports = { createProjectKnowledgeService, PROJECT_KNOWLEDGE_MAX_STORE_BYTES: MAX_STORE_BYTES };

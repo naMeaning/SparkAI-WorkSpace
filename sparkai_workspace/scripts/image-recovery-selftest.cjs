@@ -8,6 +8,7 @@ const { createImageOperationJournal } = require("../desktop/image-operation-jour
 const { createNewApiClient } = require("../desktop/new-api-client.cjs");
 const sharp = require("sharp");
 const { applyClientMask } = require("../desktop/image-mask-compat.cjs");
+const { verifyAlphaSubject } = require("../runtime/image-generation/edit-capabilities.cjs");
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGP8z8Dwn4GBgYGJAQkwMaACDAwAFwICBXS9U/8AAAAASUVORK5CYII=";
 async function child() {
   const [phase, dir, base] = process.argv.slice(3);
@@ -17,12 +18,17 @@ async function child() {
   const journal = createImageOperationJournal({ projectFor: () => ({ path: dir }), extractImages: result => (result.data || []).map(image => image.url ? { type: "url", value: image.url } : { type: "base64", value: image.b64_json }),
     download: async url => { const response = await fetch(url); if (!response.ok) throw new Error("download failed"); return Buffer.from(await response.arrayBuffer()); },
     async materialize(images, stem) {
-      if (phase === "localfail") throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
+      if (["localfail", "alphavalidcreate"].includes(phase)) throw Object.assign(new Error("disk full"), { code: "ENOSPC" });
       const buffer = Buffer.from(images[0].value, "base64"); await sharp(buffer).raw().toBuffer();
       const file = path.join(dir, `${stem}.png`); writeFileSync(file, buffer); return [{ path: file, type: "file", index: 1 }];
     },
-    async processImage(buffer, inputs) {
+    async processImage(buffer, inputs, processing = {}) {
       if (["maskcreate", "maskfailagain"].includes(phase)) throw Object.assign(new Error("local mask failure"), { code: "ENOMEM" });
+      if (processing.requireAlpha && processing.kind !== "client-mask") {
+        const alpha = await verifyAlphaSubject(buffer);
+        if (!alpha.ok) throw Object.assign(new Error("invalid alpha fixture"), { code: "IMAGE_EDIT_ALPHA_INVALID" });
+        return { buffer, localProcessing: { alpha: { ...alpha, verified: true } } };
+      }
       const result = await applyClientMask({ images: [{ type: "base64", value: buffer.toString("base64") }] }, inputs);
       return Buffer.from(result.images[0].value, "base64");
     },
@@ -42,6 +48,25 @@ async function child() {
     const result = { data: [{ b64_json: png }, { b64_json: Buffer.from("invalid image").toString("base64") }] };
     journal.received(operation, result); const assets = await journal.deliver(operation, result);
     assert.equal(assets.length, 1); assert.equal(journal.get("P", operation.key).state, "partial");
+  } else if (["alphacreate", "alphavalidcreate"].includes(phase)) {
+    const raw = Buffer.alloc(8 * 8 * 4, 255);
+    if (phase === "alphavalidcreate") for (let index = 0; index < 32; index++) raw[index * 4 + 3] = 0;
+    const bytes = await sharp(raw, { raw: { width: 8, height: 8, channels: 4 } }).png().toBuffer();
+    const operation = journal.start({ projectId: "P", operationId: phase === "alphacreate" ? "alpha-invalid" : "alpha-valid", runId: "alpha", model: "fixture" });
+    const result = { data: [{ b64_json: bytes.toString("base64") }] };
+    journal.received(operation, result, { requireAlpha: true });
+    await assert.rejects(journal.deliver(operation, result, {}, false), error => error.code === (phase === "alphacreate" ? "IMAGE_EDIT_ALPHA_INVALID" : "ENOSPC"));
+    assert.equal(journal.get("P", operation.key).processing.requireAlpha, true);
+    assert.equal(journal.get("P", operation.key).slots[0].processed, false);
+  } else if (["alphafailagain", "alpharecover"].includes(phase)) {
+    const operation = journal.list("P").find(item => item.operationId === (phase === "alphafailagain" ? "alpha-invalid" : "alpha-valid"));
+    if (phase === "alphafailagain") await assert.rejects(journal.recover("P", operation.key), error => error.code === "IMAGE_EDIT_ALPHA_INVALID");
+    else {
+      const result = await journal.recover("P", operation.key);
+      assert.equal(result.assets[0].localProcessing.alpha.verified, true);
+      assert.equal(result.assets[0].localProcessing.alpha.transparentRatio, 0.5);
+      assert.equal((await verifyAlphaSubject(readFileSync(result.assets[0].path))).ok, true);
+    }
   } else if (phase === "maskcreate") {
     const source = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#0000ff" } }).png().toBuffer();
     const raw = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#00ff00" } }).png().toBuffer();
@@ -97,10 +122,11 @@ async function main() {
     await run("localfail"); assert.equal(downloads, 2);
     const priorPolls = polls, priorDownloads = downloads;
     await run("recover"); assert.equal(polls, priorPolls, "cached bytes survive process restart"); assert.equal(downloads, priorDownloads);
-    await run("unknown"); await run("partial"); await run("maskcreate"); await run("maskfailagain"); await run("maskrecover"); assert.equal(posts, 1);
+    await run("unknown"); await run("partial"); await run("maskcreate"); await run("maskfailagain"); await run("maskrecover");
+    await run("alphacreate"); await run("alphafailagain"); await run("alphavalidcreate"); await run("alpharecover"); assert.equal(posts, 1);
     const text = readFileSync(path.join(dir, ".naimage/image-operations/journal.json"), "utf8");
     for (const secret of ["fixture-private-key", "private-sentinel", "b64_json", "http://", "base64"]) assert.equal(text.includes(secret), false, secret);
-    const report = { ok: true, childProcesses: 10, posts, polls, downloads, realModelRequests: 0, originalTaskRecovered: true, localBytesRecoveredAfterRestart: true, credentialChangeBlocked: true, uncertainNotResubmitted: true, partialSuccessPreserved: true, maskedBytesRecoveredAcrossRepeatedFailures: true };
+    const report = { ok: true, childProcesses: 14, posts, polls, downloads, realModelRequests: 0, originalTaskRecovered: true, localBytesRecoveredAfterRestart: true, credentialChangeBlocked: true, uncertainNotResubmitted: true, partialSuccessPreserved: true, maskedBytesRecoveredAcrossRepeatedFailures: true, requiredAlphaValidatedAcrossRestart: true };
     writeFileSync(path.join(dir, "report.json"), JSON.stringify(report, null, 2)); console.log(JSON.stringify({ ...report, dir }));
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 }

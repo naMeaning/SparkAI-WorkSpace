@@ -6,9 +6,11 @@ const {
   mkdir,
   mkdtemp,
   realpath,
+  readFile,
   rename,
   rm,
-  stat
+  stat,
+  writeFile
 } = require("node:fs/promises");
 const { constants: fsConstants } = require("node:fs");
 const path = require("node:path");
@@ -25,7 +27,7 @@ if (!imageExportFormatNames.length || !imageExportCommand?.formatDefinitions) {
 }
 const IMAGE_EXPORT_FORMATS = Object.freeze(Object.fromEntries(imageExportFormatNames.map((format) => {
   const definition = imageExportCommand.formatDefinitions[format];
-  if (!definition?.extension || !definition?.mimeType || !definition?.label || !Array.isArray(definition.extensions)) {
+  if ((format !== "original" && !definition?.extension) || !definition?.mimeType || !definition?.label || !Array.isArray(definition.extensions)) {
     throw new Error(`canvas.export-image format ${format} has incomplete metadata.`);
   }
   return [format, Object.freeze({ ...definition, extensions: Object.freeze([...definition.extensions]) })];
@@ -46,7 +48,7 @@ function imageExportFormatFromExtension(filePath) {
   const extension = selectedExtension.slice(1).toLowerCase();
   if (!extension) return "";
   return Object.entries(IMAGE_EXPORT_FORMATS)
-    .find(([, definition]) => definition.extensions.includes(extension))?.[0] || "";
+    .find(([format, definition]) => format !== "original" && definition.extensions.includes(extension))?.[0] || "";
 }
 
 function imageExportFilters(preferredFormat = "png") {
@@ -59,6 +61,7 @@ function imageExportFilters(preferredFormat = "png") {
 }
 
 function matchingImageExportExtension(filePath, format) {
+  if (format === "original") return filePath;
   const definition = IMAGE_EXPORT_FORMATS[normalizeImageExportFormat(format)];
   const selectedExtension = path.extname(String(filePath || "")).toLowerCase();
   if (!selectedExtension) return `${filePath}${definition.extension}`;
@@ -101,9 +104,20 @@ async function pathsReferToSameFile(leftPath, rightPath) {
   return comparableFilePath(leftRealPath) === comparableFilePath(rightRealPath);
 }
 
-async function inspectDecodedExportImage(filePath, expectedFormat, fullDecode = false) {
+async function exportImageBytes(filePath) {
+  const before = await stat(filePath);
+  if (!before.isFile() || before.size <= 0 || before.size > 96 * 1024 * 1024) throw Object.assign(new Error("导出图片为空或超过 96 MiB。"), { code: "IMAGE_EXPORT_SOURCE_SIZE_INVALID" });
+  const buffer = await readFile(filePath);
+  if (buffer.length !== before.size) throw Object.assign(new Error("导出图片在读取时发生变化。"), { code: "IMAGE_EXPORT_SOURCE_CHANGED" });
+  return buffer;
+}
+
+async function inspectDecodedExportImage(bytes, expectedFormat, fullDecode = false) {
   const sharp = require("sharp");
-  const metadata = await sharp(filePath, SHARP_INPUT_OPTIONS).metadata();
+  // Buffer input prevents libvips from retaining Windows file handles in its
+  // operation cache. Atomic group directory publication must be able to move
+  // every staged file even with normal Sharp caching enabled.
+  const metadata = await sharp(bytes, SHARP_INPUT_OPTIONS).metadata();
   const format = decodedImageExportFormat(metadata);
   if (!format) throw new Error("The image format is not supported for local export.");
   if (expectedFormat && format !== expectedFormat) {
@@ -113,7 +127,7 @@ async function inspectDecodedExportImage(filePath, expectedFormat, fullDecode = 
   const height = Number(metadata?.height || 0);
   if (width <= 0 || height <= 0) throw new Error("The exported image dimensions are invalid.");
   if (fullDecode) {
-    const decoded = await sharp(filePath, SHARP_INPUT_OPTIONS).stats();
+    const decoded = await sharp(bytes, SHARP_INPUT_OPTIONS).stats();
     if (!Array.isArray(decoded?.channels) || decoded.channels.length <= 0) {
       throw new Error("The exported image could not be fully decoded.");
     }
@@ -161,14 +175,26 @@ async function publishWithoutClobber(stagingPath, destinationPath, operations = 
 }
 
 async function convertImageForExport(sourcePath, destinationPath, requestedFormat, options = {}) {
-  const format = normalizeImageExportFormat(requestedFormat);
-  const definition = IMAGE_EXPORT_FORMATS[format];
+  let format = normalizeImageExportFormat(requestedFormat);
   const resolvedSource = path.resolve(sourcePath);
   const resolvedDestination = path.resolve(destinationPath);
   await mkdir(path.dirname(resolvedDestination), { recursive: true });
 
-  const sourceInspection = await inspectDecodedExportImage(resolvedSource);
+  const sourceBytes = await exportImageBytes(resolvedSource);
+  const sourceInspection = await inspectDecodedExportImage(sourceBytes);
   const sourceFormat = sourceInspection.format;
+  if (format === "original") format = sourceFormat;
+  const definition = IMAGE_EXPORT_FORMATS[format];
+  const assertSource = async () => {
+    if (options.signal?.aborted) throw Object.assign(new Error("导出已取消。"), { code: "EXPORT_CANCELLED" });
+    if (options.expectedSourceHash) {
+      const hash = require("node:crypto").createHash("sha256");
+      for await (const chunk of require("node:fs").createReadStream(resolvedSource)) hash.update(chunk);
+      if (hash.digest("hex") !== options.expectedSourceHash) throw Object.assign(new Error("冻结的导出来源已经改变。"), { code: "IMAGE_EXPORT_SOURCE_CHANGED" });
+    }
+  };
+  await assertSource();
+  if (options.expectedSourceHash && require("node:crypto").createHash("sha256").update(sourceBytes).digest("hex") !== options.expectedSourceHash) throw Object.assign(new Error("冻结的导出来源已经改变。"), { code: "IMAGE_EXPORT_SOURCE_CHANGED" });
   const sameFile = await pathsReferToSameFile(resolvedSource, resolvedDestination);
   if (sourceFormat !== format && sameFile) {
     throw new Error("The export destination refers to the managed source image. Choose another file for format conversion.");
@@ -177,7 +203,7 @@ async function convertImageForExport(sourcePath, destinationPath, requestedForma
   let validation;
   let cleanupWarning = "";
   if (sameFile) {
-    validation = await inspectDecodedExportImage(resolvedSource, format, true);
+    validation = await inspectDecodedExportImage(sourceBytes, format, true);
   } else {
     const stagingRoot = await mkdtemp(path.join(path.dirname(resolvedDestination), ".naimage-export-"));
     const stagingPath = path.join(stagingRoot, `image${definition.extension}`);
@@ -186,10 +212,10 @@ async function convertImageForExport(sourcePath, destinationPath, requestedForma
     const cleanupStaging = typeof options.cleanupStaging === "function" ? options.cleanupStaging : rm;
     try {
       if (sourceFormat === format) {
-        await copyFile(resolvedSource, stagingPath);
+        await writeFile(stagingPath, sourceBytes, { flag: "wx" });
       } else {
         const sharp = require("sharp");
-        let pipeline = sharp(resolvedSource, SHARP_INPUT_OPTIONS).rotate();
+        let pipeline = sharp(sourceBytes, SHARP_INPUT_OPTIONS).rotate();
         if (format === "png") pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: true });
         else if (format === "jpeg") pipeline = pipeline.flatten({ background: "#ffffff" }).jpeg({ quality: 92, chromaSubsampling: "4:4:4" });
         else if (format === "webp") pipeline = pipeline.webp({ quality: 92, alphaQuality: 100, smartSubsample: true });
@@ -197,7 +223,8 @@ async function convertImageForExport(sourcePath, destinationPath, requestedForma
         else pipeline = pipeline.tiff({ compression: "lzw", quality: 92 });
         await pipeline.toFile(stagingPath);
       }
-      validation = await inspectDecodedExportImage(stagingPath, format, true);
+      validation = await inspectDecodedExportImage(await exportImageBytes(stagingPath), format, true);
+      await assertSource();
       if (options.overwrite === true) await renameWithRetry(stagingPath, resolvedDestination);
       else await publishWithoutClobber(stagingPath, resolvedDestination, options.publishOperations);
       committed = true;

@@ -552,11 +552,11 @@ async function main() {
     assert.match(importSkillSchema.description, /Skill-backed requirement node/);
     const exportImageSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "canvas.export-image");
     assert.equal(exportImageSchema.parameters.additionalProperties, false, "Export command JSON must reject arbitrary destination paths");
-    assert.deepEqual(exportImageSchema.parameters?.properties?.format?.enum, ["png", "jpeg", "webp", "avif", "tiff"]);
+    assert.deepEqual(exportImageSchema.parameters?.properties?.format?.enum, ["original", "png", "jpeg", "webp", "avif", "tiff"]);
     assert.deepEqual(Object.keys(exportImageSchema.formatDefinitions || {}), exportImageSchema.parameters.properties.format.enum);
-    assert.match(commandReference, /PNG, JPEG, WebP, AVIF, or TIFF/);
+    assert.match(commandReference, /Defaults to an original byte-for-byte copy/);
     assert.match(exportImageSchema.description, /native Save dialog/);
-    assert.match(exportImageSchema.description, /does not call an image model/);
+    assert.match(exportImageSchema.description, /conversion is local/);
     const connectSchema = commandSchema.sections.flatMap((section) => section.commands).find((command) => command.name === "canvas.connect");
     assert.deepEqual(connectSchema.parameters.required, ["edges", "expectedProjectId"]);
     assert.equal(connectSchema.parameters.additionalProperties, false);
@@ -744,6 +744,62 @@ async function main() {
       exportImage: async () => ({ ok: true, canceled: true })
     });
     assert.equal(canceledExport.result.canceled, true, "User cancellation remains a successful non-mutating command outcome");
+
+    const boundaryCalls = [];
+    const incrementalContext = {
+      activeProjectId: () => "PROJECT", nodes: () => [{ id: "photo", type: "image", title: "Photo", assets: [{ assetId: "photo-a", occurrenceId: "occ-a", contentHash: "a".repeat(64) }] }],
+      prepareProjectExport: async () => boundaryCalls.push({ kind: "flush" }),
+      generateComfyUi: async input => { boundaryCalls.push({ kind: "generate", input }); return { operationId: `comfy-${input.submissionId}` }; },
+      openImageEditor: (...input) => { boundaryCalls.push({ kind: "editor", input }); return { opened: true }; },
+      exportProjectPackage: async input => { boundaryCalls.push({ kind: "package", input }); return { ok: true }; },
+      importProjectPackage: async () => ({ activeProjectId: "IMPORTED" })
+    };
+    globalThis.window = { naimageServer: { comfyui: async input => { boundaryCalls.push({ kind: "control", input }); return { ok: true }; } }, naimageConfig: {
+      exportManagedAssetQueue: {
+        start: async input => { boundaryCalls.push({ kind: "export", input }); return { ok: true, queueId: "queue-fixture" }; },
+        status: async input => { boundaryCalls.push({ kind: "status", input }); return { ok: true }; },
+        cancel: async input => { boundaryCalls.push({ kind: "cancel", input }); return { ok: true }; },
+        retryFailed: async input => { boundaryCalls.push({ kind: "retry", input }); return { ok: true }; }
+      },
+      previewImageCollectionExport: async input => { boundaryCalls.push({ kind: "preview", input }); return { ok: true, previewToken: "frozen-preview" }; }
+    } };
+    try {
+      const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1 } };
+      await runtimeModule.executeAutomationCommand("comfyui.generate", local, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.submissionId, "stable-local");
+      for (const input of [{ ...local, expectedProjectId: "OTHER" }, { ...local, workflow: {} }, { ...local, comfyui: { ...local.comfyui, width: 513 } }, { ...local, comfyui: { ...local.comfyui, path: "C:/private" } }]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", input, incrementalContext));
+      assert.equal(boundaryCalls.filter(call => call.kind === "generate").length, 1, "Invalid local requests never enter the image execution chain");
+      await runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "remove-object" }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input[2], "remove-object");
+      await assert.rejects(runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "expand" }, incrementalContext));
+      await runtimeModule.executeAutomationCommand("export.start", { expectedProjectId: "PROJECT", items: [{ nodeId: "photo", assetIndex: 0 }], container: "zip" }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.items[0].format, "original"); assert.equal(boundaryCalls.at(-1).input.container, "zip");
+      await runtimeModule.executeAutomationCommand("export.start", { expectedProjectId: "PROJECT", items: [{ nodeId: "photo", assetIndex: 0 }], filenameTemplate: "deliver-{index}-{title}-{asset}" }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.items[0].suggestedName, "deliver-001-Photo-photo-a");
+      const beforeInvalidNaming = boundaryCalls.filter(call => call.kind === "export").length;
+      await assert.rejects(runtimeModule.executeAutomationCommand("export.start", { expectedProjectId: "PROJECT", items: [{ nodeId: "photo", assetIndex: 0 }], filenameTemplate: "{unknown}" }, incrementalContext));
+      assert.equal(boundaryCalls.filter(call => call.kind === "export").length, beforeInvalidNaming);
+      await runtimeModule.executeAutomationCommand("export.start", { expectedProjectId: "PROJECT", target: "collection", collectionIds: ["collection-a"] }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.previewToken, "frozen-preview");
+      await assert.rejects(runtimeModule.executeAutomationCommand("export.start", { expectedProjectId: "PROJECT", path: "C:/private" }, incrementalContext));
+      for (const command of ["export.status", "export.cancel", "export.retry-failed"]) {
+        await runtimeModule.executeAutomationCommand(command, { expectedProjectId: "PROJECT", queueId: "queue-fixture" }, incrementalContext);
+        assert.equal(boundaryCalls.at(-1).input.projectId, "PROJECT", "Every queue operation must carry its project authority");
+      }
+      const savedStatus = globalThis.window.naimageConfig.exportManagedAssetQueue.status;
+      globalThis.window.naimageConfig.exportManagedAssetQueue.status = async () => ({ ok: false, errorCode: "PROJECT_CHANGED", error: "Wrong project" });
+      await assert.rejects(runtimeModule.executeAutomationCommand("export.status", { expectedProjectId: "PROJECT", queueId: "queue-fixture" }, incrementalContext), error => error.code === "PROJECT_CHANGED");
+      globalThis.window.naimageConfig.exportManagedAssetQueue.status = savedStatus;
+      assert.equal((await runtimeModule.executeAutomationCommand("project.package-import", {}, { ...incrementalContext, importProjectPackage: async () => ({ ok: true, canceled: true }) })).canceled, true);
+      await assert.rejects(runtimeModule.executeAutomationCommand("project.package-export", { expectedProjectId: "PROJECT" }, { ...incrementalContext, exportProjectPackage: async () => ({ ok: false, error: "Package failed" }) }), /Package failed/);
+      await runtimeModule.executeAutomationCommand("canvas.export-image-collections", { expectedProjectId: "PROJECT", collectionIds: ["collection-a"], confirmed: true }, {
+        ...incrementalContext, exportImageCollections: async input => { boundaryCalls.push({ kind: "legacy-collection", input }); return { ok: true, accepted: true, queueId: "legacy-queue" }; }
+      });
+      assert.equal(boundaryCalls.at(-1).input.format, "original", "Legacy collection command must share original-byte defaults");
+      await runtimeModule.executeAutomationCommand("project.package-export", { expectedProjectId: "PROJECT", preset: "archive", includeHistory: true }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.includeHistory, true);
+      await assert.rejects(runtimeModule.executeAutomationCommand("project.package-export", { expectedProjectId: "PROJECT", destinationPath: "C:/private" }, incrementalContext));
+    } finally { globalThis.window = priorWindow; }
 
     let canvasRevision = 17;
     let automationWorkspaceDomain = "general";

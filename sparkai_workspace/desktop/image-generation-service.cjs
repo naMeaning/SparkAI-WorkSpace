@@ -12,10 +12,12 @@ const {
 } = require("../runtime/image-generation/types.cjs");
 const { normalizeImageGenerationResponse } = require("../runtime/image-generation/normalize-response.cjs");
 const { normalizeImageGenerationError, normalizeImageResultDownloadError } = require("../runtime/image-generation/errors.cjs");
-const { applyClientMask, maskCapabilityKey, unsupportedMaskError, validateMaskInputs } = require("./image-mask-compat.cjs");
+const { applyClientMask, prepareRegionMask, maskCapabilityKey, unsupportedMaskError, validateMaskInputs } = require("./image-mask-compat.cjs");
 const { downloadPublicHttpBuffer } = require("./public-http-resource.cjs");
 const { detectEncodedImageFormat } = require("../runtime/encoded-image-format.cjs");
 const { imageInputManifest } = require("../runtime/image-input-manifest.cjs");
+const { pickImageGenerationResponseMetadata } = require("../runtime/image-generation-metadata.cjs");
+const { normalizeAiEditOperation, normalizeEditRegions, verifyProtectedPixels, verifyAlphaSubject } = require("../runtime/image-generation/edit-capabilities.cjs");
 
 const MAX_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -93,6 +95,7 @@ function createImageGenerationService(options = {}) {
     newApiRelayJson,
     newApiRelayMultipart,
     newApiRelayAsyncImage,
+    comfyUiExecutor = options.comfyUiExecutor,
     downloadInputImage = options.downloadImage || ((url) => downloadPublicHttpBuffer(url, { maxBytes: MAX_INPUT_BYTES, timeoutMs: 60_000, maxRedirects: 5 })),
     downloadImage = (url) => downloadPublicHttpBuffer(url, { maxBytes: 96 * 1024 * 1024, timeoutMs: 60_000, maxRedirects: 5 })
   } = options;
@@ -183,14 +186,21 @@ function createImageGenerationService(options = {}) {
     const request = normalizeImageGenerationRequest(payload, config);
     const startedAt = Date.now();
     let stage = "input";
+    let providerReturned = false;
     const diagnostic = (event) => {
       try { recordDiagnostic({ kind: "image", model: config.model, protocol: config.protocol,
         runId: payload.runId, stage, ...event }); } catch {}
     };
     try {
-      validateImageGenerationRequest(request, config);
+      const requestedOperation = String(payload.editOperation ?? payload.operation ?? payload.mode ?? "").trim().toLowerCase();
+      const editOperation = requestedOperation && !["generate", "layers"].includes(requestedOperation) ? normalizeAiEditOperation(requestedOperation) : request.mode === "edit" ? "edit" : undefined;
+      const regions = normalizeEditRegions(payload);
+      // Providers without native masks still use their real edit endpoint. The
+      // locally enforced mask is never silently sent as a reference picture.
+      validateImageGenerationRequest(request.mask && !config.capabilities.mask ? { ...request, mask: null } : request, config);
       const adapter = adapterFor(config.protocol);
-      const preparedInputs = await prepareInputs(request);
+      const preparedInputs = await prepareRegionMask(await prepareInputs(request), regions);
+      if (preparedInputs.mask && !request.mask) request.mask = { name: "edit-regions.png" };
       const inputManifest = imageInputManifest(request.editImage, request.images, request.inputManifest?.snapshotHash,
         preparedInputs.editImages.map(input => input.buffer || Buffer.from(input.base64 || "", "base64")));
       if (request.inputManifest && request.inputManifest.hash !== inputManifest.hash) {
@@ -198,16 +208,19 @@ function createImageGenerationService(options = {}) {
       }
       if (inputManifest.entries.length) request.prompt += "\n\n输入图片用途（严格按上传顺序）：\n" + inputManifest.entries.map(input =>
         `${input.order + 1}. ${input.role}${input.referenceRole ? ` / ${input.referenceRole}` : ""}${input.purpose ? `：${input.purpose}` : ""}`).join("\n");
-      const canCompositeMask = config.protocol === "openai-images" && request.mode === "edit" && Boolean(preparedInputs.mask);
+      if (regions.length) request.prompt += "\n\n原图选区（原图像素坐标；标注仅解释位置，不构成修改或保护范围）：\n" + regions.map(region =>
+        `${region.regionId}: ${region.role} (${region.x}, ${region.y}, ${region.width}, ${region.height})${region.label ? `：${region.label}` : ""}`).join("\n");
+      const canCompositeMask = request.mode === "edit" && Boolean(preparedInputs.mask);
       if (canCompositeMask) await validateMaskInputs(preparedInputs);
       const capabilityKey = maskCapabilityKey(settings, config);
-      let clientMask = canCompositeMask && unsupportedMasks.has(capabilityKey);
+      let omitProviderMask = canCompositeMask && (!config.capabilities.mask || unsupportedMasks.has(capabilityKey));
+      const clientMask = canCompositeMask;
       const buildRequest = async (withoutMask) => {
-        const providerRequest = await adapter.buildRequest(withoutMask ? { ...request, mask: null } : request, config, preparedInputs);
+        const providerRequest = await adapter.buildRequest(withoutMask ? { ...request, mask: null } : request, config, withoutMask ? { ...preparedInputs, mask: null } : preparedInputs);
         if (providerRequest.kind === "multipart") providerRequest.form = formDataFor(providerRequest, request);
         return providerRequest;
       };
-      let providerRequest = await buildRequest(clientMask);
+      let providerRequest = await buildRequest(omitProviderMask);
       if (providerRequest.kind === "json" && providerRequest.body?.__imageModel) {
         // Internal routing metadata is consumed by new-api-client and never sent upstream.
         providerRequest.body = { ...providerRequest.body };
@@ -224,16 +237,18 @@ function createImageGenerationService(options = {}) {
           inputManifest });
         raw = await send(settings, config, request, providerRequest, { headers: payload.headers });
       } catch (error) {
-        if (!canCompositeMask || clientMask || !unsupportedMaskError(error) || request.signal?.aborted) throw error;
+        if (!canCompositeMask || omitProviderMask || !unsupportedMaskError(error) || request.signal?.aborted) throw error;
         unsupportedMasks.add(capabilityKey);
         if (unsupportedMasks.size > 64) unsupportedMasks.delete(unsupportedMasks.values().next().value);
-        clientMask = true;
+        omitProviderMask = true;
         providerRequest = await buildRequest(true);
         // A definitive unsupported-mask rejection is safe to retry once. Unknown
         // creation results and accepted async tasks never enter this branch.
         diagnostic({ phase: "retry", attempt: 2, status: error.status || error.statusCode });
         raw = await send(settings, config, request, providerRequest, { headers: payload.headers });
       }
+      providerReturned = true;
+      stage = "result";
       let normalized = (adapter.normalizeResponse || normalizeImageGenerationResponse)(raw, {
         model: config.model,
         provider: config.provider,
@@ -243,9 +258,28 @@ function createImageGenerationService(options = {}) {
       if (!normalized.ok) {
         throw Object.assign(new Error(normalized.error || "图片接口没有返回图片。"), { code: "IMAGE_INVALID_RESPONSE" });
       }
+      // Keep provider-reported parameters separate from local processing facts.
+      // The generic normalizer intentionally only extracts image handles.
+      const parameterSources = new Map();
+      let metadataNodes = 0;
+      const collectParameters = (value, inherited = {}, depth = 0) => {
+        if (!value || typeof value !== "object" || depth > 12 || metadataNodes++ > 2_000) return;
+        if (Array.isArray(value)) { for (const child of value) collectParameters(child, inherited, depth + 1); return; }
+        const parameters = pickImageGenerationResponseMetadata(inherited, value);
+        const inline = value.inlineData || value.inline_data;
+        const handle = value.b64_json || value.image_base64 || value.base64 || inline?.data || value.url || (typeof value.image_url === "string" ? value.image_url : value.image_url?.url) || value.uri;
+        if (handle) parameterSources.set(String(handle), parameters);
+        for (const [key, child] of Object.entries(value)) if (!["raw", "usage", "metadata"].includes(key) && child && typeof child === "object") collectParameters(child, parameters, depth + 1);
+      };
+      collectParameters(raw);
+      normalized.images = normalized.images.map(image => {
+        const actualParams = pickImageGenerationResponseMetadata(parameterSources.get(image.value), image.actualParams);
+        return Object.keys(actualParams).length ? { ...image, actualParams } : image;
+      });
+      normalized.data = normalized.images.map(image => ({ ...(image.type === "base64" ? { b64_json: image.value } : { url: image.value }), mime_type: image.mimeType, revised_prompt: image.revisedPrompt, request_index: image.requestIndex, actualParams: image.actualParams }));
       diagnostic({ phase: "response", count: normalized.images.length, durationMs: Date.now() - startedAt });
-      stage = "result";
-      request.onResultReceived?.(legacyResponse(normalized), { clientMask, inputs: preparedInputs, sourcePath: request.editImage?.path || request.images[0]?.path });
+      const requireAlpha = payload.requireAlpha === true || (request.background === "transparent" && editOperation !== "cutout" && payload.layerOutputMode !== "mask");
+      request.onResultReceived?.(legacyResponse(normalized), { clientMask, requireAlpha, inputs: preparedInputs, sourcePath: request.editImage?.path || request.images[0]?.path });
       if (clientMask) {
         try {
           normalized = await applyClientMask(normalized, preparedInputs, async (url) => {
@@ -266,6 +300,20 @@ function createImageGenerationService(options = {}) {
           });
         }
       }
+      if (requireAlpha) {
+        const images = [];
+        for (const image of normalized.images) {
+          request.signal?.throwIfAborted();
+          let bytes;
+          try { bytes = image.type === "base64" ? Buffer.from(image.value, "base64") : await downloadImage(image.value); }
+          catch (error) { throw normalizeImageResultDownloadError(error); }
+          const alpha = await verifyAlphaSubject(bytes);
+          if (!alpha.ok) throw Object.assign(new Error("图片结果未同时保留真实透明区域与可见主体，已停止交付；不要重新生图。"), { code: "IMAGE_EDIT_ALPHA_INVALID" });
+          const value = bytes.toString("base64"), mimeType = detectEncodedImageFormat(bytes)?.mimeType || image.mimeType || "image/png";
+          images.push({ ...image, type: "base64", value, dataUrl: `data:${mimeType};base64,${value}`, mimeType, localProcessing: { ...image.localProcessing, alpha: { ...alpha, verified: true } } });
+        }
+        normalized = { ...normalized, images, data: images.map(image => ({ b64_json: image.value, mime_type: image.mimeType, actualParams: image.actualParams, localProcessing: image.localProcessing })) };
+      }
       normalized.transportMode = config.transportMode;
       normalized.request = {
         model: config.model,
@@ -276,8 +324,12 @@ function createImageGenerationService(options = {}) {
         outputFormat: request.outputFormat
       };
       log(`image generation protocol=${config.protocol} gateway=${config.gateway} model=${config.model} images=${normalized.images.length}`);
-      return { ...legacyResponse(normalized), inputManifest, parameterDecisions: request.parameterDecisions, quality: request.quality };
+      return { ...legacyResponse(normalized), inputManifest, parameterDecisions: request.parameterDecisions, quality: request.quality,
+        ...(editOperation ? { editOperation, editRegions: regions } : {}) };
     } catch (error) {
+      if (providerReturned && !(error?.generationCompleted === true && error?.unsafeToRetry === true)) error = Object.assign(new Error("图片接口已返回结果，但本地结果处理或校验未完成。不要重新生图，以免再次计费。"), {
+        code: "IMAGE_RESULT_PROCESSING_FAILED", category: "INVALID_RESPONSE", errorCategory: "image_result_processing", generationCompleted: true, unsafeToRetry: true, cause: error
+      });
       const normalizedError = normalizeImageGenerationError(error, {
         model: config.model,
         provider: config.provider,
@@ -290,7 +342,24 @@ function createImageGenerationService(options = {}) {
     }
   }
 
-  return { generate, transportSettings, resolveModelConfig: (settings, model) => resolveImageModelConfig(settings, model) };
+  async function runComfyUi(input = {}) {
+    if (!comfyUiExecutor || typeof comfyUiExecutor.run !== "function") {
+      throw Object.assign(new Error("当前桌面运行时没有配置本机 ComfyUI 执行器。"), { code: "COMFYUI_UNAVAILABLE" });
+    }
+    return comfyUiExecutor.run({ ...input, model: input.model || "comfyui-local" });
+  }
+
+  async function recoverComfyUi(input = {}) {
+    if (!comfyUiExecutor || typeof comfyUiExecutor.recover !== "function") throw Object.assign(new Error("当前桌面运行时没有配置本机 ComfyUI 执行器。"), { code: "COMFYUI_UNAVAILABLE" });
+    return comfyUiExecutor.recover(input);
+  }
+
+  async function cancelComfyUi(input = {}) {
+    if (!comfyUiExecutor || typeof comfyUiExecutor.cancel !== "function") throw Object.assign(new Error("当前桌面运行时没有配置本机 ComfyUI 执行器。"), { code: "COMFYUI_UNAVAILABLE" });
+    return comfyUiExecutor.cancel(input);
+  }
+
+  return { generate, runComfyUi, recoverComfyUi, cancelComfyUi, normalizeAiEditOperation, normalizeEditRegions, verifyProtectedPixels, transportSettings, resolveModelConfig: (settings, model) => resolveImageModelConfig(settings, model) };
 }
 
 module.exports = { createImageGenerationService };

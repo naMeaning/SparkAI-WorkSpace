@@ -72,7 +72,8 @@ const server = createServer(async (req, res) => {
       } else if (matched[0] === 2) { assert.equal(uploadedMaskHash, null); assert.match(prompt, /背景改成浅蓝色/); assert.doesNotMatch(prompt, /减少文字密度/); await delay(120); }
       else if (matched[0] === 5) { assert.equal(uploadedMaskHash, null); assert.match(prompt, /减少文字密度/); assert.doesNotMatch(prompt, /背景改成浅蓝色/); }
       else throw new Error("Revision used a non-target source");
-      json(res, { data: [{ b64_json: png.toString("base64") }] });
+      const resultPng = report.imagePosts === 3 ? await sharp(png).resize(128, 128).png().toBuffer() : png;
+      json(res, { data: [{ b64_json: resultPng.toString("base64") }] });
     } else if (req.url === "/v1/models") json(res, { data: [{ id: "gpt-5.6-sol" }, { id: "gpt-image-2" }] });
     else json(res, { success: true, data: { id: 1, username: "fixture", quota: 100000, items: [] } });
   } catch (error) { report.serverErrors.push(error.message); checkpoint(); if (!res.headersSent) { res.writeHead(500); res.end(JSON.stringify({ error: { message: error.message } })); } else res.end(); }

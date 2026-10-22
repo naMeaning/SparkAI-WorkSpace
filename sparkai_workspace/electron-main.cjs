@@ -22,6 +22,9 @@ const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aideb
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
 const { createImageGenerationService } = require("./desktop/image-generation-service.cjs");
+const { createComfyUiExecutor, localBaseUrl: comfyUiLocalBaseUrl, stableHash: comfyUiStableHash } = require("./runtime/image-generation/comfyui-executor.cjs");
+const { normalizeImageLocalProcessing } = require("./runtime/image-local-processing.mjs");
+const { createComfyUiTemplateService } = require("./desktop/comfyui-template-service.cjs");
 const { createImageOperationJournal } = require("./desktop/image-operation-journal.cjs");
 const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
@@ -31,7 +34,8 @@ const {
   projectPackageMaximumAssetBytes,
   projectPackageMaximumAssets,
   projectPackageMaximumDecodedBytes,
-  projectPackageMaximumFileBytes
+  projectPackageMaximumFileBytes,
+  projectPackageV4MaximumFileBytes
 } = require("./desktop/project-package-service.cjs");
 const { createProjectSaveCoordinator, normalizeSessionRevision } = require("./desktop/project-save-coordinator.cjs");
 const {
@@ -1219,10 +1223,15 @@ const newApiAccountService = createNewApiAccountService({
   newApiRequest, newApiUserAuthHeaders, requireNewApiSession, resolveNewApiBaseUrl,
   getNewApiAuthEpoch: () => newApiAuthEpoch
 });
+const comfyUiExecutor = createComfyUiExecutor({ log });
+const comfyUiTemplateService = createComfyUiTemplateService({
+  configPath: path.join(configDir, "comfyui-templates.json"), readJson, writeJson, executor: comfyUiExecutor, dialog
+});
 const imageGenerationService = createImageGenerationService({
   accessPolicy,
   log,
   recordDiagnostic: runtimeDiagnostics.record,
+  comfyUiExecutor,
   newApiRelayAsyncImage,
   newApiRelayJson,
   newApiRelayMultipart,
@@ -1751,6 +1760,9 @@ const projectPackageService = createProjectPackageService({
   mimeTypeForPath,
   nativeImage,
   readCommerceCatalog: (project) => commerceCatalogService.readDocument(project),
+  exportProjectKnowledge: (project) => projectKnowledgeService.exportPortable(project),
+  importProjectKnowledge: (project, document, context) => projectKnowledgeService.importPortable(project, document, context),
+  validatePortableProjectKnowledge: (document) => projectKnowledgeService.validatePortable(document),
   projectWritableAssetRoots,
   projectRelativePath,
   projectSessionFromDisk,
@@ -1766,6 +1778,7 @@ const projectPackageService = createProjectPackageService({
 const {
   estimatedBase64DecodedBytes,
   importProjectPackage,
+  readProjectPackageFile,
   packageProject,
   projectPackageFailure,
   sessionFromPackage,
@@ -4894,7 +4907,63 @@ function clearNewApiAuth(settings) {
 
 
 
+function resolveMaterializedImageInput(input, projectId) {
+  const context = createAssetExportContext(projectId);
+  const asset = normalizedExportAsset(input);
+  let filePath;
+  try { filePath = resolveManagedAssetFile(asset, context); } catch { throw Object.assign(new Error("本地生图素材必须来自当前项目的受管图片库。"), { code: "COMFYUI_INPUT_NOT_MANAGED" }); }
+  if (!filePath) throw Object.assign(new Error("本地生图素材必须来自当前项目的受管图片库。"), { code: "COMFYUI_INPUT_NOT_MANAGED" });
+  const buffer = boundedImageRead(filePath, 32 * 1024 * 1024, "输入素材");
+  const contentHash = createHash("sha256").update(buffer).digest("hex");
+  if (asset.contentHash && String(asset.contentHash).toLowerCase() !== contentHash) throw Object.assign(new Error("本地生图素材内容已经改变，请重新选择。"), { code: "COMFYUI_INPUT_CHANGED" });
+  const format = requireEncodedImageFormat(buffer);
+  assertSafeEncodedImageDimensions(buffer, "输入素材");
+  return { buffer, mimeType: format.mimeType, contentHash, source: { ...asset, contentHash } };
+}
+
+async function callComfyUiImageWithSession(payload = {}) {
+  if (!payload.projectId || !payload.operationId) throw Object.assign(new Error("本地生图需要项目与稳定操作标识。"), { code: "COMFYUI_SUBMISSION_ID_REQUIRED" });
+  const config = payload.comfyui;
+  if (!config?.workflow || !config.templateId || !config.templateHash) throw Object.assign(new Error("本地生图需要 Main 已校验的模板。"), { code: "COMFYUI_TEMPLATE_REQUIRED" });
+  if (payload.maskImage || payload.maskDataUrl || ["redraw", "cutout"].includes(payload.editOperation)) throw Object.assign(new Error("首期本地模板暂不支持蒙版编辑或抠图。"), { code: "COMFYUI_MASK_UNSUPPORTED" });
+  const baseUrl = comfyUiLocalBaseUrl(config.baseUrl);
+  const sourceImages = [payload.editImage, ...(Array.isArray(payload.referenceImages) ? payload.referenceImages : [])].filter(Boolean);
+  if (sourceImages.length !== config.imageInputs) throw Object.assign(new Error("所选模板需要的素材数量与当前来源不符。"), { code: "COMFYUI_NODE_MAPPING_INVALID" });
+  const inputs = sourceImages.map(image => resolveMaterializedImageInput(image, payload.projectId));
+  const requestHash = comfyUiStableHash({ templateId: config.templateId, templateHash: config.templateHash, baseUrl, checkpoint: config.checkpoint,
+    seed: config.seed, width: config.width, height: config.height, prompt: String(payload.prompt || ""), negativePrompt: config.negativePrompt,
+    sources: inputs.map(input => ({ contentHash: input.contentHash, assetId: input.source.assetId, occurrenceId: input.source.occurrenceId, nodeId: input.source.canvasNodeId })), requireAlpha: payload.requireAlpha === true });
+  const existing = imageOperationJournal.find(payload.projectId, payload.operationId, payload.requestIndex || 1);
+  if (existing) {
+    if (existing.provider !== "comfyui" || existing.requestHash !== requestHash) throw Object.assign(new Error("相同本地操作标识已提交不同内容。"), { code: "COMFYUI_SUBMISSION_CONFLICT", unsafeToRetry: true });
+    const recovered = await imageOperationJournal.recover(payload.projectId, existing.key);
+    if (!recovered.assets.length) throw Object.assign(new Error(recovered.unknown ? "原本地提交仍未查明；不会重新提交。" : recovered.failed ? "原本地任务已执行失败；不会重新提交。" : "原本地任务仍在排队或运行，请稍后恢复。"), { code: recovered.unknown ? "IMAGE_OPERATION_UNCERTAIN" : recovered.failed ? "IMAGE_OPERATION_TERMINAL" : "IMAGE_OPERATION_PENDING", unsafeToRetry: true });
+    const result = { ok: true, provider: "comfyui", protocol: "comfyui", model: recovered.operation.model, actualParams: recovered.operation.comfyui?.actualParams, images: [], data: [] };
+    imageRuntimeObservationContexts.set(result, { provider: "comfyui", operationRecord: recovered.operation, recoveredAssets: recovered.assets });
+    return result;
+  }
+  const project = getProjectById(payload.projectId, readProjectList());
+  const item = imageOperationJournal.start({ projectId: payload.projectId, operationId: payload.operationId, requestIndex: payload.requestIndex || 1,
+    runId: payload.runId, agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId), provider: "comfyui", requestHash,
+    projectRevision: projectSessionRevisionFromDisk(project), model: config.checkpoint, protocol: "comfyui", transport: "local", connectionId: modelConnectionIdentity(baseUrl, ""),
+    sourceNodeIds: inputs.map(input => input.source.canvasNodeId).filter(Boolean), sources: inputs.map(input => input.source), targetNodeId: payload.targetNodeId,
+    parameters: { n: 1, size: `${config.width}x${config.height}`, outputFormat: "png", referenceCount: inputs.length } });
+  const template = { templateId: config.templateId, templateHash: config.templateHash, templateVersion: config.templateVersion };
+  try {
+    const result = await imageGenerationService.runComfyUi({ ...config, prompt: payload.prompt, submissionId: `op-${item.key}`, inputs,
+      signal: payload.signal, onStatus: payload.onStatus,
+      persistPrepared: snapshot => imageOperationJournal.prepared(item, { ...snapshot, ...template }),
+      persistAccepted: snapshot => imageOperationJournal.accepted(item, { taskId: snapshot.promptId, comfyui: { ...snapshot, ...template } }),
+      onAccepted: payload.onAccepted });
+    const processing = payload.requireAlpha === true ? { requireAlpha: true } : undefined;
+    imageOperationJournal.received(item, result, processing);
+    imageRuntimeObservationContexts.set(result, { provider: "comfyui", operationRecord: item, processed: !processing });
+    return result;
+  } catch (error) { imageOperationJournal.failed(item, error); throw error; }
+}
+
 async function callNewApiImageWithSession(settings, payload = {}) {
+  if (payload.provider === "comfyui") return callComfyUiImageWithSession(payload);
   // AIDebug fixtures remain owned by the established deterministic backend.
   // All production requests use the unified protocol/transport service.
   const model = String(payload.model || settings.imageModel || "").trim();
@@ -4974,7 +5043,7 @@ async function callNewApiImageWithSession(settings, payload = {}) {
 
 function recordImageAssetDelivery(settings, result, assets, error) {
   const context = result && typeof result === "object" ? imageRuntimeObservationContexts.get(result) : null;
-  if (!context?.connectionId) return;
+  if (!context?.connectionId || context.provider === "comfyui") return;
   const delivered = !error && Array.isArray(assets) && assets.length > 0;
   markModelRuntimeVerified(settings, "image", context.model, context.endpointType, {
     ...context,
@@ -4988,10 +5057,10 @@ async function deliverGeneratedImageResult(settings, result, payload = {}) {
   const context = imageRuntimeObservationContexts.get(result);
   try {
     const format = payload.outputFormat || payload.output_format || "png";
-    const generation = imageGenerationContext(payload, result, format);
-    const assets = context?.operationRecord
-      ? await imageOperationJournal.deliver(context.operationRecord, result, generation)
-      : await writeServerImageOutputs(extractServerImages(result), `image-${sanitizeFileStem(payload.runId || Date.now())}`, payload.runId, payload.projectId, format, generation);
+    const generation = imageGenerationContext(context?.provider === "comfyui" ? { comfyui: imageOperationJournal.get(context.operationRecord.projectId, context.operationRecord.key).comfyui } : payload, result, format);
+    const assets = context?.recoveredAssets || (context?.operationRecord
+      ? await imageOperationJournal.deliver(context.operationRecord, result, generation, context.processed !== false)
+      : await writeServerImageOutputs(extractServerImages(result), `image-${sanitizeFileStem(payload.runId || Date.now())}`, payload.runId, payload.projectId, format, generation));
     const incomplete = context?.operationRecord && imageOperationJournal.get(context.operationRecord.projectId, context.operationRecord.key)?.state !== "saved";
     recordImageAssetDelivery(settings, result, assets, incomplete ? { code: "IMAGE_PARTIAL_DELIVERY" } : undefined);
     return assets;
@@ -5011,11 +5080,13 @@ function extractServerImages(data) {
     const cleanValue = String(value || "").trim();
     if (!cleanValue) return;
     const actualParams = mergeImageGenerationResponseMetadata(inheritedActualParams, source?.actualParams, source);
+    const localProcessing = normalizeImageLocalProcessing(source?.localProcessing);
     images.push({
       type,
       value: cleanValue,
       revisedPrompt: source?.revised_prompt || source?.revisedPrompt || "",
       ...(Object.keys(actualParams).length ? { actualParams } : {}),
+      ...(localProcessing ? { localProcessing } : {}),
       ...(source?.requestIndex === undefined ? {} : { requestIndex: source.requestIndex }),
       ...(source?.startedAt ? { startedAt: source.startedAt } : {}),
       ...(source?.completedAt ? { completedAt: source.completedAt } : {}),
@@ -5133,7 +5204,8 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
         runId,
         width: dimensions.width > 0 ? dimensions.width : undefined,
         height: dimensions.height > 0 ? dimensions.height : undefined,
-        ...(generation ? { generation } : {})
+        ...(generation ? { generation } : {}),
+        ...(normalizeImageLocalProcessing(image.localProcessing) ? { localProcessing: normalizeImageLocalProcessing(image.localProcessing) } : {})
       };
     } catch (error) {
       // The provider has already returned this image. Validation/decode/disk
@@ -5150,6 +5222,14 @@ async function writeServerImageOutputs(images, stem, runId = "", projectId = "",
 }
 
 function imageGenerationContext(payload = {}, data = {}, outputFormat = "png") {
+  if (data.protocol === "comfyui") {
+    const frozen = payload.comfyui || {};
+    const actual = data.actualParams || frozen.actualParams || {};
+    return { request: normalizeImageGenerationParameters({ ...actual, protocol: "comfyui", outputFormat: "png",
+      ...(actual.width && actual.height ? { size: `${actual.width}x${actual.height}` } : {}),
+      templateId: frozen.templateId, templateVersion: frozen.templateVersion, templateHash: frozen.templateHash, workflowHash: frozen.workflowHash,
+      sourceHashes: (frozen.inputs || []).map(input => input.sha256) }) };
+  }
   return {
     request: normalizeImageGenerationParameters({
       model: payload.model || data.model,
@@ -5233,18 +5313,37 @@ const imageOperationJournal = createImageOperationJournal({
   extractImages: extractServerImages,
   download: url => remoteImageDownloads.download(url, { maxBytes: maxExportImageBytes, timeoutMs: 30_000, maxRedirects: 5 }),
   materialize: writeServerImageOutputs,
-  async processImage(buffer, inputs) {
-    const { applyClientMask } = require("./desktop/image-mask-compat.cjs");
-    const result = await applyClientMask({ images: [{ type: "base64", value: buffer.toString("base64") }] }, inputs);
-    return Buffer.from(result.images[0].value, "base64");
+  async processImage(buffer, inputs, processing) {
+    let output = { type: "base64", value: buffer.toString("base64") };
+    if (processing.kind === "client-mask") {
+      const { applyClientMask } = require("./desktop/image-mask-compat.cjs");
+      const result = await applyClientMask({ images: [output] }, inputs);
+      output = result.images[0];
+    }
+    const bytes = Buffer.from(output.value, "base64");
+    if (processing.requireAlpha) {
+      const { verifyAlphaSubject } = require("./runtime/image-generation/edit-capabilities.cjs");
+      const alpha = await verifyAlphaSubject(bytes);
+      if (!alpha.ok) throw Object.assign(new Error("原图片结果未保留真实透明区域与可见主体，已停止交付。"), { code: "IMAGE_EDIT_ALPHA_INVALID", unsafeToRetry: true });
+      output.localProcessing = { ...output.localProcessing, alpha: { ...alpha, verified: true } };
+    }
+    return { buffer: bytes, localProcessing: normalizeImageLocalProcessing(output.localProcessing) };
   },
   async resolveConnection(item) {
+    if (item.provider === "comfyui") {
+      if (!item.comfyui) throw Object.assign(new Error("原本地提交缺少冻结快照，不能安全恢复。"), { code: "IMAGE_OPERATION_UNCERTAIN", unsafeToRetry: true });
+      return { connectionId: modelConnectionIdentity(comfyUiLocalBaseUrl(item.comfyui.baseUrl), ""), protocol: "comfyui", transport: "local" };
+    }
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     const config = imageGenerationService.resolveModelConfig(settings, item.model);
     const credentials = await newApiClient.resolveRequestConnection(imageGenerationService.transportSettings(settings, config), "/v1/images/generations", { model: item.model }, "image", { ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}), ...(config.apiKey ? { apiKey: config.apiKey } : {}) });
     return { settings, credentials, connectionId: modelConnectionIdentity(credentials.baseUrl, credentials.apiKey), protocol: config.protocol, transport: config.transportMode };
   },
-  pollTask: (item, connection) => newApiClient.pollSub2apiImageTask(connection.settings, item.taskId, { model: item.model, credentials: connection.credentials })
+  pollTask: (item, connection) => item.provider === "comfyui"
+    ? imageGenerationService.recoverComfyUi({ accepted: item.comfyui,
+      persistAccepted: snapshot => imageOperationJournal.accepted(item, { taskId: snapshot.promptId, comfyui: { ...snapshot, templateId: item.comfyui.templateId, templateHash: item.comfyui.templateHash, templateVersion: item.comfyui.templateVersion } }) })
+    : newApiClient.pollSub2apiImageTask(connection.settings, item.taskId, { model: item.model, credentials: connection.credentials }),
+  cancelTask: item => imageGenerationService.cancelComfyUi({ accepted: item.comfyui })
 });
 
 agentTaskService = createAgentTaskService({
@@ -5380,9 +5479,11 @@ function registerIpc() {
     writeProjectPackageFile,
     boundedImageRead,
     projectPackageMaximumFileBytes,
+  projectPackageV4MaximumFileBytes,
     projectPackageFailure,
     validateProjectPackageData,
     importProjectPackage,
+    readProjectPackageFile,
     parseProjectGraphFile,
     projectGraphTask,
     projectForFolderOpen,
@@ -5433,6 +5534,8 @@ function registerIpc() {
     callNewApiImageWithSession,
     deliverGeneratedImageResult,
     imageOperationJournal,
+    imageGenerationService,
+    comfyUiTemplateService,
     clearNewApiAuth,
     completeNewApiLogin,
     extractServerImages,
@@ -5550,6 +5653,10 @@ function createWindow(launch = {}) {
 
 if (projectIoSelftestMode || agentProtocolSelftestMode) {
   module.exports = {
+    callNewApiImageWithSession,
+    deliverGeneratedImageResult,
+    imageOperationJournal,
+    comfyUiTemplateService,
     applicationId,
     applicationName,
     activeNewApiCurlTransportCount,
@@ -5578,11 +5685,13 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     projectAssetRepository,
     projectAssetRepositoryOwner: projectAssetRepository.owner,
     projectPackageService,
+    readProjectPackageFile,
     projectPackageServiceOwner: projectPackageService.owner,
     projectPackageMaximumAssetBytes,
     projectPackageMaximumAssets,
     projectPackageMaximumDecodedBytes,
     projectPackageMaximumFileBytes,
+    projectPackageV4MaximumFileBytes,
     validateProjectPackageData,
     projectManifestPath,
     projectExportSessionPath,

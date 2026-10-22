@@ -729,6 +729,7 @@ async function generateImage(payload: Parameters<ServerBridge["generateImage"]>[
 function createBrowserServerBridge(): ServerBridge {
   return {
     async imageOperations() { return { ok: true, operations: [] }; },
+    async comfyui() { return { ok: false, error: "ComfyUI 本地生图需要桌面客户端。" }; },
     async recoverImage() { return { ok: false, assets: [], error: "图片恢复需要桌面客户端。" }; },
     async register(payload) {
       const settings = readSettings();

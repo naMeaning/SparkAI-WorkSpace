@@ -1,5 +1,21 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-22，图片增量本地交付完成，真实编辑未验收）
+
+- 接受/范围：根仓库main/730a176，接受时干净；保留本轮源码改动。依次实施A Main导出队列、B `.naimage` v4、C唯一image_gen编辑链、D localhost ComfyUI；保持单Agent/单画布，不改外部New API/Extension，不安装模型或依赖。阶段计划、验收与新增真实授权见[Goal](GOAL.md)，完整证据见[本轮验证](docs/EXPORT_EDIT_COMFY_VALIDATION_2026-10-22.md)。
+- 最新范围：用户要求暂不推进视频；随后明确保留已完成的项目包视频搬运，不再增加视频功能或测试。本轮只收口最近图片功能，已有视频证据仅留作历史记录，不重复运行。
+- A已验证：[Main12组](.diagnostics/export-queue-ipc/2026-10-22T04-28-52-248Z/report.json)、queue6组与格式/图片组专项；[实际Electron4组/6截图](.diagnostics/export-ui-2026-10-22T04-36-14-222Z/report.json)覆盖照片alpha预览、原文件默认、关闭时running0/18而后台完成18项、旧图片组CLI入队/GUI ZIP/PSD、双窗口同Main历史。新增projectId归属校验、共享命名模板及公共错误传播，禁止跨项目查/取消/重试。
+- B已验证：[v4九组](.diagnostics/project-package-v4/2026-10-22T04-16-28-753Z/report.json)、知识13组与实际Electron项目IO322资产。160MiB合成视频负载（仅验证流式/字节往返，不证明真实视频解码）、包167,774,081B，collect3195/write5649/open1185/import5351ms，总15,381ms；baselineRSS47,796,224/peak122,195,968B，增长74,391,552B。store ZIP32/1MiB chunk，拒deflate/encrypted/ZIP64；32MiB单图/512MiB单视频/2GiB总包。分享与归档均保留媒体原字节/EXIF，仅清理便携项目元数据，不宣称媒体已脱敏。
+- C已验证：[实际Electron12组/7截图](.diagnostics/image-edit-ui-2026-10-22T04-10-11-801Z/report.json)，6次loopback图片POST/0对话、两次正常退出0；六入口、三角色、真实涂抹坐标/zoom/pan/eraser/undo/redo/invert/草稿恢复、保护区与alpha、处理失败零重发。region-mask真实Electron owner10组、service12/metadata16通过。正常商品/摄影图替代色块，截图已检查。
+- C真实接口失败：用户本轮有限授权预算已用2/2，redraw/cutout各1POST，默认gpt-image-2，均HTTP400“图片编辑请求无效，请检查参考图和请求格式。”0返回图/0重试/原图不变。无法确定具体拒绝字段，真实保护合成/alpha/画质仍未验证。两次早期鉴权预检未发网络POST；隔离profile的opaque Local State修复仅用于既有Main解密，不改原配置。证据：[completion-review](.diagnostics/image-edit-real-2026-10-22T04-14-42-848Z/completion-review.json)。不再新增真实图片请求，真实对话/视频/ComfyUI试跑均0。
+- D已验证：executor28、template9、Main9、metadata16、recovery14子进程；[实际Electron8组/11截图](.diagnostics/comfyui-ui-2026-10-22T04-34-17-441Z/report.json)，4loopback prompt/3view/1upload/1定向delete，两次正常退出0；原始素材、来源hash/参数、未知提交零重发、重启恢复、排队取消隔离、884×640表单均通过。修复配置/素材持久化与手动并行子任务成果保存；终态隐藏旧errorCategory。Mock不证明真实模型兼容性/性能。
+- 公共/最终检查：canonical JSON schema生成TS与参考文档；GUI/IPC/CLI/MCP118/Skill同步。IPC170/167/3、automation-service、view-image、最终typecheck通过；[quick GUI](.diagnostics/electron/aidebug-2026-10-22T04-39-46-487Z/report.json)failures=[]。旧creation-ui曾在catalog adoption等待超时，未记为通过；专项新编辑UI已通过，历史失败报告保留。
+- 最终打包：`package:win:unrestricted` exit0，production build1715 modules/22.41s；最终[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)110,032,896B / SHA-256 `f05d67859272bd05bbb8040c4b56e81d4c1a5f210997d8c5b8a393a27795da00`。ASAR53,029,681B / `4ccbd7066725eebb580da2155a707e0790df39f98110222e2cd2c4bfe834bcfe`。708产品/测试/契约源冻结hash `10dc7820a4ab3824436449eb9879485b37acc822d8f9b0a98fa82780e6550361`，131dist/188owner逐字节及生产package/dual-access/no env核对通过。此前包均为intermediate；修复安装版测试选择器并清理两文件末尾空行后重新冻结/打包，最终身份以上述hash为准。
+- 实际安装：品牌`/S`exit0/16,132ms；E:\sparkai-workspace\naimage原注册目录/1.0.9保留，配置及快捷方式偏好不变，已安装EXE/ASAR匹配。安装前同名进程为空，无强杀；凭据sidecar只核metadata，不读内容。[安装报告](.diagnostics/export-edit-comfy-delivery-2026-10-22/install.json)。
+- 补充检查边界：原生分享/归档/导入对话框检查首次捕获超时，computer-use恢复时被物理Esc停止，未产生有效原生UI操作/截图；隔离应用正常退出0，未将空检查记为通过。开发/生产选择器差异已修复测试脚本，[安装版A UI](.diagnostics/export-ui-2026-10-22T05-09-02-615Z/report.json)4组/6截图通过，0模型请求、正常退出0；双窗历史截图已核对。真实服务失败、原生对话框未验收与旧creation-ui超时保留，不以Mock取代。
+- 文档/Git：Goal/Progress、产品合同、地图、schema/registry/CLI/MCP/Skill与本轮验证已同步。73文件敏感扫描0命中、无二进制，新增验证文档9链接通过；安装版验证完成；本轮commit/普通upstream push收口中。交付索引目录 `.diagnostics/export-edit-comfy-delivery-2026-10-22/`。不上传EXE，不创建Release/tag。
+
+
 ## 当前开发状态（2026-10-21，GitHub 仓库展示层已推送并完成远端素材核验）
 
 - 首页/入口：重写桌面 `README.md`，展示真实九图画布、商品母图到海岸场景的实际编辑示例及精简使用路径；仓库根 `../README.md` 同步真实主图、商品前后对比与展示入口。新增 `docs/GITHUB_SHOWCASE.md`，`docs/README.md` 加入入口。保留既有教程与技术文档，未复制整篇教程。

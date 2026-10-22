@@ -122,7 +122,7 @@ function imageGroupFileName(template, entry, verified, format, occupied) {
   };
   const rendered = template.replace(/\{([^{}]+)\}/g, (_match, token) => replacements[String(token || "").toLowerCase()] || "");
   const stem = uniqueFileStem(rendered, occupied);
-  return `${stem}${IMAGE_EXPORT_FORMATS[format].extension}`;
+  return `${stem}${format === "original" ? verified.extension : IMAGE_EXPORT_FORMATS[format].extension}`;
 }
 
 function collectionForNode(node) {
@@ -178,12 +178,24 @@ function imageExtension(sourcePath) {
 function fileHash(filePath) {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
-    const stream = createReadStream(filePath);
+    const stream = createReadStream(filePath); let ended = false;
     stream.on("error", reject);
     stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
+    stream.on("end", () => { ended = true; });
+    stream.on("close", () => ended ? resolve(hash.digest("hex")) : reject(new Error("图片校验读取未完成。")));
   });
 }
+
+async function renameExportPath(source, destination) {
+  for (let attempt = 0; ; attempt += 1) {
+    try { await rename(source, destination); return; }
+    catch (error) {
+      if (!["EPERM", "EACCES", "EBUSY"].includes(error?.code) || attempt >= 5) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(200, 12 * 2 ** attempt)));
+    }
+  }
+}
+const removeExportPath = target => rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 
 function publicTaskProvenance(value) {
   if (!value || typeof value !== "object") return undefined;
@@ -200,6 +212,7 @@ function isPathInside(candidate, root) {
 
 function estimatedConvertedBytes(sourceBytes, sourcePath, format) {
   const bytes = Math.max(1, Number(sourceBytes) || 1);
+  if (format === "original") return bytes;
   const sourceFormat = imageExportFormatFromExtension(sourcePath);
   if (sourceFormat === format) return bytes;
   const ratio = {
@@ -459,7 +472,7 @@ function createImageCollectionExportService({
     return items;
   }
 
-  async function buildPreview(payload = {}) {
+  async function buildPreview(payload = {}, { exportRoot: destinationRoot } = {}) {
     const project = projectForId(payload.expectedProjectId ?? payload.projectId);
     const collectionIds = requestedCollectionIds(payload.collectionIds);
     const format = requestedImageExportFormat(payload.format);
@@ -470,7 +483,7 @@ function createImageCollectionExportService({
     const plans = [];
     for (const entry of selected) plans.push({ entry, items: await verifiedItems(project, entry) });
 
-    const exportRoot = await secureImageGroupExportRoot(project);
+    const exportRoot = destinationRoot || await secureImageGroupExportRoot(project);
     const existing = await readExportEntries(exportRoot);
     const selectedIds = new Set(collectionIds);
     const occupiedNames = new Set(
@@ -582,6 +595,7 @@ function createImageCollectionExportService({
       incremental,
       plans,
       exportRoot,
+      destinationRoot,
       preview: {
         ok: true,
         projectId: project.id,
@@ -602,13 +616,13 @@ function createImageCollectionExportService({
     return (await buildPreview(payload)).preview;
   }
 
-  async function exportCollectionsUnsafe(payload = {}) {
+  async function exportCollectionsUnsafe(payload = {}, frozen, { signal } = {}) {
     if (payload.confirmed !== true) {
       throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_CONFIRMATION_REQUIRED", "批量导出需要由用户或 Agent 明确触发。", {
         confirmed: false
       });
     }
-    const prepared = await buildPreview(payload);
+    const prepared = frozen || await buildPreview(payload);
     const expectedPreviewToken = cleanText(payload.previewToken, 128);
     if (!expectedPreviewToken || expectedPreviewToken !== prepared.preview.previewToken) {
       throw new ImageCollectionExportError(
@@ -621,7 +635,16 @@ function createImageCollectionExportService({
     }
     const { project, collectionIds, format, filenameTemplate, conflictPolicy, incremental, plans } = prepared;
     const activePlans = plans.filter((plan) => plan.action === "export");
-    const exportRoot = await secureImageGroupExportRoot(project, { create: true });
+    const assertNotCancelled = () => { if (signal?.aborted) throw new ImageCollectionExportError("EXPORT_CANCELLED", "图片组导出已取消；没有发布半成品。"); };
+    assertNotCancelled();
+    const exportRoot = prepared.destinationRoot || await secureImageGroupExportRoot(project, { create: true });
+    const rootStats = await lstat(exportRoot).catch(() => null);
+    if (!rootStats?.isDirectory() || rootStats.isSymbolicLink() || path.resolve(await realpath(exportRoot)) !== path.resolve(prepared.exportRoot))
+      throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PATH_INVALID", "冻结的图片组导出目录已变化。");
+    for (const plan of plans) for (const verified of plan.items) {
+      if (verified.sourcePath && (controlledProjectAssetFile(verified.sourcePath, project.path) !== verified.sourcePath || await fileHash(verified.sourcePath) !== verified.sha256))
+        throw new ImageCollectionExportError("IMAGE_EXPORT_SOURCE_CHANGED", "图片组来源字节已改变，冻结任务不会使用新来源。");
+    }
     const existing = await readExportEntries(exportRoot);
     const selectedIds = new Set(activePlans.map((plan) => plan.entry.collectionId));
 
@@ -633,6 +656,7 @@ function createImageCollectionExportService({
     const backups = [];
     try {
       for (const plan of activePlans) {
+        assertNotCancelled();
         const groupStage = path.join(stagingRoot, plan.directoryName);
         await mkdir(groupStage, { recursive: true });
         const manifestItems = [];
@@ -643,7 +667,8 @@ function createImageCollectionExportService({
           let exportedImage = null;
           let outputSha256 = "";
           if (fileName) {
-            exportedImage = await convertImageForExport(verified.sourcePath, path.join(groupStage, fileName), format);
+            assertNotCancelled();
+            exportedImage = await convertImageForExport(verified.sourcePath, path.join(groupStage, fileName), format, { expectedSourceHash: verified.sha256, signal, overwrite: false });
             outputSha256 = await fileHash(exportedImage.path);
             groupImageBytes += exportedImage.bytes;
             if (exportedImage.converted) groupConvertedCount += 1;
@@ -658,7 +683,7 @@ function createImageCollectionExportService({
             assetId: cleanText(verified.asset?.assetId || verified.item?.assetId, 160) || undefined,
             occurrenceId: cleanText(verified.item?.occurrenceId || verified.asset?.occurrenceId, 80) || undefined,
             fileName,
-            mimeType: fileName ? IMAGE_EXPORT_FORMATS[format].mimeType : undefined,
+            mimeType: exportedImage?.mimeType,
             bytes: exportedImage?.bytes,
             sha256: outputSha256 || undefined,
             sourceBytes: fileName ? verified.bytes : undefined,
@@ -714,6 +739,7 @@ function createImageCollectionExportService({
         plan.convertedCount = groupConvertedCount;
       }
 
+      assertNotCancelled();
       if (activePlans.length) await mkdir(backupRoot, { recursive: true });
       const targets = new Map();
       if (conflictPolicy === "overwrite") {
@@ -735,19 +761,25 @@ function createImageCollectionExportService({
       }
       let backupIndex = 0;
       for (const [sourcePath, directoryName] of targets) {
+        assertNotCancelled();
         const backupPath = path.join(backupRoot, `${String(++backupIndex).padStart(3, "0")}-${directoryName}`);
-        await rename(sourcePath, backupPath);
+        await renameExportPath(sourcePath, backupPath);
         backups.push({ originalPath: sourcePath, backupPath });
       }
       for (const plan of activePlans) {
+        assertNotCancelled();
         const finalPath = path.join(exportRoot, plan.directoryName);
-        await rename(path.join(stagingRoot, plan.directoryName), finalPath);
+        await renameExportPath(path.join(stagingRoot, plan.directoryName), finalPath);
         published.push(finalPath);
       }
-      if (activePlans.length) await rm(backupRoot, { recursive: true, force: true });
-      if (stagingRoot) await rm(stagingRoot, { recursive: true, force: true });
+      let cleanupWarning;
+      try {
+        if (activePlans.length) await removeExportPath(backupRoot);
+        if (stagingRoot) await removeExportPath(stagingRoot);
+      } catch { cleanupWarning = "导出已完成，部分暂存文件待下次清理。"; }
       return {
         ok: true,
+        ...(cleanupWarning ? { cleanupWarning } : {}),
         projectId: project.id,
         format,
         filenameTemplate,
@@ -791,10 +823,12 @@ function createImageCollectionExportService({
         }))
       };
     } catch (error) {
-      for (const finalPath of published.reverse()) await rm(finalPath, { recursive: true, force: true }).catch(() => undefined);
-      for (const backup of backups.reverse()) await rename(backup.backupPath, backup.originalPath).catch(() => undefined);
-      await rm(backupRoot, { recursive: true, force: true }).catch(() => undefined);
-      if (stagingRoot) await rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+      let rollbackFailed = false;
+      for (const finalPath of published.reverse()) await removeExportPath(finalPath).catch(() => { rollbackFailed = true; });
+      for (const backup of backups.reverse()) await renameExportPath(backup.backupPath, backup.originalPath).catch(() => { rollbackFailed = true; });
+      if (!rollbackFailed) await removeExportPath(backupRoot).catch(() => undefined);
+      if (stagingRoot) await removeExportPath(stagingRoot).catch(() => undefined);
+      if (rollbackFailed) throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_ROLLBACK_INCOMPLETE", "导出失败，部分旧文件保留在交付目录内的备份中，请检查后再重试。", { backupDirectory: path.basename(backupRoot) });
       throw error;
     }
   }
@@ -835,6 +869,19 @@ function createImageCollectionExportService({
   }
 
   return {
+    freezeExport: payload => serialized(async () => {
+      const prepared = await buildPreview(payload);
+      if (!payload.previewToken || payload.previewToken !== prepared.preview.previewToken)
+        throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PREVIEW_STALE", "图片组或来源已变化，请重新预检。");
+      return prepared;
+    }),
+    freezeExportToDirectory: (payload, directory) => serialized(async () => {
+      const original = await buildPreview(payload);
+      if (!payload.previewToken || payload.previewToken !== original.preview.previewToken)
+        throw new ImageCollectionExportError("IMAGE_COLLECTION_EXPORT_PREVIEW_STALE", "图片组或来源已变化，请重新预检。");
+      return buildPreview(payload, { exportRoot: directory });
+    }),
+    executeFrozen: (prepared, executionOptions) => serialized(() => exportCollectionsUnsafe({ confirmed: true, previewToken: prepared.preview.previewToken }, prepared, executionOptions)),
     previewCollections: (payload) => serialized(() => previewCollectionsUnsafe(payload)),
     exportCollections: (payload) => serialized(() => exportCollectionsUnsafe(payload)),
     resolveExportedCollectionFolder: (payload) => serialized(() => resolveExportedCollectionFolderUnsafe(payload))

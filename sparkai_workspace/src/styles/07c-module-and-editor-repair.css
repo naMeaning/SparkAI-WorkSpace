@@ -285,10 +285,13 @@
 }
 
 .manual-image-task-body {
-  display: grid;
-  grid-template-rows: auto auto minmax(150px, 1fr) auto;
-  align-content: stretch;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+}
+
+.manual-image-task-body > * {
+  flex-shrink: 0;
 }
 
 .manual-image-task-controls {
@@ -300,7 +303,9 @@
 
 .manual-image-task-prompt {
   min-width: 0;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: 174px;
+  grid-template-rows: auto minmax(150px, 1fr);
 }
 
 .manual-image-reference-row {
@@ -379,13 +384,9 @@
   background: var(--hover-bg);
 }
 
-.manual-image-task-prompt {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
 .manual-image-task-prompt textarea {
   min-height: 150px;
-  height: 100%;
+  height: auto;
 }
 
 .manual-image-task-summary {
@@ -396,6 +397,14 @@
   color: var(--muted);
   font-size: 11px;
 }
+
+.comfyui-task-fields { min-width: 0; display: grid; gap: 10px; }
+.comfyui-task-fields .manual-image-task-controls { align-items: end; }
+.comfyui-task-fields p { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
+.comfyui-task-fields details { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.comfyui-task-fields details[open] { display: grid; gap: 8px; }
+.comfyui-task-fields summary { cursor: pointer; font-size: 12px; }
+.comfyui-task-fields textarea { width: 100%; font-family: monospace; }
 
 .manual-image-task-summary span + span::before {
   margin-right: 6px;

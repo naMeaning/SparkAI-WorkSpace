@@ -5,6 +5,7 @@ import type {
   ImageGenerationResponseSnapshot,
   ImageTaskDraft
 } from "./core";
+import { normalizeComfyUiGenerationMetadata } from "../runtime/comfyui-options.mjs";
 
 const supportedOutputFormats = new Set(["png", "jpeg", "webp"]);
 
@@ -37,6 +38,7 @@ function sanitizeParameters(value: unknown): ImageGenerationParameterSnapshot {
   const outputCompression = Number(source.outputCompression ?? source.output_compression);
   const outputFormat = normalizeOutputFormat(source.outputFormat ?? source.output_format ?? source.format);
   return {
+    ...normalizeComfyUiGenerationMetadata(source),
     model: cleanText(source.model),
     ratio: cleanText(source.ratio ?? source.aspectRatio ?? source.aspect_ratio, 80),
     resolution: cleanText(source.resolution, 80),
@@ -209,7 +211,8 @@ export function imageGenerationDisplayRows(
   assetIndex = 0,
   assetCount = 1
 ) {
-  const useFallbackRequest = Boolean(asset.generation) || !imageAssetIsLocalImport(asset);
+  const local = asset.generation?.request?.protocol === "comfyui" || asset.generation?.response?.protocol === "comfyui";
+  const useFallbackRequest = !local && (Boolean(asset.generation) || !imageAssetIsLocalImport(asset));
   const request = {
     ...(useFallbackRequest ? requestSnapshotFromDraft(fallbackRequest) : {}),
     ...(asset.generation?.request ?? {})
@@ -226,6 +229,7 @@ export function imageGenerationDisplayRows(
     pairedRow("size", "请求尺寸", request.size, response.size),
     width > 0 && height > 0 ? { key: "pixels", label: "像素尺寸", actual: `${width}×${height}`, actualSource: "asset" } satisfies ImageGenerationDisplayRow : undefined,
     pairedRow("quality", "质量", request.quality, response.quality),
+    ...(local ? [pairedRow("seed", "种子", request.seed, response.seed), pairedRow("steps", "采样步数", request.steps, response.steps), pairedRow("sampler", "采样器", request.sampler, response.sampler)] : []),
     pairedRow("outputFormat", "输出格式", request.outputFormat, response.outputFormat),
     fileFormat ? { key: "fileFormat", label: "文件格式", actual: fileFormat.toUpperCase(), actualSource: "asset" } satisfies ImageGenerationDisplayRow : undefined,
     pairedRow("outputCompression", "压缩率", request.outputCompression, response.outputCompression),
@@ -245,6 +249,7 @@ export function imageGenerationDisplayRows(
 }
 
 export function imageGenerationSourceLabel(asset: ImageAsset, fallbackRequest?: ImageTaskDraft) {
+  if (asset.generation?.request?.protocol === "comfyui" || asset.generation?.response?.protocol === "comfyui") return "ComfyUI 本地执行";
   if (asset.generation?.response && Object.keys(asset.generation.response).length) return "服务器响应";
   if (!asset.generation && imageAssetIsLocalImport(asset)) return "本地导入";
   if (asset.generation?.request || fallbackRequest) return "请求记录";

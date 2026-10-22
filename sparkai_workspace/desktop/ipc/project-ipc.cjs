@@ -32,9 +32,7 @@ function registerProjectIpc(options = {}) {
     desktopRoot,
     packageProject,
     writeProjectPackageFile,
-    boundedImageRead,
-    projectPackageMaximumFileBytes,
-    projectPackageFailure,
+    readProjectPackageFile,
     validateProjectPackageData,
     importProjectPackage,
     parseProjectGraphFile,
@@ -232,21 +230,43 @@ function registerProjectIpc(options = {}) {
     return { ok: true, path: selectedPath, project: record, projects: next.projects, activeProjectId: record.id, session };
   });
 
-  ipcMain.handle("naimage:project:export", async () => {
+  ipcMain.handle("naimage:project:export", async (_event, payload = {}) => {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).some(key => !["expectedProjectId", "preset", "includeHistory"].includes(key))) {
+      return { ok: false, errorCode: "PROJECT_PACKAGE_OPTIONS_INVALID", error: "项目包导出只接受预设选项；保存位置由系统对话框选择。" };
+    }
+    if (payload.preset !== undefined && !["share", "archive"].includes(payload.preset) || payload.includeHistory !== undefined && typeof payload.includeHistory !== "boolean") {
+      return { ok: false, errorCode: "PROJECT_PACKAGE_OPTIONS_INVALID", error: "项目包导出预设无效。" };
+    }
     const list = readProjectList();
     const project = getActiveProject(list);
     if (!project) return { ok: false, error: "当前没有可导出的画布。" };
+    if (payload.expectedProjectId !== undefined && payload.expectedProjectId !== project.id) return { ok: false, errorCode: "PROJECT_CHANGED", error: "当前项目已经切换，请重新打开导出。" };
+    let preset = payload.preset, includeHistory = payload.includeHistory === true;
+    if (!preset) {
+      const choice = await dialog.showMessageBox({
+      type: "question",
+      title: "导出项目包",
+      message: "选择项目包包含的内容",
+      detail: "分享包含画布、图片、视频、图层、参数、来源关系及商品资料。归档额外包含项目知识，可选择保留会话历史。媒体保留原文件字节，内嵌 EXIF 等元数据未清理；项目结构中的私密路径与凭据已剔除。导入后创建全新项目，历史任务不会继续执行。",
+      buttons: ["分享", "归档（不含会话）", "归档（包含会话）", "取消"],
+      defaultId: 0,
+      cancelId: 3,
+      noLink: true
+      });
+      if (choice.response === 3) return { ok: true, canceled: true };
+      preset = choice.response === 0 ? "share" : "archive";
+      includeHistory = choice.response === 2;
+    }
     const result = await dialog.showSaveDialog({
       title: "导出 SparkAI WorkSpace 画布",
       defaultPath: path.join(project.path || desktopRoot, `${safeName(project.name, "naimage画布")}.naimage`),
       filters: [{ name: "SparkAI WorkSpace Project", extensions: ["naimage"] }]
     });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
-    const packageData = packageProject(project);
-    writeProjectPackageFile(result.filePath, packageData);
-    writeProjectManifest(project, packageData.session);
+    const packageData = packageProject(project, { preset, includeHistory });
+    const exported = writeProjectPackageFile(result.filePath, packageData);
     log(`project export ${result.filePath}`);
-    return { ok: true, path: result.filePath };
+    return { ok: true, path: result.filePath, version: 4, preset: packageData.preset, includeHistory: packageData.includeHistory, bytes: exported.bytes };
   });
 
   ipcMain.handle("naimage:project:import", async () => {
@@ -257,13 +277,7 @@ function registerProjectIpc(options = {}) {
     });
     if (open.canceled || open.filePaths.length === 0) return { ok: true, canceled: true };
     const sourceFile = open.filePaths[0];
-    const packageBuffer = boundedImageRead(sourceFile, projectPackageMaximumFileBytes, path.basename(sourceFile), "项目文件");
-    let packageData;
-    try {
-      packageData = JSON.parse(packageBuffer.toString("utf8"));
-    } catch {
-      throw projectPackageFailure("NAIMAGE_PROJECT_PACKAGE_INVALID", "画布项目包不是有效的 JSON 文件。");
-    }
+    const packageData = readProjectPackageFile(sourceFile);
     validateProjectPackageData(packageData);
     const target = await dialog.showOpenDialog({
       title: "选择导入画布的父目录",

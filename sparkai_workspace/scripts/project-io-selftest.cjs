@@ -261,11 +261,15 @@ async function run() {
   assert.equal(path.resolve(restoredVideoSession.nodes[0].videoAsset.path), path.resolve(videoPath));
   assert.match(restoredVideoSession.nodes[0].videoAsset.assetUrl, /^naimage-asset:/);
   assert.equal(restoredVideoSession.nodes[0].videoState, "ready");
-  assert.throws(
-    () => projectIo.packageProject(videoProject),
-    (error) => error?.code === "NAIMAGE_PROJECT_PACKAGE_VIDEO_UNSUPPORTED",
-    "The image-only portable package path must reject video projects explicitly",
-  );
+  const videoPackage = projectIo.packageProject(videoProject);
+  assert.equal(videoPackage.version, 4);
+  assert.equal(videoPackage.assets.length, 1);
+  assert.equal(videoPackage.session.nodes[0].videoAsset.contentHash, videoContentHash);
+  assert.equal(videoPackage.session.nodes[0].videoAsset.path, undefined);
+  const importedVideo = projectIo.importProjectPackage(videoPackage, path.join(testRoot, "video-package-target"));
+  assert.notEqual(importedVideo.record.id, videoProject.id);
+  assert.equal(importedVideo.session.nodes[0].videoAsset.contentHash, videoContentHash);
+  assert.deepEqual(readFileSync(importedVideo.session.nodes[0].videoAsset.path), videoBytes);
   const activeAgentImageRoots = projectIo.agentImageRootsForContext({ projectId: outputProjectA.id });
   assert.deepEqual(
     new Set(activeAgentImageRoots.map((root) => path.resolve(root))),
@@ -902,6 +906,18 @@ async function run() {
   assert.deepEqual(importedContextSession.projectTaskContexts, [], "Import must reject inherited local task authority even if a package supplies it.");
   assert.equal(importedContextSession.pendingAgentExecution, null);
   assert.deepEqual(projectIo.projectSessionFromDisk(pendingProject).projectTaskContexts, [frozenContext], "Export/import must not erase local source context history.");
+  writeJson(path.join(pendingProject.path, ".naimage", "project-knowledge.json"), {
+    schemaVersion: 1, projectId: pendingProject.id, revision: 1,
+    history: [{ ...contextEntry, storeRevision: 1, createdAt: "2026-10-20T05:00:00.000Z", updatedAt: "2026-10-20T05:00:00.000Z" }]
+  });
+  const knowledgePackage = projectIo.packageProject(pendingProject, { preset: "archive", includeHistory: false });
+  assert.equal(knowledgePackage.projectKnowledge.entries[0].title, contextEntry.title, "Production Main must wire portable knowledge through its owner");
+  const knowledgeImport = projectIo.importProjectPackage(knowledgePackage, path.join(testRoot, "portable-owner-knowledge-target"));
+  const knowledgeDocument = readJson(path.join(knowledgeImport.record.path, ".naimage", "project-knowledge.json"));
+  assert.equal(knowledgeDocument.projectId, knowledgeImport.record.id);
+  assert.notEqual(knowledgeDocument.history[0].knowledgeId, contextEntry.knowledgeId);
+  assert.equal(knowledgeDocument.history[0].content, contextEntry.content);
+  assert.deepEqual(knowledgeImport.session.projectTaskContexts, []);
   const mismatchedPending = projectIo.sessionForProjectSave({
     ...pendingSession,
     activeConversationId: pendingConversationId,
@@ -1333,7 +1349,7 @@ async function run() {
     }]
   });
   const catalogOnlyPackage = projectIo.packageProject(catalogOnlySource);
-  assert.equal(catalogOnlyPackage.version, 3);
+  assert.equal(catalogOnlyPackage.version, 4);
   assert.equal(catalogOnlyPackage.commerceCatalog.products[0].assets.length, 1);
   assert.equal(catalogOnlyPackage.assets.filter((asset) => asset.assetId === "asset-catalog-only").length, 1);
   const catalogOnlyTargetPath = path.join(testRoot, "catalog-only-target");
@@ -1391,7 +1407,7 @@ async function run() {
   }, packageSourceProject));
   const packageData = projectIo.packageProject(packageSourceProject);
   assert.equal(packageData.format, "naimage-project-package");
-  assert.equal(packageData.version, 3);
+  assert.equal(packageData.version, 4);
   assert.equal(packageData.commerceCatalog?.schemaVersion, 1);
   assert.deepEqual(packageData.commerceCatalog?.products, []);
   assert.equal(JSON.stringify(packageData.session).includes(testRoot), false, "Portable project session must not leak absolute local paths");
@@ -1407,6 +1423,10 @@ async function run() {
   assert(packagedMerged);
   assert.equal(packagedNode?.contentHash, createHash("sha256").update(readFileSync(packageNodePath)).digest("hex"));
   assert.equal(packagedReference?.contentHash, createHash("sha256").update(readFileSync(packageReferencePath)).digest("hex"));
+  // Retain the legacy JSON forged-metadata/collision compatibility exercise.
+  // Canonical v4 must reject a forged content hash instead of silently repairing it.
+  packageData.version = 3;
+  packageData.assets.forEach(asset => { asset.data = readFileSync(path.join(packageSourceProject.path, asset.path)).toString("base64"); });
   packagedNode.path = "output/imagegen/Package-Path-Collision.png";
   packagedLayerNode.path = "output/imagegen/package-path-collision.png";
   packagedReference.path = "session.json";
@@ -1594,7 +1614,7 @@ async function run() {
     emptySelectionPreserved: true,
     videoRelativePersistencePreserved: true,
     videoManifestAndRestartRecoveryPreserved: true,
-    videoPortablePackageBoundaryEnforced: true,
+    videoPortablePackageRoundtripVerified: true,
     projectAssetRepositoryOwner: PROJECT_ASSET_REPOSITORY_OWNER,
     projectAssetRepositoryFacadeUnique: true,
     projectPackageServiceOwner: PROJECT_PACKAGE_SERVICE_OWNER,

@@ -1,4 +1,5 @@
 "use strict";
+const { normalizeComfyUiGenerationMetadata } = require("./comfyui-options.mjs");
 
 const supportedOutputFormats = new Set(["png", "jpeg", "webp"]);
 
@@ -55,6 +56,8 @@ function applyParameterSource(target, value, includeCreatedAt = false) {
     const normalized = cleanMetadataText(parameterValue(value, ...sourceKeys), targetKey === "model" ? 180 : 80);
     if (normalized) target[targetKey] = normalized;
   }
+
+  Object.assign(target, normalizeComfyUiGenerationMetadata(value));
 
   const outputFormat = normalizeOutputFormat(parameterValue(value, "outputFormat", "output_format", "format"));
   if (outputFormat) target.outputFormat = outputFormat;

@@ -54,6 +54,8 @@ import {
   SurfaceHeader,
   UnsavedChangesDialog,
 } from "./ui";
+import { zoomMaskView, type MaskRole, type MaskTool, type MaskView } from "./region-mask-editor";
+import { AI_IMAGE_EDIT_MODES, type AiImageEditMode } from "../runtime/image-edit-modes.mjs";
 
 const CLOSE_BUTTON_REASON = "close-button" as const;
 const WHEN_IDLE = "when-idle" as const;
@@ -61,13 +63,22 @@ const WHEN_IDLE = "when-idle" as const;
 export type RegionRedrawDraft = {
   editorId?: string;
   sourceTarget?: { assetId: string; occurrenceId: string; contentHash: string };
-  mode: "redraw" | "cutout";
+  sourceAsset?: ImageAsset;
+  mode: AiImageEditMode;
   nodeId: string;
   assetIndex: number;
   prompt: string;
   initialPrompt: string;
   brushSize: number;
   maskDirty: boolean;
+  brushRole?: MaskRole;
+  tool?: MaskTool;
+  view?: MaskView;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  annotationLabel?: string;
+  recovered?: boolean;
+  draftWarning?: string;
   sourceWidth?: number;
   sourceHeight?: number;
   ready: boolean;
@@ -717,6 +728,8 @@ export function RegionRedrawDialog({
   endPaint,
   clearPaintState,
   clearMask,
+  editMask,
+  changeView,
   submit,
   agentExecutionBusy,
 }: {
@@ -733,16 +746,21 @@ export function RegionRedrawDialog({
   endPaint: PointerEventHandler<HTMLCanvasElement>;
   clearPaintState: () => void;
   clearMask: () => void;
+  editMask: (command: "undo" | "redo" | "invert" | "save" | "forget") => void;
+  changeView: (view: MaskView) => void;
   submit: () => unknown;
   agentExecutionBusy: boolean;
 }) {
   const redrawNode = nodes.find((item) => item.id === draft.nodeId) ?? null;
   const isCutout = draft.mode === "cutout";
-  const editorTitle = isCutout ? "AI 抠图" : "AI 重绘";
+  const mode = AI_IMAGE_EDIT_MODES[draft.mode];
+  const editorTitle = "AI 图片编辑";
   const fallbackSize = parseImageSizeValue(redrawNode?.imageParams?.size || imageSize || "");
   const sourceWidth = draft.sourceWidth || fallbackSize?.width || 1;
   const sourceHeight = draft.sourceHeight || fallbackSize?.height || 1;
   const redrawDirty = draft.prompt !== draft.initialPrompt || draft.maskDirty;
+  const view = draft.view || { zoom: 1, panX: 0, panY: 0 };
+  const canvasStyle = { transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`, transformOrigin: "center center" };
   const closeRedraw = () => {
     clearPaintState();
     setClosePromptOpen(false);
@@ -767,15 +785,27 @@ export function RegionRedrawDialog({
             <SurfaceBody className="region-redraw-body">
               <div className="region-redraw-stage-panel">
                 <div className="region-redraw-stage-head">
-                  <strong>{isCutout ? "涂抹要保留的主体" : "涂抹要修改的位置"}</strong>
-                  <span>{isCutout ? "大致覆盖主体即可，AI 会结合描述识别自然边缘。" : "红色区域会交给 Image 2 重绘，其他区域保持不变。"}</span>
+                  <strong>{isCutout ? "涂抹要保留的主体" : mode.requiresModifyMask ? "涂抹要修改的位置" : draft.mode === "replace-background" ? "可涂抹需要保护的主体" : "按描述编辑原图"}</strong>
+                  <span>{isCutout ? "大致覆盖主体即可，AI 会结合描述识别自然边缘。" : "绿色保护区会在本地合成后逐像素校验；蓝色标注只说明位置。"}</span>
                 </div>
-                <div className={`region-redraw-canvas-shell ${draft.ready ? "ready" : "loading"}`} style={{ aspectRatio: `${sourceWidth} / ${sourceHeight}` }}>
-                  <canvas ref={sourceCanvasRef} className="region-redraw-source-canvas" aria-label={`${editorTitle}来源图片`} />
+                <div className={`region-redraw-canvas-shell ${draft.ready ? "ready" : "loading"}`} style={{ aspectRatio: `${sourceWidth} / ${sourceHeight}` }}
+                  onWheel={(event) => {
+                    if (!draft.ready || draft.busy) return;
+                    event.preventDefault(); event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    changeView(zoomMaskView(view, view.zoom * Math.exp(-event.deltaY * 0.0015), event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2));
+                  }}>
+                  <canvas ref={sourceCanvasRef} className="region-redraw-source-canvas" style={canvasStyle} aria-label={`${editorTitle}来源图片`} />
                   <canvas
                     ref={maskCanvasRef}
                     className="region-redraw-mask-canvas"
                     aria-label={`${editorTitle}选区蒙版`}
+                    style={{ ...canvasStyle, cursor: draft.tool === "pan" ? "grab" : "crosshair" }}
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (!(event.ctrlKey || event.metaKey) || !["z", "y"].includes(event.key.toLowerCase())) return;
+                      event.preventDefault(); event.stopPropagation(); editMask(event.key.toLowerCase() === "y" || event.shiftKey ? "redo" : "undo");
+                    }}
                     onPointerDown={beginPaint}
                     onPointerMove={movePaint}
                     onPointerUp={endPaint}
@@ -786,7 +816,36 @@ export function RegionRedrawDialog({
                 </div>
               </div>
               <aside className="region-redraw-controls">
-                <Field className="region-redraw-prompt-field" label={isCutout ? "主体描述" : "重绘要求"}>
+                <Field label="编辑方式">
+                  <select aria-label="AI 编辑方式" value={draft.mode} disabled={draft.busy} onChange={event => setDraft(current => current ? { ...current, mode: event.target.value as AiImageEditMode, brushRole: event.target.value === "replace-background" ? "preserve" : "modify", error: undefined } : current)}>
+                    {Object.entries(AI_IMAGE_EDIT_MODES).map(([value, info]) => <option key={value} value={value}>{info.label}</option>)}
+                    <option value="expand" disabled>扩图（暂未开放）</option>
+                  </select>
+                </Field>
+                <Field label="涂抹用途">
+                  <select aria-label="涂抹用途" value={draft.brushRole || "modify"} disabled={!draft.ready || draft.busy} onChange={event => setDraft(current => current ? { ...current, brushRole: event.target.value as MaskRole } : current)}>
+                    <option value="modify">{isCutout ? "主体范围（红色）" : "修改区域（红色）"}</option>
+                    <option value="preserve">保护区域（绿色）</option><option value="annotation">位置标注（蓝色）</option>
+                  </select>
+                </Field>
+                <Field label="工具">
+                  <select aria-label="选区工具" value={draft.tool || "brush"} disabled={!draft.ready || draft.busy} onChange={event => setDraft(current => current ? { ...current, tool: event.target.value as MaskTool } : current)}>
+                    <option value="brush">画笔</option><option value="eraser">橡皮</option><option value="pan">平移</option>
+                  </select>
+                </Field>
+                <div className="region-redraw-tool-actions">
+                  <ActionButton onClick={() => editMask("undo")} disabled={draft.busy || !draft.canUndo}>撤销</ActionButton>
+                  <ActionButton onClick={() => editMask("redo")} disabled={draft.busy || !draft.canRedo}>重做</ActionButton>
+                  <ActionButton onClick={() => editMask("invert")} disabled={draft.busy || !draft.ready}>反选当前用途</ActionButton>
+                </div>
+                <div className="region-redraw-tool-actions" aria-label="编辑视图">
+                  <ActionButton aria-label="缩小编辑视图" onClick={() => changeView(zoomMaskView(view, view.zoom / 1.25))} disabled={draft.busy || view.zoom <= 0.25}>−</ActionButton>
+                  <span>{Math.round(view.zoom * 100)}%</span>
+                  <ActionButton aria-label="放大编辑视图" onClick={() => changeView(zoomMaskView(view, view.zoom * 1.25))} disabled={draft.busy || view.zoom >= 8}>+</ActionButton>
+                  <ActionButton onClick={() => changeView({ zoom: 1, panX: 0, panY: 0 })} disabled={draft.busy}>适应原图</ActionButton>
+                </div>
+                {draft.brushRole === "annotation" ? <Field label="标注说明" hint="蓝色标注只说明位置，不改变修改和保护范围。"><input aria-label="标注说明" value={draft.annotationLabel || ""} maxLength={320} disabled={draft.busy} onChange={event => setDraft(current => current ? { ...current, annotationLabel: event.target.value } : current)} /></Field> : null}
+                <Field className="region-redraw-prompt-field" label={isCutout ? "主体描述" : "修改要求"}>
                   <textarea
                     value={draft.prompt}
                     placeholder={isCutout ? "例如：保留人物、发丝和手持的透明雨伞，移除背景。" : "例如：把涂抹区域改成一枚银色胸针，保持人物、衣服和光线不变。"}
@@ -798,18 +857,20 @@ export function RegionRedrawDialog({
                   <input type="range" min="12" max="240" step="4" value={draft.brushSize} disabled={!draft.ready || draft.busy} onChange={(event) => setDraft((current) => current ? { ...current, brushSize: Number(event.target.value) } : current)} />
                 </Field>
                 <InlineNotice className="region-redraw-note" tone="info" icon={<WandSparkles size={16} />}>
-                  <p>{isCutout ? "选区负责告诉 Agent 主体大致在哪里，描述负责消除歧义；提交前不会生成图片。" : "可以多次涂抹。选区决定修改范围，具体内容由描述决定。"}</p>
+                  <p>{isCutout ? "选区说明主体大致位置，成图后验证真实透明通道和非空主体。" : mode.requiresModifyMask ? "红色区域决定修改范围；绿色保护区优先。" : "整图和变体无需涂抹修改区。绿色保护区可选，蓝色标注不作为蒙版。"}</p>
                 </InlineNotice>
                 {draft.error ? <InlineNotice className="region-redraw-error" tone="danger">{draft.error}</InlineNotice> : null}
+                {draft.recovered ? <InlineNotice tone="info">已恢复此原图的选区草稿。</InlineNotice> : null}
+                {draft.draftWarning ? <InlineNotice tone="warning">{draft.draftWarning}</InlineNotice> : null}
               </aside>
             </SurfaceBody>
             <SurfaceFooter
               className="region-redraw-footer"
-              leading={<ActionButton variant="ghost" onClick={clearMask} disabled={!draft.ready || draft.busy || !draft.maskDirty} icon={<RotateCcw size={15} />}>清空涂抹</ActionButton>}
+              leading={<><ActionButton variant="ghost" onClick={clearMask} disabled={!draft.ready || draft.busy || !draft.maskDirty} icon={<RotateCcw size={15} />}>清空涂抹</ActionButton><ActionButton onClick={() => editMask("save")} disabled={!draft.ready || draft.busy}>保存草稿并关闭</ActionButton></>}
             >
               <ActionButton onClick={() => requestClose("action")} disabled={draft.busy}>取消</ActionButton>
               <ActionButton variant="primary" onClick={() => void submit()} busy={draft.busy} disabled={agentExecutionBusy || !draft.ready} icon={<WandSparkles size={15} />}>
-                {draft.busy ? (isCutout ? "正在抠图…" : "正在重绘…") : `执行${editorTitle}`}
+                {draft.busy ? "正在执行…" : `执行${mode.label}`}
               </ActionButton>
             </SurfaceFooter>
           </>
@@ -824,7 +885,7 @@ export function RegionRedrawDialog({
           detail={<p>继续编辑会保留当前蒙版；放弃只关闭编辑器，不会调用图片模型或产生费用。</p>}
           busy={draft.busy}
           onContinueEditing={() => setClosePromptOpen(false)}
-          onDiscard={closeRedraw}
+          onDiscard={() => { editMask("forget"); closeRedraw(); }}
           discardLabel="放弃并关闭"
         />
       ) : null}

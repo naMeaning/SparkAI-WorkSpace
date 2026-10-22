@@ -26,7 +26,9 @@ const {
 const { imagePromptRatios, imagePromptResolutions } = require("../runtime/image-frame.cjs");
 const { normalizeWorkspaceDomain } = require("../runtime/workspace-domain.cjs");
 const { normalizeImageAssetGenerationMetadata } = require("../runtime/image-generation-metadata.cjs");
+const { normalizeImageLocalProcessing } = require("../runtime/image-local-processing.mjs");
 const { normalizeImageConfigSnapshot } = require("../runtime/image-config-snapshot.mjs");
+const { normalizeComfyUiTaskOptions } = require("../runtime/comfyui-options.mjs");
 const { coalesceImageAssets, remapImageAssetSlots, imageAssetContentHash: sessionAssetContentHash,
   imageAssetIdentityLocators: sessionAssetIdentityLocators, imageAssetIdentitySources } = require("../runtime/image-asset-identity.mjs");
 const { normalizeCreationTaskContract, normalizeCreationMaskAssets } = require("../runtime/creation-task-contract.mjs");
@@ -37,6 +39,9 @@ function sanitizePersistedImageAssetGeneration(asset) {
   const generation = normalizeImageAssetGenerationMetadata(next.generation);
   if (generation) next.generation = generation;
   else delete next.generation;
+  const localProcessing = normalizeImageLocalProcessing(next.localProcessing);
+  if (localProcessing) next.localProcessing = localProcessing;
+  else delete next.localProcessing;
   return next;
 }
 
@@ -1136,6 +1141,11 @@ function sanitizeSession(session, options = {}) {
           if (next.parentId === next.id || typeof next.parentId !== "string" || !next.parentId.trim()) delete next.parentId;
           if (next.agentOwnerId === next.id || typeof next.agentOwnerId !== "string" || !next.agentOwnerId.trim()) delete next.agentOwnerId;
           if (Array.isArray(next.assets)) next.assets = next.assets.map(sanitizePersistedImageAssetGeneration);
+          if (next.imageParams?.provider === "comfyui") {
+            next.imageParams = { ...next.imageParams };
+            try { next.imageParams.comfyui = normalizeComfyUiTaskOptions(next.imageParams.comfyui); } catch { delete next.imageParams.comfyui; }
+            if (!/^[a-z0-9_-]{1,64}$/i.test(next.imageParams.submissionId || "")) delete next.imageParams.submissionId;
+          }
           if (next.layerGroup && typeof next.layerGroup === "object") {
             next.layerGroup = {
               ...next.layerGroup,

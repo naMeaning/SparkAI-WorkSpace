@@ -19,6 +19,8 @@ function registerServerIpc({
   callNewApiImageWithSession,
   deliverGeneratedImageResult,
   imageOperationJournal,
+  imageGenerationService,
+  comfyUiTemplateService,
   clearNewApiAuth,
   completeNewApiLogin,
   customApiCredentials,
@@ -441,6 +443,17 @@ function registerServerIpc({
     };
   });
 
+  ipcMain.handle("naimage:server:comfyui", async (_event, payload = {}) => {
+    try {
+      if (Object.keys(payload).some(key => !["action", "baseUrl", "label", "outputNodeId", "inputMappings", "projectId", "key"].includes(key))) throw Object.assign(new Error("本地生图控制参数无效。"), { code: "COMFYUI_REQUEST_INVALID" });
+      if (payload.action === "list") return comfyUiTemplateService.list();
+      if (payload.action === "inspect") return await comfyUiTemplateService.inspect(payload);
+      if (payload.action === "import") return await comfyUiTemplateService.importTemplate(payload);
+      if (payload.action === "cancel") return await imageOperationJournal.cancel(String(payload.projectId || ""), String(payload.key || ""));
+      throw Object.assign(new Error("未知的本地生图动作。"), { code: "COMFYUI_REQUEST_INVALID" });
+    } catch (error) { return { ok: false, errorCode: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.code : "COMFYUI_CONTROL_FAILED", error: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.message : "本机 ComfyUI 服务未连接或模板处理失败。" }; }
+  });
+
   ipcMain.handle("naimage:server:image-operations", (_event, payload = {}) => {
     try { return { ok: true, operations: imageOperationJournal.list(String(payload.projectId || "")) }; }
     catch { return { ok: false, operations: [], error: "图片恢复记录读取失败。" }; }
@@ -448,6 +461,9 @@ function registerServerIpc({
   ipcMain.handle("naimage:server:recover-image", async (_event, payload = {}) => {
     try {
       const result = await imageOperationJournal.recover(String(payload.projectId || ""), String(payload.key || ""));
+      if (!result.assets.length && (result.pending || result.unknown || result.failed)) return { ok: false, assets: [],
+        errorCode: result.unknown ? "IMAGE_OPERATION_UNCERTAIN" : result.failed ? "IMAGE_OPERATION_TERMINAL" : "IMAGE_OPERATION_PENDING",
+        error: result.unknown ? "原本地任务结果仍未知，未重新提交。" : result.failed ? "原本地任务已经执行失败。" : "原本地任务仍在排队或运行，请稍后恢复。" };
       return { ok: true, assets: result.assets, operation: { key: result.operation.key, targetNodeId: result.operation.targetNodeId,
         sourceNodeIds: result.operation.sourceNodeIds, operationId: result.operation.operationId, requestIndex: result.operation.requestIndex,
         state: result.operation.state, resultCount: result.operation.resultCount } };
@@ -485,7 +501,11 @@ function registerServerIpc({
         await agentRunControl?.waitUntilRunnable(controlledRun, controlledRun.signal);
       }
       const maskImage = ownedMaskImage || (payload ?? {}).maskImage;
+      const isComfyUi = String((payload ?? {}).provider || "").toLowerCase() === "comfyui";
+      if (isComfyUi && ["workflow", "inputs", "inputMappings", "baseUrl"].some(key => Object.prototype.hasOwnProperty.call(payload, key))) throw Object.assign(new Error("本地生图必须使用 Main 已审核的模板和项目素材。"), { code: "COMFYUI_REQUEST_INVALID" });
+      const comfyui = isComfyUi ? comfyUiTemplateService.resolve(payload?.comfyui) : undefined;
       const data = await callNewApiImageWithSession(settings, {
+        ...(isComfyUi ? { provider: "comfyui", comfyui } : {}),
         prompt: (payload ?? {}).prompt,
         model: (payload ?? {}).model,
         size: (payload ?? {}).size || settings.imageSize,
@@ -502,9 +522,14 @@ function registerServerIpc({
         moderation: (payload ?? {}).moderation,
         inputFidelity: (payload ?? {}).inputFidelity ?? (payload ?? {}).input_fidelity,
         mode: (payload ?? {}).mode,
+        editOperation: (payload ?? {}).editOperation,
+        regions: (payload ?? {}).regions,
+        requireAlpha: (payload ?? {}).requireAlpha,
+        layerOutputMode: (payload ?? {}).layerOutputMode,
         runId, operationId, requestIndex, nodeIds: payload?.nodeIds, targetNodeId: payload?.targetNodeId,
         projectId,
         signal: controlledRun?.signal,
+        ...(isComfyUi ? { onStatus: status => emitAgentProgress(event.sender, runId, { phase: "image-progress", tool: "image_gen", summary: "ComfyUI 本地任务进度", progress: status, projectId }) } : {}),
         onPartialImage: (partial) => emitAgentProgress(event.sender, runId, {
           phase: "image-preview",
           tool: "image_gen",
@@ -536,10 +561,11 @@ function registerServerIpc({
       });
       const assets = await deliverGeneratedImageResult(settings, data, { ...payload, runId, projectId });
       log(`new-api generate image returned=${assets.length}`);
-      return { ok: true, model: data.model, protocol: data.protocol, gateway: data.gateway, assets, runId, returned: assets.length };
+      return { ok: true, model: data.model, protocol: data.protocol, gateway: data.gateway,
+        ...(isComfyUi && data.actualParams ? { size: `${data.actualParams.width}x${data.actualParams.height}` } : {}), assets, runId, returned: assets.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (/invalid token|unauthorized|401/i.test(message)) {
+      if (String(payload?.provider || "").toLowerCase() !== "comfyui" && /invalid token|unauthorized|401/i.test(message)) {
         clearNewApiAuth(settings);
       }
       log(`new-api generate image failed ${message}`);

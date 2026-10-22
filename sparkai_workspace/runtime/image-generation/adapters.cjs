@@ -2,6 +2,7 @@
 
 const { cleanString } = require("./types.cjs");
 const { normalizeImageGenerationResponse } = require("./normalize-response.cjs");
+const { createComfyUiExecutor } = require("./comfyui-executor.cjs");
 
 function outputFormatFor(request) {
   const value = String(request.outputFormat || "png").toLowerCase();
@@ -169,7 +170,10 @@ async function buildGeminiRequest(request, config, preparedInputs) {
 const ADAPTERS = Object.freeze({
   "openai-images": { buildRequest: buildOpenAiRequest, normalizeResponse: normalizeImageGenerationResponse },
   "xai-images": { buildRequest: buildXaiRequest, normalizeResponse: normalizeImageGenerationResponse },
-  "gemini-native": { buildRequest: buildGeminiRequest, normalizeResponse: normalizeImageGenerationResponse }
+  "gemini-native": { buildRequest: buildGeminiRequest, normalizeResponse: normalizeImageGenerationResponse },
+  // ComfyUI execution is intentionally exposed as an explicit local adapter;
+  // it never falls through to a cloud JSON transport.
+  comfyui: { buildRequest: async (request) => ({ protocol: "comfyui", method: "POST", endpoint: "/prompt", kind: "local", workflow: request.workflow }), normalizeResponse: normalizeImageGenerationResponse }
 });
 
 function adapterFor(protocol) {
@@ -184,6 +188,7 @@ module.exports = {
   buildGeminiRequest,
   buildOpenAiRequest,
   buildXaiRequest,
+  createComfyUiExecutor,
   outputFormatFor,
   sizeFor
 };

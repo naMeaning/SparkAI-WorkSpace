@@ -21,7 +21,6 @@ import {
 import type {
   ExportCenterFormat,
   ExportCenterHistoryEntry,
-  ExportCenterPreset,
   ExportCenterState,
   ExportCenterTarget,
   ExportConflictPolicy,
@@ -30,6 +29,8 @@ import type {
   ImageCollectionRole,
   ImageExportFormat,
 } from "./core";
+import { imageAssetSrc } from "./core";
+import { cleanExportFilenamePart as cleanFilenamePart, exportFilenameTemplateError as templateError, renderExportFilename } from "../runtime/image-export-naming.mjs";
 import {
   ActionButton,
   DialogShell,
@@ -79,21 +80,25 @@ export type ExportCenterInitialSelection = {
 
 type ExportCenterSource = ExportCenterImageSource | ExportCenterCollectionSource | ExportCenterPsdSource;
 type ExportCenterView = "setup" | "queue" | "history";
-type QueueStatus = "queued" | "running" | "succeeded" | "failed" | "skipped";
+type QueueStatus = "queued" | "running" | "succeeded" | "failed" | "skipped" | "cancelled" | "interrupted";
 
 type ExportConfig = {
   target: ExportCenterTarget;
+  container: "folder" | "zip";
   format: ExportCenterFormat;
   filenameTemplate: string;
   conflictPolicy: ExportConflictPolicy;
   incremental: boolean;
+  authorizationId?: string;
+  destinationLabel?: string;
 };
 
 type ExportQueueJob = {
   id: string;
+  queueId?: string;
   label: string;
   config: ExportConfig;
-  sources: ExportCenterSource[];
+  total: number;
   status: QueueStatus;
   progress: number;
   exportedCount: number;
@@ -105,11 +110,6 @@ type ExportQueueJob = {
   errorCode?: string;
   error?: string;
 };
-
-type JobOutcome = Pick<
-  ExportQueueJob,
-  "status" | "exportedCount" | "skippedCount" | "totalBytes" | "relativePaths" | "errorCode" | "error"
->;
 
 export type ExportCenterDialogProps = {
   projectId: string;
@@ -124,6 +124,7 @@ export type ExportCenterDialogProps = {
 };
 
 const IMAGE_FORMATS: Array<{ value: ImageExportFormat; label: string }> = [
+  { value: "original", label: "原文件 · 原尺寸" },
   { value: "png", label: "PNG" },
   { value: "jpeg", label: "JPEG" },
   { value: "webp", label: "WebP" },
@@ -141,10 +142,11 @@ const EMPTY_STATE: ExportCenterState = {
 
 const DEFAULT_CONFIG: ExportConfig = {
   target: "image",
-  format: "png",
+  container: "folder",
+  format: "original",
   filenameTemplate: "{title}-{index}",
-  conflictPolicy: "overwrite",
-  incremental: true,
+  conflictPolicy: "keep-both",
+  incremental: false,
 };
 
 const TARGET_LABELS: Record<ExportCenterTarget, string> = {
@@ -159,13 +161,9 @@ const STATUS_LABELS: Record<QueueStatus, string> = {
   succeeded: "已完成",
   failed: "失败",
   skipped: "已跳过",
+  cancelled: "已取消",
+  interrupted: "已中断",
 };
-
-function uid(prefix: string) {
-  const random = globalThis.crypto?.randomUUID?.().replace(/-/g, "").slice(0, 12)
-    || Math.random().toString(36).slice(2, 14);
-  return `${prefix}-${Date.now().toString(36)}-${random}`;
-}
 
 function formatBytes(value: number | undefined) {
   const bytes = Math.max(0, Number(value || 0));
@@ -176,15 +174,6 @@ function formatBytes(value: number | undefined) {
   return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
 }
 
-function cleanFilenamePart(value: string, fallback: string) {
-  const normalized = String(value || "").normalize("NFKC")
-    .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/[. ]+$/g, "")
-    .trim();
-  return (normalized || fallback).slice(0, 100).replace(/[. ]+$/g, "") || fallback;
-}
-
 function sourceTitle(source: ExportCenterSource) {
   return cleanFilenamePart(source.title, TARGET_LABELS["collectionId" in source ? "collection" : "assetIndex" in source ? "image" : "psd"]);
 }
@@ -193,28 +182,7 @@ function renderFilenameTemplate(template: string, source: ExportCenterSource, in
   const title = sourceTitle(source);
   const asset = "asset" in source ? String(source.asset.assetId || source.key) : source.key;
   const group = "groupName" in source ? source.groupName || title : "collectionId" in source ? source.title : title;
-  const rendered = String(template || "{title}-{index}").replace(/\{([^{}]+)\}/g, (_match, token) => {
-    const values: Record<string, string> = {
-      title,
-      index: String(index + 1).padStart(3, "0"),
-      asset: cleanFilenamePart(asset, `asset-${index + 1}`),
-      group: cleanFilenamePart(group, "图片组"),
-      request: String(index + 1).padStart(3, "0"),
-    };
-    return values[String(token || "").toLowerCase()] || "";
-  });
-  return cleanFilenamePart(rendered, `${title}-${String(index + 1).padStart(3, "0")}`);
-}
-
-function templateError(template: string) {
-  if (!String(template || "").trim()) return "请输入命名模板。";
-  const allowed = new Set(["title", "index", "asset", "group", "request"]);
-  for (const match of String(template).matchAll(/\{([^{}]+)\}/g)) {
-    if (!allowed.has(String(match[1] || "").toLowerCase())) {
-      return "命名模板只支持 {title}、{index}、{asset}、{group} 和 {request}。";
-    }
-  }
-  return "";
+  return renderExportFilename(template, { title, assetId: asset, groupName: group }, index);
 }
 
 function sourceDetail(source: ExportCenterSource) {
@@ -254,7 +222,6 @@ export default function ExportCenterDialog({
   initialSelection,
   close,
   prepareProject,
-  exportPsd,
   onCompleted,
 }: ExportCenterDialogProps) {
   const initialTarget = initialSelection?.target || "image";
@@ -262,7 +229,7 @@ export default function ExportCenterDialog({
   const [config, setConfig] = useState<ExportConfig>(() => ({
     ...DEFAULT_CONFIG,
     target: initialTarget,
-    format: initialTarget === "psd" ? "psd" : "png",
+    format: initialTarget === "psd" ? "psd" : "original",
   }));
   const [selectedByTarget, setSelectedByTarget] = useState<Record<ExportCenterTarget, string[]>>(() => ({
     image: initialTarget === "image" ? initialSelection?.keys || [] : [],
@@ -284,9 +251,12 @@ export default function ExportCenterDialog({
     relativeRoot: string;
   } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [jobs, setJobs] = useState<ExportQueueJob[]>([]);
-  const jobsRef = useRef<ExportQueueJob[]>([]);
-  const drainingRef = useRef(false);
+  const hiddenJobsRef = useRef(new Set<string>());
+  const terminalRevisionsRef = useRef<Map<string, string> | null>(null);
+  const onCompletedRef = useRef(onCompleted);
+  onCompletedRef.current = onCompleted;
   const mountedRef = useRef(true);
 
   const sources = useMemo<ExportCenterSource[]>(() => {
@@ -305,13 +275,8 @@ export default function ExportCenterDialog({
   );
   const running = jobs.some((job) => job.status === "running");
   const queued = jobs.some((job) => job.status === "queued");
-  const namingError = config.target === "psd" ? "" : templateError(config.filenameTemplate);
-
-  const setJobsSafe = useCallback((updater: ExportQueueJob[] | ((current: ExportQueueJob[]) => ExportQueueJob[])) => {
-    const next = typeof updater === "function" ? updater(jobsRef.current) : updater;
-    jobsRef.current = next;
-    if (mountedRef.current) setJobs(next);
-  }, []);
+  const namingError = templateError(config.filenameTemplate);
+  const defaultDestination = config.container === "zip" ? "项目/exports/archives" : config.target === "collection" ? "项目/image-groups" : `项目/exports/${config.target === "psd" ? "psd" : "images"}`;
 
   const loadState = useCallback(async () => {
     const bridge = window.naimageConfig?.exportCenterState;
@@ -343,207 +308,75 @@ export default function ExportCenterDialog({
   }, [loadState]);
 
   useEffect(() => {
+    const queue = window.naimageConfig?.exportManagedAssetQueue;
+    if (!queue) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const response = await queue.status({ projectId });
+        if (!stopped && response.ok) {
+          const terminalRevisions = new Map<string, string>();
+          const projections: ExportQueueJob[] = [...(response.history || []), ...(response.jobs || [])].map((job) => {
+            const failed = job.results.find((result) => result?.ok === false);
+            const exportedCount = job.results.reduce((sum, result) => sum + (result?.ok && !result.skipped ? Number(result.exportedCount ?? 1) : 0), 0);
+            const skippedCount = job.results.reduce((sum, result) => sum + Number(result?.skippedCount ?? (result?.skipped ? 1 : 0)), 0);
+            const status: QueueStatus = ["queued", "running", "failed", "cancelled", "interrupted"].includes(job.status)
+              ? job.status as QueueStatus : exportedCount === 0 && skippedCount > 0 ? "skipped" : "succeeded";
+            const target = job.config?.target || "image";
+            const projection: ExportQueueJob = {
+              id: job.queueId, queueId: job.queueId,
+              label: `${TARGET_LABELS[target]}${job.config?.container === "zip" ? " ZIP" : "导出"} · ${job.total} 项`,
+              config: { ...DEFAULT_CONFIG, ...job.config, target, container: job.config?.container || "folder", format: job.config?.format || (target === "psd" ? "psd" : "original") },
+              total: job.total, status, progress: job.completed, exportedCount, skippedCount,
+              totalBytes: job.results.reduce((sum, result) => sum + Number(result?.bytes || 0), 0),
+              relativePaths: job.results.flatMap((result) => result?.relativePaths || (result?.relativePath ? [result.relativePath] : [])),
+              errorCode: failed?.errorCode,
+              error: failed?.error || (status === "cancelled" ? "已取消；已完成的文件保留。" : status === "interrupted" ? "应用退出时中断，请重新选择内容提交。" : undefined),
+              startedAt: job.startedAt, finishedAt: job.finishedAt,
+            };
+            if (status !== "queued" && status !== "running") {
+              terminalRevisions.set(job.queueId, JSON.stringify([status, job.finishedAt, job.results]));
+            }
+            return projection;
+          });
+          const previous = terminalRevisionsRef.current;
+          terminalRevisionsRef.current = terminalRevisions;
+          setJobs(projections.filter((job) => !hiddenJobsRef.current.has(job.id)));
+          if (previous) {
+            const changed = projections.filter((job) => terminalRevisions.has(job.id) && previous.get(job.id) !== terminalRevisions.get(job.id));
+            if (changed.length) {
+              void loadState();
+              for (const job of changed) onCompletedRef.current?.(job.status === "failed"
+                ? `${job.label}失败：${job.error || "未知错误"}`
+                : `${job.label}${STATUS_LABELS[job.status]}：导出 ${job.exportedCount} 项，跳过 ${job.skippedCount} 项。`);
+            }
+          }
+        }
+      } catch { /* Retain the last confirmed projection while the project is unavailable. */ }
+      if (!stopped) timer = setTimeout(() => void refresh(), 500);
+    };
+    void refresh();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [loadState, projectId]);
+
+  useEffect(() => {
     setPreview(null);
     setNotice("");
-  }, [config.conflictPolicy, config.filenameTemplate, config.format, config.incremental, config.target, selectedKeys.join("\u0000")]);
+  }, [config.authorizationId, config.container, config.conflictPolicy, config.filenameTemplate, config.format, config.incremental, config.target, selectedKeys.join("\u0000")]);
 
-  const recordHistory = useCallback(async (job: ExportQueueJob) => {
-    const bridge = window.naimageConfig?.recordExportCenterHistory;
-    if (!bridge || (job.status !== "succeeded" && job.status !== "failed" && job.status !== "skipped")) return;
-    const result = await bridge({
-      expectedProjectId: projectId,
-      entry: {
-        id: uid("export-history"),
-        jobId: job.id,
-        target: job.config.target,
-        status: job.status,
-        format: job.config.format,
-        label: job.label,
-        itemCount: job.sources.length,
-        exportedCount: job.exportedCount,
-        skippedCount: job.skippedCount,
-        totalBytes: job.totalBytes,
-        relativePaths: job.relativePaths,
-        errorCode: job.errorCode,
-        error: job.error,
-        startedAt: job.startedAt,
-        finishedAt: job.finishedAt,
-      },
-    });
-    if (result.ok && result.state && mountedRef.current) setState(result.state);
-  }, [projectId]);
+  async function retryFailedJob(job: ExportQueueJob) {
+    if (!job.queueId) return;
+    const result = await window.naimageConfig?.exportManagedAssetQueue?.retryFailed?.({ queueId: job.queueId, projectId });
+    if (!result?.ok) setError(result?.error || "该失败任务已无法重试，请重新选择内容提交。");
+    else setNotice("已提交失败项，成功项将保留。");
+  }
 
-  const executeImageJob = useCallback(async (job: ExportQueueJob): Promise<JobOutcome> => {
-    const bridge = window.naimageConfig?.exportManagedAsset;
-    if (!bridge) throw new Error("当前桌面运行时未提供受管图片导出服务。");
-    await prepareProject();
-    let exportedCount = 0;
-    let skippedCount = 0;
-    let totalBytes = 0;
-    const relativePaths: string[] = [];
-    let firstError = "";
-    let firstErrorCode = "";
-    for (let index = 0; index < job.sources.length; index += 1) {
-      const source = job.sources[index];
-      if (!("asset" in source)) continue;
-      const result = await bridge({
-        asset: source.asset,
-        projectId,
-        suggestedName: renderFilenameTemplate(job.config.filenameTemplate, source, index),
-        format: job.config.format as ImageExportFormat,
-        conflictPolicy: job.config.conflictPolicy,
-        incremental: job.config.incremental,
-      });
-      if (!result.ok) {
-        firstError ||= result.error || "图片导出失败。";
-        firstErrorCode ||= result.errorCode || "IMAGE_EXPORT_FAILED";
-      } else if (result.skipped || result.canceled) {
-        skippedCount += 1;
-      } else {
-        exportedCount += 1;
-      }
-      totalBytes += Math.max(0, Number(result.bytes || 0));
-      if (result.relativePath) relativePaths.push(result.relativePath);
-      setJobsSafe((current) => current.map((item) => item.id === job.id
-        ? { ...item, progress: index + 1, exportedCount, skippedCount, totalBytes }
-        : item));
-    }
-    return {
-      status: firstError ? "failed" : exportedCount ? "succeeded" : "skipped",
-      exportedCount,
-      skippedCount,
-      totalBytes,
-      relativePaths,
-      ...(firstError ? { error: firstError, errorCode: firstErrorCode } : {}),
-    };
-  }, [prepareProject, projectId, setJobsSafe]);
-
-  const executeCollectionJob = useCallback(async (job: ExportQueueJob): Promise<JobOutcome> => {
-    const previewBridge = window.naimageConfig?.previewImageCollectionExport;
-    const exportBridge = window.naimageConfig?.exportImageCollections;
-    if (!previewBridge || !exportBridge) throw new Error("当前桌面运行时未提供图片组导出服务。");
-    await prepareProject();
-    const collectionIds = job.sources.flatMap((source) => "collectionId" in source ? [source.collectionId] : []);
-    const request = {
-      expectedProjectId: projectId,
-      collectionIds,
-      format: job.config.format as ImageExportFormat,
-      filenameTemplate: job.config.filenameTemplate,
-      conflictPolicy: job.config.conflictPolicy,
-      incremental: job.config.incremental,
-    };
-    const prepared = await previewBridge(request);
-    if (!prepared.ok || !prepared.previewToken) {
-      return {
-        status: "failed",
-        exportedCount: 0,
-        skippedCount: 0,
-        totalBytes: 0,
-        relativePaths: [],
-        errorCode: prepared.errorCode || "IMAGE_COLLECTION_EXPORT_PREVIEW_FAILED",
-        error: prepared.error || "图片组导出预检失败。",
-      };
-    }
-    setJobsSafe((current) => current.map((item) => item.id === job.id ? { ...item, progress: 1 } : item));
-    const result = await exportBridge({ ...request, previewToken: prepared.previewToken, confirmed: true });
-    if (!result.ok) {
-      return {
-        status: "failed",
-        exportedCount: 0,
-        skippedCount: 0,
-        totalBytes: 0,
-        relativePaths: [],
-        errorCode: result.errorCode || "IMAGE_COLLECTION_EXPORT_FAILED",
-        error: result.error || "图片组导出失败。",
-      };
-    }
-    const exportedGroups = result.exported || [];
-    const exportedCount = exportedGroups.filter((item) => !item.skipped).length;
-    const skippedCount = exportedGroups.filter((item) => item.skipped).length;
-    return {
-      status: exportedCount ? "succeeded" : "skipped",
-      exportedCount,
-      skippedCount,
-      totalBytes: Math.max(0, Number(result.totalBytes || 0)),
-      relativePaths: exportedGroups.map((item) => item.relativePath).filter(Boolean),
-    };
-  }, [prepareProject, projectId, setJobsSafe]);
-
-  const executePsdJob = useCallback(async (job: ExportQueueJob): Promise<JobOutcome> => {
-    let exportedCount = 0;
-    let skippedCount = 0;
-    let firstError = "";
-    let firstErrorCode = "";
-    for (let index = 0; index < job.sources.length; index += 1) {
-      const source = job.sources[index];
-      if (!("kind" in source)) continue;
-      const suggestedName = `${renderFilenameTemplate(job.config.filenameTemplate, source, index)}.psd`;
-      const result = await exportPsd(source, suggestedName);
-      if (!result.ok) {
-        firstError ||= result.error || "PSD 导出失败。";
-        firstErrorCode ||= result.errorCode || "PSD_EXPORT_FAILED";
-      } else if (result.canceled || result.skipped) {
-        skippedCount += 1;
-      } else {
-        exportedCount += 1;
-      }
-      setJobsSafe((current) => current.map((item) => item.id === job.id
-        ? { ...item, progress: index + 1, exportedCount, skippedCount }
-        : item));
-    }
-    return {
-      status: firstError ? "failed" : exportedCount ? "succeeded" : "skipped",
-      exportedCount,
-      skippedCount,
-      totalBytes: 0,
-      relativePaths: [],
-      ...(firstError ? { error: firstError, errorCode: firstErrorCode } : {}),
-    };
-  }, [exportPsd, setJobsSafe]);
-
-  const drainQueue = useCallback(async () => {
-    if (drainingRef.current) return;
-    drainingRef.current = true;
-    try {
-      while (true) {
-        const next = jobsRef.current.find((job) => job.status === "queued");
-        if (!next) break;
-        const startedAt = new Date().toISOString();
-        setJobsSafe((current) => current.map((job) => job.id === next.id
-          ? { ...job, status: "running", startedAt, error: undefined, errorCode: undefined }
-          : job));
-        let outcome: JobOutcome;
-        try {
-          outcome = next.config.target === "collection"
-            ? await executeCollectionJob(next)
-            : next.config.target === "psd"
-              ? await executePsdJob(next)
-              : await executeImageJob(next);
-        } catch (jobError) {
-          outcome = {
-            status: "failed",
-            exportedCount: 0,
-            skippedCount: 0,
-            totalBytes: 0,
-            relativePaths: [],
-            errorCode: "EXPORT_JOB_FAILED",
-            error: jobError instanceof Error ? jobError.message : String(jobError),
-          };
-        }
-        const finishedAt = new Date().toISOString();
-        const completed = { ...next, ...outcome, status: outcome.status, startedAt, finishedAt, progress: next.sources.length };
-        setJobsSafe((current) => current.map((job) => job.id === next.id ? completed : job));
-        await recordHistory(completed).catch(() => undefined);
-        onCompleted?.(
-          outcome.status === "failed"
-            ? `${next.label}失败：${outcome.error || "未知错误"}`
-            : `${next.label}完成：导出 ${outcome.exportedCount} 项，跳过 ${outcome.skippedCount} 项。`,
-        );
-      }
-    } finally {
-      drainingRef.current = false;
-    }
-  }, [executeCollectionJob, executeImageJob, executePsdJob, onCompleted, recordHistory, setJobsSafe]);
+  async function cancelJob(job: ExportQueueJob) {
+    if (!job.queueId) return;
+    const result = await window.naimageConfig?.exportManagedAssetQueue?.cancel({ queueId: job.queueId, projectId });
+    if (!result?.ok) setError(result?.error || "取消导出失败。");
+  }
 
   function changeTarget(target: ExportCenterTarget) {
     if (target !== config.target && (target === "image" || target === "psd") && selectedByTarget[target].length === 0) {
@@ -557,7 +390,8 @@ export default function ExportCenterDialog({
     setConfig((current) => ({
       ...current,
       target,
-      format: target === "psd" ? "psd" : current.format === "psd" ? "png" : current.format,
+      container: target === "psd" ? "folder" : current.container,
+      format: target === "psd" ? "psd" : current.format === "psd" ? "original" : current.format,
     }));
     setError("");
   }
@@ -607,16 +441,16 @@ export default function ExportCenterDialog({
         setPreview({
           itemCount: result.collectionCount || selectedSources.length,
           outputCount: result.imageCount || 0,
-          skippedCount: result.skippedCount || 0,
+          skippedCount: config.container === "zip" ? 0 : result.skippedCount || 0,
           estimatedBytes: result.estimatedBytes,
-          relativeRoot: result.relativeRoot || "image-groups",
+          relativeRoot: config.destinationLabel || defaultDestination,
         });
       } else {
         setPreview({
           itemCount: selectedSources.length,
           outputCount: selectedSources.length,
           skippedCount: 0,
-          relativeRoot: config.target === "image" ? "exports/images" : "用户选择的位置",
+          relativeRoot: config.destinationLabel || defaultDestination,
         });
       }
       setNotice("预检完成，可以加入串行导出队列。");
@@ -628,7 +462,7 @@ export default function ExportCenterDialog({
     }
   }
 
-  function enqueueSelection() {
+  async function enqueueSelection() {
     setError("");
     if (!selectedSources.length) {
       setError(`请至少选择一个${TARGET_LABELS[config.target]}导出项。`);
@@ -638,23 +472,39 @@ export default function ExportCenterDialog({
       setError(namingError);
       return;
     }
-    const snapshot: ExportConfig = { ...config, format: config.target === "psd" ? "psd" : config.format };
-    const job: ExportQueueJob = {
-      id: uid("export-job"),
-      label: `${TARGET_LABELS[config.target]}导出 · ${selectedSources.length} 项`,
-      config: snapshot,
-      sources: selectedSources.map((source) => ({ ...source })),
-      status: "queued",
-      progress: 0,
-      exportedCount: 0,
-      skippedCount: 0,
-      totalBytes: 0,
-      relativePaths: [],
-    };
-    setJobsSafe((current) => [...current, job]);
-    setView("queue");
-    setNotice("任务已加入队列，将按顺序执行。");
-    window.setTimeout(() => void drainQueue(), 0);
+    const queue = window.naimageConfig?.exportManagedAssetQueue;
+    if (!queue) { setError("导出队列不可用。"); return; }
+    const snapshot: ExportConfig = { ...config, container: config.target === "psd" ? "folder" : config.container,
+      format: config.target === "psd" ? "psd" : config.format };
+    setSubmitting(true);
+    try {
+      await prepareProject();
+      const request = {
+        projectId, target: snapshot.target, container: snapshot.container, authorizationId: snapshot.authorizationId,
+        format: snapshot.format, filenameTemplate: snapshot.filenameTemplate, conflictPolicy: snapshot.conflictPolicy,
+        incremental: snapshot.target !== "psd" && snapshot.container !== "zip" && snapshot.incremental,
+      };
+      let accepted;
+      if (snapshot.target === "collection") {
+        const collectionIds = selectedSources.flatMap((source) => "collectionId" in source ? [source.collectionId] : []);
+        const previewBridge = window.naimageConfig?.previewImageCollectionExport;
+        if (!previewBridge) throw new Error("图片组导出预检不可用。");
+        const prepared = await previewBridge({ ...request, expectedProjectId: projectId, collectionIds, format: snapshot.format as ImageExportFormat });
+        if (!prepared.ok || !prepared.previewToken) throw new Error(prepared.error || "图片组导出预检失败。");
+        accepted = await queue.start({ ...request, collectionIds, previewToken: prepared.previewToken });
+      } else {
+        accepted = await queue.start({ ...request, items: selectedSources.map((source, index) => ({
+          ...("asset" in source ? { asset: source.asset } : "kind" in source ? { kind: source.kind } : {}),
+          nodeId: source.nodeId, assetIndex: "assetIndex" in source ? source.assetIndex : undefined,
+          suggestedName: renderFilenameTemplate(snapshot.filenameTemplate, source, index),
+        })) });
+      }
+      if (!accepted.ok || !accepted.queueId) throw new Error(accepted.error || "导出未受理。");
+      setView("queue");
+      setNotice("已加入导出队列，关闭面板后继续执行，可重新打开查看结果。");
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : String(submitError));
+    } finally { setSubmitting(false); }
   }
 
   async function savePreset() {
@@ -702,7 +552,8 @@ export default function ExportCenterDialog({
     setPresetName(preset.name);
     setConfig({
       target: preset.target,
-      format: preset.target === "psd" ? "psd" : preset.format === "psd" ? "png" : preset.format,
+      container: preset.target === "psd" ? "folder" : preset.container || "folder",
+      format: preset.target === "psd" ? "psd" : preset.format === "psd" ? "original" : preset.format,
       filenameTemplate: preset.filenameTemplate,
       conflictPolicy: preset.conflictPolicy,
       incremental: preset.incremental,
@@ -745,7 +596,7 @@ export default function ExportCenterDialog({
     }
   }
 
-  const closeBlocked = running || queued;
+  const closeBlocked = submitting;
   const history = [...state.history].reverse();
 
   return (
@@ -762,7 +613,7 @@ export default function ExportCenterDialog({
           <SurfaceHeader
             eyebrow="当前项目"
             title="导出中心"
-            description="图片、图片组和 Photoshop PSD 共用一个入口；底层导出链路仍彼此独立。"
+            description="选择图片、图片组或 Photoshop PSD，配置格式与目标后加入导出队列。"
             onClose={() => requestClose("close-button")}
             closeDisabled={closeBlocked}
           />
@@ -801,6 +652,19 @@ export default function ExportCenterDialog({
                   </div>
 
                   <div className="export-center-option-grid">
+                    <Field label="目标位置">
+                      <ActionButton onClick={() => void (async () => {
+                        const result = await window.naimageConfig?.authorizeExportDirectory?.({ projectId });
+                        if (result?.ok && result.authorizationId) setConfig((current) => ({ ...current, authorizationId: result.authorizationId, destinationLabel: result.label }));
+                        else if (result && !result.ok) setError(result.error || "目录授权失败。");
+                      })()}>{config.destinationLabel || `${defaultDestination}（选择交付目录…）`}</ActionButton>
+                      {config.authorizationId ? <ActionButton variant="ghost" onClick={() => setConfig((current) => ({ ...current, authorizationId: undefined, destinationLabel: undefined }))}>使用项目目录</ActionButton> : null}
+                    </Field>
+                    {config.target !== "psd" ? <Field label="交付方式">
+                      <select value={config.container} onChange={(event) => setConfig((current) => ({ ...current, container: event.target.value as "folder" | "zip" }))}>
+                        <option value="folder">文件夹</option><option value="zip">ZIP 压缩包</option>
+                      </select>
+                    </Field> : null}
                     <Field label="格式">
                       <select
                         value={config.target === "psd" ? "psd" : config.format}
@@ -822,7 +686,6 @@ export default function ExportCenterDialog({
                     <Field label="同名冲突">
                       <select
                         value={config.conflictPolicy}
-                        disabled={config.target === "psd"}
                         onChange={(event) => setConfig((current) => ({ ...current, conflictPolicy: event.target.value as ExportConflictPolicy }))}
                       >
                         <option value="overwrite">覆盖旧导出</option>
@@ -833,8 +696,8 @@ export default function ExportCenterDialog({
                     <label className="export-center-incremental-toggle">
                       <input
                         type="checkbox"
-                        checked={config.incremental}
-                        disabled={config.target === "psd"}
+                        checked={config.target !== "psd" && config.container !== "zip" && config.incremental}
+                        disabled={config.target === "psd" || config.container === "zip"}
                         onChange={(event) => setConfig((current) => ({ ...current, incremental: event.target.checked }))}
                       />
                       <span><strong>增量导出</strong><small>内容与配置未变化时直接跳过</small></span>
@@ -854,10 +717,11 @@ export default function ExportCenterDialog({
                   </header>
                   <div className="export-center-source-list">
                     {sources.length ? sources.map((source, index) => (
-                      <label key={source.key} className="export-center-source-row">
+                      <label key={source.key} className={`export-center-source-row${"asset" in source ? " has-thumbnail" : ""}`}>
                         <input type="checkbox" checked={selectedKeys.includes(source.key)} onChange={() => toggleSource(source.key)} />
                         <span className="export-center-source-index">{String(index + 1).padStart(2, "0")}</span>
-                        <span><strong>{source.title}</strong><small>{sourceDetail(source)}</small></span>
+                        {"asset" in source ? <span className="export-center-source-thumbnail"><img src={imageAssetSrc(source.asset)} alt="" loading="lazy" /></span> : null}
+                        <span className="export-center-source-copy"><strong>{source.title}</strong><small>{sourceDetail(source)}</small></span>
                         {selectedKeys.includes(source.key) ? <Check size={15} aria-hidden="true" /> : null}
                       </label>
                     )) : (
@@ -867,7 +731,7 @@ export default function ExportCenterDialog({
                 </section>
 
                 <aside className="export-center-preview" aria-label="导出预检">
-                  <header><strong>本次导出</strong><span>{config.target === "collection" ? "项目/image-groups" : config.target === "image" ? "项目/exports/images" : "原生另存为位置"}</span></header>
+                  <header><strong>本次导出</strong><span>{config.destinationLabel || defaultDestination}</span></header>
                   <dl>
                     <div><dt>选择项</dt><dd>{preview?.itemCount ?? selectedSources.length}</dd></div>
                     <div><dt>预计文件</dt><dd>{preview?.outputCount ?? selectedSources.length}</dd></div>
@@ -888,8 +752,11 @@ export default function ExportCenterDialog({
                     variant="ghost"
                     icon={<Trash2 size={14} />}
                     disabled={running || queued || !jobs.some((job) => job.status !== "running" && job.status !== "queued")}
-                    onClick={() => setJobsSafe((current) => current.filter((job) => job.status === "running" || job.status === "queued"))}
-                  >清除已完成</ActionButton>
+                    onClick={() => {
+                      for (const job of jobs) if (job.status !== "running" && job.status !== "queued") hiddenJobsRef.current.add(job.id);
+                      setJobs((current) => current.filter((job) => !hiddenJobsRef.current.has(job.id)));
+                    }}
+                  >隐藏已结束</ActionButton>
                 </header>
                 <div className="export-center-job-list">
                   {jobs.length ? jobs.map((job) => (
@@ -897,12 +764,14 @@ export default function ExportCenterDialog({
                       <span className="export-center-job-icon">{queueStatusIcon(job.status)}</span>
                       <span className="export-center-job-copy">
                         <strong>{job.label}</strong>
-                        <small>{TARGET_LABELS[job.config.target]} · {job.config.format.toUpperCase()} · {job.progress}/{job.sources.length}</small>
+                        <small>{TARGET_LABELS[job.config.target]} · {job.config.format.toUpperCase()}{job.config.container === "zip" ? " / ZIP" : ""} · {job.progress}/{job.total}</small>
                         {job.error ? <em>{job.error}</em> : null}
                       </span>
                       <span className="export-center-job-result">
                         <strong>{STATUS_LABELS[job.status]}</strong>
                         <small>{job.exportedCount} 导出 · {job.skippedCount} 跳过{job.totalBytes ? ` · ${formatBytes(job.totalBytes)}` : ""}</small>
+                        {job.status === "failed" && job.queueId ? <ActionButton variant="ghost" icon={<RefreshCw size={13} />} onClick={() => void retryFailedJob(job)}>仅重试失败项</ActionButton> : null}
+                        {(job.status === "queued" || job.status === "running") && job.queueId ? <ActionButton variant="ghost" onClick={() => void cancelJob(job)}>取消</ActionButton> : null}
                       </span>
                     </div>
                   )) : (
@@ -941,11 +810,11 @@ export default function ExportCenterDialog({
             {error ? <InlineNotice className="export-center-global-notice" tone="danger" icon={<XCircle size={15} />}>{error}</InlineNotice> : null}
             {!error && notice ? <StatusLine className="export-center-global-notice" tone="success" icon={<CheckCircle2 size={15} />} live="polite">{notice}</StatusLine> : null}
           </SurfaceBody>
-          <SurfaceFooter leading={<span className="export-center-footer-status">{closeBlocked ? "导出任务执行期间请保持窗口打开" : "全部输出都由 Electron Main 解析和写入"}</span>}>
+          <SurfaceFooter leading={<span className="export-center-footer-status">{closeBlocked ? "正在加入导出队列" : "导出队列继续运行，可关闭面板"}</span>}>
             <ActionButton onClick={() => requestClose("action")} disabled={closeBlocked}>关闭</ActionButton>
             {view !== "setup" ? <ActionButton icon={<Plus size={15} />} onClick={() => setView("setup")}>添加任务</ActionButton> : null}
             {view === "setup" ? (
-              <ActionButton variant="primary" icon={<Download size={15} />} disabled={!selectedSources.length || Boolean(namingError)} onClick={enqueueSelection}>加入导出队列</ActionButton>
+              <ActionButton variant="primary" icon={<Download size={15} />} busy={submitting} disabled={submitting || !selectedSources.length || Boolean(namingError)} onClick={enqueueSelection}>加入导出队列</ActionButton>
             ) : null}
           </SurfaceFooter>
         </>

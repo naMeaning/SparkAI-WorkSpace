@@ -56,8 +56,9 @@ async function testSaveAsIpc(root, sourcePath) {
   const dialogPaths = [
     path.join(imageExportRoot, "native-choice.avif"),
     path.join(imageExportRoot, "requested-format.jpg"),
-    path.join(root, "..", "forbidden-outside-project.png")
+    path.join(root, "native-authorized-delivery", "outside-project.png")
   ];
+  mkdirSync(path.join(root, "native-authorized-delivery"), { recursive: true });
   const dialogOptions = [];
   const formatDialogOptions = [];
   let released = 0;
@@ -95,11 +96,12 @@ async function testSaveAsIpc(root, sourcePath) {
   assert.equal(typeof saveAs, "function");
   const selectedByExtension = await saveAs({ sender: {} }, { asset: { path: sourcePath }, projectId: "project-export" });
   assert.equal(selectedByExtension.ok, true);
-  assert.equal(selectedByExtension.format, "avif");
-  assert.equal(selectedByExtension.converted, true);
-  assert.equal(path.extname(selectedByExtension.path), ".avif");
-  assert.deepEqual(formatDialogOptions[0].buttons, ["PNG", "JPEG", "WebP", "AVIF", "TIFF", "取消"]);
-  assert.deepEqual(dialogOptions[0].filters, [{ name: "AVIF 图片", extensions: ["avif"] }]);
+  assert.equal(selectedByExtension.format, "png");
+  assert.equal(selectedByExtension.converted, false);
+  assert.equal(path.extname(selectedByExtension.path), ".png");
+  assert.equal(formatDialogOptions.length, 0, "Default original bytes requires no extra format dialog");
+  assert.deepEqual(readFileSync(selectedByExtension.path), readFileSync(sourcePath));
+  assert.deepEqual(dialogOptions[0].filters, [{ name: "PNG 图片", extensions: ["png"] }]);
   assert.equal(path.dirname(dialogOptions[0].defaultPath), imageExportRoot);
 
   const requestedFormat = await saveAs({ sender: {} }, {
@@ -117,8 +119,8 @@ async function testSaveAsIpc(root, sourcePath) {
     projectId: "project-export",
     format: "png"
   });
-  assert.equal(outside.ok, false);
-  assert.equal(outside.errorCode, "IMAGE_EXPORT_OUTSIDE_PROJECT");
+  assert.equal(outside.ok, true, "The native save response authorizes the selected destination");
+  assert.deepEqual(readFileSync(outside.path), readFileSync(sourcePath));
   assert.equal(released, 3, "Each export must release its transient materialized source");
 }
 
@@ -475,9 +477,11 @@ async function testAdditionalSourceFormats(root) {
     for (const format of Object.keys(IMAGE_EXPORT_FORMATS)) {
       const destination = path.join(root, `${source.format}-to-${format}${IMAGE_EXPORT_FORMATS[format].extension}`);
       const result = await convertImageForExport(source.path, destination, format);
-      assert.equal(result.format, format);
-      assert.equal(result.converted, format !== source.format);
-      await assertFullyDecoded(destination, format, source.width, source.height);
+      const actualFormat = format === "original" ? source.format : format;
+      assert.equal(result.format, actualFormat);
+      assert.equal(result.converted, actualFormat !== source.format);
+      await assertFullyDecoded(destination, actualFormat, source.width, source.height);
+      if (format === "original") assert.deepEqual(readFileSync(destination), sourceBefore);
     }
     assert.deepEqual(readFileSync(source.path), sourceBefore, `${source.format} input must remain unchanged`);
   }
@@ -578,10 +582,11 @@ async function main() {
       const destination = path.join(root, `export${IMAGE_EXPORT_FORMATS[format].extension}`);
       const result = await convertImageForExport(sourcePath, destination, format);
       const metadata = await sharp(destination).metadata();
-      assert.equal(result.format, format);
+      assert.equal(result.format, format === "original" ? "png" : format);
       assert.equal(result.width, 37);
       assert.equal(result.height, 23);
-      assert.equal(result.converted, format !== "png");
+      assert.equal(result.converted, format !== "png" && format !== "original");
+      if (format === "original") assert.deepEqual(readFileSync(destination), sourceBefore, "original export preserves bytes including alpha and metadata");
       assert.equal(result.bytes > 0, true);
       assert.equal(metadata.width, 37);
       assert.equal(metadata.height, 23);
@@ -597,7 +602,7 @@ async function main() {
           );
         }
       } else {
-        await assertAlphaPreserved(destination, format);
+        await assertAlphaPreserved(destination, format === "original" ? "png" : format);
       }
       if (format === "tiff") {
         const signature = readFileSync(destination).subarray(0, 4);

@@ -4,12 +4,14 @@ import {
   type AutomationRendererCommandName,
 } from "./automation-command-registry.ts";
 import { automationCommandError } from "./automation-command-errors.ts";
+import { renderExportFilename } from "../runtime/image-export-naming.mjs";
 import type {
   AgentSteerTaskScopeMode,
   AgentSteerTaskScopeUpdate,
   AssetTaskRole,
   CanvasRequirementInputBinding,
   CanvasSkill,
+  ComfyUiTaskOptions,
   ImageAssetExportResult,
   ImageExportFormat,
   ImageFrameRatio,
@@ -66,7 +68,7 @@ import type { CommerceExportFormat, CommerceExportRequest } from "./commerce-exp
 
 type JsonObject = Record<string, unknown>;
 type JsonSchema = {
-  type?: "object" | "array" | "string" | "integer" | "number" | "boolean";
+  type?: "object" | "array" | "string" | "integer" | "number" | "boolean" | readonly string[];
   required?: readonly string[];
   additionalProperties?: boolean;
   properties?: Readonly<Record<string, JsonSchema>>;
@@ -81,6 +83,7 @@ type JsonSchema = {
   minProperties?: number;
   minimum?: number;
   maximum?: number;
+  multipleOf?: number;
   pattern?: string;
 };
 type AutomationCommandDefinition = { parameters?: JsonSchema; destructive?: boolean };
@@ -151,6 +154,11 @@ export type AutomationCommandContext = {
   selectNodes(ids: string[], primaryId: string): void;
   listImageOperations?(): Promise<unknown>;
   recoverImageOperation?(key: string): Promise<unknown>;
+  generateComfyUi(input: { prompt: string; submissionId: string; comfyui: ComfyUiTaskOptions; sources: CanvasMaterialTarget[]; x: number; y: number }): Promise<unknown>;
+  openImageEditor(nodeId: string, assetIndex: number, mode: string, prompt: string): unknown;
+  exportProjectPackage(input: { expectedProjectId: string; preset: "share" | "archive"; includeHistory: boolean }): Promise<unknown>;
+  importProjectPackage(): Promise<unknown>;
+  prepareProjectExport(): Promise<void>;
   fitCanvas(): void;
   removeFailedNodes(ids: string[]): void;
   clearCanvas(): Promise<unknown>;
@@ -183,7 +191,7 @@ export type AutomationCommandContext = {
   exportImageCollections(input: {
     collectionIds: string[];
     expectedProjectId: string;
-    format: "png" | "jpeg" | "webp" | "avif" | "tiff";
+    format: ImageExportFormat;
     confirmed: true;
   }): Promise<unknown>;
   parseSkill(markdown: unknown, sourceName?: unknown): Promise<ImportedCanvasSkill>;
@@ -941,6 +949,10 @@ function invalidArgument(command: string, path: string, reason: string, details:
 }
 
 function validateSchemaValue(command: string, schema: JsonSchema, value: unknown, path = "$" ): void {
+  if (Array.isArray(schema.type)) {
+    const matches = schema.type.some(type => type === "integer" ? Number.isInteger(value) : type === "number" ? typeof value === "number" && Number.isFinite(value) : typeof value === type);
+    if (!matches) invalidArgument(command, path, "类型不符合合同");
+  }
   if (schema.enum && !schema.enum.some((candidate) => Object.is(candidate, value))) {
     invalidArgument(command, path, "不在允许的枚举值中", { allowed: [...schema.enum], received: value });
   }
@@ -1006,6 +1018,7 @@ function validateSchemaValue(command: string, schema: JsonSchema, value: unknown
   if ((schema.type === "integer" || schema.type === "number") && typeof value === "number") {
     if (schema.minimum !== undefined && value < schema.minimum) invalidArgument(command, path, `不能小于 ${schema.minimum}`, { minimum: schema.minimum });
     if (schema.maximum !== undefined && value > schema.maximum) invalidArgument(command, path, `不能大于 ${schema.maximum}`, { maximum: schema.maximum });
+    if (schema.multipleOf && value % schema.multipleOf !== 0) invalidArgument(command, path, `必须是 ${schema.multipleOf} 的倍数`);
   }
 }
 
@@ -1269,6 +1282,27 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       assertExpectedProject(value, context);
       return context.recoverImageOperation?.(String(value.key));
     },
+    "comfyui.templates": () => window.naimageServer?.comfyui({ action: "list" }),
+    "comfyui.inspect": (value) => window.naimageServer?.comfyui({ action: "inspect", baseUrl: String(value.baseUrl || "http://127.0.0.1:8188") }),
+    "comfyui.import-template": (value) => window.naimageServer?.comfyui({ action: "import", label: String(value.label || ""), outputNodeId: String(value.outputNodeId), inputMappings: value.inputMappings as never }),
+    "comfyui.cancel": (value) => {
+      assertExpectedProject(value, context);
+      return window.naimageServer?.comfyui({ action: "cancel", projectId: String(value.expectedProjectId), key: String(value.key) });
+    },
+    "comfyui.generate": (value) => {
+      assertExpectedProject(value, context);
+      return context.generateComfyUi({ prompt: String(value.prompt), submissionId: String(value.submissionId), comfyui: value.comfyui as ComfyUiTaskOptions,
+        sources: (value.sources || []) as CanvasMaterialTarget[], x: number(value.x, 240), y: number(value.y, 180) });
+    },
+    "canvas.edit-image": (value) => {
+      assertExpectedProject(value, context);
+      return context.openImageEditor(String(value.nodeId), Number(value.assetIndex || 0), String(value.mode || "edit"), String(value.prompt || ""));
+    },
+    "project.package-export": (value) => {
+      assertExpectedProject(value, context);
+      return context.exportProjectPackage({ expectedProjectId: String(value.expectedProjectId), preset: value.preset === "archive" ? "archive" : "share", includeHistory: value.includeHistory === true });
+    },
+    "project.package-import": () => context.importProjectPackage(),
     "canvas.select": (value) => {
       assertExpectedProject(value, context);
       const ids = strictNodeIds(value.ids, "ids", context);
@@ -1718,13 +1752,67 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       if (!Number.isInteger(assetIndex) || assetIndex < 0 || assetIndex >= (node.assets?.length || 0)) {
         throw new Error("assetIndex 没有指向该节点中的有效图片。");
       }
-      const format = String(value.format || "png").trim().toLowerCase() as ImageExportFormat;
+      const format = String(value.format || "original").trim().toLowerCase() as ImageExportFormat;
       if (!imageExportFormats.has(format)) {
         throw new Error(`不支持的图片导出格式：${format}`);
       }
       const result = await context.exportImage(nodeId, assetIndex, format);
       if (!result.ok && !result.canceled) throw new Error(result.error || "图片导出失败。");
       return { nodeId, assetIndex, requestedFormat: format, result };
+    },
+    "export.authorize-directory": async (value) => {
+      assertExpectedProject(value, context);
+      const bridge = window.naimageConfig?.authorizeExportDirectory;
+      if (!bridge) throw new Error("Main 导出目录授权不可用。");
+      return bridge({ projectId: String(value.expectedProjectId) });
+    },
+    "export.start": async (value) => {
+      assertExpectedProject(value, context);
+      const queue = window.naimageConfig?.exportManagedAssetQueue;
+      if (!queue) throw new Error("Main 导出队列不可用。");
+      await context.prepareProjectExport();
+      assertExpectedProject(value, context);
+      const target = value.target === "collection" || value.target === "psd" ? value.target : "image";
+      const format = target === "psd" ? "psd" : String(value.format || "original") as ImageExportFormat;
+      if (target !== "psd" && format === "psd") throw new Error("图片导出需要图片格式。");
+      const selected = (Array.isArray(value.items) ? value.items : []) as Array<{ nodeId: string; assetIndex?: number; kind?: "asset" | "layer-group"; name?: string }>;
+      const items = selected.map((item, index) => {
+        const node = context.nodes().find((node) => node.id === item.nodeId);
+        if (target === "psd") {
+          if (!node || node.type === "video") throw new Error("PSD 导出选择无效。");
+            return { nodeId: item.nodeId, kind: item.kind || "asset", assetIndex: item.assetIndex || 0,
+              suggestedName: renderExportFilename(String(value.filenameTemplate || "{title}-{index}"), { title: item.name || node.title, assetId: node.assets?.[item.assetIndex || 0]?.assetId, key: `psd:${node.id}:${item.assetIndex || 0}` }, index) };
+        }
+        const assetIndex = item.assetIndex ?? 0;
+        const asset = node?.assets?.[assetIndex];
+        if (!node || !Number.isInteger(assetIndex) || assetIndex < 0 || !asset || node.type === "video") throw new Error("导出选择没有指向有效图片。");
+          return { asset: { ...asset }, suggestedName: renderExportFilename(String(value.filenameTemplate || "{title}-{index}"), { title: item.name || node.title, assetId: asset.assetId, key: `image:${node.id}:${assetIndex}`, groupName: node.imageCollection?.name }, index),
+          format: format as ImageExportFormat,
+          conflictPolicy: String(value.conflictPolicy || "keep-both") as "overwrite" | "keep-both" | "skip", incremental: value.incremental === true };
+      });
+      const collectionIds = target === "collection" ? (Array.isArray(value.collectionIds) ? value.collectionIds : []).map(String) : undefined;
+      let previewToken: string | undefined;
+      if (target === "collection") {
+        const preview = await window.naimageConfig?.previewImageCollectionExport?.({ expectedProjectId: String(value.expectedProjectId), collectionIds: collectionIds || [], format: format as ImageExportFormat,
+          filenameTemplate: String(value.filenameTemplate || "{title}-{index}"), conflictPolicy: String(value.conflictPolicy || "keep-both") as "overwrite" | "keep-both" | "skip", incremental: value.incremental === true });
+        if (!preview?.ok || !preview.previewToken) throw new Error(preview?.error || "图片组预检未完成。");
+        previewToken = preview.previewToken;
+      }
+      return queue.start({ projectId: String(value.expectedProjectId), target, container: value.container === "zip" ? "zip" : "folder", items, collectionIds, previewToken,
+        format, filenameTemplate: String(value.filenameTemplate || "{title}-{index}"), conflictPolicy: String(value.conflictPolicy || "keep-both") as "overwrite" | "keep-both" | "skip", incremental: value.incremental === true,
+        authorizationId: value.authorizationId ? String(value.authorizationId) : undefined });
+    },
+    "export.status": async (value) => {
+      assertExpectedProject(value, context);
+      return window.naimageConfig?.exportManagedAssetQueue?.status({ projectId: String(value.expectedProjectId), queueId: value.queueId ? String(value.queueId) : undefined });
+    },
+    "export.cancel": async (value) => {
+      assertExpectedProject(value, context);
+      return window.naimageConfig?.exportManagedAssetQueue?.cancel({ queueId: String(value.queueId), projectId: String(value.expectedProjectId) });
+    },
+    "export.retry-failed": async (value) => {
+      assertExpectedProject(value, context);
+      return window.naimageConfig?.exportManagedAssetQueue?.retryFailed?.({ queueId: String(value.queueId), projectId: String(value.expectedProjectId) });
     },
     "canvas.rename-image-collections": (value) => {
       assertExpectedProject(value, context);
@@ -1750,7 +1838,7 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return context.exportImageCollections({
         collectionIds: (Array.isArray(value.collectionIds) ? value.collectionIds : []).map(String),
         expectedProjectId: String(value.expectedProjectId),
-        format: String(value.format || "png") as "png" | "jpeg" | "webp" | "avif" | "tiff",
+        format: String(value.format || "original") as ImageExportFormat,
         confirmed: true
       });
     },
@@ -1939,5 +2027,9 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     }
   };
   if (!Object.prototype.hasOwnProperty.call(handlers, command)) throw new Error(`不支持的 SparkAI WorkSpace 自动化命令：${command}`);
-  return handlers[command as AutomationRendererCommandName](validateCommandArgs(command, args));
+  const result = await handlers[command as AutomationRendererCommandName](validateCommandArgs(command, args));
+  if (isJsonObject(result) && result.ok === false && result.canceled !== true) {
+    throw automationCommandError(String(result.errorCode || result.code || "COMMAND_FAILED"), String(result.error || "操作失败。"));
+  }
+  return result;
 }

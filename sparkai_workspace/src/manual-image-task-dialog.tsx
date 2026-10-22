@@ -16,6 +16,7 @@ import {
 } from "./core";
 import type { ImageModelConfig, ImageTaskDraft } from "./core";
 import { ActionButton, DialogShell, Field, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
+import ComfyUiTaskFields from "./comfyui-task-fields";
 
 export type ManualImageTaskDialogState = {
   draft: ImageTaskDraft;
@@ -85,8 +86,9 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
             onClose={() => requestClose("close-button")}
           />
           <SurfaceBody className="manual-image-task-body">
+            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count })}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 本机服务</option></select></Field>
             {adjustment ? <p role="status">{adjustment}</p> : null}
-            <div className="manual-image-task-controls">
+            {draft.provider === "comfyui" ? <ComfyUiTaskFields draft={draft} update={updateDraft} /> : <div className="manual-image-task-controls">
               <Field label="比例">
                 <GlassSelect
                   value={draft.ratio}
@@ -125,7 +127,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
                   options={IMAGE_COUNT_OPTIONS.map((count) => ({ value: String(count), label: `${count} 张` }))}
                 />
               </Field>
-            </div>
+            </div>}
 
             <div className="manual-image-reference-row">
               <ActionButton className="manual-image-reference-button" onClick={openReferencePicker} disabled={references.length >= MAX_REFERENCE_IMAGES} icon={<ImageIcon size={15} />}>
@@ -162,14 +164,14 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
               />
             </Field>
             <div className="manual-image-task-summary">
-              <span>{draft.resolution} · {computedSizeFor(draft.ratio, draft.resolution)}</span>
-              <span>{qualityLabel(draft.quality)}</span>
+              <span>{draft.provider === "comfyui" ? `${draft.comfyui?.width || 1024} × ${draft.comfyui?.height || 1024} · ComfyUI` : `${draft.resolution} · ${computedSizeFor(draft.ratio, draft.resolution)}`}</span>
+              {draft.provider !== "comfyui" ? <span>{qualityLabel(draft.quality)}</span> : null}
               <span>{draft.count > 1 ? `${draft.count} 张 · 按 Agent 设置分批` : "单张"}</span>
             </div>
           </SurfaceBody>
           <SurfaceFooter>
             <ActionButton onClick={() => requestClose("action")}>取消</ActionButton>
-            <ActionButton variant="primary" onClick={submit} disabled={executionBusy || !draft.prompt.trim()} icon={<Send size={16} />}>
+            <ActionButton variant="primary" onClick={submit} disabled={executionBusy || !draft.prompt.trim() || (draft.provider === "comfyui" && (!draft.comfyui?.templateHash || !draft.comfyui?.checkpoint))} icon={<Send size={16} />}>
               {executionBusy ? "Agent 正在工作" : "生成图片"}
             </ActionButton>
           </SurfaceFooter>

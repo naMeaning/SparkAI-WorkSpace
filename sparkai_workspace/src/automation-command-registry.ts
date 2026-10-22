@@ -35,6 +35,11 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "canvas.replace-image-collection-item",
   "canvas.export-image-collections",
   "canvas.export-image",
+  "export.authorize-directory",
+  "export.start",
+  "export.status",
+  "export.cancel",
+  "export.retry-failed",
   "requirement-library.list",
   "requirement-library.save",
   "requirement-library.delete",
@@ -79,7 +84,15 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "agent.resume",
   "agent.stop",
   "agent.image-config",
-  "agent.new-conversation"
+  "agent.new-conversation",
+  "comfyui.templates",
+  "comfyui.inspect",
+  "comfyui.import-template",
+  "comfyui.generate",
+  "comfyui.cancel",
+  "canvas.edit-image",
+  "project.package-export",
+  "project.package-import"
 ] as const;
 
 export const AUTOMATION_SERVICE_COMMAND_NAMES = [
@@ -172,6 +185,11 @@ export const AUTOMATION_COMMAND_NAMES = [
   "canvas.replace-image-collection-item",
   "canvas.export-image-collections",
   "canvas.export-image",
+  "export.authorize-directory",
+  "export.start",
+  "export.status",
+  "export.cancel",
+  "export.retry-failed",
   "requirement-library.list",
   "requirement-library.save",
   "requirement-library.delete",
@@ -216,7 +234,15 @@ export const AUTOMATION_COMMAND_NAMES = [
   "agent.resume",
   "agent.stop",
   "agent.image-config",
-  "agent.new-conversation"
+  "agent.new-conversation",
+  "comfyui.templates",
+  "comfyui.inspect",
+  "comfyui.import-template",
+  "comfyui.generate",
+  "comfyui.cancel",
+  "canvas.edit-image",
+  "project.package-export",
+  "project.package-import"
 ] as const;
 
 export const AUTOMATION_COMMAND_DEFINITIONS = {
@@ -2544,7 +2570,6 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
       "required": [
         "collectionIds",
         "expectedProjectId",
-        "format",
         "confirmed"
       ],
       "additionalProperties": false,
@@ -2568,13 +2593,14 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
         "format": {
           "type": "string",
           "enum": [
+            "original",
             "png",
             "jpeg",
             "webp",
             "avif",
             "tiff"
           ],
-          "default": "png"
+          "default": "original"
         },
         "confirmed": {
           "type": "boolean"
@@ -2601,15 +2627,210 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
         "format": {
           "type": "string",
           "enum": [
+            "original",
             "png",
             "jpeg",
             "webp",
             "avif",
             "tiff"
           ],
-          "default": "png"
+          "default": "original"
         }
       }
+    }
+  },
+  "export.authorize-directory": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "export.start": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": [
+              "nodeId"
+            ],
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "assetIndex": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 160
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "asset",
+                  "layer-group"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "original",
+            "png",
+            "jpeg",
+            "webp",
+            "avif",
+            "tiff",
+            "psd"
+          ],
+          "default": "original"
+        },
+        "conflictPolicy": {
+          "type": "string",
+          "enum": [
+            "keep-both",
+            "skip",
+            "overwrite"
+          ],
+          "default": "keep-both"
+        },
+        "incremental": {
+          "type": "boolean",
+          "default": false
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "target": {
+          "type": "string",
+          "enum": [
+            "image",
+            "collection",
+            "psd"
+          ],
+          "default": "image"
+        },
+        "container": {
+          "type": "string",
+          "enum": [
+            "folder",
+            "zip"
+          ],
+          "default": "folder"
+        },
+        "collectionIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          }
+        },
+        "filenameTemplate": {
+          "type": "string",
+          "maxLength": 160,
+          "default": "{title}-{index}"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "export.status": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "queueId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "export.cancel": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId",
+        "queueId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "queueId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "export.retry-failed": {
+    "parameters": {
+      "type": "object",
+      "required": [
+        "expectedProjectId",
+        "queueId"
+      ],
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "queueId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "additionalProperties": false
     }
   },
   "requirement-library.list": {
@@ -5171,7 +5392,312 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
       "properties": {}
     }
   },
-  "agent.new-conversation": {}
+  "agent.new-conversation": {},
+  "comfyui.templates": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "comfyui.inspect": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "maxLength": 2048,
+          "default": "http://127.0.0.1:8188"
+        }
+      },
+      "required": []
+    }
+  },
+  "comfyui.import-template": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "outputNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "inputMappings": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "inputName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "prompt",
+                  "negative",
+                  "model",
+                  "seed",
+                  "width",
+                  "height",
+                  "image",
+                  "value"
+                ]
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "value": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            },
+            "required": [
+              "nodeId",
+              "inputName",
+              "kind"
+            ]
+          }
+        }
+      },
+      "required": [
+        "outputNodeId",
+        "inputMappings"
+      ]
+    }
+  },
+  "comfyui.generate": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "submissionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "comfyui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "templateId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "templateHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "baseUrl": {
+              "type": "string",
+              "maxLength": 2048,
+              "default": "http://127.0.0.1:8188"
+            },
+            "checkpoint": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "seed": {
+              "type": "integer",
+              "minimum": -1,
+              "maximum": 9007199254740991,
+              "default": -1
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 4096,
+              "multipleOf": 8,
+              "default": 1024
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 4096,
+              "multipleOf": 8,
+              "default": 1024
+            },
+            "negativePrompt": {
+              "type": "string",
+              "maxLength": 16384
+            }
+          },
+          "required": [
+            "templateId",
+            "templateHash",
+            "checkpoint"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "assetIndex": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "nodeId",
+              "assetIndex"
+            ]
+          }
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "expectedProjectId",
+        "submissionId",
+        "prompt",
+        "comfyui"
+      ]
+    }
+  },
+  "comfyui.cancel": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{32}$"
+        }
+      },
+      "required": [
+        "expectedProjectId",
+        "key"
+      ]
+    }
+  },
+  "canvas.edit-image": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "assetIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "edit",
+            "redraw",
+            "remove-object",
+            "replace-background",
+            "cutout",
+            "variants"
+          ],
+          "default": "edit"
+        },
+        "prompt": {
+          "type": "string",
+          "maxLength": 16384
+        }
+      },
+      "required": [
+        "expectedProjectId",
+        "nodeId"
+      ]
+    }
+  },
+  "project.package-export": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedProjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "preset": {
+          "type": "string",
+          "enum": [
+            "share",
+            "archive"
+          ],
+          "default": "share"
+        },
+        "includeHistory": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "expectedProjectId"
+      ]
+    }
+  },
+  "project.package-import": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  }
 } as const;
 
 export const AUTOMATION_COMMAND_SURFACES = {
@@ -5235,6 +5761,11 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "canvas.replace-image-collection-item": "renderer",
   "canvas.export-image-collections": "renderer",
   "canvas.export-image": "renderer",
+  "export.authorize-directory": "renderer",
+  "export.start": "renderer",
+  "export.status": "renderer",
+  "export.cancel": "renderer",
+  "export.retry-failed": "renderer",
   "requirement-library.list": "renderer",
   "requirement-library.save": "renderer",
   "requirement-library.delete": "renderer",
@@ -5279,7 +5810,15 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "agent.resume": "renderer",
   "agent.stop": "renderer",
   "agent.image-config": "renderer",
-  "agent.new-conversation": "renderer"
+  "agent.new-conversation": "renderer",
+  "comfyui.templates": "renderer",
+  "comfyui.inspect": "renderer",
+  "comfyui.import-template": "renderer",
+  "comfyui.generate": "renderer",
+  "comfyui.cancel": "renderer",
+  "canvas.edit-image": "renderer",
+  "project.package-export": "renderer",
+  "project.package-import": "renderer"
 } as const;
 
 export const AUTOMATION_COMMAND_ENUMS = {
@@ -5379,6 +5918,7 @@ export const AUTOMATION_COMMAND_ENUMS = {
   },
   "canvas.export-image-collections": {
     "format": [
+      "original",
       "png",
       "jpeg",
       "webp",
@@ -5388,11 +5928,37 @@ export const AUTOMATION_COMMAND_ENUMS = {
   },
   "canvas.export-image": {
     "format": [
+      "original",
       "png",
       "jpeg",
       "webp",
       "avif",
       "tiff"
+    ]
+  },
+  "export.start": {
+    "format": [
+      "original",
+      "png",
+      "jpeg",
+      "webp",
+      "avif",
+      "tiff",
+      "psd"
+    ],
+    "conflictPolicy": [
+      "keep-both",
+      "skip",
+      "overwrite"
+    ],
+    "target": [
+      "image",
+      "collection",
+      "psd"
+    ],
+    "container": [
+      "folder",
+      "zip"
     ]
   },
   "commerce.template.save": {
@@ -5558,6 +6124,22 @@ export const AUTOMATION_COMMAND_ENUMS = {
       "replace",
       "merge",
       "clear"
+    ]
+  },
+  "canvas.edit-image": {
+    "mode": [
+      "edit",
+      "redraw",
+      "remove-object",
+      "replace-background",
+      "cutout",
+      "variants"
+    ]
+  },
+  "project.package-export": {
+    "preset": [
+      "share",
+      "archive"
     ]
   }
 } as const;

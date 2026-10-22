@@ -15,6 +15,10 @@ import { normalizeCreationTaskContract, normalizeCreationMaskAssets } from "../r
 import { useCreationSession } from "./use-creation-session";
 import type { CreationSessionSnapshot, CreationRegionRevisionInput } from "./creation-session";
 import { locateCreationTarget, submitCreationRegionRevision, type CreationRegionRevisionDraft } from "./creation-region-revision";
+import { RegionMaskEditor, maskCanvasPoint, maskDraftKey, readMaskDraft, type MaskView } from "./region-mask-editor";
+import { AI_IMAGE_EDIT_MODES, type AiImageEditMode } from "../runtime/image-edit-modes.mjs";
+import { normalizeImageLocalProcessing } from "../runtime/image-local-processing.mjs";
+import { normalizeComfyUiTaskOptions } from "../runtime/comfyui-options.mjs";
 /*
 naimage Frontend Main Map
 
@@ -1461,7 +1465,8 @@ function sanitizeStoredImageAsset(value: unknown, fallbackIndex = 1): ImageAsset
     error: typeof source.error === "string" && source.error.trim() ? friendlyImageError(source.error).slice(0, 320) : undefined,
     runId: typeof source.runId === "string" && source.runId.trim() ? source.runId.trim().slice(0, 180) : undefined,
     displayCode: typeof source.displayCode === "string" && source.displayCode.trim() ? source.displayCode.trim().replace(/\s+/g, "").slice(0, 32) : undefined,
-    generation: sanitizeImageAssetGenerationMetadata(source.generation)
+    generation: sanitizeImageAssetGenerationMetadata(source.generation),
+    localProcessing: normalizeImageLocalProcessing(source.localProcessing)
   };
   normalized.assetId = stableImageAssetId({ ...normalized, assetId: typeof source.assetId === "string" ? source.assetId : undefined }, fallbackIndex);
   return normalized;
@@ -1970,7 +1975,10 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
   const storedAssets = (Array.isArray(source.assets)
     ? source.assets.map((asset, assetIndex) => sanitizeStoredImageAsset(asset, assetIndex + 1)).filter((asset): asset is ImageAsset => Boolean(asset)).filter((asset) => {
         if (sourceImageState === "generating" || sourceImageState === "empty") return false;
-        if (generationRunId && asset.runId && asset.runId !== generationRunId) return false;
+        if (generationRunId && asset.runId && asset.runId !== generationRunId) {
+          const slot = asset.runId.startsWith(`${generationRunId}-`) ? asset.runId.slice(generationRunId.length + 1) : "";
+          if (source.imageParams?.batchMode !== "parallel" || !/^(?:[1-9]|10)$/.test(slot)) return false;
+        }
         return true;
       })
     : []).map((asset, assetIndex) => ({
@@ -2139,6 +2147,8 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
 function sanitizeImageParams(value: unknown, fallbackPrompt = ""): ImageTaskDraft | undefined {
   if (!value || typeof value !== "object") return undefined;
   const source = value as Partial<ImageTaskDraft>;
+  let comfyui: ImageTaskDraft["comfyui"];
+  if (source.provider === "comfyui") { try { comfyui = normalizeComfyUiTaskOptions(source.comfyui); } catch { /* Invalid local configuration stays disabled. */ } }
   const referenceImages: ReferenceImage[] = Array.isArray(source.referenceImages)
     ? source.referenceImages
         .reduce<ReferenceImage[]>((items, image) => {
@@ -2151,6 +2161,9 @@ function sanitizeImageParams(value: unknown, fallbackPrompt = ""): ImageTaskDraf
           const path = rawPath || relativePath || "";
           const reference: ReferenceImage = {
             assetId: typeof candidate.assetId === "string" && candidate.assetId.trim() ? candidate.assetId.trim().slice(0, 160) : stableImageAssetId({ contentHash, path, relativePath }, items.length + 1),
+            occurrenceId: typeof candidate.occurrenceId === "string" && /^[a-z0-9_.:-]{1,180}$/i.test(candidate.occurrenceId) ? candidate.occurrenceId : undefined,
+            canvasNodeId: typeof candidate.canvasNodeId === "string" && /^[a-z0-9_.:-]{1,180}$/i.test(candidate.canvasNodeId) ? candidate.canvasNodeId : undefined,
+            canvasAssetIndex: Number.isSafeInteger(candidate.canvasAssetIndex) && Number(candidate.canvasAssetIndex) >= 0 ? candidate.canvasAssetIndex : undefined,
             displayCode: typeof candidate.displayCode === "string" && candidate.displayCode.trim() ? candidate.displayCode.trim().replace(/\s+/g, "").slice(0, 32) : undefined,
             contentHash,
             taskRole: candidate.taskRole === "source" ? "source" : "reference",
@@ -2179,6 +2192,7 @@ function sanitizeImageParams(value: unknown, fallbackPrompt = ""): ImageTaskDraf
         : "auto",
     batchMode: "parallel",
     referenceImages,
+    ...(source.provider === "comfyui" ? { provider: "comfyui" as const, comfyui, ...(/^[a-z0-9_-]{1,64}$/i.test(source.submissionId || "") ? { submissionId: source.submissionId } : {}) } : {}),
     ...(source.outputFormat === "png" || source.outputFormat === "jpeg" || source.outputFormat === "webp" ? { outputFormat: source.outputFormat } : {}),
     ...(Number.isFinite(Number(source.outputCompression)) ? { outputCompression: clamp(Number(source.outputCompression), 0, 100) } : {}),
     ...(source.background === "auto" || source.background === "transparent" || source.background === "opaque" ? { background: source.background } : {}),
@@ -3622,6 +3636,7 @@ function formatProjectMigrationBytes(value: number) {
 }
 
 const IMAGE_EXPORT_FORMAT_LABELS: Record<ImageExportFormat, string> = {
+  original: "原文件 · 原尺寸",
   png: "PNG",
   jpeg: "JPEG",
   webp: "WebP",
@@ -4072,6 +4087,8 @@ function App() {
     if (layerDetachAuditRef.current.length > 96) layerDetachAuditRef.current.splice(0, layerDetachAuditRef.current.length - 96);
   }, []);
   const regionRedrawPaintRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null);
+  const regionMaskEditorRef = useRef<RegionMaskEditor | null>(null);
+  const regionRedrawPanRef = useRef<{ pointerId: number; clientX: number; clientY: number; view: MaskView } | null>(null);
   const regionRedrawDraftRef = useRef<RegionRedrawDraft | null>(null);
   const creationRegionRevisionRef = useRef<CreationRegionRevisionDraft | null>(null);
   const imageTileClickTimerRef = useRef<number | null>(null);
@@ -5090,6 +5107,7 @@ function App() {
 
   useEffect(() => {
     const nodeId = regionRedrawDraft?.nodeId;
+    const editorId = regionRedrawDraft?.editorId;
     const assetIndex = regionRedrawDraft?.assetIndex ?? 0;
     if (!nodeId) return;
     let cancelled = false;
@@ -5098,7 +5116,8 @@ function App() {
         const target = regionRedrawDraft?.sourceTarget;
         const located = target ? locateCreationTarget(nodesRef.current, target) : null;
         const node = target ? located?.node : nodesRef.current.find((item) => item.id === nodeId);
-        const asset = target ? located?.asset : node?.assets?.[assetIndex];
+        const frozenAsset = regionRedrawDraft?.sourceAsset;
+        const asset = target ? located?.asset : frozenAsset ? node?.assets?.find(candidate => candidate.path === frozenAsset.path && candidate.url === frozenAsset.url && candidate.assetId === frozenAsset.assetId && candidate.occurrenceId === frozenAsset.occurrenceId && candidate.contentHash === frozenAsset.contentHash) : node?.assets?.[assetIndex];
         if (!asset) throw new Error("AI 图片编辑来源图片不存在。");
         const source = await imageAssetCanvasSrc(asset);
         const image = await loadImageForCanvas(source);
@@ -5118,21 +5137,40 @@ function App() {
         sourceContext.clearRect(0, 0, width, height);
         sourceContext.drawImage(image, 0, 0, width, height);
         maskContext.clearRect(0, 0, width, height);
-        setRegionRedrawDraft((current) => current && current.nodeId === nodeId
-          ? { ...current, sourceWidth: width, sourceHeight: height, ready: true, error: undefined }
-          : current);
+        let recovered = null, draftWarning: string | undefined;
+        if (target) {
+          try { recovered = readMaskDraft(window.localStorage, maskDraftKey(activeProjectIdRef.current, target, regionRedrawDraft!.mode), target, width, height); }
+          catch { draftWarning = "原选区草稿不可用，已保留原记录；可以重新涂抹。"; }
+        }
+        const editorTarget = target || { assetId: editorId || nodeId, occurrenceId: editorId || nodeId, contentHash: editorId || nodeId };
+        regionMaskEditorRef.current = new RegionMaskEditor(editorTarget, width, height, recovered?.document);
+        regionMaskEditorRef.current.render(maskCanvas);
+        setRegionRedrawDraft((current) => {
+          if (!current || current.editorId !== editorId) return current;
+          const next = { ...current, sourceWidth: width, sourceHeight: height, ready: true, error: undefined, draftWarning,
+            view: recovered?.view || { zoom: 1, panX: 0, panY: 0 }, prompt: recovered?.prompt ?? current.prompt, annotationLabel: recovered?.annotationLabel || "",
+            maskDirty: regionMaskEditorRef.current!.dirty, canUndo: regionMaskEditorRef.current!.canUndo, canRedo: regionMaskEditorRef.current!.canRedo, recovered: Boolean(recovered) };
+          regionRedrawDraftRef.current = next;
+          return next;
+        });
       } catch (error) {
         if (cancelled) return;
         const message = friendlyImageError(error);
-        setRegionRedrawDraft((current) => current && current.nodeId === nodeId ? { ...current, ready: false, error: message } : current);
+        setRegionRedrawDraft((current) => current && current.editorId === editorId ? { ...current, ready: false, error: message } : current);
       }
     };
     void load();
     return () => {
       cancelled = true;
       regionRedrawPaintRef.current = null;
+      regionRedrawPanRef.current = null;
+      regionMaskEditorRef.current = null;
     };
   }, [regionRedrawDraft?.editorId, regionRedrawDraft?.nodeId, regionRedrawDraft?.assetIndex]);
+
+  useEffect(() => {
+    if (regionRedrawDraft?.ready && !regionRedrawDraft.busy) persistRegionMaskDraft();
+  }, [regionRedrawDraft?.mode, regionRedrawDraft?.prompt, regionRedrawDraft?.annotationLabel, regionRedrawDraft?.view?.zoom, regionRedrawDraft?.view?.panX, regionRedrawDraft?.view?.panY]);
 
   useEffect(() => {
     if (!window.naimageAgent?.onProgress) return;
@@ -7243,6 +7281,9 @@ function App() {
       expectedProjectId: input.expectedProjectId,
       collectionIds: input.collectionIds,
       format: input.format,
+      filenameTemplate: "{title}-{index}",
+      conflictPolicy: "keep-both",
+      incremental: false,
     });
     if (!result?.ok || !result.previewToken) {
       throw automationCommandError(result?.errorCode || "IMAGE_COLLECTION_EXPORT_PREVIEW_FAILED", result?.error || "图片组导出预检失败。", result?.details);
@@ -7263,22 +7304,26 @@ function App() {
       collectionNodeIdsForAutomation(input.collectionIds),
       "导出图片组",
     );
-    const bridge = window.naimageConfig?.exportImageCollections;
+    const bridge = window.naimageConfig?.exportManagedAssetQueue;
     if (!bridge) throw automationCommandError("IMAGE_COLLECTION_EXPORT_UNAVAILABLE", "当前桌面运行时未提供图片组导出服务。");
     const saved = await flushActiveProjectSession({ live: true, projectId: input.expectedProjectId });
     if (!saved?.ok) throw automationCommandError("IMAGE_COLLECTION_PERSIST_FAILED", saved?.error || "图片组导出前项目尚未可靠保存。");
-    const result = await bridge({
-      expectedProjectId: input.expectedProjectId,
+    const result = await bridge.start({
+      projectId: input.expectedProjectId,
+      target: "collection",
+      container: "folder",
       collectionIds: input.collectionIds,
       format: input.format,
       previewToken: input.previewToken,
-      confirmed: true,
+      filenameTemplate: "{title}-{index}",
+      conflictPolicy: "keep-both",
+      incremental: false,
     });
     if (!result?.ok) {
-      throw automationCommandError(result?.errorCode || "IMAGE_COLLECTION_EXPORT_FAILED", result?.error || "图片组导出失败。", result?.details);
+      throw automationCommandError(result?.errorCode || "IMAGE_COLLECTION_EXPORT_FAILED", result?.error || "图片组导出失败。");
     }
-    addEvent(`导出 ${result.exported?.length ?? input.collectionIds.length} 个图片组`);
-    return result;
+    addEvent(`已将 ${input.collectionIds.length} 个图片组加入导出队列`);
+    return { ok: true, accepted: true, queueId: result.queueId };
   }
 
   async function exportImageCollectionsForAutomation(input: {
@@ -8181,6 +8226,7 @@ function App() {
       return;
     }
     const task = cloneImageTaskDraft(dialog.draft);
+    if (task.provider === "comfyui") task.submissionId ||= uid("comfy");
     setManualImageTaskDialog(null);
     setManualVideoTaskDialog(null);
     void runManualImageTask(task, {
@@ -9220,14 +9266,14 @@ function App() {
     return { ok: true, nodeId: memberNodeId, reason: "extracted" };
   }
 
-  function openRegionRedraw(node: WorkflowNode, assetIndex = 0, redrawPrompt = "", allowDuringAgent = false) {
-    if (blockLockedNodeMutation([node.id], "重绘")) return false;
+  function openRegionRedraw(node: WorkflowNode, assetIndex = 0, redrawPrompt = "", allowDuringAgent = false, editMode: AiImageEditMode = "redraw") {
+    if (blockLockedNodeMutation([node.id], "AI 编辑")) return false;
     if (!allowDuringAgent && agentExecutionBusyNow()) {
       setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
       return false;
     }
     if (node.type !== "image" || !node.assets?.[assetIndex]) {
-      setServerMessage("请先选择一张有效图片再进行 AI 重绘。");
+      setServerMessage("请先选择一张有效图片再进行 AI 编辑。");
       return false;
     }
     creationRegionRevisionRef.current = null;
@@ -9235,7 +9281,7 @@ function App() {
     const session = creationState.snapshot;
     const result = session?.results.find(result => result.saved && result.target.assetId === asset.assetId &&
       result.target.occurrenceId === asset.occurrenceId && result.target.contentHash === asset.contentHash);
-    if (session?.requirements && result) {
+    if (session?.requirements && result && editMode === "redraw") {
       creationRegionRevisionRef.current = { submissionId: uid("creation-region"), input: {
         expectedProjectId: session.projectId, conversationId: session.conversationId,
         requirementId: session.requirements.requirementId, expectedRevision: session.requirements.revision,
@@ -9246,14 +9292,16 @@ function App() {
     selectNodeFromPlainClick(node.id, "node-pointer-down");
     const initialPrompt = redrawPrompt.trim();
     const draft: RegionRedrawDraft = {
-      mode: "redraw",
+      mode: editMode,
       editorId: uid("region-editor"),
-      ...(creationRegionRevisionRef.current ? { sourceTarget: { ...creationRegionRevisionRef.current.input.target } } : {}),
+      ...(asset.assetId && asset.occurrenceId && asset.contentHash ? { sourceTarget: { assetId: asset.assetId, occurrenceId: asset.occurrenceId, contentHash: asset.contentHash } } : {}),
+      sourceAsset: { ...asset },
       nodeId: node.id,
       assetIndex,
       prompt: initialPrompt,
       initialPrompt,
       brushSize: 72,
+      brushRole: editMode === "replace-background" ? "preserve" : "modify",
       maskDirty: false,
       ready: false,
       busy: false
@@ -9262,6 +9310,10 @@ function App() {
     setRegionRedrawClosePromptOpen(false);
     setRegionRedrawDraft(draft);
     return true;
+  }
+
+  function openAIImageEditor(node: WorkflowNode, assetIndex = 0, mode: AiImageEditMode = "edit", prompt?: string) {
+    return openRegionRedraw(node, assetIndex, prompt ?? (mode === "cutout" ? "完整保留涂抹区域内的主体、轮廓和内部细节" : ""), false, mode);
   }
 
   function openCreationRegionRevision(input: CreationRegionRevisionInput) {
@@ -9569,66 +9621,80 @@ function App() {
   }
 
   function openAICutout(node: WorkflowNode, assetIndex = 0, allowDuringAgent = false) {
-    if (blockLockedNodeMutation([node.id], "抠图")) return false;
-    if (!allowDuringAgent && agentExecutionBusyNow()) {
-      setServerMessage("Agent 正在执行当前任务，请等待完成或先停止。");
-      return false;
-    }
-    if (node.type !== "image" || !node.assets?.[assetIndex]) {
-      setServerMessage("请先选择一张有效图片再进行 AI 抠图。");
-      return false;
-    }
-    creationRegionRevisionRef.current = null;
-    setCanvasMenu(null);
-    setSelectedNodeId(node.id);
-    const initialPrompt = "完整保留涂抹区域内的主体、轮廓和内部细节";
-    const draft: RegionRedrawDraft = {
-      mode: "cutout",
-      editorId: uid("region-editor"),
-      nodeId: node.id,
-      assetIndex,
-      prompt: initialPrompt,
-      initialPrompt,
-      brushSize: 72,
-      maskDirty: false,
-      ready: false,
-      busy: false
-    };
-    regionRedrawDraftRef.current = draft;
-    setRegionRedrawClosePromptOpen(false);
-    setRegionRedrawDraft(draft);
-    return true;
+    return openRegionRedraw(node, assetIndex, "完整保留涂抹区域内的主体、轮廓和内部细节", allowDuringAgent, "cutout");
   }
 
   function regionRedrawCanvasPoint(event: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = event.currentTarget;
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) / Math.max(1, rect.width) * canvas.width,
-      y: (event.clientY - rect.top) / Math.max(1, rect.height) * canvas.height
-    };
+    return maskCanvasPoint(event.clientX, event.clientY, canvas.getBoundingClientRect(), canvas.width, canvas.height);
+  }
+
+  function persistRegionMaskDraft() {
+    const draft = regionRedrawDraftRef.current, editor = regionMaskEditorRef.current;
+    if (!draft?.ready || !editor || !draft.sourceTarget) return false;
+    try {
+      window.localStorage.setItem(maskDraftKey(activeProjectIdRef.current, draft.sourceTarget, draft.mode), JSON.stringify({ version: 1, document: editor.snapshot(), prompt: draft.prompt, annotationLabel: draft.annotationLabel || "", view: draft.view || { zoom: 1, panX: 0, panY: 0 }, savedAt: Date.now() }));
+      return true;
+    } catch {
+      const next = { ...draft, draftWarning: "本地草稿保存失败，当前编辑仍保留在窗口中。" };
+      regionRedrawDraftRef.current = next; setRegionRedrawDraft(next);
+      return false;
+    }
+  }
+
+  function refreshRegionMask() {
+    const draft = regionRedrawDraftRef.current, editor = regionMaskEditorRef.current, canvas = regionRedrawMaskCanvasRef.current;
+    if (!draft || !editor || !canvas) return;
+    editor.render(canvas);
+    const next = { ...draft, maskDirty: editor.dirty, canUndo: editor.canUndo, canRedo: editor.canRedo, error: undefined };
+    regionRedrawDraftRef.current = next; setRegionRedrawDraft(next);
+    persistRegionMaskDraft();
+  }
+
+  function changeRegionMaskView(view: MaskView) {
+    const draft = regionRedrawDraftRef.current;
+    if (!draft?.ready || draft.busy) return;
+    const next = { ...draft, view };
+    regionRedrawDraftRef.current = next; setRegionRedrawDraft(next);
+    persistRegionMaskDraft();
+  }
+
+  function editRegionMask(command: "undo" | "redo" | "invert" | "save" | "forget") {
+    const draft = regionRedrawDraftRef.current, editor = regionMaskEditorRef.current;
+    if (!draft || draft.busy || !editor) return;
+    if (command === "forget") {
+      if (draft.sourceTarget) window.localStorage.removeItem(maskDraftKey(activeProjectIdRef.current, draft.sourceTarget, draft.mode));
+      return;
+    }
+    if (command === "save") {
+      if (!persistRegionMaskDraft()) {
+        const next = { ...draft, draftWarning: draft.sourceTarget ? "本地草稿保存失败，当前编辑仍保留在窗口中。" : "此来源缺少稳定资产身份，无法保存可恢复草稿。" };
+        regionRedrawDraftRef.current = next; setRegionRedrawDraft(next); return;
+      }
+      creationRegionRevisionRef.current = null; regionRedrawDraftRef.current = null; setRegionRedrawDraft(null); setRegionRedrawClosePromptOpen(false); return;
+    }
+    try {
+      if (command === "undo") editor.undo(); else if (command === "redo") editor.redo(); else editor.invert(uid("mask-action"), draft.brushRole || "modify");
+      refreshRegionMask();
+    } catch (error) {
+      const next = { ...draft, error: friendlyImageError(error) }; regionRedrawDraftRef.current = next; setRegionRedrawDraft(next);
+    }
   }
 
   function beginRegionRedrawPaint(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!regionRedrawDraft?.ready || regionRedrawDraft.busy || event.button !== 0) return;
+    const draft = regionRedrawDraftRef.current, editor = regionMaskEditorRef.current;
+    if (!draft?.ready || draft.busy || !editor || ![0, 1].includes(event.button)) return;
     event.preventDefault();
     event.stopPropagation();
-    const point = regionRedrawCanvasPoint(event);
-    const context = event.currentTarget.getContext("2d");
-    if (!context) return;
-    context.save();
-    context.fillStyle = "rgba(255, 62, 92, 0.68)";
-    context.beginPath();
-    context.arc(point.x, point.y, regionRedrawDraft.brushSize / 2, 0, Math.PI * 2);
-    context.fill();
-    context.restore();
-    setRegionRedrawDraft((current) => {
-      if (!current || current.nodeId !== regionRedrawDraft.nodeId) return current;
-      const next = { ...current, maskDirty: true, error: undefined };
-      regionRedrawDraftRef.current = next;
-      return next;
-    });
-    regionRedrawPaintRef.current = { pointerId: event.pointerId, lastX: point.x, lastY: point.y };
+    event.currentTarget.focus({ preventScroll: true });
+    if (draft.tool === "pan" || event.button === 1) regionRedrawPanRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, view: draft.view || { zoom: 1, panX: 0, panY: 0 } };
+    else {
+      const point = regionRedrawCanvasPoint(event);
+      try { editor.begin(uid("mask-action"), draft.brushRole || "modify", draft.tool === "eraser" ? "eraser" : "brush", draft.brushSize, point); }
+      catch (error) { const next = { ...draft, error: friendlyImageError(error) }; regionRedrawDraftRef.current = next; setRegionRedrawDraft(next); return; }
+      regionRedrawPaintRef.current = { pointerId: event.pointerId, lastX: point.x, lastY: point.y };
+      refreshRegionMask();
+    }
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
@@ -9637,46 +9703,38 @@ function App() {
   }
 
   function moveRegionRedrawPaint(event: React.PointerEvent<HTMLCanvasElement>) {
+    const pan = regionRedrawPanRef.current;
+    if (pan?.pointerId === event.pointerId) {
+      event.preventDefault(); event.stopPropagation();
+      changeRegionMaskView({ ...pan.view, panX: pan.view.panX + event.clientX - pan.clientX, panY: pan.view.panY + event.clientY - pan.clientY }); return;
+    }
     const paint = regionRedrawPaintRef.current;
-    if (!paint || paint.pointerId !== event.pointerId || !regionRedrawDraft?.ready || regionRedrawDraft.busy) return;
+    const draft = regionRedrawDraftRef.current, editor = regionMaskEditorRef.current;
+    if (!paint || paint.pointerId !== event.pointerId || !draft?.ready || draft.busy || !editor) return;
     event.preventDefault();
     event.stopPropagation();
     const point = regionRedrawCanvasPoint(event);
-    const context = event.currentTarget.getContext("2d");
-    if (!context) return;
-    context.save();
-    context.strokeStyle = "rgba(255, 62, 92, 0.68)";
-    context.lineWidth = regionRedrawDraft.brushSize;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.beginPath();
-    context.moveTo(paint.lastX, paint.lastY);
-    context.lineTo(point.x, point.y);
-    context.stroke();
-    context.restore();
+    try { editor.append(point); refreshRegionMask(); }
+    catch (error) { regionRedrawPaintRef.current = null; const next = { ...draft, error: friendlyImageError(error) }; regionRedrawDraftRef.current = next; setRegionRedrawDraft(next); }
     paint.lastX = point.x;
     paint.lastY = point.y;
   }
 
   function endRegionRedrawPaint(event: React.PointerEvent<HTMLCanvasElement>) {
     const paint = regionRedrawPaintRef.current;
-    if (!paint || paint.pointerId !== event.pointerId) return;
+    const pan = regionRedrawPanRef.current;
+    if (paint?.pointerId !== event.pointerId && pan?.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
     regionRedrawPaintRef.current = null;
+    regionRedrawPanRef.current = null;
+    persistRegionMaskDraft();
   }
 
   function clearRegionRedrawMask() {
-    const canvas = regionRedrawMaskCanvasRef.current;
-    const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    setRegionRedrawDraft((current) => {
-      if (!current) return current;
-      const next = { ...current, maskDirty: false, error: undefined };
-      regionRedrawDraftRef.current = next;
-      return next;
-    });
+    if (!regionRedrawDraftRef.current?.ready || regionRedrawDraftRef.current.busy) return;
+    regionMaskEditorRef.current?.clear(uid("mask-action"));
+    refreshRegionMask();
   }
 
   function agentExecutionBusyNow() {
@@ -9774,28 +9832,35 @@ function App() {
     if (draft?.busy) return;
     const revision = creationRegionRevisionRef.current;
     const maskCanvas = regionRedrawMaskCanvasRef.current;
-    const located = revision ? locateCreationTarget(nodesRef.current, revision.input.target) : null;
-    const node = revision ? located?.node : draft ? nodesRef.current.find((item) => item.id === draft.nodeId) : null;
-    const asset = revision ? located?.asset : draft && node ? node.assets?.[draft.assetIndex] : null;
-    const prompt = draft?.prompt.trim() || "";
+    const target = revision?.input.target || draft?.sourceTarget;
+    const located = target ? locateCreationTarget(nodesRef.current, target) : null;
+    const node = target ? located?.node : draft ? nodesRef.current.find((item) => item.id === draft.nodeId) : null;
+    const frozenAsset = draft?.sourceAsset;
+    const asset = target ? located?.asset : frozenAsset && node ? node.assets?.find(candidate => candidate.path === frozenAsset.path && candidate.url === frozenAsset.url && candidate.assetId === frozenAsset.assetId && candidate.occurrenceId === frozenAsset.occurrenceId && candidate.contentHash === frozenAsset.contentHash) : draft && node ? node.assets?.[draft.assetIndex] : null;
+    let prompt = draft?.prompt.trim() || "";
     if (!draft || !maskCanvas) return;
     if (!node || !asset) {
       setRegionRedrawDraft({ ...draft, error: "原成果已被删除或替换，请重新选择修改目标。" });
       return;
     }
     const isCutout = draft?.mode === "cutout";
+    const editMode = AI_IMAGE_EDIT_MODES[draft.mode];
+    const operation = editMode.operation;
+    const needsModifyMask = editMode.requiresModifyMask;
     if (!prompt) {
       setRegionRedrawDraft({ ...draft, error: isCutout ? "请描述要保留并抠出的主体。" : "请描述涂抹区域要改成什么。" });
       return;
     }
     regionRedrawDraftRef.current = { ...draft, busy: true, error: undefined };
     setRegionRedrawDraft(regionRedrawDraftRef.current);
-    let mask: { dataUrl: string; paintedPixels: number; width: number; height: number };
+    let mask: ReturnType<RegionMaskEditor["exportMask"]>;
     let reference: ReferenceImage;
     try {
-      const imageProcessing = await loadImageProcessingRuntime();
-      mask = imageProcessing.maskDataUrlFromPaintCanvas(maskCanvas, isCutout ? "keep" : "edit");
-      if (mask.paintedPixels < 24) throw new Error(isCutout ? "请先在图片上大致涂抹要抠出的主体区域。" : "请先在图片上涂抹需要重绘的区域。");
+      const editor = regionMaskEditorRef.current;
+      if (!editor) throw new Error("图片选区尚未就绪，请重新打开编辑器。");
+      mask = editor.exportMask(isCutout ? "keep" : needsModifyMask ? "edit" : "protect", draft.annotationLabel);
+      if (needsModifyMask && mask.paintedPixels < 24) throw new Error(isCutout ? "请先在图片上大致涂抹要抠出的主体区域。" : "请先在图片上涂抹需要修改的区域。");
+      if (mask.regions.length) prompt += "\n位置标注（不改变修改或保护范围）：" + mask.regions.map(region => `${region.regionId} (${region.x},${region.y},${region.width},${region.height}) ${region.label}`).join("；");
       if (!window.naimageAgent?.runTool) throw new Error("Agent 图片工具不可用。");
       reference = {
         assetId: asset.assetId,
@@ -9812,7 +9877,7 @@ function App() {
         mimeType: mimeTypeFromPath(asset.path),
         assetUrl: asset.assetUrl
       };
-      if (!reference.path) throw new Error(`${isCutout ? "AI 抠图" : "AI 重绘"}来源必须是项目库中的本地图片。`);
+      if (!reference.path) throw new Error("AI 编辑来源必须是项目库中的本地图片。");
     } catch (error) {
       const message = friendlyImageError(error);
       setRegionRedrawDraft((current) => {
@@ -9823,7 +9888,7 @@ function App() {
       return;
     }
 
-    if (revision && !isCutout) {
+    if (revision && needsModifyMask && !isCutout) {
       regionRedrawDraftRef.current = { ...draft, busy: true, error: undefined };
       setRegionRedrawDraft(regionRedrawDraftRef.current);
       try {
@@ -9834,6 +9899,7 @@ function App() {
           execute: input => creationState.execute("creation.revision.start", input)
         });
         if (creationRegionRevisionRef.current === revision) {
+          if (draft.sourceTarget) window.localStorage.removeItem(maskDraftKey(activeProjectIdRef.current, draft.sourceTarget, draft.mode));
           creationRegionRevisionRef.current = null;
           regionRedrawDraftRef.current = null;
           setRegionRedrawDraft(null);
@@ -9853,14 +9919,14 @@ function App() {
     const requestProjectId = activeProjectIdRef.current;
     const requestConversationId = activeConversationIdRef.current;
     const executionScope = currentExecutionScope(JSON.stringify({
-      operation: isCutout ? "cutout" : "redraw",
+      operation,
       nodeId: node.id,
       assetId: asset.assetId || asset.occurrenceId || asset.path || draft.assetIndex,
       prompt,
       maskPixels: mask.paintedPixels,
       maskBytes: mask.dataUrl.length
     }));
-    const operationTitle = isCutout ? "AI 抠图" : "AI 重绘";
+    const operationTitle = editMode.label;
     activeRunRef.current = runId;
     setAgentStatusSync("editing");
     setActiveRunStartedAt(Date.now());
@@ -9876,45 +9942,56 @@ function App() {
       conversationId: requestConversationId,
       phase: "image-request",
       tool: "image_gen",
-      operation: isCutout ? "cutout" : "redraw",
+      operation,
       summary: `${operationTitle}正在处理。`,
-      brief: isCutout ? "根据涂抹范围提取透明主体。" : "根据涂抹区域执行 AI 重绘。",
+      brief: `根据原图和用户要求执行${operationTitle}。`,
       createdAt: new Date().toISOString()
     }].slice(-48));
-    notifyAgentOfManualAction(operationTitle, `用户在成果 ${node.id} 上涂抹区域并要求：${prompt}`);
+    notifyAgentOfManualAction(operationTitle, `用户基于成果 ${node.id} 要求：${prompt}`);
     addEvent(`提交${operationTitle} ${node.id}`);
 
     try {
+      const taskScope = agentTaskScopeForRequest([node], [], null, "node", canvasRevisionRef.current,
+        undefined, undefined, {}, [{ ...reference, canvasNodeId: node.id, canvasAssetIndex: node.assets?.indexOf(asset) }]);
+      taskScope.imageConfig = imageConfigSnapshot(settings);
+      taskScope.snapshotHash = agentTaskScopeSnapshotHash(taskScope);
       const result = await window.naimageAgent.runTool({
         runId,
         name: "image_gen",
         input: {
-          operation: isCutout ? "cutout" : "redraw",
+          operation,
           parentId: node.id,
           prompt: isCutout
             ? `${prompt}\n涂抹区域表示用户希望保留的主体范围；准确识别并完整提取该主体，保留自然边缘、半透明细节和内部纹理，输出透明 PNG。`
-            : `${prompt}\n只修改蒙版透明区域，严格保留未涂抹区域的主体、构图、颜色、光线和细节。`,
+            : draft.mode === "remove-object" ? `${prompt}\n移除涂抹区域中的物体，自然补全背景；只修改蒙版透明区域。`
+              : draft.mode === "replace-background" ? `${prompt}\n替换图片背景，保留原主体；如有保护蒙版，严格保持保护区域不变。`
+                : needsModifyMask ? `${prompt}\n只修改蒙版透明区域，严格保留未涂抹区域的主体、构图、颜色、光线和细节。` : prompt,
           editImage: reference,
-          maskDataUrl: mask.dataUrl,
+          maskDataUrl: needsModifyMask || mask.paintedPixels > 0 ? mask.dataUrl : undefined,
+          regions: mask.regions,
           ratio: node.imageParams?.ratio || defaultImageTaskDraft(settings).ratio,
           resolution: node.imageParams?.resolution || defaultImageTaskDraft(settings).resolution,
           size: node.imageParams?.size,
           count: 1,
           quality: node.imageParams?.quality || settings.imageQuality,
           inputFidelity: "high",
-          brief: isCutout ? "根据用户涂抹范围和描述提取透明主体。" : "根据用户涂抹区域执行 AI 重绘。"
+          brief: `根据用户要求执行${operationTitle}，原图保留。`
         },
         prompt,
         nodes: nodesRef.current,
         selectedNodeId: node.id,
+        selectedNodeIds: [node.id],
+        canvasRevision: canvasRevisionRef.current,
+        taskScope,
         projectId: requestProjectId,
         conversationId: requestConversationId
       });
       if (activeRunRef.current !== runId || !executionScopeIsCurrent(executionScope)) return;
-      if (result.envelope?.ok === false) throw new Error(result.envelope.summary || `${isCutout ? "AI 抠图" : "AI 重绘"}失败。`);
-      if (!Array.isArray(result.actions) || result.actions.length === 0) throw new Error(`${isCutout ? "AI 抠图" : "AI 重绘"}没有返回可写入画布的图片成果。`);
+      if (result.envelope?.ok === false) throw new Error(result.envelope.summary || `${operationTitle}失败。`);
+      if (!Array.isArray(result.actions) || result.actions.length === 0) throw new Error(`${operationTitle}没有返回可写入画布的图片成果。`);
       await runtimeActionHandlerRef.current(result.actions);
       if (activeRunRef.current !== runId || !executionScopeIsCurrent(executionScope)) return;
+      if (draft.sourceTarget) window.localStorage.removeItem(maskDraftKey(requestProjectId, draft.sourceTarget, draft.mode));
       setServerMessage(`${operationTitle}完成。`);
     } catch (error) {
       if (activeRunRef.current !== runId || !executionScopeIsCurrent(executionScope)) return;
@@ -9926,7 +10003,7 @@ function App() {
         conversationId: requestConversationId,
         phase: "image-error",
         tool: "image_gen",
-        operation: isCutout ? "cutout" : "redraw",
+        operation,
         summary: message,
         createdAt: new Date().toISOString()
       }].slice(-48));
@@ -11912,7 +11989,7 @@ function App() {
           }
         : item));
       const isolated = await removeConnectedBorderBackgroundToDataUrl(sourceAsset);
-      if (isolated.transparentRatio < 0.04) throw new Error("AI 抠图未形成可靠透明区域，已停止以避免伪透明结果。");
+      if (isolated.transparentRatio < 0.04 || isolated.visibleRatio < 0.005) throw new Error("AI 抠图必须同时保留真实透明区域与可见主体；本地处理已停止，不会重新生图。");
       if (!window.naimageConfig?.saveOutputImage) throw new Error("项目图片库不可用，无法保存透明 PNG。");
       const saved = await window.naimageConfig.saveOutputImage({
         dataUrl: isolated.dataUrl,
@@ -11928,6 +12005,10 @@ function App() {
         index: 1,
         title: "透明主体",
         prompt: sourceAsset.prompt || node?.imageParams?.prompt,
+        generation: sourceAsset.generation,
+        localProcessing: normalizeImageLocalProcessing({ ...sourceAsset.localProcessing, outputFormat: "png", alpha: {
+          width: isolated.width, height: isolated.height, transparentPixels: Math.round(isolated.width * isolated.height * isolated.transparentRatio), visiblePixels: Math.round(isolated.width * isolated.height * isolated.visibleRatio), verified: true
+        } }),
         status: "done"
       };
       setNodes((current) => current.map((item) => item.id === nodeId
@@ -11994,6 +12075,10 @@ function App() {
       setServerMessage(message);
     } finally {
       markImageRunFinished(nodeId);
+      if (!activeRunRef.current && !executionReservationRef.current && !taskAdmissionRef.current && Object.keys(imageRunStartsRef.current).length === 0 && agentStatusRef.current === "editing") {
+        setAgentStatusSync("idle");
+        setActiveRunStartedAt(null);
+      }
     }
   }
 
@@ -12052,7 +12137,7 @@ function App() {
       }
       if (action.type === "workflow.image-collection.export" && payload.operation === "export") {
         if (payload.confirmed !== true) return failed("图片组导出缺少明确确认，未写入任何文件。");
-        const format = String(payload.format || "") as ImageExportFormat;
+        const format = String(payload.format || "original") as ImageExportFormat;
         if (!Object.prototype.hasOwnProperty.call(IMAGE_EXPORT_FORMAT_LABELS, format)) {
           return failed("图片组导出缺少明确格式，未写入任何文件。");
         }
@@ -12067,7 +12152,7 @@ function App() {
           operationId,
           status: "done",
           category: "image-collection",
-          summary: `已导出 ${result.exported?.length ?? payload.collectionIds?.length ?? 0} 个图片组到当前项目的 image-groups。`,
+          summary: `已将 ${payload.collectionIds?.length ?? 0} 个图片组加入 Main 导出队列（${result.queueId}），请在导出中心查看逐项结果。`,
         };
       }
       return failed("图片组操作类型与提交数据不一致，画布未发生变更。");
@@ -14994,18 +15079,21 @@ function App() {
   }
 
   async function importProject() {
-    if (fileActionBusy || executionScopeBoundaryBlocked()) return;
+    if (fileActionBusy || executionScopeBoundaryBlocked()) return { ok: false, error: "请先完成当前操作，再导入项目。" };
     setFileActionBusy(true);
     try {
-      await flushActiveProjectSession();
+      const saved = await flushActiveProjectSession();
+      if (saved && !saved.ok) throw new Error(saved.error || "当前项目尚未可靠保存，未导入新项目。");
       const result = await window.naimageConfig?.importProject?.();
       if (!result?.ok) throw new Error(result?.error ?? "导入画布失败。");
       if (!result.canceled) {
         applyProjectSession(result);
         addEvent(`导入画布 ${result.path ?? result.project?.path ?? ""}`);
       }
+      return { ok: true, canceled: result.canceled === true, activeProjectId: result.activeProjectId || activeProjectIdRef.current };
     } catch (error) {
       pushSystemMessage("project", `导入画布失败：${error instanceof Error ? error.message : String(error)}`);
+      return { ok: false, error: "导入项目失败，请在项目消息中查看详情。" };
     } finally {
       setFileActionBusy(false);
       setFileMenuOpen(false);
@@ -24801,6 +24889,32 @@ function App() {
       selectNodes: (ids, primaryId) => commitNodeSelection({ primaryId, ids }, "automation"),
       fitCanvas,
       listImageOperations, recoverImageOperation,
+      prepareProjectExport: async () => { const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectIdRef.current }); if (!saved?.ok) throw new Error(saved?.error || "项目保存失败。"); },
+      openImageEditor: (nodeId, assetIndex, mode, prompt) => {
+        const node = nodesRef.current.find(item => item.id === nodeId);
+        if (!node || !node.assets?.[assetIndex]) throw new Error("编辑来源已改变，请重新选择。");
+        if (!openAIImageEditor(node, assetIndex, mode as import("../runtime/image-edit-modes.mjs").AiImageEditMode, prompt)) throw new Error("图片编辑器未能打开，请等待项目与来源就绪。");
+        return { opened: true };
+      },
+      generateComfyUi: async (input) => {
+        const references = canvasImagesForMaterialTargets(nodesRef.current, input.sources, "source");
+        const completed = await runManualImageTask({ ...defaultImageTaskDraft(settingsRef.current), prompt: input.prompt, provider: "comfyui", comfyui: { ...input.comfyui }, submissionId: input.submissionId, count: 1, referenceImages: references },
+          { worldX: input.x, worldY: input.y, requestedCount: 1, targetTotal: 1, quotaChecked: true });
+        if (completed?.ok === false) throw new Error(completed.error || "原本地任务尚未完成。");
+        return { operationId: `comfy-${input.submissionId}`, operations: await listImageOperations() };
+      },
+      exportProjectPackage: async (input) => {
+        if (fileActionBusy || agentExecutionBusyNow()) throw new Error("请先完成当前操作。");
+        const saved = await flushActiveProjectSession({ live: true, projectId: input.expectedProjectId });
+        if (!saved?.ok) throw new Error(saved?.error || "项目保存失败。");
+        const result = await window.naimageConfig?.exportProject?.(input);
+        return { ok: result?.ok === true, canceled: result?.canceled, error: result?.error };
+      },
+      importProjectPackage: async () => {
+        const result = await importProject();
+        if (!result.ok) throw new Error(result.error || "项目导入失败。");
+        return result;
+      },
       removeFailedNodes: (ids) => commitNodeRemoval(ids, {
         historyLabel: "清理失败成果",
         eventText: `清理 ${ids.length} 个失败成果`,
@@ -25563,6 +25677,7 @@ function App() {
     task: ImageTaskDraft,
     options?: { targetNodeId?: string; forkFromNodeId?: string; worldX?: number; worldY?: number; quotaChecked?: boolean; append?: boolean; requestedCount?: number; targetTotal?: number }
   ) {
+    if (task.provider === "comfyui") task = cloneImageTaskDraft({ ...task, count: 1, model: task.comfyui?.checkpoint || "", outputFormat: "png" });
     if (!activeProjectIdRef.current) {
       setServerMessage("请先创建或打开项目，再生成图片。");
       return;
@@ -25575,7 +25690,7 @@ function App() {
       setServerMessage("Agent 正在执行当前任务，新的图片任务没有被重复提交。");
       return;
     }
-    if (!serverUser) {
+    if (!serverUser && task.provider !== "comfyui") {
       setServerMessage("请先登录后再生成图片。");
       return;
     }
@@ -25589,7 +25704,7 @@ function App() {
     const taskSnapshot = cloneImageTaskDraft(task);
     const hasRequestedWorldPosition = Number.isFinite(options?.worldX) && Number.isFinite(options?.worldY);
     const frozenTargetNode = options?.targetNodeId ? nodesRef.current.find((item) => item.id === options.targetNodeId) : null;
-    const frozenForkNodeId = options?.forkFromNodeId || (!hasRequestedWorldPosition ? selectedNodeIdRef.current : "");
+    const frozenForkNodeId = options?.forkFromNodeId || (taskSnapshot.provider === "comfyui" ? taskSnapshot.referenceImages?.[0]?.canvasNodeId : "") || (!hasRequestedWorldPosition ? selectedNodeIdRef.current : "");
     const frozenForkNode = frozenForkNodeId ? nodesRef.current.find((item) => item.id === frozenForkNodeId) : null;
     const nodeExecutionFingerprint = (node: WorkflowNode | null | undefined) => node ? {
       id: node.id,
@@ -25633,7 +25748,7 @@ function App() {
     let reservationOwned = false;
     commitExecutionReservation(reservationId);
     try {
-      if (!options?.quotaChecked && await blockImageTaskIfQuotaInsufficient(taskSnapshot)) return;
+      if (taskSnapshot.provider !== "comfyui" && !options?.quotaChecked && await blockImageTaskIfQuotaInsufficient(taskSnapshot)) return;
     } finally {
       reservationOwned = executionReservationRef.current === reservationId;
       if (reservationOwned) commitExecutionReservation(null);
@@ -25651,15 +25766,41 @@ function App() {
       setServerMessage("这个节点正在生成中，可以先停止或等待完成。");
       return;
     }
+    const generationRunId = taskSnapshot.provider === "comfyui" && taskSnapshot.submissionId ? `comfy-${taskSnapshot.submissionId}` : uid("gen");
+    const priorComfyNode = taskSnapshot.provider === "comfyui" && taskSnapshot.submissionId
+      ? nodesRef.current.find(item => item.imageParams?.provider === "comfyui" && item.imageParams.submissionId === taskSnapshot.submissionId)
+      : undefined;
+    if (priorComfyNode) {
+      // Main validates the frozen request and owns recovery/deduplication. Keep
+      // the existing canvas result intact until it returns that same operation.
+      const result = await imageServer.generateImage({ provider: "comfyui", comfyui: taskSnapshot.comfyui,
+        runId: `${generationRunId}-1`, operationId: generationRunId, targetNodeId: priorComfyNode.id, requestIndex: 1,
+        projectId: requestProjectId, conversationId: requestConversationId, nodeIds: [priorComfyNode.id],
+        prompt: taskSnapshot.prompt, model: taskSnapshot.model, count: 1,
+        size: `${taskSnapshot.comfyui?.width || 1024}x${taskSnapshot.comfyui?.height || 1024}`, quality: taskSnapshot.quality,
+        referenceImages: taskSnapshot.referenceImages || [], outputFormat: "png" });
+      if (!result.ok) { setServerMessage(result.error || "原本地任务尚未完成。"); return { ok: false, error: result.error }; }
+      if (!executionScopeIsCurrent(executionScope)) return;
+      const assets = cloneImageAssets(result.assets).filter(asset => !nodesRef.current.some(item => item.assets?.some(existing =>
+        asset.assetId && existing.assetId === asset.assetId || asset.occurrenceId && existing.occurrenceId === asset.occurrenceId || asset.path && existing.path === asset.path)));
+      if (assets.length) {
+        const next = nodesRef.current.map(item => item.id === priorComfyNode.id ? { ...item, assets: [...(item.assets || []), ...assets],
+          outputs: (item.assets?.length || 0) + assets.length, status: "done" as const, imageState: "done" as const, imageError: undefined } : item);
+        commitAutomationCanvasMutation(next, layoutGroupsRef.current, "恢复原本地图片成果");
+        const saved = await flushActiveProjectSession({ live: true, projectId: requestProjectId });
+        if (!saved?.ok) return { ok: false, error: saved?.error || "图片已保留，但项目保存失败。" };
+      }
+      setSelectedNodeId(priorComfyNode.id); setServerMessage("已显示原本地图片成果。");
+      return { ok: true };
+    }
     const parentId = targetNode ? targetNode.parentId : forkNode?.id;
     const id = targetNode?.id ?? nextManualImageNodeId();
-    const generationRunId = uid("gen");
     const startedAt = Date.now();
     const nodePrompt = taskSnapshot.prompt;
-    taskSnapshot.count = clamp(Number(options?.requestedCount ?? taskSnapshot.count), 1, 10);
+    taskSnapshot.count = taskSnapshot.provider === "comfyui" ? 1 : clamp(Number(options?.requestedCount ?? taskSnapshot.count), 1, 10);
     taskSnapshot.batchMode = "parallel";
     taskSnapshot.model = taskSnapshot.model || settings.imageModel || "";
-    const size = sizeFromDraft(taskSnapshot, settings);
+    const size = taskSnapshot.provider === "comfyui" && taskSnapshot.comfyui ? `${taskSnapshot.comfyui.width}x${taskSnapshot.comfyui.height}` : sizeFromDraft(taskSnapshot, settings);
     const existingAssets = options?.append && targetNode ? cloneImageAssets(targetNode.assets) : [];
     const total =
       options?.append && targetNode
@@ -25762,7 +25903,7 @@ function App() {
       toolRunId: generationRunId,
       operation: "generate",
       brief: total > 1 ? `按每批 ${settings.imageBatchSize} 路顺序生成 ${total} 张图片。` : "按画布设置生成一张图片。",
-      params: `${taskSnapshot.ratio} · ${taskSnapshot.resolution} · ${qualityLabel(taskSnapshot.quality)} · ${total} 张 · ${manualReferences.length} 张参考图`,
+      params: taskSnapshot.provider === "comfyui" ? `${size} · ComfyUI · ${manualReferences.length} 张素材` : `${taskSnapshot.ratio} · ${taskSnapshot.resolution} · ${qualityLabel(taskSnapshot.quality)} · ${total} 张 · ${manualReferences.length} 张参考图`,
       input: {
         operation: "generate",
         prompt: nodePrompt,
@@ -25804,6 +25945,8 @@ function App() {
         try {
           const attemptRunId = `${generationRunId}-${index + 1}`;
           const result = await imageServer.generateImage({
+            provider: taskSnapshot.provider,
+            comfyui: taskSnapshot.comfyui,
             runId: attemptRunId,
             operationId: generationRunId,
             targetNodeId: id,
@@ -25861,7 +26004,7 @@ function App() {
                       assets: cloneImageAssets(assets),
                       imageState: assets.length >= total ? "done" : "generating",
                       imageError: undefined,
-                      imageParams: cloneImageTaskDraft({ ...taskSnapshot, count: total, size, batchMode: "parallel", referenceImages: taskSnapshot.referenceImages ?? [] }),
+                      imageParams: cloneImageTaskDraft({ ...taskSnapshot, count: total, size: result.size || size, batchMode: "parallel", referenceImages: taskSnapshot.referenceImages ?? [] }),
                     imageProgress: imageProgressState(
                       total,
                       assets.length,
@@ -25877,7 +26020,7 @@ function App() {
                         "",
                         `model: ${result.model ?? settings.imageModel}`,
                         `size: ${result.size ?? size}`,
-                        `quality: ${result.quality ?? taskSnapshot.quality}`,
+                        ...(taskSnapshot.provider === "comfyui" ? ["protocol: comfyui"] : [`quality: ${result.quality ?? taskSnapshot.quality}`]),
                         `count: ${total}`,
                         `batchMode: parallel`,
                         `returned: ${assets.length}`,
@@ -25898,7 +26041,7 @@ function App() {
               phase: result.dryRun ? "image-dry-run" : "image-response",
               tool: "image_gen",
               summary: `节点 ${id} 已完成 ${assets.length}/${total} 张。`,
-              detail: `${result.size ?? size} · ${qualityLabel(result.quality ?? taskSnapshot.quality)}`,
+              detail: `${result.size ?? size} · ${taskSnapshot.provider === "comfyui" ? "ComfyUI" : qualityLabel(result.quality ?? taskSnapshot.quality)}`,
               createdAt: new Date().toISOString()
             }
           ].slice(-48));
@@ -25996,7 +26139,7 @@ function App() {
           : errors.length
             ? `部分失败，已完成 ${assets.length}/${total} 张。`
             : `已完成 ${assets.length}/${total} 张。`,
-        detail: `${size} · ${qualityLabel(taskSnapshot.quality)} · ${manualReferences.length} 张参考图`
+        detail: `${size} · ${taskSnapshot.provider === "comfyui" ? "ComfyUI" : qualityLabel(taskSnapshot.quality)} · ${manualReferences.length} 张参考图`
       });
       await refreshServerState();
     } catch (error) {
@@ -26281,21 +26424,8 @@ function App() {
     setCanvasMenu(null);
     setAssetContextMenu(null);
     setImageCollectionDialog(null);
-    setImageCollectionActionBusy(true);
-    try {
-      const format: ImageExportFormat = "png";
-      const preview = await previewImageCollectionsForExport({
-        collectionIds: ids,
-        expectedProjectId: activeProjectIdRef.current,
-        format,
-      });
-      setImageCollectionExportDialog({ collectionIds: ids, format, preview });
-    } catch (error) {
-      const payload = automationErrorPayload(error);
-      setServerMessage(payload.error);
-    } finally {
-      setImageCollectionActionBusy(false);
-    }
+    setImageCollectionExportDialog(null);
+    openExportCenterForCollections(ids);
   }
 
   async function refreshImageCollectionExportPreview(format: ImageExportFormat) {
@@ -26335,7 +26465,7 @@ function App() {
       });
       setImageCollectionExportDialog(null);
       setServerMessage(
-        `已导出 ${result.exported?.length ?? draft.collectionIds.length} 个图片组、${result.imageCount ?? 0} 张 ${IMAGE_EXPORT_FORMAT_LABELS[draft.format]} 图片到项目 image-groups，共 ${formatProjectMigrationBytes(result.totalBytes || 0)}。`,
+        `已将 ${draft.collectionIds.length} 个图片组加入导出队列，请在导出中心查看结果。`,
       );
     } catch (error) {
       const payload = automationErrorPayload(error);
@@ -29755,11 +29885,8 @@ function App() {
                                 </>
                               );
                             })() : null}
-                            <MenuItem icon={<WandSparkles size={15} />} onClick={() => openAICutout(targetNode, 0)} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
-                              AI 抠图
-                            </MenuItem>
-                            <MenuItem icon={<WandSparkles size={15} />} onClick={() => openRegionRedraw(targetNode, 0)} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
-                              AI 重绘
+                            <MenuItem icon={<WandSparkles size={15} />} onClick={() => openAIImageEditor(targetNode, 0)} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
+                              AI 编辑…
                             </MenuItem>
                             {targetNode.imageContainer ? (
                               <MenuItem icon={<FolderOpen size={15} />} onClick={() => {
@@ -30014,15 +30141,9 @@ function App() {
                 <MenuSeparator />
                 <MenuItem icon={<WandSparkles size={15} />} onClick={() => {
                   setAssetContextMenu(null);
-                  openAICutout(targetNode, assetContextMenu.assetIndex);
+                  openAIImageEditor(targetNode, assetContextMenu.assetIndex);
                 }} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
-                  AI 抠图
-                </MenuItem>
-                <MenuItem icon={<WandSparkles size={15} />} onClick={() => {
-                  setAssetContextMenu(null);
-                  openRegionRedraw(targetNode, assetContextMenu.assetIndex);
-                }} disabled={agentExecutionBusy || targetNode.imageState === "generating"}>
-                  AI 重绘
+                  AI 编辑…
                 </MenuItem>
               </MenuSurface>
             );
@@ -30534,7 +30655,7 @@ function App() {
           />
         ) : null}
 
-        {imageRecoveryOpen ? <LazyImageRecoveryDialog load={listImageOperations} recover={recoverImageOperation} close={() => setImageRecoveryOpen(false)} /> : null}
+        {imageRecoveryOpen ? <LazyImageRecoveryDialog load={listImageOperations} recover={recoverImageOperation} cancel={async key => { const result = await window.naimageServer?.comfyui({ action: "cancel", projectId: activeProjectIdRef.current, key }); if (!result?.ok) throw new Error(result?.error || "取消未完成。"); return result; }} close={() => setImageRecoveryOpen(false)} /> : null}
         {agentImageConfigOpen ? <LazyProjectAgentImageConfig
           imageModels={composerImageModels}
           imageModelConfigs={resolvedImageModelConfigs}
@@ -30694,8 +30815,11 @@ function App() {
             endPaint={endRegionRedrawPaint}
             clearPaintState={() => {
               regionRedrawPaintRef.current = null;
+              regionRedrawPanRef.current = null;
             }}
             clearMask={clearRegionRedrawMask}
+            editMask={editRegionMask}
+            changeView={changeRegionMaskView}
             submit={submitRegionRedraw}
             agentExecutionBusy={agentExecutionBusy}
           />
