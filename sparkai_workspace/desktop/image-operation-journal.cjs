@@ -25,11 +25,13 @@ function comfySnapshot(snapshot = {}) {
     return value;
   }).slice(0, 64);
   const inputs = (Array.isArray(snapshot.inputs) ? snapshot.inputs : []).map(input => ({ sha256: /^[a-f0-9]{64}$/.test(input.sha256 || "") ? input.sha256 : "", bytes: Number(input.bytes) || 0, width: Number(input.width) || 0, height: Number(input.height) || 0, mimeType: clean(input.mimeType, 40), ...(input.uploaded ? { uploaded: { name: clean(input.uploaded.name, 1024), subfolder: clean(input.uploaded.subfolder, 1024), type: "input" } } : {}) })).slice(0, 4);
-  return { schemaVersion: 1, submissionId: snapshot.submissionId, baseUrl: localBaseUrl(snapshot.baseUrl), clientId: snapshot.clientId,
+  return { schemaVersion: Number(snapshot.schemaVersion) >= 2 ? 2 : 1, submissionId: snapshot.submissionId, baseUrl: localBaseUrl(snapshot.baseUrl), clientId: snapshot.clientId,
     workflowHash: snapshot.workflowHash, outputNodeId: snapshot.outputNodeId, inputMappings, actualParams, inputs,
     ...(snapshot.promptId ? { promptId: clean(snapshot.promptId, 120) } : {}),
     ...(snapshot.inputNodeId ? { inputNodeId: clean(snapshot.inputNodeId, 120) } : {}),
     ...(snapshot.templateId ? { templateId: clean(snapshot.templateId, 120), templateVersion: Math.max(1, Number(snapshot.templateVersion) || 1), templateHash: /^[a-f0-9]{64}$/.test(snapshot.templateHash || "") ? snapshot.templateHash : "" } : {}),
+    ...(typeof snapshot.policyVersion === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(snapshot.policyVersion) ? { policyVersion: snapshot.policyVersion } : {}),
+    ...(typeof snapshot.capabilitiesHash === "string" && /^[a-f0-9]{64}$/.test(snapshot.capabilitiesHash) ? { capabilitiesHash: snapshot.capabilitiesHash } : {}),
     preparedAt: clean(snapshot.preparedAt, 50), ...(snapshot.acceptedAt ? { acceptedAt: clean(snapshot.acceptedAt, 50) } : {}), ...(snapshot.recovered === true ? { recovered: true } : {}) };
 }
 

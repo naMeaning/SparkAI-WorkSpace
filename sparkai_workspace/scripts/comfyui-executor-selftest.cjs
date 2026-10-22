@@ -156,6 +156,26 @@ async function main() {
     for (const url of ["http://example.com", "http://127.0.0.2", "ftp://localhost"]) assert.throws(() => localBaseUrl(url), isCode("COMFYUI_LOCAL_ONLY"));
     for (const url of ["http://user:pass@localhost:8188", "http://localhost:8188/?token=fixture", "http://localhost:8188/#secret", "http://localhost/proxy", "http://localhost\\@example.com", " http://localhost"]) assert.throws(() => localBaseUrl(url), isCode("COMFYUI_URL_INVALID"));
   });
+  await test("inspect projects bounded sampler capabilities without private object_info", async () => fixture({}, async server => {
+    const inspected = await executor().inspect(server.baseUrl);
+    assert.deepEqual(inspected.checkpoints, ["fixture.safetensors", "alternate.safetensors"]);
+    assert.deepEqual(inspected.samplers, ["euler", "dpmpp_2m"]);
+    assert.deepEqual(inspected.schedulers, ["normal", "karras"]);
+    assert.deepEqual(inspected.parameterRanges.steps, { min: 1, max: 150, step: 1 });
+    assert.deepEqual(inspected.parameterRanges.cfg, { min: 0, max: 30, step: 0.1 });
+    assert.deepEqual(inspected.parameterRanges.denoise, { min: 0, max: 1, step: 0.01 });
+    assert.match(inspected.capabilitiesHash, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(inspected.capabilities).includes("python_path"), false);
+    assert.equal(inspected.objectInfo, undefined); assert.equal(inspected.systemStats, undefined);
+  }));
+  await test("inspect omits unsupported range intersections and uses integer steps", async () => {
+    const objects = objectInfo(); delete objects.KSampler.input.required.steps;
+    objects.KSampler.input.required.cfg = ["INT", { min: 1, max: 20 }]; objects.KSampler.input.required.denoise = ["FLOAT", { min: 2, max: 4 }];
+    await fixture({ objectInfo: objects }, async server => {
+      const inspected = await executor().inspect(server.baseUrl);
+      assert.deepEqual(inspected.parameterRanges, { cfg: { min: 1, max: 20, step: 1 } });
+    });
+  });
   await test("API Format core whitelist and typed acyclic graph", async () => {
     const opts = { outputNodeId: "7", inputMappings: [] }, original = workflow();
     const normalized = normalizeWorkflow(original, opts);
@@ -170,6 +190,13 @@ async function main() {
     const missing = workflow(); delete missing["5"].inputs.seed; assert.throws(() => normalizeWorkflow(missing, opts), isCode("COMFYUI_WORKFLOW_INVALID"));
     const extra = workflow(); extra["5"].inputs.code = "arbitrary"; assert.throws(() => normalizeWorkflow(extra, opts), isCode("COMFYUI_WORKFLOW_INVALID"));
   });
+  await test("template policy drift fails before inspect or prompt POST", async () => fixture({}, async server => {
+    const canonical = normalizeWorkflow(workflow(), { outputNodeId: "7", inputMappings: [] });
+    const templateHash = stableHash({ workflow: canonical.workflow, inputMappings: canonical.inputMappings, outputNodeId: canonical.outputNodeId, policyVersion: "comfyui-core-v2" });
+    await assert.rejects(executor().run(input(server, { templateHash, policyVersion: "changed-policy" })), isCode("COMFYUI_TEMPLATE_CHANGED"));
+    assert.equal(server.posts.length, 0);
+    assert.equal(server.gets.length, 0);
+  }));
   await test("explicit safe input and final-output mappings", async () => {
     for (const opts of [{ inputMappings: [] }, { outputNodeId: "6", inputMappings: [] }, { outputNodeId: "7" }, { outputNodeId: "7", inputMappings: [{ nodeId: "5", inputName: "model", value: ["1", 0] }] }, { outputNodeId: "7", inputMappings: [{ nodeId: "2", inputName: "text", kind: "seed" }] }]) assert.throws(() => normalizeWorkflow(workflow(), opts), isCode("COMFYUI_NODE_MAPPING_INVALID"));
     const bad = workflow(); bad["7"].inputs.filename_prefix = "../outside"; assert.throws(() => normalizeWorkflow(bad, { outputNodeId: "7", inputMappings: [] }), isCode("COMFYUI_WORKFLOW_INVALID"));
@@ -194,6 +221,45 @@ async function main() {
     assert.equal(server.posts.length, 1); assert.equal(first.promptId, second.promptId); assert.equal(first.actualParams.seed, second.actualParams.seed); assert.ok(first.actualParams.seed >= 0);
     assert.equal((await e.run(copy(request))).promptId, first.promptId); assert.equal(server.posts.length, 1);
     const changed = copy(request); changed.workflow["2"].inputs.text = "different"; await assert.rejects(e.run(changed), isCode("COMFYUI_SUBMISSION_CONFLICT")); assert.equal(server.posts.length, 1);
+  }));
+  await test("sampling mappings materialize, freeze actual parameters and deduplicate by sampling values", () => fixture({}, async server => {
+    let prepared, accepted;
+    const e = executor({ persistPrepared: async value => { prepared = copy(value); }, persistAccepted: async value => { accepted = copy(value); } });
+    const inputMappings = [["steps", "steps"], ["cfg", "cfg"], ["sampler_name", "sampler"], ["scheduler", "scheduler"], ["denoise", "denoise"]]
+      .map(([inputName, kind]) => ({ nodeId: "5", inputName, kind }));
+    const request = input(server, { inputMappings, steps: 12, cfg: 6.5, sampler: "dpmpp_2m", scheduler: "karras", denoise: 0.75 });
+    const [first, repeated] = await Promise.all([e.run(request), e.run(copy(request))]);
+    assert.equal(first.promptId, repeated.promptId); assert.equal(server.posts.length, 1);
+    const sampler = server.posts[0].prompt["5"].inputs;
+    assert.equal(sampler.steps, 12); assert.equal(sampler.cfg, 6.5); assert.equal(sampler.sampler_name, "dpmpp_2m"); assert.equal(sampler.scheduler, "karras"); assert.equal(sampler.denoise, 0.75);
+    for (const snapshot of [prepared, accepted, first]) {
+      assert.equal(snapshot.actualParams.steps, 12); assert.equal(snapshot.actualParams.cfg, 6.5); assert.equal(snapshot.actualParams.sampler, "dpmpp_2m"); assert.equal(snapshot.actualParams.scheduler, "karras"); assert.equal(snapshot.actualParams.denoise, 0.75);
+    }
+    assert.equal(accepted.workflowHash, stableHash(server.posts[0].prompt)); assert.match(accepted.capabilitiesHash, /^[a-f0-9]{64}$/);
+    for (const [field, value] of [["sampler", "euler"], ["steps", 13], ["cfg", 7]]) await assert.rejects(e.run({ ...request, [field]: value }), isCode("COMFYUI_SUBMISSION_CONFLICT"));
+    assert.equal(server.posts.length, 1);
+  }));
+  await test("sampling options require declared mappings and local numeric capability", async () => {
+    await fixture({}, async server => {
+      for (const [field, value] of [["steps", 10], ["cfg", 7], ["sampler", "euler"], ["scheduler", "normal"], ["denoise", 0.5]]) await assert.rejects(executor().run(input(server, { [field]: value })), isCode("COMFYUI_PARAMETER_UNSUPPORTED"));
+      assert.equal(server.posts.length, 0);
+    });
+    const limited = objectInfo(); limited.KSampler.input.required.steps = ["INT", { min: 1, max: 8 }];
+    await fixture({ objectInfo: limited }, async server => {
+      await assert.rejects(executor().run(input(server, { inputMappings: [{ nodeId: "5", inputName: "steps", kind: "steps" }], steps: 12 })), isCode("COMFYUI_DEPENDENCY_MISSING"));
+      assert.equal(server.posts.length, 0); assert.equal(server.uploads.length, 0);
+    });
+  });
+  await test("canonical sampling defaults and fixed mappings ignore mutable metadata", () => fixture({}, async server => {
+    let prepared;
+    const request = input(server, { inputMappings: [{ nodeId: "5", inputName: "steps", kind: "steps" }, { nodeId: "5", inputName: "cfg", kind: "cfg", value: 6.5 }], defaults: { steps: 120, cfg: 30 }, exposedInputs: ["steps", "cfg"] });
+    const e = executor({ persistPrepared: async value => { prepared = copy(value); } });
+    const pending = e.run(request);
+    request.defaults.steps = 149; request.exposedInputs.length = 0; request.inputMappings[0].kind = "value"; request.workflow["5"].inputs.steps = 140;
+    const result = await pending;
+    assert.equal(result.actualParams.steps, 4); assert.equal(result.actualParams.cfg, 6.5); assert.equal(prepared.actualParams.steps, 4); assert.equal(server.posts[0].prompt["5"].inputs.steps, 4);
+    await assert.rejects(executor().run(input(server, { inputMappings: [{ nodeId: "5", inputName: "steps", kind: "steps", value: 12 }], steps: 13, exposedInputs: ["steps"] })), isCode("COMFYUI_PARAMETER_UNSUPPORTED"));
+    assert.equal(server.posts.length, 1);
   }));
   await test("missing persistence, stable id and prepared write failure produce zero POST", () => fixture({}, async (server) => {
     await assert.rejects(createComfyUiExecutor().run(input(server)), isCode("COMFYUI_PERSISTENCE_REQUIRED"));
@@ -288,6 +354,11 @@ async function main() {
     assert.equal((await e.recover({ accepted: snapshot })).state, "unknown");
     server.history[snapshot.promptId] = resultRecord(snapshot, { status: { completed: true, status_str: "error" } }); assert.equal((await e.recover({ accepted: snapshot })).state, "failed"); assert.equal(server.views.length, 0);
     server.history[snapshot.promptId] = resultRecord(snapshot); assert.equal((await e.recover({ accepted: snapshot })).state, "succeeded"); assert.equal(server.posts.length, 0);
+  }));
+  await test("recovery ignores changed diagnostic capabilities", () => fixture({ objectInfo: { ...objectInfo(), KSampler: { ...objectInfo().KSampler, input: { required: { ...objectInfo().KSampler.input.required, sampler_name: [["different"]] } } } } }, async server => {
+    const snapshot = saved(server, { capabilitiesHash: "a".repeat(64) }); server.history[snapshot.promptId] = resultRecord(snapshot);
+    const result = await executor().recover({ accepted: snapshot });
+    assert.equal(result.state, "succeeded"); assert.equal(server.posts.length, 0); assert.equal(server.gets.includes("/object_info"), false);
   }));
   await test("child process recovers frozen accepted receipt without any prompt POST", () => fixture({}, async (server) => {
     const snapshot = saved(server); server.history[snapshot.promptId] = resultRecord(snapshot);

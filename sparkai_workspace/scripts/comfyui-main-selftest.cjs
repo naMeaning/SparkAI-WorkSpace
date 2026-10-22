@@ -8,6 +8,7 @@ const sharp = require("sharp");
 const { app } = require("electron");
 const { createMockServer } = require("./comfyui-executor-selftest.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
+const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs");
 
 const runDir = path.resolve(__dirname, "../.diagnostics/electron", `comfyui-main-${Date.now()}`);
 const projectDir = path.join(runDir, "project"), configDir = path.join(runDir, "config"), projectId = "comfyui-main-fixture";
@@ -34,7 +35,8 @@ function payload(server, name, extra = {}) {
   const templateId = extra.templateId || "stock-generate";
   const template = owner.comfyUiTemplateService.list().templates.find(value => value.id === templateId);
   return { provider: "comfyui", projectId, conversationId: "conversation-fixture", runId: name, operationId: name, requestIndex: 1, prompt: "loopback fixture",
-    comfyui: { templateId, templateHash: template.templateHash, baseUrl: server.baseUrl, checkpoint: "fixture.safetensors", width: 64, height: 96, seed: 123 }, ...extra };
+    comfyui: { templateId, templateHash: template.templateHash, baseUrl: server.baseUrl, checkpoint: "fixture.safetensors", width: 64, height: 96, seed: 123,
+      steps: 12, cfg: 6.5, sampler: "euler", scheduler: "normal", denoise: 1 }, ...extra };
 }
 function resolved(request) { return { ...request, comfyui: owner.comfyUiTemplateService.resolve(request.comfyui) }; }
 async function fixture(config, fn) {
@@ -52,14 +54,20 @@ async function main() {
   await test("IPC uses Main journal and original-byte asset delivery", () => fixture({}, async server => {
     const request = payload(server, "comfy-main-unique");
     const result = await generate(request); assert.equal(result.ok, true, result.error); assert.equal(result.assets.length, 1); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
+    assert.equal(server.posts[0].prompt["3"].inputs.steps, 12); assert.equal(server.posts[0].prompt["3"].inputs.cfg, 6.5); assert.equal(server.posts[0].prompt["3"].inputs.sampler_name, "euler"); assert.equal(server.posts[0].prompt["3"].inputs.scheduler, "normal"); assert.equal(server.posts[0].prompt["3"].inputs.denoise, 1);
     const asset = result.assets[0]; assert.deepEqual(readFileSync(asset.path), png); assert.equal(asset.contentHash, digest(png)); assert.equal(asset.width, 64); assert.equal(asset.height, 96);
     assert.equal(path.relative(projectDir, asset.path).startsWith(".."), false); assert.equal(asset.generation.request.model, "fixture.safetensors");
     assert.equal(asset.generation.request.protocol, "comfyui"); assert.equal(asset.generation.request.seed, 123); assert.equal(asset.generation.request.quality, undefined);
     assert.equal(asset.generation.request.templateId, "stock-generate"); assert.equal(asset.generation.request.workflowHash.length, 64); assert.equal(asset.generation.response.seed, 123); assert.equal(asset.generation.response.size, "64x96");
-    const item = owner.imageOperationJournal.find(projectId, request.operationId, 1); assert.equal(item.state, "saved"); assert.equal(item.taskId, "prompt-1"); assert.equal(item.comfyui.actualParams.seed, 123); assert.equal(item.comfyui.workflowHash.length, 64); assert.equal(item.comfyui.outputNodeId, "9"); assert.equal(item.projectRevision, 7);
+    const item = owner.imageOperationJournal.find(projectId, request.operationId, 1); assert.equal(item.state, "saved"); assert.equal(item.taskId, "prompt-1"); assert.equal(item.comfyui.actualParams.seed, 123); assert.equal(item.comfyui.actualParams.steps, 12); assert.equal(item.comfyui.actualParams.cfg, 6.5); assert.equal(item.comfyui.actualParams.sampler, "euler"); assert.equal(item.comfyui.actualParams.scheduler, "normal"); assert.equal(item.comfyui.actualParams.denoise, 1); assert.equal(item.comfyui.workflowHash.length, 64); assert.equal(item.comfyui.outputNodeId, "9"); assert.equal(item.projectRevision, 7);
+    assert.equal(item.comfyui.schemaVersion, 2); assert.equal(item.comfyui.policyVersion, owner.comfyUiTemplateService.list().templates.find(template => template.id === request.comfyui.templateId).policyVersion); assert.match(item.comfyui.capabilitiesHash, /^[a-f0-9]{64}$/);
     const repeated = await generate(request); assert.equal(repeated.ok, true, repeated.error); assert.deepEqual(repeated.assets, result.assets); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
     assert.equal(repeated.size, "64x96"); assert.equal(owner.imageOperationJournal.list(projectId).find(row => row.key === item.key).providerState, "succeeded");
     const conflict = await generate({ ...request, prompt: "changed prompt" }); assert.equal(conflict.ok, false); assert.equal(conflict.errorCode, "COMFYUI_SUBMISSION_CONFLICT"); assert.equal(server.posts.length, 1);
+    for (const [field, value] of [["sampler", "dpmpp_2m"], ["steps", 13], ["cfg", 7.5]]) {
+      const samplingConflict = await generate({ ...request, comfyui: { ...request.comfyui, [field]: value } });
+      assert.equal(samplingConflict.ok, false); assert.equal(samplingConflict.errorCode, "COMFYUI_SUBMISSION_CONFLICT"); assert.equal(server.posts.length, 1);
+    }
   }));
   await test("raw workflows/inputs and template drift cannot bypass journal", () => fixture({}, async server => {
     for (const field of ["workflow", "inputs", "inputMappings", "baseUrl"]) {
@@ -85,11 +93,33 @@ async function main() {
     const request = payload(server, "comfy-main-unknown");
     const initial = await generate(request); assert.equal(initial.errorCode, "COMFYUI_SUBMISSION_UNKNOWN"); assert.equal(initial.unsafeToRetry, true);
     let item = owner.imageOperationJournal.find(projectId, request.operationId); assert.equal(item.state, "uncertain"); assert.ok(item.comfyui.clientId); assert.equal(item.taskId, "");
+    assert.equal(item.comfyui.schemaVersion, 2); assert.ok(item.comfyui.policyVersion); assert.match(item.comfyui.capabilitiesHash, /^[a-f0-9]{64}$/);
     const pending = await owner.imageOperationJournal.recover(projectId, item.key); assert.equal(pending.pending, true); item = owner.imageOperationJournal.get(projectId, item.key); assert.equal(item.taskId, "prompt-1"); assert.equal(item.providerState, "queued"); assert.equal(server.posts.length, 1);
     server.finish("prompt-1", server.pending[0]);
     const recovered = await owner.imageOperationJournal.recover(projectId, item.key); assert.equal(recovered.assets.length, 1); assert.deepEqual(readFileSync(recovered.assets[0].path), png); assert.equal(server.posts.length, 1);
     assert.equal(recovered.assets[0].generation.request.protocol, "comfyui"); assert.equal(recovered.assets[0].generation.request.seed, 123); assert.equal(recovered.assets[0].generation.request.templateHash, item.comfyui.templateHash);
     const repeated = await generate(request); assert.equal(repeated.ok, true, repeated.error); assert.deepEqual(repeated.assets, recovered.assets); assert.equal(server.posts.length, 1);
+  }));
+  await test("legacy v1 hash replay conflicts safely while original snapshot remains recoverable", () => fixture({ disconnect: true, hold: true }, async server => {
+    const request = payload(server, "comfy-main-legacy");
+    for (const field of ["steps", "cfg", "sampler", "scheduler", "denoise"]) delete request.comfyui[field];
+    assert.equal((await generate(request)).errorCode, "COMFYUI_SUBMISSION_UNKNOWN");
+    const canonical = owner.comfyUiTemplateService.resolve(request.comfyui);
+    const legacyMappings = canonical.inputMappings.filter(mapping => !["steps", "cfg", "sampler", "scheduler", "denoise"].includes(mapping.kind));
+    const legacyHash = stableHash({ workflow: canonical.workflow, inputMappings: legacyMappings, outputNodeId: canonical.outputNodeId });
+    const journalFile = path.join(projectDir, ".naimage", "image-operations", "journal.json"), journal = JSON.parse(readFileSync(journalFile, "utf8"));
+    const legacy = journal.operations.find(item => item.operationId === request.operationId);
+    legacy.requestHash = stableHash({ templateId: canonical.templateId, templateHash: legacyHash, baseUrl: canonical.baseUrl, checkpoint: canonical.checkpoint,
+      seed: canonical.seed, width: canonical.width, height: canonical.height, prompt: request.prompt, negativePrompt: canonical.negativePrompt, sources: [], requireAlpha: false });
+    legacy.comfyui.schemaVersion = 1; legacy.comfyui.templateHash = legacyHash; legacy.comfyui.inputMappings = legacyMappings;
+    delete legacy.comfyui.policyVersion; delete legacy.comfyui.capabilitiesHash;
+    writeFileSync(journalFile, JSON.stringify(journal));
+    const replay = await generate({ ...request, comfyui: { ...request.comfyui, templateHash: legacyHash } });
+    assert.equal(replay.errorCode, "COMFYUI_SUBMISSION_CONFLICT"); assert.equal(replay.unsafeToRetry, true); assert.equal(server.posts.length, 1);
+    const pending = await owner.imageOperationJournal.recover(projectId, legacy.key); assert.equal(pending.pending, true); assert.equal(server.posts.length, 1);
+    server.finish("prompt-1", server.pending[0]);
+    const recovered = await owner.imageOperationJournal.recover(projectId, legacy.key); assert.equal(recovered.assets.length, 1); assert.equal(recovered.operation.comfyui.schemaVersion, 1); assert.equal(recovered.operation.comfyui.templateHash, legacyHash); assert.equal(server.posts.length, 1);
+    assert.deepEqual(readFileSync(recovered.assets[0].path), png);
   }));
   await test("definite prompt rejection stays terminal and cannot enter recovery or resubmit", () => fixture({ promptStatus: 400 }, async server => {
     const request = payload(server, "comfy-main-rejected");

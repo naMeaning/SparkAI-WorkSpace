@@ -54,6 +54,17 @@ async function main() {
   for (const name of ["agent.task.start", "agent.task.answer"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, false);
   for (const name of ["agent.task.get", "agent.task.wait"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, true);
   assert.equal(registry.tools.find((tool) => tool.name === "debug.inspect-command").inputSchema.required[0], "name");
+  const comfyuiGenerateSchema = registry.tools.find(tool => tool.name === "comfyui.generate").inputSchema;
+  const comfyuiOptionsSchema = comfyuiGenerateSchema.properties.comfyui;
+  assert.equal(comfyuiOptionsSchema.properties.steps.minimum, 1);
+  assert.equal(comfyuiOptionsSchema.properties.steps.maximum, 150);
+  assert.equal(comfyuiOptionsSchema.properties.cfg.maximum, 30);
+  assert.equal(comfyuiOptionsSchema.properties.denoise.maximum, 1);
+  assert.match(comfyuiOptionsSchema.properties.sampler.pattern, /100/);
+  assert.deepEqual(
+    registry.tools.find(tool => tool.name === "comfyui.import-template").inputSchema.properties.inputMappings.items.properties.kind.enum.slice(-5),
+    ["steps", "cfg", "sampler", "scheduler", "denoise"]
+  );
 
   const token = "fixture-automation-token";
   const requests = [];

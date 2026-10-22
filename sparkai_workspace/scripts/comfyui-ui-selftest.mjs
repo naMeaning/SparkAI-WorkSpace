@@ -12,7 +12,8 @@ import { allocateDebugPort, waitForChildExit, waitForHttpServer } from "./aidebu
 import { capturePngScreenshotToFile } from "./aidebug/harness/screenshot.mjs";
 
 const require = createRequire(import.meta.url), root = resolve(import.meta.dirname, "..");
-const { createMockServer } = require("./comfyui-executor-selftest.cjs");
+const { createMockServer, objectInfo } = require("./comfyui-executor-selftest.cjs");
+const { builtIn } = require("../desktop/comfyui-template-service.cjs");
 const runDir = join(root, ".diagnostics", `comfyui-ui-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const config = join(runDir, "config"), project = join(runDir, "project"), projectId = "comfyui-ui-project";
 for (const dir of [config, join(project, "assets")]) mkdirSync(dir, { recursive: true });
@@ -22,7 +23,12 @@ const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const image = await sharp(join(root, "docs/assets/github/02-product.jpg")).resize(512, 512).png().toBuffer();
 const sourceFile = join(project, "assets/source.png"); writeFileSync(sourceFile, image);
 const sourceHash = digest(image), source = { type: "file", path: sourceFile, relativePath: "assets/source.png", assetId: `asset-${sourceHash.slice(0, 32)}`, occurrenceId: `occ-${"1".repeat(32)}`, contentHash: sourceHash, mimeType: "image/png", width: 512, height: 512 };
-const mock = await createMockServer({ events: true, output: { "9": { images: [{ filename: "product.png", subfolder: "fixtures", type: "output" }] } } }, image);
+const capabilityInfo = objectInfo();
+// Put non-default choices first so inspection cannot accidentally change the
+// reviewed template's default sampler or scheduler.
+capabilityInfo.KSampler.input.required.sampler_name = [["dpmpp_2m", "euler"]];
+capabilityInfo.KSampler.input.required.scheduler = [["karras", "normal"]];
+const mock = await createMockServer({ events: true, objectInfo: capabilityInfo, output: { "9": { images: [{ filename: "product.png", subfolder: "fixtures", type: "output" }] } } }, image);
 const account = createServer((req, res) => {
   const forbidden = req.method === "POST" && /\/v1\/(images|responses|chat)/.test(req.url);
   if (forbidden) { report.unexpectedModelRequests = (report.unexpectedModelRequests || 0) + 1; checkpoint(); }
@@ -80,6 +86,19 @@ async function captureManualFields(name) {
   }
   await screenshot(name);
 }
+async function samplingFields() {
+  return ev("Object.fromEntries(['steps','cfg','sampler','scheduler','denoise'].map(name=>{const e=document.querySelector('[aria-label=\"ComfyUI '+name+'\"]');return [name,{value:e?.value,disabled:e?.disabled,min:e?.min,max:e?.max}]}))");
+}
+async function assertSamplingControlsReachable() {
+  for (const name of ["steps", "cfg", "sampler", "scheduler", "denoise"]) {
+    const selector = `[aria-label="ComfyUI ${name}"]`;
+    await ev(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'nearest',inline:'nearest'})`); await delay(70);
+    const geometry = await ev(`(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return {disabled:e.disabled,x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight}})()`);
+    assert.equal(geometry.disabled, false, `${name}: usable after inspect`);
+    assert.ok(geometry.x >= 0 && geometry.y >= 0 && geometry.right <= geometry.width && geometry.bottom <= geometry.height, `${name}: within window after scrolling`);
+    assert.equal(await ev(`Boolean(document.elementFromPoint(${(geometry.x+geometry.right)/2},${(geometry.y+geometry.bottom)/2})?.closest(${JSON.stringify(selector)}))`), true, `${name}: pointer can reach control`);
+  }
+}
 async function canvasMenu(text) {
   await key("Escape");
   await ev("window.__naimageDebugSetViewport({x:20,y:20,scale:0.65})"); await delay(150);
@@ -106,6 +125,9 @@ async function launch() {
 }
 
 try {
+  const fixedSamplingTemplate = { ...builtIn("generate"), id: "ui-fixed-sampling", label: "固定采样参数模板", builtIn: false };
+  fixedSamplingTemplate.inputMappings = fixedSamplingTemplate.inputMappings.filter(mapping => !["steps", "cfg", "sampler", "scheduler", "denoise"].includes(mapping.kind));
+  writeFileSync(join(config, "comfyui-templates.json"), JSON.stringify({ version: 1, templates: [fixedSamplingTemplate] }));
   writeFileSync(join(project, "session.json"), JSON.stringify({ schemaVersion: 5, sessionRevision: 1, nodes: [{ id: "N0001", title: "商品原图", type: "image", status: "done", imageState: "done", x: 40, y: 40, width: 320, height: 320, assets: [source], outputs: 1 }], layoutGroups: [], messages: [], activeConversationId: "comfyui-ui-conversation", conversations: [{ id: "comfyui-ui-conversation", title: "本地图片任务验证", messages: [] }] }));
   writeFileSync(join(config, "project-list.json"), JSON.stringify({ activeProjectId: projectId, projects: [{ id: projectId, name: "ComfyUI 本地任务验证", path: project, sessionPath: join(project, "session.json"), external: true }] }));
   writeFileSync(join(runDir, "no-server.cjs"), "process.exit(0);\n");
@@ -117,11 +139,40 @@ try {
   await waitForHttpServer(devUrl, { attempts: 150, intervalMs: 100 }); await launch();
 
   let generated, options, submittedPrompt = "橙色便携音箱商品摄影，保留编织纹理与明亮的背景层次。";
-  await check("actual canvas menu opens local provider, inspects loopback environment and submits one reviewed template", async () => {
+  const expectedSampling = { steps: 28, cfg: 6.5, sampler: "dpmpp_2m", scheduler: "karras", denoise: 0.8 };
+  await check("uninspected form shows template defaults and explicitly disables parameters absent from a reviewed mapping", async () => {
     await canvasMenu("创建生图工作"); await wait("Boolean(document.querySelector('.manual-image-task-dialog'))");
-    await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length===2");
+    await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length===3");
+    assert.equal(await ev("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected"), "false");
+    assert.equal(await ev("document.querySelector('.comfyui-task-fields').textContent.includes('尚未检查本机能力')"), true);
+    let fields = await samplingFields();
+    assert.deepEqual(Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value.value])), { steps: "20", cfg: "7", sampler: "euler", scheduler: "normal", denoise: "1" });
+    assert.equal(fields.sampler.disabled, true); assert.equal(fields.scheduler.disabled, true);
+    await captureManualFields("local-template-uninspected-defaults");
+    await fill('[aria-label="ComfyUI steps"]', "28"); await fill('[aria-label="ComfyUI cfg"]', "6.5"); await fill('[aria-label="ComfyUI denoise"]', "0.8");
+    await choose('[aria-label="ComfyUI 模板"]', "ui-fixed-sampling");
+    fields = await samplingFields();
+    for (const field of ["steps", "cfg", "sampler", "scheduler", "denoise"]) assert.equal(fields[field].disabled, true, `${field}: template has no mapping`);
+    assert.equal(fields.steps.value, "20"); assert.equal(fields.cfg.value, "7"); assert.equal(fields.denoise.value, "1");
+    await captureManualFields("local-template-fixed-sampling-disabled");
+    await choose('[aria-label="ComfyUI 模板"]', "stock-generate");
+    assert.equal(mock.posts.length, 0);
+  });
+  await check("actual sampled controls materialize one reviewed prompt and persist exact metadata and journal parameters", async () => {
     await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
     await wait("document.querySelector('[aria-label=\"ComfyUI 模型\"]').value==='fixture.safetensors'");
+    let fields = await samplingFields();
+    assert.equal(fields.sampler.value, "euler"); assert.equal(fields.scheduler.value, "normal", "inspect keeps the reviewed template default instead of the first capability choice");
+    assert.equal(fields.sampler.disabled, false); assert.equal(fields.scheduler.disabled, false);
+    assert.deepEqual(await ev("[...document.querySelector('[aria-label=\"ComfyUI sampler\"]').options].map(option=>option.value).sort()"), ["dpmpp_2m", "euler"]);
+    assert.deepEqual(await ev("[...document.querySelector('[aria-label=\"ComfyUI scheduler\"]').options].map(option=>option.value).sort()"), ["karras", "normal"]);
+    await fill('[aria-label="ComfyUI 地址"]', `${mock.baseUrl}/`);
+    assert.equal(await ev("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected"), "false", "address edits clear old inspect data");
+    assert.equal((await samplingFields()).sampler.disabled, true);
+    await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
+    await wait("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected==='true'");
+    await choose('[aria-label="ComfyUI sampler"]', "dpmpp_2m"); await choose('[aria-label="ComfyUI scheduler"]', "karras");
+    await fill('[aria-label="ComfyUI steps"]', "28"); await fill('[aria-label="ComfyUI cfg"]', "6.5"); await fill('[aria-label="ComfyUI denoise"]', "0.8");
     await fill('[aria-label="ComfyUI 宽度"]', "512"); await fill('[aria-label="ComfyUI 高度"]', "512"); await fill('[aria-label="ComfyUI 种子"]', "-1");
     await fill(".manual-image-task-prompt textarea", submittedPrompt); await assertManualLayout("local-template");
     await captureManualFields("local-template-settings"); await click(".manual-image-task-prompt textarea"); await screenshot("local-template-prompt");
@@ -131,6 +182,18 @@ try {
     options = generated.imageParams.comfyui; const metadata = generated.assets[0].generation;
     assert.ok(generated.imageParams.submissionId); assert.equal(generated.imageParams.model, "fixture.safetensors"); assert.equal(generated.imageParams.size, "512x512");
     assert.equal(metadata.request.protocol, "comfyui"); assert.equal(metadata.request.quality, undefined); assert.ok(metadata.request.seed >= 0); assert.equal(metadata.response.seed, metadata.request.seed);
+    const submittedSampler = mock.posts[0].prompt["3"].inputs;
+    assert.deepEqual({ steps: submittedSampler.steps, cfg: submittedSampler.cfg, sampler: submittedSampler.sampler_name, scheduler: submittedSampler.scheduler, denoise: submittedSampler.denoise }, expectedSampling);
+    const operation = journal().operations.find(item => item.operationId === `comfy-${generated.imageParams.submissionId}`);
+    assert.ok(operation);
+    for (const [field, value] of Object.entries(expectedSampling)) {
+      assert.equal(options[field], value, `${field}: saved task draft`);
+      assert.equal(metadata.request[field], value, `${field}: request metadata`);
+      assert.equal(metadata.response[field], value, `${field}: response metadata`);
+      assert.equal(operation.comfyui.actualParams[field], value, `${field}: journal actual parameters`);
+    }
+    assert.match(operation.comfyui.workflowHash, /^[a-f0-9]{64}$/);
+    report.samplingParameters = { expected: expectedSampling, materialized: submittedSampler, journal: operation.comfyui.actualParams, requestMetadata: metadata.request };
     await command("canvas.select", { expectedProjectId: projectId, ids: [generated.id] }); await screenshot("local-photo-result");
   });
 
@@ -209,6 +272,11 @@ try {
     await ev("window.naimageConfig.debugWindowBounds({width:884,height:640})"); await wait("innerWidth===884&&innerHeight===640");
     await canvasMenu("创建生图工作"); await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("Boolean(document.querySelector('[aria-label=\"ComfyUI 地址\"]'))");
     await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
+    await wait("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected==='true'");
+    await choose('[aria-label="ComfyUI sampler"]', "dpmpp_2m"); await choose('[aria-label="ComfyUI scheduler"]', "karras");
+    await fill('[aria-label="ComfyUI steps"]', "28"); await fill('[aria-label="ComfyUI cfg"]', "6.5"); await fill('[aria-label="ComfyUI denoise"]', "0.8");
+    await assertSamplingControlsReachable();
+    await screenshot("minimum-local-sampling-controls");
     await fill(".manual-image-task-prompt textarea", "最小窗口橙色音箱商品摄影"); await assertManualLayout("minimum-local-template");
     const geometry = await ev("(()=>{const r=document.querySelector('.manual-image-task-dialog').getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth}})()");
     assert.ok(geometry.x >= 0 && geometry.y >= 0 && geometry.right <= 884 && geometry.bottom <= 640); assert.equal(geometry.overflow, false);

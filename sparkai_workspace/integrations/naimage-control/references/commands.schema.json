@@ -6036,7 +6036,7 @@
         {
           "name": "comfyui.templates",
           "surface": "renderer",
-          "description": "List locally reviewed API JSON templates and their input/output mappings. No model request.",
+          "description": "List locally reviewed API JSON templates with model-family, exposed-input, default and safe-range metadata. No model request.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6047,7 +6047,7 @@
         {
           "name": "comfyui.inspect",
           "surface": "renderer",
-          "description": "Inspect only the existing localhost ComfyUI system_stats/object_info; never install software or weights.",
+          "description": "Inspect only the existing localhost ComfyUI system_stats/object_info and return redacted checkpoints, samplers, schedulers and safe parameter ranges; never install software or weights.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6106,7 +6106,12 @@
                         "width",
                         "height",
                         "image",
-                        "value"
+                        "value",
+                        "steps",
+                        "cfg",
+                        "sampler",
+                        "scheduler",
+                        "denoise"
                       ]
                     },
                     "index": {
@@ -6139,7 +6144,7 @@
         {
           "name": "comfyui.generate",
           "surface": "renderer",
-          "description": "Explicitly execute one reviewed local image_gen template. Freeze actual seed/model/inputs/workflow; submissionId is durable, same content recovers and conflicting content is rejected. Local service execution requires current user authorization.",
+          "description": "Explicitly execute one reviewed local image_gen template. Freeze actual seed/model/inputs/workflow and declared sampling parameters; submissionId is durable, same content recovers and conflicting content is rejected. Local service execution requires current user authorization.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6204,6 +6209,34 @@
                   "negativePrompt": {
                     "type": "string",
                     "maxLength": 16384
+                  },
+                  "steps": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 150,
+                    "description": "Optional KSampler steps; when omitted the selected template default is used."
+                  },
+                  "cfg": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30,
+                    "description": "Optional KSampler CFG; accepted only when the selected template exposes it."
+                  },
+                  "sampler": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_. -]{1,100}$",
+                    "description": "Optional KSampler sampler name from the inspected local capability list."
+                  },
+                  "scheduler": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_. -]{1,100}$",
+                    "description": "Optional KSampler scheduler from the inspected local capability list."
+                  },
+                  "denoise": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Optional KSampler denoise value; accepted only when the selected template declares it."
                   }
                 },
                 "required": [

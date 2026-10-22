@@ -2,8 +2,8 @@
 
 const { createHash, randomUUID, randomBytes } = require("node:crypto");
 const { URL } = require("node:url");
-const { CORE_NODES, MAPPING_PORTS } = require("./comfyui-template-registry.cjs");
-const { LOCAL_HOSTS, localBaseUrl } = require("../comfyui-options.mjs");
+const { CORE_NODES, MAPPING_PORTS, TEMPLATE_POLICY_VERSION } = require("./comfyui-template-registry.cjs");
+const { LOCAL_HOSTS, localBaseUrl, COMFYUI_PARAMETER_RANGES, normalizeComfyUiSamplingParameters, isComfyUiModelName, isComfyUiSamplingChoice } = require("../comfyui-options.mjs");
 
 const LINK_TYPES = new Set(["MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE"]);
 const MAX_WORKFLOW_BYTES = 2 * 1024 * 1024;
@@ -39,9 +39,9 @@ function relativeFile(value, { basename = false, empty = false } = {}) {
 function assertLiteral(kind, value) {
   let valid = false;
   if (kind === "text") valid = typeof value === "string" && value.length <= 16_384 && !value.includes("\0");
-  if (kind === "file") valid = relativeFile(value);
+  if (kind === "file") valid = isComfyUiModelName(value);
   if (kind === "prefix") valid = relativeFile(value, { basename: true }) && value.length <= 180;
-  if (kind === "choice") valid = typeof value === "string" && /^[A-Za-z0-9_. -]{1,100}$/.test(value);
+  if (kind === "choice") valid = isComfyUiSamplingChoice(value);
   if (kind === "dimension") valid = Number.isInteger(value) && value >= 64 && value <= 4096 && value % 8 === 0;
   if (kind === "batch") valid = Number.isInteger(value) && value >= 1 && value <= 4;
   if (kind === "seed") valid = Number.isSafeInteger(value) && value >= -1;
@@ -144,6 +144,76 @@ function validateDependencies(info, objectInfo) {
   }
 }
 
+const SAFE_CAPABILITY_NODES = Object.freeze(["CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "VAEEncode", "LoadImage", "SaveImage", "PreviewImage"]);
+
+function descriptorChoices(descriptor, modelNames = false) {
+  const values = Array.isArray(descriptor) && Array.isArray(descriptor[0]) ? descriptor[0] : [];
+  return [...new Set(values.filter(value => modelNames ? isComfyUiModelName(value) : isComfyUiSamplingChoice(value)))].slice(0, 500);
+}
+
+function capabilityRange(field, descriptor) {
+  if (!Array.isArray(descriptor) || !["INT", "FLOAT"].includes(descriptor[0])) return undefined;
+  const safe = COMFYUI_PARAMETER_RANGES[field], limits = Array.isArray(descriptor) && descriptor[1] && typeof descriptor[1] === "object" ? descriptor[1] : {};
+  let min = Number.isFinite(limits.min) ? Math.max(safe.min, limits.min) : safe.min;
+  let max = Number.isFinite(limits.max) ? Math.min(safe.max, limits.max) : safe.max;
+  if (field === "steps" || descriptor[0] === "INT") { min = Math.ceil(min); max = Math.floor(max); }
+  return min <= max ? { min, max, step: descriptor[0] === "INT" ? 1 : safe.step } : undefined;
+}
+
+function safeDeviceSummary(device) {
+  const rawName = typeof device?.name === "string" ? device.name : "";
+  const name = rawName.length <= 120 && /^[\p{L}\p{N} ._()+,\[\]-]{1,120}$/u.test(rawName) && !/bearer|api[ _-]?key|authorization|password|secret|token|cookie/i.test(rawName) ? rawName : "";
+  const rawType = typeof device?.type === "string" ? device.type.toLowerCase() : "";
+  const type = ["cpu", "cuda", "mps", "xpu", "directml", "vulkan", "hip", "rocm", "privateuseone"].includes(rawType) ? rawType : "";
+  return { name, type };
+}
+
+/**
+ * Build a bounded, diagnostic-only projection of /object_info and
+ * /system_stats.  The raw responses stay inside the executor for dependency
+ * validation; callers receive only finite lists, ranges and device labels.
+ */
+function normalizeCapabilities(objectInfo, systemStats) {
+  const rawInfo = plain(objectInfo) ? objectInfo : {};
+  const info = Object.fromEntries(SAFE_CAPABILITY_NODES.filter(name => plain(rawInfo[name]) && (!rawInfo[name].python_module || rawInfo[name].python_module === "nodes")).map(name => [name, rawInfo[name]]));
+  const sampler = info.KSampler?.input?.required || {};
+  const parameterRanges = Object.fromEntries(["steps", "cfg", "denoise"].map(field => [field, capabilityRange(field, sampler[field])]).filter(([, range]) => range));
+  const capabilities = {
+    checkpoints: descriptorChoices(info.CheckpointLoaderSimple?.input?.required?.ckpt_name, true),
+    samplers: descriptorChoices(sampler.sampler_name),
+    schedulers: descriptorChoices(sampler.scheduler),
+    parameterRanges,
+    coreNodes: Object.keys(info).filter(name => SAFE_CAPABILITY_NODES.includes(name)).slice(0, SAFE_CAPABILITY_NODES.length),
+    devices: (Array.isArray(systemStats?.devices) ? systemStats.devices : []).slice(0, 16).map(safeDeviceSummary).filter(device => device.name || device.type)
+  };
+  capabilities.capabilitiesHash = stableHash(capabilities);
+  return capabilities;
+}
+
+function templateSamplingMetadata(info) {
+  const samplerId = info.nodes.find(node => node.classType === "KSampler")?.id;
+  const sampler = info.workflow[samplerId]?.inputs || {};
+  const ports = { steps: "steps", cfg: "cfg", sampler: "sampler_name", scheduler: "scheduler", denoise: "denoise" };
+  const defaults = Object.fromEntries(Object.entries(ports).map(([field, port]) => {
+    const mapping = info.inputMappings.find(item => item.nodeId === samplerId && item.inputName === port && own(item, "value"));
+    return [field, mapping ? mapping.value : sampler[port]];
+  }));
+  const exposedInputs = [...new Set(info.inputMappings.filter(mapping => mapping.kind !== "value" && !own(mapping, "value")).map(mapping => mapping.kind))];
+  const parameterRanges = Object.fromEntries(["steps", "cfg", "denoise"].filter(field => exposedInputs.includes(field)).map(field => [field, { ...COMFYUI_PARAMETER_RANGES[field] }]));
+  return { defaults, exposedInputs, parameterRanges, inputMappings: info.inputMappings };
+}
+
+function templateHashFor(info, policyVersion = TEMPLATE_POLICY_VERSION) {
+  return stableHash({ workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, policyVersion });
+}
+
+function validateTemplateIdentity(info, input) {
+  if (input?.templateHash === undefined) return;
+  if (typeof input.templateHash !== "string" || !/^[a-f0-9]{64}$/.test(input.templateHash)) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板标识无效，请重新选择后提交。");
+  const policyVersion = input.policyVersion === undefined ? TEMPLATE_POLICY_VERSION : input.policyVersion;
+  if (typeof policyVersion !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(policyVersion) || templateHashFor(info, policyVersion) !== input.templateHash) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板版本或审核策略已改变，请重新选择后提交。");
+}
+
 function imageBytes(input) {
   const bytes = Buffer.isBuffer(input) ? input : Buffer.isBuffer(input?.buffer) ? input.buffer : typeof input?.base64 === "string" ? Buffer.from(input.base64, "base64") : null;
   if (!bytes?.length || bytes.length > MAX_IMAGE_BYTES) throw fail("COMFYUI_IMAGE_INVALID", "ComfyUI 素材为空或超过大小限制。");
@@ -244,11 +314,16 @@ function createComfyUiExecutor(options = {}) {
     if (Number.isFinite(response?.status) && (response.status < 200 || response.status >= 300)) throw fail(response.status >= 300 && response.status < 400 ? "COMFYUI_REDIRECT_FORBIDDEN" : "COMFYUI_HTTP_ERROR", `ComfyUI 请求失败（${response.status}）。`, { status: response.status });
     return response || {};
   }
-  async function inspect(baseUrl, config = {}) {
+  async function inspectInternal(baseUrl, config = {}) {
     const base = localBaseUrl(baseUrl);
     const [stats, objects] = await Promise.all([request(endpoint(base, "/system_stats"), { signal: config.signal }), request(endpoint(base, "/object_info"), { signal: config.signal })]);
     if (!plain(stats.body) || !plain(objects.body)) throw fail("COMFYUI_RESPONSE_INVALID", "ComfyUI 未返回有效的本机服务信息。");
-    return { baseUrl: base, systemStats: stats.body, objectInfo: objects.body };
+    const capabilities = normalizeCapabilities(objects.body, stats.body);
+    return { baseUrl: base, objectInfo: objects.body, capabilities, ...capabilities };
+  }
+  async function inspect(baseUrl, config = {}) {
+    const inspected = await inspectInternal(baseUrl, config);
+    return { baseUrl: inspected.baseUrl, capabilities: inspected.capabilities, ...inspected.capabilities };
   }
 
   function progressSocket(base, clientId, onStatus, signal) {
@@ -360,12 +435,15 @@ function createComfyUiExecutor(options = {}) {
     }
   }
 
-  async function execute(input, info, inputs, inputMetadata, submissionId, base) {
+  async function execute(input, info, sampling, inputs, inputMetadata, submissionId, base) {
     const signal = input.signal;
     if (signal?.aborted) throw fail("ABORT_ERR", "ComfyUI 操作已取消。", { ambiguous: false, unsafeToRetry: false });
     const persistAccepted = input.persistAccepted || options.persistAccepted;
     if (typeof persistAccepted !== "function") throw fail("COMFYUI_PERSISTENCE_REQUIRED", "ComfyUI 提交必须连接 Main 持久化回执。");
-    const workflow = info.workflow, fields = { prompt: input.prompt, negative: input.negativePrompt, model: input.checkpoint, seed: input.seed, width: input.width, height: input.height };
+    // run() froze these reviewed controls before starting any asynchronous
+    // work. Unmapped and fixed-value ports keep their canonical template value.
+    const workflow = info.workflow, fields = { prompt: input.prompt, negative: input.negativePrompt, model: input.checkpoint, seed: input.seed, width: input.width, height: input.height,
+      ...sampling };
     for (const mapping of info.inputMappings) {
       if (mapping.kind === "image") continue;
       const value = own(mapping, "value") ? mapping.value : fields[mapping.kind];
@@ -373,7 +451,7 @@ function createComfyUiExecutor(options = {}) {
     }
     for (const node of Object.values(workflow)) if (node.class_type === "KSampler" && node.inputs.seed === -1) node.inputs.seed = randomBytes(6).readUIntBE(0, 6);
     const materialized = normalizeWorkflow(workflow, info), actualParams = actualParameters(materialized, inputMetadata);
-    const inspected = await inspect(base, { signal });
+    const inspected = await inspectInternal(base, { signal });
     validateDependencies(materialized, inspected.objectInfo);
     const uploaded = [];
     for (let index = 0; index < inputs.length; index += 1) {
@@ -387,7 +465,9 @@ function createComfyUiExecutor(options = {}) {
     for (const mapping of materialized.inputMappings.filter((item) => item.kind === "image")) {
       const item = uploaded[mapping.index]; workflow[mapping.nodeId].inputs[mapping.inputName] = item.subfolder ? `${item.subfolder}/${item.name}` : item.name;
     }
-    const snapshot = { schemaVersion: 1, submissionId, baseUrl: base, clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams, inputs: inputMetadata.map((item, index) => ({ ...item, uploaded: uploaded[index] })), preparedAt: new Date().toISOString() };
+    const snapshot = { schemaVersion: 2, submissionId, baseUrl: base, clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams,
+      ...(input.templateId ? { templateId: input.templateId, templateVersion: input.templateVersion, templateHash: input.templateHash, policyVersion: input.policyVersion } : {}),
+      ...(inspected.capabilitiesHash ? { capabilitiesHash: inspected.capabilitiesHash } : {}), inputs: inputMetadata.map((item, index) => ({ ...item, uploaded: uploaded[index] })), preparedAt: new Date().toISOString() };
     const persistPrepared = input.persistPrepared || options.persistPrepared;
     if (typeof persistPrepared === "function") await persistPrepared(clone(snapshot));
     if (signal?.aborted) throw fail("ABORT_ERR", "ComfyUI 操作已取消。", { ambiguous: false, unsafeToRetry: false });
@@ -437,19 +517,27 @@ function createComfyUiExecutor(options = {}) {
       const base = localBaseUrl(input.baseUrl), submissionId = input.submissionId || input.operationId;
       if (typeof submissionId !== "string" || !ID_RE.test(submissionId)) throw fail("COMFYUI_SUBMISSION_ID_REQUIRED", "ComfyUI 提交需要稳定的操作标识。");
       if (own(input, "extraPrompt")) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 首期不接受未审核的附加执行参数。");
-      const info = normalizeWorkflow(input.workflow, input), inputs = (Array.isArray(input.inputs) ? input.inputs : []).map(imageBytes);
+      const info = normalizeWorkflow(input.workflow, input);
+      validateTemplateIdentity(info, input);
+      const inputs = (Array.isArray(input.inputs) ? input.inputs : []).map(imageBytes);
       if (inputs.length > 4) throw fail("COMFYUI_IMAGE_INVALID", "ComfyUI 首期最多支持四张输入素材。");
       const indices = new Set(info.inputMappings.filter((mapping) => mapping.kind === "image").map((mapping) => mapping.index));
       if (indices.size !== inputs.length || Array.from(indices).some((index) => index >= inputs.length)) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 图片映射必须与本任务素材逐一对应。");
       const inputMetadata = inputs.map((bytes) => ({ ...imageInfo(bytes), sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length }));
-      const signature = stableHash({ base, workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, inputMetadata, fields: { prompt: input.prompt, negativePrompt: input.negativePrompt, checkpoint: input.checkpoint, seed: input.seed, width: input.width, height: input.height } });
+      const metadata = templateSamplingMetadata(info);
+      const sampling = Object.freeze(normalizeComfyUiSamplingParameters(input, metadata));
+      const signature = stableHash({ base, workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, inputMetadata,
+        templateHash: input.templateHash, policyVersion: input.policyVersion,
+        fields: { prompt: input.prompt, negativePrompt: input.negativePrompt, checkpoint: input.checkpoint, seed: input.seed, width: input.width, height: input.height, ...sampling } });
       const existing = submissions.get(submissionId);
       if (existing) {
         if (existing.signature !== signature) throw fail("COMFYUI_SUBMISSION_CONFLICT", "相同 ComfyUI 操作标识不能提交不同内容。");
         return existing.promise;
       }
       if (submissions.size >= 500) throw fail("COMFYUI_CAPACITY", "ComfyUI 本地提交回执已达容量上限。");
-      const promise = execute({ ...input }, info, inputs, inputMetadata, submissionId, base);
+      const frozenInput = Object.freeze({ ...input, ...sampling,
+        defaults: Object.freeze({ ...metadata.defaults }), exposedInputs: Object.freeze([...metadata.exposedInputs]) });
+      const promise = execute(frozenInput, info, sampling, inputs, inputMetadata, submissionId, base);
       submissions.set(submissionId, { signature, promise });
       return promise;
     } catch (error) { return Promise.reject(error); }
@@ -473,4 +561,4 @@ function createComfyUiExecutor(options = {}) {
   return { inspect, normalizeWorkflow, run, recover, cancel, localBaseUrl, active };
 }
 
-module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, normalizeWorkflow, validateDependencies, localBaseUrl, stableHash };
+module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, normalizeWorkflow, validateDependencies, normalizeCapabilities, templateSamplingMetadata, templateHashFor, localBaseUrl, stableHash };

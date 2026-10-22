@@ -1,5 +1,15 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-23，ComfyUI 参数能力增量本地安装完成，Git收尾中）
+
+- 接受现场：根main/`db19822`，工作树干净；本轮只扩展现有ComfyUI模板/options/inspect/executor/Main哈希及GUI/CLI/MCP合同，不重复D阶段prepared/accepted/recover/journal基础链。已接受范围见[Goal](GOAL.md)，持续证据见[参数能力验证](docs/COMFYUI_PARAMETERS_VALIDATION.md)。
+- 已实现：steps/cfg/sampler/scheduler/denoise统一normalize；模板schemaVersion/modelFamily/exposedInputs/defaults/parameterRanges/policyVersion与策略hash，旧v1读取；inspect有限能力投影/hash；冻结参数物化、actualParams、journal及requestHash覆盖新增参数；GUI简单控件和共享schema/registry/CLI/MCP/Skill同步。固定映射不允许覆盖，模板默认值从canonical workflow派生；inspect异步返回不覆盖用户新编辑。
+- 最终实测：template14、executor35、Main10、automation-service、MCP118、typecheck、Runtime的view-image均通过。新增物化/冻结/唯一POST/异参冲突、模板与策略漂移网络前拒绝、脱敏范围、v1跨store重写及能力hash变化恢复已覆盖。Main最终报告 `.diagnostics/electron/comfyui-main-1792685531348/report.json`；UI最终报告 `.diagnostics/comfyui-ui-2026-10-22T16-10-20-931Z/report.json`：9组/14截图，实际输入28/6.5/dpmpp_2m/karras/.8并核对POST/journal/metadata；4loopback prompt、3view、1upload、1定向delete，两次正常退出0/未强杀，0真实模型请求。参数配置与884×640截图已人工检查。
+- 打包：`package:win:unrestricted` exit0，production build 1,715 modules/25.00s；[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,036,992 B，SHA-256 `dda612869547ef965d1a8c306a140ff06cbace1ed41f7f459b20b630d2df2453`。708源文件冻结hash `ec6c10925c417a7936daa4963e450d57e198236814da65f1dca3647f50c544cf`；131dist/188owner逐字节匹配，ASAR 53,052,195 B / `d446777a445abfd2c3492de90e8c985b4e5cf286346e8dc3a5f17e80c1e84c0a`，生产metadata/dual-access与无env/diagnostics核对通过。证据 `.diagnostics/comfyui-parameters-delivery/package.log`、`frozen-source.json`、`package-audit.json`。
+- 包体诊断：`test:bundle` exit1，仅CSS硬预算292,392 > 270,000 B；initial JS4,282/plugin JS86,613 B在限内，无AIDebug泄漏，core async/core JS/dist advisory超限。按AGENTS开发包规则保留记录，不做本范围外重构，也不宣称正式发布门禁通过；详情同目录`bundle.log`。
+- 安装：品牌安装器`/S` exit0/21,030ms，安装前所有同名实例0（UI专项两次正常退出0/未强杀）。原注册目录`E:\sparkai-workspace\naimage`/1.0.9、配置与快捷方式偏好保留，已安装产品SparkAI WorkSpace/1.0.9.0，EXE和ASAR均与候选包匹配；凭据sidecar只核metadata未读内容，报告同目录`install.json`。
+- Git/边界：当前准备仅提交本轮23个源码/测试/文档文件并普通push origin/main；尚未核实推送。不运行真实ComfyUI，不验证模型兼容性、画质或性能；未新增依赖或安装模型/节点，未改Extension/New API，未上传EXE或创建Release/tag。
+
 ## 当前开发状态（2026-10-22，图片增量本地交付完成，真实编辑未验收）
 
 - 接受/范围：根仓库main/730a176，接受时干净；保留本轮源码改动。依次实施A Main导出队列、B `.naimage` v4、C唯一image_gen编辑链、D localhost ComfyUI；保持单Agent/单画布，不改外部New API/Extension，不安装模型或依赖。阶段计划、验收与新增真实授权见[Goal](GOAL.md)，完整证据见[本轮验证](docs/EXPORT_EDIT_COMFY_VALIDATION_2026-10-22.md)。

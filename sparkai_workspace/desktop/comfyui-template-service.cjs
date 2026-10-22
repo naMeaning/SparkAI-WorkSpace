@@ -2,8 +2,9 @@
 
 const { readFileSync, statSync } = require("node:fs");
 const { createHash } = require("node:crypto");
-const { normalizeWorkflow, localBaseUrl, stableHash } = require("../runtime/image-generation/comfyui-executor.cjs");
+const { normalizeWorkflow, localBaseUrl, stableHash, normalizeCapabilities, templateSamplingMetadata } = require("../runtime/image-generation/comfyui-executor.cjs");
 const { normalizeComfyUiTaskOptions } = require("../runtime/comfyui-options.mjs");
+const { TEMPLATE_SCHEMA_VERSION, TEMPLATE_POLICY_VERSION } = require("../runtime/image-generation/comfyui-template-registry.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
 const fail = (code, message) => Object.assign(new Error(message), { code });
@@ -20,7 +21,10 @@ function builtIn(kind) {
   };
   const inputMappings = [
     { nodeId: "6", inputName: "text", kind: "prompt" }, { nodeId: "7", inputName: "text", kind: "negative" },
-    { nodeId: "4", inputName: "ckpt_name", kind: "model" }, { nodeId: "3", inputName: "seed", kind: "seed" }
+    { nodeId: "4", inputName: "ckpt_name", kind: "model" }, { nodeId: "3", inputName: "seed", kind: "seed" },
+    { nodeId: "3", inputName: "steps", kind: "steps" }, { nodeId: "3", inputName: "cfg", kind: "cfg" },
+    { nodeId: "3", inputName: "sampler_name", kind: "sampler" }, { nodeId: "3", inputName: "scheduler", kind: "scheduler" },
+    { nodeId: "3", inputName: "denoise", kind: "denoise" }
   ];
   if (kind === "img2img") {
     workflow["10"] = { class_type: "LoadImage", inputs: { image: "input.png" } };
@@ -30,16 +34,29 @@ function builtIn(kind) {
     workflow["5"] = { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 1024, batch_size: 1 } };
     inputMappings.push({ nodeId: "5", inputName: "width", kind: "width" }, { nodeId: "5", inputName: "height", kind: "height" });
   }
-  return { id: `stock-${kind}`, label: kind === "img2img" ? "基础图生图" : "基础文生图", version: 1, workflow, inputMappings, outputNodeId: "9", builtIn: true };
+  return { id: `stock-${kind}`, label: kind === "img2img" ? "基础图生图" : "基础文生图", version: 1, workflow, inputMappings, outputNodeId: "9", builtIn: true,
+    schemaVersion: TEMPLATE_SCHEMA_VERSION, modelFamily: "checkpoint", policyVersion: TEMPLATE_POLICY_VERSION };
 }
 
 function validated(value) {
   const info = normalizeWorkflow(value.workflow, { inputMappings: value.inputMappings, outputNodeId: value.outputNodeId });
   const imageInputs = info.inputMappings.filter(mapping => mapping.kind === "image").length;
   const operation = imageInputs ? "img2img" : "generate";
+  const sourceSchema = Number(value.schemaVersion) || 1;
+  const { defaults, exposedInputs, parameterRanges } = templateSamplingMetadata(info);
+  const policyVersion = typeof value.policyVersion === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value.policyVersion) ? value.policyVersion : TEMPLATE_POLICY_VERSION;
+  const hashInput = { workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, policyVersion };
+  // Retain a verified v1 alias when a later import rewrites the template store.
+  const legacyMappings = value.builtIn === true
+    ? info.inputMappings.filter(mapping => !["steps", "cfg", "sampler", "scheduler", "denoise"].includes(mapping.kind))
+    : info.inputMappings;
+  const legacyHash = stableHash({ workflow: info.workflow, inputMappings: legacyMappings, outputNodeId: info.outputNodeId });
+  const legacyTemplateHash = policyVersion === TEMPLATE_POLICY_VERSION && (sourceSchema < TEMPLATE_SCHEMA_VERSION || value.builtIn === true || value.legacyTemplateHash === legacyHash)
+    ? legacyHash : undefined;
   return { id: String(value.id), label: clean(value.label) || "本地模板", version: Number(value.version) || 1, builtIn: value.builtIn === true,
+    schemaVersion: TEMPLATE_SCHEMA_VERSION, modelFamily: "checkpoint", exposedInputs, defaults, parameterRanges, policyVersion,
     workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, operation, imageInputs,
-    templateHash: stableHash({ workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId }) };
+    ...(legacyTemplateHash ? { legacyTemplateHash } : {}), templateHash: stableHash(hashInput) };
 }
 
 /** Main owns reviewed templates; no scripts, dependency installs or file paths in public requests. */
@@ -51,14 +68,18 @@ function createComfyUiTemplateService({ configPath, readJson, writeJson, executo
     return store.templates.map(template => validated({ ...template, builtIn: false }));
   }
   const all = () => [...defaults, ...customTemplates()];
-  const publicTemplate = ({ workflow, ...value }) => clone(value);
+  const publicTemplate = ({ workflow, legacyTemplateHash, ...value }) => clone(value);
   function list() { return { ok: true, templates: all().map(publicTemplate), baseUrl: "http://127.0.0.1:8188" }; }
   async function inspect(input = {}) {
     const inspected = await executor.inspect(localBaseUrl(input.baseUrl));
-    const checkpoints = inspected.objectInfo?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
-    return { ok: true, baseUrl: inspected.baseUrl, checkpoints: Array.isArray(checkpoints) ? checkpoints.filter(value => typeof value === "string").slice(0, 500) : [],
-      coreNodes: Object.keys(inspected.objectInfo).filter(name => ["CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "VAEEncode", "LoadImage", "SaveImage"].includes(name)),
-      devices: (Array.isArray(inspected.systemStats?.devices) ? inspected.systemStats.devices : []).map(device => ({ name: clean(device.name), type: clean(device.type) })) };
+    const capabilities = inspected.capabilities || normalizeCapabilities(inspected.objectInfo, inspected.systemStats);
+    const checkpoints = Array.isArray(capabilities.checkpoints) ? capabilities.checkpoints : [];
+    return { ok: true, baseUrl: inspected.baseUrl, checkpoints,
+      samplers: Array.isArray(capabilities.samplers) ? capabilities.samplers : [],
+      schedulers: Array.isArray(capabilities.schedulers) ? capabilities.schedulers : [],
+      parameterRanges: capabilities.parameterRanges || {}, capabilitiesHash: capabilities.capabilitiesHash,
+      coreNodes: Array.isArray(capabilities.coreNodes) ? capabilities.coreNodes : [],
+      devices: Array.isArray(capabilities.devices) ? capabilities.devices : [] };
   }
   async function importTemplate(input = {}) {
     if (!dialog?.showOpenDialog) throw fail("COMFYUI_TEMPLATE_IMPORT_UNAVAILABLE", "当前运行时不能打开模板文件。");
@@ -78,11 +99,15 @@ function createComfyUiTemplateService({ configPath, readJson, writeJson, executo
     return { ok: true, template: publicTemplate(template), ...list() };
   }
   function resolve(input = {}) {
-    const options = normalizeComfyUiTaskOptions(input), template = all().find(value => value.id === options.templateId);
-    if (!template || template.templateHash !== options.templateHash) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板版本已改变，请重新选择后提交。");
+    const templateId = input && typeof input === "object" ? input.templateId : undefined;
+    const template = all().find(value => value.id === templateId);
+    const options = normalizeComfyUiTaskOptions(input, template);
+    if (!template || ![template.templateHash, template.legacyTemplateHash].includes(options.templateHash)) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板版本已改变，请重新选择后提交。");
     return { workflow: clone(template.workflow), outputNodeId: template.outputNodeId, inputMappings: clone(template.inputMappings),
       ...options,
-      templateId: template.id, templateVersion: template.version, templateHash: template.templateHash, operation: template.operation, imageInputs: template.imageInputs };
+      templateId: template.id, templateVersion: template.version, templateHash: template.templateHash, schemaVersion: template.schemaVersion,
+      modelFamily: template.modelFamily, exposedInputs: clone(template.exposedInputs), defaults: clone(template.defaults), parameterRanges: clone(template.parameterRanges),
+      policyVersion: template.policyVersion, operation: template.operation, imageInputs: template.imageInputs };
   }
   return { list, inspect, importTemplate, resolve };
 }

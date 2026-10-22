@@ -764,9 +764,10 @@ async function main() {
       previewImageCollectionExport: async input => { boundaryCalls.push({ kind: "preview", input }); return { ok: true, previewToken: "frozen-preview" }; }
     } };
     try {
-      const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1 } };
+      const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1, steps: 28, cfg: 7.5, sampler: "euler", scheduler: "normal", denoise: 0.8 } };
       await runtimeModule.executeAutomationCommand("comfyui.generate", local, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input.submissionId, "stable-local");
+      assert.deepEqual(boundaryCalls.at(-1).input.comfyui, local.comfyui, "structured sampling parameters cross the automation boundary unchanged");
       for (const input of [{ ...local, expectedProjectId: "OTHER" }, { ...local, workflow: {} }, { ...local, comfyui: { ...local.comfyui, width: 513 } }, { ...local, comfyui: { ...local.comfyui, path: "C:/private" } }]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", input, incrementalContext));
       assert.equal(boundaryCalls.filter(call => call.kind === "generate").length, 1, "Invalid local requests never enter the image execution chain");
       await runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "remove-object" }, incrementalContext);

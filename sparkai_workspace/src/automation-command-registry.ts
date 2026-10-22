@@ -5457,7 +5457,12 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
                   "width",
                   "height",
                   "image",
-                  "value"
+                  "value",
+                  "steps",
+                  "cfg",
+                  "sampler",
+                  "scheduler",
+                  "denoise"
                 ]
               },
               "index": {
@@ -5552,6 +5557,34 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
             "negativePrompt": {
               "type": "string",
               "maxLength": 16384
+            },
+            "steps": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 150,
+              "description": "Optional KSampler steps; when omitted the selected template default is used."
+            },
+            "cfg": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30,
+              "description": "Optional KSampler CFG; accepted only when the selected template exposes it."
+            },
+            "sampler": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_. -]{1,100}$",
+              "description": "Optional KSampler sampler name from the inspected local capability list."
+            },
+            "scheduler": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_. -]{1,100}$",
+              "description": "Optional KSampler scheduler from the inspected local capability list."
+            },
+            "denoise": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Optional KSampler denoise value; accepted only when the selected template declares it."
             }
           },
           "required": [

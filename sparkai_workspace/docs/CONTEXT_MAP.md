@@ -1,5 +1,14 @@
 # SparkAI WorkSpace 上下文地图
 
+## ComfyUI 参数能力增量
+
+- 任务与实际证据：[Goal](../GOAL.md)、[Progress](../PROGRESS.md)、[参数能力验证](COMFYUI_PARAMETERS_VALIDATION.md)。本次只扩展本机审核模板的结构化参数，不建立工作流编辑器或第二任务/资产系统。
+- `runtime/comfyui-options.mjs`/`.d.mts` 是GUI、Main、session与executor的参数白名单/normalize和安全范围owner；steps/cfg/sampler/scheduler/denoise必须有可改映射，缺省沿模板值。`src/core.ts`镜像模板与inspect脱敏类型，`src/comfyui-task-fields.tsx`用同一能力描述配置简单字段。
+- `runtime/image-generation/comfyui-template-registry.cjs`拥有未扩大的core whitelist、五个KSampler参数MAPPING_PORTS与schema/policy版本；`desktop/comfyui-template-service.cjs`从canonical workflow/固定值派生公开modelFamily/exposedInputs/defaults/ranges并验证模板身份，hash包含canonical workflow、inputMappings、outputNodeId、policyVersion。旧v1模板兼容alias跨store重写保留；历史journal不重新物化，旧v1 requestHash的generate重放显式冲突，应通过原恢复入口续接，不重发。
+- `runtime/image-generation/comfyui-executor.cjs`归一object_info能力投影、检查物化参数并生成实际workflowHash；capabilitiesHash只供诊断/新提交，不参与recover身份。`electron-main.cjs`requestHash加入新增参数；`desktop/image-operation-journal.cjs`冻结actualParams、策略与能力hash，保留v1快照读取和原唯一POST/unsafeToRetry/定向取消不变量。
+- `integrations/naimage-control/references/commands.schema.json`与生成registry/命令参考及Skill同步有限可选字段，CLI/MCP不接受workflow/path/script/arbitrary inputs。最小专项：`test:comfyui-template`、`test:comfyui-executor`、`test:comfyui-main`、`test:automation-service`、`test:mcp-wrapper`、`typecheck`、`test:comfyui-ui`；Runtime门禁`test:view-image`。所有本轮请求均为loopback mock，真实服务未执行。
+- 参数能力专项、实际Electron交互、冻结源码/包内身份、品牌安装与Git结果见[参数能力验证](COMFYUI_PARAMETERS_VALIDATION.md)和Progress顶部；本地开发包与公开同版本Release按hash区分，Bundle CSS预算失败不等于正式发布验收通过。
+
 ## 导出、AI 编辑与 ComfyUI 增量（2026-10-22）
 
 - 本轮验证索引：[导出/项目包/编辑/ComfyUI验证](EXPORT_EDIT_COMFY_VALIDATION_2026-10-22.md)。`scripts/export-ui-selftest.mjs --exe=` 使用既有 production-symbol-compaction owner 映射生产版选择器；源码/安装版共用相同可见状态断言。用户后续确认只收口图片功能，保留已完成的项目包视频搬运，不再新增视频能力或测试。

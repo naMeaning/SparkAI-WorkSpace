@@ -2073,6 +2073,9 @@ export type ImageBatchMode = "parallel";
 
 export type ComfyUiTaskOptions = import("../runtime/comfyui-options.mjs").ComfyUiTaskOptions;
 
+export type ComfyUiParameterRange = { min: number; max: number; step?: number };
+export type ComfyUiParameterRanges = Partial<Record<"steps" | "cfg" | "denoise", ComfyUiParameterRange>>;
+
 export type ComfyUiTemplate = {
   id: string;
   label: string;
@@ -2083,6 +2086,13 @@ export type ComfyUiTemplate = {
   imageInputs: number;
   outputNodeId: string;
   inputMappings: Array<{ nodeId: string; inputName: string; kind: string; index?: number; value?: unknown }>;
+  /** Public capability metadata for the reviewed template. Legacy v1 records may omit these fields. */
+  schemaVersion?: number;
+  modelFamily?: string;
+  exposedInputs?: string[];
+  defaults?: Partial<Pick<ComfyUiTaskOptions, "steps" | "cfg" | "sampler" | "scheduler" | "denoise">>;
+  parameterRanges?: ComfyUiParameterRanges;
+  policyVersion?: number | string;
 };
 
 export type ImageTaskDraft = {
@@ -3159,7 +3169,7 @@ export type ServerBridge = {
     inputMappings?: ComfyUiTemplate["inputMappings"];
     projectId?: string;
     key?: string;
-  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; baseUrl?: string; checkpoints?: string[]; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
+  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; baseUrl?: string; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
   licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;

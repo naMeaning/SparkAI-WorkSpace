@@ -4931,7 +4931,8 @@ async function callComfyUiImageWithSession(payload = {}) {
   if (sourceImages.length !== config.imageInputs) throw Object.assign(new Error("所选模板需要的素材数量与当前来源不符。"), { code: "COMFYUI_NODE_MAPPING_INVALID" });
   const inputs = sourceImages.map(image => resolveMaterializedImageInput(image, payload.projectId));
   const requestHash = comfyUiStableHash({ templateId: config.templateId, templateHash: config.templateHash, baseUrl, checkpoint: config.checkpoint,
-    seed: config.seed, width: config.width, height: config.height, prompt: String(payload.prompt || ""), negativePrompt: config.negativePrompt,
+    seed: config.seed, width: config.width, height: config.height, steps: config.steps, cfg: config.cfg, sampler: config.sampler,
+    scheduler: config.scheduler, denoise: config.denoise, prompt: String(payload.prompt || ""), negativePrompt: config.negativePrompt,
     sources: inputs.map(input => ({ contentHash: input.contentHash, assetId: input.source.assetId, occurrenceId: input.source.occurrenceId, nodeId: input.source.canvasNodeId })), requireAlpha: payload.requireAlpha === true });
   const existing = imageOperationJournal.find(payload.projectId, payload.operationId, payload.requestIndex || 1);
   if (existing) {
