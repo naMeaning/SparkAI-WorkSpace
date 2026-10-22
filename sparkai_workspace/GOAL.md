@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：ComfyUI 参数能力增量（2026-10-23，本地安装完成，Git收尾中）
+## 当前任务：ComfyUI 参数能力增量（2026-10-23，本地交付完成）
 
 - 结果契约：现有 localhost ComfyUI provider 发布审核模板能力描述；检查本机 checkpoint、sampler、scheduler 与安全范围；GUI/CLI/MCP 配置可选 steps(1–150整数)、cfg(0–30)、sampler、scheduler、声明支持的 denoise(0–1)。统一 normalize，未映射参数明确拒绝，省略使用模板值。
 - 范围与不变量：仅桌面与本地 Runtime，复用模板 registry/service、冻结 TaskScope、image_gen、prepared/accepted/recover/cancel/journal 和资产库。templateHash 覆盖 canonical workflow、inputMappings、outputNodeId、policyVersion；seed=-1 只解析一次，workflowHash 来自实际物化工作流。capabilitiesHash 仅诊断和新提交前判断，不阻止历史任务恢复。未知提交不重发、accepted保存失败unsafeToRetry、运行取消不调用全局interrupt。
@@ -8,7 +8,7 @@
 - 验收：仅直接相关 template/executor/Main、automation-service/MCP、typecheck 与 ComfyUI UI 专项；新增物化、actualParams/journal、重复唯一POST、采样冲突、模板/策略漂移、inspect脱敏和capabilitiesHash变化恢复断言。可见交互需真实隔离Electron操作与截图；不运行全量GUI/AIDebug或真实服务。
 - 交付授权：最终源码 production build、package:win:unrestricted、本地EXE大小/SHA-256及包内身份核对、正常退出后品牌安装器/S原位升级；保留项目/配置/凭据/快捷方式，不能安全退出则记录待安装。只提交本轮文件并普通push当前upstream，核对远端commit；不上传EXE/Release/tag。
 - 接受现场：根main，HEAD `db19822`，工作树干净；现有D阶段已实现并有历史mock/Electron证据，不重做基础链路。最终template14、executor35、Main10、automation-service、MCP118、typecheck、view-image通过；真实隔离Electron的ComfyUI专项9组/14截图通过，实际操作新增参数并核对POST/journal/metadata。证据入口：[参数能力验证](docs/COMFYUI_PARAMETERS_VALIDATION.md)。
-- 本地交付：production build与package:win:unrestricted成功；[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,036,992 B，SHA-256 `dda612869547ef965d1a8c306a140ff06cbace1ed41f7f459b20b630d2df2453`。708源文件冻结与131dist/188owner包内逐字节核对通过；品牌/S原位安装exit0，原注册目录/配置/快捷方式保留，已安装EXE/ASAR匹配。Bundle仅CSS预算失败（292,392 > 270,000 B），按开发包规则记录，不宣称正式发布门禁通过。下一步只提交本轮源码/测试/文档并普通push，核对远端。
+- 本地交付：production build与package:win:unrestricted成功；[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,036,992 B，SHA-256 `dda612869547ef965d1a8c306a140ff06cbace1ed41f7f459b20b630d2df2453`。708源文件冻结与131dist/188owner包内逐字节核对通过；品牌/S原位安装exit0，原注册目录/配置/快捷方式保留，已安装EXE/ASAR匹配。Bundle仅CSS预算失败（292,392 > 270,000 B），按开发包规则记录，不宣称正式发布门禁通过。23文件主提交`89e4406fcfba928cd49dc57076af8611b6c77bf4`已普通push origin/main，HEAD/upstream/远端实查一致；本完成记录随纯文档收尾同步，最终Git身份见Progress的本地交付索引。无真实服务后续执行或正式发布授权。
 
 ## 当前任务：导出、AI 编辑与 ComfyUI 本地生图增量（2026-10-21，本地交付完成，真实编辑未验收）
 

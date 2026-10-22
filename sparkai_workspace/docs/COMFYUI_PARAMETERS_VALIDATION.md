@@ -1,6 +1,6 @@
 # ComfyUI 参数能力增量验证
 
-本轮以根仓库 main / db19822 的干净工作树为起点，仅扩展现有本机 provider。2026-10-23最终专项、新增控件实际交互、本地打包和品牌原位安装已通过；Git同步收尾中。历史D阶段证据不替代新增参数验收。
+本轮以根仓库 main / db19822 的干净工作树为起点，仅扩展现有本机 provider。2026-10-23最终专项、新增控件实际交互、本地打包和品牌原位安装已通过；主提交已推送并实查远端。历史D阶段证据不替代新增参数验收。
 
 任务合同见 [Goal](../GOAL.md)，当前状态见 [Progress](../PROGRESS.md)，owner见 [上下文地图](CONTEXT_MAP.md)。
 
@@ -33,6 +33,6 @@
 - 708个产品/测试/contract源文件冻结hash `ec6c10925c417a7936daa4963e450d57e198236814da65f1dca3647f50c544cf`；打包后复核源未变，131dist/188owner逐字节包内匹配，production package metadata、dual-access和无env/diagnostics通过。ASAR 53,052,195 B，SHA-256 `d446777a445abfd2c3492de90e8c985b4e5cf286346e8dc3a5f17e80c1e84c0a`。
 - 附加`test:bundle` exit1，仅CSS预算292,392 > 270,000 B失败；initial JS4,282 B/plugin JS86,613 B在限内、无AIDebug泄漏，core async1,550,040/core JS1,554,322/dist1,997,856 B为advisory超限。遵循开发包规则记录，不进行范围外重构；未通过正式发布包体门禁。
 - 品牌安装器`/S`原位升级exit0，21,030ms。启动安装器前所有同名应用实例0，未强杀；原注册目录`E:\sparkai-workspace\naimage`/1.0.9、配置与快捷方式偏好保留。已安装产品SparkAI WorkSpace/1.0.9.0，EXE/ASAR与候选包hash匹配。凭据sidecar仅核metadata，未读内容。
-- 本地证据集中于 `.diagnostics/comfyui-parameters-delivery/`：`frozen-source.json`、`package.log`、`package-audit.json`、`bundle.log`、`install.json`；生成物保持忽略，不提交EXE或私有配置。Git仅提交本轮源码/测试/文档、普通push当前origin/main，完成后记录实查身份。
+- 本地证据集中于 `.diagnostics/comfyui-parameters-delivery/`：`frozen-source.json`、`package.log`、`package-audit.json`、`bundle.log`、`install.json`、`stage-audit.json`和`delivery.json`；生成物保持忽略，不提交EXE或私有配置。23文件主提交`89e4406fcfba928cd49dc57076af8611b6c77bf4`已普通push origin/main，HEAD/upstream/远端实查一致、主提交后工作树干净；本完成记录随纯文档收尾同步，最终身份见本地delivery索引。
 
 未运行真实ComfyUI或真实模型；本轮mock与专项不证明模型兼容性、画质、性能、所有本机节点版本或真实GPU环境。未新增依赖、安装节点/模型/ComfyUI/Python，未修改Extension/New API，未上传EXE、创建Release/tag或把本地1.0.9开发包当作公开Release。

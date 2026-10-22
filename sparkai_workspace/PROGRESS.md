@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-23，ComfyUI 参数能力增量本地安装完成，Git收尾中）
+## 当前开发状态（2026-10-23，ComfyUI 参数能力增量本地交付完成）
 
 - 接受现场：根main/`db19822`，工作树干净；本轮只扩展现有ComfyUI模板/options/inspect/executor/Main哈希及GUI/CLI/MCP合同，不重复D阶段prepared/accepted/recover/journal基础链。已接受范围见[Goal](GOAL.md)，持续证据见[参数能力验证](docs/COMFYUI_PARAMETERS_VALIDATION.md)。
 - 已实现：steps/cfg/sampler/scheduler/denoise统一normalize；模板schemaVersion/modelFamily/exposedInputs/defaults/parameterRanges/policyVersion与策略hash，旧v1读取；inspect有限能力投影/hash；冻结参数物化、actualParams、journal及requestHash覆盖新增参数；GUI简单控件和共享schema/registry/CLI/MCP/Skill同步。固定映射不允许覆盖，模板默认值从canonical workflow派生；inspect异步返回不覆盖用户新编辑。
@@ -8,7 +8,8 @@
 - 打包：`package:win:unrestricted` exit0，production build 1,715 modules/25.00s；[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,036,992 B，SHA-256 `dda612869547ef965d1a8c306a140ff06cbace1ed41f7f459b20b630d2df2453`。708源文件冻结hash `ec6c10925c417a7936daa4963e450d57e198236814da65f1dca3647f50c544cf`；131dist/188owner逐字节匹配，ASAR 53,052,195 B / `d446777a445abfd2c3492de90e8c985b4e5cf286346e8dc3a5f17e80c1e84c0a`，生产metadata/dual-access与无env/diagnostics核对通过。证据 `.diagnostics/comfyui-parameters-delivery/package.log`、`frozen-source.json`、`package-audit.json`。
 - 包体诊断：`test:bundle` exit1，仅CSS硬预算292,392 > 270,000 B；initial JS4,282/plugin JS86,613 B在限内，无AIDebug泄漏，core async/core JS/dist advisory超限。按AGENTS开发包规则保留记录，不做本范围外重构，也不宣称正式发布门禁通过；详情同目录`bundle.log`。
 - 安装：品牌安装器`/S` exit0/21,030ms，安装前所有同名实例0（UI专项两次正常退出0/未强杀）。原注册目录`E:\sparkai-workspace\naimage`/1.0.9、配置与快捷方式偏好保留，已安装产品SparkAI WorkSpace/1.0.9.0，EXE和ASAR均与候选包匹配；凭据sidecar只核metadata未读内容，报告同目录`install.json`。
-- Git/边界：当前准备仅提交本轮23个源码/测试/文档文件并普通push origin/main；尚未核实推送。不运行真实ComfyUI，不验证模型兼容性、画质或性能；未新增依赖或安装模型/节点，未改Extension/New API，未上传EXE或创建Release/tag。
+- 文档/Git：本轮23个源码/测试/文档文件已提交为`89e4406fcfba928cd49dc57076af8611b6c77bf4`，普通push origin/main成功；HEAD/upstream/远端实查一致，主提交后工作树干净。暂存文件范围/敏感token模式扫描0命中/差异检查通过，EXE、诊断生成物与私有配置未提交；本完成记录随纯文档收尾同步，最终Git身份与制品/安装证据见[本地交付索引](.diagnostics/comfyui-parameters-delivery/delivery.json)。
+- 边界：不运行真实ComfyUI，不验证模型兼容性、画质或性能；未新增依赖或安装模型/节点，未改Extension/New API，未上传EXE或创建Release/tag。本地同版本号开发包不等于公开Release，Bundle CSS预算失败已保留，当前授权范围无待执行真实服务请求。
 
 ## 当前开发状态（2026-10-22，图片增量本地交付完成，真实编辑未验收）
 
