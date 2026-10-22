@@ -49,4 +49,4 @@ canonical `commands.schema.json` 同步生成TS registry及命令参考，GUI/IP
 
 [最终安装版A UI](../.diagnostics/export-ui-2026-10-22T05-09-02-615Z/report.json)4组/6截图通过：正常照片与alpha预览、关闭面板后18项继续、图片组ZIP/PSD、双窗共享历史；0模型请求，正常退出0，关键截图已看。生产选择器经既有symbol-compaction owner映射；初次选择器超时属于测试定位失败，保留报告，未当成功。
 
-73本轮文件敏感扫描0命中、无二进制，新增验证文档链接核对通过。最终Git身份见Progress和本地delivery索引；不上传EXE、不创建Release/tag，未跑正式发布全量门禁。
+73本轮文件敏感扫描0命中、无二进制，新增验证文档链接核对通过。73文件主提交`09540389f383ecde5d6f7783f0b1bd36b7a4bf49`已普通push至origin/main并实查远端一致；本完成记录随纯文档收尾同步，最终分支身份见Progress和本地delivery索引；不上传EXE、不创建Release/tag，未跑正式发布全量门禁。

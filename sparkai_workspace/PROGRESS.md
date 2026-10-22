@@ -13,7 +13,7 @@
 - 最终打包：`package:win:unrestricted` exit0，production build1715 modules/22.41s；最终[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe)110,032,896B / SHA-256 `f05d67859272bd05bbb8040c4b56e81d4c1a5f210997d8c5b8a393a27795da00`。ASAR53,029,681B / `4ccbd7066725eebb580da2155a707e0790df39f98110222e2cd2c4bfe834bcfe`。708产品/测试/契约源冻结hash `10dc7820a4ab3824436449eb9879485b37acc822d8f9b0a98fa82780e6550361`，131dist/188owner逐字节及生产package/dual-access/no env核对通过。此前包均为intermediate；修复安装版测试选择器并清理两文件末尾空行后重新冻结/打包，最终身份以上述hash为准。
 - 实际安装：品牌`/S`exit0/16,132ms；E:\sparkai-workspace\naimage原注册目录/1.0.9保留，配置及快捷方式偏好不变，已安装EXE/ASAR匹配。安装前同名进程为空，无强杀；凭据sidecar只核metadata，不读内容。[安装报告](.diagnostics/export-edit-comfy-delivery-2026-10-22/install.json)。
 - 补充检查边界：原生分享/归档/导入对话框检查首次捕获超时，computer-use恢复时被物理Esc停止，未产生有效原生UI操作/截图；隔离应用正常退出0，未将空检查记为通过。开发/生产选择器差异已修复测试脚本，[安装版A UI](.diagnostics/export-ui-2026-10-22T05-09-02-615Z/report.json)4组/6截图通过，0模型请求、正常退出0；双窗历史截图已核对。真实服务失败、原生对话框未验收与旧creation-ui超时保留，不以Mock取代。
-- 文档/Git：Goal/Progress、产品合同、地图、schema/registry/CLI/MCP/Skill与本轮验证已同步。73文件敏感扫描0命中、无二进制，新增验证文档9链接通过；安装版验证完成；本轮commit/普通upstream push收口中。交付索引目录 `.diagnostics/export-edit-comfy-delivery-2026-10-22/`。不上传EXE，不创建Release/tag。
+- 文档/Git：Goal/Progress、产品合同、地图、schema/registry/CLI/MCP/Skill与本轮验证已同步。73文件敏感扫描0命中、无二进制，新增验证文档9链接通过；安装版验证完成；73文件主提交`09540389f383ecde5d6f7783f0b1bd36b7a4bf49`已普通push至origin/main，HEAD/upstream/远端实查一致，主提交后工作树干净。本完成记录随纯文档收尾提交同步，最终分支身份见[delivery索引](.diagnostics/export-edit-comfy-delivery-2026-10-22/delivery.json)。交付索引目录 `.diagnostics/export-edit-comfy-delivery-2026-10-22/`。不上传EXE，不创建Release/tag。
 
 
 ## 当前开发状态（2026-10-21，GitHub 仓库展示层已推送并完成远端素材核验）
