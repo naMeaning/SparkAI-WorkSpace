@@ -2,6 +2,8 @@
 
 ## Phase 4：离线 Agent
 
+四阶段已分别完成本地开发交付；当前源码、制品、安装和Git证据从[Progress](../PROGRESS.md)及[专项](OFFLINE_AGENT_VALIDATION.md)读取，真实服务验证与正式Release仍按独立授权处理。
+
 - owner：Main `desktop/agent-provider-service.cjs`持原生JSON导入/受保护凭据/loopback DNS pin与Chat SSE传输/冻结binding；`runtime/agent-provider-policy.cjs`持显式capability/strict-offline及脱敏receipt合同；`agent-runtime.cjs`、context-strategy/tool-schemas复用同Prompt/Runtime/TaskScope/FastMemory，在schema和实际派发/像素请求两侧强制能力。
 - managed-local沿原manifest/artifact store增加typed GGUF/vision与固定llama.cpp adapter，独立Main service持计划/人工授权/进程与引用；旧Comfy manifest/hash不重写。GUI/CLI/MCP不见URL/凭据/绝对路径/脚本，只持profile/runtime/model等ID。
 - `desktop/managed-local-llm-service.cjs`拥有typed v2 manifest、GGUF/projector校验、固定CPU llama.cpp启动/health/版本与task lease；managed目录与artifact store在应用config，模型不进项目资产。provider配置与credential sidecar也只在Main config；`desktop/agent-task-service.cjs`仅Main方法providerForRun/bindProviderForRun在项目tasks.json保留稳定身份/capability/revision/hash，不含地址/路径/凭据/live binding，公开task和便携项目包不授予恢复执行权限。

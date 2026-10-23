@@ -1,6 +1,6 @@
 # 离线 Agent Phase 4 验证
 
-日期：2026-10-23。状态：实现、专项、production EXE 和原位安装已验证；Git同步收尾中。
+日期：2026-10-23。状态：实现、专项、production EXE、原位安装及源码普通push已验证。
 
 ## 范围与合同
 
@@ -34,7 +34,9 @@ EXE：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,548,480
 
 所有同名产品实例0（UI两次正常退出0）后，品牌安装器`/S`原位升级exit0/17,230ms。注册目录`E:\sparkai-workspace\naimage`/1.0.9保留，已安装EXE与ASAR匹配；配置、凭据侧车metadata和快捷方式偏好保持，只核metadata不读真实secret。证据同目录`install.json`。
 
-`test:bundle` exit1，仅CSS293300>270000；initialJS4375/plugin86774均在限内，诊断泄漏0，core/dist advisory超限。按AGENTS开发包规则记录，不声称正式Release门禁通过。失败试跑记录保留，不计为通过。对应源码文档提交与普通push结果见Progress和同目录delivery.json。
+`test:bundle` exit1，仅CSS293300>270000；initialJS4375/plugin86774均在限内，诊断泄漏0，core/dist advisory超限。按AGENTS开发包规则记录，不声称正式Release门禁通过。失败试跑记录保留，不计为通过。
+
+61个本阶段文件提交`00833474d3859ec05fca3e520e7febacd1a9a611`并普通push origin/main，HEAD/upstream/实际远端一致、提交后工作树干净。暂存敏感模式0命中，无二进制或私有配置入Git；提交后739源冻结复核未变。完整Git与制品索引见同目录delivery.json，本次收尾仅同步实际交付结果。
 
 ## 未验证边界
 

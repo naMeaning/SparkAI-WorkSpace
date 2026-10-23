@@ -1,12 +1,13 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-23，Phase 4 本地交付完成，Git同步收尾）
+## 当前开发状态（2026-10-23，Phase 1–4 已分批本地交付与推送）
 
 - Phase3源码35文件`1a234306d2a2b0c3fe790135da4ffb3673e73238`已普通push origin/main，HEAD/upstream/远端实查一致，提交后工作树干净。artifact39/runtime39/Main23/共享合同/GUI6组8截图、production EXE与品牌/S原位安装均已独立完成；详见下方与[托管安装专项](docs/COMFYUI_MANAGED_INSTALL_VALIDATION.md)。
 - Phase4已实现：Main-owned Agent provider、每run冻结binding、同一Runtime能力/strict-offline门禁、GGUF/vision托管模型与固定llama.cpp adapter、本地workspace准入、GUI/CLI/MCP共享合同。Main task回执在网络前持久化脱敏provider/model/capability/revision，续接漂移拒绝且公开DTO不包含私有receipt；旧无provider记录的本地续接明确要求新任务。strict统一云transport、远程图片admission/各跳DNS前后与video凭据/各跳门禁，切离线前有在途下载则拒绝切换。
 - 当前专项：provider52、managed-local34、Runtime7、Main22、网络切换8、Comfy Main23/transport17、newAPI transport、task持久化/重启、公共HTTP、共享合同、typecheck/view-image通过；artifact39/runtime39回归保留。实际Electron UI7组8截图、5 loopback模型POST、两次正常退出0，选择local后cloud请求0；Main实际Agent image_gen文生图/inpaint逐像素保护与重复操作零新POST通过。[离线Agent验证](docs/OFFLINE_AGENT_VALIDATION.md)保留精确报告路径、计数与失败修复。
 - 本轮delivery：739源文件冻结sourceHash `d44877234bcb9f94b42ba97e78a6e357de4a2a53d745995aeca92d8526f57b13`；production package exit0，137dist/199owner及工具/许可包内身份通过。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,548,480 B / SHA-256 `7908f0e8c29190b6de9bcdc89343deb01ef9146efbc02e3d3ed13177643f131a`；ASAR53,582,799 B / `abb72e0b56081f11f1878d0ea95ef7d843bd67e7b10d0af284d0da3a6dfcc6b4`。所有同名产品实例0后品牌/S原位安装exit0/17,230ms，注册目录`E:\sparkai-workspace\naimage`/1.0.9、配置/凭据metadata/快捷方式保留，安装EXE/ASAR一致。证据`.diagnostics/offline-agent-delivery/`的frozen-source/package-audit/install/package.log。
-- Bundle exit1，仅CSS293300>270000；initialJS4375/plugin86774限内，诊断泄漏0，core/dist advisory超限。开发包规则保留，非正式Release；0真实模型请求、真实下载、依赖安装或LAN/远程服务。下一步仅提交本轮源码文档并普通push，无EXE/Release/tag上传。
+- Bundle exit1，仅CSS293300>270000；initialJS4375/plugin86774限内，诊断泄漏0，core/dist advisory超限。开发包规则保留，非正式Release；0真实模型请求、真实下载、依赖安装或LAN/远程服务，无EXE/Release/tag上传。
+- Phase4 Git：61个本阶段文件提交`00833474d3859ec05fca3e520e7febacd1a9a611`并普通push origin/main，HEAD/upstream/实际远端实查一致、提交后工作树干净；暂存敏感模式0命中，无制品/私有配置入Git。739文件冻结在提交后复核未变，完整交付索引`.diagnostics/offline-agent-delivery/delivery.json`；本收尾仅记录实际Git结果。四阶段代码已分别交付，真实模型/GPU/第三方服务兼容与真实安装下载等待新增授权。
 
 ## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 3 本地交付验证完成）
 
