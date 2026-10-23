@@ -6163,7 +6163,7 @@
         {
           "name": "comfyui.templates",
           "surface": "renderer",
-          "description": "List locally reviewed API JSON templates with model-family, exposed-input, default and safe-range metadata. No model request.",
+          "description": "List reviewed typed generate/img2img/inpaint/cutout workflow capabilities, source/mask/reference roles, alpha/checkpoint requirements and bounded sampling metadata. No model request.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6202,7 +6202,7 @@
         {
           "name": "comfyui.import-template",
           "surface": "renderer",
-          "description": "Open native JSON picker, validate API Format JSON against reviewed core nodes and explicit mappings, and persist template. No execution.",
+          "description": "Compatibility alias of comfyui.workflow.import. Open the native API Format JSON picker and return a non-executable, redacted mapping preview. Approval is a separate explicit action; no workflow values or paths are returned.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6211,14 +6211,61 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100
+              }
+            },
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.workflow.import",
+          "surface": "renderer",
+          "description": "Open the native API Format JSON picker and return an unexecuted draft with reviewed node/port types, allowed mapping kinds, candidate capabilities and blocking issues. Unknown, script and arbitrary-file nodes remain blocked. No raw workflow, literal input values or paths cross the boundary.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            },
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.workflow.approve",
+          "surface": "renderer",
+          "description": "Approve an existing Main-owned import draft using only reviewed typed mappings, one capability and output node ID, with confirmed=true. Blocked or expired drafts fail. No execution, downloads, dependencies or caller-supplied workflow values.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "draftId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "capability": {
+                "type": "string",
+                "enum": [
+                  "generate",
+                  "img2img",
+                  "inpaint",
+                  "cutout"
+                ]
               },
               "outputNodeId": {
                 "type": "string",
-                "minLength": 1,
-                "maxLength": 120
+                "pattern": "^[A-Za-z0-9_.:-]{1,120}$"
               },
               "inputMappings": {
                 "type": "array",
+                "minItems": 1,
                 "maxItems": 64,
                 "items": {
                   "type": "object",
@@ -6226,13 +6273,11 @@
                   "properties": {
                     "nodeId": {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 120
+                      "pattern": "^[A-Za-z0-9_.:-]{1,120}$"
                     },
                     "inputName": {
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 100
+                      "pattern": "^[A-Za-z0-9_]{1,100}$"
                     },
                     "kind": {
                       "type": "string",
@@ -6243,8 +6288,9 @@
                         "seed",
                         "width",
                         "height",
-                        "image",
-                        "value",
+                        "sourceImage",
+                        "maskImage",
+                        "referenceImages",
                         "steps",
                         "cfg",
                         "sampler",
@@ -6256,13 +6302,6 @@
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 3
-                    },
-                    "value": {
-                      "type": [
-                        "string",
-                        "number",
-                        "boolean"
-                      ]
                     }
                   },
                   "required": [
@@ -6271,18 +6310,136 @@
                     "kind"
                   ]
                 }
+              },
+              "confirmed": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
               }
             },
             "required": [
+              "draftId",
+              "capability",
               "outputNodeId",
-              "inputMappings"
+              "inputMappings",
+              "confirmed"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.mask.list",
+          "surface": "renderer",
+          "description": "List managed masks bound to the exact current-project source identity and conversation. Results contain stable identity, revision, source hash and dimensions, never paths or image bytes.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "sourceImage": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "occurrenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "contentHash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "assetId",
+                  "occurrenceId",
+                  "contentHash"
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "sourceImage"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.mask.import",
+          "surface": "renderer",
+          "description": "With confirmed=true, open the native PNG picker and validate/import a managed mask for this exact source and conversation. Main verifies source hash and dimensions and creates an immutable mask revision. Transparent regions mark pixels to modify or remove. The original image and mask are preserved; no generation starts.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "expectedProjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "conversationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 180
+              },
+              "sourceImage": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "occurrenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 180
+                  },
+                  "contentHash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "assetId",
+                  "occurrenceId",
+                  "contentHash"
+                ]
+              },
+              "confirmed": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              }
+            },
+            "required": [
+              "expectedProjectId",
+              "conversationId",
+              "sourceImage",
+              "confirmed"
             ]
           }
         },
         {
           "name": "comfyui.generate",
           "surface": "renderer",
-          "description": "Explicitly execute one reviewed ComfyUI image_gen template through a Main-owned connectionId. URLs are never accepted. Backend-only compatibility still reads legacy localhost journals. Freeze actual seed/model/inputs/workflow and declared sampling parameters. Local/LAN/remote execution requires current user authorization; this command never installs software or silently falls back to cloud.",
+          "description": "Explicitly execute one reviewed generate/img2img/inpaint/cutout image_gen workflow through a Main-owned connectionId. Pass workflowId (templateId compatibility alias), exact templateHash and typed stable source/mask/reference identities. maskImage includes its immutable revision. checkpoint is required only by workflows that declare it; strength aliases denoise and conflicting aliases fail before network. Cutout requires real alpha validation. Unknown submission is never reposted; no dependency installation or cloud fallback. Local/LAN/remote execution requires current user authorization.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6307,8 +6464,8 @@
                 "properties": {
                   "templateId": {
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 120
+                    "pattern": "^[A-Za-z0-9_.-]{1,120}$",
+                    "description": "Compatibility alias of workflowId; if both are supplied they must match."
                   },
                   "templateHash": {
                     "type": "string",
@@ -6380,13 +6537,121 @@
                     "type": "string",
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
                     "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+                  },
+                  "workflowId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_.-]{1,120}$",
+                    "description": "Main-owned reviewed workflow identity. Supply workflowId or templateId; conflicting values fail."
+                  },
+                  "strength": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Alias of denoise. If both are present they must be identical."
+                  },
+                  "sourceImage": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "occurrenceId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "contentHash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "assetId",
+                      "occurrenceId",
+                      "contentHash"
+                    ]
+                  },
+                  "maskImage": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "assetId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "occurrenceId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180
+                      },
+                      "contentHash": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "assetId",
+                      "occurrenceId",
+                      "contentHash",
+                      "revision"
+                    ]
+                  },
+                  "referenceImages": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "assetId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "occurrenceId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 180
+                        },
+                        "contentHash": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "required": [
+                        "assetId",
+                        "occurrenceId",
+                        "contentHash"
+                      ]
+                    }
                   }
                 },
                 "required": [
-                  "templateId",
                   "templateHash",
-                  "connectionId",
-                  "checkpoint"
+                  "connectionId"
+                ],
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "workflowId"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "templateId"
+                    ]
+                  }
                 ]
               },
               "sources": {
@@ -6425,7 +6690,32 @@
               "prompt",
               "comfyui"
             ]
-          }
+          },
+          "examples": [
+            {
+              "expectedProjectId": "PROJECT_ID",
+              "submissionId": "comfy-request-1",
+              "prompt": "Keep the product and replace the marked background.",
+              "comfyui": {
+                "connectionId": "comfyui-local",
+                "workflowId": "stock-inpaint",
+                "templateHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "checkpoint": "model.safetensors",
+                "sourceImage": {
+                  "assetId": "SOURCE_ASSET_ID",
+                  "occurrenceId": "SOURCE_OCCURRENCE_ID",
+                  "contentHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "maskImage": {
+                  "assetId": "MASK_ASSET_ID",
+                  "occurrenceId": "MASK_OCCURRENCE_ID",
+                  "contentHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                  "revision": 1
+                },
+                "strength": 0.65
+              }
+            }
+          ]
         },
         {
           "name": "comfyui.cancel",

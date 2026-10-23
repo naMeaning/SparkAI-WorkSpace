@@ -5,14 +5,16 @@ import {
 } from "./automation-command-registry.ts";
 import { automationCommandError } from "./automation-command-errors.ts";
 import { renderExportFilename } from "../runtime/image-export-naming.mjs";
-import { normalizeComfyUiConnectionReference } from "../runtime/comfyui-options.mjs";
+import { normalizeComfyUiConnectionReference, normalizeComfyUiWorkflowReference, normalizeComfyUiSamplingParameters } from "../runtime/comfyui-options.mjs";
 import type {
   AgentSteerTaskScopeMode,
   AgentSteerTaskScopeUpdate,
   AssetTaskRole,
   CanvasRequirementInputBinding,
   CanvasSkill,
+  ComfyUiAssetIdentity,
   ComfyUiTaskOptions,
+  ComfyUiWorkflowCapability,
   ImageAssetExportResult,
   ImageExportFormat,
   ImageFrameRatio,
@@ -74,6 +76,7 @@ type JsonSchema = {
   required?: readonly string[];
   additionalProperties?: boolean;
   properties?: Readonly<Record<string, JsonSchema>>;
+  anyOf?: readonly JsonSchema[];
   items?: JsonSchema;
   enum?: readonly unknown[];
   default?: unknown;
@@ -111,7 +114,7 @@ function publicAutomationComfyUiResult(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   const result: JsonObject = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (/^(?:baseUrl|.*Url|.*Path|endpoint.*|authorizedHost|host|hostname|address|port|credentialRef|credentials|credentialValue|token|password|secret|apiKey|authorization|cookie|headers|tls|cert|certificate|privateKey|workflow|objectInfo)$/i.test(key)) continue;
+    if (/^(?:baseUrl|.*Url|.*Path|path|endpoint.*|authorizedHost|host|hostname|address|port|credentialRef|credentials|credentialValue|token|password|secret|apiKey|authorization|cookie|headers|tls|cert|certificate|privateKey|workflow|rawWorkflow|canonicalWorkflow|workflowJson|workflowData|originalWorkflow|objectInfo|value|values)$/i.test(key)) continue;
     result[key] = publicAutomationComfyUiResult(entry);
   }
   return result;
@@ -967,6 +970,10 @@ function invalidArgument(command: string, path: string, reason: string, details:
 }
 
 function validateSchemaValue(command: string, schema: JsonSchema, value: unknown, path = "$" ): void {
+  if (schema.anyOf && !schema.anyOf.some(branch => {
+    try { validateSchemaValue(command, branch, value, path); return true; }
+    catch { return false; }
+  })) invalidArgument(command, path, "不符合任一允许的字段组合");
   if (Array.isArray(schema.type)) {
     const matches = schema.type.some(type => type === "integer" ? Number.isInteger(value) : type === "number" ? typeof value === "number" && Number.isFinite(value) : typeof value === type);
     if (!matches) invalidArgument(command, path, "类型不符合合同");
@@ -1331,7 +1338,25 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return invokeComfyUiControl({ action: "inspect", connectionId,
         ...(value.confirmed === true ? { confirmed: true } : {}) });
     },
-    "comfyui.import-template": (value) => invokeComfyUiControl({ action: "import", label: String(value.label || ""), outputNodeId: String(value.outputNodeId), inputMappings: value.inputMappings as never }),
+    "comfyui.import-template": (value) => invokeComfyUiControl({ action: "workflow-preview-import", ...(value.label !== undefined ? { label: String(value.label) } : {}) }),
+    "comfyui.workflow.import": (value) => invokeComfyUiControl({ action: "workflow-preview-import", ...(value.label !== undefined ? { label: String(value.label) } : {}) }),
+    "comfyui.workflow.approve": (value) => {
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "批准 ComfyUI 工作流需要 confirmed=true。");
+      return invokeComfyUiControl({ action: "workflow-approve-import", draftId: String(value.draftId),
+        ...(value.label !== undefined ? { label: String(value.label) } : {}), capability: value.capability as ComfyUiWorkflowCapability,
+        outputNodeId: String(value.outputNodeId), inputMappings: value.inputMappings as never, confirmed: true });
+    },
+    "comfyui.mask.list": (value) => {
+      assertExpectedProject(value, context);
+      return invokeComfyUiControl({ action: "masks-list", projectId: String(value.expectedProjectId),
+        conversationId: String(value.conversationId), sourceImage: value.sourceImage as ComfyUiAssetIdentity });
+    },
+    "comfyui.mask.import": (value) => {
+      assertExpectedProject(value, context);
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "导入 ComfyUI 蒙版需要 confirmed=true。");
+      return invokeComfyUiControl({ action: "masks-import", projectId: String(value.expectedProjectId),
+        conversationId: String(value.conversationId), sourceImage: value.sourceImage as ComfyUiAssetIdentity, confirmed: true });
+    },
     "comfyui.cancel": (value) => {
       assertExpectedProject(value, context);
       const connectionId = comfyUiConnectionReference(value);
@@ -1340,8 +1365,13 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     },
     "comfyui.generate": (value) => {
       assertExpectedProject(value, context);
-      comfyUiConnectionReference(value.comfyui as JsonObject);
-      return context.generateComfyUi({ prompt: String(value.prompt), submissionId: String(value.submissionId), comfyui: value.comfyui as ComfyUiTaskOptions,
+      const options = value.comfyui as JsonObject;
+      comfyUiConnectionReference(options);
+      const workflowId = normalizeComfyUiWorkflowReference(options);
+      if (!workflowId) throw automationCommandError("INVALID_ARGUMENT", "请选择已审核的 ComfyUI 工作流。", { field: "comfyui.workflowId" });
+      const { strength: _strength, ...canonical } = options;
+      const comfyui = { ...canonical, templateId: workflowId, workflowId, ...normalizeComfyUiSamplingParameters(options) } as ComfyUiTaskOptions;
+      return context.generateComfyUi({ prompt: String(value.prompt), submissionId: String(value.submissionId), comfyui,
         sources: (value.sources || []) as CanvasMaterialTarget[], x: number(value.x, 240), y: number(value.y, 180) });
     },
     "canvas.edit-image": (value) => {

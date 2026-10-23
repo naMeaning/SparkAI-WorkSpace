@@ -23,6 +23,19 @@ const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const image = await sharp(join(root, "docs/assets/github/02-product.jpg")).resize(512, 512).png().toBuffer();
 const sourceFile = join(project, "assets/source.png"); writeFileSync(sourceFile, image);
 const sourceHash = digest(image), source = { type: "file", path: sourceFile, relativePath: "assets/source.png", assetId: `asset-${sourceHash.slice(0, 32)}`, occurrenceId: `occ-${"1".repeat(32)}`, contentHash: sourceHash, mimeType: "image/png", width: 512, height: 512 };
+const sourceIdentity = { assetId: source.assetId, occurrenceId: source.occurrenceId, contentHash: source.contentHash };
+const maskPixels = Buffer.alloc(512 * 512 * 4, 255);
+for (let y = 0; y < 512; y++) for (let x = 0; x < 256; x++) maskPixels[(y * 512 + x) * 4 + 3] = 0;
+const maskBytes = await sharp(maskPixels, { raw: { width: 512, height: 512, channels: 4 } }).png().toBuffer();
+const maskPath = join(runDir, "transparent-left-mask.png"); writeFileSync(maskPath, maskBytes);
+const imagePixels = await sharp(image).ensureAlpha().raw().toBuffer();
+for (let i = 0; i < 512 * 512; i++) imagePixels[i * 4 + 3] = maskPixels[i * 4 + 3];
+const cutoutBytes = await sharp(imagePixels, { raw: { width: 512, height: 512, channels: 4 } }).png().toBuffer();
+const nativeSelectionPath = join(runDir, "native-selection.json");
+const selectNativeFile = file => writeFileSync(nativeSelectionPath, JSON.stringify({ file }));
+const entryPath = join(runDir, "ui-entry.cjs");
+writeFileSync(entryPath, `const fs=require('node:fs');const {dialog,ipcMain}=require('electron');const handle=ipcMain.handle.bind(ipcMain);ipcMain.handle=(channel,fn)=>handle(channel,async(event,payload)=>{const result=await fn(event,payload);if(channel==='naimage:server:comfyui'&&['masks-list','masks-import'].includes(payload?.action))fs.appendFileSync(${JSON.stringify(join(runDir,"mask-ipc.jsonl"))},JSON.stringify({payload,result})+'\\n');return result;});dialog.showOpenDialog=async options=>{const file=${JSON.stringify(nativeSelectionPath)};if(!fs.existsSync(file))return {canceled:true,filePaths:[]};const next=JSON.parse(fs.readFileSync(file,'utf8'));fs.unlinkSync(file);return {canceled:false,filePaths:[next.file]};};require(${JSON.stringify(join(root,"electron-main.cjs"))});\n`);
+report.nativeDialogFixture = "Only the system file-selection result is stubbed in the isolated Electron entry; real Main services and renderer actions execute.";
 const capabilityInfo = objectInfo();
 // Put non-default choices first so inspection cannot accidentally change the
 // reviewed template's default sampler or scheduler.
@@ -63,7 +76,7 @@ async function click(selector) {
 }
 async function key(key, modifiers = 0) { const names = { Home: ["Home", 36], Enter: ["Enter", 13], Escape: ["Escape", 27], ArrowDown: ["ArrowDown", 40] }; const [code, vk] = names[key] || [`Key${key.toUpperCase()}`, key.toUpperCase().charCodeAt(0)]; for (const type of ["keyDown", "keyUp"]) await client.send("Input.dispatchKeyEvent", { type, key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers }); }
 async function fill(selector, text) { await click(selector); await key("a", 2); await client.send("Input.insertText", { text }); await wait(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(text)}`); }
-async function choose(selector, value) { const index = await ev(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).findIndex(o=>o.value===${JSON.stringify(value)})`); assert.ok(index >= 0, value); await click(selector); await key("Home"); for (let i = 0; i < index; i++) await key("ArrowDown"); await key("Enter"); await wait(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(value)}`); }
+async function choose(selector, value) { await delay(180); const index = await ev(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).findIndex(o=>o.value===${JSON.stringify(value)})`); assert.ok(index >= 0, value); await click(selector); await key("Home"); for (let i = 0; i < index; i++) await key("ArrowDown"); await key("Enter"); await wait(`document.querySelector(${JSON.stringify(selector)})?.value===${JSON.stringify(value)}`); }
 async function textButton(text, scope = "document") {
   await ev(`(()=>{const e=[...${scope}.querySelectorAll('button,[role=menuitem]')].find(e=>e.textContent.trim()===${JSON.stringify(text)});if(!e)throw new Error('missing button '+${JSON.stringify(text)});e.dataset.comfyAction='current'})()`);
   await click('[data-comfy-action="current"]'); await ev("document.querySelector('[data-comfy-action=current]')?.removeAttribute('data-comfy-action')");
@@ -125,7 +138,7 @@ async function stop() {
 }
 async function launch() {
   const port = await allocateDebugPort();
-  electron = spawn(require("electron"), ["electron-main.cjs", `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
+  electron = spawn(require("electron"), [entryPath, `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
     env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "0", NAIMAGE_AIDEBUG_REAL_AGENT: "1", NAIMAGE_AIDEBUG_LIVE_IMAGE: "1", NAIMAGE_CONFIG_DIR: config,
       NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: join(runDir, "no-server.cjs") } });
   const target = await pollForDebugTarget({ port, attempts: 250, intervalMs: 100, findTarget: targets => targets.find(item => item.type === "page" && !/agent-window/.test(item.url)) });
@@ -151,7 +164,7 @@ try {
   const expectedSampling = { steps: 28, cfg: 6.5, sampler: "dpmpp_2m", scheduler: "karras", denoise: 0.8 };
   await check("uninspected form shows template defaults and explicitly disables parameters absent from a reviewed mapping", async () => {
     await canvasMenu("创建生图工作"); await wait("Boolean(document.querySelector('.manual-image-task-dialog'))");
-    await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length===3");
+    await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length===5");
     assert.equal(await ev("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected"), "false");
     assert.equal(await ev("document.querySelector('.comfyui-task-fields').textContent.includes('尚未检查连接能力')"), true);
     let fields = await samplingFields();
@@ -288,7 +301,7 @@ try {
 
   await check("managed image template uploads exact source bytes and persists source relationship and hashes", async () => {
     const templates = (await command("comfyui.templates")).templates, template = templates.find(item => item.id === "stock-img2img");
-    await command("comfyui.generate", { expectedProjectId: projectId, prompt: "调整商品摄影的背景层次", submissionId: "ui-img2img", comfyui: { ...options, templateId: template.id, templateHash: template.templateHash }, sources: [{ nodeId: "N0001", assetIndex: 0 }], x: 410, y: 440 });
+    await command("comfyui.generate", { expectedProjectId: projectId, prompt: "调整商品摄影的背景层次", submissionId: "ui-img2img", comfyui: { ...options, templateId: template.id, workflowId: template.id, templateHash: template.templateHash }, sources: [{ nodeId: "N0001", assetIndex: 0 }], x: 410, y: 440 });
     await until(() => session().nodes.some(node => node.imageParams?.submissionId === "ui-img2img" && node.assets?.length === 1), "img2img saved");
     const node = session().nodes.find(node => node.imageParams?.submissionId === "ui-img2img");
     assert.equal(mock.uploads.length, 1); assert.ok(mock.uploads[0].includes(image)); assert.equal(node.parentId, "N0001");
@@ -299,7 +312,8 @@ try {
   let unknown;
   await check("lost acknowledgement persists uncertain state with one POST and no preview assets", async () => {
     mock.config.disconnect = true; mock.config.hold = true;
-    await command("comfyui.generate", { expectedProjectId: projectId, prompt: "本地原任务恢复验证", submissionId: "ui-unknown", comfyui: options, x: 740, y: 80 });
+    const uncertain = await command("comfyui.generate", { expectedProjectId: projectId, prompt: "本地原任务恢复验证", submissionId: "ui-unknown", comfyui: options, x: 740, y: 80 }, false);
+    assert.equal(uncertain.ok, false);
     await until(() => journal().operations.some(item => item.operationId === "comfy-ui-unknown"), "unknown receipt");
     unknown = journal().operations.find(item => item.operationId === "comfy-ui-unknown"); assert.equal(unknown.state, "uncertain"); assert.equal(unknown.taskId, "");
     assert.equal(mock.posts.length, 3); assert.equal(mock.views.length, 2);
@@ -321,7 +335,8 @@ try {
   });
 
   await check("verified pending job is canceled by its visible queue action only", async () => {
-    await command("comfyui.generate", { expectedProjectId: projectId, prompt: "取消本地排队验证", submissionId: "ui-cancel", comfyui: options, x: 740, y: 440 });
+    const queuedSubmission = await command("comfyui.generate", { expectedProjectId: projectId, prompt: "取消本地排队验证", submissionId: "ui-cancel", comfyui: options, x: 740, y: 440 }, false);
+    assert.equal(queuedSubmission.ok, false);
     const item = journal().operations.find(value => value.operationId === "comfy-ui-cancel"); assert.ok(item);
     const pending = await command("image.recover", { expectedProjectId: projectId, key: item.key }, false); assert.equal(pending.ok, false);
     assert.equal(journal().operations.find(value => value.key === item.key).providerState, "queued");
@@ -352,10 +367,107 @@ try {
     await click(".manual-image-task-prompt textarea"); await screenshot("minimum-current-image-model"); await textButton("取消");
     assert.equal(digest(readFileSync(sourceFile)), sourceHash); assert.equal(mock.posts.length, 4); assert.equal(report.unexpectedModelRequests || 0, 0);
   });
+  await check("native workflow preview blocks unknown nodes and visible mapping wizard saves reviewed inputs", async () => {
+    mock.config.hold = false; mock.config.disconnect = false;
+    await canvasMenu("创建生图工作"); await choose('[aria-label="图片执行连接"]', "comfyui");
+    await click('[data-comfyui-workflow-import] > summary');
+    const blockedPath = join(runDir, "blocked-workflow.json");
+    writeFileSync(blockedPath, JSON.stringify({ "1": { class_type: "ExecutePython", inputs: { script: "blocked fixture" } } }));
+    selectNativeFile(blockedPath); await textButton("选择 API JSON 并预检");
+    await wait("Boolean(document.querySelector('[data-comfyui-mapping-wizard]'))");
+    assert.equal(await ev("[...document.querySelectorAll('[data-comfyui-mapping-wizard] button')].find(e=>e.textContent==='审核并保存工作流')?.disabled"), true);
+    await screenshot("workflow-unreviewed-blocked");
+    const imported = builtIn("generate"), reviewedPath = join(runDir, "reviewed-workflow.json");
+    writeFileSync(reviewedPath, JSON.stringify(imported.workflow)); selectNativeFile(reviewedPath);
+    await fill('[aria-label="ComfyUI 工作流名称"]', "向导审核工作流"); await textButton("选择 API JSON 并预检");
+    await wait("document.querySelector('[aria-label=\"ComfyUI 导入输出\"]')?.options.length>0");
+    assert.equal(await ev("Boolean(document.querySelector('[aria-label=\"ComfyUI 输入映射 JSON\"]'))"), false);
+    for (const mapping of imported.inputMappings) await choose(`[aria-label="ComfyUI 映射 ${mapping.nodeId} ${mapping.inputName}"]`, `${mapping.kind}:${mapping.index ?? ""}`);
+    await assertReachable('[aria-label="ComfyUI 导入能力"]'); await screenshot("workflow-mapping-wizard");
+    await textButton("审核并保存工作流");
+    await wait("document.querySelector('.comfyui-task-fields').textContent.includes('审核工作流已保存')");
+    const templates = (await command("comfyui.templates")).templates;
+    const added = templates.find(item => item.label === "向导审核工作流"); assert.ok(added); assert.equal(added.capability, "generate"); assert.equal(added.workflow, undefined);
+    report.workflowImport = { blockedUnknown: true, rawWorkflowInRenderer: false, mappingCount: added.inputMappings.length, workflowId: added.id };
+    await textButton("取消");
+  });
+  let managedMask;
+  async function chooseWorkflowSource(workflowId) {
+    await canvasMenu("创建生图工作"); await choose('[aria-label="图片执行连接"]', "comfyui");
+    await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length>=5");
+    await choose('[aria-label="ComfyUI 模板"]', workflowId);
+    await click('.manual-image-reference-button'); await wait("Boolean(document.querySelector('.reference-picker-dialog'))");
+    await textButton("从画布选取");
+    // Add an unused candidate before the actual source. Output provenance must
+    // follow the explicit source role, not the candidate list's first item.
+    await click(`.canvas-material-option[data-canvas-node-id="${generated.id}"]`);
+    await click('.canvas-material-option[data-canvas-node-id="N0001"]');
+    await textButton("保存", "document.querySelector('.reference-picker-dialog')");
+    await wait("!document.querySelector('.reference-picker-dialog')");
+    await choose('[aria-label="ComfyUI 源图"]', source.occurrenceId);
+  }
+  await check("visible inpaint binds imported managed mask and preserves protected source pixels", async () => {
+    mock.config.uploadImages = [image, maskBytes];
+    mock.config.imageBytes = await sharp(image).modulate({ hue: 120 }).png().toBuffer();
+    const postsBefore = mock.posts.length;
+    await chooseWorkflowSource("stock-inpaint");
+    await fill('[aria-label="ComfyUI 模型"]', "fixture.safetensors");
+    selectNativeFile(maskPath); await textButton("导入 PNG 蒙版");
+    await wait("Boolean(document.querySelector('[aria-label=\"ComfyUI 蒙版\"]')?.value)");
+    const response = await command("comfyui.mask.list", { expectedProjectId: projectId, conversationId: "comfyui-ui-conversation", sourceImage: sourceIdentity });
+    managedMask = response.masks[0]; assert.equal(managedMask.revision, 1); assert.equal(managedMask.width, 512);
+    assert.equal(JSON.stringify(response).includes(project), false); assert.equal(managedMask.contentHash, digest(maskBytes));
+    await assertReachable('[aria-label="ComfyUI 源图"]'); await assertReachable('[aria-label="ComfyUI 蒙版"]'); await screenshot("inpaint-managed-mask-minimum");
+    await fill('.manual-image-task-prompt textarea', "只调整透明蒙版标记的区域"); await textButton("生成图片");
+    await until(() => session().nodes.some(node => node.imageParams?.comfyui?.templateId === "stock-inpaint" && node.assets?.length), "inpaint saved");
+    const node = session().nodes.find(node => node.imageParams?.comfyui?.templateId === "stock-inpaint" && node.assets?.length);
+    assert.equal(mock.posts.length, postsBefore + 1); assert.equal(node.parentId, "N0001");
+    assert.equal(node.imageParams.referenceImages.length, 1); assert.equal(node.imageParams.referenceImages[0].taskRole, "source");
+    const result = await sharp(node.assets[0].path).ensureAlpha().raw().toBuffer(), original = await sharp(image).ensureAlpha().raw().toBuffer();
+    let changed = 0;
+    for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+      const offset = (y * 512 + x) * 4;
+      if (x >= 256) assert.deepEqual(result.subarray(offset, offset + 4), original.subarray(offset, offset + 4), "opaque mask protects original pixels");
+      else if (!result.subarray(offset, offset + 4).equals(original.subarray(offset, offset + 4))) changed++;
+    }
+    assert.ok(changed > 1000); assert.equal(digest(readFileSync(sourceFile)), sourceHash); assert.equal(digest(readFileSync(maskPath)), digest(maskBytes));
+    report.inpaint = { sourceHash, maskHash: managedMask.contentHash, revision: managedMask.revision, protectedPixels: 512 * 256, changedPixels: changed, promptPosts: 1 };
+    await screenshot("inpaint-new-result");
+  });
+  await check("cutout rejects opaque results then accepts actual alpha through visible managed-mask form", async () => {
+    mock.config.imageBytes = image;
+    const template = (await command("comfyui.templates")).templates.find(item => item.id === "stock-cutout");
+    const comfyui = { connectionId: options.connectionId, workflowId: template.id, templateHash: template.templateHash, seed: -1, width: 512, height: 512,
+      sourceImage: sourceIdentity, maskImage: { assetId: managedMask.assetId, occurrenceId: managedMask.occurrenceId, contentHash: managedMask.contentHash, revision: managedMask.revision } };
+    const postsBefore = mock.posts.length;
+    const opaque = await command("comfyui.generate", { expectedProjectId: projectId, prompt: "验证透明输出", submissionId: "ui-cutout-opaque", comfyui }, false);
+    assert.equal(opaque.ok, false); assert.equal(mock.posts.length, postsBefore + 1);
+    await until(() => session().nodes.some(node => node.imageParams?.submissionId === "ui-cutout-opaque" && node.imageState === "error"), "opaque result failure persisted");
+    assert.equal(session().nodes.some(node => node.imageParams?.submissionId === "ui-cutout-opaque" && node.assets?.some(asset => asset.path && asset.status !== "pending" && asset.status !== "error")), false);
+    const rejectedOperation = journal().operations.find(operation => operation.targetNodeId === session().nodes.find(node => node.imageParams?.submissionId === "ui-cutout-opaque").id);
+    assert.equal(rejectedOperation.errorCategory, "IMAGE_EDIT_ALPHA_INVALID"); assert.equal(rejectedOperation.assets.length, 0);
+    mock.config.imageBytes = cutoutBytes;
+    await chooseWorkflowSource("stock-cutout");
+    await wait("document.querySelector('[aria-label=\"ComfyUI 蒙版\"]')?.options.length>1"); await choose('[aria-label="ComfyUI 蒙版"]', managedMask.occurrenceId);
+    assert.equal(await ev("document.querySelector('[aria-label=\"ComfyUI 模型\"]').disabled"), true);
+    assert.equal(await ev("document.querySelector('[data-comfyui-capability]').textContent.includes('使用你提供的蒙版')"), true);
+    await assertReachable('[aria-label="ComfyUI 蒙版"]'); await screenshot("cutout-managed-mask-minimum");
+    await fill('.manual-image-task-prompt textarea', "保留蒙版不透明区域的商品"); await textButton("生成图片");
+    await until(() => session().nodes.some(node => node.imageParams?.comfyui?.templateId === "stock-cutout" && node.assets?.length), "cutout saved");
+    const node = session().nodes.find(node => node.imageParams?.comfyui?.templateId === "stock-cutout" && node.assets?.length);
+    assert.equal(mock.posts.length, postsBefore + 2); assert.equal(node.parentId, "N0001");
+    const pixels = await sharp(node.assets[0].path).ensureAlpha().raw().toBuffer();
+    let transparentPixels = 0, opaquePixels = 0;
+    for (let i = 3; i < pixels.length; i += 4) { if (pixels[i] === 0) transparentPixels++; if (pixels[i] === 255) opaquePixels++; }
+    assert.equal(transparentPixels, 512 * 256); assert.equal(opaquePixels, 512 * 256);
+    report.cutout = { opaqueRejected: true, transparentPixels, opaquePixels, requiredCheckpoint: false, sourceAndMaskPreserved: true };
+    assert.equal(digest(readFileSync(sourceFile)), sourceHash); assert.equal(digest(readFileSync(maskPath)), digest(maskBytes));
+    await screenshot("cutout-actual-alpha-result");
+  });
   await stop(); report.ok = true;
 } catch (error) {
   report.error = error.stack; process.exitCode = 1; console.error(error);
-  if (client) { report.failureState = await state().catch(() => null); await screenshot("failure").catch(() => {}); await stop().catch(error => { report.shutdownError = error.message; }); }
+  if (client) { report.failureState = await state().catch(() => null); report.failureDialog = await ev("document.querySelector('.manual-image-task-dialog')?.textContent").catch(() => null); await screenshot("failure").catch(() => {}); await stop().catch(error => { report.shutdownError = error.message; }); }
 } finally {
   report.loopbackPromptPosts = mock.posts.length; report.loopbackViews = mock.views.length; report.loopbackUploads = mock.uploads.length; report.loopbackQueueDeletes = mock.deletes.length;
   checkpoint(); if (vite) vite.kill(); await mock.close(); account.closeAllConnections(); await new Promise(resolveClose => account.close(resolveClose));

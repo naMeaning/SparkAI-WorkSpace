@@ -14,7 +14,15 @@ const clone = value => JSON.parse(JSON.stringify(value));
 function comfySnapshot(snapshot = {}) {
   if (!/^[a-z0-9_-]{1,120}$/i.test(snapshot.submissionId || "") || !/^[a-z0-9_-]{1,180}$/i.test(snapshot.clientId || "") || !/^[a-f0-9]{64}$/.test(snapshot.workflowHash || "") || !/^[a-z0-9_-]{1,120}$/i.test(snapshot.outputNodeId || "")) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务快照无效。");
   const actualParams = {};
-  if (typeof snapshot.actualParams?.model !== "string" || !snapshot.actualParams.model || !Number.isSafeInteger(snapshot.actualParams?.seed) || snapshot.actualParams.seed < 0 || ![snapshot.actualParams.width, snapshot.actualParams.height].every(value => Number.isInteger(value) && value >= 64 && value <= 4096)) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务参数未冻结。");
+  const capability = snapshot.capability;
+  if (capability !== undefined && !["generate", "img2img", "inpaint", "cutout"].includes(capability)) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务能力无效。");
+  const cutout = capability === "cutout";
+  const dimensions = [snapshot.actualParams?.width, snapshot.actualParams?.height];
+  if (typeof snapshot.actualParams?.model !== "string" || !snapshot.actualParams.model ||
+    (cutout ? snapshot.actualParams.model !== "comfyui-mask" || snapshot.alphaRequired !== true || snapshot.actualParams.seed !== undefined ||
+      ["steps", "cfg", "sampler", "scheduler", "denoise"].some(field => snapshot.actualParams[field] !== undefined) ||
+      !dimensions.every(value => Number.isInteger(value) && value >= 1 && value <= 16_384) || dimensions[0] * dimensions[1] > 64_000_000
+      : !Number.isSafeInteger(snapshot.actualParams.seed) || snapshot.actualParams.seed < 0 || !dimensions.every(value => Number.isInteger(value) && value >= 64 && value <= 4096))) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务参数未冻结。");
   actualParams.model = clean(snapshot.actualParams.model, 1024);
   for (const field of ["seed", "width", "height", "batchSize", "steps", "cfg", "denoise"]) if (Number.isFinite(snapshot.actualParams[field])) actualParams[field] = snapshot.actualParams[field];
   for (const field of ["sampler", "scheduler"]) if (typeof snapshot.actualParams[field] === "string") actualParams[field] = clean(snapshot.actualParams[field], 100);
@@ -24,10 +32,34 @@ function comfySnapshot(snapshot = {}) {
     if (["string", "number", "boolean"].includes(typeof mapping.value)) value.value = typeof mapping.value === "string" ? mapping.value.slice(0, 16_384) : mapping.value;
     return value;
   }).slice(0, 64);
-  const inputs = (Array.isArray(snapshot.inputs) ? snapshot.inputs : []).map(input => ({ sha256: /^[a-f0-9]{64}$/.test(input.sha256 || "") ? input.sha256 : "", bytes: Number(input.bytes) || 0, width: Number(input.width) || 0, height: Number(input.height) || 0, mimeType: clean(input.mimeType, 40), ...(input.uploaded ? { uploaded: { name: clean(input.uploaded.name, 1024), subfolder: clean(input.uploaded.subfolder, 1024), type: "input" } } : {}) })).slice(0, 4);
-  return { schemaVersion: Number(snapshot.schemaVersion) >= 2 ? 2 : 1, submissionId: snapshot.submissionId,
+  if (Array.isArray(snapshot.inputs) && snapshot.inputs.length > 6) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务素材超出审核上限。");
+  const inputs = (Array.isArray(snapshot.inputs) ? snapshot.inputs : []).map(input => {
+    const value = { sha256: /^[a-f0-9]{64}$/.test(input.sha256 || "") ? input.sha256 : "", bytes: Number(input.bytes) || 0, width: Number(input.width) || 0, height: Number(input.height) || 0, mimeType: clean(input.mimeType, 40), ...(input.uploaded ? { uploaded: { name: clean(input.uploaded.name, 1024), subfolder: clean(input.uploaded.subfolder, 1024), type: "input" } } : {}) };
+    if (input.role !== undefined) {
+      if (!["sourceImage", "maskImage", "referenceImages"].includes(input.role) || input.index !== undefined && (!Number.isInteger(input.index) || input.index < 0 || input.index > 3 || input.role !== "referenceImages")) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务素材角色无效。");
+      value.role = input.role; if (input.index !== undefined) value.index = input.index;
+    }
+    if (input.assetId !== undefined || input.occurrenceId !== undefined) {
+      if (!["assetId", "occurrenceId"].every(field => typeof input[field] === "string" && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(input[field])) || input.contentHash !== value.sha256) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务素材身份无效。");
+      Object.assign(value, { assetId: input.assetId, occurrenceId: input.occurrenceId, contentHash: value.sha256 });
+    }
+    return value;
+  });
+  let maskBindings;
+  if (["inpaint", "cutout"].includes(capability)) {
+    const source = inputs.filter(input => input.role === "sourceImage"), mask = inputs.filter(input => input.role === "maskImage"), binding = snapshot.maskBindings;
+    if (source.length !== 1 || mask.length !== 1 || !binding || typeof binding !== "object" || Array.isArray(binding) ||
+      Object.keys(binding).some(key => !["sourceHash", "maskHash", "width", "height", "revision"].includes(key)) ||
+      !/^[a-f0-9]{64}$/.test(binding.sourceHash || "") || !/^[a-f0-9]{64}$/.test(binding.maskHash || "") ||
+      binding.sourceHash !== source[0].sha256 || binding.maskHash !== mask[0].sha256 || !Number.isSafeInteger(binding.revision) || binding.revision < 1 ||
+      !["width", "height"].every(field => Number.isInteger(binding[field]) && binding[field] > 0 && binding[field] === source[0][field] && binding[field] === mask[0][field])) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务蒙版绑定未冻结。");
+    maskBindings = clone(binding);
+  } else if (snapshot.maskBindings !== undefined) throw failure("COMFYUI_SNAPSHOT_INVALID", "本地图片任务没有蒙版能力。");
+  return { schemaVersion: Number(snapshot.schemaVersion) >= 3 ? 3 : Number(snapshot.schemaVersion) >= 2 ? 2 : 1, submissionId: snapshot.submissionId,
     ...(snapshot.connectionId ? { connectionId: clean(snapshot.connectionId, 160), networkScope: clean(snapshot.networkScope, 10), ...(snapshot.connectionHash ? { connectionHash: clean(snapshot.connectionHash, 64) } : {}) } : { baseUrl: localBaseUrl(snapshot.baseUrl) }), clientId: snapshot.clientId,
     workflowHash: snapshot.workflowHash, outputNodeId: snapshot.outputNodeId, inputMappings, actualParams, inputs,
+    ...(capability ? { capability, alphaRequired: cutout || snapshot.alphaRequired === true, requiresCheckpoint: snapshot.requiresCheckpoint !== false } : {}),
+    ...(maskBindings ? { maskBindings } : {}),
     ...(snapshot.promptId ? { promptId: clean(snapshot.promptId, 120) } : {}),
     ...(snapshot.inputNodeId ? { inputNodeId: clean(snapshot.inputNodeId, 120) } : {}),
     ...(snapshot.templateId ? { templateId: clean(snapshot.templateId, 120), templateVersion: Math.max(1, Number(snapshot.templateVersion) || 1), templateHash: /^[a-f0-9]{64}$/.test(snapshot.templateHash || "") ? snapshot.templateHash : "" } : {}),
@@ -116,26 +148,50 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
       : error?.ambiguous || error?.unsafeToRetry ? "uncertain" : "rejected";
     patch(item.projectId, item.key, { state, ...(current.provider === "comfyui" && ["failed", "rejected"].includes(state) ? { providerState: state } : {}), errorCategory: /^[a-z0-9_-]+$/i.test(String(error?.errorCategory || error?.code || "")) ? String(error.errorCategory || error.code).slice(0, 100) : "image_operation_failed" });
   }
-  function received(item, result, processing) {
-    if (!item) return;
-    if (get(item.projectId, item.key).state === "canceled") throw failure("IMAGE_OPERATION_TERMINAL", "原图片操作已取消，拒绝迟到结果。");
+  function prepareProcessing(item, processing) {
+    if (!item || !processing || !(processing.clientMask || processing.requireAlpha)) return;
+    const current = get(item.projectId, item.key);
+    if (current.state === "canceled") throw failure("IMAGE_OPERATION_TERMINAL", "原图片操作已取消，拒绝迟到结果。");
     const id = `${item.projectId}:${item.key}`;
     let descriptor;
     if (processing?.requireAlpha) descriptor = { kind: "alpha", requireAlpha: true };
     if (processing?.clientMask) {
-      processingInputs.set(id, processing.inputs);
       const project = projectFor(item.projectId);
       const relative = processing.sourcePath ? path.relative(project.path, processing.sourcePath) : "";
       // Existing managed source bytes stay in their owner location. Only the
       // transient edit mask needs staging; no input base64 enters the journal.
       descriptor = { kind: "client-mask", source: relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : "", ...(processing.requireAlpha ? { requireAlpha: true } : {}) };
-      const source = processing.inputs.editImages[0];
-      descriptor.sourceHash = createHash("sha256").update(source.buffer || Buffer.from(source.base64, "base64")).digest("hex");
-      const mask = processing.inputs.mask;
-      writeFileSync(path.join(paths(item.projectId).dir, `${item.key}-mask.bin`), mask.buffer || Buffer.from(mask.base64, "base64"));
+      const source = processing.inputs?.editImages?.[0], mask = processing.inputs?.mask;
+      const sourceBytes = source?.buffer || Buffer.from(source?.base64 || "", "base64"), maskBytes = mask?.buffer || Buffer.from(mask?.base64 || "", "base64");
+      if (!sourceBytes.length || !maskBytes.length || maskBytes.length > 20 * 1024 * 1024) throw failure("IMAGE_PROCESSING_INPUT_INVALID", "原图或受管蒙版不可用，尚未派发任务。");
+      descriptor.sourceHash = createHash("sha256").update(sourceBytes).digest("hex");
+      descriptor.maskHash = createHash("sha256").update(maskBytes).digest("hex");
+      if (processing.maskBindings) {
+        const binding = processing.maskBindings;
+        if (binding.sourceHash !== descriptor.sourceHash || binding.maskHash !== descriptor.maskHash || !Number.isSafeInteger(binding.revision) || binding.revision < 1 ||
+          ![binding.width, binding.height].every(value => Number.isInteger(value) && value > 0)) throw failure("IMAGE_PROCESSING_INPUT_INVALID", "原图与受管蒙版绑定不一致，尚未派发任务。");
+        descriptor.maskBindings = clone(binding);
+      }
+      if (current.processing && JSON.stringify(current.processing) !== JSON.stringify(descriptor)) throw failure("COMFYUI_SUBMISSION_CONFLICT", "图片操作已冻结其他本地处理内容。");
+      const maskFile = path.join(paths(item.projectId).dir, `${item.key}-mask.bin`);
+      if (existsSync(maskFile)) {
+        if (createHash("sha256").update(readFileSync(maskFile)).digest("hex") !== descriptor.maskHash) throw failure("IMAGE_PROCESSING_MASK_CHANGED", "已冻结蒙版内容已变化，尚未派发任务。");
+      } else {
+        const temporary = `${maskFile}.tmp`; writeFileSync(temporary, maskBytes); renameSync(temporary, maskFile);
+      }
+      processingInputs.set(id, processing.inputs);
     }
-    results.set(id, { result, processed: !(processing?.clientMask || processing?.requireAlpha) });
-    patch(item.projectId, item.key, { state: "response", stage: "result", resultCount: extractImages(result).length, ...(item.provider === "comfyui" ? { providerState: "succeeded" } : {}), ...(descriptor ? { processing: descriptor } : {}) });
+    if (current.processing && JSON.stringify(current.processing) !== JSON.stringify(descriptor)) throw failure("COMFYUI_SUBMISSION_CONFLICT", "图片操作已冻结其他本地处理内容。");
+    if (!current.processing) patch(item.projectId, item.key, { processing: descriptor });
+    return descriptor;
+  }
+  function received(item, result, processing) {
+    if (!item) return;
+    if (get(item.projectId, item.key).state === "canceled") throw failure("IMAGE_OPERATION_TERMINAL", "原图片操作已取消，拒绝迟到结果。");
+    if (processing) prepareProcessing(item, processing);
+    const current = get(item.projectId, item.key);
+    results.set(`${item.projectId}:${item.key}`, { result, processed: !current.processing });
+    patch(item.projectId, item.key, { state: "response", stage: "result", resultCount: extractImages(result).length, ...(item.provider === "comfyui" ? { providerState: "succeeded" } : {}) });
   }
   async function deliver(item, result, generationContext = {}, processed = true) {
     const current = get(item.projectId, item.key);
@@ -178,7 +234,14 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
             if (relative.startsWith("..") || path.isAbsolute(relative)) throw failure("IMAGE_PROCESSING_SOURCE_UNAVAILABLE", "原遮罩编辑来源不在项目内；已停止处理原结果。");
             const source = readFileSync(sourcePath);
             if (createHash("sha256").update(source).digest("hex") !== current.processing.sourceHash) throw failure("IMAGE_PROCESSING_SOURCE_CHANGED", "原编辑来源已改变；已停止处理原结果。");
-            inputs = { editImages: [{ buffer: source }], mask: { buffer: readFileSync(path.join(paths(item.projectId).dir, `${item.key}-mask.bin`)) } };
+            const mask = readFileSync(path.join(paths(item.projectId).dir, `${item.key}-mask.bin`));
+            if (current.processing.maskHash && createHash("sha256").update(mask).digest("hex") !== current.processing.maskHash) throw failure("IMAGE_PROCESSING_MASK_CHANGED", "原受管蒙版内容已改变；已停止处理原结果。");
+            inputs = { editImages: [{ buffer: source }], mask: { buffer: mask } };
+          }
+          if (current.processing.kind === "client-mask" && inputs) {
+            const source = inputs.editImages?.[0], mask = inputs.mask;
+            if (createHash("sha256").update(source?.buffer || Buffer.from(source?.base64 || "", "base64")).digest("hex") !== current.processing.sourceHash) throw failure("IMAGE_PROCESSING_SOURCE_CHANGED", "原编辑来源已改变；已停止处理原结果。");
+            if (current.processing.maskHash && createHash("sha256").update(mask?.buffer || Buffer.from(mask?.base64 || "", "base64")).digest("hex") !== current.processing.maskHash) throw failure("IMAGE_PROCESSING_MASK_CHANGED", "原受管蒙版内容已改变；已停止处理原结果。");
           }
           if (!processImage) throw failure("IMAGE_PROCESSING_UNAVAILABLE", "本地图片处理不可用。");
           const processedResult = await processImage(buffer, inputs || {}, current.processing);
@@ -239,7 +302,8 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
       const request = item.provider === "comfyui" ? { ...item.comfyui.actualParams, protocol: "comfyui", connectionId: item.comfyui.connectionId, networkScope: item.comfyui.networkScope || "local", outputFormat: "png",
         size: `${item.comfyui.actualParams.width}x${item.comfyui.actualParams.height}`, templateId: item.comfyui.templateId,
         templateVersion: item.comfyui.templateVersion, templateHash: item.comfyui.templateHash, workflowHash: item.comfyui.workflowHash,
-        sourceHashes: item.comfyui.inputs.map(input => input.sha256) } : { model: item.model, ...item.parameters };
+        capability: item.comfyui.capability, maskBindings: item.comfyui.maskBindings,
+        sourceHashes: item.comfyui.inputs.filter(input => input.role !== "maskImage").map(input => input.sha256) } : { model: item.model, ...item.parameters };
       const assets = await deliver(item, result, { request }, processed);
       return { operation: get(projectId, key), assets };
     })();
@@ -265,7 +329,7 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
       ...(item.provider === "comfyui" ? { provider: "comfyui", providerState: ["saved", "response", "partial", "delivery-failed"].includes(item.state) ? "succeeded" : item.providerState, canCancel: Boolean(item.taskId) && !["saved", "response", "partial", "delivery-failed", "failed", "rejected", "canceled"].includes(item.state) } : {}),
       canRecover: !["canceled", "failed"].includes(item.state) && !(item.provider === "comfyui" && item.state === "rejected") && (item.state === "saved" || Boolean(item.taskId || item.comfyui || item.slots.length || results.has(`${projectId}:${item.key}`))) }));
   }
-  return { start, prepared, accepted, failed, received, deliver, recover, cancel, list, get, find };
+  return { start, prepared, accepted, failed, prepareProcessing, received, deliver, recover, cancel, list, get, find };
 }
 
 module.exports = { createImageOperationJournal };

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COMFYUI_PARAMETER_RANGES } from "../runtime/comfyui-options.mjs";
-import type { ComfyUiParameterRanges, ComfyUiTaskOptions, ComfyUiTemplate, ImageTaskDraft, ServerBridge } from "./core";
+import type { ComfyUiAssetIdentity, ComfyUiInputMapping, ComfyUiManagedMask, ComfyUiParameterRanges, ComfyUiTaskOptions, ComfyUiTemplate, ComfyUiWorkflowCapability, ComfyUiWorkflowImportPreview, ImageTaskDraft, ServerBridge } from "./core";
 import { ActionButton, Field, InlineNotice } from "./ui";
 
 type InspectCapabilities = {
@@ -17,6 +17,9 @@ type NetworkScope = "local" | "lan" | "remote";
 type CredentialMode = "none" | "bearer" | "basic" | "mtls";
 type ConnectionDraft = { connectionId: string; label: string; baseUrl: string; networkScope: NetworkScope; credentialType: CredentialMode };
 const networkLabels: Record<NetworkScope | "unknown", string> = { local: "本机", lan: "局域网", remote: "远程", unknown: "网络范围未知" };
+const capabilityLabels: Record<ComfyUiWorkflowCapability, string> = { generate: "文生图", img2img: "图生图", inpaint: "蒙版重绘", cutout: "蒙版抠图" };
+const mappingLabels: Record<string, string> = { prompt: "提示词", negative: "负面提示词", model: "服务模型", width: "宽度", height: "高度", seed: "种子", steps: "步数", cfg: "CFG", sampler: "采样器", scheduler: "调度器", denoise: "强度", sourceImage: "源图", maskImage: "受管蒙版", referenceImages: "参考图", image: "素材" };
+const sameImage = (a?: ComfyUiAssetIdentity, b?: Partial<ComfyUiAssetIdentity>) => Boolean(a && b && a.assetId === b.assetId && a.occurrenceId === b.occurrenceId && a.contentHash === b.contentHash);
 
 function connectionDraftFor(connection?: ConnectionSummary, legacyBaseUrl = ""): ConnectionDraft {
   const mode = connection?.credentialMode || connection?.credentialType || "none";
@@ -35,6 +38,7 @@ function uniqueValues(values: Array<string | undefined>) {
 
 function templateSupports(template: ComfyUiTemplate | undefined, field: string) {
   if (!template) return false;
+  field = ({ negativePrompt: "negative", checkpoint: "model" } as Record<string, string>)[field] || field;
   if (Array.isArray(template.exposedInputs)) return template.exposedInputs.includes(field);
   if (Array.isArray(template.inputMappings)) return template.inputMappings.some(mapping => mapping.kind === field);
   return false;
@@ -49,13 +53,16 @@ function normalizeRange(field: keyof ComfyUiParameterRanges, ...ranges: Array<Co
   return result;
 }
 
-export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskDraft; update: (patch: Partial<ImageTaskDraft>) => void }) {
+export default function ComfyUiTaskFields({ draft, update, projectId, conversationId, onValidityChange }: { draft: ImageTaskDraft; update: (patch: Partial<ImageTaskDraft>) => void; projectId: string; conversationId: string; onValidityChange: (valid: boolean) => void }) {
   const [templates, setTemplates] = useState<ComfyUiTemplate[]>([]);
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [capabilities, setCapabilities] = useState<InspectCapabilities | null>(null);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mapping, setMapping] = useState("");
+  const [importPreview, setImportPreview] = useState<ComfyUiWorkflowImportPreview | null>(null);
+  const [importCapability, setImportCapability] = useState<ComfyUiWorkflowCapability>("generate");
+  const [importMappings, setImportMappings] = useState<ComfyUiInputMapping[]>([]);
+  const [masks, setMasks] = useState<ComfyUiManagedMask[]>([]);
   const [outputNodeId, setOutputNodeId] = useState("9");
   const [label, setLabel] = useState("");
   const options: ComfyUiTaskOptions = draft.comfyui || {
@@ -66,11 +73,26 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
   const [credentialDirty, setCredentialDirty] = useState(false);
   const inspectRevision = useRef(0);
   const latestOptions = useRef(options);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   latestOptions.current = options;
   const activeConnectionId = options.connectionId || options.profileId;
   const selectedConnection = connections.find(connection => connection.connectionId === activeConnectionId);
   const networkScope = selectedConnection?.networkScope || options.networkScope || (activeConnectionId ? "unknown" : "local");
   const selected = templates.find(template => template.id === options.templateId);
+  const capability = selected?.capability || selected?.operation || "generate";
+  const sourceRequired = selected?.inputRoles?.sourceImage?.required ?? capability !== "generate";
+  const maskRequired = selected?.inputRoles?.maskImage?.required ?? ["inpaint", "cutout"].includes(capability);
+  const referenceLimit = selected?.inputRoles ? selected.inputRoles.referenceImages?.maxCount || 0 : Math.max(0, (selected?.imageInputs || 0) - 1);
+  const referenceMinimum = selected?.inputRoles?.referenceImages?.minCount ?? (selected?.inputRoles?.referenceImages?.required ? referenceLimit : 0);
+  const managedImages = (draft.referenceImages || []).filter((image): image is typeof image & ComfyUiAssetIdentity => Boolean(image.assetId && image.occurrenceId && image.contentHash));
+  const sourceAvailable = managedImages.some(image => sameImage(options.sourceImage, image));
+  const ready = Boolean(!busy && !connectionDirty && !credentialDirty && selected && options.templateHash === selected.templateHash && activeConnectionId && selectedConnection?.enabled !== false && selectedConnection
+    && (selected.requiresCheckpoint === false || options.checkpoint) && (!sourceRequired || sourceAvailable)
+    && (options.referenceImages?.length || 0) >= referenceMinimum && (options.referenceImages?.length || 0) <= referenceLimit
+    && (options.referenceImages || []).every(reference => !sameImage(reference, options.sourceImage) && managedImages.some(image => sameImage(reference, image)))
+    && (!maskRequired || masks.some(mask => sameImage(options.maskImage, mask) && mask.revision === options.maskImage?.revision)));
+  useEffect(() => { onValidityChange(ready); }, [ready, onValidityChange]);
   const supportsDenoise = templateSupports(selected, "denoise");
   const sampling = {
     steps: options.steps ?? selected?.defaults?.steps ?? "",
@@ -88,6 +110,7 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
   const schedulerOptions = uniqueValues([sampling.scheduler, ...(capabilities?.schedulers || [])]);
 
   function patch(value: Partial<ComfyUiTaskOptions>) {
+    if (!mounted.current) return;
     const next = { ...latestOptions.current, ...value };
     if (next.connectionId) { delete next.baseUrl; delete next.profileId; delete next.networkScope; }
     latestOptions.current = next;
@@ -106,15 +129,16 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
   }
   function select(template: ComfyUiTemplate) {
     const value: Partial<ComfyUiTaskOptions> = {
-      templateId: template.id, templateHash: template.templateHash,
-      steps: undefined, cfg: undefined, sampler: undefined, scheduler: undefined, denoise: undefined
+      templateId: template.id, workflowId: template.id, templateHash: template.templateHash,
+      checkpoint: template.requiresCheckpoint === false ? undefined : latestOptions.current.checkpoint,
+      steps: undefined, cfg: undefined, sampler: undefined, scheduler: undefined, denoise: undefined, strength: undefined,
+      sourceImage: undefined, maskImage: undefined, referenceImages: undefined
     };
     for (const field of ["steps", "cfg", "sampler", "scheduler", "denoise"] as const) {
       const templateValue = template.defaults?.[field];
       if (templateSupports(template, field) && templateValue !== undefined) Object.assign(value, { [field]: templateValue });
     }
     patch(value);
-    setMapping(JSON.stringify(template.inputMappings, null, 2)); setOutputNodeId(template.outputNodeId);
   }
   useEffect(() => {
     let stopped = false;
@@ -124,12 +148,38 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
       setTemplates(result.templates || []);
       const first = result.templates?.find(template => template.id === options.templateId) || result.templates?.[0];
       if (first) {
-        setMapping(JSON.stringify(first.inputMappings, null, 2)); setOutputNodeId(first.outputNodeId);
         if (!options.templateId) select(first);
       }
     });
     return () => { stopped = true; };
   }, []);
+  useEffect(() => {
+    let stopped = false;
+    setMasks([]);
+    if (!sourceAvailable || !options.sourceImage || !maskRequired) return;
+    void window.naimageServer?.comfyui({ action: "masks-list", projectId, conversationId, sourceImage: options.sourceImage }).then(result => {
+      if (stopped) return;
+      if (!result.ok) { setStatus(result.error || "读取受管蒙版失败。"); return; }
+      setMasks(result.masks || []);
+    }).catch(error => { if (!stopped) setStatus(error instanceof Error ? error.message : String(error)); });
+    return () => { stopped = true; };
+  }, [projectId, conversationId, options.sourceImage?.assetId, options.sourceImage?.occurrenceId, options.sourceImage?.contentHash, sourceAvailable, maskRequired]);
+  async function importMask() {
+    if (!options.sourceImage || !sourceAvailable) return;
+    const sourceImage = { ...options.sourceImage };
+    setBusy(true); setStatus("");
+    try {
+      const result = await window.naimageServer?.comfyui({ action: "masks-import", projectId, conversationId, sourceImage, confirmed: true });
+      if (!result?.ok) throw new Error(result?.error || "蒙版导入失败。");
+      if (result.canceled || !sameImage(sourceImage, latestOptions.current.sourceImage)) return;
+      if (!result.mask) throw new Error("未返回受管蒙版身份。");
+      const mask = result.mask;
+      setMasks(current => [...current.filter(item => !sameImage(mask, item)), mask]);
+      patch({ maskImage: { assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash, revision: mask.revision } });
+      setStatus(`蒙版已保存 · ${mask.width} × ${mask.height} · revision ${mask.revision}`);
+    } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  }
   useEffect(() => {
     let stopped = false;
     const revision = inspectRevision.current;
@@ -210,7 +260,7 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
         devices: result.devices || []
       };
       setCapabilities(inspected);
-      if (!latestOptions.current.checkpoint && inspected.checkpoints[0]) patch({ checkpoint: inspected.checkpoints[0] });
+      if (selected?.requiresCheckpoint !== false && !latestOptions.current.checkpoint && inspected.checkpoints[0]) patch({ checkpoint: inspected.checkpoints[0] });
       setStatus(`已连接 · ${networkLabels[connection?.networkScope || networkScope]} · ${inspected.checkpoints.length} 个模型 · ${inspected.samplers.length} 个采样器 · ${inspected.schedulers.length} 个调度器 · ${inspected.devices?.map(device => device.name).join("、") || "服务设备"}`);
     } catch (error) {
       if (inspectRevision.current !== inspectedRevision) return;
@@ -221,13 +271,28 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
   async function importTemplate() {
     setBusy(true); setStatus("");
     try {
-      const inputMappings = JSON.parse(mapping);
-      const result = await window.naimageServer?.comfyui({ action: "import", label, outputNodeId, inputMappings });
-      if (!result?.ok) throw new Error(result?.error || "模板导入失败。");
+      const result = await window.naimageServer?.comfyui({ action: "workflow-preview-import", ...(label.trim() ? { label: label.trim() } : {}) });
+      if (!result?.ok) throw new Error(result?.error || "工作流预检失败。");
       if (result.canceled) return;
+      if (!result.draftId || !result.nodes) throw new Error("工作流预检未返回有效草稿。");
+      const preview: ComfyUiWorkflowImportPreview = { draftId: result.draftId, blocked: Boolean(result.blocked), issues: result.issues || [], nodes: result.nodes, candidateCapabilities: result.candidateCapabilities || [] };
+      setImportPreview(preview); setImportMappings([]);
+      setImportCapability(preview.candidateCapabilities[0] || "generate");
+      setOutputNodeId(preview.nodes.find(node => node.outputNode && node.approved)?.nodeId || "");
+      setStatus(preview.blocked ? "工作流含未审核节点或输入，已阻止执行。" : "预检通过。请配置能力、输出节点和输入映射后保存。");
+    } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
+  }
+  async function approveTemplate() {
+    if (!importPreview || importPreview.blocked) return;
+    setBusy(true); setStatus("");
+    try {
+      const result = await window.naimageServer?.comfyui({ action: "workflow-approve-import", draftId: importPreview.draftId, ...(label.trim() ? { label: label.trim() } : {}), capability: importCapability, outputNodeId, inputMappings: importMappings, confirmed: true });
+      if (!result?.ok) throw new Error(result?.error || "输入映射未通过审核。");
       setTemplates(result.templates || []);
       if (result.template) select(result.template);
-      setStatus("模板已校验并保存。执行前仍会检查服务节点与模型依赖。");
+      setImportPreview(null);
+      setStatus("审核工作流已保存。执行前仍会检查服务节点与模型依赖。");
     } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }
   }
@@ -248,19 +313,34 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
           ? "图片任务将通过网络发送到远程 ComfyUI，这个连接不属于严格离线。"
           : "连接的网络范围未知。请明确选择可用连接后再执行图片任务。"}</InlineNotice>
     <div className="manual-image-task-controls">
-      <Field label="审核模板"><select aria-label="ComfyUI 模板" value={options.templateId} onChange={event => { const template = templates.find(item => item.id === event.target.value); if (template) select(template); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.label} · v{template.version}</option>)}</select></Field>
-      <Field label="服务模型"><input aria-label="ComfyUI 模型" list="comfyui-checkpoint-options" value={options.checkpoint} onChange={event => patch({ checkpoint: event.target.value })} placeholder="检查环境后选择 checkpoint" /><datalist id="comfyui-checkpoint-options">{(capabilities?.checkpoints || []).map(name => <option key={name} value={name} />)}</datalist></Field>
+      <Field label="审核工作流"><select aria-label="ComfyUI 模板" value={options.templateId} disabled={busy} onChange={event => { const template = templates.find(item => item.id === event.target.value); if (template) select(template); }}>{templates.map(template => <option key={template.id} value={template.id}>{template.label} · {capabilityLabels[template.capability || template.operation]} · v{template.version}</option>)}</select></Field>
+      <Field label="服务模型"><input aria-label="ComfyUI 模型" list="comfyui-checkpoint-options" value={options.checkpoint || ""} disabled={selected?.requiresCheckpoint === false} onChange={event => patch({ checkpoint: event.target.value })} placeholder={selected?.requiresCheckpoint === false ? "此工作流无需模型" : "检查环境后选择 checkpoint"} /><datalist id="comfyui-checkpoint-options">{(capabilities?.checkpoints || []).map(name => <option key={name} value={name} />)}</datalist></Field>
       <Field label={`采样步数（${ranges.steps.min}–${ranges.steps.max}）`}><input aria-label="ComfyUI steps" type="number" min={ranges.steps.min} max={ranges.steps.max} step={ranges.steps.step} disabled={!templateSupports(selected, "steps")} value={sampling.steps} onChange={event => patch({ steps: event.target.value === "" ? undefined : Number(event.target.value) })} /></Field>
       <Field label={`CFG（${ranges.cfg.min}–${ranges.cfg.max}）`}><input aria-label="ComfyUI cfg" type="number" min={ranges.cfg.min} max={ranges.cfg.max} step={ranges.cfg.step} disabled={!templateSupports(selected, "cfg")} value={sampling.cfg} onChange={event => patch({ cfg: event.target.value === "" ? undefined : Number(event.target.value) })} /></Field>
       <Field label="采样器"><select aria-label="ComfyUI sampler" value={sampling.sampler} disabled={!capabilities || !templateSupports(selected, "sampler")} onChange={event => patch({ sampler: event.target.value })}>{samplerOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></Field>
       <Field label="调度器"><select aria-label="ComfyUI scheduler" value={sampling.scheduler} disabled={!capabilities || !templateSupports(selected, "scheduler")} onChange={event => patch({ scheduler: event.target.value })}>{schedulerOptions.map(name => <option key={name} value={name}>{name}</option>)}</select></Field>
-      <Field label={`去噪强度（${ranges.denoise.min}–${ranges.denoise.max}）`}><input aria-label="ComfyUI denoise" type="number" min={ranges.denoise.min} max={ranges.denoise.max} step={ranges.denoise.step} disabled={!supportsDenoise} value={sampling.denoise} onChange={event => patch({ denoise: event.target.value === "" ? undefined : Number(event.target.value) })} /></Field>
-      <Field label="宽度"><input aria-label="ComfyUI 宽度" type="number" min={64} max={4096} step={8} disabled={selected?.operation === "img2img"} value={options.width} onChange={event => patch({ width: Number(event.target.value) })} /></Field>
-      <Field label="高度"><input aria-label="ComfyUI 高度" type="number" min={64} max={4096} step={8} disabled={selected?.operation === "img2img"} value={options.height} onChange={event => patch({ height: Number(event.target.value) })} /></Field>
-      <Field label="种子（-1 随机）"><input aria-label="ComfyUI 种子" type="number" min={-1} step={1} value={options.seed} onChange={event => patch({ seed: Number(event.target.value) })} /></Field>
-      <Field label="负面提示词"><input aria-label="ComfyUI 负面提示词" value={options.negativePrompt || ""} onChange={event => patch({ negativePrompt: event.target.value })} /></Field>
+      <Field label={`去噪强度（${ranges.denoise.min}–${ranges.denoise.max}）`}><input aria-label="ComfyUI denoise" type="number" min={ranges.denoise.min} max={ranges.denoise.max} step={ranges.denoise.step} disabled={!supportsDenoise} value={sampling.denoise} onChange={event => patch({ denoise: event.target.value === "" ? undefined : Number(event.target.value), strength: undefined })} /></Field>
+      <Field label="宽度"><input aria-label="ComfyUI 宽度" type="number" min={64} max={4096} step={8} disabled={sourceRequired} value={options.width} onChange={event => patch({ width: Number(event.target.value) })} /></Field>
+      <Field label="高度"><input aria-label="ComfyUI 高度" type="number" min={64} max={4096} step={8} disabled={sourceRequired} value={options.height} onChange={event => patch({ height: Number(event.target.value) })} /></Field>
+      <Field label="种子（-1 随机）"><input aria-label="ComfyUI 种子" type="number" min={-1} step={1} disabled={!templateSupports(selected, "seed")} value={options.seed} onChange={event => patch({ seed: Number(event.target.value) })} /></Field>
+      <Field label="负面提示词"><input aria-label="ComfyUI 负面提示词" disabled={!templateSupports(selected, "negativePrompt")} value={options.negativePrompt || ""} onChange={event => patch({ negativePrompt: event.target.value })} /></Field>
     </div>
-    <p>{selected?.operation === "img2img" ? `图生图需要 ${selected.imageInputs} 张受管素材，按素材尺寸执行。` : "文生图模板无需参考素材。"}</p>
+    <p data-comfyui-capability={capability}>{capabilityLabels[capability]} · {sourceRequired ? "按源图尺寸执行，原图和蒙版均保留。" : "按设定尺寸生成新成果。"}{capability === "cutout" ? "使用你提供的蒙版移除背景，并校验输出的真实透明像素。" : ""}</p>
+    {sourceRequired ? <Field label="源图"><select aria-label="ComfyUI 源图" value={sourceAvailable ? options.sourceImage?.occurrenceId || "" : ""} disabled={busy} onChange={event => {
+      const image = managedImages.find(item => item.occurrenceId === event.target.value);
+      patch({ sourceImage: image ? { assetId: image.assetId, occurrenceId: image.occurrenceId, contentHash: image.contentHash } : undefined, maskImage: undefined, referenceImages: undefined });
+    }}><option value="">请从下方素材入口添加图片，再选择源图</option>{managedImages.map(image => <option key={image.occurrenceId} value={image.occurrenceId}>{image.name || "项目图片"}</option>)}</select></Field> : null}
+    {maskRequired ? <div data-comfyui-mask-fields>
+      <Field label="受管蒙版"><select aria-label="ComfyUI 蒙版" value={masks.some(mask => sameImage(options.maskImage, mask)) ? options.maskImage?.occurrenceId || "" : ""} disabled={busy || !sourceAvailable} onChange={event => {
+        const mask = masks.find(item => item.occurrenceId === event.target.value);
+        patch({ maskImage: mask ? { assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash, revision: mask.revision } : undefined });
+      }}><option value="">请选择与当前源图绑定的蒙版</option>{masks.map((mask, index) => <option key={mask.occurrenceId} value={mask.occurrenceId}>蒙版 {index + 1} · {mask.width} × {mask.height} · r{mask.revision}</option>)}</select></Field>
+      <p>导入与源图同尺寸的透明 PNG；透明区域{capability === "cutout" ? "将被移除" : "允许修改"}，不透明区域保留。黑白颜色本身不代表蒙版范围。</p>
+      <ActionButton busy={busy} disabled={!sourceAvailable} onClick={() => void importMask()}>导入 PNG 蒙版</ActionButton>
+    </div> : null}
+    {referenceLimit > 0 ? <Field label={referenceMinimum === referenceLimit ? `额外参考图（需选择 ${referenceLimit} 张）` : `额外参考图（最多 ${referenceLimit} 张）`}><div data-comfyui-reference-fields>{managedImages.filter(image => !sameImage(options.sourceImage, image)).map(image => <label key={image.occurrenceId}>
+      <input type="checkbox" aria-label={`ComfyUI 参考图 ${image.name}`} checked={Boolean(options.referenceImages?.some(item => sameImage(item, image)))} disabled={busy || !options.referenceImages?.some(item => sameImage(item, image)) && (options.referenceImages?.length || 0) >= referenceLimit} onChange={event => patch({ referenceImages: event.target.checked ? [...(options.referenceImages || []), { assetId: image.assetId, occurrenceId: image.occurrenceId, contentHash: image.contentHash }] : options.referenceImages?.filter(item => !sameImage(item, image)) })} />{image.name || "项目图片"}
+    </label>)}</div></Field> : null}
     {!capabilities ? <InlineNotice tone="warning">尚未检查连接能力，将显示模板默认值；提交前会再次验证参数是否受支持。</InlineNotice> : null}
     {status ? <InlineNotice>{status}</InlineNotice> : null}
     <details data-comfyui-connection-manager><summary>管理 ComfyUI 连接</summary>
@@ -281,12 +361,24 @@ export default function ComfyUiTaskFields({ draft, update }: { draft: ImageTaskD
       <ActionButton busy={busy} disabled={!connectionDraft.baseUrl.trim()} onClick={() => void inspect()}>测试连接</ActionButton>
       <ActionButton disabled={busy} onClick={() => { clearInspection(); setConnectionDraft(connectionDraftFor()); setConnectionDirty(true); setCredentialDirty(false); }}>新增连接</ActionButton>
     </details>
-    <details><summary>导入 API Format JSON 模板</summary>
-      <p>只接受审核核心节点。输入映射与 SaveImage 输出必须明确；首期不支持云端 API 或自定义节点。</p>
-      <Field label="模板名称"><input value={label} onChange={event => setLabel(event.target.value)} /></Field>
-      <Field label="SaveImage 输出节点 ID"><input value={outputNodeId} onChange={event => setOutputNodeId(event.target.value)} /></Field>
-      <Field label="输入映射 JSON"><textarea aria-label="ComfyUI 输入映射 JSON" rows={5} value={mapping} onChange={event => setMapping(event.target.value)} /></Field>
-      <ActionButton busy={busy} onClick={() => void importTemplate()}>选择 API JSON 并校验导入</ActionButton>
+    <details data-comfyui-workflow-import><summary>导入 API Format JSON 工作流</summary>
+      <p>选择本地文件后先审核节点，再配置输入映射。未审核节点、脚本和任意文件读取不能执行。</p>
+      <Field label="工作流名称"><input aria-label="ComfyUI 工作流名称" value={label} onChange={event => setLabel(event.target.value)} /></Field>
+      <ActionButton busy={busy} onClick={() => void importTemplate()}>选择 API JSON 并预检</ActionButton>
+      {importPreview ? <div data-comfyui-mapping-wizard>
+        {importPreview.issues.length ? <InlineNotice tone="warning">{importPreview.issues.map(issue => `${issue.code}${issue.nodeId ? ` · 节点 ${issue.nodeId}` : ""}${issue.classType ? ` (${issue.classType})` : ""}`).join("；")}</InlineNotice> : null}
+        <p>{importPreview.nodes.map(node => `${node.nodeId} · ${node.classType}${node.approved ? "" : "（未审核）"}`).join(" / ")}</p>
+        <Field label="工作流能力"><select aria-label="ComfyUI 导入能力" value={importCapability} disabled={busy || importPreview.blocked} onChange={event => setImportCapability(event.target.value as ComfyUiWorkflowCapability)}>{importPreview.candidateCapabilities.map(value => <option key={value} value={value}>{capabilityLabels[value]}</option>)}</select></Field>
+        <Field label="成果输出"><select aria-label="ComfyUI 导入输出" value={outputNodeId} disabled={busy || importPreview.blocked} onChange={event => setOutputNodeId(event.target.value)}>{importPreview.nodes.filter(node => node.outputNode && node.approved).map(node => <option key={node.nodeId} value={node.nodeId}>节点 {node.nodeId} · {node.classType}</option>)}</select></Field>
+        {importPreview.nodes.filter(node => node.approved).flatMap(node => node.inputs.filter(input => input.allowedKinds.length).map(input => {
+          const current = importMappings.find(mapping => mapping.nodeId === node.nodeId && mapping.inputName === input.inputName);
+          return <Field key={`${node.nodeId}:${input.inputName}`} label={`${node.nodeId} · ${input.inputName} (${input.type})`}><select aria-label={`ComfyUI 映射 ${node.nodeId} ${input.inputName}`} value={current ? `${current.kind}:${current.index ?? ""}` : ""} disabled={busy || importPreview.blocked} onChange={event => {
+            const [kind, index] = event.target.value.split(":");
+            setImportMappings(mappings => [...mappings.filter(mapping => mapping.nodeId !== node.nodeId || mapping.inputName !== input.inputName), ...(kind ? [{ nodeId: node.nodeId, inputName: input.inputName, kind, ...(index ? { index: Number(index) } : {}) }] : [])]);
+          }}><option value="">保留工作流固定值或已有连接</option>{input.allowedKinds.filter(kind => kind !== "fixed").flatMap(kind => ["image", "referenceImages"].includes(kind) ? Array.from({ length: 4 }, (_, index) => <option key={`${kind}:${index}`} value={`${kind}:${index}`}>{mappingLabels[kind] || kind} {index + 1}</option>) : <option key={kind} value={`${kind}:`}>{mappingLabels[kind] || kind}</option>)}</select></Field>;
+        }))}
+        <ActionButton busy={busy} disabled={importPreview.blocked || !outputNodeId || !importMappings.length} onClick={() => void approveTemplate()}>审核并保存工作流</ActionButton>
+      </div> : null}
     </details>
   </section>;
 }

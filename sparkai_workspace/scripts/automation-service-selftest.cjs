@@ -757,6 +757,9 @@ async function main() {
     globalThis.window = { naimageServer: { comfyui: async input => { boundaryCalls.push({ kind: "control", input }); return { ok: true,
       connectionId: "comfyui-local", networkScope: "local", baseUrl: "http://127.0.0.1:8188", authorizedHost: "127.0.0.1", credentialRef: "main-ref",
       connections: [{ connectionId: "comfyui-local", label: "Fixture", networkScope: "local", baseUrl: "http://127.0.0.1:8188", authorizedHost: "127.0.0.1", credentialMode: "bearer", credentialConfigured: true }],
+      draftId: "workflow-draft-fixture", blocked: false, rawWorkflow: { secret: "must-not-cross" },
+      nodes: [{ nodeId: "10", classType: "LoadImage", inputs: [{ inputName: "image", type: "file", allowedKinds: ["sourceImage"], value: "C:/private/source.png" }] }],
+      masks: [{ assetId: "mask-fixture", occurrenceId: "mask-occ", contentHash: "c".repeat(64), revision: 2, path: "C:/private/mask.png" }],
       capabilities: { checkpoints: ["fixture.safetensors"], endpoint: "http://127.0.0.1:8188", credentialRef: "nested-ref" } }; } }, naimageConfig: {
       exportManagedAssetQueue: {
         start: async input => { boundaryCalls.push({ kind: "export", input }); return { ok: true, queueId: "queue-fixture" }; },
@@ -812,9 +815,65 @@ async function main() {
       const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { connectionId: "comfyui-local", templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1, steps: 28, cfg: 7.5, sampler: "euler", scheduler: "normal", denoise: 0.8 } };
       await runtimeModule.executeAutomationCommand("comfyui.generate", local, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input.submissionId, "stable-local");
-      assert.deepEqual(boundaryCalls.at(-1).input.comfyui, local.comfyui, "structured sampling parameters cross the automation boundary unchanged");
+      assert.deepEqual(boundaryCalls.at(-1).input.comfyui, { ...local.comfyui, workflowId: local.comfyui.templateId }, "structured sampling parameters cross the automation boundary with a canonical workflow identity");
       for (const input of [{ ...local, expectedProjectId: "OTHER" }, { ...local, workflow: {} }, { ...local, comfyui: { ...local.comfyui, width: 513 } }, { ...local, comfyui: { ...local.comfyui, path: "C:/private" } }, { ...local, comfyui: { ...local.comfyui, baseUrl: "http://127.0.0.1:8188" } }, { ...local, comfyui: { ...local.comfyui, connectionId: "" } }, { ...local, comfyui: { ...local.comfyui, profileId: "conflict" } }]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", input, incrementalContext));
       assert.equal(boundaryCalls.filter(call => call.kind === "generate").length, 1, "Invalid local requests never enter the image execution chain");
+      const sourceImage = { assetId: "photo-a", occurrenceId: "occ-a", contentHash: "a".repeat(64) };
+      const maskImage = { assetId: "mask-fixture", occurrenceId: "mask-occ", contentHash: "c".repeat(64), revision: 2 };
+      const typed = { ...local, submissionId: "stable-inpaint", comfyui: { ...local.comfyui, workflowId: "stock-inpaint", sourceImage, maskImage, referenceImages: [sourceImage], strength: 0.8 } };
+      delete typed.comfyui.templateId; delete typed.comfyui.denoise;
+      await runtimeModule.executeAutomationCommand("comfyui.generate", typed, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.comfyui.templateId, "stock-inpaint");
+      assert.equal(boundaryCalls.at(-1).input.comfyui.workflowId, "stock-inpaint");
+      assert.equal(boundaryCalls.at(-1).input.comfyui.denoise, 0.8); assert.equal(boundaryCalls.at(-1).input.comfyui.strength, undefined);
+      assert.deepEqual(boundaryCalls.at(-1).input.comfyui.sourceImage, sourceImage); assert.deepEqual(boundaryCalls.at(-1).input.comfyui.maskImage, maskImage);
+      const cutout = { ...typed, comfyui: { ...typed.comfyui, workflowId: "stock-cutout" } };
+      delete cutout.comfyui.checkpoint; delete cutout.comfyui.strength;
+      await runtimeModule.executeAutomationCommand("comfyui.generate", cutout, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.comfyui.checkpoint, undefined, "Cutout may use an explicitly reviewed workflow with no model checkpoint");
+      const beforeInvalidTyped = boundaryCalls.length;
+      const noWorkflow = { ...typed.comfyui }; delete noWorkflow.workflowId;
+      const noRevision = { ...maskImage }; delete noRevision.revision;
+      const comfyUiCommandSchema = publicCommands.get("comfyui.generate").parameters;
+      validateSchemaValue("comfyui.generate", comfyUiCommandSchema, typed);
+      assert.throws(() => validateSchemaValue("comfyui.generate", comfyUiCommandSchema, { ...typed, comfyui: noWorkflow }), error => error.code === "INVALID_ARGUMENT");
+      assert.throws(() => validateSchemaValue("comfyui.generate", comfyUiCommandSchema, { ...typed, comfyui: { ...typed.comfyui, maskImage: noRevision } }), error => error.code === "INVALID_ARGUMENT");
+      for (const comfyui of [
+        noWorkflow, { ...typed.comfyui, templateId: "stock-generate" }, { ...typed.comfyui, denoise: 0.7 },
+        { ...typed.comfyui, sourceImage: { ...sourceImage, path: "C:/private/source.png" } },
+        { ...typed.comfyui, maskImage: noRevision }, { ...typed.comfyui, maskImage: { ...maskImage, revision: 0 } },
+        { ...typed.comfyui, referenceImages: [{ ...sourceImage, url: "https://example.invalid/private" }] },
+        { ...typed.comfyui, referenceImages: Array.from({ length: 5 }, () => sourceImage) }
+      ]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", { ...typed, comfyui }, incrementalContext));
+      assert.equal(boundaryCalls.length, beforeInvalidTyped, "Typed source and alias failures must stay before image dispatch");
+      const preview = await runtimeModule.executeAutomationCommand("comfyui.workflow.import", { label: "Reviewed import" }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "workflow-preview-import", label: "Reviewed import" });
+      assert.equal(preview.draftId, "workflow-draft-fixture"); assert.equal(preview.rawWorkflow, undefined); assert.equal(preview.nodes[0].inputs[0].value, undefined);
+      await runtimeModule.executeAutomationCommand("comfyui.import-template", {}, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "workflow-preview-import" }, "Legacy import cannot silently approve a workflow");
+      const approval = { draftId: "workflow-draft-fixture", capability: "inpaint", outputNodeId: "9", inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage" }, { nodeId: "11", inputName: "image", kind: "maskImage" }], confirmed: true };
+      await runtimeModule.executeAutomationCommand("comfyui.workflow.approve", approval, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "workflow-approve-import", ...approval });
+      const maskRequest = { expectedProjectId: "PROJECT", conversationId: "CONVERSATION", sourceImage };
+      const masks = await runtimeModule.executeAutomationCommand("comfyui.mask.list", maskRequest, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "masks-list", projectId: "PROJECT", conversationId: "CONVERSATION", sourceImage });
+      assert.equal(masks.masks[0].revision, 2); assert.equal(masks.masks[0].path, undefined);
+      await runtimeModule.executeAutomationCommand("comfyui.mask.import", { ...maskRequest, confirmed: true }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "masks-import", projectId: "PROJECT", conversationId: "CONVERSATION", sourceImage, confirmed: true });
+      const beforeInvalidImports = boundaryCalls.length;
+      for (const [command, args] of [
+        ["comfyui.workflow.import", { workflow: {} }], ["comfyui.workflow.import", { path: "C:/private/workflow.json" }],
+        ["comfyui.import-template", { outputNodeId: "9", inputMappings: [] }],
+        ["comfyui.workflow.approve", { ...approval, confirmed: false }],
+        ["comfyui.workflow.approve", { ...approval, inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage", value: "C:/private/source.png" }] }],
+        ["comfyui.workflow.approve", { ...approval, inputMappings: [{ nodeId: "10", inputName: "image", kind: "value" }] }],
+        ["comfyui.workflow.approve", { ...approval, inputMappings: [{ nodeId: "10", inputName: "image", kind: "image", index: 0 }] }],
+        ["comfyui.mask.list", { ...maskRequest, expectedProjectId: "OTHER" }],
+        ["comfyui.mask.import", { ...maskRequest, confirmed: false }],
+        ["comfyui.mask.import", { ...maskRequest, confirmed: true, path: "C:/private/mask.png" }],
+        ["comfyui.mask.import", { ...maskRequest, confirmed: true, sourceImage: { ...sourceImage, dataUrl: "data:image/png;base64,a" } }]
+      ]) await assert.rejects(runtimeModule.executeAutomationCommand(command, args, incrementalContext));
+      assert.equal(boundaryCalls.length, beforeInvalidImports, "Import and approval validation must occur before native/Main actions");
       await runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "remove-object" }, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input[2], "remove-object");
       await assert.rejects(runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "expand" }, incrementalContext));

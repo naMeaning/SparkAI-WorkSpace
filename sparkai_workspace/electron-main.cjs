@@ -77,7 +77,7 @@ const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs")
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentTaskService } = require("./desktop/agent-task-service.cjs");
 let agentTaskService;
-const { createProjectCreationService } = require("./desktop/project-creation-service.cjs");
+const { createProjectCreationService, normalizeCreationTarget } = require("./desktop/project-creation-service.cjs");
 const { createCreationMaskService } = require("./desktop/creation-mask-service.cjs");
 const { createCreationCommandService, CREATION_COMMANDS } = require("./desktop/creation-command-service.cjs");
 const { verifyObservationEvidence } = require("./runtime/image-observation-evidence.cjs");
@@ -1524,8 +1524,29 @@ const commerceCatalogService = createProjectCommerceCatalogService({
 const creationMaskService = createCreationMaskService({
   projectFor: projectId => getProjectById(projectId, readProjectList()),
   readSession: projectId => projectSessionFromDisk(getProjectById(projectId, readProjectList())),
+  sourceFor: (project, target) => projectAssetRepository.resolveRegisteredMaterial(project, target),
   projectRelativePath, resolveProjectRelativePath, sharp, metaDir: projectMetaDirName
 });
+const comfyUiMaskService = {
+  list(input = {}) {
+    const sourceImage = comfyUiMaterialIdentity(input.sourceImage);
+    resolveComfyUiImageIdentity(sourceImage, input.projectId);
+    return { ok: true, masks: creationMaskService.list({ expectedProjectId: input.projectId, conversationId: input.conversationId, target: sourceImage }) };
+  },
+  async importMask(input = {}) {
+    if (input.confirmed !== true) throw Object.assign(new Error("导入蒙版需要用户明确确认。"), { code: "COMFYUI_CONFIRMATION_REQUIRED" });
+    const sourceImage = comfyUiMaterialIdentity(input.sourceImage);
+    // Validate project, conversation and the source before opening a native picker.
+    this.list({ projectId: input.projectId, conversationId: input.conversationId, sourceImage });
+    const selected = await dialog.showOpenDialog({ title: "导入 PNG 蒙版（透明区域为处理区域）", properties: ["openFile"], filters: [{ name: "PNG 蒙版", extensions: ["png"] }] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { ok: true, canceled: true };
+    // A native picker yields to project switching and source edits.
+    this.list({ projectId: input.projectId, conversationId: input.conversationId, sourceImage });
+    const bytes = boundedImageRead(selected.filePaths[0], 20 * 1024 * 1024, "蒙版");
+    const saved = await creationMaskService.save({ expectedProjectId: input.projectId, conversationId: input.conversationId, target: sourceImage, dataUrl: `data:image/png;base64,${bytes.toString("base64")}` });
+    return { ok: true, mask: { ...saved.mask, revision: saved.revision, width: saved.width, height: saved.height, sourceImage } };
+  }
+};
 const creationService = createProjectCreationService({
   projectFor: projectId => getProjectById(projectId, readProjectList()),
   readSession: projectId => projectSessionFromDisk(getProjectById(projectId, readProjectList())),
@@ -2388,7 +2409,7 @@ async function importLocalImagesToProject(payload = {}) {
       outputDir,
       maxFiles
     });
-    const assets = imported.assets.map((asset, index) => ({
+    let assets = imported.assets.map((asset, index) => ({
       contentHash: String(asset.sha256 || "").toLowerCase(),
       occurrenceId: String(asset.occurrenceId || "").slice(0, 80),
       importBatchId: String(asset.importBatchId || imported.importBatchId || "").slice(0, 160),
@@ -2407,6 +2428,9 @@ async function importLocalImagesToProject(payload = {}) {
       width: Number(asset.width) || undefined,
       height: Number(asset.height) || undefined
     }));
+    const project = getProjectById(requestedProjectId || readProjectList().activeProjectId, readProjectList());
+    if (!project || !isComparablePathInside(realpathSync(outputDir), realpathSync(project.path))) throw Object.assign(new Error("图片导入所属项目已变化，请重新选择项目。"), { code: "PROJECT_MATERIAL_IDENTITY_INVALID" });
+    assets = projectAssetRepository.registerImportedMaterials(project, assets);
     imageImportCounters.completed += 1;
     imageImportCounters.lastDurationMs = Date.now() - startedAt;
     imageImportCounters.lastSelectedCount = Number(imported.selectedCount) || 0;
@@ -4922,6 +4946,28 @@ function clearNewApiAuth(settings) {
 
 
 
+function comfyUiMaterialIdentity(value, mask = false) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["assetId", "occurrenceId", "contentHash", ...(mask ? ["revision"] : [])].includes(key))) throw Object.assign(new Error("ComfyUI 素材只能引用当前项目的稳定身份。"), { code: "COMFYUI_INPUT_INVALID" });
+  let identity;
+  try { identity = normalizeCreationTarget(value); } catch { throw Object.assign(new Error("ComfyUI 素材需要完整的资产、出现身份与内容指纹。"), { code: "COMFYUI_INPUT_INVALID" }); }
+  if (mask && (!Number.isSafeInteger(value.revision) || value.revision < 1)) throw Object.assign(new Error("ComfyUI 蒙版需要已保存的有效修订标识。"), { code: "COMFYUI_INPUT_INVALID" });
+  return { ...identity, ...(mask ? { revision: value.revision } : {}) };
+}
+
+function resolveComfyUiImageIdentity(value, projectId) {
+  const identity = comfyUiMaterialIdentity(value), context = createAssetExportContext(projectId);
+  const candidates = (projectSessionFromDisk(context.project)?.nodes || []).filter(node => node.type === "image").flatMap(node =>
+    (node.assets || []).map((asset, canvasAssetIndex) => ({ ...asset, canvasNodeId: node.id, canvasAssetIndex })));
+  const matches = candidates.filter(asset => ["assetId", "occurrenceId", "contentHash"].every(field => asset[field] === identity[field]));
+  if (matches.length > 1) throw Object.assign(new Error("ComfyUI 素材身份不唯一，请重新选择。"), { code: "COMFYUI_INPUT_CHANGED" });
+  let found = matches[0];
+  if (!found) {
+    try { found = projectAssetRepository.resolveRegisteredMaterial(context.project, identity); } catch { throw Object.assign(new Error("ComfyUI 已导入素材的位置或内容已改变。"), { code: "COMFYUI_INPUT_CHANGED" }); }
+  }
+  if (!found || ["pending", "error"].includes(found.status)) throw Object.assign(new Error("ComfyUI 素材身份已失效，请重新选择当前项目中的图片。"), { code: "COMFYUI_INPUT_CHANGED" });
+  return resolveMaterializedImageInput(found, projectId);
+}
+
 function resolveMaterializedImageInput(input, projectId) {
   const context = createAssetExportContext(projectId);
   const asset = normalizedExportAsset(input);
@@ -4933,23 +4979,57 @@ function resolveMaterializedImageInput(input, projectId) {
   if (asset.contentHash && String(asset.contentHash).toLowerCase() !== contentHash) throw Object.assign(new Error("本地生图素材内容已经改变，请重新选择。"), { code: "COMFYUI_INPUT_CHANGED" });
   const format = requireEncodedImageFormat(buffer);
   assertSafeEncodedImageDimensions(buffer, "输入素材");
-  return { buffer, mimeType: format.mimeType, contentHash, source: { ...asset, contentHash } };
+  return { buffer, mimeType: format.mimeType, ...encodedImageDimensions(buffer), contentHash, assetId: asset.assetId, occurrenceId: asset.occurrenceId, path: filePath, source: { ...asset, contentHash } };
 }
 
 async function callComfyUiImageWithSession(payload = {}) {
   if (!payload.projectId || !payload.operationId) throw Object.assign(new Error("本地生图需要项目与稳定操作标识。"), { code: "COMFYUI_SUBMISSION_ID_REQUIRED" });
   const config = payload.comfyui;
   if (!config?.workflow || !config.templateId || !config.templateHash) throw Object.assign(new Error("本地生图需要 Main 已校验的模板。"), { code: "COMFYUI_TEMPLATE_REQUIRED" });
-  if (payload.maskImage || payload.maskDataUrl || ["redraw", "cutout"].includes(payload.editOperation)) throw Object.assign(new Error("首期本地模板暂不支持蒙版编辑或抠图。"), { code: "COMFYUI_MASK_UNSUPPORTED" });
+  if (payload.maskImage !== undefined || payload.maskDataUrl !== undefined) throw Object.assign(new Error("ComfyUI 蒙版只能由受管 maskImage 身份引用，不能传路径或内联数据。"), { code: "COMFYUI_INPUT_INVALID" });
   const connection = comfyUiConnectionService.resolve(config);
   const baseUrl = connection.baseUrl;
-  const sourceImages = [payload.editImage, ...(Array.isArray(payload.referenceImages) ? payload.referenceImages : [])].filter(Boolean);
-  if (sourceImages.length !== config.imageInputs) throw Object.assign(new Error("所选模板需要的素材数量与当前来源不符。"), { code: "COMFYUI_NODE_MAPPING_INVALID" });
-  const inputs = sourceImages.map(image => resolveMaterializedImageInput(image, payload.projectId));
+  const capability = config.capability || config.operation || (config.imageInputs ? "img2img" : "generate");
+  if (!["generate", "img2img", "inpaint", "cutout"].includes(capability) || payload.editOperation === "redraw" && capability !== "inpaint" || payload.editOperation === "cutout" && capability !== "cutout") throw Object.assign(new Error("所选 ComfyUI 能力与图片操作不匹配。"), { code: "COMFYUI_CAPABILITY_INVALID" });
+  const typed = ["sourceImage", "maskImage", "referenceImages"].some(field => Object.prototype.hasOwnProperty.call(config, field));
+  const inputs = [];
+  if (typed) {
+    if (config.sourceImage !== undefined) inputs.push({ ...resolveComfyUiImageIdentity(config.sourceImage, payload.projectId), role: "sourceImage" });
+    if (config.referenceImages !== undefined) {
+      if (!Array.isArray(config.referenceImages) || config.referenceImages.length > 4) throw Object.assign(new Error("ComfyUI 参考素材超出审核上限。"), { code: "COMFYUI_INPUT_INVALID" });
+      config.referenceImages.forEach((image, index) => inputs.push({ ...resolveComfyUiImageIdentity(image, payload.projectId), role: "referenceImages", index }));
+    }
+  } else {
+    const sourceImages = [payload.editImage, ...(Array.isArray(payload.referenceImages) ? payload.referenceImages : [])].filter(Boolean);
+    sourceImages.forEach((image, index) => inputs.push({ ...resolveMaterializedImageInput(image, payload.projectId), role: index === 0 ? "sourceImage" : "referenceImages", ...(index ? { index: index - 1 } : {}) }));
+  }
+  const source = inputs.find(input => input.role === "sourceImage");
+  let maskBindings;
+  if (config.maskImage !== undefined) {
+    if (!source || !["inpaint", "cutout"].includes(capability)) throw Object.assign(new Error("当前 ComfyUI 能力没有对应的受管蒙版来源。"), { code: "COMFYUI_MASK_BINDING_INVALID" });
+    const maskIdentity = comfyUiMaterialIdentity(config.maskImage, true);
+    const material = creationMaskService.resolve({ expectedProjectId: payload.projectId, conversationId: payload.conversationId, target: comfyUiMaterialIdentity(config.sourceImage), mask: maskIdentity });
+    const buffer = boundedImageRead(material.path, 20 * 1024 * 1024, "受管蒙版");
+    if (material.width !== source.width || material.height !== source.height || createHash("sha256").update(buffer).digest("hex") !== material.contentHash) throw Object.assign(new Error("受管蒙版与原图的指纹或尺寸不一致。"), { code: "COMFYUI_MASK_BINDING_INVALID" });
+    maskBindings = { sourceHash: source.contentHash, maskHash: material.contentHash, width: material.width, height: material.height, revision: material.revision };
+    inputs.splice(1, 0, { role: "maskImage", buffer, mimeType: material.mimeType, width: material.width, height: material.height, contentHash: material.contentHash, assetId: material.assetId, occurrenceId: material.occurrenceId });
+  }
+  const roles = config.inputRoles || (config.imageInputs ? { sourceImage: { required: true, maxCount: 1 }, ...(config.imageInputs > 1 ? { referenceImages: { required: false, maxCount: config.imageInputs - 1 } } : {}) } : {});
+  if (inputs.length !== config.imageInputs || ["sourceImage", "maskImage", "referenceImages"].some(role => {
+    const count = inputs.filter(input => input.role === role).length, rule = roles[role];
+    return count > (rule?.maxCount || 0) || rule?.required && !count;
+  }) || ["inpaint", "cutout"].includes(capability) && !maskBindings) throw Object.assign(new Error("所选模板需要的素材角色或数量与当前来源不符。"), { code: "COMFYUI_NODE_MAPPING_INVALID" });
+  const prompt = config.prompt === undefined ? String(payload.prompt || "") : config.prompt;
+  const requireAlpha = config.alphaRequired === true || capability === "cutout" || payload.requireAlpha === true;
+  const processing = capability === "inpaint" ? { clientMask: true, sourcePath: source.path, inputs: { editImages: [{ buffer: source.buffer }], mask: { buffer: inputs.find(input => input.role === "maskImage").buffer } }, maskBindings, ...(requireAlpha ? { requireAlpha: true } : {}) } : requireAlpha ? { requireAlpha: true } : undefined;
+  // The alpha verifier and protected-pixel compositor decode at most 32M
+  // pixels. Refuse an undeliverable local result before any service request.
+  if (["inpaint", "cutout"].includes(capability) && source.width * source.height > 32_000_000) throw Object.assign(new Error("蒙版图片来源超过本地像素校验的 3200 万像素上限，请先缩小原图。"), { code: capability === "inpaint" ? "IMAGE_INVALID_INPUT" : "COMFYUI_INPUT_INVALID" });
+  if (processing?.clientMask) await require("./desktop/image-mask-compat.cjs").validateMaskInputs(processing.inputs);
   const requestHash = comfyUiStableHash({ connectionId: connection.id, connectionHash: comfyUiConnectionHash(connection), networkScope: connection.networkScope, templateId: config.templateId, templateHash: config.templateHash, baseUrl, checkpoint: config.checkpoint,
     seed: config.seed, width: config.width, height: config.height, steps: config.steps, cfg: config.cfg, sampler: config.sampler,
-    scheduler: config.scheduler, denoise: config.denoise, prompt: String(payload.prompt || ""), negativePrompt: config.negativePrompt,
-    sources: inputs.map(input => ({ contentHash: input.contentHash, assetId: input.source.assetId, occurrenceId: input.source.occurrenceId, nodeId: input.source.canvasNodeId })), requireAlpha: payload.requireAlpha === true });
+    scheduler: config.scheduler, denoise: config.denoise, prompt, negativePrompt: config.negativePrompt, capability, maskBindings,
+    sources: inputs.map(input => ({ role: input.role, index: input.index, contentHash: input.contentHash, width: input.width, height: input.height, assetId: input.assetId, occurrenceId: input.occurrenceId, nodeId: input.source?.canvasNodeId })), requireAlpha });
   const existing = imageOperationJournal.find(payload.projectId, payload.operationId, payload.requestIndex || 1);
   if (existing) {
     if (existing.provider !== "comfyui" || existing.requestHash !== requestHash) throw Object.assign(new Error("相同本地操作标识已提交不同内容。"), { code: "COMFYUI_SUBMISSION_CONFLICT", unsafeToRetry: true });
@@ -4962,17 +5042,18 @@ async function callComfyUiImageWithSession(payload = {}) {
   const project = getProjectById(payload.projectId, readProjectList());
   const item = imageOperationJournal.start({ projectId: payload.projectId, operationId: payload.operationId, requestIndex: payload.requestIndex || 1,
     runId: payload.runId, agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId), provider: "comfyui", requestHash,
-    projectRevision: projectSessionRevisionFromDisk(project), model: config.checkpoint, protocol: "comfyui", transport: connection.networkScope, connectionId: connection.id,
-    sourceNodeIds: inputs.map(input => input.source.canvasNodeId).filter(Boolean), sources: inputs.map(input => input.source), targetNodeId: payload.targetNodeId,
+    projectRevision: projectSessionRevisionFromDisk(project), model: config.requiresCheckpoint === false ? "comfyui-mask" : config.checkpoint, protocol: "comfyui", transport: connection.networkScope, connectionId: connection.id,
+    sourceNodeIds: inputs.map(input => input.source?.canvasNodeId).filter(Boolean), sources: inputs.map(input => input.source).filter(Boolean), targetNodeId: payload.targetNodeId,
     parameters: { n: 1, size: `${config.width}x${config.height}`, outputFormat: "png", referenceCount: inputs.length } });
   const template = { templateId: config.templateId, templateHash: config.templateHash, templateVersion: config.templateVersion };
   try {
-    const result = await imageGenerationService.runComfyUi({ ...config, connection, connectionId: connection.id, prompt: payload.prompt, submissionId: `op-${item.key}`, inputs,
+    // This descriptor must survive a lost POST acknowledgement and restart.
+    imageOperationJournal.prepareProcessing(item, processing);
+    const result = await imageGenerationService.runComfyUi({ ...config, connection, connectionId: connection.id, prompt, submissionId: `op-${item.key}`, inputs, ...(maskBindings ? { maskBindings } : {}),
       signal: payload.signal, onStatus: payload.onStatus,
       persistPrepared: snapshot => imageOperationJournal.prepared(item, { ...snapshot, ...template }),
       persistAccepted: snapshot => imageOperationJournal.accepted(item, { taskId: snapshot.promptId, comfyui: { ...snapshot, ...template } }),
       onAccepted: payload.onAccepted });
-    const processing = payload.requireAlpha === true ? { requireAlpha: true } : undefined;
     imageOperationJournal.received(item, result, processing);
     imageRuntimeObservationContexts.set(result, { provider: "comfyui", operationRecord: item, processed: !processing });
     return result;
@@ -5245,7 +5326,8 @@ function imageGenerationContext(payload = {}, data = {}, outputFormat = "png") {
     return { request: normalizeImageGenerationParameters({ ...actual, protocol: "comfyui", connectionId: frozen.connectionId, networkScope: frozen.networkScope || "local", outputFormat: "png",
       ...(actual.width && actual.height ? { size: `${actual.width}x${actual.height}` } : {}),
       templateId: frozen.templateId, templateVersion: frozen.templateVersion, templateHash: frozen.templateHash, workflowHash: frozen.workflowHash,
-      sourceHashes: (frozen.inputs || []).map(input => input.sha256) }) };
+      capability: frozen.capability, maskBindings: frozen.maskBindings,
+      sourceHashes: (frozen.inputs || []).filter(input => input.role !== "maskImage").map(input => input.sha256) }) };
   }
   return {
     request: normalizeImageGenerationParameters({
@@ -5556,6 +5638,7 @@ function registerIpc() {
     comfyUiCredentialStore,
     comfyUiConnectionService,
     comfyUiTemplateService,
+    comfyUiMaskService,
     clearNewApiAuth,
     completeNewApiLogin,
     extractServerImages,
@@ -5677,6 +5760,8 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     deliverGeneratedImageResult,
     imageOperationJournal,
     comfyUiTemplateService,
+    comfyUiMaskService,
+    creationMaskService,
     applicationId,
     applicationName,
     activeNewApiCurlTransportCount,
@@ -5696,6 +5781,7 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     ensureProjectFiles,
     imageEditRequestLimiterStatus,
     imageEditRequestHeaders,
+    importLocalImagesToProject,
     importProjectPackage,
     nextExternalProjectFolderPath,
     normalizeSessionRevision,

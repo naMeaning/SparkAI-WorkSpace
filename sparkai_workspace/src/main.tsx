@@ -8212,17 +8212,19 @@ function App() {
     });
     setCanvasMenu(null);
     setManualImageTaskDialog({
+      id: uid("manual-image-dialog"),
       draft,
       worldX: Math.round(worldX),
       worldY: Math.round(worldY),
-      projectId: activeProjectIdRef.current
+      projectId: activeProjectIdRef.current,
+      conversationId: activeConversationIdRef.current
     });
   }
 
   function submitManualImageTask(dialog: ManualImageTaskDialogState) {
-    if (dialog.projectId !== activeProjectIdRef.current) {
+    if (dialog.projectId !== activeProjectIdRef.current || dialog.conversationId !== activeConversationIdRef.current) {
       setManualImageTaskDialog(null);
-      setServerMessage("画布已经切换，请在当前画布重新创建生图工作。");
+      setServerMessage("项目或会话已经切换，请重新创建生图工作。");
       return;
     }
     const task = cloneImageTaskDraft(dialog.draft);
@@ -24897,10 +24899,18 @@ function App() {
         return { opened: true };
       },
       generateComfyUi: async (input) => {
-        const references = canvasImagesForMaterialTargets(nodesRef.current, input.sources, "source");
+        const identities = [input.comfyui.sourceImage, ...(input.comfyui.referenceImages || [])].filter(Boolean);
+        const targets = identities.length ? identities.flatMap(identity => {
+          for (const node of nodesRef.current) {
+            const assetIndex = node.assets?.findIndex(asset => asset.assetId === identity!.assetId && asset.occurrenceId === identity!.occurrenceId && asset.contentHash === identity!.contentHash) ?? -1;
+            if (assetIndex >= 0) return [{ nodeId: node.id, assetIndex }];
+          }
+          return [];
+        }) : input.sources;
+        const references = canvasImagesForMaterialTargets(nodesRef.current, targets, "source");
         const completed = await runManualImageTask({ ...defaultImageTaskDraft(settingsRef.current), prompt: input.prompt, provider: "comfyui", comfyui: { ...input.comfyui }, submissionId: input.submissionId, count: 1, referenceImages: references },
           { worldX: input.x, worldY: input.y, requestedCount: 1, targetTotal: 1, quotaChecked: true });
-        if (completed?.ok === false) throw new Error(completed.error || "原本地任务尚未完成。");
+        if (completed?.ok !== true) throw new Error(completed?.error || "本地任务没有完成，请查询原任务状态；不会自动重发。");
         return { operationId: `comfy-${input.submissionId}`, operations: await listImageOperations() };
       },
       exportProjectPackage: async (input) => {
@@ -25677,7 +25687,16 @@ function App() {
     task: ImageTaskDraft,
     options?: { targetNodeId?: string; forkFromNodeId?: string; worldX?: number; worldY?: number; quotaChecked?: boolean; append?: boolean; requestedCount?: number; targetTotal?: number }
   ) {
-    if (task.provider === "comfyui") task = cloneImageTaskDraft({ ...task, count: 1, model: task.comfyui?.checkpoint || "", outputFormat: "png" });
+    if (task.provider === "comfyui") {
+      const inputs = task.comfyui;
+      const sameMaterial = (image: ReferenceImage, identity: NonNullable<typeof inputs>["sourceImage"]) => Boolean(identity && image.assetId === identity.assetId && image.occurrenceId === identity.occurrenceId && image.contentHash === identity.contentHash);
+      const typed = inputs?.sourceImage !== undefined || inputs?.referenceImages !== undefined;
+      const actualMaterials = typed ? [
+        ...(inputs?.sourceImage ? (task.referenceImages || []).filter(image => sameMaterial(image, inputs.sourceImage)).map(image => ({ ...image, taskRole: "source" as const, role: "source" })) : []),
+        ...(inputs?.referenceImages || []).flatMap(identity => (task.referenceImages || []).filter(image => sameMaterial(image, identity)).map(image => ({ ...image, taskRole: "reference" as const, role: "reference" })))
+      ] : task.referenceImages;
+      task = cloneImageTaskDraft({ ...task, referenceImages: actualMaterials, count: 1, model: task.comfyui?.checkpoint || "comfyui-mask", outputFormat: "png" });
+    }
     if (!activeProjectIdRef.current) {
       setServerMessage("请先创建或打开项目，再生成图片。");
       return;
@@ -25702,6 +25721,8 @@ function App() {
     const requestProjectId = activeProjectIdRef.current;
     const requestConversationId = activeConversationIdRef.current;
     const taskSnapshot = cloneImageTaskDraft(task);
+    const requestReferences = taskSnapshot.provider === "comfyui" && (taskSnapshot.comfyui?.sourceImage || taskSnapshot.comfyui?.referenceImages)
+      ? [] : taskSnapshot.referenceImages || [];
     const hasRequestedWorldPosition = Number.isFinite(options?.worldX) && Number.isFinite(options?.worldY);
     const frozenTargetNode = options?.targetNodeId ? nodesRef.current.find((item) => item.id === options.targetNodeId) : null;
     const frozenForkNodeId = options?.forkFromNodeId || (taskSnapshot.provider === "comfyui" ? taskSnapshot.referenceImages?.[0]?.canvasNodeId : "") || (!hasRequestedWorldPosition ? selectedNodeIdRef.current : "");
@@ -25778,7 +25799,7 @@ function App() {
         projectId: requestProjectId, conversationId: requestConversationId, nodeIds: [priorComfyNode.id],
         prompt: taskSnapshot.prompt, model: taskSnapshot.model, count: 1,
         size: `${taskSnapshot.comfyui?.width || 1024}x${taskSnapshot.comfyui?.height || 1024}`, quality: taskSnapshot.quality,
-        referenceImages: taskSnapshot.referenceImages || [], outputFormat: "png" });
+        referenceImages: requestReferences, outputFormat: "png" });
       if (!result.ok) { setServerMessage(result.error || "原本地任务尚未完成。"); return { ok: false, error: result.error }; }
       if (!executionScopeIsCurrent(executionScope)) return;
       const assets = cloneImageAssets(result.assets).filter(asset => !nodesRef.current.some(item => item.assets?.some(existing =>
@@ -25870,6 +25891,18 @@ function App() {
     setActiveRunStartedAt(startedAt);
     setRunElapsedSeconds(0);
     const manualReferences = taskSnapshot.referenceImages ?? [];
+    const manualSources = taskSnapshot.provider === "comfyui" ? manualReferences.filter(image => image.taskRole === "source") : [];
+    const manualExtraReferences = manualReferences.filter(image => !manualSources.includes(image));
+    const manualAttachment = (reference: ReferenceImage, index: number, role: "source" | "reference"): TaskAssetReference => ({
+      assetId: reference.assetId || stableImageAssetId(reference, index + 1),
+      occurrenceId: reference.occurrenceId,
+      displayCode: reference.displayCode || `${role === "source" ? "SOURCE" : "REF"}${index + 1}`,
+      role, name: reference.name || `${role === "source" ? "源图" : "参考图"} ${index + 1}`,
+      path: reference.path, relativePath: reference.relativePath, assetUrl: reference.assetUrl, contentHash: reference.contentHash,
+      nodeId: reference.canvasNodeId, assetIndex: reference.canvasAssetIndex, mimeType: reference.mimeType
+    });
+    const manualOperation = taskSnapshot.provider === "comfyui" && taskSnapshot.comfyui?.sourceImage
+      ? taskSnapshot.comfyui.maskImage ? taskSnapshot.comfyui.checkpoint ? "redraw" : "cutout" : "edit" : "generate";
     const manualRequestMessage: AgentMessage = {
       id: `manual-user-${generationRunId}`,
       role: "user",
@@ -25879,17 +25912,10 @@ function App() {
       meta: "human / canvas",
       ...(manualReferences.length ? {
         attachments: {
-          referenceAssets: manualReferences.map((reference, index): TaskAssetReference => ({
-            assetId: reference.assetId || stableImageAssetId(reference, index + 1),
-            displayCode: reference.displayCode || `REF${index + 1}`,
-            role: "reference",
-            name: reference.name || `参考图 ${index + 1}`,
-            path: reference.path,
-            relativePath: reference.relativePath,
-            assetUrl: reference.assetUrl,
-            contentHash: reference.contentHash
-          })),
-          referenceCount: manualReferences.length
+          sourceAssets: manualSources.map((reference, index) => manualAttachment(reference, index, "source")),
+          sourceCount: manualSources.length,
+          referenceAssets: manualExtraReferences.map((reference, index) => manualAttachment(reference, index, "reference")),
+          referenceCount: manualExtraReferences.length
         }
       } : {})
     };
@@ -25901,11 +25927,11 @@ function App() {
       tool: "image_gen",
       operationId: generationRunId,
       toolRunId: generationRunId,
-      operation: "generate",
+      operation: manualOperation,
       brief: total > 1 ? `按每批 ${settings.imageBatchSize} 路顺序生成 ${total} 张图片。` : "按画布设置生成一张图片。",
       params: taskSnapshot.provider === "comfyui" ? `${size} · ComfyUI · ${manualReferences.length} 张素材` : `${taskSnapshot.ratio} · ${taskSnapshot.resolution} · ${qualityLabel(taskSnapshot.quality)} · ${total} 张 · ${manualReferences.length} 张参考图`,
       input: {
-        operation: "generate",
+        operation: manualOperation,
         prompt: nodePrompt,
         ratio: taskSnapshot.ratio,
         resolution: taskSnapshot.resolution,
@@ -25913,7 +25939,8 @@ function App() {
         quality: taskSnapshot.quality,
         count: total,
         model: taskSnapshot.model,
-        referenceCount: manualReferences.length
+        sourceCount: manualSources.length,
+        referenceCount: manualExtraReferences.length
       },
       summary: `画布已接纳节点 ${id}，准备生成 ${remainingCount} 张。`,
       createdAt: new Date().toISOString()
@@ -25961,7 +25988,7 @@ function App() {
             size,
             quality: taskSnapshot.quality,
             count: 1,
-            referenceImages: taskSnapshot.referenceImages ?? [],
+            referenceImages: requestReferences,
             outputFormat: taskSnapshot.outputFormat,
             outputCompression: taskSnapshot.outputCompression,
             background: taskSnapshot.background,
@@ -26142,6 +26169,7 @@ function App() {
         detail: `${size} · ${taskSnapshot.provider === "comfyui" ? "ComfyUI" : qualityLabel(taskSnapshot.quality)} · ${manualReferences.length} 张参考图`
       });
       await refreshServerState();
+      return { ok: completedAll, ...(completedAll ? {} : { error: errors.slice(0, 3).join("；") || "图片任务已停止或未完成。" }) };
     } catch (error) {
       if (!executionScopeIsCurrent(executionScope)) return;
       const message = friendlyImageError(error);
@@ -30322,6 +30350,7 @@ function App() {
       {manualImageTaskDialog ? (
         <React.Suspense fallback={null}>
           <ManualImageTaskDialog
+            key={manualImageTaskDialog.id}
             state={manualImageTaskDialog}
             setState={setManualImageTaskDialog}
             imageModel={manualImageTaskDialog.draft.model || settings.imageModel}

@@ -1,5 +1,15 @@
 # SparkAI WorkSpace 上下文地图
 
+## ComfyUI Phase 2：typed workflow 与受管蒙版
+
+- 入口与状态见[Goal](../GOAL.md)/[Progress](../PROGRESS.md)。registry/executor/template service继续拥有审核节点、类型连线、角色映射与workflow身份；不新建执行Runtime或绕过image_gen/journal。Main拥有source/mask字节，Renderer/CLI/MCP只传assetId/occurrenceId/contentHash/revision与workflow/connection ID。
+- `desktop/creation-mask-service.cjs` 复用现有项目/会话/源图hash/尺寸校验，Phase2扩展不可变revision并兼容v1。`electron-main.cjs::callComfyUiImageWithSession` 负责解析身份、冻结与受控上传；`desktop/image-operation-journal.cjs`继续持久prepared/accepted/恢复与成果，mask不变成公开图片或覆盖原图。
+- 原生API JSON导入由`desktop/comfyui-template-service.cjs`先留Main草稿，向GUI投影节点/审核端口/能力候选，用户完成映射才可保存；未知/脚本/任意文件节点阻止执行。GUI/IPC/shared schema/CLI/MCP/Skill与合同测试在本阶段同批同步，验收证据单独记录。
+- `src/comfyui-task-fields.tsx` 拥有能力说明、源图角色、受管蒙版列表/native import、按审核槽数量必填的参考图和输入映射向导；`src/core.ts::mergeReferenceImages`保留Main已授完整三元身份，不能因同字节候选覆盖assetId；legacy缺身份继续旧reconcile。`src/manual-image-task-dialog.tsx`/`src/main.tsx`冻结dialog id/projectId/conversationId并用CAS更新，切换后拒绝提交，新 typed 请求不再携带旧参考图路径。`runManualImageTask`返回真实完成结果，`generateComfyUi`将失败/未知/排队未完成回给外部命令，不能把已拒绝alpha结果报告为成功。`workflow-preview-import`/`workflow-approve-import` 与 `masks-list`/`masks-import` 经同一 ServerBridge/IPC；公开输入在 `comfyui` 下，工作流/强度 alias 冲突在共享normalize拒绝。`scripts/comfyui-ui-selftest.mjs` 的隔离Electron入口仅替换原生文件选择结果，Main导入/审核/资产/journal与Renderer均实际运行；仅fake结果验证像素和UI，不视为真实Comfy节点执行。
+- `desktop/project-asset-repository.cjs::registerImportedMaterials/resolveRegisteredMaterial` 为尚未上画布的本地导入素材补 Main 权威三元登记，持久位置为项目 `.naimage/imported-materials.json`（schema 1，身份与相对路径）；只在 Main 复制/校验成功后登记，读取时重核项目、hash、路径和软链接。`electron-main.cjs::importLocalImagesToProject` 写登记，`desktop/ipc/asset-ipc.cjs::pickReferenceImages` 仅增加已有 assetId 透传；ComfyUI 与 creation-mask-service 可用同一稳定身份解析该素材。旧项目缺该索引继续读取原有画布身份，不能由 Renderer 任意路径创建登记。
+
+- 专项入口新增`test:comfyui-capability`与`test:creation-mask`；Main23、mask11、asset-identity、实际ComfyUI UI与恢复子进程分别验证跨层身份、mask revision、预提交处理描述和零重发不变量。证据见[工作流验证](COMFYUI_WORKFLOW_VALIDATION.md)。
+
 ## ComfyUI Phase 1：连接 profile 与 LAN/远程传输
 
 - 任务与专项证据：[Goal](../GOAL.md)、[Progress](../PROGRESS.md)、[连接配置验证](COMFYUI_CONNECTION_VALIDATION.md)。Phase 1 只建立 Main-owned connection profile 和受控传输策略；不安装 ComfyUI/Python/模型/依赖，不连接真实 LAN/远程服务，不改变 `image_gen`/TaskScope 边界。

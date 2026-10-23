@@ -19,10 +19,12 @@ import { ActionButton, DialogShell, Field, GlassSelect, IconActionButton, Surfac
 import ComfyUiTaskFields from "./comfyui-task-fields";
 
 export type ManualImageTaskDialogState = {
+  id: string;
   draft: ImageTaskDraft;
   worldX: number;
   worldY: number;
   projectId: string;
+  conversationId: string;
 };
 
 export default function ManualImageTaskDialog({ state, setState, imageModel, imageModelConfig, executionBusy, close, openReferencePicker, submit }: {
@@ -37,12 +39,13 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
 }) {
   const draft = state.draft;
   const [adjustment, setAdjustment] = React.useState("");
+  const [comfyuiReady, setComfyuiReady] = React.useState(false);
   const ratioOptions = frameOptionsForModel(draft.resolution, imageModel, imageModelConfig?.capabilities);
   const resolutionOptions = sizePresetsForModel(draft.ratio, imageModel, imageModelConfig?.capabilities);
   const references = draft.referenceImages ?? [];
 
   function updateDraft(patch: Partial<ImageTaskDraft>) {
-    setState((current) => current
+    setState((current) => current?.id === state.id
       ? { ...current, draft: cloneImageTaskDraft({ ...current.draft, ...patch }) }
       : current
     );
@@ -86,9 +89,9 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
             onClose={() => requestClose("close-button")}
           />
           <SurfaceBody className="manual-image-task-body">
-            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count })}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 已配置服务</option></select></Field>
+            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => { setComfyuiReady(false); updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count }); }}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 已配置服务</option></select></Field>
             {adjustment ? <p role="status">{adjustment}</p> : null}
-            {draft.provider === "comfyui" ? <ComfyUiTaskFields draft={draft} update={updateDraft} /> : <div className="manual-image-task-controls">
+            {draft.provider === "comfyui" ? <ComfyUiTaskFields draft={draft} update={updateDraft} projectId={state.projectId} conversationId={state.conversationId} onValidityChange={setComfyuiReady} /> : <div className="manual-image-task-controls">
               <Field label="比例">
                 <GlassSelect
                   value={draft.ratio}
@@ -131,7 +134,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
 
             <div className="manual-image-reference-row">
               <ActionButton className="manual-image-reference-button" onClick={openReferencePicker} disabled={references.length >= MAX_REFERENCE_IMAGES} icon={<ImageIcon size={15} />}>
-                参考图
+                {draft.provider === "comfyui" ? "选择素材" : "参考图"}
                 <strong>{references.length}/{MAX_REFERENCE_IMAGES}</strong>
               </ActionButton>
               {references.length ? (
@@ -171,7 +174,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
           </SurfaceBody>
           <SurfaceFooter>
             <ActionButton onClick={() => requestClose("action")}>取消</ActionButton>
-            <ActionButton variant="primary" onClick={submit} disabled={executionBusy || !draft.prompt.trim() || (draft.provider === "comfyui" && (!draft.comfyui?.templateHash || !draft.comfyui?.checkpoint))} icon={<Send size={16} />}>
+            <ActionButton variant="primary" onClick={submit} disabled={executionBusy || !draft.prompt.trim() || (draft.provider === "comfyui" && !comfyuiReady)} icon={<Send size={16} />}>
               {executionBusy ? "Agent 正在工作" : "生成图片"}
             </ActionButton>
           </SurfaceFooter>

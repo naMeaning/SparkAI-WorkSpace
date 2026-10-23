@@ -14,6 +14,8 @@ export const COMFYUI_PARAMETER_RANGES = Object.freeze({
 const SHORT_VALUE_RE = /^[A-Za-z0-9_. -]{1,100}$/;
 const PRIVATE_LABEL_RE = /bearer|api[ _-]?key|authorization|password|secret|token|cookie/i;
 const CONNECTION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+export const COMFYUI_WORKFLOW_CAPABILITIES = Object.freeze(["generate", "img2img", "inpaint", "cutout"]);
+const WORKFLOW_ID_RE = /^[a-z0-9_.-]{1,120}$/i;
 
 export function normalizeComfyUiConnectionReference(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw fail("COMFYUI_CONNECTION_PROFILE_INVALID", "ComfyUI 连接标识无效。");
@@ -25,6 +27,25 @@ export function normalizeComfyUiConnectionReference(input) {
   }
   if (references.length > 1 && references[0] !== references[1]) throw fail("COMFYUI_CONNECTION_PROFILE_INVALID", "connectionId 与 profileId 必须指向同一 ComfyUI 连接。");
   return references[0];
+}
+
+export function normalizeComfyUiWorkflowReference(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw fail("COMFYUI_TEMPLATE_CHANGED", "ComfyUI 工作流标识无效。");
+  const refs = [];
+  for (const field of ["templateId", "workflowId"]) {
+    if (input[field] === undefined) continue;
+    if (typeof input[field] !== "string" || !WORKFLOW_ID_RE.test(input[field])) throw fail("COMFYUI_TEMPLATE_CHANGED", "ComfyUI 工作流标识无效。");
+    refs.push(input[field]);
+  }
+  if (refs.length > 1 && refs[0] !== refs[1]) throw fail("COMFYUI_TEMPLATE_CHANGED", "workflowId 与 templateId 必须指向同一工作流。");
+  return refs[0];
+}
+
+function materialReference(value, mask = false) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["assetId", "occurrenceId", "contentHash", ...(mask ? ["revision"] : [])].includes(key)) ||
+    !["assetId", "occurrenceId"].every(key => typeof value[key] === "string" && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(value[key])) || !/^[a-f0-9]{64}$/.test(value.contentHash || "")) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 素材必须使用稳定的项目身份。");
+  if (value.revision !== undefined && (!Number.isSafeInteger(value.revision) || value.revision < 1)) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 蒙版版本无效。");
+  return { assetId: value.assetId, occurrenceId: value.occurrenceId, contentHash: value.contentHash, ...(value.revision === undefined ? {} : { revision: value.revision }) };
 }
 
 export function isComfyUiSamplingChoice(value) {
@@ -68,10 +89,12 @@ function templateExposes(template, field) {
 }
 
 function normalizeSamplingParameters(input, template) {
+  if (input.strength !== undefined && input.denoise !== undefined && input.strength !== input.denoise) throw fail("COMFYUI_PARAMETERS_INVALID", "strength 与 denoise 不能设置为不同值。");
+  const controls = input.strength === undefined ? input : { ...input, denoise: input.strength };
   const result = {};
   const defaults = template && typeof template.defaults === "object" && !Array.isArray(template.defaults) ? template.defaults : {};
   for (const field of COMFYUI_SAMPLING_FIELDS) {
-    let value = input?.[field];
+    let value = controls?.[field];
     if (value === undefined && templateExposes(template, field) && defaults[field] !== undefined) value = defaults[field];
     if (value === undefined) continue;
     if (!templateExposes(template, field)) throw fail("COMFYUI_PARAMETER_UNSUPPORTED", `当前 ComfyUI 模板不支持参数 ${field}。`);
@@ -96,17 +119,36 @@ export function normalizeComfyUiSamplingParameters(input, template) {
 }
 
 export function normalizeComfyUiTaskOptions(input, template) {
-  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["templateId", "templateHash", "baseUrl", "connectionId", "profileId", "networkScope", "checkpoint", "seed", "width", "height", "negativePrompt", ...COMFYUI_SAMPLING_FIELDS].includes(key))) throw fail("COMFYUI_REQUEST_INVALID", "本地生图只接受模板与已审核输入。");
-  if (typeof input.templateId !== "string" || !/^[a-z0-9_.-]{1,120}$/i.test(input.templateId) || !/^[a-f0-9]{64}$/.test(input.templateHash || "")) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板标识无效，请重新选择后提交。");
-  if (!isComfyUiModelName(input.checkpoint)) throw fail("COMFYUI_MODEL_REQUIRED", "请选择本机模型目录中的 checkpoint 名称。");
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["templateId", "workflowId", "templateHash", "baseUrl", "connectionId", "profileId", "networkScope", "checkpoint", "seed", "width", "height", "prompt", "negativePrompt", "strength", "sourceImage", "maskImage", "referenceImages", ...COMFYUI_SAMPLING_FIELDS].includes(key))) throw fail("COMFYUI_REQUEST_INVALID", "本地生图只接受模板与已审核输入。");
+  const templateId = normalizeComfyUiWorkflowReference(input);
+  if (!templateId || !/^[a-f0-9]{64}$/.test(input.templateHash || "")) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板标识无效，请重新选择后提交。");
+  // Draft/session normalization has no authoritative template. Main supplies
+  // the reviewed template before execution and enforces its model contract.
+  const requiresCheckpoint = Boolean(template) && template.requiresCheckpoint !== false;
+  if ((requiresCheckpoint || input.checkpoint !== undefined) && !isComfyUiModelName(input.checkpoint)) throw fail("COMFYUI_MODEL_REQUIRED", "请选择本机模型目录中的 checkpoint 名称。");
   const seed = input.seed ?? -1, width = input.width ?? 1024, height = input.height ?? 1024;
-  if (!Number.isSafeInteger(seed) || seed < -1 || ![width, height].every(value => Number.isInteger(value) && value >= 64 && value <= 4096 && value % 8 === 0)) throw fail("COMFYUI_PARAMETERS_INVALID", "种子或画幅无效，尺寸须为 64–4096 的 8 倍数。");
+  const validDimensions = requiresCheckpoint ? [width, height].every(value => Number.isInteger(value) && value >= 64 && value <= 4096 && value % 8 === 0)
+    : [width, height].every(value => Number.isInteger(value) && value >= 1 && value <= 16384) && width * height <= 64 * 1024 * 1024;
+  if (!Number.isSafeInteger(seed) || seed < -1 || !validDimensions) throw fail("COMFYUI_PARAMETERS_INVALID", "种子或画幅不符合当前工作流的安全范围。");
   const negativePrompt = input.negativePrompt ?? "";
   if (typeof negativePrompt !== "string" || negativePrompt.length > 16_384 || negativePrompt.includes("\0")) throw fail("COMFYUI_PARAMETERS_INVALID", "负面提示词无效。");
+  if (input.prompt !== undefined && (typeof input.prompt !== "string" || input.prompt.length > 16_384 || input.prompt.includes("\0"))) throw fail("COMFYUI_PARAMETERS_INVALID", "提示词无效。");
+  const materials = {};
+  for (const role of ["sourceImage", "maskImage"]) if (input[role] !== undefined) materials[role] = materialReference(input[role], role === "maskImage");
+  if (input.referenceImages !== undefined) {
+    if (!Array.isArray(input.referenceImages) || input.referenceImages.length > 4) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 最多支持四张参考素材。");
+    materials.referenceImages = input.referenceImages.map(value => materialReference(value));
+  }
+  // Legacy indexed templates receive materials through Main's historical
+  // outer-input path. Typed mappings instead own an explicit, complete set
+  // of reference slots in this public contract.
+  const referenceMappings = Array.isArray(template?.inputMappings) ? template.inputMappings.filter(mapping => mapping?.kind === "referenceImages") : [];
+  const referenceCount = new Set(referenceMappings.map(mapping => mapping.index)).size;
+  if (referenceCount > 0 && materials.referenceImages?.length !== referenceCount) throw fail("COMFYUI_INPUT_INVALID", `当前 ComfyUI 工作流需要恰好 ${referenceCount} 张参考素材。`);
   const connectionId = normalizeComfyUiConnectionReference(input);
   if (input.networkScope !== undefined && !["local", "lan", "remote"].includes(input.networkScope)) throw fail("COMFYUI_CONNECTION_SCOPE_INVALID", "ComfyUI 连接网络范围无效。");
-  return { templateId: input.templateId, templateHash: input.templateHash, ...(connectionId ? { connectionId } : {}), ...(input.networkScope ? { networkScope: input.networkScope } : {}), ...(!connectionId || input.baseUrl !== undefined ? { baseUrl: profileBaseUrl(input.baseUrl, Boolean(connectionId)) } : {}), checkpoint: input.checkpoint, seed, width, height, negativePrompt,
-    ...normalizeSamplingParameters(input, template) };
+  return { templateId, workflowId: templateId, templateHash: input.templateHash, ...(connectionId ? { connectionId } : {}), ...(input.networkScope ? { networkScope: input.networkScope } : {}), ...(!connectionId || input.baseUrl !== undefined ? { baseUrl: profileBaseUrl(input.baseUrl, Boolean(connectionId)) } : {}), ...(input.checkpoint === undefined ? {} : { checkpoint: input.checkpoint }), seed, width, height, negativePrompt,
+    ...(input.prompt === undefined ? {} : { prompt: input.prompt }), ...materials, ...normalizeSamplingParameters(input, template) };
 }
 
 export function normalizeComfyUiGenerationMetadata(value) {
@@ -124,8 +166,15 @@ export function normalizeComfyUiGenerationMetadata(value) {
   }
   for (const field of ["sampler", "scheduler"]) if (isComfyUiSamplingChoice(value[field])) result[field] = value[field].trim();
   if (typeof value.templateId === "string" && /^[a-z0-9_.-]{1,120}$/i.test(value.templateId)) result.templateId = value.templateId;
+  if (COMFYUI_WORKFLOW_CAPABILITIES.includes(value.capability)) result.capability = value.capability;
   if (Number.isSafeInteger(value.templateVersion) && value.templateVersion > 0) result.templateVersion = value.templateVersion;
   for (const field of ["templateHash", "workflowHash"]) if (/^[a-f0-9]{64}$/.test(value[field] || "")) result[field] = value[field];
-  if (Array.isArray(value.sourceHashes)) result.sourceHashes = value.sourceHashes.filter(hash => typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)).slice(0, 4);
+  if (Array.isArray(value.sourceHashes)) result.sourceHashes = value.sourceHashes.filter(hash => typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)).slice(0, 5);
+  const binding = value.maskBindings;
+  if (["inpaint", "cutout"].includes(result.capability) && binding && typeof binding === "object" && !Array.isArray(binding) &&
+    Object.keys(binding).every(key => ["sourceHash", "maskHash", "width", "height", "revision"].includes(key)) &&
+    [binding.sourceHash, binding.maskHash].every(hash => typeof hash === "string" && /^[a-f0-9]{64}$/.test(hash)) &&
+    [binding.width, binding.height].every(size => Number.isInteger(size) && size >= 1 && size <= 16384) && binding.width * binding.height <= 64 * 1024 * 1024 &&
+    Number.isSafeInteger(binding.revision) && binding.revision >= 1) result.maskBindings = { sourceHash: binding.sourceHash, maskHash: binding.maskHash, width: binding.width, height: binding.height, revision: binding.revision };
   return result;
 }

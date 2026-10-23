@@ -15,6 +15,7 @@ const { registerGlassBackgroundIpc, registerRequirementLibraryIpc, registerSetti
 const { registerExportCenterIpc } = require("../desktop/ipc/export-center-ipc.cjs");
 const { registerImageCollectionIpc } = require("../desktop/ipc/image-collection-ipc.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
+const { registerAssetIpc } = require("../desktop/ipc/asset-ipc.cjs");
 const { normalizedTaskScope } = require("../agent-runtime.cjs");
 const { createRequirementLibraryService, RequirementLibraryError } = require("../desktop/requirement-library.cjs");
 
@@ -280,6 +281,99 @@ async function assertPreloadMigrationConfirmationBoundary(preloadSource, preload
   const projectIpcSource = readFileSync(path.resolve(__dirname, "..", "desktop", "ipc", "project-ipc.cjs"), "utf8");
   assert.match(projectIpcSource, /payload\?\.confirmed\s*!==\s*true/, "Main migration handler must keep strict boolean confirmation");
   assert.match(projectIpcSource, /confirmedCleanup:\s*payload\?\.confirmedCleanup\s*===\s*true/, "Main cleanup handler must keep strict boolean confirmation");
+}
+
+async function assertComfyUiWorkflowBoundary() {
+  const handlers = new Map(), calls = [];
+  const sourceImage = { assetId: "source-asset", occurrenceId: "source-occ", contentHash: "a".repeat(64) };
+  const mask = { assetId: "mask-asset", occurrenceId: "mask-occ", contentHash: "b".repeat(64), revision: 3, width: 64, height: 96, sourceImage: { ...sourceImage, path: "C:/private/source.png" }, path: "C:/private/mask.png", bytes: "private-bytes" };
+  const template = { id: "import-fixture", label: "Reviewed", version: 1, templateHash: "c".repeat(64), builtIn: false, operation: "inpaint", capability: "inpaint", imageInputs: 2,
+    requiresCheckpoint: true, alphaRequired: false, outputNodeId: "9", inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage", value: "private-literal" }],
+    inputRoles: { sourceImage: { required: true, maxCount: 1 }, maskImage: { required: true, maxCount: 1, managed: true, path: "private" } },
+    workflow: { private: "raw-workflow" }, path: "C:/private/workflow.json", credentialRef: "private-ref" };
+  const preview = { ok: true, draftId: "draft-fixture", blocked: false, rawWorkflow: { private: true }, path: "C:/private/workflow.json", credentialRef: "private-ref", candidateCapabilities: ["inpaint", "execute-script"],
+    nodes: [{ nodeId: "10", classType: "LoadImage", approved: true, outputNode: false, outputTypes: ["IMAGE", "MASK"], inputs: [{ inputName: "image", type: "file", allowedKinds: ["sourceImage", "value"], value: "C:/private/source.png" }], workflow: {} }],
+    issues: [{ code: "REVIEWED", nodeId: "10", classType: "LoadImage", message: "private-path" }] };
+  registerServerIpc({ ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+    comfyUiTemplateService: {
+      list: () => ({ ok: true, templates: [template], workflow: {} }),
+      previewImport: async input => { calls.push({ kind: "preview", input }); return preview; },
+      approveImport: async input => { calls.push({ kind: "approve", input }); return { ok: true, template, templates: [template] }; }
+    },
+    comfyUiMaskService: {
+      list: async input => { calls.push({ kind: "mask-list", input }); return { ok: true, masks: [mask], path: "private" }; },
+      importMask: async input => { calls.push({ kind: "mask-import", input }); return { ok: true, mask }; }
+    }
+  });
+  const control = payload => handlers.get("naimage:server:comfyui")({}, payload);
+  const listed = await control({ action: "list" });
+  assert.equal(listed.templates[0].capability, "inpaint"); assert.equal(listed.templates[0].workflow, undefined); assert.equal(listed.templates[0].path, undefined);
+  assert.equal(listed.templates[0].inputMappings[0].value, undefined); assert.equal(listed.templates[0].inputRoles.maskImage.path, undefined);
+  const imported = await control({ action: "workflow-preview-import", label: "Fixture" });
+  assert.deepEqual(calls.at(-1), { kind: "preview", input: { label: "Fixture" } });
+  assert.equal(imported.draftId, "draft-fixture"); assert.deepEqual(imported.candidateCapabilities, ["inpaint"]);
+  assert.deepEqual(imported.nodes[0].inputs[0], { inputName: "image", type: "file", allowedKinds: ["sourceImage"] });
+  assert.deepEqual(imported.issues[0], { code: "REVIEWED", nodeId: "10", classType: "LoadImage" });
+  assert.equal(JSON.stringify(imported).includes("private"), false);
+  const approval = { action: "workflow-approve-import", draftId: "draft-fixture", capability: "inpaint", outputNodeId: "9", inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage" }], confirmed: true };
+  const approved = await control(approval);
+  assert.equal(approved.ok, true); assert.equal(approved.template.workflow, undefined);
+  assert.deepEqual(calls.at(-1), { kind: "approve", input: { draftId: "draft-fixture", capability: "inpaint", outputNodeId: "9", inputMappings: approval.inputMappings } });
+  const maskRequest = { projectId: "PROJECT", conversationId: "CONVERSATION", sourceImage };
+  const listedMasks = await control({ action: "masks-list", ...maskRequest });
+  assert.equal(listedMasks.ok, true); assert.equal(listedMasks.masks[0].revision, 3); assert.equal(JSON.stringify(listedMasks).includes("private"), false);
+  const importedMask = await control({ action: "masks-import", ...maskRequest, confirmed: true });
+  assert.deepEqual(calls.at(-1), { kind: "mask-import", input: { ...maskRequest, confirmed: true } });
+  assert.equal(importedMask.mask.width, 64); assert.equal(importedMask.mask.sourceImage.contentHash, sourceImage.contentHash);
+  const beforeInvalid = calls.length;
+  for (const request of [
+    { action: "workflow-preview-import", workflow: {} }, { action: "import", inputMappings: [] },
+    { ...approval, confirmed: false }, { ...approval, inputMappings: [{ ...approval.inputMappings[0], value: "private" }] },
+    { ...approval, inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage", index: 0 }] },
+    { ...approval, inputMappings: [{ nodeId: "10", inputName: "image", kind: "image", index: 0 }] },
+    { action: "masks-list", ...maskRequest, sourceImage: { ...sourceImage, path: "C:/private/source.png" } },
+    { action: "masks-import", ...maskRequest, confirmed: false }, { action: "masks-import", ...maskRequest, confirmed: true, path: "C:/private/mask.png" },
+    { action: "masks-list", ...maskRequest, conversationId: "" }
+  ]) assert.equal((await control(request)).ok, false);
+  assert.equal(calls.length, beforeInvalid, "Invalid workflow and mask requests cannot invoke Main owners");
+  const pickerHandlers = new Map(), pickerCalls = [];
+  registerAssetIpc({ ipcMain: { handle: (name, handler) => pickerHandlers.set(name, handler) },
+    dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: ["C:/fixture/native-source.png"] }) },
+    importLocalImagesToProject: async input => { pickerCalls.push(input); return { assets: [{ ...sourceImage, path: "C:/fixture/project/assets/source.png", relativePath: "assets/source.png" }] }; },
+    mimeTypeForPath: () => "image/png"
+  });
+  const picked = await pickerHandlers.get("naimage:asset:pick-reference-images")({}, { projectId: "PROJECT", max: 1 });
+  assert.deepEqual(pickerCalls, [{ paths: ["C:/fixture/native-source.png"], projectId: "PROJECT", maxFiles: 1 }]);
+  assert.equal(picked.images[0].assetId, sourceImage.assetId); assert.equal(picked.images[0].occurrenceId, sourceImage.occurrenceId); assert.equal(picked.images[0].contentHash, sourceImage.contentHash);
+}
+
+async function assertComfyUiGenerationScopeBoundary() {
+  const handlers = new Map(), calls = [], sideEffects = { runs: 0, masks: 0, templates: 0 };
+  const config = { templateId: "stock-inpaint", sourceImage: { assetId: "source", occurrenceId: "source-occ", contentHash: "a".repeat(64) }, maskImage: { assetId: "mask", occurrenceId: "mask-occ", contentHash: "b".repeat(64), revision: 1 } };
+  registerServerIpc({ ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+    defaultSettings: {}, readJson: () => ({}), migrateSettings: settings => settings,
+    agentRunControl: { begin: () => { sideEffects.runs++; } },
+    comfyUiTemplateService: { resolve: input => { sideEffects.templates++; assert.deepEqual(input, config); return input; } },
+    callNewApiImageWithSession: async (_settings, input) => { calls.push(input); return { model: "fixture" }; },
+    deliverGeneratedImageResult: async () => [], log: () => {},
+    writeDataUrlTemp: () => { sideEffects.masks++; return { path: "C:/fixture/managed-mask.png" }; }, removeOwnedDataUrlTemp: () => {}
+  });
+  const generate = payload => handlers.get("naimage:server:generate-image")({ sender: { id: 1 } }, payload);
+  const request = { provider: "ComfyUI", projectId: " PROJECT ", conversationId: " CONVERSATION ", runId: "run-fixture", operationId: "operation-fixture", comfyui: config };
+  assert.equal((await generate(request)).ok, true);
+  assert.equal(calls[0].projectId, "PROJECT"); assert.equal(calls[0].conversationId, "CONVERSATION", "Managed masks must resolve under the validated generation conversation");
+  assert.equal(Object.hasOwn(calls[0], "maskImage"), false, "ComfyUI must not receive an outer null/raw mask alongside the typed managed mask");
+  assert.deepEqual(calls[0].comfyui.maskImage, config.maskImage);
+  const beforeRejected = { ...sideEffects };
+  for (const rawMask of [{ maskDataUrl: "data:image/png;base64,fixture" }, { maskImage: { path: "C:/fixture/raw-mask.png" } }, { maskImage: null }]) {
+    const result = await generate({ ...request, ...rawMask });
+    assert.equal(result.ok, false); assert.equal(result.errorCode, "COMFYUI_INPUT_INVALID");
+  }
+  assert.deepEqual(sideEffects, beforeRejected, "Raw ComfyUI masks must fail before temp writes, run admission, or template resolution");
+  assert.equal(calls.length, 1);
+  assert.equal((await generate({ ...request, provider: "custom", maskDataUrl: "data:image/png;base64,fixture" })).ok, true);
+  assert.equal(sideEffects.masks, 1); assert.equal(calls[1].maskImage.path, "C:/fixture/managed-mask.png", "Other image providers retain their owned temporary mask path");
+  assert.equal(calls[1].conversationId, "CONVERSATION");
 }
 
 async function assertSettingsAccountBoundary() {
@@ -1111,6 +1205,8 @@ async function main() {
   assert.deepEqual(agentWindowListeners, ["naimage:agent-window:state"], "Agent window preload listeners changed.");
   assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
+  await assertComfyUiWorkflowBoundary();
+  await assertComfyUiGenerationScopeBoundary();
   await assertGlassBackgroundIpcBoundary();
   await assertRequirementLibraryIpcBoundary();
   await assertProjectContextIpcBoundary();

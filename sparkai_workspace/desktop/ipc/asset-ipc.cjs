@@ -321,6 +321,7 @@ function registerAssetIpc(options = {}) {
     if (result.canceled || result.filePaths.length === 0) return { ok: true, canceled: true };
     const imported = await importLocalImagesToProject({ paths: result.filePaths, projectId: payload.projectId, maxFiles: max });
     const images = imported.assets.map((asset) => ({
+      assetId: asset.assetId,
       occurrenceId: asset.occurrenceId,
       importBatchId: asset.importBatchId,
       importRootId: asset.importRootId,

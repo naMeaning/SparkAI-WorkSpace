@@ -20,7 +20,7 @@ const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs
   });
   try {
     const owner = service(), templates = owner.list().templates;
-    assert.equal(templates.length, 2); assert.equal(templates[1].imageInputs, 1); assert.equal(templates[0].workflow, undefined);
+    assert.equal(templates.length, 4); assert.equal(templates[1].imageInputs, 1); assert.equal(templates[0].workflow, undefined);
     assert.equal(templates[0].schemaVersion, 2); assert.equal(templates[0].modelFamily, "checkpoint");
     assert.ok(templates[0].exposedInputs.includes("steps")); assert.ok(templates[0].exposedInputs.includes("denoise"));
     assert.equal(templates[0].defaults.steps, 20); assert.equal(templates[0].parameterRanges.cfg.max, 30); assert.match(String(templates[0].policyVersion), /^comfyui-core-v2$/);
@@ -39,7 +39,7 @@ const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs
     assert.match(environment.capabilitiesHash, /^[a-f0-9]{64}$/);
     const fixture = builtIn("generate"); writeFileSync(apiFile, JSON.stringify(fixture.workflow));
     const imported = await owner.importTemplate({ label: "Explicit API JSON", outputNodeId: "9", inputMappings: fixture.inputMappings });
-    assert.equal(imported.template.operation, "generate"); assert.equal(service().list().templates.length, 3);
+    assert.equal(imported.template.operation, "generate"); assert.equal(service().list().templates.length, 5);
     assert.equal((await owner.importTemplate({ label: "Updated", outputNodeId: "9", inputMappings: fixture.inputMappings })).template.version, 2);
     await assert.rejects(owner.importTemplate({ outputNodeId: "8", inputMappings: fixture.inputMappings }), { code: "COMFYUI_NODE_MAPPING_INVALID" });
     writeFileSync(apiFile, JSON.stringify({ nodes: [{ type: "KSampler" }] }));
@@ -70,7 +70,7 @@ const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs
     assert.throws(() => service().resolve({ ...input, templateId: fixed.id, templateHash: fixedMetadata.templateHash, steps: 13 }), { code: "COMFYUI_PARAMETER_UNSUPPORTED" });
     writeFileSync(configPath, JSON.stringify({ version: 1, templates: [] }));
     canceled = true; assert.equal((await owner.importTemplate({})).canceled, true);
-    assert.equal(service().list().templates.length, 2, "Native cancellation leaves the template store unchanged");
+    assert.equal(service().list().templates.length, 4, "Native cancellation leaves the template store unchanged");
     console.log(JSON.stringify({ ok: true, checks: 14, modelRequests: 0, persistence: true, nativeImportOnly: true, credentialsRedacted: true, legacyV1Read: true }));
   } finally { rmSync(root, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

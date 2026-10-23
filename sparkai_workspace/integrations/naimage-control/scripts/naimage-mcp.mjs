@@ -36,7 +36,7 @@ export function loadAutomationTools(schemaPath = defaultSchemaPath) {
     description: `${command.description}${command.surface === "service" ? " [Main service]" : " [Renderer production action]"}`,
     inputSchema: command.parameters || { type: "object", additionalProperties: false, properties: {} },
     annotations: {
-      readOnlyHint: command.destructive !== true && !/\b(?:create|save|delete|remove|clear|set|start|answer|execute|render|generate|import|export|select|steer|pause|resume|stop)\b/i.test(command.name),
+      readOnlyHint: command.destructive !== true && !/\b(?:create|save|delete|remove|clear|set|start|answer|approve|execute|render|generate|import|export|select|steer|pause|resume|stop)\b/i.test(command.name),
       destructiveHint: command.destructive === true,
       idempotentHint: command.destructive !== true && /(?:\.list|\.get|\.state|\.status|\.preview|^debug\.inspect|^debug\..*-logs$)/.test(command.name),
       openWorldHint: /(?:agent\.|generate|execute|render)/.test(command.name)

@@ -2075,6 +2075,29 @@ export type ComfyUiTaskOptions = import("../runtime/comfyui-options.mjs").ComfyU
 
 export type ComfyUiParameterRange = { min: number; max: number; step?: number };
 export type ComfyUiParameterRanges = Partial<Record<"steps" | "cfg" | "denoise", ComfyUiParameterRange>>;
+export type ComfyUiWorkflowCapability = "generate" | "img2img" | "inpaint" | "cutout";
+export type ComfyUiAssetIdentity = { assetId: string; occurrenceId: string; contentHash: string };
+export type ComfyUiMaskIdentity = ComfyUiAssetIdentity & { revision: number };
+export type ComfyUiManagedMask = ComfyUiMaskIdentity & {
+  width: number;
+  height: number;
+  sourceImage: ComfyUiAssetIdentity;
+};
+export type ComfyUiInputMapping = { nodeId: string; inputName: string; kind: string; index?: number };
+export type ComfyUiWorkflowImportPreview = {
+  draftId: string;
+  blocked: boolean;
+  issues: Array<{ code: string; nodeId?: string; classType?: string }>;
+  nodes: Array<{
+    nodeId: string;
+    classType: string;
+    approved: boolean;
+    inputs: Array<{ inputName: string; type: string; allowedKinds: string[] }>;
+    outputTypes: string[];
+    outputNode: boolean;
+  }>;
+  candidateCapabilities: ComfyUiWorkflowCapability[];
+};
 
 export type ComfyUiTemplate = {
   id: string;
@@ -2082,10 +2105,18 @@ export type ComfyUiTemplate = {
   version: number;
   templateHash: string;
   builtIn: boolean;
-  operation: "generate" | "img2img";
+  operation: ComfyUiWorkflowCapability;
+  capability?: ComfyUiWorkflowCapability;
+  inputRoles?: {
+    sourceImage?: { required: boolean; maxCount: number };
+    maskImage?: { required: boolean; maxCount: number; managed: boolean };
+    referenceImages?: { required: boolean; minCount?: number; maxCount: number };
+  };
+  requiresCheckpoint?: boolean;
+  alphaRequired?: boolean;
   imageInputs: number;
   outputNodeId: string;
-  inputMappings: Array<{ nodeId: string; inputName: string; kind: string; index?: number; value?: unknown }>;
+  inputMappings: ComfyUiInputMapping[];
   /** Public capability metadata for the reviewed template. Legacy v1 records may omit these fields. */
   schemaVersion?: number;
   modelFamily?: string;
@@ -3162,20 +3193,24 @@ export type ServerBridge = {
     error?: string;
   }>;
   comfyui(payload: {
-    action: "list" | "inspect" | "import" | "cancel" | "connections-list" | "connections-save" | "connections-update-metadata" | "connections-delete" | "connections-test" | "connections-credential-import";
+    action: "list" | "inspect" | "import" | "workflow-preview-import" | "workflow-approve-import" | "masks-list" | "masks-import" | "cancel" | "connections-list" | "connections-save" | "connections-update-metadata" | "connections-delete" | "connections-test" | "connections-credential-import";
     baseUrl?: string;
     connectionId?: string;
     profileId?: string;
     label?: string;
     outputNodeId?: string;
     inputMappings?: ComfyUiTemplate["inputMappings"];
+    draftId?: string;
+    capability?: ComfyUiWorkflowCapability;
     projectId?: string;
+    conversationId?: string;
+    sourceImage?: ComfyUiAssetIdentity;
     key?: string;
     networkScope?: "local" | "lan" | "remote";
     credentialType?: "none" | "bearer" | "basic" | "mtls";
     enabled?: boolean;
     confirmed?: boolean;
-  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; connections?: Array<{ connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }>; connection?: { connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }; baseUrl?: string; connectionId?: string; networkScope?: "local" | "lan" | "remote"; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
+  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; draftId?: string; blocked?: boolean; issues?: ComfyUiWorkflowImportPreview["issues"]; nodes?: ComfyUiWorkflowImportPreview["nodes"]; candidateCapabilities?: ComfyUiWorkflowCapability[]; masks?: ComfyUiManagedMask[]; mask?: ComfyUiManagedMask; connections?: Array<{ connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }>; connection?: { connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }; baseUrl?: string; connectionId?: string; networkScope?: "local" | "lan" | "remote"; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
   licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;
@@ -4163,10 +4198,15 @@ export function mergeReferenceImages(current: ReferenceImage[], incoming: Refere
   const next: ReferenceImage[] = [];
   const indexByLogicalId = new Map<string, number>();
   for (const [index, image] of candidates.entries()) {
-    const assetId = resolutions[index].assetId;
     const occurrenceId = typeof image.occurrenceId === "string" && /^occ-[a-f0-9]{16,64}$/i.test(image.occurrenceId.trim())
       ? image.occurrenceId.trim().toLowerCase()
       : undefined;
+    const existingAssetId = typeof image.assetId === "string" ? image.assetId.trim() : "";
+    // A picker projection may omit run metadata. Keep an existing complete
+    // managed identity even when another saved output has identical pixels.
+    const hasManagedIdentity = Boolean(occurrenceId && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(existingAssetId)
+      && typeof image.contentHash === "string" && /^[a-f0-9]{64}$/i.test(image.contentHash));
+    const assetId = hasManagedIdentity ? existingAssetId : resolutions[index].assetId;
     const logicalId = occurrenceId ? `occurrence:${occurrenceId}` : `asset:${assetId}`;
     const existingIndex = indexByLogicalId.get(logicalId);
     if (existingIndex !== undefined) {

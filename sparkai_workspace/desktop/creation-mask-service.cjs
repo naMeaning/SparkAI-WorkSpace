@@ -17,7 +17,7 @@ const pngSize = bytes => {
 };
 
 /** Managed masks are private project materials, never canvas results or references. */
-function createCreationMaskService({ projectFor, readSession, projectRelativePath, resolveProjectRelativePath, sharp, metaDir = ".naimage" } = {}) {
+function createCreationMaskService({ projectFor, readSession, sourceFor, projectRelativePath, resolveProjectRelativePath, sharp, metaDir = ".naimage" } = {}) {
   if (![projectFor, readSession, projectRelativePath, resolveProjectRelativePath, sharp].every(value => typeof value === "function")) throw new TypeError("creation mask project services are required");
   function projectOf(input) {
     const project = projectFor(input.expectedProjectId || input.projectId);
@@ -64,13 +64,20 @@ function createCreationMaskService({ projectFor, readSession, projectRelativePat
       for (const record of value.masks) {
         normalizeCreationTarget(record.mask); normalizeCreationTarget(record.target);
         if (!record.conversationId || !Number.isSafeInteger(record.width) || record.width < 1 || !Number.isSafeInteger(record.height) || record.height < 1 ||
-          record.relativePath !== `${metaDir}/creation-masks/${record.mask.assetId}.png`) throw Error();
+          record.relativePath !== `${metaDir}/creation-masks/${record.mask.assetId}.png` ||
+          record.revision !== undefined && (!Number.isSafeInteger(record.revision) || record.revision < 1)) throw Error();
+        // v1 masks predate revisions. Their immutable file/identity is revision 1.
+        record.revision ??= 1;
       }
+      if (new Set(value.masks.map(record => record.mask.assetId)).size !== value.masks.length ||
+        new Set(value.masks.map(record => record.mask.occurrenceId)).size !== value.masks.length) throw Error();
       return value;
     } catch { throw fail("CREATION_MASK_STORE_INVALID", "蒙版记录无法安全读取，未执行修改。"); }
   }
   function targetFile(project, target) {
-    const found = (readSession(project.id)?.nodes || []).filter(node => node.type === "image").flatMap(node => node.assets || []).find(asset => sameTarget(asset, target));
+    const matches = (readSession(project.id)?.nodes || []).filter(node => node.type === "image").flatMap(node => node.assets || []).filter(asset => sameTarget(asset, target));
+    if (matches.length > 1) throw fail("CREATION_TARGET_STALE", "所选成果身份不唯一，请重新选择。");
+    const found = matches[0] || sourceFor?.(project, target);
     if (!found || ["pending", "error"].includes(found.status)) throw fail("CREATION_TARGET_STALE", "所选成果已变化或尚未保存，请重新选择。");
     const relative = String(found.relativePath || projectRelativePath(project.path, found.path)).replace(/\\/g, "/");
     if (!/^(?:assets\/|output\/(?:imagegen|post)\/|\.naimage\/assets\/)/.test(relative)) throw fail("CREATION_TARGET_STALE", "所选成果不属于项目图片库。");
@@ -107,7 +114,10 @@ function createCreationMaskService({ projectFor, readSession, projectRelativePat
     const mask = { assetId: `mask-${randomUUID()}`, occurrenceId: `occ-${randomUUID()}`, contentHash: digest(normalized) };
     const relativePath = `${metaDir}/creation-masks/${mask.assetId}.png`;
     const file = resolveProjectRelativePath(project.path, relativePath);
-    const record = { mask, target, conversationId: input.conversationId, relativePath, width: source.width, height: source.height, createdAt: new Date().toISOString() };
+    const revision = 1 + document.masks.filter(record => record.conversationId === input.conversationId && sameTarget(record.target, target))
+      .reduce((latest, record) => Math.max(latest, record.revision), 0);
+    if (!Number.isSafeInteger(revision)) throw fail("CREATION_MASK_CAPACITY", "蒙版修订已达到本地容量上限。");
+    const record = { mask, target, revision, conversationId: input.conversationId, relativePath, width: source.width, height: source.height, createdAt: new Date().toISOString() };
     fs.writeFileSync(file, normalized, { flag: "wx" });
     document.masks.push(record);
     const temporary = path.join(directory(project), `manifest-${randomUUID()}.tmp`);
@@ -118,17 +128,29 @@ function createCreationMaskService({ projectFor, readSession, projectRelativePat
       try { fs.rmSync(temporary, { force: true }); fs.rmSync(file, { force: true }); } catch {}
       throw fail("CREATION_MASK_SAVE_FAILED", "蒙版保存失败，尚未启动修改任务。");
     }
-    return { mask };
+    return { mask, revision, width: source.width, height: source.height, sourceImage: { ...target } };
   }
   function resolve(input = {}) {
     const project = projectOf(input), target = normalizeCreationTarget(input.target), mask = normalizeCreationTarget(input.mask);
-    if (Object.keys(input.mask || {}).some(key => !["assetId", "occurrenceId", "contentHash"].includes(key))) throw fail("CREATION_MASK_INVALID", "蒙版只能通过项目托管身份引用。");
+    if (Object.keys(input.mask || {}).some(key => !["assetId", "occurrenceId", "contentHash", "revision"].includes(key))) throw fail("CREATION_MASK_INVALID", "蒙版只能通过项目托管身份引用。");
+    const revision = input.revision ?? input.mask?.revision;
+    if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1) ||
+      input.revision !== undefined && input.mask?.revision !== undefined && input.revision !== input.mask.revision) throw fail("CREATION_MASK_REVISION_INVALID", "蒙版修订标识无效。");
     const found = read(project).masks.find(record => sameTarget(record.mask, mask));
     if (!found || found.conversationId !== input.conversationId || !sameTarget(found.target, target)) throw fail("CREATION_MASK_IDENTITY_INVALID", "蒙版不属于所选成果或当前会话，未执行修改。");
+    if (revision !== undefined && revision !== found.revision) throw fail("CREATION_MASK_REVISION_INVALID", "蒙版修订与已保存记录不一致。");
     const file = managedPath(project, found.relativePath), bytes = fs.readFileSync(file), dimensions = pngSize(bytes);
     if (digest(bytes) !== mask.contentHash || dimensions.width !== found.width || dimensions.height !== found.height) throw fail("CREATION_MASK_STALE", "蒙版文件已变化，未执行修改。");
     targetFile(project, target);
-    return { ...mask, target, path: file, relativePath: found.relativePath, mimeType: "image/png", name: "区域修改蒙版", width: found.width, height: found.height };
+    return { ...mask, revision: found.revision, target, path: file, relativePath: found.relativePath, mimeType: "image/png", name: "区域修改蒙版", width: found.width, height: found.height };
+  }
+  function list(input = {}) {
+    const project = projectOf(input), target = normalizeCreationTarget(input.target || input.sourceImage);
+    targetFile(project, target);
+    return read(project).masks.filter(record => record.conversationId === input.conversationId && sameTarget(record.target, target)).map(record => {
+      const material = resolve({ ...input, target, mask: record.mask, revision: record.revision });
+      return { ...record.mask, revision: record.revision, width: material.width, height: material.height, sourceImage: { ...target } };
+    });
   }
   function freeze(input = {}) {
     const targets = Array.isArray(input.targets) ? input.targets : [];
@@ -137,7 +159,7 @@ function createCreationMaskService({ projectFor, readSession, projectRelativePat
     if (targets.length !== 1 || masked.length !== 1) throw fail("CREATION_MASK_SINGLE_TARGET", "精确区域修改一次只能选择一个成果。");
     return [resolve({ ...input, target: masked[0], mask: masked[0].mask })];
   }
-  return { save, resolve, freeze };
+  return { save, resolve, freeze, list };
 }
 
 module.exports = { createCreationMaskService };

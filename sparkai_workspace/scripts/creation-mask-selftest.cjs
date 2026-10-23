@@ -30,16 +30,50 @@ async function check(name, action) { await action(); checks++; process.stdout.wr
   const maskBytes = await sharp(raw, { raw: { width: 12, height: 10, channels: 4 } }).png().toBuffer();
   let mask, material;
   await check("actual PNG is managed, target bound and survives owner restart", async () => {
-    ({ mask } = await service.save({ ...scope, dataUrl: dataUrl(maskBytes) }));
+    const savedMask = await service.save({ ...scope, dataUrl: dataUrl(maskBytes) });
+    ({ mask } = savedMask);
+    assert.equal(savedMask.revision, 1); assert.equal(savedMask.width, 12); assert.equal(savedMask.height, 10); assert.deepEqual(savedMask.sourceImage, target);
     assert.deepEqual(Object.keys(mask), ["assetId", "occurrenceId", "contentHash"]);
     service = createCreationMaskService(options);
     material = service.resolve({ ...scope, mask });
-    assert.equal(material.mimeType, "image/png"); assert.equal(material.width, 12); assert.equal(material.height, 10);
+    assert.equal(material.mimeType, "image/png"); assert.equal(material.width, 12); assert.equal(material.height, 10); assert.equal(material.revision, 1);
     assert.deepEqual(material.target, target); assert.match(material.relativePath, /^\.naimage\/creation-masks\/mask-[\da-f-]+\.png$/);
     const saved = fs.readFileSync(material.path), metadata = await sharp(saved).metadata();
     assert.equal(hash(saved), mask.contentHash); assert.equal(metadata.hasAlpha, true);
     assert.deepEqual(service.freeze({ ...scope, targets: [{ ...target, mask }] }), [material]);
     assert.deepEqual(service.freeze({ ...scope, targets: [target] }), []);
+  });
+  await check("new mask revisions keep prior bytes and identities immutable", async () => {
+    const priorBytes = fs.readFileSync(material.path);
+    const next = await service.save({ ...scope, dataUrl: dataUrl(maskBytes) });
+    assert.equal(next.revision, 2); assert.notEqual(next.mask.assetId, mask.assetId); assert.notEqual(next.mask.occurrenceId, mask.occurrenceId);
+    assert.deepEqual(fs.readFileSync(material.path), priorBytes);
+    assert.equal(service.resolve({ ...scope, mask: { ...mask, revision: 1 } }).revision, 1);
+    assert.equal(service.resolve({ ...scope, mask: next.mask, revision: 2 }).revision, 2);
+    assert.throws(() => service.resolve({ ...scope, mask: { ...next.mask, revision: 1 } }), { code: "CREATION_MASK_REVISION_INVALID" });
+    assert.throws(() => service.resolve({ ...scope, mask: { ...next.mask, revision: 2 }, revision: 1 }), { code: "CREATION_MASK_REVISION_INVALID" });
+    for (const revision of [0, -1, 1.5, "2", Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => service.resolve({ ...scope, mask: next.mask, revision }), { code: "CREATION_MASK_REVISION_INVALID" });
+  });
+  await check("list exposes identities and revisions scoped to source and conversation", async () => {
+    const other = await service.save({ ...scope, conversationId: "other-conversation", dataUrl: dataUrl(maskBytes) });
+    assert.equal(other.revision, 1);
+    const listed = service.list({ ...scope, sourceImage: target });
+    assert.deepEqual(listed.map(value => value.revision), [1, 2]);
+    assert.deepEqual(Object.keys(listed[0]), ["assetId", "occurrenceId", "contentHash", "revision", "width", "height", "sourceImage"]);
+    assert.equal(JSON.stringify(listed).includes(root), false); assert.equal(JSON.stringify(listed).includes("data:"), false);
+    assert.deepEqual(service.list({ ...scope, conversationId: "other-conversation" }).map(value => value.assetId), [other.mask.assetId]);
+    const otherTarget = { ...target, assetId: "other-source", occurrenceId: "other-source-occurrence" };
+    session.nodes.push({ type: "image", assets: [{ ...otherTarget, status: "done", relativePath: "assets/source.png" }] });
+    assert.deepEqual(service.list({ ...scope, target: otherTarget }), []);
+    assert.throws(() => service.list({ ...scope, conversationId: "missing-conversation" }), { code: "CREATION_MASK_SCOPE_INVALID" });
+  });
+  await check("legacy v1 records resolve as revision one and duplicate identities fail closed", async () => {
+    const file = path.join(root, ".naimage", "creation-masks", "manifest.json"), original = fs.readFileSync(file, "utf8");
+    const legacy = JSON.parse(original); delete legacy.masks[0].revision; fs.writeFileSync(file, JSON.stringify(legacy));
+    assert.equal(service.resolve({ ...scope, mask }).revision, 1); assert.equal(service.list(scope)[0].revision, 1);
+    const duplicate = JSON.parse(original); duplicate.masks.push({ ...duplicate.masks[0] }); fs.writeFileSync(file, JSON.stringify(duplicate));
+    assert.throws(() => service.resolve({ ...scope, mask }), { code: "CREATION_MASK_STORE_INVALID" });
+    fs.writeFileSync(file, original);
   });
   await check("forged mask and cross-conversation identities never resolve", async () => {
     assert.throws(() => service.resolve({ ...scope, mask: { ...mask, occurrenceId: "forged" } }), { code: "CREATION_MASK_IDENTITY_INVALID" });

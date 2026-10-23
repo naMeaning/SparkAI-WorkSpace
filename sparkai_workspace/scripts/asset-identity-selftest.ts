@@ -169,6 +169,25 @@ assert.equal(repeatedByteOccurrences.length, 2, "Distinct imported occurrences m
 assert.equal(repeatedByteOccurrences[0].assetId, repeatedByteOccurrences[1].assetId, "Logical occurrences should still share the canonical physical asset identity");
 assert.notEqual(repeatedByteOccurrences[0].occurrenceId, repeatedByteOccurrences[1].occurrenceId);
 
+// Reference pickers project away generation run metadata. Complete managed
+// identities still refer to separate saved outputs when their pixels match.
+const managedReferenceIdentities = [
+  { assetId: "image-7fcc7b7466814d6e14d72bcad3e9130e-1", occurrenceId: `occ-${"3".repeat(32)}`, contentHash: sharedContentHash, name: "generated.png", path: firstPath, canvasNodeId: "generated" },
+  { assetId: "asset-managed-source", occurrenceId: `occ-${"4".repeat(32)}`, contentHash: sharedContentHash, name: "source.png", path: secondPath, canvasNodeId: "source" }
+];
+for (const references of [managedReferenceIdentities, [...managedReferenceIdentities].reverse()]) {
+  const selected = mergeReferenceImages(references.slice(0, 1), references.slice(1), 9);
+  assert.deepEqual(selected.map(({ assetId, occurrenceId, contentHash }) => ({ assetId, occurrenceId, contentHash })),
+    references.map(({ assetId, occurrenceId, contentHash }) => ({ assetId, occurrenceId, contentHash })),
+    "Selecting equal-byte managed references in either order must preserve each complete Main identity");
+  assert.deepEqual(mergeReferenceImages([], selected, 9), selected, "A second picker merge cannot rewrite a managed reference identity");
+}
+const refreshedManagedReference = { ...managedReferenceIdentities[1], name: "source-renamed.png", path: `${secondPath}.renamed` };
+const refreshedManagedReferences = mergeReferenceImages(managedReferenceIdentities, [refreshedManagedReference], 9);
+assert.equal(refreshedManagedReferences.length, 2, "Refreshing an existing managed occurrence must update its slot instead of duplicating it");
+assert.deepEqual(refreshedManagedReferences[0], managedReferenceIdentities[0], "Refreshing one occurrence cannot rewrite an equal-byte sibling identity");
+assert.deepEqual(refreshedManagedReferences[1], refreshedManagedReference, "Refreshing metadata must retain the same managed asset, occurrence and content identity");
+
 const upgradedReference = mergeReferenceImages(
   [{ name: "legacy.png", path: firstPath }],
   [{ contentHash: sharedContentHash, name: "verified.png", path: firstPath }],
@@ -200,4 +219,4 @@ const [messageWithLongPaths] = validMessages([{
 assert.equal(messageWithLongPaths.attachments?.sourceAssets[0]?.path, exactMessagePath, "Message attachment paths must preserve repeated spaces");
 assert.equal(messageWithLongPaths.attachments?.referenceAssets[0]?.path, longMessagePath, "Message attachment paths must not be truncated");
 
-console.log(JSON.stringify({ ok: true, cases: 36 }));
+console.log(JSON.stringify({ ok: true, cases: 39 }));

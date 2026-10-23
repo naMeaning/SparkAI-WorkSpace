@@ -404,7 +404,11 @@
 .comfyui-task-fields details { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 .comfyui-task-fields details[open] { display: grid; gap: 8px; }
 .comfyui-task-fields summary { cursor: pointer; font-size: 12px; }
-.comfyui-task-fields textarea { width: 100%; font-family: monospace; }
+.comfyui-task-fields [data-comfyui-mask-fields],
+.comfyui-task-fields [data-comfyui-mapping-wizard],
+.comfyui-task-fields [data-comfyui-reference-fields] { min-width: 0; display: grid; gap: 8px; }
+.comfyui-task-fields [data-comfyui-mapping-wizard] p { overflow-wrap: anywhere; }
+.comfyui-task-fields [data-comfyui-reference-fields] label { display: flex; align-items: center; gap: 6px; }
 
 .manual-image-task-summary span + span::before {
   margin-right: 6px;

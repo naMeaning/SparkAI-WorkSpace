@@ -77,7 +77,8 @@ async function main() {
   ]) assert.equal(debug.commands.includes(command), true, `${command} must come from the shared service registry`);
 
   const state = await debug.execute("debug.runtime-state", {});
-  assert.equal(state.registry.serviceCommands, 8);
+  const declaredServiceCommands = JSON.parse(readFileSync(schemaPath, "utf8")).sections.flatMap(section => section.commands || []).filter(command => command.surface === "service").length;
+  assert.equal(state.registry.serviceCommands, declaredServiceCommands);
   assert.equal(state.windows.length, 1);
   assert.equal(state.rendererState.apiKey, "[REDACTED]");
   assert.match(state.rendererState.path, /<app-root>/);

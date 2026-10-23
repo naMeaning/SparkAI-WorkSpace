@@ -5,6 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import reviewedTemplatePolicy from "../runtime/image-generation/comfyui-template-registry.cjs";
 import {
   createMcpRequestHandler,
   invokeAutomationTool,
@@ -61,10 +62,37 @@ async function main() {
   assert.equal(comfyuiOptionsSchema.properties.cfg.maximum, 30);
   assert.equal(comfyuiOptionsSchema.properties.denoise.maximum, 1);
   assert.match(comfyuiOptionsSchema.properties.sampler.pattern, /100/);
+  const workflowImport = registry.tools.find(tool => tool.name === "comfyui.workflow.import");
+  const workflowApprove = registry.tools.find(tool => tool.name === "comfyui.workflow.approve");
+  const maskList = registry.tools.find(tool => tool.name === "comfyui.mask.list");
+  const maskImport = registry.tools.find(tool => tool.name === "comfyui.mask.import");
+  assert.ok(workflowImport && workflowApprove && maskList && maskImport);
   assert.deepEqual(
-    registry.tools.find(tool => tool.name === "comfyui.import-template").inputSchema.properties.inputMappings.items.properties.kind.enum.slice(-5),
+    workflowApprove.inputSchema.properties.inputMappings.items.properties.kind.enum.slice(-5),
     ["steps", "cfg", "sampler", "scheduler", "denoise"]
   );
+  assert.equal(workflowApprove.inputSchema.properties.inputMappings.items.properties.value, undefined);
+  assert.equal(workflowApprove.inputSchema.properties.inputMappings.items.properties.kind.enum.includes("value"), false);
+  assert.equal(workflowApprove.inputSchema.properties.inputMappings.items.properties.kind.enum.includes("image"), false);
+  assert.deepEqual(workflowApprove.inputSchema.properties.capability.enum, ["generate", "img2img", "inpaint", "cutout"]);
+  assert.deepEqual(workflowApprove.inputSchema.properties.capability.enum, [...reviewedTemplatePolicy.WORKFLOW_CAPABILITIES]);
+  assert.deepEqual([...workflowApprove.inputSchema.properties.inputMappings.items.properties.kind.enum].sort(), Object.keys(reviewedTemplatePolicy.MAPPING_PORTS).filter(kind => kind !== "image").sort());
+  assert.equal(workflowApprove.annotations.readOnlyHint, false);
+  assert.equal(workflowImport.annotations.readOnlyHint, false);
+  assert.equal(maskList.annotations.readOnlyHint, true);
+  assert.equal(maskImport.annotations.readOnlyHint, false);
+  assert.deepEqual(Object.keys(workflowImport.inputSchema.properties), ["label"]);
+  assert.deepEqual(Object.keys(maskImport.inputSchema.properties), ["expectedProjectId", "conversationId", "sourceImage", "confirmed"]);
+  assert.deepEqual(comfyuiOptionsSchema.anyOf.map(branch => branch.required), [["workflowId"], ["templateId"]]);
+  assert.equal(comfyuiOptionsSchema.required.includes("checkpoint"), false);
+  assert.equal(comfyuiOptionsSchema.properties.strength.maximum, 1);
+  assert.deepEqual(comfyuiOptionsSchema.properties.sourceImage.required, ["assetId", "occurrenceId", "contentHash"]);
+  assert.deepEqual(comfyuiOptionsSchema.properties.maskImage.required, ["assetId", "occurrenceId", "contentHash", "revision"]);
+  assert.equal(comfyuiOptionsSchema.properties.referenceImages.maxItems, 4);
+  for (const field of ["sourceImage", "maskImage"]) {
+    assert.equal(comfyuiOptionsSchema.properties[field].additionalProperties, false);
+    for (const key of ["path", "url", "base64", "dataUrl", "bytes"]) assert.equal(comfyuiOptionsSchema.properties[field].properties[key], undefined);
+  }
   const connectionList = registry.tools.find(tool => tool.name === "comfyui.connections");
   const connectionSave = registry.tools.find(tool => tool.name === "comfyui.connection.save");
   const connectionTest = registry.tools.find(tool => tool.name === "comfyui.connection.test");
@@ -131,6 +159,11 @@ async function main() {
     assert.equal(called.isError, false);
     assert.equal(called.structuredContent.command, "debug.inspect-command");
     assert.deepEqual(called.structuredContent.args, { name: "agent.goal" });
+    const approved = await handler({ method: "tools/call", params: { name: "comfyui.workflow.approve", arguments: {
+      draftId: "workflow-draft-fixture", capability: "cutout", outputNodeId: "9", inputMappings: [{ nodeId: "10", inputName: "image", kind: "sourceImage" }], confirmed: true
+    } } });
+    assert.equal(approved.isError, false); assert.equal(approved.structuredContent.command, "comfyui.workflow.approve");
+    assert.equal(approved.structuredContent.args.capability, "cutout");
     const missing = await handler({ method: "tools/call", params: { name: "missing.command", arguments: {} } });
     assert.equal(missing.isError, true);
 

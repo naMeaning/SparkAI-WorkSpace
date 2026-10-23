@@ -1,5 +1,6 @@
 "use strict";
 const { normalizeComfyUiConnectionReference } = require("../../runtime/comfyui-options.mjs");
+const { WORKFLOW_CAPABILITIES, MAPPING_PORTS } = require("../../runtime/image-generation/comfyui-template-registry.cjs");
 
 let aidebugAuthenticated = true;
 let newApiMeInflight = null;
@@ -22,6 +23,7 @@ function registerServerIpc({
   imageOperationJournal,
   imageGenerationService,
   comfyUiTemplateService,
+  comfyUiMaskService,
   comfyUiConnectionService,
   comfyUiCredentialStore,
   clearNewApiAuth,
@@ -102,6 +104,67 @@ function registerServerIpc({
   const connectionReference = normalizeComfyUiConnectionReference;
   const requireConfirmed = payload => {
     if (payload?.confirmed !== true) throw Object.assign(new Error("连接操作需要 confirmed=true。"), { code: "COMFYUI_CONNECTION_CONFIRMATION_REQUIRED" });
+  };
+  const controlInvalid = () => Object.assign(new Error("ComfyUI 控制参数无效。"), { code: "COMFYUI_REQUEST_INVALID" });
+  const safeControlId = value => typeof value === "string" && /^[A-Za-z0-9_.:-]{1,160}$/.test(value);
+  const publicMappings = mappings => (Array.isArray(mappings) ? mappings : []).flatMap(mapping => {
+    if (!mapping || !safeControlId(mapping.nodeId) || typeof mapping.inputName !== "string" || !/^[A-Za-z0-9_]{1,100}$/.test(mapping.inputName) || !Object.prototype.hasOwnProperty.call(MAPPING_PORTS, mapping.kind)) return [];
+    return [{ nodeId: mapping.nodeId, inputName: mapping.inputName, kind: mapping.kind,
+      ...(Number.isInteger(mapping.index) && mapping.index >= 0 && mapping.index <= 3 ? { index: mapping.index } : {}) }];
+  });
+  const publicTemplate = value => {
+    if (!value || typeof value !== "object" || !safeControlId(value.id)) return undefined;
+    const result = { id: value.id, inputMappings: publicMappings(value.inputMappings) };
+    for (const key of ["label", "templateHash", "outputNodeId", "modelFamily", "policyVersion"]) if (["string", "number"].includes(typeof value[key])) result[key] = value[key];
+    for (const key of ["version", "imageInputs", "schemaVersion"]) if (Number.isSafeInteger(value[key])) result[key] = value[key];
+    for (const key of ["builtIn", "requiresCheckpoint", "alphaRequired"]) if (typeof value[key] === "boolean") result[key] = value[key];
+    for (const key of ["operation", "capability"]) if (WORKFLOW_CAPABILITIES.includes(value[key])) result[key] = value[key];
+    if (Array.isArray(value.exposedInputs)) result.exposedInputs = value.exposedInputs.filter(kind => Object.prototype.hasOwnProperty.call(MAPPING_PORTS, kind));
+    if (value.defaults && typeof value.defaults === "object") result.defaults = Object.fromEntries(["steps", "cfg", "sampler", "scheduler", "denoise"].filter(key => ["number", "string"].includes(typeof value.defaults[key])).map(key => [key, value.defaults[key]]));
+    if (value.parameterRanges && typeof value.parameterRanges === "object") result.parameterRanges = Object.fromEntries(["steps", "cfg", "denoise"].filter(key => value.parameterRanges[key]).map(key => [key,
+      Object.fromEntries(["min", "max", "step"].filter(field => Number.isFinite(value.parameterRanges[key][field])).map(field => [field, value.parameterRanges[key][field]]))]));
+    if (value.inputRoles && typeof value.inputRoles === "object") result.inputRoles = Object.fromEntries(["sourceImage", "maskImage", "referenceImages"].filter(role => value.inputRoles[role]).map(role => [role, {
+      required: value.inputRoles[role].required === true, maxCount: Math.max(0, Math.min(4, Number(value.inputRoles[role].maxCount) || 0)), ...(role === "maskImage" ? { managed: true } : {})
+    }]));
+    return result;
+  };
+  const publicTemplateResult = value => {
+    const result = { ok: value?.ok === true };
+    if (value?.canceled === true) result.canceled = true;
+    if (Array.isArray(value?.templates)) result.templates = value.templates.map(publicTemplate).filter(Boolean);
+    if (value?.template) result.template = publicTemplate(value.template);
+    if (Array.isArray(value?.connections)) result.connections = value.connections.map(publicConnection).filter(Boolean);
+    const baseUrl = safeConnectionUrl(value?.baseUrl); if (baseUrl) result.baseUrl = baseUrl;
+    return result;
+  };
+  const publicWorkflowPreview = value => {
+    const result = { ok: value?.ok === true };
+    if (value?.canceled === true) return { ...result, canceled: true };
+    if (safeControlId(value?.draftId)) result.draftId = value.draftId;
+    result.blocked = value?.blocked === true;
+    result.issues = (Array.isArray(value?.issues) ? value.issues : []).slice(0, 256).flatMap(issue => safeControlId(issue?.code) ? [{ code: issue.code,
+      ...(safeControlId(issue.nodeId) ? { nodeId: issue.nodeId } : {}), ...(safeControlId(issue.classType) ? { classType: issue.classType } : {}) }] : []);
+    result.nodes = (Array.isArray(value?.nodes) ? value.nodes : []).slice(0, 256).flatMap(node => safeControlId(node?.nodeId) && safeControlId(node?.classType) ? [{
+      nodeId: node.nodeId, classType: node.classType, approved: node.approved === true, outputNode: node.outputNode === true,
+      outputTypes: (Array.isArray(node.outputTypes) ? node.outputTypes : []).filter(safeControlId),
+      inputs: (Array.isArray(node.inputs) ? node.inputs : []).flatMap(input => safeControlId(input?.inputName) && safeControlId(input?.type) ? [{ inputName: input.inputName, type: input.type,
+        allowedKinds: (Array.isArray(input.allowedKinds) ? input.allowedKinds : []).filter(kind => Object.prototype.hasOwnProperty.call(MAPPING_PORTS, kind)) }] : [])
+    }] : []);
+    result.candidateCapabilities = (Array.isArray(value?.candidateCapabilities) ? value.candidateCapabilities : []).filter(capability => WORKFLOW_CAPABILITIES.includes(capability));
+    return result;
+  };
+  const stableImageIdentity = value => {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !["assetId", "occurrenceId", "contentHash"].includes(key)) ||
+      !["assetId", "occurrenceId"].every(key => typeof value[key] === "string" && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(value[key])) || !/^[a-f0-9]{64}$/.test(value.contentHash || "")) throw controlInvalid();
+    return { assetId: value.assetId, occurrenceId: value.occurrenceId, contentHash: value.contentHash };
+  };
+  const publicMask = value => {
+    try {
+      const identity = stableImageIdentity({ assetId: value?.assetId, occurrenceId: value?.occurrenceId, contentHash: value?.contentHash });
+      if (!Number.isSafeInteger(value.revision) || value.revision < 1 || ![value.width, value.height].every(dimension => Number.isInteger(dimension) && dimension > 0)) return undefined;
+      const sourceImage = stableImageIdentity({ assetId: value.sourceImage?.assetId, occurrenceId: value.sourceImage?.occurrenceId, contentHash: value.sourceImage?.contentHash });
+      return { ...identity, revision: value.revision, width: value.width, height: value.height, sourceImage };
+    } catch { return undefined; }
   };
 
   ipcMain.handle("naimage:server:license-status", async (_event, payload = {}) => {
@@ -499,8 +562,40 @@ function registerServerIpc({
 
   ipcMain.handle("naimage:server:comfyui", async (_event, payload = {}) => {
     try {
-      if (Object.keys(payload).some(key => !["action", "baseUrl", "connectionId", "profileId", "label", "outputNodeId", "inputMappings", "projectId", "key", "networkScope", "credentialType", "enabled", "confirmed"].includes(key))) throw Object.assign(new Error("本地生图控制参数无效。"), { code: "COMFYUI_REQUEST_INVALID" });
-      if (payload.action === "list") return comfyUiTemplateService.list();
+      if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).some(key => !["action", "baseUrl", "connectionId", "profileId", "label", "outputNodeId", "inputMappings", "projectId", "conversationId", "sourceImage", "draftId", "capability", "key", "networkScope", "credentialType", "enabled", "confirmed"].includes(key))) throw controlInvalid();
+      if (payload.action === "list") return publicTemplateResult(await comfyUiTemplateService.list());
+      if (["import", "workflow-preview-import"].includes(payload.action)) {
+        if (Object.keys(payload).some(key => !["action", "label"].includes(key)) || (payload.label !== undefined && (typeof payload.label !== "string" || !payload.label.trim() || payload.label.length > 100))) throw controlInvalid();
+        if (typeof comfyUiTemplateService?.previewImport !== "function") throw Object.assign(new Error("ComfyUI 工作流预检不可用。"), { code: "COMFYUI_TEMPLATE_IMPORT_UNAVAILABLE" });
+        return publicWorkflowPreview(await comfyUiTemplateService.previewImport(payload.label === undefined ? {} : { label: payload.label }));
+      }
+      if (payload.action === "workflow-approve-import") {
+        if (payload.confirmed !== true) throw Object.assign(new Error("批准 ComfyUI 工作流需要 confirmed=true。"), { code: "COMFYUI_WORKFLOW_CONFIRMATION_REQUIRED" });
+        if (Object.keys(payload).some(key => !["action", "draftId", "label", "capability", "outputNodeId", "inputMappings", "confirmed"].includes(key)) || !safeControlId(payload.draftId) || !safeControlId(payload.outputNodeId) ||
+          !WORKFLOW_CAPABILITIES.includes(payload.capability) || (payload.label !== undefined && (typeof payload.label !== "string" || !payload.label.trim() || payload.label.length > 100)) ||
+          !Array.isArray(payload.inputMappings) || payload.inputMappings.length < 1 || payload.inputMappings.length > 64 || payload.inputMappings.some(mapping => !mapping || typeof mapping !== "object" ||
+            Object.keys(mapping).some(key => !["nodeId", "inputName", "kind", "index"].includes(key)) || !safeControlId(mapping.nodeId) || typeof mapping.inputName !== "string" || !/^[A-Za-z0-9_]{1,100}$/.test(mapping.inputName) ||
+            !Object.prototype.hasOwnProperty.call(MAPPING_PORTS, mapping.kind) || mapping.kind === "image" || (mapping.kind === "referenceImages" ? !Number.isInteger(mapping.index) || mapping.index < 0 || mapping.index > 3 : mapping.index !== undefined))) throw controlInvalid();
+        if (typeof comfyUiTemplateService?.approveImport !== "function") throw Object.assign(new Error("ComfyUI 工作流批准不可用。"), { code: "COMFYUI_TEMPLATE_IMPORT_UNAVAILABLE" });
+        return publicTemplateResult(await comfyUiTemplateService.approveImport({ draftId: payload.draftId, capability: payload.capability, outputNodeId: payload.outputNodeId,
+          inputMappings: publicMappings(payload.inputMappings), ...(payload.label === undefined ? {} : { label: payload.label }) }));
+      }
+      if (["masks-list", "masks-import"].includes(payload.action)) {
+        if (Object.keys(payload).some(key => !["action", "projectId", "conversationId", "sourceImage", ...(payload.action === "masks-import" ? ["confirmed"] : [])].includes(key)) ||
+          ![payload.projectId, payload.conversationId].every(value => typeof value === "string" && value.trim() && value.length <= 180)) throw controlInvalid();
+        const sourceImage = stableImageIdentity(payload.sourceImage);
+        const importing = payload.action === "masks-import";
+        if (importing && payload.confirmed !== true) throw Object.assign(new Error("导入 ComfyUI 蒙版需要 confirmed=true。"), { code: "COMFYUI_MASK_CONFIRMATION_REQUIRED" });
+        if (typeof comfyUiMaskService?.[importing ? "importMask" : "list"] !== "function") throw Object.assign(new Error("ComfyUI 受管蒙版服务不可用。"), { code: "COMFYUI_MASK_SERVICE_UNAVAILABLE" });
+        const value = await comfyUiMaskService[importing ? "importMask" : "list"]({ projectId: payload.projectId, conversationId: payload.conversationId, sourceImage, ...(importing ? { confirmed: true } : {}) });
+        if (value?.canceled === true) return { ok: true, canceled: true };
+        if (importing) {
+          const mask = publicMask(value?.mask);
+          if (value?.ok !== true || !mask) throw Object.assign(new Error("ComfyUI 蒙版导入未完成。"), { code: "COMFYUI_MASK_IMPORT_FAILED" });
+          return { ok: true, mask };
+        }
+        return { ok: value?.ok === true, masks: (Array.isArray(value?.masks) ? value.masks : []).map(publicMask).filter(Boolean) };
+      }
       if (["connections-list", "connection-list", "connections"].includes(payload.action)) {
         const service = requireConnectionService();
         if (typeof service.list !== "function") throw Object.assign(new Error("ComfyUI 连接列表不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
@@ -604,7 +699,6 @@ function registerServerIpc({
         if (connectionId && !connectionService) throw Object.assign(new Error("ComfyUI 连接配置服务不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
         return await comfyUiTemplateService.inspect(payload);
       }
-      if (payload.action === "import") return await comfyUiTemplateService.importTemplate(payload);
       if (payload.action === "cancel") {
         const projectId = String(payload.projectId || ""), key = String(payload.key || ""), connectionId = connectionReference(payload);
         return await imageOperationJournal.cancel(projectId, key, connectionId ? { connectionId } : undefined);
@@ -644,6 +738,10 @@ function registerServerIpc({
       return { ok: false, errorCode: "PROJECT_NOT_FOUND", error: "当前项目不存在或已经被移除，请重新打开项目。" };
     }
     if (!conversationId) return { ok: false, errorCode: "CONVERSATION_REQUIRED", error: "请先创建或选择一个对话，再生成图片。" };
+    const isComfyUi = String((payload ?? {}).provider || "").toLowerCase() === "comfyui";
+    if (isComfyUi && ((payload ?? {}).maskImage !== undefined || (payload ?? {}).maskDataUrl !== undefined)) {
+      return { ok: false, errorCode: "COMFYUI_INPUT_INVALID", error: "ComfyUI 蒙版只能由受管 maskImage 身份引用，不能传路径或内联数据。", assets: [], runId };
+    }
     let controlledRun;
     const ownedMaskImage = (payload ?? {}).maskDataUrl
       ? writeDataUrlTemp((payload ?? {}).maskDataUrl, `mask-${runId.replace(/[^a-z0-9_-]/gi, "-")}`, projectId)
@@ -660,7 +758,6 @@ function registerServerIpc({
         await agentRunControl?.waitUntilRunnable(controlledRun, controlledRun.signal);
       }
       const maskImage = ownedMaskImage || (payload ?? {}).maskImage;
-      const isComfyUi = String((payload ?? {}).provider || "").toLowerCase() === "comfyui";
       if (isComfyUi && ["workflow", "inputs", "inputMappings", "baseUrl"].some(key => Object.prototype.hasOwnProperty.call(payload, key))) throw Object.assign(new Error("本地生图必须使用 Main 已审核的模板和项目素材。"), { code: "COMFYUI_REQUEST_INVALID" });
       const comfyui = isComfyUi ? comfyUiTemplateService.resolve(payload?.comfyui) : undefined;
       const data = await callNewApiImageWithSession(settings, {
@@ -674,7 +771,7 @@ function registerServerIpc({
         count: (payload ?? {}).count || settings.imageCount,
         referenceImages: Array.isArray((payload ?? {}).referenceImages) ? (payload ?? {}).referenceImages : [],
         editImage: (payload ?? {}).editImage,
-        maskImage,
+        ...(isComfyUi ? {} : { maskImage }),
         outputFormat: (payload ?? {}).outputFormat ?? (payload ?? {}).output_format,
         outputCompression: (payload ?? {}).outputCompression ?? (payload ?? {}).output_compression,
         background: (payload ?? {}).background,
@@ -686,7 +783,7 @@ function registerServerIpc({
         requireAlpha: (payload ?? {}).requireAlpha,
         layerOutputMode: (payload ?? {}).layerOutputMode,
         runId, operationId, requestIndex, nodeIds: payload?.nodeIds, targetNodeId: payload?.targetNodeId,
-        projectId,
+        projectId, conversationId,
         signal: controlledRun?.signal,
         ...(isComfyUi ? { onStatus: status => emitAgentProgress(event.sender, runId, { phase: "image-progress", tool: "image_gen", summary: "ComfyUI 本地任务进度", progress: status, projectId }) } : {}),
         onPartialImage: (partial) => emitAgentProgress(event.sender, runId, {

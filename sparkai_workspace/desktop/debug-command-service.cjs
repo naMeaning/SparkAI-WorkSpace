@@ -130,6 +130,10 @@ function invalidArgument(command, pathValue, reason, details = {}) {
 
 function validateSchemaValue(command, schema, value, pathValue = "$") {
   if (!schema || typeof schema !== "object") return;
+  if (Array.isArray(schema.anyOf) && !schema.anyOf.some(branch => {
+    try { validateSchemaValue(command, branch, value, pathValue); return true; }
+    catch { return false; }
+  })) invalidArgument(command, pathValue, "不符合任一允许的字段组合");
   if (schema.type === "object") {
     if (!isObject(value)) invalidArgument(command, pathValue, "必须是 JSON 对象");
     const properties = isObject(schema.properties) ? schema.properties : {};

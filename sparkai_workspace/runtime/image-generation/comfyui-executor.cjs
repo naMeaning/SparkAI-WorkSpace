@@ -2,10 +2,11 @@
 
 const { createHash, randomUUID, randomBytes } = require("node:crypto");
 const { URL } = require("node:url");
-const { CORE_NODES, MAPPING_PORTS, TEMPLATE_POLICY_VERSION } = require("./comfyui-template-registry.cjs");
-const { LOCAL_HOSTS, localBaseUrl, COMFYUI_PARAMETER_RANGES, normalizeComfyUiSamplingParameters, isComfyUiModelName, isComfyUiSamplingChoice } = require("../comfyui-options.mjs");
+const { CORE_NODES, MAPPING_PORTS, TEMPLATE_POLICY_VERSION, CAPABILITY_POLICY_VERSION, WORKFLOW_CAPABILITIES, IMAGE_MAPPING_KINDS } = require("./comfyui-template-registry.cjs");
+const { LOCAL_HOSTS, localBaseUrl, COMFYUI_PARAMETER_RANGES, normalizeComfyUiSamplingParameters, normalizeComfyUiWorkflowReference, isComfyUiModelName, isComfyUiSamplingChoice } = require("../comfyui-options.mjs");
 
-const LINK_TYPES = new Set(["MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE"]);
+const LINK_TYPES = new Set(["MODEL", "CLIP", "VAE", "CONDITIONING", "LATENT", "IMAGE", "MASK"]);
+const imageMapping = mapping => IMAGE_MAPPING_KINDS.includes(mapping.kind);
 const MAX_WORKFLOW_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
@@ -52,6 +53,10 @@ function assertLiteral(kind, value) {
   if (kind === "steps") valid = Number.isInteger(value) && value >= 1 && value <= 150;
   if (kind === "cfg") valid = Number.isFinite(value) && value >= 0 && value <= 30;
   if (kind === "denoise") valid = Number.isFinite(value) && value >= 0 && value <= 1;
+  if (kind === "channel") valid = ["alpha", "red", "green", "blue"].includes(value);
+  if (kind === "boolean") valid = typeof value === "boolean";
+  if (kind === "offset") valid = Number.isInteger(value) && value >= 0 && value <= 4096;
+  if (kind === "grow") valid = Number.isInteger(value) && value >= 0 && value <= 64;
   if (!valid) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 模板端口值未通过校验。");
 }
 
@@ -64,16 +69,20 @@ function normalizeMappings(workflow, values) {
     const node = workflow[nodeId], port = CORE_NODES[node?.class_type]?.inputs?.[inputName];
     if (!node || !port || LINK_TYPES.has(port) || seen.has(`${nodeId}.${inputName}`) || (kind !== "value" && !MAPPING_PORTS[kind]?.includes(`${node.class_type}.${inputName}`))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 输入映射与审核端口不符。");
     seen.add(`${nodeId}.${inputName}`);
-    if (kind === "image") {
+    if (kind === "image" || kind === "referenceImages") {
       if (!Number.isInteger(mapping.index) || mapping.index < 0 || mapping.index > 3 || own(mapping, "value")) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 图片映射需要明确的素材序号。");
+    } else if (kind === "sourceImage" || kind === "maskImage") {
+      if (mapping.index !== undefined || own(mapping, "value")) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 来源与蒙版映射不能携带素材序号或常量。");
+      if (kind === "maskImage" && node.inputs.channel !== "alpha") throw fail("COMFYUI_NODE_MAPPING_INVALID", "受管蒙版必须读取 PNG 透明通道。");
     } else if (own(mapping, "value")) assertLiteral(port, mapping.value);
     return clone({ ...mapping, kind });
   });
-  for (const [id, node] of Object.entries(workflow)) if (node.class_type === "LoadImage" && !mappings.some((mapping) => mapping.kind === "image" && mapping.nodeId === id && mapping.inputName === "image")) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 图片输入必须映射至本任务上传素材。");
+  if (mappings.some(mapping => mapping.kind === "image") && mappings.some(mapping => ["sourceImage", "maskImage", "referenceImages"].includes(mapping.kind))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "旧素材序号与显式素材角色不能混用。");
+  for (const [id, node] of Object.entries(workflow)) if (["LoadImage", "LoadImageMask"].includes(node.class_type) && !mappings.some((mapping) => imageMapping(mapping) && mapping.nodeId === id && mapping.inputName === "image")) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 图片与蒙版输入必须映射至本任务上传素材。");
   return mappings;
 }
 
-function normalizeWorkflow(workflow, options = {}) {
+function inspectWorkflowGraph(workflow) {
   if (!plain(workflow)) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 工作流必须是 API Format JSON 对象。");
   let raw;
   try { raw = JSON.stringify(workflow); } catch { throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 工作流必须是 JSON。"); }
@@ -105,12 +114,30 @@ function normalizeWorkflow(workflow, options = {}) {
     visiting.delete(id); visited.add(id);
   }
   nodeIds.forEach(visit);
-  if (nodes.filter((node) => node.classType === "KSampler").length !== 1 || nodes.filter((node) => node.classType === "CheckpointLoaderSimple").length !== 1) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 首期模板需要一个采样器和一个基础模型。");
+  const normalized = Object.fromEntries(nodeIds.map((id) => [id, { class_type: workflow[id].class_type, inputs: clone(workflow[id].inputs) }]));
+  return { workflow: normalized, nodes, workflowHash: stableHash(normalized) };
+}
+
+function normalizeWorkflow(workflow, options = {}) {
+  const graph = inspectWorkflowGraph(workflow);
+  workflow = graph.workflow;
+  const { nodes } = graph;
   const outputNodeId = options.outputNodeId;
   if (typeof outputNodeId !== "string" || !own(workflow, outputNodeId) || workflow[outputNodeId].class_type !== "SaveImage") throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 需要明确映射一个 SaveImage 成果节点。");
   const inputNodeId = options.inputNodeId;
-  if (inputNodeId !== undefined && (!own(workflow, inputNodeId) || !["LoadImage", "CLIPTextEncode"].includes(workflow[inputNodeId].class_type))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 输入节点映射无效。");
+  if (inputNodeId !== undefined && (!own(workflow, inputNodeId) || !["LoadImage", "LoadImageMask", "CLIPTextEncode"].includes(workflow[inputNodeId].class_type))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 输入节点映射无效。");
   const inputMappings = normalizeMappings(workflow, options.inputMappings);
+  const samplerCount = nodes.filter(node => node.classType === "KSampler").length, checkpointCount = nodes.filter(node => node.classType === "CheckpointLoaderSimple").length;
+  const sourceMappings = inputMappings.filter(mapping => mapping.kind === "sourceImage" || mapping.kind === "image");
+  const masks = inputMappings.filter(mapping => mapping.kind === "maskImage");
+  const references = inputMappings.filter(mapping => mapping.kind === "referenceImages");
+  const inferred = masks.length ? (samplerCount ? "inpaint" : "cutout") : sourceMappings.length ? "img2img" : "generate";
+  const capability = options.capability === undefined ? inferred : options.capability;
+  if (!WORKFLOW_CAPABILITIES.includes(capability)) throw fail("COMFYUI_CAPABILITY_INVALID", "ComfyUI 工作流能力无效。");
+  if (capability === "cutout") {
+    if (samplerCount || checkpointCount || !sourceMappings.length || !masks.length || !nodes.some(node => node.classType === "JoinImageWithAlpha")) throw fail("COMFYUI_CAPABILITY_INVALID", "蒙版抠图需要来源、受管蒙版与真实 alpha 输出节点，不运行采样模型。");
+  } else if (samplerCount !== 1 || checkpointCount !== 1) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 生成模板需要一个采样器和一个基础模型。");
+  if ((capability === "inpaint" && (!sourceMappings.length || !masks.length)) || (capability === "img2img" && !sourceMappings.length) || (!["inpaint", "cutout"].includes(capability) && masks.length) || (capability === "generate" && sourceMappings.length)) throw fail("COMFYUI_CAPABILITY_INVALID", "ComfyUI 素材角色与声明能力不匹配。");
   const ancestors = new Set();
   function collect(id) {
     if (ancestors.has(id)) return;
@@ -118,16 +145,41 @@ function normalizeWorkflow(workflow, options = {}) {
     for (const [name, kind] of Object.entries(CORE_NODES[workflow[id].class_type].inputs)) if (LINK_TYPES.has(kind)) collect(workflow[id].inputs[name][0]);
   }
   collect(outputNodeId);
-  if (nodes.some((node) => (node.classType === "KSampler" || node.classType === "LoadImage") && !ancestors.has(node.id))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 成果必须来自本任务采样器和已映射素材。");
-  const normalized = Object.fromEntries(nodeIds.map((id) => [id, { class_type: workflow[id].class_type, inputs: clone(workflow[id].inputs) }]));
-  return { workflow: normalized, nodes, workflowHash: stableHash(normalized), inputNodeId, outputNodeId, inputMappings };
+  if (nodes.some((node) => ["KSampler", "LoadImage", "LoadImageMask"].includes(node.classType) && !ancestors.has(node.id))) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 成果必须来自本任务采样器和已映射素材。");
+  if (capability === "cutout" && !nodes.some(node => node.classType === "JoinImageWithAlpha" && ancestors.has(node.id))) throw fail("COMFYUI_CAPABILITY_INVALID", "抠图成果必须来自声明的 alpha 合成路径。");
+  if (capability === "inpaint") {
+    function branch(id, found = new Set()) {
+      if (found.has(id)) return found;
+      found.add(id);
+      for (const [name, kind] of Object.entries(CORE_NODES[workflow[id].class_type].inputs)) if (LINK_TYPES.has(kind)) branch(workflow[id].inputs[name][0], found);
+      return found;
+    }
+    const samplerId = nodes.find(node => node.classType === "KSampler").id;
+    const latentBranch = branch(workflow[samplerId].inputs.latent_image[0]);
+    const maskedSource = nodes.some(node => {
+      if (!latentBranch.has(node.id) || !["VAEEncodeForInpaint", "SetLatentNoiseMask"].includes(node.classType)) return false;
+      const inputs = workflow[node.id].inputs, maskBranch = branch(inputs.mask[0]), sourceBranch = branch((inputs.pixels || inputs.samples)[0]);
+      return masks.some(mapping => maskBranch.has(mapping.nodeId)) && sourceMappings.some(mapping => sourceBranch.has(mapping.nodeId));
+    });
+    if (!maskedSource) throw fail("COMFYUI_CAPABILITY_INVALID", "局部重绘必须将来源与受管蒙版接入采样器的噪声区域。");
+  }
+  const legacyCount = new Set(inputMappings.filter(mapping => mapping.kind === "image").map(mapping => mapping.index)).size;
+  const referenceSlots = [...new Set(references.map(mapping => mapping.index))].sort((a, b) => a - b);
+  if (referenceSlots.some((slot, index) => slot !== index)) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 参考素材槽位必须从 0 连续映射，不能省略中间素材。");
+  const referenceCount = Math.max(referenceSlots.length, legacyCount - 1);
+  const inputRoles = {
+    ...(sourceMappings.length ? { sourceImage: { required: true, maxCount: 1 } } : {}),
+    ...(masks.length ? { maskImage: { required: true, maxCount: 1, managed: true } } : {}),
+    ...(referenceCount > 0 ? { referenceImages: { required: true, minCount: referenceCount, maxCount: referenceCount } } : {})
+  };
+  return { ...graph, inputNodeId, outputNodeId, inputMappings, capability, inputRoles, requiresCheckpoint: capability !== "cutout", alphaRequired: capability === "cutout" };
 }
 
 function validateDependencies(info, objectInfo) {
   if (!plain(objectInfo)) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 未返回有效节点依赖目录。");
   for (const { id, classType } of info.nodes) {
     const available = objectInfo[classType], spec = CORE_NODES[classType];
-    if (!own(objectInfo, classType) || !plain(available) || !plain(available.input?.required) || !Array.isArray(available.output) || (available.python_module && available.python_module !== "nodes")) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 缺少审核模板的核心节点依赖。");
+    if (!own(objectInfo, classType) || !plain(available) || !plain(available.input?.required) || !Array.isArray(available.output) || (spec.modules ? !spec.modules.includes(available.python_module) : available.python_module && available.python_module !== "nodes")) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 缺少审核模板的核心节点依赖。");
     if (spec.outputs.some((type, index) => available.output[index] !== type) || (spec.outputNode && available.output_node !== true)) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 核心节点输出与模板不兼容。");
     const ports = { ...available.input.required, ...available.input.optional };
     if (Object.keys(available.input.required).some((key) => !own(info.workflow[id].inputs, key))) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 节点需要模板未声明的必需端口。");
@@ -140,7 +192,9 @@ function validateDependencies(info, objectInfo) {
       } else if (Array.isArray(type)) {
         // A LoadImage list predates this task's upload. Other choices must be
         // available now, including checkpoint weights and sampler/scheduler.
-        if (!(classType === "LoadImage" && name === "image") && !type.includes(value)) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 缺少模板选择的模型或采样依赖。");
+        if (!(["LoadImage", "LoadImageMask"].includes(classType) && name === "image") && !type.includes(value)) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 缺少模板选择的模型或采样依赖。");
+      } else if (typeof value === "boolean") {
+        if (type !== "BOOLEAN") throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 节点布尔端口不兼容。");
       } else if (typeof value === "number") {
         if (!["INT", "FLOAT"].includes(type) || (type === "INT" && !Number.isInteger(value)) || (Number.isFinite(limits?.min) && value < limits.min) || (Number.isFinite(limits?.max) && value > limits.max)) throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 模板参数超出本机节点能力。");
       } else if (type !== "STRING") throw fail("COMFYUI_DEPENDENCY_MISSING", "ComfyUI 节点输入类型不兼容。");
@@ -148,7 +202,7 @@ function validateDependencies(info, objectInfo) {
   }
 }
 
-const SAFE_CAPABILITY_NODES = Object.freeze(["CheckpointLoaderSimple", "CLIPTextEncode", "EmptyLatentImage", "KSampler", "VAEDecode", "VAEEncode", "LoadImage", "SaveImage", "PreviewImage"]);
+const SAFE_CAPABILITY_NODES = Object.freeze(Object.keys(CORE_NODES));
 
 function descriptorChoices(descriptor, modelNames = false) {
   const values = Array.isArray(descriptor) && Array.isArray(descriptor[0]) ? descriptor[0] : [];
@@ -179,7 +233,7 @@ function safeDeviceSummary(device) {
  */
 function normalizeCapabilities(objectInfo, systemStats) {
   const rawInfo = plain(objectInfo) ? objectInfo : {};
-  const info = Object.fromEntries(SAFE_CAPABILITY_NODES.filter(name => plain(rawInfo[name]) && (!rawInfo[name].python_module || rawInfo[name].python_module === "nodes")).map(name => [name, rawInfo[name]]));
+  const info = Object.fromEntries(SAFE_CAPABILITY_NODES.filter(name => plain(rawInfo[name]) && (CORE_NODES[name].modules ? CORE_NODES[name].modules.includes(rawInfo[name].python_module) : !rawInfo[name].python_module || rawInfo[name].python_module === "nodes")).map(name => [name, rawInfo[name]]));
   const sampler = info.KSampler?.input?.required || {};
   const parameterRanges = Object.fromEntries(["steps", "cfg", "denoise"].map(field => [field, capabilityRange(field, sampler[field])]).filter(([, range]) => range));
   const capabilities = {
@@ -201,14 +255,14 @@ function templateSamplingMetadata(info) {
   const defaults = Object.fromEntries(Object.entries(ports).map(([field, port]) => {
     const mapping = info.inputMappings.find(item => item.nodeId === samplerId && item.inputName === port && own(item, "value"));
     return [field, mapping ? mapping.value : sampler[port]];
-  }));
+  }).filter(([, value]) => value !== undefined));
   const exposedInputs = [...new Set(info.inputMappings.filter(mapping => mapping.kind !== "value" && !own(mapping, "value")).map(mapping => mapping.kind))];
   const parameterRanges = Object.fromEntries(["steps", "cfg", "denoise"].filter(field => exposedInputs.includes(field)).map(field => [field, { ...COMFYUI_PARAMETER_RANGES[field] }]));
   return { defaults, exposedInputs, parameterRanges, inputMappings: info.inputMappings };
 }
 
 function templateHashFor(info, policyVersion = TEMPLATE_POLICY_VERSION) {
-  return stableHash({ workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, policyVersion });
+  return stableHash({ workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, policyVersion, ...(policyVersion === CAPABILITY_POLICY_VERSION ? { capability: info.capability } : {}) });
 }
 
 function validateTemplateIdentity(info, input) {
@@ -249,6 +303,50 @@ function imageInfo(bytes) {
   return { mimeType, width, height };
 }
 
+function mappingInputIndex(mapping, metadata) {
+  if (mapping.kind === "image") return mapping.index;
+  return metadata.findIndex(item => item.role === mapping.kind && (mapping.kind !== "referenceImages" || item.index === mapping.index));
+}
+
+function normalizeInputs(info, input) {
+  const originals = Array.isArray(input.inputs) ? input.inputs : [];
+  const typed = info.inputMappings.some(mapping => ["sourceImage", "maskImage", "referenceImages"].includes(mapping.kind));
+  if (originals.length > (typed ? 6 : 4)) throw fail("COMFYUI_IMAGE_INVALID", "ComfyUI 素材数量超过审核模板限制。");
+  const roles = { sourceImage: 0, maskImage: 0, referenceImages: 0 }, roleKeys = new Set();
+  const inputs = originals.map(imageBytes);
+  const metadata = inputs.map((bytes, index) => {
+    const original = originals[index], dimensions = imageInfo(bytes), sha256 = createHash("sha256").update(bytes).digest("hex");
+    const result = { ...dimensions, sha256, bytes: bytes.length };
+    if (typed && (!plain(original) || !["sourceImage", "maskImage", "referenceImages"].includes(original.role))) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 素材需要明确的来源、蒙版或参考角色。");
+    if (original?.role !== undefined) {
+      if (!["sourceImage", "maskImage", "referenceImages"].includes(original.role)) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 素材角色无效。");
+      const roleIndex = original.role === "referenceImages" ? (original.index ?? roles.referenceImages) : 0;
+      if (!Number.isInteger(roleIndex) || roleIndex < 0 || roleIndex > 3 || (original.role !== "referenceImages" && original.index !== undefined && original.index !== 0) || roleKeys.has(`${original.role}:${roleIndex}`)) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 素材角色重复或序号无效。");
+      roleKeys.add(`${original.role}:${roleIndex}`); roles[original.role]++;
+      result.role = original.role; if (original.role === "referenceImages") result.index = roleIndex;
+    }
+    if (original?.contentHash !== undefined && original.contentHash !== sha256) throw fail("COMFYUI_INPUT_STALE", "ComfyUI 素材字节与冻结身份不一致。");
+    for (const field of ["width", "height"]) if (original?.[field] !== undefined && original[field] !== dimensions[field]) throw fail("COMFYUI_INPUT_STALE", "ComfyUI 素材尺寸与冻结身份不一致。");
+    if (original?.mimeType !== undefined && original.mimeType !== dimensions.mimeType) throw fail("COMFYUI_INPUT_STALE", "ComfyUI 素材格式与冻结身份不一致。");
+    if (typed || ["assetId", "occurrenceId"].some(field => original?.[field] !== undefined)) {
+      if (!["assetId", "occurrenceId"].every(field => typeof original[field] === "string" && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(original[field])) || original.contentHash !== sha256) throw fail("COMFYUI_INPUT_INVALID", "ComfyUI 素材稳定身份无效。");
+      Object.assign(result, { assetId: original.assetId, occurrenceId: original.occurrenceId, contentHash: sha256 });
+    }
+    return result;
+  });
+  const consumed = new Set(info.inputMappings.filter(imageMapping).map(mapping => mappingInputIndex(mapping, metadata)));
+  if (consumed.has(-1) || consumed.size !== inputs.length || [...consumed].some(index => index >= inputs.length)) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 映射必须与本任务素材逐一对应，不能忽略或交换素材。");
+  let maskBindings;
+  if (["inpaint", "cutout"].includes(info.capability)) {
+    const source = metadata.find(item => item.role === "sourceImage"), mask = metadata.find(item => item.role === "maskImage"), binding = input.maskBindings;
+    if (!source || !mask || mask.mimeType !== "image/png" || !plain(binding) || Object.keys(binding).some(key => !["sourceHash", "maskHash", "width", "height", "revision"].includes(key)) ||
+      binding.sourceHash !== source.sha256 || binding.maskHash !== mask.sha256 || !Number.isSafeInteger(binding.revision) || binding.revision < 1 ||
+      binding.width !== source.width || binding.height !== source.height || mask.width !== source.width || mask.height !== source.height) throw fail("COMFYUI_MASK_BINDING_INVALID", "ComfyUI 蒙版必须由 Main 绑定源图哈希、尺寸与有效版本。");
+    maskBindings = clone(binding);
+  } else if (input.maskBindings !== undefined || roles.maskImage) throw fail("COMFYUI_MASK_BINDING_INVALID", "当前 ComfyUI 能力没有受管蒙版输入。");
+  return { inputs, metadata, maskBindings };
+}
+
 async function defaultRequest(url, options = {}) {
   const timeout = AbortSignal.timeout(30_000), signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const response = await fetch(url, { ...options, signal, redirect: "manual", credentials: "omit" });
@@ -270,15 +368,30 @@ async function defaultRequest(url, options = {}) {
 
 function actualParameters(info, inputMetadata) {
   const nodes = info.workflow;
-  const samplerId = info.nodes.find((node) => node.classType === "KSampler").id;
-  const modelId = info.nodes.find((node) => node.classType === "CheckpointLoaderSimple").id;
-  const sampler = nodes[samplerId].inputs, latent = nodes[sampler.latent_image[0]];
-  let size;
-  if (latent.class_type === "EmptyLatentImage") size = latent.inputs;
-  if (latent.class_type === "VAEEncode") {
-    const mapping = info.inputMappings.find((item) => item.kind === "image" && item.nodeId === latent.inputs.pixels[0]);
-    size = mapping ? inputMetadata[mapping.index] : undefined;
+  if (!info.requiresCheckpoint) {
+    const source = inputMetadata.find(item => item.role === "sourceImage");
+    if (!source) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 抠图需要可冻结的来源尺寸。");
+    return { model: "comfyui-mask", width: source.width, height: source.height, batchSize: 1 };
   }
+  const samplerId = info.nodes.find((node) => node.classType === "KSampler")?.id;
+  const modelId = info.nodes.find((node) => node.classType === "CheckpointLoaderSimple")?.id;
+  const sampler = nodes[samplerId].inputs, latent = nodes[sampler.latent_image[0]];
+  function dimensions(id) {
+    const node = nodes[id];
+    if (!node) return undefined;
+    if (node.class_type === "EmptyLatentImage") return node.inputs;
+    if (["LoadImage", "LoadImageMask"].includes(node.class_type)) {
+      const mapping = info.inputMappings.find(item => imageMapping(item) && item.nodeId === id);
+      return mapping ? inputMetadata[mappingInputIndex(mapping, inputMetadata)] : undefined;
+    }
+    if (["VAEEncode", "VAEEncodeForInpaint"].includes(node.class_type)) return dimensions(node.inputs.pixels[0]);
+    if (node.class_type === "SetLatentNoiseMask") return dimensions(node.inputs.samples[0]);
+    if (node.class_type === "ImageCompositeMasked") return dimensions(node.inputs.destination[0]);
+    if (["JoinImageWithAlpha", "ImageToMask"].includes(node.class_type)) return dimensions(node.inputs.image[0]);
+    if (["MaskToImage", "InvertMask"].includes(node.class_type)) return dimensions(node.inputs.mask[0]);
+    return undefined;
+  }
+  const size = dimensions(sampler.latent_image[0]);
   if (!size || !size.width || !size.height) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 首期模板需要可冻结的图片尺寸来源。");
   assertLiteral("dimension", size.width); assertLiteral("dimension", size.height);
   return { model: nodes[modelId].inputs.ckpt_name, seed: sampler.seed, width: size.width, height: size.height, batchSize: size.batch_size || 1, steps: sampler.steps, cfg: sampler.cfg, sampler: sampler.sampler_name, scheduler: sampler.scheduler, denoise: sampler.denoise };
@@ -409,7 +522,8 @@ function createComfyUiExecutor(options = {}) {
       output.push({ type: "base64", value: bytes.toString("base64"), ...dimensions, filename: descriptor.filename, subfolder: descriptor.subfolder });
     }
     const actualParams = snapshot.actualParams ? { ...snapshot.actualParams, protocol: "comfyui", connectionId: snapshot.connectionId, networkScope: snapshot.networkScope || "local", size: `${snapshot.actualParams.width}x${snapshot.actualParams.height}` } : undefined;
-    return { ok: true, state: "succeeded", provider: "comfyui", protocol: "comfyui", model: snapshot.actualParams?.model || "comfyui-local", promptId: snapshot.promptId, workflowHash: snapshot.workflowHash, actualParams, images: output, data: output.map((image) => ({ b64_json: image.value, mime_type: image.mimeType })) };
+    return { ok: true, state: "succeeded", provider: "comfyui", protocol: "comfyui", model: snapshot.actualParams?.model || "comfyui-local", promptId: snapshot.promptId, workflowHash: snapshot.workflowHash,
+      ...(snapshot.capability ? { capability: snapshot.capability, alphaRequired: snapshot.capability === "cutout" || snapshot.alphaRequired === true } : {}), actualParams, images: output, data: output.map((image) => ({ b64_json: image.value, mime_type: image.mimeType })) };
   }
 
   function recoverySnapshot(input) {
@@ -480,7 +594,7 @@ function createComfyUiExecutor(options = {}) {
     const workflow = info.workflow, fields = { prompt: input.prompt, negative: input.negativePrompt, model: input.checkpoint, seed: input.seed, width: input.width, height: input.height,
       ...sampling };
     for (const mapping of info.inputMappings) {
-      if (mapping.kind === "image") continue;
+      if (imageMapping(mapping)) continue;
       const value = own(mapping, "value") ? mapping.value : fields[mapping.kind];
       if (value !== undefined) workflow[mapping.nodeId].inputs[mapping.inputName] = value;
     }
@@ -497,10 +611,11 @@ function createComfyUiExecutor(options = {}) {
       if (!plain(result) || !relativeFile(result.name, { basename: true }) || !relativeFile(result.subfolder ?? "", { empty: true }) || result.type !== "input") throw fail("COMFYUI_UPLOAD_INVALID", "ComfyUI 上传未返回有效输入文件身份。");
       uploaded.push({ name: result.name, subfolder: result.subfolder || "", type: "input" });
     }
-    for (const mapping of materialized.inputMappings.filter((item) => item.kind === "image")) {
-      const item = uploaded[mapping.index]; workflow[mapping.nodeId].inputs[mapping.inputName] = item.subfolder ? `${item.subfolder}/${item.name}` : item.name;
+    for (const mapping of materialized.inputMappings.filter(imageMapping)) {
+      const item = uploaded[mappingInputIndex(mapping, inputMetadata)]; workflow[mapping.nodeId].inputs[mapping.inputName] = item.subfolder ? `${item.subfolder}/${item.name}` : item.name;
     }
-    const snapshot = { schemaVersion: 2, submissionId, baseUrl: base, ...(connection?.id ? { connectionId: connection.id, networkScope: connection.networkScope, connectionHash: connectionHash(connection) } : {}), clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams,
+    const snapshot = { schemaVersion: ["inpaint", "cutout"].includes(info.capability) ? 3 : 2, submissionId, baseUrl: base, ...(connection?.id ? { connectionId: connection.id, networkScope: connection.networkScope, connectionHash: connectionHash(connection) } : {}), clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams,
+      capability: info.capability, alphaRequired: info.alphaRequired, requiresCheckpoint: info.requiresCheckpoint, ...(input.maskBindings ? { maskBindings: clone(input.maskBindings) } : {}),
       ...(input.templateId ? { templateId: input.templateId, templateVersion: input.templateVersion, templateHash: input.templateHash, policyVersion: input.policyVersion } : {}),
       ...(inspected.capabilitiesHash ? { capabilitiesHash: inspected.capabilitiesHash } : {}), inputs: inputMetadata.map((item, index) => ({ ...item, uploaded: uploaded[index] })), preparedAt: new Date().toISOString() };
     await persistPrepared(clone(snapshot));
@@ -552,17 +667,14 @@ function createComfyUiExecutor(options = {}) {
       const base = connection?.baseUrl || localBaseUrl(input.baseUrl), submissionId = input.submissionId || input.operationId;
       if (typeof submissionId !== "string" || !ID_RE.test(submissionId)) throw fail("COMFYUI_SUBMISSION_ID_REQUIRED", "ComfyUI 提交需要稳定的操作标识。");
       if (own(input, "extraPrompt")) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 首期不接受未审核的附加执行参数。");
+      const templateId = normalizeComfyUiWorkflowReference(input);
       const info = normalizeWorkflow(input.workflow, input);
       validateTemplateIdentity(info, input);
-      const inputs = (Array.isArray(input.inputs) ? input.inputs : []).map(imageBytes);
-      if (inputs.length > 4) throw fail("COMFYUI_IMAGE_INVALID", "ComfyUI 首期最多支持四张输入素材。");
-      const indices = new Set(info.inputMappings.filter((mapping) => mapping.kind === "image").map((mapping) => mapping.index));
-      if (indices.size !== inputs.length || Array.from(indices).some((index) => index >= inputs.length)) throw fail("COMFYUI_NODE_MAPPING_INVALID", "ComfyUI 图片映射必须与本任务素材逐一对应。");
-      const inputMetadata = inputs.map((bytes) => ({ ...imageInfo(bytes), sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length }));
+      const normalizedInputs = normalizeInputs(info, input), inputs = normalizedInputs.inputs, inputMetadata = normalizedInputs.metadata;
       const metadata = templateSamplingMetadata(info);
       const sampling = Object.freeze(normalizeComfyUiSamplingParameters(input, metadata));
       const signature = stableHash({ base, ...(connection ? { connectionHash: connectionHash(connection) } : {}), workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, inputMetadata,
-        templateHash: input.templateHash, policyVersion: input.policyVersion,
+        templateHash: input.templateHash, policyVersion: input.policyVersion, capability: info.capability, ...(normalizedInputs.maskBindings ? { maskBindings: normalizedInputs.maskBindings } : {}),
         fields: { prompt: input.prompt, negativePrompt: input.negativePrompt, checkpoint: input.checkpoint, seed: input.seed, width: input.width, height: input.height, ...sampling } });
       const existing = submissions.get(submissionId);
       if (existing) {
@@ -570,7 +682,7 @@ function createComfyUiExecutor(options = {}) {
         return existing.promise;
       }
       if (submissions.size >= 500) throw fail("COMFYUI_CAPACITY", "ComfyUI 本地提交回执已达容量上限。");
-      const frozenInput = Object.freeze({ ...input, ...(connection ? { connection } : {}), ...sampling,
+      const frozenInput = Object.freeze({ ...input, ...(templateId ? { templateId, workflowId: templateId } : {}), ...(normalizedInputs.maskBindings ? { maskBindings: Object.freeze(normalizedInputs.maskBindings) } : {}), ...(connection ? { connection } : {}), ...sampling,
         defaults: Object.freeze({ ...metadata.defaults }), exposedInputs: Object.freeze([...metadata.exposedInputs]) });
       const promise = execute(frozenInput, info, sampling, inputs, inputMetadata, submissionId, base);
       submissions.set(submissionId, { signature, promise });
@@ -596,4 +708,4 @@ function createComfyUiExecutor(options = {}) {
   return { inspect, normalizeWorkflow, run, recover, cancel, localBaseUrl, active };
 }
 
-module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, normalizeWorkflow, validateDependencies, normalizeCapabilities, templateSamplingMetadata, templateHashFor, localBaseUrl, stableHash, connectionHash };
+module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, inspectWorkflowGraph, normalizeWorkflow, validateDependencies, normalizeCapabilities, templateSamplingMetadata, templateHashFor, localBaseUrl, stableHash, connectionHash };

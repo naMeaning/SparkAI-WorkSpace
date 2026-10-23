@@ -1,7 +1,7 @@
 "use strict";
 
-const { existsSync, lstatSync, readdirSync, realpathSync } = require("node:fs");
-const { createHash } = require("node:crypto");
+const { existsSync, lstatSync, readdirSync, realpathSync, mkdirSync, readFileSync, writeFileSync, renameSync } = require("node:fs");
+const { createHash, randomUUID } = require("node:crypto");
 const path = require("node:path");
 
 const PROJECT_ASSET_REPOSITORY_OWNER = "desktop/project-asset-repository.cjs";
@@ -115,6 +115,86 @@ function createProjectAssetRepository(options = {}) {
   function createProjectAssetFileValidator(projectPath) {
     let roots;
     return filePath => validateProjectAssetFile(filePath, () => roots ??= resolvedValidationRoots(projectPath));
+  }
+
+  const materialFailure = () => Object.assign(new Error("已导入素材的项目身份、位置或内容已变化，请重新导入。"), { code: "PROJECT_MATERIAL_IDENTITY_INVALID" });
+  function materialIdentity(value) {
+    if (!value || !["assetId", "occurrenceId"].every(field => typeof value[field] === "string" && /^[\p{L}\p{N}_.:@-]{1,180}$/u.test(value[field])) || !/^[a-f0-9]{64}$/.test(value.contentHash || "")) throw materialFailure();
+    return { assetId: value.assetId, occurrenceId: value.occurrenceId, contentHash: value.contentHash };
+  }
+  function registeredMaterialFile(project, relativePath) {
+    try {
+    if (!project?.id || !project.path || typeof relativePath !== "string" || !relativePath || /[\u0000-\u001f\\]/.test(relativePath)) throw materialFailure();
+    const file = resolveProjectRelativePath(project.path, relativePath), root = realpathSync(project.path);
+    if (!file) throw materialFailure();
+    const relative = path.relative(root, path.resolve(file));
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw materialFailure();
+    let current = root;
+    for (const part of relative.split(path.sep)) {
+      current = path.join(current, part);
+      if (lstatSync(current).isSymbolicLink()) throw materialFailure();
+    }
+    const controlled = controlledProjectAssetFile(file, project.path);
+    if (!controlled) throw materialFailure();
+    return controlled;
+    } catch { throw materialFailure(); }
+  }
+  function materialRegistryPath(project, create = false) {
+    if (!project?.id || !project.path) throw materialFailure();
+    const root = realpathSync(project.path), dir = path.join(root, projectMetaDirName);
+    if (create && !existsSync(dir)) mkdirSync(dir);
+    if (existsSync(dir) && (!lstatSync(dir).isDirectory() || lstatSync(dir).isSymbolicLink())) throw materialFailure();
+    const file = path.join(dir, "imported-materials.json");
+    if (existsSync(file) && (!lstatSync(file).isFile() || lstatSync(file).isSymbolicLink() || lstatSync(file).size > 16 * 1024 * 1024)) throw materialFailure();
+    return file;
+  }
+  function readMaterialRegistry(project) {
+    try {
+      const file = materialRegistryPath(project);
+      if (!existsSync(file)) return { schemaVersion: 1, projectId: project.id, materials: [] };
+      const document = JSON.parse(readFileSync(file, "utf8"));
+      if (document.schemaVersion !== 1 || document.projectId !== project.id || !Array.isArray(document.materials) || document.materials.length > 20_000) throw materialFailure();
+      const occurrences = new Set();
+      for (const record of document.materials) {
+        materialIdentity(record);
+        if (typeof record.relativePath !== "string" || !record.relativePath || /[\u0000-\u001f\\]/.test(record.relativePath) || occurrences.has(record.occurrenceId)) throw materialFailure();
+        occurrences.add(record.occurrenceId);
+      }
+      return document;
+    } catch { throw materialFailure(); }
+  }
+  // Only the native import owner registers successfully copied images. The
+  // Renderer and command surfaces have no registration operation or path input.
+  function registerImportedMaterials(project, assets) {
+    try {
+    const document = readMaterialRegistry(project), registered = [];
+    for (const asset of assets) {
+      const contentHash = String(asset.contentHash || "").toLowerCase();
+      const identity = materialIdentity({ assetId: `asset-${contentHash}`, occurrenceId: asset.occurrenceId, contentHash });
+      const relativePath = projectRelativePath(project.path, asset.path).replace(/\\/g, "/");
+      const file = registeredMaterialFile(project, relativePath), bytes = boundedImageRead(file, maxExportImageBytes, "导入素材");
+      if (createHash("sha256").update(bytes).digest("hex") !== contentHash) throw materialFailure();
+      const previous = document.materials.find(value => value.occurrenceId === identity.occurrenceId);
+      if (previous && ["assetId", "occurrenceId", "contentHash", "relativePath"].some(field => previous[field] !== ({ ...identity, relativePath })[field])) throw materialFailure();
+      if (!previous) document.materials.push({ ...identity, relativePath, createdAt: new Date().toISOString() });
+      registered.push({ ...asset, ...identity });
+    }
+    if (document.materials.length > 20_000) throw materialFailure();
+    const file = materialRegistryPath(project, true), temporary = `${file}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, JSON.stringify(document), { flag: "wx" }); renameSync(temporary, file);
+    return registered;
+    } catch { throw materialFailure(); }
+  }
+  function resolveRegisteredMaterial(project, value) {
+    const identity = materialIdentity(value), document = readMaterialRegistry(project);
+    const matches = document.materials.filter(record => ["assetId", "occurrenceId", "contentHash"].every(field => record[field] === identity[field]));
+    if (!matches.length) return null;
+    if (matches.length !== 1) throw materialFailure();
+    try {
+      const record = matches[0], file = registeredMaterialFile(project, record.relativePath), bytes = boundedImageRead(file, maxExportImageBytes, "导入素材");
+      if (createHash("sha256").update(bytes).digest("hex") !== identity.contentHash) throw materialFailure();
+      return { ...identity, type: "file", path: file, relativePath: record.relativePath, status: "done" };
+    } catch { throw materialFailure(); }
   }
 
   function controlledRecordedAssetUrl(asset = {}) {
@@ -499,6 +579,8 @@ function createProjectAssetRepository(options = {}) {
     mapMessageAssetReferences,
     mapNestedNodeAssetReferences,
     nestedSessionAssetReferences,
+    registerImportedMaterials,
+    resolveRegisteredMaterial,
     projectAssetRoots,
     projectWritableAssetRoots,
     recoverNodeAssets,

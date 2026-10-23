@@ -39,6 +39,14 @@ function objectInfo() {
     VAEDecode: { input: { required: { samples: ["LATENT"], vae: ["VAE"] } }, output: ["IMAGE"], python_module: "nodes" },
     VAEEncode: { input: { required: { pixels: ["IMAGE"], vae: ["VAE"] } }, output: ["LATENT"], python_module: "nodes" },
     LoadImage: { input: { required: { image: [["old-server-input.png"]] } }, output: ["IMAGE", "MASK"], python_module: "nodes" },
+    LoadImageMask: { input: { required: { image: [["old-server-mask.png"]], channel: [["alpha", "red", "green", "blue"]] } }, output: ["MASK"], python_module: "nodes" },
+    VAEEncodeForInpaint: { input: { required: { pixels: ["IMAGE"], vae: ["VAE"], mask: ["MASK"], grow_mask_by: ["INT", { min: 0, max: 64 }] } }, output: ["LATENT"], python_module: "nodes" },
+    SetLatentNoiseMask: { input: { required: { samples: ["LATENT"], mask: ["MASK"] } }, output: ["LATENT"], python_module: "nodes" },
+    ImageCompositeMasked: { input: { required: { destination: ["IMAGE"], source: ["IMAGE"], x: ["INT", { min: 0, max: 16384 }], y: ["INT", { min: 0, max: 16384 }], resize_source: ["BOOLEAN"] }, optional: { mask: ["MASK"] } }, output: ["IMAGE"], python_module: "comfy_extras.nodes_mask" },
+    MaskToImage: { input: { required: { mask: ["MASK"] } }, output: ["IMAGE"], python_module: "comfy_extras.nodes_mask" },
+    ImageToMask: { input: { required: { image: ["IMAGE"], channel: [["red", "green", "blue", "alpha"]] } }, output: ["MASK"], python_module: "comfy_extras.nodes_mask" },
+    InvertMask: { input: { required: { mask: ["MASK"] } }, output: ["MASK"], python_module: "comfy_extras.nodes_mask" },
+    JoinImageWithAlpha: { input: { required: { image: ["IMAGE"], alpha: ["MASK"] } }, output: ["IMAGE"], python_module: "comfy_extras.nodes_compositing" },
     SaveImage: { input: { required: { images: ["IMAGE"], filename_prefix: ["STRING"] } }, output: [], output_node: true, python_module: "nodes" },
     PreviewImage: { input: { required: { images: ["IMAGE"] } }, output: [], output_node: true, python_module: "nodes" }
   };
@@ -58,7 +66,7 @@ async function mockServer(config = {}) {
   function emit(clientId, value, binary = false) { for (const socket of state.sockets.get(clientId) || []) if (!socket.destroyed) socket.write(wsFrame(value, binary ? 2 : 1)); }
   function finish(promptId, tuple) {
     state.pending = state.pending.filter((entry) => entry[1] !== promptId); state.running = state.running.filter((entry) => entry[1] !== promptId);
-    state.history[promptId] = { prompt: tuple, outputs: { "7": { images: [{ filename: `${promptId}.png`, subfolder: "fixtures", type: "output" }] }, "8": { images: [{ filename: "preview.png", subfolder: "", type: "temp" }] }, "99": { images: [{ filename: "unselected.png", subfolder: "", type: "output" }] } }, status: { completed: true, status_str: "success", messages: [] } };
+    state.history[promptId] = { prompt: tuple, outputs: { [config.outputNodeId || "7"]: { images: [{ filename: `${promptId}.png`, subfolder: "fixtures", type: "output" }] }, "8": { images: [{ filename: "preview.png", subfolder: "", type: "temp" }] }, "99": { images: [{ filename: "unselected.png", subfolder: "", type: "output" }] } }, status: { completed: true, status_str: "success", messages: [] } };
     if (config.failure) state.history[promptId].status = { completed: true, status_str: "error", messages: [["execution_error", { exception_message: "fixture internal details must not escape" }]] };
     if (config.output) state.history[promptId].outputs = config.output;
   }
@@ -73,13 +81,14 @@ async function mockServer(config = {}) {
       if (url.pathname === "/upload/image") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const bytes = Buffer.concat(chunks); state.uploads.push(bytes);
-        assert.ok(bytes.includes(fixtureImage), "HTTP multipart contains original input bytes");
-        return json(res, config.upload || { name: "uploaded.png", subfolder: "task-inputs", type: "input" });
+        const allowedImages = config.uploadImages || [fixtureImage];
+        assert.ok(allowedImages.some(image => bytes.includes(image)), "HTTP multipart contains one of the original managed input bytes");
+        return json(res, config.upload || { name: state.uploads.length === 1 ? "uploaded.png" : `uploaded-${state.uploads.length}.png`, subfolder: "task-inputs", type: "input" });
       }
       if (url.pathname === "/prompt") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const body = JSON.parse(Buffer.concat(chunks).toString()); state.posts.push(body); totalPosts += 1;
-        const promptId = `prompt-${state.posts.length}`, tuple = [state.posts.length, promptId, body.prompt, { client_id: body.client_id }, ["7"]];
+        const promptId = `prompt-${state.posts.length}`, tuple = [state.posts.length, promptId, body.prompt, { client_id: body.client_id }, [config.outputNodeId || "7"]];
         if (config.promptStatus) return json(res, { error: "fixture rejection" }, config.promptStatus);
         if (config.missingAck) return json(res, {});
         state.pending.push(tuple);

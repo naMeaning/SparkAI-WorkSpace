@@ -1,15 +1,18 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 1 本地交付收尾）
+## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 2 本地验证和安装完成，Git收口中）
 
 - 接受现场：根 main / `17d112527fe5eb4139771314e4927fd454b61620`，工作树干净。当前用户新方向取代上一轮 localhost-only 非目标；历史参数能力交付证据保留。
 - 阶段顺序：Phase 1 Main connection profiles 与 LAN/remote 安全传输；Phase 2 typed generate/img2img/inpaint/cutout 与受管 mask；Phase 3 审核 manifest、artifact store 与环境/模型安装；Phase 4 同一 Agent Runtime 的离线 provider。逐阶段验证、文档和本地交付，禁止混成不可审查大改。
-- 当前验收：Main 维护 local/lan/remote、none/bearer/basic/mtls 引用；统一 HTTP/WS/view 的 URL、授权主机、DNS pin/rebinding、TLS 与 redirect 策略；旧 baseUrl/v1 journal 继续恢复；任务以 connectionId 引用；GUI/IPC/CLI/MCP/Skill/shared schema 同步。先连接/模板/executor/Main/contract、typecheck/view-image 和 fake/loopback UI，再最终源码 production EXE、身份核对、正常退出后原位安装、当前 upstream 普通 push。
+- 当前验收：Phase 2 将审核模板扩展为显式 generate/img2img/inpaint/cutout capability；受控source/mask/reference/prompt/strength/seed，mask复用Main creation-mask-service并绑定source hash、尺寸、revision；审核MASK类型节点，原生JSON导入先预检、再输入映射向导，未知/脚本/任意文件节点不可执行。cutout验证真实alpha，inpaint保留原图/蒙版并复用journal/资产交付。同步GUI/共享schema/IPC/CLI/MCP/Skill与专项；仅fake/loopback验证后单独production EXE、身份核对、原位安装和普通push。
 - 不变量：单 Agent/TaskScope/image_gen；Main 拥有网络、凭据、路径、安装和日志；模型不见 URL/Token/脚本/绝对路径/原始工作流。templateHash 覆盖 canonical workflow/inputMappings/outputNodeId/policyVersion；capabilitiesHash 不阻止历史恢复；prepared 在 POST 前、accepted 在 poll 前；unknown 永不重发、同 submission 冲突网络前拒绝、运行取消不全局 interrupt。
 - 授权：仅 loopback/fake；未经新增明确授权不得真实 LAN/remote、模型请求/下载或依赖安装。不改 Extension/New API/生产，不上传 EXE/Release/tag。本地开发打包、安装、只提交本轮源码文档并 push 已持续授权。
 - 当前实现：Main connection/credential/transport owners、每 socket DNS pin、严格 TLS/mTLS/WSS、GUI 人工配置与网络边界；新执行引用 ID，CLI/MCP 不接收或返回连接 URL。connectionHash 冻结连接/凭据引用，同 submission 跨 profile 冲突与 profile 漂移均在网络前拒绝；旧无 ID 的 v1 journal 连续恢复保留原身份。
 - 当前证据：连接15/凭据8/transport17/模板14/executor35/Main12/metadata21、automation/MCP123/IPC170/167、typecheck/view-image和最终GUI10组/19截图通过，仅fake/loopback。714源文件冻结、132dist/191owner包内一致；production开发EXE 110,055,936 B / SHA-256 `82325b465d01deb9258e07b55ec0d6e5a9bdf45eb62b0ee0fb061eac3d557875`；品牌/S原位升级exit0，安装EXE/ASAR匹配且目录/配置/快捷方式保留。CSS预算失败已记录，非正式Release。[专项记录](docs/COMFYUI_CONNECTION_VALIDATION.md)。
-- 下一步：只提交本阶段源码/文档并普通push origin/main，核对远端身份；随后继续 Phase 2 typed workflow 与受管蒙版。Phase 2–4尚未实现。
+- Phase 1 Git：34个本阶段源码/文档文件提交`47f305de31a8f08dbe4aee4e1d16ac124b1d08e5`并普通push origin/main，HEAD/upstream/远端一致且工作树干净；完整交付证据`.diagnostics/comfyui-connections-delivery/delivery.json`。
+- 当前合同冻结：typed 输入位于 `comfyui.sourceImage/maskImage/referenceImages`；workflowId/templateId 与 strength/denoise 为同值 alias，冲突拒绝。Main 原生导入仅返回 draft/nodes/审核端口候选，GUI 用下拉映射向导批准。透明 PNG 的透明区统一为重绘修改区/抠图移除区，蒙版绑定源图身份/hash/尺寸/revision。
+- Phase2交付：Main23/capability21/template14/executor35、恢复14子进程、mask11、身份39、共享合同与最终typecheck/view-image通过；GUI13组/25截图通过。715源文件/132dist/191owner核对后，production EXE 110,071,808 B / `ad710dc70bbc372a4050f07c5aa1921592caffaf14899af88ffe877c70d72f1d`，品牌/S原位升级exit0、配置与安装身份一致。CSS预算失败保留，非正式Release。详见[工作流专项](docs/COMFYUI_WORKFLOW_VALIDATION.md)。
+- 下一步：只提交Phase2源码文档并普通push upstream、核对远端；然后开启Phase3审核manifest/artifact store/独立runtime。Phase3–4尚未实施，真实服务/下载/依赖安装0。
 
 
 ## 当前任务：ComfyUI 参数能力增量（2026-10-23，本地交付完成）

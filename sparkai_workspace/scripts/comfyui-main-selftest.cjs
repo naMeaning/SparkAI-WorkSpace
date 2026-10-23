@@ -2,17 +2,18 @@
 
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { createHash } = require("node:crypto");
-const { mkdirSync, writeFileSync, readFileSync } = require("node:fs");
+const { createHash, randomBytes } = require("node:crypto");
+const { mkdirSync, writeFileSync, readFileSync, renameSync, symlinkSync, unlinkSync } = require("node:fs");
 const sharp = require("sharp");
-const { app } = require("electron");
+const { app, dialog } = require("electron");
+const { spawn } = require("node:child_process");
 const { createMockServer } = require("./comfyui-executor-selftest.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs");
 const { createComfyUiConnectionProfileService } = require("../desktop/comfyui-connection-service.cjs");
 const { modelConnectionIdentity } = require("../desktop/model-catalog.cjs");
 
-const runDir = path.resolve(__dirname, "../.diagnostics/electron", `comfyui-main-${Date.now()}`);
+const runDir = process.env.NAIMAGE_COMFY_MAIN_RESUME_DIR || path.resolve(__dirname, "../.diagnostics/electron", `comfyui-main-${Date.now()}`);
 const projectDir = path.join(runDir, "project"), configDir = path.join(runDir, "config"), projectId = "comfyui-main-fixture";
 for (const directory of [projectDir, configDir, path.join(runDir, "user-data"), path.join(projectDir, "assets")]) mkdirSync(directory, { recursive: true });
 const project = { id: projectId, name: "Local ComfyUI fixture", path: projectDir, sessionPath: path.join(projectDir, "session.json"), external: true };
@@ -20,17 +21,17 @@ writeFileSync(path.join(configDir, "project-list.json"), JSON.stringify({ active
 process.env.NAIMAGE_AGENT_PROTOCOL_SELFTEST = "1";
 process.env.NAIMAGE_CONFIG_DIR = configDir;
 process.env.NAIMAGE_DEBUG_DIR = path.join(runDir, "runtime");
-app.commandLine.appendSwitch("user-data-dir", path.join(runDir, "user-data"));
+app.commandLine.appendSwitch("user-data-dir", path.join(runDir, process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY ? "recovery-user-data" : "user-data"));
 const owner = require("../electron-main.cjs");
 const settings = { imageCount: 1, imageOutputFormat: "png" }, handlers = new Map(), results = [];
-let png, posts = 0, views = 0, uploads = 0;
+let png, posts = 0, views = 0, uploads = 0, restartProcesses = 0;
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 
 registerServerIpc({ ipcMain: { handle: (name, callback) => handlers.set(name, callback) }, migrateSettings: value => value, readJson: () => settings, defaultSettings: settings,
   getProjectById: id => id === projectId ? project : null, readProjectList: () => ({ activeProjectId: projectId, projects: [project] }), log() {}, emitAgentProgress() {}, removeOwnedDataUrlTemp() {},
   callNewApiImageWithSession: owner.callNewApiImageWithSession, deliverGeneratedImageResult: owner.deliverGeneratedImageResult,
-  imageOperationJournal: owner.imageOperationJournal, comfyUiTemplateService: owner.comfyUiTemplateService });
+  imageOperationJournal: owner.imageOperationJournal, comfyUiTemplateService: owner.comfyUiTemplateService, comfyUiMaskService: owner.comfyUiMaskService });
 const generate = payload => handlers.get("naimage:server:generate-image")({ sender: { id: 1 } }, payload);
 
 function payload(server, name, extra = {}) {
@@ -41,6 +42,28 @@ function payload(server, name, extra = {}) {
       steps: 12, cfg: 6.5, sampler: "euler", scheduler: "normal", denoise: 1 }, ...extra };
 }
 function resolved(request) { return { ...request, comfyui: owner.comfyUiTemplateService.resolve(request.comfyui) }; }
+const identity = asset => ({ assetId: asset.assetId, occurrenceId: asset.occurrenceId, contentHash: asset.contentHash });
+function typedPayload(server, name, capability, materials, extra = {}) {
+  const request = payload(server, name, { templateId: `stock-${capability}`, ...extra }); delete request.templateId;
+  Object.assign(request.comfyui, materials);
+  if (capability === "cutout") for (const field of ["checkpoint", "seed", "width", "height", "steps", "cfg", "sampler", "scheduler", "denoise"]) delete request.comfyui[field];
+  return request;
+}
+async function recoverInNewMain(key) {
+  restartProcesses++;
+  const child = spawn(process.execPath, [__filename], { windowsHide: true, env: { ...process.env, NAIMAGE_COMFY_MAIN_RESUME_DIR: runDir, NAIMAGE_COMFY_MAIN_RECOVERY_KEY: key }, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.on("data", chunk => { output += chunk; }); child.stderr.on("data", chunk => { output += chunk; });
+  const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
+  assert.equal(code, 0, output);
+  return JSON.parse(readFileSync(path.join(runDir, `restart-${key}.json`), "utf8"));
+}
+async function assertProtectedHalf(bytes, original, edited) {
+  const output = await sharp(bytes).ensureAlpha().raw().toBuffer(), source = await sharp(original).ensureAlpha().raw().toBuffer(), replacement = await sharp(edited).ensureAlpha().raw().toBuffer();
+  const boundary = 64 * 48 * 4;
+  assert.deepEqual(output.subarray(boundary), source.subarray(boundary), "every protected pixel equals the original source");
+  assert.deepEqual(output.subarray(0, boundary), replacement.subarray(0, boundary), "the transparent processing region contains the returned edit");
+}
 async function fixture(config, fn) {
   const server = await createMockServer({ output: { "9": { images: [{ filename: "main-result.png", subfolder: "fixtures", type: "output" }] } }, ...config }, png);
   try { return await fn(server); } finally { posts += server.posts.length; views += server.views.length; uploads += server.uploads.length; await server.close(); }
@@ -51,8 +74,8 @@ async function main() {
   await app.whenReady();
   png = await sharp({ create: { width: 64, height: 96, channels: 4, background: "#447799" } }).png().toBuffer();
   const sourcePath = path.join(projectDir, "assets", "source.png"); writeFileSync(sourcePath, png);
-  const source = { type: "file", path: sourcePath, assetId: "asset-source", occurrenceId: "occ-source", contentHash: digest(png), canvasNodeId: "source", canvasAssetIndex: 0 };
-  writeFileSync(project.sessionPath, JSON.stringify({ ...owner.defaultSession, sessionRevision: 7, nodes: [{ id: "source", type: "image", status: "done", imageState: "done", assets: [source], outputs: 1, x: 0, y: 0 }] }));
+  const source = { type: "file", path: sourcePath, assetId: "asset-source", occurrenceId: "occ-0123456789abcdef0123456789abcdef", contentHash: digest(png), canvasNodeId: "source", canvasAssetIndex: 0 };
+  writeFileSync(project.sessionPath, JSON.stringify({ ...owner.defaultSession, conversations: [{ id: "conversation-fixture", messages: [] }, { id: "other-conversation", messages: [] }], sessionRevision: 7, nodes: [{ id: "source", type: "image", status: "done", imageState: "done", assets: [source], outputs: 1, x: 0, y: 0 }] }));
   await test("IPC uses Main journal and original-byte asset delivery", () => fixture({}, async server => {
     const request = payload(server, "comfy-main-unique");
     const result = await generate(request); assert.equal(result.ok, true, result.error); assert.equal(result.assets.length, 1); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
@@ -241,9 +264,183 @@ async function main() {
     const removed = await control({ action: "connections-delete", profileId: saved.connection.connectionId, confirmed: true });
     assert.equal(removed.ok, true); assert.equal(removed.removed, true); assert.deepEqual(removed.connections, []);
   });
+  const maskPixels = Buffer.alloc(64 * 96 * 4, 255);
+  for (let pixel = 0; pixel < 64 * 48; pixel++) maskPixels[pixel * 4 + 3] = 0;
+  const maskPng = await sharp(maskPixels, { raw: { width: 64, height: 96, channels: 4 } }).png().toBuffer();
+  const savedMask = await owner.creationMaskService.save({ expectedProjectId: projectId, conversationId: "conversation-fixture", target: identity(source), dataUrl: `data:image/png;base64,${maskPng.toString("base64")}` });
+  const mask = { ...savedMask.mask, revision: savedMask.revision };
+  const maskMaterial = owner.creationMaskService.resolve({ expectedProjectId: projectId, conversationId: "conversation-fixture", target: identity(source), mask });
+  const managedMaskBytes = readFileSync(maskMaterial.path);
+  const editedPng = await sharp({ create: { width: 64, height: 96, channels: 4, background: "#16bb68" } }).png().toBuffer();
+  const materials = { sourceImage: identity(source), maskImage: mask };
+  await test("typed project identity owns img2img input and prompt over the legacy outer group", () => fixture({}, async server => {
+    const request = typedPayload(server, "comfy-typed-img2img", "img2img", { sourceImage: identity(source), prompt: "explicit typed prompt" }, { editImage: { path: "C:/not-a-project-image.png" }, referenceImages: [{ path: "C:/also-ignored.png" }] });
+    const response = await generate(request); assert.equal(response.ok, true, response.error); assert.equal(server.uploads.length, 1);
+    assert.equal(server.posts[0].prompt["6"].inputs.text, "explicit typed prompt");
+    const item = owner.imageOperationJournal.find(projectId, request.operationId);
+    assert.equal(item.comfyui.inputs[0].role, "sourceImage"); assert.equal(item.comfyui.inputs[0].assetId, source.assetId);
+    assert.equal((await generate({ ...request, prompt: "ignored outer prompt drift" })).ok, true); assert.equal(server.posts.length, 1);
+  }));
+  await test("inpaint freezes source and mask roles and keeps every protected original pixel", () => fixture({ uploadImages: [png, managedMaskBytes], imageBytes: editedPng }, async server => {
+    const sourceBefore = readFileSync(sourcePath), maskBefore = readFileSync(maskMaterial.path);
+    const request = typedPayload(server, "comfy-inpaint", "inpaint", materials);
+    const response = await generate(request); assert.equal(response.ok, true, response.error); assert.equal(server.uploads.length, 2);
+    assert.equal(server.posts[0].prompt["10"].inputs.image, "task-inputs/uploaded.png"); assert.equal(server.posts[0].prompt["11"].inputs.image, "task-inputs/uploaded-2.png");
+    const item = owner.imageOperationJournal.find(projectId, request.operationId);
+    assert.equal(item.comfyui.schemaVersion, 3); assert.equal(item.comfyui.capability, "inpaint"); assert.equal(item.comfyui.actualParams.denoise, 1);
+    assert.deepEqual(item.comfyui.inputs.map(value => value.role), ["sourceImage", "maskImage"]);
+    assert.deepEqual(item.comfyui.maskBindings, { sourceHash: source.contentHash, maskHash: mask.contentHash, width: 64, height: 96, revision: 1 });
+    assert.deepEqual(item.sourceNodeIds, ["source"]); assert.equal(item.sources.length, 1);
+    assert.equal(item.processing.sourceHash, source.contentHash); assert.equal(item.processing.maskHash, mask.contentHash);
+    assert.equal(response.assets[0].localProcessing.maskComposite.verified, true);
+    assert.deepEqual(response.assets[0].generation.request.sourceHashes, [source.contentHash]);
+    assert.deepEqual(response.assets[0].generation.request.maskBindings, item.comfyui.maskBindings);
+    await assertProtectedHalf(readFileSync(response.assets[0].path), png, editedPng);
+    assert.deepEqual(readFileSync(sourcePath), sourceBefore); assert.deepEqual(readFileSync(maskMaterial.path), maskBefore);
+  }));
+  await test("mask path, revision, source and conversation mismatches fail before any upload or POST", () => fixture({ uploadImages: [png, managedMaskBytes] }, async server => {
+    const invalid = [
+      [{ ...materials, maskImage: { ...mask, path: maskMaterial.path } }, {}, "COMFYUI_INPUT_INVALID"],
+      [{ ...materials, maskImage: { ...mask, dataUrl: `data:image/png;base64,${maskPng.toString("base64")}` } }, {}, "COMFYUI_INPUT_INVALID"],
+      [{ ...materials, maskImage: { ...mask, revision: 2 } }, {}, "CREATION_MASK_REVISION_INVALID"],
+      [{ ...materials, maskImage: { ...savedMask.mask } }, {}, "COMFYUI_INPUT_INVALID"],
+      [materials, { conversationId: "other-conversation" }, "CREATION_MASK_IDENTITY_INVALID"],
+      [materials, { maskImage: { path: maskMaterial.path } }, "COMFYUI_INPUT_INVALID"],
+      [{ ...materials, sourceImage: { ...identity(source), contentHash: "0".repeat(64) } }, {}, "COMFYUI_INPUT_CHANGED"]
+    ];
+    for (const [index, [input, outer, code]] of invalid.entries()) {
+      const response = await generate(typedPayload(server, `comfy-mask-reject-${index}`, "inpaint", input, outer));
+      assert.equal(response.errorCode, code, response.error);
+    }
+    assert.equal(server.uploads.length, 0); assert.equal(server.posts.length, 0);
+  }));
+  await test("native import persists an exact non-canvas identity for masks and fake inpaint", async () => {
+    const nativeFile = path.join(runDir, "native-import.png"); writeFileSync(nativeFile, png);
+    const imported = await owner.importLocalImagesToProject({ projectId, paths: [nativeFile], maxFiles: 1 });
+    assert.equal(imported.ok, true, imported.error); assert.equal(imported.assets.length, 1);
+    const importedAsset = imported.assets[0], importedIdentity = identity(importedAsset);
+    assert.equal(importedIdentity.assetId, `asset-${digest(png)}`); assert.ok(importedIdentity.occurrenceId); assert.notEqual(importedIdentity.occurrenceId, source.occurrenceId);
+    const document = JSON.parse(readFileSync(path.join(projectDir, ".naimage", "imported-materials.json"), "utf8"));
+    assert.equal(JSON.stringify(document).includes(nativeFile), false);
+    assert.equal(JSON.parse(readFileSync(project.sessionPath, "utf8")).nodes.some(node => node.assets?.some(asset => asset.occurrenceId === importedIdentity.occurrenceId)), false);
+    const saved = await owner.creationMaskService.save({ expectedProjectId: projectId, conversationId: "conversation-fixture", target: importedIdentity, dataUrl: `data:image/png;base64,${maskPng.toString("base64")}` });
+    const importedMask = { ...saved.mask, revision: saved.revision };
+    await fixture({ uploadImages: [png, managedMaskBytes], imageBytes: editedPng }, async server => {
+      const request = typedPayload(server, "comfy-native-import", "inpaint", { sourceImage: importedIdentity, maskImage: importedMask });
+      const response = await generate(request); assert.equal(response.ok, true, response.error);
+      await assertProtectedHalf(readFileSync(response.assets[0].path), png, editedPng);
+      const item = owner.imageOperationJournal.find(projectId, request.operationId); assert.equal(item.sources[0].occurrenceId, importedIdentity.occurrenceId); assert.deepEqual(item.sourceNodeIds, []);
+      assert.equal((await generate(typedPayload(server, "comfy-wrong-source-mask", "inpaint", { sourceImage: importedIdentity, maskImage: mask }))).errorCode, "CREATION_MASK_IDENTITY_INVALID");
+      writeFileSync(importedAsset.path, editedPng);
+      assert.equal((await generate(typedPayload(server, "comfy-import-drift", "inpaint", { sourceImage: importedIdentity, maskImage: importedMask }))).errorCode, "COMFYUI_INPUT_CHANGED");
+      assert.equal(server.posts.length, 1); assert.equal(server.uploads.length, 2); writeFileSync(importedAsset.path, png);
+      const forged = { ...importedIdentity, occurrenceId: "occ-unregistered" };
+      assert.equal((await generate(typedPayload(server, "comfy-import-forged", "img2img", { sourceImage: forged }))).errorCode, "COMFYUI_INPUT_CHANGED");
+      assert.equal(server.posts.length, 1);
+      renameSync(importedAsset.path, `${importedAsset.path}.saved`);
+      try {
+        symlinkSync(sourcePath, importedAsset.path);
+        assert.equal((await generate(typedPayload(server, "comfy-import-linked", "img2img", { sourceImage: importedIdentity }))).errorCode, "COMFYUI_INPUT_CHANGED");
+      } finally { unlinkSync(importedAsset.path); renameSync(`${importedAsset.path}.saved`, importedAsset.path); }
+      const otherProject = { id: "other-project", path: path.join(runDir, "other-project") }; mkdirSync(otherProject.path, { recursive: true });
+      assert.equal(owner.projectAssetRepository.resolveRegisteredMaterial(otherProject, importedIdentity), null);
+      assert.equal(server.posts.length, 1); assert.equal(server.uploads.length, 2);
+    });
+  });
+  await test("native mask picker rechecks project and source after await and returns no paths", async () => {
+    const nativeMask = path.join(runDir, "native-mask.png"); writeFileSync(nativeMask, maskPng);
+    const originalPicker = dialog.showOpenDialog, listFile = path.join(configDir, "project-list.json"), listText = readFileSync(listFile, "utf8");
+    const switchedPath = path.join(runDir, "switched-project"); mkdirSync(switchedPath, { recursive: true });
+    try {
+      dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+      assert.equal((await owner.comfyUiMaskService.importMask({ projectId, conversationId: "conversation-fixture", sourceImage: identity(source), confirmed: true })).canceled, true);
+      dialog.showOpenDialog = async () => { writeFileSync(listFile, JSON.stringify({ activeProjectId: "switched-project", projects: [project, { ...project, id: "switched-project", path: switchedPath, sessionPath: path.join(switchedPath, "session.json") }] })); return { canceled: false, filePaths: [nativeMask] }; };
+      await assert.rejects(owner.comfyUiMaskService.importMask({ projectId, conversationId: "conversation-fixture", sourceImage: identity(source), confirmed: true })); writeFileSync(listFile, listText);
+      dialog.showOpenDialog = async () => { writeFileSync(sourcePath, editedPng); return { canceled: false, filePaths: [nativeMask] }; };
+      await assert.rejects(owner.comfyUiMaskService.importMask({ projectId, conversationId: "conversation-fixture", sourceImage: identity(source), confirmed: true }), { code: "COMFYUI_INPUT_CHANGED" }); writeFileSync(sourcePath, png);
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [nativeMask] });
+      const saved = await owner.comfyUiMaskService.importMask({ projectId, conversationId: "conversation-fixture", sourceImage: identity(source), confirmed: true });
+      assert.equal(saved.ok, true); assert.equal(saved.mask.revision, 2); assert.deepEqual(saved.mask.sourceImage, identity(source)); assert.equal(JSON.stringify(saved).includes(runDir), false); assert.equal(JSON.stringify(saved).includes("data:"), false);
+    } finally { dialog.showOpenDialog = originalPicker; writeFileSync(listFile, listText); writeFileSync(sourcePath, png); }
+  });
+  const alphaPixels = await sharp(png).ensureAlpha().raw().toBuffer();
+  for (let pixel = 0; pixel < 64 * 48; pixel++) alphaPixels[pixel * 4 + 3] = 0;
+  const alphaResult = await sharp(alphaPixels, { raw: { width: 64, height: 96, channels: 4 } }).png().toBuffer();
+  await test("mask cutout freezes seedless model-free dimensions and verifies raw output alpha", () => fixture({ uploadImages: [png, managedMaskBytes], imageBytes: alphaResult }, async server => {
+    const request = typedPayload(server, "comfy-cutout", "cutout", materials), response = await generate(request);
+    assert.equal(response.ok, true, response.error); assert.deepEqual(readFileSync(response.assets[0].path), alphaResult);
+    assert.equal(Object.values(server.posts[0].prompt).some(node => ["KSampler", "CheckpointLoaderSimple"].includes(node.class_type)), false);
+    const item = owner.imageOperationJournal.find(projectId, request.operationId); assert.equal(item.comfyui.schemaVersion, 3); assert.equal(item.comfyui.capability, "cutout"); assert.equal(item.comfyui.alphaRequired, true);
+    assert.deepEqual(item.comfyui.actualParams, { model: "comfyui-mask", width: 64, height: 96, batchSize: 1 }); assert.deepEqual(item.processing, { kind: "alpha", requireAlpha: true });
+    assert.equal(response.assets[0].localProcessing.alpha.verified, true); assert.equal(response.assets[0].localProcessing.alpha.transparentRatio, 0.5);
+    assert.equal((await generate(request)).ok, true); assert.equal(server.posts.length, 1);
+  }));
+  await test("opaque cutout bytes cannot be delivered or bypassed by replay", () => fixture({ uploadImages: [png, managedMaskBytes] }, async server => {
+    const request = typedPayload(server, "comfy-cutout-opaque", "cutout", materials), response = await generate(request);
+    assert.equal(response.errorCode, "IMAGE_EDIT_ALPHA_INVALID"); assert.equal(response.unsafeToRetry, true);
+    const item = owner.imageOperationJournal.find(projectId, request.operationId); assert.equal(item.state, "delivery-failed"); assert.equal(item.assets.length, 0);
+    assert.equal((await generate(request)).errorCode, "IMAGE_EDIT_ALPHA_INVALID"); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
+  }));
+  async function capacityMaterials(name, sourceBytes, maskBytes) {
+    const sourceFile = path.join(projectDir, "assets", `${name}.png`); writeFileSync(sourceFile, sourceBytes);
+    const target = { assetId: `asset-${name}`, occurrenceId: `occ-${digest(Buffer.from(name)).slice(0, 32)}`, contentHash: digest(sourceBytes) };
+    const session = JSON.parse(readFileSync(project.sessionPath, "utf8"));
+    session.nodes.push({ id: name, type: "image", status: "done", imageState: "done", assets: [{ ...target, type: "file", path: sourceFile }], outputs: 1, x: 0, y: 0 });
+    writeFileSync(project.sessionPath, JSON.stringify(session));
+    const saved = await owner.creationMaskService.save({ expectedProjectId: projectId, conversationId: "conversation-fixture", target, dataUrl: `data:image/png;base64,${maskBytes.toString("base64")}` });
+    return { sourceImage: target, maskImage: { ...saved.mask, revision: saved.revision } };
+  }
+  await test("inpaint rejects a valid managed mask above the compositor limit before any network", async () => {
+    const sourceBytes = await sharp({ create: { width: 1200, height: 1000, channels: 4, background: "#447799" } }).png().toBuffer();
+    const maskBytes = await sharp(randomBytes(1200 * 1000 * 4), { raw: { width: 1200, height: 1000, channels: 4 } }).png().toBuffer();
+    const input = await capacityMaterials("mask-capacity", sourceBytes, maskBytes);
+    const stored = owner.creationMaskService.resolve({ expectedProjectId: projectId, conversationId: "conversation-fixture", target: input.sourceImage, mask: input.maskImage });
+    assert.ok(readFileSync(stored.path).length >= 4 * 1024 * 1024);
+    await fixture({}, async server => {
+      const response = await generate(typedPayload(server, "comfy-mask-capacity", "inpaint", input)); assert.equal(response.errorCode, "IMAGE_INVALID_INPUT");
+      assert.equal(server.gets.length, 0); assert.equal(server.uploads.length, 0); assert.equal(server.posts.length, 0);
+    });
+  });
+  await test("inpaint and cutout refuse 32–64M sources before network when local verification cannot decode them", async () => {
+    const sourceBytes = await sharp({ create: { width: 8000, height: 4096, channels: 4, background: "#447799" } }).png().toBuffer();
+    const maskBytes = await sharp({ create: { width: 8000, height: 4096, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0.5 } } }).png().toBuffer();
+    const input = await capacityMaterials("pixel-capacity", sourceBytes, maskBytes);
+    await fixture({}, async server => {
+      assert.equal((await generate(typedPayload(server, "comfy-inpaint-pixel-capacity", "inpaint", input))).errorCode, "IMAGE_INVALID_INPUT");
+      const cutout = await generate(typedPayload(server, "comfy-cutout-pixel-capacity", "cutout", input)); assert.equal(cutout.errorCode, "COMFYUI_INPUT_INVALID"); assert.match(cutout.error, /3200/);
+      assert.equal(server.gets.length, 0); assert.equal(server.uploads.length, 0); assert.equal(server.posts.length, 0);
+    });
+  });
+  await test("lost acknowledgment persists mask processing before POST and new Main recovers without resubmit", () => fixture({ uploadImages: [png, managedMaskBytes], imageBytes: editedPng, hold: true, abortDuringPost() {
+    const item = owner.imageOperationJournal.find(projectId, "comfy-inpaint-restart");
+    assert.equal(item.processing.sourceHash, source.contentHash); assert.equal(item.processing.maskHash, mask.contentHash); assert.equal(item.comfyui.schemaVersion, 3); assert.equal(item.taskId, "");
+  } }, async server => {
+    const request = typedPayload(server, "comfy-inpaint-restart", "inpaint", materials), response = await generate(request);
+    assert.equal(response.errorCode, "COMFYUI_SUBMISSION_UNKNOWN");
+    const item = owner.imageOperationJournal.find(projectId, request.operationId); assert.equal(item.state, "uncertain"); assert.equal(item.comfyui.promptId, undefined);
+    server.finish("prompt-1", server.pending[0]);
+    const recovered = await recoverInNewMain(item.key); assert.equal(recovered.ok, true, recovered.code); assert.equal(recovered.assets.length, 1);
+    await assertProtectedHalf(readFileSync(recovered.assets[0].path), png, editedPng); assert.equal(recovered.assets[0].localProcessing.maskComposite.verified, true);
+    const replay = await generate(request); assert.equal(replay.ok, true, replay.error); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
+  }));
+  await test("new Main rejects tampered staged masks while preserving the original result and unique POST", () => fixture({ uploadImages: [png, managedMaskBytes], imageBytes: editedPng, hold: true, disconnect: true }, async server => {
+    const request = typedPayload(server, "comfy-inpaint-mask-drift", "inpaint", materials); assert.equal((await generate(request)).errorCode, "COMFYUI_SUBMISSION_UNKNOWN");
+    const item = owner.imageOperationJournal.find(projectId, request.operationId); server.finish("prompt-1", server.pending[0]);
+    writeFileSync(path.join(projectDir, ".naimage", "image-operations", `${item.key}-mask.bin`), png);
+    const recovered = await recoverInNewMain(item.key); assert.equal(recovered.ok, false); assert.equal(recovered.code, "IMAGE_PROCESSING_MASK_CHANGED");
+    assert.equal(owner.imageOperationJournal.get(projectId, item.key).assets.length, 0); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
+  }));
   await pause(20);
-  const report = { ok: true, cases: results.length, results, loopbackPromptPosts: posts, loopbackViews: views, loopbackUploads: uploads, realModelRequests: 0 };
+  const report = { ok: true, cases: results.length, results, loopbackPromptPosts: posts, loopbackViews: views, loopbackUploads: uploads, restartProcesses, realModelRequests: 0 };
   writeFileSync(path.join(runDir, "report.json"), JSON.stringify(report, null, 2)); process.stdout.write(`${JSON.stringify({ ...report, results: undefined, reportPath: path.join(runDir, "report.json") })}\n`);
 }
 
-main().then(() => app.exit(0)).catch(error => { process.stderr.write(`${error.stack || error}\n`); app.exit(1); });
+async function recoveryMain() {
+  await app.whenReady();
+  const key = process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY;
+  let report;
+  try { const recovered = await owner.imageOperationJournal.recover(projectId, key); report = { ok: true, assets: recovered.assets, state: recovered.operation.state }; }
+  catch (error) { report = { ok: false, code: error.code }; }
+  writeFileSync(path.join(runDir, `restart-${key}.json`), JSON.stringify(report));
+}
+(process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY ? recoveryMain() : main()).then(() => app.exit(0)).catch(error => { process.stderr.write(`${error.stack || error}\n`); app.exit(1); });
