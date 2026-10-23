@@ -1,5 +1,15 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：ComfyUI 平台 Phase 4——离线 Agent（2026-10-23，接受并实施）
+
+- 基线：main / `1a234306d2a2b0c3fe790135da4ffb3673e73238`，Phase3源码35文件已普通push，HEAD/upstream/远端一致、工作树干净；Phase3本地EXE/安装证据保留在下方。
+- 结果：在唯一`agent-runtime.cjs`和原Prompt/工具/FastMemory/project context/TaskScope内，加入cloud、local-openai-compatible、managed-local显式provider。Main原生导入本地连接配置，持loopback地址/凭据/冻结binding；GUI/Agent/CLI/MCP仅引用profileId/runtimeId/modelId与脱敏能力。现有云设置兼容为cloud，不伪造账号，不新增Runtime。
+- 本地协议：Ollama、LM Studio、llama.cpp server、vLLM等OpenAI兼容loopback端点；标准Chat Completions/流式parser，模型工具/视觉/上下文能力来自显式配置，不能按GPT命名猜测。无tools禁schema和实际工具执行，无vision禁像素请求及视觉工具；不伪造tool call、不静默替换模型、不云端fallback。每run冻结provider/model/capabilities，compact和辅助请求沿同binding。
+- managed-local：复用Phase3 artifact store托管LLM GGUF与vision projector，显式typed manifest/固定llama.cpp adapter；native计划/下载与执行授权、校验/暂停/恢复/引用/版本保护。旧Comfy v1 manifest/hash及journal继续读取，不用dependency伪装模型，不执行任意shell/pip/npm。其他兼容服务器可使用existing端点；未审核候选不冒充可安装模型。
+- strict offline：Main禁止web_search、云模型/图片/视频、LAN/remote ComfyUI、远程下载、自动账号/模型/更新联网与fallback；本地图片仍只走显式选择的local Comfy profile和唯一image_gen。GUI显示provider/model/tool/vision与网络边界，允许无云账号进入本地工作区；不承诺用户外部服务自身没有代理联网。
+- 验收：fake OpenAI-compatible server覆盖SSE文本/tool call、无tools/vision、上下文超限、断线/取消/重启与服务恢复；Main直接派发与strict offline网络前拒绝；managed manifest/store/进程stub专项；共享GUI/IPC/CLI/MCP/Skill/schema同步；typecheck/view-image和隔离UI截图后，独立production EXE/身份审计/正常退出品牌原位升级/源码文档普通push。
+- 授权：仍只fake/loopback/stub，0真实模型请求/下载/依赖安装/真实LAN或远程Comfy；不改extension/NewAPI/生产、不上传EXE/Release/tag。下一步并行实现Main provider、runtime capability门禁、managed-local及GUI/共享契约。
+
 ## 当前任务：ComfyUI 平台 Phase 3——托管安装（2026-10-23，本地交付验证完成）
 
 - 基线：main / `45f1e07d33595791d2e95792d55ea7bf1b5315fb`；Phase2已独立EXE/安装/源码推送，工作树干净。保持此前单Agent/TaskScope/image_gen及Main网络/路径/凭据/日志所有权。
@@ -10,6 +20,7 @@
 - 验收：fake/loopback下载与stub运行环境，manifest/签名/依赖环、checksum/Range/pause/restart/ETag、磁盘不足、重复安装/引用、恶意归档/回滚/existing专项；共享GUI/IPC/CLI/MCP/Skill/schema及contract；typecheck/view-image与实际UI截图。完成本阶段后独立production EXE、包内/安装身份、正常退出后品牌原位升级、文档与普通push。
 - 授权：本次实现与验证只fake/loopback，0真实模型/下载/依赖安装/真实LAN或远端；不改extension/NewAPI/生产、不上传EXE/Release/tag。Phase4离线Agent在本阶段交付后继续实施。
 - 交付里程碑：artifact39、runtime39、Main23、共享合同与最终GUI6组/8截图已通过。726源文件冻结、133dist/195owner及7za/三许可包内身份一致；production EXE 110,521,856 B / SHA-256 `869210fb1e220e5cf3d655eda5aa1464121279990401f8fd341c6521b3581f19`。品牌/S原位升级exit0，安装EXE/ASAR/工具一致，配置/凭据metadata/快捷方式保留。CSS预算失败已记录，非正式Release。具体证据见[托管安装专项](docs/COMFYUI_MANAGED_INSTALL_VALIDATION.md)。下一步本阶段源码文档提交push后实施Phase4。
+- Phase3 Git：35文件提交`1a234306d2a2b0c3fe790135da4ffb3673e73238`并普通push origin/main，HEAD/upstream/远端实查一致、工作树干净；原许可文本尾空格按原字节保留，暂存敏感模式0命中，无制品/私有配置入Git。Phase3完成，Phase4合同在顶部。
 
 ## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 2 本地交付完成）
 

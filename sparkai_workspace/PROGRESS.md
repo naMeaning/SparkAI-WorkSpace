@@ -1,5 +1,11 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-23，Phase 3 已交付，Phase 4 实施中）
+
+- Phase3源码35文件`1a234306d2a2b0c3fe790135da4ffb3673e73238`已普通push origin/main，HEAD/upstream/远端实查一致，提交后工作树干净。artifact39/runtime39/Main23/共享合同/GUI6组8截图、production EXE与品牌/S原位安装均已独立完成；详见下方与[托管安装专项](docs/COMFYUI_MANAGED_INSTALL_VALIDATION.md)。
+- 当前进入Phase4：Main-owned Agent provider、每run冻结binding、同一Runtime能力/strict-offline门禁、GGUF/vision托管模型与固定llama.cpp adapter、本地workspace准入、GUI/CLI/MCP共享合同。具体范围和授权见[Goal](GOAL.md)顶部；当前尚未实施/验证，不将Phase3证据用于证明离线Agent。
+- 继续仅fake/loopback/stub；0真实模型请求、真实下载、依赖安装或LAN/远程服务。下一步完成并行owner合同后验证单Runtime/SSE/tool/vision/重启和Main网络门禁，再独立打包安装push。
+
 ## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 3 本地交付验证完成）
 
 - 接受现场main/`45f1e07d33595791d2e95792d55ea7bf1b5315fb`，Phase2独立交付完成且HEAD/upstream/远端一致，工作树干净。Phase2制品与安装证据在下方及[专项](docs/COMFYUI_WORKFLOW_VALIDATION.md)。
@@ -7,6 +13,7 @@
 - 仅fake/loopback和stub runtime，真实服务/模型下载/依赖安装没有新增授权。先完成Phase3独立验证和EXE/安装/Git再进入Phase4；具体合同见[Goal](GOAL.md)。
 - 续接验证：最终GUI6组/8截图通过，`.diagnostics/comfyui-runtime-ui-2026-10-23T03-30-36-239Z/report.json`，2次正常退出0、2次loopback GET含Range续传。884×640计划及existing控件截图已实际查看。安装期`generate-image`在journal/network前拒绝，unknown journal及localhost alias漂移阻止停止，已有环境源文件保留。Main23最新报告`.diagnostics/electron/comfyui-main-1792726203549/report.json`：15 POST/12 view/14 upload/2恢复子进程；旧夹具共享独占managed存储导致启动错误，已仅在测试factory隔离，不改变生产锁，失败的两个已识别测试Electron已清理。
 - 本地交付：`package:win:unrestricted` exit0，726源文件冻结sourceHash `1a95846c0600f4e3d6a644029507cfccf51a20b097ba7717c5311858ee64922a`；133dist/195owner逐字节匹配。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,521,856 B / SHA-256 `869210fb1e220e5cf3d655eda5aa1464121279990401f8fd341c6521b3581f19`；ASAR 53,408,455 B / `cfdc19044ccb67cd98b44e8efc6761bf2fe4ef0946717d6540b108a64e964239`。7za及三许可资源包内/安装一致。全部同名实例0后，品牌/S原位升级exit0/20,726ms，原目录`E:\sparkai-workspace\naimage`、1.0.9、配置/凭据sidecar metadata/快捷方式保留，安装EXE/ASAR匹配。Bundle仅CSS292969>270000失败，入口JS4310/plugin86613限内、无诊断泄漏；按开发包规则记录，不宣称正式Release。证据`.diagnostics/comfyui-runtime-delivery/`的package.log/frozen-source.json/package-audit.json/install.json/bundle.log。Git本阶段提交push待立即完成。
+- Git完成checkpoint：35文件源码/文档提交`1a234306d2a2b0c3fe790135da4ffb3673e73238`已普通push origin/main，HEAD/upstream/远端一致、提交后工作树干净。原第三方许可证尾空格保留原字节，其他暂存diff检查通过，敏感模式0命中，无EXE/diagnostics/private config入Git。完成记录随本次Phase4接受文档同步，最终Git身份保留本地delivery索引。
 
 ## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 2 本地交付完成）
 

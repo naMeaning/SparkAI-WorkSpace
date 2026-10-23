@@ -1,5 +1,11 @@
 # SparkAI WorkSpace 上下文地图
 
+## Phase 4：离线 Agent（实施合同）
+
+- 计划owner：Main `desktop/agent-provider-service.cjs`持本地配置/受保护凭据/loopback传输/冻结binding；`runtime/agent-provider-policy.cjs`持显式capability/strict-offline纯合同；`agent-runtime.cjs`、context-strategy/tool-schemas复用同Prompt/Runtime/TaskScope/FastMemory，在schema和实际派发/像素请求两侧强制能力。
+- managed-local沿原manifest/artifact store增加typed GGUF/vision与固定llama.cpp adapter，独立Main service持计划/人工授权/进程与引用；旧Comfy manifest/hash不重写。GUI/CLI/MCP不见URL/凭据/绝对路径/脚本，只持profile/runtime/model等ID。
+- Main agent IPC创建/释放每run binding，serverChatCompletion在账号路径之前显式分流；compact/辅助/图片传输与恢复共享strict-offline网络门禁。Renderer提供无云账号本地准入及provider/model/capability/网络显示，不构造伪账号。新schema、IPC、测试和持久化细节在落地时同步本节。
+
 ## ComfyUI Phase 3：manifest / artifact / runtime
 
 - owner：`runtime/managed-artifact-manifest.cjs`持严格声明格式/固定适配器与hash/安全公开投影；`desktop/managed-artifact-store.cjs`持应用config下immutable SHA对象、download journal、网络pin/Range/暂停恢复/校验/引用；`desktop/comfyui-runtime-service.cjs`持manifest native导入/零网络plan/人工授权/归档预检/managed与existing登记/版本激活和回滚；`desktop/comfyui-runtime-archive.cjs`持固定7za身份、归档预检与提取关闭屏障。模型及runtime文件不进入项目目录。
