@@ -297,6 +297,7 @@ function render() {
   document.getElementById("project-name").textContent = [state.projectName || "项目", state.workspaceDomain?.title].filter(Boolean).join(" · ");
   document.getElementById("status-text").textContent = state.ready ? state.statusText : "主窗口尚未就绪";
   document.getElementById("model-name").textContent = state.modelName || "";
+  document.getElementById("provider-summary").textContent = state.providerSummary || "";
   document.getElementById("source-count").textContent = String(state.sourceImageCount || 0);
   document.getElementById("reference-count").textContent = String(state.referenceImageCount || 0);
   document.getElementById("selected-count").textContent = String(state.selectedArtifactCount || 0);

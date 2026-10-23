@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useState, type Dispatch, type FormEvent, type SetStateAction, type ReactNode } from "react";
 import { Loader2, LogIn, Server, Shield } from "lucide-react";
 
 import { blockImagePaste, type AuthDraft } from "./core";
@@ -52,7 +52,9 @@ export function AuthGate({
   submitAccount,
   submitCustom,
   selectAccessMode,
-  message
+  message,
+  localConfiguration,
+  openLocalConfiguration
 }: {
   authDraft: AuthDraft;
   setAuthDraft: Dispatch<SetStateAction<AuthDraft>>;
@@ -60,6 +62,8 @@ export function AuthGate({
   submitCustom: () => void | Promise<void>;
   selectAccessMode: (mode: AuthDraft["accessMode"]) => void | Promise<void>;
   message: string;
+  localConfiguration?: ReactNode;
+  openLocalConfiguration?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const customMode = appAccessPolicy.customApiAccess && authDraft.accessMode === "custom";
@@ -86,7 +90,7 @@ export function AuthGate({
   return (
     <main className="auth-shell" onPasteCapture={blockImagePaste}>
       <AuthTitlebar status={status} />
-      <div className="auth-stage">
+      <div className={localConfiguration ? "auth-stage local-agent-setup" : "auth-stage"}>
         <section className="auth-card auth-access-card" aria-label="SparkAI WorkSpace 访问配置">
           <div className="auth-card-top">
             <img className="auth-brand-icon" src="./naimage.png" alt="" draggable={false} />
@@ -154,6 +158,8 @@ export function AuthGate({
             </ActionButton>
           </form>
 
+          {openLocalConfiguration ? <ActionButton type="button" onClick={openLocalConfiguration}>配置本地 Agent</ActionButton> : null}
+          {localConfiguration}
           {message ? <InlineNotice className="auth-message" tone={messageIsError ? "danger" : "info"} aria-live="polite">{message}</InlineNotice> : null}
         </section>
       </div>

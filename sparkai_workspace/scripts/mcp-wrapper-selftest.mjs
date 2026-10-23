@@ -52,6 +52,13 @@ async function main() {
   assert.equal(registry.byName.get("canvas.state").surface, "renderer");
   assert.equal(registry.byName.get("debug.runtime-state").surface, "service");
   assert.equal(registry.tools.length, registry.commands.length);
+  for (const name of ["agent.provider.list", "agent.provider.inspect", "agent.provider.status", "agent.local.runtime.list", "agent.local.runtime.status"]) {
+    const tool = registry.tools.find(item => item.name === name); assert.equal(tool.annotations.readOnlyHint, true); assert.equal(tool.annotations.openWorldHint, false);
+  }
+  for (const name of ["agent.provider.import", "agent.provider.select", "agent.local.runtime.plan", "agent.local.runtime.install", "agent.local.runtime.start"]) assert.equal(registry.tools.find(item => item.name === name).annotations.readOnlyHint, false);
+  assert.deepEqual(registry.byName.get("agent.provider.select").parameters.required, ["profileId", "strictOffline"]);
+  assert.deepEqual(Object.keys(registry.byName.get("agent.provider.import").parameters.properties), []);
+
   for (const name of ["agent.task.start", "agent.task.answer"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, false);
   for (const name of ["agent.task.get", "agent.task.wait"]) assert.equal(registry.tools.find(tool => tool.name === name).annotations.readOnlyHint, true);
   assert.equal(registry.tools.find((tool) => tool.name === "debug.inspect-command").inputSchema.required[0], "name");

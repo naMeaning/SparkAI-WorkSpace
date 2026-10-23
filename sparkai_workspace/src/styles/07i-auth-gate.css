@@ -53,3 +53,5 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.auth-stage.local-agent-setup { align-items: start; }

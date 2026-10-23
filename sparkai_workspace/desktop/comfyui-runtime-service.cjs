@@ -130,6 +130,7 @@ function createComfyUiRuntimeService(options = {}) {
   const manifestRecord = manifestId => { const key = id(manifestId); if (OFFICIAL_CANDIDATES.some(item => item.manifestId === key)) throw fail("COMFYUI_RUNTIME_MANIFEST_NEEDS_REVIEW", "官方候选尚未完成展开内容、组件许可、显存与下载来源审核，不能生成安装计划。"); const value = state.manifests.find(item => item.manifestId === key); if (!value) throw fail("COMFYUI_RUNTIME_MANIFEST_NOT_FOUND", "安装声明不存在。"); return value; };
   const normalizedManifest = record => {
     const manifest = normalizeManagedArtifactManifest(record.raw, { trustContext: record.trustContext, trustedSigningKeys: options.trustedSigningKeys, allowLoopbackForTests: options.allowLoopbackForTests === true });
+    if (manifest.adapter !== "comfyui-portable") throw fail("COMFYUI_RUNTIME_ADAPTER_INVALID", "ComfyUI 只能导入 ComfyUI portable 安装声明。");
     if (record.manifestHash && record.manifestHash !== manifest.manifestHash) throw fail("COMFYUI_RUNTIME_MANIFEST_CHANGED", "安装声明已改变，请重新导入并确认计划。");
     return manifest;
   };
@@ -186,6 +187,7 @@ function createComfyUiRuntimeService(options = {}) {
 
   function addManifest(raw, trustContext) {
     const manifest = normalizeManagedArtifactManifest(raw, { trustContext, trustedSigningKeys: options.trustedSigningKeys, allowLoopbackForTests: options.allowLoopbackForTests === true });
+    if (manifest.adapter !== "comfyui-portable") throw fail("COMFYUI_RUNTIME_ADAPTER_INVALID", "ComfyUI 只能导入 ComfyUI portable 安装声明。");
     const manifestId = `manifest-${manifest.manifestHash.slice(0, 32)}`;
     let record = state.manifests.find(item => item.manifestId === manifestId);
     if (!record) { record = { manifestId, manifestHash: manifest.manifestHash, raw: clone(raw), trustContext: clone(trustContext), createdAt: now() }; state.manifests.push(record); save(); }

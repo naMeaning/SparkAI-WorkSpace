@@ -30,6 +30,9 @@ const { createComfyUiTransport } = require("./desktop/comfyui-transport.cjs");
 const { createComfyUiCredentialStore } = require("./desktop/comfyui-credential-store.cjs");
 const { createManagedArtifactStore } = require("./desktop/managed-artifact-store.cjs");
 const { createComfyUiRuntimeService } = require("./desktop/comfyui-runtime-service.cjs");
+const { createAgentProviderService } = require("./desktop/agent-provider-service.cjs");
+const { createManagedLocalLlmService } = require("./desktop/managed-local-llm-service.cjs");
+const { AGENT_PROVIDER_COMMANDS, createAgentProviderControl, registerAgentProviderIpc } = require("./desktop/agent-provider-ipc.cjs");
 const { createImageOperationJournal } = require("./desktop/image-operation-journal.cjs");
 const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
@@ -161,7 +164,7 @@ const agentRunControl = createAgentRunControl({
   }
 });
 const goalProbeAdmission = createGoalProbeAdmission();
-const remoteImageDownloads = createPublicHttpDownloadAdmission({ maxConcurrent: 2, maxQueued: 256 });
+const remoteImageDownloads = createPublicHttpDownloadAdmission({ maxConcurrent: 2, maxQueued: 256, assertNetworkAllowed: () => assertCloudNetworkAllowed() });
 
 function getDesktopVersion() {
   return String((app.isPackaged ? app.getVersion() : packageMetadata.version) || "0.0.0");
@@ -479,6 +482,8 @@ const defaultSettings = {
   fastMode: false,
   timeoutSeconds: 180,
   imageBaseUrl: "",
+  imageProvider: undefined,
+  comfyui: undefined,
   imageApiKey: "",
   imageModel: "gpt-image-2",
   imageModelPool: ["gpt-image-2"],
@@ -857,6 +862,8 @@ function migrateSettings(value) {
   for (const key of Object.keys(defaultSettings)) {
     if (source[key] !== undefined) next[key] = source[key];
   }
+  const localImages = require("./runtime/image-config-snapshot.mjs").imageConfigSnapshot(source);
+  next.imageProvider = localImages.provider; next.comfyui = localImages.comfyui;
 
   if (!source.agentBaseUrl && source.baseUrl) next.agentBaseUrl = source.baseUrl;
   if (!source.agentApiKey && source.apiKey) next.agentApiKey = source.apiKey;
@@ -1095,6 +1102,8 @@ function logBoot(stage) {
 }
 
 let automationService = null;
+let agentProviderService = null;
+let agentProviderControl = null;
 const debugCommandService = createDebugCommandService({
   appRoot: projectRoot,
   debugDir,
@@ -1114,8 +1123,8 @@ automationService = createAutomationService({
   version: getDesktopVersion(),
   executablePath: process.execPath,
   log,
-  serviceCommandHandler: (command, args) => PROJECT_CONTEXT_COMMANDS.includes(command) ? projectContextCommandService.execute(command, args) : command.startsWith("creation.") ? creationCommandService.execute(command, args) : command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
-  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer", ...CREATION_COMMANDS, ...PROJECT_CONTEXT_COMMANDS]
+  serviceCommandHandler: (command, args) => /^(?:agent\.provider\.|agent\.local\.)/.test(command) ? agentProviderControl.command(command, args) : PROJECT_CONTEXT_COMMANDS.includes(command) ? projectContextCommandService.execute(command, args) : command.startsWith("creation.") ? creationCommandService.execute(command, args) : command.startsWith("agent.task.") ? agentTaskService.execute(command, args) : debugCommandService.execute(command, args),
+  serviceCommandNames: [...debugCommandService.commands, "agent.task.start", "agent.task.get", "agent.task.wait", "agent.task.answer", ...CREATION_COMMANDS, ...PROJECT_CONTEXT_COMMANDS, ...AGENT_PROVIDER_COMMANDS]
 });
 const agentIntegrationService = createAgentIntegrationService({
   appRoot: projectRoot,
@@ -1162,13 +1171,20 @@ const newApiTransport = createNewApiTransport({
   applicationName: internalApplicationName,
   windowsCurlPath,
   getDesktopVersion,
-  getAuthEpoch: () => newApiAuthEpoch
+  getAuthEpoch: () => newApiAuthEpoch,
+  assertNetworkAllowed: () => assertCloudNetworkAllowed()
 });
 const {
   activeNewApiCurlTransportCount,
-  newApiTransportFetch,
+  activeNewApiTransportCount,
+  newApiTransportFetch: rawNewApiTransportFetch,
   stopActiveNewApiCurlTransports
 } = newApiTransport;
+function offlineActive(projectId) { return agentProviderService?.isStrictOffline(projectId) === true; }
+function assertCloudNetworkAllowed(projectId) {
+  if (offlineActive(projectId)) throw Object.assign(new Error("严格离线模式禁止云端与远程网络请求。"), { code: "AGENT_OFFLINE_BLOCKED", retriable: false });
+}
+function newApiTransportFetch(...args) { assertCloudNetworkAllowed(); return rawNewApiTransportFetch(...args); }
 let accountTokenService = null;
 const newApiClient = createNewApiClient({
   accessPolicy,
@@ -1237,7 +1253,9 @@ const comfyUiConnectionService = createComfyUiConnectionProfileService({
 if (!comfyUiConnectionService.list().length) {
   try { comfyUiConnectionService.ensureDefault({ baseUrl: "http://127.0.0.1:8188" }); } catch (error) { log(`ComfyUI default connection migration failed ${error instanceof Error ? error.message : String(error)}`); }
 }
-const comfyUiTransport = createComfyUiTransport({ connectionService: comfyUiConnectionService });
+const comfyUiTransport = createComfyUiTransport({ connectionService: comfyUiConnectionService, assertNetworkAllowed(profile) {
+  if (profile.networkScope !== "local") assertCloudNetworkAllowed();
+} });
 const comfyUiExecutor = createComfyUiExecutor({ log, connectionService: comfyUiConnectionService, request: comfyUiTransport.request, wsFactory: comfyUiTransport.websocket });
 comfyUiConnectionService.attachExecutor?.(comfyUiExecutor);
 const comfyUiTemplateService = createComfyUiTemplateService({
@@ -1654,6 +1672,7 @@ const scientificRunnerService = createScientificRunnerService({
 });
 
 async function resolveVideoTaskCredentials({ model, credentialRef } = {}) {
+  assertCloudNetworkAllowed();
   const settings = currentAgentSettings();
   if (isCustomApiMode(settings)) {
     const credentials = customApiCredentials(settings, "image", model);
@@ -1675,6 +1694,7 @@ async function resolveVideoTaskCredentials({ model, credentialRef } = {}) {
 }
 
 async function requestVideoTaskJson({ credentials, endpoint, method = "GET", body, headers = {}, timeoutMs = 30_000, retries = 0 } = {}) {
+  assertCloudNetworkAllowed();
   const settings = currentAgentSettings();
   const request = await newApiFetch(settings, endpoint, {
     method,
@@ -1725,11 +1745,24 @@ function nodeVideoDownloadResponse(response) {
   };
 }
 
-async function fetchVideoTaskBinary({ credentials, endpointOrUrl, timeoutMs = 5 * 60_000, maxResponseBytes } = {}) {
+let activeVideoDownloads = 0;
+async function fetchVideoTaskBinary(input = {}) {
+  assertCloudNetworkAllowed(); activeVideoDownloads++;
+  let released = false;
+  const release = () => { if (!released) { released = true; activeVideoDownloads--; } };
+  try {
+    const response = await fetchVideoTaskBinaryNetwork(input);
+    if (!response.body || response.body.closed) release(); else response.body.once("close", release);
+    return response;
+  } catch (error) { release(); throw error; }
+}
+async function fetchVideoTaskBinaryNetwork({ credentials, endpointOrUrl, timeoutMs = 5 * 60_000, maxResponseBytes } = {}) {
+  assertCloudNetworkAllowed();
   const settings = currentAgentSettings();
   const credentialOrigin = new URL(credentials.baseUrl).origin;
   let target = videoDownloadUrl(credentials, endpointOrUrl);
   for (let redirect = 0; redirect <= 5; redirect += 1) {
+    assertCloudNetworkAllowed();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error("视频结果下载超时。")), Math.max(1_000, Number(timeoutMs) || 5 * 60_000));
     let response;
@@ -1746,6 +1779,7 @@ async function fetchVideoTaskBinary({ credentials, endpointOrUrl, timeoutMs = 5 
         });
       } else {
         const publicTarget = await resolvePublicHttpTarget(target, { signal: controller.signal });
+        assertCloudNetworkAllowed();
         const incoming = await requestPublicHttpTarget(publicTarget, {
           signal: controller.signal,
           accept: "video/mp4,video/webm,video/quicktime,application/octet-stream,*/*;q=0.1"
@@ -2627,6 +2661,10 @@ async function serverGenerateImage(payload = {}) {
 
 async function serverChatCompletion(payload = {}) {
   const modelStartedAt = Date.now();
+  const binding = payload.agentBindingId ? agentProviderService.getBinding(payload.agentBindingId) : null;
+  if (!binding && agentProviderService.status({}).selected.providerKind !== "cloud") throw Object.assign(new Error("本地 Agent 请求缺少 Main 冻结绑定。"), { code: "AGENT_PROVIDER_BINDING_MISSING" });
+  if (binding && binding.snapshot.providerKind !== "cloud") return agentProviderService.complete(payload.agentBindingId, payload);
+  assertCloudNetworkAllowed();
   if (aidebugBackend) {
     const startedAt = Date.now();
     log(`aidebug model start messages=${Array.isArray(payload.messages) ? payload.messages.length : 0} tools=${Array.isArray(payload.tools) ? payload.tools.length : 0} stream=${Boolean(payload.stream)}`);
@@ -2634,7 +2672,7 @@ async function serverChatCompletion(payload = {}) {
     log(`aidebug model done durationMs=${Date.now() - startedAt}`);
     return result;
   }
-  const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+  const settings = binding?.settings || migrateSettings(readJson(settingsPath, defaultSettings));
   const callerSignal = payload.signal;
   const requestBody = {
     ...payload,
@@ -2653,6 +2691,7 @@ async function serverChatCompletion(payload = {}) {
   delete requestBody._forceChatFallback;
   delete requestBody._agentModelRetryAttempt;
   delete requestBody._diagnostic;
+  delete requestBody.agentBindingId;
   const hasNativeResponsesTool = Array.isArray(requestBody.tools) && requestBody.tools.some((tool) => String(tool?.type || "") === "web_search");
   const useResponsesApi = !payload._forceChatFallback && (hasNativeResponsesTool || agentModelUsesResponsesApi(requestBody.model));
   const endpoint = useResponsesApi ? "/v1/responses" : "/v1/chat/completions";
@@ -2865,6 +2904,19 @@ function currentAgentSettings() {
   return migrateSettings(readJson(settingsPath, defaultSettings));
 }
 
+async function bindAgentExecution(settings, context) {
+  const prior = context.taskId ? agentTaskService.providerForRun(context) : null;
+  if (prior?.continuation && !prior.snapshot && agentProviderService.status({ projectId: context.projectId }).selected.providerKind !== "cloud") {
+    throw Object.assign(new Error("历史任务没有冻结本地 Agent 身份，请结束原任务后明确开始新任务。"), { code: "AGENT_PROVIDER_RECOVERY_MISSING" });
+  }
+  const snapshot = await agentProviderService.freeze({ ...context, settings: { ...settings, agentExecution: prior?.snapshot || undefined } });
+  try {
+    if (context.taskId) agentTaskService.bindProviderForRun(context, snapshot);
+    return { bindingId: snapshot.bindingId, settings: { ...settings, agentExecution: snapshot,
+      ...(snapshot.providerKind === "cloud" ? {} : { agentModel: snapshot.modelId, agentModelPool: [snapshot.modelId], compactModel: snapshot.modelId }) } };
+  } catch (error) { await agentProviderService.releaseBinding(snapshot.bindingId); throw error; }
+}
+
 function getAgentRuntime() {
   if (!agentRuntime) {
     agentRuntime = createAgentRuntime({
@@ -2905,16 +2957,35 @@ function getAgentRuntime() {
       serverChatCompletion,
       serverGenerateImage: async (payload = {}) => {
         const { settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
-        const settings = settingsWithImageConfig(currentAgentSettings(), payload.imageConfig);
+        const binding = payload.agentBindingId ? agentProviderService.getBinding(payload.agentBindingId) : null;
+        const settings = settingsWithImageConfig(binding?.settings || currentAgentSettings(), payload.imageConfig);
         const runId = String(payload.runId || `agent-${Date.now()}`);
         const projectId = payload.projectId;
-        const ownedMaskImage = payload.maskDataUrl
+        const localImage = settings.imageProvider === "comfyui";
+        let comfyui;
+        if (localImage) {
+          comfyui = comfyUiTemplateService.resolve(settings.comfyui);
+          if (payload.comfyUiManagedMask) {
+            const sourceImage = comfyUiMaterialIdentity(payload.comfyUiManagedMask.sourceImage);
+            const maskImage = comfyUiMaterialIdentity(payload.comfyUiManagedMask.maskImage);
+            const masks = creationMaskService.list({ expectedProjectId: projectId, conversationId: payload.conversationId, target: sourceImage });
+            const mask = masks.find(item => ["assetId", "occurrenceId", "contentHash"].every(key => item[key] === maskImage[key]));
+            if (!mask) throw Object.assign(new Error("本机区域修改需要原任务冻结的受管蒙版。"), { code: "COMFYUI_MASK_BINDING_INVALID" });
+            const referenceImages = (payload.referenceImages || []).map(image => {
+              const material = resolveMaterializedImageInput(image, projectId);
+              return comfyUiMaterialIdentity({ assetId: material.assetId, occurrenceId: material.occurrenceId, contentHash: material.contentHash });
+            });
+            comfyui = { ...comfyui, sourceImage, maskImage: { ...maskImage, revision: mask.revision }, ...(referenceImages.length ? { referenceImages } : {}) };
+          } else if (payload.maskDataUrl || payload.maskImage) throw Object.assign(new Error("本机区域修改必须使用当前任务的受管蒙版身份。"), { code: "COMFYUI_MASK_BINDING_INVALID" });
+        }
+        const ownedMaskImage = !localImage && payload.maskDataUrl
           ? writeDataUrlTemp(payload.maskDataUrl, `mask-${runId.replace(/[^a-z0-9_-]/gi, "-")}`, projectId)
           : null;
         try {
           const data = await callNewApiImageWithSession(settings, {
             ...payload,
-            maskImage: ownedMaskImage || payload.maskImage,
+            ...(localImage ? { provider: "comfyui", comfyui } : {}),
+            maskImage: localImage ? undefined : ownedMaskImage || payload.maskImage,
             maskDataUrl: undefined,
             runId
           });
@@ -2958,6 +3029,12 @@ function emitAgentProgress(sender, runId, payload = {}, scope = {}) {
 }
 
 async function listAgentModels(provider, incomingSettings = {}) {
+  const selected = agentProviderService?.status({}).selected;
+  if (selected && selected.providerKind !== "cloud") {
+    return { ok: true, provider: provider || "agent", models: provider === "image" ? [] : provider === "video" ? [] : [selected.modelId],
+      count: provider && provider !== "agent" ? 0 : 1, cacheSource: "local-profile", cacheAgeMs: 0, cacheTtlMs: 0 };
+  }
+  assertCloudNetworkAllowed();
   const currentSettings = currentAgentSettings();
   const restoredSettings = settingsSecretStore.restorePlaceholders({
     ...currentSettings,
@@ -3176,6 +3253,7 @@ function shutdownApplicationServices() {
       const result = await comfyUiRuntimeService.dispose();
       if (!result.ok) log(`shutdown managed runtimes pending=${result.pendingRuntimeIds.length}`);
     }),
+    Promise.resolve().then(async () => { await agentProviderService.dispose(); const result = await managedLocalLlmService.dispose(); if (!result.ok) log(`shutdown local models pending=${result.pendingRuntimeIds?.length || 0}`); }),
     Promise.resolve().then(() => agentRuntime?.dispose?.())
   ]).then((results) => {
     for (const [index, result] of results.entries()) {
@@ -5025,6 +5103,7 @@ async function callComfyUiImageWithSession(payload = {}) {
   if (!config?.workflow || !config.templateId || !config.templateHash) throw Object.assign(new Error("本地生图需要 Main 已校验的模板。"), { code: "COMFYUI_TEMPLATE_REQUIRED" });
   if (payload.maskImage !== undefined || payload.maskDataUrl !== undefined) throw Object.assign(new Error("ComfyUI 蒙版只能由受管 maskImage 身份引用，不能传路径或内联数据。"), { code: "COMFYUI_INPUT_INVALID" });
   const connection = comfyUiConnectionService.resolve(config);
+  if (connection.networkScope !== "local") assertCloudNetworkAllowed(payload.projectId);
   comfyUiRuntimeService.assertConnectionAvailable(connection);
   const baseUrl = connection.baseUrl;
   const capability = config.capability || config.operation || (config.imageInputs ? "img2img" : "generate");
@@ -5080,6 +5159,7 @@ async function callComfyUiImageWithSession(payload = {}) {
   const project = getProjectById(payload.projectId, readProjectList());
   // No await between admission and the durable task record: an
   // installer cannot start validating this endpoint while a task is admitted.
+  if (connection.networkScope !== "local") assertCloudNetworkAllowed(payload.projectId);
   comfyUiRuntimeService.assertConnectionAvailable(connection);
   const item = imageOperationJournal.start({ projectId: payload.projectId, operationId: payload.operationId, requestIndex: payload.requestIndex || 1,
     runId: payload.runId, agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId), provider: "comfyui", requestHash,
@@ -5103,6 +5183,7 @@ async function callComfyUiImageWithSession(payload = {}) {
 
 async function callNewApiImageWithSession(settings, payload = {}) {
   if (payload.provider === "comfyui") return callComfyUiImageWithSession(payload);
+  assertCloudNetworkAllowed(payload.projectId);
   // AIDebug fixtures remain owned by the established deterministic backend.
   // All production requests use the unified protocol/transport service.
   const model = String(payload.model || settings.imageModel || "").trim();
@@ -5473,10 +5554,12 @@ const imageOperationJournal = createImageOperationJournal({
     if (item.provider === "comfyui") {
       if (!item.comfyui) throw Object.assign(new Error("原本地提交缺少冻结快照，不能安全恢复。"), { code: "IMAGE_OPERATION_UNCERTAIN", unsafeToRetry: true });
       const connection = comfyUiConnectionService.resolve(item.comfyui);
+      if (connection.networkScope !== "local") assertCloudNetworkAllowed(item.projectId);
       comfyUiRuntimeService.assertConnectionAvailable(connection);
       return { connectionId: item.comfyui.connectionId ? connection.id : modelConnectionIdentity(connection.baseUrl, ""), protocol: "comfyui", transport: item.comfyui.networkScope || "local", connection };
     }
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+    assertCloudNetworkAllowed(item.projectId);
     const config = imageGenerationService.resolveModelConfig(settings, item.model);
     const credentials = await newApiClient.resolveRequestConnection(imageGenerationService.transportSettings(settings, config), "/v1/images/generations", { model: item.model }, "image", { ...(config.baseUrl ? { baseUrl: config.baseUrl } : {}), ...(config.apiKey ? { apiKey: config.apiKey } : {}) });
     return { settings, credentials, connectionId: modelConnectionIdentity(credentials.baseUrl, credentials.apiKey), protocol: config.protocol, transport: config.transportMode };
@@ -5490,7 +5573,8 @@ const imageOperationJournal = createImageOperationJournal({
 
 const managedArtifactStore = createManagedArtifactStore({
   root: path.join(configDir, "managed", "artifacts"),
-  projectRoots: readProjectList().projects.map(project => project.path).filter(Boolean)
+  projectRoots: readProjectList().projects.map(project => project.path).filter(Boolean),
+  assertNetworkAllowed() { if (offlineActive()) throw Object.assign(new Error("严格离线模式不能下载远程模型或依赖。"), { code: "MANAGED_ARTIFACT_OFFLINE_BLOCKED" }); }
 });
 const comfyUiRuntimeService = createComfyUiRuntimeService({
   rootDir: path.join(configDir, "managed", "comfyui"), artifactStore: managedArtifactStore,
@@ -5498,6 +5582,21 @@ const comfyUiRuntimeService = createComfyUiRuntimeService({
   sevenZipPath: app.isPackaged ? path.join(process.resourcesPath, "tools", "7za.exe") : require("7zip-bin").path7za,
   isConnectionBusy: isComfyUiRuntimeConnectionBusy
 });
+const managedLocalLlmService = createManagedLocalLlmService({
+  rootDir: path.join(configDir, "managed", "llm"), artifactStore: managedArtifactStore, dialog, log,
+  sevenZipPath: app.isPackaged ? path.join(process.resourcesPath, "tools", "7za.exe") : require("7zip-bin").path7za
+});
+agentProviderService = createAgentProviderService({
+  rootDir: path.join(configDir, "agent-providers"), dialog, safeStorage, managedLocalLlmService,
+  getActiveProjectId: () => readProjectList().activeProjectId,
+  beforeSelect(next) {
+    if (!next.strictOffline) return;
+    if (agentRunControl.snapshot().runs.length || comfyUiExecutor.active.size || comfyUiTransport.activeRemoteCount() || activeNewApiTransportCount() || activeVideoDownloads || remoteImageDownloads.snapshot().inFlight || managedArtifactStore.listDownloads().some(job => job.status === "downloading")) {
+      throw Object.assign(new Error("请先结束当前联网任务，再切换严格离线模式。"), { code: "AGENT_PROVIDER_BUSY" });
+    }
+  }
+});
+agentProviderControl = createAgentProviderControl({ agentProviderService, managedLocalLlmService });
 
 agentTaskService = createAgentTaskService({
   projectFor: projectId => getProjectById(projectId, readProjectList()), metaDir: projectMetaDirName,
@@ -5540,6 +5639,7 @@ projectContextCommandService = createProjectContextCommandService({ knowledgeSer
 
 
 function registerIpc() {
+  registerAgentProviderIpc({ ipcMain, control: agentProviderControl });
   registerDesktopIpc({
     runtimeDiagnostics,
     ipcMain,
@@ -5603,6 +5703,12 @@ function registerIpc() {
     sessionHasContent,
     writeProjectList,
     currentAgentSettings,
+    bindAgentExecution,
+    releaseAgentExecution: id => agentProviderService.releaseBinding(id),
+    agentCapabilitySettings: (settings, projectId) => {
+      const snapshot = agentProviderService.status({ projectId }).selected;
+      return snapshot?.providerKind === "cloud" ? settings : { ...settings, agentExecution: snapshot, agentModel: snapshot.modelId };
+    },
     customApiCredentials,
     getAgentRuntime,
     licenseService,
@@ -5810,6 +5916,24 @@ function createWindow(launch = {}) {
 
 if (projectIoSelftestMode || agentProtocolSelftestMode) {
   module.exports = {
+    agentProviderService,
+    managedLocalLlmService,
+    managedArtifactStore,
+    agentTaskService,
+    projectKnowledgeService,
+    creationService,
+    getAgentRuntime,
+    currentAgentSettings,
+    agentRunControl,
+    activeNewApiTransportCount,
+    bindAgentExecution,
+    serverChatCompletion,
+    assertCloudNetworkAllowed,
+    listAgentModels,
+    resolveVideoTaskCredentials,
+    requestVideoTaskJson,
+    fetchVideoTaskBinary,
+    imageBufferFromRemoteUrl,
     callNewApiImageWithSession,
     deliverGeneratedImageResult,
     imageOperationJournal,

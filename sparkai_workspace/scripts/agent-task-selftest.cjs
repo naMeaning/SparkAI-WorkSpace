@@ -203,4 +203,30 @@ async function main() {
   await assert.rejects(restarted.execute("agent.task.get", { ...target, conversationId: "other" }), { code: "TASK_NOT_FOUND" });
   console.log("agent-task: concurrent start, canonical conflict, bounded wait/cursor, answer CAS, restart and isolation passed");
 }
-main().then(edgeCases).catch(error => { console.error(error); process.exitCode = 1; });
+async function providerReceipts() {
+  const state = fixture(), started = await state.service.execute("agent.task.start", state.input), target = state.targetFor(started.task);
+  const input = { ...target, runId: started.task.currentRunId };
+  const snapshot = { providerKind: "managed-local", profileId: "agent-fixture", profileHash: "a".repeat(64), modelId: "org/model:1",
+    strictOffline: true, networkScope: "local", capabilities: { tools: true, vision: false, contextWindowTokens: 8192, maxOutputTokens: 1024 },
+    managedRevisionId: "revision-fixture", managedBindingHash: "b".repeat(64), bindingId: "live-only", endpoint: "private-sentinel", token: "private-sentinel" };
+  assert.deepEqual(state.service.providerForRun(input), { snapshot: null, continuation: false });
+  state.service.bindProviderForRun(input, snapshot);
+  const stored = readFileSync(state.file, "utf8");
+  assert.equal(stored.includes("live-only"), false); assert.equal(stored.includes("private-sentinel"), false);
+  assert.equal(JSON.stringify(state.service.get(target)).includes("managedBindingHash"), false, "Public task DTO excludes Main provider receipt");
+  assert.throws(() => state.service.bindProviderForRun(input, { ...snapshot, managedBindingHash: "c".repeat(64) }), { code: "AGENT_PROVIDER_RECOVERY_CHANGED" });
+  state.session.pendingAgentExecution = { projectId: "p", conversationId: "c", taskId: started.task.taskId, requestId: "provider-q", taskScope: frozenScope, kind: "clarify", question: "which?", options: [{ id: "a", label: "A" }] };
+  state.service.settle({ ...input, outcome: "waiting" }, "11");
+  state.service = createAgentTaskService(state.options);
+  const waiting = state.service.get(target).task;
+  const resumed = state.service.claimAnswer({ ...target, expectedVersion: waiting.version, questionId: "provider-q", optionId: "a" }, "22");
+  const next = { ...target, runId: resumed.runId };
+  state.service.admit({ ...next, taskScope: frozenScope }, "22"); state.service.claimRun(next, "22");
+  const prior = state.service.providerForRun(next);
+  assert.equal(prior.continuation, true); assert.equal(prior.snapshot.managedBindingHash, snapshot.managedBindingHash);
+  state.service.bindProviderForRun(next, snapshot);
+  assert.throws(() => state.service.bindProviderForRun(next, { ...snapshot, profileId: "other-profile" }), { code: "AGENT_PROVIDER_RECOVERY_CHANGED" });
+  assert.throws(() => state.service.providerForRun(input), { code: "TASK_OWNER_CONFLICT" });
+  console.log("agent-task: Main provider receipt persisted before requests; restart preserves managed revision, private DTO and stale-run rejection passed");
+}
+main().then(edgeCases).then(providerReceipts).catch(error => { console.error(error); process.exitCode = 1; });

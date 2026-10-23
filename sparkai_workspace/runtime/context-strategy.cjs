@@ -95,6 +95,19 @@ function presetForFamily(family) {
 }
 
 function contextStrategyForSettings(settings = {}) {
+  const execution = require("./agent-provider-policy.cjs").agentExecutionForSettings(settings);
+  if (execution && execution.providerKind !== "cloud") {
+    const window = clampInteger(execution.capabilities.contextWindowTokens, 512, 2_000_000, 8192);
+    const output = clampInteger(execution.capabilities.maxOutputTokens, 1, window - 1, Math.min(2048, Math.floor(window / 4)));
+    const preset = presetForFamily("balanced");
+    return Object.freeze({ ...preset, id: "local", resolvedId: "local", family: "local", model: execution.modelId,
+      contextWindowTokens: window, effectiveWindowPercent: 90, effectiveWindowTokens: Math.max(1, window - output),
+      autoCompactPercent: 75, autoCompactTokenLimit: Math.max(1, Math.min(Math.floor(window * 0.75), window - output)),
+      retainedUserTokens: Math.min(12000, Math.floor(window / 5)), summaryMaxChars: Math.min(18000, window),
+      workbenchMaxChars: Math.min(16000, window), taskScopeMaxChars: Math.min(14000, window), fastMemoryPromptMaxChars: Math.min(20000, window),
+      protocolHistoryMaxTurns: 0, protocolHistoryPromptChars: 0, protocolMessageMaxChars: 12000, protocolHistoryStoreChars: 0,
+      useResponsesProtocol: false, useNativeWebSearch: false, compactionMode: "local-checkpoint" });
+  }
   const requestedId = normalizeContextStrategyId(settings.contextStrategy);
   const model = String(settings.agentModel || settings.model || "").trim();
   const detectedFamily = contextModelFamily(model);

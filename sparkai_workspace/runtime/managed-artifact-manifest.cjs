@@ -94,8 +94,9 @@ function normalizeManagedArtifactDescriptor(raw, options = {}) {
   if (typeof raw.sha256 !== "string" || !HASH.test(raw.sha256)) throw fail("MANAGED_MANIFEST_HASH_INVALID", "制品必须声明精确 SHA-256。");
   if (raw.format !== "file" && !filename.toLowerCase().endsWith(`.${raw.format}`)) throw fail("MANAGED_MANIFEST_ARTIFACT_INVALID", "归档格式与文件名不符。");
   if (raw.kind === "runtime" && raw.format === "file") throw fail("MANAGED_MANIFEST_ARTIFACT_INVALID", "portable runtime 必须声明归档。");
-  const modelDestinations = { checkpoint: "checkpoints", vae: "vae", lora: "loras" };
-  if (raw.kind === "model" && (raw.format !== "file" || !Object.hasOwn(modelDestinations, raw.modelType) || !filename.toLowerCase().endsWith(".safetensors") || raw.destination !== modelDestinations[raw.modelType])) throw fail("MANAGED_MANIFEST_MODEL_INVALID", "模型只允许 safetensors 与对应的受控模型目录。");
+  const modelDestinations = { checkpoint: "checkpoints", vae: "vae", lora: "loras", llm: "models", "vision-projector": "projectors" };
+  const llmModel = ["llm", "vision-projector"].includes(raw.modelType);
+  if (raw.kind === "model" && (raw.format !== "file" || !Object.hasOwn(modelDestinations, raw.modelType) || !filename.toLowerCase().endsWith(llmModel ? ".gguf" : ".safetensors") || raw.destination !== modelDestinations[raw.modelType] || options.adapter === "comfyui-portable" && llmModel || options.adapter === "llama.cpp-portable" && !llmModel)) throw fail("MANAGED_MANIFEST_MODEL_INVALID", "模型格式、角色与受控模型目录不匹配。");
   if (raw.kind !== "model" && raw.modelType !== undefined) throw fail("MANAGED_MANIFEST_MODEL_INVALID", "非模型制品不能声明 modelType。");
   const destination = normalizeManagedArtifactRelativePath(raw.destination, { allowRoot: raw.kind === "runtime" });
   const targetsCustomNodes = destination.split("/").some(part => part.toLowerCase() === "custom_nodes");
@@ -118,6 +119,7 @@ function normalizeSignature(value) {
   return { algorithm: "ed25519", keyId: identifier(value.keyId, "签名密钥"), value: value.value };
 }
 function normalizeManagedArtifactManifest(raw, options = {}) {
+  if (plain(raw) && raw.schemaVersion === 2) return normalizeManagedLlmManifest(raw, options);
   exact(raw, ["schemaVersion", "id", "label", "version", "adapter", "runtime", "requirements", "artifacts", "signature"], "安装声明");
   if (raw.schemaVersion !== 1 || raw.adapter !== "comfyui-portable") throw fail("MANAGED_MANIFEST_ADAPTER_INVALID", "只支持版本 1 的 ComfyUI portable 安装声明。");
   if (raw.runtime !== undefined) {
@@ -131,7 +133,7 @@ function normalizeManagedArtifactManifest(raw, options = {}) {
     vramBytes: bytes(raw.requirements.vramBytes, "显存要求", true), diskBytes: bytes(raw.requirements.diskBytes, "磁盘要求")
   };
   if (!Array.isArray(raw.artifacts) || !raw.artifacts.length || raw.artifacts.length > 128) throw fail("MANAGED_MANIFEST_ARTIFACT_INVALID", "安装声明必须包含制品。");
-  const artifacts = raw.artifacts.map(value => normalizeManagedArtifactDescriptor(value, options)).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const artifacts = raw.artifacts.map(value => normalizeManagedArtifactDescriptor(value, { ...options, adapter: "comfyui-portable" })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const ids = new Map(artifacts.map(item => [item.id, item]));
   if (ids.size !== artifacts.length) throw fail("MANAGED_MANIFEST_DEPENDENCY_INVALID", "制品标识不能重复。");
   const runtimeCount = artifacts.filter(item => item.kind === "runtime").length;
@@ -169,6 +171,46 @@ function normalizeManagedArtifactManifest(raw, options = {}) {
     ...manifest, manifestHash: hashManagedArtifactValue(manifest), policyVersion: MANAGED_ARTIFACT_POLICY_VERSION,
     provenance, signatureVerified, installable: context.kind !== "needs-review", downloadBytes, expandedBytes, installOrder
   });
+}
+// Version 1 above is deliberately unchanged in shape and policy identity. The
+// LLM adapter has a separate typed contract; GGUF never masquerades as a ComfyUI
+// dependency and a manifest cannot choose a binary, command, template or argv.
+function normalizeManagedLlmManifest(raw, options) {
+  exact(raw, ["schemaVersion", "id", "label", "version", "adapter", "runtime", "model", "requirements", "artifacts", "signature"], "本地 LLM 安装声明");
+  if (raw.adapter !== "llama.cpp-portable") throw fail("MANAGED_MANIFEST_ADAPTER_INVALID", "版本 2 仅支持固定 llama.cpp portable 适配器。");
+  exact(raw.runtime, ["artifactId"], "LLM 运行时声明");
+  exact(raw.model, ["artifactId", "projectorArtifactId", "contextWindowTokens", "maxOutputTokens", "capabilities"], "LLM 模型声明");
+  exact(raw.model.capabilities, ["tools", "vision"], "LLM 能力声明");
+  const { tools, vision } = raw.model.capabilities, contextWindowTokens = raw.model.contextWindowTokens;
+  const maxOutputTokens = raw.model.maxOutputTokens ?? Math.min(4096, Math.floor(contextWindowTokens / 4));
+  if (typeof tools !== "boolean" || typeof vision !== "boolean" || !Number.isSafeInteger(contextWindowTokens) || contextWindowTokens < 512 || contextWindowTokens > 262144 || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > Math.min(32768, contextWindowTokens - 128)) throw fail("MANAGED_MANIFEST_LLM_CAPABILITY_INVALID", "LLM 必须明确工具、视觉与有效的上下文/输出容量。");
+  exact(raw.requirements, ["os", "arch", "gpu", "vramBytes", "diskBytes"], "硬件要求");
+  const requirements = { os: list(raw.requirements.os, ["win32"], "操作系统"), arch: list(raw.requirements.arch, ["x64"], "架构"), gpu: list(raw.requirements.gpu, ["cpu"], "GPU 要求"), vramBytes: bytes(raw.requirements.vramBytes, "显存要求", true), diskBytes: bytes(raw.requirements.diskBytes, "磁盘要求") };
+  if (requirements.vramBytes !== 0) throw fail("MANAGED_MANIFEST_LLM_CAPABILITY_INVALID", "当前托管 LLM 适配器只支持 Windows x64 CPU。");
+  if (!Array.isArray(raw.artifacts) || raw.artifacts.length < 2 || raw.artifacts.length > 3) throw fail("MANAGED_MANIFEST_LLM_INVALID", "LLM 声明必须包含一个运行时、一个模型与可选的配对视觉投影器。");
+  const artifacts = raw.artifacts.map(value => normalizeManagedArtifactDescriptor(value, { ...options, adapter: "llama.cpp-portable" })).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const ids = new Map(artifacts.map(item => [item.id, item]));
+  const runtimeId = identifier(raw.runtime.artifactId, "运行时制品"), modelId = identifier(raw.model.artifactId, "LLM 模型制品");
+  const projectorId = raw.model.projectorArtifactId === undefined ? undefined : identifier(raw.model.projectorArtifactId, "视觉投影器制品");
+  if (ids.size !== artifacts.length || artifacts.some(item => !["runtime", "model"].includes(item.kind)) || artifacts.filter(item => item.kind === "runtime").length !== 1 || ids.get(runtimeId)?.kind !== "runtime" || ids.get(runtimeId)?.destination !== "." || artifacts.filter(item => item.modelType === "llm").length !== 1 || ids.get(modelId)?.modelType !== "llm" || artifacts.filter(item => item.modelType === "vision-projector").length !== (projectorId ? 1 : 0) || projectorId && ids.get(projectorId)?.modelType !== "vision-projector" || vision !== !!projectorId) throw fail("MANAGED_MANIFEST_LLM_INVALID", "LLM 运行时、模型、投影器角色与视觉能力必须显式配对。");
+  const visited = new Set(), visiting = new Set(), installOrder = [];
+  function visit(id) { if (visited.has(id)) return; if (visiting.has(id)) throw fail("MANAGED_MANIFEST_DEPENDENCY_CYCLE", "安装声明包含循环依赖。"); const artifact = ids.get(id); if (!artifact) throw fail("MANAGED_MANIFEST_DEPENDENCY_INVALID", "安装声明包含不存在的依赖。"); visiting.add(id); artifact.dependencies.forEach(visit); visiting.delete(id); visited.add(id); installOrder.push(id); }
+  artifacts.forEach(item => visit(item.id));
+  const downloadBytes = safeTotal(artifacts.map(item => item.bytes)), expandedBytes = safeTotal(artifacts.map(item => item.expandedBytes));
+  if (requirements.diskBytes < safeTotal([downloadBytes, expandedBytes])) throw fail("MANAGED_MANIFEST_SIZE_INVALID", "磁盘要求不能低于下载与展开大小合计。");
+  const manifest = { schemaVersion: 2, id: identifier(raw.id, "安装声明"), label: text(raw.label, "安装名称"), version: text(raw.version, "安装版本", 80), adapter: "llama.cpp-portable", runtime: { artifactId: runtimeId }, model: { artifactId: modelId, ...(projectorId ? { projectorArtifactId: projectorId } : {}), contextWindowTokens, maxOutputTokens, capabilities: { tools, vision } }, requirements, artifacts };
+  const signature = raw.signature === undefined ? undefined : normalizeSignature(raw.signature);
+  let signatureVerified = false;
+  if (signature) {
+    const key = options.trustedSigningKeys?.[signature.keyId];
+    if (!key) throw fail("MANAGED_MANIFEST_SIGNATURE_UNTRUSTED", "安装声明签名密钥尚未受信。");
+    try { signatureVerified = verify(null, Buffer.from(canonicalManagedArtifactValue(manifest)), key, Buffer.from(signature.value, "base64")); } catch {}
+    if (!signatureVerified) throw fail("MANAGED_MANIFEST_SIGNATURE_INVALID", "安装声明签名校验失败。");
+    manifest.signature = signature;
+  }
+  const context = options.trustContext || { kind: "needs-review", id: "unreviewed" };
+  if (!plain(context) || !["user-import", "reviewed-registry", "needs-review"].includes(context.kind)) throw fail("MANAGED_MANIFEST_TRUST_INVALID", "安装声明来源上下文无效。");
+  return freeze({ ...manifest, manifestHash: hashManagedArtifactValue(manifest), policyVersion: 2, provenance: { kind: context.kind, id: identifier(context.id, "来源授权") }, signatureVerified, installable: context.kind !== "needs-review", downloadBytes, expandedBytes, installOrder });
 }
 function publicManagedArtifactManifest(manifest) {
   return {

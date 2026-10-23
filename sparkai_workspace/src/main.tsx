@@ -1,3 +1,4 @@
+import { useAgentProviderStatus } from "./agent-provider-state";
 import { useProjectContext } from "./use-project-context";
 import ProjectContextPanel from "./project-context-panel";
 import type { ProjectComparisonItem } from "./project-result-comparison";
@@ -908,6 +909,7 @@ const AgentTextEditorDialog = lazyStudioDialog("AgentTextEditorDialog");
 const RequirementEditorDialog = lazyStudioDialog("RequirementEditorDialog");
 const LazyAskUserDialog = lazyStudioDialog("AskUserDialog");
 const LazySettingsDrawer = React.lazy(() => import("./settings-drawer"));
+const LazyAgentProviderManager = React.lazy(() => import("./agent-provider-manager"));
 const LazyImageRecoveryDialog = React.lazy(() => import("./image-recovery-dialog"));
 const LazyCommerceSetDialog = React.lazy(() => import("./commerce-set-dialog"));
 const LazyCommerceCatalogDialog = React.lazy(() => import("./commerce-catalog-dialog"));
@@ -3865,10 +3867,17 @@ function App() {
     && Boolean(serverUser && serverUser.id !== "custom-api");
   const customWorkspaceAuthorized = settings.accessMode === "custom"
     && serverUser?.id === "custom-api";
-  const workspaceAccessAuthorized = accountWorkspaceAuthorized || customWorkspaceAuthorized;
+
   const [fileActionBusy, setFileActionBusy] = useState(false);
   const [projectNameDraft, setProjectNameDraft] = useState<ProjectNameDraft | null>(null);
   const [configReady, setConfigReady] = useState(false);
+  const agentProviderState = useAgentProviderStatus(activeProjectId, configReady);
+  const agentProviderSnapshot = agentProviderState.selected;
+  const localAgentSelected = Boolean(agentProviderSnapshot && agentProviderSnapshot.providerKind !== "cloud");
+  const localWorkspaceAuthorized = agentProviderState.ready && !agentProviderState.error && localAgentSelected;
+  const backgroundCloudAllowed = agentProviderState.ready && !agentProviderState.error && !localAgentSelected;
+  const workspaceAccessAuthorized = accountWorkspaceAuthorized || customWorkspaceAuthorized || localWorkspaceAuthorized;
+  const [localProviderSetupOpen, setLocalProviderSetupOpen] = useState(false);
   const currentAgentTask = useAgentTaskReceipt(activeProjectId, activeConversationId, configReady);
   const currentAgentTaskCard = agentTaskCard(currentAgentTask);
   const projectContextState = useProjectContext(activeProjectId, activeConversationId, configReady);
@@ -4767,7 +4776,7 @@ function App() {
   }, [workspaceViewMode]);
 
   useEffect(() => {
-    if (!authReady || !serverUser || !window.naimageUpdater) return;
+    if (!backgroundCloudAllowed || !authReady || !serverUser || !window.naimageUpdater) return;
     let disposed = false;
     let interval = 0;
     const check = async () => {
@@ -4783,7 +4792,7 @@ function App() {
       window.clearTimeout(timer);
       if (interval) window.clearInterval(interval);
     };
-  }, [authReady, serverUser?.id]);
+  }, [authReady, serverUser?.id, backgroundCloudAllowed]);
 
   async function commitAppSettings(nextSettings: AppSettings) {
     const normalized = enforceRendererAccessPolicy(mergeSettings(nextSettings));
@@ -4934,7 +4943,7 @@ function App() {
   }, [settings.imageModel, settings.imageModelPool, settings.imageModelBindings, settings.imageModelConfigs]);
 
   useEffect(() => {
-    if (!configReady || !window.naimageServer?.models) return;
+    if (!configReady || !backgroundCloudAllowed || !window.naimageServer?.models) return;
     let cancelled = false;
     void window.naimageServer.models({ cacheOnly: true }).then((result) => {
       if (cancelled || !result?.ok) return;
@@ -4948,7 +4957,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [configReady, settings.imageModelBindings, settings.imageModelConfigs, settings.imageModelPool, settings.imageBaseUrl, settings.imageApiKey]);
+  }, [configReady, backgroundCloudAllowed, settings.imageModelBindings, settings.imageModelConfigs, settings.imageModelPool, settings.imageBaseUrl, settings.imageApiKey]);
 
   useEffect(() => {
     const next = agentPanelLayoutFromSettings(settings);
@@ -5423,7 +5432,7 @@ function App() {
 // -----------------------------------------------------------------------------
 
   async function refreshServerState(options: { preferCached?: boolean } = {}) {
-    if (!window.naimageServer?.me) return false;
+    if (!backgroundCloudAllowed || !window.naimageServer?.me) return false;
     const refreshEpoch = ++serverRefreshEpochRef.current;
     const isCurrentRefresh = () => serverRefreshEpochRef.current === refreshEpoch;
     try {
@@ -5479,7 +5488,12 @@ function App() {
   }
 
   useEffect(() => {
-    if (!configReady) return;
+    if (!configReady || !agentProviderState.ready) return;
+    if (!backgroundCloudAllowed) {
+      serverRefreshEpochRef.current += 1;
+      setAuthReady(true);
+      return;
+    }
     let cancelled = false;
 
     async function restoreAuth() {
@@ -5511,7 +5525,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [configReady]);
+  }, [configReady, agentProviderState.ready, backgroundCloudAllowed]);
 
   useEffect(() => {
     if (!configReady) return;
@@ -6989,6 +7003,7 @@ function App() {
   }
 
   async function loadImageQuotaSnapshot() {
+    if (localAgentSelected) return { user: null, wallet: null };
     let user = serverUser;
     let wallet = serverWallet;
     try {
@@ -17483,7 +17498,7 @@ function App() {
         content: answer,
         createdAt: nowLabel(),
         status: executionFailed ? "error" : "done",
-        meta: incompleteReply ? "partial" : settings.agentModel ? `${settings.agentModel} / ${settings.reasoningEffort}` : "agent"
+        meta: incompleteReply ? "partial" : localAgentSelected ? `${agentProviderSnapshot?.modelId || "本地 Agent"}` : settings.agentModel ? `${settings.agentModel} / ${settings.reasoningEffort}` : "agent"
       };
 
       flushPendingAgentStreamMessages();
@@ -27615,6 +27630,7 @@ function App() {
     await persistAgentImageConfig({ imageCount: Math.max(1, Math.min(10, Math.round(imageCount))), imageQuality });
   });
   const projectAgentRequestImageModels = useStableEvent(async (forceRefresh = true) => {
+    if (!backgroundCloudAllowed) throw new Error("本地 Agent 模式不自动访问云端模型目录，请在 Agent 服务中配置本机生图。");
     if (!window.naimageServer?.models) throw new Error("当前桌面后端不支持读取上游模型。");
     const currentSettings = settingsRef.current;
     const result = await window.naimageServer.models({
@@ -27712,7 +27728,8 @@ function App() {
       ready: configReady && authReady && licenseReady && workspaceAccessAuthorized,
       projectName: activeProjectName,
       workspaceDomain: workspaceDomainRef.current,
-      modelName: settings.agentModel,
+      modelName: localAgentSelected ? agentProviderSnapshot?.modelId || "" : settings.agentModel,
+      providerStatus: agentProviderSnapshot,
       agentStatus,
       busy: agentExecutionBusyNow(),
       paused: agentPaused,
@@ -27879,6 +27896,7 @@ function App() {
     selectedNodes.length,
     serverUser,
     settings.agentModel,
+    agentProviderSnapshot,
     settings.customTheme,
     settings.glassMaterial,
     settings.glassParameters,
@@ -27887,7 +27905,7 @@ function App() {
     settings.themePalette
   ]);
 
-  if (!configReady || !authReady || !licenseReady) {
+  if (!configReady || !agentProviderState.ready || !authReady || !licenseReady) {
     return (
       <GlassThemeProvider settings={settings}>
       <React.Suspense fallback={<main className="auth-shell" aria-busy="true" />}>
@@ -27909,7 +27927,9 @@ function App() {
             submitAccount={submitAuth}
             submitCustom={submitCustomAccess}
             selectAccessMode={selectAuthAccessMode}
-            message={serverMessage}
+            message={agentProviderState.error || serverMessage}
+            openLocalConfiguration={() => setLocalProviderSetupOpen(current => !current)}
+            localConfiguration={localProviderSetupOpen ? <React.Suspense fallback={<p>正在读取本地服务配置…</p>}><LazyAgentProviderManager settings={settings} saveSettings={commitAppSettings} projectId={activeProjectId || undefined} conversationId={activeConversationId} onChanged={() => void agentProviderState.refresh()} /></React.Suspense> : null}
           />
         </React.Suspense>
       </>
@@ -30244,7 +30264,8 @@ function App() {
           conversationBoundaryBusy={agentActiveExecutionBusy}
           agentProgress={agentProgress}
           runElapsedSeconds={runElapsedSeconds}
-          modelName={settings.agentModel}
+          modelName={localAgentSelected ? agentProviderSnapshot?.modelId || "" : settings.agentModel}
+          providerStatus={agentProviderSnapshot}
           inputRef={agentInputRef}
           endRef={agentEndRef}
           setPrompt={setPrompt}
@@ -30295,6 +30316,10 @@ function App() {
         <React.Suspense fallback={null}>
           <LazySettingsDrawer
             settings={settings}
+            projectId={activeProjectId || undefined}
+            conversationId={activeConversationId}
+            agentProviderStatus={agentProviderSnapshot}
+            onAgentProviderChanged={() => void agentProviderState.refresh()}
             saveSettings={commitAppSettings}
             initialSection={settingsInitialSection}
             initialUpdateInfo={desktopUpdateNotice}
@@ -30698,6 +30723,9 @@ function App() {
           onFrameChange={projectAgentChangeImageFrame}
           onOutputChange={projectAgentChangeImageOutput}
           requestImageModels={projectAgentRequestImageModels}
+          localAgent={localAgentSelected}
+          localImageEnabled={settings.imageProvider === "comfyui" && Boolean(settings.comfyui?.connectionId)}
+          openLocalConfig={() => { setAgentImageConfigOpen(false); setSettingsInitialSection("agent"); setSettingsOpen(true); }}
           close={() => setAgentImageConfigOpen(false)}
         /> : null}
 

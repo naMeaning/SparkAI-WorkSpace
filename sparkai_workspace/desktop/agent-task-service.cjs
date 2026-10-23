@@ -6,6 +6,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { createHash, randomUUID } = require("node:crypto");
 const { normalizeImageConfigSnapshot } = require("../runtime/image-config-snapshot.mjs");
+const { agentExecutionReceipt } = require("../runtime/agent-provider-policy.cjs");
 const { redactText, validateSchemaValue } = require("./debug-command-service.cjs");
 const { normalizeCreationReference, normalizeCreationTarget } = require("./project-creation-service.cjs");
 const definitions = new Map(require("../integrations/naimage-control/references/commands.schema.json").sections.flatMap(section => section.commands).map(command => [command.name, command]));
@@ -326,6 +327,19 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
     change(task, ledger, { phase: "running", claimedRunIds: [...task.claimedRunIds, runId] });
     return task.taskId;
   }
+  // Called only by Main after claimRun. Renderer admission cannot supply or
+  // replace this record; publicTask deliberately omits it.
+  function providerForRun(input) {
+    const task = lookup(input);
+    if (task.runIds.at(-1) !== input.runId || !task.claimedRunIds.includes(input.runId)) throw fail("TASK_OWNER_CONFLICT", "Agent 身份只能绑定已受理的当前运行。");
+    return { snapshot: task.agentExecution ? agentExecutionReceipt(task.agentExecution) : null, continuation: task.claimedRunIds.length > 1 };
+  }
+  function bindProviderForRun(input, snapshot) {
+    const ledger = read(target(input).projectId), task = lookup(input, ledger), receipt = agentExecutionReceipt(snapshot);
+    providerForRun(input);
+    if (task.agentExecution && digest(agentExecutionReceipt(task.agentExecution)) !== digest(receipt)) throw fail("AGENT_PROVIDER_RECOVERY_CHANGED", "原任务 Agent 身份已冻结，不能换模型或连接继续。");
+    if (!task.agentExecution) change(task, ledger, { agentExecution: receipt });
+  }
   function settle(input, ownerId) {
     const ledger = read(target(input).projectId), task = lookup(input, ledger);
     const restoredQuestion = task.phase === "waiting" && !task.ownerId;
@@ -490,7 +504,7 @@ function createAgentTaskService({ projectFor, readSession, runSnapshot = () => (
       change(task, ledger, { phase: "stopped", question: null, error: { code: "TASK_STOPPED", message: "任务已结束；原图片结果和在途任务保留恢复记录。" } });
     }
   }
-  return { commands: COMMANDS, execute, startInternal: start, assertStartAvailable, revisionContext, get, admit, claimRun, settle, claimAnswer, assertRequirementsMutable, advanceRequirements, advanceMaterials, taskIdForRun, progress, ownerGone, stopScope,
+  return { commands: COMMANDS, execute, startInternal: start, assertStartAvailable, revisionContext, get, admit, claimRun, providerForRun, bindProviderForRun, settle, claimAnswer, assertRequirementsMutable, advanceRequirements, advanceMaterials, taskIdForRun, progress, ownerGone, stopScope,
     sanitizeError: error => text(error?.message || "任务操作失败。") };
 }
 

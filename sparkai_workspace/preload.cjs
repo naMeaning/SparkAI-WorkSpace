@@ -224,6 +224,7 @@ contextBridge.exposeInMainWorld("naimageUpdater", {
 });
 
 contextBridge.exposeInMainWorld("naimageAgent", {
+  providerControl: (payload) => ipcRenderer.invoke("naimage:agent:provider", payload),
   tools: () => ipcRenderer.invoke("naimage:agent:tools"),
   listModels: (payload) => ipcRenderer.invoke("naimage:agent:list-models", payload),
   runTool: (payload) => ipcRenderer.invoke("naimage:agent:run-tool", payload),

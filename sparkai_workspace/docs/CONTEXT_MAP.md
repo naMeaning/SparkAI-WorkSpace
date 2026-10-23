@@ -1,10 +1,12 @@
 # SparkAI WorkSpace 上下文地图
 
-## Phase 4：离线 Agent（实施合同）
+## Phase 4：离线 Agent
 
-- 计划owner：Main `desktop/agent-provider-service.cjs`持本地配置/受保护凭据/loopback传输/冻结binding；`runtime/agent-provider-policy.cjs`持显式capability/strict-offline纯合同；`agent-runtime.cjs`、context-strategy/tool-schemas复用同Prompt/Runtime/TaskScope/FastMemory，在schema和实际派发/像素请求两侧强制能力。
+- owner：Main `desktop/agent-provider-service.cjs`持原生JSON导入/受保护凭据/loopback DNS pin与Chat SSE传输/冻结binding；`runtime/agent-provider-policy.cjs`持显式capability/strict-offline及脱敏receipt合同；`agent-runtime.cjs`、context-strategy/tool-schemas复用同Prompt/Runtime/TaskScope/FastMemory，在schema和实际派发/像素请求两侧强制能力。
 - managed-local沿原manifest/artifact store增加typed GGUF/vision与固定llama.cpp adapter，独立Main service持计划/人工授权/进程与引用；旧Comfy manifest/hash不重写。GUI/CLI/MCP不见URL/凭据/绝对路径/脚本，只持profile/runtime/model等ID。
-- Main agent IPC创建/释放每run binding，serverChatCompletion在账号路径之前显式分流；compact/辅助/图片传输与恢复共享strict-offline网络门禁。Renderer提供无云账号本地准入及provider/model/capability/网络显示，不构造伪账号。新schema、IPC、测试和持久化细节在落地时同步本节。
+- `desktop/managed-local-llm-service.cjs`拥有typed v2 manifest、GGUF/projector校验、固定CPU llama.cpp启动/health/版本与task lease；managed目录与artifact store在应用config，模型不进项目资产。provider配置与credential sidecar也只在Main config；`desktop/agent-task-service.cjs`仅Main方法providerForRun/bindProviderForRun在项目tasks.json保留稳定身份/capability/revision/hash，不含地址/路径/凭据/live binding，公开task和便携项目包不授予恢复执行权限。
+- Main agent IPC创建/释放每run binding，serverChatCompletion在账号路径之前显式分流；compact/辅助/图片传输沿同binding。strict gate覆盖newAPI统一transport、Comfy transport、artifact store、public-http下载admission/每跳DNS前后及video各跳；切换前拒绝native/curl、Comfy HTTP/WS、video与下载全程占用，关闭等待请求close再释放managed lease。legacy云设置与v1 image journal可读，unknown提交不重发；task续接必须匹配原provider/model/caps/managed revision。Agent inpaint从冻结TaskScope源/蒙版身份到Main registry revision，不向Comfy传任意路径/inline mask；operationId/requestIndex保持同journal不重复提交。
+- Renderer `src/agent-provider-manager.tsx`/state与auth-gate/settings/panel、独立agent-window只见脱敏status/ID，提供无云账号准入及本机图片显式配置；`desktop/agent-provider-ipc.cjs`与preload统一控制16命令，镜像automation registry、CLI/MCP schema、Skill与参考。验证：test:agent-provider / managed-local-llm / agent-offline / agent-offline-main / agent-network-transition / agent-provider-contract / agent-local-ui，加agent-task、remote-asset-security、typecheck、view-image；实际证据见[专项](OFFLINE_AGENT_VALIDATION.md)。
 
 ## ComfyUI Phase 3：manifest / artifact / runtime
 

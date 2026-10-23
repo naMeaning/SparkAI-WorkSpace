@@ -897,3 +897,14 @@ label.settings-canvas-tool-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.agent-provider-manager {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 0;
+}
+.agent-provider-manager p { margin: 6px 0; overflow-wrap: anywhere; }
+.agent-provider-manager > details { border-top: 1px solid var(--line); padding-top: 10px; }
+.agent-provider-manager summary { cursor: pointer; font-weight: 600; }
+.agent-provider-manager select { width: 100%; min-width: 0; }

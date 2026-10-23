@@ -13,6 +13,9 @@ function settingsWithRequestedImageDefaults(settings = {}, payload = {}) {
 function registerAgentIpc({
   ipcMain,
   currentAgentSettings,
+  bindAgentExecution,
+  releaseAgentExecution,
+  agentCapabilitySettings,
   getAgentRuntime,
   log,
   listAgentModels,
@@ -73,6 +76,8 @@ function registerAgentIpc({
   };
 
   const finishRun = (runId) => agentRunControl?.finish({ runId });
+  const bindExecution = async (settings, context) => typeof bindAgentExecution === "function" ? bindAgentExecution(settings, context) : { settings };
+  const releaseExecution = async execution => { if (execution?.bindingId) await releaseAgentExecution?.(execution.bindingId); };
 
   const normalizedRunnableTaskScope = (runtime, payload = {}) => {
     const taskScope = runtime.normalizeTaskScope(payload || {});
@@ -95,9 +100,10 @@ function registerAgentIpc({
     sender.once("destroyed", onDestroyed);
   };
 
-  ipcMain.handle("naimage:agent:tools", () => {
+  ipcMain.handle("naimage:agent:tools", (_event, payload = {}) => {
     try {
-      const settings = currentAgentSettings();
+      const current = currentAgentSettings();
+      const settings = agentCapabilitySettings?.(current, payload.projectId) || current;
       return { ok: true, tools: getAgentRuntime().getToolSchemas(settings) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -113,6 +119,7 @@ function registerAgentIpc({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log(`agent list models fallback ${message}`);
+      if (typeof agentCapabilitySettings === "function") return { ok: false, provider, models: [], errorCode: error?.code || "AGENT_PROVIDER_UNAVAILABLE", error: message };
       try {
         return await getAgentRuntime().listModels({ ...(payload || {}), provider, settings: currentAgentSettings() });
       } catch (fallbackError) {
@@ -146,6 +153,7 @@ function registerAgentIpc({
       };
     }
     let controlledRun;
+    let execution;
     try {
       const runtime = getAgentRuntime();
       const runtimePayload = {
@@ -155,7 +163,8 @@ function registerAgentIpc({
       };
       controlledRun = beginRun(event, runtimePayload, runId, false);
       bindRunOwnerToSender(event);
-      const settings = currentAgentSettings();
+      execution = await bindExecution(currentAgentSettings(), { projectId: projectScope.projectId, conversationId: projectScope.conversationId, runId });
+      const settings = settingsWithRequestedImageDefaults(execution.settings, runtimePayload);
       const result = await runtime.runTool(name, runtimePayload?.input ?? {}, {
         settings,
          nodes: Array.isArray(runtimePayload?.nodes) ? runtimePayload.nodes : [],
@@ -179,9 +188,10 @@ function registerAgentIpc({
       const message = error instanceof Error ? error.message : String(error);
       log(`agent run tool failed ${name} ${message}`);
       emitAgentProgress(event.sender, runId, { phase: "tool-error", tool: name, summary: message }, payload);
-      return { envelope: { ok: false, tool: name, summary: message, error: message }, actions: [] };
+      return { envelope: { ok: false, tool: name, summary: message, errorCode: error?.code, error: message }, actions: [] };
     } finally {
       if (controlledRun) finishRun(runId);
+      await releaseExecution(execution);
     }
   });
 
@@ -189,10 +199,12 @@ function registerAgentIpc({
     const runId = String(payload?.runId || `agent-compose-${Date.now()}`);
     const projectScope = requiredProjectScope(payload);
     if (!projectScope.ok) return projectScope;
+    let execution;
     try {
+      execution = await bindExecution(currentAgentSettings(), { projectId: projectScope.projectId, runId });
       return await getAgentRuntime().composeImagePrompt({
         ...(payload || {}),
-        settings: currentAgentSettings(),
+        settings: execution.settings,
         runId,
         progress: (progressPayload) => emitAgentProgress(event.sender, runId, progressPayload, payload)
       });
@@ -200,8 +212,8 @@ function registerAgentIpc({
       const message = error instanceof Error ? error.message : String(error);
       log(`agent compose image prompt failed ${message}`);
       emitAgentProgress(event.sender, runId, { phase: "runtime-error", tool: "image_gen", summary: message }, payload);
-      return { ok: false, error: message };
-    }
+      return { ok: false, errorCode: error?.code, error: message };
+    } finally { await releaseExecution(execution); }
   });
 
   ipcMain.handle("naimage:agent:chat", async (event, payload = {}) => {
@@ -212,6 +224,7 @@ function registerAgentIpc({
     // without logging prompts, credentials, or provider response content.
     log("agent ipc chat received");
     let controlledRun;
+    let execution;
     try {
       const runtime = getAgentRuntime();
       const runtimePayload = {
@@ -221,9 +234,10 @@ function registerAgentIpc({
       if (payload.taskId) agentTaskService.claimRun({ ...runtimePayload, runId }, ownerIdForEvent(event));
       controlledRun = beginRun(event, runtimePayload, runId, true);
       bindRunOwnerToSender(event);
+      execution = await bindExecution(currentAgentSettings(), { projectId: projectScope.projectId, conversationId: projectScope.conversationId, taskId: payload.taskId, runId });
       const result = await runtime.chat({
         ...runtimePayload,
-        settings: settingsWithRequestedImageDefaults(currentAgentSettings(), runtimePayload),
+        settings: settingsWithRequestedImageDefaults(execution.settings, runtimePayload),
         runId,
         signal: controlledRun.signal,
         waitUntilRunnable: (signal) => agentRunControl?.waitUntilRunnable(controlledRun, signal),
@@ -236,9 +250,10 @@ function registerAgentIpc({
       const message = error instanceof Error ? error.message : String(error);
       log(`agent chat failed ${message}`);
       emitAgentProgress(event.sender, runId, { phase: "runtime-error", summary: message }, payload);
-      return { ok: false, error: message, content: "" };
+      return { ok: false, errorCode: error?.code, error: message, content: "" };
     } finally {
       if (controlledRun) finishRun(runId);
+      await releaseExecution(execution);
     }
   });
 

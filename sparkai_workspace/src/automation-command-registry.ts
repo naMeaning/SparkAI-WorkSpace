@@ -117,6 +117,22 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
 ] as const;
 
 export const AUTOMATION_SERVICE_COMMAND_NAMES = [
+  "agent.provider.list",
+  "agent.provider.import",
+  "agent.provider.select",
+  "agent.provider.inspect",
+  "agent.provider.status",
+  "agent.local.runtime.list",
+  "agent.local.manifest.import",
+  "agent.local.runtime.plan",
+  "agent.local.runtime.install",
+  "agent.local.runtime.pause",
+  "agent.local.runtime.resume",
+  "agent.local.runtime.start",
+  "agent.local.runtime.stop",
+  "agent.local.runtime.rollback",
+  "agent.local.runtime.remove",
+  "agent.local.runtime.status",
   "project.knowledge.list",
   "project.knowledge.save",
   "project.knowledge.status",
@@ -146,6 +162,22 @@ export const AUTOMATION_SERVICE_COMMAND_NAMES = [
 ] as const;
 
 export const AUTOMATION_COMMAND_NAMES = [
+  "agent.provider.list",
+  "agent.provider.import",
+  "agent.provider.select",
+  "agent.provider.inspect",
+  "agent.provider.status",
+  "agent.local.runtime.list",
+  "agent.local.manifest.import",
+  "agent.local.runtime.plan",
+  "agent.local.runtime.install",
+  "agent.local.runtime.pause",
+  "agent.local.runtime.resume",
+  "agent.local.runtime.start",
+  "agent.local.runtime.stop",
+  "agent.local.runtime.rollback",
+  "agent.local.runtime.remove",
+  "agent.local.runtime.status",
   "comfyui.runtime.list",
   "comfyui.manifest.import",
   "comfyui.runtime.plan",
@@ -288,6 +320,246 @@ export const AUTOMATION_COMMAND_NAMES = [
 ] as const;
 
 export const AUTOMATION_COMMAND_DEFINITIONS = {
+  "agent.provider.list": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": []
+    }
+  },
+  "agent.provider.import": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "agent.provider.select": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Exact model identity declared by the Main-owned profile; no URL, credential or filesystem path."
+        },
+        "strictOffline": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "profileId",
+        "strictOffline"
+      ]
+    }
+  },
+  "agent.provider.inspect": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "profileId"
+      ]
+    }
+  },
+  "agent.provider.status": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": []
+    }
+  },
+  "agent.local.runtime.list": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "agent.local.manifest.import": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "agent.local.runtime.plan": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "manifestId"
+      ]
+    }
+  },
+  "agent.local.runtime.install": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "planId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "planId"
+      ]
+    }
+  },
+  "agent.local.runtime.pause": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "jobId"
+      ]
+    }
+  },
+  "agent.local.runtime.resume": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "jobId"
+      ]
+    }
+  },
+  "agent.local.runtime.start": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "agent.local.runtime.stop": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "agent.local.runtime.rollback": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "revisionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "runtimeId",
+        "revisionId"
+      ]
+    }
+  },
+  "agent.local.runtime.remove": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "agent.local.runtime.status": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        }
+      },
+      "required": []
+    }
+  },
   "comfyui.runtime.list": {
     "parameters": {
       "type": "object",
@@ -6352,6 +6624,22 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
 } as const;
 
 export const AUTOMATION_COMMAND_SURFACES = {
+  "agent.provider.list": "service",
+  "agent.provider.import": "service",
+  "agent.provider.select": "service",
+  "agent.provider.inspect": "service",
+  "agent.provider.status": "service",
+  "agent.local.runtime.list": "service",
+  "agent.local.manifest.import": "service",
+  "agent.local.runtime.plan": "service",
+  "agent.local.runtime.install": "service",
+  "agent.local.runtime.pause": "service",
+  "agent.local.runtime.resume": "service",
+  "agent.local.runtime.start": "service",
+  "agent.local.runtime.stop": "service",
+  "agent.local.runtime.rollback": "service",
+  "agent.local.runtime.remove": "service",
+  "agent.local.runtime.status": "service",
   "comfyui.runtime.list": "renderer",
   "comfyui.manifest.import": "renderer",
   "comfyui.runtime.plan": "renderer",

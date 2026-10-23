@@ -118,6 +118,18 @@ assert.equal(snapshot.glassAppearance.variables["--glass-blur"], "17px");
 assert.equal(snapshot.glassAppearance.variables["--theme-canvas"], "#07100d");
 assert.equal(snapshot.glassAppearance.variables["--theme-accent"], "#ff8b78");
 assert.equal(JSON.stringify(snapshot.glassAppearance).includes("agentApiKey"), false);
+const localProfile = {
+  providerKind: "local-openai-compatible" as const, profileId: "agent-fixture", profileLabel: "fixture-private-label", modelId: "fixture-local",
+  capabilities: { tools: true, vision: false, contextWindowTokens: 8192, maxOutputTokens: 1024 }, strictOffline: true,
+  networkScope: "local" as const, availability: "configured" as const,
+  baseUrl: "https://synthetic-private-endpoint.invalid", credentialRef: "synthetic-private-credential", bindingId: "synthetic-private-binding", token: "synthetic-private-token"
+};
+const localSnapshot = buildAgentWindowSnapshot({ ...base, modelName: "fixture-local", providerStatus: localProfile });
+assert.equal(localSnapshot.providerSummary, "本地 Agent · 严格离线 · 仅本机连接 · 工具 可用 · 视觉 关闭 · 上下文 8192");
+assert.equal("providerStatus" in localSnapshot, false, "Detached windows receive only the bounded provider summary");
+assert.doesNotMatch(JSON.stringify(localSnapshot), /synthetic-private|fixture-private-label/, "Private provider metadata is never copied into the window snapshot");
+const managedSnapshot = buildAgentWindowSnapshot({ ...base, providerStatus: { ...localProfile, providerKind: "managed-local", strictOffline: false } });
+assert.match(managedSnapshot.providerSummary || "", /^托管本地 Agent · 本机服务 · 可用网络工具/);
 assert.equal(agentWindowStatusText({ ...base, busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "error" }] }), "Agent 遇到问题");
 assert.equal(agentWindowStatusText({ ...base, messages: [], busy: false, runElapsedSeconds: 0, agentStatus: "idle", agentProgress: [{ phase: "runtime-partial" }] }), "图片成果已保留，后续对话未完成");
 assert.equal(agentWindowStatusText({ ...base, messages: [], busy: false, runElapsedSeconds: 0, agentStatus: "error", agentProgress: [{ phase: "runtime-partial" }] }), "Agent 遇到问题", "Tool failures must remain failures");
@@ -322,4 +334,4 @@ assert.equal(normalizeAgentWindowCommand({ ...maskedRevision, input: { ...masked
 assert.equal(normalizeAgentWindowCommand({ ...maskedRevision, input: { ...maskedRevision.input, targets: [...maskedRevision.input.targets, creationRevision.input.targets[1]] } }), null, "Masked revisions cannot include more than one target");
 assert.match(surfaceHtml, /id="agent-creation-session"/);
 assert.match(surfaceRenderer, /creationView\.render\(state\)/);
-process.stdout.write(`${JSON.stringify({ ok: true, cases: 97 })}\n`);
+process.stdout.write(`${JSON.stringify({ ok: true, cases: 101 })}\n`);

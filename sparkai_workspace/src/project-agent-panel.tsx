@@ -1,3 +1,4 @@
+import { agentProviderLabel, agentProviderNetworkLabel } from "./agent-provider-state";
 import ProjectContextPanel from "./project-context-panel";
 import type { ProjectContextPanelProps } from "./project-context";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import type {
   AgentConversation,
+  AgentProviderSnapshot,
   AgentMessage,
   AgentProgress,
   AgentStatus,
@@ -300,6 +302,7 @@ function ProjectAgentPanelView({
   agentProgress,
   runElapsedSeconds,
   modelName,
+  providerStatus,
   inputRef,
   endRef,
   setPrompt,
@@ -350,6 +353,7 @@ function ProjectAgentPanelView({
   agentProgress: AgentProgress[];
   runElapsedSeconds: number;
   modelName: string;
+  providerStatus?: AgentProviderSnapshot | null;
   inputRef: React.MutableRefObject<HTMLTextAreaElement | null>;
   endRef: React.MutableRefObject<HTMLDivElement | null>;
   setPrompt: (value: string) => void;
@@ -753,12 +757,18 @@ function ProjectAgentPanelView({
         ) : null}
       </header>
 
-      <div className="project-agent-status">
-        <span className={activityActive ? "busy" : ""}>
-          {activityActive ? <Loader2 size={13} className="spin" /> : <Brain size={13} />}
-          {statusText}
-        </span>
-        <em>{modelName || "未配置模型"}</em>
+      <div className="project-agent-status-area">
+        <div className="project-agent-status">
+          <span className={activityActive ? "busy" : ""}>
+            {activityActive ? <Loader2 size={13} className="spin" /> : <Brain size={13} />}
+            {statusText}
+          </span>
+          <em>{modelName || "未配置模型"}</em>
+        </div>
+        {providerStatus ? <div className="project-agent-provider-status" data-agent-provider-status={providerStatus.profileId}>
+          <span>{agentProviderLabel(providerStatus)} · {agentProviderNetworkLabel(providerStatus)}</span>
+          <span>工具 {providerStatus.capabilities.tools ? "可用" : "关闭"} · 视觉 {providerStatus.capabilities.vision ? "可用" : "关闭"} · 上下文 {providerStatus.capabilities.contextWindowTokens.toLocaleString()}</span>
+        </div> : null}
       </div>
 
       {projectContextSurface}
@@ -921,6 +931,7 @@ const ProjectAgentPanel = React.memo(ProjectAgentPanelView, (left, right) =>
   left.agentProgress === right.agentProgress &&
   left.runElapsedSeconds === right.runElapsedSeconds &&
   left.modelName === right.modelName &&
+  left.providerStatus === right.providerStatus &&
   left.inputRef === right.inputRef &&
   left.endRef === right.endRef &&
   left.setPrompt === right.setPrompt &&

@@ -1,14 +1,16 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：ComfyUI 平台 Phase 4——离线 Agent（2026-10-23，接受并实施）
+## 当前任务：ComfyUI 平台 Phase 4——离线 Agent（2026-10-23，本地交付完成，Git同步收尾）
 
-- 基线：main / `1a234306d2a2b0c3fe790135da4ffb3673e73238`，Phase3源码35文件已普通push，HEAD/upstream/远端一致、工作树干净；Phase3本地EXE/安装证据保留在下方。
+- 基线：main / `02cd54a4d8aa42851459f98a55c845422c4f172a`（Phase3源码`1a234306d2a2b0c3fe790135da4ffb3673e73238`及收尾文档已普通push），HEAD/upstream/远端一致、工作树干净；Phase3本地EXE/安装证据保留在下方。
 - 结果：在唯一`agent-runtime.cjs`和原Prompt/工具/FastMemory/project context/TaskScope内，加入cloud、local-openai-compatible、managed-local显式provider。Main原生导入本地连接配置，持loopback地址/凭据/冻结binding；GUI/Agent/CLI/MCP仅引用profileId/runtimeId/modelId与脱敏能力。现有云设置兼容为cloud，不伪造账号，不新增Runtime。
 - 本地协议：Ollama、LM Studio、llama.cpp server、vLLM等OpenAI兼容loopback端点；标准Chat Completions/流式parser，模型工具/视觉/上下文能力来自显式配置，不能按GPT命名猜测。无tools禁schema和实际工具执行，无vision禁像素请求及视觉工具；不伪造tool call、不静默替换模型、不云端fallback。每run冻结provider/model/capabilities，compact和辅助请求沿同binding。
 - managed-local：复用Phase3 artifact store托管LLM GGUF与vision projector，显式typed manifest/固定llama.cpp adapter；native计划/下载与执行授权、校验/暂停/恢复/引用/版本保护。旧Comfy v1 manifest/hash及journal继续读取，不用dependency伪装模型，不执行任意shell/pip/npm。其他兼容服务器可使用existing端点；未审核候选不冒充可安装模型。
 - strict offline：Main禁止web_search、云模型/图片/视频、LAN/remote ComfyUI、远程下载、自动账号/模型/更新联网与fallback；本地图片仍只走显式选择的local Comfy profile和唯一image_gen。GUI显示provider/model/tool/vision与网络边界，允许无云账号进入本地工作区；不承诺用户外部服务自身没有代理联网。
 - 验收：fake OpenAI-compatible server覆盖SSE文本/tool call、无tools/vision、上下文超限、断线/取消/重启与服务恢复；Main直接派发与strict offline网络前拒绝；managed manifest/store/进程stub专项；共享GUI/IPC/CLI/MCP/Skill/schema同步；typecheck/view-image和隔离UI截图后，独立production EXE/身份审计/正常退出品牌原位升级/源码文档普通push。
-- 授权：仍只fake/loopback/stub，0真实模型请求/下载/依赖安装/真实LAN或远程Comfy；不改extension/NewAPI/生产、不上传EXE/Release/tag。下一步并行实现Main provider、runtime capability门禁、managed-local及GUI/共享契约。
+- 授权：仍只fake/loopback/stub，0真实模型请求/下载/依赖安装/真实LAN或远程Comfy；不改extension/NewAPI/生产、不上传EXE/Release/tag。
+- 实施里程碑：provider52、managed-local34、Runtime7、Main22、网络切换8、原Comfy Main23与共享合同/typecheck/view-image通过。实际Electron UI7组8截图、2次正常退出0；唯一image_gen文生图/inpaint受管身份与保护像素、重复operation零新POST通过。task回执网络前冻结provider/model/capability/托管版本，恢复漂移拒绝；strict切换检查native/curl/Comfy HTTP/WS/video/图片下载全程占用。具体证据见[专项](docs/OFFLINE_AGENT_VALIDATION.md)，本阶段独立制品与安装如下。
+- 本阶段制品：739源文件冻结、137dist/199owner与包内源码核对；production EXE 110,548,480 B / SHA-256 `7908f0e8c29190b6de9bcdc89343deb01ef9146efbc02e3d3ed13177643f131a`。所有同名实例0后品牌/S原位安装exit0，注册目录/配置/凭据metadata/快捷方式保留，安装EXE/ASAR一致。CSS预算失败按开发包记录；非正式Release。下一步仅提交本轮源码文档并普通push。
 
 ## 当前任务：ComfyUI 平台 Phase 3——托管安装（2026-10-23，本地交付验证完成）
 

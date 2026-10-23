@@ -10,6 +10,7 @@ const {
 } = require("./image-frame.cjs");
 
 const primaryImageToolName = "image_gen";
+const { filterAgentTools } = require("./agent-provider-policy.cjs");
 const { creationToolSchema } = require("./creation-tools.cjs");
 const { projectContextToolSchema } = require("./project-context-tools.cjs");
 const { resolveImageModelConfig } = require("./image-generation/types.cjs");
@@ -552,9 +553,12 @@ function agentToolSchemas(settings = {}, options = {}) {
       .filter((name) => sourceProperties[name])
       .map((name) => [name, sourceProperties[name]])
   );
+  if (settings.imageProvider === "comfyui") {
+    for (const key of ["ratio", "resolution", "quality", "model", "outputFormat", "background", "inputFidelity", "layerPlan", "resumeLayerGroupId", "retryLayerIds"]) delete visibleProperties[key];
+  }
   visibleProperties.operation = {
     ...visibleProperties.operation,
-    enum: ["generate", "edit", "replace", "variants", "layers", "cutout", "redraw"],
+    enum: settings.imageProvider === "comfyui" ? ["generate", "edit", "replace", "variants", "cutout", "redraw"] : ["generate", "edit", "replace", "variants", "layers", "cutout", "redraw"],
     description: "generate=文字或参考图生成；edit=锁定来源身份、商品、服装或成功构图后继续设计；replace=只替换指定元素或文字；variants=基于来源图生成多种独立款式或角度，各款差异必须逐项填写 items；layers=输出可重组分层 PNG；cutout=打开用户涂抹范围编辑器后提取主体并输出透明 PNG；redraw=打开区域编辑器后只重绘用户蒙版区域。模型调用 cutout/redraw 只会打开编辑器，不能直接提交蒙版或开始生成。"
   };
   visibleProperties.parentId = {
@@ -567,6 +571,11 @@ function agentToolSchemas(settings = {}, options = {}) {
   };
   if (visibleProperties.items) {
     const { minItems: _discardedPublicMinItems, ...publicItems } = visibleProperties.items;
+    if (settings.imageProvider === "comfyui") {
+      const properties = { ...publicItems.items?.properties };
+      for (const key of ["ratio", "resolution", "quality", "size", "model"]) delete properties[key];
+      publicItems.items = { ...publicItems.items, properties };
+    }
     visibleProperties.items = {
       ...publicItems,
       description: "可选，但用户逐一列出至少两张不同款式、氛围、角度或版式时必须填写 items，每项只描述一张独立完整成品，并重复人物身份、商品几何、服装结构、版式、文字等核心不变量，只改变该项指定变量；不能把多个互斥方案合并进顶层 prompt。count=1 时省略 items 并只使用顶层 prompt，完全相同提示词的多张随机变体、edit/replace/cutout/redraw 也应省略整个 items 字段。不要填写 unused、占位、temp、todo 或数字序号凑项。"
@@ -646,7 +655,7 @@ function agentToolSchemas(settings = {}, options = {}) {
     ...(publicExperienceTool ? [publicExperienceTool] : []),
     ...(publicWorkflowTool ? [publicWorkflowTool] : [])
   ];
-  return publicTools.map((tool) => {
+  return filterAgentTools(settings, publicTools).map((tool) => {
     if (String(tool?.type || "") !== "function" || !tool?.function) return tool;
     const parameters = tool.function?.parameters || { type: "object", properties: {} };
     const name = String(tool.function?.name || "");

@@ -344,7 +344,9 @@ async function downloadPublicHttpBuffer(value, options = {}) {
   const download = async () => {
     let current = value;
     for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
+      options.assertNetworkAllowed?.();
       const target = await resolvePublicHttpTarget(current, { lookup: options.lookup, signal: controller.signal });
+      options.assertNetworkAllowed?.();
       const response = await requestPublicTarget(target, { request: options.request, signal: controller.signal });
       const status = Number(response?.statusCode || 0);
       const location = responseHeader(response, "location");
@@ -393,7 +395,7 @@ function createPublicHttpDownloadAdmission(options = {}) {
       const item = queue.shift();
       active += 1;
       Promise.resolve()
-        .then(() => execute(item.value, item.options))
+        .then(() => { options.assertNetworkAllowed?.(); return execute(item.value, { ...item.options, assertNetworkAllowed: options.assertNetworkAllowed }); })
         .then(item.resolve, item.reject)
         .finally(() => {
           active -= 1;
@@ -403,6 +405,7 @@ function createPublicHttpDownloadAdmission(options = {}) {
   };
 
   const download = (value, downloadOptions = {}) => {
+    try { options.assertNetworkAllowed?.(); } catch (error) { return Promise.reject(error); }
     const key = `${String(value || "")}\n${Number(downloadOptions.maxBytes) || 0}`;
     const existing = inFlight.get(key);
     if (existing) return existing;

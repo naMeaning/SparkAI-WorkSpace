@@ -2,6 +2,299 @@
   "version": 2,
   "sections": [
     {
+      "title": "Agent providers and managed local models",
+      "commands": [
+        {
+          "name": "agent.provider.list",
+          "surface": "service",
+          "description": "List configured Agent profiles and the selected provider. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": []
+          }
+        },
+        {
+          "name": "agent.provider.import",
+          "surface": "service",
+          "description": "Open Main native JSON chooser to explicitly import one local OpenAI-compatible or managed-local Agent profile. Address and optional credentials remain in Main protected storage. Does not select a provider, probe an endpoint, download or infer.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "agent.provider.select",
+          "surface": "service",
+          "description": "Select a Main-owned Agent profile for future tasks. No network or inference. Main rejects changes during active runs; cloud never silently replaces a missing local profile. strictOffline rejects remote model/image/search paths and fallback.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Exact model identity declared by the Main-owned profile; no URL, credential or filesystem path."
+              },
+              "strictOffline": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "profileId",
+              "strictOffline"
+            ]
+          }
+        },
+        {
+          "name": "agent.provider.inspect",
+          "surface": "service",
+          "description": "Read one configured profile and its explicitly declared tools/vision/context capabilities. This action does not probe /models or prove inference quality. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "profileId"
+            ]
+          }
+        },
+        {
+          "name": "agent.provider.status",
+          "surface": "service",
+          "description": "Read the selected Agent provider, model, capability declaration, local/remote boundary and strict-offline policy. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": []
+          }
+        },
+        {
+          "name": "agent.local.runtime.list",
+          "surface": "service",
+          "description": "List Main-owned managed local LLM manifests, immutable runtimes and download jobs. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "agent.local.manifest.import",
+          "surface": "service",
+          "description": "Open Main native JSON chooser to explicitly import a fixed local LLM runtime/model manifest. Validation and registration only; no download, dependency installation or process launch.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "agent.local.runtime.plan",
+          "surface": "service",
+          "description": "Create an immutable local LLM installation plan showing source labels, licenses, exact download/expanded sizes, dependencies, GPU/VRAM and disk requirements. Does not download or install.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "manifestId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "manifestId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.install",
+          "surface": "service",
+          "description": "Request installation of an immutable planId. Main requires a human native authorization dialog bound to its manifest hash before any download or process launch. Caller booleans cannot authorize installation.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "planId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "planId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.pause",
+          "surface": "service",
+          "description": "Pause one managed local LLM download/install job and preserve verified artifacts. Does not stop another runtime or discard user data.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "jobId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.resume",
+          "surface": "service",
+          "description": "Resume one paused managed local LLM job under its original human-authorized immutable plan. May download remaining declared artifacts; no new manifest or hidden authorization.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "jobId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.start",
+          "surface": "service",
+          "description": "Start one explicitly installed managed local LLM runtime using its fixed reviewed adapter. Does not automatically select or replace the Agent profile.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.stop",
+          "surface": "service",
+          "description": "Stop one managed local LLM runtime after Main confirms no active task holds it. Does not interrupt unrelated user services.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.rollback",
+          "surface": "service",
+          "description": "Activate one previously verified local LLM runtime revision. Main rejects running or referenced revisions; never modifies project assets.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "revisionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "runtimeId",
+              "revisionId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.remove",
+          "surface": "service",
+          "description": "Remove one unused managed local LLM runtime registration and release its artifact references. Active tasks and shared artifacts remain protected.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "agent.local.runtime.status",
+          "surface": "service",
+          "description": "Read a managed local LLM runtime or installation job. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": []
+          }
+        }
+      ]
+    },
+    {
       "title": "Managed ComfyUI runtimes and models",
       "commands": [
         {

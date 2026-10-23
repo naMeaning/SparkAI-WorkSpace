@@ -4,6 +4,25 @@
 
 Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
+## Agent providers and managed local models
+
+- `agent.provider.list`: `{}`. List configured Agent profiles and the selected provider. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.
+- `agent.provider.import`: `{}`. Open Main native JSON chooser to explicitly import one local OpenAI-compatible or managed-local Agent profile. Address and optional credentials remain in Main protected storage. Does not select a provider, probe an endpoint, download or infer.
+- `agent.provider.select`: `{"profileId":"profileId","strictOffline":false}`. Select a Main-owned Agent profile for future tasks. No network or inference. Main rejects changes during active runs; cloud never silently replaces a missing local profile. strictOffline rejects remote model/image/search paths and fallback.
+- `agent.provider.inspect`: `{"profileId":"profileId"}`. Read one configured profile and its explicitly declared tools/vision/context capabilities. This action does not probe /models or prove inference quality. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.
+- `agent.provider.status`: `{}`. Read the selected Agent provider, model, capability declaration, local/remote boundary and strict-offline policy. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.
+- `agent.local.runtime.list`: `{}`. List Main-owned managed local LLM manifests, immutable runtimes and download jobs. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.
+- `agent.local.manifest.import`: `{}`. Open Main native JSON chooser to explicitly import a fixed local LLM runtime/model manifest. Validation and registration only; no download, dependency installation or process launch.
+- `agent.local.runtime.plan`: `{"manifestId":"manifestId"}`. Create an immutable local LLM installation plan showing source labels, licenses, exact download/expanded sizes, dependencies, GPU/VRAM and disk requirements. Does not download or install.
+- `agent.local.runtime.install`: `{"planId":"planId"}`. Request installation of an immutable planId. Main requires a human native authorization dialog bound to its manifest hash before any download or process launch. Caller booleans cannot authorize installation.
+- `agent.local.runtime.pause`: `{"jobId":"jobId"}`. Pause one managed local LLM download/install job and preserve verified artifacts. Does not stop another runtime or discard user data.
+- `agent.local.runtime.resume`: `{"jobId":"jobId"}`. Resume one paused managed local LLM job under its original human-authorized immutable plan. May download remaining declared artifacts; no new manifest or hidden authorization.
+- `agent.local.runtime.start`: `{"runtimeId":"runtimeId"}`. Start one explicitly installed managed local LLM runtime using its fixed reviewed adapter. Does not automatically select or replace the Agent profile.
+- `agent.local.runtime.stop`: `{"runtimeId":"runtimeId"}`. Stop one managed local LLM runtime after Main confirms no active task holds it. Does not interrupt unrelated user services.
+- `agent.local.runtime.rollback`: `{"runtimeId":"runtimeId","revisionId":"revisionId"}`. Activate one previously verified local LLM runtime revision. Main rejects running or referenced revisions; never modifies project assets.
+- `agent.local.runtime.remove`: `{"runtimeId":"runtimeId"}`. Remove one unused managed local LLM runtime registration and release its artifact references. Active tasks and shared artifacts remain protected.
+- `agent.local.runtime.status`: `{}`. Read a managed local LLM runtime or installation job. Read-only local metadata; no network or inference. Returns bounded Main-owned IDs and declared capabilities, never addresses, credentials, private paths or binding identities.
+
 ## Managed ComfyUI runtimes and models
 
 - `comfyui.runtime.list`: `{}`. Read local Main-owned runtime, manifest review and download-job summaries. No network, download, installation or process launch. Returns stable IDs and bounded metadata only; no URLs, credentials, filesystem paths or scripts.

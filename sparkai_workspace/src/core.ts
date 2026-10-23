@@ -289,6 +289,8 @@ export type ApiSettings = {
 };
 
 export type AppSettings = ApiSettings & {
+  imageProvider?: "comfyui";
+  comfyui?: ComfyUiTaskOptions;
   imageConnectionVersion: number;
   modelGroup: string;
   /** Legacy light/dark and palette fields remain readable for project compatibility. */
@@ -3068,7 +3070,53 @@ export type AgentRuntimeAction = {
   reason?: string;
 };
 
+export type AgentProviderSnapshot = {
+  providerKind: "cloud" | "local-openai-compatible" | "managed-local";
+  profileId: string;
+  profileLabel: string;
+  modelId: string;
+  profileHash?: string;
+  capabilities: { tools: boolean; vision: boolean; contextWindowTokens: number; maxOutputTokens: number };
+  strictOffline: boolean;
+  networkScope: "local" | "remote";
+  availability: "configured" | "not-running" | "available" | "unknown";
+};
+export type AgentProviderControlRequest =
+  | { action: "list" | "status"; projectId?: string }
+  | { action: "import" }
+  | { action: "inspect"; profileId: string }
+  | { action: "select"; profileId: string; modelId?: string; strictOffline: boolean; projectId?: string }
+  | { action: "local-runtime-list" | "local-manifest-import" }
+  | { action: "local-runtime-plan"; manifestId: string; runtimeId?: string }
+  | { action: "local-runtime-install"; planId: string }
+  | { action: "local-runtime-pause" | "local-runtime-resume"; jobId: string }
+  | { action: "local-runtime-start" | "local-runtime-stop" | "local-runtime-remove"; runtimeId: string }
+  | { action: "local-runtime-rollback"; runtimeId: string; revisionId: string }
+  | { action: "local-runtime-status"; runtimeId?: string; jobId?: string };
+export type AgentLocalRuntime = Omit<ComfyUiRuntime, "connectionId" | "state"> & {
+  connectionId?: string;
+  state: ComfyUiRuntime["state"] | "orphaned";
+  modelId?: string;
+  capabilities?: AgentProviderSnapshot["capabilities"];
+};
+export type AgentProviderControlResult = {
+  ok: boolean;
+  errorCode?: string;
+  error?: string;
+  canceled?: boolean;
+  profiles?: AgentProviderSnapshot[];
+  selected?: AgentProviderSnapshot | null;
+  profile?: AgentProviderSnapshot | null;
+  manifests?: ComfyUiRuntimeManifest[];
+  manifest?: ComfyUiRuntimeManifest | null;
+  runtimes?: AgentLocalRuntime[];
+  runtime?: AgentLocalRuntime | null;
+  jobs?: ComfyUiRuntimeJob[];
+  job?: ComfyUiRuntimeJob | null;
+  plan?: ComfyUiRuntimePlan;
+};
 export type AgentBridge = {
+  providerControl(payload: AgentProviderControlRequest): Promise<AgentProviderControlResult>;
   tools(): Promise<{ ok: boolean; tools?: unknown[] }>;
   listModels(payload: { provider: "agent" | "image" | "video"; settings: AppSettings }): Promise<{ ok: boolean; provider: string; models?: string[]; cacheSource?: ServerPublicSettings["cacheSource"]; cacheAgeMs?: number; cacheTtlMs?: number; error?: string }>;
   runTool(payload: { runId?: string; name: string; input: Record<string, unknown>; prompt?: string; nodes?: WorkflowNode[]; selectedNodeId?: string; selectedNodeIds?: string[]; canvasRevision?: number; referenceImages?: ReferenceImage[]; taskScope?: AgentTaskScope; projectId?: string; conversationId?: string }): Promise<{

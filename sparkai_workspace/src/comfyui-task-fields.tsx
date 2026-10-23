@@ -54,7 +54,7 @@ function normalizeRange(field: keyof ComfyUiParameterRanges, ...ranges: Array<Co
   return result;
 }
 
-export default function ComfyUiTaskFields({ draft, update, projectId, conversationId, onValidityChange }: { draft: ImageTaskDraft; update: (patch: Partial<ImageTaskDraft>) => void; projectId: string; conversationId: string; onValidityChange: (valid: boolean) => void }) {
+export default function ComfyUiTaskFields({ draft, update, projectId, conversationId, onValidityChange, localOnly = false, explicitSelection = false, configurationOnly = false }: { draft: ImageTaskDraft; update: (patch: Partial<ImageTaskDraft>) => void; projectId: string; conversationId: string; onValidityChange: (valid: boolean) => void; localOnly?: boolean; explicitSelection?: boolean; configurationOnly?: boolean }) {
   const [templates, setTemplates] = useState<ComfyUiTemplate[]>([]);
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [capabilities, setCapabilities] = useState<InspectCapabilities | null>(null);
@@ -82,9 +82,9 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
     void window.naimageServer?.comfyui({ action: "connections-list" }).then(result => {
       if (!mounted.current) return;
       if (!result.ok) { setStatus(result.error || "读取本机环境连接失败。"); return; }
-      setConnections(result.connections || []);
+      setConnections((result.connections || []).filter(connection => !localOnly || connection.networkScope === "local"));
     }).catch(error => { if (mounted.current) setStatus(error instanceof Error ? error.message : String(error)); });
-  }, []);
+  }, [localOnly]);
   const activeConnectionId = options.connectionId || options.profileId;
   const selectedConnection = connections.find(connection => connection.connectionId === activeConnectionId);
   const networkScope = selectedConnection?.networkScope || options.networkScope || (activeConnectionId ? "unknown" : "local");
@@ -97,10 +97,11 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
   const managedImages = (draft.referenceImages || []).filter((image): image is typeof image & ComfyUiAssetIdentity => Boolean(image.assetId && image.occurrenceId && image.contentHash));
   const sourceAvailable = managedImages.some(image => sameImage(options.sourceImage, image));
   const ready = Boolean(!busy && !connectionDirty && !credentialDirty && selected && options.templateHash === selected.templateHash && activeConnectionId && selectedConnection?.enabled !== false && selectedConnection
-    && (selected.requiresCheckpoint === false || options.checkpoint) && (!sourceRequired || sourceAvailable)
-    && (options.referenceImages?.length || 0) >= referenceMinimum && (options.referenceImages?.length || 0) <= referenceLimit
+    && (!localOnly || selectedConnection.networkScope === "local")
+    && (selected.requiresCheckpoint === false || options.checkpoint) && (configurationOnly || !sourceRequired || sourceAvailable)
+    && (configurationOnly || (options.referenceImages?.length || 0) >= referenceMinimum && (options.referenceImages?.length || 0) <= referenceLimit)
     && (options.referenceImages || []).every(reference => !sameImage(reference, options.sourceImage) && managedImages.some(image => sameImage(reference, image)))
-    && (!maskRequired || masks.some(mask => sameImage(options.maskImage, mask) && mask.revision === options.maskImage?.revision)));
+    && (configurationOnly || !maskRequired || masks.some(mask => sameImage(options.maskImage, mask) && mask.revision === options.maskImage?.revision)));
   useEffect(() => { onValidityChange(ready); }, [ready, onValidityChange]);
   const supportsDenoise = templateSupports(selected, "denoise");
   const sampling = {
@@ -195,14 +196,14 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
     void window.naimageServer?.comfyui({ action: "connections-list" }).then(result => {
       if (stopped) return;
       if (!result.ok) { setStatus(result.error || "读取 ComfyUI 连接失败。"); return; }
-      const available = result.connections || [];
+      const available = (result.connections || []).filter(connection => !localOnly || connection.networkScope === "local");
       setConnections(available);
       if (inspectRevision.current !== revision) return;
       const current = latestOptions.current;
       const currentConnectionId = current.connectionId || current.profileId;
       const matching = available.find(connection => connection.connectionId === currentConnectionId)
         || (!currentConnectionId && current.baseUrl ? available.find(connection => connection.baseUrl?.replace(/\/+$/, "") === current.baseUrl?.replace(/\/+$/, "")) : undefined)
-        || (!currentConnectionId && !current.baseUrl ? available.find(connection => connection.enabled !== false) : undefined);
+        || (!explicitSelection && !currentConnectionId && !current.baseUrl ? available.find(connection => connection.enabled !== false) : undefined);
       if (matching) selectConnection(matching);
       else if (currentConnectionId) setStatus("原 ComfyUI 连接不可用，请明确选择已有连接或保存新的连接。");
       else if (current.baseUrl) { setConnectionDraft(connectionDraftFor(undefined, current.baseUrl)); setConnectionDirty(true); }
@@ -210,6 +211,7 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
     return () => { stopped = true; };
   }, []);
   async function saveConnection() {
+    if (localOnly && connectionDraft.networkScope !== "local") throw new Error("Agent 本机生图只能选择本机连接。");
     const result = await window.naimageServer?.comfyui({
       action: "connections-save", confirmed: true,
       ...(connectionDraft.connectionId ? { connectionId: connectionDraft.connectionId } : {}),
@@ -218,7 +220,7 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
     });
     if (!result?.ok || !result.connection?.connectionId) throw new Error(result?.error || "连接保存失败。");
     const saved = result.connection;
-    setConnections(result.connections || [...connections.filter(connection => connection.connectionId !== saved.connectionId), saved]);
+    setConnections((result.connections || [...connections.filter(connection => connection.connectionId !== saved.connectionId), saved]).filter(connection => !localOnly || connection.networkScope === "local"));
     selectConnection(saved);
     if (connectionDraft.credentialType !== "none" && connectionDraft.credentialType !== (saved.credentialMode || saved.credentialType)) {
       setConnectionDraft(current => ({ ...current, credentialType: connectionDraft.credentialType }));
@@ -242,7 +244,7 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
       if (result.canceled) return;
       const saved = result.connection;
       if (!saved?.connectionId) throw new Error("凭据已导入，但连接摘要暂不可用，请重新打开配置。");
-      setConnections(result.connections || [...connections.filter(connection => connection.connectionId !== saved.connectionId), saved]);
+      setConnections((result.connections || [...connections.filter(connection => connection.connectionId !== saved.connectionId), saved]).filter(connection => !localOnly || connection.networkScope === "local"));
       selectConnection(saved);
       setStatus("凭据已保存到受保护存储。点击测试连接后才会访问服务。");
     } catch (error) { setStatus(error instanceof Error ? error.message : String(error)); }
@@ -335,11 +337,11 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
       <Field label="负面提示词"><input aria-label="ComfyUI 负面提示词" disabled={!templateSupports(selected, "negativePrompt")} value={options.negativePrompt || ""} onChange={event => patch({ negativePrompt: event.target.value })} /></Field>
     </div>
     <p data-comfyui-capability={capability}>{capabilityLabels[capability]} · {sourceRequired ? "按源图尺寸执行，原图和蒙版均保留。" : "按设定尺寸生成新成果。"}{capability === "cutout" ? "使用你提供的蒙版移除背景，并校验输出的真实透明像素。" : ""}</p>
-    {sourceRequired ? <Field label="源图"><select aria-label="ComfyUI 源图" value={sourceAvailable ? options.sourceImage?.occurrenceId || "" : ""} disabled={busy} onChange={event => {
+    {!configurationOnly && sourceRequired ? <Field label="源图"><select aria-label="ComfyUI 源图" value={sourceAvailable ? options.sourceImage?.occurrenceId || "" : ""} disabled={busy} onChange={event => {
       const image = managedImages.find(item => item.occurrenceId === event.target.value);
       patch({ sourceImage: image ? { assetId: image.assetId, occurrenceId: image.occurrenceId, contentHash: image.contentHash } : undefined, maskImage: undefined, referenceImages: undefined });
     }}><option value="">请从下方素材入口添加图片，再选择源图</option>{managedImages.map(image => <option key={image.occurrenceId} value={image.occurrenceId}>{image.name || "项目图片"}</option>)}</select></Field> : null}
-    {maskRequired ? <div data-comfyui-mask-fields>
+    {!configurationOnly && maskRequired ? <div data-comfyui-mask-fields>
       <Field label="受管蒙版"><select aria-label="ComfyUI 蒙版" value={masks.some(mask => sameImage(options.maskImage, mask)) ? options.maskImage?.occurrenceId || "" : ""} disabled={busy || !sourceAvailable} onChange={event => {
         const mask = masks.find(item => item.occurrenceId === event.target.value);
         patch({ maskImage: mask ? { assetId: mask.assetId, occurrenceId: mask.occurrenceId, contentHash: mask.contentHash, revision: mask.revision } : undefined });
@@ -347,7 +349,7 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
       <p>导入与源图同尺寸的透明 PNG；透明区域{capability === "cutout" ? "将被移除" : "允许修改"}，不透明区域保留。黑白颜色本身不代表蒙版范围。</p>
       <ActionButton busy={busy} disabled={!sourceAvailable} onClick={() => void importMask()}>导入 PNG 蒙版</ActionButton>
     </div> : null}
-    {referenceLimit > 0 ? <Field label={referenceMinimum === referenceLimit ? `额外参考图（需选择 ${referenceLimit} 张）` : `额外参考图（最多 ${referenceLimit} 张）`}><div data-comfyui-reference-fields>{managedImages.filter(image => !sameImage(options.sourceImage, image)).map(image => <label key={image.occurrenceId}>
+    {!configurationOnly && referenceLimit > 0 ? <Field label={referenceMinimum === referenceLimit ? `额外参考图（需选择 ${referenceLimit} 张）` : `额外参考图（最多 ${referenceLimit} 张）`}><div data-comfyui-reference-fields>{managedImages.filter(image => !sameImage(options.sourceImage, image)).map(image => <label key={image.occurrenceId}>
       <input type="checkbox" aria-label={`ComfyUI 参考图 ${image.name}`} checked={Boolean(options.referenceImages?.some(item => sameImage(item, image)))} disabled={busy || !options.referenceImages?.some(item => sameImage(item, image)) && (options.referenceImages?.length || 0) >= referenceLimit} onChange={event => patch({ referenceImages: event.target.checked ? [...(options.referenceImages || []), { assetId: image.assetId, occurrenceId: image.occurrenceId, contentHash: image.contentHash }] : options.referenceImages?.filter(item => !sameImage(item, image)) })} />{image.name || "项目图片"}
     </label>)}</div></Field> : null}
     {!capabilities ? <InlineNotice tone="warning">尚未检查连接能力，将显示模板默认值；提交前会再次验证参数是否受支持。</InlineNotice> : null}
@@ -355,8 +357,8 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
     <details data-comfyui-connection-manager><summary>管理 ComfyUI 连接</summary>
       <div className="manual-image-task-controls">
         <Field label="连接名称"><input aria-label="ComfyUI 连接名称" value={connectionDraft.label} disabled={busy} onChange={event => editConnection({ label: event.target.value })} /></Field>
-        <Field label="网络范围"><select aria-label="ComfyUI 网络范围" value={connectionDraft.networkScope} disabled={busy} onChange={event => editConnection({ networkScope: event.target.value as NetworkScope })}>
-          <option value="local">本机 · loopback</option><option value="lan">局域网 · 私网</option><option value="remote">远程 · HTTPS</option>
+        <Field label="网络范围"><select aria-label="ComfyUI 网络范围" value={connectionDraft.networkScope} disabled={busy || localOnly} onChange={event => editConnection({ networkScope: event.target.value as NetworkScope })}>
+          <option value="local">本机 · loopback</option>{!localOnly ? <><option value="lan">局域网 · 私网</option><option value="remote">远程 · HTTPS</option></> : null}
         </select></Field>
         <Field label="服务地址"><input aria-label="ComfyUI 地址" value={connectionDraft.baseUrl} disabled={busy} onChange={event => editConnection({ baseUrl: event.target.value })} /></Field>
         <Field label="认证方式"><select aria-label="ComfyUI 认证方式" value={connectionDraft.credentialType} disabled={busy} onChange={event => editConnection({ credentialType: event.target.value as CredentialMode })}>

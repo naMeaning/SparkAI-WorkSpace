@@ -7,7 +7,7 @@ import { ActionButton, ButtonBase, DialogShell, GlassSelect, SurfaceBody, Surfac
 
 export default function ProjectAgentImageConfig({
   imageModels, imageModelConfigs, selectedImageModels, imageRatio, imageResolution, imageCount, imageQuality,
-  locked, onModelsChange, onFrameChange, onOutputChange, requestImageModels, close
+  locked, onModelsChange, onFrameChange, onOutputChange, requestImageModels, close, localAgent = false, localImageEnabled = false, openLocalConfig
 }: {
   imageModels: string[];
   imageModelConfigs: ImageModelConfig[];
@@ -17,6 +17,9 @@ export default function ProjectAgentImageConfig({
   imageCount: number;
   imageQuality: AppSettings["imageQuality"];
   locked: boolean;
+  localAgent?: boolean;
+  localImageEnabled?: boolean;
+  openLocalConfig?: () => void;
   onModelsChange: (models: string[]) => Promise<void>;
   onFrameChange: (ratio: AppSettings["imageRatio"], resolution: AppSettings["imageResolution"]) => Promise<void>;
   onOutputChange: (count: number, quality: AppSettings["imageQuality"]) => Promise<void>;
@@ -61,7 +64,7 @@ export default function ProjectAgentImageConfig({
     finally { setLoading(false); }
   }
 
-  useEffect(() => { void refreshModels(false); }, []);
+  useEffect(() => { if (!localAgent) void refreshModels(false); }, [localAgent]);
 
   async function save(action: () => Promise<void>) {
     const revision = ++saveRevision.current;
@@ -107,6 +110,11 @@ export default function ProjectAgentImageConfig({
     void save(() => onFrameChange(nextRatio, nextResolution));
   }
 
+  if (localAgent) return <DialogShell surface="agent-image-config" ariaLabel="本机图片配置" className="project-agent-image-config" onRequestClose={close}>
+    {({ requestClose }) => <><SurfaceHeader eyebrow="LOCAL IMAGE" title="本机图片配置" onClose={() => requestClose("close-button")} />
+      <SurfaceBody><p>{localImageEnabled ? "Agent 已配置本机 ComfyUI；后续任务将冻结所选连接和工作流。" : "本机生图尚未启用。严格离线下 image_gen 不可用。"}</p><ActionButton disabled={locked} onClick={openLocalConfig}>配置本机 ComfyUI</ActionButton></SurfaceBody>
+      <SurfaceFooter><ActionButton onClick={() => requestClose("action")}>关闭</ActionButton></SurfaceFooter></>}
+  </DialogShell>;
   return (
     <DialogShell surface="agent-image-config" ariaLabel="图片配置" className="project-agent-image-config" busy={pending > 0} dirty={saveError}
       closePolicy={{ escape: "when-idle-and-clean", backdrop: "when-idle-and-clean", "close-button": "when-idle-and-clean", action: "when-idle-and-clean" }}

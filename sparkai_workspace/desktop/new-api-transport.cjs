@@ -15,9 +15,11 @@ function createNewApiTransport(options = {}) {
     applicationName = "naimage",
     windowsCurlPath = "",
     getDesktopVersion = () => "0.0.0",
-    getAuthEpoch = () => 0
+    getAuthEpoch = () => 0,
+    assertNetworkAllowed = () => {}
   } = options;
   const activeNewApiCurlTransports = new Set();
+  const activeNativeTransports = new Set();
 
   function stopActiveNewApiCurlTransports(criteria = null) {
     const filter = criteria && typeof criteria === "object"
@@ -315,6 +317,7 @@ function createNewApiTransport(options = {}) {
       });
     });
     configServer.on("error", () => {});
+    try { assertNetworkAllowed(); } catch (error) { configServer.close(); throw error; }
     if (options.signal?.aborted) {
       try {
         configServer.close();
@@ -513,12 +516,14 @@ function createNewApiTransport(options = {}) {
   }
   
   async function newApiTransportFetch(url, options = {}) {
+    assertNetworkAllowed();
     const target = new URL(String(url));
     if (target.protocol !== "https:" && target.protocol !== "http:") {
       throw new Error("New API 只允许 HTTP 或 HTTPS 地址。");
     }
     const method = String(options.method || "GET").toUpperCase();
     const payload = await newApiRequestPayload(target.toString(), { ...options, method });
+    assertNetworkAllowed();
     const requestedResponseBytes = Number(options.maxResponseBytes);
     const maxResponseBytes = Math.max(1 * 1024 * 1024, Math.min(256 * 1024 * 1024, Number.isFinite(requestedResponseBytes) ? Math.floor(requestedResponseBytes) : 64 * 1024 * 1024));
     if (!Object.keys(payload.headers).some((name) => name.toLowerCase() === "accept-encoding")) {
@@ -540,6 +545,9 @@ function createNewApiTransport(options = {}) {
         method,
         headers: payload.headers
       });
+      activeNativeTransports.add(request);
+      let requestClosed = false, responseClosed = true;
+      const releaseActivity = () => { if (requestClosed && responseClosed) activeNativeTransports.delete(request); };
       const requestedHeadersTimeout = Number(options.headersTimeoutMs);
       const headersTimeoutMs = Number.isFinite(requestedHeadersTimeout)
         ? Math.max(1_000, Math.min(10 * 60_000, Math.floor(requestedHeadersTimeout)))
@@ -603,6 +611,8 @@ function createNewApiTransport(options = {}) {
         });
       }
       request.once("response", (incoming) => {
+        responseClosed = false;
+        incoming.once("close", () => { responseClosed = true; releaseActivity(); });
         clearHeadersTimer();
         clearConnectTimer();
         settled = true;
@@ -651,6 +661,7 @@ function createNewApiTransport(options = {}) {
         }
       });
       request.once("close", () => {
+        requestClosed = true; releaseActivity();
         clearHeadersTimer();
         clearConnectTimer();
         if (!settled) {
@@ -665,6 +676,7 @@ function createNewApiTransport(options = {}) {
 
   return {
     activeNewApiCurlTransportCount,
+    activeNewApiTransportCount: () => activeNativeTransports.size + activeNewApiCurlTransports.size,
     newApiTransportFetch,
     stopActiveNewApiCurlTransports
   };

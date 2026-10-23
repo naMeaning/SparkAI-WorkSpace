@@ -43,6 +43,18 @@
   font-size: var(--font-xs);
 }
 
+.project-agent-provider-status {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 3px;
+  padding: 5px 12px;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .project-agent-status {
   min-width: 0;
   display: flex;

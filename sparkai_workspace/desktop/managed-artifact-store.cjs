@@ -245,9 +245,11 @@ function createManagedArtifactStoreInternal(options = {}) {
     if (offset === artifact.bytes) return;
     if (offset && !validEtag(journal.etag)) { contained(file); fs.truncateSync(file, 0); offset = 0; }
     if (controller.signal.aborted) throw fail("MANAGED_ARTIFACT_PAUSED", "制品下载已暂停。");
+    options.assertNetworkAllowed?.();
     const url = new URL(artifact.url), network = await resolveNetwork(url, controller.signal);
     assertOwnership();
     if (controller.signal.aborted) throw fail("MANAGED_ARTIFACT_PAUSED", "制品下载已暂停。");
+    options.assertNetworkAllowed?.();
     const headers = { accept: "application/octet-stream", "accept-encoding": "identity", "user-agent": "SparkAI-WorkSpace-Managed-Artifact/1" };
     if (offset) { headers.range = `bytes=${offset}-`; headers["if-range"] = journal.etag; }
     journal.status = "downloading"; journal.downloadedBytes = offset; journal.lastErrorCode = null; saveJournal(journal);

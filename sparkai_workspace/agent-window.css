@@ -225,6 +225,15 @@ button:disabled {
   font-size: var(--font-xs);
 }
 
+.agent-status #provider-summary {
+  grid-column: 2 / -1;
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.agent-status #provider-summary:empty { display: none; }
+
 .agent-goal-controls {
   grid-row: 3;
   min-width: 0;

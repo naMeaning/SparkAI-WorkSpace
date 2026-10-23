@@ -6,7 +6,7 @@
 
 AI 编辑统一整图修改、局部修改、消除物体、换背景、抠图与变体，继续仅走 `image_gen`。编辑器保留缩放平移、橡皮擦、撤销重做、反选和草稿；修改区、保留主体区与图上参考标注分开表达，原图/蒙版/标注副本各有稳定身份。承诺选区外不变时必须本地合成并核对保护像素，尺寸不匹配即失败。透明结果验证真实 alpha 和有效主体，原生透明与纯色背景处理按连接/模型能力选择；后处理失败只恢复原结果，不新增生成。服务器参数与本地处理元数据分源，扩图等待完整画幅合同后再开放。
 
-ComfyUI 保持在唯一 image_gen、Agent Runtime 与 TaskScope 内。2026-10-23 新方向取代先前 localhost-only 边界，分期建设连接、typed workflow/蒙版/抠图、审核环境/模型托管安装及离线 Agent。Phase 1 由 Main 持有 local/lan/remote profile、地址、受保护凭据和网络策略；人工 GUI 配置端点，Agent/CLI/MCP 只使用稳定 ID，LAN/remote 明示网络边界，不称严格离线。后续安装只接受审核 manifest 与单独用户授权，不允许工作流执行任意脚本或依赖安装。当前审核模板仍仅文生图/图生图；Main 提交前持久冻结 workflow/映射/策略 hash、连接身份、模型、素材、尺寸和实际种子，accepted 后持久 prompt_id；未知提交不重发，历史恢复不依赖新 capabilitiesHash。预览不入库，排队取消只删本任务，无经验证定向中断能力时不取消运行任务。本地图片执行与 Agent 对话离线分别验收，无静默云端回退。
+ComfyUI 保持在唯一 image_gen、Agent Runtime 与 TaskScope 内。2026-10-23 新方向取代先前 localhost-only 边界，分期建设连接、typed workflow/蒙版/抠图、审核环境/模型托管安装及离线 Agent。Main 持有 local/lan/remote profile、地址、受保护凭据和网络策略；人工 GUI 配置端点，Agent/CLI/MCP 只使用稳定 ID，LAN/remote 明示网络边界，不称严格离线。托管安装只接受审核 registry 或用户明确导入的 manifest，并单独取得下载/执行授权，不允许工作流执行任意脚本或依赖安装。typed generate/img2img/inpaint/cutout 只绑定受管源图与蒙版身份；Main 提交前持久冻结 workflow/映射/策略 hash、连接身份、模型、素材、尺寸和实际种子，accepted 后持久 prompt_id；未知提交不重发，历史恢复不依赖新 capabilitiesHash。预览不入库，排队取消只删本任务，无经验证定向中断能力时不取消运行任务。本地 Agent 复用同一 Prompt、工具、FastMemory 和 TaskScope，能力缺失明确禁用；严格离线禁止云端/LAN/remote及静默fallback，界面显示 provider/model、工具/视觉与网络边界。本地图片执行与 Agent 对话离线分别验收。
 
 项目长期知识只来自用户明确保存，按项目及商品、变体、SKU范围生效；Agent推测保留为待确认建议。当前任务要求优先，项目知识其次，会话经验仍由projectId＋conversationId隔离。派发冻结实际采用的知识和模板展开，修改长期规范只影响后续任务。Commerce继续拥有商品和品牌结构化事实，知识入口展示其只读投影。
 

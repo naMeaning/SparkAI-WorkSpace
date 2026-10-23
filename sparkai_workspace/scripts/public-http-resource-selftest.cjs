@@ -128,11 +128,29 @@ async function main() {
   const serverIpcSource = readFileSync(path.join(projectRoot, "desktop", "ipc", "server-ipc.cjs"), "utf8");
   assert.match(
     serverIpcSource,
-    /const assets = await writeServerImageOutputs\(/,
+    /const assets = await deliverGeneratedImageResult\(/,
     "Renderer generation must await validated image materialization before returning assets"
   );
 
   let admittedActive = 0;
+  let offline = true, guardedCalls = 0;
+  const guarded = createPublicHttpDownloadAdmission({ assertNetworkAllowed() { if (offline) throw Object.assign(new Error("offline"), { code: "AGENT_OFFLINE_BLOCKED" }); },
+    download: async () => { guardedCalls++; return Buffer.from("ok"); } });
+  await assert.rejects(guarded.download("https://guard.example/image", { maxBytes: 64 }), expectedCode("AGENT_OFFLINE_BLOCKED"));
+  assert.equal(guardedCalls, 0);
+  offline = false;
+  const pendingGuard = guarded.download("https://guard.example/image", { maxBytes: 64 });
+  offline = true;
+  await assert.rejects(pendingGuard, expectedCode("AGENT_OFFLINE_BLOCKED"));
+  assert.equal(guardedCalls, 0, "Queued work rechecks offline before executing");
+  let guardedDns = 0, guardedRequests = 0;
+  offline = false;
+  await assert.rejects(downloadPublicHttpBuffer("https://guard.example/image", { maxBytes: 64,
+    assertNetworkAllowed() { if (offline) throw Object.assign(new Error("offline"), { code: "AGENT_OFFLINE_BLOCKED" }); },
+    lookup: async () => { guardedDns++; offline = true; return [{ address: PUBLIC_V4, family: 4 }]; },
+    request: () => { guardedRequests++; throw new Error("network must not start"); }
+  }), expectedCode("AGENT_OFFLINE_BLOCKED"));
+  assert.equal(guardedDns, 1); assert.equal(guardedRequests, 0, "DNS completion rechecks offline before a socket");
   let admittedMaximum = 0;
   let admittedCalls = 0;
   const admission = createPublicHttpDownloadAdmission({

@@ -9,12 +9,15 @@ const addressKey = value => String(value || "").replace(/^::ffff:/i, "").toLower
 
 /** Main-only transport. DNS approval is pinned into each socket; no proxy,
  * redirects, cookies, implicit auth or disabled TLS verification. */
-function createComfyUiTransport({ connectionService }) {
+function createComfyUiTransport({ connectionService, assertNetworkAllowed = () => {} }) {
+  const activeRemote = new Set();
   async function prepare(value, config, kind = "http") {
     const profile = config.connection || connectionService.resolve({ connectionId: config.connectionId, baseUrl: config.baseUrl });
+    assertNetworkAllowed(profile);
     const policy = connectionService.requestPolicy(profile);
     const url = new URL(policy.authorizeUrl(value, { kind }));
     const network = await policy.resolveNetwork();
+    assertNetworkAllowed(profile);
     const credentials = connectionService.credentialHeaders(profile);
     const tls = credentials.tls || {};
     const headers = { ...config.headers };
@@ -28,6 +31,7 @@ function createComfyUiTransport({ connectionService }) {
     socket.once(socket.encrypted ? "secureConnect" : "connect", verify);
   }
   function requestOptions(prepared, config, websocket = false) {
+    assertNetworkAllowed(prepared.profile);
     const { url, network, headers, tls } = prepared;
     return {
       protocol: url.protocol === "wss:" ? "https:" : url.protocol === "ws:" ? "http:" : url.protocol,
@@ -76,6 +80,7 @@ function createComfyUiTransport({ connectionService }) {
           resolve({ status, body: parsed, bytes, contentType });
         });
       });
+      if (prepared.profile.networkScope !== "local") { activeRemote.add(req); req.once("close", () => activeRemote.delete(req)); }
       req.on("socket", socket => verifySocket(socket, prepared.network));
       req.setTimeout(30_000, () => req.destroy(fail("COMFYUI_CONNECTION_TIMEOUT", "ComfyUI 连接超时。")));
       req.on("error", cause => reject(cause.code?.startsWith("COMFYUI_") ? cause : fail(config.signal?.aborted ? "ABORT_ERR" : /CERT|TLS|SSL|SELF_SIGNED/.test(cause.code || "") ? "COMFYUI_TLS_FAILED" : "COMFYUI_CONNECTION_FAILED", config.signal?.aborted ? "ComfyUI 等待已取消。" : "ComfyUI 连接或 TLS 校验失败。")));
@@ -84,7 +89,7 @@ function createComfyUiTransport({ connectionService }) {
   }
   function websocket(value, config = {}) {
     const emitter = new EventEmitter();
-    let req, socket, closed = false, pending = Buffer.alloc(0), fragments = [], fragmentBytes = 0;
+    let req, socket, closed = false, upgraded = false, pending = Buffer.alloc(0), fragments = [], fragmentBytes = 0;
     emitter.on("error", () => {});
     const close = () => { if (closed) return; closed = true; req?.destroy(); socket?.destroy(); emitter.emit("close"); };
     emitter.close = close;
@@ -123,10 +128,14 @@ function createComfyUiTransport({ connectionService }) {
       Object.assign(prepared.headers, { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": key });
       const options = requestOptions(prepared, config, true);
       req = (options.protocol === "https:" ? https : http).request(options);
+      if (prepared.profile.networkScope !== "local") {
+        activeRemote.add(req); req.once("close", () => { if (!upgraded) activeRemote.delete(req); });
+      }
       req.on("socket", value => verifySocket(value, prepared.network));
       req.setTimeout(15_000, close);
       req.on("response", response => { response.resume(); emitter.emit("error", fail("COMFYUI_WS_REJECTED", "ComfyUI WebSocket 握手被拒绝。")); close(); });
       req.on("upgrade", (response, value, head) => {
+        upgraded = true; value.once("close", () => activeRemote.delete(req));
         if (closed || response.statusCode !== 101 || response.headers["sec-websocket-accept"] !== expected || String(response.headers.upgrade).toLowerCase() !== "websocket") { value.destroy(); close(); return; }
         socket = value; socket.setTimeout(0); socket.on("data", handle); socket.on("error", () => close()); socket.on("close", close); if (head.length) handle(head);
         emitter.emit("open");
@@ -135,6 +144,6 @@ function createComfyUiTransport({ connectionService }) {
     }).catch(error => { emitter.emit("error", error); close(); });
     return emitter;
   }
-  return { request, websocket };
+  return { request, websocket, activeRemoteCount: () => activeRemote.size };
 }
 module.exports = { createComfyUiTransport };

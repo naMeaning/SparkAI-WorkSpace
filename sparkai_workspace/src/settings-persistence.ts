@@ -1,3 +1,4 @@
+import { normalizeComfyUiTaskOptions } from "../runtime/comfyui-options.mjs";
 import {
   computedSizeFor,
   imageFrameRatioFromSize,
@@ -124,6 +125,8 @@ export const DEFAULT_UPDATE_BASE_URL = "https://sparkapi.org";
 const defaultGlassAppearance = normalizeGlassThemeSettings();
 
 export const defaultSettings: AppSettings = {
+  imageProvider: undefined,
+  comfyui: undefined,
   accessMode: "account",
   agentProvider: "CODEX",
   agentBaseUrl: "",
@@ -255,9 +258,15 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   const source = value ?? {};
   const next = { ...defaultSettings };
   const legacyServerUrl = normalizeServiceBaseUrl(source.serverUrl);
+  if (source.imageProvider === "comfyui" && source.comfyui && typeof source.comfyui === "object") {
+    try {
+      const normalized = normalizeComfyUiTaskOptions(source.comfyui);
+      if (normalized.connectionId) { delete normalized.baseUrl; delete normalized.networkScope; delete normalized.profileId; next.imageProvider = "comfyui"; next.comfyui = normalized; }
+    } catch { /* Invalid image defaults never become an executable provider. */ }
+  }
 
   for (const key of Object.keys(defaultSettings) as (keyof AppSettings)[]) {
-    if (source[key] !== undefined) {
+    if (key !== "imageProvider" && key !== "comfyui" && source[key] !== undefined) {
       next[key] = source[key] as never;
     }
   }

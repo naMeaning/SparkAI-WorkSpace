@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { registerDesktopIpc } = require("../desktop/ipc/register-desktop-ipc.cjs");
+const { registerAgentProviderIpc } = require("../desktop/agent-provider-ipc.cjs");
 const { registerAgentIpc } = require("../desktop/ipc/agent-ipc.cjs");
 const { registerProjectContextIpc } = require("../desktop/ipc/project-context-ipc.cjs");
 const { registerCommerceCatalogIpc } = require("../desktop/ipc/commerce-catalog-ipc.cjs");
@@ -1235,8 +1236,10 @@ async function main() {
     videoTaskService: {}
   });
 
-  assert.equal(expectedChannels.length, 170, "The registration contract must contain exactly 170 invoke channels.");
-  assert.equal(new Set(expectedChannels).size, 170, "The expected registration contract must be unique.");
+  registerAgentProviderIpc({ ipcMain });
+  expectedChannels.push("naimage:agent:provider");
+  assert.equal(expectedChannels.length, 171, "The registration contract must contain exactly 171 invoke channels.");
+  assert.equal(new Set(expectedChannels).size, 171, "The expected registration contract must be unique.");
   assert.deepEqual(duplicateChannels, [], "Duplicate IPC registrations were detected.");
   assert.deepEqual(registrations, expectedChannels, "IPC registration order or membership changed.");
   assert.deepEqual(eventRegistrations, expectedRegisteredSendChannels, "IPC send channel registration changed.");
@@ -1251,13 +1254,13 @@ async function main() {
   const sendChannels = [...preloadSource.matchAll(/ipcRenderer\s*\.\s*send\s*\(\s*["']([^"']+)["']/g)]
     .map((match) => match[1]);
 
-  assert.equal(invokeChannels.length, 167, "preload must expose exactly 167 invoke calls.");
-  assert.equal(new Set(invokeChannels).size, 167, "preload invoke channels must be unique.");
+  assert.equal(invokeChannels.length, 168, "preload must expose exactly 168 invoke calls.");
+  assert.equal(new Set(invokeChannels).size, 168, "preload invoke channels must be unique.");
   assert.deepEqual(progressChannels, expectedProgressChannels, "preload progress listeners changed.");
   assert.deepEqual(sendChannels, expectedPreloadSendChannels, "preload send channels changed.");
 
   const publicRegistrations = registrations.filter((channel) => !internalChannels.has(channel));
-  assert.equal(publicRegistrations.length, 167, "Exactly three registered invoke channels must remain internal.");
+  assert.equal(publicRegistrations.length, 168, "Exactly three registered invoke channels must remain internal.");
   assert.deepEqual(
     sorted(publicRegistrations),
     sorted(invokeChannels),

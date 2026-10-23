@@ -4,6 +4,7 @@ const { normalizeRequirementTemplateSnapshot } = require("./runtime/requirement-
 const { imageConfigSnapshot, normalizeImageConfigSnapshot, settingsWithImageConfig } = require("./runtime/image-config-snapshot.mjs");
 const { contentNamePatch, normalizeContentName } = require("./runtime/image-content-name.mjs");
 const { imageInputManifest } = require("./runtime/image-input-manifest.cjs");
+const { agentExecutionForSettings, assertAgentToolAllowed, assertAgentModelRequest } = require("./runtime/agent-provider-policy.cjs");
 const { normalizeCreationTaskContract, normalizeCreationMaskAssets } = require("./runtime/creation-task-contract.mjs");
 const { createImageObservationLedger, successfulModelResponse } = require("./runtime/image-observation-evidence.cjs");
 const { callCreationService, refFromResult, requirementsFromResult, runCreationTool, creationSlotsForImage } = require("./runtime/creation-tools.cjs");
@@ -2560,6 +2561,8 @@ function normalizeLayerPlan(args = {}) {
 }
 
 function compactModelForSettings(settings = {}) {
+  const execution = agentExecutionForSettings(settings);
+  if (execution && execution.providerKind !== "cloud") return execution.modelId;
   return String(settings.compactModel || settings.agentCompactModel || settings.agentModel || settings.model || "").trim();
 }
 
@@ -3521,6 +3524,12 @@ function createAgentRuntime(options) {
       referenceImages,
       editImage,
       taskScopeSnapshotHash: taskScope.snapshotHash,
+      ...(settings.imageProvider === "comfyui" ? { comfyUiManagedMask: (() => {
+        const source = scopedSourceAsset;
+        const mask = normalizeCreationMaskAssets(taskScope.maskAssets).find(item => source && ["assetId", "occurrenceId", "contentHash"].every(key => item.target[key] === source[key]));
+        const identity = item => Object.fromEntries(["assetId", "occurrenceId", "contentHash"].map(key => [key, item[key]]));
+        return mask ? { sourceImage: identity(source), maskImage: identity(mask) } : undefined;
+      })() } : {}),
       maskImage,
       maskDataUrl,
       relationType: requestedOperation === "variants" ? "variant" : "derived-from",
@@ -3545,8 +3554,10 @@ function createAgentRuntime(options) {
     const count = Math.max(1, Math.min(Number(args.count ?? 1), 200));
     const layerHint = normalizeLayerHint(args);
     const preferredModel = imageModelForTaskPreference({ ...args, mode, prompt }, settings, layerHint);
-    const frame = normalizeImageToolFrame({ ...args, model: preferredModel || args.model, prompt }, settings);
-    const upstreamPrompt = appendImageDeliverySpecification(prompt, frame);
+    const frame = settings.imageProvider === "comfyui" && settings.comfyui
+      ? { ratio: `${settings.comfyui.width}:${settings.comfyui.height}`, resolution: "configured", size: `${settings.comfyui.width}x${settings.comfyui.height}`, requestSize: `${settings.comfyui.width}x${settings.comfyui.height}` }
+      : normalizeImageToolFrame({ ...args, model: preferredModel || args.model, prompt }, settings);
+    const upstreamPrompt = settings.imageProvider === "comfyui" ? prompt : appendImageDeliverySpecification(prompt, frame);
     const size = frame.size;
     const requestSize = frame.requestSize || size;
     const quality = args.quality ?? settings?.imageQuality ?? "auto";
@@ -3693,6 +3704,11 @@ function createAgentRuntime(options) {
             // Internal execution policy comes from the frozen settings, never
             // from extra model tool arguments outside the public schema.
             imageConfig: imageConfigSnapshot(settings),
+            agentBindingId: settings.agentExecution?.bindingId,
+            comfyUiManagedMask: settings.imageProvider === "comfyui" ? args.comfyUiManagedMask : undefined,
+            operationId: String(args.operationId || args.toolRunId || args.runId || runId),
+            requestIndex: index + 1,
+            editOperation: mode === "cutout" || mode === "redraw" ? mode : undefined,
             count: 1,
             referenceImages,
             editImage,
@@ -5081,6 +5097,7 @@ function createAgentRuntime(options) {
   }
 
   async function runTool(name, input, context) {
+    assertAgentToolAllowed(context?.settings || {}, name, parseJsonObject(input));
     const result = await runToolOperation(name, input, context);
     return isImageToolName(name) ? checkSavedCreationActions(result, context) : result;
   }
@@ -6740,6 +6757,7 @@ function createAgentRuntime(options) {
   }
 
   async function callModel(settings, messages, requestOptions = {}) {
+    const execution = agentExecutionForSettings(settings);
     const defaultConfig = providerSettings(settings, "agent");
     const model = String(requestOptions.model ?? defaultConfig.model ?? "").trim();
     const config = providerSettingsForModel(settings, "agent", model);
@@ -6759,9 +6777,18 @@ function createAgentRuntime(options) {
       tool_choice: requestOptions.toolChoice ?? "auto"
     };
     if (settings.fastMode) requestBody.service_tier = "fast";
+    if (execution) requestBody.agentBindingId = execution.bindingId;
+    if (execution && execution.providerKind !== "cloud") {
+      delete requestBody.reasoning_effort; delete requestBody.temperature; delete requestBody.service_tier;
+      requestBody.max_tokens = execution.capabilities.maxOutputTokens || 2048;
+    }
     if (Array.isArray(requestBody.tools) && requestBody.tools.length === 0) {
       delete requestBody.tools;
       delete requestBody.tool_choice;
+    }
+    assertAgentModelRequest(settings, requestBody);
+    if (execution && execution.providerKind !== "cloud" && typeof runtimeOptions.serverChatCompletion !== "function") {
+      throw Object.assign(new Error("本地 Agent 必须通过 Main 管理的连接执行。"), { code: "AGENT_MAIN_REQUIRED" });
     }
     if (diagnosticModelIO) {
       const toolNames = Array.isArray(requestBody.tools)
@@ -6945,6 +6972,7 @@ function createAgentRuntime(options) {
   }
 
   async function runDateMemoryMaintenance(settings, progress, runId = "") {
+    if (agentExecutionForSettings(settings)?.capabilities.tools === false) return null;
     const buffer = dateMemoryBuffer();
     if (!buffer.overLimit || !buffer.entries.length) return null;
     progress?.({ phase: "memory-start", tool: "memory", summary: "正在整理记忆。" });
@@ -7730,6 +7758,7 @@ function createAgentRuntime(options) {
   async function composeImagePrompt(payload = {}) {
     ensureMemory();
     const settings = payload.settings ?? {};
+    if (agentExecutionForSettings(settings)?.capabilities.tools === false) return { ok: false, errorCode: "AGENT_TOOLS_UNAVAILABLE", error: "当前本地模型没有工具调用能力，无法提交结构化提示词参数。" };
     const progress = typeof payload.progress === "function" ? payload.progress : () => {};
     const model = String(settings.agentModel ?? settings.model ?? "").trim();
     const config = providerSettingsForModel(settings, "agent", model);

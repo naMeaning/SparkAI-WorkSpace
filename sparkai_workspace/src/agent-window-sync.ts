@@ -1,3 +1,5 @@
+import { agentProviderLabel, agentProviderNetworkLabel } from "./agent-provider-state.ts";
+import type { AgentProviderSnapshot } from "./core";
 import type { ProjectContextSnapshot, ProjectContextCommand } from "./project-context";
 import { projectContextWindowProjection } from "../runtime/project-context-presentation.mjs";
 import type {
@@ -80,6 +82,7 @@ export type AgentWindowSnapshot = {
   projectName: string;
   workspaceDomain: { id: WorkspaceDomain; title: string };
   modelName: string;
+  providerSummary?: string;
   statusText: string;
   busy: boolean;
   paused: boolean;
@@ -130,6 +133,7 @@ export type AgentWindowSnapshotInput = {
   projectName: string;
   workspaceDomain: WorkspaceDomain;
   modelName: string;
+  providerStatus?: AgentProviderSnapshot | null;
   agentStatus: AgentStatus;
   busy: boolean;
   paused: boolean;
@@ -336,6 +340,7 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
     projectName: boundedText(input.projectName || "项目", 256),
     workspaceDomain: { id: domain.id, title: boundedText(domain.title, 64) },
     modelName: boundedText(input.modelName, 256),
+    providerSummary: input.providerStatus ? boundedText(`${agentProviderLabel(input.providerStatus)} · ${agentProviderNetworkLabel(input.providerStatus)} · 工具 ${input.providerStatus.capabilities.tools ? "可用" : "关闭"} · 视觉 ${input.providerStatus.capabilities.vision ? "可用" : "关闭"} · 上下文 ${input.providerStatus.capabilities.contextWindowTokens}`, 400) : "",
     statusText: agentWindowStatusText(input),
     busy: Boolean(input.busy),
     paused: Boolean(input.paused),

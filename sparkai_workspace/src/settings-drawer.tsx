@@ -25,6 +25,7 @@ import {
   type AccountQuotaInput,
   type AgentIntegrationTarget,
   type AppSettings,
+  type AgentProviderSnapshot,
   type DesktopInstallerCaptcha,
   type DesktopUpdateInfo,
   type DesktopUpdateProgress,
@@ -60,6 +61,7 @@ import {
 import type { HelpCenterSection } from "./help-center";
 import { appAccessPolicy, enforceRendererAccessPolicy } from "./access-policy";
 
+const LazyAgentProviderManager = React.lazy(() => import("./agent-provider-manager"));
 const LazyModelConfigDialog = React.lazy(() => import("./model-config-dialog"));
 const LazyGlassLab = React.lazy(() => import("./glass-lab"));
 const LazyPluginSettingsPanel = React.lazy(() => import("./plugin-settings-panel"));
@@ -120,6 +122,10 @@ function modelAccessProfileStats(profile: NonNullable<ServerPublicSettings["mode
 
 export default function SettingsDrawer({
   settings,
+  projectId,
+  conversationId,
+  agentProviderStatus,
+  onAgentProviderChanged,
   saveSettings,
   initialUpdateInfo,
   initialSection = "access",
@@ -128,6 +134,10 @@ export default function SettingsDrawer({
   close
 }: {
   settings: AppSettings;
+  projectId?: string;
+  conversationId?: string;
+  agentProviderStatus?: AgentProviderSnapshot | null;
+  onAgentProviderChanged?: () => void;
   saveSettings: (settings: AppSettings) => Promise<void>;
   initialUpdateInfo?: DesktopUpdateInfo | null;
   initialSection?: SettingsSection;
@@ -135,6 +145,7 @@ export default function SettingsDrawer({
   openHelp?: (section: HelpCenterSection) => void;
   close: () => void;
 }) {
+  const localAgent = Boolean(agentProviderStatus && agentProviderStatus.providerKind !== "cloud");
   const [baselineSettings, setBaselineSettings] = useState(() => enforceRendererAccessPolicy(mergeSettings(settings)));
   const [draftSettings, setDraftSettings] = useState(() => enforceRendererAccessPolicy(mergeSettings(settings)));
   const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
@@ -236,6 +247,12 @@ export default function SettingsDrawer({
     cacheAgeMs: undefined
   }));
   const dirty = JSON.stringify(draftSettings) !== JSON.stringify(baselineSettings);
+  async function saveProviderImageSettings(next: AppSettings) {
+    await saveSettings(next);
+    const patch = { imageProvider: next.imageProvider, comfyui: next.comfyui };
+    setDraftSettings(current => ({ ...current, ...patch }));
+    setBaselineSettings(current => ({ ...current, ...patch }));
+  }
 
   useEffect(() => {
     applyGlassAppearance(draftSettings);
@@ -291,6 +308,7 @@ export default function SettingsDrawer({
   }
 
   async function refreshModels(forceRefresh = false, group = draftSettings.modelGroup, cacheOnly = false): Promise<void> {
+    if (localAgent) return;
     if (modelLoadRef.current) {
       const pending = pendingModelRefreshRef.current;
       pendingModelRefreshRef.current = {
@@ -370,7 +388,7 @@ export default function SettingsDrawer({
   }
 
   async function refreshAccountTokens(options: { preferCached?: boolean } = {}): Promise<AccountApiTokenListResult | undefined> {
-    if (draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
+    if (localAgent || draftSettings.accessMode !== "account" || !window.naimageServer?.tokens) return;
     setAccountTokenBusy(true);
     setAccountTokenError("");
     try {
@@ -405,6 +423,7 @@ export default function SettingsDrawer({
   }
 
   useEffect(() => {
+    if (localAgent) return;
     void (async () => {
       await refreshModels(false, draftSettings.modelGroup, true);
       await refreshModels(false, draftSettings.modelGroup, false);
@@ -683,6 +702,7 @@ export default function SettingsDrawer({
   }
 
   async function checkForUpdates() {
+    if (agentProviderStatus?.strictOffline) { setUpdateMessage("严格离线模式已禁用联网更新检查。"); return; }
     if (!window.naimageUpdater) {
       setUpdateMessage("当前运行环境不支持在线更新。");
       setUpdateError(true);
@@ -1138,7 +1158,7 @@ export default function SettingsDrawer({
                       <small className="settings-model-service-copy">{modelServiceStateCopy(modelState.serviceStatuses.agent)}</small>
                       {modelState.serviceStatuses.agent?.error ? <small className="settings-model-service-error" title={modelState.serviceStatuses.agent.error}>{modelState.serviceStatuses.agent.error}</small> : null}
                     </div>
-                    <IconActionButton className="settings-model-config-action" label="配置对话模型" icon={<Settings size={15} />} onClick={() => setModelConfigTarget("agent")} />
+                    <IconActionButton className="settings-model-config-action" label="配置对话模型" icon={<Settings size={15} />} onClick={() => localAgent ? setActiveSection("agent") : setModelConfigTarget("agent")} />
                   </article>
                   <article className="settings-model-card">
                     <div className="settings-model-meta">
@@ -1203,6 +1223,7 @@ export default function SettingsDrawer({
                     编辑提示词
                   </ActionButton>
                 </div>
+                <React.Suspense fallback={<p>正在读取 Agent 执行服务…</p>}><LazyAgentProviderManager settings={settings} saveSettings={saveProviderImageSettings} projectId={projectId} conversationId={conversationId} onChanged={onAgentProviderChanged} /></React.Suspense>
                 <div className="settings-context-policy">
                   <div className="settings-section-header">
                     <div>
@@ -1551,7 +1572,7 @@ export default function SettingsDrawer({
           )}
         </DialogShell>
       ) : null}
-      {modelConfigTarget ? (
+      {modelConfigTarget && !localAgent ? (
         <React.Suspense fallback={null}>
           <LazyModelConfigDialog
             kind={modelConfigTarget}
