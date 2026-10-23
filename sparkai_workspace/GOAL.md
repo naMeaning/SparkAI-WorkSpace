@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 2 本地验证和安装完成，Git收口中）
+## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 2 本地交付完成）
 
 - 接受现场：根 main / `17d112527fe5eb4139771314e4927fd454b61620`，工作树干净。当前用户新方向取代上一轮 localhost-only 非目标；历史参数能力交付证据保留。
 - 阶段顺序：Phase 1 Main connection profiles 与 LAN/remote 安全传输；Phase 2 typed generate/img2img/inpaint/cutout 与受管 mask；Phase 3 审核 manifest、artifact store 与环境/模型安装；Phase 4 同一 Agent Runtime 的离线 provider。逐阶段验证、文档和本地交付，禁止混成不可审查大改。
@@ -12,7 +12,7 @@
 - Phase 1 Git：34个本阶段源码/文档文件提交`47f305de31a8f08dbe4aee4e1d16ac124b1d08e5`并普通push origin/main，HEAD/upstream/远端一致且工作树干净；完整交付证据`.diagnostics/comfyui-connections-delivery/delivery.json`。
 - 当前合同冻结：typed 输入位于 `comfyui.sourceImage/maskImage/referenceImages`；workflowId/templateId 与 strength/denoise 为同值 alias，冲突拒绝。Main 原生导入仅返回 draft/nodes/审核端口候选，GUI 用下拉映射向导批准。透明 PNG 的透明区统一为重绘修改区/抠图移除区，蒙版绑定源图身份/hash/尺寸/revision。
 - Phase2交付：Main23/capability21/template14/executor35、恢复14子进程、mask11、身份39、共享合同与最终typecheck/view-image通过；GUI13组/25截图通过。715源文件/132dist/191owner核对后，production EXE 110,071,808 B / `ad710dc70bbc372a4050f07c5aa1921592caffaf14899af88ffe877c70d72f1d`，品牌/S原位升级exit0、配置与安装身份一致。CSS预算失败保留，非正式Release。详见[工作流专项](docs/COMFYUI_WORKFLOW_VALIDATION.md)。
-- 下一步：只提交Phase2源码文档并普通push upstream、核对远端；然后开启Phase3审核manifest/artifact store/独立runtime。Phase3–4尚未实施，真实服务/下载/依赖安装0。
+- Phase2 Git：39个源码/文档文件提交`5697000fa5f0fcec30c797595b6ba049af76e678`并普通push origin/main，HEAD/upstream/远端一致、主提交后工作树干净；最终Git身份见本地delivery索引。下一步开启Phase3审核manifest/artifact store/独立runtime；Phase3–4尚未实施，真实服务/下载/依赖安装0。
 
 
 ## 当前任务：ComfyUI 参数能力增量（2026-10-23，本地交付完成）

@@ -1,6 +1,6 @@
 # ComfyUI Phase 2：工作流、受管蒙版与透明输出
 
-状态：实现、专项、Windows EXE身份与本地原位安装通过；源码Git收口中。Phase 1 的制品与推送证据见 [连接验证](COMFYUI_CONNECTION_VALIDATION.md)，不能用作本阶段验收。
+状态：实现、专项、Windows EXE身份与本地原位安装通过；源码主提交已普通推送。Phase 1 的制品与推送证据见 [连接验证](COMFYUI_CONNECTION_VALIDATION.md)，不能用作本阶段验收。
 
 ## 契约与范围
 
@@ -39,6 +39,6 @@ Main 最终报告：`.diagnostics/electron/comfyui-main-1792720876139/report.jso
 
 本阶段 production EXE：`release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,071,808 B，SHA-256 `ad710dc70bbc372a4050f07c5aa1921592caffaf14899af88ffe877c70d72f1d`。715源文件冻结hash `3849d39ed36c290d640b17fb88fbc3b39b80c1860b9b71a3275eb3d47bbb31a0`；132dist/191owner逐字节核对，ASAR 53,254,636 B / `30102c95d0373766fd15a3eb961a2a88032317120afac8298edac5f1812f67bf`。品牌`/S`原位升级exit0/17,038ms，原注册目录、版本、配置与快捷方式保留，已安装EXE/ASAR与候选包匹配。专项两次正常退出0、安装前全部同名实例0。
 
-Bundle仅CSS292,621>270,000 B失败，initial JS4,310/plugin86,613 B在限内，无AIDebug泄漏；按本地开发包规则记录，不是正式Release。未上传EXE、tag或Release。证据`.diagnostics/comfyui-workflows-delivery/package.log`、`frozen-source.json`、`package-audit.json`、`install.json`、`bundle.log`；Git推送待最后执行。
+Bundle仅CSS292,621>270,000 B失败，initial JS4,310/plugin86,613 B在限内，无AIDebug泄漏；按本地开发包规则记录，不是正式Release。未上传EXE、tag或Release。证据`.diagnostics/comfyui-workflows-delivery/package.log`、`frozen-source.json`、`package-audit.json`、`install.json`、`bundle.log`；39个本阶段文件提交`5697000fa5f0fcec30c797595b6ba049af76e678`并普通push origin/main，远端实查与本地一致；最终收尾身份见本地delivery索引。
 
 真实 LAN/remote ComfyUI、真实模型请求、权重下载与依赖安装均未执行。审核核心节点的实际安装版本、真实模型的质量/耗时/显存、人工系统文件选择器操作仍无本阶段实测；本阶段没有扩展该授权。

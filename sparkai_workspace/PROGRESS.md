@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 2 实施中）
+## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 2 本地交付完成）
 
 - 当前续接 main/`47f305d`，Phase1 已交付；续接时仅 Goal/Progress/map 的 Phase2 准备修改，全部保留。当前实施 typed workflow、受管 mask、导入映射向导与 GUI/IPC/CLI/MCP；Phase3–4 按顺序后续实施。
 - Phase1 已实现并交付：Main connection service、safeStorage 加密 credential sidecar/native import、HTTP/HTTPS/WS/WSS pinned transport；local/lan/remote 与 none/bearer/basic/mtls；模板/executor/Main/journal connectionId 与 connectionHash。新项目任务不保存地址/凭据；旧无 ID v1 连续恢复保留原 URL 身份。GUI 人工地址配置显示网络边界；CLI/MCP 5 个新增管理命令只持稳定 ID/元数据，所有自动化控制结果去 URL/host/path/ref，执行 schema 不再接受 baseUrl（Main 旧本机兼容读取保留）。
@@ -9,7 +9,7 @@
 - 本地包：714源码/测试/契约文件冻结，sourceHash `c0d32f1ead17771427d511e291c379eb92e631152593e21f7d07321a797478ce`；package:win:unrestricted exit0。[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,055,936 B / SHA-256 `82325b465d01deb9258e07b55ec0d6e5a9bdf45eb62b0ee0fb061eac3d557875`；132dist/191owner包内逐字节匹配；ASAR 53,161,113 B / `36b80970dd8818d1f1316466b15bed2ed51c2d5da251ef12cc0574ea485b1954`。证据`.diagnostics/comfyui-connections-delivery/package.log`、`frozen-source.json`、`package-audit.json`。
 - 安装：所有同名实例0（专项已两次正常退出0），品牌/S原位升级exit0/19,708ms，原注册目录`E:\sparkai-workspace\naimage`与1.0.9身份保留；配置/凭据sidecar metadata/快捷方式偏好保留，已安装EXE/ASAR与候选包匹配。证据同目录`install.json`，未读取真实secret内容。
 - Bundle诊断exit1，仅既有CSS292,392 >270,000 B；initial JS4,310/plugin JS86,613 B在限内，无诊断控制面泄漏，core/dist advisory超限。开发包按AGENTS允许交付，不宣称正式Release门禁通过；未上传EXE/Release/tag。34个本阶段文件提交`47f305de31a8f08dbe4aee4e1d16ac124b1d08e5`并普通push origin/main，HEAD/upstream/远端一致，提交后工作树干净；完整交付索引`.diagnostics/comfyui-connections-delivery/delivery.json`。[Phase1专项](docs/COMFYUI_CONNECTION_VALIDATION.md)。
-- Phase2当前实现：typed workflow/MASK审核、稳定角色输入、受管mask revision、导入映射向导、inpaint保护区合成与cutout实际alpha均已落地；Main23、capability21、template14、executor35、mask11、creation16、项目IO322资产、image-recovery14子进程、automation/MCP127/IPC170/167通过。最终GUI13组及本阶段EXE/安装已完成，Git待同步，不将Phase1制品当作Phase2证据。真实服务/下载/依赖安装0。
+- Phase2当前实现：typed workflow/MASK审核、稳定角色输入、受管mask revision、导入映射向导、inpaint保护区合成与cutout实际alpha均已落地；Main23、capability21、template14、executor35、mask11、creation16、项目IO322资产、image-recovery14子进程、automation/MCP127/IPC170/167通过。最终GUI13组及本阶段EXE/安装已完成，Git已同步，不将Phase1制品当作Phase2证据。真实服务/下载/依赖安装0。
 - Phase2实施 checkpoint：公开输入冻结在 `comfyui.sourceImage/maskImage/referenceImages`，均只含受管三元身份；mask 另带 revision。GUI 已接工作流能力、显式源图、native PNG 导入与列表、逐端口下拉映射向导；手动表单冻结 project/conversation，切换后拒绝提交。透明 PNG 的透明区统一为 inpaint 修改区 / cutout 移除区，不以黑白颜色推断范围；cutout 是用户蒙版工作流。Runtime/Main/契约并行整合中；本阶段测试与新制品尚未完成，Phase1制品不代表Phase2。
 
 - 续接checkpoint：保留38个Phase2源码/文档改动；Main容量收口报告`.diagnostics/electron/comfyui-main-1792720876139/report.json`为23/23，15fake POST/14upload/12view/2新Main恢复；>32M源与>=4MiB inpaint蒙版网络前拒绝。映射参考槽现强制连续且数量固定，GUI同步必填数和受管素材readiness。UI初试受并行编辑Vite整页HMR影响；新增失败DOM记录并修复空选择误判，待全体冻结后重跑；失败报告保留，不记为通过。
@@ -18,7 +18,7 @@
 
 - Phase2验证里程碑：最终实际Electron UI13组/25截图通过，报告`.diagnostics/comfyui-ui-2026-10-23T02-24-45-665Z/report.json`；7fake POST、2次正常退出0、原图/蒙版未覆盖。保护像素131072全同、修改像素130396变化，cutout131072透明/131072不透明；opaque输出journal拒绝且CLI明确失败。最终typecheck与view-image通过，源码开始冻结/production打包；真实服务/下载/依赖安装仍0。
 
-- Phase2本地交付：production `package:win:unrestricted` exit0，715源文件冻结hash `3849d39ed36c290d640b17fb88fbc3b39b80c1860b9b71a3275eb3d47bbb31a0`；132dist/191owner与ASAR逐字节一致。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,071,808 B / SHA-256 `ad710dc70bbc372a4050f07c5aa1921592caffaf14899af88ffe877c70d72f1d`；ASAR 53,254,636 B / `30102c95d0373766fd15a3eb961a2a88032317120afac8298edac5f1812f67bf`。品牌`/S`原位升级exit0/17,038ms，原注册目录`E:\sparkai-workspace\naimage`与1.0.9保留，配置/凭据metadata/快捷方式偏好保留，安装EXE/ASAR均匹配；所有同名实例0、专项正常退出，未强杀。Bundle仅CSS292621>270000失败，JS入口4310/plugin86613限内，无诊断控制面泄漏，按开发包规则记录；不宣称正式Release。证据`.diagnostics/comfyui-workflows-delivery/`的package.log/package-audit.json/install.json/bundle.log。源码与文档Git同步待最后执行。
+- Phase2本地交付：production `package:win:unrestricted` exit0，715源文件冻结hash `3849d39ed36c290d640b17fb88fbc3b39b80c1860b9b71a3275eb3d47bbb31a0`；132dist/191owner与ASAR逐字节一致。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,071,808 B / SHA-256 `ad710dc70bbc372a4050f07c5aa1921592caffaf14899af88ffe877c70d72f1d`；ASAR 53,254,636 B / `30102c95d0373766fd15a3eb961a2a88032317120afac8298edac5f1812f67bf`。品牌`/S`原位升级exit0/17,038ms，原注册目录`E:\sparkai-workspace\naimage`与1.0.9保留，配置/凭据metadata/快捷方式偏好保留，安装EXE/ASAR均匹配；所有同名实例0、专项正常退出，未强杀。Bundle仅CSS292621>270000失败，JS入口4310/plugin86613限内，无诊断控制面泄漏，按开发包规则记录；不宣称正式Release。证据`.diagnostics/comfyui-workflows-delivery/`的package.log/package-audit.json/install.json/bundle.log。39个本阶段源码/文档文件提交`5697000fa5f0fcec30c797595b6ba049af76e678`并普通push origin/main，HEAD/upstream/远端实查一致，主提交后工作树干净；暂存敏感模式0命中，无EXE/诊断/私有配置入Git。完成记录随纯文档收尾同步，最终身份见`.diagnostics/comfyui-workflows-delivery/delivery.json`。
 
 
 ## 当前开发状态（2026-10-23，ComfyUI 参数能力增量本地交付完成）
