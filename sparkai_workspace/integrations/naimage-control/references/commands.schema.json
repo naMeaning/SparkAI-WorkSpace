@@ -2,6 +2,229 @@
   "version": 2,
   "sections": [
     {
+      "title": "Managed ComfyUI runtimes and models",
+      "commands": [
+        {
+          "name": "comfyui.runtime.list",
+          "surface": "renderer",
+          "description": "Read local Main-owned runtime, manifest review and download-job summaries. No network, download, installation or process launch. Returns stable IDs and bounded metadata only; no URLs, credentials, filesystem paths or scripts.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.manifest.import",
+          "surface": "renderer",
+          "description": "Open Main native JSON picker to explicitly import a runtime/model manifest. Validation and local registration only; unknown scripts and untrusted custom-node packages are rejected. This action never downloads, installs or starts software.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.runtime.plan",
+          "surface": "renderer",
+          "description": "Create an immutable local installation plan for an approved or explicitly imported manifest. The plan shows source labels, licenses, dependencies, exact download/expanded sizes, GPU/VRAM and disk requirements without downloading. Model-only manifests require an existing runtimeId; needs-review candidates cannot install.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "manifestId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned manifest identity."
+              },
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Optional existing runtime target for an upgrade; required for a model-only manifest."
+              }
+            },
+            "required": [
+              "manifestId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.install",
+          "surface": "renderer",
+          "description": "Request installation of one immutable planId. Main always opens a human native review/authorization dialog bound to the plan and manifest hash before any download, extraction or validation launch. A caller boolean cannot grant permission. Returns the persistent background job; cancellation preserves local state.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "planId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Immutable Main-owned installation plan identity."
+              }
+            },
+            "required": [
+              "planId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.pause",
+          "surface": "renderer",
+          "description": "Pause a persistent runtime/model download job by jobId. Does not delete verified artifacts or the previous active revision.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned persistent installation job identity."
+              }
+            },
+            "required": [
+              "jobId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.resume",
+          "surface": "renderer",
+          "description": "Resume a paused persistent job under its original human authorization and immutable plan. Changed manifests or plans require a new review; unknown/invalid journal state fails closed.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned persistent installation job identity."
+              }
+            },
+            "required": [
+              "jobId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.import-existing",
+          "surface": "renderer",
+          "description": "Open Main native directory picker and validate/register an existing ComfyUI portable environment. Does not alter the selected Python/dependency tree, download files, install packages or start the service.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.runtime.rollback",
+          "surface": "renderer",
+          "description": "Activate a previous validated managed runtime/model revision by stable runtimeId and optional revisionId. Active task/download leases prevent changes; no downloads or arbitrary commands.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned runtime identity."
+              },
+              "revisionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Optional validated earlier revision identity; Main selects the previous revision if omitted."
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.remove",
+          "surface": "renderer",
+          "description": "Remove a Main-owned runtime registration and release its managed references. Active tasks and installation leases prevent removal; existing user Python/ComfyUI files and project assets are preserved.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned runtime identity."
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          },
+          "destructive": true
+        },
+        {
+          "name": "comfyui.runtime.start",
+          "surface": "renderer",
+          "description": "Request launch of an installed runtime through Main fixed portable adapter. Main requires native human confirmation before starting Python, uses only Main-owned paths and arguments, and never runs caller scripts or package managers.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned runtime identity."
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.stop",
+          "surface": "renderer",
+          "description": "Stop only the managed ComfyUI process belonging to the selected runtime after Main verifies there are no active task/installation leases. Does not issue a global model interrupt.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Main-owned runtime identity."
+              }
+            },
+            "required": [
+              "runtimeId"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.runtime.status",
+          "surface": "renderer",
+          "description": "Read local status for a runtime and/or installation job by stable IDs. No network, process launch or download.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "runtimeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Optional Main-owned runtime identity."
+              },
+              "jobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+                "description": "Optional Main-owned persistent installation job identity."
+              }
+            },
+            "required": []
+          }
+        }
+      ]
+    },
+    {
       "title": "Project knowledge and local result retrieval",
       "commands": [
         {
@@ -1749,7 +1972,9 @@
                   "test:workspace-domain",
                   "test:automation-service",
                   "test:scientific-runner",
-                  "test:commerce-template"
+                  "test:commerce-template",
+                  "test:managed-artifact",
+                  "test:comfyui-runtime"
                 ]
               },
               "timeoutMs": {
@@ -3168,7 +3393,7 @@
                         },
                         "step": {
                           "type": "number",
-                          "minimum": 1e-9,
+                          "minimum": 1e-09,
                           "maximum": 1000000000
                         },
                         "role": {

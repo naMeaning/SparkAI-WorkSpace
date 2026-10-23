@@ -409,6 +409,14 @@
 .comfyui-task-fields [data-comfyui-reference-fields] { min-width: 0; display: grid; gap: 8px; }
 .comfyui-task-fields [data-comfyui-mapping-wizard] p { overflow-wrap: anywhere; }
 .comfyui-task-fields [data-comfyui-reference-fields] label { display: flex; align-items: center; gap: 6px; }
+.comfyui-task-fields [data-comfyui-runtime-manager],
+.comfyui-task-fields [data-comfyui-runtime-plan],
+.comfyui-task-fields [data-comfyui-runtime-artifacts],
+.comfyui-task-fields [data-comfyui-runtime-artifacts] > section,
+.comfyui-task-fields [data-comfyui-runtime-selected],
+.comfyui-task-fields [data-comfyui-runtime-jobs],
+.comfyui-task-fields [data-comfyui-runtime-jobs] > section { min-width: 0; display: grid; gap: 8px; overflow-wrap: anywhere; }
+.comfyui-task-fields [data-comfyui-runtime-manager] progress { width: 100%; min-width: 0; }
 
 .manual-image-task-summary span + span::before {
   margin-right: 6px;

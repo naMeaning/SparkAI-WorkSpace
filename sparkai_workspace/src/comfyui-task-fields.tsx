@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMFYUI_PARAMETER_RANGES } from "../runtime/comfyui-options.mjs";
 import type { ComfyUiAssetIdentity, ComfyUiInputMapping, ComfyUiManagedMask, ComfyUiParameterRanges, ComfyUiTaskOptions, ComfyUiTemplate, ComfyUiWorkflowCapability, ComfyUiWorkflowImportPreview, ImageTaskDraft, ServerBridge } from "./core";
 import { ActionButton, Field, InlineNotice } from "./ui";
@@ -20,6 +20,7 @@ const networkLabels: Record<NetworkScope | "unknown", string> = { local: "本机
 const capabilityLabels: Record<ComfyUiWorkflowCapability, string> = { generate: "文生图", img2img: "图生图", inpaint: "蒙版重绘", cutout: "蒙版抠图" };
 const mappingLabels: Record<string, string> = { prompt: "提示词", negative: "负面提示词", model: "服务模型", width: "宽度", height: "高度", seed: "种子", steps: "步数", cfg: "CFG", sampler: "采样器", scheduler: "调度器", denoise: "强度", sourceImage: "源图", maskImage: "受管蒙版", referenceImages: "参考图", image: "素材" };
 const sameImage = (a?: ComfyUiAssetIdentity, b?: Partial<ComfyUiAssetIdentity>) => Boolean(a && b && a.assetId === b.assetId && a.occurrenceId === b.occurrenceId && a.contentHash === b.contentHash);
+const ComfyUiRuntimeManager = lazy(() => import("./comfyui-runtime-manager"));
 
 function connectionDraftFor(connection?: ConnectionSummary, legacyBaseUrl = ""): ConnectionDraft {
   const mode = connection?.credentialMode || connection?.credentialType || "none";
@@ -64,6 +65,7 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
   const [importMappings, setImportMappings] = useState<ComfyUiInputMapping[]>([]);
   const [masks, setMasks] = useState<ComfyUiManagedMask[]>([]);
   const [outputNodeId, setOutputNodeId] = useState("9");
+  const [runtimeManagerOpen, setRuntimeManagerOpen] = useState(false);
   const [label, setLabel] = useState("");
   const options: ComfyUiTaskOptions = draft.comfyui || {
     templateId: "", templateHash: "", checkpoint: "", seed: -1, width: 1024, height: 1024
@@ -76,6 +78,13 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   latestOptions.current = options;
+  const refreshRuntimeConnections = useCallback(() => {
+    void window.naimageServer?.comfyui({ action: "connections-list" }).then(result => {
+      if (!mounted.current) return;
+      if (!result.ok) { setStatus(result.error || "读取本机环境连接失败。"); return; }
+      setConnections(result.connections || []);
+    }).catch(error => { if (mounted.current) setStatus(error instanceof Error ? error.message : String(error)); });
+  }, []);
   const activeConnectionId = options.connectionId || options.profileId;
   const selectedConnection = connections.find(connection => connection.connectionId === activeConnectionId);
   const networkScope = selectedConnection?.networkScope || options.networkScope || (activeConnectionId ? "unknown" : "local");
@@ -360,6 +369,9 @@ export default function ComfyUiTaskFields({ draft, update, projectId, conversati
       <ActionButton busy={busy} disabled={connectionDirty || !connectionDraft.connectionId || connectionDraft.credentialType === "none"} onClick={() => void importCredential()}>导入凭据</ActionButton>
       <ActionButton busy={busy} disabled={!connectionDraft.baseUrl.trim()} onClick={() => void inspect()}>测试连接</ActionButton>
       <ActionButton disabled={busy} onClick={() => { clearInspection(); setConnectionDraft(connectionDraftFor()); setConnectionDirty(true); setCredentialDirty(false); }}>新增连接</ActionButton>
+    </details>
+    <details data-comfyui-runtime-manager-entry onToggle={event => setRuntimeManagerOpen(event.currentTarget.open)}><summary>本机运行环境和模型</summary>
+      {runtimeManagerOpen ? <Suspense fallback={<InlineNotice>正在打开运行环境管理…</InlineNotice>}><ComfyUiRuntimeManager onConnectionsChanged={refreshRuntimeConnections} /></Suspense> : null}
     </details>
     <details data-comfyui-workflow-import><summary>导入 API Format JSON 工作流</summary>
       <p>选择本地文件后先审核节点，再配置输入映射。未审核节点、脚本和任意文件读取不能执行。</p>

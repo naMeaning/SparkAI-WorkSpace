@@ -5,7 +5,7 @@ const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require
 const os = require("node:os");
 const path = require("node:path");
 const { createAutomationService } = require("../desktop/automation-service.cjs");
-const { createDebugCommandService } = require("../desktop/debug-command-service.cjs");
+const { createDebugCommandService, TARGETED_TEST_SCRIPTS } = require("../desktop/debug-command-service.cjs");
 
 async function post(endpoint, command, args = {}) {
   const response = await fetch(`http://127.0.0.1:${endpoint.port}/v1/execute`, {
@@ -25,6 +25,8 @@ async function main() {
   const debugDir = path.join(root, "diagnostics");
   const electronLog = path.join(root, "latest.log");
   const schemaPath = path.join(appRoot, "integrations", "naimage-control", "references", "commands.schema.json");
+  const targetedTestSchema = JSON.parse(readFileSync(schemaPath, "utf8")).sections.flatMap(section => section.commands).find(command => command.name === "debug.run-targeted-test");
+  assert.deepEqual([...TARGETED_TEST_SCRIPTS].sort(), [...targetedTestSchema.parameters.properties.testName.enum].sort(), "The public targeted-test schema must match the Main allowlist");
   writeFileSync(electronLog, [
     "[2026-08-03T00:00:00.000Z] boot ready",
     `[2026-08-03T00:00:01.000Z] opened ${appRoot} Bearer secret-token-value`,

@@ -1,0 +1,25 @@
+SparkAI WorkSpace managed archive tool notice
+
+The Windows x64 archive tool is the unmodified 7-Zip command-line executable
+7za.exe, version 21.07 (2021-12-26), Copyright (C) 1999-2021 Igor Pavlov.
+It is redistributed from 7zip-bin 5.2.0. The npm wrapper's MIT license does
+not replace the executable's upstream licenses.
+
+Binary size: 1231360 bytes
+SHA-256: b0cfdeaf429f5cc53f85123dd8f5a5feb92c19d31aa34df257edf9a26be05f95
+
+The upstream 21.07 license and GNU LGPL text are distributed alongside this
+notice as 7zip-License.txt and 7zip-Copying.txt. See those texts for the
+complete copyright, LGPL, BSD, and unRAR restriction terms.
+
+The complete upstream version 21.07 source is available at:
+https://www.7-zip.org/a/7z2107-src.7z
+https://github.com/ip7z/7zip/tree/21.07
+
+The accompanying license texts were copied without modification from:
+https://raw.githubusercontent.com/ip7z/7zip/21.07/DOC/License.txt
+https://raw.githubusercontent.com/ip7z/7zip/21.07/DOC/copying.txt
+
+SparkAI WorkSpace launches this separate executable with fixed arguments
+to audit and extract an explicitly authorized installation archive. It does
+not link the executable into the application or modify its source/binary.

@@ -1,5 +1,13 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 3 本地交付验证完成）
+
+- 接受现场main/`45f1e07d33595791d2e95792d55ea7bf1b5315fb`，Phase2独立交付完成且HEAD/upstream/远端一致，工作树干净。Phase2制品与安装证据在下方及[专项](docs/COMFYUI_WORKFLOW_VALIDATION.md)。
+- 当前范围已实现：审核/显式导入manifest、immutable artifact store、streaming下载journal、managed/existing runtime、独立环境与版本激活回滚，公开稳定ID与安装计划人工授权；Main占用保护覆盖原journal/连接alias/冻结身份漂移。artifact39、runtime39、Main23与共享合同通过；最终模型复制/校验暂停专项证明真实fd关闭与同授权无新增GET恢复，源码进入独立production交付。
+- 仅fake/loopback和stub runtime，真实服务/模型下载/依赖安装没有新增授权。先完成Phase3独立验证和EXE/安装/Git再进入Phase4；具体合同见[Goal](GOAL.md)。
+- 续接验证：最终GUI6组/8截图通过，`.diagnostics/comfyui-runtime-ui-2026-10-23T03-30-36-239Z/report.json`，2次正常退出0、2次loopback GET含Range续传。884×640计划及existing控件截图已实际查看。安装期`generate-image`在journal/network前拒绝，unknown journal及localhost alias漂移阻止停止，已有环境源文件保留。Main23最新报告`.diagnostics/electron/comfyui-main-1792726203549/report.json`：15 POST/12 view/14 upload/2恢复子进程；旧夹具共享独占managed存储导致启动错误，已仅在测试factory隔离，不改变生产锁，失败的两个已识别测试Electron已清理。
+- 本地交付：`package:win:unrestricted` exit0，726源文件冻结sourceHash `1a95846c0600f4e3d6a644029507cfccf51a20b097ba7717c5311858ee64922a`；133dist/195owner逐字节匹配。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,521,856 B / SHA-256 `869210fb1e220e5cf3d655eda5aa1464121279990401f8fd341c6521b3581f19`；ASAR 53,408,455 B / `cfdc19044ccb67cd98b44e8efc6761bf2fe4ef0946717d6540b108a64e964239`。7za及三许可资源包内/安装一致。全部同名实例0后，品牌/S原位升级exit0/20,726ms，原目录`E:\sparkai-workspace\naimage`、1.0.9、配置/凭据sidecar metadata/快捷方式保留，安装EXE/ASAR匹配。Bundle仅CSS292969>270000失败，入口JS4310/plugin86613限内、无诊断泄漏；按开发包规则记录，不宣称正式Release。证据`.diagnostics/comfyui-runtime-delivery/`的package.log/frozen-source.json/package-audit.json/install.json/bundle.log。Git本阶段提交push待立即完成。
+
 ## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 2 本地交付完成）
 
 - 当前续接 main/`47f305d`，Phase1 已交付；续接时仅 Goal/Progress/map 的 Phase2 准备修改，全部保留。当前实施 typed workflow、受管 mask、导入映射向导与 GUI/IPC/CLI/MCP；Phase3–4 按顺序后续实施。

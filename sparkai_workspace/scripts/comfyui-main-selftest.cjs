@@ -22,6 +22,18 @@ process.env.NAIMAGE_AGENT_PROTOCOL_SELFTEST = "1";
 process.env.NAIMAGE_CONFIG_DIR = configDir;
 process.env.NAIMAGE_DEBUG_DIR = path.join(runDir, "runtime");
 app.commandLine.appendSwitch("user-data-dir", path.join(runDir, process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY ? "recovery-user-data" : "user-data"));
+// Recovery deliberately shares the image journal with its still-running parent.
+// The managed installer is unrelated to this fixture and keeps its exclusive
+// process lock; give that subsystem a separate root in each recovery process.
+if (process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY) {
+  const recoveryRoot = path.join(runDir, "recovery-managed", createHash("sha256").update(process.env.NAIMAGE_COMFY_MAIN_RECOVERY_KEY).digest("hex"));
+  const storeModule = require("../desktop/managed-artifact-store.cjs");
+  const runtimeModule = require("../desktop/comfyui-runtime-service.cjs");
+  const createStore = storeModule.createManagedArtifactStore, createRuntime = runtimeModule.createComfyUiRuntimeService;
+  storeModule.createManagedArtifactStore = options => createStore({ ...options, root: path.join(recoveryRoot, "artifacts") });
+  runtimeModule.createComfyUiRuntimeService = options => createRuntime({ ...options, rootDir: path.join(recoveryRoot, "comfyui") });
+}
+process.on("uncaughtException", error => { process.stderr.write(`${error.stack || error}\n`); app.exit(1); });
 const owner = require("../electron-main.cjs");
 const settings = { imageCount: 1, imageOutputFormat: "png" }, handlers = new Map(), results = [];
 let png, posts = 0, views = 0, uploads = 0, restartProcesses = 0;

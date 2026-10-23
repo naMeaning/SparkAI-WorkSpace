@@ -27,7 +27,9 @@ const TARGETED_TEST_SCRIPTS = new Set([
   "test:workspace-domain",
   "test:automation-service",
   "test:scientific-runner",
-  "test:commerce-template"
+  "test:commerce-template",
+  "test:managed-artifact",
+  "test:comfyui-runtime"
 ]);
 
 function commandError(code, message, details) {

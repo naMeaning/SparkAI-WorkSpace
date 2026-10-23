@@ -347,6 +347,70 @@ async function assertComfyUiWorkflowBoundary() {
   assert.equal(picked.images[0].assetId, sourceImage.assetId); assert.equal(picked.images[0].occurrenceId, sourceImage.occurrenceId); assert.equal(picked.images[0].contentHash, sourceImage.contentHash);
 }
 
+async function assertComfyUiRuntimeBoundary() {
+  const handlers = new Map(), calls = [];
+  const manifest = { manifestId: "manifest-fixture", label: "Portable fixture", version: "1", manifestHash: "a".repeat(64), adapter: "comfyui-portable", trust: "user-import", reviewStatus: "user-import", installable: true, artifactCount: 1, modelOnly: false, sourceUrl: "https://private.invalid/bundle", path: "C:/private/manifest.json", credentialRef: "private-ref", scripts: ["private-script"] };
+  const runtime = { runtimeId: "runtime-fixture", label: "Fixture", mode: "managed", state: "ready", connectionId: "connection-fixture", activeRevisionId: "revision-fixture", createdAt: "2026-10-23", updatedAt: "2026-10-23", path: "C:/private/runtime", revisions: [{ revisionId: "revision-fixture", manifestId: manifest.manifestId, manifestHash: manifest.manifestHash, version: "1", state: "ready", createdAt: "2026-10-23", path: "C:/private/revision", command: "private-python" }] };
+  const job = { jobId: "job-fixture", planId: "plan-fixture", runtimeId: runtime.runtimeId, manifestId: manifest.manifestId, manifestHash: manifest.manifestHash, state: "paused", downloadedBytes: 12, totalBytes: 24, createdAt: "2026-10-23", updatedAt: "2026-10-23", url: "https://private.invalid/bundle", path: "C:/private/job.part", headers: { authorization: "private-token" } };
+  const plan = { ok: true, planId: "plan-fixture", manifestId: manifest.manifestId, manifestHash: manifest.manifestHash, runtimeId: runtime.runtimeId, label: "Fixture plan", version: "1", modelOnly: false,
+    artifacts: [{ artifactId: "artifact-fixture", label: "Portable", kind: "runtime", sourceLabel: "reviewed.invalid", license: { id: "GPL-3.0", url: "https://private.invalid/license" }, bytes: 24, expandedBytes: 48, dependencies: [], url: "https://private.invalid/bundle", targetPath: "C:/private/runtime" }],
+    requirements: { os: ["windows"], arch: ["x64"], gpu: ["NVIDIA"], vramBytes: 1024, diskBytes: 96, path: "C:/private" }, downloadBytes: 24, expandedBytes: 48, requiredDiskBytes: 96, availableDiskBytes: 128, canInstall: true, rawManifest: { secret: "private" }, commands: ["private-command"] };
+  const service = {};
+  for (const method of ["list", "importManifest", "plan", "install", "pause", "resume", "registerExisting", "rollback", "remove", "start", "stop", "status"]) service[method] = async input => {
+    calls.push({ method, input });
+    if (method === "list") return { ok: true, manifests: [manifest, { ...manifest, manifestId: "needs-review", reviewStatus: "needs-review", trust: undefined, installable: true }], runtimes: [runtime], jobs: [job] };
+    if (method === "plan") return plan;
+    if (method === "importManifest") return { ok: true, manifest };
+    if (method === "install") return { ok: true, canceled: true, path: "C:/private" };
+    if (["pause", "resume"].includes(method)) return { ok: true, job, runtime };
+    if (method === "status") return { ok: true, runtime, job };
+    return { ok: true, runtime };
+  };
+  registerServerIpc({ ipcMain: { handle: (name, handler) => handlers.set(name, handler) }, comfyUiRuntimeService: service });
+  const control = payload => handlers.get("naimage:server:comfyui")({}, payload);
+  const listed = await control({ action: "runtime-list" });
+  assert.equal(listed.ok, true); assert.equal(listed.manifests[0].installable, true); assert.equal(listed.manifests[1].installable, false);
+  assert.equal(listed.runtimes[0].activeRevisionId, "revision-fixture"); assert.equal(listed.jobs[0].downloadedBytes, 12);
+  runtime.revisions.push({ revisionId: "existing-baseline", manifestId: "", manifestHash: "", version: "existing", state: "ready", createdAt: "2026-10-23" });
+  const existingBaseline = (await control({ action: "runtime-list" })).runtimes[0].revisions.find(revision => revision.revisionId === "existing-baseline");
+  assert.equal(existingBaseline.version, "existing"); assert.equal(existingBaseline.manifestHash, undefined, "Existing environments retain their baseline revision without inventing a manifest identity");
+  assert.equal(JSON.stringify(listed).includes("private"), false, "Runtime collections must project known safe fields only");
+  const planned = await control({ action: "runtime-plan", manifestId: manifest.manifestId, runtimeId: runtime.runtimeId });
+  assert.equal(planned.plan.planId, "plan-fixture"); assert.equal(planned.plan.artifacts[0].license.id, "GPL-3.0");
+  assert.equal(planned.plan.artifacts[0].bytes, 24); assert.equal(planned.plan.requiredDiskBytes, 96); assert.deepEqual(planned.plan.requirements.gpu, ["NVIDIA"]);
+  assert.equal(JSON.stringify(planned).includes("private"), false, "Immutable plans must not leak original manifests, URLs, paths or commands");
+  assert.deepEqual(calls.at(-1), { method: "plan", input: { manifestId: manifest.manifestId, runtimeId: runtime.runtimeId } });
+  assert.deepEqual(await control({ action: "runtime-install", planId: "plan-fixture" }), { ok: true, canceled: true });
+  assert.deepEqual(calls.at(-1), { method: "install", input: { planId: "plan-fixture" } }, "Only Main's install owner can request human authorization");
+  for (const [action, method, input] of [
+    ["manifest-import", "importManifest", undefined], ["runtime-existing-import", "registerExisting", undefined],
+    ["runtime-pause", "pause", { jobId: "job-fixture" }], ["runtime-resume", "resume", { jobId: "job-fixture" }],
+    ["runtime-rollback", "rollback", { runtimeId: runtime.runtimeId, revisionId: "revision-fixture" }],
+    ["runtime-remove", "remove", { runtimeId: runtime.runtimeId }], ["runtime-start", "start", { runtimeId: runtime.runtimeId }], ["runtime-stop", "stop", { runtimeId: runtime.runtimeId }],
+    ["runtime-status", "status", { runtimeId: runtime.runtimeId, jobId: "job-fixture" }]
+  ]) {
+    const result = await control({ action, ...input });
+    assert.equal(result.ok, true); assert.equal(JSON.stringify(result).includes("private"), false);
+    assert.deepEqual(calls.at(-1), { method, input });
+  }
+  const beforeInvalid = calls.length;
+  for (const request of [
+    { action: "runtime-install", planId: "plan-fixture", confirmed: true }, { action: "runtime-install", planId: "plan-fixture", manifestId: manifest.manifestId },
+    { action: "runtime-plan", manifestId: manifest.manifestId, baseUrl: "https://private.invalid" }, { action: "manifest-import", path: "C:/private/manifest.json" },
+    { action: "manifest-import", manifest: {} }, { action: "runtime-existing-import", runtimeId: runtime.runtimeId },
+    { action: "runtime-start", runtimeId: runtime.runtimeId, script: "private" }, { action: "runtime-stop", runtimeId: "C:/private" },
+    { action: "runtime-pause", jobId: "" }, { action: "runtime-resume", jobId: 7 }, { action: "runtime-rollback", runtimeId: runtime.runtimeId, revisionId: "" },
+    { action: "runtime-status", jobId: "job-fixture", credentialRef: "private-ref" }
+  ]) assert.equal((await control(request)).ok, false);
+  assert.equal(calls.length, beforeInvalid, "Invalid IDs, URLs, paths, scripts and caller authorization flags fail before Main owners");
+  service.status = async () => { throw Object.assign(new Error("Install failed C:/private/runtime https://private.invalid/token?secret=x Bearer private-token"), { code: "COMFYUI_RUNTIME_FIXTURE" }); };
+  const failure = await control({ action: "runtime-status", runtimeId: runtime.runtimeId });
+  assert.equal(failure.errorCode, "COMFYUI_RUNTIME_FIXTURE"); assert.equal(failure.error.includes("private"), false);
+  service.importManifest = async () => { throw Object.assign(new Error("Invalid manifest /home/private/manifest.json"), { code: "MANAGED_ARTIFACT_MANIFEST_INVALID" }); };
+  const manifestFailure = await control({ action: "manifest-import" });
+  assert.equal(manifestFailure.errorCode, "MANAGED_ARTIFACT_MANIFEST_INVALID"); assert.equal(manifestFailure.error.includes("private"), false);
+}
+
 async function assertComfyUiGenerationScopeBoundary() {
   const handlers = new Map(), calls = [], sideEffects = { runs: 0, masks: 0, templates: 0 };
   const config = { templateId: "stock-inpaint", sourceImage: { assetId: "source", occurrenceId: "source-occ", contentHash: "a".repeat(64) }, maskImage: { assetId: "mask", occurrenceId: "mask-occ", contentHash: "b".repeat(64), revision: 1 } };
@@ -1206,6 +1270,7 @@ async function main() {
   assert.deepEqual(agentWindowSends, ["naimage:agent-window:ready", "naimage:agent-window:command"], "Agent window preload sends changed.");
   await assertSettingsAccountBoundary();
   await assertComfyUiWorkflowBoundary();
+  await assertComfyUiRuntimeBoundary();
   await assertComfyUiGenerationScopeBoundary();
   await assertGlassBackgroundIpcBoundary();
   await assertRequirementLibraryIpcBoundary();

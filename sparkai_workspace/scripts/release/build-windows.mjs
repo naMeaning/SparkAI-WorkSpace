@@ -67,6 +67,17 @@ function builtAccessVariant() {
 const accessVariant = isDirectoryBuild ? null : builtAccessVariant();
 const publicInstallerName = accessVariant ? windowsInstallerArtifactName(productVersion, accessVariant) : "";
 
+// The installed runtime must have the same reviewed extractor as development.
+// A devDependency alone is not available after electron-builder prunes it.
+const managedExtractor = readFileSync(join(projectRoot, "node_modules/7zip-bin/win/x64/7za.exe"));
+const { SEVEN_ZIP_SHA256 } = require(join(projectRoot, "desktop/comfyui-runtime-archive.cjs"));
+if (managedExtractor.length !== 1_231_360 || createHash("sha256").update(managedExtractor).digest("hex") !== SEVEN_ZIP_SHA256) {
+  throw new Error("Managed runtime extractor identity differs from the reviewed Windows x64 binary.");
+}
+for (const license of ["7zip-License.txt", "7zip-Copying.txt", "SOURCE_NOTICE.txt"]) {
+  if (!existsSync(join(projectRoot, "build/managed-tools/licenses", license))) throw new Error(`Managed runtime license is missing: ${license}`);
+}
+
 function isPathInside(candidate, root) {
   const relation = relative(resolve(root), resolve(candidate));
   return relation === "" || (!relation.startsWith("..") && !relation.includes(":"));

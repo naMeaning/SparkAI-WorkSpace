@@ -110,11 +110,15 @@ function comfyUiConnectionReference(value: JsonObject) {
   return normalizeComfyUiConnectionReference(value) || "";
 }
 function publicAutomationComfyUiResult(value: unknown): unknown {
+  if (typeof value === "string") return value
+    .replace(/\b(?:https?|wss?|file|ftp):\/\/[^\s]+/gi, "[受保护来源]")
+    .replace(/(?:[A-Za-z]:[\\/]|\\\\)[^\s,;]+/g, "[受保护路径]")
+    .replace(/(^|\s)\/(?:[^/\s]+\/)*[^/\s,;)]+/g, "$1[受保护路径]");
   if (Array.isArray(value)) return value.map(publicAutomationComfyUiResult);
   if (!value || typeof value !== "object") return value;
   const result: JsonObject = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (/^(?:baseUrl|.*Url|.*Path|path|endpoint.*|authorizedHost|host|hostname|address|port|credentialRef|credentials|credentialValue|token|password|secret|apiKey|authorization|cookie|headers|tls|cert|certificate|privateKey|workflow|rawWorkflow|canonicalWorkflow|workflowJson|workflowData|originalWorkflow|objectInfo|value|values)$/i.test(key)) continue;
+    if (/^(?:baseUrl|.*Url|.*Path|path|endpoint.*|authorizedHost|host|hostname|address|port|credentialRef|credentials|credentialValue|token|password|secret|apiKey|authorization|cookie|headers|tls|cert|certificate|privateKey|workflow|rawWorkflow|canonicalWorkflow|workflowJson|workflowData|originalWorkflow|objectInfo|value|values|rawManifest|manifestJson|manifestData|script|scripts|commands|commandLine|argv|environment|env)$/i.test(key)) continue;
     result[key] = publicAutomationComfyUiResult(entry);
   }
   return result;
@@ -1308,6 +1312,18 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return context.recoverImageOperation?.(String(value.key));
     },
     "comfyui.connections": () => invokeComfyUiControl({ action: "connections-list" }),
+    "comfyui.runtime.list": () => invokeComfyUiControl({ action: "runtime-list" }),
+    "comfyui.manifest.import": () => invokeComfyUiControl({ action: "manifest-import" }),
+    "comfyui.runtime.plan": (value) => invokeComfyUiControl({ action: "runtime-plan", manifestId: String(value.manifestId), ...(value.runtimeId === undefined ? {} : { runtimeId: String(value.runtimeId) }) }),
+    "comfyui.runtime.install": (value) => invokeComfyUiControl({ action: "runtime-install", planId: String(value.planId) }),
+    "comfyui.runtime.pause": (value) => invokeComfyUiControl({ action: "runtime-pause", jobId: String(value.jobId) }),
+    "comfyui.runtime.resume": (value) => invokeComfyUiControl({ action: "runtime-resume", jobId: String(value.jobId) }),
+    "comfyui.runtime.import-existing": () => invokeComfyUiControl({ action: "runtime-existing-import" }),
+    "comfyui.runtime.rollback": (value) => invokeComfyUiControl({ action: "runtime-rollback", runtimeId: String(value.runtimeId), ...(value.revisionId === undefined ? {} : { revisionId: String(value.revisionId) }) }),
+    "comfyui.runtime.remove": (value) => invokeComfyUiControl({ action: "runtime-remove", runtimeId: String(value.runtimeId) }),
+    "comfyui.runtime.start": (value) => invokeComfyUiControl({ action: "runtime-start", runtimeId: String(value.runtimeId) }),
+    "comfyui.runtime.stop": (value) => invokeComfyUiControl({ action: "runtime-stop", runtimeId: String(value.runtimeId) }),
+    "comfyui.runtime.status": (value) => invokeComfyUiControl({ action: "runtime-status", ...(value.runtimeId === undefined ? {} : { runtimeId: String(value.runtimeId) }), ...(value.jobId === undefined ? {} : { jobId: String(value.jobId) }) }),
     "comfyui.connection.save": (value) => {
       if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "保存 ComfyUI 连接需要 confirmed=true。");
       const connectionId = comfyUiConnectionReference(value);

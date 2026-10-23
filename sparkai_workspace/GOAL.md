@@ -1,5 +1,16 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：ComfyUI 平台 Phase 3——托管安装（2026-10-23，本地交付验证完成）
+
+- 基线：main / `45f1e07d33595791d2e95792d55ea7bf1b5315fb`；Phase2已独立EXE/安装/源码推送，工作树干净。保持此前单Agent/TaskScope/image_gen及Main网络/路径/凭据/日志所有权。
+- 结果：Main-owned manifest、immutable artifact store、流式下载journal/暂停/断点续传/校验/引用计数；ComfyUI managed与existing两种runtime，固定portable启动适配器、审核归档预检、版本分目录安装/健康校验/原子激活/失败回滚。模型放应用managed目录，不进项目资产。公开操作只持manifestId/planId/jobId/runtimeId等稳定ID。
+- 安装许可：manifest必须固定registry或用户native明确导入；展示来源、许可、精确下载/展开大小、依赖、GPU/显存/磁盘需求。真正下载与执行安装前另有Main原生人工确认，绑定不可变plan与manifestHash；CLI/MCP不能用confirmed布尔值自行授权。暂停后恢复沿原授权；改变manifest/plan必须重新授权。工作流不能安装或执行pip/npm/shell。
+- 首批固定adapter为ComfyUI portable（Python+依赖随bundle），existing只登记并验证原环境、不修改用户Python。custom node只有受信签名/审核registry声明才允许，进入独立托管环境。官方portable元数据已只读核对，但完整依赖/许可证/展开体积未审，不把只知道SHA的bundle标为已审；初始候选明确needs-review，显式用户manifest可安装，禁止伪造catalog hash。
+- 安全：streaming不复用8MiB Comfy响应buffer；HTTPS与DNS/IP pin策略覆盖artifact，零隐式redirect，严格Range/Content-Range/ETag/size/hash；根目录/归档拒绝symlink/junction/ADS/越界/炸弹；磁盘预检、并发去重、活动租约与引用阻止误清理，失败保留上一版本。
+- 验收：fake/loopback下载与stub运行环境，manifest/签名/依赖环、checksum/Range/pause/restart/ETag、磁盘不足、重复安装/引用、恶意归档/回滚/existing专项；共享GUI/IPC/CLI/MCP/Skill/schema及contract；typecheck/view-image与实际UI截图。完成本阶段后独立production EXE、包内/安装身份、正常退出后品牌原位升级、文档与普通push。
+- 授权：本次实现与验证只fake/loopback，0真实模型/下载/依赖安装/真实LAN或远端；不改extension/NewAPI/生产、不上传EXE/Release/tag。Phase4离线Agent在本阶段交付后继续实施。
+- 交付里程碑：artifact39、runtime39、Main23、共享合同与最终GUI6组/8截图已通过。726源文件冻结、133dist/195owner及7za/三许可包内身份一致；production EXE 110,521,856 B / SHA-256 `869210fb1e220e5cf3d655eda5aa1464121279990401f8fd341c6521b3581f19`。品牌/S原位升级exit0，安装EXE/ASAR/工具一致，配置/凭据metadata/快捷方式保留。CSS预算失败已记录，非正式Release。具体证据见[托管安装专项](docs/COMFYUI_MANAGED_INSTALL_VALIDATION.md)。下一步本阶段源码文档提交push后实施Phase4。
+
 ## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 2 本地交付完成）
 
 - 接受现场：根 main / `17d112527fe5eb4139771314e4927fd454b61620`，工作树干净。当前用户新方向取代上一轮 localhost-only 非目标；历史参数能力交付证据保留。

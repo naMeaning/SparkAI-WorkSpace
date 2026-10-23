@@ -1,6 +1,18 @@
 // Generated from integrations/naimage-control/references/commands.schema.json.
 // Run `corepack pnpm run automation:generate` after editing the schema.
 export const AUTOMATION_RENDERER_COMMAND_NAMES = [
+  "comfyui.runtime.list",
+  "comfyui.manifest.import",
+  "comfyui.runtime.plan",
+  "comfyui.runtime.install",
+  "comfyui.runtime.pause",
+  "comfyui.runtime.resume",
+  "comfyui.runtime.import-existing",
+  "comfyui.runtime.rollback",
+  "comfyui.runtime.remove",
+  "comfyui.runtime.start",
+  "comfyui.runtime.stop",
+  "comfyui.runtime.status",
   "app.state",
   "app.diagnostics",
   "app.export-diagnostics",
@@ -134,6 +146,18 @@ export const AUTOMATION_SERVICE_COMMAND_NAMES = [
 ] as const;
 
 export const AUTOMATION_COMMAND_NAMES = [
+  "comfyui.runtime.list",
+  "comfyui.manifest.import",
+  "comfyui.runtime.plan",
+  "comfyui.runtime.install",
+  "comfyui.runtime.pause",
+  "comfyui.runtime.resume",
+  "comfyui.runtime.import-existing",
+  "comfyui.runtime.rollback",
+  "comfyui.runtime.remove",
+  "comfyui.runtime.start",
+  "comfyui.runtime.stop",
+  "comfyui.runtime.status",
   "project.knowledge.list",
   "project.knowledge.save",
   "project.knowledge.status",
@@ -264,6 +288,188 @@ export const AUTOMATION_COMMAND_NAMES = [
 ] as const;
 
 export const AUTOMATION_COMMAND_DEFINITIONS = {
+  "comfyui.runtime.list": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "comfyui.manifest.import": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "comfyui.runtime.plan": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manifestId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned manifest identity."
+        },
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Optional existing runtime target for an upgrade; required for a model-only manifest."
+        }
+      },
+      "required": [
+        "manifestId"
+      ]
+    }
+  },
+  "comfyui.runtime.install": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "planId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Immutable Main-owned installation plan identity."
+        }
+      },
+      "required": [
+        "planId"
+      ]
+    }
+  },
+  "comfyui.runtime.pause": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned persistent installation job identity."
+        }
+      },
+      "required": [
+        "jobId"
+      ]
+    }
+  },
+  "comfyui.runtime.resume": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned persistent installation job identity."
+        }
+      },
+      "required": [
+        "jobId"
+      ]
+    }
+  },
+  "comfyui.runtime.import-existing": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "comfyui.runtime.rollback": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned runtime identity."
+        },
+        "revisionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Optional validated earlier revision identity; Main selects the previous revision if omitted."
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "comfyui.runtime.remove": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned runtime identity."
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    },
+    "destructive": true
+  },
+  "comfyui.runtime.start": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned runtime identity."
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "comfyui.runtime.stop": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Main-owned runtime identity."
+        }
+      },
+      "required": [
+        "runtimeId"
+      ]
+    }
+  },
+  "comfyui.runtime.status": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtimeId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Optional Main-owned runtime identity."
+        },
+        "jobId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$",
+          "description": "Optional Main-owned persistent installation job identity."
+        }
+      },
+      "required": []
+    }
+  },
   "project.knowledge.list": {
     "parameters": {
       "type": "object",
@@ -1816,7 +2022,9 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
             "test:workspace-domain",
             "test:automation-service",
             "test:scientific-runner",
-            "test:commerce-template"
+            "test:commerce-template",
+            "test:managed-artifact",
+            "test:comfyui-runtime"
           ]
         },
         "timeoutMs": {
@@ -6144,6 +6352,18 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
 } as const;
 
 export const AUTOMATION_COMMAND_SURFACES = {
+  "comfyui.runtime.list": "renderer",
+  "comfyui.manifest.import": "renderer",
+  "comfyui.runtime.plan": "renderer",
+  "comfyui.runtime.install": "renderer",
+  "comfyui.runtime.pause": "renderer",
+  "comfyui.runtime.resume": "renderer",
+  "comfyui.runtime.import-existing": "renderer",
+  "comfyui.runtime.rollback": "renderer",
+  "comfyui.runtime.remove": "renderer",
+  "comfyui.runtime.start": "renderer",
+  "comfyui.runtime.stop": "renderer",
+  "comfyui.runtime.status": "renderer",
   "project.knowledge.list": "service",
   "project.knowledge.save": "service",
   "project.knowledge.status": "service",
@@ -6329,7 +6549,9 @@ export const AUTOMATION_COMMAND_ENUMS = {
       "test:workspace-domain",
       "test:automation-service",
       "test:scientific-runner",
-      "test:commerce-template"
+      "test:commerce-template",
+      "test:managed-artifact",
+      "test:comfyui-runtime"
     ]
   },
   "debug.capture-window": {

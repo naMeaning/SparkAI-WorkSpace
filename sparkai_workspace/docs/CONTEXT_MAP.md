@@ -1,5 +1,11 @@
 # SparkAI WorkSpace 上下文地图
 
+## ComfyUI Phase 3：manifest / artifact / runtime
+
+- owner：`runtime/managed-artifact-manifest.cjs`持严格声明格式/固定适配器与hash/安全公开投影；`desktop/managed-artifact-store.cjs`持应用config下immutable SHA对象、download journal、网络pin/Range/暂停恢复/校验/引用；`desktop/comfyui-runtime-service.cjs`持manifest native导入/零网络plan/人工授权/归档预检/managed与existing登记/版本激活和回滚；`desktop/comfyui-runtime-archive.cjs`持固定7za身份、归档预检与提取关闭屏障。模型及runtime文件不进入项目目录。
+- 对外沿现有ServerBridge/comfyui IPC及共享command registry/runtime、CLI/MCP/Skill；Renderer/自动化只传manifestId/planId/jobId/runtimeId，Main原生文件选择/确认持路径与真实安装权限。GUI在执行前展示来源/许可/依赖/硬件/体积/磁盘，并明确下载网络边界。
+- Main持config/managed/artifacts与config/managed/comfyui，`isComfyUiRuntimeConnectionBusy`同时检查executor active及原项目journal非终态，按ID和loopback同端口别名匹配、冻结连接漂移/无法读取时阻止停机/切换；`assertConnectionAvailable`在Main图片提交及恢复前拒绝安装/验证临时进程，journal.start前再次同步准入以封住异步素材预检竞态。固定7za资源与许可证随EXE携带，build/runtime复用审核binary hash。模型副本流式复制/校验沿原signal取消并等待fd关闭，临时文件原子发布。专项`test:managed-artifact`/`test:comfyui-runtime`/`test:comfyui-runtime-ui`与Main恢复夹具对应证据见[托管安装验证](COMFYUI_MANAGED_INSTALL_VALIDATION.md)。
+
 ## ComfyUI Phase 2：typed workflow 与受管蒙版
 
 - 入口与状态见[Goal](../GOAL.md)/[Progress](../PROGRESS.md)。registry/executor/template service继续拥有审核节点、类型连线、角色映射与workflow身份；不新建执行Runtime或绕过image_gen/journal。Main拥有source/mask字节，Renderer/CLI/MCP只传assetId/occurrenceId/contentHash/revision与workflow/connection ID。

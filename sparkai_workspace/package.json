@@ -23,6 +23,9 @@
     ]
   },
   "scripts": {
+    "test:managed-artifact": "node scripts/managed-artifact-selftest.cjs",
+    "test:comfyui-runtime": "node scripts/comfyui-runtime-selftest.cjs",
+    "test:comfyui-runtime-ui": "node scripts/comfyui-runtime-ui-selftest.mjs",
     "test:agent-workflow": "node scripts/agent-workflow-selftest.cjs",
     "test:agent-workflow-ui": "node scripts/agent-workflow-ui-selftest.mjs",
     "test:agent-workflow-main": "node scripts/agent-workflow-main-selftest.mjs",
@@ -333,6 +336,14 @@
       {
         "from": "build/update-launcher.ps1",
         "to": "update-launcher.ps1"
+      },
+      {
+        "from": "node_modules/7zip-bin/win/x64/7za.exe",
+        "to": "tools/7za.exe"
+      },
+      {
+        "from": "build/managed-tools/licenses",
+        "to": "tools/licenses"
       }
     ],
     "asarUnpack": [

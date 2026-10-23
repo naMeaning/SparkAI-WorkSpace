@@ -760,6 +760,11 @@ async function main() {
       draftId: "workflow-draft-fixture", blocked: false, rawWorkflow: { secret: "must-not-cross" },
       nodes: [{ nodeId: "10", classType: "LoadImage", inputs: [{ inputName: "image", type: "file", allowedKinds: ["sourceImage"], value: "C:/private/source.png" }] }],
       masks: [{ assetId: "mask-fixture", occurrenceId: "mask-occ", contentHash: "c".repeat(64), revision: 2, path: "C:/private/mask.png" }],
+      manifests: [{ manifestId: "manifest-fixture", label: "Runtime fixture", sourceUrl: "https://private.invalid/runtime", manifestPath: "C:/private/manifest.json" }],
+      plan: { planId: "plan-fixture", manifestId: "manifest-fixture", manifestHash: "d".repeat(64), downloadBytes: 64, expandedBytes: 128, canInstall: true,
+        artifacts: [{ artifactId: "artifact-fixture", label: "Portable", sourceLabel: "reviewed.invalid", sourceUrl: "https://private.invalid/artifact", targetPath: "C:/private/runtime", license: { id: "GPL-3.0", url: "https://private.invalid/license" } }],
+        rawManifest: { scripts: ["private-command"] }, scripts: ["private-command"], note: "https://private.invalid/source", diagnostic: "/home/private/runtime" },
+      jobs: [{ jobId: "job-fixture", runtimeId: "runtime-fixture", state: "paused", downloadedBytes: 32, totalBytes: 64, downloadUrl: "https://private.invalid/download", journalPath: "C:/private/download.json" }],
       capabilities: { checkpoints: ["fixture.safetensors"], endpoint: "http://127.0.0.1:8188", credentialRef: "nested-ref" } }; } }, naimageConfig: {
       exportManagedAssetQueue: {
         start: async input => { boundaryCalls.push({ kind: "export", input }); return { ok: true, queueId: "queue-fixture" }; },
@@ -874,6 +879,34 @@ async function main() {
         ["comfyui.mask.import", { ...maskRequest, confirmed: true, sourceImage: { ...sourceImage, dataUrl: "data:image/png;base64,a" } }]
       ]) await assert.rejects(runtimeModule.executeAutomationCommand(command, args, incrementalContext));
       assert.equal(boundaryCalls.length, beforeInvalidImports, "Import and approval validation must occur before native/Main actions");
+      const runtimePlan = await runtimeModule.executeAutomationCommand("comfyui.runtime.plan", { manifestId: "manifest-fixture", runtimeId: "runtime-fixture" }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "runtime-plan", manifestId: "manifest-fixture", runtimeId: "runtime-fixture" });
+      assert.equal(runtimePlan.plan.downloadBytes, 64); assert.equal(runtimePlan.plan.artifacts[0].sourceLabel, "reviewed.invalid");
+      assert.equal(runtimePlan.plan.artifacts[0].license.id, "GPL-3.0"); assert.equal(runtimePlan.plan.rawManifest, undefined); assert.equal(runtimePlan.plan.scripts, undefined);
+      assert.equal(JSON.stringify(runtimePlan).includes("private"), false, "Nested runtime results and free-text diagnostics must not expose URLs, paths or original manifests");
+      for (const [command, args, input] of [
+        ["comfyui.runtime.list", {}, { action: "runtime-list" }], ["comfyui.manifest.import", {}, { action: "manifest-import" }],
+        ["comfyui.runtime.import-existing", {}, { action: "runtime-existing-import" }],
+        ["comfyui.runtime.install", { planId: "plan-fixture" }, { action: "runtime-install", planId: "plan-fixture" }],
+        ["comfyui.runtime.pause", { jobId: "job-fixture" }, { action: "runtime-pause", jobId: "job-fixture" }],
+        ["comfyui.runtime.resume", { jobId: "job-fixture" }, { action: "runtime-resume", jobId: "job-fixture" }],
+        ["comfyui.runtime.rollback", { runtimeId: "runtime-fixture", revisionId: "revision-fixture" }, { action: "runtime-rollback", runtimeId: "runtime-fixture", revisionId: "revision-fixture" }],
+        ["comfyui.runtime.start", { runtimeId: "runtime-fixture" }, { action: "runtime-start", runtimeId: "runtime-fixture" }],
+        ["comfyui.runtime.stop", { runtimeId: "runtime-fixture" }, { action: "runtime-stop", runtimeId: "runtime-fixture" }],
+        ["comfyui.runtime.remove", { runtimeId: "runtime-fixture" }, { action: "runtime-remove", runtimeId: "runtime-fixture" }],
+        ["comfyui.runtime.status", { runtimeId: "runtime-fixture", jobId: "job-fixture" }, { action: "runtime-status", runtimeId: "runtime-fixture", jobId: "job-fixture" }]
+      ]) {
+        const response = await runtimeModule.executeAutomationCommand(command, args, incrementalContext);
+        assert.deepEqual(boundaryCalls.at(-1).input, input); assert.equal(JSON.stringify(response).includes("private"), false);
+      }
+      const beforeInvalidRuntime = boundaryCalls.length;
+      for (const [command, args] of [
+        ["comfyui.runtime.install", { planId: "plan-fixture", confirmed: true }], ["comfyui.runtime.install", { planId: "plan-fixture", url: "https://private.invalid" }],
+        ["comfyui.runtime.plan", { manifestId: "manifest-fixture", manifest: {} }], ["comfyui.manifest.import", { path: "C:/private/manifest.json" }],
+        ["comfyui.runtime.import-existing", { directory: "C:/private" }], ["comfyui.runtime.start", { runtimeId: "runtime-fixture", script: "private" }],
+        ["comfyui.runtime.pause", { jobId: "" }], ["comfyui.runtime.resume", { jobId: 9 }], ["comfyui.runtime.status", { runtimeId: "C:/private" }]
+      ]) await assert.rejects(runtimeModule.executeAutomationCommand(command, args, incrementalContext));
+      assert.equal(boundaryCalls.length, beforeInvalidRuntime, "Runtime requests reject raw manifests, path/script inputs and caller authorization flags before IPC");
       await runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "remove-object" }, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input[2], "remove-object");
       await assert.rejects(runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "expand" }, incrementalContext));

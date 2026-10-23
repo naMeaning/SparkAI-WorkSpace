@@ -2126,6 +2126,85 @@ export type ComfyUiTemplate = {
   policyVersion?: number | string;
 };
 
+export type ComfyUiRuntimeManifest = {
+  manifestId: string;
+  label: string;
+  version: string;
+  manifestHash?: string;
+  adapter: string;
+  trust?: "user-import" | "reviewed-registry";
+  artifactCount?: number;
+  modelOnly?: boolean;
+  reviewStatus?: "needs-review" | "reviewed" | "user-import";
+  installable?: boolean;
+};
+export type ComfyUiRuntimeRevision = {
+  revisionId: string;
+  manifestId?: string;
+  manifestHash?: string;
+  version: string;
+  state: "ready" | "failed";
+  createdAt: string;
+};
+export type ComfyUiRuntime = {
+  runtimeId: string;
+  label: string;
+  mode: "managed" | "existing";
+  state: "ready" | "running" | "stopped" | "failed" | "removed";
+  connectionId: string;
+  activeRevisionId?: string;
+  revisions: ComfyUiRuntimeRevision[];
+  createdAt: string;
+  updatedAt: string;
+};
+export type ComfyUiRuntimeJob = {
+  jobId: string;
+  planId: string;
+  runtimeId: string;
+  manifestId: string;
+  manifestHash: string;
+  state: "authorized" | "downloading" | "paused" | "installing" | "validating" | "completed" | "failed";
+  downloadedBytes: number;
+  totalBytes: number;
+  errorCode?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ComfyUiRuntimePlan = {
+  planId: string;
+  manifestId: string;
+  manifestHash: string;
+  runtimeId?: string;
+  label: string;
+  version: string;
+  artifacts: Array<{
+    artifactId: string;
+    label: string;
+    kind: string;
+    sourceLabel: string;
+    license: { id: string };
+    bytes: number;
+    expandedBytes: number;
+    dependencies: string[];
+  }>;
+  requirements: { os: string[]; arch: string[]; gpu: string[]; vramBytes: number; diskBytes: number };
+  downloadBytes: number;
+  expandedBytes: number;
+  requiredDiskBytes: number;
+  availableDiskBytes: number;
+  canInstall: boolean;
+  modelOnly: boolean;
+};
+export type ComfyUiRuntimeControlResult = {
+  manifests?: ComfyUiRuntimeManifest[];
+  manifest?: ComfyUiRuntimeManifest;
+  runtimes?: ComfyUiRuntime[];
+  runtime?: ComfyUiRuntime;
+  jobs?: ComfyUiRuntimeJob[];
+  job?: ComfyUiRuntimeJob;
+  plan?: ComfyUiRuntimePlan;
+};
+
 export type ImageTaskDraft = {
   prompt: string;
   ratio: string;
@@ -3193,7 +3272,12 @@ export type ServerBridge = {
     error?: string;
   }>;
   comfyui(payload: {
-    action: "list" | "inspect" | "import" | "workflow-preview-import" | "workflow-approve-import" | "masks-list" | "masks-import" | "cancel" | "connections-list" | "connections-save" | "connections-update-metadata" | "connections-delete" | "connections-test" | "connections-credential-import";
+    action: "list" | "inspect" | "import" | "workflow-preview-import" | "workflow-approve-import" | "masks-list" | "masks-import" | "cancel" | "connections-list" | "connections-save" | "connections-update-metadata" | "connections-delete" | "connections-test" | "connections-credential-import" | "runtime-list" | "manifest-import" | "runtime-plan" | "runtime-install" | "runtime-pause" | "runtime-resume" | "runtime-existing-import" | "runtime-rollback" | "runtime-remove" | "runtime-start" | "runtime-stop" | "runtime-status";
+    manifestId?: string;
+    planId?: string;
+    runtimeId?: string;
+    jobId?: string;
+    revisionId?: string;
     baseUrl?: string;
     connectionId?: string;
     profileId?: string;
@@ -3210,7 +3294,7 @@ export type ServerBridge = {
     credentialType?: "none" | "bearer" | "basic" | "mtls";
     enabled?: boolean;
     confirmed?: boolean;
-  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; draftId?: string; blocked?: boolean; issues?: ComfyUiWorkflowImportPreview["issues"]; nodes?: ComfyUiWorkflowImportPreview["nodes"]; candidateCapabilities?: ComfyUiWorkflowCapability[]; masks?: ComfyUiManagedMask[]; mask?: ComfyUiManagedMask; connections?: Array<{ connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }>; connection?: { connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }; baseUrl?: string; connectionId?: string; networkScope?: "local" | "lan" | "remote"; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
+  }): Promise<ComfyUiRuntimeControlResult & { ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; draftId?: string; blocked?: boolean; issues?: ComfyUiWorkflowImportPreview["issues"]; nodes?: ComfyUiWorkflowImportPreview["nodes"]; candidateCapabilities?: ComfyUiWorkflowCapability[]; masks?: ComfyUiManagedMask[]; mask?: ComfyUiManagedMask; connections?: Array<{ connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }>; connection?: { connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }; baseUrl?: string; connectionId?: string; networkScope?: "local" | "lan" | "remote"; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
   licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;

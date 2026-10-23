@@ -26,6 +26,7 @@ function registerServerIpc({
   comfyUiMaskService,
   comfyUiConnectionService,
   comfyUiCredentialStore,
+  comfyUiRuntimeService,
   clearNewApiAuth,
   completeNewApiLogin,
   customApiCredentials,
@@ -166,6 +167,68 @@ function registerServerIpc({
       return { ...identity, revision: value.revision, width: value.width, height: value.height, sourceImage };
     } catch { return undefined; }
   };
+  const runtimeText = (value, max = 180) => typeof value === "string" ? value
+    .replace(/\b(?:https?|wss?|file|ftp):\/\/[^\s]+/gi, "[受保护来源]")
+    .replace(/(?:[A-Za-z]:[\\/]|\\\\)[^\s,;]+/g, "[受保护路径]")
+    .replace(/(^|\s)\/(?:[^/\s]+\/)*[^/\s,;)]+/g, "$1[受保护路径]")
+    .replace(/\b(?:Bearer\s+\S+|(?:token|password|secret|apiKey|authorization|cookie)\s*[:=]\s*\S+)/gi, "[受保护凭据]")
+    .replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, max) : "";
+  const runtimeBytes = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const runtimeHash = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value) ? value : undefined;
+  const runtimeStrings = value => (Array.isArray(value) ? value : []).slice(0, 128).map(item => runtimeText(item)).filter(Boolean);
+  const publicRuntimeManifest = value => {
+    if (!safeControlId(value?.manifestId)) return undefined;
+    return { manifestId: value.manifestId, label: runtimeText(value.label), version: runtimeText(value.version), adapter: runtimeText(value.adapter),
+      ...(runtimeHash(value.manifestHash) ? { manifestHash: value.manifestHash } : {}),
+      ...(["user-import", "reviewed-registry"].includes(value.trust) ? { trust: value.trust } : {}),
+      ...(["needs-review", "reviewed", "user-import"].includes(value.reviewStatus) ? { reviewStatus: value.reviewStatus } : {}),
+      artifactCount: runtimeBytes(value.artifactCount), modelOnly: value.modelOnly === true,
+      installable: value.installable === true && value.reviewStatus !== "needs-review" && ["user-import", "reviewed-registry"].includes(value.trust) };
+  };
+  const publicRuntimeRevision = value => {
+    if (!safeControlId(value?.revisionId) || !["ready", "failed"].includes(value.state)) return undefined;
+    return { revisionId: value.revisionId, ...(safeControlId(value.manifestId) ? { manifestId: value.manifestId } : {}), ...(runtimeHash(value.manifestHash) ? { manifestHash: value.manifestHash } : {}), version: runtimeText(value.version), state: value.state, createdAt: runtimeText(value.createdAt) };
+  };
+  const publicRuntime = value => {
+    if (!safeControlId(value?.runtimeId) || !["managed", "existing"].includes(value.mode) || !["ready", "running", "stopped", "failed", "removed"].includes(value.state)) return undefined;
+    return { runtimeId: value.runtimeId, label: runtimeText(value.label), mode: value.mode, state: value.state,
+      ...(safeControlId(value.connectionId) ? { connectionId: value.connectionId } : {}),
+      ...(safeControlId(value.activeRevisionId) ? { activeRevisionId: value.activeRevisionId } : {}),
+      revisions: (Array.isArray(value.revisions) ? value.revisions : []).map(publicRuntimeRevision).filter(Boolean), createdAt: runtimeText(value.createdAt), updatedAt: runtimeText(value.updatedAt) };
+  };
+  const publicRuntimeJob = value => {
+    if (!["jobId", "planId", "runtimeId", "manifestId"].every(key => safeControlId(value?.[key])) || !runtimeHash(value.manifestHash) || !["authorized", "downloading", "paused", "installing", "validating", "completed", "failed"].includes(value.state)) return undefined;
+    return { jobId: value.jobId, planId: value.planId, runtimeId: value.runtimeId, manifestId: value.manifestId, manifestHash: value.manifestHash,
+      state: value.state, downloadedBytes: runtimeBytes(value.downloadedBytes), totalBytes: runtimeBytes(value.totalBytes),
+      ...(typeof value.errorCode === "string" && /^[A-Z][A-Z0-9_]{0,159}$/.test(value.errorCode) ? { errorCode: value.errorCode } : {}),
+      createdAt: runtimeText(value.createdAt), updatedAt: runtimeText(value.updatedAt) };
+  };
+  const publicRuntimePlan = value => {
+    if (!safeControlId(value?.planId) || !safeControlId(value.manifestId) || !runtimeHash(value.manifestHash)) return undefined;
+    const artifacts = (Array.isArray(value.artifacts) ? value.artifacts : []).flatMap(artifact => safeControlId(artifact?.artifactId) ? [{
+      artifactId: artifact.artifactId, label: runtimeText(artifact.label), kind: runtimeText(artifact.kind), sourceLabel: runtimeText(artifact.sourceLabel),
+      license: { id: runtimeText(artifact.license?.id) }, bytes: runtimeBytes(artifact.bytes), expandedBytes: runtimeBytes(artifact.expandedBytes),
+      dependencies: (Array.isArray(artifact.dependencies) ? artifact.dependencies : []).filter(safeControlId)
+    }] : []);
+    return { planId: value.planId, manifestId: value.manifestId, manifestHash: value.manifestHash,
+      ...(safeControlId(value.runtimeId) ? { runtimeId: value.runtimeId } : {}), label: runtimeText(value.label), version: runtimeText(value.version), artifacts,
+      requirements: { os: runtimeStrings(value.requirements?.os), arch: runtimeStrings(value.requirements?.arch), gpu: runtimeStrings(value.requirements?.gpu), vramBytes: runtimeBytes(value.requirements?.vramBytes), diskBytes: runtimeBytes(value.requirements?.diskBytes) },
+      downloadBytes: runtimeBytes(value.downloadBytes), expandedBytes: runtimeBytes(value.expandedBytes), requiredDiskBytes: runtimeBytes(value.requiredDiskBytes), availableDiskBytes: runtimeBytes(value.availableDiskBytes),
+      modelOnly: value.modelOnly === true, canInstall: value.canInstall === true && artifacts.length > 0 && artifacts.length === value.artifacts?.length };
+  };
+  const publicRuntimeResult = value => {
+    const result = { ok: value?.ok === true };
+    if (value?.canceled === true) return { ...result, canceled: true };
+    if (!result.ok) return { ok: false, errorCode: /^COMFYUI_RUNTIME_[A-Z0-9_]+$/.test(value?.errorCode || "") ? value.errorCode : "COMFYUI_RUNTIME_CONTROL_FAILED", error: runtimeText(value?.error, 500) || "本机运行环境操作未完成。" };
+    for (const [key, project] of [["manifests", publicRuntimeManifest], ["runtimes", publicRuntime], ["jobs", publicRuntimeJob]]) if (Array.isArray(value?.[key])) result[key] = value[key].map(project).filter(Boolean);
+    for (const [key, project] of [["manifest", publicRuntimeManifest], ["runtime", publicRuntime], ["job", publicRuntimeJob]]) if (value?.[key]) result[key] = project(value[key]);
+    if (value?.plan || value?.planId) result.plan = publicRuntimePlan(value.plan || value);
+    return result;
+  };
+  const runtimeActions = { "runtime-list": ["list", [], []], "manifest-import": ["importManifest", [], []], "runtime-plan": ["plan", ["manifestId"], ["runtimeId"]],
+    "runtime-install": ["install", ["planId"], []], "runtime-pause": ["pause", ["jobId"], []], "runtime-resume": ["resume", ["jobId"], []],
+    "runtime-existing-import": ["registerExisting", [], []], "runtime-rollback": ["rollback", ["runtimeId"], ["revisionId"]], "runtime-remove": ["remove", ["runtimeId"], []],
+    "runtime-start": ["start", ["runtimeId"], []], "runtime-stop": ["stop", ["runtimeId"], []], "runtime-status": ["status", [], ["runtimeId", "jobId"]] };
 
   ipcMain.handle("naimage:server:license-status", async (_event, payload = {}) => {
     return await licenseService.verify({
@@ -562,7 +625,14 @@ function registerServerIpc({
 
   ipcMain.handle("naimage:server:comfyui", async (_event, payload = {}) => {
     try {
-      if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).some(key => !["action", "baseUrl", "connectionId", "profileId", "label", "outputNodeId", "inputMappings", "projectId", "conversationId", "sourceImage", "draftId", "capability", "key", "networkScope", "credentialType", "enabled", "confirmed"].includes(key))) throw controlInvalid();
+      if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).some(key => !["action", "baseUrl", "connectionId", "profileId", "label", "outputNodeId", "inputMappings", "projectId", "conversationId", "sourceImage", "draftId", "capability", "key", "networkScope", "credentialType", "enabled", "confirmed", "manifestId", "planId", "runtimeId", "jobId", "revisionId"].includes(key))) throw controlInvalid();
+      if (Object.prototype.hasOwnProperty.call(runtimeActions, payload.action)) {
+        const [method, required, optional] = runtimeActions[payload.action];
+        if (Object.keys(payload).some(key => !["action", ...required, ...optional].includes(key)) || required.some(key => !safeControlId(payload[key])) || optional.some(key => payload[key] !== undefined && !safeControlId(payload[key]))) throw controlInvalid();
+        if (typeof comfyUiRuntimeService?.[method] !== "function") throw Object.assign(new Error("ComfyUI 本机运行环境管理不可用。"), { code: "COMFYUI_RUNTIME_SERVICE_UNAVAILABLE" });
+        const input = Object.fromEntries([...required, ...optional].filter(key => payload[key] !== undefined).map(key => [key, payload[key]]));
+        return publicRuntimeResult(await (required.length + optional.length ? comfyUiRuntimeService[method](input) : comfyUiRuntimeService[method]()));
+      }
       if (payload.action === "list") return publicTemplateResult(await comfyUiTemplateService.list());
       if (["import", "workflow-preview-import"].includes(payload.action)) {
         if (Object.keys(payload).some(key => !["action", "label"].includes(key)) || (payload.label !== undefined && (typeof payload.label !== "string" || !payload.label.trim() || payload.label.length > 100))) throw controlInvalid();
@@ -704,7 +774,12 @@ function registerServerIpc({
         return await imageOperationJournal.cancel(projectId, key, connectionId ? { connectionId } : undefined);
       }
       throw Object.assign(new Error("未知的本地生图动作。"), { code: "COMFYUI_REQUEST_INVALID" });
-    } catch (error) { return { ok: false, errorCode: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.code : "COMFYUI_CONTROL_FAILED", error: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.message : "本机 ComfyUI 服务未连接或模板处理失败。" }; }
+    } catch (error) {
+      const runtimeAction = Object.prototype.hasOwnProperty.call(runtimeActions, payload?.action);
+      const known = /^COMFYUI_|^IMAGE_/.test(error?.code) || runtimeAction && /^MANAGED_ARTIFACT_/.test(error?.code);
+      return { ok: false, errorCode: known ? error.code : runtimeAction ? "COMFYUI_RUNTIME_CONTROL_FAILED" : "COMFYUI_CONTROL_FAILED",
+        error: runtimeAction ? known ? runtimeText(error.message, 500) : "本机运行环境操作未完成。" : known ? error.message : "本机 ComfyUI 服务未连接或模板处理失败。" };
+    }
   });
 
   ipcMain.handle("naimage:server:image-operations", (_event, payload = {}) => {

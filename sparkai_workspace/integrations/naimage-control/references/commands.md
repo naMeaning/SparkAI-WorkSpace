@@ -4,6 +4,21 @@
 
 Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
+## Managed ComfyUI runtimes and models
+
+- `comfyui.runtime.list`: `{}`. Read local Main-owned runtime, manifest review and download-job summaries. No network, download, installation or process launch. Returns stable IDs and bounded metadata only; no URLs, credentials, filesystem paths or scripts.
+- `comfyui.manifest.import`: `{}`. Open Main native JSON picker to explicitly import a runtime/model manifest. Validation and local registration only; unknown scripts and untrusted custom-node packages are rejected. This action never downloads, installs or starts software.
+- `comfyui.runtime.plan`: `{"manifestId":"manifestId"}`. Create an immutable local installation plan for an approved or explicitly imported manifest. The plan shows source labels, licenses, dependencies, exact download/expanded sizes, GPU/VRAM and disk requirements without downloading. Model-only manifests require an existing runtimeId; needs-review candidates cannot install.
+- `comfyui.runtime.install`: `{"planId":"planId"}`. Request installation of one immutable planId. Main always opens a human native review/authorization dialog bound to the plan and manifest hash before any download, extraction or validation launch. A caller boolean cannot grant permission. Returns the persistent background job; cancellation preserves local state.
+- `comfyui.runtime.pause`: `{"jobId":"jobId"}`. Pause a persistent runtime/model download job by jobId. Does not delete verified artifacts or the previous active revision.
+- `comfyui.runtime.resume`: `{"jobId":"jobId"}`. Resume a paused persistent job under its original human authorization and immutable plan. Changed manifests or plans require a new review; unknown/invalid journal state fails closed.
+- `comfyui.runtime.import-existing`: `{}`. Open Main native directory picker and validate/register an existing ComfyUI portable environment. Does not alter the selected Python/dependency tree, download files, install packages or start the service.
+- `comfyui.runtime.rollback`: `{"runtimeId":"runtimeId"}`. Activate a previous validated managed runtime/model revision by stable runtimeId and optional revisionId. Active task/download leases prevent changes; no downloads or arbitrary commands.
+- `comfyui.runtime.remove`: `{"runtimeId":"runtimeId"}`. Remove a Main-owned runtime registration and release its managed references. Active tasks and installation leases prevent removal; existing user Python/ComfyUI files and project assets are preserved.
+- `comfyui.runtime.start`: `{"runtimeId":"runtimeId"}`. Request launch of an installed runtime through Main fixed portable adapter. Main requires native human confirmation before starting Python, uses only Main-owned paths and arguments, and never runs caller scripts or package managers.
+- `comfyui.runtime.stop`: `{"runtimeId":"runtimeId"}`. Stop only the managed ComfyUI process belonging to the selected runtime after Main verifies there are no active task/installation leases. Does not issue a global model interrupt.
+- `comfyui.runtime.status`: `{}`. Read local status for a runtime and/or installation job by stable IDs. No network, process launch or download.
+
 ## Project knowledge and local result retrieval
 
 - `project.knowledge.list`: `{"expectedProjectId":"expectedProjectId"}`. List explicit project knowledge and suggestions, with Commerce facts remaining owned by the catalog. Reads local records only.

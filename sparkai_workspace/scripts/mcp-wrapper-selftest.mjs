@@ -113,6 +113,17 @@ async function main() {
   const inspectSchema = registry.tools.find(tool => tool.name === "comfyui.inspect").inputSchema;
   assert.equal(inspectSchema.properties.baseUrl, undefined);
   assert.equal(inspectSchema.required.includes("connectionId"), true);
+  const runtimeCommands = registry.tools.filter(tool => /^(?:comfyui\.runtime\.|comfyui\.manifest\.import$)/.test(tool.name));
+  assert.equal(runtimeCommands.length, 12);
+  for (const tool of runtimeCommands) {
+    assert.equal(tool.inputSchema.additionalProperties, false);
+    assert.equal(tool.annotations.readOnlyHint, ["comfyui.runtime.list", "comfyui.runtime.status"].includes(tool.name));
+    for (const key of Object.keys(tool.inputSchema.properties)) assert.ok(["manifestId", "planId", "runtimeId", "jobId", "revisionId"].includes(key), `Runtime MCP accepts stable IDs only: ${key}`);
+  }
+  const installTool = registry.tools.find(tool => tool.name === "comfyui.runtime.install");
+  assert.deepEqual(installTool.inputSchema.required, ["planId"]); assert.equal(installTool.inputSchema.properties.confirmed, undefined);
+  assert.equal(installTool.annotations.openWorldHint, true);
+  assert.equal(registry.tools.find(tool => tool.name === "comfyui.runtime.remove").annotations.destructiveHint, true);
 
   const token = "fixture-automation-token";
   const requests = [];
@@ -164,6 +175,9 @@ async function main() {
     } } });
     assert.equal(approved.isError, false); assert.equal(approved.structuredContent.command, "comfyui.workflow.approve");
     assert.equal(approved.structuredContent.args.capability, "cutout");
+    const install = await handler({ method: "tools/call", params: { name: "comfyui.runtime.install", arguments: { planId: "plan-fixture" } } });
+    assert.equal(install.isError, false); assert.equal(install.structuredContent.command, "comfyui.runtime.install");
+    assert.deepEqual(install.structuredContent.args, { planId: "plan-fixture" });
     const missing = await handler({ method: "tools/call", params: { name: "missing.command", arguments: {} } });
     assert.equal(missing.isError, true);
 

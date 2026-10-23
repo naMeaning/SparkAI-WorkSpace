@@ -25,9 +25,11 @@ const { createImageGenerationService } = require("./desktop/image-generation-ser
 const { createComfyUiExecutor, stableHash: comfyUiStableHash, connectionHash: comfyUiConnectionHash } = require("./runtime/image-generation/comfyui-executor.cjs");
 const { normalizeImageLocalProcessing } = require("./runtime/image-local-processing.mjs");
 const { createComfyUiTemplateService } = require("./desktop/comfyui-template-service.cjs");
-const { createComfyUiConnectionProfileService } = require("./desktop/comfyui-connection-service.cjs");
+const { createComfyUiConnectionProfileService, isLoopbackHost } = require("./desktop/comfyui-connection-service.cjs");
 const { createComfyUiTransport } = require("./desktop/comfyui-transport.cjs");
 const { createComfyUiCredentialStore } = require("./desktop/comfyui-credential-store.cjs");
+const { createManagedArtifactStore } = require("./desktop/managed-artifact-store.cjs");
+const { createComfyUiRuntimeService } = require("./desktop/comfyui-runtime-service.cjs");
 const { createImageOperationJournal } = require("./desktop/image-operation-journal.cjs");
 const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
@@ -1242,6 +1244,37 @@ const comfyUiTemplateService = createComfyUiTemplateService({
   configPath: path.join(configDir, "comfyui-templates.json"), readJson, writeJson, executor: comfyUiExecutor, dialog,
   connectionService: comfyUiConnectionService
 });
+function isComfyUiRuntimeConnectionBusy(connectionId) {
+  // Unknown submissions survive process restarts. Checking only the executor's
+  // active map would allow stopping their original runtime before recovery.
+  try {
+    // A new managed runtime has no connection until its first health check.
+    const connection = comfyUiConnectionService.getInternal(connectionId);
+    const targetsRuntime = baseUrl => {
+      if (!connection) return false;
+      if (baseUrl === connection.baseUrl) return true;
+      const candidate = new URL(baseUrl), expected = new URL(connection.baseUrl);
+      return candidate.protocol === expected.protocol && candidate.port === expected.port &&
+        isLoopbackHost(candidate.hostname.replace(/^\[|\]$/g, "")) && isLoopbackHost(expected.hostname.replace(/^\[|\]$/g, ""));
+    };
+    if ([...comfyUiExecutor.active.values()].some(item => targetsRuntime(item.baseUrl))) return true;
+    const terminal = new Set(["saved", "response", "partial", "delivery-failed", "failed", "rejected", "canceled"]);
+    for (const project of readProjectList().projects) {
+      for (const summary of imageOperationJournal.list(project.id)) {
+        if (summary.provider !== "comfyui" || terminal.has(summary.state)) continue;
+        const item = imageOperationJournal.get(project.id, summary.key);
+        if (!item?.comfyui) return true;
+        if (item.comfyui.connectionId === connectionId) return true;
+        const originalConnection = comfyUiConnectionService.resolve(item.comfyui);
+        if (item.comfyui.connectionHash && comfyUiConnectionHash(originalConnection) !== item.comfyui.connectionHash) return true;
+        if (targetsRuntime(originalConnection.baseUrl)) return true;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
 const imageGenerationService = createImageGenerationService({
   accessPolicy,
   log,
@@ -3139,6 +3172,10 @@ function shutdownApplicationServices() {
     Promise.resolve().then(() => goalProbeAdmission.dispose("Application shutdown.")),
     Promise.resolve().then(() => videoTaskService.dispose()),
     Promise.resolve().then(() => scientificRunnerService.dispose()),
+    Promise.resolve().then(async () => {
+      const result = await comfyUiRuntimeService.dispose();
+      if (!result.ok) log(`shutdown managed runtimes pending=${result.pendingRuntimeIds.length}`);
+    }),
     Promise.resolve().then(() => agentRuntime?.dispose?.())
   ]).then((results) => {
     for (const [index, result] of results.entries()) {
@@ -4988,6 +5025,7 @@ async function callComfyUiImageWithSession(payload = {}) {
   if (!config?.workflow || !config.templateId || !config.templateHash) throw Object.assign(new Error("本地生图需要 Main 已校验的模板。"), { code: "COMFYUI_TEMPLATE_REQUIRED" });
   if (payload.maskImage !== undefined || payload.maskDataUrl !== undefined) throw Object.assign(new Error("ComfyUI 蒙版只能由受管 maskImage 身份引用，不能传路径或内联数据。"), { code: "COMFYUI_INPUT_INVALID" });
   const connection = comfyUiConnectionService.resolve(config);
+  comfyUiRuntimeService.assertConnectionAvailable(connection);
   const baseUrl = connection.baseUrl;
   const capability = config.capability || config.operation || (config.imageInputs ? "img2img" : "generate");
   if (!["generate", "img2img", "inpaint", "cutout"].includes(capability) || payload.editOperation === "redraw" && capability !== "inpaint" || payload.editOperation === "cutout" && capability !== "cutout") throw Object.assign(new Error("所选 ComfyUI 能力与图片操作不匹配。"), { code: "COMFYUI_CAPABILITY_INVALID" });
@@ -5040,6 +5078,9 @@ async function callComfyUiImageWithSession(payload = {}) {
     return result;
   }
   const project = getProjectById(payload.projectId, readProjectList());
+  // No await between admission and the durable task record: an
+  // installer cannot start validating this endpoint while a task is admitted.
+  comfyUiRuntimeService.assertConnectionAvailable(connection);
   const item = imageOperationJournal.start({ projectId: payload.projectId, operationId: payload.operationId, requestIndex: payload.requestIndex || 1,
     runId: payload.runId, agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId), provider: "comfyui", requestHash,
     projectRevision: projectSessionRevisionFromDisk(project), model: config.requiresCheckpoint === false ? "comfyui-mask" : config.checkpoint, protocol: "comfyui", transport: connection.networkScope, connectionId: connection.id,
@@ -5432,6 +5473,7 @@ const imageOperationJournal = createImageOperationJournal({
     if (item.provider === "comfyui") {
       if (!item.comfyui) throw Object.assign(new Error("原本地提交缺少冻结快照，不能安全恢复。"), { code: "IMAGE_OPERATION_UNCERTAIN", unsafeToRetry: true });
       const connection = comfyUiConnectionService.resolve(item.comfyui);
+      comfyUiRuntimeService.assertConnectionAvailable(connection);
       return { connectionId: item.comfyui.connectionId ? connection.id : modelConnectionIdentity(connection.baseUrl, ""), protocol: "comfyui", transport: item.comfyui.networkScope || "local", connection };
     }
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
@@ -5444,6 +5486,17 @@ const imageOperationJournal = createImageOperationJournal({
       persistAccepted: snapshot => imageOperationJournal.accepted(item, { taskId: snapshot.promptId, comfyui: { ...snapshot, templateId: item.comfyui.templateId, templateHash: item.comfyui.templateHash, templateVersion: item.comfyui.templateVersion } }) })
     : newApiClient.pollSub2apiImageTask(connection.settings, item.taskId, { model: item.model, credentials: connection.credentials }),
   cancelTask: item => imageGenerationService.cancelComfyUi({ accepted: item.comfyui })
+});
+
+const managedArtifactStore = createManagedArtifactStore({
+  root: path.join(configDir, "managed", "artifacts"),
+  projectRoots: readProjectList().projects.map(project => project.path).filter(Boolean)
+});
+const comfyUiRuntimeService = createComfyUiRuntimeService({
+  rootDir: path.join(configDir, "managed", "comfyui"), artifactStore: managedArtifactStore,
+  dialog, connectionService: comfyUiConnectionService, log,
+  sevenZipPath: app.isPackaged ? path.join(process.resourcesPath, "tools", "7za.exe") : require("7zip-bin").path7za,
+  isConnectionBusy: isComfyUiRuntimeConnectionBusy
 });
 
 agentTaskService = createAgentTaskService({
@@ -5639,6 +5692,7 @@ function registerIpc() {
     comfyUiConnectionService,
     comfyUiTemplateService,
     comfyUiMaskService,
+    comfyUiRuntimeService,
     clearNewApiAuth,
     completeNewApiLogin,
     extractServerImages,

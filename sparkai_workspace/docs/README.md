@@ -22,6 +22,7 @@
 
 ## 推荐入口
 
+- [ComfyUI 连接专项](./COMFYUI_CONNECTION_VALIDATION.md)、[工作流与蒙版专项](./COMFYUI_WORKFLOW_VALIDATION.md)、[托管安装专项](./COMFYUI_MANAGED_INSTALL_VALIDATION.md)：开发版三阶段合同、fake/loopback 证据、安装声明要求和未验证边界；当前制品从 Progress 读取。
 - [GitHub 产品展示](./GITHUB_SHOWCASE.md)：实际图片作品、软件截图、模型/尺寸/哈希记录，以及一个从选图到复用的例子。
 - [AI-Native 第一期本地验证与交付（2026-10-19）](./AI_NATIVE_TASKS_VALIDATION_2026-10-19.md)：稳定任务、共同回答、重启/图片一致性和双窗口任务卡的Mock证据与交付状态。
 - [真实 AI Native 九图展示与 CLI 完善（2026-10-18）](./AI_NATIVE_SHOWCASE_2026-10-18.md)：无对话框建项目、UTF-8 CLI、真实图片制作与本地交付证据。
