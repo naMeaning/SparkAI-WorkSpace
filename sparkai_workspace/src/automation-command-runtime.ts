@@ -5,6 +5,7 @@ import {
 } from "./automation-command-registry.ts";
 import { automationCommandError } from "./automation-command-errors.ts";
 import { renderExportFilename } from "../runtime/image-export-naming.mjs";
+import { normalizeComfyUiConnectionReference } from "../runtime/comfyui-options.mjs";
 import type {
   AgentSteerTaskScopeMode,
   AgentSteerTaskScopeUpdate,
@@ -21,6 +22,7 @@ import type {
   ScientificDataSource,
   ScientificFigurePlan,
   ScientificTask,
+  ServerBridge,
   SocialContentPlan,
   SocialPlatform,
   WorkspaceDomain,
@@ -101,6 +103,22 @@ type AutomationGoalScopeOptions = {
   resolution?: ImageResolutionPreset;
 };
 type Project = { id: string; name: string; updatedAt?: string };
+function comfyUiConnectionReference(value: JsonObject) {
+  return normalizeComfyUiConnectionReference(value) || "";
+}
+function publicAutomationComfyUiResult(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(publicAutomationComfyUiResult);
+  if (!value || typeof value !== "object") return value;
+  const result: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (/^(?:baseUrl|.*Url|.*Path|endpoint.*|authorizedHost|host|hostname|address|port|credentialRef|credentials|credentialValue|token|password|secret|apiKey|authorization|cookie|headers|tls|cert|certificate|privateKey|workflow|objectInfo)$/i.test(key)) continue;
+    result[key] = publicAutomationComfyUiResult(entry);
+  }
+  return result;
+}
+async function invokeComfyUiControl(payload: Parameters<ServerBridge["comfyui"]>[0]) {
+  return publicAutomationComfyUiResult(await window.naimageServer?.comfyui(payload));
+}
 type MessageSummarySource = {
   id: string;
   role: string;
@@ -1282,15 +1300,47 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       assertExpectedProject(value, context);
       return context.recoverImageOperation?.(String(value.key));
     },
-    "comfyui.templates": () => window.naimageServer?.comfyui({ action: "list" }),
-    "comfyui.inspect": (value) => window.naimageServer?.comfyui({ action: "inspect", baseUrl: String(value.baseUrl || "http://127.0.0.1:8188") }),
-    "comfyui.import-template": (value) => window.naimageServer?.comfyui({ action: "import", label: String(value.label || ""), outputNodeId: String(value.outputNodeId), inputMappings: value.inputMappings as never }),
+    "comfyui.connections": () => invokeComfyUiControl({ action: "connections-list" }),
+    "comfyui.connection.save": (value) => {
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "保存 ComfyUI 连接需要 confirmed=true。");
+      const connectionId = comfyUiConnectionReference(value);
+      if (!connectionId || (value.label === undefined && value.enabled === undefined)) throw automationCommandError("INVALID_ARGUMENT", "请指定现有 connectionId 以及连接名称或启用状态。", { field: "connectionId" });
+      return invokeComfyUiControl({ action: "connections-update-metadata", connectionId,
+        ...(value.label !== undefined ? { label: String(value.label) } : {}), ...(value.enabled !== undefined ? { enabled: value.enabled === true } : {}), confirmed: true });
+    },
+    "comfyui.connection.delete": (value) => {
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "删除 ComfyUI 连接需要 confirmed=true。");
+      const connectionId = comfyUiConnectionReference(value);
+      if (!connectionId) throw automationCommandError("INVALID_ARGUMENT", "删除 ComfyUI 连接需要 connectionId 或 profileId。", { field: "connectionId" });
+      return invokeComfyUiControl({ action: "connections-delete", connectionId, confirmed: true });
+    },
+    "comfyui.connection.test": (value) => {
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "测试 ComfyUI 连接需要 confirmed=true。");
+      const connectionId = comfyUiConnectionReference(value);
+      if (!connectionId) throw automationCommandError("INVALID_ARGUMENT", "测试 ComfyUI 连接需要 connectionId 或 profileId。", { field: "connectionId" });
+      return invokeComfyUiControl({ action: "connections-test", connectionId, confirmed: true });
+    },
+    "comfyui.connection.import-credential": (value) => {
+      if (value.confirmed !== true) throw automationCommandError("CONFIRMATION_REQUIRED", "导入 ComfyUI 连接凭据需要 confirmed=true。");
+      return invokeComfyUiControl({ action: "connections-credential-import", connectionId: String(value.connectionId),
+        credentialType: value.credentialType as "bearer" | "basic" | "mtls", confirmed: true });
+    },
+    "comfyui.templates": () => invokeComfyUiControl({ action: "list" }),
+    "comfyui.inspect": (value) => {
+      const connectionId = comfyUiConnectionReference(value);
+      return invokeComfyUiControl({ action: "inspect", connectionId,
+        ...(value.confirmed === true ? { confirmed: true } : {}) });
+    },
+    "comfyui.import-template": (value) => invokeComfyUiControl({ action: "import", label: String(value.label || ""), outputNodeId: String(value.outputNodeId), inputMappings: value.inputMappings as never }),
     "comfyui.cancel": (value) => {
       assertExpectedProject(value, context);
-      return window.naimageServer?.comfyui({ action: "cancel", projectId: String(value.expectedProjectId), key: String(value.key) });
+      const connectionId = comfyUiConnectionReference(value);
+      return invokeComfyUiControl({ action: "cancel", projectId: String(value.expectedProjectId), key: String(value.key),
+        ...(connectionId ? { connectionId } : {}) });
     },
     "comfyui.generate": (value) => {
       assertExpectedProject(value, context);
+      comfyUiConnectionReference(value.comfyui as JsonObject);
       return context.generateComfyUi({ prompt: String(value.prompt), submissionId: String(value.submissionId), comfyui: value.comfyui as ComfyUiTaskOptions,
         sources: (value.sources || []) as CanvasMaterialTarget[], x: number(value.x, 240), y: number(value.y, 180) });
     },

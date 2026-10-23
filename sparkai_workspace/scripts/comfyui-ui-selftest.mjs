@@ -69,6 +69,18 @@ async function textButton(text, scope = "document") {
   await click('[data-comfy-action="current"]'); await ev("document.querySelector('[data-comfy-action=current]')?.removeAttribute('data-comfy-action')");
 }
 async function screenshot(name) { await capturePngScreenshotToFile(client, join(runDir, `${name}.png`), { captureBeyondViewport: false }); report.screenshots.push(`${name}.png`); }
+async function assertReachable(selector, name = selector) {
+  await ev(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({block:'nearest',inline:'nearest'})`); await delay(70);
+  const geometry = await ev(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)return null;const r=e.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight}})()`);
+  assert.ok(geometry, name);
+  assert.ok(geometry.x >= 0 && geometry.y >= 0 && geometry.right <= geometry.width && geometry.bottom <= geometry.height, `${name}: within window after scrolling`);
+  assert.equal(await ev(`Boolean(document.elementFromPoint(${(geometry.x+geometry.right)/2},${(geometry.y+geometry.bottom)/2})?.closest(${JSON.stringify(selector)}))`), true, `${name}: visible and unobstructed`);
+  (report.reachableControls ||= []).push({ name, ...geometry });
+}
+async function connectionManager(open) {
+  if (await ev("Boolean(document.querySelector('[data-comfyui-connection-manager]')?.open)") !== open) await click('[data-comfyui-connection-manager] > summary');
+  await wait(`Boolean(document.querySelector('[data-comfyui-connection-manager]')?.open)===${open}`);
+}
 async function assertManualLayout(name) {
   const geometry = await ev("(()=>{const body=document.querySelector('.manual-image-task-body'), prompt=body.querySelector('.manual-image-task-prompt'), label=prompt.querySelector('.ui-field-label').getBoundingClientRect(), input=prompt.querySelector('textarea').getBoundingClientRect(), summary=body.querySelector('.manual-image-task-summary').getBoundingClientRect(), reference=body.querySelector('.manual-image-reference-row').getBoundingClientRect(), children=[...body.children].filter(e=>e.getBoundingClientRect().height).map(e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom}});return {labelBottom:label.bottom,promptTop:input.top,promptBottom:input.bottom,promptHeight:input.height,summaryTop:summary.top,referenceHeight:reference.height,overflow:body.scrollWidth>body.clientWidth+1,gaps:children.slice(1).map((r,i)=>r.top-children[i].bottom)}})()");
   assert.ok(geometry.promptTop >= geometry.labelBottom, `${name}: prompt below its label`);
@@ -80,10 +92,7 @@ async function assertManualLayout(name) {
 }
 async function captureManualFields(name) {
   await ev("document.activeElement?.blur();document.querySelector('.manual-image-task-body').scrollTop=0"); await delay(100);
-  for (const selector of ['[aria-label="ComfyUI 地址"]', '[aria-label="ComfyUI 模板"]', '[aria-label="ComfyUI 模型"]']) {
-    const r = await rect(selector); assert.ok(r, selector);
-    assert.equal(await ev(`Boolean(document.elementFromPoint(${r.x+r.width/2},${r.y+r.height/2})?.closest(${JSON.stringify(selector)}))`), true, `template control visible: ${selector}`);
-  }
+  for (const selector of ['[aria-label="ComfyUI 连接"]', '[aria-label="ComfyUI 模板"]', '[aria-label="ComfyUI 模型"]']) await assertReachable(selector, `${name}: ${selector}`);
   await screenshot(name);
 }
 async function samplingFields() {
@@ -144,7 +153,7 @@ try {
     await canvasMenu("创建生图工作"); await wait("Boolean(document.querySelector('.manual-image-task-dialog'))");
     await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("document.querySelector('[aria-label=\"ComfyUI 模板\"]')?.options.length===3");
     assert.equal(await ev("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected"), "false");
-    assert.equal(await ev("document.querySelector('.comfyui-task-fields').textContent.includes('尚未检查本机能力')"), true);
+    assert.equal(await ev("document.querySelector('.comfyui-task-fields').textContent.includes('尚未检查连接能力')"), true);
     let fields = await samplingFields();
     assert.deepEqual(Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value.value])), { steps: "20", cfg: "7", sampler: "euler", scheduler: "normal", denoise: "1" });
     assert.equal(fields.sampler.disabled, true); assert.equal(fields.scheduler.disabled, true);
@@ -158,7 +167,58 @@ try {
     await choose('[aria-label="ComfyUI 模板"]', "stock-generate");
     assert.equal(mock.posts.length, 0);
   });
+  await check("connection manager saves and selects profiles without networking and makes LAN/remote boundaries visible", async () => {
+    await connectionManager(true);
+    await fill('[aria-label="ComfyUI 连接名称"]', "UI loopback fixture");
+    await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl);
+    const beforeGets = mock.gets.length;
+    await textButton("保存连接");
+    await wait("Boolean(document.querySelector('[aria-label=\"ComfyUI 连接\"]').value)");
+    await wait("document.querySelector('.comfyui-task-fields').textContent.includes('连接已保存')");
+    const localId = await ev("document.querySelector('[aria-label=\"ComfyUI 连接\"]').value");
+    await assertReachable('[aria-label="ComfyUI 地址"]');
+    await screenshot("connection-local-manager");
+    const modes = await ev("[...document.querySelector('[aria-label=\"ComfyUI 认证方式\"]').options].map(option=>option.value)");
+    assert.deepEqual(modes, ["none", "bearer", "basic", "mtls"]);
+    const inputDescriptions = await ev("[...document.querySelector('[data-comfyui-connection-manager]').querySelectorAll('input,textarea')].map(input=>({label:input.getAttribute('aria-label'),type:input.type,name:input.name}))");
+    assert.equal(inputDescriptions.some(input => input.type === "password" || /credential|token|secret|password|凭据引用/i.test(`${input.label} ${input.name}`)), false);
+    await choose('[aria-label="ComfyUI 认证方式"]', "bearer"); await textButton("保存连接");
+    await wait("document.querySelector('[aria-label=\"ComfyUI 认证方式\"]').value==='bearer'&&!document.querySelector('[data-comfyui-connection-manager] button').disabled");
+    await textButton("测试连接");
+    await wait("document.querySelector('.comfyui-task-fields').textContent.includes('请先导入所选认证方式的凭据')");
+    assert.equal(mock.gets.length, beforeGets, "metadata save and missing-credential rejection make no requests");
+    await assertReachable('[aria-label="ComfyUI 认证方式"]'); await screenshot("connection-native-credential-boundary");
+    await choose('[aria-label="ComfyUI 认证方式"]', "none"); await textButton("保存连接");
+    const scopes = [];
+    for (const [scope, baseUrl] of [["lan", "http://192.168.56.77:8188"], ["remote", "https://comfyui.example.invalid"]]) {
+      await textButton("新增连接");
+      await fill('[aria-label="ComfyUI 连接名称"]', `UI ${scope} metadata only`);
+      await choose('[aria-label="ComfyUI 网络范围"]', scope); await fill('[aria-label="ComfyUI 地址"]', baseUrl); await textButton("保存连接");
+      await wait(`Boolean(document.querySelector('[data-comfyui-network-scope="${scope}"]'))`);
+      await connectionManager(false); await assertReachable(`[data-comfyui-network-scope="${scope}"]`);
+      const boundary = await ev(`document.querySelector('[data-comfyui-network-scope="${scope}"]').textContent`);
+      assert.ok(boundary.includes("不属于严格离线")); scopes.push({ scope, boundary, tested: false, connectionId: await ev("document.querySelector('[aria-label=\"ComfyUI 连接\"]').value") }); await screenshot(`connection-${scope}-boundary`);
+      await connectionManager(true);
+    }
+    assert.equal(mock.gets.length, beforeGets, "scope changes and profile selection do not test a service");
+    const deletedId = scopes.find(item => item.scope === "remote").connectionId;
+    await command("comfyui.connection.delete", { connectionId: deletedId, confirmed: true });
+    await choose('[aria-label="图片执行连接"]', "current"); await choose('[aria-label="图片执行连接"]', "comfyui");
+    await wait("document.querySelector('.comfyui-task-fields').textContent.includes('原 ComfyUI 连接不可用')");
+    assert.equal(await ev("document.querySelector('[aria-label=\"ComfyUI 连接\"]').value"), deletedId, "a missing saved profile is never silently replaced by the first configured connection");
+    await assertReachable('[aria-label="ComfyUI 连接"]');
+    assert.equal(await ev("document.querySelector('[aria-label=\"ComfyUI 连接\"]').selectedOptions[0].textContent"), "连接不可用 · 请重新选择");
+    await assertReachable('[data-comfyui-network-scope="unknown"]');
+    assert.equal(mock.gets.length, beforeGets, "a missing connection does not contact the default service");
+    report.missingConnection = { preservedId: deletedId, automaticFallback: false, requests: 0 };
+    await choose('[aria-label="ComfyUI 连接"]', localId);
+    await assertReachable('[data-comfyui-network-scope="local"]');
+    const publicResult = await ev("window.naimageServer.comfyui({action:'connections-list'})");
+    assert.equal(publicResult.ok, true); assert.equal(JSON.stringify(publicResult).includes("credentialRef"), false);
+    report.connectionManagement = { localId, scopes, credentialModes: modes, inputDescriptions, nonLoopbackTests: 0, metadataOnlyRequests: mock.gets.length - beforeGets };
+  });
   await check("actual sampled controls materialize one reviewed prompt and persist exact metadata and journal parameters", async () => {
+    await connectionManager(true);
     await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
     await wait("document.querySelector('[aria-label=\"ComfyUI 模型\"]').value==='fixture.safetensors'");
     let fields = await samplingFields();
@@ -171,6 +231,7 @@ try {
     assert.equal((await samplingFields()).sampler.disabled, true);
     await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
     await wait("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected==='true'");
+    await connectionManager(false);
     await choose('[aria-label="ComfyUI sampler"]', "dpmpp_2m"); await choose('[aria-label="ComfyUI scheduler"]', "karras");
     await fill('[aria-label="ComfyUI steps"]', "28"); await fill('[aria-label="ComfyUI cfg"]', "6.5"); await fill('[aria-label="ComfyUI denoise"]', "0.8");
     await fill('[aria-label="ComfyUI 宽度"]', "512"); await fill('[aria-label="ComfyUI 高度"]', "512"); await fill('[aria-label="ComfyUI 种子"]', "-1");
@@ -180,6 +241,9 @@ try {
     await until(() => { const nodes = session().nodes.filter(node => node.assets?.length && node.imageParams?.provider === "comfyui"); if (!nodes.length) return false; generated = nodes[0]; return generated.imageState === "done"; }, "generated photo saved");
     assert.equal(mock.posts.length, 1); assert.equal(mock.views.length, 1); assert.equal(digest(readFileSync(generated.assets[0].path)), sourceHash);
     options = generated.imageParams.comfyui; const metadata = generated.assets[0].generation;
+    assert.ok(options.connectionId); assert.equal(options.baseUrl, undefined, "new project tasks persist a profile ID without an endpoint URL");
+    assert.equal(metadata.request.connectionId, options.connectionId); assert.equal(metadata.request.networkScope, "local");
+    assert.equal(metadata.response.connectionId, options.connectionId); assert.equal(metadata.response.networkScope, "local");
     assert.ok(generated.imageParams.submissionId); assert.equal(generated.imageParams.model, "fixture.safetensors"); assert.equal(generated.imageParams.size, "512x512");
     assert.equal(metadata.request.protocol, "comfyui"); assert.equal(metadata.request.quality, undefined); assert.ok(metadata.request.seed >= 0); assert.equal(metadata.response.seed, metadata.request.seed);
     const submittedSampler = mock.posts[0].prompt["3"].inputs;
@@ -271,8 +335,10 @@ try {
   await check("minimum supported window keeps template fields prompt and submit visible and reachable", async () => {
     await ev("window.naimageConfig.debugWindowBounds({width:884,height:640})"); await wait("innerWidth===884&&innerHeight===640");
     await canvasMenu("创建生图工作"); await choose('[aria-label="图片执行连接"]', "comfyui"); await wait("Boolean(document.querySelector('[aria-label=\"ComfyUI 地址\"]'))");
+    await connectionManager(true);
     await fill('[aria-label="ComfyUI 地址"]', mock.baseUrl); await textButton("检查环境");
     await wait("document.querySelector('.comfyui-task-fields').dataset.comfyuiInspected==='true'");
+    await assertReachable('[aria-label="ComfyUI 地址"]'); await screenshot("minimum-connection-manager"); await connectionManager(false);
     await choose('[aria-label="ComfyUI sampler"]', "dpmpp_2m"); await choose('[aria-label="ComfyUI scheduler"]', "karras");
     await fill('[aria-label="ComfyUI steps"]', "28"); await fill('[aria-label="ComfyUI cfg"]', "6.5"); await fill('[aria-label="ComfyUI denoise"]', "0.8");
     await assertSamplingControlsReachable();

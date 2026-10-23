@@ -85,6 +85,11 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "agent.stop",
   "agent.image-config",
   "agent.new-conversation",
+  "comfyui.connections",
+  "comfyui.connection.save",
+  "comfyui.connection.import-credential",
+  "comfyui.connection.delete",
+  "comfyui.connection.test",
   "comfyui.templates",
   "comfyui.inspect",
   "comfyui.import-template",
@@ -235,6 +240,11 @@ export const AUTOMATION_COMMAND_NAMES = [
   "agent.stop",
   "agent.image-config",
   "agent.new-conversation",
+  "comfyui.connections",
+  "comfyui.connection.save",
+  "comfyui.connection.import-credential",
+  "comfyui.connection.delete",
+  "comfyui.connection.test",
   "comfyui.templates",
   "comfyui.inspect",
   "comfyui.import-template",
@@ -5393,6 +5403,118 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
     }
   },
   "agent.new-conversation": {},
+  "comfyui.connections": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {},
+      "required": []
+    }
+  },
+  "comfyui.connection.save": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Main-owned connection profile identity; credentials never cross this boundary."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "confirmed": {
+          "type": "boolean",
+          "description": "Required true for a network-affecting save/delete/test action."
+        }
+      },
+      "required": [
+        "connectionId",
+        "confirmed"
+      ]
+    }
+  },
+  "comfyui.connection.import-credential": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "credentialType": {
+          "type": "string",
+          "enum": [
+            "bearer",
+            "basic",
+            "mtls"
+          ]
+        },
+        "confirmed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connectionId",
+        "credentialType",
+        "confirmed"
+      ]
+    }
+  },
+  "comfyui.connection.delete": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+        },
+        "confirmed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirmed"
+      ]
+    },
+    "destructive": true
+  },
+  "comfyui.connection.test": {
+    "parameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "connectionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+        },
+        "confirmed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirmed"
+      ]
+    }
+  },
   "comfyui.templates": {
     "parameters": {
       "type": "object",
@@ -5406,13 +5528,24 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "baseUrl": {
+        "connectionId": {
           "type": "string",
-          "maxLength": 2048,
-          "default": "http://127.0.0.1:8188"
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Main-owned connection profile identity."
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+        },
+        "confirmed": {
+          "type": "boolean",
+          "description": "Required true when inspecting LAN or remote profiles; localhost inspection may omit it."
         }
       },
-      "required": []
+      "required": [
+        "connectionId"
+      ]
     }
   },
   "comfyui.import-template": {
@@ -5524,11 +5657,6 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
             },
-            "baseUrl": {
-              "type": "string",
-              "maxLength": 2048,
-              "default": "http://127.0.0.1:8188"
-            },
             "checkpoint": {
               "type": "string",
               "minLength": 1,
@@ -5585,11 +5713,22 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
               "minimum": 0,
               "maximum": 1,
               "description": "Optional KSampler denoise value; accepted only when the selected template declares it."
+            },
+            "connectionId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+              "description": "Main-owned connection profile identity; preferred for new tasks."
+            },
+            "profileId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+              "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
             }
           },
           "required": [
             "templateId",
             "templateHash",
+            "connectionId",
             "checkpoint"
           ]
         },
@@ -5644,6 +5783,16 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
         "key": {
           "type": "string",
           "pattern": "^[a-f0-9]{32}$"
+        },
+        "connectionId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Optional Main-owned connection identity used to verify the frozen journal connection."
+        },
+        "profileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+          "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
         }
       },
       "required": [
@@ -5844,6 +5993,11 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "agent.stop": "renderer",
   "agent.image-config": "renderer",
   "agent.new-conversation": "renderer",
+  "comfyui.connections": "renderer",
+  "comfyui.connection.save": "renderer",
+  "comfyui.connection.import-credential": "renderer",
+  "comfyui.connection.delete": "renderer",
+  "comfyui.connection.test": "renderer",
   "comfyui.templates": "renderer",
   "comfyui.inspect": "renderer",
   "comfyui.import-template": "renderer",
@@ -6157,6 +6311,13 @@ export const AUTOMATION_COMMAND_ENUMS = {
       "replace",
       "merge",
       "clear"
+    ]
+  },
+  "comfyui.connection.import-credential": {
+    "credentialType": [
+      "bearer",
+      "basic",
+      "mtls"
     ]
   },
   "canvas.edit-image": {

@@ -23,8 +23,12 @@ function stableHash(value) {
   return createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(canonical(value))).digest("hex");
 }
 
+function connectionHash(profile) {
+  return stableHash({ id: profile.id, baseUrl: profile.baseUrl, networkScope: profile.networkScope, credentialRef: profile.credentialRef, tls: profile.tls });
+}
+
 function endpoint(base, path, query) {
-  const url = new URL(path, `${base}/`);
+  const url = new URL(path.replace(/^\/+/, ""), `${base.replace(/\/+$/, "")}/`);
   for (const [key, value] of Object.entries(query || {})) url.searchParams.set(key, String(value));
   return url;
 }
@@ -308,15 +312,32 @@ function verifyPromptTuple(tuple, snapshot, promptId) {
 function createComfyUiExecutor(options = {}) {
   const transport = options.request || defaultRequest;
   const submissions = new Map(), receipts = new Map(), active = new Map();
+  function connectionFor(value = {}) {
+    const service = options.connectionService;
+    if (!service) return null;
+    if (value?.connection && value.connection.networkScope) return value.connection;
+    if (value?.connectionProfile && value.connectionProfile.networkScope) return value.connectionProfile;
+    return service.resolve(value?.connectionId || value?.profileId ? { connectionId: value.connectionId || value.profileId, baseUrl: value.baseUrl } : { baseUrl: value.baseUrl });
+  }
+  async function authorizeRequest(url, config = {}) {
+    const service = options.connectionService;
+    const connection = config.connection || (config.connectionId || config.baseUrl ? connectionFor(config) : null);
+    if (!connection || !service) { localBaseUrl(new URL(url).origin); return { connection: null, headers: config.headers || {}, tls: undefined }; }
+    const policy = service.requestPolicy(connection);
+    policy.authorizeUrl(url, { kind: config.kind === "ws" ? "ws" : "http", redirect: config.redirect === true });
+    const credentials = service.credentialHeaders(connection);
+    return { connection, headers: { ...credentials.headers, ...(config.headers || {}) }, tls: credentials.tls };
+  }
   async function request(url, config = {}) {
-    localBaseUrl(new URL(url).origin);
-    const response = await transport(url, { ...config, redirect: "manual", credentials: "omit" });
+    const authorized = await authorizeRequest(url, config);
+    const response = await transport(url, { ...config, connection: authorized.connection, headers: authorized.headers, redirect: "manual", credentials: "omit", ...(authorized.tls ? { tls: authorized.tls } : {}) });
     if (Number.isFinite(response?.status) && (response.status < 200 || response.status >= 300)) throw fail(response.status >= 300 && response.status < 400 ? "COMFYUI_REDIRECT_FORBIDDEN" : "COMFYUI_HTTP_ERROR", `ComfyUI 请求失败（${response.status}）。`, { status: response.status });
     return response || {};
   }
   async function inspectInternal(baseUrl, config = {}) {
-    const base = localBaseUrl(baseUrl);
-    const [stats, objects] = await Promise.all([request(endpoint(base, "/system_stats"), { signal: config.signal }), request(endpoint(base, "/object_info"), { signal: config.signal })]);
+    const connection = config.connection || connectionFor({ ...config, baseUrl });
+    const base = connection?.baseUrl || localBaseUrl(baseUrl);
+    const [stats, objects] = await Promise.all([request(endpoint(base, "/system_stats"), { signal: config.signal, connection }), request(endpoint(base, "/object_info"), { signal: config.signal, connection })]);
     if (!plain(stats.body) || !plain(objects.body)) throw fail("COMFYUI_RESPONSE_INVALID", "ComfyUI 未返回有效的本机服务信息。");
     const capabilities = normalizeCapabilities(objects.body, stats.body);
     return { baseUrl: base, objectInfo: objects.body, capabilities, ...capabilities };
@@ -326,7 +347,7 @@ function createComfyUiExecutor(options = {}) {
     return { baseUrl: inspected.baseUrl, capabilities: inspected.capabilities, ...inspected.capabilities };
   }
 
-  function progressSocket(base, clientId, onStatus, signal) {
+  function progressSocket(base, clientId, onStatus, signal, connection) {
     const factory = options.wsFactory || (typeof WebSocket === "function" ? (url) => new WebSocket(url) : undefined);
     if (!factory || typeof onStatus !== "function") return { bind() {}, close() {} };
     let ws, promptId, closed = false;
@@ -354,8 +375,15 @@ function createComfyUiExecutor(options = {}) {
       try { onStatus(status); } catch {}
     }
     try {
-      const url = new URL("/ws", base.replace(/^http/, "ws")); url.searchParams.set("clientId", clientId);
-      ws = factory(url.toString(), { followRedirects: false });
+      const url = endpoint(base.replace(/^http/, "ws"), "/ws", { clientId });
+      let wsOptions = { followRedirects: false };
+      if (connection && options.connectionService) {
+        const policy = options.connectionService.requestPolicy(connection);
+        policy.authorizeUrl(url, { kind: "ws" });
+        const credentials = options.connectionService.credentialHeaders(connection);
+        wsOptions = { ...wsOptions, connection, headers: credentials.headers, ...(credentials.tls || {}) };
+      }
+      ws = factory(url.toString(), wsOptions);
       if (typeof ws.addEventListener === "function") { ws.addEventListener("message", handle); ws.addEventListener("error", () => {}); }
       else if (typeof ws.on === "function") { ws.on("message", (data, binary) => { if (!binary) handle({ data: data.toString() }); }); ws.on("error", () => {}); }
       else { ws.onmessage = handle; ws.onerror = () => {}; }
@@ -373,25 +401,30 @@ function createComfyUiExecutor(options = {}) {
     });
     const output = []; let total = 0;
     for (const descriptor of descriptors) {
-      const response = await request(endpoint(snapshot.baseUrl, "/view", descriptor), { signal, maxBytes: MAX_IMAGE_BYTES }), bytes = response.bytes;
+      const response = await request(endpoint(snapshot.baseUrl, "/view", descriptor), { ...snapshot, signal, maxBytes: MAX_IMAGE_BYTES }), bytes = response.bytes;
       if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > MAX_IMAGE_BYTES || (total += bytes.length) > MAX_IMAGE_BYTES * 2) throw fail("COMFYUI_OUTPUT_INVALID", "ComfyUI 输出图片为空或超过大小限制。", { promptId: snapshot.promptId, unsafeToRetry: true });
       let dimensions;
       try { dimensions = imageInfo(bytes); } catch { throw fail("COMFYUI_OUTPUT_INVALID", "ComfyUI 输出不是有效图片。", { promptId: snapshot.promptId, unsafeToRetry: true }); }
       if (snapshot.actualParams && (dimensions.width !== snapshot.actualParams.width || dimensions.height !== snapshot.actualParams.height)) throw fail("COMFYUI_OUTPUT_INVALID", "ComfyUI 输出尺寸与冻结任务不一致。", { promptId: snapshot.promptId, unsafeToRetry: true });
       output.push({ type: "base64", value: bytes.toString("base64"), ...dimensions, filename: descriptor.filename, subfolder: descriptor.subfolder });
     }
-    const actualParams = snapshot.actualParams ? { ...snapshot.actualParams, protocol: "comfyui", size: `${snapshot.actualParams.width}x${snapshot.actualParams.height}` } : undefined;
+    const actualParams = snapshot.actualParams ? { ...snapshot.actualParams, protocol: "comfyui", connectionId: snapshot.connectionId, networkScope: snapshot.networkScope || "local", size: `${snapshot.actualParams.width}x${snapshot.actualParams.height}` } : undefined;
     return { ok: true, state: "succeeded", provider: "comfyui", protocol: "comfyui", model: snapshot.actualParams?.model || "comfyui-local", promptId: snapshot.promptId, workflowHash: snapshot.workflowHash, actualParams, images: output, data: output.map((image) => ({ b64_json: image.value, mime_type: image.mimeType })) };
   }
 
   function recoverySnapshot(input) {
     const saved = input.accepted || receipts.get(input.promptId) || {};
-    const baseUrl = localBaseUrl(input.baseUrl || saved.baseUrl), promptId = input.promptId || saved.promptId;
+    const connection = connectionFor({ ...saved, ...input, connectionId: input.connectionId || saved.connectionId });
+    const baseUrl = connection?.baseUrl || localBaseUrl(input.baseUrl || saved.baseUrl), promptId = input.promptId || saved.promptId;
+    if (saved.connectionHash && (!connection || saved.connectionHash !== connectionHash(connection))) throw fail("COMFYUI_TASK_OWNERSHIP_MISMATCH", "ComfyUI 连接配置与原任务不一致。", { unsafeToRetry: true });
     if ((promptId !== undefined && (typeof promptId !== "string" || !ID_RE.test(promptId))) || (!promptId && (!ID_RE.test(saved.submissionId || "") || !saved.clientId || !/^[a-f0-9]{64}$/.test(saved.workflowHash || "")))) throw fail("COMFYUI_PROMPT_ID_REQUIRED", "缺少有效的 ComfyUI 回执或未知提交快照。");
-    if ((saved.promptId && saved.promptId !== promptId) || (saved.baseUrl && localBaseUrl(saved.baseUrl) !== baseUrl) || (input.outputNodeId && saved.outputNodeId && input.outputNodeId !== saved.outputNodeId) || (input.clientId && saved.clientId && input.clientId !== saved.clientId)) throw fail("COMFYUI_TASK_OWNERSHIP_MISMATCH", "ComfyUI 恢复身份与已冻结回执不一致。", { promptId, unsafeToRetry: true });
+    if ((saved.promptId && saved.promptId !== promptId) || (saved.baseUrl && saved.baseUrl !== baseUrl) || (saved.connectionId && connection?.id !== saved.connectionId) || (input.outputNodeId && saved.outputNodeId && input.outputNodeId !== saved.outputNodeId) || (input.clientId && saved.clientId && input.clientId !== saved.clientId)) throw fail("COMFYUI_TASK_OWNERSHIP_MISMATCH", "ComfyUI 恢复身份与已冻结回执不一致。", { promptId, unsafeToRetry: true });
     const outputNodeId = saved.outputNodeId || input.outputNodeId;
     if (typeof outputNodeId !== "string" || !ID_RE.test(outputNodeId)) throw fail("COMFYUI_NODE_MAPPING_INVALID", "恢复 ComfyUI 任务需要原成果节点映射。", { promptId, unsafeToRetry: true });
-    return { ...clone(saved), baseUrl, promptId, outputNodeId, clientId: saved.clientId || input.clientId, actualParams: saved.actualParams || input.actualParams, workflowHash: saved.workflowHash || input.workflowHash };
+    // Legacy receipts keep their original URL identity when persisting a
+    // recovered acknowledgement; introducing an ID here would invalidate the
+    // historical journal's model-access identity on its next recovery.
+    return { ...clone(saved), baseUrl, ...(connection?.id && (saved.connectionId || !saved.baseUrl) ? { connectionId: connection.id, networkScope: connection.networkScope } : {}), promptId, outputNodeId, clientId: saved.clientId || input.clientId, actualParams: saved.actualParams || input.actualParams, workflowHash: saved.workflowHash || input.workflowHash };
   }
 
   async function recoverInternal(input = {}) {
@@ -400,11 +433,11 @@ function createComfyUiExecutor(options = {}) {
       // An acknowledgement can be lost after enqueueing. The per-submission
       // client id plus exact submitted workflow hash is the only lookup key;
       // neither a prompt POST nor a fuzzy text/model match is permitted here.
-      const queue = await request(endpoint(snapshot.baseUrl, "/queue"), { signal: input.signal });
+      const queue = await request(endpoint(snapshot.baseUrl, "/queue"), { ...snapshot, signal: input.signal });
       queueState(queue.body, "", ""); // Validate the response before scanning.
       let candidates = [...queue.body.queue_pending, ...queue.body.queue_running].filter((entry) => Array.isArray(entry) && entry[3]?.client_id === snapshot.clientId);
       if (!candidates.length) {
-        const all = await request(endpoint(snapshot.baseUrl, "/history", { max_items: 500 }), { signal: input.signal });
+        const all = await request(endpoint(snapshot.baseUrl, "/history", { max_items: 500 }), { ...snapshot, signal: input.signal });
         if (!plain(all.body) || Object.keys(all.body).length > 500) throw fail("COMFYUI_RESPONSE_INVALID", "ComfyUI 恢复历史响应无效。", { unsafeToRetry: true });
         candidates = Object.values(all.body).map((record) => record?.prompt).filter((entry) => Array.isArray(entry) && entry[3]?.client_id === snapshot.clientId);
       }
@@ -419,11 +452,11 @@ function createComfyUiExecutor(options = {}) {
       receipts.set(promptId, clone(snapshot));
       try { await persistAccepted(clone(snapshot)); } catch (cause) { throw fail("COMFYUI_ACCEPTED_PERSIST_FAILED", "ComfyUI 找回任务，但回执保存失败。", { promptId, accepted: clone(snapshot), cause, unsafeToRetry: true }); }
     }
-    const history = await request(endpoint(snapshot.baseUrl, `/history/${encodeURIComponent(snapshot.promptId)}`), { signal: input.signal }), state = historyState(history.body, snapshot.promptId);
+    const history = await request(endpoint(snapshot.baseUrl, `/history/${encodeURIComponent(snapshot.promptId)}`), { ...snapshot, signal: input.signal }), state = historyState(history.body, snapshot.promptId);
     if (state.record && snapshot.clientId) verifyPromptTuple(state.record.prompt, snapshot, snapshot.promptId);
     if (state.state === "failed") return { ok: false, state: "failed", failed: true, promptId: snapshot.promptId, code: state.code, unsafeToRetry: true, images: [] };
     if (state.state === "succeeded") return download(state, snapshot, input.signal);
-    const queue = await request(endpoint(snapshot.baseUrl, "/queue"), { signal: input.signal }), queued = queueState(queue.body, snapshot.promptId, snapshot.clientId);
+    const queue = await request(endpoint(snapshot.baseUrl, "/queue"), { ...snapshot, signal: input.signal }), queued = queueState(queue.body, snapshot.promptId, snapshot.clientId);
     return { ok: false, state: queued.state, pending: queued.state !== "unknown", unknown: queued.state === "unknown", promptId: snapshot.promptId, unsafeToRetry: true, images: [] };
   }
 
@@ -437,9 +470,11 @@ function createComfyUiExecutor(options = {}) {
 
   async function execute(input, info, sampling, inputs, inputMetadata, submissionId, base) {
     const signal = input.signal;
+    const connection = connectionFor(input);
     if (signal?.aborted) throw fail("ABORT_ERR", "ComfyUI 操作已取消。", { ambiguous: false, unsafeToRetry: false });
     const persistAccepted = input.persistAccepted || options.persistAccepted;
-    if (typeof persistAccepted !== "function") throw fail("COMFYUI_PERSISTENCE_REQUIRED", "ComfyUI 提交必须连接 Main 持久化回执。");
+    const persistPrepared = input.persistPrepared || options.persistPrepared;
+    if (typeof persistAccepted !== "function" || typeof persistPrepared !== "function") throw fail("COMFYUI_PERSISTENCE_REQUIRED", "ComfyUI 提交必须连接 Main 持久化准备记录与回执。");
     // run() froze these reviewed controls before starting any asynchronous
     // work. Unmapped and fixed-value ports keep their canonical template value.
     const workflow = info.workflow, fields = { prompt: input.prompt, negative: input.negativePrompt, model: input.checkpoint, seed: input.seed, width: input.width, height: input.height,
@@ -451,30 +486,29 @@ function createComfyUiExecutor(options = {}) {
     }
     for (const node of Object.values(workflow)) if (node.class_type === "KSampler" && node.inputs.seed === -1) node.inputs.seed = randomBytes(6).readUIntBE(0, 6);
     const materialized = normalizeWorkflow(workflow, info), actualParams = actualParameters(materialized, inputMetadata);
-    const inspected = await inspectInternal(base, { signal });
+    const inspected = await inspectInternal(base, { signal, connection });
     validateDependencies(materialized, inspected.objectInfo);
     const uploaded = [];
     for (let index = 0; index < inputs.length; index += 1) {
       const extension = inputMetadata[index].mimeType === "image/jpeg" ? "jpg" : inputMetadata[index].mimeType.split("/")[1], form = new FormData();
       form.append("image", new Blob([inputs[index]], { type: inputMetadata[index].mimeType }), `sparkai-${submissionId}-${index}.${extension}`);
       form.append("overwrite", "false"); form.append("type", "input");
-      const response = await request(endpoint(base, "/upload/image"), { method: "POST", body: form, signal }), result = response.body;
+      const response = await request(endpoint(base, "/upload/image"), { method: "POST", body: form, signal, connection }), result = response.body;
       if (!plain(result) || !relativeFile(result.name, { basename: true }) || !relativeFile(result.subfolder ?? "", { empty: true }) || result.type !== "input") throw fail("COMFYUI_UPLOAD_INVALID", "ComfyUI 上传未返回有效输入文件身份。");
       uploaded.push({ name: result.name, subfolder: result.subfolder || "", type: "input" });
     }
     for (const mapping of materialized.inputMappings.filter((item) => item.kind === "image")) {
       const item = uploaded[mapping.index]; workflow[mapping.nodeId].inputs[mapping.inputName] = item.subfolder ? `${item.subfolder}/${item.name}` : item.name;
     }
-    const snapshot = { schemaVersion: 2, submissionId, baseUrl: base, clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams,
+    const snapshot = { schemaVersion: 2, submissionId, baseUrl: base, ...(connection?.id ? { connectionId: connection.id, networkScope: connection.networkScope, connectionHash: connectionHash(connection) } : {}), clientId: `sparkai-${randomUUID()}`, outputNodeId: info.outputNodeId, inputNodeId: info.inputNodeId, inputMappings: clone(info.inputMappings), workflowHash: stableHash(workflow), actualParams,
       ...(input.templateId ? { templateId: input.templateId, templateVersion: input.templateVersion, templateHash: input.templateHash, policyVersion: input.policyVersion } : {}),
       ...(inspected.capabilitiesHash ? { capabilitiesHash: inspected.capabilitiesHash } : {}), inputs: inputMetadata.map((item, index) => ({ ...item, uploaded: uploaded[index] })), preparedAt: new Date().toISOString() };
-    const persistPrepared = input.persistPrepared || options.persistPrepared;
-    if (typeof persistPrepared === "function") await persistPrepared(clone(snapshot));
+    await persistPrepared(clone(snapshot));
     if (signal?.aborted) throw fail("ABORT_ERR", "ComfyUI 操作已取消。", { ambiguous: false, unsafeToRetry: false });
-    const socket = progressSocket(base, snapshot.clientId, input.onStatus, signal);
+    const socket = progressSocket(base, snapshot.clientId, input.onStatus, signal, connection);
     let response;
     try {
-      response = await request(endpoint(base, "/prompt"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: snapshot.clientId }), signal });
+      response = await request(endpoint(base, "/prompt"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: snapshot.clientId }), signal, connection });
     } catch (cause) {
       socket.close();
       const rejected = Number.isInteger(cause?.status) && cause.status >= 400 && cause.status < 500 && cause.status !== 408;
@@ -514,7 +548,8 @@ function createComfyUiExecutor(options = {}) {
 
   function run(input = {}) {
     try {
-      const base = localBaseUrl(input.baseUrl), submissionId = input.submissionId || input.operationId;
+      const connection = connectionFor(input);
+      const base = connection?.baseUrl || localBaseUrl(input.baseUrl), submissionId = input.submissionId || input.operationId;
       if (typeof submissionId !== "string" || !ID_RE.test(submissionId)) throw fail("COMFYUI_SUBMISSION_ID_REQUIRED", "ComfyUI 提交需要稳定的操作标识。");
       if (own(input, "extraPrompt")) throw fail("COMFYUI_WORKFLOW_INVALID", "ComfyUI 首期不接受未审核的附加执行参数。");
       const info = normalizeWorkflow(input.workflow, input);
@@ -526,7 +561,7 @@ function createComfyUiExecutor(options = {}) {
       const inputMetadata = inputs.map((bytes) => ({ ...imageInfo(bytes), sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length }));
       const metadata = templateSamplingMetadata(info);
       const sampling = Object.freeze(normalizeComfyUiSamplingParameters(input, metadata));
-      const signature = stableHash({ base, workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, inputMetadata,
+      const signature = stableHash({ base, ...(connection ? { connectionHash: connectionHash(connection) } : {}), workflow: info.workflow, inputMappings: info.inputMappings, outputNodeId: info.outputNodeId, inputMetadata,
         templateHash: input.templateHash, policyVersion: input.policyVersion,
         fields: { prompt: input.prompt, negativePrompt: input.negativePrompt, checkpoint: input.checkpoint, seed: input.seed, width: input.width, height: input.height, ...sampling } });
       const existing = submissions.get(submissionId);
@@ -535,7 +570,7 @@ function createComfyUiExecutor(options = {}) {
         return existing.promise;
       }
       if (submissions.size >= 500) throw fail("COMFYUI_CAPACITY", "ComfyUI 本地提交回执已达容量上限。");
-      const frozenInput = Object.freeze({ ...input, ...sampling,
+      const frozenInput = Object.freeze({ ...input, ...(connection ? { connection } : {}), ...sampling,
         defaults: Object.freeze({ ...metadata.defaults }), exposedInputs: Object.freeze([...metadata.exposedInputs]) });
       const promise = execute(frozenInput, info, sampling, inputs, inputMetadata, submissionId, base);
       submissions.set(submissionId, { signature, promise });
@@ -547,13 +582,13 @@ function createComfyUiExecutor(options = {}) {
     const snapshot = recoverySnapshot(input), { baseUrl, promptId, clientId } = snapshot;
     if (!promptId) throw fail("COMFYUI_PROMPT_ID_REQUIRED", "取消 ComfyUI 任务需要先找回原任务回执。", { unsafeToRetry: true });
     if (typeof clientId !== "string" || !clientId) throw fail("COMFYUI_TASK_OWNERSHIP_MISMATCH", "取消 ComfyUI 任务需要原客户端回执。", { promptId, unsafeToRetry: true });
-    const before = await request(endpoint(baseUrl, "/queue"), { signal: input.signal }), state = queueState(before.body, promptId, clientId);
+    const before = await request(endpoint(baseUrl, "/queue"), { ...snapshot, signal: input.signal }), state = queueState(before.body, promptId, clientId);
     if (state.state === "running") throw fail("COMFYUI_CANCEL_UNSUPPORTED", "当前 ComfyUI 未提供经验证的定向运行中断；不会调用全局中断。", { promptId, unsafeToRetry: true });
     if (state.state !== "queued") throw fail("COMFYUI_CANCEL_NOT_QUEUED", "未在 ComfyUI 队列中确认本任务；未执行删除。", { promptId, unsafeToRetry: true });
-    await request(endpoint(baseUrl, "/queue"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ delete: [promptId] }), signal: input.signal });
-    const after = await request(endpoint(baseUrl, "/queue"), { signal: input.signal }), observed = queueState(after.body, promptId, clientId);
+    await request(endpoint(baseUrl, "/queue"), { ...snapshot, method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ delete: [promptId] }), signal: input.signal });
+    const after = await request(endpoint(baseUrl, "/queue"), { ...snapshot, signal: input.signal }), observed = queueState(after.body, promptId, clientId);
     if (observed.state !== "unknown") throw fail("COMFYUI_CANCEL_NOT_CONFIRMED", observed.state === "running" ? "本任务已开始运行；排队删除未能取消它。" : "ComfyUI 未确认本任务已离开队列。", { promptId, state: observed.state, unsafeToRetry: true });
-    const history = await request(endpoint(baseUrl, `/history/${encodeURIComponent(promptId)}`), { signal: input.signal }), finished = historyState(history.body, promptId);
+    const history = await request(endpoint(baseUrl, `/history/${encodeURIComponent(promptId)}`), { ...snapshot, signal: input.signal }), finished = historyState(history.body, promptId);
     if (finished.state !== "unknown") return { ok: false, canceled: false, state: finished.state, promptId };
     return { ok: true, canceled: true, state: "canceled", phase: "queued", promptId };
   }
@@ -561,4 +596,4 @@ function createComfyUiExecutor(options = {}) {
   return { inspect, normalizeWorkflow, run, recover, cancel, localBaseUrl, active };
 }
 
-module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, normalizeWorkflow, validateDependencies, normalizeCapabilities, templateSamplingMetadata, templateHashFor, localBaseUrl, stableHash };
+module.exports = { CORE_NODES, LOCAL_HOSTS, createComfyUiExecutor, normalizeWorkflow, validateDependencies, normalizeCapabilities, templateSamplingMetadata, templateHashFor, localBaseUrl, stableHash, connectionHash };

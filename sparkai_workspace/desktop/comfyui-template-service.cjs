@@ -3,7 +3,7 @@
 const { readFileSync, statSync } = require("node:fs");
 const { createHash } = require("node:crypto");
 const { normalizeWorkflow, localBaseUrl, stableHash, normalizeCapabilities, templateSamplingMetadata } = require("../runtime/image-generation/comfyui-executor.cjs");
-const { normalizeComfyUiTaskOptions } = require("../runtime/comfyui-options.mjs");
+const { normalizeComfyUiTaskOptions, normalizeComfyUiConnectionReference } = require("../runtime/comfyui-options.mjs");
 const { TEMPLATE_SCHEMA_VERSION, TEMPLATE_POLICY_VERSION } = require("../runtime/image-generation/comfyui-template-registry.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -60,8 +60,19 @@ function validated(value) {
 }
 
 /** Main owns reviewed templates; no scripts, dependency installs or file paths in public requests. */
-function createComfyUiTemplateService({ configPath, readJson, writeJson, executor, dialog }) {
+function createComfyUiTemplateService({ configPath, readJson, writeJson, executor, dialog, connectionService }) {
   const defaults = [validated(builtIn("generate")), validated(builtIn("img2img"))];
+  function resolveConnection(input = {}) {
+    const connectionId = normalizeComfyUiConnectionReference(input);
+    if (typeof connectionService?.resolve !== "function") return { baseUrl: localBaseUrl(input.baseUrl), id: "comfyui-local", networkScope: "local" };
+    // A v1 task carries only baseUrl. Persisting this compatibility profile
+    // gives the subsequent Main image path a resolvable connectionId while
+    // preserving the original localhost operation without a new submission.
+    if (!connectionId && input.baseUrl !== undefined && typeof connectionService.migrateLegacy === "function") {
+      return connectionService.migrateLegacy({ baseUrl: input.baseUrl, networkScope: input.networkScope, persist: true });
+    }
+    return connectionService.resolve(input);
+  }
   function customTemplates() {
     const store = readJson(configPath, { version: 1, templates: [] });
     if (store?.version !== 1 || !Array.isArray(store.templates) || store.templates.length > 32) throw fail("COMFYUI_TEMPLATE_STORE_INVALID", "本地模板记录无法读取。");
@@ -69,12 +80,15 @@ function createComfyUiTemplateService({ configPath, readJson, writeJson, executo
   }
   const all = () => [...defaults, ...customTemplates()];
   const publicTemplate = ({ workflow, legacyTemplateHash, ...value }) => clone(value);
-  function list() { return { ok: true, templates: all().map(publicTemplate), baseUrl: "http://127.0.0.1:8188" }; }
+  function list() { return { ok: true, templates: all().map(publicTemplate), baseUrl: "http://127.0.0.1:8188", connections: typeof connectionService?.list === "function" ? connectionService.list() : [] }; }
   async function inspect(input = {}) {
-    const inspected = await executor.inspect(localBaseUrl(input.baseUrl));
+    const connection = resolveConnection(input);
+    const credentials = typeof connectionService?.credentialHeaders === "function" ? connectionService.credentialHeaders(connection) : { headers: {}, tls: { rejectUnauthorized: true } };
+    const policy = typeof connectionService?.requestPolicy === "function" ? connectionService.requestPolicy(connection) : undefined;
+    const inspected = await executor.inspect(connection.baseUrl, { connection, headers: credentials.headers, tls: credentials.tls, policy });
     const capabilities = inspected.capabilities || normalizeCapabilities(inspected.objectInfo, inspected.systemStats);
     const checkpoints = Array.isArray(capabilities.checkpoints) ? capabilities.checkpoints : [];
-    return { ok: true, baseUrl: inspected.baseUrl, checkpoints,
+    return { ok: true, connectionId: connection.id, networkScope: connection.networkScope, baseUrl: inspected.baseUrl, checkpoints,
       samplers: Array.isArray(capabilities.samplers) ? capabilities.samplers : [],
       schedulers: Array.isArray(capabilities.schedulers) ? capabilities.schedulers : [],
       parameterRanges: capabilities.parameterRanges || {}, capabilitiesHash: capabilities.capabilitiesHash,
@@ -101,15 +115,16 @@ function createComfyUiTemplateService({ configPath, readJson, writeJson, executo
   function resolve(input = {}) {
     const templateId = input && typeof input === "object" ? input.templateId : undefined;
     const template = all().find(value => value.id === templateId);
-    const options = normalizeComfyUiTaskOptions(input, template);
+    const connection = resolveConnection(input);
+    const options = normalizeComfyUiTaskOptions({ ...input, connectionId: connection.id, baseUrl: connection.baseUrl, networkScope: connection.networkScope }, template);
     if (!template || ![template.templateHash, template.legacyTemplateHash].includes(options.templateHash)) throw fail("COMFYUI_TEMPLATE_CHANGED", "模板版本已改变，请重新选择后提交。");
     return { workflow: clone(template.workflow), outputNodeId: template.outputNodeId, inputMappings: clone(template.inputMappings),
       ...options,
-      templateId: template.id, templateVersion: template.version, templateHash: template.templateHash, schemaVersion: template.schemaVersion,
+      connectionId: connection.id, networkScope: connection.networkScope, templateId: template.id, templateVersion: template.version, templateHash: template.templateHash, schemaVersion: template.schemaVersion,
       modelFamily: template.modelFamily, exposedInputs: clone(template.exposedInputs), defaults: clone(template.defaults), parameterRanges: clone(template.parameterRanges),
       policyVersion: template.policyVersion, operation: template.operation, imageInputs: template.imageInputs };
   }
-  return { list, inspect, importTemplate, resolve };
+  return { list, inspect, importTemplate, resolve, connectionService };
 }
 
 module.exports = { createComfyUiTemplateService, builtIn };

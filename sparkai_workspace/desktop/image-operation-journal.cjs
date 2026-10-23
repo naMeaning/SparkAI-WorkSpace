@@ -25,7 +25,8 @@ function comfySnapshot(snapshot = {}) {
     return value;
   }).slice(0, 64);
   const inputs = (Array.isArray(snapshot.inputs) ? snapshot.inputs : []).map(input => ({ sha256: /^[a-f0-9]{64}$/.test(input.sha256 || "") ? input.sha256 : "", bytes: Number(input.bytes) || 0, width: Number(input.width) || 0, height: Number(input.height) || 0, mimeType: clean(input.mimeType, 40), ...(input.uploaded ? { uploaded: { name: clean(input.uploaded.name, 1024), subfolder: clean(input.uploaded.subfolder, 1024), type: "input" } } : {}) })).slice(0, 4);
-  return { schemaVersion: Number(snapshot.schemaVersion) >= 2 ? 2 : 1, submissionId: snapshot.submissionId, baseUrl: localBaseUrl(snapshot.baseUrl), clientId: snapshot.clientId,
+  return { schemaVersion: Number(snapshot.schemaVersion) >= 2 ? 2 : 1, submissionId: snapshot.submissionId,
+    ...(snapshot.connectionId ? { connectionId: clean(snapshot.connectionId, 160), networkScope: clean(snapshot.networkScope, 10), ...(snapshot.connectionHash ? { connectionHash: clean(snapshot.connectionHash, 64) } : {}) } : { baseUrl: localBaseUrl(snapshot.baseUrl) }), clientId: snapshot.clientId,
     workflowHash: snapshot.workflowHash, outputNodeId: snapshot.outputNodeId, inputMappings, actualParams, inputs,
     ...(snapshot.promptId ? { promptId: clean(snapshot.promptId, 120) } : {}),
     ...(snapshot.inputNodeId ? { inputNodeId: clean(snapshot.inputNodeId, 120) } : {}),
@@ -235,7 +236,7 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
         patch(projectId, key, { state: "response", stage: "result", resultCount: extractImages(result).length, ...(item.provider === "comfyui" ? { providerState: "succeeded" } : {}) });
         results.set(id, { result, processed }); item = get(projectId, key);
       }
-      const request = item.provider === "comfyui" ? { ...item.comfyui.actualParams, protocol: "comfyui", outputFormat: "png",
+      const request = item.provider === "comfyui" ? { ...item.comfyui.actualParams, protocol: "comfyui", connectionId: item.comfyui.connectionId, networkScope: item.comfyui.networkScope || "local", outputFormat: "png",
         size: `${item.comfyui.actualParams.width}x${item.comfyui.actualParams.height}`, templateId: item.comfyui.templateId,
         templateVersion: item.comfyui.templateVersion, templateHash: item.comfyui.templateHash, workflowHash: item.comfyui.workflowHash,
         sourceHashes: item.comfyui.inputs.map(input => input.sha256) } : { model: item.model, ...item.parameters };
@@ -245,8 +246,9 @@ function createImageOperationJournal({ projectFor, metaDir = ".naimage", extract
     inflight.set(id, task);
     try { return await task; } finally { inflight.delete(id); }
   }
-  async function cancel(projectId, key) {
+  async function cancel(projectId, key, options = {}) {
     const item = get(projectId, key);
+    if (options.connectionId && item?.connectionId !== options.connectionId && item?.comfyui?.connectionId !== options.connectionId) throw failure("IMAGE_CONNECTION_CHANGED", "取消请求与原任务连接不一致；未取消任务。");
     if (!item || item.provider !== "comfyui" || !item.comfyui || !item.taskId) throw failure("COMFYUI_CANCEL_NOT_QUEUED", "没有可核对的本地排队任务。");
     if (["saved", "response", "partial", "delivery-failed", "failed", "rejected", "canceled"].includes(item.state)) throw failure("COMFYUI_CANCEL_NOT_QUEUED", "该任务已经结束或进入成果保存，不能删除排队请求。");
     if (typeof cancelTask !== "function") throw failure("COMFYUI_CANCEL_UNSUPPORTED", "当前运行时没有定向排队取消能力。");

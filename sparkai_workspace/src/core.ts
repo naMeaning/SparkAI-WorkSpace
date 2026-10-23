@@ -3162,14 +3162,20 @@ export type ServerBridge = {
     error?: string;
   }>;
   comfyui(payload: {
-    action: "list" | "inspect" | "import" | "cancel";
+    action: "list" | "inspect" | "import" | "cancel" | "connections-list" | "connections-save" | "connections-update-metadata" | "connections-delete" | "connections-test" | "connections-credential-import";
     baseUrl?: string;
+    connectionId?: string;
+    profileId?: string;
     label?: string;
     outputNodeId?: string;
     inputMappings?: ComfyUiTemplate["inputMappings"];
     projectId?: string;
     key?: string;
-  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; baseUrl?: string; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
+    networkScope?: "local" | "lan" | "remote";
+    credentialType?: "none" | "bearer" | "basic" | "mtls";
+    enabled?: boolean;
+    confirmed?: boolean;
+  }): Promise<{ ok: boolean; canceled?: boolean; error?: string; errorCode?: string; templates?: ComfyUiTemplate[]; template?: ComfyUiTemplate; connections?: Array<{ connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }>; connection?: { connectionId: string; label?: string; networkScope?: "local" | "lan" | "remote"; baseUrl?: string; credentialType?: string; credentialMode?: string; credentialConfigured?: boolean; tlsMode?: string; tlsConfigured?: boolean; authorizedHost?: string; status?: string; enabled?: boolean; legacy?: boolean; createdAt?: string; updatedAt?: string }; baseUrl?: string; connectionId?: string; networkScope?: "local" | "lan" | "remote"; checkpoints?: string[]; samplers?: string[]; schedulers?: string[]; parameterRanges?: ComfyUiParameterRanges; capabilitiesHash?: string; devices?: Array<{ name: string; type: string }>; coreNodes?: string[] }>;
   licenseStatus(payload?: { force?: boolean; scope?: "account" | "custom" }): Promise<LicenseStatus>;
   activateLicense(payload: { code: string }): Promise<LicenseStatus>;
   configureCustom(payload: { baseUrl: string; apiKey: string; agentModel?: string; imageModel?: string }): Promise<{ ok: boolean; user?: ServerUser; settings?: ServerPublicSettings; license?: LicenseStatus; warning?: string; error?: string }>;

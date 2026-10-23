@@ -6034,6 +6034,133 @@
       "title": "Portable projects, AI edit and local ComfyUI",
       "commands": [
         {
+          "name": "comfyui.connections",
+          "surface": "renderer",
+          "description": "List Main-owned ComfyUI connection summaries by stable connectionId, label, network scope and authentication/status capability. Endpoint URLs, hosts, paths, credential references and secret material are never returned to automation. Configure endpoints through the human GUI.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "required": []
+          }
+        },
+        {
+          "name": "comfyui.connection.save",
+          "surface": "renderer",
+          "description": "Update only the label or enabled state of an existing Main-owned connectionId. Endpoint, network scope and authentication configuration are human GUI actions. No URL, host, path, credential value or credentialRef is accepted or returned. Requires explicit confirmed=true.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Main-owned connection profile identity; credentials never cross this boundary."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "confirmed": {
+                "type": "boolean",
+                "description": "Required true for a network-affecting save/delete/test action."
+              }
+            },
+            "required": [
+              "connectionId",
+              "confirmed"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.connection.import-credential",
+          "surface": "renderer",
+          "description": "Open Main's native JSON file picker to import one bearer/basic/mtls credential into protected OS storage and bind it to an existing connectionId. No file path, credential value or credentialRef is accepted or returned. Cancellation preserves the connection. Requires explicit confirmed=true; no network or generation request is performed.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              },
+              "credentialType": {
+                "type": "string",
+                "enum": [
+                  "bearer",
+                  "basic",
+                  "mtls"
+                ]
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "connectionId",
+              "credentialType",
+              "confirmed"
+            ]
+          }
+        },
+        {
+          "name": "comfyui.connection.delete",
+          "surface": "renderer",
+          "description": "Delete a Main-owned ComfyUI connection profile by connectionId (or profileId alias). Requires explicit confirmed=true and never deletes protected credential material implicitly.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "confirmed"
+            ]
+          },
+          "destructive": true
+        },
+        {
+          "name": "comfyui.connection.test",
+          "surface": "renderer",
+          "description": "Test one configured ComfyUI connection using its Main-owned credentials and transport policy. No model generation or dependency installation is performed; requires explicit confirmed=true.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "confirmed"
+            ]
+          }
+        },
+        {
           "name": "comfyui.templates",
           "surface": "renderer",
           "description": "List locally reviewed API JSON templates with model-family, exposed-input, default and safe-range metadata. No model request.",
@@ -6047,18 +6174,29 @@
         {
           "name": "comfyui.inspect",
           "surface": "renderer",
-          "description": "Inspect only the existing localhost ComfyUI system_stats/object_info and return redacted checkpoints, samplers, schedulers and safe parameter ranges; never install software or weights.",
+          "description": "Inspect a configured ComfyUI connection by connectionId, returning only redacted capabilities and network scope. Endpoint URLs and hosts are not accepted or returned. Backend-only compatibility still reads legacy localhost journals; no software, weights or model request is started.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "baseUrl": {
+              "connectionId": {
                 "type": "string",
-                "maxLength": 2048,
-                "default": "http://127.0.0.1:8188"
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Main-owned connection profile identity."
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
+              },
+              "confirmed": {
+                "type": "boolean",
+                "description": "Required true when inspecting LAN or remote profiles; localhost inspection may omit it."
               }
             },
-            "required": []
+            "required": [
+              "connectionId"
+            ]
           }
         },
         {
@@ -6144,7 +6282,7 @@
         {
           "name": "comfyui.generate",
           "surface": "renderer",
-          "description": "Explicitly execute one reviewed local image_gen template. Freeze actual seed/model/inputs/workflow and declared sampling parameters; submissionId is durable, same content recovers and conflicting content is rejected. Local service execution requires current user authorization.",
+          "description": "Explicitly execute one reviewed ComfyUI image_gen template through a Main-owned connectionId. URLs are never accepted. Backend-only compatibility still reads legacy localhost journals. Freeze actual seed/model/inputs/workflow and declared sampling parameters. Local/LAN/remote execution requires current user authorization; this command never installs software or silently falls back to cloud.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6175,11 +6313,6 @@
                   "templateHash": {
                     "type": "string",
                     "pattern": "^[a-f0-9]{64}$"
-                  },
-                  "baseUrl": {
-                    "type": "string",
-                    "maxLength": 2048,
-                    "default": "http://127.0.0.1:8188"
                   },
                   "checkpoint": {
                     "type": "string",
@@ -6237,11 +6370,22 @@
                     "minimum": 0,
                     "maximum": 1,
                     "description": "Optional KSampler denoise value; accepted only when the selected template declares it."
+                  },
+                  "connectionId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                    "description": "Main-owned connection profile identity; preferred for new tasks."
+                  },
+                  "profileId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                    "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
                   }
                 },
                 "required": [
                   "templateId",
                   "templateHash",
+                  "connectionId",
                   "checkpoint"
                 ]
               },
@@ -6286,7 +6430,7 @@
         {
           "name": "comfyui.cancel",
           "surface": "renderer",
-          "description": "Cancel only a verified queued prompt belonging to this journal entry. Running cancellation fails unless directional interruption is verified; never global interrupt.",
+          "description": "Cancel only a verified queued prompt belonging to this journal entry and connection profile. Running cancellation fails unless directional interruption is verified; never global interrupt.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
@@ -6299,6 +6443,16 @@
               "key": {
                 "type": "string",
                 "pattern": "^[a-f0-9]{32}$"
+              },
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Optional Main-owned connection identity used to verify the frozen journal connection."
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+                "description": "Stable profile alias accepted for compatibility; Main resolves it to connectionId."
               }
             },
             "required": [

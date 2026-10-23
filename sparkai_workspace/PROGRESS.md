@@ -1,5 +1,16 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-23，ComfyUI 平台 Phase 1 本地交付收尾）
+
+- 基线 main/`17d1125`，接受时干净，保留本轮共享工作树。当前范围为连接 profile、安全 LAN/remote 传输和 GUI/IPC/CLI/MCP；Phase 2–4 按顺序后续实施，旧 localhost-only 非目标已被本轮取代。
+- 已实现待交付：Main connection service、safeStorage 加密 credential sidecar/native import、HTTP/HTTPS/WS/WSS pinned transport；local/lan/remote 与 none/bearer/basic/mtls；模板/executor/Main/journal connectionId 与 connectionHash。新项目任务不保存地址/凭据；旧无 ID v1 连续恢复保留原 URL 身份。GUI 人工地址配置显示网络边界；CLI/MCP 5 个新增管理命令只持稳定 ID/元数据，所有自动化控制结果去 URL/host/path/ref，执行 schema 不再接受 baseUrl（Main 旧本机兼容读取保留）。
+- 实际专项：connection15、credential8、transport17、template14、executor35、Main12、automation-service、MCP123、IPC170/167、typecheck、view-image 通过。Main 最新报告 `.diagnostics/electron/comfyui-main-1792717383824/report.json`（8 fake prompt/5 view/1 upload）；transport 报告 `.diagnostics/comfyui-transport/report.json` 覆盖真实 TLS/WSS socket、加密 key mTLS、同 origin 认证隔离、lost ack/restart/cancel。fake remote 用测试 façade 路由 loopback，并明确 fixtureNetworkOverride=true；生产策略另验 remote→私网/回环网络前拒绝，0真实LAN/remote/model。
+- 最终实际 GUI 10组/19截图通过，`.diagnostics/comfyui-ui-2026-10-23T01-08-36-810Z/report.json`；4 fake prompt/3 view/1 upload/1 delete，两次正常退出0。中性provider、分scope成果标签、失效ID不静默切换及metadata21例均通过；Main最终报告`.diagnostics/electron/comfyui-main-1792717876186/report.json`。安全收尾修复精确endpoint、损坏profile fail closed、人工地址变更授权host；executor提交现在强制 prepared/accepted 两个持久化回调，缺少时网络前拒绝；未扩大真实网络授权。
+- 本地包：714源码/测试/契约文件冻结，sourceHash `c0d32f1ead17771427d511e291c379eb92e631152593e21f7d07321a797478ce`；package:win:unrestricted exit0。[EXE](release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 110,055,936 B / SHA-256 `82325b465d01deb9258e07b55ec0d6e5a9bdf45eb62b0ee0fb061eac3d557875`；132dist/191owner包内逐字节匹配；ASAR 53,161,113 B / `36b80970dd8818d1f1316466b15bed2ed51c2d5da251ef12cc0574ea485b1954`。证据`.diagnostics/comfyui-connections-delivery/package.log`、`frozen-source.json`、`package-audit.json`。
+- 安装：所有同名实例0（专项已两次正常退出0），品牌/S原位升级exit0/19,708ms，原注册目录`E:\sparkai-workspace\naimage`与1.0.9身份保留；配置/凭据sidecar metadata/快捷方式偏好保留，已安装EXE/ASAR与候选包匹配。证据同目录`install.json`，未读取真实secret内容。
+- Bundle诊断exit1，仅既有CSS292,392 >270,000 B；initial JS4,310/plugin JS86,613 B在限内，无诊断控制面泄漏，core/dist advisory超限。开发包按AGENTS允许交付，不宣称正式Release门禁通过；未上传EXE/Release/tag。Git仅本阶段源码/文档待提交普通push，远端核对后进入Phase2。[Goal](GOAL.md) / [专项验证](docs/COMFYUI_CONNECTION_VALIDATION.md)。
+
+
 ## 当前开发状态（2026-10-23，ComfyUI 参数能力增量本地交付完成）
 
 - 接受现场：根main/`db19822`，工作树干净；本轮只扩展现有ComfyUI模板/options/inspect/executor/Main哈希及GUI/CLI/MCP合同，不重复D阶段prepared/accepted/recover/journal基础链。已接受范围见[Goal](GOAL.md)，持续证据见[参数能力验证](docs/COMFYUI_PARAMETERS_VALIDATION.md)。

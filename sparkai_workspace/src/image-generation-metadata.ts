@@ -249,7 +249,10 @@ export function imageGenerationDisplayRows(
 }
 
 export function imageGenerationSourceLabel(asset: ImageAsset, fallbackRequest?: ImageTaskDraft) {
-  if (asset.generation?.request?.protocol === "comfyui" || asset.generation?.response?.protocol === "comfyui") return "ComfyUI 本地执行";
+  if (asset.generation?.request?.protocol === "comfyui" || asset.generation?.response?.protocol === "comfyui") {
+    const scope = asset.generation.request?.networkScope || asset.generation.response?.networkScope;
+    return scope === "remote" ? "ComfyUI 远程执行" : scope === "lan" ? "ComfyUI 局域网执行" : scope === "local" ? "ComfyUI 本地执行" : "ComfyUI 执行（网络范围未知）";
+  }
   if (asset.generation?.response && Object.keys(asset.generation.response).length) return "服务器响应";
   if (!asset.generation && imageAssetIsLocalImport(asset)) return "本地导入";
   if (asset.generation?.request || fallbackRequest) return "请求记录";

@@ -754,7 +754,10 @@ async function main() {
       exportProjectPackage: async input => { boundaryCalls.push({ kind: "package", input }); return { ok: true }; },
       importProjectPackage: async () => ({ activeProjectId: "IMPORTED" })
     };
-    globalThis.window = { naimageServer: { comfyui: async input => { boundaryCalls.push({ kind: "control", input }); return { ok: true }; } }, naimageConfig: {
+    globalThis.window = { naimageServer: { comfyui: async input => { boundaryCalls.push({ kind: "control", input }); return { ok: true,
+      connectionId: "comfyui-local", networkScope: "local", baseUrl: "http://127.0.0.1:8188", authorizedHost: "127.0.0.1", credentialRef: "main-ref",
+      connections: [{ connectionId: "comfyui-local", label: "Fixture", networkScope: "local", baseUrl: "http://127.0.0.1:8188", authorizedHost: "127.0.0.1", credentialMode: "bearer", credentialConfigured: true }],
+      capabilities: { checkpoints: ["fixture.safetensors"], endpoint: "http://127.0.0.1:8188", credentialRef: "nested-ref" } }; } }, naimageConfig: {
       exportManagedAssetQueue: {
         start: async input => { boundaryCalls.push({ kind: "export", input }); return { ok: true, queueId: "queue-fixture" }; },
         status: async input => { boundaryCalls.push({ kind: "status", input }); return { ok: true }; },
@@ -764,11 +767,53 @@ async function main() {
       previewImageCollectionExport: async input => { boundaryCalls.push({ kind: "preview", input }); return { ok: true, previewToken: "frozen-preview" }; }
     } };
     try {
-      const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1, steps: 28, cfg: 7.5, sampler: "euler", scheduler: "normal", denoise: 0.8 } };
+      const connectionSummary = await runtimeModule.executeAutomationCommand("comfyui.connections", {}, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "connections-list" });
+      assert.equal(connectionSummary.baseUrl, undefined); assert.equal(connectionSummary.authorizedHost, undefined); assert.equal(connectionSummary.credentialRef, undefined);
+      assert.equal(connectionSummary.connections[0].baseUrl, undefined); assert.equal(connectionSummary.connections[0].authorizedHost, undefined);
+      assert.equal(connectionSummary.connections[0].connectionId, "comfyui-local"); assert.equal(connectionSummary.connections[0].credentialConfigured, true);
+      assert.equal(connectionSummary.capabilities.endpoint, undefined); assert.equal(connectionSummary.capabilities.credentialRef, undefined);
+      await runtimeModule.executeAutomationCommand("comfyui.connection.save", {
+        connectionId: "comfyui-local", label: "Renamed fixture", confirmed: true
+      }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.action, "connections-update-metadata");
+      assert.equal(boundaryCalls.at(-1).input.credentialRef, undefined);
+      assert.equal(boundaryCalls.at(-1).input.token, undefined);
+      await runtimeModule.executeAutomationCommand("comfyui.connection.save", {
+        connectionId: "comfyui-local", enabled: false, confirmed: true
+      }, incrementalContext);
+      assert.equal(boundaryCalls.at(-1).input.credentialType, undefined, "An omitted mode preserves the Main-owned credential binding");
+      assert.equal(boundaryCalls.at(-1).input.label, undefined); assert.equal(boundaryCalls.at(-1).input.enabled, false);
+      const inspectedConnection = await runtimeModule.executeAutomationCommand("comfyui.inspect", { connectionId: "comfyui-local" }, incrementalContext);
+      assert.equal(inspectedConnection.baseUrl, undefined); assert.equal(inspectedConnection.capabilities.endpoint, undefined);
+      await runtimeModule.executeAutomationCommand("comfyui.connection.import-credential", { connectionId: "comfyui-local", credentialType: "bearer", confirmed: true }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "connections-credential-import", connectionId: "comfyui-local", credentialType: "bearer", confirmed: true });
+      const beforeInvalidConnections = boundaryCalls.length;
+      for (const args of [
+        { connectionId: "comfyui-local", credentialType: "bearer", confirmed: false },
+        { connectionId: "comfyui-local", credentialType: "bearer", confirmed: true, path: "C:/private.json" },
+        { connectionId: "comfyui-local", credentialType: "bearer", confirmed: true, token: "private-token" }
+      ]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.connection.import-credential", args, incrementalContext));
+      for (const args of [
+        { connectionId: "comfyui-local", label: "No URL", baseUrl: "http://127.0.0.1:8188", confirmed: true },
+        { connectionId: "comfyui-local", label: "No scope", networkScope: "remote", confirmed: true },
+        { connectionId: "comfyui-local", label: "No type", credentialType: "none", confirmed: true },
+        { connectionId: "comfyui-local", label: "No refs", credentialRef: "private-ref", confirmed: true },
+        { connectionId: "comfyui-local", confirmed: true }
+      ]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.connection.save", args, incrementalContext));
+      await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.inspect", { connectionId: "one", profileId: "two" }, incrementalContext));
+      await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.inspect", { baseUrl: "http://127.0.0.1:8188" }, incrementalContext));
+      assert.equal(boundaryCalls.length, beforeInvalidConnections, "Invalid credential and alias arguments never cross the IPC boundary");
+      await runtimeModule.executeAutomationCommand("comfyui.connection.test", { profileId: "comfyui-local", confirmed: true }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "connections-test", connectionId: "comfyui-local", confirmed: true });
+      await runtimeModule.executeAutomationCommand("comfyui.connection.delete", { connectionId: "comfyui-local", confirmed: true }, incrementalContext);
+      assert.deepEqual(boundaryCalls.at(-1).input, { action: "connections-delete", connectionId: "comfyui-local", confirmed: true });
+      await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.connection.test", { connectionId: "comfyui-local", confirmed: false }, incrementalContext), error => error.code === "CONFIRMATION_REQUIRED");
+      const local = { expectedProjectId: "PROJECT", submissionId: "stable-local", prompt: "Photograph", comfyui: { connectionId: "comfyui-local", templateId: "stock-generate", templateHash: "b".repeat(64), checkpoint: "fixture.safetensors", width: 512, height: 768, seed: -1, steps: 28, cfg: 7.5, sampler: "euler", scheduler: "normal", denoise: 0.8 } };
       await runtimeModule.executeAutomationCommand("comfyui.generate", local, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input.submissionId, "stable-local");
       assert.deepEqual(boundaryCalls.at(-1).input.comfyui, local.comfyui, "structured sampling parameters cross the automation boundary unchanged");
-      for (const input of [{ ...local, expectedProjectId: "OTHER" }, { ...local, workflow: {} }, { ...local, comfyui: { ...local.comfyui, width: 513 } }, { ...local, comfyui: { ...local.comfyui, path: "C:/private" } }]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", input, incrementalContext));
+      for (const input of [{ ...local, expectedProjectId: "OTHER" }, { ...local, workflow: {} }, { ...local, comfyui: { ...local.comfyui, width: 513 } }, { ...local, comfyui: { ...local.comfyui, path: "C:/private" } }, { ...local, comfyui: { ...local.comfyui, baseUrl: "http://127.0.0.1:8188" } }, { ...local, comfyui: { ...local.comfyui, connectionId: "" } }, { ...local, comfyui: { ...local.comfyui, profileId: "conflict" } }]) await assert.rejects(runtimeModule.executeAutomationCommand("comfyui.generate", input, incrementalContext));
       assert.equal(boundaryCalls.filter(call => call.kind === "generate").length, 1, "Invalid local requests never enter the image execution chain");
       await runtimeModule.executeAutomationCommand("canvas.edit-image", { expectedProjectId: "PROJECT", nodeId: "photo", mode: "remove-object" }, incrementalContext);
       assert.equal(boundaryCalls.at(-1).input[2], "remove-object");

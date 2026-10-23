@@ -22,9 +22,12 @@ const { aidebugImageBase64, aidebugLayerFixtureHint } = require("./desktop/aideb
 const { createNewApiClient } = require("./desktop/new-api-client.cjs");
 const { createNewApiTransport } = require("./desktop/new-api-transport.cjs");
 const { createImageGenerationService } = require("./desktop/image-generation-service.cjs");
-const { createComfyUiExecutor, localBaseUrl: comfyUiLocalBaseUrl, stableHash: comfyUiStableHash } = require("./runtime/image-generation/comfyui-executor.cjs");
+const { createComfyUiExecutor, stableHash: comfyUiStableHash, connectionHash: comfyUiConnectionHash } = require("./runtime/image-generation/comfyui-executor.cjs");
 const { normalizeImageLocalProcessing } = require("./runtime/image-local-processing.mjs");
 const { createComfyUiTemplateService } = require("./desktop/comfyui-template-service.cjs");
+const { createComfyUiConnectionProfileService } = require("./desktop/comfyui-connection-service.cjs");
+const { createComfyUiTransport } = require("./desktop/comfyui-transport.cjs");
+const { createComfyUiCredentialStore } = require("./desktop/comfyui-credential-store.cjs");
 const { createImageOperationJournal } = require("./desktop/image-operation-journal.cjs");
 const { normalizeImageResultDownloadError } = require("./runtime/image-generation/errors.cjs");
 const { createLicenseService } = require("./desktop/license-service.cjs");
@@ -1223,9 +1226,21 @@ const newApiAccountService = createNewApiAccountService({
   newApiRequest, newApiUserAuthHeaders, requireNewApiSession, resolveNewApiBaseUrl,
   getNewApiAuthEpoch: () => newApiAuthEpoch
 });
-const comfyUiExecutor = createComfyUiExecutor({ log });
+const comfyUiCredentialStore = createComfyUiCredentialStore({ safeStorage, secretsPath: path.join(configDir, "comfyui-credentials.secrets.json"), dialog });
+const comfyUiConnectionService = createComfyUiConnectionProfileService({
+  configPath: path.join(configDir, "comfyui-connections.json"),
+  writeJson,
+  credentialStore: comfyUiCredentialStore
+});
+if (!comfyUiConnectionService.list().length) {
+  try { comfyUiConnectionService.ensureDefault({ baseUrl: "http://127.0.0.1:8188" }); } catch (error) { log(`ComfyUI default connection migration failed ${error instanceof Error ? error.message : String(error)}`); }
+}
+const comfyUiTransport = createComfyUiTransport({ connectionService: comfyUiConnectionService });
+const comfyUiExecutor = createComfyUiExecutor({ log, connectionService: comfyUiConnectionService, request: comfyUiTransport.request, wsFactory: comfyUiTransport.websocket });
+comfyUiConnectionService.attachExecutor?.(comfyUiExecutor);
 const comfyUiTemplateService = createComfyUiTemplateService({
-  configPath: path.join(configDir, "comfyui-templates.json"), readJson, writeJson, executor: comfyUiExecutor, dialog
+  configPath: path.join(configDir, "comfyui-templates.json"), readJson, writeJson, executor: comfyUiExecutor, dialog,
+  connectionService: comfyUiConnectionService
 });
 const imageGenerationService = createImageGenerationService({
   accessPolicy,
@@ -4926,11 +4941,12 @@ async function callComfyUiImageWithSession(payload = {}) {
   const config = payload.comfyui;
   if (!config?.workflow || !config.templateId || !config.templateHash) throw Object.assign(new Error("本地生图需要 Main 已校验的模板。"), { code: "COMFYUI_TEMPLATE_REQUIRED" });
   if (payload.maskImage || payload.maskDataUrl || ["redraw", "cutout"].includes(payload.editOperation)) throw Object.assign(new Error("首期本地模板暂不支持蒙版编辑或抠图。"), { code: "COMFYUI_MASK_UNSUPPORTED" });
-  const baseUrl = comfyUiLocalBaseUrl(config.baseUrl);
+  const connection = comfyUiConnectionService.resolve(config);
+  const baseUrl = connection.baseUrl;
   const sourceImages = [payload.editImage, ...(Array.isArray(payload.referenceImages) ? payload.referenceImages : [])].filter(Boolean);
   if (sourceImages.length !== config.imageInputs) throw Object.assign(new Error("所选模板需要的素材数量与当前来源不符。"), { code: "COMFYUI_NODE_MAPPING_INVALID" });
   const inputs = sourceImages.map(image => resolveMaterializedImageInput(image, payload.projectId));
-  const requestHash = comfyUiStableHash({ templateId: config.templateId, templateHash: config.templateHash, baseUrl, checkpoint: config.checkpoint,
+  const requestHash = comfyUiStableHash({ connectionId: connection.id, connectionHash: comfyUiConnectionHash(connection), networkScope: connection.networkScope, templateId: config.templateId, templateHash: config.templateHash, baseUrl, checkpoint: config.checkpoint,
     seed: config.seed, width: config.width, height: config.height, steps: config.steps, cfg: config.cfg, sampler: config.sampler,
     scheduler: config.scheduler, denoise: config.denoise, prompt: String(payload.prompt || ""), negativePrompt: config.negativePrompt,
     sources: inputs.map(input => ({ contentHash: input.contentHash, assetId: input.source.assetId, occurrenceId: input.source.occurrenceId, nodeId: input.source.canvasNodeId })), requireAlpha: payload.requireAlpha === true });
@@ -4946,12 +4962,12 @@ async function callComfyUiImageWithSession(payload = {}) {
   const project = getProjectById(payload.projectId, readProjectList());
   const item = imageOperationJournal.start({ projectId: payload.projectId, operationId: payload.operationId, requestIndex: payload.requestIndex || 1,
     runId: payload.runId, agentTaskId: agentTaskService?.taskIdForRun(payload.projectId, payload.agentRunId || payload.runId), provider: "comfyui", requestHash,
-    projectRevision: projectSessionRevisionFromDisk(project), model: config.checkpoint, protocol: "comfyui", transport: "local", connectionId: modelConnectionIdentity(baseUrl, ""),
+    projectRevision: projectSessionRevisionFromDisk(project), model: config.checkpoint, protocol: "comfyui", transport: connection.networkScope, connectionId: connection.id,
     sourceNodeIds: inputs.map(input => input.source.canvasNodeId).filter(Boolean), sources: inputs.map(input => input.source), targetNodeId: payload.targetNodeId,
     parameters: { n: 1, size: `${config.width}x${config.height}`, outputFormat: "png", referenceCount: inputs.length } });
   const template = { templateId: config.templateId, templateHash: config.templateHash, templateVersion: config.templateVersion };
   try {
-    const result = await imageGenerationService.runComfyUi({ ...config, prompt: payload.prompt, submissionId: `op-${item.key}`, inputs,
+    const result = await imageGenerationService.runComfyUi({ ...config, connection, connectionId: connection.id, prompt: payload.prompt, submissionId: `op-${item.key}`, inputs,
       signal: payload.signal, onStatus: payload.onStatus,
       persistPrepared: snapshot => imageOperationJournal.prepared(item, { ...snapshot, ...template }),
       persistAccepted: snapshot => imageOperationJournal.accepted(item, { taskId: snapshot.promptId, comfyui: { ...snapshot, ...template } }),
@@ -5226,7 +5242,7 @@ function imageGenerationContext(payload = {}, data = {}, outputFormat = "png") {
   if (data.protocol === "comfyui") {
     const frozen = payload.comfyui || {};
     const actual = data.actualParams || frozen.actualParams || {};
-    return { request: normalizeImageGenerationParameters({ ...actual, protocol: "comfyui", outputFormat: "png",
+    return { request: normalizeImageGenerationParameters({ ...actual, protocol: "comfyui", connectionId: frozen.connectionId, networkScope: frozen.networkScope || "local", outputFormat: "png",
       ...(actual.width && actual.height ? { size: `${actual.width}x${actual.height}` } : {}),
       templateId: frozen.templateId, templateVersion: frozen.templateVersion, templateHash: frozen.templateHash, workflowHash: frozen.workflowHash,
       sourceHashes: (frozen.inputs || []).map(input => input.sha256) }) };
@@ -5333,7 +5349,8 @@ const imageOperationJournal = createImageOperationJournal({
   async resolveConnection(item) {
     if (item.provider === "comfyui") {
       if (!item.comfyui) throw Object.assign(new Error("原本地提交缺少冻结快照，不能安全恢复。"), { code: "IMAGE_OPERATION_UNCERTAIN", unsafeToRetry: true });
-      return { connectionId: modelConnectionIdentity(comfyUiLocalBaseUrl(item.comfyui.baseUrl), ""), protocol: "comfyui", transport: "local" };
+      const connection = comfyUiConnectionService.resolve(item.comfyui);
+      return { connectionId: item.comfyui.connectionId ? connection.id : modelConnectionIdentity(connection.baseUrl, ""), protocol: "comfyui", transport: item.comfyui.networkScope || "local", connection };
     }
     const settings = migrateSettings(readJson(settingsPath, defaultSettings));
     const config = imageGenerationService.resolveModelConfig(settings, item.model);
@@ -5536,6 +5553,8 @@ function registerIpc() {
     deliverGeneratedImageResult,
     imageOperationJournal,
     imageGenerationService,
+    comfyUiCredentialStore,
+    comfyUiConnectionService,
     comfyUiTemplateService,
     clearNewApiAuth,
     completeNewApiLogin,

@@ -131,6 +131,26 @@ async function main() {
   const localRows = display.imageGenerationDisplayRows({ type: "file", generation: localGeneration, width: 512, height: 512 }, { model: "cloud", quality: "high", ratio: "16:9", resolution: "2K" });
   assert.equal(localRows.some(row => row.key === "quality" || row.key === "resolution"), false); assert.equal(localRows.find(row => row.key === "seed").requested, "456");
   assert.equal(display.imageGenerationSourceLabel({ type: "file", generation: localGeneration }), "ComfyUI 本地执行");
+  const scopeLabels = { local: "ComfyUI 本地执行", lan: "ComfyUI 局域网执行", remote: "ComfyUI 远程执行" };
+  for (const [networkScope, label] of Object.entries(scopeLabels)) {
+    const scopedGeneration = normalizeImageAssetGenerationMetadata({
+      request: { protocol: "comfyui", connectionId: "scope-fixture", networkScope, model: "scope.safetensors", baseUrl: "must-not-survive", credentialRef: { id: "must-not-survive" } },
+      response: { protocol: "comfyui", connectionId: "scope-fixture", networkScope, token: "must-not-survive" }
+    });
+    assert.equal(scopedGeneration.request.connectionId, "scope-fixture"); assert.equal(scopedGeneration.request.networkScope, networkScope);
+    assert.equal(scopedGeneration.response.connectionId, "scope-fixture"); assert.equal(scopedGeneration.response.networkScope, networkScope);
+    assert.equal(JSON.stringify(scopedGeneration).includes("must-not-survive"), false);
+    assert.deepEqual(display.sanitizeImageAssetGenerationMetadata(scopedGeneration), scopedGeneration, `${networkScope}: Renderer/Main metadata whitelist agrees`);
+    assert.equal(display.imageGenerationSourceLabel({ type: "file", generation: scopedGeneration }), label);
+    const scopedSession = sanitizeSession({ nodes: [{ id: `scope-${networkScope}`, type: "image", assets: [{ type: "file", path: "C:\\managed\\scope.png", generation: scopedGeneration }] }] });
+    assert.deepEqual(scopedSession.nodes[0].assets[0].generation, scopedGeneration, `${networkScope}: project save preserves network boundary`);
+  }
+  const unknownGeneration = normalizeImageAssetGenerationMetadata({ request: { protocol: "comfyui", connectionId: "scope-fixture", networkScope: "untrusted-scope" } });
+  assert.equal(unknownGeneration.request.networkScope, "unknown");
+  assert.deepEqual(normalizeImageAssetGenerationMetadata(unknownGeneration), unknownGeneration, "repeated normalization must never turn an invalid scope into local");
+  assert.deepEqual(display.sanitizeImageAssetGenerationMetadata(unknownGeneration), unknownGeneration, "Renderer preserves the explicit unknown boundary");
+  assert.equal(display.imageGenerationSourceLabel({ type: "file", generation: unknownGeneration }), "ComfyUI 执行（网络范围未知）");
+  assert.equal(localGeneration.request.networkScope, "local", "legacy metadata without a scope retains the historical local boundary");
   const importedAsset = {
     type: "file",
     path: "C:\\managed\\imports\\local.png",
@@ -179,7 +199,7 @@ async function main() {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    cases: 16,
+    cases: 21,
     requestWhitelist: true,
     responseAliases: true,
     perImageResponseIsolation: true,
@@ -188,7 +208,9 @@ async function main() {
     nestedLayerPersistence: true,
     localProcessingSourcesSeparated: true,
     localImportFallbackSuppressed: true,
-    legacyRequestFallbackPreserved: true
+    legacyRequestFallbackPreserved: true,
+    comfyUiNetworkScopeLabels: true,
+    unknownScopeIdempotent: true
   })}\n`);
 }
 

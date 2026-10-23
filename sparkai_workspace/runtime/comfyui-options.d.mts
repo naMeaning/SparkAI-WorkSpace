@@ -1,14 +1,16 @@
 export type ComfyUiSamplingParameters = { steps?: number; cfg?: number; sampler?: string; scheduler?: string; denoise?: number };
 export type ComfyUiTemplateParameterRange = { min: number; max: number; step?: number };
 export type ComfyUiTemplateCapabilities = { exposedInputs?: string[]; defaults?: ComfyUiSamplingParameters; parameterRanges?: Partial<Record<"steps" | "cfg" | "denoise", ComfyUiTemplateParameterRange>>; inputMappings?: Array<{ kind?: string; value?: unknown }> };
-export type ComfyUiTaskOptions = { templateId: string; templateHash: string; baseUrl: string; checkpoint: string; seed: number; width: number; height: number; negativePrompt?: string } & ComfyUiSamplingParameters;
+export type ComfyUiTaskOptions = { templateId: string; templateHash: string; connectionId?: string; profileId?: string; networkScope?: "local" | "lan" | "remote"; /** Legacy task migration input; new tasks persist connectionId. */ baseUrl?: string; checkpoint: string; seed: number; width: number; height: number; negativePrompt?: string } & ComfyUiSamplingParameters;
 export const COMFYUI_SAMPLING_FIELDS: readonly string[];
 export const COMFYUI_PARAMETER_RANGES: Readonly<Record<"steps" | "cfg" | "denoise", ComfyUiTemplateParameterRange>>;
 export const LOCAL_HOSTS: Set<string>;
 export function localBaseUrl(value?: unknown): string;
+export function profileBaseUrl(value: unknown, hasConnection?: boolean): string;
+export function normalizeComfyUiConnectionReference(value: unknown): string | undefined;
 export function isComfyUiModelName(value: unknown): boolean;
 export function isComfyUiSamplingChoice(value: unknown): boolean;
 export function normalizeComfyUiSamplingParameters(value: unknown, template?: ComfyUiTemplateCapabilities): ComfyUiSamplingParameters;
 export function normalizeComfyUiTaskOptions(value: unknown, template?: ComfyUiTemplateCapabilities): ComfyUiTaskOptions;
-export type ComfyUiGenerationMetadata = { protocol?: "comfyui"; seed?: number; steps?: number; cfg?: number; denoise?: number; sampler?: string; scheduler?: string; templateId?: string; templateVersion?: number; templateHash?: string; workflowHash?: string; sourceHashes?: string[] };
+export type ComfyUiGenerationMetadata = { protocol?: "comfyui"; connectionId?: string; networkScope?: "local" | "lan" | "remote" | "unknown"; seed?: number; steps?: number; cfg?: number; denoise?: number; sampler?: string; scheduler?: string; templateId?: string; templateVersion?: number; templateHash?: string; workflowHash?: string; sourceHashes?: string[] };
 export function normalizeComfyUiGenerationMetadata(value: unknown): ComfyUiGenerationMetadata;

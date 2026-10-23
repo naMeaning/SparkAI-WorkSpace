@@ -1,5 +1,17 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：ComfyUI 可配置执行平台（2026-10-23，Phase 1 本地交付收尾）
+
+- 接受现场：根 main / `17d112527fe5eb4139771314e4927fd454b61620`，工作树干净。当前用户新方向取代上一轮 localhost-only 非目标；历史参数能力交付证据保留。
+- 阶段顺序：Phase 1 Main connection profiles 与 LAN/remote 安全传输；Phase 2 typed generate/img2img/inpaint/cutout 与受管 mask；Phase 3 审核 manifest、artifact store 与环境/模型安装；Phase 4 同一 Agent Runtime 的离线 provider。逐阶段验证、文档和本地交付，禁止混成不可审查大改。
+- 当前验收：Main 维护 local/lan/remote、none/bearer/basic/mtls 引用；统一 HTTP/WS/view 的 URL、授权主机、DNS pin/rebinding、TLS 与 redirect 策略；旧 baseUrl/v1 journal 继续恢复；任务以 connectionId 引用；GUI/IPC/CLI/MCP/Skill/shared schema 同步。先连接/模板/executor/Main/contract、typecheck/view-image 和 fake/loopback UI，再最终源码 production EXE、身份核对、正常退出后原位安装、当前 upstream 普通 push。
+- 不变量：单 Agent/TaskScope/image_gen；Main 拥有网络、凭据、路径、安装和日志；模型不见 URL/Token/脚本/绝对路径/原始工作流。templateHash 覆盖 canonical workflow/inputMappings/outputNodeId/policyVersion；capabilitiesHash 不阻止历史恢复；prepared 在 POST 前、accepted 在 poll 前；unknown 永不重发、同 submission 冲突网络前拒绝、运行取消不全局 interrupt。
+- 授权：仅 loopback/fake；未经新增明确授权不得真实 LAN/remote、模型请求/下载或依赖安装。不改 Extension/New API/生产，不上传 EXE/Release/tag。本地开发打包、安装、只提交本轮源码文档并 push 已持续授权。
+- 当前实现：Main connection/credential/transport owners、每 socket DNS pin、严格 TLS/mTLS/WSS、GUI 人工配置与网络边界；新执行引用 ID，CLI/MCP 不接收或返回连接 URL。connectionHash 冻结连接/凭据引用，同 submission 跨 profile 冲突与 profile 漂移均在网络前拒绝；旧无 ID 的 v1 journal 连续恢复保留原身份。
+- 当前证据：连接15/凭据8/transport17/模板14/executor35/Main12/metadata21、automation/MCP123/IPC170/167、typecheck/view-image和最终GUI10组/19截图通过，仅fake/loopback。714源文件冻结、132dist/191owner包内一致；production开发EXE 110,055,936 B / SHA-256 `82325b465d01deb9258e07b55ec0d6e5a9bdf45eb62b0ee0fb061eac3d557875`；品牌/S原位升级exit0，安装EXE/ASAR匹配且目录/配置/快捷方式保留。CSS预算失败已记录，非正式Release。[专项记录](docs/COMFYUI_CONNECTION_VALIDATION.md)。
+- 下一步：只提交本阶段源码/文档并普通push origin/main，核对远端身份；随后继续 Phase 2 typed workflow 与受管蒙版。Phase 2–4尚未实现。
+
+
 ## 当前任务：ComfyUI 参数能力增量（2026-10-23，本地交付完成）
 
 - 结果契约：现有 localhost ComfyUI provider 发布审核模板能力描述；检查本机 checkpoint、sampler、scheduler 与安全范围；GUI/CLI/MCP 配置可选 steps(1–150整数)、cfg(0–30)、sampler、scheduler、声明支持的 denoise(0–1)。统一 normalize，未映射参数明确拒绝，省略使用模板值。

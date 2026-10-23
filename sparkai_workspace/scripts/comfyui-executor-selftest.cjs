@@ -143,7 +143,7 @@ async function mockServer(config = {}) {
 async function fixture(config, fn) { const server = await mockServer(config); try { return await fn(server); } finally { await server.close(); } }
 async function test(name, fn) { const started = Date.now(); await fn(); cases.push({ name, ok: true, durationMs: Date.now() - started }); }
 function input(server, extra = {}) { return { baseUrl: server.baseUrl, submissionId: "operation-fixture", workflow: workflow(), inputMappings: [], outputNodeId: "7", pollIntervalMs: 10, maxWaitMs: 1000, ...extra }; }
-function executor(extra = {}) { return createComfyUiExecutor({ persistAccepted: async () => {}, ...extra }); }
+function executor(extra = {}) { return createComfyUiExecutor({ persistPrepared: async () => {}, persistAccepted: async () => {}, ...extra }); }
 function saved(server, extra = {}) { return { schemaVersion: 1, submissionId: "operation-fixture", baseUrl: server.baseUrl, promptId: "saved-prompt", clientId: "saved-client", workflowHash: stableHash(workflow()), outputNodeId: "7", actualParams: { model: "fixture.safetensors", width: 64, height: 96, seed: 42 }, ...extra }; }
 function tuple(snapshot) { return [1, snapshot.promptId, workflow(), { client_id: snapshot.clientId }, [snapshot.outputNodeId]]; }
 function resultRecord(snapshot, extra = {}) { return { prompt: tuple(snapshot), status: { completed: true, status_str: "success" }, outputs: { "7": { images: [{ filename: "saved.png", subfolder: "", type: "output" }] } }, ...extra }; }
@@ -263,6 +263,8 @@ async function main() {
   }));
   await test("missing persistence, stable id and prepared write failure produce zero POST", () => fixture({}, async (server) => {
     await assert.rejects(createComfyUiExecutor().run(input(server)), isCode("COMFYUI_PERSISTENCE_REQUIRED"));
+    await assert.rejects(executor({ persistPrepared: undefined }).run(input(server)), isCode("COMFYUI_PERSISTENCE_REQUIRED"));
+    assert.equal(server.posts.length, 0); assert.equal(server.gets.length, 0);
     await assert.rejects(executor().run(input(server, { submissionId: undefined })), isCode("COMFYUI_SUBMISSION_ID_REQUIRED"));
     await assert.rejects(executor({ persistPrepared: async () => { throw Object.assign(new Error("fixture write failed"), { code: "EACCES" }); } }).run(input(server)), isCode("EACCES")); assert.equal(server.posts.length, 0);
   }));

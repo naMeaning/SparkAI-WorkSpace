@@ -1,4 +1,5 @@
 "use strict";
+const { normalizeComfyUiConnectionReference } = require("../../runtime/comfyui-options.mjs");
 
 let aidebugAuthenticated = true;
 let newApiMeInflight = null;
@@ -21,6 +22,8 @@ function registerServerIpc({
   imageOperationJournal,
   imageGenerationService,
   comfyUiTemplateService,
+  comfyUiConnectionService,
+  comfyUiCredentialStore,
   clearNewApiAuth,
   completeNewApiLogin,
   customApiCredentials,
@@ -50,6 +53,57 @@ function registerServerIpc({
   writeJson,
   writeServerImageOutputs
 }) {
+  // Connection profiles are Main-owned.  IPC only projects the stable,
+  // redacted summary; credential values and protected-store payloads never
+  // cross into Renderer, automation or MCP results.
+  const connectionService = comfyUiConnectionService || comfyUiTemplateService?.connectionService || comfyUiTemplateService?.connections;
+  const safeConnectionId = value => {
+    const text = String(value || "").trim();
+    return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(text) ? text : "";
+  };
+  const safeConnectionUrl = value => {
+    if (typeof value !== "string" || value.length > 2048) return undefined;
+    try {
+      const parsed = new URL(value);
+      if (!/^https?:$/.test(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) return undefined;
+      return parsed.origin + (parsed.pathname === "/" ? "" : parsed.pathname);
+    } catch { return undefined; }
+  };
+  const publicConnection = value => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const connectionId = safeConnectionId(value.connectionId || value.profileId || value.id);
+    if (!connectionId) return undefined;
+    const result = { connectionId };
+    for (const key of ["label", "networkScope", "credentialType", "credentialMode", "authorizedHost", "tlsMode", "status"]) {
+      if (typeof value[key] === "string" && value[key].length <= 180 && !/token|secret|password|cookie|authorization|key/i.test(key)) result[key] = value[key];
+    }
+    for (const key of ["credentialConfigured", "tlsConfigured", "legacy"]) if (typeof value[key] === "boolean") result[key] = value[key];
+    for (const key of ["createdAt", "updatedAt"]) if (typeof value[key] === "string" && value[key].length <= 64) result[key] = value[key];
+    const baseUrl = safeConnectionUrl(value.baseUrl);
+    if (baseUrl) result.baseUrl = baseUrl;
+    if (typeof value.enabled === "boolean") result.enabled = value.enabled;
+    return result;
+  };
+  const publicConnectionResult = value => {
+    if (Array.isArray(value)) return value.map(publicConnection).filter(Boolean);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const result = { ...value };
+    for (const key of Object.keys(result)) if (/token|secret|password|cookie|authorization|apiKey|accessKey|privateKey|certificate|credentialValue|credentialRef|credentials/i.test(key)) delete result[key];
+    if (result.id && result.connectionId) delete result.id;
+    if (typeof result.baseUrl === "string") result.baseUrl = safeConnectionUrl(result.baseUrl);
+    if (Array.isArray(result.connections)) result.connections = result.connections.map(publicConnection).filter(Boolean);
+    for (const key of ["connection", "profile"]) if (result[key]) result[key] = publicConnection(result[key]);
+    return result;
+  };
+  const requireConnectionService = () => {
+    if (!connectionService) throw Object.assign(new Error("ComfyUI 连接配置服务不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
+    return connectionService;
+  };
+  const connectionReference = normalizeComfyUiConnectionReference;
+  const requireConfirmed = payload => {
+    if (payload?.confirmed !== true) throw Object.assign(new Error("连接操作需要 confirmed=true。"), { code: "COMFYUI_CONNECTION_CONFIRMATION_REQUIRED" });
+  };
+
   ipcMain.handle("naimage:server:license-status", async (_event, payload = {}) => {
     return await licenseService.verify({
       force: payload?.force === true,
@@ -445,11 +499,116 @@ function registerServerIpc({
 
   ipcMain.handle("naimage:server:comfyui", async (_event, payload = {}) => {
     try {
-      if (Object.keys(payload).some(key => !["action", "baseUrl", "label", "outputNodeId", "inputMappings", "projectId", "key"].includes(key))) throw Object.assign(new Error("本地生图控制参数无效。"), { code: "COMFYUI_REQUEST_INVALID" });
+      if (Object.keys(payload).some(key => !["action", "baseUrl", "connectionId", "profileId", "label", "outputNodeId", "inputMappings", "projectId", "key", "networkScope", "credentialType", "enabled", "confirmed"].includes(key))) throw Object.assign(new Error("本地生图控制参数无效。"), { code: "COMFYUI_REQUEST_INVALID" });
       if (payload.action === "list") return comfyUiTemplateService.list();
-      if (payload.action === "inspect") return await comfyUiTemplateService.inspect(payload);
+      if (["connections-list", "connection-list", "connections"].includes(payload.action)) {
+        const service = requireConnectionService();
+        if (typeof service.list !== "function") throw Object.assign(new Error("ComfyUI 连接列表不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
+        const listed = await service.list();
+        return { ok: true, connections: publicConnectionResult(Array.isArray(listed) ? listed : listed?.connections || []) };
+      }
+      if (["connections-save", "connection-save"].includes(payload.action)) {
+        requireConfirmed(payload);
+        const service = requireConnectionService();
+        const connectionId = connectionReference(payload);
+        if (payload.credentialType !== undefined && !["none", "bearer", "basic", "mtls"].includes(payload.credentialType)) throw Object.assign(new Error("ComfyUI 凭据类型无效。"), { code: "COMFYUI_CREDENTIAL_MODE_INVALID" });
+        if (payload.credentialType && payload.credentialType !== "none") {
+          const existing = connectionId && typeof service.get === "function" ? service.get(connectionId) : null;
+          if (!existing || payload.credentialType !== (existing.credentialMode || existing.credentialType)) throw Object.assign(new Error("请先保存连接，再通过原生文件选择导入所选类型的凭据。"), { code: "COMFYUI_CREDENTIAL_IMPORT_REQUIRED" });
+        }
+        const input = {
+          ...(connectionId ? { connectionId, id: connectionId } : {}), label: String(payload.label || ""),
+          networkScope: String(payload.networkScope || "local"), baseUrl: String(payload.baseUrl || ""),
+          ...(payload.credentialType !== undefined ? { credentialType: String(payload.credentialType) } : {}),
+          ...(payload.enabled !== undefined ? { enabled: payload.enabled === true } : {}), confirmed: true
+        };
+        const result = typeof service.upsert === "function"
+          ? await service.upsert(input)
+          : connectionId && typeof service.update === "function"
+          ? await service.update(connectionId, input)
+          : !connectionId && typeof service.create === "function"
+            ? await service.create(input)
+            : (() => { throw Object.assign(new Error("ComfyUI 连接保存不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" }); })();
+        const connection = result?.connection || result?.profile || result;
+        const connections = Array.isArray(result?.connections) ? result.connections : typeof service.list === "function" ? await service.list() : [];
+        return { ok: true, connection: publicConnection(connection), connections: publicConnectionResult(connections) };
+      }
+      if (payload.action === "connections-update-metadata") {
+        requireConfirmed(payload);
+        if (Object.keys(payload).some(key => !["action", "connectionId", "label", "enabled", "confirmed"].includes(key))) throw Object.assign(new Error("连接元数据更新只允许名称和启用状态。"), { code: "COMFYUI_REQUEST_INVALID" });
+        const service = requireConnectionService();
+        const connectionId = connectionReference(payload);
+        if (!connectionId) throw Object.assign(new Error("缺少 ComfyUI connectionId。"), { code: "COMFYUI_CONNECTION_REQUIRED" });
+        if (typeof service.get !== "function" || !service.get(connectionId)) throw Object.assign(new Error("ComfyUI 连接不存在，请先在连接设置中配置。"), { code: "COMFYUI_CONNECTION_NOT_FOUND" });
+        const changes = {};
+        if (payload.label !== undefined) {
+          if (typeof payload.label !== "string" || !payload.label.trim() || payload.label.length > 100) throw Object.assign(new Error("ComfyUI 连接名称无效。"), { code: "COMFYUI_REQUEST_INVALID" });
+          changes.label = payload.label;
+        }
+        if (payload.enabled !== undefined) {
+          if (typeof payload.enabled !== "boolean") throw Object.assign(new Error("ComfyUI 连接启用状态无效。"), { code: "COMFYUI_REQUEST_INVALID" });
+          changes.enabled = payload.enabled;
+        }
+        if (!Object.keys(changes).length) throw Object.assign(new Error("请提供连接名称或启用状态。"), { code: "COMFYUI_REQUEST_INVALID" });
+        const connection = await service.update(connectionId, changes);
+        const connections = typeof service.list === "function" ? await service.list() : [];
+        return { ok: true, connection: publicConnection(connection), connections: publicConnectionResult(connections) };
+      }
+      if (["connections-delete", "connection-delete"].includes(payload.action)) {
+        requireConfirmed(payload);
+        const service = requireConnectionService();
+        if (typeof service.remove !== "function") throw Object.assign(new Error("ComfyUI 连接删除不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
+        const connectionId = connectionReference(payload);
+        if (!connectionId) throw Object.assign(new Error("缺少 ComfyUI connectionId。"), { code: "COMFYUI_CONNECTION_REQUIRED" });
+        const removed = await service.remove(connectionId, { confirmed: true });
+        const connections = typeof service.list === "function" ? await service.list() : [];
+        return { ok: true, removed: removed === true || removed?.removed === true, connections: publicConnectionResult(connections) };
+      }
+      if (["connections-credential-import", "connection-credential-import"].includes(payload.action)) {
+        requireConfirmed(payload);
+        const service = requireConnectionService();
+        const connectionId = connectionReference(payload);
+        if (!connectionId) throw Object.assign(new Error("缺少 ComfyUI connectionId。"), { code: "COMFYUI_CONNECTION_REQUIRED" });
+        const mode = payload.credentialType;
+        if (!["bearer", "basic", "mtls"].includes(mode)) throw Object.assign(new Error("请选择 ComfyUI 凭据类型。"), { code: "COMFYUI_CREDENTIAL_MODE_INVALID" });
+        const existing = typeof service.get === "function" ? service.get(connectionId) : service.resolve({ connectionId });
+        if (!existing) throw Object.assign(new Error("ComfyUI 连接不存在。"), { code: "COMFYUI_CONNECTION_NOT_FOUND" });
+        if (typeof comfyUiCredentialStore?.importCredential !== "function" || typeof service.update !== "function") throw Object.assign(new Error("ComfyUI 受保护凭据导入不可用。"), { code: "COMFYUI_CREDENTIAL_IMPORT_UNAVAILABLE" });
+        const imported = await comfyUiCredentialStore.importCredential({ mode });
+        if (imported?.canceled === true) return { ok: true, canceled: true };
+        if (imported?.ok !== true || imported?.credentialRef?.mode !== mode) throw Object.assign(new Error("ComfyUI 凭据导入失败。"), { code: "COMFYUI_CREDENTIAL_IMPORT_INVALID" });
+        let connection;
+        try { connection = await service.update(connectionId, { credentialRef: imported.credentialRef }); }
+        catch (error) {
+          try { (comfyUiCredentialStore.remove || comfyUiCredentialStore.delete)?.(imported.credentialRef); } catch {}
+          throw error;
+        }
+        const connections = typeof service.list === "function" ? await service.list() : [];
+        return { ok: true, connection: publicConnection(connection), connections: publicConnectionResult(connections) };
+      }
+      if (["connections-test", "connection-test"].includes(payload.action)) {
+        requireConfirmed(payload);
+        const service = requireConnectionService();
+        const connectionId = connectionReference(payload);
+        if (!connectionId) throw Object.assign(new Error("缺少 ComfyUI connectionId。"), { code: "COMFYUI_CONNECTION_REQUIRED" });
+        let result;
+        if (typeof service.test === "function") result = await service.test({ connectionId, confirmed: true });
+        else if (typeof service.inspect === "function") result = await service.inspect({ connectionId, confirmed: true, test: true });
+        else if (typeof comfyUiTemplateService?.inspect === "function") result = await comfyUiTemplateService.inspect({ connectionId, confirmed: true, test: true });
+        else throw Object.assign(new Error("ComfyUI 连接测试不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
+        return publicConnectionResult(result);
+      }
+      if (payload.action === "inspect") {
+        const connectionId = connectionReference(payload);
+        if (connectionId && connectionService && typeof connectionService.inspect === "function") return publicConnectionResult(await connectionService.inspect({ connectionId, confirmed: payload.confirmed === true }));
+        if (connectionId && !connectionService) throw Object.assign(new Error("ComfyUI 连接配置服务不可用。"), { code: "COMFYUI_CONNECTION_SERVICE_UNAVAILABLE" });
+        return await comfyUiTemplateService.inspect(payload);
+      }
       if (payload.action === "import") return await comfyUiTemplateService.importTemplate(payload);
-      if (payload.action === "cancel") return await imageOperationJournal.cancel(String(payload.projectId || ""), String(payload.key || ""));
+      if (payload.action === "cancel") {
+        const projectId = String(payload.projectId || ""), key = String(payload.key || ""), connectionId = connectionReference(payload);
+        return await imageOperationJournal.cancel(projectId, key, connectionId ? { connectionId } : undefined);
+      }
       throw Object.assign(new Error("未知的本地生图动作。"), { code: "COMFYUI_REQUEST_INVALID" });
     } catch (error) { return { ok: false, errorCode: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.code : "COMFYUI_CONTROL_FAILED", error: /^COMFYUI_|^IMAGE_/.test(error.code) ? error.message : "本机 ComfyUI 服务未连接或模板处理失败。" }; }
   });

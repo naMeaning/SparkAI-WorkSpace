@@ -9,6 +9,8 @@ const { app } = require("electron");
 const { createMockServer } = require("./comfyui-executor-selftest.cjs");
 const { registerServerIpc } = require("../desktop/ipc/server-ipc.cjs");
 const { stableHash } = require("../runtime/image-generation/comfyui-executor.cjs");
+const { createComfyUiConnectionProfileService } = require("../desktop/comfyui-connection-service.cjs");
+const { modelConnectionIdentity } = require("../desktop/model-catalog.cjs");
 
 const runDir = path.resolve(__dirname, "../.diagnostics/electron", `comfyui-main-${Date.now()}`);
 const projectDir = path.join(runDir, "project"), configDir = path.join(runDir, "config"), projectId = "comfyui-main-fixture";
@@ -61,6 +63,8 @@ async function main() {
     assert.equal(asset.generation.request.templateId, "stock-generate"); assert.equal(asset.generation.request.workflowHash.length, 64); assert.equal(asset.generation.response.seed, 123); assert.equal(asset.generation.response.size, "64x96");
     const item = owner.imageOperationJournal.find(projectId, request.operationId, 1); assert.equal(item.state, "saved"); assert.equal(item.taskId, "prompt-1"); assert.equal(item.comfyui.actualParams.seed, 123); assert.equal(item.comfyui.actualParams.steps, 12); assert.equal(item.comfyui.actualParams.cfg, 6.5); assert.equal(item.comfyui.actualParams.sampler, "euler"); assert.equal(item.comfyui.actualParams.scheduler, "normal"); assert.equal(item.comfyui.actualParams.denoise, 1); assert.equal(item.comfyui.workflowHash.length, 64); assert.equal(item.comfyui.outputNodeId, "9"); assert.equal(item.projectRevision, 7);
     assert.equal(item.comfyui.schemaVersion, 2); assert.equal(item.comfyui.policyVersion, owner.comfyUiTemplateService.list().templates.find(template => template.id === request.comfyui.templateId).policyVersion); assert.match(item.comfyui.capabilitiesHash, /^[a-f0-9]{64}$/);
+    assert.ok(item.comfyui.connectionId); assert.match(item.comfyui.connectionHash, /^[a-f0-9]{64}$/); assert.equal(item.comfyui.baseUrl, undefined);
+    assert.equal(JSON.stringify(item).includes(server.baseUrl), false); assert.equal(JSON.stringify(item).includes("credentialRef"), false);
     const repeated = await generate(request); assert.equal(repeated.ok, true, repeated.error); assert.deepEqual(repeated.assets, result.assets); assert.equal(server.posts.length, 1); assert.equal(server.views.length, 1);
     assert.equal(repeated.size, "64x96"); assert.equal(owner.imageOperationJournal.list(projectId).find(row => row.key === item.key).providerState, "succeeded");
     const conflict = await generate({ ...request, prompt: "changed prompt" }); assert.equal(conflict.ok, false); assert.equal(conflict.errorCode, "COMFYUI_SUBMISSION_CONFLICT"); assert.equal(server.posts.length, 1);
@@ -113,6 +117,11 @@ async function main() {
       seed: canonical.seed, width: canonical.width, height: canonical.height, prompt: request.prompt, negativePrompt: canonical.negativePrompt, sources: [], requireAlpha: false });
     legacy.comfyui.schemaVersion = 1; legacy.comfyui.templateHash = legacyHash; legacy.comfyui.inputMappings = legacyMappings;
     delete legacy.comfyui.policyVersion; delete legacy.comfyui.capabilitiesHash;
+    // A genuine pre-profile v1 journal persisted only the loopback URL and
+    // the historical model-catalog connection identity.
+    legacy.comfyui.baseUrl = server.baseUrl;
+    delete legacy.comfyui.connectionId; delete legacy.comfyui.connectionHash; delete legacy.comfyui.networkScope;
+    legacy.connectionId = modelConnectionIdentity(server.baseUrl, ""); legacy.transport = "local";
     writeFileSync(journalFile, JSON.stringify(journal));
     const replay = await generate({ ...request, comfyui: { ...request.comfyui, templateHash: legacyHash } });
     assert.equal(replay.errorCode, "COMFYUI_SUBMISSION_CONFLICT"); assert.equal(replay.unsafeToRetry, true); assert.equal(server.posts.length, 1);
@@ -120,6 +129,23 @@ async function main() {
     server.finish("prompt-1", server.pending[0]);
     const recovered = await owner.imageOperationJournal.recover(projectId, legacy.key); assert.equal(recovered.assets.length, 1); assert.equal(recovered.operation.comfyui.schemaVersion, 1); assert.equal(recovered.operation.comfyui.templateHash, legacyHash); assert.equal(server.posts.length, 1);
     assert.deepEqual(readFileSync(recovered.assets[0].path), png);
+  }));
+  await test("profile endpoint drift rejects replay and recovery before network", () => fixture({ disconnect: true, hold: true }, async server => {
+    const request = payload(server, "comfy-profile-drift");
+    assert.equal((await generate(request)).errorCode, "COMFYUI_SUBMISSION_UNKNOWN");
+    const item = owner.imageOperationJournal.find(projectId, request.operationId);
+    const service = owner.comfyUiTemplateService.connectionService;
+    const profile = service.getInternal(item.comfyui.connectionId);
+    const reads = server.gets.length;
+    service.update(profile.id, { baseUrl: `${server.baseUrl}/changed` });
+    const idRequest = { ...request, comfyui: { ...request.comfyui, connectionId: profile.id } };
+    delete idRequest.comfyui.baseUrl;
+    assert.equal((await generate(idRequest)).errorCode, "COMFYUI_SUBMISSION_CONFLICT");
+    await assert.rejects(owner.imageOperationJournal.recover(projectId, item.key), { code: "COMFYUI_TASK_OWNERSHIP_MISMATCH" });
+    assert.equal(server.posts.length, 1); assert.equal(server.gets.length, reads);
+    service.update(profile.id, { baseUrl: profile.baseUrl });
+    assert.equal((await owner.imageOperationJournal.recover(projectId, item.key)).pending, true);
+    assert.equal(server.posts.length, 1);
   }));
   await test("definite prompt rejection stays terminal and cannot enter recovery or resubmit", () => fixture({ promptStatus: 400 }, async server => {
     const request = payload(server, "comfy-main-rejected");
@@ -155,6 +181,65 @@ async function main() {
     const result = { data: [{ b64_json: alphaPng.toString("base64") }] }; owner.imageOperationJournal.received(valid, result, { requireAlpha: true });
     const assets = await owner.imageOperationJournal.deliver(valid, result, {}, false); assert.equal(assets[0].localProcessing.alpha.verified, true); assert.equal((await verifyAlphaSubject(readFileSync(assets[0].path))).ok, true);
     assert.equal(owner.imageOperationJournal.get(projectId, valid.key).assets[0].localProcessing.alpha.transparentRatio, 0.5);
+  });
+  await test("connection IPC wraps service records and preserves the public credential boundary", async () => {
+    const connectionHandlers = new Map();
+    const connectionService = createComfyUiConnectionProfileService();
+    let inspected = 0, imported = 0, cancelImport = false;
+    registerServerIpc({
+      ipcMain: { handle: (name, callback) => connectionHandlers.set(name, callback) },
+      comfyUiConnectionService: connectionService,
+      comfyUiCredentialStore: { importCredential: async ({ mode }) => { imported++; return cancelImport ? { ok: true, canceled: true } : { ok: true, credentialRef: { mode, id: "fixture-credential-ref" } }; } },
+      comfyUiTemplateService: { inspect: async input => { inspected++; return { ok: true, connectionId: input.connectionId, checkpoints: ["fixture.safetensors"] }; } }
+    });
+    const control = input => connectionHandlers.get("naimage:server:comfyui")({}, input);
+    for (const input of [{ connectionId: "" }, { connectionId: 7 }, { profileId: null }, { connectionId: "one", profileId: "two" }]) {
+      const invalid = await control({ action: "inspect", baseUrl: "http://127.0.0.1:8188", ...input });
+      assert.equal(invalid.errorCode, "COMFYUI_CONNECTION_PROFILE_INVALID");
+    }
+    assert.equal(inspected, 0);
+    const denied = await control({ action: "connections-save", label: "Fixture", networkScope: "local", baseUrl: "http://127.0.0.1:8188" });
+    assert.equal(denied.ok, false); assert.equal(denied.errorCode, "COMFYUI_CONNECTION_CONFIRMATION_REQUIRED");
+    assert.equal(connectionService.list().length, 0);
+    const saved = await control({ action: "connections-save", label: "Fixture", networkScope: "local", baseUrl: "http://127.0.0.1:8188", confirmed: true });
+    assert.equal(saved.ok, true); assert.equal(saved.connections.length, 1); assert.equal(saved.connection.connectionId, "comfyui-local");
+    assert.equal(saved.connection.credentialMode, "none"); assert.equal(saved.connection.credentialConfigured, false);
+    assert.equal(saved.connection.credentialRef, undefined); assert.equal(saved.connection.id, undefined);
+    assert.equal(JSON.stringify(saved).includes("fixture-credential-ref"), false);
+    const listed = await control({ action: "connections-list" });
+    assert.equal(listed.ok, true); assert.equal(Array.isArray(listed.connections), true); assert.deepEqual(listed.connections, saved.connections);
+    const reference = { connectionId: saved.connection.connectionId, credentialType: "bearer", confirmed: true };
+    assert.equal((await control({ action: "connections-credential-import", ...reference, confirmed: false })).ok, false);
+    assert.equal(imported, 0);
+    assert.equal((await control({ action: "connections-credential-import", ...reference, path: "C:/private.json" })).ok, false);
+    assert.equal(imported, 0);
+    const bound = await control({ action: "connections-credential-import", ...reference });
+    assert.equal(bound.ok, true); assert.equal(bound.connection.credentialMode, "bearer"); assert.equal(bound.connection.credentialConfigured, true);
+    assert.equal(imported, 1); assert.equal(JSON.stringify(bound).includes("fixture-credential-ref"), false);
+    cancelImport = true;
+    const canceled = await control({ action: "connections-credential-import", ...reference, credentialType: "basic" });
+    assert.equal(canceled.canceled, true); assert.equal(connectionService.get(saved.connection.connectionId).credentialMode, "bearer");
+    const updated = await control({ action: "connections-save", profileId: saved.connection.connectionId, label: "Renamed fixture", networkScope: "local", baseUrl: "http://127.0.0.1:8188", confirmed: true });
+    assert.equal(updated.ok, true); assert.equal(updated.connection.label, "Renamed fixture"); assert.equal(updated.connections.length, 1);
+    assert.equal(updated.connection.credentialMode, "bearer"); assert.equal(connectionService.getInternal(saved.connection.connectionId).credentialRef.id, "fixture-credential-ref");
+    const metadata = await control({ action: "connections-update-metadata", connectionId: saved.connection.connectionId, label: "Automation name", enabled: false, confirmed: true });
+    assert.equal(metadata.ok, true); assert.equal(metadata.connection.label, "Automation name"); assert.equal(metadata.connection.enabled, false);
+    assert.equal(metadata.connection.baseUrl, "http://127.0.0.1:8188", "GUI IPC keeps its safe endpoint summary");
+    assert.equal(connectionService.getInternal(saved.connection.connectionId).credentialRef.id, "fixture-credential-ref");
+    const beforeInvalidMetadata = connectionService.getInternal(saved.connection.connectionId);
+    for (const extra of [{ baseUrl: "http://127.0.0.1:9000" }, { networkScope: "remote" }, { credentialType: "none" }, { enabled: "false" }, { label: "" }]) {
+      assert.equal((await control({ action: "connections-update-metadata", connectionId: saved.connection.connectionId, label: "Rejected", confirmed: true, ...extra })).ok, false);
+      assert.deepEqual(connectionService.getInternal(saved.connection.connectionId), beforeInvalidMetadata);
+    }
+    assert.equal((await control({ action: "connections-update-metadata", connectionId: "unknown", label: "No implicit create", confirmed: true })).errorCode, "COMFYUI_CONNECTION_NOT_FOUND");
+    const changedMode = await control({ action: "connections-save", connectionId: saved.connection.connectionId, label: "No implicit change", networkScope: "local", baseUrl: "http://127.0.0.1:8188", credentialType: "basic", confirmed: true });
+    assert.equal(changedMode.errorCode, "COMFYUI_CREDENTIAL_IMPORT_REQUIRED");
+    assert.equal((await control({ action: "connections-save", connectionId: saved.connection.connectionId, label: "No exposed ref", networkScope: "local", baseUrl: "http://127.0.0.1:8188", credentialRef: "no-ref", confirmed: true })).ok, false);
+    assert.equal((await control({ action: "connections-save", connectionId: "first", profileId: "second", label: "Invalid alias", networkScope: "local", baseUrl: "http://127.0.0.1:8188", confirmed: true })).ok, false);
+    const tested = await control({ action: "connections-test", connectionId: saved.connection.connectionId, confirmed: false });
+    assert.equal(tested.ok, false); assert.equal(inspected, 0);
+    const removed = await control({ action: "connections-delete", profileId: saved.connection.connectionId, confirmed: true });
+    assert.equal(removed.ok, true); assert.equal(removed.removed, true); assert.deepEqual(removed.connections, []);
   });
   await pause(20);
   const report = { ok: true, cases: results.length, results, loopbackPromptPosts: posts, loopbackViews: views, loopbackUploads: uploads, realModelRequests: 0 };

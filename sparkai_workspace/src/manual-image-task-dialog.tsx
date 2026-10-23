@@ -86,7 +86,7 @@ export default function ManualImageTaskDialog({ state, setState, imageModel, ima
             onClose={() => requestClose("close-button")}
           />
           <SurfaceBody className="manual-image-task-body">
-            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count })}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 本机服务</option></select></Field>
+            <Field label="图片执行连接"><select aria-label="图片执行连接" value={draft.provider || "current"} onChange={event => updateDraft({ provider: event.target.value === "comfyui" ? "comfyui" : undefined, count: event.target.value === "comfyui" ? 1 : draft.count })}><option value="current">当前图片模型</option><option value="comfyui">ComfyUI · 已配置服务</option></select></Field>
             {adjustment ? <p role="status">{adjustment}</p> : null}
             {draft.provider === "comfyui" ? <ComfyUiTaskFields draft={draft} update={updateDraft} /> : <div className="manual-image-task-controls">
               <Field label="比例">

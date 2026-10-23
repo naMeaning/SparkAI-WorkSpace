@@ -65,6 +65,26 @@ async function main() {
     registry.tools.find(tool => tool.name === "comfyui.import-template").inputSchema.properties.inputMappings.items.properties.kind.enum.slice(-5),
     ["steps", "cfg", "sampler", "scheduler", "denoise"]
   );
+  const connectionList = registry.tools.find(tool => tool.name === "comfyui.connections");
+  const connectionSave = registry.tools.find(tool => tool.name === "comfyui.connection.save");
+  const connectionTest = registry.tools.find(tool => tool.name === "comfyui.connection.test");
+  const connectionCredentialImport = registry.tools.find(tool => tool.name === "comfyui.connection.import-credential");
+  assert.ok(connectionList && connectionSave && connectionTest && connectionCredentialImport, "ComfyUI connection commands must be exposed through MCP");
+  assert.deepEqual(Object.keys(connectionSave.inputSchema.properties), ["connectionId", "label", "enabled", "confirmed"]);
+  assert.deepEqual(connectionSave.inputSchema.required, ["connectionId", "confirmed"]);
+  assert.equal(connectionSave.inputSchema.properties.credentialRef, undefined, "Protected refs stay Main-owned");
+  assert.deepEqual(connectionCredentialImport.inputSchema.properties.credentialType.enum, ["bearer", "basic", "mtls"]);
+  assert.deepEqual(connectionCredentialImport.inputSchema.required, ["connectionId", "credentialType", "confirmed"]);
+  assert.deepEqual(Object.keys(connectionCredentialImport.inputSchema.properties), ["connectionId", "credentialType", "confirmed"]);
+  assert.equal(connectionTest.inputSchema.properties.confirmed.type, "boolean");
+  assert.equal(connectionSave.inputSchema.properties.token, undefined, "Connection schema must never accept a token field");
+  assert.equal(comfyuiOptionsSchema.properties.connectionId.type, "string");
+  assert.equal(comfyuiOptionsSchema.properties.profileId.type, "string");
+  assert.equal(comfyuiOptionsSchema.properties.baseUrl, undefined);
+  assert.equal(comfyuiOptionsSchema.required.includes("connectionId"), true);
+  const inspectSchema = registry.tools.find(tool => tool.name === "comfyui.inspect").inputSchema;
+  assert.equal(inspectSchema.properties.baseUrl, undefined);
+  assert.equal(inspectSchema.required.includes("connectionId"), true);
 
   const token = "fixture-automation-token";
   const requests = [];
