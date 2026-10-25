@@ -1,6 +1,6 @@
 # SparkAPI 官网 Logo 统一（2026-10-25）
 
-状态：源码/资产、最终生产UI/PE/EXE与安全原位安装已验证，源码与文档同步收口中。本地开发包，非正式Release。
+状态：源码/资产、最终生产UI/PE/EXE、安全原位安装及源码/功能文档普通push均已完成。本地开发包，非正式Release。
 
 ## 任务合同
 
@@ -36,6 +36,6 @@
 - 最终EXE：`release/local-deliveries/sparkapi-logo-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,246,912 B / SHA-256 `ac3635ab7e2a75136ebb634566b4bc8cc88f5a147e33389c17e4140755539a74`。ASAR53,533,117 B / `fada87c736ee7a8fbc0fb64b471bbac357cceb7386d9c697da2a9e112e2bddea`。P1/P2独立原制品保持，不以同版本文件名判断身份。
 - 安装：`install.json` ok，所有同名实例[]后品牌/S原位升级exit0/23,575ms，原`E:\sparkai-workspace\naimage`/1.0.9、配置/凭据metadata/shortcut偏好保留。安装EXE SHA-256 `96502a6c9919788d2f30d84e23c171d1e579f8b91f6be0b87d968a03751efd1c`和ASAR匹配最终包；无强杀、无凭据内容读取。
 - Windows入口：`shortcut-icons.json`实读2条桌面/开始菜单shortcut Target/IconLocation，及注册卸载DisplayIcon，均指向已核对新PE资源的安装主EXE。Explorer可见缓存未单独观察，不清理缓存/重启Explorer；物理DPI未测。未据逻辑指向推断用户Shell缓存已刷新。
-- Git：本轮15个源码/资产/文档增量精确暂存后普通commit/push及HEAD/upstream/实际remote核验；旧设计/规则/参考与artifacts dirty保留。实际Git结果后补checkpoint，完整本地身份与证据索引写`.diagnostics/sparkapi-logo-2026-10-25/delivery.json`；二进制安装包与私有配置不入Git。
+- Git：本轮15个源码/资产/功能文档文件精确commit `f731bae79771ac0304d397fa66737702a72162e2`并普通push origin/main，HEAD/upstream/`git ls-remote`实际remote一致；暂存敏感模式0命中。旧设计/规则/参考与artifacts dirty保留，本段为已发生Git结果的文档收尾。完整本地身份/证据及最终文档commit索引写`.diagnostics/sparkapi-logo-2026-10-25/delivery.json`；安装包与私有配置不入Git。
 
 所有本轮诊断JSON/截图位于`.diagnostics/sparkapi-logo-2026-10-25/`，生产UI六图在上列Electron报告目录。仅官网公开Logo下载；0模型/图片/视频/ComfyUI请求，无新依赖、生产改动、Release/tag或EXE上传。

@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-25，SparkAPI官网Logo验证及安装完成，源码同步收口中）
+## 当前开发状态（2026-10-25，SparkAPI官网Logo本地开发交付完成）
 
 - 接受：用户要求软件采用`https://sparkapi.org`真实Logo；从P1/P2最终`5f6d4d90163aecad83479b62506ccdaf32a30edb`续做branding，旧dirty和独立制品保留。本次只改资源/必要派生链路，不改应用身份、升级、设置、认证或业务。
 - 已核对owner：public/naimage.png供顶栏/登录/启动检查/帮助/favicon及Main原生主窗/独立Agent；assets/windows/naimage.ico供WPF安装/卸载PE，build/naimage.ico供Electron PE；release:assets同步PNG/ICO并合成两NSIS BMP，WPF可见Logo嵌入public PNG。快捷方式及注册DisplayIcon沿主EXE，GUID/App ID/目录保持。接受时PNG256/master1024/ICO独立源及旧内嵌fallback已由下条同源资产替换。
@@ -9,7 +9,7 @@
 - 最终制品：`release/local-deliveries/sparkapi-logo-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,246,912 B / SHA-256 `ac3635ab7e2a75136ebb634566b4bc8cc88f5a147e33389c17e4140755539a74`；ASAR53,533,117 B / `fada87c736ee7a8fbc0fb64b471bbac357cceb7386d9c697da2a9e112e2bddea`，P1/P2独立制品未覆盖。完整本轮证据位于`.diagnostics/sparkapi-logo-2026-10-25/`。
 - 最终生产UI：`.diagnostics/electron/sparkapi-logo-2026-10-25T12-29-14-532Z/report.json` ok，日夜workspace/about/login2组6图，8处实际图片natural180/透明/金色/可见；2实例正常exit0、forced=false。主窗与独立Agent实际WM_GETICON均180px、alpha与opaque RGB逐像素吻合原图，GDI预乘存储误差MAE0.0386；5个PE（含安装后主程序/卸载器）各七帧资源SHA等于派生ICO；2个WPF内嵌PNG原字节等于官网，安装welcome/卸载confirm capture2图目检通过，未执行卸载。早期生产class被压缩的诊断selector失败保留，改用稳定ARIA/data-surface后通过，不修改产品源码。
 - 安装/Windows入口：`.diagnostics/sparkapi-logo-2026-10-25/install.json` ok，所有同名实例[]后品牌/S原位升级exit0/23,575ms；原`E:\sparkai-workspace\naimage`/1.0.9、配置/凭据metadata/快捷方式偏好保留，安装EXE `96502a6c9919788d2f30d84e23c171d1e579f8b91f6be0b87d968a03751efd1c`及ASAR匹配。实读2条桌面/开始菜单shortcut的Target/IconLocation及卸载DisplayIcon均解析到已验证新PE主EXE，`shortcut-icons.json` ok。未目测Explorer图标缓存、不清缓存或重启Explorer，未实测物理DPI。
-- 下一步：精确提交本轮15个源码/资产/文档增量并普通push、核验实际remote及完整delivery索引。仅官网公开读取下载，0模型/图片/视频请求，无新依赖/正式Release/tag/二进制上传。
+- Git/收尾：本轮15个源码/资产/文档文件精确commit `f731bae79771ac0304d397fa66737702a72162e2`并普通push origin/main，HEAD/upstream/`git ls-remote`实际remote一致；暂存敏感模式0命中，旧dirty与P1/P2独立制品保留。本节补实际Git结果，完整身份/证据与最终文档收尾commit写`.diagnostics/sparkapi-logo-2026-10-25/delivery.json`。本轮已完成，不自动扩展其他任务；仅官网公开读取下载，0模型/图片/视频请求，无新依赖/正式Release/tag/二进制上传。
 
 ## 当前开发状态（2026-10-25，P1/P2本地开发交付完成）
 

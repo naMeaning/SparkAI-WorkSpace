@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：采用 SparkAPI 官网 Logo（2026-10-25，验证及安装完成，源码同步收口中）
+## 当前任务：采用 SparkAPI 官网 Logo（2026-10-25，本地开发交付完成）
 
 - Mode：implement。用户要求“软件图标换成网址的图标logo吧 https://sparkapi.org”；P1/P2已独立交付，不重做其范围。
 - Outcome：使用官网真实原始Logo，统一既有应用/窗口/任务栏/快捷方式、登录与帮助等可见branding，以及Windows主EXE/品牌安装卸载器/NSIS图标资源。沿现有owner做必要格式转换，不AI重绘。
@@ -9,7 +9,8 @@
 - Authorization：官网公开logo读取/下载已由本次任务授权；现有本地package:win:unrestricted、原位安装与源码文档push授权有效。0模型/图片/视频/ComfyUI请求，不装依赖、不改外部生产，不Release/tag/二进制上传。
 - 现场：main / `5f6d4d90163aecad83479b62506ccdaf32a30edb`；旧根规则/ledger、2026-10-23设计/参考/artifacts及对应文档dirty保留。正式任务记录 [官网Logo实施与证据](docs/SPARKAPI_LOGO_2026-10-25.md)。
 - 实施/验证：官网官方透明金色S原PNG180×180、16,347 B / `b7f0c93297759bfc177d7ee4c0f01be2cc8b2d43cf4a693ed51bdba324e20cfe`保持原字节；ICO七尺寸透明，256仅格式放大。Main旧fallback删除，release:assets单源派生，所有打包入口先assets再build。最终生产日夜workspace/about/login6图、主窗/独立Agent实际HICON、5个PE各7帧、WPF两页/原始PNG、2条shortcut与卸载DisplayIcon链均验证；Explorer可见缓存与物理DPI未单独观察，不清缓存或重启Explorer。
-- 最终制品/安装：758输入冻结 `cd08ef832643808c4c63c7cf7d545439d44aa8a86b75c620eb0033b7be638535`，package/audit exit0；独立`release/local-deliveries/sparkapi-logo-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,246,912 B / SHA-256 `ac3635ab7e2a75136ebb634566b4bc8cc88f5a147e33389c17e4140755539a74`。品牌/S原位安装exit0/23,575ms，原目录/配置/凭据metadata/快捷方式保留，安装EXE/ASAR匹配；仅待本轮源码/文档精确commit、普通push和实际remote核验。
+- 最终制品/安装：758输入冻结 `cd08ef832643808c4c63c7cf7d545439d44aa8a86b75c620eb0033b7be638535`，package/audit exit0；独立`release/local-deliveries/sparkapi-logo-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,246,912 B / SHA-256 `ac3635ab7e2a75136ebb634566b4bc8cc88f5a147e33389c17e4140755539a74`。品牌/S原位安装exit0/23,575ms，原目录/配置/凭据metadata/快捷方式保留，安装EXE/ASAR匹配。
+- 源码同步：本轮15文件commit `f731bae79771ac0304d397fa66737702a72162e2`已普通push origin/main，HEAD/upstream/实际remote实查一致；旧dirty保留。完整本地制品/安装/UI/PE/快捷方式及文档收尾commit索引为`.diagnostics/sparkapi-logo-2026-10-25/delivery.json`，本轮验收完成，无正式发布。
 
 ## 当前任务：日夜基础主题与界面精简（2026-10-25，P1/P2本地开发交付完成）
 
