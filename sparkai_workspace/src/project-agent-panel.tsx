@@ -3,10 +3,12 @@ import ProjectContextPanel from "./project-context-panel";
 import type { ProjectContextPanelProps } from "./project-context";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Brain,
   ChevronDown,
+  CircleHelp,
   Loader2,
-  Move,
+  MoreHorizontal,
   PanelBottom,
   PanelLeft,
   PanelLeftClose,
@@ -17,7 +19,8 @@ import {
   PanelTop,
   PanelsTopLeft,
   Plus,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import type {
   AgentConversation,
@@ -40,7 +43,7 @@ import {
   type AgentPanelLayout,
   type AgentPanelPointerMode
 } from "./agent-panel-layout";
-import { ButtonBase, IconActionButton } from "./ui";
+import { ButtonBase, IconActionButton, MenuItem, MenuSeparator, MenuSummary, MenuSurface } from "./ui";
 import { runHasIncompleteModelReply } from "./model-ux";
 import type { AgentTaskCard } from "./agent-task";
 import type { CreationSessionPanelProps } from "./creation-session";
@@ -97,6 +100,28 @@ function ProjectAgentFeedView({
     [messages, visibleMessageCount]
   );
   const hiddenMessageCount = Math.max(0, messages.length - renderedMessages.length);
+  const feedEntries = useMemo(() => {
+    const entries: Array<{ kind: "message"; message: AgentMessage } | { kind: "tools"; messages: AgentMessage[] }> = [];
+    for (const message of renderedMessages) {
+      // Only completed tool-only rows fold; replies, questions and failures stay visible.
+      const completedTool = message.role === "assistant" && message.status === "done" && message.toolTrace
+        && message.toolTrace.name !== "ask_user" && !message.content.trim() && !message.attachments;
+      const previous = entries[entries.length - 1];
+      if (completedTool && previous?.kind === "tools") previous.messages.push(message);
+      else if (completedTool) entries.push({ kind: "tools", messages: [message] });
+      else entries.push({ kind: "message", message });
+    }
+    return entries;
+  }, [renderedMessages]);
+
+  function renderMessage(message: AgentMessage) {
+    return <article key={message.id} className={`agent-message ${message.role} ${message.status ?? "done"}`}>
+      <span className="agent-message-node" aria-hidden="true" />
+      <React.Suspense fallback={<div className="markdown-body agent-plain-text">{message.content}</div>}>
+        <LazyAgentMessageContent message={message} />
+      </React.Suspense>
+    </article>;
+  }
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -157,13 +182,11 @@ function ProjectAgentFeedView({
             <small>还有 {hiddenMessageCount} 条</small>
           </ButtonBase>
         ) : null}
-        {renderedMessages.map((message) => (
-          <article key={message.id} className={`agent-message ${message.role} ${message.status ?? "done"}`}>
-            <span className="agent-message-node" aria-hidden="true" />
-            <React.Suspense fallback={<div className="markdown-body agent-plain-text">{message.content}</div>}>
-              <LazyAgentMessageContent message={message} />
-            </React.Suspense>
-          </article>
+        {feedEntries.map((entry) => entry.kind === "message" ? renderMessage(entry.message) : (
+          <details key={`tools-${entry.messages[0].id}`} className="project-agent-completed-tools">
+            <summary><ChevronDown size={14} aria-hidden="true" />已完成工具步骤 · {new Set(entry.messages.map(message => message.toolTrace?.operationId || message.id.replace(/-(start|result)$/, ""))).size}</summary>
+            <div>{entry.messages.map(renderMessage)}</div>
+          </details>
         ))}
         <div ref={endRef} />
       </div>
@@ -384,8 +407,9 @@ function ProjectAgentPanelView({
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [placementOpen, setPlacementOpen] = useState(false);
+  const [historyAnchor, setHistoryAnchor] = useState({ x: 0, y: 0 });
+  const [placementAnchor, setPlacementAnchor] = useState({ x: 0, y: 0 });
   const [referenceDropActive, setReferenceDropActive] = useState(false);
-  const historyRef = useRef<HTMLDivElement | null>(null);
   const restoreHistoryToggleFocusRef = useRef(false);
   const panelDragRef = useRef<{
     pointerId: number;
@@ -432,10 +456,15 @@ function ProjectAgentPanelView({
       title: conversations.find((conversation) => conversation.id === activeConversationId)?.title || currentTitle,
       updatedAt: conversations.find((conversation) => conversation.id === activeConversationId)?.updatedAt || ""
     };
+    const seen = new Set<string>();
     return [current, ...conversations.filter((conversation) => conversation.id !== activeConversationId)]
-      .filter((conversation, index, items) => items.findIndex((item) => item.id === conversation.id) === index)
-      .slice(0, 24);
+      .filter((conversation) => {
+        if (seen.has(conversation.id)) return false;
+        seen.add(conversation.id);
+        return true;
+      });
   }, [activeConversationId, conversations, currentTitle]);
+  const activeConversationTitle = historyItems[0]?.title || currentTitle;
   const statusBase = stopPending
     ? "Agent 正在确认结束"
     : paused
@@ -454,6 +483,7 @@ function ProjectAgentPanelView({
             ? "Agent 思考完成"
             : "等待指令";
   const statusText = !stopPending && activityActive && runElapsedSeconds ? `${statusBase} ${runElapsedSeconds}s` : statusBase;
+  const collapsedIssue = taskCard?.question || taskCard?.error || creationError || contextError || (agentStatus === "error" ? statusText : "");
 
   function beginPanelPointer(
     event: React.PointerEvent<HTMLElement>,
@@ -561,7 +591,7 @@ function ProjectAgentPanelView({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Node ? event.target : null;
       const toggle = document.getElementById(PROJECT_AGENT_HISTORY_TOGGLE_ID);
-      if (target && (historyRef.current?.contains(target) || toggle?.contains(target))) return;
+      if (target && (document.getElementById(PROJECT_AGENT_HISTORY_ID)?.contains(target) || toggle?.contains(target))) return;
       closeHistory();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -625,6 +655,23 @@ function ProjectAgentPanelView({
           <strong>Agent</strong>
           {selectedArtifacts.length > 0 ? <i aria-label="已选择成果" /> : null}
         </ButtonBase>
+        <div className="project-agent-collapsed-actions">
+          {collapsedIssue ? <IconActionButton
+            label={taskCard?.question ? `回答问题：${taskCard.question}` : `查看问题：${collapsedIssue}`}
+            className="project-agent-collapsed-issue"
+            onClick={() => { toggleCollapsed(); if (taskCard?.question) taskAction?.(); }}
+            icon={taskCard?.question ? <CircleHelp size={16} /> : <AlertTriangle size={16} />}
+          /> : null}
+          {executionBusy || stopPending ? <IconActionButton
+            className="project-agent-stop"
+            label={stopPending ? "正在确认结束" : "结束处理"}
+            title={stopPending ? "正在等待底层确认；当前任务状态保持不变" : "结束当前任务，确认后取消思考、生图和未开始批次"}
+            disabled={stopPending}
+            aria-busy={stopPending || undefined}
+            onClick={stopAgentRun}
+            icon={stopPending ? <Loader2 size={16} className="spin" /> : <X size={16} />}
+          /> : null}
+        </div>
         {projectContextSurface}
       </aside>
     );
@@ -664,18 +711,40 @@ function ProjectAgentPanelView({
         onPointerUp={endPanelPointer}
         onPointerCancel={endPanelPointer}
       >
-        <div>
-          <h2>Agent</h2>
+        <div className="project-agent-heading">
+          <h2><ButtonBase
+            id={PROJECT_AGENT_HISTORY_TOGGLE_ID}
+            className={`project-agent-conversation-trigger${historyOpen ? " active" : ""}`}
+            aria-label={`会话历史：${activeConversationTitle}`}
+            aria-haspopup="menu"
+            aria-expanded={historyOpen}
+            aria-controls={PROJECT_AGENT_HISTORY_ID}
+            title={`切换 Agent 会话：${activeConversationTitle}`}
+            data-ui-tooltip={`切换 Agent 会话：${activeConversationTitle}`}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setHistoryAnchor({ x: rect.left, y: rect.bottom + 6 });
+              setPlacementOpen(false);
+              setHistoryOpen((current) => !current);
+            }}
+          ><span>{activeConversationTitle}</span><ChevronDown size={14} aria-hidden="true" /></ButtonBase></h2>
           <p title={projectName}>{projectName}</p>
         </div>
         <div className="project-agent-header-actions">
+          <IconActionButton label={executionBusy ? "在新窗口新建并行会话" : "新建会话"} onClick={requestNewConversation} icon={<Plus size={16} />} />
           <IconActionButton
             id={PROJECT_AGENT_PLACEMENT_TOGGLE_ID}
             className={placementOpen ? "active" : ""}
-            label="调整对话框位置"
+            label="更多 Agent 操作"
+            aria-haspopup="menu"
             aria-expanded={placementOpen}
-            onClick={() => setPlacementOpen((current) => !current)}
-            icon={<Move size={16} />}
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setPlacementAnchor({ x: rect.right - 230, y: rect.bottom + 6 });
+              setHistoryOpen(false);
+              setPlacementOpen((current) => !current);
+            }}
+            icon={<MoreHorizontal size={16} />}
           />
           <IconActionButton
             className="agent-collapse-button"
@@ -689,21 +758,13 @@ function ProjectAgentPanelView({
                   ? <PanelBottom size={16} />
                   : <PanelRightClose size={16} />}
           />
-          <IconActionButton
-            id={PROJECT_AGENT_HISTORY_TOGGLE_ID}
-            className={historyOpen ? "active" : ""}
-            onClick={() => setHistoryOpen((current) => !current)}
-            label="会话历史"
-            aria-expanded={historyOpen}
-            aria-controls={PROJECT_AGENT_HISTORY_ID}
-            icon={<ChevronDown size={16} />}
-          />
-          <IconActionButton label="编辑 Agent 记忆" title="编辑当前会话的 Agent 记忆" onClick={editFastMemory} icon={<Brain size={16} />} />
-          <IconActionButton label="清理聊天" title="清理当前聊天和绘画经验" onClick={requestClearConversation} disabled={conversationBusy} icon={<Trash2 size={16} />} />
-          <IconActionButton label={executionBusy ? "在新窗口新建并行会话" : "新建会话"} onClick={requestNewConversation} icon={<Plus size={16} />} />
         </div>
         {placementOpen ? (
-          <div className="agent-placement-menu" role="menu" aria-label="对话框位置">
+          <MenuSurface {...placementAnchor} triggerId={PROJECT_AGENT_PLACEMENT_TOGGLE_ID} className="agent-placement-menu" ariaLabel="更多 Agent 操作" onRequestClose={() => setPlacementOpen(false)} onKeyDown={event => event.stopPropagation()}>
+            <MenuItem icon={<Brain size={15} />} onClick={() => { setPlacementOpen(false); editFastMemory(); }}>编辑 Agent 记忆</MenuItem>
+            <MenuItem icon={<Trash2 size={15} />} tone="danger" disabled={conversationBusy} onClick={() => { setPlacementOpen(false); requestClearConversation(); }}>清理聊天</MenuItem>
+            <MenuSeparator />
+            <MenuSummary title="对话框位置" />
             <ButtonBase className={panelLayout.agentPanelPlacement === "right" ? "active" : ""} type="button" role="menuitem" onClick={() => setPanelPlacement("right")}>
               <PanelRight size={15} />
               <span>停靠右侧</span>
@@ -731,10 +792,10 @@ function ProjectAgentPanelView({
               <PanelRightOpen size={15} />
               <span>独立浮动窗口</span>
             </ButtonBase>
-          </div>
+          </MenuSurface>
         ) : null}
         {historyOpen ? (
-          <div ref={historyRef} id={PROJECT_AGENT_HISTORY_ID} className="project-agent-history" aria-label="Agent 会话历史">
+          <MenuSurface {...historyAnchor} triggerId={PROJECT_AGENT_HISTORY_TOGGLE_ID} id={PROJECT_AGENT_HISTORY_ID} className="project-agent-history" ariaLabel="Agent 会话历史" onRequestClose={() => setHistoryOpen(false)} onKeyDown={event => event.stopPropagation()}>
             <strong>会话历史</strong>
             <div>
               {historyItems.map((conversation) => (
@@ -742,6 +803,9 @@ function ProjectAgentPanelView({
                   key={conversation.id}
                   className={conversation.id === activeConversationId ? "active" : ""}
                   type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  aria-current={conversation.id === activeConversationId ? "true" : undefined}
                   onClick={() => {
                     switchConversation(conversation.id);
                     setHistoryOpen(false);
@@ -753,7 +817,7 @@ function ProjectAgentPanelView({
                 </ButtonBase>
               ))}
             </div>
-          </div>
+          </MenuSurface>
         ) : null}
       </header>
 

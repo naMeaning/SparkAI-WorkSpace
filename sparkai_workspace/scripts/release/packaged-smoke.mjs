@@ -236,11 +236,21 @@ let failureUi = null;
 let target = null;
 let mainClient = null;
 let shutdown = { requested: false, graceful: false, forced: false };
+let coldStart = null;
 try {
   target = await waitForTarget();
   const client = cdpClient(target.webSocketDebuggerUrl);
   mainClient = client;
   await client.call("Runtime.enable");
+  if (!liveNetwork) {
+    await client.call("Page.enable");
+    const firstState = await client.call("Runtime.evaluate", { expression: `({ bootShellPresent: Boolean(document.querySelector('.boot-shell')), legacyMarkPresent: Boolean(document.querySelector('.boot-shell-mark')), theme: document.documentElement.dataset.glassTheme || '' })`, returnByValue: true });
+    const firstShot = await client.call("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+    const screenshotPath = join(runDir, "packaged-first-visible-cold-start.png");
+    writeFileSync(screenshotPath, Buffer.from(firstShot.data, "base64"));
+    coldStart = { ...firstState.result?.value, screenshotPath };
+    if (coldStart.legacyMarkPresent) throw new Error("Legacy NA startup decoration is still present.");
+  }
   const expression = `(async () => {
     const waitUntil = async (predicate, timeoutMs = 15000) => {
       const started = Date.now();
@@ -414,7 +424,7 @@ try {
         const y = box ? box.top + box.height / 2 : 0;
         const label = button?.querySelector('span');
         const labelBox = label?.getBoundingClientRect();
-        return { x, y, text: button?.textContent?.trim(), labelWidth: labelBox?.width || 0,
+        return { x, y, text: button?.textContent?.trim(), accessibleName: button?.getAttribute('aria-label'), labelWidth: labelBox?.width || 0,
           visible: Boolean(box && box.width > 0 && box.height > 0 && box.left >= -1 && box.right <= innerWidth + 1 && box.top >= -1 && box.bottom <= innerHeight + 1),
           hit: Boolean(button && button.contains(document.elementFromPoint(x, y)))
         };
@@ -440,19 +450,21 @@ try {
     await client.call("Emulation.setDeviceMetricsOverride", { width: 884, height: 640, screenWidth: 884, screenHeight: 640, deviceScaleFactor: 1, mobile: false });
     await delay(250);
     if (process.argv.includes("--check-theme-entry")) {
-    const trigger = await pointFor('button[aria-label="切换界面主题"]');
-    if (trigger.text !== "主题" || trigger.labelWidth < 10) throw new Error("Packaged small-window theme entry has no legible label.");
+    const trigger = await pointFor('#workspace-settings-trigger');
+    if (!trigger.accessibleName?.includes('设置')) throw new Error("Packaged small-window settings icon has no accessible label.");
     await captureUi("packaged-theme-entry-minimum");
-    await clickUi('button[aria-label="切换界面主题"]');
-    await waitUi("Boolean(document.querySelector('[data-glass-lab]'))");
-    await clickUi('button[data-settings-section="agent"]');
+    await clickUi('#workspace-settings-trigger');
+    await waitUi("Boolean(document.querySelector('[data-ui-surface=\"settings\"]'))");
+    await clickUi('button[data-settings-category="generation"]');
+    await waitUi("Boolean(document.querySelector('[data-ui-surface=\"settings\"] details'))");
+    await evaluateUi(`(() => { const advanced = document.querySelector('[data-ui-surface="settings"] details'); if (!advanced.open) advanced.querySelector('summary').click(); })()`);
     const previousScroll = await evaluateUi(`(() => {
       const body = document.querySelector('[data-ui-surface="settings"] > nav').nextElementSibling;
       body.scrollTop = body.scrollHeight;
       return body.scrollTop;
     })()`);
     if (previousScroll < 40) throw new Error("Packaged theme navigation did not exercise a scrolled settings category.");
-    await clickUi('button[data-settings-section="appearance"]');
+    await clickUi('button[data-settings-category="appearance"]');
     await waitUi("Boolean(document.querySelector('[data-glass-lab]'))");
     const buttons = await evaluateUi(`(() => {
       const body = document.querySelector('[data-ui-surface="settings"] > nav').nextElementSibling;
@@ -582,7 +594,7 @@ try {
       }
       const materialTitle = await evaluateUi(`document.querySelector(${JSON.stringify(materialTrigger)})?.title`);
       if (!materialTitle.includes('0 张原图，1 张参考图')) throw new Error('Packaged canvas material role transfer failed.');
-      await clickUi('button[aria-label="切换界面主题"]');
+      await clickUi('#workspace-settings-trigger');
       await waitUi('Boolean(document.querySelector(\'[data-ui-surface="settings"]\'))');
       await clickUi('button[data-settings-section="models"]');
       await clickUi('button[aria-label="配置生图模型"]');
@@ -609,7 +621,7 @@ try {
       await evaluateUi('window.__packagedImageReloadPending = true');
       await client.call('Page.reload');
       await waitUi(`!window.__packagedImageReloadPending && Boolean(document.querySelector(${JSON.stringify(materialTrigger)}))`);
-      await clickUi('button[aria-label="切换界面主题"]');
+      await clickUi('#workspace-settings-trigger');
       await waitUi('Boolean(document.querySelector(\'[data-ui-surface="settings"]\'))');
       await clickUi('button[data-settings-section="models"]');
       await clickUi('button[aria-label="配置生图模型"]');
@@ -637,7 +649,7 @@ try {
   if (process.argv.includes("--check-agent-window")) {
     const openAgent = await client.call("Runtime.evaluate", {
       expression: `(async () => {
-        const toggle = document.querySelector('button[aria-label="调整对话框位置"]');
+        const toggle = document.getElementById('project-agent-placement-toggle');
         if (!toggle) return false;
         toggle.click();
         for (let attempt = 0; attempt < 50; attempt++) {
@@ -714,6 +726,7 @@ const report = {
   failureUi,
   process: { exitCode: child.exitCode, stdout, stderr },
   shutdown,
+  coldStart,
   logTail: existsSync(electronLog) ? readFileSync(electronLog, "utf8").split(/\r?\n/).filter(Boolean).slice(-120) : []
 };
 writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);

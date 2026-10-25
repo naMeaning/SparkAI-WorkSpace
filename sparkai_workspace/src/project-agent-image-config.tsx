@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, RefreshCw, Search, Star } from "lucide-react";
+import { ChevronDown, Loader2, RefreshCw, Search, Star } from "lucide-react";
 import { computedSizeFor, frameOptionsForModel, normalizeImageFrameRatio, normalizeImageResolutionPreset, sizePresetsForModel, uniqueImageModels, IMAGE_COUNT_OPTIONS, QUALITY_OPTIONS, type AppSettings, type ImageModelConfig } from "./core";
 import { filterImagePickerModels } from "./model-ux";
 import { imageQualityValues, preferredImageTaskModel } from "../runtime/image-model-policy.mjs";
@@ -124,15 +124,21 @@ export default function ProjectAgentImageConfig({
         <SurfaceBody className="project-agent-image-config-body">
           {locked ? <p role="status">任务运行中，图片配置暂不可修改。</p> : null}
           <div className="project-agent-image-config-fields">
+            <div className="project-agent-image-model-summary">
+              <span>模型</span>
+              <strong title={defaultModel || "尚未选择"}>{defaultModel || "尚未选择"}</strong>
+              <small>已启用 {activeModels.length} 个 · Agent 优先 {automaticModel || "尚未选择"}</small>
+            </div>
             <label><span>比例</span><GlassSelect ariaLabel="默认生图比例" value={ratio} disabled={locked} onChange={changeRatio} options={ratioOptions.map((option) => ({ value: option.ratio, label: `${option.ratio} · ${option.label}` }))} /></label>
             <label><span>清晰度</span><GlassSelect ariaLabel="默认生图清晰度" value={resolution} disabled={locked} onChange={changeResolution} options={resolutionOptions.map((option) => ({ value: option.resolution, label: option.resolution }))} /></label>
             <label><span>每批数量</span><GlassSelect ariaLabel="每批图片数量" value={String(imageCount)} disabled={locked} onChange={(value) => void save(() => onOutputChange(Number(value), imageQuality))} options={IMAGE_COUNT_OPTIONS.map((count) => ({ value: String(count), label: `${count} 张` }))} /></label>
-            <label><span>质量</span><GlassSelect ariaLabel="生图质量" value={imageQuality} disabled={locked} onChange={(value) => void save(() => onOutputChange(imageCount, value as AppSettings["imageQuality"]))} options={compatibleQualities.map((option) => ({ value: option.value, label: option.label }))} /></label>
           </div>
           <p className="project-agent-image-config-summary">请求尺寸 {computedSizeFor(ratio, resolution)} · 手动默认 {defaultModel || "尚未选择"} · Agent 自动选择 {automaticModel || "尚未选择"}</p>
-          <small>多个模型是可选池，每次按任务选择一个模型；Agent 自动优先 Image 2。此配置仅用于后续请求，画布缩放和界面文字不改变生成像素；成果详情保留文件实测尺寸。</small>
           {parameterIssue ? <p role="status" className="project-agent-model-error">{parameterIssue}</p> : null}
           {adjustment ? <p role="status">{adjustment}</p> : null}
+          <details className="project-agent-image-model-manager">
+          <summary><span>管理模型</span><small>已启用 {activeModels.length} / {availableModels.length}</small><ChevronDown size={15} aria-hidden="true" /></summary>
+          <div className="project-agent-image-config-section">
           <div className="project-agent-image-config-heading"><strong>生图模型 <small>已启用 {activeModels.length} / {availableModels.length}</small></strong><ActionButton type="button" variant="secondary" disabled={loading} icon={loading ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} onClick={() => void refreshModels()}>刷新列表</ActionButton></div>
           <label className="project-agent-model-search"><Search size={13} /><input type="search" aria-label="搜索生图模型" placeholder="搜索模型" value={query} onChange={(event) => setQuery(event.target.value.slice(0, 160))} /></label>
           <div className="project-agent-model-options" role="group" aria-label="上游生图模型">
@@ -148,6 +154,18 @@ export default function ProjectAgentImageConfig({
             {!filteredModels.length ? <p>没有匹配的模型</p> : null}
           </div>
           <small>勾选启用模型；星标设为默认并自动启用，默认模型置顶。至少保留一个。</small>
+          </div>
+          </details>
+          <details className="project-agent-image-advanced">
+            <summary><span>高级参数</span><small>{imageQuality === "auto" ? "自动质量" : "高级参数已自定义"}</small><ChevronDown size={15} aria-hidden="true" /></summary>
+            <div className="project-agent-image-config-section project-agent-image-config-fields">
+              <label><span>质量</span><GlassSelect ariaLabel="生图质量" value={imageQuality} disabled={locked} onChange={(value) => void save(() => onOutputChange(imageCount, value as AppSettings["imageQuality"]))} options={[
+                ...(!compatibleQualities.some(option => option.value === imageQuality) ? [{ value: imageQuality, label: `${QUALITY_OPTIONS.find(option => option.value === imageQuality)?.label || imageQuality}（当前不支持）`, disabled: true }] : []),
+                ...compatibleQualities.map((option) => ({ value: option.value, label: option.label }))
+              ]} /></label>
+            </div>
+          </details>
+          <small>模型池每次按任务选择一个模型。配置仅用于后续请求，不改变画布缩放、界面文字或已有成果。</small>
           {refreshError ? <p className="project-agent-model-error" role="status">刷新失败，已保留当前模型：{refreshError}</p> : null}
           <p className={saveError ? "project-agent-model-error" : "project-agent-image-config-summary"} role="status">{saveNotice}</p>
           {saveError ? <ActionButton onClick={() => { if (lastSave.current) void save(lastSave.current); }}>重试保存</ActionButton> : null}

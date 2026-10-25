@@ -10043,10 +10043,12 @@ async function main() {
       }, 60000));
       results.push(await captureState(client, target.id, "quick-settings-agent-context-min-884", openSurfaceExpression("settings", `
         await delay(250);
-        const agentTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "Agent");
+        const agentTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "生成");
         agentTab?.click();
         const tabDeadline = Date.now() + 2400;
-        while (Date.now() < tabDeadline && String(document.querySelector(".settings-section-tab[aria-pressed='true']")?.textContent || "").trim() !== "Agent") await delay(40);
+        while (Date.now() < tabDeadline && String(document.querySelector(".settings-section-tab[aria-pressed='true']")?.textContent || "").trim() !== "生成") await delay(40);
+        const advanced = document.querySelector('.settings-advanced-section');
+        if (advanced && !advanced.open) advanced.querySelector('summary')?.click();
         const contextDeadline = Date.now() + 2400;
         while (Date.now() < contextDeadline && !document.querySelector("[data-settings-control='context-strategy']")) await delay(40);
         const strategySelect = document.querySelector("[data-settings-control='context-strategy']");

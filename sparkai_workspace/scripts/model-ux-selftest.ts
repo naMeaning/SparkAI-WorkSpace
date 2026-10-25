@@ -101,11 +101,11 @@ assert.match(composerSource, /data-primary-action=\{primaryAction\}/);
 assert.match(composerSource, /idleComposerPrimaryAction\(/);
 assert.match(
   composerSource,
-  /className="project-agent-regenerate"[\s\S]{0,500}aria-label="生成"[\s\S]{0,500}>\s*生成\s*</
+  /className="project-agent-regenerate"[\s\S]{0,500}aria-label="直接生图"[\s\S]{0,500}>\s*直接生图\s*</
 );
 assert.match(
   composerSource,
-  /className="project-agent-send"[\s\S]{0,900}variant=\{primaryAction === "send" \? "primary" : "secondary"\}[\s\S]{0,900}发送给 Agent/
+  /className="project-agent-send"[\s\S]{0,900}variant="primary"[\s\S]{0,900}type="submit"[\s\S]{0,900}发送给 Agent/
 );
 assert.match(imageConfigSource, /filterImagePickerModels\(uniqueImageModels\(\[\.\.\.imageModels, \.\.\.selectedImageModels\]\)\)/);
 assert.doesNotMatch(

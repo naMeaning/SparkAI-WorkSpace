@@ -2552,6 +2552,10 @@ button {
   width: min(260px, 78vw);
 }
 
+.project-menu-popover.ui-menu-surface { position: fixed; z-index: var(--z-menu); }
+.project-menu-icon-actions { display: flex; align-items: center; gap: 8px; padding: 4px; }
+.project-menu-icon-actions > strong { flex: 1; font-size: 14px; }
+
 .project-menu-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

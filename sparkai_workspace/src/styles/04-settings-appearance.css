@@ -5,7 +5,7 @@
 .settings-section-tabs {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 5px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
@@ -130,6 +130,22 @@
 .settings-appearance-section {
   gap: 12px;
 }
+
+.settings-connection-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-connection-summary > div { min-width: 0; display: grid; gap: 4px; }
+.settings-connection-summary strong { overflow-wrap: anywhere; font-size: 14px; }
+.settings-connection-summary :is(small, span),
+.settings-category-hint { color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.settings-subsection-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-subsection-links .ui-action-button[aria-pressed="true"] { background: var(--active-bg); border-color: var(--line-strong); }
+.settings-advanced-section { min-width: 0; border-top: 1px solid var(--line); padding-top: 12px; }
+.settings-advanced-section > summary { padding: 4px 0 12px; cursor: pointer; color: var(--ink); font-size: 14px; }
+.settings-advanced-section[open] { display: grid; gap: 12px; }
 
 .settings-account-token-section,
 .settings-context-policy,
@@ -888,7 +904,7 @@ label.settings-canvas-tool-row {
 
 @container settings-drawer (max-width: 400px) {
   .settings-section-tabs {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }
 

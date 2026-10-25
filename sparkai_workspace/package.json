@@ -32,6 +32,7 @@
     "test:update-http": "electron scripts/desktop-update-http-selftest.cjs",
     "test:update-ui": "node scripts/desktop-update-ui-selftest.mjs",
     "test:workspace-layout-config-ui": "node scripts/workspace-layout-config-ui-selftest.mjs",
+    "test:ui-simplification": "node scripts/ui-simplification-ui-selftest.mjs",
     "test:runtime-diagnostics": "node scripts/runtime-diagnostics-selftest.cjs",
     "test:composer-commands": "node scripts/composer-commands-selftest.mjs",
     "test:composer-command-ui": "node scripts/composer-command-ui-selftest.mjs",

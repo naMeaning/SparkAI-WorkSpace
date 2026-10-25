@@ -255,7 +255,7 @@ check("MenuSurface clamps from measured dimensions", /menu\.offsetWidth/.test(ui
 check("MenuSurface exposes menu semantics", /role="menu"/.test(uiSource) && /data-ui-menu-surface="true"/.test(uiSource));
 check("MenuItem exposes a fixed semantic menu contract", /data-ui-menu-item="true"/.test(uiSource) && /data-ui-tone=\{tone\}/.test(uiSource));
 check("MenuItem uses icon, label, and shortcut columns", /grid-template-columns:\s*18px minmax\(0, 1fr\) max-content/.test(activeCss));
-check("MenuItem danger tone has a dedicated visual rule", Boolean(ruleBody(".canvas-context-menu .ui-menu-item-danger")));
+check("MenuItem danger tone has a dedicated visual rule", Boolean(ruleBody(".ui-menu-surface .ui-menu-item-danger")));
 check("MenuSeparator exposes separator semantics", /role="separator"/.test(uiSource));
 check(
   "GlassSelect renders a controlled listbox through MenuSurface",

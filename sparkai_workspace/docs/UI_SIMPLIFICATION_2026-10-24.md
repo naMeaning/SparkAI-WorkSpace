@@ -1,6 +1,6 @@
 # 日夜基础主题与界面精简（2026-10-24）
 
-状态：实施中；概念设计不作为产品验收。
+状态：P1完整本地交付与push；P2源码/UI/EXE/安装完成，源码同步收口中。概念设计不作为产品验收。
 
 ## 接受合同
 
@@ -32,7 +32,19 @@ main / 134a9f40cf42d40176d083ce557f36171066d0b2，origin/main。已有五份 tra
 
 ### P2：入口与配置
 
-等待 P1 最终 EXE、正常安装与源码 push 后执行。动作与状态矩阵如下；不能把本节方向当作已实现。
+P1 已通过源码commit `e7ea904c0e80fccd5bbf43a002ce2d8216497ddf` 普通push，HEAD/upstream/远端一致；完整索引 `.diagnostics/ui-p1-delivery/delivery.json`。P2 已完成源码、最终交互验证、独立打包与原位安装；正在精确源码/文档commit/push。
+
+- 实现：单项目/视图/工具/图片更多入口，Agent会话/更多/折叠停止、完成工具可展开，直接生图文字动作与唯一主发送；五类设置与旧深链、图片四项首屏/完整目录/高级值、全局草稿与即时保存owner保持。明确符号通过原IconActionButton/OverflowTooltipLayer提供中文hover350ms/focus/Esc及aria-describedby；MenuSurface复用通用菜单行并排除自身trigger的outside-close竞态。独立Agent镜像会话/素材/完成步骤和stopPending。
+- 专项：composer-commands8、agent-panel-layout16、canvas-commands10、model-ux/model-catalog、workspace-domain47、settings-persistence155、agent-window44/101、production-symbol-compaction、ui-foundation与typecheck通过。最终ui-foundation将危险菜单规则断言从旧canvas owner更新到通用ui-menu-surface；无产品回退。quick `.diagnostics/electron/aidebug-2026-10-25T10-36-23-605Z/report.json` 6组通过，884截图实际高720。
+- 最终真实Electron：`.diagnostics/electron/ui-simplification-2026-10-25T11-17-39-650Z/report.json` ok，11组/33截图、skipped=[]，1280×800/884×640、日夜。包括中文图标hover/focus与34px命中、菜单键盘/同trigger关闭/Esc焦点、非空canvas DOM身份/selection/viewport跨视图保持、工具搜索/领域/最近/禁用0动作、实际第32会话切换；Main真实.tmp写失败/错误位于高级外/关闭保护/重试落盘count3与qualityhigh、全局草稿取消恢复；单图portal350ms/Esc和原viewer、完成/运行/错误/问题、折叠stop确认/pending保runId/首次Main失败保busy/重试idle；composer mock回调、独立窗、真实Main隔离项目创建与UI移除确认保留项目文件。正常关闭exit0、forced=false，0真实模型请求。
+- 真实缺陷修复：`core.ts.upsertConversation`不再静默截30条，保存当前非空消息后第32会话仍可切换；ActionBar hover生命周期纳入focus，Esc回焦后不卸载；左轨7–10px提示改为16px符号＋36px中文hover/focus命中。早期失败报告保留，不作为通过证据。
+- 最终freeze/制品：740产品/测试/契约源，SHA-256 `d0968bf0558bd97f6bfdf0c505ac264e819c928377246bc5b9fc948e1f413b77`；production package exit0（1718模块/26.41s），137dist/199owner逐字节包内一致。独立保留 `release/local-deliveries/ui-p2-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,550,016 B / SHA-256 `d9b57d28cf91817e799a2d3d5caeff3cb8377d52fdd81e8b5d9e3c5e6597551b`；ASAR53,591,647 B / `6c5f08908f8226d4b2cfa13c13c7ee9bb46affd6658de693d9cc35dce0f489e5`。P1制品原路径/哈希未覆盖；开发包，不等于正式Release。
+- 最终生产包：`.diagnostics/release/packaged-smoke-2026-10-25T11-28-29-197Z/report.json` ok，真实主题入口、独立Agent、mock账户/日志分页通过；正常退出requested/graceful=true、forced=false。实际目检`packaged-first-visible-cold-start.png`：启动卡无NA，标题/进度保留；包内HTML无boot-shell-mark节点与专属CSS，仍含启动说明。
+- 安装：`.diagnostics/ui-p2-delivery/install.json` ok，安装前同名实例[]；品牌/S原位升级exit0/21,005ms，原`E:\sparkai-workspace\naimage`/1.0.9、配置/凭据metadata/快捷方式保留。安装EXE SHA-256 `f379e0ed9d803f7e4eefe975e865ad84811facd70e429901b652ea18fe44ac6f`与ASAR均匹配最终包。
+- Git：仅本轮源码/文档增量精确暂存；旧设计/规则/参考和根artifacts保持未提交。普通commit/push与HEAD/upstream/实际远端核验完成后补checkpoint，完整身份索引保存在 `.diagnostics/ui-p2-delivery/delivery.json`，不提交二进制或私有配置。
+- 限制：native项目目录picker未驱动，真实UI表单与隔离Main创建分别验证；IME为synthetic isComposing＋CDP CtrlEnter，未验证OS原生输入法或物理125%/150%DPI；mock/loopback、无真实模型/站点/ComfyUI，无正式Release/tag/EXE上传。
+
+2026-10-25追加：清理启动壳旧NA装饰节点及专属CSS；保留启动标题/进度与主题首帧。最终包应通过包内index.html核验与生产启动截图证明该符号不再出现。
 
 ## 冻结动作与状态矩阵
 

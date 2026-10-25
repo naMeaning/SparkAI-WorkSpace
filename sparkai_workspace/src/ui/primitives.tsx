@@ -222,7 +222,7 @@ export function IconActionButton({
       type={buttonProps.type ?? "button"}
       className={joinClassNames("ui-icon-action", className)}
       aria-label={buttonProps["aria-label"] ?? label}
-      title={title ?? label}
+      data-ui-tooltip={title ?? label}
       data-ui-control="icon"
     >
       {icon}

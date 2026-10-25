@@ -3704,7 +3704,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentImageConfigOpen, setAgentImageConfigOpen] = useState(false);
   const [imageRecoveryOpen, setImageRecoveryOpen] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("access");
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("connections");
+  const projectMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [helpOpen, setHelpOpen] = useState<HelpCenterSection | null>(null);
   const [commerceTutorialOpen, setCommerceTutorialOpen] = useState(false);
   const [workspaceDomain, setWorkspaceDomain] = useState<WorkspaceDomain>(DEFAULT_WORKSPACE_DOMAIN);
@@ -4581,9 +4582,8 @@ function App() {
     function closeTransientSurfaces(event: PointerEvent) {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
-      if (fileMenuOpen && !target.closest(".file-command-menu")) setFileMenuOpen(false);
-      if (projectMenuOpen && !target.closest(".project-menu:not(.file-command-menu)")) setProjectMenuOpen(false);
-      if (settingsOpen && !target.closest(".settings-drawer, .model-picker-dialog, .agent-text-editor-dialog, .app-settings-button, [data-ui-surface-layer], [data-ui-menu-surface]")) setSettingsOpen(false);
+      if (fileMenuOpen && !target.closest(".project-menu, .project-menu-popover")) setFileMenuOpen(false);
+      if (projectMenuOpen && !target.closest(".project-menu, .project-menu-popover")) setProjectMenuOpen(false);
       if (accountOpen && !target.closest(".account-drawer, .account-avatar-button, [data-ui-surface-layer]")) setAccountOpen(false);
     }
 
@@ -27603,7 +27603,7 @@ function App() {
     window.requestAnimationFrame(() => {
       const focusTarget = document.querySelector<HTMLButtonElement>(".settings-prompt-action")
         ?? document.querySelector<HTMLButtonElement>(".settings-drawer .settings-section-tab[aria-pressed='true']")
-        ?? document.querySelector<HTMLButtonElement>(".app-settings-button");
+        ?? document.querySelector<HTMLButtonElement>("#workspace-settings-trigger");
       focusTarget?.focus({ preventScroll: true });
     });
   });
@@ -27961,6 +27961,12 @@ function App() {
     setAccountOpen(false);
     setSettingsInitialSection(section);
     setSettingsOpen(true);
+  }
+
+  function runProjectMenuAction(action: () => unknown) {
+    setProjectMenuOpen(false);
+    setFileMenuOpen(false);
+    void action();
   }
 
   function startCommerceTutorial() {
@@ -28421,98 +28427,36 @@ function App() {
           <strong>SparkAI WorkSpace</strong>
         </div>
         <nav className="file-menu project-actions" aria-label="项目菜单">
-          <div className="project-menu file-command-menu">
-            <ButtonBase onClick={() => {
-              setProjectMenuOpen(false);
-              setSettingsOpen(false);
-              setAccountOpen(false);
-              setFileMenuOpen((current) => !current);
-            }} disabled={fileActionBusy} title="管理项目文件夹、迁移旧数据和导入导出">
-              <FolderOpen size={14} />
-              文件
-            </ButtonBase>
-            {fileMenuOpen ? (
-              <div className="project-menu-popover file-command-popover">
-                <div className="project-list file-command-list">
-                  <ButtonBase onClick={openCreateProjectDialog} disabled={fileActionBusy || agentExecutionBusy} title="选择工作台类型和保存位置，并创建全新的 SparkAI WorkSpace 项目">
-                    <FolderPlus size={14} />
-                    <span>新建项目</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={openCurrentProjectFolder} disabled={fileActionBusy || !activeProject} title={activeProjectPath ? `在资源管理器中打开：${activeProjectPath}` : "请先创建或打开项目"}>
-                    <FolderOpen size={14} />
-                    <span>打开当前项目文件夹</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={openExportCenterFromFileMenu} disabled={fileActionBusy || !activeProject} title="统一管理图片、图片组和 Photoshop PSD 导出">
-                    <PackageCheck size={14} />
-                    <span>导出中心</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={openProjectPath} disabled={fileActionBusy || agentExecutionBusy} title="打开已有项目文件夹，读取图片成果和历史会话">
-                    <Import size={14} />
-                    <span>打开已有项目</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={startProjectDataMigration} disabled={fileActionBusy || agentExecutionBusy} title="把旧应用数据目录中的项目复制并校验到你选择的项目目录">
-                    <HardDriveDownload size={14} />
-                    <span>迁移旧 C 盘项目数据</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={startPendingProjectDataCleanup} disabled={fileActionBusy || agentExecutionBusy} title="再次校验后清理已经成功迁移的 C 盘项目源数据">
-                    <Trash2 size={14} />
-                    <span>清理已迁移的旧数据</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={exportProject} disabled={fileActionBusy || !activeProject} title="导出图片成果、关系和会话为 .naimage 项目文件">
-                    <Download size={14} />
-                    <span>导出项目文件</span>
-                  </ButtonBase>
-                  <ButtonBase onClick={importProject} disabled={fileActionBusy || agentExecutionBusy} title="选择 .naimage 项目文件并恢复到项目文件夹">
-                    <Import size={14} />
-                    <span>导入项目文件</span>
-                  </ButtonBase>
-                </div>
-              </div>
-            ) : null}
-          </div>
           <div className="project-menu">
-            <ButtonBase onClick={() => {
-              setFileMenuOpen(false);
-              setSettingsOpen(false);
-              setAccountOpen(false);
-              setProjectMenuOpen((current) => !current);
-            }} disabled={fileActionBusy}>
-              <FolderOpen size={14} />
-              <span className="project-active-name">{activeProjectName}</span>
+            <ButtonBase ref={projectMenuTriggerRef} id="project-menu-trigger" aria-label={`项目：${activeProjectName}`} aria-haspopup="menu" aria-expanded={projectMenuOpen || fileMenuOpen}
+              onClick={() => { setSettingsOpen(false); setAccountOpen(false); setFileMenuOpen(false); setProjectMenuOpen((current) => !current); }} disabled={fileActionBusy}>
+              <FolderOpen size={16} /><span className="project-active-name">{activeProjectName}</span><ChevronDown size={14} />
             </ButtonBase>
-            {projectMenuOpen ? (
-              <div className="project-menu-popover">
-                <div className="project-list">
-                  {projects.length ? (
-                    projects.map((project) => (
-                      <ButtonBase
-                        key={project.id}
-                        className={project.id === activeProjectId ? "active" : ""}
-                        onClick={() => void switchProject(project.id)}
-                        disabled={fileActionBusy}
-                        title={`${project.external ? "外部画布" : "本地画布"} ${project.path}`}
-                      >
-                        <span>{project.name}</span>
-                      </ButtonBase>
-                    ))
-                  ) : (
-                    <p>暂无项目</p>
-                  )}
-                </div>
+            {projectMenuOpen || fileMenuOpen ? <MenuSurface className="project-menu-popover file-command-popover" ariaLabel="项目操作" triggerId="project-menu-trigger"
+              x={projectMenuTriggerRef.current?.getBoundingClientRect().left ?? 120} y={projectMenuTriggerRef.current?.getBoundingClientRect().bottom ?? 38}
+              onRequestClose={() => { setProjectMenuOpen(false); setFileMenuOpen(false); }}>
+              <div className="project-menu-icon-actions" aria-label="项目操作">
+                <strong>项目</strong>
+                <IconActionButton role="menuitem" label="新建项目" icon={<Plus size={16} />} disabled={fileActionBusy || agentExecutionBusy}
+                  onClick={() => { setProjectMenuOpen(false); setFileMenuOpen(false); openCreateProjectDialog(); }} />
+                <IconActionButton role="menuitem" label="移除项目，保留文件" icon={<Trash2 size={16} />} disabled={fileActionBusy || agentExecutionBusy || !activeProject}
+                  onClick={() => { setProjectMenuOpen(false); setFileMenuOpen(false); void removeActiveProject(); }} />
               </div>
-            ) : null}
-          </div>
-          <div className="project-quick-actions" aria-label="项目操作">
-            <ButtonBase onClick={openCreateProjectDialog} disabled={fileActionBusy || agentExecutionBusy} title="创建全新项目：新的会话和成果画布，不继承旧链路">
-              <Plus className="compact-project-action-icon" size={15} aria-hidden="true" />
-              <span className="compact-project-action-label">新建项目</span>
-            </ButtonBase>
-            <ButtonBase onClick={removeActiveProject} disabled={fileActionBusy || agentExecutionBusy || !activeProject} title="只从项目列表移除，不删除文件夹">
-              移除
-            </ButtonBase>
-            <ButtonBase onClick={openRenameProjectDialog} disabled={fileActionBusy || agentExecutionBusy || !activeProject} title="重命名当前画布，文件夹路径保持不变">
-              重命名
-            </ButtonBase>
+              <MenuItem icon={<Settings size={16} />} disabled={fileActionBusy || agentExecutionBusy || !activeProject} onClick={() => { setProjectMenuOpen(false); setFileMenuOpen(false); openRenameProjectDialog(); }}>重命名项目</MenuItem>
+              <MenuItem icon={<FolderOpen size={16} />} disabled={fileActionBusy || !activeProject} onClick={() => runProjectMenuAction(openCurrentProjectFolder)}>打开项目文件夹</MenuItem>
+              <MenuItem icon={<PackageCheck size={16} />} disabled={fileActionBusy || !activeProject} onClick={() => runProjectMenuAction(openExportCenterFromFileMenu)}>导出中心</MenuItem>
+              <MenuItem icon={<Import size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(openProjectPath)}>打开已有项目</MenuItem>
+              <MenuItem icon={<Download size={16} />} disabled={fileActionBusy || !activeProject} onClick={() => runProjectMenuAction(exportProject)}>导出项目文件</MenuItem>
+              <MenuItem icon={<Import size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(importProject)}>导入项目文件</MenuItem>
+              <MenuSeparator />
+              <MenuSummary title="切换项目" />
+              {projects.map((project) => <MenuItem key={project.id} className={project.id === activeProjectId ? "active" : ""} disabled={fileActionBusy}
+                onClick={() => { setProjectMenuOpen(false); setFileMenuOpen(false); void switchProject(project.id); }}>{project.name}</MenuItem>)}
+              <MenuSeparator />
+              <MenuItem icon={<CircleHelp size={16} />} onClick={() => runProjectMenuAction(() => { setAccountOpen(false); setHelpOpen("start"); })}>帮助与政策</MenuItem>
+              <MenuItem icon={<HardDriveDownload size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(startProjectDataMigration)}>迁移旧项目数据</MenuItem>
+              <MenuItem icon={<Trash2 size={16} />} disabled={fileActionBusy || agentExecutionBusy} onClick={() => runProjectMenuAction(startPendingProjectDataCleanup)}>清理已迁移的旧数据</MenuItem>
+            </MenuSurface> : null}
           </div>
         </nav>
         <div className="workspace-topbar-center">
@@ -28522,16 +28466,7 @@ function App() {
           <React.Suspense fallback={<span className="workspace-direction-switcher workspace-direction-switcher-loading" aria-hidden="true" />}>
             <LazyWorkspaceDirectionSwitcher mode={workspaceViewMode} onChange={changeWorkspaceViewMode} />
           </React.Suspense>
-          <ButtonBase
-            type="button"
-            className="workspace-glass-lab-button"
-            onClick={() => openSettingsSection("appearance")}
-            aria-label="切换界面主题"
-            title="简洁黑白与彩色玻璃主题"
-          >
-            <SlidersHorizontal size={14} />
-            <span>主题</span>
-          </ButtonBase>
+
         </div>
         <div className="ide-actions">
           <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
@@ -28544,25 +28479,6 @@ function App() {
               onSelectConversation={switchProjectConversation}
             />
           </React.Suspense>
-          <ButtonBase className="icon-button app-settings-button" onClick={() => {
-            openSettingsSection("access");
-          }} aria-label="设置">
-            <Settings size={18} />
-            {desktopUpdateNotice?.updateAvailable ? <span className="app-settings-update-dot" aria-label={`发现新版本 ${desktopUpdateNotice.latestVersion || ""}`} /> : null}
-          </ButtonBase>
-          <ButtonBase
-            className="icon-button app-help-button"
-            onClick={() => {
-              setFileMenuOpen(false);
-              setProjectMenuOpen(false);
-              setAccountOpen(false);
-              setHelpOpen("start");
-            }}
-            aria-label="帮助与政策"
-            title="打开 AI 示例教学、使用帮助、隐私政策和用户协议"
-          >
-            <CircleHelp size={18} />
-          </ButtonBase>
           <ButtonBase
             className={`account-avatar-button ${accountOpen ? "active" : ""}`}
             onClick={() => {
@@ -28592,6 +28508,7 @@ function App() {
       >
         <React.Suspense fallback={<aside className="workspace-asset-rail is-loading" aria-label="正在载入项目素材" aria-busy="true" />}>
           <LazyWorkspaceAssetRail
+            settingsUpdateAvailable={desktopUpdateNotice?.updateAvailable}
             projectId={activeProjectId}
             nodes={canvasNodes}
             conversations={conversations}
@@ -28608,7 +28525,7 @@ function App() {
             onSaveRequirementTemplate={() => { void saveSelectedRequirementTemplate(); }}
             onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
-            onOpenSettings={() => openSettingsSection("appearance")}
+            onOpenSettings={() => openSettingsSection("connections")}
             workspaceDomain={workspaceDomain}
             domainTools={workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research" ? pluginToolbarItems : []}
             domainToolsLoading={(workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research") && pluginToolbarLoading}
@@ -28699,61 +28616,9 @@ function App() {
                 <span>图片和文件夹会先复制到项目素材库</span>
               </div>
             ) : null}
-            {pluginToolbarItems.length ? (
-              <nav
-                className={`canvas-plugin-toolbar ${pluginToolbarExpanded ? "is-expanded" : "is-collapsed"}`}
-                data-canvas-no-zoom="true"
-                data-toolbar-mode={settings.canvasToolDockMode}
-                data-expanded={pluginToolbarExpanded ? "true" : "false"}
-                aria-label="画布工具栏"
-                onPointerEnter={() => {
-                  if (settings.canvasToolDockMode === "hover") setPluginToolbarPeekOpen(true);
-                }}
-                onPointerLeave={(event) => {
-                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(document.activeElement) && !document.activeElement?.closest(".canvas-tools-menu")) setPluginToolbarPeekOpen(false);
-                }}
-                onFocusCapture={(event) => {
-                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null)) setPluginToolbarPeekOpen(true);
-                }}
-                onBlurCapture={(event) => {
-                  if (settings.canvasToolDockMode === "hover" && !event.currentTarget.contains(event.relatedTarget as Node | null) && !(event.relatedTarget instanceof Element && event.relatedTarget.closest(".canvas-tools-menu"))) {
-                    setPluginToolbarPeekOpen(false);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.stopPropagation();
-                    return;
-                  }
-                  if (event.key !== "Escape" || settings.canvasToolDockMode !== "hover") return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setPluginToolbarPeekOpen(false);
-                  (event.currentTarget.querySelector(".canvas-plugin-toolbar-trigger") as HTMLButtonElement | null)?.focus();
-                }}
-              >
-                {settings.canvasToolDockMode === "hover" ? (
-                  <ButtonBase
-                    type="button"
-                    className="canvas-plugin-toolbar-trigger"
-                    aria-expanded={pluginToolbarExpanded}
-                    aria-controls="canvas-plugin-toolbar-actions"
-                    onClick={() => setPluginToolbarPeekOpen((current) => !current)}
-                    title={pluginToolbarExpanded ? "收起画布工具" : "展开画布工具"}
-                  >
-                    <WandSparkles size={14} aria-hidden="true" />
-                    <span>画布工具</span>
-                    <small>{pluginToolbarItems.length}</small>
-                    <ChevronDown size={13} aria-hidden="true" />
-                  </ButtonBase>
-                ) : (
-                  <span className="canvas-plugin-toolbar-title">
-                    <WandSparkles size={14} aria-hidden="true" />
-                    <span>画布工具</span>
-                    <small>{pluginToolbarItems.length}</small>
-                  </span>
-                )}
-                <CanvasToolbarPages expanded={pluginToolbarExpanded} recentCommands={settings.recentCanvasToolCommands}
+            <CanvasNavigationControls
+              tools={pluginToolbarItems.length ? (
+                <CanvasToolbarPages expanded={true} recentCommands={settings.recentCanvasToolCommands}
                   details={Object.fromEntries(pluginToolbarItems.map(item => [item.command, { label: item.label, description: item.description, shortcut: canvasToolShortcutLabel(item.shortcut),
                     group: item.pluginId.includes("commerce") ? "电商创作" : item.pluginId.includes("social") ? "社交内容" : item.pluginId.includes("scientific") ? "科研表达" : "通用创作" }]))}>
                   {pluginToolbarItems.map((item) => {
@@ -28767,7 +28632,7 @@ function App() {
                         type="button"
                         data-plugin-command={item.command}
                         disabled={disabled}
-                        tabIndex={pluginToolbarExpanded ? 0 : -1}
+                        tabIndex={0}
                         aria-keyshortcuts={canvasToolAriaShortcut(item.shortcut)}
                         title={`${needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0 ? "请先选择图片成果或容器" : item.description}${shortcut ? ` · ${shortcut}` : ""}`}
                         onClick={() => void executePluginCommand(item.command)}
@@ -28778,18 +28643,7 @@ function App() {
                     );
                   })}
                 </CanvasToolbarPages>
-                <ButtonBase
-                  type="button"
-                  className="canvas-plugin-toolbar-pin"
-                  aria-label={settings.canvasToolDockMode === "expanded" ? "改为悬停展开工具栏" : "固定展开工具栏"}
-                  title={settings.canvasToolDockMode === "expanded" ? "改为悬停展开" : "固定展开"}
-                  onClick={() => persistCanvasToolDockMode(settings.canvasToolDockMode === "expanded" ? "hover" : "expanded")}
-                >
-                  {settings.canvasToolDockMode === "expanded" ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
-                </ButtonBase>
-              </nav>
-            ) : null}
-            <CanvasNavigationControls
+              ) : null}
               nodes={canvasNodes}
               viewport={viewport}
               viewportSize={canvasViewportSize}
@@ -29544,6 +29398,8 @@ function App() {
                 bounds={activeCanvasInteractionBounds}
                 canvasSize={canvasViewportSize}
                 actions={canvasNodeHoverActions(activeCanvasToolbarNode)}
+                primaryActionIds={activeCanvasToolbarNode.type === "image" ? ["edit", "download"] : undefined}
+                nodeKey={activeCanvasToolbarNode.id}
                 ariaLabel={`${nodeWorkName(activeCanvasToolbarNode)}快捷操作`}
                 title={activeCanvasToolbarNode.title || nodeWorkName(activeCanvasToolbarNode)}
                 onPointerEnter={() => keepCanvasHover(activeCanvasToolbarNode.id)}
@@ -30725,7 +30581,7 @@ function App() {
           requestImageModels={projectAgentRequestImageModels}
           localAgent={localAgentSelected}
           localImageEnabled={settings.imageProvider === "comfyui" && Boolean(settings.comfyui?.connectionId)}
-          openLocalConfig={() => { setAgentImageConfigOpen(false); setSettingsInitialSection("agent"); setSettingsOpen(true); }}
+          openLocalConfig={() => { setAgentImageConfigOpen(false); setSettingsInitialSection("providers"); setSettingsOpen(true); }}
           close={() => setAgentImageConfigOpen(false)}
         /> : null}
 

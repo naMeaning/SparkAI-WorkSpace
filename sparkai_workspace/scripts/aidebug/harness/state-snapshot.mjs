@@ -2560,13 +2560,14 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       外观: "界面主题",
       模型: "模型配置",
       Agent: "Agent",
+      生成: "生成",
       更新: "软件更新"
     }[settingsActiveTabText] || "";
     const settingsLabelsOk = !settingsOpen || (
       settingsHeaderTitleText === "设置" &&
-      settingsHeaderSubtitleText === "服务接入、外观、模型、Agent、画布工具与软件更新" &&
+      settingsHeaderSubtitleText === "连接、生成、外观、扩展与更新" &&
       settingsSectionEyebrowText === "" &&
-      settingsSectionTitleText === settingsActiveSectionTitle
+      (!["外观", "生成", "更新"].includes(settingsActiveTabText) || settingsSectionTitleText === settingsActiveSectionTitle)
     );
     const settingsSolidTheme = document.documentElement.dataset.glassStyle === "solid";
     const settingsAppearanceControlsOk = !settingsOpen || settingsActiveTabText !== "外观" || (

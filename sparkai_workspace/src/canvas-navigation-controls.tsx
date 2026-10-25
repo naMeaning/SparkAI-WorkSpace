@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Compass, Focus, Hand, HelpCircle, Maximize2, Minus, MousePointer2, Plus, RotateCcw } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Compass, Focus, Hand, HelpCircle, Maximize2, Minus, MoreHorizontal, MousePointer2, Plus, RotateCcw } from "lucide-react";
 
 import type { CanvasViewport, WorkflowNode } from "./core";
-import { ButtonBase } from "./ui";
+import { ButtonBase, IconActionButton, MenuItem, MenuSurface } from "./ui";
 
 const MAP_WIDTH = 220;
 const MAP_HEIGHT = 144;
@@ -11,6 +11,7 @@ const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 2.4;
 
 type CanvasNavigationControlsProps = {
+  tools?: ReactNode;
   nodes: WorkflowNode[];
   viewport: CanvasViewport;
   viewportSize: { width: number; height: number };
@@ -56,6 +57,7 @@ function stopCanvasEvent(event: ReactPointerEvent) {
 }
 
 export function CanvasNavigationControls({
+  tools,
   nodes,
   viewport,
   viewportSize,
@@ -71,6 +73,8 @@ export function CanvasNavigationControls({
   onFocusSelection,
 }: CanvasNavigationControlsProps) {
   const [miniMapOpen, setMiniMapOpen] = useState(false);
+  const moreTriggerId = useId();
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const mapRef = useRef<HTMLDivElement | null>(null);
   const dockRef = useRef<HTMLDivElement | null>(null);
@@ -78,18 +82,17 @@ export function CanvasNavigationControls({
   useEffect(() => {
     if (!miniMapOpen && !shortcutsOpen) return;
     const dismiss = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || moreMenu) return;
       event.preventDefault();
       event.stopPropagation();
-      const trigger = dockRef.current?.querySelector<HTMLButtonElement>(shortcutsOpen
-        ? 'button[aria-label="查看画布快捷键"]'
-        : 'button[aria-label="关闭画布导航"]');
+      const trigger = dockRef.current?.querySelector<HTMLButtonElement>('button[aria-label="画布更多操作"]');
       setMiniMapOpen(false);
       setShortcutsOpen(false);
       trigger?.focus({ preventScroll: true });
     };
     const dismissOutside = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || dockRef.current?.contains(event.target)) return;
+      if (event.target instanceof Element && event.target.closest(".canvas-navigation-menu")) return;
       setMiniMapOpen(false);
       setShortcutsOpen(false);
     };
@@ -99,7 +102,7 @@ export function CanvasNavigationControls({
       document.removeEventListener("keydown", dismiss, true);
       document.removeEventListener("pointerdown", dismissOutside, true);
     };
-  }, [miniMapOpen, shortcutsOpen]);
+  }, [miniMapOpen, moreMenu, shortcutsOpen]);
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const bounds = useMemo(() => boundsForNodes(nodes), [nodes]);
   const mapScale = Math.min(MAP_WIDTH / bounds.width, MAP_HEIGHT / bounds.height);
@@ -185,81 +188,35 @@ export function CanvasNavigationControls({
         </div>
       ) : null}
       <div className="canvas-navigation-bar" role="toolbar" aria-label="画布导航">
-        <div className="canvas-navigation-group" role="group" aria-label="画布工具">
-          {onCanvasToolChange ? (
-            <ButtonBase
-              type="button"
-              className={canvasTool === "pan" ? "is-active" : ""}
-              aria-pressed={canvasTool === "pan"}
-              aria-label={canvasTool === "pan" ? "切换到选择工具" : "切换到平移工具"}
-              title={canvasTool === "pan" ? "当前为平移工具，点击切换选择" : "切换平移工具"}
-              onClick={() => onCanvasToolChange(canvasTool === "pan" ? "select" : "pan")}
-            >
-              {canvasTool === "pan" ? <Hand size={14} aria-hidden="true" /> : <MousePointer2 size={14} aria-hidden="true" />}
-            </ButtonBase>
-          ) : null}
-          {onUndo ? (
-            <ButtonBase
-              type="button"
-              aria-label="撤销画布操作"
-              title={canUndo ? "撤销画布操作（Ctrl / Cmd + Z）" : "暂无可撤销的画布操作"}
-              disabled={!canUndo}
-              onClick={onUndo}
-            >
-              <RotateCcw size={14} aria-hidden="true" />
-            </ButtonBase>
-          ) : null}
-        </div>
-        <div className="canvas-navigation-group" role="group" aria-label="画布定位">
-          <ButtonBase
-            type="button"
-            className={miniMapOpen ? "is-active" : ""}
-            aria-expanded={miniMapOpen}
-            aria-label={miniMapOpen ? "关闭画布导航" : "打开画布导航"}
-            title={miniMapOpen ? "关闭画布导航" : "打开画布导航"}
-            onClick={() => { setShortcutsOpen(false); setMiniMapOpen((current) => !current); }}
-          >
-            <Compass size={14} aria-hidden="true" />
-          </ButtonBase>
-          <ButtonBase type="button" aria-label="适配全部成果" title={`适配全部成果（${nodes.length}）`} onClick={onFit}>
-            <Maximize2 size={14} aria-hidden="true" />
-          </ButtonBase>
-          {selectedCount > 0 && onFocusSelection ? (
-            <ButtonBase type="button" aria-label="定位当前选中" title="定位当前选中" onClick={onFocusSelection}>
-              <Focus size={14} aria-hidden="true" />
-            </ButtonBase>
-          ) : null}
-        </div>
+        {onCanvasToolChange ? <div className="canvas-navigation-group" role="group" aria-label="画布工具">
+          <IconActionButton label="选择工具" icon={<MousePointer2 size={16} aria-hidden="true" />}
+            className={canvasTool === "select" ? "is-active" : ""} aria-pressed={canvasTool === "select"} onClick={() => onCanvasToolChange("select")} />
+          <IconActionButton label="平移工具" icon={<Hand size={16} aria-hidden="true" />}
+            className={canvasTool === "pan" ? "is-active" : ""} aria-pressed={canvasTool === "pan"} onClick={() => onCanvasToolChange("pan")} />
+        </div> : null}
         <div className="canvas-navigation-group" role="group" aria-label="画布缩放">
-          <ButtonBase type="button" aria-label="缩小画布" title="缩小画布" disabled={viewport.scale <= MIN_ZOOM} onClick={() => onScaleChange(Math.max(MIN_ZOOM, viewport.scale - 0.08))}>
-            <Minus size={14} aria-hidden="true" />
-          </ButtonBase>
-          <input
-            className="canvas-navigation-range"
-            type="range"
-            min={MIN_ZOOM * 100}
-            max={MAX_ZOOM * 100}
-            step="1"
-            value={Math.round(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, viewport.scale)) * 100)}
-            aria-label="画布缩放比例"
-            onChange={(event) => onScaleChange(Number(event.target.value) / 100)}
-          />
-          <ButtonBase type="button" className="canvas-navigation-zoom" aria-label="恢复画布为 100%" title="恢复画布为 100%" onClick={() => onScaleChange(1)}>{Math.round(viewport.scale * 100)}%</ButtonBase>
-          <ButtonBase type="button" aria-label="放大画布" title="放大画布" disabled={viewport.scale >= MAX_ZOOM} onClick={() => onScaleChange(Math.min(MAX_ZOOM, viewport.scale + 0.08))}>
-            <Plus size={14} aria-hidden="true" />
-          </ButtonBase>
+          <IconActionButton label="缩小画布" icon={<Minus size={16} aria-hidden="true" />} disabled={viewport.scale <= MIN_ZOOM}
+            onClick={() => onScaleChange(Math.max(MIN_ZOOM, viewport.scale - 0.08))} />
+          <ButtonBase type="button" className="canvas-navigation-zoom" aria-label="恢复画布为 100%" title="恢复画布为 100%"
+            onClick={() => onScaleChange(1)}>{Math.round(viewport.scale * 100)}%</ButtonBase>
+          <IconActionButton label="放大画布" icon={<Plus size={16} aria-hidden="true" />} disabled={viewport.scale >= MAX_ZOOM}
+            onClick={() => onScaleChange(Math.min(MAX_ZOOM, viewport.scale + 0.08))} />
+          <IconActionButton label="适配全部成果" title={`适配全部成果（${nodes.length}）`} icon={<Maximize2 size={16} aria-hidden="true" />} onClick={onFit} />
         </div>
-        <ButtonBase
-          type="button"
-          className={shortcutsOpen ? "is-active" : ""}
-          aria-expanded={shortcutsOpen}
-          aria-label="查看画布快捷键"
-          title="查看画布快捷键"
-          onClick={() => { setMiniMapOpen(false); setShortcutsOpen((current) => !current); }}
-        >
-          <HelpCircle size={14} aria-hidden="true" />
-        </ButtonBase>
+        {tools ? <div className="canvas-navigation-group canvas-navigation-tools" role="group" aria-label="创作工具">{tools}</div> : null}
+        <IconActionButton id={moreTriggerId} label="画布更多操作" icon={<MoreHorizontal size={16} aria-hidden="true" />} aria-haspopup="menu" aria-expanded={Boolean(moreMenu)}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMoreMenu(moreMenu ? null : { x: rect.left, y: rect.top - 220 });
+          }} />
       </div>
+      {moreMenu ? <MenuSurface {...moreMenu} triggerId={moreTriggerId} ariaLabel="画布更多操作" className="canvas-context-menu canvas-navigation-menu" data-canvas-no-zoom="true" onRequestClose={() => setMoreMenu(null)}>
+        {onUndo ? <MenuItem icon={<RotateCcw size={16} />} disabled={!canUndo} shortcut="Ctrl / ⌘ Z"
+          title={canUndo ? "撤销画布操作" : "暂无可撤销的画布操作"} onClick={() => { setMoreMenu(null); onUndo(); }}>撤销画布操作</MenuItem> : null}
+        {selectedCount > 0 && onFocusSelection ? <MenuItem icon={<Focus size={16} />} onClick={() => { setMoreMenu(null); onFocusSelection(); }}>定位当前选中</MenuItem> : null}
+        <MenuItem icon={<Compass size={16} />} onClick={() => { setMoreMenu(null); setShortcutsOpen(false); setMiniMapOpen((current) => !current); }}>{miniMapOpen ? "关闭画布导航" : "打开画布导航"}</MenuItem>
+        <MenuItem icon={<HelpCircle size={16} />} onClick={() => { setMoreMenu(null); setMiniMapOpen(false); setShortcutsOpen((current) => !current); }}>查看画布快捷键</MenuItem>
+      </MenuSurface> : null}
       {shortcutsOpen ? (
         <div className="canvas-shortcuts-popover" role="dialog" aria-label="画布快捷键">
           <strong>画布快捷键</strong>

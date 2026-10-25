@@ -8,7 +8,7 @@
   display: grid;
   align-content: start;
   gap: 3px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .project-agent-history button {
@@ -192,6 +192,23 @@
   padding: 12px 10px 16px 18px;
   background: var(--surface-solid);
 }
+
+.project-agent-completed-tools { min-width: 0; border-bottom: 1px solid var(--line); }
+.project-agent-completed-tools > summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.project-agent-completed-tools > summary::-webkit-details-marker { display: none; }
+.project-agent-completed-tools > summary > svg { transform: rotate(-90deg); }
+.project-agent-completed-tools[open] > summary > svg { transform: none; }
+.project-agent-completed-tools > summary:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
 
 .project-agent-empty {
   min-height: 180px;
@@ -475,8 +492,8 @@
 
 .project-agent-image-config {
   --ui-surface-width: 580px;
-  --ui-surface-min-width: 480px;
-  --ui-surface-min-height: 560px;
+  --ui-surface-min-width: 400px;
+  --ui-surface-min-height: 420px;
 }
 
 .project-agent-image-config-body {
@@ -491,12 +508,36 @@
   gap: 12px;
 }
 
-.project-agent-image-config-fields > label {
+.project-agent-image-config-fields > label,
+.project-agent-image-model-summary {
   display: grid;
   gap: 6px;
   min-width: 0;
   font-size: 14px;
 }
+
+.project-agent-image-model-summary strong { font-size: 14px; overflow-wrap: anywhere; }
+.project-agent-image-model-summary small,
+.project-agent-image-config-section > small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.project-agent-image-model-manager,
+.project-agent-image-advanced { min-width: 0; border-top: 1px solid var(--line); }
+:is(.project-agent-image-model-manager, .project-agent-image-advanced) > summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--ink);
+  font-size: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+:is(.project-agent-image-model-manager, .project-agent-image-advanced) > summary::-webkit-details-marker { display: none; }
+:is(.project-agent-image-model-manager, .project-agent-image-advanced) > summary small { margin-left: auto; color: var(--muted); font-size: 12px; }
+:is(.project-agent-image-model-manager, .project-agent-image-advanced) > summary > svg { flex-shrink: 0; }
+:is(.project-agent-image-model-manager, .project-agent-image-advanced)[open] > summary > svg { transform: rotate(180deg); }
+:is(.project-agent-image-model-manager, .project-agent-image-advanced) > summary:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
+.project-agent-image-config-section { min-width: 0; display: grid; gap: 10px; padding: 8px 0; }
 
 .project-agent-image-config-summary,
 .project-agent-image-config-body > small {
@@ -712,9 +753,22 @@
   gap: 6px;
 }
 
-.project-agent-regenerate {
-  min-width: 92px;
+.project-agent-composer footer .project-agent-regenerate {
+  width: auto;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
+.project-agent-composer footer .project-agent-regenerate:is(:hover, :focus-visible) { color: var(--ink); background: var(--hover-bg); }
+.project-agent-composer footer .project-agent-regenerate:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
 
 .project-agent-run-controls {
   display: flex;
@@ -1273,7 +1327,6 @@
     gap: 6px;
   }
 
-  .project-agent-send-group,
   .project-agent-run-controls {
     width: min(100%, 270px);
     min-width: 0;
@@ -1282,18 +1335,16 @@
   }
 
   .project-agent-send-group {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .project-agent-send-group:has(.project-agent-regenerate) {
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    min-width: 0;
+    max-width: 100%;
+    display: flex;
+    justify-content: flex-end;
   }
 
   .project-agent-run-controls {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .project-agent-composer footer .project-agent-send-group button,
   .project-agent-composer footer .project-agent-run-controls button {
     width: 100%;
     min-width: 0;
@@ -1352,11 +1403,8 @@
   }
 
   .project-agent-send-group {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .project-agent-send-group:has(.project-agent-regenerate) {
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    display: flex;
+    justify-content: flex-end;
   }
 
   .project-agent-run-controls {

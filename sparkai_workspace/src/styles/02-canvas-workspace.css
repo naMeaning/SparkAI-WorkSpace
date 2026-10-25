@@ -97,7 +97,7 @@
 }
 
 .canvas-navigation-dock.is-compact .canvas-navigation-bar button:not(.canvas-navigation-zoom) {
-  width: 28px;
+  width: 32px;
 }
 
 .canvas-mini-map {
@@ -295,7 +295,7 @@
 }
 
 .canvas-plugin-toolbar-pages {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -337,6 +337,31 @@
 .canvas-context-menu.canvas-tools-menu { width: min(350px, calc(100vw - 24px)); }
 .canvas-tools-search { display: flex; align-items: center; gap: 8px; padding: 8px; }
 .canvas-tools-search input { min-width: 0; width: 100%; height: 36px; }
+
+.canvas-tools-domains {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+.canvas-tools-domains button {
+  width: auto;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--surface-raised);
+  font-size: var(--font-sm);
+}
+
+.canvas-tools-domains button[aria-current="true"] {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-raised));
+}
 
 .canvas-plugin-toolbar-actions button {
   flex: 0 0 auto;
@@ -594,14 +619,15 @@
 }
 
 .canvas-interaction-action {
-  min-width: 0;
+  min-width: 32px;
+  width: 32px;
   min-height: 32px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 0 8px;
+  padding: 0;
   border: 0;
   border-radius: 7px;
   color: var(--ink-soft);
@@ -642,7 +668,7 @@
 
 @media (max-width: 780px) {
   .canvas-interaction-action {
-    padding-inline: 6px;
+    padding-inline: 0;
   }
 }
 
@@ -857,7 +883,7 @@
   pointer-events: auto;
 }
 
-.canvas-context-menu .ui-menu-item {
+.ui-menu-surface .ui-menu-item {
   width: 100%;
   min-height: max(var(--ui-action-h), 36px);
   display: grid;
@@ -876,8 +902,8 @@
     color var(--motion-fast) var(--motion-ease);
 }
 
-.canvas-context-menu .ui-menu-item:hover,
-.canvas-context-menu .ui-menu-item:focus-visible {
+.ui-menu-surface .ui-menu-item:hover,
+.ui-menu-surface .ui-menu-item:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   background: var(--hover-bg);
 }
@@ -899,7 +925,7 @@
   min-width: 0;
   overflow: hidden;
   color: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 620;
   line-height: 1.35;
   text-align: left;
@@ -921,16 +947,16 @@
   white-space: nowrap;
 }
 
-.canvas-context-menu .ui-menu-item-danger {
+.ui-menu-surface .ui-menu-item-danger {
   color: var(--danger);
 }
 
-.canvas-context-menu .ui-menu-item-danger .ui-menu-item-icon {
+.ui-menu-surface .ui-menu-item-danger .ui-menu-item-icon {
   color: currentColor;
 }
 
-.canvas-context-menu .ui-menu-item-danger:hover,
-.canvas-context-menu .ui-menu-item-danger:focus-visible {
+.ui-menu-surface .ui-menu-item-danger:hover,
+.ui-menu-surface .ui-menu-item-danger:focus-visible {
   border-color: color-mix(in srgb, var(--danger) 42%, var(--line));
   background: color-mix(in srgb, var(--danger) 10%, var(--surface-solid));
 }
@@ -947,7 +973,7 @@
   background: var(--line);
 }
 
-.canvas-context-menu .ui-menu-item:disabled {
+.ui-menu-surface .ui-menu-item:disabled {
   color: var(--muted);
   opacity: 1;
   cursor: not-allowed;

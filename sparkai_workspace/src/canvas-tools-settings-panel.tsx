@@ -18,8 +18,7 @@ const assetRailOptions: Array<{ id: WorkspaceAssetRailTabId; label: string; desc
   { id: "results", label: "成果", description: "生成、导入及处理中图片" },
   { id: "layers", label: "图层", description: "分层图片与合成结果" },
   { id: "requirements", label: "需求", description: "画布中的可复用需求" },
-  { id: "templates", label: "模板", description: "保存在本机的需求模板" },
-  { id: "history", label: "历史", description: "当前项目的会话记录" }
+  { id: "templates", label: "模板", description: "保存在本机的需求模板" }
 ];
 
 export default function CanvasToolsSettingsPanel({
@@ -52,6 +51,8 @@ export default function CanvasToolsSettingsPanel({
   const normalizedStates = normalizePluginStates(states);
   const normalizedShortcuts = normalizeCanvasToolShortcuts(shortcuts);
   const hidden = new Set(hiddenCommands);
+  const configuredRailTabs = visibleAssetRailTabs.filter((tab) => tab !== "history");
+  const visibleRailTabs: WorkspaceAssetRailTabId[] = configuredRailTabs.length ? configuredRailTabs : ["results"];
   const tools = builtinPluginManifests.flatMap((manifest) => {
     const state = normalizedStates.find((item) => item.id === manifest.id);
     const available = Boolean(state?.enabled);
@@ -121,10 +122,10 @@ export default function CanvasToolsSettingsPanel({
   }
 
   function setAssetRailTabVisible(tab: WorkspaceAssetRailTabId, visible: boolean) {
-    if (!visible && visibleAssetRailTabs.length <= 1) return;
+    if (!visible && visibleRailTabs.length <= 1) return;
     onVisibleAssetRailTabsChange(assetRailOptions
       .map((item) => item.id)
-      .filter((item) => item === tab ? visible : visibleAssetRailTabs.includes(item)));
+      .filter((item) => item === tab ? visible : visibleRailTabs.includes(item)));
   }
 
   return (
@@ -137,27 +138,7 @@ export default function CanvasToolsSettingsPanel({
         </div>
         <small>捏合或 Ctrl / Cmd + 滚轮始终围绕光标缩放；Shift + 滚轮横向平移。画布缩放不改变图片像素。</small>
       </div>
-      <div className="settings-canvas-tool-mode" aria-labelledby="settings-canvas-tool-mode-label">
-        <strong id="settings-canvas-tool-mode-label">工具栏展开方式</strong>
-        <div className="ui-segment-control" role="group" aria-label="工具栏展开方式">
-          <ButtonBase
-            type="button"
-            className="ui-segment-action"
-            aria-pressed={mode === "expanded"}
-            onClick={() => onModeChange("expanded")}
-          >
-            一直展开
-          </ButtonBase>
-          <ButtonBase
-            type="button"
-            className="ui-segment-action"
-            aria-pressed={mode === "hover"}
-            onClick={() => onModeChange("hover")}
-          >
-            悬停展开
-          </ButtonBase>
-        </div>
-      </div>
+      <p className="settings-category-hint">画布底部“工具”提供搜索、领域和最近使用；会话历史可从 Agent 会话名打开。</p>
 
       <section className="settings-canvas-tool-group" aria-labelledby="settings-asset-rail-visibility-label">
         <div className="settings-canvas-tool-group-heading">
@@ -166,8 +147,8 @@ export default function CanvasToolsSettingsPanel({
         </div>
         <div className="settings-canvas-tool-list" aria-label="左侧素材栏模块">
           {assetRailOptions.map((item) => {
-            const visible = visibleAssetRailTabs.includes(item.id);
-            const lastVisible = visible && visibleAssetRailTabs.length === 1;
+            const visible = visibleRailTabs.includes(item.id);
+            const lastVisible = visible && visibleRailTabs.length === 1;
             return (
               <label
                 key={item.id}

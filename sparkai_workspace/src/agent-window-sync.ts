@@ -321,9 +321,9 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
       updatedAt: input.conversations.find((item) => item.id === input.activeConversationId)?.updatedAt || ""
     },
     ...input.conversations.filter((item) => item.id !== input.activeConversationId)
-  ].filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index).slice(0, 24);
+  ].filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index);
   const appearance = glassAppearanceProjection({
-    glassTheme: input.glassTheme ?? (input.theme === "dark" ? "dark-rose" : undefined),
+    glassTheme: input.glassTheme ?? (input.theme === "dark" ? "dark-rose" : input.theme === "light" || input.theme === "system" ? "dark-ember" : undefined),
     glassMaterial: input.glassMaterial,
     glassParameters: input.glassParameters
   });

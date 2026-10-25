@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：日夜基础主题与界面精简（2026-10-24，实施中）
+## 当前任务：日夜基础主题与界面精简（2026-10-25，本地验证及安装完成，P2源码同步收口中）
 
 - Mode：implement。最新用户交接限定 P1 / P2，取代下方 2026-10-23 设计交接的全量实施顺序；旧方案保留为历史，独立设置窗口/revision、多协议账号、登录、更新发行源与新增 ComfyUI 平台能力不在本轮。
 - Outcome：日间 / 夜间共用朴素中性控件和布局，工作区、Agent 与图片参数保留原能力并减少常驻入口。单项目 Agent、单画布、selection、TaskScope、发送/停止与持久化语义不变。
@@ -8,7 +8,9 @@
 - Acceptance：每批最小专项与真实隔离 Electron UI（1280×800、884×640，日夜、选中、运行/错误、设置/菜单/独立窗等）有截图和可观察状态，再独立 production EXE、身份审计、安全正常退出安装、文档和普通 upstream push。DPI 模拟与实际设备分开记录。
 - Authorization：现有本地打包、品牌 `/S` 原位安装、仅本轮源码文档 commit/push 站立授权有效；仅 fixture/loopback/fake，不真实模型/图片/视频/ComfyUI，不新依赖/模型下载，不改 Extension/New API/生产，不上传 EXE/Release/tag。
 - 现场：main / `134a9f40cf42d40176d083ce557f36171066d0b2`；既有 GOAL/PROGRESS/地图/索引/第三方参考 dirty 与两份设置设计、artifacts 已备份保留，不整批提交。
-- 当前：P1 最终源码、专项、classic54场景/58截图、quick6组、生产包实窗及品牌原位安装已验证，最终739源 `740f7f33…`，EXE110,549,504 B / `75e87f4d…`。对应源码/文档提交与普通push核验后开始P2；完整身份/限制见 [实施记录](docs/UI_SIMPLIFICATION_2026-10-24.md) 与 PROGRESS。
+- 当前：P1 已完整本地交付并普通push `e7ea904c0e80fccd5bbf43a002ce2d8216497ddf`；最终739源 `740f7f33…`，EXE110,549,504 B / `75e87f4d…`。P2入口/五类设置/图片参数与符号提示、真实UI、最终独立EXE及安全安装均已完成；精确暂存本轮源码/文档后普通commit/push及远端核验。完整证据见 [实施记录](docs/UI_SIMPLIFICATION_2026-10-24.md) 和 [Progress](PROGRESS.md)。
+- P2验证里程碑：最终专项 `.diagnostics/electron/ui-simplification-2026-10-25T11-17-39-650Z/report.json` 11组/33截图、skipped=[]，1280×800与884×640/日夜，32会话、真实Main保存失败重试、折叠停止pending/失败重试及项目新建/移除通过。740源冻结 `d0968bf0558bd97f6bfdf0c505ac264e819c928377246bc5b9fc948e1f413b77`；production package/audit通过，独立保留 `release/local-deliveries/ui-p2-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,550,016 B / SHA-256 `d9b57d28cf91817e799a2d3d5caeff3cb8377d52fdd81e8b5d9e3c5e6597551b`。生产实窗/启动无NA与137dist/199owner包内一致；品牌/S原位安装exit0/21,005ms，原目录/配置/凭据metadata/快捷方式保留、安装EXE/ASAR匹配。仅本地开发包；真实服务/物理DPI/OS原生IME未验证，无Release/tag/二进制上传。
+- 最新范围补充（2026-10-25）：用户要求清理启动时无用的“NA”符号；index.html纯装饰节点与专属死CSS已删除，生产包冷启动截图和包内HTML已核对，启动说明/进度保留。
 - P2 最新偏好（2026-10-25）：含义明确的高频动作优先用符号（新建加号、删除垃圾桶等），hover 与键盘 focus 提供中文提示和 accessible name，命中区至少 32px；项目真实新建/移除路径必须落地，危险确认和发送/直接生图区分不变。P1 仍仅修主题与受影响布局。
 - 文档归档（2026-10-25）：[日夜设计](docs/SparkAI-UI-Design-2026-10-24.md)、[交接 prompt](docs/SparkAI-UI-Handoff-2026-10-24.md)与[预览说明](../artifacts/ui-themes-2026-10-24/README.md)已保存到本工作区；通用及项目规则固定后续文档归所属项目。本次仅同步存放位置与导航，保留上述实施任务和现有改动。
 

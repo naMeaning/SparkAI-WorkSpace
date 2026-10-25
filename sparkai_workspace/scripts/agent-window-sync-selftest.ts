@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { creationResultStatus } from "../src/creation-session.ts";
+import { upsertConversation } from "../src/core.ts";
 import type { CreationSessionSnapshot } from "../src/creation-session.ts";
 import { creationRequirementsDraft, creationRequirementsFromDraft } from "../runtime/creation-requirements-form.mjs";
 
@@ -89,6 +90,13 @@ const base = {
 };
 
 const snapshot = buildAgentWindowSnapshot(base);
+const longHistory = Array.from({ length: 32 }, (_, index) => ({ id: `history-${index}`, title: `历史 ${index}`, messages: [], createdAt: "", updatedAt: "10:01" }));
+const historySnapshot = buildAgentWindowSnapshot({ ...base, conversations: longHistory, activeConversationId: longHistory[0].id });
+const updatedHistory = upsertConversation(longHistory, { ...longHistory[0], messages: [{ id: "recent-message", role: "user", content: "继续工作", createdAt: "10:02", status: "done" }] });
+assert.equal(updatedHistory.length, 32, "Saving the active conversation must not silently discard older selectable conversations");
+assert(updatedHistory.some(conversation => conversation.id === "history-31"));
+assert.equal(historySnapshot.conversations.length, 32, "Independent Agent must retain history beyond the former 24-item UI cutoff");
+assert(historySnapshot.conversations.some(conversation => conversation.id === "history-31"));
 assert.equal(snapshot.version, 1);
 assert.deepEqual(snapshot.workspaceDomain, { id: "commerce", title: "电商创作" });
 assert.equal(snapshot.statusText, "Agent 正在输出 12s");

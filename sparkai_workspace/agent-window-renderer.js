@@ -199,11 +199,27 @@ function messageCard(message) {
 
 function renderFeed(messages) {
   const stickToBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+  const openGroups = new Set(Array.from(feed.querySelectorAll('details.completed-tools[open]')).map(item => item.dataset.completedKey));
   const fragment = document.createDocumentFragment();
   if (!messages.length) {
     fragment.append(element("p", "empty-feed", "这是独立的 SparkAI WorkSpace Agent 窗口。主窗口仍然负责画布和任务状态，你可以在这里持续对话与控制图片任务。"));
   } else {
-    for (const message of messages) fragment.append(messageCard(message));
+    let completed = [];
+    function flushCompleted() {
+      if (!completed.length) return;
+      const details = element('details', 'completed-tools');
+      details.dataset.completedKey = completed[0].id;
+      details.open = openGroups.has(completed[0].id);
+      details.append(element('summary', '', `已完成工具步骤 · ${completed.length}`));
+      for (const message of completed) details.append(messageCard(message));
+      fragment.append(details);
+      completed = [];
+    }
+    for (const message of messages) {
+      if (message.role === 'assistant' && message.status === 'done' && message.toolTrace && message.toolTrace.name !== 'ask_user' && !String(message.content || '').trim() && !message.attachments) completed.push(message);
+      else { flushCompleted(); fragment.append(messageCard(message)); }
+    }
+    flushCompleted();
   }
   feed.replaceChildren(fragment);
   if (stickToBottom) feed.scrollTop = feed.scrollHeight;
@@ -303,6 +319,7 @@ function render() {
   document.getElementById("source-count").textContent = String(state.sourceImageCount || 0);
   document.getElementById("reference-count").textContent = String(state.referenceImageCount || 0);
   document.getElementById("selected-count").textContent = String(state.selectedArtifactCount || 0);
+  document.querySelector('.selected-count').hidden = !state.selectedArtifactCount;
   const stopPending = Boolean(state.stopPending);
   statusSurface.classList.toggle("busy", Boolean(state.busy));
   statusSurface.classList.toggle("paused", Boolean(state.paused));
@@ -319,10 +336,10 @@ function render() {
   sendButton.disabled = !state.ready || stopPending || !promptInput.value.trim();
   sendButton.textContent = state.busy ? "修改" : "发送";
   sendButton.classList.toggle("steer", Boolean(state.busy));
-  pauseButton.hidden = !state.busy;
+  pauseButton.hidden = !state.busy && !stopPending;
   pauseButton.disabled = stopPending;
   pauseButton.textContent = state.paused ? "恢复" : "暂停";
-  stopButton.hidden = !state.busy;
+  stopButton.hidden = !state.busy && !stopPending;
   stopButton.disabled = stopPending;
   stopButton.textContent = stopPending ? "正在结束" : "结束";
   steerModeField.hidden = !state.busy || activeGoal;
@@ -349,9 +366,9 @@ function render() {
   if (previousConversation && Array.from(conversationSelect.options).some((item) => item.value === previousConversation)) {
     conversationSelect.value = state.activeConversationId || previousConversation;
   }
-  conversationSelect.disabled = state.busy || !state.ready;
+  conversationSelect.disabled = state.busy || stopPending || !state.ready;
   document.getElementById("new-conversation").disabled = !state.ready || stopPending;
-  document.getElementById("clear-conversation").disabled = state.busy || !state.ready;
+  document.getElementById("clear-conversation").disabled = state.busy || stopPending || !state.ready;
   renderFeed(Array.isArray(state.messages) ? state.messages : []);
 }
 
@@ -536,6 +553,24 @@ document.getElementById("edit-sources").addEventListener("click", () => command(
 document.getElementById("edit-references").addEventListener("click", () => command({ type: "edit-references" }));
 document.getElementById("edit-memory").addEventListener("click", () => command({ type: "edit-memory" }));
 document.getElementById("edit-image-config").addEventListener("click", () => command({ type: "edit-image-config" }));
+
+for (const id of ['agent-more', 'agent-materials']) {
+  const details = document.getElementById(id);
+  document.addEventListener('pointerdown', (event) => { if (details.open && !details.contains(event.target)) details.open = false; });
+  details.addEventListener('click', (event) => { if (event.target.closest('button')) details.open = false; });
+  details.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && details.open) { event.preventDefault(); event.stopPropagation(); details.open = false; const summary = details.querySelector('summary'); summary.focus(); summary.dataset.tooltipSuppressed = 'true'; }
+  });
+}
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const target = document.activeElement?.closest('[data-ui-tooltip]');
+  if (target) target.dataset.tooltipSuppressed = 'true';
+});
+for (const type of ['pointerover', 'focusin']) document.addEventListener(type, event => {
+  const target = event.target.closest?.('[data-ui-tooltip]');
+  if (target) delete target.dataset.tooltipSuppressed;
+});
 
 bridge?.onState?.((state) => scheduleRender(state));
 bridge?.ready?.();

@@ -52,8 +52,13 @@
 }
 
 .project-agent-panel.is-collapsed {
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+}
+
+.project-agent-panel.is-collapsed:is(.placement-top, .placement-bottom) {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .project-agent-panel.has-task {
@@ -151,15 +156,33 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
+.project-agent-collapsed-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+.project-agent-panel:is(.placement-top, .placement-bottom) .project-agent-collapsed-actions {
+  flex-direction: row;
+  padding: 4px 8px;
+}
+
+.project-agent-collapsed-actions .project-agent-stop,
+.project-agent-collapsed-issue {
+  color: var(--danger);
+}
+
 .project-agent-header {
   min-width: 0;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 62px;
-  padding: 10px 14px;
+  gap: 8px;
+  min-height: 58px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -170,6 +193,7 @@
 }
 
 .project-agent-header > div:first-child {
+  flex: 1 1 auto;
   min-width: 0;
   display: grid;
   gap: 2px;
@@ -183,7 +207,7 @@
 .project-agent-header h2 {
   color: var(--ink);
   font-family: inherit;
-  font-size: 19px;
+  font-size: 14px;
   font-style: normal;
   font-weight: 760;
   line-height: 1.2;
@@ -200,15 +224,40 @@
 .project-agent-header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-shrink: 0;
+  gap: 4px;
 }
 
+.project-agent-conversation-trigger {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+
+.project-agent-conversation-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-agent-conversation-trigger > svg { flex-shrink: 0; }
+
+.project-agent-conversation-trigger:is(:hover, .active) { background: var(--hover-bg); }
+.project-agent-conversation-trigger:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
+
 .agent-placement-menu {
-  position: absolute;
-  z-index: 14;
-  top: 54px;
-  right: 12px;
-  width: 176px;
+  width: min(230px, calc(100vw - 24px));
   display: grid;
   gap: 3px;
   padding: 6px;
@@ -232,6 +281,8 @@
   background: transparent;
   text-align: left;
 }
+
+.agent-placement-menu .ui-menu-item { grid-template-columns: 20px minmax(0, 1fr) auto; }
 
 .agent-placement-menu button:hover,
 .agent-placement-menu button:focus-visible,
@@ -322,9 +373,9 @@
 }
 
 .project-agent-header-actions .ui-icon-action {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   border-radius: 7px;
 }
 
@@ -337,15 +388,10 @@
 }
 
 .project-agent-history {
-  position: absolute;
-  z-index: 12;
-  top: 60px;
-  right: 12px;
-  width: min(320px, calc(100% - 24px));
+  width: min(320px, calc(100vw - 24px));
   max-height: min(420px, calc(100dvh - 140px));
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
+  display: block;
+  overflow-y: auto;
   padding: 8px;
   border: 1px solid var(--line-strong);
   border-radius: 9px;

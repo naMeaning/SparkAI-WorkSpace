@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { MoreHorizontal } from "lucide-react";
 
-import { ButtonBase } from "./ui";
+import { IconActionButton, MenuItem, MenuSurface } from "./ui";
 
 export type CanvasInteractionBounds = {
   left: number;
@@ -26,6 +27,8 @@ type CanvasInteractionToolbarProps = {
   ariaLabel: string;
   title?: string;
   className?: string;
+  primaryActionIds?: string[];
+  nodeKey?: string;
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
 };
@@ -46,11 +49,19 @@ function ActionBar({
   ariaLabel,
   title,
   className,
+  primaryActionIds,
+  nodeKey,
   onPointerEnter,
   onPointerLeave,
 }: CanvasInteractionToolbarProps & { bounds: CanvasInteractionBounds }) {
   const anchorRef = useRef<HTMLDivElement>(null);
+  const moreTriggerId = useId();
   const [position, setPosition] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
+  const primaryActions = primaryActionIds ? primaryActionIds.flatMap((id) => actions.filter((action) => action.id === id)) : actions;
+  const secondaryActions = primaryActionIds ? actions.filter((action) => !primaryActionIds.includes(action.id)) : [];
+  useEffect(() => { setMoreMenu(null); }, [nodeKey]);
+  const closeMoreMenu = () => { setMoreMenu(null); onPointerEnter?.(); };
   useLayoutEffect(() => {
     const anchor = anchorRef.current;
     if (!anchor) return;
@@ -99,15 +110,22 @@ function ActionBar({
       data-canvas-no-zoom="true"
       onPointerDown={stopCanvasPointer}
       onPointerEnter={onPointerEnter}
-      onPointerLeave={onPointerLeave}
+      onPointerLeave={(event) => { if (!moreMenu && !event.currentTarget.contains(document.activeElement)) onPointerLeave?.(); }}
+      onFocusCapture={onPointerEnter}
+      onBlurCapture={(event) => {
+        if (moreMenu || event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        if (event.relatedTarget instanceof Element && event.relatedTarget.closest('.canvas-interaction-menu')) return;
+        onPointerLeave?.();
+      }}
     >
       <div className={`canvas-interaction-toolbar ${className || ""}`} role="toolbar" aria-label={ariaLabel}>
         {title ? <div className="canvas-interaction-title" title={title}>{title}</div> : null}
         <div className="canvas-interaction-actions">
-          {actions.map((action) => (
-            <ButtonBase
+          {primaryActions.map((action) => (
+            <IconActionButton
               key={action.id}
-              type="button"
+              label={action.label}
+              icon={<span className="canvas-interaction-action-icon" aria-hidden="true">{action.icon}</span>}
               className={`canvas-interaction-action ${action.danger ? "is-danger" : ""}`}
               disabled={action.disabled}
               title={action.title || action.label}
@@ -118,13 +136,26 @@ function ActionBar({
                 event.stopPropagation();
                 action.onClick();
               }}
-            >
-              <span className="canvas-interaction-action-icon" aria-hidden="true">{action.icon}</span>
-              <span>{action.label}</span>
-            </ButtonBase>
+            />
           ))}
+          {secondaryActions.length ? <IconActionButton id={moreTriggerId} label="更多成果操作" icon={<MoreHorizontal size={16} aria-hidden="true" />}
+            className="canvas-interaction-action" aria-haspopup="menu" aria-expanded={Boolean(moreMenu)} onPointerDown={stopCanvasPointer}
+            onClick={(event) => {
+              event.preventDefault(); event.stopPropagation();
+              const rect = event.currentTarget.getBoundingClientRect();
+              if (moreMenu) closeMoreMenu();
+              else { onPointerEnter?.(); setMoreMenu({ x: rect.left, y: rect.bottom + 6 }); }
+            }} /> : null}
         </div>
       </div>
+      {moreMenu ? <MenuSurface {...moreMenu} triggerId={moreTriggerId} ariaLabel="更多成果操作" className="canvas-context-menu canvas-interaction-menu" data-canvas-no-zoom="true"
+        onRequestClose={closeMoreMenu} onPointerEnter={onPointerEnter} onPointerLeave={() => { /* Keep the node mounted while its portal menu is open. */ }}
+        onPointerDown={stopCanvasPointer} onKeyDown={(event) => event.stopPropagation()}>
+        {secondaryActions.map((action) => <MenuItem key={action.id} icon={action.icon} disabled={action.disabled} title={action.title || action.label}
+          tone={action.danger ? "danger" : "default"} onClick={(event) => {
+            event.preventDefault(); event.stopPropagation(); closeMoreMenu(); action.onClick();
+          }}>{action.label}</MenuItem>)}
+      </MenuSurface> : null}
     </div>
   );
 }
@@ -168,6 +199,8 @@ export function CanvasNodeHoverToolbar({
   actions,
   ariaLabel,
   title,
+  primaryActionIds,
+  nodeKey,
   onPointerEnter,
   onPointerLeave,
 }: Omit<CanvasInteractionToolbarProps, "className">) {
@@ -180,6 +213,8 @@ export function CanvasNodeHoverToolbar({
         ariaLabel={ariaLabel}
         title={title}
         className="is-node-hover"
+        primaryActionIds={primaryActionIds}
+        nodeKey={nodeKey}
         onPointerEnter={onPointerEnter}
         onPointerLeave={onPointerLeave}
       />

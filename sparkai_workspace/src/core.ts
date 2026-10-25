@@ -4675,7 +4675,7 @@ export function validConversations(value: unknown): AgentConversation[] {
 
 export function upsertConversation(conversations: AgentConversation[], conversation: AgentConversation) {
   const next = conversations.filter((item) => item.id !== conversation.id);
-  return [conversation, ...next].slice(0, 30);
+  return [conversation, ...next];
 }
 
 // -----------------------------------------------------------------------------

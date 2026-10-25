@@ -2,6 +2,14 @@
 
 ## 日夜基础主题与界面精简设计入口（2026-10-24）
 
+P2 当前真实 UI owner：`src/main.tsx` 项目MenuSurface/工具slot/单图primary IDs接线；`workspace-chrome.tsx` 单视图选择与四模块素材轨，history旧偏好仅作迁移输入，历史仍由项目Agent拥有；`canvas-toolbar-pages.tsx` 单入口复用原plugin command DTO、禁用状态/快捷键/搜索/领域/最近三项；`canvas-interaction-toolbar.tsx` 的 `primaryActionIds/nodeKey` 只收纳动作，portal打开期间保持hover。图标仍是既有IconActionButton，`data-ui-tooltip`由原OverflowTooltipLayer处理hover/focus/Esc及aria-describedby；MenuSurface可选triggerId只排除触发器outside事件，菜单行样式统一由现有ui-menu-surface选择器消费。
+
+`settings-drawer.tsx.SettingsSection` 保留access/models/agent/tools/plugins/appearance/updates，新增connections/generation/extensions/providers作为Renderer局部路由；五分类投影不新增IPC/schema。models直达连接目录，agent到生成高级，providers到连接的原AgentProviderManager；全局草稿与该管理器/图片配置即时保存owner保持分开。`agent-window-sync.ts` 镜像完整会话列表（不再截24），`agent-window.html/renderer.js/css` 同步会话/新建/更多/素材/完成工具与真实stopPending；Main权威不变。验证入口包括原quick/逻辑专项及 `scripts/ui-simplification-ui-selftest.mjs`，实际状态从Progress读取，不能把入口声明当通过证据。
+
+会话保留也由真实 `src/core.ts.upsertConversation()` 维护：保存当前会话不再以30条截断历史，Main编排/Renderer session自动保存和独立窗快照共享完整 canonical 列表，格式未变；否则可见第32项会在切换前的当前会话保存中消失。专项含超过24/30条、当前非空消息保存后仍可选旧会话。单图更多的 hover 生命周期包含键盘focus：Esc返回触发器时保留同一个ActionBar，真正blur且未在portal菜单中才沿原Main clear owner退出，不新增selection状态。
+
+P2交互验证入口为 `corepack pnpm run test:ui-simplification`（`scripts/ui-simplification-ui-selftest.mjs`），沿真实Main隔离设置写失败/重试、项目创建与移除确认、停止确认/pending/失败重试；只mock收费回调。生产 `package:smoke -- --check-theme-entry --check-agent-window --check-native-account` 已随菜单ID迁移并正常关闭；冷启动截图及包内HTML覆盖index启动壳装饰NA删除，标题/进度保留。最终开发制品/安装/源码同步状态集中于Progress，不在此复制哈希。
+
 P1 已实现日夜基础主题与控件，实际证据/制品/安装/Git 状态见 [实施记录](UI_SIMPLIFICATION_2026-10-24.md) 与 [Progress](../PROGRESS.md)。新增 `--theme-focus` 由 registry/TypeScript/bootstrap 同步，并被独立 Agent variable allowlist 与生产符号保护消费。`readGlassThemeBootstrapSnapshot()` 与启动脚本同读安全 legacy fallback，首个 React 帧不得覆盖其主题；独立窗 `data-agent-ready` 只在首次可信外观/旧外观投影后显示内容，之前保留 Main native 底色，不新增设置 authority 或 IPC。参考图/消息附件不叠加调色伪层，成果 active-build 不再对媒体做 filter/opacity 入场动画；登录使用主题 backdrop 并在最小高度滚动到末操作。
 
 [设计方案](SparkAI-UI-Design-2026-10-24.md)与[交接 prompt](SparkAI-UI-Handoff-2026-10-24.md)定义 P1 基础主题、P2 入口与配置收纳及 Agent 分工；[概念预览](../../artifacts/ui-themes-2026-10-24/sparkai-preview.html)仅用于设计评审。这些是设计资料，不作为产品实现或验收证据；实际实施状态见 [Progress](../PROGRESS.md)。2026-10-25 归档与导航同步不改变下述运行时 owner、IPC、持久化或测试合同。

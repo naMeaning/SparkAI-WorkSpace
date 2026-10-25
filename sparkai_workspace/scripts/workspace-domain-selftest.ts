@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { isAbsolute, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   DEFAULT_WORKSPACE_DOMAIN,
@@ -64,13 +66,12 @@ assert.ok(defaultSettings.pluginStates.every((state) => state.enabled));
 const workspaceChromeSource = readFileSync(new URL("../src/workspace-chrome.tsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
 const glassSurfaceSource = readFileSync(new URL("../src/styles/07j-liquid-glass-surfaces.css", import.meta.url), "utf8");
-assert.match(workspaceChromeSource, /workspaceDomain === "commerce" \|\| workspaceDomain === "social" \|\| workspaceDomain === "research"/, "The asset rail must render all specialized workspace quick sections");
-assert.match(workspaceChromeSource, /data-domain-tool-command=\{tool\.command\}/, "Domain rail actions must retain their plugin command identity");
-assert.match(workspaceChromeSource, /onExecuteDomainTool\?\.\(tool\.command\)/, "Domain rail actions must delegate instead of duplicating business logic");
-assert.match(workspaceChromeSource, /workspaceDomain === "research" \? "科研" : workspaceDomain === "social" \? "社媒" : "电商"/, "A missing or disabled projected plugin must have a domain-specific recovery path");
-assert.match(mainSource, /domainTools=\{workspaceDomain === "commerce" \|\| workspaceDomain === "social" \|\| workspaceDomain === "research" \? pluginToolbarItems : \[\]\}/, "The asset rail must reuse the active toolbar projection");
+assert.doesNotMatch(workspaceChromeSource, /data-domain-tool-command=/, "Specialized commands belong to the single canvas tool menu");
+assert.match(mainSource, /tools=\{pluginToolbarItems\.length \?/, "The canvas navigation must receive the same enabled domain tool projection");
+assert.match(mainSource, /data-plugin-command=\{item\.command\}/, "Moved tools must retain their plugin command identity");
+assert.match(mainSource, /executePluginCommand\(item\.command\)/, "Moved tools must delegate to the same command owner");
 assert.match(mainSource, /projectedPluginEnabled \? "tools" : "plugins"/, "The recovery path must open the relevant settings section");
-assert.match(mainSource, /useState<SettingsSection>\("access"\)/, "Workspace shortcuts must be able to open every existing settings section");
+assert.match(mainSource, /useState<SettingsSection>\("connections"\)/, "General settings begin at the connection summary while legacy deep links remain accepted");
 assert.doesNotMatch(glassSurfaceSource, /\.workspace-domain-switcher-trigger > span:nth-child\(2\),\s*\.workspace-domain-switcher-trigger > svg:last-child/, "Compact workspaces must keep the current domain text visible");
 
 const emptySession = { schemaVersion: 5, nodes: [], messages: [], conversations: [] };
@@ -81,21 +82,25 @@ assert.equal(sanitizeSession({ ...emptySession, workspaceDomain: "invalid" }).wo
 const handlers = new Map<string, (...args: unknown[]) => unknown>();
 const sessionsByProjectId = new Map<string, Record<string, unknown>>();
 let projectSequence = 0;
+const diagnosticsPath = fileURLToPath(new URL("../.diagnostics/", import.meta.url));
+mkdirSync(diagnosticsPath, { recursive: true });
+const fixtureDirectory = mkdtempSync(join(diagnosticsPath, "workspace-domain-"));
 registerProjectIpc({
   ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) },
-  dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: ["C:\\Projects"] }) },
+  dialog: { showOpenDialog: async () => ({ canceled: false, filePaths: [fixtureDirectory] }) },
   shell: {},
   log: () => undefined,
   defaultSession: emptySession,
   readProjectList: () => ({ activeProjectId: "", projects: [] }),
-  createProjectRecord: (name: string, projectPath?: string) => ({ id: `project-${++projectSequence}`, name, path: projectPath || `C:\\Projects\\${projectSequence}` }),
+  createProjectRecord: (name: string, projectPath?: string) => ({ id: `project-${++projectSequence}`, name, path: projectPath || join(fixtureDirectory, String(projectSequence)) }),
   ensureProjectFiles: (record: { id: string }, session: Record<string, unknown>) => sessionsByProjectId.set(record.id, session),
   writeProjectList: (value: unknown) => value,
   safeName: (value: unknown, fallback: string) => String(value || fallback),
-  nextExternalProjectFolderPath: (parent: string, name: string) => `${parent}\\${name}`,
+  nextExternalProjectFolderPath: (parent: string, name: string) => join(parent, name),
   projectSessionFromDisk: (record: { id: string }) => sessionsByProjectId.get(record.id),
 });
 
+try {
 const createProject = handlers.get("naimage:project:create")!;
 const researchProject = await createProject(undefined, { name: "Research", workspaceDomain: "research" }) as { session: { workspaceDomain: string } };
 assert.equal(researchProject.session.workspaceDomain, "research");
@@ -104,5 +109,10 @@ assert.equal(legacyProject.session.workspaceDomain, "general");
 const createProjectFolder = handlers.get("naimage:project:create-folder")!;
 const socialFolder = await createProjectFolder(undefined, { name: "Social", workspaceDomain: "social" }) as { session: { workspaceDomain: string } };
 assert.equal(socialFolder.session.workspaceDomain, "social");
+} finally {
+  const fixtureRelative = relative(diagnosticsPath, fixtureDirectory);
+  assert(fixtureRelative && !fixtureRelative.startsWith("..") && !isAbsolute(fixtureRelative));
+  rmSync(fixtureDirectory, { recursive: true, force: true });
+}
 
 process.stdout.write(`${JSON.stringify({ ok: true, domains: expectedIds, cases: 47 })}\n`);

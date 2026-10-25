@@ -67,7 +67,14 @@ const LazyGlassLab = React.lazy(() => import("./glass-lab"));
 const LazyPluginSettingsPanel = React.lazy(() => import("./plugin-settings-panel"));
 const LazyCanvasToolsSettingsPanel = React.lazy(() => import("./canvas-tools-settings-panel"));
 const CLOSE_BUTTON_REASON = "close-button" as const;
-export type SettingsSection = "access" | "appearance" | "models" | "agent" | "tools" | "plugins" | "updates";
+export type SettingsSection = "access" | "appearance" | "models" | "agent" | "tools" | "plugins" | "updates" | "connections" | "generation" | "extensions" | "providers";
+type SettingsCategory = "connections" | "generation" | "appearance" | "extensions" | "updates";
+function settingsCategoryForSection(section: SettingsSection): SettingsCategory {
+  if (section === "access" || section === "models" || section === "providers") return "connections";
+  if (section === "agent") return "generation";
+  if (section === "tools" || section === "plugins") return "extensions";
+  return section;
+}
 
 function formatSettingsBytes(value?: number) {
   const bytes = Math.max(0, Number(value) || 0);
@@ -128,7 +135,7 @@ export default function SettingsDrawer({
   onAgentProviderChanged,
   saveSettings,
   initialUpdateInfo,
-  initialSection = "access",
+  initialSection = "connections",
   openPromptEditor,
   openHelp,
   close
@@ -150,6 +157,12 @@ export default function SettingsDrawer({
   const [draftSettings, setDraftSettings] = useState(() => enforceRendererAccessPolicy(mergeSettings(settings)));
   const [modelConfigTarget, setModelConfigTarget] = useState<ModelProvider | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection);
+  const activeCategory = settingsCategoryForSection(activeSection);
+  const [agentAdvancedOpen, setAgentAdvancedOpen] = useState(initialSection === "agent");
+  useEffect(() => {
+    setActiveSection(initialSection);
+    if (initialSection === "agent") setAgentAdvancedOpen(true);
+  }, [initialSection]);
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [settingsMessageError, setSettingsMessageError] = useState(false);
@@ -588,8 +601,8 @@ export default function SettingsDrawer({
   }
 
   useEffect(() => {
-    if (activeSection === "agent") void detectAgentIntegrations();
-  }, [activeSection, draftSettings.accessMode]);
+    if (activeCategory === "extensions") void detectAgentIntegrations();
+  }, [activeCategory, draftSettings.accessMode]);
 
   async function mutateAgentIntegrations(action: "install" | "remove") {
     const bridge = window.naimageAgentIntegrations;
@@ -867,27 +880,26 @@ export default function SettingsDrawer({
           <>
             <SurfaceHeader
               title="设置"
-              description="服务接入、外观、模型、Agent、画布工具与软件更新"
+              description="连接、生成、外观、扩展与更新"
               onClose={() => requestClose(CLOSE_BUTTON_REASON)}
               closeLabel="关闭设置"
               closeDisabled={saving}
             />
             <nav className="settings-section-tabs" aria-label="设置分类">
               {([
-                ["access", "接入"],
+                ["connections", "连接"],
+                ["generation", "生成"],
                 ["appearance", "外观"],
-                ["models", "模型"],
-                ["agent", "Agent"],
-                ["tools", "工具"],
-                ["plugins", "插件"],
+                ["extensions", "扩展"],
                 ["updates", "更新"]
               ] as const).map(([section, label]) => (
                 <ButtonBase
                   key={section}
                   type="button"
-                  className={`ui-segment-action settings-section-tab ${activeSection === section ? "active" : ""}`}
+                  className={`ui-segment-action settings-section-tab ${activeCategory === section ? "active" : ""}`}
                   data-settings-section={section}
-                  aria-pressed={activeSection === section}
+                  data-settings-category={section}
+                  aria-pressed={activeCategory === section}
                   onClick={() => setActiveSection(section)}
                 >
                   {label}
@@ -895,6 +907,28 @@ export default function SettingsDrawer({
               ))}
             </nav>
             <SurfaceBody key={activeSection} className="settings-surface-body">
+              {activeCategory === "connections" ? <SurfaceSection className="settings-surface-section settings-connections-section" aria-label="连接">
+                <div className="settings-connection-summary">
+                  <div><small>Agent 对话</small><strong>{draftSettings.agentModel || "未配置模型"}</strong><span>{localAgent ? "本机 Agent" : draftSettings.accessMode === "custom" ? "自定义连接" : "账户连接"}</span></div>
+                  <div><small>图片服务</small><strong>{draftSettings.imageProvider === "comfyui" ? "ComfyUI" : draftSettings.imageModel || "未配置模型"}</strong><span>{selectedImageModels.length} 个已启用模型</span></div>
+                </div>
+                <div className="settings-subsection-links" role="group" aria-label="连接配置入口">
+                  <ActionButton data-settings-section="access" variant="secondary" aria-pressed={activeSection === "access"} onClick={() => setActiveSection("access")}>连接凭据</ActionButton>
+                  <ActionButton data-settings-section="models" variant="secondary" aria-pressed={activeSection === "models"} onClick={() => setActiveSection("models")}>管理模型</ActionButton>
+                  <ActionButton data-settings-section="providers" variant="secondary" aria-pressed={activeSection === "providers"} onClick={() => setActiveSection("providers")}>本机 Agent 与 ComfyUI</ActionButton>
+                </div>
+                {activeSection === "connections" ? <p className="settings-category-hint">选择配置入口以管理现有服务；打开此页不会探测或请求模型。</p> : null}
+              </SurfaceSection> : null}
+              {activeCategory === "extensions" ? <SurfaceSection className="settings-surface-section settings-extension-navigation" aria-label="扩展配置入口">
+                <div className="settings-subsection-links" role="group" aria-label="扩展设置">
+                  <ActionButton variant="secondary" aria-pressed={activeSection !== "tools"} onClick={() => setActiveSection("plugins")}>已启用扩展</ActionButton>
+                  <ActionButton variant="secondary" aria-pressed={activeSection === "tools"} onClick={() => setActiveSection("tools")}>工具与快捷键</ActionButton>
+                </div>
+              </SurfaceSection> : null}
+              {activeSection === "providers" ? <SurfaceSection className="settings-surface-section settings-provider-section" aria-label="本机 Agent 与 ComfyUI">
+                <p className="settings-category-hint">此管理器沿用即时保存；下方“保存设置”用于其他全局草稿。</p>
+                <React.Suspense fallback={<p>正在读取 Agent 执行服务…</p>}><LazyAgentProviderManager settings={settings} saveSettings={saveProviderImageSettings} projectId={projectId} conversationId={conversationId} onChanged={onAgentProviderChanged} /></React.Suspense>
+              </SurfaceSection> : null}
               {activeSection === "access" ? (
               <SurfaceSection className="settings-surface-section settings-access-section" aria-labelledby="settings-access-heading">
                 <div className="settings-section-header">
@@ -1158,7 +1192,7 @@ export default function SettingsDrawer({
                       <small className="settings-model-service-copy">{modelServiceStateCopy(modelState.serviceStatuses.agent)}</small>
                       {modelState.serviceStatuses.agent?.error ? <small className="settings-model-service-error" title={modelState.serviceStatuses.agent.error}>{modelState.serviceStatuses.agent.error}</small> : null}
                     </div>
-                    <IconActionButton className="settings-model-config-action" label="配置对话模型" icon={<Settings size={15} />} onClick={() => localAgent ? setActiveSection("agent") : setModelConfigTarget("agent")} />
+                    <IconActionButton className="settings-model-config-action" label="配置对话模型" icon={<Settings size={15} />} onClick={() => localAgent ? setActiveSection("providers") : setModelConfigTarget("agent")} />
                   </article>
                   <article className="settings-model-card">
                     <div className="settings-model-meta">
@@ -1191,39 +1225,17 @@ export default function SettingsDrawer({
                     <IconActionButton className="settings-model-config-action" label="配置视频模型" icon={<Settings size={15} />} onClick={() => setModelConfigTarget("video")} />
                   </article>
                 </div>
-                <div className="settings-runtime-fields">
-                  <Field label="推理强度">
-                    <GlassSelect
-                      value={draftSettings.reasoningEffort}
-                      ariaLabel="推理强度"
-                      onChange={(value) => update("reasoningEffort", value as AppSettings["reasoningEffort"])}
-                      options={REASONING_EFFORT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-                    />
-                  </Field>
-                  <Field label="模式">
-                    <GlassSelect
-                      value={draftSettings.fastMode ? "fast" : "standard"}
-                      ariaLabel="模式"
-                      onChange={(value) => update("fastMode", value === "fast")}
-                      options={[
-                        { value: "standard", label: "标准" },
-                        { value: "fast", label: "快速" }
-                      ]}
-                    />
-                  </Field>
-                </div>
               </SurfaceSection>
               ) : null}
 
-              {activeSection === "agent" ? (
+              {activeCategory === "generation" ? (
               <SurfaceSection className="settings-surface-section settings-prompt-section" aria-label="Agent 提示词">
                 <div className="settings-section-header">
-                  <h3>Agent</h3>
+                  <h3>生成</h3>
                   <ActionButton variant="secondary" className="settings-prompt-action" onClick={openPromptEditor} icon={<Brain size={15} />}>
                     编辑提示词
                   </ActionButton>
                 </div>
-                <React.Suspense fallback={<p>正在读取 Agent 执行服务…</p>}><LazyAgentProviderManager settings={settings} saveSettings={saveProviderImageSettings} projectId={projectId} conversationId={conversationId} onChanged={onAgentProviderChanged} /></React.Suspense>
                 <div className="settings-context-policy">
                   <div className="settings-section-header">
                     <div>
@@ -1282,6 +1294,29 @@ export default function SettingsDrawer({
                   <InlineNotice tone="neutral">
                     建议先使用 2–3 路。提高批次会更快占用接口并发与额度，但任务总量仍会拆成多个有序批次。
                   </InlineNotice>
+                </div>
+                <details className="settings-advanced-section" open={agentAdvancedOpen} onToggle={(event) => setAgentAdvancedOpen(event.currentTarget.open)}>
+                  <summary>Agent 推理与上下文</summary>
+                <div className="settings-runtime-fields">
+                  <Field label="推理强度">
+                    <GlassSelect
+                      value={draftSettings.reasoningEffort}
+                      ariaLabel="推理强度"
+                      onChange={(value) => update("reasoningEffort", value as AppSettings["reasoningEffort"])}
+                      options={REASONING_EFFORT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    />
+                  </Field>
+                  <Field label="模式">
+                    <GlassSelect
+                      value={draftSettings.fastMode ? "fast" : "standard"}
+                      ariaLabel="模式"
+                      onChange={(value) => update("fastMode", value === "fast")}
+                      options={[
+                        { value: "standard", label: "标准" },
+                        { value: "fast", label: "快速" }
+                      ]}
+                    />
+                  </Field>
                 </div>
                 <div className="settings-context-policy settings-context-strategy">
                   <div className="settings-section-header">
@@ -1347,42 +1382,8 @@ export default function SettingsDrawer({
                     </div>
                   ) : null}
                 </div>
-                <div className="settings-agent-integrations">
-                  <div className="settings-section-header">
-                    <div>
-                      <strong>外部 Agent 控制</strong>
-                      <small>安装 SparkAI WorkSpace CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
-                    </div>
-                    <IconActionButton label="重新检测" icon={<RotateCcw size={14} />} onClick={() => void detectAgentIntegrations()} disabled={integrationBusy} />
-                  </div>
-                  {integrationError ? <InlineNotice tone="danger">{integrationError}</InlineNotice> : null}
-                  <div className="settings-integration-list">
-                    {integrationTargets.map((target) => {
-                      const checked = draftSettings.agentSkillAutoInstallTargets.includes(target.id);
-                      return (
-                        <label key={target.id} className="settings-integration-row">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(event) => update("agentSkillAutoInstallTargets", event.target.checked
-                              ? [...draftSettings.agentSkillAutoInstallTargets, target.id]
-                              : draftSettings.agentSkillAutoInstallTargets.filter((id) => id !== target.id))}
-                          />
-                          <span>
-                            <strong>{target.label}</strong>
-                            <small title={target.skillsPath}>{target.detected ? target.skillsPath : `未检测到，安装时将创建 ${target.skillsPath}`}</small>
-                          </span>
-                          <em className={target.installed ? "installed" : ""}>{target.installed ? "已安装" : "未安装"}</em>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div className="settings-inline-actions">
-                    <ActionButton variant="primary" onClick={() => void mutateAgentIntegrations("install")} busy={integrationBusy}>安装 / 更新 Skill</ActionButton>
-                    <ActionButton variant="secondary" onClick={() => void mutateAgentIntegrations("remove")} disabled={integrationBusy}>移除所选 Skill</ActionButton>
-                  </div>
-                  <InlineNotice tone="neutral">勾选项保存后会在 SparkAI WorkSpace 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
-                </div>
+
+                </details>
               </SurfaceSection>
               ) : null}
 
@@ -1476,7 +1477,7 @@ export default function SettingsDrawer({
                 <div className="settings-section-header">
                   <div>
                     <h3 id="settings-canvas-tools-heading">画布工具</h3>
-                    <small>控制底部工具栏的展开方式和可见工具。</small>
+                    <small>管理工具菜单的可见项与快捷键。</small>
                   </div>
                   <span className="settings-update-status available">本机偏好</span>
                 </div>
@@ -1498,12 +1499,12 @@ export default function SettingsDrawer({
               </SurfaceSection>
               ) : null}
 
-              {activeSection === "plugins" ? (
+              {activeSection === "plugins" || activeSection === "extensions" ? (
               <SurfaceSection className="settings-surface-section settings-plugin-section" aria-labelledby="settings-plugin-heading">
                 <div className="settings-section-header">
                   <div>
                     <h3 id="settings-plugin-heading">插件</h3>
-                    <small>安装并授权插件；工具显隐与展开方式在“工具”中设置。</small>
+                    <small>安装并授权插件；显隐和快捷键在“工具与快捷键”中设置。</small>
                   </div>
                   <span className="settings-update-status available">声明式安全插件</span>
                 </div>
@@ -1515,6 +1516,44 @@ export default function SettingsDrawer({
                 </React.Suspense>
               </SurfaceSection>
               ) : null}
+              {activeCategory === "extensions" ? <SurfaceSection className="settings-surface-section settings-integration-section" aria-label="外部 Agent 控制">
+                <div className="settings-agent-integrations">
+                  <div className="settings-section-header">
+                    <div>
+                      <strong>外部 Agent 控制</strong>
+                      <small>安装 SparkAI WorkSpace CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
+                    </div>
+                    <IconActionButton label="重新检测" icon={<RotateCcw size={14} />} onClick={() => void detectAgentIntegrations()} disabled={integrationBusy} />
+                  </div>
+                  {integrationError ? <InlineNotice tone="danger">{integrationError}</InlineNotice> : null}
+                  <div className="settings-integration-list">
+                    {integrationTargets.map((target) => {
+                      const checked = draftSettings.agentSkillAutoInstallTargets.includes(target.id);
+                      return (
+                        <label key={target.id} className="settings-integration-row">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => update("agentSkillAutoInstallTargets", event.target.checked
+                              ? [...draftSettings.agentSkillAutoInstallTargets, target.id]
+                              : draftSettings.agentSkillAutoInstallTargets.filter((id) => id !== target.id))}
+                          />
+                          <span>
+                            <strong>{target.label}</strong>
+                            <small title={target.skillsPath}>{target.detected ? target.skillsPath : `未检测到，安装时将创建 ${target.skillsPath}`}</small>
+                          </span>
+                          <em className={target.installed ? "installed" : ""}>{target.installed ? "已安装" : "未安装"}</em>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="settings-inline-actions">
+                    <ActionButton variant="primary" onClick={() => void mutateAgentIntegrations("install")} busy={integrationBusy}>安装 / 更新 Skill</ActionButton>
+                    <ActionButton variant="secondary" onClick={() => void mutateAgentIntegrations("remove")} disabled={integrationBusy}>移除所选 Skill</ActionButton>
+                  </div>
+                  <InlineNotice tone="neutral">勾选项保存后会在 SparkAI WorkSpace 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
+                </div>
+              </SurfaceSection> : null}
             </SurfaceBody>
             <SurfaceFooter
               className="settings-surface-footer"

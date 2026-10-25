@@ -66,6 +66,7 @@ export type MenuSurfaceProps = React.HTMLAttributes<HTMLDivElement> & {
   ariaLabel: string;
   onRequestClose: () => void;
   viewportGap?: number;
+  triggerId?: string;
 };
 
 /**
@@ -79,6 +80,7 @@ export function MenuSurface({
   ariaLabel,
   onRequestClose,
   viewportGap = 12,
+  triggerId,
   className,
   children,
   style,
@@ -129,11 +131,12 @@ export function MenuSurface({
   useEffect(() => {
     function handleOutsidePointer(event: PointerEvent) {
       if (menuRef.current?.contains(event.target as Node)) return;
+      if (triggerId && document.getElementById(triggerId)?.contains(event.target as Node)) return;
       onRequestClose();
     }
     document.addEventListener("pointerdown", handleOutsidePointer, true);
     return () => document.removeEventListener("pointerdown", handleOutsidePointer, true);
-  }, [onRequestClose]);
+  }, [onRequestClose, triggerId]);
 
   function focusMenuItem(targetIndex: number) {
     const menu = menuRef.current;

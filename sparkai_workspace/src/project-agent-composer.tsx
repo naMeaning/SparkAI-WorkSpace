@@ -1,5 +1,5 @@
 import React, { type FormEvent, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Pause, Play, RefreshCw, Send, Settings2, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Pause, Play, Send, Settings2, ShieldCheck, X } from "lucide-react";
 
 import {
   clipboardHasImage,
@@ -184,10 +184,6 @@ export default function ProjectAgentComposer({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (primaryAction === "generate") {
-      dispatchGenerate();
-      return;
-    }
     if (!prompt.trim()) return;
     void dispatchPrompt();
   }
@@ -196,11 +192,7 @@ export default function ProjectAgentComposer({
     ? selectedArtifacts[0].name
     : `${selectedArtifacts.length} 个选中成果`;
   const canGenerate = Boolean(regenerateImage) && !prompt.trimStart().startsWith("/");
-  const primaryAction = idleComposerPrimaryAction({
-    executionBusy,
-    goalSelected,
-    canGenerate
-  });
+  const primaryAction = idleComposerPrimaryAction({ executionBusy, goalSelected, canGenerate });
   const materialSourceCount = materials.filter((item) => item.role === "source").length;
   const materialReferenceCount = materials.filter((item) => item.role === "reference").length;
   const effectiveSourceCount = materials.length ? materialSourceCount : sourceImageCount;
@@ -355,8 +347,7 @@ export default function ProjectAgentComposer({
           }
           if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
             event.preventDefault();
-            if (primaryAction === "generate") dispatchGenerate();
-            else void dispatchPrompt();
+            void dispatchPrompt();
           }
         }}
         placeholder={executionBusy
@@ -370,8 +361,8 @@ export default function ProjectAgentComposer({
       </div>
       {commandNotice ? <p className="project-agent-command-notice" role="status">{commandNotice}</p> : null}
       <footer>
-        <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : primaryAction === "generate" ? "Ctrl + Enter 生成 · / 命令" : "Ctrl + Enter 发送 · / 命令"}</span>
-        {executionBusy ? (
+        <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : "Ctrl + Enter 发送 · / 命令"}</span>
+        {executionBusy || stopPending ? (
           <div className="project-agent-run-controls">
             <ActionButton
               className="project-agent-steer"
@@ -397,8 +388,8 @@ export default function ProjectAgentComposer({
               {paused ? "恢复" : "暂停"}
             </ActionButton>
             <ActionButton
-              className="project-agent-stop"
-              variant="danger"
+              className="project-agent-stop danger-secondary"
+              variant="secondary"
               type="button"
               onClick={stopAgentRun}
               busy={stopPending}
@@ -412,30 +403,26 @@ export default function ProjectAgentComposer({
         ) : (
           <div className="project-agent-send-group" data-primary-action={primaryAction}>
             {canGenerate ? (
-              <ActionButton
+              <ButtonBase
                 className="project-agent-regenerate"
-                variant={primaryAction === "generate" ? "primary" : "secondary"}
-                type={primaryAction === "generate" ? "submit" : "button"}
+                type="button"
                 disabled={stopPending}
-                onClick={primaryAction === "generate" ? undefined : dispatchGenerate}
-                aria-label="生成"
-                data-composer-primary={primaryAction === "generate" ? "true" : undefined}
+                onClick={dispatchGenerate}
+                aria-label="直接生图"
                 title={effectiveReferenceCount
                   ? "使用当前提示词和参考图直接生图，不经过 Agent"
                   : "使用当前提示词直接生图；选中图片容器时会按顺序当作参考图"}
-                icon={<RefreshCw size={15} />}
               >
-                生成
-              </ActionButton>
+                直接生图
+              </ButtonBase>
             ) : null}
             <ActionButton
               className="project-agent-send"
-              variant={primaryAction === "send" ? "primary" : "secondary"}
-              type="button"
+              variant="primary"
+              type="submit"
               disabled={stopPending || !prompt.trim()}
-              onClick={() => void dispatchPrompt()}
               aria-label="发送"
-              data-composer-primary={primaryAction === "send" ? "true" : undefined}
+              data-composer-primary="true"
               title="把当前要求发给项目 Agent"
               icon={<Send size={16} />}
             >

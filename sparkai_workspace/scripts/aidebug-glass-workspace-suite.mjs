@@ -184,6 +184,13 @@ async function clickTheme(themeId, settleMs = 240) {
   await delay(settleMs);
 }
 
+async function openAppearanceSettings() {
+  await clickSelector('#workspace-settings-trigger');
+  await waitFor("Boolean(document.querySelector('.settings-drawer'))");
+  await clickSelector('[data-settings-category="appearance"]');
+  await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
+}
+
 async function clickMaterial(materialId) {
   await clickSelector(`[data-glass-section="materials"] [data-glass-material="${materialId}"]`);
   await waitFor(`document.documentElement.dataset.glassMaterial === ${JSON.stringify(materialId)}`);
@@ -1326,48 +1333,48 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
   await evaluate(client, "window.__naimageAIDebug.fitCanvas()");
   await setWindowSize(884, 640);
   const triggerProof = await evaluate(client, `(() => {
-    const button = document.querySelector('button[aria-label="切换界面主题"]');
-    const label = button?.querySelector('span');
+    const button = document.querySelector('#workspace-settings-trigger');
     const box = button?.getBoundingClientRect();
-    const labelBox = label?.getBoundingClientRect();
     const x = box ? box.left + box.width / 2 : 0;
     const y = box ? box.top + box.height / 2 : 0;
-    return { text: label?.textContent?.trim(), x, y,
-      visible: Boolean(labelBox && labelBox.width > 10 && labelBox.height > 10 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight),
+    return { text: button?.getAttribute('aria-label'), x, y,
+      visible: Boolean(box && box.width >= 32 && box.height >= 32 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight),
       hit: Boolean(button && document.elementFromPoint(x, y)?.closest('button') === button)
     };
   })()`);
   checks.themeEntryTrigger = triggerProof;
   await capture("classic-theme-entry-884x640");
-  assert.equal(triggerProof.text, "主题");
+  assert.match(triggerProof.text, /设置/);
   assert(triggerProof.visible && triggerProof.hit, "The small-window theme entry must be legible and reachable");
   await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: triggerProof.x, y: triggerProof.y, button: "left", clickCount: 1 });
   await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: triggerProof.x, y: triggerProof.y, button: "left", clickCount: 1 });
+  await waitFor("Boolean(document.querySelector('.settings-drawer'))");
+  await clickSelector('[data-settings-category="appearance"]');
   await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
   // Follow the same settings navigation as a user who has already scrolled
   // another category. Do not scroll a missing theme button into view for them.
   await evaluate(client, "document.querySelector('.settings-surface-body').scrollTop = document.querySelector('.settings-surface-body').scrollHeight");
-  await clickSelector(".settings-section-tab", 3);
-  await waitFor("document.querySelector('.settings-section-tab[aria-pressed=true]')?.textContent?.trim() === 'Agent'");
+  await clickSelector('[data-settings-category="generation"]');
+  await waitFor("document.querySelector('.settings-section-tab[aria-pressed=true]')?.textContent?.trim() === '生成'");
+  await evaluate(client, `(() => { const advanced = document.querySelector('.settings-advanced-section'); if (advanced && !advanced.open) advanced.querySelector('summary').click(); })()`);
   const previousScroll = await evaluate(client, `(() => {
     const body = document.querySelector('.settings-surface-body');
     body.scrollTop = body.scrollHeight;
     return body.scrollTop;
   })()`);
   assert(previousScroll > 40, "Settings navigation must start from a genuinely scrolled category");
-  await clickSelector(".settings-section-tab", 1);
+  await clickSelector('[data-settings-category="appearance"]');
   await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
   await delay(200);
   const themeEntry = await evaluate(client, `(() => {
     const body = document.querySelector('.settings-surface-body');
     const viewport = body.getBoundingClientRect();
-    const trigger = document.querySelector('.workspace-glass-lab-button');
-    const label = trigger.querySelector('span');
-    const labelBox = label.getBoundingClientRect();
+    const trigger = document.querySelector('#workspace-settings-trigger');
+    const labelBox = trigger.getBoundingClientRect();
     return {
       scrollTop: body.scrollTop,
-      triggerText: label.textContent.trim(),
-      labelVisible: labelBox.width > 10 && labelBox.height > 10 && getComputedStyle(label).position !== 'absolute',
+      triggerText: trigger.getAttribute('aria-label'),
+      labelVisible: labelBox.width >= 32 && labelBox.height >= 32,
       buttons: ['light-classic', 'dark-classic'].map((id) => {
         const button = document.querySelector('[data-glass-section="themes"] button[data-glass-theme="' + id + '"]');
         const box = button.getBoundingClientRect();
@@ -1383,7 +1390,7 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
   checks.themeEntryNavigation = { previousScroll, ...themeEntry };
   await capture("classic-theme-buttons-after-settings-navigation");
   assert.equal(themeEntry.scrollTop, 0, "Entering appearance must reset the old category scroll position");
-  assert.equal(themeEntry.triggerText, "主题");
+  assert.match(themeEntry.triggerText, /设置/);
   assert.equal(themeEntry.labelVisible, true, "The theme entry label must remain visible in a small window");
   for (const button of themeEntry.buttons) {
     assert(button.visible && button.hit, `The ${button.id} button must be visible and clickable without scrolling`);
@@ -1576,7 +1583,7 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     const minimumProof = await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer", ".project-agent-send-group"]);
     assertSolid(minimumProof, themeId);
     await capture(`${themeId}-minimum-884x640`);
-    await clickSelector(".workspace-glass-lab-button");
+    await openAppearanceSettings();
     await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
     assertSolid(await readSolidSurface(client, [".settings-drawer", ".settings-surface-footer"]), themeId);
     await capture(`${themeId}-minimum-settings`);
@@ -1585,7 +1592,7 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
 
     // Exercise the actual placement menu and snapshot bridge, rather than
     // injecting styles or a hand-authored appearance into the detached window.
-    await clickSelector('.project-agent-panel button[aria-label="调整对话框位置"]');
+    await clickSelector('#project-agent-placement-toggle');
     await waitFor("Boolean(document.querySelector('.agent-placement-menu'))");
     const opened = await evaluate(client, `(() => {
       const button = Array.from(document.querySelectorAll('.agent-placement-menu button')).find((item) => item.textContent?.includes('独立浮动窗口'));
@@ -1634,7 +1641,7 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     await capture(`${themeId}-cold-restart`);
     checks[themeId] = { ok: true, settingsProof, workspaceProof, minimumProof, auxiliaryProofs, agentProof, restarted };
     await setWindowSize(1280, 800);
-    await clickSelector(".workspace-glass-lab-button");
+    await openAppearanceSettings();
     await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
   }
   await clickTheme("light-sky");
@@ -1963,7 +1970,7 @@ async function runGuiSuite() {
   checks.agentSurface = { ok: true, ...agentSurface };
   await capture("00-default-workbench");
 
-  await clickSelector(".workspace-glass-lab-button");
+  await openAppearanceSettings();
   await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))", 15_000, 80);
   const settingsSurface = await evaluate(client, `(() => {
     const drawer = document.querySelector('.settings-drawer');
@@ -2395,7 +2402,7 @@ async function runGuiSuite() {
   checks.minimumWindow884x640 = { ok: true, minimumWindow, minimumLayout };
   await capture("08-minimum-window-884x640");
 
-  await clickSelector(".workspace-glass-lab-button");
+  await openAppearanceSettings();
   await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))", 15_000, 80);
   const minimumSettings = await evaluate(client, `(() => {
     const inside = (element) => {
@@ -2546,7 +2553,7 @@ async function runGuiSuite() {
   assert.equal(restarted.snapshot?.type, "naimage-glass-theme-bootstrap");
   checks.coldRestartPersistence = { ok: true, firstClose, ...restarted };
 
-  await clickSelector(".workspace-glass-lab-button");
+  await openAppearanceSettings();
   await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))", 15_000, 80);
   const restartedControls = await evaluate(client, `(() => ({
     opacity: document.querySelector('#glass-opacity')?.value || '',

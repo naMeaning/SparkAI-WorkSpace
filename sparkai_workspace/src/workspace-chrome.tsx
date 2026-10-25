@@ -1,22 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   BookMarked,
-  Boxes,
   Check,
   ChevronDown,
-  Columns2,
   Focus,
   Grid2X2,
   History,
   ImageIcon,
   Images,
   Import,
-  Languages,
   Layers3,
   Loader2,
   Microscope,
-  PackageCheck,
   Pencil,
   Plus,
   Search,
@@ -37,7 +33,7 @@ import {
   type WorkflowNode,
   type WorkspaceDomain,
 } from "./core";
-import { ButtonBase } from "./ui";
+import { ButtonBase, IconActionButton, MenuItem, MenuSurface } from "./ui";
 import { workspaceDomainDefinition, workspaceDomainDefinitions } from "./workspace-domain.ts";
 import type { RequirementTemplate } from "../runtime/requirement-template-contract.mjs";
 import type { RequirementTemplateUseOptions } from "./requirement-template-dialog";
@@ -73,7 +69,7 @@ const workspaceViewModes: Array<{
   title: string;
   icon: React.ReactNode;
 }> = [
-  { id: "workbench", label: "工作台", title: "查看完整画布关系", icon: <Grid2X2 size={14} /> },
+  { id: "workbench", label: "画布", title: "查看完整画布关系", icon: <Grid2X2 size={14} /> },
   { id: "focus", label: "专注", title: "专注查看当前图片成果", icon: <Focus size={14} /> },
   { id: "review", label: "评审", title: "并排评审最近四个图片成果", icon: <Images size={14} /> },
 ];
@@ -88,7 +84,6 @@ const railTabs: Array<{
   { id: "layers", label: "图层", title: "分层图片：定位、查看、合并与导出", icon: <Layers3 size={15} /> },
   { id: "requirements", label: "需求", icon: <WandSparkles size={15} /> },
   { id: "templates", label: "模板", title: "跨项目复用的本机需求模板库", icon: <BookMarked size={15} /> },
-  { id: "history", label: "历史", icon: <History size={15} /> },
 ];
 const defaultVisibleRailTabs = railTabs.map((item) => item.id);
 const FOCUS_ASSET_MOUNT_LIMIT = 80;
@@ -190,36 +185,6 @@ function workspaceDomainIcon(icon: string, size = 15) {
   return <Sparkles size={size} />;
 }
 
-const workspaceDomainToolIconOrder: WorkspaceDomainTool["icon"][] = [
-  "boxes",
-  "images",
-  "languages",
-  "book-marked",
-  "columns-2",
-  "package-check",
-  "workflow",
-  "microscope",
-];
-
-function workspaceDomainToolIcon(icon: WorkspaceDomainTool["icon"]) {
-  if (icon === "boxes") return <Boxes size={14} />;
-  if (icon === "images") return <Images size={14} />;
-  if (icon === "languages") return <Languages size={14} />;
-  if (icon === "book-marked") return <BookMarked size={14} />;
-  if (icon === "columns-2") return <Columns2 size={14} />;
-  if (icon === "package-check") return <PackageCheck size={14} />;
-  if (icon === "microscope") return <Microscope size={14} />;
-  return <WandSparkles size={14} />;
-}
-
-function workspaceDomainToolShortcutLabel(shortcut?: string) {
-  return String(shortcut || "")
-    .split("+")
-    .filter(Boolean)
-    .map((part) => part === "Mod" ? "Ctrl/⌘" : part)
-    .join(" + ");
-}
-
 export function WorkspaceDomainSwitcher({
   domain,
   onChange,
@@ -298,21 +263,22 @@ export function WorkspaceDirectionSwitcher({
   mode: WorkspaceViewMode;
   onChange: (mode: WorkspaceViewMode) => void;
 }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const triggerId = useId();
+  const current = workspaceViewModes.find((item) => item.id === mode) ?? workspaceViewModes[0];
   return (
     <nav className="workspace-direction-switcher" aria-label="画布视图">
-      {workspaceViewModes.map((item) => (
-        <ButtonBase
-          key={item.id}
-          type="button"
-          className={mode === item.id ? "active" : ""}
-          aria-pressed={mode === item.id}
-          title={item.title}
-          onClick={() => onChange(item.id)}
-        >
-          {item.icon}
-          <span>{item.label}</span>
-        </ButtonBase>
-      ))}
+      <ButtonBase id={triggerId} type="button" className="workspace-view-trigger" aria-label={`画布视图：${current.label}`} aria-haspopup="menu" aria-expanded={Boolean(menu)}
+        title={current.title} onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setMenu(menu ? null : { x: rect.left, y: rect.bottom + 6 });
+        }}>
+        <span>{current.label}</span><ChevronDown size={14} aria-hidden="true" />
+      </ButtonBase>
+      {menu ? <MenuSurface {...menu} triggerId={triggerId} className="workspace-view-menu" ariaLabel="画布视图" onRequestClose={() => setMenu(null)}>
+        {workspaceViewModes.map((item) => <MenuItem key={item.id} icon={item.icon} title={item.title} aria-current={mode === item.id ? "true" : undefined}
+          onClick={() => { setMenu(null); onChange(item.id); }}>{item.label}{mode === item.id ? <Check size={14} aria-hidden="true" /> : null}</MenuItem>)}
+      </MenuSurface> : null}
     </nav>
   );
 }
@@ -530,13 +496,7 @@ export function WorkspaceAssetRail({
   onDeleteRequirementTemplate,
   onImport,
   onOpenSettings,
-  workspaceDomain = "general",
-  domainTools = [],
-  domainToolsLoading = false,
-  domainToolExecutionBusy = false,
-  domainToolHasImageSelection = false,
-  onExecuteDomainTool,
-  onOpenDomainToolsSettings,
+  settingsUpdateAvailable = false,
   visibleTabs = defaultVisibleRailTabs,
   requestedTab,
 }: {
@@ -557,6 +517,7 @@ export function WorkspaceAssetRail({
   onDeleteRequirementTemplate?: (templateId: string) => void;
   onImport: () => void;
   onOpenSettings: () => void;
+  settingsUpdateAvailable?: boolean;
   workspaceDomain?: WorkspaceDomain;
   domainTools?: WorkspaceDomainTool[];
   domainToolsLoading?: boolean;
@@ -572,7 +533,6 @@ export function WorkspaceAssetRail({
   const [templateDialog, setTemplateDialog] = useState<{ id: string; mode: "use" | "edit" } | null>(null);
   const [templateActionError, setTemplateActionError] = useState("");
   const [templateImportBusy, setTemplateImportBusy] = useState(false);
-  const [domainToolsAnchor, setDomainToolsAnchor] = useState<WorkspacePopoverAnchor | null>(null);
   const [assetGroupPreview, setAssetGroupPreview] = useState<{
     nodeId: string;
     anchor: WorkspacePopoverAnchor;
@@ -584,20 +544,12 @@ export function WorkspaceAssetRail({
   const visibleRailTabs = useMemo(() => {
     const visible = new Set(visibleTabs);
     const filtered = railTabs.filter((item) => visible.has(item.id));
+    // History now lives in Agent. Legacy history-only rail preferences keep results accessible.
     return filtered.length ? filtered : railTabs.slice(0, 1);
   }, [visibleTabs]);
   const tab = visibleRailTabs.some((item) => item.id === selectedTab)
     ? selectedTab
     : visibleRailTabs[0].id;
-  const activeDomainTools = workspaceDomain === "commerce"
-    ? [...domainTools].sort((left, right) => (
-        workspaceDomainToolIconOrder.indexOf(left.icon) - workspaceDomainToolIconOrder.indexOf(right.icon)
-        || left.label.localeCompare(right.label)
-      ))
-    : workspaceDomain === "social" || workspaceDomain === "research" ? [...domainTools] : [];
-  const domainToolsVisible = workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research";
-  const domainToolsName = workspaceDomain === "research" ? "科研" : workspaceDomain === "social" ? "社媒" : "电商";
-
   useEffect(() => { setTemplateDialog(null); setTemplateActionError(""); }, [projectId]);
 
   async function importTemplate() {
@@ -612,24 +564,17 @@ export function WorkspaceAssetRail({
   }
 
   useEffect(() => {
-    setDomainToolsAnchor(null);
-  }, [workspaceDomain]);
-
-  useEffect(() => {
-    if (!domainToolsAnchor && !assetGroupPreview) return undefined;
+    if (!assetGroupPreview) return undefined;
     const closeOutside = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("[data-domain-tools-launcher], [data-domain-tools-menu], [data-asset-group-trigger], [data-asset-group-preview]")) return;
-      setDomainToolsAnchor(null);
+      if (target?.closest("[data-asset-group-trigger], [data-asset-group-preview]")) return;
       setAssetGroupPreview(null);
     };
     const closeWithEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setDomainToolsAnchor(null);
       setAssetGroupPreview(null);
     };
     const closeOnResize = () => {
-      setDomainToolsAnchor(null);
       setAssetGroupPreview(null);
     };
     window.addEventListener("pointerdown", closeOutside, true);
@@ -640,7 +585,7 @@ export function WorkspaceAssetRail({
       window.removeEventListener("keydown", closeWithEscape);
       window.removeEventListener("resize", closeOnResize);
     };
-  }, [assetGroupPreview, domainToolsAnchor]);
+  }, [assetGroupPreview]);
 
   useEffect(() => () => {
     if (assetGroupPreviewTimerRef.current !== null) window.clearTimeout(assetGroupPreviewTimerRef.current);
@@ -747,88 +692,54 @@ export function WorkspaceAssetRail({
     <>
     <aside className="workspace-asset-rail" aria-label="项目素材与导航" data-active-tab={tab}>
       <header className="workspace-asset-rail-header">
-        <ButtonBase
-          type="button"
-          className={tab === "templates" ? "is-template-save" : undefined}
-          onClick={tab === "templates" ? onSaveRequirementTemplate : onImport}
-          disabled={tab === "templates" && !canSaveRequirementTemplate}
-          aria-label={tab === "templates" ? "保存当前需求到模板库" : "导入图片素材"}
-          title={tab === "templates"
-            ? canSaveRequirementTemplate ? "保存选中的需求，或保存当前成功任务的方法" : "请选择需求节点，或完成并保存一次创作任务"
-            : "导入图片素材"}
-        >
-          {tab === "templates" ? <Save size={16} /> : <Plus size={17} />}
-          {tab === "templates" ? <span>保存</span> : null}
-        </ButtonBase>
+        <IconActionButton
+          label="添加图片素材"
+          icon={<Plus size={17} />}
+          onClick={onImport}
+          title="导入图片素材"
+        />
       </header>
 
       <nav className="workspace-asset-rail-tabs" aria-label="素材视图">
         {visibleRailTabs.map((item) => (
-          <ButtonBase
+          <IconActionButton
             key={item.id}
-            type="button"
+            label={item.label}
+            icon={item.icon}
             className={tab === item.id ? "active" : ""}
             aria-pressed={tab === item.id}
             title={item.title || item.label}
             onClick={() => setSelectedTab(item.id)}
-          >
-            {item.icon}
-            <span>{item.label}</span>
-          </ButtonBase>
+          />
         ))}
       </nav>
 
       <div className="workspace-asset-rail-list" aria-live="polite">
-        {domainToolsVisible ? (
-          <section className="workspace-domain-tools" data-workspace-domain={workspaceDomain} aria-label={`${domainToolsName}工具`}>
-            <ButtonBase
-              type="button"
-              className="workspace-domain-tools-launcher"
-              data-domain-tools-launcher
-              aria-haspopup="menu"
-              aria-expanded={Boolean(domainToolsAnchor)}
-              aria-controls="workspace-domain-tools-menu"
-              title={`打开${domainToolsName}工具菜单`}
-              onClick={(event) => {
-                const anchor = workspacePopoverAnchor(event.currentTarget);
-                setAssetGroupPreview(null);
-                setDomainToolsAnchor((current) => current ? null : anchor);
-              }}
-            >
-              {domainToolsLoading
-                ? <Loader2 className="spin" size={16} aria-hidden="true" />
-                : workspaceDomain === "research"
-                  ? <Microscope size={16} aria-hidden="true" />
-                  : workspaceDomain === "social"
-                    ? <Share2 size={16} aria-hidden="true" />
-                    : <ShoppingBag size={16} aria-hidden="true" />}
-              <span>工具</span>
-              <ChevronDown size={10} aria-hidden="true" />
-            </ButtonBase>
-          </section>
-        ) : null}
         {tab === "layers" && nodeItems.length > 0 ? (
-          <div className="workspace-asset-rail-note" title="这里只显示真实分层 PNG；可在画布中右键显隐、合并或导出">
-            <strong>分层成果</strong>
-            <small>画布右键管理</small>
+          <div className="workspace-asset-rail-note" role="note" tabIndex={0} aria-label="分层成果，画布右键可管理"
+            data-ui-tooltip="这里只显示真实分层 PNG；可在画布中右键显隐、合并或导出。">
+            <Layers3 size={16} />
           </div>
         ) : null}
         {tab === "templates" ? (
           <div
             className="workspace-asset-rail-note"
-            title={canSaveRequirementTemplate
-              ? "点击顶部“保存”，保存选中的需求或当前成功任务的方法；使用模板时重新选择本项目素材。"
-              : "先选择需求或完成一次创作任务，再点击顶部“保存”；已有模板可编辑变量并跨项目复用。"}
+            role="note"
+            tabIndex={0}
+            aria-label={canSaveRequirementTemplate ? "可以保存当前方法" : "模板保存说明"}
+            data-ui-tooltip={canSaveRequirementTemplate
+              ? "保存选中的需求或当前成功任务的方法；使用模板时重新选择本项目素材。"
+              : "先选择需求或完成一次创作任务，再保存模板；已有模板可编辑变量并跨项目复用。"}
           >
-            <BookMarked size={13} />
-            <strong>{canSaveRequirementTemplate ? "可以保存" : "保存方法"}</strong>
-            <small>{canSaveRequirementTemplate ? "点顶部保存" : "需求或成功任务"}</small>
+            <BookMarked size={16} />
           </div>
         ) : null}
         {tab === "templates" ? <>
-          <ButtonBase type="button" className="workspace-asset-rail-template-import" aria-label="导入创作模板" title="从本机文件导入可复用创作模板" disabled={templateImportBusy} onClick={() => { void importTemplate(); }}>
-            {templateImportBusy ? <Loader2 className="spin" size={14} /> : <Import size={14} />}<span>导入</span>
-          </ButtonBase>
+          <IconActionButton label="保存当前需求到模板库" icon={<Save size={16} />} className="workspace-asset-rail-template-import"
+            onClick={onSaveRequirementTemplate} disabled={!canSaveRequirementTemplate}
+            title={canSaveRequirementTemplate ? "保存选中的需求，或保存当前成功任务的方法" : "请选择需求节点，或完成并保存一次创作任务"} />
+          <IconActionButton label="导入创作模板" icon={templateImportBusy ? <Loader2 className="spin" size={16} /> : <Import size={16} />}
+            className="workspace-asset-rail-template-import" title="从本机文件导入可复用创作模板" disabled={templateImportBusy} onClick={() => { void importTemplate(); }} />
           {templateActionError ? <p className="workspace-asset-rail-template-error" role="alert" title={templateActionError}>{templateActionError}</p> : null}
         </> : null}
         {tab === "templates" ? (
@@ -876,10 +787,9 @@ export function WorkspaceAssetRail({
               </div>
             );
           }) : (
-            <div className="workspace-asset-rail-empty is-explained" title="选需求或完成创作任务后点顶部“保存”，也可以导入模板文件；使用模板只插入需求">
-              <BookMarked size={15} />
-              <strong>暂无模板</strong>
-              <small>保存或导入模板</small>
+            <div className="workspace-asset-rail-empty is-explained" role="note" tabIndex={0} aria-label="暂无模板"
+              data-ui-tooltip="暂无模板。选择需求或完成创作任务后保存模板，也可以导入模板文件；使用模板只插入需求。">
+              <BookMarked size={16} />
             </div>
           )
         ) : tab === "history" ? historyItems.map((conversation) => (
@@ -927,7 +837,6 @@ export function WorkspaceAssetRail({
                 onSelectNode(node.id);
                 if (!resultIsGroup) return;
                 cancelAssetGroupPreviewClose();
-                setDomainToolsAnchor(null);
                 setAssetGroupPreview({ nodeId: node.id, anchor: workspacePopoverAnchor(event.currentTarget), locked: true });
               }}
               onDoubleClick={tab === "layers" && onOpenLayer ? (event) => {
@@ -946,94 +855,24 @@ export function WorkspaceAssetRail({
         })}
         {tab !== "history" && tab !== "templates" && nodeItems.length === 0 ? (
           tab === "layers" ? (
-            <div className="workspace-asset-rail-empty is-explained" title="普通图片没有独立图层；使用分层生图后会在这里显示">
-              <Layers3 size={15} />
-              <strong>暂无分层</strong>
-              <small>分层生图后显示</small>
+            <div className="workspace-asset-rail-empty is-explained" role="note" tabIndex={0} aria-label="暂无分层"
+              data-ui-tooltip="普通图片没有独立图层；使用分层生图后会在这里显示。">
+              <Layers3 size={16} />
             </div>
           ) : <span className="workspace-asset-rail-empty" title="当前项目暂无对应内容">—</span>
         ) : null}
       </div>
 
       <footer className="workspace-asset-rail-footer">
-        <ButtonBase type="button" onClick={onOpenSettings} aria-label="打开设置" title="设置与界面主题">
-          <Settings size={16} />
-          <span>设置</span>
-        </ButtonBase>
+        <IconActionButton id="workspace-settings-trigger" label={settingsUpdateAvailable ? "打开设置，发现新版本" : "打开设置"}
+          icon={<><Settings size={16} />{settingsUpdateAvailable ? <i className="workspace-settings-update-dot" aria-hidden="true" /> : null}</>}
+          onClick={onOpenSettings} title={settingsUpdateAvailable ? "发现新版本，打开设置查看更新" : "设置与界面主题"} />
       </footer>
     </aside>
     {templateDialog && onUseRequirementTemplate ? <React.Suspense fallback={null}>
       <LazyRequirementTemplateDialog templateId={templateDialog.id} mode={templateDialog.mode} projectId={projectId} nodes={nodes} selectedNodeId={selectedNodeId}
         onClose={() => setTemplateDialog(null)} onChanged={() => onLoadRequirementTemplates?.(true)} onUse={onUseRequirementTemplate} />
     </React.Suspense> : null}
-    {domainToolsAnchor && typeof document !== "undefined" ? createPortal((
-      <section
-        id="workspace-domain-tools-menu"
-        className="workspace-domain-tools-menu"
-        data-domain-tools-menu
-        data-workspace-domain={workspaceDomain}
-        role="menu"
-        aria-label={`${domainToolsName}工具`}
-        style={workspacePopoverPosition(domainToolsAnchor, 292, 470)}
-      >
-        <header>
-          <span className="workspace-domain-tools-menu-icon" aria-hidden="true">
-            {workspaceDomain === "research"
-              ? <Microscope size={18} />
-              : workspaceDomain === "social"
-                ? <Share2 size={18} />
-                : <ShoppingBag size={18} />}
-          </span>
-          <span><strong>{domainToolsName}工具</strong><small>{activeDomainTools.length} 项可用能力</small></span>
-          <ButtonBase type="button" aria-label="关闭工具菜单" title="关闭" onClick={() => setDomainToolsAnchor(null)}><X size={15} /></ButtonBase>
-        </header>
-        <div className="workspace-domain-tools-menu-list">
-          {domainToolsLoading ? (
-            <span className="workspace-domain-tools-menu-loading"><Loader2 className="spin" size={17} />正在载入</span>
-          ) : activeDomainTools.length ? activeDomainTools.map((tool) => {
-            const needsSelection = tool.when === "canvas.has-image-selection";
-            const missingSelection = needsSelection && !domainToolHasImageSelection;
-            const blockedByRun = domainToolExecutionBusy && !tool.availableDuringAgentRun;
-            const disabled = missingSelection || blockedByRun;
-            const reason = missingSelection
-              ? "请先选择图片成果或容器"
-              : blockedByRun
-                ? "Agent 正在执行任务"
-                : tool.description;
-            const shortcut = workspaceDomainToolShortcutLabel(tool.shortcut);
-            return (
-              <ButtonBase
-                key={tool.command}
-                type="button"
-                role="menuitem"
-                className="workspace-domain-tools-menu-item"
-                data-domain-tool-command={tool.command}
-                disabled={disabled}
-                aria-label={tool.label}
-                title={`${reason}${shortcut ? ` · ${shortcut}` : ""}`}
-                onClick={() => {
-                  setDomainToolsAnchor(null);
-                  onExecuteDomainTool?.(tool.command);
-                }}
-              >
-                <span className="workspace-domain-tools-menu-item-icon" aria-hidden="true">{workspaceDomainToolIcon(tool.icon)}</span>
-                <span><strong>{tool.label}</strong><small>{reason}</small></span>
-              </ButtonBase>
-            );
-          }) : (
-            <div className="workspace-domain-tools-menu-empty"><Settings size={17} /><span>当前没有已启用工具</span></div>
-          )}
-        </div>
-        <footer>
-          <ButtonBase type="button" onClick={() => {
-            setDomainToolsAnchor(null);
-            onOpenDomainToolsSettings?.();
-          }}>
-            <Settings size={14} /><span>管理工具</span>
-          </ButtonBase>
-        </footer>
-      </section>
-    ), document.body) : null}
     {assetGroupPreview && previewNode && previewAssetIndices.length > 1 && typeof document !== "undefined" ? createPortal((
       <section
         className="workspace-asset-group-preview"
@@ -1077,7 +916,7 @@ export function WorkspaceTaskContext({
   mode: WorkspaceViewMode;
   node: WorkflowNode | null;
 }) {
-  const modeLabel = workspaceViewModes.find((item) => item.id === mode)?.label ?? "工作台";
+  const modeLabel = workspaceViewModes.find((item) => item.id === mode)?.label ?? "画布";
   return (
     <section className="workspace-task-context" aria-label="当前任务">
       <span>当前任务</span>

@@ -13,13 +13,28 @@
     <div class="agent-shell">
       <header class="agent-header">
         <div class="agent-title">
-          <strong>Agent</strong>
+          <select id="conversation-select" aria-label="会话历史" title="切换会话"></select>
           <span id="project-name">正在连接主窗口…</span>
         </div>
         <div class="agent-header-actions">
-          <select id="conversation-select" aria-label="会话历史" title="切换会话"></select>
-          <button id="new-conversation" type="button" title="新建会话">新建</button>
-          <button id="clear-conversation" type="button" title="清理当前聊天">清理</button>
+          <button id="new-conversation" class="agent-icon-button" type="button" aria-label="新建会话" data-ui-tooltip="新建会话">+</button>
+          <details id="agent-more" class="agent-more">
+            <summary class="agent-icon-button" aria-label="更多 Agent 操作" data-ui-tooltip="更多 Agent 操作">⋯</summary>
+            <div class="agent-more-menu" aria-label="更多 Agent 操作">
+              <button id="edit-memory" type="button">编辑 Agent 记忆</button>
+              <button id="clear-conversation" type="button">清理聊天</button>
+              <label class="dock-controls" for="dock-select">收回主窗口
+                <select id="dock-select" aria-label="将 Agent 收回主窗口">
+                  <option value="">选择位置</option>
+                  <option value="right">右侧</option>
+                  <option value="left">左侧</option>
+                  <option value="top">上方</option>
+                  <option value="bottom">下方</option>
+                  <option value="floating">应用内浮动</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -53,10 +68,14 @@
       <section id="agent-feed" class="agent-feed" aria-label="Agent 对话"></section>
 
       <section class="agent-context" aria-label="当前图片上下文">
-        <button id="edit-sources" type="button">原图 <span id="source-count">0</span></button>
-        <button id="edit-references" type="button">参考图 <span id="reference-count">0</span></button>
+        <details id="agent-materials" class="agent-materials">
+          <summary>素材</summary>
+          <div class="agent-materials-menu">
+            <button id="edit-sources" type="button">原图 <span id="source-count">0</span></button>
+            <button id="edit-references" type="button">参考图 <span id="reference-count">0</span></button>
+          </div>
+        </details>
         <button id="edit-image-config" type="button">图片配置</button>
-        <button id="edit-memory" type="button">记忆</button>
         <span class="selected-count">画布已选 <b id="selected-count">0</b></span>
       </section>
 
@@ -80,17 +99,6 @@
           <span>运行中只能修改文字，不会替换或追加 SOURCE / REFERENCE。</span>
         </div>
         <footer>
-          <div class="dock-controls">
-            <label for="dock-select">收回</label>
-            <select id="dock-select" aria-label="将 Agent 收回主窗口">
-              <option value="">选择位置</option>
-              <option value="right">右侧</option>
-              <option value="left">左侧</option>
-              <option value="top">上方</option>
-              <option value="bottom">下方</option>
-              <option value="floating">应用内浮动</option>
-            </select>
-          </div>
           <span class="shortcut">Ctrl + Enter · / 命令</span>
           <button id="pause-button" class="pause-button" type="button" hidden>暂停</button>
           <button id="stop-button" class="stop-button" type="button" hidden>结束</button>
