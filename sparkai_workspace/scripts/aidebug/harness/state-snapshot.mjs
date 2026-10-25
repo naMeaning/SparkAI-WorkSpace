@@ -2586,7 +2586,10 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         : settingsGlassMaterialCards.length === 3 && settingsGlassParameterControls.length === 6 && settingsGlassResetAction) &&
       settingsGlassPreview
     );
-    const settingsThemeEditorScrollOk = !settingsOpen || settingsActiveTabText !== "外观" || Boolean(
+    const settingsMoreAppearance = element('.settings-drawer details[data-glass-section="more"]');
+    const settingsMoreSummaryRect = settingsMoreAppearance?.querySelector('summary')?.getBoundingClientRect();
+    const settingsMoreClosedOk = Boolean(settingsMoreAppearance && !settingsMoreAppearance.open && settingsMoreSummaryRect && settingsSurfaceBodyRect && settingsMoreSummaryRect.top >= settingsSurfaceBodyRect.top - 1 && settingsMoreSummaryRect.bottom <= settingsSurfaceBodyRect.bottom + 1);
+    const settingsThemeEditorScrollOk = !settingsOpen || settingsActiveTabText !== "外观" || settingsMoreClosedOk || Boolean(
       settingsSurfaceBody &&
       settingsSurfaceBodyRect &&
       settingsGlassPreviewRect &&

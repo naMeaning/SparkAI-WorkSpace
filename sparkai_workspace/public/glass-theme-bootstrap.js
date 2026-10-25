@@ -7,8 +7,8 @@
   // The focused glass-theme self-test checks every theme/material/accent against
   // the TypeScript projection so drift fails before packaging.
   var registry = {
-    defaults: { theme: "dark-ember", material: "frosted", accent: "theme", noise: true, reduceMotion: false },
-    solidParameters: { opacity: 100, blur: 0, saturation: 100, highlight: 0, shadow: 8, radius: 8 },
+    defaults: { theme: "light-classic", material: "frosted", accent: "theme", noise: true, reduceMotion: false },
+    solidParameters: { opacity: 100, blur: 0, saturation: 100, highlight: 0, shadow: 0, radius: 8 },
     ranges: {
       opacity: { min: 8, max: 72 },
       blur: { min: 0, max: 48 },
@@ -57,17 +57,19 @@
     themes: {
       "light-classic": {
         mode: "light", appearance: "solid", accent: "ice",
-        glassRgb: "255, 255, 255", accentColor: "#262626", accentRgb: "38, 38, 38", accentInk: "#ffffff",
-        secondary: "#666666", secondaryRgb: "102, 102, 102", canvas: "#f3f3f3", canvasTint: "rgba(0, 0, 0, 0)",
-        surfaceSolid: "#ffffff", surfaceRaised: "#f5f5f5", nodeBg: "#ffffff",
-        ink: "#202020", inkSoft: "#454545", muted: "#666666"
+        solidTokens: { line: "#e3e3e3", lineStrong: "#858585", hover: "#f0f0f0", active: "#e8e8e8", focus: "#5d5d5d" },
+        glassRgb: "255, 255, 255", accentColor: "#242424", accentRgb: "36, 36, 36", accentInk: "#ffffff",
+        secondary: "#666666", secondaryRgb: "102, 102, 102", canvas: "#f6f6f6", canvasTint: "rgba(0, 0, 0, 0)",
+        surfaceSolid: "#ffffff", surfaceRaised: "#ffffff", nodeBg: "#ffffff",
+        ink: "#242424", inkSoft: "#666666", muted: "#666666"
       },
       "dark-classic": {
         mode: "dark", appearance: "solid", accent: "ice",
-        glassRgb: "30, 30, 30", accentColor: "#ededed", accentRgb: "237, 237, 237", accentInk: "#171717",
-        secondary: "#aaaaaa", secondaryRgb: "170, 170, 170", canvas: "#141414", canvasTint: "rgba(0, 0, 0, 0)",
-        surfaceSolid: "#1e1e1e", surfaceRaised: "#2b2b2b", nodeBg: "#1e1e1e",
-        ink: "#f5f5f5", inkSoft: "#d0d0d0", muted: "#aaaaaa"
+        solidTokens: { line: "#383838", lineStrong: "#999999", hover: "#303030", active: "#343434", focus: "#b7b7b7" },
+        glassRgb: "32, 32, 32", accentColor: "#ececec", accentRgb: "236, 236, 236", accentInk: "#202020",
+        secondary: "#b0b0b0", secondaryRgb: "176, 176, 176", canvas: "#181818", canvasTint: "rgba(0, 0, 0, 0)",
+        surfaceSolid: "#202020", surfaceRaised: "#282828", nodeBg: "#202020",
+        ink: "#ececec", inkSoft: "#b0b0b0", muted: "#b0b0b0"
       },
       "dark-rose": {
         mode: "dark", accent: "rose",
@@ -199,11 +201,12 @@
     var theme = registry.themes[settings.glassTheme];
     var mode = registry.modes[theme.mode];
     var solid = theme.appearance === "solid";
+    var semantic = theme.solidTokens || {};
     var parameters = solid
       ? Object.assign({}, settings.glassParameters, registry.solidParameters, { noise: false })
       : settings.glassParameters;
     var control = solid ? theme.surfaceRaised : mode.solidControl;
-    var controlHover = solid ? mixHexColors(theme.ink, 0.08, control) : mode.solidControlHover;
+    var controlHover = semantic.hover || mode.solidControlHover;
     var accent = solid || parameters.accent === "theme"
       ? { id: theme.accent, color: theme.accentColor, rgb: theme.accentRgb, ink: theme.accentInk }
       : Object.assign({ id: parameters.accent }, registry.accents[parameters.accent]);
@@ -230,16 +233,17 @@
       "--solid-control-hover": controlHover,
       "--success": mode.success,
       "--danger": mode.danger,
-      "--theme-bg": theme.surfaceSolid,
+      "--theme-bg": solid ? theme.canvas : theme.surfaceSolid,
       "--theme-canvas": theme.canvas,
       "--theme-surface": theme.surfaceSolid,
       "--theme-surface-solid": theme.surfaceSolid,
       "--theme-surface-raised": theme.surfaceRaised,
       "--theme-ink": theme.ink,
       "--theme-ink-soft": theme.inkSoft,
-      "--theme-muted": mixHexColors(theme.muted, 0.7, theme.inkSoft),
-      "--theme-line": solid ? "rgba(" + accent.rgb + ", 0.14)" : mode.line,
-      "--theme-line-strong": solid ? "rgba(" + accent.rgb + ", 0.24)" : mode.lineStrong,
+      "--theme-muted": solid ? theme.muted : mixHexColors(theme.muted, 0.7, theme.inkSoft),
+      "--theme-line": semantic.line || mode.line,
+      "--theme-line-strong": semantic.lineStrong || mode.lineStrong,
+      "--theme-focus": semantic.focus || accent.color,
       "--theme-accent": accent.color,
       "--theme-accent-strong": mixHexColors(accent.color, 0.72, theme.ink),
       "--theme-blue": theme.secondary,
@@ -250,7 +254,7 @@
       "--theme-green": mode.success,
       "--theme-control-bg": control,
       "--theme-hover-bg": controlHover,
-      "--theme-active-bg": "rgba(" + accent.rgb + ", 0.16)"
+      "--theme-active-bg": semantic.active || "rgba(" + accent.rgb + ", 0.16)"
     };
     Object.keys(registry.accents).forEach(function accentVariable(id) {
       variables["--glass-accent-" + id] = registry.accents[id].color;
@@ -275,7 +279,8 @@
     reduceMotion: source.reduceMotion
   };
   var projection = appearanceProjection({
-    glassTheme: source.glassTheme || source.theme,
+    glassTheme: source.glassTheme || (source.theme === "dark" ? "dark-rose"
+      : source.theme === "light" || source.theme === "system" ? "dark-ember" : source.theme),
     glassMaterial: source.glassMaterial || source.material,
     glassParameters: legacyParameters
   });
@@ -288,6 +293,7 @@
   var solid = registry.themes[settings.glassTheme].appearance === "solid";
   var noise = parameters.noise && !solid;
   root.dataset.glassStyle = solid ? "solid" : "glass";
+  if (solid) root.dataset.glassBackground = "off";
   root.dataset.glassMaterial = settings.glassMaterial;
   root.dataset.glassAccent = parameters.accent;
   root.dataset.glassAccentResolved = projection.resolvedAccent;

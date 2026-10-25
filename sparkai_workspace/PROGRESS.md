@@ -1,5 +1,21 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-10-24，日夜基础主题与界面精简实施中）
+
+- P1最终交付 checkpoint（2026-10-25）：最终739源 `740f7f33d4fcb598c35c2d5154dcd7e04188ac559b7023451ce0174879221532`，package exit0；EXE已独立保留在 `release/local-deliveries/ui-p1-2026-10-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,549,504 B / SHA-256 `75e87f4d9356cb8c79cada89a7a751d1f422c762e64d083f8a78a40806e37f64`。137 dist/199 owner包内一致，ASAR53,587,757 B / `f67b3b4ae563b5c41519ba160c25dc98b5f813a2b1efbf10ea2d6fccf555bed3`。初始冻结/候选日志保留，最终只因生产smoke脚本修正重新冻结与打包，无静默身份替换。
+- P1最终验证：顺序classic `.diagnostics/electron/glass-workspace-2026-10-25T03-35-03-610Z/report.json` ok（54场景/58截图）；生产 `.diagnostics/release/packaged-smoke-2026-10-25T03-46-19-975Z/report.json` ok（主题点击/独立窗/mock账户日志分页，正常退出）；quick6组与专项通过。品牌/S原位安装exit0/21,491ms，原 `E:\sparkai-workspace\naimage` /1.0.9、项目/配置/凭据metadata/快捷方式保留，安装EXE/ASAR均匹配，安装前同名实例0；证据 `.diagnostics/ui-p1-delivery/`。源码/文档本批精确提交及upstream核验写delivery索引，P2待其完成后启动。
+- 验证限制：0真实模型/站点/ComfyUI请求，无依赖/模型下载/生产改动；125%/150%真实DPI未验证，登录单独截图为夜间。只做本地开发包，未跑正式发布全门禁、未上传EXE/Release/tag。
+- 接受：main / `134a9f40cf42d40176d083ce557f36171066d0b2` / origin/main。本轮仅 P1 主题与控件、P2 入口与配置分层，按序各自完成实际 UI、最终 EXE、安全安装、文档和源码 push；旧 2026-10-23 全量设计保留为后续。
+- 现场：五份既有 tracked 文档修改、两份未跟踪设置设计与根 artifacts 全部保留；原工作文档和 tracked patch 备份于 `.diagnostics/ui-simplification-2026-10-24/baseline/`。提交时仅纳入本轮增量。
+- 状态：已按 goal-documentation-continuity 实现并专项/实际 UI 验证 P1；最新证据与制品在本节 checkpoint，尚待最终包安装与源码 push。P2 仅只读准备和动作矩阵，未混入 P1。
+- 验证边界：隔离 profile、本地素材与 fake/loopback，0 真实模型/视频/ComfyUI；不装依赖、不下载模型、不正式发布。真实设备 DPI 与模拟 viewport 分别标注。
+- 下一步：完成 P1 canonical 主题链路及共享控件，再按专项/真实 UI/包装安装交付。持续记录见 [本轮实施与证据](docs/UI_SIMPLIFICATION_2026-10-24.md)。
+- 范围补充（2026-10-25）：用户明确 P2 可用加号/垃圾桶等符号替换常用动作文字，hover 和键盘 focus 均需中文说明；使用既有控件、32px 命中与原确认，不把该入口工作混入 P1。当前 P1 专项与真实截图在制，尚未产生新包。
+- P1 里程碑（2026-10-25）：canonical 日夜语义色、新装日间、legacy/theme/安全启动快照、更多外观、共享字号/控件及独立窗已实现。旧 localStorage→首个 React 帧漂移、导入 hover/focus、附件/参考图装饰调色及登录硬编码 blur 均按真实 owner 修复；独立审查复核首帧和 allowlist。专项 glass-theme（9×3×accent / CJS38）、settings-persistence155（含 Main→DTO→Renderer）、ui-foundation、agent-window44/101、production-symbol-compaction、typecheck 通过。
+- P1 UI/构建：quick 6 组/0失败，`.diagnostics/electron/aidebug-2026-10-25T03-14-15-190Z/report.json`，正常关闭无强杀；扩展 classic 早期49场景通过，后续新增参考图/hover与账号登录测试修复遗漏后，最终顺序复测中。一次并行打包导致 Vite watcher 对 Windows installer obj 临时文件 EBUSY 崩溃，继而独立窗动态导入失败，失败保留于 `.diagnostics/electron/glass-workspace-2026-10-25T03-32-31-524Z/`；不作为产品通过证据。739源文件冻结 `9dabdb9bfa6403c0f6cc2f74c29c53c3f76369356b2279863cf2a2b54f0d6fa4`，package exit0，包内审计已通过；安装/Git 尚未完成，实际身份待下个 checkpoint。
+- 文档归档（2026-10-25）：全局与工作区 AGENTS、决策 ledger 已固定“交付物保存在对应项目工作区”；[日夜设计](docs/SparkAI-UI-Design-2026-10-24.md)与[交接 prompt](docs/SparkAI-UI-Handoff-2026-10-24.md)归入 docs/，四份概念 HTML 归入 [artifacts 目录](../artifacts/ui-themes-2026-10-24/README.md)，迁移时均已核对源/目标 SHA-256。旧 HTML 展示副本仅作缓存；交接路径与文档导航已同步。本次归档不改变产品代码、不新增产品测试/EXE/安装/Git 交付，也不替代上述实施记录。
+- 归档验证：根 Harness 10 项结构检查通过；7 篇文档本轮涉及的 29 处相对链接有效，4 份 HTML 与迁移源 SHA-256 再核对一致，设计/交接无旧展示缓存路径引用；全局与工作区存放规则回读、`git diff --check` 均通过。
+
 ## 当前开发状态（2026-10-23，Phase 1–4 已分批本地交付与推送）
 
 - Phase3源码35文件`1a234306d2a2b0c3fe790135da4ffb3673e73238`已普通push origin/main，HEAD/upstream/远端实查一致，提交后工作树干净。artifact39/runtime39/Main23/共享合同/GUI6组8截图、production EXE与品牌/S原位安装均已独立完成；详见下方与[托管安装专项](docs/COMFYUI_MANAGED_INSTALL_VALIDATION.md)。

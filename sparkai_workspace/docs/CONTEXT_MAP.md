@@ -1,5 +1,11 @@
 # SparkAI WorkSpace 上下文地图
 
+## 日夜基础主题与界面精简设计入口（2026-10-24）
+
+P1 已实现日夜基础主题与控件，实际证据/制品/安装/Git 状态见 [实施记录](UI_SIMPLIFICATION_2026-10-24.md) 与 [Progress](../PROGRESS.md)。新增 `--theme-focus` 由 registry/TypeScript/bootstrap 同步，并被独立 Agent variable allowlist 与生产符号保护消费。`readGlassThemeBootstrapSnapshot()` 与启动脚本同读安全 legacy fallback，首个 React 帧不得覆盖其主题；独立窗 `data-agent-ready` 只在首次可信外观/旧外观投影后显示内容，之前保留 Main native 底色，不新增设置 authority 或 IPC。参考图/消息附件不叠加调色伪层，成果 active-build 不再对媒体做 filter/opacity 入场动画；登录使用主题 backdrop 并在最小高度滚动到末操作。
+
+[设计方案](SparkAI-UI-Design-2026-10-24.md)与[交接 prompt](SparkAI-UI-Handoff-2026-10-24.md)定义 P1 基础主题、P2 入口与配置收纳及 Agent 分工；[概念预览](../../artifacts/ui-themes-2026-10-24/sparkai-preview.html)仅用于设计评审。这些是设计资料，不作为产品实现或验收证据；实际实施状态见 [Progress](../PROGRESS.md)。2026-10-25 归档与导航同步不改变下述运行时 owner、IPC、持久化或测试合同。
+
 ## Phase 4：离线 Agent
 
 四阶段已分别完成本地开发交付；当前源码、制品、安装和Git证据从[Progress](../PROGRESS.md)及[专项](OFFLINE_AGENT_VALIDATION.md)读取，真实服务验证与正式Release仍按独立授权处理。
@@ -344,7 +350,7 @@ package.json.main
 
 ### 4.1.1 Glass 主题首帧与实时投影
 
-普通黑白主题 `light-classic`（简洁白色）和 `dark-classic`（简洁黑色）仍由同一 registry、归一化和语义变量链路拥有。registry 的 `appearance: solid` 与 `solidParameters` 只改变可见投影：不透明表面、零模糊、无噪点、固定常规圆角和中性强调色；持久化的玻璃材质/参数、强调色和背景配置保持不变。`isSolidTheme()` 被 Glass Lab 和背景加载消费；纯色时收起玻璃专属控件、不加载背景，并拒绝切换前尚未完成的背景投影。`data-glass-style` 在 TypeScript、启动脚本与独立 Agent renderer 同步；独立窗口的主题及 swatch 变量 allowlist 必须接受全部九个 ID（包括 light-silver），其纯色样式禁用背景装饰和 backdrop filter。 独立窗口不经 Vite，因此 `scripts/production-symbol-compaction.cjs` 必须把 `agent-window-renderer.js` 与 `agent-window.css` 列为 protected sources：窗口共享的 appearance 变量名不能只在生产 Main Renderer 一侧改名。符号压缩专项和 `package:smoke -- --settings=<隔离配置> --check-agent-window` 分别校验符号稳定性及生产实窗颜色/模糊，并保存 `packaged-independent-agent.png`。`test:glass-theme` 校验启动镜像和配置往返；通用 `aidebug:gui` 与 `scripts/aidebug/harness/state-snapshot.mjs` 同步九张主题卡，并按 glass/solid 区分材质与参数控件；`aidebug:classic-themes` 使用同一隔离 Electron harness，覆盖设置点击/保存、1280×800 与 884×640、独立 Agent 窗口、两次真实冷启动和玻璃参数恢复，无真实模型请求。 `scripts/release/packaged-smoke.mjs` 在无网络制品冒烟中额外校验已保存主题与生产 Renderer 的 mode/canvas/solid 效果一致，并保存 `packaged-workspace.png`；设置参数仍来自隔离配置。
+普通黑白主题 `light-classic`（日间）和 `dark-classic`（夜间）仍由同一 registry、归一化和语义变量链路拥有。registry 的 `appearance: solid` 与 `solidParameters` 只改变可见投影：不透明表面、零模糊、无噪点、固定常规圆角和中性强调色；持久化的玻璃材质/参数、强调色和背景配置保持不变。`isSolidTheme()` 被 Glass Lab 和背景加载消费；纯色时收起玻璃专属控件、不加载背景，并拒绝切换前尚未完成的背景投影。`data-glass-style` 在 TypeScript、启动脚本与独立 Agent renderer 同步；独立窗口的主题及 swatch 变量 allowlist 必须接受全部九个 ID（包括 light-silver），其纯色样式禁用背景装饰和 backdrop filter。 独立窗口不经 Vite，因此 `scripts/production-symbol-compaction.cjs` 必须把 `agent-window-renderer.js` 与 `agent-window.css` 列为 protected sources：窗口共享的 appearance 变量名不能只在生产 Main Renderer 一侧改名。符号压缩专项和 `package:smoke -- --settings=<隔离配置> --check-agent-window` 分别校验符号稳定性及生产实窗颜色/模糊，并保存 `packaged-independent-agent.png`。`test:glass-theme` 校验启动镜像和配置往返；通用 `aidebug:gui` 与 `scripts/aidebug/harness/state-snapshot.mjs` 同步九张主题卡，并按 glass/solid 区分材质与参数控件；`aidebug:classic-themes` 使用同一隔离 Electron harness，覆盖设置点击/保存、1280×800 与 884×640、独立 Agent 窗口、两次真实冷启动和玻璃参数恢复，无真实模型请求。 `scripts/release/packaged-smoke.mjs` 在无网络制品冒烟中额外校验已保存主题与生产 Renderer 的 mode/canvas/solid 效果一致，并保存 `packaged-workspace.png`；设置参数仍来自隔离配置。
 
 ```text
 runtime/glass-theme-presets.json（九套主题：七玻璃 + 两纯色、三套玻璃材质、强调色与参数范围）
@@ -357,8 +363,8 @@ runtime/glass-theme-presets.json（九套主题：七玻璃 + 两纯色、三套
        → glassAppearanceProjection()
        → applyGlassAppearanceToRoot()
 
-index.html 的静态 dark-ember + frosted fallback
-  → public/glass-theme-bootstrap.js 在 React/Vite 入口前读取 naimage.glassTheme.bootstrap.v1
+index.html 的静态 light-classic 日间实色 fallback
+  → public/glass-theme-bootstrap.js 在 React/Vite 入口前读取 naimage.glassTheme.bootstrap.v1（无效/不存在时兼容 naimage.glassAppearance.v1）
   → 只信任 glassTheme / glassMaterial / glassParameters 并重新计算变量
   → documentElement datasets / classes / CSS variables
   → src/main.tsx settingsWithGlassBootstrap(defaultSettings) 让首个 React frame 复用同一安全外观子集
@@ -368,11 +374,11 @@ index.html 的静态 dark-ember + frosted fallback
 
 `runtime/glass-theme-presets.json` 是运行时 registry 的 canonical 数据源；`public/glass-theme-bootstrap.js` 为了在 Vite bundle 执行前工作而保留一份启动期投影镜像，必须由 `test:glass-theme` 对九主题、三材质、强调色和变量逐项防漂移。第七套 `light-silver` 显示为“雾银玻璃”，复用同一 token 投影而不增加第二套样式系统。bootstrap snapshot 固定为 `naimage-glass-theme-bootstrap` v1，只包含 `glassTheme`、`glassMaterial`、`glassParameters.{opacity,blur,saturation,highlight,shadow,radius,accent,noise,reduceMotion}` 及可重建投影，不包含账号、Key、Cookie、Prompt 或项目数据；启动脚本忽略持久化的 `variables`，防止任意 CSS 值被直接信任。
 
-根节点合同包括 `data-glass-theme`、`data-glass-style`（glass/solid）、`data-glass-mode`、`data-glass-material`、`data-glass-accent`、`data-glass-accent-resolved`、`data-glass-noise`、`data-glass-reduce-motion`，以及 `glass-theme-active`、`theme-light|theme-dark`、`glass-no-noise`、`glass-reduce-motion`。新装默认是“蜜橘融光” (`dark-ember + frosted`)。Electron 的完整设置仍以 Main 磁盘配置为 authority；`settingsWithGlassBootstrap()` 只把无凭据的 Glass 子集借给首个 React frame，避免 bootstrap 已恢复的非默认主题被异步磁盘加载前的默认 state 短暂覆盖。`GlassThemeProvider` 不渲染 DOM wrapper，只更新根 datasets、classes 和 CSS variables；切换主题、材质或自定义参数不得卸载、重建或重新初始化画布。
+根节点合同包括 `data-glass-theme`、`data-glass-style`（glass/solid）、`data-glass-mode`、`data-glass-material`、`data-glass-accent`、`data-glass-accent-resolved`、`data-glass-noise`、`data-glass-reduce-motion`，以及 `glass-theme-active`、`theme-light|theme-dark`、`glass-no-noise`、`glass-reduce-motion`。新装默认是“日间” (`light-classic`)，仅无显式主题的空配置采用新默认；旧 `theme:dark` 保留 dark-rose，旧 light/system 保留原 dark-ember fallback，明确 glassTheme 优先。Main 与 Renderer 镜像由 settings-persistence 专项覆盖。Electron 的完整设置仍以 Main 磁盘配置为 authority；`settingsWithGlassBootstrap()` 只把无凭据的 Glass 子集借给首个 React frame，避免 bootstrap 已恢复的非默认主题被异步磁盘加载前的默认 state 短暂覆盖。`GlassThemeProvider` 不渲染 DOM wrapper，只更新根 datasets、classes 和 CSS variables；切换主题、材质或自定义参数不得卸载、重建或重新初始化画布。
 
 Glass Lab 的自然异步链路是：顶栏 `.workspace-glass-lab-button` 或素材轨设置按钮 → `LazySettingsDrawer` → 外观 section → `LazyGlassLab` → `src/glass-lab.tsx` 同 chunk 导入 `src/styles/04b-glass-lab.css`。Glass 全局 token/兼容桥由 `src/styles/01-liquid-glass-tokens.css` 持有，chrome、Agent、素材轨、工具栏、菜单/对话框/设置、输入框、浮动控件以及图片容器、成果/Requirement/科研 Panel 节点外壳由 `src/styles/07j-liquid-glass-surfaces.css` 和对应领域异步样式共同持有。节点的框架、标题区和控件可透明玻璃化；实际图片/视频 artwork 与成果预览像素层必须保持不透明、原色，并显式禁用 `filter`、`backdrop-filter` 与混合模式。共享字体 token 由 `src/styles/01-base-controls.css` 维持 12/13/14/15 px 的紧凑可读层级，Agent 正文/状态/输入和模型菜单在 `07g-agent-panel-overrides.css` 使用对应关键字号。项目搜索浮层必须以近实色 `--glass-menu-surface` 绘制并关闭 backdrop filter，避免下层 artwork 穿透；文字、菜单和选中态维持可读对比，玻璃增强不得引入高成本画布特效或拖动延迟。
 
-主题入口对用户显示“主题”（`aria-label="切换界面主题"`），小窗口保留文字；设置外观页标题为“界面主题”，简洁白色 / 简洁黑色在第一个主题组。`SettingsDrawer` 分类按钮的 `data-settings-section` 对应 `activeSection`；`SurfaceBody key={activeSection}` 在切换分类时创建新的滚动容器，避免继承其他分类的滚动位置而遮住顶部按钮，草稿继续由 Drawer 持有，画布不受影响。`aidebug:classic-themes` 额外从滚动过的 Agent 分类返回外观，断言两张黑白卡在滚动视口内且鼠标命中，实际点击两套主题，并检查 884×640 顶栏入口。生产验证 `package:smoke -- --check-theme-entry` 使用语义属性、实际鼠标输入和截图，覆盖相同小窗口导航与两套主题；可和 `--check-agent-window` 合并，不依赖仅开发模式存在的 debug hook。
+主题入口对用户显示“主题”（`aria-label="切换界面主题"`），小窗口保留文字；设置外观页标题为“界面主题”，日间 / 夜间在首屏，其他七主题及玻璃/背景参数在默认折叠的“更多外观”。`SettingsDrawer` 分类按钮的 `data-settings-section` 对应 `activeSection`；`SurfaceBody key={activeSection}` 在切换分类时创建新的滚动容器，避免继承其他分类的滚动位置而遮住顶部按钮，草稿继续由 Drawer 持有，画布不受影响。`aidebug:classic-themes` 额外从滚动过的 Agent 分类返回外观，断言两张黑白卡在滚动视口内且鼠标命中，实际点击两套主题，并检查 884×640 顶栏入口。生产验证 `package:smoke -- --check-theme-entry` 使用语义属性、实际鼠标输入和截图，覆盖相同小窗口导航与两套主题；可和 `--check-agent-window` 合并，不依赖仅开发模式存在的 debug hook。
 
 生产压缩必须保留 boolean 类型：`vite.config.ts` 的 Terser `booleans_as_integers` 固定为 false。Glass Lab 的分组判定使用 `isSolidTheme(option.id) === group.solid`，若把 literal 编译成 1/0，会和其他 chunk 返回的 boolean 严格比较失败，使两组卡片全部消失；IPC 接收端同样需要真实 boolean。上述生产 UI 冒烟实际检查卡片可见并点击，主题颜色 fixture 本身不能证明按钮可用。其窗口缩放使用既有隔离验证 `naimageConfig.debugWindowBounds` IPC 与 CDP viewport，UI 动作通过实际鼠标输入完成，未增加生产 Renderer 的诊断控制面。
 

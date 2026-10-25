@@ -39,8 +39,8 @@ const THEME_DETAILS: Record<GlassThemeId, string> = {
   "light-lemon": "浅色 · 黄",
   "light-sky": "浅色 · 蓝",
   "light-blush": "浅色 · 粉橙",
-  "light-classic": "白底 · 纯色",
-  "dark-classic": "黑底 · 纯色",
+  "light-classic": "浅色 · 实色",
+  "dark-classic": "深色 · 实色",
 };
 
 const THEME_OPTIONS = GLASS_THEME_IDS.map((id) => ({
@@ -179,15 +179,12 @@ export default function GlassLab({
         <div className="settings-section-header">
           <div>
             <h4 id="glass-theme-heading">外观主题</h4>
-            <small>简洁黑白或彩色玻璃，切换时保留当前作品和对话。</small>
+            <small>切换日间、夜间时保留当前作品和对话。</small>
           </div>
           <span className="settings-update-status available">实时预览</span>
         </div>
-        {[{ label: "简洁主题", solid: true }, { label: "彩色玻璃主题", solid: false }].map((group) => (
-          <div className="glass-theme-group" key={group.label}>
-            <strong className="glass-theme-group-label">{group.label}</strong>
-            <div className="glass-theme-grid" role="group" aria-label={group.label}>
-          {THEME_OPTIONS.filter((option) => isSolidTheme(option.id) === group.solid).map((option) => {
+        <div className="glass-theme-grid" role="group" aria-label="日间与夜间主题">
+          {THEME_OPTIONS.filter((option) => isSolidTheme(option.id)).map((option) => {
             const active = glassTheme === option.id;
             return (
               <ButtonBase
@@ -206,11 +203,40 @@ export default function GlassLab({
               </ButtonBase>
             );
           })}
-            </div>
-          </div>
-        ))}
-        {solid ? <p className="glass-theme-note">纯色界面不使用模糊、噪点或背景图片。切回玻璃主题后恢复原来的外观设置。</p> : null}
+        </div>
+        {!solid ? <p className="glass-theme-note" data-glass-current-theme="true">当前：{glassThemeRegistry.themes[glassTheme].name}。可在“更多外观”中调整。</p> : null}
       </section>
+
+      <details className="glass-more-appearance" data-glass-section="more">
+        <summary>
+          <strong>更多外观</strong>
+          <small>其他主题、玻璃和背景偏好</small>
+        </summary>
+        <div className="glass-more-appearance-body">
+          <section className="glass-lab-section" aria-labelledby="glass-more-theme-heading" data-glass-section="more-themes">
+            <div className="settings-section-header">
+              <div>
+                <h4 id="glass-more-theme-heading">其他主题</h4>
+                <small>保留原主题和外观参数，切回后恢复。</small>
+              </div>
+            </div>
+            <div className="glass-theme-grid" role="group" aria-label="其他外观主题">
+              {THEME_OPTIONS.filter((option) => !isSolidTheme(option.id)).map((option) => (
+                <ButtonBase
+                  key={option.id}
+                  className={`glass-theme-card${glassTheme === option.id ? " active" : ""}`}
+                  data-glass-theme={option.id}
+                  aria-label={`${option.name}${option.detail.replace(" · ", "")}主题`}
+                  aria-pressed={glassTheme === option.id}
+                  onClick={() => onChange(withGlassTheme(settings, option.id))}
+                >
+                  <span className="glass-theme-swatch" aria-hidden="true" />
+                  <span><strong>{option.name}</strong><small>{option.detail}</small></span>
+                </ButtonBase>
+              ))}
+            </div>
+            {solid ? <p className="glass-theme-note">日间与夜间使用实色界面。选择其他主题后可调整已保留的玻璃和背景偏好。</p> : null}
+          </section>
 
       {!solid ? <>
       <section className="glass-lab-section" aria-labelledby="glass-background-heading" data-glass-section="background">
@@ -480,6 +506,8 @@ export default function GlassLab({
           <span><strong>内容层保持清晰</strong><small>图片与画布内容不应用透明度或背景模糊。</small></span>
         </div>
       </section>
+        </div>
+      </details>
     </div>
   );
 }

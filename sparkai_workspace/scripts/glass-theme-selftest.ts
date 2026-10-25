@@ -83,8 +83,8 @@ assert.deepEqual(
     "light-lemon": "柠檬晶糖",
     "light-sky": "天青冰璃",
     "light-blush": "蜜桃珍珠",
-    "light-classic": "简洁白色",
-    "dark-classic": "简洁黑色"
+    "light-classic": "日间",
+    "dark-classic": "夜间"
   }
 );
 
@@ -127,20 +127,21 @@ for (const themeId of ["light-silver", "light-lemon", "light-sky", "light-blush"
     `${themeId} first-frame CSS muted token must match the registry`
   );
 }
-assert.equal(scopedCssVariable(liquidGlassCss, ":root", "--glass-muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
-assert.equal(scopedCssVariable(indexHtml, ":root", "--theme-muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
-assert.equal(scopedCssVariable(agentWindowCss, ":root", "--muted"), glassThemeRegistry.themes["dark-ember"].tokens.muted);
+const defaultTheme = glassThemeRegistry.themes[glassThemeRegistry.defaults.theme];
+assert.equal(scopedCssVariable(liquidGlassCss, ":root", "--glass-muted"), defaultTheme.tokens.muted);
+assert.equal(scopedCssVariable(indexHtml, ":root", "--theme-muted"), defaultTheme.tokens.muted);
+assert.equal(scopedCssVariable(agentWindowCss, ":root", "--muted"), defaultTheme.tokens.muted);
 
 const defaults = normalizeGlassThemeSettings();
 assert.deepEqual(defaults, {
-  glassTheme: "dark-ember",
+  glassTheme: "light-classic",
   glassMaterial: "frosted",
   glassParameters: {
-    opacity: 22,
-    blur: 26,
-    saturation: 138,
-    highlight: 34,
-    shadow: 40,
+    opacity: 44,
+    blur: 28,
+    saturation: 128,
+    highlight: 70,
+    shadow: 18,
     radius: 14,
     accent: "theme",
     noise: true,
@@ -191,11 +192,11 @@ const clamped = normalizeGlassThemeSettings({
     reduceMotion: 1
   }
 });
-assert.equal(clamped.glassTheme, "dark-ember");
+assert.equal(clamped.glassTheme, "light-classic");
 assert.deepEqual(clamped.glassParameters, {
   opacity: 8,
   blur: 48,
-  saturation: 138,
+  saturation: 128,
   highlight: 70,
   shadow: 0,
   radius: 24,
@@ -208,6 +209,12 @@ const legacyDark = mergeSettings({ theme: "dark", themePalette: "anthropic" });
 assert.equal(legacyDark.theme, "dark", "legacy field remains readable");
 assert.equal(legacyDark.themePalette, "anthropic", "legacy palette remains readable");
 assert.equal(legacyDark.glassTheme, "dark-rose", "legacy dark settings migrate conservatively");
+assert.equal(mergeSettings({}).glassTheme, "light-classic", "a fresh install uses the day theme");
+assert.equal(mergeSettings({ theme: "light" }).glassTheme, "dark-ember", "legacy light retains its previous fallback");
+assert.equal(mergeSettings({ theme: "system" }).glassTheme, "dark-ember", "legacy system retains its previous fallback");
+for (const glassTheme of GLASS_THEME_IDS) {
+  assert.equal(mergeSettings({ theme: "dark", glassTheme }).glassTheme, glassTheme, "saved glass themes take precedence over the legacy field");
+}
 assert.equal(mergeSettings({ glassTheme: "light-blush", glassMaterial: "clear" }).glassParameters.opacity, 24);
 
 const safeSnapshot = glassThemeBootstrapSnapshot({
@@ -319,6 +326,19 @@ function runBootstrap(storage: MemoryStorage) {
   return { root, classList, style, bootWindow };
 }
 
+const freshBootstrap = runBootstrap(new MemoryStorage());
+assert.equal(freshBootstrap.root.dataset.glassTheme, "light-classic");
+assert.equal(freshBootstrap.root.dataset.glassStyle, "solid");
+assert.equal(freshBootstrap.root.dataset.glassNoise, "off");
+assert.equal(freshBootstrap.style.getPropertyValue("--theme-canvas"), "#f6f6f6");
+
+for (const [theme, expected] of [["dark", "dark-rose"], ["light", "dark-ember"], ["system", "dark-ember"]]) {
+  const legacyStorage = new MemoryStorage();
+  legacyStorage.setItem("naimage.glassAppearance.v1", JSON.stringify({ theme }));
+  assert.equal(runBootstrap(legacyStorage).root.dataset.glassTheme, expected, `legacy bootstrap ${theme} must not adopt the new-install default`);
+  assert.equal(settingsWithGlassBootstrap(defaultSettings, legacyStorage).glassTheme, expected, `legacy bootstrap ${theme} must survive the first React frame`);
+}
+
 const bootstrapStorage = new MemoryStorage();
 bootstrapStorage.setItem(STORAGE_GLASS_THEME_BOOTSTRAP, JSON.stringify(safeSnapshot));
 const bootstrapped = runBootstrap(bootstrapStorage);
@@ -416,7 +436,21 @@ for (const glassTheme of ["light-classic", "dark-classic"] as const) {
   assert.equal(projection.variables["--glass-alpha"], "1");
   assert.equal(projection.variables["--glass-blur"], "0px");
   assert.equal(projection.variables["--noise-opacity"], "0");
+  assert.equal(projection.variables["--glass-shadow"], "0");
   assert.equal(projection.variables["--accent"], glassThemeRegistry.themes[glassTheme].tokens.accent);
+  const semantic = glassThemeRegistry.themes[glassTheme].solidTokens!;
+  const tokens = glassThemeRegistry.themes[glassTheme].tokens;
+  assert.equal(projection.variables["--theme-line"], semantic.line);
+  assert.equal(projection.variables["--theme-line-strong"], semantic.lineStrong);
+  assert.equal(projection.variables["--theme-focus"], semantic.focus);
+  assert.equal(projection.variables["--theme-hover-bg"], semantic.hover);
+  assert.equal(projection.variables["--theme-active-bg"], semantic.active);
+  for (const background of [tokens.canvas, tokens.surfaceSolid, tokens.surfaceRaised, semantic.hover, semantic.active]) {
+    assert(contrastRatio(tokens.ink, background) >= 4.5, `${glassTheme} body contrast on ${background}`);
+    assert(contrastRatio(tokens.muted, background) >= 4.5, `${glassTheme} auxiliary contrast on ${background}`);
+    assert(contrastRatio(semantic.lineStrong, background) >= 3, `${glassTheme} input boundary contrast on ${background}`);
+    assert(contrastRatio(semantic.focus, background) >= 3, `${glassTheme} focus contrast on ${background}`);
+  }
   assert(contrastRatio(projection.variables["--accent"], projection.variables["--accent-ink"]) >= 4.5);
   assert(contrastRatio(glassThemeRegistry.themes[glassTheme].tokens.muted, projection.variables["--theme-canvas"]) >= 4.5);
   const background = {
@@ -457,6 +491,8 @@ legacyBootstrapStorage.setItem("naimage.glassAppearance.v1", JSON.stringify({
   variables: { "--theme-canvas": "#f8ebee" }
 }));
 const legacyBootstrap = runBootstrap(legacyBootstrapStorage);
+assert.equal(settingsWithGlassBootstrap(defaultSettings, legacyBootstrapStorage).glassTheme, "light-blush");
+assert.equal(settingsWithGlassBootstrap(defaultSettings, legacyBootstrapStorage).glassParameters.noise, false);
 assert.equal(legacyBootstrap.root.dataset.glassTheme, "light-blush");
 assert.equal(legacyBootstrap.root.dataset.glassMaterial, "clear");
 assert.equal(legacyBootstrap.root.dataset.glassNoise, "off");

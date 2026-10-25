@@ -345,7 +345,8 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
   const glassAppearance = normalizeGlassThemeSettings({
-    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : defaultSettings.glassTheme),
+    // An explicit legacy theme is an existing preference, not a fresh install.
+    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : source.theme === "light" || source.theme === "system" ? "dark-ember" : defaultSettings.glassTheme),
     glassMaterial: source.glassMaterial,
     glassParameters: source.glassParameters
   });
@@ -455,17 +456,23 @@ export function readGlassThemeBootstrapSnapshot(
   storage: BootstrapStorageReader | null = availableLocalStorage()
 ): GlassThemeBootstrapSnapshot {
   if (!storage) return glassThemeBootstrapSnapshot(defaultSettings);
+  let parsed: Record<string, unknown> | null = null;
   try {
     const raw = storage.getItem(STORAGE_GLASS_THEME_BOOTSTRAP);
-    if (!raw) return glassThemeBootstrapSnapshot(defaultSettings);
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    if (parsed?.schemaVersion !== 1 || parsed?.type !== "naimage-glass-theme-bootstrap") {
-      return glassThemeBootstrapSnapshot(defaultSettings);
+    parsed = raw ? JSON.parse(raw) as Record<string, unknown> : null;
+  } catch { /* A damaged new snapshot may still have a valid legacy fallback. */ }
+  if (parsed?.schemaVersion === 1 && parsed?.type === "naimage-glass-theme-bootstrap") return glassThemeBootstrapSnapshot(parsed);
+  try {
+    const legacy = JSON.parse(storage.getItem("naimage.glassAppearance.v1") || "null") as Record<string, unknown> | null;
+    if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
+      return glassThemeBootstrapSnapshot({
+        glassTheme: legacy.glassTheme || (legacy.theme === "dark" ? "dark-rose" : legacy.theme === "light" || legacy.theme === "system" ? "dark-ember" : legacy.theme),
+        glassMaterial: legacy.glassMaterial || legacy.material,
+        glassParameters: legacy.glassParameters || { accent: legacy.accent, noise: legacy.noise, reduceMotion: legacy.reduceMotion }
+      });
     }
-    return glassThemeBootstrapSnapshot(parsed);
-  } catch {
-    return glassThemeBootstrapSnapshot(defaultSettings);
-  }
+  } catch { /* Match the startup script's safe default for invalid local data. */ }
+  return glassThemeBootstrapSnapshot(defaultSettings);
 }
 
 /**

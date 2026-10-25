@@ -1069,7 +1069,7 @@ export default function SettingsDrawer({
                 <div className="settings-section-header">
                   <div>
                     <h3 id="settings-appearance-heading" className="settings-appearance-title">界面主题</h3>
-                    <small>选择简洁黑白或彩色玻璃，调整界面外观。</small>
+                    <small>选择日间或夜间；更多主题与玻璃参数保留在“更多外观”。</small>
                   </div>
                   <span className="settings-update-status available">项目外观</span>
                 </div>

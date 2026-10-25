@@ -4,25 +4,26 @@
 
 :root {
   color-scheme: light;
-  --theme-bg: #f4f4fb;
-  --theme-canvas: #f8f8ff;
-  --theme-surface: #f1f1f8;
+  --theme-bg: #f6f6f6;
+  --theme-canvas: #f6f6f6;
+  --theme-surface: #ffffff;
   --theme-surface-solid: #ffffff;
   --theme-surface-raised: #ffffff;
-  --theme-ink: #202033;
-  --theme-ink-soft: #505066;
-  --theme-muted: #77778d;
-  --theme-line: #d8d7e6;
-  --theme-line-strong: #c5c3d9;
-  --theme-accent: #675df5;
-  --theme-accent-strong: #5146d8;
-  --theme-blue: #278bd2;
-  --theme-rose: #cc4f71;
+  --theme-ink: #242424;
+  --theme-ink-soft: #666666;
+  --theme-muted: #666666;
+  --theme-line: #e3e3e3;
+  --theme-line-strong: #858585;
+  --theme-focus: #5d5d5d;
+  --theme-accent: #242424;
+  --theme-accent-strong: #242424;
+  --theme-blue: #666666;
+  --theme-rose: #c4473d;
   --theme-amber: #ad741c;
-  --theme-green: #0e9488;
+  --theme-green: #278662;
   --theme-control-bg: #ffffff;
-  --theme-hover-bg: #ecebff;
-  --theme-active-bg: #dedcff;
+  --theme-hover-bg: #f0f0f0;
+  --theme-active-bg: #e8e8e8;
   --bg: var(--theme-bg);
   --canvas: var(--theme-canvas);
   --surface: var(--theme-surface);
@@ -49,9 +50,9 @@
   --shadow: none;
   --small-shadow: none;
   --hairline: var(--line);
-  --focus-ring: 0 0 0 1px var(--accent);
-  --control-h: 30px;
-  --control-h-sm: 26px;
+  --focus-ring: 0 0 0 2px var(--theme-focus);
+  --control-h: 34px;
+  --control-h-sm: 32px;
   --panel-pad: 10px;
   --panel-bg: var(--surface-solid);
   --panel-bg-flat: var(--surface-solid);
@@ -63,7 +64,7 @@
   --font-ui: 14px;
   --font-title: 15px;
   --font-family-ui: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  --radius: 2px;
+  --radius: 6px;
   --node-w: 260px;
   --ii-workbench-min-width: 884px;
   --ui-surface-width: 620px;
@@ -100,25 +101,26 @@
 :root[data-theme="dark"],
 :root.theme-dark {
   color-scheme: dark;
-  --theme-bg: #1c1b28;
-  --theme-canvas: #1f1e2d;
-  --theme-surface: #252436;
-  --theme-surface-solid: #252436;
-  --theme-surface-raised: #2e2c42;
-  --theme-ink: #d8d7e7;
-  --theme-ink-soft: #bdbbd0;
-  --theme-muted: #9391aa;
-  --theme-line: #403e55;
-  --theme-line-strong: #514e69;
-  --theme-accent: #8179ff;
-  --theme-accent-strong: #a29cff;
-  --theme-blue: #4aa7e8;
-  --theme-rose: #f06a8b;
+  --theme-bg: #181818;
+  --theme-canvas: #181818;
+  --theme-surface: #202020;
+  --theme-surface-solid: #202020;
+  --theme-surface-raised: #282828;
+  --theme-ink: #ececec;
+  --theme-ink-soft: #b0b0b0;
+  --theme-muted: #b0b0b0;
+  --theme-line: #383838;
+  --theme-line-strong: #999999;
+  --theme-focus: #b7b7b7;
+  --theme-accent: #ececec;
+  --theme-accent-strong: #ececec;
+  --theme-blue: #b0b0b0;
+  --theme-rose: #ff8477;
   --theme-amber: #d7b266;
-  --theme-green: #4ec9b0;
-  --theme-control-bg: #2e2c42;
-  --theme-hover-bg: #312f46;
-  --theme-active-bg: #3b3856;
+  --theme-green: #78ddb2;
+  --theme-control-bg: #282828;
+  --theme-hover-bg: #303030;
+  --theme-active-bg: #343434;
   --bg: var(--theme-bg);
   --canvas: var(--theme-canvas);
   --surface: var(--theme-surface);
@@ -167,7 +169,7 @@
 }
 
 [data-ui-interactive="true"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  outline: 2px solid var(--theme-focus);
   outline-offset: 3px;
 }
 
@@ -411,7 +413,7 @@
 
 .ui-surface-eyebrow {
   color: var(--accent-strong);
-  font-size: 10px;
+  font-size: var(--font-xs);
   font-weight: 760;
   letter-spacing: 0.08em;
   line-height: 1.2;
@@ -423,7 +425,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -523,7 +525,7 @@
 .ui-field-label {
   min-width: 0;
   color: var(--ink-soft);
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   font-weight: 720;
   line-height: 1.35;
 }
@@ -535,7 +537,7 @@
   min-width: 0;
   min-height: var(--ui-action-h);
   padding: 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--ui-action-radius);
   outline: 0;
   color: var(--ink);
@@ -573,7 +575,7 @@ textarea::placeholder {
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--ui-action-radius);
   color: var(--ink);
   background: var(--control-bg);
@@ -670,13 +672,13 @@ textarea::placeholder {
 
 .glass-select-option-copy > strong {
   color: inherit;
-  font-size: 12px;
+  font-size: var(--font-ui);
   font-weight: 650;
 }
 
 .glass-select-option-copy > small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 
 :where(.ui-field[data-ui-field]) > :where(textarea),
@@ -840,7 +842,7 @@ select.ui-control {
   color: var(--ink);
   background: var(--control-bg);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-ui);
   font-weight: 650;
   white-space: nowrap;
   cursor: pointer;
@@ -860,7 +862,7 @@ select.ui-control {
 
 .ui-action-primary {
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-ink, #fff);
   background: var(--accent);
 }
 
@@ -984,7 +986,7 @@ select.ui-control {
 }
 
 .ui-segment-action {
-  min-height: 30px;
+  min-height: 32px;
   flex: 1 1 0;
   padding: 0 9px;
   border: 1px solid transparent;
@@ -1010,7 +1012,7 @@ select.ui-control {
 .ui-segment-action.active,
 .ui-segment-action[aria-pressed="true"] {
   border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
-  color: #fff;
+  color: var(--accent-ink, #fff);
   background: var(--accent);
 }
 
@@ -2410,10 +2412,7 @@ body {
   overflow: hidden;
   color: var(--ink);
   font-size: 14px;
-  background:
-    linear-gradient(120deg, rgba(19, 163, 151, 0.055), transparent 32%),
-    linear-gradient(300deg, rgba(79, 125, 217, 0.05), transparent 34%),
-    var(--bg);
+  background: var(--bg);
 }
 
 body.workspace-resizing {

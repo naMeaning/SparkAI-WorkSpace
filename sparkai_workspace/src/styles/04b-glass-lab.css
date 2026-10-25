@@ -38,6 +38,40 @@
   border-bottom: 0;
 }
 
+.glass-more-appearance {
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.glass-more-appearance > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.glass-more-appearance > summary strong {
+  font-size: var(--font-ui);
+  font-weight: 650;
+}
+
+.glass-more-appearance > summary small {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+
+.glass-more-appearance > summary:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.glass-more-appearance-body {
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
 .glass-lab .settings-section-header > div:first-child {
   min-width: 0;
   display: grid;
@@ -54,7 +88,7 @@
 
 .glass-lab .settings-section-header small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.45;
 }
 
@@ -72,16 +106,9 @@
   gap: 7px;
 }
 
-.glass-theme-group {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-}
-
-.glass-theme-group-label,
 .glass-theme-note {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.5;
 }
 
@@ -90,11 +117,15 @@
 }
 
 .glass-theme-card[data-glass-theme="light-classic"] .glass-theme-swatch {
-  background: linear-gradient(135deg, #ffffff 50%, #dddddd 50%);
+  border-color: #858585;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .glass-theme-card[data-glass-theme="dark-classic"] .glass-theme-swatch {
-  background: linear-gradient(135deg, #1e1e1e 50%, #555555 50%);
+  border-color: #999999;
+  background: #202020;
+  box-shadow: none;
 }
 
 .glass-theme-card,
@@ -105,7 +136,7 @@
   border: 1px solid var(--line);
   border-radius: clamp(7px, var(--glass-radius), 10px);
   color: var(--ink-soft);
-  background: color-mix(in srgb, var(--surface-raised) 68%, transparent);
+  background: var(--surface-raised);
   text-align: left;
   cursor: pointer;
   transition:
@@ -133,7 +164,7 @@
 .glass-material-card strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 12px;
+  font-size: var(--font-ui);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -143,7 +174,7 @@
 .glass-material-card small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -157,18 +188,23 @@
 .glass-theme-card[aria-pressed="true"],
 .glass-material-card.active,
 .glass-material-card[aria-pressed="true"] {
-  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  border-color: var(--line-strong);
   outline: 0;
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface-raised));
+  background: var(--hover-bg);
 }
 
 .glass-theme-card.active,
 .glass-theme-card[aria-pressed="true"],
 .glass-material-card.active,
 .glass-material-card[aria-pressed="true"] {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.44)),
-    0 0 0 2px rgba(var(--accent-rgb), 0.08);
+  background: var(--active-bg);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.glass-theme-card:focus-visible,
+.glass-material-card:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
 }
 
 .glass-theme-card:active,
@@ -509,7 +545,7 @@
 }
 
 .glass-range input[type="range"]:focus-visible {
-  outline: 2px solid rgba(var(--accent-rgb), 0.34);
+  outline: 2px solid var(--theme-focus);
   outline-offset: 2px;
 }
 
@@ -604,13 +640,13 @@
 
 .glass-toggle-row strong {
   color: var(--ink-soft);
-  font-size: 12px;
+  font-size: var(--font-ui);
 }
 
 .glass-toggle-row small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -657,7 +693,7 @@
 }
 
 .glass-toggle-row input:focus-visible + i {
-  outline: 2px solid rgba(var(--accent-rgb), 0.4);
+  outline: 2px solid var(--theme-focus);
   outline-offset: 2px;
 }
 

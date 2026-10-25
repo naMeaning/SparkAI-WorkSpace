@@ -954,7 +954,8 @@ function migrateSettings(value) {
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
   const glassAppearance = normalizeElectronGlassThemeSettings({
-    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : defaultSettings.glassTheme),
+    // Keep the same legacy mapping as Renderer; only an empty profile uses the new default.
+    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : source.theme === "light" || source.theme === "system" ? "dark-ember" : defaultSettings.glassTheme),
     glassMaterial: source.glassMaterial,
     glassParameters: source.glassParameters
   });

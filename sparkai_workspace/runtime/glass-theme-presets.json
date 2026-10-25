@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "type": "naimage-glass-theme-registry",
   "defaults": {
-    "theme": "dark-ember",
+    "theme": "light-classic",
     "material": "frosted",
     "accent": "theme",
     "noise": true,
@@ -20,7 +20,7 @@
     "dark-classic"
   ],
   "materialOrder": ["clear", "frosted", "dense"],
-  "solidParameters": { "opacity": 100, "blur": 0, "saturation": 100, "highlight": 0, "shadow": 8, "radius": 8 },
+  "solidParameters": { "opacity": 100, "blur": 0, "saturation": 100, "highlight": 0, "shadow": 0, "radius": 8 },
   "accentOrder": ["theme", "rose", "mint", "coral", "amber", "ice"],
   "ranges": {
     "opacity": { "min": 8, "max": 72, "step": 1, "unit": "%" },
@@ -195,47 +195,49 @@
       }
     },
     "light-classic": {
-      "name": "简洁白色",
+      "name": "日间",
       "mode": "light",
       "appearance": "solid",
       "accent": "ice",
+      "solidTokens": { "line": "#e3e3e3", "lineStrong": "#858585", "hover": "#f0f0f0", "active": "#e8e8e8", "focus": "#5d5d5d" },
       "tokens": {
         "glassRgb": "255, 255, 255",
-        "accent": "#262626",
-        "accentRgb": "38, 38, 38",
+        "accent": "#242424",
+        "accentRgb": "36, 36, 36",
         "accentInk": "#ffffff",
         "secondary": "#666666",
         "secondaryRgb": "102, 102, 102",
-        "canvas": "#f3f3f3",
+        "canvas": "#f6f6f6",
         "canvasTint": "rgba(0, 0, 0, 0)",
         "surfaceSolid": "#ffffff",
-        "surfaceRaised": "#f5f5f5",
+        "surfaceRaised": "#ffffff",
         "nodeBg": "#ffffff",
-        "ink": "#202020",
-        "inkSoft": "#454545",
+        "ink": "#242424",
+        "inkSoft": "#666666",
         "muted": "#666666"
       }
     },
     "dark-classic": {
-      "name": "简洁黑色",
+      "name": "夜间",
       "mode": "dark",
       "appearance": "solid",
       "accent": "ice",
+      "solidTokens": { "line": "#383838", "lineStrong": "#999999", "hover": "#303030", "active": "#343434", "focus": "#b7b7b7" },
       "tokens": {
-        "glassRgb": "30, 30, 30",
-        "accent": "#ededed",
-        "accentRgb": "237, 237, 237",
-        "accentInk": "#171717",
-        "secondary": "#aaaaaa",
-        "secondaryRgb": "170, 170, 170",
-        "canvas": "#141414",
+        "glassRgb": "32, 32, 32",
+        "accent": "#ececec",
+        "accentRgb": "236, 236, 236",
+        "accentInk": "#202020",
+        "secondary": "#b0b0b0",
+        "secondaryRgb": "176, 176, 176",
+        "canvas": "#181818",
         "canvasTint": "rgba(0, 0, 0, 0)",
-        "surfaceSolid": "#1e1e1e",
-        "surfaceRaised": "#2b2b2b",
-        "nodeBg": "#1e1e1e",
-        "ink": "#f5f5f5",
-        "inkSoft": "#d0d0d0",
-        "muted": "#aaaaaa"
+        "surfaceSolid": "#202020",
+        "surfaceRaised": "#282828",
+        "nodeBg": "#202020",
+        "ink": "#ececec",
+        "inkSoft": "#b0b0b0",
+        "muted": "#b0b0b0"
       }
     },
     "light-blush": {

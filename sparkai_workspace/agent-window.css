@@ -1,24 +1,24 @@
 :root {
-  color-scheme: dark;
-  --bg: #110c08;
-  --surface: #1d1712;
-  --surface-soft: rgba(255, 255, 255, 0.065);
-  --line: rgba(255, 255, 255, 0.1);
-  --line-strong: rgba(255, 255, 255, 0.18);
-  --ink: #fff9f3;
-  --muted: #a18c79;
-  --accent: #ff9867;
-  --accent-strong: #ffb18d;
-  --accent-ink: #3c1707;
-  --danger: #ff8477;
-  --glass-rgb: 54, 34, 22;
-  --glass-alpha: 0.22;
-  --glass-blur: 26px;
-  --glass-saturation: 138%;
-  --glass-highlight: 0.34;
-  --glass-shadow: 0.4;
-  --glass-radius: 14px;
-  --glass-noise-opacity: 0.025;
+  color-scheme: light;
+  --bg: #f6f6f6;
+  --surface: #ffffff;
+  --surface-soft: #f0f0f0;
+  --line: #e3e3e3;
+  --line-strong: #858585;
+  --ink: #242424;
+  --muted: #666666;
+  --accent: #242424;
+  --accent-strong: #3d3d3d;
+  --accent-ink: #ffffff;
+  --danger: #c4473d;
+  --glass-rgb: 255, 255, 255;
+  --glass-alpha: 1;
+  --glass-blur: 0px;
+  --glass-saturation: 100%;
+  --glass-highlight: 0;
+  --glass-shadow: 0;
+  --glass-radius: 8px;
+  --glass-noise-opacity: 0;
   --font-xs: 12px;
   --font-sm: 13px;
   --font-ui: 14px;
@@ -76,8 +76,10 @@ body {
   margin: 0;
   overflow: hidden;
   color: var(--ink);
-  background: var(--bg);
+  background: transparent;
 }
+
+:root[data-agent-ready="true"] body { background: var(--bg); }
 
 button,
 select,
@@ -87,8 +89,8 @@ textarea {
 
 button,
 select {
-  min-height: 30px;
-  border: 1px solid var(--line);
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   color: var(--ink);
   background: var(--surface);
@@ -98,25 +100,31 @@ button {
   cursor: pointer;
 }
 
-button:hover,
+button:hover {
+  background: var(--surface-soft);
+}
+
 button:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   border-color: var(--accent);
-  outline: 2px solid color-mix(in srgb, var(--accent) 26%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid var(--theme-focus, var(--accent));
+  outline-offset: 2px;
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.52;
+  color: var(--muted);
 }
 
 .agent-shell {
   height: 100dvh;
   display: grid;
   grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
+  visibility: hidden;
 }
+
+:root[data-agent-ready="true"] .agent-shell { visibility: visible; }
 
 .agent-header {
   grid-row: 1;
@@ -173,6 +181,7 @@ button:disabled {
 
 .agent-header-actions {
   min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -181,7 +190,10 @@ button:disabled {
 .agent-header-actions select {
   min-width: 0;
   max-width: 145px;
+  flex: 1 1 80px;
 }
+
+.agent-header-actions button { flex-shrink: 0; white-space: nowrap; }
 
 .agent-status {
   grid-row: 2;
@@ -358,7 +370,7 @@ button:disabled {
 }
 
 .message-content {
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.58;
 }
 
@@ -628,11 +640,17 @@ button:disabled {
   --glass-readable-surface-fill: color-mix(in srgb, var(--surface) 94%, rgb(var(--glass-rgb)));
   --glass-readable-surface-fill-strong: color-mix(in srgb, var(--surface) 98%, rgb(var(--glass-rgb)));
   --glass-menu-surface: var(--glass-readable-surface-fill-strong);
+  --glass-message-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
+    0 9px 24px rgba(0, 0, 0, calc(var(--glass-shadow) * 0.42));
 }
 
 :root[data-glass-style="solid"] {
   --glass-backdrop-filter: none;
   --glass-message-backdrop-filter: none;
+  --glass-readable-surface-fill: var(--surface);
+  --glass-readable-surface-fill-strong: var(--theme-surface-raised, var(--surface));
+  --glass-message-shadow: none;
 }
 
 :root[data-glass-style="solid"] body {
@@ -679,9 +697,7 @@ button:disabled {
   background: var(--glass-readable-surface-fill-strong);
   -webkit-backdrop-filter: var(--glass-message-backdrop-filter);
   backdrop-filter: var(--glass-message-backdrop-filter);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
-    0 9px 24px rgba(0, 0, 0, calc(var(--glass-shadow) * 0.42));
+  box-shadow: var(--glass-message-shadow);
 }
 
 :root.glass-theme-active .message.user {

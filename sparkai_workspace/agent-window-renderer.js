@@ -40,7 +40,7 @@ const goalConfirmationHashPattern = /^goal-[a-f0-9]{32}$/;
 const glassThemeIds = new Set(["dark-rose", "dark-ember", "dark-emerald", "light-silver", "light-lemon", "light-sky", "light-blush", "light-classic", "dark-classic"]);
 const glassMaterialIds = new Set(["clear", "frosted", "dense", "custom"]);
 const glassAccentIds = new Set(["theme", "rose", "mint", "coral", "amber", "ice"]);
-const glassVariableNamePattern = /^--(?:glass-(?:rgb|opacity|alpha|blur|saturation|highlight|shadow|radius|noise-opacity|motion-duration|accent-(?:rose|mint|coral|amber|ice)|swatch-(?:dark-rose|dark-ember|dark-emerald|light-silver|light-lemon|light-sky|light-blush|light-classic|dark-classic)-(?:canvas|accent|surface))|noise-opacity|accent|accent-rgb|accent-ink|secondary|secondary-rgb|canvas-tint|node-bg|solid-control|solid-control-hover|success|danger|theme-(?:bg|canvas|surface|surface-solid|surface-raised|ink|ink-soft|muted|line|line-strong|accent|accent-strong|blue|rose|amber|green|control-bg|hover-bg|active-bg))$/;
+const glassVariableNamePattern = /^--(?:glass-(?:rgb|opacity|alpha|blur|saturation|highlight|shadow|radius|noise-opacity|motion-duration|accent-(?:rose|mint|coral|amber|ice)|swatch-(?:dark-rose|dark-ember|dark-emerald|light-silver|light-lemon|light-sky|light-blush|light-classic|dark-classic)-(?:canvas|accent|surface))|noise-opacity|accent|accent-rgb|accent-ink|secondary|secondary-rgb|canvas-tint|node-bg|solid-control|solid-control-hover|success|danger|theme-(?:bg|canvas|surface|surface-solid|surface-raised|ink|ink-soft|muted|line|line-strong|focus|accent|accent-strong|blue|rose|amber|green|control-bg|hover-bg|active-bg))$/;
 
 function command(payload) {
   bridge?.command?.(payload);
@@ -72,6 +72,7 @@ function applyLegacyAppearance(state) {
   for (const [target, source] of Object.entries(customThemeMap)) {
     document.documentElement.style[customColors?.[source] ? "setProperty" : "removeProperty"](target, customColors?.[source]);
   }
+  document.documentElement.dataset.agentReady = "true";
 }
 
 function applyGlassAppearance(state) {
@@ -131,6 +132,7 @@ function applyGlassAppearance(state) {
     if (value) root.style.setProperty(target, value);
   }
   root.style.colorScheme = mode;
+  root.dataset.agentReady = "true";
 }
 
 function element(tag, className, text) {

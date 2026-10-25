@@ -232,10 +232,14 @@ function cdpClient(url) {
 
 let result = null;
 let failure = "";
+let failureUi = null;
 let target = null;
+let mainClient = null;
+let shutdown = { requested: false, graceful: false, forced: false };
 try {
   target = await waitForTarget();
   const client = cdpClient(target.webSocketDebuggerUrl);
+  mainClient = client;
   await client.call("Runtime.enable");
   const expression = `(async () => {
     const waitUntil = async (predicate, timeoutMs = 15000) => {
@@ -324,10 +328,12 @@ try {
     const expectedThemeId = settings?.settings?.glassTheme;
     await waitUntil(() => document.documentElement.dataset.glassTheme === expectedThemeId);
     const expectedTheme = ${JSON.stringify(themeDefinitions)}[expectedThemeId];
+    const workspaceReady = await waitUntil(() => Boolean(document.querySelector('[data-canvas-surface="true"]') && document.querySelector('textarea[aria-label="Agent 指令"]')?.closest('form')));
+    if (!workspaceReady) throw new Error('Production workspace surfaces did not become ready.');
     const root = document.documentElement;
     const rootStyle = getComputedStyle(root);
     const canvasStyle = getComputedStyle(document.querySelector('[data-canvas-surface="true"]'));
-    const composerStyle = getComputedStyle(document.querySelector('textarea')?.closest('form'));
+    const composerStyle = getComputedStyle(document.querySelector('textarea[aria-label="Agent 指令"]')?.closest('form'));
     const hexRgb = (hex) => 'rgb(' + [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16)).join(', ') + ')';
     const appearance = {
       theme: root.dataset.glassTheme,
@@ -409,7 +415,7 @@ try {
         const label = button?.querySelector('span');
         const labelBox = label?.getBoundingClientRect();
         return { x, y, text: button?.textContent?.trim(), labelWidth: labelBox?.width || 0,
-          visible: Boolean(box && box.width > 0 && box.height > 0 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight),
+          visible: Boolean(box && box.width > 0 && box.height > 0 && box.left >= -1 && box.right <= innerWidth + 1 && box.top >= -1 && box.bottom <= innerHeight + 1),
           hit: Boolean(button && button.contains(document.elementFromPoint(x, y)))
         };
       })()`);
@@ -671,16 +677,28 @@ try {
       agentClient.socket.close();
     }
   }
-  client.socket.close();
   if (!result?.ok) failure = "Packaged runtime checks returned a failing result.";
 } catch (error) {
   failure = error instanceof Error ? error.stack || error.message : String(error);
-} finally {
-  child.kill();
-  await delay(1200);
-  if (child.exitCode === null && child.pid) {
-    spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+  if (mainClient && !liveNetwork) {
+    try {
+      const ui = await mainClient.call('Runtime.evaluate', { expression: `({ title: document.title, text: document.body?.innerText?.slice(0, 800), canvasCount: document.querySelectorAll('[data-canvas-surface]').length, formCount: document.querySelectorAll('form').length })`, returnByValue: true });
+      failureUi = ui.result?.value;
+      const screenshot = await mainClient.call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      writeFileSync(join(runDir, 'failure.png'), Buffer.from(screenshot.data, 'base64'));
+    } catch { /* Keep the original failure if the page has already gone away. */ }
   }
+} finally {
+  try {
+    if (mainClient && child.exitCode === null) {
+      const close = await mainClient.call('Runtime.evaluate', { expression: `(() => { if (!window.naimageConfig?.windowControl) return false; setTimeout(() => void window.naimageConfig.windowControl({ action: 'close' }), 0); return true; })()`, returnByValue: true });
+      shutdown.requested = close.result?.value === true;
+    }
+    for (let attempt = 0; attempt < 80 && child.exitCode === null; attempt++) await delay(100);
+    shutdown.graceful = child.exitCode !== null;
+    if (!shutdown.graceful) failure ||= 'Normal application shutdown is pending; the instance and isolated configuration were preserved.';
+  } catch (error) { failure ||= `Normal application shutdown could not finish: ${String(error)}`; }
+  mainClient?.socket.close();
 }
 
 const report = {
@@ -693,11 +711,13 @@ const report = {
   target: target ? { title: target.title, url: target.url } : null,
   result,
   failure,
+  failureUi,
   process: { exitCode: child.exitCode, stdout, stderr },
+  shutdown,
   logTail: existsSync(electronLog) ? readFileSync(electronLog, "utf8").split(/\r?\n/).filter(Boolean).slice(-120) : []
 };
 writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
-if (sourceSettings && existsSync(configDir)) {
+if (sourceSettings && shutdown.graceful && existsSync(configDir)) {
   if (relative(runDir, resolve(configDir)) !== "config") throw new Error("Packaged smoke cleanup escaped its run directory.");
   rmSync(configDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
 }

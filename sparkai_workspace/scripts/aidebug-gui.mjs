@@ -685,6 +685,32 @@ function scrubEphemeralLiveConfig() {
 
 async function stopChildProcess(child) {
   if (!child) return;
+  if (child === electronProcess) {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    let closingClient = activeCdpClient;
+    let ownClient = false;
+    try {
+      if (!closingClient) {
+        const closingTarget = await waitForDebugTarget();
+        closingClient = new CdpClient(closingTarget.webSocketDebuggerUrl, "normal-shutdown");
+        await closingClient.open();
+        ownClient = true;
+      }
+      await evaluate(closingClient, `(() => {
+        window.__naimageDebugOpenSurface?.('main');
+        setTimeout(() => void window.naimageConfig?.windowControl?.({action:'close'}), 40);
+        return true;
+      })()`);
+      const graceful = await waitForChildExit(child, 8_000);
+      writeFileSync(join(runDir, "shutdown.json"), JSON.stringify({ graceful, pid: child.pid, forced: false }, null, 2));
+      if (!graceful) process.stderr.write("Normal application shutdown is pending; the instance has been preserved.\n");
+    } catch (error) {
+      writeFileSync(join(runDir, "shutdown-pending.json"), JSON.stringify({ pid: child.pid, forced: false, error: String(error) }, null, 2));
+    } finally {
+      if (ownClient) closingClient?.close();
+    }
+    return;
+  }
   if (isWindows && child.exitCode === null && child.signalCode === null) {
     // Electron and pnpm both spawn grandchildren on Windows. Killing only the
     // wrapper can leave Chromium holding the remote-debugging port and poison
@@ -9957,7 +9983,7 @@ async function main() {
         while (Date.now() < labDeadline && !document.querySelector(".glass-lab[data-glass-lab='true']")) await delay(40);
         const lab = document.querySelector(".glass-lab[data-glass-lab='true']");
         const initialTheme = lab?.getAttribute("data-glass-theme") || "";
-        const nextTheme = initialTheme === "light-silver" ? "dark-ember" : "light-silver";
+        const nextTheme = initialTheme === "light-classic" ? "dark-classic" : "light-classic";
         const themeSelector = '[data-glass-section="themes"] [data-glass-theme="' + nextTheme + '"]';
         document.querySelector(themeSelector)?.click();
         const switchedDeadline = Date.now() + 2400;
@@ -10244,11 +10270,11 @@ async function main() {
     throw error;
   } finally {
     stopHarnessHeartbeat();
+    if (!keepOpen) await stopChildProcess(electronProcess);
     client.close();
     activeCdpClient = null;
     activeDebugTarget = null;
     if (!keepOpen) {
-      await stopChildProcess(electronProcess);
       await stopChildProcess(viteProcess);
       scrubEphemeralLiveConfig();
     }

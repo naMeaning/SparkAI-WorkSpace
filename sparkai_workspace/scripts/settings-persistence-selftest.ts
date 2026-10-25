@@ -53,7 +53,7 @@ assert.deepEqual(CONTEXT_STRATEGY_OPTIONS.map((option) => option.value), ["auto"
 assert.deepEqual(THEME_PALETTE_VALUES, ["default", "anthropic", "simple-large", "underground", "rose-garden", "lake-view", "sunset-glow", "forest-whisper", "ocean-breeze", "lavender-dream", "custom"]);
 assert.equal(defaultSettings.theme, "dark");
 assert.equal(defaultSettings.themePalette, "anthropic");
-assert.equal(defaultSettings.glassTheme, "dark-ember");
+assert.equal(defaultSettings.glassTheme, "light-classic");
 assert.equal(defaultSettings.agentModel, "gpt-5.6-terra");
 assert.deepEqual(defaultSettings.agentModelPool, ["gpt-5.6-terra"]);
 assert.equal(defaultSettings.imageModel, "gpt-image-2");
@@ -259,7 +259,14 @@ try {
   const inputPath = join(migrationProbeDir, "input.json");
   const outputPath = join(migrationProbeDir, "output.json");
   const probePath = join(migrationProbeDir, "main-probe.cjs");
-  writeFileSync(inputPath, JSON.stringify({ legacy: legacyImageSettings, disabled: reloadedImageSettings, primaryOnly: explicitPrimaryOnly, sub2api: legacySub2apiSettings }));
+  const themeMigrationCases = {
+    freshTheme: {},
+    legacyDarkTheme: { theme: "dark" },
+    legacyLightTheme: { theme: "light" },
+    legacySystemTheme: { theme: "system" },
+    savedTheme: { theme: "light", glassTheme: "dark-emerald", glassMaterial: "custom", glassParameters: { opacity: 31, blur: 17, saturation: 115, highlight: 28, shadow: 20, radius: 12, accent: "mint", noise: true, reduceMotion: true } }
+  };
+  writeFileSync(inputPath, JSON.stringify({ legacy: legacyImageSettings, disabled: reloadedImageSettings, primaryOnly: explicitPrimaryOnly, sub2api: legacySub2apiSettings, ...themeMigrationCases }));
   writeFileSync(probePath, `
     const { readFileSync, writeFileSync } = require("node:fs");
     const { app } = require("electron");
@@ -291,6 +298,16 @@ try {
   });
   assert.equal(result.status, 0, `Isolated Main settings migration failed: ${result.error?.message || result.stderr}`);
   const mainPublicSettings = JSON.parse(readFileSync(outputPath, "utf8"));
+  for (const [name, input] of Object.entries(themeMigrationCases)) {
+    const expected = mergeSettings(input);
+    assert.equal(mainPublicSettings[name].glassTheme, expected.glassTheme, `${name}: Main and Renderer theme migration must agree`);
+    assert.deepEqual(mergeSettings(mainPublicSettings[name]).glassParameters, expected.glassParameters, `${name}: first DTO and reload preserve glass preferences`);
+  }
+  assert.equal(mainPublicSettings.freshTheme.glassTheme, "light-classic");
+  assert.equal(mainPublicSettings.legacyDarkTheme.glassTheme, "dark-rose");
+  assert.equal(mainPublicSettings.legacyLightTheme.glassTheme, "dark-ember");
+  assert.equal(mainPublicSettings.legacySystemTheme.glassTheme, "dark-ember");
+  assert.equal(mainPublicSettings.savedTheme.glassTheme, "dark-emerald");
   assert.deepEqual(mainPublicSettings.legacy.imageModelPool, legacyImagePool, "Main must migrate legacy configured models before the first public settings DTO");
   assert.deepEqual(mergeSettings(mainPublicSettings.legacy).imageModelPool, legacyImagePool, "Main → public DTO → Renderer must preserve the one-time legacy migration");
   assert.deepEqual(mainPublicSettings.disabled.imageModelPool, reloadedImageSettings.imageModelPool, "Repeated Main/public migration must preserve an explicit disabled selection");

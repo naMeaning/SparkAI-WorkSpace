@@ -59,11 +59,7 @@
   border-color: var(--glass-edge-color-soft);
   color: var(--ink);
   background-color: var(--glass-fallback-bg);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight)),
-    inset 1px 0 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.3)),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.12),
-    0 18px 45px var(--glass-shadow-color);
+  box-shadow: var(--glass-chrome-shadow);
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -188,7 +184,7 @@
   background-color: var(--glass-fallback-bg);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.72)),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+    inset 0 -1px 0 rgba(0, 0, 0, calc(var(--glass-highlight) * 0.3)),
     0 7px 22px var(--glass-shadow-soft);
 }
 
@@ -336,25 +332,25 @@
   padding: 8px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  background: color-mix(in srgb, var(--glass-surface-raised) 16%, transparent);
+  background: var(--glass-header-fill);
 }
 
 .workspace-search-popover input {
   min-width: 0;
   height: 32px;
   padding: 0 9px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 7px;
   outline: 0;
   color: var(--ink);
   background: var(--glass-control-bg);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-ui);
 }
 
 .workspace-search-popover input:focus {
-  border-color: color-mix(in srgb, var(--accent) 64%, var(--line));
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
+  border-color: var(--theme-focus);
+  box-shadow: var(--focus-ring);
 }
 
 .workspace-search-popover > header > button {
@@ -523,7 +519,7 @@
 
 :root.glass-theme-active :is(.project-agent-header, .project-agent-status),
 :root[data-glass-theme] :is(.project-agent-header, .project-agent-status) {
-  background: color-mix(in srgb, var(--glass-surface-raised) 14%, transparent);
+  background: var(--glass-header-fill);
 }
 
 :root.glass-theme-active .project-agent-feed,
@@ -533,7 +529,7 @@
 
 :root.glass-theme-active .project-agent-composer,
 :root[data-glass-theme] .project-agent-composer {
-  background: color-mix(in srgb, var(--glass-surface-raised) 12%, transparent);
+  background: var(--glass-composer-fill);
 }
 
 :root.glass-theme-active .project-agent-panel.is-collapsed,
@@ -611,6 +607,11 @@
   background-color: var(--glass-menu-surface);
 }
 
+:root[data-glass-style="solid"] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history, .workspace-search-popover, .overflow-tooltip) {
+  background: var(--glass-menu-surface);
+  box-shadow: var(--small-shadow);
+}
+
 /* The generic glass selector includes a two-part data surface selector inside
    :is(), so match that specificity for the menu that can sit over artwork. */
 :root.glass-theme-active .canvas-context-menu.canvas-context-menu,
@@ -628,14 +629,14 @@
 :root.glass-theme-active :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button:is(:hover, :focus-visible, .active),
 :root[data-glass-theme] :is(.project-menu-popover, .ui-menu-surface, .canvas-context-menu, .agent-placement-menu, .project-agent-history) button:is(:hover, :focus-visible, .active) {
   color: var(--ink);
-  background: color-mix(in srgb, var(--accent) 9%, var(--glass-control-hover));
+  background: var(--hover-bg);
 }
 
 :root.glass-theme-active .glass-select-trigger,
 :root[data-glass-theme] .glass-select-trigger {
-  border-color: color-mix(in srgb, var(--glass-line-strong) 86%, transparent);
+  border-color: var(--glass-input-line);
   color: var(--ink);
-  background-color: color-mix(in srgb, var(--glass-surface-raised) 42%, transparent);
+  background-color: var(--glass-input-fill);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.5)),
     0 4px 12px var(--glass-shadow-soft);
@@ -647,10 +648,10 @@
 :root.glass-theme-active .glass-select.is-open .glass-select-trigger,
 :root[data-glass-theme] .glass-select-trigger:is(:hover, :focus-visible),
 :root[data-glass-theme] .glass-select.is-open .glass-select-trigger {
-  border-color: color-mix(in srgb, var(--accent) 64%, var(--glass-line-strong));
+  border-color: var(--theme-focus);
   outline: 0;
   color: var(--ink);
-  background-color: color-mix(in srgb, var(--accent) 10%, var(--glass-readable-surface-fill));
+  background-color: var(--hover-bg);
   box-shadow:
     var(--focus-ring),
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.62)),
@@ -688,6 +689,10 @@
   backdrop-filter: var(--glass-backdrop-filter);
 }
 
+:root[data-glass-style="solid"] .glass-select-menu.glass-select-menu {
+  box-shadow: var(--small-shadow);
+}
+
 :root.glass-theme-active .glass-select-menu .glass-select-option,
 :root[data-glass-theme] .glass-select-menu .glass-select-option {
   border-color: transparent;
@@ -699,10 +704,19 @@
 :root.glass-theme-active .glass-select-menu .glass-select-option.is-selected,
 :root[data-glass-theme] .glass-select-menu .glass-select-option:is(:hover, :focus-visible):not(:disabled),
 :root[data-glass-theme] .glass-select-menu .glass-select-option.is-selected {
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--glass-menu-edge));
+  border-color: var(--line-strong);
   outline: 0;
   color: var(--ink);
-  background: color-mix(in srgb, var(--accent) 12%, var(--glass-control-hover));
+  background: var(--hover-bg);
+}
+
+:root[data-glass-theme] .glass-select-menu .glass-select-option.is-selected {
+  background: var(--active-bg);
+}
+
+:root[data-glass-theme] .glass-select-menu .glass-select-option:focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: -2px;
 }
 
 :root.glass-theme-active .glass-select-menu .glass-select-option.is-selected > svg,
@@ -742,8 +756,8 @@
 :root.glass-theme-active .ui-surface-backdrop,
 :root[data-glass-theme] .ui-surface-backdrop {
   background: rgba(var(--glass-shadow-rgb), 0.24);
-  -webkit-backdrop-filter: blur(3px) saturate(106%);
-  backdrop-filter: blur(3px) saturate(106%);
+  -webkit-backdrop-filter: var(--glass-overlay-backdrop);
+  backdrop-filter: var(--glass-overlay-backdrop);
 }
 
 :root.glass-theme-active .ui-surface[data-ui-surface],
@@ -769,7 +783,7 @@
 
 :root.glass-theme-active .ui-surface[data-ui-surface] > :is(.ui-surface-header, .ui-surface-footer),
 :root[data-glass-theme] .ui-surface[data-ui-surface] > :is(.ui-surface-header, .ui-surface-footer) {
-  background: color-mix(in srgb, var(--glass-surface-raised) 18%, transparent);
+  background: var(--glass-header-fill);
 }
 
 :root.glass-theme-active .ui-surface[data-ui-surface] > .ui-surface-body,
@@ -815,8 +829,10 @@
     0 3px 10px var(--glass-shadow-soft);
 }
 
-:root[data-glass-style="solid"] .settings-section-tab[aria-pressed="true"] {
-  background: var(--accent);
+:root[data-glass-style="solid"] .settings-section-tab:is(.active, [aria-pressed="true"]) {
+  color: var(--ink);
+  background: var(--active-bg);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
 /* Input glass uses translucent paint but deliberately does not stack blur. */
@@ -836,9 +852,9 @@
   .project-agent-steer-mode select,
   .setting-runtime-row select
 ) {
-  border-color: color-mix(in srgb, var(--glass-line-strong) 84%, transparent);
+  border-color: var(--glass-input-line);
   color: var(--ink);
-  background: color-mix(in srgb, var(--glass-surface-raised) 44%, transparent);
+  background: var(--glass-input-fill);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.28));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -880,14 +896,14 @@
   .project-agent-steer-mode select,
   .setting-runtime-row select
 ):focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  border-color: var(--theme-focus);
   outline: 0;
   box-shadow: var(--focus-ring);
 }
 
 /* Hover paint is lightweight and always keeps readable foreground contrast. */
-:root.glass-theme-active :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled),
-:root[data-glass-theme] :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled) {
+:root.glass-theme-active :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled, .ui-action-primary, .account-avatar-button, .workspace-asset-rail-header > button),
+:root[data-glass-theme] :is(.ide-topbar, .workspace-asset-rail, .project-agent-panel) button:is(:hover, :focus-visible):not(:disabled, .ui-action-primary, .account-avatar-button, .workspace-asset-rail-header > button) {
   color: var(--ink);
 }
 
@@ -1000,7 +1016,7 @@
   border-radius: 0;
   background-color: var(--glass-fallback-bg);
   box-shadow:
-    inset -1px 0 0 rgba(0, 0, 0, 0.08),
+    inset -1px 0 0 rgba(0, 0, 0, calc(var(--glass-highlight) * 0.24)),
     7px 0 24px var(--glass-shadow-soft);
 }
 
@@ -1058,6 +1074,14 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.54),
     0 5px 14px rgba(var(--accent-rgb), 0.22);
+}
+
+:root[data-glass-style="solid"] .workspace-asset-rail-header > button {
+  box-shadow: none;
+}
+
+:root[data-glass-style="solid"] .workspace-asset-rail-header > button:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 .workspace-asset-rail-header > button.is-template-save {
@@ -1172,6 +1196,15 @@
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .1), inset 0 1px 0 rgba(255, 255, 255, var(--glass-highlight));
 }
 
+:root[data-glass-style="solid"] .workspace-domain-tools-launcher:is(:hover, [aria-expanded="true"]) {
+  background: var(--hover-bg);
+  box-shadow: none;
+}
+
+:root[data-glass-style="solid"] .workspace-domain-tools-launcher:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
 .workspace-domain-tools-menu,
 .workspace-asset-group-preview {
   position: fixed;
@@ -1198,7 +1231,7 @@
   gap: 8px;
   padding: 9px 10px;
   border-bottom: 1px solid var(--glass-line);
-  background: color-mix(in srgb, var(--glass-surface-raised) 34%, transparent);
+  background: var(--glass-header-fill);
 }
 
 .workspace-domain-tools-menu-icon,
@@ -1693,6 +1726,12 @@
   font-weight: 720;
 }
 
+:root[data-glass-style="solid"] .workspace-domain-switcher-trigger {
+  min-height: 32px;
+  background: var(--control-bg);
+  box-shadow: none;
+}
+
 .workspace-domain-switcher-trigger:is(:hover, :focus-visible),
 .workspace-domain-switcher.is-open .workspace-domain-switcher-trigger {
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
@@ -1735,7 +1774,7 @@
   padding: 6px;
   border: 1px solid var(--glass-line-strong);
   border-radius: 13px;
-  background: color-mix(in srgb, var(--glass-surface-solid) 94%, transparent);
+  background: var(--glass-menu-surface);
   box-shadow: 0 18px 46px var(--glass-shadow-color), inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.56));
   transform: translateX(-50%);
   backdrop-filter: var(--glass-backdrop-filter);
@@ -1799,6 +1838,11 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--glass-surface-raised) 28%, transparent);
   box-shadow: inset 0 1px 5px rgba(var(--glass-shadow-rgb), 0.12);
+}
+
+:root[data-glass-style="solid"] .workspace-direction-switcher {
+  background: var(--surface-solid);
+  box-shadow: none;
 }
 
 .workspace-direction-switcher button {
@@ -1903,7 +1947,7 @@
   overflow: hidden;
   border-bottom: 1px solid var(--line);
   color: var(--ink);
-  background: color-mix(in srgb, var(--surface-solid) 94%, transparent);
+  background: var(--glass-readable-surface-fill);
 }
 
 .workspace-context-hint {
@@ -2455,10 +2499,6 @@
     radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--node-glass-accent) 8%, transparent), transparent 48%);
 }
 
-:root[data-glass-style="solid"] .flow-node {
-  background-image: none;
-}
-
 :root.glass-theme-active .flow-node.scientific-figure-node .node-image-preview,
 :root[data-glass-theme] .flow-node.scientific-figure-node .node-image-preview {
   border-radius: max(8px, calc(var(--glass-radius) - 5px));
@@ -2489,6 +2529,30 @@
     inset 0 1px 0 rgba(255, 255, 255, calc(var(--glass-highlight) * 0.9)),
     0 0 0 1px color-mix(in srgb, var(--node-glass-accent) 42%, transparent),
     0 6px 18px rgba(var(--glass-shadow-rgb), calc(var(--glass-shadow) * 0.48));
+}
+
+:root[data-glass-style="solid"] .flow-node,
+:root[data-glass-style="solid"] .flow-node.scientific-figure-node {
+  border-color: var(--line);
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+}
+
+:root[data-glass-style="solid"] .flow-node:hover {
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+:root[data-glass-style="solid"] .flow-node.selected {
+  border-color: var(--line-strong);
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+:root[data-glass-style="solid"] .flow-node.scientific-figure-node .node-image-preview {
+  box-shadow: none;
 }
 
 :root.glass-theme-active .flow-node :is(.node-image-preview, .node-image-tile, .container-image-tile),

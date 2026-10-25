@@ -16,10 +16,7 @@
   background: var(--panel-bg);
 }
 .auth-shell {
-  background:
-    linear-gradient(120deg, rgba(19, 163, 151, 0.045), transparent 34%),
-    linear-gradient(300deg, rgba(79, 125, 217, 0.04), transparent 38%),
-    var(--bg);
+  background: var(--canvas);
 }
 
 .auth-card {

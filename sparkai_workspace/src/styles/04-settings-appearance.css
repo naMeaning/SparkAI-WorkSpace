@@ -70,7 +70,7 @@
 .settings-unsaved-body p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
 }
 
@@ -92,12 +92,12 @@
 
 .settings-help-card strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .settings-help-card small {
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -109,7 +109,7 @@
   border-radius: var(--ui-choice-radius);
   color: var(--ink-soft);
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
 }
 
@@ -157,7 +157,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--settings-ink-muted);
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -191,7 +191,7 @@
   border-radius: var(--ui-choice-radius);
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .settings-account-token-summary span {
@@ -203,7 +203,7 @@
 .settings-account-token-summary strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -211,7 +211,7 @@
 .settings-account-token-quota small {
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -247,7 +247,7 @@
 .settings-account-token-list-row strong,
 .settings-account-token-list-row small {
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settings-account-token-editor {
@@ -286,7 +286,7 @@
   align-items: center;
   gap: 8px;
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settings-checkbox-row input,
@@ -320,7 +320,7 @@
 
 .settings-integration-row > em {
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   font-style: normal;
 }
 
@@ -361,19 +361,19 @@
 
 .settings-plugin-card-header strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .settings-plugin-card-header small,
 .settings-plugin-section .settings-section-header small {
   color: var(--settings-ink-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .settings-plugin-card p {
   margin: 0;
   color: var(--settings-ink-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -389,7 +389,7 @@
   border-radius: var(--ui-choice-radius);
   color: var(--settings-ink-muted);
   background: var(--settings-surface);
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -403,7 +403,7 @@
   border-radius: var(--ui-choice-radius);
   color: var(--settings-ink-muted);
   background: var(--settings-surface);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .settings-plugin-enable-toggle > span {
@@ -463,20 +463,20 @@
 
 .settings-canvas-tool-group-heading > strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .settings-canvas-tool-group-heading > small {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settings-canvas-tool-group .settings-canvas-tool-copy strong {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .settings-canvas-tool-group .settings-canvas-tool-copy small {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .settings-canvas-tool-mode {
@@ -549,7 +549,7 @@ label.settings-canvas-tool-row {
 .settings-canvas-tool-copy small,
 .settings-canvas-tool-copy > span {
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
 }
 
@@ -583,7 +583,7 @@ label.settings-canvas-tool-row {
   overflow: hidden;
   color: inherit;
   font-family: inherit;
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -611,7 +611,7 @@ label.settings-canvas-tool-row {
   grid-column: 2 / -1;
   justify-self: end;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.3;
 }
 
@@ -640,7 +640,7 @@ label.settings-canvas-tool-row {
 
 .theme-setting-label {
   color: var(--ink-soft);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -653,7 +653,7 @@ label.settings-canvas-tool-row {
   min-width: 0;
   min-height: 30px;
   padding-inline: 5px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .theme-palette-grid {
@@ -725,7 +725,7 @@ label.settings-canvas-tool-row {
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -818,7 +818,7 @@ label.settings-canvas-tool-row {
   min-width: 0;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
 

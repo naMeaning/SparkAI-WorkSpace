@@ -26,7 +26,7 @@ function createAgentWindowService({
   preloadPath,
   applicationName = "SparkAI WorkSpace",
   icon,
-  getBackgroundColor = () => "#f6eadf",
+  getBackgroundColor = () => "#f6f6f6",
   log = () => {}
 }) {
   let agentWindow = null;
@@ -118,7 +118,7 @@ function createAgentWindowService({
     }
 
     latestState = null;
-    let backgroundColor = "#f6eadf";
+    let backgroundColor = "#f6f6f6";
     try {
       const resolvedBackgroundColor = String(getBackgroundColor() || "").trim();
       if (resolvedBackgroundColor) backgroundColor = resolvedBackgroundColor;

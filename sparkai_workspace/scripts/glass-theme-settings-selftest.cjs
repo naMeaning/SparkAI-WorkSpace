@@ -12,20 +12,21 @@ const {
 } = require("../runtime/glass-theme-settings.cjs");
 
 assert.deepEqual(defaultGlassAppearance, {
-  glassTheme: "dark-ember",
+  glassTheme: "light-classic",
   glassMaterial: "frosted",
   glassParameters: {
-    opacity: 22,
-    blur: 26,
-    saturation: 138,
-    highlight: 34,
-    shadow: 40,
+    opacity: 44,
+    blur: 28,
+    saturation: 128,
+    highlight: 70,
+    shadow: 18,
     radius: 14,
     accent: "theme",
     noise: true,
     reduceMotion: false
   }
 });
+assert.equal(nativeWindowBackgroundColor({}), "#f6f6f6", "new native windows use the day canvas");
 
 for (const theme of glassThemeRegistry.themeOrder) {
   for (const material of glassThemeRegistry.materialOrder) {

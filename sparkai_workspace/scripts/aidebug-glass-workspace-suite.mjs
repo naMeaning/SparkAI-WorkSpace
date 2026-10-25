@@ -45,7 +45,7 @@ const CUSTOM_APPEARANCE = Object.freeze({
 });
 
 const qaInventory = [
-  { id: "default", claim: "A fresh workspace starts with dark-ember and Frosted glass.", evidence: "00-default-workbench.png" },
+  { id: "default", claim: "A fresh workspace starts with the solid light-classic day theme.", evidence: "00-default-workbench.png" },
   { id: "themes", claim: "All nine registered themes update the live root without rebuilding canvas state.", evidence: "01-theme-*.png" },
   { id: "materials", claim: "Clear, Frosted and Dense are live material presets.", evidence: "02-material-*.png" },
   { id: "custom-controls", claim: "Every numeric range, accent, noise and reduced-motion control updates live root tokens and can restore the recommended preset.", evidence: "03-custom-all-controls.png + 03-reset-recommended.png" },
@@ -173,7 +173,13 @@ async function clickSelector(selector, index = 0) {
 }
 
 async function clickTheme(themeId, settleMs = 240) {
-  await clickSelector(`[data-glass-section="themes"] [data-glass-theme="${themeId}"]`);
+  const moreClosed = await evaluate(client, `(() => {
+    const card = document.querySelector('.glass-lab button[data-glass-theme="' + ${JSON.stringify(themeId)} + '"]');
+    const more = card?.closest('details[data-glass-section="more"]');
+    return Boolean(more && !more.open);
+  })()`);
+  if (moreClosed) await clickSelector('[data-glass-section="more"] > summary');
+  await clickSelector(`.glass-lab button[data-glass-theme="${themeId}"]`);
   await waitFor(`document.documentElement.dataset.glassTheme === ${JSON.stringify(themeId)}`);
   await delay(settleMs);
 }
@@ -398,9 +404,11 @@ async function closeElectronRenderer() {
   }
   const graceful = await waitForChildExit(closingProcess, 5_000);
   closingClient?.close();
-  if (!graceful) await forceKillProcessTree(closingProcess?.pid);
+  if (!graceful) {
+    writeFileSync(join(runDir, "shutdown-pending.json"), JSON.stringify({ pid: closingProcess?.pid, closeRequested, graceful, message: "Normal close did not finish; application preserved, installation must remain pending." }, null, 2));
+  }
   if (client === closingClient) client = undefined;
-  if (electronProcess === closingProcess) electronProcess = undefined;
+  if (electronProcess === closingProcess && graceful) electronProcess = undefined;
   target = undefined;
   return { closeRequested, graceful };
 }
@@ -1401,6 +1409,14 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     return evaluate(probeClient, `(() => {
       const root = document.documentElement;
       const style = getComputedStyle(root);
+      const rgb = (value) => {
+        const hex = value.trim().match(/^#([0-9a-f]{6})$/i);
+        if (hex) return [0, 2, 4].map((index) => parseInt(hex[1].slice(index, index + 2), 16) / 255);
+        return (value.match(/[\\d.]+/g) || []).slice(0, 3).map((part) => Number(part) / 255);
+      };
+      const luminance = (value) => rgb(value).map((part) => part <= .04045 ? part / 12.92 : Math.pow((part + .055) / 1.055, 2.4)).reduce((sum, part, index) => sum + part * [.2126, .7152, .0722][index], 0);
+      const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + .05) / (Math.min(luminance(a), luminance(b)) + .05);
+      const token = (name) => style.getPropertyValue(name).trim();
       return {
         theme: root.dataset.glassTheme,
         style: root.dataset.glassStyle,
@@ -1410,6 +1426,12 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
         noiseOpacity: style.getPropertyValue('--glass-noise-opacity').trim(),
         backgroundImage: getComputedStyle(document.body).backgroundImage,
         horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+        contrast: {
+          body: contrast(token('--theme-ink'), token('--theme-surface-solid')),
+          auxiliary: contrast(token('--theme-muted'), token('--theme-canvas')),
+          boundary: contrast(token('--theme-line-strong'), token('--theme-surface-solid')),
+          focus: contrast(token('--theme-focus'), token('--theme-surface-solid'))
+        },
         surfaces: ${JSON.stringify(selectors)}.map((selector) => {
           const element = document.querySelector(selector);
           const box = element?.getBoundingClientRect();
@@ -1418,16 +1440,18 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
             selector,
             visible: Boolean(box && box.width > 0 && box.height > 0),
             inside: Boolean(box && box.left >= -1 && box.top >= -1 && box.right <= innerWidth + 1 && box.bottom <= innerHeight + 1),
+            horizontalInside: Boolean(box && box.left >= -1 && box.right <= innerWidth + 1),
             backdrop: css?.backdropFilter || css?.webkitBackdropFilter || 'none',
             background: css?.backgroundColor,
-            color: css?.color
+            color: css?.color,
+            fontSize: css?.fontSize
           };
         })
       };
     })()`);
   }
 
-  function assertSolid(proof, themeId) {
+  function assertSolid(proof, themeId, scrollableAuth = false) {
     assert.equal(proof.theme, themeId);
     assert.equal(proof.style, "solid");
     assert.equal(proof.alpha, "1");
@@ -1435,10 +1459,94 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     assert.equal(proof.noise, "off");
     assert.equal(proof.noiseOpacity, "0");
     assert.equal(proof.horizontalOverflow, false);
+    assert(proof.contrast.body >= 4.5 && proof.contrast.auxiliary >= 4.5, `${themeId} text contrast is insufficient`);
+    assert(proof.contrast.boundary >= 3 && proof.contrast.focus >= 3, `${themeId} control contrast is insufficient`);
     for (const surface of proof.surfaces) {
-      assert(surface.visible && surface.inside, `${themeId} surface is clipped: ${JSON.stringify(surface)}`);
+      assert(surface.visible && (surface.inside || scrollableAuth && surface.selector === '.auth-card' && surface.horizontalInside), `${themeId} surface is clipped: ${JSON.stringify(surface)}`);
       assert.equal(surface.backdrop, "none", `${themeId} surface still blurs: ${surface.selector}`);
     }
+  }
+
+  async function exerciseAuxiliarySurfaces(themeId) {
+    const proofs = [];
+    for (const [width, height] of [[1280, 800], [884, 640]]) {
+      await setWindowSize(width, height);
+      const railPoint = await evaluate(client, `(() => { const box = document.querySelector('.workspace-asset-rail-header > button').getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; })()`);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...railPoint });
+      const railHover = await evaluate(client, `(() => { const css = getComputedStyle(document.querySelector('.workspace-asset-rail-header > button')); return { color: css.color, background: css.backgroundColor }; })()`);
+      assert.notEqual(railHover.color, railHover.background, 'Import icon must remain visible on hover');
+      await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      const railFocus = await evaluate(client, `(() => { const button = document.querySelector('.workspace-asset-rail-header > button'); button.focus(); return { visible: button.matches(':focus-visible'), shadow: getComputedStyle(button).boxShadow }; })()`);
+      assert(railFocus.visible && railFocus.shadow !== 'none', 'Import keyboard focus must remain visible');
+      await evaluate(client, "window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' })");
+      await capture(`${themeId}-${width}-single-selection`);
+      await evaluate(client, "window.__naimageAIDebug.selectNodes({ ids: ['A', 'B'], primaryId: 'A' })");
+      await capture(`${themeId}-${width}-multi-selection`);
+      await evaluate(client, "window.__naimageAIDebug.selectNodes({ ids: ['A'], primaryId: 'A' })");
+      await clickSelector('.project-agent-config-trigger');
+      await waitFor("Boolean(document.querySelector('.project-agent-image-config'))");
+      const config = await readSolidSurface(client, ['.project-agent-image-config', '.project-agent-image-config .ui-surface-footer']);
+      assertSolid(config, themeId);
+      await capture(`${themeId}-${width}-image-config`);
+      await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+      const focus = await evaluate(client, "({ inside: Boolean(document.activeElement?.closest('.project-agent-image-config')), tag: document.activeElement?.tagName, outline: document.activeElement ? getComputedStyle(document.activeElement).outlineStyle : '' })");
+      assert(focus.inside, 'Image configuration must trap keyboard focus');
+      await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await waitFor("!document.querySelector('.project-agent-image-config')");
+      await clickSelector('.project-agent-materials-trigger');
+      await clickSelector('.project-agent-materials-menu > button', 1);
+      await waitFor("Boolean(document.querySelector('.reference-picker-dialog'))");
+      await clickSelector('.reference-picker-sources > button', 1);
+      await clickSelector('.reference-canvas-grid .canvas-material-option', 0);
+      await clickSelector('.reference-picker-sources > button', 1);
+      await waitFor("Boolean(document.querySelector('.reference-slot.filled img'))");
+      const referencePixels = await evaluate(client, `(() => { const image = document.querySelector('.reference-slot.filled img'); const css = getComputedStyle(image); return { opacity: css.opacity, filter: css.filter, backdrop: css.backdropFilter, overlay: getComputedStyle(image.parentElement, '::after').content }; })()`);
+      assert.equal(referencePixels.opacity, '1');
+      assert.equal(referencePixels.filter, 'none');
+      assert.equal(referencePixels.overlay, 'none');
+      await capture(`${themeId}-${width}-references`);
+      await clickSelector('.reference-slot.filled .reference-slot-remove');
+      await clickSelector('.reference-picker-dialog .ui-surface-close');
+      await waitFor("!document.querySelector('.reference-picker-dialog')");
+      await evaluate(client, "window.__naimageAIDebug.openImageViewer({ id: 'A' })");
+      await waitFor("Boolean(document.querySelector('.image-viewer'))");
+      const viewer = await readSolidSurface(client, ['.image-viewer', '.image-viewer .ui-surface-header']);
+      assertSolid(viewer, themeId);
+      await capture(`${themeId}-${width}-viewer`);
+      await clickSelector('.image-viewer .ui-surface-close');
+      await waitFor("!document.querySelector('.image-viewer')");
+      await evaluate(client, "window.__naimageAIDebug.openNodeEditor({ id: 'A' })");
+      await waitFor("Boolean(document.querySelector('.unified-node-editor'))");
+      const editor = await readSolidSurface(client, ['.unified-node-editor', '.unified-node-editor .ui-surface-footer']);
+      assertSolid(editor, themeId);
+      await capture(`${themeId}-${width}-editor`);
+      await clickSelector('.unified-node-editor .ui-surface-close');
+      await waitFor("!document.querySelector('.unified-node-editor')");
+      await evaluate(client, "window.__naimageDebugOpenSurface('image-task')");
+      await waitFor("Boolean(document.querySelector('.manual-image-task-dialog'))");
+      const creation = await readSolidSurface(client, ['.manual-image-task-dialog', '.manual-image-task-dialog .ui-surface-footer']);
+      assertSolid(creation, themeId);
+      await capture(`${themeId}-${width}-creation`);
+      await clickSelector('.manual-image-task-dialog .ui-surface-close');
+      await waitFor("!document.querySelector('.manual-image-task-dialog')");
+      await evaluate(client, "window.__naimageDebugOpenSurface('project-menu')");
+      await waitFor("Boolean(document.querySelector('.project-menu-popover'))");
+      const menu = await readSolidSurface(client, ['.project-menu-popover']);
+      assertSolid(menu, themeId);
+      await capture(`${themeId}-${width}-project-menu`);
+      await evaluate(client, "window.__naimageDebugOpenSurface('main')");
+      await evaluate(client, "window.__naimageDebugOpenSurface('agent-running')");
+      await waitFor("Boolean(document.querySelector('.project-agent-run-controls'))");
+      await capture(`${themeId}-${width}-running`);
+      await evaluate(client, "window.__naimageDebugOpenSurface('main'); window.__naimageDebugSeedAgentMessages({ messages: [{ id: 'theme-error', role: 'assistant', status: 'error', content: '本地验证：任务失败，请检查参数后重试。', meta: 'aidebug fixture' }] })");
+      await capture(`${themeId}-${width}-error`);
+      await evaluate(client, "window.__naimageDebugSeedAgentMessages({ clear: true })");
+      proofs.push({ width, height, railHover, railFocus, config, focus, referencePixels, viewer, editor, creation, menu });
+    }
+    return proofs;
   }
 
   for (const themeId of ["light-classic", "dark-classic"]) {
@@ -1455,6 +1563,8 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
     await clickSelector(".settings-drawer .ui-surface-close");
     await waitFor("!document.querySelector('.settings-drawer')");
+
+    const auxiliaryProofs = await exerciseAuxiliarySurfaces(themeId);
     const workspaceProof = await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer", ".workflow-canvas"]);
     assertSolid(workspaceProof, themeId);
     assert.equal(await evaluate(client, "getComputedStyle(document.querySelector('.workflow-canvas')).backgroundImage"), "none");
@@ -1522,7 +1632,7 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
     assert.deepEqual(restarted.parameters, savedParameters);
     assertSolid(await readSolidSurface(client, [".project-agent-panel", ".project-agent-composer"]), themeId);
     await capture(`${themeId}-cold-restart`);
-    checks[themeId] = { ok: true, settingsProof, workspaceProof, minimumProof, agentProof, restarted };
+    checks[themeId] = { ok: true, settingsProof, workspaceProof, minimumProof, auxiliaryProofs, agentProof, restarted };
     await setWindowSize(1280, 800);
     await clickSelector(".workspace-glass-lab-button");
     await waitFor("Boolean(document.querySelector('.settings-drawer .glass-lab'))");
@@ -1535,6 +1645,32 @@ async function runClassicThemeSmoke({ debugPort, vitePort }) {
   assert.deepEqual(await evaluate(client, "JSON.parse(localStorage.getItem('naimage.glassTheme.bootstrap.v1')).glassParameters"), savedParameters);
   checks.glassRoundTrip = { ok: true, restored };
   await capture("classic-glass-settings-restored");
+  await clickTheme('dark-classic');
+  await clickSelector('.settings-drawer .settings-surface-footer .ui-action-primary');
+  await waitFor("document.querySelector('.settings-drawer .settings-surface-footer .ui-action-primary')?.disabled === true");
+  await clickSelector('.settings-drawer .ui-surface-close');
+  await waitFor("!document.querySelector('.settings-drawer')");
+  await clickSelector('.account-avatar-button');
+  await waitFor("Boolean(document.querySelector('.account-drawer .account-logout-button'))");
+  const accountProof = await readSolidSurface(client, ['.account-drawer', '.account-drawer .ui-surface-header']);
+  assertSolid(accountProof, 'dark-classic');
+  await capture('dark-classic-account');
+  await clickSelector('.account-drawer .account-logout-button');
+  await waitFor("Boolean(document.querySelector('.auth-card')) && !document.querySelector('.ide-shell')");
+  const loginProof = await readSolidSurface(client, ['.auth-card', '.auth-topbar']);
+  assertSolid(loginProof, 'dark-classic');
+  async function captureAuth(label) {
+    const path = join(runDir, `${label}.png`);
+    await capturePngScreenshotToFile(client, path, { captureBeyondViewport: false }, 15_000);
+    screenshots[label] = { path, surface: 'auth', geometryAndContrastChecked: true };
+  }
+  await captureAuth('dark-classic-login-1280');
+  await setWindowSize(884, 640);
+  assertSolid(await readSolidSurface(client, ['.auth-card', '.auth-topbar']), 'dark-classic', true);
+  const loginScroll = await evaluate(client, `(() => { const stage = document.querySelector('.auth-stage'); stage.scrollTop = stage.scrollHeight; const buttons = document.querySelectorAll('.auth-card button'); const last = buttons[buttons.length - 1]; const box = last.getBoundingClientRect(); return { scrollTop: stage.scrollTop, scrollHeight: stage.scrollHeight, clientHeight: stage.clientHeight, lastActionInside: box.top >= 0 && box.bottom <= innerHeight, hit: document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest('button') === last }; })()`);
+  assert(loginScroll.lastActionInside && loginScroll.hit, 'The minimum-window login must scroll to its final action');
+  await captureAuth('dark-classic-login-884');
+  checks.loginSurface = { ok: true, accountProof, loginProof, loginScroll, mockLogout: true, remoteLogout: false };
   assert.deepEqual(consoleErrors, []);
   checks.consoleHealth = { ok: true, consoleErrors: [], ignoredConsoleErrors };
   const report = reporting.finishSuiteRun({ results: evidenceResults, reportMetadata: { mode: "classic-themes-smoke", suite: "classic-themes-gui", agentMode: "mock-agent", liveImageProvider: false, realElectronRestart: true }, reportAfterObservations: { checks, screenshots, consoleErrors, ignoredConsoleErrors }, consoleAfterSummary: { checks: Object.keys(checks).length, screenshots: Object.keys(screenshots).length } });
@@ -1772,13 +1908,13 @@ async function runGuiSuite() {
   }
 
   const initialAppearance = await readAppearance();
-  assert.equal(initialAppearance.theme, "dark-ember");
+  assert.equal(initialAppearance.theme, "light-classic");
   assert.equal(initialAppearance.material, "frosted");
-  assert.equal(initialAppearance.mode, "dark");
+  assert.equal(initialAppearance.mode, "light");
   assert(initialAppearance.glassRgb);
   assert(initialAppearance.blur.endsWith("px"));
   const storedDefault = await evaluate(client, "window.naimageConfig.loadSettings()");
-  assert.equal(storedDefault?.settings?.glassTheme, "dark-ember");
+  assert.equal(storedDefault?.settings?.glassTheme, "light-classic");
   assert.equal(storedDefault?.settings?.glassMaterial, "frosted");
   checks.defaultAppearance = { ok: true, initialAppearance, stored: { glassTheme: storedDefault.settings.glassTheme, glassMaterial: storedDefault.settings.glassMaterial } };
 
@@ -2786,7 +2922,7 @@ try {
   }
   throw error;
 } finally {
+  if (electronProcess) await closeElectronRenderer();
   client?.close();
-  await forceKillProcessTree(electronProcess?.pid);
   await forceKillProcessTree(viteProcess?.pid);
 }

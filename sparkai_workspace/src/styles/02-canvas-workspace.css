@@ -1264,10 +1264,6 @@
   outline: 3px solid color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.flow-node.active-build {
-  animation: node-pop var(--motion-slow) var(--motion-ease-out) both;
-}
-
 .flow-node.working {
   border-color: color-mix(in srgb, var(--line-strong) 74%, var(--accent));
 }
