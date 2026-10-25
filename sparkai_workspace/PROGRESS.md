@@ -1,6 +1,6 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-10-25，P1/P2本地验证及安装完成，P2源码同步收口中）
+## 当前开发状态（2026-10-25，P1/P2本地开发交付完成）
 
 - P2接受（2026-10-25）：P1源码34文件 `e7ea904c0e80fccd5bbf43a002ce2d8216497ddf` 已普通push origin/main，HEAD/upstream/实际远端一致，最终freeze未变；本地完整索引 `.diagnostics/ui-p1-delivery/delivery.json`。从该基线开始P2，保留旧设计/规则dirty；两个UI owner分别拥有工作区/画布与Agent/composer/图片配置，主控拥有main/设置/共享提示/独立窗/文档与交付。P2只搬入口，canonical动作、selection/TaskScope/运行状态不变。
 - P2源码里程碑：项目单MenuSurface保留原回调，菜单内＋/垃圾桶图标复用真实新建/移除确认；视图单下拉，底部唯一工具菜单，单图编辑/导出/更多；左轨历史迁会话下拉，超过24条保留。Agent更多/折叠停止与真实pending、完成工具展开、直接生图文字与唯一主发送；图片四项首屏、完整模型池和质量高级保存语义保持。连接/生成/外观/扩展/更新与access/models/agent/tools/plugins深链、本机providers路由已接；独立Agent同步入口、素材及完成步骤，stopPending不提前隐藏。
@@ -16,9 +16,9 @@
 - 验证限制：0真实模型/站点/ComfyUI请求，无依赖/模型下载/生产改动；125%/150%真实DPI未验证，P1登录单独截图为夜间。P2 native项目目录picker未驱动（真实UI表单与隔离Main创建分别验证），IME为synthetic isComposing＋CDP CtrlEnter，未验证OS原生输入法。只做本地开发包，未跑正式发布全门禁、未上传EXE/Release/tag。
 - 接受：main / `134a9f40cf42d40176d083ce557f36171066d0b2` / origin/main。本轮仅 P1 主题与控件、P2 入口与配置分层，按序各自完成实际 UI、最终 EXE、安全安装、文档和源码 push；旧 2026-10-23 全量设计保留为后续。
 - 现场：五份既有 tracked 文档修改、两份未跟踪设置设计与根 artifacts 全部保留；原工作文档和 tracked patch 备份于 `.diagnostics/ui-simplification-2026-10-24/baseline/`。提交时仅纳入本轮增量。
-- 状态：P1/P2均已各自完成源码、专项/实际UI、独立EXE与原位安装；本批P2仅待精确源码/文档commit、普通push与实际远端核验。共享动作仍复用原callback/schema，无新IPC/自动化动作。
+- 状态：P1/P2均已各自完成源码、专项/实际UI、独立EXE、原位安装与源码/功能文档普通push。P2精确39文件commit `8c857ad069a493d9560501211881e79a8622caee`，HEAD/upstream/`git ls-remote origin refs/heads/main`实查一致；暂存敏感模式0命中，旧规则/设计/参考/artifacts dirty保留。共享动作仍复用原callback/schema，无新IPC/自动化动作。
 - 验证边界：隔离 profile、本地素材与 fake/loopback，0 真实模型/视频/ComfyUI；不装依赖、不下载模型、不正式发布。真实设备 DPI 与模拟 viewport 分别标注。
-- 下一步：精确提交本轮P2源码/文档并普通push origin/main，核验HEAD/upstream/实际远端，写 `.diagnostics/ui-p2-delivery/delivery.json` 完整索引。持续记录见 [本轮实施与证据](docs/UI_SIMPLIFICATION_2026-10-24.md)。
+- 收尾：本节补记已完成的源码push与实际远端结果；完整本地身份、安装、UI和最终文档收尾commit索引写 `.diagnostics/ui-p2-delivery/delivery.json`。本轮P1/P2验收已满足，未验证边界保留，不自动展开旧设置独立窗/协议/生产发布方向。持续记录见 [本轮实施与证据](docs/UI_SIMPLIFICATION_2026-10-24.md)。
 
 ### P1早期检查点（历史，已由上文最终证据覆盖）
 - 范围补充（2026-10-25）：用户明确 P2 可用加号/垃圾桶等符号替换常用动作文字，hover 和键盘 focus 均需中文说明；使用既有控件、32px 命中与原确认，不把该入口工作混入 P1。当前 P1 专项与真实截图在制，尚未产生新包。
