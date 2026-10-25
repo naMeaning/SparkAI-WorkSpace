@@ -1,5 +1,7 @@
 # SparkAI WorkSpace 文档索引
 
+- [SparkAPI 官网Logo统一](SPARKAPI_LOGO_2026-10-25.md)：真实官网资产来源、桌面/Windows/安装卸载图标链路及本地验证交付证据。
+
 - [日夜基础主题与界面精简实施记录](UI_SIMPLIFICATION_2026-10-24.md)：P1/P2 动作矩阵、专项与真实 UI、独立 EXE/安全安装和源码同步证据。
 - [日夜基础主题与界面精简设计（2026-10-24）](SparkAI-UI-Design-2026-10-24.md)及[实施交接 prompt](SparkAI-UI-Handoff-2026-10-24.md)：朴素日夜主题、按钮与配置分层、Agent 分工；[概念预览](../../artifacts/ui-themes-2026-10-24/sparkai-preview.html)用于设计评审，实际实施与验收见 [Progress](../PROGRESS.md)。
 - [AI-Native 第三期本地验证与交付](AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)：项目知识、成果检索与便携需求模板；本地合同证据与模型能力边界。

@@ -6,10 +6,36 @@ import sharp from "sharp";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "../..");
 const buildDir = join(projectRoot, "build");
+const iconMaster = join(projectRoot, "assets", "windows", "naimage-icon-master.png");
 const iconSource = join(projectRoot, "public", "naimage.png");
 const windowsIconSource = join(projectRoot, "assets", "windows", "naimage.ico");
 
 mkdirSync(buildDir, { recursive: true });
+
+// Keep the official transparent artwork unchanged for the app and WPF pages.
+// Windows needs a multi-size container; its 256px frame is a format adaptation
+// of the 180px official source, not a higher-resolution replacement artwork.
+copyFileSync(iconMaster, iconSource);
+const iconSizes = [16, 24, 32, 48, 64, 128, 256];
+const iconFrames = await Promise.all(iconSizes.map((size) => sharp(iconMaster)
+  .resize(size, size, { fit: "contain", background: "#00000000" })
+  .png()
+  .toBuffer()));
+const iconHeader = Buffer.alloc(6 + iconFrames.length * 16);
+iconHeader.writeUInt16LE(1, 2);
+iconHeader.writeUInt16LE(iconFrames.length, 4);
+let iconOffset = iconHeader.length;
+for (const [index, frame] of iconFrames.entries()) {
+  const entry = 6 + index * 16;
+  iconHeader[entry] = iconSizes[index] === 256 ? 0 : iconSizes[index];
+  iconHeader[entry + 1] = iconHeader[entry];
+  iconHeader.writeUInt16LE(1, entry + 4);
+  iconHeader.writeUInt16LE(32, entry + 6);
+  iconHeader.writeUInt32LE(frame.length, entry + 8);
+  iconHeader.writeUInt32LE(iconOffset, entry + 12);
+  iconOffset += frame.length;
+}
+writeFileSync(windowsIconSource, Buffer.concat([iconHeader, ...iconFrames]));
 
 function encodeBmp(rgb, width, height, channels) {
   const rowBytes = width * 3;
@@ -114,6 +140,9 @@ await Promise.all([
 ]);
 
 console.log(JSON.stringify({
+  master: iconMaster,
+  appIcon: iconSource,
+  windowsIconSizes: iconSizes,
   icon: join(buildDir, "naimage.ico"),
   sidebar: join(buildDir, "installer-sidebar.bmp"),
   header: join(buildDir, "installer-header.bmp")

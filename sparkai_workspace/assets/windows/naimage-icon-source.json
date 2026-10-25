@@ -1,0 +1,19 @@
+{
+  "sourceUrl": "https://sparkapi.org/website/assets/images/apple-touch-icon-transparent.png?v=20260720-12",
+  "retrievedDate": "2026-10-25",
+  "sha256": "b7f0c93297759bfc177d7ee4c0f01be2cc8b2d43cf4a693ed51bdba324e20cfe",
+  "originalWidth": 180,
+  "originalHeight": 180,
+  "transparent": true,
+  "artwork": "Official SparkAPI gold S and star mark, unchanged",
+  "master": "assets/windows/naimage-icon-master.png",
+  "publicCopy": "public/naimage.png",
+  "windowsSizes": [16, 24, 32, 48, 64, 128, 256],
+  "upscaledSizes": [256],
+  "generator": "scripts/release/generate-installer-assets.mjs",
+  "websiteFavicon": {
+    "sourceUrl": "https://sparkapi.org/website/assets/images/favicon-transparent.ico?v=20260720-12",
+    "sha256": "de44f21bb104d4b1d4167cb454cc4f560557c8bffba7d8ca75cea16d2069a594",
+    "sizes": [16, 32, 48, 64]
+  }
+}

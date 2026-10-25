@@ -443,15 +443,13 @@ const queuedImageEditRequests = [];
 const minWindowWidth = aidebugMode ? 540 : 884;
 const minWindowHeight = 640;
 const useCustomWindowFrame = process.platform !== "darwin";
-const windowIconDataUrl =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABA0lEQVR4nO3bsQ3CMBCF4cxARcEAiDkoqLIKLfMxAgMwBgUNKEiRkpNjB5Fw57s/0muiFH6fHBcnuWnEs7ucX54j+4YpnoXoXmzaU6iMEEID9FtCe0EaAB8EAAAAAAAAAABAfUEAAAAAAADUBHB/PkwFAC2A7WGvGgAAAAAA0wDH23WUUACy/BoIAAAAgF2AFMKS5asAWDsAAGAAYOqwm5NfirsA+BZhOANwAzAXQQ5BXAGUEFJTIHcAKYTcGMwlwBAhV77/ziVAl1J59wBTCHKnuAaQCKlfxT1A6axQB7ASAP4NUHsAAAAAAAAAAAAAAAAAAABiA4S/OAkAl6dj3SKXfd9DLus2WiDC0gAAAABJRU5ErkJggg==";
-
 function createWindowIcon() {
   const iconPath = [
     path.join(projectRoot, "public", "naimage.png"),
     path.join(projectRoot, "dist", "naimage.png")
   ].find((candidate) => existsSync(candidate));
-  const icon = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createFromDataURL(windowIconDataUrl);
+  if (!iconPath) return undefined;
+  const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? undefined : icon;
 }
 

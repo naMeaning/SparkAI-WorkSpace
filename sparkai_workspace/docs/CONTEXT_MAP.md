@@ -1,5 +1,9 @@
 # SparkAI WorkSpace 上下文地图
 
+## 桌面品牌图标（2026-10-25）
+
+用户要求改用SparkAPI官网真实Logo；任务/实际交付状态见 [官网Logo实施记录](SPARKAPI_LOGO_2026-10-25.md) 与 [Progress](../PROGRESS.md)。`assets/windows/naimage-icon-master.png`保留官网180px透明PNG原字节，`naimage-icon-source.json`记录来源/原hash/尺寸及256帧仅格式放大。`scripts/release/generate-installer-assets.mjs`是唯一派生owner：原字节复制`public/naimage.png`供Renderer顶栏/登录/启动检查/帮助/favicon、Main `createWindowIcon()`主窗/独立Agent与WPF `BrandShell.LoadLogo()`；生成7尺寸`assets/windows/naimage.ico`供两个WPF csproj PE，并复制`build/naimage.ico`供Electron/DevLauncher、合成NSIS两BMP。`package:dir`/`package:win`与变体打包均先release:assets再Vite build，禁止dist滞后；Main无旧内嵌logo fallback。快捷方式和卸载注册DisplayIcon沿主EXE，App ID/GUID/安装与数据目录不变。官网来源及资源/PE/真实UI证据从实施记录读取，不扩展认证/更新协议。
+
 ## 日夜基础主题与界面精简设计入口（2026-10-24）
 
 P2 当前真实 UI owner：`src/main.tsx` 项目MenuSurface/工具slot/单图primary IDs接线；`workspace-chrome.tsx` 单视图选择与四模块素材轨，history旧偏好仅作迁移输入，历史仍由项目Agent拥有；`canvas-toolbar-pages.tsx` 单入口复用原plugin command DTO、禁用状态/快捷键/搜索/领域/最近三项；`canvas-interaction-toolbar.tsx` 的 `primaryActionIds/nodeKey` 只收纳动作，portal打开期间保持hover。图标仍是既有IconActionButton，`data-ui-tooltip`由原OverflowTooltipLayer处理hover/focus/Esc及aria-describedby；MenuSurface可选triggerId只排除触发器outside事件，菜单行样式统一由现有ui-menu-surface选择器消费。
