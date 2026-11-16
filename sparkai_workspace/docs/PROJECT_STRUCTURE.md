@@ -1,4 +1,4 @@
-# SparkAI WorkSpace 项目结构
+# Sparkvas 项目结构
 
 本仓库只维护 Windows Electron 客户端与本地单 Agent runtime。用户原生 New API、账户渠道与下载站由外部部署维护，`sparkai-extension` 只提供 License 与图片任务扩展，不复制到这里。符号级所有权、进程调用链与测试影响见 [CONTEXT_MAP.md](./CONTEXT_MAP.md)。
 
@@ -13,7 +13,7 @@
 | `src/styles.css`, `src/styles/` | 样式入口与 8 个有序语义区域 | import 顺序 01→08 是级联合同；01 内含语义 token 与命名调色盘，04 内含设置外观表面；`08-motion-accessibility.css` 必须最后。 |
 | `src/window-controls.tsx` | Renderer 窗口控制按钮 | 只调用 `ConfigBridge.windowControl`；BrowserWindow 原语仍由主进程处理。 |
 | `desktop/` | 可独立测试的 Electron 主进程域模块 | 包含保存协调器、stale session 合并、Agent 运行控制、模型目录与 Responses 请求转换；网络/IPC 时序仍留在 `electron-main.cjs`。 |
-| `runtime/` | 可独立测试的 Agent runtime 图片域模块 | 包含 Image 2 画幅规则、图片批次调度与 `view_image` 安全 payload；由 `agent-runtime.cjs` 作为 facade/编排入口。 |
+| `runtime/` | 可独立测试的 Agent runtime 图片域与 Sparkvas 纯合同模块 | 包含 Image 2 画幅规则、图片批次调度、`view_image` 安全 payload，以及 Skill/Tool/Recipe/Run v1 合同和 DAG 校验；由 `agent-runtime.cjs` 作为 facade/编排入口，合同模块不得依赖 Electron/React/网络。 |
 | `electron-main.cjs` | Electron 主进程入口 | 负责窗口、IPC、项目存储、登录会话、远端请求、Worker 与更新调度，是打包清单中的固定入口。 |
 | `preload.cjs` | Renderer 安全桥 | 只暴露经过约束的 config/server/updater/agent 能力。 |
 | `agent-runtime.cjs` | 单 Agent runtime | 负责 Prompt、工具 Schema、上下文压缩、FastMemory、模型协议与工具执行；返回 action，不直接修改 React。 |
@@ -76,6 +76,7 @@ node scripts/maintenance/clean-workspace.mjs --scope=diagnostics,logs --keep-ele
 
 - 任意代码改动：`corepack pnpm run build`
 - TypeScript/TSX 结构改动：`corepack pnpm run typecheck`
+- Skill/Tool/Recipe/Run 合同：`corepack pnpm run test:skill-contract`、`test:tool-contract`、`test:recipe-contract`
 - 设置/浏览器回退存储：`corepack pnpm run test:settings-persistence`
 - 主题 token、设置组件基础约束：`corepack pnpm run test:ui-foundation`
 - 模型目录/缓存：`corepack pnpm run test:model-catalog`

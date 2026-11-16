@@ -4,7 +4,7 @@
     "id": "sparkai.commerce-toolkit",
     "name": "跨境电商套图工具",
     "version": "1.0.0",
-    "publisher": "SparkAI",
+    "publisher": "Sparkvas",
     "description": "为一张或多张商品母图批量生成逐图 Prompt 套图，并制作多国语言本地化版本。",
     "permissions": [
       "canvas.read-selection",
@@ -99,7 +99,7 @@
     "id": "sparkai.social-content",
     "name": "小红书 / 抖音社媒创作",
     "version": "1.0.0",
-    "publisher": "SparkAI",
+    "publisher": "Sparkvas",
     "description": "在同一画布中规划、生成并导出小红书图文和抖音短视频发布包。",
     "permissions": [
       "canvas.read-selection",
@@ -176,7 +176,7 @@
     "id": "sparkai.project-graph",
     "name": "Project Graph 视觉学习",
     "version": "1.0.0",
-    "publisher": "SparkAI",
+    "publisher": "Sparkvas",
     "description": "只读导入 Project Graph 思维导图，把概念与关系转化为更具体、更容易学习记忆的图片成果。",
     "permissions": [
       "project.read-graph",
@@ -206,7 +206,7 @@
     "id": "sparkai.scientific-figure",
     "name": "科研绘图",
     "version": "1.0.0",
-    "publisher": "SparkAI",
+    "publisher": "Sparkvas",
     "description": "Python/R 投稿级科研绘图。",
     "permissions": [
       "canvas.read-selection",

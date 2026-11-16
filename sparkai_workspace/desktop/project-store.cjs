@@ -149,7 +149,7 @@ function createProjectStore(options = {}) {
 
   function nextExternalProjectFolderPath(parentPath, name, list = readProjectList()) {
     const parent = path.resolve(parentPath);
-    const baseName = safeName(name, "SparkAI WorkSpace 项目");
+    const baseName = safeName(name, "Sparkvas 项目");
     const occupied = new Set((Array.isArray(list?.projects) ? list.projects : [])
       .filter((item) => item?.path)
       .map((item) => comparablePath(item.path)));

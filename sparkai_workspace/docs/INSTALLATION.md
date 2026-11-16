@@ -1,4 +1,4 @@
-# SparkAI WorkSpace 安装说明
+# Sparkvas 安装说明（公开 v1.0.9 安装器仍显示旧品牌）
 
 ## 系统要求
 
@@ -20,7 +20,7 @@
 Get-FileHash -Algorithm SHA256 -LiteralPath '.\SparkAI-WorkSpace-Unrestricted-Setup-<version>-x64.exe'
 ```
 
-当前版本没有商业代码签名证书，Windows 可能显示发布者未知。实际发布项目/GitHub Release 展示名为 `SparkAI-WorkSpace`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
+当前版本没有商业代码签名证书，Windows 可能显示发布者未知。开发分支的用户可见品牌为 Sparkvas，但公开 v1.0.9 的发布项目、GitHub Release 展示名、安装器和主程序仍是旧品牌 `SparkAI-WorkSpace` / `SparkAIWorkSpace.exe`。只应使用受信发布源提供的安装包，并在继续安装前确认完整 SHA-256 与同一发布页的 `SHA256SUMS.txt` 一致。旧版本的真实文件名、哈希与验收结论保留在 `RELEASE_*.md`，不得把旧哈希套用到新品牌制品。
 
 一般自己使用 Unrestricted，自定义中转需要此变体。1.0.9 已正式发布；同名开发包和旧哈希不代表本次 Release。请只使用 [GitHub v1.0.9 发布页](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)的制品与同页完整性清单。正式 Unrestricted 安装包为 109,829,632 bytes，SHA-256 为 `e4c2c3b9b9a52403375857b2cb4f346ce2fa951ec1c8ff4e37d6b6973ac30684`。
 
@@ -39,7 +39,7 @@ corepack pnpm run release:plan
 
 ## 安装与启动
 
-1. 双击安装包，进入 SparkAI WorkSpace 自有的透明玻璃品牌安装界面；不会显示旧式 Windows 安装向导。
+1. 双击安装包，进入应用自有的透明玻璃品牌安装界面；当前公开 v1.0.9 安装器仍显示旧品牌，且不会显示旧式 Windows 安装向导。
 2. 阅读能力介绍，选择当前用户可写的安装目录，并决定是否创建桌面和开始菜单快捷方式。v1 不允许安装到 Windows、`Program Files` 或其他需要管理员权限的位置。
 3. 安装器会校验内部组件，再由隐藏的 NSIS 内核完成安全部署。已有版本会进入更新/修复流程、锁定原安装路径并保留用户数据。
 4. 完成后可立即启动，或从快捷方式、开始菜单及安装目录中的 `SparkAIWorkSpace.exe` 启动。

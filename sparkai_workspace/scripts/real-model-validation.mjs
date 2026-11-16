@@ -297,7 +297,7 @@ async function runLiveProbe(plan, options, env = process.env, fetchImpl = global
 
 function printHelp() {
   process.stdout.write([
-    "SparkAI WorkSpace 真实模型验收工具",
+    "Sparkvas 真实模型验收工具",
     "用法：node scripts/real-model-validation.mjs [--settings path] [--task] [--output path]",
     "默认只生成脱敏 dry-run 计划，不访问网络、不读取密钥 sidecar。",
     "真实探测需额外提供 --live --confirm-network --confirm-cost 和环境变量授权。"

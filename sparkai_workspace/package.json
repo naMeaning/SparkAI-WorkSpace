@@ -23,6 +23,10 @@
     ]
   },
   "scripts": {
+    "test:recipe-contract": "node scripts/recipe-contract-selftest.cjs",
+    "test:skill-contract": "node scripts/skill-contract-selftest.cjs",
+    "test:tool-contract": "node scripts/tool-contract-selftest.cjs",
+    "test:contract-types": "tsc -p tsconfig.contracts.json",
     "test:managed-artifact": "node scripts/managed-artifact-selftest.cjs",
     "test:comfyui-runtime": "node scripts/comfyui-runtime-selftest.cjs",
     "test:comfyui-runtime-ui": "node scripts/comfyui-runtime-ui-selftest.mjs",

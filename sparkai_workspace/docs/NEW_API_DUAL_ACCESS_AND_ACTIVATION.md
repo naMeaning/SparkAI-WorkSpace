@@ -2,7 +2,7 @@
 
 > 适用版本：包含 2026-10-17 免费双接入改动的 `main` 构建。公开 v1.0.9 安装包尚未包含这次改动，其自定义入口仍保留旧 Pro 流程。
 
-SparkAI WorkSpace 是免费的 Agent 生图工作台，不要求二次开发 New API。用户现有的原生 New API 继续独立升级并负责账号、Token、模型、渠道、quota、计费和用量；`sparkai-extension/services/sparkai-extension` 是单独部署的小型扩展服务，主要保留旧客户端的 Pro License 和可选图片长任务包装能力。
+Sparkvas 是免费的 Agent 生图工作台，不要求二次开发 New API。用户现有的原生 New API 继续独立升级并负责账号、Token、模型、渠道、quota、计费和用量；`sparkai-extension/services/sparkai-extension` 是单独部署的小型扩展服务，主要保留旧客户端的 Pro License 和可选图片长任务包装能力。
 
 构建期提供两个桌面发行版：`dual-access` 免费支持账号登录和自定义 Base URL + API Key；`sparkapi-account` 只允许 `https://sparkapi.org` 账号登录。生产门禁写入 `sparkai-access-policy.json`，运行 EXE 时不能通过环境变量解锁。
 

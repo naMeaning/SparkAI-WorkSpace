@@ -1,4 +1,14 @@
-# SparkAI WorkSpace 上下文地图
+# Sparkvas 上下文地图
+
+## Sparkvas Phase 0/1 纯合同（2026-11-16）
+
+用户可见品牌先切换为 **Sparkvas**；`package.json.productName`/`executableName`、App ID、安装器身份、用户数据目录、更新协议和 CLI/MCP 技术身份仍保留兼容旧标识，Phase 7 再迁移。公开 v1.0.9 仍是旧品牌正式制品，本轮不改变其身份。
+
+本批 owner 是 `runtime/skill-contract.cjs`、`runtime/tool-contract.cjs`、`runtime/recipe-contract.cjs`、`runtime/recipe-graph.cjs`、`runtime/recipe-run-contract.cjs`、`runtime/sparkvas-contract-utils.cjs` 及其 `.d.mts`。它们只做纯校验、规范化、canonical hash、DAG/端口/循环检查、权限和状态枚举；不得依赖 Electron、React、网络、模型或项目持久化。公开字段、ID、hash、权限、状态和示例见 [Recipe Contract](RECIPE_CONTRACT.md)。
+
+验证入口为 `test:skill-contract`、`test:tool-contract`、`test:recipe-contract`，分别由 `scripts/*-contract-selftest.cjs` 拥有，全部使用 fixture，`realModelRequests: 0`。Main Recipe Store/Run、IPC、Studio、Agent Recipe 工具、Registry、Marketplace 和真实图片/视频执行不在本批范围。
+
+当前状态：上述 v1 纯合同已实现并通过 fixture 测试（Skill 6/6、Tool 5/5、Recipe 11/11、contract types 与 typecheck exit 0）；**尚未接 Main/Studio/Registry/IPC**，第一垂直切片未开始。最终本地交付证据见 [Goal](../GOAL.md) 与 [Progress](../PROGRESS.md)。
 
 ## 桌面品牌图标（2026-10-25）
 
@@ -238,18 +248,18 @@ Grok 消费后报 AggregateError 的桌面回归本地修复与修订 EXE 已验
 
 本仓库只维护桌面创作端和本地 Agent runtime：
 
-- 用户可见产品名称统一为 `SparkAI WorkSpace`。安装后的主程序为 `SparkAIWorkSpace.exe`。App ID、协议头、Automation CLI 和应用数据目录仍沿用既有 `naimage` 路径，避免丢失用户项目。
+- 2026-11-16 起用户可见品牌为 `Sparkvas`。安装后的主程序仍是 `SparkAIWorkSpace.exe`；`package.json.productName`、App ID、协议头、Automation CLI 和应用数据目录仍沿用既有兼容标识，Phase 7 前不得为了品牌一致而改写。公开 v1.0.9 仍是旧品牌正式制品。
 
 - Electron 主进程负责窗口、IPC、项目文件、用户会话、远端请求、图片工作线程和更新。
 - React Renderer 负责工作台、无限画布、项目 Agent UI、图片容器、需求节点和成果呈现。
 - `agent-runtime.cjs` 负责 Prompt/画布上下文组装、压缩编排、模型协议循环与工具执行；SQLite/JSON memory、Prompt/FastMemory 持久化、tool schema 和 Responses/Chat 响应解析由 `runtime/` 专属模块持有，但均不直接修改 React state。
 - 用户的原生 New API、账户/角色/quota/计费、渠道和模型服务由外部部署维护；本工作区的 `sparkai-extension` 只拥有 Pro License、兑换码管理和 Cloudflare-safe 图片任务包装。
 
-- 发布项目/GitHub Release 展示名已记录为 `SparkAI-WorkSpace`；应用内展示名仍由代码 `package.json.productName` 所有，为 `SparkAI WorkSpace`。`naimage-studio`、`org.sparkai.naimage`、`SparkAIWorkSpace`、`naimage-*` 更新协议和用户数据目录是升级兼容标识，不因发布展示名变化而改写。
+- 历史发布项目/GitHub Release 展示名和当前技术身份仍保留 `SparkAI-WorkSpace` / `naimage-studio` / `org.sparkai.naimage` / `SparkAIWorkSpace` / `naimage-*`。新品牌迁移必须一次性处理项目、设置、凭据、快捷方式和更新回滚，不能靠修改 UI 文案完成。
 
 桌面端不是服务端权威来源。身份、角色、余额、模型可用性、计费和使用日志以远端 New API 返回为准；项目画布、项目素材、对话和 FastMemory 以本地项目及应用数据为准。
 
-产品层把 Agent 定义为“Codex/Claude Code 式通用 Agent Runtime + SparkAI WorkSpace 视觉创作 Agent”。前者拥有目标分解、工具循环、模型协议、上下文 checkpoint、Skills/CLI 和任务恢复；后者拥有画布语义、TaskScope、图片容器、Image Gen、素材归属和绘画经验。它是能力与协议的组合，不是把 Codex 产品或源码直接嵌入应用。
+产品层把 Agent 定义为“Codex/Claude Code 式通用 Agent Runtime + Sparkvas 视觉创作 Agent”。前者拥有目标分解、工具循环、模型协议、上下文 checkpoint、Skills/CLI 和任务恢复；后者拥有画布语义、TaskScope、图片容器、Image Gen、素材归属和绘画经验。它是能力与协议的组合，不是把 Codex 产品或源码直接嵌入应用。
 
 ## 3. 进程拓扑
 
@@ -605,7 +615,7 @@ Graph CLI 与 GUI 共用生产画布关系实现，不维护第二套图模型�
 
 ### 4.6 Agent 上下文与 checkpoint
 
-`SparkAI WorkSpace Agent = Codex 式通用 Agent Runtime + 视觉创作领域 Agent`。通用部分拥有长上下文、模型协议历史、工具循环和 checkpoint；视觉领域部分拥有画布快照、TaskScope SOURCE/REFERENCE、图片容器、Image Gen 与 FastMemory 绘画经验。
+`Sparkvas Agent = Codex 式通用 Agent Runtime + 视觉创作领域 Agent`。通用部分拥有长上下文、模型协议历史、工具循环和 checkpoint；视觉领域部分拥有画布快照、TaskScope SOURCE/REFERENCE、图片容器、Image Gen 与 FastMemory 绘画经验。
 
 ```text
 settings + agentModel
@@ -841,6 +851,7 @@ Renderer UpdaterBridge
 | `desktop/glass-background-service.cjs` | 原生选择后的有界读取、最长边 3840 px 单帧 WebP 转码、SHA-256 内容寻址、严格 ID 加载与 30 天保留式 GC | Renderer/CSS 状态、原始路径公开、任意路径读取、即时删除或扫描删除未知文件 | `createGlassBackgroundService`, `glass-bg-`, `GLASS_BACKGROUND_RETENTION_MS` | `test:glass-background`, `test:settings-persistence`, `test:ipc-registration` |
 | `runtime/glass-theme-presets.json`, `runtime/glass-theme-settings.cjs`, `public/glass-theme-bootstrap.js` | 九主题/三材质/纯色参数/强调色/范围 registry、Electron 归一化与原生窗口底色、React 前安全首帧投影 | React/画布状态、凭据或项目数据；bootstrap 不得信任 snapshot 内任意变量，启动期 registry 镜像不得静默漂移 | `naimage-glass-theme-registry`, `normalizeGlassThemeSettings`, `nativeWindowBackgroundColor`, `bootstrapNaimageGlassAppearance` | `test:glass-theme`, `test:settings-persistence`, `test:agent-window`, `test:ipc-registration`, `test:lifecycle`, `test:bundle` |
 | `runtime/workspace-domains.json`, `runtime/workspace-domain.cjs`, `src/workspace-domain.ts` | 四领域 ID/标题/说明/图标/插件归属/简短 Prompt/工具名注册表及 TS/CJS 归一化 | 项目状态、React UI、插件安装、模型调用、领域专属业务或平行 Runtime | `WORKSPACE_DOMAIN_IDS`, `workspaceDomainDefinitions`, `normalizeWorkspaceDomain`, `workspaceDomainPrompt`, `workspaceDomainOwnsPlugin` | `test:workspace-domain`, `test:plugin-system`, `test:automation-service`, `typecheck` |
+| `runtime/skill-contract.cjs`, `runtime/tool-contract.cjs`, `runtime/recipe-contract.cjs`, `runtime/recipe-graph.cjs`, `runtime/recipe-run-contract.cjs`, `runtime/sparkvas-contract-utils.cjs`（及 `.d.mts`） | Skill/Tool/Recipe/Run v1 纯合同：ID、SemVer、槽位/端口、权限、canonical SHA-256、DAG/循环/拓扑、状态转换、scope/idempotency 和未知提交重试策略 | Electron/React、Main 持久化、网络/模型调用、Registry 安装、真实执行或第二套项目状态 | `parseSkillManifest`, `parseToolManifest`, `parseRecipeDocument`, `validateRecipeGraph`, `sealRecipeRun`, `recipeStepRetryDisposition` | `test:skill-contract`, `test:tool-contract`, `test:recipe-contract`, `typecheck` |
 | `runtime/access-variant.cjs`, `src/access-policy.ts`, `vite.config.ts`, `scripts/release/{build-access-variants,build-windows,create-update-release,windows-release-orchestrator}.mjs` | 双接入/仅 SparkAPI 构建策略、产物清单、Renderer 常量、Main 设置强制、公开安装包命名与双安装包编排；公开制品只使用 `SparkAI-WorkSpace-Unrestricted-*` / `SparkAI-WorkSpace-SparkAPI-*`，electron-builder 的 `naimage-Core-*` 仅为嵌入品牌壳的内部临时包；开发 `--package` 默认跳过 Bundle，显式 `--enforce-bundle` 才执行 | 远端兑换码、账号计费、上游 Key、运行时可修改的生产开关、把内部 `naimage` 兼容名重新暴露为公开 Setup，或正式发布门禁豁免 | `SPARKAI_ACCOUNT_ONLY`, `SPARKAI_ACCESS_VARIANT`, `sparkai-access-policy.json`, `applyAccessPolicyToSettings`, `windowsInstallerArtifactName`, `windowsCoreInstallerArtifactName`, `windowsLegacyInstallerArtifactName`（仅清理/历史兼容） | `test:access-variant`, `test:update`, `test:release-orchestrator`, `typecheck`, `build:unrestricted`, `build:sparkapi`, `package:win:variants` |
 | `plugins/social-content-schema.json`, `runtime/social-content-plan.cjs` | 社媒平台/类型/默认值/上限、计划与成果元数据归一化、稳定 workflow/hash、结构化写回及 Agent 执行 Prompt | React UI、图片/视频请求、项目 IO 或第二套社媒数据库 | `normalizeSocialContentPlan`, `socialContentWriteback`, `socialRequirementPrompt`, `normalizeSocialContentMetadata` | `test:social-content`, `test:plugin-system`, `test:video-node` |
 | `plugins/scientific-figure-schema.json`, `runtime/scientific-figure-plan.cjs`, `desktop/scientific-runner-service.cjs`, `desktop/ipc/scientific-ipc.cjs` | 科研计划 schema/归一化、受管表格数据、项目 journal、受信任 Python/R 单后端执行、超时/取消、输出复核与原生导出授权 | 任意用户脚本、依赖安装、联网、研究结论推断、Renderer 画布 mutation 或绝对受限路径公开 | `normalizeScientificFigurePlan`, `createScientificRunnerService`, `registerScientificIpc`, `research.figure.*` | `test:scientific-runner`, `test:automation-service`, `test:ipc-registration`, `typecheck` |
@@ -1088,7 +1099,7 @@ Goal TaskScope 是更严格的 v1 子合同：`origin=goal`、`target=all-image-
 
 ### 6.5 远端服务
 
-账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 SparkAI WorkSpace 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
+账号模式使用 `accountBaseUrl=https://sparkapi.org` 和 `updateBaseUrl=https://sparkapi.org`；模型 Base URL 由账户地址规范化为 `https://sparkapi.org/v1`。`relayBaseUrl` 仅作为旧设置/后续独立服务保留，当前账号模型请求不再依赖 Session Relay。自定义模式使用独立的 `agentBaseUrl/agentApiKey` 与 `imageBaseUrl/imageApiKey`；当前 UI 用同一组输入初始化 Agent/生图地址和 Key，底层字段仍保持分离，以支持后续拆成不同渠道。`networkProxyUrl` 是可选的应用级 HTTP(S) 代理；留空使用 Node 原生 HTTP，填写如 `http://127.0.0.1:7897` 时只有 Sparkvas 服务请求通过 Windows curl 代理，不修改环境、Git 或系统全局配置。读取设置时，旧 `https://image.aieyra.cn`（含尾部斜杠和大小写变体）会强制迁移为 SparkAPI 更新地址；其他合法自定义更新地址仍可保留。若服务端尚未部署桌面更新扩展，客户端会把更新错误显示为不可用，不会把 GitHub 私有仓库密钥打包进客户端。旧 `serverUrl` 仅在读取时迁移到账户地址，不再写回；账户地址变化必须清空 session cookie、user id 和所选 token 元数据，并清除完整 Key 内存缓存。
 
 账户管理认证使用 session cookie 与 `New-Api-User`；标准模型接口认证使用所选 token 的 `Authorization: Bearer <key>`。正式登出尽力调用账户站 `/api/user/logout`，无论远端结果如何都必须清理本地认证、所选 token 元数据和完整 Key 内存缓存。账户密钥额度保留原始 quota，`desktop/account-token-quota.cjs` 使用公开状态中的 `quota_per_unit` 得到 R（`1 R = 1 USD`），再使用 `usd_exchange_rate` 得到人民币分值；`price` 是充值价格倍率，禁止参与余额换算。显式刷新时并行读取状态与密钥，缓存读取不联网。主要契约：
 
@@ -1253,6 +1264,7 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 领域 | 命令 |
 | --- | --- |
+| Sparkvas Skill/Tool/Recipe/Run v1 schema、hash、权限、DAG、循环、版本和未知提交策略 | `corepack pnpm run test:skill-contract`, `corepack pnpm run test:tool-contract`, `corepack pnpm run test:recipe-contract`, `corepack pnpm run typecheck`；三个合同 suite 均为 fixture/fake，`realModelRequests: 0`，不建立 Main/Studio/Registry 集成 |
 | 四工作台领域注册表、旧 Session、新项目、插件投影、Agent/CLI 镜像 | `corepack pnpm run test:workspace-domain`, `corepack pnpm run test:plugin-system`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:automation-service`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:workspace-domain` |
 | 社媒计划/Requirement/provenance、发布包、视频身份和共享命令 | `corepack pnpm run test:social-content`, `corepack pnpm run test:social-export`, `corepack pnpm run test:video-node`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:social-content` |
 | 科研计划/Requirement、受管数据、Python/R Runner、Panel/导出与 7 个共享命令 | `corepack pnpm run test:scientific-runner`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:workspace-glass-ui`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:scientific-figure`，该 GUI 场景不执行 Runner |

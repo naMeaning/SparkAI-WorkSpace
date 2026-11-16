@@ -7570,7 +7570,7 @@ function App() {
   }
 
   function videoTaskErrorMessage(task: VideoTask) {
-    if (task.state === "create-unknown") return task.error || "创建结果无法确认；为避免重复扣费，SparkAI WorkSpace 不会自动重建。";
+    if (task.state === "create-unknown") return task.error || "创建结果无法确认；为避免重复扣费，Sparkvas 不会自动重建。";
     if (task.state === "cancelled") return task.error || "上游已取消视频任务。";
     if (task.state === "failed") return task.error || "上游视频任务失败。";
     if (task.state === "succeeded" && task.downloadError) return `视频已生成，结果下载暂时失败：${task.downloadError}`;
@@ -8422,7 +8422,7 @@ function App() {
         setServerMessage(result.ok
           ? result.reused
             ? "抖音视频任务已存在，继续使用原任务，未重复创建。"
-            : "抖音视频任务已创建；SparkAI WorkSpace 会在后台轮询并将结果写入当前社媒项目。"
+            : "抖音视频任务已创建；Sparkvas 会在后台轮询并将结果写入当前社媒项目。"
           : ambiguous
             ? error || "抖音视频创建结果不明；为避免重复扣费，不会自动重试。"
             : error || "抖音视频任务创建失败。");
@@ -8445,7 +8445,7 @@ function App() {
       const result = await dispatchVideoTask(dialog);
       if (activeProjectIdRef.current === dialog.projectId) {
         setServerMessage(result.ok
-          ? "视频任务已创建；可以继续使用画布，SparkAI WorkSpace 会在后台轮询并自动落盘。"
+          ? "视频任务已创建；可以继续使用画布，Sparkvas 会在后台轮询并自动落盘。"
           : result.ambiguous
             ? result.error || "视频创建结果不明；为避免重复扣费，不会自动重试。"
             : result.error || "视频任务创建失败。");
@@ -23960,7 +23960,7 @@ function App() {
           const beforeProgressCount = agentProgressRef.current.length;
           const sent = await debugSendPrompt(
             [
-              `请直接调用 SparkAI WorkSpace 的 image_gen 工具一次生成第 ${index + 1}/${agentCount} 张竖屏微海报，不要只回复文字或计划。`,
+              `请直接调用 Sparkvas 的 image_gen 工具一次生成第 ${index + 1}/${agentCount} 张竖屏微海报，不要只回复文字或计划。`,
               "工具参数必须包含 operation=generate, ratio=9:16, count=1。",
               `resolution=${resolution}, quality=${quality}。`,
               "生成完成后同步到画布。",
@@ -28424,7 +28424,7 @@ function App() {
       <header className="ide-topbar">
         <div className="titlebar-brand">
           <img className="titlebar-brand-icon" src="./naimage.png" alt="" draggable={false} />
-          <strong>SparkAI WorkSpace</strong>
+          <strong>Sparkvas</strong>
         </div>
         <nav className="file-menu project-actions" aria-label="项目菜单">
           <div className="project-menu">

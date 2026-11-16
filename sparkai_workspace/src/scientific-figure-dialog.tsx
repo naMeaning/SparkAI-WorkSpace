@@ -123,7 +123,7 @@ export default function ScientificFigureDialog({
 
   const refresh = async () => {
     const bridge = window.naimageScientific;
-    if (!bridge) throw new Error("当前桌面运行时尚未加载科研绘图服务，请重启 SparkAI WorkSpace 后重试。");
+    if (!bridge) throw new Error("当前桌面运行时尚未加载科研绘图服务，请重启 Sparkvas 后重试。");
     const [dataResult, taskResult] = await Promise.all([
       bridge.listData({ expectedProjectId: projectId }),
       bridge.list({ expectedProjectId: projectId })
@@ -310,7 +310,7 @@ export default function ScientificFigureDialog({
               <span className="scientific-hero-icon"><FlaskConical size={19} /></span>
               <div>
                 <strong>先讲清结论，再选择证据和图形</strong>
-                <p>SparkAI WorkSpace 不推断显著性、样本量或实验结论；真实数据、脚本哈希和导出资产都会保留。</p>
+                <p>Sparkvas 不推断显著性、样本量或实验结论；真实数据、脚本哈希和导出资产都会保留。</p>
               </div>
               <span className="scientific-safe-badge"><ShieldCheck size={14} /> 受控执行</span>
             </section>

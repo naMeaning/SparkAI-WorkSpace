@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -34,7 +35,8 @@ const debugDir = join(runDir, "runtime");
 const electronLog = join(runDir, "electron.log");
 const reportPath = join(runDir, "report.json");
 const smokeProjectId = "packaged-smoke-project";
-const smokeProjectDir = join(runDir, "project");
+const smokeWorkspaceRoot = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Temp") : tmpdir();
+const smokeProjectDir = join(smokeWorkspaceRoot, "sparkvas-packaged-smoke", stamp);
 const remotePort = await allocateDebugPort();
 
 if (!existsSync(executable)) throw new Error(`Packaged executable not found: ${executable}`);
@@ -135,6 +137,8 @@ for (let offset = 0; offset < background.data.length; offset += 4) {
 const backgroundBytes = PNG.sync.write(background);
 const fixturePath = join(runDir, `external-reference${sourceFormat.extension}`);
 writeFileSync(fixturePath, sourceBytes);
+const importFixturePath = join(runDir, "external-import-reference.png");
+writeFileSync(importFixturePath, fixturePng(65, 65));
 const sourceDataUrl = `data:${sourceFormat.mimeType};base64,${sourceBytes.toString("base64")}`;
 const semanticPreviewDataUrl = `data:image/png;base64,${fixturePng().toString("base64")}`;
 const layerDataUrl = `data:image/png;base64,${layerBytes.toString("base64")}`;
@@ -280,7 +284,7 @@ try {
       ? await window.naimageConfig.readAssetDataUrl({ path: saved.asset.path })
       : { ok: false, error: "saved asset path missing" };
     const imported = await window.naimageConfig.importLocalImage({
-      path: ${JSON.stringify(fixturePath)},
+      path: ${JSON.stringify(importFixturePath)},
       projectId
     });
     const semantic = await window.naimageConfig.refineSemanticLayers({
@@ -363,7 +367,7 @@ try {
       ok: Boolean(
         settings && projects?.ok && smoke?.ok && saved?.ok && readBack?.ok &&
         imported?.ok && semantic?.ok && psd?.ok && thumbnail?.ok && network?.ok &&
-        title === "SparkAI WorkSpace" && bodyText.length > 20 && appearance.ok
+        title === "Sparkvas" && bodyText.length > 20 && appearance.ok
       ),
       title,
       bodyTextLength: bodyText.length,
@@ -377,7 +381,7 @@ try {
       smoke,
       saved: { ok: saved?.ok, path: saved?.asset?.path, width: saved?.asset?.width, height: saved?.asset?.height },
       readBack: { ok: readBack?.ok, matches: readBack?.dataUrl === ${JSON.stringify(sourceDataUrl)} },
-      imported: { ok: imported?.ok, path: imported?.asset?.path, thumbnailPath: imported?.asset?.thumbnailPath },
+    imported: { ok: imported?.ok, path: imported?.asset?.path, thumbnailPath: imported?.asset?.thumbnailPath, error: imported?.error || "" },
       semantic: { ok: semantic?.ok, engine: semantic?.engine, layerCount: semantic?.layers?.length, reportCount: semantic?.reports?.length },
       psd: { ok: psd?.ok, path: psd?.path, count: psd?.count, layerNames: psd?.layerNames },
       thumbnail: { ok: thumbnail?.ok, stats: thumbnail?.stats },
@@ -719,6 +723,7 @@ const report = {
   executable,
   hygiene,
   runDir,
+  smokeProjectDir,
   reportPath,
   target: target ? { title: target.title, url: target.url } : null,
   result,

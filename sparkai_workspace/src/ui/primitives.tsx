@@ -22,7 +22,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
         <div className="fatal-screen">
           <div>
             <span className="eyebrow">Main Error</span>
-            <h1>SparkAI WorkSpace 界面启动失败</h1>
+            <h1>Sparkvas 界面启动失败</h1>
             <p>{this.state.error.message}</p>
             <ButtonBase onClick={() => window.location.reload()}>
               重新加载

@@ -392,8 +392,8 @@ function registerServerIpc({
     if (payload?.preferCached === true && settings.serverSessionCookie && settings.serverUserId && !(aidebugMode && !aidebugLiveImage)) {
       const cachedUser = normalizeNewApiUser({
         id: settings.serverUserId,
-        username: "SparkAI 用户",
-        display_name: "SparkAI 用户"
+        username: "Sparkvas 用户",
+        display_name: "Sparkvas 用户"
       });
       return {
         ok: true,

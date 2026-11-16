@@ -395,7 +395,7 @@ function createCommerceTemplateLibraryService({
     const options = {
       title: "导入套图模板",
       properties: ["openFile"],
-      filters: [{ name: "SparkAI WorkSpace 套图模板", extensions: ["json"] }]
+      filters: [{ name: "Sparkvas 套图模板", extensions: ["json"] }]
     };
     const selection = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
     if (selection.canceled || !selection.filePaths?.[0]) return { ok: true, canceled: true };
@@ -411,7 +411,7 @@ function createCommerceTemplateLibraryService({
       throw new CommerceTemplateLibraryError("IMPORT_JSON_INVALID", "套图模板不是有效 JSON 文件。");
     }
     const portable = strictPortableTemplate(parsed);
-    if (!portable) throw new CommerceTemplateLibraryError("IMPORT_SCHEMA_INVALID", "套图模板格式或字段不符合 SparkAI WorkSpace v1 规范。");
+    if (!portable) throw new CommerceTemplateLibraryError("IMPORT_SCHEMA_INVALID", "套图模板格式或字段不符合 Sparkvas v1 规范。");
     const result = save({ ...portable, conflictPolicy: "copy" });
     return { ...result, canceled: false, imported: true, sourceName: path.basename(filePath) };
   }
@@ -436,7 +436,7 @@ function createCommerceTemplateLibraryService({
     const options = {
       title: "导出套图模板",
       defaultPath: `${fileStem}.naimage-commerce-template.json`,
-      filters: [{ name: "SparkAI WorkSpace 套图模板", extensions: ["json"] }]
+      filters: [{ name: "Sparkvas 套图模板", extensions: ["json"] }]
     };
     const selection = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
     if (selection.canceled || !selection.filePath) return { ok: true, canceled: true };

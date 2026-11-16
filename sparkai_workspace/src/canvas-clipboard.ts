@@ -41,7 +41,7 @@ export function copyCanvasNodes(nodes: readonly WorkflowNode[], selectedIds: rea
 export function canvasClipboardSummary(payload: CanvasClipboardPayload | null) {
   if (!payload?.nodes.length) return "";
   const labels = payload.nodes.slice(0, 4).map((node) => node.title?.trim() || node.id);
-  return `SparkAI WorkSpace 画布：已复制 ${payload.nodes.length} 个成果${labels.length ? `（${labels.join("、")}${payload.nodes.length > labels.length ? "…" : ""}）` : ""}`;
+  return `Sparkvas 画布：已复制 ${payload.nodes.length} 个成果${labels.length ? `（${labels.join("、")}${payload.nodes.length > labels.length ? "…" : ""}）` : ""}`;
 }
 
 export function pasteCanvasNodes(

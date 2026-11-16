@@ -1,6 +1,6 @@
 # Tutorial 03：用本地 CLI/MCP 控制 Agent
 
-SparkAI WorkSpace 随安装包提供 `naimage-control` 自动化 Skill。它通过本机已认证桥接连接正在运行的桌面端，适合脚本、MCP 客户端或另一个 Agent 读取状态、发送任务和检查结果。
+Sparkvas 随安装包提供 `naimage-control` 自动化 Skill。它通过本机已认证桥接连接正在运行的桌面端，适合脚本、MCP 客户端或另一个 Agent 读取状态、发送任务和检查结果。
 
 自动化入口不会把远端 API Key、Cookie、签名 URL、绝对素材路径或完整提示词返回给调用方。连接元数据保存在本机 Skill 目录；不要复制、提交或粘贴该文件。
 
@@ -17,7 +17,7 @@ $cli = ".\integrations\naimage-control\scripts\naimage.ps1"
 & $cli status
 ```
 
-`status` 会在需要时启动 SparkAI WorkSpace，并返回本机桥接是否就绪。没有安装 Skill、应用未启动或连接元数据缺失时，先在应用设置中重新安装 Skill。
+`status` 会在需要时启动 Sparkvas，并返回本机桥接是否就绪。没有安装 Skill、应用未启动或连接元数据缺失时，先在应用设置中重新安装 Skill。
 
 ## 2. 读取状态再操作
 

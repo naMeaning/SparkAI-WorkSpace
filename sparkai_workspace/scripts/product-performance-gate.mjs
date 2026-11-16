@@ -271,7 +271,7 @@ async function waitForDebugTarget(port) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`);
       const targets = await response.json();
-      const target = targets.find((item) => item.type === "page" && (String(item.url).startsWith("file:") || String(item.title).includes("SparkAI WorkSpace")));
+      const target = targets.find((item) => item.type === "page" && (String(item.url).startsWith("file:") || String(item.title).includes("Sparkvas")));
       if (target?.webSocketDebuggerUrl) return target;
     } catch {
       // Electron is still starting.

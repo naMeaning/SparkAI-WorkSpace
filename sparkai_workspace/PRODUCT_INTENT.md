@@ -1,4 +1,10 @@
-# SparkAI WorkSpace 产品意图
+# Sparkvas 产品意图
+
+## 2026-11-16 当前方向
+
+Sparkvas 是画布优先、AI-native 的视觉创作工作台。Canvas 继续承载成果、图片容器、需求节点、任务和 provenance；Studio 是第二创作面，用来查看、编辑和运行可版本化的 Recipe，结果回到同一 Canvas。Studio 只允许 `Input`、`Brief`、`Skill`、`Transform`、`Tool`、`Review`、`Output` 语义节点，不恢复 ComfyUI 式底层算子图、旧画布 Agent/计划/Prompt 执行节点或第二套项目状态。
+
+Skill 是声明式创作技法，不执行任意代码；Tool 是应用内置或受控适配器，必须声明网络、文件、进程、模型和 MCP 权限。AI 可以起草、修改、解释和修复 Recipe，但用户保留审阅、锁定、接管和执行授权。2026-11-16 的品牌决定只先改变用户可见名称；技术身份、安装器、用户数据目录和更新协议在 Phase 7 统一迁移，公开 v1.0.9 仍是旧品牌正式制品。
 
 导出统一复用现有图片、图片组、PSD 和导出中心 owner，默认保留原文件字节与尺寸，格式转换由用户明确选择。Main 冻结项目、来源身份/哈希、参数与目标授权并拥有执行队列，关闭面板后继续；GUI、CLI/MCP 只持有目标授权引用。项目内目录为默认，原生对话框可授权一次外部交付目录。重名明确选择保留两份、覆盖或跳过；逐项结果、取消、历史和仅失败项重试共用同一权威状态。散图可报告部分成功，图片组事务和 ZIP 原子发布。
 
@@ -12,9 +18,9 @@ ComfyUI 保持在唯一 image_gen、Agent Runtime 与 TaskScope 内。2026-10-23
 
 成果检索是可重建的本地元数据投影，区分用户标签、Prompt预期和有像素消费证据的观察。搜索不会请求模型或绑定素材；明确使用后校验稳定资产身份与当前字节，并沿原TaskScope执行。可复用方法进入既有需求模板库，图片变量在本项目重新绑定，应用只产生普通需求草稿。
 
-## 当前产品定位（2026-10-17）
+## 当前产品定位（2026-11-16）
 
-SparkAI WorkSpace 是免费的 Agent 生图工作台。用户可以用 New API/SparkAPI 账号登录，也可以在支持自定义连接的免费发行版中直接填写 Base URL + API Key；两条路径共享同一项目、无限画布和本地 Agent。软件本身不收取 Pro 兑换费用，图片/对话请求是否产生费用由用户选择的账号、API Key 和上游服务商决定。旧 Pro License 字段与 IPC 仅为历史设置和旧扩展兼容保留，不再作为工作区进入、Agent 对话或图片请求的运行时门槛。
+Sparkvas 是免费的画布优先视觉创作工作台。用户可以用 New API/SparkAPI 账号登录，也可以在支持自定义连接的免费发行版中直接填写 Base URL + API Key；两条路径共享同一项目、无限画布和本地 Agent。软件本身不收取 Pro 兑换费用，图片/对话请求是否产生费用由用户选择的账号、API Key 和上游服务商决定。旧 Pro License 字段与 IPC 仅为历史设置和旧扩展兼容保留，不再作为工作区进入、Agent 对话或图片请求的运行时门槛。
 
 更新时间：2026-10-20
 
@@ -28,9 +34,9 @@ AI-Native首期让GUI、CLI/MCP与内置Agent共同续接同一任务。Main持�
 
 ## 我们最终想做什么
 
-SparkAI WorkSpace 是面向普通用户和创作者的傻瓜式桌面 AI 图片、视频与专业视觉成果工作台。它在同一个项目、同一张无限画布和同一个项目 Agent 中提供通用创作、电商创作、社媒创作与科研绘图四种可切换工作台；领域切换只改变入口、插件、推荐流程与简短 Agent 上下文，不复制项目状态、画布、Session、资产、TaskScope、Requirement、provenance、Agent Runtime 或 CLI/MCP 注册表。它不是工作流编辑器、通用 Agent IDE 或 ComfyUI 复刻。右侧项目 Agent 是唯一控制中心，负责理解目标并生成或修改成果；它可以折叠为窄侧栏，但不会被卸载、变成画布节点或创建子 Agent。无限画布主要展示图片成果、非执行型视频成果、图片分组和来源关系，并只允许一种可执行的非图片原语：可复用需求节点。用户导入的单文件 `SKILL.md` 作为带 `CanvasSkill` 身份的可复用需求呈现和持久化，仍沿用需求节点的来源关系、TaskScope 与执行入口，不扩张为任意工作流节点。
+Sparkvas 是面向普通用户和创作者的桌面 AI 图片、视频与专业视觉成果工作台。它在同一个项目、同一张无限画布和同一个项目 Agent 中提供通用创作、电商创作、社媒创作与科研绘图四种可切换工作台；领域切换只改变入口、插件、推荐流程与简短 Agent 上下文，不复制项目状态、画布、Session、资产、TaskScope、Requirement、provenance、Agent Runtime 或 CLI/MCP 注册表。它不是通用 Agent IDE，也不是 ComfyUI 式底层节点图复刻。Canvas 是默认主创作面；需要可复用、可编辑流程时，用户进入 Studio 编辑语义 Recipe。右侧项目 Agent 是唯一控制中心，负责理解目标并生成或修改成果；它可以折叠为窄侧栏，但不会被卸载、变成画布节点或创建子 Agent。无限画布主要展示图片成果、非执行型视频成果、图片分组和来源关系，并只允许一种可执行的非图片原语：可复用需求节点。用户导入的单文件 `SKILL.md` 作为带 `CanvasSkill` 身份的可复用需求呈现和持久化，仍沿用需求节点的来源关系、TaskScope 与执行入口，不扩张为任意画布工作流节点。
 
-用户不在画布上创建 Agent、计划、Prompt 步骤、工具步骤或任意流程节点。用户既可选择成果继续对话，也可从图片/容器/分层成果创建一个需求节点，保存并持续优化某个自然语言处理要求。需求节点必须形成“来源 → 需求 → 成果”的单一结构；断开旧来源、接入新来源后可再次执行。同一来源和同一需求重复执行前需要确认。连线只表达来源关系，连线动作本身不执行任务。
+用户不在画布上创建 Agent、计划、Prompt 步骤、工具步骤或任意底层流程节点。Studio 是独立的语义 Recipe 编辑面，只允许 Input、Brief、Skill、Transform、Tool、Review、Output 节点；其依赖、权限、版本、hash 和运行状态由明确合同约束。用户既可选择成果继续对话，也可从图片/容器/分层成果创建一个需求节点，保存并持续优化某个自然语言处理要求。需求节点必须形成“来源 → 需求 → 成果”的单一结构；断开旧来源、接入新来源后可再次执行。同一来源和同一需求重复执行前需要确认。连线只表达来源关系，连线动作本身不执行任务。
 
 每个项目拥有一个项目级 Agent、多个可切换的历史会话和一块单一成果画布。新建会话只重置当前对话上下文，不创建新 Agent，不产生子 Agent，也不清空项目成果。
 
@@ -46,7 +52,7 @@ SparkAI WorkSpace 是面向普通用户和创作者的傻瓜式桌面 AI 图片�
 
 视频节点接受用户授权的本地 MP4、WebM、MOV 和 M4V：文件先复制到项目 `output/video` 受管目录，再以独立成果节点播放、保存尺寸/时长并在重启后恢复。`doubao-seedance-2-0-260128` 已进入视频模型目录、设置默认值及独立的 create/poll/download 任务链路；这条链路处于“已开发、未用真实 Token 验证”的状态，不代表兼容请求或计费边界已经固定。用户提供的 Chat Completions 示例不足以定义视频任务；未获得明确测试授权前不得发起真实 Seedance 请求，也不得在创建结果不明时自动重建。
 
-主 Agent 保留与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 SparkAI WorkSpace 的 `experience`、记忆与 compact 等完成复杂任务所需的通用能力，也可读取和维护成果关系。`web_search` 不得被包装成自建搜索 function；`view_image` 通过 `function_call_output` 返回 `input_image`，由同一个主模型直接观察。`detail=high` 使用受控尺寸和请求体的模型观察副本，`detail=original` 保留原分辨率；任何观察副本都不能替换项目原图或降低画布显示清晰度。`context_manage` 与底层 memory 属于内部维护能力，不作为主 Agent 的普通公开工具。这些能力通过对话与时间线工作，不能变成画布节点、手动工作流或用户必须理解的执行步骤。
+主 Agent 保留与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 Sparkvas 的 `experience`、记忆与 compact 等完成复杂任务所需的通用能力，也可读取和维护成果关系。`web_search` 不得被包装成自建搜索 function；`view_image` 通过 `function_call_output` 返回 `input_image`，由同一个主模型直接观察。`detail=high` 使用受控尺寸和请求体的模型观察副本，`detail=original` 保留原分辨率；任何观察副本都不能替换项目原图或降低画布显示清晰度。`context_manage` 与底层 memory 属于内部维护能力，不作为主 Agent 的普通公开工具。这些能力通过对话与时间线工作，不能变成 Canvas 节点、底层工作流或用户必须理解的执行步骤。
 
 没有成果节点被选中时，画布只是空白工作区状态，不显示“当前选中/将基于画布”，也不向 Agent 传递画布选择上下文。
 

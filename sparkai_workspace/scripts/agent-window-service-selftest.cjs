@@ -79,6 +79,7 @@ assert.equal(opened.ok, true);
 assert.equal(opened.reused, false);
 const surfaceWindow = FakeWindow.instances.at(-1);
 assert.equal(surfaceWindow.loadedFile, "C:\\app\\agent-window.html");
+assert.equal(surfaceWindow.options.title, "naimage Agent");
 assert.equal(surfaceWindow.options.webPreferences.nodeIntegration, false);
 assert.equal(surfaceWindow.options.webPreferences.contextIsolation, true);
 assert.equal(surfaceWindow.options.webPreferences.sandbox, true);

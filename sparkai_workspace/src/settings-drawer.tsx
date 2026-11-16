@@ -508,7 +508,7 @@ export default function SettingsDrawer({
     } : {
       mode: "create",
       id: "",
-      name: "SparkAI WorkSpace",
+      name: "Sparkvas",
       group: draftSettings.selectedAccountTokenGroup || draftSettings.modelGroup || "default",
       status: 1,
       unlimitedQuota: true,
@@ -1094,7 +1094,7 @@ export default function SettingsDrawer({
                     autoComplete="off"
                   />
                 </Field>
-                <InlineNotice tone="neutral">留空时使用 Node 直连；填写后仅 SparkAI WorkSpace 的服务请求使用该代理，不修改 Git 或系统全局代理。</InlineNotice>
+                <InlineNotice tone="neutral">留空时使用 Node 直连；填写后仅 Sparkvas 的服务请求使用该代理，不修改 Git 或系统全局代理。</InlineNotice>
               </SurfaceSection>
               ) : null}
 
@@ -1322,7 +1322,7 @@ export default function SettingsDrawer({
                   <div className="settings-section-header">
                     <div>
                       <strong>上下文控制</strong>
-                      <small>SparkAI WorkSpace 图片上下文叠加在模型原生 Agent 上下文之上；自动模式会按模型族选择策略。</small>
+                      <small>Sparkvas 图片上下文叠加在模型原生 Agent 上下文之上；自动模式会按模型族选择策略。</small>
                     </div>
                     <span className="settings-update-status available">
                       {CONTEXT_STRATEGY_OPTIONS.find((option) => option.value === draftSettings.contextStrategy)?.label || "自动匹配"}
@@ -1399,7 +1399,7 @@ export default function SettingsDrawer({
                   <div className="settings-update-version-row">
                     <div>
                       <small>稳定通道</small>
-                      <strong>{updateInfo?.updateAvailable ? `${updateInfo.currentVersion || "-"} → ${updateInfo.latestVersion}` : `SparkAI WorkSpace ${updateInfo?.currentVersion || "-"}`}</strong>
+                      <strong>{updateInfo?.updateAvailable ? `${updateInfo.currentVersion || "-"} → ${updateInfo.latestVersion}` : `Sparkvas ${updateInfo?.currentVersion || "-"}`}</strong>
                     </div>
                     {updateInfo?.artifact ? <span>{formatSettingsBytes(updateInfo.artifact.size)}</span> : null}
                   </div>
@@ -1461,7 +1461,7 @@ export default function SettingsDrawer({
                     <ActionButton variant="secondary" onClick={() => openHelp?.("terms")}>用户协议</ActionButton>
                     <ActionButton variant="secondary" onClick={() => openHelp?.("fees")}>费用与退款</ActionButton>
                   </div>
-                  <small>SparkAI WorkSpace 软件制作者：namean</small>
+                  <small>Sparkvas 软件制作者：namean</small>
                 </div>
               </SurfaceSection>
               ) : null}
@@ -1521,7 +1521,7 @@ export default function SettingsDrawer({
                   <div className="settings-section-header">
                     <div>
                       <strong>外部 Agent 控制</strong>
-                      <small>安装 SparkAI WorkSpace CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
+                      <small>安装 Sparkvas CLI Skill 后，Agent 可通过本机认证桥控制项目、画布与对话。</small>
                     </div>
                     <IconActionButton label="重新检测" icon={<RotateCcw size={14} />} onClick={() => void detectAgentIntegrations()} disabled={integrationBusy} />
                   </div>
@@ -1551,7 +1551,7 @@ export default function SettingsDrawer({
                     <ActionButton variant="primary" onClick={() => void mutateAgentIntegrations("install")} busy={integrationBusy}>安装 / 更新 Skill</ActionButton>
                     <ActionButton variant="secondary" onClick={() => void mutateAgentIntegrations("remove")} disabled={integrationBusy}>移除所选 Skill</ActionButton>
                   </div>
-                  <InlineNotice tone="neutral">勾选项保存后会在 SparkAI WorkSpace 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
+                  <InlineNotice tone="neutral">勾选项保存后会在 Sparkvas 启动时自动更新。自动化服务仅监听 `127.0.0.1`，并使用每次启动随机生成的 Bearer Token。</InlineNotice>
                 </div>
               </SurfaceSection> : null}
             </SurfaceBody>

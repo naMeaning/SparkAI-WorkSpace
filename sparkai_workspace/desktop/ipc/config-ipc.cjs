@@ -26,7 +26,7 @@ function registerSettingsIpc({
   ipcMain.handle("naimage:diagnostics:read", () => ({ ok: true, ...runtimeDiagnostics?.snapshot() }));
   ipcMain.handle("naimage:diagnostics:export", async () => {
     try {
-      const result = await dialog.showSaveDialog({ title: "导出诊断日志", defaultPath: "SparkAI-diagnostics.json",
+      const result = await dialog.showSaveDialog({ title: "导出诊断日志", defaultPath: "Sparkvas-diagnostics.json",
         filters: [{ name: "诊断日志", extensions: ["json"] }] });
       if (result.canceled || !result.filePath) return { ok: false, canceled: true };
       runtimeDiagnostics.exportTo(result.filePath);

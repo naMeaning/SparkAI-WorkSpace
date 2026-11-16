@@ -117,7 +117,7 @@ async function waitForDebugTarget() {
         throw new Error(`Electron exited before its remote debugging endpoint became ready (code=${electronProcess.exitCode}, signal=${electronProcess.signalCode || "none"}).`);
       }
     },
-    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("SparkAI WorkSpace"))),
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).includes("127.0.0.1:5173") || String(item.title).includes("Sparkvas"))),
     notFoundMessage: `No Electron renderer target found on port ${debugPort}.`
   });
 }
@@ -1639,10 +1639,10 @@ async function main() {
     await clickAria(client, "账户");
     await waitForExpression(client, `Boolean(document.querySelector('.account-drawer[data-ui-surface="account"]'))`);
     await clickButton(client, "退出登录", ".account-drawer");
-    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="SparkAI WorkSpace 访问配置"]'))`, 7000);
+    await waitForExpression(client, `Boolean(document.querySelector('.auth-shell .auth-card[aria-label="Sparkvas 访问配置"]'))`, 7000);
     const logoutAuthLayout = await evaluate(client, `(() => {
       const shell = document.querySelector('.auth-shell');
-      const card = shell?.querySelector('.auth-card[aria-label="SparkAI WorkSpace 访问配置"]');
+      const card = shell?.querySelector('.auth-card[aria-label="Sparkvas 访问配置"]');
       const form = card?.querySelector('.auth-gate-form');
       const inputs = Array.from(form?.querySelectorAll('input') || []);
       const submit = form?.querySelector('button[type="submit"]');
@@ -1658,7 +1658,7 @@ async function main() {
       const submitRect = submit.getBoundingClientRect();
       return {
         authShellCount: document.querySelectorAll('.auth-shell').length,
-        authCardCount: document.querySelectorAll('.auth-card[aria-label="SparkAI WorkSpace 访问配置"]').length,
+        authCardCount: document.querySelectorAll('.auth-card[aria-label="Sparkvas 访问配置"]').length,
         ideShellCount: document.querySelectorAll('.ide-shell').length,
         drawerCount: document.querySelectorAll('.account-drawer, .settings-drawer').length,
         shellWithinViewport: shellRect.left >= -1 && shellRect.top >= -1 && shellRect.right <= window.innerWidth + 1 && shellRect.bottom <= window.innerHeight + 1,

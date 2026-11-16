@@ -961,7 +961,7 @@ function createScientificRunnerService(options = {}) {
     const task = await getTask(project.id, taskId);
     if (!task || task.state !== "ready" || !task.outputs.length) throw new ScientificRunnerError("SCIENTIFIC_TASK_NOT_READY", "科研图尚未完成，不能导出。");
     const parent = path.resolve(cleanText(destinationParent, 32_767));
-    const target = path.join(parent, safeSegment(`SparkAI-${task.workflowId}-${task.taskId.slice(-8)}`, "scientific-figure"));
+    const target = path.join(parent, safeSegment(`Sparkvas-${task.workflowId}-${task.taskId.slice(-8)}`, "scientific-figure"));
     await mkdir(target, { recursive: false });
     let count = 0;
     try {

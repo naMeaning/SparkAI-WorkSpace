@@ -355,7 +355,7 @@ function registerAssetIpc(options = {}) {
     const resolved = resolveOutputAsset((payload ?? {}).path);
     if (!resolved) {
       log("asset open folder denied");
-      return { ok: false, error: "文件不在 SparkAI WorkSpace 项目输出目录内。" };
+      return { ok: false, error: "文件不在 Sparkvas 项目输出目录内。" };
     }
     if (!existsSync(resolved)) {
       log(`asset open folder missing ${resolved}`);
@@ -373,7 +373,7 @@ function registerAssetIpc(options = {}) {
       const resolved = path.resolve(rawPath);
       if (!isAllowedAssetPath(resolved)) {
         log(`asset read data url denied ${resolved}`);
-        return { ok: false, error: "图片不在 SparkAI WorkSpace 可读取资产目录内。" };
+        return { ok: false, error: "图片不在 Sparkvas 可读取资产目录内。" };
       }
       if (!existsSync(resolved)) {
         log(`asset read data url missing ${resolved}`);

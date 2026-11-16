@@ -1,4 +1,7 @@
-# SparkAI WorkSpace 文档索引
+# Sparkvas 文档索引
+
+- [Sparkvas 产品决策包（2026-11-16）](PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)、[实施计划](IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)及[Recipe Contract v1](RECIPE_CONTRACT.md)：画布优先、Studio 语义 Recipe、Skill/Tool/Run 合同和分阶段边界。Phase 1 只实现纯合同骨架；Main 执行、Studio、Registry 和真实模型/视频链路尚未实现。
+- [ADR-0001 画布优先工作流](adr/0001-canvas-first-ai-native-workflow-authoring.md)、[ADR-0002 Sparkvas 品牌](adr/0002-brand-sparkvas.md)、[ADR-0003 Registry 与受权限控制 Tool](adr/0003-github-registry-and-permissioned-tools.md)：2026-11-16 接受的产品与技术方向。
 
 - [SparkAPI 官网Logo统一](SPARKAPI_LOGO_2026-10-25.md)：真实官网资产来源、桌面/Windows/安装卸载图标链路及本地验证交付证据。
 
@@ -7,7 +10,7 @@
 - [AI-Native 第三期本地验证与交付](AI_NATIVE_CONTEXT_VALIDATION_2026-10-20.md)：项目知识、成果检索与便携需求模板；本地合同证据与模型能力边界。
 - [AI-Native 第二期本地验证与交付](AI_NATIVE_CREATION_VALIDATION_2026-10-20.md)：结构化创作要求、成果验收与定向修改；当前开发证据与未验证边界。
 
-当前公开正式版本为 1.0.9。仓库 `main` 的后续本地开发改进不代表已进入该 Release；下载版本与正式发布状态以 [GitHub Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。当前开发版的本地验证状态见 [Progress](../PROGRESS.md)。
+当前公开正式版本为 SparkAI WorkSpace 1.0.9；开发分支的用户可见品牌已切换为 Sparkvas，但安装器、EXE、App ID、用户数据目录和更新协议仍保留旧技术身份。仓库 `main` 的后续本地开发改进不代表已进入该 Release；下载版本与正式发布状态以 [GitHub Releases](https://github.com/naMeaning/SparkAI-WorkSpace/releases) 为准。当前开发版的本地验证状态见 [Progress](../PROGRESS.md)。
 
 ## 面向用户的使用文档
 
@@ -51,7 +54,7 @@
 2026-10-10：1.0.9 已正式发布。完整 `release:final` 报告为 `.diagnostics/release/final-release-2026-10-10T05-57-58-538Z/orchestrator-report.json`，远端资产核验为 `.diagnostics/release/publish-v1.0.9-2026-10-10/remote-assets-verification.json`；Release 位于 [GitHub v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。
 
 - [正式发布清单](./RELEASE_CHECKLIST.md)：每个版本的文档冻结、完整门禁、制品验签、GitHub Release 上传与复核顺序。
-- 发布项目/GitHub Release 展示名：`SparkAI-WorkSpace`；应用内展示名仍为 `SparkAI WorkSpace`，`naimage-studio` 更新 product 和 `naimage-*` 兼容标识不变。
+- 历史 1.0.9 发布展示名为 `SparkAI-WorkSpace`；开发分支应用内可见品牌为 `Sparkvas`，`naimage-studio` 更新 product、EXE、App ID、安装器和 `naimage-*` 兼容标识在 Phase 7 前保持不变。
 - [1.0.0 发布说明](./RELEASE_1.0.0.md)
 - [1.0.1 发布说明](./RELEASE_1.0.1.md)
 - [1.0.2 发布说明](./RELEASE_1.0.2.md)

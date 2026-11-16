@@ -1,0 +1,48 @@
+export type ToolContractError = { path: string; code: string; message: string };
+export type ToolPortDataType = "asset" | "image" | "video" | "text" | "brief" | "review" | "bundle" | "any";
+export type ToolDistribution = "builtin" | "controlled-adapter";
+export type ToolAdapter = "image-generation" | "video-generation" | "comfyui" | "scientific-runner" | "mcp" | "language-model";
+export type ToolInputPort = { portId: string; label: string; dataType: ToolPortDataType; required: boolean };
+export type ToolOutputPort = { portId: string; label: string; dataType: ToolPortDataType };
+export type ToolPermissions = {
+  network: Array<"none" | "loopback" | "lan" | "public">;
+  filesystem: Array<"none" | "project-read" | "project-write" | "managed-read" | "managed-write">;
+  process: Array<"none" | "managed-runner">;
+  models: Array<"none" | "image-generation" | "video-generation" | "language-model">;
+  mcp: Array<"none" | "approved-servers">;
+};
+export type ToolManifest = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  minAppVersion: string;
+  license: string;
+  distribution: ToolDistribution;
+  adapter: ToolAdapter;
+  inputSlots: ToolInputPort[];
+  outputSlots: ToolOutputPort[];
+  permissions: ToolPermissions;
+  limitations: string[];
+  tags: string[];
+  contentHash: string;
+};
+export type ToolManifestValidation = { ok: boolean; errors: ToolContractError[]; value?: ToolManifest };
+export type ToolPermissionsValidation = { ok: boolean; errors: ToolContractError[]; value?: ToolPermissions };
+export const TOOL_SCHEMA_VERSION: 1;
+export const TOOL_LIMITS: Readonly<{
+  maxDescription: number;
+  maxInputPorts: number;
+  maxOutputPorts: number;
+  maxLimitations: number;
+  maxTags: number;
+}>;
+export const TOOL_DISTRIBUTIONS: readonly ToolDistribution[];
+export const TOOL_ADAPTERS: readonly ToolAdapter[];
+export const TOOL_PERMISSION_SCOPES: Readonly<Record<keyof ToolPermissions, readonly string[]>>;
+export function parseToolPermissions(value: unknown): ToolPermissionsValidation;
+export function parseToolManifest(value: unknown): ToolManifestValidation;
+export function normalizeToolManifest(value: unknown): ToolManifest | undefined;
+export function toolContentHash(value: unknown): string;
+export function sealToolManifest(value: unknown): ToolManifest | undefined;

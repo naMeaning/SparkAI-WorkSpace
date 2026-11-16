@@ -196,7 +196,7 @@ function parseArgs(argv) {
 
 function help() {
   process.stdout.write([
-    "SparkAI WorkSpace C 盘迁移只读验收工具",
+    "Sparkvas C 盘迁移只读验收工具",
     "用法：node scripts/project-migration-audit.mjs --projects-dir <旧 projects> [--session <旧 session.json>] [--target-parent <目标父目录>]",
     "默认读取文件并计算 SHA-256，不复制、不改索引、不删除源数据。可用 --write-plan 保存脱敏备份计划。",
     "--execute/--cleanup 会被明确拒绝；真实操作请使用应用内迁移流程。"

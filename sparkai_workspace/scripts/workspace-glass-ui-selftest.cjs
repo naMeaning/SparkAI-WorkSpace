@@ -181,12 +181,12 @@ assert.match(glassTokenSource, /--glass-menu-surface:\s*color-mix\(in srgb, var\
 assert.match(glassSurfaceSource, /\.canvas-context-menu\.canvas-context-menu[\s\S]{0,220}background-color:\s*var\(--glass-menu-surface\);/, "Canvas menus must win the generic glass surface specificity and paint the opaque menu token");
 assert.match(baseControlsSource, /--font-xs:\s*12px;[\s\S]{0,80}--font-sm:\s*13px;[\s\S]{0,80}--font-ui:\s*14px;[\s\S]{0,80}--font-title:\s*15px;/, "The shared UI typography scale must remain one readable step above the former micro-text baseline");
 assert.match(baseControlsSource, /body\s*\{[\s\S]{0,260}font-size:\s*14px;/, "The application body must use the readable 14 px desktop baseline");
-assert.match(mainSource, /className="titlebar-brand"[\s\S]{0,280}<strong>SparkAI WorkSpace<\/strong>/, "The workspace titlebar must display SparkAI WorkSpace as the visible product name");
+assert.match(mainSource, /className="titlebar-brand"[\s\S]{0,280}<strong>Sparkvas<\/strong>/, "The workspace titlebar must display Sparkvas as the visible product name");
 assert.match(mainSource, /function regenerateFromImageContainer\(/, "Image containers must expose a direct regenerate action that skips Agent");
 assert.match(mainSource, /className="node-regenerate-action"/, "Image containers must show a regenerate button in the node header");
-assert.match(authGateSource, /className="titlebar-brand"[\s\S]{0,280}<strong>SparkAI WorkSpace<\/strong>/, "The login titlebar must display SparkAI WorkSpace as the visible product name");
-assert.doesNotMatch(titlebarSource, /@media \(max-width: 980px\)[\s\S]{0,280}\.titlebar-brand strong[\s\S]{0,120}max-width:\s*\d+px;/, "The compact titlebar must not ellipsize the SparkAI WorkSpace brand");
-assert.match(layerDialogRepairSource, /@media \(max-width: 740px\)[\s\S]{0,420}\.titlebar-brand[\s\S]{0,80}max-width:\s*196px;/, "The minimum titlebar brand container must keep the SparkAI WorkSpace name readable");
+assert.match(authGateSource, /className="titlebar-brand"[\s\S]{0,280}<strong>Sparkvas<\/strong>/, "The login titlebar must display Sparkvas as the visible product name");
+assert.doesNotMatch(titlebarSource, /@media \(max-width: 980px\)[\s\S]{0,280}\.titlebar-brand strong[\s\S]{0,120}max-width:\s*\d+px;/, "The compact titlebar must not ellipsize the Sparkvas brand");
+assert.match(layerDialogRepairSource, /@media \(max-width: 740px\)[\s\S]{0,420}\.titlebar-brand[\s\S]{0,80}max-width:\s*196px;/, "The minimum titlebar brand container must keep the Sparkvas name readable");
 assert.match(agentPanelSource, /\.project-agent-panel \.markdown-body\s*\{[\s\S]{0,220}font-size:\s*13px;/, "Agent prose must remain readable at 13 px");
 assert.match(agentPanelSource, /\.project-agent-status span\s*\{[\s\S]{0,240}font-size:\s*12px;/, "Agent status text must not fall back to micro text");
 assert.match(agentPanelSource, /\.project-agent-model-row\s*\{[\s\S]{0,300}font-size:\s*13px;/, "Agent model choices must use a readable desktop size");

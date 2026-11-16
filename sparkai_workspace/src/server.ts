@@ -176,7 +176,7 @@ function isAuthError(error: unknown) {
 
 function normalizeUser(userData: JsonRecord = {}): ServerUser {
   const username = String(userData.username || userData.email || userData.id || "").trim();
-  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "SparkAI WorkSpace User").trim();
+  const displayName = String(userData.displayName || userData.display_name || userData.name || username || "Sparkvas User").trim();
   const quota = Number(userData.quota ?? userData.remain_quota ?? userData.balance ?? 0);
   const balanceCents = Number.isFinite(quota)
     ? Math.max(0, Math.round((quota / NEW_API_QUOTA_PER_UNIT) * 100))
@@ -795,7 +795,7 @@ function createBrowserServerBridge(): ServerBridge {
           return {
             ok: true,
             cached: true,
-            user: normalizeUser({ id: authState.serverUserId, username: "SparkAI 用户", display_name: "SparkAI 用户" }),
+            user: normalizeUser({ id: authState.serverUserId, username: "Sparkvas 用户", display_name: "Sparkvas 用户" }),
             wallet: walletFromUser({ id: authState.serverUserId }),
             settings: splitModelSettings(settings, [])
           };
@@ -859,7 +859,7 @@ function createBrowserServerBridge(): ServerBridge {
       return { ok: true, active: true, required: false, supported: true, scope, plan: "free" };
     },
     async activateLicense() {
-      return { ok: false, active: false, required: true, error: "激活码核销仅支持 SparkAI WorkSpace 桌面版。" };
+      return { ok: false, active: false, required: true, error: "激活码核销仅支持 Sparkvas 桌面版。" };
     },
     async configureCustom(payload) {
       try {

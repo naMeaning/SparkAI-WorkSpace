@@ -266,7 +266,7 @@ export default function CommerceTutorial({
       <section className={`commerce-tutorial-coach ${stage === "agent" || stage === "running" ? "is-left" : ""}`} aria-live="polite">
         <header>
           <span className="commerce-tutorial-avatar"><GraduationCap size={19} /></span>
-          <div><strong>SparkAI WorkSpace AI 陪练</strong><small>Amazon / 速卖通套图实操</small></div>
+          <div><strong>Sparkvas AI 陪练</strong><small>Amazon / 速卖通套图实操</small></div>
           <ButtonBase type="button" className="commerce-tutorial-close" aria-label="稍后继续教学" title="关闭后会保留当前进度" onClick={onClose}><X size={16} /></ButtonBase>
         </header>
         <div className="commerce-tutorial-progress" aria-label={`教学进度 ${ordinal}/6`}>
@@ -289,7 +289,7 @@ export default function CommerceTutorial({
         {stage === "import" ? (
           <div className="commerce-tutorial-content">
             <h3>第 1 步：放入商品母图</h3>
-            <p>最快是复制图片后在画布按 <kbd>Ctrl + V</kbd>；也可以点击左侧“+”选择图片。SparkAI WorkSpace 只复制到当前项目，不修改原文件。</p>
+            <p>最快是复制图片后在画布按 <kbd>Ctrl + V</kbd>；也可以点击左侧“+”选择图片。Sparkvas 只复制到当前项目，不修改原文件。</p>
             <div className="commerce-tutorial-actions">
               <ButtonBase type="button" className="commerce-tutorial-action primary" onClick={onImport}><ImagePlus size={15} /><span>打开图片导入</span></ButtonBase>
               {imageCount > 0 ? <ButtonBase type="button" className="commerce-tutorial-action" onClick={() => { onSelectLatestImage(); setStage("select"); }}><ClipboardPaste size={15} /><span>使用画布现有图片</span></ButtonBase> : null}
@@ -348,7 +348,7 @@ export default function CommerceTutorial({
         {stage === "running" ? (
           <div className="commerce-tutorial-content">
             <h3>正在生成你的第一套商品图</h3>
-            <p>{agentExecutionBusy ? "SparkAI WorkSpace 会先进行小批量探测，再逐步放量。你可以在右侧 Agent 时间线查看进度，失败不会伪装成成功。" : "当前执行已经结束，但还没有检测到新的套图成果。可以重新打开套图配置或检查右侧 Agent 的错误说明。"}</p>
+            <p>{agentExecutionBusy ? "Sparkvas 会先进行小批量探测，再逐步放量。你可以在右侧 Agent 时间线查看进度，失败不会伪装成成功。" : "当前执行已经结束，但还没有检测到新的套图成果。可以重新打开套图配置或检查右侧 Agent 的错误说明。"}</p>
             {agentExecutionBusy ? <div className="commerce-tutorial-running"><Loader2 className="spin" size={16} /><span>等待受管成果回到画布…</span></div> : <ButtonBase type="button" className="commerce-tutorial-action primary" onClick={openSetTool}><ShoppingBag size={15} /><span>重新打开套图配置</span></ButtonBase>}
           </div>
         ) : null}

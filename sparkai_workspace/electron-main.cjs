@@ -171,6 +171,7 @@ function getDesktopVersion() {
 }
 
 const applicationName = "SparkAI WorkSpace";
+const visibleApplicationName = "Sparkvas";
 const internalApplicationName = "naimage";
 const applicationId = "org.sparkai.naimage";
 const legacyApplicationNames = ["iiimage Studio", "IIimage Studio", "iiimage-studio"];
@@ -1135,7 +1136,7 @@ const agentWindowService = createAgentWindowService({
   BrowserWindow,
   htmlPath: agentWindowHtml,
   preloadPath: agentWindowPreload,
-  applicationName,
+  applicationName: visibleApplicationName,
   icon: createWindowIcon(),
   getBackgroundColor: () => nativeWindowBackgroundColor(migrateSettings(readJson(settingsPath, defaultSettings))),
   log
@@ -3234,7 +3235,7 @@ function shutdownApplicationServices() {
   if (applicationShutdownPromise) return applicationShutdownPromise;
   applicationShutdownStartedAt = Date.now();
   quitting = true;
-  const stoppedRuns = agentRunControl.stopAll("SparkAI WorkSpace 正在退出，所有 Agent 运行已停止。");
+  const stoppedRuns = agentRunControl.stopAll("Sparkvas 正在退出，所有 Agent 运行已停止。");
   log(`shutdown agent runs stopped=${stoppedRuns.stopped}`);
   cancelQueuedImageEditRequests();
   const localServerStop = stopLocalServer();
@@ -5832,7 +5833,7 @@ function createWindow(launch = {}) {
     minHeight: minWindowHeight,
     backgroundColor: nativeWindowBackgroundColor(startupSettings),
     show: false,
-    title: applicationName,
+    title: visibleApplicationName,
     ...(windowIcon ? { icon: windowIcon } : {}),
     ...(useCustomWindowFrame ? { frame: false } : { titleBarStyle: "hiddenInset" }),
     autoHideMenuBar: true,
@@ -5876,7 +5877,7 @@ function createWindow(launch = {}) {
   window.webContents.once("dom-ready", () => logBoot("renderer dom-ready"));
   let rendererHasLoaded = false;
   window.webContents.on("did-start-loading", () => {
-    if (rendererHasLoaded) stopRendererOwnedWork("SparkAI WorkSpace 界面正在重载，原 Agent 执行已中断；在途图片保留原恢复链路。");
+    if (rendererHasLoaded) stopRendererOwnedWork("Sparkvas 界面正在重载，原 Agent 执行已中断；在途图片保留原恢复链路。");
     logBoot(`load start ${devUrl || rendererIndex}`);
     log(`load start ${devUrl || rendererIndex}`);
   });
@@ -5891,10 +5892,10 @@ function createWindow(launch = {}) {
   });
   window.webContents.on("render-process-gone", (_event, details) => {
     log(`render gone ${JSON.stringify(details)}`);
-    stopRendererOwnedWork("SparkAI WorkSpace 界面进程已退出，相关 Agent 运行和自动化命令已取消。");
+    stopRendererOwnedWork("Sparkvas 界面进程已退出，相关 Agent 运行和自动化命令已取消。");
   });
   window.webContents.once("destroyed", () => {
-    stopRendererOwnedWork("SparkAI WorkSpace 窗口已关闭，相关 Agent 运行和自动化命令已取消。");
+    stopRendererOwnedWork("Sparkvas 窗口已关闭，相关 Agent 运行和自动化命令已取消。");
   });
   window.webContents.on("console-message", (details) => {
     log(`console level=${details.level} ${details.sourceId}:${details.lineNumber} ${details.message}`);

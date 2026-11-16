@@ -21,7 +21,7 @@ const tailOnly = process.argv.includes("--tail");
 const firstGroup = Number(process.argv.find(arg => arg.startsWith("--from="))?.slice(7) || (tailOnly ? 4 : 1));
 const report = { ok: false, mode: firstGroup > 1 ? `from-group-${firstGroup}` : "full", realModelRequests: 0, mockAgent: true, mockImages: true, http: [], checks: [], skipped: [], observations: [], screenshots: [], shutdowns: [], limits: ["Native project directory picker is not driven: UI form and isolated Main automation creation are separate checks.", "Window bounds plus CDP content viewport are exercised at scale factor 1; physical 125%/150% DPI is not exercised.", "IME guard is verified with a synthetic isComposing key event; an OS-native IME composition flow is not driven."] };
 const checkpoint = () => writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
-let vite, electron, client, detached, debugPort, devUrl;
+let vite, electron, client, detached, debugPort, devUrl, shim;
 const ev = expression => evaluateRuntime(client, expression);
 const wait = (expression, target = client, timeoutMs = 12000) => waitForRuntimeExpression(target, expression, { evaluate: evaluateRuntime, timeoutMs, intervalMs: 70 });
 const server = createServer((request, response) => {
@@ -111,6 +111,15 @@ async function stop() {
   assert.ok(exited && electron.exitCode === 0, `App remains for inspection, PID ${electron.pid}`);
   client?.close(); detached?.close(); client = detached = null; electron = null; checkpoint();
 }
+async function startApp() {
+  debugPort = await allocateDebugPort();
+  electron = spawn(process.execPath, [join(root, "node_modules/electron/cli.js"), "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${join(runDir, "user-data")}`, "electron-main.cjs"], { cwd: root, windowsHide: true, stdio: "ignore", env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "1", NAIMAGE_AIDEBUG_REAL_AGENT: "0", NAIMAGE_AIDEBUG_LIVE_IMAGE: "0", NAIMAGE_AIDEBUG_AGENT_STOP_FIXTURE: "fail-once", NAIMAGE_AIDEBUG_AGENT_STOP_DELAY_MS: "1400", NAIMAGE_CONFIG_DIR: config, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: shim } });
+  report.launches = [...(report.launches || []), { pid: electron.pid, debugPort, startedAt: new Date().toISOString() }];
+  report.pid = electron.pid; report.debugPort = debugPort; checkpoint();
+  const target = await pollForDebugTarget({ port: debugPort, attempts: 220, intervalMs: 100, findTarget: list => list.find(t => t.type === "page" && !t.url.includes("agent-window")) });
+  client = new BasicCdpClient(target.webSocketDebuggerUrl); await client.open(); await client.send("Runtime.enable"); await client.send("Page.enable"); await client.send("Page.bringToFront");
+  await wait("Boolean(document.querySelector('.project-agent-composer textarea')&&window.__naimageDebugAgentState&&window.__naimageDebugSeedAgentMessages)", client, 25000);
+}
 
 try {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve)); const base = `http://127.0.0.1:${server.address().port}`;
@@ -121,15 +130,16 @@ try {
   writeFileSync(join(project, "session.json"), JSON.stringify({ schemaVersion: 5, sessionRevision: 1, nodes: [node], messages: [], selectedNodeIds: [], activeConversationId: "p2-chat-1", conversations }));
   writeFileSync(join(config, "project-list.json"), JSON.stringify({ activeProjectId: "p2-project", projects: [{ id: "p2-project", name: "P2 隔离项目", path: project, sessionPath: join(project, "session.json"), external: true }] }));
   writeFileSync(settingsPath, JSON.stringify({ accessMode: "account", serverAuthProtocol: "legacy", serverSessionCookie: "fixture-session", serverUserId: "1", serverToken: "fixture-token", accountBaseUrl: base, relayBaseUrl: base, imageBaseUrl: base, agentBaseUrl: base, updateBaseUrl: base, imageApiKey: "local-fixture", agentApiKey: "local-fixture", imageModel: "gpt-image-2", imageModelPool: ["gpt-image-2"], agentModel: "gpt-6.1-sol", agentModelPool: ["gpt-6.1-sol"], imageRatio: "3:2", imageResolution: "2K", imageCount: 2, imageQuality: "high", imageModelConfigs: [{ model: "gpt-image-2", protocol: "openai-images", capabilities: { supportedQualities: ["auto", "high"], referenceImages: true } }], recentCanvasToolCommands: ["sparkai.social-content.open-templates"], glassTheme: "light-classic", glassReducedMotion: true, agentPanelWidth: 370 }));
-  const shim = join(runDir, "no-server.cjs"); writeFileSync(shim, '"use strict"; const timer=setInterval(()=>{},1000);const close=()=>{clearInterval(timer);process.exit(0)};process.on("SIGTERM",close);process.on("SIGINT",close);process.on("message",m=>{if(m==="shutdown")close()});');
+  shim = join(runDir, "no-server.cjs"); writeFileSync(shim, '"use strict"; const timer=setInterval(()=>{},1000);const close=()=>{clearInterval(timer);process.exit(0)};process.on("SIGTERM",close);process.on("SIGINT",close);process.on("message",m=>{if(m==="shutdown")close()});');
   const vitePort = await allocateDebugPort(); devUrl = `http://127.0.0.1:${vitePort}`;
   vite = spawn(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(vitePort)], { cwd: root, windowsHide: true, stdio: "ignore" });
-  await waitForHttpServer(devUrl, { attempts: 180, intervalMs: 100 }); debugPort = await allocateDebugPort();
-  electron = spawn(process.execPath, [join(root, "node_modules/electron/cli.js"), "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${join(runDir, "user-data")}`, "electron-main.cjs"], { cwd: root, windowsHide: true, stdio: "ignore", env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "1", NAIMAGE_AIDEBUG_REAL_AGENT: "0", NAIMAGE_AIDEBUG_LIVE_IMAGE: "0", NAIMAGE_AIDEBUG_AGENT_STOP_FIXTURE: "fail-once", NAIMAGE_AIDEBUG_AGENT_STOP_DELAY_MS: "1400", NAIMAGE_CONFIG_DIR: config, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: shim } });
-  report.pid = electron.pid; report.debugPort = debugPort; checkpoint();
-  const target = await pollForDebugTarget({ port: debugPort, attempts: 220, intervalMs: 100, findTarget: list => list.find(t => t.type === "page" && !t.url.includes("agent-window")) });
-  client = new BasicCdpClient(target.webSocketDebuggerUrl); await client.open(); await client.send("Runtime.enable"); await client.send("Page.enable"); await client.send("Page.bringToFront");
-  await wait("Boolean(document.querySelector('.project-agent-composer textarea')&&window.__naimageDebugAgentState&&window.__naimageDebugSeedAgentMessages)", client, 25000);
+  await waitForHttpServer(devUrl, { attempts: 180, intervalMs: 100 });
+  await startApp();
+  const brandProbe = await ev("({title:document.title,titlebar:document.querySelector('.titlebar-brand strong')?.textContent?.trim(),legacyVisible:/SparkAI WorkSpace/.test(document.body.innerText)})");
+  assert.equal(brandProbe.title, "Sparkvas");
+  assert.equal(brandProbe.titlebar, "Sparkvas");
+  assert.equal(brandProbe.legacyVisible, false);
+  report.observations.push({ kind: "sparkvas-brand-startup", ...brandProbe });
   if (firstGroup > 1) { await size(884, 640); await appearance("dark-classic"); }
   await group("two themes x 1280/884: original project actions, 32px symbols, tooltip, menu keyboard and view invariants", async () => {
     for (const theme of ["light-classic", "dark-classic"]) {
@@ -239,6 +249,58 @@ try {
     await wait("document.querySelector('#project-menu-trigger')?.textContent.includes('P2 Main 隔离创建')"); const list = JSON.parse(readFileSync(join(config, "project-list.json"), "utf8")), entry = list.projects.find(p => p.name === "P2 Main 隔离创建"); assert.ok(entry && entry.path.startsWith(parents) && existsSync(entry.sessionPath));
     await click("#project-menu-trigger"); await click('[aria-label="移除项目，保留文件"]'); await wait("Boolean(document.querySelector('.confirm-dialog'))"); await shot("project-remove-real-confirmation"); await button("移除", ".confirm-dialog"); await wait("!document.querySelector('.confirm-dialog')");
     assert.ok(existsSync(entry.path) && existsSync(entry.sessionPath)); assert.equal(JSON.parse(readFileSync(join(config, "project-list.json"), "utf8")).projects.some(p => p.id === entry.id), false); assert.equal(createHash("sha256").update(readFileSync(imagePath)).digest("hex"), originalHash);
+  });
+  await group("Sparkvas help and about surfaces at 1280/884 in light/dark themes", async () => {
+    for (const theme of ["light-classic", "dark-classic"]) {
+      await size(1280, 800); await appearance(theme);
+      for (const [width, height] of [[1280, 800], [884, 640]]) {
+        await size(width, height);
+        await click("#project-menu-trigger"); await button("帮助与政策", ".project-menu-popover");
+        await wait("Boolean(document.querySelector('[aria-label=\"Sparkvas 帮助与政策\"]'))");
+        await button("关于", ".help-center-nav"); await wait("Boolean(document.querySelector('.help-about-card'))");
+        const about = await ev("({aria:document.querySelector('[aria-label=\"Sparkvas 帮助与政策\"]')?.getAttribute('aria-label'),eyebrow:document.querySelector('.help-center-dialog header')?.textContent?.trim(),aboutTitle:document.querySelector('.help-about-card h3')?.textContent?.trim(),legacyVisible:/SparkAI WorkSpace/.test(document.querySelector('.help-center-dialog')?.innerText||'')})");
+        assert.equal(about.aria, "Sparkvas 帮助与政策");
+        assert.match(about.eyebrow, /SPARKVAS GUIDE/);
+        assert.equal(about.aboutTitle, "Sparkvas");
+        assert.equal(about.legacyVisible, false);
+        report.observations.push({ kind: "sparkvas-help-about", theme, width, height, ...about });
+        await shot(`${theme}-${width}-sparkvas-help-about`);
+        await key("Escape"); await wait("!document.querySelector('.help-center-dialog')");
+      }
+    }
+  });
+  await group("normal close and real relaunch restore Sparkvas project, theme and selection", async () => {
+    await size(1280, 800); await appearance("dark-classic");
+    await command("canvas.select", { ids: ["p2-source"], primaryId: "p2-source" });
+    const before = await command("canvas.state");
+    assert.deepEqual(before.selection, { primaryId: "p2-source", ids: ["p2-source"] });
+    const projectLabel = await ev("document.querySelector('#project-menu-trigger')?.textContent?.trim()");
+    const theme = await ev("document.documentElement.dataset.glassTheme");
+    let sessionPersisted = false;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const session = JSON.parse(readFileSync(join(project, "session.json"), "utf8"));
+      if (session.selectedNodeId === "p2-source") { sessionPersisted = true; break; }
+      await delay(100);
+    }
+    assert.equal(sessionPersisted, true, "selection was not persisted before normal close");
+    await shot("pre-restart-dark-1280-selected");
+    await stop();
+    await startApp();
+    await size(1280, 800);
+    await wait("document.querySelector('.flow-node[data-node-id=\"p2-source\"]')?.classList.contains('selected')===true", client, 25000);
+    const after = await command("canvas.state");
+    const restored = await ev("({title:document.title,theme:document.documentElement.dataset.glassTheme,project:document.querySelector('#project-menu-trigger')?.textContent?.trim(),selected:document.querySelector('.flow-node[data-node-id=\"p2-source\"]')?.classList.contains('selected')===true})");
+    assert.equal(restored.title, "Sparkvas");
+    assert.equal(restored.theme, theme);
+    assert.equal(restored.project, projectLabel);
+    assert.deepEqual(after.selection, before.selection);
+    assert.equal(restored.selected, true);
+    report.observations.push({ kind: "restart-restoration", before: { selection: before.selection, theme, project: projectLabel }, after: { selection: after.selection, ...restored }, launches: report.launches });
+    await shot("post-restart-dark-1280-selection-restored");
+    await size(884, 640);
+    await wait("document.querySelector('.flow-node[data-node-id=\"p2-source\"]')?.classList.contains('selected')===true", client, 10000);
+    assert.deepEqual((await command("canvas.state")).selection, before.selection);
+    await shot("post-restart-dark-884-selection-restored");
   });
   await stop(); report.ok = true;
 } catch (error) {

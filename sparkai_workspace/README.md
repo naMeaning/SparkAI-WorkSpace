@@ -1,10 +1,10 @@
-# SparkAI WorkSpace
+# Sparkvas
 
-SparkAI WorkSpace 是一个 Windows 桌面应用。你可以把素材、文字要求和生成结果放在同一个项目画布里，边看边改，也能回头找到每张图的来源。
+Sparkvas 是一个画布优先的 Windows 桌面 AI 视觉创作应用。你可以把素材、文字要求和生成结果放在同一个项目画布里，边看边改，也能回头找到每张图的来源。Sparkvas 是开发中的新品牌；当前公开下载仍是旧品牌 SparkAI WorkSpace v1.0.9。
 
 ![真实九图项目、图片来源关系与 Agent 时间线](./docs/assets/github/hero-canvas.webp)
 
-> 公开下载是 [GitHub Release v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。界面截图来自 `main` 对应的本地开发构建；后续能力尚未进入该公开安装包。
+> 公开下载是 [GitHub Release v1.0.9](https://github.com/naMeaning/SparkAI-WorkSpace/releases/tag/v1.0.9)。界面截图来自 `main` 对应的本地开发构建；Sparkvas 可见品牌、Recipe 合同和后续能力尚未进入该公开安装包，安装器/EXE/App ID/用户数据目录也仍在兼容旧标识。
 
 ## 先看几个例子
 
@@ -61,7 +61,10 @@ corepack pnpm run dev
 
 ```powershell
 corepack pnpm run typecheck
+corepack pnpm run test:skill-contract
+corepack pnpm run test:tool-contract
+corepack pnpm run test:recipe-contract
 corepack pnpm run build
 ```
 
-更多教程、发布说明、上下文地图和安装边界见[文档索引](./docs/README.md)；项目参考范围与上游署名见[第三方参考项目与许可证](./docs/THIRD_PARTY_REFERENCES.md)。
+Recipe 的字段、ID、hash、权限和状态合同见 [docs/RECIPE_CONTRACT.md](./docs/RECIPE_CONTRACT.md)；更多教程、发布说明、上下文地图和安装边界见[文档索引](./docs/README.md)，项目参考范围与上游署名见[第三方参考项目与许可证](./docs/THIRD_PARTY_REFERENCES.md)。

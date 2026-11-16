@@ -81,7 +81,7 @@ export default function ManualVideoTaskDialog({ state, setState, models, busy, c
               />
             </Field>
             <InlineNotice tone="neutral">
-              提交后会直接调用所选上游视频模型，费用由 Base URL / Token 所属服务结算。创建结果不明时，SparkAI WorkSpace 不会自动重试，避免重复扣费。
+              提交后会直接调用所选上游视频模型，费用由 Base URL / Token 所属服务结算。创建结果不明时，Sparkvas 不会自动重试，避免重复扣费。
             </InlineNotice>
           </SurfaceBody>
           <SurfaceFooter>

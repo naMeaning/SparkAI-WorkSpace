@@ -1,5 +1,19 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态（2026-11-16，Sparkvas Phase 0/1 合同与可见品牌本地交付完成）
+
+- 接受现场：独立 worktree `E:\003Projects\SparkAI-WorkSpace\sparkai_workspace\.diagnostics\worktrees\sparkvas-phase0-1`，分支 `codex/sparkvas-phase0-1`，基线 `0e0f1a8901003b6ebd390f236c62bf8643531162`。main 上“全桌面动作按钮图标化”和相关旧文档 dirty 原样保留；本轮只交付 Phase 0/1，不合并 main，不开始第一垂直切片。
+- 边界/文档：已更新 `sparkai_workspace/AGENTS.md`、`PRODUCT_INTENT.md`、`docs/CONTEXT_MAP.md`、`harness/CONVERSATION_DECISIONS.md`，把旧“不得恢复工作流编辑器/工具节点”替换为 Canvas-first、Studio 仅语义 Recipe 节点、不恢复 ComfyUI 式底层节点图、Skill 声明式、Tool 权限控制。新增 [Recipe Contract](docs/RECIPE_CONTRACT.md)、ADR-0001/0002/0003、产品策略、实施计划、术语表和交接文档。[上下文地图](docs/CONTEXT_MAP.md) 已记录 owner 与测试入口。
+- 可见品牌：窗口标题、`src` 文案、帮助/关于、独立 Agent 窗、插件 publisher 文案和文档改为 Sparkvas；`package.json.productName`/`executableName`、App ID、安装器身份/GUID、用户数据目录、更新协议和 `naimage-*` 技术身份未改，留到 Phase 7。公开 v1.0.9 仍是旧品牌正式制品。
+- 纯合同：新增 `runtime/skill-contract.cjs`、`tool-contract.cjs`、`recipe-contract.cjs`、`recipe-graph.cjs`、`recipe-run-contract.cjs`、`sparkvas-contract-utils.cjs` 及对应 `.d.mts`。只做纯校验、规范化、canonical SHA-256、DAG/端口/循环/拓扑、权限和状态枚举，不接 Electron、React、网络或模型；`package.json` 增加四个合同测试脚本，测试在 `scripts/`。
+- 合同状态：**已实现、未集成**。覆盖 SkillManifest v1、ToolManifest v1、RecipeDocument v1、RecipeRun v1；节点仅 `Input`/`Brief`/`Skill`/`Transform`/`Tool`/`Review`/`Output`；ID 规则、版本、hash、权限、`runId`/`stepId`、scope/idempotency 和未知/断线提交不重发均已固定。公开 DTO 不含 Key、Cookie、绝对路径、签名 URL 或内部 entry ID。
+- 合同验证：`test:skill-contract` 6/6、`test:tool-contract` 5/5、`test:recipe-contract` 11/11、`test:contract-types` exit 0、`typecheck` exit 0，`realModelRequests: 0`。最终 UI 报告 `.diagnostics/electron/ui-simplification-2026-11-16T11-37-55-636Z/report.json` 为 `ok:true`：13 项检查、40 张截图，覆盖 1280×800/884×640、浅/深主题、选择保持、真实 Main 写失败/重试、取消/停止/重试、项目创建/移除、Sparkvas 帮助/关于；两次独立启动 PID `28760`/`33176`，均正常关闭 `exitCode:0`、`forced:false`，重启后恢复项目 `P2 隔离项目`、主题 `dark-classic`、selection `p2-source`。已目检 `post-restart-dark-1280-selection-restored.png` 与 `post-restart-dark-884-selection-restored.png`。
+- 构建/smoke：production package exit 0。packaged smoke `.diagnostics/release/packaged-smoke-2026-11-16T11-49-04-067Z/report.json` 为 `ok:true`：标题 Sparkvas，项目/数据库、图片保存/读取/导入（`files=1 skipped=0`）、semantic、PSD、thumbnail 通过，`shutdown.requested/graceful=true`、`exitCode:0`，0 真实模型请求；smoke 临时项目在 `C:\Users\Administrator\AppData\Local\Temp\sparkvas-packaged-smoke\<stamp>`，这是 test-only 路径调整，不进入产品包。
+- 制品：最终 EXE `release/local-deliveries/sparkvas-phase0-1-2026-11-16/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,262,272 B，SHA-256 `2edb7bd6e3f9ecba2612209468e59d1dd8fc338c0b09b3f41adc2d6247e4481f`，VersionInfo 1.0.9.0，Authenticode `NotSigned`；早期候选 `DE1EA6...` 已保留在 `candidate-01/`。unpacked `SparkAIWorkSpace.exe` SHA-256 `bef8ea62...`，ASAR `8266b208...`。
+- 安装：品牌 `/S` 原位升级 exit 0/27.55s；随后同一包显式目录复核升级 exit 0/18.1s。安装目录 `E:\sparkai-workspace\naimage` 的 EXE/ASAR 与最终包一致；真实 `namean\administrator` HKCU 的 `Software\887890c3-49de-5e86-9a32-28781d680b7f` 与 Uninstall 项存在，`InstallLocation=E:\sparkai-workspace\naimage`，UninstallString/QuietUninstallString 指向 `SparkAIWorkSpace-uninstaller.exe`，DisplayIcon 指向新 EXE；桌面与开始菜单快捷方式 target 均为 `E:\sparkai-workspace\naimage\SparkAIWorkSpace.exe`。显示名仍为 `SparkAI WorkSpace`，是 Phase 7 前的兼容身份。沙箱进程为 `namean\codexsandboxoffline`，其 HKCU 与真实用户不同；本次注册身份用提权真实用户视图核对。
+- Git：本轮源码/文档提交与 `codex/sparkvas-phase0-1` 普通 push 在交付收尾执行；实际 commit、upstream 和 `git ls-remote` 比对结果见本轮最终报告及后续 Git 行。
+- 未验证/停止：合同未接 Main Recipe Store/Run、IPC、Studio、Agent Recipe 工具、Registry/Marketplace；第一垂直切片、真实模型/视频、物理 125%/150% DPI、支付、第三方 Tool、影视剧管线未验证；未创建正式 Release/tag，未上传 EXE。
+
 ## 当前开发状态（2026-10-25，SparkAPI官网Logo本地开发交付完成）
 
 - 接受：用户要求软件采用`https://sparkapi.org`真实Logo；从P1/P2最终`5f6d4d90163aecad83479b62506ccdaf32a30edb`续做branding，旧dirty和独立制品保留。本次只改资源/必要派生链路，不改应用身份、升级、设置、认证或业务。

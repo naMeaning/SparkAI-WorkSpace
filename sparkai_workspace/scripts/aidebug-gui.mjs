@@ -735,7 +735,7 @@ async function waitForDebugTarget() {
     port: debugPort,
     attempts: 120,
     intervalMs: 250,
-    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("SparkAI WorkSpace"))),
+    findTarget: (targets) => targets.find((item) => item.type === "page" && (String(item.url).startsWith(devUrl) || String(item.title).includes("Sparkvas"))),
     notFoundMessage: `No Electron renderer debug target found on port ${debugPort}.`
   });
 }

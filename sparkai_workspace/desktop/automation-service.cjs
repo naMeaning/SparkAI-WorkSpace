@@ -109,7 +109,7 @@ function createAutomationService({
 
   function dispatchRenderer(cleanCommand, cleanArgs = {}, timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS, ownerId) {
     const window = ownerId ? rendererWindow(Number(ownerId)) : activeRenderer();
-    if (!window) return Promise.reject(new Error("SparkAI WorkSpace 界面尚未就绪，请稍后重试。"));
+    if (!window) return Promise.reject(new Error("Sparkvas 界面尚未就绪，请稍后重试。"));
     const requestId = `automation-${Date.now().toString(36)}-${randomBytes(6).toString("hex")}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -138,7 +138,7 @@ function createAutomationService({
     });
   }
 
-  function rendererGone(webContentsOrId, reason = "SparkAI WorkSpace 界面已关闭，自动化命令已取消。") {
+  function rendererGone(webContentsOrId, reason = "Sparkvas 界面已关闭，自动化命令已取消。") {
     const webContentsId = Number(
       webContentsOrId && typeof webContentsOrId === "object" ? webContentsOrId.id : webContentsOrId
     );
@@ -149,7 +149,7 @@ function createAutomationService({
       if (item.webContentsId !== webContentsId) continue;
       pending.delete(requestId);
       clearTimeout(item.timer);
-      const error = new Error(String(reason || "SparkAI WorkSpace 界面已关闭，自动化命令已取消。"));
+      const error = new Error(String(reason || "Sparkvas 界面已关闭，自动化命令已取消。"));
       error.code = "NAIMAGE_AUTOMATION_RENDERER_GONE";
       item.reject(error);
       rejected += 1;
@@ -249,7 +249,7 @@ function createAutomationService({
   async function stop() {
     for (const item of pending.values()) {
       clearTimeout(item.timer);
-      item.reject(new Error("SparkAI WorkSpace 正在退出。"));
+      item.reject(new Error("Sparkvas 正在退出。"));
     }
     pending.clear();
     rendererIds.clear();

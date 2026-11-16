@@ -11,7 +11,7 @@ const { callCreationService, refFromResult, requirementsFromResult, runCreationT
 const { runCreationRevision } = require("./runtime/creation-revision.cjs");
 const { createSavedCreationActionChecker, creationCheckUnrecorded } = require("./runtime/creation-local-check.cjs");
 /*
-SparkAI WorkSpace Agent Runtime Map
+Sparkvas Agent Runtime Map
 
 File Contract
 - agent-runtime.cjs orchestrates the desktop Agent loop: prompt/context assembly, tool execution, image generation, and model protocol decisions.
@@ -135,10 +135,10 @@ function isImageToolName(name = "") {
 }
 
 const defaultMainAgentPromptLines = [
-  "你是 SparkAI WorkSpace 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
+  "你是 Sparkvas 项目的图片生产 Agent，也是用户在项目内的唯一智能操作入口。画布展示单图、图片组、分层 PNG 组、用户主动保存的可复用需求节点和它们的来源关系；命令、搜索、分析、计划和工具过程只出现在对话时间线，绝不能变成画布节点。你不创建子 Agent，也不能自行创建任意任务链；需求节点只是用户保存并反复优化的一段图片处理要求。",
   "默认使用简短、直接的 Markdown 回复。普通问答直接回答；需要调用工具时先用一句自然语言说明你理解了什么、准备做什么，再在同一轮返回真实 tool_call，不能用“我会、正在、马上生成”代替工具调用。图片完成后只说明生成数量、任务类型和必要的失败信息。",
   "创作任务用公开 creation 工具自然提炼、查询和修改版本化要求：目标、用途、输出槽位、保留项、可改项和验收条件。明确用户要求标 user，未说明的推断标 assumption；读取当前版本后精确更新，不从关键词强制调用。图片执行仍只用 image_gen。验收使用 creation(record_review)，逐条件给简短 pass/fail/uncertain；必须先 view_image 并让后续成功主模型回合实际消费当前成果像素，来源一致性条件还须同时消费绑定来源像素。读取图片本身不代表验收通过，文件检查也不代表视觉通过。要求或图片字节改变后旧观察失效，需要重新观察。用户仅改指定成果时调用 creation(revise_results)，复制精确目标身份并分别填写保留项和改动；当前run成功保存后Main启动关联修订，不在同一run另外调用image_gen。定向修订只处理冻结目标，并保持保留项与原图片配置，不自行增加候选或改其他图片。",
-  "SparkAI WorkSpace 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
+  "Sparkvas 自有工具调用填写 brief：用一句简短、用户可读的话说明本次工具正在做什么，不写“Brief”标题，不暴露路径、内部标识、内部参数或实现细节。Codex 原生 web_search、view_image、shell_command 使用其原生 Schema，不额外伪造 brief。image_gen 的 prompt/items.prompt 只能包含最终画面需要呈现的视觉内容，必须彻底省略任务 nonce、AIDebug/SELFTEST 标记、文件路径、节点或调用 ID、记忆 ID、实现说明和其他非画面文本，即使以“不要出现”或“内部约束”形式也不能复制进去。顶层 prompt 必须填写完整视觉提示词，界面会默认折叠展示；count=1 时只使用顶层 prompt，禁止生成 items。只有至少两个不同成品时才填写 items.prompt，不得添加 temp、placeholder、todo、示例或测试占位项。工具调用不能由文字承诺替代。",
   `按任务选择最小必要工具：${primaryImageToolName} 负责所有真实图片生成和编辑；shell_command 只做项目内受控只读诊断；view_image 把本地图片作为 input_image 放回当前模型上下文；web_search 是 GPT Responses 原生联网工具；workflow 管理已有成果，并可重命名、替换或导出当前项目受管图片组；experience 保存稳定的创作偏好；ask_user 仅补充真正缺失的关键输入。图片组替换只能引用当前画布节点和 zero-based 资产序号，图片组导出必须 confirmed=true，禁止提交路径、URL 或目标目录。后台上下文维护由运行时自动完成，主 Agent 不直接管理内部记忆条目。模型由用户设置决定，不要擅自降级。`,
   `${primaryImageToolName} 支持 generate、edit、replace、variants、layers、cutout、redraw。count=1 时完整提示词只写在顶层 prompt，绝不填写 items；相同提示词生成多张用 count；只有本轮确实存在至少两个不同成品提示词时才使用 items，每项对应一张独立图片。大批量由运行时按用户设置顺序分批派发，不能自行降低用户明确要求的总数。普通任务的 Current Task Scope 只提供统一 materials 上下文，模型根据用户意图和图片内容选择 generate、edit、replace、variants、layers、cutout 或 redraw，不要求用户手工分类、逐项绑定或把某张图声明为 SOURCE/REFERENCE。仅当没有可用素材且用户要求修改时才用 ask_user 补充图片；需要精确指定容器槽位时才填写 bindingId。cutout/redraw 没有蒙版时只会打开选区编辑器，用户提交选区后才执行图片生成。`,
   "先理解目标，再直接执行；不要只输出计划。图片任务成功则简短汇报，失败则读取错误类别并最多修正参数重试两次。复杂任务可先用 view_image、web_search 或 shell_command 获取必要事实，再调用 image_gen。缺少来源图片时打开参考图收集，不得假装已经出图。",
@@ -167,7 +167,7 @@ const defaultMainAgentPromptLines = [
 ];
 
 const defaultMemoryAgentPromptLines = [
-  "你是 SparkAI WorkSpace 的后台记忆 Agent。你不面对用户，只负责上下文压缩、datememory 写入、toolmemory 大回执摘要和 fastmemory 经验提炼。",
+  "你是 Sparkvas 的后台记忆 Agent。你不面对用户，只负责上下文压缩、datememory 写入、toolmemory 大回执摘要和 fastmemory 经验提炼。",
   "维护任务只处理本轮明确提供的内容，不主动展开主 Agent 的完整上下文。",
   "写 datememory 时按日期生成日记，关键词必须明确；保留任务起因、关键过程、决定、结果、风险和下一步线索。",
   "压缩 context 时保留用户意图、关键决策、图像参数、必要的工具引用、错误证据和验证结果；同时把稳定偏好或可复用绘图经验写入当前项目当前会话的 fastmemory。",
@@ -6551,7 +6551,7 @@ function createAgentRuntime(options) {
               content: [
                 "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.",
                 "Include current progress and key decisions, important constraints and user preferences, clear remaining steps, and critical data or references needed to continue.",
-                "This is a SparkAI WorkSpace image-production Agent. Preserve SOURCE/REFERENCE roles, TaskScope snapshot identity, canvas/result relationships, image parameters, tool outcomes, errors, unresolved work, and exact AIDEBUG_* markers.",
+                "This is a Sparkvas image-production Agent. Preserve SOURCE/REFERENCE roles, TaskScope snapshot identity, canvas/result relationships, image parameters, tool outcomes, errors, unresolved work, and exact AIDEBUG_* markers.",
                 "Do not invent facts. Be concise and structured. Return only JSON with keys summary and keywords."
               ].join("\n")
             },
@@ -6627,7 +6627,7 @@ function createAgentRuntime(options) {
     progress?.({
       phase: "context-compact-done",
       tool: "compact",
-      summary: `上下文 checkpoint 已完成：窗口 ${contextWindowNumber}，保留约 ${retainedUserMessages.reduce((total, content) => total + estimateTokens(content), 0).toLocaleString()} Token 用户意图，并重新注入当前 SparkAI WorkSpace 画布状态。`,
+      summary: `上下文 checkpoint 已完成：窗口 ${contextWindowNumber}，保留约 ${retainedUserMessages.reduce((total, content) => total + estimateTokens(content), 0).toLocaleString()} Token 用户意图，并重新注入当前 Sparkvas 画布状态。`,
       detail: {
         contextStrategy: strategy.resolvedId,
         contextWindowNumber,
@@ -6652,7 +6652,7 @@ function createAgentRuntime(options) {
     const taskScopeSnapshot = taskScopeForPrompt(payload, strategy.taskScopeMaxChars);
     const goalScopePrompt = taskScopeSnapshot.scope.origin === "goal";
     const runtimeToolContract = [
-      `运行时向主 Agent 暴露 SparkAI WorkSpace 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
+      `运行时向主 Agent 暴露 Sparkvas 自有 image_gen、experience、ask_user、成果画布工具，以及与 Codex 对齐的 view_image、shell_command${strategy.useNativeWebSearch ? " 和 Responses 原生 web_search" : ""}；每项能力只以 API tools schema 为准。`,
       "由你根据用户目标自主决定是否调用工具以及调用顺序，系统不会替你强制 tool_choice 或改写参数。需要生成或修改图片时必须通过 image_gen tool_call 表达；普通问答直接回复，不要声称执行了不存在的工具。",
       "同一用户图片任务优先合并为一次 image_gen：相同提示词多张使用 count，不同提示词多张使用 items，并显式选择 generationMode=parallel 或 sequential；分层任务使用 operation=layers。用户在同一轮要求 N 张、N 版或 N 个候选时使用 parallel，即使表达为‘基于这张继续给 N 版’；parentId 表示来源，不决定执行模式。sequential 仅用于明确的一次一张、故事/时间顺序或连续系列。不要用多次单图调用模拟批量，但工具回执明确失败时应根据错误修正参数后再自主决定。",
       "",
@@ -7792,7 +7792,7 @@ function createAgentRuntime(options) {
       {
         role: "system",
         content:
-          "你是 SparkAI WorkSpace 的生图提示词与参数优化 Agent。你必须调用 image_gen 工具一次提交最终结果，并设置 operation=compose；不要直接生成图片，不要只输出正文。prompt 要写成可直接交给 Image2 的完整画面要求，并结合用户当前提示词、补充要求和参数。提示词必须使用正向、健康、具体、视觉化的表达；删除或改写性暗示、未成年擦边、血腥暴力、自伤、仇恨、病理化、规避审查等高风险措辞。不要写否定式敏感词，例如“不要血腥/不色情/不暴力”，要改成“干净、非伤害性、健康成人角色、时尚摄影、自然姿态”等正面描述。不要使用隐蔽词、谐音、拆字、暗号或任何绕过审核的写法。"
+          "你是 Sparkvas 的生图提示词与参数优化 Agent。你必须调用 image_gen 工具一次提交最终结果，并设置 operation=compose；不要直接生成图片，不要只输出正文。prompt 要写成可直接交给 Image2 的完整画面要求，并结合用户当前提示词、补充要求和参数。提示词必须使用正向、健康、具体、视觉化的表达；删除或改写性暗示、未成年擦边、血腥暴力、自伤、仇恨、病理化、规避审查等高风险措辞。不要写否定式敏感词，例如“不要血腥/不色情/不暴力”，要改成“干净、非伤害性、健康成人角色、时尚摄影、自然姿态”等正面描述。不要使用隐蔽词、谐音、拆字、暗号或任何绕过审核的写法。"
       },
       {
         role: "user",

@@ -1,0 +1,101 @@
+import type { ToolPermissions } from "./tool-contract.mjs";
+
+export type RecipeRunContractError = { path: string; code: string; message: string };
+export type RecipeRunStatus = "queued" | "running" | "waiting_approval" | "paused" | "succeeded" | "failed" | "cancelled" | "interrupted";
+export type RecipeStepStatus = "pending" | "ready" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled" | "interrupted";
+export type RecipeStepSubmissionState = "not_submitted" | "prepared" | "submitted" | "accepted" | "unknown";
+export type RecipeErrorCategory = "input" | "dependency" | "permission" | "execution" | "network" | "cancelled" | "unknown";
+export type RecipeOutputKind = "image" | "video" | "bundle";
+export type RecipeRunError = {
+  code: string;
+  category: RecipeErrorCategory;
+  message: string;
+  retryable: boolean;
+  at: string;
+};
+export type RecipeInputAssetIdentity = {
+  slotId: string;
+  assetId: string;
+  occurrenceId: string;
+  contentHash: string;
+};
+export type RecipeOutput = {
+  slotId: string;
+  assetId: string;
+  occurrenceId: string;
+  contentHash: string;
+  kind: RecipeOutputKind;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+};
+export type RecipePermissionTool = {
+  toolId: string;
+  version: string;
+  contentHash: string;
+  permissions: ToolPermissions;
+};
+export type RecipePermissionSnapshot = {
+  schemaVersion: 1;
+  approvedBy: "user";
+  approvedAt: string;
+  tools: RecipePermissionTool[];
+};
+export type RecipeRunStep = {
+  stepId: string;
+  status: RecipeStepStatus;
+  submissionState: RecipeStepSubmissionState;
+  attempt: number;
+  startedAt?: string;
+  finishedAt?: string;
+  operationId?: string;
+  outputs: RecipeOutput[];
+  error?: RecipeRunError;
+};
+export type RecipeRun = {
+  schemaVersion: 1;
+  runId: string;
+  recipeId: string;
+  recipeVersion: string;
+  recipeHash: string;
+  projectId: string;
+  conversationId?: string;
+  requestedBy: "user" | "agent" | "cli";
+  status: RecipeRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  scopeHash: string;
+  idempotencyKey: string;
+  inputAssetIdentity: RecipeInputAssetIdentity[];
+  permissionSnapshot: RecipePermissionSnapshot;
+  steps: RecipeRunStep[];
+  outputs: RecipeOutput[];
+  error?: RecipeRunError;
+};
+export type RecipeRunValidation = { ok: boolean; errors: RecipeRunContractError[]; value?: RecipeRun };
+export type RecipeStepRetryDisposition = "allowed" | "reconcile" | "blocked" | "not_retryable";
+export const RECIPE_RUN_SCHEMA_VERSION: 1;
+export const RECIPE_RUN_STATUSES: readonly RecipeRunStatus[];
+export const RECIPE_STEP_STATUSES: readonly RecipeStepStatus[];
+export const RECIPE_STEP_SUBMISSION_STATES: readonly RecipeStepSubmissionState[];
+export const RECIPE_ERROR_CATEGORIES: readonly RecipeErrorCategory[];
+export const RECIPE_OUTPUT_KINDS: readonly RecipeOutputKind[];
+export const RECIPE_REQUESTERS: ReadonlyArray<"user" | "agent" | "cli">;
+export function outputKindMatchesSlotType(kind: RecipeOutputKind, dataType: import("./recipe-graph.mjs").RecipePortDataType): boolean;
+export function recipeRunScopeHash(value: {
+  recipeId: string;
+  recipeVersion: string;
+  recipeHash: string;
+  projectId: string;
+  inputAssetIdentity: RecipeInputAssetIdentity[];
+  permissionSnapshot: RecipePermissionSnapshot;
+}): string;
+export function recipeRunIdempotencyKey(runId: string, scopeHash: string): string;
+export function sealRecipeRun(value: unknown): RecipeRun | undefined;
+export function parseRecipeRun(value: unknown): RecipeRunValidation;
+export function normalizeRecipeRun(value: unknown): RecipeRun | undefined;
+export function validateRecipeRunAgainstRecipe(value: unknown, recipe: unknown): RecipeRunValidation;
+export function canTransitionRecipeRunStatus(from: RecipeRunStatus, to: RecipeRunStatus): boolean;
+export function recipeStepRetryDisposition(step: unknown): RecipeStepRetryDisposition;
+export function canRetryRecipeStep(step: unknown): boolean;

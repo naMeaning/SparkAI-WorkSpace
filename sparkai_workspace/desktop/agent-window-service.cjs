@@ -24,7 +24,7 @@ function createAgentWindowService({
   BrowserWindow,
   htmlPath,
   preloadPath,
-  applicationName = "SparkAI WorkSpace",
+  applicationName = "Sparkvas",
   icon,
   getBackgroundColor = () => "#f6f6f6",
   log = () => {}

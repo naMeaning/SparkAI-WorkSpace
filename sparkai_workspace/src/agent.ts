@@ -1,5 +1,5 @@
 /*
-SparkAI WorkSpace Agent Map
+Sparkvas Agent Map
 
 File Contract
 - agent.ts owns front-end Agent-facing helpers: progress text, streaming message merge, thinking-state settlement, and the main-to-Agent bridge call.

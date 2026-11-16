@@ -1256,7 +1256,7 @@ async function waitForAgent(context: AutomationCommandContext) {
     if (observedBusy && ["idle", "error"].includes(status)) return appState(context);
     await wait(120);
   }
-  throw new Error("等待 SparkAI WorkSpace Agent 完成超时。");
+  throw new Error("等待 Sparkvas Agent 完成超时。");
 }
 
 type Handler = (args: JsonObject) => unknown | Promise<unknown>;
@@ -2122,7 +2122,7 @@ export async function executeAutomationCommand(command: string, args: JsonObject
       return appState(context);
     }
   };
-  if (!Object.prototype.hasOwnProperty.call(handlers, command)) throw new Error(`不支持的 SparkAI WorkSpace 自动化命令：${command}`);
+  if (!Object.prototype.hasOwnProperty.call(handlers, command)) throw new Error(`不支持的 Sparkvas 自动化命令：${command}`);
   const result = await handlers[command as AutomationRendererCommandName](validateCommandArgs(command, args));
   if (isJsonObject(result) && result.ok === false && result.canceled !== true) {
     throw automationCommandError(String(result.errorCode || result.code || "COMMAND_FAILED"), String(result.error || "操作失败。"));

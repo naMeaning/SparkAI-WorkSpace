@@ -55,7 +55,7 @@ function normalizeNewApiUser(userData = {}, policy = {}) {
     id: String(userData.id || ""),
     email: safeAccountText(userData.email || username, 120),
     username, account: username,
-    name: safeAccountText(userData.displayName || userData.display_name || userData.name || username || "SparkAI 用户", 120),
+    name: safeAccountText(userData.displayName || userData.display_name || userData.name || username || "Sparkvas 用户", 120),
     balanceCents: Math.round(cny * 100),
     createdAt: userData.createdAt
   };

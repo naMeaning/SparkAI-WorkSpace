@@ -79,12 +79,12 @@ async function main() {
   await mainClient.send("Page.enable");
   await waitForRuntimeExpression(
     mainClient,
-    "Boolean(document.querySelector('.project-agent-panel:not([aria-busy=\"true\"]) button[aria-label=\"调整对话框位置\"]') && window.__naimageAIDebug && window.naimageAgentWindow)",
+    "Boolean(document.querySelector('.project-agent-panel:not([aria-busy=\"true\"]) #project-agent-placement-toggle') && window.__naimageAIDebug && window.naimageAgentWindow)",
     { evaluate, timeoutMs: 15_000, intervalMs: 100 }
   );
 
   const placementProbe = await evaluate(mainClient, `(() => {
-    const toggle = document.querySelector('button[aria-label="调整对话框位置"]');
+    const toggle = document.querySelector('#project-agent-placement-toggle');
     const panel = document.querySelector('.project-agent-panel');
     const shell = document.querySelector('.ide-main');
     const labels = Array.from(panel?.querySelectorAll('button[aria-label]') || []).map((item) => item.getAttribute('aria-label'));
@@ -137,7 +137,7 @@ async function main() {
     height: innerHeight,
     nodeIntegrationHidden: typeof require === 'undefined' && typeof process === 'undefined'
   }))()`);
-  assert.equal(initial.title, "SparkAI WorkSpace Agent");
+  assert.equal(initial.title, "Sparkvas Agent");
   assert.equal(initial.nodeIntegrationHidden, true);
   assert(initial.width >= 360 && initial.height >= 480);
   assert(String(initial.project || "").startsWith(projectName), "Project identity must synchronize from the main renderer");

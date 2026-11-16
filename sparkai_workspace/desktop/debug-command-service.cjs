@@ -351,7 +351,7 @@ function createDebugCommandService(options = {}) {
       .sort((left, right) => Number(right.isFocused?.()) - Number(left.isFocused?.()));
     const window = windows[0];
     if (!window || typeof window.capturePage !== "function") {
-      throw commandError("DEBUG_WINDOW_UNAVAILABLE", "当前没有可捕获的 SparkAI WorkSpace 窗口。");
+      throw commandError("DEBUG_WINDOW_UNAVAILABLE", "当前没有可捕获的 Sparkvas 窗口。");
     }
     mkdirSync(debugDir, { recursive: true });
     const label = sanitizeLabel(args.label);

@@ -206,7 +206,7 @@ function registerProjectIpc(options = {}) {
 
   ipcMain.handle("naimage:project:open", async () => {
     const result = await dialog.showOpenDialog({
-      title: "打开 SparkAI WorkSpace 画布",
+      title: "打开 Sparkvas 画布",
       properties: ["openDirectory"]
     });
     if (result.canceled || result.filePaths.length === 0) {
@@ -258,9 +258,9 @@ function registerProjectIpc(options = {}) {
       includeHistory = choice.response === 2;
     }
     const result = await dialog.showSaveDialog({
-      title: "导出 SparkAI WorkSpace 画布",
+      title: "导出 Sparkvas 画布",
       defaultPath: path.join(project.path || desktopRoot, `${safeName(project.name, "naimage画布")}.naimage`),
-      filters: [{ name: "SparkAI WorkSpace Project", extensions: ["naimage"] }]
+      filters: [{ name: "Sparkvas Project", extensions: ["naimage"] }]
     });
     if (result.canceled || !result.filePath) return { ok: true, canceled: true };
     const packageData = packageProject(project, { preset, includeHistory });
@@ -271,9 +271,9 @@ function registerProjectIpc(options = {}) {
 
   ipcMain.handle("naimage:project:import", async () => {
     const open = await dialog.showOpenDialog({
-      title: "导入 SparkAI WorkSpace 画布",
+      title: "导入 Sparkvas 画布",
       properties: ["openFile"],
-      filters: [{ name: "SparkAI WorkSpace Project", extensions: ["naimage", LEGACY_PROJECT_PACKAGE_EXTENSION, "json"] }]
+      filters: [{ name: "Sparkvas Project", extensions: ["naimage", LEGACY_PROJECT_PACKAGE_EXTENSION, "json"] }]
     });
     if (open.canceled || open.filePaths.length === 0) return { ok: true, canceled: true };
     const sourceFile = open.filePaths[0];
@@ -380,7 +380,7 @@ function registerProjectIpc(options = {}) {
     return {
       ok: false,
       errorCode: "PROJECT_FOLDER_DELETE_UNSUPPORTED",
-      error: "SparkAI WorkSpace 不会删除项目文件夹。请先从项目列表移除，再在系统文件管理器中自行处理磁盘文件。"
+      error: "Sparkvas 不会删除项目文件夹。请先从项目列表移除，再在系统文件管理器中自行处理磁盘文件。"
     };
   });
 }

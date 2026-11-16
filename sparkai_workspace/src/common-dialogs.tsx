@@ -221,7 +221,7 @@ export function ConfirmDialog({
             <div className="confirm-summary">
               <strong>{draft.message}</strong>
               {draft.detail ? <p>{draft.detail}</p> : null}
-              {draft.tone === "danger" ? <small>此操作不可从 SparkAI WorkSpace 内恢复。</small> : null}
+              {draft.tone === "danger" ? <small>此操作不可从 Sparkvas 内恢复。</small> : null}
             </div>
           </SurfaceBody>
           <SurfaceFooter>

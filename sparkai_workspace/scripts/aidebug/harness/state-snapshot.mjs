@@ -3138,7 +3138,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
         briefOutsideAbove: Boolean(imageGenTraceBriefRect && imageGenTraceRect && imageGenTraceBriefRect.bottom <= imageGenTraceRect.top + 1)
       },
       titlebarOverlay: getComputedStyle(element(".ide-topbar") || document.body).webkitAppRegion === "drag",
-      titlebarBrandVisible: visible(".titlebar-brand") && /SparkAI WorkSpace/i.test(element(".titlebar-brand")?.textContent || ""),
+      titlebarBrandVisible: visible(".titlebar-brand") && /Sparkvas/i.test(element(".titlebar-brand")?.textContent || ""),
       workbenchMinWidthOk,
       workbenchWidthMetrics: {
         innerWidth: Math.round(window.innerWidth),

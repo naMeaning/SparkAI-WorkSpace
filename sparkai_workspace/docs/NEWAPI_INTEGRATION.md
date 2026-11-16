@@ -3,7 +3,7 @@
 更新时间：2026-08-01
 官方源码基线：`QuantumNous/new-api@cfaba1dd6754d4238e1360247c198a64a313e96c`
 
-本文记录 SparkAI WorkSpace 对 NewAPI 的真实接入边界。NewAPI 是多上游、多渠道的转发层，同一路径是否可用、请求字段和返回结构都可能受版本、渠道类型、模型映射与站点配置影响，不能只根据模型名称或一段调用示例推断能力。
+本文记录 Sparkvas 对 NewAPI 的真实接入边界。NewAPI 是多上游、多渠道的转发层，同一路径是否可用、请求字段和返回结构都可能受版本、渠道类型、模型映射与站点配置影响，不能只根据模型名称或一段调用示例推断能力。
 
 ## 1. 鉴权与账户边界
 
@@ -16,7 +16,7 @@
 | Relay 模型目录 | `/v1/models` | `Authorization: Bearer <TOKEN>` |
 | 对话、Responses、图片、视频 | `/v1/...` | `Authorization: Bearer <TOKEN>` |
 
-SparkAI WorkSpace 的账号模式使用 Dashboard session 管理账户和密钥，但实际 Agent、生图、视频模型目录及后续模型调用使用用户选中的 Relay Token。分组属于 Token/渠道路由配置，不向模型 JSON 或 FormData 注入 `group`。
+Sparkvas 的账号模式使用 Dashboard session 管理账户和密钥，但实际 Agent、生图、视频模型目录及后续模型调用使用用户选中的 Relay Token。分组属于 Token/渠道路由配置，不向模型 JSON 或 FormData 注入 `group`。
 
 客户端、日志、模型缓存和项目文件均不得保存或显示完整 Token、上游 Key、session cookie。
 
@@ -46,7 +46,7 @@ SparkAI WorkSpace 的账号模式使用 Dashboard session 管理账户和密钥�
 | `image-generation` | `/v1/images/generations`、`/v1/images/edits` |
 | `openai-video` | `/v1/videos` 等视频任务接口 |
 
-SparkAI WorkSpace 的分类规则：
+Sparkvas 的分类规则：
 
 1. 完整保留服务端返回的模型 ID，不因分类未知而从总目录删除。
 2. 将 `supported_endpoint_types` 作为正向能力证据。
@@ -65,7 +65,7 @@ SparkAI WorkSpace 的分类规则：
 - 该模型当前被标记为 `supported_endpoint_types: ["openai"]`
 - 全局 `supported_endpoint` 不包含 `openai-video`
 
-官方当前源码的 `GetEndpointTypesByChannelType` 也只为 Sora 渠道显式返回 `openai-video`，没有覆盖 DoubaoVideo，因此 Seedance 被标成普通 `openai` 不是 SparkAI WorkSpace 应当盲信的事实。SparkAI WorkSpace 必须保留 Seedance/Sora/Veo 等名称回退。
+官方当前源码的 `GetEndpointTypesByChannelType` 也只为 Sora 渠道显式返回 `openai-video`，没有覆盖 DoubaoVideo，因此 Seedance 被标成普通 `openai` 不是 Sparkvas 应当盲信的事实。Sparkvas 必须保留 Seedance/Sora/Veo 等名称回退。
 
 ## 3. 对话与 Responses
 
@@ -90,7 +90,7 @@ SparkAI WorkSpace 的分类规则：
 - `POST /v1/images/edits`
 - `POST /v1/responses` + `image_generation` 工具
 
-不同 NewAPI 版本和渠道对 `stream`、`partial_images`、JSON/FormData、返回 URL/Base64 的支持并不一致。SparkAI WorkSpace 当前策略是：
+不同 NewAPI 版本和渠道对 `stream`、`partial_images`、JSON/FormData、返回 URL/Base64 的支持并不一致。Sparkvas 当前策略是：
 
 1. 生图优先请求流式中间预览。
 2. 只有服务明确拒绝流式且尚未收到任何事件时，才回退一次非流式请求。
@@ -143,7 +143,7 @@ SparkAI WorkSpace 的分类规则：
 }
 ```
 
-这不是正式固定 Schema。SparkAI WorkSpace 已基于该兼容体完成独立任务适配器，但未发起真实请求；必须等用户明确允许测试后，用所选 Token 做一条最小任务，确认站点实际接受的字段，再保存为该 Base URL/Token 的协议画像。
+这不是正式固定 Schema。Sparkvas 已基于该兼容体完成独立任务适配器，但未发起真实请求；必须等用户明确允许测试后，用所选 Token 做一条最小任务，确认站点实际接受的字段，再保存为该 Base URL/Token 的协议画像。
 
 ### 返回结构差异
 
@@ -153,13 +153,13 @@ SparkAI WorkSpace 的分类规则：
 - 当前源码的 `/v1/video/generations/{task_id}` 仍可能返回 `{ "code": "success", "data": TaskDto }`，与 OpenAPI 中顶层 `url` 的描述不完全一致。
 - 下载实现应优先使用受鉴权的 `/v1/videos/{task_id}/content`，其次才接受经过公网安全校验的结果 URL。
 
-SparkAI WorkSpace 已实现独立 create/poll/normalize/download 适配器、项目 journal、重启恢复、画布入口和 `canvas.generate-video` CLI，不复用 Chat Completions 解析器。创建 POST 不自动重试：4xx 明确拒绝记为失败，5xx、超时和无任务 ID 响应记为 `create-unknown`；有远端任务 ID 时重启仅恢复 GET 轮询与下载。下载优先使用受鉴权的 `/v1/videos/{task_id}/content`，失败后才尝试经过公网/DNS/socket 校验的结果 URL。
+Sparkvas 已实现独立 create/poll/normalize/download 适配器、项目 journal、重启恢复、画布入口和 `canvas.generate-video` CLI，不复用 Chat Completions 解析器。创建 POST 不自动重试：4xx 明确拒绝记为失败，5xx、超时和无任务 ID 响应记为 `create-unknown`；有远端任务 ID 时重启仅恢复 GET 轮询与下载。下载优先使用受鉴权的 `/v1/videos/{task_id}/content`，失败后才尝试经过公网/DNS/socket 校验的结果 URL。
 
 项目只在 `<project>/.naimage/video-task-journal.json` 保存任务、相对输出路径及 Base URL/Token 的单向凭证指纹；不保存 Key、绝对路径、运行时 `naimage-asset:` URL，也不向 Renderer/CLI 公开可能带签名参数的上游结果 URL。结果成功落盘后会从 journal 清除临时结果 URL。生成文件写入 `<project>/output/video/generated`；重启发现 `ready` 记录缺少文件时会恢复为待下载状态，而不会重复创建上游任务。
 
 ## 6. 计费、并发与恢复
 
-NewAPI 的任务链路会在提交阶段预扣额度，失败时由服务端尝试退款；上游已经接受的请求仍可能产生费用。SparkAI WorkSpace 只负责展示请求规模并执行用户明确发起的生成，不代替用户与账号站或 Base URL 站结算。
+NewAPI 的任务链路会在提交阶段预扣额度，失败时由服务端尝试退款；上游已经接受的请求仍可能产生费用。Sparkvas 只负责展示请求规模并执行用户明确发起的生成，不代替用户与账号站或 Base URL 站结算。
 
 实现要求：
 

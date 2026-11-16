@@ -1,0 +1,45 @@
+export type SkillContractError = { path: string; code: string; message: string };
+export type SkillPortDataType = "asset" | "image" | "video" | "text" | "brief" | "review" | "bundle" | "any";
+export type SkillParameterType = "string" | "number" | "boolean" | "enum";
+export type SkillInputSlot = { slotId: string; label: string; dataType: SkillPortDataType; required: boolean };
+export type SkillParameter = {
+  parameterId: string;
+  label: string;
+  type: SkillParameterType;
+  required: boolean;
+  defaultValue?: string | number | boolean;
+  values?: string[];
+};
+export type SkillExample = { title: string; description?: string };
+export type SkillManifest = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  minAppVersion: string;
+  license: string;
+  instructions: string;
+  inputSlots: SkillInputSlot[];
+  parameters: SkillParameter[];
+  examples: SkillExample[];
+  limitations: string[];
+  tags: string[];
+  contentHash: string;
+};
+export type SkillManifestValidation = { ok: boolean; errors: SkillContractError[]; value?: SkillManifest };
+export const SKILL_SCHEMA_VERSION: 1;
+export const SKILL_LIMITS: Readonly<{
+  maxDescription: number;
+  maxInstructions: number;
+  maxInputSlots: number;
+  maxParameters: number;
+  maxExamples: number;
+  maxLimitations: number;
+  maxTags: number;
+}>;
+export const PARAMETER_TYPES: readonly SkillParameterType[];
+export function parseSkillManifest(value: unknown): SkillManifestValidation;
+export function normalizeSkillManifest(value: unknown): SkillManifest | undefined;
+export function skillContentHash(value: unknown): string;
+export function sealSkillManifest(value: unknown): SkillManifest | undefined;

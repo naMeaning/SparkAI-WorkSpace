@@ -380,7 +380,7 @@ function createRequirementLibraryService({
 
   async function importTemplate(owner = null) {
     if (!dialog?.showOpenDialog || typeof readFileSync !== "function" || typeof statSync !== "function") throw new RequirementLibraryError("IMPORT_UNAVAILABLE", "当前桌面运行时不支持导入需求模板。");
-    const options = { title: "导入需求模板", properties: ["openFile"], filters: [{ name: "SparkAI WorkSpace 需求模板", extensions: ["json"] }] };
+    const options = { title: "导入需求模板", properties: ["openFile"], filters: [{ name: "Sparkvas 需求模板", extensions: ["json"] }] };
     const selection = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
     if (selection.canceled || !selection.filePaths?.[0]) return { ok: true, canceled: true };
     const file = selection.filePaths[0], stat = statSync(file);
@@ -397,7 +397,7 @@ function createRequirementLibraryService({
     const result = get(payload), entry = result.entry;
     if (payload.expectedRevision !== entry.revision) throw new RequirementLibraryError("TEMPLATE_REVISION_CONFLICT", "模板版本已变化，请刷新后导出。", { currentRevision: entry.revision });
     const stem = entry.title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/g, "").slice(0, 80) || "requirement-template";
-    const options = { title: "导出需求模板", defaultPath: `${stem}.naimage-requirement-template.json`, filters: [{ name: "SparkAI WorkSpace 需求模板", extensions: ["json"] }] };
+    const options = { title: "导出需求模板", defaultPath: `${stem}.naimage-requirement-template.json`, filters: [{ name: "Sparkvas 需求模板", extensions: ["json"] }] };
     const selection = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options);
     if (selection.canceled || !selection.filePath) return { ok: true, canceled: true };
     const document = portableRequirementTemplate(entry);

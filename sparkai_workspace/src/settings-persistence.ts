@@ -61,7 +61,7 @@ export const CONTEXT_STRATEGY_OPTIONS: { value: ContextStrategyId; label: string
   { value: "auto", label: "自动匹配", detail: "GPT/Codex、Claude 和其他模型自动使用各自的上下文策略。" },
   { value: "codex", label: "Codex", detail: "使用长上下文、Responses 历史和 checkpoint compaction。" },
   { value: "claude", label: "Claude Code", detail: "使用 Claude 消息历史和模型窗口感知的摘要压缩。" },
-  { value: "naimage-balanced", label: "SparkAI WorkSpace 平衡", detail: "为未知兼容模型使用保守的 128K 上下文策略。" },
+  { value: "naimage-balanced", label: "Sparkvas 平衡", detail: "为未知兼容模型使用保守的 128K 上下文策略。" },
   { value: "custom", label: "自定义", detail: "手动设置上下文窗口、有效比例、压缩点和保留用户消息预算。" }
 ];
 

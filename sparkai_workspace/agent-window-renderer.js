@@ -202,7 +202,7 @@ function renderFeed(messages) {
   const openGroups = new Set(Array.from(feed.querySelectorAll('details.completed-tools[open]')).map(item => item.dataset.completedKey));
   const fragment = document.createDocumentFragment();
   if (!messages.length) {
-    fragment.append(element("p", "empty-feed", "这是独立的 SparkAI WorkSpace Agent 窗口。主窗口仍然负责画布和任务状态，你可以在这里持续对话与控制图片任务。"));
+    fragment.append(element("p", "empty-feed", "这是独立的 Sparkvas Agent 窗口。主窗口仍然负责画布和任务状态，你可以在这里持续对话与控制图片任务。"));
   } else {
     let completed = [];
     function flushCompleted() {

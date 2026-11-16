@@ -1,4 +1,4 @@
-# SparkAI WorkSpace 开发约束
+# Sparkvas 开发约束（桌面仓库）
 
 ## 新会话与续接必读
 
@@ -18,13 +18,15 @@
 ## 产品边界
 
 - 本仓库只维护 Electron 桌面 GUI 和本地 Agent runtime。远端后端位于独立仓库，不要把服务端管理后台复制回来。
-- 当前是傻瓜式单画布 AI 生图工作台，不要恢复“基础模式 / Agent 模式”切换。
-- 产品名称为 SparkAI WorkSpace；`general`、`commerce`、`social`、`research` 只是同一项目、同一画布、同一 Session、同一 Agent Runtime、同一资产与 TaskScope 上的能力投影。切换领域不得重挂画布、清空选择、打断任务、自动联网或产生费用，也不得复制四套平行状态。
-- 右侧项目 Agent 是唯一控制中心，可折叠为窄侧栏但不能被卸载或替换；画布上的 Agent 核心节点、节点内对话框和手动工作流入口已废弃，不得恢复。
-- 画布主要展示图片成果、视频成果、图片容器及成果关系，只允许一种可执行的非图片原语：需求节点。视频成果节点只负责播放受管媒体和保留来源信息，不执行模型、工作流或图片需求，也不能伪装成图片 SOURCE。需求节点保存用户可复用、可编辑的自然语言图片处理要求，关系必须保持“图片/容器/分层成果 → 需求节点 → 新图片成果”；它不能派生出计划、Prompt 步骤、工具节点、后期节点、子 Agent 或任意工作流节点。图片容器仍是素材整理视图。连接头只调整来源/成果关系，不得因连线动作自动执行任务；需求只可由用户明确保存并执行或右键再次执行。
-- 空白画布右键保留“创建生图工作 / 创建视频工作 / 导入图片 / 导入视频 / 创建图片容器”等直接操作。“创建生图工作”只是精简的手动图片请求表单，提交后直接调用现有图片执行链路并把成果放到右键位置；它不得创建任务节点、Prompt 节点、执行流程或恢复旧工作流编辑器。“创建视频工作”每次只创建一个独立、可恢复的上游任务，结果节点本身仍不可执行；“导入视频”只复制用户授权的本地视频并创建成果节点。
+- 当前是画布优先的 AI-native 视觉创作工作台，不要恢复“基础模式 / Agent 模式”切换。Canvas 是主创作面，Studio 是查看、编辑和运行 Recipe 的第二创作面；两者共享同一项目、选择、Session、TaskScope、资产和 provenance。
+- 2026-11-16 起用户可见品牌为 **Sparkvas**。本阶段只改 UI 可见名称；`package.json.productName`/`executableName`、App ID、安装器身份、用户数据目录、更新协议和 CLI/MCP 技术身份仍保留旧标识，待 Phase 7 统一迁移。公开 v1.0.9 的正式制品仍是旧品牌，不能把开发分支的可见文案当作已发布。
+- `general`、`commerce`、`social`、`research` 只是同一项目、同一画布、同一 Session、同一 Agent Runtime、同一资产与 TaskScope 上的能力投影。切换领域不得重挂画布、清空选择、打断任务、自动联网或产生费用，也不得复制四套平行状态。
+- 右侧项目 Agent 是唯一控制中心，可折叠为窄侧栏但不能被卸载或替换；画布上的 Agent 核心节点、节点内对话框和旧底层工作流编辑器已废弃，不得恢复。
+- Studio 只允许语义 Recipe 节点：`Input`、`Brief`、`Skill`、`Transform`、`Tool`、`Review`、`Output`。不得恢复 ComfyUI 式底层算子节点图、任意脚本节点、画布 Agent/计划/Prompt 执行节点或第二套项目状态。Skill 是声明式创作技法，不能执行任意代码；Tool 是可执行受控适配器，必须声明网络、文件、进程、模型和 MCP 权限，并由应用内置或受控适配器提供。
+- 画布主要展示图片成果、视频成果、图片容器及成果关系，只允许一种可执行的非图片原语：需求节点。视频成果节点只负责播放受管媒体和保留来源信息，不执行模型、工作流或图片需求，也不能伪装成图片 SOURCE。需求节点保存用户可复用、可编辑的自然语言图片处理要求，关系必须保持“图片/容器/分层成果 → 需求节点 → 新图片成果”；它不能派生出计划、Prompt 步骤、工具节点、后期节点、子 Agent 或任意画布工作流节点。Studio Recipe 是独立第二创作面，不挂到需求节点的来源链。图片容器仍是素材整理视图。连接头只调整来源/成果关系，不得因连线动作自动执行任务；需求只可由用户明确保存并执行或右键再次执行。
+- 空白画布右键保留“创建生图工作 / 创建视频工作 / 导入图片 / 导入视频 / 创建图片容器”等直接操作。“创建生图工作”只是精简的手动图片请求表单，提交后直接调用现有图片执行链路并把成果放到右键位置；它不得创建任务节点、Prompt 节点、执行流程或把 Canvas 恢复成旧工作流编辑器。“创建视频工作”每次只创建一个独立、可恢复的上游任务，结果节点本身仍不可执行；“导入视频”只复制用户授权的本地视频并创建成果节点。
 - 外部拖入的图片或文件夹必须先复制到当前项目管理的图片库，再进入参考图容器或画布图片容器；外部视频必须先复制到当前项目的 `output/video` 受管目录，再创建独立视频成果节点。不得直接保存或修改用户原始路径。画布批量拖入图片默认进入同一图片容器，容器图片可拖出成为独立成果；多个视频保持多个独立成果节点。
-- `image_gen` 是唯一图片执行工具，允许的任务语义为 `generate`、`edit`、`replace`、`variants`、`layers`、`cutout`、`redraw`。主 Agent 可使用与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 SparkAI WorkSpace 的 `experience` 与成果查询工具完成任务；不得自建 Bing/DuckDuckGo 搜索器。`view_image` 必须把本地图片作为 `input_image` 回到当前主模型上下文，不能另起一次视觉模型请求代替。conversation compact、toolmemory 和底层 `context_manage` 由运行时维护，不向主 Agent 暴露内部 entry ID。这些过程不得创建画布节点或演化为手动工作流。
+- `image_gen` 是唯一图片执行工具，允许的任务语义为 `generate`、`edit`、`replace`、`variants`、`layers`、`cutout`、`redraw`。主 Agent 可使用与 Codex 对齐的 `shell_command`、`view_image`、Responses 原生 `web_search`，以及 Sparkvas 的 `experience` 与成果查询工具完成任务；不得自建 Bing/DuckDuckGo 搜索器。`view_image` 必须把本地图片作为 `input_image` 回到当前主模型上下文，不能另起一次视觉模型请求代替。conversation compact、toolmemory 和底层 `context_manage` 由运行时维护，不向主 Agent 暴露内部 entry ID。这些过程不得在 Canvas 创建节点或演化为底层工作流。
 - `doubao-seedance-2-0-260128` 已接入待验证的独立视频任务适配器、画布入口和 `canvas.generate-video` CLI，但兼容请求仍不是经真实 Token 固定的正式协议。未获得用户明确授权前不得发起真实 Seedance 请求；不得用 Chat Completions 代替 create/poll/download，也不得在创建结果不明时自动重建。真实验证后必须按 Base URL/Token 更新协议画像与计费边界。
 - `view_image detail=high` 可为模型上下文生成受控尺寸、受控请求体的观察副本，`detail=original` 保留原分辨率；两者都不得覆盖项目原图、降低画布预览清晰度或把大体积 base64 长期写入会话持久化。
 - `replace` 和 `variants` 必须自动使用当前选中图片或附件作为来源；不得要求模型猜测或输出本地路径。`variants` 输出独立图片并使用 `variant` 关系。
@@ -51,9 +53,9 @@
 - Agent 图片工具必须真实执行。未实现的能力要明确返回边界，不得伪造进度或结果。
 - 新增或改变可由外部 Agent 操作的产品动作时，必须同步 `integrations/naimage-control` CLI 命令、Skill 说明、命令参考和 `test:automation-service` 契约；不能只更新 GUI。
 - 图片任务优先且默认使用 `gpt-image-2`；只要模型池中存在 `gpt-image-2`，不得因编辑、透明背景或抠图任务回退到旧图片模型。
-- 滤镜、本地后期、Prompt/后期节点和 `apply_post_effect` 已废弃。不得恢复工具 schema、运行时 action、画布渲染、菜单、样式或 AIDebug 套件。
+- 滤镜、本地后期、旧 Canvas Prompt/后期节点和 `apply_post_effect` 已废弃。不得恢复这些旧工具 schema、运行时 action、画布渲染、菜单、样式或 AIDebug 套件；Studio 的 Brief/Skill/Tool/Review 是 Recipe 语义节点，不属于该旧节点体系。
 - 旧项目中的非图片节点和 `agentOwnerId` 只作为迁移输入读取；合法 v1 需求节点与合法受管视频成果可保留，其余无图片/视频资产的非图片节点保存后移除，有有效图片资产的旧节点迁移为图片成果；旧 Agent 会话历史保留在项目会话列表中。
-- 旧版本只可作为经用户明确认可的连接点、无箭头线路动画、窗口排版等局部设计参考；不得把 `--legacy-full-suite` 当成新版兼容目标，也不得因旧断言失败恢复旧 Agent、旧工作流、旧窄屏交互或旧信息架构。
+- 旧版本只可作为经用户明确认可的连接点、无箭头线路动画、窗口排版等局部设计参考；不得把 `--legacy-full-suite` 当成新版兼容目标，也不得因旧断言失败恢复旧 Agent、旧底层工作流、旧窄屏交互或旧信息架构。
 
 ## 验证
 

@@ -91,13 +91,13 @@ function toolSchemas(settings = {}) {
       type: "function",
       function: {
         name: "shell_command",
-        description: "Runs a Powershell command (Windows) and returns its output. SparkAI WorkSpace 将执行范围限制为当前项目内的受控只读诊断命令；画布与成果操作使用 workflow。",
+        description: "Runs a Powershell command (Windows) and returns its output. Sparkvas 将执行范围限制为当前项目内的受控只读诊断命令；画布与成果操作使用 workflow。",
         parameters: {
           type: "object",
           properties: {
-            command: { type: "string", description: "Shell command to execute. SparkAI WorkSpace currently permits only its documented read-only project diagnostics allowlist." },
-            workdir: { type: "string", description: "Working directory for the command. Defaults to the current SparkAI WorkSpace project root and must remain inside it." },
-            timeout_ms: { type: "integer", minimum: 250, maximum: 30000, description: "Maximum command runtime in milliseconds. The effective SparkAI WorkSpace read-only limit may be lower." },
+            command: { type: "string", description: "Shell command to execute. Sparkvas currently permits only its documented read-only project diagnostics allowlist." },
+            workdir: { type: "string", description: "Working directory for the command. Defaults to the current Sparkvas project root and must remain inside it." },
+            timeout_ms: { type: "integer", minimum: 250, maximum: 30000, description: "Maximum command runtime in milliseconds. The effective Sparkvas read-only limit may be lower." },
             login: { type: "boolean", description: "True uses login shell semantics; false disables them. Defaults to true." }
           },
           required: ["command"],
@@ -109,7 +109,7 @@ function toolSchemas(settings = {}) {
       type: "function",
       function: {
         name: primaryImageToolName,
-        description: "SparkAI WorkSpace 唯一图像执行工具。用于文字或参考图生成、精确编辑与换物改字、多款和多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果会自动同步到成果画布。",
+        description: "Sparkvas 唯一图像执行工具。用于文字或参考图生成、精确编辑与换物改字、多款和多角度、服装上身、电商商品图、Logo 栅格概念、UI 视觉、插画、角色与游戏原画、分层 PNG、抠图和区域重绘。结果会自动同步到成果画布。",
         parameters: {
           type: "object",
           properties: {

@@ -19,11 +19,13 @@ Older conversations are represented through the maintained product documents whe
 
 2026-10-20 第二期（本地交付完成）：结构化创作要求、证据分层验收和稳定资产定向修改已实施；复用第一期任务/TaskScope/image_gen及catalog采用状态，0真实模型请求。最终EXE、安全原位安装、安装版UI和upstream源码Git同步已完成，按授权停止，不启动第三期。真实视觉质量和正式发布未验证；详见桌面Goal、Progress与工作流合同。
 
+2026-11-16 Sparkvas 产品转向（Phase 0/1 已接受）：用户明确把旧“不得恢复工作流编辑器/工具节点”边界替换为画布优先、Studio 语义 Recipe 工作流；Canvas 仍是主创作面，Studio 只允许 `Input`、`Brief`、`Skill`、`Transform`、`Tool`、`Review`、`Output` 节点，不恢复 ComfyUI 式底层算子图、旧画布 Agent/计划/Prompt 执行节点或第二套项目状态。Skill 只声明、不执行任意代码；Tool 必须声明网络/文件/进程/模型/MCP 权限，v1 只允许内置或受控适配器，Registry 不直接安装第三方可执行代码。用户同时确认可见品牌为 Sparkvas；Phase 7 前不改安装器、EXE、App ID、用户数据目录和更新协议。Phase 1 已实现纯合同骨架，不代表 Studio、Main 执行、Registry 或真实模型链路已交付。
+
 | ID | Status | Decision | Current authority |
 | --- | --- | --- | --- |
-| D-01 | active | SparkAI WorkSpace is a free Agent image-generation workspace (Agent 生图工作台), with one project Agent and an infinite result canvas. | User direction (2026-10-17), `sparkai_workspace/PRODUCT_INTENT.md` |
+| D-01 | active | Sparkvas is a free, canvas-first AI-native visual creation workspace with one project Agent, an infinite result Canvas and an optional semantic Recipe Studio. | User direction (2026-11-16), `sparkai_workspace/PRODUCT_INTENT.md` |
 | D-02 | active | `general`, `commerce`, `social`, and `research` are projections over one project, canvas, session, asset space, TaskScope, plugin system and Agent runtime. | Desktop `AGENTS.md` and product intent |
-| D-03 | active | The right-side project Agent is the single control center. Canvas content is managed results, groups, relations and reusable requirements, not Agent or plan nodes. | Desktop `AGENTS.md` |
+| D-03 | active | The right-side project Agent is the single control center. Canvas content is managed results, groups, relations and reusable requirements. Studio may contain only semantic Recipe nodes, never raw ComfyUI operator graphs or Canvas Agent/plan/prompt execution nodes. | Desktop `AGENTS.md` |
 | D-04 | active | Speed and maintainability matter more than forcing a bundle number. Use natural module boundaries; do not add risky split/refactor work merely to pass an advisory size threshold. | User direction, desktop `AGENTS.md` |
 | D-05 | active | Development verification is targeted and evidence-driven. Exercise realistic affected user paths for UI/performance work; reserve full release gates for a requested formal release or direct release-boundary change. | User direction, verification matrix |
 | D-06 | active | Real model/video calls can cost money. Image/video creation, especially Seedance, requires the authorization defined by the desktop rules; never retry an ambiguous create request just to obtain a result. | Desktop `AGENTS.md`, product intent |
@@ -38,6 +40,7 @@ Older conversations are represented through the maintained product documents whe
 | D-15 | active | Agent send, settings readability and image adapter changes are one continuation goal; update Goal/Progress/context records before implementation and preserve real evidence through EXE build. | Current user direction (2026-09-27), `goal-documentation-continuity` |
 | D-16 | active | Save and display generated images in the provider's actual PNG/JPEG/WebP format; determine MIME/extension from bytes and retain the original bytes. This supersedes local conversion to the requested format and rejecting a valid result merely because its encoding differs from the request. Explicit user export remains separate. | Current user direction (2026-10-08), desktop `GOAL.md` |
 | D-17 | active | Every new session or continuation checks the live worktree and recovers the owner repository's current goal, progress snapshot and latest evidence before choosing work. Keep AGENTS entry points, progress and context navigation synchronized so historical checkpoints or same-version development packages cannot be mistaken for current work or a formal release. | Current user request (2026-10-13), root/desktop `AGENTS.md`, desktop `PROGRESS.md` |
+| D-18 | active | Adopt Sparkvas as the visible brand and Canvas-first semantic Recipe authoring as the product direction. Skill manifests remain declarative; Tool manifests require explicit permissions and v1 distribution is limited to built-in or controlled adapters. Technical identity migration is deferred to Phase 7. | User direction (2026-11-16), desktop `AGENTS.md`, ADR-0001/0002/0003, `docs/RECIPE_CONTRACT.md` |
 
 ## Operating Preferences From The User
 
@@ -71,9 +74,9 @@ This distinction matters: assistant design proposals can improve the harness, bu
 | Legacy direction | Current replacement |
 | --- | --- |
 | Pro License required for custom Base URL + API Key | Since 2026-10-17, free desktop access with account login retained; legacy license data/IPC remain compatible without remote activation or verification |
-| Basic mode versus Agent mode, multiple canvas Agents, plan/prompt/tool/post-processing nodes | One persistent project Agent and a result-focused canvas with only reusable requirements as the executable non-image primitive |
+| Basic mode versus Agent mode, multiple canvas Agents, raw ComfyUI operator graphs, or Agent/plan/prompt execution nodes on Canvas | One persistent project Agent, a result-focused Canvas, and an optional Studio semantic Recipe graph limited to Input/Brief/Skill/Transform/Tool/Review/Output |
 | Canvas links imply execution order | Links express provenance; execution requires explicit user/Agent action |
-| Generic workflow editor or revived legacy UI to satisfy old tests | Current simplified workspace and current UI evidence; legacy tests are not a product baseline |
+| Generic legacy workflow editor or raw operator graph restored to satisfy old tests | Current simplified Canvas plus the accepted Studio semantic Recipe contract; legacy tests are not a product baseline |
 | Account mode ignores per-model Base URL | Per-model Base URL and API Key overrides with independent inheritance; SparkAPI-only build remains locked |
 | Expose every image protocol/gateway/capability switch as required user configuration | Automatic internal adapter selection with backward-compatible legacy fields and minimal connection controls |
 | Force known image models to use the protocol inferred from their name | Since 2026-10-07, optional explicit connection adapter/channel/transport overrides take precedence; automatic inference remains a default |
