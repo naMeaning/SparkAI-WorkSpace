@@ -12,6 +12,7 @@
 - Studio UI：`test:studio-ui` 73 checks、12 截图、0 realModelRequests；覆盖成功、失败、取消、重启恢复/重载去重、1280×800/884×640、浅/深主题、选择保持。最终报告 `.diagnostics/electron/sparkvas-vertical-slice-2026-11-17T01-23-18-647Z/report.json`；截图从同目录 `01-...` 到 `12-...`。
 - 构建/smoke：production build exit0（1720 modules，主 JS 593.76 kB）；`package:smoke` ok，真实 packaged `SparkAIWorkSpace.exe` 完成启动/项目/资产/语义/PSD/缩略图 smoke，0 真实模型请求，报告 `.diagnostics/release/packaged-smoke-2026-11-17T01-26-10-193Z/report.json`。
 - 制品/安装：`package:win:unrestricted` exit0；EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,278,656 B / SHA-256 `4b9c9fb8026de300184ed926a954e592f903d3092b08c67209803c29eb58e23e`，VersionInfo 1.0.9.0，Authenticode NotSigned；ASAR 53,784,865 B / `1fa707df591566a2dd519517aed40c4bd56ac965bc7373f1ccced508356d12e5`。品牌 `/S` 原位升级 exit0/26,191ms，安装根 `E:\sparkai-workspace\naimage`，安装后 EXE/ASAR 与打包目录一致，HKCU `Software\887890c3-49de-5e86-9a32-28781d680b7f` 与快捷方式保留。
+- Git：本批 25 文件源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82`，已普通 push `origin/codex/sparkvas-vertical-slice`；本地 HEAD 与 `git ls-remote` 实查同为该提交。main 未合并，main 的图标化/旧文档 dirty 保留，未提交构建产物或诊断目录。
 - 未验证/停止：真实付费图片、Seedance/视频、支付、Registry/Marketplace、第三方 Tool、物理 125%/150% DPI、正式 Release/tag、EXE 上传未验证；`test:image-edit-ui` 完整旧套件仍有既有 readiness/DPR 假设失败，不能作为本切片整套通过。Git 收尾使用普通 push，不合并 main；最终提交/远端身份以 push 后 `.diagnostics/sparkvas-vertical-slice-2026-11-17/delivery.json` 与本节后续补记核对。
 
 ## 当前开发状态（2026-11-16，Sparkvas Phase 0/1 合同与可见品牌本地交付完成）

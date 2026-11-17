@@ -105,5 +105,6 @@ Studio UI 最终报告：
 - 品牌 `/S` 原位安装：exit 0 / 26,191 ms；安装目录 `E:\sparkai-workspace\naimage`，安装后 EXE 与 ASAR 与打包目录一致。
 - HKCU Uninstall 项仍为 `Software\887890c3-49de-5e86-9a32-28781d680b7f`，显示名/安装身份沿 Phase 7 前的兼容名称。
 - packaged smoke 报告：`.diagnostics/release/packaged-smoke-2026-11-17T01-26-10-193Z/report.json`
+- Git：源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82` 已普通 push `origin/codex/sparkvas-vertical-slice`；本地 HEAD 与 `git ls-remote` 一致，未合并 main。
 
 仍未验证：真实付费图片生成、Seedance/视频、物理 125%/150% DPI、支付、Registry/Marketplace、第三方 Tool、影视剧 Recipe、CLI/MCP 新 Recipe 命令、正式 Release/tag 或 EXE 上传。图片编辑专项的完整回归还受既有 readiness/DPR 测试假设影响；不能把本切片 Studio 的通过结果扩大成该旧专项整体通过。
