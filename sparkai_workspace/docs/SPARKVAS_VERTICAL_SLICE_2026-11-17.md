@@ -68,7 +68,7 @@
 
 - `scripts/image-edit-ui-selftest.mjs` 的隔离 Electron 回归现已断言 `expand` 不存在，并保留真实六模式断言；前三个检查通过。
 - after 截图：`.diagnostics/image-edit-ui-2026-11-17T01-14-52-865Z/unified-editor.png`。
-- 该专项完整套件后续在既有重启 readiness 和 884×640 精确 viewport 假设上失败，失败报告保留在同目录 `report.json`；这不是删除占位后的图片提交路径失败，按已有测试边界记录，未用其替代本切片 UI 通过证据。
+- 该专项的删除断言通过；后续套件在既有 cutout 透明背景能力假设处失败，失败报告保留在同一 run 目录 `report.json`；这不是删除占位后的图片提交路径失败，按已有测试边界记录，未用其替代本切片 UI 通过证据。
 
 ## 验证证据
 
@@ -105,6 +105,6 @@ Studio UI 最终报告：
 - 品牌 `/S` 原位安装：exit 0 / 26,191 ms；安装目录 `E:\sparkai-workspace\naimage`，安装后 EXE 与 ASAR 与打包目录一致。
 - HKCU Uninstall 项仍为 `Software\887890c3-49de-5e86-9a32-28781d680b7f`，显示名/安装身份沿 Phase 7 前的兼容名称。
 - packaged smoke 报告：`.diagnostics/release/packaged-smoke-2026-11-17T01-26-10-193Z/report.json`
-- Git：源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82` 已普通 push `origin/codex/sparkvas-vertical-slice`；本地 HEAD 与 `git ls-remote` 一致，未合并 main。
+- Git：源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82` 已普通 push `origin/codex/sparkvas-vertical-slice`，后续测试/证据文档收尾 commit 在同一分支；未合并 main。
 
-仍未验证：真实付费图片生成、Seedance/视频、物理 125%/150% DPI、支付、Registry/Marketplace、第三方 Tool、影视剧 Recipe、CLI/MCP 新 Recipe 命令、正式 Release/tag 或 EXE 上传。图片编辑专项的完整回归还受既有 readiness/DPR 测试假设影响；不能把本切片 Studio 的通过结果扩大成该旧专项整体通过。
+仍未验证：真实付费图片生成、Seedance/视频、物理 125%/150% DPI、支付、Registry/Marketplace、第三方 Tool、影视剧 Recipe、CLI/MCP 新 Recipe 命令、正式 Release/tag 或 EXE 上传。图片编辑专项的完整回归还受既有 cutout 透明背景测试假设影响；不能把本切片 Studio 的通过结果扩大成该旧专项整体通过。

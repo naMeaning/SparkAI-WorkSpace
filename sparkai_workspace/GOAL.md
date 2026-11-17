@@ -11,9 +11,9 @@
 - Provenance：结果节点保留 Recipe、Run、输入和六输出的稳定身份；`Recipe Run` chip 打开详情，输入/输出不暴露 Key、Cookie、签名 URL 或内部 continuation。
 - 清理：移除图片编辑下拉中禁用且不可执行的“扩图（暂未开放）”占位；代码位置 `src/image-workspace-overlays.tsx` 的 `AI 编辑方式`，旧 UI 专项已在 `scripts/image-edit-ui-selftest.mjs` 同步断言不存在 `expand`。别无依据地删除既有能力。
 - 验证：合同 6/5/11、类型合同/typecheck、Recipe Store 5、Run 8、IPC 6、IPC 注册 178/175、production build 1720 modules 通过；隔离 Electron Studio UI 73 checks/12 截图覆盖成功、失败、取消、重启恢复、1280×800/884×640、浅/深主题和选择保持，真实模型请求 0；packaged smoke 通过。
-- 证据：最终 UI [report.json](.diagnostics/electron/sparkvas-vertical-slice-2026-11-17T01-23-18-647Z/report.json) 和 [实施记录](docs/SPARKVAS_VERTICAL_SLICE_2026-11-17.md)；图片编辑占位删除后的 after 截图在 `.diagnostics/image-edit-ui-2026-11-17T01-14-52-865Z/unified-editor.png`。该旧专项后续 readiness/精确 884 viewport 失败保留，不将部分检查冒充整套通过。
+- 证据：最终 UI [report.json](.diagnostics/electron/sparkvas-vertical-slice-2026-11-17T01-23-18-647Z/report.json) 和 [实施记录](docs/SPARKVAS_VERTICAL_SLICE_2026-11-17.md)；图片编辑占位删除后的 after 截图在 `.diagnostics/image-edit-ui-2026-11-17T01-14-52-865Z/unified-editor.png`。该旧专项的删除断言已通过，套件继续到后续 cutout 透明背景能力假设时失败，不将部分检查冒充整套通过。
 - 制品/安装：production package exit 0，EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,278,656 B / SHA-256 `4b9c9fb8026de300184ed926a954e592f903d3092b08c67209803c29eb58e23e`，ASAR 53,784,865 B / `1fa707df591566a2dd519517aed40c4bd56ac965bc7373f1ccced508356d12e5`；品牌 `/S` 原位安装 exit0/26,191ms，安装后 EXE/ASAR 与打包目录一致，HKCU `Software\887890c3-...` 保留。
-- Git：源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82` 已普通 push `origin/codex/sparkvas-vertical-slice`；实测本地 HEAD 与 `git ls-remote` 均为该提交。main 未合并，main 的图标化/旧文档 dirty 保留。
+- Git：本批源码/测试/文档提交 `e65da8afaf0ff0bef214f1cb0c4fb211e2521e82` 已普通 push `origin/codex/sparkvas-vertical-slice`，后续测试/证据文档收尾 commit 在同一分支；最终 HEAD/远端身份以 push 后 `git ls-remote` 与 delivery.json 为准。main 未合并，main 的图标化/旧文档 dirty 保留。
 - Boundary：真实付费图片、视频/Seedance、支付、Registry、第三方 Tool、物理高 DPI 和正式 Release/上传未验证；本轮没有新增 CLI/MCP，也未修改 main。完整证据、失败保留和后续范围见下方 Phase 0/1 历史与 Progress 顶部。
 
 ## 当前任务：Sparkvas Phase 0/1——边界冻结、可见品牌与纯合同骨架（2026-11-16，本地交付完成，未合并 main）

@@ -47,10 +47,11 @@ async function until(predicate, name, timeoutMs = 25000) {
   throw new Error(`Timeout: ${name}`);
 }
 async function check(name, action) { report.current = name; checkpoint(); await action(); report.checks.push(name); checkpoint(); }
-async function command(command, args = {}) {
+async function command(command, args = {}, allowFailure = false) {
   const endpoint = JSON.parse(readFileSync(join(config, "automation/endpoint.json"), "utf8"));
   const value = await (await fetch(`http://127.0.0.1:${endpoint.port}/v1/execute`, { method: "POST", headers: { authorization: `Bearer ${endpoint.token}`, "content-type": "application/json" },
     body: JSON.stringify({ command, args, timeoutMs: 15000 }), signal: AbortSignal.timeout(20000) })).json();
+  if (allowFailure) return value;
   assert.equal(value.ok, true, `${command}: ${JSON.stringify(value).slice(0, 700)}`); return value.result;
 }
 async function rect(selector) { return ev(`(()=>{const r=document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect();return r?{x:r.x,y:r.y,width:r.width,height:r.height}:null})()`); }
@@ -127,6 +128,25 @@ async function launch() {
   await wait("Boolean(document.querySelector('.project-agent-composer textarea')&&window.__naimageDebugAgentState&&window.naimageAgent?.runTool)");
   await wait("(()=>{const s=window.__naimageDebugAgentState();return s.configReady&&s.activeProjectId==='edit-project'&&s.activeConversationId==='edit-conversation'&&s.nodes.some(n=>n.id==='N0001'&&n.assets?.[0]?.contentHash)})()");
   await delay(250);
+  await until(async () => {
+    try {
+      return (await command("canvas.state", {}, true)).ok === true;
+    } catch {
+      return false;
+    }
+  }, "automation ready");
+}
+async function setViewportSize(width, height) {
+  let response = await ev(`window.naimageConfig.debugWindowBounds({width:${width},height:${height}})`);
+  assert.equal(response?.ok, true);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const viewport = await ev("({width:innerWidth,height:innerHeight})");
+    if (Math.abs(viewport.width - width) <= 1 && Math.abs(viewport.height - height) <= 1) return;
+    response = await ev(`window.naimageConfig.debugWindowBounds({width:${width + width - viewport.width},height:${height + height - viewport.height}})`);
+    assert.equal(response?.ok, true);
+    await delay(120);
+  }
+  await wait(`Math.abs(innerWidth-${width})<=1&&Math.abs(innerHeight-${height})<=1`);
 }
 const server = createServer(async (req, res) => {
   const json = body => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
@@ -235,15 +255,14 @@ try {
   });
 
   await check("minimum 884 by 640 window keeps editor canvas controls prompt and submit reachable", async () => {
-    assert.equal((await ev("window.naimageConfig.debugWindowBounds({width:884,height:640})"))?.ok, true);
-    await wait("innerWidth===884&&innerHeight===640");
+    await setViewportSize(884, 640);
     const geometry = await ev("(()=>{const d=document.querySelector('.region-redraw-dialog'),c=document.querySelector('.region-redraw-canvas-shell'),r=d.getBoundingClientRect(),a=c.getBoundingClientRect();return {viewport:{width:innerWidth,height:innerHeight},dialog:{x:r.x,y:r.y,right:r.right,bottom:r.bottom},canvas:{width:a.width,height:a.height},overflow:document.documentElement.scrollWidth>innerWidth}})()");
     assert.ok(geometry.dialog.x >= 0 && geometry.dialog.y >= 0 && geometry.dialog.right <= 884 && geometry.dialog.bottom <= 640);
     assert.ok(geometry.canvas.width > 200 && geometry.canvas.height > 200); assert.equal(geometry.overflow, false);
     await fill(".region-redraw-prompt-field textarea", "[edit-mode:redraw] 修改徽章");
     await screenshot("editor-minimum-prompt"); report.windows.push(geometry);
     await button("保存草稿并关闭");
-    await ev("window.naimageConfig.debugWindowBounds({width:1280,height:900})"); await wait("innerWidth===1280&&innerHeight===900");
+    await setViewportSize(1280, 900);
   });
 
   for (const [mode, info] of Object.entries(AI_IMAGE_EDIT_MODES)) {
