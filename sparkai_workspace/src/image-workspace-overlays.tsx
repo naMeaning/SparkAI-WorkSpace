@@ -819,7 +819,6 @@ export function RegionRedrawDialog({
                 <Field label="编辑方式">
                   <select aria-label="AI 编辑方式" value={draft.mode} disabled={draft.busy} onChange={event => setDraft(current => current ? { ...current, mode: event.target.value as AiImageEditMode, brushRole: event.target.value === "replace-background" ? "preserve" : "modify", error: undefined } : current)}>
                     {Object.entries(AI_IMAGE_EDIT_MODES).map(([value, info]) => <option key={value} value={value}>{info.label}</option>)}
-                    <option value="expand" disabled>扩图（暂未开放）</option>
                   </select>
                 </Field>
                 <Field label="涂抹用途">

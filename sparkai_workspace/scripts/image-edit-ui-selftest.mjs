@@ -171,11 +171,11 @@ try {
   vite = spawn(process.execPath, [join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(port)], { cwd: root, windowsHide: true, stdio: "ignore" });
   await waitForHttpServer(devUrl, { attempts: 150, intervalMs: 100 }); await launch();
 
-  await check("canvas menu opens unified editor with six modes and disabled expansion", async () => {
+  await check("canvas menu opens unified editor with six modes and no dead expansion option", async () => {
     await openFromMenu();
     const options = await ev("Array.from(document.querySelector('[aria-label=\"AI 编辑方式\"]').options).map(o=>({value:o.value,disabled:o.disabled}))");
     assert.deepEqual(options.filter(o => !o.disabled).map(o => o.value), Object.keys(AI_IMAGE_EDIT_MODES));
-    assert.equal(options.find(o => o.value === "expand")?.disabled, true);
+    assert.equal(options.some(o => o.value === "expand"), false);
     assert.deepEqual(await ev("(()=>{const c=document.querySelector('.region-redraw-source-canvas');return [c.width,c.height]})()"), [256, 256]);
     await choose('[aria-label="AI 编辑方式"]', "redraw");
     await screenshot("unified-editor");

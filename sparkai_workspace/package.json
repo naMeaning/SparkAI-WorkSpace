@@ -24,6 +24,10 @@
   },
   "scripts": {
     "test:recipe-contract": "node scripts/recipe-contract-selftest.cjs",
+    "test:recipe-store": "node scripts/recipe-store-selftest.cjs",
+    "test:recipe-run": "node scripts/recipe-run-selftest.cjs",
+    "test:recipe-ipc": "node scripts/recipe-ipc-selftest.cjs",
+    "test:studio-ui": "node scripts/sparkvas-vertical-slice-ui-selftest.mjs",
     "test:skill-contract": "node scripts/skill-contract-selftest.cjs",
     "test:tool-contract": "node scripts/tool-contract-selftest.cjs",
     "test:contract-types": "tsc -p tsconfig.contracts.json",

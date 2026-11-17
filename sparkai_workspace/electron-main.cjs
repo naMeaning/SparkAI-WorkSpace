@@ -54,6 +54,8 @@ const {
   sessionHasContent
 } = require("./desktop/project-session-normalizer.cjs");
 const { createProjectStore } = require("./desktop/project-store.cjs");
+const { createRecipeStore } = require("./desktop/recipe-store.cjs");
+const { createRecipeRunService } = require("./desktop/recipe-run-service.cjs");
 const { createProjectDataMigrationService } = require("./desktop/project-data-migration.cjs");
 const {
   createProjectCommerceCatalogService,
@@ -5571,6 +5573,167 @@ const imageOperationJournal = createImageOperationJournal({
   cancelTask: item => imageGenerationService.cancelComfyUi({ accepted: item.comfyui })
 });
 
+function resolveRecipeInputAsset(projectId, identity) {
+  const project = getProjectById(String(projectId || ""), readProjectList());
+  if (!project?.path) throw Object.assign(new Error("输入素材所属项目不存在。"), { code: "PROJECT_NOT_FOUND" });
+  const requestedHash = String(identity?.contentHash || "").trim().toLowerCase().replace(/^sha256:/, "");
+  if (!/^[a-f0-9]{64}$/.test(requestedHash)) {
+    throw Object.assign(new Error("输入素材缺少有效内容指纹。"), { code: "RECIPE_INPUT_HASH_INVALID" });
+  }
+  const session = projectStore.projectSessionFromDisk(project);
+  const matches = [];
+  for (const node of Array.isArray(session?.nodes) ? session.nodes : []) {
+    const assets = Array.isArray(node?.assets) ? node.assets : [];
+    for (let assetIndex = 0; assetIndex < assets.length; assetIndex += 1) {
+      const asset = assets[assetIndex];
+      const contentHash = String(asset?.contentHash || "").trim().toLowerCase().replace(/^sha256:/, "");
+      if (contentHash !== requestedHash) continue;
+      if (identity?.assetId && asset?.assetId !== identity.assetId) continue;
+      if (identity?.occurrenceId && asset?.occurrenceId && asset.occurrenceId !== identity.occurrenceId) continue;
+      matches.push({ node, asset, assetIndex });
+    }
+  }
+  if (matches.length !== 1) {
+    throw Object.assign(new Error("所选商品图不是当前项目中唯一的受管素材。"), { code: "RECIPE_INPUT_NOT_MANAGED" });
+  }
+  const { node, asset, assetIndex } = matches[0];
+  const projectRoot = realpathSync(project.path);
+  const candidatePath = asset.path || (asset.relativePath ? path.resolve(projectRoot, asset.relativePath) : "");
+  let resolved;
+  try {
+    resolved = realpathSync(candidatePath);
+  } catch {
+    throw Object.assign(new Error("所选商品图文件已不可用。"), { code: "RECIPE_INPUT_FILE_MISSING" });
+  }
+  if (!isPathInside(resolved, projectRoot)) {
+    throw Object.assign(new Error("所选商品图不在当前项目受管目录中。"), { code: "RECIPE_INPUT_PATH_INVALID" });
+  }
+  const fileStat = statSync(resolved);
+  if (!fileStat.isFile() || fileStat.size > 32 * 1024 * 1024) {
+    throw Object.assign(new Error("所选商品图不是有效的受管图片。"), { code: "RECIPE_INPUT_FILE_INVALID" });
+  }
+  const actualHash = createHash("sha256").update(readFileSync(resolved)).digest("hex");
+  if (actualHash !== requestedHash) {
+    throw Object.assign(new Error("所选商品图内容已变化；请重新选择。"), { code: "RECIPE_INPUT_CHANGED" });
+  }
+  const dimensions = Number(asset.width) > 0 && Number(asset.height) > 0
+    ? { width: Number(asset.width), height: Number(asset.height) }
+    : nativeImage.createFromPath(resolved).getSize();
+  return {
+    assetId: asset.assetId,
+    occurrenceId: identity.occurrenceId || asset.occurrenceId,
+    contentHash: actualHash,
+    path: resolved,
+    relativePath: path.relative(projectRoot, resolved).split(path.sep).join("/"),
+    displayCode: asset.displayCode,
+    originalName: asset.originalName || path.basename(resolved),
+    mimeType: asset.mimeType || mimeTypeForPath(resolved),
+    width: dimensions.width,
+    height: dimensions.height,
+    canvasNodeId: node.id,
+    canvasAssetIndex: assetIndex,
+  };
+}
+
+async function executeRecipeImage(payload = {}) {
+  if (aidebugMode) {
+    const debugDelayMs = Math.max(0, Math.min(10_000, Number(desktopEnvironment("NAIMAGE_AIDEBUG_RECIPE_DELAY_MS")) || 0));
+    if (debugDelayMs) await delay(debugDelayMs, undefined, { signal: payload.signal });
+    if (desktopEnvironment("NAIMAGE_AIDEBUG_RECIPE_FAIL_SLOT") === String(payload.slotId || "")) {
+      throw Object.assign(new Error("AIDebug Recipe image failure."), { code: "AIDEBUG_RECIPE_IMAGE_FAILED", definitive: true });
+    }
+  }
+  const settings = migrateSettings(readJson(settingsPath, defaultSettings));
+  const projectId = String(payload.projectId || "");
+  const input = payload.inputAsset;
+  if (!input?.path) throw Object.assign(new Error("商品母图文件不可用。"), { code: "RECIPE_INPUT_FILE_MISSING" });
+  const attemptRunId = `${payload.runId}-${payload.requestIndex}`;
+  const data = await callNewApiImageWithSession(settings, {
+    prompt: payload.prompt,
+    model: settings.imageModel,
+    ratio: payload.options?.ratio,
+    resolution: payload.options?.resolution,
+    quality: payload.options?.quality,
+    count: 1,
+    mode: "edit",
+    referenceImages: [{
+      path: input.path,
+      name: input.originalName || "product.png",
+      mimeType: input.mimeType,
+      role: "product",
+      purpose: "Preserve the supplied product and packaging identity.",
+      canvasNodeId: input.canvasNodeId,
+      assetId: input.assetId,
+      occurrenceId: input.occurrenceId,
+      contentHash: input.contentHash,
+    }],
+    outputFormat: "png",
+    runId: attemptRunId,
+    operationId: payload.operationId || payload.runId,
+    requestIndex: payload.requestIndex,
+    projectId,
+    conversationId: payload.conversationId,
+    nodeIds: input.canvasNodeId ? [input.canvasNodeId] : [],
+    targetNodeId: input.canvasNodeId,
+    signal: payload.signal,
+  });
+  const assets = await deliverGeneratedImageResult(settings, data, {
+    runId: attemptRunId,
+    projectId,
+    outputFormat: "png",
+  });
+  if (assets.length !== 1) {
+    throw Object.assign(new Error("图片服务未返回唯一成果；未自动重发。"), {
+      code: "RECIPE_IMAGE_RESULT_COUNT_INVALID",
+      definitive: true,
+    });
+  }
+  const project = getProjectById(projectId, readProjectList());
+  const asset = assets[0];
+  if (project?.path && asset?.path && isPathInside(asset.path, project.path)) {
+    const relativePath = path.relative(project.path, asset.path).split(path.sep).join("/");
+    asset.relativePath = relativePath;
+  }
+  return { asset, model: data.model, actualParams: data.actualParams };
+}
+
+async function recoverRecipeImage(payload = {}) {
+  const record = imageOperationJournal.find(payload.projectId, payload.runId, payload.requestIndex);
+  if (!record) return { exists: false };
+  try {
+    const result = await imageOperationJournal.recover(payload.projectId, record.key);
+    return {
+      exists: true,
+      pending: result.pending === true,
+      unknown: result.unknown === true,
+      failed: result.failed === true,
+      assets: Array.isArray(result.assets) ? result.assets : [],
+    };
+  } catch (error) {
+    return {
+      exists: true,
+      unknown: error?.unsafeToRetry === true || error?.code === "IMAGE_OPERATION_UNCERTAIN",
+      failed: error?.code === "IMAGE_OPERATION_TERMINAL",
+      assets: [],
+    };
+  }
+}
+
+const recipeStore = createRecipeStore({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  metaDir: projectMetaDirName,
+  writeJson,
+});
+const recipeRunService = createRecipeRunService({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  recipeStore,
+  resolveInputAsset: resolveRecipeInputAsset,
+  executeImage: executeRecipeImage,
+  recoverImage: recoverRecipeImage,
+  metaDir: projectMetaDirName,
+  writeJson,
+});
+
 const managedArtifactStore = createManagedArtifactStore({
   root: path.join(configDir, "managed", "artifacts"),
   projectRoots: readProjectList().projects.map(project => project.path).filter(Boolean),
@@ -5794,6 +5957,8 @@ function registerIpc() {
     deliverGeneratedImageResult,
     imageOperationJournal,
     imageGenerationService,
+    recipeStore,
+    recipeRunService,
     comfyUiCredentialStore,
     comfyUiConnectionService,
     comfyUiTemplateService,
@@ -6073,6 +6238,11 @@ if (projectIoSelftestMode || agentProtocolSelftestMode) {
     void scientificRunnerService.recoverAll()
       .then((result) => log(`scientific runner recovery projects=${result.projects} interrupted=${result.interrupted}`))
       .catch((error) => log(`scientific runner recovery failed ${error instanceof Error ? error.message : String(error)}`));
+    void recipeRunService.resumePending(readProjectList().projects.map(project => project.id))
+      .then((runIds) => {
+        if (runIds.length) log(`recipe run resume count=${runIds.length}`);
+      })
+      .catch((error) => log(`recipe run resume failed ${error instanceof Error ? error.message : String(error)}`));
     startLocalServerMonitor();
     createWindow();
 

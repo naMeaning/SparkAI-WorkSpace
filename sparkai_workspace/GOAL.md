@@ -1,5 +1,20 @@
 # SparkAI WorkSpace 目标
 
+## 当前任务：Sparkvas 第一垂直切片——Beauty product-hero Canvas → Studio → 六图回投（2026-11-17，本地交付已完成）
+
+- Mode：implement。用户在当前批次只要求一条真实可用路径，明确后置视频、Registry/Marketplace、Agent 自动起草 Recipe、通用节点编辑器、多 Agent/多项目/多主题、Phase 7 品牌技术身份和新增 CLI/MCP。
+- 现场：独立 worktree `E:\003Projects\SparkAI-WorkSpace\.diagnostics\worktrees\sparkvas-vertical-slice`，分支 `codex/sparkvas-vertical-slice`，基线 `eb005c569ece1ad513483f5f24424f9acc08b262`。main 的图标化与旧文档 dirty 原样保留；本分支不 reset/checkout/clean/覆盖或合并 main。
+- Outcome：Canvas 选中一个单素材受管商品图后出现唯一新增顶层入口“用 Skill”；内置 `recipe.sparkvas.beauty-product-hero` 固定 `Input → Brief → Skill → Tool ×6 → Output` 语义图，Studio 可改场景文案、语言、画幅/清晰度/质量与六槽方向；确认页显示输入、权限、预算和六次请求，成功后六张受管图回到同一 Canvas。
+- Owner：Main 新增 `desktop/recipe-store.cjs`、`desktop/recipe-run-service.cjs`、`desktop/ipc/recipe-ipc.cjs`；Renderer 新增 `src/recipe-picker.tsx`、`src/studio-state.ts`，接线只在 `src/main.tsx`/`src/core.ts`。复用既有 Project/Session、Selection、TaskScope、原子写、图片执行服务、operation journal 与 managed asset。
+- Persistence：仅项目 `.naimage/recipes/` 与 `.naimage/recipe-runs/` 增加 Recipe 索引/文档、确认计划、sealed Run 和 renderer-safe 输出 sidecar；不复制项目 schema 或 Session。
+- Safety：prepare 不发图，start 必须显式 `confirmed:true`；Run 冻结 recipeHash/version、scopeHash、输入资产身份和 permissionSnapshot；未知/重启中的 prepared 步骤没有 journal 证据时不重发；成功输出先写 sidecar 再写步骤；同一 Run 画布回投去重。
+- Provenance：结果节点保留 Recipe、Run、输入和六输出的稳定身份；`Recipe Run` chip 打开详情，输入/输出不暴露 Key、Cookie、签名 URL 或内部 continuation。
+- 清理：移除图片编辑下拉中禁用且不可执行的“扩图（暂未开放）”占位；代码位置 `src/image-workspace-overlays.tsx` 的 `AI 编辑方式`，旧 UI 专项已在 `scripts/image-edit-ui-selftest.mjs` 同步断言不存在 `expand`。别无依据地删除既有能力。
+- 验证：合同 6/5/11、类型合同/typecheck、Recipe Store 5、Run 8、IPC 6、IPC 注册 178/175、production build 1720 modules 通过；隔离 Electron Studio UI 73 checks/12 截图覆盖成功、失败、取消、重启恢复、1280×800/884×640、浅/深主题和选择保持，真实模型请求 0；packaged smoke 通过。
+- 证据：最终 UI [report.json](.diagnostics/electron/sparkvas-vertical-slice-2026-11-17T01-23-18-647Z/report.json) 和 [实施记录](docs/SPARKVAS_VERTICAL_SLICE_2026-11-17.md)；图片编辑占位删除后的 after 截图在 `.diagnostics/image-edit-ui-2026-11-17T01-14-52-865Z/unified-editor.png`。该旧专项后续 readiness/精确 884 viewport 失败保留，不将部分检查冒充整套通过。
+- 制品/安装：production package exit 0，EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,278,656 B / SHA-256 `4b9c9fb8026de300184ed926a954e592f903d3092b08c67209803c29eb58e23e`，ASAR 53,784,865 B / `1fa707df591566a2dd519517aed40c4bd56ac965bc7373f1ccced508356d12e5`；品牌 `/S` 原位安装 exit0/26,191ms，安装后 EXE/ASAR 与打包目录一致，HKCU `Software\887890c3-...` 保留。
+- Boundary：真实付费图片、视频/Seedance、支付、Registry、第三方 Tool、物理高 DPI 和正式 Release/上传未验证；本轮没有新增 CLI/MCP，也未修改 main。完整证据、失败保留和后续范围见下方 Phase 0/1 历史与 Progress 顶部。
+
 ## 当前任务：Sparkvas Phase 0/1——边界冻结、可见品牌与纯合同骨架（2026-11-16，本地交付完成，未合并 main）
 
 - Mode：implement。用户 2026-11-16 交接把旧的“不得恢复工作流编辑器/工具节点”替换为 Canvas-first + Studio 语义 Recipe；本轮只做 Phase 0/1。第一垂直切片（Beauty Cross-border Set）、Studio 编辑器、Recipe Store/Run、Registry、真实图片/视频执行均未开始。

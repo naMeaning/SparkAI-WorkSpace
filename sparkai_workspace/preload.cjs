@@ -123,6 +123,16 @@ contextBridge.exposeInMainWorld("naimageConfig", {
   captureGuiScreenshot: (payload) => ipcRenderer.invoke("naimage:debug:capture-gui", payload)
 });
 
+contextBridge.exposeInMainWorld("naimageRecipe", {
+  list: (payload) => ipcRenderer.invoke("naimage:recipe:list", payload),
+  prepare: (payload) => ipcRenderer.invoke("naimage:recipe:prepare", payload),
+  start: (payload) => ipcRenderer.invoke("naimage:recipe:start", normalizeExplicitConfirmation(payload, "confirmed")),
+  get: (payload) => ipcRenderer.invoke("naimage:recipe:get", payload),
+  listRuns: (payload) => ipcRenderer.invoke("naimage:recipe:list-runs", payload),
+  cancel: (payload) => ipcRenderer.invoke("naimage:recipe:cancel", payload),
+  resume: (payload) => ipcRenderer.invoke("naimage:recipe:resume", payload)
+});
+
 contextBridge.exposeInMainWorld("naimageAgentIntegrations", {
   detect: () => ipcRenderer.invoke("naimage:integration:detect"),
   install: (payload) => ipcRenderer.invoke("naimage:integration:install", payload),

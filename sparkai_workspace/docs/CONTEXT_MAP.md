@@ -1,5 +1,15 @@
 # Sparkvas 上下文地图
 
+## Sparkvas 第一垂直切片（2026-11-17）
+
+本批用户路径是 Canvas 单素材图片 → “用 Skill” → 内置 `recipe.sparkvas.beauty-product-hero` Studio → 显式费用确认 → 六图回投 → Recipe Run provenance。Main owner 为 `desktop/recipe-store.cjs`（项目 `.naimage/recipes/` 索引、内置 Recipe 种子、hash 与原子写）、`desktop/recipe-run-service.cjs`（prepare/start/cancel/resume、scope/permission 冻结、未知提交不重发、先写输出 sidecar 再写成功 Run）和 `desktop/ipc/recipe-ipc.cjs`（七个显式通道）；`electron-main.cjs` 只复用既有 project store、managed asset、图片执行服务与 image-operation journal，不另建执行层。
+
+Renderer owner 为 `src/recipe-picker.tsx` 与 `src/studio-state.ts`：前者负责 Recipe/Studio/确认/进度/provenance 的单一对话框路径，后者只保存最小 Studio 选项与短 hash 展示；`src/main.tsx` 只接单素材 Selection、既有 Project/Session 和结果节点接线，不能复制 Selection 或 TaskScope。`src/core.ts` 只镜像公开 DTO/preload 类型；结果节点保留 `recipeRunId`，其 provenance 数据来自 sealed 项目 Run sidecar，不把 Key/Cookie/签名 URL/内部 continuation 放进公开状态。
+
+持久化固定为项目 `.naimage/recipes/recipes.json`、`recipe.sparkvas.beauty-product-hero.json` 与 `.naimage/recipe-runs/<runId>.input.json`、`<runId>.json`、`<runId>.outputs.json`。测试入口：`test:recipe-store`、`test:recipe-run`、`test:recipe-ipc`、`test:studio-ui`；合同仍由 `test:skill-contract`、`test:tool-contract`、`test:recipe-contract`、`test:contract-types` 维护，IPC 计数由 `test:ipc-registration` 维护。
+
+旧图片编辑器中的禁用 `expand` 占位已删除，`scripts/image-edit-ui-selftest.mjs` 同步断言真实六模式和不存在 `expand`。第一垂直切片不接 Registry、视频、Agent Recipe 起草、通用节点图或新 CLI/MCP；真实付费请求、物理高 DPI、正式 Release 仍未验证。实际报告、截图、EXE/安装身份见 [实施记录](SPARKVAS_VERTICAL_SLICE_2026-11-17.md)、[Goal](../GOAL.md) 与 [Progress](../PROGRESS.md)。
+
 ## Sparkvas Phase 0/1 纯合同（2026-11-16）
 
 用户可见品牌先切换为 **Sparkvas**；`package.json.productName`/`executableName`、App ID、安装器身份、用户数据目录、更新协议和 CLI/MCP 技术身份仍保留兼容旧标识，Phase 7 再迁移。公开 v1.0.9 仍是旧品牌正式制品，本轮不改变其身份。
@@ -1264,7 +1274,8 @@ Prompt、tool schema、compact summary 和 FastMemory 是不同存储面，不�
 
 | 领域 | 命令 |
 | --- | --- |
-| Sparkvas Skill/Tool/Recipe/Run v1 schema、hash、权限、DAG、循环、版本和未知提交策略 | `corepack pnpm run test:skill-contract`, `corepack pnpm run test:tool-contract`, `corepack pnpm run test:recipe-contract`, `corepack pnpm run test:contract-types`, `corepack pnpm run typecheck`；三个合同 suite 均为 fixture/fake，`realModelRequests: 0`，不建立 Main/Studio/Registry 集成 |
+| Sparkvas Skill/Tool/Recipe/Run v1 schema、hash、权限、DAG、循环、版本和未知提交策略 | `corepack pnpm run test:skill-contract`, `corepack pnpm run test:tool-contract`, `corepack pnpm run test:recipe-contract`, `corepack pnpm run test:contract-types`, `corepack pnpm run typecheck`；fixture/fake，`realModelRequests: 0` |
+| Sparkvas 第一垂直切片：项目 Recipe Store/Run/IPC、六槽确认/取消/重启恢复/Canvas provenance | `corepack pnpm run test:recipe-store`, `corepack pnpm run test:recipe-run`, `corepack pnpm run test:recipe-ipc`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:studio-ui`, `corepack pnpm run typecheck`；Studio 只使用 AIDebug fake，真实模型/图片请求必须为 0 |
 | 四工作台领域注册表、旧 Session、新项目、插件投影、Agent/CLI 镜像 | `corepack pnpm run test:workspace-domain`, `corepack pnpm run test:plugin-system`, `corepack pnpm run test:agent-window`, `corepack pnpm run test:automation-service`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:workspace-domain` |
 | 社媒计划/Requirement/provenance、发布包、视频身份和共享命令 | `corepack pnpm run test:social-content`, `corepack pnpm run test:social-export`, `corepack pnpm run test:video-node`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:social-content` |
 | 科研计划/Requirement、受管数据、Python/R Runner、Panel/导出与 7 个共享命令 | `corepack pnpm run test:scientific-runner`, `corepack pnpm run test:automation-service`, `corepack pnpm run test:ipc-registration`, `corepack pnpm run test:workspace-glass-ui`, `corepack pnpm run typecheck`；单一真实 Electron 冒烟为 `corepack pnpm run aidebug:scientific-figure`，该 GUI 场景不执行 Runner |

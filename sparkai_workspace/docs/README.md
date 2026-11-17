@@ -1,6 +1,7 @@
 # Sparkvas 文档索引
 
-- [Sparkvas 产品决策包（2026-11-16）](PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)、[实施计划](IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)及[Recipe Contract v1](RECIPE_CONTRACT.md)：画布优先、Studio 语义 Recipe、Skill/Tool/Run 合同和分阶段边界。Phase 1 只实现纯合同骨架；Main 执行、Studio、Registry 和真实模型/视频链路尚未实现。
+- [Sparkvas 第一垂直切片实施与验收（2026-11-17）](SPARKVAS_VERTICAL_SLICE_2026-11-17.md)：Canvas 单素材 → 内置 Beauty Recipe → Studio/确认 → 六图回投 → provenance；包含 10 行审计、删除证据、73 项隔离 Electron 检查、EXE/安装身份和未验证边界。
+- [Sparkvas 产品决策包（2026-11-16）](PRODUCT_STRATEGY_SPARKVAS_2026-11-16.md)、[实施计划](IMPLEMENTATION_PLAN_SPARKVAS_2026-11-16.md)及[Recipe Contract v1](RECIPE_CONTRACT.md)：画布优先、Studio 语义 Recipe、Skill/Tool/Run 合同和分阶段边界。Phase 1 实现纯合同骨架；第一垂直切片现已接 Main/Studio/IPC，Registry、视频和通用节点图仍未实现。
 - [ADR-0001 画布优先工作流](adr/0001-canvas-first-ai-native-workflow-authoring.md)、[ADR-0002 Sparkvas 品牌](adr/0002-brand-sparkvas.md)、[ADR-0003 Registry 与受权限控制 Tool](adr/0003-github-registry-and-permissioned-tools.md)：2026-11-16 接受的产品与技术方向。
 
 - [SparkAPI 官网Logo统一](SPARKAPI_LOGO_2026-10-25.md)：真实官网资产来源、桌面/Windows/安装卸载图标链路及本地验证交付证据。

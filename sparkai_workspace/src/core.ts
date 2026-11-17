@@ -3,6 +3,8 @@ import { normalizeRequirementTemplateSnapshot, type RequirementTemplateSnapshot,
 import { normalizeImageConfigSnapshot, type FrozenImageConfig } from "../runtime/image-config-snapshot.mjs";
 import type { ImageContentName } from "../runtime/image-content-name.mjs";
 import { normalizeCreationTaskContract, normalizeCreationMaskAssets, type CreationTaskContract, type FrozenCreationMask } from "../runtime/creation-task-contract.mjs";
+import type { RecipeDocument } from "../runtime/recipe-contract.mjs";
+import type { RecipeRun } from "../runtime/recipe-run-contract.mjs";
 /*
 naimage Core Map
 
@@ -802,6 +804,8 @@ export type WorkflowNode = {
   imageParams?: ImageTaskDraft;
   imageProgress?: ImageNodeProgress;
   generationRunId?: string;
+  /** Project-owned Recipe Run that produced this result node. */
+  recipeRunId?: string;
   layerGroup?: ImageLayerNodeGroup;
   /** @deprecated Legacy single-node layer stack. Migrated into independent layer nodes on load. */
   layerComposition?: ImageLayerComposition;
@@ -3424,6 +3428,107 @@ export type UpdaterBridge = {
   onProgress?(handler: (payload: DesktopUpdateProgress) => void): () => void;
 };
 
+export type RecipeStudioOptions = {
+  sceneBrief: string;
+  language: "zh-CN" | "en-US" | "ja-JP";
+  slotDirections: Record<string, string>;
+  ratio: "1:1" | "4:5" | "16:9";
+  resolution: "1K" | "2K";
+  quality: "auto" | "high";
+};
+
+export type RecipePreparation = {
+  runId: string;
+  recipe: RecipeDocument;
+  input: {
+    assetId: string;
+    occurrenceId: string;
+    contentHash: string;
+    name: string;
+    displayCode?: string;
+    width?: number;
+    height?: number;
+    mimeType: string;
+    sourceNodeId?: string;
+  };
+  options: RecipeStudioOptions;
+  tool: {
+    id: string;
+    name: string;
+    version: string;
+    contentHash: string;
+    permissions: Record<string, string[]>;
+  };
+  expectedOutputs: Array<{ slotId: string; label: string; dataType: string; required: boolean; stepId?: string }>;
+  estimatedRequests: number;
+};
+
+export type RecipeRunResult = {
+  run: RecipeRun;
+  assets: ImageAsset[];
+  recipe: RecipeDocument;
+  options: RecipeStudioOptions | null;
+  input: RecipePreparation["input"] | null;
+};
+
+export type RecipeBridge = {
+  list(payload: { projectId: string }): Promise<{
+    ok: boolean;
+    revision?: number;
+    recipes?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      version: string;
+      contentHash: string;
+      builtin: boolean;
+      inputSlots: Array<{ slotId: string; label: string; dataType: string; required: boolean }>;
+      outputSlots: Array<{ slotId: string; label: string; dataType: string; required: boolean; defaultDirection?: string }>;
+    }>;
+    errorCode?: string;
+    error?: string;
+  }>;
+  prepare(payload: {
+    projectId: string;
+    conversationId?: string;
+    recipeId: string;
+    input: { assetId: string; occurrenceId: string; contentHash: string };
+    options: RecipeStudioOptions;
+  }): Promise<{ ok: boolean; errorCode?: string; error?: string } & Partial<RecipePreparation>>;
+  start(payload: { projectId: string; runId: string; confirmed: true }): Promise<
+    { ok: boolean; errorCode?: string; error?: string } & Partial<RecipeRunResult>
+  >;
+  get(payload: { projectId: string; runId: string }): Promise<
+    { ok: boolean; errorCode?: string; error?: string } & Partial<RecipeRunResult>
+  >;
+  listRuns(payload: { projectId: string }): Promise<{
+    ok: boolean;
+    runs?: Array<{
+      runId: string;
+      status: RecipeRun["status"];
+      recipeId: string;
+      recipeVersion: string;
+      createdAt: string;
+      updatedAt: string;
+      outputCount: number;
+      sourceNodeId: string;
+    }>;
+    errorCode?: string;
+    error?: string;
+  }>;
+  cancel(payload: { projectId: string; runId: string }): Promise<{
+    ok: boolean;
+    cancelled?: boolean;
+    cancelling?: boolean;
+    run?: RecipeRun | null;
+    errorCode?: string;
+    error?: string;
+  }>;
+  resume(payload: { projectId: string; runId: string }): Promise<
+    { ok: boolean; errorCode?: string; error?: string } & Partial<RecipeRunResult>
+  >;
+};
+
 declare global {
   interface Window {
     naimageRuntime?: {
@@ -3431,6 +3536,7 @@ declare global {
       isolatedConfig: boolean;
     };
     naimageConfig?: ConfigBridge;
+    naimageRecipe?: RecipeBridge;
     naimageAgent?: AgentBridge;
     naimageServer?: ServerBridge;
     naimageUpdater?: UpdaterBridge;

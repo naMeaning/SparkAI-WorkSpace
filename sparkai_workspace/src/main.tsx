@@ -376,6 +376,7 @@ import {
 } from "./streaming-image-preview";
 import { WindowControls } from "./window-controls";
 import { CanvasNavigationControls } from "./canvas-navigation-controls";
+import { shortRunId } from "./studio-state";
 import { CanvasToolbarPages } from "./canvas-toolbar-pages";
 import { canvasWheelViewport } from "./canvas-wheel";
 import {
@@ -433,6 +434,7 @@ import type {
   ImageAssetIdentityClaim,
   TaskAssetReference,
   WorkflowNode,
+  RecipeRunResult,
   NodeMutationBarrier,
   NodeMutationEvent,
   NodeMutationWriterCheckpoint,
@@ -940,6 +942,9 @@ const LazyImageCollectionExportDialog = React.lazy(() => loadImageWorkspaceOverl
 const LazyNodeEditorDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.NodeEditorDialog })));
 const LazyRegionRedrawDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.RegionRedrawDialog })));
 const LazyLayerGroupViewerDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.LayerGroupViewerDialog })));
+const loadRecipePicker = () => import("./recipe-picker");
+const LazyRecipeStudioDialog = React.lazy(() => loadRecipePicker().then((module) => ({ default: module.RecipeStudioDialog })));
+const LazyRecipeProvenanceDialog = React.lazy(() => loadRecipePicker().then((module) => ({ default: module.RecipeProvenanceDialog })));
 const loadImageProcessingRuntime = () => import("./image-processing-runtime");
 const loadImageForCanvas = (source: string) => loadImageProcessingRuntime().then((module) => module.loadImageForCanvas(source));
 const composeImageLayersToDataUrl = (composition: ImageLayerComposition) => loadImageProcessingRuntime().then((module) => module.composeImageLayersToDataUrl(composition));
@@ -1974,6 +1979,9 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
   const type = normalizeNodeType(source.type);
   const sourceImageState = source.imageState;
   const generationRunId = typeof source.generationRunId === "string" && source.generationRunId.trim() ? source.generationRunId.trim() : undefined;
+  const recipeRunId = typeof source.recipeRunId === "string" && /^run\.[0-9a-f-]{36}$/.test(source.recipeRunId.trim())
+    ? source.recipeRunId.trim()
+    : undefined;
   const storedAssets = (Array.isArray(source.assets)
     ? source.assets.map((asset, assetIndex) => sanitizeStoredImageAsset(asset, assetIndex + 1)).filter((asset): asset is ImageAsset => Boolean(asset)).filter((asset) => {
         if (sourceImageState === "generating" || sourceImageState === "empty") return false;
@@ -2131,6 +2139,7 @@ function sanitizeNode(raw: unknown, index: number, usedIds: Set<string>, usedDis
     imageParams,
     imageProgress: interruptedImageRun && completedImageProgress ? { ...completedImageProgress, stopped: true, message: "上次生成已中断。" } : completedImageProgress,
     generationRunId: interruptedImageRun ? undefined : generationRunId,
+    recipeRunId,
     layerGroup,
     layerComposition,
     imageContainer: type === "image" && source.imageContainer === true,
@@ -3729,6 +3738,8 @@ function App() {
   const agentWindowOpenRef = useRef(false);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenuState | null>(null);
   const [manualImageTaskDialog, setManualImageTaskDialog] = useState<ManualImageTaskDialogState | null>(null);
+  const [recipeStudioTarget, setRecipeStudioTarget] = useState<{ nodeId: string; assetIndex: number } | null>(null);
+  const [recipeProvenanceRunId, setRecipeProvenanceRunId] = useState<string | null>(null);
   const [manualVideoTaskDialog, setManualVideoTaskDialog] = useState<ManualVideoTaskDialogState | null>(null);
   const [videoTaskBusy, setVideoTaskBusy] = useState(false);
   const [deleteNodeDraft, setDeleteNodeDraft] = useState<DeleteNodeDraft | null>(null);
@@ -4013,6 +4024,7 @@ function App() {
     nodes: WorkflowNode[];
     layoutGroups: ImageLayoutGroup[];
   } | null>(null);
+  const recipeRecoveryProjectRef = useRef("");
   const persistenceDebugMetricsRef = useRef<PersistenceDebugMetrics>(emptyPersistenceDebugMetrics());
   const debugRenderCommitsRef = useRef<Record<DebugRenderCommitArea, number>>({ app: 0, canvas: 0, agentFeed: 0, composer: 0 });
   const runtimeActionHandlerRef = useRef<(actions: AgentRuntimeAction[], fallbackAgentOwnerId?: string) => Promise<RuntimeActionApplicationResult>>(
@@ -5031,6 +5043,51 @@ function App() {
       unsubscribe?.();
     };
   }, [activeProjectId, configReady]);
+
+  useEffect(() => {
+    const bridge = window.naimageRecipe;
+    if (!configReady || !activeProjectId || !bridge?.listRuns || !nodes.length) return;
+    if (recipeRecoveryProjectRef.current === activeProjectId) return;
+    const projectId = activeProjectId;
+    let disposed = false;
+    const recover = async () => {
+      const listed = await bridge.listRuns({ projectId });
+      if (disposed || !listed.ok || !Array.isArray(listed.runs)) return;
+      recipeRecoveryProjectRef.current = projectId;
+      for (const item of listed.runs) {
+        if (disposed || activeProjectIdRef.current !== projectId) return;
+        if (nodesRef.current.some((node) => node.recipeRunId === item.runId)) continue;
+        if (item.sourceNodeId && !nodesRef.current.some((node) => node.id === item.sourceNodeId)) continue;
+        let response = item.status === "succeeded"
+          ? await bridge.get({ projectId, runId: item.runId })
+          : ["running", "queued", "interrupted"].includes(item.status)
+            ? await bridge.resume({ projectId, runId: item.runId })
+            : null;
+        if (!response?.ok || !response.run) continue;
+        while (!disposed && !["succeeded", "failed", "cancelled"].includes(response.run.status)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+          if (disposed || activeProjectIdRef.current !== projectId) return;
+          response = await bridge.get({ projectId, runId: item.runId });
+          if (!response?.ok || !response.run) break;
+        }
+        if (disposed || !response?.ok || !response.run || response.run.status !== "succeeded") continue;
+        const delivered = await deliverRecipeRunToCanvas(
+          response as RecipeRunResult,
+          item.sourceNodeId || response.input?.sourceNodeId || ""
+        );
+        if (!delivered.ok) {
+          setServerMessage(delivered.error || "Recipe Run 已恢复，但写回画布失败。");
+          addEvent(`Recipe Run 恢复写回失败 · ${item.runId}`);
+        }
+      }
+    };
+    void recover().catch((error) => {
+      if (!disposed) addEvent(`Recipe Run 恢复检查失败 · ${error instanceof Error ? error.message : String(error)}`);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [activeProjectId, configReady, nodes.length]);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -14655,6 +14712,8 @@ function App() {
   function canvasNodeHoverActions(node: WorkflowNode): CanvasInteractionAction[] {
     const hasImageAsset = node.type === "image" && Boolean(node.assets?.some((asset) => asset.status !== "pending" && asset.status !== "error"));
     const nodeLocked = lockedNodeIdSet.has(node.id);
+    const recipeInputAsset = node.type === "image" && node.assets?.length === 1 ? node.assets[0] : null;
+    const canRunRecipe = Boolean(recipeInputAsset?.contentHash && (recipeInputAsset.path || recipeInputAsset.relativePath || recipeInputAsset.assetUrl));
     const actions: CanvasInteractionAction[] = [
       {
         id: "reference",
@@ -14667,6 +14726,19 @@ function App() {
         },
       },
     ];
+    if (canRunRecipe) {
+      actions.push({
+        id: "recipe",
+        label: "用 Skill",
+        title: "用 Skill/Recipe 处理",
+        icon: <WandSparkles size={14} />,
+        disabled: nodeLocked || agentExecutionBusyNow(),
+        onClick: () => {
+          setSelectedNodeId(node.id);
+          setRecipeStudioTarget({ nodeId: node.id, assetIndex: 0 });
+        },
+      });
+    }
     if (node.type === "requirement") {
       actions.push({
         id: "execute",
@@ -25698,6 +25770,160 @@ function App() {
     );
   }
 
+  async function deliverRecipeRunToCanvas(result: RecipeRunResult, sourceNodeId: string) {
+    if (!result?.run || result.run.status !== "succeeded") {
+      return { ok: false, error: "Recipe Run 尚未成功完成。" };
+    }
+    if (result.run.projectId !== activeProjectIdRef.current) {
+      return { ok: false, error: "Recipe Run 所属项目已经切换；未写入当前画布。" };
+    }
+    if (!Array.isArray(result.assets) || result.assets.length !== 6 || result.run.outputs.length !== 6) {
+      return { ok: false, error: "Recipe Run 没有返回完整六张受管成果。" };
+    }
+    const existingNode = nodesRef.current.find((node) => node.recipeRunId === result.run.runId);
+    if (existingNode) {
+      setSelectedNodeId(existingNode.id);
+      return { ok: true };
+    }
+    const sourceNode = nodesRef.current.find((node) => node.id === sourceNodeId);
+    const sourceAsset = sourceNode?.type === "image" ? sourceNode.assets?.[0] : null;
+    if (!sourceNode || !sourceAsset) {
+      return { ok: false, error: "原商品图节点已不可用；Run 记录仍保留在项目中。" };
+    }
+    const uniqueAssets = new Set(result.assets.map((asset, index) => `${asset.assetId || asset.contentHash || index}`));
+    if (uniqueAssets.size !== 6) {
+      return { ok: false, error: "Recipe Run 输出身份重复；未写入画布。" };
+    }
+    const recipeName = result.recipe?.name || "Beauty 商品六视图";
+    const ratio = result.options?.ratio || "1:1";
+    const resolution = result.options?.resolution || "1K";
+    const size = computedSizeFor(ratio, resolution);
+    const assets = cloneImageAssets(result.assets).map((asset, index) => ({
+      ...asset,
+      index: index + 1,
+      status: "done" as const,
+      runId: result.run.runId,
+      displayCode: asset.displayCode || `RUN${index + 1}`,
+    }));
+    const initialSize = displaySizeForImageNode(size, assets.length, assets);
+    const initialWidth = Number(initialSize.width || NODE_W);
+    const initialHeight = Number(initialSize.height || NODE_RESIZE_MIN_H);
+    const position = findOpenWorkflowNodePosition(nodesRef.current, {
+      parent: sourceNode,
+      width: initialWidth,
+      height: initialHeight,
+      preferredX: Number(sourceNode.x || 0) + Number(sourceNode.width || NODE_W) + 80,
+      preferredY: Number(sourceNode.y || 0),
+    });
+    const nodeId = allocateNodeCode(nodesRef.current);
+    const inputIdentity = result.run.inputAssetIdentity[0];
+    const scopeHex = String(result.run.scopeHash || "").replace(/^sha256:/, "");
+    const prompt = [
+      recipeName,
+      result.options?.sceneBrief || "",
+      "",
+      `Recipe: ${result.recipe?.id || result.run.recipeId}@${result.run.recipeVersion}`,
+      `Recipe Hash: ${result.run.recipeHash}`,
+      `Run: ${result.run.runId}`,
+      `Scope: ${result.run.scopeHash}`,
+    ].filter((line, index, lines) => line || lines[index - 1]).join("\n");
+    const taskProvenance: ImageTaskProvenance = {
+      version: 1,
+      taskScopeSnapshotHash: `scope-${scopeHex.slice(0, 32)}`,
+      resultPolicy: "single",
+      sourceBindingId: `recipe-run:${result.run.runId}`,
+      sourceAssetId: inputIdentity?.assetId,
+      sourceOccurrenceId: inputIdentity?.occurrenceId,
+      sourceContentHash: String(inputIdentity?.contentHash || "").replace(/^sha256:/, ""),
+      sourceNodeId: sourceNode.id,
+      sourceDisplayCode: sourceNode.displayCode,
+    };
+    const referenceImages: ReferenceImage[] = [{
+      canvasNodeId: sourceNode.id,
+      canvasAssetIndex: 0,
+      assetId: sourceAsset.assetId,
+      occurrenceId: stableImageOccurrenceId(sourceAsset, sourceNode.id, 0),
+      displayCode: sourceAsset.displayCode,
+      contentHash: sourceAsset.contentHash,
+      taskRole: "source",
+      name: sourceAsset.title || imageAssetName(sourceAsset),
+      path: sourceAsset.path || "",
+      relativePath: sourceAsset.relativePath,
+      mimeType: sourceAsset.mimeType,
+      assetUrl: sourceAsset.assetUrl,
+      role: "source",
+    }];
+    const collection = parallelImageCollection(nodeId, assets.length, assets, prompt);
+    const resultNode = withGeneratedImageContentPresentation({
+      id: nodeId,
+      title: recipeName,
+      prompt,
+      type: "image",
+      status: "done",
+      x: position.x,
+      y: position.y,
+      parentId: sourceNode.id,
+      relationType: "derived-from",
+      branch: "recipe",
+      outputs: assets.length,
+      createdAt: nowLabel(),
+      assets,
+      imageState: "done",
+      imageParams: cloneImageTaskDraft({
+        ...defaultImageTaskDraft(settings),
+        prompt,
+        count: assets.length,
+        ratio,
+        resolution,
+        size,
+        quality: result.options?.quality || "high",
+        model: settings.imageModel || "",
+        batchMode: "parallel",
+        referenceImages,
+      }),
+      generationRunId: result.run.runId,
+      recipeRunId: result.run.runId,
+      taskProvenance,
+      imageCollection: collection,
+      width: initialWidth,
+      height: initialHeight,
+    }, collection);
+    const previousNodes = nodesRef.current;
+    const previousGroups = layoutGroupsRef.current;
+    const previousRevision = canvasRevisionRef.current;
+    const previousUndo = canvasUndoRef.current;
+    const nextNodes = [...previousNodes, { ...resultNode, zOrder: nextNodeZOrder(previousNodes) }];
+    commitAutomationCanvasMutation(nextNodes, previousGroups, "Recipe Run 回投六张套图");
+    commitNodeSelection({ primaryId: nodeId, ids: [nodeId] }, "recipe-run-delivery");
+    setActiveNodeId(nodeId);
+    const saved = await flushActiveProjectSession({ live: true, projectId: result.run.projectId });
+    if (!saved?.ok) {
+      nodesRef.current = previousNodes;
+      layoutGroupsRef.current = previousGroups;
+      canvasRevisionRef.current = previousRevision;
+      canvasUndoRef.current = previousUndo;
+      setNodes(previousNodes);
+      setLayoutGroups(previousGroups);
+      return { ok: false, error: saved?.error || "六张图片已生成，但画布保存失败；可以重试写回。" };
+    }
+    addEvent(`Recipe Run ${shortRunId(result.run.runId)} 回投 6 张套图`);
+    notifyAgentOfManualAction(
+      "Recipe Run 完成",
+      `用户通过 ${recipeName} Recipe 生成六张套图；输入 ${inputIdentity?.assetId || "SOURCE"}，Run ${result.run.runId}。`
+    );
+    commitNodeSelection({ primaryId: nodeId, ids: [nodeId] }, "recipe-run-delivery");
+    setActiveNodeId(nodeId);
+    const focusResult = () => focusWorkflowNode(resultNode, {
+      revealInspector: false,
+      recordEvent: false,
+      selectNode: true,
+      closeCanvasMenu: false,
+    });
+    window.requestAnimationFrame(focusResult);
+    window.setTimeout(focusResult, 250);
+    return { ok: true };
+  }
+
   async function runManualImageTask(
     task: ImageTaskDraft,
     options?: { targetNodeId?: string; forkFromNodeId?: string; worldX?: number; worldY?: number; quotaChecked?: boolean; append?: boolean; requestedCount?: number; targetTotal?: number }
@@ -29327,6 +29553,23 @@ function App() {
                         {node.imageState === "error" && imageProgressText && visibleNodeError ? <small>{visibleNodeError}</small> : null}
                       </div>
                     ) : null}
+                    {node.recipeRunId ? (
+                      <button
+                        type="button"
+                        className="node-recipe-provenance"
+                        data-recipe-run-id={node.recipeRunId}
+                        title={`Recipe Run ${node.recipeRunId}`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setRecipeProvenanceRunId(node.recipeRunId || null);
+                        }}
+                      >
+                        <WandSparkles size={12} aria-hidden="true" />
+                        <span>Recipe Run · {shortRunId(node.recipeRunId)}</span>
+                      </button>
+                    ) : null}
                     <footer>
                       <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.type === "video" ? node.videoAsset?.width && node.videoAsset?.height ? `${node.videoAsset.width} × ${node.videoAsset.height}` : node.videoTaskId ? `${node.videoModel || "生成"}视频任务` : "本地视频成果" : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? nodeImageSize.replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.type === "video" ? node.videoAsset?.durationMs ? `${Math.max(0.1, node.videoAsset.durationMs / 1000).toFixed(1)} 秒` : Number.isFinite(node.videoProgress) ? `${node.videoProgress}%` : node.videoTaskId ? "等待视频成果" : "1 个视频" : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
@@ -29398,7 +29641,7 @@ function App() {
                 bounds={activeCanvasInteractionBounds}
                 canvasSize={canvasViewportSize}
                 actions={canvasNodeHoverActions(activeCanvasToolbarNode)}
-                primaryActionIds={activeCanvasToolbarNode.type === "image" ? ["edit", "download"] : undefined}
+                primaryActionIds={activeCanvasToolbarNode.type === "image" ? ["recipe", "edit", "download"] : undefined}
                 nodeKey={activeCanvasToolbarNode.id}
                 ariaLabel={`${nodeWorkName(activeCanvasToolbarNode)}快捷操作`}
                 title={activeCanvasToolbarNode.title || nodeWorkName(activeCanvasToolbarNode)}
@@ -30762,6 +31005,33 @@ function App() {
         </React.Suspense>
       ) : null}
 
+      {recipeStudioTarget ? (() => {
+        const targetNode = nodes.find((node) => node.id === recipeStudioTarget.nodeId);
+        const targetAsset = targetNode?.assets?.[recipeStudioTarget.assetIndex];
+        if (!targetNode || !targetAsset || !activeProjectId) return null;
+        return (
+          <React.Suspense fallback={null}>
+            <LazyRecipeStudioDialog
+              projectId={activeProjectId}
+              conversationId={activeConversationId || ""}
+              inputNodeId={targetNode.id}
+              inputAsset={targetAsset}
+              inputAssetIndex={recipeStudioTarget.assetIndex}
+              close={() => setRecipeStudioTarget(null)}
+              onCompleted={deliverRecipeRunToCanvas}
+            />
+          </React.Suspense>
+        );
+      })() : null}
+      {recipeProvenanceRunId && activeProjectId ? (
+        <React.Suspense fallback={null}>
+          <LazyRecipeProvenanceDialog
+            projectId={activeProjectId}
+            runId={recipeProvenanceRunId}
+            close={() => setRecipeProvenanceRunId(null)}
+          />
+        </React.Suspense>
+      ) : null}
       {projectComparison ? <React.Suspense fallback={null}><LazyProjectResultComparison items={projectComparison} close={() => setProjectComparison(null)} /></React.Suspense> : null}
       {imageViewer ? (
         <React.Suspense fallback={null}>

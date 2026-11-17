@@ -13,6 +13,7 @@ const { registerDebugIpc } = require("./debug-ipc.cjs");
 const { registerExportCenterIpc } = require("./export-center-ipc.cjs");
 const { registerImageCollectionIpc } = require("./image-collection-ipc.cjs");
 const { registerProjectIpc } = require("./project-ipc.cjs");
+const { registerRecipeIpc } = require("./recipe-ipc.cjs");
 const { registerPluginIpc } = require("./plugin-ipc.cjs");
 const { registerServerIpc } = require("./server-ipc.cjs");
 const { registerScientificIpc } = require("./scientific-ipc.cjs");
@@ -41,6 +42,7 @@ function registerDesktopIpc(dependencies = {}) {
   registerDebugIpc(dependencies);
   registerExportCenterIpc(dependencies);
   registerProjectIpc(dependencies);
+  registerRecipeIpc(dependencies);
   registerImageCollectionIpc(dependencies);
   registerAssetIpc(dependencies);
   registerServerIpc(dependencies);
