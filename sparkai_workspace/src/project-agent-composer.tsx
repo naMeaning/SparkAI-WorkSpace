@@ -289,7 +289,6 @@ export default function ProjectAgentComposer({
             aria-label={`当前选中 ${selectionLabel}`}
           >
             <ImageIcon size={13} />
-            <span>当前选中</span>
             <strong>{selectionLabel}</strong>
             <IconActionButton label="取消当前选中" onClick={clearSelection} disabled={stopPending} icon={<X size={12} />} />
           </div>
@@ -361,7 +360,7 @@ export default function ProjectAgentComposer({
       </div>
       {commandNotice ? <p className="project-agent-command-notice" role="status">{commandNotice}</p> : null}
       <footer>
-        <span>{stopPending ? "正在等待底层确认；当前任务状态保持不变" : paused ? "已暂停，可先发送修改要求" : executionBusy ? "Ctrl + Enter 修改当前任务" : goalSelected ? "发送前确认冻结范围与费用" : "Ctrl + Enter 发送 · / 命令"}</span>
+        <span>{stopPending ? "正在等待底层确认" : paused ? "已暂停" : goalSelected ? "发送前确认范围与费用" : ""}</span>
         {executionBusy || stopPending ? (
           <div className="project-agent-run-controls">
             <ActionButton

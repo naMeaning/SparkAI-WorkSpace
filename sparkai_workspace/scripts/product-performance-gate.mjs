@@ -333,7 +333,7 @@ const interactionExpression = `(async () => {
   observer?.observe({ type: 'longtask', buffered: true });
   const canvas = document.querySelector('[data-canvas-surface="true"]');
   if (!canvas) throw new Error('production canvas unavailable');
-  document.querySelector('.canvas-tools .zoom-button')?.click();
+  document.querySelector('.canvas-navigation-zoom')?.click();
   await twice();
   const canvasRect = canvas.getBoundingClientRect();
   const centerX = canvasRect.left + canvasRect.width * 0.42;

@@ -46,9 +46,10 @@ function setNativeValueExpression(selector, value) {
   })()`;
 }
 
-function buttonClickExpression(label) {
+function buttonClickExpression(label, scope = "") {
+  const selector = scope ? `${scope} button` : "button";
   return `(() => {
-    const button = Array.from(document.querySelectorAll('button')).find((item) => item.textContent?.replace(/\\s+/g, ' ').trim() === ${JSON.stringify(label)});
+    const button = Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find((item) => item.textContent?.replace(/\\s+/g, ' ').trim() === ${JSON.stringify(label)});
     if (!(button instanceof HTMLButtonElement)) return false;
     button.click();
     return true;
@@ -420,16 +421,11 @@ async function openRecipeStudio() {
   })()`);
   check("single selected managed image exposes the Skill/Recipe entry", opened);
   await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-studio-dialog'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-picker-step'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
-}
-
-async function enterStudio() {
-  check("Recipe picker opens Studio", await evaluate(mainClient, buttonClickExpression("在 Studio 中配置")));
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('[aria-label=\"Recipe 场景文案\"]'))", { evaluate, timeoutMs: 8_000, intervalMs: 100 });
+  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('[aria-label=\"Recipe 场景文案\"]'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
 }
 
 async function prepareStudioRun() {
-  check("Studio checks the run plan", await evaluate(mainClient, buttonClickExpression("检查运行计划")));
+  check("Studio prepares the run plan", await evaluate(mainClient, buttonClickExpression("继续")));
   await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('[aria-label=\"确认发起六次图片请求\"]'))", { evaluate, timeoutMs: 12_000, intervalMs: 100 });
 }
 
@@ -440,8 +436,16 @@ async function confirmAndStartRun() {
     checkbox.click();
     return checkbox.checked;
   })()`));
-  check("run starts only after confirmation", await evaluate(mainClient, buttonClickExpression("确认并运行六张")));
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-run-progress'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
+  check("run starts only after confirmation", await evaluate(mainClient, buttonClickExpression("开始生成")));
+  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-run-dock'))", { evaluate, timeoutMs: 8_000, intervalMs: 100 });
+  check("starting a Run closes the Studio modal immediately", await evaluate(mainClient, "!document.querySelector('.recipe-studio-dialog') && !document.querySelector('.recipe-studio-layer')"));
+  check("Canvas and Agent stay interactive without dock overlap", await evaluate(mainClient, `(() => {
+    const dock = document.querySelector('.recipe-run-dock')?.getBoundingClientRect();
+    const panel = document.querySelector('.project-agent-panel')?.getBoundingClientRect();
+    const composer = document.querySelector('.project-agent-composer textarea');
+    if (!dock || !panel || !(composer instanceof HTMLTextAreaElement)) return false;
+    return dock.right <= panel.left + 1;
+  })()`));
 }
 
 async function runFailureScenario() {
@@ -454,22 +458,21 @@ async function runFailureScenario() {
   await setTheme("light");
   await selectSourceNode();
   await openRecipeStudio();
-  await enterStudio();
   await prepareStudioRun();
   await confirmAndStartRun();
   await waitForRuntimeExpression(
     mainClient,
-    "document.querySelector('.recipe-run-state.is-failed') !== null",
+    "Boolean(document.querySelector('.recipe-run-dock.is-failed'))",
     { evaluate, timeoutMs: 20_000, intervalMs: 120 },
   );
+  check("background failure runs in a dock, not a modal", await evaluate(mainClient, "!document.querySelector('.recipe-studio-dialog')"));
   const failure = await evaluate(mainClient, `(() => ({
-    state: document.querySelector('.recipe-run-state')?.textContent?.trim() || '',
-    failedSlots: document.querySelectorAll('.recipe-run-slot.is-failed').length,
+    state: document.querySelector('.recipe-run-dock .recipe-run-state')?.textContent?.trim() || '',
     canvasResult: Boolean(document.querySelector('.node-recipe-provenance[data-recipe-run-id]')),
-    message: document.querySelector('.recipe-run-progress .ui-inline-notice')?.textContent?.trim() || ''
+    message: document.querySelector('.recipe-run-dock-error')?.textContent?.trim() || ''
   }))()`);
   check("failure Run reports failure", failure.state.includes("失败"));
-  check("failure marks the failed image slot", failure.failedSlots === 1);
+  check("failure keeps its error visible in the dock", failure.message.length > 0);
   check("failure does not write a Canvas result", failure.canvasResult === false);
   check("failure shows a human-readable message", failure.message.length > 0);
   await capture("09-failure-light-1280x800.png");
@@ -485,23 +488,22 @@ async function runCancellationScenario() {
   await setTheme("light");
   await selectSourceNode();
   await openRecipeStudio();
-  await enterStudio();
   await prepareStudioRun();
   await confirmAndStartRun();
-  check("in-flight Run exposes cancellation", await evaluate(mainClient, buttonClickExpression("取消运行")));
+  check("background Run exposes cancellation", await evaluate(mainClient, buttonClickExpression("取消", ".recipe-run-dock")));
   await waitForRuntimeExpression(
     mainClient,
-    "document.querySelector('.recipe-run-state.is-cancelled') !== null",
+    "Boolean(document.querySelector('.recipe-run-dock.is-cancelled'))",
     { evaluate, timeoutMs: 20_000, intervalMs: 120 },
   );
   const cancelled = await evaluate(mainClient, `(() => ({
-    state: document.querySelector('.recipe-run-state')?.textContent?.trim() || '',
-    cancelledSlots: document.querySelectorAll('.recipe-run-slot.is-cancelled').length,
+    state: document.querySelector('.recipe-run-dock .recipe-run-state')?.textContent?.trim() || '',
+    dock: Boolean(document.querySelector('.recipe-run-dock')),
     canvasResult: Boolean(document.querySelector('.node-recipe-provenance[data-recipe-run-id]'))
   }))()`);
   check("cancelled Run reports cancellation", cancelled.state.includes("已取消"));
   check("cancellation stops before a Canvas result", cancelled.canvasResult === false);
-  check("cancellation marks the active slot", cancelled.cancelledSlots >= 1);
+  check("cancellation stays in the background dock", cancelled.dock === true);
   await capture("10-cancelled-light-1280x800.png");
 }
 
@@ -519,7 +521,7 @@ async function runRestartRecoveryScenario() {
   );
   await waitForRuntimeExpression(
     mainClient,
-    `Array.from(document.querySelectorAll('.flow-node.selected')).some((node) => Boolean(node.querySelector('[data-recipe-run-id="${recoveredRunId}"]')))`,
+    `Array.from(document.querySelectorAll('.node-recipe-provenance[data-recipe-run-id="${recoveredRunId}"]'))[0]?.closest('.flow-node')?.querySelectorAll('.node-image-tile img').length === 6`,
     { evaluate, timeoutMs: 10_000, intervalMs: 150 },
   );
   await delay(350);
@@ -528,13 +530,11 @@ async function runRestartRecoveryScenario() {
     const node = chip?.closest('.flow-node');
     return {
       nodes: document.querySelectorAll('[data-recipe-run-id="${recoveredRunId}"]').length,
-      selected: Boolean(node?.classList.contains('selected')),
       tiles: node?.querySelectorAll('.node-image-tile').length || 0,
       loadedImages: Array.from(node?.querySelectorAll('.node-image-tile img') || []).filter((image) => image.complete && image.naturalWidth > 0).length
     };
   })()`);
   check("restart restores exactly one Canvas result", recovered.nodes === 1);
-  check("restart selects the recovered Canvas result", recovered.selected === true);
   check("restart restores six image tiles", recovered.tiles === 6);
   check("restart restores loadable image assets", recovered.loadedImages === 6);
   await capture("11-restart-recovery-light-1280x800.png");
@@ -552,57 +552,117 @@ async function runRestartRecoveryScenario() {
 
 async function main() {
   await prepareFixture();
-  await launchApp();
+  await launchApp({
+    NAIMAGE_AIDEBUG_RECIPE_DELAY_MS: "450",
+  });
   await setWindowSize(1280, 800);
   await setTheme("light");
   await waitForRuntimeExpression(mainClient, "document.querySelector('.flow-node.selected[data-node-id=\"N1\"]') !== null", { evaluate, timeoutMs: 8_000, intervalMs: 100 });
-  await openRecipeStudio();
-  check("source selection remains while Recipe picker is open", await evaluate(mainClient, "document.querySelector('.flow-node.selected[data-node-id=\"N1\"]') !== null"));
-  await capture("01-recipe-picker-light-1280x800.png");
+  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.project-agent-composer textarea'))", { evaluate, timeoutMs: 15_000, intervalMs: 100 });
+  const workspaceClutter = await evaluate(mainClient, `(() => ({
+    emptySlogan: Boolean(document.querySelector('.project-agent-empty')),
+    contextHint: Boolean(document.querySelector('.workspace-context-hint')),
+    cloudTelemetry: Boolean(document.querySelector('.project-agent-provider-status')),
+    idleComposerHint: (document.querySelector('.project-agent-composer footer span')?.textContent || '').trim(),
+    duplicateContext: document.querySelectorAll('[data-project-context]').length,
+    headerSubtitle: Boolean(document.querySelector('.project-agent-header p')),
+    workspaceSubtitle: Boolean(document.querySelector('.workspace-task-context small, .workspace-task-context > span'))
+  }))()`);
+  check("workspace removes empty Agent slogan", workspaceClutter.emptySlogan === false);
+  check("workspace removes canvas context hint", workspaceClutter.contextHint === false);
+  check("workspace hides default cloud telemetry lines", workspaceClutter.cloudTelemetry === false);
+  check("workspace removes idle composer shortcut hint", workspaceClutter.idleComposerHint === "");
+  check("workspace never duplicates ProjectContextPanel", workspaceClutter.duplicateContext <= 1);
+  check("workspace removes Agent header and workspace explanatory subtitles", workspaceClutter.headerSubtitle === false && workspaceClutter.workspaceSubtitle === false);
+  check("empty creation acceptance shows only its actionable entry", await evaluate(mainClient, "document.querySelector('.creation-session > summary')?.textContent.trim() === '创作要求'"));
+  check("canvas zoom controls appear in one place", await evaluate(mainClient, "document.querySelectorAll('.canvas-footer .canvas-tools').length === 0 && document.querySelectorAll('.canvas-navigation-zoom').length === 1"));
+  await capture("01-canvas-clean-light-1280x800.png");
 
-  await enterStudio();
+  check("project search popover opens", await evaluate(mainClient, `(() => {
+    const trigger = document.querySelector('.workspace-search-trigger');
+    if (!(trigger instanceof HTMLButtonElement)) return false;
+    trigger.click();
+    return true;
+  })()`));
+  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.workspace-search-popover'))", { evaluate, timeoutMs: 8_000, intervalMs: 100 });
+  const searchPopoverState = await evaluate(mainClient, `(() => ({
+    popoverOpen: Boolean(document.querySelector('.workspace-search-popover')),
+    popoverContext: Boolean(document.querySelector('.workspace-search-popover [data-project-context]')),
+    sidebarContextCount: document.querySelectorAll('.project-agent-panel [data-project-context]').length,
+    totalContextCount: document.querySelectorAll('[data-project-context]').length
+  }))()`);
+  check("opened project search popover removes duplicate ProjectContextPanel while right sidebar keeps ownership", searchPopoverState.popoverOpen && searchPopoverState.popoverContext === false && searchPopoverState.sidebarContextCount === 1 && searchPopoverState.totalContextCount === 1);
+  await capture("01b-search-no-duplicate-knowledge-light-1280x800.png");
+  check("project search popover closes", await evaluate(mainClient, `(() => {
+    const closeButton = document.querySelector('.workspace-search-popover button[aria-label="关闭搜索"]');
+    if (!(closeButton instanceof HTMLButtonElement)) return false;
+    closeButton.click();
+    return true;
+  })()`));
+  await waitForRuntimeExpression(mainClient, "!document.querySelector('.workspace-search-popover')", { evaluate, timeoutMs: 5_000, intervalMs: 80 });
+
+  await openRecipeStudio();
+  check("source selection remains while Studio is open", await evaluate(mainClient, "document.querySelector('.flow-node.selected[data-node-id=\"N1\"]') !== null"));
+  check("Studio opens the built-in Beauty product-hero Recipe directly", await evaluate(mainClient, "document.querySelector('[data-recipe-id=\"recipe.sparkvas.beauty-product-hero\"]') !== null"));
+  check("Studio keeps the single Recipe surface free of graph chrome", await evaluate(mainClient, "!document.querySelector('.recipe-selector-list, .recipe-graph-preview')"));
+  check("Studio removes header explanatory subtitle", await evaluate(mainClient, "!document.querySelector('.recipe-studio-dialog .ui-surface-description')"));
+  await waitForRuntimeExpression(
+    mainClient,
+    "(() => { const img = document.querySelector('.recipe-source-card img'); return Boolean(img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0); })()",
+    { evaluate, timeoutMs: 8_000, intervalMs: 100 },
+  );
+  const studioDetails = await evaluate(mainClient, `(() => {
+    const img = document.querySelector('.recipe-source-card img');
+    const title = document.querySelector('.recipe-source-card strong')?.textContent?.trim() || '';
+    const inputs = Array.from(document.querySelectorAll('.recipe-output-editor input'));
+    return {
+      thumbnailLoaded: Boolean(img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0),
+      sourceTitle: title,
+      outputCount: inputs.length,
+      editableOutputs: inputs.filter((item) => item instanceof HTMLInputElement && !item.disabled && !item.readOnly).length
+    };
+  })()`);
+  check("Studio displays a loaded input thumbnail", studioDetails.thumbnailLoaded && studioDetails.sourceTitle === "受管美妆商品图");
+  const heroDirection = "干净高级的棚拍主视觉，突出瓶身质感与品牌识别";
+  const heroEdited = await evaluate(mainClient, setNativeValueExpression('[aria-label="主视觉画面方向"]', heroDirection));
+  const heroUpdated = await evaluate(mainClient, `document.querySelector('[aria-label="主视觉画面方向"]')?.value === ${JSON.stringify(heroDirection)}`);
+  check("Studio keeps all six output direction fields editable", studioDetails.outputCount === 6 && studioDetails.editableOutputs === 6 && heroEdited && heroUpdated);
   check("scene brief is editable", await evaluate(mainClient, setNativeValueExpression('[aria-label="Recipe 场景文案"]', "柔和自然光美妆棚拍，保留商品包装和品牌识别，适合跨境商品详情页。")));
   check("market language is editable", await evaluate(mainClient, setNativeValueExpression('[aria-label="Recipe 市场语言"]', "en-US")));
   await capture("02-studio-light-1280x800.png");
-  check("Studio checks the run plan", await evaluate(mainClient, buttonClickExpression("检查运行计划")));
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('[aria-label=\"确认发起六次图片请求\"]'))", { evaluate, timeoutMs: 12_000, intervalMs: 100 });
+  await prepareStudioRun();
   const confirmSummary = await evaluate(mainClient, `(() => ({
-    outputs: document.querySelectorAll('.recipe-output-preview > div:not(.ui-inline-notice)').length,
-    permissions: document.querySelectorAll('.recipe-permission-box > div').length,
-    paidText: document.querySelector('.recipe-paid-confirm')?.textContent || '',
+    outputs: document.querySelectorAll('.recipe-expected-list li').length,
+    permissions: document.querySelectorAll('.recipe-permission-row').length,
+    paidText: document.querySelector('.recipe-confirm-checkbox')?.textContent || '',
     sourceSelected: Boolean(document.querySelector('.flow-node.selected[data-node-id="N1"]'))
   }))()`);
   check("confirmation lists six outputs", confirmSummary.outputs === 6);
-  check("confirmation lists Tool permissions", confirmSummary.permissions === 5);
-  check("confirmation names the six paid requests", confirmSummary.paidText.includes("六次图片请求"));
+  check("confirmation lists only active Tool permissions", confirmSummary.permissions === 3);
+  check("confirmation names the six paid requests", confirmSummary.paidText.includes("6 次图片生成请求"));
   check("source selection remains while confirmation is open", confirmSummary.sourceSelected);
   await capture("03-confirm-light-1280x800.png");
 
-  check("explicit paid confirmation can be checked", await evaluate(mainClient, `(() => {
-    const checkbox = document.querySelector('[aria-label="确认发起六次图片请求"]');
-    if (!(checkbox instanceof HTMLInputElement)) return false;
-    checkbox.click();
-    return checkbox.checked;
-  })()`));
-  check("run starts only after confirmation", await evaluate(mainClient, buttonClickExpression("确认并运行六张")));
-  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-run-progress'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
+  await confirmAndStartRun();
+  check("user can type into Agent composer while Recipe Run executes in background", await evaluate(mainClient, setNativeValueExpression('.project-agent-composer textarea', "顺便构思下一轮文案方向")));
+  await capture("04-running-dock-light-1280x800.png");
   await waitForRuntimeExpression(
     mainClient,
-    "Array.from(document.querySelectorAll('button')).some((item) => item.textContent?.trim() === '查看 Canvas')",
+    "Boolean(document.querySelector('.recipe-run-dock.is-succeeded'))",
     { evaluate, timeoutMs: 120_000, intervalMs: 200 },
   );
-  const runState = await evaluate(mainClient, `(() => ({
-    state: document.querySelector('.recipe-run-state')?.textContent?.trim() || '',
-    slots: document.querySelectorAll('.recipe-run-slot.is-succeeded').length,
-    provenanceText: document.querySelector('.recipe-run-provenance')?.textContent || ''
-  }))()`);
-  check("all six Recipe slots succeed", runState.slots === 6);
-  check("Run reports success", runState.state.includes("已完成"));
-  check("Run progress shows Recipe, Run and input provenance", runState.provenanceText.includes("Recipe") && runState.provenanceText.includes("Run") && runState.provenanceText.includes("Input"));
-  await capture("04-run-finished-light-1280x800.png");
-
-  check("Canvas is available from the completed dialog", await evaluate(mainClient, buttonClickExpression("查看 Canvas")));
+  check("background Run dock reports success", await evaluate(mainClient, "document.querySelector('.recipe-run-dock .recipe-run-state')?.textContent?.includes('已完成') === true"));
+  check("Recipe Run does not steal selection while backgrounded", await evaluate(mainClient, "document.querySelector('.flow-node.selected[data-node-id=\"N1\"]') !== null"));
   await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.node-recipe-provenance[data-recipe-run-id]'))", { evaluate, timeoutMs: 12_000, intervalMs: 100 });
+  check("background completion lands result on Canvas before reveal", await evaluate(mainClient, "document.querySelectorAll('.node-recipe-provenance[data-recipe-run-id]').length === 1"));
+  await waitForRuntimeExpression(
+    mainClient,
+    "Array.from(document.querySelectorAll('.recipe-run-dock button')).some((item) => item.textContent?.trim() === '查看结果')",
+    { evaluate, timeoutMs: 15_000, intervalMs: 120 },
+  );
+  check("background success exposes a reveal action", await evaluate(mainClient, buttonClickExpression("查看结果", ".recipe-run-dock")));
+  await waitForRuntimeExpression(mainClient, "!document.querySelector('.recipe-run-dock')", { evaluate, timeoutMs: 8_000, intervalMs: 100 });
+  check("reveal closes the background dock", await evaluate(mainClient, "!document.querySelector('.recipe-run-dock')"));
   await waitForRuntimeExpression(
     mainClient,
     "Array.from(document.querySelectorAll('.node-recipe-provenance[data-recipe-run-id]')).some((chip) => chip.closest('.flow-node')?.classList.contains('selected'))",
@@ -613,14 +673,20 @@ async function main() {
     "Array.from(document.querySelectorAll('.flow-node.selected .node-image-tile img')).filter((image) => image.complete && image.naturalWidth > 0).length === 6",
     { evaluate, timeoutMs: 10_000, intervalMs: 120 },
   );
+  await evaluate(mainClient, `Promise.all(Array.from(document.querySelectorAll('.flow-node.selected .node-image-tile img')).map((img) => img.decode ? img.decode().catch(() => {}) : Promise.resolve()))`);
+  await delay(120);
   const canvasState = await evaluate(mainClient, `(() => {
     const node = document.querySelector('.flow-node.selected');
     const chip = document.querySelector('.node-recipe-provenance[data-recipe-run-id]');
+    const footerCount = chip?.closest('footer')?.querySelector(':scope > span:last-child');
+    const chipRect = chip?.getBoundingClientRect();
+    const countRect = footerCount?.getBoundingClientRect();
     return {
       runId: chip?.getAttribute('data-recipe-run-id') || '',
       selectedRunId: node?.querySelector('[data-recipe-run-id]')?.getAttribute('data-recipe-run-id') || '',
       tileCount: node?.querySelectorAll('.node-image-tile').length || 0,
       loadedImages: Array.from(node?.querySelectorAll('.node-image-tile img') || []).filter((image) => image.complete && image.naturalWidth > 0).length,
+      provenanceInFooterNoOverlap: Boolean(chipRect && countRect && chipRect.right <= countRect.left + 1),
       relationClass: node?.className || ''
     };
   })()`);
@@ -628,6 +694,7 @@ async function main() {
   check("result node is selected", canvasState.selectedRunId === canvasState.runId);
   check("result node renders six image tiles", canvasState.tileCount === 6);
   check("result node renders six loadable images", canvasState.loadedImages === 6);
+  check("provenance pill sits cleanly inside node footer without overlap", canvasState.provenanceInFooterNoOverlap);
   await capture("05-canvas-result-light-1280x800.png");
 
   check("Recipe Run provenance chip opens", await evaluate(mainClient, `(() => {
@@ -637,6 +704,7 @@ async function main() {
     return true;
   })()`));
   await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-provenance-dialog'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
+  await waitForRuntimeExpression(mainClient, "Boolean(document.querySelector('.recipe-provenance-dialog .recipe-kv-strip'))", { evaluate, timeoutMs: 10_000, intervalMs: 100 });
   const provenance = await evaluate(mainClient, `(() => ({
     text: document.querySelector('.recipe-provenance-dialog')?.textContent || '',
     assets: document.querySelectorAll('.recipe-provenance-asset').length,
@@ -659,43 +727,29 @@ async function main() {
   await setWindowSize(884, 640);
   await selectSourceNode();
   await openRecipeStudio();
-  await capture("07-recipe-picker-dark-884x640.png");
-  await enterStudio();
   await capture("08-studio-dark-884x640.png");
   const responsive = await evaluate(mainClient, `(() => {
     const dialog = document.querySelector('.recipe-studio-dialog');
     const body = document.querySelector('.recipe-studio-body');
     const workspace = document.querySelector('.recipe-studio-workspace');
-    const preview = document.querySelector('.recipe-graph-preview');
     const form = document.querySelector('.recipe-studio-form');
     const rect = dialog?.getBoundingClientRect();
-    const previewRect = preview?.getBoundingClientRect();
     const formRect = form?.getBoundingClientRect();
     return {
       viewport: { width: innerWidth, height: innerHeight },
       dpr: devicePixelRatio,
       dialog: rect ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null,
-      dialogWidth: rect?.width || 0,
-      gridColumns: workspace ? getComputedStyle(workspace).gridTemplateColumns : '',
-      previewPosition: preview ? getComputedStyle(preview).position : '',
-      previewHeight: preview ? getComputedStyle(preview).height : '',
-      previewMarginBottom: preview ? getComputedStyle(preview).marginBottom : '',
-      formPosition: form ? getComputedStyle(form).position : '',
-      formDisplay: form ? getComputedStyle(form).display : '',
-      previewParent: preview?.parentElement?.className || '',
-      formParent: form?.parentElement?.className || '',
-      preview: previewRect ? { left: previewRect.left, top: previewRect.top, right: previewRect.right, bottom: previewRect.bottom } : null,
+      singleColumn: !document.querySelector('.recipe-studio-sidebar, .recipe-selector-list, .recipe-graph-preview'),
       form: formRect ? { left: formRect.left, top: formRect.top, right: formRect.right, bottom: formRect.bottom } : null,
       overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       bodyScrollable: body ? body.scrollHeight >= body.clientHeight : false
     };
   })()`);
-  process.stdout.write(`${JSON.stringify({ responsive }, null, 2)}\n`);
   check("884x640 uses the requested content size", Math.abs(responsive.viewport.width - 884) <= 2 && Math.abs(responsive.viewport.height - 640) <= 2);
   check("884x640 dialog stays inside the viewport", responsive.dialog && responsive.dialog.left >= 0 && responsive.dialog.top >= 0 && responsive.dialog.right <= 884 && responsive.dialog.bottom <= 640);
   check("884x640 page has no horizontal overflow", responsive.overflowX <= 1);
   check("Studio body remains scrollable instead of clipping", responsive.bodyScrollable);
-  check("Studio graph and form do not overlap", responsive.preview && responsive.form && responsive.preview.bottom <= responsive.form.top);
+  check("Studio uses one full-width form column", responsive.singleColumn && responsive.form && responsive.form.left >= 0 && responsive.form.right <= 884);
 
   await runFailureScenario();
   await runCancellationScenario();

@@ -1,6 +1,18 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-11-17，Sparkvas 第一垂直切片本地交付完成）
+## 当前开发状态（2026-11-20，工作台减法与后台生成已本地交付，push 待完成）
+
+- 分支 `codex/sparkvas-vertical-slice` 续接 `800825b`，只在隔离工作树修改。main 上用户改动未触碰。
+- 用户确认后 Recipe Studio 关闭并后台运行；Canvas 保持可操作，Agent 草稿可继续输入。Run 持久化和回投沿既有项目/会话 owner，运行取消竞态、结果保存失败、同 Run 回投去重与重启恢复已做收敛。
+- 移除可证的重复或纯展示入口：底部重复缩放、搜索弹层重复项目知识、唯一内置 Recipe 选择器与静态节点图、空验收计数副标题，以及不含信息的提示/默认云遥测标签。保留原有右栏项目知识、选中/搜索/Agent/六槽编辑/费用确认/provenance。
+- 最终隔离 Electron `test:studio-ui` 89 项/12 截图通过，0 真实模型请求。合同 6/5/11、Store 5、Run 8、IPC 6、IPC 注册 178/175、creation 状态 10/Hook 7、项目上下文投影、typecheck 均通过。证据及失败边界见 [减法记录](docs/SPARKVAS_WORKSPACE_REDUCTION_2026-11-20.md)。
+- `test:agent-text-ui` mock 运行 73 项后在模型选择器断言失败（模型夹具返回 0 个选项）；未调用真实网络。其可达性/文案选择器已按当前界面更新，未将该专项误报为全通过。
+- Windows package 成功（production build 1720 modules）。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,278,656 B / SHA-256 `2d2e1cf6b9893c872d5d08a8b461975fca2e28de51de1f8d6fbdd493468f86bb`；`win-unpacked/SparkAIWorkSpace.exe` 232,719,872 B / `cd8851cdd15fbe4a8ac67c7743a3aa3f0dc45c6adfa041af605c47948c575f33`；ASAR 53,784,562 B / `b8350c822a78955abcc1bba478bb425a84037769d1912c628f8c4e1d01502530`。
+- 安装器 exit 0，HKCU 安装显示名 `SparkAI WorkSpace`/版本 `1.0.9`/安装目录 `E:\sparkai-workspace\naimage` 保持；安装 EXE/ASAR 匹配候选包；17 个用户数据文件的路径、大小、SHA-256 前后相同，桌面与开始菜单快捷方式保留原目标。安装后已打开窗口，标题 `Sparkvas`，进程响应。
+- `test:bundle` exit 1：CSS 聚合 299,868 B 超 270,000 B；initial JS 4,359 B、plugin JS 86,769 B 通过，core async/完整 dist 为 advisory 超限。当前是开发交付，不是正式候选；包命令记录 `bundleEnforced: false`。构建日志另有未修改 C# nullable warning。
+- 下一步：只提交本分支改动并普通 push，核对远端提交。真实付费请求仍为 0。
+
+## Development record (2026-11-17, Sparkvas first vertical slice locally delivered)
 
 - 接受现场：独立 worktree `E:\003Projects\SparkAI-WorkSpace\.diagnostics\worktrees\sparkvas-vertical-slice`，分支 `codex/sparkvas-vertical-slice`，从 `eb005c569ece1ad513483f5f24424f9acc08b262` 建立。main 的“全桌面动作按钮图标化”和旧文档 dirty 原样保留，未 reset/checkout/clean/覆盖或合并 main。
 - 用户结果：受管单素材图片 → 唯一新增入口“用 Skill” → 内置 Beauty product-hero Recipe → Studio 修改场景/语言/槽方向/参数 → 确认输入、权限、预计六输出和六次请求 → 六图回到同一 Canvas → `Recipe Run` provenance 可查。视频、Registry、自动 Recipe 起草、通用节点编辑、多 Agent/主题、Phase 7 身份和 CLI/MCP 新命令未做。

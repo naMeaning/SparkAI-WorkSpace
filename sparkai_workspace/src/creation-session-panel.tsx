@@ -31,6 +31,7 @@ export default function CreationSessionPanel({ creationSession: session, creatio
   const locator = { expectedProjectId: session.projectId, conversationId: session.conversationId, ...(requirements ? { requirementId: requirements.requirementId } : {}) };
   const selectedLabels = selected.map(key => resultByKey.get(key)?.label || "已变化的成果");
   const assumed = requirements ? [requirements.goal, requirements.usage, ...requirements.slots, ...requirements.preserve, ...requirements.adjustable, ...requirements.conditions].filter(item => item.source === "assumption").length : 0;
+  const hasAcceptanceState = Boolean(requirements || session.results.length || creationError);
   async function act(action: () => unknown) {
     setPending(true); setNotice("");
     try { const result = await action() as { ok?: boolean; error?: string } | undefined; if (result?.ok === false) setNotice(result.error || "操作未完成，请刷新后重试。"); }
@@ -41,7 +42,7 @@ export default function CreationSessionPanel({ creationSession: session, creatio
   const fields = [{ key: "goal" as const, label: "创作目标", placeholder: "希望完成什么" }, { key: "usage" as const, label: "用途", placeholder: "作品的使用场景" }];
   const criterionFields = [{ key: "preserve" as const, label: "必须保留" }, { key: "adjustable" as const, label: "可调整内容" }, { key: "conditions" as const, label: "验收条件" }];
   return <details className="creation-session" data-creation-session>
-    <summary><strong>创作要求与验收</strong><span data-creation-summary>{creationSessionSummary(session).text}</span></summary>
+    <summary><strong>{hasAcceptanceState ? "创作要求与验收" : "创作要求"}</strong>{hasAcceptanceState ? <span data-creation-summary>{creationSessionSummary(session).text}</span> : null}</summary>
     <div className="creation-session-content">
       <details className="creation-requirements" open={!requirements}>
         <summary>{requirements ? `查看 / 编辑要求 · 第 ${requirements.revision} 版` : "设置结构化创作要求"}</summary>

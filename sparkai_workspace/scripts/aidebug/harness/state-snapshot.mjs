@@ -171,8 +171,8 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const canvasToolbarRect = rect(".canvas-toolbar");
     const canvasFooterRect = rect(".canvas-footer");
     const canvasStatusRect = rect(".canvas-status-line");
-    const canvasToolsRect = rect(".canvas-footer .canvas-tools");
-    const canvasZoomButtonRect = rect(".canvas-footer .zoom-button");
+    const canvasToolsRect = rect(".canvas-navigation-dock .canvas-navigation-group[aria-label='画布缩放']");
+    const canvasZoomButtonRect = rect(".canvas-navigation-zoom");
     const projectMenuRect = rect(".project-menu-popover:not(.file-command-popover)");
     const fileMenuRect = rect(".file-command-popover");
     const rightCollapseRect = rect(".agent-collapse-button");
@@ -1301,7 +1301,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const latestImageNodeViewport = visibilityMetric(imageNodeViewportTarget, rect(".workflow-canvas"));
     const imageNodeViewportOk = imageNodes.length === 0 ? true : Boolean(agentDebugState?.imageNodeViewportOk && latestImageNodeViewport.ok);
     const flowNodes = Array.from(document.querySelectorAll(".flow-node"));
-    const zoomText = String(element(".zoom-button")?.textContent || "");
+    const zoomText = String(element(".canvas-navigation-zoom")?.textContent || "");
     const zoomMatch = zoomText.match(/(\\d+(?:\\.\\d+)?)\\s*%/);
     const canvasZoomPercent = zoomMatch ? Number(zoomMatch[1]) : null;
     const canvasZoomScale = canvasZoomPercent == null ? null : metricRound(canvasZoomPercent / 100);

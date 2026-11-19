@@ -9271,7 +9271,7 @@ async function main() {
           const afterAdd = [...(window.__naimageDebugAgentState?.().selectedNodeIds || [])];
           const removed = await ctrlClick(removeNode, 77);
           const afterRemove = [...(window.__naimageDebugAgentState?.().selectedNodeIds || [])];
-          document.querySelector('.zoom-button')?.click();
+          document.querySelector('.canvas-navigation-zoom')?.click();
           await delay(220);
           const highlightedIds = Array.from(document.querySelectorAll('.flow-node.selected[data-node-id]')).map((node) => String(node.dataset.nodeId || '')).filter(Boolean);
           const indicatorIds = normalizeIds(document.querySelector('.canvas-selection-indicator')?.getAttribute('data-selection-ids'));

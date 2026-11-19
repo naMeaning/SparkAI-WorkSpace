@@ -56,7 +56,6 @@ const NAIMAGE_RUNTIME_METRICS = (
   window.naimageRuntime?.aidebugEnabled === true &&
   window.naimageRuntime?.isolatedConfig === true
 ) || __NAIMAGE_PERF_PROBE__;
-const PROJECT_AGENT_WELCOME = "描述想要的画面即可直接生图；也可以添加参考图，或选中画布图片后替换元素、设计多款和制作分层 PNG。";
 const LazyAgentMessageContent = React.lazy(() => import("./agent-message-content"));
 const LazyCreationSessionPanel = React.lazy(() => import("./creation-session-panel"));
 let projectAgentComposerPromise: Promise<typeof import("./project-agent-composer")> | null = null;
@@ -164,13 +163,6 @@ function ProjectAgentFeedView({
           followBottomRef.current = feed.scrollHeight - feed.clientHeight - feed.scrollTop <= PROJECT_AGENT_FOLLOW_DISTANCE;
         }}
       >
-        {messages.length === 0 ? (
-          <div className="project-agent-empty">
-            <Brain size={22} />
-            <strong>Agent 已接手当前项目</strong>
-            <span>{PROJECT_AGENT_WELCOME}</span>
-          </div>
-        ) : null}
         {hiddenMessageCount > 0 ? (
           <ButtonBase
             className="project-agent-load-earlier"
@@ -728,7 +720,6 @@ function ProjectAgentPanelView({
               setHistoryOpen((current) => !current);
             }}
           ><span>{activeConversationTitle}</span><ChevronDown size={14} aria-hidden="true" /></ButtonBase></h2>
-          <p title={projectName}>{projectName}</p>
         </div>
         <div className="project-agent-header-actions">
           <IconActionButton label={executionBusy ? "在新窗口新建并行会话" : "新建会话"} onClick={requestNewConversation} icon={<Plus size={16} />} />
@@ -829,7 +820,12 @@ function ProjectAgentPanelView({
           </span>
           <em>{modelName || "未配置模型"}</em>
         </div>
-        {providerStatus ? <div className="project-agent-provider-status" data-agent-provider-status={providerStatus.profileId}>
+        {providerStatus && (
+          providerStatus.providerKind !== "cloud"
+          || providerStatus.strictOffline
+          || !providerStatus.capabilities.tools
+          || !providerStatus.capabilities.vision
+        ) ? <div className="project-agent-provider-status" data-agent-provider-status={providerStatus.profileId}>
           <span>{agentProviderLabel(providerStatus)} · {agentProviderNetworkLabel(providerStatus)}</span>
           <span>工具 {providerStatus.capabilities.tools ? "可用" : "关闭"} · 视觉 {providerStatus.capabilities.vision ? "可用" : "关闭"} · 上下文 {providerStatus.capabilities.contextWindowTokens.toLocaleString()}</span>
         </div> : null}

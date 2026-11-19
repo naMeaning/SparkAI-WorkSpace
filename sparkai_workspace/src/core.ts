@@ -3437,6 +3437,18 @@ export type RecipeStudioOptions = {
   quality: "auto" | "high";
 };
 
+export type RecipeActiveRun = {
+  runId: string;
+  projectId: string;
+  sourceNodeId: string;
+  sourceAssetIndex: number;
+  recipeName: string;
+  result: RecipeRunResult;
+  deliveredNodeId?: string;
+  deliveryError?: string;
+  cancelling?: boolean;
+};
+
 export type RecipePreparation = {
   runId: string;
   recipe: RecipeDocument;

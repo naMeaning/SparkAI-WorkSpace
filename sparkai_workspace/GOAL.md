@@ -1,6 +1,15 @@
 # SparkAI WorkSpace 目标
 
-## 当前任务：Sparkvas 第一垂直切片——Beauty product-hero Canvas → Studio → 六图回投（2026-11-17，本地交付已完成）
+## 当前任务：Sparkvas 后台生成与工作台减法（2026-11-20）
+
+- 用户确认后立即回到 Canvas；用户可继续编辑、输入 Agent 草稿。进度、取消、失败留在画布角落，结果回到原项目并保留 provenance。
+- Studio 只编辑内置 Beauty Recipe：一个输入预览、运行参数、六个输出槽。确认页只展示 Recipe、输入、有效权限、六个预计输出和费用确认。
+- 清掉重复缩放、搜索弹层里的重复项目知识、唯一 Recipe 的选择器/静态节点图和空运行摘要。保留主状态 owner、实际功能和 Agent 契约。
+- 仅在 `codex/sparkvas-vertical-slice` 修改；fixture/loopback 验证，真实模型请求为 0。最终隔离 Electron、Windows EXE、原位安装、打开安装版并普通推送本分支。
+- 验证状态：Studio Electron 89 项通过；Windows 包已原位安装且 `Sparkvas` 窗口已打开；当前只剩分支提交/普通 push。
+- 验收与删减证据见 [工作台减法记录](docs/SPARKVAS_WORKSPACE_REDUCTION_2026-11-20.md)。
+
+## 历史任务：Sparkvas 第一垂直切片（2026-11-17，本地已交付）
 
 - Mode：implement。用户在当前批次只要求一条真实可用路径，明确后置视频、Registry/Marketplace、Agent 自动起草 Recipe、通用节点编辑器、多 Agent/多项目/多主题、Phase 7 品牌技术身份和新增 CLI/MCP。
 - 现场：独立 worktree `E:\003Projects\SparkAI-WorkSpace\.diagnostics\worktrees\sparkvas-vertical-slice`，分支 `codex/sparkvas-vertical-slice`，基线 `eb005c569ece1ad513483f5f24424f9acc08b262`。main 的图标化与旧文档 dirty 原样保留；本分支不 reset/checkout/clean/覆盖或合并 main。

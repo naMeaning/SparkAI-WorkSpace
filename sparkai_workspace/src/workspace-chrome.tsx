@@ -317,14 +317,12 @@ function workspaceSearchRank(label: string, searchText: string, query: string) {
 }
 
 export function WorkspaceSearch({
-  projectContextView,
   nodes,
   conversations,
   activeConversationId,
   onSelectNode,
   onSelectConversation,
 }: {
-  projectContextView?: React.ReactNode;
   nodes: WorkflowNode[];
   conversations: AgentConversation[];
   activeConversationId: string;
@@ -471,7 +469,6 @@ export function WorkspaceSearch({
             })}
             {results.length === 0 ? <p>没有匹配的图片、需求或会话</p> : null}
           </div>
-          {projectContextView}
         </section>
       ) : null}
     </div>
@@ -911,17 +908,14 @@ export function WorkspaceAssetRail({
 
 export function WorkspaceTaskContext({
   mode,
-  node,
 }: {
   mode: WorkspaceViewMode;
-  node: WorkflowNode | null;
+  node?: WorkflowNode | null;
 }) {
   const modeLabel = workspaceViewModes.find((item) => item.id === mode)?.label ?? "画布";
   return (
-    <section className="workspace-task-context" aria-label="当前任务">
-      <span>当前任务</span>
-      <strong>{node ? nodeRailLabel(node) : modeLabel}</strong>
-      <small>{node?.prompt || (mode === "workbench" ? "查看素材、关系与 Agent 进度" : mode === "focus" ? "连续查看当前图片成果" : "并排比较最近图片成果")}</small>
+    <section className="workspace-task-context" aria-label="工作区视图">
+      <strong>{modeLabel}</strong>
     </section>
   );
 }

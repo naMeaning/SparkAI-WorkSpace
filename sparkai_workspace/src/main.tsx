@@ -1,6 +1,5 @@
 import { useAgentProviderStatus } from "./agent-provider-state";
 import { useProjectContext } from "./use-project-context";
-import ProjectContextPanel from "./project-context-panel";
 import type { ProjectComparisonItem } from "./project-result-comparison";
 import "./project-context.css";
 import { normalizeProjectTaskContexts, appendProjectTaskContext, type ProjectTaskContext } from "../runtime/project-task-contexts.mjs";
@@ -434,6 +433,7 @@ import type {
   ImageAssetIdentityClaim,
   TaskAssetReference,
   WorkflowNode,
+  RecipeActiveRun,
   RecipeRunResult,
   NodeMutationBarrier,
   NodeMutationEvent,
@@ -833,7 +833,27 @@ function parentImageActionToRequirement(action: AgentRuntimeAction, requirementN
 
 const initialMessages: AgentMessage[] = [
 ];
-const PROJECT_AGENT_WELCOME = "描述想要的画面即可直接生图；也可以添加参考图，或选中画布图片后替换元素、设计多款和制作分层 PNG。";
+
+function isTerminalRecipeRunStatus(status: RecipeRunResult["run"]["status"] | undefined) {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
+function mergeRecipeRunResult(
+  previous: RecipeRunResult | undefined,
+  incoming: Partial<RecipeRunResult> & { run: RecipeRunResult["run"] },
+): RecipeRunResult {
+  const recipe = incoming.recipe ?? previous?.recipe;
+  if (!recipe) {
+    throw new Error("Recipe Run 缺少 Recipe 元数据。");
+  }
+  return {
+    run: incoming.run,
+    assets: Array.isArray(incoming.assets) ? incoming.assets : (previous?.assets ?? []),
+    recipe,
+    options: incoming.options !== undefined ? incoming.options : (previous?.options ?? null),
+    input: incoming.input !== undefined ? incoming.input : (previous?.input ?? null),
+  };
+}
 
 // -----------------------------------------------------------------------------
 // MAIN 03 Image Node Geometry And Task Helpers
@@ -944,6 +964,7 @@ const LazyRegionRedrawDialog = React.lazy(() => loadImageWorkspaceOverlays().the
 const LazyLayerGroupViewerDialog = React.lazy(() => loadImageWorkspaceOverlays().then((module) => ({ default: module.LayerGroupViewerDialog })));
 const loadRecipePicker = () => import("./recipe-picker");
 const LazyRecipeStudioDialog = React.lazy(() => loadRecipePicker().then((module) => ({ default: module.RecipeStudioDialog })));
+const LazyRecipeRunDock = React.lazy(() => loadRecipePicker().then((module) => ({ default: module.RecipeRunDock })));
 const LazyRecipeProvenanceDialog = React.lazy(() => loadRecipePicker().then((module) => ({ default: module.RecipeProvenanceDialog })));
 const loadImageProcessingRuntime = () => import("./image-processing-runtime");
 const loadImageForCanvas = (source: string) => loadImageProcessingRuntime().then((module) => module.loadImageForCanvas(source));
@@ -3740,6 +3761,10 @@ function App() {
   const [manualImageTaskDialog, setManualImageTaskDialog] = useState<ManualImageTaskDialogState | null>(null);
   const [recipeStudioTarget, setRecipeStudioTarget] = useState<{ nodeId: string; assetIndex: number } | null>(null);
   const [recipeProvenanceRunId, setRecipeProvenanceRunId] = useState<string | null>(null);
+  const [activeRecipeRun, setActiveRecipeRun] = useState<RecipeActiveRun | null>(null);
+  const [recipeRunDeliveryBusy, setRecipeRunDeliveryBusy] = useState(false);
+  const recipeRunInFlight = Boolean(activeRecipeRun && activeRecipeRun.projectId === activeProjectId && ["queued", "running"].includes(activeRecipeRun.result.run.status));
+  const recipeDeliveryInFlightRef = useRef<Map<string, Promise<{ ok: boolean; error?: string; nodeId?: string }>>>(new Map());
   const [manualVideoTaskDialog, setManualVideoTaskDialog] = useState<ManualVideoTaskDialogState | null>(null);
   const [videoTaskBusy, setVideoTaskBusy] = useState(false);
   const [deleteNodeDraft, setDeleteNodeDraft] = useState<DeleteNodeDraft | null>(null);
@@ -5044,41 +5069,99 @@ function App() {
     };
   }, [activeProjectId, configReady]);
 
+  const hasCanvasNodes = nodes.length > 0;
+
   useEffect(() => {
     const bridge = window.naimageRecipe;
-    if (!configReady || !activeProjectId || !bridge?.listRuns || !nodes.length) return;
+    if (!configReady || !activeProjectId || !bridge?.listRuns || !hasCanvasNodes) return;
     if (recipeRecoveryProjectRef.current === activeProjectId) return;
     const projectId = activeProjectId;
     let disposed = false;
     const recover = async () => {
       const listed = await bridge.listRuns({ projectId });
-      if (disposed || !listed.ok || !Array.isArray(listed.runs)) return;
-      recipeRecoveryProjectRef.current = projectId;
+      if (disposed || activeProjectIdRef.current !== projectId || !listed.ok || !Array.isArray(listed.runs)) return;
+      let attachedDock = false;
       for (const item of listed.runs) {
         if (disposed || activeProjectIdRef.current !== projectId) return;
         if (nodesRef.current.some((node) => node.recipeRunId === item.runId)) continue;
         if (item.sourceNodeId && !nodesRef.current.some((node) => node.id === item.sourceNodeId)) continue;
-        let response = item.status === "succeeded"
-          ? await bridge.get({ projectId, runId: item.runId })
-          : ["running", "queued", "interrupted"].includes(item.status)
-            ? await bridge.resume({ projectId, runId: item.runId })
-            : null;
-        if (!response?.ok || !response.run) continue;
-        while (!disposed && !["succeeded", "failed", "cancelled"].includes(response.run.status)) {
-          await new Promise((resolve) => window.setTimeout(resolve, 1_200));
+        try {
+          const response = item.status === "succeeded"
+            ? await bridge.get({ projectId, runId: item.runId })
+            : ["running", "queued", "interrupted"].includes(item.status)
+              ? await bridge.resume({ projectId, runId: item.runId })
+              : null;
           if (disposed || activeProjectIdRef.current !== projectId) return;
-          response = await bridge.get({ projectId, runId: item.runId });
-          if (!response?.ok || !response.run) break;
+          if (!response?.ok || !response.run || !response.recipe) continue;
+          const sourceNodeId = item.sourceNodeId || response.input?.sourceNodeId || "";
+          if (sourceNodeId && !nodesRef.current.some((node) => node.id === sourceNodeId)) continue;
+          const fullResult = mergeRecipeRunResult(undefined, response as Partial<RecipeRunResult> & { run: RecipeRunResult["run"] });
+          if (["queued", "running"].includes(response.run.status)) {
+            if (!attachedDock) {
+              attachedDock = true;
+              setActiveRecipeRun((current) => {
+                if (current && current.projectId === projectId && current.runId === item.runId) return current;
+                if (current && current.projectId === projectId && ["queued", "running"].includes(current.result.run.status)) return current;
+                return {
+                  runId: item.runId,
+                  projectId,
+                  sourceNodeId,
+                  sourceAssetIndex: 0,
+                  recipeName: fullResult.recipe.name || "Recipe",
+                  result: fullResult,
+                };
+              });
+            }
+            continue;
+          }
+          if (response.run.status === "failed" && ["running", "queued", "interrupted"].includes(item.status)) {
+            if (!attachedDock) {
+              attachedDock = true;
+              setActiveRecipeRun((current) => {
+                if (current && current.projectId === projectId) return current;
+                return {
+                  runId: item.runId,
+                  projectId,
+                  sourceNodeId,
+                  sourceAssetIndex: 0,
+                  recipeName: fullResult.recipe.name || "Recipe",
+                  result: fullResult,
+                };
+              });
+            }
+            continue;
+          }
+          if (response.run.status !== "succeeded") continue;
+          const delivered = await deliverRecipeRunToCanvasRef.current?.(fullResult, sourceNodeId, { reveal: false });
+          if (disposed || activeProjectIdRef.current !== projectId) return;
+          if (!delivered?.ok) {
+            const errorMessage = delivered?.error || "Recipe Run 已恢复，但写回画布失败。";
+            setServerMessage(errorMessage);
+            addEvent(`Recipe Run 恢复写回失败 · ${item.runId}`);
+            if (!attachedDock) {
+              attachedDock = true;
+              setActiveRecipeRun((current) => {
+                if (current && current.projectId === projectId) return current;
+                return {
+                  runId: item.runId,
+                  projectId,
+                  sourceNodeId,
+                  sourceAssetIndex: 0,
+                  recipeName: fullResult.recipe.name || "Recipe",
+                  result: fullResult,
+                  deliveryError: errorMessage,
+                };
+              });
+            }
+          }
+        } catch (itemError) {
+          if (!disposed) {
+            addEvent(`Recipe Run 恢复失败 · ${item.runId} · ${itemError instanceof Error ? itemError.message : String(itemError)}`);
+          }
         }
-        if (disposed || !response?.ok || !response.run || response.run.status !== "succeeded") continue;
-        const delivered = await deliverRecipeRunToCanvas(
-          response as RecipeRunResult,
-          item.sourceNodeId || response.input?.sourceNodeId || ""
-        );
-        if (!delivered.ok) {
-          setServerMessage(delivered.error || "Recipe Run 已恢复，但写回画布失败。");
-          addEvent(`Recipe Run 恢复写回失败 · ${item.runId}`);
-        }
+      }
+      if (!disposed && activeProjectIdRef.current === projectId) {
+        recipeRecoveryProjectRef.current = projectId;
       }
     };
     void recover().catch((error) => {
@@ -5087,7 +5170,7 @@ function App() {
     return () => {
       disposed = true;
     };
-  }, [activeProjectId, configReady, nodes.length]);
+  }, [activeProjectId, configReady, hasCanvasNodes]);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -14300,6 +14383,20 @@ function App() {
     });
   }
 
+  function revealRecipeResultNode(nodeId: string) {
+    const node = nodesRef.current.find((item) => item.id === nodeId);
+    if (!node) return false;
+    commitNodeSelection({ primaryId: node.id, ids: [node.id] }, "recipe-run-reveal");
+    setActiveNodeId(node.id);
+    focusWorkflowNode(node, {
+      revealInspector: false,
+      recordEvent: false,
+      selectNode: true,
+      closeCanvasMenu: false,
+    });
+    return true;
+  }
+
   function focusWorkflowNodes(targetNodes: WorkflowNode[], options?: { recordEvent?: boolean; closeCanvasMenu?: boolean }) {
     if (!targetNodes.length) return;
     if (targetNodes.length === 1) {
@@ -14466,6 +14563,8 @@ function App() {
     setLockedNodeIds([]);
     setAgentPaused(false);
     suspendProjectSessionAutosave();
+    const previousProjectId = activeProjectIdRef.current;
+    recipeRecoveryProjectRef.current = "";
     activeProjectIdRef.current = nextProjectId;
     workspaceDomainRef.current = nextSession.workspaceDomain;
     if (nextProjectId) {
@@ -14507,6 +14606,12 @@ function App() {
     setProjectMenuOpen(false);
     setFileMenuOpen(false);
     setPromptEditorOpen(false);
+    if (nextProjectId !== previousProjectId) {
+      setRecipeStudioTarget(null);
+      setRecipeProvenanceRunId(null);
+      setActiveRecipeRun(null);
+      setRecipeRunDeliveryBusy(false);
+    }
     setFastMemoryEditorOpen(false);
     setManualImageTaskDialog(null);
     setManualVideoTaskDialog(null);
@@ -14732,10 +14837,15 @@ function App() {
         label: "用 Skill",
         title: "用 Skill/Recipe 处理",
         icon: <WandSparkles size={14} />,
-        disabled: nodeLocked || agentExecutionBusyNow(),
+        disabled: nodeLocked || agentExecutionBusyNow() || recipeRunInFlight,
         onClick: () => {
+          if (recipeRunInFlight) {
+            setServerMessage("当前 Recipe 运行中，可先等待完成或取消。");
+            return;
+          }
           setSelectedNodeId(node.id);
           setRecipeStudioTarget({ nodeId: node.id, assetIndex: 0 });
+          void flushActiveProjectSession({ live: true, projectId: activeProjectIdRef.current }).catch(() => {});
         },
       });
     }
@@ -25770,11 +25880,142 @@ function App() {
     );
   }
 
-  async function deliverRecipeRunToCanvas(result: RecipeRunResult, sourceNodeId: string) {
+  const deliverRecipeRunToCanvasRef = useRef<null | ((result: RecipeRunResult, sourceNodeId: string, options?: { reveal?: boolean }) => Promise<{ ok: boolean; error?: string; nodeId?: string }>)>(null);
+
+  function stripUnpersistedRecipeNode(
+    sourceNodes: WorkflowNode[],
+    sourceGroups: ImageLayoutGroup[],
+    failedNodeId: string,
+    runId: string,
+  ) {
+    const removeIds = new Set(
+      sourceNodes
+        .filter((node) => node.id === failedNodeId || node.recipeRunId === runId)
+        .map((node) => node.id),
+    );
+    if (failedNodeId) removeIds.add(failedNodeId);
+    const hasNodeReference = sourceNodes.some((node) => (
+      removeIds.has(node.id)
+      || (node.parentId && removeIds.has(node.parentId))
+      || (node.type === "requirement" && node.requirement && requirementInputBindings(node, sourceNodes).some((binding) => removeIds.has(binding.nodeId)))
+    ));
+    const hasGroupReference = sourceGroups.some((group) => (
+      removeIds.has(group.hostNodeId) || group.memberNodeIds.some((id) => removeIds.has(id))
+    ));
+    if (!hasNodeReference && !hasGroupReference) {
+      return { changed: false, nodes: sourceNodes, groups: sourceGroups, removeIds };
+    }
+    const detached: WorkflowNode[] = sourceNodes.map((item): WorkflowNode => {
+      if (removeIds.has(item.id)) return item;
+      if (item.type === "requirement" && item.requirement) {
+        const before = requirementInputBindings(item, sourceNodes);
+        const requirement = removeRequirementInputBindings({ ...item.requirement, inputBindings: before }, removeIds);
+        const bindings = requirementInputBindings({ ...item, requirement, parentId: undefined }, sourceNodes);
+        return {
+          ...item,
+          requirement,
+          parentId: primaryRequirementInputNodeId(bindings) || undefined,
+          relationType: bindings.length ? "referenced" : undefined,
+        };
+      }
+      return item.parentId && removeIds.has(item.parentId)
+        ? { ...item, parentId: undefined, relationType: undefined }
+        : item;
+    });
+    const layerNormalized = normalizeLayerGroupsAfterRemoval(detached, removeIds);
+    const layoutNormalized = normalizeImageLayoutsAfterRemoval(sourceNodes, layerNormalized, sourceGroups, removeIds);
+    return {
+      changed: true,
+      nodes: layoutNormalized.nodes,
+      groups: layoutNormalized.groups,
+      removeIds,
+    };
+  }
+
+  function rollbackFailedRecipeDelivery({
+    targetProjectId,
+    nodeId,
+    runId,
+    nextNodes,
+    previousNodes,
+    previousGroups,
+    previousRevision,
+    previousUndo,
+  }: {
+    targetProjectId: string;
+    nodeId: string;
+    runId: string;
+    nextNodes: WorkflowNode[];
+    previousNodes: WorkflowNode[];
+    previousGroups: ImageLayoutGroup[];
+    previousRevision: number;
+    previousUndo: CanvasHistorySnapshot | null;
+  }) {
+    if (activeProjectIdRef.current !== targetProjectId) return;
+    if (nodesRef.current === nextNodes && layoutGroupsRef.current === previousGroups) {
+      nodesRef.current = previousNodes;
+      layoutGroupsRef.current = previousGroups;
+      canvasRevisionRef.current = previousRevision;
+      canvasUndoRef.current = previousUndo;
+      automationCanvasCommitMarkerRef.current = { nodes: previousNodes, layoutGroups: previousGroups };
+      setNodes(previousNodes);
+      setLayoutGroups(previousGroups);
+      return;
+    }
+    // Concurrent edits occurred while the session save was awaiting: keep them and strip only the unpersisted result node.
+    const liveStripped = stripUnpersistedRecipeNode(nodesRef.current, layoutGroupsRef.current, nodeId, runId);
+    if (liveStripped.changed) {
+      automationCanvasCommitMarkerRef.current = { nodes: liveStripped.nodes, layoutGroups: liveStripped.groups };
+      nodesRef.current = liveStripped.nodes;
+      layoutGroupsRef.current = liveStripped.groups;
+      setNodes((current) => {
+        const stateStripped = stripUnpersistedRecipeNode(current, layoutGroupsRef.current, nodeId, runId);
+        if (!stateStripped.changed) return current;
+        nodesRef.current = stateStripped.nodes;
+        return stateStripped.nodes;
+      });
+      setLayoutGroups(liveStripped.groups);
+    }
+    const removeSelectionIds = new Set([...liveStripped.removeIds, nodeId]);
+    if (currentNodeSelection().ids.some((id) => removeSelectionIds.has(id))) {
+      removeNodeIdsFromSelection(removeSelectionIds);
+    }
+    setActiveNodeId((current) => (current && removeSelectionIds.has(current) ? null : current));
+    if (canvasUndoRef.current?.label === "Recipe Run 回投六张套图") {
+      canvasUndoRef.current = previousUndo;
+    } else if (canvasUndoRef.current) {
+      const undo = canvasUndoRef.current;
+      const undoStripped = stripUnpersistedRecipeNode(undo.nodes, undo.layoutGroups, nodeId, runId);
+      const selectionHasFailed = undo.selection.ids.some((id) => removeSelectionIds.has(id))
+        || removeSelectionIds.has(undo.selection.primaryId);
+      if (undoStripped.changed || selectionHasFailed) {
+        canvasUndoRef.current = {
+          ...undo,
+          nodes: undoStripped.nodes,
+          layoutGroups: undoStripped.groups,
+          selection: reduceNodeSelection(
+            undo.selection,
+            { type: "remove", ids: [...removeSelectionIds] },
+            new Set(undoStripped.nodes.map((node) => node.id)),
+          ),
+        };
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(projectSessionPersistQueueRef.current, targetProjectId)) {
+      void flushActiveProjectSession({ live: true, projectId: targetProjectId }).catch(() => {});
+    }
+  }
+
+  async function deliverRecipeRunToCanvas(
+    result: RecipeRunResult,
+    sourceNodeId: string,
+    options: { reveal?: boolean } = {},
+  ) {
     if (!result?.run || result.run.status !== "succeeded") {
       return { ok: false, error: "Recipe Run 尚未成功完成。" };
     }
-    if (result.run.projectId !== activeProjectIdRef.current) {
+    const targetProjectId = result.run.projectId;
+    if (!targetProjectId || targetProjectId !== activeProjectIdRef.current) {
       return { ok: false, error: "Recipe Run 所属项目已经切换；未写入当前画布。" };
     }
     if (!Array.isArray(result.assets) || result.assets.length !== 6 || result.run.outputs.length !== 6) {
@@ -25782,10 +26023,20 @@ function App() {
     }
     const existingNode = nodesRef.current.find((node) => node.recipeRunId === result.run.runId);
     if (existingNode) {
-      setSelectedNodeId(existingNode.id);
-      return { ok: true };
+      if (options.reveal) revealRecipeResultNode(existingNode.id);
+      return { ok: true, nodeId: existingNode.id };
     }
-    const sourceNode = nodesRef.current.find((node) => node.id === sourceNodeId);
+    const inFlightDelivery = recipeDeliveryInFlightRef.current.get(result.run.runId);
+    if (inFlightDelivery) {
+      const outcome = await inFlightDelivery;
+      if (outcome.ok && outcome.nodeId && options.reveal && activeProjectIdRef.current === targetProjectId) {
+        revealRecipeResultNode(outcome.nodeId);
+      }
+      return outcome;
+    }
+    const deliveryPromise = (async (): Promise<{ ok: boolean; error?: string; nodeId?: string }> => {
+    const effectiveSourceNodeId = sourceNodeId || result.input?.sourceNodeId || "";
+    const sourceNode = nodesRef.current.find((node) => node.id === effectiveSourceNodeId);
     const sourceAsset = sourceNode?.type === "image" ? sourceNode.assets?.[0] : null;
     if (!sourceNode || !sourceAsset) {
       return { ok: false, error: "原商品图节点已不可用；Run 记录仍保留在项目中。" };
@@ -25894,34 +26145,270 @@ function App() {
     const previousUndo = canvasUndoRef.current;
     const nextNodes = [...previousNodes, { ...resultNode, zOrder: nextNodeZOrder(previousNodes) }];
     commitAutomationCanvasMutation(nextNodes, previousGroups, "Recipe Run 回投六张套图");
-    commitNodeSelection({ primaryId: nodeId, ids: [nodeId] }, "recipe-run-delivery");
-    setActiveNodeId(nodeId);
-    const saved = await flushActiveProjectSession({ live: true, projectId: result.run.projectId });
+    let saved: Awaited<ReturnType<typeof flushActiveProjectSession>> | undefined;
+    let saveErrorMessage = "";
+    try {
+      saved = await flushActiveProjectSession({ live: true, projectId: targetProjectId });
+    } catch (saveError) {
+      saveErrorMessage = saveError instanceof Error ? saveError.message : String(saveError);
+    }
     if (!saved?.ok) {
-      nodesRef.current = previousNodes;
-      layoutGroupsRef.current = previousGroups;
-      canvasRevisionRef.current = previousRevision;
-      canvasUndoRef.current = previousUndo;
-      setNodes(previousNodes);
-      setLayoutGroups(previousGroups);
-      return { ok: false, error: saved?.error || "六张图片已生成，但画布保存失败；可以重试写回。" };
+      const message = saveErrorMessage || saved?.error || "画布保存失败；六张图片已生成，可以重试写回。";
+      addEvent(`Recipe Run 写回失败 · ${result.run.runId} · ${message}`);
+      rollbackFailedRecipeDelivery({
+        targetProjectId,
+        nodeId,
+        runId: result.run.runId,
+        nextNodes,
+        previousNodes,
+        previousGroups,
+        previousRevision,
+        previousUndo,
+      });
+      return { ok: false, error: message };
     }
     addEvent(`Recipe Run ${shortRunId(result.run.runId)} 回投 6 张套图`);
-    notifyAgentOfManualAction(
-      "Recipe Run 完成",
-      `用户通过 ${recipeName} Recipe 生成六张套图；输入 ${inputIdentity?.assetId || "SOURCE"}，Run ${result.run.runId}。`
-    );
-    commitNodeSelection({ primaryId: nodeId, ids: [nodeId] }, "recipe-run-delivery");
-    setActiveNodeId(nodeId);
-    const focusResult = () => focusWorkflowNode(resultNode, {
-      revealInspector: false,
-      recordEvent: false,
-      selectNode: true,
-      closeCanvasMenu: false,
+    if (activeProjectIdRef.current === targetProjectId) {
+      notifyAgentOfManualAction(
+        "Recipe Run 完成",
+        `用户通过 ${recipeName} Recipe 生成六张套图；输入 ${inputIdentity?.assetId || "SOURCE"}，Run ${result.run.runId}。`
+      );
+    }
+    return { ok: true, nodeId };
+    })().finally(() => {
+      if (recipeDeliveryInFlightRef.current.get(result.run.runId) === deliveryPromise) {
+        recipeDeliveryInFlightRef.current.delete(result.run.runId);
+      }
     });
-    window.requestAnimationFrame(focusResult);
-    window.setTimeout(focusResult, 250);
-    return { ok: true };
+    recipeDeliveryInFlightRef.current.set(result.run.runId, deliveryPromise);
+    const outcome = await deliveryPromise;
+    if (outcome.ok && outcome.nodeId && options.reveal !== false && activeProjectIdRef.current === targetProjectId) {
+      const nodeId = outcome.nodeId;
+      commitNodeSelection({ primaryId: nodeId, ids: [nodeId] }, "recipe-run-delivery");
+      setActiveNodeId(nodeId);
+      const focusResult = () => {
+        if (activeProjectIdRef.current !== targetProjectId) return;
+        const deliveredNode = nodesRef.current.find((item) => item.id === nodeId);
+        if (!deliveredNode) return;
+        focusWorkflowNode(deliveredNode, {
+          revealInspector: false,
+          recordEvent: false,
+          selectNode: true,
+          closeCanvasMenu: false,
+        });
+      };
+      window.requestAnimationFrame(focusResult);
+      window.setTimeout(focusResult, 250);
+    }
+    return outcome;
+  }
+  deliverRecipeRunToCanvasRef.current = deliverRecipeRunToCanvas;
+
+  useEffect(() => {
+    if (activeRecipeRun && activeRecipeRun.projectId !== activeProjectId) {
+      setActiveRecipeRun(null);
+    }
+  }, [activeProjectId, activeRecipeRun]);
+
+  useEffect(() => {
+    if (!activeRecipeRun || !recipeRunInFlight || !configReady) return;
+    const { runId, projectId, sourceNodeId } = activeRecipeRun;
+    if (projectId !== activeProjectIdRef.current) return;
+    const bridge = window.naimageRecipe;
+    if (!bridge?.get) return;
+    let disposed = false;
+    let timer: number | null = null;
+    let pollInFlight = false;
+    const scheduleNext = () => {
+      if (disposed) return;
+      timer = window.setTimeout(() => void poll(), 900);
+    };
+    const poll = async () => {
+      if (disposed || pollInFlight || activeProjectIdRef.current !== projectId) return;
+      pollInFlight = true;
+      try {
+        const response = await bridge.get({ projectId, runId });
+        if (disposed || activeProjectIdRef.current !== projectId) return;
+        if (!response?.ok || !response.run) throw new Error(response?.error || "Recipe Run 状态读取失败。");
+        const incoming = response as Partial<RecipeRunResult> & { run: RecipeRunResult["run"] };
+        if (!isTerminalRecipeRunStatus(incoming.run.status)) {
+          setActiveRecipeRun((current) => {
+            if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+            if (isTerminalRecipeRunStatus(current.result.run.status)) return current;
+            return {
+              ...current,
+              result: mergeRecipeRunResult(current.result, incoming),
+              deliveryError: undefined,
+            };
+          });
+          scheduleNext();
+          return;
+        }
+        if (incoming.run.status !== "succeeded") {
+          setActiveRecipeRun((current) => {
+            if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+            if (current.result.run.status === "succeeded" || current.deliveredNodeId) return current;
+            return {
+              ...current,
+              result: mergeRecipeRunResult(current.result, incoming),
+              cancelling: false,
+              deliveryError: undefined,
+            };
+          });
+          return;
+        }
+        const fullResult = mergeRecipeRunResult(activeRecipeRun.result, incoming);
+        const delivered = await deliverRecipeRunToCanvasRef.current?.(fullResult, sourceNodeId, { reveal: false });
+        if (disposed || activeProjectIdRef.current !== projectId) return;
+        setActiveRecipeRun((current) => {
+          if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+          return {
+            ...current,
+            result: mergeRecipeRunResult(current.result, incoming),
+            cancelling: false,
+            deliveredNodeId: delivered?.ok ? delivered.nodeId : current.deliveredNodeId,
+            deliveryError: delivered?.ok ? undefined : (delivered?.error || "写回画布失败，可以重试。"),
+          };
+        });
+      } catch (error: unknown) {
+        if (disposed || activeProjectIdRef.current !== projectId) return;
+        const message = error instanceof Error ? error.message : "Recipe Run 状态读取失败。";
+        setActiveRecipeRun((current) => {
+          if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+          if (isTerminalRecipeRunStatus(current.result.run.status)) return current;
+          return { ...current, deliveryError: message };
+        });
+        addEvent(`Recipe Run 后台轮询失败 · ${runId}`);
+        scheduleNext();
+      } finally {
+        pollInFlight = false;
+      }
+    };
+    void poll();
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [activeRecipeRun?.runId, activeRecipeRun?.projectId, activeRecipeRun?.sourceNodeId, recipeRunInFlight, configReady]);
+
+  async function cancelActiveRecipeRun() {
+    if (!activeRecipeRun || activeRecipeRun.cancelling) return;
+    const snapshot = activeRecipeRun;
+    const { projectId, runId, sourceNodeId } = snapshot;
+    setActiveRecipeRun((current) => current?.runId === runId ? { ...current, cancelling: true, deliveryError: undefined } : current);
+    try {
+      const response = await window.naimageRecipe?.cancel({ projectId, runId });
+      if (activeProjectIdRef.current !== projectId) return;
+      if (!response?.ok) throw new Error(response?.error || "取消运行失败。");
+      if (!response.run) {
+        setActiveRecipeRun((current) => (current?.runId === runId && current.projectId === projectId ? null : current));
+        return;
+      }
+      const cancelRun = response.run;
+      if (response.cancelling || !isTerminalRecipeRunStatus(cancelRun.status)) {
+        setActiveRecipeRun((current) => {
+          if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+          if (isTerminalRecipeRunStatus(current.result.run.status)) return current;
+          return {
+            ...current,
+            cancelling: true,
+            result: { ...current.result, run: cancelRun },
+          };
+        });
+        return;
+      }
+      if (cancelRun.status === "succeeded") {
+        const latest = await window.naimageRecipe?.get({ projectId, runId });
+        if (activeProjectIdRef.current !== projectId) return;
+        const fullResult = latest?.ok && latest.run
+          ? mergeRecipeRunResult(snapshot.result, latest as Partial<RecipeRunResult> & { run: RecipeRunResult["run"] })
+          : mergeRecipeRunResult(snapshot.result, { run: cancelRun });
+        const delivered = await deliverRecipeRunToCanvasRef.current?.(fullResult, sourceNodeId, { reveal: false });
+        if (activeProjectIdRef.current !== projectId) return;
+        setActiveRecipeRun((current) => {
+          if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+          return {
+            ...current,
+            result: fullResult,
+            cancelling: false,
+            deliveredNodeId: delivered?.ok ? delivered.nodeId : current.deliveredNodeId,
+            deliveryError: delivered?.ok ? undefined : (delivered?.error || "写回画布失败，可以重试。"),
+          };
+        });
+        return;
+      }
+      setActiveRecipeRun((current) => {
+        if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+        if (current.result.run.status === "succeeded" || current.deliveredNodeId) return current;
+        return {
+          ...current,
+          cancelling: false,
+          deliveryError: undefined,
+          result: mergeRecipeRunResult(current.result, { run: cancelRun }),
+        };
+      });
+    } catch (error) {
+      if (activeProjectIdRef.current !== projectId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setActiveRecipeRun((current) => {
+        if (!current || current.runId !== runId || current.projectId !== projectId) return current;
+        if (isTerminalRecipeRunStatus(current.result.run.status)) return current;
+        return { ...current, cancelling: false, deliveryError: message };
+      });
+    }
+  }
+
+  async function retryActiveRecipeDelivery() {
+    if (!activeRecipeRun || recipeRunDeliveryBusy) return;
+    const { runId, projectId, result, sourceNodeId } = activeRecipeRun;
+    const effectiveSourceNodeId = sourceNodeId || result.input?.sourceNodeId || "";
+    setRecipeRunDeliveryBusy(true);
+    try {
+      let deliveryResult = result;
+      if (!Array.isArray(deliveryResult.assets) || deliveryResult.assets.length !== 6) {
+        const fresh = await window.naimageRecipe?.get({ projectId, runId });
+        if (activeProjectIdRef.current !== projectId) return;
+        if (!fresh?.ok || !fresh.run) throw new Error(fresh?.error || "Recipe Run 读取失败。");
+        deliveryResult = mergeRecipeRunResult(deliveryResult, fresh as Partial<RecipeRunResult> & { run: RecipeRunResult["run"] });
+      }
+      const delivered = await deliverRecipeRunToCanvas(deliveryResult, effectiveSourceNodeId, { reveal: true });
+      if (activeProjectIdRef.current !== projectId) return;
+      if (!delivered.ok) {
+        setActiveRecipeRun((current) => current?.runId === runId ? { ...current, result: deliveryResult, deliveryError: delivered.error || "写回画布失败。" } : current);
+        return;
+      }
+      setActiveRecipeRun((current) => current?.runId === runId ? null : current);
+    } catch (error) {
+      if (activeProjectIdRef.current !== projectId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setActiveRecipeRun((current) => current?.runId === runId ? { ...current, deliveryError: message } : current);
+    } finally {
+      setRecipeRunDeliveryBusy(false);
+    }
+  }
+
+  function revealActiveRecipeResult() {
+    if (!activeRecipeRun || recipeRunDeliveryBusy) return;
+    const existingId = activeRecipeRun.deliveredNodeId
+      || nodesRef.current.find((node) => node.recipeRunId === activeRecipeRun.runId)?.id;
+    if (existingId && revealRecipeResultNode(existingId)) {
+      setActiveRecipeRun(null);
+      return;
+    }
+    void retryActiveRecipeDelivery();
+  }
+
+  function reconfigureActiveRecipeRun() {
+    if (!activeRecipeRun) return;
+    const targetId = activeRecipeRun.sourceNodeId || activeRecipeRun.result.input?.sourceNodeId || "";
+    const target = { nodeId: targetId, assetIndex: activeRecipeRun.sourceAssetIndex };
+    setActiveRecipeRun(null);
+    if (target.nodeId && nodesRef.current.some((node) => node.id === target.nodeId)) {
+      setSelectedNodeId(target.nodeId);
+      setRecipeStudioTarget(target);
+      return;
+    }
+    setServerMessage("原商品图节点已不可用，请重新选择图片后再运行 Recipe。");
   }
 
   async function runManualImageTask(
@@ -28697,7 +29184,6 @@ function App() {
         <div className="ide-actions">
           <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
             <LazyWorkspaceSearch
-              projectContextView={<ProjectContextPanel {...projectContextProps} />}
               nodes={canvasNodes}
               conversations={conversations}
               activeConversationId={activeConversationId}
@@ -28791,7 +29277,6 @@ function App() {
                   <ImageIcon size={15} />
                 </span>
                 <div className="canvas-selection-indicator-copy">
-                  <span>当前选中</span>
                   <strong>{canvasSelectionSummary.title}</strong>
                   <small>{canvasSelectionSummary.detail}</small>
                 </div>
@@ -28804,9 +29289,7 @@ function App() {
                   <X size={13} />
                 </ButtonBase>
               </div>
-            ) : (
-              <span className="workspace-context-hint">选择图片后，可在 Agent 中继续处理</span>
-            )}
+            ) : null}
           </div>
           <div
             ref={bindCanvasRef}
@@ -29553,25 +30036,26 @@ function App() {
                         {node.imageState === "error" && imageProgressText && visibleNodeError ? <small>{visibleNodeError}</small> : null}
                       </div>
                     ) : null}
-                    {node.recipeRunId ? (
-                      <button
-                        type="button"
-                        className="node-recipe-provenance"
-                        data-recipe-run-id={node.recipeRunId}
-                        title={`Recipe Run ${node.recipeRunId}`}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setRecipeProvenanceRunId(node.recipeRunId || null);
-                        }}
-                      >
-                        <WandSparkles size={12} aria-hidden="true" />
-                        <span>Recipe Run · {shortRunId(node.recipeRunId)}</span>
-                      </button>
-                    ) : null}
                     <footer>
-                      <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.type === "video" ? node.videoAsset?.width && node.videoAsset?.height ? `${node.videoAsset.width} × ${node.videoAsset.height}` : node.videoTaskId ? `${node.videoModel || "生成"}视频任务` : "本地视频成果" : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? nodeImageSize.replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
+                      {node.recipeRunId ? (
+                        <button
+                          type="button"
+                          className="node-recipe-provenance"
+                          data-recipe-run-id={node.recipeRunId}
+                          title={`Recipe Run ${node.recipeRunId}`}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setRecipeProvenanceRunId(node.recipeRunId || null);
+                          }}
+                        >
+                          <WandSparkles size={11} aria-hidden="true" />
+                          <span>Recipe Run · {shortRunId(node.recipeRunId)}</span>
+                        </button>
+                      ) : (
+                        <span>{node.type === "requirement" ? `${node.requirement?.skill ? "Skill · " : ""}需求版本 v${node.requirement?.revision ?? 1}` : node.type === "video" ? node.videoAsset?.width && node.videoAsset?.height ? `${node.videoAsset.width} × ${node.videoAsset.height}` : node.videoTaskId ? `${node.videoModel || "生成"}视频任务` : "本地视频成果" : node.imageContainerRole === "source" ? "本轮原图" : node.imageContainerRole === "reference" ? "本轮参考图" : node.imageContainer ? "项目图片库" : node.imageCollection ? (node.imageCollection.kind === "series" ? "连续生成系列" : "批量图片组") : layerGroup ? `分层 PNG #${String(layerGroup.groupNumber).padStart(3, "0")}` : node.layerComposition ? `分层 PNG #${String(node.layerComposition.groupNumber ?? 0).padStart(3, "0")}` : node.type === "image" ? nodeImageSize.replace("x", " × ") : node.imageParams?.ratio || "图片成果"}</span>
+                      )}
                       <span>{node.type === "requirement" ? `${requirementOutputCount} 个成果` : node.type === "video" ? node.videoAsset?.durationMs ? `${Math.max(0.1, node.videoAsset.durationMs / 1000).toFixed(1)} 秒` : Number.isFinite(node.videoProgress) ? `${node.videoProgress}%` : node.videoTaskId ? "等待视频成果" : "1 个视频" : node.imageContainer || node.imageCollection ? `${Math.max(node.imageProgress?.total ?? 0, node.imageParams?.count ?? 0, node.assets?.length ?? 0, 1)} 张` : layerGroup ? `第 ${layerGroup.order}/${layerGroup.total} 层` : node.layerComposition ? `${node.layerComposition.layers.length} 层 · 可拖动` : `${Math.max(node.imageParams?.count ?? 0, node.outputs ?? 0, 1)} 张`}</span>
                     </footer>
                     {(["left", "right", "top", "bottom"] as const).map((side) => (
@@ -29652,23 +30136,25 @@ function App() {
 
           </div>
 
+          {activeRecipeRun && activeRecipeRun.projectId === activeProjectId ? (
+            <React.Suspense fallback={null}>
+              <LazyRecipeRunDock
+                run={activeRecipeRun}
+                busy={recipeRunDeliveryBusy}
+                onCancel={() => void cancelActiveRecipeRun()}
+                onReveal={revealActiveRecipeResult}
+                onRetryDelivery={() => void retryActiveRecipeDelivery()}
+                onReconfigure={reconfigureActiveRecipeRun}
+                onDismiss={() => setActiveRecipeRun(null)}
+              />
+            </React.Suspense>
+          ) : null}
+
           <div className="canvas-footer">
             <div className="canvas-status-line canvas-live-progress" aria-label="画布信息">
               <ImageIcon size={15} aria-hidden="true" />
               <strong>{canvasImageStatus.title}</strong>
               <span role={canvasMenuNotice ? "status" : undefined}>{canvasMenuNotice || canvasImageStatus.meta}</span>
-            </div>
-            <div className="canvas-tools" aria-label="画布缩放">
-              <ButtonBase type="button" onClick={() => zoomCanvas(-0.08)}>
-                -
-              </ButtonBase>
-              <ButtonBase className="zoom-button" type="button" onClick={fitCanvas}>
-                <Maximize2 size={14} />
-                {Math.round(zoom * 100)}%
-              </ButtonBase>
-              <ButtonBase type="button" onClick={() => zoomCanvas(0.08)}>
-                +
-              </ButtonBase>
             </div>
           </div>
 
@@ -31018,7 +31504,7 @@ function App() {
               inputAsset={targetAsset}
               inputAssetIndex={recipeStudioTarget.assetIndex}
               close={() => setRecipeStudioTarget(null)}
-              onCompleted={deliverRecipeRunToCanvas}
+              onRunStarted={(run) => { if (activeProjectIdRef.current === run.projectId) setActiveRecipeRun(run); }}
             />
           </React.Suspense>
         );

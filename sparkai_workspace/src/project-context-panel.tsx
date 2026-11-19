@@ -38,8 +38,9 @@ function ProjectContextPanelBody({ projectContext: context, contextBusy: busy, c
     : [...scopeOptions, { scope: editor!.draft.scope, label: `${knowledgeScopeLabel(editor!.draft.scope)} · 当前范围` }];
   const sourceOptions = [...new Map<string, { target: CreationTarget; name: string }>([...(draft.source ? [[contextTargetKey(draft.source), { target: draft.source, name: sourceName || "所选来源" }] as const] : []), ...results.map(item => [contextTargetKey(item.target), item] as const)]).values()];
 
+  const activeKnowledgeCount = context.entries.filter(entry => entry.status === "active" && entry.usable !== false).length;
   return <details className="project-context" data-project-context="">
-    <summary><strong>项目知识与成果检索</strong><span>{context.entries.filter(entry => entry.status === "active" && entry.usable !== false).length} 项知识生效</span></summary>
+    <summary><strong>项目知识与成果检索</strong>{activeKnowledgeCount > 0 ? <span>{activeKnowledgeCount} 项</span> : null}</summary>
     <div className="project-context-content">
       <details className="project-context-knowledge">
         <summary>项目长期知识 · 第 {context.revision} 版</summary>

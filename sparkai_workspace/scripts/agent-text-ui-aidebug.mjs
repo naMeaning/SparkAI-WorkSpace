@@ -291,7 +291,7 @@ async function setEditorText(client, value) {
 async function openPromptEditor(client) {
   await evaluate(client, `window.__naimageDebugOpenSurface?.("settings")`);
   await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer'))`);
-  await clickButton(client, "Agent", ".settings-drawer");
+  await clickButton(client, "生成", ".settings-drawer");
   await waitForExpression(client, `Array.from(document.querySelectorAll('.settings-drawer button')).some((button) => button.textContent?.trim() === '编辑提示词')`);
   await clickButton(client, "编辑提示词", ".settings-drawer");
   await waitForExpression(client, `Boolean(document.querySelector('.agent-text-editor-dialog[aria-label="编辑 Agent 提示词"] textarea:not(:disabled)'))`);
@@ -678,14 +678,14 @@ async function main() {
 
     await setWindowSize(client, target.id, 884, 720);
     await evaluate(client, `window.__naimageDebugOpenSurface?.('main')`);
-    await clickAria(client, "设置");
+    await clickAria(client, "打开设置");
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer[data-ui-surface="settings"]'))`);
     await waitForExpression(client, `document.querySelector('.settings-drawer')?.getAttribute('aria-busy') !== 'true'`);
     await delay(240);
     const settingsSurface = await surfaceSnapshot(client, '.settings-drawer');
     check("settings drawer uses shared drawer semantics", settingsSurface?.surface === "settings" && settingsSurface?.role === "dialog" && settingsSurface?.ariaModal === "true", settingsSurface || {});
     check("settings drawer stays contained at 884x720", settingsSurface?.rect?.withinViewport === true && Math.abs(settingsSurface.rect.right - settingsSurface.viewport.width) <= 1 && settingsSurface?.header?.withinSurface === true && settingsSurface?.title?.text === "设置" && settingsSurface?.close?.withinHeader === true && settingsSurface?.close?.withinViewport === true && settingsSurface?.rect?.overflowX === false, settingsSurface || {});
-    await clickButton(client, "模型", ".settings-drawer");
+    await clickButton(client, "管理模型", ".settings-drawer");
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     const settingsLayout = await evaluate(client, `(() => {
       const drawer = document.querySelector('.settings-drawer');
@@ -714,7 +714,7 @@ async function main() {
         cardsAligned: cardRects.length >= 2 && cardRects.every((rect) => rect.left === cardRects[0].left && rect.right === cardRects[0].right && rect.height >= 72)
       };
     })()`);
-    await clickButton(client, "Agent", ".settings-drawer");
+    await clickButton(client, "生成", ".settings-drawer");
     await waitForExpression(client, `Array.from(document.querySelectorAll('.settings-drawer button')).some((button) => button.textContent?.trim() === '编辑提示词')`);
     const promptActionLayout = await evaluate(client, `(() => {
       const drawer = document.querySelector('.settings-drawer');
@@ -787,8 +787,8 @@ async function main() {
     await setWindowSize(client, target.id, 884, 720);
     await pressKey(client, "Escape");
     await waitForExpression(client, `!document.querySelector('.settings-drawer')`);
-    const settingsDrawerFocus = await waitForFocusedControl(client, "设置");
-    check("settings drawer Escape restores invoking control focus", settingsDrawerFocus === "设置", { focused: settingsDrawerFocus });
+    const settingsDrawerFocus = await waitForFocusedControl(client, "打开设置");
+    check("settings drawer Escape restores invoking control focus", settingsDrawerFocus === "打开设置", { focused: settingsDrawerFocus });
 
     await clickAria(client, "账户");
     await waitForExpression(client, `Boolean(document.querySelector('.account-drawer[data-ui-surface="account"]'))`);
@@ -894,7 +894,7 @@ async function main() {
     await waitForExpression(client, `Boolean(document.querySelector('.agent-text-editor-dialog textarea'))`);
     await evaluate(client, `document.querySelector('.settings-drawer button[aria-label="关闭设置"]')?.click()`);
     await waitForExpression(client, `!document.querySelector('.settings-drawer') && Boolean(document.querySelector('.agent-text-editor-dialog textarea'))`);
-    await clickAria(client, "设置");
+    await clickAria(client, "打开设置");
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer') && document.querySelector('.agent-text-editor-dialog textarea'))`);
     const promptNarrow = await editorSnapshot(client);
     const promptResizeContinuity = await evaluate(client, `(() => {
@@ -955,10 +955,10 @@ async function main() {
     await waitForExpression(client, `(() => {
       const active = document.activeElement;
       const label = active?.getAttribute?.('aria-label') || active?.textContent?.replace(/\\s+/g, ' ').trim() || '';
-      return ['编辑提示词', '接入', '设置'].includes(label);
+      return ['编辑提示词', '接入', '设置', '打开设置', '连接'].includes(label);
     })()`, 5_000);
     const dirtyPromptCloseFocus = await focusedControl(client);
-    check("explicit discard closes and restores nested drawer focus", ["编辑提示词", "接入", "设置"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
+    check("explicit discard closes and restores nested drawer focus", ["编辑提示词", "接入", "设置", "打开设置", "连接"].includes(dirtyPromptCloseFocus), { focused: dirtyPromptCloseFocus });
 
     await openPromptEditor(client);
     const busySentinel = `AIDEBUG_BUSY_CLOSE_${Date.now()}`;
@@ -994,7 +994,8 @@ async function main() {
     check("clean backdrop close restores settings action focus", promptBackdropFocus === "编辑提示词", { focused: promptBackdropFocus });
 
     await setWindowSize(client, target.id, 884, 720);
-    await clickButton(client, "模型", ".settings-drawer");
+    await clickButton(client, "连接", ".settings-drawer");
+    await clickButton(client, "管理模型", ".settings-drawer");
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     await clickAria(client, "配置对话模型");
     await waitForExpression(client, `Boolean(document.querySelector('.model-picker-dialog[data-ui-surface="model-picker-agent"]'))`);
@@ -1202,7 +1203,8 @@ async function main() {
 
     await evaluate(client, `window.__naimageDebugOpenSurface?.('settings')`);
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer'))`);
-    await clickButton(client, "模型", ".settings-drawer");
+    await clickButton(client, "连接", ".settings-drawer");
+    await clickButton(client, "管理模型", ".settings-drawer");
     await waitForExpression(client, `Boolean(document.querySelector('.settings-drawer .settings-model-section'))`);
     await clickAria(client, "配置对话模型");
     await waitForExpression(client, `Boolean(document.querySelector('.model-picker-dialog'))`);
@@ -1308,7 +1310,7 @@ async function main() {
       };
     })()`);
     check("running Image Gen keeps its only dynamic status in the Agent timeline", /^Image Gen 正在绘图 \d+s$/.test(runtimeStatusUniqueness?.timerText || '') && runtimeStatusUniqueness?.agentText.includes(runtimeStatusUniqueness.timerText), runtimeStatusUniqueness || {});
-    check("busy composer remains a static control surface", runtimeStatusUniqueness?.composerFooterText === 'Ctrl + Enter 修改当前任务 修改 暂停 结束' && !/正在执行|正在生成|运行中/.test(runtimeStatusUniqueness?.composerFooterText || ''), runtimeStatusUniqueness || {});
+    check("busy composer remains a static control surface", runtimeStatusUniqueness?.composerFooterText === '修改 暂停 结束' && !/正在执行|正在生成|运行中/.test(runtimeStatusUniqueness?.composerFooterText || ''), runtimeStatusUniqueness || {});
     check("canvas image node uses static placeholders without duplicate running status", runtimeStatusUniqueness?.canvasForbiddenHits.length === 0 && runtimeStatusUniqueness?.nodeState === '图片组' && runtimeStatusUniqueness?.pendingCount === 3 && runtimeStatusUniqueness?.progressBlockCount === 0 && ['none', 'normal', ''].includes(String(runtimeStatusUniqueness?.previewAfterContent || '').replace(/[\"']/g, '')) && runtimeStatusUniqueness?.pendingAnimationName === 'none' && runtimeStatusUniqueness?.nodeBorder?.leftWidth === runtimeStatusUniqueness?.nodeBorder?.rightWidth && runtimeStatusUniqueness?.nodeBorder?.leftColor === runtimeStatusUniqueness?.nodeBorder?.rightColor, runtimeStatusUniqueness || {});
     const reducedRuntimeMotion = await motionSnapshot(client, [
       '.flow-node',
