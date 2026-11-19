@@ -6,7 +6,7 @@
 - Studio 只编辑内置 Beauty Recipe：一个输入预览、运行参数、六个输出槽。确认页只展示 Recipe、输入、有效权限、六个预计输出和费用确认。
 - 清掉重复缩放、搜索弹层里的重复项目知识、唯一 Recipe 的选择器/静态节点图和空运行摘要。保留主状态 owner、实际功能和 Agent 契约。
 - 仅在 `codex/sparkvas-vertical-slice` 修改；fixture/loopback 验证，真实模型请求为 0。最终隔离 Electron、Windows EXE、原位安装、打开安装版并普通推送本分支。
-- 验证状态：Studio Electron 89 项通过；Windows 包已原位安装且 `Sparkvas` 窗口已打开；当前只剩分支提交/普通 push。
+- 已完成本地交付：Studio Electron 89 项通过；Windows 包已原位安装且 `Sparkvas` 窗口保持打开；源码与交付文档已普通 push 至 `codex/sparkvas-vertical-slice`，远端与本地同为 `81e51fd`。
 - 验收与删减证据见 [工作台减法记录](docs/SPARKVAS_WORKSPACE_REDUCTION_2026-11-20.md)。
 
 ## 历史任务：Sparkvas 第一垂直切片（2026-11-17，本地已交付）

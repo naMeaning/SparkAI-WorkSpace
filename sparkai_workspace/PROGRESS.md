@@ -10,7 +10,8 @@
 - Windows package 成功（production build 1720 modules）。EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,278,656 B / SHA-256 `2d2e1cf6b9893c872d5d08a8b461975fca2e28de51de1f8d6fbdd493468f86bb`；`win-unpacked/SparkAIWorkSpace.exe` 232,719,872 B / `cd8851cdd15fbe4a8ac67c7743a3aa3f0dc45c6adfa041af605c47948c575f33`；ASAR 53,784,562 B / `b8350c822a78955abcc1bba478bb425a84037769d1912c628f8c4e1d01502530`。
 - 安装器 exit 0，HKCU 安装显示名 `SparkAI WorkSpace`/版本 `1.0.9`/安装目录 `E:\sparkai-workspace\naimage` 保持；安装 EXE/ASAR 匹配候选包；17 个用户数据文件的路径、大小、SHA-256 前后相同，桌面与开始菜单快捷方式保留原目标。安装后已打开窗口，标题 `Sparkvas`，进程响应。
 - `test:bundle` exit 1：CSS 聚合 299,868 B 超 270,000 B；initial JS 4,359 B、plugin JS 86,769 B 通过，core async/完整 dist 为 advisory 超限。当前是开发交付，不是正式候选；包命令记录 `bundleEnforced: false`。构建日志另有未修改 C# nullable warning。
-- 下一步：只提交本分支改动并普通 push，核对远端提交。真实付费请求仍为 0。
+- 已提交 `81e51fd943b5403077ba67121490208bf27c1487` 并普通 push 到 `origin/codex/sparkvas-vertical-slice`；`git ls-remote` 与本地 `HEAD` 完全一致，工作树干净。main 工作树的用户改动原样保留，没有合并。
+- 安装版进程仍运行，主窗口标题 `Sparkvas` 且 `Responding=True`。真实付费请求仍为 0；视频/Registry/支付/物理 DPI 未验证。
 
 ## Development record (2026-11-17, Sparkvas first vertical slice locally delivered)
 

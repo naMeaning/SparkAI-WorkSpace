@@ -46,4 +46,6 @@
 
 Windows package 成功，production build 为 Vite 1720 modules。候选 EXE `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`：110,278,656 B，SHA-256 `2d2e1cf6b9893c872d5d08a8b461975fca2e28de51de1f8d6fbdd493468f86bb`。解包 EXE `release/win-unpacked/SparkAIWorkSpace.exe`：232,719,872 B，SHA-256 `cd8851cdd15fbe4a8ac67c7743a3aa3f0dc45c6adfa041af605c47948c575f33`；ASAR 53,784,562 B，SHA-256 `b8350c822a78955abcc1bba478bb425a84037769d1912c628f8c4e1d01502530`。
 
-安装器 exit 0；当前用户安装仍是旧技术身份 `SparkAI WorkSpace` v1.0.9，目录 `E:\sparkai-workspace\naimage`。安装 EXE/ASAR 与候选包完全匹配；17 个用户数据文件的路径、大小与 SHA-256 前后相同，桌面/开始菜单快捷方式目标不变。已打开安装版窗口：标题 `Sparkvas`、进程响应。普通 push 与远端核验待完成。
+安装器 exit 0；当前用户安装仍是旧技术身份 `SparkAI WorkSpace` v1.0.9，目录 `E:\sparkai-workspace\naimage`。安装 EXE/ASAR 与候选包完全匹配；17 个用户数据文件的路径、大小与 SHA-256 前后相同，桌面/开始菜单快捷方式目标不变。已打开安装版窗口：标题 `Sparkvas`、进程响应。
+
+源码和文档提交 `81e51fd943b5403077ba67121490208bf27c1487` 已普通 push 至 `origin/codex/sparkvas-vertical-slice`；实测 `git ls-remote` 与本地 `HEAD` 相同，提交后工作树干净。根工作区 `main` 的用户改动未触碰或合并。
