@@ -325,6 +325,10 @@ try {
   await wait("document.documentElement?.dataset.theme==='dark'&&Boolean(document.querySelector('.workspace-workflow-entry'))");
   await click(selector(".workspace-workflow-entry"));
   await wait(`Boolean(${selector(panel)})`);
+  const actionColors = await ev("(()=>{const style=getComputedStyle(document.querySelector('.sequential-workflow .workflow-primary'));return {fg:style.color,bg:style.backgroundColor}})()");
+  const actionContrast = contrastRatio(parseRgb(actionColors.fg), parseRgb(actionColors.bg));
+  assert.ok(actionContrast >= 4.5, `Dark workflow run action contrast: ${actionContrast}`);
+  report.darkRunActionContrast = Number(actionContrast.toFixed(2));
   await screenshot("884x640-dark-draft", 884, 640);
   await screenshot("1280x800-dark-draft", 1280, 800);
   await click(selector(`${panel} [aria-label="关闭工作流"]`));

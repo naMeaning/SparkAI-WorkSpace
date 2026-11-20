@@ -3,10 +3,10 @@
 ## 当前开发状态 · Sparkvas 工作流优先重构（2026-11-20）
 
 - 首版工作流在项目画布旁提供手动和 Agent 草稿、输入和排序校验、运行记录、个人库及跨项目重新绑定。四类内置图片步骤复用 Main 的受管素材、图片请求与操作日志。旧模板按保真能力迁移，旧需求、领域工具、独立视频与 ComfyUI 经原有数据入口访问。新项目默认 `general`。
-- `.diagnostics/electron/sequential-workflow-2026-11-20T05-27-07-864Z/report.json` 共 8 组 Electron 验收和 7 张截图，覆盖 1280×800、884×640 实色日夜、画布来源、跨项目复用、旧入口与 Agent 编辑后运行。日夜对比的实测文字对比度分别为 15.52 和 13.79。通用 GUI 冒烟的 6 个场景全部通过，报告 `.diagnostics/electron/aidebug-2026-11-20T04-42-52-288Z/report.json`。
+- `.diagnostics/electron/sequential-workflow-2026-11-20T05-59-56-295Z/report.json` 共 8 组 Electron 验收和 7 张截图，覆盖 1280×800、884×640 实色日夜、画布来源、跨项目复用、旧入口与 Agent 编辑后运行。日夜对比的实测文字对比度分别为 15.52 和 13.79。补测夜间运行按钮对比度为 8.21。通用 GUI 冒烟的 6 个场景全部通过，报告 `.diagnostics/electron/aidebug-2026-11-20T04-42-52-288Z/report.json`。
 - 最终隔离源码通过 `typecheck`、`test:sequential-workflow`、`test:automation-service`、`test:ipc-registration` 和 `test:settings-persistence`。恢复专项覆盖派发前重启、已提交后查询原回执、第二步失败后恢复及从磁盘核对成果。旧的 `test:settings-lazy-load` 仍在既有画布导航滑杆断言失败，当前入口由 GUI 冒烟验证。
-- `corepack pnpm run package:win:unrestricted` 成功。以 `0e0f1a8` 和定向暂存树 `6b8808bbf75036214f84afa66cb46bece0c4d77e` 在隔离目录构建，后续测试和文档修订不参与包运行。安装器 `release/local-deliveries/sparkvas-workflow-2026-11-20/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,248,960 B，SHA-256 `2265514de672e469e34c4d52c28640d26b8078931af13f8831ff534c74838e4c`。包内核对 Main、Preload、共享运行时与 Renderer 工作流块。
-- 品牌安装器 `/S` 原位升级退出码 0，注册版本 1.0.9。注册目录和 7 个配置文件核对一致，已安装应用 EXE 及 `app.asar` 与本轮包一致。安装审计 `.diagnostics/sparkvas-package-source/install-result.json`。
+- `corepack pnpm run package:win:unrestricted` 成功。以 `e63d928` 和定向暂存树 `edc9b3fa0dafc644807c8720728b4b10886f1a4e` 在隔离目录构建，后续测试和文档修订不参与包运行。安装器 `release/local-deliveries/sparkvas-workflow-2026-11-20-final/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe`，110,248,960 B，SHA-256 `99816aa23babccb77efbe680da43e931acb0aff03258f86030dd5dc25753e7b7`。包内核对 Main、Preload、共享运行时与 Renderer 工作流块。
+- 品牌安装器 `/S` 原位升级退出码 0，注册版本 1.0.9。注册目录和 7 个配置文件核对一致，已安装应用 EXE 及 `app.asar` 与本轮包一致。安装审计 `.diagnostics/sparkvas-package-source/final-install-result.json`。
 - 验收使用模拟 Agent 与图片响应。真实渠道生成、真实视频和 ComfyUI 执行质量未在本轮复测。本轮制品处于本地开发交付状态。方案见 [工作流优先重构方案](docs/SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md)。
 
 ## 当前开发状态（2026-10-25，SparkAPI官网Logo本地开发交付完成）
