@@ -1,6 +1,17 @@
 # SparkAI WorkSpace 进度
 
-## 当前开发状态（2026-11-20，工作台减法与后台生成已本地交付，push 待完成）
+## 当前开发状态（2026-11-20，画布缩放和窗口适配已安装）
+
+- 从独立分支 `codex/sparkvas-vertical-slice` 的 `9c493e3` 续接。密集画布滚轮期间共享样式隐藏图片。大图组跨缩略图尺寸时另有异步换图路径。
+- 密集画布缩放只简化连线和装饰。当前缩略图持续显示到新尺寸解码成功。远景图片节点使用最多一张 256px 代表图，首次缩小仍需等待代表图加载。
+- 隔离 Electron 的 `test:studio-ui -- --canvas-zoom` 覆盖 12 张图片的画布。18 个滚轮交互帧中 0 个空白帧，真实模型请求为 0。报告 `.diagnostics/electron/sparkvas-vertical-slice-2026-11-20T03-19-30-087Z/report.json`。探索性延迟缩略图试验在已解码的图片组跨尺寸和快速反复缩放时观察到 0 个空白帧，远景代表图首次加载出现短暂空白，截图坐标部分超出视口，故该探索试验整体未通过。
+- Gemini 优化共享弹窗和多个容器断点。隔离 Electron 验证 Studio、设置、图片查看器和手动生图窗口在 1280×800、884×640 往返时保留可用按钮及恢复手动尺寸。Studio 89 项、滚轮、自带缩略图缓存和类型检查通过。`.diagnostics/electron/sparkvas-vertical-slice-2026-11-20T02-52-10-191Z/report.json` 包含 Studio 截图和结果。
+- 广覆盖 GUI 冒烟的几何断言通过，空白项目截图因色彩过于均匀未达截图门限。旧 `aidebug:canvas-clarity` 在测试导入夹具阶段失败。记录见 `.diagnostics/sparkvas-resize-quick-smoke.log`、`.diagnostics/sparkvas-resize-clarity.log`。
+- `package:win:unrestricted`、`package:smoke` 通过。Windows 开发安装器 `release/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe` 110,279,168 B，SHA-256 `fd5edbb54ee32704e84116deda0e196599439f688dbf111d48f3fa72be4c17f8`。制品冒烟 `.diagnostics/release/packaged-smoke-2026-11-20T03-00-08-887Z/report.json`。
+- 安装器 `/S` exit 0，注册目录 `E:\sparkai-workspace\naimage` 和版本 1.0.9 保持，用户数据哈希一致。已安装 EXE/ASAR 与解包文件一致，详情见 `.diagnostics/sparkvas-resize-install.json`。安装版 `Sparkvas` 窗口已打开并响应。
+- 用户界面验证覆盖主要弹窗。分层查看器、手动视频和统一编辑器的最大化分支未做专门实测。无正式发布、真实模型或物理 DPI 测试。
+
+## 开发记录（2026-11-20，工作台减法与后台生成已本地交付）
 
 - 分支 `codex/sparkvas-vertical-slice` 续接 `800825b`，只在隔离工作树修改。main 上用户改动未触碰。
 - 用户确认后 Recipe Studio 关闭并后台运行；Canvas 保持可操作，Agent 草稿可继续输入。Run 持久化和回投沿既有项目/会话 owner，运行取消竞态、结果保存失败、同 Run 回投去重与重启恢复已做收敛。

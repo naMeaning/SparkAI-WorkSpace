@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { recordPreferredDialogPosition } from "./dialog-resize";
 
 declare const __NAIMAGE_AIDEBUG__: boolean;
 
@@ -34,6 +35,7 @@ function floatingDialogMinimumSize(dialog: HTMLElement) {
 }
 
 function enforceFloatingDialogMinimumSize(dialog: HTMLElement) {
+  if (dialog.dataset.uiResizable === "true") return false;
   const minimum = floatingDialogMinimumSize(dialog);
   const resizable = dialog.dataset.uiResizable === "true" || window.getComputedStyle(dialog).resize !== "none";
   if (!resizable && dialog.dataset.uiClampH === "1") {
@@ -203,9 +205,11 @@ export function useFloatingDialogInteractions() {
       event.preventDefault();
       activeDialog.classList.add("floating-dialog-moving");
       document.body.classList.add("floating-dialog-dragging");
+      const startLeft = Math.round(clampLeft(rect.left));
+      const startTop = Math.round(clampTop(rect.top));
       activeDialog.style.position = "fixed";
-      activeDialog.style.left = `${Math.round(clampLeft(rect.left))}px`;
-      activeDialog.style.top = `${Math.round(clampTop(rect.top))}px`;
+      activeDialog.style.left = `${startLeft}px`;
+      activeDialog.style.top = `${startTop}px`;
       activeDialog.style.width = `${Math.round(rect.width)}px`;
       if (activeDialog.dataset.uiResizable === "true" || window.getComputedStyle(activeDialog).resize !== "none") {
         activeDialog.style.height = `${Math.round(rect.height)}px`;
@@ -213,6 +217,7 @@ export function useFloatingDialogInteractions() {
       activeDialog.style.margin = "0";
       activeDialog.style.transform = "none";
       activeDialog.style.removeProperty("z-index");
+      if (activeDialog.dataset.uiResizable === "true") recordPreferredDialogPosition(activeDialog, startLeft, startTop);
       enforceFloatingDialogMinimumSize(activeDialog);
       if (__NAIMAGE_AIDEBUG__) {
         window.__naimageLastFloatingDrag = {
@@ -231,8 +236,11 @@ export function useFloatingDialogInteractions() {
       function move(moveEvent: Event) {
         const dragEvent = moveEvent as PointerEvent;
         moveEvent.preventDefault();
-        activeDialog.style.left = `${Math.round(clampLeft(dragEvent.clientX - offsetX))}px`;
-        activeDialog.style.top = `${Math.round(clampTop(dragEvent.clientY - offsetY))}px`;
+        const nextLeft = Math.round(clampLeft(dragEvent.clientX - offsetX));
+        const nextTop = Math.round(clampTop(dragEvent.clientY - offsetY));
+        activeDialog.style.left = `${nextLeft}px`;
+        activeDialog.style.top = `${nextTop}px`;
+        if (activeDialog.dataset.uiResizable === "true") recordPreferredDialogPosition(activeDialog, nextLeft, nextTop);
         if (__NAIMAGE_AIDEBUG__) {
           window.__naimageLastFloatingDrag = {
             ...window.__naimageLastFloatingDrag,

@@ -2344,6 +2344,21 @@ select.ui-control {
   }
 }
 
+@container ui-resizable-dialog (max-width: 440px) {
+  .ui-surface .ui-surface-footer {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .ui-surface-footer-actions {
+    width: 100%;
+  }
+
+  .ui-surface-footer-actions .ui-action-button {
+    flex: 1 1 0;
+  }
+}
+
 @media (max-width: 680px) {
   .ui-surface-layer.dialog-layer {
     --ui-surface-layer-pad: 8px;

@@ -172,6 +172,7 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
     const canvasFooterRect = rect(".canvas-footer");
     const canvasStatusRect = rect(".canvas-status-line");
     const canvasToolsRect = rect(".canvas-navigation-dock .canvas-navigation-group[aria-label='画布缩放']");
+    const canvasNavigationBarRect = rect(".canvas-navigation-dock .canvas-navigation-bar");
     const canvasZoomButtonRect = rect(".canvas-navigation-zoom");
     const projectMenuRect = rect(".project-menu-popover:not(.file-command-popover)");
     const fileMenuRect = rect(".file-command-popover");
@@ -2871,13 +2872,16 @@ export async function readGuiState(client, { evaluate, workbenchMinWidth }) {
       (!canvasToolbarRect || canvasStatusRect.top >= canvasToolbarRect.bottom)
     );
     const canvasZoomDockedBottom = Boolean(
-      canvasFooterRect &&
+      canvasRect &&
+      canvasNavigationBarRect &&
       canvasToolsRect &&
       canvasZoomButtonRect &&
-      canvasToolsRect.top >= canvasFooterRect.top - 1 &&
-      canvasToolsRect.bottom <= canvasFooterRect.bottom + 1 &&
-      canvasZoomButtonRect.top >= canvasFooterRect.top - 1 &&
-      canvasZoomButtonRect.bottom <= canvasFooterRect.bottom + 1
+      canvasNavigationBarRect.bottom <= canvasRect.bottom &&
+      canvasNavigationBarRect.bottom >= canvasRect.bottom - 24 &&
+      canvasToolsRect.top >= canvasNavigationBarRect.top &&
+      canvasToolsRect.bottom <= canvasNavigationBarRect.bottom &&
+      canvasZoomButtonRect.top >= canvasToolsRect.top &&
+      canvasZoomButtonRect.bottom <= canvasToolsRect.bottom
     );
     return {
       dialogLayoutKind: activeDialogSpec?.kind || "",

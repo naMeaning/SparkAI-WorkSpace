@@ -843,9 +843,7 @@
   will-change: transform;
 }
 
-.workflow-canvas.is-viewport-detail-reduced .edge-layer,
-.workflow-canvas.is-viewport-detail-reduced .flow-node :is(img, canvas),
-.workflow-canvas.is-viewport-detail-reduced .flow-node:not([data-video-playing="true"]) video {
+.workflow-canvas.is-viewport-detail-reduced .edge-layer {
   visibility: hidden !important;
 }
 
@@ -1201,6 +1199,14 @@
   contain: strict;
   animation: none;
   transition: none;
+}
+
+.canvas-node-overview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .flow-node.canvas-node-overview.image-container,

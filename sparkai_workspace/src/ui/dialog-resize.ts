@@ -4,9 +4,28 @@ export const DIALOG_RESIZE_DIRECTIONS = ["n", "ne", "e", "se", "s", "sw", "w", "
 type ResizeDirection = typeof DIALOG_RESIZE_DIRECTIONS[number];
 type DialogRect = { left: number; top: number; width: number; height: number };
 type ResizeBounds = { left: number; top: number; right: number; bottom: number; minWidth: number; minHeight: number; maxWidth: number; maxHeight: number };
+type PreferredDialogGeometry = { left: number; top: number; width?: number; height?: number };
 
 const GEOMETRY_PROPERTIES = ["position", "left", "top", "width", "height", "margin", "transform"] as const;
 type GeometryStyle = Record<typeof GEOMETRY_PROPERTIES[number], string>;
+const preferredGeometries = new WeakMap<HTMLElement, PreferredDialogGeometry>();
+
+/** Record a user-chosen dialog position without locking CSS-derived size. */
+export function recordPreferredDialogPosition(dialog: HTMLElement, left: number, top: number) {
+  const current = preferredGeometries.get(dialog);
+  preferredGeometries.set(dialog, {
+    left,
+    top,
+    width: current?.width,
+    height: current?.height
+  });
+}
+
+/** Whether the user has manually resized this dialog surface. */
+export function hasPreferredDialogSize(dialog: HTMLElement) {
+  const current = preferredGeometries.get(dialog);
+  return current?.width !== undefined && current?.height !== undefined;
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -106,14 +125,41 @@ export function useDialogResize(dialogRef: RefObject<HTMLElement | null>, enable
     dialog.dataset.uiSizeAdjusted = "true";
   }
 
+  function commitResizedRect(dialog: HTMLElement, nextRect: DialogRect) {
+    preferredGeometries.set(dialog, nextRect);
+    applyRect(dialog, nextRect);
+  }
+
+  function syncToViewport(dialog: HTMLElement) {
+    if (dialog.classList.contains("is-maximized")) return;
+    const preferred = preferredGeometries.get(dialog);
+    if (preferred && preferred.width !== undefined && preferred.height !== undefined) {
+      applyRect(
+        dialog,
+        boundedRect(
+          { left: preferred.left, top: preferred.top, width: preferred.width, height: preferred.height },
+          resizeBounds(dialog)
+        )
+      );
+      return;
+    }
+    if (dialog.style.position === "fixed") {
+      dialog.style.removeProperty("width");
+      dialog.style.removeProperty("height");
+      const bounds = resizeBounds(dialog);
+      const rect = dialogRect(dialog);
+      const anchor = preferred ?? { left: rect.left, top: rect.top };
+      dialog.style.left = `${clamp(anchor.left, bounds.left, Math.max(bounds.left, bounds.right - rect.width))}px`;
+      dialog.style.top = `${clamp(anchor.top, bounds.top, Math.max(bounds.top, bounds.bottom - rect.height))}px`;
+    }
+  }
+
   useEffect(() => {
     if (!enabled) return;
     function clampToViewport() {
       finishResize();
       const dialog = dialogRef.current;
-      if (dialog?.style.position === "fixed" && !dialog.classList.contains("is-maximized")) {
-        applyRect(dialog, boundedRect(dialogRect(dialog), resizeBounds(dialog)));
-      }
+      if (dialog) syncToViewport(dialog);
     }
     window.addEventListener("blur", finishResize);
     window.addEventListener("resize", clampToViewport);
@@ -151,7 +197,7 @@ export function useDialogResize(dialogRef: RefObject<HTMLElement | null>, enable
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    applyRect(drag.dialog, resizedRect(drag.rect, drag.direction, event.clientX - drag.x, event.clientY - drag.y, resizeBounds(drag.dialog)));
+    commitResizedRect(drag.dialog, resizedRect(drag.rect, drag.direction, event.clientX - drag.x, event.clientY - drag.y, resizeBounds(drag.dialog)));
   }
 
   function onPointerEnd(event: PointerEvent<HTMLElement>) {
@@ -169,6 +215,7 @@ export function useDialogResize(dialogRef: RefObject<HTMLElement | null>, enable
     finishResize();
     if (event.key === "Home") {
       const initial = initialStyleRef.current;
+      preferredGeometries.delete(dialog);
       if (!initial) return;
       for (const property of GEOMETRY_PROPERTIES) dialog.style[property] = initial[property];
       initialStyleRef.current = null;
@@ -179,7 +226,7 @@ export function useDialogResize(dialogRef: RefObject<HTMLElement | null>, enable
     const step = event.shiftKey ? 64 : 24;
     const dx = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
     const dy = event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
-    applyRect(dialog, resizedRect(dialogRect(dialog), "se", dx, dy, resizeBounds(dialog)));
+    commitResizedRect(dialog, resizedRect(dialogRect(dialog), "se", dx, dy, resizeBounds(dialog)));
   }
 
   return { onPointerDown, onPointerMove, onPointerEnd, onKeyDown };

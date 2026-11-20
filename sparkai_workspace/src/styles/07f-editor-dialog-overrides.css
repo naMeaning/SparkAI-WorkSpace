@@ -4,7 +4,6 @@
   --ui-surface-min-height: 560px;
   --ui-surface-max-height: calc(100dvh - 48px);
   height: min(820px, calc(100dvh - 48px));
-  min-height: 560px;
 }
 .ui-surface .ui-surface-body.region-redraw-body {
   min-width: 0;
@@ -323,13 +322,17 @@
    dialog instead of only stretching the preview column. The surrounding
    dialog layer keeps a small safety margin for window edges and focus rings. */
 .ui-surface.unified-node-editor.is-maximized[data-ui-surface] {
+  position: relative !important;
+  inset: auto !important;
+  margin: 0 !important;
+  transform: none !important;
   --ui-surface-width: calc(100vw - 24px);
   --ui-surface-max-height: calc(100dvh - 24px);
   --ui-surface-radius: 6px;
-  width: var(--ui-surface-width);
-  height: var(--ui-surface-max-height);
-  max-width: var(--ui-surface-width);
-  max-height: var(--ui-surface-max-height);
+  width: var(--ui-surface-width) !important;
+  height: var(--ui-surface-max-height) !important;
+  max-width: var(--ui-surface-width) !important;
+  max-height: var(--ui-surface-max-height) !important;
 }
 
 .unified-node-editor.is-maximized .unified-node-editor-body {

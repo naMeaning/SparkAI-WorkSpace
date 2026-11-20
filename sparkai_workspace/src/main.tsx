@@ -753,7 +753,7 @@ const NODE_RESIZE_MAX_W = 720;
 const NODE_RENDER_BUFFER = 520;
 // At overview zoom a full image card is smaller than a usable control anyway.
 // Keep large canvases interactive by rendering a lightweight, still selectable
-// node silhouette until the user selects a node or zooms in for editing.
+// node preview until the user selects a node or zooms in for editing.
 const NODE_OVERVIEW_MAX_SCALE = 0.3;
 const NODE_OVERVIEW_MIN_COUNT = 80;
 const NODE_OVERVIEW_MIN_IMAGE_TILES = 10;
@@ -1054,6 +1054,33 @@ function imageAssetNodePreviewSrc(asset: ImageAsset, node: WorkflowNode, assetCo
   // longer asks Chromium to decode every 2K/4K original at the same time.
   if (assetCount <= 1) return imageAssetThumbnailSrc(asset, 1024);
   return imageAssetThumbnailSrc(asset, requiredEdge > 440 ? 1024 : 512);
+}
+
+function CanvasTileImage({ src, alt }: { src: string; alt: string }) {
+  const [displayedSrc, setDisplayedSrc] = useState(src);
+  const pendingImageRef = useRef<HTMLImageElement>(null);
+  const sources = displayedSrc && displayedSrc !== src ? [displayedSrc, src] : [src];
+  return sources.map((source) => {
+    const pending = source !== displayedSrc && sources.length === 2;
+    return (
+      <img
+        key={source}
+        ref={pending ? pendingImageRef : undefined}
+        src={source}
+        alt={pending ? "" : alt}
+        aria-hidden={pending || undefined}
+        style={pending ? { display: "none" } : undefined}
+        draggable={false}
+        decoding="async"
+        onLoad={pending ? (event) => {
+          const image = event.currentTarget;
+          void image.decode().then(() => {
+            if (pendingImageRef.current === image) setDisplayedSrc(source);
+          }, () => undefined);
+        } : undefined}
+      />
+    );
+  });
 }
 
 function videoAssetPlayerSrc(asset?: VideoAsset) {
@@ -6950,10 +6977,9 @@ function App() {
       && assetDropTargetId !== node.id && playingVideoNodes.get(node.id) !== activeProjectId && !imageRunStarts[node.id]
     ).map((node) => node.id) : []
   ), [canvasNodeOverviewMode, connectionDraft, renderedNodes, selectedNodeId, activeNodeId, resizingNodeId, assetDropTargetId, playingVideoNodes, activeProjectId, imageRunStarts]);
-  // Overview cards have no image surfaces. Counting their latent assets caused
-  // needless whole-layer hiding/restoration during otherwise light navigation.
+  // Overview image cards carry at most one thumbnail.
   canvasVisualComplexityRef.current.imageTiles = renderedNodes.reduce((count, node) =>
-    count + (node.type === "image" && !overviewNodeIdSet.has(node.id) ? Math.max(1, node.assets?.length ?? 0) : 0), 0
+    count + (node.type === "image" ? (overviewNodeIdSet.has(node.id) ? 1 : Math.max(1, node.assets?.length ?? 0)) : 0), 0
   );
   const renderedEdges = useMemo(
     () => {
@@ -29461,6 +29487,8 @@ function App() {
                 if (renderAsOverview) {
                   const bounds = workflowNodeBounds(node);
                   const nodeLocked = lockedNodeIdSet.has(node.id);
+                  const thumbnail = node.type === "image" && (node.layerComposition?.previewAsset
+                    ?? node.assets?.find((asset) => asset.status !== "pending" && asset.status !== "error"));
                   return (
                     <div
                       key={node.id}
@@ -29512,7 +29540,9 @@ function App() {
                         else selectNodeFromPlainClick(node.id, "keyboard-plain-select");
                       }}
                       onContextMenu={(event) => openNodeMenu(event, node)}
-                    />
+                    >
+                      {thumbnail ? <img src={imageAssetThumbnailSrc(thumbnail, 256)} alt="" draggable={false} loading="lazy" decoding="async" /> : null}
+                    </div>
                   );
                 }
                 const promptPreview = "";
@@ -29878,11 +29908,10 @@ function App() {
                                 onContextMenu={(event) => openAssetContextMenuAt(event, displayedSource.node, displayedSource.assetIndex)}
                                 title={node.layerGroup ? "点击查看图层；分层组请先合并后再作为普通图片移动" : isDraggableImageGroup(node) ? `${assetPrompt || "图片成果"}\n拖到画布内整理图片` : "点击查看大图；拖动图片可移动节点，放到另一张图片上可归组"}
                               >
-                               <img
+                               <CanvasTileImage
+                                 key={asset.contentHash || imageAssetSrc(asset)}
                                  src={imageAssetNodePreviewSrc(asset, node, displaySlotCount, zoom)}
                                  alt={`生成图 ${asset.index ?? index + 1}`}
-                                 draggable={false}
-                                 decoding="async"
                                 />
                                 <small className="node-asset-code">{asset.displayCode || `${nodeDisplayCode(node)}${index + 1}`}</small>
                                 {selectedNodes.some((item) => item.id === node.id) ? (

@@ -174,7 +174,9 @@ P1 已实现日夜基础主题与控件，实际证据/制品/安装/Git 状态�
 
 视频播放活动由`src/main.tsx`的项目隔离临时状态拥有：onPlay保留完整播放器，onPause/onEnded释放；切项目/删除节点清理，不进入Session或CLI。视口挂载与概览策略共用此状态；`product-performance-gate.mjs --local-video --mixed-assets`使用本地VP8/WebM检验缩放/平移/Mock Agent进度期间帧持续增长。
 
-`overviewNodeIdSet`统一概览渲染与实际完整图片表面的复杂度计数，避免把概览内未挂载图片当重表面反复隐藏/恢复关系层；拖动组件持续挂载并保持原概览级别，避免手势开始才加载图片表面；主项与播放视频保持完整。概览触发阈值仍使用原始可见节点/资产数，资源与选择不变。
+`overviewNodeIdSet` 决定哪些节点使用轻量概览。图片概览最多显示一张 256px 代表图，主选与播放中的视频仍保留完整表面。`is-viewport-detail-reduced` 在密集滚轮交互中减少连线、阴影等绘制开销，图片继续显示。`src/main.tsx::CanvasTileImage` 在原 `<img>` 后解码新尺寸，成功后提升同一个 DOM 元素。回到旧尺寸或替换素材时，过期解码不能覆盖当前预览。`node scripts/sparkvas-vertical-slice-ui-selftest.mjs --canvas-zoom` 在隔离 Electron 中逐帧检查密集缩放。
+
+`src/ui/dialog-resize.ts` 保存当前弹窗的手动位置和尺寸偏好。窗口尺寸变化只限制这一帧的实际位置和大小，窗口扩大后恢复用户偏好。`src/ui/floating-dialog-interactions.ts` 将共享弹窗头部拖动位置交给同一 owner，拖动过但未手动缩放的弹窗继续使用 CSS 宽高。Studio、设置、图层查看器和手动生成表单按自己的容器宽度重排。
 
 关系可见性纯策略复用`src/canvas-relation-graph.ts::canvasRelationCurvePath/canvasRelationCurveIntersectsRect`：Main.tsx端口几何生成相同mid-X三次曲线，单调X区间二分和Y导数极值裁剪真正穿过视口的关系，不能依赖完整端点组件或控制点外框。`test:requirement-graph`覆盖正反向/竖线/大扇出及密集采样的无漏线校验；实际关系拖动/取消与截图仍由优化UI专项验证。
 

@@ -375,6 +375,7 @@ async function setTheme(theme) {
 }
 
 async function selectSourceNode() {
+  await evaluate(mainClient, "window.__naimageDebugSetViewport?.({ scale: 0.8, nodeId: 'N1' })");
   await waitForRuntimeExpression(
     mainClient,
     "Boolean(document.querySelector('.flow-node[data-node-id=\"N1\"]'))",
@@ -775,8 +776,66 @@ async function main() {
   }, null, 2)}\n`);
 }
 
+async function runCanvasZoomContinuity() {
+  await prepareFixture();
+  const sessionPath = join(projectDir, "session.json");
+  const session = JSON.parse(readFileSync(sessionPath, "utf8"));
+  const source = session.nodes[0];
+  session.nodes = Array.from({ length: 12 }, (_, index) => ({
+    ...source,
+    id: `N${index + 1}`,
+    displayCode: `N${index + 1}`,
+    x: 50 + (index % 4) * 300,
+    y: 25 + Math.floor(index / 4) * 300,
+    width: 260,
+    height: 280,
+    zOrder: index + 1,
+    assets: [{ ...source.assets[0], occurrenceId: `occ-${String(index + 1).padStart(24, "0")}` }],
+  }));
+  session.nodeSequence = session.nodes.length;
+  writeFileSync(sessionPath, JSON.stringify(session));
+  await launchApp();
+  await setWindowSize(1280, 800);
+  await waitForRuntimeExpressionSafe(`(() => {
+    if (!window.__naimageDebugSetViewport || document.querySelectorAll('.flow-node').length < 10) return false;
+    const image = document.querySelector('.flow-node[data-node-id="N1"] .node-image-tile img');
+    return Boolean(image?.complete && image.naturalWidth);
+  })()`);
+  await evaluate(mainClient, "window.__naimageDebugSetViewport({ scale: 0.6, x: 0, y: 0 })");
+  const result = await evaluate(mainClient, `(async () => {
+    const canvas = document.querySelector('.workflow-canvas');
+    const image = document.querySelector('.flow-node[data-node-id="N1"] .node-image-tile img');
+    const anchor = image.getBoundingClientRect();
+    let denseFrames = 0;
+    let blankFrames = 0;
+    for (let frame = 0; frame < 18; frame += 1) {
+      canvas.dispatchEvent(new WheelEvent('wheel', {
+        ctrlKey: true,
+        deltaY: frame < 9 ? -24 : 24,
+        clientX: anchor.left + anchor.width / 2,
+        clientY: anchor.top + anchor.height / 2,
+        bubbles: true,
+        cancelable: true,
+      }));
+      await new Promise(requestAnimationFrame);
+      if (canvas.classList.contains('is-viewport-detail-reduced')) denseFrames += 1;
+      const bounds = image.getBoundingClientRect();
+      if (!image.complete || !image.naturalWidth || getComputedStyle(image).visibility !== 'visible'
+        || bounds.width <= 0 || bounds.right <= canvas.getBoundingClientRect().left) blankFrames += 1;
+    }
+    return { denseFrames, blankFrames };
+  })()`);
+  check("wheel reaches dense canvas rendering", result.denseFrames === 18);
+  check("already-loaded image stays visible through dense wheel zoom", result.blankFrames === 0);
+  await capture("13-dense-canvas-after-wheel-1280x800.png");
+  const report = { ok: true, ...result, screenshots, realModelRequests: 0 };
+  writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report, null, 2));
+}
+
 try {
-  await main();
+  if (process.argv.includes("--canvas-zoom")) await runCanvasZoomContinuity();
+  else await main();
 } finally {
   await shutdownApp();
 }

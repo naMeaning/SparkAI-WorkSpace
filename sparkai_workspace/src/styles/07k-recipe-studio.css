@@ -16,6 +16,10 @@
   flex: 0 1 auto;
 }
 
+.recipe-studio-dialog.is-confirming[data-ui-size-adjusted="true"] > .recipe-studio-body {
+  flex: 1 1 auto;
+}
+
 .recipe-provenance-dialog.ui-surface {
   --ui-surface-width: 820px;
   width: min(820px, calc(100vw - 36px));
@@ -545,12 +549,7 @@
   }
 }
 
-@media (max-width: 900px) {
-  .recipe-studio-dialog.ui-surface {
-    width: calc(100vw - 18px);
-    height: calc(100dvh - 18px);
-  }
-
+@container ui-resizable-dialog (max-width: 680px) {
   .recipe-option-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -559,7 +558,9 @@
   .recipe-provenance-columns {
     grid-template-columns: 1fr;
   }
+}
 
+@container ui-resizable-dialog (max-width: 520px) {
   .recipe-output-row {
     grid-template-columns: 1fr;
   }
