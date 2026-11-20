@@ -1,5 +1,11 @@
 # SparkAI WorkSpace 上下文地图
 
+## Sparkvas 首版（2026-11-20）
+
+[工作流优先重构方案](SPARKVAS_WORKFLOW_FIRST_REFACTOR_2026-11-20.md) 记录当前首版范围及排期。画布旁的步骤面板承接自定义工作流创建与运行，项目、资产和 Agent 沿现有数据源。独立 Studio、Registry、Marketplace 和布局构建器排入后续。首版工作流由 `runtime/sequential-workflow.mjs` 校验定义和步骤绑定，`desktop/sequential-workflows.cjs` 在项目元数据目录保存草稿与运行快照，在应用配置目录保存个人库。图片派发使用稳定的工作流运行 ID、步骤序号和尝试序号对接原图片操作日志。Renderer 将受管输出投影回发起项目的画布。Main 核对项目 session 中的资产标识后确认投影。运行绑定发起项目，`project-ipc.cjs` 在该项目有活动运行时阻止移除。`preload.cjs` 暴露 `sequentialWorkflow` 与项目变更订阅，`register-desktop-ipc.cjs` 注册 `naimage:workflow:command`。CLI/MCP 通过 `workflow.manage` 访问同一服务，输出只返回资产身份。`runtime/workspace-appearance.mjs` 提供旧明暗主题映射。专项入口为 `test:sequential-workflow` 和 `aidebug:sequential-workflow`。
+
+`src/workspace-chrome.tsx` 保有素材轨和项目搜索。`src/main.tsx` 保有画布旁工作流入口、旧项目工具入口和成果对比动作。下方关于三视图与玻璃实验室的段落是早期导航记录。个人需求模板经 [桌面需求模板库](../desktop/requirement-library.cjs) 读取，ComfyUI 经 [独立管理入口](../src/comfyui-task-fields.tsx) 使用。
+
 ## 桌面品牌图标（2026-10-25）
 
 用户要求改用SparkAPI官网真实Logo；任务/实际交付状态见 [官网Logo实施记录](SPARKAPI_LOGO_2026-10-25.md) 与 [Progress](../PROGRESS.md)。`assets/windows/naimage-icon-master.png`保留官网180px透明PNG原字节，`naimage-icon-source.json`记录来源/原hash/尺寸及256帧仅格式放大。`scripts/release/generate-installer-assets.mjs`是唯一派生owner：原字节复制`public/naimage.png`供Renderer顶栏/登录/启动检查/帮助/favicon、Main `createWindowIcon()`主窗/独立Agent与WPF `BrandShell.LoadLogo()`；生成7尺寸`assets/windows/naimage.ico`供两个WPF csproj PE，并复制`build/naimage.ico`供Electron/DevLauncher、合成NSIS两BMP。`package:dir`/`package:win`与变体打包均先release:assets再Vite build，禁止dist滞后；Main无旧内嵌logo fallback。快捷方式和卸载注册DisplayIcon沿主EXE，App ID/GUID/安装与数据目录不变。官网来源及资源/PE/真实UI证据从实施记录读取，不扩展认证/更新协议。

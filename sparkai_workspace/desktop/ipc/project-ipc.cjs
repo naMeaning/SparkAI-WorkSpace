@@ -14,6 +14,7 @@ const LEGACY_PROJECT_PACKAGE_EXTENSION = "iiimage";
 function registerProjectIpc(options = {}) {
   const {
     ipcMain,
+    sequentialWorkflows,
     dialog,
     shell,
     log,
@@ -359,6 +360,7 @@ function registerProjectIpc(options = {}) {
 
   ipcMain.handle("naimage:project:delete", (_event, payload) => {
     const id = String(payload?.id || "");
+    if (sequentialWorkflows?.isProjectRunning(id)) return { ok: false, error: "工作流正在运行，完成后即可移除此项目。" };
     const list = readProjectList();
     const project = list.projects.find((item) => item.id === id);
     if (!project) return { ok: false, error: "画布不存在或已被移除。" };

@@ -1182,13 +1182,13 @@ async function main() {
       }, canvasRuntimeContext),
       (error) => error.code === "INVALID_ARGUMENT"
     );
-    await runtimeModule.executeAutomationCommand("project.create", { name: "Inherited" }, canvasRuntimeContext);
+    await runtimeModule.executeAutomationCommand("project.create", { name: "Default" }, canvasRuntimeContext);
     await runtimeModule.executeAutomationCommand("project.create", {
       name: "Research",
       workspaceDomain: "research"
     }, canvasRuntimeContext);
     assert.deepEqual(projectCreateCalls, [
-      { name: "Inherited", workspaceDomain: "commerce" },
+      { name: "Default", workspaceDomain: "general" },
       { name: "Research", workspaceDomain: "research" }
     ]);
     await runtimeModule.executeAutomationCommand("project.create", {

@@ -2946,3 +2946,98 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+
+/* Sequential workflow editor */
+.sequential-workflow {
+  position: absolute;
+  z-index: 36;
+  inset: 10px 10px 10px auto;
+  width: min(380px, calc(100% - 20px));
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-solid);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  --workflow-border: var(--line);
+  --workflow-muted: var(--muted);
+  --workflow-hover: var(--glass-solid-control-hover);
+  --workflow-accent: var(--accent);
+  --workflow-error: #9e292d;
+}
+html[data-theme="dark"] .sequential-workflow { --workflow-error: #ffa8a6; color-scheme: dark; }
+.sequential-workflow-header,
+.sequential-workflow-tabs,
+.sequential-workflow-footer,
+.sequential-workflow .workflow-row,
+.sequential-workflow .workflow-step-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sequential-workflow-header,
+.sequential-workflow-tabs,
+.sequential-workflow-footer { padding: 8px 12px; flex-wrap: wrap; }
+.sequential-workflow-header { justify-content: space-between; }
+.sequential-workflow-tabs { border-bottom: 1px solid var(--workflow-border); }
+.sequential-workflow-footer { border-top: 1px solid var(--workflow-border); }
+.sequential-workflow h2 { font-size: 16px; margin: 0; }
+.sequential-workflow h3 { margin: 0; font-size: 13px; font-weight: 650; }
+.sequential-workflow p { margin: 4px 0; color: var(--workflow-muted); }
+.sequential-workflow .workflow-error { color: var(--workflow-error); }
+.sequential-workflow-body { min-height: 0; overflow: auto; padding: 12px; flex: 1; }
+.sequential-workflow fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: 12px; }
+.sequential-workflow .workflow-group { border-top: 1px solid var(--workflow-border); padding-top: 10px; display: grid; gap: 8px; }
+.sequential-workflow .workflow-row { flex-wrap: wrap; }
+.sequential-workflow label { display: grid; gap: 4px; min-width: 0; }
+.sequential-workflow input,
+.sequential-workflow textarea,
+.sequential-workflow select,
+.sequential-workflow button {
+  box-sizing: border-box;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--workflow-border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.sequential-workflow textarea { resize: vertical; }
+.sequential-workflow button:hover:not(:disabled) { background: var(--workflow-hover); }
+.sequential-workflow button:disabled { opacity: .55; }
+.sequential-workflow :is(input, textarea, select, button, summary):focus-visible { outline: 2px solid var(--workflow-accent); outline-offset: 1px; }
+.sequential-workflow button[aria-pressed="true"] { background: var(--workflow-hover); color: var(--workflow-accent); }
+.sequential-workflow .workflow-primary { margin-inline-start: auto; background: var(--workflow-accent); border-color: var(--workflow-accent); color: var(--glass-accent-ink); }
+.sequential-workflow .workflow-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--workflow-accent) 88%, var(--ink)); }
+.sequential-workflow .workflow-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: end; }
+.sequential-workflow .workflow-steps { display: grid; gap: 6px; padding: 0; margin: 0; list-style: none; }
+.sequential-workflow .workflow-steps li { border: 1px solid var(--workflow-border); padding: 6px; border-radius: 8px; }
+.sequential-workflow .workflow-step-header { flex-wrap: wrap; }
+.sequential-workflow .workflow-step-header span[draggable] { cursor: grab; display: grid; place-items: center; width: 20px; }
+.sequential-workflow .workflow-step-header button[aria-expanded] { flex: 1; text-align: start; border-color: transparent; }
+.sequential-workflow .workflow-step-fields { padding: 6px 2px; display: grid; gap: 8px; }
+.sequential-workflow details { padding: 8px; border: 1px solid var(--workflow-border); border-radius: 6px; }
+.sequential-workflow summary { cursor: pointer; overflow-wrap: anywhere; }
+.sequential-workflow details :is(dt, dd, li, p) { overflow-wrap: anywhere; }
+.sequential-workflow details dl { margin: 6px 0; }
+.sequential-workflow details dd { margin: 0 0 5px; color: var(--workflow-muted); }
+.workspace-workflow-entry,
+.workspace-compatibility-tools > button {
+  padding: 4px 9px;
+  border: 1px solid var(--glass-line);
+  border-radius: 6px;
+  background: var(--glass-solid-control, transparent);
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.workspace-workflow-entry:hover,
+.workspace-compatibility-tools > button:hover { background: var(--glass-solid-control-hover, transparent); }
+.workspace-workflow-entry:focus-visible,
+.workspace-compatibility-tools > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

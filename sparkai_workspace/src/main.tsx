@@ -190,7 +190,9 @@ import {
 } from "./settings-runtime";
 import { GlassThemeProvider } from "./glass-theme-provider";
 import { isSolidTheme } from "./glass-theme";
-import type { WorkspaceAssetRailTab, WorkspaceViewMode } from "./workspace-chrome";
+import type { WorkspaceAssetRailTab } from "./workspace-chrome";
+import type { WorkflowMaterial, WorkflowState } from "./sequential-workflow-panel";
+import { workflowAssetIdentity, workflowStepNames, workflowStepPrompt } from "../runtime/sequential-workflow.mjs";
 import type { ActivePluginToolbarItem } from "./plugin-system";
 import type {
   ExportCenterCollectionSource,
@@ -209,7 +211,6 @@ import {
   DEFAULT_WORKSPACE_DOMAIN,
   normalizeWorkspaceDomain,
   workspaceDomainDefinition,
-  workspaceDomainDefinitions,
 } from "./workspace-domain.ts";
 import { normalizeCommerceCatalogGoalTarget } from "./commerce-catalog";
 import type { CommerceCatalogDocument, CommerceCatalogResult } from "./commerce-catalog";
@@ -376,7 +377,6 @@ import {
 } from "./streaming-image-preview";
 import { WindowControls } from "./window-controls";
 import { CanvasNavigationControls } from "./canvas-navigation-controls";
-import { CanvasToolbarPages } from "./canvas-toolbar-pages";
 import { canvasWheelViewport } from "./canvas-wheel";
 import {
   CanvasNodeHoverToolbar,
@@ -921,11 +921,8 @@ const LazyScientificFigureDialog = React.lazy(() => import("./scientific-figure-
 const LazyExportCenterDialog = React.lazy(() => import("./export-center-dialog"));
 let workspaceChromePromise: Promise<typeof import("./workspace-chrome")> | null = null;
 const loadWorkspaceChrome = () => workspaceChromePromise ??= import("./workspace-chrome");
+const LazySequentialWorkflowPanel = React.lazy(() => import("./sequential-workflow-panel"));
 const LazyWorkspaceAssetRail = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceAssetRail })));
-const LazyWorkspaceDomainSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDomainSwitcher })));
-const LazyWorkspaceDirectionSwitcher = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceDirectionSwitcher })));
-const LazyWorkspaceFocusStage = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceFocusStage })));
-const LazyWorkspaceReviewGrid = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceReviewGrid })));
 const LazyProjectResultComparison = React.lazy(() => import("./project-result-comparison"));
 const LazyWorkspaceSearch = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceSearch })));
 const LazyWorkspaceTaskContext = React.lazy(() => loadWorkspaceChrome().then((module) => ({ default: module.WorkspaceTaskContext })));
@@ -956,20 +953,7 @@ const LazyGoalConfirmationDialog = React.lazy(() => loadProjectAgentComposer().t
 let goalModePromise: Promise<typeof import("./goal-mode")> | null = null;
 const loadGoalMode = () => goalModePromise ??= import("./goal-mode");
 
-function canvasToolShortcutLabel(shortcut?: string) {
-  return shortcut ? shortcut.split("+").map((part) => part === "Mod" ? "Ctrl/⌘" : part).join(" + ") : "";
-}
 
-function canvasToolAriaShortcut(shortcut?: string) {
-  const parts = String(shortcut || "").split("+").filter(Boolean);
-  if (parts.length < 2) return undefined;
-  const ariaParts = (primary: "Control" | "Meta") => parts.map((part) => {
-    if (part === "Mod") return primary;
-    if (part === "Ctrl") return "Control";
-    return part;
-  }).join("+");
-  return parts.includes("Mod") ? `${ariaParts("Control")} ${ariaParts("Meta")}` : ariaParts("Control");
-}
 
 function canvasToolShortcutMatchesEvent(event: KeyboardEvent, shortcut?: string) {
   const parts = String(shortcut || "").split("+").filter(Boolean);
@@ -3709,14 +3693,12 @@ function App() {
   const [helpOpen, setHelpOpen] = useState<HelpCenterSection | null>(null);
   const [commerceTutorialOpen, setCommerceTutorialOpen] = useState(false);
   const [workspaceDomain, setWorkspaceDomain] = useState<WorkspaceDomain>(DEFAULT_WORKSPACE_DOMAIN);
-  const [workspaceViewMode, setWorkspaceViewMode] = useState<WorkspaceViewMode>(() => {
-    try {
-      const stored = localStorage.getItem("naimage.workspaceViewMode.v1");
-      return stored === "focus" || stored === "review" ? stored : "workbench";
-    } catch {
-      return "workbench";
-    }
-  });
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [sequentialState, setSequentialState] = useState<{ projectId: string; state: WorkflowState }>();
+  const [compatibilityToolsOpen, setCompatibilityToolsOpen] = useState(false);
+  const saveWorkflowBeforeExit = useRef<(() => Promise<void>) | null>(null);
+  const workflowEntryRef = useRef<HTMLButtonElement>(null);
+  const compatibilityToolsRef = useRef<HTMLButtonElement>(null);
   const [requirementTemplates, setRequirementTemplates] = useState<RequirementLibraryEntry[]>([]);
   const [requirementTemplatesLoading, setRequirementTemplatesLoading] = useState(false);
   const requirementTemplatesLoadedRef = useRef(false);
@@ -4766,14 +4748,6 @@ function App() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("naimage.workspaceViewMode.v1", workspaceViewMode);
-    } catch {
-      // View mode persistence is a convenience; project and canvas state do not depend on it.
-    }
-  }, [workspaceViewMode]);
 
   useEffect(() => {
     if (!backgroundCloudAllowed || !authReady || !serverUser || !window.naimageUpdater) return;
@@ -7136,6 +7110,79 @@ function App() {
       throw automationCommandError("NODE_LOCKED", `${action}涉及正在运行的节点，命令未执行。`, { nodeIds: locked });
     }
   }
+
+  function workflowMaterials(sourceNodes: WorkflowNode[]): WorkflowMaterial[] {
+    const materials = new Map<string, WorkflowMaterial>();
+    for (const node of sourceNodes) if (node.type === "image") {
+      for (const [index, asset] of (node.assets || []).entries()) {
+        const identity = workflowAssetIdentity(asset);
+        if (identity && asset.status !== "pending" && asset.status !== "error") {
+          materials.set(identity.occurrenceId, { ...identity, label: asset.title || `${node.title || node.id} · ${index + 1}` });
+        }
+      }
+    }
+    return [...materials.values()];
+  }
+
+  const workflowSessionBridge = useRef({ flush: flushActiveProjectSession, commit: commitAutomationCanvasMutation });
+  workflowSessionBridge.current = { flush: flushActiveProjectSession, commit: commitAutomationCanvasMutation };
+  useEffect(() => {
+    const bridge = window.naimageConfig;
+    if (!configReady || !activeProjectId || !bridge?.sequentialWorkflow) return;
+    const projectId = activeProjectId;
+    let disposed = false;
+    let pending = false;
+    let reading = false;
+    async function refresh() {
+      if (disposed || activeProjectIdRef.current !== projectId) return;
+      pending = true;
+      if (reading || !bridge) return;
+      reading = true;
+      try {
+        while (pending && !disposed) {
+          pending = false;
+          const reply = await bridge.sequentialWorkflow({ action: "state", projectId });
+          if (disposed || projectId !== activeProjectIdRef.current) break;
+          if (!reply.ok || !reply.draft || !reply.runs) throw new Error(reply.error || "工作流读取失败。");
+          setSequentialState({ projectId, state: { draft: reply.draft, runs: reply.runs, running: reply.running === true } });
+          const nextNodes = [...nodesRef.current];
+          const assetIds: string[] = [];
+          for (const run of [...reply.runs].reverse()) {
+            for (const [index, step] of run.steps.entries()) {
+              const asset = step.output;
+              if (step.published || !asset?.assetId || !asset.occurrenceId) continue;
+              const prior = nextNodes.find(node => node.assets?.some(existing => existing.occurrenceId === asset.occurrenceId));
+              assetIds.push(asset.assetId);
+              if (prior) continue;
+              const definition = run.definition.steps[index];
+              const source = definition.source;
+              const sourceOutput = source?.type === "step" ? run.steps.find(item => item.id === source.id)?.output : null;
+              const parent = sourceOutput ? nextNodes.find(node => node.assets?.some(item => item.occurrenceId === sourceOutput.occurrenceId))
+                : source?.type === "input" ? nextNodes.find(node => node.id === run.sourceNodes[source.id]) : undefined;
+              const id = allocateNodeCode(nextNodes);
+              const dimensions = displaySizeForImageNode(`${asset.width || 1024}x${asset.height || 1024}`, 1);
+              const position = findOpenWorkflowNodePosition(nextNodes, { width: dimensions.width ?? 320, height: dimensions.height ?? 320, preferredX: parent ? parent.x + (parent.width ?? 320) + 80 : 180, preferredY: parent?.y ?? 140 });
+              nextNodes.push({ id, title: `${run.definition.title} · ${workflowStepNames[definition.kind]}`, type: "image", branch: "image",
+                prompt: workflowStepPrompt(definition, run.bindings), outputs: 1, assets: [asset], status: "done", imageState: "done", createdAt: nowLabel(),
+                ...dimensions, ...position, ...(parent ? { parentId: parent.id, relationType: "derived-from" as const } : {}) });
+            }
+          }
+          if (assetIds.length) {
+            if (nextNodes.length !== nodesRef.current.length) workflowSessionBridge.current.commit(nextNodes, layoutGroupsRef.current, "添加工作流成果");
+            const saved = await workflowSessionBridge.current.flush({ live: true, projectId });
+            if (!saved?.ok) throw new Error("工作流图片已保存，画布写入待恢复。");
+            const publication = await bridge.sequentialWorkflow({ action: "published", projectId, assetIds });
+            if (!publication.ok) throw new Error(publication.error || "工作流图片已保存，画布写入待恢复。");
+          }
+        }
+      } catch (failure) {
+        if (!disposed) setServerMessage(failure instanceof Error ? failure.message : "工作流成果读取失败。");
+      } finally { reading = false; }
+    }
+    const unsubscribe = bridge.onSequentialWorkflowChanged(changed => { if (changed === projectId) void refresh(); });
+    void refresh();
+    return () => { disposed = true; unsubscribe(); };
+  }, [activeProjectId, configReady]);
 
   function commitAutomationCanvasMutation(
     nextNodes: WorkflowNode[],
@@ -14805,18 +14852,19 @@ function App() {
 
   function openCreateProjectDialog() {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
-    setProjectNameDraft({ mode: "create", name: `项目 ${projects.length + 1}`, workspaceDomain: workspaceDomainRef.current });
+    setProjectNameDraft({ mode: "create", name: `项目 ${projects.length + 1}`, workspaceDomain: DEFAULT_WORKSPACE_DOMAIN });
     setProjectMenuOpen(false);
     setFileMenuOpen(false);
   }
 
-  async function createProject(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current, parentDirectory?: string) {
+  async function createProject(name: string, initialDomain: WorkspaceDomain = DEFAULT_WORKSPACE_DOMAIN, parentDirectory?: string) {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return { ok: false, error: "当前任务或文件操作尚未结束，无法创建项目。" };
     const fallbackName = `项目 ${projects.length + 1}`;
     const projectName = name.trim() || fallbackName;
     const projectWorkspaceDomain = normalizeWorkspaceDomain(initialDomain);
     setFileActionBusy(true);
     try {
+      await saveWorkflowBeforeExit.current?.();
       await flushActiveProjectSession();
       const result = await window.naimageConfig?.createProject?.({ name: projectName, workspaceDomain: projectWorkspaceDomain, ...(parentDirectory !== undefined ? { parentDirectory } : {}) });
       if (!result?.ok) throw new Error(result?.error ?? "创建画布失败。");
@@ -14859,12 +14907,13 @@ function App() {
     }
   }
 
-  async function createProjectFolder(name: string, initialDomain: WorkspaceDomain = workspaceDomainRef.current) {
+  async function createProjectFolder(name: string, initialDomain: WorkspaceDomain = DEFAULT_WORKSPACE_DOMAIN) {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return;
     const projectName = name.trim() || `项目 ${projects.length + 1}`;
     const projectWorkspaceDomain = normalizeWorkspaceDomain(initialDomain);
     setFileActionBusy(true);
     try {
+      await saveWorkflowBeforeExit.current?.();
       await flushActiveProjectSession();
       const result = await window.naimageConfig?.createProjectFolder?.({ name: projectName, workspaceDomain: projectWorkspaceDomain });
       if (!result?.ok) throw new Error(result?.error ?? "新建画布文件夹失败。");
@@ -15099,6 +15148,7 @@ function App() {
     if (fileActionBusy || executionScopeBoundaryBlocked()) return { ok: false, error: "请先完成当前操作，再导入项目。" };
     setFileActionBusy(true);
     try {
+      await saveWorkflowBeforeExit.current?.();
       const saved = await flushActiveProjectSession();
       if (saved && !saved.ok) throw new Error(saved.error || "当前项目尚未可靠保存，未导入新项目。");
       const result = await window.naimageConfig?.importProject?.();
@@ -15144,6 +15194,7 @@ function App() {
     }
     setFileActionBusy(true);
     try {
+      await saveWorkflowBeforeExit.current?.();
       await flushActiveProjectSession();
       const result = await window.naimageConfig?.deleteProject?.({ id });
       if (!result?.ok) throw new Error(result?.error ?? "移除画布失败。");
@@ -15245,6 +15296,7 @@ function App() {
     }
     setFileActionBusy(true);
     try {
+      await saveWorkflowBeforeExit.current?.();
       await flushActiveProjectSession();
       const result = await window.naimageConfig?.switchProject?.({ id });
       if (!result?.ok) throw new Error(result?.error ?? "切换画布失败。");
@@ -15553,15 +15605,6 @@ function App() {
         if (item) {
           event.preventDefault();
           executePluginCommandRef.current(item.command);
-          return;
-        }
-      }
-
-      if (!event.repeat && command && !event.altKey && !event.shiftKey && /^[1-4]$/.test(key)) {
-        const nextDomain = workspaceDomainDefinitions[Number(key) - 1]?.id;
-        if (nextDomain) {
-          event.preventDefault();
-          changeWorkspaceDomain(nextDomain);
           return;
         }
       }
@@ -24886,6 +24929,10 @@ function App() {
       activeProjectId: () => activeProjectIdRef.current,
       workspaceDomain: () => workspaceDomainRef.current,
       setWorkspaceDomain: changeWorkspaceDomain,
+      async saveWorkflowInputs() {
+        const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectIdRef.current, ensureConversation: true });
+        if (!saved?.ok) throw new Error(saved?.error || "项目会话保存失败。");
+      },
       activeConversationId: () => activeConversationIdRef.current,
       agentStatus: () => agentStatusRef.current,
       activeRunId: () => activeRunRef.current || "",
@@ -27988,7 +28035,6 @@ function App() {
       setServerMessage("画布还没有可用于教学的商品图片，请先粘贴或导入一张母图。");
       return;
     }
-    if (workspaceViewMode !== "workbench") setWorkspaceViewMode("workbench");
     replaceSelectedNodeId(latest.id);
     focusWorkflowNode(latest, { revealInspector: false, recordEvent: false, selectNode: false });
   }
@@ -28014,7 +28060,7 @@ function App() {
       return;
     }
     replaceSelectedNodeId(latest.id);
-    setWorkspaceViewMode("focus");
+    focusWorkflowNode(latest, { revealInspector: false, recordEvent: false, selectNode: false });
     setCommerceTutorialOpen(false);
   }
 
@@ -28028,15 +28074,6 @@ function App() {
     setSettings(nextSettings);
     addEvent("完成跨境电商套图 AI 示例教学");
     void saveSettingsToStore(nextSettings).catch(() => undefined);
-  }
-
-  function changeWorkspaceViewMode(mode: WorkspaceViewMode) {
-    setWorkspaceViewMode(mode);
-    if (mode === "workbench") return;
-    const selected = nodesRef.current.find((node) => node.id === selectedNodeIdRef.current);
-    if (selected?.type === "image" && (selected.assets?.length ?? 0) > 0) return;
-    const nextImage = [...nodesRef.current].reverse().find((node) => node.type === "image" && (node.assets?.length ?? 0) > 0);
-    if (nextImage) replaceSelectedNodeId(nextImage.id);
   }
 
   function changeWorkspaceDomain(nextDomain: WorkspaceDomain) {
@@ -28053,32 +28090,11 @@ function App() {
   function selectWorkspaceNavigatorNode(nodeId: string) {
     const node = nodesRef.current.find((item) => item.id === nodeId);
     if (!node) return;
-    const requiresWorkbenchProjection = node.type !== "image" || (node.assets?.length ?? 0) === 0;
-    // Search, the asset rail, Focus, and Review are explicit navigation
-    // surfaces. Their target must replace the canonical selection rather than
-    // use the selection reducer's "focus an existing member" semantics, which
-    // intentionally ignores an id outside the current selection.
     replaceSelectedNodeId(node.id);
-    // Focus and Review only project completed image results. Navigating to a
-    // requirement or an in-flight image returns to the canonical Workbench so
-    // the selected target and the visible surface cannot disagree.
-    if (workspaceViewMode === "workbench" || requiresWorkbenchProjection) {
-      if (workspaceViewMode !== "workbench") setWorkspaceViewMode("workbench");
-      focusWorkflowNode(node, { revealInspector: false, recordEvent: false, selectNode: false });
-    }
+    focusWorkflowNode(node, { revealInspector: false, recordEvent: false, selectNode: false });
   }
 
-  function openWorkspaceImageNode(nodeId: string, assetIndex = 0) {
-    const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "image" && (item.assets?.length ?? 0) > 0);
-    if (node) openImageViewer(node, assetIndex);
-  }
 
-  function continueWorkspaceImageNode(nodeId: string) {
-    const node = nodesRef.current.find((item) => item.id === nodeId && item.type === "image" && (item.assets?.length ?? 0) > 0);
-    if (!node) return;
-    replaceSelectedNodeId(node.id);
-    openNodeEditor(node, 0);
-  }
 
   function importWorkspaceAssets() {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -28460,13 +28476,18 @@ function App() {
           </div>
         </nav>
         <div className="workspace-topbar-center">
-          <React.Suspense fallback={<span className="workspace-domain-switcher workspace-domain-switcher-loading" aria-hidden="true" />}>
-            <LazyWorkspaceDomainSwitcher domain={workspaceDomain} onChange={changeWorkspaceDomain} />
-          </React.Suspense>
-          <React.Suspense fallback={<span className="workspace-direction-switcher workspace-direction-switcher-loading" aria-hidden="true" />}>
-            <LazyWorkspaceDirectionSwitcher mode={workspaceViewMode} onChange={changeWorkspaceViewMode} />
-          </React.Suspense>
-
+          <ButtonBase type="button" className="workspace-workflow-entry" ref={workflowEntryRef} aria-expanded={workflowOpen} disabled={!activeProjectId} onClick={() => {
+            if (workflowOpen) document.querySelector<HTMLButtonElement>('.sequential-workflow [aria-label="关闭工作流"]')?.focus();
+            else setWorkflowOpen(true);
+          }}>工作流</ButtonBase>
+          {workspaceDomain !== "general" && pluginToolbarItems.length ? <div className="workspace-compatibility-tools">
+            <ButtonBase ref={compatibilityToolsRef} id="workspace-legacy-tools" type="button" aria-expanded={compatibilityToolsOpen} onClick={() => setCompatibilityToolsOpen(open => !open)}>旧项目工具</ButtonBase>
+            {compatibilityToolsOpen ? <MenuSurface x={compatibilityToolsRef.current?.getBoundingClientRect().left ?? 0} y={(compatibilityToolsRef.current?.getBoundingClientRect().bottom ?? 0) + 4} ariaLabel="旧项目工具" triggerId="workspace-legacy-tools" onRequestClose={() => setCompatibilityToolsOpen(false)}>
+              {pluginToolbarItems.map(item => <MenuItem key={item.command} icon={canvasToolIcon(item.icon)} disabled={(agentExecutionBusy && !item.availableDuringAgentRun) || (item.when === "canvas.has-image-selection" && !selectedCanvasCapabilities.groupableNodeIds.length)} onClick={() => {
+                setCompatibilityToolsOpen(false); void executePluginCommand(item.command);
+              }}>{item.label}</MenuItem>)}
+            </MenuSurface> : null}
+          </div> : null}
         </div>
         <div className="ide-actions">
           <React.Suspense fallback={<span className="workspace-search workspace-search-loading" aria-hidden="true" />}>
@@ -28498,7 +28519,7 @@ function App() {
 
       <main
         ref={workspaceRef}
-        className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-${workspaceViewMode} agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
+        className={`ide-main canvas-only has-asset-rail workspace-domain-${workspaceDomain} workspace-mode-workbench agent-mode agent-placement-${agentPanelLayout.agentPanelPlacement}${agentCollapsed ? " agent-collapsed" : ""}`}
         style={{
           "--agent-panel-width": `${effectiveAgentPanelLayout.agentPanelWidth}px`,
           "--agent-panel-height": `${effectiveAgentPanelLayout.agentPanelHeight}px`,
@@ -28526,21 +28547,6 @@ function App() {
             onDeleteRequirementTemplate={(templateId) => { void deleteRequirementTemplate(templateId); }}
             onImport={importWorkspaceAssets}
             onOpenSettings={() => openSettingsSection("connections")}
-            workspaceDomain={workspaceDomain}
-            domainTools={workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research" ? pluginToolbarItems : []}
-            domainToolsLoading={(workspaceDomain === "commerce" || workspaceDomain === "social" || workspaceDomain === "research") && pluginToolbarLoading}
-            domainToolExecutionBusy={agentExecutionBusy}
-            domainToolHasImageSelection={selectedCanvasCapabilities.groupableNodeIds.length > 0}
-            onExecuteDomainTool={(command) => { void executePluginCommand(command); }}
-            onOpenDomainToolsSettings={() => {
-              const projectedPluginId = workspaceDomain === "research"
-                ? "sparkai.scientific-figure"
-                : workspaceDomain === "social"
-                  ? "sparkai.social-content"
-                  : "sparkai.commerce-toolkit";
-              const projectedPluginEnabled = settings.pluginStates.some((state) => state.id === projectedPluginId && state.enabled);
-              openSettingsSection(projectedPluginEnabled ? "tools" : "plugins");
-            }}
             visibleTabs={settings.visibleWorkspaceAssetRailTabs}
             requestedTab={workspaceAssetRailTabRequest}
           />
@@ -28549,7 +28555,7 @@ function App() {
           {NAIMAGE_RUNTIME_METRICS ? <DebugCommitProbe area="canvas" record={recordDebugRenderCommit} /> : null}
           <div className="workspace-context-bar" aria-label="工作区上下文">
             <React.Suspense fallback={null}>
-              <LazyWorkspaceTaskContext mode={workspaceViewMode} node={selectedNode} />
+              <LazyWorkspaceTaskContext node={selectedNode} />
             </React.Suspense>
             {canvasSelectionSummary ? (
               <div
@@ -28584,7 +28590,7 @@ function App() {
           </div>
           <div
             ref={bindCanvasRef}
-            className={`workflow-canvas ${pluginToolbarItems.length ? "has-plugin-toolbar" : ""} ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
+            className={`workflow-canvas ${externalCanvasDropActive ? "external-file-drop-active" : ""}`}
             data-canvas-tool={canvasTool}
             data-canvas-surface="true"
             tabIndex={0}
@@ -28617,33 +28623,6 @@ function App() {
               </div>
             ) : null}
             <CanvasNavigationControls
-              tools={pluginToolbarItems.length ? (
-                <CanvasToolbarPages expanded={true} recentCommands={settings.recentCanvasToolCommands}
-                  details={Object.fromEntries(pluginToolbarItems.map(item => [item.command, { label: item.label, description: item.description, shortcut: canvasToolShortcutLabel(item.shortcut),
-                    group: item.pluginId.includes("commerce") ? "电商创作" : item.pluginId.includes("social") ? "社交内容" : item.pluginId.includes("scientific") ? "科研表达" : "通用创作" }]))}>
-                  {pluginToolbarItems.map((item) => {
-                    const needsSelection = item.when === "canvas.has-image-selection";
-                    const disabled = (agentExecutionBusy && !item.availableDuringAgentRun)
-                      || (needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0);
-                    const shortcut = canvasToolShortcutLabel(item.shortcut);
-                    return (
-                      <ButtonBase
-                        key={item.command}
-                        type="button"
-                        data-plugin-command={item.command}
-                        disabled={disabled}
-                        tabIndex={0}
-                        aria-keyshortcuts={canvasToolAriaShortcut(item.shortcut)}
-                        title={`${needsSelection && selectedCanvasCapabilities.groupableNodeIds.length === 0 ? "请先选择图片成果或容器" : item.description}${shortcut ? ` · ${shortcut}` : ""}`}
-                        onClick={() => void executePluginCommand(item.command)}
-                      >
-                        {canvasToolIcon(item.icon)}
-                        <span>{item.label}</span>
-                      </ButtonBase>
-                    );
-                  })}
-                </CanvasToolbarPages>
-              ) : null}
               nodes={canvasNodes}
               viewport={viewport}
               viewportSize={canvasViewportSize}
@@ -29625,14 +29604,21 @@ function App() {
                   </MenuItem>
                 </>
               ) : null}
+              {canvasMenu.kind === "selection" ? (() => {
+                const targets = workflowMaterials(canvasMenu.nodeIds.flatMap(id => canvasNodeById.get(id) || [])).slice(0, 3);
+                return targets.length === 2 ? <MenuItem icon={<ImageIcon size={15} />} onClick={() => { compareProjectResults(targets); setCanvasMenu(null); }}>对比选中图片</MenuItem> : null;
+              })() : null}
               {canvasMenu.kind === "node" ? (
                 <>
                   <MenuSummary title={canvasNodeById.get(canvasMenu.nodeId)?.title || canvasMenu.nodeId}>本次操作仅作用于此成果</MenuSummary>
                   <MenuItem icon={<MousePointer2 size={15} />} onClick={() => { replaceSelectedNodeId(canvasMenu.nodeId); setCanvasMenu(null); }}>只选此项</MenuItem>
                   {(() => {
                     const targetNode = canvasNodeById.get(canvasMenu.nodeId);
+                    const parentNode = targetNode?.parentId ? canvasNodeById.get(targetNode.parentId) : undefined;
+                    const comparison = targetNode?.type === "image" ? workflowMaterials(parentNode ? [parentNode, targetNode] : [targetNode]).slice(0, 2) : [];
                     return targetNode ? (
                       <>
+                        {comparison.length === 2 ? <MenuItem icon={<ImageIcon size={15} />} onClick={() => { compareProjectResults(comparison); setCanvasMenu(null); }}>对比图片</MenuItem> : null}
                         {targetNode.type === "requirement" ? (
                           <>
                             <MenuItem icon={<Send size={15} />} disabled={agentExecutionBusy} onClick={() => executeRequirementNode(targetNode.id)}>
@@ -30053,29 +30039,20 @@ function App() {
             );
           })() : null}
 
-          {workspaceViewMode === "focus" ? (
-            <React.Suspense fallback={null}>
-              <LazyWorkspaceFocusStage
-                nodes={canvasNodes}
-                selectedNodeId={selectedNode?.id ?? selectedNodeId}
-                selectedNodeIds={selectedNodeIds}
-                onSelectNode={selectWorkspaceNavigatorNode}
-                onOpenNode={openWorkspaceImageNode}
-                onContinueNode={continueWorkspaceImageNode}
-              />
-            </React.Suspense>
-          ) : null}
-
-          {workspaceViewMode === "review" ? (
-            <React.Suspense fallback={null}>
-              <LazyWorkspaceReviewGrid
-                nodes={canvasNodes}
-                selectedNodeId={selectedNode?.id ?? selectedNodeId}
-                onSelectNode={selectWorkspaceNavigatorNode}
-                onOpenNode={openWorkspaceImageNode}
-              />
-            </React.Suspense>
-          ) : null}
+          {workflowOpen && sequentialState?.projectId === activeProjectId ? <React.Suspense fallback={null}>
+            <LazySequentialWorkflowPanel key={activeProjectId} state={sequentialState.state} projectId={activeProjectId} conversationId={activeConversationId}
+              saveBeforeExit={saveWorkflowBeforeExit} materials={workflowMaterials(canvasNodes)} selectedMaterial={selectedNode ? workflowMaterials([selectedNode])[0] : undefined}
+              ensureSaved={async () => {
+                const saved = await flushActiveProjectSession({ live: true, projectId: activeProjectId, ensureConversation: true });
+                if (!saved?.ok) throw new Error(saved?.error || "项目会话保存失败。");
+              }}
+              close={() => { setWorkflowOpen(false); workflowEntryRef.current?.focus(); }}
+              openLegacy={() => {
+                setWorkflowOpen(false);
+                setWorkspaceAssetRailTabRequest({ tab: "templates", nonce: Date.now() });
+                void loadRequirementTemplates(true);
+              }} />
+          </React.Suspense> : null}
 
         </section>
 
@@ -30490,8 +30467,8 @@ function App() {
             submit={async () => { await (projectNameDraft.mode === "rename"
               ? renameProject(projectNameDraft.name)
               : projectNameDraft.mode === "create-folder"
-                ? createProjectFolder(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))
-                : createProject(projectNameDraft.name, normalizeWorkspaceDomain(projectNameDraft.workspaceDomain))); }}
+                ? createProjectFolder(projectNameDraft.name, DEFAULT_WORKSPACE_DOMAIN)
+                : createProject(projectNameDraft.name, DEFAULT_WORKSPACE_DOMAIN)); }}
             busy={fileActionBusy}
           />
         ) : null}

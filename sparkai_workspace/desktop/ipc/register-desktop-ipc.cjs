@@ -22,6 +22,15 @@ const { registerVideoTaskIpc } = require("./video-task-ipc.cjs");
 const { registerWindowIpc } = require("./window-ipc.cjs");
 
 function registerDesktopIpc(dependencies = {}) {
+  dependencies.ipcMain.handle("naimage:workflow:command", async (_event, input) => {
+    try {
+      if (!dependencies.sequentialWorkflows) throw new Error("工作流服务不可用。");
+      return { ok: true, ...await dependencies.sequentialWorkflows.command(input) };
+    } catch (error) {
+      const message = error instanceof Error && !error.code && !/[\\/]/.test(error.message) ? error.message : "工作流操作失败，请重试。";
+      return { ok: false, error: message };
+    }
+  });
   registerSettingsIpc(dependencies);
   registerGlassBackgroundIpc(dependencies);
   registerRequirementLibraryIpc(dependencies);

@@ -19,6 +19,7 @@ export const AUTOMATION_RENDERER_COMMAND_NAMES = [
   "canvas.state",
   "image.operations",
   "image.recover",
+  "workflow.manage",
   "workspace.domain.list",
   "workspace.domain.get",
   "workspace.domain.set",
@@ -222,6 +223,7 @@ export const AUTOMATION_COMMAND_NAMES = [
   "debug.capture-window",
   "debug.inspect-ipc",
   "debug.inspect-command",
+  "workflow.manage",
   "workspace.domain.list",
   "workspace.domain.get",
   "workspace.domain.set",
@@ -2350,6 +2352,163 @@ export const AUTOMATION_COMMAND_DEFINITIONS = {
           "maxLength": 120
         }
       }
+    }
+  },
+  "workflow.manage": {
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "expectedProjectId": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "state",
+            "edit",
+            "library",
+            "open",
+            "save",
+            "suggest",
+            "start",
+            "resume"
+          ]
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "definition": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "integer",
+              "enum": [
+                1
+              ]
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "inputs": {
+              "type": "array",
+              "maxItems": 24,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image",
+                      "text"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "defaultValue": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "type"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 24,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "generate",
+                      "edit",
+                      "cutout",
+                      "background"
+                    ]
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "maxLength": 24000
+                  },
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "input",
+                          "step"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "prompt"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "version",
+            "title",
+            "inputs",
+            "steps"
+          ],
+          "additionalProperties": false
+        },
+        "bindings": {
+          "type": "object",
+          "description": "Keyed by input ID. Image values use assetId, occurrenceId and contentHash. Text values are strings."
+        },
+        "libraryId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "runId": {
+          "type": "string",
+          "description": "New runs use wf- followed by a UUID. Recovery uses an existing run ID."
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action",
+        "expectedProjectId"
+      ],
+      "additionalProperties": false
     }
   },
   "workspace.domain.list": {
@@ -6684,6 +6843,7 @@ export const AUTOMATION_COMMAND_SURFACES = {
   "debug.capture-window": "service",
   "debug.inspect-ipc": "service",
   "debug.inspect-command": "service",
+  "workflow.manage": "renderer",
   "workspace.domain.list": "renderer",
   "workspace.domain.get": "renderer",
   "workspace.domain.set": "renderer",
@@ -6846,6 +7006,18 @@ export const AUTOMATION_COMMAND_ENUMS = {
     "scope": [
       "page",
       "window"
+    ]
+  },
+  "workflow.manage": {
+    "action": [
+      "state",
+      "edit",
+      "library",
+      "open",
+      "save",
+      "suggest",
+      "start",
+      "resume"
     ]
   },
   "workspace.domain.set": {

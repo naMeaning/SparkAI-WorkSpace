@@ -1,7 +1,7 @@
 const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, nativeImage, net, protocol, safeStorage, screen, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const { closeSync, constants: fsConstants, copyFileSync, createReadStream, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } = require("node:fs");
-const { createHash, randomBytes } = require("node:crypto");
+const { randomUUID, createHash, randomBytes } = require("node:crypto");
 const http = require("node:http");
 const https = require("node:https");
 const { createServer: createNetServer } = require("node:net");
@@ -78,6 +78,9 @@ const {
 } = require("./desktop/public-http-resource.cjs");
 const { loadRecordedRemoteAssetProxy } = require("./desktop/remote-asset-proxy.cjs");
 const { createDesktopUpdaterService } = require("./desktop/updater-service.cjs");
+const { workspaceTheme } = require("./runtime/workspace-appearance.mjs");
+const { createSequentialWorkflows } = require("./desktop/sequential-workflows.cjs");
+const { imageConfigSnapshot, settingsWithImageConfig: workflowImageSettings } = require("./runtime/image-config-snapshot.mjs");
 const { registerDesktopIpc } = require("./desktop/ipc/register-desktop-ipc.cjs");
 const { createAutomationService } = require("./desktop/automation-service.cjs");
 const { createAgentTaskService } = require("./desktop/agent-task-service.cjs");
@@ -418,6 +421,7 @@ let localServerMonitor = null;
 let localServerEnsurePromise = null;
 let agentRuntime = null;
 let quitting = false;
+const workflowRequests = new Set();
 let applicationShutdownPromise = null;
 let applicationShutdownComplete = false;
 let applicationShutdownStartedAt = 0;
@@ -952,15 +956,13 @@ function migrateSettings(value) {
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
   const glassAppearance = normalizeElectronGlassThemeSettings({
-    // Keep the same legacy mapping as Renderer; only an empty profile uses the new default.
-    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : source.theme === "light" || source.theme === "system" ? "dark-ember" : defaultSettings.glassTheme),
-    glassMaterial: source.glassMaterial,
-    glassParameters: source.glassParameters
+    glassTheme: workspaceTheme(source),
+    glassParameters: { reduceMotion: source.glassParameters?.reduceMotion }
   });
   next.glassTheme = glassAppearance.glassTheme;
   next.glassMaterial = glassAppearance.glassMaterial;
   next.glassParameters = glassAppearance.glassParameters;
-  Object.assign(next, normalizeGlassBackgroundSettings(source));
+  Object.assign(next, normalizeGlassBackgroundSettings(source), { glassBackgroundEnabled: false });
   next.agentPanelPlacement = ["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))
     ? String(next.agentPanelPlacement)
     : defaultSettings.agentPanelPlacement;
@@ -2104,11 +2106,11 @@ function recordedAssetSourcesForProject(project) {
   return recorded;
 }
 
-function createAssetExportContext(projectId) {
+function createAssetExportContext(projectId, { allowInactive = false } = {}) {
   const list = readProjectList();
   const activeProject = getActiveProject(list);
   const requestedId = typeof projectId === "string" ? projectId.trim() : "";
-  if (requestedId && requestedId !== list.activeProjectId) {
+  if (!allowInactive && requestedId && requestedId !== list.activeProjectId) {
     throw new Error("当前项目已切换，请重新选择需要导出的图片。");
   }
   const project = requestedId ? getProjectById(requestedId, list) : activeProject;
@@ -3234,6 +3236,7 @@ function shutdownApplicationServices() {
   if (applicationShutdownPromise) return applicationShutdownPromise;
   applicationShutdownStartedAt = Date.now();
   quitting = true;
+  for (const controller of workflowRequests) controller.abort(createAbortError("应用正在退出。"));
   const stoppedRuns = agentRunControl.stopAll("SparkAI WorkSpace 正在退出，所有 Agent 运行已停止。");
   log(`shutdown agent runs stopped=${stoppedRuns.stopped}`);
   cancelQueuedImageEditRequests();
@@ -5068,8 +5071,8 @@ function comfyUiMaterialIdentity(value, mask = false) {
   return { ...identity, ...(mask ? { revision: value.revision } : {}) };
 }
 
-function resolveComfyUiImageIdentity(value, projectId) {
-  const identity = comfyUiMaterialIdentity(value), context = createAssetExportContext(projectId);
+function resolveComfyUiImageIdentity(value, projectId, options) {
+  const identity = comfyUiMaterialIdentity(value), context = createAssetExportContext(projectId, options);
   const candidates = (projectSessionFromDisk(context.project)?.nodes || []).filter(node => node.type === "image").flatMap(node =>
     (node.assets || []).map((asset, canvasAssetIndex) => ({ ...asset, canvasNodeId: node.id, canvasAssetIndex })));
   const matches = candidates.filter(asset => ["assetId", "occurrenceId", "contentHash"].every(field => asset[field] === identity[field]));
@@ -5079,11 +5082,11 @@ function resolveComfyUiImageIdentity(value, projectId) {
     try { found = projectAssetRepository.resolveRegisteredMaterial(context.project, identity); } catch { throw Object.assign(new Error("ComfyUI 已导入素材的位置或内容已改变。"), { code: "COMFYUI_INPUT_CHANGED" }); }
   }
   if (!found || ["pending", "error"].includes(found.status)) throw Object.assign(new Error("ComfyUI 素材身份已失效，请重新选择当前项目中的图片。"), { code: "COMFYUI_INPUT_CHANGED" });
-  return resolveMaterializedImageInput(found, projectId);
+  return resolveMaterializedImageInput(found, projectId, options);
 }
 
-function resolveMaterializedImageInput(input, projectId) {
-  const context = createAssetExportContext(projectId);
+function resolveMaterializedImageInput(input, projectId, options) {
+  const context = createAssetExportContext(projectId, options);
   const asset = normalizedExportAsset(input);
   let filePath;
   try { filePath = resolveManagedAssetFile(asset, context); } catch { throw Object.assign(new Error("本地生图素材必须来自当前项目的受管图片库。"), { code: "COMFYUI_INPUT_NOT_MANAGED" }); }
@@ -5237,16 +5240,17 @@ async function callNewApiImageWithSession(settings, payload = {}) {
     onStatus: (event) => { context.polled = true; payload.onStatus?.(event); }
   };
   try {
+    if (aidebugMockImage && payload.workflowStep) requestPayload.onConnectionResolved({ baseUrl: "http://localhost", apiKey: "" });
     const result = aidebugMockImage
       ? await callNewApiImage(settings, requestPayload)
       : await imageGenerationService.generate(settings, requestPayload);
     const hasImage = extractServerImages(result).length > 0;
-    imageOperationJournal.received(context.operationRecord, result);
+    imageOperationJournal.received(context.operationRecord, result, aidebugMockImage && payload.workflowStep && payload.requireAlpha ? { requireAlpha: true } : undefined);
     context.stage = "response";
     context.outcome = hasImage ? "success" : "failure";
     context.category = hasImage ? undefined : "IMAGE_EMPTY_RESULT";
     if (context.connectionId) markModelRuntimeVerified(settings, "image", model, "image-generation", context);
-    if (result && typeof result === "object") imageRuntimeObservationContexts.set(result, { ...context });
+    if (result && typeof result === "object") imageRuntimeObservationContexts.set(result, { ...context, ...(aidebugMockImage && payload.workflowStep && payload.requireAlpha ? { processed: false } : {}) });
     return result;
   } catch (error) {
     imageOperationJournal.failed(context.operationRecord, error);
@@ -5590,7 +5594,7 @@ agentProviderService = createAgentProviderService({
   getActiveProjectId: () => readProjectList().activeProjectId,
   beforeSelect(next) {
     if (!next.strictOffline) return;
-    if (agentRunControl.snapshot().runs.length || comfyUiExecutor.active.size || comfyUiTransport.activeRemoteCount() || activeNewApiTransportCount() || activeVideoDownloads || remoteImageDownloads.snapshot().inFlight || managedArtifactStore.listDownloads().some(job => job.status === "downloading")) {
+    if (sequentialWorkflows.isRunning() || agentRunControl.snapshot().runs.length || comfyUiExecutor.active.size || comfyUiTransport.activeRemoteCount() || activeNewApiTransportCount() || activeVideoDownloads || remoteImageDownloads.snapshot().inFlight || managedArtifactStore.listDownloads().some(job => job.status === "downloading")) {
       throw Object.assign(new Error("请先结束当前联网任务，再切换严格离线模式。"), { code: "AGENT_PROVIDER_BUSY" });
     }
   }
@@ -5637,11 +5641,84 @@ projectContextCommandService = createProjectContextCommandService({ knowledgeSer
 });
 
 
+const sequentialWorkflows = createSequentialWorkflows({
+  projectFor: projectId => getProjectById(projectId, readProjectList()),
+  metaDir: projectMetaDirName,
+  libraryFile: path.join(configDir, "sequential-workflows.json"),
+  write: writeJsonDocument,
+  listTemplates: () => requirementLibraryService.list({ includeText: true }).items,
+  storedCanvasAssets(projectId) {
+    const project = getProjectById(projectId, readProjectList());
+    const nodes = projectSessionFromDisk(project)?.nodes || [];
+    return new Set(nodes.flatMap(node => (node.assets || []).map(asset => asset.assetId)));
+  },
+  resolveAsset(projectId, identity, priorOutput) {
+    const options = { allowInactive: true };
+    if (priorOutput) return resolveMaterializedImageInput(priorOutput, projectId, options).source;
+    const material = resolveComfyUiImageIdentity(identity, projectId, options);
+    const project = getProjectById(projectId, readProjectList());
+    const node = projectSessionFromDisk(project)?.nodes?.find(item => item.assets?.some(asset => asset.occurrenceId === identity.occurrenceId));
+    return { ...material.source, ...(node ? { canvasNodeId: node.id } : {}) };
+  },
+  freezeConfig(projectId, conversationId) {
+    assertCloudNetworkAllowed(projectId);
+    const project = getProjectById(projectId, readProjectList());
+    const session = projectSessionFromDisk(project);
+    if (!conversationId || !(session?.activeConversationId === conversationId || session?.conversations?.some(item => item.id === conversationId))) {
+      throw new Error("先保存当前项目会话，再运行工作流。");
+    }
+    const settings = currentAgentSettings();
+    if (settings.imageProvider === "comfyui") throw new Error("首版步骤需要云端图片模型。请在图片设置选择模型后运行。");
+    return imageConfigSnapshot({ ...settings, imageModel: preferredImageModelFromList([settings.imageModel, ...(settings.imageModelPool || [])].filter(Boolean)) || settings.imageModel });
+  },
+  async generate({ run, step, operationId, source, prompt }) {
+    if (quitting) throw new Error("应用正在退出。");
+    const settings = workflowImageSettings(currentAgentSettings(), run.imageConfig);
+    const { projectId, conversationId, imageConfig } = run;
+    const cutout = step.kind === "cutout";
+    const payload = { projectId, conversationId, operationId, runId: operationId, requestIndex: 1,
+      workflowStep: true, prompt, model: imageConfig.model, ratio: imageConfig.ratio, resolution: imageConfig.resolution,
+      quality: imageConfig.quality, count: 1, outputFormat: cutout ? "png" : imageConfig.outputFormat,
+      mode: source ? "edit" : "generate", ...(source ? { editImage: source } : {}),
+      ...(cutout ? { editOperation: "cutout", background: "transparent", requireAlpha: true } : {}) };
+    const controller = new AbortController();
+    workflowRequests.add(controller);
+    try {
+      const result = await callNewApiImageWithSession(settings, { ...payload, signal: controller.signal });
+      return await deliverGeneratedImageResult(settings, result, payload);
+    } finally {
+      workflowRequests.delete(controller);
+    }
+  },
+  findOperation: (projectId, id) => imageOperationJournal.find(projectId, id, 1),
+  recover: async (projectId, key) => (await imageOperationJournal.recover(projectId, key)).assets,
+  async draftWithAgent(projectId, description, definition) {
+    const settings = currentAgentSettings();
+    const execution = await bindAgentExecution(settings, { projectId, runId: `draft-${randomUUID()}` });
+    try {
+      const data = await serverChatCompletion({ agentBindingId: execution.bindingId, model: execution.settings.agentModel, messages: [
+        { role: "system", content: 'You edit a sequential image workflow draft. Return one JSON object with version:1,title,inputs,steps. Inputs have id,label,type (image or text), and text may have defaultValue and required. Steps have id,kind (generate/edit/cutout/background),prompt,source (null, or {type:"input"|"step",id}). A generate step has no source, other steps have one image source. A step source must refer to an earlier step. Use {{input_id}} for text parameters. For background the prompt describes the new background. Keep unchanged IDs, honor the user language and use at most 24 items. Output JSON only with no markdown. You have no execution tools.' },
+        { role: "user", content: JSON.stringify({ description, currentDraft: definition }) }
+      ] });
+      const content = data?.choices?.[0]?.message?.content ?? data?.output_text ?? data?.output?.filter(item => item.type === "message").flatMap(item => item.content || []).filter(part => part.type === "output_text").map(part => part.text).join("");
+      if (typeof content !== "string") throw new Error("Agent 没有返回工作流草稿。");
+      return JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+    } finally { await agentProviderService.releaseBinding(execution.bindingId); }
+  },
+  onChange(projectId) {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send("naimage:workflow:changed", projectId);
+    }
+  },
+  onError: () => log("sequential workflow persistence failed")
+});
+
 function registerIpc() {
   registerAgentProviderIpc({ ipcMain, control: agentProviderControl });
   registerDesktopIpc({
     runtimeDiagnostics,
     ipcMain,
+    sequentialWorkflows,
     accessPolicy,
     automationService,
     agentIntegrationService,

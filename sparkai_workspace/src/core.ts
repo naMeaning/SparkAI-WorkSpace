@@ -2677,6 +2677,8 @@ export type RuntimeDiagnosticEvent = {
 };
 
 export type ConfigBridge = {
+  sequentialWorkflow: (input: { action: string; projectId: string } & Record<string, unknown>) => Promise<import("./sequential-workflow-panel").WorkflowReply>;
+  onSequentialWorkflowChanged: (listener: (projectId: string) => void) => () => void;
   readDiagnostics?(): Promise<{ ok: boolean; events?: RuntimeDiagnosticEvent[]; appVersion?: string; error?: string }>;
   exportDiagnostics?(): Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
   loadSettings(): Promise<{ ok: boolean; path?: string; settings?: Partial<AppSettings> }>;

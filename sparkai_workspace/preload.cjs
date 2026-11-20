@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld("naimageRuntime", Object.freeze({
 contextBridge.exposeInMainWorld("naimageConfig", {
   readDiagnostics: () => ipcRenderer.invoke("naimage:diagnostics:read"),
   exportDiagnostics: () => ipcRenderer.invoke("naimage:diagnostics:export"),
+  sequentialWorkflow: payload => ipcRenderer.invoke("naimage:workflow:command", payload),
+  onSequentialWorkflowChanged(listener) {
+    const receive = (_event, projectId) => listener(projectId);
+    ipcRenderer.on("naimage:workflow:changed", receive);
+    return () => ipcRenderer.removeListener("naimage:workflow:changed", receive);
+  },
   loadSettings: () => ipcRenderer.invoke("naimage:config:load-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("naimage:config:save-settings", settings),
   listRequirementLibrary: (payload) => ipcRenderer.invoke("naimage:requirement-library:list", payload),

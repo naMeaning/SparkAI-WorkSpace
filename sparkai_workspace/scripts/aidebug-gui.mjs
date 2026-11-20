@@ -9979,51 +9979,19 @@ async function main() {
         await delay(250);
         const appearanceTab = Array.from(document.querySelectorAll(".settings-section-tab")).find((node) => String(node.textContent || "").trim() === "外观");
         appearanceTab?.click();
-        const labDeadline = Date.now() + 4000;
-        while (Date.now() < labDeadline && !document.querySelector(".glass-lab[data-glass-lab='true']")) await delay(40);
-        const lab = document.querySelector(".glass-lab[data-glass-lab='true']");
-        const initialTheme = lab?.getAttribute("data-glass-theme") || "";
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline && !document.querySelector('[data-settings-control="workspace-theme"]')) await delay(40);
+        const select = document.querySelector('[data-settings-control="workspace-theme"]');
+        if (!select || select.options.length !== 2 || !select.getBoundingClientRect().height) throw new Error("明暗主题选择不可用");
+        const initialTheme = select.value;
         const nextTheme = initialTheme === "light-classic" ? "dark-classic" : "light-classic";
-        const themeSelector = '[data-glass-section="themes"] [data-glass-theme="' + nextTheme + '"]';
-        document.querySelector(themeSelector)?.click();
-        const switchedDeadline = Date.now() + 2400;
-        while (Date.now() < switchedDeadline && document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") !== nextTheme) await delay(40);
-        const switchedTheme = document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") || "";
-        const switchedRootTheme = document.documentElement.getAttribute("data-glass-theme") || "";
-        const restoreSelector = '[data-glass-section="themes"] [data-glass-theme="' + (initialTheme || "dark-ember") + '"]';
-        document.querySelector(restoreSelector)?.click();
-        const restoredDeadline = Date.now() + 2400;
-        while (Date.now() < restoredDeadline && document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") !== (initialTheme || "dark-ember")) await delay(40);
-        const restoredTheme = document.querySelector(".glass-lab")?.getAttribute("data-glass-theme") || "";
-        document.querySelector('[data-glass-section="materials"] [data-glass-material="frosted"]')?.click();
-        await delay(120);
-        const settingsBody = document.querySelector(".settings-surface-body");
-        if (settingsBody) settingsBody.scrollTop = settingsBody.scrollHeight;
-        await delay(120);
-        const themeCards = Array.from(document.querySelectorAll(".glass-theme-card"));
-        const preview = document.querySelector("[data-glass-section='preview']");
-        window.__naimageGlassLabProbe = {
-          ok: Boolean(
-            appearanceTab &&
-            lab &&
-            themeCards.length === 9 &&
-            initialTheme &&
-            switchedTheme === nextTheme &&
-            switchedRootTheme === nextTheme &&
-            restoredTheme === (initialTheme || "dark-ember") &&
-            preview
-          ),
-          initialTheme,
-          nextTheme,
-          switchedTheme,
-          switchedRootTheme,
-          restoredTheme,
-          themeCount: themeCards.length,
-          material: document.querySelector(".glass-lab")?.getAttribute("data-glass-material") || "",
-          scrollTop: settingsBody?.scrollTop || 0,
-          scrollHeight: settingsBody?.scrollHeight || 0,
-          clientHeight: settingsBody?.clientHeight || 0
-        };
+        for (const theme of [nextTheme, initialTheme]) {
+          select.value = theme;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          const transitionDeadline = Date.now() + 2400;
+          while (Date.now() < transitionDeadline && document.documentElement.dataset.glassTheme !== theme) await delay(40);
+          if (document.documentElement.dataset.glassTheme !== theme || document.documentElement.dataset.glassStyle !== "solid") throw new Error("主题预览未应用");
+        }
       `), { width: workbenchMinWidth, height: 720 }, {
         settingsOpen: true,
         historyOpen: false,
@@ -10032,10 +10000,6 @@ async function main() {
         titlebarOverlay: true,
         workbenchMinWidthOk: true,
         settingsChannelHidden: true,
-        settingsAppearanceControlsOk: true,
-        settingsCustomThemeEditorOk: true,
-        settingsThemeEditorScrollOk: true,
-        customThemeInteractionOk: true,
         settingsDrawerWithinViewport: true,
         settingsDrawerFlushRightOk: true,
         settingsLabelsOk: true,

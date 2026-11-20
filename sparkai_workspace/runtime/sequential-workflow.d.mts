@@ -1,0 +1,12 @@
+export type WorkflowStepKind = "generate" | "edit" | "cutout" | "background";
+export type WorkflowInput = { id: string; label: string } & ({ type: "image" } | { type: "text"; defaultValue: string; required: boolean });
+export type WorkflowStep = { id: string; kind: WorkflowStepKind; prompt: string; source: { type: "input" | "step"; id: string } | null };
+export type WorkflowDefinition = { version: 1; title: string; inputs: WorkflowInput[]; steps: WorkflowStep[] };
+export type WorkflowAssetIdentity = { assetId: string; occurrenceId: string; contentHash: string };
+export type WorkflowBindings = Record<string, WorkflowAssetIdentity | string | null>;
+export const workflowStepNames: Readonly<Record<WorkflowStepKind, string>>;
+export function normalizeWorkflow(value: unknown): WorkflowDefinition;
+export function workflowAssetIdentity(value: unknown): WorkflowAssetIdentity | null;
+export function workflowBindings(definition: WorkflowDefinition, value: unknown): WorkflowBindings;
+export function workflowIssues(definition: WorkflowDefinition, bindings?: WorkflowBindings): { stepId?: string; message: string }[];
+export function workflowStepPrompt(step: WorkflowStep, bindings: WorkflowBindings): string;

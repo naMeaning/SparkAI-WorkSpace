@@ -233,6 +233,8 @@
     "test:commerce-export-ui": "node scripts/commerce-export-ui-selftest.mjs",
     "test:project-graph": "node scripts/project-graph-adapter-selftest.cjs",
     "test:theme-preset": "node scripts/theme-preset-selftest.ts",
+    "test:sequential-workflow": "node scripts/sequential-workflow-recovery-selftest.mjs",
+    "aidebug:sequential-workflow": "node scripts/sequential-workflow-ui-selftest.mjs",
     "test:automation-service": "node scripts/automation-command-reference.mjs --check && node scripts/automation-service-selftest.cjs",
     "test:automation-debug": "node scripts/automation-debug-selftest.cjs",
     "test:mcp-wrapper": "node scripts/mcp-wrapper-selftest.mjs",

@@ -63,7 +63,6 @@ import { appAccessPolicy, enforceRendererAccessPolicy } from "./access-policy";
 
 const LazyAgentProviderManager = React.lazy(() => import("./agent-provider-manager"));
 const LazyModelConfigDialog = React.lazy(() => import("./model-config-dialog"));
-const LazyGlassLab = React.lazy(() => import("./glass-lab"));
 const LazyPluginSettingsPanel = React.lazy(() => import("./plugin-settings-panel"));
 const LazyCanvasToolsSettingsPanel = React.lazy(() => import("./canvas-tools-settings-panel"));
 const CLOSE_BUTTON_REASON = "close-button" as const;
@@ -1103,13 +1102,14 @@ export default function SettingsDrawer({
                 <div className="settings-section-header">
                   <div>
                     <h3 id="settings-appearance-heading" className="settings-appearance-title">界面主题</h3>
-                    <small>选择日间或夜间；更多主题与玻璃参数保留在“更多外观”。</small>
                   </div>
-                  <span className="settings-update-status available">项目外观</span>
                 </div>
-                <React.Suspense fallback={<InlineNotice tone="neutral">正在载入外观设置…</InlineNotice>}>
-                  <LazyGlassLab settings={draftSettings} onChange={replaceDraftSettings} />
-                </React.Suspense>
+                <Field label="明暗主题">
+                  <select data-settings-control="workspace-theme" value={draftSettings.glassTheme} onChange={event => replaceDraftSettings({ ...draftSettings, glassTheme: event.target.value === "dark-classic" ? "dark-classic" : "light-classic" })}>
+                    <option value="light-classic">日间</option>
+                    <option value="dark-classic">夜间</option>
+                  </select>
+                </Field>
               </SurfaceSection>
               ) : null}
 

@@ -1,6 +1,7 @@
 import { agentProviderLabel, agentProviderNetworkLabel } from "./agent-provider-state.ts";
 import type { AgentProviderSnapshot } from "./core";
 import type { ProjectContextSnapshot, ProjectContextCommand } from "./project-context";
+import { workspaceTheme } from "../runtime/workspace-appearance.mjs";
 import { projectContextWindowProjection } from "../runtime/project-context-presentation.mjs";
 import type {
   AgentConversation,
@@ -323,9 +324,8 @@ export function buildAgentWindowSnapshot(input: AgentWindowSnapshotInput): Agent
     ...input.conversations.filter((item) => item.id !== input.activeConversationId)
   ].filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index);
   const appearance = glassAppearanceProjection({
-    glassTheme: input.glassTheme ?? (input.theme === "dark" ? "dark-rose" : input.theme === "light" || input.theme === "system" ? "dark-ember" : undefined),
-    glassMaterial: input.glassMaterial,
-    glassParameters: input.glassParameters
+    glassTheme: workspaceTheme({ glassTheme: input.glassTheme || input.theme }),
+    glassParameters: { reduceMotion: input.glassParameters?.reduceMotion }
   });
   const domain = workspaceDomainDefinition(input.workspaceDomain);
   return {

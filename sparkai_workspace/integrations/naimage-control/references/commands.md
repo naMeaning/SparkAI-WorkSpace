@@ -87,6 +87,7 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
 ## Workspace domains
 
+- `workflow.manage`: `{"expectedProjectId":"expectedProjectId","action":"state"}`. Read, edit, save, open, draft with Agent, run, or recover a sequential project workflow. Preview in the desktop editor before authorizing a run. Save changes with edit before starting. Start uses the stored draft and does not accept definition or bindings. Actions suggest, start and resume require confirm=true.
 - `workspace.domain.list`: `{}`. List the four canonical SparkAI workspace domains with their public titles, descriptions, icons, plugin projections, and available tool names.
 - `workspace.domain.get`: `{}`. Return the active project's current workspace domain. Old projects normalize to general.
 - `workspace.domain.set`: `{"domain":"commerce","expectedProjectId":"PROJECT_ID"}`. Set the active project's workspace domain without remounting the canvas, clearing selection, interrupting tasks, calling a model, or producing charges.
@@ -95,7 +96,7 @@ Invoke commands with `scripts/naimage.ps1 <command> -ArgsJson '<json>'`.
 
 - `project.list`. List projects and the active project ID.
 - `project.switch`: `{ "id": "project-id" }`. Switch to an existing project.
-- `project.create`: `{"name":"Amazon launch","workspaceDomain":"commerce"}`. Create and activate a project in the requested workspace domain. Optional parentDirectory must be an existing absolute directory; it creates a new uniquely named child folder without a dialog or overwriting existing work. Omit parentDirectory to use the native directory picker. Omitted workspaceDomain inherits the current domain. Cancellation returns canceled=true; creation failures are command errors.
+- `project.create`: `{"name":"Amazon launch","workspaceDomain":"commerce"}`. Create and activate a project in the requested workspace domain. Optional parentDirectory must be an existing absolute directory; it creates a new uniquely named child folder without a dialog or overwriting existing work. Omit parentDirectory to use the native directory picker. Omitted workspaceDomain uses general. Cancellation returns canceled=true; creation failures are command errors.
 - `project.rename`: `{ "name": "New name" }`. Rename the active project.
 
 ## Canvas

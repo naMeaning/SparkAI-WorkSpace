@@ -811,6 +811,12 @@ function createAidebugBackend({ enabled, log } = {}) {
 
   function aidebugChatCompletion(payload = {}) {
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    if (messages[0]?.content?.startsWith?.("You edit a sequential image workflow draft.")) {
+      return { output_text: JSON.stringify({ version: 1, title: "主体与背景", inputs: [{ id: "subject", label: "原图", type: "image" }], steps: [
+        { id: "extract", kind: "cutout", prompt: "", source: { type: "input", id: "subject" } },
+        { id: "replace", kind: "background", prompt: "浅灰背景", source: { type: "step", id: "extract" } }
+      ] }) };
+    }
     const turnMessages = aidebugCurrentTurnMessages(messages);
     const toolNames = aidebugToolNames(payload.tools);
     const workflowOperations = aidebugWorkflowOperations(payload.tools);

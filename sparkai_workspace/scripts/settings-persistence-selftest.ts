@@ -304,10 +304,10 @@ try {
     assert.deepEqual(mergeSettings(mainPublicSettings[name]).glassParameters, expected.glassParameters, `${name}: first DTO and reload preserve glass preferences`);
   }
   assert.equal(mainPublicSettings.freshTheme.glassTheme, "light-classic");
-  assert.equal(mainPublicSettings.legacyDarkTheme.glassTheme, "dark-rose");
-  assert.equal(mainPublicSettings.legacyLightTheme.glassTheme, "dark-ember");
-  assert.equal(mainPublicSettings.legacySystemTheme.glassTheme, "dark-ember");
-  assert.equal(mainPublicSettings.savedTheme.glassTheme, "dark-emerald");
+  assert.equal(mainPublicSettings.legacyDarkTheme.glassTheme, "dark-classic");
+  assert.equal(mainPublicSettings.legacyLightTheme.glassTheme, "light-classic");
+  assert.equal(mainPublicSettings.legacySystemTheme.glassTheme, "light-classic");
+  assert.equal(mainPublicSettings.savedTheme.glassTheme, "dark-classic");
   assert.deepEqual(mainPublicSettings.legacy.imageModelPool, legacyImagePool, "Main must migrate legacy configured models before the first public settings DTO");
   assert.deepEqual(mergeSettings(mainPublicSettings.legacy).imageModelPool, legacyImagePool, "Main → public DTO → Renderer must preserve the one-time legacy migration");
   assert.deepEqual(mainPublicSettings.disabled.imageModelPool, reloadedImageSettings.imageModelPool, "Repeated Main/public migration must preserve an explicit disabled selection");
@@ -455,7 +455,7 @@ const persistedGlassBackground = mergeSettings({
   glassBackgroundDataUrl: "data:image/webp;base64,AAAA",
   glassBackgroundPath: "C:\\private\\background.webp"
 } as never);
-assert.deepEqual(normalizeGlassBackgroundSettings(persistedGlassBackground), normalizedGlassBackground);
+assert.deepEqual(normalizeGlassBackgroundSettings(persistedGlassBackground), { ...normalizedGlassBackground, glassBackgroundEnabled: false });
 assert.equal("glassBackgroundDataUrl" in persistedGlassBackground, false, "Settings must never persist the temporary Base64 payload");
 assert.equal("glassBackgroundPath" in persistedGlassBackground, false, "Settings must never persist a managed filesystem path");
 

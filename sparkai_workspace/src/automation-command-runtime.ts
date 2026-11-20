@@ -157,6 +157,7 @@ function imageOutputDefaults(value: Record<string, unknown>) {
 
 export type AutomationCommandContext = {
   activeProjectId(): string;
+  saveWorkflowInputs(): Promise<void>;
   workspaceDomain(): WorkspaceDomain;
   setWorkspaceDomain(domain: WorkspaceDomain): boolean | void;
   activeConversationId(): string;
@@ -1267,6 +1268,17 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     "app.diagnostics": async () => window.naimageConfig?.readDiagnostics?.() || { ok: false, error: "诊断日志不可用。" },
     "app.export-diagnostics": async () => window.naimageConfig?.exportDiagnostics?.() || { ok: false, error: "诊断日志不可用。" },
     "canvas.state": () => canvasState(context),
+    "workflow.manage": async (value) => {
+      assertExpectedProject(value, context);
+      if (value.action === "start") await context.saveWorkflowInputs();
+      assertExpectedProject(value, context);
+      const reply = await window.naimageConfig?.sequentialWorkflow({ ...value, action: String(value.action), projectId: context.activeProjectId(), conversationId: context.activeConversationId() });
+      if (!reply?.ok) throw new Error(reply?.error || "工作流服务不可用。");
+      return { draft: reply.draft, entry: reply.entry, entries: reply.entries, running: reply.running, runId: reply.runId,
+        runs: reply.runs?.map(run => ({ id: run.id, state: run.state, startedAt: run.startedAt, definition: run.definition,
+          draftRevision: run.draftRevision, bindings: run.bindings, steps: run.steps.map(step => ({ id: step.id, state: step.state,
+            error: step.error, ...(step.output ? { output: { assetId: step.output.assetId, occurrenceId: step.output.occurrenceId, contentHash: step.output.contentHash } } : {}) })) })) };
+    },
     "workspace.domain.list": () => ({
       defaultDomain: DEFAULT_WORKSPACE_DOMAIN,
       domains: workspaceDomainDefinitions.map((definition) => publicWorkspaceDomainDefinition(definition.id))
@@ -1295,7 +1307,7 @@ export async function executeAutomationCommand(command: string, args: JsonObject
     "project.create": async (value) => {
       const result = await context.createProject(
         String(value.name || "").trim(),
-        value.workspaceDomain === undefined ? context.workspaceDomain() : normalizeWorkspaceDomain(value.workspaceDomain),
+        normalizeWorkspaceDomain(value.workspaceDomain),
         value.parentDirectory === undefined ? undefined : String(value.parentDirectory)
       );
       if (!result?.ok) throw new Error(result?.error || "创建项目失败。");

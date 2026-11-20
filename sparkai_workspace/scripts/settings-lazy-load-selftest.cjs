@@ -24,9 +24,8 @@ const composerToolbarSource = composerToolbarStart >= 0 && composerToolbarEnd > 
 
 assert.match(mainSource, /React\.lazy\(\(\) => import\("\.\/settings-drawer"\)\)/, "Settings must remain behind a natural async boundary");
 assert.match(mainSource, /React\.lazy\(\(\) => import\("\.\/help-center"\)\)/, "Help and policy content must remain behind a natural async boundary");
-assert.match(settingsDrawerSource, /const LazyGlassLab\s*=\s*React\.lazy\(\(\) => import\("\.\/glass-lab"\)\)/, "Glass Lab must remain behind its own natural async boundary");
-assert.match(settingsDrawerSource, /activeSection === "appearance"[\s\S]{0,900}<React\.Suspense[\s\S]{0,400}<LazyGlassLab\b/, "Glass Lab must load only inside the appearance section Suspense boundary");
-assert.doesNotMatch(mainSource, /(?:from\s+|import\()["']\.\/glass-lab["']/, "The workspace entry must not eagerly import Glass Lab");
+assert.match(settingsDrawerSource, /data-settings-control="workspace-theme"/);
+assert.doesNotMatch(settingsDrawerSource, /import\("\.\/glass-lab"\)/);
 assert.match(settingsDrawerSource, /refreshModels\(false,\s*draftSettings\.modelGroup,\s*true\)/, "Settings must hydrate models in cache-only mode");
 assert.match(settingsDrawerSource, /await refreshModels\(false,\s*draftSettings\.modelGroup,\s*true\);[\s\S]{0,120}await refreshModels\(false,\s*draftSettings\.modelGroup,\s*false\);/, "Settings must show the cached catalog before refreshing it in the background");
 assert.match(settingsDrawerSource, /refreshAccountTokens\(\{\s*preferCached:\s*true\s*\}\)/, "Settings must hydrate account tokens from the local snapshot");
@@ -45,7 +44,7 @@ assert.match(modelConfigDialogSource, />\s*全选当前结果\s*<\/ActionButton>
 assert.match(modelConfigDialogSource, /channelLabel:\s*channelConnection\.sourceLabel/, "Fetched model bindings must retain a credential-free channel label");
 assert.match(modelConfigDialogSource, /useEffect\(\(\)\s*=>\s*\{[\s\S]{0,260}requestModelRefresh\(false\)[\s\S]{0,80}\},\s*\[\]\)/, "Opening a model dialog must hydrate the shared cached catalog without forcing a duplicate request");
 assert.match(mainSource, /CanvasNavigationControls[\s\S]{0,900}onFocusSelection/, "The canvas must expose the focused navigation controls through the existing viewport owner");
-assert.match(canvasNavigationSource, /画布导航[\s\S]{0,1400}type=\"range\"[\s\S]{0,1200}画布快捷键/, "Canvas navigation must combine a minimap, precise zoom and shortcut help in one discoverable control");
+assert.match(canvasNavigationSource, /画布导航[\s\S]{0,1400}type="range"[\s\S]{0,1200}画布快捷键/, "Canvas navigation must combine a minimap, precise zoom and shortcut help in one discoverable control");
 assert.match(settingsDrawerSource, /const imageCatalog = serverSettings\.imageModels\?\.length \? serverSettings\.imageModels : serverModels;/, "Image model settings must prefer the classified image catalog over the combined server list");
 assert.match(settingsDrawerSource, /const agentCatalog = serverSettings\.agentModels\?\.length \? serverSettings\.agentModels : serverModels;/, "Agent model settings must prefer the classified conversation catalog over the combined server list");
 assert.match(settingsDrawerSource, /accessProfiles:\s*serverSettings\.modelAccessProfiles \?\? \[\]/, "Settings must expose credential-safe compatibility profiles");

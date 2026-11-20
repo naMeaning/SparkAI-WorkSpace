@@ -1,3 +1,4 @@
+import { workspaceTheme } from "../runtime/workspace-appearance.mjs";
 import { normalizeComfyUiTaskOptions } from "../runtime/comfyui-options.mjs";
 import {
   computedSizeFor,
@@ -344,16 +345,11 @@ export function mergeSettings(value?: Partial<AppSettings> & Record<string, unkn
   if (!THEME_PALETTE_VALUES.includes(next.themePalette)) next.themePalette = defaultSettings.themePalette;
   next.customTheme = normalizeCustomThemePreset(source.customTheme);
   if (next.themePalette === "custom" && !next.customTheme) next.themePalette = defaultSettings.themePalette;
-  const glassAppearance = normalizeGlassThemeSettings({
-    // An explicit legacy theme is an existing preference, not a fresh install.
-    glassTheme: source.glassTheme ?? (source.theme === "dark" ? "dark-rose" : source.theme === "light" || source.theme === "system" ? "dark-ember" : defaultSettings.glassTheme),
-    glassMaterial: source.glassMaterial,
-    glassParameters: source.glassParameters
-  });
+  const glassAppearance = normalizeGlassThemeSettings(solidAppearanceInput(source));
   next.glassTheme = glassAppearance.glassTheme;
   next.glassMaterial = glassAppearance.glassMaterial;
   next.glassParameters = glassAppearance.glassParameters;
-  Object.assign(next, normalizeGlassBackgroundSettings(source));
+  Object.assign(next, normalizeGlassBackgroundSettings(source), { glassBackgroundEnabled: false });
   if (!["right", "left", "top", "bottom", "floating"].includes(String(next.agentPanelPlacement))) next.agentPanelPlacement = defaultSettings.agentPanelPlacement;
   next.agentPanelWidth = Math.max(320, Math.min(720, Math.round(Number(next.agentPanelWidth) || defaultSettings.agentPanelWidth)));
   next.agentPanelHeight = Math.max(420, Math.min(1_400, Math.round(Number(next.agentPanelHeight) || defaultSettings.agentPanelHeight)));
@@ -437,12 +433,28 @@ function availableLocalStorage(): Storage | null {
   }
 }
 
+function solidAppearanceInput(value: unknown, allowTopLevelReduceMotion = false) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const nestedParameters = source.glassParameters && typeof source.glassParameters === "object" && !Array.isArray(source.glassParameters)
+    ? source.glassParameters as Record<string, unknown>
+    : null;
+  const reduceMotion = nestedParameters
+    ? nestedParameters.reduceMotion
+    : allowTopLevelReduceMotion ? source.reduceMotion : undefined;
+  return {
+    glassTheme: workspaceTheme({ glassTheme: source.glassTheme || source.theme }),
+    glassParameters: { reduceMotion }
+  };
+}
+
 /**
  * Produces the complete and intentionally credential-free appearance subset
  * that may be read before the native settings bridge becomes available.
  */
 export function glassThemeBootstrapSnapshot(value?: unknown): GlassThemeBootstrapSnapshot {
-  const projection = glassAppearanceProjection(value);
+  const projection = glassAppearanceProjection(solidAppearanceInput(value));
   return {
     schemaVersion: 1,
     type: "naimage-glass-theme-bootstrap",
@@ -465,11 +477,7 @@ export function readGlassThemeBootstrapSnapshot(
   try {
     const legacy = JSON.parse(storage.getItem("naimage.glassAppearance.v1") || "null") as Record<string, unknown> | null;
     if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-      return glassThemeBootstrapSnapshot({
-        glassTheme: legacy.glassTheme || (legacy.theme === "dark" ? "dark-rose" : legacy.theme === "light" || legacy.theme === "system" ? "dark-ember" : legacy.theme),
-        glassMaterial: legacy.glassMaterial || legacy.material,
-        glassParameters: legacy.glassParameters || { accent: legacy.accent, noise: legacy.noise, reduceMotion: legacy.reduceMotion }
-      });
+      return glassThemeBootstrapSnapshot(solidAppearanceInput(legacy, true));
     }
   } catch { /* Match the startup script's safe default for invalid local data. */ }
   return glassThemeBootstrapSnapshot(defaultSettings);
