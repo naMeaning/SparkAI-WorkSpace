@@ -1,5 +1,13 @@
 # SparkAI WorkSpace 进度
 
+## 当前开发状态 · 选图修改（2026-11-25）
+
+- 延续默认创作路径减负，以 `a2ab46c` 为基线。Agent 输入区从已有 Composer 素材投影读取受管缩略图，保留素材的角色与身份。移除最后一张且画布仍选中图片时显示「图片素材为空」。已有图标化与策略文档改动留在工作区。
+- `typecheck` 通过。隔离 Electron 运行 `corepack pnpm run aidebug:sequential-workflow --selected-edit`，3 组检查、4 张截图、0 真实请求。同名素材在 1280×800 和 884×640 可识别。实际 TaskScope 的资产 ID、出现 ID 和内容摘要与第二张选图一致，模拟编辑后的成果保存了来源关系。移除图片后发送零张素材。[专项报告](.diagnostics/selection-edit-package/sparkai_workspace/.diagnostics/electron/selected-edit-2026-11-25T04-04-10-203Z/report.json)。
+- `corepack pnpm run package:win:unrestricted` 退出码 0。构建使用隔离源码树 `63ed56efa66e657f9440fe3efcb586814bc88131`，提交中的 GOAL/PROGRESS 为构建后补充的交付记录。生产包内 `app.asar` 与 131 个 `dist` 文件逐字节一致，确认包含本轮界面改动。[Windows 安装器](release/local-deliveries/selection-edit-2026-11-25/SparkAI-WorkSpace-Unrestricted-Setup-1.0.9-x64.exe) 为 110,247,424 B，SHA-256 `31ed4d1b709517991c6c5a008bf42a56606d7c58be3f0a7d5276c8a155c7fa09`。
+- 品牌安装器 `/S` 原位升级退出码 0，原注册目录和版本 1.0.9 保持一致。已安装 EXE 与 `app.asar` 匹配构建产物，核对的 7 个配置文件和 1 个快捷方式均保留。[安装审计](.diagnostics/selection-edit-package/install-result.json) · [Git 同步审计](.diagnostics/selection-edit-package/git-sync.json)。
+- 本轮使用模拟 Agent 与图片响应。真实模型出图质量、全量测试和正式 Release 未执行。下一个打磨重点是对比与导出。
+
 ## 当前开发状态 · 默认创作路径减负（2026-11-25）
 
 - 以 `9cfbdde` 为基线完成第二轮默认创作路径减负，既有工作区未提交的图标化与规划文档改动保持原样。单次生图与选图改图归入 Agent 输入区，空白画布菜单优先显示导入和新建图片组，视频、ComfyUI 与恢复放入更多入口。主界面移除新建普通需求与保存旧模板入口，旧需求保持可编辑运行，旧模板从个人工作流库兼容入口访问，旧领域工具迁入项目菜单。项目知识与成果检索并入顶栏搜索，创作要求与验收在 Agent 面板按需展开，窄窗口打开工作流时自动折叠 Agent，成果对比增加按当前项目隔离的单张导出，并修复 884×640 下 Agent 顶栏长标题挤占右侧操作按钮的问题。

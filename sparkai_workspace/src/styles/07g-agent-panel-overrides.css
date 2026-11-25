@@ -717,6 +717,15 @@
   color: var(--ink);
 }
 
+.project-agent-material-thumbnail {
+  display: block;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
 .project-agent-material-chip strong {
   min-width: 0;
   max-width: 92px;

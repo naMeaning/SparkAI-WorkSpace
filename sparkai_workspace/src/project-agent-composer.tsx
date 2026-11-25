@@ -3,6 +3,7 @@ import { AlertTriangle, Check, ChevronDown, Goal, ImageIcon, Import, Pause, Play
 
 import {
   clipboardHasImage,
+  imageAssetThumbnailSrc,
   type AgentSteerTaskScopeMode
 } from "./core";
 import { ActionButton, ButtonBase, DialogShell, GlassSelect, IconActionButton, SurfaceBody, SurfaceFooter, SurfaceHeader } from "./ui";
@@ -13,6 +14,7 @@ import type { ComposerMaterialItem, ComposerMaterialRole } from "./selection-ref
 export type ProjectAgentComposerArtifact = {
   id: string;
   name: string;
+  isImage?: boolean;
 };
 
 export type AgentComposerTaskMode = "standard" | "goal";
@@ -191,6 +193,7 @@ export default function ProjectAgentComposer({
   const selectionLabel = selectedArtifacts.length === 1
     ? selectedArtifacts[0].name
     : `${selectedArtifacts.length} 个选中成果`;
+  const selectedImagesWithoutMaterials = !materials.length && selectedArtifacts.some((artifact) => artifact.isImage);
   const canGenerate = Boolean(regenerateImage) && !prompt.trimStart().startsWith("/");
   const primaryAction = idleComposerPrimaryAction({ executionBusy, goalSelected, canGenerate });
   const materialSourceCount = materials.filter((item) => item.role === "source").length;
@@ -272,6 +275,9 @@ export default function ProjectAgentComposer({
                   >
                     {item.role === "source" ? "原图" : "参考"}
                   </ButtonBase>
+                  {item.reference.assetUrl ? (
+                    <img className="project-agent-material-thumbnail" src={imageAssetThumbnailSrc({ type: "file", assetUrl: item.reference.assetUrl }, 256)} alt="" loading="lazy" decoding="async" draggable={false} />
+                  ) : null}
                   <strong>{item.name}</strong>
                   {onRemoveMaterial ? (
                     <IconActionButton label={`移除 ${item.name}`} onClick={() => onRemoveMaterial(item.key)} disabled={stopPending} icon={<X size={11} />} />
@@ -286,11 +292,12 @@ export default function ProjectAgentComposer({
             data-selection-count={selectedArtifacts.length}
             data-selection-ids={selectedArtifacts.map((artifact) => artifact.id).join(" ")}
             title={selectedArtifacts.map((artifact) => artifact.name).join("、")}
-            aria-label={`当前选中 ${selectionLabel}`}
+            aria-label={selectedImagesWithoutMaterials ? "图片素材为空" : `当前选中 ${selectionLabel}`}
           >
             <ImageIcon size={13} />
-            <span>当前选中</span>
-            <strong>{selectionLabel}</strong>
+            {selectedImagesWithoutMaterials ? <strong>图片素材为空</strong> : (
+              <><span>当前选中</span><strong>{selectionLabel}</strong></>
+            )}
             <IconActionButton label="取消当前选中" onClick={clearSelection} disabled={stopPending} icon={<X size={12} />} />
           </div>
           ) : null}
@@ -354,7 +361,7 @@ export default function ProjectAgentComposer({
           ? goalActive ? "修改 Goal 的处理要求，冻结容器范围保持不变..." : "输入修改要求，发送后 Agent 会停止旧计划并重新规划..."
           : goalSelected ? "描述要对画布全部图片容器执行的操作..."
             : materials.some((item) => item.role === "source") ? "描述如何处理这些原图；参考图会按序号一起送出..."
-            : materials.length ? "描述要用这些参考图生成什么..."
+            : materials.length ? "描述要参考这些图片生成或修改什么..."
             : "告诉 Agent 你想完成什么，输入 / 使用命令..."}
         rows={4}
       />

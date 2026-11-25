@@ -12,7 +12,8 @@ import { capturePngScreenshotToFile } from "./aidebug/harness/screenshot.mjs";
 
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dirname, "..");
-const runDir = join(root, ".diagnostics", "electron", `sequential-workflow-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+const selectedEditOnly = process.argv.includes("--selected-edit");
+const runDir = join(root, ".diagnostics", "electron", `${selectedEditOnly ? "selected-edit" : "sequential-workflow"}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 const config = join(runDir, "config");
 const report = { ok: false, realModelRequests: 0, checks: [], screenshots: [] };
 const saveReport = () => writeFileSync(join(runDir, "report.json"), JSON.stringify(report, null, 2));
@@ -48,7 +49,9 @@ const exportPath = join(runDir, "compared-result.png");
 const entryPath = join(runDir, "fixture.cjs");
 writeFileSync(entryPath, [
   'const { dialog } = require("electron");',
-  'dialog.showOpenDialog = async () => ({ canceled: false, filePaths: ' + JSON.stringify([join(projects[0].path, "assets/source.png")]) + ' });',
+  'const importFixtures = ' + JSON.stringify(projects.map(project => join(project.path, "assets/source.png"))) + ';',
+  'let importIndex = 0;',
+  'dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [importFixtures[Math.min(importIndex++, importFixtures.length - 1)]] });',
   'dialog.showSaveDialog = async () => ({ canceled: false, filePath: ' + JSON.stringify(exportPath) + ' });',
   'require(' + JSON.stringify(join(root, "electron-main.cjs")) + ');'
 ].join("\n"));
@@ -135,17 +138,7 @@ async function command(name, args) {
   return result.result;
 }
 const panel = ".sequential-workflow";
-try {
-  await waitForHttpServer(devUrl, { attempts: 150, intervalMs: 100 });
-  const port = await allocateDebugPort();
-  electron = spawn(require("electron"), [entryPath, `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
-    env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "1", NAIMAGE_AIDEBUG_IMAGE_FAULTS: "1", NAIMAGE_AIDEBUG_LIVE_IMAGE: "0", NAIMAGE_CONFIG_DIR: config, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: join(runDir, "no-server.cjs") } });
-  const target = await pollForDebugTarget({ port, attempts: 250, intervalMs: 100, findTarget: targets => targets.find(item => item.type === "page" && !/agent-window/.test(item.url)) });
-  client = new BasicCdpClient(target.webSocketDebuggerUrl);
-  await client.open(); await client.send("Runtime.enable"); await client.send("Page.enable");
-  await client.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
-  await wait("document.documentElement?.dataset.theme==='light'&&Boolean(document.querySelector('.workspace-workflow-entry'))");
-
+async function verifySequentialWorkflow() {
   // 1. Visible legacy project/domain tool entry on commerce project
   assert.equal(await ev("Boolean(document.querySelector('#workspace-legacy-tools'))"), false);
   await click(selector("#project-menu-trigger"));
@@ -354,6 +347,9 @@ try {
   await wait("Boolean(document.querySelector('[role=\"menu\"][aria-label=\"成果菜单\"]'))");
   await click(button("对比图片"));
   await inspectComparisonModal("dark", "1280x800-dark-comparison");
+}
+
+async function verifyDefaultCreation() {
   const importProjectParent = join(root, ".diagnostics", `creation-${Date.now()}`);
   mkdirSync(importProjectParent, { recursive: true });
   await command("project.create", { name: "默认创作验证", parentDirectory: importProjectParent });
@@ -361,7 +357,40 @@ try {
   await rightClickEmptyCanvas();
   await click(button("导入图片"));
   await wait("Boolean(document.querySelector('.flow-node.selected img'))");
-  const sourceId = await ev("document.querySelector('.flow-node.selected').dataset.nodeId");
+  const selectedId = "document.querySelector('.flow-node.selected')?.dataset.nodeId";
+  if (selectedEditOnly) {
+    const firstId = await ev(selectedId);
+    const thumbnail = selector(".project-agent-material-thumbnail");
+    const thumbnailLoaded = `${thumbnail}?.complete && ${thumbnail}.naturalWidth > 0`;
+    await wait(thumbnailLoaded);
+    const firstThumbnail = await ev(`${thumbnail}.currentSrc`);
+    await rightClickEmptyCanvas();
+    await click(button("导入图片"));
+    await wait("window.__naimageDebugAgentState()?.imageNodeCount === 2");
+    await click(selector(".canvas-tools .zoom-button"));
+    const secondNode = `[...document.querySelectorAll('.flow-node')].find(node => node.dataset.nodeId !== ${JSON.stringify(firstId)})`;
+    await wait(`Boolean(${secondNode})`);
+    const secondId = await ev(`(${secondNode}).dataset.nodeId`);
+    await click(selector(`.flow-node[data-node-id="${firstId}"] .node-head`));
+    await wait(`${thumbnailLoaded} && ${thumbnail}.currentSrc === ${JSON.stringify(firstThumbnail)}`);
+    const materialName = selector(".project-agent-material-chip strong");
+    const firstName = await ev(`${materialName}.textContent`);
+    await captureViewportScreenshot("source-preview-1280x800");
+    await click(selector(`.flow-node[data-node-id="${secondId}"] .node-head`));
+    await wait(`${selectedId} === ${JSON.stringify(secondId)} && ${thumbnailLoaded} && ${thumbnail}.currentSrc !== ${JSON.stringify(firstThumbnail)}`);
+    assert.equal(await ev(`${materialName}.textContent`), firstName, "Same filename still shows the selected image");
+    await client.send("Emulation.setDeviceMetricsOverride", { width: 884, height: 640, deviceScaleFactor: 1, mobile: false });
+    await wait("innerWidth===884&&innerHeight===640");
+    const thumbnailVisible = await ev(`(() => {
+      const image = ${thumbnail};
+      const rect = image.getBoundingClientRect();
+      return rect.width === 24 && rect.height === 24 && image === document.elementFromPoint(rect.x + 12, rect.y + 12);
+    })()`);
+    assert.ok(thumbnailVisible, "The selected thumbnail is visible at 884×640");
+    await captureViewportScreenshot("source-preview-884x640");
+    report.checks.push("切换两张同名素材时缩略图跟随选择，普通和最小窗口均可见");
+  }
+  const sourceId = await ev(selectedId);
   await writeText(".project-agent-composer textarea", "把选中的图片背景改成浅灰色，生成一张新图");
   await click(selector(".project-agent-composer .project-agent-send"));
   await wait(`[...document.querySelectorAll('.flow-node')].some(node=>node.dataset.nodeId!==${JSON.stringify(sourceId)}&&node.querySelector('img'))`);
@@ -375,6 +404,29 @@ try {
     if (!resultNode) await delay(100);
   }
   assert.ok(resultNode, "Agent saved a result derived from the selected source");
+  if (selectedEditOnly) {
+    const currentScope = "window.__naimageDebugAgentState()?.lastDispatchedTaskScope";
+    const session = JSON.parse(readFileSync(recentProject.sessionPath, "utf8"));
+    const source = session.nodes.find(node => node.id === sourceId).assets[0];
+    const sent = await ev(`(() => {const scope=${currentScope};return {assetCount:scope.materials.length, material:scope.materials[0]};})()`);
+    assert.equal(sent.assetCount, 1);
+    assert.equal(sent.material.occurrenceId, source.occurrenceId);
+    assert.equal(sent.material.assetId, source.assetId);
+    assert.equal(sent.material.contentHash, source.contentHash);
+    assert.equal(sent.material.role, "reference");
+    await captureViewportScreenshot("selected-edit-result");
+    report.checks.push("一句话编辑发送第二张同名图的精确身份，成果保留对应来源");
+    await click(selector(".canvas-tools .zoom-button"));
+    await click(selector(`.flow-node[data-node-id="${sourceId}"] .node-head`));
+    await click(selector('.project-agent-material-chip button[aria-label^="移除 "]'));
+    await wait(`${selectedId} === ${JSON.stringify(sourceId)} && Boolean(document.querySelector('.project-agent-composer-context[aria-label="图片素材为空"]')) && !document.querySelector('.project-agent-material-chip')`);
+    await captureViewportScreenshot("selected-edit-cleared");
+    await writeText(".project-agent-composer textarea", "请用一句话说明当前任务状态。");
+    await click(selector(".project-agent-composer .project-agent-send"));
+    await wait(`${currentScope}?.sourceAssetCount === 0 && ${currentScope}?.referenceAssetCount === 0`);
+    report.checks.push("移除最后一张素材后显示空素材状态并发送零张图片");
+    return;
+  }
   assert.equal(await ev("Boolean(document.querySelector('.project-agent-panel [data-creation-session]'))"), false);
   await click(button("创作要求与验收", ".project-agent-panel"));
   await wait("Boolean(document.querySelector('#agent-creation-details:not([hidden]) [data-creation-session]')?.getBoundingClientRect().height)");
@@ -390,6 +442,21 @@ try {
   await wait(`!${selector(`${comparison} [aria-label^="导出所选版本"]`)}.disabled`);
   assert.deepEqual(readFileSync(exportPath), readFileSync(resultNode.assets[0].path), "exported the selected comparison version byte for byte");
   report.checks.push("新项目通过原生导入与 Agent 编辑生成带来源图，成果对比可导出选中版本");
+}
+
+try {
+  await waitForHttpServer(devUrl, { attempts: 150, intervalMs: 100 });
+  const port = await allocateDebugPort();
+  electron = spawn(require("electron"), [entryPath, `--remote-debugging-port=${port}`, `--user-data-dir=${join(runDir, "user-data")}`], { cwd: root, windowsHide: true, stdio: "ignore",
+    env: { ...process.env, NAIMAGE_DEV_URL: devUrl, NAIMAGE_AIDEBUG: "1", NAIMAGE_AIDEBUG_MOCK_AGENT: "1", NAIMAGE_AIDEBUG_IMAGE_FAULTS: "1", NAIMAGE_AIDEBUG_LIVE_IMAGE: "0", NAIMAGE_CONFIG_DIR: config, NAIMAGE_DEBUG_DIR: join(runDir, "runtime"), NAIMAGE_ELECTRON_LOG: join(runDir, "electron.log"), NAIMAGE_LOCAL_SERVER_ENTRY: join(runDir, "no-server.cjs") } });
+  const target = await pollForDebugTarget({ port, attempts: 250, intervalMs: 100, findTarget: targets => targets.find(item => item.type === "page" && !/agent-window/.test(item.url)) });
+  client = new BasicCdpClient(target.webSocketDebuggerUrl);
+  await client.open(); await client.send("Runtime.enable"); await client.send("Page.enable");
+  await client.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await wait("document.documentElement?.dataset.theme==='light'&&Boolean(document.querySelector('.workspace-workflow-entry'))");
+
+  if (!selectedEditOnly) await verifySequentialWorkflow();
+  await verifyDefaultCreation();
   report.productBreaks = productBreaks;
   assert.equal(report.realModelRequests, 0);
   assert.deepEqual(productBreaks, []);

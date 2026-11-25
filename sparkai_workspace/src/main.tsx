@@ -29985,7 +29985,7 @@ function App() {
           messages={messages}
           conversations={conversations}
           activeConversationId={activeConversationId}
-          selectedArtifacts={selectedNodes.map((node) => ({ id: node.id, name: nodeWorkName(node) }))}
+          selectedArtifacts={selectedNodes.map((node) => ({ id: node.id, name: nodeWorkName(node), isImage: node.type === "image" }))}
           sourceImages={agentSourceImages}
           referenceImages={agentReferenceImages}
           selectionReferenceCount={selectionReferenceImages.length}

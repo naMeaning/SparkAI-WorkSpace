@@ -1,5 +1,9 @@
 # SparkAI WorkSpace 上下文地图
 
+## 选图修改（2026-11-25）
+
+`src/main.tsx` 将画布选中图片和显式附加素材交给 `src/selection-reference-images.ts::buildComposerMaterials`，Agent 输入区和提交都使用该投影的角色及素材身份。`src/project-agent-composer.tsx` 使用对应素材 URL 的受管缩略图，保留选中画布节点但移除所有图片时显示空素材状态。专项入口 `corepack pnpm run aidebug:sequential-workflow --selected-edit` 覆盖同名图片切换、精确派发、结果来源与移除后发送。
+
 ## 默认创作路径减负（2026-11-20）
 
 单次创作沿项目 Agent composer 和现有 TaskScope。`src/main.tsx` 将 `ProjectContextPanel` 挂入顶栏 `WorkspaceSearch`，在 960px 以下窗口打开顺序工作流时自动折叠 Agent，并将旧领域工具移入项目菜单。`src/project-agent-panel.tsx` 与 `src/creation-session-panel.tsx` 按需展开内嵌创作要求与验收详情，`src/styles/07e-canvas-brand-agent-header.css` 约束顶栏长标题单列省略避免遮挡操作按钮。`src/project-result-comparison.tsx` 提供按当前项目隔离的单张导出。`src/manual-image-task-dialog.tsx` 支持独立 ComfyUI 任务入口。`src/workspace-chrome.tsx` 仅在项目存在已有需求节点时显示需求轨，并在工作流兼容入口请求时打开旧模板轨。
